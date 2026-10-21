@@ -208,7 +208,7 @@ func (e *Engine) onChecks(ctx context.Context, repository github.Repository, tas
 	}
 	delete(e.ciWait, task.ID)
 	text := fmt.Sprintf("%s ready for Lead approval of #%d \"%s\": pull request #%d %s.", time.Now().UTC().Format(timeFormat), task.Issue, issue.GetTitle(), pullRequest.GetNumber(), pullRequest.GetHTMLURL())
-	return e.addLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "ready_for_approval", text)
+	return e.addLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, task.Repository, sql.NullInt64{Int64: task.Issue, Valid: true}, "ready_for_approval", text)
 }
 
 // onLongCIWait gives the Lead the event long_ci_wait when longCIWait passed since the task entered checks, or since the
@@ -264,7 +264,7 @@ func (e *Engine) remindLead(ctx context.Context, task store.Task, limit time.Dur
 	if err != nil {
 		return err
 	}
-	if err := e.addLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, kind, body); err != nil {
+	if err := e.addLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, task.Repository, sql.NullInt64{Int64: task.Issue, Valid: true}, kind, body); err != nil {
 		return err
 	}
 	return e.queries.SetTaskLongWaitAt(ctx, store.SetTaskLongWaitAtParams{LongWaitAt: sql.NullString{String: now.UTC().Format(time.RFC3339Nano), Valid: true}, ID: task.ID})
@@ -343,6 +343,8 @@ func (e *Engine) ciFailed(ctx context.Context, repository github.Repository, tas
 // ci is what the check runs of other Apps and the workflow runs of GitHub Actions on a head show.
 type ci struct {
 	failedCheck, failedWorkflow, running bool
+	// openCheckRun is true when the head has a Mobius check run that is not complete.
+	openCheckRun bool
 	// failedFirstAttempt holds the newest workflow runs that completed with a failure in their first attempt.
 	failedFirstAttempt []*gh.WorkflowRun
 	// incomplete holds the names of the check runs and the workflow runs that did not complete.
@@ -366,6 +368,7 @@ func ciOf(ctx context.Context, repository github.Repository, head string) (ci, e
 	others := 0
 	for _, run := range runs {
 		if run.GetName() == checkRunName {
+			state.openCheckRun = state.openCheckRun || run.GetStatus() != "completed"
 			continue
 		}
 		others++

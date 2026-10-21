@@ -346,8 +346,8 @@ func (e *Engine) publishSession(agent *Agent) {
 
 // addLeadEvent adds an event of kind about the issue for the Lead of the Workstream, with its entry in the chat, and
 // gives the ready events to the Lead.
-func (e *Engine) addLeadEvent(ctx context.Context, repository string, workstream int64, issue sql.NullInt64, kind, text string) error {
-	return e.addCommentLeadEvent(ctx, repository, workstream, issue, kind, text, commentRef{})
+func (e *Engine) addLeadEvent(ctx context.Context, repository string, workstream int64, issueRepository string, issue sql.NullInt64, kind, text string) error {
+	return e.addCommentLeadEvent(ctx, repository, workstream, issueRepository, issue, kind, text, commentRef{})
 }
 
 // commentRef names a conversation comment or a review comment. The zero value names no comment.
@@ -358,7 +358,7 @@ type commentRef struct {
 
 // addCommentLeadEvent adds an event like addLeadEvent. The event keeps comment, so the turn of the event can add its
 // reaction to the comment.
-func (e *Engine) addCommentLeadEvent(ctx context.Context, repository string, workstream int64, issue sql.NullInt64, kind, text string, comment commentRef) error {
+func (e *Engine) addCommentLeadEvent(ctx context.Context, repository string, workstream int64, issueRepository string, issue sql.NullInt64, kind, text string, comment commentRef) error {
 	e.chatOrder.Lock()
 	defer e.chatOrder.Unlock()
 	message, err := e.addChatMessage(ctx, leadChat(repository, workstream), eventAuthor, text, "", "", nil)
@@ -366,15 +366,16 @@ func (e *Engine) addCommentLeadEvent(ctx context.Context, repository string, wor
 		return err
 	}
 	err = e.queries.AddLeadEvent(ctx, store.AddLeadEventParams{
-		Repository:  repository,
-		Workstream:  workstream,
-		Issue:       issue,
-		Kind:        kind,
-		Payload:     text,
-		Time:        now(),
-		ChatMessage: sql.NullInt64{Int64: message.ID, Valid: true},
-		Comment:     sql.NullInt64{Int64: comment.id, Valid: comment.id != 0},
-		Review:      sql.NullBool{Bool: comment.review, Valid: comment.id != 0},
+		Repository:      repository,
+		Workstream:      workstream,
+		IssueRepository: issueRepository,
+		Issue:           issue,
+		Kind:            kind,
+		Payload:         text,
+		Time:            now(),
+		ChatMessage:     sql.NullInt64{Int64: message.ID, Valid: true},
+		Comment:         sql.NullInt64{Int64: comment.id, Valid: comment.id != 0},
+		Review:          sql.NullBool{Bool: comment.review, Valid: comment.id != 0},
 	})
 	if err != nil {
 		return err

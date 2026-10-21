@@ -265,7 +265,7 @@ func TestTheNeedsHumanListHasTheReasonOfTheNewestStopOfTheIssue(t *testing.T) {
 	fake.AddLabel(shop, 42, "mobius:needs-human", "owner")
 	stop := func(issue int64, time, text string) {
 		t.Helper()
-		if _, err := server.DB.Exec(`INSERT INTO lead_events (repository, workstream, issue, kind, payload, time) VALUES ('owner/shop', 12, ?, 'stop', ?, ?)`, issue, text, time); err != nil {
+		if _, err := server.DB.Exec(`INSERT INTO lead_events (repository, workstream, issue_repository, issue, kind, payload, time) VALUES ('owner/shop', 12, 'owner/shop', ?, 'stop', ?, ?)`, issue, text, time); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -316,9 +316,9 @@ func TestTheNeedsHumanListHasTheReasonWithNoPrefixOfTheStopEventsAndKeepsTheText
 		fake.AddSubIssue(shop, 12, number)
 		fake.AddLabel(shop, number, "mobius:needs-human", "owner")
 	}
-	if _, err := server.DB.Exec(`INSERT INTO lead_events (repository, workstream, issue, kind, payload, time) VALUES
-		('owner/shop', 12, 41, 'stop', '2026-10-04 10:00 UTC stop of #41 "Old title": the agent said: "stop"', '2026-10-04T10:00:00Z'),
-		('owner/shop', 12, 42, 'stale_pull_request', '2026-10-04 10:00 UTC stale pull request #45 of #42 "Let customers change plans": it has a merge conflict. https://github.com/owner/shop/pull/45', '2026-10-04T10:00:00Z')`); err != nil {
+	if _, err := server.DB.Exec(`INSERT INTO lead_events (repository, workstream, issue_repository, issue, kind, payload, time) VALUES
+		('owner/shop', 12, 'owner/shop', 41, 'stop', '2026-10-04 10:00 UTC stop of #41 "Old title": the agent said: "stop"', '2026-10-04T10:00:00Z'),
+		('owner/shop', 12, 'owner/shop', 42, 'stale_pull_request', '2026-10-04 10:00 UTC stale pull request #45 of #42 "Let customers change plans": it has a merge conflict. https://github.com/owner/shop/pull/45', '2026-10-04T10:00:00Z')`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := server.DB.Exec(`INSERT INTO inbox_items (kind, repository, workstream_repository, workstream, issue, text, link, time) VALUES ('stopped', 'owner/shop', 'owner/shop', 12, 43, 'Task #43 "Show plans" stopped: no push.', '', '2026-10-04T10:00:00Z')`); err != nil {

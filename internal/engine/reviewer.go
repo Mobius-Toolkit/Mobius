@@ -434,14 +434,14 @@ func (e *Engine) sendFollowUps(ctx context.Context, repository github.Repository
 		if thread.Resolved || !isFollowUp {
 			continue
 		}
-		sent, err := e.queries.HasFollowUpEvent(ctx, store.HasFollowUpEventParams{Repository: task.WorkstreamRepository, Issue: sql.NullInt64{Int64: task.Issue, Valid: true}, Item: thread.Comment})
+		sent, err := e.queries.HasFollowUpEvent(ctx, store.HasFollowUpEventParams{WorkstreamRepository: task.WorkstreamRepository, Repository: task.Repository, Issue: sql.NullInt64{Int64: task.Issue, Valid: true}, Item: thread.Comment})
 		if err != nil {
 			return err
 		}
 		if !sent {
 			event := fmt.Sprintf("%s follow-up on pull request #%d of #%d \"%s\", item %d, %s line %d:\n\n%s",
 				time.Now().UTC().Format(timeFormat), number, task.Issue, title, thread.Comment, thread.Path, thread.Line, quote(body))
-			if err := e.addLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "follow_up", event); err != nil {
+			if err := e.addLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, task.Repository, sql.NullInt64{Int64: task.Issue, Valid: true}, "follow_up", event); err != nil {
 				return err
 			}
 		}

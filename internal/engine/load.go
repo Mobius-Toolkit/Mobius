@@ -102,7 +102,7 @@ func (e *Engine) waitForLowLoad(ctx context.Context, a *Agent, j *job) (err erro
 			reported = true
 			text := fmt.Sprintf("%s long wait for a low load of #%d \"%s\": the .mobius/check waited %d minutes. The 1-minute load average is %.2f, and the machine has %d cores.",
 				time.Now().UTC().Format(timeFormat), j.task.Issue, j.title, int(loadWaitEvent.Minutes()), load, cores)
-			if err := e.addLeadEvent(ctx, j.task.WorkstreamRepository, j.task.Workstream, sql.NullInt64{Int64: j.task.Issue, Valid: true}, "load_wait", text); err != nil {
+			if err := e.addLeadEvent(ctx, j.task.WorkstreamRepository, j.task.Workstream, j.task.Repository, sql.NullInt64{Int64: j.task.Issue, Valid: true}, "load_wait", text); err != nil {
 				return err
 			}
 		}

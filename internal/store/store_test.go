@@ -543,6 +543,9 @@ func TestTheTranscriptMigrationRemovesTheDuplicatesAndAddsTheIndex(t *testing.T)
 	if _, err := db.Exec("ALTER TABLE copied_workstreams DROP COLUMN evergreen"); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.Exec("ALTER TABLE lead_events DROP COLUMN issue_repository"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.Exec("ALTER TABLE lead_events DROP COLUMN held_at"); err != nil {
 		t.Fatal(err)
 	}
@@ -650,6 +653,7 @@ func TestTheInboxMigrationsDismissTheOpenItemsAndKeepThePause(t *testing.T) {
 		"DROP TABLE ci_failure_places",
 		"DROP TABLE ci_diagnoses",
 		"ALTER TABLE copied_workstreams DROP COLUMN evergreen",
+		"ALTER TABLE lead_events DROP COLUMN issue_repository",
 		"ALTER TABLE lead_events DROP COLUMN held_at",
 		"ALTER TABLE tasks DROP COLUMN workstream_repository",
 		"ALTER TABLE inbox_items DROP COLUMN workstream_repository",
@@ -747,6 +751,7 @@ func TestTheCoordinatorMigrationMovesTheChatSessionsAndTheChatMessages(t *testin
 		"DROP TABLE ci_failure_places",
 		"DROP TABLE ci_diagnoses",
 		"ALTER TABLE copied_workstreams DROP COLUMN evergreen",
+		"ALTER TABLE lead_events DROP COLUMN issue_repository",
 		"ALTER TABLE lead_events DROP COLUMN held_at",
 		"ALTER TABLE tasks DROP COLUMN workstream_repository",
 		"ALTER TABLE inbox_items DROP COLUMN workstream_repository",

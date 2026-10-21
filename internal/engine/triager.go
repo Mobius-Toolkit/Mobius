@@ -248,8 +248,10 @@ func (e *Engine) runTriager(ctx context.Context, repository github.Repository, n
 			return fail(err)
 		}
 	}
-	workstreams, err := e.openWorkstreams(ctx, []github.Repository{repository})
-	if err != nil {
+	var workstreams string
+	if found, err := e.workstreamRepository(repository.Owner()); err != nil {
+		workstreams = fmt.Sprintf("# Open Workstreams\n\nThe tools that use a Workstream refuse: %s\n", err)
+	} else if workstreams, err = e.openWorkstreams(ctx, []github.Repository{found}); err != nil {
 		return fail(err)
 	}
 	comments, err := repository.Comments(ctx, number)
