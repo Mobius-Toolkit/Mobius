@@ -1,4 +1,5 @@
-import { getSendChatUrl } from "@/api/api.gen";
+import { getSendChatUrl, type ChatInboxItem } from "@/api/api.gen";
+import { run as runIn } from "./database";
 
 // A message of the Owner that the server has not stored. The id is the browser id of the message.
 export type Queued = {
@@ -8,6 +9,7 @@ export type Queued = {
   workstream: number;
   text: string;
   images: File[];
+  inboxItems: ChatInboxItem[];
   time: string;
 };
 
@@ -18,30 +20,8 @@ export function newMessageId() {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-let database: Promise<IDBDatabase> | undefined;
-
-// One connection keeps the transactions in the order of the calls.
-function connect() {
-  database ??= new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDB.open("mobius", 1);
-    request.addEventListener("upgradeneeded", () => {
-      request.result.createObjectStore("outbox", { keyPath: "id" }).createIndex("chat", "chat");
-    });
-    request.addEventListener("success", () => resolve(request.result));
-    request.addEventListener("error", () => reject(request.error));
-  });
-  return database;
-}
-
-async function run<T>(mode: IDBTransactionMode, use: (store: IDBObjectStore) => IDBRequest<T>) {
-  const db = await connect();
-  return new Promise<T>((resolve, reject) => {
-    const transaction = db.transaction("outbox", mode);
-    const request = use(transaction.objectStore("outbox"));
-    transaction.addEventListener("complete", () => resolve(request.result));
-    transaction.addEventListener("error", () => reject(transaction.error));
-  });
-}
+const run = <T>(mode: IDBTransactionMode, use: (store: IDBObjectStore) => IDBRequest<T>) =>
+  runIn("outbox", mode, use);
 
 const chatKey = (item: Pick<Queued, "organization" | "repository" | "workstream">) => [
   item.organization,
@@ -66,6 +46,7 @@ export function addCoordinatorMessage(organization: string, text: string) {
     workstream: 0,
     text,
     images: [],
+    inboxItems: [],
     time: new Date().toISOString(),
   });
 }
@@ -85,6 +66,9 @@ export async function postQueued(item: Queued, signal: AbortSignal) {
   form.append("text", item.text);
   for (const image of item.images) {
     form.append("images", image);
+  }
+  for (const inboxItem of item.inboxItems) {
+    form.append("inboxItems", JSON.stringify(inboxItem));
   }
   const res = await fetch(getSendChatUrl(), {
     method: "POST",

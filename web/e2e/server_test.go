@@ -548,18 +548,19 @@ func TestServer(t *testing.T) {
 		}
 	}
 	for _, message := range []struct {
-		text   string
-		colors []color.RGBA
+		text       string
+		inboxItems string
+		colors     []color.RGBA
 	}{
-		{"This is the new plan page.", []color.RGBA{{37, 99, 235, 255}, {22, 163, 74, 255}}},
-		{"", []color.RGBA{{220, 38, 38, 255}}},
+		{"This is the new plan page.", `[{"reference":"PR #44","title":"Integrate loyalty plans","reason":"PR #44 is ready to merge","link":"https://github.com/plants/garden/pull/44"}]`, []color.RGBA{{37, 99, 235, 255}, {22, 163, 74, 255}}},
+		{"", "[]", []color.RGBA{{220, 38, 38, 255}}},
 	} {
 		added, err := queries.AddChatMessage(ctx, store.AddChatMessageParams{
 			Organization: "plants",
 			Repository:   "plants/garden",
 			Workstream:   25,
 			Author:       "Owner",
-			InboxItems:   "[]",
+			InboxItems:   message.inboxItems,
 			Time:         time.Now().UTC().Format(time.RFC3339Nano),
 			Text:         message.text,
 		})

@@ -34,7 +34,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import type { Approval } from "@/lib/actions";
-import { chatDraftKey } from "@/lib/draft";
+import { chatDraftKey, type DraftInboxItem } from "@/lib/draft";
 import { onEvent } from "@/lib/events";
 import { LoginContext } from "@/lib/login";
 import {
@@ -53,6 +53,7 @@ import { ActionCard } from "./ActionCard";
 import { ActionTray } from "./ActionTray";
 import { AnswerPanel } from "./AnswerPanel";
 import { FileImage } from "./FileImage";
+import { InboxItemCard } from "./InboxItemCard";
 import { Markdown } from "./Markdown";
 import { MessageInput } from "./MessageInput";
 
@@ -128,6 +129,9 @@ const Message = memo(function Message({ message }: { message: ChatMessage }) {
         <span>{clock(message.time)}</span>
         {message.author === "Owner" && <OwnerState message={message} />}
       </div>
+      {message.inboxItems.map((item, position) => (
+        <InboxItemCard key={position} item={item} />
+      ))}
       {event && body ? (
         <Collapsible>
           <CollapsibleTrigger className="group flex w-full min-w-0 items-start gap-1 text-left break-words">
@@ -213,6 +217,9 @@ function QueuedMessage({
           </span>
         )}
       </div>
+      {item.inboxItems.map((inboxItem, position) => (
+        <InboxItemCard key={position} item={inboxItem} />
+      ))}
       {item.text && <Markdown text={item.text} />}
       {item.images.length > 0 && (
         <div className="flex flex-wrap gap-2">
@@ -622,7 +629,7 @@ export function Conversation({
     }
   });
 
-  const send = (text: string, images: File[]) => {
+  const send = async (text: string, images: File[], inboxItems: DraftInboxItem[]) => {
     const item: Queued = {
       id: newMessageId(),
       organization,
@@ -630,10 +637,22 @@ export function Conversation({
       workstream,
       text,
       images,
+      inboxItems: inboxItems.map(({ reference, title, reason, link }) => ({
+        reference,
+        title,
+        reason,
+        link,
+      })),
       time: new Date().toISOString(),
     };
+    try {
+      await addQueued(item);
+    } catch (err) {
+      setSendError(String(err));
+      return false;
+    }
     setQueue((current) => [...current, item]);
-    addQueued(item).catch((err: unknown) => setSendError(String(err)));
+    return true;
   };
 
   const rows = approvals

@@ -12,11 +12,19 @@ import { flushSync } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import type { Decision } from "@/lib/actions";
-import { loadDraft, saveDraft } from "@/lib/draft";
+import {
+  type DraftInboxItem,
+  emptyDraft,
+  peekDraft,
+  saveDraftText,
+  updateDraft,
+  useDraft,
+} from "@/lib/draft";
 import { fitImage, maxImages } from "@/lib/images";
 import { cn } from "@/lib/utils";
 import { useVoice } from "@/lib/voice";
 import { FileImage } from "./FileImage";
+import { AttachedInboxItem } from "./InboxItemCard";
 
 const stopDelay = 500;
 const tooManyImages = `A message has at most ${maxImages} images.`;
@@ -53,10 +61,11 @@ function Thumbnail({
   );
 }
 
-// The text field with the voice button and the Send button. The field keeps its text under draftKey. When onStop is
-// set and the field is empty, the Send button stops the reply. error is the text of a failure that the parent shows
-// under the field. The input gives its own failures to onError. When onSend gives a promise, the field gets the text
-// back if the promise gives false. With onDecide, the field has no Send button and Enter sends nothing. The field has
+// The text field with the voice button and the Send button. The draft store keeps the text, the images and the Inbox
+// items under draftKey, and the field is read-only until the store gives them. When onStop is set and the draft is
+// empty, the Send button stops the reply. error is the text of a failure that the parent shows
+// under the field. The input gives its own failures to onError. When onSend gives a promise, the draft gets its text,
+// images and Inbox items back if the promise gives false. With onDecide, the field has no Send button and Enter sends nothing. The field has
 // a Reject button and an Approve button, and each one gives the text, empty or not, to onDecide. Both buttons stay
 // disabled while the promise runs. The field clears if the promise gives true.
 export function MessageInput({
@@ -79,20 +88,12 @@ export function MessageInput({
   onError: (error: string) => void;
   stopping: boolean;
   onStop?: () => void;
-  onSend?: (text: string, images: File[]) => void | Promise<boolean>;
+  onSend?: (text: string, images: File[], inboxItems: DraftInboxItem[]) => void | Promise<boolean>;
   onDecide?: (decision: Decision, text: string) => Promise<boolean>;
 }) {
-  const [draft, setDraft] = useState({ key: draftKey, text: loadDraft(draftKey) });
-  let text = draft.text;
-  if (draft.key !== draftKey) {
-    text = loadDraft(draftKey);
-    setDraft({ key: draftKey, text });
-  }
-  const setText = (value: string) => {
-    saveDraft(draftKey, value);
-    setDraft({ key: draftKey, text: value });
-  };
-  const [images, setImages] = useState<File[]>([]);
+  const stored = useDraft(draftKey);
+  const { text, images, inboxItems } = stored ?? emptyDraft;
+  const setText = (value: string) => void saveDraftText(draftKey, value);
   // Two taps on Send in one turn of the page both come before the next render. Thus only the ref stops a second
   // message. The next render has the empty input and clears the ref.
   const justSent = useRef(false);
@@ -100,7 +101,6 @@ export function MessageInput({
   useEffect(() => {
     justSent.current = false;
   });
-  const imagesRef = useRef<File[]>([]);
   const input = useRef<HTMLTextAreaElement>(null);
   const picker = useRef<HTMLInputElement>(null);
   // The text around the voice text of the run, and the value of the field after the last voice text.
@@ -164,14 +164,23 @@ export function MessageInput({
     },
   );
 
-  // The ref has the images at once, so two calls that wait for fitImage count the images of each other.
-  const changeImages = (change: (current: File[]) => File[]) => {
-    imagesRef.current = change(imagesRef.current);
-    setImages(imagesRef.current);
-  };
+  const removeImage = (index: number) =>
+    void updateDraft(draftKey, (draft) => ({
+      ...draft,
+      images: draft.images.filter((_, i) => i !== index),
+    }));
+
+  const removeInboxItem = (id: number) =>
+    void updateDraft(draftKey, (draft) => ({
+      ...draft,
+      inboxItems: draft.inboxItems.filter((item) => item.id !== id),
+    }));
 
   const addImages = async (files: File[]) => {
-    const room = maxImages - imagesRef.current.length;
+    if (!peekDraft(draftKey)) {
+      return;
+    }
+    const room = maxImages - (peekDraft(draftKey)?.images.length ?? 0);
     let problem = "";
     const added: File[] = [];
     for (const file of files.slice(0, room)) {
@@ -181,15 +190,15 @@ export function MessageInput({
         problem = err instanceof Error ? err.message : String(err);
       }
     }
-    const all = [...imagesRef.current, ...added];
-    changeImages(() => all.slice(0, maxImages));
+    const all = [...(peekDraft(draftKey)?.images ?? []), ...added];
+    void updateDraft(draftKey, (draft) => ({ ...draft, images: all.slice(0, maxImages) }));
     if (!problem && (files.length > room || all.length > maxImages)) {
       problem = tooManyImages;
     }
     onError(problem);
   };
 
-  const empty = !text.trim() && images.length === 0;
+  const empty = !text.trim() && images.length === 0 && inboxItems.length === 0;
   const showStop = empty && !!onStop;
   const buttonPending = showStop && stopping;
   // A tap on Send can land on the Stop button that replaces it. Thus Stop takes no tap in its first moments.
@@ -215,17 +224,23 @@ export function MessageInput({
     if (!onSend || empty || justSent.current) {
       return;
     }
-    const sent = imagesRef.current;
     voice.abort();
     justSent.current = true;
-    setText("");
-    changeImages(() => []);
+    void updateDraft(draftKey, () => emptyDraft);
     onError("");
-    const result = onSend(text, sent);
+    const result = onSend(text, images, inboxItems);
     if (result instanceof Promise) {
       void result.then((done) => {
         if (!done) {
-          setText(text);
+          // The Chat button of an Inbox row can add an item while the message goes out.
+          void updateDraft(draftKey, (draft) => ({
+            text,
+            images,
+            inboxItems: [
+              ...inboxItems,
+              ...draft.inboxItems.filter((item) => !inboxItems.some(({ id }) => id === item.id)),
+            ],
+          }));
         }
       });
     }
@@ -268,14 +283,21 @@ export function MessageInput({
         />
       )}
       <div className="grid gap-1 rounded-2xl border border-input bg-background p-2 transition-colors has-[textarea:focus-visible]:border-ring dark:bg-input/30">
-        {images.length > 0 && (
+        {(images.length > 0 || inboxItems.length > 0) && (
           <div className="flex flex-wrap gap-2 pb-1">
+            {inboxItems.map((item) => (
+              <AttachedInboxItem
+                key={item.id}
+                item={item}
+                remove={() => removeInboxItem(item.id)}
+              />
+            ))}
             {images.map((image, index) => (
               <Thumbnail
                 key={index}
                 file={image}
                 position={index + 1}
-                remove={() => changeImages((current) => current.filter((_, i) => i !== index))}
+                remove={() => removeImage(index)}
               />
             ))}
           </div>
@@ -286,6 +308,7 @@ export function MessageInput({
           aria-label={label}
           placeholder={placeholder}
           value={text}
+          readOnly={!stored}
           onChange={(event) => setText(event.target.value)}
           // Safari on iOS scrolls the page when the keyboard opens, and it can keep that offset after the keyboard closes.
           onBlur={() => window.scrollTo(0, 0)}
