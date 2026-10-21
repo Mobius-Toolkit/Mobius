@@ -49,8 +49,8 @@ func (e *Engine) pull(repository github.Repository, number int64) *pullState {
 }
 
 // pullRequest gives the pull request number. It reads the pull request from GitHub when the poll has no earlier read, the
-// issue list showed a change, a Worker pushed to the pull request since the earlier read, the default branch moved since the earlier read, or GitHub had not yet calculated
-// mergeable. Else it gives the pull request of the earlier read. A push to the default branch changes mergeable and
+// issue list showed a change, a Worker pushed to the pull request or approve_pull_request found a new head since the
+// earlier read, the default branch moved since the earlier read, or GitHub had not yet calculated mergeable. Else it gives the pull request of the earlier read. A push to the default branch changes mergeable and
 // mergeable_state with no change of the update time of the pull request.
 func (e *Engine) pullRequest(ctx context.Context, repository github.Repository, number int64, baseHead string) (*gh.PullRequest, error) {
 	state := e.pull(repository, number)
@@ -68,15 +68,16 @@ func (e *Engine) pullRequest(ctx context.Context, repository github.Repository, 
 	return pullRequest, nil
 }
 
-// markPushed tells the poll that a Worker pushed to the pull request number, so that its next read goes to GitHub. The
-// issue list of GitHub can show the push later than the push ends.
+// markPushed tells the poll that a Worker pushed to the pull request number, or that approve_pull_request found a new
+// head, so that its next read goes to GitHub. The issue list of GitHub can show the push later than the push ends.
 func (e *Engine) markPushed(repository github.Repository, number int64) {
 	e.pushedMu.Lock()
 	defer e.pushedMu.Unlock()
 	e.pushed[pullKey{repository.FullName, number}] = true
 }
 
-// takePushed tells if a Worker pushed to the pull request number since the last call.
+// takePushed tells if a Worker pushed to the pull request number, or approve_pull_request found a new head, since the
+// last call.
 func (e *Engine) takePushed(repository github.Repository, number int64) bool {
 	e.pushedMu.Lock()
 	defer e.pushedMu.Unlock()
