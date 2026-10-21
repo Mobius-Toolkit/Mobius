@@ -12,6 +12,7 @@ const link = "https://github.com/owner/shop";
 
 const base = {
   dismissedAt: null,
+  questions: [],
   organization: "owner",
   repository: "owner/shop",
   workstream: 12,

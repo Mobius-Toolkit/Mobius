@@ -122,8 +122,7 @@ export function InboxRow({
   };
 
   const isPullRequest = item.kind === InboxItemKind.ready_for_review;
-  const reference =
-    item.action && !item.issue ? "" : isPullRequest ? `PR #${item.pullRequest}` : `#${item.issue}`;
+  const reference = !item.issue ? "" : isPullRequest ? `PR #${item.pullRequest}` : `#${item.issue}`;
   const referenceLink = isPullRequest ? item.pullRequestUrl : item.link;
   const chat = async () => {
     const inWorkstream = item.workstream !== 0;

@@ -133,6 +133,7 @@ test("a tap on Dismiss disables the button of the row", async ({ page }) => {
             id: 5,
             kind: "Lead failed",
             dismissedAt: null,
+            questions: [],
             organization: "owner",
             repository: "owner/shop",
             workstream: 12,

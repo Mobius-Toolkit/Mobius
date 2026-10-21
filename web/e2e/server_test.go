@@ -53,6 +53,18 @@ when = "# Approval message"
 when = "Message of the Coordinator, approved by the Owner"
 reply = ["The Lead has the message."]
 
+[[prompts]]
+when = "# Owner message\n\nWhich store?"
+reply = ["The answer is noted."]
+
+[[prompts]]
+when = "# Owner message\n\nKeep the old data."
+reply = ["The answer is noted."]
+
+[[prompts]]
+when = "# Owner message\n\nYes, draft it now."
+reply = ["The answer is noted."]
+
 `
 
 const scriptBody = `[[prompts]]
@@ -140,6 +152,8 @@ var ownerCalls = []struct{ message, tool, arguments string }{
 	{"Tell the Lead of #14 to add a price history.", "message_lead", `{ workstream = 14, text = "Add a history of the plan prices." }`},
 	{"Tell the Lead of #14 to add a price history table.", "message_lead", `{ workstream = 14, text = "Add a table with the history of the plan prices." }`},
 	{"Tell the Lead of #9999 to stop.", "message_lead", `{ workstream = 9999, text = "Stop the work." }`},
+	{"Ask which store and which checks.", "ask", `{ text = "The shop needs a store for the plans.", questions = [ { text = "Which store?", multiple = false, options = [ { title = "SQLite", details = "One file, no server." }, { title = "Postgres", details = "A server that many writers share." } ] }, { text = "Which checks?", multiple = true, options = [ { title = "Lint", details = "Finds faults of the style." }, { title = "Tests", details = "Runs the Go tests." }, { title = "Types", details = "Checks the TypeScript types." } ] } ] }`},
+	{"Ask whether to draft the Workstream.", "ask", `{ text = "Should I draft the Workstream now?" }`},
 }
 
 func ownerCallRules(heading string) string {

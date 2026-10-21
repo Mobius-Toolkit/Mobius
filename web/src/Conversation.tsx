@@ -26,6 +26,7 @@ import {
   stopChat,
   type Chat,
   type ChatMessage,
+  type InboxItem,
   type LiveEvents,
   type PendingAction,
   type Workstream,
@@ -33,7 +34,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import type { Approval } from "@/lib/actions";
 import { chatDraftKey, type DraftInboxItem } from "@/lib/draft";
 import { onEvent } from "@/lib/events";
 import { LoginContext } from "@/lib/login";
@@ -277,7 +277,7 @@ export function Conversation({
   brief,
   note,
   footer,
-  approvals = [],
+  trayItems = [],
 }: {
   organization: string;
   repository: string;
@@ -289,7 +289,7 @@ export function Conversation({
   brief?: Workstream;
   note?: ReactNode;
   footer?: ReactNode;
-  approvals?: Approval[];
+  trayItems?: InboxItem[];
 }) {
   const showLogin = use(LoginContext);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -656,8 +656,8 @@ export function Conversation({
     return true;
   };
 
-  const rows = approvals
-    .filter((item) => item.action.state === "pending")
+  const rows = trayItems
+    .filter((item) => !item.action || item.action.state === "pending")
     .toSorted((a, b) => a.id - b.id);
   const panelItem = rows.find((item) => item.id === answering);
 

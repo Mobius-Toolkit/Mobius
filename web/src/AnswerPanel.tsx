@@ -5,6 +5,7 @@ import {
   rejectAction,
   type InboxItem,
   type PendingAction,
+  type Question,
 } from "@/api/api.gen";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { roleName, type Decision } from "@/lib/actions";
@@ -12,6 +13,7 @@ import { answerDraftKey, saveDraftText } from "@/lib/draft";
 import { LoginContext } from "@/lib/login";
 import { useShell } from "@/lib/shell";
 import { clock, dayClock } from "@/lib/time";
+import { cn } from "@/lib/utils";
 import { FullArgument } from "./ActionCard";
 import { link } from "./Inbox";
 import { Markdown } from "./Markdown";
@@ -41,6 +43,61 @@ function useKeyboardHeight() {
   }, []);
 }
 
+// The options of a question as buttons. A click selects or clears an option. In a single choice, a click on an option
+// clears the other option.
+function Options({
+  question,
+  selected,
+  toggle,
+}: {
+  question: Question;
+  selected: number[];
+  toggle: (option: number) => void;
+}) {
+  return (
+    <div role="group" aria-label={question.text} className="grid gap-2">
+      <p className="wrap-anywhere">
+        <span className="font-medium">{question.text}</span>{" "}
+        <span className="text-sm text-muted-foreground">
+          {question.multiple ? "Select one or more." : "Select one."}
+        </span>
+      </p>
+      {question.options.map((option, index) => {
+        const on = selected.includes(index);
+        return (
+          <button
+            key={index}
+            type="button"
+            aria-pressed={on}
+            onClick={() => toggle(index)}
+            className={cn(
+              "flex w-full items-start gap-3 rounded-lg border p-3 text-left",
+              on && "border-primary",
+            )}
+          >
+            <span
+              aria-hidden
+              className={cn(
+                "mt-0.5 size-4 shrink-0 border",
+                question.multiple ? "rounded-sm" : "rounded-full",
+                on ? "border-primary bg-primary" : "border-input",
+              )}
+            />
+            <span className="grid min-w-0 gap-0.5">
+              <span className="wrap-anywhere">{option.title}</span>
+              {option.details && (
+                <span className="text-sm text-muted-foreground wrap-anywhere">
+                  {option.details}
+                </span>
+              )}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function AnswerPanel({
   item,
   input,
@@ -59,7 +116,32 @@ export function AnswerPanel({
     useShell();
   const [error, setError] = useState(inboxFailure?.id === item.id ? inboxFailure.error : "");
   const content = useRef<HTMLDivElement>(null);
+  const [selected, setSelected] = useState<Record<number, number[]>>({});
+  const selection = Object.values(selected).some((options) => options.length > 0);
   useKeyboardHeight();
+
+  const toggle = (question: number, option: number) =>
+    setSelected((current) => {
+      const chosen = current[question] ?? [];
+      if (chosen.includes(option)) {
+        return { ...current, [question]: chosen.filter((other) => other !== option) };
+      }
+      return {
+        ...current,
+        [question]: item.questions[question].multiple ? [...chosen, option] : [option],
+      };
+    });
+
+  const selectionText = (note: string) =>
+    [
+      ...item.questions.flatMap((question, index) => {
+        const lines = question.options
+          .filter((_, option) => selected[index]?.includes(option))
+          .map((option) => `- ${option.title}`);
+        return lines.length > 0 ? [[question.text, ...lines].join("\n")] : [];
+      }),
+      ...(note.trim() ? [note] : []),
+    ].join("\n\n");
 
   useEffect(() => {
     if (inboxFailure?.id === item.id) {
@@ -148,6 +230,14 @@ export function AnswerPanel({
         ) : (
           <div className="grid content-start gap-2 overflow-y-auto px-4 pb-4">
             <Markdown text={item.text} />
+            {item.questions.map((question, index) => (
+              <Options
+                key={index}
+                question={question}
+                selected={selected[index] ?? []}
+                toggle={(option) => toggle(index, option)}
+              />
+            ))}
             <span className="text-muted-foreground">
               {workstream} · {dayClock(item.time)}
             </span>
@@ -174,12 +264,13 @@ export function AnswerPanel({
           <MessageInput
             draftKey={answerDraftKey(item.id)}
             label="Your answer"
-            placeholder="Write your answer"
+            placeholder={item.questions.length > 0 ? "Add a note (optional)" : "Write your answer"}
+            selection={selection}
             images={false}
             error={error}
             onError={setError}
             stopping={false}
-            onSend={answer}
+            onSend={(text) => answer(selectionText(text))}
           />
         )}
       </DialogContent>

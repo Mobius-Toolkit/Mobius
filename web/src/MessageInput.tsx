@@ -63,7 +63,8 @@ function Thumbnail({
 
 // The text field with the voice button and the Send button. The draft store keeps the text, the images and the Inbox
 // items under draftKey, and the field is read-only until the store gives them. When onStop is set and the draft is
-// empty, the Send button stops the reply. error is the text of a failure that the parent shows
+// empty, the Send button stops the reply. selection is true when the panel has a choice that the Send button sends
+// with the text. error is the text of a failure that the parent shows
 // under the field. The input gives its own failures to onError. When onSend gives a promise, the draft gets its text,
 // images and Inbox items back if the promise gives false. With onDecide, the field has no Send button and Enter sends nothing. The field has
 // a Reject button and an Approve button, and each one gives the text, empty or not, to onDecide. Both buttons stay
@@ -72,6 +73,7 @@ export function MessageInput({
   draftKey,
   label,
   placeholder,
+  selection = false,
   images: withImages,
   error,
   onError,
@@ -83,6 +85,7 @@ export function MessageInput({
   draftKey: string;
   label: string;
   placeholder: string;
+  selection?: boolean;
   images: boolean;
   error: string;
   onError: (error: string) => void;
@@ -195,7 +198,7 @@ export function MessageInput({
     onError(problem);
   };
 
-  const empty = !text.trim() && images.length === 0 && inboxItems.length === 0;
+  const empty = !text.trim() && images.length === 0 && inboxItems.length === 0 && !selection;
   const showStop = empty && !!onStop;
   const buttonPending = showStop && stopping;
   // A tap on Send can land on the Stop button that replaces it. Thus Stop takes no tap in its first moments.
