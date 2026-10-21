@@ -76,10 +76,10 @@ func TestTheTriagerOfAnIssueInAnotherRepositoryCreatesTheWorkstreamInTheIssueRep
 func TestTheFirstPromptOfTheTriagerOfAnIssueInAnotherRepositoryListsTheWorkstreamsOfTheIssueRepository(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	fake.AddRepository(garden)
+	server := issueRepositoryShop(t, fake, gardenTriager)
 	fake.AddIssue(garden, 9, "Plant the garden")
 	fake.AddLabel(garden, 9, "mobius:workstream", "owner")
-	server := issueRepositoryShop(t, fake, gardenTriager)
+	waitForPolls(t, fake)
 
 	fake.CreateIssue(garden, 83, "Water the plants", "Each day.", "owner")
 
