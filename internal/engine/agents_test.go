@@ -106,11 +106,11 @@ func leadReply(t *testing.T, server *testserver.Server) (int64, string) {
 
 func transcript(t *testing.T, server *testserver.Server, session int64) []engine.Line {
 	t.Helper()
-	lines, err := server.Engine.Transcript(t.Context(), session)
+	page, err := server.Engine.Transcript(t.Context(), session, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return lines
+	return page.Lines
 }
 
 // rows gives the JSON of each Transcript row of kind of the session.
@@ -528,15 +528,17 @@ reply = ["Done."]
 	}
 	defer func() { _ = response.Body.Close() }()
 	var body struct {
-		Data []struct {
-			ID      int64  `json:"id"`
-			Session int64  `json:"session"`
-			Time    string `json:"time"`
-			Kind    string `json:"kind"`
-			Text    string `json:"text"`
-			Body    string `json:"body"`
-			Folded  bool   `json:"folded"`
-			Raw     string `json:"raw"`
+		Data struct {
+			Lines []struct {
+				ID      int64  `json:"id"`
+				Session int64  `json:"session"`
+				Time    string `json:"time"`
+				Kind    string `json:"kind"`
+				Text    string `json:"text"`
+				Body    string `json:"body"`
+				Folded  bool   `json:"folded"`
+				Raw     string `json:"raw"`
+			} `json:"lines"`
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
@@ -544,7 +546,7 @@ reply = ["Done."]
 	}
 
 	var got []string
-	for _, line := range body.Data {
+	for _, line := range body.Data.Lines {
 		if line.Session != session {
 			t.Errorf("line = %+v", line)
 		}
@@ -557,7 +559,7 @@ reply = ["Done."]
 		t.Errorf("lines = %q", got)
 	}
 	var raw string
-	for _, line := range body.Data {
+	for _, line := range body.Data.Lines {
 		if line.Text == "a_future_kind" {
 			raw = line.Raw
 		}

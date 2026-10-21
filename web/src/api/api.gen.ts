@@ -843,54 +843,6 @@ export interface EnvelopeArrayToolCheck {
 }
 
 /**
- * Kind is prompt, update, mcp_call, error, or check for a phase of the local check of an Implementer or a hang of the agent
- */
-export type TranscriptLineKind = typeof TranscriptLineKind[keyof typeof TranscriptLineKind];
-
-
-export const TranscriptLineKind = {
-  prompt: 'prompt',
-  update: 'update',
-  mcp_call: 'mcp_call',
-  error: 'error',
-  check: 'check',
-} as const;
-
-/**
- * TranscriptLine is a row of the Transcript of a session.
- */
-export interface TranscriptLine {
-  /** Body is the text below Text. It can be empty */
-  body: string;
-  /** Error is true for an error row and for a Mobius tool call that failed */
-  error: boolean;
-  /** Folded is true for the first prompt of the session, which starts with the Role prompt */
-  folded: boolean;
-  /** HarnessToolName is the name of a Mobius tool in the Harness, for example mcp__mobius__list_tasks. It is empty for each other row */
-  harnessToolName: string;
-  /** ID increases with each new row of all sessions */
-  id: number;
-  /** Kind is prompt, update, mcp_call, error, or check for a phase of the local check of an Implementer or a hang of the agent */
-  kind: TranscriptLineKind;
-  /** Raw is the JSON text of the row, for example the full ACP update */
-  raw: string;
-  /** Session is the id of the session */
-  session: number;
-  /** Text is the one line that the UI always shows */
-  text: string;
-  /** Time is the time of the row */
-  time: string;
-}
-
-/**
- * Envelope is the body of each success response.
- */
-export interface EnvelopeArrayTranscriptLine {
-  /** Data is the payload of the response */
-  data: TranscriptLine[];
-}
-
-/**
  * Unread is the number of unread messages of a chat. The messages of the Owner and the Lead events are never unread.
  */
 export interface Unread {
@@ -1090,6 +1042,64 @@ export interface Release {
 export interface EnvelopeRelease {
   /** Data is the payload of the response */
   data: Release;
+}
+
+/**
+ * Kind is prompt, update, mcp_call, error, or check for a phase of the local check of an Implementer or a hang of the agent
+ */
+export type TranscriptLineKind = typeof TranscriptLineKind[keyof typeof TranscriptLineKind];
+
+
+export const TranscriptLineKind = {
+  prompt: 'prompt',
+  update: 'update',
+  mcp_call: 'mcp_call',
+  error: 'error',
+  check: 'check',
+} as const;
+
+/**
+ * TranscriptLine is a row of the Transcript of a session.
+ */
+export interface TranscriptLine {
+  /** Body is the text below Text. It can be empty */
+  body: string;
+  /** Error is true for an error row and for a Mobius tool call that failed */
+  error: boolean;
+  /** Folded is true for the first prompt of the session, which starts with the Role prompt */
+  folded: boolean;
+  /** HarnessToolName is the name of a Mobius tool in the Harness, for example mcp__mobius__list_tasks. It is empty for each other row */
+  harnessToolName: string;
+  /** ID increases with each new row of all sessions */
+  id: number;
+  /** Kind is prompt, update, mcp_call, error, or check for a phase of the local check of an Implementer or a hang of the agent */
+  kind: TranscriptLineKind;
+  /** Raw is the JSON text of the row, for example the full ACP update */
+  raw: string;
+  /** Session is the id of the session */
+  session: number;
+  /** Text is the one line that the UI always shows */
+  text: string;
+  /** Time is the time of the row */
+  time: string;
+}
+
+/**
+ * TranscriptPage is a page of the Transcript of a session.
+ */
+export interface TranscriptPage {
+  /** Lines are the lines of the page, the oldest first */
+  lines: TranscriptLine[];
+  /** Older is true when the session has rows before the first line of the page */
+  older: boolean;
+}
+
+/**
+ * Envelope is the body of each success response.
+ */
+export interface EnvelopeTranscriptPage {
+  /** Data is the payload of the response */
+  data: TranscriptPage;
 }
 
 /**
@@ -1516,6 +1526,13 @@ export type InternalServerErrorResponse = ErrorResponse;
  * Unprocessable Entity - Request body could not be parsed
  */
 export type UnprocessableEntityResponse = ErrorResponse;
+
+export type GetTranscriptParams = {
+/**
+ * Before is the id of a row. The page has at most 100 lines with an id below Before. With no Before, the page has the newest 100 lines
+ */
+before?: number;
+};
 
 export type GetChatParams = {
 /**
@@ -1968,7 +1985,7 @@ export const startCheck = async (id: number, ): Promise<startCheckResponse> => {
 
 
 export type getTranscriptResponse200 = {
-  data: EnvelopeArrayTranscriptLine
+  data: EnvelopeTranscriptPage
   status: 200
 }
 
@@ -2001,20 +2018,29 @@ export type getTranscriptResponseError = (getTranscriptResponse400 | getTranscri
 
 export type getTranscriptResponse = (getTranscriptResponseSuccess | getTranscriptResponseError)
 
-export const getGetTranscriptUrl = (id: number,) => {
+export const getGetTranscriptUrl = (id: number,
+    params?: GetTranscriptParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/agents/${id}/transcript`
+  return stringifiedParams.length > 0 ? `/api/agents/${id}/transcript?${stringifiedParams}` : `/api/agents/${id}/transcript`
 }
 
 /**
- * GetTranscript returns the Transcript of a session, the oldest row first.
+ * GetTranscript returns a page of the Transcript of a session, the oldest row first.
  */
-export const getTranscript = async (id: number, ): Promise<getTranscriptResponse> => {
+export const getTranscript = async (id: number,
+    params?: GetTranscriptParams, ): Promise<getTranscriptResponse> => {
 
-  const res = await fetch(getGetTranscriptUrl(id),
+  const res = await fetch(getGetTranscriptUrl(id,params),
   {
 
     method: 'GET'

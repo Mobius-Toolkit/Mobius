@@ -2006,6 +2006,17 @@ func (q *Queries) GetEndedTaskWithPullRequest(ctx context.Context, arg GetEndedT
 	return i, err
 }
 
+const getFirstTranscriptPrompt = `-- name: GetFirstTranscriptPrompt :one
+SELECT CAST(COALESCE(MIN(id), 0) AS INTEGER) FROM transcript WHERE session = ? AND kind = 'prompt'
+`
+
+func (q *Queries) GetFirstTranscriptPrompt(ctx context.Context, session int64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, getFirstTranscriptPrompt, session)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const getFullSlots = `-- name: GetFullSlots :one
 SELECT id, since, item_at FROM full_slots
 `
@@ -5974,12 +5985,18 @@ func (q *Queries) ListToolCallsSince(ctx context.Context, arg ListToolCallsSince
 	return items, nil
 }
 
-const listTranscript = `-- name: ListTranscript :many
-SELECT id, session, time, kind, json FROM transcript WHERE session = ? ORDER BY id
+const listTranscriptPage = `-- name: ListTranscriptPage :many
+SELECT id, session, time, kind, json FROM transcript WHERE session = ? AND id < ? ORDER BY id DESC LIMIT ?
 `
 
-func (q *Queries) ListTranscript(ctx context.Context, session int64) ([]Transcript, error) {
-	rows, err := q.db.QueryContext(ctx, listTranscript, session)
+type ListTranscriptPageParams struct {
+	Session int64
+	ID      int64
+	Limit   int64
+}
+
+func (q *Queries) ListTranscriptPage(ctx context.Context, arg ListTranscriptPageParams) ([]Transcript, error) {
+	rows, err := q.db.QueryContext(ctx, listTranscriptPage, arg.Session, arg.ID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}

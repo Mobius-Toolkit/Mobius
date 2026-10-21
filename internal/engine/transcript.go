@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"math"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -14,6 +16,8 @@ import (
 const (
 	shortLines = 3
 	shortChars = 300
+	// transcriptPageSize is the number of lines in a page of a Transcript.
+	transcriptPageSize = 100
 	// mobiusPrefix starts the name of a Mobius tool in a Harness.
 	mobiusPrefix = "mcp__mobius__"
 )
@@ -38,23 +42,43 @@ type Line struct {
 	Raw string
 }
 
-// Transcript gives the lines of the Transcript of the session.
-func (e *Engine) Transcript(ctx context.Context, session int64) ([]Line, error) {
-	rows, err := e.queries.ListTranscript(ctx, session)
+// TranscriptPage is a page of the Transcript of a session.
+type TranscriptPage struct {
+	// Lines are the lines of the page, the oldest first.
+	Lines []Line
+	// Older is true when the session has rows before the first line of the page.
+	Older bool
+}
+
+// Transcript gives the page of the Transcript of the session with the rows before the row id before, or with the newest
+// rows when before is 0.
+func (e *Engine) Transcript(ctx context.Context, session, before int64) (TranscriptPage, error) {
+	if before == 0 {
+		before = math.MaxInt64
+	}
+	// One more row than the page tells if older rows exist.
+	rows, err := e.queries.ListTranscriptPage(ctx, store.ListTranscriptPageParams{Session: session, ID: before, Limit: transcriptPageSize + 1})
 	if err != nil {
-		return nil, err
+		return TranscriptPage{}, err
 	}
-	lines := make([]Line, 0, len(rows))
-	prompted := false
+	page := TranscriptPage{Older: len(rows) > transcriptPageSize}
+	if page.Older {
+		rows = rows[:transcriptPageSize]
+	}
+	slices.Reverse(rows)
+	firstPrompt, err := e.queries.GetFirstTranscriptPrompt(ctx, session)
+	if err != nil {
+		return TranscriptPage{}, err
+	}
+	page.Lines = make([]Line, 0, len(rows))
 	for _, row := range rows {
-		line, err := line(row, row.Kind == "prompt" && !prompted)
+		line, err := line(row, row.ID == firstPrompt)
 		if err != nil {
-			return nil, err
+			return TranscriptPage{}, err
 		}
-		prompted = prompted || row.Kind == "prompt"
-		lines = append(lines, line)
+		page.Lines = append(page.Lines, line)
 	}
-	return lines, nil
+	return page, nil
 }
 
 func line(row store.Transcript, folded bool) (Line, error) {

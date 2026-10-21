@@ -136,10 +136,15 @@ async function mockLog(page: Page) {
     };
   `);
   let session = 0;
-  await page.route(/\/api\/agents\/\d+\/transcript$/, (route) => {
+  await page.route(/\/api\/agents\/\d+\/transcript(\?.*)?$/, (route) => {
     session = Number(/agents\/(\d+)\//.exec(route.request().url())?.[1]);
     return route.fulfill({
-      json: { data: Array.from({ length: 30 }, (_, n) => ({ ...entry(n), session })) },
+      json: {
+        data: {
+          lines: Array.from({ length: 30 }, (_, n) => ({ ...entry(n), session })),
+          older: false,
+        },
+      },
     });
   });
   return (id: number) =>
@@ -495,4 +500,112 @@ test.describe("the back button on a desktop", () => {
       expect(startBox.y).toBeGreaterThanOrEqual(headerBox.y + headerBox.height);
     });
   });
+});
+
+// The log of a long session has the rows 1 to total.rows. A page has 100 rows, as the server gives.
+async function mockPages(page: Page, total: { rows: number }, requests: (number | undefined)[]) {
+  await mockLog(page);
+  await page.route(/\/api\/agents\/\d+\/transcript(\?.*)?$/, (route) => {
+    const before = new URL(route.request().url()).searchParams.get("before");
+    requests.push(before ? Number(before) : undefined);
+    const last = before ? Number(before) - 1 : total.rows;
+    const first = Math.max(1, last - 99);
+    return route.fulfill({
+      json: {
+        data: {
+          lines: Array.from({ length: last - first + 1 }, (_, n) => entry(first + n)),
+          older: first > 1,
+        },
+      },
+    });
+  });
+}
+
+const openAgentLog = async (page: Page) => {
+  await page.goto("/agents");
+  await page
+    .getByRole("main")
+    .getByRole("button", { name: /Ticket #41 Add plan model/ })
+    .click();
+};
+
+const lineIds = (page: Page) =>
+  page
+    .locator("li[data-line]")
+    .evaluateAll((items) => items.map((item) => Number(item.getAttribute("data-line"))));
+
+test("the agent log of a long session shows the newest rows and loads the older rows at the top", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  const requests: (number | undefined)[] = [];
+  await mockPages(page, { rows: 250 }, requests);
+  await openAgentLog(page);
+  await expect(page.getByText("Entry 250 ")).toBeVisible();
+  await expect(page.getByText("Entry 151 ")).toHaveCount(1);
+  await expect(page.getByText("Entry 150 ")).toHaveCount(0);
+  expect(requests).toEqual([undefined]);
+
+  await page.evaluate(
+    `new Promise((resolve) => {
+      const list = document.querySelector('li[data-line]').parentElement
+      list.addEventListener('scroll', () => requestAnimationFrame(resolve), { once: true })
+      list.scrollTop = 0
+    })`,
+  );
+  const first = page.locator('li[data-line="151"]');
+  const listTop = (await page.locator("li[data-line]").first().locator("xpath=..").boundingBox())!
+    .y;
+  await expect(page.getByText("Entry 150 ")).toHaveCount(1);
+  expect(requests).toEqual([undefined, 151]);
+  expect(Math.abs((await first.boundingBox())!.y - listTop)).toBeLessThan(20);
+  expect(await lineIds(page)).toHaveLength(200);
+});
+
+test("the agent log loads pages after a reconnect until it has the newest known row, and shows no row two times", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  const requests: (number | undefined)[] = [];
+  const total = { rows: 250 };
+  await mockPages(page, total, requests);
+  await openAgentLog(page);
+  await expect(page.getByText("Entry 250 ")).toBeVisible();
+
+  total.rows = 350;
+  await page.evaluate(`window.sources.at(-1).dispatchEvent(new Event('open'))`);
+
+  await expect(page.getByText("Entry 350 ")).toBeVisible();
+  expect(requests).toEqual([undefined, undefined, 251]);
+  const ids = await lineIds(page);
+  expect(ids).toHaveLength(200);
+  expect(new Set(ids).size).toBe(200);
+  expect(ids.at(0)).toBe(151);
+  expect(ids.at(-1)).toBe(350);
+});
+
+test("a live event with a longer raw text changes the raw text of a row with a body of 300 characters", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await mockLog(page);
+  const body = "b".repeat(300);
+  const row = (raw: string) => ({ ...entry(5), body, raw });
+  const before = `{"text":"${body}"}`;
+  const after = `{"text":"${body} and more text"}`;
+  await page.route(/\/api\/agents\/\d+\/transcript(\?.*)?$/, (route) =>
+    route.fulfill({ json: { data: { lines: [row(before)], older: false } } }),
+  );
+  await openAgentLog(page);
+  const item = page.locator('li[data-line="5"]');
+  await item.getByRole("button", { name: "Raw" }).click();
+  await expect(item.locator("pre").last()).toHaveText(before);
+
+  await page.evaluate(
+    `window.sources.at(-1).dispatchEvent(new MessageEvent('transcript', { data: ${JSON.stringify(
+      JSON.stringify(row(after)),
+    )} }))`,
+  );
+
+  await expect(item.locator("pre").last()).toHaveText(after);
 });
