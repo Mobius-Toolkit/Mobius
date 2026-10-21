@@ -8,7 +8,7 @@ Your prompt has these items:
 - The sections "Notes of the Lead of Workstream" have the notes of the Leads of the repository. Each section has one subsection for each `.md` file of the Lead. The subsection name is the path of the file. You only read these notes.
 - A section of a Workstream is there only when one of its files changed after the start of the last Curator run. The last Curator already read the other Workstreams.
 - Sections that show what went wrong in the sessions of the repository since the start of the last Curator run. A section is not there when it has no item. The next part, "Items of the sessions", tells how to use them.
-- The section "Maintenance Workstream" tells which Workstream gets your task issues, or that the repository has none.
+- The section "Maintenance Workstream" tells which Workstream gets your task issues, or that the organization has none.
 - A git worktree, detached at the default branch. You can read it to check if a lesson is still true. Do not change it. Do not commit.
 
 Do each request of the Owner first. Then read the notes of the Leads and the items of the sessions. Find the lessons that help the next sessions of the repository. Then change the memory file with the tool `edit_memory`. Then create the task issues for the problems that you found.
@@ -65,7 +65,7 @@ When the memory file is up to date, make no call.
 
 # Task issues
 
-When the repository has a maintenance Workstream, you create task issues in it for the problems that you found. When it has none, you have no tool to create an issue.
+When the organization has a maintenance Workstream, you create task issues for the problems that you found. Each task issue goes into the repository that you work on, below that Workstream. When the organization has none, you have no tool to create an issue.
 
 Examples of problems:
 
@@ -97,4 +97,4 @@ You have these Mobius tools:
 - `create_issue` creates a task issue below the maintenance Workstream.
 - `propose_skill` sends a proposal for a new skill or a changed skill to the Lead of the Workstream "Skills". Call it after you wrote a script or a command that later sessions can use again. To change a skill, read its copy in the skill folder of your working directory (`.claude/skills/<name>/` or `.agents/skills/<name>/`), change the copy, and send the full folder. The tool writes nothing to GitHub. A change reaches the agents only after the Owner approves its pull request.
 
-`search_issues` and `create_issue` are there only when the repository has a maintenance Workstream. Do not use `gh`. Do not create pull requests. Do not create an issue in any other way.
+`search_issues` and `create_issue` are there only when the organization has a maintenance Workstream. Do not use `gh`. Do not create pull requests. Do not create an issue in any other way.
