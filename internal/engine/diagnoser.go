@@ -334,8 +334,8 @@ func (e *Engine) openFailures(ctx context.Context, repository string) (string, e
 
 // reportFailure saves one failure that the Diagnoser found in the place of its session. The place is the pull request and
 // the head of the diagnosis. The failure goes in the reasons of the diagnosis, which the fix round reads. A failure that
-// the pull request did not cause also goes in a record: the record that same_record names, else an open record with the
-// same test and location, else a new record.
+// the pull request did not cause also goes in a record, and so does each failure of a break of the default branch. The
+// record is the one that same_record names, else an open record with the same test and location, else a new record.
 func (e *Engine) reportFailure(ctx context.Context, c caller, _ github.Repository, input reportFailureInput) (string, error) {
 	if empty(input.Reason) || empty(input.Lines) {
 		return "", refuse("reason and lines must not be empty.")
@@ -344,8 +344,9 @@ func (e *Engine) reportFailure(ctx context.Context, c caller, _ github.Repositor
 	if err != nil {
 		return "", err
 	}
+	causedByPullRequest := input.CausedByPullRequest && diagnosis.CiBreak == 0
 	result := "Saved. The pull request caused the failure, so it has no record."
-	if !input.CausedByPullRequest {
+	if !causedByPullRequest {
 		id, err := e.failureRecord(ctx, diagnosis, c.agent.jobURLs, input)
 		if err != nil {
 			return "", err
@@ -360,7 +361,7 @@ func (e *Engine) reportFailure(ctx context.Context, c caller, _ github.Repositor
 	if input.Location != "" {
 		fmt.Fprintf(&reasons, " Location: %s.", input.Location)
 	}
-	if input.CausedByPullRequest {
+	if causedByPullRequest {
 		reasons.WriteString(" The change of the pull request caused this failure.\n")
 	} else {
 		reasons.WriteString(" The change of the pull request did not cause this failure.\n")
