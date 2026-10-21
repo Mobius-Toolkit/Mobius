@@ -69,15 +69,23 @@ func maintenanceWorkstream(ctx context.Context, repository github.Repository) (i
 }
 
 // startCuratorAfterEnds starts a Curator for repository when curatorEvery sessions of the repository ended since the
-// last Curator session.
+// last Curator session. It also starts the Curator of the skill repository of the organization of repository when
+// curatorEvery sessions of the organization ended since the last Curator session of the skill repository.
 func (e *Engine) startCuratorAfterEnds(ctx context.Context, repository string) error {
 	e.curatorsMu.Lock()
 	defer e.curatorsMu.Unlock()
 	ended, err := e.queries.CountSessionsEndedSinceCurator(ctx, repository)
-	if err != nil || ended < curatorEvery {
+	if err != nil {
 		return err
 	}
-	return e.startCuratorLocked(ctx, repository)
+	var start []string
+	if ended >= curatorEvery {
+		start = append(start, repository)
+		if err := e.startCuratorLocked(ctx, repository); err != nil {
+			return err
+		}
+	}
+	return e.startSkillsCuratorLocked(ctx, owner(repository), start)
 }
 
 // startCurator starts a Curator for repository. While a Curator of repository runs, it makes one more Curator wait
@@ -185,7 +193,7 @@ func (e *Engine) curate(ctx context.Context, a *Agent, requests []store.ListCura
 	err = e.curateTurn(ctx, a, requests)
 	a.closeHarness()
 	ended := context.WithoutCancel(ctx)
-	err = errors.Join(err, e.removeCopy(ended, repository, a.spec.Dir))
+	err = errors.Join(err, e.removeCopy(ended, repository, a.spec.Dir), os.RemoveAll(curatorScratch(e.config.DataDir, a.id)))
 	var endErr error
 	var failure string
 	switch {
@@ -272,10 +280,14 @@ func (e *Engine) curateTurn(ctx context.Context, a *Agent, requests []store.List
 	if err != nil {
 		return err
 	}
+	skills, err := e.skillsSection(ctx, a, since)
+	if err != nil {
+		return err
+	}
 	if err := a.open(ctx); err != nil {
 		return err
 	}
-	return a.Prompt(ctx, curatorPrompt+"\n"+maintenanceSection(a.maintenance)+requestsSection(requests)+sections+versions+problems+leads, nil)
+	return a.Prompt(ctx, curatorPrompt+"\n"+maintenanceSection(a.maintenance)+requestsSection(requests)+skills+sections+versions+problems+leads, nil)
 }
 
 // maintenanceSection gives the maintenance Workstream of the Curator as a prompt section.

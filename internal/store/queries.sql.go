@@ -1107,6 +1107,28 @@ func (q *Queries) CountActiveTasks(ctx context.Context) (int64, error) {
 	return count, err
 }
 
+const countOrganizationSessionsEndedSinceCurator = `-- name: CountOrganizationSessionsEndedSinceCurator :one
+SELECT count(*) FROM sessions s
+WHERE substr(s.repository, 1, length(?1) + 1) = ?1 || '/'
+  AND s.role <> 'curator' AND s.ended_at IS NOT NULL
+  AND julianday(s.ended_at) > coalesce((
+      SELECT max(julianday(c.started_at)) FROM sessions c
+      WHERE c.repository = ?2 AND c.role = 'curator' AND (c.ended_at IS NULL OR c.end_reason IN ('done', 'failed', 'hung'))
+  ), 0)
+`
+
+type CountOrganizationSessionsEndedSinceCuratorParams struct {
+	Organization      interface{}
+	CuratorRepository string
+}
+
+func (q *Queries) CountOrganizationSessionsEndedSinceCurator(ctx context.Context, arg CountOrganizationSessionsEndedSinceCuratorParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countOrganizationSessionsEndedSinceCurator, arg.Organization, arg.CuratorRepository)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countSessionsEndedSinceCurator = `-- name: CountSessionsEndedSinceCurator :one
 SELECT count(*) FROM sessions s
 WHERE s.repository = ?1 AND s.role <> 'curator' AND s.ended_at IS NOT NULL
@@ -5164,6 +5186,53 @@ func (q *Queries) ListOpenSessions(ctx context.Context) ([]ListOpenSessionsRow, 
 	return items, nil
 }
 
+const listOrganizationSessionsEndedSince = `-- name: ListOrganizationSessionsEndedSince :many
+SELECT id, role, repository, issue FROM sessions
+WHERE substr(repository, 1, length(?1) + 1) = ?1 || '/'
+  AND role <> 'curator' AND ended_at IS NOT NULL AND julianday(ended_at) > julianday(CAST(?2 AS TEXT))
+ORDER BY id
+`
+
+type ListOrganizationSessionsEndedSinceParams struct {
+	Organization interface{}
+	Since        string
+}
+
+type ListOrganizationSessionsEndedSinceRow struct {
+	ID         int64
+	Role       string
+	Repository string
+	Issue      sql.NullInt64
+}
+
+func (q *Queries) ListOrganizationSessionsEndedSince(ctx context.Context, arg ListOrganizationSessionsEndedSinceParams) ([]ListOrganizationSessionsEndedSinceRow, error) {
+	rows, err := q.db.QueryContext(ctx, listOrganizationSessionsEndedSince, arg.Organization, arg.Since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListOrganizationSessionsEndedSinceRow
+	for rows.Next() {
+		var i ListOrganizationSessionsEndedSinceRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Role,
+			&i.Repository,
+			&i.Issue,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOwnerMessagesSince = `-- name: ListOwnerMessagesSince :many
 SELECT m.workstream, m.time, m.text,
        CAST(COALESCE((SELECT p.text FROM chat_messages p
@@ -5816,6 +5885,35 @@ func (q *Queries) ListTaskStatesBetween(ctx context.Context, arg ListTaskStatesB
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listToolCallUpdates = `-- name: ListToolCallUpdates :many
+SELECT json FROM transcript
+WHERE session = ? AND kind = 'update' AND json_extract(json, '$.update.sessionUpdate') IN ('tool_call', 'tool_call_update')
+ORDER BY id
+`
+
+func (q *Queries) ListToolCallUpdates(ctx context.Context, session int64) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listToolCallUpdates, session)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var json string
+		if err := rows.Scan(&json); err != nil {
+			return nil, err
+		}
+		items = append(items, json)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
