@@ -452,7 +452,7 @@ test("a hidden page stops the recording, sends the audio and shows the error", a
 });
 
 test("a page that hides while the microphone starts stops the recording", async ({ page }) => {
-  await liveServer(page, [], { text: "red roses" });
+  await liveServer(page, [{ committed: "", draft: "" }], { text: "red roses" });
   await page.goto("/chat");
   await page.evaluate(
     "void (window.microphoneGate = new Promise((resolve) => (window.openMicrophone = resolve)))",
