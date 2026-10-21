@@ -28,7 +28,7 @@ export function OrganizationSwitch({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline">
+        <Button variant="outline" className="md:w-full md:justify-start">
           {organization}
           {elsewhere && (
             <span
@@ -36,10 +36,10 @@ export function OrganizationSwitch({
               className="size-2 rounded-full bg-green-600"
             />
           )}
-          <ChevronDownIcon />
+          <ChevronDownIcon className="md:ml-auto" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start">
+      <DropdownMenuContent align="start" className="md:w-auto md:min-w-56">
         <DropdownMenuLabel>Organizations</DropdownMenuLabel>
         <DropdownMenuRadioGroup value={organization} onValueChange={onSelect}>
           {organizations.map((name) => (
