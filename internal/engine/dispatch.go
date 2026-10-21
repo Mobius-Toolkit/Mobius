@@ -151,7 +151,7 @@ func (e *Engine) dispatch(ctx context.Context, repository github.Repository, iss
 		return err
 	}
 	text := eventText(time.Now(), "dispatch of", issue, actor, issue.GetBody())
-	return e.addLeadEvent(ctx, workstreamRepository, workstream, sql.NullInt64{Int64: number, Valid: true}, "dispatch", text)
+	return e.addLeadEvent(ctx, workstreamRepository, workstream, repository.FullName, sql.NullInt64{Int64: number, Valid: true}, "dispatch", text)
 }
 
 // addActivity adds an activity about the issue to the feed.
@@ -410,9 +410,13 @@ func (e *Engine) workstreamCommentEvents(ctx context.Context, repository github.
 		}
 	}
 	eventIssue := sql.NullInt64{Int64: number, Valid: workstreamRepository != repository.FullName || workstream != number}
+	eventRepository := ""
+	if eventIssue.Valid {
+		eventRepository = repository.FullName
+	}
 	for _, comment := range events {
 		text := eventText(comment.GetCreatedAt().Time, "comment on", issue, comment.GetUser().GetLogin(), comment.GetBody())
-		if err := e.addCommentLeadEvent(ctx, workstreamRepository, workstream, eventIssue, "comment", text, commentRef{id: comment.GetID()}); err != nil {
+		if err := e.addCommentLeadEvent(ctx, workstreamRepository, workstream, eventRepository, eventIssue, "comment", text, commentRef{id: comment.GetID()}); err != nil {
 			return err
 		}
 	}
@@ -579,7 +583,7 @@ func (e *Engine) commentEventsOf(ctx context.Context, repository github.Reposito
 // addCommentEvent adds a comment event for the Lead of the Workstream of the task. what tells the kind of comment.
 func (e *Engine) addCommentEvent(ctx context.Context, task store.Task, issue *gh.Issue, comment commentRef, at time.Time, what, author, body string) error {
 	text := eventText(at, what, issue, author, body) + fmt.Sprintf("\n\nThe state of the task of #%d is %s.", task.Issue, task.State)
-	return e.addCommentLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "comment", text, comment)
+	return e.addCommentLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, task.Repository, sql.NullInt64{Int64: task.Issue, Valid: true}, "comment", text, comment)
 }
 
 // trustedUser tells if login is a trusted user.
@@ -1040,7 +1044,7 @@ func (e *Engine) redispatch(ctx context.Context, repository github.Repository, i
 	if err != nil || moved == 0 {
 		return false, err
 	}
-	err = e.addCommentLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, sql.NullInt64{Int64: int64(issue.GetNumber()), Valid: true}, "dispatch", text, comment)
+	err = e.addCommentLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, task.Repository, sql.NullInt64{Int64: int64(issue.GetNumber()), Valid: true}, "dispatch", text, comment)
 	if err != nil {
 		_, stateErr := e.setTaskState(ctx, store.SetTaskStateParams{State: task.State, ID: task.ID, FromState: "dispatched"})
 		return false, errors.Join(err, stateErr)

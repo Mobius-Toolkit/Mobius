@@ -1074,7 +1074,7 @@ func (e *Engine) messageLead(ctx context.Context, c caller, repository github.Re
 		}
 	}
 	if !sent {
-		if err := e.addLeadEvent(ctx, repository.FullName, input.Workstream, sql.NullInt64{}, kind, text); err != nil {
+		if err := e.addLeadEvent(ctx, repository.FullName, input.Workstream, "", sql.NullInt64{}, kind, text); err != nil {
 			return "", err
 		}
 	}

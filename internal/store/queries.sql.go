@@ -550,26 +550,28 @@ func (q *Queries) AddInboxItem(ctx context.Context, arg AddInboxItemParams) (Inb
 }
 
 const addLeadEvent = `-- name: AddLeadEvent :exec
-INSERT INTO lead_events (repository, workstream, issue, kind, payload, time, chat_message, comment, review)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO lead_events (repository, workstream, issue_repository, issue, kind, payload, time, chat_message, comment, review)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type AddLeadEventParams struct {
-	Repository  string
-	Workstream  int64
-	Issue       sql.NullInt64
-	Kind        string
-	Payload     string
-	Time        string
-	ChatMessage sql.NullInt64
-	Comment     sql.NullInt64
-	Review      sql.NullBool
+	Repository      string
+	Workstream      int64
+	IssueRepository string
+	Issue           sql.NullInt64
+	Kind            string
+	Payload         string
+	Time            string
+	ChatMessage     sql.NullInt64
+	Comment         sql.NullInt64
+	Review          sql.NullBool
 }
 
 func (q *Queries) AddLeadEvent(ctx context.Context, arg AddLeadEventParams) error {
 	_, err := q.db.ExecContext(ctx, addLeadEvent,
 		arg.Repository,
 		arg.Workstream,
+		arg.IssueRepository,
 		arg.Issue,
 		arg.Kind,
 		arg.Payload,
@@ -1730,7 +1732,7 @@ func (q *Queries) FinishPendingAction(ctx context.Context, arg FinishPendingActi
 
 const freeLeadEvents = `-- name: FreeLeadEvents :many
 UPDATE lead_events SET held = 0, held_at = NULL WHERE repository = ? AND workstream = ? AND held = 1
-RETURNING id, repository, workstream, kind, payload, time, delivered_at, chat_message, issue, held, comment, review, held_at
+RETURNING id, repository, workstream, kind, payload, time, delivered_at, chat_message, issue, held, comment, review, held_at, issue_repository
 `
 
 type FreeLeadEventsParams struct {
@@ -1761,6 +1763,7 @@ func (q *Queries) FreeLeadEvents(ctx context.Context, arg FreeLeadEventsParams) 
 			&i.Comment,
 			&i.Review,
 			&i.HeldAt,
+			&i.IssueRepository,
 		); err != nil {
 			return nil, err
 		}
@@ -2324,22 +2327,22 @@ func (q *Queries) GetNewestMemoryVersionID(ctx context.Context, repository strin
 const getNewestStopText = `-- name: GetNewestStopText :one
 SELECT text FROM (
     SELECT payload AS text, time FROM lead_events
-    WHERE lead_events.repository = ?1 AND lead_events.issue = ?2 AND lead_events.kind IN ('stop', 'stale_pull_request')
+    WHERE lead_events.repository = ?1 AND lead_events.issue_repository = ?2 AND lead_events.issue = ?3 AND lead_events.kind IN ('stop', 'stale_pull_request')
     UNION ALL
     SELECT text, time FROM inbox_items
-    WHERE inbox_items.repository = ?3 AND inbox_items.issue = ?2 AND inbox_items.kind IN ('stopped', 'lost')
+    WHERE inbox_items.repository = ?2 AND inbox_items.issue = ?3 AND inbox_items.kind IN ('stopped', 'lost')
 ) ORDER BY time DESC LIMIT 1
 `
 
 type GetNewestStopTextParams struct {
 	WorkstreamRepository string
-	Issue                sql.NullInt64
 	Repository           string
+	Issue                sql.NullInt64
 }
 
 // A stop writes a stop event, a stale_pull_request event, or an Inbox item of the kind stopped or lost.
 func (q *Queries) GetNewestStopText(ctx context.Context, arg GetNewestStopTextParams) (string, error) {
-	row := q.db.QueryRowContext(ctx, getNewestStopText, arg.WorkstreamRepository, arg.Issue, arg.Repository)
+	row := q.db.QueryRowContext(ctx, getNewestStopText, arg.WorkstreamRepository, arg.Repository, arg.Issue)
 	var text string
 	err := row.Scan(&text)
 	return text, err
@@ -2636,20 +2639,26 @@ func (q *Queries) HasDiagnosingHardCIBreak(ctx context.Context, repository strin
 const hasFollowUpEvent = `-- name: HasFollowUpEvent :one
 SELECT EXISTS (
     SELECT 1 FROM lead_events
-    WHERE repository = ?1 AND issue = ?2 AND kind = 'follow_up'
-      AND instr(payload, ', item ' || CAST(?3 AS INTEGER) || ', ') > 0
+    WHERE repository = ?1 AND issue_repository = ?2 AND issue = ?3 AND kind = 'follow_up'
+      AND instr(payload, ', item ' || CAST(?4 AS INTEGER) || ', ') > 0
 )
 `
 
 type HasFollowUpEventParams struct {
-	Repository string
-	Issue      sql.NullInt64
-	Item       int64
+	WorkstreamRepository string
+	Repository           string
+	Issue                sql.NullInt64
+	Item                 int64
 }
 
 // A follow-up event of a Reviewer names its review comment as ", item <id>, ".
 func (q *Queries) HasFollowUpEvent(ctx context.Context, arg HasFollowUpEventParams) (bool, error) {
-	row := q.db.QueryRowContext(ctx, hasFollowUpEvent, arg.Repository, arg.Issue, arg.Item)
+	row := q.db.QueryRowContext(ctx, hasFollowUpEvent,
+		arg.WorkstreamRepository,
+		arg.Repository,
+		arg.Issue,
+		arg.Item,
+	)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
@@ -2658,17 +2667,18 @@ func (q *Queries) HasFollowUpEvent(ctx context.Context, arg HasFollowUpEventPara
 const hasHeldLeadEvent = `-- name: HasHeldLeadEvent :one
 SELECT EXISTS (
     SELECT 1 FROM lead_events
-    WHERE repository = ? AND issue = ? AND held = 1 AND delivered_at IS NULL
+    WHERE repository = ?1 AND issue_repository = ?2 AND issue = ?3 AND held = 1 AND delivered_at IS NULL
 )
 `
 
 type HasHeldLeadEventParams struct {
-	Repository string
-	Issue      sql.NullInt64
+	WorkstreamRepository string
+	Repository           string
+	Issue                sql.NullInt64
 }
 
 func (q *Queries) HasHeldLeadEvent(ctx context.Context, arg HasHeldLeadEventParams) (bool, error) {
-	row := q.db.QueryRowContext(ctx, hasHeldLeadEvent, arg.Repository, arg.Issue)
+	row := q.db.QueryRowContext(ctx, hasHeldLeadEvent, arg.WorkstreamRepository, arg.Repository, arg.Issue)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
@@ -4370,7 +4380,7 @@ func (q *Queries) ListHarnessPauses(ctx context.Context) ([]HarnessPause, error)
 }
 
 const listHeldLeadEventsWithoutQuestion = `-- name: ListHeldLeadEventsWithoutQuestion :many
-SELECT id, repository, workstream, kind, payload, time, delivered_at, chat_message, issue, held, comment, review, held_at FROM lead_events AS event
+SELECT id, repository, workstream, kind, payload, time, delivered_at, chat_message, issue, held, comment, review, held_at, issue_repository FROM lead_events AS event
 WHERE event.repository = ?1 AND event.held = 1 AND event.delivered_at IS NULL
   AND NOT EXISTS (
       SELECT 1 FROM copied_issues AS i
@@ -4413,6 +4423,7 @@ func (q *Queries) ListHeldLeadEventsWithoutQuestion(ctx context.Context, arg Lis
 			&i.Comment,
 			&i.Review,
 			&i.HeldAt,
+			&i.IssueRepository,
 		); err != nil {
 			return nil, err
 		}
@@ -5043,7 +5054,7 @@ func (q *Queries) ListQueuedTasks(ctx context.Context) ([]ListQueuedTasksRow, er
 }
 
 const listReadyLeadEvents = `-- name: ListReadyLeadEvents :many
-SELECT id, repository, workstream, kind, payload, time, delivered_at, chat_message, issue, held, comment, review, held_at FROM lead_events AS event
+SELECT id, repository, workstream, kind, payload, time, delivered_at, chat_message, issue, held, comment, review, held_at, issue_repository FROM lead_events AS event
 WHERE event.repository = ? AND event.workstream = ? AND event.delivered_at IS NULL AND event.held = 0
   AND NOT EXISTS (
       SELECT 1 FROM lead_events AS earlier
@@ -5082,6 +5093,7 @@ func (q *Queries) ListReadyLeadEvents(ctx context.Context, arg ListReadyLeadEven
 			&i.Comment,
 			&i.Review,
 			&i.HeldAt,
+			&i.IssueRepository,
 		); err != nil {
 			return nil, err
 		}
@@ -5394,18 +5406,21 @@ func (q *Queries) ListStepTimesBetween(ctx context.Context, arg ListStepTimesBet
 }
 
 const listStopEvents = `-- name: ListStopEvents :many
-SELECT id, repository, workstream, kind, payload, time, delivered_at, chat_message, issue, held, comment, review, held_at FROM lead_events WHERE repository = ? AND issue = ? AND kind = ? AND payload = ?
+SELECT id, repository, workstream, kind, payload, time, delivered_at, chat_message, issue, held, comment, review, held_at, issue_repository FROM lead_events
+WHERE repository = ?1 AND issue_repository = ?2 AND issue = ?3 AND kind = ?4 AND payload = ?5
 `
 
 type ListStopEventsParams struct {
-	Repository string
-	Issue      sql.NullInt64
-	Kind       string
-	Payload    string
+	WorkstreamRepository string
+	Repository           string
+	Issue                sql.NullInt64
+	Kind                 string
+	Payload              string
 }
 
 func (q *Queries) ListStopEvents(ctx context.Context, arg ListStopEventsParams) ([]LeadEvent, error) {
 	rows, err := q.db.QueryContext(ctx, listStopEvents,
+		arg.WorkstreamRepository,
 		arg.Repository,
 		arg.Issue,
 		arg.Kind,
@@ -5432,6 +5447,7 @@ func (q *Queries) ListStopEvents(ctx context.Context, arg ListStopEventsParams) 
 			&i.Comment,
 			&i.Review,
 			&i.HeldAt,
+			&i.IssueRepository,
 		); err != nil {
 			return nil, err
 		}
@@ -5774,7 +5790,7 @@ func (q *Queries) ListTurnUsageBetween(ctx context.Context, arg ListTurnUsageBet
 }
 
 const listUndeliveredLeadEvents = `-- name: ListUndeliveredLeadEvents :many
-SELECT id, repository, workstream, kind, payload, time, delivered_at, chat_message, issue, held, comment, review, held_at FROM lead_events WHERE repository = ? AND workstream = ? AND delivered_at IS NULL ORDER BY id
+SELECT id, repository, workstream, kind, payload, time, delivered_at, chat_message, issue, held, comment, review, held_at, issue_repository FROM lead_events WHERE repository = ? AND workstream = ? AND delivered_at IS NULL ORDER BY id
 `
 
 type ListUndeliveredLeadEventsParams struct {
@@ -5805,6 +5821,7 @@ func (q *Queries) ListUndeliveredLeadEvents(ctx context.Context, arg ListUndeliv
 			&i.Comment,
 			&i.Review,
 			&i.HeldAt,
+			&i.IssueRepository,
 		); err != nil {
 			return nil, err
 		}

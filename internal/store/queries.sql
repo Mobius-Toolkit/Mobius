@@ -296,8 +296,8 @@ WHERE m.organization = sqlc.arg(organization) AND m.repository = sqlc.arg(reposi
                        WHERE s.organization = m.organization AND s.repository = m.repository AND s.workstream = m.workstream), 0);
 
 -- name: AddLeadEvent :exec
-INSERT INTO lead_events (repository, workstream, issue, kind, payload, time, chat_message, comment, review)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO lead_events (repository, workstream, issue_repository, issue, kind, payload, time, chat_message, comment, review)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: HasLeadEvent :one
 SELECT EXISTS (
@@ -309,7 +309,7 @@ SELECT EXISTS (
 -- name: HasFollowUpEvent :one
 SELECT EXISTS (
     SELECT 1 FROM lead_events
-    WHERE repository = sqlc.arg(repository) AND issue = sqlc.arg(issue) AND kind = 'follow_up'
+    WHERE repository = sqlc.arg(workstream_repository) AND issue_repository = sqlc.arg(repository) AND issue = sqlc.arg(issue) AND kind = 'follow_up'
       AND instr(payload, ', item ' || CAST(sqlc.arg(item) AS INTEGER) || ', ') > 0
 );
 
@@ -377,7 +377,7 @@ UPDATE lead_events SET held = 1, held_at = ? WHERE id = ?;
 -- name: HasHeldLeadEvent :one
 SELECT EXISTS (
     SELECT 1 FROM lead_events
-    WHERE repository = ? AND issue = ? AND held = 1 AND delivered_at IS NULL
+    WHERE repository = sqlc.arg(workstream_repository) AND issue_repository = sqlc.arg(repository) AND issue = sqlc.arg(issue) AND held = 1 AND delivered_at IS NULL
 );
 
 -- name: FreeLeadEvents :many
@@ -388,7 +388,7 @@ RETURNING *;
 -- name: GetNewestStopText :one
 SELECT text FROM (
     SELECT payload AS text, time FROM lead_events
-    WHERE lead_events.repository = sqlc.arg(workstream_repository) AND lead_events.issue = sqlc.arg(issue) AND lead_events.kind IN ('stop', 'stale_pull_request')
+    WHERE lead_events.repository = sqlc.arg(workstream_repository) AND lead_events.issue_repository = sqlc.arg(repository) AND lead_events.issue = sqlc.arg(issue) AND lead_events.kind IN ('stop', 'stale_pull_request')
     UNION ALL
     SELECT text, time FROM inbox_items
     WHERE inbox_items.repository = sqlc.arg(repository) AND inbox_items.issue = sqlc.arg(issue) AND inbox_items.kind IN ('stopped', 'lost')
@@ -521,7 +521,8 @@ ORDER BY stop_notices.id;
 DELETE FROM stop_notices WHERE id = ?;
 
 -- name: ListStopEvents :many
-SELECT * FROM lead_events WHERE repository = ? AND issue = ? AND kind = ? AND payload = ?;
+SELECT * FROM lead_events
+WHERE repository = sqlc.arg(workstream_repository) AND issue_repository = sqlc.arg(repository) AND issue = sqlc.arg(issue) AND kind = sqlc.arg(kind) AND payload = sqlc.arg(payload);
 
 -- name: SetJudgedAt :exec
 UPDATE tasks SET judged_at = ? WHERE id = ?;
