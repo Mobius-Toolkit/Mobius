@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
@@ -195,5 +196,26 @@ func TestAFollowUpThreadOfATaskInAnotherRepositoryWhoseResolveFailsAddsNoSecondF
 	waitForPolls(t, fake)
 	if events := countLeadEvents(t, server, "follow_up"); events != 1 {
 		t.Errorf("follow-up events = %d", events)
+	}
+}
+
+func TestTheFullSlotsActivityNamesATaskIssueOfAnotherRepositoryWithItsRepository(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	prepareAutopilot(fake, true)
+	addTaskIssue(fake, 41, "Add plan model")
+	server := startAutopilot(t, fake, func(cfg *config.Config) { cfg.Roles.Implementer.Max = 1 }, "")
+	liveTaskOf(t, server, 41)
+	fake.AddRepository(garden)
+	fake.AddIssue(garden, 7, "Water the plants")
+	fake.AddForeignSubIssue(shop, 12, garden, 7)
+	since := fullSlotsSince(t, server)
+
+	setClock(server, since.Add(31*time.Minute))
+	testkit.WaitFor(t, func() bool { return len(fullSlotsActivities(t, server)) == 1 })
+
+	want := `Autopilot could not start ` + garden + `#7 "Water the plants".`
+	if item := fullSlotsActivities(t, server)[0]; item.Repository != shop || !strings.Contains(item.Text, want) {
+		t.Errorf("activity = %+v, want text with %q", item, want)
 	}
 }

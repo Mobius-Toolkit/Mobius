@@ -946,7 +946,7 @@ func (e *Engine) autopilotTree(ctx context.Context, repository github.Repository
 			return false, err
 		}
 		if active >= int64(e.config.Roles.Implementer.Max) {
-			return true, e.noteFullSlots(ctx, repository, issue, workstream)
+			return true, e.noteFullSlots(ctx, repository, source, issue, workstream)
 		}
 		if answered {
 			err = e.dispatchAnswer(ctx, source, issue, task)
@@ -960,7 +960,7 @@ func (e *Engine) autopilotTree(ctx context.Context, repository github.Repository
 // noteFullSlots keeps the time when Autopilot first could not start a task because all slots were full. When
 // fullSlotsWait passed since then, it adds one activity on the issue that Autopilot could not start, with the tasks
 // that hold the slots. It writes item_at after the activity, so a failed step runs again on the next poll.
-func (e *Engine) noteFullSlots(ctx context.Context, repository github.Repository, issue *gh.Issue, workstream int64) error {
+func (e *Engine) noteFullSlots(ctx context.Context, repository, source github.Repository, issue *gh.Issue, workstream int64) error {
 	current := e.timeNow().UTC()
 	if err := e.queries.StartFullSlots(ctx, current.Format(time.RFC3339Nano)); err != nil {
 		return err
@@ -980,8 +980,12 @@ func (e *Engine) noteFullSlots(ctx context.Context, repository github.Repository
 	if err != nil {
 		return err
 	}
+	name := ""
+	if source.FullName != repository.FullName {
+		name = source.FullName
+	}
 	var text strings.Builder
-	fmt.Fprintf(&text, "All %d Autopilot slots are full for %s. Autopilot could not start #%d \"%s\". These tasks hold the slots:", e.config.Roles.Implementer.Max, current.Sub(since).Round(time.Minute), issue.GetNumber(), issue.GetTitle())
+	fmt.Fprintf(&text, "All %d Autopilot slots are full for %s. Autopilot could not start %s#%d \"%s\". These tasks hold the slots:", e.config.Roles.Implementer.Max, current.Sub(since).Round(time.Minute), name, issue.GetNumber(), issue.GetTitle())
 	for _, task := range tasks {
 		entered, err := time.Parse(time.RFC3339Nano, task.StateAt)
 		if err != nil {
