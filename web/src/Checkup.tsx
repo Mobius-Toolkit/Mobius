@@ -362,20 +362,21 @@ Keep the default branch of each repository of the organization healthy, so that 
 - Do not take work that belongs to another open Workstream.`;
 
 const skillsWorkstreamRequest = (
-  repository: string,
-) => `Create the Skills Workstream for ${repository}, with the labels \`mobius:skills\` and \`mobius:evergreen\`. It gets the proposals of \`propose_skill\` for ${repository}.
+  issueRepository: string,
+  skillRepository: string,
+) => `Create the Skills Workstream in ${issueRepository}, with the labels \`mobius:skills\` and \`mobius:evergreen\`. It gets the proposals of \`propose_skill\` for ${skillRepository}.
 
 Use this Brief:
 
 **Goal**
-Keep the skills of the agents in ${repository} correct and current. This Workstream has no end.
+Keep the skills of the agents in ${skillRepository} correct and current. This Workstream has no end.
 
 **Scope**
 - Each skill proposal that an agent sends with \`propose_skill\`.
-- The pull requests that add or change a skill in ${repository}.
+- The task issues and the pull requests that add or change a skill are in ${skillRepository}.
 
 **Limits**
-- Change only ${repository}.
+- Change only ${skillRepository}.
 - Do not add a skill that the Owner did not approve.`;
 
 export function CheckupWorkstreams({ organization }: { organization: string }) {
@@ -441,43 +442,43 @@ export function CheckupWorkstreams({ organization }: { organization: string }) {
                 </Button>
               </Row>
             )}
-          </List>
-        </Section>
-      )}
-      {checkup && checkup.skillRepository !== "" && (
-        <Section title={checkup.skillRepository}>
-          <List>
-            {checkup.skillsWorkstream > 0 ? (
-              <LinkRow
-                link={{
-                  to: "/workstreams/$owner/$name/$number",
-                  params: chatParams({
-                    repository: checkup.skillsWorkstreamRepository,
-                    number: checkup.skillsWorkstream,
-                  }),
-                }}
-                title={<span className="whitespace-nowrap">Skills Workstream</span>}
-              >
-                <span className="text-muted-foreground">
-                  {checkup.skillsWorkstreamRepository === checkup.skillRepository
-                    ? ""
-                    : checkup.skillsWorkstreamRepository}
-                  #{checkup.skillsWorkstream}
-                </span>
-              </LinkRow>
-            ) : (
-              <Row className="justify-between">
-                <span className="whitespace-nowrap">Skills Workstream</span>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  pending={creating === "skills"}
-                  onClick={() => create("skills", skillsWorkstreamRequest(checkup.skillRepository))}
+            {checkup.skillRepository !== "" &&
+              (checkup.skillsWorkstream > 0 ? (
+                <LinkRow
+                  link={{
+                    to: "/workstreams/$owner/$name/$number",
+                    params: chatParams({
+                      repository: checkup.skillsWorkstreamRepository,
+                      number: checkup.skillsWorkstream,
+                    }),
+                  }}
+                  title={<span className="whitespace-nowrap">Skills Workstream</span>}
                 >
-                  Create
-                </Button>
-              </Row>
-            )}
+                  <span className="text-muted-foreground">
+                    {checkup.skillsWorkstreamRepository === checkup.issueRepository
+                      ? ""
+                      : checkup.skillsWorkstreamRepository}
+                    #{checkup.skillsWorkstream}
+                  </span>
+                </LinkRow>
+              ) : (
+                <Row className="justify-between">
+                  <span className="whitespace-nowrap">Skills Workstream</span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    pending={creating === "skills"}
+                    onClick={() =>
+                      create(
+                        "skills",
+                        skillsWorkstreamRequest(checkup.issueRepository, checkup.skillRepository),
+                      )
+                    }
+                  >
+                    Create
+                  </Button>
+                </Row>
+              ))}
           </List>
         </Section>
       )}

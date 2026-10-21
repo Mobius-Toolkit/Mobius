@@ -244,15 +244,15 @@ func TestTheCheckupShowsTheSkillRepositoryAndItsSkillsWorkstream(t *testing.T) {
 		t.Errorf("skill repository = %q, Skills Workstream = %q#%d", found.SkillRepository, found.SkillsWorkstreamRepository, found.SkillsWorkstream)
 	}
 
-	github.AddIssue(skills, 5, "Skills")
-	github.AddLabel(skills, 5, "mobius:workstream", "owner")
-	github.AddLabel(skills, 5, "mobius:skills", "owner")
+	github.AddIssue(shop, 5, "Skills")
+	github.AddLabel(shop, 5, "mobius:workstream", "owner")
+	github.AddLabel(shop, 5, "mobius:skills", "owner")
 
 	found = testkit.WaitForValue(t, func() (checkup, bool) {
 		found := getCheckup(t, server, "owner")
 		return found, found.SkillsWorkstream != 0
 	})
-	if found.SkillsWorkstreamRepository != skills || found.SkillsWorkstream != 5 {
+	if found.SkillsWorkstreamRepository != shop || found.SkillsWorkstream != 5 {
 		t.Errorf("Skills Workstream = %q#%d", found.SkillsWorkstreamRepository, found.SkillsWorkstream)
 	}
 }
