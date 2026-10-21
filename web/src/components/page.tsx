@@ -25,7 +25,7 @@ export function PageHeader({
   return (
     <div className="hidden items-center gap-2 md:flex">
       {back && <BackButton parent={back} onBack={onBack} />}
-      <h2 className="min-w-0 grow truncate text-base font-semibold">{title}</h2>
+      <h2 className="line-clamp-2 min-w-0 grow text-base font-semibold wrap-anywhere">{title}</h2>
       {children}
     </div>
   );

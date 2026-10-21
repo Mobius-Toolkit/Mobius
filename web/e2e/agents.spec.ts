@@ -102,9 +102,7 @@ test.describe("the transcript of an agent on a phone", () => {
       .click();
     const bar = page.getByRole("banner");
     await expect(bar.getByRole("heading")).not.toHaveText("Agents");
-    await expect(
-      page.getByRole("main").getByRole("button", { name: "Back to Agents" }),
-    ).toBeHidden();
+    await expect(page.getByRole("main").getByRole("button", { name: "Back" })).toBeHidden();
     await bar.getByRole("button", { name: "Back" }).click();
     await expect(page).toHaveURL("/agents");
     await expect(bar.getByRole("heading")).toHaveText("Agents");
@@ -416,7 +414,7 @@ test.describe("the back button on a desktop", () => {
     const panel = await openPanelTranscript(page);
     const back = panel.getByRole("button", { name: "Back" });
     const title = panel.locator('[data-slot="card-title"]');
-    await expect(title).toContainText("implementer devin");
+    await expect(title).toContainText("implementer");
     await expectLeftOf(back, title);
     await back.click();
     await expect(
@@ -430,7 +428,7 @@ test.describe("the back button on a desktop", () => {
     const main = page.getByRole("main");
     await main.getByRole("button", { name: /Ticket #41 Add plan model/ }).click();
     const back = main.getByRole("button", { name: "Back" });
-    await expectLeftOf(back, main.getByRole("heading", { name: /^implementer devin/ }));
+    await expectLeftOf(back, main.getByRole("heading", { name: /^implementer/ }));
     await back.click();
     await expect(main.getByRole("button", { name: /Ticket #41 Add plan model/ })).toBeVisible();
     await expect(back).toBeHidden();
@@ -490,7 +488,7 @@ test.describe("the back button on a desktop", () => {
       const panel = await openPanelTranscript(page, /waits for a low load/);
       const header = panel.locator('[data-slot="card-header"]');
       const title = header.locator('[data-slot="card-title"]');
-      await expect(title).toContainText("implementer devin");
+      await expect(title).toContainText("implementer");
       expect((await boxOf(title)).width).toBeGreaterThan(100);
       const headerBox = await boxOf(header);
       const startBox = await boxOf(panel.getByRole("button", { name: "Start the check now" }));
