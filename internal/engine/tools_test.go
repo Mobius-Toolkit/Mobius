@@ -82,7 +82,7 @@ func TestTheLeadGetsTheMobiusURLAndOnlyTheLeadTools(t *testing.T) {
 	_, text := leadReply(t, server)
 
 	// The MCP SDK gives the tools in name order.
-	want := []string{"approve_pull_request", "ask", "close_question", "close_task", "comment_pull_request", "create_issue", "create_workstream", "decline", "edit_brief", "hold_event", "list_tasks", "mark_ready", "message_lead", "move_task", "read_issue", "reply_thread", "send_details", "send_researcher_details", "start_fix_round", "start_implementer", "start_researcher", "stop_researcher", "stop_task", "tell_owner", "withdraw"}
+	want := []string{"approve_pull_request", "ask", "close_question", "close_task", "comment_pull_request", "create_issue", "create_workstream", "decline", "edit_brief", "hold_event", "list_tasks", "mark_ready", "message_lead", "move_task", "propose_skill", "read_issue", "reply_thread", "send_details", "send_researcher_details", "start_fix_round", "start_implementer", "start_researcher", "stop_researcher", "stop_task", "tell_owner", "withdraw"}
 	if got := toolNames(t, text); !reflect.DeepEqual(got, want) {
 		t.Errorf("tools = %q", got)
 	}
@@ -116,14 +116,14 @@ func TestEachRoleGetsOnlyItsOwnTools(t *testing.T) {
 		spec engine.Spec
 		want []string
 	}{
-		{coordinator, []string{"ask", "create_workstream", "message_lead", "move_issue", "start_researcher", "tell_curator", "withdraw"}},
-		{triager, []string{"create_workstream", "message_lead", "start_researcher"}},
-		{reviewer, []string{"submit_review"}},
-		{implementer, []string{"cannot_do", "reply_thread"}},
-		{researcher, []string{}},
-		{judge, []string{"submit_verdicts"}},
-		{curator, []string{"edit_memory"}},
-		{diagnoser, []string{"report_failure"}},
+		{coordinator, []string{"ask", "create_workstream", "message_lead", "move_issue", "propose_skill", "start_researcher", "tell_curator", "withdraw"}},
+		{triager, []string{"create_workstream", "message_lead", "propose_skill", "start_researcher"}},
+		{reviewer, []string{"propose_skill", "submit_review"}},
+		{implementer, []string{"cannot_do", "propose_skill", "reply_thread"}},
+		{researcher, []string{"propose_skill"}},
+		{judge, []string{"propose_skill", "submit_verdicts"}},
+		{curator, []string{"edit_memory", "propose_skill"}},
+		{diagnoser, []string{"propose_skill", "report_failure"}},
 	} {
 		session := run(t, server, c.spec, "List the tools")
 		if got := toolNames(t, reply(t, server, session)); !reflect.DeepEqual(got, c.want) {
@@ -578,7 +578,7 @@ func TestCreateWorkstreamAddsTheLabelsOfTheCoordinatorChat(t *testing.T) {
 	if created.Result != "Created the Workstream #13." || plain.Result != "Created the Workstream #14." {
 		t.Errorf("actions = %+v, %+v", created, plain)
 	}
-	if got := reply(t, server, refused); got != `error: The label "mobius:ready" is not allowed. Use mobius:evergreen or mobius:maintenance.` {
+	if got := reply(t, server, refused); got != `error: The label "mobius:ready" is not allowed. The allowed labels are mobius:evergreen, mobius:maintenance, mobius:skills.` {
 		t.Errorf("reply = %q", got)
 	}
 	if labels := fake.Labels(shop, 13); !slices.Contains(labels, "mobius:maintenance") || slices.Contains(labels, "mobius:ready") {

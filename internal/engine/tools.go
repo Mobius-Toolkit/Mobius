@@ -50,8 +50,12 @@ func Refused(err error) bool {
 	return errors.As(err, &r)
 }
 
-// tools gives the Mobius tools of the Role of c. Each Role gets only its own tools.
+// tools gives the Mobius tools of the Role of c. Each Role gets its own tools and propose_skill.
 func (e *Engine) tools(c caller) []mcp.Tool {
+	return append(e.roleTools(c), e.proposeSkillTool(c))
+}
+
+func (e *Engine) roleTools(c caller) []mcp.Tool {
 	switch c.role {
 	case LeadRole:
 		return []mcp.Tool{
@@ -397,13 +401,15 @@ var workstreamProperties = map[string]any{
 	"brief": map[string]any{"type": "string", "minLength": 1, "description": "The Brief: the goal, the scope, and the limits of the Workstream."},
 }
 
+var coordinatorWorkstreamLabels = []string{evergreenLabel, maintenanceLabel, skillsLabel}
+
 var coordinatorWorkstreamProperties = map[string]any{
 	"title": workstreamProperties["title"],
 	"brief": workstreamProperties["brief"],
 	"labels": map[string]any{
 		"type":        "array",
-		"items":       map[string]any{"type": "string", "enum": []string{evergreenLabel, maintenanceLabel}},
-		"description": "More labels for the Workstream issue. Only mobius:evergreen and mobius:maintenance are allowed.",
+		"items":       map[string]any{"type": "string", "enum": coordinatorWorkstreamLabels},
+		"description": "More labels for the Workstream issue. Only mobius:evergreen, mobius:maintenance and mobius:skills are allowed.",
 	},
 }
 
@@ -1002,8 +1008,8 @@ func checkWorkstream(c caller, input workstreamInput) error {
 		return refuse("Only the Coordinator adds labels to a Workstream.")
 	}
 	for _, label := range input.Labels {
-		if label != evergreenLabel && label != maintenanceLabel {
-			return refuse("The label %q is not allowed. Use %s or %s.", label, evergreenLabel, maintenanceLabel)
+		if !slices.Contains(coordinatorWorkstreamLabels, label) {
+			return refuse("The label %q is not allowed. The allowed labels are %s.", label, strings.Join(coordinatorWorkstreamLabels, ", "))
 		}
 	}
 	return nil
