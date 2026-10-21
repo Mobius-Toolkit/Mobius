@@ -19,6 +19,7 @@ import {
 import { waitForEvergreen } from "./evergreen.js";
 import { png } from "./images.js";
 import { countSamples, fakeMicrophone } from "./microphone.js";
+import { boardTasks, routeTasks, tasksRoute } from "./tasks.js";
 import { inboxRoute, longTitle, longTitleItem, routeInboxItems, stoppedItems } from "./stops.js";
 
 const viewports = {
@@ -194,6 +195,16 @@ test("screenshots", async ({ page }) => {
     main.getByText("needs you"),
   ];
   await screenshot(page, "workstreams", "/workstreams", workstreamsReady);
+  await routeTasks(page, boardTasks);
+  await screenshot(page, "tasks", "/tasks", (device) => [
+    chatCount,
+    ...frame(device, drain, { organizations: true }),
+    main.getByRole("region", { name: "Queued" }).getByText("Add a retry to the order sync"),
+    main.getByRole("link", { name: "PR #44" }),
+    main.getByText("fix 1 · review 2"),
+    main.getByRole("region", { name: "Working" }),
+  ]);
+  await page.unroute(tasksRoute);
   // The open menu hides the other elements from the accessibility tree, so the open step waits for them.
   await screenshot(
     page,

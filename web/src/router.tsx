@@ -15,6 +15,7 @@ import {
   InboxLayoutPage,
   MemoryPage,
   MemoryRepositoriesPage,
+  TasksPage,
   CoordinatorChatPage,
   UsagePage,
   WorkstreamsPage,
@@ -46,6 +47,12 @@ const workstreamsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/workstreams",
   component: WorkstreamsPage,
+});
+
+const tasksRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/tasks",
+  component: TasksPage,
 });
 
 const coordinatorChatRoute = createRoute({
@@ -161,6 +168,7 @@ const routeTree = rootRoute.addChildren([
   unknownRoute,
   coordinatorChatRoute,
   workstreamsRoute,
+  tasksRoute,
   chatRoute,
   inboxRoute.addChildren([inboxTodoRoute, inboxActivityRoute]),
   agentsRoute,
