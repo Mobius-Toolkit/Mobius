@@ -347,7 +347,7 @@ export function MessageInput({
               send();
             }
           }}
-          className="chat-text! max-h-40 min-h-9 w-full resize-none rounded-none border-0 px-1 py-1.5 focus-visible:ring-0 dark:bg-transparent"
+          className="max-h-40 min-h-9 w-full resize-none rounded-none border-0 px-1 py-1.5 focus-visible:ring-0 dark:bg-transparent"
         />
         <div className="flex items-center justify-between gap-2">
           {withImages && (
