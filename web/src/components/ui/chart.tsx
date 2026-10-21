@@ -244,7 +244,12 @@ function ChartTooltipContent({
   );
 }
 
-const ChartLegend = RechartsPrimitive.Legend;
+// Recharts reads the height of the legend only when the legend payload or the measured box changes,
+// not when the width of the chart changes. A new key measures the legend again at the final width.
+function ChartLegend(props: React.ComponentProps<typeof RechartsPrimitive.Legend>) {
+  const width = RechartsPrimitive.useChartWidth();
+  return <RechartsPrimitive.Legend key={width} {...props} />;
+}
 
 function ChartLegendContent({
   className,
