@@ -90,7 +90,7 @@ func TestARestartGivesTheWaitingEventToTheLead(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	dataDir := t.TempDir()
-	seed(t, dataDir, `INSERT INTO lead_events (repository, workstream, issue, kind, payload, time) VALUES ('owner/shop', 12, 41, 'comment', 'A comment before the restart.', '2026-10-04T10:00:00Z')`)
+	seed(t, dataDir, `INSERT INTO lead_events (repository, workstream, issue_repository, issue, kind, payload, time) VALUES ('owner/shop', 12, 'owner/shop', 41, 'comment', 'A comment before the restart.', '2026-10-04T10:00:00Z')`)
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
 	testkit.InstallFakeAgent(t, dataDir, options+"[[prompts]]\nreply = [\"Seen\"]\n")
@@ -148,7 +148,7 @@ func TestARestartAfterADrainOfAPausedLeadGivesTheWaitingEventToANewLeadAndTheTim
 		`INSERT INTO sessions (id, role, harness, model, organization, repository, workstream_repository, workstream, issue, parent, started_at)
 		 VALUES (1, 'lead_chat', 'claude-code', 'sonnet', 'owner', 'owner/shop', 'owner/shop', 12, NULL, NULL, '2026-10-04T10:00:00Z')`,
 		`INSERT INTO harness_pauses (harness, paused_until) VALUES ('claude-code', '`+until+`')`,
-		`INSERT INTO lead_events (repository, workstream, issue, kind, payload, time) VALUES ('owner/shop', 12, 41, 'comment', 'A comment before the restart.', '2026-10-04T10:00:00Z')`)
+		`INSERT INTO lead_events (repository, workstream, issue_repository, issue, kind, payload, time) VALUES ('owner/shop', 12, 'owner/shop', 41, 'comment', 'A comment before the restart.', '2026-10-04T10:00:00Z')`)
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
 	testkit.InstallFakeAgent(t, dataDir, options+"[[prompts]]\nreply = [\"Seen\"]\n")

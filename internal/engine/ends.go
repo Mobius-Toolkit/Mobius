@@ -119,7 +119,7 @@ func (e *Engine) countCheckErrors(ctx context.Context, repository github.Reposit
 	if err != nil {
 		return err
 	}
-	return e.addLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "check_errors", time.Now().UTC().Format(timeFormat)+" "+text)
+	return e.addLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, task.Repository, sql.NullInt64{Int64: task.Issue, Valid: true}, "check_errors", time.Now().UTC().Format(timeFormat)+" "+text)
 }
 
 // checkTask acts on the state of the issue and the pull request of the task, and gives the pull request when the task
@@ -458,7 +458,7 @@ func (e *Engine) endPullRequest(ctx context.Context, repository github.Repositor
 		what = "merged"
 	}
 	text := fmt.Sprintf("%s end of #%d \"%s\": pull request #%d %s.", time.Now().UTC().Format(timeFormat), task.Issue, issue.GetTitle(), pullRequest.GetNumber(), what)
-	return e.addLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "end", text)
+	return e.addLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, task.Repository, sql.NullInt64{Int64: task.Issue, Valid: true}, "end", text)
 }
 
 // labelRemoved stops the task when a person removed label from its issue, and tells if it did. The pull request and
