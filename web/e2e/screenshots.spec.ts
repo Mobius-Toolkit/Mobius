@@ -27,6 +27,7 @@ const viewports = {
 };
 
 // Writes screenshots/<name>-desktop.png and screenshots/<name>-phone.png.
+// The phone image comes from a browser with a coarse pointer, as on a real phone.
 async function screenshot(
   page: Page,
   name: string,
@@ -35,7 +36,9 @@ async function screenshot(
   open?: (device: string) => Promise<void>,
   close?: () => Promise<void>,
 ) {
+  const session = await page.context().newCDPSession(page);
   for (const [device, size] of Object.entries(viewports)) {
+    await session.send("Emulation.setTouchEmulationEnabled", { enabled: device === "phone" });
     await page.setViewportSize(size);
     await page.goto(path);
     await open?.(device);
@@ -48,6 +51,8 @@ async function screenshot(
     });
     await close?.();
   }
+  await session.send("Emulation.setTouchEmulationEnabled", { enabled: false });
+  await session.detach();
 }
 
 // Sets the queue reason of the live Implementer session of #41.
