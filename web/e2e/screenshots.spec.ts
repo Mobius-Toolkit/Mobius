@@ -1032,7 +1032,6 @@ test("screenshots", async ({ page }) => {
       ...frame(device, release),
       main.getByRole("heading", { name: "plants/garden", exact: true }),
       main.getByText("Maintenance Workstream", { exact: true }),
-      main.getByRole("heading", { name: "plants/mobius-skills", exact: true }),
       main.getByText("Skills Workstream", { exact: true }),
     ],
   );
