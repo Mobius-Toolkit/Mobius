@@ -24,7 +24,7 @@ export const historyTableText = "Add a table with the history of the plan prices
 export const unknownText = "Stop the work.";
 
 export const createTitle = 'Create the Workstream "Gift cards"';
-export const leadTitle = "Message to the Lead of #14";
+export const leadTitle = "Message to the Lead of #14 Early renewals";
 export const unknownTitle = "Message to the Lead of #9999";
 
 export async function ask(page: Page, text: string) {
@@ -145,7 +145,7 @@ export const triagerItem = {
   issue: 61,
   kind: "approval",
   time: triagerAction.time,
-  title: "Message to the Lead of #12",
+  title: "Message to the Lead of #12 Integrate loyalty plans",
   reason: "Waits for your approval",
   text: "workstream: 12",
   link: "https://github.com/owner/shop/issues/61",

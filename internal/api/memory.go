@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"math"
 	"net/http"
 	"slices"
 
@@ -10,7 +11,10 @@ import (
 
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
+	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
+
+const memoryPageSize = 20
 
 // MemoryVersion is a version of the memory file of a repository.
 type MemoryVersion struct {
@@ -24,6 +28,8 @@ type MemoryVersion struct {
 	Reason string `gork:"reason"`
 	// Text is the text of the memory file in this version
 	Text string `gork:"text"`
+	// Before is the text of the previous version, and empty for the oldest version of the repository
+	Before string `gork:"before"`
 	// Revertible tells if the revert of the version is possible
 	Revertible bool `gork:"revertible"`
 	// RevertProblem is the reason why the revert is not possible, and empty when it is possible
@@ -38,33 +44,56 @@ type ListMemoryVersionsRequest struct {
 		// Name is the name of the repository
 		Name string `gork:"name"`
 	}
+	Query struct {
+		// Before is the id of a version. The page has at most 20 versions with an id below Before. With no Before,
+		// the page has the newest 20 versions
+		Before int64 `gork:"before"`
+	}
+}
+
+// MemoryVersionsPage is a page of the versions of the memory file of a repository.
+type MemoryVersionsPage struct {
+	// Versions are the versions of the page, the newest first
+	Versions []MemoryVersion `gork:"versions"`
+	// Older is true when the repository has versions before the last version of the page
+	Older bool `gork:"older"`
 }
 
 // ListMemoryVersionsResponse is the response of ListMemoryVersions.
 type ListMemoryVersionsResponse struct {
-	Body Envelope[[]MemoryVersion]
+	Body Envelope[MemoryVersionsPage]
 }
 
-// ListMemoryVersions returns the versions of the memory file of the repository, the newest first, each with the result
-// of the check of its revert. The first version is the current text of the file. It returns 404 when the repository is not a repository of Mobius.
+// ListMemoryVersions returns a page of the versions of the memory file of the repository, the newest first, each with the
+// result of the check of its revert. The first version of the first page is the current text of the file. It returns 404
+// when the repository is not a repository of Mobius.
 func (h *handlers) ListMemoryVersions(ctx context.Context, req ListMemoryVersionsRequest) (*ListMemoryVersionsResponse, error) {
 	repository := req.Path.Owner + "/" + req.Path.Name
 	if err := h.knownRepository(repository); err != nil {
 		return nil, err
 	}
-	rows, err := h.queries.ListMemoryVersions(ctx, repository)
+	before := req.Query.Before
+	if before == 0 {
+		before = math.MaxInt64
+	}
+	// One more row than the page tells if older versions exist, and gives the text before the last version.
+	rows, err := h.queries.ListMemoryVersionsPage(ctx, store.ListMemoryVersionsPageParams{Repository: repository, ID: before, Limit: memoryPageSize + 1})
 	if err != nil {
 		return nil, err
 	}
-	versions := make([]MemoryVersion, 0, len(rows))
-	for _, row := range rows {
+	page := MemoryVersionsPage{Older: len(rows) > memoryPageSize, Versions: []MemoryVersion{}}
+	for i, row := range rows[:min(len(rows), memoryPageSize)] {
 		problem, err := h.engine.MemoryRevertProblem(ctx, repository, row.ID)
 		if err != nil {
 			return nil, err
 		}
-		versions = append(versions, MemoryVersion{ID: row.ID, Time: row.Time, Author: row.Author, Reason: row.Reason, Text: row.Text, Revertible: problem == "", RevertProblem: problem})
+		version := MemoryVersion{ID: row.ID, Time: row.Time, Author: row.Author, Reason: row.Reason, Text: row.Text, Revertible: problem == "", RevertProblem: problem}
+		if i+1 < len(rows) {
+			version.Before = rows[i+1].Text
+		}
+		page.Versions = append(page.Versions, version)
 	}
-	return &ListMemoryVersionsResponse{Body: Envelope[[]MemoryVersion]{Data: versions}}, nil
+	return &ListMemoryVersionsResponse{Body: Envelope[MemoryVersionsPage]{Data: page}}, nil
 }
 
 // SaveMemoryRequest is the request of SaveMemory.

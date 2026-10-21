@@ -90,6 +90,38 @@ func (g *FakeGitHub) getBranchRef(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+type branchKey struct {
+	repository, branch string
+}
+
+// RefuseBranchDeletion makes the deletion of the branch refuse with reason, for example for a rule of the repository.
+// An empty reason lifts the refusal.
+func (g *FakeGitHub) RefuseBranchDeletion(repository, branch, reason string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.branchDeletionRefusals[branchKey{repository, branch}] = reason
+}
+
+// deleteBranchRef deletes the branch in the git repository of the repository. It gives status 422 for a branch that
+// does not exist and for a branch set to refuse by RefuseBranchDeletion.
+func (g *FakeGitHub) deleteBranchRef(w http.ResponseWriter, r *http.Request) {
+	branch := r.PathValue("branch")
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if reason := g.branchDeletionRefusals[branchKey{repository(r), branch}]; reason != "" {
+		message(w, http.StatusUnprocessableEntity, reason)
+		return
+	}
+	remote := g.Remote(repository(r))
+	ref := "refs/heads/" + branch
+	if err := gitCommand(remote, "rev-parse", "--verify", "--quiet", ref).Run(); err != nil {
+		message(w, http.StatusUnprocessableEntity, "Reference does not exist")
+		return
+	}
+	g.git(remote, "update-ref", "-d", ref)
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // UnlistPullRequests makes the list of the issues not show the pull requests, as GitHub does for a short time after a
 // push, or shows them again.
 func (g *FakeGitHub) UnlistPullRequests(unlisted bool) {

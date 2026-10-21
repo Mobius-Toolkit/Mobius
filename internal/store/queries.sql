@@ -469,6 +469,14 @@ SELECT * FROM tasks
 WHERE repository = ? AND issue = ? AND state = 'ended' AND branch IS NOT NULL AND pull_request IS NOT NULL
 ORDER BY id DESC LIMIT 1;
 
+-- name: ListBranchesToCheck :many
+SELECT * FROM tasks
+WHERE state = 'ended' AND branch IS NOT NULL AND pull_request IS NOT NULL AND branch_checked = 0
+ORDER BY id;
+
+-- name: SetTaskBranchChecked :exec
+UPDATE tasks SET branch_checked = 1 WHERE id = ?;
+
 -- name: GetLastTaskState :one
 SELECT state FROM task_states WHERE task = ? ORDER BY id DESC LIMIT 1;
 
@@ -659,7 +667,7 @@ WHERE repository = sqlc.arg(repository) AND number = sqlc.arg(number)
        OR evergreen != CAST(sqlc.arg(evergreen) AS BOOLEAN) OR skills != CAST(sqlc.arg(skills) AS BOOLEAN));
 
 -- name: GetCopiedWorkstream :one
-SELECT body, CAST(evergreen AS BOOLEAN) AS evergreen FROM copied_workstreams WHERE repository = ? AND number = ?;
+SELECT title, body, CAST(evergreen AS BOOLEAN) AS evergreen FROM copied_workstreams WHERE repository = ? AND number = ?;
 
 -- name: UpdateCopiedBlockerTitles :execrows
 UPDATE copied_blockers SET blocker_workstream_title = sqlc.arg(title)
@@ -774,8 +782,8 @@ SELECT issue FROM triager_turns WHERE repository = ? ORDER BY issue;
 -- name: EndTriagerTurn :exec
 DELETE FROM triager_turns WHERE repository = ? AND issue = ?;
 
--- name: ListMemoryVersions :many
-SELECT id, time, author, reason, text FROM memory_versions WHERE repository = ? ORDER BY id DESC;
+-- name: ListMemoryVersionsPage :many
+SELECT id, time, author, reason, text FROM memory_versions WHERE repository = ? AND id < ? ORDER BY id DESC LIMIT ?;
 
 -- name: GetMemoryVersion :one
 SELECT id, repository, time, author, text FROM memory_versions WHERE id = ?;

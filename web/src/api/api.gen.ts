@@ -767,45 +767,6 @@ export interface EnvelopeArrayInboxItem {
 }
 
 /**
- * Author is curator or owner
- */
-export type MemoryVersionAuthor = typeof MemoryVersionAuthor[keyof typeof MemoryVersionAuthor];
-
-
-export const MemoryVersionAuthor = {
-  curator: 'curator',
-  owner: 'owner',
-} as const;
-
-/**
- * MemoryVersion is a version of the memory file of a repository.
- */
-export interface MemoryVersion {
-  /** Author is curator or owner */
-  author: MemoryVersionAuthor;
-  /** ID is the id of the version */
-  id: number;
-  /** Reason is the type of change and the evidence of the Curator, "Revert of version N" for a revert, and empty for an edit of the Owner */
-  reason: string;
-  /** RevertProblem is the reason why the revert is not possible, and empty when it is possible */
-  revert_problem: string;
-  /** Revertible tells if the revert of the version is possible */
-  revertible: boolean;
-  /** Text is the text of the memory file in this version */
-  text: string;
-  /** Time is the time when Mobius saved the version, in RFC 3339 format */
-  time: string;
-}
-
-/**
- * Envelope is the body of each success response.
- */
-export interface EnvelopeArrayMemoryVersion {
-  /** Data is the payload of the response */
-  data: MemoryVersion[];
-}
-
-/**
  * NeedsHuman is an open task issue with mobius:needs-human or mobius:question.
  */
 export interface NeedsHuman {
@@ -1079,6 +1040,57 @@ export interface ManifestForm {
 export interface EnvelopeManifestForm {
   /** Data is the payload of the response */
   data: ManifestForm;
+}
+
+/**
+ * Author is curator or owner
+ */
+export type MemoryVersionAuthor = typeof MemoryVersionAuthor[keyof typeof MemoryVersionAuthor];
+
+
+export const MemoryVersionAuthor = {
+  curator: 'curator',
+  owner: 'owner',
+} as const;
+
+/**
+ * MemoryVersion is a version of the memory file of a repository.
+ */
+export interface MemoryVersion {
+  /** Author is curator or owner */
+  author: MemoryVersionAuthor;
+  /** Before is the text of the previous version, and empty for the oldest version of the repository */
+  before: string;
+  /** ID is the id of the version */
+  id: number;
+  /** Reason is the type of change and the evidence of the Curator, "Revert of version N" for a revert, and empty for an edit of the Owner */
+  reason: string;
+  /** RevertProblem is the reason why the revert is not possible, and empty when it is possible */
+  revert_problem: string;
+  /** Revertible tells if the revert of the version is possible */
+  revertible: boolean;
+  /** Text is the text of the memory file in this version */
+  text: string;
+  /** Time is the time when Mobius saved the version, in RFC 3339 format */
+  time: string;
+}
+
+/**
+ * MemoryVersionsPage is a page of the versions of the memory file of a repository.
+ */
+export interface MemoryVersionsPage {
+  /** Older is true when the repository has versions before the last version of the page */
+  older: boolean;
+  /** Versions are the versions of the page, the newest first */
+  versions: MemoryVersion[];
+}
+
+/**
+ * Envelope is the body of each success response.
+ */
+export interface EnvelopeMemoryVersionsPage {
+  /** Data is the payload of the response */
+  data: MemoryVersionsPage;
 }
 
 /**
@@ -1653,6 +1665,13 @@ export type UserCallbackParams = {
  * Code is the code that GitHub exchanges for a user token
  */
 code: string;
+};
+
+export type ListMemoryVersionsParams = {
+/**
+ * Before is the id of a version. The page has at most 20 versions with an id below Before. With no Before, the page has the newest 20 versions
+ */
+before?: number;
 };
 
 export type GetUsageParams = {
@@ -4403,7 +4422,7 @@ export const startIssue = async (owner: string,
 
 
 export type listMemoryVersionsResponse200 = {
-  data: EnvelopeArrayMemoryVersion
+  data: EnvelopeMemoryVersionsPage
   status: 200
 }
 
@@ -4442,21 +4461,30 @@ export type listMemoryVersionsResponseError = (listMemoryVersionsResponse400 | l
 export type listMemoryVersionsResponse = (listMemoryVersionsResponseSuccess | listMemoryVersionsResponseError)
 
 export const getListMemoryVersionsUrl = (owner: string,
-    name: string,) => {
+    name: string,
+    params?: ListMemoryVersionsParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/repositories/${owner}/${name}/memory`
+  return stringifiedParams.length > 0 ? `/api/repositories/${owner}/${name}/memory?${stringifiedParams}` : `/api/repositories/${owner}/${name}/memory`
 }
 
 /**
- * ListMemoryVersions returns the versions of the memory file of the repository, the newest first, each with the result of the check of its revert. The first version is the current text of the file. It returns 404 when the repository is not a repository of Mobius.
+ * ListMemoryVersions returns a page of the versions of the memory file of the repository, the newest first, each with the result of the check of its revert. The first version of the first page is the current text of the file. It returns 404 when the repository is not a repository of Mobius.
  */
 export const listMemoryVersions = async (owner: string,
-    name: string, ): Promise<listMemoryVersionsResponse> => {
+    name: string,
+    params?: ListMemoryVersionsParams, ): Promise<listMemoryVersionsResponse> => {
 
-  const res = await fetch(getListMemoryVersionsUrl(owner,name),
+  const res = await fetch(getListMemoryVersionsUrl(owner,name,params),
   {
 
     method: 'GET'

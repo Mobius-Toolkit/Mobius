@@ -73,7 +73,7 @@ test("the Owner edits the memory file, sees the 200-line error, and reverts the 
     await fetch(url, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: "Other text.\\n", base_version: listed.data[0].id }),
+      body: JSON.stringify({ text: "Other text.\\n", base_version: listed.data.versions[0].id }),
     });
   })()`);
   await main.getByRole("button", { name: "Save" }).click();
@@ -115,26 +115,31 @@ test("a hunk has one unchanged line above and below the change, and a separator 
     (route) =>
       route.fulfill({
         json: {
-          data: [
-            {
-              id: 2,
-              author: "owner",
-              reason: "",
-              revert_problem: "",
-              revertible: true,
-              time: "2026-09-28T09:00:00Z",
-              text: text("a1", "a2", "a3 new", "a4", "a5", "a6", "a7", "a8 new", "a9"),
-            },
-            {
-              id: 1,
-              author: "owner",
-              reason: "",
-              revert_problem: "",
-              revertible: true,
-              time: "2026-09-28T08:00:00Z",
-              text: text("a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8", "a9"),
-            },
-          ],
+          data: {
+            older: false,
+            versions: [
+              {
+                id: 2,
+                author: "owner",
+                reason: "",
+                revert_problem: "",
+                revertible: true,
+                time: "2026-09-28T09:00:00Z",
+                text: text("a1", "a2", "a3 new", "a4", "a5", "a6", "a7", "a8 new", "a9"),
+                before: text("a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8", "a9"),
+              },
+              {
+                id: 1,
+                author: "owner",
+                reason: "",
+                revert_problem: "",
+                revertible: true,
+                time: "2026-09-28T08:00:00Z",
+                text: text("a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8", "a9"),
+                before: "",
+              },
+            ],
+          },
         },
       }),
   );
@@ -216,7 +221,7 @@ const wideText = (tail: string) =>
     tail,
   );
 
-const version = (id: number, reason: string, memory: string) => ({
+const version = (id: number, reason: string, memory: string, before: string) => ({
   id,
   author: "owner",
   reason,
@@ -224,6 +229,7 @@ const version = (id: number, reason: string, memory: string) => ({
   revertible: true,
   time: `2026-09-28T0${id}:00:00Z`,
   text: memory,
+  before,
 });
 
 for (const viewport of [
@@ -240,11 +246,24 @@ for (const viewport of [
       (route) =>
         route.fulfill({
           json: {
-            data: [
-              version(3, longSentence, wideText("The last line changed.")),
-              version(2, "The reason of this version is short.", wideText("The last line.")),
-              version(1, "", text("Keep this file short.")),
-            ],
+            data: {
+              older: false,
+              versions: [
+                version(
+                  3,
+                  longSentence,
+                  wideText("The last line changed."),
+                  wideText("The last line."),
+                ),
+                version(
+                  2,
+                  "The reason of this version is short.",
+                  wideText("The last line."),
+                  text("Keep this file short."),
+                ),
+                version(1, "", text("Keep this file short."), ""),
+              ],
+            },
           },
         }),
     );
@@ -274,3 +293,34 @@ for (const viewport of [
     expect(overflow.scrollWidth).toBeGreaterThan(overflow.clientWidth);
   });
 }
+
+test("the Owner loads the older versions of the memory file in pages", async ({ page }) => {
+  const main = page.getByRole("main");
+  const url = "/api/repositories/plants/garden/memory";
+  const saved: number = await page.evaluate(`(async () => {
+    const count = (await fetch("${url}").then((response) => response.json())).data.versions.length;
+    for (let i = 1; i <= 22; i++) {
+      const listed = await fetch("${url}").then((response) => response.json());
+      await fetch("${url}", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: "Paged version " + i + "\\n", base_version: listed.data.versions[0].id }),
+      });
+    }
+    return count;
+  })()`);
+
+  await page.goto("/settings/memory/plants/garden");
+  const items = main.locator("li");
+  const older = main.getByRole("button", { name: "Show older versions" });
+  await expect(items).toHaveCount(20);
+  await expect(older).toBeVisible();
+  await expect(items.last().locator("del")).toHaveText("2");
+  await expect(items.last().locator("ins")).toHaveText("3");
+
+  await older.click();
+  await expect(items).toHaveCount(saved + 22);
+  await expect(older).toBeHidden();
+  await expect(items.nth(20).locator("del")).toHaveText("1");
+  await expect(items.nth(20).locator("ins")).toHaveText("2");
+});
