@@ -493,7 +493,7 @@ func (e *Engine) route(ctx context.Context, j judgeJob, verdicts []itemVerdicts)
 			text = j.items[index].text
 		}
 		event := fmt.Sprintf("%s follow-up on pull request %s of %s \"%s\", item %d:\n\n> %s\n%s",
-			time.Now().UTC().Format(timeFormat), taskEventRef(j.task, int64(number)), taskEventRef(j.task, j.task.Issue), j.title, followUp.item, followUp.text, text)
+			time.Now().UTC().Format(timeFormat), taskEventRef(j.task, number), taskEventRef(j.task, j.task.Issue), j.title, followUp.item, followUp.text, text)
 		if err := e.addLeadEvent(ctx, j.task.WorkstreamRepository, j.task.Workstream, j.task.Repository, sql.NullInt64{Int64: j.task.Issue, Valid: true}, "follow_up", event); err != nil {
 			return err
 		}
