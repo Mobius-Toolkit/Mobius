@@ -128,7 +128,9 @@ function CheckupCard({
       <TopBar title={title} back="/settings/checkup">
         {action && <div className="mr-2 ml-auto">{action}</div>}
       </TopBar>
-      <PageHeader title={title}>{action}</PageHeader>
+      <PageHeader title={title} back="/settings/checkup">
+        {action}
+      </PageHeader>
       {children}
     </>
   );

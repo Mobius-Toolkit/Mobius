@@ -1,4 +1,4 @@
-import { ArrowDownIcon, ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
+import { ArrowDownIcon, ChevronRightIcon } from "lucide-react";
 import { use, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   getTranscript,
@@ -14,7 +14,7 @@ import {
 import { ErrorBadge, inset, List, PageHeader, rowClass, Section } from "@/components/page";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
 import { lowLoadReason, queueState, queueText } from "@/lib/agents";
 import { onEvent, retryDelay } from "@/lib/events";
@@ -22,6 +22,7 @@ import { LoginContext } from "@/lib/login";
 import { atEnd } from "@/lib/scroll";
 import { clock, dayClock, localTimes } from "@/lib/time";
 import { cn } from "@/lib/utils";
+import { BackButton } from "./BackButton";
 import { ConnectionBadge } from "./Frame";
 import { TopBar } from "./TopBar";
 
@@ -307,18 +308,15 @@ export function Transcript({
 }) {
   return (
     <Card className="min-h-0 max-md:max-h-[calc(100svh-10rem)] md:max-h-[calc(100svh-3rem)]">
-      <CardHeader>
-        <CardTitle className="truncate">
+      <CardHeader className="flex items-center gap-2">
+        <BackButton parent="/agents" onBack={onClose} />
+        <CardTitle className="line-clamp-2 min-w-0 grow">
           {agent.name} {agent.title}
         </CardTitle>
-        <CardAction className="flex flex-wrap items-center justify-end gap-1">
-          <StartCheckButton agent={agent} />
-          <Button variant="ghost" onClick={onClose}>
-            <ChevronLeftIcon />
-            Agents
-          </Button>
-        </CardAction>
       </CardHeader>
+      <div className="flex flex-wrap items-center gap-2 px-(--card-spacing) empty:hidden">
+        <StartCheckButton agent={agent} />
+      </div>
       <CardContent className="flex min-h-0 grow flex-col">
         <TranscriptLog agent={agent} source={source} />
       </CardContent>
@@ -379,12 +377,11 @@ export function Agents({ source }: { source?: EventSource }) {
       />
       {selected ? (
         <>
-          <PageHeader title={`${selected.name} ${selected.title}`}>
-            <Button variant="ghost" onClick={() => setSelected(undefined)}>
-              <ChevronLeftIcon />
-              Agents
-            </Button>
-          </PageHeader>
+          <PageHeader
+            title={`${selected.name} ${selected.title}`}
+            back="/agents"
+            onBack={() => setSelected(undefined)}
+          />
           <div className={cn(inset, "flex flex-wrap items-center gap-2 empty:hidden")}>
             {live && <StartCheckButton agent={live} />}
           </div>

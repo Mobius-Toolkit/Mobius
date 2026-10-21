@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Route } from "@playwright/test";
+import { expect, test, type Locator, type Page, type Route } from "@playwright/test";
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/github");
@@ -102,7 +102,9 @@ test.describe("the transcript of an agent on a phone", () => {
       .click();
     const bar = page.getByRole("banner");
     await expect(bar.getByRole("heading")).not.toHaveText("Agents");
-    await expect(page.getByRole("main").getByRole("button", { name: "Agents" })).toBeHidden();
+    await expect(
+      page.getByRole("main").getByRole("button", { name: "Back to Agents" }),
+    ).toBeHidden();
     await bar.getByRole("button", { name: "Back" }).click();
     await expect(page).toHaveURL("/agents");
     await expect(bar.getByRole("heading")).toHaveText("Agents");
@@ -215,7 +217,9 @@ for (const { name: place, path, open } of places) {
         await expect(
           phonePage
             ? page.getByRole("banner").getByRole("button", { name: "Back" })
-            : page.getByRole("button", { name: "Agents", exact: true }).filter({ visible: true }),
+            : path === "/agents"
+              ? page.getByRole("main").getByRole("button", { name: "Back" })
+              : page.locator('[data-slot="card-header"]').getByRole("button", { name: "Back" }),
         ).toBeInViewport();
         await expect(button(page)).toBeHidden();
       });
@@ -337,7 +341,7 @@ test("the agent log sends no request of its stream after it closes while a retry
     .getByRole("button", { name: /Ticket #41 Add plan model/ })
     .click();
   await expect.poll(() => requests).toBe(1);
-  await page.getByRole("button", { name: "Agents", exact: true }).filter({ visible: true }).click();
+  await page.getByRole("main").getByRole("button", { name: "Back" }).click();
   await expect(page.getByText("Read only. The Owner talks only to the Lead.")).toBeHidden();
   await page.waitForTimeout(retryDelay + 1000);
   expect(requests).toBe(1);
@@ -382,4 +386,115 @@ test("the Transcript of a session that does not wait for a low load has no start
   await page.goto("/agents");
   await main.getByRole("button", { name: /Ticket #39/ }).click();
   await expect(main.getByRole("button", { name: "Start the check now" })).toBeHidden();
+});
+
+async function openPanelTranscript(page: Page, name = /^implementer devin · swe-1.5 · Sep \d+,/) {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto("/workstreams/owner/shop/12");
+  await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
+  const panel = page.getByRole("complementary");
+  await panel.getByRole("button", { name }).filter({ visible: true }).click();
+  return panel;
+}
+
+async function boxOf(locator: Locator) {
+  const box = await locator.boundingBox();
+  expect(box).not.toBeNull();
+  return box!;
+}
+
+async function expectLeftOf(back: Locator, title: Locator) {
+  const backBox = await boxOf(back);
+  const titleBox = await boxOf(title);
+  expect(backBox.x + backBox.width).toBeLessThanOrEqual(titleBox.x);
+}
+
+test.describe("the back button on a desktop", () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
+
+  test("of the transcript in the side panel is on the left of the title", async ({ page }) => {
+    const panel = await openPanelTranscript(page);
+    const back = panel.getByRole("button", { name: "Back" });
+    const title = panel.locator('[data-slot="card-title"]');
+    await expect(title).toContainText("implementer devin");
+    await expectLeftOf(back, title);
+    await back.click();
+    await expect(
+      panel.getByRole("button", { name: /^implementer devin · swe-1.5 · Sep \d+,/ }),
+    ).toBeVisible();
+    await expect(back).toBeHidden();
+  });
+
+  test("of the transcript on the Agents page is on the left of the title", async ({ page }) => {
+    await page.goto("/agents");
+    const main = page.getByRole("main");
+    await main.getByRole("button", { name: /Ticket #41 Add plan model/ }).click();
+    const back = main.getByRole("button", { name: "Back" });
+    await expectLeftOf(back, main.getByRole("heading", { name: /^implementer devin/ }));
+    await back.click();
+    await expect(main.getByRole("button", { name: /Ticket #41 Add plan model/ })).toBeVisible();
+    await expect(back).toBeHidden();
+  });
+
+  test("has the name Back and no text", async ({ page }) => {
+    const panel = await openPanelTranscript(page);
+    const back = panel.getByRole("button", { name: "Back", exact: true });
+    await expect(back).toHaveText("");
+    await expect(back.locator("svg")).toBeVisible();
+  });
+
+  for (const { page: subpage, title, parent, heading } of [
+    {
+      page: "/settings/checkup/tools",
+      title: "Tools",
+      parent: "/settings/checkup",
+      heading: "Checkup",
+    },
+    {
+      page: "/settings/memory/plants/garden",
+      title: "Memory of plants/garden",
+      parent: "/settings/memory",
+      heading: "Memory",
+    },
+  ]) {
+    test(`of ${title} is on the left of the title and opens its parent`, async ({ page }) => {
+      await page.goto(subpage);
+      const main = page.getByRole("main");
+      const back = main.getByRole("button", { name: "Back" });
+      await expectLeftOf(back, main.getByRole("heading", { name: title, level: 2 }));
+      await back.click();
+      await expect(page).toHaveURL(parent);
+      await expect(main.getByRole("heading", { name: heading })).toBeVisible();
+    });
+  }
+
+  for (const path of [
+    "/github",
+    "/devices",
+    "/settings/checkup",
+    "/settings/memory",
+    "/agents",
+    "/usage",
+  ]) {
+    test(`is not on ${path}`, async ({ page }) => {
+      await page.goto(path);
+      await expect(page.getByRole("main").getByRole("heading").first()).toBeVisible();
+      await expect(page.getByRole("main").getByRole("button", { name: "Back" })).toBeHidden();
+    });
+  }
+
+  test("of the transcript in the side panel shows the start button under the title row and a long title", async ({
+    page,
+  }) => {
+    await withLowLoad(page, async () => {
+      const panel = await openPanelTranscript(page, /waits for a low load/);
+      const header = panel.locator('[data-slot="card-header"]');
+      const title = header.locator('[data-slot="card-title"]');
+      await expect(title).toContainText("implementer devin");
+      expect((await boxOf(title)).width).toBeGreaterThan(100);
+      const headerBox = await boxOf(header);
+      const startBox = await boxOf(panel.getByRole("button", { name: "Start the check now" }));
+      expect(startBox.y).toBeGreaterThanOrEqual(headerBox.y + headerBox.height);
+    });
+  });
 });

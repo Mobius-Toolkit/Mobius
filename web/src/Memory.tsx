@@ -205,7 +205,7 @@ export function Memory({ owner, name }: { owner: string; name: string }) {
   return (
     <>
       <TopBar title={`Memory of ${owner}/${name}`} back="/settings/memory" />
-      <PageHeader title={`Memory of ${owner}/${name}`} />
+      <PageHeader title={`Memory of ${owner}/${name}`} back="/settings/memory" />
       <div className={cn("grid gap-6", inset)}>
         {error && <Badge variant="destructive">{error}</Badge>}
         {versions && (
