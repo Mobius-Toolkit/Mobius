@@ -278,6 +278,29 @@ test("screenshots", async ({ page }) => {
     },
   );
   await page.unroute("**/api/voice/transcriptions");
+  await page.route("**/api/voice/recordings", (route) =>
+    route.fulfill({ status: 500, json: { error: "failed" } }),
+  );
+  await page.route("**/api/voice/transcriptions", (route) =>
+    route.fulfill({ status: 503, json: { error: "The speech model is still starting" } }),
+  );
+  await screenshot(
+    page,
+    "chat-voice-error",
+    "/workstreams/owner/shop/12",
+    (device) => [
+      ...chatReady(device),
+      main.getByText("The speech model is still starting"),
+      main.getByRole("button", { name: "Send again" }),
+    ],
+    async () => {
+      await main.getByRole("button", { name: "Start voice input" }).click();
+      await expect.poll(() => page.evaluate("samples")).toBeGreaterThan(0);
+      await main.getByRole("button", { name: "Stop voice input" }).click();
+    },
+  );
+  await page.unroute("**/api/voice/recordings");
+  await page.unroute("**/api/voice/transcriptions");
   await screenshot(
     page,
     "chat-typing",
