@@ -298,7 +298,7 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 				},
 				e.editMemory),
 		}
-		if c.agent.maintenance == 0 {
+		if c.agent.maintenance.number == 0 {
 			return tools
 		}
 		return append(tools,
@@ -826,7 +826,7 @@ func (e *Engine) issueAtOf(c caller, reference string) (issueAt, error) {
 // createMaintenanceIssue creates an issue with mobius:triage below the maintenance Workstream of the Curator c. It
 // refuses an issue after the maximum of maintenanceIssues issues in the session.
 func (e *Engine) createMaintenanceIssue(ctx context.Context, c caller, repository github.Repository, input maintenanceIssueInput) (string, error) {
-	issue := issueInput{Title: input.Title, Body: input.Body, Parent: c.agent.maintenance, BlockedBy: input.BlockedBy}
+	issue := issueInput{Title: input.Title, Body: input.Body, Parent: c.agent.maintenance.number, BlockedBy: input.BlockedBy}
 	if err := checkIssue(issue); err != nil {
 		return "", err
 	}
@@ -835,12 +835,16 @@ func (e *Engine) createMaintenanceIssue(ctx context.Context, c caller, repositor
 	if c.agent.issues == maintenanceIssues {
 		return "", refuse("You created %d issues in this session. This is the maximum.", maintenanceIssues)
 	}
-	number, err := e.addIssue(ctx, repository, c.agent.maintenance, issue, []string{triageLabel})
+	blockers := make([]issueAt, len(input.BlockedBy))
+	for i, number := range input.BlockedBy {
+		blockers[i] = issueAt{repository, number}
+	}
+	number, err := e.addIssueAt(ctx, repository, c.agent.maintenance, newIssue{title: input.Title, body: input.Body, parent: c.agent.maintenance, blockers: blockers}, []string{triageLabel})
 	if err != nil {
 		return "", err
 	}
 	c.agent.issues++
-	return fmt.Sprintf("Created #%d.", number), nil
+	return fmt.Sprintf("Created %s.", eventRef(c.agent.maintenance.repository.FullName, repository.FullName, int64(number))), nil
 }
 
 func checkIssue(input issueInput) error {
@@ -851,16 +855,6 @@ func checkIssue(input issueInput) error {
 		return refuse("parent and each blocked_by must be 1 or more.")
 	}
 	return nil
-}
-
-// addIssue creates an issue with labels below the issue input.Parent, with the blockers input.BlockedBy, and the link to
-// the Lead chat of the Workstream, and gives its number. When GitHub created the issue but a later call failed, it gives the number with the error.
-func (e *Engine) addIssue(ctx context.Context, repository github.Repository, workstream int64, input issueInput, labels []string) (int, error) {
-	blockers := make([]issueAt, len(input.BlockedBy))
-	for i, number := range input.BlockedBy {
-		blockers[i] = issueAt{repository, number}
-	}
-	return e.addIssueAt(ctx, repository, issueAt{repository, workstream}, newIssue{title: input.Title, body: input.Body, parent: issueAt{repository, input.Parent}, blockers: blockers}, labels)
 }
 
 // addIssueAt creates the issue input in repository with labels and the link to the Lead chat of the Workstream, adds it

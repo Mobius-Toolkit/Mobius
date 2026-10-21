@@ -14,7 +14,13 @@ const healthy = {
   labelFix: "none",
   permissions: [permission],
   permissionsError: "",
-  repositories: [{ repository: "shop", labels: [label], maintenanceWorkstream: 7 }],
+  repositories: [{ repository: "shop", labels: [label] }],
+  issueRepository: "shop",
+  issueRepositoryError: "",
+  maintenanceWorkstream: 7,
+  skillRepository: "",
+  skillsWorkstreamRepository: "",
+  skillsWorkstream: 0,
 };
 
 async function routeCheckup(
@@ -54,7 +60,6 @@ test("the Checkup page shows a needs you badge on each row with a problem", asyn
         {
           repository: "garden",
           labels: [{ ...label, status: "wrong-case", found: "Mobius:Ready" }],
-          maintenanceWorkstream: 7,
         },
       ],
     },
@@ -94,7 +99,7 @@ test("the Checkup page shows an outdated badge and the newest version of an outd
   await expect(main.getByText("git version 2.50.0", { exact: true })).toBeVisible();
 });
 
-test("the Checkup page shows a needs you badge on Workstreams when a repository has no maintenance Workstream", async ({
+test("the Checkup page shows a needs you badge on Workstreams when the issue repository has no maintenance Workstream", async ({
   page,
 }) => {
   const main = page.getByRole("main");
@@ -102,10 +107,7 @@ test("the Checkup page shows a needs you badge on Workstreams when a repository 
     main.locator("section").filter({ hasText: section }).getByRole("link", { name: "Workstreams" });
   await routeCheckup(page, [tool], {
     owner: healthy,
-    plants: {
-      ...healthy,
-      repositories: [{ repository: "garden", labels: [label], maintenanceWorkstream: 0 }],
-    },
+    plants: { ...healthy, issueRepository: "garden", maintenanceWorkstream: 0 },
   });
 
   await page.goto("/settings/checkup");
@@ -114,17 +116,40 @@ test("the Checkup page shows a needs you badge on Workstreams when a repository 
   await expect(row("owner").getByText("needs you")).toBeHidden();
 });
 
-test("the Workstreams page explains the maintenance Workstream, links it and sends the full request to the Coordinator chat", async ({
+test("the Checkup page shows a needs you badge on Workstreams when the skill repository has no Skills Workstream", async ({
+  page,
+}) => {
+  const main = page.getByRole("main");
+  const row = (section: string) =>
+    main.locator("section").filter({ hasText: section }).getByRole("link", { name: "Workstreams" });
+  await routeCheckup(page, [tool], {
+    owner: { ...healthy, skillRepository: "owner/mobius-skills" },
+    plants: {
+      ...healthy,
+      skillRepository: "plants/mobius-skills",
+      skillsWorkstreamRepository: "plants/garden",
+      skillsWorkstream: 9,
+    },
+  });
+
+  await page.goto("/settings/checkup");
+
+  await expect(row("owner").getByText("needs you")).toBeVisible();
+  await expect(row("plants").getByText("needs you")).toBeHidden();
+});
+
+test("the Workstreams page explains the Workstreams, links them and sends the full request of the maintenance Workstream to the Coordinator chat", async ({
   page,
 }) => {
   const main = page.getByRole("main");
   await routeCheckup(page, [tool], {
     plants: {
       ...healthy,
-      repositories: [
-        { repository: "plants/garden", labels: [label], maintenanceWorkstream: 0 },
-        { repository: "plants/pond", labels: [label], maintenanceWorkstream: 9 },
-      ],
+      issueRepository: "plants/garden",
+      maintenanceWorkstream: 0,
+      skillRepository: "plants/mobius-skills",
+      skillsWorkstreamRepository: "plants/garden",
+      skillsWorkstream: 9,
     },
   });
   await page.route(
@@ -142,14 +167,14 @@ test("the Workstreams page explains the maintenance Workstream, links it and sen
   await expect(page).toHaveURL("/settings/checkup/plants/workstreams");
   await expect(
     main.getByText(
-      "A maintenance Workstream gets each task issue that Mobius creates for the repository, and the CI failures of its default branch. Create opens the chat with a draft for your approval.",
+      "The maintenance Workstream gets each task issue that Mobius creates and the CI failures of the default branch of each repository of the organization. The Skills Workstream gets the skill proposals of the agents. Create opens the chat with a draft for your approval.",
     ),
   ).toBeVisible();
   const link = main
     .locator("section")
-    .filter({ hasText: "plants/pond" })
-    .getByRole("link", { name: "Maintenance Workstream #9" });
-  await expect(link).toHaveAttribute("href", "/workstreams/plants/pond/9");
+    .filter({ hasText: "plants/mobius-skills" })
+    .getByRole("link", { name: "Skills Workstream plants/garden#9" });
+  await expect(link).toHaveAttribute("href", "/workstreams/plants/garden/9");
   await expect(main.getByRole("button", { name: "Create" })).toHaveCount(1);
 
   const request = page.waitForRequest((req) => req.url().endsWith("/api/chat/messages"));
@@ -162,11 +187,74 @@ test("the Workstreams page explains the maintenance Workstream, links it and sen
   const body = (await request).postData() ?? "";
   const text = body.replaceAll("\r\n", "\n");
   expect(text).toContain(
-    "Create the maintenance Workstream for plants/garden, with the labels `mobius:maintenance` and `mobius:evergreen`.\n\nUse this Brief:\n\n**Goal**\nKeep the default branch of the repository healthy, so that the work of the other Workstreams can merge. This Workstream has no end.\n\n**Scope**\n- Each task issue that Mobius creates for the repository.\n- Failures of the CI on the default branch, and flaky tests.\n- The development tools, the scripts, the project setup, and the CI configuration.\n- Small defects of the application that no open Workstream covers.\n- When the cause of a failure is outside the repository, close the issue with the cause in a comment.\n\n**Limits**\n- Do not add a feature or change a user flow.\n- Do not take work that belongs to another open Workstream.",
+    "Create the maintenance Workstream for plants/garden, with the labels `mobius:maintenance` and `mobius:evergreen`.\n\nUse this Brief:\n\n**Goal**\nKeep the default branch of each repository of the organization healthy, so that the work of the other Workstreams can merge. This Workstream has no end.\n\n**Scope**\n- Each task issue that Mobius creates for a repository of the organization.\n- Failures of the CI on the default branch of each repository, and flaky tests.\n- The development tools, the scripts, the project setup, and the CI configuration.\n- Small defects of the applications that no open Workstream covers.\n- When the cause of a failure is outside the repository, close the issue with the cause in a comment.\n\n**Limits**\n- Do not add a feature or change a user flow.\n- Do not take work that belongs to another open Workstream.",
   );
   expect(body).toContain('name="organization"\r\n\r\nplants\r\n');
   expect(body).toContain('name="repository"\r\n\r\n\r\n');
   await expect(page).toHaveURL("/chat");
+});
+
+test("the Workstreams page links the maintenance Workstream and sends the full request of the Skills Workstream to the Coordinator chat", async ({
+  page,
+}) => {
+  const main = page.getByRole("main");
+  await routeCheckup(page, [tool], {
+    plants: {
+      ...healthy,
+      issueRepository: "plants/garden",
+      maintenanceWorkstream: 9,
+      skillRepository: "plants/mobius-skills",
+    },
+  });
+  await page.route(
+    (url) => url.pathname === "/api/chat/messages",
+    (route) => route.fulfill({ status: 204 }),
+  );
+
+  await page.goto("/settings/checkup/plants/workstreams");
+
+  const link = main
+    .locator("section")
+    .filter({ hasText: "plants/garden" })
+    .getByRole("link", { name: "Maintenance Workstream #9" });
+  await expect(link).toHaveAttribute("href", "/workstreams/plants/garden/9");
+  await expect(main.getByRole("button", { name: "Create" })).toHaveCount(1);
+
+  const request = page.waitForRequest((req) => req.url().endsWith("/api/chat/messages"));
+  await main
+    .locator("section")
+    .filter({ hasText: "plants/mobius-skills" })
+    .getByRole("button", { name: "Create" })
+    .click();
+
+  const body = (await request).postData() ?? "";
+  const text = body.replaceAll("\r\n", "\n");
+  expect(text).toContain(
+    "Create the Skills Workstream for plants/mobius-skills, with the labels `mobius:skills` and `mobius:evergreen`. It gets the proposals of `propose_skill` for plants/mobius-skills.\n\nUse this Brief:\n\n**Goal**\nKeep the skills of the agents in plants/mobius-skills correct and current. This Workstream has no end.\n\n**Scope**\n- Each skill proposal that an agent sends with `propose_skill`.\n- The pull requests that add or change a skill in plants/mobius-skills.\n\n**Limits**\n- Change only plants/mobius-skills.\n- Do not add a skill that the Owner did not approve.",
+  );
+  await expect(page).toHaveURL("/chat");
+});
+
+test("the Workstreams page shows the error of the issue repository in place of the maintenance Workstream", async ({
+  page,
+}) => {
+  const main = page.getByRole("main");
+  const error =
+    "Mobius needs the issue repository of plants. Set organizations.plants.issue_repository in config.toml.";
+  await routeCheckup(page, [tool], {
+    plants: {
+      ...healthy,
+      issueRepository: "",
+      issueRepositoryError: error,
+      maintenanceWorkstream: 0,
+    },
+  });
+
+  await page.goto("/settings/checkup/plants/workstreams");
+
+  await expect(main.getByText(error)).toBeVisible();
+  await expect(main.getByText("Maintenance Workstream", { exact: true })).toBeHidden();
+  await expect(main.getByRole("button", { name: "Create" })).toHaveCount(0);
 });
 
 test("the Checkup page shows no badge on a row with no problem", async ({ page }) => {
@@ -187,7 +275,6 @@ test("the Checkup page shows no badge on a row with no problem", async ({ page }
           {
             repository: "garden",
             labels: [{ ...label, status: "wrong-case", found: "Mobius:Ready" }],
-            maintenanceWorkstream: 7,
           },
         ],
       },

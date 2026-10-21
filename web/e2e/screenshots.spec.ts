@@ -1025,7 +1025,13 @@ test("screenshots", async ({ page }) => {
     page,
     "checkup-workstreams",
     "/settings/checkup/plants/workstreams",
-    (device) => [...frame(device, release), main.getByRole("button", { name: "Create" })],
+    (device) => [
+      ...frame(device, release),
+      main.getByRole("heading", { name: "plants/garden", exact: true }),
+      main.getByText("Maintenance Workstream", { exact: true }),
+      main.getByRole("heading", { name: "plants/mobius-skills", exact: true }),
+      main.getByText("Skills Workstream", { exact: true }),
+    ],
   );
   await screenshot(page, "memory-repositories", "/settings/memory", (device) => [
     ...frame(device, release),
@@ -1057,26 +1063,48 @@ test("screenshots", async ({ page }) => {
     },
     () => page.keyboard.press("Escape"),
   );
+  // Recharts measures the legend once, so the day labels stay far above it until the legend has its final height.
+  const legendGap = `(() => {
+    const label = document.querySelector('.recharts-xAxis-tick-labels text');
+    const legend = document.querySelector('.recharts-legend-wrapper');
+    if (!label || !legend) return 1e9;
+    return legend.getBoundingClientRect().top - label.getBoundingClientRect().bottom;
+  })()`;
+  const legendSettled = async () => {
+    await expect.poll(() => page.evaluate<number>(legendGap)).toBeLessThan(12);
+  };
   const usageDays = ["Oct 9", "Oct 10", "Oct 11", "Oct 12", "Oct 13", "Oct 14", "Oct 15"];
   // The 7 days that end on the fixed date have the turns of three models in two repositories. devin has no cost.
-  await screenshot(page, "usage", "/usage?group=model", (device) => [
-    ...frame(device, release),
-    main.getByRole("tab", { name: "Cost", selected: true }),
-    main.getByRole("row", { name: /opus \d 23,000 6,400 330,000 37,000 \$5\.55$/ }),
-    main.getByRole("row", { name: /swe-1\.5 3 .* —$/ }),
-    main.locator(".recharts-bar-rectangle").first(),
-    ...usageDays.map((day) => main.getByText(day, { exact: true })),
-  ]);
-  await screenshot(page, "usage-model-effort", "/usage?group=modelEffort", (device) => [
-    ...frame(device, release),
-    main.getByRole("columnheader", { name: "Model and effort" }),
-    main.getByRole("rowheader", { name: "opus medium", exact: true }),
-    main.getByRole("rowheader", { name: "sonnet high", exact: true }),
-    main.getByRole("rowheader", { name: "sonnet low", exact: true }),
-    main.getByRole("rowheader", { name: "swe-1.5", exact: true }),
-    main.locator(".recharts-bar-rectangle").first(),
-    ...usageDays.map((day) => main.getByText(day, { exact: true })),
-  ]);
+  await screenshot(
+    page,
+    "usage",
+    "/usage?group=model",
+    (device) => [
+      ...frame(device, release),
+      main.getByRole("tab", { name: "Cost", selected: true }),
+      main.getByRole("row", { name: /opus \d 23,000 6,400 330,000 37,000 \$5\.55$/ }),
+      main.getByRole("row", { name: /swe-1\.5 3 .* —$/ }),
+      main.locator(".recharts-bar-rectangle").first(),
+      ...usageDays.map((day) => main.getByText(day, { exact: true })),
+    ],
+    legendSettled,
+  );
+  await screenshot(
+    page,
+    "usage-model-effort",
+    "/usage?group=modelEffort",
+    (device) => [
+      ...frame(device, release),
+      main.getByRole("columnheader", { name: "Model and effort" }),
+      main.getByRole("rowheader", { name: "opus medium", exact: true }),
+      main.getByRole("rowheader", { name: "sonnet high", exact: true }),
+      main.getByRole("rowheader", { name: "sonnet low", exact: true }),
+      main.getByRole("rowheader", { name: "swe-1.5", exact: true }),
+      main.locator(".recharts-bar-rectangle").first(),
+      ...usageDays.map((day) => main.getByText(day, { exact: true })),
+    ],
+    legendSettled,
+  );
   await screenshot(
     page,
     "usage-tokens",

@@ -3,6 +3,8 @@ package engine
 import (
 	"cmp"
 	"context"
+	"database/sql"
+	"errors"
 	"slices"
 	"strings"
 
@@ -15,14 +17,23 @@ type Checkup struct {
 	Permissions  []PermissionCheck
 	// PermissionsError is the error of the permission check. The label status does not depend on it.
 	PermissionsError string
+	// IssueRepository is the repository of the Workstream issues, or "" when IssueRepositoryError is set.
+	IssueRepository      string
+	IssueRepositoryError string
+	// MaintenanceWorkstream is the number of the maintenance Workstream of IssueRepository, or 0 when it has none.
+	MaintenanceWorkstream int64
+	// SkillRepository is the skill repository of the organization, or "" when it has none.
+	SkillRepository string
+	// SkillsWorkstreamRepository and SkillsWorkstream are the repository and the number of the Skills Workstream, or ""
+	// and 0 when the organization has none.
+	SkillsWorkstreamRepository string
+	SkillsWorkstream           int64
 }
 
-// RepositoryCheckup is the status of each Mobius label in a repository, and its maintenance Workstream.
+// RepositoryCheckup is the status of each Mobius label in a repository.
 type RepositoryCheckup struct {
 	Repository string
 	Labels     []LabelCheck
-	// MaintenanceWorkstream is the number of the maintenance Workstream, or 0 when the repository has none.
-	MaintenanceWorkstream int64
 }
 
 // PermissionCheck is the status of a permission that the Mobius App needs.
@@ -46,8 +57,8 @@ func (e *Engine) managed(organization string) []github.Repository {
 	return repositories
 }
 
-// Checkup gives the status of the App permissions, of each Mobius label and of the maintenance Workstream in each
-// repository of the organization.
+// Checkup gives the status of the App permissions, of each Mobius label in each repository of the organization, of the
+// maintenance Workstream and of the Skills Workstream.
 func (e *Engine) Checkup(ctx context.Context, organization string) (Checkup, error) {
 	repositories := e.managed(organization)
 	var checkup Checkup
@@ -63,12 +74,26 @@ func (e *Engine) Checkup(ctx context.Context, organization string) (Checkup, err
 		if err != nil {
 			return Checkup{}, err
 		}
-		maintenance, err := maintenanceWorkstream(ctx, repository)
-		if err != nil {
-			return Checkup{}, err
-		}
-		checkup.Repositories = append(checkup.Repositories, RepositoryCheckup{Repository: repository.FullName, Labels: labels, MaintenanceWorkstream: maintenance})
+		checkup.Repositories = append(checkup.Repositories, RepositoryCheckup{Repository: repository.FullName, Labels: labels})
 	}
+	maintenance, err := e.organizationMaintenance(ctx, organization)
+	switch {
+	case Refused(err):
+		checkup.IssueRepositoryError = err.Error()
+	case err != nil:
+		return Checkup{}, err
+	default:
+		checkup.IssueRepository = maintenance.repository.FullName
+		checkup.MaintenanceWorkstream = maintenance.number
+	}
+	if skills, ok := e.github.SkillRepository(organization); ok {
+		checkup.SkillRepository = skills.FullName
+	}
+	skills, err := e.queries.GetSkillsWorkstream(ctx, organization)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return Checkup{}, err
+	}
+	checkup.SkillsWorkstreamRepository, checkup.SkillsWorkstream = skills.Repository, skills.Number
 	return checkup, nil
 }
 

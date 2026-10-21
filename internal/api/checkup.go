@@ -27,14 +27,12 @@ type LabelCheck struct {
 	Found string `gork:"found"`
 }
 
-// RepositoryCheckup is the status of each Mobius label in a repository, and its maintenance Workstream.
+// RepositoryCheckup is the status of each Mobius label in a repository.
 type RepositoryCheckup struct {
 	// Repository is the repository as "owner/name"
 	Repository string `gork:"repository"`
 	// Labels are the Mobius labels
 	Labels []LabelCheck `gork:"labels"`
-	// MaintenanceWorkstream is the number of the open Workstream with mobius:maintenance and the lowest number, or 0 when the repository has none
-	MaintenanceWorkstream int64 `gork:"maintenanceWorkstream"`
 }
 
 // PermissionCheck is the status of a permission that the Mobius App needs.
@@ -57,6 +55,18 @@ type Checkup struct {
 	Permissions []PermissionCheck `gork:"permissions"`
 	// PermissionsError is the error of the permission check, or empty
 	PermissionsError string `gork:"permissionsError"`
+	// IssueRepository is the repository of the Workstream issues of the organization as "owner/name", or empty when IssueRepositoryError is not empty
+	IssueRepository string `gork:"issueRepository"`
+	// IssueRepositoryError tells why Mobius cannot find the issue repository, or is empty
+	IssueRepositoryError string `gork:"issueRepositoryError"`
+	// MaintenanceWorkstream is the number of the open Workstream with mobius:maintenance and the lowest number in the issue repository, or 0 when it has none or IssueRepositoryError is not empty
+	MaintenanceWorkstream int64 `gork:"maintenanceWorkstream"`
+	// SkillRepository is the skill repository of the organization as "owner/name", or empty when the organization has none
+	SkillRepository string `gork:"skillRepository"`
+	// SkillsWorkstreamRepository is the repository of the open Workstream with mobius:skills and the lowest number as "owner/name", or empty when the organization has none
+	SkillsWorkstreamRepository string `gork:"skillsWorkstreamRepository"`
+	// SkillsWorkstream is the number of the Workstream in SkillsWorkstreamRepository, or 0 when the organization has none
+	SkillsWorkstream int64 `gork:"skillsWorkstream"`
 	// LabelFix is create when all Mobius labels are missing, fix when another label is missing or has a different color, and none when the fix has nothing to change
 	LabelFix string `gork:"labelFix" validate:"oneof=create fix none"`
 }
@@ -73,17 +83,23 @@ func (h *handlers) GetCheckup(ctx context.Context, req GetCheckupRequest) (*GetC
 		return nil, err
 	}
 	checkup := Checkup{
-		Repositories:     make([]RepositoryCheckup, 0, len(found.Repositories)),
-		Permissions:      make([]PermissionCheck, 0, len(found.Permissions)),
-		PermissionsError: found.PermissionsError,
-		LabelFix:         labelFix(found.Repositories),
+		Repositories:               make([]RepositoryCheckup, 0, len(found.Repositories)),
+		Permissions:                make([]PermissionCheck, 0, len(found.Permissions)),
+		PermissionsError:           found.PermissionsError,
+		LabelFix:                   labelFix(found.Repositories),
+		IssueRepository:            found.IssueRepository,
+		IssueRepositoryError:       found.IssueRepositoryError,
+		MaintenanceWorkstream:      found.MaintenanceWorkstream,
+		SkillRepository:            found.SkillRepository,
+		SkillsWorkstreamRepository: found.SkillsWorkstreamRepository,
+		SkillsWorkstream:           found.SkillsWorkstream,
 	}
 	for _, repository := range found.Repositories {
 		labels := make([]LabelCheck, 0, len(repository.Labels))
 		for _, label := range repository.Labels {
 			labels = append(labels, LabelCheck{Name: label.Label.Name, Color: label.Label.Color, Status: label.Status, Found: label.Found})
 		}
-		checkup.Repositories = append(checkup.Repositories, RepositoryCheckup{Repository: repository.Repository, Labels: labels, MaintenanceWorkstream: repository.MaintenanceWorkstream})
+		checkup.Repositories = append(checkup.Repositories, RepositoryCheckup{Repository: repository.Repository, Labels: labels})
 	}
 	for _, permission := range found.Permissions {
 		checkup.Permissions = append(checkup.Permissions, PermissionCheck(permission))

@@ -194,7 +194,8 @@ function CheckupOrganization({ organization }: { organization: string }) {
           title="Workstreams"
           needsYou={
             !!checkup &&
-            checkup.repositories.some((repository) => repository.maintenanceWorkstream === 0)
+            (checkup.maintenanceWorkstream === 0 ||
+              (checkup.skillRepository !== "" && checkup.skillsWorkstream === 0))
           }
         />
       </List>
@@ -347,18 +348,35 @@ const maintenanceWorkstreamRequest = (
 Use this Brief:
 
 **Goal**
-Keep the default branch of the repository healthy, so that the work of the other Workstreams can merge. This Workstream has no end.
+Keep the default branch of each repository of the organization healthy, so that the work of the other Workstreams can merge. This Workstream has no end.
 
 **Scope**
-- Each task issue that Mobius creates for the repository.
-- Failures of the CI on the default branch, and flaky tests.
+- Each task issue that Mobius creates for a repository of the organization.
+- Failures of the CI on the default branch of each repository, and flaky tests.
 - The development tools, the scripts, the project setup, and the CI configuration.
-- Small defects of the application that no open Workstream covers.
+- Small defects of the applications that no open Workstream covers.
 - When the cause of a failure is outside the repository, close the issue with the cause in a comment.
 
 **Limits**
 - Do not add a feature or change a user flow.
 - Do not take work that belongs to another open Workstream.`;
+
+const skillsWorkstreamRequest = (
+  repository: string,
+) => `Create the Skills Workstream for ${repository}, with the labels \`mobius:skills\` and \`mobius:evergreen\`. It gets the proposals of \`propose_skill\` for ${repository}.
+
+Use this Brief:
+
+**Goal**
+Keep the skills of the agents in ${repository} correct and current. This Workstream has no end.
+
+**Scope**
+- Each skill proposal that an agent sends with \`propose_skill\`.
+- The pull requests that add or change a skill in ${repository}.
+
+**Limits**
+- Change only ${repository}.
+- Do not add a skill that the Owner did not approve.`;
 
 export function CheckupWorkstreams({ organization }: { organization: string }) {
   const { selectOrganization } = useShell();
@@ -367,10 +385,10 @@ export function CheckupWorkstreams({ organization }: { organization: string }) {
   const [creating, setCreating] = useState<string>();
   const [createError, setCreateError] = useState<string>();
 
-  const create = (repository: string) => {
-    setCreating(repository);
+  const create = (key: string, request: string) => {
+    setCreating(key);
     const pathname = router.state.location.pathname;
-    addCoordinatorMessage(organization, maintenanceWorkstreamRequest(repository))
+    addCoordinatorMessage(organization, request)
       .then(() => {
         selectOrganization(organization);
         if (router.state.location.pathname === pathname) {
@@ -387,29 +405,26 @@ export function CheckupWorkstreams({ organization }: { organization: string }) {
     <CheckupCard title="Workstreams">
       {(error ?? createError) && <ErrorBadge>{error ?? createError}</ErrorBadge>}
       <p className={cn("text-muted-foreground", inset)}>
-        A maintenance Workstream gets each task issue that Mobius creates for the repository, and
-        the CI failures of its default branch. Create opens the chat with a draft for your approval.
+        The maintenance Workstream gets each task issue that Mobius creates and the CI failures of
+        the default branch of each repository of the organization. The Skills Workstream gets the
+        skill proposals of the agents. Create opens the chat with a draft for your approval.
       </p>
-      {checkup?.repositories.length === 0 && (
-        <p className={cn("text-muted-foreground", inset)}>
-          The Mobius App has no repository in this organization.
-        </p>
-      )}
-      {checkup?.repositories.map((repository) => (
-        <Section key={repository.repository} title={repository.repository}>
+      {checkup?.issueRepositoryError && <ErrorBadge>{checkup.issueRepositoryError}</ErrorBadge>}
+      {checkup && !checkup.issueRepositoryError && (
+        <Section title={checkup.issueRepository}>
           <List>
-            {repository.maintenanceWorkstream > 0 ? (
+            {checkup.maintenanceWorkstream > 0 ? (
               <LinkRow
                 link={{
                   to: "/workstreams/$owner/$name/$number",
                   params: chatParams({
-                    repository: repository.repository,
-                    number: repository.maintenanceWorkstream,
+                    repository: checkup.issueRepository,
+                    number: checkup.maintenanceWorkstream,
                   }),
                 }}
                 title={<span className="whitespace-nowrap">Maintenance Workstream</span>}
               >
-                <span className="text-muted-foreground">#{repository.maintenanceWorkstream}</span>
+                <span className="text-muted-foreground">#{checkup.maintenanceWorkstream}</span>
               </LinkRow>
             ) : (
               <Row className="justify-between">
@@ -417,8 +432,10 @@ export function CheckupWorkstreams({ organization }: { organization: string }) {
                 <Button
                   size="sm"
                   variant="outline"
-                  pending={creating === repository.repository}
-                  onClick={() => create(repository.repository)}
+                  pending={creating === "maintenance"}
+                  onClick={() =>
+                    create("maintenance", maintenanceWorkstreamRequest(checkup.issueRepository))
+                  }
                 >
                   Create
                 </Button>
@@ -426,7 +443,44 @@ export function CheckupWorkstreams({ organization }: { organization: string }) {
             )}
           </List>
         </Section>
-      ))}
+      )}
+      {checkup && checkup.skillRepository !== "" && (
+        <Section title={checkup.skillRepository}>
+          <List>
+            {checkup.skillsWorkstream > 0 ? (
+              <LinkRow
+                link={{
+                  to: "/workstreams/$owner/$name/$number",
+                  params: chatParams({
+                    repository: checkup.skillsWorkstreamRepository,
+                    number: checkup.skillsWorkstream,
+                  }),
+                }}
+                title={<span className="whitespace-nowrap">Skills Workstream</span>}
+              >
+                <span className="text-muted-foreground">
+                  {checkup.skillsWorkstreamRepository === checkup.skillRepository
+                    ? ""
+                    : checkup.skillsWorkstreamRepository}
+                  #{checkup.skillsWorkstream}
+                </span>
+              </LinkRow>
+            ) : (
+              <Row className="justify-between">
+                <span className="whitespace-nowrap">Skills Workstream</span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  pending={creating === "skills"}
+                  onClick={() => create("skills", skillsWorkstreamRequest(checkup.skillRepository))}
+                >
+                  Create
+                </Button>
+              </Row>
+            )}
+          </List>
+        </Section>
+      )}
     </CheckupCard>
   );
 }
