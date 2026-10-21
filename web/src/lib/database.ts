@@ -13,8 +13,28 @@ function connect() {
         db.createObjectStore("drafts", { keyPath: "key" });
       }
     });
-    request.addEventListener("success", () => resolve(request.result));
-    request.addEventListener("error", () => reject(request.error));
+    let blocked = false;
+    request.addEventListener("blocked", () => {
+      blocked = true;
+      database = undefined;
+      reject(new Error("The database is open in another tab."));
+    });
+    request.addEventListener("success", () => {
+      const db = request.result;
+      if (blocked) {
+        db.close();
+        return;
+      }
+      db.addEventListener("versionchange", () => {
+        db.close();
+        database = undefined;
+      });
+      resolve(db);
+    });
+    request.addEventListener("error", () => {
+      database = undefined;
+      reject(request.error);
+    });
   });
   return database;
 }
