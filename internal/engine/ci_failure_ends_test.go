@@ -12,10 +12,10 @@ import (
 const recordIssue = 46
 
 // leadStartsFix is a Lead that starts an Implementer for the dispatch of #41, #43 and #46.
-const leadStartsFix = "[[prompts]]\nwhen = \"dispatch of #46\"\ncall = { tool = \"start_implementer\", arguments = { n = 46, instructions = \"Fix TestPlan.\" } }\n\n" + leadStartsTwo
+const leadStartsFix = "[[prompts]]\nwhen = \"dispatch of #46\"\ncall = { tool = \"start_implementer\", arguments = { repository = \"owner/shop\", n = 46, instructions = \"Fix TestPlan.\" } }\n\n" + leadStartsTwo
 
 // leadStartsThird is a Lead that starts an Implementer for the dispatch of #50, #41 and #43.
-const leadStartsThird = "[[prompts]]\nwhen = \"dispatch of #50\"\ncall = { tool = \"start_implementer\", arguments = { n = 50, instructions = \"Round prices down.\" } }\n\n" + leadStartsTwo
+const leadStartsThird = "[[prompts]]\nwhen = \"dispatch of #50\"\ncall = { tool = \"start_implementer\", arguments = { repository = \"owner/shop\", n = 50, instructions = \"Round prices down.\" } }\n\n" + leadStartsTwo
 
 // fixesOnce is an Implementer that commits fix.txt in the first fix round and makes no commit in a later one.
 const fixesOnce = "[[prompts]]\nwhen = \"Action: fix\"\nshell = \"test -f fix.txt || { echo fix > fix.txt && git add fix.txt && git commit -q -m 'Fix the check'; }\"\n\n" + commits

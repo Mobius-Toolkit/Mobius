@@ -72,7 +72,7 @@ reply = ["Seen"]
 
 [[prompts]]
 when = "dispatch of #41"
-call = { tool = "ask", arguments = { n = 41, text = "Cents or dollars?" } }
+call = { tool = "ask", arguments = { repository = "owner/shop", n = 41, text = "Cents or dollars?" } }
 
 [[prompts]]
 reply = ["Seen"]
@@ -127,7 +127,7 @@ reply = ["Seen"]
 
 [[prompts]]
 when = "dispatch of #41"
-call = { tool = "ask", arguments = { n = 12, text = "Change the Brief?" } }
+call = { tool = "ask", arguments = { repository = "owner/shop", n = 12, text = "Change the Brief?" } }
 
 [[prompts]]
 reply = ["Seen"]
@@ -162,7 +162,7 @@ reply = ["Seen"]
 func TestAskOnAnIssueWithNoLiveTaskInTheWorkstreamChangesNothing(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, call("ask", `{ n = 41, text = "Cents or dollars?" }`))
+	server, _ := connect(t, fake, call("ask", `{ repository = "owner/shop", n = 41, text = "Cents or dollars?" }`))
 	fake.AddIssue(shop, 41, "Add plan model")
 	fake.AddSubIssue(shop, 12, 41)
 
@@ -188,7 +188,7 @@ func TestAskOnAnIssueWithNoLiveTaskInTheWorkstreamChangesNothing(t *testing.T) {
 
 func TestAskOnATaskThatIsNotDispatchedKeepsTheTaskState(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, call("ask", `{ n = 41, text = "Cents or dollars?" }`))
+	server, _ := connect(t, fake, call("ask", `{ repository = "owner/shop", n = 41, text = "Cents or dollars?" }`))
 	addTask(t, server, fake, 41, 12, 45)
 
 	session := run(t, server, leadSpec(t), "1. ")
@@ -280,7 +280,7 @@ func TestTheReplyTextOfALaterTurnWithNoTellOwnerGoesToTheChat(t *testing.T) {
 func TestDismissRemovesTheItemFromTheInbox(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, call("ask", `{ n = 41, text = "Cents or dollars?" }`))
+	server, _ := connect(t, fake, call("ask", `{ repository = "owner/shop", n = 41, text = "Cents or dollars?" }`))
 	dispatchTask(fake, 41, "Add plan model")
 	item := testkit.WaitForValue(t, func() (inboxItem, bool) {
 		items := inbox(t, server)

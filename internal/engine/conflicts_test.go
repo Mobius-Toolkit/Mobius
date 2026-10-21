@@ -188,7 +188,7 @@ func TestAConflictRoundMergesWhenTheBaseBranchMovesDuringTheRound(t *testing.T) 
 func TestAStalePullRequestWithAMergeConflictGoesToAHuman(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	lead := "[[prompts]]\nwhen = \"stale pull request #42\"\ncall = { tool = \"comment_pull_request\", arguments = { n = 42, text = \"This pull request is old and has a conflict. Close it?\" } }\n\n"
+	lead := "[[prompts]]\nwhen = \"stale pull request #42\"\ncall = { tool = \"comment_pull_request\", arguments = { repository = \"owner/shop\", n = 42, text = \"This pull request is old and has a conflict. Close it?\" } }\n\n"
 	server, _ := startReady(t, fake, lead, commits)
 	fake.SetCreatedAt(shop, 42, 0)
 

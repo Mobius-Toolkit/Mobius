@@ -63,38 +63,43 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 					"n": map[string]any{"type": "integer", "minimum": 1, "description": "The number of the issue or the pull request."},
 				},
 				e.readIssueTool),
-			tool(e, c, "start_implementer",
+			taskTool(e, c, "start_implementer",
 				"Start an Implementer for a dispatched task. The Implementer sees only the Brief, the issue, and your instructions. Mobius pushes its commits and opens a draft pull request. Returns at once.",
 				map[string]any{
+					"repository":   repositoryProperty,
 					"n":            map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
 					"instructions": map[string]any{"type": "string", "minLength": 1, "description": "Notes for the Implementer, for example the files to read first. The issue body has all the requirements. Do not add a requirement here."},
 				},
 				e.startImplementerTool),
-			tool(e, c, "start_fix_round",
+			taskTool(e, c, "start_fix_round",
 				"Start a fix round on the pull request of a task that waits for CI (checks), waits for the Lead approval (approval), or is ready_for_review. The Implementer gets your findings as the open items. For a task in working or reviewed, Mobius keeps your findings, and the next fix round gets them with its other items. The round counts toward max_fix_rounds. Returns at once.",
 				map[string]any{
-					"n":        map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
-					"findings": map[string]any{"type": "string", "minLength": 1, "description": "Your findings on the pull request: what to change and why."},
+					"repository": repositoryProperty,
+					"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
+					"findings":   map[string]any{"type": "string", "minLength": 1, "description": "Your findings on the pull request: what to change and why."},
 				},
 				e.startFixRound),
-			tool(e, c, "approve_pull_request",
+			taskTool(e, c, "approve_pull_request",
 				"Approve the pull request of a task that waits for the Lead approval. Mobius posts the report as a comment on the pull request, removes the draft status, sets the Mobius check to success, and adds the \"ready for review\" Inbox item for the Owner. The item links to the comment.",
 				map[string]any{
-					"n":      map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
-					"report": map[string]any{"type": "string", "minLength": 1, "description": "Your approval report in two parts: what you checked, and what you verified and how."},
+					"repository": repositoryProperty,
+					"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
+					"report":     map[string]any{"type": "string", "minLength": 1, "description": "Your approval report in two parts: what you checked, and what you verified and how."},
 				},
 				e.approvePullRequest),
-			tool(e, c, "stop_task",
+			taskTool(e, c, "stop_task",
 				"Stop the work on a task of this Workstream that is queued or working. Call it only when the Owner tells you to stop that task. The pull request and the branch stay.",
 				map[string]any{
-					"n": map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
+					"repository": repositoryProperty,
+					"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
 				},
 				e.stopTaskTool),
-			tool(e, c, "send_details",
+			taskTool(e, c, "send_details",
 				"Send new details from the Owner to the Implementer that operates on a task now. The Implementer keeps its session and its context. Update the body of the task issue first. It refuses a task with no open Implementer session: a later session reads the updated issue body.",
 				map[string]any{
-					"n":    map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
-					"text": map[string]any{"type": "string", "minLength": 1, "description": "The new details."},
+					"repository": repositoryProperty,
+					"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
+					"text":       map[string]any{"type": "string", "minLength": 1, "description": "The new details."},
 				},
 				e.sendDetails),
 			tool(e, c, "start_researcher",
@@ -116,33 +121,37 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 					"id": map[string]any{"type": "integer", "minimum": 1, "description": "The id of the Researcher, from start_researcher or from its report."},
 				},
 				e.stopResearcher),
-			tool(e, c, "ask",
+			taskTool(e, c, "ask",
 				"Ask the people on a task issue, or on the Workstream issue, a question. Use it when you need a decision of the Owner. For a choice between alternatives, give the questions with their options in questions, and the context in text. Mobius posts the text and the questions as a comment, adds mobius:question, and adds an Inbox item for the Owner. The reply arrives later as an event. On a dispatched task, the task frees its Autopilot slot until the Owner replies. Then you get a dispatch event again.",
 				map[string]any{
-					"n":         map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue, or of the Workstream issue."},
-					"text":      map[string]any{"type": "string", "minLength": 1, "description": "The question for the people on the issue. With questions, the context of the questions."},
-					"questions": questionsProperty,
+					"repository": repositoryProperty,
+					"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue, or of the Workstream issue."},
+					"text":       map[string]any{"type": "string", "minLength": 1, "description": "The question for the people on the issue. With questions, the context of the questions."},
+					"questions":  questionsProperty,
 				},
 				e.ask),
-			tool(e, c, "close_question",
+			taskTool(e, c, "close_question",
 				"Close your question on a task issue or on the Workstream issue when the Owner answers it in the chat. Mobius posts the answer as a comment on the issue, removes mobius:question, and dismisses the question Inbox item. On a task that waits for the answer, the task continues, and you get a dispatch event with \"answer of\".",
 				map[string]any{
-					"n":      map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue, or of the Workstream issue."},
-					"answer": map[string]any{"type": "string", "minLength": 1, "description": "The answer of the Owner."},
+					"repository": repositoryProperty,
+					"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue, or of the Workstream issue."},
+					"answer":     map[string]any{"type": "string", "minLength": 1, "description": "The answer of the Owner."},
 				},
 				e.closeQuestionTool),
-			tool(e, c, "decline",
+			taskTool(e, c, "decline",
 				"Decline a task. Mobius posts the reason as a comment on the issue, removes mobius:working, and ends the task.",
 				map[string]any{
-					"n":      map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
-					"reason": map[string]any{"type": "string", "minLength": 1, "description": "The reason for the people on the issue."},
+					"repository": repositoryProperty,
+					"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
+					"reason":     map[string]any{"type": "string", "minLength": 1, "description": "The reason for the people on the issue."},
 				},
 				e.decline),
-			tool(e, c, "close_task",
+			taskTool(e, c, "close_task",
 				"Close a task issue that has no work left. Mobius posts the reason as a comment on the issue. For a live task, Mobius closes its open pull request and ends the task. Then Mobius removes mobius:ready and closes the issue as not planned. The branch stays.",
 				map[string]any{
-					"n":      map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
-					"reason": map[string]any{"type": "string", "minLength": 1, "description": "The reason for the people on the issue."},
+					"repository": repositoryProperty,
+					"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
+					"reason":     map[string]any{"type": "string", "minLength": 1, "description": "The reason for the people on the issue."},
 				},
 				e.closeTask),
 			tool(e, c, "create_issue",
@@ -160,18 +169,20 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 					"n": map[string]any{"type": "integer", "minimum": 1, "description": "The number of the issue."},
 				},
 				e.markReady),
-			tool(e, c, "reply_thread",
+			taskTool(e, c, "reply_thread",
 				"Reply in a review thread or to a conversation comment of the pull request of a task, for example with the link to a follow-up issue.",
 				map[string]any{
-					"thread": map[string]any{"type": "integer", "minimum": 1, "description": "The number of the thread or the comment in the event."},
-					"text":   map[string]any{"type": "string", "minLength": 1, "description": "A follow-up link, an answer, or a reason to reject. Do not write an acknowledgement."},
+					"repository": repositoryProperty,
+					"thread":     map[string]any{"type": "integer", "minimum": 1, "description": "The number of the thread or the comment in the event."},
+					"text":       map[string]any{"type": "string", "minLength": 1, "description": "A follow-up link, an answer, or a reason to reject. Do not write an acknowledgement."},
 				},
 				e.replyThread),
-			tool(e, c, "comment_pull_request",
+			taskTool(e, c, "comment_pull_request",
 				"Post a comment on the pull request of a task, for example to propose that a human closes a stale pull request.",
 				map[string]any{
-					"n":    map[string]any{"type": "integer", "minimum": 1, "description": "The number of the pull request."},
-					"text": map[string]any{"type": "string", "minLength": 1, "description": "The comment."},
+					"repository": repositoryProperty,
+					"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the pull request."},
+					"text":       map[string]any{"type": "string", "minLength": 1, "description": "The comment."},
 				},
 				e.commentPullRequest),
 			e.createWorkstreamTool(c),
@@ -397,6 +408,30 @@ func tool[In any](e *Engine, c caller, name, description string, properties map[
 	return toolOf(e, c, e.callerRepository, name, description, properties, run)
 }
 
+var repositoryProperty = map[string]any{"type": "string", "minLength": 1, "description": "The full name of the repository (owner/name) of the issue."}
+
+// repositoryInput is the repository input of a tool that acts on an issue in any repository of the organization.
+type repositoryInput struct {
+	Repository string `json:"repository"`
+}
+
+func (i repositoryInput) repositoryName() string {
+	return i.Repository
+}
+
+// taskTool is tool for a Lead tool whose input names the repository of its issue. The run gets that repository. The tool
+// refuses a repository that the Mobius App cannot read and a repository of another organization, before the run.
+func taskTool[In interface{ repositoryName() string }](e *Engine, c caller, name, description string, properties map[string]any, run func(context.Context, caller, github.Repository, In) (string, error)) mcp.Tool {
+	return toolOf(e, c, noRepository, name, description, properties,
+		func(ctx context.Context, c caller, _ github.Repository, input In) (string, error) {
+			repository, err := e.organizationRepository(c.organization, input.repositoryName())
+			if err != nil {
+				return "", err
+			}
+			return run(ctx, c, repository, input)
+		})
+}
+
 // noRepository is the resolve of a tool that takes the repository as an input. The run of the tool gets the zero
 // Repository.
 func noRepository(caller) (github.Repository, error) {
@@ -519,12 +554,19 @@ type numberInput struct {
 	N int64 `json:"n"`
 }
 
+type taskInput struct {
+	repositoryInput
+	N int64 `json:"n"`
+}
+
 type approveInput struct {
+	repositoryInput
 	N      int64  `json:"n"`
 	Report string `json:"report"`
 }
 
 type textInput struct {
+	repositoryInput
 	N    int64  `json:"n"`
 	Text string `json:"text"`
 }
@@ -533,6 +575,11 @@ type askInput struct {
 	N         int64      `json:"n"`
 	Text      string     `json:"text"`
 	Questions []Question `json:"questions"`
+}
+
+type taskAskInput struct {
+	repositoryInput
+	askInput
 }
 
 // Question is a question of ask with its options. Mobius stores it as JSON in inbox_items.questions.
@@ -555,6 +602,11 @@ type tellInput struct {
 type threadInput struct {
 	Thread int64  `json:"thread"`
 	Text   string `json:"text"`
+}
+
+type taskThreadInput struct {
+	repositoryInput
+	threadInput
 }
 
 type maintenanceIssueInput struct {
@@ -602,11 +654,13 @@ type messageLeadInput struct {
 }
 
 type implementerInput struct {
+	repositoryInput
 	N            int64  `json:"n"`
 	Instructions string `json:"instructions"`
 }
 
 type findingsInput struct {
+	repositoryInput
 	N        int64  `json:"n"`
 	Findings string `json:"findings"`
 }
@@ -616,11 +670,13 @@ type questionInput struct {
 }
 
 type answerInput struct {
+	repositoryInput
 	N      int64  `json:"n"`
 	Answer string `json:"answer"`
 }
 
 type declineInput struct {
+	repositoryInput
 	N      int64  `json:"n"`
 	Reason string `json:"reason"`
 }
@@ -741,11 +797,11 @@ func (e *Engine) addIssue(ctx context.Context, repository github.Repository, wor
 	return issue.GetNumber(), nil
 }
 
-func (e *Engine) stopTaskTool(ctx context.Context, c caller, repository github.Repository, input numberInput) (string, error) {
+func (e *Engine) stopTaskTool(ctx context.Context, c caller, repository github.Repository, input taskInput) (string, error) {
 	if input.N < 1 {
 		return "", refuse("n must be 1 or more.")
 	}
-	task, err := e.workstreamTask(ctx, repository, c.workstream, input.N)
+	task, err := e.workstreamTask(ctx, repository, c.repository, c.workstream, input.N)
 	if err != nil {
 		return "", err
 	}
@@ -797,11 +853,11 @@ func (e *Engine) markReady(ctx context.Context, c caller, repository github.Repo
 	return fmt.Sprintf("Marked #%d ready.", input.N), nil
 }
 
-func (e *Engine) replyThread(ctx context.Context, c caller, repository github.Repository, input threadInput) (string, error) {
+func (e *Engine) replyThread(ctx context.Context, c caller, repository github.Repository, input taskThreadInput) (string, error) {
 	if empty(input.Text) {
 		return "", refuse("text must not be empty.")
 	}
-	tasks, err := e.queries.ListLiveTasks(ctx, c.repository)
+	tasks, err := e.queries.ListLiveTasks(ctx, repository.FullName)
 	if err != nil {
 		return "", err
 	}
@@ -828,7 +884,7 @@ func (e *Engine) commentPullRequest(ctx context.Context, c caller, repository gi
 		return "", refuse("text must not be empty.")
 	}
 	task, err := e.queries.GetLiveTaskByPullRequest(ctx, store.GetLiveTaskByPullRequestParams{
-		Repository:  c.repository,
+		Repository:  repository.FullName,
 		PullRequest: sql.NullInt64{Int64: input.N, Valid: true},
 	})
 	if errors.Is(err, sql.ErrNoRows) || (err == nil && (task.WorkstreamRepository != c.repository || task.Workstream != c.workstream)) {
