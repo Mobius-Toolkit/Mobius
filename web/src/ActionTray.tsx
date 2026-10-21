@@ -1,14 +1,14 @@
+import type { InboxItem } from "@/api/api.gen";
 import { Button } from "@/components/ui/button";
 import { Row } from "@/components/page";
-import type { Approval } from "@/lib/actions";
 
-// The pending actions of a chat, oldest first, above the composer.
+// The pending actions and the questions of a chat, oldest first, above the composer.
 export function ActionTray({
   rows,
   answer,
 }: {
-  rows: Approval[];
-  answer: (item: Approval) => void;
+  rows: InboxItem[];
+  answer: (item: InboxItem) => void;
 }) {
   if (rows.length === 0) {
     return null;
@@ -25,7 +25,7 @@ export function ActionTray({
             <Button variant="outline" size="sm" onClick={() => answer(item)}>
               Answer
             </Button>
-            {item.action.error && (
+            {item.action?.error && (
               <p role="alert" className="basis-full text-sm text-destructive wrap-anywhere">
                 {item.action.error}
               </p>

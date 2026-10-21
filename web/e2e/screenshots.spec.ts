@@ -1,7 +1,9 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import {
   ask,
+  askStore,
   cardOf,
+  checksQuestion,
   createTitle,
   draftText,
   draftWorkstream,
@@ -10,6 +12,7 @@ import {
   seen,
   settle,
   stopUnknown,
+  storeQuestion,
   unknownText,
   unknownTitle,
 } from "./actions.js";
@@ -592,6 +595,7 @@ test("screenshots", async ({ page }) => {
     const link = "https://github.com/owner/shop";
     const item = {
       dismissedAt: null,
+      questions: [],
       organization: "owner",
       repository: "owner/shop",
       workstreamRepository: "owner/shop",
@@ -1153,6 +1157,36 @@ test("screenshots", async ({ page }) => {
       await showEnd(unknownText)();
     },
   );
+
+  // The fake Coordinator asks a question with options. The answer ends the question.
+  await page.goto("/chat");
+  await ask(page, askStore);
+  await expect(waits(2)).toBeVisible({ timeout: 30_000 });
+  await fixActionTimes();
+  const group = (name: string) => panel.getByRole("group", { name });
+  const option = (name: string, title: string) => group(name).getByRole("button", { name: title });
+  await screenshot(
+    page,
+    "answer-options",
+    "/chat",
+    (device) => [
+      ...approvalReady(device, "3"),
+      group(storeQuestion).getByRole("button", { name: "SQLite", pressed: true }),
+      group(checksQuestion).getByRole("button", { name: "Tests", pressed: true }),
+      option(checksQuestion, "Types"),
+    ],
+    async () => {
+      await row(storeQuestion).getByRole("button", { name: "Answer" }).click();
+      await option(storeQuestion, "SQLite").click();
+      await option(checksQuestion, "Tests").click();
+      await option(checksQuestion, "Types").scrollIntoViewIfNeeded();
+    },
+    () => page.keyboard.press("Escape"),
+  );
+  await row(storeQuestion).getByRole("button", { name: "Answer" }).click();
+  await panel.getByRole("textbox", { name: "Your answer" }).fill("Keep the old data.");
+  await panel.getByRole("button", { name: "Send" }).click();
+  await expect(panel).toBeHidden();
   await settle(page);
   expect((await page.request.post("/e2e/approvals/times/fix")).ok()).toBe(true);
 
