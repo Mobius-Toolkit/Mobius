@@ -332,7 +332,7 @@ func (e *Engine) dismissStoppedJudgeItems(ctx context.Context, j judgeJob) error
 // handBackToHuman returns the task of a Judge that started from needs_human to needs_human, and gives the Lead a stop
 // event. The earlier stop already gave the Owner a comment and an open stopped Inbox item, so the Owner gets no second one.
 func (e *Engine) handBackToHuman(ctx context.Context, j judgeJob, reason string) error {
-	handed, err := e.handToHuman(ctx, j.task, j.title, stopText(j.task.Issue, j.title, reason), "", stopNotice{})
+	handed, err := e.handToHuman(ctx, j.task, j.title, stopText(j.task, j.title, reason), "", stopNotice{})
 	if err != nil || !handed {
 		return err
 	}
@@ -492,8 +492,8 @@ func (e *Engine) route(ctx context.Context, j judgeJob, verdicts []itemVerdicts)
 		if index := slices.IndexFunc(j.items, func(item judgeItem) bool { return item.id == followUp.item }); index >= 0 {
 			text = j.items[index].text
 		}
-		event := fmt.Sprintf("%s follow-up on pull request #%d of #%d \"%s\", item %d:\n\n> %s\n%s",
-			time.Now().UTC().Format(timeFormat), number, j.task.Issue, j.title, followUp.item, followUp.text, text)
+		event := fmt.Sprintf("%s follow-up on pull request %s of %s \"%s\", item %d:\n\n> %s\n%s",
+			time.Now().UTC().Format(timeFormat), taskEventRef(j.task, int64(number)), taskEventRef(j.task, j.task.Issue), j.title, followUp.item, followUp.text, text)
 		if err := e.addLeadEvent(ctx, j.task.WorkstreamRepository, j.task.Workstream, j.task.Repository, sql.NullInt64{Int64: j.task.Issue, Valid: true}, "follow_up", event); err != nil {
 			return err
 		}

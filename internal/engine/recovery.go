@@ -141,8 +141,8 @@ func (e *Engine) recoverTask(ctx context.Context, repository github.Repository, 
 	if err != nil || recovered == 0 {
 		return false, err
 	}
-	text := fmt.Sprintf("%s recovery of #%d \"%s\": Mobius restarted and found no live task. Mobius continued the task in %s with the branch %s and the pull request #%d (recovery %d of %d). %s",
-		time.Now().UTC().Format(timeFormat), issue.GetNumber(), issue.GetTitle(), state, task.Branch.String, task.PullRequest.Int64, task.Recoveries+1, e.config.MaxWorkerRestarts, findingsLost)
+	text := fmt.Sprintf("%s recovery of %s \"%s\": Mobius restarted and found no live task. Mobius continued the task in %s with the branch %s and the pull request %s (recovery %d of %d). %s",
+		time.Now().UTC().Format(timeFormat), taskEventRef(task, task.Issue), issue.GetTitle(), state, task.Branch.String, taskEventRef(task, task.PullRequest.Int64), task.Recoveries+1, e.config.MaxWorkerRestarts, findingsLost)
 	e.publish(Change{Workstreams: true})
 	return true, e.addLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, task.Repository, sql.NullInt64{Int64: task.Issue, Valid: true}, "recovery", text)
 }
@@ -171,8 +171,8 @@ func (e *Engine) continueEndedTask(ctx context.Context, repository github.Reposi
 		return err
 	}
 	if reopened > 0 {
-		text := fmt.Sprintf("%s recovery of #%d \"%s\": the Owner continued the issue, and it had no live task. Mobius continued the earlier task with the branch %s and the pull request #%d. %s",
-			time.Now().UTC().Format(timeFormat), issue.GetNumber(), issue.GetTitle(), task.Branch.String, task.PullRequest.Int64, findingsLost)
+		text := fmt.Sprintf("%s recovery of %s \"%s\": the Owner continued the issue, and it had no live task. Mobius continued the earlier task with the branch %s and the pull request %s. %s",
+			time.Now().UTC().Format(timeFormat), taskEventRef(task, task.Issue), issue.GetTitle(), task.Branch.String, taskEventRef(task, task.PullRequest.Int64), findingsLost)
 		if err := e.addLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, task.Repository, sql.NullInt64{Int64: task.Issue, Valid: true}, "recovery", text); err != nil {
 			return err
 		}

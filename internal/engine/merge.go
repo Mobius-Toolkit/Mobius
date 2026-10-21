@@ -109,8 +109,8 @@ func (e *Engine) mergeApproved(ctx context.Context, repository github.Repository
 	if err != nil {
 		return false, err
 	}
-	text := fmt.Sprintf("%s merge refused for #%d \"%s\": GitHub refused to merge pull request #%d. A trusted user approved the pull request. GitHub gave this reason: \"%s\". Mobius does not try again until a trusted user approves the pull request again.",
-		time.Now().UTC().Format(timeFormat), task.Issue, issue.GetTitle(), number, reason)
+	text := fmt.Sprintf("%s merge refused for %s \"%s\": GitHub refused to merge pull request %s. A trusted user approved the pull request. GitHub gave this reason: \"%s\". Mobius does not try again until a trusted user approves the pull request again.",
+		time.Now().UTC().Format(timeFormat), taskEventRef(task, task.Issue), issue.GetTitle(), taskEventRef(task, number), reason)
 	return false, e.addLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, task.Repository, sql.NullInt64{Int64: task.Issue, Valid: true}, "merge_refused", text)
 }
 

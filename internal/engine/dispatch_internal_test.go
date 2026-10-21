@@ -217,7 +217,7 @@ func TestTheEventTextHasTheTimeTheKindTheIssueAndTheQuotedText(t *testing.T) {
 	t.Parallel()
 	issue := &gh.Issue{Number: new(42), Title: new("Plan API")}
 
-	got := eventText(time.Date(2026, 9, 27, 14, 2, 0, 0, time.UTC), "comment on", issue, "owner", "Use cents.\nRound down.")
+	got := eventText(time.Date(2026, 9, 27, 14, 2, 0, 0, time.UTC), "comment on", "#42", issue, "owner", "Use cents.\nRound down.")
 
 	if want := "2026-09-27 14:02 UTC comment on #42 \"Plan API\" by @owner:\n\n> Use cents.\n> Round down."; got != want {
 		t.Errorf("text = %q", got)
