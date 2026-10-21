@@ -204,7 +204,7 @@ export const PendingActionRole = {
 } as const;
 
 /**
- * State is pending for an action that waits for the approval, done for an action that ran, rejected for an action that the Owner rejected, and replaced for an action that a later call of the same tool replaced
+ * State is pending for an action that waits for the approval, done for an action that ran, rejected for an action that the Owner rejected, replaced for an action that a later call of the same tool replaced, and withdrawn for an action that the agent took back
  */
 export type PendingActionState = typeof PendingActionState[keyof typeof PendingActionState];
 
@@ -214,6 +214,7 @@ export const PendingActionState = {
   done: 'done',
   rejected: 'rejected',
   replaced: 'replaced',
+  withdrawn: 'withdrawn',
 } as const;
 
 /**
@@ -223,7 +224,7 @@ export interface PendingAction {
   /** Arguments are the arguments of the call in the order of the tool input. A value that is not a string is its JSON text */
   arguments: ActionArgument[];
   /**
-     * DecidedAt is the time when the action was done, rejected or replaced, or null
+     * DecidedAt is the time when the action was done, rejected, replaced or withdrawn, or null
      * @nullable
      */
   decidedAt: string | null;
@@ -237,7 +238,7 @@ export interface PendingAction {
   result: string;
   /** Role is the Role of the agent that called the tool */
   role: PendingActionRole;
-  /** State is pending for an action that waits for the approval, done for an action that ran, rejected for an action that the Owner rejected, and replaced for an action that a later call of the same tool replaced */
+  /** State is pending for an action that waits for the approval, done for an action that ran, rejected for an action that the Owner rejected, replaced for an action that a later call of the same tool replaced, and withdrawn for an action that the agent took back */
   state: PendingActionState;
   /** Time is the time of the call */
   time: string;
