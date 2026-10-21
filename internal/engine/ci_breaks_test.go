@@ -278,6 +278,44 @@ func TestARerunThatFailsGivesAnOpenHardBreakAndANewerPassedRunEndsIt(t *testing.
 	}
 }
 
+func TestARerunThatIsCancelledGivesNoResultAndNoIssue(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	run := fake.AddWorkflowRun(shop, failedMainRun(7))
+	server := startServer(t, fake, t.TempDir(), "")
+	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true})
+
+	fake.SetWorkflowRunStatus(run, "completed", "cancelled")
+
+	waitForPolls(t, fake)
+	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true})
+	if breaks := openHardBreaks(t, server); len(breaks) != 0 {
+		t.Errorf("open hard breaks = %+v", breaks)
+	}
+	if created := createdIssues(fake); created != 0 {
+		t.Errorf("created issues = %d", created)
+	}
+}
+
+func TestARerunThatIsCancelledAndANewerPassedRunEndTheBreakWithNoResult(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	run := fake.AddWorkflowRun(shop, failedMainRun(7))
+	server := startServer(t, fake, t.TempDir(), "")
+	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true})
+
+	fake.SetWorkflowRunStatus(run, "completed", "cancelled")
+	waitForPolls(t, fake)
+	passed := failedMainRun(7)
+	passed.Conclusion = "success"
+	newer := fake.AddWorkflowRun(shop, passed)
+
+	waitForCIBreak(t, server, ciBreak{runID: run, endedRunID: newer, rerun: true})
+	if created := createdIssues(fake); created != 0 {
+		t.Errorf("created issues = %d", created)
+	}
+}
+
 func TestARerunThatIsCancelledAndANewerFailedRunGiveAnOpenHardBreak(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

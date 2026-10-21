@@ -139,3 +139,8 @@ func (e *Engine) StartImplementer(ctx context.Context, task store.Task, title, p
 	e.runImplementer(job{task: task, title: title, prompt: prompt})
 	return nil
 }
+
+// QueueTask moves the task like the engine does when it queues a task.
+func (e *Engine) QueueTask(ctx context.Context, params store.QueueTaskParams) (int64, error) {
+	return e.queueTask(ctx, params)
+}

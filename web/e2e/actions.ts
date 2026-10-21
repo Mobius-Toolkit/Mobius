@@ -97,19 +97,23 @@ export async function seen(page: Page) {
   }
 }
 
-// Rejects each pending action, so that a test leaves no action and no unread message.
+// Rejects each pending action, so that a test leaves no action and no unread message. An action that the server
+// runs now stays pending until it ends, and its reject gives 409. The next read shows its end.
 export async function settle(page: Page) {
-  const inbox = await api<{ action: { id: number; state: string } | null }[]>(
-    page,
-    "GET",
-    "/api/inbox",
-  );
-  for (const item of inbox.data) {
-    if (item.action?.state === "pending") {
-      const res = await api(page, "POST", `/api/actions/${item.action.id}/reject`, { message: "" });
-      expect(res.status).toBe(200);
-    }
-  }
+  await expect
+    .poll(async () => {
+      const inbox = await api<{ action: { id: number; state: string } | null }[]>(
+        page,
+        "GET",
+        "/api/inbox",
+      );
+      const pending = inbox.data.filter((item) => item.action?.state === "pending");
+      for (const item of pending) {
+        await api(page, "POST", `/api/actions/${item.action?.id}/reject`, { message: "" });
+      }
+      return pending.length;
+    })
+    .toBe(0);
   await seen(page);
 }
 

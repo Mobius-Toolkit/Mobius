@@ -128,8 +128,9 @@ func (e *Engine) startCIBreak(ctx context.Context, repository github.Repository,
 // advanceCIBreak runs the failed jobs again when Mobius did not do it yet and no newer run of the workflow passed,
 // stores the result of the new attempt, and ends the break when a newer run of the workflow passed. A hard break also
 // ends when a later attempt of the failed run passed: the list of runs gives the newest attempt of each run. A new
-// attempt that completes with another conclusion than success (for example cancelled), and a newer failed run, make the
-// break hard. Mobius stores the mark of the re-run after the call, so a run that already has a new attempt (for example
+// attempt that completes with a conclusion other than success, cancelled and skipped, and a newer failed run, make the
+// break hard. A cancelled or skipped attempt (a newer push cancels it) gives no result: the next completed run of the
+// workflow decides the break. Mobius stores the mark of the re-run after the call, so a run that already has a new attempt (for example
 // after a stop between the call and the mark) is not run again. When GitHub refuses the call with a 4xx status (for
 // example with no permission, or for a run older than 30 days), the failure stays a failure, so the break is hard.
 // Another error returns, and the next poll tries again. A hard break that ends with a passed run closes its open task
@@ -157,7 +158,8 @@ func (e *Engine) advanceCIBreak(ctx context.Context, repository github.Repositor
 		return e.queries.SetCIBreakRerun(ctx, store.SetCIBreakRerunParams{RerunAt: now(), ID: ciBreak.ID})
 	}
 	passedAgain = passedAgain || newest != nil && newest.GetID() == ciBreak.RunID && newest.GetConclusion() == "success"
-	rerunCompleted := run != nil && run.GetStatus() == "completed" && int64(run.GetRunAttempt()) > ciBreak.RunAttempt
+	rerunCompleted := run != nil && run.GetStatus() == "completed" && int64(run.GetRunAttempt()) > ciBreak.RunAttempt &&
+		run.GetConclusion() != "cancelled" && run.GetConclusion() != "skipped"
 	if ciBreak.Result == "" && rerunCompleted && run.GetConclusion() == "success" {
 		return e.endCIBreak(ctx, ciBreak, store.EndCIBreakParams{Result: "flaky", EndedRunID: run.GetID(), EndedAt: now(), ID: ciBreak.ID})
 	}

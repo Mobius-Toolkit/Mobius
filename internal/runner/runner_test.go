@@ -26,6 +26,11 @@ func TestMain(m *testing.M) {
 	if filepath.Base(os.Args[0]) == "check" {
 		os.Exit(printNiceValue())
 	}
+	if dataDir := os.Getenv("MOBIUS_FETCH_HELPER"); dataDir != "" {
+		err := Fetch(context.Background(), dataDir, "acme/shop", sshURL, "")
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	if os.Getenv("MOBIUS_FAKE_AGENT") == "1" {
 		runFakeAgent()
 		return

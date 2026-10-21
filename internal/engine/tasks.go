@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
@@ -238,6 +239,52 @@ func (e *Engine) NeedsHuman(ctx context.Context) ([]NeedsHuman, error) {
 		issues = append(issues, issue)
 	}
 	return issues, nil
+}
+
+// BoardTask is a task on the Tasks board.
+type BoardTask struct {
+	Repository           string
+	Number               int64
+	Title                string
+	URL                  string
+	WorkstreamRepository string
+	Workstream           int64
+	WorkstreamTitle      string
+	State                string
+	StateAt              time.Time
+	// PullRequest is the pull request of the task, or 0.
+	PullRequest    int64
+	PullRequestURL string
+	FixRounds      int64
+	ReviewRounds   int64
+}
+
+// BoardTasks gives the tasks that the Tasks board shows, newest state change first: each task that has not ended, and
+// each task that ended in the last 24 hours. A task whose issue or Workstream is not in the local copy is not in the list.
+func (e *Engine) BoardTasks(ctx context.Context) ([]BoardTask, error) {
+	rows, err := e.queries.ListBoardTasks(ctx)
+	if err != nil {
+		return nil, err
+	}
+	since := e.timeNow().Add(-24 * time.Hour)
+	tasks := []BoardTask{}
+	for _, row := range rows {
+		stateAt, err := time.Parse(time.RFC3339Nano, row.StateAt)
+		if err != nil {
+			return nil, err
+		}
+		if row.State == "ended" && stateAt.Before(since) {
+			continue
+		}
+		task := BoardTask{Repository: row.Repository, Number: row.Issue, Title: row.IssueTitle, URL: row.IssueUrl, WorkstreamRepository: row.WorkstreamRepository, Workstream: row.Workstream, WorkstreamTitle: row.WorkstreamTitle, State: row.State, StateAt: stateAt, FixRounds: row.FixRounds, ReviewRounds: row.ReviewRounds}
+		if row.PullRequest.Valid {
+			task.PullRequest = row.PullRequest.Int64
+			task.PullRequestURL = strings.TrimSuffix(row.IssueUrl, fmt.Sprintf("/issues/%d", row.Issue)) + fmt.Sprintf("/pull/%d", row.PullRequest.Int64)
+		}
+		tasks = append(tasks, task)
+	}
+	slices.SortStableFunc(tasks, func(a, b BoardTask) int { return b.StateAt.Compare(a.StateAt) })
+	return tasks, nil
 }
 
 // stopReason removes the time, the kind, the number and the title from the start of the text of a stop event or of a
