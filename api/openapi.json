@@ -6083,7 +6083,7 @@
               "string",
               "null"
             ],
-            "description": "DecidedAt is the time when the action was done, rejected or replaced, or null",
+            "description": "DecidedAt is the time when the action was done, rejected, replaced or withdrawn, or null",
             "format": "date-time"
           },
           "error": {
@@ -6113,12 +6113,13 @@
           },
           "state": {
             "type": "string",
-            "description": "State is pending for an action that waits for the approval, done for an action that ran, rejected for an action that the Owner rejected, and replaced for an action that a later call of the same tool replaced",
+            "description": "State is pending for an action that waits for the approval, done for an action that ran, rejected for an action that the Owner rejected, replaced for an action that a later call of the same tool replaced, and withdrawn for an action that the agent took back",
             "enum": [
               "pending",
               "done",
               "rejected",
-              "replaced"
+              "replaced",
+              "withdrawn"
             ]
           },
           "time": {
