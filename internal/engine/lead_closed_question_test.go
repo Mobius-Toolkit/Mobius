@@ -74,13 +74,13 @@ func TestTheCloseOfASecondQuestionFreesItsHeldEventAfterTheAnswerOfTheFirstQuest
 	fake := testkit.NewFakeGitHub(t)
 	script := `
 [[prompts]]
-call = { tool = "ask", arguments = { n = 41, text = "Cents or dollars?" } }
+call = { tool = "ask", arguments = { repository = "owner/shop", n = 41, text = "Cents or dollars?" } }
 
 [[prompts]]
 ` + holdEvent + `
 
 [[prompts]]
-call = { tool = "ask", arguments = { n = 42, text = "Which route?" } }
+call = { tool = "ask", arguments = { repository = "owner/shop", n = 42, text = "Which route?" } }
 
 [[prompts]]
 ` + holdEvent + `

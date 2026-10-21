@@ -470,8 +470,8 @@ func addTask(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHub, 
 func TestCommentPullRequestCommentsOnThePullRequestOfALiveTaskOfTheWorkstream(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, call("comment_pull_request", `{ n = 45, text = "Close this stale pull request." }`)+
-		call("comment_pull_request", `{ n = 46, text = "Close it." }`))
+	server, _ := connect(t, fake, call("comment_pull_request", `{ repository = "owner/shop", n = 45, text = "Close this stale pull request." }`)+
+		call("comment_pull_request", `{ repository = "owner/shop", n = 46, text = "Close it." }`))
 	fake.AddPullRequest(shop, 45, "Add plan model")
 	fake.AddPullRequest(shop, 46, "Other model")
 	addTask(t, server, fake, 41, 12, 45)
@@ -496,9 +496,9 @@ func TestReplyThreadRepliesInAReviewThreadAndResolvesIt(t *testing.T) {
 	fake.AddPullRequest(shop, 45, "Add plan model")
 	root := fake.AddReviewComment(shop, 45, 0, "owner", "Use cents.")
 	comment := fake.AddComment(shop, 45, "owner", "Split the model.\nAnd the API.")
-	server, _ := connect(t, fake, call("reply_thread", "{ thread = "+itoa(root)+`, text = "Fixed in abc123." }`)+
-		call("reply_thread", "{ thread = "+itoa(comment)+`, text = "Follow-up: #50." }`)+
-		call("reply_thread", `{ thread = 9999, text = "No." }`))
+	server, _ := connect(t, fake, call("reply_thread", "{ repository = \"owner/shop\", thread = "+itoa(root)+`, text = "Fixed in abc123." }`)+
+		call("reply_thread", "{ repository = \"owner/shop\", thread = "+itoa(comment)+`, text = "Follow-up: #50." }`)+
+		call("reply_thread", `{ repository = "owner/shop", thread = 9999, text = "No." }`))
 	addTask(t, server, fake, 41, 12, 45)
 
 	session := run(t, server, leadSpec(t), "1. ", "2. ", "3. ")
@@ -803,7 +803,7 @@ func TestMoveIssueMovesAnIssueWithNoWorkstreamAndMakesItReady(t *testing.T) {
 func TestStopTaskStopsTheImplementerAsAStopOfTheOwnerDoes(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	lead := "[[prompts]]\nwhen = \"Stop #41.\"\ncall = { tool = \"stop_task\", arguments = { n = 41 } }\n\n" + leadStarts
+	lead := "[[prompts]]\nwhen = \"Stop #41.\"\ncall = { tool = \"stop_task\", arguments = { repository = \"owner/shop\", n = 41 } }\n\n" + leadStarts
 	server, dataDir := connectTask(t, fake, lead, "[[prompts]]\nwhen = \"Plans have a price.\"\nhang = true\n", noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "working" })
@@ -836,7 +836,7 @@ func TestStopTaskStopsTheImplementerAsAStopOfTheOwnerDoes(t *testing.T) {
 func TestStopTaskRefusesATaskOfAnotherWorkstreamAndATaskWithNoWork(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, call("stop_task", "{ n = 41 }")+call("stop_task", "{ n = 42 }")+call("stop_task", "{ n = 43 }"))
+	server, _ := connect(t, fake, call("stop_task", "{ repository = \"owner/shop\", n = 41 }")+call("stop_task", "{ repository = \"owner/shop\", n = 42 }")+call("stop_task", "{ repository = \"owner/shop\", n = 43 }"))
 	addTask(t, server, fake, 41, 12, 45)
 	addTask(t, server, fake, 42, 20, 46)
 
@@ -856,8 +856,8 @@ func TestStopTaskRefusesATaskOfAnotherWorkstreamAndATaskWithNoWork(t *testing.T)
 func TestSendDetailsRefusesAnIssueOfAnotherWorkstreamAndATaskWithNoOpenImplementerSession(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, call("send_details", `{ n = 41, text = "Round prices down." }`)+
-		call("send_details", `{ n = 42, text = "Round prices down." }`))
+	server, _ := connect(t, fake, call("send_details", `{ repository = "owner/shop", n = 41, text = "Round prices down." }`)+
+		call("send_details", `{ repository = "owner/shop", n = 42, text = "Round prices down." }`))
 	addTask(t, server, fake, 41, 12, 45)
 	addTask(t, server, fake, 42, 20, 46)
 
@@ -873,7 +873,7 @@ func TestSendDetailsRefusesAnIssueOfAnotherWorkstreamAndATaskWithNoOpenImplement
 func TestSendDetailsTellsTheLeadToStartAnImplementerForADispatchedTask(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, call("send_details", `{ n = 41, text = "Round prices down." }`))
+	server, _ := connect(t, fake, call("send_details", `{ repository = "owner/shop", n = 41, text = "Round prices down." }`))
 	addTask(t, server, fake, 41, 12, 45)
 	if _, err := server.DB.Exec(`UPDATE tasks SET state = 'dispatched'`); err != nil {
 		t.Fatal(err)

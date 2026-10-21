@@ -1154,6 +1154,10 @@ test("screenshots", async ({ page }) => {
         await panel.getByRole("button", { name: "Reject" }).click();
         await expect(panel).toBeHidden();
       }
+      const card = cardOf(page, unknownText);
+      await expect(card.getByText("Rejected", { exact: true })).toBeVisible();
+      await expect(card.getByText("Wait for the migration of #12.")).toBeVisible();
+      await expect(waits(1)).toBeVisible();
       await showEnd(unknownText)();
     },
   );

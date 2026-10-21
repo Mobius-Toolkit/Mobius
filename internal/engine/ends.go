@@ -599,7 +599,7 @@ func (e *Engine) decline(ctx context.Context, c caller, repository github.Reposi
 	if empty(input.Reason) {
 		return "", refuse("reason must not be empty.")
 	}
-	task, err := e.workstreamTask(ctx, repository, c.workstream, input.N)
+	task, err := e.workstreamTask(ctx, repository, c.repository, c.workstream, input.N)
 	if err != nil {
 		return "", err
 	}
@@ -616,7 +616,7 @@ func (e *Engine) decline(ctx context.Context, c caller, repository github.Reposi
 	if err := e.endTask(ctx, repository, task); err != nil {
 		return "", err
 	}
-	if err := e.addActivity(ctx, repository.FullName, c.workstream, issue, appLogin(repository.AppSlug), fmt.Sprintf("Declined \"%s\"", issue.GetTitle())); err != nil {
+	if err := e.addActivity(ctx, c.repository, c.workstream, issue, appLogin(repository.AppSlug), fmt.Sprintf("Declined \"%s\"", issue.GetTitle())); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("Declined #%d.", input.N), nil
@@ -657,11 +657,11 @@ func (e *Engine) closeTask(ctx context.Context, c caller, repository github.Repo
 	if err != nil {
 		return "", err
 	}
-	workstream, known, err := e.copiedWorkstreamOf(ctx, repository.FullName, input.N, issue.GetRepositoryURL())
+	workstream, known, err := e.copiedWorkstreamOf(ctx, c.repository, input.N, issue.GetRepositoryURL())
 	if err != nil {
 		return "", err
 	}
-	if !known || workstream != c.workstream || input.N == c.workstream {
+	if !known || workstream != c.workstream || repository.FullName == c.repository && input.N == c.workstream {
 		return "", refuse("#%d is not a task issue of this Workstream.", input.N)
 	}
 	task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: repository.FullName, Issue: input.N})
@@ -697,7 +697,7 @@ func (e *Engine) closeTask(ctx context.Context, c caller, repository github.Repo
 		return "", err
 	}
 	e.publish(Change{Workstreams: true})
-	if err := e.addActivity(ctx, repository.FullName, c.workstream, issue, appLogin(repository.AppSlug), fmt.Sprintf("Closed \"%s\"", issue.GetTitle())); err != nil {
+	if err := e.addActivity(ctx, c.repository, c.workstream, issue, appLogin(repository.AppSlug), fmt.Sprintf("Closed \"%s\"", issue.GetTitle())); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("Closed #%d.", input.N), nil
