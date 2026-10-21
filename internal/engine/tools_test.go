@@ -393,7 +393,7 @@ func TestCreateIssueGivesTheNumberOfTheIssueWhenTheSubIssueAddFails(t *testing.T
 
 	session := run(t, server, leadSpec(t), "Plan the work.")
 
-	if got := reply(t, server, session); !strings.HasPrefix(got, "error: GitHub created #13, but the add of #13 below owner/shop#12 failed. Do not create the issue again: ") {
+	if got := reply(t, server, session); !strings.HasPrefix(got, "error: GitHub created owner/shop#13, but the add of owner/shop#13 below owner/shop#12 failed. Do not create the issue again: ") {
 		t.Errorf("reply = %q", got)
 	}
 }

@@ -866,11 +866,11 @@ func (e *Engine) addIssueAt(ctx context.Context, repository github.Repository, w
 	}
 	parent := input.parent
 	if _, _, err := parent.repository.Client.SubIssue.Add(ctx, parent.repository.Owner(), parent.repository.Name(), parent.number, gh.SubIssueRequest{SubIssueID: issue.GetID(), ReplaceParent: new(true)}); err != nil {
-		return issue.GetNumber(), fmt.Errorf("GitHub created #%d, but the add of #%d below %s#%d failed. Do not create the issue again: %w", issue.GetNumber(), issue.GetNumber(), parent.repository.FullName, parent.number, err)
+		return issue.GetNumber(), fmt.Errorf("GitHub created %s#%d, but the add of %s#%d below %s#%d failed. Do not create the issue again: %w", repository.FullName, issue.GetNumber(), repository.FullName, issue.GetNumber(), parent.repository.FullName, parent.number, err)
 	}
 	for i, id := range blockerIDs {
 		if _, _, err := repository.Client.Issues.AddBlockedBy(ctx, repository.Owner(), repository.Name(), int64(issue.GetNumber()), gh.IssueDependencyRequest{IssueID: id}); err != nil {
-			return issue.GetNumber(), fmt.Errorf("GitHub created #%d, but the add of the blocker %s#%d failed. Do not create the issue again: %w", issue.GetNumber(), input.blockers[i].repository.FullName, input.blockers[i].number, err)
+			return issue.GetNumber(), fmt.Errorf("GitHub created %s#%d, but the add of the blocker %s#%d failed. Do not create the issue again: %w", repository.FullName, issue.GetNumber(), input.blockers[i].repository.FullName, input.blockers[i].number, err)
 		}
 	}
 	return issue.GetNumber(), nil
