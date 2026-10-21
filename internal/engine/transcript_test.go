@@ -1,8 +1,11 @@
 package engine_test
 
 import (
+	"bufio"
 	"encoding/json"
+	"net/http"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,6 +19,7 @@ type transcriptPage struct {
 			ID     int64  `json:"id"`
 			Kind   string `json:"kind"`
 			Folded bool   `json:"folded"`
+			Raw    string `json:"raw"`
 		} `json:"lines"`
 		Older bool `json:"older"`
 	} `json:"data"`
@@ -101,5 +105,85 @@ func TestTheTranscriptFoldsTheFirstPromptOnlyOnTheOlderPageThatHasIt(t *testing.
 	}
 	if len(folded) != 1 || folded[0] != "prompt" {
 		t.Errorf("folded lines = %v", folded)
+	}
+}
+
+const imageScript = `
+[[prompts]]
+updates = [
+  '{"sessionUpdate":"tool_call_update","toolCallId":"1","content":[{"type":"content","content":{"type":"image","mimeType":"image/png","data":"AAAABBBBCCCC"}}]}',
+  '{"sessionUpdate":"tool_call_update","toolCallId":"2","content":[{"type":"content","content":{"type":"text","text":"done"}}]}',
+]
+reply = ["Hello"]
+`
+
+func TestTheTranscriptLinesOfAPageHaveNoImageDataInRaw(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, imageScript)
+	session := run(t, server, leadSpec(t), "Read the screenshot")
+
+	var image, text int
+	for _, line := range getTranscriptPage(t, server, session, 0).Data.Lines {
+		switch {
+		case strings.Contains(line.Raw, `"toolCallId":"1"`):
+			image++
+			if strings.Contains(line.Raw, "AAAABBBBCCCC") || !strings.Contains(line.Raw, `"data":"<12 bytes>"`) || !strings.Contains(line.Raw, `"mimeType":"image/png"`) {
+				t.Errorf("raw of the image row = %s", line.Raw)
+			}
+		case strings.Contains(line.Raw, `"toolCallId":"2"`):
+			text++
+			var stored string
+			if err := server.DB.QueryRow("SELECT json FROM transcript WHERE id = ?", line.ID).Scan(&stored); err != nil {
+				t.Fatal(err)
+			}
+			if line.Raw != stored {
+				t.Errorf("raw of the text row = %s, stored = %s", line.Raw, stored)
+			}
+		}
+	}
+	if image != 1 || text != 1 {
+		t.Errorf("image rows = %d, text rows = %d", image, text)
+	}
+}
+
+func TestTheTranscriptStreamLinesHaveNoImageDataInRaw(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, imageScript)
+	agent := start(t, server, leadSpec(t))
+	listeners := server.Engine.Listeners()
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL+"/api/agents/"+strconv.FormatInt(agent.ID(), 10)+"/transcript/events", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := server.Client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	events := bufio.NewReader(response.Body)
+	testkit.WaitFor(t, func() bool { return server.Engine.Listeners() > listeners })
+
+	if err := agent.Prompt(t.Context(), "Read the screenshot", nil); err != nil {
+		t.Fatal(err)
+	}
+
+	for {
+		name, data := readEvent(t, events)
+		if name != "transcript" {
+			t.Fatalf("event = %s %s", name, data)
+		}
+		var line lineEvent
+		if err := json.Unmarshal([]byte(data), &line); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(line.Raw, `"toolCallId":"1"`) {
+			continue
+		}
+		if strings.Contains(line.Raw, "AAAABBBBCCCC") || !strings.Contains(line.Raw, `"data":"<12 bytes>"`) {
+			t.Errorf("raw of the image row = %s", line.Raw)
+		}
+		return
 	}
 }
