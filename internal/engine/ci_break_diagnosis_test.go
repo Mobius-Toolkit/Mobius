@@ -85,6 +85,30 @@ func TestTheSameTestOnTheDefaultBranchAndThenOnAPullRequestGivesOneIssue(t *test
 	}
 }
 
+func TestABreakThatTheDiagnoserSaysAPullRequestCausedStillGetsARecordAndOneIssue(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := connectDiagnoser(t, fake, leadStarts, reportsPlanOfThePullRequest)
+	addMaintenanceWorkstream(fake, maintenance)
+	sha := approvalHead(t, server, fake)
+	flakyMainRun(t, server, fake, head(t, fake, "main"))
+	number := ciBreakIssue(t, fake)
+	testkit.WaitFor(t, func() bool {
+		return rowCount(t, server, fmt.Sprintf("SELECT count(*) FROM ci_failures WHERE issue = %d", number)) == 1 &&
+			rowCount(t, server, "SELECT count(*) FROM ci_failure_places WHERE ci_break > 0 AND pull_request = 0") == 1
+	})
+
+	failActions(fake, sha)
+
+	testkit.WaitFor(t, func() bool {
+		return rowCount(t, server, "SELECT count(*) FROM ci_diagnoses WHERE pull_request > 0 AND ended_at != ''") == 1
+	})
+	waitForPolls(t, fake)
+	if numbers := fake.SubIssueNumbers(shop, maintenance); len(numbers) != 1 || numbers[0] != number {
+		t.Errorf("sub-issues = %v, want [%d]", numbers, number)
+	}
+}
+
 func TestTheSameTestOnAPullRequestAndThenOnTheDefaultBranchGivesOneIssue(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
