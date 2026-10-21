@@ -1500,7 +1500,7 @@ func (e *Engine) lastSession(ctx context.Context, task store.Task, matches func(
 		return sql.NullInt64{}, err
 	}
 	for i := len(sessions) - 1; i >= 0; i-- {
-		if sessions[i].Issue == (sql.NullInt64{Int64: task.Issue, Valid: true}) && matches(sessions[i]) {
+		if sessions[i].Repository == task.Repository && sessions[i].Issue == (sql.NullInt64{Int64: task.Issue, Valid: true}) && matches(sessions[i]) {
 			return sql.NullInt64{Int64: sessions[i].ID, Valid: true}, nil
 		}
 	}
