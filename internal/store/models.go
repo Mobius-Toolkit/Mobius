@@ -274,6 +274,7 @@ type Task struct {
 	RerunHead            sql.NullString
 	RerunRuns            sql.NullString
 	WorkstreamRepository string
+	BranchChecked        int64
 }
 
 type TaskState struct {

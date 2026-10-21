@@ -469,6 +469,14 @@ SELECT * FROM tasks
 WHERE repository = ? AND issue = ? AND state = 'ended' AND branch IS NOT NULL AND pull_request IS NOT NULL
 ORDER BY id DESC LIMIT 1;
 
+-- name: ListBranchesToCheck :many
+SELECT * FROM tasks
+WHERE state = 'ended' AND branch IS NOT NULL AND pull_request IS NOT NULL AND branch_checked = 0
+ORDER BY id;
+
+-- name: SetTaskBranchChecked :exec
+UPDATE tasks SET branch_checked = 1 WHERE id = ?;
+
 -- name: GetLastTaskState :one
 SELECT state FROM task_states WHERE task = ? ORDER BY id DESC LIMIT 1;
 
