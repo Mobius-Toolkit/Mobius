@@ -118,3 +118,29 @@ func TestAStopOfATaskAddsOneStopEventAlsoWhenATaskOfAnotherRepositoryWithTheSame
 		t.Errorf("stop events = %v", counts)
 	}
 }
+
+func TestAHeldEventOfATaskDoesNotHoldTheEventsOfATaskOfAnotherRepositoryWithTheSameNumber(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	script := "[[prompts]]\nwhen = \"Add plan model\"\n" + holdEvent + "\n\n" + seen
+	server, _ := connectWith(t, fake, script, keepSessionOpen)
+	fake.AddRepository(garden)
+	fake.AddIssue(garden, 7, "Water the plants")
+	fake.AddForeignSubIssue(shop, 12, garden, 7)
+	server.WaitForFirstPoll(t, garden)
+	dispatchTask(fake, 7, "Add plan model")
+	testkit.WaitFor(t, func() bool { return held(t, server, 1) })
+
+	fake.AddLabel(garden, 7, "mobius:ready", "owner")
+
+	testkit.WaitFor(t, func() bool {
+		var delivered int
+		if err := server.DB.QueryRow("SELECT count(*) FROM lead_events WHERE issue_repository = ? AND delivered_at IS NOT NULL", garden).Scan(&delivered); err != nil {
+			t.Fatal(err)
+		}
+		return delivered == 1
+	})
+	if !held(t, server, 1) {
+		t.Errorf("undelivered = %+v", undelivered(t, server))
+	}
+}

@@ -329,6 +329,7 @@ WHERE event.repository = ? AND event.workstream = ? AND event.delivered_at IS NU
   AND NOT EXISTS (
       SELECT 1 FROM lead_events AS earlier
       WHERE earlier.repository = event.repository AND earlier.workstream = event.workstream AND earlier.issue = event.issue
+        AND earlier.issue_repository = event.issue_repository
         AND earlier.id < event.id AND earlier.delivered_at IS NULL AND earlier.held = 1
   )
 ORDER BY event.id;
@@ -352,6 +353,7 @@ WHERE event.repository = ? AND event.delivered_at IS NULL AND event.held = 0
   AND NOT EXISTS (
       SELECT 1 FROM lead_events AS earlier
       WHERE earlier.repository = event.repository AND earlier.workstream = event.workstream AND earlier.issue = event.issue
+        AND earlier.issue_repository = event.issue_repository
         AND earlier.id < event.id AND earlier.delivered_at IS NULL AND earlier.held = 1
   )
 ORDER BY event.workstream;
