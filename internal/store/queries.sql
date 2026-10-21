@@ -2,9 +2,9 @@
 SELECT w.repository, w.number, w.title, w.body, CAST(w.autopilot AS BOOLEAN) AS autopilot,
        CAST(w.evergreen AS BOOLEAN) AS evergreen,
        CAST(EXISTS (SELECT 1 FROM copied_issues i
-               WHERE i.repository = w.repository AND i.workstream = w.number AND i.parent = w.number)
+               WHERE i.repository = w.repository AND i.workstream = w.number AND i.parent = w.number AND i.parent_repository = w.repository)
        AND NOT EXISTS (SELECT 1 FROM copied_issues i
-                       WHERE i.repository = w.repository AND i.workstream = w.number AND i.parent = w.number
+                       WHERE i.repository = w.repository AND i.workstream = w.number AND i.parent = w.number AND i.parent_repository = w.repository
                          AND i.state != 'closed') AS BOOLEAN) AS all_tasks_closed,
        CAST(EXISTS (SELECT 1 FROM tasks t
                WHERE t.workstream_repository = w.repository AND t.workstream = w.number AND t.state = 'ready_for_review') AS BOOLEAN) AS ready_to_merge
@@ -152,6 +152,7 @@ FROM sessions
 LEFT JOIN copied_workstreams w ON w.repository = sessions.repository AND w.number = sessions.workstream
 LEFT JOIN copied_issues i
   ON i.repository = sessions.repository AND i.workstream = sessions.workstream AND i.number = sessions.issue
+  AND substr(lower(i.repository_url), -(length(sessions.repository) + 7)) = '/repos/' || lower(sessions.repository)
 WHERE sessions.ended_at IS NULL ORDER BY sessions.id;
 
 -- name: ListQueuedTasks :many
@@ -572,8 +573,8 @@ VALUES (sqlc.arg(repository), sqlc.arg(number), sqlc.arg(title), sqlc.arg(body),
 ON CONFLICT (repository, number) DO NOTHING;
 
 -- name: AddCopiedIssue :exec
-INSERT INTO copied_issues (repository, workstream, position, number, parent, title, body, state, author, html_url, repository_url)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO copied_issues (repository, workstream, position, number, parent, parent_repository, title, body, state, author, html_url, repository_url)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: AddCopiedIssueLabel :exec
 INSERT INTO copied_issue_labels (repository, workstream, position, name) VALUES (?, ?, ?, ?);
@@ -589,9 +590,10 @@ SELECT EXISTS (SELECT 1 FROM copied_workstreams WHERE repository = ? AND number 
 -- name: GetCopiedIssueWorkstream :one
 SELECT workstream FROM copied_issues WHERE repository = ? AND number = ? AND repository_url = ? LIMIT 1;
 
+-- The issue can be in the trees of the copies of many repositories.
 -- name: ListCopiedWorkstreamsWithLabelChange :many
-SELECT i.workstream FROM copied_issues i
-WHERE i.repository = sqlc.arg(repository) AND i.number = sqlc.arg(number) AND i.repository_url = sqlc.arg(repository_url)
+SELECT i.repository, i.workstream FROM copied_issues i
+WHERE i.number = sqlc.arg(number) AND i.repository_url = sqlc.arg(repository_url)
   AND EXISTS (
       SELECT 1 FROM copied_issue_labels l
       WHERE l.repository = i.repository AND l.workstream = i.workstream AND l.position = i.position AND l.name = sqlc.arg(name)
@@ -599,6 +601,9 @@ WHERE i.repository = sqlc.arg(repository) AND i.number = sqlc.arg(number) AND i.
 
 -- name: ListCopiedWorkstreamsWithBlockerIn :many
 SELECT DISTINCT workstream FROM copied_blockers WHERE repository = ? AND blocker_workstream = ?;
+
+-- name: ListCopiedWorkstreamsWithIssue :many
+SELECT DISTINCT repository, workstream FROM copied_issues WHERE number = ? AND repository_url = ?;
 
 -- name: ListCopiedWorkstreamsWithBlocker :many
 SELECT DISTINCT workstream FROM copied_blockers WHERE repository = ? AND blocker_repository = ? AND number = ?;
@@ -628,8 +633,9 @@ SELECT CAST(autopilot AS BOOLEAN) FROM copied_workstreams WHERE repository = ? A
 UPDATE copied_workstreams SET autopilot = CAST(sqlc.arg(autopilot) AS BOOLEAN)
 WHERE repository = sqlc.arg(repository) AND number = sqlc.arg(number);
 
+-- A tree can hold the blocker of an issue of another repository, so the delete goes to the rows of all repositories.
 -- name: DeleteCopiedBlocker :execrows
-DELETE FROM copied_blockers WHERE repository = ? AND blocker_repository = ? AND number = ?;
+DELETE FROM copied_blockers WHERE blocker_repository = ? AND number = ?;
 
 -- A tree can hold an issue of another repository as a leaf, so the change goes to the rows of all repositories.
 -- name: UpdateCopiedIssue :execrows
@@ -658,7 +664,7 @@ SELECT name FROM copied_issue_labels WHERE repository = ? AND workstream = ? AND
 DELETE FROM copied_issue_labels WHERE repository = ? AND workstream = ? AND position = ?;
 
 -- name: ListCopiedTree :many
-SELECT position, number, parent, title, state, author, html_url, repository_url FROM copied_issues
+SELECT position, number, parent, parent_repository, title, state, author, html_url, repository_url FROM copied_issues
 WHERE repository = ? AND workstream = ? ORDER BY position;
 
 -- A tree can hold an issue of another repository with the same number, so the caller checks repository_url.
@@ -692,11 +698,14 @@ FROM copied_issues i
 JOIN copied_issue_labels l ON l.repository = i.repository AND l.workstream = i.workstream AND l.position = i.position
 WHERE i.repository = sqlc.arg(repository) AND i.state = 'open'
   AND l.name IN (sqlc.arg(working), sqlc.arg(review), sqlc.arg(question), sqlc.arg(needs_human))
-  AND EXISTS (SELECT 1 FROM tasks t WHERE t.repository = i.repository AND t.issue = i.number AND t.state = 'ended')
-  AND NOT EXISTS (SELECT 1 FROM tasks t WHERE t.repository = i.repository AND t.issue = i.number AND t.state <> 'ended')
+  AND EXISTS (SELECT 1 FROM tasks t WHERE t.issue = i.number AND t.state = 'ended'
+      AND substr(lower(i.repository_url), -(length(t.repository) + 7)) = '/repos/' || lower(t.repository))
+  AND NOT EXISTS (SELECT 1 FROM tasks t WHERE t.issue = i.number AND t.state <> 'ended'
+      AND substr(lower(i.repository_url), -(length(t.repository) + 7)) = '/repos/' || lower(t.repository))
   AND NOT (l.name = sqlc.arg(needs_human) AND EXISTS (
       SELECT 1 FROM inbox_items n
-      WHERE n.kind = 'lost' AND n.dismissed_at IS NULL AND n.repository = i.repository AND n.issue = i.number
+      WHERE n.kind = 'lost' AND n.dismissed_at IS NULL AND n.issue = i.number
+        AND substr(lower(i.repository_url), -(length(n.repository) + 7)) = '/repos/' || lower(n.repository)
   ))
 ORDER BY i.number, l.name;
 

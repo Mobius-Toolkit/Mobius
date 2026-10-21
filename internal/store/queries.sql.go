@@ -264,22 +264,23 @@ func (q *Queries) AddCopiedBlocker(ctx context.Context, arg AddCopiedBlockerPara
 }
 
 const addCopiedIssue = `-- name: AddCopiedIssue :exec
-INSERT INTO copied_issues (repository, workstream, position, number, parent, title, body, state, author, html_url, repository_url)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO copied_issues (repository, workstream, position, number, parent, parent_repository, title, body, state, author, html_url, repository_url)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type AddCopiedIssueParams struct {
-	Repository    string
-	Workstream    int64
-	Position      int64
-	Number        int64
-	Parent        int64
-	Title         string
-	Body          string
-	State         string
-	Author        string
-	HtmlUrl       string
-	RepositoryUrl string
+	Repository       string
+	Workstream       int64
+	Position         int64
+	Number           int64
+	Parent           int64
+	ParentRepository string
+	Title            string
+	Body             string
+	State            string
+	Author           string
+	HtmlUrl          string
+	RepositoryUrl    string
 }
 
 func (q *Queries) AddCopiedIssue(ctx context.Context, arg AddCopiedIssueParams) error {
@@ -289,6 +290,7 @@ func (q *Queries) AddCopiedIssue(ctx context.Context, arg AddCopiedIssueParams) 
 		arg.Position,
 		arg.Number,
 		arg.Parent,
+		arg.ParentRepository,
 		arg.Title,
 		arg.Body,
 		arg.State,
@@ -1149,17 +1151,17 @@ func (q *Queries) DeleteCommentWrite(ctx context.Context, id int64) error {
 }
 
 const deleteCopiedBlocker = `-- name: DeleteCopiedBlocker :execrows
-DELETE FROM copied_blockers WHERE repository = ? AND blocker_repository = ? AND number = ?
+DELETE FROM copied_blockers WHERE blocker_repository = ? AND number = ?
 `
 
 type DeleteCopiedBlockerParams struct {
-	Repository        string
 	BlockerRepository string
 	Number            int64
 }
 
+// A tree can hold the blocker of an issue of another repository, so the delete goes to the rows of all repositories.
 func (q *Queries) DeleteCopiedBlocker(ctx context.Context, arg DeleteCopiedBlockerParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, deleteCopiedBlocker, arg.Repository, arg.BlockerRepository, arg.Number)
+	result, err := q.db.ExecContext(ctx, deleteCopiedBlocker, arg.BlockerRepository, arg.Number)
 	if err != nil {
 		return 0, err
 	}
@@ -3553,7 +3555,7 @@ func (q *Queries) ListCopiedRepositories(ctx context.Context) ([]string, error) 
 }
 
 const listCopiedTree = `-- name: ListCopiedTree :many
-SELECT position, number, parent, title, state, author, html_url, repository_url FROM copied_issues
+SELECT position, number, parent, parent_repository, title, state, author, html_url, repository_url FROM copied_issues
 WHERE repository = ? AND workstream = ? ORDER BY position
 `
 
@@ -3563,14 +3565,15 @@ type ListCopiedTreeParams struct {
 }
 
 type ListCopiedTreeRow struct {
-	Position      int64
-	Number        int64
-	Parent        int64
-	Title         string
-	State         string
-	Author        string
-	HtmlUrl       string
-	RepositoryUrl string
+	Position         int64
+	Number           int64
+	Parent           int64
+	ParentRepository string
+	Title            string
+	State            string
+	Author           string
+	HtmlUrl          string
+	RepositoryUrl    string
 }
 
 func (q *Queries) ListCopiedTree(ctx context.Context, arg ListCopiedTreeParams) ([]ListCopiedTreeRow, error) {
@@ -3586,6 +3589,7 @@ func (q *Queries) ListCopiedTree(ctx context.Context, arg ListCopiedTreeParams) 
 			&i.Position,
 			&i.Number,
 			&i.Parent,
+			&i.ParentRepository,
 			&i.Title,
 			&i.State,
 			&i.Author,
@@ -3693,9 +3697,9 @@ const listCopiedWorkstreams = `-- name: ListCopiedWorkstreams :many
 SELECT w.repository, w.number, w.title, w.body, CAST(w.autopilot AS BOOLEAN) AS autopilot,
        CAST(w.evergreen AS BOOLEAN) AS evergreen,
        CAST(EXISTS (SELECT 1 FROM copied_issues i
-               WHERE i.repository = w.repository AND i.workstream = w.number AND i.parent = w.number)
+               WHERE i.repository = w.repository AND i.workstream = w.number AND i.parent = w.number AND i.parent_repository = w.repository)
        AND NOT EXISTS (SELECT 1 FROM copied_issues i
-                       WHERE i.repository = w.repository AND i.workstream = w.number AND i.parent = w.number
+                       WHERE i.repository = w.repository AND i.workstream = w.number AND i.parent = w.number AND i.parent_repository = w.repository
                          AND i.state != 'closed') AS BOOLEAN) AS all_tasks_closed,
        CAST(EXISTS (SELECT 1 FROM tasks t
                WHERE t.workstream_repository = w.repository AND t.workstream = w.number AND t.state = 'ready_for_review') AS BOOLEAN) AS ready_to_merge
@@ -3811,26 +3815,67 @@ func (q *Queries) ListCopiedWorkstreamsWithBlockerIn(ctx context.Context, arg Li
 	return items, nil
 }
 
+const listCopiedWorkstreamsWithIssue = `-- name: ListCopiedWorkstreamsWithIssue :many
+SELECT DISTINCT repository, workstream FROM copied_issues WHERE number = ? AND repository_url = ?
+`
+
+type ListCopiedWorkstreamsWithIssueParams struct {
+	Number        int64
+	RepositoryUrl string
+}
+
+type ListCopiedWorkstreamsWithIssueRow struct {
+	Repository string
+	Workstream int64
+}
+
+func (q *Queries) ListCopiedWorkstreamsWithIssue(ctx context.Context, arg ListCopiedWorkstreamsWithIssueParams) ([]ListCopiedWorkstreamsWithIssueRow, error) {
+	rows, err := q.db.QueryContext(ctx, listCopiedWorkstreamsWithIssue, arg.Number, arg.RepositoryUrl)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCopiedWorkstreamsWithIssueRow
+	for rows.Next() {
+		var i ListCopiedWorkstreamsWithIssueRow
+		if err := rows.Scan(&i.Repository, &i.Workstream); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listCopiedWorkstreamsWithLabelChange = `-- name: ListCopiedWorkstreamsWithLabelChange :many
-SELECT i.workstream FROM copied_issues i
-WHERE i.repository = ?1 AND i.number = ?2 AND i.repository_url = ?3
+SELECT i.repository, i.workstream FROM copied_issues i
+WHERE i.number = ?1 AND i.repository_url = ?2
   AND EXISTS (
       SELECT 1 FROM copied_issue_labels l
-      WHERE l.repository = i.repository AND l.workstream = i.workstream AND l.position = i.position AND l.name = ?4
-  ) != CAST(?5 AS BOOLEAN)
+      WHERE l.repository = i.repository AND l.workstream = i.workstream AND l.position = i.position AND l.name = ?3
+  ) != CAST(?4 AS BOOLEAN)
 `
 
 type ListCopiedWorkstreamsWithLabelChangeParams struct {
-	Repository    string
 	Number        int64
 	RepositoryUrl string
 	Name          string
 	Present       bool
 }
 
-func (q *Queries) ListCopiedWorkstreamsWithLabelChange(ctx context.Context, arg ListCopiedWorkstreamsWithLabelChangeParams) ([]int64, error) {
+type ListCopiedWorkstreamsWithLabelChangeRow struct {
+	Repository string
+	Workstream int64
+}
+
+// The issue can be in the trees of the copies of many repositories.
+func (q *Queries) ListCopiedWorkstreamsWithLabelChange(ctx context.Context, arg ListCopiedWorkstreamsWithLabelChangeParams) ([]ListCopiedWorkstreamsWithLabelChangeRow, error) {
 	rows, err := q.db.QueryContext(ctx, listCopiedWorkstreamsWithLabelChange,
-		arg.Repository,
 		arg.Number,
 		arg.RepositoryUrl,
 		arg.Name,
@@ -3840,13 +3885,13 @@ func (q *Queries) ListCopiedWorkstreamsWithLabelChange(ctx context.Context, arg 
 		return nil, err
 	}
 	defer rows.Close()
-	var items []int64
+	var items []ListCopiedWorkstreamsWithLabelChangeRow
 	for rows.Next() {
-		var workstream int64
-		if err := rows.Scan(&workstream); err != nil {
+		var i ListCopiedWorkstreamsWithLabelChangeRow
+		if err := rows.Scan(&i.Repository, &i.Workstream); err != nil {
 			return nil, err
 		}
-		items = append(items, workstream)
+		items = append(items, i)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
@@ -4006,11 +4051,14 @@ FROM copied_issues i
 JOIN copied_issue_labels l ON l.repository = i.repository AND l.workstream = i.workstream AND l.position = i.position
 WHERE i.repository = ?1 AND i.state = 'open'
   AND l.name IN (?2, ?3, ?4, ?5)
-  AND EXISTS (SELECT 1 FROM tasks t WHERE t.repository = i.repository AND t.issue = i.number AND t.state = 'ended')
-  AND NOT EXISTS (SELECT 1 FROM tasks t WHERE t.repository = i.repository AND t.issue = i.number AND t.state <> 'ended')
+  AND EXISTS (SELECT 1 FROM tasks t WHERE t.issue = i.number AND t.state = 'ended'
+      AND substr(lower(i.repository_url), -(length(t.repository) + 7)) = '/repos/' || lower(t.repository))
+  AND NOT EXISTS (SELECT 1 FROM tasks t WHERE t.issue = i.number AND t.state <> 'ended'
+      AND substr(lower(i.repository_url), -(length(t.repository) + 7)) = '/repos/' || lower(t.repository))
   AND NOT (l.name = ?5 AND EXISTS (
       SELECT 1 FROM inbox_items n
-      WHERE n.kind = 'lost' AND n.dismissed_at IS NULL AND n.repository = i.repository AND n.issue = i.number
+      WHERE n.kind = 'lost' AND n.dismissed_at IS NULL AND n.issue = i.number
+        AND substr(lower(i.repository_url), -(length(n.repository) + 7)) = '/repos/' || lower(n.repository)
   ))
 ORDER BY i.number, l.name
 `
@@ -4726,6 +4774,7 @@ FROM sessions
 LEFT JOIN copied_workstreams w ON w.repository = sessions.repository AND w.number = sessions.workstream
 LEFT JOIN copied_issues i
   ON i.repository = sessions.repository AND i.workstream = sessions.workstream AND i.number = sessions.issue
+  AND substr(lower(i.repository_url), -(length(sessions.repository) + 7)) = '/repos/' || lower(sessions.repository)
 WHERE sessions.ended_at IS NULL ORDER BY sessions.id
 `
 
