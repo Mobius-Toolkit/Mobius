@@ -58,13 +58,7 @@ type editMemoryInput struct {
 // maintenanceWorkstream gives the number of the maintenance Workstream of repository: the open Workstream with
 // mobius:maintenance and the lowest number. It gives 0 when repository has none.
 func maintenanceWorkstream(ctx context.Context, repository github.Repository) (int64, error) {
-	return labeledWorkstream(ctx, repository, maintenanceLabel)
-}
-
-// labeledWorkstream gives the number of the open Workstream of repository with label and the lowest number. It gives 0
-// when repository has none.
-func labeledWorkstream(ctx context.Context, repository github.Repository, label string) (int64, error) {
-	issues, err := repository.OpenIssuesWithLabel(ctx, label)
+	issues, err := repository.OpenIssuesWithLabel(ctx, maintenanceLabel)
 	var found int64
 	for _, issue := range issues {
 		if number := int64(issue.GetNumber()); hasLabel(issue, workstreamLabel) && (found == 0 || number < found) {
