@@ -124,6 +124,7 @@ test.describe("the agent log of a running Lead", () => {
 
   test("the side panel shows a new entry with no reload", async ({ page }) => {
     await page.goto(seasonal);
+    await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
     const tree = page.getByRole("complementary");
     await say(page, "Which tulips sell best?");
     await tree
@@ -457,6 +458,15 @@ test.describe("images", () => {
 
 test.describe("on a touch screen", () => {
   test.use({ viewport: phone, isMobile: true, hasTouch: true });
+
+  test("does not focus the chat input when a chat opens", async ({ page }) => {
+    for (const path of ["/chat", shop]) {
+      await page.goto(path);
+      const input = page.getByLabel(/^Message to the /);
+      await expect(input).toBeEditable();
+      await expect(input).not.toBeFocused();
+    }
+  });
 
   test("Enter adds a line, and only Send sends", async ({ page }) => {
     await page.goto(shop);
@@ -1015,7 +1025,7 @@ test("Resume takes the issue off the list, and the hint goes away", async ({ pag
       [numbers[1], issues[1]],
     ]);
     await page.goto(`/workstreams/plants/garden/${workstream}`);
-    const resume = main.getByRole("button", { name: "Resume" });
+    const resume = main.getByRole("button", { name: "Resume", exact: true });
     await expect(resume).toHaveCount(2);
     // The list is above the input and fits the screen.
     expect(
@@ -1035,12 +1045,12 @@ test("Resume takes the issue off the list, and the hint goes away", async ({ pag
     await expect(hint).toBeAttached();
 
     await resume.first().click();
-    await expect(main.getByRole("listitem").filter({ hasText: issues[0] })).toBeHidden();
-    await expect(main.getByRole("listitem").filter({ hasText: issues[1] })).toBeVisible();
+    await expect(main.locator("li:not(aside *)").filter({ hasText: issues[0] })).toBeHidden();
+    await expect(main.locator("li:not(aside *)").filter({ hasText: issues[1] })).toBeVisible();
     await expect(hint).toBeAttached();
     await expect.poll(() => live(numbers[0])).toBe(true);
     await resume.click();
-    await expect(main.getByRole("listitem").filter({ hasText: issues[1] })).toBeHidden();
+    await expect(main.locator("li:not(aside *)").filter({ hasText: issues[1] })).toBeHidden();
     await expect(hint).not.toBeAttached();
     await expect.poll(() => live(numbers[1])).toBe(true);
     await removeItems(page, ids);
@@ -1075,7 +1085,7 @@ test("Answer of a row in the chat opens a panel with the rendered text", async (
 // The names of the buttons and links of the row of an item, and the link to GitHub.
 async function actionsOf(page: Page, path: string, title: string) {
   await page.goto(path);
-  const row = page.getByRole("main").getByRole("listitem").filter({ hasText: title });
+  const row = page.getByRole("main").locator("li:not(aside *)").filter({ hasText: title });
   await expect(row).toBeVisible();
   return {
     buttons: await row.getByRole("button").allTextContents(),
@@ -1757,6 +1767,8 @@ test("the box holds the text area, the attach button, the voice button and the s
   }
   await expect(send).toHaveCSS("border-top-left-radius", /e\+07px$/);
 
+  await expect(input).toBeFocused();
+  await input.blur();
   const border = (await page.evaluate(
     "getComputedStyle(document.querySelector('main form textarea').parentElement).borderTopColor",
   )) as string;
@@ -2130,5 +2142,52 @@ test.describe("the state of an Owner message", () => {
     await expect(main.locator("[data-message]", { hasText: "Second message" })).toHaveCount(1);
     await expect(deliveredIcon).toBeVisible();
     await expect(message.getByRole("img", { name: "Stored, waits for the agent" })).toHaveCount(0);
+  });
+});
+
+test.describe("on a desktop", () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
+
+  test("the chat input has the focus when a chat opens", async ({ page }) => {
+    for (const path of ["/chat", shop]) {
+      await page.goto(path);
+      const input = page.getByLabel(/^Message to the /);
+      await expect(input).toBeEditable();
+      await expect(input).toBeFocused();
+    }
+  });
+
+  test("the chat input gets the focus again when the Owner goes to another chat", async ({
+    page,
+  }) => {
+    await page.goto(shop);
+    const input = page.getByLabel("Message to the Lead");
+    await expect(input).toBeFocused();
+    await page.getByRole("main").click({ position: { x: 1, y: 1 } });
+    await expect(input).not.toBeFocused();
+    await page.locator('nav a[href="/workstreams/owner/shop/14"]').click();
+    await expect(input).toBeFocused();
+  });
+
+  test("the side panel shows the tabs Tasks, Agents and Details, and opens Tasks", async ({
+    page,
+  }) => {
+    await page.goto(shop);
+    const panel = page.getByRole("complementary");
+    await expect(panel.getByRole("tab")).toHaveText(["Tasks", "Agents", "Details"]);
+    const tasks = panel.getByRole("tab", { name: "Tasks" });
+    await expect(tasks).toHaveAttribute("aria-selected", "true");
+    await expect(panel.getByRole("tabpanel", { name: "Tasks" })).toBeVisible();
+  });
+
+  test("the header of the chat does not show the role and the harness", async ({ page }) => {
+    for (const path of ["/chat", shop]) {
+      await page.goto(path);
+      const header = page.getByRole("main").locator("section > header").first();
+      await expect(header).toBeVisible();
+      await expect(header).not.toContainText("claude-code");
+      await expect(header).not.toContainText("Lead:");
+      await expect(header).not.toContainText("Coordinator:");
+    }
   });
 });

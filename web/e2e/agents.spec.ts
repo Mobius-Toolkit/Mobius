@@ -41,6 +41,7 @@ test("the Agents tab of a Workstream shows the state of each agent with a queue 
 }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto("/workstreams/owner/shop/12");
+  await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
   const tree = page.getByRole("complementary");
   for (const { reason, badge, dot } of states) {
     const entry = tree.getByRole("button").filter({ hasText: reason }).first();
@@ -77,6 +78,7 @@ test("the Agents tab of a Workstream shows the state of a session that waits for
   await page.setViewportSize({ width: 1280, height: 800 });
   await withLowLoad(page, async () => {
     await page.goto("/workstreams/owner/shop/12");
+    await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
     const entry = page
       .getByRole("complementary")
       .getByRole("button")
@@ -188,6 +190,7 @@ const places = [
       if (page.viewportSize()!.width < 768) {
         await page.getByRole("banner").getByRole("button", { name: "Agents" }).click();
       }
+      await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
       await page
         .getByRole("button", { name: /^implementer devin · swe-1.5 · Sep \d+,/ })
         .filter({ visible: true })

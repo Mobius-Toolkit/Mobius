@@ -27,6 +27,7 @@ const viewports = {
 };
 
 // Writes screenshots/<name>-desktop.png and screenshots/<name>-phone.png.
+// The phone image comes from a browser with a coarse pointer, as on a real phone.
 async function screenshot(
   page: Page,
   name: string,
@@ -35,7 +36,9 @@ async function screenshot(
   open?: (device: string) => Promise<void>,
   close?: () => Promise<void>,
 ) {
+  const session = await page.context().newCDPSession(page);
   for (const [device, size] of Object.entries(viewports)) {
+    await session.send("Emulation.setTouchEmulationEnabled", { enabled: device === "phone" });
     await page.setViewportSize(size);
     await page.goto(path);
     await open?.(device);
@@ -48,6 +51,8 @@ async function screenshot(
     });
     await close?.();
   }
+  await session.send("Emulation.setTouchEmulationEnabled", { enabled: false });
+  await session.detach();
 }
 
 // Sets the queue reason of the live Implementer session of #41.
@@ -212,10 +217,13 @@ test("screenshots", async ({ page }) => {
   const chatReady = (device: string) => [
     ...frame(device, drain, {}, "3"),
     main.getByText("#42 and #45 wait for your decision."),
-    main.getByRole("listitem").filter({ hasText: "Add plan model" }),
+    main
+      .getByRole("listitem")
+      .filter({ hasText: "Add plan model" })
+      .filter({ hasText: "The agent asked a question" }),
     main.getByRole("button", { name: "Answer" }).first(),
     ...(device === "desktop"
-      ? [page.getByRole("complementary").getByText("Lead chat session").first()]
+      ? [page.getByRole("complementary").getByText("#45 Pick the plan limits")]
       : []),
   ];
   await screenshot(page, "chat", "/workstreams/owner/shop/12", chatReady);
@@ -440,6 +448,7 @@ test("screenshots", async ({ page }) => {
       if (device === "phone") {
         await page.getByRole("banner").getByRole("button", { name: "Agents" }).click();
       }
+      await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
     },
   );
   await screenshot(
@@ -774,6 +783,7 @@ test("screenshots", async ({ page }) => {
   await page.goto("/workstreams/owner/shop/12");
   await expect(main.getByText("#42 and #45 wait for your decision.")).toBeInViewport();
   const agents = page.getByRole("complementary");
+  await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
   const stopped = agents.getByText("stopped", { exact: true });
   await expect(stopped).toHaveCount(0);
   await agents.getByRole("switch", { name: "Show stopped agents" }).click();
@@ -801,6 +811,7 @@ test("screenshots", async ({ page }) => {
       if (device === "phone") {
         await page.getByRole("banner").getByRole("button", { name: "Agents" }).click();
       }
+      await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
       await page
         .getByRole("button", { name: /^implementer devin · swe-1.5 · Sep \d+, \d\d:\d\d [AP]M$/ })
         .filter({ visible: true })

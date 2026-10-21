@@ -296,7 +296,6 @@ export function Conversation({
   const [loaded, setLoaded] = useState(false);
   // older is true when the chat has messages before the first loaded message.
   const [older, setOlder] = useState(false);
-  const [harness, setHarness] = useState("");
   const [writing, setWriting] = useState(false);
   const [stoppable, setStoppable] = useState(false);
   const [pausedUntil, setPausedUntil] = useState<string | null>(null);
@@ -376,7 +375,6 @@ export function Conversation({
     if (known === undefined) {
       setOlder(newestPage.older);
     }
-    setHarness(newestPage.harness);
     setWriting(newestPage.writing);
     setStoppable(newestPage.stoppable);
     setPausedUntil(newestPage.pausedUntil);
@@ -686,12 +684,6 @@ export function Conversation({
     <section className="flex min-h-0 min-w-0 grow flex-col">
       <header className="hidden min-h-14 items-center gap-2 border-b px-4 py-2 md:flex">
         {head}
-        <span className="grow" />
-        {harness && (
-          <span className="truncate text-sm text-muted-foreground">
-            {agent}: {harness}
-          </span>
-        )}
       </header>
       {brief && (
         <Collapsible
@@ -785,6 +777,7 @@ export function Conversation({
       {footer}
       <ActionTray rows={rows} answer={(item) => setAnswering(item.id)} />
       <MessageInput
+        key={chatDraftKey(organization, repository, workstream)}
         draftKey={chatDraftKey(organization, repository, workstream)}
         label={`Message to the ${agent}`}
         placeholder={`Write to the ${agent}`}
@@ -792,6 +785,7 @@ export function Conversation({
         error={sendError}
         onError={setSendError}
         stopping={stopping}
+        autoFocus
         onStop={stoppable ? stop : undefined}
         onSend={send}
       />

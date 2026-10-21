@@ -1,4 +1,4 @@
-import { use, useCallback, useEffect, useState } from "react";
+import { use, useCallback, useEffect, useId, useState } from "react";
 import {
   listAgents,
   listTasks,
@@ -228,6 +228,7 @@ function Tasks({
   const [lines, setLines] = useState<TaskLine[]>();
   const [error, setError] = useState<string>();
   const [showClosed, setShowClosed] = useState(false);
+  const closedId = useId();
 
   const load = useCallback(() => {
     listTasks(owner, name, number)
@@ -264,8 +265,8 @@ function Tasks({
     <div className="grid gap-2">
       {error && <Badge variant="destructive">{error}</Badge>}
       <div className="flex items-center gap-2 px-2">
-        <Switch id="closed-tasks" checked={showClosed} onCheckedChange={setShowClosed} />
-        <Label htmlFor="closed-tasks">Show closed tasks</Label>
+        <Switch id={closedId} checked={showClosed} onCheckedChange={setShowClosed} />
+        <Label htmlFor={closedId}>Show closed tasks</Label>
       </div>
       {shown?.length === 0 && <p className="px-2 text-sm text-muted-foreground">No tasks.</p>}
       <ul>
@@ -290,17 +291,17 @@ export function AgentPanel({
   source?: EventSource;
 }) {
   return (
-    <Tabs defaultValue="agents" className="min-h-0 grow">
+    <Tabs defaultValue="tasks" className="min-h-0 grow">
       <TabsList variant="line" className="px-2">
-        <TabsTrigger value="agents">Agents</TabsTrigger>
         <TabsTrigger value="tasks">Tasks</TabsTrigger>
+        <TabsTrigger value="agents">Agents</TabsTrigger>
         <TabsTrigger value="details">Details</TabsTrigger>
       </TabsList>
-      <TabsContent value="agents" className="flex flex-col overflow-y-auto p-2">
-        <AgentList owner={owner} name={name} number={number} source={source} />
-      </TabsContent>
       <TabsContent value="tasks" className="overflow-y-auto p-2">
         <Tasks owner={owner} name={name} number={number} source={source} />
+      </TabsContent>
+      <TabsContent value="agents" className="flex flex-col overflow-y-auto p-2">
+        <AgentList owner={owner} name={name} number={number} source={source} />
       </TabsContent>
       <TabsContent value="details" className="overflow-y-auto p-2">
         <Details owner={owner} name={name} number={number} source={source} />

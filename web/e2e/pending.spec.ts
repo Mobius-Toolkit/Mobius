@@ -50,7 +50,7 @@ test("Resume in the Lead chat shows the spinner while the request runs", async (
   await page.goto("/workstreams/plants/garden/20");
   const main = page.getByRole("main");
   const held = await hold(page, "**/api/repositories/*/*/issues/*/resume", "POST");
-  const resume = main.getByRole("button", { name: "Resume" });
+  const resume = main.getByRole("button", { name: "Resume", exact: true });
   await expect(resume).toHaveCount(2);
 
   await checkPending(resume.first(), held);
