@@ -29,7 +29,7 @@ const (
 	// eachFix is an Implementer that commits a change in each fix round.
 	eachFix      = "[[prompts]]\nwhen = \"Action: fix\"\nshell = \"echo $$ >> plan.txt && git commit -q -am 'Store the unit'\"\n\n"
 	noFinding    = "[[prompts]]\nwhen = \"You are the Reviewer\"\nshell = \"true\"\n\n"
-	leadFindings = "[[prompts]]\nwhen = \"Send the findings to #41\"\ncall = { tool = \"start_fix_round\", arguments = { n = 41, findings = \"Remove the lines out of scope.\" } }\n\n"
+	leadFindings = "[[prompts]]\nwhen = \"Send the findings to #41\"\ncall = { tool = \"start_fix_round\", arguments = { repository = \"owner/shop\", n = 41, findings = \"Remove the lines out of scope.\" } }\n\n"
 )
 
 // endedReviewers waits until count Reviewer sessions ended, and gives them.
@@ -189,7 +189,7 @@ func TestAFixRoundRepliesWithThePushedFixCommitAndResolvesTheThread(t *testing.T
 func TestAnImplementerAfterCannotDoInAFixRoundContinuesThePullRequest(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	lead := "[[prompts]]\nwhen = \"cannot_do on #41\"\ncall = { tool = \"start_implementer\", arguments = { n = 41, instructions = \"Store the unit in the plan.\" } }\n\n" +
+	lead := "[[prompts]]\nwhen = \"cannot_do on #41\"\ncall = { tool = \"start_implementer\", arguments = { repository = \"owner/shop\", n = 41, instructions = \"Store the unit in the plan.\" } }\n\n" +
 		"[[prompts]]\nwhen = \"Thread 2, plan.txt line 1:\"\nshell = \"true\"\n\n" + finding + leadStarts
 	implementer := "[[prompts]]\nwhen = \"Action: fix\"\ncall = { tool = \"cannot_do\", arguments = { reason = \"The unit is not clear.\" } }\n\n" +
 		strings.Replace(fixReplies, "Action: fix", "Store the unit in the plan.", 1) + commits
@@ -271,7 +271,7 @@ func TestAQueuedReviewerGetsTheEarlierThreadsOfTrustedAuthors(t *testing.T) {
 	goFile := filepath.Join(dataDir, "go")
 	// The first prompt of a Lead session has the earlier events in its history, so the rule of #41 comes first.
 	lead := leadStarts + fmt.Sprintf("\n[[prompts]]\nwhen = \"# Issue\\n\\n#43 Add plan price\"\nshell = \"while [ ! -e '%s' ]; do sleep 0.05; done\"\n\n", goFile) +
-		"[[prompts]]\nwhen = \"dispatch of #43\"\ncall = { tool = \"start_implementer\", arguments = { n = 43, instructions = \"Add a price.\" } }\n"
+		"[[prompts]]\nwhen = \"dispatch of #43\"\ncall = { tool = \"start_implementer\", arguments = { repository = \"owner/shop\", n = 43, instructions = \"Add a price.\" } }\n"
 	server, _ := connectTaskIn(t, fake, dataDir, lead, commits, func(cfg *config.Config) { cfg.Roles.Reviewer.Max = 1 })
 	fake.AddSubIssueOf(shop, 12, 43, "Add plan price")
 	fake.AddLabel(shop, 43, "mobius:ready", "owner")

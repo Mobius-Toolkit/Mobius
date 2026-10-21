@@ -517,7 +517,7 @@ func TestStartFixRoundWorksWhileTheTaskWaitsForTheLead(t *testing.T) {
 	}
 }
 
-const leadApproves = "[[prompts]]\nwhen = \"Approve #41\"\ncall = { tool = \"approve_pull_request\", arguments = { n = 41, report = \"Checked the diff. Verified the tests.\" } }\n\n"
+const leadApproves = "[[prompts]]\nwhen = \"Approve #41\"\ncall = { tool = \"approve_pull_request\", arguments = { repository = \"owner/shop\", n = 41, report = \"Checked the diff. Verified the tests.\" } }\n\n"
 
 func TestApprovePullRequestMakesTheTaskReadyForReviewAndGivesTheOwnerTheInboxItem(t *testing.T) {
 	t.Parallel()
@@ -556,7 +556,7 @@ func TestApprovePullRequestMakesTheTaskReadyForReviewAndGivesTheOwnerTheInboxIte
 func TestApprovePullRequestRefusesAnEmptyReportAndChangesNothing(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	empty := "[[prompts]]\nwhen = \"Approve #41\"\ncall = { tool = \"approve_pull_request\", arguments = { n = 41, report = \" \" } }\n\n"
+	empty := "[[prompts]]\nwhen = \"Approve #41\"\ncall = { tool = \"approve_pull_request\", arguments = { repository = \"owner/shop\", n = 41, report = \" \" } }\n\n"
 	server, _ := connectTask(t, fake, empty+leadStarts, commits, noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 	waitForReadyEvents(t, server, 1)
