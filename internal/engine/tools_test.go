@@ -783,7 +783,7 @@ func TestMoveTaskMovesAnIssueOfTheWorkstreamWithNoLiveTask(t *testing.T) {
 func TestMoveIssueMovesAnIssueWithNoWorkstreamAndMakesItReady(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, call("move_issue", "{ n = 50, workstream = 12 }")+call("move_issue", "{ n = 50, workstream = 12 }"))
+	server, _ := connect(t, fake, call("move_issue", "{ repository = \"owner/shop\", n = 50, workstream = 12 }")+call("move_issue", "{ repository = \"owner/shop\", n = 50, workstream = 12 }"))
 	fake.AddIssue(shop, 50, "Add invoices")
 	fake.AddLabel(shop, 50, "mobius:no-workstream", "mobius-test[bot]")
 	spec := engine.Spec{Role: engine.CoordinatorRole, Organization: "owner", Dir: t.TempDir()}

@@ -92,14 +92,8 @@ func (e *Engine) checkTellCurator(c caller, input tellCuratorInput) error {
 	if empty(input.Text) {
 		return refuse("text must not be empty.")
 	}
-	repository, err := e.repository(input.Repository)
-	if err != nil {
-		return err
-	}
-	if repository.Owner() != c.organization {
-		return refuse("%s is not in the organization %s.", input.Repository, c.organization)
-	}
-	return nil
+	_, err := e.organizationRepository(c.organization, input.Repository)
+	return err
 }
 
 // tellCurator saves the request of the Owner and gives it to a Curator of the repository of the input. While a Curator

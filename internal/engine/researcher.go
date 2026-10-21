@@ -76,6 +76,20 @@ func (e *Engine) startResearcher(ctx context.Context, c caller, repository githu
 	return fmt.Sprintf("Started the Researcher %d. The report arrives later.", a.id), nil
 }
 
+type coordinatorQuestionInput struct {
+	Repository string `json:"repository"`
+	Question   string `json:"question"`
+}
+
+// startCoordinatorResearcher is startResearcher for the Coordinator chat, which names the repository of the code.
+func (e *Engine) startCoordinatorResearcher(ctx context.Context, c caller, _ github.Repository, input coordinatorQuestionInput) (string, error) {
+	repository, err := e.organizationRepository(c.organization, input.Repository)
+	if err != nil {
+		return "", err
+	}
+	return e.startResearcher(ctx, c, repository, questionInput{Question: input.Question})
+}
+
 // ownedResearcher gives the Researcher id that runs for the Workstream of c, or nil.
 func (e *Engine) ownedResearcher(c caller, id int64) *Agent {
 	e.detailsMu.Lock()

@@ -36,22 +36,29 @@ func (h Harness) HasEffortLevels() bool {
 
 // Config is the content of config.toml.
 type Config struct {
-	AccessPassword      string        `toml:"access_password"`
-	TrustedUsers        []string      `toml:"trusted_users"`
-	TrustedBots         []string      `toml:"trusted_bots"`
-	DataDir             string        `toml:"data_dir"`
-	UIURL               string        `toml:"ui_url"`
-	MaxChecks           int           `toml:"max_checks"`
-	MaxFixRounds        int           `toml:"max_fix_rounds"`
-	MaxCheckAttempts    int           `toml:"max_check_attempts"`
-	MaxWorkerRestarts   int           `toml:"max_worker_restarts"`
-	CheckTimeout        time.Duration `toml:"-"`
-	ReviewQuietPeriod   time.Duration `toml:"-"`
-	StalePRAge          time.Duration `toml:"-"`
-	LeadIdleTimeout     time.Duration `toml:"-"`
-	PollInterval        time.Duration `toml:"-"`
-	HousekeeperInterval time.Duration `toml:"-"`
-	Roles               Roles         `toml:"roles"`
+	AccessPassword      string                  `toml:"access_password"`
+	TrustedUsers        []string                `toml:"trusted_users"`
+	TrustedBots         []string                `toml:"trusted_bots"`
+	DataDir             string                  `toml:"data_dir"`
+	UIURL               string                  `toml:"ui_url"`
+	MaxChecks           int                     `toml:"max_checks"`
+	MaxFixRounds        int                     `toml:"max_fix_rounds"`
+	MaxCheckAttempts    int                     `toml:"max_check_attempts"`
+	MaxWorkerRestarts   int                     `toml:"max_worker_restarts"`
+	CheckTimeout        time.Duration           `toml:"-"`
+	ReviewQuietPeriod   time.Duration           `toml:"-"`
+	StalePRAge          time.Duration           `toml:"-"`
+	LeadIdleTimeout     time.Duration           `toml:"-"`
+	PollInterval        time.Duration           `toml:"-"`
+	HousekeeperInterval time.Duration           `toml:"-"`
+	Roles               Roles                   `toml:"roles"`
+	Organizations       map[string]Organization `toml:"organizations"`
+}
+
+// Organization holds the settings of one GitHub organization.
+type Organization struct {
+	// IssueRepository is the owner/name of the repository that holds the Workstream issues of the organization.
+	IssueRepository string `toml:"issue_repository"`
 }
 
 // Roles binds each Role to a Harness and a model.
@@ -227,6 +234,16 @@ func check(config *Config) error {
 			return fmt.Errorf("%s.effort: is required for %s", key, harness)
 		case !harness.HasEffortLevels() && b.Binding.Effort != "":
 			return fmt.Errorf("%s.effort: is not allowed for %s", key, harness)
+		}
+	}
+	for organization, settings := range config.Organizations {
+		key := "organizations." + organization + ".issue_repository"
+		owner, name, found := strings.Cut(settings.IssueRepository, "/")
+		switch {
+		case !found || owner == "" || name == "" || strings.Contains(name, "/"):
+			return fmt.Errorf("%s: must be owner/name", key)
+		case owner != organization:
+			return fmt.Errorf("%s: the owner must be %s", key, organization)
 		}
 	}
 	reviewer, implementer := config.Roles.Reviewer, config.Roles.Implementer
