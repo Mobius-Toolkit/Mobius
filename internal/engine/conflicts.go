@@ -38,8 +38,8 @@ func (e *Engine) stale(ctx context.Context, repository github.Repository, task s
 	}
 	age := fmt.Sprintf("%g days", e.config.StalePRAge.Hours()/24)
 	number := pullRequest.GetNumber()
-	text := fmt.Sprintf("%s stale pull request #%d of #%d \"%s\": it %s and is older than %s. %s",
-		time.Now().UTC().Format(timeFormat), number, task.Issue, issue.GetTitle(), reason, age, pullRequest.GetHTMLURL())
+	text := fmt.Sprintf("%s stale pull request %s of %s \"%s\": it %s and is older than %s. %s",
+		time.Now().UTC().Format(timeFormat), taskEventRef(task, int64(number)), taskEventRef(task, task.Issue), issue.GetTitle(), reason, age, pullRequest.GetHTMLURL())
 	handed, err := e.handFromStates(ctx, []string{task.State}, task, issue.GetTitle(), text, "", stopNotice{
 		reason:       fmt.Sprintf("PR #%d %s", number, reason),
 		text:         fmt.Sprintf("Pull request #%d of #%d \"%s\" %s and is older than %s.", number, task.Issue, issue.GetTitle(), reason, age),

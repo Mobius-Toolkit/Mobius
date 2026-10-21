@@ -363,7 +363,7 @@ func (e *Engine) workstreamEvent(ctx context.Context, repository github.Reposito
 		if err != nil || firstPoll {
 			return err
 		}
-		return e.addLeadEvent(ctx, repository.FullName, number, "", sql.NullInt64{}, "creation", eventText(time.Now(), "creation of Workstream", issue, actor, issue.GetBody()))
+		return e.addLeadEvent(ctx, repository.FullName, number, "", sql.NullInt64{}, "creation", eventText(time.Now(), "creation of Workstream", fmt.Sprintf("#%d", number), issue, actor, issue.GetBody()))
 	case firstPoll:
 		return nil
 	// A removal from any actor counts, because it only stops work.
@@ -379,7 +379,7 @@ func (e *Engine) workstreamEvent(ctx context.Context, repository github.Reposito
 		}
 		return nil
 	case event.GetEvent() == "reopened" && trusted && hasLabel(issue, workstreamLabel):
-		return e.addLeadEvent(ctx, repository.FullName, number, "", sql.NullInt64{}, "reopen", eventText(time.Now(), "reopen of Workstream", issue, actor, issue.GetBody()))
+		return e.addLeadEvent(ctx, repository.FullName, number, "", sql.NullInt64{}, "reopen", eventText(time.Now(), "reopen of Workstream", fmt.Sprintf("#%d", number), issue, actor, issue.GetBody()))
 	}
 	return nil
 }

@@ -850,7 +850,7 @@ func (e *Engine) implementer(ctx context.Context, j *job) error {
 			return err
 		}
 		checkErr := e.failCheckRun(ended, task, "Cannot do", "The Implementer could not do the task. The Lead decides the next step.")
-		text := fmt.Sprintf("%s cannot_do on #%d \"%s\" by the Implementer:\n\n%s", time.Now().UTC().Format(timeFormat), task.Issue, j.title, quote(r.text))
+		text := fmt.Sprintf("%s cannot_do on %s \"%s\" by the Implementer:\n\n%s", time.Now().UTC().Format(timeFormat), taskEventRef(task, task.Issue), j.title, quote(r.text))
 		return errors.Join(checkErr, e.addLeadEvent(ended, task.WorkstreamRepository, task.Workstream, task.Repository, sql.NullInt64{Int64: task.Issue, Valid: true}, "cannot_do", text))
 	case checkFailed:
 		return e.handOver(ended, task, j.title, fmt.Sprintf(".mobius/check failed %d times. Mobius pushed the work, set the Mobius check to failure, and added mobius:needs-human.", e.config.MaxCheckAttempts), stopNotice{
@@ -893,7 +893,7 @@ func (e *Engine) stopAtLimit(ctx context.Context, r round, limit string) error {
 	rounds := e.config.MaxFixRounds
 	summary := fmt.Sprintf("The pull request has open items after %d %s rounds.", rounds, limit)
 	reason := fmt.Sprintf("the pull request has open items after %d %s rounds. Mobius set the Mobius check to failure and added mobius:needs-human.", rounds, limit)
-	handed, err := e.handToHuman(ctx, r.task, r.title, stopText(r.task.Issue, r.title, reason), "", stopNotice{
+	handed, err := e.handToHuman(ctx, r.task, r.title, stopText(r.task, r.title, reason), "", stopNotice{
 		reason:       "Round limit",
 		text:         summary,
 		next:         fmt.Sprintf("Read the open items of PR #%d. Resolve the items that need no change. Then Resume, or close the pull request. Resume resets the round count.", r.pullRequest.GetNumber()),
@@ -919,7 +919,7 @@ func (e *Engine) handOver(ctx context.Context, task store.Task, title, reason st
 func (e *Engine) handOverFailed(ctx context.Context, task store.Task, title, reason, checkTitle, checkSummary string, notice stopNotice) error {
 	notice.checkTitle = checkTitle
 	notice.checkSummary = checkSummary
-	handed, err := e.handToHuman(ctx, task, title, stopText(task.Issue, title, reason), "", notice)
+	handed, err := e.handToHuman(ctx, task, title, stopText(task, title, reason), "", notice)
 	if err != nil || !handed {
 		return err
 	}
@@ -954,8 +954,8 @@ func failOpenCheckRun(ctx context.Context, repository github.Repository, head, t
 	return repository.UpdateCheckRun(ctx, checkRun, checkRunName, "completed", "failure", title, summary)
 }
 
-func stopText(number int64, title, reason string) string {
-	return fmt.Sprintf("%s stop of #%d \"%s\": %s", time.Now().UTC().Format(timeFormat), number, title, reason)
+func stopText(task store.Task, title, reason string) string {
+	return fmt.Sprintf("%s stop of %s \"%s\": %s", time.Now().UTC().Format(timeFormat), taskEventRef(task, task.Issue), title, reason)
 }
 
 // implement makes the worktree, runs the turns of the agent with the local check, and delivers the work.

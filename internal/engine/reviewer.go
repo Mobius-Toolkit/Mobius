@@ -439,8 +439,8 @@ func (e *Engine) sendFollowUps(ctx context.Context, repository github.Repository
 			return err
 		}
 		if !sent {
-			event := fmt.Sprintf("%s follow-up on pull request #%d of #%d \"%s\", item %d, %s line %d:\n\n%s",
-				time.Now().UTC().Format(timeFormat), number, task.Issue, title, thread.Comment, thread.Path, thread.Line, quote(body))
+			event := fmt.Sprintf("%s follow-up on pull request %s of %s \"%s\", item %d, %s line %d:\n\n%s",
+				time.Now().UTC().Format(timeFormat), taskEventRef(task, int64(number)), taskEventRef(task, task.Issue), title, thread.Comment, thread.Path, thread.Line, quote(body))
 			if err := e.addLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, task.Repository, sql.NullInt64{Int64: task.Issue, Valid: true}, "follow_up", event); err != nil {
 				return err
 			}

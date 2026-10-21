@@ -27,7 +27,7 @@ func connectGarden(t *testing.T, fake *testkit.FakeGitHub, lead, implementer str
 func TestTheLeadStartsAnImplementerForATaskInAnotherRepository(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	lead := "[[prompts]]\nwhen = \"dispatch of #7\"\ncall = { tool = \"start_implementer\", arguments = { repository = \"owner/garden\", n = 7, instructions = \"Water them twice a day.\" } }\n"
+	lead := "[[prompts]]\nwhen = \"dispatch of owner/garden#7\"\ncall = { tool = \"start_implementer\", arguments = { repository = \"owner/garden\", n = 7, instructions = \"Water them twice a day.\" } }\n"
 	server := connectGarden(t, fake, lead, commits)
 
 	fake.AddLabel(garden, 7, "mobius:ready", "owner")
@@ -52,7 +52,7 @@ func TestTheLeadStartsAnImplementerForATaskInAnotherRepository(t *testing.T) {
 func TestTheLeadAsksOnTheIssueOfATaskInAnotherRepository(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	lead := "[[prompts]]\nwhen = \"dispatch of #7\"\ncall = { tool = \"ask\", arguments = { repository = \"owner/garden\", n = 7, text = \"Which plants?\" } }\n"
+	lead := "[[prompts]]\nwhen = \"dispatch of owner/garden#7\"\ncall = { tool = \"ask\", arguments = { repository = \"owner/garden\", n = 7, text = \"Which plants?\" } }\n"
 	server := connectGarden(t, fake, lead, "")
 
 	fake.AddLabel(garden, 7, "mobius:ready", "owner")
@@ -73,13 +73,13 @@ func TestTheLeadAsksOnTheIssueOfATaskInAnotherRepository(t *testing.T) {
 func TestTheImplementerOfATaskInAnotherRepositoryCallsCannotDo(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	lead := "[[prompts]]\nwhen = \"cannot_do on #7\"\nreply = [\"ok\"]\n\n" +
-		"[[prompts]]\nwhen = \"dispatch of #7\"\ncall = { tool = \"start_implementer\", arguments = { repository = \"owner/garden\", n = 7, instructions = \"Water them twice a day.\" } }\n"
+	lead := "[[prompts]]\nwhen = \"cannot_do on owner/garden#7\"\nreply = [\"ok\"]\n\n" +
+		"[[prompts]]\nwhen = \"dispatch of owner/garden#7\"\ncall = { tool = \"start_implementer\", arguments = { repository = \"owner/garden\", n = 7, instructions = \"Water them twice a day.\" } }\n"
 	server := connectGarden(t, fake, lead, "[[prompts]]\n"+cannotDoCall)
 
 	fake.AddLabel(garden, 7, "mobius:ready", "owner")
 
-	waitForLeadPrompt(t, server, " cannot_do on #7 \"Water the plants\" by the Implementer:\n\n> The plan table does not exist.")
+	waitForLeadPrompt(t, server, " cannot_do on owner/garden#7 \"Water the plants\" by the Implementer:\n\n> The plan table does not exist.")
 	if session := endedImplementers(t, server, 1)[0]; session.EndReason.String != "cannot_do" {
 		t.Errorf("end reason = %s", session.EndReason.String)
 	}

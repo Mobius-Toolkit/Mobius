@@ -429,8 +429,22 @@ func (e *Engine) addedByTrustedUser(events []*gh.IssueEvent) bool {
 	return false
 }
 
-// eventText gives the text of a Lead event about the issue, for example "creation of Workstream", with the
-// quoted body, for example the body of the issue or of a comment.
-func eventText(t time.Time, what string, issue *gh.Issue, actor, body string) string {
-	return fmt.Sprintf("%s %s #%d \"%s\" by @%s:\n\n%s", t.UTC().Format(timeFormat), what, issue.GetNumber(), issue.GetTitle(), actor, quote(body))
+// eventText gives the text of a Lead event about the issue with the reference ref, for example "creation of
+// Workstream", with the quoted body, for example the body of the issue or of a comment.
+func eventText(t time.Time, what, ref string, issue *gh.Issue, actor, body string) string {
+	return fmt.Sprintf("%s %s %s \"%s\" by @%s:\n\n%s", t.UTC().Format(timeFormat), what, ref, issue.GetTitle(), actor, quote(body))
+}
+
+// eventRef gives the reference of an issue or a pull request in the repository in a Lead event text of the
+// Workstream in workstreamRepository: #N in the Workstream repository, else owner/name#N.
+func eventRef(workstreamRepository, repository string, number int64) string {
+	if repository == workstreamRepository {
+		return fmt.Sprintf("#%d", number)
+	}
+	return fmt.Sprintf("%s#%d", repository, number)
+}
+
+// taskEventRef gives the reference of an issue or a pull request of the task, as eventRef does.
+func taskEventRef(task store.Task, number int64) string {
+	return eventRef(task.WorkstreamRepository, task.Repository, number)
 }

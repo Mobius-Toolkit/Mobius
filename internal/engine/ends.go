@@ -101,11 +101,13 @@ func (e *Engine) countCheckErrors(ctx context.Context, repository github.Reposit
 			break
 		}
 	}
-	pullRequest := ""
-	if task.PullRequest.Valid {
-		pullRequest = fmt.Sprintf(", pull request #%d,", task.PullRequest.Int64)
+	checkErrorsText := func(ref func(int64) string) string {
+		pullRequest := ""
+		if task.PullRequest.Valid {
+			pullRequest = fmt.Sprintf(", pull request %s,", ref(task.PullRequest.Int64))
+		}
+		return fmt.Sprintf("Mobius failed to check %s \"%s\"%s on %d polls in a row. The last error: %v.", ref(task.Issue), copied.Title, pullRequest, checkErrorPolls, checkErr)
 	}
-	text := fmt.Sprintf("Mobius failed to check #%d \"%s\"%s on %d polls in a row. The last error: %v.", task.Issue, copied.Title, pullRequest, checkErrorPolls, checkErr)
 	err = e.queries.AddEvent(ctx, store.AddEventParams{
 		Time:         now(),
 		Organization: repository.Owner(),
@@ -113,13 +115,13 @@ func (e *Engine) countCheckErrors(ctx context.Context, repository github.Reposit
 		Workstream:   task.Workstream,
 		Issue:        task.Issue,
 		Actor:        appLogin(repository.AppSlug),
-		Text:         text,
+		Text:         checkErrorsText(func(number int64) string { return fmt.Sprintf("#%d", number) }),
 		Link:         copied.HtmlUrl,
 	})
 	if err != nil {
 		return err
 	}
-	return e.addLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, task.Repository, sql.NullInt64{Int64: task.Issue, Valid: true}, "check_errors", time.Now().UTC().Format(timeFormat)+" "+text)
+	return e.addLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, task.Repository, sql.NullInt64{Int64: task.Issue, Valid: true}, "check_errors", time.Now().UTC().Format(timeFormat)+" "+checkErrorsText(func(number int64) string { return taskEventRef(task, number) }))
 }
 
 // checkTask acts on the state of the issue and the pull request of the task, and gives the pull request when the task
@@ -461,7 +463,7 @@ func (e *Engine) endPullRequest(ctx context.Context, repository github.Repositor
 	if pullRequest.GetMerged() {
 		what = "merged"
 	}
-	text := fmt.Sprintf("%s end of #%d \"%s\": pull request #%d %s.", time.Now().UTC().Format(timeFormat), task.Issue, issue.GetTitle(), pullRequest.GetNumber(), what)
+	text := fmt.Sprintf("%s end of %s \"%s\": pull request %s %s.", time.Now().UTC().Format(timeFormat), taskEventRef(task, task.Issue), issue.GetTitle(), taskEventRef(task, int64(pullRequest.GetNumber())), what)
 	return e.addLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, task.Repository, sql.NullInt64{Int64: task.Issue, Valid: true}, "end", text)
 }
 

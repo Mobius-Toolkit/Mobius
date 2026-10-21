@@ -207,7 +207,7 @@ func (e *Engine) onChecks(ctx context.Context, repository github.Repository, tas
 		e.addCIStep(ctx, task, implementer, "success")
 	}
 	delete(e.ciWait, task.ID)
-	text := fmt.Sprintf("%s ready for Lead approval of #%d \"%s\": pull request #%d %s.", time.Now().UTC().Format(timeFormat), task.Issue, issue.GetTitle(), pullRequest.GetNumber(), pullRequest.GetHTMLURL())
+	text := fmt.Sprintf("%s ready for Lead approval of %s \"%s\": pull request %s %s.", time.Now().UTC().Format(timeFormat), taskEventRef(task, task.Issue), issue.GetTitle(), taskEventRef(task, int64(pullRequest.GetNumber())), pullRequest.GetHTMLURL())
 	return e.addLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, task.Repository, sql.NullInt64{Int64: task.Issue, Valid: true}, "ready_for_approval", text)
 }
 
@@ -219,7 +219,7 @@ func (e *Engine) onLongCIWait(ctx context.Context, repository github.Repository,
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("%s the CI of #%d \"%s\" runs for more than %s: pull request #%d %s, head %s. These runs did not complete: %s.", now.UTC().Format(timeFormat), task.Issue, issue.GetTitle(), longCIWait, pullRequest.GetNumber(), pullRequest.GetHTMLURL(), pullRequest.GetHead().GetSHA(), strings.Join(incomplete, ", ")), nil
+		return fmt.Sprintf("%s the CI of %s \"%s\" runs for more than %s: pull request %s %s, head %s. These runs did not complete: %s.", now.UTC().Format(timeFormat), taskEventRef(task, task.Issue), issue.GetTitle(), longCIWait, taskEventRef(task, int64(pullRequest.GetNumber())), pullRequest.GetHTMLURL(), pullRequest.GetHead().GetSHA(), strings.Join(incomplete, ", ")), nil
 	})
 }
 
@@ -231,7 +231,7 @@ func (e *Engine) remindApproval(ctx context.Context, repository github.Repositor
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("%s #%d \"%s\" waits for Lead approval for %s: pull request #%d %s.", now.UTC().Format(timeFormat), task.Issue, issue.GetTitle(), waited.Round(time.Minute), pullRequest.GetNumber(), pullRequest.GetHTMLURL()), nil
+		return fmt.Sprintf("%s %s \"%s\" waits for Lead approval for %s: pull request %s %s.", now.UTC().Format(timeFormat), taskEventRef(task, task.Issue), issue.GetTitle(), waited.Round(time.Minute), taskEventRef(task, int64(pullRequest.GetNumber())), pullRequest.GetHTMLURL()), nil
 	})
 }
 
@@ -239,7 +239,7 @@ func (e *Engine) remindApproval(ctx context.Context, repository github.Repositor
 // dispatched, or since the last event of this kind. It does not change the task.
 func (e *Engine) remindDispatch(ctx context.Context, task store.Task, issue *gh.Issue) error {
 	return e.remindLead(ctx, task, dispatchReminder, "dispatch_reminder", func(now time.Time, waited time.Duration) (string, error) {
-		return fmt.Sprintf("%s #%d \"%s\" waits for an Implementer for %s and holds an Autopilot slot.", now.UTC().Format(timeFormat), task.Issue, issue.GetTitle(), waited.Round(time.Minute)), nil
+		return fmt.Sprintf("%s %s \"%s\" waits for an Implementer for %s and holds an Autopilot slot.", now.UTC().Format(timeFormat), taskEventRef(task, task.Issue), issue.GetTitle(), waited.Round(time.Minute)), nil
 	})
 }
 
@@ -322,7 +322,7 @@ func (e *Engine) ciFailed(ctx context.Context, repository github.Repository, tas
 		return err
 	}
 	reason := "the CI of the head commit failed, and a fix round cannot change it. Mobius set the Mobius check to failure and added mobius:needs-human."
-	handed, err := e.handToHuman(ctx, task, issue.GetTitle(), stopText(task.Issue, issue.GetTitle(), reason), pullRequest.GetHead().GetSHA(), stopNotice{
+	handed, err := e.handToHuman(ctx, task, issue.GetTitle(), stopText(task, issue.GetTitle(), reason), pullRequest.GetHead().GetSHA(), stopNotice{
 		reason: "CI failed",
 		text:   "The CI of the head commit failed, and a fix round cannot change it.",
 		next: fmt.Sprintf("Read the failed jobs of PR #%d. When the default branch fails the same jobs, Resume after the fix of the default branch. Else fix the cause or Resume for a fix round.",

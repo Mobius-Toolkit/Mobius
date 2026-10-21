@@ -150,7 +150,7 @@ func (e *Engine) dispatch(ctx context.Context, repository github.Repository, iss
 	if err := e.addActivity(ctx, workstreamRepository, workstream, issue, actor, fmt.Sprintf("Dispatched \"%s\"", issue.GetTitle())); err != nil {
 		return err
 	}
-	text := eventText(time.Now(), "dispatch of", issue, actor, issue.GetBody())
+	text := eventText(time.Now(), "dispatch of", eventRef(workstreamRepository, repository.FullName, number), issue, actor, issue.GetBody())
 	return e.addLeadEvent(ctx, workstreamRepository, workstream, repository.FullName, sql.NullInt64{Int64: number, Valid: true}, "dispatch", text)
 }
 
@@ -349,7 +349,7 @@ func (e *Engine) dispatchAnswer(ctx context.Context, repository github.Repositor
 		}
 		if slices.Contains(trusted, comment) {
 			actor = comment.GetUser().GetLogin()
-			replies.WriteString("\n\n" + eventText(comment.GetCreatedAt().Time, "reply on", issue, actor, comment.GetBody()))
+			replies.WriteString("\n\n" + eventText(comment.GetCreatedAt().Time, "reply on", taskEventRef(task, task.Issue), issue, actor, comment.GetBody()))
 			if !comment.GetCreatedAt().Before(newestAt) {
 				newest, newestAt = commentRef{id: comment.GetID()}, comment.GetCreatedAt().Time
 			}
@@ -360,7 +360,7 @@ func (e *Engine) dispatchAnswer(ctx context.Context, repository github.Repositor
 			replies.WriteString("\n\n" + comment.GetBody())
 		}
 	}
-	text := eventText(time.Now(), "answer of", issue, actor, issue.GetBody()) + replies.String()
+	text := eventText(time.Now(), "answer of", taskEventRef(task, task.Issue), issue, actor, issue.GetBody()) + replies.String()
 	_, err = e.redispatch(ctx, repository, issue, task, text, newest)
 	return err
 }
@@ -415,7 +415,7 @@ func (e *Engine) workstreamCommentEvents(ctx context.Context, repository github.
 		eventRepository = repository.FullName
 	}
 	for _, comment := range events {
-		text := eventText(comment.GetCreatedAt().Time, "comment on", issue, comment.GetUser().GetLogin(), comment.GetBody())
+		text := eventText(comment.GetCreatedAt().Time, "comment on", eventRef(workstreamRepository, repository.FullName, number), issue, comment.GetUser().GetLogin(), comment.GetBody())
 		if err := e.addCommentLeadEvent(ctx, workstreamRepository, workstream, eventRepository, eventIssue, "comment", text, commentRef{id: comment.GetID()}); err != nil {
 			return err
 		}
@@ -582,7 +582,7 @@ func (e *Engine) commentEventsOf(ctx context.Context, repository github.Reposito
 
 // addCommentEvent adds a comment event for the Lead of the Workstream of the task. what tells the kind of comment.
 func (e *Engine) addCommentEvent(ctx context.Context, task store.Task, issue *gh.Issue, comment commentRef, at time.Time, what, author, body string) error {
-	text := eventText(at, what, issue, author, body) + fmt.Sprintf("\n\nThe state of the task of #%d is %s.", task.Issue, task.State)
+	text := eventText(at, what, taskEventRef(task, int64(issue.GetNumber())), issue, author, body) + fmt.Sprintf("\n\nThe state of the task of %s is %s.", taskEventRef(task, task.Issue), task.State)
 	return e.addCommentLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, task.Repository, sql.NullInt64{Int64: task.Issue, Valid: true}, "comment", text, comment)
 }
 
@@ -1023,7 +1023,7 @@ func (e *Engine) resume(ctx context.Context, repository github.Repository, issue
 		}
 		moved, err = e.continueTask(ctx, repository, issue.GetTitle(), task, pullRequest, task.State)
 	} else {
-		moved, err = e.redispatch(ctx, repository, issue, task, eventText(time.Now(), "resume of", issue, actor, issue.GetBody()), commentRef{})
+		moved, err = e.redispatch(ctx, repository, issue, task, eventText(time.Now(), "resume of", taskEventRef(task, task.Issue), issue, actor, issue.GetBody()), commentRef{})
 	}
 	if err != nil || !moved {
 		return err
