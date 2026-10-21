@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/gork-labs/gork/pkg/api"
 
@@ -133,6 +134,63 @@ func (h *handlers) ListNeedsHuman(ctx context.Context, _ ListNeedsHumanRequest) 
 		issues = append(issues, row)
 	}
 	return &ListNeedsHumanResponse{Body: Envelope[[]NeedsHuman]{Data: issues}}, nil
+}
+
+// BoardTask is a task on the Tasks board.
+type BoardTask struct {
+	// Repository is the full name of the repository of the task issue
+	Repository string `gork:"repository"`
+	// Number is the number of the task issue
+	Number int64 `gork:"number"`
+	// Title is the title of the task issue
+	Title string `gork:"title"`
+	// URL is the GitHub URL of the task issue
+	URL string `gork:"url"`
+	// WorkstreamRepository is the full name of the repository of the Workstream issue
+	WorkstreamRepository string `gork:"workstreamRepository"`
+	// Workstream is the number of the Workstream issue
+	Workstream int64 `gork:"workstream"`
+	// WorkstreamTitle is the title of the Workstream
+	WorkstreamTitle string `gork:"workstreamTitle"`
+	// State is the state of the task
+	State string `gork:"state" validate:"oneof=dispatched queued working reviewed needs_human ready_for_review stopped ended checks approval asked answered"`
+	// StateAt is the time of the last state change
+	StateAt time.Time `gork:"stateAt"`
+	// PullRequest is the pull request of the task, or null
+	PullRequest *int64 `gork:"pullRequest"`
+	// PullRequestURL is the GitHub URL of the pull request, or null
+	PullRequestURL *string `gork:"pullRequestUrl"`
+	// FixRounds is the number of fix rounds of the task
+	FixRounds int64 `gork:"fixRounds"`
+	// ReviewRounds is the number of review rounds of the task
+	ReviewRounds int64 `gork:"reviewRounds"`
+}
+
+// ListBoardTasksRequest is the request of ListBoardTasks.
+type ListBoardTasksRequest struct{}
+
+// ListBoardTasksResponse is the response of ListBoardTasks.
+type ListBoardTasksResponse struct {
+	Body Envelope[[]BoardTask]
+}
+
+// ListBoardTasks returns the tasks of all Workstreams that have not ended, and the tasks that ended in the last 24
+// hours, newest state change first, from the local copy of GitHub.
+func (h *handlers) ListBoardTasks(ctx context.Context, _ ListBoardTasksRequest) (*ListBoardTasksResponse, error) {
+	found, err := h.engine.BoardTasks(ctx)
+	if err != nil {
+		return nil, err
+	}
+	tasks := make([]BoardTask, 0, len(found))
+	for _, task := range found {
+		row := BoardTask{Repository: task.Repository, Number: task.Number, Title: task.Title, URL: task.URL, WorkstreamRepository: task.WorkstreamRepository, Workstream: task.Workstream, WorkstreamTitle: task.WorkstreamTitle, State: task.State, StateAt: task.StateAt, FixRounds: task.FixRounds, ReviewRounds: task.ReviewRounds}
+		if task.PullRequest != 0 {
+			row.PullRequest = &task.PullRequest
+			row.PullRequestURL = &task.PullRequestURL
+		}
+		tasks = append(tasks, row)
+	}
+	return &ListBoardTasksResponse{Body: Envelope[[]BoardTask]{Data: tasks}}, nil
 }
 
 // ResumeIssueRequest is the request of ResumeIssue.

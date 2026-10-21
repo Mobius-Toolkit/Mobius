@@ -278,7 +278,7 @@ func (e *Engine) runJudge(ctx context.Context, j judgeJob) {
 	if !e.tryTrack() {
 		return
 	}
-	moved, err := e.queries.StartTaskWorker(ctx, store.StartTaskWorkerParams{
+	moved, err := e.startTaskWorker(ctx, store.StartTaskWorkerParams{
 		Worker:      sql.NullString{String: JudgeRole, Valid: true},
 		WorkerInput: sql.NullString{String: j.from, Valid: true},
 		ID:          j.task.ID,
@@ -291,7 +291,6 @@ func (e *Engine) runJudge(ctx context.Context, j judgeJob) {
 		}
 		return
 	}
-	e.publishReadyForReview(j.from, "working")
 	err = e.judgeSession(ctx, j)
 	if err == nil {
 		return

@@ -147,6 +147,7 @@ func (e *Engine) dispatch(ctx context.Context, repository github.Repository, iss
 	if err != nil {
 		return err
 	}
+	e.publish(Change{Workstreams: true})
 	if err := e.addActivity(ctx, workstreamRepository, workstream, issue, actor, fmt.Sprintf("Dispatched \"%s\"", issue.GetTitle())); err != nil {
 		return err
 	}

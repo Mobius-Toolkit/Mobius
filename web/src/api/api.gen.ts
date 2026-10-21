@@ -174,6 +174,65 @@ export interface Blocker {
 }
 
 /**
+ * State is the state of the task
+ */
+export type BoardTaskState = typeof BoardTaskState[keyof typeof BoardTaskState];
+
+
+export const BoardTaskState = {
+  dispatched: 'dispatched',
+  queued: 'queued',
+  working: 'working',
+  reviewed: 'reviewed',
+  needs_human: 'needs_human',
+  ready_for_review: 'ready_for_review',
+  stopped: 'stopped',
+  ended: 'ended',
+  checks: 'checks',
+  approval: 'approval',
+  asked: 'asked',
+  answered: 'answered',
+} as const;
+
+/**
+ * BoardTask is a task on the Tasks board.
+ */
+export interface BoardTask {
+  /** FixRounds is the number of fix rounds of the task */
+  fixRounds: number;
+  /** Number is the number of the task issue */
+  number: number;
+  /**
+     * PullRequest is the pull request of the task, or null
+     * @nullable
+     */
+  pullRequest: number | null;
+  /**
+     * PullRequestURL is the GitHub URL of the pull request, or null
+     * @nullable
+     */
+  pullRequestUrl: string | null;
+  /** Repository is the full name of the repository of the task issue */
+  repository: string;
+  /** ReviewRounds is the number of review rounds of the task */
+  reviewRounds: number;
+  /** State is the state of the task */
+  state: BoardTaskState;
+  /** StateAt is the time of the last state change */
+  stateAt: string;
+  /** Title is the title of the task issue */
+  title: string;
+  /** URL is the GitHub URL of the task issue */
+  url: string;
+  /** Workstream is the number of the Workstream issue */
+  workstream: number;
+  /** WorkstreamRepository is the full name of the repository of the Workstream issue */
+  workstreamRepository: string;
+  /** WorkstreamTitle is the title of the Workstream */
+  workstreamTitle: string;
+}
+
+/**
  * CIStop is the stop of the dispatch of a repository because of a hard CI break on its default branch.
  */
 export interface CIStop {
@@ -556,6 +615,14 @@ export interface EnvelopeAnsweredComment {
 export interface EnvelopeArrayAgent {
   /** Data is the payload of the response */
   data: Agent[];
+}
+
+/**
+ * Envelope is the body of each success response.
+ */
+export interface EnvelopeArrayBoardTask {
+  /** Data is the payload of the response */
+  data: BoardTask[];
 }
 
 /**
@@ -4524,6 +4591,71 @@ export const revertMemory = async (owner: string,
 
   const data: revertMemoryResponse['data'] = body ? JSON.parse(body) : undefined
   return { data, status: res.status, headers: res.headers } as revertMemoryResponse
+}
+
+
+
+export type listBoardTasksResponse200 = {
+  data: EnvelopeArrayBoardTask
+  status: 200
+}
+
+export type listBoardTasksResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type listBoardTasksResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type listBoardTasksResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type listBoardTasksResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type listBoardTasksResponseSuccess = (listBoardTasksResponse200) & {
+  headers: Headers;
+};
+export type listBoardTasksResponseError = (listBoardTasksResponse400 | listBoardTasksResponse401 | listBoardTasksResponse422 | listBoardTasksResponse500) & {
+  headers: Headers;
+};
+
+export type listBoardTasksResponse = (listBoardTasksResponseSuccess | listBoardTasksResponseError)
+
+export const getListBoardTasksUrl = () => {
+
+
+
+
+  return `/api/tasks`
+}
+
+/**
+ * ListBoardTasks returns the tasks of all Workstreams that have not ended, and the tasks that ended in the last 24 hours, newest state change first, from the local copy of GitHub.
+ */
+export const listBoardTasks = async ( ): Promise<listBoardTasksResponse> => {
+
+  const res = await fetch(getListBoardTasksUrl(),
+  {
+
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: listBoardTasksResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as listBoardTasksResponse
 }
 
 

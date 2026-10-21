@@ -3015,6 +3015,69 @@ func (q *Queries) ListAutopilotWorkstreams(ctx context.Context, repository strin
 	return items, nil
 }
 
+const listBoardTasks = `-- name: ListBoardTasks :many
+SELECT tasks.repository, tasks.issue, tasks.workstream_repository, tasks.workstream, tasks.state, tasks.state_at,
+       tasks.pull_request, tasks.fix_rounds, tasks.review_rounds,
+       i.title AS issue_title, i.html_url AS issue_url, w.title AS workstream_title
+FROM tasks
+JOIN copied_workstreams w ON w.repository = tasks.workstream_repository AND w.number = tasks.workstream
+JOIN copied_issues i
+  ON i.repository = tasks.workstream_repository AND i.workstream = tasks.workstream AND i.number = tasks.issue
+  AND substr(lower(i.repository_url), -(length(tasks.repository) + 7)) = '/repos/' || lower(tasks.repository)
+ORDER BY tasks.id
+`
+
+type ListBoardTasksRow struct {
+	Repository           string
+	Issue                int64
+	WorkstreamRepository string
+	Workstream           int64
+	State                string
+	StateAt              string
+	PullRequest          sql.NullInt64
+	FixRounds            int64
+	ReviewRounds         int64
+	IssueTitle           string
+	IssueUrl             string
+	WorkstreamTitle      string
+}
+
+func (q *Queries) ListBoardTasks(ctx context.Context) ([]ListBoardTasksRow, error) {
+	rows, err := q.db.QueryContext(ctx, listBoardTasks)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListBoardTasksRow
+	for rows.Next() {
+		var i ListBoardTasksRow
+		if err := rows.Scan(
+			&i.Repository,
+			&i.Issue,
+			&i.WorkstreamRepository,
+			&i.Workstream,
+			&i.State,
+			&i.StateAt,
+			&i.PullRequest,
+			&i.FixRounds,
+			&i.ReviewRounds,
+			&i.IssueTitle,
+			&i.IssueUrl,
+			&i.WorkstreamTitle,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listCIBreaksNotBelowWorkstream = `-- name: ListCIBreaksNotBelowWorkstream :many
 SELECT id, repository, workflow_id, workflow_name, run_id, run_url, run_attempt, rerun_at, result, ended_run_id, ended_at, issue, started_at FROM ci_breaks WHERE repository = ? AND issue < 0 ORDER BY id
 `

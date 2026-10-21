@@ -2530,6 +2530,51 @@
         ]
       }
     },
+    "/api/tasks": {
+      "get": {
+        "description": "ListBoardTasks returns the tasks of all Workstreams that have not ended, and the tasks that ended in the last 24 hours, newest state change first, from the local copy of GitHub.",
+        "operationId": "ListBoardTasks",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_Array_BoardTask"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "tasks"
+        ]
+      }
+    },
     "/api/unread": {
       "get": {
         "description": "ListUnread returns each chat with unread messages.",
@@ -4308,6 +4353,101 @@
         ],
         "description": "Blocker is an open blocker of a task."
       },
+      "BoardTask": {
+        "type": "object",
+        "title": "BoardTask",
+        "properties": {
+          "fixRounds": {
+            "type": "integer",
+            "description": "FixRounds is the number of fix rounds of the task"
+          },
+          "number": {
+            "type": "integer",
+            "description": "Number is the number of the task issue"
+          },
+          "pullRequest": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "PullRequest is the pull request of the task, or null"
+          },
+          "pullRequestUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "PullRequestURL is the GitHub URL of the pull request, or null"
+          },
+          "repository": {
+            "type": "string",
+            "description": "Repository is the full name of the repository of the task issue"
+          },
+          "reviewRounds": {
+            "type": "integer",
+            "description": "ReviewRounds is the number of review rounds of the task"
+          },
+          "state": {
+            "type": "string",
+            "description": "State is the state of the task",
+            "enum": [
+              "dispatched",
+              "queued",
+              "working",
+              "reviewed",
+              "needs_human",
+              "ready_for_review",
+              "stopped",
+              "ended",
+              "checks",
+              "approval",
+              "asked",
+              "answered"
+            ]
+          },
+          "stateAt": {
+            "type": "string",
+            "description": "StateAt is the time of the last state change",
+            "format": "date-time"
+          },
+          "title": {
+            "type": "string",
+            "description": "Title is the title of the task issue"
+          },
+          "url": {
+            "type": "string",
+            "description": "URL is the GitHub URL of the task issue"
+          },
+          "workstream": {
+            "type": "integer",
+            "description": "Workstream is the number of the Workstream issue"
+          },
+          "workstreamRepository": {
+            "type": "string",
+            "description": "WorkstreamRepository is the full name of the repository of the Workstream issue"
+          },
+          "workstreamTitle": {
+            "type": "string",
+            "description": "WorkstreamTitle is the title of the Workstream"
+          }
+        },
+        "required": [
+          "repository",
+          "number",
+          "title",
+          "url",
+          "workstreamRepository",
+          "workstream",
+          "workstreamTitle",
+          "state",
+          "stateAt",
+          "pullRequest",
+          "pullRequestUrl",
+          "fixRounds",
+          "reviewRounds"
+        ],
+        "description": "BoardTask is a task on the Tasks board."
+      },
       "CIStop": {
         "type": "object",
         "title": "CIStop",
@@ -4794,6 +4934,24 @@
             "description": "Data is the payload of the response",
             "items": {
               "$ref": "#/components/schemas/Agent"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "description": "Envelope is the body of each success response."
+      },
+      "Envelope_Array_BoardTask": {
+        "type": "object",
+        "title": "Envelope_Array_BoardTask",
+        "properties": {
+          "data": {
+            "type": "array",
+            "title": "[]BoardTask",
+            "description": "Data is the payload of the response",
+            "items": {
+              "$ref": "#/components/schemas/BoardTask"
             }
           }
         },
