@@ -95,12 +95,18 @@ func TestTheTriagerOfAnIssueRefusesTheToolsWhenTheOrganizationHasNoIssueReposito
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddRepository(garden)
 	fake.AddIssue(garden, 7, "Water the plants")
+	fake.AddIssue(garden, 9, "Plant the garden")
+	fake.AddLabel(garden, 9, "mobius:workstream", "owner")
 	server, _ := connect(t, fake, gardenTriager)
 	server.WaitForFirstPoll(t, garden)
 
 	fake.CreateIssue(garden, 82, "Water the plants", "Each day.", "owner")
 
 	session := waitForChatSession(t, server, gardenTriagers, engine.TriagerRole, func(session store.Session) bool { return session.EndedAt.Valid })
+	prompts := promptTexts(t, server, session.ID)
+	if len(prompts) != 1 || strings.Contains(prompts[0], "Plant the garden") || !strings.Contains(prompts[0], "# Open Workstreams\n\nThe tools that use a Workstream refuse: Mobius needs the issue repository of owner.") {
+		t.Errorf("prompts = %q", prompts)
+	}
 	calls := mcpCalls(t, server, session.ID)
 	if len(calls) != 1 || calls[0]["error"] != "Mobius needs the issue repository of owner. Set organizations.owner.issue_repository in config.toml." {
 		t.Errorf("calls = %v", calls)
