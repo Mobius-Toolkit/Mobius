@@ -277,7 +277,7 @@ function App() {
         inbox={inbox}
         pauses={pauses}
         ciStops={ciStops}
-        fill={chat !== undefined || pathname === "/chat"}
+        fill={chat !== undefined || pathname === "/chat" || pathname === "/tasks"}
         connection={!online ? "offline" : link === "connecting" ? "connecting" : "connected"}
       >
         <ShellContext

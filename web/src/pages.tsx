@@ -15,6 +15,7 @@ import { GitHub } from "./GitHub";
 import { Inbox } from "./Inbox";
 import { InboxTabs } from "./InboxTabs";
 import { Memory, MemoryRepositories } from "./Memory";
+import { Tasks } from "./Tasks";
 import { CoordinatorChat } from "./CoordinatorChat";
 import { Usage } from "./Usage";
 import { Workstreams } from "./Workstreams";
@@ -24,6 +25,11 @@ export function WorkstreamsPage() {
   return (
     <Workstreams organization={organization} workstreams={workstreams} unread={unread ?? []} />
   );
+}
+
+export function TasksPage() {
+  const { organization, source } = useShell();
+  return <Tasks organization={organization} source={source} />;
 }
 
 export function CoordinatorChatPage() {

@@ -68,14 +68,26 @@ test("the tab bar of a phone shows the tabs in order, and the Chat tab shows the
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/workstreams");
-  await expect(tabs).toHaveText([/^Chat$/, /^Workstreams$/, /^Inbox\s*1$/, /^Settings$/]);
+  await expect(tabs).toHaveText([
+    /^Chat$/,
+    /^Workstreams$/,
+    /^Tasks$/,
+    /^Inbox\s*1$/,
+    /^Settings$/,
+  ]);
 
   await page.addInitScript("localStorage.setItem('organization', 'plants')");
   await page.goto("/workstreams");
-  await expect(tabs).toHaveText([/^Chat\s*1$/, /^Workstreams$/, /^Inbox$/, /^Settings$/]);
+  await expect(tabs).toHaveText([
+    /^Chat\s*1$/,
+    /^Workstreams$/,
+    /^Tasks$/,
+    /^Inbox$/,
+    /^Settings$/,
+  ]);
 });
 
-test("the sidebar of a desktop shows Chat, Inbox, the evergreen Workstream and the Workstreams in order", async ({
+test("the sidebar of a desktop shows Chat, Inbox, Tasks, the evergreen Workstream and the Workstreams in order", async ({
   page,
 }) => {
   const links = page.getByRole("navigation").first().getByRole("link");
@@ -85,8 +97,9 @@ test("the sidebar of a desktop shows Chat, Inbox, the evergreen Workstream and t
   await page.reload();
   await expect(links.nth(0)).toHaveText(/^Chat$/);
   await expect(links.nth(1)).toHaveText(/^Inbox\s*1$/);
-  await expect(links.nth(2)).toHaveText(/^Early renewals/);
-  await expect(links.nth(3)).toHaveText(/^Workstreams$/);
+  await expect(links.nth(2)).toHaveText(/^Tasks$/);
+  await expect(links.nth(3)).toHaveText(/^Early renewals/);
+  await expect(links.nth(4)).toHaveText(/^Workstreams$/);
   await expect(links.filter({ hasText: "Early renewals" })).toHaveCount(1);
   await expect(links.filter({ hasText: /^Activity$/ })).toHaveCount(0);
   await expect(links.filter({ hasText: /^New Workstream$/ })).toHaveCount(0);
@@ -647,13 +660,13 @@ test.describe("the bars of a phone", () => {
     await expect(bar).not.toContainText("Lead:");
   });
 
-  test("show the organization switch at the top of the content of Chat, Workstreams and Inbox", async ({
+  test("show the organization switch at the top of the content of Chat, Workstreams, Tasks and Inbox", async ({
     page,
   }) => {
     const content = page.locator("#content");
     const organization = content.getByRole("button", { name: "owner" });
 
-    for (const path of ["/chat", "/workstreams", "/inbox"]) {
+    for (const path of ["/chat", "/workstreams", "/tasks", "/inbox"]) {
       await page.goto(path);
       await expect(organization).toBeVisible();
       await expect(topBar(page).getByRole("button")).toHaveCount(0);

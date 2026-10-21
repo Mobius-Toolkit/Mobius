@@ -2,6 +2,7 @@ import { Link, useMatchRoute, type LinkProps } from "@tanstack/react-router";
 import {
   ArrowUpIcon,
   InboxIcon,
+  KanbanIcon,
   LayersIcon,
   LoaderCircleIcon,
   MessageCircleIcon,
@@ -28,6 +29,7 @@ import { WorkstreamBadges } from "./Workstreams";
 const tabs = [
   { path: "/chat", title: "Chat", Icon: MessageCircleIcon },
   { path: "/workstreams", title: "Workstreams", Icon: LayersIcon },
+  { path: "/tasks", title: "Tasks", Icon: KanbanIcon },
   { path: "/inbox", title: "Inbox", Icon: InboxIcon },
   { path: "/settings", title: "Settings", Icon: SettingsIcon },
 ];
@@ -153,6 +155,7 @@ export function Frame({
           <span className="grow">Inbox</span>
           {inboxCount > 0 && <Badge>{inboxCount}</Badge>}
         </SideLink>
+        <SideLink link={{ to: "/tasks" }}>Tasks</SideLink>
         {shown
           ?.filter((workstream) => workstream.evergreen)
           .map((workstream) => (
@@ -221,7 +224,10 @@ export function Frame({
             <Pauses pauses={pauses} />
           </div>
           <div className="grid gap-2 px-4 pt-4 empty:hidden md:hidden">
-            {(path === "/chat" || path === "/workstreams" || path.startsWith("/inbox")) &&
+            {(path === "/chat" ||
+              path === "/workstreams" ||
+              path === "/tasks" ||
+              path.startsWith("/inbox")) &&
               organizationSwitch}
             {path === "/settings" && <UpgradeControls upgrade={upgrade} newBuild={newBuild} />}
           </div>

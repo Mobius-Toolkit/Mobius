@@ -55,3 +55,17 @@ const utcTime = /(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) UTC/g;
 export function localTimes(text: string) {
   return text.replace(utcTime, (_, date: string, time: string) => dayClock(`${date}T${time}:00Z`));
 }
+
+export function elapsed(time: string) {
+  const minutes = Math.floor((Date.now() - new Date(time).getTime()) / 60_000);
+  if (minutes < 1) {
+    return "now";
+  }
+  if (minutes < 60) {
+    return `${minutes} min`;
+  }
+  if (minutes < 24 * 60) {
+    return `${Math.floor(minutes / 60)} h`;
+  }
+  return `${Math.floor(minutes / (24 * 60))} d`;
+}
