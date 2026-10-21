@@ -379,7 +379,7 @@ func TestACallWithNoSingleRepositoryInTheOrganizationStoresNoAction(t *testing.T
 	session := run(t, server, coordinatorSpec(t), "Send.")
 
 	calls := mcpCalls(t, server, session)
-	if len(calls) != 1 || calls[0]["error"] != "The Coordinator chat needs exactly one repository in owner." {
+	if len(calls) != 1 || calls[0]["error"] != "The Coordinator chat needs the issue repository of owner. Set organizations.owner.issue_repository in config.toml." {
 		t.Errorf("calls = %v", calls)
 	}
 	if got := actionRows(t, server); len(got) != 0 {

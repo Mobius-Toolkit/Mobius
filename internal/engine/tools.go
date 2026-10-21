@@ -325,12 +325,13 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 			e.createWorkstreamTool(c),
 			moveIssueTool(e, c),
 			e.messageLeadTool(c),
-			tool(e, c, "start_researcher",
-				"Start a Researcher that answers a question about the code of the default branch. The Researcher sees only the question. The tool returns at once, and the report arrives later.",
+			toolOf(e, c, noRepository, "start_researcher",
+				"Start a Researcher that answers a question about the code of the default branch of a repository. The Researcher sees only the question. The tool returns at once, and the report arrives later.",
 				map[string]any{
-					"question": map[string]any{"type": "string", "minLength": 1, "description": "The question, with the context that the Researcher needs."},
+					"repository": map[string]any{"type": "string", "minLength": 1, "description": "The full name of the repository of the code (owner/name) in the organization of the chat."},
+					"question":   map[string]any{"type": "string", "minLength": 1, "description": "The question, with the context that the Researcher needs."},
 				},
-				e.startResearcher),
+				e.startCoordinatorResearcher),
 			e.tellCuratorTool(c),
 			toolOf(e, c, noRepository, "ask",
 				"Ask the Owner a question. Use it when you need a decision of the Owner. For a choice between alternatives, give the questions with their options in questions, and the context in text. Mobius adds an Inbox item for the Owner. The tool returns at once. The answer arrives later as a chat message of the Owner.",
@@ -391,10 +392,11 @@ var coordinatorWorkstreamProperties = map[string]any{
 
 func moveIssueTool(e *Engine, c caller) mcp.Tool {
 	return tool(e, c, "move_issue",
-		"Make an issue a sub-issue of an open Workstream. For an issue with mobius:no-workstream, Mobius then adds mobius:ready again.",
+		"Make an issue a sub-issue of an open Workstream in the issue repository. For an issue with mobius:no-workstream, Mobius then adds mobius:ready again.",
 		map[string]any{
+			"repository": map[string]any{"type": "string", "minLength": 1, "description": "The full name of the repository of the issue (owner/name) in the organization of the chat."},
 			"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the issue."},
-			"workstream": map[string]any{"type": "integer", "minimum": 1, "description": "The number of the Workstream issue."},
+			"workstream": map[string]any{"type": "integer", "minimum": 1, "description": "The number of the Workstream issue in the issue repository."},
 		},
 		e.moveIssue)
 }
@@ -478,21 +480,47 @@ func (e *Engine) repository(name string) (github.Repository, error) {
 	return repository, nil
 }
 
-// callerRepository gives the repository of c. The Coordinator chat has no repository, so it uses the one repository of its organization.
-func (e *Engine) callerRepository(c caller) (github.Repository, error) {
-	if c.repository != "" {
-		return e.repository(c.repository)
+// organizationRepository gives the repository name of the organization. It refuses a repository that the Mobius App
+// cannot read and a repository of another organization.
+func (e *Engine) organizationRepository(organization, name string) (github.Repository, error) {
+	if empty(name) {
+		return github.Repository{}, refuse("repository must not be empty.")
+	}
+	repository, err := e.repository(name)
+	if err != nil {
+		return github.Repository{}, err
+	}
+	if repository.Owner() != organization {
+		return github.Repository{}, refuse("%s is not in the organization %s.", name, organization)
+	}
+	return repository, nil
+}
+
+// workstreamRepository gives the repository of the Workstream issues of the organization: the issue_repository of the
+// config, or the one repository of the organization.
+func (e *Engine) workstreamRepository(organization string) (github.Repository, error) {
+	if name := e.config.Organizations[organization].IssueRepository; name != "" {
+		return e.organizationRepository(organization, name)
 	}
 	var found []github.Repository
 	for _, repository := range e.github.Repositories() {
-		if repository.Owner() == c.organization {
+		if repository.Owner() == organization {
 			found = append(found, repository)
 		}
 	}
 	if len(found) != 1 {
-		return github.Repository{}, refuse("The Coordinator chat needs exactly one repository in %s.", c.organization)
+		return github.Repository{}, refuse("The Coordinator chat needs the issue repository of %s. Set organizations.%s.issue_repository in config.toml.", organization, organization)
 	}
 	return found[0], nil
+}
+
+// callerRepository gives the repository of c. The Coordinator chat has no repository, so it uses the issue repository
+// of its organization.
+func (e *Engine) callerRepository(c caller) (github.Repository, error) {
+	if c.repository != "" {
+		return e.repository(c.repository)
+	}
+	return e.workstreamRepository(c.organization)
 }
 
 type noInput struct{}
@@ -565,6 +593,12 @@ type workstreamInput struct {
 type moveInput struct {
 	N          int64 `json:"n"`
 	Workstream int64 `json:"workstream"`
+}
+
+type moveIssueInput struct {
+	Repository string `json:"repository"`
+	N          int64  `json:"n"`
+	Workstream int64  `json:"workstream"`
 }
 
 type editBriefInput struct {
@@ -981,7 +1015,11 @@ func (e *Engine) moveTask(ctx context.Context, c caller, repository github.Repos
 	return fmt.Sprintf("Moved #%d to the Workstream #%d.", input.N, input.Workstream), nil
 }
 
-func (e *Engine) moveIssue(ctx context.Context, _ caller, repository github.Repository, input moveInput) (string, error) {
+func (e *Engine) moveIssue(ctx context.Context, c caller, workstreams github.Repository, input moveIssueInput) (string, error) {
+	repository, err := e.organizationRepository(c.organization, input.Repository)
+	if err != nil {
+		return "", err
+	}
 	if input.N < 1 || input.Workstream < 1 {
 		return "", refuse("n and workstream must be 1 or more.")
 	}
@@ -996,13 +1034,13 @@ func (e *Engine) moveIssue(ctx context.Context, _ caller, repository github.Repo
 	if of != 0 {
 		return "", refuse("#%d is already in a Workstream.", input.N)
 	}
-	if err := openWorkstream(ctx, repository, input.Workstream); err != nil {
+	if err := openWorkstream(ctx, workstreams, input.Workstream); err != nil {
+		return "", err
+	}
+	if _, _, err := workstreams.Client.SubIssue.Add(ctx, workstreams.Owner(), workstreams.Name(), input.Workstream, gh.SubIssueRequest{SubIssueID: issue.GetID(), ReplaceParent: new(true)}); err != nil {
 		return "", err
 	}
 	owner, name := repository.Owner(), repository.Name()
-	if _, _, err := repository.Client.SubIssue.Add(ctx, owner, name, input.Workstream, gh.SubIssueRequest{SubIssueID: issue.GetID(), ReplaceParent: new(true)}); err != nil {
-		return "", err
-	}
 	if hasLabel(issue, noWorkstreamLabel) {
 		if _, err := repository.Client.Issues.RemoveLabelForIssue(ctx, owner, name, int(input.N), noWorkstreamLabel); err != nil {
 			return "", err
@@ -1011,8 +1049,8 @@ func (e *Engine) moveIssue(ctx context.Context, _ caller, repository github.Repo
 			return "", err
 		}
 	}
-	if err := e.recopyTrees(ctx, repository, input.Workstream); err != nil {
-		log.Printf("copy the tree of %s#%d: %v", repository.FullName, input.Workstream, err)
+	if err := e.recopyTrees(ctx, workstreams, input.Workstream); err != nil {
+		log.Printf("copy the tree of %s#%d: %v", workstreams.FullName, input.Workstream, err)
 	}
 	return fmt.Sprintf("Moved #%d to the Workstream #%d.", input.N, input.Workstream), nil
 }

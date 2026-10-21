@@ -1077,7 +1077,7 @@ reply = ["I have the report."]
 
 [[prompts]]
 when = "# Owner message"
-call = { tool = "start_researcher", arguments = { question = "Where do plans store the price?" } }
+call = { tool = "start_researcher", arguments = { repository = "owner/shop", question = "Where do plans store the price?" } }
 `
 
 // coordinatorPrompts gives the prompts of the Coordinator chat sessions, the oldest first.
