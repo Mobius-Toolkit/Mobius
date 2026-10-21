@@ -88,7 +88,9 @@ func TestTheSameTestOnTheDefaultBranchAndThenOnAPullRequestGivesOneIssue(t *test
 func TestABreakThatTheDiagnoserSaysAPullRequestCausedStillGetsARecordAndOneIssue(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server := connectDiagnoser(t, fake, leadStarts, reportsPlanOfThePullRequest)
+	diagnoser := "[[prompts]]\nwhen = \"# Run on the default branch\"\ncall = { tool = \"report_failure\", arguments = { reason = \"The change breaks TestPlan.\", test = \"TestPlan\", location = \"plan_test.go:12\", lines = \"--- FAIL: TestPlan\", caused_by_pull_request = true } }\n\n" +
+		strings.ReplaceAll(reportsPlan, "You are a Diagnoser", "# Pull request")
+	server := connectDiagnoser(t, fake, leadStarts, diagnoser)
 	addMaintenanceWorkstream(fake, maintenance)
 	sha := approvalHead(t, server, fake)
 	flakyMainRun(t, server, fake, head(t, fake, "main"))
@@ -100,12 +102,14 @@ func TestABreakThatTheDiagnoserSaysAPullRequestCausedStillGetsARecordAndOneIssue
 
 	failActions(fake, sha)
 
-	testkit.WaitFor(t, func() bool {
-		return rowCount(t, server, "SELECT count(*) FROM ci_diagnoses WHERE pull_request > 0 AND ended_at != ''") == 1
-	})
-	waitForPolls(t, fake)
-	if numbers := fake.SubIssueNumbers(shop, maintenance); len(numbers) != 1 || numbers[0] != number {
-		t.Errorf("sub-issues = %v, want [%d]", numbers, number)
+	if got := waitForSharedIssue(t, server, fake, 2); got != number {
+		t.Errorf("issue = %d, want %d", got, number)
+	}
+	if n := rowCount(t, server, "SELECT count(*) FROM ci_failure_places WHERE pull_request > 0"); n != 1 {
+		t.Errorf("places of the pull request = %d", n)
+	}
+	if n := rowCount(t, server, "SELECT count(DISTINCT failure) FROM ci_failure_places"); n != 1 {
+		t.Errorf("failures of the places = %d", n)
 	}
 }
 
