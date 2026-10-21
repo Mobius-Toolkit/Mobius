@@ -29,6 +29,8 @@ export default defineConfig({
     { name: "checkup", testMatch: "checkup.spec.ts", dependencies: ["agents"] },
     // The Inbox tests give their own data with page.route, and they need the Apps of the screenshots test.
     { name: "inbox", testMatch: "inbox.spec.ts", dependencies: ["agents"] },
+    // The answered tests give their own data with page.route, and they need the Apps of the screenshots test.
+    { name: "answered", testMatch: "answered.spec.ts", dependencies: ["agents"] },
     // The action tests add actions and Inbox items, and each test decides its actions. They run after the tests that show the Inbox.
     {
       name: "actions",
