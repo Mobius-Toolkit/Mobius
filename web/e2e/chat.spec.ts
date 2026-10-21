@@ -235,53 +235,14 @@ test("Enter sends, and Shift+Enter adds a line on a desktop", async ({ page }) =
 const fontSize = (selector: string) =>
   `parseFloat(getComputedStyle(document.querySelector('${selector}')).fontSize)`;
 
-const sizes = async (page: Page) => ({
-  text: await page.evaluate(fontSize("[data-message] p")),
-  input: await page.evaluate(fontSize("textarea")),
-});
-
-const expectHeadingRatios = async (page: Page) => {
-  const text = await page.evaluate<number>(fontSize("[data-message] p"));
-  const h1 = await page.evaluate<number>(fontSize("[data-message] h1"));
-  const h2 = await page.evaluate<number>(fontSize("[data-message] h2"));
-  expect(h1 / text).toBeCloseTo(18 / 14, 3);
-  expect(h2 / text).toBeCloseTo(16 / 14, 3);
-};
-
-test.describe("the size of the chat text", () => {
-  test.beforeEach(async ({ page }) => {
-    await page.route("**/api/chat?*", async (route) => {
-      const response = await route.fetch();
-      const body = (await response.json()) as { data: { messages: { text: string }[] } };
-      body.data.messages = body.data.messages.map((message, position, all) =>
-        position === all.length - 1 ? { ...message, text: "# Big\n\n## Medium\n\nBody" } : message,
-      );
-      await route.fulfill({ response, json: body });
-    });
-    await page.goto(shop);
-    await expect(page.locator("[data-message] p").first()).toBeVisible();
-  });
-
-  test("is 16px on a phone and 14px on a desktop, and the other text keeps its size", async ({
-    page,
-  }) => {
-    expect(await sizes(page)).toEqual({ text: 14, input: 14 });
-    await expectHeadingRatios(page);
-    await page.setViewportSize(phone);
-    expect(await sizes(page)).toEqual({ text: 16, input: 16 });
-    await expectHeadingRatios(page);
-    expect(await page.evaluate(fontSize("header h1"))).toBe(16);
-    expect(await page.evaluate(fontSize("[data-message] .text-xs"))).toBe(12);
-  });
-
-  test("follows the font size of the root element", async ({ page }) => {
-    await page.addStyleTag({ content: "html { font-size: 20px; }" });
-    expect(await sizes(page)).toEqual({ text: 17.5, input: 17.5 });
-    await expectHeadingRatios(page);
-    await page.setViewportSize(phone);
-    expect(await sizes(page)).toEqual({ text: 20, input: 20 });
-    await expectHeadingRatios(page);
-  });
+test("the chat text is 14px, and the chat input is at least 16px on a phone", async ({ page }) => {
+  await page.goto(shop);
+  await expect(page.locator("[data-message]").first()).toBeVisible();
+  expect(await page.evaluate(fontSize("[data-message] p"))).toBe(14);
+  expect(await page.evaluate(fontSize("textarea"))).toBe(14);
+  await page.setViewportSize(phone);
+  expect(await page.evaluate(fontSize("[data-message] p"))).toBe(14);
+  expect(await page.evaluate(fontSize("textarea"))).toBeGreaterThanOrEqual(16);
 });
 
 test.describe("images", () => {

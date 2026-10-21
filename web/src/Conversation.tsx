@@ -136,20 +136,14 @@ const Message = memo(function Message({ message }: { message: ChatMessage }) {
         <Collapsible>
           <CollapsibleTrigger className="group flex w-full min-w-0 items-start gap-1 text-left break-words">
             <ChevronRightIcon className="mt-0.5 size-4 shrink-0 transition-transform group-data-[state=open]:rotate-90" />
-            <span className="chat-text min-w-0">{localTimes(summary)}</span>
+            <span className="min-w-0">{localTimes(summary)}</span>
           </CollapsibleTrigger>
           <CollapsibleContent className="pt-2">
-            <div className="chat-text">
-              <Markdown text={body} />
-            </div>
+            <Markdown text={body} />
           </CollapsibleContent>
         </Collapsible>
       ) : (
-        message.text && (
-          <div className="chat-text">
-            <Markdown text={message.text} />
-          </div>
-        )
+        message.text && <Markdown text={message.text} />
       )}
       {message.images > 0 && (
         <div className="flex flex-wrap gap-2">

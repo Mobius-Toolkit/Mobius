@@ -252,9 +252,6 @@ test("screenshots", async ({ page }) => {
       : []),
   ];
   await screenshot(page, "chat", "/workstreams/owner/shop/12", chatReady);
-  await screenshot(page, "chat-larger-text", "/workstreams/owner/shop/12", chatReady, () =>
-    page.addStyleTag({ content: "html { font-size: 20px; }" }).then(() => undefined),
-  );
   await screenshot(
     page,
     "chat-listening",
