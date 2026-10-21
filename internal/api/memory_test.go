@@ -122,7 +122,7 @@ func TestTheMemoryRouteGivesThe20NewestVersionsAndThePageBeforeAVersion(t *testi
 	if len(first.Versions) != 20 || !first.Older || len(second.Versions) != 5 || second.Older {
 		t.Fatalf("pages = %d %t, %d %t", len(first.Versions), first.Older, len(second.Versions), second.Older)
 	}
-	all := append(first.Versions, second.Versions...)
+	all := slices.Concat(first.Versions, second.Versions)
 	for i, version := range all {
 		want := fmt.Sprintf("Version %d.\n", 25-i)
 		wantBefore := ""
