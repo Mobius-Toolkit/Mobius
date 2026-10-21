@@ -126,7 +126,9 @@ func (g *FakeGitHub) MergePullRequest(repository string, number int64) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	now := g.tick()
-	found := g.issues[issueKey{repository, number}]
+	key := issueKey{repository, number}
+	g.mergedHeads[key] = g.headOf(repository, number)
+	found := g.issues[key]
 	found.state = "closed"
 	found.merged = true
 	found.updatedAt = now
@@ -421,9 +423,12 @@ func (g *FakeGitHub) pullRequestJSON(repository string, number int64) map[string
 	}
 }
 
-// headOf gives the id of the head commit of the pull request, or "" for a pull request with no branch. The caller must
-// hold the lock.
+// headOf gives the id of the head commit of the pull request, or "" for a pull request with no branch. A merged pull
+// request keeps the head of its merge. The caller must hold the lock.
 func (g *FakeGitHub) headOf(repository string, number int64) string {
+	if sha, ok := g.mergedHeads[issueKey{repository, number}]; ok {
+		return sha
+	}
 	index := slices.IndexFunc(g.pullRequests, func(pull pullRequest) bool { return pull.repository == repository && pull.Number == number })
 	if index < 0 {
 		return ""
@@ -504,6 +509,7 @@ func (g *FakeGitHub) mergePullRequest(w http.ResponseWriter, r *http.Request) {
 	}
 	sha := strings.TrimSpace(string(squash))
 	g.git(remote, "update-ref", "refs/heads/"+pull.Base, sha)
+	g.mergedHeads[key] = g.headOf(key.repository, key.number)
 	found.state = "closed"
 	found.merged = true
 	found.updatedAt = g.tick()

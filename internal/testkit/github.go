@@ -160,6 +160,12 @@ type FakeGitHub struct {
 	pullRequestsUnlisted bool
 	// mergeRefusals holds the reason that the merge of a pull request gets, for each pull request that refuses a merge.
 	mergeRefusals map[issueKey]string
+	// branchDeletionRefusals holds the reason that the deletion of a branch gets, for each branch that refuses a
+	// deletion.
+	branchDeletionRefusals map[branchKey]string
+	// mergedHeads holds the head commit of each merged pull request at its merge. A push after the merge does not
+	// change it.
+	mergedHeads map[issueKey]string
 	// mergeCalls, updateBranchCalls and checkRunReads are the numbers of requests to merge a pull request, to update
 	// its branch and to list the check runs of a commit.
 	mergeCalls, updateBranchCalls, checkRunReads int
@@ -263,6 +269,8 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		behind:                  map[issueKey]bool{},
 		pushedHeads:             map[issueKey]string{},
 		mergeRefusals:           map[issueKey]string{},
+		branchDeletionRefusals:  map[branchKey]string{},
+		mergedHeads:             map[issueKey]string{},
 		unknownMergeable:        map[issueKey]bool{},
 		annotations:             map[int64][]annotationJSON{},
 		cloneURLs:               map[string]string{},
@@ -312,6 +320,7 @@ func (g *FakeGitHub) routes() *http.ServeMux {
 	mux.HandleFunc("PATCH /repos/{owner}/{repo}/labels/{name}", g.withToken(g.updateRepositoryLabel))
 	mux.HandleFunc("POST /repos/{owner}/{repo}/pulls", g.withToken(g.createPullRequest))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/git/ref/heads/{branch...}", g.withToken(g.getBranchRef))
+	mux.HandleFunc("DELETE /repos/{owner}/{repo}/git/refs/heads/{branch...}", g.withToken(g.deleteBranchRef))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/pulls/{number}", g.withToken(g.getPullRequest))
 	mux.HandleFunc("PATCH /repos/{owner}/{repo}/pulls/{number}", g.withToken(g.closeIssue))
 	mux.HandleFunc("PUT /repos/{owner}/{repo}/pulls/{number}/merge", g.withToken(g.mergePullRequest))

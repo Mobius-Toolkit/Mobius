@@ -3,6 +3,8 @@ package github_test
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
+	"net/http"
 	"net/url"
 	"path/filepath"
 	"reflect"
@@ -15,6 +17,7 @@ import (
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
+	gogithub "github.com/google/go-github/v92/github"
 )
 
 func start(t *testing.T, fake *testkit.FakeGitHub) (*github.GitHub, *store.Queries) {
@@ -536,6 +539,33 @@ func TestMergePullRequestTellsAMergeApartFromAChangedHeadAndARefusal(t *testing.
 	merged, reason, err = repository.MergePullRequest(t.Context(), number, sha)
 	if err != nil || !merged || reason != "" {
 		t.Errorf("merge: %v, %q, %v", merged, reason, err)
+	}
+}
+
+func TestDeleteBranchDeletesTheBranchAndGivesTheRefusalOfGitHub(t *testing.T) {
+	const shop = "owner/shop"
+	fake := testkit.NewFakeGitHub(t)
+	gh := connect(t, fake)
+	repository, _ := gh.Repository(shop)
+	fake.PushCommit(shop, "mobius/41", "Add plan model")
+
+	fake.RefuseBranchDeletion(shop, "mobius/41", "Cannot delete this branch")
+	err := repository.DeleteBranch(t.Context(), "mobius/41")
+	var refused *gogithub.ErrorResponse
+	if !errors.As(err, &refused) || refused.Response.StatusCode != http.StatusUnprocessableEntity || refused.Message != "Cannot delete this branch" {
+		t.Errorf("refusal: %v", err)
+	}
+
+	fake.RefuseBranchDeletion(shop, "mobius/41", "")
+	if err := repository.DeleteBranch(t.Context(), "mobius/41"); err != nil {
+		t.Errorf("delete: %v", err)
+	}
+	if branches := testkit.Git(t, fake.Remote(shop), "branch", "--list", "mobius/41"); branches != "" {
+		t.Errorf("branches = %q", branches)
+	}
+	err = repository.DeleteBranch(t.Context(), "mobius/41")
+	if !errors.As(err, &refused) || refused.Response.StatusCode != http.StatusUnprocessableEntity {
+		t.Errorf("missing branch: %v", err)
 	}
 }
 

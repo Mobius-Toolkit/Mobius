@@ -25,6 +25,12 @@ func (r Repository) BranchHead(ctx context.Context, branch string) (string, erro
 	return ref.GetObject().GetSHA(), nil
 }
 
+// DeleteBranch deletes the branch.
+func (r Repository) DeleteBranch(ctx context.Context, branch string) error {
+	_, err := r.Client.Git.DeleteRef(ctx, r.Owner(), r.Name(), "heads/"+branch)
+	return err
+}
+
 // CreateDraftPullRequest opens a draft pull request from the branch head into the branch base.
 func (r Repository) CreateDraftPullRequest(ctx context.Context, title, head, base, body string) (*gh.PullRequest, error) {
 	pullRequest, _, err := r.Client.PullRequests.Create(ctx, r.Owner(), r.Name(), gh.CreatePullRequest{
