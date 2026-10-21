@@ -6416,6 +6416,10 @@
             "type": "boolean",
             "description": "OtherRepository is true for a task in another repository than the Workstream"
           },
+          "repository": {
+            "type": "string",
+            "description": "Repository is the full name of the repository of the task issue"
+          },
           "state": {
             "type": "string",
             "description": "State is the Mobius label of the issue with no \"mobius:\", or open, or closed for a closed issue. A task that waits for a slot shows \"queued\". A task that waits for CI shows \"waits for CI\". A task that waits for the Lead shows \"waits for Lead\". A task whose Lead event is held until the Owner answers shows \"waits for Owner\". A task that waits for start_implementer shows \"waits for start_implementer\"."
@@ -6434,6 +6438,7 @@
           "title",
           "state",
           "url",
+          "repository",
           "depth",
           "otherRepository",
           "blockedBy"
