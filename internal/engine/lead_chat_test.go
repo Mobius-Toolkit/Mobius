@@ -1413,7 +1413,7 @@ call = { tool = "move_task", arguments = { n = 21, workstream = 20 } }
 			t.Errorf("%s: action = %+v", c.message, got)
 		}
 	}
-	if _, err := server.DB.Exec("INSERT INTO tasks (repository, issue, workstream, state, dispatched_at) VALUES (?, 13, 12, 'dispatched', ?)", shop, time.Now().UTC().Format(time.RFC3339)); err != nil {
+	if _, err := server.DB.Exec("INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at) VALUES (?, ?, 13, 12, 'dispatched', ?)", shop, shop, time.Now().UTC().Format(time.RFC3339)); err != nil {
 		t.Fatal(err)
 	}
 	sendChat(t, server, leadChat, "case-live")

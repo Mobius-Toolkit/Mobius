@@ -82,12 +82,12 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 			if err := repository.RemoveLabel(ctx, number, readyLabel); err != nil {
 				return err
 			}
-			if err := e.addActivity(ctx, repository.FullName, task.Workstream, issue, actor, fmt.Sprintf("No effect: \"%s\" has a live task", issue.GetTitle())); err != nil {
+			if err := e.addActivity(ctx, task.WorkstreamRepository, task.Workstream, issue, actor, fmt.Sprintf("No effect: \"%s\" has a live task", issue.GetTitle())); err != nil {
 				return err
 			}
 			continue
 		}
-		workstream, err := workstreamOf(ctx, repository, number)
+		workstreamRepository, workstream, err := e.workstreamOf(ctx, repository, number)
 		if err != nil {
 			return err
 		}
@@ -115,7 +115,7 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 			}
 			e.publish(Change{Workstreams: true})
 		}
-		if err := e.dispatch(ctx, repository, issue, workstream, actor); err != nil {
+		if err := e.dispatch(ctx, repository, issue, workstreamRepository, workstream, actor); err != nil {
 			return err
 		}
 	}
@@ -132,7 +132,7 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 // dispatch adds a task for the issue in the Workstream, with an activity and a dispatch event for the Lead.
 // mobius:working comes before the removal of mobius:ready, so a failure between the two leaves the issue in the
 // list of the next poll.
-func (e *Engine) dispatch(ctx context.Context, repository github.Repository, issue *gh.Issue, workstream int64, actor string) error {
+func (e *Engine) dispatch(ctx context.Context, repository github.Repository, issue *gh.Issue, workstreamRepository string, workstream int64, actor string) error {
 	number := int64(issue.GetNumber())
 	if err := repository.AddLabel(ctx, number, workingLabel); err != nil {
 		return err
@@ -143,15 +143,15 @@ func (e *Engine) dispatch(ctx context.Context, repository github.Repository, iss
 	if err := e.changeCopiedLabels(ctx, repository.FullName, number, []string{workingLabel}, []string{readyLabel}); err != nil {
 		return err
 	}
-	_, err := e.queries.AddTask(ctx, store.AddTaskParams{Repository: repository.FullName, Issue: number, Workstream: workstream, DispatchedAt: now()})
+	_, err := e.queries.AddTask(ctx, store.AddTaskParams{Repository: repository.FullName, Issue: number, WorkstreamRepository: workstreamRepository, Workstream: workstream, DispatchedAt: now()})
 	if err != nil {
 		return err
 	}
-	if err := e.addActivity(ctx, repository.FullName, workstream, issue, actor, fmt.Sprintf("Dispatched \"%s\"", issue.GetTitle())); err != nil {
+	if err := e.addActivity(ctx, workstreamRepository, workstream, issue, actor, fmt.Sprintf("Dispatched \"%s\"", issue.GetTitle())); err != nil {
 		return err
 	}
 	text := eventText(time.Now(), "dispatch of", issue, actor, issue.GetBody())
-	return e.addLeadEvent(ctx, repository.FullName, workstream, sql.NullInt64{Int64: number, Valid: true}, "dispatch", text)
+	return e.addLeadEvent(ctx, workstreamRepository, workstream, sql.NullInt64{Int64: number, Valid: true}, "dispatch", text)
 }
 
 // addActivity adds an activity about the issue to the feed.
@@ -242,7 +242,7 @@ func (e *Engine) commentEvents(ctx context.Context, repository github.Repository
 		if err := repository.RemoveLabel(ctx, number, questionLabel); err != nil {
 			return err
 		}
-		if err := e.releaseEvents(ctx, repository.FullName, task.Workstream); err != nil {
+		if err := e.releaseEvents(ctx, task.WorkstreamRepository, task.Workstream); err != nil {
 			return err
 		}
 	}
@@ -284,7 +284,7 @@ func (e *Engine) commentEvents(ctx context.Context, repository github.Repository
 // waits in answered for a free slot. Else the task dispatches again at once. During the stop of a hard break of the CI,
 // the task of another issue than a CI task waits in answered in both cases.
 func (e *Engine) answerAsked(ctx context.Context, repository github.Repository, issue *gh.Issue, task store.Task) error {
-	on, err := e.workstreamAutopilot(ctx, repository, task.Workstream)
+	on, err := e.workstreamAutopilot(ctx, task.WorkstreamRepository, task.Workstream)
 	if err != nil {
 		return err
 	}
@@ -388,7 +388,7 @@ func (e *Engine) commentsWithoutTask(ctx context.Context, repository github.Repo
 // answers its question: mobius:question goes away.
 func (e *Engine) workstreamCommentEvents(ctx context.Context, repository github.Repository, issue *gh.Issue, events []*gh.IssueComment, answered bool) error {
 	number := int64(issue.GetNumber())
-	workstream, err := e.commentWorkstream(ctx, repository, issue)
+	workstreamRepository, workstream, err := e.commentWorkstream(ctx, repository, issue)
 	if err != nil {
 		return err
 	}
@@ -405,40 +405,44 @@ func (e *Engine) workstreamCommentEvents(ctx context.Context, repository github.
 		if err := repository.RemoveLabel(ctx, number, questionLabel); err != nil {
 			return err
 		}
-		if err := e.releaseEvents(ctx, repository.FullName, workstream); err != nil {
+		if err := e.releaseEvents(ctx, workstreamRepository, workstream); err != nil {
 			return err
 		}
 	}
-	eventIssue := sql.NullInt64{Int64: number, Valid: workstream != number}
+	eventIssue := sql.NullInt64{Int64: number, Valid: workstreamRepository != repository.FullName || workstream != number}
 	for _, comment := range events {
 		text := eventText(comment.GetCreatedAt().Time, "comment on", issue, comment.GetUser().GetLogin(), comment.GetBody())
-		if err := e.addCommentLeadEvent(ctx, repository.FullName, workstream, eventIssue, "comment", text, commentRef{id: comment.GetID()}); err != nil {
+		if err := e.addCommentLeadEvent(ctx, workstreamRepository, workstream, eventIssue, "comment", text, commentRef{id: comment.GetID()}); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// commentWorkstream gives the number of the open Workstream of the issue, or 0 when the issue is in no open Workstream.
-// It reads the local copy of the Workstream tree first.
-func (e *Engine) commentWorkstream(ctx context.Context, repository github.Repository, issue *gh.Issue) (int64, error) {
+// commentWorkstream gives the repository and the number of the open Workstream of the issue, or the number 0 when the
+// issue is in no open Workstream. It reads the local copy of the Workstream tree first.
+func (e *Engine) commentWorkstream(ctx context.Context, repository github.Repository, issue *gh.Issue) (string, int64, error) {
 	number := int64(issue.GetNumber())
 	if hasLabel(issue, workstreamLabel) {
-		return number, nil
+		return repository.FullName, number, nil
 	}
 	workstream, ok, err := e.copiedWorkstreamOf(ctx, repository.FullName, number, issue.GetRepositoryURL())
 	if err != nil || ok {
-		return workstream, err
+		return repository.FullName, workstream, err
 	}
-	workstream, err = workstreamOf(ctx, repository, number)
+	workstreamRepository, workstream, err := e.workstreamOf(ctx, repository, number)
 	if err != nil || workstream == 0 {
-		return 0, err
+		return "", 0, err
 	}
-	open, err := repository.Issue(ctx, workstream)
+	source, err := e.repository(workstreamRepository)
+	if err != nil {
+		return "", 0, err
+	}
+	open, err := source.Issue(ctx, workstream)
 	if err != nil || open.GetState() != "open" {
-		return 0, err
+		return "", 0, err
 	}
-	return workstream, nil
+	return workstreamRepository, workstream, nil
 }
 
 // pullRequestComments acts on the new comments of the pull request of a live task: a new comment or review comment of
@@ -575,7 +579,7 @@ func (e *Engine) commentEventsOf(ctx context.Context, repository github.Reposito
 // addCommentEvent adds a comment event for the Lead of the Workstream of the task. what tells the kind of comment.
 func (e *Engine) addCommentEvent(ctx context.Context, task store.Task, issue *gh.Issue, comment commentRef, at time.Time, what, author, body string) error {
 	text := eventText(at, what, issue, author, body) + fmt.Sprintf("\n\nThe state of the task of #%d is %s.", task.Issue, task.State)
-	return e.addCommentLeadEvent(ctx, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "comment", text, comment)
+	return e.addCommentLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "comment", text, comment)
 }
 
 // trustedUser tells if login is a trusted user.
@@ -813,7 +817,7 @@ func (e *Engine) closeQuestionTool(ctx context.Context, c caller, repository git
 // workstreamTask gives the live task of the issue number in the Workstream.
 func (e *Engine) workstreamTask(ctx context.Context, repository github.Repository, workstream, number int64) (store.Task, error) {
 	task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: repository.FullName, Issue: number})
-	if errors.Is(err, sql.ErrNoRows) || err == nil && task.Workstream != workstream {
+	if errors.Is(err, sql.ErrNoRows) || err == nil && (task.WorkstreamRepository != repository.FullName || task.Workstream != workstream) {
 		return store.Task{}, refuse("#%d has no live task in this Workstream.", number)
 	}
 	return task, err
@@ -870,7 +874,7 @@ func (e *Engine) dispatchAnsweredWithoutAutopilot(ctx context.Context, repositor
 		if task.State != "answered" || len(stop) > 0 && !stop[task.Issue] {
 			continue
 		}
-		on, err := e.workstreamAutopilot(ctx, repository, task.Workstream)
+		on, err := e.workstreamAutopilot(ctx, task.WorkstreamRepository, task.Workstream)
 		if err != nil {
 			return err
 		}
@@ -925,7 +929,7 @@ func (e *Engine) autopilotTree(ctx context.Context, repository github.Repository
 				if answered {
 					err = e.dispatchAnswer(ctx, repository, issue, task)
 				} else {
-					err = e.dispatch(ctx, repository, issue, workstream, appLogin(repository.AppSlug))
+					err = e.dispatch(ctx, repository, issue, repository.FullName, workstream, appLogin(repository.AppSlug))
 				}
 				if err != nil {
 					return false, err
@@ -1005,7 +1009,7 @@ func (e *Engine) resume(ctx context.Context, repository github.Repository, issue
 	if err := repository.RemoveLabel(ctx, int64(issue.GetNumber()), readyLabel); err != nil {
 		return err
 	}
-	return e.addActivity(ctx, repository.FullName, task.Workstream, issue, actor, fmt.Sprintf("Continued \"%s\"", issue.GetTitle()))
+	return e.addActivity(ctx, task.WorkstreamRepository, task.Workstream, issue, actor, fmt.Sprintf("Continued \"%s\"", issue.GetTitle()))
 }
 
 // redispatch gives the task with no pull request back to the Lead with a dispatch event that has text and comment. It
@@ -1018,7 +1022,7 @@ func (e *Engine) redispatch(ctx context.Context, repository github.Repository, i
 	if err != nil || moved == 0 {
 		return false, err
 	}
-	err = e.addCommentLeadEvent(ctx, repository.FullName, task.Workstream, sql.NullInt64{Int64: int64(issue.GetNumber()), Valid: true}, "dispatch", text, comment)
+	err = e.addCommentLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, sql.NullInt64{Int64: int64(issue.GetNumber()), Valid: true}, "dispatch", text, comment)
 	if err != nil {
 		_, stateErr := e.setTaskState(ctx, store.SetTaskStateParams{State: task.State, ID: task.ID, FromState: "dispatched"})
 		return false, errors.Join(err, stateErr)

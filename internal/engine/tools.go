@@ -616,7 +616,7 @@ func (e *Engine) createIssue(ctx context.Context, c caller, repository github.Re
 		return "", err
 	}
 	if input.Parent != c.workstream {
-		in, err := inWorkstream(ctx, repository, c.workstream, input.Parent)
+		in, err := e.inWorkstream(ctx, repository, c.workstream, input.Parent)
 		if err != nil {
 			return "", err
 		}
@@ -731,7 +731,7 @@ func (e *Engine) markReady(ctx context.Context, c caller, repository github.Repo
 	if issue == nil || !e.TrustedAuthor(repository.AppSlug, issue.GetUser().GetLogin()) {
 		return "", refuse("#%d is not an issue of a trusted author.", input.N)
 	}
-	in, err := inWorkstream(ctx, repository, c.workstream, input.N)
+	in, err := e.inWorkstream(ctx, repository, c.workstream, input.N)
 	if err != nil {
 		return "", err
 	}
@@ -763,7 +763,7 @@ func (e *Engine) replyThread(ctx context.Context, c caller, repository github.Re
 		return "", err
 	}
 	for _, task := range tasks {
-		if task.Workstream != c.workstream || !task.PullRequest.Valid {
+		if task.WorkstreamRepository != c.repository || task.Workstream != c.workstream || !task.PullRequest.Valid {
 			continue
 		}
 		replied, err := reply(ctx, repository, task.PullRequest.Int64, input.Thread, input.Text)
@@ -788,7 +788,7 @@ func (e *Engine) commentPullRequest(ctx context.Context, c caller, repository gi
 		Repository:  c.repository,
 		PullRequest: sql.NullInt64{Int64: input.N, Valid: true},
 	})
-	if errors.Is(err, sql.ErrNoRows) || (err == nil && task.Workstream != c.workstream) {
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && (task.WorkstreamRepository != c.repository || task.Workstream != c.workstream)) {
 		return "", refuse("#%d is not the pull request of a live task in this Workstream.", input.N)
 	}
 	if err != nil {
@@ -936,7 +936,7 @@ func (e *Engine) moveTask(ctx context.Context, c caller, repository github.Repos
 	if err != nil {
 		return "", err
 	}
-	in, err := inWorkstream(ctx, repository, c.workstream, input.N)
+	in, err := e.inWorkstream(ctx, repository, c.workstream, input.N)
 	if err != nil {
 		return "", err
 	}
@@ -970,7 +970,7 @@ func (e *Engine) moveIssue(ctx context.Context, _ caller, repository github.Repo
 	if err != nil {
 		return "", err
 	}
-	of, err := workstreamOf(ctx, repository, input.N)
+	_, of, err := e.workstreamOf(ctx, repository, input.N)
 	if err != nil {
 		return "", err
 	}

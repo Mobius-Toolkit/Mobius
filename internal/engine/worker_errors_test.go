@@ -66,8 +66,8 @@ func seedReviewerAs(t *testing.T, fake *testkit.FakeGitHub, script string, adjus
 	fake.AddLabel(shop, 41, "mobius:working", testkit.AppSlug+"[bot]")
 	testkit.InstallFakeAgent(t, dataDir, script)
 	seed(t, dataDir,
-		`INSERT INTO tasks (id, repository, issue, workstream, state, dispatched_at, queued_at, branch, pull_request, worker, worker_input)
-		 VALUES (1, 'owner/shop', 41, 12, 'working', '2026-10-04T10:00:00Z', '2026-10-04T10:00:00Z', 'mobius/41', 42, 'reviewer', NULL)`)
+		`INSERT INTO tasks (id, repository, workstream_repository, issue, workstream, state, dispatched_at, queued_at, branch, pull_request, worker, worker_input)
+		 VALUES (1, 'owner/shop', 'owner/shop', 41, 12, 'working', '2026-10-04T10:00:00Z', '2026-10-04T10:00:00Z', 'mobius/41', 42, 'reviewer', NULL)`)
 	cfg := testserver.Config(t, dataDir)
 	adjust(cfg)
 	server := startServerWith(t, fake, cfg, "")

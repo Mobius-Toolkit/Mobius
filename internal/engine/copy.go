@@ -673,7 +673,7 @@ func (e *Engine) addSubtree(ctx context.Context, home, repository github.Reposit
 		issueRepository, readable := e.issueRepository(issue, repository)
 		leaf := hasLabel(issue, workstreamLabel) || !readable
 		if !leaf && issue.GetIssueDependenciesSummary().GetBlockedBy() > 0 {
-			if copied.blockers, err = copyBlockers(ctx, home, issueRepository, int64(issue.GetNumber())); err != nil {
+			if copied.blockers, err = e.copyBlockers(ctx, home, issueRepository, int64(issue.GetNumber())); err != nil {
 				return err
 			}
 		}
@@ -707,7 +707,7 @@ func blockerRepository(issue *gh.Issue, repository string) string {
 
 // copyBlockers gives the open blockers of the issue number in repository. home is the repository of the Workstream.
 // Only a blocker in home has a Workstream.
-func copyBlockers(ctx context.Context, home, repository github.Repository, number int64) ([]copiedBlocker, error) {
+func (e *Engine) copyBlockers(ctx context.Context, home, repository github.Repository, number int64) ([]copiedBlocker, error) {
 	issues, err := openBlockers(ctx, repository, number)
 	if err != nil {
 		return nil, err
@@ -719,11 +719,11 @@ func copyBlockers(ctx context.Context, home, repository github.Repository, numbe
 			found = append(found, blocker)
 			continue
 		}
-		workstream, err := workstreamOf(ctx, home, blocker.number)
+		workstreamRepository, workstream, err := e.workstreamOf(ctx, home, blocker.number)
 		if err != nil {
 			return nil, err
 		}
-		if workstream != 0 {
+		if workstream != 0 && workstreamRepository == home.FullName {
 			blocker.workstream = sql.NullInt64{Int64: workstream, Valid: true}
 			workstreamIssue, err := home.Issue(ctx, workstream)
 			if err != nil {

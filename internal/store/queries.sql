@@ -7,7 +7,7 @@ SELECT w.repository, w.number, w.title, w.body, CAST(w.autopilot AS BOOLEAN) AS 
                        WHERE i.repository = w.repository AND i.workstream = w.number AND i.parent = w.number AND i.parent_repository = w.repository
                          AND i.state != 'closed') AS BOOLEAN) AS all_tasks_closed,
        CAST(EXISTS (SELECT 1 FROM tasks t
-               WHERE t.repository = w.repository AND t.workstream = w.number AND t.state = 'ready_for_review') AS BOOLEAN) AS ready_to_merge
+               WHERE t.workstream_repository = w.repository AND t.workstream = w.number AND t.state = 'ready_for_review') AS BOOLEAN) AS ready_to_merge
 FROM copied_workstreams w
 ORDER BY w.repository, w.number DESC;
 
@@ -398,8 +398,8 @@ SELECT text FROM (
 SELECT DISTINCT repository, workstream FROM lead_events WHERE delivered_at IS NULL ORDER BY repository, workstream;
 
 -- name: AddTask :one
-INSERT INTO tasks (repository, issue, workstream, state, dispatched_at, state_at)
-VALUES (?, ?, ?, 'dispatched', ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+INSERT INTO tasks (repository, issue, workstream_repository, workstream, state, dispatched_at, state_at)
+VALUES (?, ?, ?, ?, 'dispatched', ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 RETURNING *;
 
 -- An ended task counts too.
@@ -533,7 +533,11 @@ UPDATE tasks SET state = 'stopped', state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'n
 SELECT DISTINCT repository FROM tasks WHERE state <> 'ended' ORDER BY repository;
 
 -- name: ListTaskPullRequests :many
-SELECT CAST(pull_request AS INTEGER) FROM tasks WHERE repository = ? AND workstream = ? AND pull_request IS NOT NULL ORDER BY id;
+SELECT repository, CAST(pull_request AS INTEGER) AS pull_request FROM tasks
+WHERE workstream_repository = ? AND workstream = ? AND pull_request IS NOT NULL ORDER BY id;
+
+-- name: ListWorkstreamLiveTasks :many
+SELECT * FROM tasks WHERE workstream_repository = ? AND workstream = ? AND state <> 'ended' ORDER BY id;
 
 -- name: ListCopiedRepositories :many
 SELECT DISTINCT repository FROM copied_workstreams;

@@ -20,7 +20,7 @@ func startEnded(t *testing.T, fake *testkit.FakeGitHub, labels ...string) *tests
 		fake.AddLabel(shop, 41, label, testkit.AppSlug+"[bot]")
 	}
 	testkit.InstallFakeAgent(t, dataDir, options)
-	seed(t, dataDir, `INSERT INTO tasks (id, repository, issue, workstream, state, dispatched_at, state_at) VALUES (1, 'owner/shop', 41, 12, 'ended', '2026-10-04T10:00:00Z', '2026-10-04T10:00:00Z')`)
+	seed(t, dataDir, `INSERT INTO tasks (id, repository, workstream_repository, issue, workstream, state, dispatched_at, state_at) VALUES (1, 'owner/shop', 'owner/shop', 41, 12, 'ended', '2026-10-04T10:00:00Z', '2026-10-04T10:00:00Z')`)
 	server := startServerWith(t, fake, testserver.Config(t, dataDir), "")
 	server.WaitForFirstPoll(t, shop)
 	return server

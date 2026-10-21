@@ -234,7 +234,7 @@ func TestListTasksShowsTheQueuedStateAndTheOpenBlockers(t *testing.T) {
 	fake.AddSubIssue(shop, 12, 41)
 	fake.AddSubIssue(shop, 12, 30)
 	fake.AddSubIssue(shop, 30, 31)
-	if _, err := server.DB.Exec(`INSERT INTO tasks (repository, issue, workstream, state, dispatched_at, queued_at) VALUES ('owner/shop', 41, 12, 'queued', '2026-10-04T10:00:00Z', '2026-10-04T10:00:00Z')`); err != nil {
+	if _, err := server.DB.Exec(`INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at, queued_at) VALUES ('owner/shop', 'owner/shop', 41, 12, 'queued', '2026-10-04T10:00:00Z', '2026-10-04T10:00:00Z')`); err != nil {
 		t.Fatal(err)
 	}
 	billing := "Billing"
@@ -460,8 +460,8 @@ func addTask(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHub, 
 	if !fake.HasIssue(shop, issue) {
 		fake.AddIssue(shop, issue, "Task")
 	}
-	_, err := server.DB.Exec(`INSERT INTO tasks (repository, issue, workstream, state, dispatched_at, pull_request)
-		VALUES ('owner/shop', ?, ?, 'ready_for_review', '2026-10-04T10:00:00Z', ?)`, issue, workstream, pullRequest)
+	_, err := server.DB.Exec(`INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at, pull_request)
+		VALUES ('owner/shop', 'owner/shop', ?, ?, 'ready_for_review', '2026-10-04T10:00:00Z', ?)`, issue, workstream, pullRequest)
 	if err != nil {
 		t.Fatal(err)
 	}

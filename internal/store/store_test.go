@@ -546,6 +546,9 @@ func TestTheTranscriptMigrationRemovesTheDuplicatesAndAddsTheIndex(t *testing.T)
 	if _, err := db.Exec("ALTER TABLE lead_events DROP COLUMN held_at"); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.Exec("ALTER TABLE tasks DROP COLUMN workstream_repository"); err != nil {
+		t.Fatal(err)
+	}
 	for _, column := range []string{"merging", "merge_refusal", "questions"} {
 		if _, err := db.Exec("ALTER TABLE inbox_items DROP COLUMN " + column); err != nil {
 			t.Fatal(err)
@@ -643,6 +646,7 @@ func TestTheInboxMigrationsDismissTheOpenItemsAndKeepThePause(t *testing.T) {
 		"DROP TABLE ci_diagnoses",
 		"ALTER TABLE copied_workstreams DROP COLUMN evergreen",
 		"ALTER TABLE lead_events DROP COLUMN held_at",
+		"ALTER TABLE tasks DROP COLUMN workstream_repository",
 		"ALTER TABLE inbox_items DROP COLUMN merging",
 		"ALTER TABLE inbox_items DROP COLUMN merge_refusal",
 		"ALTER TABLE inbox_items DROP COLUMN questions",
@@ -698,7 +702,7 @@ func TestTheTasksTableAcceptsTheAskedStatesAndKeepsTheStateTrigger(t *testing.T)
 	defer func() { _ = db.Close() }()
 
 	for _, statement := range []string{
-		"INSERT INTO tasks (repository, issue, workstream, state, dispatched_at, state_at) VALUES ('owner/shop', 41, 12, 'asked', '2026-10-04T10:00:00Z', '2026-10-04T10:00:00Z')",
+		"INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at, state_at) VALUES ('owner/shop', 'owner/shop', 41, 12, 'asked', '2026-10-04T10:00:00Z', '2026-10-04T10:00:00Z')",
 		"UPDATE tasks SET state = 'answered', state_at = '2026-10-04T11:00:00Z'",
 	} {
 		if _, err := db.Exec(statement); err != nil {
@@ -737,6 +741,7 @@ func TestTheCoordinatorMigrationMovesTheChatSessionsAndTheChatMessages(t *testin
 		"DROP TABLE ci_diagnoses",
 		"ALTER TABLE copied_workstreams DROP COLUMN evergreen",
 		"ALTER TABLE lead_events DROP COLUMN held_at",
+		"ALTER TABLE tasks DROP COLUMN workstream_repository",
 		"ALTER TABLE inbox_items DROP COLUMN merging",
 		"ALTER TABLE inbox_items DROP COLUMN merge_refusal",
 		"ALTER TABLE inbox_items DROP COLUMN questions",

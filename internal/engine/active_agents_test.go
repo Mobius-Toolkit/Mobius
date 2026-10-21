@@ -115,7 +115,7 @@ func TestEachRowShowsTheWorkstreamTheTicketAndThePullRequestWhenTheyExist(t *tes
 		 VALUES ('implementer', 'devin', 'model', 'owner', 'owner/shop', 12, 41, '2026-10-04T10:00:00Z'),
 		        ('researcher', 'antigravity', 'model', 'owner', 'owner/shop', 12, NULL, '2026-10-04T10:00:00Z'),
 		        ('coordinator', 'claude-code', 'model', 'owner', '', 0, NULL, '2026-10-04T10:00:00Z')`,
-		`INSERT INTO tasks (repository, issue, workstream, state, dispatched_at, pull_request) VALUES ('owner/shop', 41, 12, 'working', '2026-10-04T10:00:00Z', 42)`,
+		`INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at, pull_request) VALUES ('owner/shop', 'owner/shop', 41, 12, 'working', '2026-10-04T10:00:00Z', 42)`,
 	} {
 		if _, err := server.DB.Exec(statement); err != nil {
 			t.Fatal(err)

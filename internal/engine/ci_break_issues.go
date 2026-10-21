@@ -359,7 +359,7 @@ func (e *Engine) startCIBreakTasks(ctx context.Context, repository github.Reposi
 		if issue == nil || issue.GetState() != "open" {
 			continue
 		}
-		if err := e.dispatch(ctx, repository, issue, workstream, appLogin(repository.AppSlug)); err != nil {
+		if err := e.dispatch(ctx, repository, issue, repository.FullName, workstream, appLogin(repository.AppSlug)); err != nil {
 			return err
 		}
 		if _, err := e.startImplementer(ctx, repository, workstream, ciBreak.Issue, ciTaskInstructions, sql.NullInt64{}); err != nil {

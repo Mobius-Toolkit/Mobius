@@ -449,8 +449,8 @@ func seedWaitingAdjusted(t *testing.T, fake *testkit.FakeGitHub, state, script s
 	fake.AddLabel(shop, 41, "mobius:working", testkit.AppSlug+"[bot]")
 	testkit.InstallFakeAgent(t, dataDir, options+script)
 	seed(t, dataDir,
-		`INSERT INTO tasks (id, repository, issue, workstream, state, dispatched_at, state_at, branch, pull_request)
-		 VALUES (1, 'owner/shop', 41, 12, '`+state+`', '2026-10-04T10:00:00Z', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), 'mobius/41', 42)`)
+		`INSERT INTO tasks (id, repository, workstream_repository, issue, workstream, state, dispatched_at, state_at, branch, pull_request)
+		 VALUES (1, 'owner/shop', 'owner/shop', 41, 12, '`+state+`', '2026-10-04T10:00:00Z', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), 'mobius/41', 42)`)
 	cfg := testserver.Config(t, dataDir)
 	cfg.ReviewQuietPeriod = time.Hour
 	adjust(cfg)

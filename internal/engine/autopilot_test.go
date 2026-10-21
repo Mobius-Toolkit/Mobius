@@ -164,7 +164,7 @@ func TestAnEndedTaskDoesNotStartAgain(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	prepareAutopilot(fake, true)
 	addTaskIssue(fake, 41, "Add plan model")
-	server := startAutopilot(t, fake, func(*config.Config) {}, `INSERT INTO tasks (repository, issue, workstream, state, dispatched_at) VALUES ('owner/shop', 41, 12, 'ended', '2026-10-04T10:00:00Z')`)
+	server := startAutopilot(t, fake, func(*config.Config) {}, `INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at) VALUES ('owner/shop', 'owner/shop', 41, 12, 'ended', '2026-10-04T10:00:00Z')`)
 	server.WaitForFirstPoll(t, shop)
 
 	waitForPolls(t, fake)

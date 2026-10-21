@@ -240,36 +240,37 @@ type StopNotice struct {
 }
 
 type Task struct {
-	ID             int64
-	Repository     string
-	Issue          int64
-	Workstream     int64
-	State          string
-	DispatchedAt   string
-	Branch         sql.NullString
-	QueuedAt       sql.NullString
-	FixRounds      int64
-	PullRequest    sql.NullInt64
-	JudgedAt       sql.NullString
-	WorkerRestarts int64
-	Worker         sql.NullString
-	WorkerInput    sql.NullString
-	ReviewRounds   int64
-	ReviewComment  sql.NullInt64
-	CheckHead      sql.NullString
-	ApprovedReview sql.NullString
-	RefusedReview  sql.NullString
-	NeedsHumanAt   sql.NullString
-	ConflictHead   sql.NullString
-	CiFailedHead   sql.NullString
-	StateAt        string
-	LongWaitAt     sql.NullString
-	CheckErrors    int64
-	LeadFindings   string
-	Recoveries     int64
-	BreakWaitHead  sql.NullString
-	RerunHead      sql.NullString
-	RerunRuns      sql.NullString
+	ID                   int64
+	Repository           string
+	Issue                int64
+	Workstream           int64
+	State                string
+	DispatchedAt         string
+	Branch               sql.NullString
+	QueuedAt             sql.NullString
+	FixRounds            int64
+	PullRequest          sql.NullInt64
+	JudgedAt             sql.NullString
+	WorkerRestarts       int64
+	Worker               sql.NullString
+	WorkerInput          sql.NullString
+	ReviewRounds         int64
+	ReviewComment        sql.NullInt64
+	CheckHead            sql.NullString
+	ApprovedReview       sql.NullString
+	RefusedReview        sql.NullString
+	NeedsHumanAt         sql.NullString
+	ConflictHead         sql.NullString
+	CiFailedHead         sql.NullString
+	StateAt              string
+	LongWaitAt           sql.NullString
+	CheckErrors          int64
+	LeadFindings         string
+	Recoveries           int64
+	BreakWaitHead        sql.NullString
+	RerunHead            sql.NullString
+	RerunRuns            sql.NullString
+	WorkstreamRepository string
 }
 
 type TaskState struct {

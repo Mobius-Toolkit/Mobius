@@ -117,7 +117,7 @@ func (e *Engine) startImplementer(ctx context.Context, repository github.Reposit
 		return "", err
 	}
 	defer e.holdWorker(task.ID)()
-	brief, err := brief(ctx, repository, workstream)
+	brief, err := e.workstreamBrief(ctx, task)
 	if err != nil {
 		return "", err
 	}
@@ -507,7 +507,7 @@ func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r r
 	if kept != "" {
 		r.items += "\nFindings of the Lead:\n" + kept
 	}
-	brief, err := brief(ctx, repository, r.task.Workstream)
+	brief, err := e.workstreamBrief(ctx, r.task)
 	if err != nil {
 		return err
 	}
@@ -606,7 +606,7 @@ func makeDraft(ctx context.Context, repository github.Repository, pullRequest *g
 // head that it pushed. The pull request is a draft during the round. The prompt has the issue body, and the round makes no change other than
 // the merge of the base branch (Mobius-rust#227).
 func (e *Engine) conflictRound(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) (err error) {
-	brief, err := brief(ctx, repository, task.Workstream)
+	brief, err := e.workstreamBrief(ctx, task)
 	if err != nil {
 		return err
 	}
@@ -848,7 +848,7 @@ func (e *Engine) implementer(ctx context.Context, j *job) error {
 		}
 		checkErr := e.failCheckRun(ended, task, "Cannot do", "The Implementer could not do the task. The Lead decides the next step.")
 		text := fmt.Sprintf("%s cannot_do on #%d \"%s\" by the Implementer:\n\n%s", time.Now().UTC().Format(timeFormat), task.Issue, j.title, quote(r.text))
-		return errors.Join(checkErr, e.addLeadEvent(ended, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "cannot_do", text))
+		return errors.Join(checkErr, e.addLeadEvent(ended, task.WorkstreamRepository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "cannot_do", text))
 	case checkFailed:
 		return e.handOver(ended, task, j.title, fmt.Sprintf(".mobius/check failed %d times. Mobius pushed the work, set the Mobius check to failure, and added mobius:needs-human.", e.config.MaxCheckAttempts), stopNotice{
 			reason: "Local check failed",
@@ -1362,7 +1362,15 @@ func (e *Engine) push(ctx context.Context, a *Agent, j *job, failedLog string, m
 		e.markPushed(repository, int64(j.pullRequest.GetNumber()))
 	}
 	if j.pullRequest == nil {
-		pullRequest, err := repository.CreateDraftPullRequest(ctx, j.title, j.branch, repository.DefaultBranch, e.withChatLink(repository, j.task.Workstream, fmt.Sprintf("Workstream:\n- #%d\n\nIssue:\n- #%d\n\nCloses #%d", j.task.Workstream, j.task.Issue, j.task.Issue)))
+		source, err := e.repository(j.task.WorkstreamRepository)
+		if err != nil {
+			return result{}, err
+		}
+		workstream := fmt.Sprintf("#%d", j.task.Workstream)
+		if source.FullName != repository.FullName {
+			workstream = fmt.Sprintf("%s#%d", source.FullName, j.task.Workstream)
+		}
+		pullRequest, err := repository.CreateDraftPullRequest(ctx, j.title, j.branch, repository.DefaultBranch, e.withChatLink(source, j.task.Workstream, fmt.Sprintf("Workstream:\n- %s\n\nIssue:\n- #%d\n\nCloses #%d", workstream, j.task.Issue, j.task.Issue)))
 		if hasNoCommits(err) {
 			return result{outcome: noCommits, text: err.Error()}, nil
 		}
@@ -1447,6 +1455,15 @@ func brief(ctx context.Context, repository github.Repository, workstream int64) 
 		return "", errors.New("the Workstream issue does not exist")
 	}
 	return issue.GetBody(), nil
+}
+
+// workstreamBrief gives the Brief of the Workstream of the task, which can be in another repository than the task.
+func (e *Engine) workstreamBrief(ctx context.Context, task store.Task) (string, error) {
+	source, err := e.repository(task.WorkstreamRepository)
+	if err != nil {
+		return "", err
+	}
+	return brief(ctx, source, task.Workstream)
 }
 
 // existingIssue gives the issue number, or a refusal when it does not exist.

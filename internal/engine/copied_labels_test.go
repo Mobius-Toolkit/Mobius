@@ -14,8 +14,8 @@ import (
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
 
-const taskInNeedsHuman = `INSERT INTO tasks (repository, issue, workstream, state, dispatched_at)
-	VALUES ('owner/shop', 41, 12, 'needs_human', '2026-09-30T00:00:00Z')`
+const taskInNeedsHuman = `INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at)
+	VALUES ('owner/shop', 'owner/shop', 41, 12, 'needs_human', '2026-09-30T00:00:00Z')`
 
 // startLabeled starts a server with the Workstream #12 and its sub-issue #41. The poll interval is longer than the test,
 // so only the first poll runs. #41 has mobius:needs-human when stopped is true. The SQL statement before runs before the server starts.

@@ -54,7 +54,7 @@ func (e *Engine) startTriage(ctx context.Context, repository github.Repository, 
 	if !labeled && (!e.trustedUser(issue.GetUser().GetLogin()) || issue.GetCreatedAt().Before(since)) {
 		return false, nil
 	}
-	workstream, err := e.commentWorkstream(ctx, repository, issue)
+	_, workstream, err := e.commentWorkstream(ctx, repository, issue)
 	if err != nil || workstream != 0 {
 		return false, err
 	}
@@ -184,7 +184,7 @@ func (e *Engine) triaging(ctx context.Context, repository github.Repository, iss
 	if issue == nil || issue.GetState() != "open" || !hasLabel(issue, triageLabel) {
 		return false, nil
 	}
-	workstream, err := e.commentWorkstream(ctx, repository, issue)
+	_, workstream, err := e.commentWorkstream(ctx, repository, issue)
 	return workstream == 0, err
 }
 
@@ -299,7 +299,7 @@ func (e *Engine) runTriager(ctx context.Context, repository github.Repository, n
 	if err != nil || over || empty(text) {
 		return err
 	}
-	workstream, err := e.commentWorkstream(ctx, repository, issue)
+	_, workstream, err := e.commentWorkstream(ctx, repository, issue)
 	if err != nil || workstream != 0 {
 		return err
 	}

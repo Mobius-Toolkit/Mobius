@@ -111,8 +111,8 @@ func TestTheTasksTabShowsASubIssueOfAnotherRepository(t *testing.T) {
 	fake.AddIssue(shop, 42, "Let customers change plans")
 	fake.AddSubIssue(shop, 12, 42)
 
-	server := startServer(t, fake, t.TempDir(), `INSERT INTO tasks (repository, issue, workstream, state, dispatched_at)
-		VALUES ('owner/shop', 77, 12, 'queued', '2026-09-30T00:00:00Z')`)
+	server := startServer(t, fake, t.TempDir(), `INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at)
+		VALUES ('owner/shop', 'owner/shop', 77, 12, 'queued', '2026-09-30T00:00:00Z')`)
 	server.WaitForFirstPoll(t, shop)
 
 	foreign := taskLine{Number: 77, Title: "A task in another repository", State: "working", URL: "https://github.com/other/repo/issues/77", OtherRepository: true, BlockedBy: []taskBlocker{}}
@@ -188,7 +188,7 @@ func TestTheTasksTabShowsTheBlockersAndAQueuedTask(t *testing.T) {
 	fake.AddBlockedBy(shop, 41, 88)
 
 	server := startCopied(t, fake)
-	if _, err := server.DB.Exec(`INSERT INTO tasks (repository, issue, workstream, state, dispatched_at) VALUES ('owner/shop', 40, 12, 'queued', '2026-09-30T00:00:00Z')`); err != nil {
+	if _, err := server.DB.Exec(`INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at) VALUES ('owner/shop', 'owner/shop', 40, 12, 'queued', '2026-09-30T00:00:00Z')`); err != nil {
 		t.Fatal(err)
 	}
 	fake.AddLabel(shop, 40, "mobius:working", "owner")
@@ -208,8 +208,8 @@ func TestTheNeedsHumanListHasTheOpenIssuesWithTheLabelInTheTrees(t *testing.T) {
 	fake.AddLabel(shop, 13, "mobius:workstream", "owner")
 	// The issue of a task exists, so the poll keeps the task.
 	fake.AddIssue(shop, 41, "Add plan model")
-	server := startServer(t, fake, t.TempDir(), `INSERT INTO tasks (repository, issue, workstream, state, dispatched_at, pull_request)
-		VALUES ('owner/shop', 41, 12, 'needs_human', '2026-09-30T00:00:00Z', 45)`)
+	server := startServer(t, fake, t.TempDir(), `INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at, pull_request)
+		VALUES ('owner/shop', 'owner/shop', 41, 12, 'needs_human', '2026-09-30T00:00:00Z', 45)`)
 	server.WaitForFirstPoll(t, shop)
 	fake.AddSubIssue(shop, 12, 41)
 	fake.AddLabel(shop, 41, "mobius:needs-human", "owner")

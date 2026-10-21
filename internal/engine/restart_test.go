@@ -28,8 +28,8 @@ func TestARestartStartsTheImplementerAgainAndTheHousekeeperRemovesTheDirectories
 		testkit.InstallFakeHarness(t, cfg.DataDir, "devin", options+commits)
 		// The store of a server that stopped during a turn of the Implementer.
 		seed(t, cfg.DataDir,
-			`INSERT INTO tasks (id, repository, issue, workstream, state, dispatched_at, queued_at, worker, worker_input)
-			 VALUES (1, 'owner/shop', 41, 12, 'working', '2026-10-04T10:00:00Z', '2026-10-04T10:00:00Z', 'implementer', '`+prompt+`')`,
+			`INSERT INTO tasks (id, repository, workstream_repository, issue, workstream, state, dispatched_at, queued_at, worker, worker_input)
+			 VALUES (1, 'owner/shop', 'owner/shop', 41, 12, 'working', '2026-10-04T10:00:00Z', '2026-10-04T10:00:00Z', 'implementer', '`+prompt+`')`,
 			`INSERT INTO sessions (id, role, harness, model, organization, repository, workstream, issue, parent, started_at)
 			 VALUES (1, 'lead_event', 'claude-code', 'sonnet', 'owner', 'owner/shop', 12, NULL, NULL, '2026-10-04T10:00:00Z'),
 			        (2, 'implementer', 'devin', 'swe-1.5', 'owner', 'owner/shop', 12, 41, 1, '2026-10-04T10:00:00Z')`,
@@ -114,8 +114,8 @@ func TestARestartStartsTheJudgeAgainBelowTheParentOfTheEndedJudge(t *testing.T) 
 	testkit.InstallFakeAgent(t, dataDir, options)
 	// The store of a server that stopped during a turn of the Judge on the pull request #42.
 	seed(t, dataDir,
-		`INSERT INTO tasks (id, repository, issue, workstream, state, dispatched_at, queued_at, branch, pull_request, worker, worker_input)
-		 VALUES (1, 'owner/shop', 41, 12, 'working', '2026-10-04T10:00:00Z', '2026-10-04T10:00:00Z', 'mobius/41', 42, 'judge', 'reviewed')`,
+		`INSERT INTO tasks (id, repository, workstream_repository, issue, workstream, state, dispatched_at, queued_at, branch, pull_request, worker, worker_input)
+		 VALUES (1, 'owner/shop', 'owner/shop', 41, 12, 'working', '2026-10-04T10:00:00Z', '2026-10-04T10:00:00Z', 'mobius/41', 42, 'judge', 'reviewed')`,
 		`INSERT INTO sessions (id, role, harness, model, organization, repository, workstream, issue, parent, started_at)
 		 VALUES (1, 'lead_event', 'claude-code', 'sonnet', 'owner', 'owner/shop', 12, NULL, NULL, '2026-10-04T10:00:00Z'),
 		        (2, 'implementer', 'devin', 'swe-1.5', 'owner', 'owner/shop', 12, 41, 1, '2026-10-04T10:00:00Z'),

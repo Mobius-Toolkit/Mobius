@@ -27,8 +27,8 @@ func seedEnded(t *testing.T, fake *testkit.FakeGitHub, labels []string, recoveri
 		fake.AddLabel(shop, 41, label, testkit.AppSlug+"[bot]")
 	}
 	testkit.InstallFakeAgent(t, dataDir, recoveryLead)
-	seed(t, dataDir, append([]string{`INSERT INTO tasks (id, repository, issue, workstream, state, dispatched_at, state_at, branch, pull_request, recoveries, fix_rounds, check_head)
-		 VALUES (1, 'owner/shop', 41, 12, 'ended', '2026-10-04T10:00:00Z', '2026-10-04T11:00:00Z', 'mobius/41', 42, ` + strconv.Itoa(recoveries) + `, 2, 'abc')`,
+	seed(t, dataDir, append([]string{`INSERT INTO tasks (id, repository, workstream_repository, issue, workstream, state, dispatched_at, state_at, branch, pull_request, recoveries, fix_rounds, check_head)
+		 VALUES (1, 'owner/shop', 'owner/shop', 41, 12, 'ended', '2026-10-04T10:00:00Z', '2026-10-04T11:00:00Z', 'mobius/41', 42, ` + strconv.Itoa(recoveries) + `, 2, 'abc')`,
 		`INSERT INTO task_states (task, state, issue, workstream, organization, repository, started_at, ended_at)
 		 VALUES (1, 'working', 41, 12, 'owner', 'owner/shop', '2026-10-04T10:00:00Z', '2026-10-04T10:30:00Z'),
 		        (1, 'checks', 41, 12, 'owner', 'owner/shop', '2026-10-04T10:30:00Z', '2026-10-04T11:00:00Z')`}, more...)...)
