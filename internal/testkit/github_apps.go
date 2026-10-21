@@ -83,6 +83,14 @@ func (g *FakeGitHub) AddRepository(fullName string) {
 	g.repositories = append(g.repositories, fullName)
 }
 
+// AddEmptyRepository adds the repository fullName as AddRepository does, but its git repository has no commit.
+func (g *FakeGitHub) AddEmptyRepository(fullName string) {
+	g.addEmptyRemote(fullName)
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.repositories = append(g.repositories, fullName)
+}
+
 // RemoveRepository takes the repository fullName out of its installation. The installation of an account ends
 // with its last repository.
 func (g *FakeGitHub) RemoveRepository(fullName string) {

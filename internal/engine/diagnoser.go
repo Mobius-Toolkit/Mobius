@@ -170,7 +170,7 @@ func (e *Engine) diagnoseTurn(ctx context.Context, a *Agent, row store.CiDiagnos
 		return err
 	}
 	e.gitMu.Lock()
-	err = runner.Fetch(ctx, e.config.DataDir, row.Repository, repository.CloneURL, token)
+	err = e.fetch(ctx, repository, token)
 	if err == nil {
 		err = runner.AddDetachedWorktree(ctx, e.config.DataDir, row.Repository, a.spec.Dir, row.Head)
 	}

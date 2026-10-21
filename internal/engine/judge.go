@@ -427,7 +427,7 @@ func (e *Engine) judgeTurn(ctx context.Context, a *Agent, j judgeJob) error {
 		return err
 	}
 	e.gitMu.Lock()
-	err = runner.Fetch(ctx, e.config.DataDir, repository.FullName, repository.CloneURL, token)
+	err = e.fetch(ctx, repository, token)
 	if err == nil {
 		err = runner.AddDetachedWorktree(ctx, e.config.DataDir, repository.FullName, a.spec.Dir, j.pullRequest.GetHead().GetSHA())
 	}

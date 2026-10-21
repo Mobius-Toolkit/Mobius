@@ -53,5 +53,25 @@ func (e *Engine) fetchRepository(ctx context.Context, repository github.Reposito
 	}
 	e.gitMu.Lock()
 	defer e.gitMu.Unlock()
-	return runner.Fetch(ctx, e.config.DataDir, repository.FullName, repository.CloneURL, token)
+	return e.fetch(ctx, repository, token)
+}
+
+// fetch fetches the bare clone of repository. When the repository has no branch at all, it pushes the first commit to
+// the default branch as the bot of the App. The caller holds e.gitMu.
+func (e *Engine) fetch(ctx context.Context, repository github.Repository, token string) error {
+	dataDir, name := e.config.DataDir, repository.FullName
+	if err := runner.Fetch(ctx, dataDir, name, repository.CloneURL, token); err != nil {
+		return err
+	}
+	found, err := runner.HasRemoteBranches(ctx, dataDir, name)
+	if err != nil || found {
+		return err
+	}
+	login := appLogin(repository.AppSlug)
+	id, err := repository.UserID(ctx, login)
+	if err != nil {
+		return err
+	}
+	email := fmt.Sprintf("%d+%s@users.noreply.github.com", id, login)
+	return runner.StartBranch(ctx, dataDir, name, repository.CloneURL, token, repository.DefaultBranch, login, email)
 }

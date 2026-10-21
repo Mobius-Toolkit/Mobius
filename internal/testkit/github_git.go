@@ -22,13 +22,19 @@ func (g *FakeGitHub) SetCloneURL(fullName, url string) {
 	g.cloneURLs[fullName] = url
 }
 
-// addRemote makes the bare git repository of fullName with one commit on main.
-func (g *FakeGitHub) addRemote(fullName string) {
+// addEmptyRemote makes the bare git repository of fullName with no commit.
+func (g *FakeGitHub) addEmptyRemote(fullName string) {
 	remote := g.Remote(fullName)
 	if err := os.MkdirAll(remote, 0o750); err != nil {
 		g.t.Fatal(err)
 	}
 	g.git(remote, "init", "--bare", "--initial-branch=main")
+}
+
+// addRemote makes the bare git repository of fullName with one commit on main.
+func (g *FakeGitHub) addRemote(fullName string) {
+	g.addEmptyRemote(fullName)
+	remote := g.Remote(fullName)
 	work := g.t.TempDir()
 	g.git(work, "init", "--initial-branch=main")
 	g.git(work, "commit", "--allow-empty", "-m", "Start")

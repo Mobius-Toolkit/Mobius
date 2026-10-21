@@ -279,7 +279,7 @@ func (e *Engine) addCopy(ctx context.Context, repository github.Repository, dir 
 	}
 	e.gitMu.Lock()
 	defer e.gitMu.Unlock()
-	if err := runner.Fetch(ctx, e.config.DataDir, repository.FullName, repository.CloneURL, token); err != nil {
+	if err := e.fetch(ctx, repository, token); err != nil {
 		return err
 	}
 	return runner.AddDetachedWorktree(ctx, e.config.DataDir, repository.FullName, dir, "origin/"+repository.DefaultBranch)
