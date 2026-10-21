@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"path"
 	"regexp"
@@ -90,21 +91,17 @@ func (e *Engine) proposeSkill(ctx context.Context, c caller, _ github.Repository
 	if err := checkSkillProposal(input); err != nil {
 		return "", err
 	}
-	repository, err := e.workstreamRepository(c.organization)
-	if err != nil {
-		return "", err
-	}
-	workstream, err := labeledWorkstream(ctx, repository, skillsLabel)
-	if err != nil {
-		return "", err
-	}
-	if workstream == 0 {
+	workstream, err := e.queries.GetSkillsWorkstream(ctx, c.organization)
+	if errors.Is(err, sql.ErrNoRows) {
 		return "", refuse("%s has no open Workstream with the label %s.", c.organization, skillsLabel)
 	}
-	if err := e.addLeadEvent(ctx, repository.FullName, workstream, "", sql.NullInt64{}, skillProposalKind, skillProposalText(c, input)); err != nil {
+	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("Sent the proposal to the Lead of the Workstream \"Skills\" (%s#%d). A change reaches the agents only after the Owner approves its pull request.", repository.FullName, workstream), nil
+	if err := e.addLeadEvent(ctx, workstream.Repository, workstream.Number, "", sql.NullInt64{}, skillProposalKind, skillProposalText(c, input)); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Sent the proposal to the Lead of the Workstream \"Skills\" (%s#%d). A change reaches the agents only after the Owner approves its pull request.", workstream.Repository, workstream.Number), nil
 }
 
 func skillProposalText(c caller, input proposeSkillInput) string {

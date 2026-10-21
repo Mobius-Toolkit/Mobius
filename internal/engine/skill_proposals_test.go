@@ -149,3 +149,30 @@ func TestAProposalOfASkillIsRefusedWhenTheOrganizationHasNoWorkstreamSkills(t *t
 		t.Errorf("events = %+v", events)
 	}
 }
+
+func TestAProposalOfASkillGoesToTheWorkstreamSkillsWithTheLowestNumberInTheOrganization(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddRepository("owner/cafe")
+	addSkillsWorkstream(fake, 30)
+	fake.AddIssue("owner/cafe", 20, "Skills")
+	fake.AddLabel("owner/cafe", 20, "mobius:workstream", "owner")
+	fake.AddLabel("owner/cafe", 20, "mobius:skills", "owner")
+	server, _ := connect(t, fake, callProposeSkill("Propose.", "failed", "Reason.", [2]string{"SKILL.md", "Text."})+seenScript)
+	server.WaitForFirstPoll(t, "owner/cafe")
+
+	session := run(t, server, roleSpec(t, engine.ImplementerRole), "Propose.")
+
+	want := `Sent the proposal to the Lead of the Workstream "Skills" (owner/cafe#20). A change reaches the agents only after the Owner approves its pull request.`
+	if got := reply(t, server, session); got != want {
+		t.Errorf("reply = %q", got)
+	}
+	var count int
+	err := server.DB.QueryRow("SELECT count(*) FROM lead_events WHERE repository = 'owner/cafe' AND workstream = 20 AND kind = 'skill_proposal'").Scan(&count)
+	if err != nil || count != 1 {
+		t.Errorf("events of owner/cafe#20 = %d, error %v", count, err)
+	}
+	if events := skillProposals(leadEvents(t, server)); len(events) != 0 {
+		t.Errorf("events of owner/shop = %+v", events)
+	}
+}

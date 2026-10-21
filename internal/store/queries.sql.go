@@ -345,8 +345,9 @@ func (q *Queries) AddCopiedIssueLabelIfMissing(ctx context.Context, arg AddCopie
 }
 
 const addCopiedWorkstream = `-- name: AddCopiedWorkstream :exec
-INSERT INTO copied_workstreams (repository, number, title, body, autopilot, evergreen)
-VALUES (?1, ?2, ?3, ?4, CAST(?5 AS BOOLEAN), CAST(?6 AS BOOLEAN))
+INSERT INTO copied_workstreams (repository, number, title, body, autopilot, evergreen, skills)
+VALUES (?1, ?2, ?3, ?4, CAST(?5 AS BOOLEAN), CAST(?6 AS BOOLEAN),
+        CAST(?7 AS BOOLEAN))
 ON CONFLICT (repository, number) DO NOTHING
 `
 
@@ -357,6 +358,7 @@ type AddCopiedWorkstreamParams struct {
 	Body       string
 	Autopilot  bool
 	Evergreen  bool
+	Skills     bool
 }
 
 // The Lead tool create_workstream and the poll can both add a new Workstream.
@@ -368,6 +370,7 @@ func (q *Queries) AddCopiedWorkstream(ctx context.Context, arg AddCopiedWorkstre
 		arg.Body,
 		arg.Autopilot,
 		arg.Evergreen,
+		arg.Skills,
 	)
 	return err
 }
@@ -2579,6 +2582,26 @@ func (q *Queries) GetSession(ctx context.Context, id int64) (Session, error) {
 		&i.Effort,
 		&i.WorkstreamRepository,
 	)
+	return i, err
+}
+
+const getSkillsWorkstream = `-- name: GetSkillsWorkstream :one
+SELECT repository, number FROM copied_workstreams
+WHERE skills AND substr(repository, 1, length(?1) + 1) = ?1 || '/'
+ORDER BY number, repository
+LIMIT 1
+`
+
+type GetSkillsWorkstreamRow struct {
+	Repository string
+	Number     int64
+}
+
+// The Workstream with the label mobius:skills in a repository of the organization, with the lowest number.
+func (q *Queries) GetSkillsWorkstream(ctx context.Context, organization interface{}) (GetSkillsWorkstreamRow, error) {
+	row := q.db.QueryRowContext(ctx, getSkillsWorkstream, organization)
+	var i GetSkillsWorkstreamRow
+	err := row.Scan(&i.Repository, &i.Number)
 	return i, err
 }
 
@@ -7219,10 +7242,10 @@ func (q *Queries) UpdateCopiedIssue(ctx context.Context, arg UpdateCopiedIssuePa
 
 const updateCopiedWorkstream = `-- name: UpdateCopiedWorkstream :execrows
 UPDATE copied_workstreams SET title = ?1, body = ?2, autopilot = CAST(?3 AS BOOLEAN),
-    evergreen = CAST(?4 AS BOOLEAN)
-WHERE repository = ?5 AND number = ?6
+    evergreen = CAST(?4 AS BOOLEAN), skills = CAST(?5 AS BOOLEAN)
+WHERE repository = ?6 AND number = ?7
   AND (title != ?1 OR body != ?2 OR autopilot != CAST(?3 AS BOOLEAN)
-       OR evergreen != CAST(?4 AS BOOLEAN))
+       OR evergreen != CAST(?4 AS BOOLEAN) OR skills != CAST(?5 AS BOOLEAN))
 `
 
 type UpdateCopiedWorkstreamParams struct {
@@ -7230,6 +7253,7 @@ type UpdateCopiedWorkstreamParams struct {
 	Body       string
 	Autopilot  bool
 	Evergreen  bool
+	Skills     bool
 	Repository string
 	Number     int64
 }
@@ -7240,6 +7264,7 @@ func (q *Queries) UpdateCopiedWorkstream(ctx context.Context, arg UpdateCopiedWo
 		arg.Body,
 		arg.Autopilot,
 		arg.Evergreen,
+		arg.Skills,
 		arg.Repository,
 		arg.Number,
 	)

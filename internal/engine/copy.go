@@ -479,6 +479,7 @@ func (e *Engine) updateCopiedWorkstream(ctx context.Context, repository string, 
 			Body:       issue.GetBody(),
 			Autopilot:  autopilot,
 			Evergreen:  hasLabel(issue, evergreenLabel),
+			Skills:     hasLabel(issue, skillsLabel),
 			Repository: repository,
 			Number:     int64(issue.GetNumber()),
 		})
@@ -783,6 +784,7 @@ func addWorkstream(ctx context.Context, q *store.Queries, repository string, wor
 		Body:       issue.GetBody(),
 		Autopilot:  workstream.autopilot,
 		Evergreen:  hasLabel(issue, evergreenLabel),
+		Skills:     hasLabel(issue, skillsLabel),
 	})
 	if err != nil {
 		return err
