@@ -784,7 +784,7 @@ type newIssue struct {
 var issueReference = regexp.MustCompile(`^([^/\s#]+/[^/\s#]+)#([1-9][0-9]*)$`)
 
 // issueAtOf gives the issue that reference (owner/name#N) names. It refuses a repository that the Mobius App cannot read
-// and a repository of the organization of c.
+// and a repository of another organization.
 func (e *Engine) issueAtOf(c caller, reference string) (issueAt, error) {
 	match := issueReference.FindStringSubmatch(reference)
 	if match == nil {
@@ -1126,14 +1126,14 @@ func (e *Engine) moveTask(ctx context.Context, c caller, workstream github.Repos
 		return "", err
 	}
 	if !in {
-		return "", refuse("#%d is not in this Workstream.", input.N)
+		return "", refuse("%s#%d is not in this Workstream.", repository.FullName, input.N)
 	}
 	if err := openWorkstream(ctx, workstream, input.Workstream); err != nil {
 		return "", err
 	}
 	_, err = e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: repository.FullName, Issue: input.N})
 	if err == nil {
-		return "", refuse("#%d has a live task. Stop the task first.", input.N)
+		return "", refuse("%s#%d has a live task. Stop the task first.", repository.FullName, input.N)
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return "", err
@@ -1144,7 +1144,7 @@ func (e *Engine) moveTask(ctx context.Context, c caller, workstream github.Repos
 	if err := e.recopyTrees(ctx, workstream, c.workstream, input.Workstream); err != nil {
 		log.Printf("copy the trees of %s#%d and #%d: %v", workstream.FullName, c.workstream, input.Workstream, err)
 	}
-	return fmt.Sprintf("Moved #%d to the Workstream #%d.", input.N, input.Workstream), nil
+	return fmt.Sprintf("Moved %s#%d to the Workstream #%d.", repository.FullName, input.N, input.Workstream), nil
 }
 
 func (e *Engine) moveIssue(ctx context.Context, c caller, workstreams github.Repository, input moveIssueInput) (string, error) {

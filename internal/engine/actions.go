@@ -149,7 +149,7 @@ func (e *Engine) moveTaskTool(c caller) mcp.Tool {
 			"workstream": map[string]any{"type": "integer", "minimum": 1, "description": "The number of the target Workstream issue in the repository of this Workstream."},
 		},
 		func(input moveInput) string {
-			return fmt.Sprintf("Move #%d to the Workstream #%d", input.N, input.Workstream)
+			return fmt.Sprintf("Move %s#%d to the Workstream #%d", input.Repository, input.N, input.Workstream)
 		},
 		e.checkMoveTask,
 		e.moveTask)

@@ -181,7 +181,7 @@ func TestTheLeadMovesATaskInAnotherRepositoryAfterTheOwnerApproves(t *testing.T)
 	run(t, server, leadSpec(t), "Move it")
 	action := approveNext(t, server, 1)
 
-	if action.Result != "Moved #7 to the Workstream #20." {
+	if action.Result != "Moved owner/garden#7 to the Workstream #20." {
 		t.Errorf("action = %+v", action)
 	}
 	if got := fake.SubIssueNumbers(shop, 20); !reflect.DeepEqual(got, []int64{7}) {

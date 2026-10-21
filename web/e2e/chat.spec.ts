@@ -1417,7 +1417,7 @@ test("the note closes the Workstream when all tasks are closed", async ({ page }
     await page
       .getByRole("main")
       .getByRole("listitem")
-      .filter({ hasText: `Move #${task} to the Workstream #20` })
+      .filter({ hasText: `Move owner/shop#${task} to the Workstream #20` })
       .getByRole("button", { name: "Answer" })
       .click();
     await page.getByRole("dialog").getByRole("button", { name: "Approve" }).click();

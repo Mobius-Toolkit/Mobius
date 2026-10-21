@@ -765,7 +765,7 @@ func TestMoveTaskMovesAnIssueOfTheWorkstreamWithNoLiveTask(t *testing.T) {
 	}
 	session := run(t, server, leadSpec(t), "4. ")
 
-	want := []string{"Moved #41 to the Workstream #20.", "#42 has a live task. Stop the task first.", "#21 is not an open Workstream."}
+	want := []string{"Moved owner/shop#41 to the Workstream #20.", "owner/shop#42 has a live task. Stop the task first.", "#21 is not an open Workstream."}
 	if !slices.Equal(results, want) {
 		t.Errorf("results = %q", results)
 	}

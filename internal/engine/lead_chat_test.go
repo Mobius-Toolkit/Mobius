@@ -1403,7 +1403,7 @@ call = { tool = "move_task", arguments = { repository = "owner/shop", n = 21, wo
 	sendChat(t, server, leadChat, "case-self")
 	waitForChat(t, server, leadChat, "Lead", "error: #12 is this Workstream.")
 	for i, c := range []struct{ message, result string }{
-		{"case-other", "#21 is not in this Workstream."},
+		{"case-other", "owner/shop#21 is not in this Workstream."},
 		{"case-pull", "#15 is not an issue of owner/shop."},
 		{"case-closed", "#22 is not an open Workstream."},
 		{"case-plain", "#14 is not an open Workstream."},
@@ -1417,7 +1417,7 @@ call = { tool = "move_task", arguments = { repository = "owner/shop", n = 21, wo
 		t.Fatal(err)
 	}
 	sendChat(t, server, leadChat, "case-live")
-	if got := approveNext(t, server, 5); got.State != "pending" || got.Error != "#13 has a live task. Stop the task first." {
+	if got := approveNext(t, server, 5); got.State != "pending" || got.Error != "owner/shop#13 has a live task. Stop the task first." {
 		t.Errorf("case-live: action = %+v", got)
 	}
 	if got := fake.SubIssueNumbers(shop, 12); !reflect.DeepEqual(got, []int64{13, 14, 15}) {
