@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"database/sql"
 	"errors"
 	"testing"
 
@@ -109,16 +110,8 @@ func TestAStopOfATaskAddsOneStopEventAlsoWhenATaskOfAnotherRepositoryWithTheSame
 	testkit.WaitFor(t, func() bool { return countLeadEvents(t, server, "stop") == 2 })
 	waitForPolls(t, fake)
 	counts := map[string]int{}
-	rows, err := server.DB.Query("SELECT issue_repository FROM lead_events WHERE kind = 'stop' AND issue = 7")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var repository string
-		if err := rows.Scan(&repository); err != nil {
-			t.Fatal(err)
-		}
+	for _, repository := range query(t, server, func(rows *sql.Rows, repository *string) error { return rows.Scan(repository) },
+		"SELECT issue_repository FROM lead_events WHERE kind = 'stop' AND issue = 7") {
 		counts[repository]++
 	}
 	if counts[shop] != 1 || counts[garden] != 1 || len(counts) != 2 {
