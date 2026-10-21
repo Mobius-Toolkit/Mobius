@@ -83,7 +83,7 @@ func (e *Engine) readIssue(ctx context.Context, repository github.Repository, nu
 
 // searchIssues gives the issues of the repository that match the query, open and closed. An issue of an untrusted
 // author is absent from the text. A closed issue has its close reason and the last searchedComments comments of trusted
-// authors.
+// authors. An issue of another repository starts with owner/name before its number.
 func (e *Engine) searchIssues(ctx context.Context, _ caller, repository github.Repository, input queryInput) (string, error) {
 	if empty(input.Query) {
 		return "", refuse("query must not be empty.")
@@ -92,22 +92,27 @@ func (e *Engine) searchIssues(ctx context.Context, _ caller, repository github.R
 	if err != nil {
 		return "", err
 	}
-	trusted := func(login string) bool { return e.TrustedAuthor(repository.AppSlug, login) }
 	var text strings.Builder
 	for _, issue := range found {
-		if issue.IsPullRequest() || inOtherRepository(issue, repository.FullName) || !trusted(issue.GetUser().GetLogin()) {
+		source, ok := e.issueRepository(issue, repository)
+		if !ok || issue.IsPullRequest() || !e.TrustedAuthor(source.AppSlug, issue.GetUser().GetLogin()) {
 			continue
+		}
+		trusted := func(login string) bool { return e.TrustedAuthor(source.AppSlug, login) }
+		name := ""
+		if source.FullName != repository.FullName {
+			name = source.FullName
 		}
 		state := issue.GetState()
 		if state == "closed" {
 			state += ", " + cmp.Or(issue.GetStateReason(), "no reason")
 		}
-		fmt.Fprintf(&text, "#%d %s (%s)\n\n%s\n", issue.GetNumber(), issue.GetTitle(), state, issue.GetBody())
+		fmt.Fprintf(&text, "%s#%d %s (%s)\n\n%s\n", name, issue.GetNumber(), issue.GetTitle(), state, issue.GetBody())
 		if issue.GetState() != "closed" {
 			text.WriteString("\n")
 			continue
 		}
-		comments, err := repository.Comments(ctx, int64(issue.GetNumber()))
+		comments, err := source.Comments(ctx, int64(issue.GetNumber()))
 		if err != nil {
 			return "", err
 		}

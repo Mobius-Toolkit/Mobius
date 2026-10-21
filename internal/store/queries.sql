@@ -388,10 +388,10 @@ RETURNING *;
 -- name: GetNewestStopText :one
 SELECT text FROM (
     SELECT payload AS text, time FROM lead_events
-    WHERE lead_events.repository = ?1 AND lead_events.issue = ?2 AND lead_events.kind IN ('stop', 'stale_pull_request')
+    WHERE lead_events.repository = sqlc.arg(workstream_repository) AND lead_events.issue = sqlc.arg(issue) AND lead_events.kind IN ('stop', 'stale_pull_request')
     UNION ALL
     SELECT text, time FROM inbox_items
-    WHERE inbox_items.repository = ?1 AND inbox_items.issue = ?2 AND inbox_items.kind IN ('stopped', 'lost')
+    WHERE inbox_items.repository = sqlc.arg(repository) AND inbox_items.issue = sqlc.arg(issue) AND inbox_items.kind IN ('stopped', 'lost')
 ) ORDER BY time DESC LIMIT 1;
 
 -- name: ListWaitingLeadWorkstreams :many

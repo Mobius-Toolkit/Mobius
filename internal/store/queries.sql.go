@@ -2316,18 +2316,19 @@ SELECT text FROM (
     WHERE lead_events.repository = ?1 AND lead_events.issue = ?2 AND lead_events.kind IN ('stop', 'stale_pull_request')
     UNION ALL
     SELECT text, time FROM inbox_items
-    WHERE inbox_items.repository = ?1 AND inbox_items.issue = ?2 AND inbox_items.kind IN ('stopped', 'lost')
+    WHERE inbox_items.repository = ?3 AND inbox_items.issue = ?2 AND inbox_items.kind IN ('stopped', 'lost')
 ) ORDER BY time DESC LIMIT 1
 `
 
 type GetNewestStopTextParams struct {
-	Repository string
-	Issue      sql.NullInt64
+	WorkstreamRepository string
+	Issue                sql.NullInt64
+	Repository           string
 }
 
 // A stop writes a stop event, a stale_pull_request event, or an Inbox item of the kind stopped or lost.
 func (q *Queries) GetNewestStopText(ctx context.Context, arg GetNewestStopTextParams) (string, error) {
-	row := q.db.QueryRowContext(ctx, getNewestStopText, arg.Repository, arg.Issue)
+	row := q.db.QueryRowContext(ctx, getNewestStopText, arg.WorkstreamRepository, arg.Issue, arg.Repository)
 	var text string
 	err := row.Scan(&text)
 	return text, err

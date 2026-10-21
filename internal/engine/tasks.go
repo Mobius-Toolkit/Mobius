@@ -135,7 +135,7 @@ func (e *Engine) Tasks(ctx context.Context, repositoryName string, workstream in
 						return nil, err
 					}
 					if line.State == "working" {
-						heldEvent, err := e.queries.HasHeldLeadEvent(ctx, store.HasHeldLeadEventParams{Repository: issueRepositoryName, Issue: sql.NullInt64{Int64: row.Number, Valid: true}})
+						heldEvent, err := e.queries.HasHeldLeadEvent(ctx, store.HasHeldLeadEventParams{Repository: repositoryName, Issue: sql.NullInt64{Int64: row.Number, Valid: true}})
 						if err != nil {
 							return nil, err
 						}
@@ -210,12 +210,16 @@ func (e *Engine) NeedsHuman(ctx context.Context) ([]NeedsHuman, error) {
 	}
 	issues := []NeedsHuman{}
 	for _, row := range rows {
-		repository, ok := e.github.Repository(row.Repository)
-		if !ok || row.State != "open" || otherRepository(row.RepositoryUrl, row.Repository) || !e.TrustedAuthor(repository.AppSlug, row.Author) {
+		home, ok := e.github.Repository(row.Repository)
+		if !ok {
+			continue
+		}
+		repository, ok := e.urlRepository(row.RepositoryUrl, home)
+		if !ok || row.State != "open" || !e.TrustedAuthor(repository.AppSlug, row.Author) {
 			continue
 		}
 		issue := NeedsHuman{Repository: row.Repository, Workstream: row.Workstream, Number: row.Number, Title: row.Title, URL: row.HtmlUrl, Stopped: row.HasNeedsHuman, Question: row.HasQuestion}
-		task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: row.Repository, Issue: row.Number})
+		task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: repository.FullName, Issue: row.Number})
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return nil, err
 		}
@@ -225,7 +229,7 @@ func (e *Engine) NeedsHuman(ctx context.Context) ([]NeedsHuman, error) {
 			issue.PullRequestURL = strings.TrimSuffix(row.HtmlUrl, fmt.Sprintf("/issues/%d", row.Number)) + fmt.Sprintf("/pull/%d", task.PullRequest.Int64)
 		}
 		if issue.Stopped {
-			reason, err := e.queries.GetNewestStopText(ctx, store.GetNewestStopTextParams{Repository: row.Repository, Issue: sql.NullInt64{Int64: row.Number, Valid: true}})
+			reason, err := e.queries.GetNewestStopText(ctx, store.GetNewestStopTextParams{WorkstreamRepository: row.Repository, Repository: repository.FullName, Issue: sql.NullInt64{Int64: row.Number, Valid: true}})
 			if err != nil && !errors.Is(err, sql.ErrNoRows) {
 				return nil, err
 			}
