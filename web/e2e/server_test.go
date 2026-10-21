@@ -95,7 +95,7 @@ hang = true
 
 [[prompts]]
 when = "Move #8 to the Workstream."
-call = { tool = "move_issue", arguments = { n = 8, workstream = 12 } }
+call = { tool = "move_issue", arguments = { repository = "owner/shop", n = 8, workstream = 12 } }
 
 [[prompts]]
 when = "Create the phone Workstream."
@@ -103,7 +103,7 @@ call = { tool = "create_workstream", arguments = { title = "Phone plans", brief 
 
 [[prompts]]
 when = "Move #7 to the Workstream."
-call = { tool = "move_issue", arguments = { n = 7, workstream = 12 } }
+call = { tool = "move_issue", arguments = { repository = "owner/shop", n = 7, workstream = 12 } }
 
 [[prompts]]
 when = "Create the desktop Workstream."
