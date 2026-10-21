@@ -618,7 +618,8 @@ func (e *Engine) labelChangesNow() map[issueRef]int {
 }
 
 // writeRead runs write in a transaction, to store the trees that GitHub gave. An issue that changeCopiedLabels changed
-// after labelChangesNow gave before keeps its copied labels, because the read can have the old labels.
+// after labelChangesNow gave before keeps its copied labels, because the read can have the old labels. It also keeps a
+// closed state of the copy, because the issue can be open on GitHub from before the close that Mobius made.
 func (e *Engine) writeRead(ctx context.Context, repository string, before map[issueRef]int, trees [][]copiedIssue, write func(*store.Queries) error) error {
 	e.labelChangeMu.Lock()
 	defer e.labelChangeMu.Unlock()
@@ -644,6 +645,16 @@ func (e *Engine) writeRead(ctx context.Context, repository string, before map[is
 				issue.Labels = nil
 				for _, name := range names {
 					issue.Labels = append(issue.Labels, &gh.Label{Name: name})
+				}
+				if issue.GetState() != "open" {
+					continue
+				}
+				stored, err := q.GetCopiedIssueState(ctx, store.GetCopiedIssueStateParams{Number: int64(issue.GetNumber()), RepositoryUrl: issue.GetRepositoryURL()})
+				if err != nil {
+					return err
+				}
+				if stored == "closed" {
+					issue.State = &stored
 				}
 			}
 		}
