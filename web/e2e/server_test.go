@@ -35,7 +35,7 @@ func TestMain(m *testing.M) {
 }
 
 // script is the fake agent of each Harness. It has the parts scriptHead, scriptBody and scriptTail, and the rules of
-// ownerCalls between them. The options have the models and the efforts of the Role bindings of
+// ownerAnswers and ownerCalls between them. The options have the models and the efforts of the Role bindings of
 // testserver.Config. The first rule whose text is in the prompt answers the prompt, so a rule of a chat message comes
 // before the rule of each earlier event or message that the first prompt of a new session also holds. The Implementer
 // of #41 works until the server stops. The Lead turn of each move_task does not end, so its session runs until the
@@ -52,18 +52,6 @@ when = "# Approval message"
 [[prompts]]
 when = "Message of the Coordinator, approved by the Owner"
 reply = ["The Lead has the message."]
-
-[[prompts]]
-when = "# Owner message\n\nWhich store?"
-reply = ["The answer is noted."]
-
-[[prompts]]
-when = "# Owner message\n\nKeep the old data."
-reply = ["The answer is noted."]
-
-[[prompts]]
-when = "# Owner message\n\nYes, draft it now."
-reply = ["The answer is noted."]
 
 `
 
@@ -156,6 +144,17 @@ var ownerCalls = []struct{ message, tool, arguments string }{
 	{"Ask whether to draft the Workstream.", "ask", `{ text = "Should I draft the Workstream now?" }`},
 }
 
+// ownerAnswers are the answers of the Owner to the questions of the fake Coordinator.
+var ownerAnswers = []string{"Which store?", "Keep the old data.", "Yes, draft it now."}
+
+func ownerAnswerRules(heading string) string {
+	var rules strings.Builder
+	for _, answer := range ownerAnswers {
+		fmt.Fprintf(&rules, "[[prompts]]\nwhen = %q\nreply = [\"The answer is noted.\"]\n\n", heading+answer)
+	}
+	return rules.String()
+}
+
 func ownerCallRules(heading string) string {
 	var rules strings.Builder
 	for _, call := range ownerCalls {
@@ -164,7 +163,8 @@ func ownerCallRules(heading string) string {
 	return rules.String()
 }
 
-var script = scriptHead + ownerCallRules("# Owner message\n\n") + scriptBody + ownerCallRules("") + scriptTail
+var script = scriptHead + ownerAnswerRules("# Owner message\n\n") + ownerCallRules("# Owner message\n\n") + scriptBody +
+	ownerCallRules("") + ownerAnswerRules("") + scriptTail
 
 // question is the first Owner message of the Lead chat of owner/shop#12. The wide code block and the wide table
 // scroll inside the message.
