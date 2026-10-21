@@ -269,7 +269,7 @@ func TestReadIssueGivesOnlyTheTextOfTrustedAuthors(t *testing.T) {
 	_, text := leadReply(t, server)
 
 	parts := []string{
-		"#45 Add plan model (pull request, open)\n\nCloses #41\n",
+		"owner/shop#45 Add plan model (pull request, open)\n\nCloses #41\n",
 		"# Comments\n\n@owner, ",
 		" UTC:\nOwner comment\n",
 		"# Reviews\n\n@owner, ",

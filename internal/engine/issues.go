@@ -54,7 +54,7 @@ func (e *Engine) readIssue(ctx context.Context, repository github.Repository, nu
 		kind = "pull request"
 	}
 	var text strings.Builder
-	fmt.Fprintf(&text, "#%d %s (%s, %s)\n\n%s\n\n# Comments\n", number, issue.GetTitle(), kind, issue.GetState(), issue.GetBody())
+	fmt.Fprintf(&text, "%s#%d %s (%s, %s)\n\n%s\n\n# Comments\n", repository.FullName, number, issue.GetTitle(), kind, issue.GetState(), issue.GetBody())
 	comments, err := conversationComments(ctx, repository, number, trusted)
 	if err != nil {
 		return "", err
