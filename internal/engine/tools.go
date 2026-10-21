@@ -499,9 +499,15 @@ func (e *Engine) workstreamRepository(organization string) (github.Repository, e
 		}
 	}
 	if len(found) != 1 {
-		return github.Repository{}, refuse("The Coordinator chat needs the issue repository of %s. Set organizations.%s.issue_repository in config.toml.", organization, organization)
+		return github.Repository{}, refuse("Mobius needs the issue repository of %s. Set organizations.%s.issue_repository in config.toml.", organization, organization)
 	}
 	return found[0], nil
+}
+
+// triagerWorkstreamRepository gives the repository of the Workstreams of the organization of the Triager c. The issue of
+// c stays in c.repository.
+func (e *Engine) triagerWorkstreamRepository(c caller) (github.Repository, error) {
+	return e.workstreamRepository(c.organization)
 }
 
 // callerRepository gives the repository of c. The Coordinator chat has no repository, so it uses the issue repository
@@ -926,14 +932,18 @@ func (e *Engine) createdIssue(ctx context.Context, repository github.Repository,
 // triageEndText starts the comment of the Mobius App that ends the triage of an issue.
 const triageEndText = "The triage ends."
 
-// endTriage comments on the issue of the Triager c with the link to the Workstream and closes the issue as completed.
-func (e *Engine) endTriage(ctx context.Context, c caller, repository github.Repository, workstream int64) error {
-	number := c.issue
-	text := fmt.Sprintf("%s The Workstream is %s", triageEndText, issueLink(repository.FullName, workstream))
-	if err := e.addOrKeepComment(ctx, repository, number, text); err != nil {
+// endTriage comments on the issue of the Triager c with the link to the Workstream in workstreamRepository and closes
+// the issue as completed.
+func (e *Engine) endTriage(ctx context.Context, c caller, workstreamRepository github.Repository, workstream int64) error {
+	repository, err := e.repository(c.repository)
+	if err != nil {
 		return err
 	}
-	_, err := repository.CloseIssue(ctx, number, "completed")
+	text := fmt.Sprintf("%s The Workstream is %s", triageEndText, issueLink(workstreamRepository.FullName, workstream))
+	if err := e.addOrKeepComment(ctx, repository, c.issue, text); err != nil {
+		return err
+	}
+	_, err = repository.CloseIssue(ctx, c.issue, "completed")
 	return err
 }
 
@@ -1102,7 +1112,7 @@ func (e *Engine) messageLead(ctx context.Context, c caller, repository github.Re
 	}
 	text := fmt.Sprintf("Message of %s, approved by the Owner:\n\n%s", sender, input.Text)
 	if c.role == TriagerRole {
-		text += "\n\n" + issueLink(repository.FullName, c.issue)
+		text += "\n\n" + issueLink(c.repository, c.issue)
 	}
 	sent := false
 	if c.role == TriagerRole {

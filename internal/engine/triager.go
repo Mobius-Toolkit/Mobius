@@ -248,7 +248,11 @@ func (e *Engine) runTriager(ctx context.Context, repository github.Repository, n
 			return fail(err)
 		}
 	}
-	workstreams, err := e.openWorkstreams(ctx, []github.Repository{repository})
+	workstreamRepositories := []github.Repository{repository}
+	if found, err := e.workstreamRepository(repository.Owner()); err == nil {
+		workstreamRepositories = []github.Repository{found}
+	}
+	workstreams, err := e.openWorkstreams(ctx, workstreamRepositories)
 	if err != nil {
 		return fail(err)
 	}
