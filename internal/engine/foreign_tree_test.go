@@ -92,12 +92,12 @@ func TestTheNeedsHumanListHasAStoppedTaskInAnotherRepository(t *testing.T) {
 	fake.AddPullRequest(garden, 8, "Water the plants")
 	server := startServer(t, fake, t.TempDir(), `INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at, pull_request)
 		VALUES ('owner/garden', 'owner/shop', 7, 12, 'needs_human', '2026-10-04T10:00:00Z', 8);
-		INSERT INTO inbox_items (kind, repository, workstream, issue, text, link, time)
-		VALUES ('stopped', 'owner/garden', 12, 7, 'Task #7 "Water the plants" stopped: no push.', '', '2026-10-04T10:00:00Z')`)
+		INSERT INTO lead_events (repository, workstream, issue, kind, payload, time)
+		VALUES ('owner/shop', 12, 7, 'stop', '2026-10-04 10:00 UTC stop of #7 "Water the plants": no push.', '2026-10-04T10:00:00Z')`)
 
 	pullRequest := int64(8)
 	pullRequestURL := "https://github.com/owner/garden/pull/8"
-	want := []needsHuman{{Repository: shop, Workstream: 12, Number: 7, Title: "Water the plants", URL: "https://github.com/owner/garden/issues/7", Stopped: true, PullRequest: &pullRequest, PullRequestURL: &pullRequestURL, Reason: `Task #7 "Water the plants" stopped: no push.`}}
+	want := []needsHuman{{Repository: shop, Workstream: 12, Number: 7, Title: "Water the plants", URL: "https://github.com/owner/garden/issues/7", Stopped: true, PullRequest: &pullRequest, PullRequestURL: &pullRequestURL, Reason: "no push."}}
 	testkit.WaitFor(t, func() bool { return reflect.DeepEqual(apiData[[]needsHuman](t, server, "/api/needs-human"), want) })
 }
 
