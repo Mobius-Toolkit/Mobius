@@ -16,7 +16,6 @@ import { Button } from "@/components/ui/button";
 import {
   ChartContainer,
   ChartLegend,
-  ChartLegendContent,
   ChartTooltip,
   ChartTooltipContent,
   type ChartConfig,
@@ -286,7 +285,7 @@ function StackedChart({
             />
           }
         />
-        {group && <ChartLegend content={<ChartLegendContent />} />}
+        {group && <ChartLegend />}
         {groups.map((_, index) => (
           <Bar
             key={groupKey(index)}

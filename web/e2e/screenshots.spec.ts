@@ -1063,7 +1063,8 @@ test("screenshots", async ({ page }) => {
     },
     () => page.keyboard.press("Escape"),
   );
-  // Recharts measures the legend once, so the day labels stay far above it until the legend has its final height.
+  // The legend text wraps again when the font loads. The legend wrapper is above the day labels by its padding
+  // only when the plot area has the final height of the legend.
   const legendGap = `(() => {
     const label = document.querySelector('.recharts-xAxis-tick-labels text');
     const legend = document.querySelector('.recharts-legend-wrapper');
@@ -1071,6 +1072,8 @@ test("screenshots", async ({ page }) => {
     return legend.getBoundingClientRect().top - label.getBoundingClientRect().bottom;
   })()`;
   const legendSettled = async () => {
+    await expect(page.locator(".recharts-legend-wrapper")).toBeVisible();
+    await page.evaluate(() => document.fonts.ready);
     await expect.poll(() => page.evaluate<number>(legendGap)).toBeLessThan(12);
   };
   const usageDays = ["Oct 9", "Oct 10", "Oct 11", "Oct 12", "Oct 13", "Oct 14", "Oct 15"];
