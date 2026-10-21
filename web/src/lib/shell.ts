@@ -12,6 +12,10 @@ type Shell = {
   unread?: Unread[];
   inbox: InboxItem[];
   leaveInbox: (id: number) => void;
+  hideInbox: (item: InboxItem) => void;
+  failInbox: (id: number, error: string) => void;
+  inboxFailure?: { id: number; error: string };
+  clearInboxFailure: () => void;
   updateAction: (action: PendingAction) => void;
   activities: Activity[];
 };
