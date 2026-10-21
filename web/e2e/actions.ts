@@ -79,7 +79,7 @@ export async function idle(page: Page) {
   const read = async () =>
     (await api<{ writing: boolean; messages: { id: number }[] }>(page, "GET", coordinatorChat))
       .data;
-  await expect.poll(async () => (await read()).writing, { timeout: 20_000 }).toBe(false);
+  await expect.poll(async () => (await read()).writing).toBe(false);
   return (await read()).messages.at(-1);
 }
 
