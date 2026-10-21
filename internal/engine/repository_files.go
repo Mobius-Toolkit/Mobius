@@ -56,14 +56,14 @@ func (e *Engine) fetchRepository(ctx context.Context, repository github.Reposito
 	return e.fetch(ctx, repository, token)
 }
 
-// fetch fetches the bare clone of repository. When the repository has no default branch yet, it pushes the first
-// commit as the bot of the App. The caller holds e.gitMu.
+// fetch fetches the bare clone of repository. When the repository has no branch at all, it pushes the first commit to
+// the default branch as the bot of the App. The caller holds e.gitMu.
 func (e *Engine) fetch(ctx context.Context, repository github.Repository, token string) error {
 	dataDir, name := e.config.DataDir, repository.FullName
 	if err := runner.Fetch(ctx, dataDir, name, repository.CloneURL, token); err != nil {
 		return err
 	}
-	found, err := runner.HasRemoteBranch(ctx, dataDir, name, repository.DefaultBranch)
+	found, err := runner.HasRemoteBranches(ctx, dataDir, name)
 	if err != nil || found {
 		return err
 	}

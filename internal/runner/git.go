@@ -96,9 +96,19 @@ func Fetch(ctx context.Context, dataDir, repository, cloneURL, token string) err
 	return err
 }
 
-// HasRemoteBranch tells if the bare clone of repository below dataDir has origin/branch, as the last Fetch got it.
-func HasRemoteBranch(ctx context.Context, dataDir, repository, branch string) (bool, error) {
-	return hasRef(ctx, dataDir, bareDir(dataDir, repository), "refs/remotes/origin/"+branch)
+// HasRemoteBranches tells if the bare clone of repository below dataDir has at least one origin branch, as the last
+// Fetch got it.
+func HasRemoteBranches(ctx context.Context, dataDir, repository string) (bool, error) {
+	refs, err := run(git(ctx, dataDir, bareDir(dataDir, repository), "", "for-each-ref", "--format=%(refname)", "refs/remotes/origin"))
+	if err != nil {
+		return false, err
+	}
+	for _, ref := range strings.Fields(refs) {
+		if ref != "refs/remotes/origin/HEAD" {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // emptyTree is the id of the tree with no entry. Git knows it in each repository.
@@ -124,7 +134,7 @@ func StartBranch(ctx context.Context, dataDir, repository, cloneURL, token, bran
 	if pushErr == nil {
 		return nil
 	}
-	exists, err := HasRemoteBranch(ctx, dataDir, repository, branch)
+	exists, err := hasRef(ctx, dataDir, bare, "refs/remotes/origin/"+branch)
 	if err != nil {
 		return err
 	}

@@ -377,7 +377,7 @@ func gitOutput(t *testing.T, dir string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
-func TestHasRemoteBranchTellsIfTheFetchGotTheBranch(t *testing.T) {
+func TestHasRemoteBranchesTellsIfTheFetchGotABranch(t *testing.T) {
 	ctx := context.Background()
 	dataDir := t.TempDir()
 	remote := remoteRepository(t, true)
@@ -385,11 +385,8 @@ func TestHasRemoteBranchTellsIfTheFetchGotTheBranch(t *testing.T) {
 	if err := Fetch(ctx, dataDir, "acme/shop", remote, ""); err != nil {
 		t.Fatal(err)
 	}
-
-	for branch, want := range map[string]bool{"main": true, "other": false} {
-		if got, err := HasRemoteBranch(ctx, dataDir, "acme/shop", branch); err != nil || got != want {
-			t.Errorf("HasRemoteBranch(%s) = %v, %v, want %v", branch, got, err, want)
-		}
+	if got, err := HasRemoteBranches(ctx, dataDir, "acme/shop"); err != nil || !got {
+		t.Errorf("HasRemoteBranches = %v, %v, want true", got, err)
 	}
 	if after := gitOutput(t, remote, "rev-parse", "main"); after != before {
 		t.Errorf("main = %s, want %s", after, before)
@@ -399,8 +396,28 @@ func TestHasRemoteBranchTellsIfTheFetchGotTheBranch(t *testing.T) {
 	if err := Fetch(ctx, dataDir, "acme/garden", empty, ""); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := HasRemoteBranch(ctx, dataDir, "acme/garden", "main"); err != nil || got {
-		t.Errorf("HasRemoteBranch of an empty remote = %v, %v, want false", got, err)
+	if got, err := HasRemoteBranches(ctx, dataDir, "acme/garden"); err != nil || got {
+		t.Errorf("HasRemoteBranches of an empty remote = %v, %v, want false", got, err)
+	}
+}
+
+func TestHasRemoteBranchesIsTrueWhenOnlyAnotherBranchHasCommits(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	remote := remoteRepository(t, true)
+	gitIn(t, remote, "branch", "master", "main")
+	gitIn(t, remote, "symbolic-ref", "HEAD", "refs/heads/master")
+	gitIn(t, remote, "branch", "-D", "main")
+	before := gitOutput(t, remote, "rev-parse", "master")
+	if err := Fetch(ctx, dataDir, "acme/shop", remote, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	if got, err := HasRemoteBranches(ctx, dataDir, "acme/shop"); err != nil || !got {
+		t.Errorf("HasRemoteBranches = %v, %v, want true", got, err)
+	}
+	if after := gitOutput(t, remote, "rev-parse", "master"); after != before {
+		t.Errorf("master = %s, want %s", after, before)
 	}
 }
 
@@ -422,8 +439,8 @@ func TestStartBranchPushesACommitOfTheEmptyTree(t *testing.T) {
 	if tree := gitOutput(t, remote, "rev-parse", "main^{tree}"); tree != emptyTree {
 		t.Errorf("tree = %s", tree)
 	}
-	if got, err := HasRemoteBranch(ctx, dataDir, "acme/shop", "main"); err != nil || !got {
-		t.Errorf("HasRemoteBranch = %v, %v", got, err)
+	if got, err := HasRemoteBranches(ctx, dataDir, "acme/shop"); err != nil || !got {
+		t.Errorf("HasRemoteBranches = %v, %v", got, err)
 	}
 }
 
