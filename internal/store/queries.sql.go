@@ -4796,11 +4796,17 @@ func (q *Queries) ListLiveTasks(ctx context.Context, repository string) ([]Task,
 	return items, nil
 }
 
-const listMemoryVersions = `-- name: ListMemoryVersions :many
-SELECT id, time, author, reason, text FROM memory_versions WHERE repository = ? ORDER BY id DESC
+const listMemoryVersionsPage = `-- name: ListMemoryVersionsPage :many
+SELECT id, time, author, reason, text FROM memory_versions WHERE repository = ? AND id < ? ORDER BY id DESC LIMIT ?
 `
 
-type ListMemoryVersionsRow struct {
+type ListMemoryVersionsPageParams struct {
+	Repository string
+	ID         int64
+	Limit      int64
+}
+
+type ListMemoryVersionsPageRow struct {
 	ID     int64
 	Time   string
 	Author string
@@ -4808,15 +4814,15 @@ type ListMemoryVersionsRow struct {
 	Text   string
 }
 
-func (q *Queries) ListMemoryVersions(ctx context.Context, repository string) ([]ListMemoryVersionsRow, error) {
-	rows, err := q.db.QueryContext(ctx, listMemoryVersions, repository)
+func (q *Queries) ListMemoryVersionsPage(ctx context.Context, arg ListMemoryVersionsPageParams) ([]ListMemoryVersionsPageRow, error) {
+	rows, err := q.db.QueryContext(ctx, listMemoryVersionsPage, arg.Repository, arg.ID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ListMemoryVersionsRow
+	var items []ListMemoryVersionsPageRow
 	for rows.Next() {
-		var i ListMemoryVersionsRow
+		var i ListMemoryVersionsPageRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Time,

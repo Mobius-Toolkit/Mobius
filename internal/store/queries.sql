@@ -774,8 +774,8 @@ SELECT issue FROM triager_turns WHERE repository = ? ORDER BY issue;
 -- name: EndTriagerTurn :exec
 DELETE FROM triager_turns WHERE repository = ? AND issue = ?;
 
--- name: ListMemoryVersions :many
-SELECT id, time, author, reason, text FROM memory_versions WHERE repository = ? ORDER BY id DESC;
+-- name: ListMemoryVersionsPage :many
+SELECT id, time, author, reason, text FROM memory_versions WHERE repository = ? AND id < ? ORDER BY id DESC LIMIT ?;
 
 -- name: GetMemoryVersion :one
 SELECT id, repository, time, author, text FROM memory_versions WHERE id = ?;

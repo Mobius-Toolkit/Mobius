@@ -2293,7 +2293,7 @@
     },
     "/api/repositories/{owner}/{name}/memory": {
       "get": {
-        "description": "ListMemoryVersions returns the versions of the memory file of the repository, the newest first, each with the result of the check of its revert. The first version is the current text of the file. It returns 404 when the repository is not a repository of Mobius.",
+        "description": "ListMemoryVersions returns a page of the versions of the memory file of the repository, the newest first, each with the result of the check of its revert. The first version of the first page is the current text of the file. It returns 404 when the repository is not a repository of Mobius.",
         "operationId": "ListMemoryVersions",
         "parameters": [
           {
@@ -2313,6 +2313,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "Before is the id of a version. The page has at most 20 versions with an id below Before. With no Before, the page has the newest 20 versions",
+            "in": "query",
+            "name": "before",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
           }
         ],
         "responses": {
@@ -2320,7 +2329,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Envelope_Array_MemoryVersion"
+                  "$ref": "#/components/schemas/Envelope_MemoryVersionsPage"
                 }
               }
             },
@@ -5041,24 +5050,6 @@
         ],
         "description": "Envelope is the body of each success response."
       },
-      "Envelope_Array_MemoryVersion": {
-        "type": "object",
-        "title": "Envelope_Array_MemoryVersion",
-        "properties": {
-          "data": {
-            "type": "array",
-            "title": "[]MemoryVersion",
-            "description": "Data is the payload of the response",
-            "items": {
-              "$ref": "#/components/schemas/MemoryVersion"
-            }
-          }
-        },
-        "required": [
-          "data"
-        ],
-        "description": "Envelope is the body of each success response."
-      },
       "Envelope_Array_NeedsHuman": {
         "type": "object",
         "title": "Envelope_Array_NeedsHuman",
@@ -5303,6 +5294,20 @@
         "properties": {
           "data": {
             "$ref": "#/components/schemas/ManifestForm",
+            "description": "Data is the payload of the response"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "description": "Envelope is the body of each success response."
+      },
+      "Envelope_MemoryVersionsPage": {
+        "type": "object",
+        "title": "Envelope_MemoryVersionsPage",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/MemoryVersionsPage",
             "description": "Data is the payload of the response"
           }
         },
@@ -6110,6 +6115,10 @@
               "owner"
             ]
           },
+          "before": {
+            "type": "string",
+            "description": "Before is the text of the previous version, and empty for the oldest version of the repository"
+          },
           "id": {
             "type": "integer",
             "description": "ID is the id of the version"
@@ -6141,10 +6150,34 @@
           "author",
           "reason",
           "text",
+          "before",
           "revertible",
           "revert_problem"
         ],
         "description": "MemoryVersion is a version of the memory file of a repository."
+      },
+      "MemoryVersionsPage": {
+        "type": "object",
+        "title": "MemoryVersionsPage",
+        "properties": {
+          "older": {
+            "type": "boolean",
+            "description": "Older is true when the repository has versions before the last version of the page"
+          },
+          "versions": {
+            "type": "array",
+            "title": "[]MemoryVersion",
+            "description": "Versions are the versions of the page, the newest first",
+            "items": {
+              "$ref": "#/components/schemas/MemoryVersion"
+            }
+          }
+        },
+        "required": [
+          "versions",
+          "older"
+        ],
+        "description": "MemoryVersionsPage is a page of the versions of the memory file of a repository."
       },
       "NeedsHuman": {
         "type": "object",
