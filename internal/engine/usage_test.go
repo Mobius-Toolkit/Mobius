@@ -3,6 +3,8 @@ package engine_test
 import (
 	"database/sql"
 	"math"
+	"os"
+	"path/filepath"
 	"strconv"
 	"testing"
 
@@ -100,10 +102,14 @@ func TestAClaudeCodeTurnHasAUsageRowWithTheTokensTheModelAndTheCostOfTheTurn(t *
 
 func TestTheCostOfAnAutonomousTurnAfterTheLastPromptHasAUsageRowAtTheEndOfTheSession(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, claudeTurn(0.6, 1, 1, 1, 1)+`later = { after = "10ms", updates = ['{"sessionUpdate": "usage_update", "used": 1, "size": 2, "cost": {"amount": 0.9, "currency": "USD"}, "_meta": {"_claude/origin": {"kind": "task-notification"}}}'] }
+	gate := filepath.Join(t.TempDir(), "turn-ended")
+	server, _ := connect(t, fake, claudeTurn(0.6, 1, 1, 1, 1)+`later = { wait_for = '`+gate+`', updates = ['{"sessionUpdate": "usage_update", "used": 1, "size": 2, "cost": {"amount": 0.9, "currency": "USD"}, "_meta": {"_claude/origin": {"kind": "task-notification"}}}'] }
 `)
 	agent := start(t, server, leadSpec(t))
 	if err := agent.Prompt(t.Context(), "One", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(gate, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	testkit.WaitFor(t, func() bool {
