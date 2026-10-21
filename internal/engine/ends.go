@@ -690,6 +690,9 @@ func (e *Engine) closeTask(ctx context.Context, c caller, repository github.Repo
 	if err != nil {
 		return "", err
 	}
+	if err := e.changeCopiedLabels(ctx, repository.FullName, input.N, nil, []string{readyLabel}); err != nil {
+		return "", err
+	}
 	if _, err := e.updateCopy(ctx, repository, closed, nil, false, e.labelChangeCount(repository.FullName)); err != nil {
 		return "", err
 	}
