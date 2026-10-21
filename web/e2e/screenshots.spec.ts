@@ -535,6 +535,45 @@ test("screenshots", async ({ page }) => {
       await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
     },
   );
+  const otherRepositoryRoute = "**/api/workstreams/plants/garden/19/tasks";
+  await page.route(otherRepositoryRoute, async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as { data: object[] };
+    body.data.push({
+      number: 5,
+      title: "Pick the apples",
+      state: "open",
+      depth: 0,
+      repository: "plants/orchard",
+      otherRepository: true,
+      url: "https://github.com/plants/orchard/issues/5",
+      blockedBy: [],
+    });
+    await route.fulfill({ response, json: body });
+  });
+  await screenshot(
+    page,
+    "chat-tasks-other-repository",
+    "/workstreams/plants/garden/19",
+    (device) => [
+      ...(device === "desktop"
+        ? [
+            drain,
+            page.getByLabel("Work in another organization"),
+            page.locator('nav a[href="/workstreams/plants/garden/19"]'),
+          ]
+        : [page.getByLabel("Upgrade available")]),
+      page.getByText("plants/orchard#5 Pick the apples").filter({ visible: true }),
+      page.getByRole("button", { name: "Start plants/orchard#5" }).filter({ visible: true }),
+    ],
+    async (device) => {
+      if (device === "phone") {
+        await page.getByRole("banner").getByRole("button", { name: "Agents" }).click();
+      }
+      await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
+    },
+  );
+  await page.unroute(otherRepositoryRoute);
   await screenshot(page, "chat-all-tasks-closed", "/workstreams/owner/shop/13", (device) => [
     ...frame(device, drain),
     main.getByText("All tasks are closed."),

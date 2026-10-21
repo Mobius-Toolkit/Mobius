@@ -296,7 +296,7 @@ func TestAReadyLabelOnAnIssueWithALiveTaskHasNoEffect(t *testing.T) {
 		lines, err := server.Engine.Tasks(t.Context(), shop, 12)
 		return lines, err == nil && len(lines) == 1 && lines[0].State == "working"
 	})
-	want := []engine.TaskLine{{Number: 41, Title: "Add plan model", State: "working", URL: "https://github.com/owner/shop/issues/41", BlockedBy: []engine.Blocker{}}}
+	want := []engine.TaskLine{{Number: 41, Title: "Add plan model", State: "working", URL: "https://github.com/owner/shop/issues/41", Repository: shop, BlockedBy: []engine.Blocker{}}}
 	if !reflect.DeepEqual(lines, want) {
 		t.Errorf("tasks = %+v", lines)
 	}

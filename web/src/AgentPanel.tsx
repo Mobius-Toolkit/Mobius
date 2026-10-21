@@ -132,12 +132,14 @@ function AgentList({
   );
 }
 
-function TaskEntry({ owner, name, line }: { owner: string; name: string; line: TaskLine }) {
+function TaskEntry({ line }: { line: TaskLine }) {
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState("");
   const resumes = line.state === "needs-human";
-  const label = `${resumes ? "Resume" : "Start"} #${line.number}`;
+  const reference = `${line.otherRepository ? line.repository : ""}#${line.number}`;
+  const label = `${resumes ? "Resume" : "Start"} ${reference}`;
   const start = () => {
+    const [owner, name] = line.repository.split("/");
     setStarting(true);
     (resumes ? resumeIssue : startIssue)(owner, name, line.number)
       .then((res) => {
@@ -157,7 +159,7 @@ function TaskEntry({ owner, name, line }: { owner: string; name: string; line: T
           className="flex min-w-0 grow flex-wrap items-center gap-x-2 gap-y-1 rounded-lg py-2 pr-2 hover:bg-muted"
         >
           <span className={cn("grow", line.state === "closed" && "text-muted-foreground")}>
-            #{line.number} {line.title}
+            {reference} {line.title}
           </span>
           {line.blockedBy.map((blocker) => (
             <span
@@ -171,7 +173,6 @@ function TaskEntry({ owner, name, line }: { owner: string; name: string; line: T
           <Badge variant={line.state === "open" ? "outline" : "secondary"}>{line.state}</Badge>
         </a>
         {(line.state === "open" || line.state === "triage" || resumes) &&
-          !line.otherRepository &&
           line.blockedBy.length === 0 && (
             <Button
               size="icon"
@@ -269,7 +270,7 @@ function Tasks({
       {shown?.length === 0 && <p className="px-2 text-sm text-muted-foreground">No tasks.</p>}
       <ul>
         {shown?.map((line) => (
-          <TaskEntry key={`${line.url} ${line.state}`} owner={owner} name={name} line={line} />
+          <TaskEntry key={`${line.url} ${line.state}`} line={line} />
         ))}
       </ul>
     </div>
