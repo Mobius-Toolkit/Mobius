@@ -907,14 +907,14 @@ func (e *Engine) markReady(ctx context.Context, c caller, repository github.Repo
 		return "", err
 	}
 	if issue == nil || !e.TrustedAuthor(repository.AppSlug, issue.GetUser().GetLogin()) {
-		return "", refuse("#%d is not an issue of a trusted author.", input.N)
+		return "", refuse("%s#%d is not an issue of a trusted author.", repository.FullName, input.N)
 	}
 	in, err := e.inWorkstream(ctx, c.repository, c.workstream, repository, input.N)
 	if err != nil {
 		return "", err
 	}
 	if !in {
-		return "", refuse("#%d is not in this Workstream.", input.N)
+		return "", refuse("%s#%d is not in this Workstream.", repository.FullName, input.N)
 	}
 	task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: repository.FullName, Issue: input.N})
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -924,12 +924,12 @@ func (e *Engine) markReady(ctx context.Context, c caller, repository github.Repo
 		if err := removeNeedsHuman(ctx, repository, task); err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("Removed mobius:needs-human from #%d, so the task continues.", input.N), nil
+		return fmt.Sprintf("Removed mobius:needs-human from %s#%d, so the task continues.", repository.FullName, input.N), nil
 	}
 	if _, _, err := repository.Client.Issues.AddLabelsToIssue(ctx, repository.Owner(), repository.Name(), int(input.N), []string{readyLabel}); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("Marked #%d ready.", input.N), nil
+	return fmt.Sprintf("Marked %s#%d ready.", repository.FullName, input.N), nil
 }
 
 func (e *Engine) replyThread(ctx context.Context, c caller, repository github.Repository, input taskThreadInput) (string, error) {

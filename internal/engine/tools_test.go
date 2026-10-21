@@ -440,9 +440,9 @@ func TestMarkReadyStartsATrustedIssueOfTheWorkstream(t *testing.T) {
 
 	session := run(t, server, leadSpec(t), "1. ", "2. ", "3. ")
 
-	want := "Marked #30 ready." +
-		"error: #31 is not an issue of a trusted author." +
-		"error: #32 is not in this Workstream."
+	want := "Marked owner/shop#30 ready." +
+		"error: owner/shop#31 is not an issue of a trusted author." +
+		"error: owner/shop#32 is not in this Workstream."
 	if got := reply(t, server, session); got != want {
 		t.Errorf("reply = %q", got)
 	}
