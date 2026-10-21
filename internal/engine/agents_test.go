@@ -392,7 +392,7 @@ func TestAMobiusCallShowsTheMobiusNameAndTheShortResult(t *testing.T) {
 
 	for _, line := range transcript(t, server, session) {
 		if line.Kind == "mcp_call" {
-			if line.Text != "mobius · list_tasks" || line.Body != "{} → #41 Add plan model: open" || line.Error {
+			if line.Text != "mobius · list_tasks" || line.Body != "{} → owner/shop#41 Add plan model: open" || line.Error {
 				t.Errorf("line = %+v", line)
 			}
 			return
