@@ -627,7 +627,7 @@ func TestMessageLeadSendsTheMessageOfTheLeadToTheLeadOfAnotherOpenWorkstream(t *
 	if got := reply(t, server, refused); !strings.HasPrefix(got, actionWaits) {
 		t.Errorf("reply = %q", got)
 	}
-	if sent.Result != "Sent the message to the Lead of #20." || closed.State != "pending" || closed.Error != "#21 is not an open Workstream." {
+	if sent.Result != "Sent the message to the Lead of #20 Billing." || closed.State != "pending" || closed.Error != "#21 is not an open Workstream." {
 		t.Errorf("actions = %+v, %+v", sent, closed)
 	}
 	toLead20 := func() []leadEvent {
@@ -680,7 +680,7 @@ func TestMessageLeadSendsTheMessageOfTheLeadWhileGitHubRefusesEachRequest(t *tes
 	if got := reply(t, server, session); !strings.HasPrefix(got, actionWaits) {
 		t.Errorf("reply = %q", got)
 	}
-	if want := "Sent the message to the Lead of #20."; done.Result != want {
+	if want := "Sent the message to the Lead of #20 Billing."; done.Result != want {
 		t.Errorf("result = %q, want %q", done.Result, want)
 	}
 	text := "Message of the Lead of #12, approved by the Owner:\n\nCreate the task issues."
@@ -755,6 +755,7 @@ func TestMoveTaskMovesAnIssueOfTheWorkstreamWithNoLiveTask(t *testing.T) {
 		fake.AddSubIssue(shop, 12, number)
 	}
 	addTask(t, server, fake, 42, 12, 0)
+	waitForBilling(t, server)
 
 	var results []string
 	for i, prompt := range []string{"1. ", "2. ", "3. "} {
@@ -764,7 +765,7 @@ func TestMoveTaskMovesAnIssueOfTheWorkstreamWithNoLiveTask(t *testing.T) {
 	}
 	session := run(t, server, leadSpec(t), "4. ")
 
-	want := []string{"Moved owner/shop#41 to the Workstream #20.", "owner/shop#42 has a live task. Stop the task first.", "#21 is not an open Workstream."}
+	want := []string{"Moved owner/shop#41 to the Workstream #20 Billing.", "owner/shop#42 has a live task. Stop the task first.", "#21 is not an open Workstream."}
 	if !slices.Equal(results, want) {
 		t.Errorf("results = %q", results)
 	}
@@ -789,7 +790,7 @@ func TestMoveIssueMovesAnIssueWithNoWorkstreamAndMakesItReady(t *testing.T) {
 
 	session := run(t, server, spec, "1. ", "2. ")
 
-	if got := reply(t, server, session); got != "Moved #50 to the Workstream #12.error: #50 is already in a Workstream." {
+	if got := reply(t, server, session); got != "Moved #50 to the Workstream #12 Integrate loyalty plans.error: #50 is already in a Workstream." {
 		t.Errorf("reply = %q", got)
 	}
 	if got := fake.SubIssueNumbers(shop, 12); !reflect.DeepEqual(got, []int64{50}) {
@@ -797,6 +798,23 @@ func TestMoveIssueMovesAnIssueWithNoWorkstreamAndMakesItReady(t *testing.T) {
 	}
 	if got := fake.Labels(shop, 50); !reflect.DeepEqual(got, []string{"mobius:ready"}) {
 		t.Errorf("labels = %v", got)
+	}
+}
+
+func TestMoveIssueNamesTheTitleOfTheCopiedWorkstreamInItsResult(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddIssue(shop, 20, "Billing")
+	fake.AddLabel(shop, 20, "mobius:workstream", "owner")
+	server, _ := connect(t, fake, call("move_issue", "{ repository = \"owner/shop\", n = 50, workstream = 20 }"))
+	fake.AddIssue(shop, 50, "Add invoices")
+	waitForBilling(t, server)
+	spec := engine.Spec{Role: engine.CoordinatorRole, Organization: "owner", Dir: t.TempDir()}
+
+	session := run(t, server, spec, "Move it.")
+
+	if got := reply(t, server, session); got != "Moved #50 to the Workstream #20 Billing." {
+		t.Errorf("reply = %q", got)
 	}
 }
 
