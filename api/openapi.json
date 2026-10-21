@@ -2800,8 +2800,9 @@
               "enum": [
                 "harness",
                 "model",
+                "modelEffort",
                 "modelVersion",
-                "effort",
+                "modelVersionEffort",
                 "role",
                 "repository"
               ],
@@ -2977,8 +2978,9 @@
               "enum": [
                 "harness",
                 "model",
+                "modelEffort",
                 "modelVersion",
-                "effort",
+                "modelVersionEffort",
                 "role",
                 "repository"
               ],

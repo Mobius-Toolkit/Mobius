@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/gork-labs/gork/pkg/api"
@@ -99,7 +100,7 @@ type UsageQuery struct {
 	// Repository limits the rows to these repositories as "owner/name"
 	Repository []string `gork:"repository"`
 	// Group is the value that splits the days and the groups. With no Group, all rows are in one group
-	Group string `gork:"group" validate:"omitempty,oneof=harness model modelVersion effort role repository"`
+	Group string `gork:"group" validate:"omitempty,oneof=harness model modelEffort modelVersion modelVersionEffort role repository"`
 }
 
 // GetUsageRequest is the request of GetUsage.
@@ -274,10 +275,12 @@ func usageGroup(row store.TurnUsage, group string) string {
 		return row.Harness
 	case "model":
 		return row.Model
+	case "modelEffort":
+		return joinNonEmpty(row.Model, row.Effort.String)
 	case "modelVersion":
 		return row.ReportedModel.String
-	case "effort":
-		return row.Effort.String
+	case "modelVersionEffort":
+		return joinNonEmpty(row.ReportedModel.String, row.Effort.String)
 	case "role":
 		return row.Role
 	case "repository":
@@ -547,10 +550,12 @@ func timeGroup(row timeRow, group string) string {
 		return row.harness
 	case "model":
 		return row.model
+	case "modelEffort":
+		return joinNonEmpty(row.model, row.effort)
 	case "modelVersion":
 		return row.modelVersion
-	case "effort":
-		return row.effort
+	case "modelVersionEffort":
+		return joinNonEmpty(row.modelVersion, row.effort)
 	case "role":
 		return row.role
 	case "repository":
@@ -558,6 +563,10 @@ func timeGroup(row timeRow, group string) string {
 	default:
 		return ""
 	}
+}
+
+func joinNonEmpty(parts ...string) string {
+	return strings.Join(slices.DeleteFunc(parts, func(part string) bool { return part == "" }), " ")
 }
 
 func appendNonEmpty(values []string, value string) []string {
