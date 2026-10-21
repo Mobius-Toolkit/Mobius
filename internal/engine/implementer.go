@@ -286,6 +286,7 @@ func (e *Engine) approvePullRequest(ctx context.Context, c caller, repository gi
 		return "", err
 	}
 	if checkRun == 0 {
+		e.markPushed(repository, task.PullRequest.Int64)
 		if _, err := e.setTaskState(ctx, store.SetTaskStateParams{State: "checks", ID: task.ID, FromState: "approval"}); err != nil {
 			return "", err
 		}
