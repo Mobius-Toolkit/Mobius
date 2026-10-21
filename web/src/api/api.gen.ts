@@ -1610,8 +1610,9 @@ export type GetUsageGroup = typeof GetUsageGroup[keyof typeof GetUsageGroup];
 export const GetUsageGroup = {
   harness: 'harness',
   model: 'model',
+  modelEffort: 'modelEffort',
   modelVersion: 'modelVersion',
-  effort: 'effort',
+  modelVersionEffort: 'modelVersionEffort',
   role: 'role',
   repository: 'repository',
 } as const;
@@ -1665,8 +1666,9 @@ export type GetUsageTimesGroup = typeof GetUsageTimesGroup[keyof typeof GetUsage
 export const GetUsageTimesGroup = {
   harness: 'harness',
   model: 'model',
+  modelEffort: 'modelEffort',
   modelVersion: 'modelVersion',
-  effort: 'effort',
+  modelVersionEffort: 'modelVersionEffort',
   role: 'role',
   repository: 'repository',
 } as const;

@@ -1023,6 +1023,16 @@ test("screenshots", async ({ page }) => {
     main.locator(".recharts-bar-rectangle").first(),
     ...usageDays.map((day) => main.getByText(day, { exact: true })),
   ]);
+  await screenshot(page, "usage-model-effort", "/usage?group=modelEffort", (device) => [
+    ...frame(device, release),
+    main.getByRole("columnheader", { name: "Model and effort" }),
+    main.getByRole("rowheader", { name: "opus medium", exact: true }),
+    main.getByRole("rowheader", { name: "sonnet high", exact: true }),
+    main.getByRole("rowheader", { name: "sonnet low", exact: true }),
+    main.getByRole("rowheader", { name: "swe-1.5", exact: true }),
+    main.locator(".recharts-bar-rectangle").first(),
+    ...usageDays.map((day) => main.getByText(day, { exact: true })),
+  ]);
   await screenshot(
     page,
     "usage-tokens",

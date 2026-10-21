@@ -44,13 +44,14 @@ import {
   findStat,
   formatDay,
   groupKey,
+  groupOptions,
   palette,
   periods,
   statTitle,
   statValue,
   tokensOf,
   usageRange,
-  type Dimension,
+  type Group,
   type Period,
   type UsageSearch,
 } from "@/lib/usage";
@@ -139,28 +140,22 @@ function FilterMenu({
   );
 }
 
-function GroupMenu({
-  group,
-  onChange,
-}: {
-  group?: Dimension;
-  onChange: (group?: Dimension) => void;
-}) {
+function GroupMenu({ group, onChange }: { group?: Group; onChange: (group?: Group) => void }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="outline">
-          Group by: {dimensions.find((item) => item.key === group)?.title ?? "None"}
+          Group by: {groupOptions.find((item) => item.key === group)?.title ?? "None"}
           <ChevronDownIcon />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start">
         <DropdownMenuRadioGroup
           value={group ?? ""}
-          onValueChange={(value) => onChange(dimensions.find((item) => item.key === value)?.key)}
+          onValueChange={(value) => onChange(groupOptions.find((item) => item.key === value)?.key)}
         >
           <DropdownMenuRadioItem value="">None</DropdownMenuRadioItem>
-          {dimensions.map((item) => (
+          {groupOptions.map((item) => (
             <DropdownMenuRadioItem key={item.key} value={item.key}>
               {item.title}
             </DropdownMenuRadioItem>
@@ -235,7 +230,7 @@ function Totals({ items }: { items: { title: string; value: string }[] }) {
 }
 
 // A row with no value for the group has the empty group. With no group, the only row has all values.
-function groupTitle(group: string, selected?: Dimension) {
+function groupTitle(group: string, selected?: Group) {
   if (selected === undefined) {
     return "All";
   }
@@ -261,7 +256,7 @@ function StackedChart({
 }: {
   rows: Record<string, number | string>[];
   groups: { group: string }[];
-  group?: Dimension;
+  group?: Group;
   format: (value: number | null) => string;
   axisFormat: (value: number) => string;
 }) {
@@ -314,7 +309,7 @@ function UsageChart({
 }: {
   usage: UsageView;
   range: Range;
-  group?: Dimension;
+  group?: Group;
   kind: "cost" | "tokens";
 }) {
   const metric = kind === "cost" ? costOf : tokensOf;
@@ -345,7 +340,7 @@ function ValuesRow({ title, values }: { title: string; values: UsageValues }) {
   );
 }
 
-function GroupTable({ usage, group }: { usage: UsageView; group?: Dimension }) {
+function GroupTable({ usage, group }: { usage: UsageView; group?: Group }) {
   const heads = ["Sessions", "Input", "Output", "Cache read", "Cache write", "Cost"];
   return (
     <div className={cn(inset, "overflow-x-auto")}>
@@ -353,7 +348,7 @@ function GroupTable({ usage, group }: { usage: UsageView; group?: Dimension }) {
         <thead>
           <tr className="border-b text-muted-foreground">
             <th scope="col" className="py-2 pr-4 text-left font-normal">
-              {dimensions.find((item) => item.key === group)?.title ?? "Group"}
+              {groupOptions.find((item) => item.key === group)?.title ?? "Group"}
             </th>
             {heads.map((head) => (
               <th key={head} scope="col" className="py-2 pr-4 text-right font-normal last:pr-0">
@@ -384,7 +379,7 @@ function UsageTab({
 }: {
   usage: UsageView;
   range: Range;
-  group?: Dimension;
+  group?: Group;
   kind: "cost" | "tokens";
 }) {
   const totals = usage.totals;
@@ -466,7 +461,7 @@ function StatMenu({
   );
 }
 
-function TimeTable({ times, group }: { times: UsageTimes; group?: Dimension }) {
+function TimeTable({ times, group }: { times: UsageTimes; group?: Group }) {
   const heads = ["Stat", "Count", "Total", "Mean"];
   return (
     <div className={cn(inset, "overflow-x-auto")}>
@@ -474,7 +469,7 @@ function TimeTable({ times, group }: { times: UsageTimes; group?: Dimension }) {
         <thead>
           <tr className="border-b text-muted-foreground">
             <th scope="col" className="py-2 pr-4 text-left font-normal">
-              {dimensions.find((item) => item.key === group)?.title ?? "Group"}
+              {groupOptions.find((item) => item.key === group)?.title ?? "Group"}
             </th>
             {heads.map((head, index) => (
               <th
@@ -523,7 +518,7 @@ function TimesTab({
 }: {
   times: UsageTimes;
   range: Range;
-  group?: Dimension;
+  group?: Group;
   stat?: string;
   onStat: (stat: string) => void;
 }) {

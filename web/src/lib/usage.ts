@@ -7,7 +7,6 @@ export const periods = [
   { value: "custom", title: "Custom" },
 ] as const;
 
-// The filters and the groups have the same six values.
 export const dimensions = [
   { key: "harness", title: "Harness", options: "harnesses" },
   { key: "model", title: "Model", options: "models" },
@@ -17,8 +16,19 @@ export const dimensions = [
   { key: "repository", title: "Repository", options: "repositories" },
 ] as const;
 
+export const groupOptions = [
+  { key: "harness", title: "Harness" },
+  { key: "model", title: "Model" },
+  { key: "modelEffort", title: "Model and effort" },
+  { key: "modelVersion", title: "Model version" },
+  { key: "modelVersionEffort", title: "Model version and effort" },
+  { key: "role", title: "Role" },
+  { key: "repository", title: "Repository" },
+] as const;
+
 export type Period = (typeof periods)[number]["value"];
 export type Dimension = (typeof dimensions)[number]["key"];
+export type Group = (typeof groupOptions)[number]["key"];
 
 // custom takes from and to as "YYYY-MM-DD" in the time zone of the browser. Both days are in the period.
 export type UsageSearch = {
@@ -26,7 +36,7 @@ export type UsageSearch = {
   period?: Period;
   from?: string;
   to?: string;
-  group?: Dimension;
+  group?: Group;
   stat?: string;
 } & { [key in Dimension]?: string[] };
 
@@ -68,7 +78,7 @@ export function validateUsageSearch(search: Record<string, unknown>): UsageSearc
     period: period === "custom" && !(from && to) ? undefined : period,
     from,
     to,
-    group: dimensions.find((item) => item.key === search.group)?.key,
+    group: groupOptions.find((item) => item.key === search.group)?.key,
     stat:
       typeof search.stat === "string" && /^(step|state):.+/.test(search.stat)
         ? search.stat

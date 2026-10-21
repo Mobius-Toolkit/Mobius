@@ -155,8 +155,9 @@ func TestGetUsageGroups(t *testing.T) {
 	}{
 		{"harness", "harness", []string{"claude-code", "devin"}},
 		{"model", "model", []string{"opus", "sonnet", "swe"}},
+		{"model and effort", "modelEffort", []string{"opus high", "sonnet low", "swe"}},
 		{"model version", "modelVersion", []string{"", "claude-opus-5"}},
-		{"effort", "effort", []string{"", "high", "low"}},
+		{"model version and effort", "modelVersionEffort", []string{"", "claude-opus-5 high", "low"}},
 		{"role", "role", []string{"Implementer", "Reviewer"}},
 		{"repository", "repository", []string{"o/a", "o/b"}},
 		{"no group", "", []string{""}},
@@ -483,8 +484,9 @@ func TestGetUsageTimesGroups(t *testing.T) {
 	}{
 		{"harness", "harness", []string{"", "claude-code", "devin"}},
 		{"model", "model", []string{"", "opus", "sonnet", "swe"}},
+		{"model and effort", "modelEffort", []string{"", "opus high", "sonnet low", "swe"}},
 		{"model version", "modelVersion", []string{"", "claude-opus-5"}},
-		{"effort", "effort", []string{"", "high", "low"}},
+		{"model version and effort", "modelVersionEffort", []string{"", "claude-opus-5 high", "high", "low"}},
 		{"role", "role", []string{"", "Implementer", "Reviewer"}},
 		{"repository", "repository", []string{"o/a", "o/b"}},
 		{"no group", "", []string{""}},
@@ -586,5 +588,25 @@ func TestGetUsageTimesRejectsBadRequests(t *testing.T) {
 				t.Errorf("status = %d, want %d", code, http.StatusBadRequest)
 			}
 		})
+	}
+}
+
+func TestGetUsageRefusesTheEffortGroup(t *testing.T) {
+	get := seedUsage(t)
+
+	code, _ := get(usagePeriod + "&group=effort")
+
+	if code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", code, http.StatusBadRequest)
+	}
+}
+
+func TestGetUsageTimesRefusesTheEffortGroup(t *testing.T) {
+	get := seedUsageTimes(t)
+
+	code, _ := get(usagePeriod + "&group=effort")
+
+	if code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", code, http.StatusBadRequest)
 	}
 }
