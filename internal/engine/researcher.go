@@ -77,18 +77,9 @@ func (e *Engine) startResearcher(ctx context.Context, c caller, repository githu
 	return fmt.Sprintf("Started the Researcher %d. The report arrives later.", a.id), nil
 }
 
-type coordinatorQuestionInput struct {
-	Repository string `json:"repository"`
-	Question   string `json:"question"`
-}
-
-// startCoordinatorResearcher is startResearcher for the Coordinator chat, which names the repository of the code.
-func (e *Engine) startCoordinatorResearcher(ctx context.Context, c caller, _ github.Repository, input coordinatorQuestionInput) (string, error) {
-	repository, err := e.organizationRepository(c.organization, input.Repository)
-	if err != nil {
-		return "", err
-	}
-	return e.startResearcher(ctx, c, repository, questionInput{Question: input.Question})
+// startRepositoryResearcher is startResearcher for a chat that names the repository of the code.
+func (e *Engine) startRepositoryResearcher(ctx context.Context, c caller, repository github.Repository, input repositoryQuestionInput) (string, error) {
+	return e.startResearcher(ctx, c, repository, input.questionInput)
 }
 
 // ownedResearcher gives the Researcher id that runs for the Workstream of c, or nil.
@@ -101,7 +92,7 @@ func (e *Engine) ownedResearcher(c caller, id int64) *Agent {
 // ownedResearcherLocked is ownedResearcher for a caller that holds detailsMu.
 func (e *Engine) ownedResearcherLocked(c caller, id int64) *Agent {
 	a, ok := e.researchers[id]
-	if !ok || a.spec.Repository != c.repository || a.spec.Workstream != c.workstream {
+	if !ok || a.spec.WorkstreamRepository != c.repository || a.spec.Workstream != c.workstream {
 		return nil
 	}
 	return a
@@ -142,7 +133,7 @@ func (e *Engine) stopResearchers(repository string, workstream int64) {
 	e.detailsMu.Lock()
 	var ids []int64
 	for id, a := range e.researchers {
-		if a.spec.Repository == repository && a.spec.Workstream == workstream {
+		if a.spec.WorkstreamRepository == repository && a.spec.Workstream == workstream {
 			ids = append(ids, id)
 		}
 	}
@@ -202,7 +193,11 @@ func (e *Engine) researchTurn(ctx context.Context, a *Agent, question string) (s
 	}
 	briefSection := ""
 	if a.spec.Workstream != 0 {
-		brief, err := brief(ctx, repository, a.spec.Workstream)
+		workstream, err := e.repository(a.spec.WorkstreamRepository)
+		if err != nil {
+			return "", err
+		}
+		brief, err := brief(ctx, workstream, a.spec.Workstream)
 		if err != nil {
 			return "", err
 		}

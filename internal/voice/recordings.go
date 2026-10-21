@@ -16,10 +16,9 @@ const (
 	sampleRate     = 16000
 	bytesPerSecond = sampleRate * 2
 	// maxWindow is the size of the longest part of a recording that one draft run converts.
-	maxWindow     = 15 * bytesPerSecond
-	idleTimeout   = 10 * time.Minute
-	draftTimeout  = 10 * time.Second
-	finishTimeout = 5 * time.Minute
+	maxWindow    = 15 * bytesPerSecond
+	idleTimeout  = 10 * time.Minute
+	draftTimeout = 10 * time.Second
 )
 
 // The errors of Recordings.
@@ -210,8 +209,6 @@ func (r *Recordings) Finish(ctx context.Context, id string) (string, error) {
 	rec.mu.Lock()
 	wav := wavFile(rec.pcm)
 	rec.mu.Unlock()
-	ctx, cancel := context.WithTimeout(ctx, finishTimeout)
-	defer cancel()
 	return r.Final.Transcribe(ctx, wav)
 }
 

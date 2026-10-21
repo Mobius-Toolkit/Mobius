@@ -407,7 +407,7 @@ func TestTheFirstPromptHasTheContextPartsInOrder(t *testing.T) {
 		"# Brief\n\nShip loyalty plans to all shops.\n",
 		"# MEMORY.md\n\nnote 1\n",
 		"note 200\nMEMORY.md is too long. Make it shorter.\n",
-		"# Task list\n\n#41 Add plan model: ready\n#43 Plan API: open\n\n",
+		"# Task list\n\nowner/shop#41 Add plan model: ready\nowner/shop#43 Plan API: open\n\n",
 		"# Chat history\n\nLead (",
 		"):\nmessage 2\n\n",
 		"):\nmessage 21\n\n",
@@ -635,7 +635,7 @@ reply = ["Noted."]
 
 [[prompts]]
 when = "Move it."
-call = { tool = "move_task", arguments = { n = 13, workstream = 15 } }
+call = { tool = "move_task", arguments = { repository = "owner/shop", n = 13, workstream = 15 } }
 
 [[prompts]]
 when = "Create it."
@@ -1364,27 +1364,27 @@ func TestTheLeadChatRefusesToMoveATaskWhenTheTaskOrTheTargetDoesNotFit(t *testin
 	server, _ := connectWith(t, fake, approvalSeen+`
 [[prompts]]
 when = "case-live"
-call = { tool = "move_task", arguments = { n = 13, workstream = 20 } }
+call = { tool = "move_task", arguments = { repository = "owner/shop", n = 13, workstream = 20 } }
 
 [[prompts]]
 when = "case-plain"
-call = { tool = "move_task", arguments = { n = 13, workstream = 14 } }
+call = { tool = "move_task", arguments = { repository = "owner/shop", n = 13, workstream = 14 } }
 
 [[prompts]]
 when = "case-closed"
-call = { tool = "move_task", arguments = { n = 13, workstream = 22 } }
+call = { tool = "move_task", arguments = { repository = "owner/shop", n = 13, workstream = 22 } }
 
 [[prompts]]
 when = "case-self"
-call = { tool = "move_task", arguments = { n = 13, workstream = 12 } }
+call = { tool = "move_task", arguments = { repository = "owner/shop", n = 13, workstream = 12 } }
 
 [[prompts]]
 when = "case-pull"
-call = { tool = "move_task", arguments = { n = 15, workstream = 20 } }
+call = { tool = "move_task", arguments = { repository = "owner/shop", n = 15, workstream = 20 } }
 
 [[prompts]]
 when = "case-other"
-call = { tool = "move_task", arguments = { n = 21, workstream = 20 } }
+call = { tool = "move_task", arguments = { repository = "owner/shop", n = 21, workstream = 20 } }
 `, keepSessionOpen)
 	fake.AddIssue(shop, 13, "Add the API route")
 	fake.AddIssue(shop, 14, "Add plan model")
@@ -1403,7 +1403,7 @@ call = { tool = "move_task", arguments = { n = 21, workstream = 20 } }
 	sendChat(t, server, leadChat, "case-self")
 	waitForChat(t, server, leadChat, "Lead", "error: #12 is this Workstream.")
 	for i, c := range []struct{ message, result string }{
-		{"case-other", "#21 is not in this Workstream."},
+		{"case-other", "owner/shop#21 is not in this Workstream."},
 		{"case-pull", "#15 is not an issue of owner/shop."},
 		{"case-closed", "#22 is not an open Workstream."},
 		{"case-plain", "#14 is not an open Workstream."},
@@ -1417,7 +1417,7 @@ call = { tool = "move_task", arguments = { n = 21, workstream = 20 } }
 		t.Fatal(err)
 	}
 	sendChat(t, server, leadChat, "case-live")
-	if got := approveNext(t, server, 5); got.State != "pending" || got.Error != "#13 has a live task. Stop the task first." {
+	if got := approveNext(t, server, 5); got.State != "pending" || got.Error != "owner/shop#13 has a live task. Stop the task first." {
 		t.Errorf("case-live: action = %+v", got)
 	}
 	if got := fake.SubIssueNumbers(shop, 12); !reflect.DeepEqual(got, []int64{13, 14, 15}) {

@@ -742,7 +742,7 @@ func TestTheTasksTabAndListTasksShowTheWaitForCIAndTheWaitForTheLeadAndTheWaitFo
 				t.Errorf("lines = %+v", lines)
 			}
 			calls := rows(t, server, session, "mcp_call")
-			if len(calls) != 1 || calls[0]["result"] != "#41 Add plan model: "+want+"\n" {
+			if len(calls) != 1 || calls[0]["result"] != "owner/shop#41 Add plan model: "+want+"\n" {
 				t.Errorf("calls = %+v", calls)
 			}
 		})

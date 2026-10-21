@@ -150,15 +150,16 @@ func (e *Engine) createWorkstreamTool(c caller) mcp.Tool {
 
 func (e *Engine) moveTaskTool(c caller) mcp.Tool {
 	return approvedTool(e, c, e.callerRepository, "move_task",
-		"Make a task of this Workstream a sub-issue of a different open Workstream in this repository. Call it at once. The tool returns at once, and Mobius moves the task only after the Owner approves it. The result arrives later as an Approval message. The task must not be in progress when the Owner approves.",
+		"Make a task of this Workstream a sub-issue of a different open Workstream in the repository of this Workstream. Call it at once. The tool returns at once, and Mobius moves the task only after the Owner approves it. The result arrives later as an Approval message. The task must not be in progress when the Owner approves.",
 		map[string]any{
+			"repository": repositoryProperty,
 			"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
-			"workstream": map[string]any{"type": "integer", "minimum": 1, "description": "The number of the target Workstream issue."},
+			"workstream": map[string]any{"type": "integer", "minimum": 1, "description": "The number of the target Workstream issue in the repository of this Workstream."},
 		},
 		func(input moveInput) string {
-			return fmt.Sprintf("Move #%d to the Workstream #%d", input.N, input.Workstream)
+			return fmt.Sprintf("Move %s#%d to the Workstream #%d", input.Repository, input.N, input.Workstream)
 		},
-		checkMoveTask,
+		e.checkMoveTask,
 		e.moveTask)
 }
 

@@ -512,7 +512,7 @@ func TestMoveTaskMovesTheTaskInTheCopyAtOnce(t *testing.T) {
 	fake.AddIssue(shop, 20, "Billing")
 	fake.AddLabel(shop, 20, "mobius:workstream", "owner")
 	fake.AddIssue(shop, 41, "Add plan model")
-	server, _ := connect(t, fake, approvalSeen+call("move_task", "{ n = 41, workstream = 20 }"))
+	server, _ := connect(t, fake, approvalSeen+call("move_task", `{ repository = "owner/shop", n = 41, workstream = 20 }`))
 	fake.AddSubIssue(shop, 12, 41)
 	fake.SetTitle(shop, 41, "Add the plan model")
 	testkit.WaitFor(t, func() bool { return len(copiedIssues(t, server)) == 1 })

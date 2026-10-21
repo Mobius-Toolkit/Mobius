@@ -33,8 +33,8 @@ type TranscribeResponse struct {
 	Body Envelope[Transcription]
 }
 
-// Transcribe converts a voice recording to text. It answers 503 while the converter is not ready, and 502 when the
-// converter returns an error.
+// Transcribe converts a voice recording to text. It waits up to 5 minutes for the converter. It answers 503 when the
+// converter is still not ready after that time, and 502 when the converter returns an error.
 func (h *handlers) Transcribe(ctx context.Context, req TranscribeRequest) (*TranscribeResponse, error) {
 	text, err := h.recordings.Final.Transcribe(ctx, req.Body)
 	if err != nil {
@@ -129,7 +129,8 @@ type FinishRecordingResponse struct {
 }
 
 // FinishRecording converts the full audio of a recording to text and removes the recording. It answers 404 for an
-// unknown recording, 503 while the converter is not ready, and 502 when the converter returns an error.
+// unknown recording. It waits up to 5 minutes for the converter. It answers 503 when the converter is still not ready
+// after that time, and 502 when the converter returns an error.
 func (h *handlers) FinishRecording(ctx context.Context, req FinishRecordingRequest) (*FinishRecordingResponse, error) {
 	text, err := h.recordings.Finish(ctx, req.Path.ID)
 	if err != nil {

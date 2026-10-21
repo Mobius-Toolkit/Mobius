@@ -69,6 +69,14 @@ func (c converter) transcribe(wav string) (string, error) {
 	return c.Transcribe(context.Background(), []byte(wav))
 }
 
+// transcribeBriefly gives the Unavailable error that Transcribe has after a wait of 100 ms.
+func (c converter) transcribeBriefly() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	_, err := c.Transcribe(ctx, []byte("RIFF"))
+	return err
+}
+
 func TestWithoutWhisperServerTheConverterTellsToInstallIt(t *testing.T) {
 	c := newConverter(t)
 
@@ -87,8 +95,8 @@ func TestWhileTheModelDownloadsTheConverterTellsItAndThenItStartsTheProcess(t *t
 	program := testkit.InstallFakeWhisper(t, c.bin)
 	c.model.Hold()
 
-	_, first := c.transcribe("RIFF")
-	_, second := c.transcribe("RIFF")
+	first := c.transcribeBriefly()
+	second := c.transcribeBriefly()
 
 	if !errors.Is(first, voice.Downloading) || !errors.Is(second, voice.Downloading) {
 		t.Errorf("errors = %v, %v", first, second)
@@ -126,9 +134,9 @@ func TestWhileTheProcessLoadsTheModelTheConverterTellsItIsStarting(t *testing.T)
 		t.Fatal(err)
 	}
 
-	_, err := c.transcribe("RIFF")
+	err := c.transcribeBriefly()
 	testkit.WaitFor(t, func() bool {
-		_, err = c.transcribe("RIFF")
+		err = c.transcribeBriefly()
 		return errors.Is(err, voice.Starting) && fileHasLines(program+".starts", 1)
 	})
 
@@ -181,9 +189,9 @@ func TestAStoppedDownloadLeavesNoModelFile(t *testing.T) {
 	testkit.InstallFakeWhisper(t, c.bin)
 	c.model.SetBroken(true)
 
-	_, err := c.transcribe("RIFF")
+	err := c.transcribeBriefly()
 	testkit.WaitFor(t, func() bool {
-		_, err = c.transcribe("RIFF")
+		err = c.transcribeBriefly()
 		return c.model.Downloads() >= 2
 	})
 	testkit.WaitFor(t, func() bool { return !c.IsDownloading() })
@@ -202,9 +210,9 @@ func TestADownloadThatGetsNoBytesEndsAndTheNextRequestStartsItAgain(t *testing.T
 	c.StallTimeout = 100 * time.Millisecond
 	c.model.SetStalled(true)
 
-	_, err := c.transcribe("RIFF")
+	err := c.transcribeBriefly()
 	testkit.WaitFor(t, func() bool {
-		_, err = c.transcribe("RIFF")
+		err = c.transcribeBriefly()
 		return c.model.Downloads() >= 2
 	})
 	testkit.WaitFor(t, func() bool { return !c.IsDownloading() })

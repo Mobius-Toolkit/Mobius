@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 	"github.com/Mobius-Toolkit/Mobius/internal/voice"
@@ -42,7 +43,12 @@ func withoutDraft(t *testing.T, whisper *voice.Whisper) *voice.Recordings {
 
 func transcribe(t *testing.T, handler http.Handler, body []byte) (int, string) {
 	t.Helper()
-	request := httptest.NewRequest(http.MethodPost, "/api/voice/transcriptions", bytes.NewReader(body))
+	return transcribeWithin(context.Background(), t, handler, body)
+}
+
+func transcribeWithin(ctx context.Context, t *testing.T, handler http.Handler, body []byte) (int, string) {
+	t.Helper()
+	request := httptest.NewRequestWithContext(ctx, http.MethodPost, "/api/voice/transcriptions", bytes.NewReader(body))
 	request.Header.Set("Content-Type", "audio/wav")
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, request)
@@ -134,8 +140,10 @@ func TestTranscribeAnswers503WithTheReasonWhenTheConverterIsNotReady(t *testing.
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			handler, _ := testMuxWith(t, test.whisper)
+			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+			defer cancel()
 
-			status, text := transcribe(t, handler, []byte("RIFF"))
+			status, text := transcribeWithin(ctx, t, handler, []byte("RIFF"))
 
 			if status != http.StatusServiceUnavailable || strings.TrimSpace(text) != `{"error":"`+test.message+`"}` {
 				t.Errorf("status = %d, body = %s", status, text)

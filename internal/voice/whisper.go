@@ -40,6 +40,12 @@ const healthTimeout = 2 * time.Second
 // stallTimeout is the time without a byte after which the download of the model ends.
 const stallTimeout = time.Minute
 
+// finishTimeout is the time that Transcribe waits for the converter and converts.
+const finishTimeout = 5 * time.Minute
+
+// readyInterval is the time between two checks of the converter while Transcribe waits for it.
+const readyInterval = time.Second
+
 // Unavailable is the reason why the converter cannot convert now. Its text is for the user.
 type Unavailable string
 
@@ -140,8 +146,26 @@ type answer struct {
 	Error    string    `json:"error"`
 }
 
-// Transcribe gives the text of the WAV file wav. It gives an Unavailable error while the converter is not ready.
+// Transcribe gives the text of the WAV file wav. While the converter downloads or starts the model, it waits. When the
+// wait and the conversion together take more than finishTimeout, it gives the last Unavailable error. It gives
+// NotInstalled and each other error at once.
 func (w *Whisper) Transcribe(ctx context.Context, wav []byte) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, finishTimeout)
+	defer cancel()
+	for {
+		err := w.ensure(ctx)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, Starting) && !errors.Is(err, Downloading) {
+			return "", err
+		}
+		select {
+		case <-ctx.Done():
+			return "", err
+		case <-time.After(readyInterval):
+		}
+	}
 	result, err := w.infer(ctx, wav, "json")
 	if err != nil {
 		return "", err

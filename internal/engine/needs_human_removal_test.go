@@ -191,7 +191,7 @@ func setFixRounds(t *testing.T, server *testserver.Server, rounds int) {
 	}
 }
 
-const markReadyLead = "[[prompts]]\nwhen = \"Start #41.\"\ncall = { tool = \"mark_ready\", arguments = { n = 41 } }\n\n"
+const markReadyLead = "[[prompts]]\nwhen = \"Start #41.\"\ncall = { tool = \"mark_ready\", arguments = { repository = \"owner/shop\", n = 41 } }\n\n"
 
 func TestMarkReadyContinuesATaskThatTheCIStoppedAndKeepsTheRoundCounters(t *testing.T) {
 	for _, autopilot := range []bool{true, false} {

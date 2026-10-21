@@ -41,7 +41,7 @@ type Recording = {
 
 // The run belongs to the page, not to a mount of useVoice. A switch of the Workstream remounts the input and does
 // not stop the run.
-let snapshot = { phase: "idle" as Phase, error: "" };
+let snapshot = { phase: "idle" as Phase, error: "", canResend: false };
 const listeners = new Set<() => void>();
 let current: Recording | undefined;
 // Each start and each abort changes run. A step of an older run does nothing.
@@ -51,9 +51,12 @@ let insert: ((text: string, live: boolean) => void) | undefined;
 // Shows the live text in the input. It gives false when the input does not show it, because the user changed the field.
 let insertLive: ((text: string, first: boolean) => boolean) | undefined;
 let screenLock: WakeLockSentinel | undefined;
+// The audio of the last recording that the server did not convert, and whether its live text showed. A new recording,
+// a sent message and the end of a conversion remove it.
+let kept: { chunks: Int16Array<ArrayBuffer>[]; shown: boolean } | undefined;
 
 const publish = (phase: Phase, error: string) => {
-  snapshot = { phase, error };
+  snapshot = { phase, error, canResend: kept !== undefined };
   listeners.forEach((listener) => listener());
 };
 
@@ -218,6 +221,18 @@ const convertLive = async (recording: Recording, token: number) => {
   return undefined;
 };
 
+const settle = (
+  result: { text: string; error: string },
+  saved: NonNullable<typeof kept>,
+  message: string,
+) => {
+  kept = result.error ? saved : undefined;
+  publish("idle", result.error || message);
+  if (!result.error && (result.text || saved.shown)) {
+    insert?.(result.text, saved.shown);
+  }
+};
+
 const finish = async (message: string) => {
   const recording = current;
   if (!recording) {
@@ -234,14 +249,25 @@ const finish = async (message: string) => {
   if (token !== run) {
     return;
   }
-  publish("idle", result.error || message);
-  if (!result.error && (result.text || recording.live.shown)) {
-    insert?.(result.text, recording.live.shown);
+  settle(result, { chunks: recording.chunks, shown: recording.live.shown }, message);
+};
+
+const resend = async () => {
+  const saved = kept;
+  if (!saved || snapshot.phase !== "idle") {
+    return;
+  }
+  const token = run;
+  publish("converting", "");
+  const result = await convert(saved.chunks);
+  if (token === run) {
+    settle(result, saved, "");
   }
 };
 
 const start = async () => {
   const token = ++run;
+  kept = undefined;
   const context = new AudioContext();
   void context.resume();
   publish("recording", "");
@@ -332,6 +358,7 @@ const abortVoice = () => {
     current = undefined;
   }
   releaseScreen();
+  kept = undefined;
   publish("idle", "");
 };
 
@@ -343,7 +370,8 @@ export const voiceSupported =
 // not show the text. The second toggle stops the recording, and the server converts it to text. The text goes to onText
 // of the input that is mounted when the answer comes. Its live is true when the run showed live text, and the text
 // replaces it. The recording stays on until toggle stops it, abort runs, the recording reaches 10 minutes, or the
-// microphone stops. error is the failure of the last run, or '' when a run starts or abort runs.
+// microphone stops. error is the failure of the last run, or '' when a run starts or abort runs. After a failed
+// conversion, canResend is true, and resend sends the audio again until a conversion works, a run starts or abort runs.
 export function useVoice(
   onText: (text: string, live: boolean) => void,
   onLive: (text: string, first: boolean) => boolean,
@@ -377,6 +405,8 @@ export function useVoice(
     recording: phase === "recording",
     converting: phase === "converting",
     error,
+    canResend: snapshot.canResend,
+    resend,
     toggle: toggleVoice,
     abort: abortVoice,
   };

@@ -31,13 +31,13 @@ func TestTheBodyOfAPullRequestEndsWithTheLinkToTheLeadChat(t *testing.T) {
 func TestCreateIssueEndsTheBodyWithTheLinkToTheLeadChatOfTheWorkstream(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectWith(t, fake, call("create_issue", `{ title = "Add plan model", body = "Plans have a price.", parent = 41, blocked_by = [] }`), withUIURL)
+	server, _ := connectWith(t, fake, call("create_issue", `{ repository = "owner/shop", title = "Add plan model", body = "Plans have a price.", parent = "owner/shop#41", blocked_by = [] }`), withUIURL)
 	fake.AddIssue(shop, 41, "Add plan table")
 	fake.AddSubIssue(shop, 12, 41)
 
 	session := run(t, server, leadSpec(t), "Plan the work.")
 
-	if got := reply(t, server, session); got != "Created #42." {
+	if got := reply(t, server, session); got != "Created owner/shop#42." {
 		t.Errorf("reply = %q", got)
 	}
 	if _, body := fake.Issue(shop, 42); body != "Plans have a price.\n\n"+chatLink {
@@ -48,7 +48,7 @@ func TestCreateIssueEndsTheBodyWithTheLinkToTheLeadChatOfTheWorkstream(t *testin
 func TestCreateIssueAddsNoLinkWithNoUIURL(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, call("create_issue", `{ title = "Add plan model", body = "Plans have a price.", parent = 12, blocked_by = [] }`))
+	server, _ := connect(t, fake, call("create_issue", `{ repository = "owner/shop", title = "Add plan model", body = "Plans have a price.", parent = "owner/shop#12", blocked_by = [] }`))
 
 	run(t, server, leadSpec(t), "Plan the work.")
 

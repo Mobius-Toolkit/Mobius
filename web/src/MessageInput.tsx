@@ -68,7 +68,8 @@ function Thumbnail({
 // under the field. The input gives its own failures to onError. When onSend gives a promise, the draft gets its text,
 // images and Inbox items back if the promise gives false. With onDecide, the field has no Send button and Enter sends nothing. The field has
 // a Reject button and an Approve button, and each one gives the text, empty or not, to onDecide. Both buttons stay
-// disabled while the promise runs. The field clears if the promise gives true.
+// disabled while the promise runs. The field clears if the promise gives true. With autoFocus, the field gets the focus
+// when it mounts, on a device with a fine pointer.
 export function MessageInput({
   draftKey,
   label,
@@ -78,6 +79,7 @@ export function MessageInput({
   error,
   onError,
   stopping,
+  autoFocus = false,
   onStop,
   onSend,
   onDecide,
@@ -90,6 +92,7 @@ export function MessageInput({
   error: string;
   onError: (error: string) => void;
   stopping: boolean;
+  autoFocus?: boolean;
   onStop?: () => void;
   onSend?: (text: string, images: File[], inboxItems: DraftInboxItem[]) => void | Promise<boolean>;
   onDecide?: (decision: Decision, text: string) => Promise<boolean>;
@@ -105,6 +108,11 @@ export function MessageInput({
     justSent.current = false;
   });
   const input = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (autoFocus && window.matchMedia("(pointer: fine)").matches) {
+      input.current?.focus();
+    }
+  }, [autoFocus]);
   const picker = useRef<HTMLInputElement>(null);
   // The text around the voice text of the run, and the value of the field after the last voice text.
   const voiceRegion = useRef<{ lead: string; trail: string; value: string }>(undefined);
@@ -437,9 +445,22 @@ export function MessageInput({
         </div>
       </div>
       {voice.error && (
-        <p role="alert" className="text-sm text-destructive">
-          {voice.error}
-        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <p role="alert" className="text-sm text-destructive">
+            {voice.error}
+          </p>
+          {voice.canResend && (
+            <Button
+              type="button"
+              variant="outline"
+              size="xs"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => void voice.resend()}
+            >
+              Send again
+            </Button>
+          )}
+        </div>
       )}
       {error && (
         <p role="alert" className="text-sm text-destructive">

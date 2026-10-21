@@ -196,7 +196,7 @@ func TestTheImplementerCommitsAndMobiusOpensADraftPullRequest(t *testing.T) {
 	inOrder(t, prompts[0],
 		"You are the Implementer of one task.",
 		"# Brief\n\nShip loyalty plans to all shops.\n",
-		"#41 Add plan model (issue, open)\n\nPlans have a price.\n",
+		"owner/shop#41 Add plan model (issue, open)\n\nPlans have a price.\n",
 		"Round down.",
 		"# Lead instructions\n\nStore plans in cents.")
 	if strings.Contains(prompts[0], "servers") {
