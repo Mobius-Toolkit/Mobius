@@ -111,8 +111,8 @@ const (
 
 // startImplementer starts an Implementer for the dispatched task of the issue number in the Workstream. The Implementer
 // gets the Brief, the issue and the instructions.
-func (e *Engine) startImplementer(ctx context.Context, repository github.Repository, workstream, number int64, instructions string, parent sql.NullInt64) (string, error) {
-	task, err := e.workstreamTask(ctx, repository, workstream, number)
+func (e *Engine) startImplementer(ctx context.Context, repository github.Repository, workstreamRepository string, workstream, number int64, instructions string, parent sql.NullInt64) (string, error) {
+	task, err := e.workstreamTask(ctx, repository, workstreamRepository, workstream, number)
 	if err != nil {
 		return "", err
 	}
@@ -174,7 +174,7 @@ func (e *Engine) startImplementerTool(ctx context.Context, c caller, repository 
 	if err := e.ciStopRefusal(ctx, repository, input.N); err != nil {
 		return "", err
 	}
-	return e.startImplementer(ctx, repository, c.workstream, input.N, input.Instructions, sql.NullInt64{Int64: c.session, Valid: true})
+	return e.startImplementer(ctx, repository, c.repository, c.workstream, input.N, input.Instructions, sql.NullInt64{Int64: c.session, Valid: true})
 }
 
 func (e *Engine) startFixRound(ctx context.Context, c caller, repository github.Repository, input findingsInput) (string, error) {
@@ -184,7 +184,7 @@ func (e *Engine) startFixRound(ctx context.Context, c caller, repository github.
 	if empty(input.Findings) {
 		return "", refuse("findings must not be empty.")
 	}
-	task, err := e.workstreamTask(ctx, repository, c.workstream, input.N)
+	task, err := e.workstreamTask(ctx, repository, c.repository, c.workstream, input.N)
 	if err != nil {
 		return "", err
 	}
@@ -264,7 +264,7 @@ func (e *Engine) approvePullRequest(ctx context.Context, c caller, repository gi
 	if empty(input.Report) {
 		return "", refuse("report must not be empty.")
 	}
-	task, err := e.workstreamTask(ctx, repository, c.workstream, input.N)
+	task, err := e.workstreamTask(ctx, repository, c.repository, c.workstream, input.N)
 	if err != nil {
 		return "", err
 	}
@@ -434,7 +434,7 @@ func (e *Engine) cannotDo(ctx context.Context, c caller, repository github.Repos
 	if empty(input.Reason) {
 		return "", refuse("reason must not be empty.")
 	}
-	task, err := e.workstreamTask(ctx, repository, c.workstream, c.agent.spec.Issue.Int64)
+	task, err := e.workstreamTask(ctx, repository, repository.FullName, c.workstream, c.agent.spec.Issue.Int64)
 	if err != nil {
 		return "", err
 	}
@@ -468,7 +468,7 @@ func (e *Engine) holdReply(ctx context.Context, c caller, repository github.Repo
 	if !found {
 		return "", refuse("%d is not a review thread or a comment of pull request #%d.", input.Thread, pullRequest)
 	}
-	task, err := e.workstreamTask(ctx, repository, c.workstream, c.agent.spec.Issue.Int64)
+	task, err := e.workstreamTask(ctx, repository, repository.FullName, c.workstream, c.agent.spec.Issue.Int64)
 	if err != nil {
 		return "", err
 	}
@@ -1164,7 +1164,7 @@ func (e *Engine) sendDetails(ctx context.Context, c caller, repository github.Re
 	if empty(input.Text) {
 		return "", refuse("text must not be empty.")
 	}
-	task, err := e.workstreamTask(ctx, repository, c.workstream, input.N)
+	task, err := e.workstreamTask(ctx, repository, c.repository, c.workstream, input.N)
 	if err != nil {
 		return "", err
 	}

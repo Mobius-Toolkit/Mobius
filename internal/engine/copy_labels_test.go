@@ -14,11 +14,11 @@ func TestATreeReadBeforeALocalLabelChangeDoesNotWriteTheOldLabelsBack(t *testing
 	server, _ := connect(t, fake, `
 [[prompts]]
 when = "Dollars were chosen"
-call = { tool = "close_question", arguments = { n = 41, answer = "Dollars." } }
+call = { tool = "close_question", arguments = { repository = "owner/shop", n = 41, answer = "Dollars." } }
 
 [[prompts]]
 when = "dispatch of #41"
-call = { tool = "ask", arguments = { n = 41, text = "Cents or dollars?" } }
+call = { tool = "ask", arguments = { repository = "owner/shop", n = 41, text = "Cents or dollars?" } }
 
 [[prompts]]
 reply = ["Seen"]
@@ -60,11 +60,11 @@ func TestAPollIssueReadBeforeALocalLabelChangeDoesNotWriteTheOldLabelsBack(t *te
 	server, _ := connect(t, fake, `
 [[prompts]]
 when = "Dollars were chosen"
-call = { tool = "close_question", arguments = { n = 41, answer = "Dollars." } }
+call = { tool = "close_question", arguments = { repository = "owner/shop", n = 41, answer = "Dollars." } }
 
 [[prompts]]
 when = "dispatch of #41"
-call = { tool = "ask", arguments = { n = 41, text = "Cents or dollars?" } }
+call = { tool = "ask", arguments = { repository = "owner/shop", n = 41, text = "Cents or dollars?" } }
 
 [[prompts]]
 reply = ["Seen"]
@@ -96,11 +96,11 @@ func TestALocalLabelChangeDuringAPollDoesNotKeepTheOldLabelsOfAnotherIssue(t *te
 	server, _ := connect(t, fake, `
 [[prompts]]
 when = "Dollars were chosen"
-call = { tool = "close_question", arguments = { n = 41, answer = "Dollars." } }
+call = { tool = "close_question", arguments = { repository = "owner/shop", n = 41, answer = "Dollars." } }
 
 [[prompts]]
 when = "dispatch of #41"
-call = { tool = "ask", arguments = { n = 41, text = "Cents or dollars?" } }
+call = { tool = "ask", arguments = { repository = "owner/shop", n = 41, text = "Cents or dollars?" } }
 
 [[prompts]]
 reply = ["Seen"]
@@ -134,11 +134,11 @@ func TestATreeCopyKeepsALocalLabelChangeAndStillWritesTheTree(t *testing.T) {
 	server, _ := connect(t, fake, `
 [[prompts]]
 when = "Dollars were chosen"
-call = { tool = "close_question", arguments = { n = 41, answer = "Dollars." } }
+call = { tool = "close_question", arguments = { repository = "owner/shop", n = 41, answer = "Dollars." } }
 
 [[prompts]]
 when = "dispatch of #41"
-call = { tool = "ask", arguments = { n = 41, text = "Cents or dollars?" } }
+call = { tool = "ask", arguments = { repository = "owner/shop", n = 41, text = "Cents or dollars?" } }
 
 [[prompts]]
 reply = ["Seen"]
@@ -191,11 +191,11 @@ func TestANewWorkstreamCopyKeepsALocalLabelChangeAndStillWritesTheTree(t *testin
 	server, _ := connect(t, fake, `
 [[prompts]]
 when = "Dollars were chosen"
-call = { tool = "close_question", arguments = { n = 41, answer = "Dollars." } }
+call = { tool = "close_question", arguments = { repository = "owner/shop", n = 41, answer = "Dollars." } }
 
 [[prompts]]
 when = "dispatch of #41"
-call = { tool = "ask", arguments = { n = 41, text = "Cents or dollars?" } }
+call = { tool = "ask", arguments = { repository = "owner/shop", n = 41, text = "Cents or dollars?" } }
 
 [[prompts]]
 reply = ["Seen"]

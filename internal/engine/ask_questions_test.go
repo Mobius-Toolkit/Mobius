@@ -46,7 +46,7 @@ func TestAskWithQuestionsStoresThemAndListsTheOptionsInTheComment(t *testing.T) 
 	server, _ := connect(t, fake, `
 [[prompts]]
 when = "Ask choices"
-call = { tool = "ask", arguments = { n = 12, text = "Two choices.", questions = [
+call = { tool = "ask", arguments = { repository = "owner/shop", n = 12, text = "Two choices.", questions = [
   { text = "Which unit?", options = [{ title = "Cents", details = "Whole numbers." }, { title = "Dollars", details = "Decimals." }] },
   { text = "Which plans?", multiple = true, options = [{ title = "Free" }, { title = "Pro", details = "Paid." }, { title = "Team" }] },
 ] } }
@@ -91,7 +91,7 @@ func TestAskWithNoQuestionsPostsTheTextAndStoresNoQuestions(t *testing.T) {
 	server, _ := connect(t, fake, `
 [[prompts]]
 when = "Ask plain"
-call = { tool = "ask", arguments = { n = 12, text = "Cents or dollars?" } }
+call = { tool = "ask", arguments = { repository = "owner/shop", n = 12, text = "Cents or dollars?" } }
 
 [[prompts]]
 reply = ["Seen"]
@@ -118,7 +118,7 @@ func TestAskRefusesAQuestionWithOneOption(t *testing.T) {
 	server, _ := connect(t, fake, `
 [[prompts]]
 when = "Ask one option"
-call = { tool = "ask", arguments = { n = 12, text = "Choose.", questions = [{ text = "Which?", options = [{ title = "Only" }] }] } }
+call = { tool = "ask", arguments = { repository = "owner/shop", n = 12, text = "Choose.", questions = [{ text = "Which?", options = [{ title = "Only" }] }] } }
 
 [[prompts]]
 reply = ["Seen"]

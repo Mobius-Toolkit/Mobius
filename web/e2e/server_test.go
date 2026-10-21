@@ -128,7 +128,7 @@ reply = ["Title: Gift cards\n\nBrief: Sell gift cards in the shop."]
 [[prompts]]
 when = "dispatch of #45"
 call = { tool = "tell_owner", arguments = { text = "#45 needs a decision: one seat limit for each plan, or one for all plans?" } }
-later = { after = "100ms", call = { tool = "ask", arguments = { n = 12, text = "#45 needs a decision: one seat limit for each plan, or one for all plans?" } } }
+later = { after = "100ms", call = { tool = "ask", arguments = { repository = "owner/shop", n = 12, text = "#45 needs a decision: one seat limit for each plan, or one for all plans?" } } }
 
 [[prompts]]
 when = "Save in the Workstream memory"

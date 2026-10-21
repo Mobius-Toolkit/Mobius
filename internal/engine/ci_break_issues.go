@@ -362,7 +362,7 @@ func (e *Engine) startCIBreakTasks(ctx context.Context, repository github.Reposi
 		if err := e.dispatch(ctx, repository, issue, repository.FullName, workstream, appLogin(repository.AppSlug)); err != nil {
 			return err
 		}
-		if _, err := e.startImplementer(ctx, repository, workstream, ciBreak.Issue, ciTaskInstructions, sql.NullInt64{}); err != nil {
+		if _, err := e.startImplementer(ctx, repository, repository.FullName, workstream, ciBreak.Issue, ciTaskInstructions, sql.NullInt64{}); err != nil {
 			log.Printf("start the Implementer of #%d of %s: %v", ciBreak.Issue, repository.FullName, err)
 		}
 	}

@@ -180,7 +180,7 @@ func TestADeclinedTaskDoesNotStartAgain(t *testing.T) {
 	prepareAutopilot(fake, true)
 	addTaskIssue(fake, 41, "Add plan model")
 	dataDir := t.TempDir()
-	testkit.InstallFakeAgent(t, dataDir, options+"[[prompts]]\nwhen = \"answer of #41\"\nreply = [\"Seen\"]\n\n[[prompts]]\nwhen = \"dispatch of #41\"\ncall = { tool = \"decline\", arguments = { n = 41, reason = \"Split it.\" } }\n")
+	testkit.InstallFakeAgent(t, dataDir, options+"[[prompts]]\nwhen = \"answer of #41\"\nreply = [\"Seen\"]\n\n[[prompts]]\nwhen = \"dispatch of #41\"\ncall = { tool = \"decline\", arguments = { repository = \"owner/shop\", n = 41, reason = \"Split it.\" } }\n")
 	server := startServerWith(t, fake, testserver.Config(t, dataDir), "")
 	testkit.WaitFor(t, func() bool { return len(fake.Comments(shop, 41)) == 1 && !hasLiveTask(t, server, 41) })
 
@@ -198,7 +198,7 @@ func startAskedTask(t *testing.T, fake *testkit.FakeGitHub) *testserver.Server {
 	addTaskIssue(fake, 41, "Add plan model")
 	addTaskIssue(fake, 42, "Add plan price")
 	dataDir := t.TempDir()
-	testkit.InstallFakeAgent(t, dataDir, options+"[[prompts]]\nwhen = \"answer of #41\"\nreply = [\"Seen\"]\n\n[[prompts]]\nwhen = \"dispatch of #41\"\ncall = { tool = \"ask\", arguments = { n = 41, text = \"Cents or dollars?\" } }\n\n[[prompts]]\nreply = [\"Seen\"]\n")
+	testkit.InstallFakeAgent(t, dataDir, options+"[[prompts]]\nwhen = \"answer of #41\"\nreply = [\"Seen\"]\n\n[[prompts]]\nwhen = \"dispatch of #41\"\ncall = { tool = \"ask\", arguments = { repository = \"owner/shop\", n = 41, text = \"Cents or dollars?\" } }\n\n[[prompts]]\nreply = [\"Seen\"]\n")
 	cfg := testserver.Config(t, dataDir)
 	cfg.Roles.Implementer.Max = 1
 	keepSessionOpen(cfg)
