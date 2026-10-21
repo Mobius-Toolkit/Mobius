@@ -183,6 +183,13 @@ You can add these keys:
 | `poll_interval` | `"30s"` | The time between two polls of GitHub |
 | `housekeeper_interval` | `"1h"` | The time between two runs of the Housekeeper |
 
+The table `organizations` has one entry for each GitHub organization. The key `issue_repository` of an entry is the repository (`owner/name`) that holds the Workstream issues of the organization. Its owner must be the organization. The Coordinator creates and finds the Workstreams there. Each task issue stays in the repository of its code. The key is necessary when the Mobius App has more than one repository in the organization. For example:
+
+```toml
+[organizations.Mobius-Toolkit]
+issue_repository = "Mobius-Toolkit/Mobius"
+```
+
 A duration is a text with a number and a unit for each part: `s`, `m` or `h`. For example, `"90s"`, `"1h30m"` or `"168h"`. Mobius does not accept a day unit or a space.
 
 The Diagnoser reads the full log of each failed CI job of a pull request before the fix round. It gives the reason of the failure to the fix round. It has the same keys as each other Role.

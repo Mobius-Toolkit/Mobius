@@ -285,6 +285,28 @@ func TestParseRefusesAUIURLThatIsNotAnHTTPURL(t *testing.T) {
 	}
 }
 
+func TestParseReadsTheIssueRepositoryOfAnOrganization(t *testing.T) {
+	config := parse(t, valid+"\n[organizations.Mobius-Toolkit]\nissue_repository = \"Mobius-Toolkit/Mobius\"\n")
+
+	if got := config.Organizations["Mobius-Toolkit"].IssueRepository; got != "Mobius-Toolkit/Mobius" {
+		t.Errorf("issue_repository = %q", got)
+	}
+}
+
+func TestParseRefusesAnIssueRepositoryOfAnotherOwnerOrWithNoSlash(t *testing.T) {
+	for value, want := range map[string]string{
+		"other/Mobius":       "organizations.Mobius-Toolkit.issue_repository: the owner must be Mobius-Toolkit",
+		"Mobius":             "organizations.Mobius-Toolkit.issue_repository: must be owner/name",
+		"Mobius-Toolkit/":    "organizations.Mobius-Toolkit.issue_repository: must be owner/name",
+		"Mobius-Toolkit/a/b": "organizations.Mobius-Toolkit.issue_repository: must be owner/name",
+		"":                   "organizations.Mobius-Toolkit.issue_repository: must be owner/name",
+	} {
+		if got := parseError(t, valid+"\n[organizations.Mobius-Toolkit]\nissue_repository = \""+value+"\"\n"); got != want {
+			t.Errorf("%q: error = %q, want %q", value, got, want)
+		}
+	}
+}
+
 func TestSkillDirectoryIsClaudeSkillsForClaudeCodeAndAgentsSkillsForTheOtherHarnesses(t *testing.T) {
 	for harness, want := range map[Harness]string{ClaudeCode: ".claude/skills", Devin: ".agents/skills", Antigravity: ".agents/skills"} {
 		if got := harness.SkillDirectory(); got != want {
