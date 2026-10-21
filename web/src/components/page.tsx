@@ -1,6 +1,7 @@
 import { Link, type LinkProps } from "@tanstack/react-router";
 import { ChevronRightIcon } from "lucide-react";
 import type { ReactNode } from "react";
+import { BackButton } from "@/BackButton";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
@@ -10,10 +11,21 @@ export const inset = "px-4 md:px-0";
 export const rowClass = "flex min-h-11 items-center gap-4 px-4 py-2 md:px-2";
 
 // The phone shows the title and the controls of a page in the top bar.
-export function PageHeader({ title, children }: { title: ReactNode; children?: ReactNode }) {
+export function PageHeader({
+  title,
+  back,
+  onBack,
+  children,
+}: {
+  title: ReactNode;
+  back?: LinkProps["to"];
+  onBack?: () => void;
+  children?: ReactNode;
+}) {
   return (
-    <div className="hidden items-center justify-between gap-4 md:flex">
-      <h2 className="min-w-0 truncate text-base font-semibold">{title}</h2>
+    <div className="hidden items-center gap-2 md:flex">
+      {back && <BackButton parent={back} onBack={onBack} />}
+      <h2 className="line-clamp-2 min-w-0 grow text-base font-semibold wrap-anywhere">{title}</h2>
       {children}
     </div>
   );

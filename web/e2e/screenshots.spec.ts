@@ -857,6 +857,28 @@ test("screenshots", async ({ page }) => {
     },
   );
   await setQueueReason(page, "waits for a low load");
+  await screenshot(
+    page,
+    "transcript-panel-start-check",
+    "/workstreams/owner/shop/12",
+    (device) => [
+      ...frame(device, drain),
+      page.getByRole("button", { name: "Start the check now" }).filter({ visible: true }),
+    ],
+    async (device) => {
+      if (device === "phone") {
+        await page.getByRole("banner").getByRole("button", { name: "Agents" }).click();
+      }
+      await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
+      await page
+        .getByRole("button", {
+          name: /^implementer devin · swe-1.5 · Sep \d+, \d\d:\d\d [AP]M · waits for a low load/,
+        })
+        .filter({ visible: true })
+        .click();
+      await logConnected(page);
+    },
+  );
   await screenshot(page, "agents", "/agents", (device) => [
     ...frame(device, drain),
     main.getByText(/Sep \d+, \d\d:\d\d [AP]M · Mobius prepares an upgrade/),
