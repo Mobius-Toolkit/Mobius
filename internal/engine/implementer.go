@@ -1031,7 +1031,7 @@ func (e *Engine) prepareWorktree(ctx context.Context, j *job, worktree string) e
 	dataDir, name := e.config.DataDir, repository.FullName
 	e.gitMu.Lock()
 	defer e.gitMu.Unlock()
-	if err := runner.Fetch(ctx, dataDir, name, repository.CloneURL, token); err != nil {
+	if err := e.fetch(ctx, repository, token); err != nil {
 		return err
 	}
 	if j.branch == "" {
@@ -1318,7 +1318,7 @@ func (e *Engine) push(ctx context.Context, a *Agent, j *job, failedLog string, m
 	}
 	e.gitMu.Lock()
 	pullStartedAt := now()
-	err = runner.Fetch(ctx, dataDir, repository.FullName, repository.CloneURL, token)
+	err = e.fetch(ctx, repository, token)
 	if err == nil {
 		err = runner.Pull(ctx, dataDir, worktree, j.branch)
 	}

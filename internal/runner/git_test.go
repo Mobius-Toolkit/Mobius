@@ -348,3 +348,120 @@ func TestFetchReturnsAtTheEndOfItsContextAndStopsATransportChildThatEndsWithItsI
 	}
 	waitForStop(t, pid)
 }
+
+func remoteRepository(t *testing.T, commit bool) string {
+	t.Helper()
+	remote := filepath.Join(t.TempDir(), "shop.git")
+	if err := os.Mkdir(remote, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, remote, "init", "--bare", "--initial-branch=main")
+	if commit {
+		work := t.TempDir()
+		gitIn(t, work, "init", "--initial-branch=main")
+		gitIn(t, work, "commit", "--allow-empty", "-m", "first")
+		gitIn(t, work, "push", remote, "main:refs/heads/main")
+	}
+	return remote
+}
+
+func gitOutput(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", "-c", "core.hooksPath=/dev/null")
+	cmd.Args = append(cmd.Args, args...)
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git %v: %v", args, err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func TestHasRemoteBranchTellsIfTheFetchGotTheBranch(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	remote := remoteRepository(t, true)
+	before := gitOutput(t, remote, "rev-parse", "main")
+	if err := Fetch(ctx, dataDir, "acme/shop", remote, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	for branch, want := range map[string]bool{"main": true, "other": false} {
+		if got, err := HasRemoteBranch(ctx, dataDir, "acme/shop", branch); err != nil || got != want {
+			t.Errorf("HasRemoteBranch(%s) = %v, %v, want %v", branch, got, err, want)
+		}
+	}
+	if after := gitOutput(t, remote, "rev-parse", "main"); after != before {
+		t.Errorf("main = %s, want %s", after, before)
+	}
+
+	empty := remoteRepository(t, false)
+	if err := Fetch(ctx, dataDir, "acme/garden", empty, ""); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := HasRemoteBranch(ctx, dataDir, "acme/garden", "main"); err != nil || got {
+		t.Errorf("HasRemoteBranch of an empty remote = %v, %v, want false", got, err)
+	}
+}
+
+func TestStartBranchPushesACommitOfTheEmptyTree(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	remote := remoteRepository(t, false)
+	if err := Fetch(ctx, dataDir, "acme/shop", remote, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := StartBranch(ctx, dataDir, "acme/shop", remote, "", "main", "bot", "bot@example.com"); err != nil {
+		t.Fatal(err)
+	}
+
+	if log := gitOutput(t, remote, "log", "--format=%s by %an <%ae>, %cn <%ce>", "main"); log != "Start by bot <bot@example.com>, bot <bot@example.com>" {
+		t.Errorf("log = %s", log)
+	}
+	if tree := gitOutput(t, remote, "rev-parse", "main^{tree}"); tree != emptyTree {
+		t.Errorf("tree = %s", tree)
+	}
+	if got, err := HasRemoteBranch(ctx, dataDir, "acme/shop", "main"); err != nil || !got {
+		t.Errorf("HasRemoteBranch = %v, %v", got, err)
+	}
+}
+
+func TestStartBranchKeepsTheCommitThatAPersonPushedFirst(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	remote := remoteRepository(t, false)
+	if err := Fetch(ctx, dataDir, "acme/shop", remote, ""); err != nil {
+		t.Fatal(err)
+	}
+	work := t.TempDir()
+	gitIn(t, work, "init", "--initial-branch=main")
+	gitIn(t, work, "commit", "--allow-empty", "-m", "Add the readme")
+	gitIn(t, work, "push", remote, "main:refs/heads/main")
+	pushed := gitOutput(t, remote, "rev-parse", "main")
+
+	if err := StartBranch(ctx, dataDir, "acme/shop", remote, "", "main", "bot", "bot@example.com"); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := gitOutput(t, remote, "rev-parse", "main"); got != pushed {
+		t.Errorf("main of the remote = %s, want %s", got, pushed)
+	}
+	if got := gitOutput(t, bareDir(dataDir, "acme/shop"), "rev-parse", "origin/main"); got != pushed {
+		t.Errorf("origin/main = %s, want %s", got, pushed)
+	}
+}
+
+func TestStartBranchReturnsTheErrorOfAPushThatLeavesNoBranch(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	remote := remoteRepository(t, false)
+	gitIn(t, remote, "config", "receive.hideRefs", "refs/heads")
+	if err := Fetch(ctx, dataDir, "acme/shop", remote, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := StartBranch(ctx, dataDir, "acme/shop", remote, "", "main", "bot", "bot@example.com"); err == nil {
+		t.Error("StartBranch to a remote that refuses the push succeeded")
+	}
+}

@@ -227,7 +227,7 @@ func (e *Engine) reviewRound(ctx context.Context, a *Agent, j *reviewJob, task s
 	dataDir, name := e.config.DataDir, repository.FullName
 	var base string
 	e.gitMu.Lock()
-	err = runner.Fetch(ctx, dataDir, name, repository.CloneURL, token)
+	err = e.fetch(ctx, repository, token)
 	if err == nil {
 		err = runner.AddDetachedWorktree(ctx, dataDir, name, a.spec.Dir, j.head)
 	}

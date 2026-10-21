@@ -22,6 +22,12 @@ func startServer(t *testing.T, fake *testkit.FakeGitHub, dataDir, before string)
 func startServerWith(t *testing.T, fake *testkit.FakeGitHub, cfg *config.Config, before string) *testserver.Server {
 	t.Helper()
 	fake.AddRepository(shop)
+	return startServerOnAddedRepository(t, fake, cfg, before)
+}
+
+// startServerOnAddedRepository is startServerWith for a fake GitHub that already has owner/shop.
+func startServerOnAddedRepository(t *testing.T, fake *testkit.FakeGitHub, cfg *config.Config, before string) *testserver.Server {
+	t.Helper()
 	server := testserver.StartWith(t, cfg, fake.URL)
 	if before != "" {
 		if _, err := server.DB.Exec(before); err != nil {

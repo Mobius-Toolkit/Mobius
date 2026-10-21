@@ -96,6 +96,44 @@ func Fetch(ctx context.Context, dataDir, repository, cloneURL, token string) err
 	return err
 }
 
+// HasRemoteBranch tells if the bare clone of repository below dataDir has origin/branch, as the last Fetch got it.
+func HasRemoteBranch(ctx context.Context, dataDir, repository, branch string) (bool, error) {
+	return hasRef(ctx, dataDir, bareDir(dataDir, repository), "refs/remotes/origin/"+branch)
+}
+
+// emptyTree is the id of the tree with no entry. Git knows it in each repository.
+const emptyTree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
+// StartBranch pushes a commit of the empty tree, with the author name and email, to branch of the empty remote of
+// the bare clone of repository below dataDir, and fetches again. A failed push is no error when origin/branch exists
+// after the fetch.
+func StartBranch(ctx context.Context, dataDir, repository, cloneURL, token, branch, name, email string) error {
+	bare := bareDir(dataDir, repository)
+	commit := git(ctx, dataDir, bare, "", "commit-tree", emptyTree, "-m", "Start")
+	commit.Env = append(commit.Env,
+		"GIT_AUTHOR_NAME="+name, "GIT_AUTHOR_EMAIL="+email,
+		"GIT_COMMITTER_NAME="+name, "GIT_COMMITTER_EMAIL="+email)
+	id, err := run(commit)
+	if err != nil {
+		return err
+	}
+	_, pushErr := run(git(ctx, dataDir, bare, token, "push", "origin", id+":refs/heads/"+branch))
+	if err := Fetch(ctx, dataDir, repository, cloneURL, token); err != nil {
+		return err
+	}
+	if pushErr == nil {
+		return nil
+	}
+	exists, err := HasRemoteBranch(ctx, dataDir, repository, branch)
+	if err != nil {
+		return err
+	}
+	if exists {
+		return nil
+	}
+	return pushErr
+}
+
 // worktreeConfig moves core.bare of the bare clone from its shared config to the config of the clone itself. With
 // extensions.worktreeConfig, a worktree of the clone then does not read core.bare. The steps can run again after a
 // failure.
