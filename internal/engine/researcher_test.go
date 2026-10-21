@@ -25,7 +25,7 @@ reply = ["I have the report."]
 
 [[prompts]]
 when = "# Owner message"
-call = { tool = "start_researcher", arguments = { question = "Where do plans store the price?" } }
+call = { tool = "start_researcher", arguments = { repository = "owner/shop", question = "Where do plans store the price?" } }
 `
 
 // quickResearcher is a Researcher that answers at once.
@@ -154,11 +154,11 @@ reply = ["I have the report."]
 
 [[prompts]]
 when = "Begin alpha"
-call = { tool = "start_researcher", arguments = { question = "Alpha question" } }
+call = { tool = "start_researcher", arguments = { repository = "owner/shop", question = "Alpha question" } }
 
 [[prompts]]
 when = "Begin beta"
-call = { tool = "start_researcher", arguments = { question = "Beta question" } }
+call = { tool = "start_researcher", arguments = { repository = "owner/shop", question = "Beta question" } }
 
 [[prompts]]
 when = "Details for alpha"
@@ -291,7 +291,7 @@ func TestTheResearcherToolsRefuseAResearcherOfAnotherWorkstream(t *testing.T) {
 const waitingResearcherLead = researchLeadOfDetails + `
 [[prompts]]
 when = "Begin gamma"
-call = { tool = "start_researcher", arguments = { question = "Gamma question" } }
+call = { tool = "start_researcher", arguments = { repository = "owner/shop", question = "Gamma question" } }
 
 [[prompts]]
 when = "Details for gamma"

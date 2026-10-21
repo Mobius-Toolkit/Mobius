@@ -392,7 +392,7 @@ func TestAMobiusCallShowsTheMobiusNameAndTheShortResult(t *testing.T) {
 
 	for _, line := range transcript(t, server, session) {
 		if line.Kind == "mcp_call" {
-			if line.Text != "mobius · list_tasks" || line.Body != "{} → #41 Add plan model: open" || line.Error {
+			if line.Text != "mobius · list_tasks" || line.Body != "{} → owner/shop#41 Add plan model: open" || line.Error {
 				t.Errorf("line = %+v", line)
 			}
 			return
@@ -404,13 +404,13 @@ func TestAMobiusCallShowsTheMobiusNameAndTheShortResult(t *testing.T) {
 func TestAValidationErrorIsAnErrorLine(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, "[[prompts]]\ncall = { tool = \"read_issue\", arguments = { n = 0 } }\n")
+	server, _ := connect(t, fake, "[[prompts]]\ncall = { tool = \"read_issue\", arguments = { repository = \"owner/shop\", n = 0 } }\n")
 
 	session, _ := leadReply(t, server)
 
 	for _, line := range transcript(t, server, session) {
 		if line.Kind == "mcp_call" {
-			if line.Text != "mobius · read_issue" || line.Body != `{"n":0} → n must be 1 or more.` || !line.Error {
+			if line.Text != "mobius · read_issue" || line.Body != `{"n":0,"repository":"owner/shop"} → n must be 1 or more.` || !line.Error {
 				t.Errorf("line = %+v", line)
 			}
 			return

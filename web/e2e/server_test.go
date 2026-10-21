@@ -97,12 +97,12 @@ reply = ["Red roses sell best."]
 
 [[prompts]]
 when = "Move #52 to the Workstream #20."
-call = { tool = "move_task", arguments = { n = 52, workstream = 20 } }
+call = { tool = "move_task", arguments = { repository = "plants/garden", n = 52, workstream = 20 } }
 hang = true
 
 [[prompts]]
 when = "Move #57 to the Workstream #20."
-call = { tool = "move_task", arguments = { n = 57, workstream = 20 } }
+call = { tool = "move_task", arguments = { repository = "plants/garden", n = 57, workstream = 20 } }
 hang = true
 
 [[prompts]]

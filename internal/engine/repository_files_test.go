@@ -54,7 +54,7 @@ func TestTheLeadGetsOnlyTheInstructionsOfTheLead(t *testing.T) {
 func TestTheImplementerAndTheResearcherGetTheFactsAndOnlyTheirOwnInstructions(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	lead := "[[prompts]]\nwhen = \"" + question + "\"\ncall = { tool = \"start_researcher\", arguments = { question = \"" + question + "\" } }\n\n" + leadStarts
+	lead := "[[prompts]]\nwhen = \"" + question + "\"\ncall = { tool = \"start_researcher\", arguments = { repository = \"owner/shop\", question = \"" + question + "\" } }\n\n" + leadStarts
 	server, dataDir := connectTask(t, fake, lead, commits, noChange)
 	testkit.InstallFakeHarness(t, dataDir, "agy_acp_server", options+"[[prompts]]\nreply = [\"Plans store the price in cents.\"]\n")
 	fake.CommitFile(shop, "AGENTS.md", fact, "Add the facts")
@@ -86,7 +86,7 @@ func TestTheImplementerAndTheResearcherGetTheFactsAndOnlyTheirOwnInstructions(t 
 // Role.
 func workerPrompts(t *testing.T, fake *testkit.FakeGitHub, implementer string, files ...[2]string) map[string]string {
 	t.Helper()
-	lead := "[[prompts]]\nwhen = \"" + question + "\"\ncall = { tool = \"start_researcher\", arguments = { question = \"" + question + "\" } }\n\n" + leadStarts
+	lead := "[[prompts]]\nwhen = \"" + question + "\"\ncall = { tool = \"start_researcher\", arguments = { repository = \"owner/shop\", question = \"" + question + "\" } }\n\n" + leadStarts
 	server, dataDir := connectTask(t, fake, lead, "[[prompts]]\nshell = \""+implementer+"\"\n", func(cfg *config.Config) { cfg.ReviewQuietPeriod = 200 * time.Millisecond })
 	testkit.InstallFakeHarness(t, dataDir, "agy_acp_server", options+"[[prompts]]\nreply = [\"Plans store the price in cents.\"]\n")
 	for _, file := range files {

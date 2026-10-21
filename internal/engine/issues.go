@@ -54,7 +54,7 @@ func (e *Engine) readIssue(ctx context.Context, repository github.Repository, nu
 		kind = "pull request"
 	}
 	var text strings.Builder
-	fmt.Fprintf(&text, "#%d %s (%s, %s)\n\n%s\n\n# Comments\n", number, issue.GetTitle(), kind, issue.GetState(), issue.GetBody())
+	fmt.Fprintf(&text, "%s#%d %s (%s, %s)\n\n%s\n\n# Comments\n", repository.FullName, number, issue.GetTitle(), kind, issue.GetState(), issue.GetBody())
 	comments, err := conversationComments(ctx, repository, number, trusted)
 	if err != nil {
 		return "", err
@@ -238,15 +238,15 @@ func (e *Engine) workstreamOf(ctx context.Context, repository github.Repository,
 	}
 }
 
-// inWorkstream tells if the issue number is in the Workstream of repository. An issue with a Workstream issue of its own
-// below the Workstream belongs to that Workstream.
-func (e *Engine) inWorkstream(ctx context.Context, repository github.Repository, workstream, number int64) (bool, error) {
+// inWorkstream tells if the issue number of repository is in the Workstream number of workstreamRepository. An issue with a
+// Workstream issue of its own below the Workstream belongs to that Workstream.
+func (e *Engine) inWorkstream(ctx context.Context, workstreamRepository string, workstream int64, repository github.Repository, number int64) (bool, error) {
 	issue, err := repository.Issue(ctx, number)
 	if err != nil || issue == nil || hasLabel(issue, workstreamLabel) {
 		return false, err
 	}
 	of, ofNumber, err := e.workstreamOf(ctx, repository, number)
-	return of == repository.FullName && ofNumber == workstream, err
+	return of == workstreamRepository && ofNumber == workstream, err
 }
 
 // reply replies with text to the review thread that starts with the comment id, or to the conversation comment id,

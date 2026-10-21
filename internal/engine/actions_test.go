@@ -623,13 +623,13 @@ func TestTheLeadCallsMoveTaskAndTheIssueMovesOnlyAfterTheOwnerApproves(t *testin
 		t.Errorf("sub-issues of #12 = %v", got)
 	}
 	items := itemsOf(t, server, "approval")
-	if len(items) != 1 || items[0].Title != "Move #41 to the Workstream #20" || items[0].Repository != shop || items[0].Workstream != 12 {
+	if len(items) != 1 || items[0].Title != "Move owner/shop#41 to the Workstream #20" || items[0].Repository != shop || items[0].Workstream != 12 {
 		t.Errorf("items = %+v", items)
 	}
 
 	done := decided(t, server, action.ID, "approve", "")
 
-	if done.Result != "Moved #41 to the Workstream #20." {
+	if done.Result != "Moved owner/shop#41 to the Workstream #20." {
 		t.Errorf("action = %+v", done)
 	}
 	if got := fake.SubIssueNumbers(shop, 20); !slices.Equal(got, []int64{41}) {
