@@ -430,6 +430,11 @@ func createdIssue(t *testing.T, server *testserver.Server, id int64) sql.NullInt
 	return issue
 }
 
+// The poll adds mobius:evergreen to a maintenance Workstream at a time that a test does not control.
+func workstreamLabels(fake *testkit.FakeGitHub, number int64) []string {
+	return slices.DeleteFunc(fake.Labels(shop, number), func(label string) bool { return label == "mobius:evergreen" })
+}
+
 func TestTheCoordinatorCallsCreateWorkstreamAndGitHubGetsTheIssueOnlyAfterTheOwnerApproves(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
@@ -458,7 +463,7 @@ func TestTheCoordinatorCallsCreateWorkstreamAndGitHubGetsTheIssueOnlyAfterTheOwn
 		t.Errorf("action = %+v", done)
 	}
 	title, body := fake.Issue(shop, 13)
-	if labels := fake.Labels(shop, 13); title != "Upkeep" || body != "Keep the code healthy." || !slices.Equal(labels, []string{"mobius:workstream", "mobius:maintenance"}) {
+	if labels := workstreamLabels(fake, 13); title != "Upkeep" || body != "Keep the code healthy." || !slices.Equal(labels, []string{"mobius:workstream", "mobius:maintenance"}) {
 		t.Errorf("#13 = %q, %q, %v", title, body, labels)
 	}
 	if fake.HasIssue(shop, 14) {
@@ -492,7 +497,7 @@ func TestAFailedAddOfTheLabelsLeavesTheActionPendingAndASecondApprovalCreatesNoS
 	if done.State != "done" || done.Error != "" || done.Result != "Created the Workstream #13." {
 		t.Errorf("action = %+v", done)
 	}
-	if labels := fake.Labels(shop, 13); !slices.Equal(labels, []string{"mobius:workstream", "mobius:maintenance"}) {
+	if labels := workstreamLabels(fake, 13); !slices.Equal(labels, []string{"mobius:workstream", "mobius:maintenance"}) {
 		t.Errorf("labels of #13 = %v", labels)
 	}
 	if fake.HasIssue(shop, 14) {

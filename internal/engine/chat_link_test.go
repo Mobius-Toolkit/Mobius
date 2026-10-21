@@ -97,7 +97,7 @@ func TestASecondApprovalOfCreateWorkstreamAfterAFailedAddOfTheLabelsKeepsOneLink
 	if _, body := fake.Issue(shop, 13); body != want {
 		t.Errorf("body = %q, want %q", body, want)
 	}
-	if labels := fake.Labels(shop, 13); !slices.Equal(labels, []string{"mobius:workstream", "mobius:maintenance"}) {
+	if labels := workstreamLabels(fake, 13); !slices.Equal(labels, []string{"mobius:workstream", "mobius:maintenance"}) {
 		t.Errorf("labels of #13 = %v", labels)
 	}
 	if fake.HasIssue(shop, 14) {
