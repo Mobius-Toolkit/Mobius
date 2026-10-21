@@ -31,7 +31,9 @@ const chatKey = (item: Pick<Queued, "organization" | "repository" | "workstream"
 
 export async function listQueued(chat: Pick<Queued, "organization" | "repository" | "workstream">) {
   const items = await run("readonly", (store) => store.index("chat").getAll(chatKey(chat)));
-  return (items as Queued[]).toSorted((a, b) => a.time.localeCompare(b.time));
+  return (items as Partial<Queued>[])
+    .map((item) => ({ ...item, inboxItems: item.inboxItems ?? [] }) as Queued)
+    .toSorted((a, b) => a.time.localeCompare(b.time));
 }
 
 export function addQueued(item: Queued) {
