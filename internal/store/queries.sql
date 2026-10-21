@@ -798,6 +798,26 @@ WHERE s.repository = sqlc.arg(repository) AND s.role <> 'curator' AND s.ended_at
       WHERE c.repository = s.repository AND c.role = 'curator' AND (c.ended_at IS NULL OR c.end_reason IN ('done', 'failed', 'hung'))
   ), 0);
 
+-- name: CountOrganizationSessionsEndedSinceCurator :one
+SELECT count(*) FROM sessions s
+WHERE substr(s.repository, 1, length(sqlc.arg(organization)) + 1) = sqlc.arg(organization) || '/'
+  AND s.role <> 'curator' AND s.ended_at IS NOT NULL
+  AND julianday(s.ended_at) > coalesce((
+      SELECT max(julianday(c.started_at)) FROM sessions c
+      WHERE c.repository = sqlc.arg(curator_repository) AND c.role = 'curator' AND (c.ended_at IS NULL OR c.end_reason IN ('done', 'failed', 'hung'))
+  ), 0);
+
+-- name: ListOrganizationSessionsEndedSince :many
+SELECT id, role, repository, issue FROM sessions
+WHERE substr(repository, 1, length(sqlc.arg(organization)) + 1) = sqlc.arg(organization) || '/'
+  AND role <> 'curator' AND ended_at IS NOT NULL AND julianday(ended_at) > julianday(CAST(sqlc.arg(since) AS TEXT))
+ORDER BY id;
+
+-- name: ListToolCallUpdates :many
+SELECT json FROM transcript
+WHERE session = ? AND kind = 'update' AND json_extract(json, '$.update.sessionUpdate') IN ('tool_call', 'tool_call_update')
+ORDER BY id;
+
 -- name: GetLastDoneCuratorStart :one
 SELECT started_at FROM sessions
 WHERE repository = ? AND role = 'curator' AND end_reason = 'done'

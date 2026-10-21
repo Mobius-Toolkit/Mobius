@@ -24,7 +24,12 @@ func researchEngine(t *testing.T) *Engine {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	return New(db, nil, limits(t), Agents{MCP: mcp.New()})
+	queries := store.New(db)
+	gh, err := github.New(queries, "http://127.0.0.1", "http://127.0.0.1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return New(db, gh, limits(t), Agents{MCP: mcp.New()})
 }
 
 func TestAResearcherThatStartsAfterTheShutdownIsDeclined(t *testing.T) {
@@ -52,11 +57,6 @@ func TestAResearcherThatStartsAfterTheShutdownIsDeclined(t *testing.T) {
 func TestAReportBeforeTheStopRefusesTheStop(t *testing.T) {
 	t.Parallel()
 	e := researchEngine(t)
-	gh, err := github.New(e.queries, "http://127.0.0.1", "http://127.0.0.1", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	e.github = gh
 	a, err := e.newAgent(t.Context(), Spec{Role: ResearcherRole, Organization: "owner", Repository: "owner/shop", Workstream: 12})
 	if err != nil {
 		t.Fatal(err)
