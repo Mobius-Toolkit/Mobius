@@ -641,7 +641,7 @@ func TestTheTriagerCreatesAWorkstreamOnlyAfterTheOwnerApprovesInTheInbox(t *test
 		items[0].Action == nil || items[0].Action.ID != action.ID {
 		t.Errorf("items = %+v", items)
 	}
-	if got := reply(t, server, second.ID); got != actionWaits {
+	if got := reply(t, server, second.ID); !strings.HasPrefix(got, actionWaits) {
 		t.Errorf("reply = %q", got)
 	}
 

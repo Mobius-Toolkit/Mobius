@@ -237,7 +237,11 @@ func (e *Engine) checkTask(ctx context.Context, repository github.Repository, ta
 				return Work{}, false, err
 			}
 		}
-		if task.State == "approval" {
+		if task.State == "approval" && !state.openCheckRun {
+			if _, err := e.setTaskState(ctx, store.SetTaskStateParams{State: "checks", ID: task.ID, FromState: "approval"}); err != nil {
+				return Work{}, false, err
+			}
+		} else if task.State == "approval" {
 			if err := e.remindApproval(ctx, repository, task, pullRequest); err != nil {
 				return Work{}, false, err
 			}

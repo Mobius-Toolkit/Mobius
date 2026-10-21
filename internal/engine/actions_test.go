@@ -39,7 +39,7 @@ type actionRow struct {
 }
 
 const (
-	actionWaits = "The action waits for the approval of the Owner."
+	actionWaits = "The action waits for the approval of the Owner. Its ID is "
 	// approvalSeen answers the Approval messages, so the Coordinator that gets one calls no tool.
 	approvalSeen = "[[prompts]]\nwhen = \"# Approval message\"\nreply = [\"Seen\"]\n\n"
 	seenScript   = "[[prompts]]\nreply = [\"Seen\"]\n"
@@ -124,7 +124,7 @@ func TestTheCoordinatorCallsMessageLeadAndTheLeadGetsTheTextOnlyAfterTheOwnerApp
 
 	session := run(t, server, coordinatorSpec(t), "Send.")
 
-	if got := reply(t, server, session); got != actionWaits {
+	if got := reply(t, server, session); !strings.HasPrefix(got, actionWaits) {
 		t.Errorf("reply = %q", got)
 	}
 	action := waitForActions(t, server, 1)[0]
@@ -437,7 +437,7 @@ func TestTheCoordinatorCallsCreateWorkstreamAndGitHubGetsTheIssueOnlyAfterTheOwn
 
 	session := run(t, server, coordinatorSpec(t), "Create.")
 
-	if got := reply(t, server, session); got != actionWaits {
+	if got := reply(t, server, session); !strings.HasPrefix(got, actionWaits) {
 		t.Errorf("reply = %q", got)
 	}
 	action := waitForActions(t, server, 1)[0]
@@ -561,7 +561,7 @@ func TestTheLeadCallsEditBriefAndTheBriefChangesOnlyAfterTheOwnerApproves(t *tes
 
 	session := run(t, server, leadSpec(t), "Change it.")
 
-	if got := reply(t, server, session); got != actionWaits {
+	if got := reply(t, server, session); !strings.HasPrefix(got, actionWaits) {
 		t.Errorf("reply = %q", got)
 	}
 	action := waitForActions(t, server, 1)[0]
@@ -614,7 +614,7 @@ func TestTheLeadCallsMoveTaskAndTheIssueMovesOnlyAfterTheOwnerApproves(t *testin
 
 	session := run(t, server, leadSpec(t), "Move it.")
 
-	if got := reply(t, server, session); got != actionWaits {
+	if got := reply(t, server, session); !strings.HasPrefix(got, actionWaits) {
 		t.Errorf("reply = %q", got)
 	}
 	action := waitForActions(t, server, 1)[0]

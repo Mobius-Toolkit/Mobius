@@ -343,6 +343,8 @@ func (e *Engine) ciFailed(ctx context.Context, repository github.Repository, tas
 // ci is what the check runs of other Apps and the workflow runs of GitHub Actions on a head show.
 type ci struct {
 	failedCheck, failedWorkflow, running bool
+	// openCheckRun is true when the head has a Mobius check run that is not complete.
+	openCheckRun bool
 	// failedFirstAttempt holds the newest workflow runs that completed with a failure in their first attempt.
 	failedFirstAttempt []*gh.WorkflowRun
 	// incomplete holds the names of the check runs and the workflow runs that did not complete.
@@ -366,6 +368,7 @@ func ciOf(ctx context.Context, repository github.Repository, head string) (ci, e
 	others := 0
 	for _, run := range runs {
 		if run.GetName() == checkRunName {
+			state.openCheckRun = state.openCheckRun || run.GetStatus() != "completed"
 			continue
 		}
 		others++

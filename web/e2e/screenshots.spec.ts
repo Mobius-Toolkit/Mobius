@@ -1161,6 +1161,26 @@ test("screenshots", async ({ page }) => {
       await showEnd(unknownText)();
     },
   );
+  const unknownAction = await cardOf(page, unknownText).getAttribute("data-action");
+  const setUnknownAction = async (state: string, message: string) => {
+    const query = new URLSearchParams({ state, message });
+    expect((await page.request.put(`/e2e/actions/${unknownAction}/state?${query}`)).ok()).toBe(
+      true,
+    );
+  };
+  await setUnknownAction("withdrawn", "");
+  await screenshot(
+    page,
+    "action-withdrawn",
+    "/chat",
+    (device) => [
+      ...approvalReady(device, "2"),
+      waits(1),
+      cardOf(page, unknownText).getByText("Withdrawn by the agent", { exact: true }),
+    ],
+    showEnd(unknownText),
+  );
+  await setUnknownAction("rejected", "Wait for the migration of #12.");
 
   // The fake Coordinator asks a question with options. The answer ends the question.
   await page.goto("/chat");
