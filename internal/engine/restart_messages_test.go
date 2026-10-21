@@ -57,7 +57,7 @@ func TestARestartGivesAStoredOwnerMessageToTheLeadAndSetsItsDeliveryTime(t *test
 func TestARestartGivesTwoOwnerMessagesInTheOrderOfTheirIdsBeforeTheReadyEvents(t *testing.T) {
 	t.Parallel()
 	server := startWithLeadMessages(t,
-		`INSERT INTO lead_events (repository, workstream, issue, kind, payload, time) VALUES ('owner/shop', 12, 41, 'comment', 'A comment before the restart.', '2026-10-04T10:00:00Z')`,
+		`INSERT INTO lead_events (repository, workstream, issue_repository, issue, kind, payload, time) VALUES ('owner/shop', 12, 'owner/shop', 41, 'comment', 'A comment before the restart.', '2026-10-04T10:00:00Z')`,
 		seedMessage(2, shop, 12, "Owner", "Second message.", "a2", "", ""),
 		seedMessage(1, shop, 12, "Owner", "First message.", "a1", "", ""))
 

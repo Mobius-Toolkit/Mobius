@@ -208,7 +208,7 @@ func (e *Engine) onChecks(ctx context.Context, repository github.Repository, tas
 	}
 	delete(e.ciWait, task.ID)
 	text := fmt.Sprintf("%s ready for Lead approval of #%d \"%s\": pull request #%d %s.", time.Now().UTC().Format(timeFormat), task.Issue, issue.GetTitle(), pullRequest.GetNumber(), pullRequest.GetHTMLURL())
-	return e.addLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "ready_for_approval", text)
+	return e.addLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, task.Repository, sql.NullInt64{Int64: task.Issue, Valid: true}, "ready_for_approval", text)
 }
 
 // onLongCIWait gives the Lead the event long_ci_wait when longCIWait passed since the task entered checks, or since the
@@ -264,7 +264,7 @@ func (e *Engine) remindLead(ctx context.Context, task store.Task, limit time.Dur
 	if err != nil {
 		return err
 	}
-	if err := e.addLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, kind, body); err != nil {
+	if err := e.addLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, task.Repository, sql.NullInt64{Int64: task.Issue, Valid: true}, kind, body); err != nil {
 		return err
 	}
 	return e.queries.SetTaskLongWaitAt(ctx, store.SetTaskLongWaitAtParams{LongWaitAt: sql.NullString{String: now.UTC().Format(time.RFC3339Nano), Valid: true}, ID: task.ID})

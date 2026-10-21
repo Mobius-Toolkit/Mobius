@@ -151,19 +151,20 @@ type InboxItem struct {
 }
 
 type LeadEvent struct {
-	ID          int64
-	Repository  string
-	Workstream  int64
-	Kind        string
-	Payload     string
-	Time        string
-	DeliveredAt sql.NullString
-	ChatMessage sql.NullInt64
-	Issue       sql.NullInt64
-	Held        int64
-	Comment     sql.NullInt64
-	Review      sql.NullBool
-	HeldAt      sql.NullString
+	ID              int64
+	Repository      string
+	Workstream      int64
+	Kind            string
+	Payload         string
+	Time            string
+	DeliveredAt     sql.NullString
+	ChatMessage     sql.NullInt64
+	Issue           sql.NullInt64
+	Held            int64
+	Comment         sql.NullInt64
+	Review          sql.NullBool
+	HeldAt          sql.NullString
+	IssueRepository string
 }
 
 type PendingAction struct {

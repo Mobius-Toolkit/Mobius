@@ -552,7 +552,7 @@ func TestAFollowUpOfTheJudgeFromNeedsHumanContinuesTheTask(t *testing.T) {
 func TestAFailedJudgeStopsTheTaskWithItsOwnReason(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server := connectJudge(t, fake, "error = { code = -32000, message = \"The Judge crashed.\" }\n", fixesEach, func(*config.Config) {})
-	if _, err := server.DB.Exec(`INSERT INTO lead_events (repository, workstream, issue, kind, payload, time) VALUES ('owner/shop', 12, 41, 'stop', 'the CI of the head commit failed', '2026-10-04T10:00:00Z')`); err != nil {
+	if _, err := server.DB.Exec(`INSERT INTO lead_events (repository, workstream, issue_repository, issue, kind, payload, time) VALUES ('owner/shop', 12, 'owner/shop', 41, 'stop', 'the CI of the head commit failed', '2026-10-04T10:00:00Z')`); err != nil {
 		t.Fatal(err)
 	}
 
