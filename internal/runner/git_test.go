@@ -308,7 +308,7 @@ func waitForStop(t *testing.T, pid int) {
 func TestAKillOfTheProcessGroupOfAFetchAlsoStopsTheTransportChild(t *testing.T) {
 	ssh, pidFile := transport(t, "sleep 600")
 	helper := exec.Command("sh", "-c", `exec "$MOBIUS_TEST_BINARY"`)
-	helper.Env = append(os.Environ(), "MOBIUS_TEST_BINARY="+os.Args[0], "MOBIUS_FETCH_HELPER="+t.TempDir(), "GIT_SSH_COMMAND="+ssh)
+	helper.Env = append(os.Environ(), "MOBIUS_TEST_BINARY="+os.Args[0], "MOBIUS_FETCH_HELPER="+t.TempDir(), "GIT_SSH_COMMAND="+ssh, "GIT_SSH_VARIANT=simple")
 	helper.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := helper.Start(); err != nil {
 		t.Fatal(err)
@@ -329,6 +329,7 @@ func TestAKillOfTheProcessGroupOfAFetchAlsoStopsTheTransportChild(t *testing.T) 
 func TestFetchReturnsAtTheEndOfItsContextAndStopsATransportChildThatEndsWithItsInput(t *testing.T) {
 	ssh, pidFile := transport(t, "cat >/dev/null")
 	t.Setenv("GIT_SSH_COMMAND", ssh)
+	t.Setenv("GIT_SSH_VARIANT", "simple")
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	done := make(chan error, 1)
