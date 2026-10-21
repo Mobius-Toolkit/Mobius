@@ -667,7 +667,7 @@ WHERE repository = sqlc.arg(repository) AND number = sqlc.arg(number)
        OR evergreen != CAST(sqlc.arg(evergreen) AS BOOLEAN) OR skills != CAST(sqlc.arg(skills) AS BOOLEAN));
 
 -- name: GetCopiedWorkstream :one
-SELECT body, CAST(evergreen AS BOOLEAN) AS evergreen FROM copied_workstreams WHERE repository = ? AND number = ?;
+SELECT title, body, CAST(evergreen AS BOOLEAN) AS evergreen FROM copied_workstreams WHERE repository = ? AND number = ?;
 
 -- name: UpdateCopiedBlockerTitles :execrows
 UPDATE copied_blockers SET blocker_workstream_title = sqlc.arg(title)

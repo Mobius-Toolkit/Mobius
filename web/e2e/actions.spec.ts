@@ -261,7 +261,9 @@ test("the Inbox item of the Triager links to its issue", async ({ page }) => {
   await page.goto("/inbox");
 
   await expect(
-    row(page, "Message to the Lead of #12").getByRole("link", { name: "#61" }),
+    row(page, "Message to the Lead of #12 Integrate loyalty plans").getByRole("link", {
+      name: "#61",
+    }),
   ).toHaveAttribute("href", "https://github.com/owner/shop/issues/61");
 });
 

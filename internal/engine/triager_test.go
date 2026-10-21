@@ -685,7 +685,7 @@ func TestAnApprovalThatFailsAtTheCloseOfTheIssueCommentsAndRunsAgainWithoutANewW
 	}
 	failure := testkit.WaitForValue(t, func() (testkit.Comment, bool) {
 		for _, comment := range fake.Comments(shop, 66) {
-			if strings.HasPrefix(comment.Body, "The Owner approved `create_workstream`, and it failed") {
+			if strings.HasPrefix(comment.Body, "The Owner approved `create_workstream` ") && strings.Contains(comment.Body, ", and it failed") {
 				return comment, true
 			}
 		}
@@ -751,7 +751,7 @@ func TestTheOwnerRejectsAMessageOfTheTriagerAndTheIssueGetsTheMessageAndANewTurn
 	if rejected.State != "rejected" || rejected.Message != "Ask me again tomorrow." {
 		t.Errorf("action = %+v", rejected)
 	}
-	notice := testkit.Comment{Author: testkit.AppSlug + "[bot]", Body: "The Owner rejected `message_lead`.\n\nThe message of the Owner: Ask me again tomorrow."}
+	notice := testkit.Comment{Author: testkit.AppSlug + "[bot]", Body: "The Owner rejected `message_lead` 1 (Add refunds to the loyalty plans.).\n\nThe message of the Owner: Ask me again tomorrow."}
 	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 71), notice) })
 	third := testkit.WaitForValue(t, func() (store.Session, bool) {
 		sessions := chatSessions(t, server, issueTriagers, engine.TriagerRole)
@@ -831,7 +831,7 @@ func TestAnApprovedMessageOfTheTriagerThatFailsAtTheCloseOfTheIssueSendsTheLeadO
 	}
 	testkit.WaitFor(t, func() bool {
 		return slices.ContainsFunc(fake.Comments(shop, 72), func(comment testkit.Comment) bool {
-			return strings.HasPrefix(comment.Body, "The Owner approved `message_lead`, and it failed")
+			return strings.HasPrefix(comment.Body, "The Owner approved `message_lead` ") && strings.Contains(comment.Body, ", and it failed")
 		})
 	})
 	testkit.WaitFor(t, func() bool {
