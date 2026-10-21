@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"errors"
@@ -23,26 +24,25 @@ func (e *Engine) taskLines(ctx context.Context, repository github.Repository, wo
 	return slices.DeleteFunc(lines, func(line TaskLine) bool { return line.State == "closed" }), nil
 }
 
-// taskText gives a line of text for each line. A blocker in another repository has no text.
-func taskText(lines []TaskLine) string {
+// taskText gives a line of text for each line, with the repository of each task and of each blocker. A blocker with no
+// repository is in workstreamRepository.
+func taskText(workstreamRepository string, lines []TaskLine) string {
 	var b strings.Builder
 	for _, line := range lines {
 		var blockers []string
 		for _, blocker := range line.BlockedBy {
-			if blocker.Repository != "" {
-				continue
-			}
+			name := cmp.Or(blocker.Repository, workstreamRepository)
 			if blocker.WorkstreamTitle == "" {
-				blockers = append(blockers, fmt.Sprintf("#%d", blocker.Number))
+				blockers = append(blockers, fmt.Sprintf("%s#%d", name, blocker.Number))
 			} else {
-				blockers = append(blockers, fmt.Sprintf("#%d (Workstream \"%s\")", blocker.Number, blocker.WorkstreamTitle))
+				blockers = append(blockers, fmt.Sprintf("%s#%d (Workstream \"%s\")", name, blocker.Number, blocker.WorkstreamTitle))
 			}
 		}
 		blockedBy := ""
 		if len(blockers) > 0 {
 			blockedBy = ", blocked by " + strings.Join(blockers, ", ")
 		}
-		fmt.Fprintf(&b, "#%d %s: %s%s\n", line.Number, line.Title, line.State, blockedBy)
+		fmt.Fprintf(&b, "%s#%d %s: %s%s\n", line.Repository, line.Number, line.Title, line.State, blockedBy)
 	}
 	return b.String()
 }

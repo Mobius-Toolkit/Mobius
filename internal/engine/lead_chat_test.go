@@ -407,7 +407,7 @@ func TestTheFirstPromptHasTheContextPartsInOrder(t *testing.T) {
 		"# Brief\n\nShip loyalty plans to all shops.\n",
 		"# MEMORY.md\n\nnote 1\n",
 		"note 200\nMEMORY.md is too long. Make it shorter.\n",
-		"# Task list\n\n#41 Add plan model: ready\n#43 Plan API: open\n\n",
+		"# Task list\n\nowner/shop#41 Add plan model: ready\nowner/shop#43 Plan API: open\n\n",
 		"# Chat history\n\nLead (",
 		"):\nmessage 2\n\n",
 		"):\nmessage 21\n\n",
@@ -635,7 +635,7 @@ reply = ["Noted."]
 
 [[prompts]]
 when = "Move it."
-call = { tool = "move_task", arguments = { n = 13, workstream = 15 } }
+call = { tool = "move_task", arguments = { repository = "owner/shop", n = 13, workstream = 15 } }
 
 [[prompts]]
 when = "Create it."
@@ -1364,27 +1364,27 @@ func TestTheLeadChatRefusesToMoveATaskWhenTheTaskOrTheTargetDoesNotFit(t *testin
 	server, _ := connectWith(t, fake, approvalSeen+`
 [[prompts]]
 when = "case-live"
-call = { tool = "move_task", arguments = { n = 13, workstream = 20 } }
+call = { tool = "move_task", arguments = { repository = "owner/shop", n = 13, workstream = 20 } }
 
 [[prompts]]
 when = "case-plain"
-call = { tool = "move_task", arguments = { n = 13, workstream = 14 } }
+call = { tool = "move_task", arguments = { repository = "owner/shop", n = 13, workstream = 14 } }
 
 [[prompts]]
 when = "case-closed"
-call = { tool = "move_task", arguments = { n = 13, workstream = 22 } }
+call = { tool = "move_task", arguments = { repository = "owner/shop", n = 13, workstream = 22 } }
 
 [[prompts]]
 when = "case-self"
-call = { tool = "move_task", arguments = { n = 13, workstream = 12 } }
+call = { tool = "move_task", arguments = { repository = "owner/shop", n = 13, workstream = 12 } }
 
 [[prompts]]
 when = "case-pull"
-call = { tool = "move_task", arguments = { n = 15, workstream = 20 } }
+call = { tool = "move_task", arguments = { repository = "owner/shop", n = 15, workstream = 20 } }
 
 [[prompts]]
 when = "case-other"
-call = { tool = "move_task", arguments = { n = 21, workstream = 20 } }
+call = { tool = "move_task", arguments = { repository = "owner/shop", n = 21, workstream = 20 } }
 `, keepSessionOpen)
 	fake.AddIssue(shop, 13, "Add the API route")
 	fake.AddIssue(shop, 14, "Add plan model")

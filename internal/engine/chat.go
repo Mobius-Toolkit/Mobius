@@ -1427,7 +1427,23 @@ func (e *Engine) leadContext(ctx context.Context, repository github.Repository, 
 	if evergreen {
 		evergreenText = "This Workstream is evergreen: it has no end.\n\n"
 	}
-	return fmt.Sprintf("# Brief\n\n%s\n\n%s# MEMORY.md\n\n%s\n\n# Task list\n\n%s\n\n", brief, evergreenText, memory, taskText(lines)), nil
+	return fmt.Sprintf("# Brief\n\n%s\n\n%s# MEMORY.md\n\n%s\n\n# Repositories\n\n%s\n\n# Task list\n\n%s\n\n", brief, evergreenText, memory, e.repositoriesText(repository.Owner()), taskText(repository.FullName, lines)), nil
+}
+
+// repositoriesText names the repositories of the organization, and its issue repository when the organization has one.
+func (e *Engine) repositoriesText(organization string) string {
+	var names []string
+	for _, repository := range e.github.Repositories() {
+		if repository.Owner() == organization {
+			names = append(names, repository.FullName)
+		}
+	}
+	slices.Sort(names)
+	text := "The repositories of the organization:\n- " + strings.Join(names, "\n- ")
+	if issueRepository, err := e.workstreamRepository(organization); err == nil {
+		text += "\n\nThe issue repository of the organization: " + issueRepository.FullName
+	}
+	return text
 }
 
 // brief gives the Brief of the Workstream and tells if the Workstream is evergreen. It reads the local copy, and

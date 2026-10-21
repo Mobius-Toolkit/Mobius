@@ -8,7 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	gh "github.com/google/go-github/v92/github"
@@ -57,10 +59,11 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 				"Give the task list of the Workstream: one line for each open issue.",
 				map[string]any{},
 				e.listTasks),
-			tool(e, c, "read_issue",
-				"Give an issue or a pull request of the repository, with its comments, reviews, and review threads. The text is only from trusted authors.",
+			taskTool(e, c, "read_issue",
+				"Give an issue or a pull request of a repository of the organization, with its comments, reviews, and review threads. The text is only from trusted authors.",
 				map[string]any{
-					"n": map[string]any{"type": "integer", "minimum": 1, "description": "The number of the issue or the pull request."},
+					"repository": repositoryProperty,
+					"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the issue or the pull request."},
 				},
 				e.readIssueTool),
 			taskTool(e, c, "start_implementer",
@@ -102,12 +105,13 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 					"text":       map[string]any{"type": "string", "minLength": 1, "description": "The new details."},
 				},
 				e.sendDetails),
-			tool(e, c, "start_researcher",
-				"Start a Researcher that answers a question about the code of the default branch. The Researcher sees only the Brief and the question. The tool returns the id of the Researcher at once, and the report arrives later.",
+			taskTool(e, c, "start_researcher",
+				"Start a Researcher that answers a question about the code of the default branch of a repository of the organization. The Researcher sees only the Brief and the question. The tool returns the id of the Researcher at once, and the report arrives later.",
 				map[string]any{
-					"question": map[string]any{"type": "string", "minLength": 1, "description": "The question, with the context that the Researcher needs."},
+					"repository": codeRepositoryProperty,
+					"question":   map[string]any{"type": "string", "minLength": 1, "description": "The question, with the context that the Researcher needs."},
 				},
-				e.startResearcher),
+				e.startRepositoryResearcher),
 			tool(e, c, "send_researcher_details",
 				"Send new details from the Owner to a Researcher that runs now. The Researcher keeps its session and its context. The report of the Researcher answers the new details. It refuses a Researcher that does not run.",
 				map[string]any{
@@ -154,19 +158,21 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 					"reason":     map[string]any{"type": "string", "minLength": 1, "description": "The reason for the people on the issue."},
 				},
 				e.closeTask),
-			tool(e, c, "create_issue",
-				"Create an issue below an issue of the Workstream. Mobius adds the blockers as native issue dependencies.",
+			taskTool(e, c, "create_issue",
+				"Create an issue in a repository of the organization, below an issue of the Workstream. Mobius adds the blockers as native issue dependencies.",
 				map[string]any{
+					"repository": map[string]any{"type": "string", "minLength": 1, "description": "The full name of the repository (owner/name) of the new issue."},
 					"title":      map[string]any{"type": "string", "minLength": 1, "description": "The title of the issue."},
 					"body":       map[string]any{"type": "string", "description": "The body of the issue, with the sections Goal, Today (optional), Change, Limits, and Done, in this order."},
-					"parent":     map[string]any{"type": "integer", "minimum": 1, "description": "The Workstream issue or an issue below it."},
-					"blocked_by": map[string]any{"type": "array", "items": map[string]any{"type": "integer", "minimum": 1}, "description": "The issues that block this issue. They can be in another Workstream."},
+					"parent":     map[string]any{"type": "string", "minLength": 1, "description": "The Workstream issue or an issue below it, as owner/name#N. The issue can be in any repository of the organization."},
+					"blocked_by": map[string]any{"type": "array", "items": map[string]any{"type": "string", "minLength": 1}, "description": "The issues that block this issue, each as owner/name#N. They can be in another repository or in another Workstream."},
 				},
 				e.createIssue),
-			tool(e, c, "mark_ready",
+			taskTool(e, c, "mark_ready",
 				"Add mobius:ready to an issue of the Workstream. Use it when the Owner tells you to start an issue. For a stopped task, it continues the task. The round counters keep their values, so a task at max_fix_rounds stops again.",
 				map[string]any{
-					"n": map[string]any{"type": "integer", "minimum": 1, "description": "The number of the issue."},
+					"repository": repositoryProperty,
+					"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the issue."},
 				},
 				e.markReady),
 			taskTool(e, c, "reply_thread",
@@ -331,13 +337,13 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 			e.createWorkstreamTool(c),
 			moveIssueTool(e, c),
 			e.messageLeadTool(c),
-			toolOf(e, c, noRepository, "start_researcher",
+			taskTool(e, c, "start_researcher",
 				"Start a Researcher that answers a question about the code of the default branch of a repository. The Researcher sees only the question. The tool returns at once, and the report arrives later.",
 				map[string]any{
-					"repository": map[string]any{"type": "string", "minLength": 1, "description": "The full name of the repository of the code (owner/name) in the organization of the chat."},
+					"repository": codeRepositoryProperty,
 					"question":   map[string]any{"type": "string", "minLength": 1, "description": "The question, with the context that the Researcher needs."},
 				},
-				e.startCoordinatorResearcher),
+				e.startRepositoryResearcher),
 			e.tellCuratorTool(c),
 			toolOf(e, c, noRepository, "ask",
 				"Ask the Owner a question. Use it when you need a decision of the Owner. For a choice between alternatives, give the questions with their options in questions, and the context in text. Mobius adds an Inbox item for the Owner. The tool returns at once. The answer arrives later as a chat message of the Owner.",
@@ -409,6 +415,8 @@ func tool[In any](e *Engine, c caller, name, description string, properties map[
 }
 
 var repositoryProperty = map[string]any{"type": "string", "minLength": 1, "description": "The full name of the repository (owner/name) of the issue."}
+
+var codeRepositoryProperty = map[string]any{"type": "string", "minLength": 1, "description": "The full name of the repository of the code (owner/name) in the organization of the chat."}
 
 // repositoryInput is the repository input of a tool that acts on an issue in any repository of the organization.
 type repositoryInput struct {
@@ -550,10 +558,6 @@ func (e *Engine) callerRepository(c caller) (github.Repository, error) {
 
 type noInput struct{}
 
-type numberInput struct {
-	N int64 `json:"n"`
-}
-
 type taskInput struct {
 	repositoryInput
 	N int64 `json:"n"`
@@ -620,10 +624,18 @@ type queryInput struct {
 }
 
 type issueInput struct {
-	Title     string  `json:"title"`
-	Body      string  `json:"body"`
-	Parent    int64   `json:"parent"`
-	BlockedBy []int64 `json:"blocked_by"`
+	Title     string
+	Body      string
+	Parent    int64
+	BlockedBy []int64
+}
+
+type leadIssueInput struct {
+	repositoryInput
+	Title     string   `json:"title"`
+	Body      string   `json:"body"`
+	Parent    string   `json:"parent"`
+	BlockedBy []string `json:"blocked_by"`
 }
 
 type workstreamInput struct {
@@ -633,6 +645,7 @@ type workstreamInput struct {
 }
 
 type moveInput struct {
+	repositoryInput
 	N          int64 `json:"n"`
 	Workstream int64 `json:"workstream"`
 }
@@ -669,6 +682,11 @@ type questionInput struct {
 	Question string `json:"question"`
 }
 
+type repositoryQuestionInput struct {
+	repositoryInput
+	questionInput
+}
+
 type answerInput struct {
 	repositoryInput
 	N      int64  `json:"n"`
@@ -700,37 +718,87 @@ func empty(text string) bool {
 
 func (e *Engine) listTasks(ctx context.Context, c caller, repository github.Repository, _ noInput) (string, error) {
 	lines, err := e.taskLines(ctx, repository, c.workstream)
-	return taskText(lines), err
+	return taskText(repository.FullName, lines), err
 }
 
-func (e *Engine) readIssueTool(ctx context.Context, _ caller, repository github.Repository, input numberInput) (string, error) {
+func (e *Engine) readIssueTool(ctx context.Context, _ caller, repository github.Repository, input taskInput) (string, error) {
 	if input.N < 1 {
 		return "", refuse("n must be 1 or more.")
 	}
 	return e.readIssue(ctx, repository, input.N)
 }
 
-func (e *Engine) createIssue(ctx context.Context, c caller, repository github.Repository, input issueInput) (string, error) {
-	if err := checkIssue(input); err != nil {
+// createIssue creates an issue in repository below the issue input.Parent, which is the Workstream issue of c or an issue
+// below it, in any repository of the organization.
+func (e *Engine) createIssue(ctx context.Context, c caller, repository github.Repository, input leadIssueInput) (string, error) {
+	if empty(input.Title) {
+		return "", refuse("title must not be empty.")
+	}
+	parent, err := e.issueAtOf(c, input.Parent)
+	if err != nil {
 		return "", err
 	}
-	if input.Parent != c.workstream {
-		in, err := e.inWorkstream(ctx, repository, c.workstream, input.Parent)
+	blockers := make([]issueAt, len(input.BlockedBy))
+	for i, reference := range input.BlockedBy {
+		if blockers[i], err = e.issueAtOf(c, reference); err != nil {
+			return "", err
+		}
+	}
+	workstream, err := e.repository(c.repository)
+	if err != nil {
+		return "", err
+	}
+	if parent.repository.FullName != workstream.FullName || parent.number != c.workstream {
+		in, err := e.inWorkstream(ctx, workstream.FullName, c.workstream, parent.repository, parent.number)
 		if err != nil {
 			return "", err
 		}
 		if !in {
-			return "", refuse("#%d is not in this Workstream.", input.Parent)
+			return "", refuse("%s#%d is not in this Workstream.", parent.repository.FullName, parent.number)
 		}
 	}
-	number, err := e.addIssue(ctx, repository, c.workstream, input, nil)
+	number, err := e.addIssueAt(ctx, repository, issueAt{workstream, c.workstream}, newIssue{title: input.Title, body: input.Body, parent: parent, blockers: blockers}, nil)
 	if err != nil {
 		return "", err
 	}
-	if err := e.recopyTrees(ctx, repository, c.workstream); err != nil {
-		log.Printf("copy the tree of %s#%d: %v", repository.FullName, c.workstream, err)
+	if err := e.recopyTrees(ctx, workstream, c.workstream); err != nil {
+		log.Printf("copy the tree of %s#%d: %v", workstream.FullName, c.workstream, err)
 	}
-	return fmt.Sprintf("Created #%d.", number), nil
+	return fmt.Sprintf("Created %s#%d.", repository.FullName, number), nil
+}
+
+// issueAt is the issue number of repository.
+type issueAt struct {
+	repository github.Repository
+	number     int64
+}
+
+// newIssue is an issue that addIssueAt creates below the issue parent, with the blockers.
+type newIssue struct {
+	title    string
+	body     string
+	parent   issueAt
+	blockers []issueAt
+}
+
+var issueReference = regexp.MustCompile(`^([^/\s#]+/[^/\s#]+)#([1-9][0-9]*)$`)
+
+// issueAtOf gives the issue that reference (owner/name#N) names. It refuses a repository that the Mobius App cannot read
+// and a repository of the organization of c.
+func (e *Engine) issueAtOf(c caller, reference string) (issueAt, error) {
+	match := issueReference.FindStringSubmatch(reference)
+	if match == nil {
+		return issueAt{}, refuse("%q is not an issue reference in the form owner/name#N.", reference)
+	}
+	number, err := strconv.ParseInt(match[2], 10, 64)
+	if err != nil {
+		return issueAt{}, refuse("%q is not an issue reference in the form owner/name#N.", reference)
+	}
+	repository, err := e.organizationRepository(c.organization, match[1])
+	if err != nil {
+		return issueAt{}, err
+	}
+	return issueAt{repository, number}, nil
 }
 
 // createMaintenanceIssue creates an issue with mobius:triage below the maintenance Workstream of the Curator c. It
@@ -766,32 +834,43 @@ func checkIssue(input issueInput) error {
 // addIssue creates an issue with labels below the issue input.Parent, with the blockers input.BlockedBy, and the link to
 // the Lead chat of the Workstream, and gives its number. When GitHub created the issue but a later call failed, it gives the number with the error.
 func (e *Engine) addIssue(ctx context.Context, repository github.Repository, workstream int64, input issueInput, labels []string) (int, error) {
+	blockers := make([]issueAt, len(input.BlockedBy))
+	for i, number := range input.BlockedBy {
+		blockers[i] = issueAt{repository, number}
+	}
+	return e.addIssueAt(ctx, repository, issueAt{repository, workstream}, newIssue{title: input.Title, body: input.Body, parent: issueAt{repository, input.Parent}, blockers: blockers}, labels)
+}
+
+// addIssueAt creates the issue input in repository with labels and the link to the Lead chat of the Workstream, adds it
+// below input.parent, and adds the blockers. It gives the number of the issue. When GitHub created the issue but a later
+// call failed, it gives the number with the error.
+func (e *Engine) addIssueAt(ctx context.Context, repository github.Repository, workstream issueAt, input newIssue, labels []string) (int, error) {
 	var blockerIDs []int64
-	for _, number := range input.BlockedBy {
-		blocker, err := repository.Issue(ctx, number)
+	for _, blocker := range input.blockers {
+		found, err := blocker.repository.Issue(ctx, blocker.number)
 		if err != nil {
 			return 0, err
 		}
-		if blocker == nil || blocker.IsPullRequest() {
-			return 0, refuse("#%d is not an issue of the repository.", number)
+		if found == nil || found.IsPullRequest() {
+			return 0, refuse("%s#%d is not an issue.", blocker.repository.FullName, blocker.number)
 		}
-		if slices.Contains(blockerIDs, blocker.GetID()) {
-			return 0, refuse("#%d is two times in blocked_by.", number)
+		if slices.Contains(blockerIDs, found.GetID()) {
+			return 0, refuse("%s#%d is two times in blocked_by.", blocker.repository.FullName, blocker.number)
 		}
-		blockerIDs = append(blockerIDs, blocker.GetID())
+		blockerIDs = append(blockerIDs, found.GetID())
 	}
-	owner, name := repository.Owner(), repository.Name()
-	body := e.withChatLink(repository, workstream, input.Body)
-	issue, _, err := repository.Client.Issues.Create(ctx, owner, name, gh.CreateIssueRequest{Title: input.Title, Body: &body, Labels: labels})
+	body := e.withChatLink(workstream.repository, workstream.number, input.body)
+	issue, _, err := repository.Client.Issues.Create(ctx, repository.Owner(), repository.Name(), gh.CreateIssueRequest{Title: input.title, Body: &body, Labels: labels})
 	if err != nil {
 		return 0, err
 	}
-	if _, _, err := repository.Client.SubIssue.Add(ctx, owner, name, input.Parent, gh.SubIssueRequest{SubIssueID: issue.GetID(), ReplaceParent: new(true)}); err != nil {
-		return issue.GetNumber(), fmt.Errorf("GitHub created #%d, but the add of #%d below #%d failed. Do not create the issue again: %w", issue.GetNumber(), issue.GetNumber(), input.Parent, err)
+	parent := input.parent
+	if _, _, err := parent.repository.Client.SubIssue.Add(ctx, parent.repository.Owner(), parent.repository.Name(), parent.number, gh.SubIssueRequest{SubIssueID: issue.GetID(), ReplaceParent: new(true)}); err != nil {
+		return issue.GetNumber(), fmt.Errorf("GitHub created #%d, but the add of #%d below %s#%d failed. Do not create the issue again: %w", issue.GetNumber(), issue.GetNumber(), parent.repository.FullName, parent.number, err)
 	}
 	for i, id := range blockerIDs {
-		if _, _, err := repository.Client.Issues.AddBlockedBy(ctx, owner, name, int64(issue.GetNumber()), gh.IssueDependencyRequest{IssueID: id}); err != nil {
-			return issue.GetNumber(), fmt.Errorf("GitHub created #%d, but the add of the blocker #%d failed. Do not create the issue again: %w", issue.GetNumber(), input.BlockedBy[i], err)
+		if _, _, err := repository.Client.Issues.AddBlockedBy(ctx, repository.Owner(), repository.Name(), int64(issue.GetNumber()), gh.IssueDependencyRequest{IssueID: id}); err != nil {
+			return issue.GetNumber(), fmt.Errorf("GitHub created #%d, but the add of the blocker %s#%d failed. Do not create the issue again: %w", issue.GetNumber(), input.blockers[i].repository.FullName, input.blockers[i].number, err)
 		}
 	}
 	return issue.GetNumber(), nil
@@ -819,7 +898,7 @@ func (e *Engine) stopTaskTool(ctx context.Context, c caller, repository github.R
 	return fmt.Sprintf("Stopped the task of #%d.", input.N), nil
 }
 
-func (e *Engine) markReady(ctx context.Context, c caller, repository github.Repository, input numberInput) (string, error) {
+func (e *Engine) markReady(ctx context.Context, c caller, repository github.Repository, input taskInput) (string, error) {
 	if input.N < 1 {
 		return "", refuse("n must be 1 or more.")
 	}
@@ -830,7 +909,7 @@ func (e *Engine) markReady(ctx context.Context, c caller, repository github.Repo
 	if issue == nil || !e.TrustedAuthor(repository.AppSlug, issue.GetUser().GetLogin()) {
 		return "", refuse("#%d is not an issue of a trusted author.", input.N)
 	}
-	in, err := e.inWorkstream(ctx, repository, c.workstream, input.N)
+	in, err := e.inWorkstream(ctx, c.repository, c.workstream, repository, input.N)
 	if err != nil {
 		return "", err
 	}
@@ -1017,7 +1096,10 @@ func issueOf(ctx context.Context, repository github.Repository, number int64) (*
 	return issue, nil
 }
 
-func checkMoveTask(c caller, input moveInput) error {
+func (e *Engine) checkMoveTask(c caller, input moveInput) error {
+	if _, err := e.organizationRepository(c.organization, input.Repository); err != nil {
+		return err
+	}
 	if input.N < 1 || input.Workstream < 1 {
 		return refuse("n and workstream must be 1 or more.")
 	}
@@ -1027,22 +1109,26 @@ func checkMoveTask(c caller, input moveInput) error {
 	return nil
 }
 
-func (e *Engine) moveTask(ctx context.Context, c caller, repository github.Repository, input moveInput) (string, error) {
-	if err := checkMoveTask(c, input); err != nil {
+func (e *Engine) moveTask(ctx context.Context, c caller, workstream github.Repository, input moveInput) (string, error) {
+	if err := e.checkMoveTask(c, input); err != nil {
+		return "", err
+	}
+	repository, err := e.organizationRepository(c.organization, input.Repository)
+	if err != nil {
 		return "", err
 	}
 	issue, err := issueOf(ctx, repository, input.N)
 	if err != nil {
 		return "", err
 	}
-	in, err := e.inWorkstream(ctx, repository, c.workstream, input.N)
+	in, err := e.inWorkstream(ctx, workstream.FullName, c.workstream, repository, input.N)
 	if err != nil {
 		return "", err
 	}
 	if !in {
 		return "", refuse("#%d is not in this Workstream.", input.N)
 	}
-	if err := openWorkstream(ctx, repository, input.Workstream); err != nil {
+	if err := openWorkstream(ctx, workstream, input.Workstream); err != nil {
 		return "", err
 	}
 	_, err = e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: repository.FullName, Issue: input.N})
@@ -1052,11 +1138,11 @@ func (e *Engine) moveTask(ctx context.Context, c caller, repository github.Repos
 	if !errors.Is(err, sql.ErrNoRows) {
 		return "", err
 	}
-	if _, _, err := repository.Client.SubIssue.Add(ctx, repository.Owner(), repository.Name(), input.Workstream, gh.SubIssueRequest{SubIssueID: issue.GetID(), ReplaceParent: new(true)}); err != nil {
+	if _, _, err := workstream.Client.SubIssue.Add(ctx, workstream.Owner(), workstream.Name(), input.Workstream, gh.SubIssueRequest{SubIssueID: issue.GetID(), ReplaceParent: new(true)}); err != nil {
 		return "", err
 	}
-	if err := e.recopyTrees(ctx, repository, c.workstream, input.Workstream); err != nil {
-		log.Printf("copy the trees of %s#%d and #%d: %v", repository.FullName, c.workstream, input.Workstream, err)
+	if err := e.recopyTrees(ctx, workstream, c.workstream, input.Workstream); err != nil {
+		log.Printf("copy the trees of %s#%d and #%d: %v", workstream.FullName, c.workstream, input.Workstream, err)
 	}
 	return fmt.Sprintf("Moved #%d to the Workstream #%d.", input.N, input.Workstream), nil
 }
