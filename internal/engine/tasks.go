@@ -54,6 +54,8 @@ type TaskLine struct {
 	// State is the Mobius label with no "mobius:", or open, or closed for a closed issue. A task that waits for a slot shows "queued". A task that waits for CI shows "waits for CI". A task that waits for the Lead shows "waits for Lead". A task that waits for start_implementer shows "waits for start_implementer".
 	State string
 	URL   string
+	// Repository is the full name of the repository of the issue.
+	Repository string
 	// Depth is 0 for a sub-issue of the Workstream issue, and one more for each level below.
 	Depth int64
 	// OtherRepository is true for an issue in another repository than the Workstream.
@@ -122,7 +124,7 @@ func (e *Engine) Tasks(ctx context.Context, repositoryName string, workstream in
 		depth := depths[lowerRef(row.ParentRepository, row.Parent)]
 		visible := e.TrustedAuthor(repository.AppSlug, row.Author)
 		if visible {
-			line := TaskLine{Number: row.Number, Title: row.Title, State: labelState(labels[row.Position]), URL: row.HtmlUrl, Depth: depth, OtherRepository: !own, BlockedBy: []Blocker{}}
+			line := TaskLine{Number: row.Number, Title: row.Title, State: labelState(labels[row.Position]), URL: row.HtmlUrl, Repository: issueRepositoryName, Depth: depth, OtherRepository: !own, BlockedBy: []Blocker{}}
 			if row.State != "open" {
 				line.State = "closed"
 			} else {
