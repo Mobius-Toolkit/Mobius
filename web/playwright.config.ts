@@ -1,6 +1,18 @@
+import { createServer } from "node:net";
 import { defineConfig } from "@playwright/test";
 
-const addr = "127.0.0.1:6464";
+// Playwright loads this config again in each worker, and the worker gets the environment of the main process.
+// Thus only the main process finds a free port.
+async function freePort(): Promise<string> {
+  const server = createServer();
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address() as { port: number };
+  await new Promise((resolve) => server.close(resolve));
+  return String(port);
+}
+
+process.env.MOBIUS_E2E_PORT ??= await freePort();
+const addr = `127.0.0.1:${process.env.MOBIUS_E2E_PORT}`;
 
 export default defineConfig({
   testDir: "e2e",
