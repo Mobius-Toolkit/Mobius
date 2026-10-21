@@ -304,7 +304,7 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 			if event.Actor == nil || !event.GetCreatedAt().After(since) {
 				continue
 			}
-			if err := e.workstreamEvent(ctx, repository, issue, event, firstPoll); err != nil {
+			if err := e.workstreamEvent(ctx, repository, issue, events, event, firstPoll); err != nil {
 				return err
 			}
 		}
@@ -345,19 +345,25 @@ func (e *Engine) routeComments(ctx context.Context, repository github.Repository
 	return e.commentEvents(ctx, repository, issue, conversation)
 }
 
-// workstreamEvent acts on a new event of the issue. A change of mobius:autopilot makes the next poll read the ready
-// list in full, because a mobius:ready of the Mobius App can dispatch with Autopilot. A Workstream label of a trusted
+// workstreamEvent acts on a new event of the issue. events are all the events of the issue. A change of
+// mobius:autopilot makes the next poll read the ready list in full, because a mobius:ready of the Mobius App can
+// dispatch with Autopilot. After the first poll, the newest change of mobius:autopilot by a person also adds an
+// event for the Lead. A Workstream label of a trusted
 // actor adds an activity, and after the first poll also a creation event for the Lead. After the first poll, a
 // removal of the Workstream label stops the work, and a close or a reopen of a trusted actor closes or reopens the
 // Workstream.
-func (e *Engine) workstreamEvent(ctx context.Context, repository github.Repository, issue *gh.Issue, event *gh.IssueEvent, firstPoll bool) error {
+func (e *Engine) workstreamEvent(ctx context.Context, repository github.Repository, issue *gh.Issue, events []*gh.IssueEvent, event *gh.IssueEvent, firstPoll bool) error {
 	number := int64(issue.GetNumber())
 	actor := event.GetActor().GetLogin()
 	trusted := e.TrustedAuthor(repository.AppSlug, actor)
 	workstreamChange := event.GetLabel().GetName() == workstreamLabel
 	switch {
 	case event.GetLabel().GetName() == autopilotLabel:
-		return e.queries.SetSyncCursor(ctx, store.SetSyncCursorParams{Repository: repository.FullName, Endpoint: readyEndpoint})
+		err := e.queries.SetSyncCursor(ctx, store.SetSyncCursorParams{Repository: repository.FullName, Endpoint: readyEndpoint})
+		if err != nil || firstPoll {
+			return err
+		}
+		return e.autopilotEvent(ctx, repository, issue, events, event)
 	case event.GetEvent() == "labeled" && workstreamChange && trusted:
 		err := e.addActivity(ctx, repository.FullName, number, issue, actor, fmt.Sprintf("New Workstream \"%s\"", issue.GetTitle()))
 		if err != nil || firstPoll {
@@ -382,4 +388,25 @@ func (e *Engine) workstreamEvent(ctx context.Context, repository github.Reposito
 		return e.addLeadEvent(ctx, repository.FullName, number, "", sql.NullInt64{}, "reopen", eventText(time.Now(), "reopen of Workstream", fmt.Sprintf("#%d", number), issue, actor, issue.GetBody()))
 	}
 	return nil
+}
+
+// autopilotEvent adds an event for the Lead when event is the newest change of mobius:autopilot by a person. Thus the
+// removal and the add of one switch give one event.
+func (e *Engine) autopilotEvent(ctx context.Context, repository github.Repository, issue *gh.Issue, events []*gh.IssueEvent, event *gh.IssueEvent) error {
+	bot := appLogin(repository.AppSlug)
+	newest := slices.IndexFunc(events, func(other *gh.IssueEvent) bool { return other == event })
+	for _, later := range events[newest+1:] {
+		if later.GetLabel().GetName() == autopilotLabel && !strings.EqualFold(later.GetActor().GetLogin(), bot) {
+			return nil
+		}
+	}
+	if strings.EqualFold(event.GetActor().GetLogin(), bot) {
+		return nil
+	}
+	state := "off"
+	if hasLabel(issue, autopilotLabel) && e.addedByTrustedUser(events) {
+		state = "on"
+	}
+	text := fmt.Sprintf("%s Autopilot of Workstream #%d \"%s\" is %s, by @%s.", time.Now().UTC().Format(timeFormat), issue.GetNumber(), issue.GetTitle(), state, event.GetActor().GetLogin())
+	return e.addLeadEvent(ctx, repository.FullName, int64(issue.GetNumber()), "", sql.NullInt64{}, "autopilot", text)
 }
