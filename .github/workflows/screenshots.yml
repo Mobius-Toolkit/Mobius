@@ -25,15 +25,28 @@ jobs:
       SHA: ${{ github.event.pull_request.head.sha }}
     steps:
       - run: |
-          marker='<!-- screenshots -->'
-          body="$marker"$'\n### UI screenshots\n\nThe screenshots are pending. See the [checks of the commit](https://github.com/'"$REPO/commit/$SHA"$'/checks).'
-          id=$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
-            --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"$marker\"))) | .id" | sed -n 1p)
-          if [ -n "$id" ]; then
-            gh api --method PATCH "repos/$REPO/issues/comments/$id" -f body="$body" --silent
-          else
-            gh api --method POST "repos/$REPO/issues/$PR/comments" -f body="$body" --silent
-          fi
+          set_section() {
+            gh api "repos/$REPO/pulls/$PR" > pr.json
+            SECTION="$1" python3 -I - <<'PY' > payload.json
+          import json, os, sys
+          start = '<!-- screenshots -->'
+          end = '<!-- /screenshots -->'
+          with open('pr.json') as f:
+              body = json.load(f)['body'] or ''
+          section = start + '\n### UI screenshots\n\n' + os.environ['SECTION'] + '\n' + end
+          j = body.find(end)
+          i = body.rfind(start, 0, j) if j >= 0 else -1
+          if i >= 0:
+              body = body[:i] + section + body[j + len(end):]
+          elif body:
+              body += ('\n' if body.endswith('\n') else '\n\n') + section
+          else:
+              body = section
+          json.dump({'body': body}, sys.stdout)
+          PY
+            gh api --method PATCH "repos/$REPO/pulls/$PR" --input payload.json --silent
+          }
+          set_section "The screenshots are pending. See the [checks of the commit](https://github.com/$REPO/commit/$SHA/checks)."
           if [ -n "$(gh api "repos/$REPO/issues/$PR/labels" --jq '.[] | select(.name == "screenshots") | .name')" ]; then
             gh api --method DELETE "repos/$REPO/issues/$PR/labels/screenshots" --silent
           fi
@@ -62,17 +75,26 @@ jobs:
     steps:
       - run: |
           shopt -s nullglob
-          marker='<!-- screenshots -->'
-
-          set_comment() {
-            local body="$marker"$'\n### UI screenshots\n\n'"$1" id
-            id=$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
-              --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"$marker\"))) | .id" | sed -n 1p)
-            if [ -n "$id" ]; then
-              gh api --method PATCH "repos/$REPO/issues/comments/$id" -f body="$body" --silent
-            else
-              gh api --method POST "repos/$REPO/issues/$PR/comments" -f body="$body" --silent
-            fi
+          set_section() {
+            gh api "repos/$REPO/pulls/$PR" > pr.json
+            SECTION="$1" python3 -I - <<'PY' > payload.json
+          import json, os, sys
+          start = '<!-- screenshots -->'
+          end = '<!-- /screenshots -->'
+          with open('pr.json') as f:
+              body = json.load(f)['body'] or ''
+          section = start + '\n### UI screenshots\n\n' + os.environ['SECTION'] + '\n' + end
+          j = body.find(end)
+          i = body.rfind(start, 0, j) if j >= 0 else -1
+          if i >= 0:
+              body = body[:i] + section + body[j + len(end):]
+          elif body:
+              body += ('\n' if body.endswith('\n') else '\n\n') + section
+          else:
+              body = section
+          json.dump({'body': body}, sys.stdout)
+          PY
+            gh api --method PATCH "repos/$REPO/pulls/$PR" --input payload.json --silent
           }
 
           set_label() {
@@ -89,7 +111,7 @@ jobs:
             exit 0
           fi
           if [ "$(gh api "repos/$REPO/actions/runs/$RUN_ID/artifacts" --jq '[.artifacts[] | select(.name == "screenshots")] | length')" -eq 0 ]; then
-            set_comment "The screenshots failed. See the [run]($RUN_URL)."
+            set_section "The screenshots failed. See the [run]($RUN_URL)."
             set_label off
             exit 0
           fi
@@ -149,10 +171,10 @@ jobs:
             rows+="| \`${name%.png}\` | $state | $(cell main "$name") | $(cell "pr-$PR" "$name") |"$'\n'
           done
           if [ -z "$rows" ]; then
-            set_comment "No screen changed."
+            set_section "No screen changed."
             set_label off
           else
-            set_comment $'| Screen | State | main | This pull request |\n|---|---|---|---|\n'"$rows"
+            set_section $'| Screen | State | main | This pull request |\n|---|---|---|---|\n'"$rows"
             set_label on
           fi
 
