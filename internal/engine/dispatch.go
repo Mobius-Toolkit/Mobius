@@ -582,7 +582,7 @@ func (e *Engine) commentEventsOf(ctx context.Context, repository github.Reposito
 
 // addCommentEvent adds a comment event for the Lead of the Workstream of the task. what tells the kind of comment.
 func (e *Engine) addCommentEvent(ctx context.Context, task store.Task, issue *gh.Issue, comment commentRef, at time.Time, what, author, body string) error {
-	text := eventText(at, what, taskEventRef(task, task.Issue), issue, author, body) + fmt.Sprintf("\n\nThe state of the task of %s is %s.", taskEventRef(task, task.Issue), task.State)
+	text := eventText(at, what, taskEventRef(task, int64(issue.GetNumber())), issue, author, body) + fmt.Sprintf("\n\nThe state of the task of %s is %s.", taskEventRef(task, task.Issue), task.State)
 	return e.addCommentLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, task.Repository, sql.NullInt64{Int64: task.Issue, Valid: true}, "comment", text, comment)
 }
 
