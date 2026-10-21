@@ -413,7 +413,7 @@ func TestACompletionDismissesTheQuestionItemsAndRemovesTheQuestionLabelAtOnce(t 
 	fake.AddUserCode(testkit.AppID, "user-code", "owner")
 	server, _ := startOnePoll(t, fake, "")
 	for _, issue := range []int64{12, 41} {
-		_, err := server.DB.Exec(`INSERT INTO inbox_items (kind, repository, workstream, issue, text, link, time) VALUES ('question', 'owner/shop', 12, ?, 'Cents or dollars?', '', '2026-10-04T10:00:00Z')`, issue)
+		_, err := server.DB.Exec(`INSERT INTO inbox_items (kind, repository, workstream_repository, workstream, issue, text, link, time) VALUES ('question', 'owner/shop', 'owner/shop', 12, ?, 'Cents or dollars?', '', '2026-10-04T10:00:00Z')`, issue)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -90,7 +90,7 @@ func waitForChat(t *testing.T, server *testserver.Server, key engine.ChatKey, au
 // chatSessions gives the sessions of role in the chat of key, the oldest first.
 func chatSessions(t *testing.T, server *testserver.Server, key engine.ChatKey, role string) []store.Session {
 	t.Helper()
-	sessions, err := store.New(server.DB).ListSessions(t.Context(), store.ListSessionsParams{Organization: key.Organization, Repository: key.Repository, Workstream: key.Workstream})
+	sessions, err := store.New(server.DB).ListSessions(t.Context(), store.ListSessionsParams{Organization: key.Organization, WorkstreamRepository: key.Repository, Workstream: key.Workstream})
 	if err != nil {
 		t.Fatal(err)
 	}

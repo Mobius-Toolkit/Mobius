@@ -58,8 +58,8 @@ INSERT INTO sync_cursors (repository, endpoint, since, etag) VALUES (?, ?, ?, ?)
 ON CONFLICT (repository, endpoint) DO UPDATE SET since = excluded.since, etag = excluded.etag;
 
 -- name: AddSession :one
-INSERT INTO sessions (role, harness, model, effort, organization, repository, workstream, issue, parent, started_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO sessions (role, harness, model, effort, organization, repository, workstream_repository, workstream, issue, parent, started_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: AddTurnUsage :exec
@@ -106,7 +106,7 @@ RETURNING *;
 SELECT * FROM sessions WHERE id = ?;
 
 -- name: ListSessions :many
-SELECT * FROM sessions WHERE organization = ? AND repository = ? AND workstream = ? ORDER BY id;
+SELECT * FROM sessions WHERE organization = ? AND workstream_repository = ? AND workstream = ? ORDER BY id;
 
 -- name: AddTranscriptRow :one
 INSERT INTO transcript (session, time, kind, json) VALUES (?, ?, ?, ?)
@@ -149,9 +149,9 @@ SELECT sqlc.embed(sessions), w.title AS workstream_title, i.title AS issue_title
         WHERE t.repository = sessions.repository AND t.issue = sessions.issue
         ORDER BY t.id DESC LIMIT 1) AS pull_request
 FROM sessions
-LEFT JOIN copied_workstreams w ON w.repository = sessions.repository AND w.number = sessions.workstream
+LEFT JOIN copied_workstreams w ON w.repository = sessions.workstream_repository AND w.number = sessions.workstream
 LEFT JOIN copied_issues i
-  ON i.repository = sessions.repository AND i.workstream = sessions.workstream AND i.number = sessions.issue
+  ON i.repository = sessions.workstream_repository AND i.workstream = sessions.workstream AND i.number = sessions.issue
   AND substr(lower(i.repository_url), -(length(sessions.repository) + 7)) = '/repos/' || lower(sessions.repository)
 WHERE sessions.ended_at IS NULL ORDER BY sessions.id;
 
@@ -194,8 +194,8 @@ INSERT INTO harness_pause_ends (harness, ended_at) VALUES (?, ?)
 ON CONFLICT (harness) DO UPDATE SET ended_at = excluded.ended_at;
 
 -- name: AddInboxItem :one
-INSERT INTO inbox_items (kind, organization, repository, workstream, issue, title, reason, text, link, pull_request, report_link, chat_message, merging, questions, time)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO inbox_items (kind, organization, repository, workstream_repository, workstream, issue, title, reason, text, link, pull_request, report_link, chat_message, merging, questions, time)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: GetInboxItem :one
@@ -223,7 +223,7 @@ SELECT * FROM inbox_items WHERE repository = ? AND issue = ? AND kind = ? ORDER 
 SELECT * FROM inbox_items WHERE repository = ? AND issue = ? AND kind = ? ORDER BY id;
 
 -- name: ListDismissedQuestionItems :many
-SELECT * FROM inbox_items WHERE repository = ? AND kind = 'question' AND dismissed_at IS NOT NULL ORDER BY id;
+SELECT * FROM inbox_items WHERE workstream_repository = ? AND kind = 'question' AND dismissed_at IS NOT NULL ORDER BY id;
 
 -- name: ListOpenInboxItems :many
 SELECT * FROM inbox_items WHERE dismissed_at IS NULL ORDER BY id;
@@ -367,7 +367,7 @@ WHERE event.repository = sqlc.arg(repository) AND event.held = 1 AND event.deliv
   )
   AND NOT EXISTS (
       SELECT 1 FROM inbox_items AS n
-      WHERE n.repository = event.repository AND n.workstream = event.workstream AND n.kind = 'question' AND n.dismissed_at IS NULL
+      WHERE n.workstream_repository = event.repository AND n.workstream = event.workstream AND n.kind = 'question' AND n.dismissed_at IS NULL
   )
 ORDER BY event.id;
 
@@ -388,10 +388,10 @@ RETURNING *;
 -- name: GetNewestStopText :one
 SELECT text FROM (
     SELECT payload AS text, time FROM lead_events
-    WHERE lead_events.repository = ?1 AND lead_events.issue = ?2 AND lead_events.kind IN ('stop', 'stale_pull_request')
+    WHERE lead_events.repository = sqlc.arg(workstream_repository) AND lead_events.issue = sqlc.arg(issue) AND lead_events.kind IN ('stop', 'stale_pull_request')
     UNION ALL
     SELECT text, time FROM inbox_items
-    WHERE inbox_items.repository = ?1 AND inbox_items.issue = ?2 AND inbox_items.kind IN ('stopped', 'lost')
+    WHERE inbox_items.repository = sqlc.arg(repository) AND inbox_items.issue = sqlc.arg(issue) AND inbox_items.kind IN ('stopped', 'lost')
 ) ORDER BY time DESC LIMIT 1;
 
 -- name: ListWaitingLeadWorkstreams :many

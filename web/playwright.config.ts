@@ -41,6 +41,9 @@ export default defineConfig({
     { name: "voice", testMatch: "voice.spec.ts", dependencies: ["screenshots"] },
     // The live tests change no data, but they need the Apps of the screenshots test.
     { name: "live", testMatch: "live.spec.ts", dependencies: ["checkup", "actions"] },
+    // The attachment tests give their own data with page.route, and they open chats, which marks their messages as seen.
+    // Thus they run last.
+    { name: "attachments", testMatch: "attachments.spec.ts", dependencies: ["live"] },
   ],
   use: {
     baseURL: `http://${addr}`,

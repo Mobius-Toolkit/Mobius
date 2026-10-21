@@ -413,18 +413,19 @@ func (e *Engine) approve(ctx context.Context, repository github.Repository, task
 		merging = 1
 	}
 	return e.addInboxItem(ctx, store.AddInboxItemParams{
-		Kind:         readyForReviewKind,
-		Organization: repository.Owner(),
-		Repository:   task.Repository,
-		Workstream:   task.Workstream,
-		Issue:        task.Issue,
-		Title:        title,
-		Reason:       fmt.Sprintf("PR #%d is ready to merge", pullRequest.GetNumber()),
-		Text:         fmt.Sprintf("Pull request #%d of #%d \"%s\" is ready for review.", pullRequest.GetNumber(), task.Issue, title),
-		Link:         issueLink(task.Repository, task.Issue),
-		PullRequest:  int64(pullRequest.GetNumber()),
-		ReportLink:   comment.GetHTMLURL(),
-		Merging:      merging,
+		Kind:                 readyForReviewKind,
+		Organization:         repository.Owner(),
+		Repository:           task.Repository,
+		WorkstreamRepository: task.WorkstreamRepository,
+		Workstream:           task.Workstream,
+		Issue:                task.Issue,
+		Title:                title,
+		Reason:               fmt.Sprintf("PR #%d is ready to merge", pullRequest.GetNumber()),
+		Text:                 fmt.Sprintf("Pull request #%d of #%d \"%s\" is ready for review.", pullRequest.GetNumber(), task.Issue, title),
+		Link:                 issueLink(task.Repository, task.Issue),
+		PullRequest:          int64(pullRequest.GetNumber()),
+		ReportLink:           comment.GetHTMLURL(),
+		Merging:              merging,
 	})
 }
 
@@ -805,14 +806,15 @@ func (e *Engine) queueAgain(ctx context.Context, task int64) (bool, error) {
 func (e *Engine) implementer(ctx context.Context, j *job) error {
 	task := j.task
 	spec := Spec{
-		Role:         ImplementerRole,
-		Organization: owner(task.Repository),
-		Repository:   task.Repository,
-		Workstream:   task.Workstream,
-		Issue:        sql.NullInt64{Int64: task.Issue, Valid: true},
-		Parent:       j.parent,
-		Task:         task.ID,
-		Dir:          runner.TaskDir(e.config.DataDir, task.Repository, task.Issue),
+		Role:                 ImplementerRole,
+		Organization:         owner(task.Repository),
+		Repository:           task.Repository,
+		WorkstreamRepository: task.WorkstreamRepository,
+		Workstream:           task.Workstream,
+		Issue:                sql.NullInt64{Int64: task.Issue, Valid: true},
+		Parent:               j.parent,
+		Task:                 task.ID,
+		Dir:                  runner.TaskDir(e.config.DataDir, task.Repository, task.Issue),
 	}
 	if j.pullRequest != nil {
 		spec.PullRequest = int64(j.pullRequest.GetNumber())
@@ -1493,12 +1495,12 @@ func (e *Engine) restartParent(ctx context.Context, task store.Task, role string
 
 // lastSession gives the newest session of the issue of the task that matches.
 func (e *Engine) lastSession(ctx context.Context, task store.Task, matches func(store.Session) bool) (sql.NullInt64, error) {
-	sessions, err := e.queries.ListSessions(ctx, store.ListSessionsParams{Organization: owner(task.Repository), Repository: task.Repository, Workstream: task.Workstream})
+	sessions, err := e.queries.ListSessions(ctx, store.ListSessionsParams{Organization: owner(task.Repository), WorkstreamRepository: task.WorkstreamRepository, Workstream: task.Workstream})
 	if err != nil {
 		return sql.NullInt64{}, err
 	}
 	for i := len(sessions) - 1; i >= 0; i-- {
-		if sessions[i].Issue == (sql.NullInt64{Int64: task.Issue, Valid: true}) && matches(sessions[i]) {
+		if sessions[i].Repository == task.Repository && sessions[i].Issue == (sql.NullInt64{Int64: task.Issue, Valid: true}) && matches(sessions[i]) {
 			return sql.NullInt64{Int64: sessions[i].ID, Valid: true}, nil
 		}
 	}

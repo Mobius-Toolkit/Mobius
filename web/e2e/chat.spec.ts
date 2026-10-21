@@ -1154,11 +1154,19 @@ test("the chat of a Workstream does not show an item of another Workstream", asy
     ...longTitleItem,
     organization: "plants",
     repository: "plants/garden",
+    workstreamRepository: "plants/garden",
     title: "Water the roses",
   };
   await routeInboxItems(page, [
     other,
-    { ...other, id: 208, repository: "owner/shop", workstream: 14, title: "Plan the autumn sale" },
+    {
+      ...other,
+      id: 208,
+      repository: "owner/shop",
+      workstreamRepository: "owner/shop",
+      workstream: 14,
+      title: "Plan the autumn sale",
+    },
   ]);
 
   await page.goto(shop);
@@ -1171,6 +1179,28 @@ test("the chat of a Workstream does not show an item of another Workstream", asy
     page.getByRole("main").getByRole("listitem").filter({ hasText: "Water the roses" }),
   ).toBeVisible();
   await expect(page.getByText("Plan the autumn sale")).toHaveCount(0);
+});
+
+test("the chat of a Workstream shows an item of a task in another repository", async ({ page }) => {
+  await page.goto("/api/github/user-callback?code=shop-code");
+  await routeInboxItems(page, [
+    {
+      ...longTitleItem,
+      id: 209,
+      repository: "plants/garden",
+      issue: 77,
+      title: "Water the roses",
+      link: "https://github.com/plants/garden/issues/77",
+    },
+  ]);
+
+  await page.goto(shop);
+  const row = page.getByRole("main").getByRole("listitem").filter({ hasText: "Water the roses" });
+  await expect(row).toBeVisible();
+  await expect(row.getByRole("link", { name: "#77", exact: true })).toHaveAttribute(
+    "href",
+    "https://github.com/plants/garden/issues/77",
+  );
 });
 
 async function boxOf(locator: Locator) {
@@ -1265,6 +1295,7 @@ test("Resume gives a needs-human task with no blocker a button that waits for th
       title: "Rake the bark",
       state: "needs-human",
       depth: 0,
+      repository: "plants/garden",
       otherRepository: false,
       url: "https://github.com/plants/garden/issues/73",
       blockedBy: [{ number: 70, workstreamTitle: "" }],
@@ -1297,6 +1328,41 @@ test("Resume gives a needs-human task with no blocker a button that waits for th
   await expect(rows.filter({ hasText: "#72 Water the bark" }).getByText(started)).toBeVisible();
 
   await undoDispatch(page, 72, "mobius:needs-human");
+});
+
+test("the Tasks tab shows owner/name#N and the Start button for a task of another repository, and the button starts it there", async ({
+  page,
+}) => {
+  await page.goto("/api/github/user-callback?code=user-code");
+  await page.route("**/api/workstreams/plants/garden/19/tasks", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as { data: object[] };
+    body.data.push({
+      number: 5,
+      title: "Pick the apples",
+      state: "open",
+      depth: 0,
+      repository: "plants/orchard",
+      otherRepository: true,
+      url: "https://github.com/plants/orchard/issues/5",
+      blockedBy: [],
+    });
+    await route.fulfill({ response, json: body });
+  });
+  const requests: string[] = [];
+  await page.route("**/api/repositories/*/*/issues/*/start", async (route) => {
+    requests.push(new URL(route.request().url()).pathname);
+    await route.fulfill({ status: 204 });
+  });
+  await page.goto("/workstreams/plants/garden/19");
+  await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
+  const row = page.getByRole("listitem").filter({ hasText: "plants/orchard#5 Pick the apples" });
+  await expect(row).toBeVisible();
+  const start = row.getByRole("button", { name: "Start plants/orchard#5" });
+  await expect(start).toBeVisible();
+
+  await start.click();
+  await expect.poll(() => requests).toEqual(["/api/repositories/plants/orchard/issues/5/start"]);
 });
 
 test("the Tasks tab shows the closed tasks muted, with no Start button, when the switch is on", async ({
@@ -1561,6 +1627,9 @@ test("the stop button takes no tap in the first 500 ms after it shows", async ({
     return route.fulfill({ status: 204 });
   });
   await page.route("**/api/chat/messages", () => {});
+  await page.route("**/api/events", (route) =>
+    route.fulfill({ contentType: "text/event-stream", body: "" }),
+  );
   await page.goto(shop);
   const main = page.getByRole("main");
   const input = main.getByLabel("Message to the Lead");

@@ -3,9 +3,13 @@ import {
   addHistory,
   addHistoryTable,
   ask,
+  askDraft,
+  askStore,
   cardOf,
+  checksQuestion,
   createTitle,
   draftText,
+  draftQuestion,
   draftWorkstream,
   dropColumn,
   dropText,
@@ -14,9 +18,11 @@ import {
   keepPrices,
   keepText,
   leadTitle,
+  ownerTexts,
   sendToCoordinator,
   settle,
   stopUnknown,
+  storeQuestion,
   triagerItem,
   unknownText,
   unknownTitle,
@@ -45,6 +51,7 @@ const approve = (page: Page) => panel(page).getByRole("button", { name: "Approve
 const reject = (page: Page) => panel(page).getByRole("button", { name: "Reject" });
 const waiting = (page: Page, count: number) =>
   page.getByRole("heading", { name: `Waits for you (${count})` });
+const option = (group: Locator, title: string) => group.getByRole("button", { name: title });
 const agentTimeout = { timeout: 30_000 };
 const badge = (card: Locator, name: string) =>
   card.locator('[data-slot="badge"]', { hasText: name });
@@ -288,4 +295,83 @@ test("the phone shows the cards, the tray and the panel with no horizontal scrol
   expect(Math.abs((microphone?.y ?? 0) - (rejectBox?.y ?? 99))).toBeLessThan(4);
   expect(Math.abs((approveBox?.y ?? 0) - (rejectBox?.y ?? 99))).toBeLessThan(4);
   expect((approveBox?.x ?? 999) + (approveBox?.width ?? 0)).toBeLessThanOrEqual(390);
+});
+
+test("the Owner answers a question with options", async ({ page }) => {
+  await openChat(page);
+
+  await ask(page, askStore);
+  await expect(waiting(page, 1)).toBeVisible(agentTimeout);
+  await expect(row(page, storeQuestion).getByRole("button")).toHaveText("Answer");
+  await answer(page, storeQuestion);
+
+  const store = panel(page).getByRole("group", { name: storeQuestion });
+  const checks = panel(page).getByRole("group", { name: checksQuestion });
+  const send = panel(page).getByRole("button", { name: "Send" });
+  const answerNote = panel(page).getByRole("textbox", { name: "Your answer" });
+  await expect(panel(page).getByText("The shop needs a store for the plans.")).toBeVisible();
+  await expect(store.getByText("Select one.", { exact: true })).toBeVisible();
+  await expect(store.getByText("One file, no server.")).toBeVisible();
+  await expect(checks.getByText("Select one or more.")).toBeVisible();
+  await expect(checks.getByText("Runs the Go tests.")).toBeVisible();
+  await expect(answerNote).toHaveAttribute("placeholder", "Add a note (optional)");
+  await expect(send).toBeDisabled();
+
+  await option(store, "Postgres").click();
+  await expect(send).toBeEnabled();
+  await option(store, "SQLite").click();
+  await expect(option(store, "SQLite")).toHaveAttribute("aria-pressed", "true");
+  await expect(option(store, "Postgres")).toHaveAttribute("aria-pressed", "false");
+  await option(checks, "Lint").click();
+  await option(checks, "Tests").click();
+  await expect(option(checks, "Lint")).toHaveAttribute("aria-pressed", "true");
+  await expect(option(checks, "Tests")).toHaveAttribute("aria-pressed", "true");
+  await expect(option(checks, "Types")).toHaveAttribute("aria-pressed", "false");
+  await answerNote.fill("Keep the old data.");
+  await expect(panel(page)).toBeVisible();
+  expect((await ownerTexts(page)).some((text) => text.includes(storeQuestion))).toBe(false);
+
+  await send.click();
+  await expect(panel(page)).toBeHidden();
+  await expect(waiting(page, 1)).toBeHidden();
+  await expect
+    .poll(() => ownerTexts(page))
+    .toContain("Which store?\n- SQLite\n\nWhich checks?\n- Lint\n- Tests\n\nKeep the old data.");
+});
+
+test("the Owner sends only the selected options", async ({ page }) => {
+  await openChat(page);
+
+  await ask(page, askStore);
+  await expect(waiting(page, 1)).toBeVisible(agentTimeout);
+  await answer(page, storeQuestion);
+  await panel(page)
+    .getByRole("group", { name: storeQuestion })
+    .getByRole("button", { name: "SQLite" })
+    .click();
+  await panel(page).getByRole("button", { name: "Send" }).click();
+
+  await expect(panel(page)).toBeHidden();
+  await expect.poll(() => ownerTexts(page)).toContain("Which store?\n- SQLite");
+});
+
+test("a question with no questions shows no option and sends the typed text", async ({ page }) => {
+  await openChat(page);
+
+  await ask(page, askDraft);
+  await expect(waiting(page, 1)).toBeVisible(agentTimeout);
+  await answer(page, draftQuestion);
+
+  await expect(panel(page).getByRole("group")).toHaveCount(0);
+  await expect(panel(page).getByRole("textbox", { name: "Your answer" })).toHaveAttribute(
+    "placeholder",
+    "Write your answer",
+  );
+  await expect(panel(page).getByRole("button", { name: "Send" })).toBeDisabled();
+  await panel(page).getByRole("textbox", { name: "Your answer" }).fill("Yes, draft it now.");
+  await panel(page).getByRole("button", { name: "Send" }).click();
+
+  await expect(panel(page)).toBeHidden();
+  await expect(waiting(page, 1)).toBeHidden();
+  await expect.poll(() => ownerTexts(page)).toContain("Yes, draft it now.");
 });

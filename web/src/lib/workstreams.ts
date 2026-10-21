@@ -44,7 +44,7 @@ export function useWorkstreams(showLogin: () => void, source?: EventSource) {
                   .filter((row) => row.agent.working)
                   .map((row) =>
                     workstreamKey({
-                      repository: row.agent.repository,
+                      repository: row.agent.workstreamRepository,
                       number: row.agent.workstream,
                     }),
                   ),

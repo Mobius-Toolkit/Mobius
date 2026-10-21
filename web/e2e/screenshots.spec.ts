@@ -1,7 +1,9 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import {
   ask,
+  askStore,
   cardOf,
+  checksQuestion,
   createTitle,
   draftText,
   draftWorkstream,
@@ -10,6 +12,7 @@ import {
   seen,
   settle,
   stopUnknown,
+  storeQuestion,
   unknownText,
   unknownTitle,
 } from "./actions.js";
@@ -535,6 +538,45 @@ test("screenshots", async ({ page }) => {
       await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
     },
   );
+  const otherRepositoryRoute = "**/api/workstreams/plants/garden/19/tasks";
+  await page.route(otherRepositoryRoute, async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as { data: object[] };
+    body.data.push({
+      number: 5,
+      title: "Pick the apples",
+      state: "open",
+      depth: 0,
+      repository: "plants/orchard",
+      otherRepository: true,
+      url: "https://github.com/plants/orchard/issues/5",
+      blockedBy: [],
+    });
+    await route.fulfill({ response, json: body });
+  });
+  await screenshot(
+    page,
+    "chat-tasks-other-repository",
+    "/workstreams/plants/garden/19",
+    (device) => [
+      ...(device === "desktop"
+        ? [
+            drain,
+            page.getByLabel("Work in another organization"),
+            page.locator('nav a[href="/workstreams/plants/garden/19"]'),
+          ]
+        : [page.getByLabel("Upgrade available")]),
+      page.getByText("plants/orchard#5 Pick the apples").filter({ visible: true }),
+      page.getByRole("button", { name: "Start plants/orchard#5" }).filter({ visible: true }),
+    ],
+    async (device) => {
+      if (device === "phone") {
+        await page.getByRole("banner").getByRole("button", { name: "Agents" }).click();
+      }
+      await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
+    },
+  );
+  await page.unroute(otherRepositoryRoute);
   await screenshot(page, "chat-all-tasks-closed", "/workstreams/owner/shop/13", (device) => [
     ...frame(device, drain),
     main.getByText("All tasks are closed."),
@@ -553,8 +595,10 @@ test("screenshots", async ({ page }) => {
     const link = "https://github.com/owner/shop";
     const item = {
       dismissedAt: null,
+      questions: [],
       organization: "owner",
       repository: "owner/shop",
+      workstreamRepository: "owner/shop",
       workstream: 12,
       time: "2026-09-28T09:30:00Z",
       title: "",
@@ -1113,6 +1157,36 @@ test("screenshots", async ({ page }) => {
       await showEnd(unknownText)();
     },
   );
+
+  // The fake Coordinator asks a question with options. The answer ends the question.
+  await page.goto("/chat");
+  await ask(page, askStore);
+  await expect(waits(2)).toBeVisible({ timeout: 30_000 });
+  await fixActionTimes();
+  const group = (name: string) => panel.getByRole("group", { name });
+  const option = (name: string, title: string) => group(name).getByRole("button", { name: title });
+  await screenshot(
+    page,
+    "answer-options",
+    "/chat",
+    (device) => [
+      ...approvalReady(device, "3"),
+      group(storeQuestion).getByRole("button", { name: "SQLite", pressed: true }),
+      group(checksQuestion).getByRole("button", { name: "Tests", pressed: true }),
+      option(checksQuestion, "Types"),
+    ],
+    async () => {
+      await row(storeQuestion).getByRole("button", { name: "Answer" }).click();
+      await option(storeQuestion, "SQLite").click();
+      await option(checksQuestion, "Tests").click();
+      await option(checksQuestion, "Types").scrollIntoViewIfNeeded();
+    },
+    () => page.keyboard.press("Escape"),
+  );
+  await row(storeQuestion).getByRole("button", { name: "Answer" }).click();
+  await panel.getByRole("textbox", { name: "Your answer" }).fill("Keep the old data.");
+  await panel.getByRole("button", { name: "Send" }).click();
+  await expect(panel).toBeHidden();
   await settle(page);
   expect((await page.request.post("/e2e/approvals/times/fix")).ok()).toBe(true);
 

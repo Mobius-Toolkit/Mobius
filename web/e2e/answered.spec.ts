@@ -12,8 +12,10 @@ const link = "https://github.com/owner/shop";
 
 const base = {
   dismissedAt: null,
+  questions: [],
   organization: "owner",
   repository: "owner/shop",
+  workstreamRepository: "owner/shop",
   workstream: 12,
   time: "2026-09-28T09:30:00Z",
   title: "",
@@ -62,6 +64,7 @@ const approval = {
   issue: 0,
   workstream: 0,
   repository: "",
+  workstreamRepository: "",
   kind: "approval",
   title: "Message to the Lead of #14",
   reason: "The Coordinator waits for your approval",

@@ -53,16 +53,17 @@ func stoppedItem(task store.Task, title string, notice stopNotice) store.AddInbo
 		text += "\n\n" + notice.output
 	}
 	return store.AddInboxItemParams{
-		Kind:         stoppedKind,
-		Organization: owner(task.Repository),
-		Repository:   task.Repository,
-		Workstream:   task.Workstream,
-		Issue:        task.Issue,
-		Title:        title,
-		Reason:       notice.reason,
-		Text:         text,
-		Link:         issueLink(task.Repository, task.Issue),
-		PullRequest:  task.PullRequest.Int64,
+		Kind:                 stoppedKind,
+		Organization:         owner(task.Repository),
+		Repository:           task.Repository,
+		WorkstreamRepository: task.WorkstreamRepository,
+		Workstream:           task.Workstream,
+		Issue:                task.Issue,
+		Title:                title,
+		Reason:               notice.reason,
+		Text:                 text,
+		Link:                 issueLink(task.Repository, task.Issue),
+		PullRequest:          task.PullRequest.Int64,
 	}
 }
 
@@ -166,7 +167,7 @@ func (e *Engine) deliverStopNotice(ctx context.Context, record store.StopNotice,
 			return err
 		}
 	}
-	stopped, err := e.queries.ListStopEvents(ctx, store.ListStopEventsParams{Repository: task.Repository, Issue: sql.NullInt64{Int64: task.Issue, Valid: true}, Kind: record.LeadKind, Payload: record.LeadText})
+	stopped, err := e.queries.ListStopEvents(ctx, store.ListStopEventsParams{Repository: task.WorkstreamRepository, Issue: sql.NullInt64{Int64: task.Issue, Valid: true}, Kind: record.LeadKind, Payload: record.LeadText})
 	if err != nil {
 		return err
 	}

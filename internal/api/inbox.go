@@ -29,6 +29,8 @@ type InboxItem struct {
 	Organization string `gork:"organization"`
 	// Repository is the repository as "owner/name"
 	Repository string `gork:"repository"`
+	// WorkstreamRepository is the repository of the Workstream issue as "owner/name". It differs from Repository for a task whose Workstream is in another repository
+	WorkstreamRepository string `gork:"workstreamRepository"`
 	// Workstream is the number of the Workstream issue, or 0 for an issue with no Workstream
 	Workstream int64 `gork:"workstream"`
 	// Issue is the number of the issue of the item
@@ -226,22 +228,23 @@ func (h *handlers) inboxItemOf(ctx context.Context, item store.InboxItem) (Inbox
 		return InboxItem{}, err
 	}
 	found := InboxItem{
-		ID:           item.ID,
-		Kind:         item.Kind,
-		Organization: item.Organization,
-		Repository:   item.Repository,
-		Workstream:   item.Workstream,
-		Issue:        item.Issue,
-		Title:        item.Title,
-		Reason:       item.Reason,
-		Text:         item.Text,
-		Link:         item.Link,
-		PullRequest:  item.PullRequest,
-		ReportURL:    item.ReportLink,
-		Time:         t,
-		Merging:      item.Merging != 0,
-		MergeRefusal: item.MergeRefusal,
-		Questions:    []Question{},
+		ID:                   item.ID,
+		Kind:                 item.Kind,
+		Organization:         item.Organization,
+		Repository:           item.Repository,
+		WorkstreamRepository: item.WorkstreamRepository,
+		Workstream:           item.Workstream,
+		Issue:                item.Issue,
+		Title:                item.Title,
+		Reason:               item.Reason,
+		Text:                 item.Text,
+		Link:                 item.Link,
+		PullRequest:          item.PullRequest,
+		ReportURL:            item.ReportLink,
+		Time:                 t,
+		Merging:              item.Merging != 0,
+		MergeRefusal:         item.MergeRefusal,
+		Questions:            []Question{},
 	}
 	if item.Questions != "" {
 		var questions []engine.Question

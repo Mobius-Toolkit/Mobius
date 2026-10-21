@@ -129,24 +129,25 @@ type HarnessPause struct {
 }
 
 type InboxItem struct {
-	ID           int64
-	Kind         string
-	Repository   string
-	Workstream   int64
-	Issue        int64
-	Text         string
-	Link         string
-	Time         string
-	DismissedAt  sql.NullString
-	Organization string
-	Title        string
-	Reason       string
-	PullRequest  int64
-	ReportLink   string
-	ChatMessage  sql.NullInt64
-	Merging      int64
-	MergeRefusal string
-	Questions    string
+	ID                   int64
+	Kind                 string
+	Repository           string
+	Workstream           int64
+	Issue                int64
+	Text                 string
+	Link                 string
+	Time                 string
+	DismissedAt          sql.NullString
+	Organization         string
+	Title                string
+	Reason               string
+	PullRequest          int64
+	ReportLink           string
+	ChatMessage          sql.NullInt64
+	Merging              int64
+	MergeRefusal         string
+	WorkstreamRepository string
+	Questions            string
 }
 
 type LeadEvent struct {
@@ -187,21 +188,22 @@ type PendingAction struct {
 }
 
 type Session struct {
-	ID           int64
-	Role         string
-	Harness      string
-	Model        string
-	Repository   string
-	Workstream   int64
-	AcpSessionID sql.NullString
-	StartedAt    string
-	EndedAt      sql.NullString
-	EndReason    sql.NullString
-	QueueReason  sql.NullString
-	Organization string
-	Issue        sql.NullInt64
-	Parent       sql.NullInt64
-	Effort       sql.NullString
+	ID                   int64
+	Role                 string
+	Harness              string
+	Model                string
+	Repository           string
+	Workstream           int64
+	AcpSessionID         sql.NullString
+	StartedAt            string
+	EndedAt              sql.NullString
+	EndReason            sql.NullString
+	QueueReason          sql.NullString
+	Organization         string
+	Issue                sql.NullInt64
+	Parent               sql.NullInt64
+	Effort               sql.NullString
+	WorkstreamRepository string
 }
 
 type StepTime struct {

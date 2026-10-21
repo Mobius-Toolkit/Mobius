@@ -481,27 +481,28 @@ func (q *Queries) AddGitHubApp(ctx context.Context, arg AddGitHubAppParams) erro
 }
 
 const addInboxItem = `-- name: AddInboxItem :one
-INSERT INTO inbox_items (kind, organization, repository, workstream, issue, title, reason, text, link, pull_request, report_link, chat_message, merging, questions, time)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal, questions
+INSERT INTO inbox_items (kind, organization, repository, workstream_repository, workstream, issue, title, reason, text, link, pull_request, report_link, chat_message, merging, questions, time)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal, workstream_repository, questions
 `
 
 type AddInboxItemParams struct {
-	Kind         string
-	Organization string
-	Repository   string
-	Workstream   int64
-	Issue        int64
-	Title        string
-	Reason       string
-	Text         string
-	Link         string
-	PullRequest  int64
-	ReportLink   string
-	ChatMessage  sql.NullInt64
-	Merging      int64
-	Questions    string
-	Time         string
+	Kind                 string
+	Organization         string
+	Repository           string
+	WorkstreamRepository string
+	Workstream           int64
+	Issue                int64
+	Title                string
+	Reason               string
+	Text                 string
+	Link                 string
+	PullRequest          int64
+	ReportLink           string
+	ChatMessage          sql.NullInt64
+	Merging              int64
+	Questions            string
+	Time                 string
 }
 
 func (q *Queries) AddInboxItem(ctx context.Context, arg AddInboxItemParams) (InboxItem, error) {
@@ -509,6 +510,7 @@ func (q *Queries) AddInboxItem(ctx context.Context, arg AddInboxItemParams) (Inb
 		arg.Kind,
 		arg.Organization,
 		arg.Repository,
+		arg.WorkstreamRepository,
 		arg.Workstream,
 		arg.Issue,
 		arg.Title,
@@ -541,6 +543,7 @@ func (q *Queries) AddInboxItem(ctx context.Context, arg AddInboxItemParams) (Inb
 		&i.ChatMessage,
 		&i.Merging,
 		&i.MergeRefusal,
+		&i.WorkstreamRepository,
 		&i.Questions,
 	)
 	return i, err
@@ -677,22 +680,23 @@ func (q *Queries) AddReviewRound(ctx context.Context, id int64) error {
 }
 
 const addSession = `-- name: AddSession :one
-INSERT INTO sessions (role, harness, model, effort, organization, repository, workstream, issue, parent, started_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent, effort
+INSERT INTO sessions (role, harness, model, effort, organization, repository, workstream_repository, workstream, issue, parent, started_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent, effort, workstream_repository
 `
 
 type AddSessionParams struct {
-	Role         string
-	Harness      string
-	Model        string
-	Effort       sql.NullString
-	Organization string
-	Repository   string
-	Workstream   int64
-	Issue        sql.NullInt64
-	Parent       sql.NullInt64
-	StartedAt    string
+	Role                 string
+	Harness              string
+	Model                string
+	Effort               sql.NullString
+	Organization         string
+	Repository           string
+	WorkstreamRepository string
+	Workstream           int64
+	Issue                sql.NullInt64
+	Parent               sql.NullInt64
+	StartedAt            string
 }
 
 func (q *Queries) AddSession(ctx context.Context, arg AddSessionParams) (Session, error) {
@@ -703,6 +707,7 @@ func (q *Queries) AddSession(ctx context.Context, arg AddSessionParams) (Session
 		arg.Effort,
 		arg.Organization,
 		arg.Repository,
+		arg.WorkstreamRepository,
 		arg.Workstream,
 		arg.Issue,
 		arg.Parent,
@@ -725,6 +730,7 @@ func (q *Queries) AddSession(ctx context.Context, arg AddSessionParams) (Session
 		&i.Issue,
 		&i.Parent,
 		&i.Effort,
+		&i.WorkstreamRepository,
 	)
 	return i, err
 }
@@ -1045,7 +1051,7 @@ func (q *Queries) ClaimPendingAction(ctx context.Context, id int64) (PendingActi
 
 const clearQueueReason = `-- name: ClearQueueReason :one
 UPDATE sessions SET queue_reason = NULL WHERE id = ?
-RETURNING id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent, effort
+RETURNING id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent, effort, workstream_repository
 `
 
 func (q *Queries) ClearQueueReason(ctx context.Context, id int64) (Session, error) {
@@ -1067,6 +1073,7 @@ func (q *Queries) ClearQueueReason(ctx context.Context, id int64) (Session, erro
 		&i.Issue,
 		&i.Parent,
 		&i.Effort,
+		&i.WorkstreamRepository,
 	)
 	return i, err
 }
@@ -1415,7 +1422,7 @@ func (q *Queries) DeliverLeadEvents(ctx context.Context, arg DeliverLeadEventsPa
 
 const dismissInboxItem = `-- name: DismissInboxItem :one
 UPDATE inbox_items SET dismissed_at = ? WHERE id = ?
-RETURNING id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal, questions
+RETURNING id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal, workstream_repository, questions
 `
 
 type DismissInboxItemParams struct {
@@ -1444,6 +1451,7 @@ func (q *Queries) DismissInboxItem(ctx context.Context, arg DismissInboxItemPara
 		&i.ChatMessage,
 		&i.Merging,
 		&i.MergeRefusal,
+		&i.WorkstreamRepository,
 		&i.Questions,
 	)
 	return i, err
@@ -1538,7 +1546,7 @@ func (q *Queries) EndFullSlots(ctx context.Context) error {
 
 const endSession = `-- name: EndSession :one
 UPDATE sessions SET ended_at = ?, end_reason = ?, queue_reason = NULL WHERE id = ?
-RETURNING id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent, effort
+RETURNING id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent, effort, workstream_repository
 `
 
 type EndSessionParams struct {
@@ -1566,6 +1574,7 @@ func (q *Queries) EndSession(ctx context.Context, arg EndSessionParams) (Session
 		&i.Issue,
 		&i.Parent,
 		&i.Effort,
+		&i.WorkstreamRepository,
 	)
 	return i, err
 }
@@ -2007,7 +2016,7 @@ func (q *Queries) GetHarnessPauseEnd(ctx context.Context, harness string) (strin
 }
 
 const getInboxItem = `-- name: GetInboxItem :one
-SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal, questions FROM inbox_items WHERE id = ?
+SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal, workstream_repository, questions FROM inbox_items WHERE id = ?
 `
 
 func (q *Queries) GetInboxItem(ctx context.Context, id int64) (InboxItem, error) {
@@ -2031,6 +2040,7 @@ func (q *Queries) GetInboxItem(ctx context.Context, id int64) (InboxItem, error)
 		&i.ChatMessage,
 		&i.Merging,
 		&i.MergeRefusal,
+		&i.WorkstreamRepository,
 		&i.Questions,
 	)
 	return i, err
@@ -2264,7 +2274,7 @@ func (q *Queries) GetMemoryVersionBefore(ctx context.Context, arg GetMemoryVersi
 }
 
 const getNewestInboxItem = `-- name: GetNewestInboxItem :one
-SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal, questions FROM inbox_items WHERE repository = ? AND issue = ? AND kind = ? ORDER BY id DESC LIMIT 1
+SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal, workstream_repository, questions FROM inbox_items WHERE repository = ? AND issue = ? AND kind = ? ORDER BY id DESC LIMIT 1
 `
 
 type GetNewestInboxItemParams struct {
@@ -2294,6 +2304,7 @@ func (q *Queries) GetNewestInboxItem(ctx context.Context, arg GetNewestInboxItem
 		&i.ChatMessage,
 		&i.Merging,
 		&i.MergeRefusal,
+		&i.WorkstreamRepository,
 		&i.Questions,
 	)
 	return i, err
@@ -2316,18 +2327,19 @@ SELECT text FROM (
     WHERE lead_events.repository = ?1 AND lead_events.issue = ?2 AND lead_events.kind IN ('stop', 'stale_pull_request')
     UNION ALL
     SELECT text, time FROM inbox_items
-    WHERE inbox_items.repository = ?1 AND inbox_items.issue = ?2 AND inbox_items.kind IN ('stopped', 'lost')
+    WHERE inbox_items.repository = ?3 AND inbox_items.issue = ?2 AND inbox_items.kind IN ('stopped', 'lost')
 ) ORDER BY time DESC LIMIT 1
 `
 
 type GetNewestStopTextParams struct {
-	Repository string
-	Issue      sql.NullInt64
+	WorkstreamRepository string
+	Issue                sql.NullInt64
+	Repository           string
 }
 
 // A stop writes a stop event, a stale_pull_request event, or an Inbox item of the kind stopped or lost.
 func (q *Queries) GetNewestStopText(ctx context.Context, arg GetNewestStopTextParams) (string, error) {
-	row := q.db.QueryRowContext(ctx, getNewestStopText, arg.Repository, arg.Issue)
+	row := q.db.QueryRowContext(ctx, getNewestStopText, arg.WorkstreamRepository, arg.Issue, arg.Repository)
 	var text string
 	err := row.Scan(&text)
 	return text, err
@@ -2524,7 +2536,7 @@ func (q *Queries) GetReviewComment(ctx context.Context, id int64) (sql.NullInt64
 }
 
 const getSession = `-- name: GetSession :one
-SELECT id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent, effort FROM sessions WHERE id = ?
+SELECT id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent, effort, workstream_repository FROM sessions WHERE id = ?
 `
 
 func (q *Queries) GetSession(ctx context.Context, id int64) (Session, error) {
@@ -2546,6 +2558,7 @@ func (q *Queries) GetSession(ctx context.Context, id int64) (Session, error) {
 		&i.Issue,
 		&i.Parent,
 		&i.Effort,
+		&i.WorkstreamRepository,
 	)
 	return i, err
 }
@@ -4066,11 +4079,11 @@ func (q *Queries) ListDeviceLogins(ctx context.Context) ([]ListDeviceLoginsRow, 
 }
 
 const listDismissedQuestionItems = `-- name: ListDismissedQuestionItems :many
-SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal, questions FROM inbox_items WHERE repository = ? AND kind = 'question' AND dismissed_at IS NOT NULL ORDER BY id
+SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal, workstream_repository, questions FROM inbox_items WHERE workstream_repository = ? AND kind = 'question' AND dismissed_at IS NOT NULL ORDER BY id
 `
 
-func (q *Queries) ListDismissedQuestionItems(ctx context.Context, repository string) ([]InboxItem, error) {
-	rows, err := q.db.QueryContext(ctx, listDismissedQuestionItems, repository)
+func (q *Queries) ListDismissedQuestionItems(ctx context.Context, workstreamRepository string) ([]InboxItem, error) {
+	rows, err := q.db.QueryContext(ctx, listDismissedQuestionItems, workstreamRepository)
 	if err != nil {
 		return nil, err
 	}
@@ -4096,6 +4109,7 @@ func (q *Queries) ListDismissedQuestionItems(ctx context.Context, repository str
 			&i.ChatMessage,
 			&i.Merging,
 			&i.MergeRefusal,
+			&i.WorkstreamRepository,
 			&i.Questions,
 		); err != nil {
 			return nil, err
@@ -4365,7 +4379,7 @@ WHERE event.repository = ?1 AND event.held = 1 AND event.delivered_at IS NULL
   )
   AND NOT EXISTS (
       SELECT 1 FROM inbox_items AS n
-      WHERE n.repository = event.repository AND n.workstream = event.workstream AND n.kind = 'question' AND n.dismissed_at IS NULL
+      WHERE n.workstream_repository = event.repository AND n.workstream = event.workstream AND n.kind = 'question' AND n.dismissed_at IS NULL
   )
 ORDER BY event.id
 `
@@ -4461,7 +4475,7 @@ func (q *Queries) ListHungSessionsSince(ctx context.Context, arg ListHungSession
 }
 
 const listIssueInboxItems = `-- name: ListIssueInboxItems :many
-SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal, questions FROM inbox_items WHERE repository = ? AND issue = ? AND kind = ? ORDER BY id
+SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal, workstream_repository, questions FROM inbox_items WHERE repository = ? AND issue = ? AND kind = ? ORDER BY id
 `
 
 type ListIssueInboxItemsParams struct {
@@ -4497,6 +4511,7 @@ func (q *Queries) ListIssueInboxItems(ctx context.Context, arg ListIssueInboxIte
 			&i.ChatMessage,
 			&i.Merging,
 			&i.MergeRefusal,
+			&i.WorkstreamRepository,
 			&i.Questions,
 		); err != nil {
 			return nil, err
@@ -4804,7 +4819,7 @@ func (q *Queries) ListOpenHardCIBreaks(ctx context.Context, repository string) (
 }
 
 const listOpenInboxItems = `-- name: ListOpenInboxItems :many
-SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal, questions FROM inbox_items WHERE dismissed_at IS NULL ORDER BY id
+SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal, workstream_repository, questions FROM inbox_items WHERE dismissed_at IS NULL ORDER BY id
 `
 
 func (q *Queries) ListOpenInboxItems(ctx context.Context) ([]InboxItem, error) {
@@ -4834,6 +4849,7 @@ func (q *Queries) ListOpenInboxItems(ctx context.Context) ([]InboxItem, error) {
 			&i.ChatMessage,
 			&i.Merging,
 			&i.MergeRefusal,
+			&i.WorkstreamRepository,
 			&i.Questions,
 		); err != nil {
 			return nil, err
@@ -4877,14 +4893,14 @@ func (q *Queries) ListOpenSessionIDs(ctx context.Context) ([]int64, error) {
 }
 
 const listOpenSessions = `-- name: ListOpenSessions :many
-SELECT sessions.id, sessions.role, sessions.harness, sessions.model, sessions.repository, sessions.workstream, sessions.acp_session_id, sessions.started_at, sessions.ended_at, sessions.end_reason, sessions.queue_reason, sessions.organization, sessions.issue, sessions.parent, sessions.effort, w.title AS workstream_title, i.title AS issue_title,
+SELECT sessions.id, sessions.role, sessions.harness, sessions.model, sessions.repository, sessions.workstream, sessions.acp_session_id, sessions.started_at, sessions.ended_at, sessions.end_reason, sessions.queue_reason, sessions.organization, sessions.issue, sessions.parent, sessions.effort, sessions.workstream_repository, w.title AS workstream_title, i.title AS issue_title,
        (SELECT t.pull_request FROM tasks t
         WHERE t.repository = sessions.repository AND t.issue = sessions.issue
         ORDER BY t.id DESC LIMIT 1) AS pull_request
 FROM sessions
-LEFT JOIN copied_workstreams w ON w.repository = sessions.repository AND w.number = sessions.workstream
+LEFT JOIN copied_workstreams w ON w.repository = sessions.workstream_repository AND w.number = sessions.workstream
 LEFT JOIN copied_issues i
-  ON i.repository = sessions.repository AND i.workstream = sessions.workstream AND i.number = sessions.issue
+  ON i.repository = sessions.workstream_repository AND i.workstream = sessions.workstream AND i.number = sessions.issue
   AND substr(lower(i.repository_url), -(length(sessions.repository) + 7)) = '/repos/' || lower(sessions.repository)
 WHERE sessions.ended_at IS NULL ORDER BY sessions.id
 `
@@ -4921,6 +4937,7 @@ func (q *Queries) ListOpenSessions(ctx context.Context) ([]ListOpenSessionsRow, 
 			&i.Session.Issue,
 			&i.Session.Parent,
 			&i.Session.Effort,
+			&i.Session.WorkstreamRepository,
 			&i.WorkstreamTitle,
 			&i.IssueTitle,
 			&i.PullRequest,
@@ -5278,17 +5295,17 @@ func (q *Queries) ListRetryPromptsSince(ctx context.Context, arg ListRetryPrompt
 }
 
 const listSessions = `-- name: ListSessions :many
-SELECT id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent, effort FROM sessions WHERE organization = ? AND repository = ? AND workstream = ? ORDER BY id
+SELECT id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent, effort, workstream_repository FROM sessions WHERE organization = ? AND workstream_repository = ? AND workstream = ? ORDER BY id
 `
 
 type ListSessionsParams struct {
-	Organization string
-	Repository   string
-	Workstream   int64
+	Organization         string
+	WorkstreamRepository string
+	Workstream           int64
 }
 
 func (q *Queries) ListSessions(ctx context.Context, arg ListSessionsParams) ([]Session, error) {
-	rows, err := q.db.QueryContext(ctx, listSessions, arg.Organization, arg.Repository, arg.Workstream)
+	rows, err := q.db.QueryContext(ctx, listSessions, arg.Organization, arg.WorkstreamRepository, arg.Workstream)
 	if err != nil {
 		return nil, err
 	}
@@ -5312,6 +5329,7 @@ func (q *Queries) ListSessions(ctx context.Context, arg ListSessionsParams) ([]S
 			&i.Issue,
 			&i.Parent,
 			&i.Effort,
+			&i.WorkstreamRepository,
 		); err != nil {
 			return nil, err
 		}
@@ -6168,7 +6186,7 @@ func (q *Queries) RejectPendingAction(ctx context.Context, arg RejectPendingActi
 
 const reopenInboxItem = `-- name: ReopenInboxItem :one
 UPDATE inbox_items SET dismissed_at = NULL WHERE id = ?
-RETURNING id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal, questions
+RETURNING id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal, workstream_repository, questions
 `
 
 func (q *Queries) ReopenInboxItem(ctx context.Context, id int64) (InboxItem, error) {
@@ -6192,6 +6210,7 @@ func (q *Queries) ReopenInboxItem(ctx context.Context, id int64) (InboxItem, err
 		&i.ChatMessage,
 		&i.Merging,
 		&i.MergeRefusal,
+		&i.WorkstreamRepository,
 		&i.Questions,
 	)
 	return i, err
@@ -6476,7 +6495,7 @@ func (q *Queries) SetHarnessPauseEnd(ctx context.Context, arg SetHarnessPauseEnd
 
 const setInboxItemMerge = `-- name: SetInboxItemMerge :one
 UPDATE inbox_items SET merging = ?, merge_refusal = ? WHERE id = ?
-RETURNING id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal, questions
+RETURNING id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal, workstream_repository, questions
 `
 
 type SetInboxItemMergeParams struct {
@@ -6506,6 +6525,7 @@ func (q *Queries) SetInboxItemMerge(ctx context.Context, arg SetInboxItemMergePa
 		&i.ChatMessage,
 		&i.Merging,
 		&i.MergeRefusal,
+		&i.WorkstreamRepository,
 		&i.Questions,
 	)
 	return i, err
@@ -6541,7 +6561,7 @@ func (q *Queries) SetPendingActionCreatedIssue(ctx context.Context, arg SetPendi
 
 const setQueueReason = `-- name: SetQueueReason :one
 UPDATE sessions SET queue_reason = ? WHERE id = ?
-RETURNING id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent, effort
+RETURNING id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent, effort, workstream_repository
 `
 
 type SetQueueReasonParams struct {
@@ -6568,6 +6588,7 @@ func (q *Queries) SetQueueReason(ctx context.Context, arg SetQueueReasonParams) 
 		&i.Issue,
 		&i.Parent,
 		&i.Effort,
+		&i.WorkstreamRepository,
 	)
 	return i, err
 }
@@ -6853,7 +6874,7 @@ func (q *Queries) StartFullSlots(ctx context.Context, since string) error {
 
 const startSession = `-- name: StartSession :one
 UPDATE sessions SET started_at = ?, queue_reason = NULL WHERE id = ?
-RETURNING id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent, effort
+RETURNING id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent, effort, workstream_repository
 `
 
 type StartSessionParams struct {
@@ -6880,6 +6901,7 @@ func (q *Queries) StartSession(ctx context.Context, arg StartSessionParams) (Ses
 		&i.Issue,
 		&i.Parent,
 		&i.Effort,
+		&i.WorkstreamRepository,
 	)
 	return i, err
 }

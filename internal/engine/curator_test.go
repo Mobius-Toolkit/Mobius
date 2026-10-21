@@ -405,8 +405,8 @@ func addSession(t *testing.T, server *testserver.Server, role string, issue int6
 		endReason = sql.NullString{String: reason, Valid: true}
 	}
 	result, err := server.DB.Exec(
-		"INSERT INTO sessions (role, harness, model, organization, repository, workstream, issue, started_at, ended_at, end_reason) VALUES (?, 'fake', 'fake', 'owner', ?, 12, ?, ?, ?, ?)",
-		role, shop, sql.NullInt64{Int64: issue, Valid: issue != 0}, stamp(startedAt), endedAt, endReason)
+		"INSERT INTO sessions (role, harness, model, organization, repository, workstream_repository, workstream, issue, started_at, ended_at, end_reason) VALUES (?, 'fake', 'fake', 'owner', ?, ?, 12, ?, ?, ?, ?)",
+		role, shop, shop, sql.NullInt64{Int64: issue, Valid: issue != 0}, stamp(startedAt), endedAt, endReason)
 	if err != nil {
 		t.Fatal(err)
 	}

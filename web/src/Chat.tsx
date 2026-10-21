@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
-import type { Approval } from "@/lib/actions";
 import type { Workstreams } from "@/lib/workstreams";
 import { AgentPanel } from "./AgentPanel";
 import { Conversation } from "./Conversation";
@@ -55,7 +54,7 @@ export function Chat({
 }) {
   const repository = `${owner}/${name}`;
   const inWorkstream = inbox
-    .filter((item) => item.repository === repository && item.workstream === number)
+    .filter((item) => item.workstreamRepository === repository && item.workstream === number)
     .toSorted((a, b) => a.id - b.id);
   const workstream = workstreams.list?.find(
     (other) => other.repository === repository && other.number === number,
@@ -170,7 +169,7 @@ export function Chat({
             workstreams={workstreams.list}
           />
         }
-        approvals={inWorkstream.filter((item): item is Approval => item.action?.role === "lead")}
+        trayItems={inWorkstream.filter((item) => item.action?.role === "lead")}
       />
       <aside className="hidden w-80 shrink-0 flex-col border-l pt-2 md:flex">{panel}</aside>
     </div>

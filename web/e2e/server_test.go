@@ -53,6 +53,18 @@ when = "# Approval message"
 when = "Message of the Coordinator, approved by the Owner"
 reply = ["The Lead has the message."]
 
+[[prompts]]
+when = "# Owner message\n\nWhich store?"
+reply = ["The answer is noted."]
+
+[[prompts]]
+when = "# Owner message\n\nKeep the old data."
+reply = ["The answer is noted."]
+
+[[prompts]]
+when = "# Owner message\n\nYes, draft it now."
+reply = ["The answer is noted."]
+
 `
 
 const scriptBody = `[[prompts]]
@@ -140,6 +152,8 @@ var ownerCalls = []struct{ message, tool, arguments string }{
 	{"Tell the Lead of #14 to add a price history.", "message_lead", `{ workstream = 14, text = "Add a history of the plan prices." }`},
 	{"Tell the Lead of #14 to add a price history table.", "message_lead", `{ workstream = 14, text = "Add a table with the history of the plan prices." }`},
 	{"Tell the Lead of #9999 to stop.", "message_lead", `{ workstream = 9999, text = "Stop the work." }`},
+	{"Ask which store and which checks.", "ask", `{ text = "The shop needs a store for the plans.", questions = [ { text = "Which store?", multiple = false, options = [ { title = "SQLite", details = "One file, no server." }, { title = "Postgres", details = "A server that many writers share." } ] }, { text = "Which checks?", multiple = true, options = [ { title = "Lint", details = "Finds faults of the style." }, { title = "Tests", details = "Runs the Go tests." }, { title = "Types", details = "Checks the TypeScript types." } ] } ] }`},
+	{"Ask whether to draft the Workstream.", "ask", `{ text = "Should I draft the Workstream now?" }`},
 }
 
 func ownerCallRules(heading string) string {
@@ -339,18 +353,20 @@ func TestServer(t *testing.T) {
 	server.Mux.HandleFunc("POST /e2e/inbox-items", func(w http.ResponseWriter, r *http.Request) {
 		query := r.URL.Query()
 		params := store.AddInboxItemParams{
-			Kind:         "Lead failed",
-			Organization: "owner",
-			Repository:   "owner/shop",
-			Workstream:   12,
-			Issue:        40,
-			Reason:       "The Lead did not get your message",
-			Time:         "2026-09-28T09:30:00Z",
+			Kind:                 "Lead failed",
+			Organization:         "owner",
+			Repository:           "owner/shop",
+			WorkstreamRepository: "owner/shop",
+			Workstream:           12,
+			Issue:                40,
+			Reason:               "The Lead did not get your message",
+			Time:                 "2026-09-28T09:30:00Z",
 		}
 		if kind := query.Get("kind"); kind != "" {
 			params.Kind = kind
 			params.Organization, _, _ = strings.Cut(query.Get("repository"), "/")
 			params.Repository = query.Get("repository")
+			params.WorkstreamRepository = params.Repository
 			params.Workstream, _ = strconv.ParseInt(query.Get("workstream"), 10, 64)
 			params.Issue, _ = strconv.ParseInt(query.Get("issue"), 10, 64)
 			params.Title = query.Get("title")
@@ -660,8 +676,8 @@ func TestServer(t *testing.T) {
 		{45, "antigravity", "paused until 2026-09-28 12:00 UTC"},
 		{42, "claude-code", "no free Implementer slot (2/2)"},
 	} {
-		if _, err := server.DB.Exec(`INSERT INTO sessions (role, harness, model, organization, repository, workstream, issue, started_at, queue_reason)
-			VALUES (?, ?, 'sonnet', 'owner', 'owner/shop', 12, ?, ?, ?)`,
+		if _, err := server.DB.Exec(`INSERT INTO sessions (role, harness, model, organization, repository, workstream_repository, workstream, issue, started_at, queue_reason)
+			VALUES (?, ?, 'sonnet', 'owner', 'owner/shop', 'owner/shop', 12, ?, ?, ?)`,
 			engine.ImplementerRole, session.harness, session.number, time.Now().UTC().Format(time.RFC3339Nano), session.reason); err != nil {
 			t.Fatal(err)
 		}

@@ -208,17 +208,18 @@ func TestAStalePullRequestWithAMergeConflictGoesToAHuman(t *testing.T) {
 		}
 	}
 	want := []inboxItem{{
-		ID:             stale[0].ID,
-		Kind:           "stopped",
-		Repository:     shop,
-		Workstream:     12,
-		Issue:          41,
-		Title:          "Add plan model",
-		Reason:         "PR #42 has a merge conflict",
-		Text:           stale[0].Text,
-		Link:           "https://github.com/owner/shop/issues/41",
-		PullRequest:    42,
-		PullRequestURL: "https://github.com/owner/shop/pull/42",
+		ID:                   stale[0].ID,
+		Kind:                 "stopped",
+		Repository:           shop,
+		WorkstreamRepository: shop,
+		Workstream:           12,
+		Issue:                41,
+		Title:                "Add plan model",
+		Reason:               "PR #42 has a merge conflict",
+		Text:                 stale[0].Text,
+		Link:                 "https://github.com/owner/shop/issues/41",
+		PullRequest:          42,
+		PullRequestURL:       "https://github.com/owner/shop/pull/42",
 	}}
 	if !reflect.DeepEqual(stale, want) {
 		t.Errorf("stale items = %+v", stale)

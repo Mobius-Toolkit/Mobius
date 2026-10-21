@@ -366,7 +366,7 @@ func (e *Engine) setStateLabels(ctx context.Context, repository github.Repositor
 	return nil
 }
 
-// clearEndedTaskLabels removes the Mobius state labels and mobius:question from each open issue of repository whose
+// clearEndedTaskLabels removes the Mobius state labels and mobius:question from each open issue of the copy of repository whose
 // newest task ended and that has no live task. It reads the labels from the local copy. An issue with an open Inbox
 // item of a lost task keeps mobius:needs-human. A removal that GitHub refuses is logged, and the next poll tries it
 // again, because the local copy still has the label.
@@ -382,11 +382,12 @@ func (e *Engine) clearEndedTaskLabels(ctx context.Context, repository github.Rep
 		return err
 	}
 	for _, row := range rows {
-		if otherRepository(row.RepositoryUrl, repository.FullName) {
+		source, ok := e.urlRepository(row.RepositoryUrl, repository)
+		if !ok {
 			continue
 		}
-		if err := repository.RemoveLabel(ctx, row.Number, row.Name); err != nil {
-			log.Printf("remove %s from %s#%d: %v", row.Name, repository.FullName, row.Number, err)
+		if err := source.RemoveLabel(ctx, row.Number, row.Name); err != nil {
+			log.Printf("remove %s from %s#%d: %v", row.Name, source.FullName, row.Number, err)
 		}
 	}
 	return nil

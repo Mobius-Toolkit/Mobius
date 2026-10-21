@@ -1,6 +1,5 @@
-import type { InboxItem } from "@/api/api.gen";
+import { InboxItemKind, type InboxItem } from "@/api/api.gen";
 import { PageHeader } from "@/components/page";
-import type { Approval } from "@/lib/actions";
 import { Conversation } from "./Conversation";
 import { TopBar } from "./TopBar";
 
@@ -41,9 +40,12 @@ export function CoordinatorChat({
         agent="Coordinator"
         source={source}
         unread={unread}
-        approvals={inbox.filter(
-          (item): item is Approval =>
-            item.organization === organization && item.action?.role === "coordinator",
+        trayItems={inbox.filter(
+          (item) =>
+            item.organization === organization &&
+            (item.action
+              ? item.action.role === "coordinator"
+              : item.kind === InboxItemKind.question && !item.repository && !item.issue),
         )}
         head={
           <>

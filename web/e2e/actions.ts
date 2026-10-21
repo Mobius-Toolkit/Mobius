@@ -7,6 +7,13 @@ export const dropColumn = "Tell the Lead of #14 to drop the old price column.";
 export const addHistory = "Tell the Lead of #14 to add a price history.";
 export const addHistoryTable = "Tell the Lead of #14 to add a price history table.";
 export const stopUnknown = "Tell the Lead of #9999 to stop.";
+export const askStore = "Ask which store and which checks.";
+export const askDraft = "Ask whether to draft the Workstream.";
+
+// The texts of the questions that the fake Coordinator asks.
+export const storeQuestion = "Which store?";
+export const checksQuestion = "Which checks?";
+export const draftQuestion = "Should I draft the Workstream now?";
 
 // A text of the arguments of each call, to find its card.
 export const draftText = "Let customers buy a gift card";
@@ -55,6 +62,16 @@ export async function sendToCoordinator(page: Page, text: string) {
     form.append('text', ${JSON.stringify(text)})
     return fetch('/api/chat/messages', { method: 'POST', body: form })
   })()`);
+}
+
+// The texts of the Owner messages of the Coordinator chat.
+export async function ownerTexts(page: Page) {
+  const chat = await api<{ messages: { author: string; text: string }[] }>(
+    page,
+    "GET",
+    coordinatorChat,
+  );
+  return chat.data.messages.filter((message) => message.author === "Owner").map(({ text }) => text);
 }
 
 // Waits until the Coordinator has answered each message, and gives the last message.
@@ -115,9 +132,11 @@ const triagerAction = {
 
 export const triagerItem = {
   dismissedAt: null,
+  questions: [],
   id: 333,
   organization: "owner",
   repository: "owner/shop",
+  workstreamRepository: "owner/shop",
   workstream: 12,
   issue: 61,
   kind: "approval",

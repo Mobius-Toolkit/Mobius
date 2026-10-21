@@ -9,9 +9,9 @@ import (
 
 func TestAnAnswerOfAnUnknownItemGives404AnEmptyTextGives400AndAnItemWithNoIssueGives400(t *testing.T) {
 	mux, db := testMux(t)
-	exec(t, db, `INSERT INTO inbox_items (id, kind, organization, repository, workstream, issue, text, link, time) VALUES
-		(1, 'Lead failed', 'owner', '', 0, 0, 'The Lead did not take the message.', '', '2026-10-04T10:00:00Z'),
-		(2, 'question', 'owner', 'owner/shop', 12, 41, 'Cents or dollars?', '', '2026-10-04T10:00:00Z')`)
+	exec(t, db, `INSERT INTO inbox_items (id, kind, organization, repository, workstream_repository, workstream, issue, text, link, time) VALUES
+		(1, 'Lead failed', 'owner', '', '', 0, 0, 'The Lead did not take the message.', '', '2026-10-04T10:00:00Z'),
+		(2, 'question', 'owner', 'owner/shop', 'owner/shop', 12, 41, 'Cents or dollars?', '', '2026-10-04T10:00:00Z')`)
 
 	for _, test := range []struct {
 		path, body string
