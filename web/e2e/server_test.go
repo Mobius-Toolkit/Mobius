@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
@@ -315,7 +316,9 @@ func TestServer(t *testing.T) {
 	t.Cleanup(func() { _ = os.RemoveAll(dataDir) })
 	testkit.InstallFakeAgent(t, dataDir, script)
 	fixTools(t, dataDir)
-	server := testserver.Start(t, dataDir, github.URL)
+	cfg := testserver.Config(t, dataDir)
+	cfg.Organizations = map[string]config.Organization{"plants": {IssueRepository: "plants/garden"}}
+	server := testserver.StartWith(t, cfg, github.URL)
 	dist, err := fs.Sub(web.Dist, "dist")
 	if err != nil {
 		t.Fatal(err)
@@ -454,6 +457,7 @@ func TestServer(t *testing.T) {
 	})
 	github.AddRepository("owner/shop")
 	github.AddRepository("plants/garden")
+	github.AddRepository("plants/mobius-skills")
 	github.PushCommit("owner/shop", "mobius/41", "Add the plan model")
 
 	// The first poll of owner/shop after the Playwright tests create the App creates the

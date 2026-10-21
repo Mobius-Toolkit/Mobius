@@ -5,6 +5,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
@@ -30,12 +31,16 @@ type checkup struct {
 	Repositories []struct {
 		Repository string       `json:"repository"`
 		Labels     []labelCheck `json:"labels"`
-
-		MaintenanceWorkstream int64 `json:"maintenanceWorkstream"`
 	} `json:"repositories"`
-	Permissions      []permissionCheck `json:"permissions"`
-	PermissionsError string            `json:"permissionsError"`
-	LabelFix         string            `json:"labelFix"`
+	Permissions                []permissionCheck `json:"permissions"`
+	PermissionsError           string            `json:"permissionsError"`
+	LabelFix                   string            `json:"labelFix"`
+	IssueRepository            string            `json:"issueRepository"`
+	IssueRepositoryError       string            `json:"issueRepositoryError"`
+	MaintenanceWorkstream      int64             `json:"maintenanceWorkstream"`
+	SkillRepository            string            `json:"skillRepository"`
+	SkillsWorkstreamRepository string            `json:"skillsWorkstreamRepository"`
+	SkillsWorkstream           int64             `json:"skillsWorkstream"`
 }
 
 func getCheckup(t *testing.T, server *testserver.Server, organization string) checkup {
@@ -64,6 +69,25 @@ func startWithApp(t *testing.T, github *testkit.FakeGitHub, accountType string) 
 	server := testserver.Start(t, t.TempDir(), github.URL)
 	createApp(t, server, "owner")
 	testkit.WaitFor(t, func() bool { return len(github.RepositoryLabels(shop)) == len(engine.Labels) })
+	return server
+}
+
+const skills = "owner/mobius-skills"
+
+// startWithSkillRepository starts a server with an App that is installed on owner/shop and owner/mobius-skills. The
+// config names owner/shop as the issue repository.
+func startWithSkillRepository(t *testing.T, github *testkit.FakeGitHub) *testserver.Server {
+	t.Helper()
+	github.AddAccount("owner", "User")
+	github.AddRepository(shop)
+	github.AddRepository(skills)
+	cfg := testserver.Config(t, t.TempDir())
+	cfg.Organizations = map[string]config.Organization{"owner": {IssueRepository: shop}}
+	server := testserver.StartWith(t, cfg, github.URL)
+	createApp(t, server, "owner")
+	testkit.WaitFor(t, func() bool {
+		return len(github.RepositoryLabels(shop)) == len(engine.Labels) && len(github.RepositoryLabels(skills)) == len(engine.Labels)
+	})
 	return server
 }
 
@@ -165,7 +189,7 @@ func TestTheCheckupShowsTheOpenMaintenanceWorkstreamWithTheLowestNumber(t *testi
 	github := testkit.NewFakeGitHub(t)
 	server := startWithApp(t, github, "User")
 
-	if got := getCheckup(t, server, "owner").Repositories[0].MaintenanceWorkstream; got != 0 {
+	if got := getCheckup(t, server, "owner").MaintenanceWorkstream; got != 0 {
 		t.Errorf("maintenance Workstream = %d, want 0", got)
 	}
 
@@ -176,8 +200,71 @@ func TestTheCheckupShowsTheOpenMaintenanceWorkstreamWithTheLowestNumber(t *testi
 	}
 	github.CloseIssue(shop, 10)
 
-	if got := getCheckup(t, server, "owner").Repositories[0].MaintenanceWorkstream; got != 20 {
+	if got := getCheckup(t, server, "owner").MaintenanceWorkstream; got != 20 {
 		t.Errorf("maintenance Workstream = %d, want 20", got)
+	}
+}
+
+func TestTheCheckupShowsTheIssueRepositoryAndNoMaintenanceWorkstreamOfAnotherRepository(t *testing.T) {
+	github := testkit.NewFakeGitHub(t)
+	server := startWithSkillRepository(t, github)
+	github.AddIssue(skills, 5, "Maintenance")
+	github.AddLabel(skills, 5, "mobius:workstream", "owner")
+	github.AddLabel(skills, 5, "mobius:maintenance", "owner")
+
+	found := getCheckup(t, server, "owner")
+
+	if found.IssueRepository != shop || found.IssueRepositoryError != "" || found.MaintenanceWorkstream != 0 {
+		t.Errorf("issue repository = %q, error = %q, maintenance Workstream = %d", found.IssueRepository, found.IssueRepositoryError, found.MaintenanceWorkstream)
+	}
+}
+
+func TestTheCheckupShowsAnErrorInPlaceOfTheIssueRepositoryOfAnOrganizationWithManyRepositoriesAndNoConfig(t *testing.T) {
+	github := testkit.NewFakeGitHub(t)
+	github.AddAccount("owner", "User")
+	github.AddRepository(shop)
+	github.AddRepository(skills)
+	server := testserver.Start(t, t.TempDir(), github.URL)
+	createApp(t, server, "owner")
+	testkit.WaitFor(t, func() bool { return len(github.RepositoryLabels(skills)) == len(engine.Labels) })
+
+	found := getCheckup(t, server, "owner")
+
+	if found.IssueRepository != "" || found.MaintenanceWorkstream != 0 || found.IssueRepositoryError != "Mobius needs the issue repository of owner. Set organizations.owner.issue_repository in config.toml." {
+		t.Errorf("issue repository = %q, error = %q, maintenance Workstream = %d", found.IssueRepository, found.IssueRepositoryError, found.MaintenanceWorkstream)
+	}
+}
+
+func TestTheCheckupShowsTheSkillRepositoryAndItsSkillsWorkstream(t *testing.T) {
+	github := testkit.NewFakeGitHub(t)
+	server := startWithSkillRepository(t, github)
+
+	found := getCheckup(t, server, "owner")
+	if found.SkillRepository != skills || found.SkillsWorkstreamRepository != "" || found.SkillsWorkstream != 0 {
+		t.Errorf("skill repository = %q, Skills Workstream = %q#%d", found.SkillRepository, found.SkillsWorkstreamRepository, found.SkillsWorkstream)
+	}
+
+	github.AddIssue(skills, 5, "Skills")
+	github.AddLabel(skills, 5, "mobius:workstream", "owner")
+	github.AddLabel(skills, 5, "mobius:skills", "owner")
+
+	found = testkit.WaitForValue(t, func() (checkup, bool) {
+		found := getCheckup(t, server, "owner")
+		return found, found.SkillsWorkstream != 0
+	})
+	if found.SkillsWorkstreamRepository != skills || found.SkillsWorkstream != 5 {
+		t.Errorf("Skills Workstream = %q#%d", found.SkillsWorkstreamRepository, found.SkillsWorkstream)
+	}
+}
+
+func TestTheCheckupGivesNoSkillRepositoryToAnOrganizationWithoutOne(t *testing.T) {
+	github := testkit.NewFakeGitHub(t)
+	server := startWithApp(t, github, "User")
+
+	found := getCheckup(t, server, "owner")
+
+	if found.SkillRepository != "" || found.SkillsWorkstreamRepository != "" || found.SkillsWorkstream != 0 {
+		t.Errorf("skill repository = %q, Skills Workstream = %q#%d", found.SkillRepository, found.SkillsWorkstreamRepository, found.SkillsWorkstream)
 	}
 }
 

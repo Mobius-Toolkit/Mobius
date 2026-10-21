@@ -1028,7 +1028,13 @@ test("screenshots", async ({ page }) => {
     page,
     "checkup-workstreams",
     "/settings/checkup/plants/workstreams",
-    (device) => [...frame(device, release), main.getByRole("button", { name: "Create" })],
+    (device) => [
+      ...frame(device, release),
+      main.getByRole("heading", { name: "plants/garden", exact: true }),
+      main.getByText("Maintenance Workstream"),
+      main.getByRole("heading", { name: "plants/mobius-skills", exact: true }),
+      main.getByText("Skills Workstream"),
+    ],
   );
   await screenshot(page, "memory-repositories", "/settings/memory", (device) => [
     ...frame(device, release),
