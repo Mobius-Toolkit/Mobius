@@ -194,6 +194,20 @@ test("screenshots", async ({ page }) => {
     main.getByText("needs you"),
   ];
   await screenshot(page, "workstreams", "/workstreams", workstreamsReady);
+  // The open menu hides the other elements from the accessibility tree, so the open step waits for them.
+  await screenshot(
+    page,
+    "organization-menu",
+    "/workstreams",
+    () => page.getByRole("menuitemradio", { name: "plants" }),
+    async (device) => {
+      for (const locator of workstreamsReady(device)) {
+        await expect(locator).toBeVisible();
+      }
+      await shown("owner").click();
+    },
+    () => page.keyboard.press("Escape"),
+  );
   // The answer 502 is not an event stream, so the page shows Connecting… and tries again each 3 s.
   await screenshot(
     page,
