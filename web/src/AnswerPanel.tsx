@@ -8,7 +8,7 @@ import {
 } from "@/api/api.gen";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { roleName, type Decision } from "@/lib/actions";
-import { answerDraftKey, saveDraft } from "@/lib/draft";
+import { answerDraftKey, saveDraftText } from "@/lib/draft";
 import { LoginContext } from "@/lib/login";
 import { useShell } from "@/lib/shell";
 import { clock, dayClock } from "@/lib/time";
@@ -84,7 +84,7 @@ export function AnswerPanel({
     } catch (err) {
       failure = String(err);
     }
-    saveDraft(answerDraftKey(item.id), text);
+    void saveDraftText(answerDraftKey(item.id), text);
     failInbox(item.id, failure);
     return false;
   };
