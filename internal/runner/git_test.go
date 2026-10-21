@@ -14,8 +14,11 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
+
+	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 )
 
 func gitIn(t *testing.T, dir string, args ...string) {
@@ -265,4 +268,83 @@ func TestHasUncommittedChangesFindsAChangeAndANewFileAndIgnoresACommit(t *testin
 	if has() {
 		t.Error("a commit is a change")
 	}
+}
+
+const sshURL = "ssh://transport.invalid/acme/shop.git"
+
+// transport gives the GIT_SSH_COMMAND value of a transport child that writes its pid to the returned file and then
+// runs command. The test kills the child at its end, also when the test fails.
+func transport(t *testing.T, command string) (ssh, pidFile string) {
+	t.Helper()
+	pidFile = filepath.Join(t.TempDir(), "pid")
+	ssh = "sh -c 'echo $$ > " + pidFile + "; exec " + command + "' --"
+	t.Cleanup(func() {
+		if pid, ok := readPid(pidFile); ok {
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+		}
+	})
+	return ssh, pidFile
+}
+
+func readPid(file string) (int, bool) {
+	content, err := os.ReadFile(filepath.Clean(file))
+	if err != nil {
+		return 0, false
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(content)))
+	return pid, err == nil
+}
+
+func waitForPid(t *testing.T, file string) int {
+	t.Helper()
+	return testkit.WaitForValue(t, func() (int, bool) { return readPid(file) })
+}
+
+func waitForStop(t *testing.T, pid int) {
+	t.Helper()
+	testkit.WaitFor(t, func() bool { return errors.Is(syscall.Kill(pid, 0), syscall.ESRCH) })
+}
+
+func TestAKillOfTheProcessGroupOfAFetchAlsoStopsTheTransportChild(t *testing.T) {
+	ssh, pidFile := transport(t, "sleep 600")
+	helper := exec.Command("sh", "-c", `exec "$MOBIUS_TEST_BINARY"`)
+	helper.Env = append(os.Environ(), "MOBIUS_TEST_BINARY="+os.Args[0], "MOBIUS_FETCH_HELPER="+t.TempDir(), "GIT_SSH_COMMAND="+ssh, "GIT_SSH_VARIANT=simple")
+	helper.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := helper.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = syscall.Kill(-helper.Process.Pid, syscall.SIGKILL)
+		_ = helper.Wait()
+	})
+	pid := waitForPid(t, pidFile)
+
+	if err := syscall.Kill(-helper.Process.Pid, syscall.SIGKILL); err != nil {
+		t.Fatal(err)
+	}
+
+	waitForStop(t, pid)
+}
+
+func TestFetchReturnsAtTheEndOfItsContextAndStopsATransportChildThatEndsWithItsInput(t *testing.T) {
+	ssh, pidFile := transport(t, "cat >/dev/null")
+	t.Setenv("GIT_SSH_COMMAND", ssh)
+	t.Setenv("GIT_SSH_VARIANT", "simple")
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	done := make(chan error, 1)
+	go func() { done <- Fetch(ctx, t.TempDir(), "acme/shop", sshURL, "") }()
+	pid := waitForPid(t, pidFile)
+
+	cancel()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Error("Fetch gave no error")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Fetch did not return after the end of its context")
+	}
+	waitForStop(t, pid)
 }
