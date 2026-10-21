@@ -65,7 +65,7 @@ func TestTheCoordinatorMovesAnIssueOfAnotherRepositoryBelowAWorkstream(t *testin
 
 	session := run(t, server, coordinatorSpec(t), "Move it.")
 
-	if got := reply(t, server, session); got != "Moved #7 to the Workstream #12." {
+	if got := reply(t, server, session); got != "Moved #7 to the Workstream #12 Integrate loyalty plans." {
 		t.Errorf("reply = %q", got)
 	}
 	if got := fake.Labels(garden, 7); !reflect.DeepEqual(got, []string{"mobius:ready"}) {

@@ -1158,13 +1158,17 @@ func (e *Engine) moveTask(ctx context.Context, c caller, workstream github.Repos
 	if !errors.Is(err, sql.ErrNoRows) {
 		return "", err
 	}
+	name, err := e.workstreamName(ctx, workstream.FullName, input.Workstream)
+	if err != nil {
+		return "", err
+	}
 	if _, _, err := workstream.Client.SubIssue.Add(ctx, workstream.Owner(), workstream.Name(), input.Workstream, gh.SubIssueRequest{SubIssueID: issue.GetID(), ReplaceParent: new(true)}); err != nil {
 		return "", err
 	}
 	if err := e.recopyTrees(ctx, workstream, c.workstream, input.Workstream); err != nil {
 		log.Printf("copy the trees of %s#%d and #%d: %v", workstream.FullName, c.workstream, input.Workstream, err)
 	}
-	return fmt.Sprintf("Moved %s#%d to the Workstream #%d.", repository.FullName, input.N, input.Workstream), nil
+	return fmt.Sprintf("Moved %s#%d to the Workstream %s.", repository.FullName, input.N, name), nil
 }
 
 func (e *Engine) moveIssue(ctx context.Context, c caller, workstreams github.Repository, input moveIssueInput) (string, error) {
@@ -1189,6 +1193,10 @@ func (e *Engine) moveIssue(ctx context.Context, c caller, workstreams github.Rep
 	if err := openWorkstream(ctx, workstreams, input.Workstream); err != nil {
 		return "", err
 	}
+	target, err := e.workstreamName(ctx, workstreams.FullName, input.Workstream)
+	if err != nil {
+		return "", err
+	}
 	if _, _, err := workstreams.Client.SubIssue.Add(ctx, workstreams.Owner(), workstreams.Name(), input.Workstream, gh.SubIssueRequest{SubIssueID: issue.GetID(), ReplaceParent: new(true)}); err != nil {
 		return "", err
 	}
@@ -1204,7 +1212,7 @@ func (e *Engine) moveIssue(ctx context.Context, c caller, workstreams github.Rep
 	if err := e.recopyTrees(ctx, workstreams, input.Workstream); err != nil {
 		log.Printf("copy the tree of %s#%d: %v", workstreams.FullName, input.Workstream, err)
 	}
-	return fmt.Sprintf("Moved #%d to the Workstream #%d.", input.N, input.Workstream), nil
+	return fmt.Sprintf("Moved #%d to the Workstream %s.", input.N, target), nil
 }
 
 func checkEditBrief(_ caller, input editBriefInput) error {
@@ -1216,6 +1224,10 @@ func checkEditBrief(_ caller, input editBriefInput) error {
 
 func (e *Engine) editBrief(ctx context.Context, c caller, repository github.Repository, input editBriefInput) (string, error) {
 	if err := checkEditBrief(c, input); err != nil {
+		return "", err
+	}
+	name, err := e.workstreamName(ctx, repository.FullName, c.workstream)
+	if err != nil {
 		return "", err
 	}
 	body := e.withChatLink(repository, c.workstream, input.Brief)
@@ -1231,7 +1243,7 @@ func (e *Engine) editBrief(ctx context.Context, c caller, repository github.Repo
 		log.Printf("copy the new Brief of %s#%d: %v", repository.FullName, c.workstream, err)
 	}
 	e.publish(Change{Workstreams: true})
-	return fmt.Sprintf("Changed the Brief of #%d.", c.workstream), nil
+	return fmt.Sprintf("Changed the Brief of %s.", name), nil
 }
 
 func checkMessageLead(c caller, input messageLeadInput) error {
@@ -1262,6 +1274,10 @@ func (e *Engine) messageLead(ctx context.Context, c caller, repository github.Re
 	if !open {
 		return "", refuse("#%d is not an open Workstream.", input.Workstream)
 	}
+	name, err := e.workstreamName(ctx, repository.FullName, input.Workstream)
+	if err != nil {
+		return "", err
+	}
 	text := fmt.Sprintf("Message of %s, approved by the Owner:\n\n%s", sender, input.Text)
 	if c.role == TriagerRole {
 		text += "\n\n" + issueLink(c.repository, c.issue)
@@ -1283,7 +1299,7 @@ func (e *Engine) messageLead(ctx context.Context, c caller, repository github.Re
 			return "", fmt.Errorf("the Lead of #%d got the message, but the end of the triage failed. Do not send the message again: %w", input.Workstream, err)
 		}
 	}
-	return fmt.Sprintf("Sent the message to the Lead of #%d.", input.Workstream), nil
+	return fmt.Sprintf("Sent the message to the Lead of %s.", name), nil
 }
 
 // withChatLink gives body with the link to the Lead chat of the Workstream at the end, one time. It removes the link

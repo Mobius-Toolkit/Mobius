@@ -149,7 +149,7 @@ func TestTheCoordinatorCallsMessageLeadAndTheLeadGetsTheTextOnlyAfterTheOwnerApp
 
 	done := decided(t, server, action.ID, "approve", "Go ahead.")
 
-	if done.State != "done" || done.Result != "Sent the message to the Lead of #12." || done.Message != "Go ahead." || done.Tool != "message_lead" || done.Role != "coordinator" {
+	if done.State != "done" || done.Result != "Sent the message to the Lead of #12 Integrate loyalty plans." || done.Message != "Go ahead." || done.Tool != "message_lead" || done.Role != "coordinator" {
 		t.Errorf("action = %+v", done)
 	}
 	testkit.WaitFor(t, func() bool { return eventDelivered(t, server) })
@@ -161,7 +161,7 @@ func TestTheCoordinatorCallsMessageLeadAndTheLeadGetsTheTextOnlyAfterTheOwnerApp
 	}
 	waitForNoItem(t, server, "approval")
 	testkit.WaitFor(t, func() bool { return len(approvalPrompts(t, server)) == 1 })
-	want := "# Approval message\n\nThe Owner approved `message_lead` 1 (Create the task issues.). The result: Sent the message to the Lead of #12.\n\nThe message of the Owner: Go ahead."
+	want := "# Approval message\n\nThe Owner approved `message_lead` 1 (Create the task issues.). The result: Sent the message to the Lead of #12 Integrate loyalty plans.\n\nThe message of the Owner: Go ahead."
 	if got := approvalPrompts(t, server); !slices.Equal(got, []string{want}) {
 		t.Errorf("approval prompts = %q", got)
 	}
@@ -290,16 +290,10 @@ func TestAnApprovalThatFailsLeavesTheActionPendingAndASecondApprovalSendsTheMess
 	}
 
 	fake.AddLabel(shop, 20, "mobius:workstream", "owner")
-	testkit.WaitFor(t, func() bool {
-		var count int
-		if err := server.DB.QueryRow("SELECT count(*) FROM copied_workstreams WHERE repository = ? AND number = 20", shop).Scan(&count); err != nil {
-			t.Fatal(err)
-		}
-		return count == 1
-	})
+	waitForBilling(t, server)
 	done := decided(t, server, action.ID, "approve", "")
 
-	if done.State != "done" || done.Error != "" || done.Result != "Sent the message to the Lead of #20." {
+	if done.State != "done" || done.Error != "" || done.Result != "Sent the message to the Lead of #20 Billing." {
 		t.Errorf("action = %+v", done)
 	}
 	waitForNoItem(t, server, "approval")
@@ -591,7 +585,7 @@ func TestTheLeadCallsEditBriefAndTheBriefChangesOnlyAfterTheOwnerApproves(t *tes
 
 	done := decided(t, server, action.ID, "approve", "")
 
-	if done.State != "done" || done.Result != "Changed the Brief of #12." {
+	if done.State != "done" || done.Result != "Changed the Brief of #12 Integrate loyalty plans." {
 		t.Errorf("action = %+v", done)
 	}
 	if _, body := fake.Issue(shop, 12); body != "Ship loyalty plans and gift cards." {
@@ -643,7 +637,7 @@ func TestTheLeadCallsMoveTaskAndTheIssueMovesOnlyAfterTheOwnerApproves(t *testin
 
 	done := decided(t, server, action.ID, "approve", "")
 
-	if done.Result != "Moved owner/shop#41 to the Workstream #20." {
+	if done.Result != "Moved owner/shop#41 to the Workstream #20 Billing." {
 		t.Errorf("action = %+v", done)
 	}
 	if got := fake.SubIssueNumbers(shop, 20); !slices.Equal(got, []int64{41}) {
@@ -676,4 +670,15 @@ func TestTheOwnerRejectsMessageLeadOfTheLeadWithAMessageAndTheLeadGetsTheMessage
 	if events := leadEvents(t, server); len(events) != 0 {
 		t.Errorf("events = %v", events)
 	}
+}
+
+func waitForBilling(t *testing.T, server *testserver.Server) {
+	t.Helper()
+	testkit.WaitFor(t, func() bool {
+		var count int
+		if err := server.DB.QueryRow("SELECT count(*) FROM copied_workstreams WHERE repository = ? AND number = 20", shop).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		return count == 1
+	})
 }

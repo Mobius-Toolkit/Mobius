@@ -79,7 +79,7 @@ func TestTheApprovalMessageNamesTheActionWithTheIDOfTheToolResultAndTheFirstLine
 	})
 	prompts := strings.Join(approvalPrompts(t, server), "\n")
 	for _, want := range []string{
-		"The Owner approved `message_lead` " + ids[0] + " (Offer a refund.). The result: Sent the message to the Lead of #12.",
+		"The Owner approved `message_lead` " + ids[0] + " (Offer a refund.). The result: Sent the message to the Lead of #12 Integrate loyalty plans.",
 		"The Owner rejected `message_lead` " + ids[1] + " (Plan the invoices.).\n\nThe message of the Owner: No invoices.",
 	} {
 		if !strings.Contains(prompts, want) {
