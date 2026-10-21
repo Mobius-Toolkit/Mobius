@@ -206,6 +206,7 @@ const question = "What is the state of the plans? The full report is at " +
 // The Workstream plants/garden#60 has a Lead chat of 50 messages, and the Owner saw the first 15. POST
 // /e2e/seed-notes/{count} adds count Lead messages to that chat, with no event.
 // POST /e2e/approvals/times/fix gives the fixed time to each chat message, Inbox item and action that has a real time.
+// PUT /e2e/actions/{id}/state sets the state and the message of a pending action from the queries state and message.
 // POST /e2e/inbox-items adds an Inbox item for owner/shop#40 and gives its id. With the query kind, repository,
 // workstream, issue, title and reason, it adds that item instead. DELETE /e2e/inbox-items/{id}
 // removes it. An answer to that item adds a comment to the issue and changes nothing else. POST and DELETE
@@ -348,6 +349,12 @@ func TestServer(t *testing.T) {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
+		}
+	})
+	server.Mux.HandleFunc("PUT /e2e/actions/{id}/state", func(w http.ResponseWriter, r *http.Request) {
+		query := r.URL.Query()
+		if _, err := server.DB.Exec("UPDATE pending_actions SET state = ?, message = ? WHERE id = ?", query.Get("state"), query.Get("message"), r.PathValue("id")); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 	})
 	server.Mux.HandleFunc("POST /e2e/inbox-items", func(w http.ResponseWriter, r *http.Request) {

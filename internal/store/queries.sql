@@ -931,6 +931,11 @@ UPDATE pending_actions SET state = 'replaced', decided_at = ?
 WHERE id = ? AND state = 'pending' AND running = 0
 RETURNING *;
 
+-- name: WithdrawPendingAction :one
+UPDATE pending_actions SET state = 'withdrawn', decided_at = ?
+WHERE id = ? AND state = 'pending' AND running = 0
+RETURNING *;
+
 -- name: ClaimPendingAction :one
 UPDATE pending_actions SET running = 1 WHERE id = ? AND state = 'pending' AND running = 0
 RETURNING *;

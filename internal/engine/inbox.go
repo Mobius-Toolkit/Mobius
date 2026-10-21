@@ -221,6 +221,9 @@ func (e *Engine) AnswerInboxItem(ctx context.Context, id int64, text string) (st
 		return "", err
 	}
 	if isCoordinatorQuestion(item) {
+		if item.DismissedAt.Valid {
+			return "", refuse("The Coordinator withdrew this question, or the Owner answered it.")
+		}
 		key := ChatKey{Organization: item.Organization}
 		if err := e.SendChat(ctx, key, rand.Text(), text, nil, nil); err != nil {
 			return "", err

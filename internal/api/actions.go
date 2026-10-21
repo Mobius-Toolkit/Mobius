@@ -25,8 +25,9 @@ type PendingAction struct {
 	// text
 	Arguments []ActionArgument `gork:"arguments"`
 	// State is pending for an action that waits for the approval, done for an action that ran, rejected for an action
-	// that the Owner rejected, and replaced for an action that a later call of the same tool replaced
-	State string `gork:"state" validate:"oneof=pending done rejected replaced"`
+	// that the Owner rejected, replaced for an action that a later call of the same tool replaced, and withdrawn for an action
+	// that the agent took back
+	State string `gork:"state" validate:"oneof=pending done rejected replaced withdrawn"`
 	// Error is the error of the last failed run, or empty. A pending action with an error is a failed action
 	Error string `gork:"error"`
 	// Result is the result text of the tool after the run, or empty
@@ -35,7 +36,7 @@ type PendingAction struct {
 	Message string `gork:"message"`
 	// Time is the time of the call
 	Time time.Time `gork:"time"`
-	// DecidedAt is the time when the action was done, rejected or replaced, or null
+	// DecidedAt is the time when the action was done, rejected, replaced or withdrawn, or null
 	DecidedAt *time.Time `gork:"decidedAt"`
 }
 
