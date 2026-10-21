@@ -172,8 +172,8 @@ test("the Workstreams page explains the Workstreams, links them and sends the fu
   ).toBeVisible();
   const link = main
     .locator("section")
-    .filter({ hasText: "plants/mobius-skills" })
-    .getByRole("link", { name: "Skills Workstream plants/garden#9" });
+    .filter({ hasText: "plants/garden" })
+    .getByRole("link", { name: "Skills Workstream #9" });
   await expect(link).toHaveAttribute("href", "/workstreams/plants/garden/9");
   await expect(main.getByRole("button", { name: "Create" })).toHaveCount(1);
 
@@ -223,14 +223,14 @@ test("the Workstreams page links the maintenance Workstream and sends the full r
   const request = page.waitForRequest((req) => req.url().endsWith("/api/chat/messages"));
   await main
     .locator("section")
-    .filter({ hasText: "plants/mobius-skills" })
+    .filter({ hasText: "plants/garden" })
     .getByRole("button", { name: "Create" })
     .click();
 
   const body = (await request).postData() ?? "";
   const text = body.replaceAll("\r\n", "\n");
   expect(text).toContain(
-    "Create the Skills Workstream for plants/mobius-skills, with the labels `mobius:skills` and `mobius:evergreen`. It gets the proposals of `propose_skill` for plants/mobius-skills.\n\nUse this Brief:\n\n**Goal**\nKeep the skills of the agents in plants/mobius-skills correct and current. This Workstream has no end.\n\n**Scope**\n- Each skill proposal that an agent sends with `propose_skill`.\n- The pull requests that add or change a skill in plants/mobius-skills.\n\n**Limits**\n- Change only plants/mobius-skills.\n- Do not add a skill that the Owner did not approve.",
+    "Create the Skills Workstream in plants/garden, with the labels `mobius:skills` and `mobius:evergreen`. It gets the proposals of `propose_skill` for plants/mobius-skills.\n\nUse this Brief:\n\n**Goal**\nKeep the skills of the agents in plants/mobius-skills correct and current. This Workstream has no end.\n\n**Scope**\n- Each skill proposal that an agent sends with `propose_skill`.\n- The task issues and the pull requests that add or change a skill are in plants/mobius-skills.\n\n**Limits**\n- Change only plants/mobius-skills.\n- Do not add a skill that the Owner did not approve.",
   );
   await expect(page).toHaveURL("/chat");
 });

@@ -96,7 +96,7 @@ test("the Owner approves an action with a note", async ({ page }) => {
   await expect(panel(page)).toBeHidden();
   await expect(waiting(page, 1)).toBeHidden();
   await expect(badge(card, "Done")).toBeVisible();
-  await expect(card.getByText("Sent the message to the Lead of #14.")).toBeVisible();
+  await expect(card.getByText("Sent the message to the Lead of #14 Early renewals.")).toBeVisible();
   await expect(card.getByText("Go ahead.")).toBeVisible();
 
   await link(page, "/inbox").click();

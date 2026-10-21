@@ -1029,7 +1029,6 @@ test("screenshots", async ({ page }) => {
       ...frame(device, release),
       main.getByRole("heading", { name: "plants/garden", exact: true }),
       main.getByText("Maintenance Workstream", { exact: true }),
-      main.getByRole("heading", { name: "plants/mobius-skills", exact: true }),
       main.getByText("Skills Workstream", { exact: true }),
     ],
   );
@@ -1160,10 +1159,22 @@ test("screenshots", async ({ page }) => {
     await note.fill("");
     await page.keyboard.press("Escape");
   };
+  // The chat scrolls to its end when it opens and when a message comes, so the end is the only stable place. The
+  // fake Coordinator ends each of its calls with the message that gives the ID of the action.
   const showEnd = (text: string) => async () => {
-    const card = cardOf(page, text);
-    await expect(card).toBeVisible();
-    await card.evaluate((el) => el.scrollIntoView({ block: "end" }));
+    await expect(cardOf(page, text)).toBeVisible();
+    await expect
+      .poll(() =>
+        cardOf(page, text).evaluate((el) => {
+          const list = el.parentElement;
+          if (!list || !/Its ID is \d+\.$/.test(list.lastElementChild?.textContent ?? "")) {
+            return false;
+          }
+          list.scrollTop = list.scrollHeight;
+          return list.scrollHeight - list.scrollTop - list.clientHeight < 1;
+        }),
+      )
+      .toBe(true);
   };
 
   await page.setViewportSize(viewports.desktop);

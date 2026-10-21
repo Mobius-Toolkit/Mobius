@@ -887,7 +887,9 @@ test("the Coordinator chat stays open after its actions", async ({ page }) => {
     await expect(link).toBeAttached();
     await input.fill(move);
     await send.click();
-    await expect(page.getByText(`Moved #${issue} to the Workstream #12.`)).toBeVisible();
+    await expect(
+      page.getByText(`Moved #${issue} to the Workstream #12 Integrate loyalty plans.`),
+    ).toBeVisible();
     await expect(page).toHaveURL("/chat");
     await expect(link).toBeAttached();
   }

@@ -178,10 +178,11 @@ func TestTheLeadMovesATaskInAnotherRepositoryAfterTheOwnerApproves(t *testing.T)
 	fake.AddLabel(shop, 20, "mobius:workstream", "owner")
 	fake.AddForeignSubIssue(shop, 12, garden, 7)
 
+	waitForBilling(t, server)
 	run(t, server, leadSpec(t), "Move it")
 	action := approveNext(t, server, 1)
 
-	if action.Result != "Moved owner/garden#7 to the Workstream #20." {
+	if action.Result != "Moved owner/garden#7 to the Workstream #20 Billing." {
 		t.Errorf("action = %+v", action)
 	}
 	if got := fake.SubIssueNumbers(shop, 20); !reflect.DeepEqual(got, []int64{7}) {
