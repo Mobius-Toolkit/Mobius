@@ -457,6 +457,16 @@ func (g *GitHub) Repositories() []Repository {
 	return slices.Clone(g.repositories)
 }
 
+// SkillRepository gives the repository mobius-skills of organization, as the last read has it.
+func (g *GitHub) SkillRepository(organization string) (Repository, bool) {
+	for _, repository := range g.Repositories() {
+		if repository.Owner() == organization && repository.Name() == "mobius-skills" {
+			return repository, true
+		}
+	}
+	return Repository{}, false
+}
+
 // Organizations gives the owners of the repositories, sorted, each one time.
 func (g *GitHub) Organizations() []string {
 	organizations := []string{}

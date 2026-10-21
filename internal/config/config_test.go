@@ -284,3 +284,11 @@ func TestParseRefusesAUIURLThatIsNotAnHTTPURL(t *testing.T) {
 		}
 	}
 }
+
+func TestSkillDirectoryIsClaudeSkillsForClaudeCodeAndAgentsSkillsForTheOtherHarnesses(t *testing.T) {
+	for harness, want := range map[Harness]string{ClaudeCode: ".claude/skills", Devin: ".agents/skills", Antigravity: ".agents/skills"} {
+		if got := harness.SkillDirectory(); got != want {
+			t.Errorf("%s: skill directory = %s, want %s", harness, got, want)
+		}
+	}
+}

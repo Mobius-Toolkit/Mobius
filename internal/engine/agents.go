@@ -302,11 +302,14 @@ func (a *Agent) waitForSlot(ctx context.Context) error {
 	return nil
 }
 
-// open starts the Harness in the directory of the session and configures the session. A Claude Code session with no
+// open copies the skills into the directory of the session, starts the Harness there and configures the session. A Claude Code session with no
 // tools/list in toolsTimeout has no Mobius tools (Mobius-rust#254), so open starts its Harness again, at most
 // max_worker_restarts times.
 func (a *Agent) open(ctx context.Context) error {
 	binding, _ := roleBinding(a.engine.config, a.spec.Role)
+	if err := a.copySkills(ctx); err != nil {
+		return err
+	}
 	for restart := 0; ; restart++ {
 		if err := a.startHarness(ctx); err != nil {
 			return err

@@ -129,6 +129,137 @@ func Show(ctx context.Context, dataDir, repository, branch, path string) (string
 	return text, err == nil, err
 }
 
+// SkillNames gives the names of the top-level folders of origin/branch in the bare clone of repository below dataDir,
+// as the last Fetch got it, that have a SKILL.md file.
+func SkillNames(ctx context.Context, dataDir, repository, branch string) ([]string, error) {
+	files, err := run(git(ctx, dataDir, bareDir(dataDir, repository), "", "ls-tree", "-r", "--name-only", "origin/"+branch))
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for file := range strings.SplitSeq(files, "\n") {
+		if name, found := strings.CutSuffix(file, "/SKILL.md"); found && !strings.Contains(name, "/") {
+			names = append(names, name)
+		}
+	}
+	return names, nil
+}
+
+// Export writes the paths of origin/branch in the bare clone of repository below dataDir, as the last Fetch got them,
+// into the directory dir. The files have no .git.
+func Export(ctx context.Context, dataDir, repository, branch, dir string, paths ...string) error {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return err
+	}
+	archive := git(ctx, dataDir, bareDir(dataDir, repository), "", append([]string{"archive", "--format=tar", "origin/" + branch, "--"}, paths...)...)
+	var tarball bytes.Buffer
+	archive.Stdout = &tarball
+	var stderr bytes.Buffer
+	archive.Stderr = &stderr
+	if err := archive.Run(); err != nil {
+		return fmt.Errorf("%s: %w: %s", strings.Join(archive.Args, " "), err, strings.TrimSpace(stderr.String()))
+	}
+	extract := exec.CommandContext(ctx, "tar", "-x")
+	extract.Dir = dir
+	extract.Stdin = &tarball
+	_, err := run(extract)
+	return err
+}
+
+// ExcludeFromStatus makes git status and git add -A of the worktree ignore patterns, which are in the format of a
+// .gitignore file. It sets core.excludesFile of the worktree to a file in its git directory. That key replaces the
+// default user ignore file of git, so the file also has the lines of that file.
+func ExcludeFromStatus(ctx context.Context, dataDir, worktree string, patterns []string) error {
+	user, err := userIgnoreLines()
+	if err != nil {
+		return err
+	}
+	list := strings.Join(patterns, "\n") + "\n"
+	copies, err := copiesFile(ctx, dataDir, worktree)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(copies, []byte(list), 0o600); err != nil {
+		return err
+	}
+	file, err := excludeFile(ctx, dataDir, worktree)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(file, append(bytes.TrimRight(user, "\n"), []byte("\n"+list)...), 0o600); err != nil {
+		return err
+	}
+	_, err = run(git(ctx, dataDir, worktree, "", "config", "--worktree", "core.excludesFile", file))
+	return err
+}
+
+// userIgnoreLines gives the content of the default user ignore file of git, or nothing when it does not exist.
+func userIgnoreLines() ([]byte, error) {
+	lines, err := os.ReadFile(filepath.Clean(userIgnoreFile()))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	return lines, err
+}
+
+// userIgnoreFile gives the file that git reads for the ignored files of the user when core.excludesFile is not set.
+func userIgnoreFile() string {
+	if dir := os.Getenv("XDG_CONFIG_HOME"); dir != "" {
+		return filepath.Join(dir, "git", "ignore")
+	}
+	return filepath.Join(os.Getenv("HOME"), ".config", "git", "ignore")
+}
+
+// Excluded gives the patterns that ExcludeFromStatus got for the worktree, or none when it got nothing.
+func Excluded(ctx context.Context, dataDir, worktree string) ([]string, error) {
+	copies, err := copiesFile(ctx, dataDir, worktree)
+	if err != nil {
+		return nil, err
+	}
+	content, err := os.ReadFile(filepath.Clean(copies))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var patterns []string
+	for line := range strings.SplitSeq(string(content), "\n") {
+		if line != "" {
+			patterns = append(patterns, line)
+		}
+	}
+	return patterns, nil
+}
+
+// Tracked tells if the worktree tracks a file in folder.
+func Tracked(ctx context.Context, dataDir, worktree, folder string) (bool, error) {
+	files, err := run(git(ctx, dataDir, worktree, "", "ls-files", "--", folder))
+	return files != "", err
+}
+
+// CleanUntracked removes the untracked and the ignored files in folder of the worktree.
+func CleanUntracked(ctx context.Context, dataDir, worktree, folder string) error {
+	_, err := run(git(ctx, dataDir, worktree, "", "clean", "-fdx", "--", folder))
+	return err
+}
+
+func excludeFile(ctx context.Context, dataDir, worktree string) (string, error) {
+	return gitDirFile(ctx, dataDir, worktree, "mobius-exclude")
+}
+
+func copiesFile(ctx context.Context, dataDir, worktree string) (string, error) {
+	return gitDirFile(ctx, dataDir, worktree, "mobius-copies")
+}
+
+func gitDirFile(ctx context.Context, dataDir, worktree, name string) (string, error) {
+	gitDir, err := run(git(ctx, dataDir, worktree, "", "rev-parse", "--absolute-git-dir"))
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(gitDir, name), nil
+}
+
 // TaskDir gives the worktree of the task of the issue number of repository below dataDir.
 func TaskDir(dataDir, repository string, number int64) string {
 	return filepath.Join(dataDir, "worktrees", repository, "task-"+strconv.FormatInt(number, 10))

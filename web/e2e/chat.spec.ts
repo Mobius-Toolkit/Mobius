@@ -1597,6 +1597,9 @@ test("the stop button takes no tap in the first 500 ms after it shows", async ({
     return route.fulfill({ status: 204 });
   });
   await page.route("**/api/chat/messages", () => {});
+  await page.route("**/api/events", (route) =>
+    route.fulfill({ contentType: "text/event-stream", body: "" }),
+  );
   await page.goto(shop);
   const main = page.getByRole("main");
   const input = main.getByLabel("Message to the Lead");
