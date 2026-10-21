@@ -445,9 +445,22 @@ export function MessageInput({
         </div>
       </div>
       {voice.error && (
-        <p role="alert" className="text-sm text-destructive">
-          {voice.error}
-        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <p role="alert" className="text-sm text-destructive">
+            {voice.error}
+          </p>
+          {voice.canResend && (
+            <Button
+              type="button"
+              variant="outline"
+              size="xs"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => void voice.resend()}
+            >
+              Send again
+            </Button>
+          )}
+        </div>
       )}
       {error && (
         <p role="alert" className="text-sm text-destructive">

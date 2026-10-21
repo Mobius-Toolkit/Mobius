@@ -314,6 +314,63 @@ test("a failed chunk keeps the recording and the stop sends the file for the tex
   expect(seen.finishes).toBe(0);
 });
 
+test("a failed conversion keeps the audio and Send again sends it", async ({ page }) => {
+  await page.clock.install();
+  const seen = await liveServer(page, [{ committed: "", draft: "red" }], {
+    status: 503,
+    text: "The speech model is still starting",
+  });
+  const files: Buffer[] = [];
+  await page.route("**/api/voice/transcriptions", (route) => {
+    files.push(route.request().postDataBuffer() ?? Buffer.alloc(0));
+    return files.length === 1
+      ? route.fulfill({ status: 502, json: { error: "The converter returned an error" } })
+      : route.fulfill({ json: { data: { text: "red roses" } } });
+  });
+  await page.goto("/chat");
+  const input = page.getByLabel("Message to the Coordinator");
+  const again = page.getByRole("button", { name: "Send again" });
+  await begin(page);
+  await tick(page);
+  await expect(input).toHaveValue("red");
+  await stop(page).click();
+  await expect(page.getByRole("alert")).toHaveText("The speech model is still starting");
+  await expect(again).toBeVisible();
+  expect(files.length).toBe(0);
+  expect(seen.finishes).toBe(1);
+
+  await again.click();
+  await expect(page.getByRole("alert")).toHaveText("The converter returned an error");
+  await expect(again).toBeVisible();
+  await expect(input).toHaveValue("red");
+
+  await again.click();
+  await expect(input).toHaveValue("red roses");
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(again).toHaveCount(0);
+  expect(files.length).toBe(2);
+  expect(files[0].subarray(0, 4).toString()).toBe("RIFF");
+  expect(files[0].length).toBeGreaterThan(44);
+  expect(files[1].equals(files[0])).toBe(true);
+});
+
+test("a sent message removes the button of a failed conversion", async ({ page }) => {
+  await page.route("**/api/voice/transcriptions", (route) =>
+    route.fulfill({ status: 503, json: { error: "The speech model is still starting" } }),
+  );
+  await page.route("**/api/chat/messages", () => {});
+  await page.goto(shop);
+  const input = page.getByLabel("Message to the Lead");
+  await begin(page);
+  await stop(page).click();
+  await expect(page.getByRole("button", { name: "Send again" })).toBeVisible();
+  await input.fill("Add a plan");
+  await page.getByRole("main").getByRole("button", { name: "Send", exact: true }).click();
+  await expect(input).toHaveValue("");
+  await expect(page.getByRole("button", { name: "Send again" })).toHaveCount(0);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});
+
 test("a recording that the server does not start still gets its text at the stop", async ({
   page,
 }) => {

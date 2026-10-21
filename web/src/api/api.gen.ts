@@ -5104,7 +5104,7 @@ export const getFinishRecordingUrl = (id: string,) => {
 }
 
 /**
- * FinishRecording converts the full audio of a recording to text and removes the recording. It answers 404 for an unknown recording, 503 while the converter is not ready, and 502 when the converter returns an error.
+ * FinishRecording converts the full audio of a recording to text and removes the recording. It answers 404 for an unknown recording. It waits up to 5 minutes for the converter. It answers 503 when the converter is still not ready after that time, and 502 when the converter returns an error.
  */
 export const finishRecording = async (id: string, ): Promise<finishRecordingResponse> => {
 
@@ -5179,7 +5179,7 @@ export const getTranscribeUrl = () => {
 }
 
 /**
- * Transcribe converts a voice recording to text. It answers 503 while the converter is not ready, and 502 when the converter returns an error.
+ * Transcribe converts a voice recording to text. It waits up to 5 minutes for the converter. It answers 503 when the converter is still not ready after that time, and 502 when the converter returns an error.
  */
 export const transcribe = async (transcribeBody: Blob, ): Promise<transcribeResponse> => {
 

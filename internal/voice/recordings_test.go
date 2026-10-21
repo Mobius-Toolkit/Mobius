@@ -221,6 +221,42 @@ func TestFinishGivesTheTextOfTheFullAudioAndRemovesTheRecording(t *testing.T) {
 	}
 }
 
+func TestFinishWaitsWhileTheModelStartsAndThenGivesTheText(t *testing.T) {
+	c := newConverter(t)
+	program := testkit.InstallFakeWhisper(t, c.bin)
+	c.putModel(t)
+	if err := os.WriteFile(program+".loading", nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r := voice.NewRecordings(c.Whisper, newDraft(t, []voice.Segment{segment(1, "red")}).Whisper)
+	id := create(t, r)
+	chunk(t, r, id, 0, 2)
+	type result struct {
+		text string
+		err  error
+	}
+	done := make(chan result, 1)
+	go func() {
+		text, err := r.Finish(context.Background(), id)
+		done <- result{text, err}
+	}()
+	testkit.WaitFor(t, func() bool { return fileHasLines(program+".starts", 1) })
+
+	select {
+	case got := <-done:
+		t.Fatalf("Finish ended while the model starts: %q, %v", got.text, got.err)
+	default:
+	}
+	if err := os.Remove(program + ".loading"); err != nil {
+		t.Fatal(err)
+	}
+
+	got := <-done
+	if got.err != nil || got.text != fmt.Sprintf("%d bytes", 44+2*second) {
+		t.Errorf("text = %q, err = %v", got.text, got.err)
+	}
+}
+
 func TestAChunkWithAWrongSequenceIsRefusedAndAddsNoAudio(t *testing.T) {
 	d := newDraft(t, []voice.Segment{segment(1, "red")})
 	r := recordingsOf(t, d)
