@@ -52,7 +52,19 @@ To listen to a server-sent event, use `onEvent` from `web/src/lib/events.ts` wit
 - A test package that installs a fake Harness (`testkit.InstallFakeHarness` or `testkit.InstallFakeAgent`) calls `testkit.Main(m)` from its `TestMain`.
 - The gh of the agent environment is a link to the test binary. Thus a test package whose agents run gh calls `runner.GH` from its `TestMain` when the program name is gh, as `internal/engine` does.
 - A test of `internal/engine` calls `t.Parallel()` as its first line. A test stays serial in two cases: it changes a package variable or the environment (for example with `t.Setenv`), or it needs an action to finish before a short timer fires (for example a restart delay, a quiet period or an idle timeout). A short timer that only delays an action is safe in parallel. A serial test with a comment "Serial:" has a known hazard: keep it serial. Go runs the serial tests first, so they never run at the same time as a parallel test.
-- Before a push, run the tests that the change touches: `go test ./<package> -run <name>`. For a small package, `go test ./<package>` is also correct. Do not run the full `internal/engine` package or `go test ./...` on the machine of Mobius. Do not run a measurement run (for example `go test -json ./internal/engine`). Do not write a loop that waits for a low load and then starts such a run. Take measurements from the CI logs.
+- Before a push, run these checks for each kind of change.
+
+  | Change | Checks |
+  |---|---|
+  | `*.go` in package `P` | `go test ./P -run <names>`. Do not run the full `internal/engine` package. |
+  | An MCP tool of a role | `go test ./internal/engine -run 'TestTheLeadGetsTheMobiusURLAndOnlyTheLeadTools\|TestEachRoleGetsOnlyItsOwnTools'` |
+  | `internal/store/migrations/`, `internal/store/queries.sql` | `make generate`, then `go test ./internal/store`. Search the store tests for a fixed migration version. |
+  | `internal/api/` | `make generate`. Commit `api/openapi.json` and `web/src/api/api.gen.ts`. |
+  | `web/src/` | In `web`, `pnpm e2e e2e/<changed>.spec.ts e2e/screenshots.spec.ts`. Then read the `-desktop` and `-phone` image of each changed screen in `web/screenshots`. |
+  | A new test | It must fail on the base commit and pass on the commit of the change. |
+  | Each change | `make fmt` before each commit. Mobius runs `.mobius/check` after each turn. |
+
+- For a small package, `go test ./<package>` is also correct. Do not run `go test ./...` on the machine of Mobius. Do not run a measurement run (for example `go test -json ./internal/engine`). Do not write a loop that waits for a low load and then starts such a run. Take measurements from the CI logs.
 - Run the tests of a change one time. Run them again only after a code change. The tests use the CPU of the machine of the Owner, so each extra run makes the local checks of other tasks slow or gives them a timeout.
 - Do not run a test or a command in a loop to check a behavior. If one run does not prove the behavior, write a test that proves it, or write the doubt in the result.
 - Do not run load tests or stress tests. Do not use `-count` with a value above 1, a `-race` loop, a shell loop, a `-cpu` list, parallel `go test` processes or a load program. CI finds a flaky test. Find its cause from the CI logs and the code. Do not ask for such a run in an issue body or a Done list.
@@ -61,7 +73,7 @@ To listen to a server-sent event, use `onEvent` from `web/src/lib/events.ts` wit
 - Wait for a condition with `testkit.WaitFor`. Do not sleep for a fixed time. Before a test changes an issue, wait for the first poll of its repository (`WaitForFirstPoll`).
 - A test server runs only fake agents: it takes no directory with a Harness command from the PATH of the test. To check that something does not happen, wait for more polls (`waitForPolls` in `internal/engine`).
 - Reach the start state and each change that the Done list names through the engine and the fake GitHub. Do not set them with SQL, because a test that sets the result with SQL passes also when the engine path is wrong. When a test must insert a row with SQL, give the row each field and each fake GitHub item of the cause of its state, and give a `lead_events` row the kind and the payload that the engine writes. For a held Lead event, let the fake agent call `hold_event` (the script entry `holdEvent` in `internal/engine/lead_chat_test.go`).
-- The Playwright tests in `web/e2e` test the UI. Run them with `pnpm e2e` in `web`. The command builds the UI, and Playwright starts `TestServer` of `web/e2e` with a fake GitHub, on a free port or on the port in `MOBIUS_E2E_PORT`. CI sets port 6464. The tests write a desktop and a phone screenshot of each screen to `web/screenshots`.
+- The Playwright tests in `web/e2e` test the UI. The command `pnpm e2e` builds the UI, and Playwright starts `TestServer` of `web/e2e` with a fake GitHub, on a free port or on the port in `MOBIUS_E2E_PORT`. CI sets port 6464. The tests write a desktop and a phone screenshot of each screen to `web/screenshots`.
 - Before the first run of the Playwright tests, install the browser: `pnpm exec playwright install chromium`.
 - `web/screenshots` is not in the repository (`.gitignore`). The job `e2e` of `ci.yml` uploads it as the artifact `screenshots`. The workflow `screenshots` puts the files on the branch `screenshots` and shows them in a section of the pull request description, with the image of `main` next to the new image. No workflow pushes to the branch of a pull request.
 - When the job `e2e` fails, CI uploads `web/test-results` as the artifact `test-results`. It has a `trace.zip` file for each failed test. To open the file, run `pnpm exec playwright show-trace <file>`.
