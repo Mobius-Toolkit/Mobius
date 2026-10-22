@@ -69,6 +69,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - run: pnpm exec playwright install --with-deps chromium
+        timeout-minutes: 12
 
       - run: pnpm e2e
         env:
