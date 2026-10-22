@@ -61,10 +61,15 @@ export function useInbox(source: EventSource | undefined, needsHuman: NeedsHuman
       return;
     }
     // An Inbox event that comes while the connection is down is lost, so each connection reads the items.
+    // A read that started before an event can have an older state than the event, so it is read again.
+    let changes = 0;
     const load = () => {
+      const started = changes;
       listInbox()
         .then((res) => {
-          if (res.status === 200) {
+          if (changes !== started) {
+            load();
+          } else if (res.status === 200) {
             const read = res.data.data;
             setItems(read);
             setAnswered((list) =>
@@ -82,13 +87,17 @@ export function useInbox(source: EventSource | undefined, needsHuman: NeedsHuman
     load();
     source.addEventListener("open", load);
     const remove = onEvent<LiveEvents, "inbox">(source, "inbox", (item) => {
+      changes++;
       setAnswered((list) => list.filter((other) => other.id !== item.id));
       setItems((list) => {
         const others = list.filter((other) => other.id !== item.id);
         return item.dismissedAt ? others : [...others, item];
       });
     });
-    const removeAction = onEvent<LiveEvents, "action">(source, "action", updateAction);
+    const removeAction = onEvent<LiveEvents, "action">(source, "action", (action) => {
+      changes++;
+      updateAction(action);
+    });
     return () => {
       source.removeEventListener("open", load);
       remove();
