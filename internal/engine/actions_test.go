@@ -601,9 +601,9 @@ func TestTheLeadCallsEditBriefAndTheBriefChangesOnlyAfterTheOwnerApproves(t *tes
 func TestTheBriefOfAnEditBriefActionIsTheBriefOnGitHubNowAndTheDoneActionKeepsTheBriefItOverwrote(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectWith(t, fake, approvalSeen+callEditBrief("Change it.", "Ship loyalty plans and gift cards.", "Gift cards are in scope.")+seenScript, withUIURL)
+	server, _ := connectWith(t, fake, approvalSeen+callEditBrief("Update the Brief.", "Ship loyalty plans and gift cards.", "Customers asked for gift cards.")+seenScript, withUIURL)
 	fake.SetBody(shop, 12, "Ship loyalty plans.\n\n"+chatLink+"\n")
-	run(t, server, leadSpec(t), "Change it.")
+	run(t, server, leadSpec(t), "Update the Brief.")
 	action := waitForActions(t, server, 1)[0]
 	if got, err := server.Engine.ActionBrief(t.Context(), action.ID); err != nil || got != "Ship loyalty plans." {
 		t.Errorf("brief = %q, %v", got, err)
