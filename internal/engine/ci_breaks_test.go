@@ -64,8 +64,8 @@ const (
 )
 
 // addCancelledJob adds the job "check / e2e" to the attempt of the run. The job ends cancelled in the step "Install
-// browsers" and has the annotations messages. It gives the id of the job, which is the id of its check run.
-func addCancelledJob(fake *testkit.FakeGitHub, run int64, attempt int, messages ...string) int64 {
+// browsers" and has the annotations messages. The job has the id of its check run.
+func addCancelledJob(fake *testkit.FakeGitHub, run int64, attempt int, messages ...string) {
 	job := fake.AddCheckRun(shop, testkit.CheckRun{Name: "check / e2e", Status: "completed", Conclusion: "cancelled"})
 	fake.AddWorkflowJob(shop, run, attempt, testkit.WorkflowJob{ID: job, Name: "check / e2e", Conclusion: "cancelled", Steps: []testkit.WorkflowStep{
 		{Name: "Set up job", Conclusion: "success"},
@@ -75,7 +75,6 @@ func addCancelledJob(fake *testkit.FakeGitHub, run int64, attempt int, messages 
 		fake.AddAnnotation(job, ".github", 1, message)
 	}
 	fake.AddJobLog(job, "Installing browsers\n")
-	return job
 }
 
 // cancelledMainRun adds a cancelled run of the workflow on main at the commit sha with the cancelled job of
