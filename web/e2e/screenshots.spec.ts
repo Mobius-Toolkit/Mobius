@@ -23,6 +23,7 @@ import {
 } from "./actions.js";
 import { waitForEvergreen } from "./evergreen.js";
 import { png } from "./images.js";
+import { longTaskTitle, routeLongTask, tasksUrl } from "./long-task.js";
 import { countSamples, fakeMicrophone } from "./microphone.js";
 import { boardTasks, routeTasks, tasksRoute } from "./tasks.js";
 import {
@@ -586,6 +587,23 @@ test("screenshots", async ({ page }) => {
       await page.getByLabel("Show closed tasks").filter({ visible: true }).click();
     },
   );
+  await routeLongTask(page);
+  await screenshot(
+    page,
+    "chat-tasks-long-title",
+    "/workstreams/owner/shop/12",
+    (device) => [
+      ...frame(device, drain),
+      page.getByText(longTaskTitle, { exact: false }).filter({ visible: true }),
+    ],
+    async (device) => {
+      if (device === "phone") {
+        await page.getByRole("banner").getByRole("button", { name: "Tasks" }).click();
+      }
+      await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
+    },
+  );
+  await page.unroute(tasksUrl);
   const openDetails = async (device: string) => {
     if (device === "phone") {
       await page.getByRole("banner").getByRole("button", { name: "Tasks" }).click();
