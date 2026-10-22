@@ -101,7 +101,8 @@ const storedDrafts = `new Promise((resolve) => {
   };
 })`;
 
-const briefRows = (scope: Locator, kind: string) => scope.locator(`[data-kind="${kind}"]`);
+const removedText = (scope: Locator) => scope.locator("del");
+const addedText = (scope: Locator) => scope.locator("ins");
 
 const wide = (selector: string) =>
   `(document.querySelector('${selector}')?.scrollWidth ?? 0) > (document.querySelector('${selector}')?.clientWidth ?? 0)`;
@@ -1419,14 +1420,14 @@ test("screenshots", async ({ page }) => {
   await fixActionTimes();
   const briefReady = (device: string) => [
     ...approvalReady(device, "2"),
-    briefRows(panel, "removed"),
-    briefRows(panel, "added"),
-    briefRows(panel, "changed").locator("ins"),
-    briefRows(panel, "unchanged").first(),
+    removedText(panel).first(),
+    removedText(panel).last(),
+    addedText(panel).first(),
+    addedText(panel).last(),
   ];
   const openBrief = async () => {
     await row(briefTitle).getByRole("button", { name: "Answer" }).click();
-    await expect(briefRows(panel, "changed").locator("ins")).toBeVisible();
+    await expect(addedText(panel)).toHaveCount(2);
   };
   await screenshot(
     page,
@@ -1463,7 +1464,7 @@ test("screenshots", async ({ page }) => {
   const showBriefCard = async () => {
     const card = briefCard();
     await expect(card.getByText("Done", { exact: true })).toBeVisible();
-    await expect(briefRows(card, "changed").locator("ins")).toBeVisible();
+    await expect(addedText(card)).toHaveCount(2);
     await expect.poll(unreadBrief).toBe(false);
     await expect
       .poll(() =>
@@ -1484,7 +1485,8 @@ test("screenshots", async ({ page }) => {
   const briefDone = (device: string) => [
     ...approvalReady(device, "1"),
     briefCard().getByRole("button", { name: "Show all" }),
-    briefRows(briefCard(), "removed"),
+    removedText(briefCard()).first(),
+    addedText(briefCard()).first(),
   ];
   await screenshot(
     page,
@@ -1500,8 +1502,8 @@ test("screenshots", async ({ page }) => {
     (device) => [
       ...approvalReady(device, "1"),
       briefCard().getByRole("button", { name: "Show less" }),
-      briefRows(briefCard(), "removed"),
-      briefRows(briefCard(), "added"),
+      removedText(briefCard()).last(),
+      addedText(briefCard()).last(),
     ],
     async () => {
       await showBriefCard();

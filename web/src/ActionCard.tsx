@@ -1,11 +1,11 @@
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState, type ComponentProps } from "react";
 import type { ChatMessage, PendingAction } from "@/api/api.gen";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { briefMarkdown } from "@/lib/briefDiff";
 import { diffLines } from "@/lib/diff";
 import { clock } from "@/lib/time";
 import { cn } from "@/lib/utils";
-import { DiffRows } from "./DiffRows";
 import { Markdown } from "./Markdown";
 
 // The height of about six lines of text. A longer value shows only this part until the Owner opens it.
@@ -25,16 +25,20 @@ function actionState(action: PendingAction) {
 
 const isShort = (value: string) => !value.includes("\n") && value.length <= 80;
 
+function Removed(props: ComponentProps<"del">) {
+  return <del {...props} className="bg-red-500/40 line-through" />;
+}
+
+function Added(props: ComponentProps<"ins">) {
+  return <ins {...props} className="bg-green-500/40 no-underline" />;
+}
+
+// markdown-to-jsx renders ==text== as mark.
+const briefMarks = { del: Removed, mark: Added };
+
 function BriefView({ before, after, full }: { before: string; after: string; full: boolean }) {
-  const diff = useMemo(() => diffLines(before, after), [before, after]);
-  if (full) {
-    return <Markdown text={after} />;
-  }
-  return (
-    <pre className="overflow-hidden rounded-lg border text-sm">
-      <DiffRows hunk={diff} wrap />
-    </pre>
-  );
+  const marked = useMemo(() => briefMarkdown(diffLines(before, after)), [before, after]);
+  return full ? <Markdown text={after} /> : <Markdown text={marked} overrides={briefMarks} />;
 }
 
 function BriefToggle({ full, toggle }: { full: boolean; toggle: () => void }) {
