@@ -1427,8 +1427,14 @@ export interface WorkstreamDetails {
   completedTasks: number;
   /** CreatedAt is the creation time of the Workstream issue */
   createdAt: string;
+  /** Evergreen is true when the Workstream issue has mobius:evergreen */
+  evergreen: boolean;
+  /** Maintenance is true when the Workstream issue has mobius:maintenance */
+  maintenance: boolean;
   /** OpenTasks is the number of open tasks */
   openTasks: number;
+  /** Skills is true when the Workstream issue has mobius:skills */
+  skills: boolean;
 }
 
 /**
@@ -1583,6 +1589,11 @@ export interface SendChatBody {
 
 export interface SetAutopilotBody {
   /** On turns Autopilot on when true, and off when false */
+  on?: boolean;
+}
+
+export interface SetEvergreenBody {
+  /** On adds mobius:evergreen when true, and removes it when false */
   on?: boolean;
 }
 
@@ -5993,6 +6004,81 @@ export const getWorkstreamDetails = async (owner: string,
 
   const data: getWorkstreamDetailsResponse['data'] = body ? JSON.parse(body) : {}
   return { data, status: res.status, headers: res.headers } as getWorkstreamDetailsResponse
+}
+
+
+
+export type setEvergreenResponse204 = {
+  data: void
+  status: 204
+}
+
+export type setEvergreenResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type setEvergreenResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type setEvergreenResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
+export type setEvergreenResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type setEvergreenResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type setEvergreenResponseSuccess = (setEvergreenResponse204) & {
+  headers: Headers;
+};
+export type setEvergreenResponseError = (setEvergreenResponse400 | setEvergreenResponse401 | setEvergreenResponse409 | setEvergreenResponse422 | setEvergreenResponse500) & {
+  headers: Headers;
+};
+
+export type setEvergreenResponse = (setEvergreenResponseSuccess | setEvergreenResponseError)
+
+export const getSetEvergreenUrl = (owner: string,
+    name: string,
+    number: number,) => {
+
+
+
+
+  return `/api/workstreams/${owner}/${name}/${number}/evergreen`
+}
+
+/**
+ * SetEvergreen makes the Workstream evergreen or not evergreen. It returns 409 when the issue is not an open Workstream, and for the Maintenance Workstream and the Skills Workstream.
+ */
+export const setEvergreen = async (owner: string,
+    name: string,
+    number: number,
+    setEvergreenBody: SetEvergreenBody, ): Promise<setEvergreenResponse> => {
+
+  const res = await fetch(getSetEvergreenUrl(owner,name,number),
+  {
+
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(setEvergreenBody)
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: setEvergreenResponse['data'] = body ? JSON.parse(body) : undefined
+  return { data, status: res.status, headers: res.headers } as setEvergreenResponse
 }
 
 

@@ -90,6 +90,32 @@ func (h *handlers) SetAutopilot(ctx context.Context, req SetAutopilotRequest) er
 	return err
 }
 
+// SetEvergreenRequest is the request of SetEvergreen.
+type SetEvergreenRequest struct {
+	Path struct {
+		// Owner is the owner of the repository
+		Owner string `gork:"owner"`
+		// Name is the name of the repository
+		Name string `gork:"name"`
+		// Number is the number of the Workstream issue
+		Number int64 `gork:"number"`
+	}
+	Body struct {
+		// On adds mobius:evergreen when true, and removes it when false
+		On bool `gork:"on"`
+	}
+}
+
+// SetEvergreen makes the Workstream evergreen or not evergreen. It returns 409 when the issue is not an open Workstream,
+// and for the Maintenance Workstream and the Skills Workstream.
+func (h *handlers) SetEvergreen(ctx context.Context, req SetEvergreenRequest) error {
+	err := h.engine.SetEvergreen(ctx, req.Path.Owner+"/"+req.Path.Name, req.Path.Number, req.Body.On)
+	if engine.Refused(err) {
+		return api.NewHTTPError(http.StatusConflict, err.Error())
+	}
+	return err
+}
+
 // CompleteWorkstreamRequest is the request of CompleteWorkstream.
 type CompleteWorkstreamRequest struct {
 	Path struct {
@@ -209,6 +235,12 @@ type WorkstreamDetails struct {
 	CompletedTasks int64 `gork:"completedTasks"`
 	// OpenTasks is the number of open tasks
 	OpenTasks int64 `gork:"openTasks"`
+	// Evergreen is true when the Workstream issue has mobius:evergreen
+	Evergreen bool `gork:"evergreen"`
+	// Maintenance is true when the Workstream issue has mobius:maintenance
+	Maintenance bool `gork:"maintenance"`
+	// Skills is true when the Workstream issue has mobius:skills
+	Skills bool `gork:"skills"`
 }
 
 // WorkstreamDetailsResponse is the response of GetWorkstreamDetails.
@@ -231,5 +263,8 @@ func (h *handlers) GetWorkstreamDetails(ctx context.Context, req WorkstreamDetai
 		CreatedAt:      details.CreatedAt,
 		CompletedTasks: details.CompletedTasks,
 		OpenTasks:      details.OpenTasks,
+		Evergreen:      details.Evergreen,
+		Maintenance:    details.Maintenance,
+		Skills:         details.Skills,
 	}}}, nil
 }

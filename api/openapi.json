@@ -4019,6 +4019,93 @@
         ]
       }
     },
+    "/api/workstreams/{owner}/{name}/{number}/evergreen": {
+      "put": {
+        "description": "SetEvergreen makes the Workstream evergreen or not evergreen. It returns 409 when the issue is not an open Workstream, and for the Maintenance Workstream and the Skills Workstream.",
+        "operationId": "SetEvergreen",
+        "parameters": [
+          {
+            "description": "Owner is the owner of the repository",
+            "in": "path",
+            "name": "owner",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Name is the name of the repository",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Number is the number of the Workstream issue",
+            "in": "path",
+            "name": "number",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetEvergreenBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "workstreams"
+        ]
+      }
+    },
     "/api/workstreams/{owner}/{name}/{number}/tasks": {
       "get": {
         "description": "ListTasks returns the open and closed tasks of trusted authors in the tree of a Workstream, from the local copy of GitHub. A nested task follows its parent. The copy can be one poll interval old.",
@@ -6722,6 +6809,16 @@
           }
         }
       },
+      "SetEvergreenBody": {
+        "type": "object",
+        "title": "SetEvergreenBody",
+        "properties": {
+          "on": {
+            "type": "boolean",
+            "description": "On adds mobius:evergreen when true, and removes it when false"
+          }
+        }
+      },
       "StopChatBody": {
         "type": "object",
         "title": "StopChatBody",
@@ -7447,15 +7544,30 @@
             "description": "CreatedAt is the creation time of the Workstream issue",
             "format": "date-time"
           },
+          "evergreen": {
+            "type": "boolean",
+            "description": "Evergreen is true when the Workstream issue has mobius:evergreen"
+          },
+          "maintenance": {
+            "type": "boolean",
+            "description": "Maintenance is true when the Workstream issue has mobius:maintenance"
+          },
           "openTasks": {
             "type": "integer",
             "description": "OpenTasks is the number of open tasks"
+          },
+          "skills": {
+            "type": "boolean",
+            "description": "Skills is true when the Workstream issue has mobius:skills"
           }
         },
         "required": [
           "createdAt",
           "completedTasks",
-          "openTasks"
+          "openTasks",
+          "evergreen",
+          "maintenance",
+          "skills"
         ],
         "description": "WorkstreamDetails is the details of a Workstream."
       },
