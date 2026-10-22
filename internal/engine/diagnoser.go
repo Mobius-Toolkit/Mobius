@@ -220,12 +220,19 @@ func breakJobs(ctx context.Context, repository github.Repository, ciBreak store.
 	var text strings.Builder
 	var urls []string
 	for _, job := range jobs {
-		if !failedRunConclusion(job.GetConclusion()) {
+		timeLimit, err := jobTimeLimit(ctx, repository, job)
+		if err != nil {
+			return "", "", err
+		}
+		if timeLimit == "" && !failedRunConclusion(job.GetConclusion()) {
 			continue
 		}
 		fmt.Fprintf(&text, "- Job \"%s\"\n  Link: %s\n", job.GetName(), job.GetHTMLURL())
-		if step := failedStepName(job); step != "" {
+		if step := failedBreakStep(job, timeLimit); step != "" {
 			fmt.Fprintf(&text, "  Failed step: %s\n", step)
+		}
+		if timeLimit != "" {
+			fmt.Fprintf(&text, "  Time limit: %s\n", timeLimit)
 		}
 		if err := writeJobLog(ctx, repository, job.GetID(), logs, &text); err != nil {
 			return "", "", err
