@@ -636,6 +636,27 @@ test("the panel of an edit_brief action keeps a rewritten line in the paragraph 
   await expect(dialog).not.toContainText("~~");
 });
 
+test("the panel of an edit_brief action keeps a plain line apart from the list item that it replaces", async ({
+  page,
+}) => {
+  await page.route("**/api/actions/*/brief", (route) =>
+    route.fulfill({
+      json: { data: { brief: "**Goal**\nShow a rule.\n\n---\n\n- Keep text." } },
+    }),
+  );
+  await openLeadChat(page);
+  await sendToLead(page, editBriefRule);
+  await expect(waiting(page, 1)).toBeVisible(agentTimeout);
+  await answer(page, briefTitle);
+
+  const dialog = panel(page);
+  await expect(dialog.locator("li del")).toHaveText("Keep text.");
+  await expect(dialog.locator("ins")).toHaveText("Keep text.");
+  await expect(dialog.locator("li ins")).toHaveCount(0);
+  await expect(dialog).not.toContainText("==");
+  await expect(dialog).not.toContainText("~~");
+});
+
 test("an edit_brief action that comes while the first read of the Inbox runs stays in the tray", async ({
   page,
 }) => {

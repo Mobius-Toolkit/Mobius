@@ -84,7 +84,13 @@ function changedLines(parts: Part[]) {
   const added = textOf(parts, "removed");
   if (!markable(parts, removed, added)) {
     const markedRemoved = markLine(removed, removedMark);
-    return [...(markedRemoved === removed ? [] : [markedRemoved]), markLine(added, addedMark)];
+    const markedAdded = markLine(added, addedMark);
+    if (markedRemoved === removed) {
+      return [markedAdded];
+    }
+    return separate(removed, added)
+      ? [markedRemoved, "", markedAdded]
+      : [markedRemoved, markedAdded];
   }
   return [
     parts
