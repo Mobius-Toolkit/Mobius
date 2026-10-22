@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"math"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -90,7 +91,13 @@ func line(row store.Transcript, folded bool) (Line, error) {
 	if err != nil {
 		return Line{}, err
 	}
-	line := Line{ID: row.ID, Session: row.Session, Time: t, Kind: row.Kind, Folded: folded, Raw: row.Json}
+	raw := row.Json
+	if dropImageData(value) {
+		if raw, err = compact(value); err != nil {
+			return Line{}, err
+		}
+	}
+	line := Line{ID: row.ID, Session: row.Session, Time: t, Kind: row.Kind, Folded: folded, Raw: raw}
 	switch row.Kind {
 	case "prompt":
 		line.firstLine(stringField(value, "text"))
@@ -116,6 +123,22 @@ func line(row store.Transcript, folded bool) (Line, error) {
 		line.update(field(value, "update"))
 	}
 	return line, nil
+}
+
+// dropImageData replaces the data of each image block in the content of an update with its size. It tells if it
+// replaced any.
+func dropImageData(value map[string]any) bool {
+	blocks, _ := field(value, "update", "content").([]any)
+	dropped := false
+	for _, block := range blocks {
+		image, _ := field(block, "content").(map[string]any)
+		data, ok := image["data"].(string)
+		if ok && image["type"] == "image" {
+			image["data"] = "<" + strconv.Itoa(len(data)) + " bytes>"
+			dropped = true
+		}
+	}
+	return dropped
 }
 
 func (l *Line) update(update any) {

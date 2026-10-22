@@ -231,6 +231,7 @@ type lineEvent struct {
 	Kind    string `json:"kind"`
 	Text    string `json:"text"`
 	Body    string `json:"body"`
+	Raw     string `json:"raw"`
 }
 
 func TestTheLiveEventsGiveTheAgentAtTheStartAndAtTheEndAndNoTranscriptLine(t *testing.T) {
