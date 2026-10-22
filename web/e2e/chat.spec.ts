@@ -2087,11 +2087,19 @@ async function expectStates(page: Page) {
   await expect(main.getByText("Waits for the agent")).toHaveCount(0);
 }
 
-async function fulfillLoad(route: Route, deliveredAt: string | null) {
+async function fulfillLoad(route: Route, deliveredAt: string | null, marker?: string) {
   const response = await route.fetch();
   const body = (await response.json()) as {
-    data: { messages: { text: string; deliveredAt: string | null }[] };
+    data: { messages: { id: number; text: string; deliveredAt: string | null }[] };
   };
+  if (marker) {
+    body.data.messages.push({
+      ...body.data.messages[0],
+      id: 9999,
+      text: marker,
+      deliveredAt: null,
+    });
+  }
   for (const other of body.data.messages) {
     if (other.text === "Delivered by a load") {
       other.deliveredAt = deliveredAt;
@@ -2163,29 +2171,40 @@ test.describe("the state of an Owner message", () => {
   });
 
   test("an older load does not take the delivery time from a message", async ({ page }) => {
+    await page.addInitScript(`
+      window.sources = [];
+      const add = EventSource.prototype.addEventListener;
+      EventSource.prototype.addEventListener = function (type, listener, options) {
+        if (this.url.endsWith('/api/events') && !window.sources.includes(this)) {
+          window.sources.push(this);
+        }
+        return add.call(this, type, listener, options);
+      };
+    `);
+    let deliveredAt: string | null = null;
+    let marker: string | undefined;
+    await page.route("**/api/chat?*", (route) => fulfillLoad(route, deliveredAt, marker));
     await page.goto(shop);
     const main = page.getByRole("main");
-    await expect(main.locator("[data-message]").first()).toBeVisible();
-    const held: Route[] = [];
-    await page.route("**/api/chat?*", (route) => {
-      held.push(route);
-    });
     const input = page.getByLabel("Message to the Lead");
     const message = main.locator("[data-message]", { hasText: "Delivered by a load" });
     const deliveredIcon = message.getByRole("img", { name: /^Delivered to the agent at / });
+    // A reconnect of the event stream makes the chat read the list again.
+    const reload = () => page.evaluate("window.sources.at(-1).dispatchEvent(new Event('open'))");
 
+    await expect(input).toBeEditable();
     await input.fill("Delivered by a load");
     await input.press("Enter");
-    await expect.poll(() => held.length).toBe(1);
-    await fulfillLoad(held[0], "2026-10-15T08:40:00Z");
+    await expect(message).toBeVisible();
+    deliveredAt = "2026-10-15T08:40:00Z";
+    await reload();
     await expect(deliveredIcon).toBeVisible();
 
-    await input.fill("Second message");
-    await input.press("Enter");
-    await expect.poll(() => held.length).toBe(2);
-    await fulfillLoad(held[1], null);
-    await expect(main.locator("[data-message]", { hasText: "Second message" })).toHaveCount(1);
-    await expect(deliveredIcon).toBeVisible();
+    deliveredAt = null;
+    marker = "Older load read";
+    await reload();
+    await expect(main.getByText("Older load read")).toBeVisible();
+    expect(await deliveredIcon.count()).toBe(1);
     await expect(message.getByRole("img", { name: "Stored, waits for the agent" })).toHaveCount(0);
   });
 });
