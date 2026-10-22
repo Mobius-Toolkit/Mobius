@@ -1,7 +1,6 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { completeWorkstream, setAutopilot, type InboxItem, type Workstream } from "@/api/api.gen";
-import { ErrorBadge, List } from "@/components/page";
+import { completeWorkstream, setAutopilot, type InboxItem } from "@/api/api.gen";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
@@ -9,31 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import type { Workstreams } from "@/lib/workstreams";
 import { AgentPanel } from "./AgentPanel";
 import { Conversation } from "./Conversation";
-import { InboxRow } from "./Inbox";
 import { TopBar } from "./TopBar";
-
-function WorkstreamInbox({
-  items,
-  workstreams,
-}: {
-  items: InboxItem[];
-  workstreams?: Workstream[];
-}) {
-  const [error, setError] = useState("");
-  if (items.length === 0) {
-    return null;
-  }
-  return (
-    <div className="grid grid-cols-1 gap-1 border-t py-2 md:px-4">
-      {error && <ErrorBadge>{error}</ErrorBadge>}
-      <List>
-        {items.map((item) => (
-          <InboxRow key={item.id} item={item} workstreams={workstreams} setError={setError} />
-        ))}
-      </List>
-    </div>
-  );
-}
 
 export function Chat({
   owner,
@@ -163,13 +138,8 @@ export function Chat({
             )}
           </>
         }
-        footer={
-          <WorkstreamInbox
-            items={inWorkstream.filter((item) => !item.action)}
-            workstreams={workstreams.list}
-          />
-        }
-        trayItems={inWorkstream.filter((item) => item.action?.role === "lead")}
+        trayItems={inWorkstream}
+        workstreams={workstreams.list}
       />
       <aside className="hidden w-80 shrink-0 flex-col border-l pt-2 md:flex">{panel}</aside>
     </div>

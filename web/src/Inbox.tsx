@@ -6,6 +6,7 @@ import {
   type InboxItem,
   InboxItemKind,
   mergeInboxItem,
+  type PendingAction,
   resumeIssue,
   type resumeIssueResponse,
   sendAgain,
@@ -56,10 +57,12 @@ export function InboxRow({
   item,
   workstreams,
   setError,
+  onDecided,
 }: {
   item: InboxItem;
   workstreams?: Workstream[];
   setError: (error: string) => void;
+  onDecided?: (action: PendingAction) => void;
 }) {
   const showLogin = use(LoginContext);
   const { organization, selectOrganization } = useShell();
@@ -153,7 +156,7 @@ export function InboxRow({
     await navigate({ to: "/chat" });
   };
   const merging = answered?.item === item ? answered.merging : item.merging;
-  const refusalText = refusal || (merging ? "" : item.mergeRefusal);
+  const refusalText = refusal || (merging ? "" : item.mergeRefusal) || item.action?.error;
 
   return (
     <Row className="flex-wrap gap-y-2 py-2">
@@ -203,13 +206,14 @@ export function InboxRow({
                 Answer
               </Button>
             )}
-            {(item.kind === InboxItemKind.question || item.kind === InboxItemKind.stopped) && (
-              <Button variant="outline" size="sm" asChild>
-                <a href={item.link} target="_blank" rel="noreferrer">
-                  Open GitHub
-                </a>
-              </Button>
-            )}
+            {(item.kind === InboxItemKind.question || item.kind === InboxItemKind.stopped) &&
+              item.link && (
+                <Button variant="outline" size="sm" asChild>
+                  <a href={item.link} target="_blank" rel="noreferrer">
+                    Open GitHub
+                  </a>
+                </Button>
+              )}
             {item.kind === InboxItemKind.Lead_failed && (
               <Button
                 size="sm"
@@ -268,13 +272,16 @@ export function InboxRow({
           item={item}
           input={panel === "answer"}
           workstream={
-            workstreams?.find(
-              (workstream) =>
-                workstream.repository === item.workstreamRepository &&
-                workstream.number === item.workstream,
-            )?.title ?? `#${item.workstream}`
+            item.workstream === 0
+              ? "Coordinator"
+              : (workstreams?.find(
+                  (workstream) =>
+                    workstream.repository === item.workstreamRepository &&
+                    workstream.number === item.workstream,
+                )?.title ?? `#${item.workstream}`)
           }
           onClose={() => setPanel(null)}
+          onDecided={onDecided}
         />
       )}
     </Row>

@@ -106,6 +106,29 @@ export const otherItems = [
   },
 ];
 
+// An approval of the Lead of owner/shop#12 for an edit of the Brief.
+export const leadActionItem = {
+  ...base,
+  id: 210,
+  issue: 0,
+  kind: "approval",
+  title: "Edit the Brief of #12 Integrate loyalty plans",
+  reason: "The Lead waits for your approval",
+  text: "",
+  action: {
+    id: 78,
+    role: "lead",
+    tool: "edit_brief",
+    arguments: [{ name: "text", value: "Keep the prices in cents." }],
+    state: "pending",
+    error: "",
+    message: "",
+    result: "",
+    decidedAt: null,
+    time: "2026-09-28T09:30:00Z",
+  },
+};
+
 export const inboxRoute = "**/api/inbox";
 
 // Adds the items to the Inbox that the server gives.

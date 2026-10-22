@@ -20,7 +20,14 @@ import { waitForEvergreen } from "./evergreen.js";
 import { png } from "./images.js";
 import { countSamples, fakeMicrophone } from "./microphone.js";
 import { boardTasks, routeTasks, tasksRoute } from "./tasks.js";
-import { inboxRoute, longTitle, longTitleItem, routeInboxItems, stoppedItems } from "./stops.js";
+import {
+  inboxRoute,
+  leadActionItem,
+  longTitle,
+  longTitleItem,
+  routeInboxItems,
+  stoppedItems,
+} from "./stops.js";
 
 const viewports = {
   desktop: { width: 1280, height: 800 },
@@ -476,6 +483,44 @@ test("screenshots", async ({ page }) => {
     main.getByText(longTitle),
     main.getByRole("link", { name: "#409" }),
   ]);
+  await page.unroute(inboxRoute);
+  await page.route(inboxRoute, (route) =>
+    route.fulfill({ json: { data: [longTitleItem, leadActionItem] } }),
+  );
+  await screenshot(
+    page,
+    "chat-waits",
+    "/workstreams/owner/shop/12",
+    (device) => [
+      ...frame(device, drain, {}, "2"),
+      page.getByRole("heading", { name: "Waits for you (2)" }),
+      main.getByRole("listitem").filter({ hasText: longTitle }),
+      main.getByRole("listitem").filter({ hasText: leadActionItem.title }),
+    ],
+    async () => {
+      const waits = page.getByRole("heading", { name: "Waits for you (2)" });
+      await expect(waits).toBeVisible();
+      await expect(main.getByRole("listitem").filter({ hasText: longTitle })).toBeVisible();
+      await expect(
+        main.getByRole("listitem").filter({ hasText: leadActionItem.title }),
+      ).toBeVisible();
+      await expect
+        .poll(() =>
+          page
+            .locator("[data-message]")
+            .last()
+            .evaluate((el) => {
+              const list = el.parentElement;
+              if (!list) {
+                return false;
+              }
+              list.scrollTop = list.scrollHeight;
+              return list.scrollHeight - list.scrollTop - list.clientHeight < 1;
+            }),
+        )
+        .toBe(true);
+    },
+  );
   await page.unroute(inboxRoute);
   await setQueueReason(page, "waits for a low load");
   await screenshot(
