@@ -221,6 +221,34 @@ func TestTwoFailedJobsWithLongLogsGiveOneIssueBelowTheLimitOfGitHub(t *testing.T
 	}
 }
 
+func TestATimedOutJobGivesAnIssueWithTheJobTheCancelledStepAndTheTimeLimit(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	run := timedOutMainRun(fake, "")
+	addMaintenanceWorkstream(fake, maintenance)
+	server := startServer(t, fake, t.TempDir(), "")
+	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true})
+
+	timeOutAgain(fake, run)
+
+	number := ciBreakIssue(t, fake)
+	_, body := fake.Issue(shop, number)
+	for _, want := range []string{
+		"Result of the re-run: hard.",
+		"Failed job: check / e2e",
+		"Failed step: Install browsers",
+		"Time limit: " + timeLimitMessage,
+		"Installing browsers",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body does not have %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "Set up job") {
+		t.Errorf("body has the passed step:\n%s", body)
+	}
+}
+
 func TestARefusedJobListCreatesNoIssueUntilTheListWorks(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

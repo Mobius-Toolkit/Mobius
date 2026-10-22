@@ -177,16 +177,20 @@ func ciBreakBody(ctx context.Context, repository github.Repository, ciBreak stor
 	var sections, logs []string
 	used := head.Len()
 	for _, job := range jobs {
-		if !failedRunConclusion(job.GetConclusion()) {
+		timeLimit, err := jobTimeLimit(ctx, repository, job)
+		if err != nil {
+			return "", err
+		}
+		if timeLimit == "" && !failedRunConclusion(job.GetConclusion()) {
 			continue
 		}
 		var section strings.Builder
 		fmt.Fprintf(&section, "\nFailed job: %s\n", job.GetName())
-		for _, step := range job.Steps {
-			if failedRunConclusion(step.GetConclusion()) {
-				fmt.Fprintf(&section, "Failed step: %s\n", step.GetName())
-				break
-			}
+		if step := failedBreakStep(job, timeLimit); step != "" {
+			fmt.Fprintf(&section, "Failed step: %s\n", step)
+		}
+		if timeLimit != "" {
+			fmt.Fprintf(&section, "Time limit: %s\n", timeLimit)
 		}
 		sections = append(sections, section.String())
 		jobLog, err := repository.JobLog(ctx, job.GetID())
