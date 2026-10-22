@@ -612,6 +612,19 @@ test("screenshots", async ({ page }) => {
     ],
     openDetails,
   );
+  const sidebar = page.getByRole("navigation").first();
+  const workstreamsLink = sidebar.getByRole("link", { name: "Workstreams" });
+  const evergreenLink = sidebar.getByRole("link", { name: /^Integrate loyalty plans/ });
+  const sidebarShowsEvergreen = (on: boolean) => async () => {
+    if (await workstreamsLink.isVisible()) {
+      await expect
+        .poll(
+          async () =>
+            (await workstreamsLink.boundingBox())!.y > (await evergreenLink.boundingBox())!.y,
+        )
+        .toBe(on);
+    }
+  };
   await screenshot(
     page,
     "chat-details-evergreen",
@@ -621,10 +634,12 @@ test("screenshots", async ({ page }) => {
       await openDetails(device);
       await evergreenSwitch.click();
       await expect(evergreenSwitch).toBeChecked();
+      await sidebarShowsEvergreen(true)();
     },
     async () => {
       await evergreenSwitch.click();
       await expect(evergreenSwitch).not.toBeChecked();
+      await sidebarShowsEvergreen(false)();
     },
   );
   await screenshot(

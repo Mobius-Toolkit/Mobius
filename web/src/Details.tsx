@@ -1,4 +1,4 @@
-import { use, useCallback, useEffect, useState } from "react";
+import { use, useCallback, useEffect, useId, useState } from "react";
 import {
   closeWorkstream,
   getWorkstreamDetails,
@@ -121,6 +121,7 @@ export function Details({
   const [error, setError] = useState<string>();
   const [confirming, setConfirming] = useState(false);
   const [evergreenBusy, setEvergreenBusy] = useState(false);
+  const evergreenId = useId();
 
   const load = useCallback(() => {
     getWorkstreamDetails(owner, name, number)
@@ -186,12 +187,12 @@ export function Details({
       <div className="grid gap-1">
         <div className="flex items-center gap-2">
           <Switch
-            id="evergreen"
+            id={evergreenId}
             checked={details?.evergreen ?? false}
             disabled={!details || managed || evergreenBusy}
             onCheckedChange={switchEvergreen}
           />
-          <Label htmlFor="evergreen">Evergreen</Label>
+          <Label htmlFor={evergreenId}>Evergreen</Label>
         </div>
         {managed && (
           <p className="text-sm text-muted-foreground">
