@@ -57,12 +57,14 @@ To listen to a server-sent event, use `onEvent` from `web/src/lib/events.ts` wit
   | Change | Checks |
   |---|---|
   | `*.go` in package `P` | `go test ./P -run <names>`. Do not run the full `internal/engine` package. |
-  | An MCP tool of a role | `go test ./internal/engine -run 'TestTheLeadGetsTheMobiusURLAndOnlyTheLeadTools\|TestEachRoleGetsOnlyItsOwnTools'` |
+  | An MCP tool of a role | Run the tool list tests. The command is below the table. |
   | `internal/store/migrations/`, `internal/store/queries.sql` | `make generate`, then `go test ./internal/store`. Search the store tests for a fixed migration version. |
   | `internal/api/` | `make generate`. Commit `api/openapi.json` and `web/src/api/api.gen.ts`. |
   | `web/src/` | In `web`, `pnpm e2e e2e/<changed>.spec.ts e2e/screenshots.spec.ts`. Then read the `-desktop` and `-phone` image of each changed screen in `web/screenshots`. |
   | A new test | It must fail on the base commit and pass on the commit of the change. |
   | Each change | `make fmt` before each commit. Mobius runs `.mobius/check` after each turn. |
+
+  The command of the tool list tests: `go test ./internal/engine -run 'TestTheLeadGetsTheMobiusURLAndOnlyTheLeadTools|TestEachRoleGetsOnlyItsOwnTools'`
 
 - For a small package, `go test ./<package>` is also correct. Do not run `go test ./...` on the machine of Mobius. Do not run a measurement run (for example `go test -json ./internal/engine`). Do not write a loop that waits for a low load and then starts such a run. Take measurements from the CI logs.
 - Run the tests of a change one time. Run them again only after a code change. The tests use the CPU of the machine of the Owner, so each extra run makes the local checks of other tasks slow or gives them a timeout.
