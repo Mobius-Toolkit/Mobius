@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page, type Route } from "@playwright/test";
+import { waitForEvergreen } from "./evergreen.js";
 import { pasteImage, png } from "./images.js";
 import { fakeMicrophone } from "./microphone.js";
 import { addStoppedItems, removeItems } from "./stopped-items.js";
@@ -1502,6 +1503,50 @@ test("the Details tab closes the Workstream with its open issues", async ({ page
   await expect(page).toHaveURL("/workstreams");
   await expect(main.getByText("Plant lilies")).not.toBeAttached();
   await expect.poll(() => detailsStatus(page)).toBe(409);
+});
+
+test("the Evergreen switch of the Details tab moves the Workstream in the side bar", async ({
+  page,
+}) => {
+  const details = page.getByRole("tabpanel", { name: "Details" });
+  const evergreen = details.getByRole("switch", { name: "Evergreen" });
+  const sidebar = page.getByRole("navigation").first();
+  const workstreams = sidebar.getByRole("link", { name: "Workstreams" });
+  const link = sidebar.getByRole("link", { name: /^Integrate loyalty plans/ });
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto("/workstreams/owner/shop/12");
+  await page.getByRole("tab", { name: "Details" }).click();
+  await expect(evergreen).not.toBeChecked();
+  await expect(link).toBeVisible();
+  expect((await workstreams.boundingBox())!.y).toBeLessThan((await link.boundingBox())!.y);
+
+  await evergreen.click();
+  await expect(evergreen).toBeChecked();
+  await expect
+    .poll(async () => (await workstreams.boundingBox())!.y > (await link.boundingBox())!.y)
+    .toBe(true);
+
+  await evergreen.click();
+  await expect(evergreen).not.toBeChecked();
+  await expect
+    .poll(async () => (await workstreams.boundingBox())!.y < (await link.boundingBox())!.y)
+    .toBe(true);
+});
+
+test("the Evergreen switch of a Workstream that Mobius manages is on and disabled", async ({
+  page,
+}) => {
+  const details = page.getByRole("tabpanel", { name: "Details" });
+  await page.goto("/workstreams");
+  await waitForEvergreen(page);
+  await page.goto("/workstreams/owner/shop/14");
+  await page.getByRole("tab", { name: "Details" }).filter({ visible: true }).click();
+
+  await expect(details.getByRole("switch", { name: "Evergreen" })).toBeChecked();
+  await expect(details.getByRole("switch", { name: "Evergreen" })).toBeDisabled();
+  await expect(
+    details.getByText("Mobius manages this Workstream, so this value cannot change."),
+  ).toBeVisible();
 });
 
 test("an evergreen Workstream with all tasks closed shows no done badge and no Close Workstream button", async ({

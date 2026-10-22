@@ -596,6 +596,9 @@ test("screenshots", async ({ page }) => {
     .getByRole("tabpanel", { name: "Details" })
     .getByRole("button", { name: "Close" });
   const created = page.getByText("Sep 28, 2026").filter({ visible: true });
+  const evergreenSwitch = page
+    .getByRole("tabpanel", { name: "Details" })
+    .getByRole("switch", { name: "Evergreen" });
   await screenshot(
     page,
     "chat-details",
@@ -605,8 +608,42 @@ test("screenshots", async ({ page }) => {
       created,
       page.getByText("Completed tasks").filter({ visible: true }),
       closeButton,
+      evergreenSwitch,
     ],
     openDetails,
+  );
+  await screenshot(
+    page,
+    "chat-details-evergreen",
+    "/workstreams/owner/shop/12",
+    (device) => [...frame(device, drain), created, evergreenSwitch],
+    async (device) => {
+      await openDetails(device);
+      await evergreenSwitch.click();
+      await expect(evergreenSwitch).toBeChecked();
+    },
+    async () => {
+      await evergreenSwitch.click();
+      await expect(evergreenSwitch).not.toBeChecked();
+    },
+  );
+  await screenshot(
+    page,
+    "chat-details-maintenance",
+    "/workstreams/owner/shop/14",
+    (device) => [
+      ...frame(device, drain),
+      evergreenSwitch,
+      page
+        .getByText("Mobius manages this Workstream, so this value cannot change.")
+        .filter({ visible: true }),
+    ],
+    async (device) => {
+      await waitForEvergreen(page);
+      await openDetails(device);
+      await expect(evergreenSwitch).toBeChecked();
+      await expect(evergreenSwitch).toBeDisabled();
+    },
   );
   await screenshot(
     page,
