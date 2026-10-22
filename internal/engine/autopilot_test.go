@@ -83,6 +83,23 @@ func TestWithNoAutopilotNoTaskStarts(t *testing.T) {
 	}
 }
 
+func TestWithTheLevelMergeOnlyNoTaskStarts(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	prepareAutopilot(fake, false)
+	fake.AddLabel(shop, 12, "mobius:auto-merge", "owner")
+	addTaskIssue(fake, 41, "Add plan model")
+	server := startAutopilot(t, fake, func(*config.Config) {}, "")
+	server.WaitForFirstPoll(t, shop)
+	testkit.WaitFor(t, func() bool { return workstreams(t, server)[0].Autopilot == "merge" })
+
+	waitForPolls(t, fake)
+
+	if hasLiveTask(t, server, 41) || activeTasks(t, server) != 0 {
+		t.Error("a task started")
+	}
+}
+
 func TestWithAsManyActiveTasksAsTheImplementerLimitNoTaskStarts(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

@@ -23,8 +23,9 @@ type Workstream struct {
 	Title string `gork:"title"`
 	// Brief is the body of the Workstream issue: the goal, the scope and the limits of the Workstream
 	Brief string `gork:"brief"`
-	// Autopilot is true when a trusted user added mobius:autopilot last
-	Autopilot bool `gork:"autopilot"`
+	// Autopilot is the Autopilot level: a trusted user added mobius:autopilot last for the start part, and
+	// mobius:auto-merge last for the merge part
+	Autopilot string `gork:"autopilot" validate:"oneof=off start merge start_and_merge"`
 	// Evergreen is true when the Workstream issue has mobius:evergreen
 	Evergreen bool `gork:"evergreen"`
 	// AllTasksClosed is true when the Workstream issue has sub-issues and each one is closed
@@ -55,7 +56,7 @@ func (h *handlers) ListWorkstreams(ctx context.Context, _ ListWorkstreamsRequest
 			Number:         row.Number,
 			Title:          row.Title,
 			Brief:          row.Body,
-			Autopilot:      row.Autopilot,
+			Autopilot:      engine.AutopilotLevel(row.Autopilot, row.AutoMerge),
 			Evergreen:      row.Evergreen,
 			AllTasksClosed: row.AllTasksClosed,
 			ReadyToMerge:   row.ReadyToMerge,
@@ -75,15 +76,16 @@ type SetAutopilotRequest struct {
 		Number int64 `gork:"number"`
 	}
 	Body struct {
-		// On turns Autopilot on when true, and off when false
-		On bool `gork:"on"`
+		// Level is the new Autopilot level
+		Level string `gork:"level" validate:"required,oneof=off start merge start_and_merge"`
 	}
 }
 
-// SetAutopilot turns Autopilot of the Workstream on or off. Mobius changes mobius:autopilot with the user token of the
-// Owner, so the Owner must authorize the Mobius App first. It returns 409 with the steps when the Owner did not.
+// SetAutopilot sets the Autopilot level of the Workstream. Mobius changes mobius:autopilot and mobius:auto-merge with
+// the user token of the Owner, so the Owner must authorize the Mobius App first. It returns 409 with the steps when
+// the Owner did not.
 func (h *handlers) SetAutopilot(ctx context.Context, req SetAutopilotRequest) error {
-	err := h.engine.SetAutopilot(ctx, req.Path.Owner+"/"+req.Path.Name, req.Path.Number, req.Body.On)
+	err := h.engine.SetAutopilot(ctx, req.Path.Owner+"/"+req.Path.Name, req.Path.Number, req.Body.Level)
 	if engine.Refused(err) {
 		return api.NewHTTPError(http.StatusConflict, err.Error())
 	}

@@ -346,9 +346,9 @@ func (e *Engine) routeComments(ctx context.Context, repository github.Repository
 }
 
 // workstreamEvent acts on a new event of the issue. events are all the events of the issue. A change of
-// mobius:autopilot makes the next poll read the ready list in full, because a mobius:ready of the Mobius App can
-// dispatch with Autopilot. After the first poll, the newest change of mobius:autopilot by a person also adds an
-// event for the Lead. A Workstream label of a trusted
+// mobius:autopilot or mobius:auto-merge makes the next poll read the ready list in full, because a mobius:ready of
+// the Mobius App can dispatch with Autopilot. After the first poll, the newest change of one of them by a person also
+// adds an event for the Lead. A Workstream label of a trusted
 // actor adds an activity, and after the first poll also a creation event for the Lead. After the first poll, a
 // removal of the Workstream label stops the work, and a close or a reopen of a trusted actor closes or reopens the
 // Workstream.
@@ -358,7 +358,7 @@ func (e *Engine) workstreamEvent(ctx context.Context, repository github.Reposito
 	trusted := e.TrustedAuthor(repository.AppSlug, actor)
 	workstreamChange := event.GetLabel().GetName() == workstreamLabel
 	switch {
-	case event.GetLabel().GetName() == autopilotLabel:
+	case event.GetLabel().GetName() == autopilotLabel || event.GetLabel().GetName() == autoMergeLabel:
 		err := e.queries.SetSyncCursor(ctx, store.SetSyncCursorParams{Repository: repository.FullName, Endpoint: readyEndpoint})
 		if err != nil || firstPoll {
 			return err
@@ -390,23 +390,20 @@ func (e *Engine) workstreamEvent(ctx context.Context, repository github.Reposito
 	return nil
 }
 
-// autopilotEvent adds an event for the Lead when event is the newest change of mobius:autopilot by a person. Thus the
-// removal and the add of one switch give one event.
+// autopilotEvent adds an event for the Lead when event is the newest change of mobius:autopilot or mobius:auto-merge by
+// a person. Thus the removals and the adds of one switch give one event.
 func (e *Engine) autopilotEvent(ctx context.Context, repository github.Repository, issue *gh.Issue, events []*gh.IssueEvent, event *gh.IssueEvent) error {
 	bot := appLogin(repository.AppSlug)
 	newest := slices.IndexFunc(events, func(other *gh.IssueEvent) bool { return other == event })
 	for _, later := range events[newest+1:] {
-		if later.GetLabel().GetName() == autopilotLabel && !strings.EqualFold(later.GetActor().GetLogin(), bot) {
+		if (later.GetLabel().GetName() == autopilotLabel || later.GetLabel().GetName() == autoMergeLabel) && !strings.EqualFold(later.GetActor().GetLogin(), bot) {
 			return nil
 		}
 	}
 	if strings.EqualFold(event.GetActor().GetLogin(), bot) {
 		return nil
 	}
-	state := "off"
-	if hasLabel(issue, autopilotLabel) && e.addedByTrustedUser(events) {
-		state = "on"
-	}
-	text := fmt.Sprintf("%s Autopilot of Workstream #%d \"%s\" is %s, by @%s.", time.Now().UTC().Format(timeFormat), issue.GetNumber(), issue.GetTitle(), state, event.GetActor().GetLogin())
+	autopilot, autoMerge := e.levelLabels(issue, events)
+	text := fmt.Sprintf("%s Autopilot of Workstream #%d \"%s\" is \"%s\", by @%s.", time.Now().UTC().Format(timeFormat), issue.GetNumber(), issue.GetTitle(), levelNames[AutopilotLevel(autopilot, autoMerge)], event.GetActor().GetLogin())
 	return e.addLeadEvent(ctx, repository.FullName, int64(issue.GetNumber()), "", sql.NullInt64{}, "autopilot", text)
 }

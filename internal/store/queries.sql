@@ -1,5 +1,6 @@
 -- name: ListCopiedWorkstreams :many
 SELECT w.repository, w.number, w.title, w.body, CAST(w.autopilot AS BOOLEAN) AS autopilot,
+       CAST(w.auto_merge AS BOOLEAN) AS auto_merge,
        CAST(w.evergreen AS BOOLEAN) AS evergreen,
        CAST(EXISTS (SELECT 1 FROM copied_issues i
                WHERE i.repository = w.repository AND i.workstream = w.number AND i.parent = w.number AND i.parent_repository = w.repository)
@@ -611,9 +612,9 @@ DELETE FROM copied_blockers WHERE repository = ? AND workstream = ?;
 
 -- The Lead tool create_workstream and the poll can both add a new Workstream.
 -- name: AddCopiedWorkstream :exec
-INSERT INTO copied_workstreams (repository, number, title, body, autopilot, evergreen, skills, maintenance, created_at)
-VALUES (sqlc.arg(repository), sqlc.arg(number), sqlc.arg(title), sqlc.arg(body), CAST(sqlc.arg(autopilot) AS BOOLEAN), CAST(sqlc.arg(evergreen) AS BOOLEAN),
-        CAST(sqlc.arg(skills) AS BOOLEAN), CAST(sqlc.arg(maintenance) AS BOOLEAN), sqlc.arg(created_at))
+INSERT INTO copied_workstreams (repository, number, title, body, autopilot, auto_merge, evergreen, skills, maintenance, created_at)
+VALUES (sqlc.arg(repository), sqlc.arg(number), sqlc.arg(title), sqlc.arg(body), CAST(sqlc.arg(autopilot) AS BOOLEAN), CAST(sqlc.arg(auto_merge) AS BOOLEAN),
+        CAST(sqlc.arg(evergreen) AS BOOLEAN), CAST(sqlc.arg(skills) AS BOOLEAN), CAST(sqlc.arg(maintenance) AS BOOLEAN), sqlc.arg(created_at))
 ON CONFLICT (repository, number) DO NOTHING;
 
 -- name: AddCopiedIssue :exec
@@ -661,11 +662,11 @@ SELECT DISTINCT workstream FROM copied_blockers WHERE repository = ? AND blocker
 
 -- name: UpdateCopiedWorkstream :execrows
 UPDATE copied_workstreams SET title = sqlc.arg(title), body = sqlc.arg(body), autopilot = CAST(sqlc.arg(autopilot) AS BOOLEAN),
-    evergreen = CAST(sqlc.arg(evergreen) AS BOOLEAN), skills = CAST(sqlc.arg(skills) AS BOOLEAN),
+    auto_merge = CAST(sqlc.arg(auto_merge) AS BOOLEAN), evergreen = CAST(sqlc.arg(evergreen) AS BOOLEAN), skills = CAST(sqlc.arg(skills) AS BOOLEAN),
     maintenance = CAST(sqlc.arg(maintenance) AS BOOLEAN)
 WHERE repository = sqlc.arg(repository) AND number = sqlc.arg(number)
   AND (title != sqlc.arg(title) OR body != sqlc.arg(body) OR autopilot != CAST(sqlc.arg(autopilot) AS BOOLEAN)
-       OR evergreen != CAST(sqlc.arg(evergreen) AS BOOLEAN) OR skills != CAST(sqlc.arg(skills) AS BOOLEAN)
+       OR auto_merge != CAST(sqlc.arg(auto_merge) AS BOOLEAN) OR evergreen != CAST(sqlc.arg(evergreen) AS BOOLEAN) OR skills != CAST(sqlc.arg(skills) AS BOOLEAN)
        OR maintenance != CAST(sqlc.arg(maintenance) AS BOOLEAN));
 
 -- name: GetCopiedWorkstream :one
@@ -685,10 +686,10 @@ WHERE repository = sqlc.arg(repository) AND blocker_workstream = sqlc.arg(workst
 SELECT number FROM copied_workstreams WHERE repository = ? AND autopilot ORDER BY number DESC;
 
 -- name: GetCopiedAutopilot :one
-SELECT CAST(autopilot AS BOOLEAN) FROM copied_workstreams WHERE repository = ? AND number = ?;
+SELECT CAST(autopilot AS BOOLEAN) AS autopilot, CAST(auto_merge AS BOOLEAN) AS auto_merge FROM copied_workstreams WHERE repository = ? AND number = ?;
 
 -- name: SetCopiedAutopilot :exec
-UPDATE copied_workstreams SET autopilot = CAST(sqlc.arg(autopilot) AS BOOLEAN)
+UPDATE copied_workstreams SET autopilot = CAST(sqlc.arg(autopilot) AS BOOLEAN), auto_merge = CAST(sqlc.arg(auto_merge) AS BOOLEAN)
 WHERE repository = sqlc.arg(repository) AND number = sqlc.arg(number);
 
 -- A tree can hold the blocker of an issue of another repository, so the delete goes to the rows of all repositories.

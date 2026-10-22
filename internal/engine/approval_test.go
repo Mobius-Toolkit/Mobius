@@ -654,6 +654,8 @@ func TestApprovePullRequestRefusesANewHeadAndMovesTheTaskBackToChecks(t *testing
 	server, _ := connectTask(t, fake, leadApproves+leadStarts, commits, keepSessionOpen)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 	waitForReadyEvents(t, server, 1)
+	waitForPolls(t, fake)
+	fake.UnlistPullRequests(true)
 	work := t.TempDir()
 	testkit.Git(t, work, "clone", "--branch=mobius/41", fake.Remote(shop), ".")
 	testkit.Git(t, work, "commit", "--allow-empty", "-m", "Change by a human")
