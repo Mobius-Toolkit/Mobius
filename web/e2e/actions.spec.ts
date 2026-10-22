@@ -15,6 +15,7 @@ import {
   dropColumn,
   dropText,
   editBrief,
+  editBriefRule,
   editBriefTable,
   historyText,
   historyTableText,
@@ -525,6 +526,38 @@ test("the panel of an edit_brief action keeps the cells of a table row with the 
   await expect(addedText(dialog)).toContainText(["Extra", "three"]);
   const rows = dialog.locator("tr");
   await expect(rows).toHaveCount(4);
+  for (const cells of await rows.all()) {
+    await expect(cells.locator("th, td")).toHaveCount(2);
+  }
+  await expect(dialog).not.toContainText("==");
+  await expect(dialog).not.toContainText("~~");
+});
+
+test("the panel of an edit_brief action keeps a removed block apart from the next block", async ({
+  page,
+}) => {
+  await page.route("**/api/actions/*/brief", (route) =>
+    route.fulfill({
+      json: {
+        data: {
+          brief:
+            "**Goal**\nShow a rule.\n\nRemoved text.\n\n---\n\n| X | Y |\n| --- | --- |\n| 1 | 2 |\n\nKeep text.",
+        },
+      },
+    }),
+  );
+  await openLeadChat(page);
+  await sendToLead(page, editBriefRule);
+  await expect(waiting(page, 1)).toBeVisible(agentTimeout);
+  await answer(page, briefTitle);
+
+  const dialog = panel(page);
+  await expect(removedText(dialog)).toHaveText(["Removed text.", "X", "Y", "1", "2"]);
+  await expect(dialog.locator("h2", { hasText: "Removed text." })).toHaveCount(0);
+  await expect(dialog.locator("hr")).toHaveCount(1);
+  await expect(dialog.locator("p", { hasText: "Keep text." })).not.toContainText("Removed text.");
+  const rows = dialog.locator("tr");
+  await expect(rows).toHaveCount(2);
   for (const cells of await rows.all()) {
     await expect(cells.locator("th, td")).toHaveCount(2);
   }
