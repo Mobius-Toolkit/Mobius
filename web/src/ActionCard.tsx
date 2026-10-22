@@ -36,17 +36,9 @@ function Added(props: ComponentProps<"ins">) {
 // markdown-to-jsx renders ==text== as mark.
 const briefMarks = { del: Removed, mark: Added };
 
-function BriefView({ before, after, full }: { before: string; after: string; full: boolean }) {
+function BriefView({ before, after }: { before: string; after: string }) {
   const marked = useMemo(() => briefMarkdown(diffLines(before, after)), [before, after]);
-  return full ? <Markdown text={after} /> : <Markdown text={marked} overrides={briefMarks} />;
-}
-
-function BriefToggle({ full, toggle }: { full: boolean; toggle: () => void }) {
-  return (
-    <Button variant="ghost" size="sm" className="justify-self-start" onClick={toggle}>
-      {full ? "Show the changes" : "Show the full Brief"}
-    </Button>
-  );
+  return <Markdown text={marked} overrides={briefMarks} />;
 }
 
 // before is the Brief that the new Brief replaces. With it, the argument shows the changes.
@@ -59,13 +51,11 @@ export function FullArgument({
   value: string;
   before?: string;
 }) {
-  const [full, setFull] = useState(false);
   if (before !== undefined) {
     return (
       <div className="grid min-w-0 gap-0.5">
         <span className="text-xs text-muted-foreground">{name}</span>
-        <BriefView before={before} after={value} full={full} />
-        <BriefToggle full={full} toggle={() => setFull(!full)} />
+        <BriefView before={before} after={value} />
       </div>
     );
   }
@@ -90,7 +80,6 @@ function Argument({
   open: boolean;
   toggle: () => void;
 }) {
-  const [full, setFull] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   const [long, setLong] = useState(false);
   useLayoutEffect(() => {
@@ -114,19 +103,14 @@ function Argument({
           {before === undefined ? (
             <Markdown text={value} />
           ) : (
-            <BriefView before={before} after={value} full={full} />
+            <BriefView before={before} after={value} />
           )}
         </div>
       </div>
-      {(long || before !== undefined) && (
-        <div className="flex flex-wrap gap-1">
-          {long && (
-            <Button variant="ghost" size="sm" onClick={toggle}>
-              {open ? "Show less" : "Show all"}
-            </Button>
-          )}
-          {before !== undefined && <BriefToggle full={full} toggle={() => setFull(!full)} />}
-        </div>
+      {long && (
+        <Button variant="ghost" size="sm" className="justify-self-start" onClick={toggle}>
+          {open ? "Show less" : "Show all"}
+        </Button>
       )}
     </div>
   );
