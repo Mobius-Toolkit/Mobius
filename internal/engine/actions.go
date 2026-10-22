@@ -474,6 +474,26 @@ func (e *Engine) ApproveAction(ctx context.Context, id int64, message string) (s
 	return action, errors.Join(e.dismissAction(ctx, action), e.postResult(ctx, action, withMessage(text, message)))
 }
 
+// ActionBrief gives the current Brief of the Workstream of the edit_brief action id, read from GitHub. It returns
+// ErrNoAction for an action that does not exist, and a refusal for an action of another tool.
+func (e *Engine) ActionBrief(ctx context.Context, id int64) (string, error) {
+	action, err := e.queries.GetPendingAction(ctx, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNoAction
+	}
+	if err != nil {
+		return "", err
+	}
+	if action.Tool != "edit_brief" {
+		return "", refuse("This action does not change a Brief.")
+	}
+	repository, err := e.callerRepository(actionCaller(action))
+	if err != nil {
+		return "", err
+	}
+	return e.currentBrief(ctx, repository, action.Workstream)
+}
+
 // RejectAction rejects the pending action id. No action runs, and the agent gets the message of the Owner. It returns
 // ErrNoAction for an action that does not exist, and a refusal for an action that does not wait for the approval or
 // that runs now.

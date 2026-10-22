@@ -91,6 +91,82 @@
         ]
       }
     },
+    "/api/actions/{id}/brief": {
+      "get": {
+        "description": "GetActionBrief reads the Workstream issue of an edit_brief action from GitHub. It returns 404 for an unknown action, and 409 for an action of another tool.",
+        "operationId": "GetActionBrief",
+        "parameters": [
+          {
+            "description": "ID is the id of the action",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_ActionBrief"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "actions"
+        ]
+      }
+    },
     "/api/actions/{id}/reject": {
       "post": {
         "description": "RejectAction rejects a pending action. No action runs, and the agent gets the message of the Owner in a chat message. It returns 404 for an unknown action, and 409 for an action that is not pending.",
@@ -4049,6 +4125,20 @@
         ],
         "description": "ActionArgument is an argument of a pending action."
       },
+      "ActionBrief": {
+        "type": "object",
+        "title": "ActionBrief",
+        "properties": {
+          "brief": {
+            "type": "string",
+            "description": "Brief is the body of the Workstream issue now, with no Lead chat link line and no white space at the end"
+          }
+        },
+        "required": [
+          "brief"
+        ],
+        "description": "ActionBrief is the current Brief of the Workstream of an edit_brief action."
+      },
       "ActiveAgent": {
         "type": "object",
         "title": "ActiveAgent",
@@ -4948,6 +5038,20 @@
           "end"
         ],
         "description": "DrainEnd tells how a drain ended."
+      },
+      "Envelope_ActionBrief": {
+        "type": "object",
+        "title": "Envelope_ActionBrief",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ActionBrief",
+            "description": "Data is the payload of the response"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "description": "Envelope is the body of each success response."
       },
       "Envelope_ActiveAgents": {
         "type": "object",
@@ -6331,6 +6435,10 @@
             "type": "string",
             "description": "Message is the message of the Owner with the decision, or empty"
           },
+          "oldBrief": {
+            "type": "string",
+            "description": "OldBrief is the Brief that the approval of edit_brief overwrote, with no Lead chat link. It is empty for the other tools, for a pending action, and for an action of an older release"
+          },
           "result": {
             "type": "string",
             "description": "Result is the result text of the tool after the run, or empty"
@@ -6375,6 +6483,7 @@
           "result",
           "message",
           "time",
+          "oldBrief",
           "decidedAt"
         ],
         "description": "PendingAction is a tool call of an agent that waits for the approval of the Owner."

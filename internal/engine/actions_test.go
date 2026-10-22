@@ -3,6 +3,7 @@ package engine_test
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -24,10 +25,11 @@ type actionJSON struct {
 		Name  string `json:"name"`
 		Value string `json:"value"`
 	} `json:"arguments"`
-	State   string `json:"state"`
-	Error   string `json:"error"`
-	Result  string `json:"result"`
-	Message string `json:"message"`
+	State    string `json:"state"`
+	Error    string `json:"error"`
+	Result   string `json:"result"`
+	Message  string `json:"message"`
+	OldBrief string `json:"oldBrief"`
 }
 
 type actionRow struct {
@@ -593,6 +595,48 @@ func TestTheLeadCallsEditBriefAndTheBriefChangesOnlyAfterTheOwnerApproves(t *tes
 	}
 	if got := briefOf(t, server, 12); got != "Ship loyalty plans and gift cards." {
 		t.Errorf("copied Brief = %q", got)
+	}
+}
+
+func TestTheBriefOfAnEditBriefActionIsTheBriefOnGitHubNowAndTheDoneActionKeepsTheBriefItOverwrote(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, approvalSeen+callEditBrief("Update the Brief.", "Ship loyalty plans and gift cards.", "Customers asked for gift cards.")+seenScript, withUIURL)
+	fake.SetBody(shop, 12, "Ship loyalty plans.\n\n"+chatLink+"\n")
+	run(t, server, leadSpec(t), "Update the Brief.")
+	action := waitForActions(t, server, 1)[0]
+	if got, err := server.Engine.ActionBrief(t.Context(), action.ID); err != nil || got != "Ship loyalty plans." {
+		t.Errorf("brief = %q, %v", got, err)
+	}
+
+	fake.SetBody(shop, 12, "Ship loyalty plans and coupons.\n\n"+chatLink+"\n")
+	if got, err := server.Engine.ActionBrief(t.Context(), action.ID); err != nil || got != "Ship loyalty plans and coupons." {
+		t.Errorf("changed brief = %q, %v", got, err)
+	}
+	done := decided(t, server, action.ID, "approve", "")
+
+	if done.State != "done" || done.OldBrief != "Ship loyalty plans and coupons." {
+		t.Errorf("action = %+v", done)
+	}
+	if _, body := fake.Issue(shop, 12); body != "Ship loyalty plans and gift cards.\n\n"+chatLink {
+		t.Errorf("body = %q", body)
+	}
+}
+
+func TestTheBriefOfAnActionOfAnotherToolOrAnUnknownActionGivesARefusal(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, approvalSeen+callMessageLead("Send.", 12, "Create the task issues.")+seenScript)
+	run(t, server, coordinatorSpec(t), "Send.")
+	action := waitForActions(t, server, 1)[0]
+
+	_, err := server.Engine.ActionBrief(t.Context(), action.ID)
+
+	if !engine.Refused(err) {
+		t.Errorf("err = %v", err)
+	}
+	if _, err := server.Engine.ActionBrief(t.Context(), action.ID+1); !errors.Is(err, engine.ErrNoAction) {
+		t.Errorf("err = %v", err)
 	}
 }
 

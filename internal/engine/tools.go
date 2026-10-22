@@ -1230,6 +1230,15 @@ func (e *Engine) editBrief(ctx context.Context, c caller, repository github.Repo
 	if err != nil {
 		return "", err
 	}
+	if action, approved := ctx.Value(approvedRun{}).(int64); approved {
+		old, err := e.currentBrief(ctx, repository, c.workstream)
+		if err != nil {
+			return "", err
+		}
+		if err := e.queries.SetPendingActionOldBrief(ctx, store.SetPendingActionOldBriefParams{OldBrief: old, ID: action}); err != nil {
+			return "", err
+		}
+	}
 	body := e.withChatLink(repository, c.workstream, input.Brief)
 	issue, _, err := repository.Client.Issues.Update(ctx, repository.Owner(), repository.Name(), int(c.workstream), gh.UpdateIssueRequest{Body: &body})
 	if err != nil {
@@ -1309,7 +1318,31 @@ func (e *Engine) withChatLink(repository github.Repository, workstream int64, bo
 	if e.config.UIURL == "" {
 		return body
 	}
-	link := fmt.Sprintf("[Open the Lead chat in Mobius](%s/workstreams/%s/%s/%d)", e.config.UIURL, repository.Owner(), repository.Name(), workstream)
-	lines := slices.DeleteFunc(strings.Split(body, "\n"), func(line string) bool { return strings.TrimSpace(line) == link })
-	return strings.TrimRight(strings.Join(lines, "\n"), " \t\r\n") + "\n\n" + link
+	return e.withoutChatLink(repository, workstream, body) + "\n\n" + e.chatLink(repository, workstream)
+}
+
+// withoutChatLink gives body with no link line to the Lead chat of the Workstream and no white space at the end.
+func (e *Engine) withoutChatLink(repository github.Repository, workstream int64, body string) string {
+	if e.config.UIURL != "" {
+		link := e.chatLink(repository, workstream)
+		lines := slices.DeleteFunc(strings.Split(body, "\n"), func(line string) bool { return strings.TrimSpace(line) == link })
+		body = strings.Join(lines, "\n")
+	}
+	return strings.TrimRight(body, " \t\r\n")
+}
+
+func (e *Engine) chatLink(repository github.Repository, workstream int64) string {
+	return fmt.Sprintf("[Open the Lead chat in Mobius](%s/workstreams/%s/%s/%d)", e.config.UIURL, repository.Owner(), repository.Name(), workstream)
+}
+
+// currentBrief reads the body of the Workstream issue from GitHub, with no Lead chat link line.
+func (e *Engine) currentBrief(ctx context.Context, repository github.Repository, workstream int64) (string, error) {
+	issue, err := repository.Issue(ctx, workstream)
+	if err != nil {
+		return "", err
+	}
+	if issue == nil {
+		return "", refuse("The Workstream issue does not exist.")
+	}
+	return e.withoutChatLink(repository, workstream, issue.GetBody()), nil
 }
