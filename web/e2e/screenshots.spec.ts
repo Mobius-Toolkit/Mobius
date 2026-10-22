@@ -10,6 +10,7 @@ import {
   draftWorkstream,
   dropColumn,
   editBrief,
+  idle,
   leadTitle,
   restoreBrief,
   seen,
@@ -1262,7 +1263,10 @@ test("screenshots", async ({ page }) => {
       note,
       panel.getByRole("button", { name: "Approve" }),
     ],
-    answer(createTitle, "Go ahead. Start with the table."),
+    async () => {
+      await showEnd(draftText)();
+      await answer(createTitle, "Go ahead. Start with the table.")();
+    },
     closePanel,
   );
   await screenshot(
@@ -1275,7 +1279,10 @@ test("screenshots", async ({ page }) => {
       note,
       panel.getByRole("button", { name: "Reject" }),
     ],
-    answer(leadTitle, "Wait for the migration of #12."),
+    async () => {
+      await showEnd(draftText)();
+      await answer(leadTitle, "Wait for the migration of #12.")();
+    },
     closePanel,
   );
   await screenshot(
@@ -1321,6 +1328,8 @@ test("screenshots", async ({ page }) => {
       await answer(unknownTitle, "Go ahead.")();
       await panel.getByRole("button", { name: "Approve" }).click();
       await expect(panel.getByRole("alert")).toBeVisible();
+      await idle(page);
+      await showEnd(unknownText)();
     },
     closePanel,
   );
