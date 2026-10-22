@@ -423,7 +423,7 @@ test("an edit_brief action that comes while the first read of the Inbox runs sta
   let fetched = false;
   let first = true;
   await page.route("**/api/inbox", async (route) => {
-    if (!first) {
+    if (!first || !route.request().frame().url().includes("/workstreams/")) {
       return route.continue();
     }
     first = false;
