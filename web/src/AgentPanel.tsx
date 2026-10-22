@@ -158,13 +158,18 @@ function TaskEntry({ line }: { line: TaskLine }) {
           style={{ paddingLeft: `${0.5 + line.depth * 1.25}rem` }}
           className="flex min-w-0 grow flex-wrap items-center gap-x-2 gap-y-1 rounded-lg py-2 pr-2 hover:bg-muted"
         >
-          <span className={cn("grow", line.state === "closed" && "text-muted-foreground")}>
+          <span
+            className={cn(
+              "min-w-0 grow wrap-anywhere",
+              line.state === "closed" && "text-muted-foreground",
+            )}
+          >
             {reference} {line.title}
           </span>
           {line.blockedBy.map((blocker) => (
             <span
               key={`${blocker.repository}#${blocker.number}`}
-              className="text-sm text-muted-foreground"
+              className="min-w-0 text-sm text-muted-foreground wrap-anywhere"
             >
               blocked by {blocker.repository}#{blocker.number}
               {blocker.workstreamTitle && ` (Workstream "${blocker.workstreamTitle}")`}
