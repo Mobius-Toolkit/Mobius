@@ -1436,15 +1436,20 @@ func (e *Engine) leadContext(ctx context.Context, repository github.Repository, 
 	if evergreen {
 		evergreenText = "This Workstream is evergreen: it has no end.\n\n"
 	}
-	autopilot, err := e.workstreamAutopilot(ctx, repository.FullName, workstream)
+	level, err := e.workstreamLevel(ctx, repository.FullName, workstream)
 	if err != nil {
 		return "", err
 	}
-	autopilotText := "Autopilot is off: a task starts only after `mark_ready` or a start of the Owner.\n\n"
-	if autopilot {
-		autopilotText = "Autopilot is on: Mobius starts each open sub-issue with no blocker and no earlier task at the next poll.\n\n"
-	}
+	autopilotText := levelContexts[level] + "\n\n"
 	return fmt.Sprintf("# Brief\n\n%s\n\n%s%s# MEMORY.md\n\n%s\n\n# Repositories\n\n%s\n\n# Task list\n\n%s\n\n", brief, evergreenText, autopilotText, memory, e.repositoriesText(repository.Owner()), taskText(repository.FullName, lines)), nil
+}
+
+// levelContexts gives the text of the first prompt of the Lead for each Autopilot level.
+var levelContexts = map[string]string{
+	levelOff:           "Autopilot is off: a task starts only after `mark_ready` or a start of the Owner.",
+	levelStart:         "Autopilot is \"Start tasks\": Mobius starts each open sub-issue with no blocker and no earlier task at the next poll.",
+	levelMerge:         "Autopilot is \"Merge only\": a task starts only after `mark_ready` or a start of the Owner.",
+	levelStartAndMerge: "Autopilot is \"Start and merge\": Mobius starts each open sub-issue with no blocker and no earlier task at the next poll.",
 }
 
 // repositoriesText names the repositories of the organization, and its issue repository when the organization has one.

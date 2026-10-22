@@ -34,7 +34,7 @@ func TestListWorkstreams(t *testing.T) {
 		Number         int64  `json:"number"`
 		Title          string `json:"title"`
 		Brief          string `json:"brief"`
-		Autopilot      bool   `json:"autopilot"`
+		Autopilot      string `json:"autopilot"`
 		Evergreen      bool   `json:"evergreen"`
 		AllTasksClosed bool   `json:"allTasksClosed"`
 		ReadyToMerge   bool   `json:"readyToMerge"`
@@ -46,9 +46,9 @@ func TestListWorkstreams(t *testing.T) {
 		t.Fatalf("decode body %q: %v", rec.Body.String(), err)
 	}
 	want := []workstream{
-		{Repository: "o/a", Number: 3, Title: "Early renewals", Evergreen: true},
-		{Repository: "o/a", Number: 2, Title: "Seasonal prices", ReadyToMerge: true},
-		{Repository: "o/a", Number: 1, Title: "Loyalty plans", Brief: "Ship the plans.", Autopilot: true, AllTasksClosed: true},
+		{Repository: "o/a", Number: 3, Title: "Early renewals", Autopilot: "off", Evergreen: true},
+		{Repository: "o/a", Number: 2, Title: "Seasonal prices", Autopilot: "off", ReadyToMerge: true},
+		{Repository: "o/a", Number: 1, Title: "Loyalty plans", Brief: "Ship the plans.", Autopilot: "start", AllTasksClosed: true},
 	}
 	if !slices.Equal(body.Data, want) {
 		t.Errorf("workstreams = %+v, want %+v", body.Data, want)

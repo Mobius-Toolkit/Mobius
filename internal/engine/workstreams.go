@@ -321,15 +321,18 @@ func closureItem(repository string, issue *gh.Issue, pullRequest bool) ClosureIt
 	return ClosureItem{PullRequest: pullRequest, Repository: repository, Number: int64(issue.GetNumber()), Title: issue.GetTitle(), URL: issue.GetHTMLURL()}
 }
 
-// closeWorkstream ends the work of the Workstream, removes mobius:autopilot and mobius:question, dismisses the Inbox
-// items of its issues, closes the open pull requests of its
+// closeWorkstream ends the work of the Workstream, removes mobius:autopilot, mobius:auto-merge and mobius:question,
+// dismisses the Inbox items of its issues, closes the open pull requests of its
 // tasks, and closes the issues below it as not planned. A nested Workstream and the issues below it stay open.
 func (e *Engine) closeWorkstream(ctx context.Context, repository github.Repository, workstream int64) error {
 	if err := e.stopWorkstream(ctx, repository, workstream); err != nil {
 		return err
 	}
-	// A later reopen needs a new mobius:autopilot from a trusted user.
+	// A later reopen needs a new mobius:autopilot and mobius:auto-merge from a trusted user.
 	if err := repository.RemoveLabel(ctx, workstream, autopilotLabel); err != nil {
+		return err
+	}
+	if err := repository.RemoveLabel(ctx, workstream, autoMergeLabel); err != nil {
 		return err
 	}
 	if err := repository.RemoveLabel(ctx, workstream, questionLabel); err != nil {
@@ -423,9 +426,9 @@ func (e *Engine) hasWork(ctx context.Context, repository string, workstream int6
 	return len(tasks) > 0, err
 }
 
-// SetAutopilot turns Autopilot of the Workstream number of repository on or off. The label change uses the user
-// token of the Owner, because the label counts only when a trusted user added it last.
-func (e *Engine) SetAutopilot(ctx context.Context, repositoryName string, number int64, on bool) error {
+// SetAutopilot sets the Autopilot level of the Workstream number of repository. The label changes use the user
+// token of the Owner, because a label counts only when a trusted user added it last.
+func (e *Engine) SetAutopilot(ctx context.Context, repositoryName string, number int64, level string) error {
 	repository, err := e.repository(repositoryName)
 	if err != nil {
 		return err
@@ -435,17 +438,23 @@ func (e *Engine) SetAutopilot(ctx context.Context, repositoryName string, number
 		// The text tells the Owner how to authorize the Mobius App.
 		return refusal(err.Error())
 	}
+	autopilot, autoMerge := startsTasks(level), mergesPullRequests(level)
 	// GitHub records no labeled event for a label that the issue has, so a last labeled event of an untrusted actor
 	// would stay. Remove before the add.
-	if err := asOwner.RemoveLabel(ctx, number, autopilotLabel); err != nil {
-		return err
-	}
-	if on {
-		if err := asOwner.AddLabel(ctx, number, autopilotLabel); err != nil {
+	for _, part := range []struct {
+		label string
+		on    bool
+	}{{autopilotLabel, autopilot}, {autoMergeLabel, autoMerge}} {
+		if err := asOwner.RemoveLabel(ctx, number, part.label); err != nil {
 			return err
 		}
+		if part.on {
+			if err := asOwner.AddLabel(ctx, number, part.label); err != nil {
+				return err
+			}
+		}
 	}
-	err = e.queries.SetCopiedAutopilot(ctx, store.SetCopiedAutopilotParams{Autopilot: on, Repository: repositoryName, Number: number})
+	err = e.queries.SetCopiedAutopilot(ctx, store.SetCopiedAutopilotParams{Autopilot: autopilot, AutoMerge: autoMerge, Repository: repositoryName, Number: number})
 	if err != nil {
 		return err
 	}
@@ -489,29 +498,72 @@ func (e *Engine) SetEvergreen(ctx context.Context, repositoryName string, number
 	return nil
 }
 
-// workstreamAutopilot tells if the copy has Autopilot on for the Workstream number.
-func (e *Engine) workstreamAutopilot(ctx context.Context, repository string, number int64) (bool, error) {
-	on, err := e.queries.GetCopiedAutopilot(ctx, store.GetCopiedAutopilotParams{Repository: repository, Number: number})
-	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil
-	}
-	return on, err
+// The Autopilot levels. mobius:autopilot is the start part of a level, and mobius:auto-merge is the merge part.
+const (
+	levelOff           = "off"
+	levelStart         = "start"
+	levelMerge         = "merge"
+	levelStartAndMerge = "start_and_merge"
+)
+
+var levelNames = map[string]string{
+	levelOff:           "Off",
+	levelStart:         "Start tasks",
+	levelMerge:         "Merge only",
+	levelStartAndMerge: "Start and merge",
 }
 
-// issueAutopilot tells if a trusted user turned Autopilot on for the Workstream issue.
-func (e *Engine) issueAutopilot(ctx context.Context, repository github.Repository, issue *gh.Issue) (bool, error) {
-	if !hasLabel(issue, autopilotLabel) {
-		return false, nil
+// AutopilotLevel gives the level of mobius:autopilot and mobius:auto-merge.
+func AutopilotLevel(autopilot, autoMerge bool) string {
+	switch {
+	case autopilot && autoMerge:
+		return levelStartAndMerge
+	case autopilot:
+		return levelStart
+	case autoMerge:
+		return levelMerge
+	}
+	return levelOff
+}
+
+func startsTasks(level string) bool {
+	return level == levelStart || level == levelStartAndMerge
+}
+
+func mergesPullRequests(level string) bool {
+	return level == levelMerge || level == levelStartAndMerge
+}
+
+// workstreamLevel gives the Autopilot level of the copy for the Workstream number.
+func (e *Engine) workstreamLevel(ctx context.Context, repository string, number int64) (string, error) {
+	row, err := e.queries.GetCopiedAutopilot(ctx, store.GetCopiedAutopilotParams{Repository: repository, Number: number})
+	if errors.Is(err, sql.ErrNoRows) {
+		return levelOff, nil
+	}
+	return AutopilotLevel(row.Autopilot, row.AutoMerge), err
+}
+
+// issueLevelLabels tells which of mobius:autopilot and mobius:auto-merge a trusted user added to the Workstream issue.
+func (e *Engine) issueLevelLabels(ctx context.Context, repository github.Repository, issue *gh.Issue) (autopilot, autoMerge bool, err error) {
+	if !hasLabel(issue, autopilotLabel) && !hasLabel(issue, autoMergeLabel) {
+		return false, false, nil
 	}
 	events, err := repository.IssueEvents(ctx, int64(issue.GetNumber()))
-	return e.addedByTrustedUser(events), err
+	autopilot, autoMerge = e.levelLabels(issue, events)
+	return autopilot, autoMerge, err
 }
 
-// addedByTrustedUser tells if a trusted user added mobius:autopilot in the last labeled event of that label in events.
+// levelLabels tells which of mobius:autopilot and mobius:auto-merge the issue has, added last by a trusted user.
+func (e *Engine) levelLabels(issue *gh.Issue, events []*gh.IssueEvent) (autopilot, autoMerge bool) {
+	return hasLabel(issue, autopilotLabel) && e.addedByTrustedUser(events, autopilotLabel),
+		hasLabel(issue, autoMergeLabel) && e.addedByTrustedUser(events, autoMergeLabel)
+}
+
+// addedByTrustedUser tells if a trusted user added label in the last labeled event of that label in events.
 // Thus a trusted bot or the Mobius App cannot turn Autopilot on.
-func (e *Engine) addedByTrustedUser(events []*gh.IssueEvent) bool {
+func (e *Engine) addedByTrustedUser(events []*gh.IssueEvent, label string) bool {
 	for _, event := range slices.Backward(events) {
-		if event.GetEvent() != "labeled" || event.GetLabel().GetName() != autopilotLabel {
+		if event.GetEvent() != "labeled" || event.GetLabel().GetName() != label {
 			continue
 		}
 		return slices.ContainsFunc(e.config.TrustedUsers, func(user string) bool {

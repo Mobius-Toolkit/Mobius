@@ -537,6 +537,33 @@ func TestAutopilotStaysOffAfterAnUntrustedUserAddsTheLabel(t *testing.T) {
 	}
 }
 
+func TestAutoMergeCountsOnlyAfterATrustedUserAddsTheLabel(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := startWithTasks(t, fake)
+	level := func() string { return workstreams(t, server)[0].Autopilot }
+
+	fake.AddLabel(shop, 12, "mobius:auto-merge", "mobius-test[bot]")
+
+	waitForPoll(t, server, fake)
+	if got := level(); got != "off" {
+		t.Errorf("level after the label of the App = %s", got)
+	}
+
+	fake.RemoveLabel(shop, 12, "mobius:auto-merge", "mobius-test[bot]")
+	fake.AddLabel(shop, 12, "mobius:auto-merge", "mallory")
+
+	waitForPoll(t, server, fake)
+	if got := level(); got != "off" {
+		t.Errorf("level after the label of an untrusted user = %s", got)
+	}
+
+	fake.RemoveLabel(shop, 12, "mobius:auto-merge", "mallory")
+	fake.AddLabel(shop, 12, "mobius:auto-merge", "owner")
+
+	testkit.WaitFor(t, func() bool { return level() == "merge" })
+}
+
 func TestAChangeOfALocalIssueDoesNotChangeTheForeignRowWithTheSameNumber(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

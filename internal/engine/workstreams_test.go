@@ -21,7 +21,7 @@ type workstream struct {
 	Number         int64  `json:"number"`
 	Title          string `json:"title"`
 	Brief          string `json:"brief"`
-	Autopilot      bool   `json:"autopilot"`
+	Autopilot      string `json:"autopilot"`
 	Evergreen      bool   `json:"evergreen"`
 	AllTasksClosed bool   `json:"allTasksClosed"`
 	ReadyToMerge   bool   `json:"readyToMerge"`
@@ -147,7 +147,7 @@ func TestAWorkstreamLabelShowsTheIssueInTheWorkstreamList(t *testing.T) {
 		list := workstreams(t, server)
 		return list, len(list) > 0
 	})
-	if want := []workstream{{Repository: shop, Number: 12, Title: "Integrate loyalty plans"}}; !reflect.DeepEqual(list, want) {
+	if want := []workstream{{Repository: shop, Number: 12, Title: "Integrate loyalty plans", Autopilot: "off"}}; !reflect.DeepEqual(list, want) {
 		t.Errorf("workstreams = %+v", list)
 	}
 }
@@ -500,7 +500,7 @@ func TestCreateWorkstreamAddsTheWorkstreamToTheListAtOnce(t *testing.T) {
 	run(t, server, leadSpec(t), "Create it.")
 	approveNext(t, server, 1)
 
-	want := workstream{Repository: shop, Number: 13, Title: "Billing", Brief: "Bill the plans."}
+	want := workstream{Repository: shop, Number: 13, Title: "Billing", Brief: "Bill the plans.", Autopilot: "off"}
 	if list := workstreams(t, server); len(list) != 2 || list[0] != want {
 		t.Errorf("workstreams = %+v", list)
 	}

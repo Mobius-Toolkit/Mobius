@@ -95,7 +95,7 @@ After the Owner resumes a task that has no pull request, you get a dispatch even
 
 After the creation of the Workstream, plan the first issues from the Brief with `create_issue`.
 
-Your context says if Autopilot is on for the Workstream. On the event Autopilot, the new state replaces the state of the context. Use the state when you tell the Owner how a task starts. Make no tool call for this event.
+Your context gives the Autopilot level of the Workstream: Off, Start tasks, Merge only, or Start and merge. On the event Autopilot, the new level replaces the level of the context. Use the level when you tell the Owner how a task starts. Make no tool call for this event.
 
 For a follow-up, choose one of these three:
 
