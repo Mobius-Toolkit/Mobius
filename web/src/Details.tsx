@@ -78,12 +78,16 @@ function Confirmation({ owner, name, number }: Workstream) {
         {!items && !error && <p className="text-muted-foreground">Mobius reads the items.</p>}
         <ul className="grid gap-1">
           {items?.map((item) => (
-            <li key={`${item.kind} ${item.number}`} className="flex items-baseline gap-2">
+            <li
+              key={`${item.kind} ${item.repository}#${item.number}`}
+              className="flex items-baseline gap-2"
+            >
               <Badge variant="secondary" className="shrink-0">
                 {item.kind === "pullRequest" ? "pull request" : "issue"}
               </Badge>
               <span>
-                #{item.number} {item.title}
+                {item.repository === `${owner}/${name}` ? "" : item.repository}#{item.number}{" "}
+                {item.title}
               </span>
             </li>
           ))}

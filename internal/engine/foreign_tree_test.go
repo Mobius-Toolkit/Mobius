@@ -78,11 +78,41 @@ func TestTheWontDoClosureAndTheDetailsOfAWorkstreamHaveATaskIssueOfAnotherReposi
 
 	items := closure(t, server)
 
-	if len(items) != 2 || items[0].Number != 7 || !strings.Contains(items[0].URL, "/owner/garden/issues/7") || items[1].Number != 12 {
+	if len(items) != 2 || items[0].Number != 7 || items[0].Repository != garden || !strings.Contains(items[0].URL, "/owner/garden/issues/7") || items[1].Number != 12 || items[1].Repository != shop {
 		t.Errorf("items = %+v", items)
 	}
 	if status, got := details(t, server, 12); status != http.StatusOK || got.OpenTasks != 1 || got.CompletedTasks != 0 {
 		t.Errorf("details = %d %+v", status, got)
+	}
+}
+
+func TestAWontDoCloseWritesToATaskIssueAndAPullRequestOfAnotherRepositoryAndNotToTheIssuesOfTheWorkstreamRepositoryWithTheSameNumbers(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addGardenTask(fake)
+	fake.AddPullRequest(garden, 8, "Water the plants")
+	fake.AddIssue(shop, 7, "Price table")
+	fake.AddIssue(shop, 8, "Plan names")
+	server := startServer(t, fake, t.TempDir(), `INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at, pull_request)
+		VALUES ('owner/garden', 'owner/shop', 7, 12, 'working', '2026-10-04T10:00:00Z', 8)`)
+	server.WaitForFirstPoll(t, shop)
+	server.WaitForFirstPoll(t, garden)
+
+	if status, body := closeWontDo(t, server, 12); status != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+
+	for _, number := range []int64{7, 8} {
+		if state, _ := fake.State(garden, number); state != "closed" {
+			t.Errorf("state of %s#%d = %s", garden, number, state)
+		}
+		if comments := fake.Comments(garden, number); !slices.Contains(comments, wontDoComment) {
+			t.Errorf("comments of %s#%d = %v", garden, number, comments)
+		}
+		if !slices.Contains(fake.Labels(garden, number), wontDo) {
+			t.Errorf("labels of %s#%d = %v", garden, number, fake.Labels(garden, number))
+		}
+		unchanged(t, fake, shop, number, "open")
 	}
 }
 

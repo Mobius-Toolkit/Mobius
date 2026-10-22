@@ -117,6 +117,8 @@ func (h *handlers) CompleteWorkstream(ctx context.Context, req CompleteWorkstrea
 type ClosureItem struct {
 	// Kind is issue or pullRequest
 	Kind string `gork:"kind" validate:"oneof=issue pullRequest"`
+	// Repository is the full name of the repository of the issue or the pull request
+	Repository string `gork:"repository"`
 	// Number is the number of the issue or the pull request
 	Number int64 `gork:"number"`
 	// Title is the title of the issue or the pull request
@@ -159,7 +161,7 @@ func (h *handlers) WorkstreamClosure(ctx context.Context, req WorkstreamClosureR
 		if item.PullRequest {
 			kind = "pullRequest"
 		}
-		data = append(data, ClosureItem{Kind: kind, Number: item.Number, Title: item.Title, URL: item.URL})
+		data = append(data, ClosureItem{Kind: kind, Repository: item.Repository, Number: item.Number, Title: item.Title, URL: item.URL})
 	}
 	return &WorkstreamClosureResponse{Body: Envelope[[]ClosureItem]{Data: data}}, nil
 }

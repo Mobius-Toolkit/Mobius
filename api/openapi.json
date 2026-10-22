@@ -4820,6 +4820,10 @@
             "type": "integer",
             "description": "Number is the number of the issue or the pull request"
           },
+          "repository": {
+            "type": "string",
+            "description": "Repository is the full name of the repository of the issue or the pull request"
+          },
           "title": {
             "type": "string",
             "description": "Title is the title of the issue or the pull request"
@@ -4831,6 +4835,7 @@
         },
         "required": [
           "kind",
+          "repository",
           "number",
           "title",
           "url"
