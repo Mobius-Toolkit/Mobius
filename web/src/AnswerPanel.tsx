@@ -2,6 +2,7 @@ import { use, useEffect, useRef, useState } from "react";
 import {
   answerInboxItem,
   approveAction,
+  getActionBrief,
   rejectAction,
   type InboxItem,
   type PendingAction,
@@ -117,6 +118,7 @@ export function AnswerPanel({
   const [error, setError] = useState(inboxFailure?.id === item.id ? inboxFailure.error : "");
   const content = useRef<HTMLDivElement>(null);
   const [selected, setSelected] = useState<Record<number, number[]>>({});
+  const [currentBrief, setCurrentBrief] = useState<string>();
   const selection = Object.values(selected).some((options) => options.length > 0);
   useKeyboardHeight();
 
@@ -148,6 +150,32 @@ export function AnswerPanel({
       clearInboxFailure();
     }
   }, [inboxFailure, item.id, clearInboxFailure]);
+
+  const briefAction = item.action?.tool === "edit_brief" ? item.action.id : undefined;
+  useEffect(() => {
+    if (briefAction === undefined) {
+      return;
+    }
+    let current = true;
+    (async () => {
+      try {
+        const res = await getActionBrief(briefAction);
+        if (!current) {
+          return;
+        }
+        if (res.status === 200) {
+          setCurrentBrief(res.data.data.brief);
+        } else if (res.status === 401) {
+          showLogin();
+        }
+      } catch {
+        // The dialog shows the full new Brief.
+      }
+    })();
+    return () => {
+      current = false;
+    };
+  }, [briefAction, showLogin]);
 
   const answer = async (text: string) => {
     hideInbox(item);
@@ -224,7 +252,15 @@ export function AnswerPanel({
               {roleName[action.role]} · {clock(action.time)}
             </span>
             {action.arguments.map((argument) => (
-              <FullArgument key={argument.name} {...argument} />
+              <FullArgument
+                key={argument.name}
+                {...argument}
+                before={
+                  action.tool === "edit_brief" && argument.name === "brief"
+                    ? currentBrief
+                    : undefined
+                }
+              />
             ))}
           </div>
         ) : (
