@@ -93,6 +93,16 @@ const logConnected = async (page: Page) => {
   await expect(page.getByText("Connecting…").filter({ visible: true })).toBeHidden();
 };
 
+const decide = async (page: Page, panel: Locator, decision: "approve" | "reject") => {
+  const answered = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      new RegExp(`/api/actions/\\d+/${decision}$`).test(response.url()),
+  );
+  await panel.getByRole("button", { name: decision === "approve" ? "Approve" : "Reject" }).click();
+  expect((await answered).ok()).toBe(true);
+};
+
 // The tests have no DOM types, so the check is a script.
 const storedDrafts = `new Promise((resolve) => {
   const open = indexedDB.open("mobius");
@@ -1479,7 +1489,7 @@ test("screenshots", async ({ page }) => {
   await panel.getByRole("button", { name: "Send" }).click();
   await expect(panel).toBeHidden();
   await row(leadTitle).getByRole("button", { name: "Answer" }).click();
-  await panel.getByRole("button", { name: "Reject" }).click();
+  await decide(page, panel, "reject");
   await expect(panel).toBeHidden();
   await settle(page);
   expect((await page.request.post("/e2e/approvals/times/fix")).ok()).toBe(true);
@@ -1527,7 +1537,7 @@ test("screenshots", async ({ page }) => {
     () => page.keyboard.press("Escape"),
   );
   await row(briefTitle).getByRole("button", { name: "Answer" }).click();
-  await panel.getByRole("button", { name: "Approve" }).click();
+  await decide(page, panel, "approve");
   await expect(panel).toBeHidden();
   await expect(waits(1)).toBeHidden();
   const briefCard = () => cardOf(page, "edit_brief");
