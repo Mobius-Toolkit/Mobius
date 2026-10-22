@@ -6,6 +6,7 @@ const syntax = /[`*_~=[\]()<>#|\\]/;
 const blockPrefix = /^\s*(?:>\s*)*(?:(?:[-*+]|\d+[.)])\s+)?(?:#{1,6}\s+)?/;
 const url = /\]\([^)]*\)|https?:\/\/\S+|<[^>\s]+>/g;
 const fence = /^\s*(?:```|~~~)/;
+const tableRow = /^\s*\|/;
 
 const prefixLength = (line: string) => line.length - line.replace(blockPrefix, "").length;
 
@@ -18,7 +19,13 @@ function mark(text: string, delimiter: string) {
   return text.slice(0, start) + delimiter + text.slice(start, end) + delimiter + text.slice(end);
 }
 
-function markLine(line: string, delimiter: string) {
+function markLine(line: string, delimiter: string): string {
+  if (tableRow.test(line)) {
+    return line
+      .split("|")
+      .map((cell) => markLine(cell, delimiter))
+      .join("|");
+  }
   const start = prefixLength(line);
   const content = line.slice(start);
   return /[\p{L}\p{N}]/u.test(content) ? line.slice(0, start) + mark(content, delimiter) : line;
@@ -88,10 +95,16 @@ function changedLines(parts: Part[]) {
 export function briefMarkdown(diff: DiffLine[]): string {
   const out: string[] = [];
   let inFence = false;
+  let inOldFence = false;
   for (const line of diff) {
+    const old = line.kind === "changed" ? textOf(line.parts, "added") : line.text;
+    const wasInOldFence = inOldFence;
+    if (line.kind !== "added" && fence.test(old)) {
+      inOldFence = !inOldFence;
+    }
     if (line.kind === "removed") {
       const marked = markLine(line.text, removedMark);
-      if (!inFence && !fence.test(line.text) && marked !== line.text) {
+      if (!inFence && !wasInOldFence && !fence.test(line.text) && marked !== line.text) {
         out.push(marked);
       }
       continue;

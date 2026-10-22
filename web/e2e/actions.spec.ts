@@ -15,6 +15,7 @@ import {
   dropColumn,
   dropText,
   editBrief,
+  editBriefTable,
   historyText,
   historyTableText,
   keepPrices,
@@ -474,6 +475,61 @@ test("the panel of an edit_brief action shows no removed rule as Markdown", asyn
   await expect(addedText(dialog)).toHaveText(["Do not remove the old renewal page."]);
   await expect(dialog.locator("hr")).toHaveCount(0);
   await expect(dialog.locator("h2", { hasText: "Let customers" })).toHaveCount(0);
+});
+
+test("the panel of an edit_brief action shows no removed fenced code as Markdown", async ({
+  page,
+}) => {
+  await page.route("**/api/actions/*/brief", (route) =>
+    route.fulfill({
+      json: {
+        data: {
+          brief:
+            "**Goal**\nLet customers renew a plan two months early.\n\n```sh\n# install deps\npnpm install *.tgz\n```\n\n**Scope**\n- Add a button to the renewal page.\n\n**Limits**\n- Do not change the price of a plan.",
+        },
+      },
+    }),
+  );
+  await openLeadChat(page);
+  await sendToLead(page, editBrief);
+  await expect(waiting(page, 1)).toBeVisible(agentTimeout);
+  await answer(page, briefTitle);
+
+  const dialog = panel(page);
+  await expect(addedText(dialog)).toHaveText(["Do not remove the old renewal page."]);
+  await expect(dialog.locator("h1")).toHaveCount(0);
+  await expect(dialog).not.toContainText("install deps");
+  await expect(dialog).not.toContainText("pnpm install");
+});
+
+test("the panel of an edit_brief action keeps the cells of a table row with the marks", async ({
+  page,
+}) => {
+  await page.route("**/api/actions/*/brief", (route) =>
+    route.fulfill({
+      json: {
+        data: {
+          brief:
+            "**Goal**\nShow a table.\n\n| Plan | Months |\n| --- | --- |\n| Basic | one |\n| Old | four |",
+        },
+      },
+    }),
+  );
+  await openLeadChat(page);
+  await sendToLead(page, editBriefTable);
+  await expect(waiting(page, 1)).toBeVisible(agentTimeout);
+  await answer(page, briefTitle);
+
+  const dialog = panel(page);
+  await expect(removedText(dialog)).toContainText(["Old", "four"]);
+  await expect(addedText(dialog)).toContainText(["Extra", "three"]);
+  const rows = dialog.locator("tr");
+  await expect(rows).toHaveCount(4);
+  for (const cells of await rows.all()) {
+    await expect(cells.locator("th, td")).toHaveCount(2);
+  }
+  await expect(dialog).not.toContainText("==");
+  await expect(dialog).not.toContainText("~~");
 });
 
 test("the panel of an edit_brief action reads the Brief again each time it opens", async ({
