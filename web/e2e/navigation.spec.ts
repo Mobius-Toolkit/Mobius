@@ -458,15 +458,17 @@ test("the Workstreams page of a phone shows the evergreen Workstreams in a secti
   expect(above!.y + above!.height).toBeLessThanOrEqual(below!.y);
 });
 
-test("a Workstream with Autopilot on shows the Autopilot icon", async ({ page }) => {
+test("a Workstream with an Autopilot level shows the icon of the level", async ({ page }) => {
   const main = page.getByRole("main");
   const row = (title: string) => main.getByRole("link").filter({ hasText: title });
 
   await page.goto("/workstreams");
-  await expect(row("Early renewals").getByRole("img", { name: "Autopilot" })).toBeVisible();
+  await expect(
+    row("Early renewals").getByRole("img", { name: "Autopilot: Start tasks" }),
+  ).toBeVisible();
   await expect(row("Early renewals")).toContainText("#14");
   await expect(row("Integrate loyalty plans")).toContainText("#12");
-  await expect(row("Integrate loyalty plans").getByRole("img", { name: "Autopilot" })).toHaveCount(
+  await expect(row("Integrate loyalty plans").getByRole("img", { name: /^Autopilot/ })).toHaveCount(
     0,
   );
 });
@@ -647,7 +649,7 @@ test.describe("the bars of a phone", () => {
     expect((form?.y ?? 0) + (form?.height ?? 0)).toBe(bar?.y);
   });
 
-  test("show the title of the Lead chat with the Autopilot switch and the Tasks button", async ({
+  test("show the title of the Lead chat with the Autopilot level and the Tasks button", async ({
     page,
   }) => {
     await page.goto("/workstreams/owner/shop/12");
@@ -655,8 +657,8 @@ test.describe("the bars of a phone", () => {
     await expect(bar.getByRole("button", { name: "Back" })).toBeVisible();
     await expect(bar.getByRole("heading")).toHaveText("Integrate loyalty plans");
     await expect(bar).toContainText("#12");
-    await expect(bar.getByRole("switch", { name: "Autopilot" })).toBeVisible();
-    await expect(bar.getByRole("button", { name: "Tasks" })).toBeVisible();
+    await expect(bar.getByRole("button", { name: "Autopilot: Off" })).toBeVisible();
+    await expect(bar.getByRole("button", { name: "Tasks", exact: true })).toBeVisible();
     await expect(bar).not.toContainText("Lead:");
   });
 

@@ -1,12 +1,16 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { completeWorkstream, setAutopilot, type InboxItem } from "@/api/api.gen";
+import {
+  completeWorkstream,
+  setAutopilot,
+  type InboxItem,
+  type WorkstreamAutopilot,
+} from "@/api/api.gen";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
-import { Switch } from "@/components/ui/switch";
 import type { Workstreams } from "@/lib/workstreams";
 import { AgentPanel } from "./AgentPanel";
+import { AutopilotMenu, AutopilotSheet } from "./Autopilot";
 import { Conversation } from "./Conversation";
 import { TopBar } from "./TopBar";
 
@@ -34,6 +38,7 @@ export function Chat({
   const workstream = workstreams.list?.find(
     (other) => other.repository === repository && other.number === number,
   );
+  const [chosen, setChosen] = useState<{ from: WorkstreamAutopilot; to: WorkstreamAutopilot }>();
   const [autopilotBusy, setAutopilotBusy] = useState(false);
   const [autopilotError, setAutopilotError] = useState("");
   const [closeBusy, setCloseBusy] = useState(false);
@@ -47,10 +52,20 @@ export function Chat({
     }
   }, [missing, navigate]);
 
-  const switchAutopilot = (on: boolean) => {
+  const serverLevel = workstream?.autopilot ?? "off";
+  const level = chosen?.from === serverLevel ? chosen.to : serverLevel;
+
+  const selectAutopilot = (to: WorkstreamAutopilot) => {
     setAutopilotBusy(true);
-    setAutopilot(owner, name, number, { level: on ? "start" : "off" })
-      .then((res) => setAutopilotError(res.status === 204 ? "" : res.data.error))
+    setAutopilot(owner, name, number, { level: to })
+      .then((res) => {
+        if (res.status === 204) {
+          setChosen({ from: serverLevel, to });
+          setAutopilotError("");
+        } else {
+          setAutopilotError(res.data.error);
+        }
+      })
       .catch((err: unknown) => setAutopilotError(String(err)))
       .finally(() => {
         setAutopilotBusy(false);
@@ -74,23 +89,16 @@ export function Chat({
       });
   };
 
-  const autopilot = (id: string) => (
-    <>
-      <Switch
-        id={id}
-        checked={workstream?.autopilot === "start" || workstream?.autopilot === "start_and_merge"}
-        disabled={!workstream || autopilotBusy}
-        onCheckedChange={switchAutopilot}
-      />
-      <Label htmlFor={id}>Autopilot</Label>
-    </>
-  );
   const panel = <AgentPanel owner={owner} name={name} number={number} source={source} />;
   return (
     <div className="flex min-h-0 min-w-0 grow">
       <TopBar title={workstream?.title ?? ""} back="/workstreams">
         <span className="shrink-0 text-sm text-muted-foreground">#{number}</span>
-        {autopilot("autopilot-top-bar")}
+        <AutopilotSheet
+          level={level}
+          disabled={!workstream || autopilotBusy}
+          onSelect={selectAutopilot}
+        />
         <Sheet>
           <SheetTrigger asChild>
             <Button variant="outline" size="sm" className="ml-auto shrink-0">
@@ -119,7 +127,11 @@ export function Chat({
           <>
             <h2 className="min-w-0 truncate text-base font-semibold">{workstream?.title}</h2>
             <span className="text-sm text-muted-foreground">#{number}</span>
-            {autopilot("autopilot")}
+            <AutopilotMenu
+              level={level}
+              disabled={!workstream || autopilotBusy}
+              onSelect={selectAutopilot}
+            />
           </>
         }
         note={
