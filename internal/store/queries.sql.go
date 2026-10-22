@@ -345,9 +345,9 @@ func (q *Queries) AddCopiedIssueLabelIfMissing(ctx context.Context, arg AddCopie
 }
 
 const addCopiedWorkstream = `-- name: AddCopiedWorkstream :exec
-INSERT INTO copied_workstreams (repository, number, title, body, autopilot, evergreen, skills)
+INSERT INTO copied_workstreams (repository, number, title, body, autopilot, evergreen, skills, created_at)
 VALUES (?1, ?2, ?3, ?4, CAST(?5 AS BOOLEAN), CAST(?6 AS BOOLEAN),
-        CAST(?7 AS BOOLEAN))
+        CAST(?7 AS BOOLEAN), ?8)
 ON CONFLICT (repository, number) DO NOTHING
 `
 
@@ -359,6 +359,7 @@ type AddCopiedWorkstreamParams struct {
 	Autopilot  bool
 	Evergreen  bool
 	Skills     bool
+	CreatedAt  string
 }
 
 // The Lead tool create_workstream and the poll can both add a new Workstream.
@@ -371,6 +372,7 @@ func (q *Queries) AddCopiedWorkstream(ctx context.Context, arg AddCopiedWorkstre
 		arg.Autopilot,
 		arg.Evergreen,
 		arg.Skills,
+		arg.CreatedAt,
 	)
 	return err
 }
@@ -1937,7 +1939,7 @@ func (q *Queries) GetCopiedIssueWorkstream(ctx context.Context, arg GetCopiedIss
 }
 
 const getCopiedWorkstream = `-- name: GetCopiedWorkstream :one
-SELECT title, body, CAST(evergreen AS BOOLEAN) AS evergreen FROM copied_workstreams WHERE repository = ? AND number = ?
+SELECT title, body, CAST(evergreen AS BOOLEAN) AS evergreen, created_at FROM copied_workstreams WHERE repository = ? AND number = ?
 `
 
 type GetCopiedWorkstreamParams struct {
@@ -1949,12 +1951,18 @@ type GetCopiedWorkstreamRow struct {
 	Title     string
 	Body      string
 	Evergreen bool
+	CreatedAt string
 }
 
 func (q *Queries) GetCopiedWorkstream(ctx context.Context, arg GetCopiedWorkstreamParams) (GetCopiedWorkstreamRow, error) {
 	row := q.db.QueryRowContext(ctx, getCopiedWorkstream, arg.Repository, arg.Number)
 	var i GetCopiedWorkstreamRow
-	err := row.Scan(&i.Title, &i.Body, &i.Evergreen)
+	err := row.Scan(
+		&i.Title,
+		&i.Body,
+		&i.Evergreen,
+		&i.CreatedAt,
+	)
 	return i, err
 }
 

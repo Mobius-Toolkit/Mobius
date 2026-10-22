@@ -9,6 +9,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"time"
 
 	gh "github.com/google/go-github/v92/github"
 
@@ -785,6 +786,7 @@ func addWorkstream(ctx context.Context, q *store.Queries, repository string, wor
 		Autopilot:  workstream.autopilot,
 		Evergreen:  hasLabel(issue, evergreenLabel),
 		Skills:     hasLabel(issue, skillsLabel),
+		CreatedAt:  issue.GetCreatedAt().UTC().Format(time.RFC3339Nano),
 	})
 	if err != nil {
 		return err

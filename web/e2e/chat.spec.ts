@@ -42,6 +42,12 @@ async function get<T>(page: Page, path: string) {
   return body.data;
 }
 
+async function detailsStatus(page: Page) {
+  return page.evaluate(() =>
+    fetch("/api/workstreams/plants/garden/30/details").then((response) => response.status),
+  );
+}
+
 // The texts of the Owner messages that the server has in the Lead chat of owner/shop#12.
 async function sent(page: Page) {
   const chat = await get<{ messages: { author: string; text: string }[] }>(
@@ -1455,17 +1461,13 @@ test("the Details tab closes the Workstream with its open issues", async ({ page
 
   await dialog.getByRole("button", { name: "Cancel" }).click();
   await expect(dialog).toBeHidden();
-  expect(
-    await get<{ open: boolean }>(page, "/api/workstreams/plants/garden/30/details"),
-  ).toMatchObject({ open: true });
+  expect(await detailsStatus(page)).toBe(200);
 
   await closeButton.click();
   await dialog.getByRole("button", { name: "Close as won't do" }).click();
   await expect(page).toHaveURL("/workstreams");
   await expect(main.getByText("Plant lilies")).not.toBeAttached();
-  await expect
-    .poll(() => get<{ open: boolean }>(page, "/api/workstreams/plants/garden/30/details"))
-    .toMatchObject({ open: false });
+  await expect.poll(() => detailsStatus(page)).toBe(409);
 });
 
 test("an evergreen Workstream with all tasks closed shows no done badge and no Close Workstream button", async ({

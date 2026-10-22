@@ -156,22 +156,18 @@ export function Details({
           <dd>{details.openTasks}</dd>
         </dl>
       )}
-      {details?.open && (
-        <>
-          <Button
-            variant="destructive"
-            className="justify-self-start"
-            onClick={() => setConfirming(true)}
-          >
-            Close
-          </Button>
-          <Dialog open={confirming} onOpenChange={setConfirming}>
-            <DialogContent className="flex max-h-[calc(100svh-2rem)] flex-col sm:max-w-lg">
-              <Confirmation owner={owner} name={name} number={number} />
-            </DialogContent>
-          </Dialog>
-        </>
-      )}
+      <Button
+        variant="destructive"
+        className="justify-self-start"
+        onClick={() => setConfirming(true)}
+      >
+        Close
+      </Button>
+      <Dialog open={confirming} onOpenChange={setConfirming}>
+        <DialogContent className="flex max-h-[calc(100svh-2rem)] flex-col sm:max-w-lg">
+          <Confirmation owner={owner} name={name} number={number} />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

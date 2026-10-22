@@ -611,9 +611,9 @@ DELETE FROM copied_blockers WHERE repository = ? AND workstream = ?;
 
 -- The Lead tool create_workstream and the poll can both add a new Workstream.
 -- name: AddCopiedWorkstream :exec
-INSERT INTO copied_workstreams (repository, number, title, body, autopilot, evergreen, skills)
+INSERT INTO copied_workstreams (repository, number, title, body, autopilot, evergreen, skills, created_at)
 VALUES (sqlc.arg(repository), sqlc.arg(number), sqlc.arg(title), sqlc.arg(body), CAST(sqlc.arg(autopilot) AS BOOLEAN), CAST(sqlc.arg(evergreen) AS BOOLEAN),
-        CAST(sqlc.arg(skills) AS BOOLEAN))
+        CAST(sqlc.arg(skills) AS BOOLEAN), sqlc.arg(created_at))
 ON CONFLICT (repository, number) DO NOTHING;
 
 -- name: AddCopiedIssue :exec
@@ -667,7 +667,7 @@ WHERE repository = sqlc.arg(repository) AND number = sqlc.arg(number)
        OR evergreen != CAST(sqlc.arg(evergreen) AS BOOLEAN) OR skills != CAST(sqlc.arg(skills) AS BOOLEAN));
 
 -- name: GetCopiedWorkstream :one
-SELECT title, body, CAST(evergreen AS BOOLEAN) AS evergreen FROM copied_workstreams WHERE repository = ? AND number = ?;
+SELECT title, body, CAST(evergreen AS BOOLEAN) AS evergreen, created_at FROM copied_workstreams WHERE repository = ? AND number = ?;
 
 -- name: UpdateCopiedBlockerTitles :execrows
 UPDATE copied_blockers SET blocker_workstream_title = sqlc.arg(title)

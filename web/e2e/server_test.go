@@ -993,6 +993,7 @@ func fixTimes(t *testing.T, server *testserver.Server, github *testkit.FakeGitHu
 		"UPDATE chat_messages SET time = ?1, delivered_at = iif(delivered_at IS NULL, NULL, ?1), stopped_at = iif(stopped_at IS NULL, NULL, ?1)",
 		"UPDATE inbox_items SET time = ?1",
 		"UPDATE memory_versions SET time = ?1",
+		"UPDATE copied_workstreams SET created_at = ?1",
 	} {
 		if _, err := server.DB.Exec(query, "2026-09-28T09:30:00Z"); err != nil {
 			t.Fatal(err)
