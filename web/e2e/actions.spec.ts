@@ -15,6 +15,8 @@ import {
   dropColumn,
   dropText,
   editBrief,
+  editBriefRule,
+  editBriefTable,
   historyText,
   historyTableText,
   keepPrices,
@@ -387,7 +389,10 @@ async function openLeadChat(page: Page) {
   await expect(page.getByRole("main").getByLabel("Message to the Lead")).toBeVisible();
 }
 
-const briefRows = (scope: Locator, kind: string) => scope.locator(`[data-kind="${kind}"]`);
+const removedText = (scope: Locator) => scope.locator("del");
+const addedText = (scope: Locator) => scope.locator("ins");
+const decoration = (mark: Locator) =>
+  mark.first().evaluate((el) => getComputedStyle(el).textDecorationLine);
 
 test("the panel of an edit_brief action shows the changes, and the full Brief on a click", async ({
   page,
@@ -398,21 +403,258 @@ test("the panel of an edit_brief action shows the changes, and the full Brief on
   await answer(page, briefTitle);
 
   const dialog = panel(page);
-  await expect(briefRows(dialog, "removed")).toHaveText(["- Send a mail after the renewal."]);
-  await expect(briefRows(dialog, "added")).toHaveText(["- Do not remove the old renewal page."]);
-  await expect(briefRows(dialog, "changed")).toHaveCount(1);
-  await expect(briefRows(dialog, "changed").locator("del")).toHaveText("one month");
-  await expect(briefRows(dialog, "changed").locator("ins")).toHaveText("two months");
-  await expect(briefRows(dialog, "unchanged").first()).toBeVisible();
+  await expect(removedText(dialog)).toHaveText(["one month", "Send a mail after the renewal."]);
+  await expect(addedText(dialog)).toHaveText(["two months", "Do not remove the old renewal page."]);
+  await expect(dialog.locator("li", { has: page.locator("del") })).toHaveText(
+    "Send a mail after the renewal.",
+  );
+  await expect(dialog.locator("li", { has: page.locator("ins") })).toHaveText(
+    "Do not remove the old renewal page.",
+  );
+  await expect(dialog.locator("strong")).toHaveText(["Goal", "Scope", "Limits"]);
+  await expect(dialog.locator("pre")).toHaveCount(0);
+  expect(await decoration(removedText(dialog))).toBe("line-through");
+  expect(await decoration(addedText(dialog))).toBe("none");
   expect(await fits(dialog)).toBe(true);
 
   await dialog.getByRole("button", { name: "Show the full Brief" }).click();
   await expect(dialog.getByText("Let customers renew a plan two months early.")).toBeVisible();
-  await expect(dialog.locator("[data-kind]")).toHaveCount(0);
+  await expect(removedText(dialog)).toHaveCount(0);
+  await expect(addedText(dialog)).toHaveCount(0);
 
   await dialog.getByRole("button", { name: "Show the changes" }).click();
-  await expect(briefRows(dialog, "removed")).toHaveCount(1);
+  await expect(removedText(dialog)).toHaveCount(2);
   await expect(dialog.getByRole("button", { name: "Show the full Brief" })).toBeVisible();
+});
+
+test("the panel of an edit_brief action shows a change in inline code as a full old line and a full new line", async ({
+  page,
+}) => {
+  await page.route("**/api/actions/*/brief", (route) =>
+    route.fulfill({
+      json: {
+        data: {
+          brief:
+            "**Goal**\nLet customers renew a plan with `renew_old` early.\n\n**Scope**\n- Add a button to the renewal page.",
+        },
+      },
+    }),
+  );
+  await openLeadChat(page);
+  await sendToLead(page, editBrief);
+  await expect(waiting(page, 1)).toBeVisible(agentTimeout);
+  await answer(page, briefTitle);
+
+  const dialog = panel(page);
+  await expect(removedText(dialog).first()).toHaveText(
+    "Let customers renew a plan with renew_old early.",
+  );
+  await expect(addedText(dialog).first()).toHaveText(
+    "Let customers renew a plan two months early.",
+  );
+  await expect(dialog).not.toContainText("==");
+  await expect(dialog).not.toContainText("~~");
+});
+
+test("the panel of an edit_brief action shows no removed rule as Markdown", async ({ page }) => {
+  await page.route("**/api/actions/*/brief", (route) =>
+    route.fulfill({
+      json: {
+        data: {
+          brief:
+            "**Goal**\nLet customers renew a plan two months early.\n---\n\n**Scope**\n- Add a button to the renewal page.\n\n**Limits**\n- Do not change the price of a plan.",
+        },
+      },
+    }),
+  );
+  await openLeadChat(page);
+  await sendToLead(page, editBrief);
+  await expect(waiting(page, 1)).toBeVisible(agentTimeout);
+  await answer(page, briefTitle);
+
+  const dialog = panel(page);
+  await expect(addedText(dialog)).toHaveText(["Do not remove the old renewal page."]);
+  await expect(dialog.locator("hr")).toHaveCount(0);
+  await expect(dialog.locator("h2", { hasText: "Let customers" })).toHaveCount(0);
+});
+
+test("the panel of an edit_brief action shows no removed fenced code as Markdown", async ({
+  page,
+}) => {
+  await page.route("**/api/actions/*/brief", (route) =>
+    route.fulfill({
+      json: {
+        data: {
+          brief:
+            "**Goal**\nLet customers renew a plan two months early.\n\n```sh\n# install deps\npnpm install *.tgz\n```\n\n**Scope**\n- Add a button to the renewal page.\n\n**Limits**\n- Do not change the price of a plan.",
+        },
+      },
+    }),
+  );
+  await openLeadChat(page);
+  await sendToLead(page, editBrief);
+  await expect(waiting(page, 1)).toBeVisible(agentTimeout);
+  await answer(page, briefTitle);
+
+  const dialog = panel(page);
+  await expect(addedText(dialog)).toHaveText(["Do not remove the old renewal page."]);
+  await expect(dialog.locator("h1")).toHaveCount(0);
+  await expect(dialog).not.toContainText("install deps");
+  await expect(dialog).not.toContainText("pnpm install");
+});
+
+test("the panel of an edit_brief action keeps the cells of a table row with the marks", async ({
+  page,
+}) => {
+  await page.route("**/api/actions/*/brief", (route) =>
+    route.fulfill({
+      json: {
+        data: {
+          brief:
+            "**Goal**\nShow a table.\n\n| Plan | Months |\n| --- | --- |\n| Basic | one |\n| Old | four |",
+        },
+      },
+    }),
+  );
+  await openLeadChat(page);
+  await sendToLead(page, editBriefTable);
+  await expect(waiting(page, 1)).toBeVisible(agentTimeout);
+  await answer(page, briefTitle);
+
+  const dialog = panel(page);
+  await expect(removedText(dialog)).toContainText(["Old", "four"]);
+  await expect(addedText(dialog)).toContainText(["Extra", "three"]);
+  const rows = dialog.locator("tr");
+  await expect(rows).toHaveCount(4);
+  for (const cells of await rows.all()) {
+    await expect(cells.locator("th, td")).toHaveCount(2);
+  }
+  await expect(dialog).not.toContainText("==");
+  await expect(dialog).not.toContainText("~~");
+});
+
+test("the panel of an edit_brief action keeps a removed block apart from the next block", async ({
+  page,
+}) => {
+  await page.route("**/api/actions/*/brief", (route) =>
+    route.fulfill({
+      json: {
+        data: {
+          brief:
+            "**Goal**\nShow a rule.\n\nRemoved text.\n\n---\n\n| X | Y |\n| --- | --- |\n| 1 | 2 |\n\nKeep text.",
+        },
+      },
+    }),
+  );
+  await openLeadChat(page);
+  await sendToLead(page, editBriefRule);
+  await expect(waiting(page, 1)).toBeVisible(agentTimeout);
+  await answer(page, briefTitle);
+
+  const dialog = panel(page);
+  await expect(removedText(dialog)).toHaveText(["Removed text.", "X", "Y", "1", "2"]);
+  await expect(dialog.locator("h2", { hasText: "Removed text." })).toHaveCount(0);
+  await expect(dialog.locator("hr")).toHaveCount(1);
+  await expect(dialog.locator("p", { hasText: "Keep text." })).not.toContainText("Removed text.");
+  const rows = dialog.locator("tr");
+  await expect(rows).toHaveCount(2);
+  for (const cells of await rows.all()) {
+    await expect(cells.locator("th, td")).toHaveCount(2);
+  }
+  await expect(dialog).not.toContainText("==");
+  await expect(dialog).not.toContainText("~~");
+});
+
+test("the panel of an edit_brief action keeps a removed last section apart from the list above it", async ({
+  page,
+}) => {
+  await page.route("**/api/actions/*/brief", (route) =>
+    route.fulfill({
+      json: {
+        data: {
+          brief:
+            "**Goal**\nLet customers renew a plan two months early.\n\n**Scope**\n- Add a button to the renewal page.\n\n**Limits**\n- Do not change the price of a plan.\n- Do not remove the old renewal page.\n\n**Removed title**\n- Removed child.",
+        },
+      },
+    }),
+  );
+  await openLeadChat(page);
+  await sendToLead(page, editBrief);
+  await expect(waiting(page, 1)).toBeVisible(agentTimeout);
+  await answer(page, briefTitle);
+
+  const dialog = panel(page);
+  await expect(removedText(dialog)).toHaveText(["Removed title", "Removed child."]);
+  await expect(dialog.locator("li", { hasText: "Removed title" })).toHaveCount(0);
+  await expect(dialog.locator("li", { hasText: "Removed child." })).toHaveCount(1);
+  await expect(
+    dialog.locator("li", { hasText: "Do not remove the old renewal page." }),
+  ).not.toContainText("Removed");
+  await expect(dialog).not.toContainText("~~");
+});
+
+test("the panel of an edit_brief action keeps a removed paragraph apart from an added rule", async ({
+  page,
+}) => {
+  await page.route("**/api/actions/*/brief", (route) =>
+    route.fulfill({
+      json: { data: { brief: "**Goal**\nShow a rule.\n\nOld text.\n\nKeep text." } },
+    }),
+  );
+  await openLeadChat(page);
+  await sendToLead(page, editBriefRule);
+  await expect(waiting(page, 1)).toBeVisible(agentTimeout);
+  await answer(page, briefTitle);
+
+  const dialog = panel(page);
+  await expect(removedText(dialog)).toHaveText("Old text.");
+  await expect(dialog.locator("h2", { hasText: "Old text." })).toHaveCount(0);
+  await expect(dialog.locator("hr")).toHaveCount(1);
+  await expect(dialog).not.toContainText("==");
+  await expect(dialog).not.toContainText("~~");
+});
+
+test("the panel of an edit_brief action keeps a rewritten line in the paragraph of its title", async ({
+  page,
+}) => {
+  await page.route("**/api/actions/*/brief", (route) =>
+    route.fulfill({
+      json: { data: { brief: "**Goal**\nLet customers renew early.\n\n---\n\nKeep text." } },
+    }),
+  );
+  await openLeadChat(page);
+  await sendToLead(page, editBriefRule);
+  await expect(waiting(page, 1)).toBeVisible(agentTimeout);
+  await answer(page, briefTitle);
+
+  const dialog = panel(page);
+  const paragraph = dialog.locator("p", { has: page.locator("strong", { hasText: "Goal" }) });
+  await expect(paragraph.locator("del")).toHaveText("Let customers renew early.");
+  await expect(paragraph.locator("ins")).toHaveText("Show a rule.");
+  await expect(dialog.locator("hr")).toHaveCount(1);
+  await expect(dialog).not.toContainText("==");
+  await expect(dialog).not.toContainText("~~");
+});
+
+test("the panel of an edit_brief action keeps a plain line apart from the list item that it replaces", async ({
+  page,
+}) => {
+  await page.route("**/api/actions/*/brief", (route) =>
+    route.fulfill({
+      json: { data: { brief: "**Goal**\nShow a rule.\n\n---\n\n- Keep text." } },
+    }),
+  );
+  await openLeadChat(page);
+  await sendToLead(page, editBriefRule);
+  await expect(waiting(page, 1)).toBeVisible(agentTimeout);
+  await answer(page, briefTitle);
+
+  const dialog = panel(page);
+  await expect(dialog.locator("li del")).toHaveText("Keep text.");
+  await expect(dialog.locator("ins")).toHaveText("Keep text.");
+  await expect(dialog.locator("li ins")).toHaveCount(0);
+  await expect(dialog).not.toContainText("==");
+  await expect(dialog).not.toContainText("~~");
 });
 
 test("an edit_brief action that comes while the first read of the Inbox runs stays in the tray", async ({
@@ -461,9 +703,8 @@ test("the panel of an edit_brief action reads the Brief again each time it opens
 
   await answer(page, briefTitle);
   const dialog = panel(page);
-  await expect(briefRows(dialog, "changed").locator("del")).toHaveText("three");
-  await expect(briefRows(dialog, "changed").locator("ins")).toHaveText("two");
-  await expect(briefRows(dialog, "removed")).toHaveCount(0);
+  await expect(removedText(dialog)).toHaveText("three");
+  await expect(addedText(dialog).first()).toHaveText("two");
   await expect(dialog.getByText("Send a mail after the renewal.")).toHaveCount(0);
   expect(reads).toBe(1);
 
@@ -471,7 +712,7 @@ test("the panel of an edit_brief action reads the Brief again each time it opens
   await expect(dialog).toBeHidden();
   briefs = "**Goal**\nLet customers renew a plan one month early.";
   await answer(page, briefTitle);
-  await expect(briefRows(dialog, "changed").locator("del")).toHaveText("one month");
+  await expect(removedText(dialog)).toHaveText("one month");
   expect(reads).toBe(2);
 });
 
@@ -489,7 +730,8 @@ test("the panel of an edit_brief action shows the full Brief when the read fails
 
   const dialog = panel(page);
   await expect(dialog.getByText("Let customers renew a plan two months early.")).toBeVisible();
-  await expect(dialog.locator("[data-kind]")).toHaveCount(0);
+  await expect(removedText(dialog)).toHaveCount(0);
+  await expect(addedText(dialog)).toHaveCount(0);
   await expect(dialog.getByRole("button", { name: "Show the full Brief" })).toHaveCount(0);
 });
 
@@ -506,21 +748,19 @@ test("the card of a done edit_brief action shows the changes, and the full Brief
   try {
     const card = cardOf(page, "edit_brief");
     await expect(badge(card, "Done")).toBeVisible();
-    await expect(briefRows(card, "removed")).toHaveText(["- Send a mail after the renewal."]);
-    await expect(briefRows(card, "added")).toHaveText(["- Do not remove the old renewal page."]);
-    await expect(briefRows(card, "changed").locator("del")).toHaveText("one month");
-    await expect(briefRows(card, "changed").locator("ins")).toHaveText("two months");
+    await expect(removedText(card)).toHaveText(["one month", "Send a mail after the renewal."]);
+    await expect(addedText(card)).toHaveText(["two months", "Do not remove the old renewal page."]);
     const cut = card.locator("div.max-h-36");
     expect(await cut.evaluate((el) => el.clientHeight)).toBe(144);
-    await expect(briefRows(card, "added")).not.toBeInViewport();
+    await expect(addedText(card).last()).not.toBeInViewport();
 
     await card.getByRole("button", { name: "Show all" }).click();
     await expect(card.locator("div.max-h-36")).toHaveCount(0);
-    await expect(briefRows(card, "added")).toBeInViewport();
+    await expect(addedText(card).last()).toBeInViewport();
 
     await card.getByRole("button", { name: "Show the full Brief" }).click();
     await expect(card.getByText("Let customers renew a plan two months early.")).toBeVisible();
-    await expect(card.locator("[data-kind]")).toHaveCount(0);
+    await expect(addedText(card)).toHaveCount(0);
 
     await page.route("**/api/chat?*", async (route) => {
       const response = await route.fetch();
@@ -537,7 +777,7 @@ test("the card of a done edit_brief action shows the changes, and the full Brief
     await page.reload();
     const bare = cardOf(page, "edit_brief");
     await expect(bare.getByText("Let customers renew a plan two months early.")).toBeVisible();
-    await expect(bare.locator("[data-kind]")).toHaveCount(0);
+    await expect(addedText(bare)).toHaveCount(0);
     await expect(bare.getByRole("button", { name: "Show the full Brief" })).toHaveCount(0);
   } finally {
     await page.unroute("**/api/chat?*");
