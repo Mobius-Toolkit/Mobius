@@ -355,6 +355,30 @@ func TestTheFirstPromptTellsTheLeadOfAnEvergreenWorkstreamWhileGitHubRefusesEach
 	}
 }
 
+func TestOnlyTheLeadOfAMaintenanceWorkstreamGetsTheCITaskRules(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, "")
+	addMaintenanceWorkstream(fake, 20)
+	waitForPoll(t, server, fake)
+	maintenanceChat := engine.ChatKey{Organization: "owner", Repository: shop, Workstream: 20}
+
+	sendChat(t, server, leadChat, "Plan the next step")
+	sendChat(t, server, maintenanceChat, "Plan the next step")
+
+	testkit.WaitFor(t, func() bool {
+		sessions := chatSessions(t, server, maintenanceChat, engine.LeadRole)
+		return len(sessions) == 1 && sessions[0].EndedAt.Valid
+	})
+	normal := promptTexts(t, server, endedChatSession(t, server, 0).ID)[0]
+	maintenance := promptTexts(t, server, chatSessions(t, server, maintenanceChat, engine.LeadRole)[0].ID)[0]
+	const rules = "A CI task issue has the title"
+	if strings.Contains(normal, rules) {
+		t.Errorf("prompt of a normal Workstream = %s", normal)
+	}
+	inOrder(t, maintenance, "You are the Lead of one Workstream.", rules, "# Brief")
+}
+
 func TestTheFirstPromptHasTheContextPartsInOrder(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
