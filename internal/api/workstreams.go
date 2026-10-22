@@ -203,8 +203,6 @@ type WorkstreamDetailsRequest struct {
 type WorkstreamDetails struct {
 	// CreatedAt is the creation time of the Workstream issue
 	CreatedAt time.Time `gork:"createdAt"`
-	// Open is true when the Workstream issue is open
-	Open bool `gork:"open"`
 	// CompletedTasks is the number of closed tasks, with each close reason
 	CompletedTasks int64 `gork:"completedTasks"`
 	// OpenTasks is the number of open tasks
@@ -216,9 +214,9 @@ type WorkstreamDetailsResponse struct {
 	Body Envelope[WorkstreamDetails]
 }
 
-// GetWorkstreamDetails returns the creation time, the state and the task counts of a Workstream. It reads GitHub, so
-// it works also for a closed Workstream. A task is an issue in the sub-issue tree of the Workstream, at each depth. It
-// returns 409 when the issue is not a Workstream.
+// GetWorkstreamDetails returns the creation time and the task counts of an open Workstream. It reads the local copy. A
+// task is an issue in the sub-issue tree of the Workstream, at each depth. It returns 409 when the issue is not an
+// open Workstream.
 func (h *handlers) GetWorkstreamDetails(ctx context.Context, req WorkstreamDetailsRequest) (*WorkstreamDetailsResponse, error) {
 	details, err := h.engine.WorkstreamDetails(ctx, req.Path.Owner+"/"+req.Path.Name, req.Path.Number)
 	if engine.Refused(err) {
@@ -229,7 +227,6 @@ func (h *handlers) GetWorkstreamDetails(ctx context.Context, req WorkstreamDetai
 	}
 	return &WorkstreamDetailsResponse{Body: Envelope[WorkstreamDetails]{Data: WorkstreamDetails{
 		CreatedAt:      details.CreatedAt,
-		Open:           details.Open,
 		CompletedTasks: details.CompletedTasks,
 		OpenTasks:      details.OpenTasks,
 	}}}, nil

@@ -1407,8 +1407,6 @@ export interface WorkstreamDetails {
   completedTasks: number;
   /** CreatedAt is the creation time of the Workstream issue */
   createdAt: string;
-  /** Open is true when the Workstream issue is open */
-  open: boolean;
   /** OpenTasks is the number of open tasks */
   openTasks: number;
 }
@@ -5880,7 +5878,7 @@ export const getGetWorkstreamDetailsUrl = (owner: string,
 }
 
 /**
- * GetWorkstreamDetails returns the creation time, the state and the task counts of a Workstream. It reads GitHub, so it works also for a closed Workstream. A task is an issue in the sub-issue tree of the Workstream, at each depth. It returns 409 when the issue is not a Workstream.
+ * GetWorkstreamDetails returns the creation time and the task counts of an open Workstream. It reads the local copy. A task is an issue in the sub-issue tree of the Workstream, at each depth. It returns 409 when the issue is not an open Workstream.
  */
 export const getWorkstreamDetails = async (owner: string,
     name: string,

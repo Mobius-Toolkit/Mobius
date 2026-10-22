@@ -53,10 +53,9 @@ func (e *Engine) CompleteWorkstream(ctx context.Context, repositoryName string, 
 	return e.closeWorkstream(ctx, repository, number)
 }
 
-// WorkstreamDetails is what GitHub knows about a Workstream issue.
+// WorkstreamDetails is what the local copy knows about an open Workstream.
 type WorkstreamDetails struct {
 	CreatedAt      time.Time
-	Open           bool
 	CompletedTasks int64
 	OpenTasks      int64
 }
@@ -87,30 +86,77 @@ func (e *Engine) walkTasks(ctx context.Context, repository github.Repository, pa
 	return false, nil
 }
 
-// WorkstreamDetails reads the Workstream number of repository from GitHub. A task is an issue in the sub-issue tree of
-// the Workstream, also an issue of another repository. A nested Workstream and the issues below it are no tasks.
+// copiedTask is a task in the copied tree of a Workstream.
+type copiedTask struct {
+	number int64
+	title  string
+	state  string
+	url    string
+}
+
+// copiedTasks gives the tasks of the copied tree of the Workstream number of repository, in the order of the tree. It
+// leaves out the same issues as walkTasks: a nested Workstream, and an issue in a repository that the App cannot read.
+func (e *Engine) copiedTasks(ctx context.Context, repository github.Repository, number int64) ([]copiedTask, error) {
+	params := store.ListCopiedTreeParams{Repository: repository.FullName, Workstream: number}
+	rows, err := e.queries.ListCopiedTree(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+	labels, err := e.queries.ListCopiedTreeLabels(ctx, store.ListCopiedTreeLabelsParams(params))
+	if err != nil {
+		return nil, err
+	}
+	nested := map[int64]bool{}
+	for _, label := range labels {
+		if label.Name == workstreamLabel {
+			nested[label.Position] = true
+		}
+	}
+	var tasks []copiedTask
+	for _, row := range rows {
+		if nested[row.Position] {
+			continue
+		}
+		if _, ok := e.urlRepository(row.RepositoryUrl, repository); !ok {
+			continue
+		}
+		tasks = append(tasks, copiedTask{row.Number, row.Title, row.State, row.HtmlUrl})
+	}
+	return tasks, nil
+}
+
+// WorkstreamDetails reads the open Workstream number of repository from the local copy. A task is an issue in the
+// sub-issue tree of the Workstream, also an issue of another repository. A nested Workstream and the issues below it
+// are no tasks.
 func (e *Engine) WorkstreamDetails(ctx context.Context, repositoryName string, number int64) (WorkstreamDetails, error) {
 	repository, err := e.repository(repositoryName)
 	if err != nil {
 		return WorkstreamDetails{}, err
 	}
-	issue, err := repository.Issue(ctx, number)
+	copied, err := e.queries.GetCopiedWorkstream(ctx, store.GetCopiedWorkstreamParams{Repository: repository.FullName, Number: number})
+	if errors.Is(err, sql.ErrNoRows) {
+		return WorkstreamDetails{}, refuse("The issue is not an open Workstream.")
+	}
 	if err != nil {
 		return WorkstreamDetails{}, err
 	}
-	if issue == nil || !hasLabel(issue, workstreamLabel) {
-		return WorkstreamDetails{}, refuse("The issue is not a Workstream.")
+	createdAt, err := time.Parse(time.RFC3339Nano, copied.CreatedAt)
+	if err != nil {
+		return WorkstreamDetails{}, err
 	}
-	details := WorkstreamDetails{CreatedAt: issue.GetCreatedAt().Time, Open: issue.GetState() == "open"}
-	_, err = e.walkTasks(ctx, repository, number, func(_ github.Repository, task *gh.Issue) (bool, error) {
-		if task.GetState() == "open" {
+	tasks, err := e.copiedTasks(ctx, repository, number)
+	if err != nil {
+		return WorkstreamDetails{}, err
+	}
+	details := WorkstreamDetails{CreatedAt: createdAt}
+	for _, task := range tasks {
+		if task.state == "open" {
 			details.OpenTasks++
 		} else {
 			details.CompletedTasks++
 		}
-		return false, nil
-	})
-	return details, err
+	}
+	return details, nil
 }
 
 // ClosureItem is an issue or a pull request that the close of a Workstream as "won't do" closes.
@@ -127,11 +173,7 @@ func (e *Engine) WorkstreamClosure(ctx context.Context, repositoryName string, n
 	if err != nil {
 		return nil, err
 	}
-	workstreamIssue, err := e.openWorkstream(ctx, repository, number)
-	if err != nil {
-		return nil, err
-	}
-	return e.closureItems(ctx, repository, workstreamIssue)
+	return e.closureItems(ctx, repository, number)
 }
 
 // CloseWorkstreamWontDo closes the open Workstream number of repository and the items of WorkstreamClosure as "won't
@@ -141,8 +183,7 @@ func (e *Engine) CloseWorkstreamWontDo(ctx context.Context, repositoryName strin
 	if err != nil {
 		return err
 	}
-	workstreamIssue, err := e.openWorkstream(ctx, repository, number)
-	if err != nil {
+	if _, err := e.openWorkstream(ctx, repository, number); err != nil {
 		return err
 	}
 	ctx = context.WithoutCancel(ctx)
@@ -150,7 +191,7 @@ func (e *Engine) CloseWorkstreamWontDo(ctx context.Context, repositoryName strin
 	if err := e.stopWorkstream(ctx, repository, number); err != nil {
 		return err
 	}
-	items, err := e.closureItems(ctx, repository, workstreamIssue)
+	items, err := e.closureItems(ctx, repository, number)
 	if err != nil {
 		return err
 	}
@@ -217,17 +258,17 @@ func (e *Engine) openWorkstream(ctx context.Context, repository github.Repositor
 }
 
 // closureItems gives the open items that a close as "won't do" closes: the open pull requests of the tasks, also
-// when the issue of the task is closed, the open task issues, and the Workstream issue last. It walks the issues below
-// the Workstream as closeWorkstream does.
-func (e *Engine) closureItems(ctx context.Context, repository github.Repository, workstreamIssue *gh.Issue) ([]ClosureItem, error) {
-	workstream := int64(workstreamIssue.GetNumber())
-	var issues []*gh.Issue
-	_, err := e.walkTasks(ctx, repository, workstream, func(_ github.Repository, subIssue *gh.Issue) (bool, error) {
-		if subIssue.GetState() == "open" {
-			issues = append(issues, subIssue)
-		}
-		return false, nil
-	})
+// when the issue of the task is closed, the open task issues, and the Workstream issue last. It reads the issues below
+// the Workstream from the local copy, as closeWorkstream walks them.
+func (e *Engine) closureItems(ctx context.Context, repository github.Repository, workstream int64) ([]ClosureItem, error) {
+	copied, err := e.queries.GetCopiedWorkstream(ctx, store.GetCopiedWorkstreamParams{Repository: repository.FullName, Number: workstream})
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, refuse("The issue is not an open Workstream.")
+	}
+	if err != nil {
+		return nil, err
+	}
+	tasks, err := e.copiedTasks(ctx, repository, workstream)
 	if err != nil {
 		return nil, err
 	}
@@ -255,10 +296,12 @@ func (e *Engine) closureItems(ctx context.Context, repository github.Repository,
 			items = append(items, closureItem(pullRequest, true))
 		}
 	}
-	for _, issue := range append(issues, workstreamIssue) {
-		items = append(items, closureItem(issue, false))
+	for _, task := range tasks {
+		if task.state == "open" {
+			items = append(items, ClosureItem{Number: task.number, Title: task.title, URL: task.url})
+		}
 	}
-	return items, nil
+	return append(items, ClosureItem{Number: workstream, Title: copied.Title, URL: issueLink(repository.FullName, workstream)}), nil
 }
 
 func closureItem(issue *gh.Issue, pullRequest bool) ClosureItem {

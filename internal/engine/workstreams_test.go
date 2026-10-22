@@ -529,7 +529,6 @@ func TestMoveTaskMovesTheTaskInTheCopyAtOnce(t *testing.T) {
 
 type workstreamDetails struct {
 	CreatedAt      string `json:"createdAt"`
-	Open           bool   `json:"open"`
 	CompletedTasks int64  `json:"completedTasks"`
 	OpenTasks      int64  `json:"openTasks"`
 }
@@ -573,23 +572,46 @@ func TestTheDetailsCountTheTasksOfTheWorkstreamAtEachDepth(t *testing.T) {
 
 	status, got := details(t, server, 12)
 
-	want := workstreamDetails{CreatedAt: "2026-09-21T14:13:20Z", Open: true, CompletedTasks: 2, OpenTasks: 2}
+	want := workstreamDetails{CreatedAt: "2026-09-21T14:13:20Z", CompletedTasks: 2, OpenTasks: 2}
 	if status != http.StatusOK || got != want {
 		t.Errorf("details = %d %+v, want %+v", status, got, want)
 	}
 }
 
-func TestTheDetailsOfAClosedWorkstreamShowThatItIsNotOpen(t *testing.T) {
+func TestTheDetailsAndTheClosureMakeNoGitHubCallForTheIssuesOfTheTree(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	fake.CloseIssueAs(shop, 41, "completed")
+	fake.AddIssue(shop, 42, "Price table")
+	fake.AddSubIssue(shop, 12, 42)
+	fake.AddIssue(shop, 43, "Price column")
+	fake.AddSubIssue(shop, 42, 43)
+	server := startCopied(t, fake)
+	for _, number := range []int64{12, 41, 42, 43} {
+		fake.FailIssueReads(shop, number, 1000)
+		fake.FailSubIssues(shop, number, true)
+	}
+
+	status, got := details(t, server, 12)
+	items := closure(t, server)
+
+	if status != http.StatusOK || got.CompletedTasks != 1 || got.OpenTasks != 2 {
+		t.Errorf("details = %d %+v", status, got)
+	}
+	if len(items) != 3 || items[0].Number != 42 || items[1].Number != 43 || items[2].Number != 12 || items[2].Title != "Integrate loyalty plans" {
+		t.Errorf("items = %+v", items)
+	}
+}
+
+func TestTheDetailsRefuseAClosedWorkstream(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	addWorkstream(fake)
 	fake.CloseIssue(shop, 41)
 	fake.CloseIssue(shop, 12)
 	server := startCopied(t, fake)
 
-	status, got := details(t, server, 12)
-
-	if status != http.StatusOK || got.Open || got.CompletedTasks != 1 || got.OpenTasks != 0 {
-		t.Errorf("details = %d %+v", status, got)
+	if status, _ := details(t, server, 12); status != http.StatusConflict {
+		t.Errorf("status = %d, want %d", status, http.StatusConflict)
 	}
 }
 

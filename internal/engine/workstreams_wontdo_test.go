@@ -139,6 +139,7 @@ func TestACloseAsWontDoOfAClosedWorkstreamIsRefused(t *testing.T) {
 	if status, body := closeWontDo(t, server, 41); status != http.StatusConflict {
 		t.Errorf("status of a task = %d: %s", status, body)
 	}
+	waitForPoll(t, server, fake)
 	if status, body := send(t, server, http.MethodGet, "/api/workstreams/owner/shop/12/closure", ""); status != http.StatusConflict {
 		t.Errorf("closure status = %d: %s", status, body)
 	}
