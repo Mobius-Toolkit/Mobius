@@ -148,8 +148,9 @@ var ownerCalls = []struct{ message, tool, arguments string }{
 }
 
 // briefCalls are the Owner messages that the fake Lead of owner/shop#14 answers with a tool call. The first prompt of a
-// new Lead session has the chat history, which holds the text of the earlier events, so these rules come before all
-// other rules.
+// new Lead session has the chat history, which holds the text of the earlier events, and then the heading of the Owner
+// message and the text. A later prompt of an open session is only the text. Thus the rules with the heading come
+// first, and the rules with the text only come after the other rules of the chat messages.
 var briefCalls = []struct{ message, tool, arguments string }{
 	{"Edit the Brief of the Lead of #14.", "edit_brief", `{ brief = "**Goal**\nLet customers renew a plan two months early.\n\n**Scope**\n- Add a button to the renewal page.\n\n**Limits**\n- Do not change the price of a plan.\n- Do not remove the old renewal page.", reason = "The Owner wants a longer time to renew." }`},
 	{"Restore the Brief of the Lead of #14.", "edit_brief", `{ brief = "**Goal**\nLet customers renew a plan one month early.\n\n**Scope**\n- Add a button to the renewal page.\n- Send a mail after the renewal.\n\n**Limits**\n- Do not change the price of a plan.", reason = "The Owner wants the old Brief." }`},
