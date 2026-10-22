@@ -261,7 +261,8 @@ func TestACommentThatIsOlderThanAProposalOfTheTriagerGetsARocketWhenTheTriagerRe
 	waitForReactions(t, fake, id, reactions("rocket"))
 }
 
-// askQuestion starts a server whose Lead asks a question on task #41, and waits until the question shows.
+// askQuestion starts a server whose Lead asks a question on task #41, and waits until the ask ends. A reply that the
+// poll reads while the task is still in dispatched is lost: the task then waits in asked for an answer for all time.
 func askQuestion(t *testing.T, fake *testkit.FakeGitHub) *testserver.Server {
 	t.Helper()
 	server, _ := connect(t, fake, `
@@ -277,7 +278,10 @@ call = { tool = "ask", arguments = { repository = "owner/shop", n = 41, text = "
 reply = ["Seen"]
 `)
 	dispatchTask(fake, 41, "Add plan model")
-	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Labels(shop, 41), "mobius:question") })
+	testkit.WaitFor(t, func() bool {
+		labels := fake.Labels(shop, 41)
+		return slices.Contains(labels, "mobius:question") && !slices.Contains(labels, "mobius:working") && taskState(t, server) == "asked"
+	})
 	return server
 }
 
