@@ -35,7 +35,15 @@ func TestThePollContinuesAfterAGitHubCallThatDoesNotAnswer(t *testing.T) {
 	shortGitHubTimeout(t)
 	fake := testkit.NewFakeGitHub(t)
 	connectTask(t, fake, leadStarts, commits, noChange)
-	fake.HangNext("GET /repos/{owner}/{repo}/issues")
+	hung := fake.HangNext("GET /repos/{owner}/{repo}/issues")
+	testkit.WaitFor(t, func() bool {
+		select {
+		case <-hung:
+			return true
+		default:
+			return false
+		}
+	})
 	began := time.Now()
 
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
