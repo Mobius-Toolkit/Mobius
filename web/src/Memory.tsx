@@ -9,13 +9,14 @@ import {
 import { inset, LinkRow, List, PageHeader, Section } from "@/components/page";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { diffHunks, type DiffLine } from "@/lib/diff";
+import { briefMarkdown } from "@/lib/briefDiff";
+import { diffHunks } from "@/lib/diff";
 import { LoginContext } from "@/lib/login";
 import { dayClock } from "@/lib/time";
 import { cn } from "@/lib/utils";
-import { DiffRows } from "./DiffRows";
+import { diffMarks } from "./diffMarks";
+import { Markdown } from "./Markdown";
 import { TopBar } from "./TopBar";
 
 export function MemoryRepositories({
@@ -61,34 +62,6 @@ export function MemoryRepositories({
   );
 }
 
-function Hunk({ hunk }: { hunk: DiffLine[] }) {
-  return (
-    <div className="grid min-w-0 gap-1">
-      <div className="flex justify-end">
-        <Dialog>
-          <DialogTrigger asChild>
-            <Button variant="outline" size="sm">
-              Full screen
-            </Button>
-          </DialogTrigger>
-          <DialogContent
-            aria-describedby={undefined}
-            className="top-0 left-0 grid h-dvh max-w-none translate-x-0 translate-y-0 grid-rows-[auto_1fr] rounded-none sm:max-w-none"
-          >
-            <DialogTitle className="pr-8">Diff</DialogTitle>
-            <pre className="overflow-y-auto rounded-lg border text-sm">
-              <DiffRows hunk={hunk} wrap />
-            </pre>
-          </DialogContent>
-        </Dialog>
-      </div>
-      <pre className="overflow-x-auto rounded-lg border text-sm">
-        <DiffRows hunk={hunk} wrap={false} />
-      </pre>
-    </div>
-  );
-}
-
 function Diff({ before, after }: { before: string; after: string }) {
   const hunks = useMemo(() => diffHunks(before, after), [before, after]);
   if (hunks.length === 0) {
@@ -99,7 +72,9 @@ function Diff({ before, after }: { before: string; after: string }) {
       {hunks.map((hunk, i) => (
         <Fragment key={i}>
           {i > 0 && <div role="separator" className="border-t border-dashed" />}
-          <Hunk hunk={hunk} />
+          <div className="rounded-lg border p-3 text-sm">
+            <Markdown text={briefMarkdown(hunk)} overrides={diffMarks} />
+          </div>
         </Fragment>
       ))}
     </div>
@@ -211,9 +186,9 @@ export function Memory({ owner, name }: { owner: string; name: string }) {
               )}
             </div>
             {draft === undefined ? (
-              <pre className="rounded-lg border p-3 text-sm wrap-anywhere whitespace-pre-wrap">
-                {current || "The memory file is empty."}
-              </pre>
+              <div className="rounded-lg border p-3 text-sm">
+                {current ? <Markdown text={current} /> : "The memory file is empty."}
+              </div>
             ) : (
               <>
                 <Textarea
