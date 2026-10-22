@@ -7,6 +7,7 @@ const blockPrefix = /^\s*(?:>\s*)*(?:(?:[-*+]|\d+[.)])\s+)?(?:#{1,6}\s+)?/;
 const url = /\]\([^)]*\)|https?:\/\/\S+|<[^>\s]+>/g;
 const fence = /^\s*(?:```|~~~)/;
 const tableRow = /^\s*\|/;
+const listItem = /^\s*(?:[-*+]|\d+[.)])\s+/;
 
 const prefixLength = (line: string) => line.length - line.replace(blockPrefix, "").length;
 
@@ -94,6 +95,7 @@ function changedLines(parts: Part[]) {
 // A fenced code block shows the new lines with no mark.
 // A removed blank line stays when a removed line is above or below it, and so does a removed table separator below a removed line.
 // Thus a removed block keeps its shape.
+// A blank line separates a removed line from a changed or added line that is not a list item or a table row.
 export function briefMarkdown(diff: DiffLine[]): string {
   const out: string[] = [];
   let inFence = false;
@@ -125,9 +127,12 @@ export function briefMarkdown(diff: DiffLine[]): string {
       }
       continue;
     }
+    const text = line.kind === "changed" ? textOf(line.parts, "removed") : line.text;
+    if (afterRemoved && line.kind !== "unchanged" && !tableRow.test(text) && !listItem.test(text)) {
+      out.push("");
+    }
     afterRemoved = false;
     removedBlank = false;
-    const text = line.kind === "changed" ? textOf(line.parts, "removed") : line.text;
     if (fence.test(text)) {
       inFence = !inFence;
       out.push(text);

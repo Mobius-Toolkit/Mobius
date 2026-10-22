@@ -593,6 +593,27 @@ test("the panel of an edit_brief action keeps a removed last section apart from 
   await expect(dialog).not.toContainText("~~");
 });
 
+test("the panel of an edit_brief action keeps a removed paragraph apart from an added rule", async ({
+  page,
+}) => {
+  await page.route("**/api/actions/*/brief", (route) =>
+    route.fulfill({
+      json: { data: { brief: "**Goal**\nShow a rule.\n\nOld text.\n\nKeep text." } },
+    }),
+  );
+  await openLeadChat(page);
+  await sendToLead(page, editBriefRule);
+  await expect(waiting(page, 1)).toBeVisible(agentTimeout);
+  await answer(page, briefTitle);
+
+  const dialog = panel(page);
+  await expect(removedText(dialog)).toHaveText("Old text.");
+  await expect(dialog.locator("h2", { hasText: "Old text." })).toHaveCount(0);
+  await expect(dialog.locator("hr")).toHaveCount(1);
+  await expect(dialog).not.toContainText("==");
+  await expect(dialog).not.toContainText("~~");
+});
+
 test("the panel of an edit_brief action reads the Brief again each time it opens", async ({
   page,
 }) => {
