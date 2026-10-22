@@ -88,10 +88,11 @@ func (e *Engine) walkTasks(ctx context.Context, repository github.Repository, pa
 
 // copiedTask is a task in the copied tree of a Workstream.
 type copiedTask struct {
-	number int64
-	title  string
-	state  string
-	url    string
+	repository string
+	number     int64
+	title      string
+	state      string
+	url        string
 }
 
 // copiedTasks gives the tasks of the copied tree of the Workstream number of repository, in the order of the tree. It
@@ -117,10 +118,11 @@ func (e *Engine) copiedTasks(ctx context.Context, repository github.Repository, 
 		if nested[row.Position] {
 			continue
 		}
-		if _, ok := e.urlRepository(row.RepositoryUrl, repository); !ok {
+		source, ok := e.urlRepository(row.RepositoryUrl, repository)
+		if !ok {
 			continue
 		}
-		tasks = append(tasks, copiedTask{row.Number, row.Title, row.State, row.HtmlUrl})
+		tasks = append(tasks, copiedTask{source.FullName, row.Number, row.Title, row.State, row.HtmlUrl})
 	}
 	return tasks, nil
 }
@@ -162,6 +164,7 @@ func (e *Engine) WorkstreamDetails(ctx context.Context, repositoryName string, n
 // ClosureItem is an issue or a pull request that the close of a Workstream as "won't do" closes.
 type ClosureItem struct {
 	PullRequest bool
+	Repository  string
 	Number      int64
 	Title       string
 	URL         string
@@ -195,19 +198,26 @@ func (e *Engine) CloseWorkstreamWontDo(ctx context.Context, repositoryName strin
 	if err != nil {
 		return err
 	}
-	text := fmt.Sprintf("The Workstream #%d closed as \"won't do\".", number)
 	var closed *gh.Issue
 	for _, item := range items {
-		if _, err := repository.AddComment(ctx, item.Number, text); err != nil {
+		source, err := e.repository(item.Repository)
+		if err != nil {
 			return err
 		}
-		if err := repository.AddLabel(ctx, item.Number, wontDoLabel); err != nil {
+		workstream := fmt.Sprintf("#%d", number)
+		if item.Repository != repository.FullName {
+			workstream = fmt.Sprintf("%s#%d", repository.FullName, number)
+		}
+		if _, err := source.AddComment(ctx, item.Number, fmt.Sprintf("The Workstream %s closed as \"won't do\".", workstream)); err != nil {
+			return err
+		}
+		if err := source.AddLabel(ctx, item.Number, wontDoLabel); err != nil {
 			return err
 		}
 		if item.PullRequest {
-			err = repository.ClosePullRequest(ctx, item.Number)
+			err = source.ClosePullRequest(ctx, item.Number)
 		} else {
-			closed, err = repository.CloseIssue(ctx, item.Number, "not_planned")
+			closed, err = source.CloseIssue(ctx, item.Number, "not_planned")
 		}
 		if err != nil {
 			return err
@@ -293,19 +303,19 @@ func (e *Engine) closureItems(ctx context.Context, repository github.Repository,
 			return nil, err
 		}
 		if pullRequest.GetState() == "open" {
-			items = append(items, closureItem(pullRequest, true))
+			items = append(items, closureItem(row.Repository, pullRequest, true))
 		}
 	}
 	for _, task := range tasks {
 		if task.state == "open" {
-			items = append(items, ClosureItem{Number: task.number, Title: task.title, URL: task.url})
+			items = append(items, ClosureItem{Repository: task.repository, Number: task.number, Title: task.title, URL: task.url})
 		}
 	}
-	return append(items, ClosureItem{Number: workstream, Title: copied.Title, URL: issueLink(repository.FullName, workstream)}), nil
+	return append(items, ClosureItem{Repository: repository.FullName, Number: workstream, Title: copied.Title, URL: issueLink(repository.FullName, workstream)}), nil
 }
 
-func closureItem(issue *gh.Issue, pullRequest bool) ClosureItem {
-	return ClosureItem{PullRequest: pullRequest, Number: int64(issue.GetNumber()), Title: issue.GetTitle(), URL: issue.GetHTMLURL()}
+func closureItem(repository string, issue *gh.Issue, pullRequest bool) ClosureItem {
+	return ClosureItem{PullRequest: pullRequest, Repository: repository, Number: int64(issue.GetNumber()), Title: issue.GetTitle(), URL: issue.GetHTMLURL()}
 }
 
 // closeWorkstream ends the work of the Workstream, removes mobius:autopilot and mobius:question, dismisses the Inbox

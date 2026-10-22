@@ -537,6 +537,8 @@ export interface ClosureItem {
   kind: ClosureItemKind;
   /** Number is the number of the issue or the pull request */
   number: number;
+  /** Repository is the full name of the repository of the issue or the pull request */
+  repository: string;
   /** Title is the title of the issue or the pull request */
   title: string;
   /** URL is the web address of the issue or the pull request on GitHub */

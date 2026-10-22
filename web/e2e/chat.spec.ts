@@ -1444,6 +1444,39 @@ test("the note closes the Workstream when all tasks are closed", async ({ page }
   }
 });
 
+const closureItem = (kind: string, repository: string, number: number, title: string) => ({
+  kind,
+  repository,
+  number,
+  title,
+  url: `https://github.com/${repository}/issues/${number}`,
+});
+
+test("the Close dialog names the repository of an item of another repository", async ({ page }) => {
+  const dialog = page.getByRole("dialog");
+  await page.route("**/api/workstreams/plants/garden/30/closure", (route) =>
+    route.fulfill({
+      json: {
+        data: [
+          closureItem("pullRequest", "owner/orchard", 8, "Pick the pears"),
+          closureItem("issue", "owner/orchard", 7, "Water the pears"),
+          closureItem("issue", "plants/garden", 30, "Plant lilies"),
+        ],
+      },
+    }),
+  );
+  await page.goto("/workstreams/plants/garden/30");
+  await page.getByRole("tab", { name: "Details" }).filter({ visible: true }).click();
+  await page
+    .getByRole("tabpanel", { name: "Details" })
+    .getByRole("button", { name: "Close" })
+    .click();
+
+  await expect(dialog.getByText("owner/orchard#8 Pick the pears")).toBeVisible();
+  await expect(dialog.getByText("owner/orchard#7 Water the pears")).toBeVisible();
+  await expect(dialog.getByText("#30 Plant lilies", { exact: true })).toBeVisible();
+});
+
 test("the Details tab closes the Workstream with its open issues", async ({ page }) => {
   const main = page.getByRole("main");
   const dialog = page.getByRole("dialog");

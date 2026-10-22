@@ -20,10 +20,11 @@ const (
 var wontDoComment = testkit.Comment{Author: "mobius-test[bot]", Body: `The Workstream #12 closed as "won't do".`}
 
 type closureItem struct {
-	Kind   string `json:"kind"`
-	Number int64  `json:"number"`
-	Title  string `json:"title"`
-	URL    string `json:"url"`
+	Kind       string `json:"kind"`
+	Repository string `json:"repository"`
+	Number     int64  `json:"number"`
+	Title      string `json:"title"`
+	URL        string `json:"url"`
 }
 
 func closure(t *testing.T, server *testserver.Server) []closureItem {
@@ -73,10 +74,10 @@ func TestACloseAsWontDoClosesTheOpenItemsAndKeepsTheOthers(t *testing.T) {
 	items := closure(t, server)
 
 	want := []closureItem{
-		{Kind: "pullRequest", Number: 45, Title: "Add plan model"},
-		{Kind: "issue", Number: 41, Title: "Add plan model"},
-		{Kind: "issue", Number: 42, Title: "Store the price in cents"},
-		{Kind: "issue", Number: 12, Title: "Integrate loyalty plans"},
+		{Kind: "pullRequest", Repository: shop, Number: 45, Title: "Add plan model"},
+		{Kind: "issue", Repository: shop, Number: 41, Title: "Add plan model"},
+		{Kind: "issue", Repository: shop, Number: 42, Title: "Store the price in cents"},
+		{Kind: "issue", Repository: shop, Number: 12, Title: "Integrate loyalty plans"},
 	}
 	if len(items) != len(want) {
 		t.Fatalf("items = %+v", items)
