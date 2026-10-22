@@ -140,6 +140,9 @@ type FakeGitHub struct {
 	threadHolds      map[issueKey][]*hold
 	mergeHolds       map[issueKey][]*hold
 	issueHolds       map[issueKey]*hold
+	// anonymousRateLimited tells if each request of the releases and of the comparisons with no token gets the
+	// rate-limit answer.
+	anonymousRateLimited bool
 	// rateLimited tells if each request gets the rate-limit answer.
 	rateLimited bool
 	// hangs holds the route patterns whose next request gets no answer. The channel closes when that request waits.
@@ -445,13 +448,11 @@ func (g *FakeGitHub) hanging(mux *http.ServeMux) http.Handler {
 		delete(g.routeLimits, pattern)
 		g.mu.Unlock()
 		if limited || routeLimited {
-			w.Header().Set("Content-Type", "application/json")
-			w.Header().Set("X-RateLimit-Remaining", "0")
+			var resetHeader string
 			if routeLimited {
-				w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(reset.Unix(), 10))
+				resetHeader = strconv.FormatInt(reset.Unix(), 10)
 			}
-			w.WriteHeader(http.StatusForbidden)
-			_, _ = io.WriteString(w, `{"message": "API rate limit exceeded for installation ID 1."}`)
+			writeRateLimited(w, "installation ID 1", resetHeader)
 			return
 		}
 		if routeHold != nil {
@@ -525,6 +526,35 @@ func serveWithETag(handler http.Handler, w http.ResponseWriter, r *http.Request)
 	}
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(recorder.body.Bytes())
+}
+
+func writeRateLimited(w http.ResponseWriter, subject, reset string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-RateLimit-Remaining", "0")
+	if reset != "" {
+		w.Header().Set("X-RateLimit-Reset", reset)
+	}
+	w.WriteHeader(http.StatusForbidden)
+	_, _ = io.WriteString(w, `{"message": "API rate limit exceeded for `+subject+`."}`)
+}
+
+// SetAnonymousRateLimited makes each request for the latest release or for a comparison of commits of
+// Mobius-Toolkit/Mobius with no Authorization header get the rate-limit answer of GitHub for calls with no token,
+// while limited is true.
+func (g *FakeGitHub) SetAnonymousRateLimited(limited bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.anonymousRateLimited = limited
+}
+
+// refuseAnonymous gives true after it wrote the rate-limit answer for a request with no token.
+func (g *FakeGitHub) refuseAnonymous(w http.ResponseWriter, r *http.Request) bool {
+	if !g.anonymousRateLimited || r.Header.Get("Authorization") != "" {
+		return false
+	}
+	reset := strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10)
+	writeRateLimited(w, "127.0.0.1", reset)
+	return true
 }
 
 // SetRateLimited makes each request get the rate-limit answer of GitHub while limited is true. The answer has no

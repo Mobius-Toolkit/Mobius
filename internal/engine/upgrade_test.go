@@ -148,3 +148,47 @@ func TestTheReleaseChangesGiveTheFirstLineOfEachCommitTheNewestFirst(t *testing.
 		t.Errorf("changes = %q", changes)
 	}
 }
+
+func TestTheReleaseNeedsTheTokenOfTheAppWhenGitHubLimitsTheCallsWithNoToken(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	fake.SetAnonymousRateLimited(true)
+	server, _ := connect(t, fake, "")
+	fake.SetLatestRelease("v0.2.0")
+	engine.Release = "v0.1.4"
+	defer func() { engine.Release = "" }()
+
+	if got := newRelease(t, server); got != "v0.2.0" {
+		t.Errorf("release = %q", got)
+	}
+}
+
+func TestTheReleaseChangesNeedTheTokenOfTheAppWhenGitHubLimitsTheCallsWithNoToken(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	fake.SetAnonymousRateLimited(true)
+	server, _ := connect(t, fake, "")
+	fake.SetLatestRelease("v0.2.0")
+	fake.SetComparedCommits("Check for a new release each hour (#316)")
+	engine.Release = "v0.1.4"
+	defer func() { engine.Release = "" }()
+
+	var changes []string
+	if status, text := getData(t, server, "/api/release/changes", &changes); status != http.StatusOK {
+		t.Fatalf("changes = %d %q", status, text)
+	}
+
+	if want := []string{"Check for a new release each hour (#316)"}; !reflect.DeepEqual(changes, want) {
+		t.Errorf("changes = %q", changes)
+	}
+}
+
+func TestTheReleaseOfAServerWithNoAppNeedsNoToken(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server := testserver.Start(t, t.TempDir(), fake.URL)
+	fake.SetLatestRelease("v0.2.0")
+	engine.Release = "v0.1.4"
+	defer func() { engine.Release = "" }()
+
+	if got := newRelease(t, server); got != "v0.2.0" {
+		t.Errorf("release = %q", got)
+	}
+}

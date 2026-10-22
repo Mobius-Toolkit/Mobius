@@ -210,18 +210,27 @@ func (g *GitHub) InstallURL(slug string) string {
 	return g.webURL + "/apps/" + url.PathEscape(slug) + "/installations/new"
 }
 
-// LatestRelease gives the latest release of Mobius.
-//
-// The call has no token: the releases of Mobius are public, so a server with no App can also upgrade.
+// publicClient gives the client for the public repository of Mobius. It uses the installation token of the first
+// repository of the last read, because GitHub gives each installation its own rate limit, and all programs of the
+// machine share the limit of the calls with no token. With no repository, the client has no token, so a server with no
+// App can also read the releases.
+func (g *GitHub) publicClient() *gh.Client {
+	if repositories := g.Repositories(); len(repositories) > 0 {
+		return repositories[0].Client
+	}
+	return g.api
+}
+
+// LatestRelease gives the latest release of Mobius. The call uses publicClient.
 func (g *GitHub) LatestRelease(ctx context.Context) (*gh.RepositoryRelease, error) {
-	release, _, err := g.api.Repositories.GetLatestRelease(ctx, "Mobius-Toolkit", "Mobius")
+	release, _, err := g.publicClient().Repositories.GetLatestRelease(ctx, "Mobius-Toolkit", "Mobius")
 	return release, err
 }
 
 // CommitMessages gives the message of each commit of Mobius after the commit base up to the commit head, the oldest
-// first. GitHub gives at most 250 commits. The call has no token, as in LatestRelease.
+// first. GitHub gives at most 250 commits. The call uses publicClient.
 func (g *GitHub) CommitMessages(ctx context.Context, base, head string) ([]string, error) {
-	comparison, _, err := g.api.Repositories.CompareCommits(ctx, "Mobius-Toolkit", "Mobius", base, head, nil)
+	comparison, _, err := g.publicClient().Repositories.CompareCommits(ctx, "Mobius-Toolkit", "Mobius", base, head, nil)
 	if err != nil {
 		return nil, err
 	}
