@@ -276,6 +276,7 @@ type Task struct {
 	RerunRuns            sql.NullString
 	WorkstreamRepository string
 	BranchChecked        int64
+	AutoMerge            int64
 }
 
 type TaskState struct {

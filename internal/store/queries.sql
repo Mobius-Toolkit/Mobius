@@ -778,7 +778,10 @@ INSERT INTO memory_versions (repository, time, author, reason, text) VALUES (?, 
 UPDATE tasks SET approved_review = ? WHERE id = ?;
 
 -- name: SetTaskRefusedReview :exec
-UPDATE tasks SET refused_review = ? WHERE id = ?;
+UPDATE tasks SET refused_review = ?, auto_merge = 0 WHERE id = ?;
+
+-- name: SetTaskAutoMerge :exec
+UPDATE tasks SET auto_merge = ? WHERE id = ?;
 
 -- name: AddTriagerTurn :exec
 INSERT INTO triager_turns (repository, issue) VALUES (?, ?)

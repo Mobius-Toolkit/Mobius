@@ -1448,9 +1448,11 @@ func (e *Engine) leadContext(ctx context.Context, repository github.Repository, 
 var levelContexts = map[string]string{
 	levelOff:           "Autopilot is off: a task starts only after `mark_ready` or a start of the Owner.",
 	levelStart:         "Autopilot is \"Start tasks\": Mobius starts each open sub-issue with no blocker and no earlier task at the next poll.",
-	levelMerge:         "Autopilot is \"Merge only\": a task starts only after `mark_ready` or a start of the Owner.",
-	levelStartAndMerge: "Autopilot is \"Start and merge\": Mobius starts each open sub-issue with no blocker and no earlier task at the next poll.",
+	levelMerge:         "Autopilot is \"Merge only\": a task starts only after `mark_ready` or a start of the Owner. " + mergeContext,
+	levelStartAndMerge: "Autopilot is \"Start and merge\": Mobius starts each open sub-issue with no blocker and no earlier task at the next poll. " + mergeContext,
 }
+
+const mergeContext = "Mobius merges each pull request after your approval, when the branch contains the current default branch and the checks passed."
 
 // repositoriesText names the repositories of the organization, and its issue repository when the organization has one.
 func (e *Engine) repositoriesText(organization string) string {

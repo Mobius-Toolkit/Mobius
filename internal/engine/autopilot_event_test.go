@@ -10,6 +10,8 @@ import (
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
 
+const mergeSentence = "Mobius merges each pull request after your approval, when the branch contains the current default branch and the checks passed."
+
 func TestTheFirstPromptTellsTheLeadTheAutopilotLevel(t *testing.T) {
 	t.Parallel()
 	levels := []struct {
@@ -18,8 +20,8 @@ func TestTheFirstPromptTellsTheLeadTheAutopilotLevel(t *testing.T) {
 		text   string
 	}{
 		{"start", []string{"mobius:autopilot"}, "Autopilot is \"Start tasks\": Mobius starts each open sub-issue with no blocker and no earlier task at the next poll."},
-		{"merge", []string{"mobius:auto-merge"}, "Autopilot is \"Merge only\": a task starts only after `mark_ready` or a start of the Owner."},
-		{"start_and_merge", []string{"mobius:autopilot", "mobius:auto-merge"}, "Autopilot is \"Start and merge\": Mobius starts each open sub-issue with no blocker and no earlier task at the next poll."},
+		{"merge", []string{"mobius:auto-merge"}, "Autopilot is \"Merge only\": a task starts only after `mark_ready` or a start of the Owner. " + mergeSentence},
+		{"start_and_merge", []string{"mobius:autopilot", "mobius:auto-merge"}, "Autopilot is \"Start and merge\": Mobius starts each open sub-issue with no blocker and no earlier task at the next poll. " + mergeSentence},
 	}
 	for _, want := range levels {
 		t.Run(want.level, func(t *testing.T) {

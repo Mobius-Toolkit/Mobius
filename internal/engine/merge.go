@@ -57,8 +57,10 @@ func awaitsMerge(task store.Task) bool {
 // mergeApproved squash merges the pull request of the task with an approval, when no Worker works on the task and its
 // head commit passes these conditions: the pull request is not a draft and has no merge conflict, it has no open review
 // thread, and each check run of the head completed and passed, with the Mobius check among them. It reads the check
-// runs only when the other conditions are true, and it reads the review threads again before the merge. It gives true
-// when GitHub merged the pull request, and then it dismisses the open ready for review Inbox items of the issue. When
+// runs only when the other conditions are true, and it reads the review threads again before the merge. A task with
+// auto_merge needs a Workstream with a merge level, else its automatic merge ends (endAutoMerge). It also needs a head
+// that contains the default branch (updateForMerge). Its head with no Mobius check run, for example after the update of
+// the branch, sends the task in ready_for_review back to checks (returnForApproval). It gives true when GitHub merged the pull request, and then it dismisses the open ready for review Inbox items of the issue. When
 // GitHub refuses the merge, the open ready for review Inbox item of the issue gets the reason and the Lead gets an
 // event, and the poll does not try again until a new APPROVED review. A refusal for a pull request that a person merged in the meantime is no refusal: the next read of the pull request goes to
 // GitHub, and the poll ends the task.
@@ -67,13 +69,31 @@ func (e *Engine) mergeApproved(ctx context.Context, repository github.Repository
 	if !awaitsMerge(task) || task.State == "queued" || task.State == "working" || pullRequest.GetDraft() || !pullRequest.GetMergeable() || hasOpenThread(e.pull(repository, number)) {
 		return false, nil
 	}
+	if task.AutoMerge == 1 {
+		level, err := e.workstreamLevel(ctx, task.WorkstreamRepository, task.Workstream)
+		if err != nil {
+			return false, err
+		}
+		if !mergesPullRequests(level) {
+			return false, e.endAutoMerge(ctx, task)
+		}
+	}
 	head := pullRequest.GetHead().GetSHA()
 	runs, err := repository.CheckRuns(ctx, head)
 	if err != nil {
 		return false, err
 	}
-	if !slices.ContainsFunc(runs, func(run *gh.CheckRun) bool { return run.GetName() == checkRunName }) || slices.ContainsFunc(runs, func(run *gh.CheckRun) bool { return !passed(run) }) {
+	approvedByLead := slices.ContainsFunc(runs, func(run *gh.CheckRun) bool { return run.GetName() == checkRunName })
+	if task.AutoMerge == 1 && task.State == "ready_for_review" && !approvedByLead {
+		return false, e.returnForApproval(ctx, task)
+	}
+	if !approvedByLead || slices.ContainsFunc(runs, func(run *gh.CheckRun) bool { return !passed(run) }) {
 		return false, nil
+	}
+	if task.AutoMerge == 1 {
+		if waits, err := e.updateForMerge(ctx, repository, pullRequest); err != nil || waits {
+			return false, err
+		}
 	}
 	if err := e.readPullRequests(ctx, repository, []int64{number}); err != nil {
 		return false, err

@@ -276,15 +276,24 @@ func (e *Engine) mergingPullRequests(ctx context.Context, repository github.Repo
 func (e *Engine) refuseMergeItem(ctx context.Context, task store.Task, reason string) error {
 	e.mergeMu.Lock()
 	defer e.mergeMu.Unlock()
+	return e.setMergeItems(ctx, task, 0, reason)
+}
+
+// openReadyItems gives the open ready for review Inbox items of the issue of the task.
+func (e *Engine) openReadyItems(ctx context.Context, task store.Task) ([]store.InboxItem, error) {
 	items, err := e.queries.ListIssueInboxItems(ctx, store.ListIssueInboxItemsParams{Repository: task.Repository, Issue: task.Issue, Kind: readyForReviewKind})
+	return slices.DeleteFunc(items, func(item store.InboxItem) bool { return item.DismissedAt.Valid }), err
+}
+
+// setMergeItems sets merging and the reason on each open ready for review Inbox item of the issue of the task. The
+// caller must hold mergeMu.
+func (e *Engine) setMergeItems(ctx context.Context, task store.Task, merging int64, reason string) error {
+	items, err := e.openReadyItems(ctx, task)
 	if err != nil {
 		return err
 	}
 	for _, item := range items {
-		if item.DismissedAt.Valid {
-			continue
-		}
-		item, err := e.queries.SetInboxItemMerge(ctx, store.SetInboxItemMergeParams{Merging: 0, MergeRefusal: reason, ID: item.ID})
+		item, err := e.queries.SetInboxItemMerge(ctx, store.SetInboxItemMergeParams{Merging: merging, MergeRefusal: reason, ID: item.ID})
 		if err != nil {
 			return err
 		}
