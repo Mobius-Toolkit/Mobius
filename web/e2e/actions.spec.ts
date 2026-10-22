@@ -614,6 +614,28 @@ test("the panel of an edit_brief action keeps a removed paragraph apart from an 
   await expect(dialog).not.toContainText("~~");
 });
 
+test("the panel of an edit_brief action keeps a rewritten line in the paragraph of its title", async ({
+  page,
+}) => {
+  await page.route("**/api/actions/*/brief", (route) =>
+    route.fulfill({
+      json: { data: { brief: "**Goal**\nLet customers renew early.\n\n---\n\nKeep text." } },
+    }),
+  );
+  await openLeadChat(page);
+  await sendToLead(page, editBriefRule);
+  await expect(waiting(page, 1)).toBeVisible(agentTimeout);
+  await answer(page, briefTitle);
+
+  const dialog = panel(page);
+  const paragraph = dialog.locator("p", { has: page.locator("strong", { hasText: "Goal" }) });
+  await expect(paragraph.locator("del")).toHaveText("Let customers renew early.");
+  await expect(paragraph.locator("ins")).toHaveText("Show a rule.");
+  await expect(dialog.locator("hr")).toHaveCount(1);
+  await expect(dialog).not.toContainText("==");
+  await expect(dialog).not.toContainText("~~");
+});
+
 test("the panel of an edit_brief action reads the Brief again each time it opens", async ({
   page,
 }) => {

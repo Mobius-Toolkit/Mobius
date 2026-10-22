@@ -8,6 +8,14 @@ const url = /\]\([^)]*\)|https?:\/\/\S+|<[^>\s]+>/g;
 const fence = /^\s*(?:```|~~~)/;
 const tableRow = /^\s*\|/;
 const listItem = /^\s*(?:[-*+]|\d+[.)])\s+/;
+const quote = /^\s*>/;
+const rule = /^\s*(?:[-=]+|(?:[-*_]\s*){3,})\s*$/;
+
+const blockKinds = [listItem, quote, tableRow];
+
+// Two lines are separate blocks when the new line is a rule or a setext underline, or when the removed line starts a list item, a quote or a table row that the new line does not continue.
+const separate = (removed: string, added: string) =>
+  rule.test(added) || blockKinds.some((kind) => kind.test(removed) && !kind.test(added));
 
 const prefixLength = (line: string) => line.length - line.replace(blockPrefix, "").length;
 
@@ -95,12 +103,13 @@ function changedLines(parts: Part[]) {
 // A fenced code block shows the new lines with no mark.
 // A removed blank line stays when a removed line is above or below it, and so does a removed table separator below a removed line.
 // Thus a removed block keeps its shape.
-// A blank line separates a removed line from a changed or added line that is not a list item or a table row.
+// A blank line separates a removed line from a changed or added line when the two lines are separate blocks.
 export function briefMarkdown(diff: DiffLine[]): string {
   const out: string[] = [];
   let inFence = false;
   let inOldFence = false;
   let afterRemoved = false;
+  let lastRemoved = "";
   let removedBlank = false;
   for (const line of diff) {
     const old = line.kind === "changed" ? textOf(line.parts, "added") : line.text;
@@ -117,10 +126,12 @@ export function briefMarkdown(diff: DiffLine[]): string {
           }
           out.push(marked);
           afterRemoved = true;
+          lastRemoved = line.text;
           removedBlank = false;
         } else if (afterRemoved && (line.text.trim() === "" || tableRow.test(line.text))) {
           out.push(line.text);
           afterRemoved = line.text.trim() !== "";
+          lastRemoved = line.text;
         } else if (line.text.trim() === "") {
           removedBlank = true;
         }
@@ -128,7 +139,7 @@ export function briefMarkdown(diff: DiffLine[]): string {
       continue;
     }
     const text = line.kind === "changed" ? textOf(line.parts, "removed") : line.text;
-    if (afterRemoved && line.kind !== "unchanged" && !tableRow.test(text) && !listItem.test(text)) {
+    if (afterRemoved && line.kind !== "unchanged" && separate(lastRemoved, text)) {
       out.push("");
     }
     afterRemoved = false;
