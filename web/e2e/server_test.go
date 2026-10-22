@@ -166,10 +166,10 @@ func ownerAnswerRules(heading string) string {
 	return rules.String()
 }
 
-func briefCallRules() string {
+func briefCallRules(heading string) string {
 	var rules strings.Builder
 	for _, call := range briefCalls {
-		fmt.Fprintf(&rules, "[[prompts]]\nwhen = %q\ncall = { tool = %q, arguments = %s }\n\n", "# Owner message\n\n"+call.message, call.tool, call.arguments)
+		fmt.Fprintf(&rules, "[[prompts]]\nwhen = %q\ncall = { tool = %q, arguments = %s }\n\n", heading+call.message, call.tool, call.arguments)
 	}
 	return rules.String()
 }
@@ -182,8 +182,8 @@ func ownerCallRules(heading string) string {
 	return rules.String()
 }
 
-var script = scriptOptions + briefCallRules() + scriptHead + ownerAnswerRules("# Owner message\n\n") + ownerCallRules("# Owner message\n\n") + scriptBody +
-	ownerCallRules("") + ownerAnswerRules("") + scriptTail
+var script = scriptOptions + briefCallRules("# Owner message\n\n") + scriptHead + ownerAnswerRules("# Owner message\n\n") + ownerCallRules("# Owner message\n\n") + scriptBody +
+	ownerCallRules("") + ownerAnswerRules("") + briefCallRules("") + scriptTail
 
 // question is the first Owner message of the Lead chat of owner/shop#12. The wide code block and the wide table
 // scroll inside the message.
