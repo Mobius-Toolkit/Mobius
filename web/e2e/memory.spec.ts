@@ -1,4 +1,7 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator } from "@playwright/test";
+
+const versionsOf = (main: Locator) =>
+  main.getByRole("heading", { name: "History" }).locator("xpath=following-sibling::ul/li");
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/github");
@@ -40,9 +43,7 @@ test("the Owner edits the memory file, sees the 200-line error, and reverts the 
   await main.getByLabel("Memory text").fill("Water the roses in the morning.\n");
   await main.getByRole("button", { name: "Save" }).click();
   await expect(main.getByText("Water the roses in the morning.").first()).toBeVisible();
-  await expect(
-    main.locator('[data-kind="added"]', { hasText: "Water the roses in the morning." }),
-  ).toBeVisible();
+  await expect(main.locator("ins", { hasText: "Water the roses in the morning." })).toBeVisible();
   await expect(main.getByText("owner", { exact: true })).toBeVisible();
 
   await main.getByRole("button", { name: "Edit" }).click();
@@ -85,7 +86,7 @@ test("the Owner edits the memory file, sees the 200-line error, and reverts the 
 
 const text = (...lines: string[]) => lines.map((line) => `${line}\n`).join("");
 
-type Scrollable = { scrollWidth: number; clientWidth: number; scrollLeft: number };
+type Scrollable = { scrollWidth: number; clientWidth: number };
 
 const longReason = "Change: the long line names the edit of a test";
 
@@ -95,13 +96,17 @@ test("a changed line shows its removed words and its added words, and the unchan
   const main = page.getByRole("main");
   await page.goto("/settings/memory/owner/shop");
 
-  const commit = main.locator('[data-kind="changed"]', {
-    hasText: "Run make fmt before each commit and each push.",
-  });
-  await expect(commit.locator("ins")).toHaveText(["and each push"]);
+  const commit = main
+    .getByRole("heading", { name: "History" })
+    .locator("xpath=..")
+    .locator("p", { hasText: "Run make fmt before each commit and each push." });
+  await expect(commit.locator("ins")).toHaveText([
+    "and each push",
+    "Write each message in Simplified Technical English.",
+  ]);
   await expect(commit.locator("del")).toHaveCount(0);
 
-  const long = main.locator("li").filter({ hasText: longReason }).locator('[data-kind="changed"]');
+  const long = versionsOf(main).filter({ hasText: longReason });
   await expect(long.locator("del")).toHaveText(["change", "fix round"]);
   await expect(long.locator("ins")).toHaveText(["edit", "Implementer"]);
 });
@@ -145,58 +150,50 @@ test("a hunk has one unchanged line above and below the change, and a separator 
   );
   await page.goto("/settings/memory/owner/shop");
 
-  const newest = main.locator("li").first();
-  await expect(newest.locator("pre")).toHaveCount(2);
+  const newest = versionsOf(main).first();
+  const hunks = newest.locator("p");
+  await expect(hunks).toHaveText(["a2 a3 new a4", "a7 a8 new a9"]);
   await expect(newest.getByRole("separator")).toHaveCount(1);
-  const first = newest.locator("pre").first().locator("[data-kind]");
-  await expect(first).toHaveText(["a2", "a3 new", "a4"]);
-  await expect(first.nth(1)).toHaveAttribute("data-kind", "changed");
-  const last = newest.locator("pre").last().locator("[data-kind]");
-  await expect(last).toHaveText(["a7", "a8 new", "a9"]);
+  await expect(hunks.first().locator("ins")).toHaveText(["new"]);
+  await expect(hunks.last().locator("ins")).toHaveText(["new"]);
 });
 
-test("the background of a long line reaches the end of the text after a scroll to the right", async ({
+test("a memory text with a heading and a list shows as Markdown, and a hunk of an added list item marks the item", async ({
   page,
 }) => {
   const main = page.getByRole("main");
+  await page.route(
+    (url) => url.pathname === "/api/repositories/owner/shop/memory",
+    (route) =>
+      route.fulfill({
+        json: {
+          data: {
+            older: false,
+            versions: [
+              {
+                id: 1,
+                author: "owner",
+                reason: "",
+                revert_problem: "",
+                revertible: true,
+                time: "2026-09-28T09:00:00Z",
+                text: text("## Rules", "", "- Run make fmt.", "- Use pnpm."),
+                before: text("## Rules", "", "- Run make fmt."),
+              },
+            ],
+          },
+        },
+      }),
+  );
   await page.goto("/settings/memory/owner/shop");
 
-  const hunk = main.locator("li").filter({ hasText: longReason }).locator("pre");
-  const line = hunk.locator('[data-kind="changed"]');
-  await expect(line).toBeVisible();
-  const scroll = await hunk.evaluate((el: Scrollable) => {
-    const overflows = el.scrollWidth > el.clientWidth;
-    el.scrollLeft = el.scrollWidth;
-    return { overflows, width: el.scrollWidth };
-  });
-  expect(scroll.overflows).toBe(true);
+  const current = main.locator("section").first().locator("div.rounded-lg");
+  await expect(current.getByRole("heading", { level: 2, name: "Rules" })).toBeVisible();
+  await expect(current.getByRole("listitem")).toHaveText(["Run make fmt.", "Use pnpm."]);
 
-  const hunkBox = await hunk.boundingBox();
-  const lineBox = await line.boundingBox();
-  expect(lineBox!.x + lineBox!.width).toBeGreaterThanOrEqual(hunkBox!.x + hunkBox!.width - 2);
-  expect(lineBox!.width).toBeGreaterThanOrEqual(scroll.width - 1);
-});
-
-test("the Owner reads a hunk in the full screen view and closes it", async ({ page }) => {
-  const main = page.getByRole("main");
-  await page.goto("/settings/memory/owner/shop");
-
-  const item = main.locator("li").filter({ hasText: longReason });
-  await item.getByRole("button", { name: "Full screen" }).click();
-  const dialog = page.getByRole("dialog");
-  const line = dialog.locator('[data-kind="changed"]');
-  await expect(line).toBeVisible();
-  const pre = dialog.locator("pre");
-  expect(await pre.evaluate((el: Scrollable) => el.scrollWidth <= el.clientWidth)).toBe(true);
-  const box = await line.boundingBox();
-  expect(box!.height).toBeGreaterThan(40);
-
-  await page.keyboard.press("Escape");
-  await expect(dialog).toBeHidden();
-
-  await item.getByRole("button", { name: "Full screen" }).click();
-  await dialog.getByRole("button", { name: "Close" }).click();
-  await expect(dialog).toBeHidden();
+  const added = versionsOf(main).first().locator("li", { hasText: "Use pnpm." });
+  await expect(added.locator("ins")).toHaveText(["Use pnpm."]);
+  await expect(versionsOf(main).first().locator("ins")).toHaveCount(1);
 });
 
 const wideCell = (column: number) => `column ${column} has a long cell text that is wide`;
@@ -281,16 +278,20 @@ for (const viewport of [
     expect(content.scrollWidth).toBeLessThanOrEqual(content.clientWidth);
 
     const mainBox = await main.boundingBox();
-    const currentBox = await main.locator("pre").first().boundingBox();
-    expect(currentBox!.x + currentBox!.width).toBeLessThanOrEqual(mainBox!.x + mainBox!.width + 1);
+    const right = mainBox!.x + mainBox!.width + 1;
+    const currentBox = await main
+      .locator("section")
+      .first()
+      .locator("div.rounded-lg")
+      .boundingBox();
+    expect(currentBox!.x + currentBox!.width).toBeLessThanOrEqual(right);
 
-    const hunk = main.locator("li").nth(1).locator("pre");
-    await expect(hunk.locator(`[data-kind="added"]`, { hasText: longUrl })).toBeVisible();
-    const overflow = await hunk.evaluate((el: Scrollable) => ({
-      scrollWidth: el.scrollWidth,
-      clientWidth: el.clientWidth,
-    }));
-    expect(overflow.scrollWidth).toBeGreaterThan(overflow.clientWidth);
+    const hunk = versionsOf(main).nth(1).locator("div.rounded-lg");
+    await expect(hunk.locator("ins", { hasText: longUrl })).toBeVisible();
+    for (const box of await hunk.all()) {
+      const hunkBox = await box.boundingBox();
+      expect(hunkBox!.x + hunkBox!.width).toBeLessThanOrEqual(right);
+    }
   });
 }
 
@@ -311,7 +312,7 @@ test("the Owner loads the older versions of the memory file in pages", async ({ 
   })()`);
 
   await page.goto("/settings/memory/plants/garden");
-  const items = main.locator("li");
+  const items = versionsOf(main);
   const older = main.getByRole("button", { name: "Show older versions" });
   await expect(items).toHaveCount(20);
   await expect(older).toBeVisible();
