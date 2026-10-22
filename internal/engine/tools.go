@@ -177,6 +177,14 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 					"blocked_by": map[string]any{"type": "array", "items": map[string]any{"type": "string", "minLength": 1}, "description": "The issues that block this issue, each as owner/name#N. They can be in another repository or in another Workstream."},
 				},
 				e.createIssue),
+			taskTool(e, c, "update_blockers",
+				"Set the open blockers of an existing issue of the Workstream. Mobius adds each issue of blocked_by that is not a blocker yet, and removes each open blocker that is not in blocked_by. Read the current blockers with list_tasks first. An empty blocked_by removes each open blocker. A second call with the same list changes nothing.",
+				map[string]any{
+					"repository": repositoryProperty,
+					"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the blocked issue."},
+					"blocked_by": map[string]any{"type": "array", "items": map[string]any{"type": "string", "minLength": 1}, "description": "The full list of the issues that block it, each as owner/name#N. They can be in another repository or in another Workstream."},
+				},
+				e.updateBlockers),
 			taskTool(e, c, "mark_ready",
 				"Add mobius:ready to an issue of the Workstream. Use it when the Owner tells you to start an issue. For a stopped task, it continues the task. The round counters keep their values, so a task at max_fix_rounds stops again.",
 				map[string]any{
@@ -660,6 +668,12 @@ type leadIssueInput struct {
 	BlockedBy []string `json:"blocked_by"`
 }
 
+type blockersInput struct {
+	repositoryInput
+	N         int64    `json:"n"`
+	BlockedBy []string `json:"blocked_by"`
+}
+
 type workstreamInput struct {
 	Title  string   `json:"title"`
 	Brief  string   `json:"brief"`
@@ -861,19 +875,9 @@ func checkIssue(input issueInput) error {
 // below input.parent, and adds the blockers. It gives the number of the issue. When GitHub created the issue but a later
 // call failed, it gives the number with the error.
 func (e *Engine) addIssueAt(ctx context.Context, repository github.Repository, workstream issueAt, input newIssue, labels []string) (int, error) {
-	var blockerIDs []int64
-	for _, blocker := range input.blockers {
-		found, err := blocker.repository.Issue(ctx, blocker.number)
-		if err != nil {
-			return 0, err
-		}
-		if found == nil || found.IsPullRequest() {
-			return 0, refuse("%s#%d is not an issue.", blocker.repository.FullName, blocker.number)
-		}
-		if slices.Contains(blockerIDs, found.GetID()) {
-			return 0, refuse("%s#%d is two times in blocked_by.", blocker.repository.FullName, blocker.number)
-		}
-		blockerIDs = append(blockerIDs, found.GetID())
+	blockerIDs, err := blockerIDsOf(ctx, input.blockers)
+	if err != nil {
+		return 0, err
 	}
 	body := e.withChatLink(workstream.repository, workstream.number, input.body)
 	issue, _, err := repository.Client.Issues.Create(ctx, repository.Owner(), repository.Name(), gh.CreateIssueRequest{Title: input.title, Body: &body, Labels: labels})
@@ -890,6 +894,139 @@ func (e *Engine) addIssueAt(ctx context.Context, repository github.Repository, w
 		}
 	}
 	return issue.GetNumber(), nil
+}
+
+// blockerIDsOf gives the ids of the issues blockers. It refuses a missing issue, a pull request and an issue that is two
+// times in blockers.
+func blockerIDsOf(ctx context.Context, blockers []issueAt) ([]int64, error) {
+	var ids []int64
+	for _, blocker := range blockers {
+		found, err := blocker.repository.Issue(ctx, blocker.number)
+		if err != nil {
+			return nil, err
+		}
+		if found == nil || found.IsPullRequest() {
+			return nil, refuse("%s#%d is not an issue.", blocker.repository.FullName, blocker.number)
+		}
+		if slices.Contains(ids, found.GetID()) {
+			return nil, refuse("%s#%d is two times in blocked_by.", blocker.repository.FullName, blocker.number)
+		}
+		ids = append(ids, found.GetID())
+	}
+	return ids, nil
+}
+
+// updateBlockers makes input.BlockedBy the open blockers of the issue input.N, which is an issue of the Workstream of c.
+// It adds the issues that are not blockers yet, and removes the open blockers that are not in the list. A closed blocker
+// stays.
+func (e *Engine) updateBlockers(ctx context.Context, c caller, repository github.Repository, input blockersInput) (string, error) {
+	if input.N < 1 {
+		return "", refuse("n must be 1 or more.")
+	}
+	blockers := make([]issueAt, len(input.BlockedBy))
+	for i, reference := range input.BlockedBy {
+		var err error
+		if blockers[i], err = e.issueAtOf(c, reference); err != nil {
+			return "", err
+		}
+		if blockers[i].repository.FullName == repository.FullName && blockers[i].number == input.N {
+			return "", refuse("%s#%d cannot block itself.", repository.FullName, input.N)
+		}
+	}
+	issue, err := repository.Issue(ctx, input.N)
+	if err != nil {
+		return "", err
+	}
+	if issue == nil || issue.IsPullRequest() {
+		return "", refuse("%s#%d is not an issue.", repository.FullName, input.N)
+	}
+	in, err := e.inWorkstream(ctx, c.repository, c.workstream, repository, input.N)
+	if err != nil {
+		return "", err
+	}
+	if !in {
+		return "", refuse("%s#%d is not in this Workstream.", repository.FullName, input.N)
+	}
+	wanted, err := blockerIDsOf(ctx, blockers)
+	if err != nil {
+		return "", err
+	}
+	current, err := repository.BlockedBy(ctx, input.N)
+	if err != nil {
+		return "", err
+	}
+	var add, remove []blockerWrite
+	for i, id := range wanted {
+		if !slices.ContainsFunc(current, func(found *gh.Issue) bool { return found.GetID() == id }) {
+			add = append(add, blockerWrite{fmt.Sprintf("%s#%d", blockers[i].repository.FullName, blockers[i].number), id})
+		}
+	}
+	for _, found := range current {
+		if found.GetState() == "open" && !slices.Contains(wanted, found.GetID()) {
+			remove = append(remove, blockerWrite{fmt.Sprintf("%s#%d", blockerRepository(found, repository.FullName), found.GetNumber()), found.GetID()})
+		}
+	}
+	added, removed, err := writeBlockers(ctx, repository, input.N, add, remove)
+	if len(added)+len(removed) > 0 {
+		workstream, recopyErr := e.repository(c.repository)
+		if recopyErr == nil {
+			recopyErr = e.recopyTrees(ctx, workstream, c.workstream)
+		}
+		if recopyErr != nil {
+			log.Printf("copy the tree of %s#%d: %v", c.repository, c.workstream, recopyErr)
+		}
+	}
+	change := blockerChange(added, removed)
+	if err != nil {
+		if change == "" {
+			return "", err
+		}
+		return "", fmt.Errorf("%s as blockers of %s#%d, then %w", change, repository.FullName, input.N, err)
+	}
+	if change == "" {
+		return fmt.Sprintf("The blockers of %s#%d already match.", repository.FullName, input.N), nil
+	}
+	return fmt.Sprintf("%s as blockers of %s#%d.", change, repository.FullName, input.N), nil
+}
+
+// blockerWrite is an issue with its reference (owner/name#N) and its numeric id.
+type blockerWrite struct {
+	reference string
+	id        int64
+}
+
+// writeBlockers adds the issues add and then removes the issues remove as blockers of the issue number. It gives the
+// references of the writes that succeeded, also when a later write fails.
+func writeBlockers(ctx context.Context, repository github.Repository, number int64, add, remove []blockerWrite) (added, removed []string, err error) {
+	for _, b := range add {
+		if _, _, err := repository.Client.Issues.AddBlockedBy(ctx, repository.Owner(), repository.Name(), number, gh.IssueDependencyRequest{IssueID: b.id}); err != nil {
+			return added, removed, fmt.Errorf("the add of the blocker %s failed: %w", b.reference, err)
+		}
+		added = append(added, b.reference)
+	}
+	for _, b := range remove {
+		if _, _, err := repository.Client.Issues.RemoveBlockedBy(ctx, repository.Owner(), repository.Name(), number, b.id); err != nil {
+			return added, removed, fmt.Errorf("the removal of the blocker %s failed: %w", b.reference, err)
+		}
+		removed = append(removed, b.reference)
+	}
+	return added, removed, nil
+}
+
+// blockerChange tells the writes of writeBlockers, for example "Added a#1 and removed b#2". It gives "" for no write.
+func blockerChange(added, removed []string) string {
+	var parts []string
+	if len(added) > 0 {
+		parts = append(parts, "Added "+strings.Join(added, " and "))
+	}
+	if len(removed) > 0 {
+		verb := "removed "
+		if len(parts) == 0 {
+			verb = "Removed "
+		}
+		parts = append(parts, verb+strings.Join(removed, " and "))
+	}
+	return strings.Join(parts, " and ")
 }
 
 func (e *Engine) stopTaskTool(ctx context.Context, c caller, repository github.Repository, input taskInput) (string, error) {

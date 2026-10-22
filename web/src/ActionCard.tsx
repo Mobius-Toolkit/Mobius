@@ -26,9 +26,28 @@ function actionState(action: PendingAction) {
 
 const isShort = (value: string) => !value.includes("\n") && value.length <= 80;
 
-function BriefView({ before, after }: { before: string; after: string }) {
-  const marked = useMemo(() => briefMarkdown(diffLines(before, after)), [before, after]);
+function BriefView({
+  before,
+  after,
+  hideRemoved,
+}: {
+  before: string;
+  after: string;
+  hideRemoved: boolean;
+}) {
+  const marked = useMemo(
+    () => briefMarkdown(diffLines(before, after), hideRemoved),
+    [before, after, hideRemoved],
+  );
   return <Markdown text={marked} overrides={diffMarks} />;
+}
+
+function RemovedToggle({ hidden, toggle }: { hidden: boolean; toggle: () => void }) {
+  return (
+    <Button variant="ghost" size="sm" className="justify-self-start" onClick={toggle}>
+      {hidden ? "Show removed text" : "Hide removed text"}
+    </Button>
+  );
 }
 
 // before is the Brief that the new Brief replaces. With it, the argument shows the changes.
@@ -41,11 +60,13 @@ export function FullArgument({
   value: string;
   before?: string;
 }) {
+  const [hideRemoved, setHideRemoved] = useState(false);
   if (before !== undefined) {
     return (
       <div className="grid min-w-0 gap-0.5">
         <span className="text-xs text-muted-foreground">{name}</span>
-        <BriefView before={before} after={value} />
+        <BriefView before={before} after={value} hideRemoved={hideRemoved} />
+        <RemovedToggle hidden={hideRemoved} toggle={() => setHideRemoved(!hideRemoved)} />
       </div>
     );
   }
@@ -72,6 +93,7 @@ function Argument({
 }) {
   const box = useRef<HTMLDivElement>(null);
   const [long, setLong] = useState(false);
+  const [hideRemoved, setHideRemoved] = useState(false);
   useLayoutEffect(() => {
     const content = box.current?.firstElementChild;
     if (!content) {
@@ -93,14 +115,21 @@ function Argument({
           {before === undefined ? (
             <Markdown text={value} />
           ) : (
-            <BriefView before={before} after={value} />
+            <BriefView before={before} after={value} hideRemoved={hideRemoved} />
           )}
         </div>
       </div>
-      {long && (
-        <Button variant="ghost" size="sm" className="justify-self-start" onClick={toggle}>
-          {open ? "Show less" : "Show all"}
-        </Button>
+      {(long || before !== undefined) && (
+        <div className="flex flex-wrap gap-2">
+          {long && (
+            <Button variant="ghost" size="sm" onClick={toggle}>
+              {open ? "Show less" : "Show all"}
+            </Button>
+          )}
+          {before !== undefined && (
+            <RemovedToggle hidden={hideRemoved} toggle={() => setHideRemoved(!hideRemoved)} />
+          )}
+        </div>
       )}
     </div>
   );

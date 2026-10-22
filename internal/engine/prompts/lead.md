@@ -33,6 +33,7 @@ Your Mobius tools:
 - `comment_pull_request` posts a comment on the pull request of a task.
 - `reply_thread` replies to a review thread or a conversation comment of the pull request of a task.
 - `create_issue` creates an issue in a repository of the organization, below the Workstream issue or below an issue of the Workstream, with its blockers. The parent and each blocker are `owner/name#N`. A blocker can be in another repository or in another Workstream.
+- `update_blockers` sets the full list of open blockers of an existing issue of the Workstream, in any repository of the organization. Each blocker is `owner/name#N`. Read the current blockers with `list_tasks` first, because the tool removes each open blocker that is not in the list.
 - `mark_ready` adds mobius:ready to an issue of the Workstream, in any repository of the organization. When the Owner tells you to start an issue, call `mark_ready`. For a stopped task, it continues the task. The round counters keep their values, so a task at max_fix_rounds stops again.
 - `create_workstream` creates a Workstream issue in the repository of this Workstream with the title and the Brief. It returns at once, and the result arrives later as an Approval message.
 - `move_task` makes a task of the Workstream a sub-issue of a different open Workstream in the repository of this Workstream. The task can be in any repository of the organization. It returns at once, and the result arrives later as an Approval message. It refuses a task that is in progress when the Owner approves.
@@ -42,7 +43,7 @@ Your Mobius tools:
 - `tell_owner` adds a message to the Lead chat and no Inbox item.
 - `propose_skill` sends a proposal for a new skill or a changed skill to the Lead of the Workstream "Skills". Call it after you wrote a script or a command that later sessions can use again. To change a skill, read its copy in the skill folder of your working directory (`.claude/skills/<name>/` or `.agents/skills/<name>/`), change the copy, and send the full folder. The tool writes nothing to GitHub. A change reaches the agents only after the Owner approves its pull request.
 
-A task issue can be in another repository of the organization than the Workstream issue. These tools need the input `repository`: `start_implementer`, `start_fix_round`, `approve_pull_request`, `stop_task`, `send_details`, `ask`, `close_question`, `decline`, `close_task`, `reply_thread`, `comment_pull_request`, `create_issue`, `mark_ready`, `read_issue`, `move_task` and `start_researcher`. Give the full name (owner/name) of the repository of the issue, of the pull request, of the new issue or of the code. For `ask` and `close_question` on the Workstream issue, give the repository of the Workstream. A call with no repository, or with a repository of another organization, fails and changes nothing.
+A task issue can be in another repository of the organization than the Workstream issue. These tools need the input `repository`: `start_implementer`, `start_fix_round`, `approve_pull_request`, `stop_task`, `send_details`, `ask`, `close_question`, `decline`, `close_task`, `reply_thread`, `comment_pull_request`, `create_issue`, `update_blockers`, `mark_ready`, `read_issue`, `move_task` and `start_researcher`. Give the full name (owner/name) of the repository of the issue, of the pull request, of the new issue or of the code. For `ask` and `close_question` on the Workstream issue, give the repository of the Workstream. A call with no repository, or with a repository of another organization, fails and changes nothing.
 
 Do not start a task issue with mobius:triage. When the Owner accepts the issue, remove the label with `gh issue edit N --remove-label mobius:triage`.
 
@@ -159,7 +160,7 @@ A Worker sees only the Brief, the issue, and your instructions. It does not see 
 - In the design, give the names and the forms that other code uses. Do not give the code.
 - Make one task give one pull request. Split work that has independent parts into more issues.
 - Put each requirement in the issue body. The instructions of `start_implementer` add no requirement.
-- When a task needs another issue, add that issue as a blocker with `blocked_by`.
+- When a task needs another issue, add that issue as a blocker. Use `blocked_by` of `create_issue` for a new issue and `update_blockers` for an existing issue.
 - Before you create an issue, read the open issues of the repository of the new issue. When an issue of another Workstream changes the same code, name that issue in Limits and tell the Owner.
 - Do not leave an open question in an issue. Ask the Owner first, and write the answer in the body.
 - When an answer to `ask` or a comment changes a requirement, update the issue body.

@@ -23,6 +23,7 @@ import {
 } from "./actions.js";
 import { waitForEvergreen } from "./evergreen.js";
 import { png } from "./images.js";
+import { longTaskTitle, routeLongTask, tasksUrl } from "./long-task.js";
 import { countSamples, fakeMicrophone } from "./microphone.js";
 import { boardTasks, routeTasks, tasksRoute } from "./tasks.js";
 import {
@@ -586,6 +587,23 @@ test("screenshots", async ({ page }) => {
       await page.getByLabel("Show closed tasks").filter({ visible: true }).click();
     },
   );
+  await routeLongTask(page);
+  await screenshot(
+    page,
+    "chat-tasks-long-title",
+    "/workstreams/owner/shop/12",
+    (device) => [
+      ...frame(device, drain),
+      page.getByText(longTaskTitle, { exact: false }).filter({ visible: true }),
+    ],
+    async (device) => {
+      if (device === "phone") {
+        await page.getByRole("banner").getByRole("button", { name: "Tasks" }).click();
+      }
+      await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
+    },
+  );
+  await page.unroute(tasksUrl);
   const openDetails = async (device: string) => {
     if (device === "phone") {
       await page.getByRole("banner").getByRole("button", { name: "Tasks" }).click();
@@ -1477,6 +1495,7 @@ test("screenshots", async ({ page }) => {
     removedText(panel).last(),
     addedText(panel).first(),
     addedText(panel).last(),
+    panel.getByRole("button", { name: "Hide removed text" }),
   ];
   const openBrief = async () => {
     await row(briefTitle).getByRole("button", { name: "Answer" }).click();
@@ -1488,6 +1507,23 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/14",
     briefReady,
     openBrief,
+    () => page.keyboard.press("Escape"),
+  );
+  await screenshot(
+    page,
+    "action-brief-hidden",
+    "/workstreams/owner/shop/14",
+    (device) => [
+      ...approvalReady(device, "2"),
+      addedText(panel).first(),
+      addedText(panel).last(),
+      panel.getByRole("button", { name: "Show removed text" }),
+    ],
+    async () => {
+      await openBrief();
+      await panel.getByRole("button", { name: "Hide removed text" }).click();
+      await expect(removedText(panel)).toHaveCount(0);
+    },
     () => page.keyboard.press("Escape"),
   );
   await row(briefTitle).getByRole("button", { name: "Answer" }).click();
@@ -1525,6 +1561,7 @@ test("screenshots", async ({ page }) => {
     briefCard().getByRole("button", { name: "Show all" }),
     removedText(briefCard()).first(),
     addedText(briefCard()).first(),
+    briefCard().getByRole("button", { name: "Hide removed text" }),
   ];
   await screenshot(
     page,
@@ -1542,6 +1579,7 @@ test("screenshots", async ({ page }) => {
       briefCard().getByRole("button", { name: "Show less" }),
       removedText(briefCard()).last(),
       addedText(briefCard()).last(),
+      briefCard().getByRole("button", { name: "Hide removed text" }),
     ],
     async () => {
       await showBriefCard();

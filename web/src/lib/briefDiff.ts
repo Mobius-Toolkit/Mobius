@@ -79,10 +79,13 @@ function markable(parts: Part[], removed: string, added: string) {
   return true;
 }
 
-function changedLines(parts: Part[]) {
+function changedLines(parts: Part[], hideRemoved: boolean) {
   const removed = textOf(parts, "added");
   const added = textOf(parts, "removed");
   if (!markable(parts, removed, added)) {
+    if (hideRemoved) {
+      return [markLine(added, addedMark)];
+    }
     const markedRemoved = markLine(removed, removedMark);
     const markedAdded = markLine(added, addedMark);
     if (markedRemoved === removed) {
@@ -96,7 +99,9 @@ function changedLines(parts: Part[]) {
     parts
       .map((part) =>
         part.kind === "removed"
-          ? mark(part.text, removedMark)
+          ? hideRemoved
+            ? ""
+            : mark(part.text, removedMark)
           : part.kind === "added"
             ? mark(part.text, addedMark)
             : part.text,
@@ -109,8 +114,9 @@ function changedLines(parts: Part[]) {
 // A fenced code block shows the new lines with no mark.
 // A removed blank line stays when a removed line is above or below it, and so does a removed table separator below a removed line.
 // Thus a removed block keeps its shape.
+// With hideRemoved, the Markdown has no removed text, and a changed line that cannot show a mark is one added line.
 // A blank line separates a removed line from a changed or added line when the two lines are separate blocks.
-export function briefMarkdown(diff: DiffLine[]): string {
+export function briefMarkdown(diff: DiffLine[], hideRemoved = false): string {
   const out: string[] = [];
   let inFence = false;
   let inOldFence = false;
@@ -124,6 +130,9 @@ export function briefMarkdown(diff: DiffLine[]): string {
       inOldFence = !inOldFence;
     }
     if (line.kind === "removed") {
+      if (hideRemoved) {
+        continue;
+      }
       const marked = markLine(line.text, removedMark);
       if (!inFence && !wasInOldFence && !fence.test(line.text)) {
         if (marked !== line.text) {
@@ -156,7 +165,7 @@ export function briefMarkdown(diff: DiffLine[]): string {
     } else if (inFence) {
       out.push(text);
     } else if (line.kind === "changed") {
-      out.push(...changedLines(line.parts));
+      out.push(...changedLines(line.parts, hideRemoved));
     } else {
       out.push(line.kind === "added" ? markLine(text, addedMark) : text);
     }

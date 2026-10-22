@@ -1,6 +1,7 @@
 import { expect, test, type Locator, type Page, type Route } from "@playwright/test";
 import { waitForEvergreen } from "./evergreen.js";
 import { pasteImage, png } from "./images.js";
+import { longTaskTitle, routeLongTask } from "./long-task.js";
 import { fakeMicrophone } from "./microphone.js";
 import { addStoppedItems, removeItems } from "./stopped-items.js";
 import {
@@ -2285,3 +2286,36 @@ test("a Lead action with an error shows the error in its row in the chat", async
       .getByRole("alert"),
   ).toHaveText("GitHub refused the edit of the Brief");
 });
+
+for (const viewport of [
+  { name: "desktop", width: 1280, height: 800 },
+  { name: "phone", width: 390, height: 844 },
+]) {
+  test(`a long word in a task title does not widen the Tasks tab in the ${viewport.name} viewport`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await routeLongTask(page);
+    await page.goto(shop);
+    if (viewport.name === "phone") {
+      await page.getByRole("banner").getByRole("button", { name: "Tasks" }).click();
+    }
+    const panel = page.getByRole("tabpanel", { name: "Tasks" }).filter({ visible: true });
+    const row = panel.getByRole("listitem").filter({ hasText: longTaskTitle });
+    await expect(row).toBeVisible();
+
+    const widths = await panel.evaluate((el) => {
+      const boxes = [];
+      for (let box: Element | null = el; box; box = box.parentElement) {
+        boxes.push({ scrollWidth: box.scrollWidth, clientWidth: box.clientWidth });
+      }
+      return boxes;
+    });
+    for (const box of widths) {
+      expect(box.scrollWidth).toBeLessThanOrEqual(box.clientWidth);
+    }
+    const panelBox = await panel.boundingBox();
+    const rowBox = await row.boundingBox();
+    expect(rowBox!.x + rowBox!.width).toBeLessThanOrEqual(panelBox!.x + panelBox!.width);
+  });
+}
