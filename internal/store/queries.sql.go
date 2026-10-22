@@ -628,7 +628,7 @@ func (q *Queries) AddOwnerAnswer(ctx context.Context, arg AddOwnerAnswerParams) 
 const addPendingAction = `-- name: AddPendingAction :one
 INSERT INTO pending_actions (organization, repository, workstream, issue, role, tool, arguments, state, time)
 VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)
-RETURNING id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, created_issue
+RETURNING id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, created_issue, old_brief
 `
 
 type AddPendingActionParams struct {
@@ -673,6 +673,7 @@ func (q *Queries) AddPendingAction(ctx context.Context, arg AddPendingActionPara
 		&i.ChatMessage,
 		&i.InboxItem,
 		&i.CreatedIssue,
+		&i.OldBrief,
 	)
 	return i, err
 }
@@ -1028,7 +1029,7 @@ func (q *Queries) AppendChatMessage(ctx context.Context, arg AppendChatMessagePa
 
 const claimPendingAction = `-- name: ClaimPendingAction :one
 UPDATE pending_actions SET running = 1 WHERE id = ? AND state = 'pending' AND running = 0
-RETURNING id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, created_issue
+RETURNING id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, created_issue, old_brief
 `
 
 func (q *Queries) ClaimPendingAction(ctx context.Context, id int64) (PendingAction, error) {
@@ -1053,6 +1054,7 @@ func (q *Queries) ClaimPendingAction(ctx context.Context, id int64) (PendingActi
 		&i.ChatMessage,
 		&i.InboxItem,
 		&i.CreatedIssue,
+		&i.OldBrief,
 	)
 	return i, err
 }
@@ -1634,7 +1636,7 @@ func (q *Queries) EndTriagerTurn(ctx context.Context, arg EndTriagerTurnParams) 
 
 const failPendingAction = `-- name: FailPendingAction :one
 UPDATE pending_actions SET running = 0, error = ? WHERE id = ?
-RETURNING id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, created_issue
+RETURNING id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, created_issue, old_brief
 `
 
 type FailPendingActionParams struct {
@@ -1664,6 +1666,7 @@ func (q *Queries) FailPendingAction(ctx context.Context, arg FailPendingActionPa
 		&i.ChatMessage,
 		&i.InboxItem,
 		&i.CreatedIssue,
+		&i.OldBrief,
 	)
 	return i, err
 }
@@ -1717,7 +1720,7 @@ func (q *Queries) FindOpenCIFailure(ctx context.Context, arg FindOpenCIFailurePa
 const finishPendingAction = `-- name: FinishPendingAction :one
 UPDATE pending_actions SET state = 'done', running = 0, error = '', result = ?, message = ?, decided_at = ?
 WHERE id = ?
-RETURNING id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, created_issue
+RETURNING id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, created_issue, old_brief
 `
 
 type FinishPendingActionParams struct {
@@ -1754,6 +1757,7 @@ func (q *Queries) FinishPendingAction(ctx context.Context, arg FinishPendingActi
 		&i.ChatMessage,
 		&i.InboxItem,
 		&i.CreatedIssue,
+		&i.OldBrief,
 	)
 	return i, err
 }
@@ -2476,7 +2480,7 @@ func (q *Queries) GetOpenCheckTimeout(ctx context.Context, repository string) (C
 }
 
 const getPendingAction = `-- name: GetPendingAction :one
-SELECT id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, created_issue FROM pending_actions WHERE id = ?
+SELECT id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, created_issue, old_brief FROM pending_actions WHERE id = ?
 `
 
 func (q *Queries) GetPendingAction(ctx context.Context, id int64) (PendingAction, error) {
@@ -2501,12 +2505,13 @@ func (q *Queries) GetPendingAction(ctx context.Context, id int64) (PendingAction
 		&i.ChatMessage,
 		&i.InboxItem,
 		&i.CreatedIssue,
+		&i.OldBrief,
 	)
 	return i, err
 }
 
 const getPendingActionByChatMessage = `-- name: GetPendingActionByChatMessage :one
-SELECT id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, created_issue FROM pending_actions WHERE chat_message = ?
+SELECT id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, created_issue, old_brief FROM pending_actions WHERE chat_message = ?
 `
 
 func (q *Queries) GetPendingActionByChatMessage(ctx context.Context, chatMessage sql.NullInt64) (PendingAction, error) {
@@ -2531,12 +2536,13 @@ func (q *Queries) GetPendingActionByChatMessage(ctx context.Context, chatMessage
 		&i.ChatMessage,
 		&i.InboxItem,
 		&i.CreatedIssue,
+		&i.OldBrief,
 	)
 	return i, err
 }
 
 const getPendingActionByInboxItem = `-- name: GetPendingActionByInboxItem :one
-SELECT id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, created_issue FROM pending_actions WHERE inbox_item = ?
+SELECT id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, created_issue, old_brief FROM pending_actions WHERE inbox_item = ?
 `
 
 func (q *Queries) GetPendingActionByInboxItem(ctx context.Context, inboxItem sql.NullInt64) (PendingAction, error) {
@@ -2561,6 +2567,7 @@ func (q *Queries) GetPendingActionByInboxItem(ctx context.Context, inboxItem sql
 		&i.ChatMessage,
 		&i.InboxItem,
 		&i.CreatedIssue,
+		&i.OldBrief,
 	)
 	return i, err
 }
@@ -2897,7 +2904,7 @@ func (q *Queries) KeepLeadFindings(ctx context.Context, arg KeepLeadFindingsPara
 
 const linkPendingAction = `-- name: LinkPendingAction :one
 UPDATE pending_actions SET chat_message = ?, inbox_item = ? WHERE id = ?
-RETURNING id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, created_issue
+RETURNING id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, created_issue, old_brief
 `
 
 type LinkPendingActionParams struct {
@@ -2928,6 +2935,7 @@ func (q *Queries) LinkPendingAction(ctx context.Context, arg LinkPendingActionPa
 		&i.ChatMessage,
 		&i.InboxItem,
 		&i.CreatedIssue,
+		&i.OldBrief,
 	)
 	return i, err
 }
@@ -5566,7 +5574,7 @@ func (q *Queries) ListRecentMemoryVersions(ctx context.Context, repository strin
 }
 
 const listReplaceablePendingActions = `-- name: ListReplaceablePendingActions :many
-SELECT id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, created_issue FROM pending_actions
+SELECT id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, created_issue, old_brief FROM pending_actions
 WHERE organization = ? AND repository = ? AND workstream = ? AND issue = ? AND role = ? AND tool = ?
   AND state = 'pending' AND running = 0 AND id <> ?
 ORDER BY id
@@ -5618,6 +5626,7 @@ func (q *Queries) ListReplaceablePendingActions(ctx context.Context, arg ListRep
 			&i.ChatMessage,
 			&i.InboxItem,
 			&i.CreatedIssue,
+			&i.OldBrief,
 		); err != nil {
 			return nil, err
 		}
@@ -6628,7 +6637,7 @@ func (q *Queries) RecoverTask(ctx context.Context, arg RecoverTaskParams) (int64
 const rejectPendingAction = `-- name: RejectPendingAction :one
 UPDATE pending_actions SET state = 'rejected', message = ?, decided_at = ?
 WHERE id = ? AND state = 'pending' AND running = 0
-RETURNING id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, created_issue
+RETURNING id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, created_issue, old_brief
 `
 
 type RejectPendingActionParams struct {
@@ -6659,6 +6668,7 @@ func (q *Queries) RejectPendingAction(ctx context.Context, arg RejectPendingActi
 		&i.ChatMessage,
 		&i.InboxItem,
 		&i.CreatedIssue,
+		&i.OldBrief,
 	)
 	return i, err
 }
@@ -6698,7 +6708,7 @@ func (q *Queries) ReopenInboxItem(ctx context.Context, id int64) (InboxItem, err
 const replacePendingAction = `-- name: ReplacePendingAction :one
 UPDATE pending_actions SET state = 'replaced', decided_at = ?
 WHERE id = ? AND state = 'pending' AND running = 0
-RETURNING id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, created_issue
+RETURNING id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, created_issue, old_brief
 `
 
 type ReplacePendingActionParams struct {
@@ -6728,6 +6738,7 @@ func (q *Queries) ReplacePendingAction(ctx context.Context, arg ReplacePendingAc
 		&i.ChatMessage,
 		&i.InboxItem,
 		&i.CreatedIssue,
+		&i.OldBrief,
 	)
 	return i, err
 }
@@ -7035,6 +7046,20 @@ type SetPendingActionCreatedIssueParams struct {
 
 func (q *Queries) SetPendingActionCreatedIssue(ctx context.Context, arg SetPendingActionCreatedIssueParams) error {
 	_, err := q.db.ExecContext(ctx, setPendingActionCreatedIssue, arg.CreatedIssue, arg.ID)
+	return err
+}
+
+const setPendingActionOldBrief = `-- name: SetPendingActionOldBrief :exec
+UPDATE pending_actions SET old_brief = ? WHERE id = ?
+`
+
+type SetPendingActionOldBriefParams struct {
+	OldBrief string
+	ID       int64
+}
+
+func (q *Queries) SetPendingActionOldBrief(ctx context.Context, arg SetPendingActionOldBriefParams) error {
+	_, err := q.db.ExecContext(ctx, setPendingActionOldBrief, arg.OldBrief, arg.ID)
 	return err
 }
 
@@ -7548,7 +7573,7 @@ func (q *Queries) UpdateCopiedWorkstream(ctx context.Context, arg UpdateCopiedWo
 const withdrawPendingAction = `-- name: WithdrawPendingAction :one
 UPDATE pending_actions SET state = 'withdrawn', decided_at = ?
 WHERE id = ? AND state = 'pending' AND running = 0
-RETURNING id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, created_issue
+RETURNING id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, created_issue, old_brief
 `
 
 type WithdrawPendingActionParams struct {
@@ -7578,6 +7603,7 @@ func (q *Queries) WithdrawPendingAction(ctx context.Context, arg WithdrawPending
 		&i.ChatMessage,
 		&i.InboxItem,
 		&i.CreatedIssue,
+		&i.OldBrief,
 	)
 	return i, err
 }

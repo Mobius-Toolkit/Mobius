@@ -1025,6 +1025,9 @@ RETURNING *;
 -- name: SetPendingActionCreatedIssue :exec
 UPDATE pending_actions SET created_issue = ? WHERE id = ?;
 
+-- name: SetPendingActionOldBrief :exec
+UPDATE pending_actions SET old_brief = ? WHERE id = ?;
+
 -- name: FailRunningPendingActions :exec
 UPDATE pending_actions SET running = 0, error = ? WHERE running = 1;
 

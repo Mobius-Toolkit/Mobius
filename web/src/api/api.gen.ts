@@ -15,6 +15,14 @@ export interface ActionArgument {
 }
 
 /**
+ * ActionBrief is the current Brief of the Workstream of an edit_brief action.
+ */
+export interface ActionBrief {
+  /** Brief is the body of the Workstream issue now, with no Lead chat link line and no white space at the end */
+  brief: string;
+}
+
+/**
  * Agent is the session of an agent.
  */
 export interface Agent {
@@ -293,6 +301,8 @@ export interface PendingAction {
   id: number;
   /** Message is the message of the Owner with the decision, or empty */
   message: string;
+  /** OldBrief is the Brief that the approval of edit_brief overwrote, with no Lead chat link. It is empty for the other tools, for a pending action, and for an action of an older release */
+  oldBrief: string;
   /** Result is the result text of the tool after the run, or empty */
   result: string;
   /** Role is the Role of the agent that called the tool */
@@ -603,6 +613,14 @@ export const DrainEndEnd = {
 export interface DrainEnd {
   /** End is drained when no agent of Mobius runs, and cancelled when the Owner cancelled the drain */
   end: DrainEndEnd;
+}
+
+/**
+ * Envelope is the body of each success response.
+ */
+export interface EnvelopeActionBrief {
+  /** Data is the payload of the response */
+  data: ActionBrief;
 }
 
 /**
@@ -1865,6 +1883,81 @@ export const approveAction = async (id: number,
 
   const data: approveActionResponse['data'] = body ? JSON.parse(body) : {}
   return { data, status: res.status, headers: res.headers } as approveActionResponse
+}
+
+
+
+export type getActionBriefResponse200 = {
+  data: EnvelopeActionBrief
+  status: 200
+}
+
+export type getActionBriefResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type getActionBriefResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type getActionBriefResponse404 = {
+  data: ErrorResponse
+  status: 404
+}
+
+export type getActionBriefResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
+export type getActionBriefResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type getActionBriefResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type getActionBriefResponseSuccess = (getActionBriefResponse200) & {
+  headers: Headers;
+};
+export type getActionBriefResponseError = (getActionBriefResponse400 | getActionBriefResponse401 | getActionBriefResponse404 | getActionBriefResponse409 | getActionBriefResponse422 | getActionBriefResponse500) & {
+  headers: Headers;
+};
+
+export type getActionBriefResponse = (getActionBriefResponseSuccess | getActionBriefResponseError)
+
+export const getGetActionBriefUrl = (id: number,) => {
+
+
+
+
+  return `/api/actions/${id}/brief`
+}
+
+/**
+ * GetActionBrief reads the Workstream issue of an edit_brief action from GitHub. It returns 404 for an unknown action, and 409 for an action of another tool.
+ */
+export const getActionBrief = async (id: number, ): Promise<getActionBriefResponse> => {
+
+  const res = await fetch(getGetActionBriefUrl(id),
+  {
+
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: getActionBriefResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as getActionBriefResponse
 }
 
 

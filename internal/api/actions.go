@@ -36,6 +36,9 @@ type PendingAction struct {
 	Message string `gork:"message"`
 	// Time is the time of the call
 	Time time.Time `gork:"time"`
+	// OldBrief is the Brief that the approval of edit_brief overwrote, with no Lead chat link. It is empty for the
+	// other tools, for a pending action, and for an action of an older release
+	OldBrief string `gork:"oldBrief"`
 	// DecidedAt is the time when the action was done, rejected, replaced or withdrawn, or null
 	DecidedAt *time.Time `gork:"decidedAt"`
 }
@@ -105,6 +108,41 @@ func (h *handlers) RejectAction(ctx context.Context, req RejectActionRequest) (*
 	return &RejectActionResponse{Body: Envelope[PendingAction]{Data: found}}, nil
 }
 
+// GetActionBriefRequest is the request of GetActionBrief.
+type GetActionBriefRequest struct {
+	Path struct {
+		// ID is the id of the action
+		ID int64 `gork:"id"`
+	}
+}
+
+// ActionBrief is the current Brief of the Workstream of an edit_brief action.
+type ActionBrief struct {
+	// Brief is the body of the Workstream issue now, with no Lead chat link line and no white space at the end
+	Brief string `gork:"brief"`
+}
+
+// GetActionBriefResponse is the response of GetActionBrief.
+type GetActionBriefResponse struct {
+	Body Envelope[ActionBrief]
+}
+
+// GetActionBrief reads the Workstream issue of an edit_brief action from GitHub. It returns 404 for an unknown
+// action, and 409 for an action of another tool.
+func (h *handlers) GetActionBrief(ctx context.Context, req GetActionBriefRequest) (*GetActionBriefResponse, error) {
+	brief, err := h.engine.ActionBrief(ctx, req.Path.ID)
+	if errors.Is(err, engine.ErrNoAction) {
+		return nil, api.NewHTTPError(http.StatusNotFound, "There is no such action.")
+	}
+	if engine.Refused(err) {
+		return nil, api.NewHTTPError(http.StatusConflict, err.Error())
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &GetActionBriefResponse{Body: Envelope[ActionBrief]{Data: ActionBrief{Brief: brief}}}, nil
+}
+
 func (h *handlers) decided(action store.PendingAction, err error) (PendingAction, error) {
 	if errors.Is(err, engine.ErrNoAction) {
 		return PendingAction{}, api.NewHTTPError(http.StatusNotFound, "There is no such action.")
@@ -136,6 +174,7 @@ func actionOf(action store.PendingAction) (PendingAction, error) {
 		Error:     action.Error,
 		Result:    action.Result,
 		Message:   action.Message,
+		OldBrief:  action.OldBrief,
 		Time:      t,
 	}
 	for _, argument := range arguments {
