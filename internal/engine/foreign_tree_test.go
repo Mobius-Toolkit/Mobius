@@ -86,6 +86,8 @@ func TestTheWontDoClosureAndTheDetailsOfAWorkstreamHaveATaskIssueOfAnotherReposi
 	}
 }
 
+var gardenWontDoComment = testkit.Comment{Author: wontDoComment.Author, Body: `The Workstream owner/shop#12 closed as "won't do".`}
+
 func TestAWontDoCloseWritesToATaskIssueAndAPullRequestOfAnotherRepositoryAndNotToTheIssuesOfTheWorkstreamRepositoryWithTheSameNumbers(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
@@ -106,7 +108,7 @@ func TestAWontDoCloseWritesToATaskIssueAndAPullRequestOfAnotherRepositoryAndNotT
 		if state, _ := fake.State(garden, number); state != "closed" {
 			t.Errorf("state of %s#%d = %s", garden, number, state)
 		}
-		if comments := fake.Comments(garden, number); !slices.Contains(comments, wontDoComment) {
+		if comments := fake.Comments(garden, number); !slices.Contains(comments, gardenWontDoComment) {
 			t.Errorf("comments of %s#%d = %v", garden, number, comments)
 		}
 		if !slices.Contains(fake.Labels(garden, number), wontDo) {

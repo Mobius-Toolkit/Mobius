@@ -198,14 +198,17 @@ func (e *Engine) CloseWorkstreamWontDo(ctx context.Context, repositoryName strin
 	if err != nil {
 		return err
 	}
-	text := fmt.Sprintf("The Workstream #%d closed as \"won't do\".", number)
 	var closed *gh.Issue
 	for _, item := range items {
 		source, err := e.repository(item.Repository)
 		if err != nil {
 			return err
 		}
-		if _, err := source.AddComment(ctx, item.Number, text); err != nil {
+		workstream := fmt.Sprintf("#%d", number)
+		if item.Repository != repository.FullName {
+			workstream = fmt.Sprintf("%s#%d", repository.FullName, number)
+		}
+		if _, err := source.AddComment(ctx, item.Number, fmt.Sprintf("The Workstream %s closed as \"won't do\".", workstream)); err != nil {
 			return err
 		}
 		if err := source.AddLabel(ctx, item.Number, wontDoLabel); err != nil {
