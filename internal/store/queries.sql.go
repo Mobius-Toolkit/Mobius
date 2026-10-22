@@ -345,21 +345,22 @@ func (q *Queries) AddCopiedIssueLabelIfMissing(ctx context.Context, arg AddCopie
 }
 
 const addCopiedWorkstream = `-- name: AddCopiedWorkstream :exec
-INSERT INTO copied_workstreams (repository, number, title, body, autopilot, evergreen, skills, created_at)
+INSERT INTO copied_workstreams (repository, number, title, body, autopilot, evergreen, skills, maintenance, created_at)
 VALUES (?1, ?2, ?3, ?4, CAST(?5 AS BOOLEAN), CAST(?6 AS BOOLEAN),
-        CAST(?7 AS BOOLEAN), ?8)
+        CAST(?7 AS BOOLEAN), CAST(?8 AS BOOLEAN), ?9)
 ON CONFLICT (repository, number) DO NOTHING
 `
 
 type AddCopiedWorkstreamParams struct {
-	Repository string
-	Number     int64
-	Title      string
-	Body       string
-	Autopilot  bool
-	Evergreen  bool
-	Skills     bool
-	CreatedAt  string
+	Repository  string
+	Number      int64
+	Title       string
+	Body        string
+	Autopilot   bool
+	Evergreen   bool
+	Skills      bool
+	Maintenance bool
+	CreatedAt   string
 }
 
 // The Lead tool create_workstream and the poll can both add a new Workstream.
@@ -372,6 +373,7 @@ func (q *Queries) AddCopiedWorkstream(ctx context.Context, arg AddCopiedWorkstre
 		arg.Autopilot,
 		arg.Evergreen,
 		arg.Skills,
+		arg.Maintenance,
 		arg.CreatedAt,
 	)
 	return err
@@ -1943,7 +1945,8 @@ func (q *Queries) GetCopiedIssueWorkstream(ctx context.Context, arg GetCopiedIss
 }
 
 const getCopiedWorkstream = `-- name: GetCopiedWorkstream :one
-SELECT title, body, CAST(evergreen AS BOOLEAN) AS evergreen, created_at FROM copied_workstreams WHERE repository = ? AND number = ?
+SELECT title, body, CAST(evergreen AS BOOLEAN) AS evergreen, CAST(maintenance AS BOOLEAN) AS maintenance, CAST(skills AS BOOLEAN) AS skills, created_at
+FROM copied_workstreams WHERE repository = ? AND number = ?
 `
 
 type GetCopiedWorkstreamParams struct {
@@ -1952,10 +1955,12 @@ type GetCopiedWorkstreamParams struct {
 }
 
 type GetCopiedWorkstreamRow struct {
-	Title     string
-	Body      string
-	Evergreen bool
-	CreatedAt string
+	Title       string
+	Body        string
+	Evergreen   bool
+	Maintenance bool
+	Skills      bool
+	CreatedAt   string
 }
 
 func (q *Queries) GetCopiedWorkstream(ctx context.Context, arg GetCopiedWorkstreamParams) (GetCopiedWorkstreamRow, error) {
@@ -1965,6 +1970,8 @@ func (q *Queries) GetCopiedWorkstream(ctx context.Context, arg GetCopiedWorkstre
 		&i.Title,
 		&i.Body,
 		&i.Evergreen,
+		&i.Maintenance,
+		&i.Skills,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -6944,6 +6951,22 @@ func (q *Queries) SetCopiedAutopilot(ctx context.Context, arg SetCopiedAutopilot
 	return err
 }
 
+const setCopiedEvergreen = `-- name: SetCopiedEvergreen :exec
+UPDATE copied_workstreams SET evergreen = CAST(?1 AS BOOLEAN)
+WHERE repository = ?2 AND number = ?3
+`
+
+type SetCopiedEvergreenParams struct {
+	Evergreen  bool
+	Repository string
+	Number     int64
+}
+
+func (q *Queries) SetCopiedEvergreen(ctx context.Context, arg SetCopiedEvergreenParams) error {
+	_, err := q.db.ExecContext(ctx, setCopiedEvergreen, arg.Evergreen, arg.Repository, arg.Number)
+	return err
+}
+
 const setFullSlotsItemAt = `-- name: SetFullSlotsItemAt :exec
 UPDATE full_slots SET item_at = ? WHERE item_at IS NULL
 `
@@ -7538,20 +7561,23 @@ func (q *Queries) UpdateCopiedIssue(ctx context.Context, arg UpdateCopiedIssuePa
 
 const updateCopiedWorkstream = `-- name: UpdateCopiedWorkstream :execrows
 UPDATE copied_workstreams SET title = ?1, body = ?2, autopilot = CAST(?3 AS BOOLEAN),
-    evergreen = CAST(?4 AS BOOLEAN), skills = CAST(?5 AS BOOLEAN)
-WHERE repository = ?6 AND number = ?7
+    evergreen = CAST(?4 AS BOOLEAN), skills = CAST(?5 AS BOOLEAN),
+    maintenance = CAST(?6 AS BOOLEAN)
+WHERE repository = ?7 AND number = ?8
   AND (title != ?1 OR body != ?2 OR autopilot != CAST(?3 AS BOOLEAN)
-       OR evergreen != CAST(?4 AS BOOLEAN) OR skills != CAST(?5 AS BOOLEAN))
+       OR evergreen != CAST(?4 AS BOOLEAN) OR skills != CAST(?5 AS BOOLEAN)
+       OR maintenance != CAST(?6 AS BOOLEAN))
 `
 
 type UpdateCopiedWorkstreamParams struct {
-	Title      string
-	Body       string
-	Autopilot  bool
-	Evergreen  bool
-	Skills     bool
-	Repository string
-	Number     int64
+	Title       string
+	Body        string
+	Autopilot   bool
+	Evergreen   bool
+	Skills      bool
+	Maintenance bool
+	Repository  string
+	Number      int64
 }
 
 func (q *Queries) UpdateCopiedWorkstream(ctx context.Context, arg UpdateCopiedWorkstreamParams) (int64, error) {
@@ -7561,6 +7587,7 @@ func (q *Queries) UpdateCopiedWorkstream(ctx context.Context, arg UpdateCopiedWo
 		arg.Autopilot,
 		arg.Evergreen,
 		arg.Skills,
+		arg.Maintenance,
 		arg.Repository,
 		arg.Number,
 	)

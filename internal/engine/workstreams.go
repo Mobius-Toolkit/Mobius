@@ -58,6 +58,9 @@ type WorkstreamDetails struct {
 	CreatedAt      time.Time
 	CompletedTasks int64
 	OpenTasks      int64
+	Evergreen      bool
+	Maintenance    bool
+	Skills         bool
 }
 
 // walkTasks calls visit for each task below the issue parent of repository, depth first in the order of the sub-issues,
@@ -150,7 +153,7 @@ func (e *Engine) WorkstreamDetails(ctx context.Context, repositoryName string, n
 	if err != nil {
 		return WorkstreamDetails{}, err
 	}
-	details := WorkstreamDetails{CreatedAt: createdAt}
+	details := WorkstreamDetails{CreatedAt: createdAt, Evergreen: copied.Evergreen, Maintenance: copied.Maintenance, Skills: copied.Skills}
 	for _, task := range tasks {
 		if task.state == "open" {
 			details.OpenTasks++
@@ -443,6 +446,42 @@ func (e *Engine) SetAutopilot(ctx context.Context, repositoryName string, number
 		}
 	}
 	err = e.queries.SetCopiedAutopilot(ctx, store.SetCopiedAutopilotParams{Autopilot: on, Repository: repositoryName, Number: number})
+	if err != nil {
+		return err
+	}
+	e.publish(Change{Workstreams: true})
+	return nil
+}
+
+// SetEvergreen adds or removes mobius:evergreen on the open Workstream number of repository. It refuses the Maintenance
+// Workstream and the Skills Workstream, because Mobius manages them.
+func (e *Engine) SetEvergreen(ctx context.Context, repositoryName string, number int64, on bool) error {
+	repository, err := e.repository(repositoryName)
+	if err != nil {
+		return err
+	}
+	copied, err := e.queries.GetCopiedWorkstream(ctx, store.GetCopiedWorkstreamParams{Repository: repository.FullName, Number: number})
+	if errors.Is(err, sql.ErrNoRows) {
+		return refuse("The issue is not an open Workstream.")
+	}
+	if err != nil {
+		return err
+	}
+	if copied.Maintenance {
+		return refuse("#%d is the Maintenance Workstream. Mobius manages it, so its evergreen value cannot change.", number)
+	}
+	if copied.Skills {
+		return refuse("#%d is the Skills Workstream. Mobius manages it, so its evergreen value cannot change.", number)
+	}
+	if on {
+		err = repository.AddLabel(ctx, number, evergreenLabel)
+	} else {
+		err = repository.RemoveLabel(ctx, number, evergreenLabel)
+	}
+	if err != nil {
+		return err
+	}
+	err = e.queries.SetCopiedEvergreen(ctx, store.SetCopiedEvergreenParams{Evergreen: on, Repository: repository.FullName, Number: number})
 	if err != nil {
 		return err
 	}
