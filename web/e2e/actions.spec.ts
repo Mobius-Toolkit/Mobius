@@ -565,6 +565,34 @@ test("the panel of an edit_brief action keeps a removed block apart from the nex
   await expect(dialog).not.toContainText("~~");
 });
 
+test("the panel of an edit_brief action keeps a removed last section apart from the list above it", async ({
+  page,
+}) => {
+  await page.route("**/api/actions/*/brief", (route) =>
+    route.fulfill({
+      json: {
+        data: {
+          brief:
+            "**Goal**\nLet customers renew a plan two months early.\n\n**Scope**\n- Add a button to the renewal page.\n\n**Limits**\n- Do not change the price of a plan.\n- Do not remove the old renewal page.\n\n**Removed title**\n- Removed child.",
+        },
+      },
+    }),
+  );
+  await openLeadChat(page);
+  await sendToLead(page, editBrief);
+  await expect(waiting(page, 1)).toBeVisible(agentTimeout);
+  await answer(page, briefTitle);
+
+  const dialog = panel(page);
+  await expect(removedText(dialog)).toHaveText(["Removed title", "Removed child."]);
+  await expect(dialog.locator("li", { hasText: "Removed title" })).toHaveCount(0);
+  await expect(dialog.locator("li", { hasText: "Removed child." })).toHaveCount(1);
+  await expect(
+    dialog.locator("li", { hasText: "Do not remove the old renewal page." }),
+  ).not.toContainText("Removed");
+  await expect(dialog).not.toContainText("~~");
+});
+
 test("the panel of an edit_brief action reads the Brief again each time it opens", async ({
   page,
 }) => {

@@ -92,12 +92,14 @@ function changedLines(parts: Part[]) {
 
 // Gives the Markdown of the new text with the removed text marked as ~~removed~~ and the added text as ==added==.
 // A fenced code block shows the new lines with no mark.
-// A removed blank line and a removed table separator stay when a removed line is above them, so the removed block keeps its shape.
+// A removed blank line stays when a removed line is above or below it, and so does a removed table separator below a removed line.
+// Thus a removed block keeps its shape.
 export function briefMarkdown(diff: DiffLine[]): string {
   const out: string[] = [];
   let inFence = false;
   let inOldFence = false;
   let afterRemoved = false;
+  let removedBlank = false;
   for (const line of diff) {
     const old = line.kind === "changed" ? textOf(line.parts, "added") : line.text;
     const wasInOldFence = inOldFence;
@@ -108,16 +110,23 @@ export function briefMarkdown(diff: DiffLine[]): string {
       const marked = markLine(line.text, removedMark);
       if (!inFence && !wasInOldFence && !fence.test(line.text)) {
         if (marked !== line.text) {
+          if (removedBlank) {
+            out.push("");
+          }
           out.push(marked);
           afterRemoved = true;
+          removedBlank = false;
         } else if (afterRemoved && (line.text.trim() === "" || tableRow.test(line.text))) {
           out.push(line.text);
           afterRemoved = line.text.trim() !== "";
+        } else if (line.text.trim() === "") {
+          removedBlank = true;
         }
       }
       continue;
     }
     afterRemoved = false;
+    removedBlank = false;
     const text = line.kind === "changed" ? textOf(line.parts, "removed") : line.text;
     if (fence.test(text)) {
       inFence = !inFence;
