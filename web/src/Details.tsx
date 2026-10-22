@@ -1,7 +1,8 @@
-import { use, useCallback, useEffect, useState } from "react";
+import { use, useCallback, useEffect, useId, useState } from "react";
 import {
   closeWorkstream,
   getWorkstreamDetails,
+  setEvergreen,
   workstreamClosure,
   type ClosureItem,
   type LiveEvents,
@@ -18,6 +19,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { onEvent } from "@/lib/events";
 import { LoginContext } from "@/lib/login";
 import { dayLong } from "@/lib/time";
@@ -117,6 +120,8 @@ export function Details({
   const [details, setDetails] = useState<WorkstreamDetails>();
   const [error, setError] = useState<string>();
   const [confirming, setConfirming] = useState(false);
+  const [evergreenBusy, setEvergreenBusy] = useState(false);
+  const evergreenId = useId();
 
   const load = useCallback(() => {
     getWorkstreamDetails(owner, name, number)
@@ -147,6 +152,25 @@ export function Details({
     };
   }, [source, load]);
 
+  const switchEvergreen = (on: boolean) => {
+    setEvergreenBusy(true);
+    setError(undefined);
+    setEvergreen(owner, name, number, { on })
+      .then((res) => {
+        if (res.status === 401) {
+          showLogin();
+        } else if (res.status === 204) {
+          setDetails((current) => current && { ...current, evergreen: on });
+        } else {
+          setError(res.data.error);
+        }
+      })
+      .catch((err: unknown) => setError(String(err)))
+      .finally(() => setEvergreenBusy(false));
+  };
+
+  const managed = details?.maintenance || details?.skills;
+
   return (
     <div className="grid gap-4 px-2">
       {error && <Badge variant="destructive">{error}</Badge>}
@@ -160,6 +184,22 @@ export function Details({
           <dd>{details.openTasks}</dd>
         </dl>
       )}
+      <div className="grid gap-1">
+        <div className="flex items-center gap-2">
+          <Switch
+            id={evergreenId}
+            checked={details?.evergreen ?? false}
+            disabled={!details || managed || evergreenBusy}
+            onCheckedChange={switchEvergreen}
+          />
+          <Label htmlFor={evergreenId}>Evergreen</Label>
+        </div>
+        {managed && (
+          <p className="text-sm text-muted-foreground">
+            Mobius manages this Workstream, so this value cannot change.
+          </p>
+        )}
+      </div>
       <Button
         variant="destructive"
         className="justify-self-start"

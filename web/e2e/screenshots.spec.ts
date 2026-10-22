@@ -596,6 +596,9 @@ test("screenshots", async ({ page }) => {
     .getByRole("tabpanel", { name: "Details" })
     .getByRole("button", { name: "Close" });
   const created = page.getByText("Sep 28, 2026").filter({ visible: true });
+  const evergreenSwitch = page
+    .getByRole("tabpanel", { name: "Details" })
+    .getByRole("switch", { name: "Evergreen" });
   await screenshot(
     page,
     "chat-details",
@@ -605,8 +608,57 @@ test("screenshots", async ({ page }) => {
       created,
       page.getByText("Completed tasks").filter({ visible: true }),
       closeButton,
+      evergreenSwitch,
     ],
     openDetails,
+  );
+  const sidebar = page.getByRole("navigation").first();
+  const workstreamsLink = sidebar.getByRole("link", { name: "Workstreams" });
+  const evergreenLink = sidebar.getByRole("link", { name: /^Integrate loyalty plans/ });
+  const sidebarShowsEvergreen = (on: boolean) => async () => {
+    if (await workstreamsLink.isVisible()) {
+      await expect
+        .poll(
+          async () =>
+            (await workstreamsLink.boundingBox())!.y > (await evergreenLink.boundingBox())!.y,
+        )
+        .toBe(on);
+    }
+  };
+  await screenshot(
+    page,
+    "chat-details-evergreen",
+    "/workstreams/owner/shop/12",
+    (device) => [...frame(device, drain), created, evergreenSwitch],
+    async (device) => {
+      await openDetails(device);
+      await evergreenSwitch.click();
+      await expect(evergreenSwitch).toBeChecked();
+      await sidebarShowsEvergreen(true)();
+    },
+    async () => {
+      await evergreenSwitch.click();
+      await expect(evergreenSwitch).not.toBeChecked();
+      await sidebarShowsEvergreen(false)();
+    },
+  );
+  await screenshot(
+    page,
+    "chat-details-maintenance",
+    "/workstreams/owner/shop/14",
+    (device) => [
+      ...frame(device, drain),
+      evergreenSwitch,
+      page
+        .getByText("Mobius manages this Workstream, so this value cannot change.")
+        .filter({ visible: true }),
+    ],
+    async (device) => {
+      await waitForEvergreen(page);
+      await openDetails(device);
+      await expect(evergreenSwitch).toBeChecked();
+      await expect(evergreenSwitch).toBeDisabled();
+    },
   );
   await screenshot(
     page,
