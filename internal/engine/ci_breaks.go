@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"slices"
+	"strings"
 
 	gh "github.com/google/go-github/v92/github"
 
@@ -17,7 +18,8 @@ import (
 // the new attempt passes, and hard when it fails. A hard break ends when a newer run of the workflow passes, or when a
 // later attempt of the failed run passes. When GitHub refuses the list of runs with a 4xx status (for example with no
 // permission), Mobius skips the CI for this poll. A workflow whose newest failed run already had a break, also an ended
-// one, starts a new break only with a newer failed run.
+// one, starts a new break only with a newer failed run. A run that passed the time limit of a job counts as a failed run
+// (see markTimedOutRuns).
 func (e *Engine) readDefaultBranchCI(ctx context.Context, repository github.Repository) error {
 	runs, err := repository.BranchWorkflowRuns(ctx, repository.DefaultBranch)
 	var refused *gh.ErrorResponse
@@ -30,6 +32,9 @@ func (e *Engine) readDefaultBranchCI(ctx context.Context, repository github.Repo
 	runs = slices.DeleteFunc(runs, func(run *gh.WorkflowRun) bool {
 		return run.GetHeadRepository().GetFullName() != repository.FullName
 	})
+	if err := e.markTimedOutRuns(ctx, repository, runs); err != nil {
+		return err
+	}
 	byID := map[int64]*gh.WorkflowRun{}
 	for _, run := range runs {
 		byID[run.GetID()] = run
@@ -102,6 +107,86 @@ func (e *Engine) diagnoseCIBreaks(ctx context.Context, repository github.Reposit
 	return nil
 }
 
+// timeLimitPrefix starts the message of the annotation that GitHub adds to a job that passed its time limit. GitHub gives
+// such a job, its run and its step the conclusion cancelled, as it does for a cancel by a newer push.
+const timeLimitPrefix = "The job has exceeded the maximum execution time"
+
+// markTimedOutRuns sets the conclusion timed_out on the newest run of a workflow when the run is completed, is cancelled,
+// has an id above the newest break run of its workflow, and one of its jobs passed its time limit. A 4xx answer of GitHub
+// for the jobs or the annotations means that the run is not timed out.
+func (e *Engine) markTimedOutRuns(ctx context.Context, repository github.Repository, runs []*gh.WorkflowRun) error {
+	for _, run := range newestWorkflowRuns(runs) {
+		if run.GetStatus() != "completed" || run.GetConclusion() != "cancelled" {
+			continue
+		}
+		newestRun, err := e.queries.NewestCIBreakRun(ctx, store.NewestCIBreakRunParams{Repository: repository.FullName, WorkflowID: run.GetWorkflowID()})
+		if err != nil {
+			return err
+		}
+		if run.GetID() <= newestRun {
+			continue
+		}
+		timedOut, err := attemptTimedOut(ctx, repository, run.GetID(), int64(run.GetRunAttempt()))
+		if err != nil {
+			return err
+		}
+		if timedOut {
+			run.Conclusion = new("timed_out")
+		}
+	}
+	return nil
+}
+
+// attemptTimedOut tells whether a job of the attempt of the run passed its time limit.
+func attemptTimedOut(ctx context.Context, repository github.Repository, run, attempt int64) (bool, error) {
+	jobs, err := repository.RunAttemptJobs(ctx, run, attempt)
+	if refusedByGitHub(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	for _, job := range jobs {
+		limit, err := jobTimeLimit(ctx, repository, job)
+		if limit != "" || err != nil {
+			return limit != "", err
+		}
+	}
+	return false, nil
+}
+
+// jobTimeLimit gives the message of the annotation of a job that passed its time limit, or "" for another job. A 4xx
+// answer of GitHub for the annotations gives "".
+func jobTimeLimit(ctx context.Context, repository github.Repository, job *gh.WorkflowJob) (string, error) {
+	if job.GetConclusion() != "cancelled" {
+		return "", nil
+	}
+	annotations, err := repository.CheckRunAnnotations(ctx, job.GetID())
+	if refusedByGitHub(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	for _, annotation := range annotations {
+		if strings.HasPrefix(annotation.GetMessage(), timeLimitPrefix) {
+			return annotation.GetMessage(), nil
+		}
+	}
+	return "", nil
+}
+
+// failedBreakStep gives the name of the first failed step of job. A job that passed its time limit has no failed step,
+// so the first cancelled step is the one.
+func failedBreakStep(job *gh.WorkflowJob, timeLimit string) string {
+	for _, step := range job.Steps {
+		if failedRunConclusion(step.GetConclusion()) || timeLimit != "" && step.GetConclusion() == "cancelled" {
+			return step.GetName()
+		}
+	}
+	return ""
+}
+
 func failedRunConclusion(conclusion string) bool {
 	return conclusion == "failure" || conclusion == "timed_out" || conclusion == "startup_failure"
 }
@@ -130,9 +215,10 @@ func (e *Engine) startCIBreak(ctx context.Context, repository github.Repository,
 // ends when a later attempt of the failed run passed: the list of runs gives the newest attempt of each run. A new
 // attempt that completes with a conclusion other than success, cancelled and skipped, and a newer failed run, make the
 // break hard. A cancelled or skipped attempt (a newer push cancels it) gives no result: the next completed run of the
-// workflow decides the break. Mobius stores the mark of the re-run after the call, so a run that already has a new attempt (for example
-// after a stop between the call and the mark) is not run again. When GitHub refuses the call with a 4xx status (for
-// example with no permission, or for a run older than 30 days), the failure stays a failure, so the break is hard.
+// workflow decides the break, unless a job of the attempt passed its time limit: then the attempt failed. Mobius stores
+// the mark of the re-run after the call, so a run that already has a new attempt (for example after a stop between the
+// call and the mark) is not run again. When GitHub refuses the call with a 4xx status (for example with no permission,
+// or for a run older than 30 days), the failure stays a failure, so the break is hard.
 // Another error returns, and the next poll tries again. A hard break that ends with a passed run closes its open task
 // issue first, unless an open failure record with a place on a pull request has the same issue: the issue then closes
 // only with its fix. A hard break with a task issue also ends when that issue is closed or GitHub does not find it, with no
@@ -158,8 +244,14 @@ func (e *Engine) advanceCIBreak(ctx context.Context, repository github.Repositor
 		return e.queries.SetCIBreakRerun(ctx, store.SetCIBreakRerunParams{RerunAt: now(), ID: ciBreak.ID})
 	}
 	passedAgain = passedAgain || newest != nil && newest.GetID() == ciBreak.RunID && newest.GetConclusion() == "success"
-	rerunCompleted := run != nil && run.GetStatus() == "completed" && int64(run.GetRunAttempt()) > ciBreak.RunAttempt &&
-		run.GetConclusion() != "cancelled" && run.GetConclusion() != "skipped"
+	rerunEnded := run != nil && run.GetStatus() == "completed" && int64(run.GetRunAttempt()) > ciBreak.RunAttempt && run.GetConclusion() != "skipped"
+	rerunCompleted := rerunEnded && run.GetConclusion() != "cancelled"
+	if ciBreak.Result == "" && rerunEnded && !rerunCompleted {
+		var err error
+		if rerunCompleted, err = attemptTimedOut(ctx, repository, run.GetID(), int64(run.GetRunAttempt())); err != nil {
+			return err
+		}
+	}
 	if ciBreak.Result == "" && rerunCompleted && run.GetConclusion() == "success" {
 		return e.endCIBreak(ctx, ciBreak, store.EndCIBreakParams{Result: "flaky", EndedRunID: run.GetID(), EndedAt: now(), ID: ciBreak.ID})
 	}

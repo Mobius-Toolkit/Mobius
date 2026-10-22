@@ -636,6 +636,37 @@ test("the panel of an edit_brief action keeps a rewritten line in the paragraph 
   await expect(dialog).not.toContainText("~~");
 });
 
+test("an edit_brief action that comes while the first read of the Inbox runs stays in the tray", async ({
+  page,
+}) => {
+  const gate = { open: () => {} };
+  const released = new Promise<void>((resolve) => (gate.open = resolve));
+  let fetched = false;
+  let first = true;
+  await page.route("**/api/inbox", async (route) => {
+    if (!first) {
+      return route.continue();
+    }
+    first = false;
+    const response = await route.fetch();
+    fetched = true;
+    await released;
+    await route.fulfill({ response });
+  });
+  await openLeadChat(page);
+  await expect.poll(() => fetched).toBe(true);
+  await sendToLead(page, editBrief);
+  await expect(waiting(page, 1)).toBeVisible(agentTimeout);
+
+  const answered = page.waitForResponse("**/api/inbox");
+  gate.open();
+  await (await answered).finished();
+  await page.evaluate(
+    "new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))",
+  );
+  await expect(waiting(page, 1)).toBeVisible();
+});
+
 test("the panel of an edit_brief action reads the Brief again each time it opens", async ({
   page,
 }) => {

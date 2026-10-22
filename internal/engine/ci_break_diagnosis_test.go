@@ -255,3 +255,37 @@ func TestTheStopHoldsTheDispatchWhileTheDiagnoserReadsAHardBreak(t *testing.T) {
 		t.Errorf("labels = %v", labels)
 	}
 }
+
+func TestTheDiagnoserPromptOfATimedOutRunNamesTheJobTheCancelledStepAndTheTimeLimit(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	prepareAutopilot(fake, false)
+	addMaintenanceWorkstream(fake, maintenance)
+	server := connectDiagnoser(t, fake, leadStarts, findsNothing)
+	server.WaitForFirstPoll(t, shop)
+	run := timedOutMainRun(fake, head(t, fake, "main"))
+	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true})
+
+	timeOutAgain(fake, run)
+
+	prompt := testkit.WaitForValue(t, func() (string, bool) {
+		sessions := diagnoserSessions(t, server)
+		if len(sessions) == 0 {
+			return "", false
+		}
+		prompts := promptTexts(t, server, sessions[0].ID)
+		if len(prompts) == 0 {
+			return "", false
+		}
+		return prompts[0], true
+	})
+	for _, want := range []string{
+		"- Job \"check / e2e\"\n",
+		"  Failed step: Install browsers\n",
+		"  Time limit: " + timeLimitMessage + "\n",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("%q is not in %s", want, prompt)
+		}
+	}
+}

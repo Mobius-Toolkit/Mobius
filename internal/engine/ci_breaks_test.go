@@ -58,6 +58,57 @@ func failedMainRun(workflow int64) testkit.WorkflowRun {
 	return testkit.WorkflowRun{Name: "ci", WorkflowID: workflow, Branch: "main", Status: "completed", Conclusion: "failure"}
 }
 
+const (
+	timeLimitMessage = "The job has exceeded the maximum execution time of 30m0s"
+	priorityCancel   = "Canceling since a higher priority waiting request for release exists"
+)
+
+// addCancelledJob adds the job "check / e2e" to the attempt of the run. The job ends cancelled in the step "Install
+// browsers" and has the annotations messages. The job has the id of its check run.
+func addCancelledJob(fake *testkit.FakeGitHub, run int64, attempt int, messages ...string) {
+	job := fake.AddCheckRun(shop, testkit.CheckRun{Name: "check / e2e", Status: "completed", Conclusion: "cancelled"})
+	fake.AddWorkflowJob(shop, run, attempt, testkit.WorkflowJob{ID: job, Name: "check / e2e", Conclusion: "cancelled", Steps: []testkit.WorkflowStep{
+		{Name: "Set up job", Conclusion: "success"},
+		{Name: "Install browsers", Conclusion: "cancelled"},
+	}})
+	for _, message := range messages {
+		fake.AddAnnotation(job, ".github", 1, message)
+	}
+	fake.AddJobLog(job, "Installing browsers\n")
+}
+
+// cancelledMainRun adds a cancelled run of the workflow on main at the commit sha with the cancelled job of
+// addCancelledJob.
+func cancelledMainRun(fake *testkit.FakeGitHub, workflow int64, sha string, messages ...string) int64 {
+	cancelled := failedMainRun(workflow)
+	cancelled.Conclusion = "cancelled"
+	cancelled.HeadSHA = sha
+	run := fake.AddWorkflowRun(shop, cancelled)
+	addCancelledJob(fake, run, 1, messages...)
+	return run
+}
+
+// timedOutMainRun adds a cancelled run of the workflow 7 at the commit sha whose job passed its time limit.
+func timedOutMainRun(fake *testkit.FakeGitHub, sha string) int64 {
+	return cancelledMainRun(fake, 7, sha, timeLimitMessage, "The operation was canceled.")
+}
+
+// timeOutAgain makes the re-run attempt of the run end cancelled because a job passed its time limit.
+func timeOutAgain(fake *testkit.FakeGitHub, run int64) {
+	addCancelledJob(fake, run, fake.WorkflowRunAttempt(run), timeLimitMessage)
+	fake.SetWorkflowRunStatus(run, "completed", "cancelled")
+}
+
+func annotationReads(fake *testkit.FakeGitHub) int {
+	n := 0
+	for _, request := range fake.Requests() {
+		if request.Method == http.MethodGet && strings.HasSuffix(request.Path, "/annotations") {
+			n++
+		}
+	}
+	return n
+}
+
 func openHardBreaks(t *testing.T, server *testserver.Server) []store.CiBreak {
 	t.Helper()
 	breaks, err := store.New(server.DB).ListOpenHardCIBreaks(t.Context(), shop)
@@ -345,6 +396,86 @@ func TestAFailedRunThatAHumanRanAgainGivesAHardBreakWithNoNewRerun(t *testing.T)
 
 	if attempt := fake.WorkflowRunAttempt(run); attempt != 2 {
 		t.Errorf("attempt = %d", attempt)
+	}
+}
+
+func TestATimedOutRunOnTheDefaultBranchStartsABreakAndGetsOneRerun(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	run := timedOutMainRun(fake, "")
+	server := startServer(t, fake, t.TempDir(), "")
+
+	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true})
+	waitForPolls(t, fake)
+
+	if attempt := fake.WorkflowRunAttempt(run); attempt != 2 {
+		t.Errorf("attempt = %d", attempt)
+	}
+	if breaks := ciBreaks(t, server); len(breaks) != 1 {
+		t.Errorf("breaks = %+v", breaks)
+	}
+}
+
+func TestARerunThatTimesOutAgainGivesAnOpenHardBreak(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	run := timedOutMainRun(fake, "")
+	server := startServer(t, fake, t.TempDir(), "")
+	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true})
+
+	timeOutAgain(fake, run)
+
+	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true, result: "hard"})
+	if breaks := openHardBreaks(t, server); len(breaks) != 1 || breaks[0].RunID != run {
+		t.Errorf("open hard breaks = %+v", breaks)
+	}
+}
+
+func TestARerunThatIsCancelledWithoutATimeLimitStillGivesNoResult(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	run := timedOutMainRun(fake, "")
+	server := startServer(t, fake, t.TempDir(), "")
+	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true})
+
+	addCancelledJob(fake, run, fake.WorkflowRunAttempt(run), priorityCancel)
+	reads := annotationReads(fake)
+	fake.SetWorkflowRunStatus(run, "completed", "cancelled")
+
+	testkit.WaitFor(t, func() bool { return annotationReads(fake) > reads })
+	waitForPolls(t, fake)
+	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true})
+}
+
+func TestATimedOutRunNewerThanTheBreakGivesAnOpenHardBreak(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	run := fake.AddWorkflowRun(shop, failedMainRun(7))
+	server := startServer(t, fake, t.TempDir(), "")
+	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true})
+
+	fake.SetWorkflowRunStatus(run, "completed", "cancelled")
+	timedOutMainRun(fake, "")
+
+	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true, result: "hard"})
+}
+
+func TestACancelledRunWithNoAnnotationOrOnlyThePriorityCancelStartsNoBreakAndGetsNoRerun(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	runs := []int64{cancelledMainRun(fake, 7, ""), cancelledMainRun(fake, 8, "", priorityCancel, "The operation was canceled.")}
+	server := startServer(t, fake, t.TempDir(), "")
+
+	testkit.WaitFor(t, func() bool { return annotationReads(fake) >= 2 })
+	waitForPolls(t, fake)
+
+	for _, run := range runs {
+		if attempt := fake.WorkflowRunAttempt(run); attempt != 1 {
+			t.Errorf("attempt of run %d = %d", run, attempt)
+		}
+	}
+	if breaks := ciBreaks(t, server); len(breaks) != 0 {
+		t.Errorf("breaks = %+v", breaks)
 	}
 }
 
