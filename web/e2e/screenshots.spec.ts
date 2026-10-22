@@ -491,7 +491,7 @@ test("screenshots", async ({ page }) => {
     ],
     async (device) => {
       if (device === "phone") {
-        await page.getByRole("banner").getByRole("button", { name: "Agents" }).click();
+        await page.getByRole("banner").getByRole("button", { name: "Tasks" }).click();
       }
       await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
     },
@@ -508,7 +508,7 @@ test("screenshots", async ({ page }) => {
     ],
     async (device) => {
       if (device === "phone") {
-        await page.getByRole("banner").getByRole("button", { name: "Agents" }).click();
+        await page.getByRole("banner").getByRole("button", { name: "Tasks" }).click();
       }
       await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
     },
@@ -527,7 +527,7 @@ test("screenshots", async ({ page }) => {
     ],
     async (device) => {
       if (device === "phone") {
-        await page.getByRole("banner").getByRole("button", { name: "Agents" }).click();
+        await page.getByRole("banner").getByRole("button", { name: "Tasks" }).click();
       }
       await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
       await page.getByLabel("Show closed tasks").filter({ visible: true }).click();
@@ -535,7 +535,7 @@ test("screenshots", async ({ page }) => {
   );
   const openDetails = async (device: string) => {
     if (device === "phone") {
-      await page.getByRole("banner").getByRole("button", { name: "Agents" }).click();
+      await page.getByRole("banner").getByRole("button", { name: "Tasks" }).click();
     }
     await page.getByRole("tab", { name: "Details" }).filter({ visible: true }).click();
   };
@@ -587,7 +587,7 @@ test("screenshots", async ({ page }) => {
     ],
     async (device) => {
       if (device === "phone") {
-        await page.getByRole("banner").getByRole("button", { name: "Agents" }).click();
+        await page.getByRole("banner").getByRole("button", { name: "Tasks" }).click();
       }
       await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
     },
@@ -625,7 +625,7 @@ test("screenshots", async ({ page }) => {
     ],
     async (device) => {
       if (device === "phone") {
-        await page.getByRole("banner").getByRole("button", { name: "Agents" }).click();
+        await page.getByRole("banner").getByRole("button", { name: "Tasks" }).click();
       }
       await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
     },
@@ -854,7 +854,7 @@ test("screenshots", async ({ page }) => {
     ],
     async (device) => {
       if (device === "phone") {
-        await page.getByRole("banner").getByRole("button", { name: "Agents" }).click();
+        await page.getByRole("banner").getByRole("button", { name: "Tasks" }).click();
       }
       await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
       await page
@@ -875,7 +875,7 @@ test("screenshots", async ({ page }) => {
     ],
     async (device) => {
       if (device === "phone") {
-        await page.getByRole("banner").getByRole("button", { name: "Agents" }).click();
+        await page.getByRole("banner").getByRole("button", { name: "Tasks" }).click();
       }
       await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
       await page
