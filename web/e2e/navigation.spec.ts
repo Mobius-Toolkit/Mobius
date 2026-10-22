@@ -647,7 +647,7 @@ test.describe("the bars of a phone", () => {
     expect((form?.y ?? 0) + (form?.height ?? 0)).toBe(bar?.y);
   });
 
-  test("show the title of the Lead chat with the Autopilot switch and the Agents button", async ({
+  test("show the title of the Lead chat with the Autopilot switch and the Tasks button", async ({
     page,
   }) => {
     await page.goto("/workstreams/owner/shop/12");
@@ -656,7 +656,7 @@ test.describe("the bars of a phone", () => {
     await expect(bar.getByRole("heading")).toHaveText("Integrate loyalty plans");
     await expect(bar).toContainText("#12");
     await expect(bar.getByRole("switch", { name: "Autopilot" })).toBeVisible();
-    await expect(bar.getByRole("button", { name: "Agents" })).toBeVisible();
+    await expect(bar.getByRole("button", { name: "Tasks" })).toBeVisible();
     await expect(bar).not.toContainText("Lead:");
   });
 

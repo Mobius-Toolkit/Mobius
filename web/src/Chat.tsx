@@ -119,7 +119,7 @@ export function Chat({
         <Sheet>
           <SheetTrigger asChild>
             <Button variant="outline" size="sm" className="ml-auto shrink-0">
-              Agents
+              Tasks
             </Button>
           </SheetTrigger>
           <SheetContent
@@ -127,7 +127,7 @@ export function Chat({
             aria-describedby={undefined}
             className="pt-2 data-[side=bottom]:h-[80svh]"
           >
-            <SheetTitle className="sr-only">Agents and tasks</SheetTitle>
+            <SheetTitle className="sr-only">Tasks</SheetTitle>
             {panel}
           </SheetContent>
         </Sheet>

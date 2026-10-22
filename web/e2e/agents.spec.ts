@@ -193,7 +193,7 @@ const places = [
     path: "/workstreams/owner/shop/12",
     open: async (page: Page) => {
       if (page.viewportSize()!.width < 768) {
-        await page.getByRole("banner").getByRole("button", { name: "Agents" }).click();
+        await page.getByRole("banner").getByRole("button", { name: "Tasks" }).click();
       }
       await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
       await page
