@@ -142,8 +142,8 @@ type FakeGitHub struct {
 	issueHolds       map[issueKey]*hold
 	// rateLimited tells if each request gets the rate-limit answer.
 	rateLimited bool
-	// hangs holds the route patterns whose next request gets no answer.
-	hangs map[string]bool
+	// hangs holds the route patterns whose next request gets no answer. The channel closes when that request waits.
+	hangs map[string]chan struct{}
 	// routeLimits holds the route patterns whose next request gets the rate-limit answer, with the reset time.
 	routeLimits map[string]time.Time
 	// routeHolds holds the route patterns whose next request waits for the close of the channel. A key of the form
@@ -262,7 +262,7 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		threadHolds:             map[issueKey][]*hold{},
 		mergeHolds:              map[issueKey][]*hold{},
 		issueHolds:              map[issueKey]*hold{},
-		hangs:                   map[string]bool{},
+		hangs:                   map[string]chan struct{}{},
 		routeHolds:              map[string]chan struct{}{},
 		routeLimits:             map[string]time.Time{},
 		createdAt:               map[issueKey]int64{},
@@ -350,11 +350,13 @@ func (g *FakeGitHub) routes() *http.ServeMux {
 }
 
 // HangNext makes the next request to the route pattern, for example "POST /repos/{owner}/{repo}/pulls", wait until the
-// request ends.
-func (g *FakeGitHub) HangNext(pattern string) {
+// request ends. The returned channel closes when that request waits.
+func (g *FakeGitHub) HangNext(pattern string) (hung <-chan struct{}) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	g.hangs[pattern] = true
+	waiting := make(chan struct{})
+	g.hangs[pattern] = waiting
+	return waiting
 }
 
 // RateLimitNext makes the next request to the route pattern get the rate-limit answer of GitHub, with reset as the
@@ -459,7 +461,8 @@ func (g *FakeGitHub) hanging(mux *http.ServeMux) http.Handler {
 				return
 			}
 		}
-		if hang {
+		if hang != nil {
+			close(hang)
 			// The server sees the end of the connection only after the handler reads the whole body.
 			_, _ = io.Copy(io.Discard, r.Body)
 			<-r.Context().Done()
