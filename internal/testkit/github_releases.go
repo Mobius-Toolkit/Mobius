@@ -28,10 +28,13 @@ func (g *FakeGitHub) SetLatestRelease(tag string, assets ...string) {
 	}
 }
 
-// getLatestRelease needs no token, as on GitHub for a public repository.
+// getLatestRelease needs no token, as on GitHub for a public repository, unless SetAnonymousRateLimited is on.
 func (g *FakeGitHub) getLatestRelease(w http.ResponseWriter, r *http.Request) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if g.refuseAnonymous(w, r) {
+		return
+	}
 	if repository(r) != "Mobius-Toolkit/Mobius" || g.latestRelease == nil {
 		notFound(w)
 		return
@@ -72,10 +75,13 @@ func (g *FakeGitHub) SetComparedCommits(messages ...string) {
 	g.comparedCommits = messages
 }
 
-// compare needs no token, as on GitHub for a public repository.
+// compare needs no token, as on GitHub for a public repository, unless SetAnonymousRateLimited is on.
 func (g *FakeGitHub) compare(w http.ResponseWriter, r *http.Request) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if g.refuseAnonymous(w, r) {
+		return
+	}
 	if repository(r) != "Mobius-Toolkit/Mobius" {
 		notFound(w)
 		return
