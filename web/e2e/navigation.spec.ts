@@ -308,7 +308,7 @@ test.describe("the list of a phone after a back navigation", () => {
       number: 100 + index,
       title: `Workstream number ${index + 1}`,
       brief: "",
-      autopilot: false,
+      autopilot: "off",
       allTasksClosed: false,
       readyToMerge: false,
     }));

@@ -72,6 +72,7 @@ func TestFixLabelsCreatesTheMissingLabelsAndSetsTheFixedColors(t *testing.T) {
 	want := []status{
 		{"mobius:workstream", engine.Missing, ""},
 		{"mobius:autopilot", engine.Missing, ""},
+		{"mobius:auto-merge", engine.Missing, ""},
 		{"mobius:triage", engine.Missing, ""},
 		{"mobius:ready", engine.Present, ""},
 		{"mobius:working", engine.WrongColor, "ededed"},
@@ -94,6 +95,7 @@ func TestFixLabelsCreatesTheMissingLabelsAndSetsTheFixedColors(t *testing.T) {
 
 	wantLabels := []testkit.Label{
 		{Name: "bug", Color: "d73a4a", Description: "Something is wrong"},
+		{Name: "mobius:auto-merge", Color: "1D76DB", Description: "Mobius merges each pull request of this Workstream after the Lead approves it"},
 		{Name: "mobius:autopilot", Color: "1D76DB", Description: "Mobius dispatches the ready tasks of this Workstream"},
 		{Name: "mobius:evergreen", Color: "0052CC", Description: "Mobius Workstream with no end: it is not complete when it has no open task"},
 		{Name: "mobius:maintenance", Color: "BFDADC", Description: "Mobius evergreen Workstream that gets the task issues of the Curator"},
@@ -132,6 +134,7 @@ func TestFixLabelsSkipsALabelWithANameInADifferentCase(t *testing.T) {
 	want := []status{
 		{"mobius:workstream", engine.Missing, ""},
 		{"mobius:autopilot", engine.Missing, ""},
+		{"mobius:auto-merge", engine.Missing, ""},
 		{"mobius:triage", engine.Missing, ""},
 		{"mobius:ready", engine.WrongCase, "Mobius:Ready"},
 		{"mobius:working", engine.WrongCase, "MOBIUS:WORKING"},
@@ -159,6 +162,7 @@ func TestFixLabelsSkipsALabelWithANameInADifferentCase(t *testing.T) {
 	wantNames := []string{
 		"MOBIUS:WORKING ededed Working",
 		"Mobius:Ready 0E8A16 Ready",
+		"mobius:auto-merge 1D76DB Mobius merges each pull request of this Workstream after the Lead approves it",
 		"mobius:autopilot 1D76DB Mobius dispatches the ready tasks of this Workstream",
 		"mobius:evergreen 0052CC Mobius Workstream with no end: it is not complete when it has no open task",
 		"mobius:maintenance BFDADC Mobius evergreen Workstream that gets the task issues of the Curator",

@@ -1,0 +1,1 @@
+ALTER TABLE copied_workstreams ADD COLUMN auto_merge INTEGER NOT NULL DEFAULT 0;

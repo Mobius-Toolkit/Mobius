@@ -596,6 +596,9 @@ test("screenshots", async ({ page }) => {
     .getByRole("tabpanel", { name: "Details" })
     .getByRole("button", { name: "Close" });
   const created = page.getByText("Sep 28, 2026").filter({ visible: true });
+  const evergreenSwitch = page
+    .getByRole("tabpanel", { name: "Details" })
+    .getByRole("switch", { name: "Evergreen" });
   await screenshot(
     page,
     "chat-details",
@@ -605,8 +608,57 @@ test("screenshots", async ({ page }) => {
       created,
       page.getByText("Completed tasks").filter({ visible: true }),
       closeButton,
+      evergreenSwitch,
     ],
     openDetails,
+  );
+  const sidebar = page.getByRole("navigation").first();
+  const workstreamsLink = sidebar.getByRole("link", { name: "Workstreams" });
+  const evergreenLink = sidebar.getByRole("link", { name: /^Integrate loyalty plans/ });
+  const sidebarShowsEvergreen = (on: boolean) => async () => {
+    if (await workstreamsLink.isVisible()) {
+      await expect
+        .poll(
+          async () =>
+            (await workstreamsLink.boundingBox())!.y > (await evergreenLink.boundingBox())!.y,
+        )
+        .toBe(on);
+    }
+  };
+  await screenshot(
+    page,
+    "chat-details-evergreen",
+    "/workstreams/owner/shop/12",
+    (device) => [...frame(device, drain), created, evergreenSwitch],
+    async (device) => {
+      await openDetails(device);
+      await evergreenSwitch.click();
+      await expect(evergreenSwitch).toBeChecked();
+      await sidebarShowsEvergreen(true)();
+    },
+    async () => {
+      await evergreenSwitch.click();
+      await expect(evergreenSwitch).not.toBeChecked();
+      await sidebarShowsEvergreen(false)();
+    },
+  );
+  await screenshot(
+    page,
+    "chat-details-maintenance",
+    "/workstreams/owner/shop/14",
+    (device) => [
+      ...frame(device, drain),
+      evergreenSwitch,
+      page
+        .getByText("Mobius manages this Workstream, so this value cannot change.")
+        .filter({ visible: true }),
+    ],
+    async (device) => {
+      await waitForEvergreen(page);
+      await openDetails(device);
+      await expect(evergreenSwitch).toBeChecked();
+      await expect(evergreenSwitch).toBeDisabled();
+    },
   );
   await screenshot(
     page,
@@ -1094,26 +1146,27 @@ test("screenshots", async ({ page }) => {
     page.getByText("Memory of owner/shop").filter({ visible: true }),
     main.locator("ins", { hasText: "and each push" }),
     main.locator("del", { hasText: "fix round" }),
-    main.locator('[data-kind="added"]', {
-      hasText: "Write each message in Simplified Technical English.",
-    }),
-    main.locator('[data-kind="added"]', { hasText: "Wait for a condition with testkit.WaitFor." }),
+    main.locator("ins", { hasText: "Write each message in Simplified Technical English." }),
+    main.locator("ins", { hasText: "Wait for a condition with testkit.WaitFor." }),
     main.getByText("A later version changed this part. Edit the file.").first(),
     main.getByText("Add: three fix rounds repeated the same wait with a fixed sleep in tests"),
   ]);
+  const changedVersion = main
+    .getByRole("heading", { name: "History" })
+    .locator("xpath=following-sibling::ul/li")
+    .filter({ hasText: "Change: the long line names the edit of a test" });
   await screenshot(
     page,
-    "memory-full-screen",
+    "memory-diff",
     "/settings/memory/owner/shop",
-    () => page.getByRole("dialog").locator('[data-kind="changed"]'),
+    (device) => [
+      ...frame(device, release),
+      changedVersion.locator("del", { hasText: "fix round" }),
+    ],
     async () => {
-      await main
-        .locator("li")
-        .filter({ hasText: "Change: the long line names the edit of a test" })
-        .getByRole("button", { name: "Full screen" })
-        .click();
+      await expect(changedVersion.locator("ins", { hasText: "Implementer" })).toBeVisible();
+      await changedVersion.evaluate((el) => el.scrollIntoView({ block: "start" }));
     },
-    () => page.keyboard.press("Escape"),
   );
   // The legend text wraps again when the font loads. With the final legend height, the legend wrapper is below the
   // day labels by its padding. A negative gap means that the plot area still has an older, smaller legend height.

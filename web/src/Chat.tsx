@@ -49,7 +49,7 @@ export function Chat({
 
   const switchAutopilot = (on: boolean) => {
     setAutopilotBusy(true);
-    setAutopilot(owner, name, number, { on })
+    setAutopilot(owner, name, number, { level: on ? "start" : "off" })
       .then((res) => setAutopilotError(res.status === 204 ? "" : res.data.error))
       .catch((err: unknown) => setAutopilotError(String(err)))
       .finally(() => {
@@ -78,7 +78,7 @@ export function Chat({
     <>
       <Switch
         id={id}
-        checked={workstream?.autopilot ?? false}
+        checked={workstream?.autopilot === "start" || workstream?.autopilot === "start_and_merge"}
         disabled={!workstream || autopilotBusy}
         onCheckedChange={switchAutopilot}
       />

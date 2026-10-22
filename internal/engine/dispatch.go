@@ -285,7 +285,7 @@ func (e *Engine) commentEvents(ctx context.Context, repository github.Repository
 // waits in answered for a free slot. Else the task dispatches again at once. During the stop of a hard break of the CI,
 // the task of another issue than a CI task waits in answered in both cases.
 func (e *Engine) answerAsked(ctx context.Context, repository github.Repository, issue *gh.Issue, task store.Task) error {
-	on, err := e.workstreamAutopilot(ctx, task.WorkstreamRepository, task.Workstream)
+	level, err := e.workstreamLevel(ctx, task.WorkstreamRepository, task.Workstream)
 	if err != nil {
 		return err
 	}
@@ -293,7 +293,7 @@ func (e *Engine) answerAsked(ctx context.Context, repository github.Repository, 
 	if err != nil {
 		return err
 	}
-	if on || len(stop) > 0 && !stop[task.Issue] {
+	if startsTasks(level) || len(stop) > 0 && !stop[task.Issue] {
 		_, err := e.setTaskState(ctx, store.SetTaskStateParams{State: "answered", ID: task.ID, FromState: "asked"})
 		return err
 	}
@@ -895,11 +895,11 @@ func (e *Engine) dispatchAnsweredWithoutAutopilot(ctx context.Context, repositor
 		if task.State != "answered" || len(stop) > 0 && !stop[task.Issue] {
 			continue
 		}
-		on, err := e.workstreamAutopilot(ctx, task.WorkstreamRepository, task.Workstream)
+		level, err := e.workstreamLevel(ctx, task.WorkstreamRepository, task.Workstream)
 		if err != nil {
 			return err
 		}
-		if on {
+		if startsTasks(level) {
 			continue
 		}
 		issue, err := repository.Issue(ctx, task.Issue)

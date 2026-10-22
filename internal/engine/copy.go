@@ -24,6 +24,7 @@ import (
 type copiedWorkstream struct {
 	issue     *gh.Issue
 	autopilot bool
+	autoMerge bool
 	tree      []copiedIssue
 }
 
@@ -54,11 +55,11 @@ func (e *Engine) syncCopy(ctx context.Context, repository github.Repository) err
 	}
 	var workstreams []copiedWorkstream
 	for _, issue := range issues {
-		autopilot, err := e.issueAutopilot(ctx, repository, issue)
+		autopilot, autoMerge, err := e.issueLevelLabels(ctx, repository, issue)
 		if err != nil {
 			return err
 		}
-		workstream, err := e.copyWorkstream(ctx, repository, issue, autopilot)
+		workstream, err := e.copyWorkstream(ctx, repository, issue, autopilot, autoMerge)
 		if err != nil {
 			return err
 		}
@@ -153,7 +154,7 @@ func (e *Engine) updateCopy(ctx context.Context, repository github.Repository, i
 			wanted = hasLabel(issue, workstreamLabel) && issue.GetState() == "open"
 		}
 	}
-	autopilot := hasLabel(issue, autopilotLabel) && e.addedByTrustedUser(events)
+	autopilot, autoMerge := e.levelLabels(issue, events)
 	changed := false
 	var added []copiedIssue
 	switch {
@@ -161,11 +162,11 @@ func (e *Engine) updateCopy(ctx context.Context, repository github.Repository, i
 		changed = true
 		err = e.removeCopiedWorkstream(ctx, name, number)
 	case stored:
-		changed, err = e.updateCopiedWorkstream(ctx, name, issue, autopilot)
+		changed, err = e.updateCopiedWorkstream(ctx, name, issue, autopilot, autoMerge)
 	case wanted:
 		var workstream copiedWorkstream
 		before := e.labelChangesNow()
-		workstream, err = e.copyWorkstream(ctx, repository, issue, autopilot)
+		workstream, err = e.copyWorkstream(ctx, repository, issue, autopilot, autoMerge)
 		if err == nil {
 			changed, added = true, workstream.tree
 			err = e.writeRead(ctx, name, before, [][]copiedIssue{workstream.tree}, func(q *store.Queries) error { return addWorkstream(ctx, q, name, workstream) })
@@ -472,13 +473,14 @@ func (e *Engine) removeCopiedWorkstream(ctx context.Context, repository string, 
 
 // updateCopiedWorkstream changes the copied Workstream of the issue, and the title of each blocker in that Workstream.
 // It gives false when the copy has the same values.
-func (e *Engine) updateCopiedWorkstream(ctx context.Context, repository string, issue *gh.Issue, autopilot bool) (bool, error) {
+func (e *Engine) updateCopiedWorkstream(ctx context.Context, repository string, issue *gh.Issue, autopilot, autoMerge bool) (bool, error) {
 	changed := false
 	return changed, e.inTx(ctx, func(q *store.Queries) error {
 		updated, err := q.UpdateCopiedWorkstream(ctx, store.UpdateCopiedWorkstreamParams{
 			Title:       issue.GetTitle(),
 			Body:        issue.GetBody(),
 			Autopilot:   autopilot,
+			AutoMerge:   autoMerge,
 			Evergreen:   hasLabel(issue, evergreenLabel),
 			Skills:      hasLabel(issue, skillsLabel),
 			Maintenance: hasLabel(issue, maintenanceLabel),
@@ -680,9 +682,9 @@ func (e *Engine) copyTree(ctx context.Context, repository github.Repository, wor
 	})
 }
 
-func (e *Engine) copyWorkstream(ctx context.Context, repository github.Repository, issue *gh.Issue, autopilot bool) (copiedWorkstream, error) {
+func (e *Engine) copyWorkstream(ctx context.Context, repository github.Repository, issue *gh.Issue, autopilot, autoMerge bool) (copiedWorkstream, error) {
 	tree, err := e.readTree(ctx, repository, int64(issue.GetNumber()))
-	return copiedWorkstream{issue: issue, autopilot: autopilot, tree: tree}, err
+	return copiedWorkstream{issue: issue, autopilot: autopilot, autoMerge: autoMerge, tree: tree}, err
 }
 
 // readTree gives the issues below the Workstream, depth first, with the rules of list_tasks, but with each issue.
@@ -785,6 +787,7 @@ func addWorkstream(ctx context.Context, q *store.Queries, repository string, wor
 		Title:       issue.GetTitle(),
 		Body:        issue.GetBody(),
 		Autopilot:   workstream.autopilot,
+		AutoMerge:   workstream.autoMerge,
 		Evergreen:   hasLabel(issue, evergreenLabel),
 		Skills:      hasLabel(issue, skillsLabel),
 		Maintenance: hasLabel(issue, maintenanceLabel),
