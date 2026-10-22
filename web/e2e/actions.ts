@@ -6,6 +6,8 @@ export const keepPrices = "Tell the Lead of #14 to keep the prices in cents.";
 export const dropColumn = "Tell the Lead of #14 to drop the old price column.";
 export const addHistory = "Tell the Lead of #14 to add a price history.";
 export const addHistoryTable = "Tell the Lead of #14 to add a price history table.";
+export const editBrief = "Edit the Brief of the Lead of #14.";
+export const restoreBriefMessage = "Restore the Brief of the Lead of #14.";
 export const stopUnknown = "Tell the Lead of #9999 to stop.";
 export const askStore = "Ask which store and which checks.";
 export const askDraft = "Ask whether to draft the Workstream.";
@@ -23,6 +25,7 @@ export const historyText = "Add a history of the plan prices.";
 export const historyTableText = "Add a table with the history of the plan prices.";
 export const unknownText = "Stop the work.";
 
+export const briefTitle = "Change the Brief of #14 Early renewals";
 export const createTitle = 'Create the Workstream "Gift cards"';
 export const leadTitle = "Message to the Lead of #14 Early renewals";
 export const unknownTitle = "Message to the Lead of #9999";
@@ -62,6 +65,44 @@ export async function sendToCoordinator(page: Page, text: string) {
     form.append('text', ${JSON.stringify(text)})
     return fetch('/api/chat/messages', { method: 'POST', body: form })
   })()`);
+}
+
+// Sends the text to the Lead chat of owner/shop#14 without the composer.
+export async function sendToLead(page: Page, text: string) {
+  await page.evaluate(`(() => {
+    const form = new FormData()
+    form.append('organization', 'owner')
+    form.append('repository', 'owner/shop')
+    form.append('workstream', '14')
+    form.append('id', crypto.randomUUID())
+    form.append('text', ${JSON.stringify(text)})
+    return fetch('/api/chat/messages', { method: 'POST', body: form })
+  })()`);
+}
+
+// Sets the Brief of owner/shop#14 back to its first text. The fake Lead proposes the first text, and the call approves
+// the action.
+export async function restoreBrief(page: Page) {
+  await sendToLead(page, restoreBriefMessage);
+  let id = 0;
+  await expect
+    .poll(async () => {
+      const inbox = await api<{ action: { id: number; tool: string; state: string } | null }[]>(
+        page,
+        "GET",
+        "/api/inbox",
+      );
+      const pending = inbox.data.find(
+        (item) => item.action?.tool === "edit_brief" && item.action.state === "pending",
+      );
+      id = pending?.action?.id ?? 0;
+      return id;
+    })
+    .not.toBe(0);
+  const approved = await api<{ state: string }>(page, "POST", `/api/actions/${id}/approve`, {
+    message: "",
+  });
+  expect(approved.data.state).toBe("done");
 }
 
 // The texts of the Owner messages of the Coordinator chat.

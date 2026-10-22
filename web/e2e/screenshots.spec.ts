@@ -2,14 +2,18 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import {
   ask,
   askStore,
+  briefTitle,
   cardOf,
   checksQuestion,
   createTitle,
   draftText,
   draftWorkstream,
   dropColumn,
+  editBrief,
   leadTitle,
+  restoreBrief,
   seen,
+  sendToLead,
   settle,
   stopUnknown,
   storeQuestion,
@@ -95,6 +99,8 @@ const storedDrafts = `new Promise((resolve) => {
     count.onsuccess = () => resolve(count.result);
   };
 })`;
+
+const briefRows = (scope: Locator, kind: string) => scope.locator(`[data-kind="${kind}"]`);
 
 const wide = (selector: string) =>
   `(document.querySelector('${selector}')?.scrollWidth ?? 0) > (document.querySelector('${selector}')?.clientWidth ?? 0)`;
@@ -1396,6 +1402,106 @@ test("screenshots", async ({ page }) => {
   await expect(panel).toBeHidden();
   await settle(page);
   expect((await page.request.post("/e2e/approvals/times/fix")).ok()).toBe(true);
+
+  // The fake Lead of #14 proposes a new Brief. The approval changes the Brief, and the last call sets it back.
+  await page.goto("/workstreams/owner/shop/14");
+  await sendToLead(page, editBrief);
+  await expect(waits(1)).toBeVisible({ timeout: 30_000 });
+  await fixActionTimes();
+  const briefReady = (device: string) => [
+    ...approvalReady(device, "2"),
+    briefRows(panel, "removed"),
+    briefRows(panel, "added"),
+    briefRows(panel, "changed").locator("ins"),
+    briefRows(panel, "unchanged").first(),
+  ];
+  const openBrief = async () => {
+    await row(briefTitle).getByRole("button", { name: "Answer" }).click();
+    await expect(briefRows(panel, "changed").locator("ins")).toBeVisible();
+  };
+  await screenshot(
+    page,
+    "action-brief-diff",
+    "/workstreams/owner/shop/14",
+    briefReady,
+    openBrief,
+    () => page.keyboard.press("Escape"),
+  );
+  await screenshot(
+    page,
+    "action-brief-full",
+    "/workstreams/owner/shop/14",
+    (device) => [
+      ...approvalReady(device, "2"),
+      panel.getByRole("button", { name: "Show the changes" }),
+      panel.getByText("Let customers renew a plan two months early."),
+    ],
+    async () => {
+      await openBrief();
+      await panel.getByRole("button", { name: "Show the full Brief" }).click();
+    },
+    () => page.keyboard.press("Escape"),
+  );
+  await row(briefTitle).getByRole("button", { name: "Answer" }).click();
+  await panel.getByRole("button", { name: "Approve" }).click();
+  await expect(panel).toBeHidden();
+  await expect(waits(1)).toBeHidden();
+  const briefCard = () => cardOf(page, "edit_brief");
+  const unreadBrief = () =>
+    page.evaluate(`fetch("/api/unread")
+      .then((response) => response.json())
+      .then(({ data }) => data.some((chat) => chat.repository === "owner/shop" && chat.workstream === 14 && chat.count > 0))`);
+  const showBriefCard = async () => {
+    const card = briefCard();
+    await expect(card.getByText("Done", { exact: true })).toBeVisible();
+    await expect(briefRows(card, "changed").locator("ins")).toBeVisible();
+    await expect.poll(unreadBrief).toBe(false);
+    await expect
+      .poll(() =>
+        card.evaluate((el) => {
+          const list = el.parentElement;
+          if (!list) {
+            return false;
+          }
+          list.scrollTop = list.scrollHeight;
+          return list.scrollHeight - list.scrollTop - list.clientHeight < 1;
+        }),
+      )
+      .toBe(true);
+  };
+  await page.goto("/workstreams/owner/shop/14");
+  await expect(briefCard().getByText("Done", { exact: true })).toBeVisible();
+  await fixActionTimes();
+  const briefDone = (device: string) => [
+    ...approvalReady(device, "1"),
+    briefCard().getByRole("button", { name: "Show all" }),
+    briefRows(briefCard(), "removed"),
+  ];
+  await screenshot(
+    page,
+    "action-brief-done",
+    "/workstreams/owner/shop/14",
+    briefDone,
+    showBriefCard,
+  );
+  await screenshot(
+    page,
+    "action-brief-done-all",
+    "/workstreams/owner/shop/14",
+    (device) => [
+      ...approvalReady(device, "1"),
+      briefCard().getByRole("button", { name: "Show less" }),
+      briefRows(briefCard(), "removed"),
+      briefRows(briefCard(), "added"),
+    ],
+    async () => {
+      await showBriefCard();
+      await briefCard().getByRole("button", { name: "Show all" }).click();
+      await briefCard().evaluate((el) => el.scrollIntoView({ block: "start" }));
+    },
+  );
+  await restoreBrief(page);
+  await settle(page);
 
   // The note closes a Workstream whose tasks are all closed.
   await page.setViewportSize(viewports.desktop);

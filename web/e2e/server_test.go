@@ -35,19 +35,21 @@ func TestMain(m *testing.M) {
 	testkit.Main(m)
 }
 
-// script is the fake agent of each Harness. It has the parts scriptHead, scriptBody and scriptTail, and the rules of
-// ownerAnswers and ownerCalls between them. The options have the models and the efforts of the Role bindings of
+// script is the fake agent of each Harness. It has the parts scriptOptions, scriptHead, scriptBody and scriptTail, and
+// the rules of briefCalls, ownerAnswers and ownerCalls between them. The options have the models and the efforts of the Role bindings of
 // testserver.Config. The first rule whose text is in the prompt answers the prompt, so a rule of a chat message comes
 // before the rule of each earlier event or message that the first prompt of a new session also holds. The Implementer
 // of #41 works until the server stops. The Lead turn of each move_task does not end, so its session runs until the
 // close of its Workstream.
-const scriptHead = `
+const scriptOptions = `
 [options]
 model = ["sonnet", "opus", "haiku", "swe-1.5", "gemini-3-pro"]
 thought_level = ["low", "medium", "high"]
 mode = ["default", "bypassPermissions", "yolo"]
 
-[[prompts]]
+`
+
+const scriptHead = `[[prompts]]
 when = "# Approval message"
 
 [[prompts]]
@@ -145,6 +147,14 @@ var ownerCalls = []struct{ message, tool, arguments string }{
 	{"Ask whether to draft the Workstream.", "ask", `{ text = "Should I draft the Workstream now?" }`},
 }
 
+// briefCalls are the Owner messages that the fake Lead of owner/shop#14 answers with a tool call. The first prompt of a
+// new Lead session has the chat history, which holds the text of the earlier events, so these rules come before all
+// other rules.
+var briefCalls = []struct{ message, tool, arguments string }{
+	{"Edit the Brief of the Lead of #14.", "edit_brief", `{ brief = "**Goal**\nLet customers renew a plan two months early.\n\n**Scope**\n- Add a button to the renewal page.\n\n**Limits**\n- Do not change the price of a plan.\n- Do not remove the old renewal page.", reason = "The Owner wants a longer time to renew." }`},
+	{"Restore the Brief of the Lead of #14.", "edit_brief", `{ brief = "**Goal**\nLet customers renew a plan one month early.\n\n**Scope**\n- Add a button to the renewal page.\n- Send a mail after the renewal.\n\n**Limits**\n- Do not change the price of a plan.", reason = "The Owner wants the old Brief." }`},
+}
+
 // ownerAnswers are the answers of the Owner to the questions of the fake Coordinator.
 var ownerAnswers = []string{"Which store?", "Keep the old data.", "Yes, draft it now."}
 
@@ -152,6 +162,14 @@ func ownerAnswerRules(heading string) string {
 	var rules strings.Builder
 	for _, answer := range ownerAnswers {
 		fmt.Fprintf(&rules, "[[prompts]]\nwhen = %q\nreply = [\"The answer is noted.\"]\n\n", heading+answer)
+	}
+	return rules.String()
+}
+
+func briefCallRules() string {
+	var rules strings.Builder
+	for _, call := range briefCalls {
+		fmt.Fprintf(&rules, "[[prompts]]\nwhen = %q\ncall = { tool = %q, arguments = %s }\n\n", "# Owner message\n\n"+call.message, call.tool, call.arguments)
 	}
 	return rules.String()
 }
@@ -164,7 +182,7 @@ func ownerCallRules(heading string) string {
 	return rules.String()
 }
 
-var script = scriptHead + ownerAnswerRules("# Owner message\n\n") + ownerCallRules("# Owner message\n\n") + scriptBody +
+var script = scriptOptions + briefCallRules() + scriptHead + ownerAnswerRules("# Owner message\n\n") + ownerCallRules("# Owner message\n\n") + scriptBody +
 	ownerCallRules("") + ownerAnswerRules("") + scriptTail
 
 // question is the first Owner message of the Lead chat of owner/shop#12. The wide code block and the wide table
@@ -268,6 +286,7 @@ func TestServer(t *testing.T) {
 	github.CloseIssue("owner/shop", 37)
 	github.SetBody("owner/shop", 12, "Reward repeat customers.\n\n- Points on every order\n- One **free** plan for staff")
 	github.SetBody("owner/shop", 13, "Change the prices for each season.")
+	github.SetBody("owner/shop", 14, "**Goal**\nLet customers renew a plan one month early.\n\n**Scope**\n- Add a button to the renewal page.\n- Send a mail after the renewal.\n\n**Limits**\n- Do not change the price of a plan.")
 	github.SetBody("plants/garden", 18, "Cut the **old** canes in March.")
 	github.SetBody("plants/garden", 19, "Put **bark** on the beds.")
 	github.AddIssue("owner/shop", 40, "Renew a month early")

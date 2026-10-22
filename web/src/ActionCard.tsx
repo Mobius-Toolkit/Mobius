@@ -1,9 +1,11 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ChatMessage, PendingAction } from "@/api/api.gen";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { diffLines } from "@/lib/diff";
 import { clock } from "@/lib/time";
 import { cn } from "@/lib/utils";
+import { DiffRows } from "./DiffRows";
 import { Markdown } from "./Markdown";
 
 // The height of about six lines of text. A longer value shows only this part until the Owner opens it.
@@ -23,7 +25,46 @@ function actionState(action: PendingAction) {
 
 const isShort = (value: string) => !value.includes("\n") && value.length <= 80;
 
-export function FullArgument({ name, value }: { name: string; value: string }) {
+function BriefView({ before, after, full }: { before: string; after: string; full: boolean }) {
+  const diff = useMemo(() => diffLines(before, after), [before, after]);
+  if (full) {
+    return <Markdown text={after} />;
+  }
+  return (
+    <pre className="overflow-hidden rounded-lg border text-sm">
+      <DiffRows hunk={diff} wrap />
+    </pre>
+  );
+}
+
+function BriefToggle({ full, toggle }: { full: boolean; toggle: () => void }) {
+  return (
+    <Button variant="ghost" size="sm" className="justify-self-start" onClick={toggle}>
+      {full ? "Show the changes" : "Show the full Brief"}
+    </Button>
+  );
+}
+
+// before is the Brief that the new Brief replaces. With it, the argument shows the changes.
+export function FullArgument({
+  name,
+  value,
+  before,
+}: {
+  name: string;
+  value: string;
+  before?: string;
+}) {
+  const [full, setFull] = useState(false);
+  if (before !== undefined) {
+    return (
+      <div className="grid min-w-0 gap-0.5">
+        <span className="text-xs text-muted-foreground">{name}</span>
+        <BriefView before={before} after={value} full={full} />
+        <BriefToggle full={full} toggle={() => setFull(!full)} />
+      </div>
+    );
+  }
   return (
     <div className="grid min-w-0 gap-0.5">
       <span className="text-xs text-muted-foreground">{name}</span>
@@ -35,14 +76,17 @@ export function FullArgument({ name, value }: { name: string; value: string }) {
 function Argument({
   name,
   value,
+  before,
   open,
   toggle,
 }: {
   name: string;
   value: string;
+  before?: string;
   open: boolean;
   toggle: () => void;
 }) {
+  const [full, setFull] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   const [long, setLong] = useState(false);
   useLayoutEffect(() => {
@@ -55,19 +99,30 @@ function Argument({
     return () => observer.disconnect();
   }, []);
 
-  if (isShort(value)) {
+  if (before === undefined && isShort(value)) {
     return <FullArgument name={name} value={value} />;
   }
   return (
     <div className="grid min-w-0 gap-0.5">
       <span className="text-xs text-muted-foreground">{name}</span>
       <div ref={box} className={cn("min-w-0", !open && "max-h-36 overflow-hidden")}>
-        <Markdown text={value} />
+        <div>
+          {before === undefined ? (
+            <Markdown text={value} />
+          ) : (
+            <BriefView before={before} after={value} full={full} />
+          )}
+        </div>
       </div>
-      {long && (
-        <Button variant="ghost" size="sm" className="justify-self-start" onClick={toggle}>
-          {open ? "Show less" : "Show all"}
-        </Button>
+      {(long || before !== undefined) && (
+        <div className="flex flex-wrap gap-1">
+          {long && (
+            <Button variant="ghost" size="sm" onClick={toggle}>
+              {open ? "Show less" : "Show all"}
+            </Button>
+          )}
+          {before !== undefined && <BriefToggle full={full} toggle={() => setFull(!full)} />}
+        </div>
       )}
     </div>
   );
@@ -104,6 +159,11 @@ export function ActionCard({ message, action }: { message: ChatMessage; action: 
         <Argument
           key={argument.name}
           {...argument}
+          before={
+            action.tool === "edit_brief" && argument.name === "brief" && action.oldBrief !== ""
+              ? action.oldBrief
+              : undefined
+          }
           open={open.includes(argument.name)}
           toggle={() =>
             setOpen((names) =>

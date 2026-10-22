@@ -5,6 +5,7 @@ import {
   ask,
   askDraft,
   askStore,
+  briefTitle,
   cardOf,
   checksQuestion,
   createTitle,
@@ -13,13 +14,16 @@ import {
   draftWorkstream,
   dropColumn,
   dropText,
+  editBrief,
   historyText,
   historyTableText,
   keepPrices,
   keepText,
   leadTitle,
   ownerTexts,
+  restoreBrief,
   sendToCoordinator,
+  sendToLead,
   settle,
   stopUnknown,
   storeQuestion,
@@ -376,4 +380,136 @@ test("a question with no questions shows no option and sends the typed text", as
   await expect(panel(page)).toBeHidden();
   await expect(waiting(page, 1)).toBeHidden();
   await expect.poll(() => ownerTexts(page)).toContain("Yes, draft it now.");
+});
+
+async function openLeadChat(page: Page) {
+  await page.goto("/workstreams/owner/shop/14");
+  await expect(page.getByRole("main").getByLabel("Message to the Lead")).toBeVisible();
+}
+
+const briefRows = (scope: Locator, kind: string) => scope.locator(`[data-kind="${kind}"]`);
+
+test("the panel of an edit_brief action shows the changes, and the full Brief on a click", async ({
+  page,
+}) => {
+  await openLeadChat(page);
+  await sendToLead(page, editBrief);
+  await expect(waiting(page, 1)).toBeVisible(agentTimeout);
+  await answer(page, briefTitle);
+
+  const dialog = panel(page);
+  await expect(briefRows(dialog, "removed")).toHaveText(["- Send a mail after the renewal."]);
+  await expect(briefRows(dialog, "added")).toHaveText(["- Do not remove the old renewal page."]);
+  await expect(briefRows(dialog, "changed")).toHaveCount(1);
+  await expect(briefRows(dialog, "changed").locator("del")).toHaveText("one month");
+  await expect(briefRows(dialog, "changed").locator("ins")).toHaveText("two months");
+  await expect(briefRows(dialog, "unchanged").first()).toBeVisible();
+  expect(await fits(dialog)).toBe(true);
+
+  await dialog.getByRole("button", { name: "Show the full Brief" }).click();
+  await expect(dialog.getByText("Let customers renew a plan two months early.")).toBeVisible();
+  await expect(dialog.locator("[data-kind]")).toHaveCount(0);
+
+  await dialog.getByRole("button", { name: "Show the changes" }).click();
+  await expect(briefRows(dialog, "removed")).toHaveCount(1);
+  await expect(dialog.getByRole("button", { name: "Show the full Brief" })).toBeVisible();
+});
+
+test("the panel of an edit_brief action reads the Brief again each time it opens", async ({
+  page,
+}) => {
+  let briefs = "**Goal**\nLet customers renew a plan three months early.";
+  let reads = 0;
+  await page.route("**/api/actions/*/brief", (route) => {
+    reads++;
+    return route.fulfill({ json: { data: { brief: briefs } } });
+  });
+  await openLeadChat(page);
+  await sendToLead(page, editBrief);
+  await expect(waiting(page, 1)).toBeVisible(agentTimeout);
+
+  await answer(page, briefTitle);
+  const dialog = panel(page);
+  await expect(briefRows(dialog, "changed").locator("del")).toHaveText("three");
+  await expect(briefRows(dialog, "changed").locator("ins")).toHaveText("two");
+  await expect(briefRows(dialog, "removed")).toHaveCount(0);
+  await expect(dialog.getByText("Send a mail after the renewal.")).toHaveCount(0);
+  expect(reads).toBe(1);
+
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  briefs = "**Goal**\nLet customers renew a plan one month early.";
+  await answer(page, briefTitle);
+  await expect(briefRows(dialog, "changed").locator("del")).toHaveText("one month");
+  expect(reads).toBe(2);
+});
+
+test("the panel of an edit_brief action shows the full Brief when the read fails", async ({
+  page,
+}) => {
+  await page.route("**/api/actions/*/brief", (route) =>
+    route.fulfill({ status: 500, json: { error: "GitHub is down." } }),
+  );
+  await openLeadChat(page);
+  await sendToLead(page, editBrief);
+  await expect(waiting(page, 1)).toBeVisible(agentTimeout);
+
+  await answer(page, briefTitle);
+
+  const dialog = panel(page);
+  await expect(dialog.getByText("Let customers renew a plan two months early.")).toBeVisible();
+  await expect(dialog.locator("[data-kind]")).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "Show the full Brief" })).toHaveCount(0);
+});
+
+test("the card of a done edit_brief action shows the changes, and the full Brief with no old Brief", async ({
+  page,
+}) => {
+  await openLeadChat(page);
+  await sendToLead(page, editBrief);
+  await expect(waiting(page, 1)).toBeVisible(agentTimeout);
+  await answer(page, briefTitle);
+  await approve(page).click();
+  await expect(panel(page)).toBeHidden();
+
+  try {
+    const card = cardOf(page, "edit_brief");
+    await expect(badge(card, "Done")).toBeVisible();
+    await expect(briefRows(card, "removed")).toHaveText(["- Send a mail after the renewal."]);
+    await expect(briefRows(card, "added")).toHaveText(["- Do not remove the old renewal page."]);
+    await expect(briefRows(card, "changed").locator("del")).toHaveText("one month");
+    await expect(briefRows(card, "changed").locator("ins")).toHaveText("two months");
+    const cut = card.locator("div.max-h-36");
+    expect(await cut.evaluate((el) => el.clientHeight)).toBe(144);
+    await expect(briefRows(card, "added")).not.toBeInViewport();
+
+    await card.getByRole("button", { name: "Show all" }).click();
+    await expect(card.locator("div.max-h-36")).toHaveCount(0);
+    await expect(briefRows(card, "added")).toBeInViewport();
+
+    await card.getByRole("button", { name: "Show the full Brief" }).click();
+    await expect(card.getByText("Let customers renew a plan two months early.")).toBeVisible();
+    await expect(card.locator("[data-kind]")).toHaveCount(0);
+
+    await page.route("**/api/chat?*", async (route) => {
+      const response = await route.fetch();
+      const body = (await response.json()) as {
+        data: { messages: { action: { tool: string; oldBrief: string } | null }[] };
+      };
+      for (const message of body.data.messages) {
+        if (message.action?.tool === "edit_brief") {
+          message.action.oldBrief = "";
+        }
+      }
+      await route.fulfill({ response, json: body });
+    });
+    await page.reload();
+    const bare = cardOf(page, "edit_brief");
+    await expect(bare.getByText("Let customers renew a plan two months early.")).toBeVisible();
+    await expect(bare.locator("[data-kind]")).toHaveCount(0);
+    await expect(bare.getByRole("button", { name: "Show the full Brief" })).toHaveCount(0);
+  } finally {
+    await page.unroute("**/api/chat?*");
+    await restoreBrief(page);
+  }
 });
