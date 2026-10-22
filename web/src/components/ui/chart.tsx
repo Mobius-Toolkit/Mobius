@@ -244,11 +244,20 @@ function ChartTooltipContent({
   );
 }
 
-// Recharts reads the height of the legend only when the legend payload or the measured box changes,
-// not when the width of the chart changes. A new key measures the legend again at the final width.
-function ChartLegend(props: React.ComponentProps<typeof RechartsPrimitive.Legend>) {
-  const width = RechartsPrimitive.useChartWidth();
-  return <RechartsPrimitive.Legend key={width} {...props} />;
+// Recharts reads the height of the legend only when the legend mounts or its payload changes.
+// A reflow of the legend text, for example after a font loads, changes the height with no render.
+// A new key measures the legend again at its final height.
+function ChartLegend(
+  props: Omit<React.ComponentProps<typeof RechartsPrimitive.Legend>, "content">,
+) {
+  const [height, setHeight] = React.useState(0);
+  return (
+    <RechartsPrimitive.Legend
+      key={height}
+      {...props}
+      content={<ChartLegendContent onHeightChange={setHeight} />}
+    />
+  );
 }
 
 function ChartLegendContent({
@@ -257,9 +266,11 @@ function ChartLegendContent({
   payload,
   verticalAlign = "bottom",
   nameKey,
+  onHeightChange,
 }: React.ComponentProps<"div"> & {
   hideIcon?: boolean;
   nameKey?: string;
+  onHeightChange: (height: number) => void;
 } & RechartsPrimitive.DefaultLegendContentProps) {
   const { config } = useChart();
 
@@ -269,6 +280,14 @@ function ChartLegendContent({
 
   return (
     <div
+      ref={(node) => {
+        if (!node) return;
+        const observer = new ResizeObserver(() =>
+          onHeightChange(node.getBoundingClientRect().height),
+        );
+        observer.observe(node);
+        return () => observer.disconnect();
+      }}
       className={cn(
         "flex items-center justify-center gap-4",
         verticalAlign === "top" ? "pb-3" : "pt-3",
@@ -331,11 +350,4 @@ function getPayloadConfigFromPayload(config: ChartConfig, payload: unknown, key:
   return configLabelKey in config ? config[configLabelKey] : config[key];
 }
 
-export {
-  ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
-  ChartLegend,
-  ChartLegendContent,
-  ChartStyle,
-};
+export { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartStyle };

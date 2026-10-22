@@ -1062,7 +1062,8 @@ test("screenshots", async ({ page }) => {
     },
     () => page.keyboard.press("Escape"),
   );
-  // Recharts measures the legend once, so the day labels stay far above it until the legend has its final height.
+  // The legend text wraps again when the font loads. With the final legend height, the legend wrapper is below the
+  // day labels by its padding. A negative gap means that the plot area still has an older, smaller legend height.
   const legendGap = `(() => {
     const label = document.querySelector('.recharts-xAxis-tick-labels text');
     const legend = document.querySelector('.recharts-legend-wrapper');
@@ -1070,7 +1071,14 @@ test("screenshots", async ({ page }) => {
     return legend.getBoundingClientRect().top - label.getBoundingClientRect().bottom;
   })()`;
   const legendSettled = async () => {
-    await expect.poll(() => page.evaluate<number>(legendGap)).toBeLessThan(12);
+    await expect(page.locator(".recharts-legend-wrapper")).toBeVisible();
+    await page.evaluate(() => document.fonts.ready);
+    await expect
+      .poll(async () => {
+        const gap = await page.evaluate<number>(legendGap);
+        return gap >= 0 && gap < 12;
+      })
+      .toBe(true);
   };
   const usageDays = ["Oct 9", "Oct 10", "Oct 11", "Oct 12", "Oct 13", "Oct 14", "Oct 15"];
   // The 7 days that end on the fixed date have the turns of three models in two repositories. devin has no cost.
