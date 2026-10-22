@@ -147,6 +147,12 @@ func (r Repository) RerunFailedJobs(ctx context.Context, id int64) error {
 	return err
 }
 
+// CommitsBehind gives the number of commits of base that the commit head does not contain.
+func (r Repository) CommitsBehind(ctx context.Context, base, head string) (int, error) {
+	comparison, _, err := r.Client.Repositories.CompareCommits(ctx, r.Owner(), r.Name(), base, head, &gh.ListOptions{PerPage: 1})
+	return comparison.GetBehindBy(), err
+}
+
 // RunAttemptJobs gives the jobs of the attempt of the workflow run id. It reads one page, because a run has few jobs.
 func (r Repository) RunAttemptJobs(ctx context.Context, id, attempt int64) ([]*gh.WorkflowJob, error) {
 	jobs, _, err := r.Client.Actions.ListWorkflowJobsAttempt(ctx, r.Owner(), r.Name(), id, attempt, &gh.ListOptions{PerPage: 100})

@@ -5,6 +5,8 @@ import (
 	"compress/gzip"
 	"net/http"
 	"slices"
+	"strconv"
+	"strings"
 )
 
 type assetJSON struct {
@@ -75,7 +77,9 @@ func (g *FakeGitHub) SetComparedCommits(messages ...string) {
 	g.comparedCommits = messages
 }
 
-// compare needs no token, as on GitHub for a public repository, unless SetAnonymousRateLimited is on.
+// compare needs no token, as on GitHub for a public repository, unless SetAnonymousRateLimited is on. For a repository
+// with a git repository it gives only behind_by, the number of commits of the base that the head does not contain. For
+// Mobius-Toolkit/Mobius it gives the commits of SetComparedCommits.
 func (g *FakeGitHub) compare(w http.ResponseWriter, r *http.Request) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -83,7 +87,7 @@ func (g *FakeGitHub) compare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if repository(r) != "Mobius-Toolkit/Mobius" {
-		notFound(w)
+		g.compareBehind(w, r)
 		return
 	}
 	commits := make([]commitJSON, len(g.comparedCommits))
@@ -91,4 +95,23 @@ func (g *FakeGitHub) compare(w http.ResponseWriter, r *http.Request) {
 		commits[i].Commit.Message = message
 	}
 	writeJSON(w, http.StatusOK, map[string][]commitJSON{"commits": commits})
+}
+
+// compareBehind gives behind_by of the comparison in the path of r. The caller must hold the lock.
+func (g *FakeGitHub) compareBehind(w http.ResponseWriter, r *http.Request) {
+	if !slices.Contains(g.repositories, repository(r)) {
+		notFound(w)
+		return
+	}
+	base, head, _ := strings.Cut(r.PathValue("basehead"), "...")
+	behind, err := gitCommand(g.Remote(repository(r)), "rev-list", "--count", head+".."+base).Output()
+	if err != nil {
+		notFound(w)
+		return
+	}
+	count, err := strconv.Atoi(strings.TrimSpace(string(behind)))
+	if err != nil {
+		g.t.Errorf("rev-list count %q: %v", behind, err)
+	}
+	writeJSON(w, http.StatusOK, map[string]int{"behind_by": count})
 }

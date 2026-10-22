@@ -256,7 +256,8 @@ func (e *Engine) startKeptRound(ctx context.Context, repository github.Repositor
 
 // approvePullRequest moves the task from approval to ready_for_review, sets the Mobius check of the head to success,
 // makes a draft pull request ready for review, replaces mobius:working with mobius:review, and adds the Inbox item for
-// the Owner. Before the check, it posts the report of the Lead as a comment on the pull request.
+// the Owner. Before the check, it posts the report of the Lead as a comment on the pull request. With a merge level, it
+// then approves the pull request for the Owner (autoApprove), and a failure of that does not fail the approval.
 func (e *Engine) approvePullRequest(ctx context.Context, c caller, repository github.Repository, input approveInput) (string, error) {
 	if input.N < 1 {
 		return "", refuse("n must be 1 or more.")
@@ -296,6 +297,10 @@ func (e *Engine) approvePullRequest(ctx context.Context, c caller, repository gi
 	if err != nil {
 		return "", err
 	}
+	level, err := e.workstreamLevel(ctx, task.WorkstreamRepository, task.Workstream)
+	if err != nil {
+		return "", err
+	}
 	moved, err := e.setTaskState(ctx, store.SetTaskStateParams{State: "ready_for_review", ID: task.ID, FromState: "approval"})
 	if err != nil {
 		return "", err
@@ -307,7 +312,14 @@ func (e *Engine) approvePullRequest(ctx context.Context, c caller, repository gi
 		_, stateErr := e.setTaskState(ctx, store.SetTaskStateParams{State: "approval", ID: task.ID, FromState: "ready_for_review"})
 		return "", errors.Join(err, stateErr)
 	}
-	return fmt.Sprintf("Approved pull request #%d of #%d. The Owner got it for review.", pullRequest.GetNumber(), input.N), nil
+	text := fmt.Sprintf("Approved pull request #%d of #%d.", pullRequest.GetNumber(), input.N)
+	if !mergesPullRequests(level) {
+		return text + " The Owner got it for review.", nil
+	}
+	if err := e.autoApprove(ctx, repository, task, pullRequest); err != nil {
+		return fmt.Sprintf("%s The Owner got it for review. Mobius did not start the merge: %v", text, err), nil
+	}
+	return text + " Mobius merges it after its checks pass.", nil
 }
 
 // openCheckRun returns the id of the Mobius check run of the head that is not complete, or 0 when it has none. A head

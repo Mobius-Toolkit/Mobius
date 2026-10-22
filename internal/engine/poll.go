@@ -391,7 +391,8 @@ func (e *Engine) workstreamEvent(ctx context.Context, repository github.Reposito
 }
 
 // autopilotEvent adds an event for the Lead when event is the newest change of mobius:autopilot or mobius:auto-merge by
-// a person. Thus the removals and the adds of one switch give one event.
+// a person. Thus the removals and the adds of one switch give one event. The same change acts on the live tasks of the
+// Workstream (applyLevel).
 func (e *Engine) autopilotEvent(ctx context.Context, repository github.Repository, issue *gh.Issue, events []*gh.IssueEvent, event *gh.IssueEvent) error {
 	bot := appLogin(repository.AppSlug)
 	newest := slices.IndexFunc(events, func(other *gh.IssueEvent) bool { return other == event })
@@ -404,6 +405,10 @@ func (e *Engine) autopilotEvent(ctx context.Context, repository github.Repositor
 		return nil
 	}
 	autopilot, autoMerge := e.levelLabels(issue, events)
-	text := fmt.Sprintf("%s Autopilot of Workstream #%d \"%s\" is \"%s\", by @%s.", time.Now().UTC().Format(timeFormat), issue.GetNumber(), issue.GetTitle(), levelNames[AutopilotLevel(autopilot, autoMerge)], event.GetActor().GetLogin())
+	level := AutopilotLevel(autopilot, autoMerge)
+	if err := e.applyLevel(ctx, repository.FullName, int64(issue.GetNumber()), level); err != nil {
+		return err
+	}
+	text := fmt.Sprintf("%s Autopilot of Workstream #%d \"%s\" is \"%s\", by @%s.", time.Now().UTC().Format(timeFormat), issue.GetNumber(), issue.GetTitle(), levelNames[level], event.GetActor().GetLogin())
 	return e.addLeadEvent(ctx, repository.FullName, int64(issue.GetNumber()), "", sql.NullInt64{}, "autopilot", text)
 }
