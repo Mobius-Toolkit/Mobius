@@ -4,6 +4,7 @@ const removedMark = "~~";
 const addedMark = "==";
 const syntax = /[`*_~=[\]()<>#|\\]/;
 const blockPrefix = /^\s*(?:>\s*)*(?:(?:[-*+]|\d+[.)])\s+)?(?:#{1,6}\s+)?/;
+const url = /\]\([^)]*\)|https?:\/\/\S+|<[^>\s]+>/g;
 const fence = /^\s*(?:```|~~~)/;
 
 const prefixLength = (line: string) => line.length - line.replace(blockPrefix, "").length;
@@ -26,6 +27,9 @@ function markLine(line: string, delimiter: string) {
 const insideCode = (line: string, at: number) =>
   (line.slice(0, at).match(/`/g) ?? []).length % 2 === 1;
 
+const insideUrl = (line: string, at: number, length: number) =>
+  [...line.matchAll(url)].some((m) => at < m.index + m[0].length && at + length > m.index);
+
 function textOf(parts: Part[], skip: Part["kind"]) {
   return parts
     .filter((part) => part.kind !== skip)
@@ -33,14 +37,19 @@ function textOf(parts: Part[], skip: Part["kind"]) {
     .join("");
 }
 
-// A mark cannot show in a Markdown syntax character, in the block prefix of a line or in inline code.
+// A mark cannot show in a Markdown syntax character, in the block prefix of a line, in inline code or in a URL.
 function markable(parts: Part[], removed: string, added: string) {
   let removedAt = 0;
   let addedAt = 0;
   for (const part of parts) {
     if (part.kind !== "unchanged") {
       const [line, at] = part.kind === "removed" ? [removed, removedAt] : [added, addedAt];
-      if (syntax.test(part.text) || at < prefixLength(line) || insideCode(line, at)) {
+      if (
+        syntax.test(part.text) ||
+        at < prefixLength(line) ||
+        insideCode(line, at) ||
+        insideUrl(line, at, part.text.length)
+      ) {
         return false;
       }
     }
@@ -58,7 +67,8 @@ function changedLines(parts: Part[]) {
   const removed = textOf(parts, "added");
   const added = textOf(parts, "removed");
   if (!markable(parts, removed, added)) {
-    return [markLine(removed, removedMark), markLine(added, addedMark)];
+    const markedRemoved = markLine(removed, removedMark);
+    return [...(markedRemoved === removed ? [] : [markedRemoved]), markLine(added, addedMark)];
   }
   return [
     parts
@@ -80,8 +90,9 @@ export function briefMarkdown(diff: DiffLine[]): string {
   let inFence = false;
   for (const line of diff) {
     if (line.kind === "removed") {
-      if (!inFence && !fence.test(line.text) && line.text.trim() !== "") {
-        out.push(markLine(line.text, removedMark));
+      const marked = markLine(line.text, removedMark);
+      if (!inFence && !fence.test(line.text) && marked !== line.text) {
+        out.push(marked);
       }
       continue;
     }

@@ -454,6 +454,28 @@ test("the panel of an edit_brief action shows a change in inline code as a full 
   await expect(dialog).not.toContainText("~~");
 });
 
+test("the panel of an edit_brief action shows no removed rule as Markdown", async ({ page }) => {
+  await page.route("**/api/actions/*/brief", (route) =>
+    route.fulfill({
+      json: {
+        data: {
+          brief:
+            "**Goal**\nLet customers renew a plan two months early.\n---\n\n**Scope**\n- Add a button to the renewal page.\n\n**Limits**\n- Do not change the price of a plan.",
+        },
+      },
+    }),
+  );
+  await openLeadChat(page);
+  await sendToLead(page, editBrief);
+  await expect(waiting(page, 1)).toBeVisible(agentTimeout);
+  await answer(page, briefTitle);
+
+  const dialog = panel(page);
+  await expect(addedText(dialog)).toHaveText(["Do not remove the old renewal page."]);
+  await expect(dialog.locator("hr")).toHaveCount(0);
+  await expect(dialog.locator("h2", { hasText: "Let customers" })).toHaveCount(0);
+});
+
 test("the panel of an edit_brief action reads the Brief again each time it opens", async ({
   page,
 }) => {
