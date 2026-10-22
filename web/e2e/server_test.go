@@ -308,8 +308,17 @@ func TestServer(t *testing.T) {
 		"Keep a Workstream in the list when its sub-issues cannot be read (#314)",
 		"Show the release changes in a modal before the upgrade (#320)",
 	)
-	// The Checkup page shows the path of each tool, so the data directory has the same path in each run.
-	const dataDir = "/tmp/mobius-e2e"
+	_, portText, err := net.SplitHostPort(addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.ParseUint(portText, 10, 16)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The Checkup page shows the path of each tool, so the data directory has the same path for the same port.
+	// CI always uses port 6464. A run on a free port cannot use the directory of another run.
+	dataDir := fmt.Sprintf("/tmp/mobius-e2e-%d", port)
 	if err := os.RemoveAll(dataDir); err != nil {
 		t.Fatal(err)
 	}
