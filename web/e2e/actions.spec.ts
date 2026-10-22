@@ -416,6 +416,19 @@ test("the panel of an edit_brief action shows the changes", async ({ page }) => 
   expect(await fits(dialog)).toBe(true);
   await expect(dialog.getByRole("button", { name: "Show the full Brief" })).toHaveCount(0);
   await expect(dialog.getByRole("button", { name: "Show the changes" })).toHaveCount(0);
+
+  await dialog.getByRole("button", { name: "Hide removed text" }).click();
+  await expect(removedText(dialog)).toHaveCount(0);
+  await expect(dialog).not.toContainText("one month");
+  await expect(dialog).not.toContainText("Send a mail after the renewal.");
+  await expect(addedText(dialog)).toHaveText(["two months", "Do not remove the old renewal page."]);
+  await expect(dialog.locator("strong", { hasText: "Goal" })).toBeVisible();
+  for (const item of await dialog.locator("li").all()) {
+    await expect(item).toHaveText(/\S/);
+  }
+
+  await dialog.getByRole("button", { name: "Show removed text" }).click();
+  await expect(removedText(dialog)).toHaveCount(2);
 });
 
 test("the panel of an edit_brief action shows a change in inline code as a full old line and a full new line", async ({
@@ -440,6 +453,14 @@ test("the panel of an edit_brief action shows a change in inline code as a full 
   await expect(removedText(dialog).first()).toHaveText(
     "Let customers renew a plan with renew_old early.",
   );
+  await expect(addedText(dialog).first()).toHaveText(
+    "Let customers renew a plan two months early.",
+  );
+  await expect(dialog).not.toContainText("==");
+  await expect(dialog).not.toContainText("~~");
+
+  await dialog.getByRole("button", { name: "Hide removed text" }).click();
+  await expect(removedText(dialog)).toHaveCount(0);
   await expect(addedText(dialog).first()).toHaveText(
     "Let customers renew a plan two months early.",
   );
@@ -749,6 +770,12 @@ test("the card of a done edit_brief action shows the changes, and the full Brief
     await expect(addedText(card).last()).toBeInViewport();
     await expect(card.getByRole("button", { name: "Show the full Brief" })).toHaveCount(0);
     await expect(card.getByRole("button", { name: "Show the changes" })).toHaveCount(0);
+
+    await card.getByRole("button", { name: "Hide removed text" }).click();
+    await expect(removedText(card)).toHaveCount(0);
+    await expect(addedText(card)).toHaveCount(2);
+    await card.getByRole("button", { name: "Show removed text" }).click();
+    await expect(removedText(card)).toHaveCount(2);
 
     await page.route("**/api/chat?*", async (route) => {
       const response = await route.fetch();

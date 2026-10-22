@@ -1424,6 +1424,7 @@ test("screenshots", async ({ page }) => {
     removedText(panel).last(),
     addedText(panel).first(),
     addedText(panel).last(),
+    panel.getByRole("button", { name: "Hide removed text" }),
   ];
   const openBrief = async () => {
     await row(briefTitle).getByRole("button", { name: "Answer" }).click();
@@ -1435,6 +1436,23 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/14",
     briefReady,
     openBrief,
+    () => page.keyboard.press("Escape"),
+  );
+  await screenshot(
+    page,
+    "action-brief-hidden",
+    "/workstreams/owner/shop/14",
+    (device) => [
+      ...approvalReady(device, "2"),
+      addedText(panel).first(),
+      addedText(panel).last(),
+      panel.getByRole("button", { name: "Show removed text" }),
+    ],
+    async () => {
+      await openBrief();
+      await panel.getByRole("button", { name: "Hide removed text" }).click();
+      await expect(removedText(panel)).toHaveCount(0);
+    },
     () => page.keyboard.press("Escape"),
   );
   await row(briefTitle).getByRole("button", { name: "Answer" }).click();
@@ -1472,6 +1490,7 @@ test("screenshots", async ({ page }) => {
     briefCard().getByRole("button", { name: "Show all" }),
     removedText(briefCard()).first(),
     addedText(briefCard()).first(),
+    briefCard().getByRole("button", { name: "Hide removed text" }),
   ];
   await screenshot(
     page,
@@ -1489,6 +1508,7 @@ test("screenshots", async ({ page }) => {
       briefCard().getByRole("button", { name: "Show less" }),
       removedText(briefCard()).last(),
       addedText(briefCard()).last(),
+      briefCard().getByRole("button", { name: "Hide removed text" }),
     ],
     async () => {
       await showBriefCard();
