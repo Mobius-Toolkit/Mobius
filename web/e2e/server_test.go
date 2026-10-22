@@ -272,6 +272,7 @@ func TestServer(t *testing.T) {
 	}
 	github.AddLabel("owner/shop", 14, "mobius:autopilot", "owner")
 	github.AddLabel("owner/shop", 14, "mobius:maintenance", "owner")
+	github.SetBody("owner/shop", 14, "**Goal**\nLet customers renew a plan one month early.\n\n**Scope**\n- Add a button to the renewal page.\n- Send a mail after the renewal.\n\n**Limits**\n- Do not change the price of a plan.")
 	github.AddSubIssueOf("owner/shop", 12, 41, "Add plan model")
 	github.AddSubIssueOf("owner/shop", 12, 42, "Let customers change plans")
 	github.AddSubIssueOf("owner/shop", 12, 30, "Name the plan tiers")
@@ -287,7 +288,6 @@ func TestServer(t *testing.T) {
 	github.CloseIssue("owner/shop", 37)
 	github.SetBody("owner/shop", 12, "Reward repeat customers.\n\n- Points on every order\n- One **free** plan for staff")
 	github.SetBody("owner/shop", 13, "Change the prices for each season.")
-	github.SetBody("owner/shop", 14, "**Goal**\nLet customers renew a plan one month early.\n\n**Scope**\n- Add a button to the renewal page.\n- Send a mail after the renewal.\n\n**Limits**\n- Do not change the price of a plan.")
 	github.SetBody("plants/garden", 18, "Cut the **old** canes in March.")
 	github.SetBody("plants/garden", 19, "Put **bark** on the beds.")
 	github.AddIssue("owner/shop", 40, "Renew a month early")
