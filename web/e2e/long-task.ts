@@ -5,7 +5,6 @@ export const longTaskTitle =
 
 export const tasksUrl = (url: URL) => url.pathname === "/api/workstreams/owner/shop/12/tasks";
 
-// Adds a task with a long word in its title to the Tasks list of owner/shop#12. Remove it with page.unroute(tasksUrl).
 export async function routeLongTask(page: Page) {
   await page.route(tasksUrl, async (route) => {
     const response = await route.fetch();
