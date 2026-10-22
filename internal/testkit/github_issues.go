@@ -998,6 +998,30 @@ func (g *FakeGitHub) addBlockedBy(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, g.issueJSON(blocker))
 }
 
+// removeBlockedBy removes the issue with the id issue_id from the blockers of the issue of the path. It answers 404 when
+// that issue is not a blocker.
+func (g *FakeGitHub) removeBlockedBy(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("issue_id"), 10, 64)
+	if err != nil {
+		notFound(w)
+		return
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	key, ok := g.issue(w, r)
+	if !ok {
+		return
+	}
+	blocker, ok := g.issueKeys[id]
+	found := g.issues[key]
+	if !ok || !slices.Contains(found.blockedBy, blocker) {
+		notFound(w)
+		return
+	}
+	found.blockedBy = slices.DeleteFunc(found.blockedBy, func(other issueKey) bool { return other == blocker })
+	writeJSON(w, http.StatusOK, g.issueJSON(key))
+}
+
 // HoldIssueEvents makes the next request for the events of the issue number wait until a call of release. The channel
 // closes when the request arrives.
 func (g *FakeGitHub) HoldIssueEvents(repository string, number int64) (<-chan struct{}, func()) {
