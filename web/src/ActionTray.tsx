@@ -1,15 +1,19 @@
-import type { InboxItem } from "@/api/api.gen";
-import { Button } from "@/components/ui/button";
-import { Row } from "@/components/page";
+import { useState } from "react";
+import type { InboxItem, PendingAction, Workstream } from "@/api/api.gen";
+import { ErrorBadge } from "@/components/page";
+import { InboxRow } from "./Inbox";
 
 // The pending actions and the questions of a chat, oldest first, above the composer.
 export function ActionTray({
   rows,
-  answer,
+  workstreams,
+  onDecided,
 }: {
   rows: InboxItem[];
-  answer: (item: InboxItem) => void;
+  workstreams?: Workstream[];
+  onDecided: (action: PendingAction) => void;
 }) {
+  const [error, setError] = useState("");
   if (rows.length === 0) {
     return null;
   }
@@ -18,19 +22,16 @@ export function ActionTray({
       <h3 className="px-4 text-xs font-semibold tracking-wide text-muted-foreground uppercase md:px-0">
         Waits for you ({rows.length})
       </h3>
+      {error && <ErrorBadge>{error}</ErrorBadge>}
       <ul aria-label="Pending actions" className="max-h-[35svh] divide-y overflow-y-auto md:-mx-2">
         {rows.map((item) => (
-          <Row key={item.id} className="flex-wrap gap-y-1 py-2">
-            <span className="min-w-0 grow basis-0 wrap-anywhere">{item.title}</span>
-            <Button variant="outline" size="sm" onClick={() => answer(item)}>
-              Answer
-            </Button>
-            {item.action?.error && (
-              <p role="alert" className="basis-full text-sm text-destructive wrap-anywhere">
-                {item.action.error}
-              </p>
-            )}
-          </Row>
+          <InboxRow
+            key={item.id}
+            item={item}
+            workstreams={workstreams}
+            setError={setError}
+            onDecided={onDecided}
+          />
         ))}
       </ul>
     </div>

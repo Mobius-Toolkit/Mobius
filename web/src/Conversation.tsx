@@ -51,7 +51,6 @@ import { sameChat } from "@/lib/unread";
 import { cn } from "@/lib/utils";
 import { ActionCard } from "./ActionCard";
 import { ActionTray } from "./ActionTray";
-import { AnswerPanel } from "./AnswerPanel";
 import { FileImage } from "./FileImage";
 import { InboxItemCard } from "./InboxItemCard";
 import { Markdown } from "./Markdown";
@@ -270,8 +269,8 @@ export function Conversation({
   head,
   brief,
   note,
-  footer,
   trayItems = [],
+  workstreams,
 }: {
   organization: string;
   repository: string;
@@ -282,8 +281,8 @@ export function Conversation({
   head: ReactNode;
   brief?: Workstream;
   note?: ReactNode;
-  footer?: ReactNode;
   trayItems?: InboxItem[];
+  workstreams?: Workstream[];
 }) {
   const showLogin = use(LoginContext);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -305,7 +304,6 @@ export function Conversation({
   // Ends the wait before the next try of the first message.
   const skipWait = useRef<() => void>(undefined);
   const [briefOpen, setBriefOpen] = useState<boolean>();
-  const [answering, setAnswering] = useState<number>();
   const updateAction = useCallback(
     (action: PendingAction) =>
       setMessages((list) =>
@@ -651,7 +649,6 @@ export function Conversation({
   const rows = trayItems
     .filter((item) => !item.action || item.action.state === "pending")
     .toSorted((a, b) => a.id - b.id);
-  const panelItem = rows.find((item) => item.id === answering);
 
   const discard = (item: Waiting) => {
     removeQueued(item.id)
@@ -768,8 +765,7 @@ export function Conversation({
           </Badge>
         )}
       </div>
-      {footer}
-      <ActionTray rows={rows} answer={(item) => setAnswering(item.id)} />
+      <ActionTray rows={rows} workstreams={workstreams} onDecided={updateAction} />
       <MessageInput
         key={chatDraftKey(organization, repository, workstream)}
         draftKey={chatDraftKey(organization, repository, workstream)}
@@ -783,15 +779,6 @@ export function Conversation({
         onStop={stoppable ? stop : undefined}
         onSend={send}
       />
-      {panelItem && (
-        <AnswerPanel
-          item={panelItem}
-          input
-          workstream={agent}
-          onClose={() => setAnswering(undefined)}
-          onDecided={updateAction}
-        />
-      )}
     </section>
   );
 }

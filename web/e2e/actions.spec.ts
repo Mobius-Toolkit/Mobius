@@ -79,7 +79,7 @@ test("the Owner approves an action with a note", async ({ page }) => {
   await expect(waiting(page, 1)).toBeVisible(agentTimeout);
   const card = cardOf(page, keepText);
   await expect(card.getByText("Waits for the approval")).toBeVisible();
-  await expect(row(page, leadTitle).getByRole("button")).toHaveText("Answer");
+  await expect(row(page, leadTitle).getByRole("button")).toHaveText(["Answer", "Chat"]);
   await expect(main.getByRole("button", { name: "Approve" })).toHaveCount(0);
   await expect(main.getByRole("button", { name: "Reject" })).toHaveCount(0);
 
@@ -304,7 +304,7 @@ test("the Owner answers a question with options", async ({ page }) => {
 
   await ask(page, askStore);
   await expect(waiting(page, 1)).toBeVisible(agentTimeout);
-  await expect(row(page, storeQuestion).getByRole("button")).toHaveText("Answer");
+  await expect(row(page, storeQuestion).getByRole("button")).toHaveText(["Answer", "Chat"]);
   await answer(page, storeQuestion);
 
   const store = panel(page).getByRole("group", { name: storeQuestion });

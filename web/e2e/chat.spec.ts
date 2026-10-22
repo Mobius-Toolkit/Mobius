@@ -4,6 +4,7 @@ import { fakeMicrophone } from "./microphone.js";
 import { addStoppedItems, removeItems } from "./stopped-items.js";
 import {
   inboxRoute,
+  leadActionItem,
   longTitle,
   longTitleItem,
   otherItems,
@@ -2188,4 +2189,54 @@ test.describe("on a desktop", () => {
       await expect(header).not.toContainText("Coordinator:");
     }
   });
+});
+
+test("the chat of a Workstream shows a Lead question and a Lead action in one list under Waits for you", async ({
+  page,
+}) => {
+  await page.route(inboxRoute, (route) =>
+    route.fulfill({ json: { data: [longTitleItem, leadActionItem] } }),
+  );
+  await page.goto(shop);
+  const main = page.getByRole("main");
+  const list = main.getByRole("list", { name: "Pending actions" });
+
+  await expect(main.getByRole("heading", { name: "Waits for you (2)" })).toBeVisible();
+  const question = list.getByRole("listitem").filter({ hasText: longTitle });
+  const action = list.getByRole("listitem").filter({ hasText: leadActionItem.title });
+  await expect(list.getByRole("listitem")).toHaveCount(2);
+  await expect(question.getByRole("button")).toHaveText(["Answer", "Chat"]);
+  await expect(action.getByRole("button")).toHaveText(["Answer", "Chat"]);
+});
+
+test("a row with no link shows no Open GitHub, on the Inbox page and in the chat", async ({
+  page,
+}) => {
+  const noLink = { ...longTitleItem, link: "", title: "Which plan limits do you want?" };
+  await routeInboxItems(page, [noLink]);
+
+  for (const path of ["/inbox", shop]) {
+    await page.goto(path);
+    const row = page.getByRole("main").locator("li:not(aside *)").filter({ hasText: noLink.title });
+    await expect(row.getByRole("button", { name: "Answer" })).toBeVisible();
+    await expect(row.getByRole("link", { name: "Open GitHub" })).toHaveCount(0);
+  }
+});
+
+test("a Lead action with an error shows the error in its row in the chat", async ({ page }) => {
+  await routeInboxItems(page, [
+    {
+      ...leadActionItem,
+      action: { ...leadActionItem.action, error: "GitHub refused the edit of the Brief" },
+    },
+  ]);
+  await page.goto(shop);
+
+  await expect(
+    page
+      .getByRole("main")
+      .getByRole("listitem")
+      .filter({ hasText: leadActionItem.title })
+      .getByRole("alert"),
+  ).toHaveText("GitHub refused the edit of the Brief");
 });
