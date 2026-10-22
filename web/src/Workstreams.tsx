@@ -39,7 +39,7 @@ export function WorkstreamBadges({
           className="size-2 rounded-full bg-green-600"
         />
       )}
-      {workstream.autopilot && (
+      {(workstream.autopilot === "start" || workstream.autopilot === "start_and_merge") && (
         <span role="img" aria-label="Autopilot" title="Autopilot" className="text-muted-foreground">
           <PlaneIcon className="size-3.5" />
         </span>

@@ -345,9 +345,9 @@ func (q *Queries) AddCopiedIssueLabelIfMissing(ctx context.Context, arg AddCopie
 }
 
 const addCopiedWorkstream = `-- name: AddCopiedWorkstream :exec
-INSERT INTO copied_workstreams (repository, number, title, body, autopilot, evergreen, skills, maintenance, created_at)
+INSERT INTO copied_workstreams (repository, number, title, body, autopilot, auto_merge, evergreen, skills, maintenance, created_at)
 VALUES (?1, ?2, ?3, ?4, CAST(?5 AS BOOLEAN), CAST(?6 AS BOOLEAN),
-        CAST(?7 AS BOOLEAN), CAST(?8 AS BOOLEAN), ?9)
+        CAST(?7 AS BOOLEAN), CAST(?8 AS BOOLEAN), CAST(?9 AS BOOLEAN), ?10)
 ON CONFLICT (repository, number) DO NOTHING
 `
 
@@ -357,6 +357,7 @@ type AddCopiedWorkstreamParams struct {
 	Title       string
 	Body        string
 	Autopilot   bool
+	AutoMerge   bool
 	Evergreen   bool
 	Skills      bool
 	Maintenance bool
@@ -371,6 +372,7 @@ func (q *Queries) AddCopiedWorkstream(ctx context.Context, arg AddCopiedWorkstre
 		arg.Title,
 		arg.Body,
 		arg.Autopilot,
+		arg.AutoMerge,
 		arg.Evergreen,
 		arg.Skills,
 		arg.Maintenance,
@@ -1895,7 +1897,7 @@ func (q *Queries) GetChatMessage(ctx context.Context, id int64) (ChatMessage, er
 }
 
 const getCopiedAutopilot = `-- name: GetCopiedAutopilot :one
-SELECT CAST(autopilot AS BOOLEAN) FROM copied_workstreams WHERE repository = ? AND number = ?
+SELECT CAST(autopilot AS BOOLEAN) AS autopilot, CAST(auto_merge AS BOOLEAN) AS auto_merge FROM copied_workstreams WHERE repository = ? AND number = ?
 `
 
 type GetCopiedAutopilotParams struct {
@@ -1903,11 +1905,16 @@ type GetCopiedAutopilotParams struct {
 	Number     int64
 }
 
-func (q *Queries) GetCopiedAutopilot(ctx context.Context, arg GetCopiedAutopilotParams) (bool, error) {
+type GetCopiedAutopilotRow struct {
+	Autopilot bool
+	AutoMerge bool
+}
+
+func (q *Queries) GetCopiedAutopilot(ctx context.Context, arg GetCopiedAutopilotParams) (GetCopiedAutopilotRow, error) {
 	row := q.db.QueryRowContext(ctx, getCopiedAutopilot, arg.Repository, arg.Number)
-	var autopilot bool
-	err := row.Scan(&autopilot)
-	return autopilot, err
+	var i GetCopiedAutopilotRow
+	err := row.Scan(&i.Autopilot, &i.AutoMerge)
+	return i, err
 }
 
 const getCopiedIssueState = `-- name: GetCopiedIssueState :one
@@ -4009,6 +4016,7 @@ func (q *Queries) ListCopiedTreeLabels(ctx context.Context, arg ListCopiedTreeLa
 
 const listCopiedWorkstreams = `-- name: ListCopiedWorkstreams :many
 SELECT w.repository, w.number, w.title, w.body, CAST(w.autopilot AS BOOLEAN) AS autopilot,
+       CAST(w.auto_merge AS BOOLEAN) AS auto_merge,
        CAST(w.evergreen AS BOOLEAN) AS evergreen,
        CAST(EXISTS (SELECT 1 FROM copied_issues i
                WHERE i.repository = w.repository AND i.workstream = w.number AND i.parent = w.number AND i.parent_repository = w.repository)
@@ -4027,6 +4035,7 @@ type ListCopiedWorkstreamsRow struct {
 	Title          string
 	Body           string
 	Autopilot      bool
+	AutoMerge      bool
 	Evergreen      bool
 	AllTasksClosed bool
 	ReadyToMerge   bool
@@ -4047,6 +4056,7 @@ func (q *Queries) ListCopiedWorkstreams(ctx context.Context) ([]ListCopiedWorkst
 			&i.Title,
 			&i.Body,
 			&i.Autopilot,
+			&i.AutoMerge,
 			&i.Evergreen,
 			&i.AllTasksClosed,
 			&i.ReadyToMerge,
@@ -6936,18 +6946,24 @@ func (q *Queries) SetCheckTimeoutIssue(ctx context.Context, arg SetCheckTimeoutI
 }
 
 const setCopiedAutopilot = `-- name: SetCopiedAutopilot :exec
-UPDATE copied_workstreams SET autopilot = CAST(?1 AS BOOLEAN)
-WHERE repository = ?2 AND number = ?3
+UPDATE copied_workstreams SET autopilot = CAST(?1 AS BOOLEAN), auto_merge = CAST(?2 AS BOOLEAN)
+WHERE repository = ?3 AND number = ?4
 `
 
 type SetCopiedAutopilotParams struct {
 	Autopilot  bool
+	AutoMerge  bool
 	Repository string
 	Number     int64
 }
 
 func (q *Queries) SetCopiedAutopilot(ctx context.Context, arg SetCopiedAutopilotParams) error {
-	_, err := q.db.ExecContext(ctx, setCopiedAutopilot, arg.Autopilot, arg.Repository, arg.Number)
+	_, err := q.db.ExecContext(ctx, setCopiedAutopilot,
+		arg.Autopilot,
+		arg.AutoMerge,
+		arg.Repository,
+		arg.Number,
+	)
 	return err
 }
 
@@ -7561,18 +7577,19 @@ func (q *Queries) UpdateCopiedIssue(ctx context.Context, arg UpdateCopiedIssuePa
 
 const updateCopiedWorkstream = `-- name: UpdateCopiedWorkstream :execrows
 UPDATE copied_workstreams SET title = ?1, body = ?2, autopilot = CAST(?3 AS BOOLEAN),
-    evergreen = CAST(?4 AS BOOLEAN), skills = CAST(?5 AS BOOLEAN),
-    maintenance = CAST(?6 AS BOOLEAN)
-WHERE repository = ?7 AND number = ?8
+    auto_merge = CAST(?4 AS BOOLEAN), evergreen = CAST(?5 AS BOOLEAN), skills = CAST(?6 AS BOOLEAN),
+    maintenance = CAST(?7 AS BOOLEAN)
+WHERE repository = ?8 AND number = ?9
   AND (title != ?1 OR body != ?2 OR autopilot != CAST(?3 AS BOOLEAN)
-       OR evergreen != CAST(?4 AS BOOLEAN) OR skills != CAST(?5 AS BOOLEAN)
-       OR maintenance != CAST(?6 AS BOOLEAN))
+       OR auto_merge != CAST(?4 AS BOOLEAN) OR evergreen != CAST(?5 AS BOOLEAN) OR skills != CAST(?6 AS BOOLEAN)
+       OR maintenance != CAST(?7 AS BOOLEAN))
 `
 
 type UpdateCopiedWorkstreamParams struct {
 	Title       string
 	Body        string
 	Autopilot   bool
+	AutoMerge   bool
 	Evergreen   bool
 	Skills      bool
 	Maintenance bool
@@ -7585,6 +7602,7 @@ func (q *Queries) UpdateCopiedWorkstream(ctx context.Context, arg UpdateCopiedWo
 		arg.Title,
 		arg.Body,
 		arg.Autopilot,
+		arg.AutoMerge,
 		arg.Evergreen,
 		arg.Skills,
 		arg.Maintenance,

@@ -10,19 +10,35 @@ import (
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
 
-func TestTheFirstPromptTellsTheLeadIfAutopilotIsOn(t *testing.T) {
+func TestTheFirstPromptTellsTheLeadTheAutopilotLevel(t *testing.T) {
 	t.Parallel()
-	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, "")
-	fake.AddLabel(shop, 12, "mobius:autopilot", "owner")
-	waitForPoll(t, server, fake)
-	testkit.WaitFor(t, func() bool { return workstreams(t, server)[0].Autopilot })
+	levels := []struct {
+		level  string
+		labels []string
+		text   string
+	}{
+		{"start", []string{"mobius:autopilot"}, "Autopilot is \"Start tasks\": Mobius starts each open sub-issue with no blocker and no earlier task at the next poll."},
+		{"merge", []string{"mobius:auto-merge"}, "Autopilot is \"Merge only\": a task starts only after `mark_ready` or a start of the Owner."},
+		{"start_and_merge", []string{"mobius:autopilot", "mobius:auto-merge"}, "Autopilot is \"Start and merge\": Mobius starts each open sub-issue with no blocker and no earlier task at the next poll."},
+	}
+	for _, want := range levels {
+		t.Run(want.level, func(t *testing.T) {
+			t.Parallel()
+			fake := testkit.NewFakeGitHub(t)
+			server, _ := connect(t, fake, "")
+			for _, label := range want.labels {
+				fake.AddLabel(shop, 12, label, "owner")
+			}
+			waitForPoll(t, server, fake)
+			testkit.WaitFor(t, func() bool { return workstreams(t, server)[0].Autopilot == want.level })
 
-	sendChat(t, server, leadChat, "Plan the next step")
+			sendChat(t, server, leadChat, "Plan the next step")
 
-	prompt := promptTexts(t, server, endedChatSession(t, server, 0).ID)[0]
-	if !strings.Contains(prompt, "Autopilot is on: Mobius starts each open sub-issue with no blocker and no earlier task at the next poll.\n\n# MEMORY.md") {
-		t.Errorf("prompt = %s", prompt)
+			prompt := promptTexts(t, server, endedChatSession(t, server, 0).ID)[0]
+			if !strings.Contains(prompt, want.text+"\n\n# MEMORY.md") {
+				t.Errorf("prompt = %s", prompt)
+			}
+		})
 	}
 }
 
@@ -50,9 +66,9 @@ func autopilotEvents(t *testing.T, server *testserver.Server) []string {
 	return payloads
 }
 
-func setWorkstreamAutopilot(t *testing.T, server *testserver.Server, on string) {
+func setWorkstreamAutopilot(t *testing.T, server *testserver.Server, level string) {
 	t.Helper()
-	if status, body := send(t, server, http.MethodPut, "/api/workstreams/owner/shop/12/autopilot", `{"on":`+on+`}`); status != http.StatusNoContent {
+	if status, body := send(t, server, http.MethodPut, "/api/workstreams/owner/shop/12/autopilot", `{"level":"`+level+`"}`); status != http.StatusNoContent {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 }
@@ -65,21 +81,21 @@ func TestAChangeOfAutopilotByTheOwnerAddsOneEventForTheLead(t *testing.T) {
 	server := startCopiedWithLead(t, fake)
 	authorize(t, server)
 
-	setWorkstreamAutopilot(t, server, "true")
+	setWorkstreamAutopilot(t, server, "start_and_merge")
 
 	testkit.WaitFor(t, func() bool { return len(autopilotEvents(t, server)) == 1 })
 	waitForPolls(t, fake)
 	got := autopilotEvents(t, server)
-	if len(got) != 1 || !strings.HasSuffix(got[0], ` Autopilot of Workstream #12 "Integrate loyalty plans" is on, by @owner.`) {
+	if len(got) != 1 || !strings.HasSuffix(got[0], ` Autopilot of Workstream #12 "Integrate loyalty plans" is "Start and merge", by @owner.`) {
 		t.Fatalf("events = %q", got)
 	}
 
-	setWorkstreamAutopilot(t, server, "false")
+	setWorkstreamAutopilot(t, server, "off")
 
 	testkit.WaitFor(t, func() bool { return len(autopilotEvents(t, server)) == 2 })
 	waitForPolls(t, fake)
 	got = autopilotEvents(t, server)
-	if len(got) != 2 || !strings.HasSuffix(got[1], ` Autopilot of Workstream #12 "Integrate loyalty plans" is off, by @owner.`) {
+	if len(got) != 2 || !strings.HasSuffix(got[1], ` Autopilot of Workstream #12 "Integrate loyalty plans" is "Off", by @owner.`) {
 		t.Errorf("events = %q", got)
 	}
 }

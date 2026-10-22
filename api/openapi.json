@@ -3612,7 +3612,7 @@
     },
     "/api/workstreams/{owner}/{name}/{number}/autopilot": {
       "put": {
-        "description": "SetAutopilot turns Autopilot of the Workstream on or off. Mobius changes mobius:autopilot with the user token of the Owner, so the Owner must authorize the Mobius App first. It returns 409 with the steps when the Owner did not.",
+        "description": "SetAutopilot sets the Autopilot level of the Workstream. Mobius changes mobius:autopilot and mobius:auto-merge with the user token of the Owner, so the Owner must authorize the Mobius App first. It returns 409 with the steps when the Owner did not.",
         "operationId": "SetAutopilot",
         "parameters": [
           {
@@ -6803,11 +6803,20 @@
         "type": "object",
         "title": "SetAutopilotBody",
         "properties": {
-          "on": {
-            "type": "boolean",
-            "description": "On turns Autopilot on when true, and off when false"
+          "level": {
+            "type": "string",
+            "description": "Level is the new Autopilot level",
+            "enum": [
+              "off",
+              "start",
+              "merge",
+              "start_and_merge"
+            ]
           }
-        }
+        },
+        "required": [
+          "level"
+        ]
       },
       "SetEvergreenBody": {
         "type": "object",
@@ -7491,8 +7500,14 @@
             "description": "AllTasksClosed is true when the Workstream issue has sub-issues and each one is closed"
           },
           "autopilot": {
-            "type": "boolean",
-            "description": "Autopilot is true when a trusted user added mobius:autopilot last"
+            "type": "string",
+            "description": "Autopilot is the Autopilot level: a trusted user added mobius:autopilot last for the start part, and mobius:auto-merge last for the merge part",
+            "enum": [
+              "off",
+              "start",
+              "merge",
+              "start_and_merge"
+            ]
           },
           "brief": {
             "type": "string",
