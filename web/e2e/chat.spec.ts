@@ -1571,6 +1571,32 @@ test("the Autopilot menu of the chat head sets the level and the Workstream list
   await expect(sidebar.getByRole("img", { name: /^Autopilot: / })).toHaveCount(1);
 });
 
+test("the Autopilot trigger shows a level that the server gives after the selection", async ({
+  page,
+}) => {
+  const level = (name: string) => page.getByRole("button", { name: `Autopilot: ${name}` });
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(shop);
+
+  await level("Off").click();
+  await page.getByRole("menuitemradio", { name: /^Merge only/ }).click();
+  await expect(level("Merge only")).toBeVisible();
+  await expect(
+    page.getByRole("navigation").first().getByRole("img", { name: "Autopilot: Merge only" }),
+  ).toBeVisible();
+
+  const status = await page.evaluate(async () => {
+    const response = await fetch("/api/workstreams/owner/shop/12/autopilot", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ level: "off" }),
+    });
+    return response.status;
+  });
+  expect(status).toBe(204);
+  await expect(level("Off")).toBeVisible();
+});
+
 test("the Autopilot sheet of the phone top bar sets the level", async ({ page }) => {
   const sheet = page.getByRole("dialog", { name: "Autopilot" });
   await page.setViewportSize(phone);

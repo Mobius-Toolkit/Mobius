@@ -205,14 +205,12 @@ test("screenshots", async ({ page }) => {
     main.getByRole("heading", { name: "Evergreen" }),
     main.getByText("Seasonal prices"),
     main.getByRole("img", { name: "Autopilot: Start tasks" }),
-    main.getByRole("img", { name: "Autopilot: Merge only" }),
-    main.getByRole("img", { name: "Autopilot: Start and merge" }),
     main.getByRole("img", { name: "Agent running" }),
     main.getByRole("img", { name: "Ready to merge" }),
     main.getByText("done"),
     main.getByText("needs you"),
   ];
-  // The route gives two Workstreams the merge levels. The step after the Workstream list steps removes it.
+  // The route gives two Workstreams the merge levels. The step after the "workstreams" screenshot removes it.
   const levelsRoute = "**/api/workstreams";
   await page.route(levelsRoute, async (route) => {
     const response = await route.fetch();
@@ -229,7 +227,12 @@ test("screenshots", async ({ page }) => {
     }
     await route.fulfill({ response, json: body });
   });
-  await screenshot(page, "workstreams", "/workstreams", workstreamsReady);
+  await screenshot(page, "workstreams", "/workstreams", (device) => [
+    ...workstreamsReady(device),
+    main.getByRole("img", { name: "Autopilot: Merge only" }),
+    main.getByRole("img", { name: "Autopilot: Start and merge" }),
+  ]);
+  await page.unroute(levelsRoute);
   await routeTasks(page, boardTasks);
   await screenshot(page, "tasks", "/tasks", (device) => [
     chatCount,
@@ -272,7 +275,6 @@ test("screenshots", async ({ page }) => {
     },
     () => page.unroute("/api/events"),
   );
-  await page.unroute(levelsRoute);
   // The server gives one Inbox item to the chat of owner/shop#12. The route adds the stopped issues #41 and #42.
   await routeInboxItems(page, stoppedItems);
   const chatReady = (device: string) => [

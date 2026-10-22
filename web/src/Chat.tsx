@@ -53,7 +53,10 @@ export function Chat({
   }, [missing, navigate]);
 
   const serverLevel = workstream?.autopilot ?? "off";
-  const level = chosen?.from === serverLevel ? chosen.to : serverLevel;
+  if (chosen && chosen.from !== serverLevel) {
+    setChosen(undefined);
+  }
+  const level = chosen ? chosen.to : serverLevel;
 
   const selectAutopilot = (to: WorkstreamAutopilot) => {
     setAutopilotBusy(true);
