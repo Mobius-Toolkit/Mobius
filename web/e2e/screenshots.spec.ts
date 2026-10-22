@@ -1438,21 +1438,6 @@ test("screenshots", async ({ page }) => {
     openBrief,
     () => page.keyboard.press("Escape"),
   );
-  await screenshot(
-    page,
-    "action-brief-full",
-    "/workstreams/owner/shop/14",
-    (device) => [
-      ...approvalReady(device, "2"),
-      panel.getByRole("button", { name: "Show the changes" }),
-      panel.getByText("Let customers renew a plan two months early."),
-    ],
-    async () => {
-      await openBrief();
-      await panel.getByRole("button", { name: "Show the full Brief" }).click();
-    },
-    () => page.keyboard.press("Escape"),
-  );
   await row(briefTitle).getByRole("button", { name: "Answer" }).click();
   await panel.getByRole("button", { name: "Approve" }).click();
   await expect(panel).toBeHidden();

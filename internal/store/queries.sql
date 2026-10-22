@@ -611,9 +611,9 @@ DELETE FROM copied_blockers WHERE repository = ? AND workstream = ?;
 
 -- The Lead tool create_workstream and the poll can both add a new Workstream.
 -- name: AddCopiedWorkstream :exec
-INSERT INTO copied_workstreams (repository, number, title, body, autopilot, evergreen, skills, created_at)
+INSERT INTO copied_workstreams (repository, number, title, body, autopilot, evergreen, skills, maintenance, created_at)
 VALUES (sqlc.arg(repository), sqlc.arg(number), sqlc.arg(title), sqlc.arg(body), CAST(sqlc.arg(autopilot) AS BOOLEAN), CAST(sqlc.arg(evergreen) AS BOOLEAN),
-        CAST(sqlc.arg(skills) AS BOOLEAN), sqlc.arg(created_at))
+        CAST(sqlc.arg(skills) AS BOOLEAN), CAST(sqlc.arg(maintenance) AS BOOLEAN), sqlc.arg(created_at))
 ON CONFLICT (repository, number) DO NOTHING;
 
 -- name: AddCopiedIssue :exec
@@ -661,13 +661,20 @@ SELECT DISTINCT workstream FROM copied_blockers WHERE repository = ? AND blocker
 
 -- name: UpdateCopiedWorkstream :execrows
 UPDATE copied_workstreams SET title = sqlc.arg(title), body = sqlc.arg(body), autopilot = CAST(sqlc.arg(autopilot) AS BOOLEAN),
-    evergreen = CAST(sqlc.arg(evergreen) AS BOOLEAN), skills = CAST(sqlc.arg(skills) AS BOOLEAN)
+    evergreen = CAST(sqlc.arg(evergreen) AS BOOLEAN), skills = CAST(sqlc.arg(skills) AS BOOLEAN),
+    maintenance = CAST(sqlc.arg(maintenance) AS BOOLEAN)
 WHERE repository = sqlc.arg(repository) AND number = sqlc.arg(number)
   AND (title != sqlc.arg(title) OR body != sqlc.arg(body) OR autopilot != CAST(sqlc.arg(autopilot) AS BOOLEAN)
-       OR evergreen != CAST(sqlc.arg(evergreen) AS BOOLEAN) OR skills != CAST(sqlc.arg(skills) AS BOOLEAN));
+       OR evergreen != CAST(sqlc.arg(evergreen) AS BOOLEAN) OR skills != CAST(sqlc.arg(skills) AS BOOLEAN)
+       OR maintenance != CAST(sqlc.arg(maintenance) AS BOOLEAN));
 
 -- name: GetCopiedWorkstream :one
-SELECT title, body, CAST(evergreen AS BOOLEAN) AS evergreen, created_at FROM copied_workstreams WHERE repository = ? AND number = ?;
+SELECT title, body, CAST(evergreen AS BOOLEAN) AS evergreen, CAST(maintenance AS BOOLEAN) AS maintenance, CAST(skills AS BOOLEAN) AS skills, created_at
+FROM copied_workstreams WHERE repository = ? AND number = ?;
+
+-- name: SetCopiedEvergreen :exec
+UPDATE copied_workstreams SET evergreen = CAST(sqlc.arg(evergreen) AS BOOLEAN)
+WHERE repository = sqlc.arg(repository) AND number = sqlc.arg(number);
 
 -- name: UpdateCopiedBlockerTitles :execrows
 UPDATE copied_blockers SET blocker_workstream_title = sqlc.arg(title)

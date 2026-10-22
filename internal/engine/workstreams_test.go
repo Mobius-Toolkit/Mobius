@@ -22,6 +22,7 @@ type workstream struct {
 	Title          string `json:"title"`
 	Brief          string `json:"brief"`
 	Autopilot      bool   `json:"autopilot"`
+	Evergreen      bool   `json:"evergreen"`
 	AllTasksClosed bool   `json:"allTasksClosed"`
 	ReadyToMerge   bool   `json:"readyToMerge"`
 }
@@ -531,6 +532,9 @@ type workstreamDetails struct {
 	CreatedAt      string `json:"createdAt"`
 	CompletedTasks int64  `json:"completedTasks"`
 	OpenTasks      int64  `json:"openTasks"`
+	Evergreen      bool   `json:"evergreen"`
+	Maintenance    bool   `json:"maintenance"`
+	Skills         bool   `json:"skills"`
 }
 
 func details(t *testing.T, server *testserver.Server, number int64) (int, workstreamDetails) {

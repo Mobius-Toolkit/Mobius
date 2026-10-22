@@ -394,9 +394,7 @@ const addedText = (scope: Locator) => scope.locator("ins");
 const decoration = (mark: Locator) =>
   mark.first().evaluate((el) => getComputedStyle(el).textDecorationLine);
 
-test("the panel of an edit_brief action shows the changes, and the full Brief on a click", async ({
-  page,
-}) => {
+test("the panel of an edit_brief action shows the changes", async ({ page }) => {
   await openLeadChat(page);
   await sendToLead(page, editBrief);
   await expect(waiting(page, 1)).toBeVisible(agentTimeout);
@@ -416,15 +414,8 @@ test("the panel of an edit_brief action shows the changes, and the full Brief on
   expect(await decoration(removedText(dialog))).toBe("line-through");
   expect(await decoration(addedText(dialog))).toBe("none");
   expect(await fits(dialog)).toBe(true);
-
-  await dialog.getByRole("button", { name: "Show the full Brief" }).click();
-  await expect(dialog.getByText("Let customers renew a plan two months early.")).toBeVisible();
-  await expect(removedText(dialog)).toHaveCount(0);
-  await expect(addedText(dialog)).toHaveCount(0);
-
-  await dialog.getByRole("button", { name: "Show the changes" }).click();
-  await expect(removedText(dialog)).toHaveCount(2);
-  await expect(dialog.getByRole("button", { name: "Show the full Brief" })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Show the full Brief" })).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "Show the changes" })).toHaveCount(0);
 });
 
 test("the panel of an edit_brief action shows a change in inline code as a full old line and a full new line", async ({
@@ -732,7 +723,6 @@ test("the panel of an edit_brief action shows the full Brief when the read fails
   await expect(dialog.getByText("Let customers renew a plan two months early.")).toBeVisible();
   await expect(removedText(dialog)).toHaveCount(0);
   await expect(addedText(dialog)).toHaveCount(0);
-  await expect(dialog.getByRole("button", { name: "Show the full Brief" })).toHaveCount(0);
 });
 
 test("the card of a done edit_brief action shows the changes, and the full Brief with no old Brief", async ({
@@ -757,10 +747,8 @@ test("the card of a done edit_brief action shows the changes, and the full Brief
     await card.getByRole("button", { name: "Show all" }).click();
     await expect(card.locator("div.max-h-36")).toHaveCount(0);
     await expect(addedText(card).last()).toBeInViewport();
-
-    await card.getByRole("button", { name: "Show the full Brief" }).click();
-    await expect(card.getByText("Let customers renew a plan two months early.")).toBeVisible();
-    await expect(addedText(card)).toHaveCount(0);
+    await expect(card.getByRole("button", { name: "Show the full Brief" })).toHaveCount(0);
+    await expect(card.getByRole("button", { name: "Show the changes" })).toHaveCount(0);
 
     await page.route("**/api/chat?*", async (route) => {
       const response = await route.fetch();
@@ -778,7 +766,6 @@ test("the card of a done edit_brief action shows the changes, and the full Brief
     const bare = cardOf(page, "edit_brief");
     await expect(bare.getByText("Let customers renew a plan two months early.")).toBeVisible();
     await expect(addedText(bare)).toHaveCount(0);
-    await expect(bare.getByRole("button", { name: "Show the full Brief" })).toHaveCount(0);
   } finally {
     await page.unroute("**/api/chat?*");
     await restoreBrief(page);
