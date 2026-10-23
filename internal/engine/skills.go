@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/runner"
+	"gopkg.in/yaml.v3"
 )
 
 // copySkills writes the skills of the default branch of the skill repository of the organization of a into the skill
@@ -88,7 +89,14 @@ func (a *Agent) exportSkills(ctx context.Context, folder string, worktree bool) 
 	}{{"", slices.DeleteFunc(general, func(name string) bool { return slices.Contains(own, name) })}, {repositoryFolder, own}} {
 		var copied []string
 		for _, name := range group.names {
-			_, err := os.Stat(filepath.Join(a.spec.Dir, folder, name))
+			text, _, err := runner.Show(ctx, e.config.DataDir, repository.FullName, repository.DefaultBranch, path.Join(group.folder, name, "SKILL.md"))
+			if err != nil {
+				return excluded, err
+			}
+			if !skillGoesToRole(text, a.roleName()) {
+				continue
+			}
+			_, err = os.Stat(filepath.Join(a.spec.Dir, folder, name))
 			if worktree && !errors.Is(err, fs.ErrNotExist) {
 				continue
 			}
@@ -104,4 +112,37 @@ func (a *Agent) exportSkills(ctx context.Context, folder string, worktree bool) 
 		}
 	}
 	return excluded, nil
+}
+
+// roleName gives the name of the Role of a in the config.
+func (a *Agent) roleName() string {
+	index := slices.IndexFunc(groups, func(g group) bool { return g.role == a.spec.Role })
+	return groups[index].name
+}
+
+// skillGoesToRole tells whether a skill with the text of its SKILL.md goes to the Role with the config name role. A
+// skill goes to each Role when it has no metadata.roles key in the frontmatter, or when the frontmatter is not valid.
+func skillGoesToRole(text, role string) bool {
+	rest, found := strings.CutPrefix(text, "---\n")
+	if !found {
+		return true
+	}
+	frontmatter, _, found := strings.Cut(rest, "\n---")
+	if !found {
+		return true
+	}
+	var parsed struct {
+		Metadata struct {
+			Roles *string `yaml:"roles"`
+		} `yaml:"metadata"`
+	}
+	if err := yaml.Unmarshal([]byte(frontmatter), &parsed); err != nil || parsed.Metadata.Roles == nil {
+		return true
+	}
+	for name := range strings.SplitSeq(*parsed.Metadata.Roles, ",") {
+		if strings.TrimSpace(name) == role {
+			return true
+		}
+	}
+	return false
 }
