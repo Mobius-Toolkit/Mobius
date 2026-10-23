@@ -1,7 +1,8 @@
-import { GitPullRequestArrowIcon, PlaneIcon } from "lucide-react";
+import { GitPullRequestArrowIcon } from "lucide-react";
 import type { Unread, Workstream } from "@/api/api.gen";
 import { Badge } from "@/components/ui/badge";
 import { ErrorBadge, inset, LinkRow, List, PageHeader, Section } from "@/components/page";
+import { levelName } from "@/lib/autopilot";
 import { unreadCount } from "@/lib/unread";
 import { cn } from "@/lib/utils";
 import {
@@ -10,6 +11,7 @@ import {
   workstreamKey,
   type Workstreams as WorkstreamLists,
 } from "@/lib/workstreams";
+import { AutopilotIcon } from "./Autopilot";
 import { TopBar } from "./TopBar";
 
 export function WorkstreamBadges({
@@ -39,9 +41,13 @@ export function WorkstreamBadges({
           className="size-2 rounded-full bg-green-600"
         />
       )}
-      {(workstream.autopilot === "start" || workstream.autopilot === "start_and_merge") && (
-        <span role="img" aria-label="Autopilot" title="Autopilot" className="text-muted-foreground">
-          <PlaneIcon className="size-3.5" />
+      {workstream.autopilot !== "off" && (
+        <span
+          role="img"
+          aria-label={`Autopilot: ${levelName(workstream.autopilot)}`}
+          title={`Autopilot: ${levelName(workstream.autopilot)}`}
+        >
+          <AutopilotIcon level={workstream.autopilot} />
         </span>
       )}
       {workstream.readyToMerge && (

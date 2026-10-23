@@ -1534,6 +1534,101 @@ test("the Evergreen switch of the Details tab moves the Workstream in the side b
     .toBe(true);
 });
 
+const autopilotTexts = [
+  "You start the tasks and merge them.",
+  "Mobius starts the ready tasks. You merge.",
+  "You start the tasks. Mobius merges after the Lead approves.",
+  "Mobius starts the ready tasks and merges after the Lead approves.",
+];
+
+test("the Autopilot menu of the chat head sets the level and the Workstream list shows its icon", async ({
+  page,
+}) => {
+  const menu = page.getByRole("menu");
+  const sidebar = page.getByRole("navigation").first();
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(shop);
+  await expect(sidebar.getByRole("link", { name: /^Integrate loyalty plans/ })).toBeVisible();
+  await expect(sidebar.getByRole("img", { name: /^Autopilot: / })).toHaveCount(1);
+
+  await page.getByRole("button", { name: "Autopilot: Off" }).click();
+  await expect(menu.getByRole("menuitemradio")).toHaveCount(4);
+  for (const text of autopilotTexts) {
+    await expect(menu.getByText(text, { exact: true })).toBeVisible();
+  }
+  await menu.getByRole("menuitemradio", { name: /^Merge only/ }).click();
+  await expect(menu).toBeHidden();
+  await expect(page.getByRole("button", { name: "Autopilot: Merge only" })).toBeVisible();
+  await expect(
+    sidebar
+      .getByRole("link", { name: /^Integrate loyalty plans/ })
+      .getByRole("img", { name: "Autopilot: Merge only" }),
+  ).toBeVisible();
+
+  await page.getByRole("button", { name: "Autopilot: Merge only" }).click();
+  await menu.getByRole("menuitemradio", { name: /^Off/ }).click();
+  await expect(page.getByRole("button", { name: "Autopilot: Off" })).toBeVisible();
+  await expect(sidebar.getByRole("img", { name: /^Autopilot: / })).toHaveCount(1);
+});
+
+test("the Autopilot trigger shows a level that the server gives after the selection", async ({
+  page,
+}) => {
+  const level = (name: string) => page.getByRole("button", { name: `Autopilot: ${name}` });
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(shop);
+
+  await level("Off").click();
+  await page.getByRole("menuitemradio", { name: /^Merge only/ }).click();
+  await expect(level("Merge only")).toBeVisible();
+  await expect(
+    page.getByRole("navigation").first().getByRole("img", { name: "Autopilot: Merge only" }),
+  ).toBeVisible();
+
+  const status = await page.evaluate(async () => {
+    const response = await fetch("/api/workstreams/owner/shop/12/autopilot", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ level: "off" }),
+    });
+    return response.status;
+  });
+  expect(status).toBe(204);
+  await expect(level("Off")).toBeVisible();
+});
+
+test("the Autopilot sheet of the phone top bar sets the level", async ({ page }) => {
+  const sheet = page.getByRole("dialog", { name: "Autopilot" });
+  await page.setViewportSize(phone);
+  await page.goto(shop);
+
+  await page.getByRole("button", { name: "Autopilot: Off" }).click();
+  await expect(sheet.getByRole("radio")).toHaveCount(4);
+  for (const text of autopilotTexts) {
+    await expect(sheet.getByText(text, { exact: true })).toBeVisible();
+  }
+  await sheet.getByRole("radio", { name: /^Start and merge/ }).click();
+  await expect(sheet).toBeHidden();
+  await expect(page.getByRole("button", { name: "Autopilot: Start and merge" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Autopilot: Start and merge" }).click();
+  await sheet.getByRole("radio", { name: /^Off/ }).click();
+  await expect(page.getByRole("button", { name: "Autopilot: Off" })).toBeVisible();
+});
+
+test("a refused Autopilot level shows the error and keeps the old level", async ({ page }) => {
+  await page.route("**/api/workstreams/owner/shop/12/autopilot", (route) =>
+    route.fulfill({ status: 409, json: { error: "The Workstream cannot merge." } }),
+  );
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(shop);
+
+  await page.getByRole("button", { name: "Autopilot: Off" }).click();
+  await page.getByRole("menuitemradio", { name: /^Start tasks/ }).click();
+  await expect(page.getByText("The Workstream cannot merge.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Autopilot: Off" })).toBeEnabled();
+});
+
 test("the Evergreen switch of a Workstream that Mobius manages is on and disabled", async ({
   page,
 }) => {
@@ -2298,7 +2393,7 @@ for (const viewport of [
     await routeLongTask(page);
     await page.goto(shop);
     if (viewport.name === "phone") {
-      await page.getByRole("banner").getByRole("button", { name: "Tasks" }).click();
+      await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
     }
     const panel = page.getByRole("tabpanel", { name: "Tasks" }).filter({ visible: true });
     const row = panel.getByRole("listitem").filter({ hasText: longTaskTitle });

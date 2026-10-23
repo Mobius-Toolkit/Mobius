@@ -204,13 +204,35 @@ test("screenshots", async ({ page }) => {
     ...frame(device, drain, { organizations: true }),
     main.getByRole("heading", { name: "Evergreen" }),
     main.getByText("Seasonal prices"),
-    main.getByRole("img", { name: "Autopilot" }),
+    main.getByRole("img", { name: "Autopilot: Start tasks" }),
     main.getByRole("img", { name: "Agent running" }),
     main.getByRole("img", { name: "Ready to merge" }),
     main.getByText("done"),
     main.getByText("needs you"),
   ];
-  await screenshot(page, "workstreams", "/workstreams", workstreamsReady);
+  // The route gives two Workstreams the merge levels. The step after the "workstreams" screenshot removes it.
+  const levelsRoute = "**/api/workstreams";
+  await page.route(levelsRoute, async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as {
+      data: { repository: string; number: number; autopilot: string }[];
+    };
+    for (const workstream of body.data) {
+      if (workstream.repository === "owner/shop" && workstream.number === 12) {
+        workstream.autopilot = "merge";
+      }
+      if (workstream.repository === "owner/shop" && workstream.number === 13) {
+        workstream.autopilot = "start_and_merge";
+      }
+    }
+    await route.fulfill({ response, json: body });
+  });
+  await screenshot(page, "workstreams", "/workstreams", (device) => [
+    ...workstreamsReady(device),
+    main.getByRole("img", { name: "Autopilot: Merge only" }),
+    main.getByRole("img", { name: "Autopilot: Start and merge" }),
+  ]);
+  await page.unroute(levelsRoute);
   await routeTasks(page, boardTasks);
   await screenshot(page, "tasks", "/tasks", (device) => [
     chatCount,
@@ -263,11 +285,32 @@ test("screenshots", async ({ page }) => {
       .filter({ hasText: "Add plan model" })
       .filter({ hasText: "The agent asked a question" }),
     main.getByRole("button", { name: "Answer" }).first(),
+    page.getByRole("button", { name: "Autopilot: Off" }).filter({ visible: true }),
     ...(device === "desktop"
       ? [page.getByRole("complementary").getByText("#45 Pick the plan limits")]
       : []),
   ];
   await screenshot(page, "chat", "/workstreams/owner/shop/12", chatReady);
+  // The open menu and the open sheet hide the other elements from the accessibility tree, so the open step waits for them.
+  await screenshot(
+    page,
+    "autopilot-levels",
+    "/workstreams/owner/shop/12",
+    () =>
+      [
+        "You start the tasks and merge them.",
+        "Mobius starts the ready tasks. You merge.",
+        "You start the tasks. Mobius merges after the Lead approves.",
+        "Mobius starts the ready tasks and merges after the Lead approves.",
+      ].map((text) => page.getByText(text, { exact: true })),
+    async (device) => {
+      for (const locator of chatReady(device)) {
+        await expect(locator).toBeVisible();
+      }
+      await page.getByRole("button", { name: "Autopilot: Off" }).filter({ visible: true }).click();
+    },
+    () => page.keyboard.press("Escape"),
+  );
   await screenshot(
     page,
     "chat-listening",
@@ -545,7 +588,7 @@ test("screenshots", async ({ page }) => {
     ],
     async (device) => {
       if (device === "phone") {
-        await page.getByRole("banner").getByRole("button", { name: "Tasks" }).click();
+        await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
       }
       await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
     },
@@ -562,7 +605,7 @@ test("screenshots", async ({ page }) => {
     ],
     async (device) => {
       if (device === "phone") {
-        await page.getByRole("banner").getByRole("button", { name: "Tasks" }).click();
+        await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
       }
       await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
     },
@@ -581,7 +624,7 @@ test("screenshots", async ({ page }) => {
     ],
     async (device) => {
       if (device === "phone") {
-        await page.getByRole("banner").getByRole("button", { name: "Tasks" }).click();
+        await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
       }
       await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
       await page.getByLabel("Show closed tasks").filter({ visible: true }).click();
@@ -598,7 +641,7 @@ test("screenshots", async ({ page }) => {
     ],
     async (device) => {
       if (device === "phone") {
-        await page.getByRole("banner").getByRole("button", { name: "Tasks" }).click();
+        await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
       }
       await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
     },
@@ -606,7 +649,7 @@ test("screenshots", async ({ page }) => {
   await page.unroute(tasksUrl);
   const openDetails = async (device: string) => {
     if (device === "phone") {
-      await page.getByRole("banner").getByRole("button", { name: "Tasks" }).click();
+      await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
     }
     await page.getByRole("tab", { name: "Details" }).filter({ visible: true }).click();
   };
@@ -710,7 +753,7 @@ test("screenshots", async ({ page }) => {
     ],
     async (device) => {
       if (device === "phone") {
-        await page.getByRole("banner").getByRole("button", { name: "Tasks" }).click();
+        await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
       }
       await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
     },
@@ -748,7 +791,7 @@ test("screenshots", async ({ page }) => {
     ],
     async (device) => {
       if (device === "phone") {
-        await page.getByRole("banner").getByRole("button", { name: "Tasks" }).click();
+        await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
       }
       await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
     },
@@ -977,7 +1020,7 @@ test("screenshots", async ({ page }) => {
     ],
     async (device) => {
       if (device === "phone") {
-        await page.getByRole("banner").getByRole("button", { name: "Tasks" }).click();
+        await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
       }
       await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
       await page
@@ -998,7 +1041,7 @@ test("screenshots", async ({ page }) => {
     ],
     async (device) => {
       if (device === "phone") {
-        await page.getByRole("banner").getByRole("button", { name: "Tasks" }).click();
+        await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
       }
       await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
       await page
