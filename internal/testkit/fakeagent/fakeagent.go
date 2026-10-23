@@ -40,6 +40,9 @@
 //	                        # prompt gets no response before session/cancel, which ends it as cancelled, as Claude
 //	                        # Code does when it takes a prompt into a turn that it started alone
 //
+// The prompts with no matching when answer in order. The exception is the prompt that asks a Reviewer for its deployment
+// needs: with no matching when, it calls report_deployment_needs with an empty list.
+//
 // The reply has the texts of reply, then one text "image <MIME type> <base64 data>" for each image block of the
 // prompt, then the text of call or list_tools, then the text of shell.
 //
@@ -68,6 +71,10 @@ import (
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/pelletier/go-toml/v2"
 )
+
+// deploymentNeedsRequest is the start of the prompt that asks a Reviewer for its deployment needs. A turn with this
+// prompt and no matching when calls report_deployment_needs with an empty list.
+const deploymentNeedsRequest = "Call `report_deployment_needs` one time"
 
 // busyInterval is the time between two updates of a busy turn.
 const busyInterval = 10 * time.Millisecond
@@ -358,6 +365,9 @@ func (a *agent) next(text string) (prompt, string, chan struct{}) {
 		if candidate.When != "" && strings.Contains(text, candidate.When) {
 			return candidate, a.mcpURL, a.cancel
 		}
+	}
+	if strings.Contains(text, deploymentNeedsRequest) {
+		return prompt{Call: &call{Tool: "report_deployment_needs", Arguments: map[string]any{"needs": []any{}}}}, a.mcpURL, a.cancel
 	}
 	var ordered []prompt
 	for _, candidate := range a.script.Prompts {

@@ -62,6 +62,8 @@ func startOnePoll(t *testing.T, fake *testkit.FakeGitHub, before string) (*tests
 	fake.AddRepository(shop)
 	server := testserver.StartWith(t, cfg, fake.URL)
 	server.WaitForFirstPoll(t, shop)
+	// WaitForFirstPoll returns before the last steps of the poll, which can act on a change that the test makes.
+	testkit.WaitFor(t, server.Engine.PollEnded)
 	authorize(t, server)
 	return server, listen(t, server)
 }
