@@ -155,17 +155,26 @@ func (e *Engine) reopenStoppedItem(ctx context.Context, question store.InboxItem
 	return nil
 }
 
+// openIssueItems gives each open Inbox item of the kinds on the issue number of repository.
+func (e *Engine) openIssueItems(ctx context.Context, repository string, number int64, kinds ...string) ([]store.InboxItem, error) {
+	items, err := e.Inbox(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(items, func(item store.InboxItem) bool {
+		return item.Repository != repository || item.Issue != number || !slices.Contains(kinds, item.Kind)
+	}), nil
+}
+
 // dismissIssueItems dismisses each Inbox item of the kinds that is open on the issue number of repository.
 func (e *Engine) dismissIssueItems(ctx context.Context, repository string, number int64, kinds ...string) error {
-	items, err := e.Inbox(ctx)
+	items, err := e.openIssueItems(ctx, repository, number, kinds...)
 	if err != nil {
 		return err
 	}
 	for _, item := range items {
-		if item.Repository == repository && item.Issue == number && slices.Contains(kinds, item.Kind) {
-			if err := e.Dismiss(ctx, item.ID); err != nil {
-				return err
-			}
+		if err := e.Dismiss(ctx, item.ID); err != nil {
+			return err
 		}
 	}
 	return nil

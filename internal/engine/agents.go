@@ -120,6 +120,10 @@ type Agent struct {
 	// costTotal is the last cost total of the session. costBase is the cost total at the end of the last turn with a cost.
 	costTotal float64
 	costBase  float64
+	// copiedSkills are the names of the skills that exportSkills copied into the session. skillCalls are the
+	// toolCallId values that have a skill_uses row.
+	copiedSkills []string
+	skillCalls   map[string]bool
 	// resetHint is the last _claude/rateLimit.resetsAt of a usage update of the session, or zero.
 	resetHint time.Time
 	// limited tells that a usage update of the turn of a prompt has the rate limit status "rejected" with no overage in
@@ -686,6 +690,7 @@ func (a *Agent) record(params json.RawMessage, late bool) error {
 	defer a.mu.Unlock()
 	a.track(notification, kind, late)
 	a.readUsage(notification, kind)
+	a.recordSkillUse(ctx, notification, kind)
 	// The unit of resetsAt is Unix seconds.
 	if resetsAt, ok := field(notification, "update", "_meta", "_claude/rateLimit", "resetsAt").(json.Number); ok {
 		if seconds, err := resetsAt.Int64(); err == nil {
