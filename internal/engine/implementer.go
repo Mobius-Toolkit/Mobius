@@ -413,6 +413,9 @@ func (e *Engine) approve(ctx context.Context, c caller, repository github.Reposi
 	if err := repository.UpdateCheckRun(ctx, checkRun, checkRunName, "completed", "success", "Approved", "The Lead approved the pull request."); err != nil {
 		return err
 	}
+	if err := e.queries.SetTaskApprovedHead(ctx, store.SetTaskApprovedHeadParams{ApprovedHead: sql.NullString{String: pullRequest.GetHead().GetSHA(), Valid: true}, ID: task.ID}); err != nil {
+		return err
+	}
 	if pullRequest.GetDraft() {
 		if err := repository.MarkReadyForReview(ctx, pullRequest.GetNodeID()); err != nil {
 			return err

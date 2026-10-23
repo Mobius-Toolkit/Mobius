@@ -541,6 +541,9 @@ WHERE id = sqlc.arg(id) AND substr(lead_findings, 1, length(sqlc.arg(taken))) = 
 -- name: SetTaskCheckHead :exec
 UPDATE tasks SET check_head = ? WHERE id = ?;
 
+-- name: SetTaskApprovedHead :exec
+UPDATE tasks SET approved_head = ? WHERE id = ?;
+
 -- name: SetTaskConflictHead :exec
 UPDATE tasks SET conflict_head = ? WHERE id = ?;
 
