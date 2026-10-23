@@ -30,17 +30,19 @@ type skillFile struct {
 }
 
 type proposeSkillInput struct {
-	Name   string      `json:"name"`
-	Reason string      `json:"reason"`
-	Files  []skillFile `json:"files"`
+	Name       string      `json:"name"`
+	Reason     string      `json:"reason"`
+	Repository string      `json:"repository"`
+	Files      []skillFile `json:"files"`
 }
 
 func (e *Engine) proposeSkillTool(c caller) mcp.Tool {
 	return toolOf(e, c, noRepository, "propose_skill",
-		"Propose a new skill or a change of a skill for the skill repository of the organization. Call it after you wrote a script or a command that later sessions can use again. To change a skill, read its copy in the skill folder of your working directory, change the copy, and send the full folder: a file that you do not send goes away. Mobius sends the proposal to the Lead of the Workstream \"Skills\". The tool writes nothing to GitHub. A change reaches the agents only after the Owner approves its pull request.",
+		"Propose a new skill or a change of a skill for the skill repository of the organization. Call it after you wrote a script or a command that later sessions can use again. To change a skill, read its copy in the skill folder of your working directory, change the copy, and send the full folder: a file that you do not send goes away. Mobius sends the proposal to the Lead of the Workstream \"Skills\". The tool writes nothing to GitHub. A change reaches the agents only after the Owner approves its pull request. Before you propose a new skill, read the name and the description of each skill in your skill folder. When one has the same purpose, send a change of that skill with its name.",
 		map[string]any{
-			"name":   map[string]any{"type": "string", "pattern": skillName.String(), "description": "The name of the skill folder. It has lowercase letters, digits and hyphens."},
-			"reason": map[string]any{"type": "string", "minLength": 1, "description": "What the skill does, and why later sessions need it."},
+			"name":       map[string]any{"type": "string", "pattern": skillName.String(), "description": "The name of the skill folder. It has lowercase letters, digits and hyphens."},
+			"reason":     map[string]any{"type": "string", "minLength": 1, "description": "What the skill does, and why later sessions need it."},
+			"repository": map[string]any{"type": "string", "description": "Optional. The full name of the repository (owner/name) in the organization. Give it when the skill is only for the code of that repository. Else give an empty string."},
 			"files": map[string]any{
 				"type":        "array",
 				"minItems":    1,
@@ -91,6 +93,11 @@ func (e *Engine) proposeSkill(ctx context.Context, c caller, _ github.Repository
 	if err := checkSkillProposal(input); err != nil {
 		return "", err
 	}
+	if input.Repository != "" {
+		if _, err := e.organizationRepository(c.organization, input.Repository); err != nil {
+			return "", err
+		}
+	}
 	workstream, err := e.queries.GetSkillsWorkstream(ctx, c.organization)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", refuse("%s has no open Workstream with the label %s.", c.organization, skillsLabel)
@@ -114,6 +121,11 @@ func skillProposalText(c caller, input proposeSkillInput) string {
 		fmt.Fprintf(&text, ", issue %s#%d", c.repository, c.issue)
 	}
 	text.WriteString(".")
+	if input.Repository == "" {
+		fmt.Fprintf(&text, "\n\nFolder: %s/", input.Name)
+	} else {
+		fmt.Fprintf(&text, "\n\nFolder: repos/%s/%s/", path.Base(input.Repository), input.Name)
+	}
 	for _, file := range input.Files {
 		fence := codeFence(file.Content)
 		fmt.Fprintf(&text, "\n\nFile %s:\n%s\n%s\n%s", file.Path, fence, file.Content, fence)
