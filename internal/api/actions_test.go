@@ -22,6 +22,23 @@ func TestAnActionGivesTheStoredOldBrief(t *testing.T) {
 	}
 }
 
+func TestAnActionGivesItsArgumentsInTheOrderOfItsTool(t *testing.T) {
+	mux, db := testMux(t)
+	exec(t, db, `INSERT INTO inbox_items (id, kind, organization, repository, workstream_repository, workstream, issue, text, link, time) VALUES
+		(1, 'approval', 'owner', 'owner/shop', 'owner/shop', 12, 0, '', '', '2026-10-04T10:00:00Z')`)
+	exec(t, db, `INSERT INTO pending_actions (id, organization, repository, workstream, issue, role, tool, arguments, state, time, inbox_item) VALUES
+		(1, 'owner', 'owner/shop', 12, 0, 'lead', 'edit_brief', '{"brief":"New.","reason":"Why."}', 'pending', '2026-10-04T10:00:00Z', 1)`)
+
+	var names []string
+	for _, argument := range listedActions(t, mux)[1].Arguments {
+		names = append(names, argument.Name)
+	}
+
+	if want := []string{"reason", "brief"}; !slices.Equal(names, want) {
+		t.Errorf("names = %v, want %v", names, want)
+	}
+}
+
 func TestAnActionGivesTheLabelsOfItsLabelsArgument(t *testing.T) {
 	mux, db := testMux(t)
 	exec(t, db, `INSERT INTO inbox_items (id, kind, organization, repository, workstream_repository, workstream, issue, text, link, time) VALUES

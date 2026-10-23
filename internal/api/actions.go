@@ -185,7 +185,7 @@ func (h *handlers) actionOf(ctx context.Context, action store.PendingAction) (Pe
 	if err != nil {
 		return PendingAction{}, err
 	}
-	arguments, err := engine.ActionArguments(action.Arguments)
+	arguments, err := engine.ActionArguments(action.Tool, action.Arguments)
 	if err != nil {
 		return PendingAction{}, err
 	}

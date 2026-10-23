@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -203,8 +204,17 @@ func actionChat(action store.PendingAction) ChatKey {
 	return ChatKey{Organization: action.Organization, Repository: action.Repository, Workstream: action.Workstream}
 }
 
-// ActionArguments gives the arguments of the JSON object arguments in their order.
-func ActionArguments(arguments string) ([]ActionArgument, error) {
+var argumentOrder = map[string][]string{
+	"create_workstream": {"title", "labels", "brief"},
+	"edit_brief":        {"reason", "brief"},
+	"message_lead":      {"workstream", "text"},
+	"move_task":         {"repository", "n", "workstream"},
+	"tell_curator":      {"repository", "text"},
+}
+
+// ActionArguments gives the arguments of the JSON object arguments in the order of the tool. An argument that the order
+// of the tool does not name comes last, in the order of the call.
+func ActionArguments(tool, arguments string) ([]ActionArgument, error) {
 	decoder := json.NewDecoder(strings.NewReader(arguments))
 	if _, err := decoder.Token(); err != nil {
 		return nil, err
@@ -227,13 +237,21 @@ func ActionArguments(arguments string) ([]ActionArgument, error) {
 		}
 		found = append(found, ActionArgument{Name: name.(string), Value: text})
 	}
+	order := argumentOrder[tool]
+	rank := func(argument ActionArgument) int {
+		if i := slices.Index(order, argument.Name); i >= 0 {
+			return i
+		}
+		return len(order)
+	}
+	slices.SortStableFunc(found, func(a, b ActionArgument) int { return rank(a) - rank(b) })
 	return found, nil
 }
 
 // holdAction stores the call of the tool of c as a pending action, and gives the Owner its card in the chat and its
 // Inbox item. The new action replaces each earlier pending action of the same chat, role, tool, issue and target.
 func (e *Engine) holdAction(ctx context.Context, c caller, tool, title string, arguments json.RawMessage) (string, error) {
-	listed, err := ActionArguments(string(arguments))
+	listed, err := ActionArguments(tool, string(arguments))
 	if err != nil {
 		return "", err
 	}

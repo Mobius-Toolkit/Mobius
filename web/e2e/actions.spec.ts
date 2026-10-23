@@ -9,6 +9,7 @@ import {
   cardOf,
   checksQuestion,
   createTitle,
+  draftTea,
   draftText,
   draftQuestion,
   draftWorkstream,
@@ -31,6 +32,8 @@ import {
   settle,
   stopUnknown,
   storeQuestion,
+  teaText,
+  teaTitle,
   triagerItem,
   unknownText,
   unknownTitle,
@@ -160,6 +163,44 @@ test("the labels of an action show as GitHub labels in the card and in the panel
   await expectChips(cardOf(page, draftText));
   await answer(page, createTitle);
   await expectChips(panel(page));
+});
+
+async function expectReasonAboveBrief(scope: Locator) {
+  const reason = await scope.getByText("reason", { exact: true }).boundingBox();
+  const brief = await scope.getByText("brief", { exact: true }).boundingBox();
+  expect(reason?.y ?? 999).toBeLessThan(brief?.y ?? 0);
+}
+
+test("an empty list of labels shows no name and no chip in the card and in the panel", async ({
+  page,
+}) => {
+  await openChat(page);
+
+  await ask(page, draftTea);
+  await expect(waiting(page, 1)).toBeVisible(agentTimeout);
+
+  const card = cardOf(page, teaText);
+  await expect(card.getByText("title", { exact: true })).toBeVisible();
+  await expect(card.getByText("brief", { exact: true })).toBeVisible();
+  await answer(page, teaTitle);
+  for (const scope of [card, panel(page)]) {
+    await expect(scope.getByText("labels", { exact: true })).toHaveCount(0);
+    await expect(scope.locator('[data-slot="badge"]').filter({ hasText: /^mobius:/ })).toHaveCount(
+      0,
+    );
+  }
+});
+
+test("the card and the panel show the arguments of an action in the order of its tool", async ({
+  page,
+}) => {
+  await openLeadChat(page);
+  await sendToLead(page, editBrief);
+  await expect(waiting(page, 1)).toBeVisible(agentTimeout);
+
+  await expectReasonAboveBrief(cardOf(page, "The Owner wants a longer time to renew."));
+  await answer(page, briefTitle);
+  await expectReasonAboveBrief(panel(page));
 });
 
 test("a second call of the tool replaces the action that waits", async ({ page }) => {
@@ -355,6 +396,12 @@ test("the Owner answers a question with options", async ({ page }) => {
   const send = panel(page).getByRole("button", { name: "Send" });
   const answerNote = panel(page).getByRole("textbox", { name: "Your answer" });
   await expect(panel(page).getByText("The shop needs a store for the plans.")).toBeVisible();
+  const sender = panel(page).getByText(/ · /);
+  const questionText = await panel(page)
+    .getByText("The shop needs a store for the plans.")
+    .boundingBox();
+  const line = await sender.boundingBox();
+  expect(line?.y ?? 999).toBeLessThan(questionText?.y ?? 0);
   await expect(store.getByText("Select one.", { exact: true })).toBeVisible();
   await expect(store.getByText("One file, no server.")).toBeVisible();
   await expect(checks.getByText("Select one or more.")).toBeVisible();

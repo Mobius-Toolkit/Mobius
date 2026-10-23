@@ -2,6 +2,7 @@ import { expect, type Page } from "@playwright/test";
 
 // The Owner messages that the fake Coordinator of TestServer answers with a tool call.
 export const draftWorkstream = "Draft the Workstream for gift cards.";
+export const draftTea = "Draft the Workstream for tea.";
 export const keepPrices = "Tell the Lead of #14 to keep the prices in cents.";
 export const dropColumn = "Tell the Lead of #14 to drop the old price column.";
 export const addHistory = "Tell the Lead of #14 to add a price history.";
@@ -22,6 +23,7 @@ export const draftQuestion = "Should I draft the Workstream now?";
 
 // A text of the arguments of each call, to find its card.
 export const draftText = "Let customers buy a gift card";
+export const teaText = "Sell tea in the shop.";
 export const keepText = "The Owner decided that the prices stay in cents.";
 export const dropText = "Drop the old price column of the plan table";
 export const historyText = "Add a history of the plan prices.";
@@ -31,6 +33,7 @@ export const unknownText = "Stop the work.";
 
 export const briefTitle = "Change the Brief of #14 Early renewals";
 export const createTitle = 'Create the Workstream "Gift cards"';
+export const teaTitle = 'Create the Workstream "Tea"';
 export const leadTitle = "Message to the Lead of #14 Early renewals";
 export const leadToLeadTitle = "Message to the Lead of #12 Integrate loyalty plans";
 export const unknownTitle = "Message to the Lead of #9999";
