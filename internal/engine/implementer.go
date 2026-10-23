@@ -315,11 +315,11 @@ func (e *Engine) approvePullRequest(ctx context.Context, c caller, repository gi
 	}
 	text := fmt.Sprintf("Approved pull request #%d of #%d.", pullRequest.GetNumber(), input.N)
 	todos, err := e.addDeploymentTodos(ctx, repository, task, int64(pullRequest.GetNumber()))
-	if err != nil {
-		return "", err
-	}
 	if len(todos) > 0 {
 		text += fmt.Sprintf(" The Owner got the deployment todos: %s.", strings.Join(todos, ", "))
+	}
+	if err != nil {
+		return fmt.Sprintf("%s The Owner got it for review. Mobius did not add all deployment todos: %v", text, err), nil
 	}
 	if !mergesPullRequests(level) {
 		return text + " The Owner got it for review.", nil

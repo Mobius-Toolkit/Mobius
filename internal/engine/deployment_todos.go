@@ -39,29 +39,35 @@ func (e *Engine) addDeploymentTodos(ctx context.Context, repository github.Repos
 		if need.Mandatory == 1 {
 			importance = "mandatory"
 		}
-		item, err := e.insertInboxItem(ctx, store.AddInboxItemParams{
-			Kind:                 todoKind,
-			Organization:         repository.Owner(),
-			Repository:           task.Repository,
-			WorkstreamRepository: task.WorkstreamRepository,
-			Workstream:           task.Workstream,
-			Issue:                task.Issue,
-			Title:                need.Name,
-			Reason:               importance + " · " + workstream.Title,
-			Text:                 fmt.Sprintf("%s: %s\n%s\n%s:%d", need.Kind, need.Name, need.Reason, need.Path, need.Line),
-			Link:                 issueLink(task.Repository, task.Issue),
-			PullRequest:          pullRequest,
+		var item store.InboxItem
+		err := e.inTx(ctx, func(queries *store.Queries) error {
+			var err error
+			item, err = queries.AddInboxItem(ctx, store.AddInboxItemParams{
+				Kind:                 todoKind,
+				Organization:         repository.Owner(),
+				Repository:           task.Repository,
+				WorkstreamRepository: task.WorkstreamRepository,
+				Workstream:           task.Workstream,
+				Issue:                task.Issue,
+				Title:                need.Name,
+				Reason:               importance + " · " + workstream.Title,
+				Text:                 fmt.Sprintf("%s: %s\n%s\n%s:%d", need.Kind, need.Name, need.Reason, need.Path, need.Line),
+				Link:                 issueLink(task.Repository, task.Issue),
+				PullRequest:          pullRequest,
+				Time:                 now(),
+			})
+			if err != nil {
+				return err
+			}
+			return queries.AddDeploymentTodo(ctx, store.AddDeploymentTodoParams{
+				Task: task.ID, InboxItem: item.ID, Kind: need.Kind, Name: need.Name, Path: need.Path,
+				Line: need.Line, Reason: need.Reason, Mandatory: need.Mandatory,
+			})
 		})
 		if err != nil {
 			return names, err
 		}
-		err = e.queries.AddDeploymentTodo(ctx, store.AddDeploymentTodoParams{
-			Task: task.ID, InboxItem: item.ID, Kind: need.Kind, Name: need.Name, Path: need.Path,
-			Line: need.Line, Reason: need.Reason, Mandatory: need.Mandatory,
-		})
-		if err != nil {
-			return names, err
-		}
+		e.publish(Change{Inbox: &item})
 		todos = append(todos, store.DeploymentTodo{Kind: need.Kind, Name: need.Name})
 		names = append(names, need.Name)
 	}
