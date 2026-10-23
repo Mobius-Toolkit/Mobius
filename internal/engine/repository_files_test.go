@@ -231,7 +231,7 @@ func TestTheLeadGetsTheServerSectionBeforeTheFacts(t *testing.T) {
 	assertServerSection(t, "lead", prompt, "# Repository facts")
 }
 
-func TestTheCoordinatorTheTriagerAndTheDiagnoserGetTheServerSectionAfterTheirRolePrompt(t *testing.T) {
+func TestTheCoordinatorAndTheTriagerGetTheServerSectionAfterTheirRolePrompt(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTriager(t, fake)
