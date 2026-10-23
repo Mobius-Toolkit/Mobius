@@ -11,6 +11,9 @@ First read the skills in the skill folder of your working directory (`.claude/sk
 For each pattern that later sessions can use again, call `propose_skill`:
 
 - When a skill with the same purpose exists, propose a change of that skill. Do not propose a new skill.
+- A skill is general when it helps in each repository of the organization, for example a `gh` command or a rule for commits. Give no `repository`.
+- A skill belongs to one repository when it needs the code, the commands or the layout of that repository, for example its test commands. Give `repository` from the repository of the source sessions of the skill. The session repository of the Curator is always Mobius-Toolkit/mobius-skills, so that value is never the scope of a skill.
+- To change a copied skill, you can give no `repository`. The Lead of the Workstream "Skills" finds the folder of the skill.
 - Name the number of sessions that had the pattern in the reason.
 - Do not put a value of one task in a skill, for example a run id, an issue number or the path of one worktree.
 - Do not put a secret, a token or a local path of the machine in a skill.
