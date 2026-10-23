@@ -177,29 +177,40 @@ func Show(ctx context.Context, dataDir, repository, branch, path string) (string
 	return text, err == nil, err
 }
 
-// SkillNames gives the names of the top-level folders of origin/branch in the bare clone of repository below dataDir,
-// as the last Fetch got it, that have a SKILL.md file.
-func SkillNames(ctx context.Context, dataDir, repository, branch string) ([]string, error) {
+// SkillNames gives the names of the folders directly below folder in origin/branch in the bare clone of repository
+// below dataDir, as the last Fetch got them, that have a SKILL.md file. An empty folder is the root.
+func SkillNames(ctx context.Context, dataDir, repository, branch, folder string) ([]string, error) {
 	files, err := run(git(ctx, dataDir, bareDir(dataDir, repository), "", "ls-tree", "-r", "--name-only", "origin/"+branch))
 	if err != nil {
 		return nil, err
 	}
 	var names []string
 	for file := range strings.SplitSeq(files, "\n") {
-		if name, found := strings.CutSuffix(file, "/SKILL.md"); found && !strings.Contains(name, "/") {
+		below := file
+		if folder != "" {
+			var found bool
+			if below, found = strings.CutPrefix(file, folder+"/"); !found {
+				continue
+			}
+		}
+		if name, found := strings.CutSuffix(below, "/SKILL.md"); found && !strings.Contains(name, "/") {
 			names = append(names, name)
 		}
 	}
 	return names, nil
 }
 
-// Export writes the paths of origin/branch in the bare clone of repository below dataDir, as the last Fetch got them,
-// into the directory dir. The files have no .git.
-func Export(ctx context.Context, dataDir, repository, branch, dir string, paths ...string) error {
+// Export writes the paths below folder of origin/branch in the bare clone of repository below dataDir, as the last
+// Fetch got them, into the directory dir. An empty folder is the root. The files have no .git and no folder prefix.
+func Export(ctx context.Context, dataDir, repository, branch, folder, dir string, paths ...string) error {
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return err
 	}
-	archive := git(ctx, dataDir, bareDir(dataDir, repository), "", append([]string{"archive", "--format=tar", "origin/" + branch, "--"}, paths...)...)
+	tree := "origin/" + branch
+	if folder != "" {
+		tree += ":" + folder
+	}
+	archive := git(ctx, dataDir, bareDir(dataDir, repository), "", append([]string{"archive", "--format=tar", tree, "--"}, paths...)...)
 	var tarball bytes.Buffer
 	archive.Stdout = &tarball
 	var stderr bytes.Buffer
