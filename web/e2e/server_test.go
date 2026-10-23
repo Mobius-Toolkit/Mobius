@@ -155,6 +155,7 @@ var briefCalls = []struct{ message, tool, arguments string }{
 	{"Edit the Brief of the Lead of #14.", "edit_brief", `{ brief = "**Goal**\nLet customers renew a plan two months early.\n\n**Scope**\n- Add a button to the renewal page.\n\n**Limits**\n- Do not change the price of a plan.\n- Do not remove the old renewal page.", reason = "The Owner wants a longer time to renew." }`},
 	{"Edit the Brief table of the Lead of #14.", "edit_brief", `{ brief = "**Goal**\nShow a table.\n\n| Plan | Months |\n| --- | --- |\n| Basic | two |\n| Extra | three |", reason = "The Owner wants a table." }`},
 	{"Edit the Brief rule of the Lead of #14.", "edit_brief", `{ brief = "**Goal**\nShow a rule.\n\n---\n\nKeep text.", reason = "The Owner wants a rule." }`},
+	{"Tell the Lead of #12 to wait for the migration.", "message_lead", `{ workstream = 12, text = "Wait for the migration of #14 before you start the price table." }`},
 	{"Restore the Brief of the Lead of #14.", "edit_brief", `{ brief = "**Goal**\nLet customers renew a plan one month early.\n\n**Scope**\n- Add a button to the renewal page.\n- Send a mail after the renewal.\n\n**Limits**\n- Do not change the price of a plan.", reason = "The Owner wants the old Brief." }`},
 }
 
