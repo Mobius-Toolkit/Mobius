@@ -154,6 +154,24 @@ func (r Repository) CommitsBehind(ctx context.Context, base, head string) (int, 
 	return comparison.GetBehindBy(), err
 }
 
+// Compare gives the status of the comparison of head with base, the commits of head that base does not contain, and the
+// files that head changes since its merge base with base. It reads all pages of the commits and one page of the files.
+func (r Repository) Compare(ctx context.Context, base, head string) (*gh.CommitsComparison, error) {
+	comparison, response, err := r.Client.Repositories.CompareCommits(ctx, r.Owner(), r.Name(), base, head, &gh.ListOptions{PerPage: 100})
+	if err != nil {
+		return nil, err
+	}
+	for response.NextPage != 0 {
+		next, nextResponse, err := r.Client.Repositories.CompareCommits(ctx, r.Owner(), r.Name(), base, head, &gh.ListOptions{PerPage: 100, Page: response.NextPage})
+		if err != nil {
+			return nil, err
+		}
+		comparison.Commits = append(comparison.Commits, next.Commits...)
+		response = nextResponse
+	}
+	return comparison, nil
+}
+
 // CommitsSince gives the newest commits of the branch with a commit date at or after since. It reads one page, because
 // the commits of a branch are many.
 func (r Repository) CommitsSince(ctx context.Context, branch string, since time.Time) ([]*gh.RepositoryCommit, error) {
