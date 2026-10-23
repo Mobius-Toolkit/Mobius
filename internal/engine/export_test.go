@@ -153,3 +153,11 @@ func (e *Engine) StartImplementer(ctx context.Context, task store.Task, title, p
 func (e *Engine) QueueTask(ctx context.Context, params store.QueueTaskParams) (int64, error) {
 	return e.queueTask(ctx, params)
 }
+
+// TurnRunsForMessage tells if the chat key has a turn that answers a message of the Owner.
+func (e *Engine) TurnRunsForMessage(key ChatKey) bool {
+	e.chatsMu.Lock()
+	defer e.chatsMu.Unlock()
+	c, ok := e.chats[key]
+	return ok && c.stoppable
+}
