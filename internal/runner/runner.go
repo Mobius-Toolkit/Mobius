@@ -51,6 +51,9 @@ var errStartTimeout = errors.New("the start took longer than")
 // ghURLEnv is the environment variable of an agent process that gives the URL of the token of its gh.
 const ghURLEnv = "MOBIUS_GH_TOKEN_URL"
 
+// ghWritesURLEnv is the environment variable of an agent process that gives the URL where its gh sends its writes.
+const ghWritesURLEnv = "MOBIUS_GH_WRITES_URL"
+
 func agentEnv(dataDir string) string {
 	return filepath.Join(dataDir, "agent-env")
 }
@@ -130,12 +133,12 @@ func AgentPath(dataDir, path string) string {
 	return filepath.Join(agentEnv(dataDir), "bin") + string(filepath.ListSeparator) + path
 }
 
-func command(ctx context.Context, file, cwd, dataDir, path, ghTokenURL string) *exec.Cmd {
+func command(ctx context.Context, file, cwd, dataDir, path, ghTokenURL, ghWritesURL string) *exec.Cmd {
 	agentEnv := agentEnv(dataDir)
 	cmd := exec.CommandContext(ctx, file)
 	cmd.Dir = cwd
 	cmd.Env = slices.DeleteFunc(os.Environ(), func(entry string) bool {
-		return strings.HasPrefix(entry, "GH_TOKEN=") || strings.HasPrefix(entry, "GITHUB_TOKEN=") || strings.HasPrefix(entry, ghURLEnv+"=")
+		return strings.HasPrefix(entry, "GH_TOKEN=") || strings.HasPrefix(entry, "GITHUB_TOKEN=") || strings.HasPrefix(entry, ghURLEnv+"=") || strings.HasPrefix(entry, ghWritesURLEnv+"=")
 	})
 	cmd.Env = append(cmd.Env,
 		"GH_CONFIG_DIR="+filepath.Join(agentEnv, "gh-config"),
@@ -145,6 +148,9 @@ func command(ctx context.Context, file, cwd, dataDir, path, ghTokenURL string) *
 	)
 	if ghTokenURL != "" {
 		cmd.Env = append(cmd.Env, ghURLEnv+"="+ghTokenURL)
+	}
+	if ghWritesURL != "" {
+		cmd.Env = append(cmd.Env, ghWritesURLEnv+"="+ghWritesURL)
 	}
 	return cmd
 }
@@ -166,13 +172,13 @@ type Image struct {
 	Data     []byte
 }
 
-func harnessCommand(ctx context.Context, harness config.Harness, cwd, dataDir, path, ghTokenURL string) (*exec.Cmd, error) {
+func harnessCommand(ctx context.Context, harness config.Harness, cwd, dataDir, path, ghTokenURL, ghWritesURL string) (*exec.Cmd, error) {
 	program := Program(harness)
 	file := Find(program, path)
 	if file == "" {
 		return nil, fmt.Errorf("%s is not on PATH", program)
 	}
-	cmd := command(ctx, file, cwd, dataDir, path, ghTokenURL)
+	cmd := command(ctx, file, cwd, dataDir, path, ghTokenURL, ghWritesURL)
 	if harness == config.Devin {
 		cmd.Args = append(cmd.Args, "acp")
 	}
@@ -202,11 +208,12 @@ func connect(cmd *exec.Cmd, updates func(json.RawMessage, bool)) (*acp.Connectio
 // Start starts the agent of harness in cwd with the Mobius MCP server at mcpURL, and opens a session.
 // It gives the params of each session/update notification to updates, as the agent sent them. The second argument is
 // true when the agent wrote the notification after the response to the last prompt.
-// The gh of the agent gets its token from ghTokenURL. With an empty ghTokenURL, the gh of the agent refuses to run.
-func Start(ctx context.Context, harness config.Harness, cwd, dataDir, path, mcpURL, ghTokenURL string, updates func(json.RawMessage, bool)) (*Session, error) {
+// The gh of the agent gets its token from ghTokenURL, and sends its writes to ghWritesURL. With an empty ghTokenURL, the gh of
+// the agent refuses to run. With an empty ghWritesURL, it sends no write.
+func Start(ctx context.Context, harness config.Harness, cwd, dataDir, path, mcpURL, ghTokenURL, ghWritesURL string, updates func(json.RawMessage, bool)) (*Session, error) {
 	program := Program(harness)
 	processCtx, stop := context.WithCancel(context.Background())
-	cmd, err := harnessCommand(processCtx, harness, cwd, dataDir, path, ghTokenURL)
+	cmd, err := harnessCommand(processCtx, harness, cwd, dataDir, path, ghTokenURL, ghWritesURL)
 	if err != nil {
 		stop()
 		return nil, err
@@ -245,7 +252,7 @@ func (s *Session) limited(ctx context.Context, request func(context.Context) err
 func LogInAntigravity(ctx context.Context, cwd, dataDir, path string) (bool, error) {
 	processCtx, stop := context.WithCancel(context.Background())
 	defer stop()
-	cmd, err := harnessCommand(processCtx, config.Antigravity, cwd, dataDir, path, "")
+	cmd, err := harnessCommand(processCtx, config.Antigravity, cwd, dataDir, path, "", "")
 	if err != nil {
 		return false, err
 	}

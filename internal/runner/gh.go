@@ -9,13 +9,19 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/Mobius-Toolkit/Mobius/internal/mcp"
 )
 
 // GH is the main function of the gh of the agent environment. It runs with args and the environment of getenv,
 // and gives the exit code.
 //
 // With MOBIUS_GH_TOKEN_URL, GH gets the token of the session from that URL, and runs the first gh on PATH that is not
-// this program with the token in GH_TOKEN. With no MOBIUS_GH_TOKEN_URL, GH refuses to run.
+// this program with the token in GH_TOKEN. The Lead gets the installation token of the App, and each other role gets
+// the read-only installation token. With no MOBIUS_GH_TOKEN_URL, GH refuses to run.
+//
+// With MOBIUS_GH_WRITES_URL, GH sends the label changes, the new issues and the comments of args to that URL before it
+// runs the real gh. When the send fails, it does not run the real gh.
 func GH(args []string, getenv func(string) string) int {
 	url := getenv(ghURLEnv)
 	if url == "" {
@@ -32,7 +38,18 @@ func GH(args []string, getenv func(string) string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	return runGH(gh, args, token)
+	stdin := io.Reader(os.Stdin)
+	if writesURL := getenv(ghWritesURLEnv); writesURL != "" {
+		var writes []mcp.GHWrite
+		if writes, stdin, err = ghWrites(args, stdin); err == nil && len(writes) > 0 {
+			err = sendGHWrites(writesURL, writes)
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+	}
+	return runGH(gh, args, token, stdin)
 }
 
 // ghToken gives the body of the response to url. The body of a response with an error status is the error.
@@ -56,12 +73,12 @@ func ghToken(url string) (string, error) {
 	return string(body), nil
 }
 
-// runGH runs the real gh with args and token, and gives its exit code.
-func runGH(gh string, args []string, token string) int {
+// runGH runs the real gh with args, token and stdin, and gives its exit code.
+func runGH(gh string, args []string, token string, stdin io.Reader) int {
 	cmd := exec.Command(gh)
 	cmd.Args = append(cmd.Args, args...)
 	cmd.Env = append(os.Environ(), "GH_TOKEN="+token)
-	cmd.Stdin = os.Stdin
+	cmd.Stdin = stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	err := cmd.Run()

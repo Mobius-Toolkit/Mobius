@@ -108,6 +108,8 @@ type FakeGitHub struct {
 	// The comment ids of all issues are different, as on GitHub.
 	lastCommentID int64
 	lastReviewID  int64
+	// The event ids of all issues are different, as on GitHub.
+	lastEventID int64
 	// graphqlPageSize is the most nodes in a page of a GraphQL connection, or 0 for no limit.
 	graphqlPageSize  int
 	pullRequestReads int

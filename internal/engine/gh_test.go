@@ -8,18 +8,16 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
 
-// connectGH starts a server whose agent runs "gh GH_TOKEN", and authorizes the Owner. The real gh is printenv,
-// so the reply has the token that the real gh gets.
+// connectGH starts a server whose agent runs "gh GH_TOKEN". The real gh is printenv, so the reply has the token that the
+// real gh gets.
 func connectGH(t *testing.T, fake *testkit.FakeGitHub) (*testserver.Server, string) {
 	t.Helper()
-	fake.AddUserCode(testkit.AppID, "user-code", "owner")
 	server, dataDir := connect(t, fake, "[[prompts]]\nshell = \"gh GH_TOKEN\"\n")
 	printenv, err := exec.LookPath("printenv")
 	if err != nil {
@@ -28,7 +26,6 @@ func connectGH(t *testing.T, fake *testkit.FakeGitHub) (*testserver.Server, stri
 	if err := os.Symlink(printenv, filepath.Join(dataDir, "harnesses", "gh")); err != nil {
 		t.Fatal(err)
 	}
-	authorize(t, server)
 	return server, dataDir
 }
 
@@ -44,14 +41,6 @@ func authorize(t *testing.T, server *testserver.Server) {
 	_ = response.Body.Close()
 	if response.StatusCode != http.StatusSeeOther {
 		t.Fatalf("user callback: status %d", response.StatusCode)
-	}
-}
-
-func expireUserToken(t *testing.T, server *testserver.Server, refreshToken string) {
-	t.Helper()
-	expired := time.Now().Add(-time.Minute).UTC().Format(time.RFC3339Nano)
-	if _, err := server.DB.Exec("UPDATE github_apps SET refresh_token = ?, user_token_expires_at = ?", refreshToken, expired); err != nil {
-		t.Fatal(err)
 	}
 }
 
@@ -74,15 +63,19 @@ func ghTokenURL(mcpURL string) string {
 	return strings.Replace(mcpURL, "/mcp/", "/gh-token/", 1)
 }
 
-func TestTheGHTokenRouteGivesTheLeadTheUserTokenAndServesOnlyALiveSession(t *testing.T) {
+func TestTheGHTokenRouteGivesTheLeadAnInstallationTokenWithAllPermissionsAndServesOnlyALiveSession(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, dataDir := connectGH(t, fake)
 
 	_, text := leadReply(t, server)
 
-	if text != "ghu_1\nexit 0" {
-		t.Errorf("reply = %q", text)
+	token, ok := strings.CutSuffix(text, "\nexit 0")
+	if !ok || !strings.HasPrefix(token, "ghs_") {
+		t.Fatalf("reply = %q", text)
+	}
+	if got := fake.InstallationTokenPermissions(token); len(got) != 0 {
+		t.Errorf("permissions = %v", got)
 	}
 	ended := ghTokenURL(mcpURL(t, dataDir))
 	triager := start(t, server, engine.Spec{Role: engine.TriagerRole, Organization: "owner", Repository: shop, Dir: t.TempDir()})
@@ -120,41 +113,5 @@ func TestAnAgentThatIsNotTheLeadGetsAReadOnlyInstallationToken(t *testing.T) {
 				t.Errorf("permissions = %v", got)
 			}
 		})
-	}
-}
-
-func TestGHRefreshesAnExpiredUserToken(t *testing.T) {
-	t.Parallel()
-	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectGH(t, fake)
-	expireUserToken(t, server, "ghr_1")
-
-	_, text := leadReply(t, server)
-
-	if text != "ghu_2\nexit 0" {
-		t.Errorf("reply = %q", text)
-	}
-	var token, refreshToken, expires string
-	err := server.DB.QueryRow("SELECT user_token, refresh_token, user_token_expires_at FROM github_apps").Scan(&token, &refreshToken, &expires)
-	if err != nil {
-		t.Fatal(err)
-	}
-	expiry, err := time.Parse(time.RFC3339Nano, expires)
-	if token != "ghu_2" || refreshToken != "ghr_2" || err != nil || time.Until(expiry) < 7*time.Hour {
-		t.Errorf("tokens = %s, %s, %s: %v", token, refreshToken, expires, err)
-	}
-}
-
-func TestGHPrintsTheAuthorizeURLWhenTheRefreshFails(t *testing.T) {
-	t.Parallel()
-	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectGH(t, fake)
-	expireUserToken(t, server, "ghr_wrong")
-
-	_, text := leadReply(t, server)
-
-	want := "The refresh token passed is incorrect or expired.: tell the Owner to open " + fake.URL + "/login/oauth/authorize?client_id=Iv23test and authorize the App\nexit 1"
-	if !strings.HasSuffix(text, want) {
-		t.Errorf("reply = %q", text)
 	}
 }
