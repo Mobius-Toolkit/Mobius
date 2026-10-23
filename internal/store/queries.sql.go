@@ -1147,6 +1147,27 @@ func (q *Queries) AddWorkerRestart(ctx context.Context, arg AddWorkerRestartPara
 	return worker_restarts, err
 }
 
+const addWorkstreamBucket = `-- name: AddWorkstreamBucket :exec
+INSERT INTO workstream_buckets (repository, workstream, issue, closed) VALUES (?, ?, ?, CAST(?4 AS BOOLEAN))
+`
+
+type AddWorkstreamBucketParams struct {
+	Repository string
+	Workstream int64
+	Issue      int64
+	Closed     bool
+}
+
+func (q *Queries) AddWorkstreamBucket(ctx context.Context, arg AddWorkstreamBucketParams) error {
+	_, err := q.db.ExecContext(ctx, addWorkstreamBucket,
+		arg.Repository,
+		arg.Workstream,
+		arg.Issue,
+		arg.Closed,
+	)
+	return err
+}
+
 const appendChatMessage = `-- name: AppendChatMessage :one
 UPDATE chat_messages SET text = text || ?1 WHERE id = ?2
 RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items
@@ -1558,6 +1579,20 @@ DELETE FROM stop_notices WHERE id = ?
 
 func (q *Queries) DeleteStopNotice(ctx context.Context, id int64) error {
 	_, err := q.db.ExecContext(ctx, deleteStopNotice, id)
+	return err
+}
+
+const deleteWorkstreamBucket = `-- name: DeleteWorkstreamBucket :exec
+DELETE FROM workstream_buckets WHERE repository = ? AND issue = ?
+`
+
+type DeleteWorkstreamBucketParams struct {
+	Repository string
+	Issue      int64
+}
+
+func (q *Queries) DeleteWorkstreamBucket(ctx context.Context, arg DeleteWorkstreamBucketParams) error {
+	_, err := q.db.ExecContext(ctx, deleteWorkstreamBucket, arg.Repository, arg.Issue)
 	return err
 }
 
@@ -6945,6 +6980,42 @@ func (q *Queries) ListWaitingLeadWorkstreams(ctx context.Context) ([]ListWaiting
 	return items, nil
 }
 
+const listWorkstreamBuckets = `-- name: ListWorkstreamBuckets :many
+SELECT b.workstream, b.issue, CAST(b.closed AS BOOLEAN) AS closed FROM workstream_buckets b
+JOIN copied_workstreams w ON w.repository = b.repository AND w.number = b.workstream
+WHERE b.repository = ?
+ORDER BY b.issue
+`
+
+type ListWorkstreamBucketsRow struct {
+	Workstream int64
+	Issue      int64
+	Closed     bool
+}
+
+func (q *Queries) ListWorkstreamBuckets(ctx context.Context, repository string) ([]ListWorkstreamBucketsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listWorkstreamBuckets, repository)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListWorkstreamBucketsRow
+	for rows.Next() {
+		var i ListWorkstreamBucketsRow
+		if err := rows.Scan(&i.Workstream, &i.Issue, &i.Closed); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listWorkstreamLiveTasks = `-- name: ListWorkstreamLiveTasks :many
 SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head, state_at, long_wait_at, check_errors, lead_findings, recoveries, break_wait_head, rerun_head, rerun_runs, workstream_repository, branch_checked, auto_merge, approved_head FROM tasks WHERE workstream_repository = ? AND workstream = ? AND state <> 'ended' ORDER BY id
 `
@@ -7002,6 +7073,55 @@ func (q *Queries) ListWorkstreamLiveTasks(ctx context.Context, arg ListWorkstrea
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listWorkstreamsNeedingBuckets = `-- name: ListWorkstreamsNeedingBuckets :many
+SELECT w.number FROM copied_workstreams w
+WHERE w.repository = ?1
+  AND ((SELECT COUNT(*) FROM copied_issues c
+        WHERE c.repository = w.repository AND c.workstream = w.number AND c.parent = w.number AND c.parent_repository = w.repository) > CAST(?2 AS INTEGER)
+       OR EXISTS (
+           SELECT 1 FROM copied_issues b
+           JOIN copied_issue_labels l
+             ON l.repository = b.repository AND l.workstream = b.workstream AND l.position = b.position AND l.name = 'mobius:bucket'
+           WHERE b.repository = w.repository AND b.workstream = w.number AND b.parent = w.number AND b.parent_repository = w.repository
+             AND b.state = 'open'
+             AND (NOT EXISTS (SELECT 1 FROM copied_issues c
+                              WHERE c.repository = b.repository AND c.workstream = b.workstream AND c.parent = b.number AND c.parent_repository = w.repository)
+                  OR EXISTS (SELECT 1 FROM copied_issues c
+                             WHERE c.repository = b.repository AND c.workstream = b.workstream AND c.parent = b.number AND c.parent_repository = w.repository
+                               AND c.state = 'closed'))))
+ORDER BY w.number
+`
+
+type ListWorkstreamsNeedingBucketsParams struct {
+	Repository string
+	Maximum    int64
+}
+
+// A Workstream needs buckets when it has more than the maximum of direct sub-issues, or when an open bucket has no
+// sub-issues or holds a closed issue.
+func (q *Queries) ListWorkstreamsNeedingBuckets(ctx context.Context, arg ListWorkstreamsNeedingBucketsParams) ([]int64, error) {
+	rows, err := q.db.QueryContext(ctx, listWorkstreamsNeedingBuckets, arg.Repository, arg.Maximum)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var number int64
+		if err := rows.Scan(&number); err != nil {
+			return nil, err
+		}
+		items = append(items, number)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
