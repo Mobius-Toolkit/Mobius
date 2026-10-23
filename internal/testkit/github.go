@@ -125,6 +125,7 @@ type FakeGitHub struct {
 	failedSubIssues                            map[issueKey]bool
 	failedParents                              map[issueKey]bool
 	failedSubIssueAdds                         map[issueKey]bool
+	refuseOpenBucketAdds                       bool
 	failedComments                             map[issueKey]bool
 	refusedComments                            map[issueKey]int
 	failedCommentUpdates                       map[issueKey]bool

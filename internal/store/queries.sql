@@ -1200,3 +1200,35 @@ INSERT INTO deployment_needs (task, head, kind, name, path, line, reason, mandat
 
 -- name: ListDeploymentNeeds :many
 SELECT * FROM deployment_needs WHERE task = ? ORDER BY id;
+
+-- A Workstream needs buckets when it has more than the maximum of direct sub-issues, or when an open bucket has no
+-- sub-issues or holds a closed issue.
+-- name: ListWorkstreamsNeedingBuckets :many
+SELECT w.number FROM copied_workstreams w
+WHERE w.repository = sqlc.arg(repository)
+  AND ((SELECT COUNT(*) FROM copied_issues c
+        WHERE c.repository = w.repository AND c.workstream = w.number AND c.parent = w.number AND c.parent_repository = w.repository) > CAST(sqlc.arg(maximum) AS INTEGER)
+       OR EXISTS (
+           SELECT 1 FROM copied_issues b
+           JOIN copied_issue_labels l
+             ON l.repository = b.repository AND l.workstream = b.workstream AND l.position = b.position AND l.name = 'mobius:bucket'
+           WHERE b.repository = w.repository AND b.workstream = w.number AND b.parent = w.number AND b.parent_repository = w.repository
+             AND b.state = 'open'
+             AND (NOT EXISTS (SELECT 1 FROM copied_issues c
+                              WHERE c.repository = b.repository AND c.workstream = b.workstream AND c.parent = b.number AND c.parent_repository = w.repository)
+                  OR EXISTS (SELECT 1 FROM copied_issues c
+                             WHERE c.repository = b.repository AND c.workstream = b.workstream AND c.parent = b.number AND c.parent_repository = w.repository
+                               AND c.state = 'closed'))))
+ORDER BY w.number;
+
+-- name: ListWorkstreamBuckets :many
+SELECT b.workstream, b.issue, CAST(b.closed AS BOOLEAN) AS closed FROM workstream_buckets b
+JOIN copied_workstreams w ON w.repository = b.repository AND w.number = b.workstream
+WHERE b.repository = ?
+ORDER BY b.issue;
+
+-- name: AddWorkstreamBucket :exec
+INSERT INTO workstream_buckets (repository, workstream, issue, closed) VALUES (?, ?, ?, CAST(sqlc.arg(closed) AS BOOLEAN));
+
+-- name: DeleteWorkstreamBucket :exec
+DELETE FROM workstream_buckets WHERE repository = ? AND issue = ?;
