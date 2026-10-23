@@ -1,4 +1,10 @@
-import { ChevronDownIcon, PlaneLandingIcon, PlaneTakeoffIcon } from "lucide-react";
+import {
+  ChevronDownIcon,
+  PlaneIcon,
+  PlaneLandingIcon,
+  PlaneTakeoffIcon,
+  PowerOffIcon,
+} from "lucide-react";
 import { useState } from "react";
 import type { WorkstreamAutopilot } from "@/api/api.gen";
 import { Button } from "@/components/ui/button";
@@ -13,34 +19,39 @@ import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/s
 import { levelName, levels } from "@/lib/autopilot";
 import { cn } from "@/lib/utils";
 
+const icons = {
+  off: PowerOffIcon,
+  start: PlaneTakeoffIcon,
+  merge: PlaneLandingIcon,
+  start_and_merge: PlaneIcon,
+};
+
 export function AutopilotIcon({ level }: { level: WorkstreamAutopilot }) {
-  const takeoff = level === "start" || level === "start_and_merge";
-  const landing = level === "merge" || level === "start_and_merge";
-  if (!takeoff && !landing) {
-    return null;
-  }
-  return (
-    <span className="inline-flex items-center gap-0.5 text-muted-foreground">
-      {takeoff && <PlaneTakeoffIcon className="size-3.5" />}
-      {landing && <PlaneLandingIcon className="size-3.5" />}
-    </span>
-  );
+  const Icon = icons[level];
+  return <Icon className="size-3.5 text-muted-foreground" />;
 }
 
 function Trigger({
   level,
+  compact,
+  className,
   ...props
-}: { level: WorkstreamAutopilot } & React.ComponentProps<typeof Button>) {
+}: {
+  level: WorkstreamAutopilot;
+  compact?: boolean;
+} & React.ComponentProps<typeof Button>) {
+  const name = `Autopilot: ${levelName(level)}`;
   return (
     <Button
       variant="outline"
       size="sm"
-      className="shrink-0"
-      aria-label={`Autopilot: ${levelName(level)}`}
+      className={cn("ml-auto shrink-0", className)}
+      aria-label={name}
+      title={compact ? name : undefined}
       {...props}
     >
       <AutopilotIcon level={level} />
-      {levelName(level)}
+      {!compact && levelName(level)}
       <ChevronDownIcon />
     </Button>
   );
@@ -69,7 +80,7 @@ export function AutopilotMenu({
       <DropdownMenuTrigger asChild>
         <Trigger level={level} disabled={disabled} />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-72">
+      <DropdownMenuContent align="end" className="w-72">
         <DropdownMenuRadioGroup
           value={level}
           onValueChange={(value) => onSelect(value as WorkstreamAutopilot)}
@@ -98,7 +109,7 @@ export function AutopilotSheet({
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
-        <Trigger level={level} disabled={disabled} />
+        <Trigger level={level} compact disabled={disabled} />
       </SheetTrigger>
       <SheetContent side="bottom" aria-describedby={undefined} className="gap-2 p-4 pt-3">
         <SheetTitle>Autopilot</SheetTitle>
