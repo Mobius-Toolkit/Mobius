@@ -255,24 +255,22 @@ func (e *Engine) AnswerInboxItem(ctx context.Context, id int64, text string) (st
 	return comment.GetHTMLURL(), nil
 }
 
-// mergingPullRequests gives the numbers of the pull requests of the open ready for review Inbox items of repository in
-// the merging state.
+// mergingPullRequests gives the numbers of the pull requests of the ready for review Inbox items of repository in the
+// merging state. A dismissed item counts: the Owner started the merge, and the poll must read the approval to do it.
 func (e *Engine) mergingPullRequests(ctx context.Context, repository github.Repository) ([]int64, error) {
-	items, err := e.Inbox(ctx)
+	items, err := e.queries.ListMergingReadyItems(ctx, repository.FullName)
 	if err != nil {
 		return nil, err
 	}
 	var numbers []int64
 	for _, item := range items {
-		if item.Repository == repository.FullName && item.Kind == readyForReviewKind && item.Merging != 0 {
-			numbers = append(numbers, item.PullRequest)
-		}
+		numbers = append(numbers, item.PullRequest)
 	}
 	return numbers, nil
 }
 
 // refuseMergeItem sets the reason of a refusal of GitHub on each open ready for review Inbox item of the issue of the
-// task, and ends its merging state.
+// task, and ends the merging state of each such item, also a dismissed one.
 func (e *Engine) refuseMergeItem(ctx context.Context, task store.Task, reason string) error {
 	e.mergeMu.Lock()
 	defer e.mergeMu.Unlock()
@@ -285,14 +283,17 @@ func (e *Engine) openReadyItems(ctx context.Context, task store.Task) ([]store.I
 	return slices.DeleteFunc(items, func(item store.InboxItem) bool { return item.DismissedAt.Valid }), err
 }
 
-// setMergeItems sets merging and the reason on each open ready for review Inbox item of the issue of the task. The
-// caller must hold mergeMu.
+// setMergeItems sets merging and the reason on each open ready for review Inbox item of the issue of the task. A
+// dismissed item changes only to end its merging state. The caller must hold mergeMu.
 func (e *Engine) setMergeItems(ctx context.Context, task store.Task, merging int64, reason string) error {
-	items, err := e.openReadyItems(ctx, task)
+	items, err := e.queries.ListIssueInboxItems(ctx, store.ListIssueInboxItemsParams{Repository: task.Repository, Issue: task.Issue, Kind: readyForReviewKind})
 	if err != nil {
 		return err
 	}
 	for _, item := range items {
+		if item.DismissedAt.Valid && (merging != 0 || item.Merging == 0) {
+			continue
+		}
 		item, err := e.queries.SetInboxItemMerge(ctx, store.SetInboxItemMergeParams{Merging: merging, MergeRefusal: reason, ID: item.ID})
 		if err != nil {
 			return err
