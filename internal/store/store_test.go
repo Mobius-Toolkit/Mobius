@@ -536,7 +536,7 @@ func TestTheTranscriptMigrationRemovesTheDuplicatesAndAddsTheIndex(t *testing.T)
 	if _, err := db.Exec("DROP TABLE pending_actions"); err != nil {
 		t.Fatal(err)
 	}
-	for _, table := range []string{"ci_failures", "ci_failure_places", "ci_diagnoses"} {
+	for _, table := range []string{"ci_failures", "ci_failure_places", "ci_diagnoses", "lead_writes"} {
 		if _, err := db.Exec("DROP TABLE " + table); err != nil {
 			t.Fatal(err)
 		}
@@ -670,6 +670,7 @@ func TestTheInboxMigrationsDismissTheOpenItemsAndKeepThePause(t *testing.T) {
 		"DROP TABLE ci_failures",
 		"DROP TABLE ci_failure_places",
 		"DROP TABLE ci_diagnoses",
+		"DROP TABLE lead_writes",
 		"ALTER TABLE tasks DROP COLUMN auto_merge",
 		"ALTER TABLE copied_workstreams DROP COLUMN auto_merge",
 		"ALTER TABLE copied_workstreams DROP COLUMN created_at",
@@ -775,6 +776,7 @@ func TestTheCoordinatorMigrationMovesTheChatSessionsAndTheChatMessages(t *testin
 		"DROP TABLE ci_failures",
 		"DROP TABLE ci_failure_places",
 		"DROP TABLE ci_diagnoses",
+		"DROP TABLE lead_writes",
 		"ALTER TABLE tasks DROP COLUMN auto_merge",
 		"ALTER TABLE copied_workstreams DROP COLUMN auto_merge",
 		"ALTER TABLE copied_workstreams DROP COLUMN created_at",

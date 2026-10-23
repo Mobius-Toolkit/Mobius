@@ -215,3 +215,36 @@ func TestTheGHTokenRouteGivesTheTokenOfACallerWithAGHToken(t *testing.T) {
 		}
 	}
 }
+
+func TestTheGHWritesRouteGivesTheWritesToACallerWithGHWrites(t *testing.T) {
+	server, addr := start(t)
+	var got []GHWrite
+	lead := server.Open(Caller{GHWrites: func(_ context.Context, writes []GHWrite) error {
+		got = writes
+		return nil
+	}})
+	failing := server.Open(Caller{GHWrites: func(context.Context, []GHWrite) error { return errors.New("no session") }})
+	other := server.Open(Caller{})
+	body := `{"writes":[{"repository":"owner/shop","issue":12,"kind":"labeled","labels":["mobius:ready"],"text":""}]}`
+
+	for url, want := range map[string]string{
+		GHWritesURL(addr, lead):      "204 ",
+		GHWritesURL(addr, failing):   "500 no session\n",
+		GHWritesURL(addr, other):     "404 404 page not found\n",
+		GHWritesURL(addr, "unknown"): "404 404 page not found\n",
+	} {
+		status, text := send(t, http.MethodPost, url, "", body)
+		if got := fmt.Sprintf("%d %s", status, text); got != want {
+			t.Errorf("%s: %q, want %q", url, got, want)
+		}
+	}
+	if want := []GHWrite{{Repository: "owner/shop", Issue: 12, Kind: "labeled", Labels: []string{"mobius:ready"}}}; !reflect.DeepEqual(got, want) {
+		t.Errorf("writes = %+v", got)
+	}
+	if status, text := send(t, http.MethodPost, GHWritesURL(addr, lead), "", `{`); status != http.StatusBadRequest {
+		t.Errorf("bad body: %d %s", status, text)
+	}
+	if status, text := send(t, http.MethodGet, GHWritesURL(addr, lead), "", ""); status != http.StatusMethodNotAllowed {
+		t.Errorf("get: %d %s", status, text)
+	}
+}
