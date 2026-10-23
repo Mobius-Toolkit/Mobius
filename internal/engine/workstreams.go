@@ -50,7 +50,11 @@ func (e *Engine) CompleteWorkstream(ctx context.Context, repositoryName string, 
 	}
 	e.publish(Change{Workstreams: true})
 	// The poll of the close event runs the close again, and the second run changes nothing.
-	return e.closeWorkstream(ctx, repository, number)
+	if err := e.closeWorkstream(ctx, repository, number); err != nil {
+		return err
+	}
+	e.addRecord(ctx, leadChat(repository.FullName, number), "You closed the Workstream.")
+	return nil
 }
 
 // WorkstreamDetails is what the local copy knows about an open Workstream.
@@ -240,7 +244,11 @@ func (e *Engine) CloseWorkstreamWontDo(ctx context.Context, repositoryName strin
 		return err
 	}
 	e.publish(Change{Workstreams: true})
-	return e.closeWorkstream(ctx, repository, number)
+	if err := e.closeWorkstream(ctx, repository, number); err != nil {
+		return err
+	}
+	e.addRecord(ctx, leadChat(repository.FullName, number), "You closed the Workstream as won't do.")
+	return nil
 }
 
 // beginClose hides the Workstream number of repository from the Workstream list. The returned function shows it
@@ -468,6 +476,7 @@ func (e *Engine) SetAutopilot(ctx context.Context, repositoryName string, number
 		return err
 	}
 	e.publish(Change{Workstreams: true})
+	e.addRecord(ctx, leadChat(repository.FullName, number), fmt.Sprintf("You set the Autopilot level to %s.", levelNames[level]))
 	return nil
 }
 
@@ -504,6 +513,11 @@ func (e *Engine) SetEvergreen(ctx context.Context, repositoryName string, number
 		return err
 	}
 	e.publish(Change{Workstreams: true})
+	state := "off"
+	if on {
+		state = "on"
+	}
+	e.addRecord(ctx, leadChat(repository.FullName, number), fmt.Sprintf("You turned Evergreen %s.", state))
 	return nil
 }
 
