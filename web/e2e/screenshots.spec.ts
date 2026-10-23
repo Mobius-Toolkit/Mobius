@@ -1591,6 +1591,7 @@ test("screenshots", async ({ page }) => {
     panel.getByRole("button", { name: "Hide removed text" }),
   ];
   const openBrief = async () => {
+    await showEnd("edit_brief")();
     await row(briefTitle).getByRole("button", { name: "Answer" }).click();
     await expect(addedText(panel)).toHaveCount(2);
   };
