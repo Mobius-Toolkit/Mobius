@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"encoding/json"
 	"regexp"
 	"slices"
 	"strings"
@@ -21,4 +22,18 @@ func WithoutMark(body string) string {
 // first.
 func WithMark(body, mark string) string {
 	return WithoutMark(body) + "\n\n" + mark
+}
+
+// GHMark is the mark of the gh of an agent. Here is the mark line for a text in Repository, and Elsewhere is the mark
+// line for a text in any other repository.
+type GHMark struct {
+	Repository string `json:"repository"`
+	Here       string `json:"here"`
+	Elsewhere  string `json:"elsewhere"`
+}
+
+// Encode gives the value of the environment variable of the gh.
+func (m GHMark) Encode() (string, error) {
+	text, err := json.Marshal(m)
+	return string(text), err
 }

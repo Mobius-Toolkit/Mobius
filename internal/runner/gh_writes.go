@@ -187,9 +187,9 @@ func ghWrites(args []string, stdin io.Reader) ([]mcp.GHWrite, io.Reader, error) 
 	return writes, stdin, nil
 }
 
-// markBodies gives args with the mark line mark at the end of each body that the gh call writes, and the stdin for the
+// markBodies gives args with the mark line at the end of each body that the gh call writes, and the stdin for the
 // real gh. A body file becomes "-", and the real gh reads the marked text from the stdin.
-func markBodies(args []string, stdin io.Reader, mark string) ([]string, io.Reader, error) {
+func markBodies(args []string, stdin io.Reader, ghMark GHMark) ([]string, io.Reader, error) {
 	if len(args) < 2 {
 		return args, stdin, nil
 	}
@@ -201,6 +201,10 @@ func markBodies(args []string, stdin io.Reader, mark string) ([]string, io.Reade
 		bodyFlag = "comment"
 	default:
 		return args, stdin, nil
+	}
+	mark := ghMark.Here
+	if repository := parseGHArgs(args[2:]).repository(); repository != "" && !strings.EqualFold(repository, ghMark.Repository) {
+		mark = ghMark.Elsewhere
 	}
 	marked := slices.Clone(args)
 	for i := 2; i < len(marked); i++ {

@@ -317,6 +317,11 @@ func TestTheGHAddsTheMarkToTheBodyOfEachSubcommand(t *testing.T) {
 		t.Fatal(err)
 	}
 	const mark = "— Lead of #14 The title"
+	const markElsewhere = "— Lead of owner/shop#14 The title"
+	encoded, err := GHMark{Repository: "owner/shop", Here: mark, Elsewhere: markElsewhere}.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
 	for name, test := range map[string]struct {
 		args  []string
 		stdin string
@@ -324,6 +329,8 @@ func TestTheGHAddsTheMarkToTheBodyOfEachSubcommand(t *testing.T) {
 		want string
 		// text is the text of the record of the comment, or "" for no such record.
 		text string
+		// repo is the repository of the record, or "" for owner/shop.
+		repo string
 	}{
 		"issue create": {
 			args: []string{"issue", "create", "-R", "owner/shop", "-t", "A title", "--body", "text"},
@@ -373,6 +380,18 @@ func TestTheGHAddsTheMarkToTheBodyOfEachSubcommand(t *testing.T) {
 			want: "issue comment 5 -R owner/shop -b text\n\n" + mark + "\n",
 			text: "text\n\n" + mark,
 		},
+		"another repository": {
+			args: []string{"issue", "comment", "5", "-R", "owner/garden", "-b", "text"},
+			want: "issue comment 5 -R owner/garden -b text\n\n" + markElsewhere + "\n",
+			repo: "owner/garden",
+			text: "text\n\n" + markElsewhere,
+		},
+		"the same repository with another case": {
+			args: []string{"issue", "comment", "5", "-R", "Owner/Shop", "-b", "text"},
+			want: "issue comment 5 -R Owner/Shop -b text\n\n" + mark + "\n",
+			repo: "Owner/Shop",
+			text: "text\n\n" + mark,
+		},
 		"edit with labels only": {
 			args: []string{"issue", "edit", "5", "-R", "owner/shop", "--add-label", "a"},
 			want: "issue edit 5 -R owner/shop --add-label a\n",
@@ -389,7 +408,7 @@ func TestTheGHAddsTheMarkToTheBodyOfEachSubcommand(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			writesURL, bodies := writesServer(t, http.StatusNoContent)
 
-			stdout, stderr, code := startGHWithMark(t, dataDir, scriptGH(t, `echo "$@"; /bin/cat`), tokenServer(t, http.StatusOK, "ghs_1"), writesURL, mark, test.stdin, test.args...)
+			stdout, stderr, code := startGHWithMark(t, dataDir, scriptGH(t, `echo "$@"; /bin/cat`), tokenServer(t, http.StatusOK, "ghs_1"), writesURL, encoded, test.stdin, test.args...)
 
 			if stderr != "" || code != 0 {
 				t.Fatalf("gh = %q, %q, exit %d", stdout, stderr, code)
@@ -400,7 +419,10 @@ func TestTheGHAddsTheMarkToTheBodyOfEachSubcommand(t *testing.T) {
 			if test.text == "" {
 				return
 			}
-			want := fmt.Sprintf(`{"writes":[{"repository":"owner/shop","issue":5,"kind":"commented","labels":null,"text":%q}]}`, test.text)
+			if test.repo == "" {
+				test.repo = "owner/shop"
+			}
+			want := fmt.Sprintf(`{"writes":[{"repository":%q,"issue":5,"kind":"commented","labels":null,"text":%q}]}`, test.repo, test.text)
 			if got := bodies(); len(got) != 1 || got[0] != want {
 				t.Errorf("requests = %q, want %q", got, want)
 			}
