@@ -1420,11 +1420,11 @@ func (e *Engine) firstPrompt(ctx context.Context, key ChatKey, first item) (stri
 		return "", nil, err
 	}
 	rules := ""
-	if maintenance {
-		rules = leadMaintenancePrompt + "\n"
-	}
 	if skills {
-		rules += leadSkillsPrompt + "\n"
+		rules = leadSkillsPrompt + "\n"
+	}
+	if maintenance {
+		rules += leadMaintenancePrompt + "\n"
 	}
 	return fmt.Sprintf("%s\n%s%s%s%s%s# %s\n\n%s", leadPrompt, rules, sections, lead, requests, history, heading, text), images, nil
 }
