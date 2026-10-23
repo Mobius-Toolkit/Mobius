@@ -680,8 +680,14 @@ func (e *Engine) ask(ctx context.Context, c caller, repository github.Repository
 	if err := repository.AddLabel(ctx, input.N, questionLabel); err != nil {
 		return "", err
 	}
-	if err := e.dismissIssueItems(ctx, repository.FullName, input.N, questionKind); err != nil {
+	replaced, err := e.openIssueItems(ctx, repository.FullName, input.N, questionKind)
+	if err != nil {
 		return "", err
+	}
+	for _, item := range replaced {
+		if err := e.Dismiss(ctx, item.ID); err != nil {
+			return "", err
+		}
 	}
 	err = e.addInboxItem(ctx, store.AddInboxItemParams{
 		Kind:                 questionKind,
@@ -710,7 +716,21 @@ func (e *Engine) ask(ctx context.Context, c caller, repository github.Repository
 			return "", err
 		}
 	}
-	return fmt.Sprintf("Asked on #%d.", input.N), nil
+	result := fmt.Sprintf("Asked on #%d.", input.N)
+	for _, item := range replaced {
+		result += fmt.Sprintf(" This question replaced the open question \"%s\".", firstLine(item.Text))
+	}
+	return result, nil
+}
+
+// firstLine gives the first line of text that is not empty, with no space around it.
+func firstLine(text string) string {
+	for line := range strings.Lines(text) {
+		if line = strings.TrimSpace(line); line != "" {
+			return line
+		}
+	}
+	return ""
 }
 
 // refuseQuestions refuses an empty text, a question with no text, a question with fewer than 2 options, and an option
