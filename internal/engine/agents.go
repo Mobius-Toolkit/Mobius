@@ -201,7 +201,7 @@ func endParams(id int64, reason string) store.EndSessionParams {
 }
 
 // Start adds the session of spec, waits for a slot of its Role, starts its agent on the Harness of the Role binding,
-// and configures the agent. The Lead gets a gh with the user token of the Owner. Each other Role gets a gh with a
+// and configures the agent. The Lead gets a gh with the installation token of the App. Each other Role gets a gh with a
 // read-only installation token.
 //
 // When the task of the session leaves the queue, the session ends with the reason "declined" and Start gives
@@ -376,13 +376,20 @@ func (a *Agent) startHarness(ctx context.Context) error {
 			return "", err
 		}
 		if spec.Role == LeadRole {
-			return e.github.UserToken(ctx, repository.AppID)
+			return repository.Token(ctx)
 		}
 		return repository.ReadToken(ctx)
 	}
+	if spec.Role == LeadRole {
+		mcpCaller.GHWrites = a.recordGHWrites
+	}
 	a.key = e.agents.MCP.Open(mcpCaller)
 	ghTokenURL := mcp.GHTokenURL(e.agents.Addr, a.key)
-	session, err := runner.Start(ctx, a.harness, spec.Dir, e.config.DataDir, e.agents.Path, mcp.URL(e.agents.Addr, a.key), ghTokenURL, a.update)
+	ghWritesURL := ""
+	if spec.Role == LeadRole {
+		ghWritesURL = mcp.GHWritesURL(e.agents.Addr, a.key)
+	}
+	session, err := runner.Start(ctx, a.harness, spec.Dir, e.config.DataDir, e.agents.Path, mcp.URL(e.agents.Addr, a.key), ghTokenURL, ghWritesURL, a.update)
 	if err != nil {
 		return err
 	}
