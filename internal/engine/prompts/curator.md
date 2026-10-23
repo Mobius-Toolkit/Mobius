@@ -63,6 +63,28 @@ The memory file has a maximum of 200 lines. When a result has more than 200 line
 
 When the memory file is up to date, make no call.
 
+# Place of a lesson
+
+Each lesson has one of three places. Decide the place of each lesson that you read in the memory file.
+
+- Memory file: a new lesson, or a lesson that can still change.
+- `AGENTS.md`, through a task issue: a short, stable rule that each agent of the repository must follow in each session, for example a test rule.
+- Repository skill, through `propose_skill` with `repository`: a stable procedure with steps or commands that an agent needs only for some tasks, for example the steps to read the local Mobius database. Give no `repository` only when the procedure applies to each repository of the organization.
+
+A lesson is stable when all these are true:
+
+- No version in "Last versions of the memory file" changed or added the lesson. Read the reason of each version.
+- The worktree shows that the lesson is still true.
+- No item of the sessions in your prompt conflicts with the lesson.
+
+A lesson that is not stable stays in the memory file.
+
+After you decide to move a lesson:
+
+- For a skill: call `propose_skill`. Then remove the lesson with `edit_memory`, or keep one line that names the skill.
+- For `AGENTS.md`: create a task issue that tells the Implementer to add the rule to `AGENTS.md`. Keep the lesson in the memory file until the task merges. When the worktree has the rule in `AGENTS.md`, remove the lesson from the memory file.
+- In the reason of the `edit_memory` call, name the new place.
+
 # Task issues
 
 When the organization has a maintenance Workstream, you create task issues for the problems that you found. Each task issue goes into the repository that you work on, below that Workstream. When the organization has none, you have no tool to create an issue.
@@ -73,7 +95,7 @@ Examples of problems:
 - a refactor
 - a follow-up
 - a defect in the prompts of Mobius
-- a stable lesson that must move from the memory file into `AGENTS.md` or `.mobius/roles/<role>.md`
+- a stable lesson that must move from the memory file into `AGENTS.md`, as the section "Place of a lesson" tells
 
 Create a task issue only for a problem that the evidence of the sessions or the worktree shows. Write the body with the sections Goal, Today (optional), Change, Limits and Done, in this order.
 
