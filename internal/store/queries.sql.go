@@ -774,6 +774,64 @@ func (q *Queries) AddSession(ctx context.Context, arg AddSessionParams) (Session
 	return i, err
 }
 
+const addSessionSkill = `-- name: AddSessionSkill :exec
+INSERT INTO session_skills (session, organization, repository, role, harness, skill, copied_at)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+`
+
+type AddSessionSkillParams struct {
+	Session      int64
+	Organization string
+	Repository   string
+	Role         string
+	Harness      string
+	Skill        string
+	CopiedAt     string
+}
+
+func (q *Queries) AddSessionSkill(ctx context.Context, arg AddSessionSkillParams) error {
+	_, err := q.db.ExecContext(ctx, addSessionSkill,
+		arg.Session,
+		arg.Organization,
+		arg.Repository,
+		arg.Role,
+		arg.Harness,
+		arg.Skill,
+		arg.CopiedAt,
+	)
+	return err
+}
+
+const addSkillUse = `-- name: AddSkillUse :exec
+INSERT INTO skill_uses (session, organization, repository, role, harness, skill, source, used_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type AddSkillUseParams struct {
+	Session      int64
+	Organization string
+	Repository   string
+	Role         string
+	Harness      string
+	Skill        string
+	Source       string
+	UsedAt       string
+}
+
+func (q *Queries) AddSkillUse(ctx context.Context, arg AddSkillUseParams) error {
+	_, err := q.db.ExecContext(ctx, addSkillUse,
+		arg.Session,
+		arg.Organization,
+		arg.Repository,
+		arg.Role,
+		arg.Harness,
+		arg.Skill,
+		arg.Source,
+		arg.UsedAt,
+	)
+	return err
+}
+
 const addStepTime = `-- name: AddStepTime :exec
 INSERT INTO step_times (kind, session, task, issue, workstream, organization, repository, role, harness, model, effort,
                         started_at, ended_at, attempt, result)
