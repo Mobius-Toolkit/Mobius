@@ -364,6 +364,14 @@ func (g *FakeGitHub) FailAddSubIssue(repository string, number int64, fail bool)
 	g.failedSubIssueAdds[issueKey{repository, number}] = fail
 }
 
+// RefuseOpenBucketAdds makes each add of an open issue below an issue with the label mobius:bucket fail with 422, as
+// GitHub does at the depth limit, or work again when refuse is false.
+func (g *FakeGitHub) RefuseOpenBucketAdds(refuse bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.refuseOpenBucketAdds = refuse
+}
+
 // FailParents makes each read of the parent of the issue fail, or work again when fail is false.
 func (g *FakeGitHub) FailParents(repository string, number int64, fail bool) {
 	g.mu.Lock()
@@ -955,6 +963,10 @@ func (g *FakeGitHub) addSubIssue(w http.ResponseWriter, r *http.Request) {
 	}
 	child, ok := g.issueKeyOf(w, key, request.SubIssueID)
 	if !ok {
+		return
+	}
+	if g.refuseOpenBucketAdds && g.issues[child].state == "open" && slices.Contains(g.issues[key].labels, "mobius:bucket") {
+		message(w, http.StatusUnprocessableEntity, "Depth limit exceeded")
 		return
 	}
 	if len(g.issues[key].subIssues) >= 100 && !slices.Contains(g.issues[key].subIssues, child) {

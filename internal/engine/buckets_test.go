@@ -105,6 +105,22 @@ func sortedLines(lines []taskLine) []taskLine {
 	return result
 }
 
+// subIssueReadsOfEachPoll gives the number of reads of the sub-issues of the issue in each poll after the first. The
+// copy of the trees reads them one time in each poll. Each poll reads the installations one time.
+func subIssueReadsOfEachPoll(fake *testkit.FakeGitHub, number int64) []int {
+	var reads []int
+	for _, request := range fake.Requests() {
+		switch {
+		case request.Method != "GET":
+		case request.Path == "/app/installations":
+			reads = append(reads, 0)
+		case request.Path == fmt.Sprintf("/repos/owner/shop/issues/%d/sub_issues", number) && len(reads) > 1:
+			reads[len(reads)-1]++
+		}
+	}
+	return reads[min(1, len(reads)):]
+}
+
 func TestAWorkstreamWithFiftySubIssuesGetsNoBucketUntilItGetsTheFiftyFirst(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
@@ -120,6 +136,9 @@ func TestAWorkstreamWithFiftySubIssuesGetsNoBucketUntilItGetsTheFiftyFirst(t *te
 	}
 	if got := fake.SubIssueNumbers(shop, 12); len(got) != 50 || fake.HasIssue(shop, 151) {
 		t.Errorf("sub-issues = %v", got)
+	}
+	if reads := subIssueReadsOfEachPoll(fake, 12); len(reads) < 3 || slices.Max(reads) > 1 {
+		t.Errorf("reads of the sub-issues of #12 in each poll = %v", reads)
 	}
 
 	fake.AddSubIssueOf(shop, 12, 150, "Task 150")
@@ -281,5 +300,27 @@ func TestAWorkstreamWithOneHundredDirectSubIssuesAndNoBucketGetsAClosedBucketTha
 	}
 	if got := sorted(fake.SubIssueNumbers(shop, 12)); !slices.Contains(got, 200) || !slices.Contains(got, 201) {
 		t.Errorf("sub-issues of the Workstream = %v", got)
+	}
+}
+
+func TestAnOpenBucketThatGitHubRefusesEachOpenIssueStaysAndTheNextPollsMakeNoNewBucket(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addBucketWorkstream(fake)
+	addSubIssues(fake, 12, 100, 150, 100)
+	fake.RefuseOpenBucketAdds(true)
+	startCopied(t, fake)
+
+	waitForPolls(t, fake)
+	waitForPolls(t, fake)
+	if state, _ := fake.State(shop, 151); state != "open" || fake.HasIssue(shop, 152) || len(fake.SubIssueNumbers(shop, 151)) != 0 {
+		t.Errorf("state of #151 = %q, #152 = %t, sub-issues of #151 = %v", state, fake.HasIssue(shop, 152), fake.SubIssueNumbers(shop, 151))
+	}
+
+	fake.RefuseOpenBucketAdds(false)
+
+	waitForThirtyDirectSubIssues(t, fake)
+	if got := sorted(fake.SubIssueNumbers(shop, 151)); !slices.Equal(got, numbers(100, 121)) || fake.HasIssue(shop, 152) {
+		t.Errorf("sub-issues of #151 = %v, #152 = %t", got, fake.HasIssue(shop, 152))
 	}
 }

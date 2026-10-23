@@ -146,7 +146,8 @@ func (f *bucketFill) run(ctx context.Context, pending []store.ListWorkstreamBuck
 }
 
 // emptyOpenBuckets moves the closed issues of each open bucket into closed buckets, and closes each open bucket that
-// has no sub-issues.
+// has no sub-issues. While the Workstream has too many direct sub-issues, an empty open bucket stays open: GitHub
+// refused the moves into it, and a closed bucket would make the next poll create a new open bucket.
 func (f *bucketFill) emptyOpenBuckets(ctx context.Context) error {
 	for _, open := range slices.Clone(f.buckets) {
 		if open.closed {
@@ -169,7 +170,7 @@ func (f *bucketFill) emptyOpenBuckets(ctx context.Context) error {
 				remaining--
 			}
 		}
-		if remaining > 0 {
+		if remaining > 0 || f.direct > maxDirectSubIssues {
 			continue
 		}
 		if _, err := f.repository.CloseIssue(ctx, open.number, "completed"); err != nil {
