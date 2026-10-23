@@ -191,6 +191,17 @@ type LeadWrite struct {
 	Item       sql.NullInt64
 }
 
+type OldSkillUse struct {
+	ID           int64
+	Session      int64
+	Organization string
+	Repository   string
+	Role         string
+	Harness      string
+	Skill        string
+	UsedAt       string
+}
+
 type PendingAction struct {
 	ID           int64
 	Organization string

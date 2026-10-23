@@ -72,6 +72,12 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 INSERT INTO skill_uses (session, organization, repository, role, harness, skill, source, used_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?);
 
+-- name: ListOldSkillUses :many
+SELECT * FROM old_skill_uses ORDER BY id;
+
+-- name: DeleteOldSkillUse :exec
+DELETE FROM old_skill_uses WHERE id = ?;
+
 -- name: AddSessionSkill :exec
 INSERT INTO session_skills (session, organization, repository, role, harness, skill, copied_at)
 VALUES (?, ?, ?, ?, ?, ?, ?);

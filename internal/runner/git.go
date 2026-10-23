@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -198,6 +199,29 @@ func SkillNames(ctx context.Context, dataDir, repository, branch, folder string)
 		}
 	}
 	return names, nil
+}
+
+// SkillNamesEver gives each skill name that had a SKILL.md file in a commit of the history of origin/branch in the bare
+// clone of repository below dataDir, as the last Fetch got it, also a skill that a later commit removed. A skill is a
+// folder in the root, or a folder below repos/<repository name>. Each name is in the list one time.
+func SkillNamesEver(ctx context.Context, dataDir, repository, branch string) ([]string, error) {
+	files, err := run(git(ctx, dataDir, bareDir(dataDir, repository), "", "log", "--format=", "--name-only", "origin/"+branch,
+		"--", ":(glob)*/SKILL.md", ":(glob)repos/*/*/SKILL.md"))
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for file := range strings.SplitSeq(files, "\n") {
+		parts := strings.Split(file, "/")
+		switch {
+		case len(parts) == 2:
+			names = append(names, parts[0])
+		case len(parts) == 4 && parts[0] == "repos":
+			names = append(names, parts[2])
+		}
+	}
+	slices.Sort(names)
+	return slices.Compact(names), nil
 }
 
 // Export writes the paths below folder of origin/branch in the bare clone of repository below dataDir, as the last
