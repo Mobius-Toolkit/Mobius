@@ -4584,6 +4584,14 @@
             "type": "integer",
             "description": "FixRounds is the number of fix rounds of the task"
           },
+          "mergeRefusal": {
+            "type": "string",
+            "description": "MergeRefusal is the reason that GitHub gave for the refused merge when the task is in ready_for_review, or an empty string"
+          },
+          "merging": {
+            "type": "boolean",
+            "description": "Merging is true when the task is in ready_for_review and the Owner started its merge"
+          },
           "number": {
             "type": "integer",
             "description": "Number is the number of the task issue"
@@ -4667,7 +4675,9 @@
           "pullRequest",
           "pullRequestUrl",
           "fixRounds",
-          "reviewRounds"
+          "reviewRounds",
+          "merging",
+          "mergeRefusal"
         ],
         "description": "BoardTask is a task on the Tasks board."
       },
