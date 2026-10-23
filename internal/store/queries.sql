@@ -162,8 +162,13 @@ WHERE sessions.ended_at IS NULL ORDER BY sessions.id;
 -- name: ListBoardTasks :many
 SELECT tasks.repository, tasks.issue, tasks.workstream_repository, tasks.workstream, tasks.state, tasks.state_at,
        tasks.pull_request, tasks.fix_rounds, tasks.review_rounds,
-       i.title AS issue_title, i.html_url AS issue_url, w.title AS workstream_title
+       i.title AS issue_title, i.html_url AS issue_url, w.title AS workstream_title,
+       coalesce(m.merging, 0) AS merging, coalesce(m.merge_refusal, '') AS merge_refusal
 FROM tasks
+LEFT JOIN inbox_items m ON m.id = (
+  SELECT max(id) FROM inbox_items
+  WHERE kind = 'ready for review' AND repository = tasks.repository AND issue = tasks.issue AND pull_request = tasks.pull_request
+)
 JOIN copied_workstreams w ON w.repository = tasks.workstream_repository AND w.number = tasks.workstream
 JOIN copied_issues i
   ON i.repository = tasks.workstream_repository AND i.workstream = tasks.workstream AND i.number = tasks.issue
