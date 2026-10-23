@@ -336,9 +336,9 @@ func skillWithRoles(roles string) string {
 	return "---\nname: probe\ndescription: Probe.\nmetadata:\n  roles: " + roles + "\n---\nUse it.\n"
 }
 
-func implementerSkillsReply(t *testing.T, fake *testkit.FakeGitHub, script string) string {
+func implementerSkillsReply(t *testing.T, fake *testkit.FakeGitHub) string {
 	t.Helper()
-	server, _ := connectTask(t, fake, leadStarts, "[[prompts]]\nshell = \""+script+" && echo cents > plan.txt && git add -A && git commit -q -m 'Add plan model'\"\n", noChange)
+	server, _ := connectTask(t, fake, leadStarts, "[[prompts]]\nshell = \"ls .agents/skills && echo cents > plan.txt && git add -A && git commit -q -m 'Add plan model'\"\n", noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 	return reply(t, server, endedImplementers(t, server, 1)[0].ID)
 }
@@ -366,7 +366,7 @@ func TestALeadSkillGoesToTheLeadChat(t *testing.T) {
 func TestALeadSkillDoesNotGoToAnImplementer(t *testing.T) {
 	t.Parallel()
 
-	text := implementerSkillsReply(t, leadOnlyFake(t), "ls .agents/skills")
+	text := implementerSkillsReply(t, leadOnlyFake(t))
 
 	if !strings.Contains(text, "probe") || strings.Contains(text, "lead-only") {
 		t.Errorf("reply = %q", text)
@@ -384,7 +384,7 @@ func pairFake(t *testing.T) *testkit.FakeGitHub {
 func TestASkillWithTwoRolesGoesToAnImplementer(t *testing.T) {
 	t.Parallel()
 
-	if text := implementerSkillsReply(t, pairFake(t), "ls .agents/skills"); !strings.Contains(text, "pair") {
+	if text := implementerSkillsReply(t, pairFake(t)); !strings.Contains(text, "pair") {
 		t.Errorf("reply = %q", text)
 	}
 }
@@ -428,7 +428,7 @@ func TestARepositorySkillThatTheRoleFilterKeepsReplacesTheGeneralSkill(t *testin
 func TestARepositorySkillThatTheRoleFilterRemovesAlsoHidesTheGeneralSkillOfTheSameName(t *testing.T) {
 	t.Parallel()
 
-	if text := implementerSkillsReply(t, sharedFake(t), "ls .agents/skills"); strings.Contains(text, "shared") {
+	if text := implementerSkillsReply(t, sharedFake(t)); strings.Contains(text, "shared") {
 		t.Errorf("reply = %q", text)
 	}
 }
@@ -456,7 +456,7 @@ func TestASkillWithNoFrontmatterOrInvalidFrontmatterGoesToEachRole(t *testing.T)
 	fake.CommitFile(skills, "plain/SKILL.md", "Plain text.", "Add plain")
 	fake.CommitFile(skills, "broken/SKILL.md", "---\nmetadata: [unclosed\n---\nBroken.\n", "Add broken")
 
-	text := implementerSkillsReply(t, fake, "ls .agents/skills")
+	text := implementerSkillsReply(t, fake)
 
 	if !strings.Contains(text, "plain") || !strings.Contains(text, "broken") {
 		t.Errorf("reply = %q", text)
