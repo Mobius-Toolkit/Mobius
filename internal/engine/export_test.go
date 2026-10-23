@@ -29,6 +29,13 @@ func (e *Engine) SetClock(clock func() time.Time) {
 	e.clock.Store(&clock)
 }
 
+// PollEnded tells if a poll ended. A poll replaces the work at its end.
+func (e *Engine) PollEnded() bool {
+	e.workers.mu.Lock()
+	defer e.workers.mu.Unlock()
+	return e.workers.work != nil
+}
+
 // MergingPullRequests gives mergingPullRequests of the repository name.
 func (e *Engine) MergingPullRequests(ctx context.Context, name string) ([]int64, error) {
 	repository, err := e.repository(name)
