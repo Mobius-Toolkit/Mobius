@@ -197,3 +197,31 @@ func TestDoneInboxItemRefusesAnUnknownItemAndAnItemThatIsNotATodo(t *testing.T) 
 		t.Errorf("ready for review item: status = %d: %s", status, body)
 	}
 }
+
+func TestAnOptionalTodoOfANeedThatTheReviewerLaterReportsAsMandatoryContinuesTheMergeWhenItIsDone(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := approvableWith(t, fake, "off", true, optionalNeed)
+	sendChat(t, server, leadChat, "Approve #41")
+	todo := waitForItem(t, server, "todo")
+	if _, err := server.DB.Exec("UPDATE deployment_needs SET mandatory = 1"); err != nil {
+		t.Fatal(err)
+	}
+	setWorkstreamAutopilot(t, server, "merge")
+	testkit.WaitFor(t, func() bool {
+		items := itemsOf(t, server, "ready for review")
+		return len(items) == 1 && items[0].MergeRefusal == "Mobius merges after the mandatory todos are done."
+	})
+
+	if status, body := doneTodo(t, server, todo.ID, `{"note":""}`); status != http.StatusOK {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+
+	testkit.WaitFor(t, func() bool {
+		items := itemsOf(t, server, "ready for review")
+		return len(items) == 1 && items[0].Merging && items[0].MergeRefusal == ""
+	})
+	if approvals(fake) != 1 || autoMerge(t, server) != 1 {
+		t.Errorf("approvals = %d", approvals(fake))
+	}
+}

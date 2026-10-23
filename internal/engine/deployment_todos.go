@@ -104,7 +104,7 @@ func (e *Engine) clearBlockReason(ctx context.Context, task store.Task) error {
 }
 
 // DoneInboxItem stores the note and the time on the todo of the open todo Inbox item id, and dismisses the item. It
-// gives the changed item. When the todo is mandatory and no mandatory todo of its task is open, the task gets the
+// gives the changed item. When the todo is for a mandatory need of the current list and no mandatory todo of its task is open, the task gets the
 // automatic merge as after a change of the Autopilot level to a merge level. It returns a refusal when the item is not
 // an open todo.
 func (e *Engine) DoneInboxItem(ctx context.Context, id int64, note string) (store.InboxItem, error) {
@@ -129,16 +129,14 @@ func (e *Engine) DoneInboxItem(ctx context.Context, id int64, note string) (stor
 	if err := e.Dismiss(ctx, id); err != nil {
 		return store.InboxItem{}, err
 	}
-	if todo.Mandatory == 1 {
-		if err := e.mergeAfterTodos(ctx, item, todo); err != nil {
-			log.Printf("merge after the todo %d of %s: %v", todo.ID, item.Repository, err)
-		}
+	if err := e.mergeAfterTodos(ctx, item, todo); err != nil {
+		log.Printf("merge after the todo %d of %s: %v", todo.ID, item.Repository, err)
 	}
 	return e.queries.GetInboxItem(ctx, id)
 }
 
-// mergeAfterTodos gives the task of the done todo the automatic merge, when its Workstream has a merge level and no
-// mandatory todo of the task is open.
+// mergeAfterTodos gives the task of the done todo the automatic merge, when the todo is for a mandatory need of the
+// current list, its Workstream has a merge level and no mandatory todo of the task is open.
 func (e *Engine) mergeAfterTodos(ctx context.Context, item store.InboxItem, todo store.DeploymentTodo) error {
 	task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: item.Repository, Issue: item.Issue})
 	if errors.Is(err, sql.ErrNoRows) || err == nil && task.ID != todo.Task {
@@ -146,6 +144,15 @@ func (e *Engine) mergeAfterTodos(ctx context.Context, item store.InboxItem, todo
 	}
 	if err != nil {
 		return err
+	}
+	needs, err := e.queries.ListDeploymentNeeds(ctx, task.ID)
+	if err != nil {
+		return err
+	}
+	if !slices.ContainsFunc(needs, func(need store.DeploymentNeed) bool {
+		return need.Mandatory == 1 && need.Kind == todo.Kind && need.Name == todo.Name
+	}) {
+		return nil
 	}
 	level, err := e.workstreamLevel(ctx, task.WorkstreamRepository, task.Workstream)
 	if err != nil || !mergesPullRequests(level) {
