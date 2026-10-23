@@ -116,6 +116,12 @@ test("the Owner edits the memory file in a dialog, sees the 200-line error, and 
   await expect(dialog).toBeHidden();
 });
 
+// Radix listens for a click outside only after the dialog mounts, so wait for the open animation first.
+const clickOutside = async (page: Page, dialog: Locator) => {
+  await dialog.evaluate((element) => Promise.all(element.getAnimations().map((a) => a.finished)));
+  await page.mouse.click(2, 2);
+};
+
 // Closes the discard dialog without a discard, with the same kind of action that closed the edit dialog.
 const closeDialogOf = async (close: string, page: Page, discard: Locator) => {
   const keep = discard.getByRole("button", { name: "Keep editing" });
@@ -125,7 +131,7 @@ const closeDialogOf = async (close: string, page: Page, discard: Locator) => {
   } else if (close === "Escape") {
     await page.keyboard.press("Escape");
   } else {
-    await page.mouse.click(2, 2);
+    await clickOutside(page, discard);
   }
 };
 
@@ -146,7 +152,7 @@ for (const close of ["Cancel", "Escape", "Outside"]) {
       } else if (close === "Escape") {
         await page.keyboard.press("Escape");
       } else {
-        await page.mouse.click(2, 2);
+        await clickOutside(page, page.getByRole("dialog").last());
       }
     };
     let saves = 0;

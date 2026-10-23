@@ -1,4 +1,4 @@
-import { Fragment, use, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, use, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   listMemoryVersions,
   revertMemory,
@@ -110,13 +110,23 @@ function EditDialog({
   onClose: () => void;
 }) {
   const [discarding, setDiscarding] = useState(false);
+  const dismissing = useRef(false);
   useKeyboardHeight();
+
+  // One Escape key or one outside click reaches the discard dialog first and then, after React renders, this dialog.
+  const closeDiscarding = () => {
+    dismissing.current = true;
+    setDiscarding(false);
+    setTimeout(() => {
+      dismissing.current = false;
+    });
+  };
 
   return (
     <Dialog
       open
       onOpenChange={(open) => {
-        if (open || discarding) {
+        if (open || discarding || dismissing.current) {
           return;
         }
         if (draft === initial) {
@@ -157,7 +167,7 @@ function EditDialog({
             Save
           </Button>
         </DialogFooter>
-        <Dialog open={discarding} onOpenChange={setDiscarding}>
+        <Dialog open={discarding} onOpenChange={closeDiscarding}>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Discard your changes?</DialogTitle>
