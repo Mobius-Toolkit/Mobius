@@ -55,6 +55,12 @@ const panel = (page: Page) => page.getByRole("dialog");
 const note = (page: Page) => panel(page).getByRole("textbox", { name: "Note for the Coordinator" });
 const approve = (page: Page) => panel(page).getByRole("button", { name: "Approve" });
 const reject = (page: Page) => panel(page).getByRole("button", { name: "Reject" });
+const approved = (page: Page) =>
+  page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      /\/api\/actions\/\d+\/approve$/.test(response.url()),
+  );
 const waiting = (page: Page, count: number) =>
   page.getByRole("heading", { name: `Waits for you (${count})` });
 const option = (group: Locator, title: string) => group.getByRole("button", { name: title });
@@ -200,6 +206,7 @@ test("a decision with an empty note goes out one time and hides the row while th
   await ask(page, keepPrices);
   await expect(waiting(page, 1)).toBeVisible(agentTimeout);
   await answer(page, leadTitle);
+  const answered = approved(page);
   await approve(page).click();
   await expect(panel(page)).toBeHidden();
   await expect(row(page, leadTitle)).toBeHidden();
@@ -207,6 +214,7 @@ test("a decision with an empty note goes out one time and hides the row while th
   gate.open?.();
 
   await expect(waiting(page, 1)).toBeHidden();
+  expect((await answered).ok()).toBe(true);
   expect(bodies).toEqual([{ message: "" }]);
 });
 
@@ -255,10 +263,12 @@ test("the Inbox approves an item in the panel", async ({ page }) => {
   await expect(row(page, leadTitle).getByRole("button")).toHaveText(["Answer", "Chat"]);
 
   await answer(page, leadTitle);
+  const answered = approved(page);
   await approve(page).click();
 
   await expect(panel(page)).toBeHidden();
   await expect(row(page, leadTitle)).toBeHidden();
+  expect((await answered).ok()).toBe(true);
 });
 
 test("the Inbox item of the Triager links to its issue", async ({ page }) => {
