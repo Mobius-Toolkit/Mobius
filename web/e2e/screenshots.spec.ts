@@ -340,6 +340,24 @@ test("screenshots", async ({ page }) => {
     },
     () => page.keyboard.press("Escape"),
   );
+  // The route gives owner/shop#12 the level "Start and merge". The route ends after the screenshot.
+  const triggerRoute = "**/api/workstreams";
+  await page.route(triggerRoute, async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as {
+      data: { repository: string; number: number; autopilot: string }[];
+    };
+    for (const workstream of body.data) {
+      if (workstream.repository === "owner/shop" && workstream.number === 12) {
+        workstream.autopilot = "start_and_merge";
+      }
+    }
+    await route.fulfill({ response, json: body });
+  });
+  await screenshot(page, "autopilot-trigger", "/workstreams/owner/shop/12", () =>
+    page.getByRole("button", { name: "Autopilot: Start and merge" }).filter({ visible: true }),
+  );
+  await page.unroute(triggerRoute);
   await screenshot(
     page,
     "chat-listening",
