@@ -203,7 +203,8 @@ func markBodies(args []string, stdin io.Reader, ghMark GHMark) ([]string, io.Rea
 		return args, stdin, nil
 	}
 	mark := ghMark.Here
-	if repository := parseGHArgs(args[2:]).repository(); repository != "" && !strings.EqualFold(repository, ghMark.Repository) {
+	parsed := parseGHArgs(args[2:])
+	if repository := parsed.repository(); repository != "" && !strings.EqualFold(repository, ghMark.Repository) {
 		mark = ghMark.Elsewhere
 	}
 	marked := slices.Clone(args)
@@ -227,7 +228,8 @@ func markBodies(args []string, stdin io.Reader, ghMark GHMark) ([]string, io.Rea
 		case bodyFlag:
 			marked[i] = prefix + WithMark(value, mark)
 		case fileFlag:
-			text, _, err := readBody(value, stdin)
+			file, _ := parsed.flag(fileFlag)
+			text, _, err := readBody(file, stdin)
 			if err != nil {
 				return nil, nil, err
 			}
