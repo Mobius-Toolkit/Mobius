@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	gh "github.com/google/go-github/v92/github"
 )
@@ -151,6 +152,39 @@ func (r Repository) RerunFailedJobs(ctx context.Context, id int64) error {
 func (r Repository) CommitsBehind(ctx context.Context, base, head string) (int, error) {
 	comparison, _, err := r.Client.Repositories.CompareCommits(ctx, r.Owner(), r.Name(), base, head, &gh.ListOptions{PerPage: 1})
 	return comparison.GetBehindBy(), err
+}
+
+// CommitsSince gives the newest commits of the branch with a commit date at or after since. It reads one page, because
+// the commits of a branch are many.
+func (r Repository) CommitsSince(ctx context.Context, branch string, since time.Time) ([]*gh.RepositoryCommit, error) {
+	commits, _, err := r.Client.Repositories.ListCommits(ctx, r.Owner(), r.Name(), &gh.CommitsListOptions{SHA: branch, Since: since, ListOptions: gh.ListOptions{PerPage: 100}})
+	return commits, err
+}
+
+// CommitFiles gives the names of the files that the commit sha changes. It reads one page.
+func (r Repository) CommitFiles(ctx context.Context, sha string) ([]string, error) {
+	commit, _, err := r.Client.Repositories.GetCommit(ctx, r.Owner(), r.Name(), sha, &gh.ListOptions{PerPage: 300})
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(commit.Files))
+	for _, file := range commit.Files {
+		names = append(names, file.GetFilename())
+	}
+	return names, nil
+}
+
+// PullRequestFiles gives the names of the files that the pull request number changes.
+func (r Repository) PullRequestFiles(ctx context.Context, number int64) ([]string, error) {
+	files, err := all(r.Client.PullRequests.ListFilesIter(ctx, r.Owner(), r.Name(), int(number), &gh.ListOptions{PerPage: 100}))
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(files))
+	for _, file := range files {
+		names = append(names, file.GetFilename())
+	}
+	return names, nil
 }
 
 // RunAttemptJobs gives the jobs of the attempt of the workflow run id. It reads one page, because a run has few jobs.

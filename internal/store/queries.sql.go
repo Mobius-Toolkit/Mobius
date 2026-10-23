@@ -4959,6 +4959,59 @@ func (q *Queries) ListMemoryVersionsPage(ctx context.Context, arg ListMemoryVers
 	return items, nil
 }
 
+const listMergingReadyItems = `-- name: ListMergingReadyItems :many
+SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal, workstream_repository, questions FROM inbox_items
+WHERE inbox_items.repository = ? AND inbox_items.kind = 'ready for review' AND inbox_items.merging != 0 AND EXISTS (
+  SELECT 1 FROM tasks
+  WHERE tasks.repository = inbox_items.repository AND tasks.issue = inbox_items.issue
+    AND tasks.pull_request = inbox_items.pull_request AND tasks.state = 'ready_for_review'
+)
+ORDER BY id
+`
+
+func (q *Queries) ListMergingReadyItems(ctx context.Context, repository string) ([]InboxItem, error) {
+	rows, err := q.db.QueryContext(ctx, listMergingReadyItems, repository)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []InboxItem
+	for rows.Next() {
+		var i InboxItem
+		if err := rows.Scan(
+			&i.ID,
+			&i.Kind,
+			&i.Repository,
+			&i.Workstream,
+			&i.Issue,
+			&i.Text,
+			&i.Link,
+			&i.Time,
+			&i.DismissedAt,
+			&i.Organization,
+			&i.Title,
+			&i.Reason,
+			&i.PullRequest,
+			&i.ReportLink,
+			&i.ChatMessage,
+			&i.Merging,
+			&i.MergeRefusal,
+			&i.WorkstreamRepository,
+			&i.Questions,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOpenActionRequests = `-- name: ListOpenActionRequests :many
 SELECT inbox_items.id, pending_actions.tool, inbox_items.title, inbox_items.time
 FROM pending_actions
