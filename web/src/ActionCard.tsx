@@ -1,7 +1,9 @@
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ChatMessage, PendingAction } from "@/api/api.gen";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { briefMarkdown } from "@/lib/briefDiff";
 import { diffLines } from "@/lib/diff";
 import { clock } from "@/lib/time";
@@ -42,11 +44,19 @@ function BriefView({
   return <Markdown text={marked} overrides={diffMarks} />;
 }
 
-function RemovedToggle({ hidden, toggle }: { hidden: boolean; toggle: () => void }) {
+function RemovedSwitch({
+  checked,
+  onCheckedChange,
+}: {
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+}) {
+  const id = useId();
   return (
-    <Button variant="ghost" size="sm" className="justify-self-start" onClick={toggle}>
-      {hidden ? "Show removed text" : "Hide removed text"}
-    </Button>
+    <div className="flex items-center gap-2">
+      <Switch id={id} checked={checked} onCheckedChange={onCheckedChange} />
+      <Label htmlFor={id}>Show removed text</Label>
+    </div>
   );
 }
 
@@ -60,13 +70,13 @@ export function FullArgument({
   value: string;
   before?: string;
 }) {
-  const [hideRemoved, setHideRemoved] = useState(false);
+  const [showRemoved, setShowRemoved] = useState(false);
   if (before !== undefined) {
     return (
       <div className="grid min-w-0 gap-0.5">
         <span className="text-xs text-muted-foreground">{name}</span>
-        <BriefView before={before} after={value} hideRemoved={hideRemoved} />
-        <RemovedToggle hidden={hideRemoved} toggle={() => setHideRemoved(!hideRemoved)} />
+        <BriefView before={before} after={value} hideRemoved={!showRemoved} />
+        <RemovedSwitch checked={showRemoved} onCheckedChange={setShowRemoved} />
       </div>
     );
   }
@@ -93,7 +103,7 @@ function Argument({
 }) {
   const box = useRef<HTMLDivElement>(null);
   const [long, setLong] = useState(false);
-  const [hideRemoved, setHideRemoved] = useState(false);
+  const [showRemoved, setShowRemoved] = useState(false);
   useLayoutEffect(() => {
     const content = box.current?.firstElementChild;
     if (!content) {
@@ -115,7 +125,7 @@ function Argument({
           {before === undefined ? (
             <Markdown text={value} />
           ) : (
-            <BriefView before={before} after={value} hideRemoved={hideRemoved} />
+            <BriefView before={before} after={value} hideRemoved={!showRemoved} />
           )}
         </div>
       </div>
@@ -127,7 +137,7 @@ function Argument({
             </Button>
           )}
           {before !== undefined && (
-            <RemovedToggle hidden={hideRemoved} toggle={() => setHideRemoved(!hideRemoved)} />
+            <RemovedSwitch checked={showRemoved} onCheckedChange={setShowRemoved} />
           )}
         </div>
       )}
