@@ -16,6 +16,13 @@ export const dimensions = [
   { key: "repository", title: "Repository", options: "repositories" },
 ] as const;
 
+export const skillDimensions = [
+  { key: "harness", title: "Harness", options: "harnesses" },
+  { key: "role", title: "Role", options: "roles" },
+  { key: "repository", title: "Repository", options: "repositories" },
+  { key: "source", title: "Source", options: "sources" },
+] as const;
+
 export const groupOptions = [
   { key: "harness", title: "Harness" },
   { key: "model", title: "Model" },
@@ -26,19 +33,27 @@ export const groupOptions = [
   { key: "repository", title: "Repository" },
 ] as const;
 
+export const skillGroups = [
+  { key: "harness", title: "Harness" },
+  { key: "role", title: "Role" },
+  { key: "repository", title: "Repository" },
+  { key: "source", title: "Source" },
+] as const;
+
 export type Period = (typeof periods)[number]["value"];
 export type Dimension = (typeof dimensions)[number]["key"];
-export type Group = (typeof groupOptions)[number]["key"];
+export type Group = (typeof groupOptions)[number]["key"] | (typeof skillGroups)[number]["key"];
+export type SkillDimension = (typeof skillDimensions)[number]["key"];
 
 // custom takes from and to as "YYYY-MM-DD" in the time zone of the browser. Both days are in the period.
 export type UsageSearch = {
-  tab?: "tokens" | "times";
+  tab?: "tokens" | "times" | "skills";
   period?: Period;
   from?: string;
   to?: string;
   group?: Group;
   stat?: string;
-} & { [key in Dimension]?: string[] };
+} & { [key in Dimension | SkillDimension]?: string[] };
 
 // The color of a group follows its position, and the position follows the sort order of the API.
 export const palette = [
@@ -74,11 +89,14 @@ export function validateUsageSearch(search: Record<string, unknown>): UsageSearc
   const to = day(search.to);
   const period = periods.find((item) => item.value === search.period)?.value;
   return {
-    tab: search.tab === "tokens" || search.tab === "times" ? search.tab : undefined,
+    tab:
+      search.tab === "tokens" || search.tab === "times" || search.tab === "skills"
+        ? search.tab
+        : undefined,
     period: period === "custom" && !(from && to) ? undefined : period,
     from,
     to,
-    group: groupOptions.find((item) => item.key === search.group)?.key,
+    group: [...groupOptions, ...skillGroups].find((item) => item.key === search.group)?.key,
     stat:
       typeof search.stat === "string" && /^(step|state):.+/.test(search.stat)
         ? search.stat
@@ -89,6 +107,7 @@ export function validateUsageSearch(search: Record<string, unknown>): UsageSearc
     effort: strings(search.effort),
     role: strings(search.role),
     repository: strings(search.repository),
+    source: strings(search.source),
   };
 }
 

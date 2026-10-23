@@ -1414,9 +1414,33 @@ test("screenshots", async ({ page }) => {
   await screenshot(page, "usage-times-chart", timesPath, timesReady, async () => {
     await main.locator(".recharts-wrapper").scrollIntoViewIfNeeded();
   });
+  const skillsFrame = (device: string) => [
+    ...frame(device, release),
+    main.getByRole("tab", { name: "Skills", selected: true }),
+  ];
+  await screenshot(page, "usage-skills", "/usage?tab=skills", (device) => [
+    ...skillsFrame(device),
+    main.getByRole("row", { name: /^mobius-local-state Mobius 5 4 4$/ }),
+    main.getByRole("row", { name: /^write-issue Mobius 0 4 0$/ }),
+    main.getByRole("row", { name: /^commit Harness 3 — 2$/ }),
+    main.getByRole("row", { name: /^frontend-design Harness 2 — 2$/ }),
+  ]);
+  await screenshot(page, "usage-skills-role", "/usage?tab=skills&group=role", (device) => [
+    ...skillsFrame(device),
+    main.getByRole("columnheader", { name: "Role" }),
+    main.getByRole("row", { name: /^mobius-local-state Mobius lead_chat 3 2 2$/ }),
+    main.getByRole("row", { name: /^mobius-local-state Mobius implementer 2 2 2$/ }),
+    main.getByRole("row", { name: /^write-issue Mobius lead_chat 0 2 0$/ }),
+    main.getByRole("row", { name: /^write-issue Mobius implementer 0 2 0$/ }),
+  ]);
   await page.setViewportSize(viewports.phone);
   await page.goto("/usage?group=model");
   await expect(main.getByRole("row", { name: /swe-1\.5/ })).toBeVisible();
+  expect(await page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")).toBe(
+    true,
+  );
+  await page.goto("/usage?tab=skills&group=role");
+  await expect(main.getByRole("row", { name: /^write-issue Mobius lead_chat/ })).toBeVisible();
   expect(await page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")).toBe(
     true,
   );
