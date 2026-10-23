@@ -111,7 +111,7 @@ func TestAReviewerThatFindsNothingTakesTheTaskToChecksAndThenToApproval(t *testi
 		t.Errorf("end reason = %s", session.EndReason.String)
 	}
 	prompts := promptTexts(t, server, session.ID)
-	if len(prompts) != 1 {
+	if len(prompts) != 2 || prompts[1] != needsRequest {
 		t.Fatalf("prompts = %q", prompts)
 	}
 	inOrder(t, prompts[0],
@@ -227,7 +227,7 @@ func TestAFindingAfterMaxFixRoundsStopsTheTaskUntilACommentOfATrustedUser(t *tes
 
 	waitForLeadPrompt(t, server, " stop of #41 \"Add plan model\": the pull request has open items after 2 review rounds. Mobius set the Mobius check to failure and added mobius:needs-human.")
 	reviewers := endedReviewers(t, server, 2)
-	if text := reply(t, server, reviewers[0].ID); text != "Posted the review." {
+	if text := reply(t, server, reviewers[0].ID); text != "Posted the review.Stored 0 deployment needs." {
 		t.Errorf("reply = %s", text)
 	}
 	sha, first := head(t, fake, "mobius/41"), head(t, fake, "mobius/41~1")
@@ -303,7 +303,7 @@ func TestAQueuedReviewerGetsTheEarlierThreadsOfTrustedAuthors(t *testing.T) {
 	endedReviewers(t, server, 2)
 	waitForState(t, server, 43, "approval")
 	prompts := promptTexts(t, server, queued.ID)
-	if len(prompts) != 1 {
+	if len(prompts) != 2 {
 		t.Fatalf("prompts = %q", prompts)
 	}
 	for _, part := range []string{"# Issue\n\n#41 Add plan model", "# Review threads\n\nThread " + itoa(thread) + ", src/plan.rs line 12:\n\n@owner, ", "Use cents."} {
@@ -627,5 +627,136 @@ func TestAReviewWithAFindingAndAFollowUpStartsAFixRoundWithOnlyTheFinding(t *tes
 	_, items, _ := strings.Cut(prompts[0], "# Open items")
 	if !strings.Contains(items, "Thread 2, plan.txt line 1:") || strings.Contains(items, "Name the unit.") {
 		t.Errorf("open items = %q", items)
+	}
+}
+
+const (
+	needsRequest = "Call `report_deployment_needs` one time with the deployment needs of the full diff. Give an empty list when the diff adds no need."
+	// twoNeeds is a Reviewer that reports one mandatory env var and one optional config value, with no other call.
+	twoNeeds = "[[prompts]]\nwhen = \"You are the Reviewer\"\ncall = { tool = \"report_deployment_needs\", arguments = { needs = [" +
+		"{ kind = \"env_var\", name = \"PLAN_API_KEY\", path = \"plan.txt\", line = 1, reason = \"The code reads it at start.\", mandatory = true }, " +
+		"{ kind = \"config\", name = \"plan.currency\", path = \"plan.txt\", line = 2, reason = \"The code has a default.\", mandatory = false }] } }\n\n"
+	// emptyNeedsAfterAsk answers the second prompt of a Reviewer with an empty list.
+	emptyNeedsAfterAsk = "[[prompts]]\nwhen = \"Call `report_deployment_needs` one time\"\ncall = { tool = \"report_deployment_needs\", arguments = { needs = [] } }\n\n"
+)
+
+// deploymentNeeds gives the stored deployment needs of the live task of #41.
+func deploymentNeeds(t *testing.T, server *testserver.Server) []store.DeploymentNeed {
+	t.Helper()
+	needs, err := server.Engine.DeploymentNeeds(t.Context(), liveTask(t, server, 41).ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return needs
+}
+
+func TestTheReviewerStoresTheDeploymentNeedsOfTheTaskWithTheReviewedHead(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, twoNeeds+leadStarts, commits, noChange)
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	waitForLeadPrompt(t, server, " ready for Lead approval of #41 \"Add plan model\"")
+	sha := head(t, fake, "mobius/41")
+	task := liveTask(t, server, 41)
+	want := []store.DeploymentNeed{
+		{Task: task.ID, Head: sha, Kind: "env_var", Name: "PLAN_API_KEY", Path: "plan.txt", Line: 1, Reason: "The code reads it at start.", Mandatory: 1},
+		{Task: task.ID, Head: sha, Kind: "config", Name: "plan.currency", Path: "plan.txt", Line: 2, Reason: "The code has a default.", Mandatory: 0},
+	}
+	got := deploymentNeeds(t, server)
+	for i := range got {
+		got[i].ID = 0
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("needs = %+v", got)
+	}
+	session := endedReviewers(t, server, 1)[0]
+	if prompts := promptTexts(t, server, session.ID); len(prompts) != 1 {
+		t.Errorf("prompts = %q", prompts)
+	}
+	if text := reply(t, server, session.ID); !strings.Contains(text, "Stored 2 deployment needs.") {
+		t.Errorf("reply = %s", text)
+	}
+}
+
+func TestTheDeploymentNeedsOfASecondReviewReplaceTheEarlierNeeds(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	secondReview := "[[prompts]]\nwhen = \"Thread 2, plan.txt line 1:\"\ncall = { tool = \"report_deployment_needs\", arguments = { needs = [{ kind = \"secret\", name = \"PLAN_TOKEN\", path = \"plan.txt\", line = 3, reason = \"The plan service needs it.\", mandatory = true }] } }\n\n"
+	firstNeed := "[[prompts]]\nwhen = \"Call `report_deployment_needs` one time\"\ncall = { tool = \"report_deployment_needs\", arguments = { needs = [{ kind = \"manual_step\", name = \"Run the plan import\", path = \"plan.txt\", line = 1, reason = \"A person runs it once.\", mandatory = false }] } }\n\n"
+	server, _ := connectTask(t, fake, secondReview+firstNeed+finding+leadStarts, fixReplies+commits, noChange)
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	waitForLeadPrompt(t, server, " ready for Lead approval of #41 \"Add plan model\"")
+	sha, first := head(t, fake, "mobius/41"), head(t, fake, "mobius/41~1")
+	if sha == first {
+		t.Fatalf("head = %s", sha)
+	}
+	task := liveTask(t, server, 41)
+	want := []store.DeploymentNeed{{Task: task.ID, Head: sha, Kind: "secret", Name: "PLAN_TOKEN", Path: "plan.txt", Line: 3, Reason: "The plan service needs it.", Mandatory: 1}}
+	got := deploymentNeeds(t, server)
+	for i := range got {
+		got[i].ID = 0
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("needs = %+v", got)
+	}
+	reviewers := endedReviewers(t, server, 2)
+	if text := reply(t, server, reviewers[0].ID); !strings.Contains(text, "Stored 1 deployment needs.") {
+		t.Errorf("reply of the first Reviewer = %s", text)
+	}
+}
+
+func TestAReviewerThatCallsNoToolGetsOneMorePromptAndThenAnEmptyListContinuesTheReview(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, noFinding+emptyNeedsAfterAsk+leadStarts, commits, noChange)
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	waitForLeadPrompt(t, server, " ready for Lead approval of #41 \"Add plan model\"")
+	session := endedReviewers(t, server, 1)[0]
+	prompts := promptTexts(t, server, session.ID)
+	if len(prompts) != 2 || prompts[1] != needsRequest {
+		t.Fatalf("prompts = %q", prompts)
+	}
+	if needs := deploymentNeeds(t, server); len(needs) != 0 {
+		t.Errorf("needs = %+v", needs)
+	}
+	if state := taskState(t, server); state != "approval" {
+		t.Errorf("state = %s", state)
+	}
+}
+
+func TestAReviewerThatGivesNoValidDeploymentNeedsFailsTheRunAndStoresNothing(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	badKind := "[[prompts]]\nwhen = \"You are the Reviewer\"\ncall = { tool = \"report_deployment_needs\", arguments = { needs = [{ kind = \"password\", name = \"PLAN_KEY\", path = \"plan.txt\", line = 1, reason = \"The code reads it.\", mandatory = true }] } }\n\n"
+	badLine := "[[prompts]]\nwhen = \"Call `report_deployment_needs` one time\"\ncall = { tool = \"report_deployment_needs\", arguments = { needs = [{ kind = \"env_var\", name = \"PLAN_KEY\", path = \"plan.txt\", line = 0, reason = \"The code reads it.\", mandatory = true }] } }\n\n"
+	server, _ := connectTask(t, fake, badKind+badLine+leadStarts, commits, noChange)
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	failed := testkit.WaitForValue(t, func() (store.Session, bool) {
+		for _, session := range roleSessions(t, server, engine.ReviewerRole) {
+			if session.EndedAt.Valid {
+				return session, true
+			}
+		}
+		return store.Session{}, false
+	})
+	if failed.EndReason.String != "failed" {
+		t.Errorf("end reason = %s", failed.EndReason.String)
+	}
+	text := reply(t, server, failed.ID)
+	for _, want := range []string{"Need 1 (PLAN_KEY): kind must be one of env_var, config, secret, manual_step.", "Need 1 (PLAN_KEY): name, path and reason must not be empty, and line must be 1 or more."} {
+		if !strings.Contains(text, want) {
+			t.Errorf("reply = %s, want %q", text, want)
+		}
+	}
+	if needs := deploymentNeeds(t, server); len(needs) != 0 {
+		t.Errorf("needs = %+v", needs)
 	}
 }

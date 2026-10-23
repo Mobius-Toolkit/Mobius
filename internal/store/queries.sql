@@ -1171,3 +1171,12 @@ SELECT * FROM lead_writes WHERE repository = ? COLLATE NOCASE AND (issue = ? OR 
 
 -- name: SetLeadWriteItem :exec
 UPDATE lead_writes SET item = ? WHERE id = ? AND item IS NULL;
+
+-- name: DeleteDeploymentNeeds :exec
+DELETE FROM deployment_needs WHERE task = ?;
+
+-- name: AddDeploymentNeed :exec
+INSERT INTO deployment_needs (task, head, kind, name, path, line, reason, mandatory) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: ListDeploymentNeeds :many
+SELECT * FROM deployment_needs WHERE task = ? ORDER BY id;
