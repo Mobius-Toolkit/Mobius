@@ -1337,6 +1337,59 @@ test("screenshots", async ({ page }) => {
       await changedVersion.evaluate((el) => el.scrollIntoView({ block: "start" }));
     },
   );
+  const memoryDialog = page.getByRole("dialog", {
+    name: "Edit the memory of owner/shop",
+    includeHidden: true,
+  });
+  const memoryDiscard = page.getByRole("dialog", { name: "Discard your changes?" });
+  const openMemoryEdit = async () => {
+    await main.getByRole("button", { name: "Edit" }).click();
+    await expect(memoryDialog.getByLabel("Memory text")).toBeEditable();
+  };
+  const tooLong = async () => {
+    await openMemoryEdit();
+    await memoryDialog.getByLabel("Memory text").fill("Water the roses.\n".repeat(201));
+    await memoryDialog.getByRole("button", { name: "Save" }).click();
+    await expect(memoryDialog.getByText("the maximum is 200")).toBeVisible();
+  };
+  await screenshot(
+    page,
+    "memory-edit",
+    "/settings/memory/owner/shop",
+    (device) => [
+      ...frame(device, release),
+      memoryDialog.getByRole("button", { name: "Save" }),
+      memoryDialog.getByText("Run make fmt before each commit and each push.").first(),
+    ],
+    openMemoryEdit,
+  );
+  await screenshot(
+    page,
+    "memory-edit-error",
+    "/settings/memory/owner/shop",
+    (device) => [...frame(device, release), memoryDialog.getByText("the maximum is 200")],
+    tooLong,
+  );
+  await screenshot(
+    page,
+    "memory-edit-discard",
+    "/settings/memory/owner/shop",
+    (device) => [
+      ...frame(device, release),
+      memoryDiscard.getByRole("button", { name: "Keep editing" }),
+      memoryDiscard.getByRole("button", { name: "Discard" }),
+    ],
+    async () => {
+      await openMemoryEdit();
+      const field = memoryDialog.getByLabel("Memory text");
+      await field.fill(`${await field.inputValue()}Water the roses.\n`);
+      await memoryDialog.getByRole("button", { name: "Cancel" }).click();
+    },
+    async () => {
+      await memoryDiscard.getByRole("button", { name: "Discard" }).click();
+      await expect(memoryDialog).toBeHidden();
+    },
+  );
   // The legend text wraps again when the font loads. With the final legend height, the legend wrapper is below the
   // day labels by its padding. A negative gap means that the plot area still has an older, smaller legend height.
   const legendGap = `(() => {
