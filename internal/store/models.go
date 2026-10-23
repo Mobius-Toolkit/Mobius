@@ -94,6 +94,18 @@ type CommentWrite struct {
 	ReplyTo    sql.NullInt64
 }
 
+type DeploymentNeed struct {
+	ID        int64
+	Task      int64
+	Head      string
+	Kind      string
+	Name      string
+	Path      string
+	Line      int64
+	Reason    string
+	Mandatory int64
+}
+
 type Event struct {
 	ID           int64
 	Time         string
