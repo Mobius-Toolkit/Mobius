@@ -1584,6 +1584,7 @@ test("screenshots", async ({ page }) => {
   await expect(waits(1)).toBeVisible({ timeout: 30_000 });
   await fixActionTimes();
   const openBrief = async () => {
+    await showEnd("edit_brief")();
     await row(briefTitle).getByRole("button", { name: "Answer" }).click();
     await expect(addedText(panel)).toHaveCount(2);
   };
