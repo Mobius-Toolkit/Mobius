@@ -395,8 +395,11 @@ func rerunHead(t *testing.T, server *testserver.Server) string {
 func failedFirstAttempt(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHub) (workflow, check int64) {
 	t.Helper()
 	sha := checksHead(t, server, fake)
-	// A poll that sees the failed workflow run with no failed check run hands the task to a human, so the check run goes first.
+	// ciOf reads the check runs and then the workflow runs in two calls. A poll between the two adds of both runs can read
+	// only the workflow run, and onChecks then hands the task to a human. While only the check run exists, onChecks waits
+	// for the diagnosis. The workflow run is added after the diagnosis row exists.
 	check = fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
+	testkit.WaitFor(t, func() bool { return rowCount(t, server, "SELECT count(*) FROM ci_diagnoses") == 1 })
 	workflow = fake.AddWorkflowRun(shop, testkit.WorkflowRun{Name: "ci", HeadSHA: sha, WorkflowID: 5, Status: "completed", Conclusion: "failure"})
 	testkit.WaitFor(t, func() bool { return rerunHead(t, server) == sha })
 	return workflow, check
