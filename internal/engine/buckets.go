@@ -304,6 +304,9 @@ func (f *bucketFill) makeRoom(ctx context.Context, bucket int64, closed bool) er
 		slices.SortStableFunc(candidates, func(a, b *gh.Issue) int { return a.GetCreatedAt().Compare(b.GetCreatedAt().Time) })
 	}
 	for _, issue := range candidates {
+		if *f.moves >= maxBucketMoves {
+			return nil
+		}
 		err := f.add(ctx, bucket, issue.GetID())
 		if refusedByGitHub(err) {
 			log.Printf("move %s#%d below %s#%d: %v", f.repository.FullName, issue.GetNumber(), f.repository.FullName, bucket, err)
