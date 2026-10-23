@@ -406,7 +406,11 @@ func (e *Engine) submitReview(ctx context.Context, c caller, repository github.R
 			comments[i].Body += followUpMarker
 		}
 	}
-	if err := repository.SubmitReview(ctx, c.agent.spec.PullRequest, c.agent.head, input.Body, comments); err != nil {
+	body, err := e.withMark(ctx, c, repository.FullName, input.Body)
+	if err != nil {
+		return "", err
+	}
+	if err := repository.SubmitReview(ctx, c.agent.spec.PullRequest, c.agent.head, body, comments); err != nil {
 		return "", err
 	}
 	return "Posted the review.", nil
@@ -418,6 +422,7 @@ func (e *Engine) submitReview(ctx context.Context, c caller, repository github.R
 func followUpBody(thread github.ReviewThread, app string, trusted func(string) bool) (string, bool) {
 	first := thread.Comments[0]
 	body, found := strings.CutSuffix(first.Body, followUpMarker)
+	body = runner.WithoutMark(body)
 	replied := slices.ContainsFunc(thread.Comments[1:], func(comment github.ThreadComment) bool {
 		return trusted(comment.Author) && !strings.EqualFold(comment.Author, app)
 	})

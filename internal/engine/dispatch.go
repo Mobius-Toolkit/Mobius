@@ -13,6 +13,7 @@ import (
 	gh "github.com/google/go-github/v92/github"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
+	"github.com/Mobius-Toolkit/Mobius/internal/runner"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
@@ -656,6 +657,9 @@ func (e *Engine) ask(ctx context.Context, c caller, repository github.Repository
 	if err != nil {
 		return "", err
 	}
+	if comment, err = e.withMark(ctx, c, repository.FullName, comment); err != nil {
+		return "", err
+	}
 	var task store.Task
 	if repository.FullName != c.repository || input.N != c.workstream {
 		var err error
@@ -783,7 +787,7 @@ func (e *Engine) closeQuestion(ctx context.Context, repository github.Repository
 			newest = comment
 		}
 	}
-	if newest == nil || newest.GetBody() != text {
+	if newest == nil || runner.WithoutMark(newest.GetBody()) != runner.WithoutMark(text) {
 		if _, err := repository.AddComment(ctx, number, text); err != nil {
 			return err
 		}
@@ -840,7 +844,10 @@ func (e *Engine) closeQuestionTool(ctx context.Context, c caller, repository git
 	if !hasLabel(issue, questionLabel) {
 		return "", refuse("#%d has no open question.", input.N)
 	}
-	text := chatAnswerPrefix + "\n\n" + quote(input.Answer)
+	text, err := e.withMark(ctx, c, repository.FullName, chatAnswerPrefix+"\n\n"+quote(input.Answer))
+	if err != nil {
+		return "", err
+	}
 	if err := e.closeQuestion(ctx, repository, issue, task, text); err != nil {
 		return "", err
 	}

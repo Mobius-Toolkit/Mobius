@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -184,6 +185,58 @@ func ghWrites(args []string, stdin io.Reader) ([]mcp.GHWrite, io.Reader, error) 
 		}
 	}
 	return writes, stdin, nil
+}
+
+// markBodies gives args with the mark line at the end of each body that the gh call writes, and the stdin for the
+// real gh. A body file becomes "-", and the real gh reads the marked text from the stdin.
+func markBodies(args []string, stdin io.Reader, ghMark GHMark) ([]string, io.Reader, error) {
+	if len(args) < 2 {
+		return args, stdin, nil
+	}
+	var bodyFlag, fileFlag string
+	switch args[0] + " " + args[1] {
+	case "issue create", "issue comment", "pr comment", "issue edit":
+		bodyFlag, fileFlag = "body", "body-file"
+	case "issue close":
+		bodyFlag = "comment"
+	default:
+		return args, stdin, nil
+	}
+	mark := ghMark.Here
+	parsed := parseGHArgs(args[2:])
+	if repository := parsed.repository(); repository != "" && !strings.EqualFold(repository, ghMark.Repository) {
+		mark = ghMark.Elsewhere
+	}
+	marked := slices.Clone(args)
+	for i := 2; i < len(marked); i++ {
+		if !strings.HasPrefix(marked[i], "-") || marked[i] == "-" {
+			continue
+		}
+		name, value, inline := valueFlag(marked[i])
+		if name == "" {
+			continue
+		}
+		prefix := ""
+		if inline {
+			prefix = marked[i][:len(marked[i])-len(value)]
+		} else if i++; i == len(marked) {
+			break
+		} else {
+			value = marked[i]
+		}
+		switch name {
+		case bodyFlag:
+			marked[i] = prefix + WithMark(value, mark)
+		case fileFlag:
+			file, _ := parsed.flag(fileFlag)
+			text, _, err := readBody(file, stdin)
+			if err != nil {
+				return nil, nil, err
+			}
+			marked[i], stdin = prefix+"-", strings.NewReader(WithMark(text, mark))
+		}
+	}
+	return marked, stdin, nil
 }
 
 func withKind(target mcp.GHWrite, kind string, labels []string, text string) mcp.GHWrite {

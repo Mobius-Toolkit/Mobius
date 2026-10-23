@@ -125,6 +125,8 @@ type Agent struct {
 	// limited tells that a usage update of the turn of a prompt has the rate limit status "rejected" with no overage in
 	// use. The agent message chunks that follow are the raw text of the usage limit. It ends with the turn.
 	limited bool
+	// delivery is the id of the chat message of the turn that has no delivery time yet, or 0.
+	delivery int64
 	// author is the author of the chat messages that the reply text adds to the chat of the session, or "" when the
 	// reply text goes only to the Transcript.
 	author string
@@ -385,11 +387,23 @@ func (a *Agent) startHarness(ctx context.Context) error {
 	}
 	a.key = e.agents.MCP.Open(mcpCaller)
 	ghTokenURL := mcp.GHTokenURL(e.agents.Addr, a.key)
-	ghWritesURL := ""
+	ghWritesURL, ghMark := "", ""
 	if spec.Role == LeadRole {
 		ghWritesURL = mcp.GHWritesURL(e.agents.Addr, a.key)
+		lead := caller{role: LeadRole, repository: spec.Repository, workstream: spec.Workstream}
+		mark := runner.GHMark{Repository: spec.Repository}
+		var err error
+		if mark.Here, err = e.mark(ctx, lead, spec.Repository); err != nil {
+			return err
+		}
+		if mark.Elsewhere, err = e.mark(ctx, lead, ""); err != nil {
+			return err
+		}
+		if ghMark, err = mark.Encode(); err != nil {
+			return err
+		}
 	}
-	session, err := runner.Start(ctx, a.harness, spec.Dir, e.config.DataDir, e.agents.Path, mcp.URL(e.agents.Addr, a.key), ghTokenURL, ghWritesURL, a.update)
+	session, err := runner.Start(ctx, a.harness, spec.Dir, e.config.DataDir, e.agents.Path, mcp.URL(e.agents.Addr, a.key), ghTokenURL, ghWritesURL, ghMark, a.update)
 	if err != nil {
 		return err
 	}
@@ -518,6 +532,32 @@ func (a *Agent) stop(ctx context.Context) error {
 	}
 	a.mu.Unlock()
 	return a.cancel(ctx)
+}
+
+// setDelivery sets the message that gets its delivery time at the first work update of the next turn.
+func (a *Agent) setDelivery(id int64) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.delivery = id
+}
+
+// deliver gives the message of setDelivery its delivery time, unless it has the time already.
+func (a *Agent) deliver(ctx context.Context) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.deliverLocked(ctx)
+}
+
+// deliverLocked is deliver for a caller that holds a.mu.
+func (a *Agent) deliverLocked(ctx context.Context) error {
+	if a.delivery == 0 {
+		return nil
+	}
+	if err := a.engine.deliverMessage(ctx, a.delivery); err != nil {
+		return err
+	}
+	a.delivery = 0
+	return nil
 }
 
 // takeStop clears stopRequested.
@@ -656,6 +696,9 @@ func (a *Agent) record(params json.RawMessage, late bool) error {
 		field(notification, "update", "_meta", "_claude/rateLimit", "isUsingOverage") != true {
 		a.limited = true
 	}
+	if kind == "agent_message_chunk" && a.turn && a.harness == config.ClaudeCode && isLimitText(a.chunkText(kind)+content) {
+		a.limited = true
+	}
 	if isChunk && a.chunk != nil && stringField(a.chunk, "update", "sessionUpdate") == kind {
 		update := a.chunk["update"].(map[string]any)
 		update["content"].(map[string]any)["text"] = stringField(a.chunk, "update", "content", "text") + content
@@ -690,6 +733,19 @@ func (a *Agent) record(params json.RawMessage, late bool) error {
 	return a.addReply(ctx, kind, content)
 }
 
+// chunkText gives the text of the last Transcript row while that row is a chunk of kind, or "".
+func (a *Agent) chunkText(kind string) string {
+	if a.chunk == nil || stringField(a.chunk, "update", "sessionUpdate") != kind {
+		return ""
+	}
+	return stringField(a.chunk, "update", "content", "text")
+}
+
+// isLimitText tells if text is the raw text of a usage limit of Claude Code.
+func isLimitText(text string) bool {
+	return strings.HasPrefix(text, "You've hit your ") && strings.Contains(text, " limit")
+}
+
 // storedUpdate gives the JSON of the update for the Transcript. A tool_call_update keeps its output only in "content",
 // and an available_commands_update has no list of commands. It changes notification.
 func storedUpdate(params json.RawMessage, notification map[string]any, kind string) (string, error) {
@@ -720,7 +776,15 @@ func (a *Agent) addReply(ctx context.Context, kind, content string) error {
 		a.reply.Reset()
 	}
 	if kind != "agent_message_chunk" || a.limited {
+		if a.turn && !a.limited && (kind == "agent_thought_chunk" || kind == "tool_call") {
+			return a.deliverLocked(ctx)
+		}
 		return nil
+	}
+	if a.turn {
+		if err := a.deliverLocked(ctx); err != nil {
+			return err
+		}
 	}
 	a.reply.WriteString(content)
 	if a.author == "" {

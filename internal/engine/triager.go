@@ -312,6 +312,9 @@ func (e *Engine) runTriager(ctx context.Context, repository github.Repository, n
 	if err != nil || workstream != 0 {
 		return err
 	}
+	if text, err = e.withMark(ctx, caller{role: TriagerRole, repository: repository.FullName, issue: number}, repository.FullName, text); err != nil {
+		return err
+	}
 	return e.addOrKeepComment(ctx, repository, number, text)
 }
 

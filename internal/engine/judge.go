@@ -482,7 +482,11 @@ func (e *Engine) route(ctx context.Context, j judgeJob, verdicts []itemVerdicts)
 		return err
 	}
 	for _, reject := range routes.rejects {
-		if _, err := reply(ctx, repository, number, reject.item, reject.text); err != nil {
+		text, err := e.withMark(ctx, caller{role: JudgeRole, repository: j.task.Repository, issue: j.task.Issue}, repository.FullName, reject.text)
+		if err != nil {
+			return err
+		}
+		if _, err := reply(ctx, repository, number, reject.item, text); err != nil {
 			return err
 		}
 	}

@@ -670,3 +670,80 @@ func claudeCodePaused(t *testing.T, server *testserver.Server) bool {
 	}
 	return n > 0
 }
+
+// The first prompt of Claude Code sends the raw text of the usage limit with no usage update before it, and then hits
+// the usage limit. The same prompt again does the work.
+const claudeCodeLimitTextOnly = `
+[[prompts]]
+updates = ['''{"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "You've hit your session limit · resets 5:10pm (Europe/Warsaw)"}}''']
+error = { code = -32603, message = "Rate limited", data = { errorKind = "rate_limit" } }
+
+[[prompts]]
+reply = ["Noted."]
+`
+
+// The same as claudeCodeLimitWithRawText, and the same prompt again does the work.
+const claudeCodeLimitWithRawTextThenWork = claudeCodeLimitWithRawText + `
+[[prompts]]
+reply = ["Noted."]
+`
+
+// ownerMessageDelivered gives the delivery time of the first message of the Owner in the chat of the Workstream #12,
+// and false when the message has no delivery time.
+func ownerMessageDelivered(t *testing.T, server *testserver.Server) bool {
+	t.Helper()
+	var deliveredAt sql.NullString
+	if err := server.DB.QueryRow("SELECT delivered_at FROM chat_messages WHERE workstream = 12 AND author = 'Owner' ORDER BY id LIMIT 1").Scan(&deliveredAt); err != nil {
+		t.Fatal(err)
+	}
+	return deliveredAt.Valid
+}
+
+func TestAUsageLimitTurnShowsOnlyTheMobiusMessageAndDeliversTheOwnerMessageAfterThePause(t *testing.T) {
+	t.Parallel()
+	for name, script := range map[string]string{
+		"a chunk after the usage update": claudeCodeLimitWithRawTextThenWork,
+		"a chunk with no usage update":   claudeCodeLimitTextOnly,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			fake := testkit.NewFakeGitHub(t)
+			server, _ := connectWith(t, fake, script, keepSessionOpen)
+
+			sendChat(t, server, leadChat, "Plan the API")
+
+			testkit.WaitFor(t, func() bool { return len(chatTexts(t, server, "Mobius")) == 1 })
+			testkit.WaitFor(t, func() bool { return claudeCodePaused(t, server) })
+			if got := chatTexts(t, server, "Lead"); len(got) != 0 {
+				t.Errorf("Lead chat messages = %q", got)
+			}
+			if ownerMessageDelivered(t, server) {
+				t.Error("the Owner message has a delivery time while the turn waits for the end of the pause")
+			}
+			lead := chatSessions(t, server, leadChat, engine.LeadRole)[0].ID
+			if got := reply(t, server, lead); !strings.Contains(got, rawLimitText) {
+				t.Errorf("the Transcript reply = %q", got)
+			}
+
+			if err := server.Engine.Resume(t.Context(), "claude-code"); err != nil {
+				t.Fatal(err)
+			}
+
+			testkit.WaitFor(t, func() bool { return ownerMessageDelivered(t, server) })
+			testkit.WaitFor(t, func() bool { return reflect.DeepEqual(chatTexts(t, server, "Lead"), []string{"Noted."}) })
+			if got := chatTexts(t, server, "Mobius"); len(got) != 1 {
+				t.Errorf("Mobius chat messages = %q", got)
+			}
+		})
+	}
+}
+
+func TestATurnWithNoUsageLimitDeliversTheOwnerMessage(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, claudeCodeOverage, keepSessionOpen)
+
+	sendChat(t, server, leadChat, "Plan the API")
+
+	testkit.WaitFor(t, func() bool { return ownerMessageDelivered(t, server) })
+}

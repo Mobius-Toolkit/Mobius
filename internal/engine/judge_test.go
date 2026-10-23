@@ -106,7 +106,7 @@ func TestTheJudgeRoutesOneItemOfEachVerdict(t *testing.T) {
 		t.Fatalf("ids = %v", ids)
 	}
 
-	if rejected := replied(t, fake, reject); rejected.Comments[1] != (testkit.Comment{Author: app, Body: "The API needs this name."}) {
+	if rejected := replied(t, fake, reject); rejected.Comments[1] != (testkit.Comment{Author: app, Body: marked("The API needs this name.", "— Judge of #41")}) {
 		t.Errorf("thread = %+v", rejected)
 	}
 	resolved(t, fake, reject)
@@ -127,13 +127,13 @@ func TestTheJudgeRoutesOneItemOfEachVerdict(t *testing.T) {
 			t.Errorf("%q is not in %s", part, judge[0])
 		}
 	}
-	if followed := replied(t, fake, followUp); followed.Comments[1] != (testkit.Comment{Author: app, Body: "Follow-up: #99."}) {
+	if followed := replied(t, fake, followUp); followed.Comments[1] != (testkit.Comment{Author: app, Body: marked("Follow-up: #99.", leadMark)}) {
 		t.Errorf("thread = %+v", followed)
 	}
 	resolved(t, fake, followUp)
 	waitForLeadPrompt(t, server, " follow-up on pull request #42 of #41 \"Add plan model\", item 4:\n\n> Move the parser to its own crate.\n")
 	fixed := resolved(t, fake, fix)
-	want := testkit.Thread{Resolved: true, Comments: []testkit.Comment{{Author: "owner", Body: "Use price_cents."}, {Author: app, Body: "Fixed in " + head(t, fake, "mobius/41") + "."}}}
+	want := testkit.Thread{Resolved: true, Comments: []testkit.Comment{{Author: "owner", Body: "Use price_cents."}, {Author: app, Body: marked("Fixed in "+head(t, fake, "mobius/41")+".", "— Implementer of #41")}}}
 	if !reflect.DeepEqual(fixed, want) {
 		t.Errorf("thread = %+v", fixed)
 	}
@@ -210,7 +210,7 @@ func TestAnImplementerReplyWithAnAnswerAndNoCommitResolvesTheThread(t *testing.T
 
 	question := fake.AddReviewComment(shop, 42, 0, "owner", "Why cents?")
 
-	want := testkit.Thread{Resolved: true, Comments: []testkit.Comment{{Author: "owner", Body: "Why cents?"}, {Author: app, Body: "Cents avoid rounding."}}}
+	want := testkit.Thread{Resolved: true, Comments: []testkit.Comment{{Author: "owner", Body: "Why cents?"}, {Author: app, Body: marked("Cents avoid rounding.", "— Implementer of #41")}}}
 	if answered := resolved(t, fake, question); !reflect.DeepEqual(answered, want) {
 		t.Errorf("thread = %+v", answered)
 	}
@@ -248,7 +248,7 @@ func TestAnImplementerReplyToAConversationCommentResolvesNothing(t *testing.T) {
 	if question != 2 {
 		t.Fatalf("id = %d", question)
 	}
-	answer := testkit.Comment{Author: app, Body: "> Why cents?\n\nCents avoid rounding."}
+	answer := testkit.Comment{Author: app, Body: marked("> Why cents?\n\nCents avoid rounding.", "— Implementer of #41")}
 	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 42), answer) })
 	if fake.ReviewThread(shop, 42, question).Resolved {
 		t.Error("the comment is resolved")
@@ -273,7 +273,7 @@ func TestAnImplementerReplyWithNoCommitIsOnThePullRequestBeforeTheLocalCheckRuns
 
 	fake.AddComment(shop, 42, "owner", "Why cents?")
 
-	answer := testkit.Comment{Author: app, Body: "> Why cents?\n\nCents avoid rounding."}
+	answer := testkit.Comment{Author: app, Body: marked("> Why cents?\n\nCents avoid rounding.", "— Implementer of #41")}
 	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 42), answer) })
 	touch(t, release)
 }
@@ -294,7 +294,7 @@ func TestAnImplementerReplyWithACommitIsOnThePullRequestAfterThePush(t *testing.
 	}
 	touch(t, release)
 	fixed := resolved(t, fake, fix)
-	if want := (testkit.Comment{Author: app, Body: "Fixed in " + head(t, fake, "mobius/41") + "."}); fixed.Comments[1] != want {
+	if want := (testkit.Comment{Author: app, Body: marked("Fixed in "+head(t, fake, "mobius/41")+".", "— Implementer of #41")}); fixed.Comments[1] != want {
 		t.Errorf("thread = %+v", fixed)
 	}
 }

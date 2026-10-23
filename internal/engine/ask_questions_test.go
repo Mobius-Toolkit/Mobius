@@ -79,7 +79,7 @@ reply = ["Seen"]
 		"1. **Free**\n" +
 		"2. **Pro**: Paid.\n" +
 		"3. **Team**"
-	wantComments := []testkit.Comment{{Author: testkit.AppSlug + "[bot]", Body: body}}
+	wantComments := []testkit.Comment{{Author: testkit.AppSlug + "[bot]", Body: marked(body, leadMark)}}
 	if got := fake.Comments(shop, 12); !slices.Equal(got, wantComments) {
 		t.Errorf("comments = %q", got)
 	}
@@ -103,7 +103,7 @@ reply = ["Seen"]
 	if got := questionsOfItems(t, server); len(got) != 1 || got[0] == nil || len(got[0]) != 0 {
 		t.Errorf("questions = %#v", got)
 	}
-	want := []testkit.Comment{{Author: testkit.AppSlug + "[bot]", Body: "Cents or dollars?"}}
+	want := []testkit.Comment{{Author: testkit.AppSlug + "[bot]", Body: marked("Cents or dollars?", leadMark)}}
 	if got := fake.Comments(shop, 12); !slices.Equal(got, want) {
 		t.Errorf("comments = %v", got)
 	}

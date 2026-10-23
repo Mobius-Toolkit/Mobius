@@ -146,7 +146,7 @@ func TestAFixRoundRepliesWithThePushedFixCommitAndResolvesTheThread(t *testing.T
 		}
 		return comments[1].Body, true
 	})
-	fix := strings.TrimSuffix(strings.TrimPrefix(text, "Fixed in "), ".")
+	fix := strings.TrimSuffix(strings.TrimPrefix(text, "Fixed in "), ".\n\n— Implementer of #41")
 	if kind := testkit.Git(t, fake.Remote(shop), "cat-file", "-t", fix); kind != "commit" {
 		t.Errorf("%s is a %s", fix, kind)
 	}
@@ -155,7 +155,7 @@ func TestAFixRoundRepliesWithThePushedFixCommitAndResolvesTheThread(t *testing.T
 	if fix != sha {
 		t.Errorf("fix = %s, head = %s", fix, sha)
 	}
-	want := testkit.Thread{Resolved: true, Comments: []testkit.Comment{{Author: app, Body: "Store the unit."}, {Author: app, Body: "Fixed in " + sha + "."}}}
+	want := testkit.Thread{Resolved: true, Comments: []testkit.Comment{{Author: app, Body: "Store the unit."}, {Author: app, Body: marked("Fixed in "+sha+".", "— Implementer of #41")}}}
 	if thread := fake.ReviewThread(shop, 42, 2); !reflect.DeepEqual(thread, want) {
 		t.Errorf("thread = %+v", thread)
 	}
@@ -202,7 +202,7 @@ func TestAnImplementerAfterCannotDoInAFixRoundContinuesThePullRequest(t *testing
 	})
 	waitForLeadPrompt(t, server, " ready for Lead approval of #41 \"Add plan model\"")
 	sha := head(t, fake, "mobius/41")
-	want := testkit.Thread{Resolved: true, Comments: []testkit.Comment{{Author: app, Body: "Store the unit."}, {Author: app, Body: "Fixed in " + sha + "."}}}
+	want := testkit.Thread{Resolved: true, Comments: []testkit.Comment{{Author: app, Body: "Store the unit."}, {Author: app, Body: marked("Fixed in "+sha+".", "— Implementer of #41")}}}
 	if thread := fake.ReviewThread(shop, 42, 2); !reflect.DeepEqual(thread, want) {
 		t.Errorf("thread = %+v", thread)
 	}
@@ -231,7 +231,7 @@ func TestAFindingAfterMaxFixRoundsStopsTheTaskUntilACommentOfATrustedUser(t *tes
 		t.Errorf("reply = %s", text)
 	}
 	sha, first := head(t, fake, "mobius/41"), head(t, fake, "mobius/41~1")
-	review := testkit.SubmittedReview{CommitID: first, Body: "One finding.", Event: "COMMENT", Comments: []testkit.InlineComment{{Path: "plan.txt", Line: 1, Body: "Store the unit."}}}
+	review := testkit.SubmittedReview{CommitID: first, Body: marked("One finding.", "— Reviewer of #41"), Event: "COMMENT", Comments: []testkit.InlineComment{{Path: "plan.txt", Line: 1, Body: "Store the unit."}}}
 	second := review
 	second.CommitID = sha
 	if reviews := fake.SubmittedReviews(shop, 42); !reflect.DeepEqual(reviews, []testkit.SubmittedReview{review, second}) {
@@ -584,7 +584,7 @@ func TestAReviewWithOnlyFollowUpsResolvesTheirThreadsSendsThemToTheLeadAndStarts
 	waitForLeadPrompt(t, server, " follow-up on pull request #42 of #41 \"Add plan model\", item 2, plan.txt line 1:\n\n> Name the unit.")
 	waitForLeadPrompt(t, server, " ready for Lead approval of #41 \"Add plan model\"")
 	sha := head(t, fake, "mobius/41")
-	review := testkit.SubmittedReview{CommitID: sha, Body: "One follow-up.", Event: "COMMENT", Comments: []testkit.InlineComment{{Path: "plan.txt", Line: 1, Body: "Name the unit.\n\n<!-- mobius:follow-up -->"}}}
+	review := testkit.SubmittedReview{CommitID: sha, Body: marked("One follow-up.", "— Reviewer of #41"), Event: "COMMENT", Comments: []testkit.InlineComment{{Path: "plan.txt", Line: 1, Body: "Name the unit.\n\n<!-- mobius:follow-up -->"}}}
 	if reviews := fake.SubmittedReviews(shop, 42); !reflect.DeepEqual(reviews, []testkit.SubmittedReview{review}) {
 		t.Errorf("reviews = %+v", reviews)
 	}

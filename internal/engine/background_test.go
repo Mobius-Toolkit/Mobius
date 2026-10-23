@@ -104,14 +104,7 @@ func TestAStopWhileAnAutonomousTurnRunsEndsTheWaitAndSendsNoPrompt(t *testing.T)
 		return lineID(t, server, session.ID, "update", "The task ended.") != 0
 	})
 	sendChat(t, server, leadChat, "Also add a plan price")
-	testkit.WaitFor(t, func() bool {
-		for _, message := range chatView(t, server, leadChat).Messages {
-			if message.Text == "Also add a plan price" {
-				return message.DeliveredAt.Valid
-			}
-		}
-		return false
-	})
+	testkit.WaitFor(t, func() bool { return server.Engine.TurnRunsForMessage(leadChat) })
 	testkit.WaitFor(t, func() bool {
 		stopChat(t, server, leadChat)
 		return !chatView(t, server, leadChat).Writing

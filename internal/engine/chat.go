@@ -1008,12 +1008,12 @@ func (e *Engine) itemTurn(c *chat, a *Agent, current item, prompt string, images
 	if current.event != nil && current.event.Comment.Valid {
 		e.launchEventComment(c.ctx, current.event)
 	}
+	a.setDelivery(0)
 	if current.message != nil && (current.message.Author == ownerAuthor || current.message.Author == approvalAuthor) {
-		if err := e.deliverMessage(c.ctx, current.message.ID); err != nil {
-			return err
-		}
+		a.setDelivery(current.message.ID)
 	}
-	if err := e.turn(c, a, prompt, images, current.message != nil); err != nil {
+	turnErr := e.turn(c, a, prompt, images, current.message != nil)
+	if err := errors.Join(turnErr, a.deliver(c.ctx)); err != nil {
 		return err
 	}
 	return e.endTurn(c, current)
