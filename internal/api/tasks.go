@@ -164,6 +164,10 @@ type BoardTask struct {
 	FixRounds int64 `gork:"fixRounds"`
 	// ReviewRounds is the number of review rounds of the task
 	ReviewRounds int64 `gork:"reviewRounds"`
+	// Merging is true when the task is in ready_for_review and the Owner started its merge
+	Merging bool `gork:"merging"`
+	// MergeRefusal is the reason that GitHub gave for the refused merge when the task is in ready_for_review, or an empty string
+	MergeRefusal string `gork:"mergeRefusal"`
 }
 
 // ListBoardTasksRequest is the request of ListBoardTasks.
@@ -183,7 +187,7 @@ func (h *handlers) ListBoardTasks(ctx context.Context, _ ListBoardTasksRequest) 
 	}
 	tasks := make([]BoardTask, 0, len(found))
 	for _, task := range found {
-		row := BoardTask{Repository: task.Repository, Number: task.Number, Title: task.Title, URL: task.URL, WorkstreamRepository: task.WorkstreamRepository, Workstream: task.Workstream, WorkstreamTitle: task.WorkstreamTitle, State: task.State, StateAt: task.StateAt, FixRounds: task.FixRounds, ReviewRounds: task.ReviewRounds}
+		row := BoardTask{Repository: task.Repository, Number: task.Number, Title: task.Title, URL: task.URL, WorkstreamRepository: task.WorkstreamRepository, Workstream: task.Workstream, WorkstreamTitle: task.WorkstreamTitle, State: task.State, StateAt: task.StateAt, FixRounds: task.FixRounds, ReviewRounds: task.ReviewRounds, Merging: task.Merging, MergeRefusal: task.MergeRefusal}
 		if task.PullRequest != 0 {
 			row.PullRequest = &task.PullRequest
 			row.PullRequestURL = &task.PullRequestURL
