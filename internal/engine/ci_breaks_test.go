@@ -562,3 +562,24 @@ func TestANewerRunThatIsCancelledGivesTheRerunOfTheFailedRun(t *testing.T) {
 		t.Errorf("attempt = %d", attempt)
 	}
 }
+
+func TestANewerRunThatFailsMakesTheBreakHardWithNoRerun(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	run := fake.AddWorkflowRun(shop, failedMainRun(7))
+	running := failedMainRun(7)
+	running.Status = "in_progress"
+	running.Conclusion = ""
+	newer := fake.AddWorkflowRun(shop, running)
+	server := startServer(t, fake, t.TempDir(), "")
+	testkit.WaitFor(t, func() bool { return len(ciBreaks(t, server)) == 1 })
+	waitForPolls(t, fake)
+
+	fake.SetWorkflowRunStatus(newer, "completed", "failure")
+
+	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true, result: "hard"})
+	waitForPolls(t, fake)
+	if attempt := fake.WorkflowRunAttempt(run); attempt != 1 {
+		t.Errorf("attempt = %d", attempt)
+	}
+}
