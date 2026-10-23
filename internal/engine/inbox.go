@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"errors"
+	"fmt"
 	"slices"
 	"time"
 
@@ -369,15 +370,35 @@ func (e *Engine) MergeInboxItem(ctx context.Context, id int64) (store.InboxItem,
 	case e.pollWake <- struct{}{}:
 	default:
 	}
+	e.addRecord(ctx, inboxChat(item), fmt.Sprintf("You started the merge of PR %s.", eventRef(item.WorkstreamRepository, item.Repository, item.PullRequest)))
 	return item, nil
+}
+
+func inboxChat(item store.InboxItem) ChatKey {
+	return ChatKey{item.Organization, item.WorkstreamRepository, item.Workstream}
 }
 
 // Dismiss removes the Inbox item id from the Inbox.
 func (e *Engine) Dismiss(ctx context.Context, id int64) error {
+	_, err := e.dismiss(ctx, id)
+	return err
+}
+
+func (e *Engine) dismiss(ctx context.Context, id int64) (store.InboxItem, error) {
 	item, err := e.queries.DismissInboxItem(ctx, store.DismissInboxItemParams{DismissedAt: sql.NullString{String: now(), Valid: true}, ID: id})
+	if err != nil {
+		return item, err
+	}
+	e.publish(Change{Inbox: &item})
+	return item, nil
+}
+
+// DismissByOwner removes the Inbox item id at the request of the Owner, and adds a record to the chat of the item.
+func (e *Engine) DismissByOwner(ctx context.Context, id int64) error {
+	item, err := e.dismiss(ctx, id)
 	if err != nil {
 		return err
 	}
-	e.publish(Change{Inbox: &item})
+	e.addRecord(ctx, inboxChat(item), fmt.Sprintf("You dismissed \"%s\".", item.Title))
 	return nil
 }

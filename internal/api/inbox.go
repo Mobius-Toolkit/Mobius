@@ -136,7 +136,7 @@ type DismissRequest struct {
 
 // Dismiss removes an item from the Inbox.
 func (h *handlers) Dismiss(ctx context.Context, req DismissRequest) error {
-	return h.engine.Dismiss(ctx, req.Path.ID)
+	return h.engine.DismissByOwner(ctx, req.Path.ID)
 }
 
 // SendAgainRequest is the request of SendAgain.

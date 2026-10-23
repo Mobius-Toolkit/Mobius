@@ -346,7 +346,7 @@ export interface PendingAction {
 }
 
 /**
- * Author is Owner, Lead, Coordinator, tell_owner for a message of the Lead to the Owner, Mobius for a message of Mobius, Event for a Lead event, which the chat shows as a muted entry, or Action for the card of a pending action
+ * Author is Owner, Lead, Coordinator, tell_owner for a message of the Lead to the Owner, Mobius for a message of Mobius, Event for a Lead event, which the chat shows as a muted entry, Action for the card of a pending action, or Record for the line about an action of the Owner
  */
 export type ChatMessageAuthor = typeof ChatMessageAuthor[keyof typeof ChatMessageAuthor];
 
@@ -359,6 +359,7 @@ export const ChatMessageAuthor = {
   Mobius: 'Mobius',
   Event: 'Event',
   Action: 'Action',
+  Record: 'Record',
 } as const;
 
 /**
@@ -381,7 +382,7 @@ export interface ChatInboxItem {
 export interface ChatMessage {
   /** Action is the action of a card, or null for another message */
   action: PendingAction | null;
-  /** Author is Owner, Lead, Coordinator, tell_owner for a message of the Lead to the Owner, Mobius for a message of Mobius, Event for a Lead event, which the chat shows as a muted entry, or Action for the card of a pending action */
+  /** Author is Owner, Lead, Coordinator, tell_owner for a message of the Lead to the Owner, Mobius for a message of Mobius, Event for a Lead event, which the chat shows as a muted entry, Action for the card of a pending action, or Record for the line about an action of the Owner */
   author: ChatMessageAuthor;
   /** BrowserID is the id that the browser gave to the message of the Owner. It is empty for another message */
   browserId: string;
