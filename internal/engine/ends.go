@@ -281,14 +281,14 @@ func (e *Engine) continueByRemoval(ctx context.Context, repository github.Reposi
 	}
 	var actors []string
 	if !issueHas {
-		issueEvents, err := repository.IssueEvents(ctx, task.Issue)
+		issueEvents, err := e.issueEvents(ctx, repository, task.Issue)
 		if err != nil {
 			return false, err
 		}
 		actors = append(actors, removalActor(issueEvents, since))
 	}
 	if !pullHas {
-		pullEvents, err := repository.IssueEvents(ctx, task.PullRequest.Int64)
+		pullEvents, err := e.issueEvents(ctx, repository, task.PullRequest.Int64)
 		if err != nil {
 			return false, err
 		}
@@ -470,7 +470,7 @@ func (e *Engine) endPullRequest(ctx context.Context, repository github.Repositor
 // labelRemoved stops the task when a person removed label from its issue, and tells if it did. The pull request and
 // the branch stay, and the head of the pull request gets a failed Mobius check.
 func (e *Engine) labelRemoved(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue, label string) (bool, error) {
-	events, err := repository.IssueEvents(ctx, task.Issue)
+	events, err := e.issueEvents(ctx, repository, task.Issue)
 	if err != nil {
 		return false, err
 	}

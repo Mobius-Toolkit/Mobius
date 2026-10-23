@@ -51,7 +51,14 @@ func (e *Engine) startTriage(ctx context.Context, repository github.Repository, 
 	number := int64(issue.GetNumber())
 	labeled := hasLabel(issue, triageLabel)
 	labeledAt := ""
-	if !labeled && (!e.trustedUser(issue.GetUser().GetLogin()) || issue.GetCreatedAt().Before(since)) {
+	trustedCreator := e.trustedUser(issue.GetUser().GetLogin())
+	if !trustedCreator {
+		var err error
+		if trustedCreator, err = e.leadCreated(ctx, repository, issue); err != nil {
+			return false, err
+		}
+	}
+	if !labeled && (!trustedCreator || issue.GetCreatedAt().Before(since)) {
 		return false, nil
 	}
 	_, workstream, err := e.commentWorkstream(ctx, repository, issue)
@@ -59,7 +66,7 @@ func (e *Engine) startTriage(ctx context.Context, repository github.Repository, 
 		return false, err
 	}
 	if labeled {
-		events, err := repository.IssueEvents(ctx, number)
+		events, err := e.issueEvents(ctx, repository, number)
 		if err != nil {
 			return false, err
 		}
@@ -328,7 +335,7 @@ func (e *Engine) closeEndedTriage(ctx context.Context, repository github.Reposit
 	if ended.IsZero() {
 		return false, nil
 	}
-	events, err := repository.IssueEvents(ctx, number)
+	events, err := e.issueEvents(ctx, repository, number)
 	if err != nil {
 		return false, err
 	}
@@ -347,7 +354,7 @@ func (e *Engine) closeEndedTriage(ctx context.Context, repository github.Reposit
 func (e *Engine) labeledText(ctx context.Context, repository github.Repository, issue *gh.Issue) (string, string, error) {
 	title, body := issue.GetTitle(), issue.GetBody()
 	number := int64(issue.GetNumber())
-	events, err := repository.IssueEvents(ctx, number)
+	events, err := e.issueEvents(ctx, repository, number)
 	if err != nil {
 		return "", "", err
 	}
@@ -391,7 +398,7 @@ func (e *Engine) stopTriager(ctx context.Context, repository github.Repository, 
 	if !running {
 		return nil
 	}
-	events, err := repository.IssueEvents(ctx, number)
+	events, err := e.issueEvents(ctx, repository, number)
 	if err != nil {
 		return err
 	}

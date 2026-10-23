@@ -1145,3 +1145,12 @@ SELECT ci_failure_places.*, COALESCE(ci_breaks.run_url, '') AS run_url
 FROM ci_failure_places LEFT JOIN ci_breaks ON ci_breaks.id = ci_failure_places.ci_break
 WHERE ci_failure_places.failure = ?
 ORDER BY ci_failure_places.id;
+
+-- name: AddLeadWrite :exec
+INSERT INTO lead_writes (session, repository, issue, kind, labels, text, created_at) VALUES (?, ?, ?, ?, ?, ?, ?);
+
+-- name: ListLeadWrites :many
+SELECT * FROM lead_writes WHERE repository = ? COLLATE NOCASE AND (issue = ? OR kind = 'created') ORDER BY id;
+
+-- name: SetLeadWriteItem :exec
+UPDATE lead_writes SET item = ? WHERE id = ? AND item IS NULL;

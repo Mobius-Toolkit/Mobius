@@ -592,6 +592,33 @@ func (q *Queries) AddLeadEvent(ctx context.Context, arg AddLeadEventParams) erro
 	return err
 }
 
+const addLeadWrite = `-- name: AddLeadWrite :exec
+INSERT INTO lead_writes (session, repository, issue, kind, labels, text, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+`
+
+type AddLeadWriteParams struct {
+	Session    int64
+	Repository string
+	Issue      int64
+	Kind       string
+	Labels     string
+	Text       string
+	CreatedAt  string
+}
+
+func (q *Queries) AddLeadWrite(ctx context.Context, arg AddLeadWriteParams) error {
+	_, err := q.db.ExecContext(ctx, addLeadWrite,
+		arg.Session,
+		arg.Repository,
+		arg.Issue,
+		arg.Kind,
+		arg.Labels,
+		arg.Text,
+		arg.CreatedAt,
+	)
+	return err
+}
+
 const addMemoryVersion = `-- name: AddMemoryVersion :exec
 INSERT INTO memory_versions (repository, time, author, reason, text) VALUES (?, ?, ?, ?, ?)
 `
@@ -4815,6 +4842,48 @@ func (q *Queries) ListLatestEvents(ctx context.Context, limit int64) ([]Event, e
 	return items, nil
 }
 
+const listLeadWrites = `-- name: ListLeadWrites :many
+SELECT id, session, repository, issue, kind, labels, text, created_at, item FROM lead_writes WHERE repository = ? AND (issue = ? OR kind = 'created') ORDER BY id
+`
+
+type ListLeadWritesParams struct {
+	Repository string
+	Issue      int64
+}
+
+func (q *Queries) ListLeadWrites(ctx context.Context, arg ListLeadWritesParams) ([]LeadWrite, error) {
+	rows, err := q.db.QueryContext(ctx, listLeadWrites, arg.Repository, arg.Issue)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []LeadWrite
+	for rows.Next() {
+		var i LeadWrite
+		if err := rows.Scan(
+			&i.ID,
+			&i.Session,
+			&i.Repository,
+			&i.Issue,
+			&i.Kind,
+			&i.Labels,
+			&i.Text,
+			&i.CreatedAt,
+			&i.Item,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listLiveTaskRepositories = `-- name: ListLiveTaskRepositories :many
 SELECT DISTINCT repository FROM tasks WHERE state <> 'ended' ORDER BY repository
 `
@@ -7079,6 +7148,20 @@ type SetJudgedAtParams struct {
 
 func (q *Queries) SetJudgedAt(ctx context.Context, arg SetJudgedAtParams) error {
 	_, err := q.db.ExecContext(ctx, setJudgedAt, arg.JudgedAt, arg.ID)
+	return err
+}
+
+const setLeadWriteItem = `-- name: SetLeadWriteItem :exec
+UPDATE lead_writes SET item = ? WHERE id = ? AND item IS NULL
+`
+
+type SetLeadWriteItemParams struct {
+	Item sql.NullInt64
+	ID   int64
+}
+
+func (q *Queries) SetLeadWriteItem(ctx context.Context, arg SetLeadWriteItemParams) error {
+	_, err := q.db.ExecContext(ctx, setLeadWriteItem, arg.Item, arg.ID)
 	return err
 }
 
