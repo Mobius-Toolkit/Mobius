@@ -126,6 +126,8 @@ const clickOutside = async (page: Page, dialog: Locator) => {
 const closeDialogOf = async (close: string, page: Page, discard: Locator) => {
   const keep = discard.getByRole("button", { name: "Keep editing" });
   await expect(keep).toBeFocused();
+  // Radix sets this style when it makes the dialog the top layer. Before that, it sends the Escape key to the layer below.
+  await expect(discard).toHaveCSS("pointer-events", "auto");
   if (close === "Cancel") {
     await keep.click();
   } else if (close === "Escape") {
