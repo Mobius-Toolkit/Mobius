@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/runner"
@@ -66,23 +67,41 @@ func (a *Agent) exportSkills(ctx context.Context, folder string, worktree bool) 
 	}
 	e.gitMu.Lock()
 	defer e.gitMu.Unlock()
-	names, err := runner.SkillNames(ctx, e.config.DataDir, repository.FullName, repository.DefaultBranch)
+	general, err := runner.SkillNames(ctx, e.config.DataDir, repository.FullName, repository.DefaultBranch, "")
 	if err != nil {
 		log.Printf("the skill repository %s has no skills for the session %d: %v", repository.FullName, a.id, err)
 		return nil, nil
 	}
-	var copied, excluded []string
-	for _, name := range names {
-		_, err := os.Stat(filepath.Join(a.spec.Dir, folder, name))
-		if worktree && !errors.Is(err, fs.ErrNotExist) {
+	var own []string
+	repositoryFolder := ""
+	if _, name, found := strings.Cut(a.spec.Repository, "/"); found {
+		repositoryFolder = path.Join("repos", name)
+		own, err = runner.SkillNames(ctx, e.config.DataDir, repository.FullName, repository.DefaultBranch, repositoryFolder)
+		if err != nil {
+			return nil, err
+		}
+	}
+	var excluded []string
+	for _, group := range []struct {
+		folder string
+		names  []string
+	}{{"", slices.DeleteFunc(general, func(name string) bool { return slices.Contains(own, name) })}, {repositoryFolder, own}} {
+		var copied []string
+		for _, name := range group.names {
+			_, err := os.Stat(filepath.Join(a.spec.Dir, folder, name))
+			if worktree && !errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+			copied = append(copied, name)
+			excluded = append(excluded, "/"+path.Join(folder, name)+"/")
+		}
+		if len(copied) == 0 {
 			continue
 		}
-		copied = append(copied, name)
-		excluded = append(excluded, "/"+path.Join(folder, name)+"/")
+		err := runner.Export(ctx, e.config.DataDir, repository.FullName, repository.DefaultBranch, group.folder, filepath.Join(a.spec.Dir, folder), copied...)
+		if err != nil {
+			return excluded, err
+		}
 	}
-	if len(copied) == 0 {
-		return nil, nil
-	}
-	err = runner.Export(ctx, e.config.DataDir, repository.FullName, repository.DefaultBranch, filepath.Join(a.spec.Dir, folder), copied...)
-	return excluded, err
+	return excluded, nil
 }
