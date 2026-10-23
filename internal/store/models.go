@@ -257,6 +257,29 @@ type Session struct {
 	WorkstreamRepository string
 }
 
+type SessionSkill struct {
+	ID           int64
+	Session      int64
+	Organization string
+	Repository   string
+	Role         string
+	Harness      string
+	Skill        string
+	CopiedAt     string
+}
+
+type SkillUse struct {
+	ID           int64
+	Session      int64
+	Organization string
+	Repository   string
+	Role         string
+	Harness      string
+	Skill        string
+	Source       string
+	UsedAt       string
+}
+
 type StepTime struct {
 	ID           int64
 	Kind         string
