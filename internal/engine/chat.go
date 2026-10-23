@@ -27,6 +27,8 @@ var (
 	leadPrompt string
 	//go:embed prompts/lead_maintenance.md
 	leadMaintenancePrompt string
+	//go:embed prompts/lead_skills.md
+	leadSkillsPrompt string
 	//go:embed prompts/coordinator.md
 	coordinatorPrompt string
 )
@@ -1389,7 +1391,7 @@ func (e *Engine) firstPrompt(ctx context.Context, key ChatKey, first item) (stri
 	if err != nil {
 		return "", nil, err
 	}
-	lead, maintenance, err := e.leadContext(ctx, repository, key.Workstream)
+	lead, maintenance, skills, err := e.leadContext(ctx, repository, key.Workstream)
 	if err != nil {
 		return "", nil, err
 	}
@@ -1418,26 +1420,29 @@ func (e *Engine) firstPrompt(ctx context.Context, key ChatKey, first item) (stri
 		return "", nil, err
 	}
 	rules := ""
+	if skills {
+		rules = leadSkillsPrompt + "\n"
+	}
 	if maintenance {
-		rules = leadMaintenancePrompt + "\n"
+		rules += leadMaintenancePrompt + "\n"
 	}
 	return fmt.Sprintf("%s\n%s%s%s%s%s# %s\n\n%s", leadPrompt, rules, sections, lead, requests, history, heading, text), images, nil
 }
 
 // leadContext gives the Brief, the memory and the task list of the Workstream, and tells if the Workstream is a
-// maintenance Workstream.
-func (e *Engine) leadContext(ctx context.Context, repository github.Repository, workstream int64) (string, bool, error) {
-	brief, evergreen, maintenance, err := e.brief(ctx, repository, workstream)
+// maintenance Workstream and if it is a skills Workstream.
+func (e *Engine) leadContext(ctx context.Context, repository github.Repository, workstream int64) (string, bool, bool, error) {
+	brief, evergreen, maintenance, skills, err := e.brief(ctx, repository, workstream)
 	if err != nil {
-		return "", false, err
+		return "", false, false, err
 	}
 	memory, err := readMemory(leadDir(e.config.DataDir, repository.FullName, workstream))
 	if err != nil {
-		return "", false, err
+		return "", false, false, err
 	}
 	lines, err := e.taskLines(ctx, repository, workstream)
 	if err != nil {
-		return "", false, err
+		return "", false, false, err
 	}
 	evergreenText := ""
 	if evergreen {
@@ -1445,10 +1450,10 @@ func (e *Engine) leadContext(ctx context.Context, repository github.Repository, 
 	}
 	level, err := e.workstreamLevel(ctx, repository.FullName, workstream)
 	if err != nil {
-		return "", false, err
+		return "", false, false, err
 	}
 	autopilotText := levelContexts[level] + "\n\n"
-	return fmt.Sprintf("# Brief\n\n%s\n\n%s%s# MEMORY.md\n\n%s\n\n# Repositories\n\n%s\n\n# Task list\n\n%s\n\n", brief, evergreenText, autopilotText, memory, e.repositoriesText(repository.Owner()), taskText(repository.FullName, lines)), maintenance, nil
+	return fmt.Sprintf("# Brief\n\n%s\n\n%s%s# MEMORY.md\n\n%s\n\n# Repositories\n\n%s\n\n# Task list\n\n%s\n\n", brief, evergreenText, autopilotText, memory, e.repositoriesText(repository.Owner()), taskText(repository.FullName, lines)), maintenance, skills, nil
 }
 
 // levelContexts gives the text of the first prompt of the Lead for each Autopilot level.
@@ -1477,24 +1482,24 @@ func (e *Engine) repositoriesText(organization string) string {
 	return text
 }
 
-// brief gives the Brief of the Workstream and tells if the Workstream is evergreen and if it is a maintenance
-// Workstream. It reads the local copy, and reads GitHub for a Workstream that the copy does not have.
-func (e *Engine) brief(ctx context.Context, repository github.Repository, workstream int64) (string, bool, bool, error) {
+// brief gives the Brief of the Workstream and tells if the Workstream is evergreen, if it is a maintenance
+// Workstream and if it is a skills Workstream. It reads the local copy, and reads GitHub for a Workstream that the copy does not have.
+func (e *Engine) brief(ctx context.Context, repository github.Repository, workstream int64) (string, bool, bool, bool, error) {
 	copied, err := e.queries.GetCopiedWorkstream(ctx, store.GetCopiedWorkstreamParams{Repository: repository.FullName, Number: workstream})
 	if err == nil {
-		return copied.Body, copied.Evergreen, copied.Maintenance, nil
+		return copied.Body, copied.Evergreen, copied.Maintenance, copied.Skills, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
-		return "", false, false, err
+		return "", false, false, false, err
 	}
 	issue, err := repository.Issue(ctx, workstream)
 	if err != nil {
-		return "", false, false, err
+		return "", false, false, false, err
 	}
 	if issue == nil {
-		return "", false, false, errors.New("the Workstream issue does not exist")
+		return "", false, false, false, errors.New("the Workstream issue does not exist")
 	}
-	return issue.GetBody(), hasLabel(issue, evergreenLabel), hasLabel(issue, maintenanceLabel), nil
+	return issue.GetBody(), hasLabel(issue, evergreenLabel), hasLabel(issue, maintenanceLabel), hasLabel(issue, skillsLabel), nil
 }
 
 // readMemory gives MEMORY.md of the Lead directory dir, or "" when the file does not exist. A longer file than
