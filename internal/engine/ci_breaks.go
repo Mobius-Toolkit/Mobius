@@ -15,7 +15,9 @@ import (
 
 // readDefaultBranchCI keeps the breaks of the CI of the default branch. A break of a workflow starts when its newest
 // completed run failed. Mobius runs the failed jobs of that run again one time. The result of the break is flaky when
-// the new attempt passes, and hard when it fails. A hard break ends when a newer run of the workflow passes, or when a
+// the new attempt passes, and hard when it fails. While a newer run of the workflow is queued or in progress, Mobius
+// does not run the failed jobs again, because the new attempt can cancel that run (a concurrency group of the
+// workflow). A hard break ends when a newer run of the workflow passes, or when a
 // later attempt of the failed run passes. When GitHub refuses the list of runs with a 4xx status (for example with no
 // permission), Mobius skips the CI for this poll. A workflow whose newest failed run already had a break, also an ended
 // one, starts a new break only with a newer failed run. A run that passed the time limit of a job counts as a failed run
@@ -210,8 +212,18 @@ func (e *Engine) startCIBreak(ctx context.Context, repository github.Repository,
 	return e.queries.AddCIBreak(ctx, params)
 }
 
-// advanceCIBreak runs the failed jobs again when Mobius did not do it yet and no newer run of the workflow passed,
-// stores the result of the new attempt, and ends the break when a newer run of the workflow passed. A hard break also
+// newerRunRuns reports whether a run of the workflow of ciBreak with an id above the failed run is queued or in progress.
+func newerRunRuns(byID map[int64]*gh.WorkflowRun, ciBreak store.CiBreak) bool {
+	for _, run := range byID {
+		if run.GetWorkflowID() == ciBreak.WorkflowID && run.GetID() > ciBreak.RunID && (run.GetStatus() == "queued" || run.GetStatus() == "in_progress") {
+			return true
+		}
+	}
+	return false
+}
+
+// advanceCIBreak runs the failed jobs again when Mobius did not do it yet, no newer run of the workflow passed and no
+// newer run of the workflow is queued or in progress (the break then waits with no result), stores the result of the new attempt, and ends the break when a newer run of the workflow passed. A hard break also
 // ends when a later attempt of the failed run passed: the list of runs gives the newest attempt of each run. A new
 // attempt that completes with a conclusion other than success, cancelled and skipped, and a newer failed run, make the
 // break hard. A cancelled or skipped attempt (a newer push cancels it) gives no result: the next completed run of the
@@ -229,6 +241,9 @@ func (e *Engine) advanceCIBreak(ctx context.Context, repository github.Repositor
 	if ciBreak.RerunAt == "" {
 		if passedAgain {
 			return e.endCIBreak(ctx, ciBreak, store.EndCIBreakParams{Result: ciBreak.Result, EndedRunID: newest.GetID(), EndedAt: now(), ID: ciBreak.ID})
+		}
+		if newerRunRuns(byID, ciBreak) {
+			return nil
 		}
 		if run == nil || int64(run.GetRunAttempt()) <= ciBreak.RunAttempt {
 			var refused *gh.ErrorResponse

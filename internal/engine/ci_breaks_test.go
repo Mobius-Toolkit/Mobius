@@ -511,3 +511,54 @@ func TestACancelledRunAFailedRunOfAForkOrAnotherBranchAndARunInProgressChangeNot
 		t.Errorf("breaks = %+v", breaks)
 	}
 }
+
+func TestANewerRunInProgressHoldsTheRerunAndANewerPassedRunEndsTheBreakWithNoRerun(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	run := fake.AddWorkflowRun(shop, failedMainRun(7))
+	running := failedMainRun(7)
+	running.Status = "in_progress"
+	running.Conclusion = ""
+	newer := fake.AddWorkflowRun(shop, running)
+	server := startServer(t, fake, t.TempDir(), "")
+	testkit.WaitFor(t, func() bool { return len(ciBreaks(t, server)) == 1 })
+	waitForPolls(t, fake)
+
+	if breaks := ciBreaks(t, server); len(breaks) != 1 || breaks[0] != (ciBreak{runID: run}) {
+		t.Errorf("breaks = %v", breaks)
+	}
+	if attempt := fake.WorkflowRunAttempt(run); attempt != 1 {
+		t.Errorf("attempt = %d", attempt)
+	}
+
+	fake.SetWorkflowRunStatus(newer, "completed", "success")
+
+	waitForCIBreak(t, server, ciBreak{runID: run, endedRunID: newer})
+	if attempt := fake.WorkflowRunAttempt(run); attempt != 1 {
+		t.Errorf("attempt = %d", attempt)
+	}
+}
+
+func TestANewerRunThatIsCancelledGivesTheRerunOfTheFailedRun(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	run := fake.AddWorkflowRun(shop, failedMainRun(7))
+	running := failedMainRun(7)
+	running.Status = "in_progress"
+	running.Conclusion = ""
+	newer := fake.AddWorkflowRun(shop, running)
+	server := startServer(t, fake, t.TempDir(), "")
+	testkit.WaitFor(t, func() bool { return len(ciBreaks(t, server)) == 1 })
+	waitForPolls(t, fake)
+	if attempt := fake.WorkflowRunAttempt(run); attempt != 1 {
+		t.Fatalf("attempt = %d", attempt)
+	}
+
+	fake.SetWorkflowRunStatus(newer, "completed", "cancelled")
+
+	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true})
+	waitForPolls(t, fake)
+	if attempt := fake.WorkflowRunAttempt(run); attempt != 2 {
+		t.Errorf("attempt = %d", attempt)
+	}
+}
