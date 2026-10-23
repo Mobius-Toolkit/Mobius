@@ -30,6 +30,8 @@ type Engine struct {
 	labelsFixed map[string]bool
 	// recovered holds the full names of the repositories whose lost tasks the poll handed to a human. Only the poll uses it.
 	recovered map[string]bool
+	// oldSkillUsesMoved tells whether the poll moved the rows of old_skill_uses in this run of the server. Only the poll uses it.
+	oldSkillUsesMoved bool
 	// earlierMessage is the highest chat message id of the earlier run of the server. The poll and postChat read it.
 	earlierMessage int64
 	// handedChats holds the chats whose undelivered messages of the earlier run the poll or postChat gave to the

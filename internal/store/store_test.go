@@ -536,7 +536,7 @@ func TestTheTranscriptMigrationRemovesTheDuplicatesAndAddsTheIndex(t *testing.T)
 	if _, err := db.Exec("DROP TABLE pending_actions"); err != nil {
 		t.Fatal(err)
 	}
-	for _, table := range []string{"ci_failures", "ci_failure_places", "ci_diagnoses", "lead_writes", "deployment_needs", "workstream_buckets", "skill_uses", "session_skills"} {
+	for _, table := range []string{"ci_failures", "ci_failure_places", "ci_diagnoses", "lead_writes", "deployment_needs", "workstream_buckets", "skill_uses", "session_skills", "old_skill_uses"} {
 		if _, err := db.Exec("DROP TABLE " + table); err != nil {
 			t.Fatal(err)
 		}
@@ -677,6 +677,7 @@ func TestTheInboxMigrationsDismissTheOpenItemsAndKeepThePause(t *testing.T) {
 		"DROP TABLE deployment_needs",
 		"DROP TABLE workstream_buckets",
 		"DROP TABLE skill_uses",
+		"DROP TABLE old_skill_uses",
 		"DROP TABLE session_skills",
 		"ALTER TABLE tasks DROP COLUMN approved_head",
 		"ALTER TABLE tasks DROP COLUMN auto_merge",
@@ -788,6 +789,7 @@ func TestTheCoordinatorMigrationMovesTheChatSessionsAndTheChatMessages(t *testin
 		"DROP TABLE deployment_needs",
 		"DROP TABLE workstream_buckets",
 		"DROP TABLE skill_uses",
+		"DROP TABLE old_skill_uses",
 		"DROP TABLE session_skills",
 		"ALTER TABLE tasks DROP COLUMN approved_head",
 		"ALTER TABLE tasks DROP COLUMN auto_merge",
@@ -946,5 +948,73 @@ func TestTheCountOfEndedSessionsSinceTheCuratorUsesTheRepositoryOfTheQuery(t *te
 		if got != want {
 			t.Errorf("count for %s = %d, want %d", repository, got, want)
 		}
+	}
+}
+
+func TestTheOldSkillUsesMigrationReadsTheSkillUsesOfTheTranscript(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mobius.db")
+	db, err := Open(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range []string{
+		"DROP TABLE old_skill_uses",
+		"DELETE FROM goose_db_version WHERE version_id = 20270117000000",
+		`INSERT INTO sessions (id, role, harness, model, repository, workstream, started_at, organization) VALUES
+			(1, 'lead_chat', 'claude-code', 'opus', 'owner/shop', 12, '2026-10-01T10:00:00Z', 'owner'),
+			(2, 'implementer', 'devin', 'swe-1.5', 'owner/garden', 12, '2026-10-01T10:00:00Z', 'owner'),
+			(3, 'reviewer', 'claude-code', 'opus', 'owner/shop', 12, '2026-10-01T10:00:00Z', 'owner')`,
+		`INSERT INTO skill_uses (session, organization, repository, role, harness, skill, source, used_at)
+			VALUES (3, 'owner', 'owner/shop', 'reviewer', 'claude-code', 'probe', 'harness', '2026-10-02T10:00:00Z')`,
+		`INSERT INTO transcript (id, session, time, kind, json) VALUES
+			(1, 1, '2026-10-01T10:00:01Z', 'update', '{"update":{"sessionUpdate":"tool_call","toolCallId":"toolu_1","_meta":{"claudeCode":{"toolName":"Skill"}},"rawInput":{}}}'),
+			(2, 1, '2026-10-01T10:00:02Z', 'update', '{"update":{"sessionUpdate":"tool_call_update","toolCallId":"toolu_1","_meta":{"claudeCode":{"toolName":"Skill"}},"rawInput":{"skill":"frontend-design"}}}'),
+			(3, 1, '2026-10-01T10:00:03Z', 'update', '{"update":{"sessionUpdate":"tool_call_update","toolCallId":"toolu_1","_meta":{"claudeCode":{"toolName":"Skill"}},"rawInput":{"skill":"frontend-design","args":"x"}}}'),
+			(4, 1, '2026-10-01T10:00:04Z', 'update', '{"update":{"sessionUpdate":"tool_call","toolCallId":"toolu_2","_meta":{"claudeCode":{"toolName":"Read"}},"rawInput":{"file_path":"a.txt"}}}'),
+			(5, 2, '2026-10-01T10:00:05Z', 'update', '{"update":{"sessionUpdate":"tool_call","toolCallId":"call_1#a","rawInput":{"skill":"commit"},"_meta":{"cognition.ai/inferenceToolName":"skill"}}}'),
+			(6, 2, '2026-10-01T10:00:06Z', 'update', '{"update":{"sessionUpdate":"tool_call_update","toolCallId":"call_1#a","status":"completed"}}'),
+			(7, 3, '2026-10-01T10:00:07Z', 'update', '{"update":{"sessionUpdate":"tool_call_update","toolCallId":"toolu_3","_meta":{"claudeCode":{"toolName":"Skill"}},"rawInput":{"skill":"probe"}}}'),
+			(8, 3, '2026-10-01T10:00:08Z', 'agent_message_chunk', '{"update":{"sessionUpdate":"agent_message_chunk","content":{"text":"hi"}}}')`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err = Open(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	rows, err := db.Query("SELECT session, organization, repository, role, harness, skill, used_at FROM old_skill_uses ORDER BY id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+	type use struct {
+		Session                                                int64
+		Organization, Repository, Role, Harness, Skill, UsedAt string
+	}
+	var got []use
+	for rows.Next() {
+		var u use
+		if err := rows.Scan(&u.Session, &u.Organization, &u.Repository, &u.Role, &u.Harness, &u.Skill, &u.UsedAt); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, u)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	want := []use{
+		{1, "owner", "owner/shop", "lead_chat", "claude-code", "frontend-design", "2026-10-01T10:00:02Z"},
+		{2, "owner", "owner/garden", "implementer", "devin", "commit", "2026-10-01T10:00:05Z"},
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("old skill uses = %+v, want %+v", got, want)
 	}
 }
