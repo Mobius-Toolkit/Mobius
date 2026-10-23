@@ -374,7 +374,7 @@ func TestCreateIssueCreatesASubIssueWithABlockerInAnotherWorkstream(t *testing.T
 	if got := fake.SubIssueNumbers(shop, 12); !reflect.DeepEqual(got, []int64{89}) {
 		t.Errorf("sub-issues = %v", got)
 	}
-	if title, body := fake.Issue(shop, 89); title != "Add plan model" || body != "Plans have a price." {
+	if title, body := fake.Issue(shop, 89); title != "Add plan model" || body != marked("Plans have a price.", leadMark) {
 		t.Errorf("issue = %q, %q", title, body)
 	}
 	if got := fake.BlockerNumbers(shop, 89); !reflect.DeepEqual(got, []int64{88}) {
@@ -482,7 +482,7 @@ func TestCommentPullRequestCommentsOnThePullRequestOfALiveTaskOfTheWorkstream(t 
 	if got := reply(t, server, session); got != "Commented on #45.error: #46 is not the pull request of a live task in this Workstream." {
 		t.Errorf("reply = %q", got)
 	}
-	if got := fake.Comments(shop, 45); !reflect.DeepEqual(got, []testkit.Comment{{Author: "mobius-test[bot]", Body: "Close this stale pull request."}}) {
+	if got := fake.Comments(shop, 45); !reflect.DeepEqual(got, []testkit.Comment{{Author: "mobius-test[bot]", Body: marked("Close this stale pull request.", leadMark)}}) {
 		t.Errorf("comments = %v", got)
 	}
 	if got := fake.Comments(shop, 46); len(got) != 0 {
@@ -510,13 +510,13 @@ func TestReplyThreadRepliesInAReviewThreadAndResolvesIt(t *testing.T) {
 	}
 	wantThread := testkit.Thread{Resolved: true, Comments: []testkit.Comment{
 		{Author: "owner", Body: "Use cents."},
-		{Author: "mobius-test[bot]", Body: "Fixed in abc123."},
+		{Author: "mobius-test[bot]", Body: marked("Fixed in abc123.", leadMark)},
 	}}
 	if got := fake.ReviewThread(shop, 45, root); !reflect.DeepEqual(got, wantThread) {
 		t.Errorf("thread = %+v", got)
 	}
 	comments := fake.Comments(shop, 45)
-	if last := comments[len(comments)-1]; last != (testkit.Comment{Author: "mobius-test[bot]", Body: "> Split the model.\n> And the API.\n\nFollow-up: #50."}) {
+	if last := comments[len(comments)-1]; last != (testkit.Comment{Author: "mobius-test[bot]", Body: marked("> Split the model.\n> And the API.\n\nFollow-up: #50.", leadMark)}) {
 		t.Errorf("comment = %+v", last)
 	}
 }

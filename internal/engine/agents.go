@@ -387,11 +387,23 @@ func (a *Agent) startHarness(ctx context.Context) error {
 	}
 	a.key = e.agents.MCP.Open(mcpCaller)
 	ghTokenURL := mcp.GHTokenURL(e.agents.Addr, a.key)
-	ghWritesURL := ""
+	ghWritesURL, ghMark := "", ""
 	if spec.Role == LeadRole {
 		ghWritesURL = mcp.GHWritesURL(e.agents.Addr, a.key)
+		lead := caller{role: LeadRole, repository: spec.Repository, workstream: spec.Workstream}
+		mark := runner.GHMark{Repository: spec.Repository}
+		var err error
+		if mark.Here, err = e.mark(ctx, lead, spec.Repository); err != nil {
+			return err
+		}
+		if mark.Elsewhere, err = e.mark(ctx, lead, ""); err != nil {
+			return err
+		}
+		if ghMark, err = mark.Encode(); err != nil {
+			return err
+		}
 	}
-	session, err := runner.Start(ctx, a.harness, spec.Dir, e.config.DataDir, e.agents.Path, mcp.URL(e.agents.Addr, a.key), ghTokenURL, ghWritesURL, a.update)
+	session, err := runner.Start(ctx, a.harness, spec.Dir, e.config.DataDir, e.agents.Path, mcp.URL(e.agents.Addr, a.key), ghTokenURL, ghWritesURL, ghMark, a.update)
 	if err != nil {
 		return err
 	}

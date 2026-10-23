@@ -22,7 +22,7 @@ func Check(ctx context.Context, dataDir, worktree, path string, timeout time.Dur
 	if _, err := os.Stat(filepath.Join(worktree, ".mobius", "check")); errors.Is(err, fs.ErrNotExist) {
 		return "", true, nil
 	}
-	cmd := command(context.Background(), "/bin/sh", worktree, dataDir, path, "", "")
+	cmd := command(context.Background(), "/bin/sh", worktree, dataDir, path, "", "", "")
 	cmd.Args = append(cmd.Args, "-c", "exec nice -n 10 ./.mobius/check 2>&1")
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	stdout, err := cmd.StdoutPipe()
@@ -82,7 +82,7 @@ func FreeSpace(ctx context.Context, dataDir, path string) (uint64, error) {
 	if df == "" {
 		return 0, errors.New("df is not on PATH")
 	}
-	cmd := command(ctx, df, dataDir, dataDir, path, "", "")
+	cmd := command(ctx, df, dataDir, dataDir, path, "", "", "")
 	cmd.Args = append(cmd.Args, "-Pk", dataDir)
 	output, err := run(cmd)
 	if err != nil {

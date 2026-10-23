@@ -58,7 +58,7 @@ func TestTheLeadAsksOnTheIssueOfATaskInAnotherRepository(t *testing.T) {
 	fake.AddLabel(garden, 7, "mobius:ready", "owner")
 
 	testkit.WaitFor(t, func() bool { return len(inbox(t, server)) == 1 })
-	if want := []testkit.Comment{{Author: "mobius-test[bot]", Body: "Which plants?"}}; !slices.Equal(fake.Comments(garden, 7), want) {
+	if want := []testkit.Comment{{Author: "mobius-test[bot]", Body: marked("Which plants?", leadMarkElsewhere)}}; !slices.Equal(fake.Comments(garden, 7), want) {
 		t.Errorf("comments = %+v", fake.Comments(garden, 7))
 	}
 	if labels := fake.Labels(garden, 7); !slices.Contains(labels, "mobius:question") {

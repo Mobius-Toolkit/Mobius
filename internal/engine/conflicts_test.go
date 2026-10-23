@@ -195,7 +195,7 @@ func TestAStalePullRequestWithAMergeConflictGoesToAHuman(t *testing.T) {
 	fake.CommitFile(shop, "plan.txt", "dollars\n", "Use dollars")
 
 	testkit.WaitFor(t, func() bool {
-		return slices.Contains(fake.Comments(shop, 42), testkit.Comment{Author: "mobius-test[bot]", Body: "This pull request is old and has a conflict. Close it?"})
+		return slices.Contains(fake.Comments(shop, 42), testkit.Comment{Author: "mobius-test[bot]", Body: marked("This pull request is old and has a conflict. Close it?", leadMark)})
 	})
 	waitForLeadPrompt(t, server, " stale pull request #42 of #41 \"Add plan model\": it has a merge conflict and is older than 7 days. https://github.com/owner/shop/pull/42")
 	if !hasLabel(fake, "mobius:needs-human") || hasLabel(fake, "mobius:working") {

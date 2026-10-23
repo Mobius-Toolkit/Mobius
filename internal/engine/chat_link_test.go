@@ -12,6 +12,9 @@ import (
 
 const chatLink = "[Open the Lead chat in Mobius](https://mobius.example.com/workstreams/owner/shop/12)"
 
+// leadLinkMark is leadMark with the link to the Lead chat, for a config with ui_url.
+const leadLinkMark = "— Lead of [#12](https://mobius.example.com/workstreams/owner/shop/12) Integrate loyalty plans"
+
 func withUIURL(cfg *config.Config) { cfg.UIURL = "https://mobius.example.com" }
 
 func TestTheBodyOfAPullRequestEndsWithTheLinkToTheLeadChat(t *testing.T) {
@@ -40,7 +43,7 @@ func TestCreateIssueEndsTheBodyWithTheLinkToTheLeadChatOfTheWorkstream(t *testin
 	if got := reply(t, server, session); got != "Created owner/shop#42." {
 		t.Errorf("reply = %q", got)
 	}
-	if _, body := fake.Issue(shop, 42); body != "Plans have a price.\n\n"+chatLink {
+	if _, body := fake.Issue(shop, 42); body != "Plans have a price.\n\n"+chatLink+"\n\n"+leadLinkMark {
 		t.Errorf("body = %q", body)
 	}
 }
@@ -52,7 +55,7 @@ func TestCreateIssueAddsNoLinkWithNoUIURL(t *testing.T) {
 
 	run(t, server, leadSpec(t), "Plan the work.")
 
-	if _, body := fake.Issue(shop, 13); body != "Plans have a price." {
+	if _, body := fake.Issue(shop, 13); body != marked("Plans have a price.", leadMark) {
 		t.Errorf("body = %q", body)
 	}
 }

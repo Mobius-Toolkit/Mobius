@@ -118,3 +118,15 @@ func TestTheReportIsTheTextAfterTheLastToolCall(t *testing.T) {
 		t.Errorf("report = %q", report)
 	}
 }
+
+func TestAFollowUpCommentWithAMarkBeforeTheMarkerIsAFollowUpWithTheBodyOfTheFinding(t *testing.T) {
+	t.Parallel()
+	trusted := func(login string) bool { return login != "mallory" }
+	thread := threadOf(false, "Name the unit.\n\n— Reviewer of #41"+followUpMarker, "mobius-app[bot]")
+
+	body, isFollowUp := followUpBody(thread, "mobius-app[bot]", trusted)
+
+	if !isFollowUp || body != "Name the unit." {
+		t.Errorf("followUpBody = %q, %t", body, isFollowUp)
+	}
+}

@@ -32,7 +32,7 @@ func TestTheCuratorCreatesATaskIssueWithTriageBelowTheMaintenanceWorkstream(t *t
 	if got := fake.SubIssueNumbers(shop, 20); !reflect.DeepEqual(got, []int64{41}) {
 		t.Errorf("sub-issues = %v", got)
 	}
-	if title, body := fake.Issue(shop, 41); title != "Fix the flaky test" || body != "The test fails in CI." {
+	if title, body := fake.Issue(shop, 41); title != "Fix the flaky test" || body != marked("The test fails in CI.", "— Curator") {
 		t.Errorf("issue = %q, %q", title, body)
 	}
 	if got := fake.Labels(shop, 41); !reflect.DeepEqual(got, []string{"mobius:triage"}) {
