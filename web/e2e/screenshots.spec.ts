@@ -512,6 +512,63 @@ test("screenshots", async ({ page }) => {
     main.getByText(/waits for the usage limit until/),
   ]);
   await page.unroute("**/api/chat?*");
+  const limitNotice =
+    "claude-code reached a usage limit. Mobius sends the prompt again at 2026-09-28 12:00 UTC.";
+  await page.route("**/api/chat?*", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as {
+      data: { writing: boolean; pausedUntil: string; messages: Record<string, unknown>[] };
+    };
+    body.data.writing = true;
+    body.data.pausedUntil = "2026-09-28T12:00:00Z";
+    const fields = {
+      action: null,
+      browserId: "",
+      deliveredAt: null,
+      images: 0,
+      inboxItems: [],
+      organization: "owner",
+      repository: "owner/shop",
+      stoppedAt: null,
+      workstream: 12,
+    };
+    body.data.messages.push(
+      {
+        ...fields,
+        id: 1_000_000,
+        author: "Owner",
+        text: "Show the prices of the roses first.",
+        time: "2026-09-28T09:40:00Z",
+      },
+      {
+        ...fields,
+        id: 1_000_001,
+        author: "Mobius",
+        text: limitNotice,
+        time: "2026-09-28T09:40:04Z",
+      },
+    );
+    await route.fulfill({ response, json: body });
+  });
+  const ownerNote = main.locator("[data-message]", {
+    hasText: "Show the prices of the roses first.",
+  });
+  const limitEnd = main.getByText(/^claude-code reached a usage limit\./);
+  await screenshot(
+    page,
+    "chat-usage-limit",
+    "/workstreams/owner/shop/12",
+    (device) => [
+      ...chatReady(device),
+      ownerNote.getByRole("img", { name: "Stored, waits for the agent" }),
+      limitEnd,
+    ],
+    async () => {
+      await expect(limitEnd).toBeVisible();
+      await ownerNote.evaluate((el) => el.scrollIntoView({ block: "start" }));
+    },
+  );
+  await page.unroute("**/api/chat?*");
   const stoppedRow = main.getByRole("listitem").filter({ hasText: "Add plan model" });
   const composer = main.locator("form");
   const clearComposer = async () => {
