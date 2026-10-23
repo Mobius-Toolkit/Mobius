@@ -1616,6 +1616,40 @@ test("the Autopilot sheet of the phone top bar sets the level", async ({ page })
   await expect(page.getByRole("button", { name: "Autopilot: Off" })).toBeVisible();
 });
 
+test("the Autopilot trigger of the phone top bar shows only the icon next to Tasks", async ({
+  page,
+}) => {
+  await page.setViewportSize(phone);
+  await page.goto(shop);
+
+  const trigger = page.getByRole("button", { name: "Autopilot: Off" });
+  const tasks = page.getByRole("button", { name: "Tasks", exact: true });
+  await expect(trigger).toBeVisible();
+  await expect(trigger).toHaveAttribute("title", "Autopilot: Off");
+  await expect(trigger).not.toContainText("Off");
+  const triggerBox = await trigger.boundingBox();
+  const tasksBox = await tasks.boundingBox();
+  const gap = (tasksBox?.x ?? 0) - ((triggerBox?.x ?? 0) + (triggerBox?.width ?? 0));
+  expect(gap).toBeGreaterThanOrEqual(0);
+  expect(gap).toBeLessThan(16);
+});
+
+test("the Autopilot trigger of the desktop chat head sits on the right edge with the level name", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(shop);
+
+  const trigger = page.getByRole("button", { name: "Autopilot: Off" });
+  const header = page.getByRole("main").locator("section > header").first();
+  await expect(trigger).toBeVisible();
+  await expect(trigger).toContainText("Off");
+  const triggerBox = await trigger.boundingBox();
+  const headerBox = await header.boundingBox();
+  const edge = (headerBox?.x ?? 0) + (headerBox?.width ?? 0);
+  expect(edge - ((triggerBox?.x ?? 0) + (triggerBox?.width ?? 0))).toBeLessThan(24);
+});
+
 test("a refused Autopilot level shows the error and keeps the old level", async ({ page }) => {
   await page.route("**/api/workstreams/owner/shop/12/autopilot", (route) =>
     route.fulfill({ status: 409, json: { error: "The Workstream cannot merge." } }),
