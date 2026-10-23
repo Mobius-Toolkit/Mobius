@@ -285,6 +285,9 @@ export function AnswerPanel({
           </div>
         ) : (
           <div className="grid content-start gap-2 overflow-y-auto px-4 pb-4">
+            <span className="text-muted-foreground">
+              {workstream} · {dayClock(item.time)}
+            </span>
             <Markdown text={item.text} />
             {item.questions.map((question, index) => (
               <Options
@@ -294,9 +297,6 @@ export function AnswerPanel({
                 toggle={(option) => toggle(index, option)}
               />
             ))}
-            <span className="text-muted-foreground">
-              {workstream} · {dayClock(item.time)}
-            </span>
             {item.reportUrl && (
               <a href={item.reportUrl} target="_blank" rel="noreferrer" className={link}>
                 Approval report

@@ -166,11 +166,8 @@ func TestAChangeOfTheLevelToOffStopsTheAutomaticMergeAndTheMergeButtonMerges(t *
 
 	testkit.WaitFor(t, func() bool {
 		items := itemsOf(t, server, "ready for review")
-		return len(items) == 1 && !items[0].Merging && items[0].MergeRefusal == mergeOff
+		return len(items) == 1 && !items[0].Merging && items[0].MergeRefusal == mergeOff && autoMerge(t, server) == 0
 	})
-	if got := autoMerge(t, server); got != 0 {
-		t.Errorf("auto_merge = %d", got)
-	}
 	fake.SetCheckRunStatus(build, "completed", "success")
 	waitForPolls(t, fake)
 	if calls, state := fake.MergeCalls(), taskState(t, server); calls != 0 || state != "ready_for_review" {

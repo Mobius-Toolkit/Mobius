@@ -141,7 +141,7 @@ func TestTheCoordinatorCallsMessageLeadAndTheLeadGetsTheTextOnlyAfterTheOwnerApp
 	}
 	items := itemsOf(t, server, "approval")
 	if len(items) != 1 || items[0].Title != "Message to the Lead of #12 Integrate loyalty plans" || items[0].Reason != "Waits for your approval" ||
-		items[0].Text != "text: Create the task issues.\nworkstream: 12" || items[0].Action == nil || items[0].Action.ID != action.ID {
+		items[0].Text != "workstream: 12\ntext: Create the task issues." || items[0].Action == nil || items[0].Action.ID != action.ID {
 		t.Errorf("items = %+v", items)
 	}
 	cards := slices.DeleteFunc(chatLines(t, server, coordinatorChat), func(line chatLine) bool { return line.Author != "Action" })
@@ -204,8 +204,8 @@ func TestTheChatAndTheInboxGiveTheActionOfACard(t *testing.T) {
 		}
 	}
 	if found == nil || found.ID != action.ID || found.State != "pending" || len(found.Arguments) != 2 ||
-		found.Arguments[0].Name != "text" || found.Arguments[0].Value != "Create the task issues." ||
-		found.Arguments[1].Name != "workstream" || found.Arguments[1].Value != "12" {
+		found.Arguments[0].Name != "workstream" || found.Arguments[0].Value != "12" ||
+		found.Arguments[1].Name != "text" || found.Arguments[1].Value != "Create the task issues." {
 		t.Errorf("action = %+v", found)
 	}
 }
@@ -356,7 +356,7 @@ func TestASecondCallOfMessageLeadReplacesTheWaitingActionAndDismissesItsItem(t *
 		t.Errorf("rows = %+v", rows)
 	}
 	items := itemsOf(t, server, "approval")
-	if len(items) != 1 || items[0].Action == nil || items[0].Action.ID != second.ID || items[0].Text != "text: Second text.\nworkstream: 12" {
+	if len(items) != 1 || items[0].Action == nil || items[0].Action.ID != second.ID || items[0].Text != "workstream: 12\ntext: Second text." {
 		t.Errorf("items = %+v", items)
 	}
 	if status, _ := decide(t, server, first.ID, "approve", ""); status != http.StatusConflict {
@@ -457,7 +457,7 @@ func TestTheCoordinatorCallsCreateWorkstreamAndGitHubGetsTheIssueOnlyAfterTheOwn
 		t.Errorf("action = %+v, issue = %v", action, fake.HasIssue(shop, 13))
 	}
 	items := itemsOf(t, server, "approval")
-	wantText := "brief: Keep the code healthy.\nlabels: [\"mobius:maintenance\"]\ntitle: Upkeep"
+	wantText := "title: Upkeep\nlabels: [\"mobius:maintenance\"]\nbrief: Keep the code healthy."
 	if len(items) != 1 || items[0].Title != `Create the Workstream "Upkeep"` || items[0].Text != wantText {
 		t.Errorf("items = %+v", items)
 	}
@@ -581,7 +581,7 @@ func TestTheLeadCallsEditBriefAndTheBriefChangesOnlyAfterTheOwnerApproves(t *tes
 	}
 	items := itemsOf(t, server, "approval")
 	if len(items) != 1 || items[0].Title != "Change the Brief of #12 Integrate loyalty plans" || items[0].Repository != shop || items[0].Workstream != 12 ||
-		items[0].Text != "brief: Ship loyalty plans and gift cards.\nreason: Gift cards are in scope." {
+		items[0].Text != "reason: Gift cards are in scope.\nbrief: Ship loyalty plans and gift cards." {
 		t.Errorf("items = %+v", items)
 	}
 
