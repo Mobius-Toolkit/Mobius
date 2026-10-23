@@ -92,6 +92,13 @@ func (f *bucketFill) run(ctx context.Context, pending []store.ListWorkstreamBuck
 		if err != nil {
 			return err
 		}
+		if issue == nil {
+			err := f.engine.queries.DeleteWorkstreamBucket(ctx, store.DeleteWorkstreamBucketParams{Repository: f.repository.FullName, Issue: row.Issue})
+			if err != nil {
+				return err
+			}
+			continue
+		}
 		if err := f.complete(ctx, issue, row.Closed); err != nil {
 			return err
 		}

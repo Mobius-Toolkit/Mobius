@@ -241,3 +241,25 @@ func TestAFailedCloseOfANewClosedBucketMakesNoSecondBucketAndTheNextPollFinishes
 		t.Errorf("state of #151 = %q, sub-issues of #151 = %v, #153 = %t", state, got, fake.HasIssue(shop, 153))
 	}
 }
+
+func TestABucketIssueThatGitHubNoLongerHasLosesItsRowAndTheNextPollMovesTheSubIssues(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addBucketWorkstream(fake)
+	addSubIssues(fake, 12, 100, 150, 100)
+	fake.FailAddSubIssue(shop, 12, true)
+	startCopied(t, fake)
+
+	waitForPolls(t, fake)
+	if !fake.HasIssue(shop, 151) {
+		t.Fatal("issue #151 does not exist")
+	}
+
+	fake.GoneIssue(shop, 151)
+	fake.FailAddSubIssue(shop, 12, false)
+
+	waitForThirtyDirectSubIssues(t, fake)
+	if got := sorted(fake.SubIssueNumbers(shop, 152)); !slices.Equal(got, numbers(100, 121)) {
+		t.Errorf("sub-issues of #152 = %v", got)
+	}
+}
