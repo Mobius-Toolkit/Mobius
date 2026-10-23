@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // PullRequest is a pull request that the fake GitHub opened.
@@ -26,6 +27,8 @@ type CheckRun struct {
 	// Conclusion is "" while the check run runs.
 	Conclusion string
 	Output     *CheckRunOutput
+	// StartedAt is the start of the check run. The zero time gives no started_at.
+	StartedAt time.Time
 }
 
 // CheckRunOutput is the title and the summary of a check run.
@@ -48,6 +51,8 @@ type WorkflowRun struct {
 	Status  string
 	// Conclusion is "" while the workflow run runs.
 	Conclusion string
+	// CreatedAt is the creation of the workflow run. The zero time gives no created_at.
+	CreatedAt time.Time
 }
 
 type workflowRun struct {
@@ -628,7 +633,7 @@ func (g *FakeGitHub) createCheckRun(w http.ResponseWriter, r *http.Request) {
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	g.checkRuns = append(g.checkRuns, checkRun{repository(r), CheckRun{request.Name, request.HeadSHA, request.Status, request.Conclusion, request.Output}})
+	g.checkRuns = append(g.checkRuns, checkRun{repository(r), CheckRun{request.Name, request.HeadSHA, request.Status, request.Conclusion, request.Output, time.Time{}}})
 	writeJSON(w, http.StatusCreated, map[string]any{"id": len(g.checkRuns)})
 }
 
@@ -712,6 +717,9 @@ func (g *FakeGitHub) commitCheckRuns(w http.ResponseWriter, r *http.Request) {
 		if run.Conclusion != "" {
 			body["conclusion"] = run.Conclusion
 		}
+		if !run.StartedAt.IsZero() {
+			body["started_at"] = run.StartedAt.UTC().Format(time.RFC3339)
+		}
 		if slug, ok := g.checkRunApps[id]; ok {
 			body["app"] = map[string]string{"slug": slug}
 		}
@@ -781,6 +789,9 @@ func (g *FakeGitHub) listWorkflowRuns(w http.ResponseWriter, r *http.Request) {
 		}
 		if run.Conclusion != "" {
 			body["conclusion"] = run.Conclusion
+		}
+		if !run.CreatedAt.IsZero() {
+			body["created_at"] = run.CreatedAt.UTC().Format(time.RFC3339)
 		}
 		runs = append(runs, body)
 	}

@@ -41,6 +41,18 @@ type PendingAction struct {
 	OldBrief string `gork:"oldBrief"`
 	// DecidedAt is the time when the action was done, rejected, replaced or withdrawn, or null
 	DecidedAt *time.Time `gork:"decidedAt"`
+	// Sender is the Workstream of the Lead that made the action. It is null for the other roles
+	Sender *ActionSender `gork:"sender"`
+}
+
+// ActionSender is the Workstream of the Lead that made an action.
+type ActionSender struct {
+	// Repository is the full name (owner/name) of the repository of the Workstream issue
+	Repository string `gork:"repository"`
+	// Number is the number of the Workstream issue
+	Number int64 `gork:"number"`
+	// Title is the title of the Workstream issue in the local copy, or empty when the copy has no such Workstream
+	Title string `gork:"title"`
 }
 
 // ActionArgument is an argument of a pending action.
@@ -73,7 +85,7 @@ type ApproveActionResponse struct {
 // a chat message. It returns 404 for an unknown action, and 409 for an action that is not pending.
 func (h *handlers) ApproveAction(ctx context.Context, req ApproveActionRequest) (*ApproveActionResponse, error) {
 	action, err := h.engine.ApproveAction(ctx, req.Path.ID, req.Body.Message)
-	found, err := h.decided(action, err)
+	found, err := h.decided(ctx, action, err)
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +113,7 @@ type RejectActionResponse struct {
 // message. It returns 404 for an unknown action, and 409 for an action that is not pending.
 func (h *handlers) RejectAction(ctx context.Context, req RejectActionRequest) (*RejectActionResponse, error) {
 	action, err := h.engine.RejectAction(ctx, req.Path.ID, req.Body.Message)
-	found, err := h.decided(action, err)
+	found, err := h.decided(ctx, action, err)
 	if err != nil {
 		return nil, err
 	}
@@ -143,7 +155,7 @@ func (h *handlers) GetActionBrief(ctx context.Context, req GetActionBriefRequest
 	return &GetActionBriefResponse{Body: Envelope[ActionBrief]{Data: ActionBrief{Brief: brief}}}, nil
 }
 
-func (h *handlers) decided(action store.PendingAction, err error) (PendingAction, error) {
+func (h *handlers) decided(ctx context.Context, action store.PendingAction, err error) (PendingAction, error) {
 	if errors.Is(err, engine.ErrNoAction) {
 		return PendingAction{}, api.NewHTTPError(http.StatusNotFound, "There is no such action.")
 	}
@@ -153,10 +165,10 @@ func (h *handlers) decided(action store.PendingAction, err error) (PendingAction
 	if err != nil {
 		return PendingAction{}, err
 	}
-	return actionOf(action)
+	return h.actionOf(ctx, action)
 }
 
-func actionOf(action store.PendingAction) (PendingAction, error) {
+func (h *handlers) actionOf(ctx context.Context, action store.PendingAction) (PendingAction, error) {
 	t, err := time.Parse(time.RFC3339Nano, action.Time)
 	if err != nil {
 		return PendingAction{}, err
@@ -187,6 +199,14 @@ func actionOf(action store.PendingAction) (PendingAction, error) {
 		}
 		found.DecidedAt = &decidedAt
 	}
+	if action.Role == "lead" {
+		found.Sender = &ActionSender{Repository: action.Repository, Number: action.Workstream}
+		workstream, err := h.queries.GetCopiedWorkstream(ctx, store.GetCopiedWorkstreamParams{Repository: action.Repository, Number: action.Workstream})
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return PendingAction{}, err
+		}
+		found.Sender.Title = workstream.Title
+	}
 	return found, nil
 }
 
@@ -200,7 +220,7 @@ func (h *handlers) actionOfMessage(ctx context.Context, message store.ChatMessag
 	if err != nil {
 		return nil, err
 	}
-	found, err := actionOf(action)
+	found, err := h.actionOf(ctx, action)
 	return &found, err
 }
 
@@ -214,6 +234,6 @@ func (h *handlers) actionOfItem(ctx context.Context, item store.InboxItem) (*Pen
 	if err != nil {
 		return nil, err
 	}
-	found, err := actionOf(action)
+	found, err := h.actionOf(ctx, action)
 	return &found, err
 }

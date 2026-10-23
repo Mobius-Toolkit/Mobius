@@ -1385,7 +1385,7 @@ func (e *Engine) firstPrompt(ctx context.Context, key ChatKey, first item) (stri
 		if err != nil {
 			return "", nil, err
 		}
-		return fmt.Sprintf("%s\n%s\n%s%s# %s message\n\n%s", coordinatorPrompt, workstreams, requests, history, first.message.Author, text), images, nil
+		return fmt.Sprintf("%s\n%s%s\n%s%s# %s message\n\n%s", coordinatorPrompt, serverSection(), workstreams, requests, history, first.message.Author, text), images, nil
 	}
 	repository, err := e.repository(key.Repository)
 	if err != nil {

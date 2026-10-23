@@ -10,6 +10,7 @@ export const editBrief = "Edit the Brief of the Lead of #14.";
 export const editBriefRule = "Edit the Brief rule of the Lead of #14.";
 export const editBriefTable = "Edit the Brief table of the Lead of #14.";
 export const restoreBriefMessage = "Restore the Brief of the Lead of #14.";
+export const messageLeadOfTwelve = "Tell the Lead of #12 to wait for the migration.";
 export const stopUnknown = "Tell the Lead of #9999 to stop.";
 export const askStore = "Ask which store and which checks.";
 export const askDraft = "Ask whether to draft the Workstream.";
@@ -25,11 +26,13 @@ export const keepText = "The Owner decided that the prices stay in cents.";
 export const dropText = "Drop the old price column of the plan table";
 export const historyText = "Add a history of the plan prices.";
 export const historyTableText = "Add a table with the history of the plan prices.";
+export const waitText = "Wait for the migration of #14 before you start the price table.";
 export const unknownText = "Stop the work.";
 
 export const briefTitle = "Change the Brief of #14 Early renewals";
 export const createTitle = 'Create the Workstream "Gift cards"';
 export const leadTitle = "Message to the Lead of #14 Early renewals";
+export const leadToLeadTitle = "Message to the Lead of #12 Integrate loyalty plans";
 export const unknownTitle = "Message to the Lead of #9999";
 
 export async function ask(page: Page, text: string) {
