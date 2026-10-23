@@ -331,3 +331,159 @@ func TestAWorktreeKeepsARepositorySkillThatItAlreadyHasAndLeavesNoChangeForACopi
 		t.Errorf("uncommitted changes = %v, %v", found, err)
 	}
 }
+
+func skillWithRoles(roles string) string {
+	return "---\nname: probe\ndescription: Probe.\nmetadata:\n  roles: " + roles + "\n---\nUse it.\n"
+}
+
+func implementerSkillsReply(t *testing.T, fake *testkit.FakeGitHub) string {
+	t.Helper()
+	server, _ := connectTask(t, fake, leadStarts, "[[prompts]]\nshell = \"ls .agents/skills && echo cents > plan.txt && git add -A && git commit -q -m 'Add plan model'\"\n", noChange)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	return reply(t, server, endedImplementers(t, server, 1)[0].ID)
+}
+
+func leadOnlyFake(t *testing.T) *testkit.FakeGitHub {
+	t.Helper()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddRepository(skills)
+	fake.CommitFile(skills, "probe/SKILL.md", "Probe the price in cents.", "Add probe")
+	fake.CommitFile(skills, "lead-only/SKILL.md", skillWithRoles("lead"), "Add lead-only")
+	return fake
+}
+
+func TestALeadSkillGoesToTheLeadChat(t *testing.T) {
+	t.Parallel()
+	server, _ := connect(t, leadOnlyFake(t), "[[prompts]]\nshell = \"ls .claude/skills\"\n")
+
+	_, text := leadReply(t, server)
+
+	if !strings.Contains(text, "probe") || !strings.Contains(text, "lead-only") {
+		t.Errorf("reply = %q", text)
+	}
+}
+
+func TestALeadSkillDoesNotGoToAnImplementer(t *testing.T) {
+	t.Parallel()
+
+	text := implementerSkillsReply(t, leadOnlyFake(t))
+
+	if !strings.Contains(text, "probe") || strings.Contains(text, "lead-only") {
+		t.Errorf("reply = %q", text)
+	}
+}
+
+func pairFake(t *testing.T) *testkit.FakeGitHub {
+	t.Helper()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddRepository(skills)
+	fake.CommitFile(skills, "pair/SKILL.md", skillWithRoles("implementer, reviewer"), "Add pair")
+	return fake
+}
+
+func TestASkillWithTwoRolesGoesToAnImplementer(t *testing.T) {
+	t.Parallel()
+
+	if text := implementerSkillsReply(t, pairFake(t)); !strings.Contains(text, "pair") {
+		t.Errorf("reply = %q", text)
+	}
+}
+
+func TestASkillWithTwoRolesGoesToAReviewerAndNotToTheLead(t *testing.T) {
+	t.Parallel()
+	server, _ := connect(t, pairFake(t), "[[prompts]]\nshell = \"ls .claude/skills && echo done\"\n")
+	reviewer := engine.Spec{Role: engine.ReviewerRole, Organization: "owner", Dir: t.TempDir()}
+
+	review := reply(t, server, run(t, server, reviewer, "Read the work"))
+	_, lead := leadReply(t, server)
+
+	if !strings.Contains(review, "pair") {
+		t.Errorf("reviewer reply = %q", review)
+	}
+	if strings.Contains(lead, "pair") {
+		t.Errorf("lead reply = %q", lead)
+	}
+}
+
+func sharedFake(t *testing.T) *testkit.FakeGitHub {
+	t.Helper()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddRepository(skills)
+	fake.CommitFile(skills, "shared/SKILL.md", "Share in general.", "Add shared")
+	fake.CommitFile(skills, "repos/shop/shared/SKILL.md", "---\nmetadata:\n  roles: lead\n---\nShare in the shop.\n", "Add shared of the shop")
+	return fake
+}
+
+func TestARepositorySkillThatTheRoleFilterKeepsReplacesTheGeneralSkill(t *testing.T) {
+	t.Parallel()
+	server, _ := connect(t, sharedFake(t), "[[prompts]]\nshell = \"cat .claude/skills/shared/SKILL.md\"\n")
+
+	_, text := leadReply(t, server)
+
+	if !strings.Contains(text, "Share in the shop.") || strings.Contains(text, "Share in general.") {
+		t.Errorf("reply = %q", text)
+	}
+}
+
+func TestARepositorySkillThatTheRoleFilterRemovesAlsoHidesTheGeneralSkillOfTheSameName(t *testing.T) {
+	t.Parallel()
+
+	if text := implementerSkillsReply(t, sharedFake(t)); strings.Contains(text, "shared") {
+		t.Errorf("reply = %q", text)
+	}
+}
+
+func TestACoordinatorGetsAGeneralSkillForItsRoleAndNotOneForTheLead(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddRepository(skills)
+	fake.CommitFile(skills, "for-coordinator/SKILL.md", skillWithRoles("coordinator"), "Add for-coordinator")
+	fake.CommitFile(skills, "for-lead/SKILL.md", skillWithRoles("lead"), "Add for-lead")
+	server, _ := connect(t, fake, "[[prompts]]\nshell = \"ls .claude/skills\"\n")
+	spec := engine.Spec{Role: engine.CoordinatorRole, Organization: "owner", Dir: t.TempDir()}
+
+	text := reply(t, server, run(t, server, spec, "Read the work"))
+
+	if !strings.Contains(text, "for-coordinator") || strings.Contains(text, "for-lead") {
+		t.Errorf("reply = %q", text)
+	}
+}
+
+func TestASkillWithNoFrontmatterOrInvalidFrontmatterGoesToEachRole(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddRepository(skills)
+	fake.CommitFile(skills, "plain/SKILL.md", "Plain text.", "Add plain")
+	fake.CommitFile(skills, "broken/SKILL.md", "---\nmetadata: [unclosed\n---\nBroken.\n", "Add broken")
+
+	text := implementerSkillsReply(t, fake)
+
+	if !strings.Contains(text, "plain") || !strings.Contains(text, "broken") {
+		t.Errorf("reply = %q", text)
+	}
+}
+
+func TestAWorktreeLeavesNoExcludePatternAndNoChangeForASkillThatTheRoleFilterRemoves(t *testing.T) {
+	t.Parallel()
+	fake := leadOnlyFake(t)
+	implementer := "[[prompts]]\nshell = \"cat .agents/skills/probe/SKILL.md && echo cents > plan.txt && git add -A && git commit -q -m 'Add plan model'\"\n"
+	server, dataDir := connectTask(t, fake, leadStarts, implementer, noChange)
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	endedImplementers(t, server, 1)
+
+	worktree := filepath.Join(dataDir, "worktrees", "owner", "shop", "task-41")
+	if _, err := os.Stat(filepath.Join(worktree, ".agents", "skills", "lead-only")); !os.IsNotExist(err) {
+		t.Errorf("skill folder error = %v", err)
+	}
+	if got := testkit.Git(t, worktree, "status", "--porcelain"); got != "" {
+		t.Errorf("status = %q", got)
+	}
+	excluded, err := runner.Excluded(context.Background(), dataDir, worktree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(excluded) != 1 || excluded[0] != "/.agents/skills/probe/" {
+		t.Errorf("exclude patterns = %q", excluded)
+	}
+}
