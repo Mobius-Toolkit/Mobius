@@ -288,6 +288,7 @@ export function Memory({ owner, name }: { owner: string; name: string }) {
                 onClick={() => {
                   setBase(versions[0]?.id ?? 0);
                   setDraft(current);
+                  setSaveError(undefined);
                 }}
               >
                 Edit
