@@ -1,4 +1,4 @@
-import { expect, test, type Locator } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 const versionsOf = (main: Locator) =>
   main.getByRole("heading", { name: "History" }).locator("xpath=following-sibling::ul/li");
@@ -31,31 +31,53 @@ test("the Owner sees the repositories of each organization in a section and open
   await expect(page.getByText("Memory of plants/garden").filter({ visible: true })).toBeVisible();
 });
 
-test("the Owner edits the memory file, sees the 200-line error, and reverts the edit", async ({
+test("the Owner edits the memory file in a dialog, sees the 200-line error, and reverts the edit", async ({
   page,
 }) => {
-  const main = page.getByRole("main");
+  const main = page.locator("main");
+  const dialog = page.getByRole("dialog", {
+    name: "Edit the memory of plants/garden",
+    includeHidden: true,
+  });
+  const field = dialog.getByLabel("Memory text");
   await page.goto("/settings/memory/plants/garden");
   await expect(main.getByText("The memory file is empty.")).toBeVisible();
   await expect(main.getByText("The memory file has no version.")).toBeVisible();
 
   await main.getByRole("button", { name: "Edit" }).click();
-  await main.getByLabel("Memory text").fill("Water the roses in the morning.\n");
-  await main.getByRole("button", { name: "Save" }).click();
+  await expect(field).toBeEditable();
+  await expect(main.getByText("Current text", { exact: true })).toBeVisible();
+  await expect(main.locator("button", { hasText: "Edit" })).toBeVisible();
+  await expect(main.getByText("The memory file is empty.")).toBeVisible();
+  await field.fill("Water the roses in the morning.\n");
+  await dialog.getByRole("button", { name: "Save" }).click();
+  await expect(dialog).toBeHidden();
   await expect(main.getByText("Water the roses in the morning.").first()).toBeVisible();
   await expect(main.locator("ins", { hasText: "Water the roses in the morning." })).toBeVisible();
   await expect(main.getByText("owner", { exact: true })).toBeVisible();
 
   await main.getByRole("button", { name: "Edit" }).click();
-  await main.getByLabel("Memory text").fill("Water the roses.\n".repeat(201));
-  await main.getByRole("button", { name: "Save" }).click();
-  await expect(main.getByText("the maximum is 200")).toBeVisible();
-  await main.getByRole("button", { name: "Cancel" }).click();
+  await expect(field).toBeEditable();
+  await field.fill("Water the roses.\n".repeat(201));
+  await dialog.getByRole("button", { name: "Save" }).click();
+  await expect(dialog.getByText("the maximum is 200")).toBeVisible();
   await expect(main.getByText("the maximum is 200")).toBeHidden();
+  await expect(field).toHaveValue("Water the roses.\n".repeat(201));
+
+  const discard = page.getByRole("dialog", { name: "Discard your changes?" });
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(discard).toBeVisible();
+  await discard.getByRole("button", { name: "Discard" }).click();
+  await expect(dialog).toBeHidden();
+  await expect(discard).toBeHidden();
+  await expect(main.getByText("Water the roses in the morning.").first()).toBeVisible();
 
   await main.getByRole("button", { name: "Edit" }).click();
-  await main.getByLabel("Memory text").fill("Water the roses at noon.\n");
-  await main.getByRole("button", { name: "Save" }).click();
+  await expect(field).toBeEditable();
+  await expect(dialog.getByText("the maximum is 200")).toBeHidden();
+  await field.fill("Water the roses at noon.\n");
+  await dialog.getByRole("button", { name: "Save" }).click();
+  await expect(dialog).toBeHidden();
   await expect(main.locator("ins", { hasText: "at noon" })).toBeVisible();
   await expect(main.getByText("A later version changed this part. Edit the file.")).toBeVisible();
   const reverts = main.getByRole("button", { name: "Revert" });
@@ -67,7 +89,8 @@ test("the Owner edits the memory file, sees the 200-line error, and reverts the 
   await expect(main.getByText("Water the roses in the morning.").first()).toBeVisible();
 
   await main.getByRole("button", { name: "Edit" }).click();
-  await main.getByLabel("Memory text").fill("My text.\n");
+  await expect(field).toBeEditable();
+  await field.fill("My text.\n");
   await page.evaluate(`(async () => {
     const url = "/api/repositories/plants/garden/memory";
     const listed = await fetch(url).then((response) => response.json());
@@ -77,11 +100,118 @@ test("the Owner edits the memory file, sees the 200-line error, and reverts the 
       body: JSON.stringify({ text: "Other text.\\n", base_version: listed.data.versions[0].id }),
     });
   })()`);
-  await main.getByRole("button", { name: "Save" }).click();
+  await dialog.getByRole("button", { name: "Save" }).click();
+  await expect(
+    dialog.getByText("The memory file changed after the start of your edit."),
+  ).toBeVisible();
   await expect(
     main.getByText("The memory file changed after the start of your edit."),
-  ).toBeVisible();
-  await expect(main.getByLabel("Memory text")).toHaveValue("My text.\n");
+  ).toBeHidden();
+  await expect(field).toHaveValue("My text.\n");
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await page
+    .getByRole("dialog", { name: "Discard your changes?" })
+    .getByRole("button", { name: "Discard" })
+    .click();
+  await expect(dialog).toBeHidden();
+});
+
+// Closes the discard dialog without a discard, with the same kind of action that closed the edit dialog.
+const closeDialogOf = async (close: string, page: Page, discard: Locator) => {
+  const keep = discard.getByRole("button", { name: "Keep editing" });
+  await expect(keep).toBeFocused();
+  if (close === "Cancel") {
+    await keep.click();
+  } else if (close === "Escape") {
+    await page.keyboard.press("Escape");
+  } else {
+    await page.mouse.click(2, 2);
+  }
+};
+
+for (const close of ["Cancel", "Escape", "Outside"]) {
+  test(`${close} closes the edit dialog at once with no change, and asks to discard a change`, async ({
+    page,
+  }) => {
+    const main = page.locator("main");
+    const dialog = page.getByRole("dialog", {
+      name: "Edit the memory of owner/shop",
+      includeHidden: true,
+    });
+    const field = dialog.getByLabel("Memory text");
+    const discard = page.getByRole("dialog", { name: "Discard your changes?" });
+    const closeDialog = async () => {
+      if (close === "Cancel") {
+        await dialog.getByRole("button", { name: "Cancel" }).click();
+      } else if (close === "Escape") {
+        await page.keyboard.press("Escape");
+      } else {
+        await page.mouse.click(2, 2);
+      }
+    };
+    let saves = 0;
+    await page.route(
+      (url) => url.pathname === "/api/repositories/owner/shop/memory",
+      (route) => {
+        if (route.request().method() === "PUT") {
+          saves++;
+        }
+        return route.fallback();
+      },
+    );
+    await page.goto("/settings/memory/owner/shop");
+    const current = main.locator("section").first().locator("div.rounded-lg");
+    await expect(current).toContainText("Run make fmt before each commit and each push.");
+
+    await main.getByRole("button", { name: "Edit" }).click();
+    await expect(field).toBeEditable();
+    await closeDialog();
+    await expect(dialog).toBeHidden();
+    await expect(discard).toBeHidden();
+
+    await main.getByRole("button", { name: "Edit" }).click();
+    await expect(field).toBeEditable();
+    const text = await field.inputValue();
+    await field.fill(`${text}Another line.\n`);
+    await closeDialog();
+    await expect(discard).toBeVisible();
+    await expect(dialog).toBeVisible();
+
+    await closeDialogOf(close, page, discard);
+    await expect(discard).toBeHidden();
+    await expect(dialog).toBeVisible();
+    await expect(field).toHaveValue(`${text}Another line.\n`);
+    await expect(page.getByRole("dialog", { name: "Edit the memory of owner/shop" })).toBeVisible();
+
+    await closeDialog();
+    await discard.getByRole("button", { name: "Discard" }).click();
+    await expect(dialog).toBeHidden();
+    await expect(discard).toBeHidden();
+    await expect(current).not.toContainText("Another line.");
+    expect(saves).toBe(0);
+  });
+}
+
+test("the edit dialog has the full width and sits at the bottom of a phone viewport", async ({
+  page,
+}) => {
+  const main = page.locator("main");
+  const dialog = page.getByRole("dialog", {
+    name: "Edit the memory of owner/shop",
+    includeHidden: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/settings/memory/owner/shop");
+  await main.getByRole("button", { name: "Edit" }).click();
+  await expect(dialog.getByLabel("Memory text")).toBeEditable();
+
+  await expect
+    .poll(async () => {
+      const box = await dialog.boundingBox();
+      return { x: box!.x, width: box!.width, bottom: box!.y + box!.height, top: box!.y };
+    })
+    .toMatchObject({ x: 0, width: 390, bottom: 844 });
+  expect((await dialog.boundingBox())!.y).toBeGreaterThanOrEqual(32);
 });
 
 const text = (...lines: string[]) => lines.map((line) => `${line}\n`).join("");

@@ -12,6 +12,7 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { roleName, type Decision } from "@/lib/actions";
 import { answerDraftKey, saveDraftText } from "@/lib/draft";
+import { useKeyboardHeight } from "@/lib/keyboard";
 import { LoginContext } from "@/lib/login";
 import { useShell } from "@/lib/shell";
 import { clock, dayClock } from "@/lib/time";
@@ -21,30 +22,6 @@ import { FullArgument } from "./ActionCard";
 import { link } from "./Inbox";
 import { Markdown } from "./Markdown";
 import { MessageInput } from "./MessageInput";
-
-// The keyboard of a phone covers the bottom of the layout viewport and does not resize it. --keyboard is the height
-// of the covered part.
-function useKeyboardHeight() {
-  useEffect(() => {
-    const viewport = window.visualViewport;
-    if (!viewport) {
-      return;
-    }
-    const update = () =>
-      document.documentElement.style.setProperty(
-        "--keyboard",
-        `${Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop)}px`,
-      );
-    update();
-    viewport.addEventListener("resize", update);
-    viewport.addEventListener("scroll", update);
-    return () => {
-      viewport.removeEventListener("resize", update);
-      viewport.removeEventListener("scroll", update);
-      document.documentElement.style.removeProperty("--keyboard");
-    };
-  }, []);
-}
 
 // The options of a question as buttons. A click selects or clears an option. In a single choice, a click on an option
 // clears the other option.
