@@ -150,11 +150,11 @@ func ghWrites(args []string, stdin io.Reader) ([]mcp.GHWrite, io.Reader, error) 
 	switch {
 	case args[1] == "edit":
 		for _, target := range parsed.targets() {
-			if labels := parsed.labels("add-label"); len(labels) > 0 {
-				writes = append(writes, withKind(target, "labeled", labels, ""))
+			for _, label := range parsed.labels("add-label") {
+				writes = append(writes, withKind(target, "labeled", []string{label}, ""))
 			}
-			if labels := parsed.labels("remove-label"); len(labels) > 0 {
-				writes = append(writes, withKind(target, "unlabeled", labels, ""))
+			for _, label := range parsed.labels("remove-label") {
+				writes = append(writes, withKind(target, "unlabeled", []string{label}, ""))
 			}
 		}
 	case args[0] == "issue" && args[1] == "create":

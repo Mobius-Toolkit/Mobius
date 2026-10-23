@@ -390,3 +390,67 @@ func TestACommentOfTheLeadAfterAnAnswerOfTheOwnerDoesNotHideTheAnswer(t *testing
 		})
 	}
 }
+
+func TestACommentOfTheLeadThatTheSamePollReadsWithAnAnswerOfTheOwnerDoesNotHideTheAnswer(t *testing.T) {
+	t.Parallel()
+	for _, recorded := range []bool{true, false} {
+		t.Run(fmt.Sprintf("recorded=%t", recorded), func(t *testing.T) {
+			t.Parallel()
+			fake := testkit.NewFakeGitHub(t)
+			prepareAutopilot(fake, true)
+			addTaskIssue(fake, 41, "Add plan model")
+			dataDir := t.TempDir()
+			script := "[[prompts]]\nwhen = \"dispatch of #41\"\ncall = { tool = \"ask\", arguments = { repository = \"owner/shop\", n = 41, text = \"Cents or dollars?\" } }\n" +
+				leadWriteScript("gh issue comment 41 -R owner/shop --body 'Looking into it.'") + "\n[[prompts]]\nreply = [\"Seen\"]\n"
+			testkit.InstallFakeAgent(t, dataDir, options+script)
+			stubGH(t, dataDir)
+			cfg := testserver.Config(t, dataDir)
+			cfg.Roles.Implementer.Max = 1
+			keepSessionOpen(cfg)
+			server := startServerWith(t, fake, cfg, "")
+			testkit.WaitFor(t, func() bool { return taskState(t, server) == "asked" })
+			if recorded {
+				leadWrites(t, server, 1)
+			}
+			commentReads := func() int {
+				reads := 0
+				for _, request := range fake.Requests() {
+					if strings.HasSuffix(request.Path, "/issues/comments") {
+						reads++
+					}
+				}
+				return reads
+			}
+			before := commentReads()
+			release := fake.HoldNext("GET /repos/{owner}/{repo}/issues/comments")
+
+			fake.AddComment(shop, 41, "owner", "Cents.")
+			testkit.WaitFor(t, func() bool { return commentReads() > before })
+			fake.AddComment(shop, 41, app, "Looking into it.")
+			release()
+
+			if recorded {
+				testkit.WaitFor(t, func() bool { return taskState(t, server) != "asked" })
+				return
+			}
+			waitForPolls(t, fake)
+			if state := taskState(t, server); state != "asked" {
+				t.Errorf("state = %s", state)
+			}
+		})
+	}
+}
+
+func TestTheSecondLabelOfOneAddOfTheLeadHasTheEffectOfTheAddOfAPerson(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := connectLeadWrites(t, fake, "gh issue edit 12 -R owner/shop --add-label bug,mobius:autopilot")
+	leadWrites(t, server, 1)
+
+	fake.AddLabel(shop, 12, "bug", app)
+	fake.AddLabel(shop, 12, "mobius:autopilot", app)
+
+	testkit.WaitFor(t, func() bool {
+		return workstreams(t, server)[0].Autopilot == "start" && len(autopilotEvents(t, server)) == 1
+	})
+}

@@ -225,8 +225,8 @@ func TestTheGHSendsTheWritesOfEachSubcommandBeforeItRunsTheRealGH(t *testing.T) 
 		"edit labels of two issues": {
 			args: []string{"issue", "edit", "12", "#13", "-R", "owner/shop", "--add-label", "a,b", "--remove-label=c", "--add-label", "d"},
 			want: []string{
-				write(12, "labeled", `["a","b","d"]`, ""), write(12, "unlabeled", `["c"]`, ""),
-				write(13, "labeled", `["a","b","d"]`, ""), write(13, "unlabeled", `["c"]`, ""),
+				write(12, "labeled", `["a"]`, ""), write(12, "labeled", `["b"]`, ""), write(12, "labeled", `["d"]`, ""), write(12, "unlabeled", `["c"]`, ""),
+				write(13, "labeled", `["a"]`, ""), write(13, "labeled", `["b"]`, ""), write(13, "labeled", `["d"]`, ""), write(13, "unlabeled", `["c"]`, ""),
 			},
 		},
 		"edit labels of a pull request URL": {
