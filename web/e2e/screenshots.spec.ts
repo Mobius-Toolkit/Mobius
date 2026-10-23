@@ -1448,8 +1448,14 @@ test("screenshots", async ({ page }) => {
       await expect
         .poll(() =>
           panel.locator("div.overflow-y-auto").evaluate((el) => {
-            el.scrollTop = el.scrollHeight;
-            return el.scrollHeight - el.scrollTop - el.clientHeight < 1;
+            const chip = [...el.querySelectorAll("span")].find(
+              (span) => span.textContent === "mobius:maintenance",
+            );
+            chip?.scrollIntoView({ block: "center" });
+            if (!chip) return false;
+            const box = el.getBoundingClientRect();
+            const found = chip.getBoundingClientRect();
+            return found.top >= box.top && found.bottom <= box.bottom;
           }),
         )
         .toBe(true);
