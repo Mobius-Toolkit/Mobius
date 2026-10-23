@@ -94,6 +94,18 @@ type CommentWrite struct {
 	ReplyTo    sql.NullInt64
 }
 
+type DeploymentNeed struct {
+	ID        int64
+	Task      int64
+	Head      string
+	Kind      string
+	Name      string
+	Path      string
+	Line      int64
+	Reason    string
+	Mandatory int64
+}
+
 type Event struct {
 	ID           int64
 	Time         string
@@ -179,6 +191,17 @@ type LeadWrite struct {
 	Item       sql.NullInt64
 }
 
+type OldSkillUse struct {
+	ID           int64
+	Session      int64
+	Organization string
+	Repository   string
+	Role         string
+	Harness      string
+	Skill        string
+	UsedAt       string
+}
+
 type PendingAction struct {
 	ID           int64
 	Organization string
@@ -218,6 +241,29 @@ type Session struct {
 	Parent               sql.NullInt64
 	Effort               sql.NullString
 	WorkstreamRepository string
+}
+
+type SessionSkill struct {
+	ID           int64
+	Session      int64
+	Organization string
+	Repository   string
+	Role         string
+	Harness      string
+	Skill        string
+	CopiedAt     string
+}
+
+type SkillUse struct {
+	ID           int64
+	Session      int64
+	Organization string
+	Repository   string
+	Role         string
+	Harness      string
+	Skill        string
+	Source       string
+	UsedAt       string
 }
 
 type StepTime struct {

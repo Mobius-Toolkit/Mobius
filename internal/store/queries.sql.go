@@ -397,6 +397,35 @@ func (q *Queries) AddCuratorRequest(ctx context.Context, arg AddCuratorRequestPa
 	return id, err
 }
 
+const addDeploymentNeed = `-- name: AddDeploymentNeed :exec
+INSERT INTO deployment_needs (task, head, kind, name, path, line, reason, mandatory) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type AddDeploymentNeedParams struct {
+	Task      int64
+	Head      string
+	Kind      string
+	Name      string
+	Path      string
+	Line      int64
+	Reason    string
+	Mandatory int64
+}
+
+func (q *Queries) AddDeploymentNeed(ctx context.Context, arg AddDeploymentNeedParams) error {
+	_, err := q.db.ExecContext(ctx, addDeploymentNeed,
+		arg.Task,
+		arg.Head,
+		arg.Kind,
+		arg.Name,
+		arg.Path,
+		arg.Line,
+		arg.Reason,
+		arg.Mandatory,
+	)
+	return err
+}
+
 const addDeviceLogin = `-- name: AddDeviceLogin :exec
 INSERT INTO device_logins (token_hash, password_fingerprint, user_agent, created_at)
 VALUES (?, ?, ?, ?)
@@ -774,6 +803,64 @@ func (q *Queries) AddSession(ctx context.Context, arg AddSessionParams) (Session
 	return i, err
 }
 
+const addSessionSkill = `-- name: AddSessionSkill :exec
+INSERT INTO session_skills (session, organization, repository, role, harness, skill, copied_at)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+`
+
+type AddSessionSkillParams struct {
+	Session      int64
+	Organization string
+	Repository   string
+	Role         string
+	Harness      string
+	Skill        string
+	CopiedAt     string
+}
+
+func (q *Queries) AddSessionSkill(ctx context.Context, arg AddSessionSkillParams) error {
+	_, err := q.db.ExecContext(ctx, addSessionSkill,
+		arg.Session,
+		arg.Organization,
+		arg.Repository,
+		arg.Role,
+		arg.Harness,
+		arg.Skill,
+		arg.CopiedAt,
+	)
+	return err
+}
+
+const addSkillUse = `-- name: AddSkillUse :exec
+INSERT INTO skill_uses (session, organization, repository, role, harness, skill, source, used_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type AddSkillUseParams struct {
+	Session      int64
+	Organization string
+	Repository   string
+	Role         string
+	Harness      string
+	Skill        string
+	Source       string
+	UsedAt       string
+}
+
+func (q *Queries) AddSkillUse(ctx context.Context, arg AddSkillUseParams) error {
+	_, err := q.db.ExecContext(ctx, addSkillUse,
+		arg.Session,
+		arg.Organization,
+		arg.Repository,
+		arg.Role,
+		arg.Harness,
+		arg.Skill,
+		arg.Source,
+		arg.UsedAt,
+	)
+	return err
+}
+
 const addStepTime = `-- name: AddStepTime :exec
 INSERT INTO step_times (kind, session, task, issue, workstream, organization, repository, role, harness, model, effort,
                         started_at, ended_at, attempt, result)
@@ -1031,6 +1118,27 @@ func (q *Queries) AddWorkerRestart(ctx context.Context, arg AddWorkerRestartPara
 	return worker_restarts, err
 }
 
+const addWorkstreamBucket = `-- name: AddWorkstreamBucket :exec
+INSERT INTO workstream_buckets (repository, workstream, issue, closed) VALUES (?, ?, ?, CAST(?4 AS BOOLEAN))
+`
+
+type AddWorkstreamBucketParams struct {
+	Repository string
+	Workstream int64
+	Issue      int64
+	Closed     bool
+}
+
+func (q *Queries) AddWorkstreamBucket(ctx context.Context, arg AddWorkstreamBucketParams) error {
+	_, err := q.db.ExecContext(ctx, addWorkstreamBucket,
+		arg.Repository,
+		arg.Workstream,
+		arg.Issue,
+		arg.Closed,
+	)
+	return err
+}
+
 const appendChatMessage = `-- name: AppendChatMessage :one
 UPDATE chat_messages SET text = text || ?1 WHERE id = ?2
 RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items
@@ -1186,7 +1294,7 @@ func (q *Queries) CountSessionsEndedSinceCurator(ctx context.Context, repository
 const countUnread = `-- name: CountUnread :one
 SELECT count(*) FROM chat_messages m
 WHERE m.organization = ?1 AND m.repository = ?2 AND m.workstream = ?3
-  AND m.author NOT IN ('Owner', 'Researcher', 'Curator', 'Approval', 'Event')
+  AND m.author NOT IN ('Owner', 'Researcher', 'Curator', 'Approval', 'Event', 'Record')
   AND m.id > coalesce((SELECT s.message FROM chat_seen s
                        WHERE s.organization = m.organization AND s.repository = m.repository AND s.workstream = m.workstream), 0)
 `
@@ -1391,6 +1499,15 @@ func (q *Queries) DeleteCuratorRequestsUpTo(ctx context.Context, arg DeleteCurat
 	return err
 }
 
+const deleteDeploymentNeeds = `-- name: DeleteDeploymentNeeds :exec
+DELETE FROM deployment_needs WHERE task = ?
+`
+
+func (q *Queries) DeleteDeploymentNeeds(ctx context.Context, task int64) error {
+	_, err := q.db.ExecContext(ctx, deleteDeploymentNeeds, task)
+	return err
+}
+
 const deleteDeviceLogin = `-- name: DeleteDeviceLogin :exec
 DELETE FROM device_logins WHERE id = ?
 `
@@ -1409,6 +1526,15 @@ func (q *Queries) DeleteHarnessPause(ctx context.Context, harness string) error 
 	return err
 }
 
+const deleteOldSkillUse = `-- name: DeleteOldSkillUse :exec
+DELETE FROM old_skill_uses WHERE id = ?
+`
+
+func (q *Queries) DeleteOldSkillUse(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, deleteOldSkillUse, id)
+	return err
+}
+
 const deleteOtherPasswordLogins = `-- name: DeleteOtherPasswordLogins :exec
 DELETE FROM device_logins WHERE password_fingerprint != ?
 `
@@ -1424,6 +1550,20 @@ DELETE FROM stop_notices WHERE id = ?
 
 func (q *Queries) DeleteStopNotice(ctx context.Context, id int64) error {
 	_, err := q.db.ExecContext(ctx, deleteStopNotice, id)
+	return err
+}
+
+const deleteWorkstreamBucket = `-- name: DeleteWorkstreamBucket :exec
+DELETE FROM workstream_buckets WHERE repository = ? AND issue = ?
+`
+
+type DeleteWorkstreamBucketParams struct {
+	Repository string
+	Issue      int64
+}
+
+func (q *Queries) DeleteWorkstreamBucket(ctx context.Context, arg DeleteWorkstreamBucketParams) error {
+	_, err := q.db.ExecContext(ctx, deleteWorkstreamBucket, arg.Repository, arg.Issue)
 	return err
 }
 
@@ -3533,7 +3673,7 @@ func (q *Queries) ListCIFailuresWithoutIssue(ctx context.Context, repository str
 
 const listChatMessagesBefore = `-- name: ListChatMessagesBefore :many
 SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items FROM chat_messages
-WHERE organization = ? AND repository = ? AND workstream = ? AND id < ?
+WHERE organization = ? AND repository = ? AND workstream = ? AND author != 'Record' AND id < ?
 ORDER BY id DESC LIMIT ?
 `
 
@@ -4336,6 +4476,43 @@ func (q *Queries) ListCuratorRequests(ctx context.Context, repository string) ([
 	return items, nil
 }
 
+const listDeploymentNeeds = `-- name: ListDeploymentNeeds :many
+SELECT id, task, head, kind, name, path, line, reason, mandatory FROM deployment_needs WHERE task = ? ORDER BY id
+`
+
+func (q *Queries) ListDeploymentNeeds(ctx context.Context, task int64) ([]DeploymentNeed, error) {
+	rows, err := q.db.QueryContext(ctx, listDeploymentNeeds, task)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DeploymentNeed
+	for rows.Next() {
+		var i DeploymentNeed
+		if err := rows.Scan(
+			&i.ID,
+			&i.Task,
+			&i.Head,
+			&i.Kind,
+			&i.Name,
+			&i.Path,
+			&i.Line,
+			&i.Reason,
+			&i.Mandatory,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listDeviceLogins = `-- name: ListDeviceLogins :many
 SELECT id, user_agent, created_at FROM device_logins ORDER BY id DESC
 `
@@ -5073,6 +5250,42 @@ func (q *Queries) ListMergingReadyItems(ctx context.Context, repository string) 
 			&i.MergeRefusal,
 			&i.WorkstreamRepository,
 			&i.Questions,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOldSkillUses = `-- name: ListOldSkillUses :many
+SELECT id, session, organization, repository, role, harness, skill, used_at FROM old_skill_uses ORDER BY id
+`
+
+func (q *Queries) ListOldSkillUses(ctx context.Context) ([]OldSkillUse, error) {
+	rows, err := q.db.QueryContext(ctx, listOldSkillUses)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []OldSkillUse
+	for rows.Next() {
+		var i OldSkillUse
+		if err := rows.Scan(
+			&i.ID,
+			&i.Session,
+			&i.Organization,
+			&i.Repository,
+			&i.Role,
+			&i.Harness,
+			&i.Skill,
+			&i.UsedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -5899,6 +6112,47 @@ func (q *Queries) ListRetryPromptsSince(ctx context.Context, arg ListRetryPrompt
 	return items, nil
 }
 
+const listSessionSkillsBetween = `-- name: ListSessionSkillsBetween :many
+SELECT id, session, organization, repository, role, harness, skill, copied_at FROM session_skills WHERE copied_at >= ?1 AND copied_at < ?2
+`
+
+type ListSessionSkillsBetweenParams struct {
+	After  string
+	Before string
+}
+
+func (q *Queries) ListSessionSkillsBetween(ctx context.Context, arg ListSessionSkillsBetweenParams) ([]SessionSkill, error) {
+	rows, err := q.db.QueryContext(ctx, listSessionSkillsBetween, arg.After, arg.Before)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SessionSkill
+	for rows.Next() {
+		var i SessionSkill
+		if err := rows.Scan(
+			&i.ID,
+			&i.Session,
+			&i.Organization,
+			&i.Repository,
+			&i.Role,
+			&i.Harness,
+			&i.Skill,
+			&i.CopiedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSessions = `-- name: ListSessions :many
 SELECT id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent, effort, workstream_repository FROM sessions WHERE organization = ? AND workstream_repository = ? AND workstream = ? ORDER BY id
 `
@@ -5935,6 +6189,48 @@ func (q *Queries) ListSessions(ctx context.Context, arg ListSessionsParams) ([]S
 			&i.Parent,
 			&i.Effort,
 			&i.WorkstreamRepository,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSkillUsesBetween = `-- name: ListSkillUsesBetween :many
+SELECT id, session, organization, repository, role, harness, skill, source, used_at FROM skill_uses WHERE used_at >= ?1 AND used_at < ?2
+`
+
+type ListSkillUsesBetweenParams struct {
+	After  string
+	Before string
+}
+
+func (q *Queries) ListSkillUsesBetween(ctx context.Context, arg ListSkillUsesBetweenParams) ([]SkillUse, error) {
+	rows, err := q.db.QueryContext(ctx, listSkillUsesBetween, arg.After, arg.Before)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SkillUse
+	for rows.Next() {
+		var i SkillUse
+		if err := rows.Scan(
+			&i.ID,
+			&i.Session,
+			&i.Organization,
+			&i.Repository,
+			&i.Role,
+			&i.Harness,
+			&i.Skill,
+			&i.Source,
+			&i.UsedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -6520,7 +6816,7 @@ const listUnread = `-- name: ListUnread :many
 SELECT m.organization, m.repository, m.workstream, count(*) AS count
 FROM chat_messages m
 LEFT JOIN chat_seen s ON s.organization = m.organization AND s.repository = m.repository AND s.workstream = m.workstream
-WHERE m.author NOT IN ('Owner', 'Researcher', 'Curator', 'Approval', 'Event') AND m.id > coalesce(s.message, 0)
+WHERE m.author NOT IN ('Owner', 'Researcher', 'Curator', 'Approval', 'Event', 'Record') AND m.id > coalesce(s.message, 0)
 GROUP BY m.organization, m.repository, m.workstream
 ORDER BY m.organization, m.repository, m.workstream
 `
@@ -6532,7 +6828,7 @@ type ListUnreadRow struct {
 	Count        int64
 }
 
-// The messages of the Owner, of a Researcher, of a Curator, of an approval and of an event are never unread.
+// The messages of the Owner, of a Researcher, of a Curator, of an approval, of an event and of a record are never unread.
 func (q *Queries) ListUnread(ctx context.Context) ([]ListUnreadRow, error) {
 	rows, err := q.db.QueryContext(ctx, listUnread)
 	if err != nil {
@@ -6580,6 +6876,42 @@ func (q *Queries) ListWaitingLeadWorkstreams(ctx context.Context) ([]ListWaiting
 	for rows.Next() {
 		var i ListWaitingLeadWorkstreamsRow
 		if err := rows.Scan(&i.Repository, &i.Workstream); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listWorkstreamBuckets = `-- name: ListWorkstreamBuckets :many
+SELECT b.workstream, b.issue, CAST(b.closed AS BOOLEAN) AS closed FROM workstream_buckets b
+JOIN copied_workstreams w ON w.repository = b.repository AND w.number = b.workstream
+WHERE b.repository = ?
+ORDER BY b.issue
+`
+
+type ListWorkstreamBucketsRow struct {
+	Workstream int64
+	Issue      int64
+	Closed     bool
+}
+
+func (q *Queries) ListWorkstreamBuckets(ctx context.Context, repository string) ([]ListWorkstreamBucketsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listWorkstreamBuckets, repository)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListWorkstreamBucketsRow
+	for rows.Next() {
+		var i ListWorkstreamBucketsRow
+		if err := rows.Scan(&i.Workstream, &i.Issue, &i.Closed); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -6650,6 +6982,55 @@ func (q *Queries) ListWorkstreamLiveTasks(ctx context.Context, arg ListWorkstrea
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listWorkstreamsNeedingBuckets = `-- name: ListWorkstreamsNeedingBuckets :many
+SELECT w.number FROM copied_workstreams w
+WHERE w.repository = ?1
+  AND ((SELECT COUNT(*) FROM copied_issues c
+        WHERE c.repository = w.repository AND c.workstream = w.number AND c.parent = w.number AND c.parent_repository = w.repository) > CAST(?2 AS INTEGER)
+       OR EXISTS (
+           SELECT 1 FROM copied_issues b
+           JOIN copied_issue_labels l
+             ON l.repository = b.repository AND l.workstream = b.workstream AND l.position = b.position AND l.name = 'mobius:bucket'
+           WHERE b.repository = w.repository AND b.workstream = w.number AND b.parent = w.number AND b.parent_repository = w.repository
+             AND b.state = 'open'
+             AND (NOT EXISTS (SELECT 1 FROM copied_issues c
+                              WHERE c.repository = b.repository AND c.workstream = b.workstream AND c.parent = b.number AND c.parent_repository = w.repository)
+                  OR EXISTS (SELECT 1 FROM copied_issues c
+                             WHERE c.repository = b.repository AND c.workstream = b.workstream AND c.parent = b.number AND c.parent_repository = w.repository
+                               AND c.state = 'closed'))))
+ORDER BY w.number
+`
+
+type ListWorkstreamsNeedingBucketsParams struct {
+	Repository string
+	Maximum    int64
+}
+
+// A Workstream needs buckets when it has more than the maximum of direct sub-issues, or when an open bucket has no
+// sub-issues or holds a closed issue.
+func (q *Queries) ListWorkstreamsNeedingBuckets(ctx context.Context, arg ListWorkstreamsNeedingBucketsParams) ([]int64, error) {
+	rows, err := q.db.QueryContext(ctx, listWorkstreamsNeedingBuckets, arg.Repository, arg.Maximum)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var number int64
+		if err := rows.Scan(&number); err != nil {
+			return nil, err
+		}
+		items = append(items, number)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err

@@ -346,7 +346,7 @@ export interface PendingAction {
 }
 
 /**
- * Author is Owner, Lead, Coordinator, tell_owner for a message of the Lead to the Owner, Mobius for a message of Mobius, Event for a Lead event, which the chat shows as a muted entry, or Action for the card of a pending action
+ * Author is Owner, Lead, Coordinator, tell_owner for a message of the Lead to the Owner, Mobius for a message of Mobius, Event for a Lead event, which the chat shows as a muted entry, Action for the card of a pending action, or Record for the line about an action of the Owner
  */
 export type ChatMessageAuthor = typeof ChatMessageAuthor[keyof typeof ChatMessageAuthor];
 
@@ -359,6 +359,7 @@ export const ChatMessageAuthor = {
   Mobius: 'Mobius',
   Event: 'Event',
   Action: 'Action',
+  Record: 'Record',
 } as const;
 
 /**
@@ -381,7 +382,7 @@ export interface ChatInboxItem {
 export interface ChatMessage {
   /** Action is the action of a card, or null for another message */
   action: PendingAction | null;
-  /** Author is Owner, Lead, Coordinator, tell_owner for a message of the Lead to the Owner, Mobius for a message of Mobius, Event for a Lead event, which the chat shows as a muted entry, or Action for the card of a pending action */
+  /** Author is Owner, Lead, Coordinator, tell_owner for a message of the Lead to the Owner, Mobius for a message of Mobius, Event for a Lead event, which the chat shows as a muted entry, Action for the card of a pending action, or Record for the line about an action of the Owner */
   author: ChatMessageAuthor;
   /** BrowserID is the id that the browser gave to the message of the Owner. It is empty for another message */
   browserId: string;
@@ -1197,6 +1198,80 @@ export interface EnvelopeRelease {
 }
 
 /**
+ * SkillUsageOptions are the values that each filter can take in the period.
+ */
+export interface SkillUsageOptions {
+  /** Harnesses are the Harnesses of the rows */
+  harnesses: string[];
+  /** Repositories are the repositories of the rows as "owner/name" */
+  repositories: string[];
+  /** Roles are the roles of the rows */
+  roles: string[];
+  /** Sources are the sources of the rows */
+  sources: string[];
+}
+
+/**
+ * Source is "mobius" for a skill that Mobius copied into a session, and "harness" for each other skill
+ */
+export type SkillUsageRowSource = typeof SkillUsageRowSource[keyof typeof SkillUsageRowSource];
+
+
+export const SkillUsageRowSource = {
+  mobius: 'mobius',
+  harness: 'harness',
+} as const;
+
+/**
+ * SkillUsageRow is the count of one skill of one source in one group.
+ */
+export interface SkillUsageRow {
+  /** Group is the value of the group, or empty when the request has no group */
+  group: string;
+  /** Had is the number of distinct sessions that Mobius gave the skill to. It is 0 for a harness skill */
+  had: number;
+  skill: string;
+  /** Source is "mobius" for a skill that Mobius copied into a session, and "harness" for each other skill */
+  source: SkillUsageRowSource;
+  /** Used is the number of distinct sessions that used the skill */
+  used: number;
+  /** Uses is the number of skill uses */
+  uses: number;
+}
+
+/**
+ * SkillTotals are the counts of all skill rows that pass the filters.
+ */
+export interface SkillTotals {
+  /** Sessions is the number of distinct sessions that used a skill */
+  sessions: number;
+  /** Skills is the number of distinct skill names of the skill uses and the copied skills */
+  skills: number;
+  /** Uses is the number of skill uses */
+  uses: number;
+}
+
+/**
+ * SkillUsage is the skill statistics of a period.
+ */
+export interface SkillUsage {
+  /** Options are the values that each filter can take, before the filters */
+  options: SkillUsageOptions;
+  /** Rows are the counts of each skill, source and group, the most used skill first */
+  rows: SkillUsageRow[];
+  /** Totals are the counts of all rows that pass the filters */
+  totals: SkillTotals;
+}
+
+/**
+ * Envelope is the body of each success response.
+ */
+export interface EnvelopeSkillUsage {
+  /** Data is the payload of the response */
+  data: SkillUsage;
+}
+
+/**
  * Kind is prompt, update, mcp_call, error, or check for a phase of the local check of an Implementer or a hang of the agent
  */
 export type TranscriptLineKind = typeof TranscriptLineKind[keyof typeof TranscriptLineKind];
@@ -1813,6 +1888,47 @@ export const GetUsageGroup = {
   modelVersionEffort: 'modelVersionEffort',
   role: 'role',
   repository: 'repository',
+} as const;
+
+export type GetUsageSkillsParams = {
+/**
+ * From is the start of the period. A row is in the period when its time is From or later
+ */
+from: string;
+/**
+ * To is the end of the period. A row is in the period when its time is before To
+ */
+to: string;
+/**
+ * Array of string
+ */
+harness?: string[];
+/**
+ * Array of string
+ */
+role?: string[];
+/**
+ * Array of string
+ */
+repository?: string[];
+/**
+ * Array of string
+ */
+source?: string[];
+/**
+ * Group is the value that splits the rows. With no Group, all rows are in one group
+ */
+group?: GetUsageSkillsGroup;
+};
+
+export type GetUsageSkillsGroup = typeof GetUsageSkillsGroup[keyof typeof GetUsageSkillsGroup];
+
+
+export const GetUsageSkillsGroup = {
+  harness: 'harness',
+  role: 'role',
+  repository: 'repository',
+  source: 'source',
 } as const;
 
 export type GetUsageTimesParams = {
@@ -5160,6 +5276,86 @@ export const getUsage = async (params: GetUsageParams, ): Promise<getUsageRespon
 
   const data: getUsageResponse['data'] = body ? JSON.parse(body) : {}
   return { data, status: res.status, headers: res.headers } as getUsageResponse
+}
+
+
+
+export type getUsageSkillsResponse200 = {
+  data: EnvelopeSkillUsage
+  status: 200
+}
+
+export type getUsageSkillsResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type getUsageSkillsResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type getUsageSkillsResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type getUsageSkillsResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type getUsageSkillsResponseSuccess = (getUsageSkillsResponse200) & {
+  headers: Headers;
+};
+export type getUsageSkillsResponseError = (getUsageSkillsResponse400 | getUsageSkillsResponse401 | getUsageSkillsResponse422 | getUsageSkillsResponse500) & {
+  headers: Headers;
+};
+
+export type getUsageSkillsResponse = (getUsageSkillsResponseSuccess | getUsageSkillsResponseError)
+
+export const getGetUsageSkillsUrl = (params: GetUsageSkillsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    const explodeParameters = ["harness","role","repository","source"];
+
+    if (Array.isArray(value) && explodeParameters.includes(key)) {
+      value.forEach((v) => {
+        normalizedParams.append(key, v === null ? 'null' : String(v));
+      });
+      return;
+    }
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/usage/skills?${stringifiedParams}` : `/api/usage/skills`
+}
+
+/**
+ * GetUsageSkills returns the skills that the sessions used or got in the period.
+ */
+export const getUsageSkills = async (params: GetUsageSkillsParams, ): Promise<getUsageSkillsResponse> => {
+
+  const res = await fetch(getGetUsageSkillsUrl(params),
+  {
+
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: getUsageSkillsResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as getUsageSkillsResponse
 }
 
 

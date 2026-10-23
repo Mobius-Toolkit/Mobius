@@ -27,6 +27,8 @@ type issue struct {
 	state  string
 	// stateReason is the reason of the last close, or "".
 	stateReason string
+	// closedAt is the time of the last close, or 0 for an open issue.
+	closedAt    int64
 	pullRequest bool
 	merged      bool
 	labels      []string
@@ -105,6 +107,7 @@ type issueJSON struct {
 	RepositoryURL string     `json:"repository_url"`
 	State         string     `json:"state"`
 	StateReason   string     `json:"state_reason,omitempty"`
+	ClosedAt      string     `json:"closed_at,omitempty"`
 	CreatedAt     string     `json:"created_at"`
 	UpdatedAt     string     `json:"updated_at"`
 	Labels        []nameJSON `json:"labels"`
@@ -142,6 +145,16 @@ func (g *FakeGitHub) CreateIssue(repository string, number int64, title, body, a
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.insertIssue(issueKey{repository, number}, title, body, author)
+}
+
+// CreateLabeledIssue adds the open issue number with title, body, author and label, created now. A poll sees the
+// issue with its label.
+func (g *FakeGitHub) CreateLabeledIssue(repository string, number int64, title, body, author, label string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	key := issueKey{repository, number}
+	g.insertIssue(key, title, body, author)
+	g.label(key, label, author)
 }
 
 // HasIssue tells if the repository has the issue or the pull request number.
@@ -349,6 +362,14 @@ func (g *FakeGitHub) FailAddSubIssue(repository string, number int64, fail bool)
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.failedSubIssueAdds[issueKey{repository, number}] = fail
+}
+
+// RefuseOpenBucketAdds makes each add of an open issue below an issue with the label mobius:bucket fail with 422, as
+// GitHub does at the depth limit, or work again when refuse is false.
+func (g *FakeGitHub) RefuseOpenBucketAdds(refuse bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.refuseOpenBucketAdds = refuse
 }
 
 // FailParents makes each read of the parent of the issue fail, or work again when fail is false.
@@ -607,6 +628,10 @@ func (g *FakeGitHub) setState(key issueKey, state, reason, actor string) {
 	found := g.issues[key]
 	found.state = state
 	found.stateReason = reason
+	found.closedAt = 0
+	if state == "closed" {
+		found.closedAt = now
+	}
 	found.updatedAt = now
 	event := "closed"
 	if state == "open" {
@@ -634,6 +659,9 @@ func (g *FakeGitHub) issueJSON(key issueKey) issueJSON {
 		CreatedAt:     timestamp(g.createdAt[key]),
 		UpdatedAt:     timestamp(found.updatedAt),
 		Labels:        labels,
+	}
+	if found.closedAt != 0 {
+		result.ClosedAt = timestamp(found.closedAt)
 	}
 	if found.pullRequest {
 		result.PullRequest = &urlJSON{fmt.Sprintf("https://api.github.com/repos/%s/pulls/%d", key.repository, key.number)}
@@ -935,6 +963,14 @@ func (g *FakeGitHub) addSubIssue(w http.ResponseWriter, r *http.Request) {
 	}
 	child, ok := g.issueKeyOf(w, key, request.SubIssueID)
 	if !ok {
+		return
+	}
+	if g.refuseOpenBucketAdds && g.issues[child].state == "open" && slices.Contains(g.issues[key].labels, "mobius:bucket") {
+		message(w, http.StatusUnprocessableEntity, "Depth limit exceeded")
+		return
+	}
+	if len(g.issues[key].subIssues) >= 100 && !slices.Contains(g.issues[key].subIssues, child) {
+		message(w, http.StatusUnprocessableEntity, "Parent cannot have more than 100 sub-issues")
 		return
 	}
 	for _, found := range g.issues {

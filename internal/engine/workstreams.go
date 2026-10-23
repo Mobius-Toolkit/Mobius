@@ -50,7 +50,11 @@ func (e *Engine) CompleteWorkstream(ctx context.Context, repositoryName string, 
 	}
 	e.publish(Change{Workstreams: true})
 	// The poll of the close event runs the close again, and the second run changes nothing.
-	return e.closeWorkstream(ctx, repository, number)
+	if err := e.closeWorkstream(ctx, repository, number); err != nil {
+		return err
+	}
+	e.addRecord(ctx, leadChat(repository.FullName, number), "You closed the Workstream.")
+	return nil
 }
 
 // WorkstreamDetails is what the local copy knows about an open Workstream.
@@ -96,10 +100,12 @@ type copiedTask struct {
 	title      string
 	state      string
 	url        string
+	bucket     bool
 }
 
 // copiedTasks gives the tasks of the copied tree of the Workstream number of repository, in the order of the tree. It
 // leaves out the same issues as walkTasks: a nested Workstream, and an issue in a repository that the App cannot read.
+// It keeps a bucket, because closeWorkstream closes it.
 func (e *Engine) copiedTasks(ctx context.Context, repository github.Repository, number int64) ([]copiedTask, error) {
 	params := store.ListCopiedTreeParams{Repository: repository.FullName, Workstream: number}
 	rows, err := e.queries.ListCopiedTree(ctx, params)
@@ -111,9 +117,13 @@ func (e *Engine) copiedTasks(ctx context.Context, repository github.Repository, 
 		return nil, err
 	}
 	nested := map[int64]bool{}
+	buckets := map[int64]bool{}
 	for _, label := range labels {
-		if label.Name == workstreamLabel {
+		switch label.Name {
+		case workstreamLabel:
 			nested[label.Position] = true
+		case bucketLabel:
+			buckets[label.Position] = true
 		}
 	}
 	var tasks []copiedTask
@@ -125,7 +135,7 @@ func (e *Engine) copiedTasks(ctx context.Context, repository github.Repository, 
 		if !ok {
 			continue
 		}
-		tasks = append(tasks, copiedTask{source.FullName, row.Number, row.Title, row.State, row.HtmlUrl})
+		tasks = append(tasks, copiedTask{source.FullName, row.Number, row.Title, row.State, row.HtmlUrl, buckets[row.Position]})
 	}
 	return tasks, nil
 }
@@ -155,6 +165,9 @@ func (e *Engine) WorkstreamDetails(ctx context.Context, repositoryName string, n
 	}
 	details := WorkstreamDetails{CreatedAt: createdAt, Evergreen: copied.Evergreen, Maintenance: copied.Maintenance, Skills: copied.Skills}
 	for _, task := range tasks {
+		if task.bucket {
+			continue
+		}
 		if task.state == "open" {
 			details.OpenTasks++
 		} else {
@@ -231,7 +244,11 @@ func (e *Engine) CloseWorkstreamWontDo(ctx context.Context, repositoryName strin
 		return err
 	}
 	e.publish(Change{Workstreams: true})
-	return e.closeWorkstream(ctx, repository, number)
+	if err := e.closeWorkstream(ctx, repository, number); err != nil {
+		return err
+	}
+	e.addRecord(ctx, leadChat(repository.FullName, number), "You closed the Workstream as won't do.")
+	return nil
 }
 
 // beginClose hides the Workstream number of repository from the Workstream list. The returned function shows it
@@ -459,6 +476,7 @@ func (e *Engine) SetAutopilot(ctx context.Context, repositoryName string, number
 		return err
 	}
 	e.publish(Change{Workstreams: true})
+	e.addRecord(ctx, leadChat(repository.FullName, number), fmt.Sprintf("You set the Autopilot level to %s.", levelNames[level]))
 	return nil
 }
 
@@ -495,6 +513,11 @@ func (e *Engine) SetEvergreen(ctx context.Context, repositoryName string, number
 		return err
 	}
 	e.publish(Change{Workstreams: true})
+	state := "off"
+	if on {
+		state = "on"
+	}
+	e.addRecord(ctx, leadChat(repository.FullName, number), fmt.Sprintf("You turned Evergreen %s.", state))
 	return nil
 }
 

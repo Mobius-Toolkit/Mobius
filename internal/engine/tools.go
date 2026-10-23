@@ -131,7 +131,7 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 				},
 				e.stopResearcher),
 			taskTool(e, c, "ask",
-				"Ask the people on a task issue, or on the Workstream issue, a question. Use it when you need a decision of the Owner. For a choice between alternatives, give the questions with their options in questions, and the context in text. Mobius posts the text and the questions as a comment, adds mobius:question, and adds an Inbox item for the Owner. The reply arrives later as an event. On a dispatched task, the task frees its Autopilot slot until the Owner replies. Then you get a dispatch event again.",
+				"Ask the people on a task issue, or on the Workstream issue, a question. Use it when you need a decision of the Owner. For a choice between alternatives, give the questions with their options in questions, and the context in text. Mobius posts the text and the questions as a comment, adds mobius:question, and adds an Inbox item for the Owner. A new question on an issue replaces the open question of that issue in the Inbox. Thus put all open questions of one issue into one call. The reply arrives later as an event. On a dispatched task, the task frees its Autopilot slot until the Owner replies. Then you get a dispatch event again.",
 				map[string]any{
 					"repository": repositoryProperty,
 					"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue, or of the Workstream issue."},
@@ -263,6 +263,28 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 					},
 				},
 				e.submitReview),
+			tool(e, c, "report_deployment_needs",
+				"Give the deployment needs of the full diff: each change that a person must do in the deployment. Call it one time in each review, also with an empty list. A later valid call replaces an earlier one. Never give the value of an env var, a config value or a secret.",
+				map[string]any{
+					"needs": map[string]any{
+						"type":        "array",
+						"description": "One item for each deployment need. It can be empty.",
+						"items": map[string]any{
+							"type": "object",
+							"properties": map[string]any{
+								"kind":      map[string]any{"type": "string", "enum": deploymentNeedKinds, "description": "The kind of the need."},
+								"name":      map[string]any{"type": "string", "minLength": 1, "description": "The name of the env var, the config key or the secret, or a short name of the manual step."},
+								"path":      map[string]any{"type": "string", "minLength": 1, "description": "The file that adds the need, relative to the repository root."},
+								"line":      map[string]any{"type": "integer", "minimum": 1, "description": "The line in the new version of the file."},
+								"reason":    map[string]any{"type": "string", "minLength": 1, "description": "Why the deployment needs it."},
+								"mandatory": map[string]any{"type": "boolean", "description": "True when the deployment fails or the application does not start without it. False when the application works without it."},
+							},
+							"required":             []string{"kind", "name", "path", "line", "reason", "mandatory"},
+							"additionalProperties": false,
+						},
+					},
+				},
+				e.reportDeploymentNeeds),
 		}
 	case JudgeRole:
 		return []mcp.Tool{
@@ -743,6 +765,19 @@ type reasonInput struct {
 type reviewInput struct {
 	Body     string                 `json:"body"`
 	Comments []github.InlineComment `json:"comments"`
+}
+
+type deploymentNeedsInput struct {
+	Needs []deploymentNeedInput `json:"needs"`
+}
+
+type deploymentNeedInput struct {
+	Kind      string `json:"kind"`
+	Name      string `json:"name"`
+	Path      string `json:"path"`
+	Line      int64  `json:"line"`
+	Reason    string `json:"reason"`
+	Mandatory bool   `json:"mandatory"`
 }
 
 type verdictsInput struct {

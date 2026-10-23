@@ -30,6 +30,7 @@ const (
 	evergreenLabel    = "mobius:evergreen"
 	maintenanceLabel  = "mobius:maintenance"
 	skillsLabel       = "mobius:skills"
+	bucketLabel       = "mobius:bucket"
 )
 
 // Labels are the Mobius labels.
@@ -48,6 +49,7 @@ var Labels = []Label{
 	{"mobius:evergreen", "0052CC", "Mobius Workstream with no end: it is not complete when it has no open task"},
 	{"mobius:maintenance", "BFDADC", "Mobius evergreen Workstream that gets the task issues of the Curator"},
 	{"mobius:skills", "C2E0C6", "Mobius evergreen Workstream that gets the proposals for the skill repository"},
+	{"mobius:bucket", "EDEDED", "Mobius bucket: an issue that holds sub-issues of a Workstream"},
 }
 
 // The status values of a label check and of a permission check.

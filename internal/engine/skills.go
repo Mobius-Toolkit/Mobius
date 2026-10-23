@@ -11,7 +11,9 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/runner"
+	"github.com/Mobius-Toolkit/Mobius/internal/store"
 	"gopkg.in/yaml.v3"
 )
 
@@ -110,8 +112,76 @@ func (a *Agent) exportSkills(ctx context.Context, folder string, worktree bool) 
 		if err != nil {
 			return excluded, err
 		}
+		a.addSessionSkills(ctx, copied)
 	}
 	return excluded, nil
+}
+
+// addSessionSkills adds a session_skills row for each name and keeps the names for the source of a skill use.
+func (a *Agent) addSessionSkills(ctx context.Context, names []string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	spec := a.spec
+	for _, name := range names {
+		a.copiedSkills = append(a.copiedSkills, name)
+		err := a.engine.queries.AddSessionSkill(ctx, store.AddSessionSkillParams{
+			Session:      a.id,
+			Organization: spec.Organization,
+			Repository:   spec.Repository,
+			Role:         spec.Role,
+			Harness:      string(a.harness),
+			Skill:        name,
+			CopiedAt:     now(),
+		})
+		if err != nil {
+			log.Printf("add the skill %s of the session %d: %v", name, a.id, err)
+		}
+	}
+}
+
+// recordSkillUse adds a skill_uses row for the first update of a skill tool call. The caller holds a.mu.
+func (a *Agent) recordSkillUse(ctx context.Context, notification map[string]any, kind string) {
+	update := notification["update"]
+	switch a.harness {
+	case config.ClaudeCode:
+		if (kind != "tool_call" && kind != "tool_call_update") || stringField(update, "_meta", "claudeCode", "toolName") != "Skill" {
+			return
+		}
+	case config.Devin:
+		if kind != "tool_call" || stringField(update, "_meta", "cognition.ai/inferenceToolName") != "skill" {
+			return
+		}
+	default:
+		return
+	}
+	skill := stringField(update, "rawInput", "skill")
+	call := stringField(update, "toolCallId")
+	if skill == "" || a.skillCalls[call] {
+		return
+	}
+	source := "harness"
+	if slices.Contains(a.copiedSkills, skill) {
+		source = "mobius"
+	}
+	spec := a.spec
+	err := a.engine.queries.AddSkillUse(ctx, store.AddSkillUseParams{
+		Session:      a.id,
+		Organization: spec.Organization,
+		Repository:   spec.Repository,
+		Role:         spec.Role,
+		Harness:      string(a.harness),
+		Skill:        skill,
+		Source:       source,
+		UsedAt:       now(),
+	})
+	if err != nil {
+		log.Printf("add the skill use %s of the session %d: %v", skill, a.id, err)
+		return
+	}
+	if a.skillCalls == nil {
+		a.skillCalls = map[string]bool{}
+	}
+	a.skillCalls[call] = true
 }
 
 // roleName gives the name of the Role of a in the config.

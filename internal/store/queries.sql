@@ -68,8 +68,28 @@ INSERT INTO turn_usage (session, task, issue, workstream, organization, reposito
                         effort, started_at, ended_at, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
+-- name: AddSkillUse :exec
+INSERT INTO skill_uses (session, organization, repository, role, harness, skill, source, used_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: ListOldSkillUses :many
+SELECT * FROM old_skill_uses ORDER BY id;
+
+-- name: DeleteOldSkillUse :exec
+DELETE FROM old_skill_uses WHERE id = ?;
+
+-- name: AddSessionSkill :exec
+INSERT INTO session_skills (session, organization, repository, role, harness, skill, copied_at)
+VALUES (?, ?, ?, ?, ?, ?, ?);
+
 -- name: ListTurnUsageBetween :many
 SELECT * FROM turn_usage WHERE started_at >= sqlc.arg(after) AND started_at < sqlc.arg(before);
+
+-- name: ListSkillUsesBetween :many
+SELECT * FROM skill_uses WHERE used_at >= sqlc.arg(after) AND used_at < sqlc.arg(before);
+
+-- name: ListSessionSkillsBetween :many
+SELECT * FROM session_skills WHERE copied_at >= sqlc.arg(after) AND copied_at < sqlc.arg(before);
 
 -- name: ListStepTimesBetween :many
 SELECT * FROM step_times WHERE started_at >= sqlc.arg(after) AND started_at < sqlc.arg(before);
@@ -319,26 +339,26 @@ ORDER BY id DESC LIMIT ?;
 
 -- name: ListChatMessagesBefore :many
 SELECT * FROM chat_messages
-WHERE organization = ? AND repository = ? AND workstream = ? AND id < ?
+WHERE organization = ? AND repository = ? AND workstream = ? AND author != 'Record' AND id < ?
 ORDER BY id DESC LIMIT ?;
 
 -- name: SetChatSeen :exec
 INSERT INTO chat_seen (organization, repository, workstream, message) VALUES (?, ?, ?, ?)
 ON CONFLICT (organization, repository, workstream) DO UPDATE SET message = max(message, excluded.message);
 
--- The messages of the Owner, of a Researcher, of a Curator, of an approval and of an event are never unread.
+-- The messages of the Owner, of a Researcher, of a Curator, of an approval, of an event and of a record are never unread.
 -- name: ListUnread :many
 SELECT m.organization, m.repository, m.workstream, count(*) AS count
 FROM chat_messages m
 LEFT JOIN chat_seen s ON s.organization = m.organization AND s.repository = m.repository AND s.workstream = m.workstream
-WHERE m.author NOT IN ('Owner', 'Researcher', 'Curator', 'Approval', 'Event') AND m.id > coalesce(s.message, 0)
+WHERE m.author NOT IN ('Owner', 'Researcher', 'Curator', 'Approval', 'Event', 'Record') AND m.id > coalesce(s.message, 0)
 GROUP BY m.organization, m.repository, m.workstream
 ORDER BY m.organization, m.repository, m.workstream;
 
 -- name: CountUnread :one
 SELECT count(*) FROM chat_messages m
 WHERE m.organization = sqlc.arg(organization) AND m.repository = sqlc.arg(repository) AND m.workstream = sqlc.arg(workstream)
-  AND m.author NOT IN ('Owner', 'Researcher', 'Curator', 'Approval', 'Event')
+  AND m.author NOT IN ('Owner', 'Researcher', 'Curator', 'Approval', 'Event', 'Record')
   AND m.id > coalesce((SELECT s.message FROM chat_seen s
                        WHERE s.organization = m.organization AND s.repository = m.repository AND s.workstream = m.workstream), 0);
 
@@ -1171,3 +1191,44 @@ SELECT * FROM lead_writes WHERE repository = ? COLLATE NOCASE AND (issue = ? OR 
 
 -- name: SetLeadWriteItem :exec
 UPDATE lead_writes SET item = ? WHERE id = ? AND item IS NULL;
+
+-- name: DeleteDeploymentNeeds :exec
+DELETE FROM deployment_needs WHERE task = ?;
+
+-- name: AddDeploymentNeed :exec
+INSERT INTO deployment_needs (task, head, kind, name, path, line, reason, mandatory) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: ListDeploymentNeeds :many
+SELECT * FROM deployment_needs WHERE task = ? ORDER BY id;
+
+-- A Workstream needs buckets when it has more than the maximum of direct sub-issues, or when an open bucket has no
+-- sub-issues or holds a closed issue.
+-- name: ListWorkstreamsNeedingBuckets :many
+SELECT w.number FROM copied_workstreams w
+WHERE w.repository = sqlc.arg(repository)
+  AND ((SELECT COUNT(*) FROM copied_issues c
+        WHERE c.repository = w.repository AND c.workstream = w.number AND c.parent = w.number AND c.parent_repository = w.repository) > CAST(sqlc.arg(maximum) AS INTEGER)
+       OR EXISTS (
+           SELECT 1 FROM copied_issues b
+           JOIN copied_issue_labels l
+             ON l.repository = b.repository AND l.workstream = b.workstream AND l.position = b.position AND l.name = 'mobius:bucket'
+           WHERE b.repository = w.repository AND b.workstream = w.number AND b.parent = w.number AND b.parent_repository = w.repository
+             AND b.state = 'open'
+             AND (NOT EXISTS (SELECT 1 FROM copied_issues c
+                              WHERE c.repository = b.repository AND c.workstream = b.workstream AND c.parent = b.number AND c.parent_repository = w.repository)
+                  OR EXISTS (SELECT 1 FROM copied_issues c
+                             WHERE c.repository = b.repository AND c.workstream = b.workstream AND c.parent = b.number AND c.parent_repository = w.repository
+                               AND c.state = 'closed'))))
+ORDER BY w.number;
+
+-- name: ListWorkstreamBuckets :many
+SELECT b.workstream, b.issue, CAST(b.closed AS BOOLEAN) AS closed FROM workstream_buckets b
+JOIN copied_workstreams w ON w.repository = b.repository AND w.number = b.workstream
+WHERE b.repository = ?
+ORDER BY b.issue;
+
+-- name: AddWorkstreamBucket :exec
+INSERT INTO workstream_buckets (repository, workstream, issue, closed) VALUES (?, ?, ?, CAST(sqlc.arg(closed) AS BOOLEAN));
+
+-- name: DeleteWorkstreamBucket :exec
+DELETE FROM workstream_buckets WHERE repository = ? AND issue = ?;

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"errors"
+	"fmt"
 	"slices"
 	"time"
 
@@ -155,17 +156,26 @@ func (e *Engine) reopenStoppedItem(ctx context.Context, question store.InboxItem
 	return nil
 }
 
+// openIssueItems gives each open Inbox item of the kinds on the issue number of repository.
+func (e *Engine) openIssueItems(ctx context.Context, repository string, number int64, kinds ...string) ([]store.InboxItem, error) {
+	items, err := e.Inbox(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(items, func(item store.InboxItem) bool {
+		return item.Repository != repository || item.Issue != number || !slices.Contains(kinds, item.Kind)
+	}), nil
+}
+
 // dismissIssueItems dismisses each Inbox item of the kinds that is open on the issue number of repository.
 func (e *Engine) dismissIssueItems(ctx context.Context, repository string, number int64, kinds ...string) error {
-	items, err := e.Inbox(ctx)
+	items, err := e.openIssueItems(ctx, repository, number, kinds...)
 	if err != nil {
 		return err
 	}
 	for _, item := range items {
-		if item.Repository == repository && item.Issue == number && slices.Contains(kinds, item.Kind) {
-			if err := e.Dismiss(ctx, item.ID); err != nil {
-				return err
-			}
+		if err := e.Dismiss(ctx, item.ID); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -359,15 +369,35 @@ func (e *Engine) MergeInboxItem(ctx context.Context, id int64) (store.InboxItem,
 	case e.pollWake <- struct{}{}:
 	default:
 	}
+	e.addRecord(ctx, inboxChat(item), fmt.Sprintf("You started the merge of PR %s.", eventRef(item.WorkstreamRepository, item.Repository, item.PullRequest)))
 	return item, nil
+}
+
+func inboxChat(item store.InboxItem) ChatKey {
+	return ChatKey{item.Organization, item.WorkstreamRepository, item.Workstream}
 }
 
 // Dismiss removes the Inbox item id from the Inbox.
 func (e *Engine) Dismiss(ctx context.Context, id int64) error {
+	_, err := e.dismiss(ctx, id)
+	return err
+}
+
+func (e *Engine) dismiss(ctx context.Context, id int64) (store.InboxItem, error) {
 	item, err := e.queries.DismissInboxItem(ctx, store.DismissInboxItemParams{DismissedAt: sql.NullString{String: now(), Valid: true}, ID: id})
+	if err != nil {
+		return item, err
+	}
+	e.publish(Change{Inbox: &item})
+	return item, nil
+}
+
+// DismissByOwner removes the Inbox item id at the request of the Owner, and adds a record to the chat of the item.
+func (e *Engine) DismissByOwner(ctx context.Context, id int64) error {
+	item, err := e.dismiss(ctx, id)
 	if err != nil {
 		return err
 	}
-	e.publish(Change{Inbox: &item})
+	e.addRecord(ctx, inboxChat(item), fmt.Sprintf("You dismissed \"%s\".", item.Title))
 	return nil
 }

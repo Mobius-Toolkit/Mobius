@@ -62,6 +62,7 @@ const (
 	eventAuthor       = "Event"
 	actionAuthor      = "Action"
 	approvalAuthor    = "Approval"
+	recordAuthor      = "Record"
 )
 
 // ChatKey names a chat: the Lead chat of a Workstream, or the Coordinator chat of an organization. The Coordinator chat has
@@ -177,7 +178,7 @@ func (c *chat) notify() {
 
 // addChatMessage adds a chat message and sends it to the listeners. A message of the Researcher, of the Curator and
 // of an approval stays hidden. The card of an action goes to the listeners with its action (holdAction). A message
-// that is not of the Owner, of a Researcher or of an event also changes the unread count of the chat. When
+// that is not of the Owner, of a Researcher, of an event or of a record also changes the unread count of the chat. When
 // images is not empty, it is the directory of saveImages. The message gets the images before the listeners see it, and
 // Mobius does not add it when the move fails. When browserID is not empty and a message has it, Mobius adds nothing and
 // the error is sql.ErrNoRows.
@@ -211,10 +212,18 @@ func (e *Engine) addChatMessage(ctx context.Context, key ChatKey, author, text, 
 		return message, nil
 	}
 	e.publish(Change{Message: &message})
-	if author == ownerAuthor || author == eventAuthor {
+	if author == ownerAuthor || author == eventAuthor || author == recordAuthor {
 		return message, nil
 	}
 	return message, e.publishUnread(ctx, key)
+}
+
+// addRecord adds a record line about an action of the Owner to the chat. No agent gets the record. A failed write only
+// goes to the log, because the action has succeeded.
+func (e *Engine) addRecord(ctx context.Context, key ChatKey, text string) {
+	if _, err := e.addChatMessage(ctx, key, recordAuthor, text, "", "", nil); err != nil {
+		log.Printf("add a record to the chat of %s #%d: %v", key.Repository, key.Workstream, err)
+	}
 }
 
 func (e *Engine) publishUnread(ctx context.Context, key ChatKey) error {

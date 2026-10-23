@@ -47,6 +47,10 @@ func (e *Engine) poll(ctx context.Context) {
 		e.publish(Change{Repositories: true})
 	}
 	if complete {
+		if !e.oldSkillUsesMoved {
+			e.oldSkillUsesMoved = true
+			e.moveOldSkillUses(ctx)
+		}
 		if err := e.lostAccess(ctx, repositories); err != nil {
 			log.Printf("end the tasks of the repositories with no access: %v", err)
 		}
@@ -146,6 +150,7 @@ func (e *Engine) pollRepository(ctx context.Context, repository github.Repositor
 		return err
 	}
 	e.checkCopiedTrees(ctx, repository)
+	e.fillBuckets(ctx, repository)
 	if err := e.startHeldTriagers(ctx, repository); err != nil {
 		return err
 	}
