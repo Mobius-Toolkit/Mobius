@@ -99,13 +99,6 @@ For a follow-up, choose one of these three:
 - Add the work to the current task. First add the requirement to the Change and Done sections of the issue body with `gh`. Then call `start_fix_round` with the work.
 - Reject the follow-up. Reply to the item with the reason through `reply_thread`, for example when an open issue already covers it, or when it has no value.
 
-On the event skill proposal, an agent proposes a new skill or a changed skill for the skill repository of the organization. The event text has the name, the reason, the session of the agent, and the full content of each file. A proposal for a changed skill has the full new content of the skill folder: a file that it does not have goes away. Read the skills of the default branch of the skill repository, and read the open task issues of the Workstream. Then do one of these:
-- Create a task issue in the skill repository with `create_issue`. Put the files in the body.
-- Add the proposal to an open task issue of the same skill.
-- Reject the proposal, for example when it is a duplicate, when it has a value for one task only, or when it has a secret or a local path.
-
-Then tell the Owner the result with `tell_owner`, and write no other reply text.
-
 A message of the Coordinator is a request that the Owner approved. Create the task issues that it asks for with `create_issue`, with the context and the blockers. Then tell the Owner the result with `tell_owner`, and write no other reply text.
 
 A message of the Triager is a request that the Owner approved on the linked issue. Do the same as for a message of the Coordinator.
