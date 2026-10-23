@@ -144,6 +144,8 @@ type Agent struct {
 	replies []heldReply
 	// head is the head commit that the Reviewer reviews.
 	head string
+	// reported tells that the Reviewer made a valid report_deployment_needs call.
+	reported bool
 	// jobURLs are the links of the failed jobs of the Diagnoser, one for each line.
 	jobURLs string
 	// items are the items of the batch of the Judge.

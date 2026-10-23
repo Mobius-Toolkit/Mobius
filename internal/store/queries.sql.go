@@ -397,6 +397,35 @@ func (q *Queries) AddCuratorRequest(ctx context.Context, arg AddCuratorRequestPa
 	return id, err
 }
 
+const addDeploymentNeed = `-- name: AddDeploymentNeed :exec
+INSERT INTO deployment_needs (task, head, kind, name, path, line, reason, mandatory) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type AddDeploymentNeedParams struct {
+	Task      int64
+	Head      string
+	Kind      string
+	Name      string
+	Path      string
+	Line      int64
+	Reason    string
+	Mandatory int64
+}
+
+func (q *Queries) AddDeploymentNeed(ctx context.Context, arg AddDeploymentNeedParams) error {
+	_, err := q.db.ExecContext(ctx, addDeploymentNeed,
+		arg.Task,
+		arg.Head,
+		arg.Kind,
+		arg.Name,
+		arg.Path,
+		arg.Line,
+		arg.Reason,
+		arg.Mandatory,
+	)
+	return err
+}
+
 const addDeviceLogin = `-- name: AddDeviceLogin :exec
 INSERT INTO device_logins (token_hash, password_fingerprint, user_agent, created_at)
 VALUES (?, ?, ?, ?)
@@ -1446,6 +1475,15 @@ type DeleteCuratorRequestsUpToParams struct {
 
 func (q *Queries) DeleteCuratorRequestsUpTo(ctx context.Context, arg DeleteCuratorRequestsUpToParams) error {
 	_, err := q.db.ExecContext(ctx, deleteCuratorRequestsUpTo, arg.Repository, arg.ID)
+	return err
+}
+
+const deleteDeploymentNeeds = `-- name: DeleteDeploymentNeeds :exec
+DELETE FROM deployment_needs WHERE task = ?
+`
+
+func (q *Queries) DeleteDeploymentNeeds(ctx context.Context, task int64) error {
+	_, err := q.db.ExecContext(ctx, deleteDeploymentNeeds, task)
 	return err
 }
 
@@ -4381,6 +4419,43 @@ func (q *Queries) ListCuratorRequests(ctx context.Context, repository string) ([
 	for rows.Next() {
 		var i ListCuratorRequestsRow
 		if err := rows.Scan(&i.ID, &i.Text); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDeploymentNeeds = `-- name: ListDeploymentNeeds :many
+SELECT id, task, head, kind, name, path, line, reason, mandatory FROM deployment_needs WHERE task = ? ORDER BY id
+`
+
+func (q *Queries) ListDeploymentNeeds(ctx context.Context, task int64) ([]DeploymentNeed, error) {
+	rows, err := q.db.QueryContext(ctx, listDeploymentNeeds, task)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DeploymentNeed
+	for rows.Next() {
+		var i DeploymentNeed
+		if err := rows.Scan(
+			&i.ID,
+			&i.Task,
+			&i.Head,
+			&i.Kind,
+			&i.Name,
+			&i.Path,
+			&i.Line,
+			&i.Reason,
+			&i.Mandatory,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

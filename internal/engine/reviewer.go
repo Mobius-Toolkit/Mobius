@@ -23,6 +23,10 @@ import (
 //go:embed prompts/reviewer.md
 var reviewerPrompt string
 
+const deploymentNeedsPrompt = "Call `report_deployment_needs` one time with the deployment needs of the full diff. Give an empty list when the diff adds no need."
+
+var deploymentNeedKinds = []string{"env_var", "config", "secret", "manual_step"}
+
 // reviewJob is the review of the head that an Implementer pushed to the pull request of the task.
 type reviewJob struct {
 	task        store.Task
@@ -263,6 +267,9 @@ func (e *Engine) reviewRound(ctx context.Context, a *Agent, j *reviewJob, task s
 	if err := a.Prompt(ctx, prompt, nil); err != nil {
 		return err
 	}
+	if err := e.requireDeploymentNeeds(ctx, a); err != nil {
+		return err
+	}
 	a.closeHarness()
 	e.gitMu.Lock()
 	err = runner.RemoveWorktree(ctx, dataDir, name, a.spec.Dir)
@@ -271,6 +278,71 @@ func (e *Engine) reviewRound(ctx context.Context, a *Agent, j *reviewJob, task s
 		return err
 	}
 	return e.endReview(ctx, repository, j, comment, a.id)
+}
+
+// requireDeploymentNeeds sends the Reviewer one more prompt when its turn made no valid report_deployment_needs
+// call. A second turn with no valid call fails the run.
+func (e *Engine) requireDeploymentNeeds(ctx context.Context, a *Agent) error {
+	if e.deploymentNeedsReported(a) {
+		return nil
+	}
+	if err := a.Prompt(ctx, deploymentNeedsPrompt, nil); err != nil {
+		return err
+	}
+	if ctx.Err() == nil && !e.deploymentNeedsReported(a) {
+		return refuse("The Reviewer gave no deployment needs.")
+	}
+	return nil
+}
+
+func (e *Engine) deploymentNeedsReported(a *Agent) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.reported
+}
+
+// DeploymentNeeds gives the stored deployment needs of the task, the oldest first.
+func (e *Engine) DeploymentNeeds(ctx context.Context, task int64) ([]store.DeploymentNeed, error) {
+	return e.queries.ListDeploymentNeeds(ctx, task)
+}
+
+// reportDeploymentNeeds replaces the stored deployment needs of the task of the Reviewer of c with the needs of
+// input, at the head that it reviews.
+func (e *Engine) reportDeploymentNeeds(ctx context.Context, c caller, _ github.Repository, input deploymentNeedsInput) (string, error) {
+	for i, need := range input.Needs {
+		if !slices.Contains(deploymentNeedKinds, need.Kind) {
+			return "", refuse("Need %d (%s): kind must be one of %s.", i+1, need.Name, strings.Join(deploymentNeedKinds, ", "))
+		}
+		if empty(need.Name) || empty(need.Path) || empty(need.Reason) || need.Line < 1 {
+			return "", refuse("Need %d (%s): name, path and reason must not be empty, and line must be 1 or more.", i+1, need.Name)
+		}
+	}
+	c.agent.mu.Lock()
+	defer c.agent.mu.Unlock()
+	err := e.inTx(ctx, func(q *store.Queries) error {
+		if err := q.DeleteDeploymentNeeds(ctx, c.agent.spec.Task); err != nil {
+			return err
+		}
+		for _, need := range input.Needs {
+			mandatory := int64(0)
+			if need.Mandatory {
+				mandatory = 1
+			}
+			err := q.AddDeploymentNeed(ctx, store.AddDeploymentNeedParams{
+				Task: c.agent.spec.Task, Head: c.agent.head, Kind: need.Kind, Name: need.Name, Path: need.Path,
+				Line: need.Line, Reason: need.Reason, Mandatory: mandatory,
+			})
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	c.agent.reported = true
+	return fmt.Sprintf("Stored %d deployment needs.", len(input.Needs)), nil
 }
 
 // endReview acts on the open review threads after the turn of the Reviewer session. It first sends the follow-up
