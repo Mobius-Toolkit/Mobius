@@ -548,7 +548,7 @@ func (e *Engine) issueLevelLabels(ctx context.Context, repository github.Reposit
 	if !hasLabel(issue, autopilotLabel) && !hasLabel(issue, autoMergeLabel) {
 		return false, false, nil
 	}
-	events, err := repository.IssueEvents(ctx, int64(issue.GetNumber()))
+	events, err := e.issueEvents(ctx, repository, int64(issue.GetNumber()))
 	autopilot, autoMerge = e.levelLabels(issue, events)
 	return autopilot, autoMerge, err
 }
