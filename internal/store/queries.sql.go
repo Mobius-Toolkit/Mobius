@@ -6077,6 +6077,47 @@ func (q *Queries) ListRetryPromptsSince(ctx context.Context, arg ListRetryPrompt
 	return items, nil
 }
 
+const listSessionSkillsBetween = `-- name: ListSessionSkillsBetween :many
+SELECT id, session, organization, repository, role, harness, skill, copied_at FROM session_skills WHERE copied_at >= ?1 AND copied_at < ?2
+`
+
+type ListSessionSkillsBetweenParams struct {
+	After  string
+	Before string
+}
+
+func (q *Queries) ListSessionSkillsBetween(ctx context.Context, arg ListSessionSkillsBetweenParams) ([]SessionSkill, error) {
+	rows, err := q.db.QueryContext(ctx, listSessionSkillsBetween, arg.After, arg.Before)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SessionSkill
+	for rows.Next() {
+		var i SessionSkill
+		if err := rows.Scan(
+			&i.ID,
+			&i.Session,
+			&i.Organization,
+			&i.Repository,
+			&i.Role,
+			&i.Harness,
+			&i.Skill,
+			&i.CopiedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSessions = `-- name: ListSessions :many
 SELECT id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent, effort, workstream_repository FROM sessions WHERE organization = ? AND workstream_repository = ? AND workstream = ? ORDER BY id
 `
@@ -6113,6 +6154,48 @@ func (q *Queries) ListSessions(ctx context.Context, arg ListSessionsParams) ([]S
 			&i.Parent,
 			&i.Effort,
 			&i.WorkstreamRepository,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSkillUsesBetween = `-- name: ListSkillUsesBetween :many
+SELECT id, session, organization, repository, role, harness, skill, source, used_at FROM skill_uses WHERE used_at >= ?1 AND used_at < ?2
+`
+
+type ListSkillUsesBetweenParams struct {
+	After  string
+	Before string
+}
+
+func (q *Queries) ListSkillUsesBetween(ctx context.Context, arg ListSkillUsesBetweenParams) ([]SkillUse, error) {
+	rows, err := q.db.QueryContext(ctx, listSkillUsesBetween, arg.After, arg.Before)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SkillUse
+	for rows.Next() {
+		var i SkillUse
+		if err := rows.Scan(
+			&i.ID,
+			&i.Session,
+			&i.Organization,
+			&i.Repository,
+			&i.Role,
+			&i.Harness,
+			&i.Skill,
+			&i.Source,
+			&i.UsedAt,
 		); err != nil {
 			return nil, err
 		}

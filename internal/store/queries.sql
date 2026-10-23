@@ -85,6 +85,12 @@ VALUES (?, ?, ?, ?, ?, ?, ?);
 -- name: ListTurnUsageBetween :many
 SELECT * FROM turn_usage WHERE started_at >= sqlc.arg(after) AND started_at < sqlc.arg(before);
 
+-- name: ListSkillUsesBetween :many
+SELECT * FROM skill_uses WHERE used_at >= sqlc.arg(after) AND used_at < sqlc.arg(before);
+
+-- name: ListSessionSkillsBetween :many
+SELECT * FROM session_skills WHERE copied_at >= sqlc.arg(after) AND copied_at < sqlc.arg(before);
+
 -- name: ListStepTimesBetween :many
 SELECT * FROM step_times WHERE started_at >= sqlc.arg(after) AND started_at < sqlc.arg(before);
 

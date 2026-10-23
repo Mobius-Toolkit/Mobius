@@ -2990,6 +2990,144 @@
         ]
       }
     },
+    "/api/usage/skills": {
+      "get": {
+        "description": "GetUsageSkills returns the skills that the sessions used or got in the period.",
+        "operationId": "GetUsageSkills",
+        "parameters": [
+          {
+            "description": "From is the start of the period. A row is in the period when its time is From or later",
+            "in": "query",
+            "name": "from",
+            "required": true,
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "description": "To is the end of the period. A row is in the period when its time is before To",
+            "in": "query",
+            "name": "to",
+            "required": true,
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Harness limits the rows to these Harnesses",
+            "in": "query",
+            "name": "harness",
+            "required": false,
+            "schema": {
+              "description": "Array of string",
+              "items": {
+                "type": "string"
+              },
+              "title": "[]string",
+              "type": "array"
+            }
+          },
+          {
+            "description": "Role limits the rows to these roles",
+            "in": "query",
+            "name": "role",
+            "required": false,
+            "schema": {
+              "description": "Array of string",
+              "items": {
+                "type": "string"
+              },
+              "title": "[]string",
+              "type": "array"
+            }
+          },
+          {
+            "description": "Repository limits the rows to these repositories as \"owner/name\"",
+            "in": "query",
+            "name": "repository",
+            "required": false,
+            "schema": {
+              "description": "Array of string",
+              "items": {
+                "type": "string"
+              },
+              "title": "[]string",
+              "type": "array"
+            }
+          },
+          {
+            "description": "Source limits the rows to these sources. A copied skill has the source \"mobius\"",
+            "in": "query",
+            "name": "source",
+            "required": false,
+            "schema": {
+              "description": "Array of string",
+              "items": {
+                "type": "string"
+              },
+              "title": "[]string",
+              "type": "array"
+            }
+          },
+          {
+            "description": "Group is the value that splits the rows. With no Group, all rows are in one group",
+            "in": "query",
+            "name": "group",
+            "required": false,
+            "schema": {
+              "enum": [
+                "harness",
+                "role",
+                "repository",
+                "source"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_SkillUsage"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "usage"
+        ]
+      }
+    },
     "/api/usage/times": {
       "get": {
         "description": "GetUsageTimes returns the durations of the steps and the task states that started in the period.",
@@ -5647,6 +5785,20 @@
         ],
         "description": "Envelope is the body of each success response."
       },
+      "Envelope_SkillUsage": {
+        "type": "object",
+        "title": "Envelope_SkillUsage",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/SkillUsage",
+            "description": "Data is the payload of the response"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "description": "Envelope is the body of each success response."
+      },
       "Envelope_TranscriptPage": {
         "type": "object",
         "title": "Envelope_TranscriptPage",
@@ -6902,6 +7054,145 @@
             "description": "On adds mobius:evergreen when true, and removes it when false"
           }
         }
+      },
+      "SkillTotals": {
+        "type": "object",
+        "title": "SkillTotals",
+        "properties": {
+          "sessions": {
+            "type": "integer",
+            "description": "Sessions is the number of distinct sessions that used a skill"
+          },
+          "skills": {
+            "type": "integer",
+            "description": "Skills is the number of distinct skill names of the skill uses and the copied skills"
+          },
+          "uses": {
+            "type": "integer",
+            "description": "Uses is the number of skill uses"
+          }
+        },
+        "required": [
+          "uses",
+          "skills",
+          "sessions"
+        ],
+        "description": "SkillTotals are the counts of all skill rows that pass the filters."
+      },
+      "SkillUsage": {
+        "type": "object",
+        "title": "SkillUsage",
+        "properties": {
+          "options": {
+            "$ref": "#/components/schemas/SkillUsageOptions",
+            "description": "Options are the values that each filter can take, before the filters"
+          },
+          "rows": {
+            "type": "array",
+            "title": "[]SkillUsageRow",
+            "description": "Rows are the counts of each skill, source and group, the most used skill first",
+            "items": {
+              "$ref": "#/components/schemas/SkillUsageRow"
+            }
+          },
+          "totals": {
+            "$ref": "#/components/schemas/SkillTotals",
+            "description": "Totals are the counts of all rows that pass the filters"
+          }
+        },
+        "required": [
+          "totals",
+          "rows",
+          "options"
+        ],
+        "description": "SkillUsage is the skill statistics of a period."
+      },
+      "SkillUsageOptions": {
+        "type": "object",
+        "title": "SkillUsageOptions",
+        "properties": {
+          "harnesses": {
+            "type": "array",
+            "title": "[]string",
+            "description": "Harnesses are the Harnesses of the rows",
+            "items": {
+              "type": "string"
+            }
+          },
+          "repositories": {
+            "type": "array",
+            "title": "[]string",
+            "description": "Repositories are the repositories of the rows as \"owner/name\"",
+            "items": {
+              "type": "string"
+            }
+          },
+          "roles": {
+            "type": "array",
+            "title": "[]string",
+            "description": "Roles are the roles of the rows",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sources": {
+            "type": "array",
+            "title": "[]string",
+            "description": "Sources are the sources of the rows",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "harnesses",
+          "roles",
+          "repositories",
+          "sources"
+        ],
+        "description": "SkillUsageOptions are the values that each filter can take in the period."
+      },
+      "SkillUsageRow": {
+        "type": "object",
+        "title": "SkillUsageRow",
+        "properties": {
+          "group": {
+            "type": "string",
+            "description": "Group is the value of the group, or empty when the request has no group"
+          },
+          "had": {
+            "type": "integer",
+            "description": "Had is the number of distinct sessions that Mobius gave the skill to. It is 0 for a harness skill"
+          },
+          "skill": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "description": "Source is \"mobius\" for a skill that Mobius copied into a session, and \"harness\" for each other skill",
+            "enum": [
+              "mobius",
+              "harness"
+            ]
+          },
+          "used": {
+            "type": "integer",
+            "description": "Used is the number of distinct sessions that used the skill"
+          },
+          "uses": {
+            "type": "integer",
+            "description": "Uses is the number of skill uses"
+          }
+        },
+        "required": [
+          "skill",
+          "source",
+          "group",
+          "uses",
+          "had",
+          "used"
+        ],
+        "description": "SkillUsageRow is the count of one skill of one source in one group."
       },
       "StopChatBody": {
         "type": "object",
