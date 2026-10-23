@@ -1,4 +1,4 @@
-import { Fragment, use, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, use, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   listMemoryVersions,
   revertMemory,
@@ -9,9 +9,18 @@ import {
 import { inset, LinkRow, List, PageHeader, Section } from "@/components/page";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { briefMarkdown } from "@/lib/briefDiff";
 import { diffHunks } from "@/lib/diff";
+import { useKeyboardHeight } from "@/lib/keyboard";
 import { LoginContext } from "@/lib/login";
 import { dayClock } from "@/lib/time";
 import { cn } from "@/lib/utils";
@@ -81,6 +90,103 @@ function Diff({ before, after }: { before: string; after: string }) {
   );
 }
 
+function EditDialog({
+  repository,
+  initial,
+  draft,
+  onChange,
+  saving,
+  error,
+  onSave,
+  onClose,
+}: {
+  repository: string;
+  initial: string;
+  draft: string;
+  onChange: (text: string) => void;
+  saving: boolean;
+  error?: string;
+  onSave: () => void;
+  onClose: () => void;
+}) {
+  const [discarding, setDiscarding] = useState(false);
+  const dismissing = useRef(false);
+  useKeyboardHeight();
+
+  // One Escape key or one outside click reaches the discard dialog first and then, after React renders, this dialog.
+  const closeDiscarding = () => {
+    dismissing.current = true;
+    setDiscarding(false);
+    setTimeout(() => {
+      dismissing.current = false;
+    });
+  };
+
+  return (
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (open || saving || discarding || dismissing.current) {
+          return;
+        }
+        if (draft === initial) {
+          onClose();
+        } else {
+          setDiscarding(true);
+        }
+      }}
+    >
+      <DialogContent
+        aria-describedby={undefined}
+        className="grid max-h-[calc(100dvh-var(--keyboard,0px)-2rem)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 p-0 max-sm:top-auto max-sm:bottom-(--keyboard,0px) max-sm:left-0 max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-b-none sm:max-h-[85dvh] sm:max-w-2xl"
+      >
+        <DialogHeader className="p-4 pr-10">
+          <DialogTitle>{`Edit the memory of ${repository}`}</DialogTitle>
+        </DialogHeader>
+        <div className="grid min-h-0 grid-rows-[minmax(0,1fr)_auto] gap-2 px-4 pb-4">
+          <Textarea
+            aria-label="Memory text"
+            className="h-full max-h-full min-h-40 resize-none font-mono"
+            value={draft}
+            onChange={(event) => onChange(event.target.value)}
+          />
+          {error && (
+            <Badge variant="destructive" className="h-auto w-full justify-start whitespace-normal">
+              {error}
+            </Badge>
+          )}
+        </div>
+        <DialogFooter className="m-0 max-sm:rounded-none">
+          <Button
+            variant="outline"
+            disabled={saving}
+            onClick={() => (draft === initial ? onClose() : setDiscarding(true))}
+          >
+            Cancel
+          </Button>
+          <Button pending={saving} onClick={onSave}>
+            Save
+          </Button>
+        </DialogFooter>
+        <Dialog open={discarding} onOpenChange={closeDiscarding}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Discard your changes?</DialogTitle>
+              <DialogDescription>The memory file keeps its text.</DialogDescription>
+            </DialogHeader>
+            <DialogFooter className="m-0 rounded-none border-0 bg-transparent p-0">
+              <Button variant="outline" onClick={() => setDiscarding(false)}>
+                Keep editing
+              </Button>
+              <Button onClick={onClose}>Discard</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function Memory({ owner, name }: { owner: string; name: string }) {
   const showLogin = use(LoginContext);
   const [versions, setVersions] = useState<MemoryVersion[]>();
@@ -91,6 +197,7 @@ export function Memory({ owner, name }: { owner: string; name: string }) {
   const [saving, setSaving] = useState(false);
   const [reverting, setReverting] = useState<number>();
   const [error, setError] = useState<string>();
+  const [saveError, setSaveError] = useState<string>();
 
   const load = useCallback(() => {
     listMemoryVersions(owner, name)
@@ -126,6 +233,11 @@ export function Memory({ owner, name }: { owner: string; name: string }) {
       .finally(() => setLoadingOlder(false));
   };
 
+  const closeEdit = () => {
+    setDraft(undefined);
+    setSaveError(undefined);
+  };
+
   const save = (text: string) => {
     setSaving(true);
     saveMemory(owner, name, { text, base_version: base })
@@ -133,14 +245,13 @@ export function Memory({ owner, name }: { owner: string; name: string }) {
         if (res.status === 401) {
           showLogin();
         } else if (res.status === 204) {
-          setError(undefined);
-          setDraft(undefined);
+          closeEdit();
           load();
         } else {
-          setError(res.data.error);
+          setSaveError(res.data.error);
         }
       })
-      .catch((err: unknown) => setError(String(err)))
+      .catch((err: unknown) => setSaveError(String(err)))
       .finally(() => setSaving(false));
   };
 
@@ -173,46 +284,20 @@ export function Memory({ owner, name }: { owner: string; name: string }) {
           <section className="grid gap-2">
             <div className="flex items-center justify-between gap-4">
               <h3 className="font-medium">Current text</h3>
-              {draft === undefined && (
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setBase(versions[0]?.id ?? 0);
-                    setDraft(current);
-                  }}
-                >
-                  Edit
-                </Button>
-              )}
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setBase(versions[0]?.id ?? 0);
+                  setDraft(current);
+                  setSaveError(undefined);
+                }}
+              >
+                Edit
+              </Button>
             </div>
-            {draft === undefined ? (
-              <div className="rounded-lg border p-3 text-sm">
-                {current ? <Markdown text={current} /> : "The memory file is empty."}
-              </div>
-            ) : (
-              <>
-                <Textarea
-                  aria-label="Memory text"
-                  className="font-mono"
-                  value={draft}
-                  onChange={(event) => setDraft(event.target.value)}
-                />
-                <div className="flex justify-end gap-2">
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      setDraft(undefined);
-                      setError(undefined);
-                    }}
-                  >
-                    Cancel
-                  </Button>
-                  <Button pending={saving} onClick={() => save(draft)}>
-                    Save
-                  </Button>
-                </div>
-              </>
-            )}
+            <div className="rounded-lg border p-3 text-sm">
+              {current ? <Markdown text={current} /> : "The memory file is empty."}
+            </div>
           </section>
         )}
         {versions && (
@@ -258,6 +343,18 @@ export function Memory({ owner, name }: { owner: string; name: string }) {
           </section>
         )}
       </div>
+      {draft !== undefined && (
+        <EditDialog
+          repository={`${owner}/${name}`}
+          initial={current}
+          draft={draft}
+          onChange={setDraft}
+          saving={saving}
+          error={saveError}
+          onSave={() => save(draft)}
+          onClose={closeEdit}
+        />
+      )}
     </>
   );
 }
