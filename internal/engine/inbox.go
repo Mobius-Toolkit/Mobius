@@ -255,18 +255,16 @@ func (e *Engine) AnswerInboxItem(ctx context.Context, id int64, text string) (st
 	return comment.GetHTMLURL(), nil
 }
 
-// mergingPullRequests gives the numbers of the pull requests of the open ready for review Inbox items of repository in
-// the merging state.
+// mergingPullRequests gives the numbers of the pull requests of the ready for review Inbox items of repository in the
+// merging state. A dismissed item counts: the Owner started the merge, and the poll must read the approval to do it.
 func (e *Engine) mergingPullRequests(ctx context.Context, repository github.Repository) ([]int64, error) {
-	items, err := e.Inbox(ctx)
+	items, err := e.queries.ListMergingReadyItems(ctx, repository.FullName)
 	if err != nil {
 		return nil, err
 	}
 	var numbers []int64
 	for _, item := range items {
-		if item.Repository == repository.FullName && item.Kind == readyForReviewKind && item.Merging != 0 {
-			numbers = append(numbers, item.PullRequest)
-		}
+		numbers = append(numbers, item.PullRequest)
 	}
 	return numbers, nil
 }
