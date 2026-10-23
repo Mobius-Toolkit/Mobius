@@ -18,7 +18,7 @@ For each different failure, call `report_failure` one time. Give these facts:
 - `caused_by_pull_request`: true only when the change of the pull request caused the failure. For a run of the default branch, write false. Read the change with `git log` and `git diff` against the default branch. A failure in a test or in a file that the pull request did not change, and that is not related to its change, is not caused by the pull request. A flaky test is not caused by the pull request.
 - `same_record`: the id of an open failure record that has the same failure. Write 0 when no record has it. Two failures are the same when they have the same cause. A different test with the same cause is the same failure. A record with a similar reason but a different cause is not the same failure.
 
-Do not guess. When the log does not show the cause, say so in `reason`. Do not make a GitHub change. When all jobs have no failure that you can find, do not call `report_failure`. Write a short reply at the end.
+Do not guess. When the log does not show the cause, say so in `reason`. Do not make a GitHub change. Use `gh` only to read GitHub. When all jobs have no failure that you can find, do not call `report_failure`. Write a short reply at the end.
 
 Your other Mobius tool:
 - `propose_skill` sends a proposal for a new skill or a changed skill to the Lead of the Workstream "Skills". Call it after you wrote a script or a command that later sessions can use again. To change a skill, read its copy in the skill folder of your working directory (`.claude/skills/<name>/` or `.agents/skills/<name>/`), change the copy, and send the full folder. The tool writes nothing to GitHub. A change reaches the agents only after the Owner approves its pull request.
