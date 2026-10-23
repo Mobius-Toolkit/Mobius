@@ -157,6 +157,14 @@ func (g *FakeGitHub) InstallationTokensGiven() int {
 	return g.installationTokensGiven
 }
 
+// InstallationTokenPermissions gives the permissions that the request of the installation token asked for. It gives nil
+// for a request with no permissions.
+func (g *FakeGitHub) InstallationTokenPermissions(token string) map[string]string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.tokenPermissions[token]
+}
+
 // newApp is the web page that creates an App from the `manifest` form field. The fake creates
 // no form for the user: it adds a manifest code and sends the browser to the `redirect_url`
 // of the manifest with the code and the `state` of the page URL, as GitHub does after the form.
@@ -320,12 +328,18 @@ func (g *FakeGitHub) createInstallationToken(w http.ResponseWriter, r *http.Requ
 		notFound(w)
 		return
 	}
+	var body struct {
+		Permissions map[string]string `json:"permissions"`
+	}
+	// A request with no body asks for all permissions of the installation.
+	_ = json.NewDecoder(r.Body).Decode(&body)
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.installationTokensGiven++
 	value := fmt.Sprintf("ghs_%d", g.installationTokensGiven)
 	expires := time.Now().Add(g.installationTokenLife)
 	g.tokens[value] = token{login: botLogin(index), app: index, installation: true, expires: expires}
+	g.tokenPermissions[value] = body.Permissions
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"token":       value,
 		"expires_at":  expires.UTC().Format(time.RFC3339),

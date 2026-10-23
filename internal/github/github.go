@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/bradleyfalzon/ghinstallation/v2"
+	gogithub88 "github.com/google/go-github/v88/github"
 	gh "github.com/google/go-github/v92/github"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
@@ -65,6 +66,8 @@ type GitHub struct {
 	repositories []Repository
 	// The transports of the installations, by installation id. Each transport keeps its token until the token expires.
 	transports map[int64]*ghinstallation.Transport
+	// The read-only transports of the installations, by installation id.
+	readTransports map[int64]*ghinstallation.Transport
 	// The ETag caches of the installations, by installation id. They wrap the transports and live as long as the GitHub.
 	caches map[int64]*etagTransport
 }
@@ -82,8 +85,9 @@ type Repository struct {
 	AppID         int64
 	AppSlug       string
 	// Client uses the installation token, and gets a new token before the token expires.
-	Client       *gh.Client
-	installation *ghinstallation.Transport
+	Client           *gh.Client
+	installation     *ghinstallation.Transport
+	readInstallation *ghinstallation.Transport
 }
 
 // Token gives an installation token of the repository that is valid for one more minute or longer.
@@ -93,16 +97,25 @@ func (r Repository) Token(ctx context.Context) (string, error) {
 	return r.installation.Token(ctx)
 }
 
+// ReadToken gives a token of the installation of the repository that can only read. It is valid for one more minute or
+// longer.
+func (r Repository) ReadToken(ctx context.Context) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, Timeout)
+	defer cancel()
+	return r.readInstallation.Token(ctx)
+}
+
 // New gives the GitHub of apiURL (for example https://api.github.com) and webURL (for example https://github.com).
 func New(queries *store.Queries, apiURL, webURL string, trustedUsers []string) (*GitHub, error) {
 	g := &GitHub{
-		queries:      queries,
-		apiURL:       apiURL,
-		webURL:       webURL,
-		trustedUsers: trustedUsers,
-		states:       map[string]time.Time{},
-		transports:   map[int64]*ghinstallation.Transport{},
-		caches:       map[int64]*etagTransport{},
+		queries:        queries,
+		apiURL:         apiURL,
+		webURL:         webURL,
+		trustedUsers:   trustedUsers,
+		states:         map[string]time.Time{},
+		transports:     map[int64]*ghinstallation.Transport{},
+		readTransports: map[int64]*ghinstallation.Transport{},
+		caches:         map[int64]*etagTransport{},
 	}
 	var err error
 	g.api, err = g.client()
@@ -414,7 +427,7 @@ func (g *GitHub) appRepositories(ctx context.Context, app store.GithubApp) ([]Re
 		if err != nil {
 			return nil, err
 		}
-		transport, cache := g.installationTransport(appTransport, installation.GetID())
+		transport, readTransport, cache := g.installationTransport(appTransport, installation.GetID())
 		client, err := g.client(gh.WithTransport(cache))
 		if err != nil {
 			return nil, err
@@ -424,20 +437,21 @@ func (g *GitHub) appRepositories(ctx context.Context, app store.GithubApp) ([]Re
 				return nil, err
 			}
 			repositories = append(repositories, Repository{
-				FullName:      repository.GetFullName(),
-				DefaultBranch: repository.GetDefaultBranch(),
-				CloneURL:      repository.GetCloneURL(),
-				AppID:         app.AppID,
-				AppSlug:       app.Slug,
-				Client:        client,
-				installation:  transport,
+				FullName:         repository.GetFullName(),
+				DefaultBranch:    repository.GetDefaultBranch(),
+				CloneURL:         repository.GetCloneURL(),
+				AppID:            app.AppID,
+				AppSlug:          app.Slug,
+				Client:           client,
+				installation:     transport,
+				readInstallation: readTransport,
 			})
 		}
 	}
 	return repositories, nil
 }
 
-func (g *GitHub) installationTransport(appTransport *ghinstallation.AppsTransport, id int64) (*ghinstallation.Transport, *etagTransport) {
+func (g *GitHub) installationTransport(appTransport *ghinstallation.AppsTransport, id int64) (*ghinstallation.Transport, *ghinstallation.Transport, *etagTransport) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	transport, ok := g.transports[id]
@@ -445,8 +459,18 @@ func (g *GitHub) installationTransport(appTransport *ghinstallation.AppsTranspor
 		transport = ghinstallation.NewFromAppsTransport(appTransport, id)
 		g.transports[id] = transport
 		g.caches[id] = newETagTransport(transport)
+		read := ghinstallation.NewFromAppsTransport(appTransport, id)
+		read.InstallationTokenOptions = &gogithub88.InstallationTokenOptions{Permissions: &gogithub88.InstallationPermissions{
+			Contents:     gogithub88.Ptr("read"),
+			Issues:       gogithub88.Ptr("read"),
+			PullRequests: gogithub88.Ptr("read"),
+			Checks:       gogithub88.Ptr("read"),
+			Actions:      gogithub88.Ptr("read"),
+			Metadata:     gogithub88.Ptr("read"),
+		}}
+		g.readTransports[id] = read
 	}
-	return transport, g.caches[id]
+	return transport, g.readTransports[id], g.caches[id]
 }
 
 // AsOwner gives repository with a client that uses the user token of the Owner in place of the installation token.
