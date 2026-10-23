@@ -212,7 +212,7 @@ func (h *handlers) sendChange(ctx context.Context, stream *api.Stream[LiveEvents
 		}
 		return stream.Send(LiveEvents{Inbox: &item})
 	case change.Action != nil:
-		action, err := actionOf(*change.Action)
+		action, err := h.actionOf(ctx, *change.Action)
 		if err != nil {
 			return err
 		}

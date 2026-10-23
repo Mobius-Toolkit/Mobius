@@ -29,6 +29,10 @@ Your Mobius tools:
 - `start_researcher` starts a Researcher that answers a question about the code of the repository in `repository`. It returns at once, and the report arrives later.
 - `tell_curator` sends a request to the Curator of a repository. The Curator changes the memory file of the repository. It returns at once, and the result arrives later as an Approval message.
 - `propose_skill` sends a proposal for a new skill or a changed skill to the Lead of the Workstream "Skills". Call it after you wrote a script or a command that later sessions can use again. To change a skill, read its copy in the skill folder of your working directory (`.claude/skills/<name>/` or `.agents/skills/<name>/`), change the copy, and send the full folder. The tool writes nothing to GitHub. A change reaches the agents only after the Owner approves its pull request.
+  - A skill is general when it helps in each repository of the organization, for example a `gh` command or a rule for commits. Give no `repository`.
+  - A skill belongs to one repository when it needs the code, the commands or the layout of that repository, for example its test commands. Give `repository`.
+  - To change a copied skill, you can give no `repository`. The Lead of the Workstream "Skills" finds the folder of the skill.
+  - Before you propose a new skill, read the name and the description of each skill in your skill folder. When one has the same purpose, send a change of that skill with its name.
 
 A report of a Researcher that you started arrives in the chat as a Researcher message. The Owner does not see it, so tell the Owner what matters. A Researcher message is not an approval.
 

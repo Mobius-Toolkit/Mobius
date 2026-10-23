@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Remote gives the bare git repository of the repository fullName. Its file URL is the clone_url of the repository.
@@ -43,16 +44,21 @@ func (g *FakeGitHub) addRemote(fullName string) {
 
 // CommitFile commits the file path with content on main of the repository fullName.
 func (g *FakeGitHub) CommitFile(fullName, path, content, message string) {
-	g.commitFile(fullName, "main", path, content, message)
+	g.commitFile(fullName, "main", path, content, message, time.Time{})
+}
+
+// CommitFileAt is CommitFile with at as the author date and the committer date of the commit.
+func (g *FakeGitHub) CommitFileAt(fullName, path, content, message string, at time.Time) {
+	g.commitFile(fullName, "main", path, content, message, at)
 }
 
 // CommitFileOnBranch commits the file path with content on a new branch of the repository fullName that starts at
 // main, and pushes the branch.
 func (g *FakeGitHub) CommitFileOnBranch(fullName, branch, path, content, message string) {
-	g.commitFile(fullName, branch, path, content, message)
+	g.commitFile(fullName, branch, path, content, message, time.Time{})
 }
 
-func (g *FakeGitHub) commitFile(fullName, branch, path, content, message string) {
+func (g *FakeGitHub) commitFile(fullName, branch, path, content, message string, at time.Time) {
 	work := g.t.TempDir()
 	g.git(work, "clone", "--branch=main", g.Remote(fullName), ".")
 	file := filepath.Join(work, path)
@@ -63,7 +69,14 @@ func (g *FakeGitHub) commitFile(fullName, branch, path, content, message string)
 		g.t.Fatal(err)
 	}
 	g.git(work, "add", path)
-	g.git(work, "commit", "-m", message)
+	commit := gitCommand(work, "commit", "-m", message)
+	if !at.IsZero() {
+		date := at.UTC().Format(time.RFC3339)
+		commit.Env = append(commit.Env, "GIT_AUTHOR_DATE="+date, "GIT_COMMITTER_DATE="+date)
+	}
+	if out, err := commit.CombinedOutput(); err != nil {
+		g.t.Fatalf("git commit: %v: %s", err, out)
+	}
 	g.git(work, "push", "origin", "HEAD:refs/heads/"+branch)
 }
 

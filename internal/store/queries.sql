@@ -248,6 +248,15 @@ SELECT * FROM inbox_items WHERE workstream_repository = ? AND kind = 'question' 
 -- name: ListOpenInboxItems :many
 SELECT * FROM inbox_items WHERE dismissed_at IS NULL ORDER BY id;
 
+-- name: ListMergingReadyItems :many
+SELECT * FROM inbox_items
+WHERE inbox_items.repository = ? AND inbox_items.kind = 'ready for review' AND inbox_items.merging != 0 AND EXISTS (
+  SELECT 1 FROM tasks
+  WHERE tasks.repository = inbox_items.repository AND tasks.issue = inbox_items.issue
+    AND tasks.pull_request = inbox_items.pull_request AND tasks.state = 'ready_for_review'
+)
+ORDER BY id;
+
 -- name: ListOpenCoordinatorQuestions :many
 SELECT * FROM inbox_items
 WHERE kind = 'question' AND organization = ? AND repository = '' AND issue = 0 AND dismissed_at IS NULL

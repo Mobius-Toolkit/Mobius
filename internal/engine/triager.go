@@ -276,7 +276,7 @@ func (e *Engine) runTriager(ctx context.Context, repository github.Repository, n
 	if over {
 		return a.End(ended, "done")
 	}
-	prompt := fmt.Sprintf("%s\n%s\n# Issue\n\n%s#%d %s\n\n%s", triagerPrompt, workstreams, repository.FullName, number, title, body)
+	prompt := fmt.Sprintf("%s\n%s%s\n# Issue\n\n%s#%d %s\n\n%s", triagerPrompt, serverSection(), workstreams, repository.FullName, number, title, body)
 	if len(comments) > 0 {
 		prompt += "\n\n# Comments\n"
 		for _, comment := range comments {
