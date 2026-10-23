@@ -1571,6 +1571,38 @@ test("the Autopilot menu of the chat head sets the level and the Workstream list
   await expect(sidebar.getByRole("img", { name: /^Autopilot: / })).toHaveCount(1);
 });
 
+const autopilotItemIcons = [
+  { name: /^Off/, icon: "lucide-power-off" },
+  { name: /^Start tasks/, icon: "lucide-plane-takeoff" },
+  { name: /^Merge only/, icon: "lucide-plane-landing" },
+  { name: /^Start and merge/, icon: "lucide-plane" },
+];
+
+test("each item of the Autopilot menu shows the icon of its level", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(shop);
+
+  await page.getByRole("button", { name: "Autopilot: Off" }).click();
+  for (const { name, icon } of autopilotItemIcons) {
+    await expect(page.getByRole("menuitemradio", { name }).locator(`svg.${icon}`)).toHaveCount(1);
+  }
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("menu")).toBeHidden();
+});
+
+test("each item of the Autopilot sheet shows the icon of its level", async ({ page }) => {
+  await page.setViewportSize(phone);
+  await page.goto(shop);
+
+  await page.getByRole("button", { name: "Autopilot: Off" }).click();
+  const sheet = page.getByRole("dialog", { name: "Autopilot" });
+  for (const { name, icon } of autopilotItemIcons) {
+    await expect(sheet.getByRole("radio", { name }).locator(`svg.${icon}`)).toHaveCount(1);
+  }
+  await page.keyboard.press("Escape");
+  await expect(sheet).toBeHidden();
+});
+
 test("the Autopilot trigger shows a level that the server gives after the selection", async ({
   page,
 }) => {
