@@ -304,12 +304,18 @@ func TestAReadyForReviewItemClosesAfterTheCloseOfThePullRequestWithNoMerge(t *te
 	}
 }
 
-func TestAReadyForReviewItemClosesAfterTheCloseOfTheIssue(t *testing.T) {
+func TestAReadyForReviewItemStaysOpenAfterTheCloseOfTheIssueWhileThePullRequestIsOpen(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := readyForReviewServer(t, fake)
 
 	fake.CloseIssue(shop, 41)
+	waitForPolls(t, fake)
 
-	waitForNoItem(t, server, "ready for review")
+	if got := itemsOf(t, server, "ready for review"); len(got) != 1 {
+		t.Errorf("ready for review items = %+v", got)
+	}
+	if state := taskState(t, server); state != "ready_for_review" {
+		t.Errorf("task state = %s", state)
+	}
 }
