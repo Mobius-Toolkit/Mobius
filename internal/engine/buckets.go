@@ -204,7 +204,6 @@ func (f *bucketFill) move(ctx context.Context, issue *gh.Issue, closed, fromDire
 	if err != nil {
 		return false, err
 	}
-	*f.moves++
 	target.count++
 	f.changed = true
 	if fromDirect {
@@ -313,7 +312,6 @@ func (f *bucketFill) makeRoom(ctx context.Context, bucket int64, closed bool) er
 		if err != nil {
 			return err
 		}
-		*f.moves++
 		f.placed[issue.GetID()] = true
 		f.direct--
 		f.changed = true
@@ -322,7 +320,9 @@ func (f *bucketFill) makeRoom(ctx context.Context, bucket int64, closed bool) er
 	return nil
 }
 
+// add counts each call toward the limit of moves, also a refused one, because it uses the rate limit of GitHub.
 func (f *bucketFill) add(ctx context.Context, parent, id int64) error {
+	*f.moves++
 	_, _, err := f.repository.Client.SubIssue.Add(ctx, f.repository.Owner(), f.repository.Name(), parent, gh.SubIssueRequest{SubIssueID: id, ReplaceParent: new(true)})
 	return err
 }

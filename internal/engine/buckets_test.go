@@ -33,6 +33,8 @@ func addBucket(fake *testkit.FakeGitHub, number int64, title string, closed bool
 
 const directSubIssuesTarget = 30
 
+const maxBucketMoves = 100
+
 func addBucketWorkstream(fake *testkit.FakeGitHub) {
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
@@ -322,5 +324,32 @@ func TestAnOpenBucketThatGitHubRefusesEachOpenIssueStaysAndTheNextPollsMakeNoNew
 	waitForThirtyDirectSubIssues(t, fake)
 	if got := sorted(fake.SubIssueNumbers(shop, 151)); !slices.Equal(got, numbers(100, 121)) || fake.HasIssue(shop, 152) {
 		t.Errorf("sub-issues of #151 = %v, #152 = %t", got, fake.HasIssue(shop, 152))
+	}
+}
+
+func TestRefusedAddsCountTowardTheLimitOfMovesOfAPoll(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addBucketWorkstream(fake)
+	fake.AddIssue(shop, 13, "Second Workstream")
+	fake.AddLabel(shop, 13, "mobius:workstream", "owner")
+	addSubIssues(fake, 12, 100, 189, 100)
+	addSubIssues(fake, 13, 300, 389, 300)
+	fake.RefuseOpenBucketAdds(true)
+	startCopied(t, fake)
+
+	waitForPolls(t, fake)
+	waitForPolls(t, fake)
+	var adds []int
+	for _, request := range fake.Requests() {
+		switch {
+		case request.Method == "POST" && strings.HasSuffix(request.Path, "/sub_issues") && len(adds) > 0:
+			adds[len(adds)-1]++
+		case request.Method == "GET" && request.Path == "/app/installations":
+			adds = append(adds, 0)
+		}
+	}
+	if len(adds) < 3 || slices.Max(adds) > maxBucketMoves {
+		t.Errorf("adds of a sub-issue in each poll = %v", adds)
 	}
 }
