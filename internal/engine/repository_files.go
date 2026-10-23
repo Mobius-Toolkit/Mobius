@@ -4,13 +4,25 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"runtime"
 	"strings"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
 	"github.com/Mobius-Toolkit/Mobius/internal/runner"
 )
 
-// repositorySections gives the facts file, the instruction file of role and the memory file as prompt sections. The
+// serverSection gives the operating system of the server as a prompt section.
+func serverSection() string {
+	text := fmt.Sprintf("The server runs %s.", runtime.GOOS)
+	if runtime.GOOS == "darwin" {
+		text = "The server runs macOS. The shell tools are the BSD tools.\n" +
+			"The option -i of sed needs an argument for the suffix of the backup file. For no backup, use an empty suffix: sed -i '' 's|old|new|' file\n" +
+			"The commands a, i and c of the BSD sed need a backslash and a new line before the text."
+	}
+	return fmt.Sprintf("# Server\n\n%s\n\n", text)
+}
+
+// repositorySections gives the server section, the facts file, the instruction file of role and the memory file as prompt sections. The
 // facts file and the instruction file come from the default branch, so a pull request cannot change them for its own
 // agents. The memory file comes from the data directory and is the same for each role.
 func (e *Engine) repositorySections(ctx context.Context, repository github.Repository, role string) (string, error) {
@@ -23,7 +35,7 @@ func (e *Engine) repositorySections(ctx context.Context, repository github.Repos
 	dataDir := e.config.DataDir
 	e.gitMu.Lock()
 	defer e.gitMu.Unlock()
-	sections := ""
+	sections := serverSection()
 	for _, file := range []struct{ heading, path string }{
 		{"Repository facts", "AGENTS.md"},
 		{"Role instructions", ".mobius/roles/" + role + ".md"},

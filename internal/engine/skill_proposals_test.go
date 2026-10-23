@@ -28,6 +28,10 @@ func callProposeSkill(when, name, reason string, files ...[2]string) string {
 	return fmt.Sprintf("[[prompts]]\nwhen = %q\ncall = { tool = \"propose_skill\", arguments = { name = %q, reason = %q, files = [%s] } }\n\n", when, name, reason, strings.Join(list, ", "))
 }
 
+func callProposeSkillIn(when, name, repository string) string {
+	return fmt.Sprintf("[[prompts]]\nwhen = %q\ncall = { tool = \"propose_skill\", arguments = { name = %q, reason = \"Reason.\", repository = %q, files = [{ path = \"SKILL.md\", content = \"Text.\" }] } }\n\n", when, name, repository)
+}
+
 func skillProposals(events []leadEvent) []leadEvent {
 	return slices.DeleteFunc(events, func(event leadEvent) bool { return event.Kind != "skill_proposal" })
 }
@@ -73,6 +77,7 @@ func TestAProposalOfASkillGoesToTheLeadOfTheWorkstreamSkills(t *testing.T) {
 		`"failed-tests"`,
 		"Reason: Find the failed tests in a CI log.",
 		fmt.Sprintf("Session %d, role implementer, repository owner/shop, issue owner/shop#41.", session),
+		"\n\nFolder: failed-tests/\n\n",
 		"File SKILL.md:\n````\nRun scripts/find.sh.\n```\nfind.sh log\n```\n\n````",
 		"File scripts/find.sh:\n```\ngrep -n FAIL \"$1\"\n\n```",
 	} {
@@ -174,5 +179,43 @@ func TestAProposalOfASkillGoesToTheWorkstreamSkillsWithTheLowestNumberInTheOrgan
 	}
 	if events := skillProposals(leadEvents(t, server)); len(events) != 0 {
 		t.Errorf("events of owner/shop = %+v", events)
+	}
+}
+
+func TestAProposalOfASkillWithARepositoryNamesTheFolderOfTheRepository(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddRepository("owner/cafe")
+	addSkillsWorkstream(fake, 20)
+	server, _ := connect(t, fake, callProposeSkillIn("Propose.", "test-changes", "owner/cafe")+seenScript)
+
+	run(t, server, roleSpec(t, engine.ImplementerRole), "Propose.")
+
+	events := skillProposals(leadEvents(t, server))
+	if len(events) != 1 || !strings.Contains(events[0].Payload, "\n\nFolder: repos/cafe/test-changes/\n\n") {
+		t.Errorf("events = %+v", events)
+	}
+}
+
+func TestAProposalOfASkillWithAForeignRepositoryIsRefusedAndAddsNoLeadEvent(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddRepository("other/shop")
+	addSkillsWorkstream(fake, 20)
+	server, _ := connect(t, fake, callProposeSkillIn("Other organization.", "failed", "other/shop")+callProposeSkillIn("Unreadable.", "failed", "owner/hidden")+seenScript)
+
+	session := run(t, server, roleSpec(t, engine.ImplementerRole), "Other organization.", "Unreadable.")
+
+	calls := mcpCalls(t, server, session)
+	if len(calls) != 2 {
+		t.Fatalf("calls = %v", calls)
+	}
+	for i, want := range []string{"other/shop is not in the organization owner.", "The Mobius App has no access to owner/hidden."} {
+		if got, _ := calls[i]["error"].(string); got != want {
+			t.Errorf("error %d = %q, want %q", i, got, want)
+		}
+	}
+	if events := skillProposals(leadEvents(t, server)); len(events) != 0 {
+		t.Errorf("events = %+v", events)
 	}
 }

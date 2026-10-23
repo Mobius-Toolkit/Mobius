@@ -36,6 +36,15 @@ func (e *Engine) PollEnded() bool {
 	return e.workers.work != nil
 }
 
+// MergingPullRequests gives mergingPullRequests of the repository name.
+func (e *Engine) MergingPullRequests(ctx context.Context, name string) ([]int64, error) {
+	repository, err := e.repository(name)
+	if err != nil {
+		return nil, err
+	}
+	return e.mergingPullRequests(ctx, repository)
+}
+
 // Listeners gives the number of channels that wait for changes.
 func (e *Engine) Listeners() int {
 	e.mu.Lock()

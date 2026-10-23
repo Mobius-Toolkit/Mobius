@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -191,4 +192,79 @@ func TestALeadDoesNotStartWhenTheFetchFailsAndTheBareCloneHasNoDefaultBranch(t *
 			t.Errorf("session = %+v", session)
 		}
 	}
+}
+
+// assertServerSection fails when prompt has no section for the operating system of the test, directly before after.
+func assertServerSection(t *testing.T, name, prompt, after string) {
+	t.Helper()
+	want := []string{"# Server\n\nThe server runs " + runtime.GOOS + ".\n\n" + after}
+	if runtime.GOOS == "darwin" {
+		want = []string{
+			"# Server\n\nThe server runs macOS.",
+			"sed -i '' 's|old|new|' file\n",
+			"The commands a, i and c of the BSD sed need a backslash and a new line before the text.\n\n" + after,
+		}
+	}
+	for _, part := range want {
+		if !strings.Contains(prompt, part) {
+			t.Errorf("%s: %q is not in %s", name, part, prompt)
+		}
+	}
+}
+
+func TestEachRoleWithRepositorySectionsGetsTheServerSectionBeforeTheFacts(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	prompts := workerPrompts(t, fake, commitShell, [2]string{"AGENTS.md", fact})
+
+	for role, prompt := range prompts {
+		assertServerSection(t, role, prompt, "# Repository facts")
+	}
+}
+
+func TestTheLeadGetsTheServerSectionBeforeTheFacts(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+
+	prompt := firstLeadPrompt(t, fake, [2]string{"AGENTS.md", fact})
+
+	assertServerSection(t, "lead", prompt, "# Repository facts")
+}
+
+func TestTheCoordinatorAndTheTriagerGetTheServerSectionAfterTheirRolePrompt(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTriager(t, fake)
+	sendChat(t, server, coordinatorChat, "Which Workstreams are open?")
+	fake.AddIssue(shop, 50, "Add loyalty points")
+	fake.SetBody(shop, 50, "Points for each order.")
+	fake.AddLabel(shop, 50, "mobius:triage", "owner")
+
+	coordinator := testkit.WaitForValue(t, func() (string, bool) {
+		prompts := coordinatorPrompts(t, server)
+		return strings.Join(prompts, ""), len(prompts) > 0
+	})
+	triager := waitForChatSession(t, server, issueTriagers, engine.TriagerRole, func(session store.Session) bool { return session.EndedAt.Valid })
+
+	assertServerSection(t, "coordinator", coordinator, "# Open Workstreams")
+	assertServerSection(t, "triager", promptTexts(t, server, triager.ID)[0], "# Open Workstreams")
+}
+
+func TestTheDiagnoserGetsTheServerSectionAfterItsRolePrompt(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := connectDiagnoser(t, fake, leadStarts, findsNothing)
+	sha := approvalHead(t, server, fake)
+
+	failActions(fake, sha)
+
+	prompt := testkit.WaitForValue(t, func() (string, bool) {
+		sessions := diagnoserSessions(t, server)
+		if len(sessions) == 0 {
+			return "", false
+		}
+		prompts := promptTexts(t, server, sessions[0].ID)
+		return strings.Join(prompts, ""), len(prompts) > 0
+	})
+	assertServerSection(t, "diagnoser", prompt, "# Pull request")
 }

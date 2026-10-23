@@ -403,6 +403,14 @@ func TestOnlyTheLeadOfASkillsWorkstreamGetsTheSkillProposalRules(t *testing.T) {
 		t.Errorf("prompt of a normal Workstream = %s", normal)
 	}
 	inOrder(t, skills, "You are the Lead of one Workstream.", rules, "# Brief")
+	for _, rule := range []string{
+		"Before the choices, read the name and the description of each skill of the default branch",
+		"Before the issue, judge the folder of the proposal.",
+	} {
+		if strings.Contains(normal, rule) || !strings.Contains(skills, rule) {
+			t.Errorf("rule %q: normal prompt has it %v, skills prompt has it %v", rule, strings.Contains(normal, rule), strings.Contains(skills, rule))
+		}
+	}
 }
 
 func TestTheFirstPromptHasTheContextPartsInOrder(t *testing.T) {
