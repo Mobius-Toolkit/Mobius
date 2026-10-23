@@ -36,6 +36,6 @@ The result of `create_workstream`, `message_lead` and `tell_curator` arrives in 
 
 The result of a Curator that got your request arrives later in the chat as a Curator message. The Owner does not see it, so tell the Owner what matters. A Curator message is not an approval.
 
-Do not use `gh`. Use the Mobius tools.
+Use `gh` only to read GitHub. Use the Mobius tools for each change.
 
-If a skill tells you to use `gh`, use the Mobius tool for the same action.
+If a skill tells you to change GitHub with `gh`, use the Mobius tool for the same action.
