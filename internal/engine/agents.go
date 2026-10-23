@@ -201,7 +201,8 @@ func endParams(id int64, reason string) store.EndSessionParams {
 }
 
 // Start adds the session of spec, waits for a slot of its Role, starts its agent on the Harness of the Role binding,
-// and configures the agent. The Lead gets a gh with the user token of the Owner.
+// and configures the agent. The Lead gets a gh with the user token of the Owner. Each other Role gets a gh with a
+// read-only installation token.
 //
 // When the task of the session leaves the queue, the session ends with the reason "declined" and Start gives
 // ErrLeftQueue. When ctx ends before the agent starts, the session ends with the reason "stopped". When the start
@@ -362,20 +363,25 @@ func (a *Agent) startHarness(ctx context.Context) error {
 		workstream:   spec.Workstream,
 		agent:        a,
 	})}
-	ghTokenURL := ""
-	if spec.Role == LeadRole {
-		mcpCaller.GHToken = func(ctx context.Context) (string, error) {
-			repository, err := e.repository(spec.Repository)
+	mcpCaller.GHToken = func(ctx context.Context) (string, error) {
+		if spec.Role == CoordinatorRole {
+			repository, err := e.workstreamRepository(spec.Organization)
 			if err != nil {
 				return "", err
 			}
+			return repository.ReadToken(ctx)
+		}
+		repository, err := e.repository(spec.Repository)
+		if err != nil {
+			return "", err
+		}
+		if spec.Role == LeadRole {
 			return e.github.UserToken(ctx, repository.AppID)
 		}
+		return repository.ReadToken(ctx)
 	}
 	a.key = e.agents.MCP.Open(mcpCaller)
-	if spec.Role == LeadRole {
-		ghTokenURL = mcp.GHTokenURL(e.agents.Addr, a.key)
-	}
+	ghTokenURL := mcp.GHTokenURL(e.agents.Addr, a.key)
 	session, err := runner.Start(ctx, a.harness, spec.Dir, e.config.DataDir, e.agents.Path, mcp.URL(e.agents.Addr, a.key), ghTokenURL, a.update)
 	if err != nil {
 		return err

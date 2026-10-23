@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"maps"
 	"net/http"
 	"os"
 	"os/exec"
@@ -73,7 +74,7 @@ func ghTokenURL(mcpURL string) string {
 	return strings.Replace(mcpURL, "/mcp/", "/gh-token/", 1)
 }
 
-func TestTheGHTokenRouteServesOnlyALiveLeadSession(t *testing.T) {
+func TestTheGHTokenRouteGivesTheLeadTheUserTokenAndServesOnlyALiveSession(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, dataDir := connectGH(t, fake)
@@ -86,10 +87,39 @@ func TestTheGHTokenRouteServesOnlyALiveLeadSession(t *testing.T) {
 	ended := ghTokenURL(mcpURL(t, dataDir))
 	triager := start(t, server, engine.Spec{Role: engine.TriagerRole, Organization: "owner", Repository: shop, Dir: t.TempDir()})
 	defer func() { _ = triager.End(t.Context(), "done") }()
-	for _, url := range []string{ended, ghTokenURL(mcpURL(t, dataDir)), ended[:strings.LastIndex(ended, "/")] + "/0123"} {
+	if status := get(t, ghTokenURL(mcpURL(t, dataDir))); status != http.StatusOK {
+		t.Errorf("live session: status %d", status)
+	}
+	for _, url := range []string{ended, ended[:strings.LastIndex(ended, "/")] + "/0123"} {
 		if status := get(t, url); status != http.StatusNotFound {
 			t.Errorf("%s: status %d", url, status)
 		}
+	}
+}
+
+func TestAnAgentThatIsNotTheLeadGetsAReadOnlyInstallationToken(t *testing.T) {
+	t.Parallel()
+	for name, spec := range map[string]engine.Spec{
+		"Triager":     {Role: engine.TriagerRole, Organization: "owner", Repository: shop},
+		"Coordinator": {Role: engine.CoordinatorRole, Organization: "owner"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			fake := testkit.NewFakeGitHub(t)
+			server, _ := connectGH(t, fake)
+			spec.Dir = t.TempDir()
+
+			text := reply(t, server, run(t, server, spec, "Read the work"))
+
+			token, ok := strings.CutSuffix(text, "\nexit 0")
+			if !ok || !strings.HasPrefix(token, "ghs_") {
+				t.Fatalf("reply = %q", text)
+			}
+			want := map[string]string{"contents": "read", "issues": "read", "pull_requests": "read", "checks": "read", "actions": "read", "metadata": "read"}
+			if got := fake.InstallationTokenPermissions(token); !maps.Equal(got, want) {
+				t.Errorf("permissions = %v", got)
+			}
+		})
 	}
 }
 
