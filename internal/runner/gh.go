@@ -14,7 +14,7 @@ import (
 // GH is the main function of the gh of the agent environment. It runs with args and the environment of getenv,
 // and gives the exit code.
 //
-// With MOBIUS_GH_TOKEN_URL, GH gets the token of the Owner from that URL, and runs the first gh on PATH that is not
+// With MOBIUS_GH_TOKEN_URL, GH gets the token of the session from that URL, and runs the first gh on PATH that is not
 // this program with the token in GH_TOKEN. With no MOBIUS_GH_TOKEN_URL, GH refuses to run.
 func GH(args []string, getenv func(string) string) int {
 	url := getenv(ghURLEnv)
