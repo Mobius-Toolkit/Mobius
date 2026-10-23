@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 )
 
@@ -18,6 +19,29 @@ func TestAnActionGivesTheStoredOldBrief(t *testing.T) {
 
 	if found.OldBrief != "Old." {
 		t.Errorf("OldBrief = %q", found.OldBrief)
+	}
+}
+
+func TestAnActionGivesTheLabelsOfItsLabelsArgument(t *testing.T) {
+	mux, db := testMux(t)
+	exec(t, db, `INSERT INTO inbox_items (id, kind, organization, repository, workstream_repository, workstream, issue, text, link, time) VALUES
+		(1, 'approval', 'owner', '', '', 0, 0, '', '', '2026-10-04T10:00:00Z')`)
+	exec(t, db, `INSERT INTO pending_actions (id, organization, repository, workstream, issue, role, tool, arguments, state, time, inbox_item) VALUES
+		(1, 'owner', '', 0, 0, 'coordinator', 'create_workstream', '{"title":"Plans","labels":["mobius:maintenance","mobius:evergreen","other"],"brief":"Brief."}', 'pending', '2026-10-04T10:00:00Z', 1)`)
+
+	found := listedActions(t, mux)[1]
+
+	want := []ActionLabel{{Name: "mobius:maintenance", Color: "BFDADC"}, {Name: "mobius:evergreen", Color: "0052CC"}, {Name: "other"}}
+	for _, argument := range found.Arguments {
+		if argument.Name != "labels" {
+			if argument.Labels == nil || len(argument.Labels) != 0 {
+				t.Errorf("%s: Labels = %v", argument.Name, argument.Labels)
+			}
+			continue
+		}
+		if !slices.Equal(argument.Labels, want) {
+			t.Errorf("Labels = %v, want %v", argument.Labels, want)
+		}
 	}
 }
 
