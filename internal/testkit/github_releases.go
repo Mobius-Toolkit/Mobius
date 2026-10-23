@@ -78,8 +78,8 @@ func (g *FakeGitHub) SetComparedCommits(messages ...string) {
 }
 
 // compare needs no token, as on GitHub for a public repository, unless SetAnonymousRateLimited is on. For a repository
-// with a git repository it gives only behind_by, the number of commits of the base that the head does not contain. For
-// Mobius-Toolkit/Mobius it gives the commits of SetComparedCommits.
+// with a git repository it gives the status, behind_by, ahead_by, the commits and the files of the comparison in the
+// path of r. For Mobius-Toolkit/Mobius it gives the commits of SetComparedCommits.
 func (g *FakeGitHub) compare(w http.ResponseWriter, r *http.Request) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -87,7 +87,7 @@ func (g *FakeGitHub) compare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if repository(r) != "Mobius-Toolkit/Mobius" {
-		g.compareBehind(w, r)
+		g.compareGit(w, r)
 		return
 	}
 	commits := make([]commitJSON, len(g.comparedCommits))
@@ -97,21 +97,57 @@ func (g *FakeGitHub) compare(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string][]commitJSON{"commits": commits})
 }
 
-// compareBehind gives behind_by of the comparison in the path of r. The caller must hold the lock.
-func (g *FakeGitHub) compareBehind(w http.ResponseWriter, r *http.Request) {
+// compareGit gives the comparison in the path of r, read from the git repository of the repository. The caller must
+// hold the lock.
+func (g *FakeGitHub) compareGit(w http.ResponseWriter, r *http.Request) {
 	if !slices.Contains(g.repositories, repository(r)) {
 		notFound(w)
 		return
 	}
+	remote := g.Remote(repository(r))
 	base, head, _ := strings.Cut(r.PathValue("basehead"), "...")
-	behind, err := gitCommand(g.Remote(repository(r)), "rev-list", "--count", head+".."+base).Output()
+	counts, err := gitCommand(remote, "rev-list", "--left-right", "--count", base+"..."+head).Output()
 	if err != nil {
 		notFound(w)
 		return
 	}
-	count, err := strconv.Atoi(strings.TrimSpace(string(behind)))
-	if err != nil {
-		g.t.Errorf("rev-list count %q: %v", behind, err)
+	behindText, aheadText, _ := strings.Cut(strings.TrimSpace(string(counts)), "\t")
+	behind, behindErr := strconv.Atoi(behindText)
+	ahead, aheadErr := strconv.Atoi(aheadText)
+	if behindErr != nil || aheadErr != nil {
+		g.t.Errorf("rev-list counts %q", counts)
 	}
-	writeJSON(w, http.StatusOK, map[string]int{"behind_by": count})
+	status := "diverged"
+	switch {
+	case behind == 0 && ahead == 0:
+		status = "identical"
+	case behind == 0:
+		status = "ahead"
+	case ahead == 0:
+		status = "behind"
+	}
+	log, err := gitCommand(remote, "log", "--reverse", "--topo-order", "--format=%H%x00%P%x00%B%x1e", base+".."+head).Output()
+	if err != nil {
+		notFound(w)
+		return
+	}
+	commits := []map[string]any{}
+	for record := range strings.SplitSeq(string(log), "\x1e") {
+		sha, rest, _ := strings.Cut(strings.TrimSpace(record), "\x00")
+		parentText, message, _ := strings.Cut(rest, "\x00")
+		if sha == "" {
+			continue
+		}
+		parents := []map[string]string{}
+		for parent := range strings.FieldsSeq(parentText) {
+			parents = append(parents, map[string]string{"sha": parent})
+		}
+		commits = append(commits, map[string]any{"sha": sha, "parents": parents, "commit": map[string]any{"message": strings.TrimSpace(message)}})
+	}
+	names, err := gitCommand(remote, "diff", "--name-only", base+"..."+head).Output()
+	if err != nil {
+		notFound(w)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": status, "behind_by": behind, "ahead_by": ahead, "commits": commits, "files": fileList(string(names))})
 }

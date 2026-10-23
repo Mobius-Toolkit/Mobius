@@ -289,6 +289,7 @@ type Task struct {
 	WorkstreamRepository string
 	BranchChecked        int64
 	AutoMerge            int64
+	ApprovedHead         sql.NullString
 }
 
 type TaskState struct {

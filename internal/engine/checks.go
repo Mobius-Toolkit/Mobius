@@ -199,6 +199,10 @@ func (e *Engine) onChecks(ctx context.Context, repository github.Repository, tas
 	if err != nil {
 		return err
 	}
+	approvedHead, err := approvedHeadText(ctx, repository, task, pullRequest)
+	if err != nil {
+		return err
+	}
 	newerCommits, err := e.newerCommitsText(ctx, repository, task, pullRequest, state.started)
 	if err != nil {
 		return err
@@ -211,7 +215,7 @@ func (e *Engine) onChecks(ctx context.Context, repository github.Repository, tas
 		e.addCIStep(ctx, task, implementer, "success")
 	}
 	delete(e.ciWait, task.ID)
-	text := fmt.Sprintf("%s ready for Lead approval of %s \"%s\": pull request %s %s.", time.Now().UTC().Format(timeFormat), taskEventRef(task, task.Issue), issue.GetTitle(), taskEventRef(task, int64(pullRequest.GetNumber())), pullRequest.GetHTMLURL()) + newerCommits
+	text := fmt.Sprintf("%s ready for Lead approval of %s \"%s\": pull request %s %s.", time.Now().UTC().Format(timeFormat), taskEventRef(task, task.Issue), issue.GetTitle(), taskEventRef(task, int64(pullRequest.GetNumber())), pullRequest.GetHTMLURL()) + approvedHead + newerCommits
 	return e.addLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, task.Repository, sql.NullInt64{Int64: task.Issue, Valid: true}, "ready_for_approval", text)
 }
 

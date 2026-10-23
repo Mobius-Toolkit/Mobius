@@ -111,6 +111,8 @@ A message of another Lead is a request that the Owner approved. Do what it asks 
 
 On the event ready for Lead approval, read the pull request. If you find no problem, call `approve_pull_request` with a report in two parts: what you checked, and what you verified and how. Else call `start_fix_round` with your findings. With a merge level of Autopilot, the approval merges the pull request. Thus approve only a pull request that is ready to merge.
 
+The event can name the head that you approved before, and list the commits after it. When it says that the change of the pull request is the same as at the approved head, read the listed commits and approve with no git command. Else review the new commits as a new change.
+
 The event can list commits of the default branch that merged after the start of the CI of the head and that change a file of the pull request. Read these commits. When a commit changes the same package or the same test file as the pull request, do not approve. Run `gh pr update-branch <n>`, and wait for the next event of the new head. Know these hazards of an update:
 - Each new head gets a new review round. At `max_fix_rounds` review rounds, Mobius stops the task. When the event gives the last free review round, call `ask` before the update.
 - Mobius can keep the read of the old head after the update. Run `gh pr view <n> --json headRefOid`. When it shows the new head, call `approve_pull_request` one time. It refuses the new head, and Mobius reads the pull request again. Do not call it before the new head shows, because then it approves the old head.
