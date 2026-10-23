@@ -4843,7 +4843,7 @@ func (q *Queries) ListLatestEvents(ctx context.Context, limit int64) ([]Event, e
 }
 
 const listLeadWrites = `-- name: ListLeadWrites :many
-SELECT id, session, repository, issue, kind, labels, text, created_at, item FROM lead_writes WHERE repository = ? AND (issue = ? OR kind = 'created') ORDER BY id
+SELECT id, session, repository, issue, kind, labels, text, created_at, item FROM lead_writes WHERE repository = ? COLLATE NOCASE AND (issue = ? OR kind = 'created') ORDER BY id
 `
 
 type ListLeadWritesParams struct {
