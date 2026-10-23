@@ -1,7 +1,9 @@
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { ChatMessage, PendingAction } from "@/api/api.gen";
+import { useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { ActionLabel, ChatMessage, PendingAction } from "@/api/api.gen";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { briefMarkdown } from "@/lib/briefDiff";
 import { diffLines } from "@/lib/diff";
 import { clock } from "@/lib/time";
@@ -42,11 +44,46 @@ function BriefView({
   return <Markdown text={marked} overrides={diffMarks} />;
 }
 
-function RemovedToggle({ hidden, toggle }: { hidden: boolean; toggle: () => void }) {
+function RemovedSwitch({
+  checked,
+  onCheckedChange,
+}: {
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+}) {
+  const id = useId();
   return (
-    <Button variant="ghost" size="sm" className="justify-self-start" onClick={toggle}>
-      {hidden ? "Show removed text" : "Hide removed text"}
-    </Button>
+    <div className="flex items-center gap-2">
+      <Switch id={id} checked={checked} onCheckedChange={onCheckedChange} />
+      <Label htmlFor={id}>Show removed text</Label>
+    </div>
+  );
+}
+
+function textColor(color: string) {
+  const [red, green, blue] = [0, 2, 4].map((start) => parseInt(color.slice(start, start + 2), 16));
+  return (0.2126 * red + 0.7152 * green + 0.0722 * blue) / 255 > 0.453 ? "#000000" : "#ffffff";
+}
+
+function LabelChips({ labels }: { labels: ActionLabel[] }) {
+  return (
+    <div className="flex flex-wrap gap-1">
+      {labels.map((label) =>
+        label.color ? (
+          <Badge
+            key={label.name}
+            className="wrap-anywhere"
+            style={{ background: `#${label.color}`, color: textColor(label.color) }}
+          >
+            {label.name}
+          </Badge>
+        ) : (
+          <Badge key={label.name} variant="outline" className="wrap-anywhere">
+            {label.name}
+          </Badge>
+        ),
+      )}
+    </div>
   );
 }
 
@@ -54,19 +91,24 @@ function RemovedToggle({ hidden, toggle }: { hidden: boolean; toggle: () => void
 export function FullArgument({
   name,
   value,
+  labels,
   before,
 }: {
   name: string;
   value: string;
+  labels: ActionLabel[];
   before?: string;
 }) {
-  const [hideRemoved, setHideRemoved] = useState(false);
+  const [showRemoved, setShowRemoved] = useState(false);
+  if (name === "labels") {
+    return labels.length > 0 ? <LabelChips labels={labels} /> : null;
+  }
   if (before !== undefined) {
     return (
       <div className="grid min-w-0 gap-0.5">
         <span className="text-xs text-muted-foreground">{name}</span>
-        <BriefView before={before} after={value} hideRemoved={hideRemoved} />
-        <RemovedToggle hidden={hideRemoved} toggle={() => setHideRemoved(!hideRemoved)} />
+        <BriefView before={before} after={value} hideRemoved={!showRemoved} />
+        <RemovedSwitch checked={showRemoved} onCheckedChange={setShowRemoved} />
       </div>
     );
   }
@@ -81,19 +123,21 @@ export function FullArgument({
 function Argument({
   name,
   value,
+  labels,
   before,
   open,
   toggle,
 }: {
   name: string;
   value: string;
+  labels: ActionLabel[];
   before?: string;
   open: boolean;
   toggle: () => void;
 }) {
   const box = useRef<HTMLDivElement>(null);
   const [long, setLong] = useState(false);
-  const [hideRemoved, setHideRemoved] = useState(false);
+  const [showRemoved, setShowRemoved] = useState(false);
   useLayoutEffect(() => {
     const content = box.current?.firstElementChild;
     if (!content) {
@@ -104,8 +148,8 @@ function Argument({
     return () => observer.disconnect();
   }, []);
 
-  if (before === undefined && isShort(value)) {
-    return <FullArgument name={name} value={value} />;
+  if (name === "labels" || (before === undefined && isShort(value))) {
+    return <FullArgument name={name} value={value} labels={labels} />;
   }
   return (
     <div className="grid min-w-0 gap-0.5">
@@ -115,7 +159,7 @@ function Argument({
           {before === undefined ? (
             <Markdown text={value} />
           ) : (
-            <BriefView before={before} after={value} hideRemoved={hideRemoved} />
+            <BriefView before={before} after={value} hideRemoved={!showRemoved} />
           )}
         </div>
       </div>
@@ -127,7 +171,7 @@ function Argument({
             </Button>
           )}
           {before !== undefined && (
-            <RemovedToggle hidden={hideRemoved} toggle={() => setHideRemoved(!hideRemoved)} />
+            <RemovedSwitch checked={showRemoved} onCheckedChange={setShowRemoved} />
           )}
         </div>
       )}

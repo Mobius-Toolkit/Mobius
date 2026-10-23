@@ -4197,6 +4197,14 @@
         "type": "object",
         "title": "ActionArgument",
         "properties": {
+          "labels": {
+            "type": "array",
+            "title": "[]ActionLabel",
+            "description": "Labels are the label names of the argument labels in their order. It is empty for each other argument",
+            "items": {
+              "$ref": "#/components/schemas/ActionLabel"
+            }
+          },
           "name": {
             "type": "string",
             "description": "Name is the name of the argument"
@@ -4208,7 +4216,8 @@
         },
         "required": [
           "name",
-          "value"
+          "value",
+          "labels"
         ],
         "description": "ActionArgument is an argument of a pending action."
       },
@@ -4225,6 +4234,25 @@
           "brief"
         ],
         "description": "ActionBrief is the current Brief of the Workstream of an edit_brief action."
+      },
+      "ActionLabel": {
+        "type": "object",
+        "title": "ActionLabel",
+        "properties": {
+          "color": {
+            "type": "string",
+            "description": "Color is six hex digits with no \"#\", or empty for a name that is not a Mobius label"
+          },
+          "name": {
+            "type": "string",
+            "description": "Name is the name of the label"
+          }
+        },
+        "required": [
+          "name",
+          "color"
+        ],
+        "description": "ActionLabel is a label name of an action argument."
       },
       "ActionSender": {
         "type": "object",

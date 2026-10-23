@@ -116,6 +116,7 @@ const storedDrafts = `new Promise((resolve) => {
 })`;
 
 const removedText = (scope: Locator) => scope.locator("del");
+const removedSwitch = (scope: Locator) => scope.getByRole("switch", { name: "Show removed text" });
 const addedText = (scope: Locator) => scope.locator("ins");
 
 const wide = (selector: string) =>
@@ -1470,6 +1471,7 @@ test("screenshots", async ({ page }) => {
     (device) => [
       ...approvalReady(device, "3"),
       waits(2),
+      cardOf(page, draftText).getByText("mobius:maintenance"),
       cardOf(page, draftText).getByRole("button", { name: "Show all" }),
       row(leadTitle).getByRole("button", { name: "Answer" }),
     ],
@@ -1488,6 +1490,36 @@ test("screenshots", async ({ page }) => {
     async () => {
       await showEnd(draftText)();
       await answer(createTitle, "Go ahead. Start with the table.")();
+    },
+    closePanel,
+  );
+  await screenshot(
+    page,
+    "action-labels",
+    "/chat",
+    (device) => [
+      ...approvalReady(device, "3"),
+      panel.getByText("mobius:maintenance"),
+      panel.getByText("mobius:evergreen"),
+      panel.getByText("Gift cards", { exact: true }),
+    ],
+    async () => {
+      await showEnd(draftText)();
+      await answer(createTitle, "Go ahead. Start with the table.")();
+      await expect
+        .poll(() =>
+          panel.locator("div.overflow-y-auto").evaluate((el) => {
+            const chip = [...el.querySelectorAll("span")].find(
+              (span) => span.textContent === "mobius:maintenance",
+            );
+            chip?.scrollIntoView({ block: "center" });
+            if (!chip) return false;
+            const box = el.getBoundingClientRect();
+            const found = chip.getBoundingClientRect();
+            return found.top >= box.top && found.bottom <= box.bottom;
+          }),
+        )
+        .toBe(true);
     },
     closePanel,
   );
@@ -1639,27 +1671,11 @@ test("screenshots", async ({ page }) => {
   await sendToLead(page, editBrief);
   await expect(waits(1)).toBeVisible({ timeout: 30_000 });
   await fixActionTimes();
-  const briefReady = (device: string) => [
-    ...approvalReady(device, "2"),
-    removedText(panel).first(),
-    removedText(panel).last(),
-    addedText(panel).first(),
-    addedText(panel).last(),
-    panel.getByRole("button", { name: "Hide removed text" }),
-  ];
   const openBrief = async () => {
     await showEnd("edit_brief")();
     await row(briefTitle).getByRole("button", { name: "Answer" }).click();
     await expect(addedText(panel)).toHaveCount(2);
   };
-  await screenshot(
-    page,
-    "action-brief-diff",
-    "/workstreams/owner/shop/14",
-    briefReady,
-    openBrief,
-    () => page.keyboard.press("Escape"),
-  );
   await screenshot(
     page,
     "action-brief-hidden",
@@ -1668,12 +1684,32 @@ test("screenshots", async ({ page }) => {
       ...approvalReady(device, "2"),
       addedText(panel).first(),
       addedText(panel).last(),
-      panel.getByRole("button", { name: "Show removed text" }),
+      removedSwitch(panel),
     ],
     async () => {
       await openBrief();
-      await panel.getByRole("button", { name: "Hide removed text" }).click();
+      await expect(removedSwitch(panel)).not.toBeChecked();
       await expect(removedText(panel)).toHaveCount(0);
+    },
+    () => page.keyboard.press("Escape"),
+  );
+  await screenshot(
+    page,
+    "action-brief-diff",
+    "/workstreams/owner/shop/14",
+    (device) => [
+      ...approvalReady(device, "2"),
+      removedText(panel).first(),
+      removedText(panel).last(),
+      addedText(panel).first(),
+      addedText(panel).last(),
+      removedSwitch(panel),
+    ],
+    async () => {
+      await openBrief();
+      await removedSwitch(panel).click();
+      await expect(removedSwitch(panel)).toBeChecked();
+      await expect(removedText(panel)).toHaveCount(2);
     },
     () => page.keyboard.press("Escape"),
   );
@@ -1710,9 +1746,8 @@ test("screenshots", async ({ page }) => {
   const briefDone = (device: string) => [
     ...approvalReady(device, "1"),
     briefCard().getByRole("button", { name: "Show all" }),
-    removedText(briefCard()).first(),
     addedText(briefCard()).first(),
-    briefCard().getByRole("button", { name: "Hide removed text" }),
+    removedSwitch(briefCard()),
   ];
   await screenshot(
     page,
@@ -1730,11 +1765,14 @@ test("screenshots", async ({ page }) => {
       briefCard().getByRole("button", { name: "Show less" }),
       removedText(briefCard()).last(),
       addedText(briefCard()).last(),
-      briefCard().getByRole("button", { name: "Hide removed text" }),
+      removedSwitch(briefCard()),
     ],
     async () => {
       await showBriefCard();
       await briefCard().getByRole("button", { name: "Show all" }).click();
+      await removedSwitch(briefCard()).click();
+      await expect(removedSwitch(briefCard())).toBeChecked();
+      await expect(removedText(briefCard())).toHaveCount(2);
       await briefCard().evaluate((el) => el.scrollIntoView({ block: "start" }));
     },
   );

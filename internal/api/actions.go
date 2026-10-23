@@ -3,8 +3,10 @@ package api
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/gork-labs/gork/pkg/api"
@@ -61,6 +63,16 @@ type ActionArgument struct {
 	Name string `gork:"name"`
 	// Value is the value of the argument
 	Value string `gork:"value"`
+	// Labels are the label names of the argument labels in their order. It is empty for each other argument
+	Labels []ActionLabel `gork:"labels"`
+}
+
+// ActionLabel is a label name of an action argument.
+type ActionLabel struct {
+	// Name is the name of the label
+	Name string `gork:"name"`
+	// Color is six hex digits with no "#", or empty for a name that is not a Mobius label
+	Color string `gork:"color"`
 }
 
 // ApproveActionRequest is the request of ApproveAction.
@@ -190,7 +202,11 @@ func (h *handlers) actionOf(ctx context.Context, action store.PendingAction) (Pe
 		Time:      t,
 	}
 	for _, argument := range arguments {
-		found.Arguments = append(found.Arguments, ActionArgument{Name: argument.Name, Value: argument.Value})
+		labels, err := actionLabels(argument)
+		if err != nil {
+			return PendingAction{}, err
+		}
+		found.Arguments = append(found.Arguments, ActionArgument{Name: argument.Name, Value: argument.Value, Labels: labels})
 	}
 	if action.DecidedAt.Valid {
 		decidedAt, err := time.Parse(time.RFC3339Nano, action.DecidedAt.String)
@@ -208,6 +224,26 @@ func (h *handlers) actionOf(ctx context.Context, action store.PendingAction) (Pe
 		found.Sender.Title = workstream.Title
 	}
 	return found, nil
+}
+
+func actionLabels(argument engine.ActionArgument) ([]ActionLabel, error) {
+	labels := []ActionLabel{}
+	if argument.Name != "labels" {
+		return labels, nil
+	}
+	var names []string
+	if err := json.Unmarshal([]byte(argument.Value), &names); err != nil {
+		return nil, err
+	}
+	for _, name := range names {
+		index := slices.IndexFunc(engine.Labels, func(label engine.Label) bool { return label.Name == name })
+		color := ""
+		if index >= 0 {
+			color = engine.Labels[index].Color
+		}
+		labels = append(labels, ActionLabel{Name: name, Color: color})
+	}
+	return labels, nil
 }
 
 // actionOfMessage gives the action of a chat message of the author Action, or nil when the call stopped before it
