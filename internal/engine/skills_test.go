@@ -237,3 +237,97 @@ func TestAFileThatTheUserIgnoreFileExcludesStaysExcludedInAWorktreeWithCopiedSki
 		t.Errorf("uncommitted changes = %v, %v", found, err)
 	}
 }
+
+func commitRepositorySkills(fake *testkit.FakeGitHub) {
+	fake.AddRepository(skills)
+	fake.CommitFile(skills, "probe/SKILL.md", "Probe the price in cents.", "Add probe")
+	fake.CommitFile(skills, "repos/shop/brew/SKILL.md", "Brew the coffee.", "Add brew")
+	fake.CommitFile(skills, "repos/garden/water/SKILL.md", "Water the plants.", "Add water")
+}
+
+func TestASessionGetsTheGeneralSkillsAndTheSkillsOfItsRepository(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	commitRepositorySkills(fake)
+	server, _ := connect(t, fake, "[[prompts]]\nshell = \"ls .claude/skills && cat .claude/skills/brew/SKILL.md\"\n")
+
+	_, text := leadReply(t, server)
+
+	for _, want := range []string{"probe", "brew", "Brew the coffee."} {
+		if !strings.Contains(text, want) {
+			t.Errorf("reply = %q, want %q", text, want)
+		}
+	}
+	for _, unwanted := range []string{"water", "repos"} {
+		if strings.Contains(text, unwanted) {
+			t.Errorf("reply = %q, has %q", text, unwanted)
+		}
+	}
+}
+
+func TestASkillOfTheRepositoryWinsOverAGeneralSkillWithTheSameName(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddRepository(skills)
+	fake.CommitFile(skills, "shared/SKILL.md", "Share in general.", "Add shared")
+	fake.CommitFile(skills, "repos/shop/shared/SKILL.md", "Share in the shop.", "Add shared of the shop")
+	server, _ := connect(t, fake, "[[prompts]]\nshell = \"cat .claude/skills/shared/SKILL.md\"\n")
+
+	_, text := leadReply(t, server)
+
+	if !strings.Contains(text, "Share in the shop.") || strings.Contains(text, "Share in general.") {
+		t.Errorf("reply = %q", text)
+	}
+}
+
+func TestASessionWithNoRepositoryGetsOnlyTheGeneralSkills(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	commitRepositorySkills(fake)
+	server, _ := connect(t, fake, "[[prompts]]\nshell = \"ls .claude/skills\"\n")
+	spec := engine.Spec{Role: engine.CoordinatorRole, Organization: "owner", Dir: t.TempDir()}
+
+	text := reply(t, server, run(t, server, spec, "Read the work"))
+
+	if !strings.Contains(text, "probe") || strings.Contains(text, "brew") || strings.Contains(text, "water") || strings.Contains(text, "repos") {
+		t.Errorf("reply = %q", text)
+	}
+}
+
+func TestTheLeadChatGetsTheSkillsOfTheRepositoryOfItsWorkstreamIssue(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	commitRepositorySkills(fake)
+	server, _ := connect(t, fake, "[[prompts]]\nshell = \"ls .claude/skills\"\n")
+
+	sendChat(t, server, leadChat, "Plan the loyalty API")
+
+	text := reply(t, server, endedChatSession(t, server, 0).ID)
+	if !strings.Contains(text, "probe") || !strings.Contains(text, "brew") || strings.Contains(text, "water") {
+		t.Errorf("reply = %q", text)
+	}
+}
+
+func TestAWorktreeKeepsARepositorySkillThatItAlreadyHasAndLeavesNoChangeForACopiedOne(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	commitRepositorySkills(fake)
+	fake.CommitFile(skills, "repos/shop/pour/SKILL.md", "Pour the milk.", "Add pour")
+	implementer := "[[prompts]]\nshell = \"cat .agents/skills/brew/SKILL.md .agents/skills/pour/SKILL.md && echo cents > plan.txt && git add -A && git commit -q -m 'Add plan model'\"\n"
+	server, dataDir := connectTask(t, fake, leadStarts, implementer, noChange)
+	fake.CommitFile(shop, ".agents/skills/brew/SKILL.md", "Brew the branch.", "Add the skill of the branch")
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	session := endedImplementers(t, server, 1)[0]
+
+	if text := reply(t, server, session.ID); !strings.Contains(text, "Brew the branch.") || strings.Contains(text, "Brew the coffee.") || !strings.Contains(text, "Pour the milk.") {
+		t.Errorf("reply = %q", text)
+	}
+	worktree := filepath.Join(dataDir, "worktrees", "owner", "shop", "task-41")
+	if got := testkit.Git(t, worktree, "status", "--porcelain"); got != "" {
+		t.Errorf("status = %q", got)
+	}
+	if found, err := runner.HasUncommittedChanges(context.Background(), dataDir, worktree); err != nil || found {
+		t.Errorf("uncommitted changes = %v, %v", found, err)
+	}
+}
