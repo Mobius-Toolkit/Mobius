@@ -241,3 +241,34 @@ func TestAnOptionalTodoOfANeedThatTheReviewerLaterReportsAsMandatoryContinuesThe
 		t.Errorf("approvals = %d", approvals(fake))
 	}
 }
+
+func TestAMandatoryNeedOfAFixRoundEndsTheApprovalThatMobiusAlreadyHas(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddUserCode(testkit.AppID, "user-code", "owner")
+	fixRound := "[[prompts]]\nwhen = \"Remove the lines out of scope.\"\nshell = \"echo fixed > fix.txt && git add fix.txt && git commit -q -m Fix\"\n\n"
+	server, _ := connectTask(t, fake, mandatoryNeedInRoundTwo+leadApproves+leadFindings+leadStarts, fixRound+commits, keepSessionOpen)
+	authorize(t, server)
+	setWorkstreamAutopilot(t, server, "merge")
+	testkit.WaitFor(t, func() bool { return workstreams(t, server)[0].Autopilot == "merge" })
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	waitForReadyEvents(t, server, 1)
+	fake.AddCheckRun(shop, checkRun("CI", head(t, fake, "mobius/41"), "in_progress", ""))
+	sendChat(t, server, leadChat, "Approve #41")
+	testkit.WaitFor(t, func() bool { return autoMerge(t, server) == 1 })
+	fake.SetBody(shop, 41, "Plans have a price. Round two.")
+	sendChat(t, server, leadChat, "Send the findings to #41")
+	waitForReadyEvents(t, server, 2)
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" })
+
+	sendChat(t, server, leadChat, "Approve #41")
+
+	testkit.WaitFor(t, func() bool {
+		items := itemsOf(t, server, "ready for review")
+		return len(items) == 1 && items[0].MergeRefusal == "Mobius merges after the mandatory todos are done."
+	})
+	waitForPolls(t, fake)
+	if taskState(t, server) != "ready_for_review" || autoMerge(t, server) != 0 || fake.MergeCalls() != 0 || len(itemsOf(t, server, "todo")) != 1 {
+		t.Errorf("state = %s, merge calls = %d", taskState(t, server), fake.MergeCalls())
+	}
+}
