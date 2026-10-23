@@ -57,11 +57,16 @@ function Trigger({
   );
 }
 
-function Level({ name, text }: { name: string; text: string }) {
+function Level({ value, name, text }: { value: WorkstreamAutopilot; name: string; text: string }) {
   return (
-    <span className="flex min-w-0 flex-col">
-      <span>{name}</span>
-      <span className="text-xs text-muted-foreground">{text}</span>
+    <span className="flex min-w-0 gap-2">
+      <span className="mt-[3px] shrink-0">
+        <AutopilotIcon level={value} />
+      </span>
+      <span className="flex min-w-0 flex-col">
+        <span>{name}</span>
+        <span className="text-xs text-muted-foreground">{text}</span>
+      </span>
     </span>
   );
 }
@@ -87,7 +92,7 @@ export function AutopilotMenu({
         >
           {levels.map((other) => (
             <DropdownMenuRadioItem key={other.value} value={other.value} className="items-start">
-              <Level name={other.name} text={other.text} />
+              <Level value={other.value} name={other.name} text={other.text} />
             </DropdownMenuRadioItem>
           ))}
         </DropdownMenuRadioGroup>
@@ -129,7 +134,7 @@ export function AutopilotSheet({
                 onSelect(other.value);
               }}
             >
-              <Level name={other.name} text={other.text} />
+              <Level value={other.value} name={other.name} text={other.text} />
             </button>
           ))}
         </div>
