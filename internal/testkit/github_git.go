@@ -47,6 +47,15 @@ func (g *FakeGitHub) CommitFile(fullName, path, content, message string) {
 	g.commitFile(fullName, "main", path, content, message, time.Time{})
 }
 
+// RemoveFile commits the removal of the file path on main of the repository fullName.
+func (g *FakeGitHub) RemoveFile(fullName, path, message string) {
+	work := g.t.TempDir()
+	g.git(work, "clone", "--branch=main", g.Remote(fullName), ".")
+	g.git(work, "rm", path)
+	g.git(work, "commit", "-m", message)
+	g.git(work, "push", "origin", "HEAD:refs/heads/main")
+}
+
 // CommitFileAt is CommitFile with at as the author date and the committer date of the commit.
 func (g *FakeGitHub) CommitFileAt(fullName, path, content, message string, at time.Time) {
 	g.commitFile(fullName, "main", path, content, message, at)
