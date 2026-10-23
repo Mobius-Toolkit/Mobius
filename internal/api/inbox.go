@@ -23,8 +23,8 @@ type InboxItem struct {
 	// that the Lead did not take, ready for review for a pull request of a task, stopped for a task that a person must
 	// continue (a stale pull request or a session that Mobius stopped after its hangs), lost for a task that Mobius lost,
 	// and full disk for a local check that waits for free disk space, and approval for a tool call of an agent that waits
-	// for the approval of the Owner
-	Kind string `gork:"kind" validate:"oneof=question 'Lead failed' 'ready for review' stopped lost 'full disk' approval"`
+	// for the approval of the Owner, and todo for a deployment need of a pull request
+	Kind string `gork:"kind" validate:"oneof=question 'Lead failed' 'ready for review' stopped lost 'full disk' approval todo"`
 	// Organization is the owner of the repository
 	Organization string `gork:"organization"`
 	// Repository is the repository as "owner/name"
@@ -61,6 +61,26 @@ type InboxItem struct {
 	Questions []Question `gork:"questions"`
 	// Action is the action of an approval item, or null for another item
 	Action *PendingAction `gork:"action"`
+	// Todo is the deployment need of a todo item, or null for another item
+	Todo *Todo `gork:"todo"`
+}
+
+// Todo is the deployment need of a todo Inbox item.
+type Todo struct {
+	// Kind is the kind of the need: env_var, config, secret or manual_step
+	Kind string `gork:"kind"`
+	// Name is the name of the need, for example the name of the env var
+	Name string `gork:"name"`
+	// Path is the file that adds the need
+	Path string `gork:"path"`
+	// Line is the line of the file that adds the need
+	Line int64 `gork:"line"`
+	// Reason tells why the deployment needs it
+	Reason string `gork:"reason"`
+	// Mandatory is true when the deployment fails or the application does not start without it
+	Mandatory bool `gork:"mandatory"`
+	// Note is the note of the Owner when the todo is done, or empty
+	Note string `gork:"note"`
 }
 
 // Question is a question of the Lead with its options.
@@ -222,6 +242,45 @@ func (h *handlers) MergeInboxItem(ctx context.Context, req MergeInboxItemRequest
 	return &MergeInboxItemResponse{Body: Envelope[InboxItem]{Data: found}}, nil
 }
 
+// DoneInboxItemRequest is the request of DoneInboxItem.
+type DoneInboxItemRequest struct {
+	Path struct {
+		// ID is the id of the Inbox item
+		ID int64 `gork:"id"`
+	}
+	Body struct {
+		// Note is the note of the Owner, or empty
+		Note string `gork:"note"`
+	}
+}
+
+// DoneInboxItemResponse is the response of DoneInboxItem.
+type DoneInboxItemResponse struct {
+	Body Envelope[InboxItem]
+}
+
+// DoneInboxItem marks the todo of an open todo Inbox item as done, with the note, and removes the item from the Inbox.
+// When the todo was the last mandatory todo of a task with the automatic merge of Autopilot, Mobius approves the pull
+// request for the merge. It returns the changed item. It returns 404 for an unknown item and 409 for an item that is
+// not an open todo.
+func (h *handlers) DoneInboxItem(ctx context.Context, req DoneInboxItemRequest) (*DoneInboxItemResponse, error) {
+	item, err := h.engine.DoneInboxItem(ctx, req.Path.ID, req.Body.Note)
+	if errors.Is(err, engine.ErrNoInboxItem) {
+		return nil, api.NewHTTPError(http.StatusNotFound, "The Inbox has no such item.")
+	}
+	if engine.Refused(err) {
+		return nil, api.NewHTTPError(http.StatusConflict, err.Error())
+	}
+	if err != nil {
+		return nil, err
+	}
+	found, err := h.inboxItemOf(ctx, item)
+	if err != nil {
+		return nil, err
+	}
+	return &DoneInboxItemResponse{Body: Envelope[InboxItem]{Data: found}}, nil
+}
+
 func (h *handlers) inboxItemOf(ctx context.Context, item store.InboxItem) (InboxItem, error) {
 	t, err := time.Parse(time.RFC3339Nano, item.Time)
 	if err != nil {
@@ -274,6 +333,13 @@ func (h *handlers) inboxItemOf(ctx context.Context, item store.InboxItem) (Inbox
 		if found.Action, err = h.actionOfItem(ctx, item); err != nil {
 			return InboxItem{}, err
 		}
+	}
+	if item.Kind == "todo" {
+		todo, err := h.queries.GetDeploymentTodoOfItem(ctx, item.ID)
+		if err != nil {
+			return InboxItem{}, err
+		}
+		found.Todo = &Todo{Kind: todo.Kind, Name: todo.Name, Path: todo.Path, Line: todo.Line, Reason: todo.Reason, Mandatory: todo.Mandatory != 0, Note: todo.Note}
 	}
 	return found, nil
 }

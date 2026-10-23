@@ -21,19 +21,26 @@ const (
 	readyForReviewKind = "ready for review"
 	fullDiskKind       = "full disk"
 	approvalKind       = "approval"
+	todoKind           = "todo"
 )
 
 var inboxKinds = []string{questionKind, stoppedKind, lostKind, readyForReviewKind, leadFailedKind}
 
 // addInboxItem adds the Inbox item at the time now, and sends it to the listeners.
 func (e *Engine) addInboxItem(ctx context.Context, params store.AddInboxItemParams) error {
+	_, err := e.insertInboxItem(ctx, params)
+	return err
+}
+
+// insertInboxItem does addInboxItem and gives the new item.
+func (e *Engine) insertInboxItem(ctx context.Context, params store.AddInboxItemParams) (store.InboxItem, error) {
 	params.Time = now()
 	item, err := e.queries.AddInboxItem(ctx, params)
 	if err != nil {
-		return err
+		return item, err
 	}
 	e.publish(Change{Inbox: &item})
-	return nil
+	return item, nil
 }
 
 // Inbox gives the Inbox items that the Owner did not dismiss, the oldest first.

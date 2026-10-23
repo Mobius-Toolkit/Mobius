@@ -1464,7 +1464,7 @@ var levelContexts = map[string]string{
 	levelStartAndMerge: "Autopilot is \"Start and merge\": Mobius starts each open sub-issue with no blocker and no earlier task at the next poll. " + mergeContext,
 }
 
-const mergeContext = "Mobius merges each pull request after your approval, when the branch contains the current default branch and the checks passed."
+const mergeContext = "Mobius merges each pull request after your approval, when the branch contains the current default branch and the checks passed. A mandatory deployment need that the Reviewer reports blocks the merge until the Owner marks its todo as done."
 
 // repositoriesText names the repositories of the organization, and its issue repository when the organization has one.
 func (e *Engine) repositoriesText(organization string) string {

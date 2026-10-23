@@ -1180,3 +1180,15 @@ INSERT INTO deployment_needs (task, head, kind, name, path, line, reason, mandat
 
 -- name: ListDeploymentNeeds :many
 SELECT * FROM deployment_needs WHERE task = ? ORDER BY id;
+
+-- name: AddDeploymentTodo :exec
+INSERT INTO deployment_todos (task, inbox_item, kind, name, path, line, reason, mandatory) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: ListDeploymentTodos :many
+SELECT * FROM deployment_todos WHERE task = ? ORDER BY id;
+
+-- name: GetDeploymentTodoOfItem :one
+SELECT * FROM deployment_todos WHERE inbox_item = ?;
+
+-- name: SetDeploymentTodoDone :exec
+UPDATE deployment_todos SET note = ?, done_at = ? WHERE id = ?;
