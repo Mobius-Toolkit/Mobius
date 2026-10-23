@@ -63,6 +63,7 @@ type renameJSON struct {
 }
 
 type eventJSON struct {
+	ID        int64       `json:"id"`
 	Event     string      `json:"event"`
 	Actor     loginJSON   `json:"actor"`
 	Label     nameJSON    `json:"label"`
@@ -255,7 +256,7 @@ func (g *FakeGitHub) SetTitle(repository string, number int64, title string) {
 	rename := &renameJSON{From: found.title, To: title}
 	found.title = title
 	found.updatedAt = g.tick()
-	found.events = append(found.events, eventJSON{Event: "renamed", Actor: loginJSON{found.author}, Rename: rename, CreatedAt: timestamp(found.updatedAt)})
+	found.events = append(found.events, eventJSON{ID: g.newEventID(), Event: "renamed", Actor: loginJSON{found.author}, Rename: rename, CreatedAt: timestamp(found.updatedAt)})
 }
 
 // CloseIssue closes the issue as the owner, with no reason.
@@ -572,6 +573,11 @@ func (g *FakeGitHub) insertOldIssue(key issueKey, title string) {
 	g.createdAt[key] -= 365 * 24 * 60 * 60
 }
 
+func (g *FakeGitHub) newEventID() int64 {
+	g.lastEventID++
+	return g.lastEventID
+}
+
 func (g *FakeGitHub) label(key issueKey, label, actor string) {
 	found := g.issues[key]
 	// GitHub records no `labeled` event for a label that the issue has.
@@ -581,7 +587,7 @@ func (g *FakeGitHub) label(key issueKey, label, actor string) {
 	now := g.tick()
 	found.labels = append(found.labels, label)
 	found.updatedAt = now
-	found.events = append(found.events, eventJSON{Event: "labeled", Actor: loginJSON{actor}, Label: nameJSON{label}, CreatedAt: timestamp(now)})
+	found.events = append(found.events, eventJSON{ID: g.newEventID(), Event: "labeled", Actor: loginJSON{actor}, Label: nameJSON{label}, CreatedAt: timestamp(now)})
 }
 
 func (g *FakeGitHub) unlabel(key issueKey, label, actor string) bool {
@@ -592,7 +598,7 @@ func (g *FakeGitHub) unlabel(key issueKey, label, actor string) bool {
 	now := g.tick()
 	found.labels = slices.DeleteFunc(found.labels, func(name string) bool { return name == label })
 	found.updatedAt = now
-	found.events = append(found.events, eventJSON{Event: "unlabeled", Actor: loginJSON{actor}, Label: nameJSON{label}, CreatedAt: timestamp(now)})
+	found.events = append(found.events, eventJSON{ID: g.newEventID(), Event: "unlabeled", Actor: loginJSON{actor}, Label: nameJSON{label}, CreatedAt: timestamp(now)})
 	return true
 }
 
@@ -606,7 +612,7 @@ func (g *FakeGitHub) setState(key issueKey, state, reason, actor string) {
 	if state == "open" {
 		event = "reopened"
 	}
-	found.events = append(found.events, eventJSON{Event: event, Actor: loginJSON{actor}, CreatedAt: timestamp(now)})
+	found.events = append(found.events, eventJSON{ID: g.newEventID(), Event: event, Actor: loginJSON{actor}, CreatedAt: timestamp(now)})
 }
 
 func (g *FakeGitHub) issueJSON(key issueKey) issueJSON {

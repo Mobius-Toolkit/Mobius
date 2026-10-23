@@ -66,9 +66,10 @@ func TestCommandHasTheAgentEnvironmentAndNoGitHubToken(t *testing.T) {
 	t.Setenv("GH_TOKEN", "ghs_secret")
 	t.Setenv("GITHUB_TOKEN", "ghs_secret")
 	t.Setenv("MOBIUS_GH_TOKEN_URL", "http://127.0.0.1:1/gh-token/parent")
+	t.Setenv("MOBIUS_GH_WRITES_URL", "http://127.0.0.1:1/gh-writes/parent")
 	dataDir := t.TempDir()
 
-	cmd := command(context.Background(), "/bin/agent", "/work", dataDir, "/usr/bin:/bin", "")
+	cmd := command(context.Background(), "/bin/agent", "/work", dataDir, "/usr/bin:/bin", "", "")
 
 	if cmd.Dir != "/work" {
 		t.Errorf("dir = %q", cmd.Dir)
@@ -84,16 +85,24 @@ func TestCommandHasTheAgentEnvironmentAndNoGitHubToken(t *testing.T) {
 		}
 	}
 	for _, entry := range cmd.Env {
-		if strings.HasPrefix(entry, "GH_TOKEN=") || strings.HasPrefix(entry, "GITHUB_TOKEN=") || strings.HasPrefix(entry, "MOBIUS_GH_TOKEN_URL=") {
+		if strings.HasPrefix(entry, "GH_TOKEN=") || strings.HasPrefix(entry, "GITHUB_TOKEN=") || strings.HasPrefix(entry, "MOBIUS_GH_TOKEN_URL=") || strings.HasPrefix(entry, "MOBIUS_GH_WRITES_URL=") {
 			t.Errorf("env has %s", entry)
 		}
 	}
 }
 
 func TestACommandWithAGHTokenURLHasTheURL(t *testing.T) {
-	cmd := command(context.Background(), "/bin/agent", "/work", t.TempDir(), "/usr/bin:/bin", "http://127.0.0.1:6363/gh-token/key")
+	cmd := command(context.Background(), "/bin/agent", "/work", t.TempDir(), "/usr/bin:/bin", "http://127.0.0.1:6363/gh-token/key", "")
 
 	if !slices.Contains(cmd.Env, "MOBIUS_GH_TOKEN_URL=http://127.0.0.1:6363/gh-token/key") {
+		t.Errorf("env = %v", cmd.Env)
+	}
+}
+
+func TestACommandWithAGHWritesURLHasTheURL(t *testing.T) {
+	cmd := command(context.Background(), "/bin/agent", "/work", t.TempDir(), "/usr/bin:/bin", "", "http://127.0.0.1:6363/gh-writes/key")
+
+	if !slices.Contains(cmd.Env, "MOBIUS_GH_WRITES_URL=http://127.0.0.1:6363/gh-writes/key") {
 		t.Errorf("env = %v", cmd.Env)
 	}
 }
@@ -134,7 +143,7 @@ func fakeAgentDir(t *testing.T) string {
 
 func startFakeAgent(t *testing.T, updates func(json.RawMessage, bool)) *Session {
 	dir := fakeAgentDir(t)
-	session, err := Start(context.Background(), config.ClaudeCode, dir, dir, dir, "http://127.0.0.1:1/mcp/key", "", updates)
+	session, err := Start(context.Background(), config.ClaudeCode, dir, dir, dir, "http://127.0.0.1:1/mcp/key", "", "", updates)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +194,7 @@ func TestAStartThatDoesNotAnswerFailsAfterStartTimeoutAndKillsTheAgent(t *testin
 	defer func(limit time.Duration) { StartTimeout = limit }(StartTimeout)
 	StartTimeout = 200 * time.Millisecond
 
-	_, err := Start(context.Background(), config.ClaudeCode, dir, dir, dir, "http://127.0.0.1:1/mcp/key", "", func(json.RawMessage, bool) {})
+	_, err := Start(context.Background(), config.ClaudeCode, dir, dir, dir, "http://127.0.0.1:1/mcp/key", "", "", func(json.RawMessage, bool) {})
 
 	if want := "claude-agent-acp: the start took longer than 200ms"; err == nil || err.Error() != want {
 		t.Errorf("error = %v, want %s", err, want)

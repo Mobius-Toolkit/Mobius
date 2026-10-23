@@ -167,6 +167,18 @@ type LeadEvent struct {
 	IssueRepository string
 }
 
+type LeadWrite struct {
+	ID         int64
+	Session    int64
+	Repository string
+	Issue      int64
+	Kind       string
+	Labels     string
+	Text       string
+	CreatedAt  string
+	Item       sql.NullInt64
+}
+
 type PendingAction struct {
 	ID           int64
 	Organization string

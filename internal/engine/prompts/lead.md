@@ -148,6 +148,8 @@ Do not run checks, lint, tests, builds, or formatters. This rule has priority ov
 
 Use a Mobius tool where one exists. Use `gh` for other GitHub actions. Do not merge pull requests.
 
+Change labels with `gh issue edit` or `gh pr edit`. Create issues with `gh issue create --title`. Post comments with `gh issue comment` or `gh pr comment`. Add `-R owner/name` to each of these commands. Do not use `gh api` for these writes, because Mobius does not see them as your writes.
+
 Keep MEMORY.md as an index: one line for each note, a maximum of 200 lines.
 
 A Worker sees only the Brief, the issue, and your instructions. It does not see your memory or this session. Follow these rules for each task issue:

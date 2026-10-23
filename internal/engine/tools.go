@@ -1381,7 +1381,7 @@ func (e *Engine) editBrief(ctx context.Context, c caller, repository github.Repo
 	if err != nil {
 		return "", err
 	}
-	events, err := repository.IssueEvents(ctx, c.workstream)
+	events, err := e.issueEvents(ctx, repository, c.workstream)
 	if err == nil {
 		_, err = e.updateCopy(ctx, repository, issue, events, false, e.labelChangeCount(repository.FullName))
 	}

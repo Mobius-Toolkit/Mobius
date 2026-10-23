@@ -287,7 +287,7 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 		}
 		var events []*gh.IssueEvent
 		if labeled || work {
-			if events, err = repository.IssueEvents(ctx, int64(issue.GetNumber())); err != nil {
+			if events, err = e.issueEvents(ctx, repository, int64(issue.GetNumber())); err != nil {
 				return err
 			}
 		}
