@@ -61,13 +61,14 @@ func TestAPollFixesTheLabelsOfAManagedRepositoryOneTime(t *testing.T) {
 
 	labels := testkit.WaitForValue(t, func() ([]testkit.Label, bool) {
 		labels := fake.RepositoryLabels(shop)
-		return labels, len(labels) == 15
+		return labels, len(labels) == 16
 	})
 
 	want := []testkit.Label{
 		{Name: "bug", Color: "d73a4a", Description: "Something is wrong"},
 		{Name: "mobius:auto-merge", Color: "1D76DB", Description: "Mobius merges each pull request of this Workstream after the Lead approves it"},
 		{Name: "mobius:autopilot", Color: "1D76DB", Description: "Mobius dispatches the ready tasks of this Workstream"},
+		{Name: "mobius:bucket", Color: "EDEDED", Description: "Mobius bucket: an issue that holds sub-issues of a Workstream"},
 		{Name: "mobius:evergreen", Color: "0052CC", Description: "Mobius Workstream with no end: it is not complete when it has no open task"},
 		{Name: "mobius:maintenance", Color: "BFDADC", Description: "Mobius evergreen Workstream that gets the task issues of the Curator"},
 		{Name: "mobius:needs-human", Color: "D93F0B", Description: "The task stopped and needs a human"},
@@ -92,7 +93,7 @@ func TestAPollFixesTheLabelsOfAManagedRepositoryOneTime(t *testing.T) {
 	fake.DeleteRepositoryLabel(shop, "mobius:ready")
 	testkit.WaitFor(t, func() bool { return fake.NotModifiedCount() >= polls+2 })
 
-	if got := fake.RepositoryLabels(shop); len(got) != 14 {
+	if got := fake.RepositoryLabels(shop); len(got) != 15 {
 		t.Errorf("labels = %v", got)
 	}
 	if got := fake.LabelPatches(shop); !reflect.DeepEqual(got, []string{"mobius:working"}) {

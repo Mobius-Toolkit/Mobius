@@ -96,10 +96,12 @@ type copiedTask struct {
 	title      string
 	state      string
 	url        string
+	bucket     bool
 }
 
 // copiedTasks gives the tasks of the copied tree of the Workstream number of repository, in the order of the tree. It
 // leaves out the same issues as walkTasks: a nested Workstream, and an issue in a repository that the App cannot read.
+// It keeps a bucket, because closeWorkstream closes it.
 func (e *Engine) copiedTasks(ctx context.Context, repository github.Repository, number int64) ([]copiedTask, error) {
 	params := store.ListCopiedTreeParams{Repository: repository.FullName, Workstream: number}
 	rows, err := e.queries.ListCopiedTree(ctx, params)
@@ -111,9 +113,13 @@ func (e *Engine) copiedTasks(ctx context.Context, repository github.Repository, 
 		return nil, err
 	}
 	nested := map[int64]bool{}
+	buckets := map[int64]bool{}
 	for _, label := range labels {
-		if label.Name == workstreamLabel {
+		switch label.Name {
+		case workstreamLabel:
 			nested[label.Position] = true
+		case bucketLabel:
+			buckets[label.Position] = true
 		}
 	}
 	var tasks []copiedTask
@@ -125,7 +131,7 @@ func (e *Engine) copiedTasks(ctx context.Context, repository github.Repository, 
 		if !ok {
 			continue
 		}
-		tasks = append(tasks, copiedTask{source.FullName, row.Number, row.Title, row.State, row.HtmlUrl})
+		tasks = append(tasks, copiedTask{source.FullName, row.Number, row.Title, row.State, row.HtmlUrl, buckets[row.Position]})
 	}
 	return tasks, nil
 }
@@ -155,6 +161,9 @@ func (e *Engine) WorkstreamDetails(ctx context.Context, repositoryName string, n
 	}
 	details := WorkstreamDetails{CreatedAt: createdAt, Evergreen: copied.Evergreen, Maintenance: copied.Maintenance, Skills: copied.Skills}
 	for _, task := range tasks {
+		if task.bucket {
+			continue
+		}
 		if task.state == "open" {
 			details.OpenTasks++
 		} else {

@@ -76,7 +76,7 @@ type Blocker struct {
 
 // Tasks gives a line for each issue of a trusted author below the Workstream number of repositoryName, from the
 // local copy, depth first. A closed issue has the state closed, and no blockers. The sub-issues of an untrusted
-// issue take the depth of that issue, so a nested task does not move below an unrelated sibling. An issue in another
+// issue and of a bucket take the depth of that issue, so a nested task does not move below an unrelated sibling. An issue in another
 // repository has its own blockers, sub-issues and task state.
 func (e *Engine) Tasks(ctx context.Context, repositoryName string, workstream int64) ([]TaskLine, error) {
 	repository, err := e.repository(repositoryName)
@@ -123,7 +123,7 @@ func (e *Engine) Tasks(ctx context.Context, repositoryName string, workstream in
 			issueRepositoryName = repositoryOfURL(row.RepositoryUrl)
 		}
 		depth := depths[lowerRef(row.ParentRepository, row.Parent)]
-		visible := e.TrustedAuthor(repository.AppSlug, row.Author)
+		visible := e.TrustedAuthor(repository.AppSlug, row.Author) && !slices.Contains(labels[row.Position], bucketLabel)
 		if visible {
 			line := TaskLine{Number: row.Number, Title: row.Title, State: labelState(labels[row.Position]), URL: row.HtmlUrl, Repository: issueRepositoryName, Depth: depth, OtherRepository: !own, BlockedBy: []Blocker{}}
 			if row.State != "open" {

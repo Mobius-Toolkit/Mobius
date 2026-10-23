@@ -144,6 +144,16 @@ func (g *FakeGitHub) CreateIssue(repository string, number int64, title, body, a
 	g.insertIssue(issueKey{repository, number}, title, body, author)
 }
 
+// CreateLabeledIssue adds the open issue number with title, body, author and label, created now. A poll sees the
+// issue with its label.
+func (g *FakeGitHub) CreateLabeledIssue(repository string, number int64, title, body, author, label string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	key := issueKey{repository, number}
+	g.insertIssue(key, title, body, author)
+	g.label(key, label, author)
+}
+
 // HasIssue tells if the repository has the issue or the pull request number.
 func (g *FakeGitHub) HasIssue(repository string, number int64) bool {
 	g.mu.Lock()

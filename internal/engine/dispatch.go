@@ -52,7 +52,7 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 	}
 	held := false
 	for _, issue := range page.Issues {
-		if issue.IsPullRequest() {
+		if issue.IsPullRequest() || hasLabel(issue, bucketLabel) {
 			continue
 		}
 		number := int64(issue.GetNumber())
@@ -938,7 +938,7 @@ func (e *Engine) dispatchAnsweredWithoutAutopilot(ctx context.Context, repositor
 func (e *Engine) autopilotTree(ctx context.Context, repository github.Repository, workstream int64, stop map[int64]bool) (bool, error) {
 	return e.walkTasks(ctx, repository, workstream, func(source github.Repository, issue *gh.Issue) (bool, error) {
 		number := int64(issue.GetNumber())
-		if issue.GetState() != "open" || issue.GetIssueDependenciesSummary().GetBlockedBy() > 0 || hasLabel(issue, triageLabel) {
+		if issue.GetState() != "open" || issue.GetIssueDependenciesSummary().GetBlockedBy() > 0 || hasLabel(issue, triageLabel) || hasLabel(issue, bucketLabel) {
 			return false, nil
 		}
 		task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: source.FullName, Issue: number})

@@ -84,6 +84,7 @@ func TestFixLabelsCreatesTheMissingLabelsAndSetsTheFixedColors(t *testing.T) {
 		{"mobius:evergreen", engine.Missing, ""},
 		{"mobius:maintenance", engine.Missing, ""},
 		{"mobius:skills", engine.Missing, ""},
+		{"mobius:bucket", engine.Missing, ""},
 	}
 	if got := checkLabels(t, repository); !reflect.DeepEqual(got, want) {
 		t.Errorf("status = %v, want %v", got, want)
@@ -97,6 +98,7 @@ func TestFixLabelsCreatesTheMissingLabelsAndSetsTheFixedColors(t *testing.T) {
 		{Name: "bug", Color: "d73a4a", Description: "Something is wrong"},
 		{Name: "mobius:auto-merge", Color: "1D76DB", Description: "Mobius merges each pull request of this Workstream after the Lead approves it"},
 		{Name: "mobius:autopilot", Color: "1D76DB", Description: "Mobius dispatches the ready tasks of this Workstream"},
+		{Name: "mobius:bucket", Color: "EDEDED", Description: "Mobius bucket: an issue that holds sub-issues of a Workstream"},
 		{Name: "mobius:evergreen", Color: "0052CC", Description: "Mobius Workstream with no end: it is not complete when it has no open task"},
 		{Name: "mobius:maintenance", Color: "BFDADC", Description: "Mobius evergreen Workstream that gets the task issues of the Curator"},
 		{Name: "mobius:needs-human", Color: "D93F0B", Description: "The task stopped and needs a human"},
@@ -146,6 +148,7 @@ func TestFixLabelsSkipsALabelWithANameInADifferentCase(t *testing.T) {
 		{"mobius:evergreen", engine.Missing, ""},
 		{"mobius:maintenance", engine.Missing, ""},
 		{"mobius:skills", engine.Missing, ""},
+		{"mobius:bucket", engine.Missing, ""},
 	}
 	if got := checkLabels(t, repository); !reflect.DeepEqual(got, want) {
 		t.Errorf("status = %v, want %v", got, want)
@@ -164,6 +167,7 @@ func TestFixLabelsSkipsALabelWithANameInADifferentCase(t *testing.T) {
 		"Mobius:Ready 0E8A16 Ready",
 		"mobius:auto-merge 1D76DB Mobius merges each pull request of this Workstream after the Lead approves it",
 		"mobius:autopilot 1D76DB Mobius dispatches the ready tasks of this Workstream",
+		"mobius:bucket EDEDED Mobius bucket: an issue that holds sub-issues of a Workstream",
 		"mobius:evergreen 0052CC Mobius Workstream with no end: it is not complete when it has no open task",
 		"mobius:maintenance BFDADC Mobius evergreen Workstream that gets the task issues of the Curator",
 		"mobius:needs-human D93F0B The task stopped and needs a human",

@@ -45,7 +45,7 @@ func triageEndpoint(number int64) string {
 // The first case adds mobius:triage. The first poll of a repository, with no since, starts no Triager. It adds the
 // reaction of an agent to the comments, because the first turn reads them. It gives true when it started a turn.
 func (e *Engine) startTriage(ctx context.Context, repository github.Repository, issue *gh.Issue, comments []*gh.IssueComment, since time.Time) (bool, error) {
-	if issue.IsPullRequest() || issue.GetState() != "open" || since.IsZero() {
+	if issue.IsPullRequest() || hasLabel(issue, bucketLabel) || issue.GetState() != "open" || since.IsZero() {
 		return false, nil
 	}
 	number := int64(issue.GetNumber())
@@ -186,9 +186,9 @@ func (e *Engine) startHeldTriagers(ctx context.Context, repository github.Reposi
 	return nil
 }
 
-// triaging tells if the issue is open, has triageLabel and has no Workstream.
+// triaging tells if the issue is open, has triageLabel, is no bucket and has no Workstream.
 func (e *Engine) triaging(ctx context.Context, repository github.Repository, issue *gh.Issue) (bool, error) {
-	if issue == nil || issue.GetState() != "open" || !hasLabel(issue, triageLabel) {
+	if issue == nil || issue.GetState() != "open" || !hasLabel(issue, triageLabel) || hasLabel(issue, bucketLabel) {
 		return false, nil
 	}
 	_, workstream, err := e.commentWorkstream(ctx, repository, issue)
