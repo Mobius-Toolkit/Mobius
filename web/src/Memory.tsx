@@ -126,7 +126,7 @@ function EditDialog({
     <Dialog
       open
       onOpenChange={(open) => {
-        if (open || discarding || dismissing.current) {
+        if (open || saving || discarding || dismissing.current) {
           return;
         }
         if (draft === initial) {
@@ -159,6 +159,7 @@ function EditDialog({
         <DialogFooter className="m-0 max-sm:rounded-none">
           <Button
             variant="outline"
+            disabled={saving}
             onClick={() => (draft === initial ? onClose() : setDiscarding(true))}
           >
             Cancel

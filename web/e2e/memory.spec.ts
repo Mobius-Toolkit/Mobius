@@ -198,6 +198,51 @@ for (const close of ["Cancel", "Escape", "Outside"]) {
   });
 }
 
+test("the edit dialog cannot close while a save runs", async ({ page }) => {
+  const main = page.locator("main");
+  const dialog = page.getByRole("dialog", {
+    name: "Edit the memory of owner/shop",
+    includeHidden: true,
+  });
+  const field = dialog.getByLabel("Memory text");
+  const discard = page.getByRole("dialog", { name: "Discard your changes?" });
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  let saving!: () => void;
+  const started = new Promise<void>((resolve) => (saving = resolve));
+  await page.route(
+    (url) => url.pathname === "/api/repositories/owner/shop/memory",
+    async (route) => {
+      if (route.request().method() !== "PUT") {
+        return route.fallback();
+      }
+      saving();
+      await held;
+      return route.fallback();
+    },
+  );
+  await page.goto("/settings/memory/owner/shop");
+  await main.getByRole("button", { name: "Edit" }).click();
+  await expect(field).toBeEditable();
+  await field.fill("Water the roses.\n".repeat(201));
+  await dialog.getByRole("button", { name: "Save" }).click();
+  await started;
+
+  await expect(dialog.getByRole("button", { name: "Cancel" })).toBeDisabled();
+  await page.keyboard.press("Escape");
+  await clickOutside(page, dialog);
+  await expect(dialog).toBeVisible();
+  await expect(discard).toBeHidden();
+
+  release();
+  await expect(dialog.getByText("the maximum is 200")).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Cancel" })).toBeEnabled();
+  await expect(field).toHaveValue("Water the roses.\n".repeat(201));
+  await page.keyboard.press("Escape");
+  await discard.getByRole("button", { name: "Discard" }).click();
+  await expect(dialog).toBeHidden();
+});
+
 test("the edit dialog has the full width and sits at the bottom of a phone viewport", async ({
   page,
 }) => {
