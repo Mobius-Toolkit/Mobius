@@ -112,6 +112,38 @@ func TestWithAMergeLevelAMandatoryTodoBlocksTheMergeUntilTheOwnerMarksItAsDone(t
 	}
 }
 
+func TestAFailedReadOfThePullRequestAtTheDoneWriteKeepsTheTodoOpenSoTheOwnerCanMarkItAsDoneAgain(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := approvableWith(t, fake, "merge", true, mandatoryNeed)
+	fake.AddCheckRun(shop, checkRun("CI", head(t, fake, "mobius/41"), "in_progress", ""))
+	sendChat(t, server, leadChat, "Approve #41")
+	waitForChat(t, server, leadChat, "Lead", blockedText)
+	todo := waitForItem(t, server, "todo")
+	fake.FailPullRequestReads(true)
+
+	if status, body := doneTodo(t, server, todo.ID, `{"note":"Set in prod."}`); status == http.StatusOK {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+
+	if len(itemsOf(t, server, "todo")) != 1 || approvals(fake) != 0 || autoMerge(t, server) != 0 {
+		t.Errorf("todos = %d, approvals = %d", len(itemsOf(t, server, "todo")), approvals(fake))
+	}
+	fake.FailPullRequestReads(false)
+
+	if status, body := doneTodo(t, server, todo.ID, `{"note":"Set in prod."}`); status != http.StatusOK {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+
+	testkit.WaitFor(t, func() bool {
+		items := itemsOf(t, server, "ready for review")
+		return len(items) == 1 && items[0].Merging && items[0].MergeRefusal == ""
+	})
+	if len(itemsOf(t, server, "todo")) != 0 || approvals(fake) != 1 || autoMerge(t, server) != 1 {
+		t.Errorf("approvals = %d", approvals(fake))
+	}
+}
+
 func TestWithAMergeLevelAnOptionalNeedGivesATodoAndMobiusMerges(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

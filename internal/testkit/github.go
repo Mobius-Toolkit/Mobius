@@ -137,6 +137,7 @@ type FakeGitHub struct {
 	// The ids of the first comments of the resolved review threads.
 	resolvedThreads  map[int64]bool
 	failResolves     bool
+	failPullReads    bool
 	failCheckUpdates bool
 	latestRelease    *releaseJSON
 	comparedCommits  []string

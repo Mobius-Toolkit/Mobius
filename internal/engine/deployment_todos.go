@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log"
 	"slices"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
@@ -105,8 +104,9 @@ func (e *Engine) clearBlockReason(ctx context.Context, task store.Task) error {
 
 // DoneInboxItem stores the note and the time on the todo of the open todo Inbox item id, and dismisses the item. It
 // gives the changed item. When the todo is for a mandatory need of the current list and no mandatory todo of its task is open, the task gets the
-// automatic merge as after a change of the Autopilot level to a merge level. It returns a refusal when the item is not
-// an open todo.
+// automatic merge as after a change of the Autopilot level to a merge level. It dismisses the item only after that
+// step succeeds, so the Owner can mark the todo as done again after an error. It returns a refusal when the item is
+// not an open todo.
 func (e *Engine) DoneInboxItem(ctx context.Context, id int64, note string) (store.InboxItem, error) {
 	item, err := e.queries.GetInboxItem(ctx, id)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -126,11 +126,11 @@ func (e *Engine) DoneInboxItem(ctx context.Context, id int64, note string) (stor
 	if err := e.queries.SetDeploymentTodoDone(ctx, store.SetDeploymentTodoDoneParams{Note: note, DoneAt: sql.NullString{String: now(), Valid: true}, ID: todo.ID}); err != nil {
 		return store.InboxItem{}, err
 	}
-	if err := e.Dismiss(ctx, id); err != nil {
+	if err := e.mergeAfterTodos(ctx, item, todo); err != nil {
 		return store.InboxItem{}, err
 	}
-	if err := e.mergeAfterTodos(ctx, item, todo); err != nil {
-		log.Printf("merge after the todo %d of %s: %v", todo.ID, item.Repository, err)
+	if err := e.Dismiss(ctx, id); err != nil {
+		return store.InboxItem{}, err
 	}
 	return e.queries.GetInboxItem(ctx, id)
 }
