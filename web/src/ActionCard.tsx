@@ -196,25 +196,27 @@ export function ActionCard({ message, action }: { message: ChatMessage; action: 
       <Badge variant="outline" className="justify-self-start font-mono">
         {action.tool}
       </Badge>
-      {action.arguments.map((argument) => (
-        <Argument
-          key={argument.name}
-          {...argument}
-          before={
-            action.tool === "edit_brief" && argument.name === "brief" && action.oldBrief !== ""
-              ? action.oldBrief
-              : undefined
-          }
-          open={open.includes(argument.name)}
-          toggle={() =>
-            setOpen((names) =>
-              names.includes(argument.name)
-                ? names.filter((name) => name !== argument.name)
-                : [...names, argument.name],
-            )
-          }
-        />
-      ))}
+      {action.arguments
+        .filter((argument) => !(action.tool === "message_lead" && argument.name === "workstream"))
+        .map((argument) => (
+          <Argument
+            key={argument.name}
+            {...argument}
+            before={
+              action.tool === "edit_brief" && argument.name === "brief" && action.oldBrief !== ""
+                ? action.oldBrief
+                : undefined
+            }
+            open={open.includes(argument.name)}
+            toggle={() =>
+              setOpen((names) =>
+                names.includes(argument.name)
+                  ? names.filter((name) => name !== argument.name)
+                  : [...names, argument.name],
+              )
+            }
+          />
+        ))}
       <Badge variant={failed ? "destructive" : "secondary"} className="justify-self-start">
         {actionState(action)}
       </Badge>

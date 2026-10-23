@@ -35,6 +35,18 @@ export interface ActionBrief {
 }
 
 /**
+ * ActionSender is the Workstream of the Lead that made an action.
+ */
+export interface ActionSender {
+  /** Number is the number of the Workstream issue */
+  number: number;
+  /** Repository is the full name (owner/name) of the repository of the Workstream issue */
+  repository: string;
+  /** Title is the title of the Workstream issue in the local copy, or empty when the copy has no such Workstream */
+  title: string;
+}
+
+/**
  * Agent is the session of an agent.
  */
 export interface Agent {
@@ -323,6 +335,8 @@ export interface PendingAction {
   result: string;
   /** Role is the Role of the agent that called the tool */
   role: PendingActionRole;
+  /** Sender is the Workstream of the Lead that made the action. It is null for the other roles */
+  sender: ActionSender | null;
   /** State is pending for an action that waits for the approval, done for an action that ran, rejected for an action that the Owner rejected, replaced for an action that a later call of the same tool replaced, and withdrawn for an action that the agent took back */
   state: PendingActionState;
   /** Time is the time of the call */

@@ -21,7 +21,9 @@ import {
   historyTableText,
   keepPrices,
   keepText,
+  messageLeadOfTwelve,
   leadTitle,
+  leadToLeadTitle,
   ownerTexts,
   restoreBrief,
   sendToCoordinator,
@@ -32,6 +34,7 @@ import {
   triagerItem,
   unknownText,
   unknownTitle,
+  waitText,
 } from "./actions.js";
 import { fakeMicrophone } from "./microphone.js";
 import { routeInboxItems } from "./stops.js";
@@ -831,4 +834,53 @@ test("the card of a done edit_brief action shows the changes, and the full Brief
     await page.unroute("**/api/chat?*");
     await restoreBrief(page);
   }
+});
+
+const rejected = (page: Page) =>
+  page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" && /\/api\/actions\/\d+\/reject$/.test(response.url()),
+  );
+
+test("the panel of a message_lead action of a Lead names the Workstream of the Lead and shows only the text", async ({
+  page,
+}) => {
+  await openLeadChat(page);
+  await sendToLead(page, messageLeadOfTwelve);
+  await expect(waiting(page, 1)).toBeVisible(agentTimeout);
+
+  await expect(cardOf(page, waitText).getByText("workstream", { exact: true })).toHaveCount(0);
+  await answer(page, leadToLeadTitle);
+  const dialog = panel(page);
+  await expect(dialog.getByText(/^Lead of /)).toContainText("Lead of #14 Early renewals");
+  await expect(dialog.getByRole("link", { name: "#14 Early renewals" })).toHaveAttribute(
+    "href",
+    "/workstreams/owner/shop/14",
+  );
+  await expect(dialog.getByText(waitText)).toBeVisible();
+  await expect(dialog.getByText("workstream", { exact: true })).toHaveCount(0);
+
+  const answered = rejected(page);
+  await reject(page).click();
+  expect((await answered).ok()).toBe(true);
+});
+
+test("the panel of a message_lead action of the Coordinator names the Coordinator and shows only the text", async ({
+  page,
+}) => {
+  await openChat(page);
+  await ask(page, keepPrices);
+  await expect(waiting(page, 1)).toBeVisible(agentTimeout);
+
+  await expect(cardOf(page, keepText).getByText("workstream", { exact: true })).toHaveCount(0);
+  await answer(page, leadTitle);
+  const dialog = panel(page);
+  await expect(dialog.getByText(/^Coordinator/)).toContainText("Coordinator ·");
+  await expect(dialog.getByRole("link")).toHaveCount(0);
+  await expect(dialog.getByText(keepText)).toBeVisible();
+  await expect(dialog.getByText("workstream", { exact: true })).toHaveCount(0);
+
+  const answered = rejected(page);
+  await reject(page).click();
+  expect((await answered).ok()).toBe(true);
 });
