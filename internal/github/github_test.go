@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"maps"
 	"net/http"
 	"net/url"
 	"path/filepath"
@@ -429,6 +430,32 @@ func TestTheClientOfARepositoryGetsANewInstallationTokenBeforeTheTokenExpires(t 
 
 	if got := fake.InstallationTokensGiven(); got != given+2 {
 		t.Errorf("installation tokens = %d, want %d", got, given+2)
+	}
+}
+
+func TestReadTokenAsksForReadPermissionsAndTokenAsksForNone(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	gh := connect(t, fake)
+	repository, ok := gh.Repository("owner/shop")
+	if !ok {
+		t.Fatal("no repository owner/shop")
+	}
+
+	read, err := repository.ReadToken(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	full, err := repository.Token(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := map[string]string{"contents": "read", "issues": "read", "pull_requests": "read", "checks": "read", "actions": "read", "metadata": "read"}
+	if got := fake.InstallationTokenPermissions(read); !maps.Equal(got, want) {
+		t.Errorf("permissions of the read token = %v", got)
+	}
+	if got := fake.InstallationTokenPermissions(full); got != nil {
+		t.Errorf("permissions of the token = %v", got)
 	}
 }
 
