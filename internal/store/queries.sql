@@ -68,6 +68,14 @@ INSERT INTO turn_usage (session, task, issue, workstream, organization, reposito
                         effort, started_at, ended_at, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
+-- name: AddSkillUse :exec
+INSERT INTO skill_uses (session, organization, repository, role, harness, skill, source, used_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: AddSessionSkill :exec
+INSERT INTO session_skills (session, organization, repository, role, harness, skill, copied_at)
+VALUES (?, ?, ?, ?, ?, ?, ?);
+
 -- name: ListTurnUsageBetween :many
 SELECT * FROM turn_usage WHERE started_at >= sqlc.arg(after) AND started_at < sqlc.arg(before);
 

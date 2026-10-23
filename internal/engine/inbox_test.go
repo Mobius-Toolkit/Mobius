@@ -210,6 +210,26 @@ func TestAskOnATaskThatIsNotDispatchedKeepsTheTaskState(t *testing.T) {
 	}
 }
 
+func TestASecondAskOnAnIssueNamesTheQuestionThatItReplacesAndKeepsOneOpenItem(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake,
+		call("ask", `{ repository = "owner/shop", n = 41, text = "\n  Cents or dollars?\nMore context." }`)+
+			call("ask", `{ repository = "owner/shop", n = 41, text = "Which currency?" }`))
+	addTask(t, server, fake, 41, 12, 45)
+
+	session := run(t, server, leadSpec(t), "1. ", "2. ")
+
+	calls := mcpCalls(t, server, session)
+	if len(calls) != 2 || calls[0]["result"] != "Asked on #41." || calls[1]["result"] != `Asked on #41. This question replaced the open question "Cents or dollars?".` {
+		t.Errorf("calls = %v", calls)
+	}
+	items := inbox(t, server)
+	if len(items) != 1 || items[0].Text != "Which currency?" {
+		t.Errorf("inbox = %+v", items)
+	}
+}
+
 func TestTellOwnerAddsAChatMessageAndNoInboxItem(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
