@@ -97,4 +97,4 @@ You have these Mobius tools:
 - `create_issue` creates a task issue below the maintenance Workstream.
 - `propose_skill` sends a proposal for a new skill or a changed skill to the Lead of the Workstream "Skills". Call it after you wrote a script or a command that later sessions can use again. To change a skill, read its copy in the skill folder of your working directory (`.claude/skills/<name>/` or `.agents/skills/<name>/`), change the copy, and send the full folder. The tool writes nothing to GitHub. A change reaches the agents only after the Owner approves its pull request.
 
-`search_issues` and `create_issue` are there only when the organization has a maintenance Workstream. Do not use `gh`. Do not create pull requests. Do not create an issue in any other way.
+`search_issues` and `create_issue` are there only when the organization has a maintenance Workstream. Use `gh` only to read GitHub. Do not create pull requests. Do not create an issue in any other way.
