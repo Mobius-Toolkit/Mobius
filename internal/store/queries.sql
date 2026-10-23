@@ -339,26 +339,26 @@ ORDER BY id DESC LIMIT ?;
 
 -- name: ListChatMessagesBefore :many
 SELECT * FROM chat_messages
-WHERE organization = ? AND repository = ? AND workstream = ? AND id < ?
+WHERE organization = ? AND repository = ? AND workstream = ? AND author != 'Record' AND id < ?
 ORDER BY id DESC LIMIT ?;
 
 -- name: SetChatSeen :exec
 INSERT INTO chat_seen (organization, repository, workstream, message) VALUES (?, ?, ?, ?)
 ON CONFLICT (organization, repository, workstream) DO UPDATE SET message = max(message, excluded.message);
 
--- The messages of the Owner, of a Researcher, of a Curator, of an approval and of an event are never unread.
+-- The messages of the Owner, of a Researcher, of a Curator, of an approval, of an event and of a record are never unread.
 -- name: ListUnread :many
 SELECT m.organization, m.repository, m.workstream, count(*) AS count
 FROM chat_messages m
 LEFT JOIN chat_seen s ON s.organization = m.organization AND s.repository = m.repository AND s.workstream = m.workstream
-WHERE m.author NOT IN ('Owner', 'Researcher', 'Curator', 'Approval', 'Event') AND m.id > coalesce(s.message, 0)
+WHERE m.author NOT IN ('Owner', 'Researcher', 'Curator', 'Approval', 'Event', 'Record') AND m.id > coalesce(s.message, 0)
 GROUP BY m.organization, m.repository, m.workstream
 ORDER BY m.organization, m.repository, m.workstream;
 
 -- name: CountUnread :one
 SELECT count(*) FROM chat_messages m
 WHERE m.organization = sqlc.arg(organization) AND m.repository = sqlc.arg(repository) AND m.workstream = sqlc.arg(workstream)
-  AND m.author NOT IN ('Owner', 'Researcher', 'Curator', 'Approval', 'Event')
+  AND m.author NOT IN ('Owner', 'Researcher', 'Curator', 'Approval', 'Event', 'Record')
   AND m.id > coalesce((SELECT s.message FROM chat_seen s
                        WHERE s.organization = m.organization AND s.repository = m.repository AND s.workstream = m.workstream), 0);
 

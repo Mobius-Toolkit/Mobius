@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"regexp"
 	"slices"
 	"strings"
@@ -330,7 +331,11 @@ func (e *Engine) ResumeIssue(ctx context.Context, repositoryName string, number 
 		if err := e.changeCopiedLabels(ctx, repository.FullName, number, []string{readyLabel}, []string{needsHumanLabel}); err != nil {
 			return err
 		}
-		return e.dismissIssueItems(ctx, repository.FullName, number, stoppedKind, lostKind)
+		if err := e.dismissIssueItems(ctx, repository.FullName, number, stoppedKind, lostKind); err != nil {
+			return err
+		}
+		e.addIssueRecord(ctx, repository, number, "You resumed")
+		return nil
 	}
 	if err != nil {
 		return err
@@ -341,7 +346,33 @@ func (e *Engine) ResumeIssue(ctx context.Context, repositoryName string, number 
 	if err := e.changeCopiedLabels(ctx, repository.FullName, number, nil, []string{needsHumanLabel}); err != nil {
 		return err
 	}
-	return e.dismissIssueItems(ctx, repository.FullName, number, stoppedKind, lostKind)
+	if err := e.dismissIssueItems(ctx, repository.FullName, number, stoppedKind, lostKind); err != nil {
+		return err
+	}
+	e.addIssueRecord(ctx, repository, number, "You resumed")
+	return nil
+}
+
+// addIssueRecord adds a record "<what> <issue>." to the Lead chat of the Workstream of the issue number. The live
+// task gives the Workstream, else the parents of the issue give it. An issue in no Workstream gets no record. A failed
+// read only goes to the log, because the action has succeeded.
+func (e *Engine) addIssueRecord(ctx context.Context, repository github.Repository, number int64, what string) {
+	workstreamRepository, workstream, err := e.issueWorkstream(ctx, repository, number)
+	if err != nil {
+		log.Printf("find the Workstream of %s#%d for a record: %v", repository.FullName, number, err)
+		return
+	}
+	if workstream != 0 {
+		e.addRecord(ctx, leadChat(workstreamRepository, workstream), fmt.Sprintf("%s %s.", what, eventRef(workstreamRepository, repository.FullName, number)))
+	}
+}
+
+func (e *Engine) issueWorkstream(ctx context.Context, repository github.Repository, number int64) (string, int64, error) {
+	task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: repository.FullName, Issue: number})
+	if errors.Is(err, sql.ErrNoRows) {
+		return e.workstreamOf(ctx, repository, number)
+	}
+	return task.WorkstreamRepository, task.Workstream, err
 }
 
 // StartIssue replaces mobius:triage with mobius:ready on the issue number of repositoryName. The label changes use the
@@ -362,5 +393,9 @@ func (e *Engine) StartIssue(ctx context.Context, repositoryName string, number i
 	if err := asOwner.AddLabel(ctx, number, readyLabel); err != nil {
 		return err
 	}
-	return e.changeCopiedLabels(ctx, repository.FullName, number, []string{readyLabel}, []string{triageLabel})
+	if err := e.changeCopiedLabels(ctx, repository.FullName, number, []string{readyLabel}, []string{triageLabel}); err != nil {
+		return err
+	}
+	e.addIssueRecord(ctx, repository, number, "You started")
+	return nil
 }

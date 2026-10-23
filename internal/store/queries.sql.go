@@ -1294,7 +1294,7 @@ func (q *Queries) CountSessionsEndedSinceCurator(ctx context.Context, repository
 const countUnread = `-- name: CountUnread :one
 SELECT count(*) FROM chat_messages m
 WHERE m.organization = ?1 AND m.repository = ?2 AND m.workstream = ?3
-  AND m.author NOT IN ('Owner', 'Researcher', 'Curator', 'Approval', 'Event')
+  AND m.author NOT IN ('Owner', 'Researcher', 'Curator', 'Approval', 'Event', 'Record')
   AND m.id > coalesce((SELECT s.message FROM chat_seen s
                        WHERE s.organization = m.organization AND s.repository = m.repository AND s.workstream = m.workstream), 0)
 `
@@ -3673,7 +3673,7 @@ func (q *Queries) ListCIFailuresWithoutIssue(ctx context.Context, repository str
 
 const listChatMessagesBefore = `-- name: ListChatMessagesBefore :many
 SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items FROM chat_messages
-WHERE organization = ? AND repository = ? AND workstream = ? AND id < ?
+WHERE organization = ? AND repository = ? AND workstream = ? AND author != 'Record' AND id < ?
 ORDER BY id DESC LIMIT ?
 `
 
@@ -6816,7 +6816,7 @@ const listUnread = `-- name: ListUnread :many
 SELECT m.organization, m.repository, m.workstream, count(*) AS count
 FROM chat_messages m
 LEFT JOIN chat_seen s ON s.organization = m.organization AND s.repository = m.repository AND s.workstream = m.workstream
-WHERE m.author NOT IN ('Owner', 'Researcher', 'Curator', 'Approval', 'Event') AND m.id > coalesce(s.message, 0)
+WHERE m.author NOT IN ('Owner', 'Researcher', 'Curator', 'Approval', 'Event', 'Record') AND m.id > coalesce(s.message, 0)
 GROUP BY m.organization, m.repository, m.workstream
 ORDER BY m.organization, m.repository, m.workstream
 `
@@ -6828,7 +6828,7 @@ type ListUnreadRow struct {
 	Count        int64
 }
 
-// The messages of the Owner, of a Researcher, of a Curator, of an approval and of an event are never unread.
+// The messages of the Owner, of a Researcher, of a Curator, of an approval, of an event and of a record are never unread.
 func (q *Queries) ListUnread(ctx context.Context) ([]ListUnreadRow, error) {
 	rows, err := q.db.QueryContext(ctx, listUnread)
 	if err != nil {
