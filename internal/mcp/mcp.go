@@ -1,4 +1,4 @@
-// Package mcp serves the Mobius MCP server and the gh token to the agent sessions.
+// Package mcp serves the Mobius MCP server, the gh token and the gh writes to the agent sessions.
 package mcp
 
 import (
@@ -24,14 +24,29 @@ type Tool struct {
 	Run func(ctx context.Context, arguments json.RawMessage) (string, error)
 }
 
+// GHWrite is a change that the gh of a session makes on GitHub: a label change, a new issue or a comment.
+type GHWrite struct {
+	Repository string `json:"repository"`
+	// Issue is the number of the issue or the pull request, or 0 for a new issue.
+	Issue int64 `json:"issue"`
+	// Kind is labeled, unlabeled, created or commented.
+	Kind   string   `json:"kind"`
+	Labels []string `json:"labels"`
+	// Text is the title of a new issue or the body of a comment.
+	Text string `json:"text"`
+}
+
 // Caller is a session that calls the Mobius MCP server with its key.
 type Caller struct {
 	Tools []Tool
 	// GHToken gives the GitHub token of the gh of the session. A caller with no GHToken gets no token.
 	GHToken func(ctx context.Context) (string, error)
+	// GHWrites records the writes that the gh of the session is about to make. A caller with no GHWrites gets no route.
+	GHWrites func(ctx context.Context, writes []GHWrite) error
 }
 
-// Server serves the Mobius MCP server at /mcp/{key} and the gh token at /gh-token/{key}, with one key for each session.
+// Server serves the Mobius MCP server at /mcp/{key}, the gh token at /gh-token/{key} and the gh writes at
+// /gh-writes/{key}, with one key for each session.
 type Server struct {
 	mu      sync.Mutex
 	callers map[string]*caller
@@ -53,10 +68,11 @@ func New() *Server {
 	return s
 }
 
-// Register adds the routes /mcp/{key} and /gh-token/{key} to mux.
+// Register adds the routes /mcp/{key}, /gh-token/{key} and /gh-writes/{key} to mux.
 func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/mcp/{key}", s.serve)
 	mux.HandleFunc("GET /gh-token/{key}", s.ghToken)
+	mux.HandleFunc("POST /gh-writes/{key}", s.ghWrites)
 }
 
 // Open gives a new key of c. The key is valid until Close.
@@ -92,6 +108,11 @@ func GHTokenURL(addr, key string) string {
 	return "http://" + addr + "/gh-token/" + key
 }
 
+// GHWritesURL gives the URL of the gh writes of the key on the listener at addr.
+func GHWritesURL(addr, key string) string {
+	return "http://" + addr + "/gh-writes/" + key
+}
+
 func (s *Server) caller(key string) (*caller, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -121,6 +142,26 @@ func (s *Server) ghToken(w http.ResponseWriter, r *http.Request) {
 	if _, err := w.Write([]byte(token)); err != nil {
 		log.Printf("send the gh token: %v", err)
 	}
+}
+
+func (s *Server) ghWrites(w http.ResponseWriter, r *http.Request) {
+	found, ok := s.caller(r.PathValue("key"))
+	if !ok || found.GHWrites == nil {
+		http.NotFound(w, r)
+		return
+	}
+	var request struct {
+		Writes []GHWrite `json:"writes"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := found.GHWrites(r.Context(), request.Writes); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) server(r *http.Request) *sdk.Server {
