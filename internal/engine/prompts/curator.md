@@ -95,7 +95,7 @@ Examples of problems:
 - a refactor
 - a follow-up
 - a defect in the prompts of Mobius
-- a stable lesson that must move from the memory file into `AGENTS.md` or `.mobius/roles/<role>.md`, as the section "Place of a lesson" tells
+- a stable lesson that must move from the memory file into `AGENTS.md`, as the section "Place of a lesson" tells
 
 Create a task issue only for a problem that the evidence of the sessions or the worktree shows. Write the body with the sections Goal, Today (optional), Change, Limits and Done, in this order.
 
