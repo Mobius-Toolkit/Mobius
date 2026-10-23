@@ -263,3 +263,23 @@ func TestABucketIssueThatGitHubNoLongerHasLosesItsRowAndTheNextPollMovesTheSubIs
 		t.Errorf("sub-issues of #152 = %v", got)
 	}
 }
+
+func TestAWorkstreamWithOneHundredDirectSubIssuesAndNoBucketGetsAClosedBucketThatTakesTheClosedIssues(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addBucketWorkstream(fake)
+	addSubIssues(fake, 12, 100, 199, 150)
+	startCopied(t, fake)
+
+	waitForThirtyDirectSubIssues(t, fake)
+	if got := sorted(fake.SubIssueNumbers(shop, 200)); !slices.Equal(got, numbers(100, 149)) {
+		t.Errorf("sub-issues of the closed bucket = %v", got)
+	}
+	state, _ := fake.State(shop, 200)
+	if got := fake.Labels(shop, 200); state != "closed" || !slices.Equal(got, []string{"mobius:bucket"}) {
+		t.Errorf("closed bucket = %q, %v", state, got)
+	}
+	if got := sorted(fake.SubIssueNumbers(shop, 12)); !slices.Contains(got, 200) || !slices.Contains(got, 201) {
+		t.Errorf("sub-issues of the Workstream = %v", got)
+	}
+}

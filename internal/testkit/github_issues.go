@@ -957,6 +957,10 @@ func (g *FakeGitHub) addSubIssue(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if len(g.issues[key].subIssues) >= 100 && !slices.Contains(g.issues[key].subIssues, child) {
+		message(w, http.StatusUnprocessableEntity, "Parent cannot have more than 100 sub-issues")
+		return
+	}
 	for _, found := range g.issues {
 		if !slices.Contains(found.subIssues, child) {
 			continue

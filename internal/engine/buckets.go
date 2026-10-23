@@ -44,6 +44,8 @@ type bucketFill struct {
 	// direct is the number of direct sub-issues of the Workstream.
 	direct int
 	moves  *int
+	// placed holds the ids of the issues that makeRoom already moved below a new bucket.
+	placed map[int64]bool
 	// changed tells that a write changed the tree of the Workstream.
 	changed bool
 }
@@ -73,7 +75,7 @@ func (e *Engine) fillBuckets(ctx context.Context, repository github.Repository) 
 	slices.Sort(workstreams)
 	moves := 0
 	for _, workstream := range slices.Compact(workstreams) {
-		fill := &bucketFill{engine: e, repository: repository, workstream: workstream, moves: &moves}
+		fill := &bucketFill{engine: e, repository: repository, workstream: workstream, moves: &moves, placed: map[int64]bool{}}
 		err := fill.run(ctx, slices.DeleteFunc(slices.Clone(pending), func(row store.ListWorkstreamBucketsRow) bool { return row.Workstream != workstream }), slices.Contains(needing, workstream))
 		if err != nil {
 			log.Printf("fill the buckets of %s#%d: %v", repository.FullName, workstream, err)
@@ -190,6 +192,9 @@ func (f *bucketFill) move(ctx context.Context, issue *gh.Issue, closed, fromDire
 	if err != nil {
 		return false, err
 	}
+	if f.placed[issue.GetID()] {
+		return true, nil
+	}
 	err = f.add(ctx, target.number, issue.GetID())
 	if refusedByGitHub(err) {
 		log.Printf("move %s#%d below %s#%d: %v", f.repository.FullName, issue.GetNumber(), f.repository.FullName, target.number, err)
@@ -246,7 +251,7 @@ func (f *bucketFill) create(ctx context.Context, closed bool) (*bucket, error) {
 	if err := f.complete(ctx, issue, closed); err != nil {
 		return nil, err
 	}
-	created := &bucket{number: int64(issue.GetNumber()), closed: closed, counted: true}
+	created := &bucket{number: int64(issue.GetNumber()), closed: closed}
 	f.buckets = slices.Insert(f.buckets, 0, created)
 	f.direct++
 	return created, nil
@@ -266,12 +271,54 @@ func (f *bucketFill) complete(ctx context.Context, issue *gh.Issue, closed bool)
 		return err
 	}
 	if int64(parent.GetNumber()) != f.workstream {
+		if err := f.makeRoom(ctx, number, closed); err != nil {
+			return err
+		}
 		if err := f.add(ctx, f.workstream, issue.GetID()); err != nil {
 			return err
 		}
 		f.changed = true
 	}
 	return f.engine.queries.DeleteWorkstreamBucket(ctx, store.DeleteWorkstreamBucketParams{Repository: f.repository.FullName, Issue: number})
+}
+
+// makeRoom moves the first direct sub-issue of the Workstream with the state of the bucket below the bucket, when the
+// Workstream has no room for the bucket. GitHub refuses the add of the bucket below a Workstream with 100 sub-issues.
+func (f *bucketFill) makeRoom(ctx context.Context, bucket int64, closed bool) error {
+	direct, err := f.repository.SubIssues(ctx, f.workstream)
+	if err != nil {
+		return err
+	}
+	if len(direct) < bucketCapacity || *f.moves >= maxBucketMoves {
+		return nil
+	}
+	var candidates []*gh.Issue
+	for _, issue := range direct {
+		if !hasLabel(issue, bucketLabel) && (issue.GetState() == "closed") == closed {
+			candidates = append(candidates, issue)
+		}
+	}
+	if closed {
+		slices.SortStableFunc(candidates, func(a, b *gh.Issue) int { return a.GetClosedAt().Compare(b.GetClosedAt().Time) })
+	} else {
+		slices.SortStableFunc(candidates, func(a, b *gh.Issue) int { return a.GetCreatedAt().Compare(b.GetCreatedAt().Time) })
+	}
+	for _, issue := range candidates {
+		err := f.add(ctx, bucket, issue.GetID())
+		if refusedByGitHub(err) {
+			log.Printf("move %s#%d below %s#%d: %v", f.repository.FullName, issue.GetNumber(), f.repository.FullName, bucket, err)
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		*f.moves++
+		f.placed[issue.GetID()] = true
+		f.direct--
+		f.changed = true
+		return nil
+	}
+	return nil
 }
 
 func (f *bucketFill) add(ctx context.Context, parent, id int64) error {
