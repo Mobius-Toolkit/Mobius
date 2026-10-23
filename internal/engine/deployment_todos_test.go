@@ -17,6 +17,9 @@ const (
 	// optionalNeed is a Reviewer that reports one optional config value.
 	optionalNeed = "[[prompts]]\nwhen = \"You are the Reviewer\"\ncall = { tool = \"report_deployment_needs\", arguments = { needs = [" +
 		"{ kind = \"config\", name = \"plan.currency\", path = \"plan.txt\", line = 2, reason = \"The code has a default.\", mandatory = false }] } }\n\n"
+	// mandatoryNeedInRoundTwo is a Reviewer that reports plan.currency as mandatory for the issue body of the second round.
+	mandatoryNeedInRoundTwo = "[[prompts]]\nwhen = \"Plans have a price. Round two.\"\ncall = { tool = \"report_deployment_needs\", arguments = { needs = [" +
+		"{ kind = \"config\", name = \"plan.currency\", path = \"plan.txt\", line = 2, reason = \"The code needs it at start.\", mandatory = true }] } }\n\n"
 	blockedText     = "Approved pull request #42 of #41. The Owner got the deployment todos: PLAN_API_KEY. Mobius merges it after the Owner marks the mandatory todos as done."
 	workstreamTitle = "Integrate loyalty plans"
 )
@@ -201,11 +204,24 @@ func TestDoneInboxItemRefusesAnUnknownItemAndAnItemThatIsNotATodo(t *testing.T) 
 func TestAnOptionalTodoOfANeedThatTheReviewerLaterReportsAsMandatoryContinuesTheMergeWhenItIsDone(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server := approvableWith(t, fake, "off", true, optionalNeed)
+	fake.AddUserCode(testkit.AppID, "user-code", "owner")
+	fixRound := "[[prompts]]\nwhen = \"Remove the lines out of scope.\"\nshell = \"echo fixed > fix.txt && git add fix.txt && git commit -q -m Fix\"\n\n"
+	server, _ := connectTask(t, fake, mandatoryNeedInRoundTwo+optionalNeed+leadApproves+leadFindings+leadStarts, fixRound+commits, keepSessionOpen)
+	authorize(t, server)
+	setWorkstreamAutopilot(t, server, "off")
+	testkit.WaitFor(t, func() bool { return workstreams(t, server)[0].Autopilot == "off" })
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	waitForReadyEvents(t, server, 1)
 	sendChat(t, server, leadChat, "Approve #41")
 	todo := waitForItem(t, server, "todo")
-	if _, err := server.DB.Exec("UPDATE deployment_needs SET mandatory = 1"); err != nil {
-		t.Fatal(err)
+	fake.SetBody(shop, 41, "Plans have a price. Round two.")
+	sendChat(t, server, leadChat, "Send the findings to #41")
+	waitForReadyEvents(t, server, 2)
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" })
+	sendChat(t, server, leadChat, "Approve #41")
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "ready_for_review" })
+	if needs := deploymentNeeds(t, server); len(needs) != 1 || needs[0].Mandatory != 1 || len(itemsOf(t, server, "todo")) != 1 {
+		t.Fatalf("needs = %+v", needs)
 	}
 	setWorkstreamAutopilot(t, server, "merge")
 	testkit.WaitFor(t, func() bool {
