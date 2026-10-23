@@ -1534,6 +1534,15 @@ func (q *Queries) DeleteHarnessPause(ctx context.Context, harness string) error 
 	return err
 }
 
+const deleteOldSkillUse = `-- name: DeleteOldSkillUse :exec
+DELETE FROM old_skill_uses WHERE id = ?
+`
+
+func (q *Queries) DeleteOldSkillUse(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, deleteOldSkillUse, id)
+	return err
+}
+
 const deleteOtherPasswordLogins = `-- name: DeleteOtherPasswordLogins :exec
 DELETE FROM device_logins WHERE password_fingerprint != ?
 `
@@ -5297,6 +5306,42 @@ func (q *Queries) ListMergingReadyItems(ctx context.Context, repository string) 
 			&i.MergeRefusal,
 			&i.WorkstreamRepository,
 			&i.Questions,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOldSkillUses = `-- name: ListOldSkillUses :many
+SELECT id, session, organization, repository, role, harness, skill, used_at FROM old_skill_uses ORDER BY id
+`
+
+func (q *Queries) ListOldSkillUses(ctx context.Context) ([]OldSkillUse, error) {
+	rows, err := q.db.QueryContext(ctx, listOldSkillUses)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []OldSkillUse
+	for rows.Next() {
+		var i OldSkillUse
+		if err := rows.Scan(
+			&i.ID,
+			&i.Session,
+			&i.Organization,
+			&i.Repository,
+			&i.Role,
+			&i.Harness,
+			&i.Skill,
+			&i.UsedAt,
 		); err != nil {
 			return nil, err
 		}
