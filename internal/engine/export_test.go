@@ -29,6 +29,13 @@ func (e *Engine) SetClock(clock func() time.Time) {
 	e.clock.Store(&clock)
 }
 
+// PollEnded tells if a poll ended. A poll replaces the work at its end.
+func (e *Engine) PollEnded() bool {
+	e.workers.mu.Lock()
+	defer e.workers.mu.Unlock()
+	return e.workers.work != nil
+}
+
 // Listeners gives the number of channels that wait for changes.
 func (e *Engine) Listeners() int {
 	e.mu.Lock()

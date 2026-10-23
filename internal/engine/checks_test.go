@@ -395,8 +395,9 @@ func rerunHead(t *testing.T, server *testserver.Server) string {
 func failedFirstAttempt(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHub) (workflow, check int64) {
 	t.Helper()
 	sha := checksHead(t, server, fake)
-	workflow = fake.AddWorkflowRun(shop, testkit.WorkflowRun{Name: "ci", HeadSHA: sha, WorkflowID: 5, Status: "completed", Conclusion: "failure"})
+	// A poll that sees the failed workflow run with no failed check run hands the task to a human, so the check run goes first.
 	check = fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
+	workflow = fake.AddWorkflowRun(shop, testkit.WorkflowRun{Name: "ci", HeadSHA: sha, WorkflowID: 5, Status: "completed", Conclusion: "failure"})
 	testkit.WaitFor(t, func() bool { return rerunHead(t, server) == sha })
 	return workflow, check
 }

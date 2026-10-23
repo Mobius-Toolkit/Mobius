@@ -18,7 +18,7 @@ const mergeOff = "The merge is off for this Workstream."
 func approvable(t *testing.T, fake *testkit.FakeGitHub, level string, authorized bool) *testserver.Server {
 	t.Helper()
 	fake.AddUserCode(testkit.AppID, "user-code", "owner")
-	server, _ := connectTask(t, fake, leadApproves+leadStarts, commits, noChange)
+	server, _ := connectTask(t, fake, leadApproves+leadStarts, commits, keepSessionOpen)
 	switch {
 	case authorized:
 		authorize(t, server)
