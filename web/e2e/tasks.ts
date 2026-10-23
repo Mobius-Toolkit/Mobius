@@ -23,6 +23,8 @@ function task(
     pullRequestUrl: null,
     fixRounds: 0,
     reviewRounds: 0,
+    merging: false,
+    mergeRefusal: "",
     ...extra,
   };
 }
@@ -66,6 +68,28 @@ export const boardTasks = [
     workstreamTitle: "Seasonal prices",
   },
 ];
+
+export const mergingTask = task(
+  61,
+  "ready_for_review",
+  "2026-10-15T11:35:00Z",
+  "Show the renewal date on the invoice",
+  {
+    ...pull(51),
+    merging: true,
+  },
+);
+
+export const refusedTask = task(
+  62,
+  "ready_for_review",
+  "2026-10-15T11:25:00Z",
+  "Add the coupon field to the checkout",
+  {
+    ...pull(52),
+    mergeRefusal: "Required status check is expected.",
+  },
+);
 
 export const tasksRoute = "/api/tasks";
 
