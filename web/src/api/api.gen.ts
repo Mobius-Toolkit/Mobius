@@ -5,9 +5,21 @@
  * OpenAPI spec version: 0.1.0
  */
 /**
+ * ActionLabel is a label name of an action argument.
+ */
+export interface ActionLabel {
+  /** Color is six hex digits with no "#", or empty for a name that is not a Mobius label */
+  color: string;
+  /** Name is the name of the label */
+  name: string;
+}
+
+/**
  * ActionArgument is an argument of a pending action.
  */
 export interface ActionArgument {
+  /** Labels are the label names of the argument labels in their order. It is empty for each other argument */
+  labels: ActionLabel[];
   /** Name is the name of the argument */
   name: string;
   /** Value is the value of the argument */

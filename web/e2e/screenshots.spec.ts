@@ -1414,6 +1414,7 @@ test("screenshots", async ({ page }) => {
     (device) => [
       ...approvalReady(device, "3"),
       waits(2),
+      cardOf(page, draftText).getByText("mobius:maintenance"),
       cardOf(page, draftText).getByRole("button", { name: "Show all" }),
       row(leadTitle).getByRole("button", { name: "Answer" }),
     ],
@@ -1432,6 +1433,36 @@ test("screenshots", async ({ page }) => {
     async () => {
       await showEnd(draftText)();
       await answer(createTitle, "Go ahead. Start with the table.")();
+    },
+    closePanel,
+  );
+  await screenshot(
+    page,
+    "action-labels",
+    "/chat",
+    (device) => [
+      ...approvalReady(device, "3"),
+      panel.getByText("mobius:maintenance"),
+      panel.getByText("mobius:evergreen"),
+      panel.getByText("Gift cards", { exact: true }),
+    ],
+    async () => {
+      await showEnd(draftText)();
+      await answer(createTitle, "Go ahead. Start with the table.")();
+      await expect
+        .poll(() =>
+          panel.locator("div.overflow-y-auto").evaluate((el) => {
+            const chip = [...el.querySelectorAll("span")].find(
+              (span) => span.textContent === "mobius:maintenance",
+            );
+            chip?.scrollIntoView({ block: "center" });
+            if (!chip) return false;
+            const box = el.getBoundingClientRect();
+            const found = chip.getBoundingClientRect();
+            return found.top >= box.top && found.bottom <= box.bottom;
+          }),
+        )
+        .toBe(true);
     },
     closePanel,
   );
