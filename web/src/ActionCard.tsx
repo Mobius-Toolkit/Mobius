@@ -1,5 +1,5 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { ChatMessage, PendingAction } from "@/api/api.gen";
+import type { ActionLabel, ChatMessage, PendingAction } from "@/api/api.gen";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { briefMarkdown } from "@/lib/briefDiff";
@@ -50,17 +50,49 @@ function RemovedToggle({ hidden, toggle }: { hidden: boolean; toggle: () => void
   );
 }
 
+function textColor(color: string) {
+  const [red, green, blue] = [0, 2, 4].map((start) => parseInt(color.slice(start, start + 2), 16));
+  return (0.2126 * red + 0.7152 * green + 0.0722 * blue) / 255 > 0.453 ? "#000000" : "#ffffff";
+}
+
+function LabelChips({ labels }: { labels: ActionLabel[] }) {
+  return (
+    <div className="flex flex-wrap gap-1">
+      {labels.map((label) =>
+        label.color ? (
+          <Badge
+            key={label.name}
+            className="wrap-anywhere"
+            style={{ background: `#${label.color}`, color: textColor(label.color) }}
+          >
+            {label.name}
+          </Badge>
+        ) : (
+          <Badge key={label.name} variant="outline" className="wrap-anywhere">
+            {label.name}
+          </Badge>
+        ),
+      )}
+    </div>
+  );
+}
+
 // before is the Brief that the new Brief replaces. With it, the argument shows the changes.
 export function FullArgument({
   name,
   value,
+  labels,
   before,
 }: {
   name: string;
   value: string;
+  labels: ActionLabel[];
   before?: string;
 }) {
   const [hideRemoved, setHideRemoved] = useState(false);
+  if (name === "labels") {
+    return labels.length > 0 ? <LabelChips labels={labels} /> : null;
+  }
   if (before !== undefined) {
     return (
       <div className="grid min-w-0 gap-0.5">
@@ -81,12 +113,14 @@ export function FullArgument({
 function Argument({
   name,
   value,
+  labels,
   before,
   open,
   toggle,
 }: {
   name: string;
   value: string;
+  labels: ActionLabel[];
   before?: string;
   open: boolean;
   toggle: () => void;
@@ -104,8 +138,8 @@ function Argument({
     return () => observer.disconnect();
   }, []);
 
-  if (before === undefined && isShort(value)) {
-    return <FullArgument name={name} value={value} />;
+  if (name === "labels" || (before === undefined && isShort(value))) {
+    return <FullArgument name={name} value={value} labels={labels} />;
   }
   return (
     <div className="grid min-w-0 gap-0.5">

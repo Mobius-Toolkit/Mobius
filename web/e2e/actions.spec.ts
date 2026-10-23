@@ -135,6 +135,30 @@ test("the Owner rejects an action with a note", async ({ page }) => {
   await expect(row(page, leadTitle)).toBeHidden();
 });
 
+async function expectChips(scope: Locator) {
+  const found = scope.locator('[data-slot="badge"]').filter({ hasText: /^mobius:/ });
+  await expect(found).toHaveText(["mobius:maintenance", "mobius:evergreen"]);
+  await expect(found.nth(0)).toHaveCSS("background-color", "rgb(191, 218, 220)");
+  await expect(found.nth(0)).toHaveCSS("color", "rgb(0, 0, 0)");
+  await expect(found.nth(1)).toHaveCSS("background-color", "rgb(0, 82, 204)");
+  await expect(found.nth(1)).toHaveCSS("color", "rgb(255, 255, 255)");
+  await expect(scope.getByText("labels", { exact: true })).toHaveCount(0);
+  await expect(scope.getByText(/\["mobius/)).toHaveCount(0);
+}
+
+test("the labels of an action show as GitHub labels in the card and in the panel", async ({
+  page,
+}) => {
+  await openChat(page);
+
+  await ask(page, draftWorkstream);
+  await expect(waiting(page, 1)).toBeVisible(agentTimeout);
+
+  await expectChips(cardOf(page, draftText));
+  await answer(page, createTitle);
+  await expectChips(panel(page));
+});
+
 test("a second call of the tool replaces the action that waits", async ({ page }) => {
   await openChat(page);
 
