@@ -379,6 +379,32 @@ func TestOnlyTheLeadOfAMaintenanceWorkstreamGetsTheCITaskRules(t *testing.T) {
 	inOrder(t, maintenance, "You are the Lead of one Workstream.", rules, "# Brief")
 }
 
+func TestOnlyTheLeadOfASkillsWorkstreamGetsTheSkillProposalRules(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, "")
+	fake.AddIssue(shop, 21, "Skills")
+	fake.AddLabel(shop, 21, "mobius:workstream", "owner")
+	fake.AddLabel(shop, 21, "mobius:skills", "owner")
+	waitForPoll(t, server, fake)
+	skillsChat := engine.ChatKey{Organization: "owner", Repository: shop, Workstream: 21}
+
+	sendChat(t, server, leadChat, "Plan the next step")
+	sendChat(t, server, skillsChat, "Plan the next step")
+
+	testkit.WaitFor(t, func() bool {
+		sessions := chatSessions(t, server, skillsChat, engine.LeadRole)
+		return len(sessions) == 1 && sessions[0].EndedAt.Valid
+	})
+	normal := promptTexts(t, server, endedChatSession(t, server, 0).ID)[0]
+	skills := promptTexts(t, server, chatSessions(t, server, skillsChat, engine.LeadRole)[0].ID)[0]
+	const rules = "On the event skill proposal"
+	if strings.Contains(normal, rules) {
+		t.Errorf("prompt of a normal Workstream = %s", normal)
+	}
+	inOrder(t, skills, "You are the Lead of one Workstream.", rules, "# Brief")
+}
+
 func TestTheFirstPromptHasTheContextPartsInOrder(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
