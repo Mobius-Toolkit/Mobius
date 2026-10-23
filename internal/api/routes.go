@@ -81,6 +81,7 @@ func Routes(mux *http.ServeMux, queries *store.Queries, a *auth.Auth, gh *github
 	r.Post("/api/checkup/fix", h.FixLabels, loggedIn("checkup")...)
 	r.Get("/api/usage", h.GetUsage, append(loggedIn("usage"), api.WithErrorResponses(http.StatusBadRequest))...)
 	r.Get("/api/usage/times", h.GetUsageTimes, append(loggedIn("usage"), api.WithErrorResponses(http.StatusBadRequest))...)
+	r.Get("/api/usage/skills", h.GetUsageSkills, append(loggedIn("usage"), api.WithErrorResponses(http.StatusBadRequest))...)
 	r.Post("/api/voice/transcriptions", h.Transcribe, append(loggedIn("voice"), api.WithRequestContentTypes("audio/wav"), api.WithErrorResponses(http.StatusBadGateway, http.StatusServiceUnavailable))...)
 	r.Post("/api/voice/recordings", h.CreateRecording, loggedIn("voice")...)
 	r.Post("/api/voice/recordings/{id}/chunks", h.SendChunk, append(loggedIn("voice"), api.WithRequestContentTypes("application/octet-stream"), api.WithErrorResponses(http.StatusNotFound, http.StatusConflict, http.StatusBadGateway, http.StatusServiceUnavailable))...)
