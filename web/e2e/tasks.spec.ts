@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { boardTasks, routeTasks, tasksRoute } from "./tasks.js";
+import { boardTasks, mergingTask, refusedTask, routeTasks, tasksRoute } from "./tasks.js";
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/github");
@@ -185,4 +185,61 @@ test("on a desktop the six columns fit the page", async ({ page }) => {
   const row = queued.locator("..");
   expect(await row.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
   await expect(page.getByRole("region", { name: "Done" })).toBeInViewport();
+});
+
+test("a task in the merge is in Waiting with two badges, and a refused task is in Ready to merge with its reason", async ({
+  page,
+}) => {
+  await routeTasks(page, [...boardTasks, mergingTask, refusedTask]);
+  await page.goto("/tasks");
+
+  const headings = page.getByRole("main").getByRole("heading", { level: 3 });
+  await expect(headings).toHaveText([
+    "Queued3",
+    "Working2",
+    "Waiting3",
+    "Needs you3",
+    "Ready to merge2",
+    "Done2",
+  ]);
+  const waiting = page.getByRole("region", { name: "Waiting" });
+  const merging = waiting.getByRole("listitem").filter({ hasText: "Show the renewal date" });
+  await expect(merging.getByText("ready_for_review", { exact: true })).toBeVisible();
+  await expect(merging.getByText("merging", { exact: true })).toBeVisible();
+  const ready = page.getByRole("region", { name: "Ready to merge" });
+  await expect(ready.getByText("Show the renewal date")).toHaveCount(0);
+  await expect(ready.getByText("merging", { exact: true })).toHaveCount(0);
+  const refused = ready.getByRole("listitem").filter({ hasText: "Add the coupon field" });
+  await expect(refused.getByText("Required status check is expected.")).toBeVisible();
+  await expect(waiting.getByText("Required status check is expected.")).toHaveCount(0);
+});
+
+test("the board moves a task to Waiting after an inbox event, with no reload", async ({ page }) => {
+  await page.addInitScript(`
+    window.sources = [];
+    const add = EventSource.prototype.addEventListener;
+    EventSource.prototype.addEventListener = function (type, listener, options) {
+      if (this.url.endsWith('/api/events') && !window.sources.includes(this)) {
+        window.sources.push(this);
+      }
+      return add.call(this, type, listener, options);
+    };
+  `);
+  let tasks = [...boardTasks, { ...mergingTask, merging: false }];
+  await page.route(tasksRoute, (route) => route.fulfill({ json: { data: tasks } }));
+  await page.goto("/tasks");
+
+  const ready = page.getByRole("region", { name: "Ready to merge" });
+  const waiting = page.getByRole("region", { name: "Waiting" });
+  await expect(ready.getByText("Show the renewal date")).toBeVisible();
+  await expect(waiting.getByText("Show the renewal date")).toHaveCount(0);
+
+  tasks = [...boardTasks, mergingTask];
+  await page.evaluate(
+    `window.sources.at(-1).dispatchEvent(new MessageEvent('inbox', { data: '{}' }))`,
+  );
+  await expect(waiting.getByText("Show the renewal date")).toBeVisible();
+  await expect(ready.getByText("Show the renewal date")).toHaveCount(0);
+  await expect(waiting.getByRole("heading")).toHaveText("Waiting3");
+  await expect(ready.getByRole("heading")).toHaveText("Ready to merge1");
 });

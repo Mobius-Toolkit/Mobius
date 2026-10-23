@@ -2,6 +2,7 @@ package engine_test
 
 import (
 	"database/sql"
+	"net/http"
 	"testing"
 	"time"
 
@@ -139,5 +140,67 @@ func TestTheQueueOfATaskGivesAWorkstreamsChange(t *testing.T) {
 		default:
 			t.Fatal("no Workstreams change")
 		}
+	}
+}
+
+// boardTaskOf waits until the board has the task of #41 in state, and gives it.
+func boardTaskOf(t *testing.T, server *testserver.Server, state string) engine.BoardTask {
+	t.Helper()
+	return testkit.WaitForValue(t, func() (engine.BoardTask, bool) {
+		tasks, err := server.Engine.BoardTasks(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		task := firstOf(tasks)
+		return task, len(tasks) == 1 && task.State == state
+	})
+}
+
+func TestTheBoardShowsATaskInTheMergeAsMergingUntilItEnds(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, item := readyToMerge(t, fake, "")
+	running := fake.AddCheckRun(shop, checkRun("CI", head(t, fake, "mobius/41"), "in_progress", ""))
+	if task := boardTaskOf(t, server, "ready_for_review"); task.Merging || task.MergeRefusal != "" {
+		t.Errorf("task = %+v", task)
+	}
+
+	if status, body := merge(t, server, item.ID); status != http.StatusOK {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+
+	if task := boardTaskOf(t, server, "ready_for_review"); !task.Merging || task.MergeRefusal != "" {
+		t.Errorf("task = %+v", task)
+	}
+	if err := server.Engine.Dismiss(t.Context(), item.ID); err != nil {
+		t.Fatal(err)
+	}
+	if task := boardTaskOf(t, server, "ready_for_review"); !task.Merging {
+		t.Errorf("task after the dismissal = %+v", task)
+	}
+
+	fake.SetCheckRunStatus(running, "completed", "success")
+
+	if task := boardTaskOf(t, server, "ended"); task.Merging || task.MergeRefusal != "" {
+		t.Errorf("ended task = %+v", task)
+	}
+}
+
+func TestTheBoardGivesATaskWhoseMergeGitHubRefusedTheReasonAndNoMerging(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, item := readyToMerge(t, fake, "")
+	fake.RefuseMerge(shop, 42, "Required status check is expected.")
+
+	if status, body := merge(t, server, item.ID); status != http.StatusOK {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+
+	task := testkit.WaitForValue(t, func() (engine.BoardTask, bool) {
+		task := boardTaskOf(t, server, "ready_for_review")
+		return task, task.MergeRefusal != ""
+	})
+	if task.Merging || task.MergeRefusal != "Required status check is expected." {
+		t.Errorf("task = %+v", task)
 	}
 }

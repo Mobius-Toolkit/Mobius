@@ -257,6 +257,10 @@ type BoardTask struct {
 	PullRequestURL string
 	FixRounds      int64
 	ReviewRounds   int64
+	// Merging is true for a task in ready_for_review whose merge the Owner started.
+	Merging bool
+	// MergeRefusal is the reason that GitHub gave for the refused merge of a task in ready_for_review, or "".
+	MergeRefusal string
 }
 
 // BoardTasks gives the tasks that the Tasks board shows, newest state change first: each task that has not ended, and
@@ -277,6 +281,12 @@ func (e *Engine) BoardTasks(ctx context.Context) ([]BoardTask, error) {
 			continue
 		}
 		task := BoardTask{Repository: row.Repository, Number: row.Issue, Title: row.IssueTitle, URL: row.IssueUrl, WorkstreamRepository: row.WorkstreamRepository, Workstream: row.Workstream, WorkstreamTitle: row.WorkstreamTitle, State: row.State, StateAt: stateAt, FixRounds: row.FixRounds, ReviewRounds: row.ReviewRounds}
+		if row.State == "ready_for_review" {
+			task.Merging = row.Merging != 0
+			if !task.Merging {
+				task.MergeRefusal = row.MergeRefusal
+			}
+		}
 		if row.PullRequest.Valid {
 			task.PullRequest = row.PullRequest.Int64
 			task.PullRequestURL = strings.TrimSuffix(row.IssueUrl, fmt.Sprintf("/issues/%d", row.Issue)) + fmt.Sprintf("/pull/%d", row.PullRequest.Int64)
