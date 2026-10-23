@@ -104,7 +104,7 @@ export function Chat({
         />
         <Sheet>
           <SheetTrigger asChild>
-            <Button variant="outline" size="sm" className="ml-auto shrink-0">
+            <Button variant="outline" size="sm" className="shrink-0">
               Tasks
             </Button>
           </SheetTrigger>
