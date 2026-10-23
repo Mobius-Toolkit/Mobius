@@ -15,14 +15,18 @@ import { chatParams } from "@/lib/workstreams";
 import { link } from "./Inbox";
 import { TopBar } from "./TopBar";
 
-const columns: { title: string; states: BoardTaskState[] }[] = [
-  { title: "Queued", states: ["dispatched", "queued", "answered"] },
-  { title: "Working", states: ["working", "reviewed"] },
-  { title: "Waiting", states: ["checks", "approval"] },
-  { title: "Needs you", states: ["needs_human", "asked", "stopped"] },
-  { title: "Ready to merge", states: ["ready_for_review"] },
-  { title: "Done", states: ["ended"] },
+const columns: { title: string; has: (task: BoardTask) => boolean }[] = [
+  { title: "Queued", has: (task) => inStates(task, ["dispatched", "queued", "answered"]) },
+  { title: "Working", has: (task) => inStates(task, ["working", "reviewed"]) },
+  { title: "Waiting", has: (task) => inStates(task, ["checks", "approval"]) || task.merging },
+  { title: "Needs you", has: (task) => inStates(task, ["needs_human", "asked", "stopped"]) },
+  { title: "Ready to merge", has: (task) => task.state === "ready_for_review" && !task.merging },
+  { title: "Done", has: (task) => task.state === "ended" },
 ];
+
+function inStates(task: BoardTask, states: BoardTaskState[]) {
+  return states.includes(task.state);
+}
 
 function TaskCard({ task, now }: { task: BoardTask; now: number }) {
   const rounds = [
@@ -43,6 +47,7 @@ function TaskCard({ task, now }: { task: BoardTask; now: number }) {
       </span>
       <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <Badge variant="secondary">{task.state}</Badge>
+        {task.merging && <Badge variant="secondary">merging</Badge>}
         {task.pullRequest !== null && task.pullRequestUrl !== null && (
           <a
             href={task.pullRequestUrl}
@@ -57,6 +62,9 @@ function TaskCard({ task, now }: { task: BoardTask; now: number }) {
           {elapsed(task.stateAt, now)}
         </span>
       </span>
+      {task.mergeRefusal && (
+        <span className="wrap-anywhere text-muted-foreground">{task.mergeRefusal}</span>
+      )}
       {rounds.length > 0 && <span className="text-muted-foreground">{rounds.join(" · ")}</span>}
     </li>
   );
@@ -95,10 +103,12 @@ export function Tasks({ organization, source }: { organization: string; source?:
     }
     load();
     source.addEventListener("open", load);
-    const remove = onEvent<LiveEvents, "workstreams">(source, "workstreams", load);
+    const removeWorkstreams = onEvent<LiveEvents, "workstreams">(source, "workstreams", load);
+    const removeInbox = onEvent<LiveEvents, "inbox">(source, "inbox", load);
     return () => {
       source.removeEventListener("open", load);
-      remove();
+      removeWorkstreams();
+      removeInbox();
     };
   }, [source, load]);
 
@@ -112,9 +122,9 @@ export function Tasks({ organization, source }: { organization: string; source?:
       {error && <ErrorBadge>{error}</ErrorBadge>}
       {shown && (
         <div className="flex min-h-0 grow snap-x snap-mandatory scroll-px-4 gap-3 overflow-x-auto px-4 pb-4 md:snap-none">
-          {columns.map(({ title, states }) => {
+          {columns.map(({ title, has }) => {
             const cards = shown
-              .filter((task) => states.includes(task.state))
+              .filter(has)
               .toSorted((a, b) =>
                 title === "Done"
                   ? Date.parse(b.stateAt) - Date.parse(a.stateAt)

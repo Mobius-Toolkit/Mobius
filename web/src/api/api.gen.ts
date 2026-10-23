@@ -220,6 +220,10 @@ export const BoardTaskState = {
 export interface BoardTask {
   /** FixRounds is the number of fix rounds of the task */
   fixRounds: number;
+  /** MergeRefusal is the reason that GitHub gave for the refused merge when the task is in ready_for_review, or an empty string */
+  mergeRefusal: string;
+  /** Merging is true when the task is in ready_for_review and the Owner started its merge */
+  merging: boolean;
   /** Number is the number of the task issue */
   number: number;
   /**

@@ -28,7 +28,7 @@ import { waitForEvergreen } from "./evergreen.js";
 import { png } from "./images.js";
 import { longTaskTitle, routeLongTask, tasksUrl } from "./long-task.js";
 import { countSamples, fakeMicrophone } from "./microphone.js";
-import { boardTasks, routeTasks, tasksRoute } from "./tasks.js";
+import { boardTasks, mergingTask, refusedTask, routeTasks, tasksRoute } from "./tasks.js";
 import {
   inboxRoute,
   leadActionItem,
@@ -255,6 +255,25 @@ test("screenshots", async ({ page }) => {
     main.getByText("fix 1 · review 2"),
     main.getByRole("region", { name: "Working" }),
   ]);
+  await page.unroute(tasksRoute);
+  await routeTasks(page, [...boardTasks, mergingTask, refusedTask]);
+  await screenshot(
+    page,
+    "tasks-merging",
+    "/tasks",
+    (device) => [
+      chatCount,
+      ...frame(device, drain, { organizations: true }),
+      main.getByRole("region", { name: "Waiting" }).getByText("merging", { exact: true }),
+      main.getByText("Required status check is expected."),
+    ],
+    async () => {
+      const waiting = main.getByRole("region", { name: "Waiting" });
+      await expect(waiting.getByText("merging", { exact: true })).toBeAttached();
+      await expect(main.getByText("Required status check is expected.")).toBeAttached();
+      await waiting.evaluate((el) => el.scrollIntoView({ block: "nearest", inline: "start" }));
+    },
+  );
   await page.unroute(tasksRoute);
   // The open menu hides the other elements from the accessibility tree, so the open step waits for them.
   await screenshot(
