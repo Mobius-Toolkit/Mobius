@@ -670,7 +670,7 @@ func TestTheLeadChatCreatesAWorkstreamAndMovesATaskToIt(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	// The first prompt of a new session has the earlier messages in its history, so the prompt of the newest message comes first.
-	server, _ := connect(t, fake, `
+	server, _ := connectWith(t, fake, `
 [[prompts]]
 when = "The Owner approved \u0060move_task\u0060"
 reply = ["Moved #13 to the Workstream #15."]
@@ -690,7 +690,7 @@ call = { tool = "move_task", arguments = { repository = "owner/shop", n = 13, wo
 [[prompts]]
 when = "Create it."
 call = { tool = "create_workstream", arguments = { title = "Shop API", brief = "The public API of the shop. The context is in #12." } }
-`)
+`, keepSessionOpen)
 	fake.AddIssue(shop, 13, "Add the API route")
 	fake.AddIssue(shop, 14, "Add plan model")
 	fake.AddSubIssue(shop, 12, 13)
