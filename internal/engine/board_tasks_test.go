@@ -223,3 +223,31 @@ func TestTheBoardGivesATaskWhoseMergeGitHubRefusedTheReasonAndNoMerging(t *testi
 		t.Errorf("task = %+v", task)
 	}
 }
+
+func TestTheBoardGivesATaskWhoseMergeGitHubRefusedAfterTheDismissalTheReasonAndNoMerging(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, item := readyToMerge(t, fake, "")
+	running := fake.AddCheckRun(shop, checkRun("CI", head(t, fake, "mobius/41"), "in_progress", ""))
+	if status, body := merge(t, server, item.ID); status != http.StatusOK {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+	if err := server.Engine.Dismiss(t.Context(), item.ID); err != nil {
+		t.Fatal(err)
+	}
+	fake.RefuseMerge(shop, 42, "Required status check is expected.")
+
+	fake.SetCheckRunStatus(running, "completed", "success")
+
+	task := testkit.WaitForValue(t, func() (engine.BoardTask, bool) {
+		task := boardTaskOf(t, server, "ready_for_review")
+		return task, task.MergeRefusal != ""
+	})
+	if task.Merging || task.MergeRefusal != "Required status check is expected." {
+		t.Errorf("task = %+v", task)
+	}
+	merging, err := server.Engine.MergingPullRequests(t.Context(), shop)
+	if err != nil || len(merging) != 0 {
+		t.Errorf("merging = %v, error = %v", merging, err)
+	}
+}
