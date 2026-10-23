@@ -27,6 +27,8 @@ type issue struct {
 	state  string
 	// stateReason is the reason of the last close, or "".
 	stateReason string
+	// closedAt is the time of the last close, or 0 for an open issue.
+	closedAt    int64
 	pullRequest bool
 	merged      bool
 	labels      []string
@@ -105,6 +107,7 @@ type issueJSON struct {
 	RepositoryURL string     `json:"repository_url"`
 	State         string     `json:"state"`
 	StateReason   string     `json:"state_reason,omitempty"`
+	ClosedAt      string     `json:"closed_at,omitempty"`
 	CreatedAt     string     `json:"created_at"`
 	UpdatedAt     string     `json:"updated_at"`
 	Labels        []nameJSON `json:"labels"`
@@ -617,6 +620,10 @@ func (g *FakeGitHub) setState(key issueKey, state, reason, actor string) {
 	found := g.issues[key]
 	found.state = state
 	found.stateReason = reason
+	found.closedAt = 0
+	if state == "closed" {
+		found.closedAt = now
+	}
 	found.updatedAt = now
 	event := "closed"
 	if state == "open" {
@@ -644,6 +651,9 @@ func (g *FakeGitHub) issueJSON(key issueKey) issueJSON {
 		CreatedAt:     timestamp(g.createdAt[key]),
 		UpdatedAt:     timestamp(found.updatedAt),
 		Labels:        labels,
+	}
+	if found.closedAt != 0 {
+		result.ClosedAt = timestamp(found.closedAt)
 	}
 	if found.pullRequest {
 		result.PullRequest = &urlJSON{fmt.Sprintf("https://api.github.com/repos/%s/pulls/%d", key.repository, key.number)}
