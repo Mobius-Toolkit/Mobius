@@ -268,3 +268,26 @@ func TestTheDiagnoserGetsTheServerSectionAfterItsRolePrompt(t *testing.T) {
 	})
 	assertServerSection(t, "diagnoser", prompt, "# Pull request")
 }
+
+func TestTheLeadNamesOnlyTheTasksThatEndedAfterItsPreviousReport(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+
+	prompt := firstLeadPrompt(t, fake)
+
+	for _, rule := range []string{
+		"On the event end of a task, call `tell_owner` with the result. Name only the tasks that ended after your previous report.",
+		"Your previous report is your last reply to an end event in the chat history.",
+		"For the tasks that ended before it, write one short line with their count and no list",
+		"Name each open task that blocks the Workstream, and the next step.",
+		"When the Owner asks for the full list, give it.",
+		"The message names the tasks that ended after your previous report, with their pull requests, and gives the count of the earlier tasks",
+	} {
+		if !strings.Contains(prompt, rule) {
+			t.Errorf("prompt has no %q", rule)
+		}
+	}
+	if strings.Contains(prompt, "The message lists the merged tasks with their pull requests.") {
+		t.Errorf("prompt lists each merged task: %s", prompt)
+	}
+}
