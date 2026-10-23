@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { use, useEffect, useRef, useState } from "react";
 import {
   answerInboxItem,
@@ -15,6 +16,7 @@ import { LoginContext } from "@/lib/login";
 import { useShell } from "@/lib/shell";
 import { clock, dayClock } from "@/lib/time";
 import { cn } from "@/lib/utils";
+import { chatParams } from "@/lib/workstreams";
 import { FullArgument } from "./ActionCard";
 import { link } from "./Inbox";
 import { Markdown } from "./Markdown";
@@ -248,20 +250,38 @@ export function AnswerPanel({
         </DialogHeader>
         {action ? (
           <div className="grid min-w-0 content-start gap-2 overflow-y-auto px-4 pb-4">
-            <span className="text-muted-foreground">
-              {roleName[action.role]} · {clock(action.time)}
+            <span className="text-muted-foreground wrap-anywhere">
+              {roleName[action.role]}
+              {action.sender && (
+                <>
+                  {" of "}
+                  <Link
+                    to="/workstreams/$owner/$name/$number"
+                    params={chatParams(action.sender)}
+                    onClick={onClose}
+                    className={link}
+                  >
+                    {`#${action.sender.number}${action.sender.title && ` ${action.sender.title}`}`}
+                  </Link>
+                </>
+              )}{" "}
+              · {clock(action.time)}
             </span>
-            {action.arguments.map((argument) => (
-              <FullArgument
-                key={argument.name}
-                {...argument}
-                before={
-                  action.tool === "edit_brief" && argument.name === "brief"
-                    ? currentBrief
-                    : undefined
-                }
-              />
-            ))}
+            {action.arguments
+              .filter(
+                (argument) => !(action.tool === "message_lead" && argument.name === "workstream"),
+              )
+              .map((argument) => (
+                <FullArgument
+                  key={argument.name}
+                  {...argument}
+                  before={
+                    action.tool === "edit_brief" && argument.name === "brief"
+                      ? currentBrief
+                      : undefined
+                  }
+                />
+              ))}
           </div>
         ) : (
           <div className="grid content-start gap-2 overflow-y-auto px-4 pb-4">

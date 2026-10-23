@@ -12,6 +12,8 @@ import {
   editBrief,
   idle,
   leadTitle,
+  leadToLeadTitle,
+  messageLeadOfTwelve,
   restoreBrief,
   seen,
   sendToLead,
@@ -20,6 +22,7 @@ import {
   storeQuestion,
   unknownText,
   unknownTitle,
+  waitText,
 } from "./actions.js";
 import { waitForEvergreen } from "./evergreen.js";
 import { png } from "./images.js";
@@ -1641,6 +1644,33 @@ test("screenshots", async ({ page }) => {
     },
   );
   await restoreBrief(page);
+  await settle(page);
+
+  // The fake Lead of #14 sends a message to the Lead of #12. The Owner rejects it after the screenshot.
+  await page.goto("/workstreams/owner/shop/14");
+  await sendToLead(page, messageLeadOfTwelve);
+  await expect(waits(1)).toBeVisible({ timeout: 30_000 });
+  await fixActionTimes();
+  await screenshot(
+    page,
+    "action-lead-sender",
+    "/workstreams/owner/shop/14",
+    (device) => [
+      ...approvalReady(device, "2"),
+      panel.getByRole("link", { name: "#14 Early renewals" }),
+      panel.getByText(waitText),
+      panel.getByRole("textbox", { name: "Note for the Lead" }),
+      panel.getByRole("button", { name: "Reject" }),
+    ],
+    async () => {
+      await row(leadToLeadTitle).getByRole("button", { name: "Answer" }).click();
+    },
+    () => page.keyboard.press("Escape"),
+  );
+  await row(leadToLeadTitle).getByRole("button", { name: "Answer" }).click();
+  await decide(page, panel, "reject");
+  await expect(panel).toBeHidden();
+  await expect(waits(1)).toBeHidden();
   await settle(page);
 
   // The note closes a Workstream whose tasks are all closed.

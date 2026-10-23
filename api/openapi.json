@@ -4226,6 +4226,30 @@
         ],
         "description": "ActionBrief is the current Brief of the Workstream of an edit_brief action."
       },
+      "ActionSender": {
+        "type": "object",
+        "title": "ActionSender",
+        "properties": {
+          "number": {
+            "type": "integer",
+            "description": "Number is the number of the Workstream issue"
+          },
+          "repository": {
+            "type": "string",
+            "description": "Repository is the full name (owner/name) of the repository of the Workstream issue"
+          },
+          "title": {
+            "type": "string",
+            "description": "Title is the title of the Workstream issue in the local copy, or empty when the copy has no such Workstream"
+          }
+        },
+        "required": [
+          "repository",
+          "number",
+          "title"
+        ],
+        "description": "ActionSender is the Workstream of the Lead that made an action."
+      },
       "ActiveAgent": {
         "type": "object",
         "title": "ActiveAgent",
@@ -6539,6 +6563,17 @@
               "triager"
             ]
           },
+          "sender": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ActionSender"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Sender is the Workstream of the Lead that made the action. It is null for the other roles"
+          },
           "state": {
             "type": "string",
             "description": "State is pending for an action that waits for the approval, done for an action that ran, rejected for an action that the Owner rejected, replaced for an action that a later call of the same tool replaced, and withdrawn for an action that the agent took back",
@@ -6571,7 +6606,8 @@
           "message",
           "time",
           "oldBrief",
-          "decidedAt"
+          "decidedAt",
+          "sender"
         ],
         "description": "PendingAction is a tool call of an agent that waits for the approval of the Owner."
       },
