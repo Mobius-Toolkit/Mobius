@@ -46,7 +46,9 @@ func (e *Engine) Inbox(ctx context.Context) ([]store.InboxItem, error) {
 //   - A question is done when the issue has no mobius:question.
 //   - A stopped task is done when the issue has no mobius:needs-human.
 //   - A lost task is done when the issue has a live task.
-//   - Each item is done when its issue is closed.
+//   - Each of these items is done when its issue is closed.
+//
+// A ready for review item is not done when its issue is closed: it stays until its task leaves ready_for_review.
 //
 // When a question is done and the task of its issue is still stopped, the newest stopped item of the stop opens again.
 func (e *Engine) closeInboxItems(ctx context.Context, repository github.Repository) error {
@@ -55,7 +57,7 @@ func (e *Engine) closeInboxItems(ctx context.Context, repository github.Reposito
 		return err
 	}
 	for _, item := range items {
-		if item.Repository != repository.FullName || !slices.Contains([]string{questionKind, stoppedKind, lostKind, readyForReviewKind}, item.Kind) {
+		if item.Repository != repository.FullName || !slices.Contains([]string{questionKind, stoppedKind, lostKind}, item.Kind) {
 			continue
 		}
 		issue, err := repository.Issue(ctx, item.Issue)
