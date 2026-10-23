@@ -93,6 +93,7 @@ type FakeGitHub struct {
 	userCodes               map[string]grant
 	refreshTokens           map[string]grant
 	tokens                  map[string]token
+	tokenPermissions        map[string]map[string]string
 	userTokensGiven         int
 	installationTokensGiven int
 	installationTokenLife   time.Duration
@@ -241,6 +242,7 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		userCodes:               map[string]grant{},
 		refreshTokens:           map[string]grant{},
 		tokens:                  map[string]token{},
+		tokenPermissions:        map[string]map[string]string{},
 		installationTokenLife:   time.Hour,
 		issues:                  map[issueKey]*issue{},
 		lastIssueID:             issueIDOffset,
