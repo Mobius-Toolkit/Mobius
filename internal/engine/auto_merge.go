@@ -17,21 +17,14 @@ const mergeOffReason = "The merge is off for this Workstream."
 // Owner on the head, sets auto_merge of the task, and marks the open ready for review Inbox items as merging. The poll
 // then merges the pull request (mergeApproved). When it fails, the items get the error text as their reason, so the
 // "Merge" button shows, and the task has no auto_merge. When a mandatory deployment need of the task has a todo that is
-// not done, it does not approve. The items get the reason mandatoryTodosReason, and it gives true. An approval of
-// Mobius that the task already has ends then, so the merge waits too. An approval that the Owner gave with "Merge"
-// stays, and the task does not count as blocked.
+// not done, it does not approve. The items get the reason mandatoryTodosReason, and it gives true. An approval that the
+// Owner gave with "Merge" stays, and the task does not count as blocked.
 func (e *Engine) autoApprove(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) (bool, error) {
 	blocked, err := e.blockedByTodos(ctx, task)
 	if err != nil {
 		return false, err
 	}
 	if blocked && (task.AutoMerge == 1 || !awaitsMerge(task)) {
-		if task.AutoMerge == 1 && awaitsMerge(task) {
-			err := e.queries.SetTaskRefusedReview(ctx, store.SetTaskRefusedReviewParams{RefusedReview: task.ApprovedReview, ID: task.ID})
-			if err != nil {
-				return true, err
-			}
-		}
 		return true, e.refuseMergeItem(ctx, task, mandatoryTodosReason)
 	}
 	err = e.approveAsOwner(ctx, repository, task, pullRequest)

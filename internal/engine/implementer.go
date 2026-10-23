@@ -258,7 +258,8 @@ func (e *Engine) startKeptRound(ctx context.Context, repository github.Repositor
 // makes a draft pull request ready for review, replaces mobius:working with mobius:review, and adds the Inbox item for
 // the Owner. Before the check, it posts the report of the Lead as a comment on the pull request. With a merge level, it
 // then approves the pull request for the Owner (autoApprove), and a failure of that does not fail the approval. It also adds
-// a todo for each new deployment need of the task.
+// a todo for each new deployment need of the task. Before the check of the new head passes, it ends an approval of Mobius
+// from an earlier head, so the poll cannot merge the new head while a mandatory todo is open.
 func (e *Engine) approvePullRequest(ctx context.Context, c caller, repository github.Repository, input approveInput) (string, error) {
 	if input.N < 1 {
 		return "", refuse("n must be 1 or more.")
@@ -308,6 +309,13 @@ func (e *Engine) approvePullRequest(ctx context.Context, c caller, repository gi
 	}
 	if moved == 0 {
 		return "", refuse("The task of #%d is not approval any more.", input.N)
+	}
+	if task.AutoMerge == 1 && awaitsMerge(task) {
+		err := e.queries.SetTaskRefusedReview(ctx, store.SetTaskRefusedReviewParams{RefusedReview: task.ApprovedReview, ID: task.ID})
+		if err != nil {
+			return "", err
+		}
+		task.RefusedReview = task.ApprovedReview
 	}
 	if err := e.approve(ctx, c, repository, task, issue, pullRequest, checkRun, input.Report); err != nil {
 		_, stateErr := e.setTaskState(ctx, store.SetTaskStateParams{State: "approval", ID: task.ID, FromState: "ready_for_review"})
