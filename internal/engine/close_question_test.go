@@ -39,8 +39,8 @@ reply = ["Seen"]
 		return len(calls) == 2 && calls[1]["result"] == "Closed the question on #41."
 	})
 	want := []testkit.Comment{
-		{Author: testkit.AppSlug + "[bot]", Body: "Cents or dollars?"},
-		{Author: testkit.AppSlug + "[bot]", Body: "The Owner answered in the Lead chat:\n\n> Dollars."},
+		{Author: testkit.AppSlug + "[bot]", Body: marked("Cents or dollars?", leadMark)},
+		{Author: testkit.AppSlug + "[bot]", Body: marked("The Owner answered in the Lead chat:\n\n> Dollars.", leadMark)},
 	}
 	if got := fake.Comments(shop, 41); !slices.Equal(got, want) {
 		t.Errorf("comments = %v", got)
@@ -113,8 +113,8 @@ reply = ["Seen"]
 		t.Errorf("labels = %v", fake.Labels(shop, 41))
 	}
 	want := []testkit.Comment{
-		{Author: testkit.AppSlug + "[bot]", Body: "Cents or dollars?"},
-		{Author: testkit.AppSlug + "[bot]", Body: "The Owner answered in the Lead chat:\n\n> Dollars."},
+		{Author: testkit.AppSlug + "[bot]", Body: marked("Cents or dollars?", leadMark)},
+		{Author: testkit.AppSlug + "[bot]", Body: marked("The Owner answered in the Lead chat:\n\n> Dollars.", leadMark)},
 	}
 	if got := fake.Comments(shop, 41); !slices.Equal(got, want) {
 		t.Errorf("comments = %v", got)
@@ -171,7 +171,7 @@ func TestApprovePullRequestClosesTheOpenQuestionOfTheTask(t *testing.T) {
 	if !slices.Contains(labels, "mobius:review") || slices.Contains(labels, "mobius:question") {
 		t.Errorf("labels = %v", labels)
 	}
-	if got, want := fake.Comments(shop, 41)[1:], []testkit.Comment{{Author: testkit.AppSlug + "[bot]", Body: "The Lead approved PR #42, so the question is closed."}}; !slices.Equal(got, want) {
+	if got, want := fake.Comments(shop, 41)[1:], []testkit.Comment{{Author: testkit.AppSlug + "[bot]", Body: marked("The Lead approved PR #42, so the question is closed.", leadMark)}}; !slices.Equal(got, want) {
 		t.Errorf("comments = %v", got)
 	}
 	items := inbox(t, server)

@@ -475,7 +475,7 @@ func TestTheLeadDeclinesADispatchedTask(t *testing.T) {
 	dispatchTask(fake, 41, "Add plan model")
 
 	testkit.WaitFor(t, func() bool {
-		return reflect.DeepEqual(fake.Comments(shop, 41), []testkit.Comment{{Author: "mobius-test[bot]", Body: "Split it into a model and an API."}}) && len(fake.Labels(shop, 41)) == 0
+		return reflect.DeepEqual(fake.Comments(shop, 41), []testkit.Comment{{Author: "mobius-test[bot]", Body: marked("Split it into a model and an API.", leadMark)}}) && len(fake.Labels(shop, 41)) == 0
 	})
 	session := endedChatSession(t, server, 0)
 	if session.EndReason.String != "idle" {
@@ -519,7 +519,7 @@ func TestADeclineClosesTheOpenPullRequestOfTheTask(t *testing.T) {
 	if last := runs[len(runs)-1]; last.HeadSHA != head(t, fake, "mobius/41") || last.Conclusion != "failure" || last.Output.Title != "Declined" || last.Output.Summary != "#43 has this work." {
 		t.Errorf("check runs = %+v", runs)
 	}
-	comment := testkit.Comment{Author: "mobius-test[bot]", Body: "#43 has this work."}
+	comment := testkit.Comment{Author: "mobius-test[bot]", Body: marked("#43 has this work.", leadMark)}
 	if !slices.Contains(fake.Comments(shop, 42), comment) || !slices.Contains(fake.Comments(shop, 41), comment) {
 		t.Errorf("comments = %+v, %+v", fake.Comments(shop, 42), fake.Comments(shop, 41))
 	}

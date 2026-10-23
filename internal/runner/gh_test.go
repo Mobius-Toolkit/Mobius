@@ -28,7 +28,13 @@ func startGH(t *testing.T, dataDir, realDir, url string, args ...string) (string
 // and with stdin.
 func startGHWithWrites(t *testing.T, dataDir, realDir, url, writesURL, stdin string, args ...string) (string, string, int) {
 	t.Helper()
-	cmd := command(context.Background(), filepath.Join(dataDir, "agent-env", "bin", "gh"), t.TempDir(), dataDir, realDir, url, writesURL)
+	return startGHWithMark(t, dataDir, realDir, url, writesURL, "", stdin, args...)
+}
+
+// startGHWithMark is startGHWithWrites with the environment variable MOBIUS_GH_MARK=mark when mark is not empty.
+func startGHWithMark(t *testing.T, dataDir, realDir, url, writesURL, mark, stdin string, args ...string) (string, string, int) {
+	t.Helper()
+	cmd := command(context.Background(), filepath.Join(dataDir, "agent-env", "bin", "gh"), t.TempDir(), dataDir, realDir, url, writesURL, mark)
 	cmd.Args = append(cmd.Args, args...)
 	cmd.Stdin = strings.NewReader(stdin)
 	var stdout, stderr strings.Builder
@@ -301,5 +307,103 @@ func TestTheGHDoesNotRunTheRealGHWhenTheSendOfTheWritesFails(t *testing.T) {
 
 	if stdout != "" || stderr != "no record\n" || code != 1 || len(bodies()) != 1 {
 		t.Errorf("gh = %q, %q, exit %d, requests = %q", stdout, stderr, code, bodies())
+	}
+}
+
+func TestTheGHAddsTheMarkToTheBodyOfEachSubcommand(t *testing.T) {
+	dataDir := prepare(t)
+	file := filepath.Join(t.TempDir(), "body.md")
+	if err := os.WriteFile(file, []byte("from a file\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	const mark = "— Lead of #14 The title"
+	for name, test := range map[string]struct {
+		args  []string
+		stdin string
+		// want is what the real gh prints: its args, then its stdin.
+		want string
+		// text is the text of the record of the comment, or "" for no such record.
+		text string
+	}{
+		"issue create": {
+			args: []string{"issue", "create", "-R", "owner/shop", "-t", "A title", "--body", "text"},
+			want: "issue create -R owner/shop -t A title --body text\n\n" + mark + "\n",
+		},
+		"issue comment": {
+			args: []string{"issue", "comment", "5", "-R", "owner/shop", "-b", "text"},
+			want: "issue comment 5 -R owner/shop -b text\n\n" + mark + "\n",
+			text: "text\n\n" + mark,
+		},
+		"pr comment with an attached value": {
+			args: []string{"pr", "comment", "5", "-R", "owner/shop", "--body=text"},
+			want: "pr comment 5 -R owner/shop --body=text\n\n" + mark + "\n",
+			text: "text\n\n" + mark,
+		},
+		"issue edit": {
+			args: []string{"issue", "edit", "5", "-R", "owner/shop", "-btext"},
+			want: "issue edit 5 -R owner/shop -btext\n\n" + mark + "\n",
+		},
+		"a second issue edit": {
+			args: []string{"issue", "edit", "5", "-R", "owner/shop", "-b", "text\n\n" + mark},
+			want: "issue edit 5 -R owner/shop -b text\n\n" + mark + "\n",
+		},
+		"issue close": {
+			args: []string{"issue", "close", "5", "-R", "owner/shop", "-c", "done"},
+			want: "issue close 5 -R owner/shop -c done\n\n" + mark + "\n",
+			text: "done\n\n" + mark,
+		},
+		"body file": {
+			args: []string{"issue", "comment", "5", "-R", "owner/shop", "--body-file", file},
+			want: "issue comment 5 -R owner/shop --body-file -\nfrom a file\n\n" + mark,
+			text: "from a file\n\n" + mark,
+		},
+		"body file with an attached value": {
+			args: []string{"issue", "comment", "5", "-R", "owner/shop", "-F" + file},
+			want: "issue comment 5 -R owner/shop -F-\nfrom a file\n\n" + mark,
+			text: "from a file\n\n" + mark,
+		},
+		"stdin": {
+			args:  []string{"issue", "comment", "5", "-R", "owner/shop", "-F", "-"},
+			stdin: "from stdin",
+			want:  "issue comment 5 -R owner/shop -F -\nfrom stdin\n\n" + mark,
+			text:  "from stdin\n\n" + mark,
+		},
+		"a body with the mark of another role": {
+			args: []string{"issue", "comment", "5", "-R", "owner/shop", "-b", "text\n\n— Curator"},
+			want: "issue comment 5 -R owner/shop -b text\n\n" + mark + "\n",
+			text: "text\n\n" + mark,
+		},
+		"edit with labels only": {
+			args: []string{"issue", "edit", "5", "-R", "owner/shop", "--add-label", "a"},
+			want: "issue edit 5 -R owner/shop --add-label a\n",
+		},
+		"issue list": {
+			args: []string{"issue", "list", "-R", "owner/shop", "--search", "-b x"},
+			want: "issue list -R owner/shop --search -b x\n",
+		},
+		"gh api": {
+			args: []string{"api", "-X", "POST", "repos/owner/shop/issues/5/comments", "-f", "body=text"},
+			want: "api -X POST repos/owner/shop/issues/5/comments -f body=text\n",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			writesURL, bodies := writesServer(t, http.StatusNoContent)
+
+			stdout, stderr, code := startGHWithMark(t, dataDir, scriptGH(t, `echo "$@"; /bin/cat`), tokenServer(t, http.StatusOK, "ghs_1"), writesURL, mark, test.stdin, test.args...)
+
+			if stderr != "" || code != 0 {
+				t.Fatalf("gh = %q, %q, exit %d", stdout, stderr, code)
+			}
+			if stdout != test.want {
+				t.Errorf("the real gh printed %q, want %q", stdout, test.want)
+			}
+			if test.text == "" {
+				return
+			}
+			want := fmt.Sprintf(`{"writes":[{"repository":"owner/shop","issue":5,"kind":"commented","labels":null,"text":%q}]}`, test.text)
+			if got := bodies(); len(got) != 1 || got[0] != want {
+				t.Errorf("requests = %q, want %q", got, want)
+			}
+		})
 	}
 }

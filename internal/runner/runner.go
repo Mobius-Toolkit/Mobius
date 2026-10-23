@@ -54,6 +54,9 @@ const ghURLEnv = "MOBIUS_GH_TOKEN_URL"
 // ghWritesURLEnv is the environment variable of an agent process that gives the URL where its gh sends its writes.
 const ghWritesURLEnv = "MOBIUS_GH_WRITES_URL"
 
+// ghMarkEnv is the environment variable of an agent process that gives the mark line that its gh adds to each body.
+const ghMarkEnv = "MOBIUS_GH_MARK"
+
 func agentEnv(dataDir string) string {
 	return filepath.Join(dataDir, "agent-env")
 }
@@ -133,12 +136,12 @@ func AgentPath(dataDir, path string) string {
 	return filepath.Join(agentEnv(dataDir), "bin") + string(filepath.ListSeparator) + path
 }
 
-func command(ctx context.Context, file, cwd, dataDir, path, ghTokenURL, ghWritesURL string) *exec.Cmd {
+func command(ctx context.Context, file, cwd, dataDir, path, ghTokenURL, ghWritesURL, ghMark string) *exec.Cmd {
 	agentEnv := agentEnv(dataDir)
 	cmd := exec.CommandContext(ctx, file)
 	cmd.Dir = cwd
 	cmd.Env = slices.DeleteFunc(os.Environ(), func(entry string) bool {
-		return strings.HasPrefix(entry, "GH_TOKEN=") || strings.HasPrefix(entry, "GITHUB_TOKEN=") || strings.HasPrefix(entry, ghURLEnv+"=") || strings.HasPrefix(entry, ghWritesURLEnv+"=")
+		return strings.HasPrefix(entry, "GH_TOKEN=") || strings.HasPrefix(entry, "GITHUB_TOKEN=") || strings.HasPrefix(entry, ghURLEnv+"=") || strings.HasPrefix(entry, ghWritesURLEnv+"=") || strings.HasPrefix(entry, ghMarkEnv+"=")
 	})
 	cmd.Env = append(cmd.Env,
 		"GH_CONFIG_DIR="+filepath.Join(agentEnv, "gh-config"),
@@ -151,6 +154,9 @@ func command(ctx context.Context, file, cwd, dataDir, path, ghTokenURL, ghWrites
 	}
 	if ghWritesURL != "" {
 		cmd.Env = append(cmd.Env, ghWritesURLEnv+"="+ghWritesURL)
+	}
+	if ghMark != "" {
+		cmd.Env = append(cmd.Env, ghMarkEnv+"="+ghMark)
 	}
 	return cmd
 }
@@ -172,13 +178,13 @@ type Image struct {
 	Data     []byte
 }
 
-func harnessCommand(ctx context.Context, harness config.Harness, cwd, dataDir, path, ghTokenURL, ghWritesURL string) (*exec.Cmd, error) {
+func harnessCommand(ctx context.Context, harness config.Harness, cwd, dataDir, path, ghTokenURL, ghWritesURL, ghMark string) (*exec.Cmd, error) {
 	program := Program(harness)
 	file := Find(program, path)
 	if file == "" {
 		return nil, fmt.Errorf("%s is not on PATH", program)
 	}
-	cmd := command(ctx, file, cwd, dataDir, path, ghTokenURL, ghWritesURL)
+	cmd := command(ctx, file, cwd, dataDir, path, ghTokenURL, ghWritesURL, ghMark)
 	if harness == config.Devin {
 		cmd.Args = append(cmd.Args, "acp")
 	}
@@ -210,10 +216,10 @@ func connect(cmd *exec.Cmd, updates func(json.RawMessage, bool)) (*acp.Connectio
 // true when the agent wrote the notification after the response to the last prompt.
 // The gh of the agent gets its token from ghTokenURL, and sends its writes to ghWritesURL. With an empty ghTokenURL, the gh of
 // the agent refuses to run. With an empty ghWritesURL, it sends no write.
-func Start(ctx context.Context, harness config.Harness, cwd, dataDir, path, mcpURL, ghTokenURL, ghWritesURL string, updates func(json.RawMessage, bool)) (*Session, error) {
+func Start(ctx context.Context, harness config.Harness, cwd, dataDir, path, mcpURL, ghTokenURL, ghWritesURL, ghMark string, updates func(json.RawMessage, bool)) (*Session, error) {
 	program := Program(harness)
 	processCtx, stop := context.WithCancel(context.Background())
-	cmd, err := harnessCommand(processCtx, harness, cwd, dataDir, path, ghTokenURL, ghWritesURL)
+	cmd, err := harnessCommand(processCtx, harness, cwd, dataDir, path, ghTokenURL, ghWritesURL, ghMark)
 	if err != nil {
 		stop()
 		return nil, err
@@ -252,7 +258,7 @@ func (s *Session) limited(ctx context.Context, request func(context.Context) err
 func LogInAntigravity(ctx context.Context, cwd, dataDir, path string) (bool, error) {
 	processCtx, stop := context.WithCancel(context.Background())
 	defer stop()
-	cmd, err := harnessCommand(processCtx, config.Antigravity, cwd, dataDir, path, "", "")
+	cmd, err := harnessCommand(processCtx, config.Antigravity, cwd, dataDir, path, "", "", "")
 	if err != nil {
 		return false, err
 	}

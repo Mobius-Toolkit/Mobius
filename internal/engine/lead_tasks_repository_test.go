@@ -21,7 +21,7 @@ func TestTheLeadCreatesAnIssueInAnotherRepositoryBelowTheWorkstream(t *testing.T
 	if got := reply(t, server, session); got != "Created owner/garden#8." {
 		t.Errorf("reply = %q", got)
 	}
-	if title, body := fake.Issue(garden, 8); title != "Water the beds" || body != "Beds need water." {
+	if title, body := fake.Issue(garden, 8); title != "Water the beds" || body != marked("Beds need water.", leadMarkElsewhere) {
 		t.Errorf("owner/garden#8 = %q, %q", title, body)
 	}
 	if got := fake.SubIssueNumbers(shop, 12); !reflect.DeepEqual(got, []int64{8}) {

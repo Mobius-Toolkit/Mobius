@@ -250,7 +250,7 @@ func TestANewIssueOfATrustedUserGetsMobiusTriageAndOneTriagerThatReplies(t *test
 
 	fake.CreateIssue(shop, 52, "Add loyalty points", "Points for each order.", "owner")
 
-	proposal := testkit.Comment{Author: testkit.AppSlug + "[bot]", Body: `Create the Workstream "Loyalty points" for this issue.`}
+	proposal := triagerComment(52, `Create the Workstream "Loyalty points" for this issue.`)
 	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 52), proposal) })
 	if got := fake.Labels(shop, 52); !slices.Equal(got, []string{"mobius:triage"}) {
 		t.Errorf("labels = %v", got)
@@ -288,7 +288,7 @@ func TestARestartStartsAgainATriagerTurnThatDidNotEndAndTheTurnEndsAfterTheReply
 
 	server := startServer(t, fake, dataDir, "")
 
-	proposal := testkit.Comment{Author: testkit.AppSlug + "[bot]", Body: `Create the Workstream "Loyalty points" for this issue.`}
+	proposal := triagerComment(52, `Create the Workstream "Loyalty points" for this issue.`)
 	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 52), proposal) })
 	testkit.WaitFor(t, func() bool { return len(triagerTurns(t, server)) == 0 })
 	waitForPolls(t, fake)
@@ -347,7 +347,7 @@ func TestAnIssueOfAnUntrustedUserGetsATriagerOnlyAfterMobiusTriageOfATrustedUser
 	fake.AddLabel(shop, 54, "mobius:triage", "owner")
 
 	waitForChatSession(t, server, issueTriagers, engine.TriagerRole, func(session store.Session) bool { return session.EndedAt.Valid })
-	proposal := testkit.Comment{Author: testkit.AppSlug + "[bot]", Body: "First proposal."}
+	proposal := triagerComment(54, "First proposal.")
 	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 54), proposal) })
 }
 
@@ -456,7 +456,7 @@ func TestARemovalOfTheLabelStopsTheTriagerAndAProposalGoesToTheIssue(t *testing.
 	if !slices.Equal(reasons, []string{"done", "stopped"}) {
 		t.Errorf("end reasons = %v", reasons)
 	}
-	proposal := testkit.Comment{Author: testkit.AppSlug + "[bot]", Body: `Create the Workstream "Loyalty points" for this issue.`}
+	proposal := triagerComment(52, `Create the Workstream "Loyalty points" for this issue.`)
 	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 52), proposal) })
 	if got := fake.Comments(shop, 51); len(got) != 0 {
 		t.Errorf("comments of #51 = %v", got)
@@ -480,7 +480,7 @@ func TestAProposalThatGitHubRefusesGoesToTheIssueAtTheNextPoll(t *testing.T) {
 	fake.RemoveLabel(shop, 51, "mobius:triage", "owner")
 
 	testkit.WaitFor(t, func() bool { return commentWrites(t, server) == 1 })
-	proposal := testkit.Comment{Author: testkit.AppSlug + "[bot]", Body: `Create the Workstream "Loyalty points" for this issue.`}
+	proposal := triagerComment(52, `Create the Workstream "Loyalty points" for this issue.`)
 	if slices.Contains(fake.Comments(shop, 52), proposal) {
 		t.Error("the proposal is on the issue")
 	}
@@ -515,7 +515,7 @@ func TestACommentOfATrustedUserStartsTheTriagerAgainWithTheCommentsOfTrustedAuth
 	inOrder(t, prompts[0],
 		"# Issue\n\nowner/shop#53 Add points",
 		"# Comments\n\n@mobius-test[bot], ",
-		":\nFirst proposal.\n\n@owner, ",
+		":\nFirst proposal.\n\n— Triager of #53\n\n@owner, ",
 		":\nPlease use points.\n",
 	)
 	if strings.Contains(prompts[0], "I want this too.") {
@@ -524,7 +524,7 @@ func TestACommentOfATrustedUserStartsTheTriagerAgainWithTheCommentsOfTrustedAuth
 	if got := fake.Labels(shop, 53); !slices.Equal(got, []string{"mobius:triage"}) {
 		t.Errorf("labels = %v", got)
 	}
-	proposal := testkit.Comment{Author: testkit.AppSlug + "[bot]", Body: "Move it to the loyalty Workstream."}
+	proposal := triagerComment(53, "Move it to the loyalty Workstream.")
 	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 53), proposal) })
 }
 
@@ -619,7 +619,7 @@ func TestTheTriagerCreatesAWorkstreamOnlyAfterTheOwnerApprovesInTheInbox(t *test
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTriager(t, fake)
 	fake.CreateIssue(shop, 61, "Add refunds", "Refund each order.", "owner")
-	proposal := testkit.Comment{Author: testkit.AppSlug + "[bot]", Body: "Proposal: the Workstream Refunds."}
+	proposal := triagerComment(61, "Proposal: the Workstream Refunds.")
 	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 61), proposal) })
 
 	fake.AddComment(shop, 61, "owner", "Create it as proposed.")
@@ -653,7 +653,7 @@ func TestTheTriagerCreatesAWorkstreamOnlyAfterTheOwnerApprovesInTheInbox(t *test
 	if got := fake.Labels(shop, 62); !slices.Equal(got, []string{"mobius:workstream"}) {
 		t.Errorf("labels = %v", got)
 	}
-	link := testkit.Comment{Author: testkit.AppSlug + "[bot]", Body: "The triage ends. The Workstream is https://github.com/owner/shop/issues/62"}
+	link := triagerComment(61, "The triage ends. The Workstream is https://github.com/owner/shop/issues/62")
 	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 61), link) })
 	if state, reason := fake.State(shop, 61); state != "closed" || reason != "completed" {
 		t.Errorf("state = %s, %s", state, reason)
@@ -672,7 +672,7 @@ func TestAnApprovalThatFailsAtTheCloseOfTheIssueCommentsAndRunsAgainWithoutANewW
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTriager(t, fake)
 	fake.CreateIssue(shop, 66, "Add refunds", "Refund each order.", "owner")
-	proposal := testkit.Comment{Author: testkit.AppSlug + "[bot]", Body: "Proposal: the Workstream Refunds."}
+	proposal := triagerComment(66, "Proposal: the Workstream Refunds.")
 	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 66), proposal) })
 	fake.AddComment(shop, 66, "owner", "Create it as proposed.")
 	action := waitForActions(t, server, 1)[0]
@@ -716,7 +716,7 @@ func TestAnIssueThatTheOwnerReopensAfterTheEndOfTheTriageGetsANewTurn(t *testing
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTriager(t, fake)
 	fake.CreateIssue(shop, 68, "Add refunds", "Refund each order.", "owner")
-	proposal := testkit.Comment{Author: testkit.AppSlug + "[bot]", Body: "Proposal: the Workstream Refunds."}
+	proposal := triagerComment(68, "Proposal: the Workstream Refunds.")
 	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 68), proposal) })
 	fake.AddComment(shop, 68, "owner", "Create it as proposed.")
 	decided(t, server, waitForActions(t, server, 1)[0].ID, "approve", "")
@@ -729,7 +729,7 @@ func TestAnIssueThatTheOwnerReopensAfterTheEndOfTheTriageGetsANewTurn(t *testing
 	fake.ReopenIssue(shop, 68)
 	fake.AddComment(shop, 68, "owner", "Keep triaging.")
 
-	answer := testkit.Comment{Author: testkit.AppSlug + "[bot]", Body: "The triage goes on."}
+	answer := triagerComment(68, "The triage goes on.")
 	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 68), answer) })
 	if state, _ := fake.State(shop, 68); state != "open" {
 		t.Errorf("state = %s", state)
@@ -741,7 +741,7 @@ func TestTheOwnerRejectsAMessageOfTheTriagerAndTheIssueGetsTheMessageAndANewTurn
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTriager(t, fake)
 	fake.CreateIssue(shop, 71, "Add refunds", "Refund each order.", "owner")
-	proposal := testkit.Comment{Author: testkit.AppSlug + "[bot]", Body: "Proposal: a message to the Lead of #12."}
+	proposal := triagerComment(71, "Proposal: a message to the Lead of #12.")
 	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 71), proposal) })
 	fake.AddComment(shop, 71, "owner", "Send it to the Lead.")
 	action := waitForActions(t, server, 1)[0]
@@ -775,7 +775,7 @@ func TestTheOwnerApprovesAMessageOfTheTriagerAfterItsSessionEndedAndTheLeadGetsT
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTriager(t, fake)
 	fake.CreateIssue(shop, 62, "Add refunds", "Refund each order.", "owner")
-	proposal := testkit.Comment{Author: testkit.AppSlug + "[bot]", Body: "Proposal: a message to the Lead of #12."}
+	proposal := triagerComment(62, "Proposal: a message to the Lead of #12.")
 	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 62), proposal) })
 	fake.AddComment(shop, 62, "owner", "Send it to the Lead.")
 	action := waitForActions(t, server, 1)[0]
@@ -790,7 +790,7 @@ func TestTheOwnerApprovesAMessageOfTheTriagerAfterItsSessionEndedAndTheLeadGetsT
 
 	decided(t, server, action.ID, "approve", "")
 
-	link := testkit.Comment{Author: testkit.AppSlug + "[bot]", Body: "The triage ends. The Workstream is https://github.com/owner/shop/issues/12"}
+	link := triagerComment(62, "The triage ends. The Workstream is https://github.com/owner/shop/issues/12")
 	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 62), link) })
 	if state, reason := fake.State(shop, 62); state != "closed" || reason != "completed" {
 		t.Errorf("state = %s, %s", state, reason)
@@ -818,7 +818,7 @@ func TestAnApprovedMessageOfTheTriagerThatFailsAtTheCloseOfTheIssueSendsTheLeadO
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTriager(t, fake)
 	fake.CreateIssue(shop, 72, "Add refunds", "Refund each order.", "owner")
-	proposal := testkit.Comment{Author: testkit.AppSlug + "[bot]", Body: "Proposal: a message to the Lead of #12."}
+	proposal := triagerComment(72, "Proposal: a message to the Lead of #12.")
 	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 72), proposal) })
 	fake.AddComment(shop, 72, "owner", "Send it to the Lead.")
 	action := waitForActions(t, server, 1)[0]
@@ -876,7 +876,7 @@ func TestTheReportOfAResearcherOfTheTriagerIsACommentThatStartsTheNextTurn(t *te
 	if len(prompts) != 1 || !strings.Contains(prompts[0], report.Body) {
 		t.Errorf("prompts = %q", prompts)
 	}
-	thanks := testkit.Comment{Author: testkit.AppSlug + "[bot]", Body: "Thanks for the report."}
+	thanks := triagerComment(63, "Thanks for the report.")
 	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 63), thanks) })
 }
 

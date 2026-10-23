@@ -41,7 +41,7 @@ func TestTheTriagerOfAnIssueInAnotherRepositorySendsAMessageToTheLeadOfAWorkstre
 		events := toLead12(t, server)
 		return len(events) == 1 && events[0].Kind == "triager" && events[0].Payload == want
 	})
-	link := testkit.Comment{Author: testkit.AppSlug + "[bot]", Body: "The triage ends. The Workstream is https://github.com/owner/shop/issues/12"}
+	link := triagerComment(81, "The triage ends. The Workstream is https://github.com/owner/shop/issues/12")
 	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(garden, 81), link) })
 	if state, reason := fake.State(garden, 81); state != "closed" || reason != "completed" {
 		t.Errorf("state = %s, %s", state, reason)
@@ -66,7 +66,7 @@ func TestTheTriagerOfAnIssueInAnotherRepositoryCreatesTheWorkstreamInTheIssueRep
 	if got := fake.Labels(shop, number); !slices.Equal(got, []string{"mobius:workstream"}) {
 		t.Errorf("labels = %v", got)
 	}
-	link := testkit.Comment{Author: testkit.AppSlug + "[bot]", Body: fmt.Sprintf("The triage ends. The Workstream is https://github.com/owner/shop/issues/%d", number)}
+	link := triagerComment(82, fmt.Sprintf("The triage ends. The Workstream is https://github.com/owner/shop/issues/%d", number))
 	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(garden, 82), link) })
 	if state, reason := fake.State(garden, 82); state != "closed" || reason != "completed" {
 		t.Errorf("state = %s, %s", state, reason)

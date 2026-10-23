@@ -34,7 +34,7 @@ func TestClosingATaskWithAnOpenPullRequestClosesTheIssueAndThePullRequest(t *tes
 	if last := runs[len(runs)-1]; last.HeadSHA != head(t, fake, "mobius/41") || last.Conclusion != "failure" || last.Output.Title != "Closed" || last.Output.Summary != "#43 has this work." {
 		t.Errorf("check runs = %+v", runs)
 	}
-	comment := testkit.Comment{Author: "mobius-test[bot]", Body: "#43 has this work."}
+	comment := testkit.Comment{Author: "mobius-test[bot]", Body: marked("#43 has this work.", leadMark)}
 	if !slices.Contains(fake.Comments(shop, 42), comment) || !slices.Contains(fake.Comments(shop, 41), comment) {
 		t.Errorf("comments = %+v, %+v", fake.Comments(shop, 42), fake.Comments(shop, 41))
 	}
@@ -58,7 +58,7 @@ func TestClosingATaskIssueWithNoLiveTaskClosesItAtOnce(t *testing.T) {
 	if state, reason := fake.State(shop, 41); state != "closed" || reason != "not_planned" {
 		t.Errorf("state = %s, reason = %s", state, reason)
 	}
-	if got, want := fake.Comments(shop, 41), []testkit.Comment{{Author: "mobius-test[bot]", Body: "Main has this work."}}; !slices.Equal(got, want) {
+	if got, want := fake.Comments(shop, 41), []testkit.Comment{{Author: "mobius-test[bot]", Body: marked("Main has this work.", leadMark)}}; !slices.Equal(got, want) {
 		t.Errorf("comments = %+v", got)
 	}
 }

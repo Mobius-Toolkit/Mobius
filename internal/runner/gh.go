@@ -22,6 +22,9 @@ import (
 //
 // With MOBIUS_GH_WRITES_URL, GH sends the label changes, the new issues and the comments of args to that URL before it
 // runs the real gh. When the send fails, it does not run the real gh.
+//
+// With MOBIUS_GH_MARK, GH adds that mark line to each body that args gives to a gh issue create, gh issue comment, gh pr
+// comment or gh issue edit, and to the comment of a gh issue close. The records and the real gh get the marked text.
 func GH(args []string, getenv func(string) string) int {
 	url := getenv(ghURLEnv)
 	if url == "" {
@@ -39,6 +42,12 @@ func GH(args []string, getenv func(string) string) int {
 		return 1
 	}
 	stdin := io.Reader(os.Stdin)
+	if mark := getenv(ghMarkEnv); mark != "" {
+		if args, stdin, err = markBodies(args, stdin, mark); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+	}
 	if writesURL := getenv(ghWritesURLEnv); writesURL != "" {
 		var writes []mcp.GHWrite
 		if writes, stdin, err = ghWrites(args, stdin); err == nil && len(writes) > 0 {

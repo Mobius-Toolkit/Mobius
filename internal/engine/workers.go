@@ -49,6 +49,11 @@ var groups = []group{
 	{DiagnoserRole, "diagnoser", "Diagnoser"},
 }
 
+// roleTitle gives the title of role in groups.
+func roleTitle(role string) string {
+	return groups[slices.IndexFunc(groups, func(g group) bool { return g.role == role })].title
+}
+
 // workerRoles are the Worker Roles. A pause of its Harness and a drain hold a Worker in the queue.
 var workerRoles = map[string]bool{ImplementerRole: true, ResearcherRole: true, ReviewerRole: true, CuratorRole: true, DiagnoserRole: true}
 

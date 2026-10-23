@@ -94,7 +94,7 @@ func TestTheGHOfTheLeadRecordsTheWritesOfEachSubcommandWithTheSessionOfTheLead(t
 		`owner/shop#42 labeled ["mobius:ready"] ""`,
 		`owner/shop#42 unlabeled ["mobius:triage"] ""`,
 		`owner/shop#0 created ["mobius:triage","bug"] "Add points"`,
-		`owner/shop#42 commented [] "Please rebase."`,
+		fmt.Sprintf("owner/shop#42 commented [] %q", marked("Please rebase.", leadMark)),
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("writes = %q", got)
@@ -208,7 +208,7 @@ func TestANewIssueThatTheLeadCreatedGetsATriagerAndTheLabelThatTheLeadAdded(t *t
 			fake.AddLabel(shop, 52, "mobius:triage", app)
 
 			if recorded {
-				proposal := testkit.Comment{Author: app, Body: `Create the Workstream "Loyalty points" for this issue.`}
+				proposal := triagerComment(52, `Create the Workstream "Loyalty points" for this issue.`)
 				testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 52), proposal) })
 				return
 			}
@@ -234,7 +234,7 @@ func TestANewIssueThatTheLeadCreatedWithNoLabelGetsMobiusTriageAndATriager(t *te
 			fake.CreateIssue(shop, 52, "Add loyalty points", "Points for each order.", app)
 
 			if recorded {
-				proposal := testkit.Comment{Author: app, Body: `Create the Workstream "Loyalty points" for this issue.`}
+				proposal := triagerComment(52, `Create the Workstream "Loyalty points" for this issue.`)
 				testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 52), proposal) })
 				if got := fake.Labels(shop, 52); !slices.Equal(got, []string{"mobius:triage"}) {
 					t.Errorf("labels = %v", got)
@@ -377,7 +377,7 @@ func TestACommentOfTheLeadAfterAnAnswerOfTheOwnerDoesNotHideTheAnswer(t *testing
 			if recorded {
 				leadWrites(t, server, 1)
 			}
-			fake.AddComment(shop, 41, app, "Looking into it.")
+			fake.AddComment(shop, 41, app, marked("Looking into it.", leadMark))
 			waitForPolls(t, fake)
 
 			fake.CloseIssue(shop, 42)
@@ -426,7 +426,7 @@ func TestACommentOfTheLeadThatTheSamePollReadsWithAnAnswerOfTheOwnerDoesNotHideT
 
 			fake.AddComment(shop, 41, "owner", "Cents.")
 			testkit.WaitFor(t, func() bool { return commentReads() > before })
-			fake.AddComment(shop, 41, app, "Looking into it.")
+			fake.AddComment(shop, 41, app, marked("Looking into it.", leadMark))
 			release()
 
 			if recorded {

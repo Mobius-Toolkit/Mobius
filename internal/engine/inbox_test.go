@@ -87,7 +87,7 @@ reply = ["Seen"]
 	if calls[0]["result"] != "Asked on #41." {
 		t.Errorf("call = %v", calls[0])
 	}
-	if got := fake.Comments(shop, 41); !slices.Equal(got, []testkit.Comment{{Author: testkit.AppSlug + "[bot]", Body: "Cents or dollars?"}}) {
+	if got := fake.Comments(shop, 41); !slices.Equal(got, []testkit.Comment{{Author: testkit.AppSlug + "[bot]", Body: marked("Cents or dollars?", leadMark)}}) {
 		t.Errorf("comments = %v", got)
 	}
 	if got := fake.Labels(shop, 41); !slices.Equal(got, []string{"mobius:question"}) {
@@ -142,7 +142,7 @@ reply = ["Seen"]
 	if calls[0]["result"] != "Asked on #12." {
 		t.Errorf("call = %v", calls[0])
 	}
-	if got := fake.Comments(shop, 12); !slices.Equal(got, []testkit.Comment{{Author: testkit.AppSlug + "[bot]", Body: "Change the Brief?"}}) {
+	if got := fake.Comments(shop, 12); !slices.Equal(got, []testkit.Comment{{Author: testkit.AppSlug + "[bot]", Body: marked("Change the Brief?", leadMark)}}) {
 		t.Errorf("comments = %v", got)
 	}
 	if got := fake.Labels(shop, 12); !slices.Equal(got, []string{"mobius:workstream", "mobius:question"}) {

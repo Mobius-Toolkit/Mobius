@@ -308,7 +308,7 @@ func (e *Engine) approvePullRequest(ctx context.Context, c caller, repository gi
 	if moved == 0 {
 		return "", refuse("The task of #%d is not approval any more.", input.N)
 	}
-	if err := e.approve(ctx, repository, task, issue, pullRequest, checkRun, input.Report); err != nil {
+	if err := e.approve(ctx, c, repository, task, issue, pullRequest, checkRun, input.Report); err != nil {
 		_, stateErr := e.setTaskState(ctx, store.SetTaskStateParams{State: "approval", ID: task.ID, FromState: "ready_for_review"})
 		return "", errors.Join(err, stateErr)
 	}
@@ -396,13 +396,17 @@ func replaceCheckRun(ctx context.Context, repository github.Repository, head str
 	return repository.UpdateCheckRun(ctx, checkRun, checkRunName, "completed", "neutral", "Replaced by a new head", "A new head of the pull request replaced this commit.")
 }
 
-func (e *Engine) approve(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue, pullRequest *gh.PullRequest, checkRun int64, report string) error {
+func (e *Engine) approve(ctx context.Context, c caller, repository github.Repository, task store.Task, issue *gh.Issue, pullRequest *gh.PullRequest, checkRun int64, report string) error {
+	mark, err := e.mark(ctx, c, repository.FullName)
+	if err != nil {
+		return err
+	}
 	if hasLabel(issue, questionLabel) {
-		if err := e.closeQuestion(ctx, repository, issue, task, fmt.Sprintf("The Lead approved PR #%d, so the question is closed.", pullRequest.GetNumber())); err != nil {
+		if err := e.closeQuestion(ctx, repository, issue, task, runner.WithMark(fmt.Sprintf("The Lead approved PR #%d, so the question is closed.", pullRequest.GetNumber()), mark)); err != nil {
 			return err
 		}
 	}
-	comment, err := repository.AddComment(ctx, int64(pullRequest.GetNumber()), report)
+	comment, err := repository.AddComment(ctx, int64(pullRequest.GetNumber()), runner.WithMark(report, mark))
 	if err != nil {
 		return err
 	}
@@ -470,6 +474,10 @@ func (e *Engine) holdReply(ctx context.Context, c caller, repository github.Repo
 	if empty(input.Text) {
 		return "", refuse("text must not be empty.")
 	}
+	text, err := e.withMark(ctx, c, repository.FullName, input.Text)
+	if err != nil {
+		return "", err
+	}
 	pullRequest := c.agent.spec.PullRequest
 	if pullRequest == 0 {
 		return "", refuse("Only an Implementer of a fix round can reply in a thread.")
@@ -489,7 +497,7 @@ func (e *Engine) holdReply(ctx context.Context, c caller, repository github.Repo
 	if err != nil {
 		return "", err
 	}
-	if !unpushed && target.reply(ctx, repository, pullRequest, input.Text) == nil {
+	if !unpushed && target.reply(ctx, repository, pullRequest, text) == nil {
 		if target.resolve(ctx, repository) != nil {
 			c.agent.mu.Lock()
 			c.agent.replies = append(c.agent.replies, heldReply{target: target, posted: true})
@@ -499,7 +507,7 @@ func (e *Engine) holdReply(ctx context.Context, c caller, repository github.Repo
 		return "Mobius posted the reply.", nil
 	}
 	c.agent.mu.Lock()
-	c.agent.replies = append(c.agent.replies, heldReply{target: target, text: input.Text})
+	c.agent.replies = append(c.agent.replies, heldReply{target: target, text: text})
 	c.agent.mu.Unlock()
 	return "Mobius posts the reply after it pushes your commits.", nil
 }

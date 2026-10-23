@@ -17,6 +17,7 @@ import (
 
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
 	"github.com/Mobius-Toolkit/Mobius/internal/mcp"
+	"github.com/Mobius-Toolkit/Mobius/internal/runner"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
@@ -793,7 +794,11 @@ func (e *Engine) createIssue(ctx context.Context, c caller, repository github.Re
 			return "", refuse("%s#%d is not in this Workstream.", parent.repository.FullName, parent.number)
 		}
 	}
-	number, err := e.addIssueAt(ctx, repository, issueAt{workstream, c.workstream}, newIssue{title: input.Title, body: input.Body, parent: parent, blockers: blockers}, nil)
+	mark, err := e.mark(ctx, c, repository.FullName)
+	if err != nil {
+		return "", err
+	}
+	number, err := e.addIssueAt(ctx, repository, issueAt{workstream, c.workstream}, newIssue{title: input.Title, body: input.Body, mark: mark, parent: parent, blockers: blockers}, nil)
 	if err != nil {
 		return "", err
 	}
@@ -811,8 +816,10 @@ type issueAt struct {
 
 // newIssue is an issue that addIssueAt creates below the issue parent, with the blockers.
 type newIssue struct {
-	title    string
-	body     string
+	title string
+	body  string
+	// mark is the mark line of the agent that creates the issue, or "" for an issue of Mobius.
+	mark     string
 	parent   issueAt
 	blockers []issueAt
 }
@@ -853,7 +860,11 @@ func (e *Engine) createMaintenanceIssue(ctx context.Context, c caller, repositor
 	for i, number := range input.BlockedBy {
 		blockers[i] = issueAt{repository, number}
 	}
-	number, err := e.addIssueAt(ctx, repository, c.agent.maintenance, newIssue{title: input.Title, body: input.Body, parent: c.agent.maintenance, blockers: blockers}, []string{triageLabel})
+	mark, err := e.mark(ctx, c, repository.FullName)
+	if err != nil {
+		return "", err
+	}
+	number, err := e.addIssueAt(ctx, repository, c.agent.maintenance, newIssue{title: input.Title, body: input.Body, mark: mark, parent: c.agent.maintenance, blockers: blockers}, []string{triageLabel})
 	if err != nil {
 		return "", err
 	}
@@ -880,6 +891,9 @@ func (e *Engine) addIssueAt(ctx context.Context, repository github.Repository, w
 		return 0, err
 	}
 	body := e.withChatLink(workstream.repository, workstream.number, input.body)
+	if input.mark != "" {
+		body = runner.WithMark(body, input.mark)
+	}
 	issue, _, err := repository.Client.Issues.Create(ctx, repository.Owner(), repository.Name(), gh.CreateIssueRequest{Title: input.title, Body: &body, Labels: labels})
 	if err != nil {
 		return 0, err
@@ -1089,6 +1103,10 @@ func (e *Engine) replyThread(ctx context.Context, c caller, repository github.Re
 	if empty(input.Text) {
 		return "", refuse("text must not be empty.")
 	}
+	text, err := e.withMark(ctx, c, repository.FullName, input.Text)
+	if err != nil {
+		return "", err
+	}
 	tasks, err := e.queries.ListLiveTasks(ctx, repository.FullName)
 	if err != nil {
 		return "", err
@@ -1097,7 +1115,7 @@ func (e *Engine) replyThread(ctx context.Context, c caller, repository github.Re
 		if task.WorkstreamRepository != c.repository || task.Workstream != c.workstream || !task.PullRequest.Valid {
 			continue
 		}
-		replied, err := reply(ctx, repository, task.PullRequest.Int64, input.Thread, input.Text)
+		replied, err := reply(ctx, repository, task.PullRequest.Int64, input.Thread, text)
 		if err != nil {
 			return "", err
 		}
@@ -1125,7 +1143,11 @@ func (e *Engine) commentPullRequest(ctx context.Context, c caller, repository gi
 	if err != nil {
 		return "", err
 	}
-	if _, _, err := repository.Client.Issues.CreateComment(ctx, repository.Owner(), repository.Name(), int(input.N), gh.IssueCommentRequest{Body: input.Text}); err != nil {
+	text, err := e.withMark(ctx, c, repository.FullName, input.Text)
+	if err != nil {
+		return "", err
+	}
+	if _, _, err := repository.Client.Issues.CreateComment(ctx, repository.Owner(), repository.Name(), int(input.N), gh.IssueCommentRequest{Body: text}); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("Commented on #%d.", input.N), nil
@@ -1221,7 +1243,10 @@ func (e *Engine) endTriage(ctx context.Context, c caller, workstreamRepository g
 	if err != nil {
 		return err
 	}
-	text := fmt.Sprintf("%s The Workstream is %s", triageEndText, issueLink(workstreamRepository.FullName, workstream))
+	text, err := e.withMark(ctx, c, repository.FullName, fmt.Sprintf("%s The Workstream is %s", triageEndText, issueLink(workstreamRepository.FullName, workstream)))
+	if err != nil {
+		return err
+	}
 	if err := e.addOrKeepComment(ctx, repository, c.issue, text); err != nil {
 		return err
 	}
@@ -1455,21 +1480,56 @@ func (e *Engine) withChatLink(repository github.Repository, workstream int64, bo
 	if e.config.UIURL == "" {
 		return body
 	}
-	return e.withoutChatLink(repository, workstream, body) + "\n\n" + e.chatLink(repository, workstream)
+	return e.withoutChatLink(repository, workstream, body) + "\n\n" + e.chatLink(repository.FullName, workstream)
 }
 
 // withoutChatLink gives body with no link line to the Lead chat of the Workstream and no white space at the end.
 func (e *Engine) withoutChatLink(repository github.Repository, workstream int64, body string) string {
 	if e.config.UIURL != "" {
-		link := e.chatLink(repository, workstream)
+		link := e.chatLink(repository.FullName, workstream)
 		lines := slices.DeleteFunc(strings.Split(body, "\n"), func(line string) bool { return strings.TrimSpace(line) == link })
 		body = strings.Join(lines, "\n")
 	}
 	return strings.TrimRight(body, " \t\r\n")
 }
 
-func (e *Engine) chatLink(repository github.Repository, workstream int64) string {
-	return fmt.Sprintf("[Open the Lead chat in Mobius](%s/workstreams/%s/%s/%d)", e.config.UIURL, repository.Owner(), repository.Name(), workstream)
+func (e *Engine) chatLink(repository string, workstream int64) string {
+	return fmt.Sprintf("[Open the Lead chat in Mobius](%s)", e.chatURL(repository, workstream))
+}
+
+func (e *Engine) chatURL(repository string, workstream int64) string {
+	return fmt.Sprintf("%s/workstreams/%s/%d", e.config.UIURL, repository, workstream)
+}
+
+// mark gives the mark line of the role of c for a text in the repository with the name repository: the Role, and its issue or, for the Lead, its
+// Workstream with the title. The Coordinator and the Curator have no issue. The Workstream is a link to the Lead chat
+// when the config has ui_url.
+func (e *Engine) mark(ctx context.Context, c caller, repository string) (string, error) {
+	role := roleTitle(c.role)
+	if c.role == LeadRole {
+		ref := eventRef(repository, c.repository, c.workstream)
+		if e.config.UIURL != "" {
+			ref = fmt.Sprintf("[%s](%s)", ref, e.chatURL(c.repository, c.workstream))
+		}
+		copied, err := e.queries.GetCopiedWorkstream(ctx, store.GetCopiedWorkstreamParams{Repository: c.repository, Number: c.workstream})
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return "", err
+		}
+		return strings.TrimSpace(fmt.Sprintf("— %s of %s %s", role, ref, copied.Title)), nil
+	}
+	if c.issue == 0 {
+		return "— " + role, nil
+	}
+	return fmt.Sprintf("— %s of %s", role, eventRef(repository, c.repository, c.issue)), nil
+}
+
+// withMark gives body with the mark of c at the end, one time.
+func (e *Engine) withMark(ctx context.Context, c caller, repository, body string) (string, error) {
+	mark, err := e.mark(ctx, c, repository)
+	if err != nil {
+		return "", err
+	}
+	return runner.WithMark(body, mark), nil
 }
 
 // currentBrief reads the body of the Workstream issue from GitHub, with no Lead chat link line.
