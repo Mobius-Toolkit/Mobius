@@ -976,6 +976,27 @@ test("screenshots", async ({ page }) => {
           },
           {
             ...item,
+            id: 100,
+            issue: 40,
+            kind: "todo",
+            title: "MOBIUS_SMTP_HOST",
+            reason: "mandatory · Deployment needs",
+            text: "env_var: MOBIUS_SMTP_HOST",
+            link: `${link}/issues/40`,
+            pullRequest: 1110,
+            pullRequestUrl: `${link}/pull/1110`,
+            todo: {
+              kind: "env_var",
+              name: "MOBIUS_SMTP_HOST",
+              path: "internal/config/config.go",
+              line: 42,
+              mandatory: true,
+              reason: "The server reads it at the start and has no default.",
+              note: "",
+            },
+          },
+          {
+            ...item,
             id: 104,
             issue: 12,
             kind: "Lead failed",
@@ -988,13 +1009,20 @@ test("screenshots", async ({ page }) => {
   });
   const inboxReady = (device: string) => [
     chatCount,
-    ...frame(device, drain, { organizations: true }, "5"),
-    main.getByRole("tab", { name: "To do 5" }),
+    ...frame(device, drain, { organizations: true }, "6"),
+    main.getByRole("tab", { name: "To do 6" }),
     main.getByText("Integrate loyalty plans", { exact: true }),
     main.getByText("Let customers change plans"),
     main.getByText("The Lead did not get your message"),
+    main.getByText("MOBIUS_SMTP_HOST"),
   ];
   await screenshot(page, "inbox", "/inbox", inboxReady);
+  const todoRow = main.getByRole("listitem").filter({ hasText: "MOBIUS_SMTP_HOST" });
+  await screenshot(page, "inbox-todo", "/inbox", (device) => [
+    ...inboxReady(device),
+    todoRow.getByRole("button", { name: "Done…" }),
+    todoRow.getByRole("link", { name: "Open PR" }),
+  ]);
   // Radix hides the page behind the panel from the role queries, so the open step waits for the page first.
   const openPanel = (button: string, index: number) => async (device: string) => {
     for (const locator of inboxReady(device)) {
@@ -1010,7 +1038,19 @@ test("screenshots", async ({ page }) => {
       page.getByRole("dialog").getByText("is ready for review."),
       page.getByRole("dialog").getByRole("link", { name: "Approval report" }),
     ],
-    openPanel("Details", 1),
+    openPanel("Details", 2),
+  );
+  await screenshot(
+    page,
+    "todo-dialog",
+    "/inbox",
+    () => [
+      page.getByRole("dialog").getByText("Mandatory env var"),
+      page.getByRole("dialog").getByText("File: internal/config/config.go:42"),
+      page.getByRole("dialog").getByText("Mobius merges after this todo is done."),
+      page.getByRole("dialog").getByRole("textbox", { name: "Note" }),
+    ],
+    openPanel("Done…", 0),
   );
   await screenshot(
     page,
