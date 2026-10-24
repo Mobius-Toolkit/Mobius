@@ -129,6 +129,13 @@ func (g *FakeGitHub) FailResolveThreads(fail bool) {
 	g.failResolves = fail
 }
 
+// FailPullRequestReads makes each read of a single pull request fail, or work again when fail is false.
+func (g *FakeGitHub) FailPullRequestReads(fail bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.failPullReads = fail
+}
+
 // UnresolveReviewThread marks the review thread that starts with the comment root as not resolved.
 func (g *FakeGitHub) UnresolveReviewThread(root int64) {
 	g.mu.Lock()

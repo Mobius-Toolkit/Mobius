@@ -16,13 +16,22 @@ const mergeOffReason = "The merge is off for this Workstream."
 // autoApprove does what MergeInboxItem does, for a Workstream with a merge level: it adds an APPROVED review of the
 // Owner on the head, sets auto_merge of the task, and marks the open ready for review Inbox items as merging. The poll
 // then merges the pull request (mergeApproved). When it fails, the items get the error text as their reason, so the
-// "Merge" button shows, and the task has no auto_merge.
-func (e *Engine) autoApprove(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) error {
-	err := e.approveAsOwner(ctx, repository, task, pullRequest)
-	if err == nil {
-		return nil
+// "Merge" button shows, and the task has no auto_merge. When a mandatory deployment need of the task has a todo that is
+// not done, it does not approve. The items get the reason mandatoryTodosReason, and it gives true. An approval that the
+// Owner gave with "Merge" stays, and the task does not count as blocked.
+func (e *Engine) autoApprove(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) (bool, error) {
+	blocked, err := e.blockedByTodos(ctx, task)
+	if err != nil {
+		return false, err
 	}
-	return errors.Join(err, e.refuseMergeItem(ctx, task, err.Error()))
+	if blocked && (task.AutoMerge == 1 || !awaitsMerge(task)) {
+		return true, e.refuseMergeItem(ctx, task, mandatoryTodosReason)
+	}
+	err = e.approveAsOwner(ctx, repository, task, pullRequest)
+	if err == nil {
+		return false, nil
+	}
+	return false, errors.Join(err, e.refuseMergeItem(ctx, task, err.Error()))
 }
 
 func (e *Engine) approveAsOwner(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) error {
@@ -52,44 +61,52 @@ func (e *Engine) approveAsOwner(ctx context.Context, repository github.Repositor
 // applyLevel acts on the live tasks of the Workstream after a person changed its Autopilot level to level. With a merge
 // level, a task in ready_for_review with an open ready for review Inbox item and no approval gets autoApprove. Without
 // a merge level, a task that Mobius approved for the merge and that waits for the merge gets the reason
-// mergeOffReason, and the "Merge" button shows again. A task that already has the result stays as it is, so a poll that
-// runs the step again changes nothing.
+// mergeOffReason, and the "Merge" button shows again. A task whose items have mandatoryTodosReason loses that reason.
+// A task that already has the result stays as it is, so a poll that runs the step again changes nothing.
 func (e *Engine) applyLevel(ctx context.Context, workstreamRepository string, workstream int64, level string) error {
 	tasks, err := e.queries.ListWorkstreamLiveTasks(ctx, store.ListWorkstreamLiveTasksParams{WorkstreamRepository: workstreamRepository, Workstream: workstream})
 	if err != nil {
 		return err
 	}
 	for _, task := range tasks {
-		switch {
-		case !mergesPullRequests(level):
-			if task.AutoMerge == 1 && awaitsMerge(task) {
-				if err := e.endAutoMerge(ctx, task); err != nil {
-					return err
-				}
-			}
-		case task.State == "ready_for_review" && task.PullRequest.Valid && task.AutoMerge == 0 && !awaitsMerge(task):
-			items, err := e.openReadyItems(ctx, task)
-			if err != nil {
+		if mergesPullRequests(level) {
+			if err := e.approveWaitingTask(ctx, task); err != nil {
 				return err
 			}
-			if len(items) == 0 {
-				continue
-			}
-			repository, err := e.repository(task.Repository)
-			if err != nil {
-				return err
-			}
-			pullRequest, err := repository.PullRequest(ctx, task.PullRequest.Int64)
-			if err != nil {
-				return err
-			}
-			if pullRequest.GetState() != "open" {
-				continue
-			}
-			if err := e.autoApprove(ctx, repository, task, pullRequest); err != nil {
-				log.Printf("approve pull request %d of %s for the merge: %v", task.PullRequest.Int64, task.Repository, err)
-			}
+			continue
 		}
+		if task.AutoMerge == 1 && awaitsMerge(task) {
+			err = e.endAutoMerge(ctx, task)
+		} else {
+			err = e.clearBlockReason(ctx, task)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// approveWaitingTask gives autoApprove to a task in ready_for_review with an open ready for review Inbox item, an open
+// pull request and no approval. A failure of autoApprove goes to the log, because it is on the items.
+func (e *Engine) approveWaitingTask(ctx context.Context, task store.Task) error {
+	if task.State != "ready_for_review" || !task.PullRequest.Valid || task.AutoMerge != 0 || awaitsMerge(task) {
+		return nil
+	}
+	items, err := e.openReadyItems(ctx, task)
+	if err != nil || len(items) == 0 {
+		return err
+	}
+	repository, err := e.repository(task.Repository)
+	if err != nil {
+		return err
+	}
+	pullRequest, err := repository.PullRequest(ctx, task.PullRequest.Int64)
+	if err != nil || pullRequest.GetState() != "open" {
+		return err
+	}
+	if _, err := e.autoApprove(ctx, repository, task, pullRequest); err != nil {
+		log.Printf("approve pull request %d of %s for the merge: %v", task.PullRequest.Int64, task.Repository, err)
 	}
 	return nil
 }
