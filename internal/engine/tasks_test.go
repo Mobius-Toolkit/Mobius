@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
@@ -415,4 +416,108 @@ func TestStartReplacesMobiusTriageWithMobiusReadyAsTheOwnerAndTheNextPollDispatc
 		t.Errorf("task = %+v", task)
 	}
 	testkit.WaitFor(t, func() bool { return !slices.Contains(fake.Labels(shop, 41), "mobius:triage") })
+}
+
+func TestStopReplacesMobiusReadyWithMobiusTriageAsTheOwnerAndTheNextPollsStartNoTask(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddUserCode(testkit.AppID, "user-code", "owner")
+	server := connectSeen(t, fake)
+	fake.AddIssue(shop, 40, "Add the price table")
+	fake.AddIssue(shop, 41, "Add plan model")
+	fake.AddSubIssue(shop, 12, 41)
+	fake.AddBlockedBy(shop, 41, 40)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	testkit.WaitFor(t, func() bool { return stateOfTask(t, server, 41) == "ready" })
+	authorize(t, server)
+
+	if status, body := send(t, server, http.MethodPost, "/api/repositories/owner/shop/issues/41/stop", ""); status != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+
+	if got := fake.Labels(shop, 41); !slices.Equal(got, []string{"mobius:triage"}) {
+		t.Errorf("labels = %v", got)
+	}
+	if !fake.LabelRemovedBy(shop, 41, "mobius:ready", "owner") {
+		t.Error("the Owner did not remove mobius:ready")
+	}
+	if got := fake.LabelActor(shop, 41, "mobius:triage"); got != "owner" {
+		t.Errorf("actor of mobius:triage = %s", got)
+	}
+	if got := stateOfTask(t, server, 41); got != "triage" {
+		t.Errorf("state = %s", got)
+	}
+	fake.RemoveBlockedBy(shop, 41, 40)
+	waitForPolls(t, fake)
+	if hasLiveTask(t, server, 41) {
+		t.Error("a task started")
+	}
+}
+
+func TestStopStopsARunningTaskAndItsWorkerAndTheTasksTabShowsOpenAtOnce(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddUserCode(testkit.AppID, "user-code", "owner")
+	server, _ := connectTask(t, fake, leadStarts, "[[prompts]]\nwhen = \"Plans have a price.\"\nhang = true\n", noChange)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "working" })
+	authorize(t, server)
+
+	if status, body := send(t, server, http.MethodPost, "/api/repositories/owner/shop/issues/41/stop", ""); status != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+
+	if got := stateOfTask(t, server, 41); got != "open" {
+		t.Errorf("state = %s", got)
+	}
+	if state := taskState(t, server); state != "stopped" {
+		t.Errorf("task state = %s", state)
+	}
+	if implementers := endedImplementers(t, server, 1); implementers[0].EndReason.String != "stopped" {
+		t.Errorf("end reason = %s", implementers[0].EndReason.String)
+	}
+	if labels := fake.Labels(shop, 41); len(labels) != 0 {
+		t.Errorf("labels = %v", labels)
+	}
+}
+
+func TestStopStopsADispatchedTask(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddUserCode(testkit.AppID, "user-code", "owner")
+	server, _ := connect(t, fake, "")
+	dispatchTask(fake, 41, "Add plan model")
+	testkit.WaitFor(t, func() bool {
+		return taskState(t, server) == "dispatched" && slices.Equal(fake.Labels(shop, 41), []string{"mobius:working"}) && stateOfTask(t, server, 41) == "waits for start_implementer"
+	})
+	authorize(t, server)
+
+	if status, body := send(t, server, http.MethodPost, "/api/repositories/owner/shop/issues/41/stop", ""); status != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+
+	if state := taskState(t, server); state != "stopped" {
+		t.Errorf("task state = %s", state)
+	}
+	if got := stateOfTask(t, server, 41); got != "open" {
+		t.Errorf("state = %s", got)
+	}
+}
+
+func TestStopRefusesAnOpenIssueWithNoTaskAndChangesNoLabel(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddUserCode(testkit.AppID, "user-code", "owner")
+	fake.AddIssue(shop, 41, "Add plan model")
+	server := startCopied(t, fake)
+	authorize(t, server)
+
+	status, body := send(t, server, http.MethodPost, "/api/repositories/owner/shop/issues/41/stop", "")
+
+	if status != http.StatusConflict || !strings.Contains(body, "#41 has no task to stop.") {
+		t.Errorf("status = %d: %s", status, body)
+	}
+	if got := fake.Labels(shop, 41); len(got) != 0 {
+		t.Errorf("labels = %v", got)
+	}
 }

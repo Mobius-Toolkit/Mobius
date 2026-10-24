@@ -4697,6 +4697,80 @@ export const startIssue = async (owner: string,
 
 
 
+export type stopIssueResponse204 = {
+  data: void
+  status: 204
+}
+
+export type stopIssueResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type stopIssueResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type stopIssueResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
+export type stopIssueResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type stopIssueResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type stopIssueResponseSuccess = (stopIssueResponse204) & {
+  headers: Headers;
+};
+export type stopIssueResponseError = (stopIssueResponse400 | stopIssueResponse401 | stopIssueResponse409 | stopIssueResponse422 | stopIssueResponse500) & {
+  headers: Headers;
+};
+
+export type stopIssueResponse = (stopIssueResponseSuccess | stopIssueResponseError)
+
+export const getStopIssueUrl = (owner: string,
+    name: string,
+    number: number,) => {
+
+
+
+
+  return `/api/repositories/${owner}/${name}/issues/${number}/stop`
+}
+
+/**
+ * StopIssue stops the live task of an issue and its agents. An issue with mobius:ready and no live task gets mobius:triage instead, so Mobius does not start it. Mobius changes the labels of a ready issue with the user token of the Owner, so the Owner must authorize the Mobius App first. It returns 409 with the steps when the Owner did not, and with the reason when the issue has no task to stop.
+ */
+export const stopIssue = async (owner: string,
+    name: string,
+    number: number, ): Promise<stopIssueResponse> => {
+
+  const res = await fetch(getStopIssueUrl(owner,name,number),
+  {
+
+    method: 'POST'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: stopIssueResponse['data'] = body ? JSON.parse(body) : undefined
+  return { data, status: res.status, headers: res.headers } as stopIssueResponse
+}
+
+
+
 export type listMemoryVersionsResponse200 = {
   data: EnvelopeMemoryVersionsPage
   status: 200

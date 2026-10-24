@@ -2367,6 +2367,83 @@
         ]
       }
     },
+    "/api/repositories/{owner}/{name}/issues/{number}/stop": {
+      "post": {
+        "description": "StopIssue stops the live task of an issue and its agents. An issue with mobius:ready and no live task gets mobius:triage instead, so Mobius does not start it. Mobius changes the labels of a ready issue with the user token of the Owner, so the Owner must authorize the Mobius App first. It returns 409 with the steps when the Owner did not, and with the reason when the issue has no task to stop.",
+        "operationId": "StopIssue",
+        "parameters": [
+          {
+            "description": "Owner is the owner of the repository",
+            "in": "path",
+            "name": "owner",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Name is the name of the repository",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Number is the number of the issue",
+            "in": "path",
+            "name": "number",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "tasks"
+        ]
+      }
+    },
     "/api/repositories/{owner}/{name}/memory": {
       "get": {
         "description": "ListMemoryVersions returns a page of the versions of the memory file of the repository, the newest first, each with the result of the check of its revert. The first version of the first page is the current text of the file. It returns 404 when the repository is not a repository of Mobius.",
