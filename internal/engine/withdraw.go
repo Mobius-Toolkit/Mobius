@@ -33,6 +33,9 @@ func (e *Engine) withdraw(ctx context.Context, c caller, _ github.Repository, in
 		}
 		return "", refuse("Close a question on GitHub with close_question.")
 	case isCoordinatorQuestion(item) && c.role == CoordinatorRole && item.Organization == c.organization:
+		if err := e.queries.SetInboxItemWithdrawn(ctx, item.ID); err != nil {
+			return "", err
+		}
 		if err := e.Dismiss(ctx, item.ID); err != nil {
 			return "", err
 		}

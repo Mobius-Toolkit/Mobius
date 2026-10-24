@@ -576,7 +576,7 @@ func TestTheTranscriptMigrationRemovesTheDuplicatesAndAddsTheIndex(t *testing.T)
 			t.Fatal(err)
 		}
 	}
-	for _, column := range []string{"merging", "merge_refusal", "questions"} {
+	for _, column := range []string{"merging", "merge_refusal", "questions", "answer", "withdrawn"} {
 		if _, err := db.Exec("ALTER TABLE inbox_items DROP COLUMN " + column); err != nil {
 			t.Fatal(err)
 		}
@@ -695,6 +695,8 @@ func TestTheInboxMigrationsDismissTheOpenItemsAndKeepThePause(t *testing.T) {
 		"ALTER TABLE inbox_items DROP COLUMN merging",
 		"ALTER TABLE inbox_items DROP COLUMN merge_refusal",
 		"ALTER TABLE inbox_items DROP COLUMN questions",
+		"ALTER TABLE inbox_items DROP COLUMN answer",
+		"ALTER TABLE inbox_items DROP COLUMN withdrawn",
 		"ALTER TABLE chat_messages DROP COLUMN inbox_items",
 		"ALTER TABLE copied_issues DROP COLUMN parent_repository",
 		"DELETE FROM goose_db_version WHERE version_id >= 20261029100000",
@@ -808,6 +810,8 @@ func TestTheCoordinatorMigrationMovesTheChatSessionsAndTheChatMessages(t *testin
 		"ALTER TABLE inbox_items DROP COLUMN merging",
 		"ALTER TABLE inbox_items DROP COLUMN merge_refusal",
 		"ALTER TABLE inbox_items DROP COLUMN questions",
+		"ALTER TABLE inbox_items DROP COLUMN answer",
+		"ALTER TABLE inbox_items DROP COLUMN withdrawn",
 		"ALTER TABLE chat_messages DROP COLUMN inbox_items",
 		"ALTER TABLE copied_issues DROP COLUMN parent_repository",
 		"DELETE FROM goose_db_version WHERE version_id >= 20261105000000",

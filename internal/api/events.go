@@ -75,6 +75,8 @@ type LiveEvents struct {
 	Inbox *InboxItem `gork:"inbox"`
 	// Action is a new pending action, and each change of an action
 	Action *PendingAction `gork:"action"`
+	// Question is a question item with a chat message, when the question ends, with its final answer and withdrawn
+	Question *InboxItem `gork:"question"`
 	// Pauses is the list of the pauses of all Harnesses at each start and each end of a pause
 	Pauses *[]Pause `gork:"pauses"`
 	// CIStops is the list of the CI stops of all repositories at each change of a stop
@@ -210,7 +212,13 @@ func (h *handlers) sendChange(ctx context.Context, stream *api.Stream[LiveEvents
 		if err != nil {
 			return err
 		}
-		return stream.Send(LiveEvents{Inbox: &item})
+		if err := stream.Send(LiveEvents{Inbox: &item}); err != nil {
+			return err
+		}
+		if change.Inbox.Kind == "question" && change.Inbox.ChatMessage.Valid && change.Inbox.DismissedAt.Valid {
+			return stream.Send(LiveEvents{Question: &item})
+		}
+		return nil
 	case change.Action != nil:
 		action, err := h.actionOf(ctx, *change.Action)
 		if err != nil {
