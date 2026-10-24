@@ -1226,6 +1226,8 @@ test("screenshots", async ({ page }) => {
   await screenshot(page, "settings", "/settings", (device) => [
     ...frame(device, release, { upgrade: true }),
     main.getByRole("link", { name: "Devices" }),
+    main.getByText("v0.1.0", { exact: true }),
+    main.getByText("v0.1.3", { exact: true }),
   ]);
   await screenshot(
     page,
