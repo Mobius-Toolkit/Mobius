@@ -51,6 +51,43 @@ test("the page does not connect again in a loop after a 401", async ({ page }) =
   expect(apps).toBe(2);
 });
 
+test("the page shows the UI again after the next load succeeds", async ({ page }) => {
+  let failing = false;
+  await page.route("/api/github/apps", (route) =>
+    failing ? route.fulfill({ status: 500, json: { error: "apps failed" } }) : route.fallback(),
+  );
+  await page.goto("/workstreams/owner/shop/12");
+  const input = page.getByLabel("Message to the Lead");
+  await expect(input).toBeEditable();
+
+  failing = true;
+  await page.evaluate("window.dispatchEvent(new Event('online'))");
+  await expect(page.getByText("apps failed")).toBeVisible();
+
+  failing = false;
+  await page.evaluate("window.dispatchEvent(new Event('online'))");
+  await expect(page.getByText("apps failed")).toBeHidden();
+  await expect(input).toBeEditable();
+});
+
+test("the error of one request of a load stays when the other request succeeds", async ({
+  page,
+}) => {
+  let failing = false;
+  await page.route("/api/github/apps", (route) =>
+    failing ? route.fulfill({ status: 500, json: { error: "apps failed" } }) : route.fallback(),
+  );
+  await page.goto("/workstreams/owner/shop/12");
+  await expect(page.getByLabel("Message to the Lead")).toBeEditable();
+
+  failing = true;
+  const organizations = page.waitForResponse("/api/organizations");
+  await page.evaluate("window.dispatchEvent(new Event('online'))");
+  expect((await organizations).status()).toBe(200);
+
+  await expect(page.getByText("apps failed")).toBeVisible();
+});
+
 test("the page connects again when no ping comes", async ({ page }) => {
   await page.clock.install();
   let requests = 0;

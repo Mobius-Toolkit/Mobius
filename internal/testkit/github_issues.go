@@ -408,6 +408,14 @@ func (g *FakeGitHub) FailAddLabels(repository string, number int64, fail bool) {
 	g.failedLabels[issueKey{repository, number}] = fail
 }
 
+// KeepLabelFromBot makes each removal of label from the issue by a bot fail, so only a user can remove it. An empty
+// label makes the removal work again.
+func (g *FakeGitHub) KeepLabelFromBot(repository string, number int64, label string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.botKeptLabels[issueKey{repository, number}] = label
+}
+
 // LabelWrites gives the number of label additions and removals that Mobius sent for the issue, with or without an effect.
 func (g *FakeGitHub) LabelWrites(repository string, number int64) int {
 	g.mu.Lock()
@@ -564,6 +572,15 @@ func (g *FakeGitHub) LabelActor(repository string, number int64, label string) s
 		}
 	}
 	return ""
+}
+
+// LabelAddedBy tells whether the issue has a labeled event of label by actor.
+func (g *FakeGitHub) LabelAddedBy(repository string, number int64, label, actor string) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return slices.ContainsFunc(g.issues[issueKey{repository, number}].events, func(event eventJSON) bool {
+		return event.Event == "labeled" && event.Label.Name == label && event.Actor.Login == actor
+	})
 }
 
 // LabelRemovedBy tells whether the issue has an unlabeled event of label by actor.
@@ -1302,6 +1319,10 @@ func (g *FakeGitHub) removeLabel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	g.labelWrites[key]++
+	if kept := g.botKeptLabels[key]; kept != "" && kept == r.PathValue("name") && strings.HasSuffix(caller.login, "[bot]") {
+		message(w, http.StatusForbidden, "Forbidden")
+		return
+	}
 	if !g.unlabel(key, r.PathValue("name"), caller.login) {
 		notFound(w)
 		return

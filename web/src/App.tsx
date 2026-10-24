@@ -186,7 +186,7 @@ function App() {
   }, [live]);
 
   const load = useCallback(() => {
-    listGitHubApps()
+    const appsLoaded = listGitHubApps()
       .then((res) => {
         if (res.status === 401) {
           setLoginShown(true);
@@ -195,9 +195,13 @@ function App() {
         } else {
           setError(res.data.error);
         }
+        return res.status === 200;
       })
-      .catch((err: unknown) => setError(String(err)));
-    listOrganizations()
+      .catch((err: unknown) => {
+        setError(String(err));
+        return false;
+      });
+    const organizationsLoaded = listOrganizations()
       .then((res) => {
         if (res.status === 200) {
           const list = res.data.data;
@@ -211,8 +215,17 @@ function App() {
             list.includes(current) ? current : list.includes(saved) ? saved : (list[0] ?? ""),
           );
         }
+        return res.status === 200;
       })
-      .catch((err: unknown) => setError(String(err)));
+      .catch((err: unknown) => {
+        setError(String(err));
+        return false;
+      });
+    void Promise.all([appsLoaded, organizationsLoaded]).then(([appsOk, organizationsOk]) => {
+      if (appsOk && organizationsOk) {
+        setError(undefined);
+      }
+    });
   }, []);
 
   useEffect(() => {
