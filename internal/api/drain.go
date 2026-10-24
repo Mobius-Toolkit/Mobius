@@ -126,6 +126,25 @@ func (h *handlers) GetRelease(ctx context.Context, _ GetReleaseRequest) (*GetRel
 	return &GetReleaseResponse{Body: Envelope[Release]{Data: Release{Version: version}}}, nil
 }
 
+// Version is the version of the program.
+type Version struct {
+	// Release is the release tag of this program, for example v0.2.0. It is empty for a local build
+	Release string `gork:"release"`
+}
+
+// GetVersionRequest is the request of GetVersion.
+type GetVersionRequest struct{}
+
+// GetVersionResponse is the response of GetVersion.
+type GetVersionResponse struct {
+	Body Envelope[Version]
+}
+
+// GetVersion returns the release tag of this program.
+func (h *handlers) GetVersion(_ context.Context, _ GetVersionRequest) (*GetVersionResponse, error) {
+	return &GetVersionResponse{Body: Envelope[Version]{Data: Version{Release: engine.Release}}}, nil
+}
+
 // ListReleaseChangesRequest is the request of ListReleaseChanges.
 type ListReleaseChangesRequest struct{}
 
