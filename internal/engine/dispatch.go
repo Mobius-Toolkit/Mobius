@@ -852,27 +852,30 @@ func (e *Engine) closeQuestion(ctx context.Context, repository github.Repository
 			return err
 		}
 	}
+	if answer != "" {
+		items, err := e.openIssueItems(ctx, repository.FullName, number, questionKind)
+		if err != nil {
+			return err
+		}
+		for _, item := range items {
+			if err := e.queries.SetInboxItemAnswer(ctx, store.SetInboxItemAnswerParams{Answer: answer, ID: item.ID}); err != nil {
+				return err
+			}
+		}
+	}
 	if err := repository.RemoveLabel(ctx, number, questionLabel); err != nil {
 		return err
 	}
 	if err := e.changeCopiedLabels(ctx, repository.FullName, number, nil, []string{questionLabel}); err != nil {
 		return err
 	}
-	items, err := e.Inbox(ctx)
+	items, err := e.openIssueItems(ctx, repository.FullName, number, questionKind)
 	if err != nil {
 		return err
 	}
 	for _, item := range items {
-		if item.Repository != repository.FullName || item.Issue != number || item.Kind != questionKind {
-			continue
-		}
 		if err := e.reopenStoppedItem(ctx, item); err != nil {
 			return err
-		}
-		if answer != "" {
-			if err := e.queries.SetInboxItemAnswer(ctx, store.SetInboxItemAnswerParams{Answer: answer, ID: item.ID}); err != nil {
-				return err
-			}
 		}
 		if err := e.Dismiss(ctx, item.ID); err != nil {
 			return err
