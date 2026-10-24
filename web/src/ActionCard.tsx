@@ -1,30 +1,25 @@
-import { useId, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { ActionLabel, ChatMessage, PendingAction } from "@/api/api.gen";
+import { Link } from "@tanstack/react-router";
+import { useId, useMemo, useState } from "react";
+import {
+  InboxItemKind,
+  type ActionLabel,
+  type ChatMessage,
+  type InboxItem,
+  type PendingAction,
+} from "@/api/api.gen";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { actionState, roleName } from "@/lib/actions";
 import { briefMarkdown } from "@/lib/briefDiff";
 import { diffLines } from "@/lib/diff";
 import { clock } from "@/lib/time";
-import { cn } from "@/lib/utils";
+import { chatParams } from "@/lib/workstreams";
+import { AnswerPanel } from "./AnswerPanel";
 import { diffMarks } from "./diffMarks";
+import { link } from "./Inbox";
 import { Markdown } from "./Markdown";
-
-// The height of about six lines of text. A longer value shows only this part until the Owner opens it.
-const collapsedHeight = 144;
-
-function actionState(action: PendingAction) {
-  if (action.state === "pending") {
-    return action.error ? "Failed" : "Waits for the approval";
-  }
-  return {
-    done: "Done",
-    rejected: "Rejected",
-    replaced: "Replaced",
-    withdrawn: "Withdrawn by the agent",
-  }[action.state];
-}
 
 const isShort = (value: string) => !value.includes("\n") && value.length <= 80;
 
@@ -120,66 +115,7 @@ export function FullArgument({
   );
 }
 
-function Argument({
-  name,
-  value,
-  labels,
-  before,
-  open,
-  toggle,
-}: {
-  name: string;
-  value: string;
-  labels: ActionLabel[];
-  before?: string;
-  open: boolean;
-  toggle: () => void;
-}) {
-  const box = useRef<HTMLDivElement>(null);
-  const [long, setLong] = useState(false);
-  const [showRemoved, setShowRemoved] = useState(false);
-  useLayoutEffect(() => {
-    const content = box.current?.firstElementChild;
-    if (!content) {
-      return;
-    }
-    const observer = new ResizeObserver(() => setLong(content.clientHeight > collapsedHeight));
-    observer.observe(content);
-    return () => observer.disconnect();
-  }, []);
-
-  if (name === "labels" || (before === undefined && isShort(value))) {
-    return <FullArgument name={name} value={value} labels={labels} />;
-  }
-  return (
-    <div className="grid min-w-0 gap-0.5">
-      <span className="text-xs text-muted-foreground">{name}</span>
-      <div ref={box} className={cn("min-w-0", !open && "max-h-36 overflow-hidden")}>
-        <div>
-          {before === undefined ? (
-            <Markdown text={value} />
-          ) : (
-            <BriefView before={before} after={value} hideRemoved={!showRemoved} />
-          )}
-        </div>
-      </div>
-      {(long || before !== undefined) && (
-        <div className="flex flex-wrap gap-2">
-          {long && (
-            <Button variant="ghost" size="sm" onClick={toggle}>
-              {open ? "Show less" : "Show all"}
-            </Button>
-          )}
-          {before !== undefined && (
-            <RemovedSwitch checked={showRemoved} onCheckedChange={setShowRemoved} />
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function Outcome({ label, text }: { label: string; text: string }) {
+export function Outcome({ label, text }: { label: string; text: string }) {
   return (
     <div className="grid min-w-0 gap-0.5">
       <span className="text-xs text-muted-foreground">{label}</span>
@@ -188,52 +124,121 @@ function Outcome({ label, text }: { label: string; text: string }) {
   );
 }
 
-// The record of the action in the chat history. The Owner decides in the panel that the tray opens.
-export function ActionCard({ message, action }: { message: ChatMessage; action: PendingAction }) {
-  const [open, setOpen] = useState<string[]>([]);
-  const failed = action.state === "pending" && action.error !== "";
+// The read-only dialog of a decided action has no Inbox item, so it gets an item that holds only the action.
+const detailsItem = (message: ChatMessage, action: PendingAction): InboxItem => ({
+  action,
+  dismissedAt: null,
+  id: 0,
+  issue: 0,
+  kind: InboxItemKind.approval,
+  link: "",
+  mergeRefusal: "",
+  merging: false,
+  organization: "",
+  pullRequest: 0,
+  pullRequestUrl: "",
+  questions: [],
+  reason: "",
+  reportUrl: "",
+  repository: "",
+  text: "",
+  time: action.time,
+  title: message.text,
+  todo: null,
+  workstream: 0,
+  workstreamRepository: "",
+});
+
+export function ActionSender({
+  action,
+  onNavigate,
+}: {
+  action: PendingAction;
+  onNavigate?: () => void;
+}) {
+  return (
+    <span className="text-muted-foreground wrap-anywhere">
+      {roleName[action.role]}
+      {action.sender && (
+        <>
+          {" of "}
+          <Link
+            to="/workstreams/$owner/$name/$number"
+            params={chatParams(action.sender)}
+            onClick={onNavigate}
+            className={link}
+          >
+            {`#${action.sender.number}${action.sender.title && ` ${action.sender.title}`}`}
+          </Link>
+        </>
+      )}{" "}
+      · {clock(action.time)}
+    </span>
+  );
+}
+
+// The record of the action in the chat history. item is the Inbox item of a pending action. The Owner decides in the
+// dialog that the button opens.
+export function ActionCard({
+  message,
+  action,
+  item,
+  onDecided,
+}: {
+  message: ChatMessage;
+  action: PendingAction;
+  item?: InboxItem;
+  onDecided: (action: PendingAction) => void;
+}) {
+  const [panel, setPanel] = useState<"answer" | "details" | null>(null);
+  // A decision hides the Inbox item while it runs, and the row of the tray shows the dialog again after a failure.
+  if (panel === "answer" && !item) {
+    setPanel(null);
+  }
+  const pending = action.state === "pending";
+  const failed = pending && action.error !== "";
+  const outcome = failed ? action.error : action.state === "done" ? action.result : "";
 
   return (
     <div
       data-message={message.id}
       data-action={action.id}
-      className="grid max-w-full grid-cols-[minmax(0,1fr)] gap-2 justify-self-stretch rounded-xl border bg-card px-3 py-2"
+      className="grid max-w-full grid-cols-[minmax(0,1fr)] gap-1 justify-self-stretch rounded-xl border bg-card px-3 py-2"
     >
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        <span>{message.author}</span>
-        <span>{clock(message.time)}</span>
+      <div className="text-xs">
+        <ActionSender action={action} />
       </div>
-      <Badge variant="outline" className="justify-self-start font-mono">
-        {action.tool}
-      </Badge>
-      {action.arguments
-        .filter((argument) => !(action.tool === "message_lead" && argument.name === "workstream"))
-        .map((argument) => (
-          <Argument
-            key={argument.name}
-            {...argument}
-            before={
-              action.tool === "edit_brief" && argument.name === "brief" && action.oldBrief !== ""
-                ? action.oldBrief
-                : undefined
-            }
-            open={open.includes(argument.name)}
-            toggle={() =>
-              setOpen((names) =>
-                names.includes(argument.name)
-                  ? names.filter((name) => name !== argument.name)
-                  : [...names, argument.name],
-              )
-            }
-          />
-        ))}
-      <Badge variant={failed ? "destructive" : "secondary"} className="justify-self-start">
-        {actionState(action)}
-      </Badge>
-      {action.state === "done" && <Outcome label="Result" text={action.result} />}
-      {failed && <Outcome label="Error" text={action.error} />}
-      {(action.state === "done" || action.state === "rejected") && action.message && (
-        <Outcome label="Your message" text={action.message} />
+      <p className="line-clamp-2 wrap-anywhere">{message.text}</p>
+      <div className="flex items-center gap-2">
+        <div className="flex min-w-0 grow flex-wrap items-center gap-x-2 gap-y-1">
+          <Badge variant={failed ? "destructive" : "secondary"}>{actionState(action)}</Badge>
+          {outcome && (
+            <span className="line-clamp-2 min-w-0 text-sm wrap-anywhere whitespace-pre-line">
+              {outcome}
+            </span>
+          )}
+        </div>
+        {pending ? (
+          item && (
+            <Button size="sm" onClick={() => setPanel("answer")}>
+              Answer
+            </Button>
+          )
+        ) : (
+          <Button variant="ghost" size="sm" onClick={() => setPanel("details")}>
+            Details
+          </Button>
+        )}
+      </div>
+      {panel === "answer" && item && (
+        <AnswerPanel item={item} input onClose={() => setPanel(null)} onDecided={onDecided} />
+      )}
+      {panel === "details" && (
+        <AnswerPanel
+          item={detailsItem(message, action)}
+          input={false}
+          onClose={() => setPanel(null)}
+        />
       )}
     </div>
   );

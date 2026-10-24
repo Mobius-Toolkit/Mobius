@@ -6,7 +6,6 @@ import {
   cardOf,
   checksQuestion,
   createTitle,
-  draftText,
   draftWorkstream,
   dropColumn,
   editBrief,
@@ -20,7 +19,6 @@ import {
   settle,
   stopUnknown,
   storeQuestion,
-  unknownText,
   unknownTitle,
   waitText,
 } from "./actions.js";
@@ -1590,11 +1588,12 @@ test("screenshots", async ({ page }) => {
     (device) => [
       ...approvalReady(device, "3"),
       waits(2),
-      cardOf(page, draftText).getByText("mobius:maintenance"),
-      cardOf(page, draftText).getByRole("button", { name: "Show all" }),
+      cardOf(page, createTitle).getByText("Waits for the approval"),
+      cardOf(page, createTitle).getByRole("button", { name: "Answer" }),
+      cardOf(page, leadTitle).getByRole("button", { name: "Answer" }),
       row(leadTitle).getByRole("button", { name: "Answer" }),
     ],
-    showEnd(draftText),
+    showEnd(createTitle),
   );
   await screenshot(
     page,
@@ -1607,7 +1606,7 @@ test("screenshots", async ({ page }) => {
       panel.getByRole("button", { name: "Approve" }),
     ],
     async () => {
-      await showEnd(draftText)();
+      await showEnd(createTitle)();
       await answer(createTitle, "Go ahead. Start with the table.")();
     },
     closePanel,
@@ -1623,7 +1622,7 @@ test("screenshots", async ({ page }) => {
       panel.getByText("Gift cards", { exact: true }),
     ],
     async () => {
-      await showEnd(draftText)();
+      await showEnd(createTitle)();
       await answer(createTitle, "Go ahead. Start with the table.")();
       await expect
         .poll(() =>
@@ -1653,28 +1652,10 @@ test("screenshots", async ({ page }) => {
       panel.getByRole("button", { name: "Reject" }),
     ],
     async () => {
-      await showEnd(draftText)();
+      await showEnd(createTitle)();
       await answer(leadTitle, "Wait for the migration of #12.")();
     },
     closePanel,
-  );
-  await screenshot(
-    page,
-    "action-show-all",
-    "/chat",
-    (device) => [
-      ...approvalReady(device, "3"),
-      waits(2),
-      cardOf(page, draftText).getByRole("button", { name: "Show less" }),
-      cardOf(page, draftText).getByText(
-        "A Playwright test buys a gift card and pays an order with its code.",
-      ),
-    ],
-    async () => {
-      const card = cardOf(page, draftText);
-      await card.getByRole("button", { name: "Show all" }).click();
-      await card.evaluate((el) => el.scrollIntoView({ block: "start" }));
-    },
   );
   await screenshot(page, "action-inbox", "/inbox", (device) => [
     ...frame(device, release, { organizations: true }, "3"),
@@ -1695,16 +1676,42 @@ test("screenshots", async ({ page }) => {
     (device) => [
       ...approvalReady(device, "4"),
       panel.getByRole("alert").getByText(/#9999 is not an open Workstream/),
-      cardOf(page, unknownText).getByText("Failed", { exact: true }),
+      cardOf(page, unknownTitle).getByText("Failed", { exact: true }),
+      cardOf(page, unknownTitle).getByText(/#9999 is not an open Workstream/),
     ],
     async () => {
       await answer(unknownTitle, "Go ahead.")();
       await panel.getByRole("button", { name: "Approve" }).click();
       await expect(panel.getByRole("alert")).toBeVisible();
       await idle(page);
-      await showEnd(unknownText)();
+      await showEnd(unknownTitle)();
     },
     closePanel,
+  );
+  await screenshot(
+    page,
+    "action-failed-card",
+    "/chat",
+    (device) => [
+      ...approvalReady(device, "4"),
+      cardOf(page, unknownTitle).getByText("Failed", { exact: true }),
+      cardOf(page, unknownTitle).getByText(/#9999 is not an open Workstream/),
+      cardOf(page, unknownTitle).getByRole("button", { name: "Answer" }),
+    ],
+    async () => {
+      await expect(panel).toBeHidden();
+      await showEnd(unknownTitle)();
+      await expect
+        .poll(() =>
+          cardOf(page, unknownTitle).evaluate((el) => {
+            el.scrollIntoView({ block: "center" });
+            const box = el.parentElement?.getBoundingClientRect();
+            const found = el.getBoundingClientRect();
+            return !!box && found.top >= box.top && found.bottom <= box.bottom;
+          }),
+        )
+        .toBe(true);
+    },
   );
   await screenshot(
     page,
@@ -1713,8 +1720,8 @@ test("screenshots", async ({ page }) => {
     (device) => [
       ...approvalReady(device, "3"),
       waits(2),
-      cardOf(page, unknownText).getByText("Rejected", { exact: true }),
-      cardOf(page, unknownText).getByText("Wait for the migration of #12."),
+      cardOf(page, unknownTitle).getByText("Rejected", { exact: true }),
+      cardOf(page, unknownTitle).getByRole("button", { name: "Details" }),
     ],
     async (device) => {
       if (device === "desktop") {
@@ -1722,14 +1729,13 @@ test("screenshots", async ({ page }) => {
         await panel.getByRole("button", { name: "Reject" }).click();
         await expect(panel).toBeHidden();
       }
-      const card = cardOf(page, unknownText);
+      const card = cardOf(page, unknownTitle);
       await expect(card.getByText("Rejected", { exact: true })).toBeVisible();
-      await expect(card.getByText("Wait for the migration of #12.")).toBeVisible();
       await expect(waits(2)).toBeVisible();
-      await showEnd(unknownText)();
+      await showEnd(unknownTitle)();
     },
   );
-  const unknownAction = await cardOf(page, unknownText).getAttribute("data-action");
+  const unknownAction = await cardOf(page, unknownTitle).getAttribute("data-action");
   const setUnknownAction = async (state: string, message: string) => {
     const query = new URLSearchParams({ state, message });
     expect((await page.request.put(`/e2e/actions/${unknownAction}/state?${query}`)).ok()).toBe(
@@ -1744,9 +1750,10 @@ test("screenshots", async ({ page }) => {
     (device) => [
       ...approvalReady(device, "3"),
       waits(2),
-      cardOf(page, unknownText).getByText("Withdrawn by the agent", { exact: true }),
+      cardOf(page, unknownTitle).getByText("Withdrawn by the agent", { exact: true }),
+      cardOf(page, unknownTitle).getByRole("button", { name: "Details" }),
     ],
-    showEnd(unknownText),
+    showEnd(unknownTitle),
   );
   await setUnknownAction("rejected", "Wait for the migration of #12.");
 
@@ -1791,7 +1798,7 @@ test("screenshots", async ({ page }) => {
   await expect(waits(1)).toBeVisible({ timeout: 30_000 });
   await fixActionTimes();
   const openBrief = async () => {
-    await showEnd("edit_brief")();
+    await showEnd(briefTitle)();
     await row(briefTitle).getByRole("button", { name: "Answer" }).click();
     await expect(addedText(panel)).toHaveCount(2);
   };
@@ -1836,7 +1843,7 @@ test("screenshots", async ({ page }) => {
   await decide(page, panel, "approve");
   await expect(panel).toBeHidden();
   await expect(waits(1)).toBeHidden();
-  const briefCard = () => cardOf(page, "edit_brief");
+  const briefCard = () => cardOf(page, briefTitle);
   const unreadBrief = () =>
     page.evaluate(`fetch("/api/unread")
       .then((response) => response.json())
@@ -1844,7 +1851,7 @@ test("screenshots", async ({ page }) => {
   const showBriefCard = async () => {
     const card = briefCard();
     await expect(card.getByText("Done", { exact: true })).toBeVisible();
-    await expect(addedText(card)).toHaveCount(2);
+    await expect(card.getByRole("button", { name: "Details" })).toBeVisible();
     await expect.poll(unreadBrief).toBe(false);
     await expect
       .poll(() =>
@@ -1862,38 +1869,58 @@ test("screenshots", async ({ page }) => {
   await page.goto("/workstreams/owner/shop/14");
   await expect(briefCard().getByText("Done", { exact: true })).toBeVisible();
   await fixActionTimes();
-  const briefDone = (device: string) => [
-    ...approvalReady(device, "1"),
-    briefCard().getByRole("button", { name: "Show all" }),
-    addedText(briefCard()).first(),
-    removedSwitch(briefCard()),
-  ];
   await screenshot(
     page,
     "action-brief-done",
     "/workstreams/owner/shop/14",
-    briefDone,
+    (device) => [
+      ...approvalReady(device, "1"),
+      briefCard().getByText("Done", { exact: true }),
+      briefCard().getByRole("button", { name: "Details" }),
+    ],
     showBriefCard,
   );
+  const openBriefDetails = async () => {
+    await showBriefCard();
+    await briefCard().getByRole("button", { name: "Details" }).click();
+    await expect(addedText(panel)).toHaveCount(2);
+  };
   await screenshot(
     page,
-    "action-brief-done-all",
+    "action-brief-details",
     "/workstreams/owner/shop/14",
     (device) => [
       ...approvalReady(device, "1"),
-      briefCard().getByRole("button", { name: "Show less" }),
-      removedText(briefCard()).last(),
-      addedText(briefCard()).last(),
-      removedSwitch(briefCard()),
+      addedText(panel).first(),
+      addedText(panel).last(),
+      removedSwitch(panel),
     ],
     async () => {
-      await showBriefCard();
-      await briefCard().getByRole("button", { name: "Show all" }).click();
-      await removedSwitch(briefCard()).click();
-      await expect(removedSwitch(briefCard())).toBeChecked();
-      await expect(removedText(briefCard())).toHaveCount(2);
-      await briefCard().evaluate((el) => el.scrollIntoView({ block: "start" }));
+      await openBriefDetails();
+      await expect(removedSwitch(panel)).not.toBeChecked();
+      await expect(removedText(panel)).toHaveCount(0);
     },
+    () => page.keyboard.press("Escape"),
+  );
+  await screenshot(
+    page,
+    "action-brief-details-all",
+    "/workstreams/owner/shop/14",
+    (device) => [
+      ...approvalReady(device, "1"),
+      removedText(panel).first(),
+      removedText(panel).last(),
+      addedText(panel).first(),
+      addedText(panel).last(),
+      removedSwitch(panel),
+    ],
+    async () => {
+      await openBriefDetails();
+      await removedSwitch(panel).click();
+      await expect(removedSwitch(panel)).toBeChecked();
+      await expect(removedText(panel)).toHaveCount(2);
+    },
+    () => page.keyboard.press("Escape"),
   );
   await restoreBrief(page);
   await settle(page);
