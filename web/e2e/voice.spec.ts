@@ -665,6 +665,54 @@ test("Send during a conversion keeps it, and the text goes into the empty field"
   await expect(start(page)).toBeVisible();
 });
 
+test("a refused Send keeps the text of a conversion that answers while the message goes out", async ({
+  page,
+}) => {
+  await page.addInitScript(`
+    window.refuseSend = false;
+    const add = IDBObjectStore.prototype.add;
+    IDBObjectStore.prototype.add = function (value) {
+      if (!window.refuseSend) {
+        return add.call(this, value);
+      }
+      // The transaction stays open until the test lets the add fail with a duplicate key.
+      const store = this;
+      const wait = () => {
+        const request = store.count();
+        request.onsuccess = () => {
+          if (window.refuseSend === "now") {
+            add.call(store, value);
+            add.call(store, value);
+          } else {
+            wait();
+          }
+        };
+        return request;
+      };
+      return wait();
+    };
+  `);
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  await page.route("**/api/voice/transcriptions", async (route) => {
+    await held;
+    await route.fulfill({ json: { data: { text: "red roses" } } });
+  });
+  await page.goto(shop);
+  const input = page.getByLabel("Message to the Lead");
+  await begin(page);
+  await stop(page).click();
+  await expect(page.getByRole("button", { name: "Converting the voice input" })).toBeVisible();
+  await input.fill("Add a plan");
+  await page.evaluate("window.refuseSend = true");
+  await send(page).click();
+  await expect(input).toHaveValue("");
+  release();
+  await expect(input).toHaveValue("red roses");
+  await page.evaluate("window.refuseSend = 'now'");
+  await expect(input).toHaveValue("Add a plan red roses");
+});
+
 test("Send after a failed conversion keeps the error and Send again", async ({ page }) => {
   let files = 0;
   await page.route("**/api/voice/transcriptions", (route) =>

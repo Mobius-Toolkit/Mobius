@@ -242,7 +242,7 @@ export function MessageInput({
         if (!done) {
           // The Chat button of an Inbox row can add an item while the message goes out.
           void updateDraft(draftKey, (draft) => ({
-            text,
+            text: draft.text === text ? text : [text, draft.text].filter(Boolean).join(" "),
             images,
             inboxItems: [
               ...inboxItems,
@@ -265,7 +265,7 @@ export function MessageInput({
     const done = await onDecide(decision, text);
     setDeciding(false);
     if (done) {
-      setText("");
+      void updateDraft(draftKey, (draft) => (draft.text === text ? { ...draft, text: "" } : draft));
     }
   };
 
