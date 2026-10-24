@@ -1750,6 +1750,92 @@
         ]
       }
     },
+    "/api/inbox/{id}/done": {
+      "post": {
+        "description": "DoneInboxItem marks the todo of an open todo Inbox item as done, with the note, and removes the item from the Inbox. When the todo was the last mandatory todo of a task with the automatic merge of Autopilot, Mobius approves the pull request for the merge. It returns the changed item. It returns 404 for an unknown item and 409 for an item that is not an open todo.",
+        "operationId": "DoneInboxItem",
+        "parameters": [
+          {
+            "description": "ID is the id of the Inbox item",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DoneInboxItemBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_InboxItem"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "inbox"
+        ]
+      }
+    },
     "/api/inbox/{id}/merge": {
       "post": {
         "description": "MergeInboxItem approves the pull request of a ready for review Inbox item with the user token of the Owner, so the Owner must authorize the Mobius App first. Mobius then merges the pull request with the checks of an approval on GitHub. It returns the item in the merging state. It returns 404 for an unknown item, and 409 with the reason for an item that is not open, for a task that is not ready for review, for a pull request that is not open, and when the Owner did not authorize the App.",
@@ -5335,6 +5421,16 @@
         ],
         "description": "Devices are the device logins."
       },
+      "DoneInboxItemBody": {
+        "type": "object",
+        "title": "DoneInboxItemBody",
+        "properties": {
+          "note": {
+            "type": "string",
+            "description": "Note is the note of the Owner, or empty"
+          }
+        }
+      },
       "Drain": {
         "type": "object",
         "title": "Drain",
@@ -6055,7 +6151,7 @@
           },
           "kind": {
             "type": "string",
-            "description": "Kind tells what the item is about: question for a question of the Lead on an issue, Lead failed for a message that the Lead did not take, ready for review for a pull request of a task, stopped for a task that a person must continue (a stale pull request or a session that Mobius stopped after its hangs), lost for a task that Mobius lost, and full disk for a local check that waits for free disk space, and approval for a tool call of an agent that waits for the approval of the Owner",
+            "description": "Kind tells what the item is about: question for a question of the Lead on an issue, Lead failed for a message that the Lead did not take, ready for review for a pull request of a task, stopped for a task that a person must continue (a stale pull request or a session that Mobius stopped after its hangs), lost for a task that Mobius lost, and full disk for a local check that waits for free disk space, and approval for a tool call of an agent that waits for the approval of the Owner, and todo for a deployment need of a pull request",
             "enum": [
               "question",
               "Lead failed",
@@ -6063,7 +6159,8 @@
               "stopped",
               "lost",
               "full disk",
-              "approval"
+              "approval",
+              "todo"
             ]
           },
           "link": {
@@ -6123,6 +6220,17 @@
             "type": "string",
             "description": "Title is the title of the issue, or empty"
           },
+          "todo": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Todo"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Todo is the deployment need of a todo item, or null for another item"
+          },
           "workstream": {
             "type": "integer",
             "description": "Workstream is the number of the Workstream issue, or 0 for an issue with no Workstream"
@@ -6152,7 +6260,8 @@
           "merging",
           "mergeRefusal",
           "questions",
-          "action"
+          "action",
+          "todo"
         ],
         "description": "InboxItem is an item of the Inbox of the Owner."
       },
@@ -7389,6 +7498,50 @@
           "results"
         ],
         "description": "TimeStat is the duration statistics of the step rows of one kind or of the task state rows of one state."
+      },
+      "Todo": {
+        "type": "object",
+        "title": "Todo",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "description": "Kind is the kind of the need: env_var, config, secret or manual_step"
+          },
+          "line": {
+            "type": "integer",
+            "description": "Line is the line of the file that adds the need"
+          },
+          "mandatory": {
+            "type": "boolean",
+            "description": "Mandatory is true when the deployment fails or the application does not start without it"
+          },
+          "name": {
+            "type": "string",
+            "description": "Name is the name of the need, for example the name of the env var"
+          },
+          "note": {
+            "type": "string",
+            "description": "Note is the note of the Owner when the todo is done, or empty"
+          },
+          "path": {
+            "type": "string",
+            "description": "Path is the file that adds the need"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Reason tells why the deployment needs it"
+          }
+        },
+        "required": [
+          "kind",
+          "name",
+          "path",
+          "line",
+          "reason",
+          "mandatory",
+          "note"
+        ],
+        "description": "Todo is the deployment need of a todo Inbox item."
       },
       "ToolCheck": {
         "type": "object",
