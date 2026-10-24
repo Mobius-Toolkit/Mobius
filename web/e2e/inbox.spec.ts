@@ -453,3 +453,114 @@ test("the row shows the refusal of the route, and Merge works again", async ({ p
   await expect(row.getByText("The task of #30 is not ready for review.")).toBeVisible();
   await expect(row.getByRole("button", { name: "Merge" })).toBeEnabled();
 });
+
+const todo = {
+  ...base,
+  id: 7,
+  issue: 40,
+  kind: "todo",
+  title: "MOBIUS_SMTP_HOST",
+  reason: "mandatory · Deployment needs",
+  text: "env_var: MOBIUS_SMTP_HOST",
+  link: `${link}/issues/40`,
+  pullRequest: 1110,
+  pullRequestUrl: `${link}/pull/1110`,
+  todo: {
+    kind: "env_var",
+    name: "MOBIUS_SMTP_HOST",
+    path: "internal/config/config.go",
+    line: 42,
+    mandatory: true,
+    reason: "The server reads it at the start and has no default.",
+    note: "",
+  },
+};
+
+async function openTodo(page: Page) {
+  await routeInbox(page, [todo]);
+  await page.goto("/inbox");
+  const row = page.getByRole("main").getByRole("listitem");
+  await expect(row.getByRole("button")).toHaveText(["Done…", "Chat", "Details"]);
+  await expect(row.getByRole("link", { name: "Open PR" })).toHaveAttribute(
+    "href",
+    `${link}/pull/1110`,
+  );
+  await row.getByRole("button", { name: "Done…" }).click();
+  return { row, panel: page.getByRole("dialog") };
+}
+
+test("Done opens a panel with the details of the need, and the note marks the todo as done", async ({
+  page,
+}) => {
+  const bodies: unknown[] = [];
+  await page.route("**/api/inbox/7/done", (route) => {
+    bodies.push(route.request().postDataJSON());
+    return route.fulfill({ json: { data: { ...todo, dismissedAt: "2026-09-28T09:40:00Z" } } });
+  });
+  const { row, panel } = await openTodo(page);
+
+  await expect(panel.getByRole("heading", { name: "MOBIUS_SMTP_HOST" })).toBeVisible();
+  await expect(panel.getByText("Mandatory env var")).toBeVisible();
+  await expect(
+    panel.getByText("Reason: The server reads it at the start and has no default."),
+  ).toBeVisible();
+  await expect(panel.getByText("File: internal/config/config.go:42")).toBeVisible();
+  await expect(panel.getByRole("link", { name: "PR #1110 ↗" })).toHaveAttribute(
+    "href",
+    `${link}/pull/1110`,
+  );
+  await expect(panel.getByText("Mobius merges after this todo is done.")).toBeVisible();
+  await panel.getByRole("textbox", { name: "Note" }).fill("Set in prod.");
+  const response = page.waitForResponse("**/api/inbox/7/done");
+  await panel.getByRole("button", { name: "Send" }).click();
+  await response;
+
+  expect(bodies).toEqual([{ note: "Set in prod." }]);
+  await expect(panel).toHaveCount(0);
+  await expect(row).toHaveCount(0);
+});
+
+test("a todo with an empty note is marked as done", async ({ page }) => {
+  const bodies: unknown[] = [];
+  await page.route("**/api/inbox/7/done", (route) => {
+    bodies.push(route.request().postDataJSON());
+    return route.fulfill({ json: { data: { ...todo, dismissedAt: "2026-09-28T09:40:00Z" } } });
+  });
+  const { row, panel } = await openTodo(page);
+
+  await expect(panel.getByRole("textbox", { name: "Note" })).toHaveAttribute(
+    "placeholder",
+    "Note (optional)",
+  );
+  const response = page.waitForResponse("**/api/inbox/7/done");
+  await panel.getByRole("button", { name: "Send" }).click();
+  await response;
+
+  expect(bodies).toEqual([{ note: "" }]);
+  await expect(panel).toHaveCount(0);
+  await expect(row).toHaveCount(0);
+});
+
+test("a failed done keeps the panel and shows the error", async ({ page }) => {
+  await page.route("**/api/inbox/7/done", (route) =>
+    route.fulfill({ status: 409, json: { error: "This item is not an open todo." } }),
+  );
+  const { panel } = await openTodo(page);
+
+  await panel.getByRole("textbox", { name: "Note" }).fill("Set in prod.");
+  await panel.getByRole("button", { name: "Send" }).click();
+
+  await expect(panel.getByRole("alert")).toHaveText("This item is not an open todo.");
+  await expect(panel.getByRole("textbox", { name: "Note" })).toHaveValue("Set in prod.");
+});
+
+test("Details of a todo opens the same panel with no note field", async ({ page }) => {
+  await routeInbox(page, [todo]);
+  await page.goto("/inbox");
+  const panel = page.getByRole("dialog");
+
+  await page.getByRole("main").getByRole("button", { name: "Details" }).click();
+  await expect(panel.getByText("File: internal/config/config.go:42")).toBeVisible();
+  await expect(panel.getByText("Mobius merges after this todo is done.")).toBeVisible();
+  await expect(panel.getByRole("textbox")).toHaveCount(0);
+});
