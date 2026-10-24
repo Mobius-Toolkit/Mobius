@@ -115,18 +115,6 @@ test("the field scrolls to the last words of the voice text", async ({ page }) =
   ).toBe(true);
 });
 
-test("an empty text inserts nothing", async ({ page }) => {
-  await answer(page, "  ");
-  await page.goto("/chat");
-  const input = page.getByLabel("Message to the Coordinator");
-  await input.fill("Plant");
-  await begin(page);
-  await stop(page).click();
-  await expect(start(page)).toBeVisible();
-  await expect(input).toHaveValue("Plant");
-  await expect(page.getByRole("alert")).toHaveCount(0);
-});
-
 test("the converting state shows until the answer comes", async ({ page }) => {
   let requests = 0;
   let release!: () => void;
@@ -354,23 +342,6 @@ test("a failed conversion keeps the audio and Send again sends it", async ({ pag
   expect(files[1].equals(files[0])).toBe(true);
 });
 
-test("a sent message removes the button of a failed conversion", async ({ page }) => {
-  await page.route("**/api/voice/transcriptions", (route) =>
-    route.fulfill({ status: 503, json: { error: "The speech model is still starting" } }),
-  );
-  await page.route("**/api/chat/messages", () => {});
-  await page.goto(shop);
-  const input = page.getByLabel("Message to the Lead");
-  await begin(page);
-  await stop(page).click();
-  await expect(page.getByRole("button", { name: "Send again" })).toBeVisible();
-  await input.fill("Add a plan");
-  await page.getByRole("main").getByRole("button", { name: "Send", exact: true }).click();
-  await expect(input).toHaveValue("");
-  await expect(page.getByRole("button", { name: "Send again" })).toHaveCount(0);
-  await expect(page.getByRole("alert")).toHaveCount(0);
-});
-
 test("a recording that the server does not start still gets its text at the stop", async ({
   page,
 }) => {
@@ -535,10 +506,124 @@ test("a new recording removes the error of the last run", async ({ page }) => {
   await expect(page.getByRole("alert")).toHaveCount(0);
 });
 
-test("Send drops the recording", async ({ page }) => {
-  let requests = 0;
+const unreachable = "The recording did not reach the server. Check the connection and try again.";
+const again = (page: Page) => page.getByRole("button", { name: "Send again" });
+const send = (page: Page) =>
+  page.getByRole("main").getByRole("button", { name: "Send", exact: true });
+
+// Answers the first request of the route never, and each later request with the text.
+const hangFirst = async (page: Page, pattern: string, text: string) => {
+  const seen = { requests: 0 };
+  await page.route(pattern, (route) => {
+    seen.requests++;
+    return seen.requests === 1 ? undefined : route.fulfill({ json: { data: { text } } });
+  });
+  return seen;
+};
+
+test("a hung conversion ends after 6 minutes, and Send again gives the text", async ({ page }) => {
+  await page.clock.install();
+  await page.route("**/api/voice/recordings", (route) =>
+    route.fulfill({ status: 500, json: { error: "failed" } }),
+  );
+  const seen = await hangFirst(page, "**/api/voice/transcriptions", "red roses");
+  await page.goto("/chat");
+  const input = page.getByLabel("Message to the Coordinator");
+  await begin(page);
+  await stop(page).click();
+  await expect.poll(() => seen.requests).toBe(1);
+  await page.clock.runFor(6 * 60 * 1000 - 1000);
+  await expect(page.getByRole("button", { name: "Converting the voice input" })).toBeVisible();
+  await page.clock.runFor(1000);
+  await expect(page.getByRole("alert")).toHaveText(unreachable);
+  await expect(again(page)).toBeVisible();
+  await expect(input).toHaveValue("");
+  await again(page).click();
+  await expect(input).toHaveValue("red roses");
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});
+
+test("a hung end of the recording shows the error and sends no file", async ({ page }) => {
+  await page.clock.install();
+  let files = 0;
+  await liveServer(page, [{ committed: "", draft: "red" }]);
+  const seen = await hangFirst(page, "**/api/voice/recordings/r1/finish", "");
   await page.route("**/api/voice/transcriptions", (route) => {
-    requests++;
+    files++;
+    return route.fulfill({ json: { data: { text: "red roses" } } });
+  });
+  await page.goto("/chat");
+  await begin(page);
+  await stop(page).click();
+  await expect.poll(() => seen.requests).toBe(1);
+  await page.clock.runFor(6 * 60 * 1000);
+  await expect(page.getByRole("alert")).toHaveText(unreachable);
+  await expect(again(page)).toBeVisible();
+  expect(files).toBe(0);
+});
+
+test("a hung chunk fails the live text after 30 seconds, and the stop sends the file", async ({
+  page,
+}) => {
+  await page.clock.install();
+  await liveServer(page, [{ committed: "", draft: "red" }]);
+  let chunks = 0;
+  await page.route("**/api/voice/recordings/r1/chunks?*", () => {
+    chunks++;
+  });
+  await answer(page, "red roses");
+  await page.goto("/chat");
+  const input = page.getByLabel("Message to the Coordinator");
+  await begin(page);
+  await expect
+    .poll(async () => {
+      await tick(page);
+      return chunks;
+    })
+    .toBe(1);
+  await page.clock.runFor(30 * 1000);
+  await stop(page).click();
+  await expect(input).toHaveValue("red roses");
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});
+
+test("a stopped network shows the error and Send again", async ({ page }) => {
+  await page.route("**/api/voice/**", (route) => route.abort());
+  await page.goto("/chat");
+  await begin(page);
+  await stop(page).click();
+  await expect(page.getByRole("alert")).toHaveText(unreachable);
+  await expect(again(page)).toBeVisible();
+  await again(page).click();
+  await expect(page.getByRole("alert")).toHaveText(unreachable);
+  await expect(again(page)).toBeVisible();
+});
+
+test("an empty result shows an error and keeps the audio", async ({ page }) => {
+  let texts = ["  ", "red roses"];
+  await page.route("**/api/voice/transcriptions", (route) =>
+    route.fulfill({ json: { data: { text: texts.shift() } } }),
+  );
+  await page.goto("/chat");
+  const input = page.getByLabel("Message to the Coordinator");
+  await input.fill("Plant");
+  await begin(page);
+  await stop(page).click();
+  await expect(page.getByRole("alert")).toHaveText("The recording has no text.");
+  await expect(again(page)).toBeVisible();
+  await expect(input).toHaveValue("Plant");
+  await again(page).click();
+  await expect(input).toHaveValue("Plant red roses");
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(again(page)).toHaveCount(0);
+});
+
+test("Send during a recording stops it, and the text goes into the empty field", async ({
+  page,
+}) => {
+  let files = 0;
+  await page.route("**/api/voice/transcriptions", (route) => {
+    files++;
     return route.fulfill({ json: { data: { text: "red roses" } } });
   });
   await page.route("**/api/chat/messages", () => {});
@@ -546,11 +631,63 @@ test("Send drops the recording", async ({ page }) => {
   const input = page.getByLabel("Message to the Lead");
   await begin(page);
   await input.fill("Add a plan");
-  await page.getByRole("main").getByRole("button", { name: "Send", exact: true }).click();
+  const sent = page.waitForRequest("**/api/chat/messages");
+  await send(page).click();
+  await sent;
+  await expect(input).toHaveValue("red roses");
   await expect(start(page)).toBeVisible();
+  expect(await trackState(page)).toEqual(["ended"]);
+  expect(files).toBe(1);
+});
+
+test("Send during a conversion keeps it, and the text goes into the empty field", async ({
+  page,
+}) => {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  await page.route("**/api/voice/transcriptions", async (route) => {
+    await held;
+    await route.fulfill({ json: { data: { text: "red roses" } } });
+  });
+  await page.route("**/api/chat/messages", () => {});
+  await page.goto(shop);
+  const input = page.getByLabel("Message to the Lead");
+  await begin(page);
+  await stop(page).click();
+  await expect(page.getByRole("button", { name: "Converting the voice input" })).toBeVisible();
+  await input.fill("Add a plan");
+  const sent = page.waitForRequest("**/api/chat/messages");
+  await send(page).click();
+  await sent;
   await expect(input).toHaveValue("");
-  await expect.poll(() => trackState(page)).toEqual(["ended"]);
-  expect(requests).toBe(0);
+  release();
+  await expect(input).toHaveValue("red roses");
+  await expect(start(page)).toBeVisible();
+});
+
+test("Send after a failed conversion keeps the error and Send again", async ({ page }) => {
+  let files = 0;
+  await page.route("**/api/voice/transcriptions", (route) =>
+    ++files === 1
+      ? route.fulfill({ status: 503, json: { error: "The speech model is still starting" } })
+      : route.fulfill({ json: { data: { text: "red roses" } } }),
+  );
+  await page.route("**/api/chat/messages", () => {});
+  await page.goto(shop);
+  const input = page.getByLabel("Message to the Lead");
+  await begin(page);
+  await stop(page).click();
+  await expect(again(page)).toBeVisible();
+  await input.fill("Add a plan");
+  const sent = page.waitForRequest("**/api/chat/messages");
+  await send(page).click();
+  await sent;
+  await expect(input).toHaveValue("");
+  await expect(page.getByRole("alert")).toHaveText("The speech model is still starting");
+  await expect(again(page)).toBeVisible();
+  await again(page).click();
+  await expect(input).toHaveValue("red roses");
+  await expect(again(page)).toHaveCount(0);
 });
 
 test("a switch during a recording keeps it and the text goes to the new field", async ({

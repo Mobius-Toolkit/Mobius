@@ -232,7 +232,7 @@ export function MessageInput({
     if (!onSend || empty || justSent.current) {
       return;
     }
-    voice.abort();
+    voice.stop();
     justSent.current = true;
     void updateDraft(draftKey, () => emptyDraft);
     onError("");
@@ -258,7 +258,7 @@ export function MessageInput({
     if (!onDecide || justSent.current) {
       return;
     }
-    voice.abort();
+    voice.stop();
     justSent.current = true;
     setDeciding(true);
     onError("");
