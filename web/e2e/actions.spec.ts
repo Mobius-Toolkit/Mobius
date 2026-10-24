@@ -39,7 +39,7 @@ import {
   unknownTitle,
   waitText,
 } from "./actions.js";
-import { fakeMicrophone } from "./microphone.js";
+import { countSamples, fakeMicrophone } from "./microphone.js";
 import { routeInboxItems } from "./stops.js";
 
 test.beforeEach(async ({ page }) => {
@@ -298,6 +298,41 @@ test("the panel has the microphone button and no attach button", async ({ page }
   await expect(panel(page).getByRole("button", { name: "Attach images" })).toHaveCount(0);
   await expect(panel(page).getByRole("button", { name: "Send" })).toHaveCount(0);
 });
+
+for (const [decision, message, button] of [
+  ["Approve", keepPrices, approve],
+  ["Reject", dropColumn, reject],
+] as const) {
+  test(`${decision} during a conversion keeps it, and the text goes to the field of the chat`, async ({
+    page,
+  }) => {
+    await page.addInitScript(fakeMicrophone);
+    await page.addInitScript(countSamples);
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    await page.route("**/api/voice/transcriptions", async (route) => {
+      await held;
+      await route.fulfill({ json: { data: { text: "red roses" } } });
+    });
+    await openChat(page);
+    await ask(page, message);
+    await expect(waiting(page, 1)).toBeVisible(agentTimeout);
+    await answer(page, leadTitle);
+    await panel(page).getByRole("button", { name: "Start voice input" }).click();
+    await expect.poll(() => page.evaluate("samples")).toBeGreaterThan(0);
+    await panel(page).getByRole("button", { name: "Stop voice input" }).click();
+    await expect(
+      panel(page).getByRole("button", { name: "Converting the voice input" }),
+    ).toBeVisible();
+
+    await button(page).click();
+    await expect(panel(page)).toBeHidden();
+    const input = page.getByRole("textbox", { name: "Message to the Coordinator" });
+    await expect(input).toHaveValue("");
+    release();
+    await expect(input).toHaveValue("red roses");
+  });
+}
 
 test("a chat message goes out as a message while the tray has rows", async ({ page }) => {
   await openChat(page);
