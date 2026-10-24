@@ -463,6 +463,10 @@ func (g *FakeGitHub) getPullRequest(w http.ResponseWriter, r *http.Request) {
 	number, _ := strconv.ParseInt(r.PathValue("number"), 10, 64)
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if g.failPullReads {
+		message(w, http.StatusInternalServerError, "Server Error")
+		return
+	}
 	if !slices.ContainsFunc(g.pullRequests, func(pull pullRequest) bool { return pull.repository == repository(r) && pull.Number == number }) {
 		notFound(w)
 		return
