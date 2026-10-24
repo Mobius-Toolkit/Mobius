@@ -3,6 +3,7 @@ import { use, useEffect, useRef, useState } from "react";
 import {
   answerInboxItem,
   approveAction,
+  doneInboxItem,
   getActionBrief,
   rejectAction,
   type InboxItem,
@@ -178,6 +179,28 @@ export function AnswerPanel({
     return false;
   };
 
+  const done = async (note: string) => {
+    hideInbox(item);
+    let failure = "";
+    try {
+      const res = await doneInboxItem(item.id, { note });
+      if (res.status === 200) {
+        onClose();
+        return true;
+      }
+      if (res.status === 401) {
+        showLogin();
+      } else {
+        failure = res.data.error;
+      }
+    } catch (err) {
+      failure = String(err);
+    }
+    void saveDraftText(answerDraftKey(item.id), note);
+    failInbox(item.id, failure);
+    return false;
+  };
+
   const decide = async (id: number, decision: Decision, message: string) => {
     hideInbox(item);
     let failure = "";
@@ -206,6 +229,7 @@ export function AnswerPanel({
   };
 
   const action = item.action;
+  const todo = item.todo;
   if (action && action.state !== "pending") {
     return null;
   }
@@ -223,7 +247,9 @@ export function AnswerPanel({
       >
         <DialogHeader className="gap-1 p-4 pr-10">
           <DialogTitle>{item.title || item.reason}</DialogTitle>
-          {item.title && !action && <p className="text-sm text-muted-foreground">{item.reason}</p>}
+          {item.title && !action && !todo && (
+            <p className="text-sm text-muted-foreground">{item.reason}</p>
+          )}
         </DialogHeader>
         {action ? (
           <div className="grid min-w-0 content-start gap-2 overflow-y-auto px-4 pb-4">
@@ -260,6 +286,23 @@ export function AnswerPanel({
                 />
               ))}
           </div>
+        ) : todo ? (
+          <div className="grid min-w-0 content-start gap-2 overflow-y-auto px-4 pb-4 wrap-anywhere">
+            <span className="text-muted-foreground">
+              {todo.mandatory ? "Mandatory" : "Optional"} {todo.kind.replace("_", " ")}
+            </span>
+            <p>Reason: {todo.reason}</p>
+            <p>
+              File: {todo.path}:{todo.line}
+            </p>
+            <p>
+              Pull request:{" "}
+              <a href={item.pullRequestUrl} target="_blank" rel="noreferrer" className={link}>
+                PR #{item.pullRequest} ↗
+              </a>
+            </p>
+            {todo.mandatory && <p>Mobius merges after this todo is done.</p>}
+          </div>
         ) : (
           <div className="grid content-start gap-2 overflow-y-auto px-4 pb-4">
             <span className="text-muted-foreground">
@@ -293,7 +336,20 @@ export function AnswerPanel({
             onDecide={(decision, message) => decide(action.id, decision, message)}
           />
         )}
-        {input && !action && (
+        {input && todo && (
+          <MessageInput
+            draftKey={answerDraftKey(item.id)}
+            label="Note"
+            placeholder="Note (optional)"
+            selection
+            images={false}
+            error={error}
+            onError={setError}
+            stopping={false}
+            onSend={done}
+          />
+        )}
+        {input && !action && !todo && (
           <MessageInput
             draftKey={answerDraftKey(item.id)}
             label="Your answer"
