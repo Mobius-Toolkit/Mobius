@@ -10,6 +10,7 @@ import {
   type sendChunkResponse,
   type transcribeResponse,
 } from "@/api/api.gen";
+import { run as inDatabase } from "./database";
 import workletUrl from "./recorder-worklet.ts?worker&url";
 
 const sampleRate = 16000;
@@ -23,6 +24,7 @@ const backgroundMessage = "The recording stopped because the app went to the bac
 const unreachableMessage =
   "The recording did not reach the server. Check the connection and try again.";
 const emptyMessage = "The recording has no text.";
+const lostMessage = "The last recording was not converted.";
 
 type Phase = "idle" | "recording" | "converting";
 
@@ -63,9 +65,17 @@ const inputs: {
   insertLive: (text: string, first: boolean) => boolean;
 }[] = [];
 let screenLock: WakeLockSentinel | undefined;
-// The audio of the last recording that the server did not convert to text, and whether its live text showed. A new
-// recording and a conversion that gives text remove it.
-let kept: { chunks: Int16Array<ArrayBuffer>[]; shown: boolean } | undefined;
+// The WAV file of the last recording that the server did not convert to text, and whether its live text showed. The
+// device also keeps the file in the store voice, so a reload does not lose it. A new recording, a discard and a
+// conversion that gives text remove it.
+let kept: { audio: Blob; shown: boolean } | undefined;
+
+// The conversion works with no stored audio.
+const storeAudio = (audio: Blob) =>
+  inDatabase("voice", "readwrite", (store) => store.put({ key: "last", audio })).catch(() => {});
+
+const removeAudio = () =>
+  inDatabase("voice", "readwrite", (store) => store.delete("last")).catch(() => {});
 
 const publish = (phase: Phase, error: string) => {
   snapshot = { phase, error, canResend: kept !== undefined };
@@ -155,11 +165,11 @@ const post = async <T>(url: string, limit: number, init: RequestInit = {}) => {
   }
 };
 
-const convert = async (chunks: Int16Array<ArrayBuffer>[]) => {
+const convert = async (audio: Blob) => {
   try {
     const response = await post<transcribeResponse>(getTranscribeUrl(), conversionLimit, {
       headers: { "Content-Type": "audio/wav" },
-      body: wav(chunks),
+      body: audio,
     });
     if (response.status === 200) {
       return { text: response.data.data.text.trim(), error: "" };
@@ -269,6 +279,7 @@ const settle = (
   kept = error ? saved : undefined;
   publish("idle", error || message);
   if (!error) {
+    void removeAudio();
     inputs.at(-1)?.insert(result.text, saved.shown);
   }
 };
@@ -284,8 +295,10 @@ const finish = async (message: string) => {
   clearInterval(recording.live.timer);
   releaseScreen();
   await stopMedia(recording.stream, recording.context);
-  const result = (await convertLive(recording)) ?? (await convert(recording.chunks));
-  settle(result, { chunks: recording.chunks, shown: recording.live.shown }, message);
+  const audio = wav(recording.chunks);
+  await storeAudio(audio);
+  const result = (await convertLive(recording)) ?? (await convert(audio));
+  settle(result, { audio, shown: recording.live.shown }, message);
 };
 
 const resend = async () => {
@@ -294,12 +307,32 @@ const resend = async () => {
     return;
   }
   publish("converting", "");
-  settle(await convert(saved.chunks), saved, "");
+  settle(await convert(saved.audio), saved, "");
 };
+
+const discard = () => {
+  if (!kept || snapshot.phase !== "idle") {
+    return;
+  }
+  kept = undefined;
+  void removeAudio();
+  publish("idle", "");
+};
+
+inDatabase<{ audio: Blob } | undefined>("voice", "readonly", (store) => store.get("last")).then(
+  (record) => {
+    if (record && !kept && snapshot.phase === "idle" && run === 0) {
+      kept = { audio: record.audio, shown: false };
+      publish("idle", lostMessage);
+    }
+  },
+  () => {},
+);
 
 const start = async () => {
   const token = ++run;
   kept = undefined;
+  void removeAudio();
   const context = new AudioContext();
   void context.resume();
   publish("recording", "");
@@ -402,8 +435,9 @@ export const voiceSupported =
 // replaces it. The recording stays on until toggle or stop stops it, the recording reaches 10 minutes, or the
 // microphone stops. A stop while the microphone starts cancels the start. Each request has a time limit, and a
 // conversion with a failure or with an empty text gives an error. error is the failure of the last run, or '' when a
-// run starts. After a failed conversion, canResend is true, and resend sends the audio again until a conversion gives
-// text or a run starts.
+// run starts. The audio stays on the device from the stop until a conversion gives text, a run starts or discard
+// removes it. After a failed conversion, or after a reload that finds the audio, canResend is true, and resend sends
+// the audio again.
 export function useVoice(
   onText: (text: string, live: boolean) => void,
   onLive: (text: string, first: boolean) => boolean,
@@ -435,6 +469,7 @@ export function useVoice(
     error,
     canResend: snapshot.canResend,
     resend,
+    discard,
     toggle: toggleVoice,
     stop: stopVoice,
   };
