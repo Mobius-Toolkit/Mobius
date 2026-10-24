@@ -413,10 +413,10 @@ func (e *Engine) StopIssue(ctx context.Context, repositoryName string, number in
 		return e.changeCopiedLabels(ctx, repository.FullName, number, nil, removed)
 	}
 	if hasLabel(issue, readyLabel) {
-		if err := asOwner.RemoveLabel(ctx, number, readyLabel); err != nil {
+		if err := asOwner.AddLabel(ctx, number, triageLabel); err != nil {
 			return err
 		}
-		if err := asOwner.AddLabel(ctx, number, triageLabel); err != nil {
+		if err := asOwner.RemoveLabel(ctx, number, readyLabel); err != nil {
 			return err
 		}
 		return e.changeCopiedLabels(ctx, repository.FullName, number, []string{triageLabel}, []string{readyLabel})
