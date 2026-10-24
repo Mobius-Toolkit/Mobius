@@ -89,19 +89,19 @@ func TestATaskInApprovalWaitsForTheOwnerWhileItHasAHeldEventAndForTheLeadAfterTh
 		t.Fatal(err)
 	}
 
-	if state := stateOfTask(t, server, 41); state != "waits for Owner" {
+	if state := stateOfTask(t, server); state != "waits for Owner" {
 		t.Errorf("state = %s", state)
 	}
 
 	fake.AddComment(shop, 12, "owner", "Cents.")
 
-	testkit.WaitFor(t, func() bool { return stateOfTask(t, server, 41) == "waits for Lead" })
+	testkit.WaitFor(t, func() bool { return stateOfTask(t, server) == "waits for Lead" })
 }
 
-func stateOfTask(t *testing.T, server *testserver.Server, number int64) string {
+func stateOfTask(t *testing.T, server *testserver.Server) string {
 	t.Helper()
 	for _, line := range taskTab(t, server) {
-		if line.Number == number {
+		if line.Number == 41 {
 			return line.State
 		}
 	}
