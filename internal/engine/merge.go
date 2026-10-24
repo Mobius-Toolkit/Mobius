@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -57,7 +58,7 @@ func awaitsMerge(task store.Task) bool {
 // mergeApproved squash merges the pull request of the task with an approval, when no Worker works on the task and its
 // head commit passes these conditions: the pull request is not a draft and has no merge conflict, it has no open review
 // thread, and each check run of the head completed and passed, with the Mobius check among them. It reads the check
-// runs only when the other conditions are true, and it reads the review threads again before the merge. A task with
+// runs only when the other conditions are true, and it reads the review threads and the task again before the merge. A task with
 // auto_merge needs a Workstream with a merge level, else its automatic merge ends (endAutoMerge). It also needs a head
 // that contains the default branch (updateForMerge). Its head with no Mobius check run, for example after the update of
 // the branch, sends the task in ready_for_review back to checks (returnForApproval). It gives true when GitHub merged the pull request, and then it dismisses the open ready for review Inbox items of the issue. When
@@ -99,6 +100,13 @@ func (e *Engine) mergeApproved(ctx context.Context, repository github.Repository
 		return false, err
 	}
 	if task, err = e.keepApproval(ctx, repository, task); err != nil || !awaitsMerge(task) || hasOpenThread(e.pull(repository, number)) {
+		return false, err
+	}
+	task, err = e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: task.Repository, Issue: task.Issue})
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil || !awaitsMerge(task) {
 		return false, err
 	}
 	merged, reason, err := repository.MergePullRequest(ctx, number, head)

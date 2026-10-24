@@ -257,7 +257,9 @@ func (e *Engine) startKeptRound(ctx context.Context, repository github.Repositor
 // approvePullRequest moves the task from approval to ready_for_review, sets the Mobius check of the head to success,
 // makes a draft pull request ready for review, replaces mobius:working with mobius:review, and adds the Inbox item for
 // the Owner. Before the check, it posts the report of the Lead as a comment on the pull request. With a merge level, it
-// then approves the pull request for the Owner (autoApprove), and a failure of that does not fail the approval.
+// then approves the pull request for the Owner (autoApprove), and a failure of that does not fail the approval. It also adds
+// a todo for each new deployment need of the task. Before the check of the new head passes, it ends an approval of Mobius
+// from an earlier head, so the poll cannot merge the new head while a mandatory todo is open.
 func (e *Engine) approvePullRequest(ctx context.Context, c caller, repository github.Repository, input approveInput) (string, error) {
 	if input.N < 1 {
 		return "", refuse("n must be 1 or more.")
@@ -308,16 +310,34 @@ func (e *Engine) approvePullRequest(ctx context.Context, c caller, repository gi
 	if moved == 0 {
 		return "", refuse("The task of #%d is not approval any more.", input.N)
 	}
+	if task.AutoMerge == 1 && awaitsMerge(task) {
+		err := e.queries.SetTaskRefusedReview(ctx, store.SetTaskRefusedReviewParams{RefusedReview: task.ApprovedReview, ID: task.ID})
+		if err != nil {
+			return "", err
+		}
+		task.RefusedReview = task.ApprovedReview
+	}
 	if err := e.approve(ctx, c, repository, task, issue, pullRequest, checkRun, input.Report); err != nil {
 		_, stateErr := e.setTaskState(ctx, store.SetTaskStateParams{State: "approval", ID: task.ID, FromState: "ready_for_review"})
 		return "", errors.Join(err, stateErr)
 	}
 	text := fmt.Sprintf("Approved pull request #%d of #%d.", pullRequest.GetNumber(), input.N)
+	todos, err := e.addDeploymentTodos(ctx, repository, task, int64(pullRequest.GetNumber()))
+	if len(todos) > 0 {
+		text += fmt.Sprintf(" The Owner got the deployment todos: %s.", strings.Join(todos, ", "))
+	}
+	if err != nil {
+		return fmt.Sprintf("%s The Owner got it for review. Mobius did not add all deployment todos: %v", text, err), nil
+	}
 	if !mergesPullRequests(level) {
 		return text + " The Owner got it for review.", nil
 	}
-	if err := e.autoApprove(ctx, repository, task, pullRequest); err != nil {
+	blocked, err := e.autoApprove(ctx, repository, task, pullRequest)
+	if err != nil {
 		return fmt.Sprintf("%s The Owner got it for review. Mobius did not start the merge: %v", text, err), nil
+	}
+	if blocked {
+		return text + " Mobius merges it after the Owner marks the mandatory todos as done.", nil
 	}
 	return text + " Mobius merges it after its checks pass.", nil
 }

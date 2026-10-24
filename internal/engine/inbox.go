@@ -22,6 +22,7 @@ const (
 	readyForReviewKind = "ready for review"
 	fullDiskKind       = "full disk"
 	approvalKind       = "approval"
+	todoKind           = "todo"
 )
 
 var inboxKinds = []string{questionKind, stoppedKind, lostKind, readyForReviewKind, leadFailedKind}
