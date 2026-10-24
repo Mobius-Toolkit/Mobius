@@ -2,6 +2,7 @@ package engine_test
 
 import (
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -109,6 +110,28 @@ func TestWithAMergeLevelAMandatoryTodoBlocksTheMergeUntilTheOwnerMarksItAsDone(t
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "" })
 	if calls := fake.MergeCalls(); calls != 1 {
 		t.Errorf("merge calls = %d", calls)
+	}
+}
+
+func TestTheDoneWriteOfATodoAddsOneRecordToTheLeadChatThatIsNotUnread(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := approvableWith(t, fake, "off", true, mandatoryNeed)
+	sendChat(t, server, leadChat, "Approve #41")
+	waitForChat(t, server, leadChat, "Lead", "Approved pull request #42 of #41. The Owner got the deployment todos: PLAN_API_KEY. The Owner got it for review.")
+	todo := waitForItem(t, server, "todo")
+	unread, err := server.Engine.UnreadChats(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if status, body := doneTodo(t, server, todo.ID, `{"note":"Set in prod."}`); status != http.StatusOK {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+
+	waitForRecords(t, server, leadChat, "You set the Autopilot level to Off.", `You marked the todo "PLAN_API_KEY" of PR #42 as done.`)
+	if got, err := server.Engine.UnreadChats(t.Context()); err != nil || !reflect.DeepEqual(got, unread) {
+		t.Errorf("unread = %+v, %v, want %+v", got, err, unread)
 	}
 }
 
