@@ -37,6 +37,15 @@ type inboxItem struct {
 	Merging              bool        `json:"merging"`
 	MergeRefusal         string      `json:"mergeRefusal"`
 	Action               *actionJSON `json:"action"`
+	Todo                 *struct {
+		Kind      string `json:"kind"`
+		Name      string `json:"name"`
+		Path      string `json:"path"`
+		Line      int64  `json:"line"`
+		Reason    string `json:"reason"`
+		Mandatory bool   `json:"mandatory"`
+		Note      string `json:"note"`
+	} `json:"todo"`
 }
 
 // inbox gives the Inbox through the API.

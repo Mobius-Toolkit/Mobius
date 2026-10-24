@@ -617,6 +617,11 @@ export interface Devices {
   thisDevice: number;
 }
 
+export interface DoneInboxItemBody {
+  /** Note is the note of the Owner, or empty */
+  note?: string;
+}
+
 /**
  * Drain is the state of the drain before an upgrade.
  */
@@ -723,7 +728,7 @@ export interface EnvelopeArrayGitHubApp {
 }
 
 /**
- * Kind tells what the item is about: question for a question of the Lead on an issue, Lead failed for a message that the Lead did not take, ready for review for a pull request of a task, stopped for a task that a person must continue (a stale pull request or a session that Mobius stopped after its hangs), lost for a task that Mobius lost, and full disk for a local check that waits for free disk space, and approval for a tool call of an agent that waits for the approval of the Owner
+ * Kind tells what the item is about: question for a question of the Lead on an issue, Lead failed for a message that the Lead did not take, ready for review for a pull request of a task, stopped for a task that a person must continue (a stale pull request or a session that Mobius stopped after its hangs), lost for a task that Mobius lost, and full disk for a local check that waits for free disk space, and approval for a tool call of an agent that waits for the approval of the Owner, and todo for a deployment need of a pull request
  */
 export type InboxItemKind = typeof InboxItemKind[keyof typeof InboxItemKind];
 
@@ -736,6 +741,7 @@ export const InboxItemKind = {
   lost: 'lost',
   full_disk: 'full disk',
   approval: 'approval',
+  todo: 'todo',
 } as const;
 
 /**
@@ -761,6 +767,26 @@ export interface Question {
 }
 
 /**
+ * Todo is the deployment need of a todo Inbox item.
+ */
+export interface Todo {
+  /** Kind is the kind of the need: env_var, config, secret or manual_step */
+  kind: string;
+  /** Line is the line of the file that adds the need */
+  line: number;
+  /** Mandatory is true when the deployment fails or the application does not start without it */
+  mandatory: boolean;
+  /** Name is the name of the need, for example the name of the env var */
+  name: string;
+  /** Note is the note of the Owner when the todo is done, or empty */
+  note: string;
+  /** Path is the file that adds the need */
+  path: string;
+  /** Reason tells why the deployment needs it */
+  reason: string;
+}
+
+/**
  * InboxItem is an item of the Inbox of the Owner.
  */
 export interface InboxItem {
@@ -775,7 +801,7 @@ export interface InboxItem {
   id: number;
   /** Issue is the number of the issue of the item */
   issue: number;
-  /** Kind tells what the item is about: question for a question of the Lead on an issue, Lead failed for a message that the Lead did not take, ready for review for a pull request of a task, stopped for a task that a person must continue (a stale pull request or a session that Mobius stopped after its hangs), lost for a task that Mobius lost, and full disk for a local check that waits for free disk space, and approval for a tool call of an agent that waits for the approval of the Owner */
+  /** Kind tells what the item is about: question for a question of the Lead on an issue, Lead failed for a message that the Lead did not take, ready for review for a pull request of a task, stopped for a task that a person must continue (a stale pull request or a session that Mobius stopped after its hangs), lost for a task that Mobius lost, and full disk for a local check that waits for free disk space, and approval for a tool call of an agent that waits for the approval of the Owner, and todo for a deployment need of a pull request */
   kind: InboxItemKind;
   /** Link is the GitHub URL of the issue, or empty */
   link: string;
@@ -803,6 +829,8 @@ export interface InboxItem {
   time: string;
   /** Title is the title of the issue, or empty */
   title: string;
+  /** Todo is the deployment need of a todo item, or null for another item */
+  todo: Todo | null;
   /** Workstream is the number of the Workstream issue, or 0 for an issue with no Workstream */
   workstream: number;
   /** WorkstreamRepository is the repository of the Workstream issue as "owner/name". It differs from Repository for a task whose Workstream is in another repository */
@@ -3945,6 +3973,82 @@ export const dismiss = async (id: number, ): Promise<dismissResponse> => {
 
   const data: dismissResponse['data'] = body ? JSON.parse(body) : undefined
   return { data, status: res.status, headers: res.headers } as dismissResponse
+}
+
+
+
+export type doneInboxItemResponse200 = {
+  data: EnvelopeInboxItem
+  status: 200
+}
+
+export type doneInboxItemResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type doneInboxItemResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type doneInboxItemResponse404 = {
+  data: ErrorResponse
+  status: 404
+}
+
+export type doneInboxItemResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
+export type doneInboxItemResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type doneInboxItemResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type doneInboxItemResponseSuccess = (doneInboxItemResponse200) & {
+  headers: Headers;
+};
+export type doneInboxItemResponseError = (doneInboxItemResponse400 | doneInboxItemResponse401 | doneInboxItemResponse404 | doneInboxItemResponse409 | doneInboxItemResponse422 | doneInboxItemResponse500) & {
+  headers: Headers;
+};
+
+export type doneInboxItemResponse = (doneInboxItemResponseSuccess | doneInboxItemResponseError)
+
+export const getDoneInboxItemUrl = (id: number,) => {
+
+
+
+
+  return `/api/inbox/${id}/done`
+}
+
+/**
+ * DoneInboxItem marks the todo of an open todo Inbox item as done, with the note, and removes the item from the Inbox. When the todo was the last mandatory todo of a task with the automatic merge of Autopilot, Mobius approves the pull request for the merge. It returns the changed item. It returns 404 for an unknown item and 409 for an item that is not an open todo.
+ */
+export const doneInboxItem = async (id: number,
+    doneInboxItemBody: DoneInboxItemBody, ): Promise<doneInboxItemResponse> => {
+
+  const res = await fetch(getDoneInboxItemUrl(id),
+  {
+
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(doneInboxItemBody)
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: doneInboxItemResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as doneInboxItemResponse
 }
 
 
