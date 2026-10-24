@@ -125,8 +125,13 @@ export function InboxRow({
   };
 
   const isPullRequest = item.kind === InboxItemKind.ready_for_review;
-  const reference = !item.issue ? "" : isPullRequest ? `PR #${item.pullRequest}` : `#${item.issue}`;
-  const referenceLink = isPullRequest ? item.pullRequestUrl : item.link;
+  const isTodo = item.kind === InboxItemKind.todo;
+  const reference = !item.issue
+    ? ""
+    : isPullRequest || isTodo
+      ? `PR #${item.pullRequest}`
+      : `#${item.issue}`;
+  const referenceLink = isPullRequest || isTodo ? item.pullRequestUrl : item.link;
   const chat = async () => {
     const inWorkstream = item.workstream !== 0;
     const key = inWorkstream
@@ -224,12 +229,17 @@ export function InboxRow({
                 Send again
               </Button>
             )}
+            {isTodo && (
+              <Button size="sm" onClick={() => setPanel("answer")}>
+                Done…
+              </Button>
+            )}
             {isPullRequest && (
               <Button size="sm" pending={running === "merge" || merging} onClick={merge}>
                 {running === "merge" || merging ? "Merging" : "Merge"}
               </Button>
             )}
-            {isPullRequest && (
+            {(isPullRequest || isTodo) && (
               <Button variant="outline" size="sm" asChild>
                 <a href={item.pullRequestUrl} target="_blank" rel="noreferrer">
                   Open PR
