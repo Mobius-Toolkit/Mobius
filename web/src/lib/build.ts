@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 
 declare const UI_BUILD: string;
+declare const UI_RELEASE: string;
+
+export const uiRelease = UI_RELEASE;
 
 async function newBuild() {
   // The Vite dev server has no ui-version.
