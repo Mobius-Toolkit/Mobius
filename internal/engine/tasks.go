@@ -402,7 +402,15 @@ func (e *Engine) StopIssue(ctx context.Context, repositoryName string, number in
 		if err := e.stopTask(ctx, repository, task, issue, appLogin(repository.AppSlug), "Stopped by the Owner.", text); err != nil {
 			return err
 		}
-		return e.changeCopiedLabels(ctx, repository.FullName, number, nil, []string{workingLabel, needsHumanLabel, questionLabel, reviewLabel})
+		removed := []string{workingLabel, needsHumanLabel, questionLabel, reviewLabel}
+		if hasLabel(issue, readyLabel) {
+			// The dispatch continues a stopped task that has mobius:ready.
+			if err := asOwner.RemoveLabel(ctx, number, readyLabel); err != nil {
+				return err
+			}
+			removed = append(removed, readyLabel)
+		}
+		return e.changeCopiedLabels(ctx, repository.FullName, number, nil, removed)
 	}
 	if hasLabel(issue, readyLabel) {
 		if err := asOwner.RemoveLabel(ctx, number, readyLabel); err != nil {

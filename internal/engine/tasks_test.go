@@ -481,6 +481,36 @@ func TestStopStopsARunningTaskAndItsWorkerAndTheTasksTabShowsOpenAtOnce(t *testi
 	}
 }
 
+func TestStopOfARunningTaskWithMobiusReadyRemovesMobiusReadyAsTheOwnerAndTheNextPollsDoNotContinueTheTask(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddUserCode(testkit.AppID, "user-code", "owner")
+	server, _ := connectTask(t, fake, leadStarts, "[[prompts]]\nwhen = \"Plans have a price.\"\nhang = true\n", noChange)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "working" })
+	fake.KeepLabelFromBot(shop, 41, "mobius:ready")
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	authorize(t, server)
+
+	if status, body := send(t, server, http.MethodPost, "/api/repositories/owner/shop/issues/41/stop", ""); status != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+
+	if !fake.LabelRemovedBy(shop, 41, "mobius:ready", "owner") {
+		t.Error("the Owner did not remove mobius:ready")
+	}
+	if labels := fake.Labels(shop, 41); len(labels) != 0 {
+		t.Errorf("labels = %v", labels)
+	}
+	if got := stateOfTask(t, server); got != "open" {
+		t.Errorf("state = %s", got)
+	}
+	waitForPolls(t, fake)
+	if state := taskState(t, server); state != "stopped" {
+		t.Errorf("task state = %s", state)
+	}
+}
+
 func TestStopStopsADispatchedTask(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
