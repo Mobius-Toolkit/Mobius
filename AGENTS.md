@@ -89,6 +89,10 @@ Before the first run of `make fmt`, install golangci-lint. Use the golangci-lint
 curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.14.0
 ```
 
+- Mobius takes the end of a turn as the end of the work. After the turn, Mobius pushes only the commits. It does not wait for a command that still runs in the background.
+- Commit all work before the turn ends. Wait for the result of each test run in the same turn.
+- Give each long command (`pnpm e2e`, a Go test of `internal/engine`) the Bash `timeout` 600000. With the default limit, the Bash tool moves the command to the background.
+
 Only CI runs all Go tests. Mobius starts a CI fix round when a Go test fails in CI.
 
 ## Layout
