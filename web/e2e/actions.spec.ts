@@ -18,8 +18,6 @@ import {
   editBrief,
   editBriefRule,
   editBriefTable,
-  historyText,
-  historyTableText,
   keepPrices,
   keepText,
   messageLeadOfTwelve,
@@ -35,7 +33,6 @@ import {
   teaText,
   teaTitle,
   triagerItem,
-  unknownText,
   unknownTitle,
   waitText,
 } from "./actions.js";
@@ -95,8 +92,12 @@ test("the Owner approves an action with a note", async ({ page }) => {
 
   await ask(page, keepPrices);
   await expect(waiting(page, 1)).toBeVisible(agentTimeout);
-  const card = cardOf(page, keepText);
+  const card = cardOf(page, leadTitle);
+  await expect(card.getByText("Coordinator ·")).toBeVisible();
   await expect(card.getByText("Waits for the approval")).toBeVisible();
+  await expect(card.getByText(keepText)).toHaveCount(0);
+  await expect(card.getByText("message", { exact: true })).toHaveCount(0);
+  await expect(card.getByRole("button")).toHaveText(["Answer"]);
   await expect(row(page, leadTitle).getByRole("button")).toHaveText(["Answer", "Chat"]);
   await expect(main.getByRole("button", { name: "Approve" })).toHaveCount(0);
   await expect(main.getByRole("button", { name: "Reject" })).toHaveCount(0);
@@ -106,7 +107,7 @@ test("the Owner approves an action with a note", async ({ page }) => {
   await link(page, "/chat").click();
   await expect(waiting(page, 1)).toBeVisible(agentTimeout);
 
-  await answer(page, leadTitle);
+  await card.getByRole("button", { name: "Answer" }).click();
   await expect(panel(page).getByText("keep the old column until the next release")).toBeVisible();
   await note(page).fill("Go ahead.");
   await approve(page).click();
@@ -115,7 +116,22 @@ test("the Owner approves an action with a note", async ({ page }) => {
   await expect(waiting(page, 1)).toBeHidden();
   await expect(badge(card, "Done")).toBeVisible();
   await expect(card.getByText("Sent the message to the Lead of #14 Early renewals.")).toBeVisible();
-  await expect(card.getByText("Go ahead.")).toBeVisible();
+  await expect(card.getByText("Go ahead.")).toHaveCount(0);
+  await expect(card.getByRole("button")).toHaveText(["Details"]);
+
+  await card.getByRole("button", { name: "Details" }).click();
+  await expect(panel(page).getByRole("heading", { name: leadTitle })).toBeVisible();
+  await expect(panel(page).getByText(keepText)).toBeVisible();
+  await expect(panel(page).getByText("Done", { exact: true })).toBeVisible();
+  await expect(
+    panel(page).getByText("Sent the message to the Lead of #14 Early renewals."),
+  ).toBeVisible();
+  await expect(panel(page).getByText("Go ahead.")).toBeVisible();
+  await expect(approve(page)).toHaveCount(0);
+  await expect(reject(page)).toHaveCount(0);
+  await expect(panel(page).getByRole("textbox")).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(panel(page)).toBeHidden();
 
   await link(page, "/inbox").click();
   await expect(main.getByRole("tab", { name: /^To do/ })).toBeVisible();
@@ -132,10 +148,19 @@ test("the Owner rejects an action with a note", async ({ page }) => {
   await reject(page).click();
 
   await expect(panel(page)).toBeHidden();
-  const card = cardOf(page, dropText);
+  const card = cardOf(page, leadTitle);
   await expect(card.getByText("Rejected", { exact: true })).toBeVisible();
-  await expect(card.getByText("Wait for the migration of #12.")).toBeVisible();
+  await expect(card.getByText("Wait for the migration of #12.")).toHaveCount(0);
   await expect(waiting(page, 1)).toBeHidden();
+
+  await card.getByRole("button", { name: "Details" }).click();
+  await expect(panel(page).getByText(dropText)).toBeVisible();
+  await expect(panel(page).getByText("Rejected", { exact: true })).toBeVisible();
+  await expect(panel(page).getByText("Wait for the migration of #12.")).toBeVisible();
+  await expect(approve(page)).toHaveCount(0);
+  await expect(panel(page).getByRole("textbox")).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(panel(page)).toBeHidden();
 
   await link(page, "/inbox").click();
   await expect(row(page, leadTitle)).toBeHidden();
@@ -152,7 +177,7 @@ async function expectChips(scope: Locator) {
   await expect(scope.getByText(/\["mobius/)).toHaveCount(0);
 }
 
-test("the labels of an action show as GitHub labels in the card and in the panel", async ({
+test("the labels of an action show as GitHub labels in the panel and not in the card", async ({
   page,
 }) => {
   await openChat(page);
@@ -160,7 +185,9 @@ test("the labels of an action show as GitHub labels in the card and in the panel
   await ask(page, draftWorkstream);
   await expect(waiting(page, 1)).toBeVisible(agentTimeout);
 
-  await expectChips(cardOf(page, draftText));
+  const card = cardOf(page, createTitle);
+  await expect(card.getByText(draftText)).toHaveCount(0);
+  await expect(card.locator('[data-slot="badge"]').filter({ hasText: /^mobius:/ })).toHaveCount(0);
   await answer(page, createTitle);
   await expectChips(panel(page));
 });
@@ -171,34 +198,37 @@ async function expectReasonAboveBrief(scope: Locator) {
   expect(reason?.y ?? 999).toBeLessThan(brief?.y ?? 0);
 }
 
-test("an empty list of labels shows no name and no chip in the card and in the panel", async ({
-  page,
-}) => {
+test("an empty list of labels shows no name and no chip in the panel", async ({ page }) => {
   await openChat(page);
 
   await ask(page, draftTea);
   await expect(waiting(page, 1)).toBeVisible(agentTimeout);
 
-  const card = cardOf(page, teaText);
-  await expect(card.getByText("title", { exact: true })).toBeVisible();
-  await expect(card.getByText("brief", { exact: true })).toBeVisible();
+  const card = cardOf(page, teaTitle);
+  await expect(card.getByText("title", { exact: true })).toHaveCount(0);
+  await expect(card.getByText("brief", { exact: true })).toHaveCount(0);
   await answer(page, teaTitle);
-  for (const scope of [card, panel(page)]) {
-    await expect(scope.getByText("labels", { exact: true })).toHaveCount(0);
-    await expect(scope.locator('[data-slot="badge"]').filter({ hasText: /^mobius:/ })).toHaveCount(
-      0,
-    );
-  }
+  await expect(panel(page).getByText("title", { exact: true })).toBeVisible();
+  await expect(panel(page).getByText("brief", { exact: true })).toBeVisible();
+  await expect(panel(page).getByText(teaText)).toBeVisible();
+  await expect(panel(page).getByText("labels", { exact: true })).toHaveCount(0);
+  await expect(
+    panel(page)
+      .locator('[data-slot="badge"]')
+      .filter({ hasText: /^mobius:/ }),
+  ).toHaveCount(0);
 });
 
-test("the card and the panel show the arguments of an action in the order of its tool", async ({
+test("the panel shows the arguments of an action in the order of its tool, and the card shows none", async ({
   page,
 }) => {
   await openLeadChat(page);
   await sendToLead(page, editBrief);
   await expect(waiting(page, 1)).toBeVisible(agentTimeout);
 
-  await expectReasonAboveBrief(cardOf(page, "The Owner wants a longer time to renew."));
+  const card = cardOf(page, briefTitle);
+  await expect(card.getByText("reason", { exact: true })).toHaveCount(0);
+  await expect(card.getByText("The Owner wants a longer time to renew.")).toHaveCount(0);
   await answer(page, briefTitle);
   await expectReasonAboveBrief(panel(page));
 });
@@ -213,8 +243,9 @@ test("a second call of the tool replaces the action that waits", async ({ page }
   await sendToCoordinator(page, addHistoryTable);
 
   await expect(panel(page)).toBeHidden();
-  await expect(cardOf(page, historyText).getByText("Replaced", { exact: true })).toBeVisible();
-  await expect(cardOf(page, historyTableText).getByText("Waits for the approval")).toBeVisible();
+  const cards = page.locator("[data-action]").filter({ hasText: leadTitle });
+  await expect(cards.nth(-2).getByText("Replaced", { exact: true })).toBeVisible();
+  await expect(cards.last().getByText("Waits for the approval")).toBeVisible();
   await expect(waiting(page, 1)).toBeVisible(agentTimeout);
   await expect(row(page, leadTitle)).toHaveCount(1);
 });
@@ -238,7 +269,7 @@ test("a failed action keeps the panel with its error and its note, and a second 
 
   await expect(panel(page).getByRole("alert")).toHaveText(/#9999 is not an open Workstream/);
   await expect(note(page)).toHaveValue("Go ahead.");
-  const card = cardOf(page, unknownText);
+  const card = cardOf(page, unknownTitle);
   await expect(badge(card, "Failed")).toBeVisible();
   await expect(card.getByText(/#9999 is not an open Workstream/)).toBeVisible();
   await expect(approve(page)).toBeEnabled();
@@ -398,8 +429,8 @@ test("the phone shows the cards, the tray and the panel with no horizontal scrol
   await expect(waiting(page, 2)).toBeVisible(agentTimeout);
 
   expect(await fits(page.locator("html"))).toBe(true);
-  expect(await fits(cardOf(page, draftText))).toBe(true);
-  expect(await fits(cardOf(page, keepText))).toBe(true);
+  expect(await fits(cardOf(page, createTitle))).toBe(true);
+  expect(await fits(cardOf(page, leadTitle))).toBe(true);
   expect(await fits(page.locator("main div.overflow-y-auto"))).toBe(true);
   expect(await fits(page.locator("main ul"))).toBe(true);
 
@@ -877,7 +908,7 @@ test("the panel of an edit_brief action shows the full Brief when the read fails
   await expect(addedText(dialog)).toHaveCount(0);
 });
 
-test("the card of a done edit_brief action shows the changes, and the full Brief with no old Brief", async ({
+test("the read-only dialog of a done edit_brief action shows the changes, and the full Brief with no old Brief", async ({
   page,
 }) => {
   await openLeadChat(page);
@@ -888,28 +919,32 @@ test("the card of a done edit_brief action shows the changes, and the full Brief
   await expect(panel(page)).toBeHidden();
 
   try {
-    const card = cardOf(page, "edit_brief");
+    const card = cardOf(page, briefTitle);
     await expect(badge(card, "Done")).toBeVisible();
-    await expect(removedSwitch(card)).not.toBeChecked();
+    await expect(card.getByRole("button")).toHaveText(["Details"]);
+    await expect(removedSwitch(card)).toHaveCount(0);
+    await expect(addedText(card)).toHaveCount(0);
     await expect(removedText(card)).toHaveCount(0);
-    await expect(addedText(card)).toHaveText(["two months", "Do not remove the old renewal page."]);
-    const cut = card.locator("div.max-h-36");
-    expect(await cut.evaluate((el) => el.clientHeight)).toBe(144);
-    await expect(addedText(card).last()).not.toBeInViewport();
 
-    await card.getByRole("button", { name: "Show all" }).click();
-    await expect(card.locator("div.max-h-36")).toHaveCount(0);
-    await expect(addedText(card).last()).toBeInViewport();
-    await expect(card.getByRole("button", { name: "Show the full Brief" })).toHaveCount(0);
-    await expect(card.getByRole("button", { name: "Show the changes" })).toHaveCount(0);
+    await card.getByRole("button", { name: "Details" }).click();
+    const dialog = panel(page);
+    await expect(removedSwitch(dialog)).not.toBeChecked();
+    await expect(removedText(dialog)).toHaveCount(0);
+    await expect(addedText(dialog)).toHaveText([
+      "two months",
+      "Do not remove the old renewal page.",
+    ]);
+    await expect(approve(page)).toHaveCount(0);
 
-    await card.getByText("Show removed text").click();
-    await expect(removedText(card)).toHaveText(["one month", "Send a mail after the renewal."]);
-    await expect(addedText(card)).toHaveCount(2);
-    await removedSwitch(card).click();
-    await expect(removedText(card)).toHaveCount(0);
-    await removedSwitch(card).click();
-    await expect(removedText(card)).toHaveCount(2);
+    await dialog.getByText("Show removed text").click();
+    await expect(removedText(dialog)).toHaveText(["one month", "Send a mail after the renewal."]);
+    await expect(addedText(dialog)).toHaveCount(2);
+    await removedSwitch(dialog).click();
+    await expect(removedText(dialog)).toHaveCount(0);
+    await removedSwitch(dialog).click();
+    await expect(removedText(dialog)).toHaveCount(2);
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
 
     await page.route("**/api/chat?*", async (route) => {
       const response = await route.fetch();
@@ -924,9 +959,12 @@ test("the card of a done edit_brief action shows the changes, and the full Brief
       await route.fulfill({ response, json: body });
     });
     await page.reload();
-    const bare = cardOf(page, "edit_brief");
-    await expect(bare.getByText("Let customers renew a plan two months early.")).toBeVisible();
-    await expect(addedText(bare)).toHaveCount(0);
+    await cardOf(page, briefTitle).getByRole("button", { name: "Details" }).click();
+    await expect(
+      panel(page).getByText("Let customers renew a plan two months early."),
+    ).toBeVisible();
+    await expect(addedText(panel(page))).toHaveCount(0);
+    await expect(removedSwitch(panel(page))).toHaveCount(0);
   } finally {
     await page.unroute("**/api/chat?*");
     await restoreBrief(page);
@@ -946,7 +984,9 @@ test("the panel of a message_lead action of a Lead names the Workstream of the L
   await sendToLead(page, messageLeadOfTwelve);
   await expect(waiting(page, 1)).toBeVisible(agentTimeout);
 
-  await expect(cardOf(page, waitText).getByText("workstream", { exact: true })).toHaveCount(0);
+  await expect(cardOf(page, leadToLeadTitle).getByText("workstream", { exact: true })).toHaveCount(
+    0,
+  );
   await answer(page, leadToLeadTitle);
   const dialog = panel(page);
   await expect(dialog.getByText(/^Lead of /)).toContainText("Lead of #14 Early renewals");
@@ -969,7 +1009,7 @@ test("the panel of a message_lead action of the Coordinator names the Coordinato
   await ask(page, keepPrices);
   await expect(waiting(page, 1)).toBeVisible(agentTimeout);
 
-  await expect(cardOf(page, keepText).getByText("workstream", { exact: true })).toHaveCount(0);
+  await expect(cardOf(page, leadTitle).getByText("workstream", { exact: true })).toHaveCount(0);
   await answer(page, leadTitle);
   const dialog = panel(page);
   await expect(dialog.getByText(/^Coordinator/)).toContainText("Coordinator ·");
