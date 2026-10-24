@@ -17,8 +17,14 @@ const mergeOff = "The merge is off for this Workstream."
 // merge on GitHub.
 func approvable(t *testing.T, fake *testkit.FakeGitHub, level string, authorized bool) *testserver.Server {
 	t.Helper()
+	return approvableWith(t, fake, level, authorized, "")
+}
+
+// approvableWith is approvable with the script reviewer for the Reviewer.
+func approvableWith(t *testing.T, fake *testkit.FakeGitHub, level string, authorized bool, reviewer string) *testserver.Server {
+	t.Helper()
 	fake.AddUserCode(testkit.AppID, "user-code", "owner")
-	server, _ := connectTask(t, fake, leadApproves+leadStarts, commits, keepSessionOpen)
+	server, _ := connectTask(t, fake, reviewer+leadApproves+leadStarts, commits, keepSessionOpen)
 	switch {
 	case authorized:
 		authorize(t, server)
