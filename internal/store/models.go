@@ -174,6 +174,8 @@ type InboxItem struct {
 	MergeRefusal         string
 	WorkstreamRepository string
 	Questions            string
+	Answer               string
+	Withdrawn            int64
 }
 
 type LeadEvent struct {

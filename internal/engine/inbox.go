@@ -38,6 +38,25 @@ func (e *Engine) addInboxItem(ctx context.Context, params store.AddInboxItemPara
 	return nil
 }
 
+// addQuestion adds a chat message with the text of the question item to the chat of the item, then the item with a link
+// to the message, and sends both to the listeners.
+func (e *Engine) addQuestion(ctx context.Context, params store.AddInboxItemParams) (store.InboxItem, error) {
+	key := ChatKey{params.Organization, params.WorkstreamRepository, params.Workstream}
+	message, err := e.addChatMessage(ctx, key, questionAuthor, params.Text, "", "", nil)
+	if err != nil {
+		return store.InboxItem{}, err
+	}
+	params.ChatMessage = sql.NullInt64{Int64: message.ID, Valid: true}
+	params.Time = now()
+	item, err := e.queries.AddInboxItem(ctx, params)
+	if err != nil {
+		return item, err
+	}
+	e.publish(Change{Inbox: &item})
+	e.publish(Change{Message: &message})
+	return item, e.publishUnread(ctx, key)
+}
+
 // Inbox gives the Inbox items that the Owner did not dismiss, the oldest first.
 func (e *Engine) Inbox(ctx context.Context) ([]store.InboxItem, error) {
 	return e.queries.ListOpenInboxItems(ctx)
@@ -239,6 +258,9 @@ func (e *Engine) AnswerInboxItem(ctx context.Context, id int64, text string) (st
 		}
 		key := ChatKey{Organization: item.Organization}
 		if err := e.SendChat(ctx, key, rand.Text(), text, nil, nil); err != nil {
+			return "", err
+		}
+		if err := e.queries.SetInboxItemAnswer(ctx, store.SetInboxItemAnswerParams{Answer: text, ID: id}); err != nil {
 			return "", err
 		}
 		return "", e.Dismiss(ctx, id)

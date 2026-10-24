@@ -59,6 +59,10 @@ type InboxItem struct {
 	MergeRefusal string `gork:"mergeRefusal"`
 	// Questions are the questions with options of a question item, or an empty list
 	Questions []Question `gork:"questions"`
+	// Answer is the answer of the Owner to a question item, or empty
+	Answer string `gork:"answer"`
+	// Withdrawn is true when the agent withdrew the question item
+	Withdrawn bool `gork:"withdrawn"`
 	// Action is the action of an approval item, or null for another item
 	Action *PendingAction `gork:"action"`
 	// Todo is the deployment need of a todo item, or null for another item
@@ -303,6 +307,8 @@ func (h *handlers) inboxItemOf(ctx context.Context, item store.InboxItem) (Inbox
 		Time:                 t,
 		Merging:              item.Merging != 0,
 		MergeRefusal:         item.MergeRefusal,
+		Answer:               item.Answer,
+		Withdrawn:            item.Withdrawn != 0,
 		Questions:            []Question{},
 	}
 	if item.Questions != "" {

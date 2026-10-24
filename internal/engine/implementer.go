@@ -422,7 +422,7 @@ func (e *Engine) approve(ctx context.Context, c caller, repository github.Reposi
 		return err
 	}
 	if hasLabel(issue, questionLabel) {
-		if err := e.closeQuestion(ctx, repository, issue, task, runner.WithMark(fmt.Sprintf("The Lead approved PR #%d, so the question is closed.", pullRequest.GetNumber()), mark)); err != nil {
+		if err := e.closeQuestion(ctx, repository, issue, task, runner.WithMark(fmt.Sprintf("The Lead approved PR #%d, so the question is closed.", pullRequest.GetNumber()), mark), ""); err != nil {
 			return err
 		}
 	}

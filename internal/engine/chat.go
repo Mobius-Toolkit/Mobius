@@ -61,6 +61,7 @@ const (
 	mobiusAuthor      = "Mobius"
 	eventAuthor       = "Event"
 	actionAuthor      = "Action"
+	questionAuthor    = "Question"
 	approvalAuthor    = "Approval"
 	recordAuthor      = "Record"
 )
@@ -177,7 +178,8 @@ func (c *chat) notify() {
 }
 
 // addChatMessage adds a chat message and sends it to the listeners. A message of the Researcher, of the Curator and
-// of an approval stays hidden. The card of an action goes to the listeners with its action (holdAction). A message
+// of an approval stays hidden. The card of an action goes to the listeners with its action (holdAction), and the card of a
+// question goes to them with its Inbox item (addQuestion). A message
 // that is not of the Owner, of a Researcher, of an event or of a record also changes the unread count of the chat. When
 // images is not empty, it is the directory of saveImages. The message gets the images before the listeners see it, and
 // Mobius does not add it when the move fails. When browserID is not empty and a message has it, Mobius adds nothing and
@@ -208,7 +210,7 @@ func (e *Engine) addChatMessage(ctx context.Context, key ChatKey, author, text, 
 			return message, errors.Join(err, e.queries.DeleteChatMessage(ctx, message.ID))
 		}
 	}
-	if author == researcherAuthor || author == curatorAuthor || author == approvalAuthor || author == actionAuthor {
+	if author == researcherAuthor || author == curatorAuthor || author == approvalAuthor || author == actionAuthor || author == questionAuthor {
 		return message, nil
 	}
 	e.publish(Change{Message: &message})
