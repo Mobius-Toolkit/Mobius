@@ -241,3 +241,27 @@ func (h *handlers) StartIssue(ctx context.Context, req StartIssueRequest) error 
 	}
 	return err
 }
+
+// StopIssueRequest is the request of StopIssue.
+type StopIssueRequest struct {
+	Path struct {
+		// Owner is the owner of the repository
+		Owner string `gork:"owner"`
+		// Name is the name of the repository
+		Name string `gork:"name"`
+		// Number is the number of the issue
+		Number int64 `gork:"number"`
+	}
+}
+
+// StopIssue stops the live task of an issue and its agents. An issue with mobius:ready and no live task gets
+// mobius:triage instead, so Mobius does not start it. Mobius changes the labels of a ready issue with the user token of
+// the Owner, so the Owner must authorize the Mobius App first. It returns 409 with the steps when the Owner did not, and
+// with the reason when the issue has no task to stop.
+func (h *handlers) StopIssue(ctx context.Context, req StopIssueRequest) error {
+	err := h.engine.StopIssue(ctx, req.Path.Owner+"/"+req.Path.Name, req.Path.Number)
+	if engine.Refused(err) {
+		return api.NewHTTPError(http.StatusConflict, err.Error())
+	}
+	return err
+}
