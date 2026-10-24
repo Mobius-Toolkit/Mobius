@@ -1690,6 +1690,31 @@ test("screenshots", async ({ page }) => {
   );
   await screenshot(
     page,
+    "action-failed-card",
+    "/chat",
+    (device) => [
+      ...approvalReady(device, "4"),
+      cardOf(page, unknownTitle).getByText("Failed", { exact: true }),
+      cardOf(page, unknownTitle).getByText(/#9999 is not an open Workstream/),
+      cardOf(page, unknownTitle).getByRole("button", { name: "Answer" }),
+    ],
+    async () => {
+      await expect(panel).toBeHidden();
+      await showEnd(unknownTitle)();
+      await expect
+        .poll(() =>
+          cardOf(page, unknownTitle).evaluate((el) => {
+            el.scrollIntoView({ block: "center" });
+            const box = el.parentElement?.getBoundingClientRect();
+            const found = el.getBoundingClientRect();
+            return !!box && found.top >= box.top && found.bottom <= box.bottom;
+          }),
+        )
+        .toBe(true);
+    },
+  );
+  await screenshot(
+    page,
     "action-rejected",
     "/chat",
     (device) => [
