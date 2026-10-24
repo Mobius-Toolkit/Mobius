@@ -1,18 +1,28 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import {
-  createRecording,
-  finishRecording,
-  sendChunk,
-  transcribe,
+  getCreateRecordingUrl,
+  getFinishRecordingUrl,
+  getSendChunkUrl,
+  getTranscribeUrl,
+  type createRecordingResponse,
+  type finishRecordingResponse,
   type LiveText,
+  type sendChunkResponse,
+  type transcribeResponse,
 } from "@/api/api.gen";
 import workletUrl from "./recorder-worklet.ts?worker&url";
 
 const sampleRate = 16000;
 const maxRecording = 10 * 60 * 1000;
 const chunkInterval = 2000;
+const quickLimit = 30 * 1000;
+// The server holds a conversion for up to 5 minutes.
+const conversionLimit = 6 * 60 * 1000;
 const takenMessage = "The recording stopped because another app took the microphone.";
 const backgroundMessage = "The recording stopped because the app went to the background.";
+const unreachableMessage =
+  "The recording did not reach the server. Check the connection and try again.";
+const emptyMessage = "The recording has no text.";
 
 type Phase = "idle" | "recording" | "converting";
 
@@ -44,15 +54,17 @@ type Recording = {
 let snapshot = { phase: "idle" as Phase, error: "", canResend: false };
 const listeners = new Set<() => void>();
 let current: Recording | undefined;
-// Each start and each abort changes run. A step of an older run does nothing.
+// Each start and each cancel of a start changes run. A start of an older run does nothing.
 let run = 0;
-// The input that gets the text of the answer.
-let insert: ((text: string, live: boolean) => void) | undefined;
-// Shows the live text in the input. It gives false when the input does not show it, because the user changed the field.
-let insertLive: ((text: string, first: boolean) => boolean) | undefined;
+// The mounted inputs. The newest one gets the text. insertLive shows the live text in the input. It gives false when
+// the input does not show it, because the user changed the field.
+const inputs: {
+  insert: (text: string, live: boolean) => void;
+  insertLive: (text: string, first: boolean) => boolean;
+}[] = [];
 let screenLock: WakeLockSentinel | undefined;
-// The audio of the last recording that the server did not convert, and whether its live text showed. A new recording,
-// a sent message and the end of a conversion remove it.
+// The audio of the last recording that the server did not convert to text, and whether its live text showed. A new
+// recording and a conversion that gives text remove it.
 let kept: { chunks: Int16Array<ArrayBuffer>[]; shown: boolean } | undefined;
 
 const publish = (phase: Phase, error: string) => {
@@ -131,9 +143,24 @@ const wav = (chunks: Int16Array<ArrayBuffer>[]) => {
   return new Blob([header, ...chunks], { type: "audio/wav" });
 };
 
+// The request fails with a TimeoutError when it does not end within limit.
+const post = async <T>(url: string, limit: number, init: RequestInit = {}) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new DOMException("", "TimeoutError")), limit);
+  try {
+    const res = await fetch(url, { ...init, method: "POST", signal: controller.signal });
+    return { status: res.status, data: await res.json() } as T;
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
 const convert = async (chunks: Int16Array<ArrayBuffer>[]) => {
   try {
-    const response = await transcribe(wav(chunks));
+    const response = await post<transcribeResponse>(getTranscribeUrl(), conversionLimit, {
+      headers: { "Content-Type": "audio/wav" },
+      body: wav(chunks),
+    });
     if (response.status === 200) {
       return { text: response.data.data.text.trim(), error: "" };
     }
@@ -142,10 +169,7 @@ const convert = async (chunks: Int16Array<ArrayBuffer>[]) => {
     }
     return { text: "", error: "The server did not convert the recording." };
   } catch {
-    return {
-      text: "",
-      error: "The recording did not reach the server. Check the connection and try again.",
-    };
+    return { text: "", error: unreachableMessage };
   }
 };
 
@@ -157,7 +181,9 @@ const runLive = (live: Live, task: Promise<void>) => {
 };
 
 const openLive = async (live: Live) => {
-  const response = await createRecording().catch(() => undefined);
+  const response = await post<createRecordingResponse>(getCreateRecordingUrl(), quickLimit).catch(
+    () => undefined,
+  );
   if (response?.status === 200) {
     live.id = response.data.data.id;
   } else {
@@ -167,58 +193,71 @@ const openLive = async (live: Live) => {
 
 const showLive = (live: Live, data: LiveText) => {
   const text = [data.committed, data.draft].filter(Boolean).join(" ");
-  if (!insertLive || live.hidden || (!text && !live.shown)) {
+  const input = inputs.at(-1);
+  if (!input || live.hidden || (!text && !live.shown)) {
     return;
   }
-  if (insertLive(text, !live.shown)) {
+  if (input.insertLive(text, !live.shown)) {
     live.shown = true;
   } else {
     live.hidden = true;
   }
 };
 
-const sendNew = async (recording: Recording, token: number) => {
+const sendNew = async (recording: Recording) => {
   const live = recording.live;
   const part = recording.chunks.slice(live.sent);
   if (part.length === 0) {
     return;
   }
   live.sent = recording.chunks.length;
-  const response = await sendChunk(live.id, new Blob(part), { sequence: live.sequence++ }).catch(
-    () => undefined,
-  );
+  const response = await post<sendChunkResponse>(
+    getSendChunkUrl(live.id, { sequence: live.sequence++ }),
+    quickLimit,
+    { headers: { "Content-Type": "application/octet-stream" }, body: new Blob(part) },
+  ).catch(() => undefined);
   if (response?.status !== 200) {
     live.failed = true;
-  } else if (token === run) {
+  } else {
     showLive(live, response.data.data);
   }
 };
 
-const tick = (recording: Recording, token: number) => {
+const tick = (recording: Recording) => {
   if (!recording.live.busy && !recording.live.failed) {
-    runLive(recording.live, sendNew(recording, token));
+    runLive(recording.live, sendNew(recording));
   }
 };
 
 // convertLive sends the last samples and gets the text of the full recording. It gives nothing when the live text
-// failed or the request failed, and then the caller sends the full recording as one file.
-const convertLive = async (recording: Recording, token: number) => {
+// failed or the request failed, and then the caller sends the full recording as one file. A request that reaches its
+// time limit gives the error, because the server can still hold the conversion.
+const convertLive = async (recording: Recording) => {
   const live = recording.live;
   await live.pending;
   if (!live.failed) {
-    await sendNew(recording, token);
+    await sendNew(recording);
   }
   if (live.failed) {
     return undefined;
   }
-  const response = await finishRecording(live.id).catch(() => undefined);
-  if (response?.status === 200) {
-    return { text: response.data.data.text.trim(), error: "" };
+  try {
+    const response = await post<finishRecordingResponse>(
+      getFinishRecordingUrl(live.id),
+      conversionLimit,
+    );
+    if (response.status === 200) {
+      return { text: response.data.data.text.trim(), error: "" };
+    }
+    if (response.status === 502 || response.status === 503) {
+      return { text: "", error: response.data.error };
+    }
+    return undefined;
+  } catch (err) {
+    return err instanceof DOMException && err.name === "TimeoutError"
+      ? { text: "", error: unreachableMessage }
+      : undefined;
   }
-  if (response?.status === 502 || response?.status === 503) {
-    return { text: "", error: response.data.error };
-  }
-  return undefined;
 };
 
 const settle = (
@@ -226,10 +265,11 @@ const settle = (
   saved: NonNullable<typeof kept>,
   message: string,
 ) => {
-  kept = result.error ? saved : undefined;
-  publish("idle", result.error || message);
-  if (!result.error && (result.text || saved.shown)) {
-    insert?.(result.text, saved.shown);
+  const error = result.error || (result.text ? "" : emptyMessage);
+  kept = error ? saved : undefined;
+  publish("idle", error || message);
+  if (!error) {
+    inputs.at(-1)?.insert(result.text, saved.shown);
   }
 };
 
@@ -239,16 +279,12 @@ const finish = async (message: string) => {
     return;
   }
   current = undefined;
-  const token = run;
   publish("converting", message);
   clearTimeout(recording.timer);
   clearInterval(recording.live.timer);
   releaseScreen();
   await stopMedia(recording.stream, recording.context);
-  const result = (await convertLive(recording, token)) ?? (await convert(recording.chunks));
-  if (token !== run) {
-    return;
-  }
+  const result = (await convertLive(recording)) ?? (await convert(recording.chunks));
   settle(result, { chunks: recording.chunks, shown: recording.live.shown }, message);
 };
 
@@ -257,12 +293,8 @@ const resend = async () => {
   if (!saved || snapshot.phase !== "idle") {
     return;
   }
-  const token = run;
   publish("converting", "");
-  const result = await convert(saved.chunks);
-  if (token === run) {
-    settle(result, saved, "");
-  }
+  settle(await convert(saved.chunks), saved, "");
 };
 
 const start = async () => {
@@ -313,7 +345,7 @@ const start = async () => {
   };
   current = recording;
   runLive(recording.live, openLive(recording.live));
-  recording.live.timer = setInterval(() => tick(recording, token), chunkInterval);
+  recording.live.timer = setInterval(() => tick(recording), chunkInterval);
   const track = stream.getAudioTracks()[0];
   for (const type of ["mute", "ended"]) {
     track.addEventListener(type, () => {
@@ -335,6 +367,12 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
+const cancelStart = () => {
+  run++;
+  releaseScreen();
+  publish("idle", "");
+};
+
 // A tap on the converting button does nothing. A tap while the microphone starts cancels the start.
 const toggleVoice = () => {
   if (snapshot.phase === "idle") {
@@ -343,23 +381,15 @@ const toggleVoice = () => {
     if (current) {
       void finish("");
     } else {
-      abortVoice();
+      cancelStart();
     }
   }
 };
 
-// abortVoice drops the recording or the answer that the run still holds.
-const abortVoice = () => {
-  run++;
-  if (current) {
-    clearTimeout(current.timer);
-    clearInterval(current.live.timer);
-    void stopMedia(current.stream, current.context);
-    current = undefined;
+const stopVoice = () => {
+  if (snapshot.phase === "recording") {
+    toggleVoice();
   }
-  releaseScreen();
-  kept = undefined;
-  publish("idle", "");
 };
 
 export const voiceSupported =
@@ -369,9 +399,11 @@ export const voiceSupported =
 // seconds, and it goes to onLive. onLive has first true for the first text of the run, and it gives false when it does
 // not show the text. The second toggle stops the recording, and the server converts it to text. The text goes to onText
 // of the input that is mounted when the answer comes. Its live is true when the run showed live text, and the text
-// replaces it. The recording stays on until toggle stops it, abort runs, the recording reaches 10 minutes, or the
-// microphone stops. error is the failure of the last run, or '' when a run starts or abort runs. After a failed
-// conversion, canResend is true, and resend sends the audio again until a conversion works, a run starts or abort runs.
+// replaces it. The recording stays on until toggle or stop stops it, the recording reaches 10 minutes, or the
+// microphone stops. A stop while the microphone starts cancels the start. Each request has a time limit, and a
+// conversion with a failure or with an empty text gives an error. error is the failure of the last run, or '' when a
+// run starts. After a failed conversion, canResend is true, and resend sends the audio again until a conversion gives
+// text or a run starts.
 export function useVoice(
   onText: (text: string, live: boolean) => void,
   onLive: (text: string, first: boolean) => boolean,
@@ -386,17 +418,13 @@ export function useVoice(
   });
 
   useEffect(() => {
-    const target = (text: string, live: boolean) => latestOnText.current(text, live);
-    const targetLive = (text: string, first: boolean) => latestOnLive.current(text, first);
-    insert = target;
-    insertLive = targetLive;
+    const input = {
+      insert: (text: string, live: boolean) => latestOnText.current(text, live),
+      insertLive: (text: string, first: boolean) => latestOnLive.current(text, first),
+    };
+    inputs.push(input);
     return () => {
-      if (insert === target) {
-        insert = undefined;
-      }
-      if (insertLive === targetLive) {
-        insertLive = undefined;
-      }
+      inputs.splice(inputs.indexOf(input), 1);
     };
   }, []);
 
@@ -408,6 +436,6 @@ export function useVoice(
     canResend: snapshot.canResend,
     resend,
     toggle: toggleVoice,
-    abort: abortVoice,
+    stop: stopVoice,
   };
 }
