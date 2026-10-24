@@ -454,12 +454,36 @@ func TestATransactionThatReadsAndThenWritesWaitsForTheWriteLockAtItsStart(t *tes
 	}
 }
 
-func TestTheTranscriptMigrationRemovesTheDuplicatesAndAddsTheIndex(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "mobius.db")
-	db, err := Open(t.Context(), path)
+func openBefore(t *testing.T, path string, version int64) *sql.DB {
+	t.Helper()
+	ms, err := goMigrations()
 	if err != nil {
 		t.Fatal(err)
 	}
+	var previous int64
+	for _, m := range ms {
+		if m.Version < version {
+			previous = max(previous, m.Version)
+		}
+	}
+	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_txlock=immediate")
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider, err := goose.NewProvider(goose.DialectSQLite3, db, nil,
+		goose.WithGoMigrations(ms...), goose.WithDisableGlobalRegistry(true), goose.WithAllowOutofOrder(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.UpTo(t.Context(), previous); err != nil {
+		t.Fatal(err)
+	}
+	return db
+}
+
+func TestTheTranscriptMigrationRemovesTheDuplicatesAndAddsTheIndex(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mobius.db")
+	db := openBefore(t, path, 20261027000000)
 	output := strings.Repeat("x", 100_000)
 	commands := strings.Repeat(`{"name":"skill"},`, 5000) + `{"name":"last"}`
 	updates := map[string]string{
@@ -469,10 +493,6 @@ func TestTheTranscriptMigrationRemovesTheDuplicatesAndAddsTheIndex(t *testing.T)
 		"available_commands_update": `{"sessionId":"s","update":{"sessionUpdate":"available_commands_update","availableCommands":[` + commands + `]}}`,
 		"tool_call":                 `{"sessionId":"s","update":{"sessionUpdate":"tool_call","toolCallId":"t","rawOutput":"keep"}}`,
 	}
-	if _, err := db.Exec("DROP INDEX transcript_session"); err != nil {
-		t.Fatal(err)
-	}
-	dropQueryIndexes(t, db)
 	if _, err := db.Exec("INSERT INTO sessions (id, role, harness, model, repository, workstream, started_at) VALUES (1, 'lead', 'h', 'm', 'o/a', 1, '2026-10-01T00:00:00Z')"); err != nil {
 		t.Fatal(err)
 	}
@@ -483,119 +503,12 @@ func TestTheTranscriptMigrationRemovesTheDuplicatesAndAddsTheIndex(t *testing.T)
 			}
 		}
 	}
-	if _, err := db.Exec("DROP TABLE triager_turns"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec("CREATE TABLE held_triagers (repository TEXT NOT NULL, issue INTEGER NOT NULL, PRIMARY KEY (repository, issue))"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec("DROP TABLE comment_writes"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec("ALTER TABLE tasks DROP COLUMN rerun_head"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec("ALTER TABLE tasks DROP COLUMN rerun_runs"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec("ALTER TABLE tasks DROP COLUMN break_wait_head"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec("ALTER TABLE tasks DROP COLUMN recoveries"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec("ALTER TABLE tasks DROP COLUMN lead_findings"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec("ALTER TABLE events DROP COLUMN organization"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec("ALTER TABLE harness_pauses ADD COLUMN inbox_item INTEGER NOT NULL DEFAULT 0"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec("DROP TABLE harness_pause_ends"); err != nil {
-		t.Fatal(err)
-	}
-	for _, column := range []string{"chat_message", "title", "reason", "pull_request", "report_link"} {
-		if _, err := db.Exec("ALTER TABLE inbox_items DROP COLUMN " + column); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := db.Exec("DROP TABLE ci_breaks"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec("DROP TABLE owner_answers"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec("DROP TABLE stop_notices"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec("DROP TABLE check_timeouts"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec("DROP TABLE pending_actions"); err != nil {
-		t.Fatal(err)
-	}
-	for _, table := range []string{"ci_failures", "ci_failure_places", "ci_diagnoses", "lead_writes", "deployment_needs", "deployment_todos", "workstream_buckets", "skill_uses", "session_skills", "old_skill_uses"} {
-		if _, err := db.Exec("DROP TABLE " + table); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := db.Exec("ALTER TABLE tasks DROP COLUMN approved_head"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec("ALTER TABLE tasks DROP COLUMN auto_merge"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec("ALTER TABLE copied_workstreams DROP COLUMN auto_merge"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec("ALTER TABLE copied_workstreams DROP COLUMN created_at"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec("ALTER TABLE copied_workstreams DROP COLUMN maintenance"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec("ALTER TABLE copied_workstreams DROP COLUMN skills"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec("ALTER TABLE copied_workstreams DROP COLUMN evergreen"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec("ALTER TABLE lead_events DROP COLUMN issue_repository"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec("ALTER TABLE lead_events DROP COLUMN held_at"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec("ALTER TABLE tasks DROP COLUMN workstream_repository"); err != nil {
-		t.Fatal(err)
-	}
-	for _, table := range []string{"inbox_items", "sessions"} {
-		if _, err := db.Exec("ALTER TABLE " + table + " DROP COLUMN workstream_repository"); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for _, column := range []string{"merging", "merge_refusal", "questions"} {
-		if _, err := db.Exec("ALTER TABLE inbox_items DROP COLUMN " + column); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := db.Exec("ALTER TABLE chat_messages DROP COLUMN inbox_items"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec("ALTER TABLE copied_issues DROP COLUMN parent_repository"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec("DELETE FROM goose_db_version WHERE version_id >= 20261027000000"); err != nil {
-		t.Fatal(err)
-	}
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
 	before := fileSize(t, path)
 
-	db, err = Open(t.Context(), path)
+	db, err := Open(t.Context(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -643,61 +556,8 @@ func TestTheTranscriptMigrationRemovesTheDuplicatesAndAddsTheIndex(t *testing.T)
 
 func TestTheInboxMigrationsDismissTheOpenItemsAndKeepThePause(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "mobius.db")
-	db, err := Open(t.Context(), path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	dropQueryIndexes(t, db)
+	db := openBefore(t, path, 20261029100000)
 	for _, statement := range []string{
-		"DROP TABLE triager_turns",
-		"CREATE TABLE held_triagers (repository TEXT NOT NULL, issue INTEGER NOT NULL, PRIMARY KEY (repository, issue))",
-		"DROP TABLE comment_writes",
-		"ALTER TABLE tasks DROP COLUMN branch_checked",
-		"ALTER TABLE tasks DROP COLUMN rerun_head",
-		"ALTER TABLE tasks DROP COLUMN rerun_runs",
-		"ALTER TABLE tasks DROP COLUMN break_wait_head",
-		"ALTER TABLE tasks DROP COLUMN recoveries",
-		"ALTER TABLE events DROP COLUMN organization",
-		"ALTER TABLE harness_pauses ADD COLUMN inbox_item INTEGER NOT NULL DEFAULT 0",
-		"DROP TABLE harness_pause_ends",
-		"ALTER TABLE inbox_items DROP COLUMN chat_message",
-		"ALTER TABLE inbox_items DROP COLUMN title",
-		"ALTER TABLE inbox_items DROP COLUMN reason",
-		"ALTER TABLE inbox_items DROP COLUMN pull_request",
-		"ALTER TABLE inbox_items DROP COLUMN report_link",
-		"DROP TABLE ci_breaks",
-		"DROP TABLE owner_answers",
-		"DROP TABLE check_timeouts",
-		"DROP TABLE stop_notices",
-		"DROP TABLE pending_actions",
-		"DROP TABLE ci_failures",
-		"DROP TABLE ci_failure_places",
-		"DROP TABLE ci_diagnoses",
-		"DROP TABLE lead_writes",
-		"DROP TABLE deployment_needs",
-		"DROP TABLE deployment_todos",
-		"DROP TABLE workstream_buckets",
-		"DROP TABLE skill_uses",
-		"DROP TABLE old_skill_uses",
-		"DROP TABLE session_skills",
-		"ALTER TABLE tasks DROP COLUMN approved_head",
-		"ALTER TABLE tasks DROP COLUMN auto_merge",
-		"ALTER TABLE copied_workstreams DROP COLUMN auto_merge",
-		"ALTER TABLE copied_workstreams DROP COLUMN created_at",
-		"ALTER TABLE copied_workstreams DROP COLUMN maintenance",
-		"ALTER TABLE copied_workstreams DROP COLUMN skills",
-		"ALTER TABLE copied_workstreams DROP COLUMN evergreen",
-		"ALTER TABLE lead_events DROP COLUMN issue_repository",
-		"ALTER TABLE lead_events DROP COLUMN held_at",
-		"ALTER TABLE tasks DROP COLUMN workstream_repository",
-		"ALTER TABLE inbox_items DROP COLUMN workstream_repository",
-		"ALTER TABLE sessions DROP COLUMN workstream_repository",
-		"ALTER TABLE inbox_items DROP COLUMN merging",
-		"ALTER TABLE inbox_items DROP COLUMN merge_refusal",
-		"ALTER TABLE inbox_items DROP COLUMN questions",
-		"ALTER TABLE chat_messages DROP COLUMN inbox_items",
-		"ALTER TABLE copied_issues DROP COLUMN parent_repository",
-		"DELETE FROM goose_db_version WHERE version_id >= 20261029100000",
 		`INSERT INTO inbox_items (id, kind, organization, repository, workstream, issue, text, link, time) VALUES
 			(1, 'usage limit', 'owner', '', 0, 0, 'devin reached a usage limit.', '', '2026-10-04T10:00:00Z'),
 			(2, 'question', 'owner', 'owner/shop', 12, 41, 'Why?', '', '2026-10-04T10:00:00Z')`,
@@ -711,7 +571,7 @@ func TestTheInboxMigrationsDismissTheOpenItemsAndKeepThePause(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	db, err = Open(t.Context(), path)
+	db, err := Open(t.Context(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -763,54 +623,8 @@ func TestTheTasksTableAcceptsTheAskedStatesAndKeepsTheStateTrigger(t *testing.T)
 
 func TestTheCoordinatorMigrationMovesTheChatSessionsAndTheChatMessages(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "mobius.db")
-	db, err := Open(t.Context(), path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	dropQueryIndexes(t, db)
+	db := openBefore(t, path, 20261105000000)
 	for _, statement := range []string{
-		"DROP TABLE triager_turns",
-		"CREATE TABLE held_triagers (repository TEXT NOT NULL, issue INTEGER NOT NULL, PRIMARY KEY (repository, issue))",
-		"DROP TABLE comment_writes",
-		"ALTER TABLE tasks DROP COLUMN branch_checked",
-		"ALTER TABLE tasks DROP COLUMN rerun_head",
-		"ALTER TABLE tasks DROP COLUMN rerun_runs",
-		"ALTER TABLE tasks DROP COLUMN break_wait_head",
-		"ALTER TABLE tasks DROP COLUMN recoveries",
-		"ALTER TABLE inbox_items DROP COLUMN chat_message",
-		"DROP TABLE ci_breaks",
-		"DROP TABLE owner_answers",
-		"DROP TABLE check_timeouts",
-		"DROP TABLE stop_notices",
-		"DROP TABLE pending_actions",
-		"DROP TABLE ci_failures",
-		"DROP TABLE ci_failure_places",
-		"DROP TABLE ci_diagnoses",
-		"DROP TABLE lead_writes",
-		"DROP TABLE deployment_needs",
-		"DROP TABLE deployment_todos",
-		"DROP TABLE workstream_buckets",
-		"DROP TABLE skill_uses",
-		"DROP TABLE old_skill_uses",
-		"DROP TABLE session_skills",
-		"ALTER TABLE tasks DROP COLUMN approved_head",
-		"ALTER TABLE tasks DROP COLUMN auto_merge",
-		"ALTER TABLE copied_workstreams DROP COLUMN auto_merge",
-		"ALTER TABLE copied_workstreams DROP COLUMN created_at",
-		"ALTER TABLE copied_workstreams DROP COLUMN maintenance",
-		"ALTER TABLE copied_workstreams DROP COLUMN skills",
-		"ALTER TABLE copied_workstreams DROP COLUMN evergreen",
-		"ALTER TABLE lead_events DROP COLUMN issue_repository",
-		"ALTER TABLE lead_events DROP COLUMN held_at",
-		"ALTER TABLE tasks DROP COLUMN workstream_repository",
-		"ALTER TABLE inbox_items DROP COLUMN workstream_repository",
-		"ALTER TABLE sessions DROP COLUMN workstream_repository",
-		"ALTER TABLE inbox_items DROP COLUMN merging",
-		"ALTER TABLE inbox_items DROP COLUMN merge_refusal",
-		"ALTER TABLE inbox_items DROP COLUMN questions",
-		"ALTER TABLE chat_messages DROP COLUMN inbox_items",
-		"ALTER TABLE copied_issues DROP COLUMN parent_repository",
-		"DELETE FROM goose_db_version WHERE version_id >= 20261105000000",
 		`INSERT INTO sessions (id, role, harness, model, organization, repository, workstream, started_at) VALUES
 			(1, 'triager', 'claude-code', 'sonnet', 'owner', '', 0, '2026-10-04T10:00:00Z'),
 			(2, 'triager', 'claude-code', 'sonnet', 'owner', 'owner/shop', 0, '2026-10-04T10:00:00Z'),
@@ -828,7 +642,7 @@ func TestTheCoordinatorMigrationMovesTheChatSessionsAndTheChatMessages(t *testin
 		t.Fatal(err)
 	}
 
-	db, err = Open(t.Context(), path)
+	db, err := Open(t.Context(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -865,15 +679,6 @@ func fileSize(t *testing.T, path string) int64 {
 		t.Fatal(err)
 	}
 	return info.Size()
-}
-
-func dropQueryIndexes(t *testing.T, db *sql.DB) {
-	t.Helper()
-	for _, index := range []string{"transcript_kind", "sessions_repository_role", "tasks_issue", "lead_events_workstream", "lead_events_issue"} {
-		if _, err := db.Exec("DROP INDEX " + index); err != nil {
-			t.Fatal(err)
-		}
-	}
 }
 
 func TestTheHotQueriesReadAnIndex(t *testing.T) {
