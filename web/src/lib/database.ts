@@ -53,5 +53,6 @@ export async function run<T>(
     const request = use(transaction.objectStore(name));
     transaction.addEventListener("complete", () => resolve(request.result));
     transaction.addEventListener("error", () => reject(transaction.error));
+    transaction.addEventListener("abort", () => reject(transaction.error));
   });
 }
