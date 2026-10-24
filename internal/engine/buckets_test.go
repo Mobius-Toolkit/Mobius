@@ -204,7 +204,7 @@ func TestAClosedIssueOfAnOpenBucketMovesIntoAClosedBucketAndAnEmptyOpenBucketClo
 
 	testkit.WaitFor(t, func() bool {
 		state, _ := fake.State(shop, 42)
-		return state == "closed" && slices.Equal(fake.SubIssueNumbers(shop, 43), []int64{51})
+		return state == "closed" && slices.Equal(fake.SubIssueNumbers(shop, 43), []int64{51}) && slices.Equal(fake.SubIssueNumbers(shop, 41), []int64{50})
 	})
 	if _, reason := fake.State(shop, 42); reason != "completed" {
 		t.Errorf("reason = %q", reason)

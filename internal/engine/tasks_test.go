@@ -408,8 +408,8 @@ func TestStartReplacesMobiusTriageWithMobiusReadyAsTheOwnerAndTheNextPollDispatc
 	if !fake.LabelRemovedBy(shop, 41, "mobius:triage", "owner") {
 		t.Error("the Owner did not remove mobius:triage")
 	}
-	if got := fake.LabelActor(shop, 41, "mobius:ready"); got != "owner" {
-		t.Errorf("actor of mobius:ready = %s", got)
+	if !fake.LabelAddedBy(shop, 41, "mobius:ready", "owner") {
+		t.Error("the Owner did not add mobius:ready")
 	}
 	if task := liveTaskOf(t, server, 41); task.Workstream != 12 {
 		t.Errorf("task = %+v", task)
