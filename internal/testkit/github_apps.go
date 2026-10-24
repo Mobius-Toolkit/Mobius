@@ -99,6 +99,13 @@ func (g *FakeGitHub) RemoveRepository(fullName string) {
 	g.repositories = slices.DeleteFunc(g.repositories, func(repository string) bool { return repository == fullName })
 }
 
+// RestoreRepository gives the installation the repository fullName again, after RemoveRepository.
+func (g *FakeGitHub) RestoreRepository(fullName string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.repositories = append(g.repositories, fullName)
+}
+
 func appIndex(appID int64) int {
 	return slices.IndexFunc(apps, func(app githubApp) bool { return app.id == appID })
 }

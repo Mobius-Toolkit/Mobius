@@ -93,6 +93,7 @@ func (e *Engine) forgetCopies(ctx context.Context, repositories []github.Reposit
 		if err != nil {
 			return err
 		}
+		delete(e.copied, name)
 		e.publish(Change{Workstreams: true})
 	}
 	return nil
