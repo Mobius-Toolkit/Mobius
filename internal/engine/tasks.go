@@ -398,17 +398,17 @@ func (e *Engine) StopIssue(ctx context.Context, repositoryName string, number in
 		return err
 	}
 	if err == nil && task.State != "stopped" {
-		text := fmt.Sprintf("Stopped \"%s\" on request of the Owner", issue.GetTitle())
-		if err := e.stopTask(ctx, repository, task, issue, appLogin(repository.AppSlug), "Stopped by the Owner.", text); err != nil {
-			return err
-		}
 		removed := []string{workingLabel, needsHumanLabel, questionLabel, reviewLabel}
 		if hasLabel(issue, readyLabel) {
-			// The dispatch continues a stopped task that has mobius:ready.
+			// The dispatch continues a stopped task that has mobius:ready, so the label must go before the task stops.
 			if err := asOwner.RemoveLabel(ctx, number, readyLabel); err != nil {
 				return err
 			}
 			removed = append(removed, readyLabel)
+		}
+		text := fmt.Sprintf("Stopped \"%s\" on request of the Owner", issue.GetTitle())
+		if err := e.stopTask(ctx, repository, task, issue, appLogin(repository.AppSlug), "Stopped by the Owner.", text); err != nil {
+			return err
 		}
 		return e.changeCopiedLabels(ctx, repository.FullName, number, nil, removed)
 	}
