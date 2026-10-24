@@ -416,6 +416,10 @@ test("screenshots", async ({ page }) => {
       await expect.poll(() => page.evaluate("samples")).toBeGreaterThan(0);
       await main.getByRole("button", { name: "Stop voice input" }).click();
     },
+    async () => {
+      await page.reload();
+      await main.getByRole("button", { name: "Discard" }).click();
+    },
   );
   await page.unroute("**/api/voice/transcriptions");
   await page.route("**/api/voice/recordings", (route) =>
@@ -432,12 +436,14 @@ test("screenshots", async ({ page }) => {
       ...chatReady(device),
       main.getByText("The speech model is still starting"),
       main.getByRole("button", { name: "Send again" }),
+      main.getByRole("button", { name: "Discard" }),
     ],
     async () => {
       await main.getByRole("button", { name: "Start voice input" }).click();
       await expect.poll(() => page.evaluate("samples")).toBeGreaterThan(0);
       await main.getByRole("button", { name: "Stop voice input" }).click();
     },
+    () => main.getByRole("button", { name: "Discard" }).click(),
   );
   await page.unroute("**/api/voice/recordings");
   await page.unroute("**/api/voice/transcriptions");

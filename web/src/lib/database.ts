@@ -3,7 +3,7 @@ let database: Promise<IDBDatabase> | undefined;
 // One connection keeps the transactions in the order of the calls.
 function connect() {
   database ??= new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDB.open("mobius", 2);
+    const request = indexedDB.open("mobius", 3);
     request.addEventListener("upgradeneeded", () => {
       const db = request.result;
       if (!db.objectStoreNames.contains("outbox")) {
@@ -11,6 +11,9 @@ function connect() {
       }
       if (!db.objectStoreNames.contains("drafts")) {
         db.createObjectStore("drafts", { keyPath: "key" });
+      }
+      if (!db.objectStoreNames.contains("voice")) {
+        db.createObjectStore("voice", { keyPath: "key" });
       }
     });
     let blocked = false;
@@ -40,7 +43,7 @@ function connect() {
 }
 
 export async function run<T>(
-  name: "outbox" | "drafts",
+  name: "outbox" | "drafts" | "voice",
   mode: IDBTransactionMode,
   use: (store: IDBObjectStore) => IDBRequest<T>,
 ) {
