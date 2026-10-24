@@ -11,6 +11,7 @@ const build = randomUUID();
 export default defineConfig({
   define: {
     UI_BUILD: JSON.stringify(build),
+    UI_RELEASE: JSON.stringify(process.env.RELEASE ?? ""),
   },
   plugins: [
     react(),
