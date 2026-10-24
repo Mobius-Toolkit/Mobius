@@ -112,28 +112,6 @@ reply = ["Asked"]
 	}
 }
 
-func TestACoordinatorAskWithNoTextAndWithQuestionsAddsAQuestionMessageWithTheTextOfTheFirstQuestion(t *testing.T) {
-	t.Parallel()
-	server, _ := connect(t, testkit.NewFakeGitHub(t), `
-[[prompts]]
-when = "Ask the Owner"
-call = { tool = "ask", arguments = { questions = [
-  { text = "Which unit?", options = [{ title = "Cents" }, { title = "Dollars" }] },
-  { text = "Which plans?", options = [{ title = "Free" }, { title = "Pro" }] },
-] } }
-
-[[prompts]]
-reply = ["Asked"]
-`)
-
-	sendChat(t, server, coordinatorChat, "Ask the Owner")
-
-	card := waitForCard(t, server, coordinatorChat, false)
-	if card.Text != "Which unit?" {
-		t.Errorf("card text = %q", card.Text)
-	}
-}
-
 func TestAnAnswerFromTheInboxIsTheAnswerOfTheQuestionAndTheLiveEventQuestionComesAtTheDismiss(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

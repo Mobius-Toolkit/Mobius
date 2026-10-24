@@ -38,22 +38,22 @@ func (e *Engine) addInboxItem(ctx context.Context, params store.AddInboxItemPara
 	return nil
 }
 
-// addQuestion adds a chat message with message as its text to the chat of the question item, then the item with a link
+// addQuestion adds a chat message with the text of the question item to the chat of the item, then the item with a link
 // to the message, and sends both to the listeners.
-func (e *Engine) addQuestion(ctx context.Context, params store.AddInboxItemParams, message string) (store.InboxItem, error) {
+func (e *Engine) addQuestion(ctx context.Context, params store.AddInboxItemParams) (store.InboxItem, error) {
 	key := ChatKey{params.Organization, params.WorkstreamRepository, params.Workstream}
-	chatMessage, err := e.addChatMessage(ctx, key, questionAuthor, message, "", "", nil)
+	message, err := e.addChatMessage(ctx, key, questionAuthor, params.Text, "", "", nil)
 	if err != nil {
 		return store.InboxItem{}, err
 	}
-	params.ChatMessage = sql.NullInt64{Int64: chatMessage.ID, Valid: true}
+	params.ChatMessage = sql.NullInt64{Int64: message.ID, Valid: true}
 	params.Time = now()
 	item, err := e.queries.AddInboxItem(ctx, params)
 	if err != nil {
 		return item, err
 	}
 	e.publish(Change{Inbox: &item})
-	e.publish(Change{Message: &chatMessage})
+	e.publish(Change{Message: &message})
 	return item, e.publishUnread(ctx, key)
 }
 

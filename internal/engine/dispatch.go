@@ -735,7 +735,7 @@ func (e *Engine) ask(ctx context.Context, c caller, repository github.Repository
 		Text:                 input.Text,
 		Questions:            questions,
 		Link:                 issue.GetHTMLURL(),
-	}, input.Text)
+	})
 	if err != nil {
 		return "", err
 	}

@@ -30,13 +30,9 @@ func (e *Engine) coordinatorAsk(ctx context.Context, c caller, _ github.Reposito
 			}
 		}
 	}
-	message := strings.TrimSpace(input.Text)
-	title := message
+	title := strings.TrimSpace(input.Text)
 	if len(input.Questions) > 0 {
 		title = strings.TrimSpace(input.Questions[0].Text)
-		if message == "" {
-			message = title
-		}
 	}
 	title, _, _ = strings.Cut(title, "\n")
 	item, err := e.addQuestion(ctx, store.AddInboxItemParams{
@@ -46,7 +42,7 @@ func (e *Engine) coordinatorAsk(ctx context.Context, c caller, _ github.Reposito
 		Reason:       "The Coordinator asks a question",
 		Text:         input.Text,
 		Questions:    questions,
-	}, message)
+	})
 	if err != nil {
 		return "", err
 	}
