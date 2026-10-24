@@ -1538,6 +1538,22 @@ export interface EnvelopeUsageTimes {
 }
 
 /**
+ * Version is the version of the program.
+ */
+export interface Version {
+  /** Release is the release tag of this program, for example v0.2.0. It is empty for a local build */
+  release: string;
+}
+
+/**
+ * Envelope is the body of each success response.
+ */
+export interface EnvelopeVersion {
+  /** Data is the payload of the response */
+  data: Version;
+}
+
+/**
  * WorkstreamDetails is the details of a Workstream.
  */
 export interface WorkstreamDetails {
@@ -5436,6 +5452,71 @@ export const getUsageTimes = async (params: GetUsageTimesParams, ): Promise<getU
 
   const data: getUsageTimesResponse['data'] = body ? JSON.parse(body) : {}
   return { data, status: res.status, headers: res.headers } as getUsageTimesResponse
+}
+
+
+
+export type getVersionResponse200 = {
+  data: EnvelopeVersion
+  status: 200
+}
+
+export type getVersionResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type getVersionResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type getVersionResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type getVersionResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type getVersionResponseSuccess = (getVersionResponse200) & {
+  headers: Headers;
+};
+export type getVersionResponseError = (getVersionResponse400 | getVersionResponse401 | getVersionResponse422 | getVersionResponse500) & {
+  headers: Headers;
+};
+
+export type getVersionResponse = (getVersionResponseSuccess | getVersionResponseError)
+
+export const getGetVersionUrl = () => {
+
+
+
+
+  return `/api/version`
+}
+
+/**
+ * GetVersion returns the release tag of this program.
+ */
+export const getVersion = async ( ): Promise<getVersionResponse> => {
+
+  const res = await fetch(getGetVersionUrl(),
+  {
+
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: getVersionResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as getVersionResponse
 }
 
 
