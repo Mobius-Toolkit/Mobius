@@ -3392,6 +3392,51 @@
         ]
       }
     },
+    "/api/version": {
+      "get": {
+        "description": "GetVersion returns the release tag of this program.",
+        "operationId": "GetVersion",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_Version"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "upgrade"
+        ]
+      }
+    },
     "/api/voice/recordings": {
       "post": {
         "description": "CreateRecording starts a voice recording on the server. The server removes the recording after 10 minutes with no chunk.",
@@ -5965,6 +6010,20 @@
         ],
         "description": "Envelope is the body of each success response."
       },
+      "Envelope_Version": {
+        "type": "object",
+        "title": "Envelope_Version",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Version",
+            "description": "Data is the payload of the response"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "description": "Envelope is the body of each success response."
+      },
       "Envelope_WorkstreamDetails": {
         "type": "object",
         "title": "Envelope_WorkstreamDetails",
@@ -8009,6 +8068,20 @@
           "error"
         ],
         "description": "Validation error response with field-level details"
+      },
+      "Version": {
+        "type": "object",
+        "title": "Version",
+        "properties": {
+          "release": {
+            "type": "string",
+            "description": "Release is the release tag of this program, for example v0.2.0. It is empty for a local build"
+          }
+        },
+        "required": [
+          "release"
+        ],
+        "description": "Version is the version of the program."
       },
       "Workstream": {
         "type": "object",
