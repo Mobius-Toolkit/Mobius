@@ -426,6 +426,35 @@ func (q *Queries) AddDeploymentNeed(ctx context.Context, arg AddDeploymentNeedPa
 	return err
 }
 
+const addDeploymentTodo = `-- name: AddDeploymentTodo :exec
+INSERT INTO deployment_todos (task, inbox_item, kind, name, path, line, reason, mandatory) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type AddDeploymentTodoParams struct {
+	Task      int64
+	InboxItem int64
+	Kind      string
+	Name      string
+	Path      string
+	Line      int64
+	Reason    string
+	Mandatory int64
+}
+
+func (q *Queries) AddDeploymentTodo(ctx context.Context, arg AddDeploymentTodoParams) error {
+	_, err := q.db.ExecContext(ctx, addDeploymentTodo,
+		arg.Task,
+		arg.InboxItem,
+		arg.Kind,
+		arg.Name,
+		arg.Path,
+		arg.Line,
+		arg.Reason,
+		arg.Mandatory,
+	)
+	return err
+}
+
 const addDeviceLogin = `-- name: AddDeviceLogin :exec
 INSERT INTO device_logins (token_hash, password_fingerprint, user_agent, created_at)
 VALUES (?, ?, ?, ?)
@@ -2149,6 +2178,29 @@ func (q *Queries) GetCopiedWorkstream(ctx context.Context, arg GetCopiedWorkstre
 		&i.Maintenance,
 		&i.Skills,
 		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getDeploymentTodoOfItem = `-- name: GetDeploymentTodoOfItem :one
+SELECT id, task, inbox_item, kind, name, path, line, reason, mandatory, note, done_at FROM deployment_todos WHERE inbox_item = ?
+`
+
+func (q *Queries) GetDeploymentTodoOfItem(ctx context.Context, inboxItem int64) (DeploymentTodo, error) {
+	row := q.db.QueryRowContext(ctx, getDeploymentTodoOfItem, inboxItem)
+	var i DeploymentTodo
+	err := row.Scan(
+		&i.ID,
+		&i.Task,
+		&i.InboxItem,
+		&i.Kind,
+		&i.Name,
+		&i.Path,
+		&i.Line,
+		&i.Reason,
+		&i.Mandatory,
+		&i.Note,
+		&i.DoneAt,
 	)
 	return i, err
 }
@@ -4499,6 +4551,45 @@ func (q *Queries) ListDeploymentNeeds(ctx context.Context, task int64) ([]Deploy
 			&i.Line,
 			&i.Reason,
 			&i.Mandatory,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDeploymentTodos = `-- name: ListDeploymentTodos :many
+SELECT id, task, inbox_item, kind, name, path, line, reason, mandatory, note, done_at FROM deployment_todos WHERE task = ? ORDER BY id
+`
+
+func (q *Queries) ListDeploymentTodos(ctx context.Context, task int64) ([]DeploymentTodo, error) {
+	rows, err := q.db.QueryContext(ctx, listDeploymentTodos, task)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DeploymentTodo
+	for rows.Next() {
+		var i DeploymentTodo
+		if err := rows.Scan(
+			&i.ID,
+			&i.Task,
+			&i.InboxItem,
+			&i.Kind,
+			&i.Name,
+			&i.Path,
+			&i.Line,
+			&i.Reason,
+			&i.Mandatory,
+			&i.Note,
+			&i.DoneAt,
 		); err != nil {
 			return nil, err
 		}
@@ -7508,6 +7599,21 @@ type SetCopiedEvergreenParams struct {
 
 func (q *Queries) SetCopiedEvergreen(ctx context.Context, arg SetCopiedEvergreenParams) error {
 	_, err := q.db.ExecContext(ctx, setCopiedEvergreen, arg.Evergreen, arg.Repository, arg.Number)
+	return err
+}
+
+const setDeploymentTodoDone = `-- name: SetDeploymentTodoDone :exec
+UPDATE deployment_todos SET note = ?, done_at = ? WHERE id = ?
+`
+
+type SetDeploymentTodoDoneParams struct {
+	Note   string
+	DoneAt sql.NullString
+	ID     int64
+}
+
+func (q *Queries) SetDeploymentTodoDone(ctx context.Context, arg SetDeploymentTodoDoneParams) error {
+	_, err := q.db.ExecContext(ctx, setDeploymentTodoDone, arg.Note, arg.DoneAt, arg.ID)
 	return err
 }
 
