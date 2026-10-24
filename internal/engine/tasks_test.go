@@ -428,7 +428,7 @@ func TestStopReplacesMobiusReadyWithMobiusTriageAsTheOwnerAndTheNextPollsStartNo
 	fake.AddSubIssue(shop, 12, 41)
 	fake.AddBlockedBy(shop, 41, 40)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
-	testkit.WaitFor(t, func() bool { return stateOfTask(t, server, 41) == "ready" })
+	testkit.WaitFor(t, func() bool { return stateOfTask(t, server) == "ready" })
 	authorize(t, server)
 
 	if status, body := send(t, server, http.MethodPost, "/api/repositories/owner/shop/issues/41/stop", ""); status != http.StatusNoContent {
@@ -444,7 +444,7 @@ func TestStopReplacesMobiusReadyWithMobiusTriageAsTheOwnerAndTheNextPollsStartNo
 	if got := fake.LabelActor(shop, 41, "mobius:triage"); got != "owner" {
 		t.Errorf("actor of mobius:triage = %s", got)
 	}
-	if got := stateOfTask(t, server, 41); got != "triage" {
+	if got := stateOfTask(t, server); got != "triage" {
 		t.Errorf("state = %s", got)
 	}
 	fake.RemoveBlockedBy(shop, 41, 40)
@@ -467,7 +467,7 @@ func TestStopStopsARunningTaskAndItsWorkerAndTheTasksTabShowsOpenAtOnce(t *testi
 		t.Fatalf("status = %d: %s", status, body)
 	}
 
-	if got := stateOfTask(t, server, 41); got != "open" {
+	if got := stateOfTask(t, server); got != "open" {
 		t.Errorf("state = %s", got)
 	}
 	if state := taskState(t, server); state != "stopped" {
@@ -488,7 +488,7 @@ func TestStopStopsADispatchedTask(t *testing.T) {
 	server, _ := connect(t, fake, "")
 	dispatchTask(fake, 41, "Add plan model")
 	testkit.WaitFor(t, func() bool {
-		return taskState(t, server) == "dispatched" && slices.Equal(fake.Labels(shop, 41), []string{"mobius:working"}) && stateOfTask(t, server, 41) == "waits for start_implementer"
+		return taskState(t, server) == "dispatched" && slices.Equal(fake.Labels(shop, 41), []string{"mobius:working"}) && stateOfTask(t, server) == "waits for start_implementer"
 	})
 	authorize(t, server)
 
@@ -499,7 +499,7 @@ func TestStopStopsADispatchedTask(t *testing.T) {
 	if state := taskState(t, server); state != "stopped" {
 		t.Errorf("task state = %s", state)
 	}
-	if got := stateOfTask(t, server, 41); got != "open" {
+	if got := stateOfTask(t, server); got != "open" {
 		t.Errorf("state = %s", got)
 	}
 }
