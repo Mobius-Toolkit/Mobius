@@ -3,8 +3,12 @@ import { use, useEffect, useMemo, useState } from "react";
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import {
   getUsage,
+  getUsageSkills,
   getUsageTimes,
   type GetUsageParams,
+  type GetUsageSkillsParams,
+  type SkillUsage,
+  type SkillUsageRow,
   type TimeStat,
   type Usage as UsageView,
   type UsageTimes,
@@ -46,12 +50,16 @@ import {
   groupOptions,
   palette,
   periods,
+  skillDimensions,
+  skillGroups,
   statTitle,
   statValue,
   tokensOf,
   usageRange,
+  type Dimension,
   type Group,
   type Period,
+  type SkillDimension,
   type UsageSearch,
 } from "@/lib/usage";
 import { cn } from "@/lib/utils";
@@ -139,22 +147,30 @@ function FilterMenu({
   );
 }
 
-function GroupMenu({ group, onChange }: { group?: Group; onChange: (group?: Group) => void }) {
+function GroupMenu({
+  group,
+  groups,
+  onChange,
+}: {
+  group?: Group;
+  groups: readonly { key: Group; title: string }[];
+  onChange: (group?: Group) => void;
+}) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="outline">
-          Group by: {groupOptions.find((item) => item.key === group)?.title ?? "None"}
+          Group by: {groups.find((item) => item.key === group)?.title ?? "None"}
           <ChevronDownIcon />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start">
         <DropdownMenuRadioGroup
           value={group ?? ""}
-          onValueChange={(value) => onChange(groupOptions.find((item) => item.key === value)?.key)}
+          onValueChange={(value) => onChange(groups.find((item) => item.key === value)?.key)}
         >
           <DropdownMenuRadioItem value="">None</DropdownMenuRadioItem>
-          {groupOptions.map((item) => (
+          {groups.map((item) => (
             <DropdownMenuRadioItem key={item.key} value={item.key}>
               {item.title}
             </DropdownMenuRadioItem>
@@ -165,20 +181,34 @@ function GroupMenu({ group, onChange }: { group?: Group; onChange: (group?: Grou
   );
 }
 
+type FilterOptions = {
+  [key in (typeof dimensions | typeof skillDimensions)[number]["options"]]?: string[];
+};
+
 function Filters({
   search,
+  items,
+  groups,
+  group,
   options,
   onSearch,
 }: {
   search: UsageSearch;
-  options?: UsageView["options"];
+  items: readonly {
+    key: Dimension | SkillDimension;
+    title: string;
+    options: keyof FilterOptions;
+  }[];
+  groups: readonly { key: Group; title: string }[];
+  group?: Group;
+  options?: FilterOptions;
   onSearch: (patch: UsageSearch) => void;
 }) {
   return (
     <div className={cn(inset, "grid gap-2")}>
       <div className="flex flex-wrap gap-2">
         <PeriodMenu search={search} onSearch={onSearch} />
-        {dimensions.map((item) => (
+        {items.map((item) => (
           <FilterMenu
             key={item.key}
             title={item.title}
@@ -189,7 +219,7 @@ function Filters({
             }
           />
         ))}
-        <GroupMenu group={search.group} onChange={(group) => onSearch({ group })} />
+        <GroupMenu group={group} groups={groups} onChange={(next) => onSearch({ group: next })} />
       </div>
       {search.period === "custom" && (
         <div className="flex flex-wrap items-center gap-2">
@@ -548,6 +578,82 @@ function TimesTab({
   );
 }
 
+const sourceTitle = (source: string) => (source === "mobius" ? "Mobius" : "Harness");
+
+function SkillTable({ rows, group }: { rows: SkillUsageRow[]; group?: Group }) {
+  const heads = ["Uses", "Had", "Used"];
+  const left = [
+    "Skill",
+    "Source",
+    ...(group ? [skillGroups.find((item) => item.key === group)?.title] : []),
+  ];
+  return (
+    <div className={cn(inset, "overflow-x-auto")}>
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b text-muted-foreground">
+            {left.map((head) => (
+              <th key={head} scope="col" className="py-2 pr-4 text-left font-normal">
+                {head}
+              </th>
+            ))}
+            {heads.map((head) => (
+              <th key={head} scope="col" className="py-2 pr-4 text-right font-normal last:pr-0">
+                {head}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length === 0 && (
+            <tr>
+              <td colSpan={left.length + heads.length} className="py-2 text-muted-foreground">
+                No skill uses in this period.
+              </td>
+            </tr>
+          )}
+          {rows.map((row) => (
+            <tr
+              key={`${row.skill}|${row.source}|${row.group}`}
+              className="border-b last:border-b-0"
+            >
+              <th scope="row" className="py-2 pr-4 text-left font-normal whitespace-nowrap">
+                {row.skill}
+              </th>
+              <td className="py-2 pr-4 whitespace-nowrap">{sourceTitle(row.source)}</td>
+              {group && (
+                <td className="py-2 pr-4 whitespace-nowrap">
+                  {group === "source" ? sourceTitle(row.group) : groupTitle(row.group, group)}
+                </td>
+              )}
+              <td className="py-2 pr-4 text-right tabular-nums">{row.uses}</td>
+              <td className="py-2 pr-4 text-right tabular-nums">
+                {row.source === "harness" ? "—" : row.had}
+              </td>
+              <td className="py-2 text-right tabular-nums">{row.used}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function SkillsTab({ skills, group }: { skills: SkillUsage; group?: Group }) {
+  return (
+    <div className="grid gap-6">
+      <Totals
+        items={[
+          { title: "Uses", value: String(skills.totals.uses) },
+          { title: "Skills", value: String(skills.totals.skills) },
+          { title: "Sessions", value: String(skills.totals.sessions) },
+        ]}
+      />
+      <SkillTable rows={skills.rows} group={group} />
+    </div>
+  );
+}
+
 export function Usage({
   search,
   onSearch,
@@ -558,9 +664,13 @@ export function Usage({
   const showLogin = use(LoginContext);
   const [loaded, setLoaded] = useState<{ usage: UsageView; range: Range }>();
   const [loadedTimes, setLoadedTimes] = useState<{ times: UsageTimes; range: Range }>();
+  const [loadedSkills, setLoadedSkills] = useState<SkillUsage>();
   const [error, setError] = useState<string>();
   const tab = search.tab ?? "cost";
   const timesTab = tab === "times";
+  const skillsTab = tab === "skills";
+  const groups = skillsTab ? skillGroups : groupOptions;
+  const group = groups.find((item) => item.key === search.group)?.key;
 
   const [now] = useState(() => new Date());
   const query = useMemo(() => {
@@ -575,13 +685,22 @@ export function Usage({
       effort: search.effort,
       role: search.role,
       repository: search.repository,
-      group: search.group,
+      group: groupOptions.find((item) => item.key === search.group)?.key,
     };
-    return { range, params };
+    const skillParams: GetUsageSkillsParams = {
+      from: params.from,
+      to: params.to,
+      harness: search.harness,
+      role: search.role,
+      repository: search.repository,
+      source: search.source,
+      group: skillGroups.find((item) => item.key === search.group)?.key,
+    };
+    return { range, params, skillParams };
   }, [search, now]);
 
   useEffect(() => {
-    if (timesTab) {
+    if (timesTab || skillsTab) {
       return;
     }
     let current = true;
@@ -603,7 +722,7 @@ export function Usage({
     return () => {
       current = false;
     };
-  }, [query, showLogin, timesTab]);
+  }, [query, showLogin, timesTab, skillsTab]);
 
   useEffect(() => {
     if (!timesTab) {
@@ -630,36 +749,68 @@ export function Usage({
     };
   }, [query, showLogin, timesTab]);
 
+  useEffect(() => {
+    if (!skillsTab) {
+      return;
+    }
+    let current = true;
+    getUsageSkills(query.skillParams)
+      .then((res) => {
+        if (!current) {
+          return;
+        }
+        if (res.status === 401) {
+          showLogin();
+        } else if (res.status === 200) {
+          setLoadedSkills(res.data.data);
+          setError(undefined);
+        } else {
+          setError(res.data.error);
+        }
+      })
+      .catch((err: unknown) => current && setError(String(err)));
+    return () => {
+      current = false;
+    };
+  }, [query, showLogin, skillsTab]);
+
   return (
     <>
       <TopBar title="Usage" back="/settings" />
       <PageHeader title="Usage" />
       <Filters
         search={search}
-        options={timesTab ? loadedTimes?.times.options : loaded?.usage.options}
+        items={skillsTab ? skillDimensions : dimensions}
+        groups={groups}
+        group={group}
+        options={
+          skillsTab
+            ? loadedSkills?.options
+            : timesTab
+              ? loadedTimes?.times.options
+              : loaded?.usage.options
+        }
         onSearch={onSearch}
       />
       {error && <ErrorBadge>{error}</ErrorBadge>}
       <Tabs
         value={tab}
         onValueChange={(value) =>
-          onSearch({ tab: value === "tokens" || value === "times" ? value : undefined })
+          onSearch({
+            tab: value === "tokens" || value === "times" || value === "skills" ? value : undefined,
+          })
         }
       >
         <TabsList className={cn("mx-4 md:mx-0")}>
           <TabsTrigger value="cost">Cost</TabsTrigger>
           <TabsTrigger value="tokens">Tokens</TabsTrigger>
           <TabsTrigger value="times">Times</TabsTrigger>
+          <TabsTrigger value="skills">Skills</TabsTrigger>
         </TabsList>
         {loaded &&
           (["cost", "tokens"] as const).map((kind) => (
             <TabsContent key={kind} value={kind}>
-              <UsageTab
-                usage={loaded.usage}
-                range={loaded.range}
-                group={search.group}
-                kind={kind}
-              />
+              <UsageTab usage={loaded.usage} range={loaded.range} group={group} kind={kind} />
             </TabsContent>
           ))}
         {loadedTimes && (
@@ -667,10 +818,15 @@ export function Usage({
             <TimesTab
               times={loadedTimes.times}
               range={loadedTimes.range}
-              group={search.group}
+              group={group}
               stat={search.stat}
               onStat={(stat) => onSearch({ stat })}
             />
+          </TabsContent>
+        )}
+        {loadedSkills && (
+          <TabsContent value="skills">
+            <SkillsTab skills={loadedSkills} group={group} />
           </TabsContent>
         )}
       </Tabs>

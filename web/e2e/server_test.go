@@ -728,6 +728,7 @@ func TestServer(t *testing.T) {
 	}
 	fixTimes(t, server, github)
 	addTurnUsage(t, server)
+	addSkillUses(t, server)
 	addStepTimes(t, server)
 	for query, last := range map[string]*atomic.Int64{
 		"SELECT MAX(id) FROM step_times":  &lastStepTime,
@@ -861,6 +862,78 @@ func addTurnUsage(t *testing.T, server *testserver.Server) {
 			VALUES (?, 12, ?, ?, ?, ?, ?, nullif(?, ''), nullif(?, ''), ?, ?, ?, ?, ?, ?, ?)`,
 			sessions[i%len(sessions)], organization, turn.repository, turn.role, turn.harness, turn.model, turn.reported, turn.effort,
 			turn.startedAt, turn.startedAt, turn.input, turn.output, turn.cacheRead, turn.cacheWrite, turn.cost); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// addSkillUses adds the skill uses and the copied skills of the tab "Skills" on the 7 days that end on 2026-10-15. It
+// runs after fixTimes, which moves the rows of the fake agents before these 7 days. The rows use the sessions that
+// exist, because a new session changes the ids of the later sessions. The skill write-issue is copied and never used.
+func addSkillUses(t *testing.T, server *testserver.Server) {
+	t.Helper()
+	rows, err := server.DB.Query("SELECT id FROM sessions ORDER BY id LIMIT 4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sessions []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		sessions = append(sessions, id)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if err := rows.Close(); err != nil {
+		t.Fatal(err)
+	}
+	type use struct {
+		session                                  int
+		harness, role, repository, skill, source string
+		at                                       string
+	}
+	uses := []use{
+		{0, "claude-code", engine.LeadRole, "owner/shop", "mobius-local-state", "mobius", "2026-10-11T12:00:00Z"},
+		{0, "claude-code", engine.LeadRole, "owner/shop", "mobius-local-state", "mobius", "2026-10-13T12:00:00Z"},
+		{1, "claude-code", engine.LeadRole, "owner/shop", "mobius-local-state", "mobius", "2026-10-14T16:00:00Z"},
+		{2, "claude-code", engine.ImplementerRole, "owner/shop", "mobius-local-state", "mobius", "2026-10-12T09:30:00Z"},
+		{3, "claude-code", engine.ImplementerRole, "owner/shop", "mobius-local-state", "mobius", "2026-10-15T08:00:00Z"},
+		{2, "claude-code", engine.ImplementerRole, "owner/shop", "frontend-design", "harness", "2026-10-13T14:00:00Z"},
+		{3, "claude-code", engine.ImplementerRole, "owner/shop", "frontend-design", "harness", "2026-10-15T08:30:00Z"},
+		{0, "devin", engine.ImplementerRole, "plants/garden", "commit", "harness", "2026-10-10T13:00:00Z"},
+		{1, "devin", engine.ImplementerRole, "plants/garden", "commit", "harness", "2026-10-13T11:00:00Z"},
+		{1, "devin", engine.ImplementerRole, "plants/garden", "commit", "harness", "2026-10-15T10:00:00Z"},
+	}
+	for _, use := range uses {
+		organization, _, _ := strings.Cut(use.repository, "/")
+		if _, err := server.DB.Exec(`INSERT INTO skill_uses (session, organization, repository, role, harness, skill, source, used_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			sessions[use.session], organization, use.repository, use.role, use.harness, use.skill, use.source, use.at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	type copied struct {
+		session                              int
+		harness, role, repository, skill, at string
+	}
+	skills := []copied{
+		{0, "claude-code", engine.LeadRole, "owner/shop", "mobius-local-state", "2026-10-11T12:00:00Z"},
+		{1, "claude-code", engine.LeadRole, "owner/shop", "mobius-local-state", "2026-10-14T16:00:00Z"},
+		{2, "claude-code", engine.ImplementerRole, "owner/shop", "mobius-local-state", "2026-10-12T09:30:00Z"},
+		{3, "claude-code", engine.ImplementerRole, "owner/shop", "mobius-local-state", "2026-10-15T08:00:00Z"},
+		{0, "claude-code", engine.LeadRole, "owner/shop", "write-issue", "2026-10-11T12:00:00Z"},
+		{1, "claude-code", engine.LeadRole, "owner/shop", "write-issue", "2026-10-14T16:00:00Z"},
+		{2, "claude-code", engine.ImplementerRole, "owner/shop", "write-issue", "2026-10-12T09:30:00Z"},
+		{3, "claude-code", engine.ImplementerRole, "owner/shop", "write-issue", "2026-10-15T08:00:00Z"},
+	}
+	for _, skill := range skills {
+		organization, _, _ := strings.Cut(skill.repository, "/")
+		if _, err := server.DB.Exec(`INSERT INTO session_skills (session, organization, repository, role, harness, skill, copied_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			sessions[skill.session], organization, skill.repository, skill.role, skill.harness, skill.skill, skill.at); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -1012,6 +1085,8 @@ func fixTimes(t *testing.T, server *testserver.Server, github *testkit.FakeGitHu
 		"UPDATE sessions SET started_at = ?1, ended_at = iif(ended_at IS NULL, NULL, ?1)",
 		"UPDATE transcript SET time = ?1",
 		"UPDATE turn_usage SET started_at = ?1, ended_at = ?1",
+		"UPDATE skill_uses SET used_at = ?1",
+		"UPDATE session_skills SET copied_at = ?1",
 		"UPDATE step_times SET started_at = ?1, ended_at = ?1",
 		"UPDATE task_states SET started_at = ?1, ended_at = ?1",
 		"UPDATE chat_messages SET time = ?1, delivered_at = iif(delivered_at IS NULL, NULL, ?1), stopped_at = iif(stopped_at IS NULL, NULL, ?1)",
