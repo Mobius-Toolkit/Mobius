@@ -1,6 +1,7 @@
 package testkit
 
 import (
+	"cmp"
 	"fmt"
 	"net/http"
 	"slices"
@@ -64,6 +65,7 @@ type workflowRun struct {
 type WorkflowJob struct {
 	ID         int64
 	Name       string
+	Status     string
 	Conclusion string
 	Steps      []WorkflowStep
 }
@@ -264,6 +266,18 @@ func (g *FakeGitHub) AddWorkflowJob(repository string, id int64, attempt int, jo
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.workflowJobs = append(g.workflowJobs, workflowJob{repository, id, attempt, job})
+}
+
+// CompleteWorkflowJob sets the status of the workflow job id to completed, with the conclusion.
+func (g *FakeGitHub) CompleteWorkflowJob(id int64, conclusion string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	for i := range g.workflowJobs {
+		if g.workflowJobs[i].ID == id {
+			g.workflowJobs[i].Status = "completed"
+			g.workflowJobs[i].Conclusion = conclusion
+		}
+	}
 }
 
 // SetWorkflowRunStatus sets the status and the conclusion of the workflow run id.
@@ -821,7 +835,7 @@ func (g *FakeGitHub) listWorkflowJobsAttempt(w http.ResponseWriter, r *http.Requ
 			steps = append(steps, map[string]any{"name": step.Name, "conclusion": step.Conclusion})
 		}
 		jobs = append(jobs, map[string]any{
-			"id": job.ID, "name": job.Name, "conclusion": job.Conclusion, "steps": steps,
+			"id": job.ID, "name": job.Name, "status": cmp.Or(job.Status, "completed"), "conclusion": job.Conclusion, "steps": steps,
 			"html_url": fmt.Sprintf("%s/%s/actions/runs/%d/job/%d", g.URL, job.repository, id, job.ID),
 		})
 	}
