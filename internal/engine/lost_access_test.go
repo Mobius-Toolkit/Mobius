@@ -58,3 +58,23 @@ func TestACompleteReadWithNoAccessToTheRepositoryEndsItsLiveTask(t *testing.T) {
 
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "" })
 }
+
+func TestTheCopyOfARepositoryComesBackWhenItsAccessComesBack(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := seedWaiting(t, fake, "checks")
+	copiedWorkstreams := func() int {
+		var count int
+		if err := server.DB.QueryRow("SELECT COUNT(*) FROM copied_workstreams WHERE repository = ?", shop).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		return count
+	}
+	testkit.WaitFor(t, func() bool { return copiedWorkstreams() == 1 })
+
+	fake.RemoveRepository(shop)
+	testkit.WaitFor(t, func() bool { return copiedWorkstreams() == 0 })
+
+	fake.RestoreRepository(shop)
+	testkit.WaitFor(t, func() bool { return copiedWorkstreams() == 1 })
+}

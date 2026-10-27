@@ -1701,6 +1701,7 @@ test("screenshots", async ({ page }) => {
       await answer(unknownTitle, "Go ahead.")();
       await panel.getByRole("button", { name: "Approve" }).click();
       await expect(panel.getByRole("alert")).toBeVisible();
+      await page.mouse.move(0, 0);
       await idle(page);
       await showEnd(unknownText)();
     },
