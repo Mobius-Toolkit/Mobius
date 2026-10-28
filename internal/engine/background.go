@@ -50,7 +50,9 @@ func isTrigger(update any) bool {
 // not tell which task ended. Thus the count takes one from the tasks for each such end, whatever the task is.
 // The count also counts the commands with the agents, so the end of a command is not the end of an agent. An
 // autonomous turn with another origin (for example a message of a peer), or with a task-notification origin that has a
-// subkind or a source (a wakeup), ends no task. A completed call of a tool of stopTools ends one task. The reply text of the session
+// subkind or a source (a wakeup), ends no task. A completed call of a tool of stopTools ends one task. A tool call
+// of a subagent (parentToolUseId) starts and stops no task of the session: the CLI kills the tasks of a subagent when it
+// ends, and sends no end to the session. The reply text of the session
 // belongs to the last turn, so the first update of an autonomous turn clears the reply text.
 //
 // A turn that Mobius started sends all its updates before the response of its prompt. Thus a work update while no
@@ -68,8 +70,9 @@ func (a *Agent) track(notification map[string]any, kind string, late bool) {
 			}
 			a.autonomous = true
 		}
+		ownCall := field(update, "_meta", "claudeCode", "parentToolUseId") == nil
 		async := kind == "tool_call_update" && field(update, "_meta", "claudeCode", "toolResponse", "isAsync") == true
-		if id := stringField(update, "toolCallId"); async || field(update, "rawInput", "run_in_background") == true {
+		if id := stringField(update, "toolCallId"); ownCall && (async || field(update, "rawInput", "run_in_background") == true) {
 			if _, started := a.backgroundCalls[id]; !started {
 				if a.backgroundCalls == nil {
 					a.backgroundCalls = map[string]struct{}{}
@@ -81,7 +84,7 @@ func (a *Agent) track(notification map[string]any, kind string, late bool) {
 		if async {
 			a.subagent = a.subagent || running
 		}
-		if kind == "tool_call_update" && slices.Contains(stopTools, stringField(update, "_meta", "claudeCode", "toolName")) &&
+		if ownCall && kind == "tool_call_update" && slices.Contains(stopTools, stringField(update, "_meta", "claudeCode", "toolName")) &&
 			stringField(update, "status") == "completed" {
 			if _, counted := a.stoppedCalls[stringField(update, "toolCallId")]; !counted {
 				if a.stoppedCalls == nil {

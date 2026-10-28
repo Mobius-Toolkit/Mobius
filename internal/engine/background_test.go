@@ -390,6 +390,28 @@ func TestAStoppedBackgroundCommandEndsTheWaitWithNoBackgroundTime(t *testing.T) 
 	}
 }
 
+func TestABackgroundCommandOfASubagentDoesNotHoldTheWait(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"One\"]\n")
+	agent := start(t, server, leadSpec(t))
+	mark := `"_meta": {"claudeCode": {"parentToolUseId": "p1"}}, `
+	subCommand := strings.Replace(backgroundCommand, `"name"`, mark+`"name"`, 1)
+	subAsync := strings.Replace(fmt.Sprintf(asyncAgentUpdate, "a1"), `"_meta": {"claudeCode": {`, `"_meta": {"claudeCode": {"parentToolUseId": "p1", `, 1)
+	for _, update := range []string{subCommand, subAsync, finalReport, endUpdate} {
+		agent.Update(fmt.Appendf(nil, agentUpdate, update))
+	}
+
+	waiting, stopWaiting := context.WithTimeout(t.Context(), 10*time.Second)
+	defer stopWaiting()
+	if err := agent.WaitBackground(waiting); err != nil {
+		t.Fatalf("WaitBackground = %v while only a subagent started tasks", err)
+	}
+	if notes := noteTexts(t, server, agent.ID()); len(notes) != 0 {
+		t.Errorf("notes = %q", notes)
+	}
+}
+
 // shortBackground makes the time that Mobius waits for idle background tasks short for the test.
 func shortBackground(t *testing.T) {
 	t.Helper()
