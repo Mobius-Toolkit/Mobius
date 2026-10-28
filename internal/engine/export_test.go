@@ -11,18 +11,19 @@ import (
 
 // The tests make these waits short.
 var (
-	ToolsTimeout      = &toolsTimeout
-	RestartDelays     = &restartDelays
-	RateLimitGrace    = &rateLimitGrace
-	HangTimeout       = &hangTimeout
-	BackgroundTimeout = &backgroundTimeout
-	ErrHung           = errHung
-	AbsorbTimeout     = &absorbTimeout
-	LoadAverage       = &loadAverage
-	CheckGap          = &checkGap
-	LoadPoll          = &loadPoll
-	LoadWaitEvent     = &loadWaitEvent
-	Cores             = cores
+	ToolsTimeout            = &toolsTimeout
+	RestartDelays           = &restartDelays
+	RateLimitGrace          = &rateLimitGrace
+	HangTimeout             = &hangTimeout
+	ErrHung                 = errHung
+	AbsorbTimeout           = &absorbTimeout
+	BackgroundTimeout       = &backgroundTimeout
+	BackgroundCheckInterval = &backgroundCheckInterval
+	LoadAverage             = &loadAverage
+	CheckGap                = &checkGap
+	LoadPoll                = &loadPoll
+	LoadWaitEvent           = &loadWaitEvent
+	Cores                   = cores
 )
 
 // SetClock makes the long waits read the time from clock.
@@ -168,14 +169,4 @@ func (e *Engine) TurnRunsForMessage(key ChatKey) bool {
 	defer e.chatsMu.Unlock()
 	c, ok := e.chats[key]
 	return ok && c.stoppable
-}
-
-// WaitBackground holds until no autonomous turn and no background task of the agent runs.
-func (a *Agent) WaitBackground(ctx context.Context) error {
-	return a.waitBackground(ctx)
-}
-
-// ReplyText gives the reply text of the agent.
-func (a *Agent) ReplyText() string {
-	return a.replyText()
 }

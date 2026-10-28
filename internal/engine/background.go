@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"slices"
 	"time"
+
+	"github.com/Mobius-Toolkit/Mobius/internal/github"
+	"github.com/Mobius-Toolkit/Mobius/internal/mcp"
 )
 
 // quietPoll is the time between two checks of waitQuiet.
@@ -15,9 +18,18 @@ const quietPoll = 20 * time.Millisecond
 // takes the prompt as absorbed into the autonomous turn.
 var absorbTimeout = 30 * time.Second
 
-// backgroundTimeout is the time with no activity after which waitBackground takes the background tasks as ended. A
-// background agent sends no update to the session while it works, so the limit is longer than hangTimeout.
+// backgroundCheckInterval is the time between the end of a turn of waitBackground that left a background task running
+// and the next wait prompt.
+var backgroundCheckInterval = 5 * time.Minute
+
+// backgroundTimeout is the total time after which waitBackground stops to wait for the background tasks.
 var backgroundTimeout = time.Hour
+
+// backgroundPrompt is the prompt of waitBackground.
+const backgroundPrompt = "Before your final report, check each background task that you started. Wait for each task that still runs, for example with `TaskOutput` and `block`. Then call `background_state` with `done` and give your full final report. If a task still runs at the end of this turn, call `background_state` with `running`."
+
+// backgroundRoles are the Roles that end their session after their last Prompt. They get the tool background_state.
+var backgroundRoles = []string{ResearcherRole, JudgeRole, DiagnoserRole, CuratorRole, TriagerRole, ReviewerRole}
 
 // errStopped is the error of waitQuiet when a stop ends the wait.
 var errStopped = errors.New("a stop ended the wait for an autonomous turn")
@@ -25,35 +37,11 @@ var errStopped = errors.New("a stop ended the wait for an autonomous turn")
 // errCannotDone is the error of waitQuiet when the agent called cannot_do in the autonomous turn.
 var errCannotDone = errors.New("the agent called cannot_do in an autonomous turn")
 
-// errBackgroundIdle is the error of hold when the background tasks had no activity for backgroundTimeout.
-var errBackgroundIdle = errors.New("the background tasks had no activity")
-
 // autonomousOrigins are the origin kinds of the end of an autonomous turn. Any other kind ends a turn of a user.
 var autonomousOrigins = []string{"task-notification", "peer", "coordinator", "observer", "observer-activity"}
 
-// isTrigger tells if the origin of a usage update is a task-notification that no task end caused: a scheduled trigger
-// (ScheduleWakeup, a cron fire) or a check-in.
-func isTrigger(update any) bool {
-	return field(update, "_meta", "_claude/origin", "subkind") != nil || field(update, "_meta", "_claude/origin", "source") != nil
-}
-
 // track follows the autonomous turns of a Claude Code agent. An autonomous turn is a turn that the CLI starts alone,
 // for example when a background task ends. The caller holds a.mu.
-//
-// An async result of the Agent tool (isAsync) starts a background agent. The adapter sends no signal for the end of
-// an agent to a client with no subagent capability: the end of an autonomous turn with the origin task-notification
-// is the only sign, and it does not tell which task ended. An autonomous turn with another origin (for example a
-// message of a peer), or with a task-notification origin that has a subkind or a source (a wakeup), ends no agent. A
-// tool call of a subagent (parentToolUseId) starts no agent of the session: the CLI ends the agents of a subagent with
-// it, and sends no end to the session.
-//
-// With the asyncTasks capability, the adapter sends async_task_spawned and async_task_state_update for each background
-// command, also for an end inside a running turn, and for a command that the agent stopped. The adapter can report a
-// command as stopped first and correct the state to completed or failed later. The task-notification turn of a
-// command that ended while the agent was idle belongs to the command, not to an agent.
-//
-// The reply text of the session belongs to the last turn, so the first update of an autonomous turn clears the reply
-// text.
 //
 // A turn that Mobius started sends all its updates before the response of its prompt. Thus a work update while no
 // prompt runs, or after the response of the prompt (late), belongs to an autonomous turn.
@@ -65,49 +53,13 @@ func (a *Agent) track(notification map[string]any, kind string, late bool) {
 		a.activity = time.Now()
 		a.autonomousEnd = time.Time{}
 		if !running {
-			if !a.autonomous {
-				a.reply.Reset()
-			}
 			a.autonomous = true
 		}
-		async := kind == "tool_call_update" && field(update, "_meta", "claudeCode", "toolResponse", "isAsync") == true
-		if id := stringField(update, "toolCallId"); async && !a.calls[id].subagent {
-			if _, started := a.backgroundCalls[id]; !started {
-				if a.backgroundCalls == nil {
-					a.backgroundCalls = map[string]struct{}{}
-				}
-				a.backgroundCalls[id] = struct{}{}
-				a.background++
-			}
+		if kind == "tool_call" || kind == "tool_call_update" {
+			a.markBackground(update)
 		}
-		if async {
-			a.subagent = a.subagent || running
-		}
-	case "async_task_spawned":
-		a.activity = time.Now()
-		if a.commands == nil {
-			a.commands = map[string]struct{}{}
-		}
-		a.commands[stringField(update, "asyncTaskId")] = struct{}{}
-	case "async_task_state_update":
-		a.activity = time.Now()
-		state := stringField(update, "state")
-		id := stringField(update, "asyncTaskId")
-		_, runs := a.commands[id]
-		_, stopped := a.stoppedCommands[id]
-		switch {
-		case runs && state == "stopped":
-			delete(a.commands, id)
-			if a.stoppedCommands == nil {
-				a.stoppedCommands = map[string]struct{}{}
-			}
-			a.stoppedCommands[id] = struct{}{}
-		case (runs || stopped) && slices.Contains([]string{"completed", "failed"}, state):
-			delete(a.commands, id)
-			delete(a.stoppedCommands, id)
-			if !a.turn && !a.autonomous {
-				a.commandEnds++
-			}
+		if kind == "tool_call_update" && running && field(update, "_meta", "claudeCode", "toolResponse", "isAsync") == true {
+			a.subagent = true
 		}
 	case "usage_update":
 		origin := stringField(update, "_meta", "_claude/origin", "kind")
@@ -115,13 +67,6 @@ func (a *Agent) track(notification map[string]any, kind string, late bool) {
 			return
 		}
 		a.autonomous = false
-		if origin == "task-notification" && !isTrigger(update) {
-			if a.commandEnds > 0 {
-				a.commandEnds--
-			} else {
-				a.background = max(a.background-1, 0)
-			}
-		}
 		// The adapter holds the turn open for a background subagent, so the prompt is not absorbed.
 		if running && !a.subagent {
 			a.autonomousEnd = time.Now()
@@ -133,37 +78,94 @@ func (a *Agent) track(notification map[string]any, kind string, late bool) {
 	}
 }
 
+// markBackground sets a.background when the tool call update starts a background task of the session: an async result
+// of the Agent tool, or a tool call with run_in_background. The mark parentToolUseId can be only on the first update
+// of a tool call, so the session keeps the calls of subagents. A task of a subagent is no start: the CLI sends its end
+// to the subagent. The caller holds a.mu.
+func (a *Agent) markBackground(update any) {
+	id := stringField(update, "toolCallId")
+	if field(update, "_meta", "claudeCode", "parentToolUseId") != nil {
+		if a.subagentCalls == nil {
+			a.subagentCalls = map[string]struct{}{}
+		}
+		a.subagentCalls[id] = struct{}{}
+	}
+	if _, subagent := a.subagentCalls[id]; subagent {
+		return
+	}
+	if field(update, "_meta", "claudeCode", "toolResponse", "isAsync") == true || field(update, "rawInput", "run_in_background") == true {
+		a.background = true
+	}
+}
+
+type backgroundStateInput struct {
+	State string `json:"state"`
+}
+
+func (e *Engine) backgroundStateTool(c caller) mcp.Tool {
+	return tool(e, c, "background_state",
+		"Tell Mobius if a background task of this session still runs. Call it only when Mobius asks. Mobius waits for your final report while you give the state running.",
+		map[string]any{
+			"state": map[string]any{"type": "string", "enum": []string{"running", "done"}, "description": "running: a background task still runs. done: each background task ended."},
+		},
+		e.backgroundState)
+}
+
+// backgroundState records the state of the background tasks on the session of c.
+func (e *Engine) backgroundState(_ context.Context, c caller, _ github.Repository, input backgroundStateInput) (string, error) {
+	if input.State != "running" && input.State != "done" {
+		return "", refuse("state must be running or done.")
+	}
+	c.agent.setBackground(input.State == "running")
+	return "Mobius has the state " + input.State + ".", nil
+}
+
+// setBackground records the state that the agent gave with background_state.
+func (a *Agent) setBackground(running bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.background = running
+}
+
+// waitBackground is the last step of a Role that ends its session after its last Prompt. When the session started a
+// background task, it sends backgroundPrompt, and again each backgroundCheckInterval, until the agent calls
+// background_state with done. Prompt holds while an autonomous turn runs. After backgroundTimeout, waitBackground adds
+// a note and ends. The reply text of the session is the reply text of the last turn. A stop ends the wait with no
+// error: the caller reads ctx.
+func (a *Agent) waitBackground(ctx context.Context) error {
+	started := time.Now()
+	for {
+		a.mu.Lock()
+		waiting := a.background
+		a.mu.Unlock()
+		if !waiting {
+			return nil
+		}
+		if err := a.Prompt(ctx, backgroundPrompt, nil); err != nil {
+			return err
+		}
+		a.mu.Lock()
+		waiting = a.background
+		a.mu.Unlock()
+		if !waiting || ctx.Err() != nil {
+			return nil
+		}
+		if time.Since(started) >= backgroundTimeout {
+			return a.addNote(ctx, fmt.Sprintf("A background task still ran after %s. Mobius ends the wait for the background tasks.", backgroundTimeout))
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(backgroundCheckInterval):
+		}
+	}
+}
+
 // waitQuiet holds until no autonomous turn runs. When the agent has no activity for hangTimeout, the agent is stuck in
 // the autonomous turn: waitQuiet sends the cancel, forgets the turn, and gives errHung. A stop gives errStopped. A
 // cannot_do of the agent in the autonomous turn gives errCannotDone, because the cancel of cannot_do may end that
 // turn with no autonomous end.
 func (a *Agent) waitQuiet(ctx context.Context) error {
-	return a.hold(ctx, false)
-}
-
-// waitBackground is the wait of a Role that ends its session after its last Prompt. It holds until no autonomous turn
-// runs and no background task of the session runs, with the stop, cannot_do and hang rules of waitQuiet. A stop or a
-// cannot_do ends the wait with no error. The end of the wait gives the reply text of the last turn.
-//
-// The count of the tasks can stay above zero when the CLI folds the ends of two tasks into one autonomous turn. Thus,
-// when no autonomous turn runs and the agent has no activity for backgroundTimeout, the wait adds a note to the
-// Transcript and ends with no error, and the session keeps its reply text.
-func (a *Agent) waitBackground(ctx context.Context) error {
-	err := a.hold(ctx, true)
-	switch {
-	case errors.Is(err, errBackgroundIdle):
-		return a.addNote(ctx, fmt.Sprintf("The agent had no activity for %s while a background task ran. Mobius ends the wait for the background tasks.", backgroundTimeout))
-	case errors.Is(err, errStopped):
-		a.takeStop()
-		return nil
-	case errors.Is(err, errCannotDone):
-		return nil
-	}
-	return err
-}
-
-// hold is waitQuiet. With background, it also holds while a background task runs.
-func (a *Agent) hold(ctx context.Context, background bool) error {
 	ticker := time.NewTicker(quietPoll)
 	defer ticker.Stop()
 	last := time.Now()
@@ -178,29 +180,18 @@ func (a *Agent) hold(ctx context.Context, background bool) error {
 			a.mu.Unlock()
 			return errCannotDone
 		}
-		waiting := background && (a.background > 0 || len(a.commands) > 0 || a.commandEnds > 0)
+		busy := a.autonomous
 		if a.activity.After(last) {
 			last = a.activity
 		}
-		idle := time.Since(last) >= hangTimeout
-		hung := a.autonomous && idle
+		hung := busy && time.Since(last) >= hangTimeout
 		if hung {
 			a.autonomous = false
 		}
-		abandoned := waiting && time.Since(last) >= backgroundTimeout
-		if hung || abandoned {
-			a.background = 0
-			a.commandEnds = 0
-			clear(a.commands)
-		}
-		busy := a.autonomous || waiting && !abandoned
 		a.mu.Unlock()
 		if hung {
 			_ = a.cancel(ctx)
 			return errHung
-		}
-		if abandoned {
-			return errBackgroundIdle
 		}
 		if !busy {
 			return nil

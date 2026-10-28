@@ -107,54 +107,6 @@ func TestAReportOfTheResearcherGoesToTheLeadChat(t *testing.T) {
 	}
 }
 
-func TestAReportOfTheResearcherWaitsForItsBackgroundAgent(t *testing.T) {
-	t.Parallel()
-	fake := testkit.NewFakeGitHub(t)
-	asyncAgent := `{"sessionUpdate": "tool_call_update", "toolCallId": "t1", "_meta": {"claudeCode": {"toolName": "Agent", "toolResponse": {"isAsync": true, "agentId": "s1"}}}}`
-	finalReport := `{"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "The final report."}}`
-	researcher := "[[prompts]]\nwhen = \"You are a Researcher\"\nupdates = ['" + asyncAgent + "']\nreply = [\"One helper still runs.\"]\n" +
-		"later = { after = \"300ms\", updates = ['" + finalReport + "', '" + endUpdate + "'] }\n"
-	server, _ := connectResearcher(t, fake, researchLead, researcher)
-
-	sendChat(t, server, leadChat, "Plan the price model.")
-
-	session := testkit.WaitForValue(t, func() (store.Session, bool) {
-		sessions := roleSessions(t, server, engine.ResearcherRole)
-		if len(sessions) == 0 {
-			return store.Session{}, false
-		}
-		return sessions[0], sessions[0].EndedAt.Valid
-	})
-	if session.EndReason.String != "done" {
-		t.Errorf("session = %+v", session)
-	}
-	if lineID(t, server, session.ID, "update", "task-notification") == 0 {
-		t.Error("the session ended before the end of the background agent")
-	}
-	prompt := waitForLeadPrompt(t, server, fmt.Sprintf("# Researcher message\n\nReport of the Researcher %d on \"%s\":\n\n", session.ID, question))
-	if !strings.HasSuffix(prompt, "The final report.") {
-		t.Errorf("prompt = %q", prompt)
-	}
-}
-
-func TestStopResearcherStopsAResearcherThatWaitsForItsBackgroundAgent(t *testing.T) {
-	t.Parallel()
-	fake := testkit.NewFakeGitHub(t)
-	asyncAgent := `{"sessionUpdate": "tool_call_update", "toolCallId": "t1", "_meta": {"claudeCode": {"toolName": "Agent", "toolResponse": {"isAsync": true, "agentId": "s1"}}}}`
-	researcher := "[[prompts]]\nwhen = \"# Question\"\nupdates = ['" + asyncAgent + "']\nreply = [\"One helper still runs.\"]\n"
-	server, _ := connectResearcher(t, fake, researchLeadOfDetails, researcher)
-	sendChat(t, server, leadChat, "Begin alpha.")
-	waitForResearchers(t, server, "One helper still runs.")
-
-	sendChat(t, server, leadChat, "Stop alpha.")
-
-	waitForLeadPrompt(t, server, "# Researcher message\n\nThe Researcher 2 stopped. No report arrives.")
-	stopped := waitForChatSession(t, server, leadChat, engine.ResearcherRole, func(session store.Session) bool { return session.EndedAt.Valid })
-	if stopped.ID != 2 || stopped.EndReason.String != "stopped" {
-		t.Errorf("stopped = %+v", stopped)
-	}
-}
-
 func TestTheDrainRefusesANewResearcher(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
@@ -392,4 +344,133 @@ func TestDetailsForAResearcherThatWaitsForASlotGoToItsSecondPrompt(t *testing.T)
 	if len(reports) != 1 {
 		t.Errorf("reports = %q", reports)
 	}
+}
+
+const (
+	asyncAgentStart = `{"sessionUpdate": "tool_call_update", "toolCallId": "a1", "_meta": {"claudeCode": {"toolName": "Agent", "toolResponse": {"isAsync": true, "agentId": "s1"}}}}`
+	waitPrompt      = "Before your final report"
+)
+
+// shortBackgroundCheck makes the time between two wait prompts of a Researcher short. It changes a package variable,
+// so the test that calls it stays serial.
+func shortBackgroundCheck(t *testing.T, interval time.Duration) {
+	t.Helper()
+	before := *engine.BackgroundCheckInterval
+	*engine.BackgroundCheckInterval = interval
+	t.Cleanup(func() { *engine.BackgroundCheckInterval = before })
+}
+
+// Serial: the test changes backgroundCheckInterval.
+func TestAResearcherWithABackgroundAgentGivesTheReportOfTheTurnThatCallsDone(t *testing.T) {
+	shortBackgroundCheck(t, 50*time.Millisecond)
+	fake := testkit.NewFakeGitHub(t)
+	researcher := `
+[[prompts]]
+updates = ['` + asyncAgentStart + `']
+reply = ["One helper still runs."]
+
+[[prompts]]
+call = { tool = "background_state", arguments = { state = "running" } }
+
+[[prompts]]
+reply = ["The final report."]
+call = { tool = "background_state", arguments = { state = "done" } }
+`
+	server, _ := connectResearcher(t, fake, researchLead, researcher)
+
+	sendChat(t, server, leadChat, "Plan the price model.")
+
+	session := testkit.WaitForValue(t, func() (store.Session, bool) {
+		sessions := roleSessions(t, server, engine.ResearcherRole)
+		if len(sessions) == 0 {
+			return store.Session{}, false
+		}
+		return sessions[0], sessions[0].EndedAt.Valid
+	})
+	if session.EndReason.String != "done" {
+		t.Errorf("session = %+v", session)
+	}
+	prompts := promptTexts(t, server, session.ID)
+	if len(prompts) != 3 || !strings.Contains(prompts[1], waitPrompt) || !strings.Contains(prompts[2], waitPrompt) {
+		t.Fatalf("prompts = %q", prompts)
+	}
+	report := waitForLeadPrompt(t, server, fmt.Sprintf("Report of the Researcher %d on", session.ID))
+	if !strings.Contains(report, "\n\nThe final report.") || strings.Contains(report, "One helper still runs.") {
+		t.Errorf("report = %q", report)
+	}
+}
+
+func TestAResearcherWithNoBackgroundTaskGetsNoWaitPrompt(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectResearch(t, fake, researchLead)
+
+	sendChat(t, server, leadChat, "Plan the price model.")
+
+	session := testkit.WaitForValue(t, func() (store.Session, bool) {
+		sessions := roleSessions(t, server, engine.ResearcherRole)
+		if len(sessions) == 0 {
+			return store.Session{}, false
+		}
+		return sessions[0], sessions[0].EndedAt.Valid
+	})
+	if prompts := promptTexts(t, server, session.ID); len(prompts) != 1 {
+		t.Errorf("prompts = %q", prompts)
+	}
+}
+
+// Serial: the test changes backgroundCheckInterval.
+func TestABackgroundCommandOfASubagentWithTheMarkOnlyOnItsFirstUpdateStartsNoWait(t *testing.T) {
+	shortBackgroundCheck(t, 50*time.Millisecond)
+	fake := testkit.NewFakeGitHub(t)
+	researcher := `
+[[prompts]]
+updates = [
+  '{"sessionUpdate": "tool_call", "toolCallId": "b1", "_meta": {"claudeCode": {"toolName": "Bash", "parentToolUseId": "p1"}}}',
+  '{"sessionUpdate": "tool_call_update", "toolCallId": "b1", "rawInput": {"command": "sleep 60", "run_in_background": true}}',
+]
+reply = ["Plans store the price in cents."]
+`
+	server, _ := connectResearcher(t, fake, researchLead, researcher)
+
+	sendChat(t, server, leadChat, "Plan the price model.")
+
+	session := testkit.WaitForValue(t, func() (store.Session, bool) {
+		sessions := roleSessions(t, server, engine.ResearcherRole)
+		if len(sessions) == 0 {
+			return store.Session{}, false
+		}
+		return sessions[0], sessions[0].EndedAt.Valid
+	})
+	if prompts := promptTexts(t, server, session.ID); len(prompts) != 1 {
+		t.Errorf("prompts = %q", prompts)
+	}
+}
+
+// Serial: the test changes backgroundCheckInterval.
+func TestStopResearcherDuringTheWaitForABackgroundTaskEndsTheSessionAsStopped(t *testing.T) {
+	shortBackgroundCheck(t, time.Hour)
+	fake := testkit.NewFakeGitHub(t)
+	researcher := `
+[[prompts]]
+updates = ['` + asyncAgentStart + `']
+reply = ["One helper still runs."]
+
+[[prompts]]
+call = { tool = "background_state", arguments = { state = "running" } }
+`
+	server, _ := connectResearcher(t, fake, researchLeadOfDetails, researcher)
+	sendChat(t, server, leadChat, "Begin alpha.")
+	testkit.WaitFor(t, func() bool {
+		sessions := roleSessions(t, server, engine.ResearcherRole)
+		return len(sessions) == 1 && slices.ContainsFunc(mcpCalls(t, server, sessions[0].ID), func(call map[string]any) bool { return call["tool"] == "background_state" })
+	})
+
+	sendChat(t, server, leadChat, "Stop alpha.")
+
+	stopped := waitForChatSession(t, server, leadChat, engine.ResearcherRole, func(session store.Session) bool { return session.EndedAt.Valid })
+	if stopped.ID != 2 || stopped.EndReason.String != "stopped" {
+		t.Errorf("stopped = %+v", stopped)
+	}
+	waitForLeadPrompt(t, server, "# Researcher message\n\nThe Researcher 2 stopped. No report arrives.")
 }

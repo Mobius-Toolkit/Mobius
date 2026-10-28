@@ -53,7 +53,11 @@ func Refused(err error) bool {
 
 // tools gives the Mobius tools of the Role of c. Each Role gets its own tools and propose_skill.
 func (e *Engine) tools(c caller) []mcp.Tool {
-	return append(e.roleTools(c), e.proposeSkillTool(c))
+	tools := append(e.roleTools(c), e.proposeSkillTool(c))
+	if slices.Contains(backgroundRoles, c.role) {
+		tools = append(tools, e.backgroundStateTool(c))
+	}
+	return tools
 }
 
 func (e *Engine) roleTools(c caller) []mcp.Tool {

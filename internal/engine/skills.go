@@ -144,7 +144,7 @@ func (a *Agent) recordSkillUse(ctx context.Context, notification map[string]any,
 	update := notification["update"]
 	switch a.harness {
 	case config.ClaudeCode:
-		if (kind != "tool_call" && kind != "tool_call_update") || a.calls[stringField(update, "toolCallId")].toolName != "Skill" {
+		if (kind != "tool_call" && kind != "tool_call_update") || stringField(update, "_meta", "claudeCode", "toolName") != "Skill" {
 			return
 		}
 	case config.Devin:

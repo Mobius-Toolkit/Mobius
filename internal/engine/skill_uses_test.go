@@ -87,27 +87,6 @@ func TestAClaudeCodeSkillUseAddsOneRowWithTheSourceOfTheSkill(t *testing.T) {
 	}
 }
 
-const airSkillUpdates = `[[prompts]]
-updates = [
-  '{"sessionUpdate":"tool_call","toolCallId":"toolu_1","_meta":{"claudeCode":{"toolName":"Skill"}},"title":"Load skill"}',
-  '{"sessionUpdate":"tool_call_update","toolCallId":"toolu_1","rawInput":{"skill":"frontend-design"}}',
-]
-reply = ["done"]
-`
-
-func TestAClaudeCodeSkillUseWithTheToolNameOnlyInTheFirstUpdateAddsOneRow(t *testing.T) {
-	t.Parallel()
-	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, airSkillUpdates)
-
-	session, _ := leadReply(t, server)
-
-	want := []skillUse{{session, "owner", shop, "lead_chat", "claude-code", "frontend-design", "harness"}}
-	if got := skillUses(t, server, session); !slices.Equal(got, want) {
-		t.Errorf("skill uses = %+v, want %+v", got, want)
-	}
-}
-
 func TestADevinSkillUseAddsOneRow(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
