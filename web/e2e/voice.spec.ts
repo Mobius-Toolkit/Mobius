@@ -738,6 +738,189 @@ test("Send after a failed conversion keeps the error and Send again", async ({ p
   await expect(again(page)).toHaveCount(0);
 });
 
+const lost = "The last recording was not converted.";
+const discard = (page: Page) => page.getByRole("button", { name: "Discard" });
+
+// The tests have no DOM types, so the script reads the voice store in the browser.
+const storedAudio = `new Promise((resolve) => {
+  const open = indexedDB.open("mobius");
+  open.onsuccess = () => {
+    const count = open.result.transaction("voice").objectStore("voice").count();
+    count.onsuccess = () => resolve(count.result);
+  };
+})`;
+
+// The script makes the database at version 2 with one record in each older store. The app opens it after a reload.
+const versionTwo = `new Promise((resolve, reject) => {
+  const remove = indexedDB.deleteDatabase("mobius");
+  remove.onerror = () => reject(remove.error);
+  remove.onsuccess = () => {
+    const open = indexedDB.open("mobius", 2);
+    open.onupgradeneeded = () => {
+      const db = open.result;
+      db.createObjectStore("outbox", { keyPath: "id" }).createIndex("chat", "chat");
+      db.createObjectStore("drafts", { keyPath: "key" });
+    };
+    open.onsuccess = () => {
+      const db = open.result;
+      const transaction = db.transaction(["outbox", "drafts"], "readwrite");
+      transaction.objectStore("outbox").add({ id: "old", chat: ["owner", "shop", 99], text: "old message" });
+      transaction.objectStore("drafts").add({ key: "old", text: "old draft", images: [], inboxItems: [] });
+      transaction.oncomplete = () => {
+        db.close();
+        resolve(undefined);
+      };
+    };
+  };
+})`;
+
+const upgraded = `new Promise((resolve) => {
+  const open = indexedDB.open("mobius");
+  open.onsuccess = () => {
+    const db = open.result;
+    const transaction = db.transaction(["outbox", "drafts"]);
+    const outbox = transaction.objectStore("outbox").getAll();
+    const drafts = transaction.objectStore("drafts").getAll();
+    transaction.oncomplete = () =>
+      resolve({
+        version: db.version,
+        stores: [...db.objectStoreNames],
+        outbox: outbox.result.map((item) => item.text),
+        drafts: drafts.result.map((item) => item.text),
+      });
+  };
+})`;
+
+test("a reload during a conversion keeps the audio, and Send again sends it", async ({ page }) => {
+  await page.route("**/api/voice/recordings", (route) =>
+    route.fulfill({ status: 500, json: { error: "failed" } }),
+  );
+  const files: Buffer[] = [];
+  await page.route("**/api/voice/transcriptions", (route) => {
+    files.push(route.request().postDataBuffer() ?? Buffer.alloc(0));
+    return files.length === 1
+      ? undefined
+      : route.fulfill({ json: { data: { text: "red roses" } } });
+  });
+  await page.goto("/chat");
+  const input = page.getByLabel("Message to the Coordinator");
+  await begin(page);
+  await stop(page).click();
+  await expect.poll(() => files.length).toBe(1);
+  await page.reload();
+  await expect(page.getByRole("alert")).toHaveText(lost);
+  await expect(again(page)).toBeVisible();
+  await expect(discard(page)).toBeVisible();
+  await expect(input).toBeEditable();
+  await again(page).click();
+  await expect(input).toHaveValue("red roses");
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  expect(files.length).toBe(2);
+  expect(files[0].subarray(0, 4).toString()).toBe("RIFF");
+  expect(files[0].length).toBeGreaterThan(44);
+  expect(files[1].equals(files[0])).toBe(true);
+  await page.reload();
+  await expect(start(page)).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  expect(await page.evaluate(storedAudio)).toBe(0);
+});
+
+test("a failed conversion and a reload keep the audio", async ({ page }) => {
+  const files: Buffer[] = [];
+  await page.route("**/api/voice/transcriptions", (route) => {
+    files.push(route.request().postDataBuffer() ?? Buffer.alloc(0));
+    return files.length === 1
+      ? route.fulfill({ status: 502, json: { error: "The converter returned an error" } })
+      : route.fulfill({ json: { data: { text: "red roses" } } });
+  });
+  await page.goto("/chat");
+  await begin(page);
+  await stop(page).click();
+  await expect(page.getByRole("alert")).toHaveText("The converter returned an error");
+  await expect(again(page)).toBeVisible();
+  await expect(discard(page)).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole("alert")).toHaveText(lost);
+  await expect(again(page)).toBeVisible();
+  await expect(discard(page)).toBeVisible();
+  await again(page).click();
+  await expect(page.getByLabel("Message to the Coordinator")).toHaveValue("red roses");
+  expect(files.length).toBe(2);
+  expect(files[1].equals(files[0])).toBe(true);
+});
+
+test("Discard removes the error and the audio", async ({ page }) => {
+  await page.route("**/api/voice/transcriptions", (route) =>
+    route.fulfill({ status: 502, json: { error: "The converter returned an error" } }),
+  );
+  await page.goto("/chat");
+  await begin(page);
+  await stop(page).click();
+  await expect(again(page)).toBeVisible();
+  await discard(page).click();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(again(page)).toHaveCount(0);
+  await expect(discard(page)).toHaveCount(0);
+  await page.reload();
+  await expect(start(page)).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  expect(await page.evaluate(storedAudio)).toBe(0);
+});
+
+test("a new recording removes the stored audio", async ({ page }) => {
+  let files = 0;
+  await page.route("**/api/voice/transcriptions", (route) =>
+    ++files === 1
+      ? route.fulfill({ status: 502, json: { error: "The converter returned an error" } })
+      : route.fulfill({ json: { data: { text: "red roses" } } }),
+  );
+  await page.goto("/chat");
+  await begin(page);
+  await stop(page).click();
+  await expect(again(page)).toBeVisible();
+  await page.reload();
+  await expect(again(page)).toBeVisible();
+  await begin(page);
+  await stop(page).click();
+  await expect(page.getByLabel("Message to the Coordinator")).toHaveValue("red roses");
+  await page.reload();
+  await expect(start(page)).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  expect(await page.evaluate(storedAudio)).toBe(0);
+});
+
+test("Send after a failed conversion keeps the stored audio", async ({ page }) => {
+  await page.route("**/api/voice/transcriptions", (route) =>
+    route.fulfill({ status: 503, json: { error: "The speech model is still starting" } }),
+  );
+  await page.route("**/api/chat/messages", () => {});
+  await page.goto(shop);
+  await begin(page);
+  await stop(page).click();
+  await expect(again(page)).toBeVisible();
+  await page.getByLabel("Message to the Lead").fill("Add a plan");
+  const sent = page.waitForRequest("**/api/chat/messages");
+  await send(page).click();
+  await sent;
+  await page.reload();
+  await expect(page.getByRole("alert")).toHaveText(lost);
+  await expect(again(page)).toBeVisible();
+});
+
+test("a database at version 2 opens at version 3 and keeps its records", async ({ page }) => {
+  await page.evaluate(versionTwo);
+  await page.reload();
+  await expect(page.getByLabel("Access password")).toBeHidden();
+  await page.goto("/chat");
+  await expect(page.getByLabel("Message to the Coordinator")).toBeEditable();
+  expect(await page.evaluate(upgraded)).toEqual({
+    version: 3,
+    stores: ["drafts", "outbox", "voice"],
+    outbox: ["old message"],
+    drafts: ["old draft"],
+  });
+});
+
 test("a switch during a recording keeps it and the text goes to the new field", async ({
   page,
 }) => {

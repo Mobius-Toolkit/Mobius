@@ -450,15 +450,26 @@ export function MessageInput({
             {voice.error}
           </p>
           {voice.canResend && (
-            <Button
-              type="button"
-              variant="outline"
-              size="xs"
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => void voice.resend()}
-            >
-              Send again
-            </Button>
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                size="xs"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => void voice.resend()}
+              >
+                Send again
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="xs"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={voice.discard}
+              >
+                Discard
+              </Button>
+            </>
           )}
         </div>
       )}
