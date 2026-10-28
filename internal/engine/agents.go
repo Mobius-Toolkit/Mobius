@@ -150,6 +150,8 @@ type Agent struct {
 	head string
 	// reported tells that the Reviewer made a valid report_deployment_needs call.
 	reported bool
+	// reviewed tells that the Reviewer made a valid submit_review call.
+	reviewed bool
 	// jobURLs are the links of the failed jobs of the Diagnoser, one for each line.
 	jobURLs string
 	// items are the items of the batch of the Judge.

@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
@@ -745,6 +746,27 @@ func TestAReviewerWithABackgroundAgentGetsTheWaitPromptBeforeTheDeploymentNeedsP
 	prompts := promptTexts(t, server, session.ID)
 	if len(prompts) != 3 || !strings.Contains(prompts[1], waitPrompt) || prompts[2] != needsRequest {
 		t.Fatalf("prompts = %q", prompts)
+	}
+}
+
+// Serial: the test changes backgroundCheckInterval.
+func TestAReviewerThatCallsSubmitReviewAgainAfterTheWaitPromptPostsOneReview(t *testing.T) {
+	shortBackgroundCheck(t, 50*time.Millisecond)
+	fake := testkit.NewFakeGitHub(t)
+	submit := `call = { tool = "submit_review", arguments = { body = "No finding.", comments = [] } }`
+	reviewer := "[[prompts]]\nupdates = ['" + asyncAgentStart + "']\n" + submit + "\n\n" +
+		"[[prompts]]\n" + submit + "\n\n" +
+		"[[prompts]]\ncall = { tool = \"background_state\", arguments = { state = \"done\" } }\n\n"
+	server, _ := connectTask(t, fake, reviewer+leadStarts, commits, noChange)
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	session := endedReviewers(t, server, 1)[0]
+	if text := reply(t, server, session.ID); !strings.Contains(text, "The review is already on GitHub.") {
+		t.Errorf("reply = %q", text)
+	}
+	if reviews := fake.SubmittedReviews(shop, 42); len(reviews) != 1 {
+		t.Errorf("reviews = %+v", reviews)
 	}
 }
 
