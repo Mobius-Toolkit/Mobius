@@ -113,8 +113,8 @@ type Agent struct {
 	retries int
 	// details are the new details from the Owner that the next prompt of the Implementer or the Researcher carries.
 	details []string
-	// wake tells the running Prompt that new details wait. Only the goroutine of that Prompt sends the cancel, so the
-	// cancel never reaches a later turn.
+	// wake tells the running Prompt, or the sleep of waitBackground, that new details wait. Only the goroutine of that
+	// Prompt sends the cancel, so the cancel never reaches a later turn.
 	wake chan struct{}
 	// chunk is the JSON of the last Transcript row while that row is a message chunk or a thought chunk, and chunkID is its id.
 	chunk   map[string]any

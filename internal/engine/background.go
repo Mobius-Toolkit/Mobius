@@ -130,13 +130,14 @@ func (a *Agent) setBackground(running bool) {
 // waitBackground is the last step of a Role that ends its session after its last Prompt. When the session started a
 // background task, it sends backgroundPrompt, and again each backgroundCheckInterval, until the agent calls
 // background_state with done. Prompt holds while an autonomous turn runs. After backgroundTimeout, waitBackground adds
-// a note and ends. The reply text of the session is the reply text of the last turn. A stop ends the wait with no
-// error: the caller reads ctx.
+// a note and ends. The reply text of the session is the reply text of the last turn. New details end the wait at once,
+// also during the sleep between two prompts, so that the caller sends them. A stop ends the wait with no error: the
+// caller reads ctx.
 func (a *Agent) waitBackground(ctx context.Context) error {
 	started := time.Now()
 	for {
 		a.mu.Lock()
-		waiting := a.background
+		waiting := a.background && len(a.details) == 0
 		a.mu.Unlock()
 		if !waiting {
 			return nil
@@ -145,7 +146,7 @@ func (a *Agent) waitBackground(ctx context.Context) error {
 			return err
 		}
 		a.mu.Lock()
-		waiting = a.background
+		waiting = a.background && len(a.details) == 0
 		a.mu.Unlock()
 		if !waiting || ctx.Err() != nil {
 			return nil
@@ -156,6 +157,7 @@ func (a *Agent) waitBackground(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return nil
+		case <-a.wake:
 		case <-time.After(backgroundCheckInterval):
 		}
 	}
