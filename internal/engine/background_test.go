@@ -285,3 +285,55 @@ func TestAHarnessWithNoSignalsHasNoWaitAndNoNote(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+const (
+	asyncAgentUpdate   = `{"sessionUpdate": "tool_call_update", "toolCallId": "%s", "_meta": {"claudeCode": {"toolName": "Agent", "toolResponse": {"isAsync": true, "agentId": "s1"}}}}`
+	backgroundCommand  = `{"sessionUpdate": "tool_call", "toolCallId": "b1", "name": "Bash", "rawInput": {"command": "sleep 60", "run_in_background": true}}`
+	backgroundRefining = `{"sessionUpdate": "tool_call_update", "toolCallId": "b1", "rawInput": {"command": "sleep 60", "run_in_background": true}}`
+	finalReport        = `{"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "The final report."}}`
+)
+
+func TestTheEndOfABackgroundCommandDoesNotEndTheWaitForABackgroundAgent(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"One\"]\n")
+	agent := start(t, server, leadSpec(t))
+	for _, update := range []string{fmt.Sprintf(asyncAgentUpdate, "a1"), backgroundCommand, backgroundRefining, workUpdate, endUpdate} {
+		agent.Update(fmt.Appendf(nil, agentUpdate, update))
+	}
+
+	waiting, stopWaiting := context.WithTimeout(t.Context(), 300*time.Millisecond)
+	defer stopWaiting()
+	if err := agent.WaitBackground(waiting); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("WaitBackground = %v while the background agent runs", err)
+	}
+
+	agent.Update(fmt.Appendf(nil, agentUpdate, finalReport))
+	agent.Update(fmt.Appendf(nil, agentUpdate, endUpdate))
+	if err := agent.WaitBackground(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if reply := agent.ReplyText(); reply != "The final report." {
+		t.Errorf("reply = %q", reply)
+	}
+}
+
+func TestOneEndOfTwoBackgroundAgentsEndsTheWaitAfterTheHangTimeWithNoError(t *testing.T) {
+	shortHang(t)
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"One\"]\n")
+	agent := start(t, server, leadSpec(t))
+	for _, update := range []string{fmt.Sprintf(asyncAgentUpdate, "a1"), fmt.Sprintf(asyncAgentUpdate, "a2"), finalReport, endUpdate} {
+		agent.Update(fmt.Appendf(nil, agentUpdate, update))
+	}
+
+	if err := agent.WaitBackground(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if reply := agent.ReplyText(); reply != "The final report." {
+		t.Errorf("reply = %q", reply)
+	}
+	if notes := noteTexts(t, server, agent.ID()); len(notes) != 0 {
+		t.Errorf("notes = %q", notes)
+	}
+}

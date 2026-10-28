@@ -26,9 +26,12 @@ var autonomousOrigins = []string{"task-notification", "peer", "coordinator", "ob
 // track follows the autonomous turns of a Claude Code agent. An autonomous turn is a turn that the CLI starts alone,
 // for example when a background task ends. The caller holds a.mu.
 //
-// An async result of the Agent tool (isAsync) starts a background agent. The end of an autonomous turn with the origin
-// task-notification ends one. The reply text of the session then belongs to the last turn, so the first update of an
-// autonomous turn clears the reply text.
+// An async result of the Agent tool (isAsync) starts a background agent. A tool call with run_in_background in its input
+// starts a background command. The adapter sends no signal for the end of one task to a client with no subagent or
+// async task capability: the end of an autonomous turn with the origin task-notification is the only sign, and it does
+// not tell which task ended. Thus the count takes one from the tasks for each such end, whatever the task is, and it
+// counts the commands with the agents, so the end of a command is not the end of an agent. The reply text of the
+// session then belongs to the last turn, so the first update of an autonomous turn clears the reply text.
 //
 // A turn that Mobius started sends all its updates before the response of its prompt. Thus a work update while no
 // prompt runs, or after the response of the prompt (late), belongs to an autonomous turn.
@@ -45,8 +48,17 @@ func (a *Agent) track(notification map[string]any, kind string, late bool) {
 			}
 			a.autonomous = true
 		}
-		if kind == "tool_call_update" && field(update, "_meta", "claudeCode", "toolResponse", "isAsync") == true {
-			a.background++
+		async := kind == "tool_call_update" && field(update, "_meta", "claudeCode", "toolResponse", "isAsync") == true
+		if id := stringField(update, "toolCallId"); async || field(update, "rawInput", "run_in_background") == true {
+			if _, started := a.backgroundCalls[id]; !started {
+				if a.backgroundCalls == nil {
+					a.backgroundCalls = map[string]struct{}{}
+				}
+				a.backgroundCalls[id] = struct{}{}
+				a.background++
+			}
+		}
+		if async {
 			a.subagent = a.subagent || running
 		}
 	case "usage_update":
@@ -76,8 +88,12 @@ func (a *Agent) waitQuiet(ctx context.Context) error {
 }
 
 // waitBackground is the wait of a Role that ends its session after its last Prompt. It holds until no autonomous turn
-// runs and no background agent of the session runs, with the stop, cannot_do and hang rules of waitQuiet. A stop or a
+// runs and no background task of the session runs, with the stop, cannot_do and hang rules of waitQuiet. A stop or a
 // cannot_do ends the wait with no error. The end of the wait gives the reply text of the last turn.
+//
+// The count of the tasks can stay above zero when the CLI folds the ends of two tasks into one autonomous turn. Thus,
+// when no autonomous turn runs and the agent has no activity for hangTimeout, the wait ends with no error and the
+// session keeps its reply text.
 func (a *Agent) waitBackground(ctx context.Context) error {
 	err := a.hold(ctx, true)
 	switch {
@@ -90,7 +106,7 @@ func (a *Agent) waitBackground(ctx context.Context) error {
 	return err
 }
 
-// hold is waitQuiet. With background, it also holds while a background agent runs.
+// hold is waitQuiet. With background, it also holds while a background task runs.
 func (a *Agent) hold(ctx context.Context, background bool) error {
 	ticker := time.NewTicker(quietPoll)
 	defer ticker.Stop()
@@ -106,15 +122,19 @@ func (a *Agent) hold(ctx context.Context, background bool) error {
 			a.mu.Unlock()
 			return errCannotDone
 		}
-		busy := a.autonomous || background && a.background > 0
+		waiting := background && a.background > 0
 		if a.activity.After(last) {
 			last = a.activity
 		}
-		hung := busy && time.Since(last) >= hangTimeout
+		idle := time.Since(last) >= hangTimeout
+		hung := a.autonomous && idle
 		if hung {
 			a.autonomous = false
+		}
+		if hung || waiting && idle {
 			a.background = 0
 		}
+		busy := a.autonomous || waiting && !idle
 		a.mu.Unlock()
 		if hung {
 			_ = a.cancel(ctx)

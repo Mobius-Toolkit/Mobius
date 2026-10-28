@@ -168,3 +168,13 @@ func (e *Engine) TurnRunsForMessage(key ChatKey) bool {
 	c, ok := e.chats[key]
 	return ok && c.stoppable
 }
+
+// WaitBackground holds until no autonomous turn and no background task of the agent runs.
+func (a *Agent) WaitBackground(ctx context.Context) error {
+	return a.waitBackground(ctx)
+}
+
+// ReplyText gives the reply text of the agent.
+func (a *Agent) ReplyText() string {
+	return a.replyText()
+}
