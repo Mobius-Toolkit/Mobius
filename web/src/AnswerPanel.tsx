@@ -311,9 +311,10 @@ export function AnswerPanel({
                 key={index}
                 question={question}
                 selected={selected[index] ?? []}
-                toggle={(option) => toggle(index, option)}
+                toggle={(option) => input && toggle(index, option)}
               />
             ))}
+            {!input && item.answer && <Outcome label="Your answer" text={item.answer} />}
             {item.reportUrl && (
               <a href={item.reportUrl} target="_blank" rel="noreferrer" className={link}>
                 Approval report

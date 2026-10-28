@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -249,8 +250,9 @@ shell = "echo out; echo err >&2; exit 3"
 }
 
 type echoInput struct {
-	Text string `json:"text"`
-	Fail bool   `json:"fail,omitempty"`
+	Text   string `json:"text"`
+	Fail   bool   `json:"fail,omitempty"`
+	Number int64  `json:"number,omitempty"`
 }
 
 // mcpServer serves an MCP server with the tool echo, and gives its URL.
@@ -258,7 +260,11 @@ func mcpServer(t *testing.T) string {
 	t.Helper()
 	server := sdk.NewServer(&sdk.Implementation{Name: "test", Version: "0.1.0"}, nil)
 	sdk.AddTool(server, &sdk.Tool{Name: "echo"}, func(_ context.Context, _ *sdk.CallToolRequest, input echoInput) (*sdk.CallToolResult, any, error) {
-		return &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: input.Text}}, IsError: input.Fail}, nil, nil
+		text := input.Text
+		if input.Number != 0 {
+			text += fmt.Sprint(" ", input.Number)
+		}
+		return &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: text}}, IsError: input.Fail}, nil, nil
 	})
 	handler := sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server { return server }, &sdk.StreamableHTTPOptions{Stateless: true, JSONResponse: true})
 	listener := httptest.NewServer(handler)
@@ -300,6 +306,23 @@ list_tools = true
 	written, err := os.ReadFile(filepath.Join(c.dir, "mcp_url"))
 	if err != nil || string(written) != url {
 		t.Errorf("mcp_url = %q, %v", written, err)
+	}
+}
+
+func TestAnArgumentThatIsOnlyTheShellOutputIsANumberWhenTheOutputIsANumber(t *testing.T) {
+	c := start(t, `
+[[prompts]]
+shell = "echo 42"
+call = { tool = "echo", arguments = { text = "Number", number = "{shell}" } }
+`)
+	if err := c.newSession(t, mcpServer(t)); err != nil {
+		t.Fatal(err)
+	}
+
+	reply, _ := c.prompt(t, "Number.")
+
+	if reply != "Number 42|42\nexit 0" {
+		t.Errorf("reply = %q", reply)
 	}
 }
 
