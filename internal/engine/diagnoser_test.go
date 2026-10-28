@@ -82,6 +82,13 @@ func failActions(fake *testkit.FakeGitHub, sha string) int64 {
 	return id
 }
 
+const notCausedDiagnosis = "\nDiagnosis of the failed jobs:\n- The plan test expects cents. Test: TestPlan. Location: plan_test.go:12. The change of the pull request did not cause this failure.\n" +
+	"\nFor each failure that the change of the pull request did not cause:\n" +
+	"1. When a commit of origin/main already fixed the test (git log HEAD..origin/main -- <test file>), merge origin/main, and write no second fix.\n" +
+	"2. When the newest runs of main fail the same test (gh run list --branch main), do not fix the test in this task.\n" +
+	"3. Fix the test only when the log and the code show its cause.\n" +
+	"4. Else make no commit. Then Mobius runs the failed jobs again one time.\n"
+
 func TestADiagnoserRunsBeforeTheFixRoundAndTheRoundGetsItsReason(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
@@ -91,8 +98,7 @@ func TestADiagnoserRunsBeforeTheFixRoundAndTheRoundGetsItsReason(t *testing.T) {
 	id := failActions(fake, sha)
 
 	round := roundPrompt(t, server)
-	inOrder(t, round, "Check run \"build\"", "Action: fix\n",
-		"\nDiagnosis of the failed jobs:\n- The plan test expects cents. Test: TestPlan. Location: plan_test.go:12. The change of the pull request did not cause this failure.\n")
+	inOrder(t, round, "Check run \"build\"", "Action: fix\n", notCausedDiagnosis)
 	sessions := diagnoserSessions(t, server)
 	if len(sessions) != 1 {
 		t.Fatalf("Diagnosers = %d", len(sessions))
@@ -180,6 +186,9 @@ func TestAFailureThatThePullRequestCausedHasNoRecord(t *testing.T) {
 	if want := "- The change breaks TestPlan. Test: TestPlan. Location: plan_test.go:12. The change of the pull request caused this failure.\n"; !strings.Contains(round, want) {
 		t.Errorf("%q is not in %s", want, round)
 	}
+	if strings.Contains(round, "For each failure that the change of the pull request did not cause") {
+		t.Errorf("round = %s", round)
+	}
 	if n := rowCount(t, server, "SELECT count(*) FROM ci_failures") + rowCount(t, server, "SELECT count(*) FROM ci_failure_places"); n != 0 {
 		t.Errorf("records and places = %d", n)
 	}
@@ -265,7 +274,7 @@ func TestAResumeRoundOfATaskThatTheCIStoppedAfterADiagnosisGetsTheSameDiagnosis(
 	sha := approvalHead(t, server, fake)
 	failActions(fake, sha)
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" && hasLabel(fake, "mobius:needs-human") })
-	diagnosis := "\nDiagnosis of the failed jobs:\n- The plan test expects cents. Test: TestPlan. Location: plan_test.go:12. The change of the pull request did not cause this failure.\n"
+	diagnosis := notCausedDiagnosis
 	if round := roundPrompt(t, server); !strings.Contains(round, diagnosis) {
 		t.Fatalf("%q is not in %s", diagnosis, round)
 	}

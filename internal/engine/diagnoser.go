@@ -53,7 +53,7 @@ func (e *Engine) pullRequestDiagnosis(ctx context.Context, repository github.Rep
 		e.startDiagnoser(repository.FullName)
 		return "", true, nil
 	}
-	return diagnosisSection(diagnosis.Reasons), false, nil
+	return diagnosisSection(diagnosis.Reasons, repository.DefaultBranch), false, nil
 }
 
 // endedDiagnosis gives the section of the items of a fix round with the diagnosis of an ended Diagnoser of the head. It
@@ -66,14 +66,31 @@ func (e *Engine) endedDiagnosis(ctx context.Context, repository github.Repositor
 	if err != nil {
 		return "", err
 	}
-	return diagnosisSection(diagnosis.Reasons), nil
+	return diagnosisSection(diagnosis.Reasons, repository.DefaultBranch), nil
 }
 
-func diagnosisSection(reasons string) string {
+const (
+	causedSentence    = " The change of the pull request caused this failure.\n"
+	notCausedSentence = " The change of the pull request did not cause this failure.\n"
+)
+
+const notCausedSteps = `
+For each failure that the change of the pull request did not cause:
+1. When a commit of origin/%[1]s already fixed the test (git log HEAD..origin/%[1]s -- <test file>), merge origin/%[1]s, and write no second fix.
+2. When the newest runs of %[1]s fail the same test (gh run list --branch %[1]s), do not fix the test in this task.
+3. Fix the test only when the log and the code show its cause.
+4. Else make no commit. Then Mobius runs the failed jobs again one time.
+`
+
+func diagnosisSection(reasons, defaultBranch string) string {
 	if reasons == "" {
 		return ""
 	}
-	return "\nDiagnosis of the failed jobs:\n" + reasons
+	section := "\nDiagnosis of the failed jobs:\n" + reasons
+	if strings.Contains(reasons, notCausedSentence) {
+		section += fmt.Sprintf(notCausedSteps, defaultBranch)
+	}
+	return section
 }
 
 // startDiagnoser starts the Diagnoser worker of repository, when none runs. The worker runs one Diagnoser at a time,
@@ -369,9 +386,9 @@ func (e *Engine) reportFailure(ctx context.Context, c caller, _ github.Repositor
 		fmt.Fprintf(&reasons, " Location: %s.", input.Location)
 	}
 	if causedByPullRequest {
-		reasons.WriteString(" The change of the pull request caused this failure.\n")
+		reasons.WriteString(causedSentence)
 	} else {
-		reasons.WriteString(" The change of the pull request did not cause this failure.\n")
+		reasons.WriteString(notCausedSentence)
 	}
 	return result, e.queries.AddCIDiagnosisReason(ctx, store.AddCIDiagnosisReasonParams{Reasons: reasons.String(), ID: diagnosis.ID})
 }
