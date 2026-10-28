@@ -1,4 +1,3 @@
-import { Link } from "@tanstack/react-router";
 import { use, useEffect, useRef, useState } from "react";
 import {
   answerInboxItem,
@@ -10,16 +9,16 @@ import {
   type PendingAction,
   type Question,
 } from "@/api/api.gen";
+import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { roleName, type Decision } from "@/lib/actions";
+import { actionState, roleName, type Decision } from "@/lib/actions";
 import { answerDraftKey, saveDraftText } from "@/lib/draft";
 import { useKeyboardHeight } from "@/lib/keyboard";
 import { LoginContext } from "@/lib/login";
 import { useShell } from "@/lib/shell";
-import { clock, dayClock } from "@/lib/time";
+import { dayClock } from "@/lib/time";
 import { cn } from "@/lib/utils";
-import { chatParams } from "@/lib/workstreams";
-import { FullArgument } from "./ActionCard";
+import { ActionSender, FullArgument, Outcome } from "./ActionCard";
 import { link } from "./Inbox";
 import { Markdown } from "./Markdown";
 import { MessageInput } from "./MessageInput";
@@ -88,7 +87,7 @@ export function AnswerPanel({
 }: {
   item: InboxItem;
   input: boolean;
-  workstream: string;
+  workstream?: string;
   onClose: () => void;
   onDecided?: (action: PendingAction) => void;
 }) {
@@ -131,7 +130,10 @@ export function AnswerPanel({
     }
   }, [inboxFailure, item.id, clearInboxFailure]);
 
-  const briefAction = item.action?.tool === "edit_brief" ? item.action.id : undefined;
+  const briefAction =
+    item.action?.tool === "edit_brief" && item.action.state === "pending"
+      ? item.action.id
+      : undefined;
   useEffect(() => {
     if (briefAction === undefined) {
       return;
@@ -230,7 +232,7 @@ export function AnswerPanel({
 
   const action = item.action;
   const todo = item.todo;
-  if (action && action.state !== "pending") {
+  if (input && action && action.state !== "pending") {
     return null;
   }
 
@@ -253,23 +255,7 @@ export function AnswerPanel({
         </DialogHeader>
         {action ? (
           <div className="grid min-w-0 content-start gap-2 overflow-y-auto px-4 pb-4">
-            <span className="text-muted-foreground wrap-anywhere">
-              {roleName[action.role]}
-              {action.sender && (
-                <>
-                  {" of "}
-                  <Link
-                    to="/workstreams/$owner/$name/$number"
-                    params={chatParams(action.sender)}
-                    onClick={onClose}
-                    className={link}
-                  >
-                    {`#${action.sender.number}${action.sender.title && ` ${action.sender.title}`}`}
-                  </Link>
-                </>
-              )}{" "}
-              · {clock(action.time)}
-            </span>
+            <ActionSender action={action} onNavigate={onClose} />
             {action.arguments
               .filter(
                 (argument) => !(action.tool === "message_lead" && argument.name === "workstream"),
@@ -280,11 +266,22 @@ export function AnswerPanel({
                   {...argument}
                   before={
                     action.tool === "edit_brief" && argument.name === "brief"
-                      ? currentBrief
+                      ? action.state === "pending"
+                        ? currentBrief
+                        : action.oldBrief || undefined
                       : undefined
                   }
                 />
               ))}
+            {action.state !== "pending" && (
+              <>
+                <Badge variant="secondary" className="justify-self-start">
+                  {actionState(action)}
+                </Badge>
+                {action.state === "done" && <Outcome label="Result" text={action.result} />}
+                {action.message && <Outcome label="Your message" text={action.message} />}
+              </>
+            )}
           </div>
         ) : todo ? (
           <div className="grid min-w-0 content-start gap-2 overflow-y-auto px-4 pb-4 wrap-anywhere">

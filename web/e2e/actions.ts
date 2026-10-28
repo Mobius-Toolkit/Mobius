@@ -26,8 +26,6 @@ export const draftText = "Let customers buy a gift card";
 export const teaText = "Sell tea in the shop.";
 export const keepText = "The Owner decided that the prices stay in cents.";
 export const dropText = "Drop the old price column of the plan table";
-export const historyText = "Add a history of the plan prices.";
-export const historyTableText = "Add a table with the history of the plan prices.";
 export const waitText = "Wait for the migration of #14 before you start the price table.";
 export const unknownText = "Stop the work.";
 
@@ -43,9 +41,9 @@ export async function ask(page: Page, text: string) {
   await page.getByRole("button", { name: "Send" }).click();
 }
 
-// An action that the tool call of the fake Coordinator made, as the card and the tray row show it.
-export const cardOf = (page: Page, text: string) =>
-  page.locator("[data-action]").filter({ hasText: text }).last();
+// The newest card with this title. A card shows the title of its action and no argument.
+export const cardOf = (page: Page, title: string) =>
+  page.locator("[data-action]").filter({ hasText: title }).last();
 
 // The tests have no DOM types, so the call is a script. The device login of the page is a cookie that page.request does
 // not have.

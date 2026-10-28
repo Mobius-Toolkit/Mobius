@@ -105,9 +105,24 @@ function OwnerState({ message }: { message: ChatMessage }) {
   );
 }
 
-const Message = memo(function Message({ message }: { message: ChatMessage }) {
+const Message = memo(function Message({
+  message,
+  pendingItem,
+  onDecided,
+}: {
+  message: ChatMessage;
+  pendingItem?: InboxItem;
+  onDecided: (action: PendingAction) => void;
+}) {
   if (message.action) {
-    return <ActionCard message={message} action={message.action} />;
+    return (
+      <ActionCard
+        message={message}
+        action={message.action}
+        item={pendingItem}
+        onDecided={onDecided}
+      />
+    );
   }
   const event = message.author === "Event";
   const [summary, ...rest] = message.text.split("\n");
@@ -726,7 +741,11 @@ export function Conversation({
               {(index === 0 || dayLabel(messages[index - 1].time) !== label) && (
                 <DaySeparator label={label} />
               )}
-              <Message message={message} />
+              <Message
+                message={message}
+                pendingItem={rows.find((row) => row.action && row.action.id === message.action?.id)}
+                onDecided={updateAction}
+              />
             </Fragment>
           );
         })}
