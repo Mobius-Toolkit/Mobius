@@ -78,6 +78,11 @@ const setQueueReason = async (page: Page, reason: string) => {
   expect(response.ok()).toBe(true);
 };
 
+// The engine adds a record with the real time to the chat for each action of the Owner.
+const fixRecordTimes = async (page: Page) => {
+  expect((await page.request.post("/e2e/approvals/times/fix")).ok()).toBe(true);
+};
+
 const queueReasons = [
   "runs .mobius/check",
   "waits for a check slot",
@@ -808,11 +813,16 @@ test("screenshots", async ({ page }) => {
       await evergreenSwitch.click();
       await expect(evergreenSwitch).toBeChecked();
       await sidebarShowsEvergreen(true)();
+      await fixRecordTimes(page);
+      await page.goto("/workstreams/owner/shop/12");
+      await openDetails(device);
+      await expect(evergreenSwitch).toBeChecked();
     },
     async () => {
       await evergreenSwitch.click();
       await expect(evergreenSwitch).not.toBeChecked();
       await sidebarShowsEvergreen(false)();
+      await fixRecordTimes(page);
     },
   );
   await screenshot(
@@ -1397,6 +1407,10 @@ test("screenshots", async ({ page }) => {
     await memoryDialog.getByLabel("Memory text").fill("Water the roses.\n".repeat(201));
     await memoryDialog.getByRole("button", { name: "Save" }).click();
     await expect(memoryDialog.getByText("the maximum is 200")).toBeVisible();
+    // The error row shrinks the field, and the offset that the field keeps from before can differ by one pixel.
+    await memoryDialog.getByLabel("Memory text").evaluate((field) => {
+      field.scrollTop = field.scrollHeight;
+    });
   };
   await screenshot(
     page,
