@@ -32,6 +32,8 @@ import { countSamples, fakeMicrophone } from "./microphone.js";
 import { boardTasks, mergingTask, refusedTask, routeTasks, tasksRoute } from "./tasks.js";
 import {
   inboxRoute,
+  coordinatorActionItem,
+  coordinatorQuestion,
   leadActionItem,
   longTitle,
   longTitleItem,
@@ -72,6 +74,31 @@ async function screenshot(
   await session.send("Emulation.setTouchEmulationEnabled", { enabled: false });
   await session.detach();
 }
+
+const trayToggle = (page: Page, count: number, expanded: boolean) =>
+  page.getByRole("button", { name: `Waits for you (${count})`, expanded });
+
+// The desktop image and the phone image share the browser storage, so each step sets the choice before it opens the page.
+const setTray = (page: Page, choice: "collapsed" | "expanded") =>
+  page.evaluate((value) => localStorage.setItem("tray", value), choice);
+
+// The chat scrolls to its end by itself, and the end is the only stable scroll.
+const showChatEnd = (page: Page) =>
+  expect
+    .poll(() =>
+      page
+        .locator("[data-message]")
+        .last()
+        .evaluate((el) => {
+          const list = el.parentElement;
+          if (!list) {
+            return false;
+          }
+          list.scrollTop = list.scrollHeight;
+          return list.scrollHeight - list.scrollTop - list.clientHeight < 1;
+        }),
+    )
+    .toBe(true);
 
 // Sets the queue reason of the live Implementer session of #41.
 const setQueueReason = async (page: Page, reason: string) => {
@@ -676,23 +703,56 @@ test("screenshots", async ({ page }) => {
       await expect(
         main.getByRole("listitem").filter({ hasText: leadActionItem.title }),
       ).toBeVisible();
-      await expect
-        .poll(() =>
-          page
-            .locator("[data-message]")
-            .last()
-            .evaluate((el) => {
-              const list = el.parentElement;
-              if (!list) {
-                return false;
-              }
-              list.scrollTop = list.scrollHeight;
-              return list.scrollHeight - list.scrollTop - list.clientHeight < 1;
-            }),
-        )
-        .toBe(true);
+      await showChatEnd(page);
     },
   );
+  await page.unroute(inboxRoute);
+  await page.route(inboxRoute, (route) =>
+    route.fulfill({ json: { data: [longTitleItem, leadActionItem] } }),
+  );
+  await setTray(page, "collapsed");
+  await screenshot(
+    page,
+    "chat-waits-collapsed",
+    "/workstreams/owner/shop/12",
+    (device) => [...frame(device, drain, {}, "2"), trayToggle(page, 2, false)],
+    async () => {
+      await expect(trayToggle(page, 2, false)).toBeVisible();
+      await expect(page.getByRole("list", { name: "Pending actions" })).toBeHidden();
+      await showChatEnd(page);
+    },
+  );
+  await setTray(page, "expanded");
+  await page.unroute(inboxRoute);
+  await page.route(inboxRoute, (route) =>
+    route.fulfill({ json: { data: [coordinatorQuestion, coordinatorActionItem] } }),
+  );
+  await screenshot(
+    page,
+    "chat-coordinator-waits",
+    "/chat",
+    () => [
+      trayToggle(page, 2, true),
+      main.getByRole("listitem").filter({ hasText: coordinatorQuestion.title }),
+      main.getByRole("listitem").filter({ hasText: coordinatorActionItem.title }),
+    ],
+    async () => {
+      await expect(trayToggle(page, 2, true)).toBeVisible();
+      await showChatEnd(page);
+    },
+  );
+  await setTray(page, "collapsed");
+  await screenshot(
+    page,
+    "chat-coordinator-waits-collapsed",
+    "/chat",
+    () => trayToggle(page, 2, false),
+    async () => {
+      await expect(trayToggle(page, 2, false)).toBeVisible();
+      await showChatEnd(page);
+    },
+  );
+  await page.evaluate(() => localStorage.removeItem("tray"));
   await page.unroute(inboxRoute);
   await setQueueReason(page, "waits for a low load");
   await screenshot(
