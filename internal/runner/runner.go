@@ -302,8 +302,15 @@ func describe(err error) error {
 	return fmt.Errorf("%s %s", requestErr.Message, data)
 }
 
+// asyncTasksCapability makes the Claude Code adapter send the start and the end of each background command as
+// async_task_spawned and async_task_state_update updates. Another agent ignores it.
+var asyncTasksCapability = map[string]any{"jetbrains": map[string]any{"air": map[string]any{"version": 1, "capabilities": []string{"asyncTasks"}}}}
+
 func (s *Session) open(ctx context.Context, cwd, mcpURL string) error {
-	initialized, err := acp.SendRequest[acp.InitializeResponse](s.conn, ctx, acp.AgentMethodInitialize, acp.InitializeRequest{ProtocolVersion: acp.ProtocolVersionNumber})
+	initialized, err := acp.SendRequest[acp.InitializeResponse](s.conn, ctx, acp.AgentMethodInitialize, acp.InitializeRequest{
+		ProtocolVersion:    acp.ProtocolVersionNumber,
+		ClientCapabilities: acp.ClientCapabilities{Meta: asyncTasksCapability},
+	})
 	if err != nil {
 		return err
 	}

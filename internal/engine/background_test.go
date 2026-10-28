@@ -287,10 +287,12 @@ func TestAHarnessWithNoSignalsHasNoWaitAndNoNote(t *testing.T) {
 }
 
 const (
-	asyncAgentUpdate   = `{"sessionUpdate": "tool_call_update", "toolCallId": "%s", "_meta": {"claudeCode": {"toolName": "Agent", "toolResponse": {"isAsync": true, "agentId": "s1"}}}}`
-	backgroundCommand  = `{"sessionUpdate": "tool_call", "toolCallId": "b1", "name": "Bash", "rawInput": {"command": "sleep 60", "run_in_background": true}}`
-	backgroundRefining = `{"sessionUpdate": "tool_call_update", "toolCallId": "b1", "rawInput": {"command": "sleep 60", "run_in_background": true}}`
-	finalReport        = `{"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "The final report."}}`
+	asyncAgentUpdate = `{"sessionUpdate": "tool_call_update", "toolCallId": "%s", "_meta": {"claudeCode": {"toolName": "Agent", "toolResponse": {"isAsync": true, "agentId": "s1"}}}}`
+	commandCall      = `{"sessionUpdate": "tool_call", "toolCallId": "b1", "name": "Bash", "rawInput": {"command": "sleep 60", "run_in_background": true}}`
+	commandSpawned   = `{"sessionUpdate": "async_task_spawned", "asyncTaskId": "b1", "name": "sleep 60", "taskType": "local_bash"}`
+	commandEnded     = `{"sessionUpdate": "async_task_state_update", "asyncTaskId": "b1", "state": "completed"}`
+	commandStopped   = `{"sessionUpdate": "async_task_state_update", "asyncTaskId": "b1", "state": "stopped"}`
+	finalReport      = `{"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "The final report."}}`
 )
 
 func TestTheEndOfABackgroundCommandDoesNotEndTheWaitForABackgroundAgent(t *testing.T) {
@@ -298,7 +300,8 @@ func TestTheEndOfABackgroundCommandDoesNotEndTheWaitForABackgroundAgent(t *testi
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"One\"]\n")
 	agent := start(t, server, leadSpec(t))
-	for _, update := range []string{fmt.Sprintf(asyncAgentUpdate, "a1"), backgroundCommand, backgroundRefining, workUpdate, endUpdate} {
+	peerEnd := strings.Replace(endUpdate, "task-notification", "peer", 1)
+	for _, update := range []string{fmt.Sprintf(asyncAgentUpdate, "a1"), commandSpawned, peerEnd, commandEnded, workUpdate, endUpdate} {
 		agent.Update(fmt.Appendf(nil, agentUpdate, update))
 	}
 
@@ -375,8 +378,7 @@ func TestAStoppedBackgroundCommandEndsTheWaitWithNoBackgroundTime(t *testing.T) 
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"One\"]\n")
 	agent := start(t, server, leadSpec(t))
-	stop := `{"sessionUpdate": "tool_call_update", "toolCallId": "k1", "status": "completed", "_meta": {"claudeCode": {"toolName": "TaskStop"}}}`
-	for _, update := range []string{backgroundCommand, backgroundRefining, stop, stop, finalReport, endUpdate} {
+	for _, update := range []string{commandCall, commandSpawned, commandStopped, finalReport, endUpdate} {
 		agent.Update(fmt.Appendf(nil, agentUpdate, update))
 	}
 
@@ -390,22 +392,38 @@ func TestAStoppedBackgroundCommandEndsTheWaitWithNoBackgroundTime(t *testing.T) 
 	}
 }
 
-func TestABackgroundCommandOfASubagentDoesNotHoldTheWait(t *testing.T) {
+func TestABackgroundCommandThatEndsInsideATurnEndsTheWaitWithNoBackgroundTime(t *testing.T) {
+	shortBackground(t)
+	fake := testkit.NewFakeGitHub(t)
+	updates := "['" + commandCall + "', '" + commandSpawned + "', '" + commandEnded + "']"
+	server, _ := connect(t, fake, "[[prompts]]\nupdates = "+updates+"\nreply = [\"The final report.\"]\n")
+	agent := start(t, server, leadSpec(t))
+	if err := agent.Prompt(t.Context(), "One", nil); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := agent.WaitBackground(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if notes := noteTexts(t, server, agent.ID()); len(notes) != 0 {
+		t.Errorf("notes = %q", notes)
+	}
+}
+
+func TestABackgroundAgentOfASubagentDoesNotHoldTheWait(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"One\"]\n")
 	agent := start(t, server, leadSpec(t))
-	mark := `"_meta": {"claudeCode": {"parentToolUseId": "p1"}}, `
-	subCommand := strings.Replace(backgroundCommand, `"name"`, mark+`"name"`, 1)
 	subAsync := strings.Replace(fmt.Sprintf(asyncAgentUpdate, "a1"), `"_meta": {"claudeCode": {`, `"_meta": {"claudeCode": {"parentToolUseId": "p1", `, 1)
-	for _, update := range []string{subCommand, subAsync, finalReport, endUpdate} {
+	for _, update := range []string{subAsync, finalReport, endUpdate} {
 		agent.Update(fmt.Appendf(nil, agentUpdate, update))
 	}
 
 	waiting, stopWaiting := context.WithTimeout(t.Context(), 10*time.Second)
 	defer stopWaiting()
 	if err := agent.WaitBackground(waiting); err != nil {
-		t.Fatalf("WaitBackground = %v while only a subagent started tasks", err)
+		t.Fatalf("WaitBackground = %v while only a subagent started an agent", err)
 	}
 	if notes := noteTexts(t, server, agent.ID()); len(notes) != 0 {
 		t.Errorf("notes = %q", notes)

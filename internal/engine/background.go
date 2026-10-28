@@ -31,10 +31,6 @@ var errBackgroundIdle = errors.New("the background tasks had no activity")
 // autonomousOrigins are the origin kinds of the end of an autonomous turn. Any other kind ends a turn of a user.
 var autonomousOrigins = []string{"task-notification", "peer", "coordinator", "observer", "observer-activity"}
 
-// stopTools are the tools with which the agent stops a background task. The CLI sends no task-notification for a
-// task that the agent stopped.
-var stopTools = []string{"TaskStop", "KillShell"}
-
 // isTrigger tells if the origin of a usage update is a task-notification that no task end caused: a scheduled trigger
 // (ScheduleWakeup, a cron fire) or a check-in.
 func isTrigger(update any) bool {
@@ -44,16 +40,19 @@ func isTrigger(update any) bool {
 // track follows the autonomous turns of a Claude Code agent. An autonomous turn is a turn that the CLI starts alone,
 // for example when a background task ends. The caller holds a.mu.
 //
-// An async result of the Agent tool (isAsync) starts a background agent. A tool call with run_in_background in its input
-// starts a background command. The adapter sends no signal for the end of one task to a client with no subagent or
-// async task capability: the end of an autonomous turn with the origin task-notification is the only sign, and it does
-// not tell which task ended. Thus the count takes one from the tasks for each such end, whatever the task is.
-// The count also counts the commands with the agents, so the end of a command is not the end of an agent. An
-// autonomous turn with another origin (for example a message of a peer), or with a task-notification origin that has a
-// subkind or a source (a wakeup), ends no task. A completed call of a tool of stopTools ends one task. A tool call
-// of a subagent (parentToolUseId) starts and stops no task of the session: the CLI kills the tasks of a subagent when it
-// ends, and sends no end to the session. The reply text of the session
-// belongs to the last turn, so the first update of an autonomous turn clears the reply text.
+// An async result of the Agent tool (isAsync) starts a background agent. The adapter sends no signal for the end of
+// an agent to a client with no subagent capability: the end of an autonomous turn with the origin task-notification
+// is the only sign, and it does not tell which task ended. An autonomous turn with another origin (for example a
+// message of a peer), or with a task-notification origin that has a subkind or a source (a wakeup), ends no agent. A
+// tool call of a subagent (parentToolUseId) starts no agent of the session: the CLI ends the agents of a subagent with
+// it, and sends no end to the session.
+//
+// With the asyncTasks capability, the adapter sends async_task_spawned and async_task_state_update for each background
+// command, also for an end inside a running turn, and for a command that the agent stopped. The task-notification
+// turn of a command that ended while the agent was idle belongs to the command, not to an agent.
+//
+// The reply text of the session belongs to the last turn, so the first update of an autonomous turn clears the reply
+// text.
 //
 // A turn that Mobius started sends all its updates before the response of its prompt. Thus a work update while no
 // prompt runs, or after the response of the prompt (late), belongs to an autonomous turn.
@@ -70,9 +69,8 @@ func (a *Agent) track(notification map[string]any, kind string, late bool) {
 			}
 			a.autonomous = true
 		}
-		ownCall := field(update, "_meta", "claudeCode", "parentToolUseId") == nil
 		async := kind == "tool_call_update" && field(update, "_meta", "claudeCode", "toolResponse", "isAsync") == true
-		if id := stringField(update, "toolCallId"); ownCall && (async || field(update, "rawInput", "run_in_background") == true) {
+		if id := stringField(update, "toolCallId"); async && field(update, "_meta", "claudeCode", "parentToolUseId") == nil {
 			if _, started := a.backgroundCalls[id]; !started {
 				if a.backgroundCalls == nil {
 					a.backgroundCalls = map[string]struct{}{}
@@ -84,14 +82,20 @@ func (a *Agent) track(notification map[string]any, kind string, late bool) {
 		if async {
 			a.subagent = a.subagent || running
 		}
-		if ownCall && kind == "tool_call_update" && slices.Contains(stopTools, stringField(update, "_meta", "claudeCode", "toolName")) &&
-			stringField(update, "status") == "completed" {
-			if _, counted := a.stoppedCalls[stringField(update, "toolCallId")]; !counted {
-				if a.stoppedCalls == nil {
-					a.stoppedCalls = map[string]struct{}{}
-				}
-				a.stoppedCalls[stringField(update, "toolCallId")] = struct{}{}
-				a.background = max(a.background-1, 0)
+	case "async_task_spawned":
+		a.activity = time.Now()
+		if a.commands == nil {
+			a.commands = map[string]struct{}{}
+		}
+		a.commands[stringField(update, "asyncTaskId")] = struct{}{}
+	case "async_task_state_update":
+		a.activity = time.Now()
+		state := stringField(update, "state")
+		id := stringField(update, "asyncTaskId")
+		if _, runs := a.commands[id]; runs && slices.Contains([]string{"completed", "failed", "stopped"}, state) {
+			delete(a.commands, id)
+			if !a.turn && !a.autonomous && state != "stopped" {
+				a.commandEnded = true
 			}
 		}
 	case "usage_update":
@@ -101,7 +105,11 @@ func (a *Agent) track(notification map[string]any, kind string, late bool) {
 		}
 		a.autonomous = false
 		if origin == "task-notification" && !isTrigger(update) {
-			a.background = max(a.background-1, 0)
+			if a.commandEnded {
+				a.commandEnded = false
+			} else {
+				a.background = max(a.background-1, 0)
+			}
 		}
 		// The adapter holds the turn open for a background subagent, so the prompt is not absorbed.
 		if running && !a.subagent {
@@ -159,7 +167,7 @@ func (a *Agent) hold(ctx context.Context, background bool) error {
 			a.mu.Unlock()
 			return errCannotDone
 		}
-		waiting := background && a.background > 0
+		waiting := background && (a.background > 0 || len(a.commands) > 0)
 		if a.activity.After(last) {
 			last = a.activity
 		}
@@ -171,6 +179,7 @@ func (a *Agent) hold(ctx context.Context, background bool) error {
 		abandoned := waiting && time.Since(last) >= backgroundTimeout
 		if hung || abandoned {
 			a.background = 0
+			clear(a.commands)
 		}
 		busy := a.autonomous || waiting && !abandoned
 		a.mu.Unlock()
