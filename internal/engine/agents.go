@@ -100,6 +100,8 @@ type Agent struct {
 	background int
 	// backgroundCalls are the tool calls that started a background task, so that a call counts one time.
 	backgroundCalls map[string]struct{}
+	// stoppedCalls are the tool calls that stopped a background task, so that a call counts one time.
+	stoppedCalls map[string]struct{}
 	// autonomous tells that a turn runs that no prompt of Mobius started.
 	autonomous bool
 	// autonomousEnd is the time of the end of an autonomous turn while a prompt runs, until the next work update.

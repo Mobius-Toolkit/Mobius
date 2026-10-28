@@ -344,6 +344,52 @@ func TestTheEndOfAnAutonomousTurnOfAPeerDoesNotEndTheWaitForABackgroundAgent(t *
 	}
 }
 
+func TestTheEndOfAWakeupDoesNotEndTheWaitForABackgroundAgent(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"One\"]\n")
+	agent := start(t, server, leadSpec(t))
+	wakeupEnd := strings.Replace(endUpdate, `{"kind": "task-notification"}`, `{"kind": "task-notification", "subkind": "scheduled-trigger"}`, 1)
+	for _, update := range []string{fmt.Sprintf(asyncAgentUpdate, "a1"), workUpdate, wakeupEnd} {
+		agent.Update(fmt.Appendf(nil, agentUpdate, update))
+	}
+
+	waiting, stopWaiting := context.WithTimeout(t.Context(), 300*time.Millisecond)
+	defer stopWaiting()
+	if err := agent.WaitBackground(waiting); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("WaitBackground = %v while the background agent runs", err)
+	}
+
+	agent.Update(fmt.Appendf(nil, agentUpdate, finalReport))
+	agent.Update(fmt.Appendf(nil, agentUpdate, endUpdate))
+	if err := agent.WaitBackground(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if reply := agent.ReplyText(); reply != "The final report." {
+		t.Errorf("reply = %q", reply)
+	}
+}
+
+func TestAStoppedBackgroundCommandEndsTheWaitWithNoBackgroundTime(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"One\"]\n")
+	agent := start(t, server, leadSpec(t))
+	stop := `{"sessionUpdate": "tool_call_update", "toolCallId": "k1", "status": "completed", "_meta": {"claudeCode": {"toolName": "TaskStop"}}}`
+	for _, update := range []string{backgroundCommand, backgroundRefining, stop, stop, finalReport, endUpdate} {
+		agent.Update(fmt.Appendf(nil, agentUpdate, update))
+	}
+
+	waiting, stopWaiting := context.WithTimeout(t.Context(), 10*time.Second)
+	defer stopWaiting()
+	if err := agent.WaitBackground(waiting); err != nil {
+		t.Fatalf("WaitBackground = %v after the agent stopped its command", err)
+	}
+	if notes := noteTexts(t, server, agent.ID()); len(notes) != 0 {
+		t.Errorf("notes = %q", notes)
+	}
+}
+
 // shortBackground makes the time that Mobius waits for idle background tasks short for the test.
 func shortBackground(t *testing.T) {
 	t.Helper()

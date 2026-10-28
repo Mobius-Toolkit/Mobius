@@ -31,6 +31,16 @@ var errBackgroundIdle = errors.New("the background tasks had no activity")
 // autonomousOrigins are the origin kinds of the end of an autonomous turn. Any other kind ends a turn of a user.
 var autonomousOrigins = []string{"task-notification", "peer", "coordinator", "observer", "observer-activity"}
 
+// stopTools are the tools with which the agent stops a background task. The CLI sends no task-notification for a
+// task that the agent stopped.
+var stopTools = []string{"TaskStop", "KillShell"}
+
+// isTrigger tells if the origin of a usage update is a task-notification that no task end caused: a scheduled trigger
+// (ScheduleWakeup, a cron fire) or a check-in.
+func isTrigger(update any) bool {
+	return field(update, "_meta", "_claude/origin", "subkind") != nil || field(update, "_meta", "_claude/origin", "source") != nil
+}
+
 // track follows the autonomous turns of a Claude Code agent. An autonomous turn is a turn that the CLI starts alone,
 // for example when a background task ends. The caller holds a.mu.
 //
@@ -39,7 +49,8 @@ var autonomousOrigins = []string{"task-notification", "peer", "coordinator", "ob
 // async task capability: the end of an autonomous turn with the origin task-notification is the only sign, and it does
 // not tell which task ended. Thus the count takes one from the tasks for each such end, whatever the task is.
 // The count also counts the commands with the agents, so the end of a command is not the end of an agent. An
-// autonomous turn with another origin (for example a message of a peer) ends no task. The reply text of the session
+// autonomous turn with another origin (for example a message of a peer), or with a task-notification origin that has a
+// subkind or a source (a wakeup), ends no task. A completed call of a tool of stopTools ends one task. The reply text of the session
 // belongs to the last turn, so the first update of an autonomous turn clears the reply text.
 //
 // A turn that Mobius started sends all its updates before the response of its prompt. Thus a work update while no
@@ -70,13 +81,23 @@ func (a *Agent) track(notification map[string]any, kind string, late bool) {
 		if async {
 			a.subagent = a.subagent || running
 		}
+		if kind == "tool_call_update" && slices.Contains(stopTools, stringField(update, "_meta", "claudeCode", "toolName")) &&
+			stringField(update, "status") == "completed" {
+			if _, counted := a.stoppedCalls[stringField(update, "toolCallId")]; !counted {
+				if a.stoppedCalls == nil {
+					a.stoppedCalls = map[string]struct{}{}
+				}
+				a.stoppedCalls[stringField(update, "toolCallId")] = struct{}{}
+				a.background = max(a.background-1, 0)
+			}
+		}
 	case "usage_update":
 		origin := stringField(update, "_meta", "_claude/origin", "kind")
 		if !slices.Contains(autonomousOrigins, origin) {
 			return
 		}
 		a.autonomous = false
-		if origin == "task-notification" {
+		if origin == "task-notification" && !isTrigger(update) {
 			a.background = max(a.background-1, 0)
 		}
 		// The adapter holds the turn open for a background subagent, so the prompt is not absorbed.
