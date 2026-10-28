@@ -267,10 +267,10 @@ func (e *Engine) reviewRound(ctx context.Context, a *Agent, j *reviewJob, task s
 	if err := a.Prompt(ctx, prompt, nil); err != nil {
 		return err
 	}
-	if err := e.requireDeploymentNeeds(ctx, a); err != nil {
+	if err := a.waitBackground(ctx); err != nil {
 		return err
 	}
-	if err := a.waitBackground(ctx); err != nil {
+	if err := e.requireDeploymentNeeds(ctx, a); err != nil {
 		return err
 	}
 	a.closeHarness()

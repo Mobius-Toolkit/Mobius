@@ -730,6 +730,24 @@ func TestAReviewerThatCallsNoToolGetsOneMorePromptAndThenAnEmptyListContinuesThe
 	}
 }
 
+func TestAReviewerWithABackgroundAgentGetsTheWaitPromptBeforeTheDeploymentNeedsPrompt(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	reviewer := "[[prompts]]\nwhen = \"You are the Reviewer\"\nupdates = ['" + asyncAgentStart + "']\nreply = [\"One helper still runs.\"]\n\n" +
+		"[[prompts]]\nwhen = \"" + waitPrompt + "\"\ncall = { tool = \"background_state\", arguments = { state = \"done\" } }\n\n" +
+		emptyNeedsAfterAsk
+	server, _ := connectTask(t, fake, reviewer+leadStarts, commits, noChange)
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	waitForLeadPrompt(t, server, " ready for Lead approval of #41 \"Add plan model\"")
+	session := endedReviewers(t, server, 1)[0]
+	prompts := promptTexts(t, server, session.ID)
+	if len(prompts) != 3 || !strings.Contains(prompts[1], waitPrompt) || prompts[2] != needsRequest {
+		t.Fatalf("prompts = %q", prompts)
+	}
+}
+
 func TestAReviewerThatGivesNoValidDeploymentNeedsFailsTheRunAndStoresNothing(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
