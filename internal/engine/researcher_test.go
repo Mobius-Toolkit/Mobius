@@ -137,6 +137,24 @@ func TestAReportOfTheResearcherWaitsForItsBackgroundAgent(t *testing.T) {
 	}
 }
 
+func TestStopResearcherStopsAResearcherThatWaitsForItsBackgroundAgent(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	asyncAgent := `{"sessionUpdate": "tool_call_update", "toolCallId": "t1", "_meta": {"claudeCode": {"toolName": "Agent", "toolResponse": {"isAsync": true, "agentId": "s1"}}}}`
+	researcher := "[[prompts]]\nwhen = \"# Question\"\nupdates = ['" + asyncAgent + "']\nreply = [\"One helper still runs.\"]\n"
+	server, _ := connectResearcher(t, fake, researchLeadOfDetails, researcher)
+	sendChat(t, server, leadChat, "Begin alpha.")
+	waitForResearchers(t, server, "One helper still runs.")
+
+	sendChat(t, server, leadChat, "Stop alpha.")
+
+	waitForLeadPrompt(t, server, "# Researcher message\n\nThe Researcher 2 stopped. No report arrives.")
+	stopped := waitForChatSession(t, server, leadChat, engine.ResearcherRole, func(session store.Session) bool { return session.EndedAt.Valid })
+	if stopped.ID != 2 || stopped.EndReason.String != "stopped" {
+		t.Errorf("stopped = %+v", stopped)
+	}
+}
+
 func TestTheDrainRefusesANewResearcher(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

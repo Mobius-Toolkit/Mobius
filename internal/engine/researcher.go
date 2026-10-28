@@ -213,12 +213,12 @@ func (e *Engine) researchTurn(ctx context.Context, a *Agent, question string) (s
 	prompt := fmt.Sprintf("%s\n%s%s# Question\n\n%s", researcherPrompt, sections, briefSection, question)
 	for {
 		err := a.Prompt(ctx, prompt, nil)
+		if err == nil {
+			err = a.waitBackground(ctx)
+		}
 		if details := e.takeDetails(e.researchers, a.id, a, true); details != "" && ctx.Err() == nil {
 			prompt = detailsPrompt("question", details)
 			continue
-		}
-		if err == nil {
-			err = a.waitBackground(ctx)
 		}
 		return a.replyText(), err
 	}
