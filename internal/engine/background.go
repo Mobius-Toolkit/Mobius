@@ -26,7 +26,7 @@ var backgroundCheckInterval = 5 * time.Minute
 var backgroundTimeout = time.Hour
 
 // backgroundPrompt is the prompt of waitBackground.
-const backgroundPrompt = "Before your final report, check each background task that you started. Wait for each task that still runs, for example with `TaskOutput` and `block`. Then call `background_state` with `done` and give your full final report. If you already gave your final report, do not give it again. If a task still runs at the end of this turn, call `background_state` with `running`."
+const backgroundPrompt = "Before your final report, check each background task that you started. Wait for each task that still runs, for example with `TaskOutput` and `block`. Then call `background_state` with `done` and give your full final report. If a task still runs at the end of this turn, call `background_state` with `running`."
 
 // backgroundRoles are the Roles that end their session after their last Prompt. They get the tool background_state.
 var backgroundRoles = []string{ResearcherRole, JudgeRole, DiagnoserRole, CuratorRole, TriagerRole, ReviewerRole}

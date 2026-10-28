@@ -400,6 +400,36 @@ call = { tool = "background_state", arguments = { state = "done" } }
 	}
 }
 
+// Serial: the test changes backgroundCheckInterval.
+func TestTheWaitPromptAsksForTheFullFinalReportAndNeverForNoReport(t *testing.T) {
+	shortBackgroundCheck(t, 50*time.Millisecond)
+	fake := testkit.NewFakeGitHub(t)
+	researcher := `
+[[prompts]]
+updates = ['` + asyncAgentStart + `']
+reply = ["The full report."]
+
+[[prompts]]
+reply = ["The full report, after the wait."]
+call = { tool = "background_state", arguments = { state = "done" } }
+`
+	server, _ := connectResearcher(t, fake, researchLead, researcher)
+
+	sendChat(t, server, leadChat, "Plan the price model.")
+
+	session := testkit.WaitForValue(t, func() (store.Session, bool) {
+		sessions := roleSessions(t, server, engine.ResearcherRole)
+		if len(sessions) == 0 {
+			return store.Session{}, false
+		}
+		return sessions[0], sessions[0].EndedAt.Valid
+	})
+	prompts := promptTexts(t, server, session.ID)
+	if len(prompts) != 2 || !strings.Contains(prompts[1], "give your full final report") || strings.Contains(prompts[1], "do not give it again") {
+		t.Errorf("prompts = %q", prompts)
+	}
+}
+
 func TestAResearcherWithNoBackgroundTaskGetsNoWaitPrompt(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
