@@ -26,6 +26,10 @@ var autonomousOrigins = []string{"task-notification", "peer", "coordinator", "ob
 // track follows the autonomous turns of a Claude Code agent. An autonomous turn is a turn that the CLI starts alone,
 // for example when a background task ends. The caller holds a.mu.
 //
+// An async result of the Agent tool (isAsync) starts a background agent. The end of an autonomous turn with the origin
+// task-notification ends one. The reply text of the session then belongs to the last turn, so the first update of an
+// autonomous turn clears the reply text.
+//
 // A turn that Mobius started sends all its updates before the response of its prompt. Thus a work update while no
 // prompt runs, or after the response of the prompt (late), belongs to an autonomous turn.
 func (a *Agent) track(notification map[string]any, kind string, late bool) {
@@ -36,10 +40,14 @@ func (a *Agent) track(notification map[string]any, kind string, late bool) {
 		a.activity = time.Now()
 		a.autonomousEnd = time.Time{}
 		if !running {
+			if !a.autonomous {
+				a.reply.Reset()
+			}
 			a.autonomous = true
 		}
-		if kind == "tool_call_update" && running && field(update, "_meta", "claudeCode", "toolResponse", "isAsync") == true {
-			a.subagent = true
+		if kind == "tool_call_update" && field(update, "_meta", "claudeCode", "toolResponse", "isAsync") == true {
+			a.background++
+			a.subagent = a.subagent || running
 		}
 	case "usage_update":
 		origin := stringField(update, "_meta", "_claude/origin", "kind")
@@ -47,6 +55,7 @@ func (a *Agent) track(notification map[string]any, kind string, late bool) {
 			return
 		}
 		a.autonomous = false
+		a.background = max(a.background-1, 0)
 		// The adapter holds the turn open for a background subagent, so the prompt is not absorbed.
 		if running && !a.subagent {
 			a.autonomousEnd = time.Now()
@@ -63,6 +72,26 @@ func (a *Agent) track(notification map[string]any, kind string, late bool) {
 // cannot_do of the agent in the autonomous turn gives errCannotDone, because the cancel of cannot_do may end that
 // turn with no autonomous end.
 func (a *Agent) waitQuiet(ctx context.Context) error {
+	return a.hold(ctx, false)
+}
+
+// waitBackground is the wait of a Role that ends its session after its last Prompt. It holds until no autonomous turn
+// runs and no background agent of the session runs, with the stop, cannot_do and hang rules of waitQuiet. A stop or a
+// cannot_do ends the wait with no error. The end of the wait gives the reply text of the last turn.
+func (a *Agent) waitBackground(ctx context.Context) error {
+	err := a.hold(ctx, true)
+	switch {
+	case errors.Is(err, errStopped):
+		a.takeStop()
+		return nil
+	case errors.Is(err, errCannotDone):
+		return nil
+	}
+	return err
+}
+
+// hold is waitQuiet. With background, it also holds while a background agent runs.
+func (a *Agent) hold(ctx context.Context, background bool) error {
 	ticker := time.NewTicker(quietPoll)
 	defer ticker.Stop()
 	last := time.Now()
@@ -77,13 +106,14 @@ func (a *Agent) waitQuiet(ctx context.Context) error {
 			a.mu.Unlock()
 			return errCannotDone
 		}
-		busy := a.autonomous
+		busy := a.autonomous || background && a.background > 0
 		if a.activity.After(last) {
 			last = a.activity
 		}
 		hung := busy && time.Since(last) >= hangTimeout
 		if hung {
 			a.autonomous = false
+			a.background = 0
 		}
 		a.mu.Unlock()
 		if hung {

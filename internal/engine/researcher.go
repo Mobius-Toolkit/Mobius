@@ -217,6 +217,9 @@ func (e *Engine) researchTurn(ctx context.Context, a *Agent, question string) (s
 			prompt = detailsPrompt("question", details)
 			continue
 		}
+		if err == nil {
+			err = a.waitBackground(ctx)
+		}
 		return a.replyText(), err
 	}
 }

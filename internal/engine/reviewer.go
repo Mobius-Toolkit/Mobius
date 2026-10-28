@@ -267,6 +267,9 @@ func (e *Engine) reviewRound(ctx context.Context, a *Agent, j *reviewJob, task s
 	if err := a.Prompt(ctx, prompt, nil); err != nil {
 		return err
 	}
+	if err := a.waitBackground(ctx); err != nil {
+		return err
+	}
 	if err := e.requireDeploymentNeeds(ctx, a); err != nil {
 		return err
 	}
@@ -287,6 +290,9 @@ func (e *Engine) requireDeploymentNeeds(ctx context.Context, a *Agent) error {
 		return nil
 	}
 	if err := a.Prompt(ctx, deploymentNeedsPrompt, nil); err != nil {
+		return err
+	}
+	if err := a.waitBackground(ctx); err != nil {
 		return err
 	}
 	if ctx.Err() == nil && !e.deploymentNeedsReported(a) {

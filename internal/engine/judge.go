@@ -464,7 +464,10 @@ func (e *Engine) judgeTurn(ctx context.Context, a *Agent, j judgeJob) error {
 			launched(ctx, repository, item.thread != "", id)
 		}
 	}
-	return a.Prompt(ctx, prompt, nil)
+	if err := a.Prompt(ctx, prompt, nil); err != nil {
+		return err
+	}
+	return a.waitBackground(ctx)
 }
 
 // route acts on the verdicts of the Judge: a reject replies with its reason, a follow-up goes to the Lead, and the fix

@@ -107,6 +107,36 @@ func TestAReportOfTheResearcherGoesToTheLeadChat(t *testing.T) {
 	}
 }
 
+func TestAReportOfTheResearcherWaitsForItsBackgroundAgent(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	asyncAgent := `{"sessionUpdate": "tool_call_update", "toolCallId": "t1", "_meta": {"claudeCode": {"toolName": "Agent", "toolResponse": {"isAsync": true, "agentId": "s1"}}}}`
+	finalReport := `{"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "The final report."}}`
+	researcher := "[[prompts]]\nwhen = \"You are a Researcher\"\nupdates = ['" + asyncAgent + "']\nreply = [\"One helper still runs.\"]\n" +
+		"later = { after = \"300ms\", updates = ['" + finalReport + "', '" + endUpdate + "'] }\n"
+	server, _ := connectResearcher(t, fake, researchLead, researcher)
+
+	sendChat(t, server, leadChat, "Plan the price model.")
+
+	session := testkit.WaitForValue(t, func() (store.Session, bool) {
+		sessions := roleSessions(t, server, engine.ResearcherRole)
+		if len(sessions) == 0 {
+			return store.Session{}, false
+		}
+		return sessions[0], sessions[0].EndedAt.Valid
+	})
+	if session.EndReason.String != "done" {
+		t.Errorf("session = %+v", session)
+	}
+	if lineID(t, server, session.ID, "update", "task-notification") == 0 {
+		t.Error("the session ended before the end of the background agent")
+	}
+	prompt := waitForLeadPrompt(t, server, fmt.Sprintf("# Researcher message\n\nReport of the Researcher %d on \"%s\":\n\n", session.ID, question))
+	if !strings.HasSuffix(prompt, "The final report.") {
+		t.Errorf("prompt = %q", prompt)
+	}
+}
+
 func TestTheDrainRefusesANewResearcher(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

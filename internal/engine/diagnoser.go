@@ -216,7 +216,10 @@ func (e *Engine) diagnoseTurn(ctx context.Context, a *Agent, row store.CiDiagnos
 		return err
 	}
 	prompt := fmt.Sprintf("%s\n%s%s\n# Failed jobs\n\n%s%s", diagnoserPrompt, serverSection(), place, jobs, failures)
-	return a.Prompt(ctx, prompt, nil)
+	if err := a.Prompt(ctx, prompt, nil); err != nil {
+		return err
+	}
+	return a.waitBackground(ctx)
 }
 
 func pullRequestPlace(ctx context.Context, repository github.Repository, row store.CiDiagnosis) (string, error) {

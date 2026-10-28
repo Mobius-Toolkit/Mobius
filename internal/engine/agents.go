@@ -96,6 +96,8 @@ type Agent struct {
 	activity time.Time
 	// subagent tells that the current prompt started a background subagent.
 	subagent bool
+	// background is the number of background agents of the session that run.
+	background int
 	// autonomous tells that a turn runs that no prompt of Mobius started.
 	autonomous bool
 	// autonomousEnd is the time of the end of an autonomous turn while a prompt runs, until the next work update.
