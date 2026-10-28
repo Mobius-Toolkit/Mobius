@@ -403,7 +403,7 @@ call = { tool = "background_state", arguments = { state = "done" } }
 func TestAResearcherWithNoBackgroundTaskGetsNoWaitPrompt(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectResearch(t, fake, researchLead)
+	server, _ := connectResearcher(t, fake, researchLead, quickResearcher)
 
 	sendChat(t, server, leadChat, "Plan the price model.")
 
