@@ -37,9 +37,10 @@ var autonomousOrigins = []string{"task-notification", "peer", "coordinator", "ob
 // An async result of the Agent tool (isAsync) starts a background agent. A tool call with run_in_background in its input
 // starts a background command. The adapter sends no signal for the end of one task to a client with no subagent or
 // async task capability: the end of an autonomous turn with the origin task-notification is the only sign, and it does
-// not tell which task ended. Thus the count takes one from the tasks for each such end, whatever the task is, and it
-// counts the commands with the agents, so the end of a command is not the end of an agent. The reply text of the
-// session then belongs to the last turn, so the first update of an autonomous turn clears the reply text.
+// not tell which task ended. Thus the count takes one from the tasks for each such end, whatever the task is.
+// The count also counts the commands with the agents, so the end of a command is not the end of an agent. An
+// autonomous turn with another origin (for example a message of a peer) ends no task. The reply text of the session
+// belongs to the last turn, so the first update of an autonomous turn clears the reply text.
 //
 // A turn that Mobius started sends all its updates before the response of its prompt. Thus a work update while no
 // prompt runs, or after the response of the prompt (late), belongs to an autonomous turn.
@@ -75,7 +76,9 @@ func (a *Agent) track(notification map[string]any, kind string, late bool) {
 			return
 		}
 		a.autonomous = false
-		a.background = max(a.background-1, 0)
+		if origin == "task-notification" {
+			a.background = max(a.background-1, 0)
+		}
 		// The adapter holds the turn open for a background subagent, so the prompt is not absorbed.
 		if running && !a.subagent {
 			a.autonomousEnd = time.Now()

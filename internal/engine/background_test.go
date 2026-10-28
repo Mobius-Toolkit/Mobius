@@ -318,6 +318,32 @@ func TestTheEndOfABackgroundCommandDoesNotEndTheWaitForABackgroundAgent(t *testi
 	}
 }
 
+func TestTheEndOfAnAutonomousTurnOfAPeerDoesNotEndTheWaitForABackgroundAgent(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"One\"]\n")
+	agent := start(t, server, leadSpec(t))
+	peerEnd := strings.Replace(endUpdate, "task-notification", "peer", 1)
+	for _, update := range []string{fmt.Sprintf(asyncAgentUpdate, "a1"), workUpdate, peerEnd} {
+		agent.Update(fmt.Appendf(nil, agentUpdate, update))
+	}
+
+	waiting, stopWaiting := context.WithTimeout(t.Context(), 300*time.Millisecond)
+	defer stopWaiting()
+	if err := agent.WaitBackground(waiting); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("WaitBackground = %v while the background agent runs", err)
+	}
+
+	agent.Update(fmt.Appendf(nil, agentUpdate, finalReport))
+	agent.Update(fmt.Appendf(nil, agentUpdate, endUpdate))
+	if err := agent.WaitBackground(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if reply := agent.ReplyText(); reply != "The final report." {
+		t.Errorf("reply = %q", reply)
+	}
+}
+
 // shortBackground makes the time that Mobius waits for idle background tasks short for the test.
 func shortBackground(t *testing.T) {
 	t.Helper()
