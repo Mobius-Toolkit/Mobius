@@ -533,7 +533,7 @@ func MergeTree(ctx context.Context, dataDir, repository, first, second string) (
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	var exit *exec.ExitError
-	if err != nil && !(errors.As(err, &exit) && exit.ExitCode() == 1) {
+	if err != nil && (!errors.As(err, &exit) || exit.ExitCode() != 1) {
 		return "", fmt.Errorf("%s: %w: %s", strings.Join(cmd.Args, " "), err, strings.TrimSpace(stderr.String()))
 	}
 	tree, _, _ := strings.Cut(string(out), "\n")
