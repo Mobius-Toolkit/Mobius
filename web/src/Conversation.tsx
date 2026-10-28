@@ -55,6 +55,7 @@ import { FileImage } from "./FileImage";
 import { InboxItemCard } from "./InboxItemCard";
 import { Markdown } from "./Markdown";
 import { MessageInput } from "./MessageInput";
+import { QuestionCard } from "./QuestionCard";
 
 // The wait after each failed send. The last wait repeats.
 const retryDelays = [2000, 5000, 10_000, 30_000];
@@ -108,12 +109,24 @@ function OwnerState({ message }: { message: ChatMessage }) {
 const Message = memo(function Message({
   message,
   pendingItem,
+  workstreams,
   onDecided,
 }: {
   message: ChatMessage;
   pendingItem?: InboxItem;
+  workstreams?: Workstream[];
   onDecided: (action: PendingAction) => void;
 }) {
+  if (message.question) {
+    return (
+      <QuestionCard
+        message={message}
+        question={message.question}
+        item={pendingItem}
+        workstreams={workstreams}
+      />
+    );
+  }
   if (message.action) {
     return (
       <ActionCard
@@ -328,6 +341,15 @@ export function Conversation({
       ),
     [],
   );
+  const updateQuestion = useCallback(
+    (question: InboxItem) =>
+      setMessages((list) =>
+        list.map((message) =>
+          message.question?.id === question.id ? { ...message, question } : message,
+        ),
+      ),
+    [],
+  );
   const listRef = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
   // The scrollTop of the last scroll to the end. A scroll event can come after an image has made the list longer.
@@ -451,13 +473,15 @@ export function Conversation({
       }
     });
     const removeAction = onEvent<LiveEvents, "action">(source, "action", updateAction);
+    const removeQuestion = onEvent<LiveEvents, "question">(source, "question", updateQuestion);
     return () => {
       source.removeEventListener("open", reload);
       removeMessage();
       removeState();
       removeAction();
+      removeQuestion();
     };
-  }, [source, load, updateAction, organization, repository, workstream]);
+  }, [source, load, updateAction, updateQuestion, organization, repository, workstream]);
 
   const storedIds = useMemo(
     () => new Set(messages.map((message) => message.browserId)),
@@ -743,7 +767,12 @@ export function Conversation({
               )}
               <Message
                 message={message}
-                pendingItem={rows.find((row) => row.action && row.action.id === message.action?.id)}
+                pendingItem={rows.find((row) =>
+                  message.question
+                    ? row.id === message.question.id
+                    : row.action && row.action.id === message.action?.id,
+                )}
+                workstreams={workstreams}
                 onDecided={updateAction}
               />
             </Fragment>

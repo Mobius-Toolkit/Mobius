@@ -157,6 +157,8 @@ var briefCalls = []struct{ message, tool, arguments string }{
 	{"Edit the Brief table of the Lead of #14.", "edit_brief", `{ brief = "**Goal**\nShow a table.\n\n| Plan | Months |\n| --- | --- |\n| Basic | two |\n| Extra | three |", reason = "The Owner wants a table." }`},
 	{"Edit the Brief rule of the Lead of #14.", "edit_brief", `{ brief = "**Goal**\nShow a rule.\n\n---\n\nKeep text.", reason = "The Owner wants a rule." }`},
 	{"Tell the Lead of #12 to wait for the migration.", "message_lead", `{ workstream = 12, text = "Wait for the migration of #14 before you start the price table." }`},
+	{"Close the question about the renewals.", "close_question", `{ repository = "owner/shop", n = 14, answer = "Two months." }`},
+	{"Ask the Owner about the renewals.", "ask", `{ repository = "owner/shop", n = 14, text = "How many months early can a customer renew?" }`},
 	{"Restore the Brief of the Lead of #14.", "edit_brief", `{ brief = "**Goal**\nLet customers renew a plan one month early.\n\n**Scope**\n- Add a button to the renewal page.\n- Send a mail after the renewal.\n\n**Limits**\n- Do not change the price of a plan.", reason = "The Owner wants the old Brief." }`},
 }
 
@@ -169,6 +171,13 @@ func ownerAnswerRules(heading string) string {
 		fmt.Fprintf(&rules, "[[prompts]]\nwhen = %q\nreply = [\"The answer is noted.\"]\n\n", heading+answer)
 	}
 	return rules.String()
+}
+
+// withdrawRules are the rules of the Owner message that makes the fake Coordinator withdraw its open question. The
+// shell asks the server for the ID of that question. The curl on the PATH is a fake program of the Checkup tools.
+func withdrawRules(heading string) string {
+	return fmt.Sprintf("[[prompts]]\nwhen = %q\nshell = %q\ncall = { tool = \"withdraw\", arguments = { id = \"{shell}\" } }\n\n",
+		heading+"Withdraw the question about the draft.", "/usr/bin/curl -s http://$MOBIUS_E2E_ADDR/e2e/open-question")
 }
 
 func briefCallRules(heading string) string {
@@ -187,8 +196,8 @@ func ownerCallRules(heading string) string {
 	return rules.String()
 }
 
-var script = scriptOptions + briefCallRules("# Owner message\n\n") + scriptHead + ownerAnswerRules("# Owner message\n\n") + ownerCallRules("# Owner message\n\n") + scriptBody +
-	ownerCallRules("") + ownerAnswerRules("") + briefCallRules("") + scriptTail
+var script = scriptOptions + briefCallRules("# Owner message\n\n") + scriptHead + ownerAnswerRules("# Owner message\n\n") + ownerCallRules("# Owner message\n\n") + withdrawRules("# Owner message\n\n") + scriptBody +
+	ownerCallRules("") + withdrawRules("") + ownerAnswerRules("") + briefCallRules("") + scriptTail
 
 // question is the first Owner message of the Lead chat of owner/shop#12. The wide code block and the wide table
 // scroll inside the message.
@@ -233,7 +242,8 @@ const question = "What is the state of the plans? The full report is at " +
 // PUT /e2e/actions/{id}/state sets the state and the message of a pending action from the queries state and message.
 // POST /e2e/inbox-items adds an Inbox item for owner/shop#40 and gives its id. With the query kind, repository,
 // workstream, issue, title and reason, it adds that item instead. DELETE /e2e/inbox-items/{id}
-// removes it. An answer to that item adds a comment to the issue and changes nothing else. POST and DELETE
+// removes it. An answer to that item adds a comment to the issue and changes nothing else. GET /e2e/open-question
+// gives the ID of the newest open question of the Coordinator. POST and DELETE
 // /e2e/repositories/{owner}/{name} add and remove a repository of the fake GitHub. PUT
 // /e2e/agents/{issue}/queue-reason sets the queue reason of the live agent of an issue, with no event. DELETE
 // /e2e/dispatches/{owner}/{name}/{issue} waits for the dispatch of an issue, removes its task, its feed events and
@@ -422,6 +432,14 @@ func TestServer(t *testing.T) {
 			return
 		}
 		_, _ = fmt.Fprint(w, item.ID)
+	})
+	server.Mux.HandleFunc("GET /e2e/open-question", func(w http.ResponseWriter, _ *http.Request) {
+		var id int64
+		if err := server.DB.QueryRow("SELECT id FROM inbox_items WHERE kind = 'question' AND repository = '' AND dismissed_at IS NULL ORDER BY id DESC LIMIT 1").Scan(&id); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		_, _ = fmt.Fprint(w, id)
 	})
 	server.Mux.HandleFunc("DELETE /e2e/inbox-items/{id}", func(w http.ResponseWriter, r *http.Request) {
 		if _, err := server.DB.Exec("DELETE FROM inbox_items WHERE id = ?", r.PathValue("id")); err != nil {

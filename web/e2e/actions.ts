@@ -10,11 +10,14 @@ export const addHistoryTable = "Tell the Lead of #14 to add a price history tabl
 export const editBrief = "Edit the Brief of the Lead of #14.";
 export const editBriefRule = "Edit the Brief rule of the Lead of #14.";
 export const editBriefTable = "Edit the Brief table of the Lead of #14.";
+export const askRenewals = "Ask the Owner about the renewals.";
+export const closeRenewals = "Close the question about the renewals.";
 export const restoreBriefMessage = "Restore the Brief of the Lead of #14.";
 export const messageLeadOfTwelve = "Tell the Lead of #12 to wait for the migration.";
 export const stopUnknown = "Tell the Lead of #9999 to stop.";
 export const askStore = "Ask which store and which checks.";
 export const askDraft = "Ask whether to draft the Workstream.";
+export const withdrawDraft = "Withdraw the question about the draft.";
 
 // The texts of the questions that the fake Coordinator asks.
 export const storeQuestion = "Which store?";

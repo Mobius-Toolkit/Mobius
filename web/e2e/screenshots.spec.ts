@@ -1,11 +1,13 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import {
   ask,
+  askDraft,
   askStore,
   briefTitle,
   cardOf,
   checksQuestion,
   createTitle,
+  draftQuestion,
   draftWorkstream,
   dropColumn,
   editBrief,
@@ -21,6 +23,7 @@ import {
   storeQuestion,
   unknownTitle,
   waitText,
+  withdrawDraft,
 } from "./actions.js";
 import { waitForEvergreen } from "./evergreen.js";
 import { png } from "./images.js";
@@ -1807,11 +1810,96 @@ test("screenshots", async ({ page }) => {
   await panel.getByRole("textbox", { name: "Your answer" }).fill("Keep the old data.");
   await panel.getByRole("button", { name: "Send" }).click();
   await expect(panel).toBeHidden();
+
+  // The cards of the questions. The end of the chat is the only stable scroll, and the Coordinator ends each turn with
+  // its message.
+  const questionCard = (text: string) =>
+    page.locator("[data-question]").filter({ hasText: text }).last();
+  const showQuestionEnd = (text: string) => async () => {
+    await expect(questionCard(text)).toBeVisible();
+    await idle(page);
+    await expect
+      .poll(() =>
+        questionCard(text).evaluate((el) => {
+          const list = el.parentElement;
+          if (!list) {
+            return false;
+          }
+          list.scrollTop = list.scrollHeight;
+          return list.scrollHeight - list.scrollTop - list.clientHeight < 1;
+        }),
+      )
+      .toBe(true);
+  };
   await row(leadTitle).getByRole("button", { name: "Answer" }).click();
   await decide(page, panel, "reject");
   await expect(panel).toBeHidden();
   await settle(page);
   expect((await page.request.post("/e2e/approvals/times/fix")).ok()).toBe(true);
+
+  const storeCard = "The shop needs a store for the plans.";
+  await expect(questionCard(storeCard).getByText("Answered", { exact: true })).toBeVisible();
+  await fixActionTimes();
+  await screenshot(
+    page,
+    "question-answered",
+    "/chat",
+    (device) => [
+      ...approvalReady(device, "1"),
+      questionCard(storeCard).getByText("Answered", { exact: true }),
+      questionCard(storeCard).getByText("Keep the old data."),
+      questionCard(storeCard).getByRole("button", { name: "Details" }),
+    ],
+    showQuestionEnd(storeCard),
+  );
+  await screenshot(
+    page,
+    "question-details",
+    "/chat",
+    (device) => [
+      ...approvalReady(device, "1"),
+      panel.getByText(storeCard),
+      group(storeQuestion),
+      panel.getByText("Your answer", { exact: true }),
+      panel.getByText("Keep the old data."),
+    ],
+    async () => {
+      await showQuestionEnd(storeCard)();
+      await questionCard(storeCard).getByRole("button", { name: "Details" }).click();
+    },
+    () => page.keyboard.press("Escape"),
+  );
+
+  // The fake Coordinator asks whether to draft the Workstream, and withdraws the question after the screenshot.
+  await page.goto("/chat");
+  await ask(page, askDraft);
+  await expect(waits(1)).toBeVisible({ timeout: 30_000 });
+  await fixActionTimes();
+  await screenshot(
+    page,
+    "question-open",
+    "/chat",
+    (device) => [
+      ...approvalReady(device, "2"),
+      waits(1),
+      questionCard(draftQuestion).getByText("Waits for your answer", { exact: true }),
+      questionCard(draftQuestion).getByRole("button", { name: "Answer" }),
+    ],
+    showQuestionEnd(draftQuestion),
+  );
+  await ask(page, withdrawDraft);
+  await expect(waits(1)).toBeHidden({ timeout: 30_000 });
+  await fixActionTimes();
+  await screenshot(
+    page,
+    "question-withdrawn",
+    "/chat",
+    (device) => [
+      ...approvalReady(device, "1"),
+      questionCard(draftQuestion).getByText("Withdrawn", { exact: true }),
+    ],
+    showQuestionEnd(draftQuestion),
+  );
 
   // The fake Lead of #14 proposes a new Brief. The approval changes the Brief, and the last call sets it back.
   await page.goto("/workstreams/owner/shop/14");

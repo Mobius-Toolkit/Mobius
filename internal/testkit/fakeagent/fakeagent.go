@@ -20,7 +20,8 @@
 //	shell = "gh issue list" # runs in /bin/sh; the reply gets its stdout, its stderr and "exit <code>"
 //	call = { tool = "create_workstream", arguments = { title = "{shell}" } }
 //	                        # calls the tool of the Mobius MCP server; the reply gets the text of the result,
-//	                        # after "error: " for an error result; {shell} becomes the trimmed stdout of shell
+//	                        # after "error: " for an error result; {shell} becomes the trimmed stdout of shell, and an
+//	                        # argument that is only {shell} becomes a number when the stdout is a number
 //	list_tools = true       # the reply gets the JSON of the tool list of the Mobius MCP server
 //	usage = '{"inputTokens": 10, "outputTokens": 2}'  # the usage field of the response
 //	meta = '{"quota": {}}'  # the _meta field of the response
@@ -597,6 +598,9 @@ func mobiusReply(ctx context.Context, mcpURL string, turn prompt, stdout string)
 	for name, value := range turn.Call.Arguments {
 		if text, ok := value.(string); ok {
 			value = strings.ReplaceAll(text, "{shell}", stdout)
+			if number, err := strconv.ParseInt(stdout, 10, 64); err == nil && text == "{shell}" {
+				value = number
+			}
 		}
 		arguments[name] = value
 	}
