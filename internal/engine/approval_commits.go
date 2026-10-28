@@ -11,6 +11,7 @@ import (
 	gh "github.com/google/go-github/v92/github"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
+	"github.com/Mobius-Toolkit/Mobius/internal/runner"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
@@ -73,12 +74,15 @@ func sharedCommitLines(ctx context.Context, repository github.Repository, pullRe
 
 // approvedHeadText gives the lines that follow the first line of the event ready_for_approval when the Lead approved
 // an earlier head of the pull request. A 4xx answer of GitHub gives a line about it, and any other error returns.
-func approvedHeadText(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) (string, error) {
+func (e *Engine) approvedHeadText(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) (string, error) {
 	approved := task.ApprovedHead.String
 	if approved == "" || approved == pullRequest.GetHead().GetSHA() {
 		return "", nil
 	}
-	text, err := changesAfterApproval(ctx, repository, pullRequest, approved)
+	if err := e.fetchRepository(ctx, repository); err != nil {
+		return "", err
+	}
+	text, err := e.changesAfterApproval(ctx, repository, pullRequest, approved)
 	var refused *gh.ErrorResponse
 	if errors.As(err, &refused) && refused.Response.StatusCode < 500 {
 		return fmt.Sprintf("\nMobius could not compare the approved head %.8s with the head: %d.", approved, refused.Response.StatusCode), nil
@@ -96,7 +100,7 @@ type commitAfterApproval struct {
 
 // changesAfterApproval lists the commits after the approved head and tells if the change of the pull request is the
 // same as at the approved head.
-func changesAfterApproval(ctx context.Context, repository github.Repository, pullRequest *gh.PullRequest, approved string) (string, error) {
+func (e *Engine) changesAfterApproval(ctx context.Context, repository github.Repository, pullRequest *gh.PullRequest, approved string) (string, error) {
 	branch := repository.DefaultBranch
 	comparison, err := repository.Compare(ctx, approved, pullRequest.GetHead().GetSHA())
 	if err != nil {
@@ -176,7 +180,7 @@ func changesAfterApproval(ctx context.Context, repository github.Repository, pul
 		}
 		fmt.Fprintf(&text, "\n- %.8s %s", commit.GetSHA(), commitSubject(commit))
 	}
-	reasons, err := differences(ctx, repository, pullRequest, approved, chain)
+	reasons, err := e.differences(ctx, repository, pullRequest, approved, chain)
 	if err != nil {
 		return "", err
 	}
@@ -192,7 +196,8 @@ func changesAfterApproval(ctx context.Context, repository github.Repository, pul
 }
 
 // differences gives the reasons why the change of the pull request can differ from the change at the approved head.
-func differences(ctx context.Context, repository github.Repository, pullRequest *gh.PullRequest, approved string, chain []commitAfterApproval) ([]string, error) {
+// The bare clone of the repository must have the commits of the chain.
+func (e *Engine) differences(ctx context.Context, repository github.Repository, pullRequest *gh.PullRequest, approved string, chain []commitAfterApproval) ([]string, error) {
 	branch := repository.DefaultBranch
 	var reasons []string
 	for _, link := range chain {
@@ -230,8 +235,22 @@ func differences(ctx context.Context, repository github.Repository, pullRequest 
 				}
 			}
 		}
-		if len(shared) > 0 {
-			reasons = append(reasons, fmt.Sprintf("%.8s merged a change of %s, so it can hold a conflict resolution", link.commit.GetSHA(), strings.Join(shared, ", ")))
+		if len(shared) == 0 {
+			continue
+		}
+		dataDir, name, sha := e.config.DataDir, repository.FullName, link.commit.GetSHA()
+		tree, err := runner.MergeTree(ctx, dataDir, name, link.commit.Parents[0].GetSHA(), link.commit.Parents[1].GetSHA())
+		if err != nil {
+			return nil, err
+		}
+		resolved, err := runner.DiffFiles(ctx, dataDir, name, tree, sha)
+		if err != nil {
+			return nil, err
+		}
+		if len(resolved) == 0 {
+			reasons = append(reasons, fmt.Sprintf("%.8s is a clean merge", sha))
+		} else {
+			reasons = append(reasons, fmt.Sprintf("%.8s holds a hand resolution in %s", sha, strings.Join(resolved, ", ")))
 		}
 	}
 	return reasons, nil

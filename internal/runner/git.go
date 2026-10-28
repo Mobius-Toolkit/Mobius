@@ -525,6 +525,28 @@ func MergeBase(ctx context.Context, dataDir, repository, one, other string) (str
 	return run(git(ctx, dataDir, bareDir(dataDir, repository), "", "merge-base", one, other))
 }
 
+// MergeTree gives the tree of the automatic merge of the commits first and second in the bare clone of repository. A
+// merge with a conflict exits with status 1 and still writes the tree, so MergeTree gives that tree with no error.
+func MergeTree(ctx context.Context, dataDir, repository, first, second string) (string, error) {
+	cmd := git(ctx, dataDir, bareDir(dataDir, repository), "", "merge-tree", "--write-tree", first, second)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	var exit *exec.ExitError
+	if err != nil && !(errors.As(err, &exit) && exit.ExitCode() == 1) {
+		return "", fmt.Errorf("%s: %w: %s", strings.Join(cmd.Args, " "), err, strings.TrimSpace(stderr.String()))
+	}
+	tree, _, _ := strings.Cut(string(out), "\n")
+	return tree, nil
+}
+
+// DiffFiles gives the names of the files that differ between the trees or commits from and to in the bare clone of
+// repository.
+func DiffFiles(ctx context.Context, dataDir, repository, from, to string) ([]string, error) {
+	out, err := run(git(ctx, dataDir, bareDir(dataDir, repository), "", "diff", "--name-only", from, to))
+	return strings.Fields(out), err
+}
+
 // RevParse gives the commit of name in the worktree.
 func RevParse(ctx context.Context, dataDir, worktree, name string) (string, error) {
 	return run(git(ctx, dataDir, worktree, "", "rev-parse", name))
