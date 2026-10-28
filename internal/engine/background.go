@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"time"
 )
@@ -14,11 +15,18 @@ const quietPoll = 20 * time.Millisecond
 // takes the prompt as absorbed into the autonomous turn.
 var absorbTimeout = 30 * time.Second
 
+// backgroundTimeout is the time with no activity after which waitBackground takes the background tasks as ended. A
+// background agent sends no update to the session while it works, so the limit is longer than hangTimeout.
+var backgroundTimeout = time.Hour
+
 // errStopped is the error of waitQuiet when a stop ends the wait.
 var errStopped = errors.New("a stop ended the wait for an autonomous turn")
 
 // errCannotDone is the error of waitQuiet when the agent called cannot_do in the autonomous turn.
 var errCannotDone = errors.New("the agent called cannot_do in an autonomous turn")
+
+// errBackgroundIdle is the error of hold when the background tasks had no activity for backgroundTimeout.
+var errBackgroundIdle = errors.New("the background tasks had no activity")
 
 // autonomousOrigins are the origin kinds of the end of an autonomous turn. Any other kind ends a turn of a user.
 var autonomousOrigins = []string{"task-notification", "peer", "coordinator", "observer", "observer-activity"}
@@ -92,11 +100,13 @@ func (a *Agent) waitQuiet(ctx context.Context) error {
 // cannot_do ends the wait with no error. The end of the wait gives the reply text of the last turn.
 //
 // The count of the tasks can stay above zero when the CLI folds the ends of two tasks into one autonomous turn. Thus,
-// when no autonomous turn runs and the agent has no activity for hangTimeout, the wait ends with no error and the
-// session keeps its reply text.
+// when no autonomous turn runs and the agent has no activity for backgroundTimeout, the wait adds a note to the
+// Transcript and ends with no error, and the session keeps its reply text.
 func (a *Agent) waitBackground(ctx context.Context) error {
 	err := a.hold(ctx, true)
 	switch {
+	case errors.Is(err, errBackgroundIdle):
+		return a.addNote(ctx, fmt.Sprintf("The agent had no activity for %s while a background task ran. Mobius ends the wait for the background tasks.", backgroundTimeout))
 	case errors.Is(err, errStopped):
 		a.takeStop()
 		return nil
@@ -131,14 +141,18 @@ func (a *Agent) hold(ctx context.Context, background bool) error {
 		if hung {
 			a.autonomous = false
 		}
-		if hung || waiting && idle {
+		abandoned := waiting && time.Since(last) >= backgroundTimeout
+		if hung || abandoned {
 			a.background = 0
 		}
-		busy := a.autonomous || waiting && !idle
+		busy := a.autonomous || waiting && !abandoned
 		a.mu.Unlock()
 		if hung {
 			_ = a.cancel(ctx)
 			return errHung
+		}
+		if abandoned {
+			return errBackgroundIdle
 		}
 		if !busy {
 			return nil

@@ -318,8 +318,16 @@ func TestTheEndOfABackgroundCommandDoesNotEndTheWaitForABackgroundAgent(t *testi
 	}
 }
 
-func TestOneEndOfTwoBackgroundAgentsEndsTheWaitAfterTheHangTimeWithNoError(t *testing.T) {
-	shortHang(t)
+// shortBackground makes the time that Mobius waits for idle background tasks short for the test.
+func shortBackground(t *testing.T) {
+	t.Helper()
+	before := *engine.BackgroundTimeout
+	*engine.BackgroundTimeout = 600 * time.Millisecond
+	t.Cleanup(func() { *engine.BackgroundTimeout = before })
+}
+
+func TestOneEndOfTwoBackgroundAgentsEndsTheWaitAfterTheBackgroundTimeWithANote(t *testing.T) {
+	shortBackground(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"One\"]\n")
 	agent := start(t, server, leadSpec(t))
@@ -327,6 +335,34 @@ func TestOneEndOfTwoBackgroundAgentsEndsTheWaitAfterTheHangTimeWithNoError(t *te
 		agent.Update(fmt.Appendf(nil, agentUpdate, update))
 	}
 
+	if err := agent.WaitBackground(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if reply := agent.ReplyText(); reply != "The final report." {
+		t.Errorf("reply = %q", reply)
+	}
+	if notes := noteTexts(t, server, agent.ID()); len(notes) != 1 || !strings.Contains(notes[0], "while a background task ran") {
+		t.Errorf("notes = %q", notes)
+	}
+}
+
+func TestABackgroundAgentThatEndsAfterTheHangTimeStillGivesTheFinalReport(t *testing.T) {
+	shortHang(t)
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, "[[prompts]]\nupdates = ['"+fmt.Sprintf(asyncAgentUpdate, "a1")+"']\nreply = [\"One helper still runs.\"]\n")
+	agent := start(t, server, leadSpec(t))
+	if err := agent.Prompt(t.Context(), "One", nil); err != nil {
+		t.Fatal(err)
+	}
+
+	waiting, stopWaiting := context.WithTimeout(t.Context(), 1200*time.Millisecond)
+	defer stopWaiting()
+	if err := agent.WaitBackground(waiting); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("WaitBackground = %v after the hang time while the background agent runs", err)
+	}
+
+	agent.Update(fmt.Appendf(nil, agentUpdate, finalReport))
+	agent.Update(fmt.Appendf(nil, agentUpdate, endUpdate))
 	if err := agent.WaitBackground(t.Context()); err != nil {
 		t.Fatal(err)
 	}

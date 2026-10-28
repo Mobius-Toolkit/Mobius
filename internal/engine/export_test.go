@@ -11,17 +11,18 @@ import (
 
 // The tests make these waits short.
 var (
-	ToolsTimeout   = &toolsTimeout
-	RestartDelays  = &restartDelays
-	RateLimitGrace = &rateLimitGrace
-	HangTimeout    = &hangTimeout
-	ErrHung        = errHung
-	AbsorbTimeout  = &absorbTimeout
-	LoadAverage    = &loadAverage
-	CheckGap       = &checkGap
-	LoadPoll       = &loadPoll
-	LoadWaitEvent  = &loadWaitEvent
-	Cores          = cores
+	ToolsTimeout      = &toolsTimeout
+	RestartDelays     = &restartDelays
+	RateLimitGrace    = &rateLimitGrace
+	HangTimeout       = &hangTimeout
+	BackgroundTimeout = &backgroundTimeout
+	ErrHung           = errHung
+	AbsorbTimeout     = &absorbTimeout
+	LoadAverage       = &loadAverage
+	CheckGap          = &checkGap
+	LoadPoll          = &loadPoll
+	LoadWaitEvent     = &loadWaitEvent
+	Cores             = cores
 )
 
 // SetClock makes the long waits read the time from clock.
