@@ -127,6 +127,7 @@ export function Outcome({ label, text }: { label: string; text: string }) {
 // The read-only dialog of a decided action has no Inbox item, so it gets an item that holds only the action.
 const detailsItem = (message: ChatMessage, action: PendingAction): InboxItem => ({
   action,
+  answer: "",
   dismissedAt: null,
   id: 0,
   issue: 0,
@@ -145,6 +146,7 @@ const detailsItem = (message: ChatMessage, action: PendingAction): InboxItem => 
   time: action.time,
   title: message.text,
   todo: null,
+  withdrawn: false,
   workstream: 0,
   workstreamRepository: "",
 });
