@@ -478,8 +478,10 @@ func TestABackgroundAgentOfASubagentDoesNotHoldTheWait(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"One\"]\n")
 	agent := start(t, server, leadSpec(t))
-	subAsync := strings.Replace(fmt.Sprintf(asyncAgentUpdate, "a1"), `"_meta": {"claudeCode": {`, `"_meta": {"claudeCode": {"parentToolUseId": "p1", `, 1)
-	for _, update := range []string{subAsync, finalReport, endUpdate} {
+	// The AIR filter of the adapter sends the mark only with the first update of the call.
+	subCall := `{"sessionUpdate": "tool_call", "toolCallId": "a1", "_meta": {"claudeCode": {"toolName": "Agent", "parentToolUseId": "p1"}}}`
+	peerEnd := strings.Replace(endUpdate, "task-notification", "peer", 1)
+	for _, update := range []string{subCall, fmt.Sprintf(asyncAgentUpdate, "a1"), finalReport, peerEnd} {
 		agent.Update(fmt.Appendf(nil, agentUpdate, update))
 	}
 

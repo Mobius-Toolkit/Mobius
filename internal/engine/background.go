@@ -71,7 +71,7 @@ func (a *Agent) track(notification map[string]any, kind string, late bool) {
 			a.autonomous = true
 		}
 		async := kind == "tool_call_update" && field(update, "_meta", "claudeCode", "toolResponse", "isAsync") == true
-		if id := stringField(update, "toolCallId"); async && field(update, "_meta", "claudeCode", "parentToolUseId") == nil {
+		if id := stringField(update, "toolCallId"); async && !a.calls[id].subagent {
 			if _, started := a.backgroundCalls[id]; !started {
 				if a.backgroundCalls == nil {
 					a.backgroundCalls = map[string]struct{}{}

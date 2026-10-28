@@ -136,6 +136,9 @@ type Agent struct {
 	// toolCallId values that have a skill_uses row.
 	copiedSkills []string
 	skillCalls   map[string]bool
+	// calls keep the tool name and the subagent mark of each tool call: the adapter sends them only in the first
+	// update that has them.
+	calls map[string]callMeta
 	// resetHint is the last _claude/rateLimit.resetsAt of a usage update of the session, or zero.
 	resetHint time.Time
 	// limited tells that a usage update of the turn of a prompt has the rate limit status "rejected" with no overage in
@@ -687,6 +690,32 @@ func (a *Agent) update(params json.RawMessage, late bool) {
 	}
 }
 
+// callMeta is the part of the metadata of a tool call that a later update of the call can lack.
+type callMeta struct {
+	toolName string
+	subagent bool
+}
+
+// rememberCall keeps the tool name and the subagent mark of a tool call update. The caller holds a.mu.
+func (a *Agent) rememberCall(notification map[string]any, kind string) {
+	if kind != "tool_call" && kind != "tool_call_update" {
+		return
+	}
+	update := notification["update"]
+	id := stringField(update, "toolCallId")
+	call := a.calls[id]
+	if name := stringField(update, "_meta", "claudeCode", "toolName"); name != "" {
+		call.toolName = name
+	}
+	if field(update, "_meta", "claudeCode", "parentToolUseId") != nil {
+		call.subagent = true
+	}
+	if a.calls == nil {
+		a.calls = map[string]callMeta{}
+	}
+	a.calls[id] = call
+}
+
 // record adds the update to the Transcript. A message chunk or a thought chunk that follows a chunk of the same kind
 // joins the row of that chunk.
 func (a *Agent) record(params json.RawMessage, late bool) error {
@@ -700,6 +729,7 @@ func (a *Agent) record(params json.RawMessage, late bool) error {
 	ctx := context.Background()
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	a.rememberCall(notification, kind)
 	a.track(notification, kind, late)
 	a.readUsage(notification, kind)
 	a.recordSkillUse(ctx, notification, kind)
