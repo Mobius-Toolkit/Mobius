@@ -895,6 +895,9 @@ func (e *Engine) createMaintenanceIssue(ctx context.Context, c caller, repositor
 	if c.agent.issues == maintenanceIssues {
 		return "", refuse("You created %d issues in this session. This is the maximum.", maintenanceIssues)
 	}
+	if slices.Contains(c.agent.issueTitles, input.Title) {
+		return "", refuse("You already created an issue with this title in this session. Do not call create_issue again for it.")
+	}
 	blockers := make([]issueAt, len(input.BlockedBy))
 	for i, number := range input.BlockedBy {
 		blockers[i] = issueAt{repository, number}
@@ -908,6 +911,7 @@ func (e *Engine) createMaintenanceIssue(ctx context.Context, c caller, repositor
 		return "", err
 	}
 	c.agent.issues++
+	c.agent.issueTitles = append(c.agent.issueTitles, input.Title)
 	return fmt.Sprintf("Created %s.", eventRef(c.agent.maintenance.repository.FullName, repository.FullName, int64(number))), nil
 }
 

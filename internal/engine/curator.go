@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -438,6 +439,9 @@ func (e *Engine) editMemory(ctx context.Context, c caller, _ github.Repository, 
 	if strings.TrimSpace(input.Reason) == "" {
 		return "", refuse("The reason is empty. Name the type of change and the evidence.")
 	}
+	if slices.Contains(c.agent.memoryEdits, input) {
+		return "", refuse("Mobius already saved this edit. Do not call edit_memory again for it.")
+	}
 	e.memoryMu.Lock()
 	defer e.memoryMu.Unlock()
 	text, err := e.readMemory(c.repository)
@@ -462,5 +466,6 @@ func (e *Engine) editMemory(ctx context.Context, c caller, _ github.Repository, 
 	if err := e.saveMemory(ctx, c.repository, "curator", input.Reason, text); err != nil {
 		return "", err
 	}
+	c.agent.memoryEdits = append(c.agent.memoryEdits, input)
 	return fmt.Sprintf("Saved the memory file. It has %d of %d lines.", countLines(text), maxMemoryLines), nil
 }

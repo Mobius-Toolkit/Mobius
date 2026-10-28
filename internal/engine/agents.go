@@ -84,6 +84,8 @@ type Agent struct {
 	// issues is the number of task issues that the Curator created. issuesMu holds the calls that create one.
 	issues   int
 	issuesMu sync.Mutex
+	// issueTitles are the titles of the task issues that the Curator created. issuesMu holds them.
+	issueTitles []string
 
 	// scratch is the directory of the session below scratch/, or "".
 	scratch string
@@ -154,6 +156,10 @@ type Agent struct {
 	reviewed bool
 	// failures are the report_failure calls that the Diagnoser saved.
 	failures []reportFailureInput
+	// memoryEdits are the edit_memory calls that the Curator saved.
+	memoryEdits []editMemoryInput
+	// questions are the questions of the Researchers that the Triager started.
+	questions []string
 	// jobURLs are the links of the failed jobs of the Diagnoser, one for each line.
 	jobURLs string
 	// items are the items of the batch of the Judge.

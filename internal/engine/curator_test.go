@@ -225,6 +225,22 @@ func TestAnEditMemoryCallAddsAVersionOfTheCuratorAndTheNextAgentGetsTheText(t *t
 	}
 }
 
+func TestAnEditMemoryCallRefusesTheSameEditAgainInTheSameSession(t *testing.T) {
+	t.Parallel()
+	server, dataDir := connect(t, testkit.NewFakeGitHub(t), curatorScript)
+
+	session := run(t, server, roleSpec(t, engine.CuratorRole), "Add the lesson", "Add the lesson")
+
+	data, err := os.ReadFile(filepath.Clean(filepath.Join(dataDir, "memory", shop+".md")))
+	if got := memoryVersions(t, server); err != nil || string(data) != lesson+"\n" || len(got) != 1 {
+		t.Errorf("file = %q, %v, versions = %v", data, err, got)
+	}
+	calls := mcpCalls(t, server, session)
+	if len(calls) != 2 || calls[1]["error"] != "Mobius already saved this edit. Do not call edit_memory again for it." {
+		t.Errorf("calls = %v", calls)
+	}
+}
+
 func TestAnEditMemoryCallRefusesAnOldTextThatDoesNotOccurOneTimeAndAResultOfMoreThan200Lines(t *testing.T) {
 	t.Parallel()
 	server, _ := connect(t, testkit.NewFakeGitHub(t), curatorScript)
