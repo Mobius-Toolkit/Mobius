@@ -32,6 +32,8 @@ import { countSamples, fakeMicrophone } from "./microphone.js";
 import { boardTasks, mergingTask, refusedTask, routeTasks, tasksRoute } from "./tasks.js";
 import {
   inboxRoute,
+  coordinatorActionItem,
+  coordinatorQuestion,
   leadActionItem,
   longTitle,
   longTitleItem,
@@ -72,6 +74,31 @@ async function screenshot(
   await session.send("Emulation.setTouchEmulationEnabled", { enabled: false });
   await session.detach();
 }
+
+const trayToggle = (page: Page, count: number, expanded: boolean) =>
+  page.getByRole("button", { name: `Waits for you (${count})`, expanded });
+
+// The desktop image and the phone image share the browser storage, so each step sets the choice before it opens the page.
+const setTray = (page: Page, choice: "collapsed" | "expanded") =>
+  page.evaluate((value) => localStorage.setItem("tray", value), choice);
+
+// The chat scrolls to its end by itself, and the end is the only stable scroll.
+const showChatEnd = (page: Page) =>
+  expect
+    .poll(() =>
+      page
+        .locator("[data-message]")
+        .last()
+        .evaluate((el) => {
+          const list = el.parentElement;
+          if (!list) {
+            return false;
+          }
+          list.scrollTop = list.scrollHeight;
+          return list.scrollHeight - list.scrollTop - list.clientHeight < 1;
+        }),
+    )
+    .toBe(true);
 
 // Sets the queue reason of the live Implementer session of #41.
 const setQueueReason = async (page: Page, reason: string) => {
@@ -316,19 +343,23 @@ test("screenshots", async ({ page }) => {
   );
   // The server gives one Inbox item to the chat of owner/shop#12. The route adds the stopped issues #41 and #42.
   await routeInboxItems(page, stoppedItems);
+  const trayRow = main
+    .getByRole("listitem")
+    .filter({ hasText: "Add plan model" })
+    .filter({ hasText: "The agent asked a question" });
   const chatReady = (device: string) => [
     ...frame(device, drain, {}, "3"),
     main.getByText("#42 and #45 wait for your decision."),
-    main
-      .getByRole("listitem")
-      .filter({ hasText: "Add plan model" })
-      .filter({ hasText: "The agent asked a question" }),
+    trayRow,
     main.getByRole("button", { name: "Answer" }).first(),
     page.getByRole("button", { name: "Autopilot: Off" }).filter({ visible: true }),
     ...(device === "desktop"
       ? [page.getByRole("complementary").getByText("#45 Pick the plan limits")]
       : []),
   ];
+  // A phone hides the tray while the message field has the focus.
+  const typingReady = (device: string) =>
+    chatReady(device).filter((locator) => device === "desktop" || locator !== trayRow);
   await screenshot(page, "chat", "/workstreams/owner/shop/12", chatReady);
   // The open menu and the open sheet hide the other elements from the accessibility tree, so the open step waits for them.
   await screenshot(
@@ -457,7 +488,7 @@ test("screenshots", async ({ page }) => {
     page,
     "chat-typing",
     "/workstreams/owner/shop/12",
-    (device) => [...chatReady(device), main.getByRole("button", { name: "Send", exact: true })],
+    (device) => [...typingReady(device), main.getByRole("button", { name: "Send", exact: true })],
     () => main.getByLabel("Message to the Lead").fill("Show the prices of the roses first."),
   );
   await main.getByLabel("Message to the Lead").fill("");
@@ -611,7 +642,7 @@ test("screenshots", async ({ page }) => {
     "chat-images",
     "/workstreams/owner/shop/12",
     (device) => [
-      ...chatReady(device),
+      ...typingReady(device),
       main.getByRole("img", { name: "Image 1" }),
       main.getByRole("img", { name: "Image 2" }),
     ],
@@ -676,23 +707,73 @@ test("screenshots", async ({ page }) => {
       await expect(
         main.getByRole("listitem").filter({ hasText: leadActionItem.title }),
       ).toBeVisible();
-      await expect
-        .poll(() =>
-          page
-            .locator("[data-message]")
-            .last()
-            .evaluate((el) => {
-              const list = el.parentElement;
-              if (!list) {
-                return false;
-              }
-              list.scrollTop = list.scrollHeight;
-              return list.scrollHeight - list.scrollTop - list.clientHeight < 1;
-            }),
-        )
-        .toBe(true);
+      await showChatEnd(page);
     },
   );
+  await page.unroute(inboxRoute);
+  await page.route(inboxRoute, (route) =>
+    route.fulfill({ json: { data: [longTitleItem, leadActionItem] } }),
+  );
+  await setTray(page, "collapsed");
+  await screenshot(
+    page,
+    "chat-waits-collapsed",
+    "/workstreams/owner/shop/12",
+    (device) => [...frame(device, drain, {}, "2"), trayToggle(page, 2, false)],
+    async () => {
+      await expect(trayToggle(page, 2, false)).toBeVisible();
+      await expect(page.getByRole("list", { name: "Pending actions" })).toBeHidden();
+      await showChatEnd(page);
+    },
+  );
+  await setTray(page, "expanded");
+  await screenshot(
+    page,
+    "chat-waits-typing",
+    "/workstreams/owner/shop/12",
+    (device) => [
+      ...frame(device, drain, {}, "2"),
+      page.getByLabel("Message to the Lead"),
+      ...(device === "desktop" ? [trayToggle(page, 2, true)] : []),
+    ],
+    async (device) => {
+      await showChatEnd(page);
+      await page.getByLabel("Message to the Lead").focus();
+      await expect(page.getByLabel("Message to the Lead")).toBeFocused();
+      await expect(trayToggle(page, 2, true)).toBeVisible({ visible: device === "desktop" });
+    },
+  );
+  await setTray(page, "expanded");
+  await page.unroute(inboxRoute);
+  await page.route(inboxRoute, (route) =>
+    route.fulfill({ json: { data: [coordinatorQuestion, coordinatorActionItem] } }),
+  );
+  await screenshot(
+    page,
+    "chat-coordinator-waits",
+    "/chat",
+    () => [
+      trayToggle(page, 2, true),
+      main.getByRole("listitem").filter({ hasText: coordinatorQuestion.title }),
+      main.getByRole("listitem").filter({ hasText: coordinatorActionItem.title }),
+    ],
+    async () => {
+      await expect(trayToggle(page, 2, true)).toBeVisible();
+      await showChatEnd(page);
+    },
+  );
+  await setTray(page, "collapsed");
+  await screenshot(
+    page,
+    "chat-coordinator-waits-collapsed",
+    "/chat",
+    () => trayToggle(page, 2, false),
+    async () => {
+      await expect(trayToggle(page, 2, false)).toBeVisible();
+      await showChatEnd(page);
+    },
+  );
+  await page.evaluate(() => localStorage.removeItem("tray"));
   await page.unroute(inboxRoute);
   await setQueueReason(page, "waits for a low load");
   await screenshot(

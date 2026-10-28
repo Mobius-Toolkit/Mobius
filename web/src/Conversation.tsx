@@ -711,7 +711,7 @@ export function Conversation({
   };
 
   return (
-    <section className="flex min-h-0 min-w-0 grow flex-col">
+    <section className="group/chat flex min-h-0 min-w-0 grow flex-col">
       <header className="hidden min-h-14 items-center gap-2 border-b px-4 py-2 md:flex">
         {head}
       </header>
