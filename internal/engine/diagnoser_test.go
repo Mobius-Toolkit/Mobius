@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
@@ -295,5 +296,27 @@ func TestAResumeRoundOfATaskThatTheCIStoppedAfterADiagnosisGetsTheSameDiagnosis(
 	inOrder(t, resumed, "Check run \"build\"", "Action: fix\n", diagnosis)
 	if n := len(diagnoserSessions(t, server)); n != 1 {
 		t.Errorf("Diagnosers = %d", n)
+	}
+}
+
+// Serial: the test changes backgroundCheckInterval.
+func TestADiagnoserThatReportsAFailureAgainAfterTheWaitPromptSavesOnePlace(t *testing.T) {
+	shortBackgroundCheck(t, 50*time.Millisecond)
+	fake := testkit.NewFakeGitHub(t)
+	report := `call = { tool = "report_failure", arguments = ` + planFailure + ` } }`
+	diagnoser := "[[prompts]]\nupdates = ['" + asyncAgentStart + "']\n" + report + "\n\n" +
+		"[[prompts]]\n" + report + "\n\n" +
+		"[[prompts]]\ncall = { tool = \"background_state\", arguments = { state = \"done\" } }\n\n"
+	server := connectDiagnoser(t, fake, leadStarts, diagnoser)
+	sha := approvalHead(t, server, fake)
+
+	failActions(fake, sha)
+
+	roundPrompt(t, server)
+	if n := rowCount(t, server, "SELECT count(*) FROM ci_failure_places WHERE head = '"+sha+"'"); n != 1 {
+		t.Errorf("places = %d", n)
+	}
+	if n := rowCount(t, server, "SELECT count(*) FROM ci_diagnoses WHERE reasons LIKE '%TestPlan%TestPlan%'"); n != 0 {
+		t.Errorf("diagnoses with a repeated reason = %d", n)
 	}
 }

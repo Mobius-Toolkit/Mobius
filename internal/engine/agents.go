@@ -152,6 +152,8 @@ type Agent struct {
 	reported bool
 	// reviewed tells that the Reviewer made a valid submit_review call.
 	reviewed bool
+	// failures are the report_failure calls that the Diagnoser saved.
+	failures []reportFailureInput
 	// jobURLs are the links of the failed jobs of the Diagnoser, one for each line.
 	jobURLs string
 	// items are the items of the batch of the Judge.
