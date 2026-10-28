@@ -3,6 +3,7 @@ package engine_test
 import (
 	"database/sql"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
@@ -23,8 +24,8 @@ func sameNumberTasks(t *testing.T, fake *testkit.FakeGitHub) *testserver.Server 
 	return server
 }
 
-// stopWorker makes the Worker of the task of the issue number of repository fail with no restart left.
-func stopWorker(t *testing.T, server *testserver.Server, repository string, number int64) {
+// stopWorker makes the Worker of the task of the issue number of repository fail with cause and no restart left.
+func stopWorker(t *testing.T, server *testserver.Server, repository string, number int64, cause string) {
 	t.Helper()
 	if _, err := server.DB.Exec("UPDATE tasks SET state = 'working', worker = NULL, worker_restarts = 3 WHERE repository = ? AND issue = ?", repository, number); err != nil {
 		t.Fatal(err)
@@ -33,7 +34,7 @@ func stopWorker(t *testing.T, server *testserver.Server, repository string, numb
 	if repository == shop {
 		task = liveTask(t, server, number)
 	}
-	if restart, _ := server.Engine.RestartWorker(t.Context(), task, "Water the plants", errors.New("the Worker died")); restart {
+	if restart, _ := server.Engine.RestartWorker(t.Context(), task, "Water the plants", errors.New(cause)); restart {
 		t.Fatal("the Worker restarted")
 	}
 }
@@ -86,15 +87,16 @@ func TestAStopOfATaskGivesItsReasonOnlyToThatTaskAndNotToATaskOfAnotherRepositor
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := sameNumberTasks(t, fake)
-	fake.AddLabel(garden, 7, "mobius:needs-human", "owner")
 
-	stopWorker(t, server, shop, 7)
+	stopWorker(t, server, shop, 7, "the shop Worker died")
+	stopWorker(t, server, garden, 7, "the garden Worker died")
 
-	testkit.WaitFor(t, func() bool {
-		reasons := stopReasons(t, server)
-		return len(reasons) == 2 && reasons["https://github.com/owner/shop/issues/7"] != ""
-	})
-	if reasons := stopReasons(t, server); reasons["https://github.com/owner/garden/issues/7"] != "" {
+	testkit.WaitFor(t, func() bool { return len(stopReasons(t, server)) == 2 })
+	reasons := stopReasons(t, server)
+	if reason := reasons["https://github.com/owner/shop/issues/7"]; !strings.Contains(reason, "the shop Worker died") || strings.Contains(reason, "the garden Worker died") {
+		t.Errorf("reasons = %v", reasons)
+	}
+	if reason := reasons["https://github.com/owner/garden/issues/7"]; !strings.Contains(reason, "the garden Worker died") || strings.Contains(reason, "the shop Worker died") {
 		t.Errorf("reasons = %v", reasons)
 	}
 }
@@ -104,8 +106,8 @@ func TestAStopOfATaskAddsOneStopEventAlsoWhenATaskOfAnotherRepositoryWithTheSame
 	fake := testkit.NewFakeGitHub(t)
 	server := sameNumberTasks(t, fake)
 
-	stopWorker(t, server, shop, 7)
-	stopWorker(t, server, garden, 7)
+	stopWorker(t, server, shop, 7, "the Worker died")
+	stopWorker(t, server, garden, 7, "the Worker died")
 
 	testkit.WaitFor(t, func() bool { return countLeadEvents(t, server, "stop") == 2 })
 	waitForPolls(t, fake)
