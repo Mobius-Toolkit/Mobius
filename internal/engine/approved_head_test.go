@@ -111,13 +111,46 @@ func TestTheEventAfterAMergeOfAChangeOfAFileOfThePullRequestNamesTheMergeAndTheF
 	for _, want := range []string{
 		fmt.Sprintf("- %.8s Merge main (merge of main)\n", merge),
 		"The change of the pull request can differ from the approved head:",
-		fmt.Sprintf("\n- %.8s merged a change of plan.txt, so it can hold a conflict resolution", merge),
+		fmt.Sprintf("\n- %.8s is a clean merge", merge),
 	} {
 		if !strings.Contains(event, want) {
 			t.Errorf("event = %q, want %q", event, want)
 		}
 	}
 	if strings.Contains(event, "is the same as at the approved head") {
+		t.Errorf("event = %q", event)
+	}
+}
+
+func TestTheEventAfterAMergeWithAHandChangeOfAFileOfThePullRequestNamesTheFile(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := approvablePlan(t, fake)
+	approved := head(t, fake, "mobius/41")
+	fake.CommitFile(shop, "plan.txt", fmt.Sprintf(planLines, "TOP"), "Change the plan heading")
+	fake.HoldBranchUpdates()
+
+	sendChat(t, server, leadChat, "Approve #41")
+
+	testkit.WaitFor(t, func() bool { return fake.UpdateBranchCalls() == 1 })
+	work := t.TempDir()
+	testkit.Git(t, work, "clone", "--branch=mobius/41", fake.Remote(shop), ".")
+	testkit.Git(t, work, "merge", "--no-commit", "--no-ff", "origin/main")
+	if err := os.WriteFile(filepath.Join(work, "plan.txt"), []byte(fmt.Sprintf(planLines, "HAND")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	testkit.Git(t, work, "add", "plan.txt")
+	testkit.Git(t, work, "commit", "-m", "Merge main by hand")
+	testkit.Git(t, work, "push", "origin", "mobius/41")
+	merge := testkit.Git(t, work, "rev-parse", "HEAD")
+	fake.ReleaseBranchUpdates()
+
+	event := eventAfterApproval(t, server, approved)
+	want := fmt.Sprintf("\n- %.8s holds a hand resolution in plan.txt", merge)
+	if !strings.Contains(event, want) {
+		t.Errorf("event = %q, want %q", event, want)
+	}
+	if strings.Contains(event, "is a clean merge") {
 		t.Errorf("event = %q", event)
 	}
 }

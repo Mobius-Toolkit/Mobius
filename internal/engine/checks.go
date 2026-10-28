@@ -199,7 +199,7 @@ func (e *Engine) onChecks(ctx context.Context, repository github.Repository, tas
 	if err != nil {
 		return err
 	}
-	approvedHead, err := approvedHeadText(ctx, repository, task, pullRequest)
+	approvedHead, err := e.approvedHeadText(ctx, repository, task, pullRequest)
 	if err != nil {
 		return err
 	}
