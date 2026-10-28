@@ -356,3 +356,42 @@ test("an open panel keeps its text while the tray collapses behind it, and the r
   await expect(panel(page)).toHaveCount(0);
   await expect(trayRows(page)).toHaveCount(1);
 });
+
+test("on a touch device the tray hides while the message field has the focus, and the stored choice stays", async ({
+  page,
+}) => {
+  await routeLists(page, () => [question, otherQuestion]);
+  const session = await page.context().newCDPSession(page);
+  await session.send("Emulation.setTouchEmulationEnabled", { enabled: true });
+  await page.goto(leadChat);
+  const field = page.getByLabel("Message to the Lead");
+  await expect(toggle(page, 2)).toBeVisible();
+  await expect(trayRows(page)).toHaveCount(2);
+
+  await field.focus();
+
+  await expect(toggle(page, 2)).toBeHidden();
+  await expect(trayRows(page)).toHaveCount(2);
+  expect(await page.evaluate(() => localStorage.getItem("tray"))).toBeNull();
+
+  await field.blur();
+
+  await expect(toggle(page, 2)).toBeVisible();
+  await expect(trayList(page)).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem("tray"))).toBeNull();
+  await session.send("Emulation.setTouchEmulationEnabled", { enabled: false });
+});
+
+test("with a fine pointer the tray stays visible while the message field has the focus", async ({
+  page,
+}) => {
+  await routeLists(page, () => [question, otherQuestion]);
+  await page.goto(leadChat);
+  await expect(toggle(page, 2)).toBeVisible();
+
+  await page.getByLabel("Message to the Lead").focus();
+
+  await expect(page.getByLabel("Message to the Lead")).toBeFocused();
+  await expect(toggle(page, 2)).toBeVisible();
+  await expect(trayList(page)).toBeVisible();
+});

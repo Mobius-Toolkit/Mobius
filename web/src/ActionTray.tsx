@@ -43,7 +43,7 @@ export function ActionTray({
         setCollapsed(!open);
         saveCollapsed(!open);
       }}
-      className="grid grid-cols-1 gap-1 border-t py-2 md:px-4"
+      className="grid grid-cols-1 gap-1 border-t py-2 group-has-[textarea:focus]/chat:pointer-coarse:hidden md:px-4"
     >
       <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
         <CollapsibleTrigger className="group flex w-full items-center gap-1 px-4 text-left uppercase md:px-0">

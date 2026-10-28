@@ -343,19 +343,23 @@ test("screenshots", async ({ page }) => {
   );
   // The server gives one Inbox item to the chat of owner/shop#12. The route adds the stopped issues #41 and #42.
   await routeInboxItems(page, stoppedItems);
+  const trayRow = main
+    .getByRole("listitem")
+    .filter({ hasText: "Add plan model" })
+    .filter({ hasText: "The agent asked a question" });
   const chatReady = (device: string) => [
     ...frame(device, drain, {}, "3"),
     main.getByText("#42 and #45 wait for your decision."),
-    main
-      .getByRole("listitem")
-      .filter({ hasText: "Add plan model" })
-      .filter({ hasText: "The agent asked a question" }),
+    trayRow,
     main.getByRole("button", { name: "Answer" }).first(),
     page.getByRole("button", { name: "Autopilot: Off" }).filter({ visible: true }),
     ...(device === "desktop"
       ? [page.getByRole("complementary").getByText("#45 Pick the plan limits")]
       : []),
   ];
+  // A phone hides the tray while the message field has the focus.
+  const typingReady = (device: string) =>
+    chatReady(device).filter((locator) => device === "desktop" || locator !== trayRow);
   await screenshot(page, "chat", "/workstreams/owner/shop/12", chatReady);
   // The open menu and the open sheet hide the other elements from the accessibility tree, so the open step waits for them.
   await screenshot(
@@ -484,7 +488,7 @@ test("screenshots", async ({ page }) => {
     page,
     "chat-typing",
     "/workstreams/owner/shop/12",
-    (device) => [...chatReady(device), main.getByRole("button", { name: "Send", exact: true })],
+    (device) => [...typingReady(device), main.getByRole("button", { name: "Send", exact: true })],
     () => main.getByLabel("Message to the Lead").fill("Show the prices of the roses first."),
   );
   await main.getByLabel("Message to the Lead").fill("");
@@ -638,7 +642,7 @@ test("screenshots", async ({ page }) => {
     "chat-images",
     "/workstreams/owner/shop/12",
     (device) => [
-      ...chatReady(device),
+      ...typingReady(device),
       main.getByRole("img", { name: "Image 1" }),
       main.getByRole("img", { name: "Image 2" }),
     ],
@@ -720,6 +724,23 @@ test("screenshots", async ({ page }) => {
       await expect(trayToggle(page, 2, false)).toBeVisible();
       await expect(page.getByRole("list", { name: "Pending actions" })).toBeHidden();
       await showChatEnd(page);
+    },
+  );
+  await setTray(page, "expanded");
+  await screenshot(
+    page,
+    "chat-waits-typing",
+    "/workstreams/owner/shop/12",
+    (device) => [
+      ...frame(device, drain, {}, "2"),
+      page.getByLabel("Message to the Lead"),
+      ...(device === "desktop" ? [trayToggle(page, 2, true)] : []),
+    ],
+    async (device) => {
+      await showChatEnd(page);
+      await page.getByLabel("Message to the Lead").focus();
+      await expect(page.getByLabel("Message to the Lead")).toBeFocused();
+      await expect(trayToggle(page, 2, true)).toBeVisible({ visible: device === "desktop" });
     },
   );
   await setTray(page, "expanded");
