@@ -346,7 +346,7 @@ export interface PendingAction {
 }
 
 /**
- * Author is Owner, Lead, Coordinator, tell_owner for a message of the Lead to the Owner, Mobius for a message of Mobius, Event for a Lead event, which the chat shows as a muted entry, Action for the card of a pending action, or Record for the line about an action of the Owner
+ * Author is Owner, Lead, Coordinator, tell_owner for a message of the Lead to the Owner, Mobius for a message of Mobius, Event for a Lead event, which the chat shows as a muted entry, Action for the card of a pending action, or Record for the line about an action of the Owner, or Question for the card of a question
  */
 export type ChatMessageAuthor = typeof ChatMessageAuthor[keyof typeof ChatMessageAuthor];
 
@@ -360,6 +360,7 @@ export const ChatMessageAuthor = {
   Event: 'Event',
   Action: 'Action',
   Record: 'Record',
+  Question: 'Question',
 } as const;
 
 /**
@@ -377,12 +378,126 @@ export interface ChatInboxItem {
 }
 
 /**
+ * Kind tells what the item is about: question for a question of the Lead on an issue, Lead failed for a message that the Lead did not take, ready for review for a pull request of a task, stopped for a task that a person must continue (a stale pull request or a session that Mobius stopped after its hangs), lost for a task that Mobius lost, and full disk for a local check that waits for free disk space, and approval for a tool call of an agent that waits for the approval of the Owner, and todo for a deployment need of a pull request
+ */
+export type InboxItemKind = typeof InboxItemKind[keyof typeof InboxItemKind];
+
+
+export const InboxItemKind = {
+  question: 'question',
+  Lead_failed: 'Lead failed',
+  ready_for_review: 'ready for review',
+  stopped: 'stopped',
+  lost: 'lost',
+  full_disk: 'full disk',
+  approval: 'approval',
+  todo: 'todo',
+} as const;
+
+/**
+ * QuestionOption is an option of a Question.
+ */
+export interface QuestionOption {
+  /** Details is the explanation of the option, or empty */
+  details: string;
+  /** Title is the short answer */
+  title: string;
+}
+
+/**
+ * Question is a question of the Lead with its options.
+ */
+export interface Question {
+  /** Multiple is true when the Owner can select more than one option */
+  multiple: boolean;
+  /** Options are the options of the question */
+  options: QuestionOption[];
+  /** Text is the question */
+  text: string;
+}
+
+/**
+ * Todo is the deployment need of a todo Inbox item.
+ */
+export interface Todo {
+  /** Kind is the kind of the need: env_var, config, secret or manual_step */
+  kind: string;
+  /** Line is the line of the file that adds the need */
+  line: number;
+  /** Mandatory is true when the deployment fails or the application does not start without it */
+  mandatory: boolean;
+  /** Name is the name of the need, for example the name of the env var */
+  name: string;
+  /** Note is the note of the Owner when the todo is done, or empty */
+  note: string;
+  /** Path is the file that adds the need */
+  path: string;
+  /** Reason tells why the deployment needs it */
+  reason: string;
+}
+
+/**
+ * InboxItem is an item of the Inbox of the Owner.
+ */
+export interface InboxItem {
+  /** Action is the action of an approval item, or null for another item */
+  action: PendingAction | null;
+  /** Answer is the answer of the Owner to a question item, or empty */
+  answer: string;
+  /**
+     * DismissedAt is the time when the Owner dismissed the item, or null
+     * @nullable
+     */
+  dismissedAt: string | null;
+  /** ID increases with each new item */
+  id: number;
+  /** Issue is the number of the issue of the item */
+  issue: number;
+  /** Kind tells what the item is about: question for a question of the Lead on an issue, Lead failed for a message that the Lead did not take, ready for review for a pull request of a task, stopped for a task that a person must continue (a stale pull request or a session that Mobius stopped after its hangs), lost for a task that Mobius lost, and full disk for a local check that waits for free disk space, and approval for a tool call of an agent that waits for the approval of the Owner, and todo for a deployment need of a pull request */
+  kind: InboxItemKind;
+  /** Link is the GitHub URL of the issue, or empty */
+  link: string;
+  /** MergeRefusal is the reason of the last refusal of GitHub to merge the pull request, or empty */
+  mergeRefusal: string;
+  /** Merging is true after the Owner sent the approval of the pull request, until GitHub refuses the merge */
+  merging: boolean;
+  /** Organization is the owner of the repository */
+  organization: string;
+  /** PullRequest is the number of the pull request of the item, or 0 */
+  pullRequest: number;
+  /** PullRequestURL is the GitHub URL of the pull request, or empty */
+  pullRequestUrl: string;
+  /** Questions are the questions with options of a question item, or an empty list */
+  questions: Question[];
+  /** Reason is the short reason of the item */
+  reason: string;
+  /** ReportURL is the GitHub URL of the approval report, or empty */
+  reportUrl: string;
+  /** Repository is the repository as "owner/name" */
+  repository: string;
+  /** Text is the full text of the item */
+  text: string;
+  /** Time is the time of the item */
+  time: string;
+  /** Title is the title of the issue, or empty */
+  title: string;
+  /** Todo is the deployment need of a todo item, or null for another item */
+  todo: Todo | null;
+  /** Withdrawn is true when the agent withdrew the question item */
+  withdrawn: boolean;
+  /** Workstream is the number of the Workstream issue, or 0 for an issue with no Workstream */
+  workstream: number;
+  /** WorkstreamRepository is the repository of the Workstream issue as "owner/name". It differs from Repository for a task whose Workstream is in another repository */
+  workstreamRepository: string;
+}
+
+/**
  * ChatMessage is a message of a Lead chat or of the Coordinator chat.
  */
 export interface ChatMessage {
   /** Action is the action of a card, or null for another message */
   action: PendingAction | null;
-  /** Author is Owner, Lead, Coordinator, tell_owner for a message of the Lead to the Owner, Mobius for a message of Mobius, Event for a Lead event, which the chat shows as a muted entry, Action for the card of a pending action, or Record for the line about an action of the Owner */
+  /** Author is Owner, Lead, Coordinator, tell_owner for a message of the Lead to the Owner, Mobius for a message of Mobius, Event for a Lead event, which the chat shows as a muted entry, Action for the card of a pending action, or Record for the line about an action of the Owner, or Question for the card of a question */
   author: ChatMessageAuthor;
   /** BrowserID is the id that the browser gave to the message of the Owner. It is empty for another message */
   browserId: string;
@@ -399,6 +514,8 @@ export interface ChatMessage {
   inboxItems: ChatInboxItem[];
   /** Organization is the owner of the repository, or the organization of the Coordinator chat */
   organization: string;
+  /** Question is the question item of a card, or null for another message */
+  question: InboxItem | null;
   /** Repository is the repository of the Workstream as "owner/name". It is empty for the Coordinator chat */
   repository: string;
   /**
@@ -725,116 +842,6 @@ export interface GitHubApp {
 export interface EnvelopeArrayGitHubApp {
   /** Data is the payload of the response */
   data: GitHubApp[];
-}
-
-/**
- * Kind tells what the item is about: question for a question of the Lead on an issue, Lead failed for a message that the Lead did not take, ready for review for a pull request of a task, stopped for a task that a person must continue (a stale pull request or a session that Mobius stopped after its hangs), lost for a task that Mobius lost, and full disk for a local check that waits for free disk space, and approval for a tool call of an agent that waits for the approval of the Owner, and todo for a deployment need of a pull request
- */
-export type InboxItemKind = typeof InboxItemKind[keyof typeof InboxItemKind];
-
-
-export const InboxItemKind = {
-  question: 'question',
-  Lead_failed: 'Lead failed',
-  ready_for_review: 'ready for review',
-  stopped: 'stopped',
-  lost: 'lost',
-  full_disk: 'full disk',
-  approval: 'approval',
-  todo: 'todo',
-} as const;
-
-/**
- * QuestionOption is an option of a Question.
- */
-export interface QuestionOption {
-  /** Details is the explanation of the option, or empty */
-  details: string;
-  /** Title is the short answer */
-  title: string;
-}
-
-/**
- * Question is a question of the Lead with its options.
- */
-export interface Question {
-  /** Multiple is true when the Owner can select more than one option */
-  multiple: boolean;
-  /** Options are the options of the question */
-  options: QuestionOption[];
-  /** Text is the question */
-  text: string;
-}
-
-/**
- * Todo is the deployment need of a todo Inbox item.
- */
-export interface Todo {
-  /** Kind is the kind of the need: env_var, config, secret or manual_step */
-  kind: string;
-  /** Line is the line of the file that adds the need */
-  line: number;
-  /** Mandatory is true when the deployment fails or the application does not start without it */
-  mandatory: boolean;
-  /** Name is the name of the need, for example the name of the env var */
-  name: string;
-  /** Note is the note of the Owner when the todo is done, or empty */
-  note: string;
-  /** Path is the file that adds the need */
-  path: string;
-  /** Reason tells why the deployment needs it */
-  reason: string;
-}
-
-/**
- * InboxItem is an item of the Inbox of the Owner.
- */
-export interface InboxItem {
-  /** Action is the action of an approval item, or null for another item */
-  action: PendingAction | null;
-  /**
-     * DismissedAt is the time when the Owner dismissed the item, or null
-     * @nullable
-     */
-  dismissedAt: string | null;
-  /** ID increases with each new item */
-  id: number;
-  /** Issue is the number of the issue of the item */
-  issue: number;
-  /** Kind tells what the item is about: question for a question of the Lead on an issue, Lead failed for a message that the Lead did not take, ready for review for a pull request of a task, stopped for a task that a person must continue (a stale pull request or a session that Mobius stopped after its hangs), lost for a task that Mobius lost, and full disk for a local check that waits for free disk space, and approval for a tool call of an agent that waits for the approval of the Owner, and todo for a deployment need of a pull request */
-  kind: InboxItemKind;
-  /** Link is the GitHub URL of the issue, or empty */
-  link: string;
-  /** MergeRefusal is the reason of the last refusal of GitHub to merge the pull request, or empty */
-  mergeRefusal: string;
-  /** Merging is true after the Owner sent the approval of the pull request, until GitHub refuses the merge */
-  merging: boolean;
-  /** Organization is the owner of the repository */
-  organization: string;
-  /** PullRequest is the number of the pull request of the item, or 0 */
-  pullRequest: number;
-  /** PullRequestURL is the GitHub URL of the pull request, or empty */
-  pullRequestUrl: string;
-  /** Questions are the questions with options of a question item, or an empty list */
-  questions: Question[];
-  /** Reason is the short reason of the item */
-  reason: string;
-  /** ReportURL is the GitHub URL of the approval report, or empty */
-  reportUrl: string;
-  /** Repository is the repository as "owner/name" */
-  repository: string;
-  /** Text is the full text of the item */
-  text: string;
-  /** Time is the time of the item */
-  time: string;
-  /** Title is the title of the issue, or empty */
-  title: string;
-  /** Todo is the deployment need of a todo item, or null for another item */
-  todo: Todo | null;
-  /** Workstream is the number of the Workstream issue, or 0 for an issue with no Workstream */
-  workstream: number;
-  /** WorkstreamRepository is the repository of the Workstream issue as "owner/name". It differs from Repository for a task whose Workstream is in another repository */
-  workstreamRepository: string;
 }
 
 /**
@@ -1683,6 +1690,10 @@ export type LiveEvents = {
 } | {
   data: PendingAction;
   event: 'action';
+  id?: string;
+} | {
+  data: InboxItem;
+  event: 'question';
   id?: string;
 } | {
   /** Array of Pause */

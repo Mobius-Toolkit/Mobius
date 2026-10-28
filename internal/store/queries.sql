@@ -248,6 +248,15 @@ SELECT * FROM chat_messages WHERE id = ?;
 UPDATE inbox_items SET dismissed_at = ? WHERE id = ?
 RETURNING *;
 
+-- name: SetInboxItemAnswer :exec
+UPDATE inbox_items SET answer = ? WHERE id = ?;
+
+-- name: SetInboxItemWithdrawn :exec
+UPDATE inbox_items SET withdrawn = 1 WHERE id = ?;
+
+-- name: GetQuestionByChatMessage :one
+SELECT * FROM inbox_items WHERE chat_message = ? AND kind = 'question';
+
 -- name: ReopenInboxItem :one
 UPDATE inbox_items SET dismissed_at = NULL WHERE id = ?
 RETURNING *;

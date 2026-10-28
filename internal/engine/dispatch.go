@@ -241,6 +241,9 @@ func (e *Engine) commentEvents(ctx context.Context, repository github.Repository
 		return err
 	}
 	if answered && hasLabel(issue, questionLabel) {
+		if err := e.answerQuestions(ctx, repository.FullName, number, replies); err != nil {
+			return err
+		}
 		if err := repository.RemoveLabel(ctx, number, questionLabel); err != nil {
 			return err
 		}
@@ -299,6 +302,34 @@ func (e *Engine) answerAsked(ctx context.Context, repository github.Repository, 
 		return err
 	}
 	return e.dispatchAnswer(ctx, repository, issue, task)
+}
+
+// answerQuestions stores the bodies of the comments that are newer than the question, with no role mark and separated
+// by a blank line, as the answer of each open question item of the issue.
+func (e *Engine) answerQuestions(ctx context.Context, repository string, number int64, replies []*gh.IssueComment) error {
+	items, err := e.openIssueItems(ctx, repository, number, questionKind)
+	if err != nil {
+		return err
+	}
+	for _, item := range items {
+		asked, err := time.Parse(time.RFC3339Nano, item.Time)
+		if err != nil {
+			return err
+		}
+		var answers []string
+		for _, reply := range replies {
+			if reply.GetCreatedAt().After(asked) {
+				answers = append(answers, runner.WithoutMark(reply.GetBody()))
+			}
+		}
+		if len(answers) == 0 {
+			continue
+		}
+		if err := e.queries.SetInboxItemAnswer(ctx, store.SetInboxItemAnswerParams{Answer: strings.Join(answers, "\n\n"), ID: item.ID}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // chatAnswerPrefix starts the comment that closeQuestionTool posts. It is the answer of the Owner, not a question.
@@ -410,6 +441,9 @@ func (e *Engine) workstreamCommentEvents(ctx context.Context, repository github.
 		return err
 	}
 	if answered && workstream == number && hasLabel(issue, questionLabel) {
+		if err := e.answerQuestions(ctx, repository.FullName, number, events); err != nil {
+			return err
+		}
 		if err := repository.RemoveLabel(ctx, number, questionLabel); err != nil {
 			return err
 		}
@@ -689,7 +723,7 @@ func (e *Engine) ask(ctx context.Context, c caller, repository github.Repository
 			return "", err
 		}
 	}
-	err = e.addInboxItem(ctx, store.AddInboxItemParams{
+	_, err = e.addQuestion(ctx, store.AddInboxItemParams{
 		Kind:                 questionKind,
 		Organization:         repository.Owner(),
 		Repository:           repository.FullName,
@@ -794,8 +828,9 @@ func questionsJSON(questions []Question) (string, error) {
 // removes mobius:question, and dismisses the open question items of the issue. An issue whose task is in needs_human
 // gets its stopped item back. mobius:question stays until the task continues, so a failed call can run again. A call
 // posts no comment when the newest comment of the Mobius App already has text.
-// task is the zero value for the Workstream issue.
-func (e *Engine) closeQuestion(ctx context.Context, repository github.Repository, issue *gh.Issue, task store.Task, text string) error {
+// task is the zero value for the Workstream issue. answer is the answer of the Owner that each dismissed question item
+// keeps, or empty.
+func (e *Engine) closeQuestion(ctx context.Context, repository github.Repository, issue *gh.Issue, task store.Task, text, answer string) error {
 	number := int64(issue.GetNumber())
 	comments, err := repository.Comments(ctx, number)
 	if err != nil {
@@ -817,20 +852,28 @@ func (e *Engine) closeQuestion(ctx context.Context, repository github.Repository
 			return err
 		}
 	}
+	if answer != "" {
+		items, err := e.openIssueItems(ctx, repository.FullName, number, questionKind)
+		if err != nil {
+			return err
+		}
+		for _, item := range items {
+			if err := e.queries.SetInboxItemAnswer(ctx, store.SetInboxItemAnswerParams{Answer: answer, ID: item.ID}); err != nil {
+				return err
+			}
+		}
+	}
 	if err := repository.RemoveLabel(ctx, number, questionLabel); err != nil {
 		return err
 	}
 	if err := e.changeCopiedLabels(ctx, repository.FullName, number, nil, []string{questionLabel}); err != nil {
 		return err
 	}
-	items, err := e.Inbox(ctx)
+	items, err := e.openIssueItems(ctx, repository.FullName, number, questionKind)
 	if err != nil {
 		return err
 	}
 	for _, item := range items {
-		if item.Repository != repository.FullName || item.Issue != number || item.Kind != questionKind {
-			continue
-		}
 		if err := e.reopenStoppedItem(ctx, item); err != nil {
 			return err
 		}
@@ -868,7 +911,7 @@ func (e *Engine) closeQuestionTool(ctx context.Context, c caller, repository git
 	if err != nil {
 		return "", err
 	}
-	if err := e.closeQuestion(ctx, repository, issue, task, text); err != nil {
+	if err := e.closeQuestion(ctx, repository, issue, task, text, input.Answer); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("Closed the question on #%d.", input.N), nil

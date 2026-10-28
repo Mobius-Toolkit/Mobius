@@ -2,7 +2,9 @@ package api
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"slices"
 	"strings"
@@ -29,8 +31,8 @@ type ChatMessage struct {
 	Workstream int64 `gork:"workstream"`
 	// Author is Owner, Lead, Coordinator, tell_owner for a message of the Lead to the Owner, Mobius for a message of
 	// Mobius, Event for a Lead event, which the chat shows as a muted entry, Action for the card of a pending action, or
-	// Record for the line about an action of the Owner
-	Author string `gork:"author" validate:"oneof=Owner Lead tell_owner Coordinator Mobius Event Action Record"`
+	// Record for the line about an action of the Owner, or Question for the card of a question
+	Author string `gork:"author" validate:"oneof=Owner Lead tell_owner Coordinator Mobius Event Action Record Question"`
 	// Time is the time of the message
 	Time time.Time `gork:"time"`
 	// Text is the text of the message
@@ -49,6 +51,8 @@ type ChatMessage struct {
 	StoppedAt *time.Time `gork:"stoppedAt"`
 	// Action is the action of a card, or null for another message
 	Action *PendingAction `gork:"action"`
+	// Question is the question item of a card, or null for another message
+	Question *InboxItem `gork:"question"`
 }
 
 // ChatInboxItem is an Inbox item that the Owner sends with a chat message.
@@ -319,5 +323,23 @@ func (h *handlers) chatMessageOf(ctx context.Context, message store.ChatMessage)
 			return ChatMessage{}, err
 		}
 	}
+	if message.Author == "Question" {
+		if found.Question, err = h.questionOfMessage(ctx, message); err != nil {
+			return ChatMessage{}, err
+		}
+	}
 	return found, err
+}
+
+// questionOfMessage gives the question item of a card, or nil when the call stopped before it linked the item.
+func (h *handlers) questionOfMessage(ctx context.Context, message store.ChatMessage) (*InboxItem, error) {
+	item, err := h.queries.GetQuestionByChatMessage(ctx, sql.NullInt64{Int64: message.ID, Valid: true})
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	found, err := h.inboxItemOf(ctx, item)
+	return &found, err
 }

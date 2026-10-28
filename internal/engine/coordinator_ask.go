@@ -35,19 +35,17 @@ func (e *Engine) coordinatorAsk(ctx context.Context, c caller, _ github.Reposito
 		title = strings.TrimSpace(input.Questions[0].Text)
 	}
 	title, _, _ = strings.Cut(title, "\n")
-	item, err := e.queries.AddInboxItem(ctx, store.AddInboxItemParams{
+	item, err := e.addQuestion(ctx, store.AddInboxItemParams{
 		Kind:         questionKind,
 		Organization: c.organization,
 		Title:        title,
 		Reason:       "The Coordinator asks a question",
 		Text:         input.Text,
 		Questions:    questions,
-		Time:         now(),
 	})
 	if err != nil {
 		return "", err
 	}
-	e.publish(Change{Inbox: &item})
 	return fmt.Sprintf("The question waits for the Owner. Its ID is %d. The answer arrives later as a chat message.", item.ID), nil
 }
 
