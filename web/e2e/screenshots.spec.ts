@@ -1949,6 +1949,7 @@ test("screenshots", async ({ page }) => {
       panel.getByRole("button", { name: "Reject" }),
     ],
     async () => {
+      await showEnd(leadToLeadTitle)();
       await row(leadToLeadTitle).getByRole("button", { name: "Answer" }).click();
     },
     () => page.keyboard.press("Escape"),
