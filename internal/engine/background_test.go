@@ -321,6 +321,69 @@ func TestTheEndOfABackgroundCommandDoesNotEndTheWaitForABackgroundAgent(t *testi
 	}
 }
 
+func TestACommandThatEndsWhileTheAgentIsIdleKeepsTheWaitUntilItsTaskNotification(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"One\"]\n")
+	agent := start(t, server, leadSpec(t))
+	for _, update := range []string{commandSpawned, commandEnded} {
+		agent.Update(fmt.Appendf(nil, agentUpdate, update))
+	}
+
+	waiting, stopWaiting := context.WithTimeout(t.Context(), 300*time.Millisecond)
+	defer stopWaiting()
+	if err := agent.WaitBackground(waiting); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("WaitBackground = %v before the task-notification turn of the command", err)
+	}
+
+	agent.Update(fmt.Appendf(nil, agentUpdate, finalReport))
+	agent.Update(fmt.Appendf(nil, agentUpdate, endUpdate))
+	if err := agent.WaitBackground(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if reply := agent.ReplyText(); reply != "The final report." {
+		t.Errorf("reply = %q", reply)
+	}
+}
+
+func TestTwoCommandsThatEndWhileTheAgentIsIdleDoNotEndTheWaitForABackgroundAgent(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"One\"]\n")
+	agent := start(t, server, leadSpec(t))
+	secondSpawned := strings.Replace(commandSpawned, `"b1"`, `"b2"`, 1)
+	secondEnded := strings.Replace(commandEnded, `"b1"`, `"b2"`, 1)
+	peerEnd := strings.Replace(endUpdate, "task-notification", "peer", 1)
+	updates := []string{fmt.Sprintf(asyncAgentUpdate, "a1"), peerEnd, commandSpawned, secondSpawned, commandEnded, secondEnded, workUpdate, endUpdate, workUpdate, endUpdate}
+	for _, update := range updates {
+		agent.Update(fmt.Appendf(nil, agentUpdate, update))
+	}
+
+	waiting, stopWaiting := context.WithTimeout(t.Context(), 300*time.Millisecond)
+	defer stopWaiting()
+	if err := agent.WaitBackground(waiting); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("WaitBackground = %v while the background agent runs", err)
+	}
+}
+
+func TestACommandThatTheAdapterReportsStoppedAndThenCompletedDoesNotEndTheWaitForABackgroundAgent(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"One\"]\n")
+	agent := start(t, server, leadSpec(t))
+	peerEnd := strings.Replace(endUpdate, "task-notification", "peer", 1)
+	updates := []string{fmt.Sprintf(asyncAgentUpdate, "a1"), peerEnd, commandSpawned, commandStopped, commandEnded, workUpdate, endUpdate}
+	for _, update := range updates {
+		agent.Update(fmt.Appendf(nil, agentUpdate, update))
+	}
+
+	waiting, stopWaiting := context.WithTimeout(t.Context(), 300*time.Millisecond)
+	defer stopWaiting()
+	if err := agent.WaitBackground(waiting); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("WaitBackground = %v while the background agent runs", err)
+	}
+}
+
 func TestTheEndOfAnAutonomousTurnOfAPeerDoesNotEndTheWaitForABackgroundAgent(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

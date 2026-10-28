@@ -102,9 +102,12 @@ type Agent struct {
 	backgroundCalls map[string]struct{}
 	// commands are the ids of the background commands of the session that run.
 	commands map[string]struct{}
-	// commandEnded tells that a background command ended while the agent was idle, so that a task-notification end
-	// follows that belongs to the command.
-	commandEnded bool
+	// stoppedCommands are the ids of the background commands that the adapter reported as stopped. A later completed
+	// or failed state corrects the report.
+	stoppedCommands map[string]struct{}
+	// commandEnds is the number of background commands that ended while the agent was idle, so that a
+	// task-notification end follows for each of them.
+	commandEnds int
 	// autonomous tells that a turn runs that no prompt of Mobius started.
 	autonomous bool
 	// autonomousEnd is the time of the end of an autonomous turn while a prompt runs, until the next work update.

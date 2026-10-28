@@ -48,8 +48,9 @@ func isTrigger(update any) bool {
 // it, and sends no end to the session.
 //
 // With the asyncTasks capability, the adapter sends async_task_spawned and async_task_state_update for each background
-// command, also for an end inside a running turn, and for a command that the agent stopped. The task-notification
-// turn of a command that ended while the agent was idle belongs to the command, not to an agent.
+// command, also for an end inside a running turn, and for a command that the agent stopped. The adapter can report a
+// command as stopped first and correct the state to completed or failed later. The task-notification turn of a
+// command that ended while the agent was idle belongs to the command, not to an agent.
 //
 // The reply text of the session belongs to the last turn, so the first update of an autonomous turn clears the reply
 // text.
@@ -92,10 +93,20 @@ func (a *Agent) track(notification map[string]any, kind string, late bool) {
 		a.activity = time.Now()
 		state := stringField(update, "state")
 		id := stringField(update, "asyncTaskId")
-		if _, runs := a.commands[id]; runs && slices.Contains([]string{"completed", "failed", "stopped"}, state) {
+		_, runs := a.commands[id]
+		_, stopped := a.stoppedCommands[id]
+		switch {
+		case runs && state == "stopped":
 			delete(a.commands, id)
-			if !a.turn && !a.autonomous && state != "stopped" {
-				a.commandEnded = true
+			if a.stoppedCommands == nil {
+				a.stoppedCommands = map[string]struct{}{}
+			}
+			a.stoppedCommands[id] = struct{}{}
+		case (runs || stopped) && slices.Contains([]string{"completed", "failed"}, state):
+			delete(a.commands, id)
+			delete(a.stoppedCommands, id)
+			if !a.turn && !a.autonomous {
+				a.commandEnds++
 			}
 		}
 	case "usage_update":
@@ -105,8 +116,8 @@ func (a *Agent) track(notification map[string]any, kind string, late bool) {
 		}
 		a.autonomous = false
 		if origin == "task-notification" && !isTrigger(update) {
-			if a.commandEnded {
-				a.commandEnded = false
+			if a.commandEnds > 0 {
+				a.commandEnds--
 			} else {
 				a.background = max(a.background-1, 0)
 			}
@@ -167,7 +178,7 @@ func (a *Agent) hold(ctx context.Context, background bool) error {
 			a.mu.Unlock()
 			return errCannotDone
 		}
-		waiting := background && (a.background > 0 || len(a.commands) > 0)
+		waiting := background && (a.background > 0 || len(a.commands) > 0 || a.commandEnds > 0)
 		if a.activity.After(last) {
 			last = a.activity
 		}
@@ -179,6 +190,7 @@ func (a *Agent) hold(ctx context.Context, background bool) error {
 		abandoned := waiting && time.Since(last) >= backgroundTimeout
 		if hung || abandoned {
 			a.background = 0
+			a.commandEnds = 0
 			clear(a.commands)
 		}
 		busy := a.autonomous || waiting && !abandoned
