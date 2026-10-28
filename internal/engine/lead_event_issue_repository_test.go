@@ -24,15 +24,15 @@ func sameNumberTasks(t *testing.T, fake *testkit.FakeGitHub) *testserver.Server 
 	return server
 }
 
-// stopWorker makes the Worker of the task of the issue number of repository fail with cause and no restart left.
-func stopWorker(t *testing.T, server *testserver.Server, repository string, number int64, cause string) {
+// stopWorker makes the Worker of the task of the issue 7 of repository fail with cause and no restart left.
+func stopWorker(t *testing.T, server *testserver.Server, repository, cause string) {
 	t.Helper()
-	if _, err := server.DB.Exec("UPDATE tasks SET state = 'working', worker = NULL, worker_restarts = 3 WHERE repository = ? AND issue = ?", repository, number); err != nil {
+	if _, err := server.DB.Exec("UPDATE tasks SET state = 'working', worker = NULL, worker_restarts = 3 WHERE repository = ? AND issue = 7", repository); err != nil {
 		t.Fatal(err)
 	}
 	var task = gardenTask(t, server)
 	if repository == shop {
-		task = liveTask(t, server, number)
+		task = liveTask(t, server, 7)
 	}
 	if restart, _ := server.Engine.RestartWorker(t.Context(), task, "Water the plants", errors.New(cause)); restart {
 		t.Fatal("the Worker restarted")
@@ -88,8 +88,8 @@ func TestAStopOfATaskGivesItsReasonOnlyToThatTaskAndNotToATaskOfAnotherRepositor
 	fake := testkit.NewFakeGitHub(t)
 	server := sameNumberTasks(t, fake)
 
-	stopWorker(t, server, shop, 7, "the shop Worker died")
-	stopWorker(t, server, garden, 7, "the garden Worker died")
+	stopWorker(t, server, shop, "the shop Worker died")
+	stopWorker(t, server, garden, "the garden Worker died")
 
 	testkit.WaitFor(t, func() bool { return len(stopReasons(t, server)) == 2 })
 	reasons := stopReasons(t, server)
@@ -106,8 +106,8 @@ func TestAStopOfATaskAddsOneStopEventAlsoWhenATaskOfAnotherRepositoryWithTheSame
 	fake := testkit.NewFakeGitHub(t)
 	server := sameNumberTasks(t, fake)
 
-	stopWorker(t, server, shop, 7, "the Worker died")
-	stopWorker(t, server, garden, 7, "the Worker died")
+	stopWorker(t, server, shop, "the Worker died")
+	stopWorker(t, server, garden, "the Worker died")
 
 	testkit.WaitFor(t, func() bool { return countLeadEvents(t, server, "stop") == 2 })
 	waitForPolls(t, fake)
