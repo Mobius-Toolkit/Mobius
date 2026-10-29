@@ -223,7 +223,7 @@ func (e *Engine) diagnoseTurn(ctx context.Context, a *Agent, row store.CiDiagnos
 	if err := a.Prompt(ctx, prompt, nil); err != nil {
 		return err
 	}
-	return a.waitBackground(ctx)
+	return a.waitBackground(ctx, backgroundPrompt)
 }
 
 func pullRequestPlace(ctx context.Context, repository github.Repository, row store.CiDiagnosis) (string, error) {
