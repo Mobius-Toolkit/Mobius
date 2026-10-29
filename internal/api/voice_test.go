@@ -120,6 +120,7 @@ func TestTranscribeAnswers503WithTheReasonWhenTheConverterIsNotReady(t *testing.
 	model := testkit.NewFakeModel(t)
 	model.Hold()
 	downloading.ModelURL = model.URL
+	downloading.VADModelURL = model.URL
 	t.Cleanup(func() {
 		model.Release()
 		testkit.WaitFor(t, func() bool {
