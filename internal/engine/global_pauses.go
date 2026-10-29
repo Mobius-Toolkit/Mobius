@@ -80,6 +80,12 @@ func (e *Engine) SetSwitch(ctx context.Context, kind string, on bool) error {
 		return err
 	}
 	e.publish(Change{Switches: true})
+	if kind == "merge" && on {
+		select {
+		case e.pollWake <- struct{}{}:
+		default:
+		}
+	}
 	return nil
 }
 
@@ -91,4 +97,13 @@ func (e *Engine) holdWork(ctx context.Context, kind, repository string, issue in
 	}
 	e.publish(Change{Switches: true})
 	return nil
+}
+
+// mergeOff tells if the Merge switch is off.
+func (e *Engine) mergeOff(ctx context.Context) (bool, error) {
+	pauses, err := e.queries.ListGlobalPauses(ctx)
+	if err != nil {
+		return false, err
+	}
+	return slices.ContainsFunc(pauses, func(pause store.GlobalPause) bool { return pause.Kind == "merge" }), nil
 }

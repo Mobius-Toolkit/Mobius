@@ -178,6 +178,9 @@ func (e *Engine) pollRepository(ctx context.Context, repository github.Repositor
 	if err := e.closeInboxItems(ctx, repository); err != nil {
 		return err
 	}
+	if err := e.continuePausedMerges(ctx, repository); err != nil {
+		return err
+	}
 	if err := e.freeClosedQuestionHolds(ctx, repository.FullName); err != nil {
 		return err
 	}

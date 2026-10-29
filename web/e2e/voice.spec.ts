@@ -665,6 +665,193 @@ test("Send during a conversion keeps it, and the text goes into the empty field"
   await expect(start(page)).toBeVisible();
 });
 
+// Gives the body of each message request.
+const messages = async (page: Page) => {
+  const bodies: string[] = [];
+  await page.route("**/api/chat/messages", (route) => {
+    bodies.push(route.request().postData() ?? "");
+    return route.fulfill({ status: 204 });
+  });
+  return bodies;
+};
+
+// Holds the answer of the end of the recording until release runs.
+const holdFinish = async (page: Page, reply: { json: unknown; status?: number } | string) => {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  await page.route("**/api/voice/recordings/r1/finish", async (route) => {
+    await held;
+    await route.fulfill(typeof reply === "string" ? { json: { data: { text: reply } } } : reply);
+  });
+  return release;
+};
+
+const liveAnswers = [
+  { committed: "", draft: "red" },
+  { committed: "red", draft: "roses" },
+];
+
+// The field has "Plant now" with the cursor after "Plant", and the live text "red roses" between.
+const liveField = async (page: Page) => {
+  await page.goto(shop);
+  const input = page.getByLabel("Message to the Lead");
+  await input.fill("Plant now");
+  await input.focus();
+  await input.evaluate((field: HTMLTextAreaElement) => field.setSelectionRange(5, 5));
+  await begin(page);
+  await tick(page);
+  await expect(input).toHaveValue("Plant red now");
+  await tick(page);
+  await expect(input).toHaveValue("Plant red roses now");
+  return input;
+};
+
+const converting = (page: Page) => page.getByRole("button", { name: "Converting the voice input" });
+
+test("Send during a recording with live text sends the final text", async ({ page }) => {
+  await page.clock.install();
+  await liveServer(page, liveAnswers);
+  const release = await holdFinish(page, "Red roses");
+  const bodies = await messages(page);
+  const input = await liveField(page);
+  await send(page).click();
+  await expect(converting(page)).toBeVisible();
+  expect(bodies).toEqual([]);
+  release();
+  await expect(start(page)).toBeVisible();
+  await expect.poll(() => bodies.length).toBe(1);
+  expect(bodies[0]).toContain("Plant Red roses now");
+  await expect(input).toHaveValue("");
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  expect(bodies.length).toBe(1);
+});
+
+test("Send during a conversion with live text sends the final text", async ({ page }) => {
+  await page.clock.install();
+  await liveServer(page, liveAnswers);
+  const release = await holdFinish(page, "Red roses");
+  const bodies = await messages(page);
+  const input = await liveField(page);
+  await stop(page).click();
+  await expect(converting(page)).toBeVisible();
+  await send(page).click();
+  await expect(send(page)).toBeDisabled();
+  expect(bodies).toEqual([]);
+  release();
+  await expect(start(page)).toBeVisible();
+  await expect.poll(() => bodies.length).toBe(1);
+  expect(bodies[0]).toContain("Plant Red roses now");
+  await expect(input).toHaveValue("");
+  expect(bodies.length).toBe(1);
+});
+
+test("the field keeps the live text and Send waits until the final text comes", async ({
+  page,
+}) => {
+  await page.clock.install();
+  await liveServer(page, liveAnswers);
+  const release = await holdFinish(page, "Red roses");
+  const bodies = await messages(page);
+  const input = await liveField(page);
+  await send(page).click();
+  await expect(converting(page)).toBeDisabled();
+  await expect(send(page)).toBeDisabled();
+  await expect(send(page).locator("[data-slot=spinner]")).toBeVisible();
+  await expect(input).not.toBeEditable();
+  await expect(input).toHaveValue("Plant red roses now");
+  await input.press("Enter");
+  expect(bodies).toEqual([]);
+  release();
+  await expect.poll(() => bodies.length).toBe(1);
+  expect(bodies.length).toBe(1);
+});
+
+test("an image that the Owner attaches while Send waits goes out with the message", async ({
+  page,
+}) => {
+  await page.clock.install();
+  await liveServer(page, liveAnswers);
+  const release = await holdFinish(page, "Red roses");
+  const bodies = await messages(page);
+  await liveField(page);
+  await send(page).click();
+  await expect(send(page)).toBeDisabled();
+  await page
+    .getByRole("main")
+    .locator("input[type=file]")
+    .setInputFiles({
+      name: "photo.png",
+      mimeType: "image/png",
+      buffer: Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+        "base64",
+      ),
+    });
+  await expect(page.getByRole("img", { name: "Image 1" })).toBeVisible();
+  release();
+  await expect.poll(() => bodies.length).toBe(1);
+  expect(bodies[0]).toContain("Plant Red roses now");
+  expect(bodies[0]).toContain("image/png");
+  await expect(page.getByRole("img", { name: "Image 1" })).toBeHidden();
+});
+
+for (const [name, reply, alert] of [
+  [
+    "a failed",
+    { status: 502, json: { error: "The converter returned an error" } },
+    "The converter returned an error",
+  ],
+  ["an empty", { json: { data: { text: "" } } }, "The recording has no text."],
+] as const) {
+  test(`Send during a recording with live text and ${name} final conversion sends the live text`, async ({
+    page,
+  }) => {
+    await page.clock.install();
+    await liveServer(page, liveAnswers);
+    const release = await holdFinish(page, reply);
+    const bodies = await messages(page);
+    let files = 0;
+    await page.route("**/api/voice/transcriptions", (route) => {
+      files++;
+      return route.fulfill({ json: { data: { text: "red roses" } } });
+    });
+    const input = await liveField(page);
+    await send(page).click();
+    await expect(input).not.toBeEditable();
+    expect(bodies).toEqual([]);
+    release();
+    await expect.poll(() => bodies.length).toBe(1);
+    expect(bodies[0]).toContain("Plant red roses now");
+    await expect(page.getByRole("alert")).toHaveText(alert);
+    await expect(again(page)).toBeVisible();
+    await expect(input).toHaveValue("");
+    expect(files).toBe(0);
+  });
+}
+
+test("Send after the user changed the field during the recording sends at once", async ({
+  page,
+}) => {
+  await page.clock.install();
+  const seen = await liveServer(page, liveAnswers);
+  const release = await holdFinish(page, "Red roses");
+  const bodies = await messages(page);
+  await page.goto(shop);
+  const input = page.getByLabel("Message to the Lead");
+  await begin(page);
+  await tick(page);
+  await expect(input).toHaveValue("red");
+  await input.fill("red!");
+  await tick(page);
+  await expect.poll(() => seen.sequences.length).toBe(2);
+  await send(page).click();
+  await expect.poll(() => bodies.length).toBe(1);
+  expect(bodies[0]).toContain("red!");
+  await expect(input).toHaveValue("");
+  release();
+  await expect(input).toHaveValue("Red roses");
+});
+
 test("a refused Send keeps the text of a conversion that answers while the message goes out", async ({
   page,
 }) => {

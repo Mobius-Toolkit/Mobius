@@ -14,7 +14,6 @@ import {
 import { ErrorBadge, inset, List, PageHeader, rowClass, Section } from "@/components/page";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
 import { lowLoadReason, queueState, queueText } from "@/lib/agents";
 import { onEvent, retryDelay } from "@/lib/events";
@@ -402,20 +401,18 @@ export function Transcript({
   onClose: () => void;
 }) {
   return (
-    <Card className="min-h-0 max-md:max-h-[calc(100svh-10rem)] md:max-h-[calc(100svh-3rem)]">
-      <CardHeader className="flex items-center gap-2">
+    <div className="flex min-h-0 grow flex-col gap-2">
+      <div className="flex items-center gap-2">
         <BackButton parent="/agents" onBack={onClose} />
-        <CardTitle className="line-clamp-2 min-w-0 grow">
+        <div className="line-clamp-2 min-w-0 grow text-base leading-snug font-medium">
           {agent.name} {agent.title}
-        </CardTitle>
-      </CardHeader>
-      <div className="flex flex-wrap items-center gap-2 px-(--card-spacing) empty:hidden">
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-2 empty:hidden">
         <StartCheckButton agent={agent} />
       </div>
-      <CardContent className="flex min-h-0 grow flex-col">
-        <TranscriptLog agent={agent} source={source} />
-      </CardContent>
-    </Card>
+      <TranscriptLog agent={agent} source={source} />
+    </div>
   );
 }
 
