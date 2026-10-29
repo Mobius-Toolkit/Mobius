@@ -170,7 +170,7 @@ func (w *Whisper) Transcribe(ctx context.Context, wav []byte) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimSpace(result.Text), nil
+	return withoutInventedLines(result.Text), nil
 }
 
 // Segments gives the segments of the WAV file wav. It gives an Unavailable error while the converter is not ready.
@@ -179,7 +179,7 @@ func (w *Whisper) Segments(ctx context.Context, wav []byte) ([]Segment, error) {
 	if err != nil {
 		return nil, err
 	}
-	return result.Segments, nil
+	return withoutInventedSegments(result.Segments), nil
 }
 
 func (w *Whisper) infer(ctx context.Context, wav []byte, format string) (answer, error) {

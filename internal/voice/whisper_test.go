@@ -319,3 +319,35 @@ func fileHasLines(path string, lines int) bool {
 	content, err := os.ReadFile(filepath.Clean(path))
 	return err == nil && strings.Count(string(content), "\n") == lines
 }
+
+func putText(t *testing.T, program, text string) {
+	t.Helper()
+	if err := os.WriteFile(program+".text", []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTranscribeRemovesTheInventedLinesAtTheEndAndKeepsTheOtherText(t *testing.T) {
+	c := newConverter(t)
+	program := testkit.InstallFakeWhisper(t, c.bin)
+	c.putModel(t)
+	cases := []struct{ name, text, want string }{
+		{"a line at the end", "Open the file.\nThank you.\n", "Open the file."},
+		{"only an invented line", " Thank you.\n", ""},
+		{"a marker", "[BLANK_AUDIO]\n", ""},
+		{"a credit", "Titulky vytvořil JohnyX\n", ""},
+		{"a credit of other case", "Open the file.\nSUBTITLES BY the community\n", "Open the file."},
+		{"two invented lines", "Open the file.\nThank you.\nThanks for watching!\n", "Open the file."},
+		{"an invented line in a sentence", "Thank you. Now open the file.\n", "Thank you. Now open the file."},
+		{"an invented line not at the end", "Thank you.\nOpen the file.\n", "Thank you.\nOpen the file."},
+	}
+	for _, tc := range cases {
+		putText(t, program, tc.text)
+
+		text, err := c.transcribe("RIFF")
+
+		if err != nil || text != tc.want {
+			t.Errorf("%s: text = %q, err = %v, want %q", tc.name, text, err, tc.want)
+		}
+	}
+}
