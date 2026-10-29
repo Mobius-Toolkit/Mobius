@@ -134,8 +134,6 @@ reply = ["Asked"]
 	}
 }
 
-const crashEachTurn = "[[prompts]]\nshell = \"kill -9 $PPID; sleep 5\"\n"
-
 func dismissFailedMessage(t *testing.T, server *testserver.Server, key engine.ChatKey, text string) {
 	t.Helper()
 	sendChat(t, server, key, text)
@@ -155,7 +153,7 @@ func dismissFailedMessage(t *testing.T, server *testserver.Server, key engine.Ch
 
 func TestTheDismissOfAFailedMessageOfTheCoordinatorNamesTheStartOfTheMessage(t *testing.T) {
 	t.Parallel()
-	server, _ := connect(t, testkit.NewFakeGitHub(t), crashEachTurn)
+	server, _ := connect(t, testkit.NewFakeGitHub(t), dies)
 
 	dismissFailedMessage(t, server, coordinatorChat, "  Please explain why the queue keeps growing after every plan\nSecond line.")
 
@@ -167,7 +165,7 @@ func TestTheDismissOfAFailedMessageOfTheCoordinatorNamesTheStartOfTheMessage(t *
 
 func TestTheDismissOfAFailedMessageOfTheLeadNamesTheStartOfTheMessage(t *testing.T) {
 	t.Parallel()
-	server, _ := connect(t, testkit.NewFakeGitHub(t), crashEachTurn)
+	server, _ := connect(t, testkit.NewFakeGitHub(t), dies)
 
 	dismissFailedMessage(t, server, leadChat, "Plan the loyalty points API for the shop checkout\nSecond line.")
 
