@@ -264,14 +264,7 @@ func TestDSHRunsWithTheACPProfileAndGetsTheModelAndTheEffortByTheirCategories(t 
 		t.Fatal(err)
 	}
 
-	args, err := os.ReadFile(filepath.Clean(filepath.Join(dir, "args")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := "--profile acp"; string(args) != want {
-		t.Errorf("args = %q, want %q", args, want)
-	}
-	want := `mcp [{"headers":[],"name":"mobius","type":"http","url":"http://127.0.0.1:1/mcp/key"}]; set model=["deepseek-account","deepseek-v4-pro"] reasoning_effort=high; permission allow-once`
+	want := `mcp [{"headers":[],"name":"mobius","type":"http","url":"http://127.0.0.1:1/mcp/key"}]; set model=["deepseek-account","deepseek-v4-pro"] reasoning_effort=high; permission allow-once; args --profile acp`
 	if message.String() != want {
 		t.Errorf("message = %s", message.String())
 	}
@@ -361,11 +354,6 @@ func (a *fakeAgent) Initialize(ctx context.Context, _ acp.InitializeRequest) (ac
 
 func (a *fakeAgent) NewSession(_ context.Context, request acp.NewSessionRequest) (acp.NewSessionResponse, error) {
 	a.servers = request.McpServers
-	if os.Getenv("MOBIUS_FAKE_DSH") == "1" {
-		if err := os.WriteFile("args", []byte(strings.Join(os.Args[1:], " ")), 0o600); err != nil {
-			return acp.NewSessionResponse{}, err
-		}
-	}
 	var options []acp.SessionConfigOption
 	if err := json.Unmarshal([]byte(fakeOptionsText()), &options); err != nil {
 		return acp.NewSessionResponse{}, err
@@ -404,6 +392,9 @@ func (a *fakeAgent) Prompt(ctx context.Context, request acp.PromptRequest) (acp.
 		return acp.PromptResponse{}, err
 	}
 	text := fmt.Sprintf("mcp %s; set %s; permission %s", servers, strings.Join(a.sets, " "), permission.Outcome.Selected.OptionId)
+	if os.Getenv("MOBIUS_FAKE_DSH") == "1" {
+		text += "; args " + strings.Join(os.Args[1:], " ")
+	}
 	if err := a.conn.SessionUpdate(ctx, acp.SessionNotification{SessionId: request.SessionId, Update: acp.UpdateAgentMessageText(text)}); err != nil {
 		return acp.PromptResponse{}, err
 	}
