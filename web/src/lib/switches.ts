@@ -34,6 +34,7 @@ export type ChangeSwitch = (kind: SwitchKind, on: boolean) => Promise<string>;
 
 export function useSwitches(showLogin: () => void, source?: EventSource) {
   const [switches, setSwitches] = useState<Switches>();
+  const [errors, setErrors] = useState<Partial<Record<SwitchKind, string>>>({});
 
   const load = useCallback(
     () =>
@@ -63,9 +64,8 @@ export function useSwitches(showLogin: () => void, source?: EventSource) {
   }, [source, load]);
 
   // Gives the error text, or an empty text when the server turned the switch on or off.
-  const change: ChangeSwitch = (kind, on) => {
-    setSwitches((current) => current && { ...current, [kind]: on });
-    return setSwitch(kind, { on })
+  const send = (kind: SwitchKind, on: boolean) =>
+    setSwitch(kind, { on })
       .then(async (res) => {
         if (res.status === 204) {
           return "";
@@ -82,7 +82,16 @@ export function useSwitches(showLogin: () => void, source?: EventSource) {
         await load();
         return String(err);
       });
+
+  // The amber line of a switch unmounts when the switch goes on, so the error stays here.
+  const change: ChangeSwitch = (kind, on) => {
+    setSwitches((current) => current && { ...current, [kind]: on });
+    setErrors((current) => ({ ...current, [kind]: "" }));
+    return send(kind, on).then((text) => {
+      setErrors((current) => ({ ...current, [kind]: text }));
+      return text;
+    });
   };
 
-  return { switches, change };
+  return { switches, errors, change };
 }

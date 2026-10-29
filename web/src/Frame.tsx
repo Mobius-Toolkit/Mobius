@@ -15,7 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useNewBuild } from "@/lib/build";
 import { settingsPages } from "@/lib/settings";
-import type { ChangeSwitch } from "@/lib/switches";
+import type { ChangeSwitch, SwitchKind } from "@/lib/switches";
 import { TopBarContext } from "@/lib/topbar";
 import { unreadCount } from "@/lib/unread";
 import { hasUpgradeControls, useUpgrade } from "@/lib/upgrade";
@@ -95,6 +95,7 @@ export function Frame({
   pauses,
   ciStops,
   switches,
+  switchErrors,
   changeSwitch,
   fill,
   connection,
@@ -111,6 +112,7 @@ export function Frame({
   pauses: Pause[];
   ciStops: CIStop[];
   switches?: Switches;
+  switchErrors: Partial<Record<SwitchKind, string>>;
   changeSwitch: ChangeSwitch;
   fill: boolean;
   connection: Connection;
@@ -228,7 +230,7 @@ export function Frame({
           >
             <CIStops stops={ciStops} />
             <Pauses pauses={pauses} />
-            <SwitchLines switches={switches} change={changeSwitch} />
+            <SwitchLines switches={switches} errors={switchErrors} change={changeSwitch} />
           </div>
           <div className="grid gap-2 px-4 pt-4 empty:hidden md:hidden">
             {(path === "/chat" ||

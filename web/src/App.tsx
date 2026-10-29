@@ -85,7 +85,7 @@ function App() {
   const workstreams = { ...listed, needsHuman };
   const pauses = usePauses(source);
   const ciStops = useCIStops(source);
-  const { switches, change: changeSwitch } = useSwitches(showLogin, source);
+  const { switches, errors: switchErrors, change: changeSwitch } = useSwitches(showLogin, source);
 
   useEffect(() => {
     chatOwner.current = chat?.params.owner;
@@ -293,6 +293,7 @@ function App() {
         pauses={pauses}
         ciStops={ciStops}
         switches={switches}
+        switchErrors={switchErrors}
         changeSwitch={changeSwitch}
         fill={chat !== undefined || pathname === "/chat" || pathname === "/tasks"}
         connection={!online ? "offline" : link === "connecting" ? "connecting" : "connected"}

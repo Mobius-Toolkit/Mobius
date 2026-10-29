@@ -56,22 +56,20 @@ function SwitchLine({
   kind,
   line,
   held,
+  error,
   change,
 }: {
   kind: SwitchKind;
   line: string;
   held: HeldWork[];
+  error?: string;
   change: ChangeSwitch;
 }) {
   const [running, setRunning] = useState(false);
-  const [error, setError] = useState("");
 
   const resume = () => {
     setRunning(true);
-    void change(kind, true).then((text) => {
-      setError(text);
-      setRunning(false);
-    });
+    void change(kind, true).then(() => setRunning(false));
   };
 
   return (
@@ -90,7 +88,15 @@ function SwitchLine({
   );
 }
 
-export function SwitchLines({ switches, change }: { switches?: Switches; change: ChangeSwitch }) {
+export function SwitchLines({
+  switches,
+  errors,
+  change,
+}: {
+  switches?: Switches;
+  errors: Partial<Record<SwitchKind, string>>;
+  change: ChangeSwitch;
+}) {
   if (!switches) {
     return null;
   }
@@ -102,6 +108,7 @@ export function SwitchLines({ switches, change }: { switches?: Switches; change:
         kind={kind}
         line={line}
         held={switches.held.filter((item) => item.kind === kind)}
+        error={errors[kind]}
         change={change}
       />
     ));

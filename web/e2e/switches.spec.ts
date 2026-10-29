@@ -87,3 +87,23 @@ test("the Settings page shows one line for each switch that is off", async ({ pa
   await expect(line(page, "repairs")).toBeHidden();
   await expect(line(page, "start")).toBeVisible();
 });
+
+test("the line stays with the error text when Resume fails", async ({ page }) => {
+  await turnOff(page, "start");
+  await page.goto("/settings");
+  await page.route(
+    "**/api/switches/start",
+    (route) => route.fulfill({ status: 500, json: { error: "The switch did not change." } }),
+    { times: 1 },
+  );
+
+  const failed = page.waitForResponse(
+    (res) => res.url().endsWith("/api/switches/start") && res.request().method() === "PUT",
+  );
+  await line(page, "start").getByRole("button", { name: "Resume", exact: true }).click();
+  await failed;
+
+  await expect(line(page, "start")).toBeVisible();
+  await expect(page.getByText("The switch did not change.")).toBeVisible();
+  expect((await getSwitches(page)).data.start).toBe(false);
+});
