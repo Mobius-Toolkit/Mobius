@@ -2629,8 +2629,9 @@ test.describe("the records of the actions of the Owner", () => {
   });
 
   test("the Coordinator chat shows a record on the right side with its time", async ({ page }) => {
-    // The chat of the page sets the organization, and /chat shows the Coordinator chat of that organization.
-    await page.goto("/workstreams/plants/garden/12");
+    // The navigation tests count the unread reply of this chat, so the page must not mark it as seen.
+    await page.route("/api/chat/seen", (route) => route.fulfill({ status: 204 }));
+    await page.addInitScript("localStorage.setItem('organization', 'plants')");
     await expectRecord(page, "/chat", "Start a Workstream for gift cards.", [
       'You dismissed "Which unit?".',
     ]);
