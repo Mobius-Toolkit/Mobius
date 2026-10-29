@@ -182,6 +182,26 @@ func TestAProposalOfASkillGoesToTheWorkstreamSkillsWithTheLowestNumberInTheOrgan
 	}
 }
 
+func TestAnImplementerSessionSendsAChangedProposalOfTheSameSkill(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addSkillsWorkstream(fake, 20)
+	propose := func(content string) string {
+		return call("propose_skill", `{ name = "failed-tests", reason = "Reason.", files = [{ path = "SKILL.md", content = "`+content+`" }] }`)
+	}
+	server, _ := connect(t, fake, propose("First.")+propose("Changed."))
+
+	session := run(t, server, roleSpec(t, engine.ImplementerRole), "1. ", "2. ")
+
+	calls := mcpCalls(t, server, session)
+	if len(calls) != 2 || calls[1]["error"] != nil {
+		t.Errorf("calls = %v", calls)
+	}
+	if events := skillProposals(leadEvents(t, server)); len(events) != 2 {
+		t.Errorf("events = %+v", events)
+	}
+}
+
 func TestAProposalOfASkillWithARepositoryNamesTheFolderOfTheRepository(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

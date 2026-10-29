@@ -158,8 +158,8 @@ type Agent struct {
 	failures []reportFailureInput
 	// memoryEdits are the edit_memory calls that the Curator saved.
 	memoryEdits []editMemoryInput
-	// skills are the names of the skills that the session proposed.
-	skills []string
+	// skillProposals are the propose_skill calls that the session sent.
+	skillProposals []proposeSkillInput
 	// questions are the questions of the Researchers that the Triager started.
 	questions []string
 	// jobURLs are the links of the failed jobs of the Diagnoser, one for each line.

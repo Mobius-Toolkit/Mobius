@@ -421,7 +421,7 @@ func TestAResearcherThatProposesASkillAgainAfterTheWaitPromptSendsOneProposal(t 
 		return sessions[0], sessions[0].EndedAt.Valid
 	})
 	calls := mcpCalls(t, server, session.ID)
-	if len(calls) != 3 || calls[1]["error"] != `You already proposed the skill "failed-tests" in this session. Do not call propose_skill again for it.` {
+	if len(calls) != 3 || calls[1]["error"] != `You already sent this proposal for the skill "failed-tests" in this session. Do not call propose_skill again with the same input.` {
 		t.Errorf("calls = %v", calls)
 	}
 	if events := skillProposals(leadEvents(t, server)); len(events) != 1 {
