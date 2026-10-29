@@ -1280,4 +1280,4 @@ JOIN global_pauses p ON p.kind = h.kind
 JOIN copied_issues i ON i.number = h.issue AND i.state = 'open'
   AND lower(substr(i.repository_url, instr(i.repository_url, '/repos/') + 7)) = lower(h.repository)
 JOIN copied_workstreams w ON w.repository = i.repository AND w.number = i.workstream
-ORDER BY h.held_at, h.kind, h.repository, h.issue, i.repository, i.workstream;
+ORDER BY julianday(h.held_at), h.kind, h.repository, h.issue, i.repository, i.workstream;
