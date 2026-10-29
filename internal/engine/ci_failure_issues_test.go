@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
@@ -80,6 +81,43 @@ func TestAThirdFailureOfTheSameTestGivesNoSecondIssue(t *testing.T) {
 	waitForPolls(t, fake)
 	if numbers := fake.SubIssueNumbers(shop, maintenance); len(numbers) != 1 {
 		t.Errorf("sub-issues = %v", numbers)
+	}
+}
+
+func TestTheFixRoundOfAFailureWithAnOpenRecordIssueGetsTheIssueAndTheStep(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := connectDiagnoser(t, fake, leadStartsWithFortyFour, reportsPlan)
+	addMaintenanceWorkstream(fake, maintenance)
+	fake.AddSubIssueOf(shop, 12, 43, "Task 43")
+	fake.AddSubIssueOf(shop, 12, 44, "Task 44")
+	first := approvalHeadOf(t, server, fake, 41)
+	second := approvalHeadOf(t, server, fake, 43)
+	third := approvalHeadOf(t, server, fake, 44)
+	failActions(fake, first)
+	failActions(fake, second)
+	number := ciBreakIssue(t, fake)
+	testkit.WaitFor(t, func() bool {
+		return rowCount(t, server, fmt.Sprintf("SELECT count(*) FROM ci_failures WHERE issue = %d", number)) == 1
+	})
+
+	failActions(fake, third)
+
+	want := fmt.Sprintf("The change of the pull request did not cause this failure.\n  The open issue #%d holds this failure. Do not fix it in this task.\n"+
+		"\nFor each failure that the change of the pull request did not cause:\n", number)
+	round := testkit.WaitForValue(t, func() (string, bool) {
+		for _, session := range roleSessions(t, server, engine.ImplementerRole) {
+			for _, prompt := range promptTexts(t, server, session.ID) {
+				if strings.Contains(prompt, want) {
+					return prompt, true
+				}
+			}
+		}
+		return "", false
+	})
+	step := "3. When the reason of the failure names an open issue, do not fix the test, and make no commit for it.\n"
+	if !strings.Contains(round, step) {
+		t.Errorf("%q is not in %s", step, round)
 	}
 }
 
