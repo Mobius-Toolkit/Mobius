@@ -33,7 +33,13 @@ func stubGH(t *testing.T, dataDir string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(program, filepath.Join(dataDir, "harnesses", "gh")); err != nil {
+	script := "#!/bin/sh\nexec " + program + " \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(dataDir, "harnesses", "gh"), []byte(script), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	chmod := exec.Command("chmod", "+x", "gh")
+	chmod.Dir = filepath.Join(dataDir, "harnesses")
+	if err := chmod.Run(); err != nil {
 		t.Fatal(err)
 	}
 }
