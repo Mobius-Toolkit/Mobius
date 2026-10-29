@@ -174,6 +174,9 @@ func (e *Engine) startImplementerTool(ctx context.Context, c caller, repository 
 	if err := e.startOffRefused(ctx); err != nil {
 		return "", err
 	}
+	if err := e.repairsOffRefused(ctx, repository.FullName, input.N); err != nil {
+		return "", err
+	}
 	if err := e.ciStopRefusal(ctx, repository, input.N); err != nil {
 		return "", err
 	}
@@ -602,8 +605,8 @@ func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r r
 		title:       r.title,
 		branch:      r.task.Branch.String,
 		pullRequest: r.pullRequest,
-		prompt: fmt.Sprintf("%s\n%s# Brief\n\n%s\n\n# Issue\n\n#%d %s\n\n%s\n\n%s\n# Open items\n%s",
-			implementerPrompt, sections, brief, r.task.Issue, issue.GetTitle(), issue.GetBody(), comments, r.items),
+		prompt: fmt.Sprintf("%s\n%s# Brief\n\n%s\n\n# Issue\n\n#%d %s\n\n%s\n\n%s\n%s# Open items\n%s",
+			implementerPrompt, sections, brief, r.task.Issue, issue.GetTitle(), issue.GetBody(), comments, reportPrompt(r.task.Report), r.items),
 		parent: r.parent,
 	}
 	worker := ImplementerRole
@@ -1406,6 +1409,15 @@ func (e *Engine) push(ctx context.Context, a *Agent, j *job, failedLog string, m
 		}
 		j.oldHead = current.GetHead().GetSHA()
 	}
+	section, err := e.reportSection(ctx, repository, j.task)
+	if err != nil {
+		return result{}, err
+	}
+	if j.pullRequest != nil {
+		if err := writeReport(ctx, repository, int64(j.pullRequest.GetNumber()), section); err != nil {
+			return result{}, err
+		}
+	}
 	e.gitMu.Lock()
 	pushStartedAt := now()
 	head, err := runner.Push(ctx, dataDir, worktree, token, j.branch)
@@ -1429,7 +1441,7 @@ func (e *Engine) push(ctx context.Context, a *Agent, j *job, failedLog string, m
 		if source.FullName != repository.FullName {
 			workstream = fmt.Sprintf("%s#%d", source.FullName, j.task.Workstream)
 		}
-		pullRequest, err := repository.CreateDraftPullRequest(ctx, j.title, j.branch, repository.DefaultBranch, e.withChatLink(source, j.task.Workstream, fmt.Sprintf("Workstream:\n- %s\n\nIssue:\n- #%d\n\nCloses #%d", workstream, j.task.Issue, j.task.Issue)))
+		pullRequest, err := repository.CreateDraftPullRequest(ctx, j.title, j.branch, repository.DefaultBranch, withReport(e.withChatLink(source, j.task.Workstream, fmt.Sprintf("Workstream:\n- %s\n\nIssue:\n- #%d\n\nCloses #%d", workstream, j.task.Issue, j.task.Issue)), section))
 		if hasNoCommits(err) {
 			return result{outcome: noCommits, text: err.Error()}, nil
 		}

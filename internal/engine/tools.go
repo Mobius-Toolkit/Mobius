@@ -243,6 +243,12 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 					"text":   map[string]any{"type": "string", "minLength": 1, "description": "The SHA of the fix commit, an answer, a follow-up link, or a reason to reject. Do not write an acknowledgement."},
 				},
 				e.holdReply),
+			tool(e, c, "submit_report",
+				"Give the report of the pull request: the cause, the test results, the measurements, the changed screens, and the upgrade step. Each call replaces the earlier report, so give the full report each time. Mobius writes the report in the description of the pull request at the end of the turn. The report has at most 20,000 characters.",
+				map[string]any{
+					"report": map[string]any{"type": "string", "minLength": 1, "description": "The full report, as Markdown."},
+				},
+				e.submitReport),
 		}
 	case ReviewerRole:
 		return []mcp.Tool{
@@ -1113,6 +1119,9 @@ func (e *Engine) markReady(ctx context.Context, c caller, repository github.Repo
 		return "", refuse("n must be 1 or more.")
 	}
 	if err := e.startOffRefused(ctx); err != nil {
+		return "", err
+	}
+	if err := e.repairsOffRefused(ctx, repository.FullName, input.N); err != nil {
 		return "", err
 	}
 	issue, err := repository.Issue(ctx, input.N)

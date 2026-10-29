@@ -13,6 +13,9 @@ const startOffReason = "Autopilot paused: no task starts"
 // startOffRefusal is the text of a Lead tool that the Start switch refuses.
 const startOffRefusal = "Mobius started no task: the Owner turned Start off on the Settings page. Try again after the Owner turns Start on."
 
+// repairsOffRefusal is the text of a Lead tool that the Repairs switch refuses.
+const repairsOffRefusal = "Mobius started no task: the Owner turned Repairs off on the Settings page. Try again after the Owner turns Repairs on."
+
 // Switches is the state of the global switches. true means on.
 type Switches struct {
 	Start   bool
@@ -96,6 +99,47 @@ func (e *Engine) startOffRefused(ctx context.Context) error {
 		return err
 	}
 	return refuse(startOffRefusal)
+}
+
+// repairsOff tells if the Repairs switch is off.
+func (e *Engine) repairsOff(ctx context.Context) (bool, error) {
+	pauses, err := e.queries.ListGlobalPauses(ctx)
+	if err != nil {
+		return false, err
+	}
+	return slices.ContainsFunc(pauses, func(pause store.GlobalPause) bool { return pause.Kind == "repairs" }), nil
+}
+
+// repairIssue tells if the issue is the issue of a CI break, a check timeout or a CI failure of repository.
+func (e *Engine) repairIssue(ctx context.Context, repository string, issue int64) (bool, error) {
+	return e.queries.IsRepairIssue(ctx, store.IsRepairIssueParams{Repository: repository, Issue: issue})
+}
+
+// holdRepairs tells if the Repairs switch is off and the issue is a repair issue, and then records the issue as held
+// work. It comes after holdStart at each start of a task.
+func (e *Engine) holdRepairs(ctx context.Context, repository string, issue int64) (bool, error) {
+	off, err := e.repairsOff(ctx)
+	if err != nil || !off {
+		return false, err
+	}
+	repair, err := e.repairIssue(ctx, repository, issue)
+	if err != nil || !repair {
+		return false, err
+	}
+	return true, e.holdWork(ctx, "repairs", repository, issue)
+}
+
+// repairsOffRefused gives the refusal of a Lead tool for a repair issue while the Repairs switch is off, or nil.
+func (e *Engine) repairsOffRefused(ctx context.Context, repository string, issue int64) error {
+	off, err := e.repairsOff(ctx)
+	if err != nil || !off {
+		return err
+	}
+	repair, err := e.repairIssue(ctx, repository, issue)
+	if err != nil || !repair {
+		return err
+	}
+	return refuse(repairsOffRefusal)
 }
 
 // SetSwitch turns the switch kind on or off. Turning it on also forgets the work that it held. Turning it off again

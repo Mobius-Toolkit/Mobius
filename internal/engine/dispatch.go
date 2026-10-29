@@ -115,6 +115,12 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 		if err != nil {
 			return err
 		}
+		if !off {
+			off, err = e.holdRepairs(ctx, repository.FullName, number)
+			if err != nil {
+				return err
+			}
+		}
 		if off {
 			held = true
 			continue
@@ -310,6 +316,12 @@ func (e *Engine) answerAsked(ctx context.Context, repository github.Repository, 
 	off, err := e.holdStart(ctx, repository.FullName, task.Issue)
 	if err != nil {
 		return err
+	}
+	if !off {
+		off, err = e.holdRepairs(ctx, repository.FullName, task.Issue)
+		if err != nil {
+			return err
+		}
 	}
 	if startsTasks(level) || len(stop) > 0 && !stop[task.Issue] || off {
 		_, err := e.setTaskState(ctx, store.SetTaskStateParams{State: "answered", ID: task.ID, FromState: "asked"})
@@ -1006,6 +1018,12 @@ func (e *Engine) dispatchAnsweredWithoutAutopilot(ctx context.Context, repositor
 		if err != nil {
 			return err
 		}
+		if !off {
+			off, err = e.holdRepairs(ctx, repository.FullName, task.Issue)
+			if err != nil {
+				return err
+			}
+		}
 		if off {
 			continue
 		}
@@ -1051,6 +1069,9 @@ func (e *Engine) autopilotTree(ctx context.Context, repository github.Repository
 			return false, nil
 		}
 		if off, err := e.holdStart(ctx, source.FullName, number); err != nil || off {
+			return false, err
+		}
+		if off, err := e.holdRepairs(ctx, source.FullName, number); err != nil || off {
 			return false, err
 		}
 		active, err := e.queries.CountActiveTasks(ctx)

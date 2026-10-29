@@ -554,6 +554,9 @@ UPDATE tasks SET branch = ? WHERE id = ?;
 -- name: SetTaskPullRequest :exec
 UPDATE tasks SET pull_request = ? WHERE id = ?;
 
+-- name: SetTaskReport :exec
+UPDATE tasks SET report = ? WHERE id = ?;
+
 -- name: AddFixRound :execrows
 UPDATE tasks SET fix_rounds = fix_rounds + 1 WHERE id = sqlc.arg(id) AND fix_rounds < sqlc.arg(max);
 
@@ -1179,6 +1182,15 @@ ORDER BY ci_failures.id LIMIT 1;
 -- name: SetCIBreakFailuresIssue :exec
 UPDATE ci_failures SET issue = ?
 WHERE issue = 0 AND ended_at = '' AND id IN (SELECT failure FROM ci_failure_places WHERE ci_break = ?);
+
+-- name: IsRepairIssue :one
+SELECT EXISTS (
+  SELECT 1 FROM ci_breaks WHERE ci_breaks.repository = ?1 AND ABS(ci_breaks.issue) = ?2
+  UNION ALL
+  SELECT 1 FROM check_timeouts WHERE check_timeouts.repository = ?1 AND ABS(check_timeouts.issue) = ?2
+  UNION ALL
+  SELECT 1 FROM ci_failures WHERE ci_failures.repository = ?1 AND ABS(ci_failures.issue) = ?2
+);
 
 -- name: HasOpenPullRequestFailureWithIssue :one
 SELECT EXISTS (
