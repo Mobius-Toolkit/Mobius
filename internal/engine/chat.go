@@ -160,7 +160,9 @@ type chat struct {
 	// closing tells that the idle timeout or the drain started the close of the session, so no turn for an Owner
 	// message runs until the close ends.
 	closing bool
-	writing bool
+	// backgroundTurn tells that the wait turn of waitChatBackground runs.
+	backgroundTurn bool
+	writing        bool
 }
 
 // state gives the state of the chat. The caller holds e.chatsMu.

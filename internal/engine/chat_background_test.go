@@ -180,7 +180,7 @@ hang = true
 	}
 }
 
-// Serial: the test changes backgroundCheckInterval, and it waits for the idle timeout of the chat.
+// Serial: the test changes backgroundCheckInterval.
 func TestAnOwnerMessageDoesNotCancelAnAutonomousTurnThatHoldsTheWaitPromptOfAnIdleLead(t *testing.T) {
 	shortBackgroundCheck(t, time.Hour)
 	fake := testkit.NewFakeGitHub(t)
@@ -202,8 +202,7 @@ call = { tool = "background_state", arguments = { state = "done" } }
 	waitForChatSession(t, server, leadChat, engine.LeadRole, func(session store.Session) bool {
 		return lineID(t, server, session.ID, "update", "The task ended.") != 0
 	})
-	idleFrom := time.Now()
-	testkit.WaitFor(t, func() bool { return time.Since(idleFrom) > 3*time.Second })
+	testkit.WaitFor(t, func() bool { return server.Engine.BackgroundTurnRuns(leadChat) })
 
 	sendChat(t, server, leadChat, "A second question")
 

@@ -123,6 +123,14 @@ func (e *Engine) Closing(key ChatKey) bool {
 	return ok && c.closing
 }
 
+// BackgroundTurnRuns tells if the wait turn for the background tasks of the chat key runs.
+func (e *Engine) BackgroundTurnRuns(key ChatKey) bool {
+	e.chatsMu.Lock()
+	defer e.chatsMu.Unlock()
+	c, ok := e.chats[key]
+	return ok && c.backgroundTurn
+}
+
 // QueueOwnerMessageWithoutWake adds a message of the Owner to the queue of the running chat key and sets writing, as
 // give does, but it does not wake the chat loop. Thus the chat loop does not take the message until another step wakes it.
 func (e *Engine) QueueOwnerMessageWithoutWake(ctx context.Context, key ChatKey, text string) error {

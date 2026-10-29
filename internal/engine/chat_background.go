@@ -47,6 +47,14 @@ func (e *Engine) waitChatBackground(c *chat, a *Agent, started *time.Time) (bool
 // message. While an autonomous turn of the CLI holds the wait prompt, the stop only keeps the prompt back, so the
 // autonomous turn ends by itself.
 func (e *Engine) backgroundTurn(c *chat, a *Agent) (cancelled bool, err error) {
+	e.chatsMu.Lock()
+	c.backgroundTurn = true
+	e.chatsMu.Unlock()
+	defer func() {
+		e.chatsMu.Lock()
+		c.backgroundTurn = false
+		e.chatsMu.Unlock()
+	}()
 	done := make(chan error, 1)
 	go func() { done <- e.turn(c, a, chatBackgroundPrompt, nil, false) }()
 	ticker := time.NewTicker(cancelResend)
