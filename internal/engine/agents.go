@@ -62,10 +62,11 @@ type Spec struct {
 
 // Agent is a live agent session. It records its Transcript.
 type Agent struct {
-	engine  *Engine
-	id      int64
-	spec    Spec
-	harness config.Harness
+	engine *Engine
+	id     int64
+	spec   Spec
+	// binding is the Role binding that newAgent read. The session keeps it after a change of the Role settings.
+	binding config.RoleBinding
 	key     string
 	session *runner.Session
 	// queuedAt is the time when the session was added.
@@ -270,7 +271,7 @@ func (e *Engine) addAgent(ctx context.Context, spec Spec) (*Agent, error) {
 
 // newAgent adds the session of spec. The agent holds no slot yet.
 func (e *Engine) newAgent(ctx context.Context, spec Spec) (*Agent, error) {
-	binding, ok := roleBinding(e.config, spec.Role)
+	binding, ok := e.roleBinding(spec.Role)
 	if !ok {
 		return nil, fmt.Errorf("the Role %s has no Role binding", spec.Role)
 	}
@@ -301,7 +302,7 @@ func (e *Engine) newAgent(ctx context.Context, spec Spec) (*Agent, error) {
 		return nil, err
 	}
 	e.publish(Change{Node: new(e.node(session))})
-	return &Agent{engine: e, id: session.ID, spec: spec, harness: binding.Harness, tracked: !worker, queuedAt: session.StartedAt, wake: make(chan struct{}, 1), ended: make(chan struct{}, 1)}, nil
+	return &Agent{engine: e, id: session.ID, spec: spec, binding: binding, tracked: !worker, queuedAt: session.StartedAt, wake: make(chan struct{}, 1), ended: make(chan struct{}, 1)}, nil
 }
 
 // waitForSlot waits for a slot of the Role of a, and starts the session. A failed wait ends the session, like Start.
@@ -338,7 +339,7 @@ func (a *Agent) waitForSlot(ctx context.Context) error {
 // tools/list in toolsTimeout has no Mobius tools (Mobius-rust#254), so open starts its Harness again, at most
 // max_worker_restarts times.
 func (a *Agent) open(ctx context.Context) error {
-	binding, _ := roleBinding(a.engine.config, a.spec.Role)
+	binding := a.binding
 	if err := a.copySkills(ctx); err != nil {
 		return err
 	}
@@ -426,7 +427,7 @@ func (a *Agent) startHarness(ctx context.Context) error {
 			return err
 		}
 	}
-	session, err := runner.Start(ctx, a.harness, spec.Dir, e.config.DataDir, e.agents.Path, mcp.URL(e.agents.Addr, a.key), ghTokenURL, ghWritesURL, ghMark, a.update)
+	session, err := runner.Start(ctx, a.binding.Harness, spec.Dir, e.config.DataDir, e.agents.Path, mcp.URL(e.agents.Addr, a.key), ghTokenURL, ghWritesURL, ghMark, a.update)
 	if err != nil {
 		return err
 	}
@@ -480,7 +481,7 @@ func (a *Agent) Prompt(ctx context.Context, text string, images []Image) error {
 		if err != nil {
 			return err
 		}
-		paused, err := a.engine.harnessPause(ctx, a.harness)
+		paused, err := a.engine.harnessPause(ctx, a.binding.Harness)
 		if err != nil {
 			return err
 		}
@@ -720,7 +721,7 @@ func (a *Agent) record(params json.RawMessage, late bool) error {
 		field(notification, "update", "_meta", "_claude/rateLimit", "isUsingOverage") != true {
 		a.limited = true
 	}
-	if kind == "agent_message_chunk" && a.turn && a.harness == config.ClaudeCode && isLimitText(a.chunkText(kind)+content) {
+	if kind == "agent_message_chunk" && a.turn && a.binding.Harness == config.ClaudeCode && isLimitText(a.chunkText(kind)+content) {
 		a.limited = true
 	}
 	if isChunk && a.chunk != nil && stringField(a.chunk, "update", "sessionUpdate") == kind {
@@ -925,16 +926,17 @@ func (e *Engine) ActiveAgents(ctx context.Context) (ActiveAgents, error) {
 	running := maps.Clone(e.workers.running)
 	e.workers.mu.Unlock()
 	agents := map[string][]ActiveAgent{}
+	roles := e.mergedRoles()
 	for _, row := range rows {
 		role := row.Session.Role
-		if _, ok := roleBinding(e.config, role); !ok {
+		if _, ok := roleBinding(&roles, role); !ok {
 			continue
 		}
 		agents[role] = append(agents[role], ActiveAgent{e.node(row.Session), row.WorkstreamTitle, row.IssueTitle, row.PullRequest})
 	}
 	var active ActiveAgents
 	for _, g := range groups {
-		binding, _ := roleBinding(e.config, g.role)
+		binding, _ := roleBinding(&roles, g.role)
 		active.Groups = append(active.Groups, AgentGroup{Title: g.title, Count: running[g.role], Max: binding.Max, Agents: agents[g.role]})
 	}
 	return active, nil

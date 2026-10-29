@@ -184,14 +184,14 @@ func (a *Agent) waitOutLimit(ctx context.Context, err error) (bool, error) {
 	if !hint.IsZero() && !hint.After(now) {
 		hint, hintState = time.Time{}, "too old"
 	}
-	until, ok := detect(a.harness, requestErr, hint, now)
+	until, ok := detect(a.binding.Harness, requestErr, hint, now)
 	if !ok {
 		return false, nil
 	}
 	if !hint.IsZero() {
 		hintState = "used"
 	}
-	log.Printf("usage limit of %s: reset time of the usage update %s (%s), pause until %s", a.harness, reported, hintState, until.UTC().Format(timeFormat))
+	log.Printf("usage limit of %s: reset time of the usage update %s (%s), pause until %s", a.binding.Harness, reported, hintState, until.UTC().Format(timeFormat))
 	if err := a.engine.pause(ctx, a, until); err != nil {
 		return false, err
 	}
@@ -211,7 +211,7 @@ func limitText(harness config.Harness, until time.Time) string {
 func (e *Engine) pause(ctx context.Context, a *Agent, until time.Time) error {
 	e.pausing.Lock()
 	defer e.pausing.Unlock()
-	current, err := e.queries.GetHarnessPause(ctx, string(a.harness))
+	current, err := e.queries.GetHarnessPause(ctx, string(a.binding.Harness))
 	if err == nil {
 		if a.author == "" {
 			return nil
@@ -220,7 +220,7 @@ func (e *Engine) pause(ctx context.Context, a *Agent, until time.Time) error {
 		if err != nil {
 			return err
 		}
-		text := limitText(a.harness, *currentEnd)
+		text := limitText(a.binding.Harness, *currentEnd)
 		spec := a.spec
 		last, err := e.queries.GetLastChatMessageOf(ctx, store.GetLastChatMessageOfParams{
 			Organization: spec.Organization, Repository: spec.WorkstreamRepository, Workstream: spec.Workstream, Author: mobiusAuthor,
@@ -236,16 +236,16 @@ func (e *Engine) pause(ctx context.Context, a *Agent, until time.Time) error {
 	if !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
-	retry, err := e.pauseEndedWithin(ctx, a.harness, retryWindow)
+	retry, err := e.pauseEndedWithin(ctx, a.binding.Harness, retryWindow)
 	if err != nil {
 		return err
 	}
 	if !retry || a.author != "" {
-		if err := e.addLimitMessage(ctx, a, limitText(a.harness, until)); err != nil {
+		if err := e.addLimitMessage(ctx, a, limitText(a.binding.Harness, until)); err != nil {
 			return err
 		}
 	}
-	pause := store.HarnessPause{Harness: string(a.harness), PausedUntil: until.UTC().Format(time.RFC3339Nano)}
+	pause := store.HarnessPause{Harness: string(a.binding.Harness), PausedUntil: until.UTC().Format(time.RFC3339Nano)}
 	if err := e.queries.SetHarnessPause(ctx, store.SetHarnessPauseParams(pause)); err != nil {
 		return err
 	}
@@ -390,7 +390,7 @@ func (a *Agent) waitForPause(ctx context.Context) error {
 	shown := false
 	for {
 		changed := e.pausesChanged.wait()
-		pause, err := e.queries.GetHarnessPause(ctx, string(a.harness))
+		pause, err := e.queries.GetHarnessPause(ctx, string(a.binding.Harness))
 		if errors.Is(err, sql.ErrNoRows) {
 			if !a.setUncounted(false) {
 				select {

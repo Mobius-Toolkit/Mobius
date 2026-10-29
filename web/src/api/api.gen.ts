@@ -911,6 +911,46 @@ export interface EnvelopeArrayPause {
 }
 
 /**
+ * RoleFields tells for each field of a Role if the UI gives it. false means config.toml.
+ */
+export interface RoleFields {
+  /** Effort is true when the UI gives the effort level */
+  effort: boolean;
+  /** Harness is true when the UI gives the Harness */
+  harness: boolean;
+  /** Max is true when the UI gives the session limit */
+  max: boolean;
+  /** Model is true when the UI gives the model */
+  model: boolean;
+}
+
+/**
+ * Role is the binding of a Role to a Harness, with the source of each value.
+ */
+export interface Role {
+  /** Effort is the effort level of the Role, or empty for a Harness with no effort levels */
+  effort: string;
+  /** Harness is the agent program of the Role */
+  harness: string;
+  /** Max is the number of sessions of the Role that run at the same time */
+  max: number;
+  /** Model is the model of the Role */
+  model: string;
+  /** Role is the name of the Role */
+  role: string;
+  /** UI tells which values come from the UI */
+  ui: RoleFields;
+}
+
+/**
+ * Envelope is the body of each success response.
+ */
+export interface EnvelopeArrayRole {
+  /** Data is the payload of the response */
+  data: Role[];
+}
+
+/**
  * TaskLine is a task of a Workstream.
  */
 export interface TaskLine {
@@ -1230,6 +1270,14 @@ export interface Release {
 export interface EnvelopeRelease {
   /** Data is the payload of the response */
   data: Release;
+}
+
+/**
+ * Envelope is the body of each success response.
+ */
+export interface EnvelopeRole {
+  /** Data is the payload of the response */
+  data: Role;
 }
 
 /**
@@ -1841,6 +1889,17 @@ export interface SetAutopilotBody {
 export interface SetEvergreenBody {
   /** On adds mobius:evergreen when true, and removes it when false */
   on?: boolean;
+}
+
+export interface SetRoleBody {
+  /** Effort is the effort level of the Role. It is empty for a Harness with no effort levels. */
+  effort?: string;
+  /** Harness is the agent program of the Role */
+  harness?: string;
+  /** Max is the number of sessions of the Role that run at the same time */
+  max?: number;
+  /** Model is the model of the Role */
+  model?: string;
 }
 
 export interface SetSwitchBody {
@@ -5201,6 +5260,202 @@ export const revertMemory = async (owner: string,
 
   const data: revertMemoryResponse['data'] = body ? JSON.parse(body) : undefined
   return { data, status: res.status, headers: res.headers } as revertMemoryResponse
+}
+
+
+
+export type listRolesResponse200 = {
+  data: EnvelopeArrayRole
+  status: 200
+}
+
+export type listRolesResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type listRolesResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type listRolesResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type listRolesResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type listRolesResponseSuccess = (listRolesResponse200) & {
+  headers: Headers;
+};
+export type listRolesResponseError = (listRolesResponse400 | listRolesResponse401 | listRolesResponse422 | listRolesResponse500) & {
+  headers: Headers;
+};
+
+export type listRolesResponse = (listRolesResponseSuccess | listRolesResponseError)
+
+export const getListRolesUrl = () => {
+
+
+
+
+  return `/api/roles`
+}
+
+/**
+ * ListRoles returns each Role with its values, in the order of config.toml.
+ */
+export const listRoles = async ( ): Promise<listRolesResponse> => {
+
+  const res = await fetch(getListRolesUrl(),
+  {
+
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: listRolesResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as listRolesResponse
+}
+
+
+
+export type setRoleResponse200 = {
+  data: EnvelopeRole
+  status: 200
+}
+
+export type setRoleResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type setRoleResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type setRoleResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type setRoleResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type setRoleResponseSuccess = (setRoleResponse200) & {
+  headers: Headers;
+};
+export type setRoleResponseError = (setRoleResponse400 | setRoleResponse401 | setRoleResponse422 | setRoleResponse500) & {
+  headers: Headers;
+};
+
+export type setRoleResponse = (setRoleResponseSuccess | setRoleResponseError)
+
+export const getSetRoleUrl = (role: 'lead' | 'coordinator' | 'triager' | 'implementer' | 'researcher' | 'reviewer' | 'judge' | 'curator' | 'diagnoser',) => {
+
+
+
+
+  return `/api/roles/${role}`
+}
+
+/**
+ * SetRole sets the values of a Role. The next session of the Role uses them. It returns 422 with the reason when the values fail a check.
+ */
+export const setRole = async (role: 'lead' | 'coordinator' | 'triager' | 'implementer' | 'researcher' | 'reviewer' | 'judge' | 'curator' | 'diagnoser',
+    setRoleBody: SetRoleBody, ): Promise<setRoleResponse> => {
+
+  const res = await fetch(getSetRoleUrl(role),
+  {
+
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(setRoleBody)
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: setRoleResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as setRoleResponse
+}
+
+
+
+export type resetRoleResponse200 = {
+  data: EnvelopeRole
+  status: 200
+}
+
+export type resetRoleResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type resetRoleResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type resetRoleResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type resetRoleResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type resetRoleResponseSuccess = (resetRoleResponse200) & {
+  headers: Headers;
+};
+export type resetRoleResponseError = (resetRoleResponse400 | resetRoleResponse401 | resetRoleResponse422 | resetRoleResponse500) & {
+  headers: Headers;
+};
+
+export type resetRoleResponse = (resetRoleResponseSuccess | resetRoleResponseError)
+
+export const getResetRoleUrl = (role: 'lead' | 'coordinator' | 'triager' | 'implementer' | 'researcher' | 'reviewer' | 'judge' | 'curator' | 'diagnoser',) => {
+
+
+
+
+  return `/api/roles/${role}`
+}
+
+/**
+ * ResetRole removes the UI values of a Role, so it uses config.toml again. It returns 422 with the reason when the values of config.toml fail a check with the UI values of the other Roles.
+ */
+export const resetRole = async (role: 'lead' | 'coordinator' | 'triager' | 'implementer' | 'researcher' | 'reviewer' | 'judge' | 'curator' | 'diagnoser', ): Promise<resetRoleResponse> => {
+
+  const res = await fetch(getResetRoleUrl(role),
+  {
+
+    method: 'DELETE'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: resetRoleResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as resetRoleResponse
 }
 
 

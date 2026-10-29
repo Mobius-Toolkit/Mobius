@@ -1282,3 +1282,13 @@ JOIN copied_issues i ON i.number = h.issue AND i.state = 'open'
   AND lower(substr(i.repository_url, instr(i.repository_url, '/repos/') + 7)) = lower(h.repository)
 JOIN copied_workstreams w ON w.repository = i.repository AND w.number = i.workstream
 ORDER BY julianday(h.held_at), h.kind, h.repository, h.issue, i.repository, i.workstream;
+
+-- name: ListRoleSettings :many
+SELECT * FROM role_settings;
+
+-- name: UpsertRoleSetting :exec
+INSERT INTO role_settings (role, harness, model, effort, max, updated_at) VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT (role) DO UPDATE SET harness = excluded.harness, model = excluded.model, effort = excluded.effort, max = excluded.max, updated_at = excluded.updated_at;
+
+-- name: DeleteRoleSetting :exec
+DELETE FROM role_settings WHERE role = ?;
