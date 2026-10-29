@@ -237,6 +237,30 @@ func TestHeldWorkOfAnOpenIssueShowsItsWorkstreamAndTheNewHoldSendsOneEvent(t *te
 	}
 }
 
+func TestHeldWorkOfASwitchThatIsOnAddsNoRowAndSendsNoEvent(t *testing.T) {
+	t.Parallel()
+	server := startWithTasks(t, testkit.NewFakeGitHub(t))
+	changes := listen(t, server)
+
+	if err := server.Engine.HoldWork(t.Context(), "start", shop, 41); err != nil {
+		t.Fatal(err)
+	}
+
+	if count := switchChanges(changes); count != 0 {
+		t.Errorf("events = %d, want 0", count)
+	}
+	rows := query(t, server, func(rows *sql.Rows, issue *int64) error {
+		return rows.Scan(issue)
+	}, "SELECT issue FROM held_work")
+	if len(rows) != 0 {
+		t.Errorf("held_work issues = %v, want none", rows)
+	}
+	putSwitch(t, server, "start", false)
+	if got := getSwitches(t, server); len(got.Held) != 0 {
+		t.Errorf("held after a later off = %+v", got.Held)
+	}
+}
+
 func TestHeldWorkOfAClosedIssueIsNotListed(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

@@ -1265,7 +1265,8 @@ ON CONFLICT (kind) DO NOTHING;
 DELETE FROM global_pauses WHERE kind = ?;
 
 -- name: AddHeldWork :execrows
-INSERT INTO held_work (kind, repository, issue, held_at) VALUES (?, ?, ?, ?)
+INSERT INTO held_work (kind, repository, issue, held_at)
+SELECT ?1, ?2, ?3, ?4 WHERE EXISTS (SELECT 1 FROM global_pauses WHERE kind = ?1)
 ON CONFLICT (kind, repository, issue) DO NOTHING;
 
 -- name: DeleteHeldWork :exec
