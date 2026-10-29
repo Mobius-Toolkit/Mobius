@@ -303,7 +303,7 @@ func (e *Engine) curateTurn(ctx context.Context, a *Agent, requests []store.List
 	if err := a.Prompt(ctx, curatorPrompt+"\n"+maintenanceSection(a.spec.Repository, a.maintenance)+requestsSection(requests)+skills+sections+versions+problems+leads, nil); err != nil {
 		return err
 	}
-	return a.waitBackground(ctx)
+	return a.waitBackground(ctx, backgroundPrompt)
 }
 
 // maintenanceSection gives the maintenance Workstream of the Curator as a prompt section.

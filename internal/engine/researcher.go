@@ -219,7 +219,7 @@ func (e *Engine) researchTurn(ctx context.Context, a *Agent, question string) (s
 	for {
 		err := a.Prompt(ctx, prompt, nil)
 		if err == nil {
-			err = a.waitBackground(ctx)
+			err = a.waitBackground(ctx, backgroundPrompt)
 		}
 		if details := e.takeDetails(e.researchers, a.id, a, true); details != "" && ctx.Err() == nil {
 			prompt = detailsPrompt("question", details)
