@@ -155,6 +155,52 @@ export const coordinatorActionItem = {
   action: { ...leadActionItem.action, id: 79, role: "coordinator", tool: "message_lead" },
 };
 
+// A mandatory todo and an optional todo of the pull requests of owner/shop#12.
+export const todoItems = [
+  {
+    ...base,
+    id: 213,
+    issue: 40,
+    kind: "todo",
+    title: "MOBIUS_SMTP_HOST",
+    reason: "mandatory · Deployment needs",
+    text: "env_var: MOBIUS_SMTP_HOST",
+    link: `${link}/issues/40`,
+    pullRequest: 1110,
+    pullRequestUrl: `${link}/pull/1110`,
+    todo: {
+      kind: "env_var",
+      name: "MOBIUS_SMTP_HOST",
+      path: "internal/config/config.go",
+      line: 42,
+      mandatory: true,
+      reason: "The server reads it at the start and has no default.",
+      note: "",
+    },
+  },
+  {
+    ...base,
+    id: 214,
+    issue: 43,
+    kind: "todo",
+    title: "MOBIUS_SMTP_TIMEOUT",
+    reason: "optional · Deployment needs",
+    text: "env_var: MOBIUS_SMTP_TIMEOUT",
+    link: `${link}/issues/43`,
+    pullRequest: 1110,
+    pullRequestUrl: `${link}/pull/1110`,
+    todo: {
+      kind: "env_var",
+      name: "MOBIUS_SMTP_TIMEOUT",
+      path: "internal/config/config.go",
+      line: 57,
+      mandatory: false,
+      reason: "The server waits 10 seconds when the variable is not set.",
+      note: "",
+    },
+  },
+];
+
 export const inboxRoute = "**/api/inbox";
 
 // Adds the items to the Inbox that the server gives.

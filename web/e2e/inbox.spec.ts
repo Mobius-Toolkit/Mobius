@@ -480,14 +480,41 @@ async function openTodo(page: Page) {
   await routeInbox(page, [todo]);
   await page.goto("/inbox");
   const row = page.getByRole("main").getByRole("listitem");
-  await expect(row.getByRole("button")).toHaveText(["Done…", "Chat", "Details"]);
+  await expect(row.getByRole("button")).toHaveText(["Complete", "Chat", "Details"]);
   await expect(row.getByRole("link", { name: "Open PR" })).toHaveAttribute(
     "href",
     `${link}/pull/1110`,
   );
-  await row.getByRole("button", { name: "Done…" }).click();
+  await row.getByRole("button", { name: "Complete" }).click();
   return { row, panel: page.getByRole("dialog") };
 }
+
+test("a todo row shows a badge that tells if the todo is mandatory or optional", async ({
+  page,
+}) => {
+  const optional = {
+    ...todo,
+    id: 8,
+    title: "MOBIUS_SMTP_TIMEOUT",
+    reason: "optional · Deployment needs",
+    todo: { ...todo.todo, mandatory: false },
+  };
+  await routeInbox(page, [todo, optional]);
+  await page.goto("/inbox");
+  const rows = page.getByRole("main").getByRole("listitem");
+
+  await expect(
+    rows.filter({ hasText: "MOBIUS_SMTP_HOST" }).locator("[data-slot=badge]"),
+  ).toHaveText("Todo · mandatory");
+  await expect(
+    rows.filter({ hasText: "MOBIUS_SMTP_TIMEOUT" }).locator("[data-slot=badge]"),
+  ).toHaveText("Todo · optional");
+  await expect(rows.filter({ hasText: "MOBIUS_SMTP_TIMEOUT" }).getByRole("button")).toHaveText([
+    "Complete",
+    "Chat",
+    "Details",
+  ]);
+});
 
 test("Done opens a panel with the details of the need, and the note marks the todo as done", async ({
   page,
@@ -509,7 +536,7 @@ test("Done opens a panel with the details of the need, and the note marks the to
     "href",
     `${link}/pull/1110`,
   );
-  await expect(panel.getByText("Mobius merges after this todo is done.")).toBeVisible();
+  await expect(panel.getByText("Mobius merges after you complete this todo.")).toBeVisible();
   await panel.getByRole("textbox", { name: "Note" }).fill("Set in prod.");
   const response = page.waitForResponse("**/api/inbox/7/done");
   await panel.getByRole("button", { name: "Send" }).click();
@@ -561,6 +588,6 @@ test("Details of a todo opens the same panel with no note field", async ({ page 
 
   await page.getByRole("main").getByRole("button", { name: "Details" }).click();
   await expect(panel.getByText("File: internal/config/config.go:42")).toBeVisible();
-  await expect(panel.getByText("Mobius merges after this todo is done.")).toBeVisible();
+  await expect(panel.getByText("Mobius merges after you complete this todo.")).toBeVisible();
   await expect(panel.getByRole("textbox")).toHaveCount(0);
 });
