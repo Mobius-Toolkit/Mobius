@@ -768,7 +768,17 @@ test("an empty chat shows the Brief above the text for no messages, with no pane
 test("Show all opens the full Brief in the bubble, and Show less cuts it again", async ({
   page,
 }) => {
-  await page.setViewportSize({ width: 390, height: 520 });
+  await page.addInitScript(`
+    window.appSources = [];
+    const add = EventSource.prototype.addEventListener;
+    EventSource.prototype.addEventListener = function (type, listener, options) {
+      if (this.url.endsWith('/api/events') && !window.appSources.includes(this)) {
+        window.appSources.push(this);
+      }
+      return add.call(this, type, listener, options);
+    };
+  `);
+  await page.setViewportSize({ width: 390, height: 640 });
   await page.goto("/workstreams/plants/garden/19");
   const brief = briefBubble(page);
   const last = brief.getByText("The roses have no bark at their stems.");
@@ -781,11 +791,22 @@ test("Show all opens the full Brief in the bubble, and Show less cuts it again",
     return (line?.y ?? 0) + (line?.height ?? 0) <= (bubble?.y ?? 0) + (bubble?.height ?? 0);
   };
   await expect.poll(showsLast).toBe(false);
+  const first = brief.locator("strong").first();
+  await expect(first).toBeInViewport();
   const before = await scrollTop();
   // A click scrolls the button into view by itself, so the test sends the click event.
   await brief.getByRole("button", { name: "Show all" }).dispatchEvent("click");
   await expect.poll(showsLast).toBe(true);
   expect(await scrollTop()).toBe(before);
+  // A new Workstream list makes the chat render again, and the render must not scroll to the end.
+  const reloaded = page.waitForResponse("**/api/workstreams");
+  await page.evaluate(
+    `window.appSources.forEach((source) => source.dispatchEvent(new MessageEvent('workstreams', { data: '{}' })))`,
+  );
+  await reloaded;
+  await expect.poll(showsLast).toBe(true);
+  expect(await scrollTop()).toBe(before);
+  await expect(first).toBeInViewport();
   await brief.getByRole("button", { name: "Show less" }).click();
   await expect.poll(showsLast).toBe(false);
   await page.reload();

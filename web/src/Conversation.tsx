@@ -190,7 +190,15 @@ const Message = memo(function Message({
 
 const briefCutHeight = 144;
 
-function BriefBubble({ brief, onMeasured }: { brief: Workstream; onMeasured: () => void }) {
+function BriefBubble({
+  brief,
+  onMeasured,
+  onToggled,
+}: {
+  brief: Workstream;
+  onMeasured: () => void;
+  onToggled: () => void;
+}) {
   const root = useRef<HTMLElement>(null);
   const toggled = useRef(false);
   const box = useRef<HTMLDivElement>(null);
@@ -215,13 +223,14 @@ function BriefBubble({ brief, onMeasured }: { brief: Workstream; onMeasured: () 
     const observer = new ResizeObserver(() => {
       if (toggled.current) {
         toggled.current = false;
+        onToggled();
         return;
       }
       onMeasured();
     });
     observer.observe(root.current);
     return () => observer.disconnect();
-  }, [onMeasured]);
+  }, [onMeasured, onToggled]);
 
   return (
     <section
@@ -429,6 +438,11 @@ export function Conversation({
       scrollToEnd(listRef.current);
     }
   }, [scrollToEnd]);
+  const settleBrief = useCallback(() => {
+    if (listRef.current) {
+      pinned.current = atEnd(listRef.current);
+    }
+  }, []);
   // The number of messages at the last scroll, or undefined before the first scroll.
   const scrolledCount = useRef<number>(undefined);
   const loadingOlder = useRef(false);
@@ -844,7 +858,9 @@ export function Conversation({
         className="grid min-h-0 grow grid-cols-[minmax(0,1fr)] content-start gap-3 overflow-y-auto overscroll-contain bg-muted/40 p-4"
       >
         {error && <Badge variant="destructive">{error}</Badge>}
-        {brief && showBrief && <BriefBubble brief={brief} onMeasured={measureBrief} />}
+        {brief && showBrief && (
+          <BriefBubble brief={brief} onMeasured={measureBrief} onToggled={settleBrief} />
+        )}
         {loaded && queueLoaded && count === 0 && (
           <p className="text-center text-sm text-muted-foreground">
             No messages. Write to start a chat session.
