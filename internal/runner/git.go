@@ -201,6 +201,29 @@ func SkillNames(ctx context.Context, dataDir, repository, branch, folder string)
 	return names, nil
 }
 
+// SkillFolders gives the folders in origin/branch in the bare clone of repository below dataDir, as the last Fetch got
+// them, that have a SKILL.md file. A skill is a folder in the root, or a folder below repos/<repository name>. The
+// folders are in name order.
+func SkillFolders(ctx context.Context, dataDir, repository, branch string) ([]string, error) {
+	files, err := run(git(ctx, dataDir, bareDir(dataDir, repository), "", "ls-tree", "-r", "--name-only", "origin/"+branch))
+	if err != nil {
+		return nil, err
+	}
+	var folders []string
+	for file := range strings.SplitSeq(files, "\n") {
+		folder, found := strings.CutSuffix(file, "/SKILL.md")
+		if !found {
+			continue
+		}
+		parts := strings.Split(folder, "/")
+		if len(parts) == 1 || len(parts) == 3 && parts[0] == "repos" {
+			folders = append(folders, folder)
+		}
+	}
+	slices.Sort(folders)
+	return folders, nil
+}
+
 // SkillNamesEver gives each skill name that had a SKILL.md file in a commit of the history of origin/branch in the bare
 // clone of repository below dataDir, as the last Fetch got it, also a skill that a later commit removed. A skill is a
 // folder in the root, or a folder below repos/<repository name>. Each name is in the list one time.

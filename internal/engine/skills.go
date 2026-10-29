@@ -139,6 +139,9 @@ func (a *Agent) addSessionSkills(ctx context.Context, names []string) {
 	}
 }
 
+// recordedSkillHarnesses are the Harnesses for which recordSkillUse adds a skill_uses row.
+var recordedSkillHarnesses = []config.Harness{config.ClaudeCode, config.Devin, config.DSH}
+
 // recordSkillUse adds a skill_uses row for the first update of a skill tool call. The caller holds a.mu.
 func (a *Agent) recordSkillUse(ctx context.Context, notification map[string]any, kind string) {
 	update := notification["update"]
@@ -198,26 +201,38 @@ func (a *Agent) roleName() string {
 	return groups[index].name
 }
 
-// skillGoesToRole tells whether a skill with the text of its SKILL.md goes to the Role with the config name role. A
-// skill goes to each Role when it has no metadata.roles key in the frontmatter, or when the frontmatter is not valid.
-func skillGoesToRole(text, role string) bool {
+// skillFrontmatter gives the description and the metadata.roles value of the frontmatter of the text of a SKILL.md. The
+// roles are nil when the frontmatter has no metadata.roles key or is not valid.
+func skillFrontmatter(text string) (description string, roles *string) {
 	rest, found := strings.CutPrefix(text, "---\n")
 	if !found {
-		return true
+		return "", nil
 	}
 	frontmatter, _, found := strings.Cut(rest, "\n---")
 	if !found {
-		return true
+		return "", nil
 	}
 	var parsed struct {
-		Metadata struct {
+		Description any `yaml:"description"`
+		Metadata    struct {
 			Roles *string `yaml:"roles"`
 		} `yaml:"metadata"`
 	}
-	if err := yaml.Unmarshal([]byte(frontmatter), &parsed); err != nil || parsed.Metadata.Roles == nil {
+	if err := yaml.Unmarshal([]byte(frontmatter), &parsed); err != nil {
+		return "", nil
+	}
+	description, _ = parsed.Description.(string)
+	return description, parsed.Metadata.Roles
+}
+
+// skillGoesToRole tells whether a skill with the text of its SKILL.md goes to the Role with the config name role. A
+// skill goes to each Role when it has no metadata.roles key in the frontmatter, or when the frontmatter is not valid.
+func skillGoesToRole(text, role string) bool {
+	_, roles := skillFrontmatter(text)
+	if roles == nil {
 		return true
 	}
-	for name := range strings.SplitSeq(*parsed.Metadata.Roles, ",") {
+	for name := range strings.SplitSeq(*roles, ",") {
 		if strings.TrimSpace(name) == role {
 			return true
 		}
