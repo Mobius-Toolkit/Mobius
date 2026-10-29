@@ -31,6 +31,19 @@ func (e *Engine) SetClock(clock func() time.Time) {
 	e.clock.Store(&clock)
 }
 
+// AccessChecked tells if the access check of each Role binding has a result.
+func (e *Engine) AccessChecked() bool {
+	roles := e.mergedRoles()
+	e.accessMu.Lock()
+	defer e.accessMu.Unlock()
+	for _, named := range roles.Bindings() {
+		if _, checked := e.access[keyOf(*named.Binding)]; !checked {
+			return false
+		}
+	}
+	return true
+}
+
 // PollEnded tells if a poll ended. A poll replaces the work at its end.
 func (e *Engine) PollEnded() bool {
 	e.workers.mu.Lock()

@@ -263,7 +263,7 @@ func (e *Engine) takeSlot(ctx context.Context, a *Agent) error {
 				return err
 			}
 		}
-		reason, ok := e.slotReason(a, place, queue, worker, paused, startOff)
+		reason, ok := e.slotReason(a, place, queue, worker, paused, startOff, e.accessHold(a.binding))
 		if !ok {
 			return ErrLeftQueue
 		}
@@ -307,8 +307,8 @@ func (e *Engine) takeSlot(ctx context.Context, a *Agent) error {
 // slotReason gives the reason why the session of a must wait, or "" when the session took a slot. A Worker that
 // takes a slot also counts in the drain. It gives false when the task of the session is not in queue. paused is
 // the reason of a pause of the Harness of a Worker, or "". startOff tells that the Start switch is off and the
-// session has a task.
-func (e *Engine) slotReason(a *Agent, place waiter, queue []queuedTask, worker bool, paused string, startOff bool) (string, bool) {
+// session has a task. noAccess is the reason why the access check of the Role binding of the session holds it, or "".
+func (e *Engine) slotReason(a *Agent, place waiter, queue []queuedTask, worker bool, paused string, startOff bool, noAccess string) (string, bool) {
 	w := &e.workers
 	role, task := a.spec.Role, a.spec.Task
 	w.mu.Lock()
@@ -348,6 +348,8 @@ func (e *Engine) slotReason(a *Agent, place waiter, queue []queuedTask, worker b
 		reason = drainReason
 	case startOff:
 		reason = startOffReason
+	case noAccess != "":
+		reason = noAccess
 	case paused != "":
 		reason = paused
 	default:

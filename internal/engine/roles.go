@@ -123,11 +123,12 @@ func (e *Engine) Roles(ctx context.Context) ([]RoleSetting, error) {
 
 // SetRole sets the binding of the Role role in the UI. The next session of the Role uses it, and a session that runs
 // keeps its binding. It refuses a binding that config.toml would refuse, a max below 1, and a Harness whose program is
-// not on the PATH of the agents. A field that is equal to the field of config.toml is not stored.
+// not on the PATH of the agents. When the Harness, the model or the effort changes, it also refuses a binding whose
+// access check fails. A field that is equal to the field of config.toml is not stored.
 func (e *Engine) SetRole(ctx context.Context, role string, binding config.RoleBinding) error {
-	e.rolesMu.Lock()
-	defer e.rolesMu.Unlock()
-	merged := e.roles
+	e.roleWriteMu.Lock()
+	defer e.roleWriteMu.Unlock()
+	merged := e.mergedRoles()
 	target := namedBinding(&merged, role)
 	if target == nil {
 		return refuse("The Role %s does not exist.", role)
@@ -135,10 +136,16 @@ func (e *Engine) SetRole(ctx context.Context, role string, binding config.RoleBi
 	if binding.Max < 1 {
 		return refuse("roles.%s.max: must be 1 or more", role)
 	}
+	current := *target
 	*target = binding
 	if err := e.checkRoles(&merged, role); err != nil {
 		return refuse("%s", err)
 	}
+	if err := e.checkChange(ctx, current, binding); err != nil {
+		return err
+	}
+	e.rolesMu.Lock()
+	defer e.rolesMu.Unlock()
 	base := namedBinding(&e.config.Roles, role)
 	row := store.UpsertRoleSettingParams{Role: role, UpdatedAt: now()}
 	if binding.Harness != base.Harness {
@@ -168,17 +175,23 @@ func (e *Engine) SetRole(ctx context.Context, role string, binding config.RoleBi
 
 // ResetRole removes the UI values of the Role role, so it uses config.toml again. It runs the same refusals as SetRole.
 func (e *Engine) ResetRole(ctx context.Context, role string) error {
-	e.rolesMu.Lock()
-	defer e.rolesMu.Unlock()
-	merged := e.roles
+	e.roleWriteMu.Lock()
+	defer e.roleWriteMu.Unlock()
+	merged := e.mergedRoles()
 	target := namedBinding(&merged, role)
 	if target == nil {
 		return refuse("The Role %s does not exist.", role)
 	}
+	current := *target
 	*target = *namedBinding(&e.config.Roles, role)
 	if err := e.checkRoles(&merged, role); err != nil {
 		return refuse("%s", err)
 	}
+	if err := e.checkChange(ctx, current, *target); err != nil {
+		return err
+	}
+	e.rolesMu.Lock()
+	defer e.rolesMu.Unlock()
 	if err := e.queries.DeleteRoleSetting(ctx, role); err != nil {
 		return err
 	}
