@@ -3239,6 +3239,28 @@ func (q *Queries) IsOwnerAnswer(ctx context.Context, arg IsOwnerAnswerParams) (b
 	return exists, err
 }
 
+const isRepairIssue = `-- name: IsRepairIssue :one
+SELECT EXISTS (
+  SELECT 1 FROM ci_breaks WHERE ci_breaks.repository = ?1 AND ABS(ci_breaks.issue) = ?2
+  UNION ALL
+  SELECT 1 FROM check_timeouts WHERE check_timeouts.repository = ?1 AND ABS(check_timeouts.issue) = ?2
+  UNION ALL
+  SELECT 1 FROM ci_failures WHERE ci_failures.repository = ?1 AND ABS(ci_failures.issue) = ?2
+)
+`
+
+type IsRepairIssueParams struct {
+	Repository string
+	Issue      int64
+}
+
+func (q *Queries) IsRepairIssue(ctx context.Context, arg IsRepairIssueParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, isRepairIssue, arg.Repository, arg.Issue)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const keepLeadFindings = `-- name: KeepLeadFindings :execrows
 UPDATE tasks SET lead_findings = lead_findings || ?1 WHERE id = ?2 AND state IN ('working', 'reviewed')
 `
