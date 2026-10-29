@@ -401,6 +401,35 @@ call = { tool = "background_state", arguments = { state = "done" } }
 }
 
 // Serial: the test changes backgroundCheckInterval.
+func TestAResearcherThatProposesASkillAgainAfterTheWaitPromptSendsOneProposal(t *testing.T) {
+	shortBackgroundCheck(t, 50*time.Millisecond)
+	fake := testkit.NewFakeGitHub(t)
+	addSkillsWorkstream(fake, 20)
+	propose := `call = { tool = "propose_skill", arguments = { name = "failed-tests", reason = "Reason.", files = [{ path = "SKILL.md", content = "Text." }] } }`
+	researcher := "[[prompts]]\nupdates = ['" + asyncAgentStart + "']\n" + propose + "\n\n" +
+		"[[prompts]]\n" + propose + "\n\n" +
+		"[[prompts]]\nreply = [\"The final report.\"]\ncall = { tool = \"background_state\", arguments = { state = \"done\" } }\n"
+	server, _ := connectResearcher(t, fake, researchLead, researcher)
+
+	sendChat(t, server, leadChat, "Plan the price model.")
+
+	session := testkit.WaitForValue(t, func() (store.Session, bool) {
+		sessions := roleSessions(t, server, engine.ResearcherRole)
+		if len(sessions) == 0 {
+			return store.Session{}, false
+		}
+		return sessions[0], sessions[0].EndedAt.Valid
+	})
+	calls := mcpCalls(t, server, session.ID)
+	if len(calls) != 3 || calls[1]["error"] != `You already proposed the skill "failed-tests" in this session. Do not call propose_skill again for it.` {
+		t.Errorf("calls = %v", calls)
+	}
+	if events := skillProposals(leadEvents(t, server)); len(events) != 1 {
+		t.Errorf("events = %+v", events)
+	}
+}
+
+// Serial: the test changes backgroundCheckInterval.
 func TestTheWaitPromptAsksForTheFullFinalReportAndNeverForNoReport(t *testing.T) {
 	shortBackgroundCheck(t, 50*time.Millisecond)
 	fake := testkit.NewFakeGitHub(t)

@@ -93,6 +93,9 @@ func (e *Engine) proposeSkill(ctx context.Context, c caller, _ github.Repository
 	if err := checkSkillProposal(input); err != nil {
 		return "", err
 	}
+	if slices.Contains(c.agent.skills, input.Name) {
+		return "", refuse("You already proposed the skill %q in this session. Do not call propose_skill again for it.", input.Name)
+	}
 	if input.Repository != "" {
 		if _, err := e.organizationRepository(c.organization, input.Repository); err != nil {
 			return "", err
@@ -108,6 +111,7 @@ func (e *Engine) proposeSkill(ctx context.Context, c caller, _ github.Repository
 	if err := e.addLeadEvent(ctx, workstream.Repository, workstream.Number, "", sql.NullInt64{}, skillProposalKind, skillProposalText(c, input)); err != nil {
 		return "", err
 	}
+	c.agent.skills = append(c.agent.skills, input.Name)
 	return fmt.Sprintf("Sent the proposal to the Lead of the Workstream \"Skills\" (%s#%d). A change reaches the agents only after the Owner approves its pull request.", workstream.Repository, workstream.Number), nil
 }
 
