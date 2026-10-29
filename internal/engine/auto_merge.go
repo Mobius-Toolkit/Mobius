@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"log"
 
@@ -13,25 +14,84 @@ import (
 
 const mergeOffReason = "The merge is off for this Workstream."
 
+const mergePausedReason = "Autopilot paused: no automatic merge."
+
 // autoApprove does what MergeInboxItem does, for a Workstream with a merge level: it adds an APPROVED review of the
 // Owner on the head, sets auto_merge of the task, and marks the open ready for review Inbox items as merging. The poll
 // then merges the pull request (mergeApproved). When it fails, the items get the error text as their reason, so the
 // "Merge" button shows, and the task has no auto_merge. When a mandatory deployment need of the task has a todo that is
-// not done, it does not approve. The items get the reason mandatoryTodosReason, and it gives true. An approval that the
-// Owner gave with "Merge" stays, and the task does not count as blocked.
-func (e *Engine) autoApprove(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) (bool, error) {
+// not done, it does not approve. The items get the reason mandatoryTodosReason. While the Merge switch is off, it does
+// not approve either. The items get the reason mergePausedReason, and the issue goes to the held work of the switch.
+// In both cases it gives the reason. An approval that the Owner gave with "Merge" stays, and the task does not count as
+// blocked.
+func (e *Engine) autoApprove(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) (string, error) {
 	blocked, err := e.blockedByTodos(ctx, task)
 	if err != nil {
-		return false, err
+		return "", err
 	}
 	if blocked && (task.AutoMerge == 1 || !awaitsMerge(task)) {
-		return true, e.refuseMergeItem(ctx, task, mandatoryTodosReason)
+		return mandatoryTodosReason, e.refuseMergeItem(ctx, task, mandatoryTodosReason)
+	}
+	off, err := e.mergeOff(ctx)
+	if err != nil {
+		return "", err
+	}
+	if off && (task.AutoMerge == 1 || !awaitsMerge(task)) {
+		return mergePausedReason, e.holdMerge(ctx, task)
 	}
 	err = e.approveAsOwner(ctx, repository, task, pullRequest)
 	if err == nil {
-		return false, nil
+		return "", nil
 	}
-	return false, errors.Join(err, e.refuseMergeItem(ctx, task, err.Error()))
+	return "", errors.Join(err, e.refuseMergeItem(ctx, task, err.Error()))
+}
+
+// holdMerge records the issue of the task in the held work of the Merge switch, and gives the open ready for review
+// Inbox items of the issue the reason mergePausedReason.
+func (e *Engine) holdMerge(ctx context.Context, task store.Task) error {
+	if err := e.holdWork(ctx, "merge", task.Repository, task.Issue); err != nil {
+		return err
+	}
+	return e.refuseMergeItem(ctx, task, mergePausedReason)
+}
+
+// continuePausedMerges gives approveWaitingTask to each task of repository whose open ready for review Inbox item has
+// the reason mergePausedReason, while the Merge switch is on. When the Workstream of the task has no merge level, the
+// item loses the reason.
+func (e *Engine) continuePausedMerges(ctx context.Context, repository github.Repository) error {
+	off, err := e.mergeOff(ctx)
+	if err != nil || off {
+		return err
+	}
+	items, err := e.queries.ListOpenInboxItems(ctx)
+	if err != nil {
+		return err
+	}
+	for _, item := range items {
+		if item.Repository != repository.FullName || item.Kind != readyForReviewKind || item.MergeRefusal != mergePausedReason {
+			continue
+		}
+		task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: item.Repository, Issue: item.Issue})
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		level, err := e.workstreamLevel(ctx, task.WorkstreamRepository, task.Workstream)
+		if err != nil {
+			return err
+		}
+		if mergesPullRequests(level) {
+			err = e.approveWaitingTask(ctx, task)
+		} else {
+			err = e.clearBlockReason(ctx, task)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (e *Engine) approveAsOwner(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) error {
@@ -61,7 +121,8 @@ func (e *Engine) approveAsOwner(ctx context.Context, repository github.Repositor
 // applyLevel acts on the live tasks of the Workstream after a person changed its Autopilot level to level. With a merge
 // level, a task in ready_for_review with an open ready for review Inbox item and no approval gets autoApprove. Without
 // a merge level, a task that Mobius approved for the merge and that waits for the merge gets the reason
-// mergeOffReason, and the "Merge" button shows again. A task whose items have mandatoryTodosReason loses that reason.
+// mergeOffReason, and the "Merge" button shows again. A task whose items have mandatoryTodosReason or mergePausedReason
+// loses that reason.
 // A task that already has the result stays as it is, so a poll that runs the step again changes nothing.
 func (e *Engine) applyLevel(ctx context.Context, workstreamRepository string, workstream int64, level string) error {
 	tasks, err := e.queries.ListWorkstreamLiveTasks(ctx, store.ListWorkstreamLiveTasksParams{WorkstreamRepository: workstreamRepository, Workstream: workstream})
@@ -115,6 +176,15 @@ func (e *Engine) approveWaitingTask(ctx context.Context, task store.Task) error 
 // items get the reason, so the "Merge" button shows again, and the approval of Mobius counts as refused.
 func (e *Engine) endAutoMerge(ctx context.Context, task store.Task) error {
 	if err := e.refuseMergeItem(ctx, task, mergeOffReason); err != nil {
+		return err
+	}
+	return e.queries.SetTaskRefusedReview(ctx, store.SetTaskRefusedReviewParams{RefusedReview: task.ApprovedReview, ID: task.ID})
+}
+
+// pauseAutoMerge ends the automatic merge of the task, because the Merge switch is off. It works as endAutoMerge, with
+// the reason mergePausedReason, and the issue goes to the held work of the switch.
+func (e *Engine) pauseAutoMerge(ctx context.Context, task store.Task) error {
+	if err := e.holdMerge(ctx, task); err != nil {
 		return err
 	}
 	return e.queries.SetTaskRefusedReview(ctx, store.SetTaskRefusedReviewParams{RefusedReview: task.ApprovedReview, ID: task.ID})
