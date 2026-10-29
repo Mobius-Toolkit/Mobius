@@ -56,7 +56,8 @@ func realGH(t *testing.T) string {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
-	if err := os.Symlink(printenv, filepath.Join(dir, "gh")); err != nil {
+	script := "#!/bin/sh\nexec " + printenv + " \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "gh"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	return dir
