@@ -207,9 +207,8 @@ call = { tool = "background_state", arguments = { state = "done" } }
 
 	sendChat(t, server, leadChat, "A second question")
 
-	agent := server.Engine.ChatAgent(leadChat)
-	testkit.WaitFor(t, agent.StopRequested)
-	agent.Update(fmt.Appendf(nil, agentUpdate, endUpdate))
+	testkit.WaitFor(t, func() bool { return server.Engine.ChatQueued(leadChat) == 0 })
+	server.Engine.ChatAgent(leadChat).Update(fmt.Appendf(nil, agentUpdate, endUpdate))
 
 	session := endedChatSession(t, server, 0)
 	prompts := promptTexts(t, server, session.ID)

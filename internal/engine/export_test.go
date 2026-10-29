@@ -186,9 +186,12 @@ func (e *Engine) ChatAgent(key ChatKey) *Agent {
 	return nil
 }
 
-// StopRequested tells if a stop came while no turn ran, and no prompt took it yet.
-func (a *Agent) StopRequested() bool {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	return a.stopRequested
+// ChatQueued gives the number of items that wait in the queue of the chat key.
+func (e *Engine) ChatQueued(key ChatKey) int {
+	e.chatsMu.Lock()
+	defer e.chatsMu.Unlock()
+	if c, ok := e.chats[key]; ok {
+		return len(c.queue)
+	}
+	return 0
 }
