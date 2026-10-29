@@ -161,6 +161,7 @@ function RoleSheet({
   const changed = Object.values(role.ui).some(Boolean);
 
   const pickHarness = (value: string) => {
+    if (value === harness) return;
     const first = harnesses?.find((other) => other.harness === value)?.models[0];
     setHarness(value);
     setModel(first?.model ?? "");

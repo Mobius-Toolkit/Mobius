@@ -94,6 +94,15 @@ test("a pick of a Harness selects its first model, and the efforts follow the mo
   await expect(page.getByRole("menuitemradio")).toHaveText(["low"]);
 });
 
+test("a pick of the checked Harness keeps the model and the effort", async ({ page }) => {
+  const sheet = await openRole(page, "Judge");
+
+  await pick(page, sheet, "Harness", "claude-code");
+  await expect(sheet.getByLabel("Harness", { exact: true })).toHaveText("claude-code");
+  await expect(sheet.getByLabel("Model", { exact: true })).toHaveText("haiku");
+  await expect(sheet.getByLabel("Effort", { exact: true })).toHaveText("low");
+});
+
 test("a refused Save shows the reason in the open sheet and keeps the old values in the row", async ({
   page,
 }) => {
