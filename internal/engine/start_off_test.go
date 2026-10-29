@@ -259,7 +259,7 @@ func TestStartOffRefusesStartImplementerMarkReadyAndStartFixRound(t *testing.T) 
 func TestStartOffStartsAResearcher(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectResearch(t, fake, researchLead)
+	server, _ := connectResearcher(t, fake, researchLead, quickResearcher)
 	turnStartOff(t, server)
 
 	sendChat(t, server, leadChat, "Plan the price model.")
