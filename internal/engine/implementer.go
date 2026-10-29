@@ -171,6 +171,9 @@ func (e *Engine) startImplementerTool(ctx context.Context, c caller, repository 
 	if empty(input.Instructions) {
 		return "", refuse("instructions must not be empty.")
 	}
+	if err := e.startOffRefused(ctx); err != nil {
+		return "", err
+	}
 	if err := e.ciStopRefusal(ctx, repository, input.N); err != nil {
 		return "", err
 	}
@@ -183,6 +186,9 @@ func (e *Engine) startFixRound(ctx context.Context, c caller, repository github.
 	}
 	if empty(input.Findings) {
 		return "", refuse("findings must not be empty.")
+	}
+	if err := e.startOffRefused(ctx); err != nil {
+		return "", err
 	}
 	task, err := e.workstreamTask(ctx, repository, c.repository, c.workstream, input.N)
 	if err != nil {

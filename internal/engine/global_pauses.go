@@ -7,6 +7,12 @@ import (
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
+// startOffReason is the queue reason of a session of a task that the Start switch holds.
+const startOffReason = "Autopilot paused: no task starts"
+
+// startOffRefusal is the text of a Lead tool that the Start switch refuses.
+const startOffRefusal = "Mobius started no task: the Owner turned Start off on the Settings page. Try again after the Owner turns Start on."
+
 // Switches is the state of the global switches. true means on.
 type Switches struct {
 	Start   bool
@@ -64,6 +70,34 @@ func (e *Engine) Switches(ctx context.Context) (Switches, error) {
 	return switches, nil
 }
 
+// startOff tells if the Start switch is off.
+func (e *Engine) startOff(ctx context.Context) (bool, error) {
+	pauses, err := e.queries.ListGlobalPauses(ctx)
+	if err != nil {
+		return false, err
+	}
+	return slices.ContainsFunc(pauses, func(pause store.GlobalPause) bool { return pause.Kind == "start" }), nil
+}
+
+// holdStart tells if the Start switch is off, and then records the issue as held work. It is the check of each
+// start of a task.
+func (e *Engine) holdStart(ctx context.Context, repository string, issue int64) (bool, error) {
+	off, err := e.startOff(ctx)
+	if err != nil || !off {
+		return false, err
+	}
+	return true, e.holdWork(ctx, "start", repository, issue)
+}
+
+// startOffRefused gives the refusal of a Lead tool while the Start switch is off, or nil.
+func (e *Engine) startOffRefused(ctx context.Context) error {
+	off, err := e.startOff(ctx)
+	if err != nil || !off {
+		return err
+	}
+	return refuse(startOffRefusal)
+}
+
 // SetSwitch turns the switch kind on or off. Turning it on also forgets the work that it held. Turning it off again
 // keeps the first time.
 func (e *Engine) SetSwitch(ctx context.Context, kind string, on bool) error {
@@ -80,6 +114,13 @@ func (e *Engine) SetSwitch(ctx context.Context, kind string, on bool) error {
 		return err
 	}
 	e.publish(Change{Switches: true})
+	if on {
+		e.workers.changed.notify()
+		select {
+		case e.pollWake <- struct{}{}:
+		default:
+		}
+	}
 	return nil
 }
 

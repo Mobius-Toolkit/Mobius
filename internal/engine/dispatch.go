@@ -34,6 +34,7 @@ const fullSlotsWait = 30 * time.Minute
 //
 // The drain holds each new dispatch, and then the next poll after the drain reads the same list again. The stop of a
 // hard break of the CI holds each issue except the issue of a CI task in the same way: the issue keeps mobius:ready.
+// The Start switch holds each issue that would get a new task in the same way.
 func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository) error {
 	if e.draining() {
 		return nil
@@ -109,6 +110,14 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 				}
 				continue
 			}
+		}
+		off, err := e.holdStart(ctx, repository.FullName, number)
+		if err != nil {
+			return err
+		}
+		if off {
+			held = true
+			continue
 		}
 		if live {
 			if err := e.queries.EndTask(ctx, task.ID); err != nil {
@@ -287,7 +296,8 @@ func (e *Engine) commentEvents(ctx context.Context, repository github.Repository
 
 // answerAsked acts on the reply of a trusted user to the question of the task in asked. With Autopilot on, the task
 // waits in answered for a free slot. Else the task dispatches again at once. During the stop of a hard break of the CI,
-// the task of another issue than a CI task waits in answered in both cases.
+// the task of another issue than a CI task waits in answered in both cases. So does each task while the Start switch
+// is off.
 func (e *Engine) answerAsked(ctx context.Context, repository github.Repository, issue *gh.Issue, task store.Task) error {
 	level, err := e.workstreamLevel(ctx, task.WorkstreamRepository, task.Workstream)
 	if err != nil {
@@ -297,7 +307,11 @@ func (e *Engine) answerAsked(ctx context.Context, repository github.Repository, 
 	if err != nil {
 		return err
 	}
-	if startsTasks(level) || len(stop) > 0 && !stop[task.Issue] {
+	off, err := e.holdStart(ctx, repository.FullName, task.Issue)
+	if err != nil {
+		return err
+	}
+	if startsTasks(level) || len(stop) > 0 && !stop[task.Issue] || off {
 		_, err := e.setTaskState(ctx, store.SetTaskStateParams{State: "answered", ID: task.ID, FromState: "asked"})
 		return err
 	}
@@ -988,6 +1002,13 @@ func (e *Engine) dispatchAnsweredWithoutAutopilot(ctx context.Context, repositor
 		if err != nil || issue == nil {
 			return err
 		}
+		off, err := e.holdStart(ctx, repository.FullName, task.Issue)
+		if err != nil {
+			return err
+		}
+		if off {
+			continue
+		}
 		if err := e.dispatchAnswer(ctx, repository, issue, task); err != nil {
 			return err
 		}
@@ -1028,6 +1049,9 @@ func (e *Engine) autopilotTree(ctx context.Context, repository github.Repository
 		}
 		if len(issueStop) > 0 && !issueStop[number] {
 			return false, nil
+		}
+		if off, err := e.holdStart(ctx, source.FullName, number); err != nil || off {
+			return false, err
 		}
 		active, err := e.queries.CountActiveTasks(ctx)
 		if err != nil {

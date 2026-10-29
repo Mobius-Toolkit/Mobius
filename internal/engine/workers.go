@@ -258,7 +258,13 @@ func (e *Engine) takeSlot(ctx context.Context, a *Agent) error {
 				return err
 			}
 		}
-		reason, ok := e.slotReason(a, place, queue, worker, paused)
+		startOff := false
+		if task != 0 {
+			if startOff, err = e.startOff(ctx); err != nil {
+				return err
+			}
+		}
+		reason, ok := e.slotReason(a, place, queue, worker, paused, startOff)
 		if !ok {
 			return ErrLeftQueue
 		}
@@ -268,6 +274,11 @@ func (e *Engine) takeSlot(ctx context.Context, a *Agent) error {
 			break
 		}
 		if reason != shown {
+			if reason == startOffReason {
+				if err := e.holdWork(ctx, "start", a.spec.Repository, a.spec.Issue.Int64); err != nil {
+					return err
+				}
+			}
 			session, err := e.queries.SetQueueReason(ctx, store.SetQueueReasonParams{QueueReason: sql.NullString{String: reason, Valid: true}, ID: a.id})
 			if err != nil {
 				return err
@@ -296,8 +307,9 @@ func (e *Engine) takeSlot(ctx context.Context, a *Agent) error {
 
 // slotReason gives the reason why the session of a must wait, or "" when the session took a slot. A Worker that
 // takes a slot also counts in the drain. It gives false when the task of the session is not in queue. paused is
-// the reason of a pause of the Harness of a Worker, or "".
-func (e *Engine) slotReason(a *Agent, place waiter, queue []queuedTask, worker bool, paused string) (string, bool) {
+// the reason of a pause of the Harness of a Worker, or "". startOff tells that the Start switch is off and the
+// session has a task.
+func (e *Engine) slotReason(a *Agent, place waiter, queue []queuedTask, worker bool, paused string, startOff bool) (string, bool) {
 	w := &e.workers
 	role, task := a.spec.Role, a.spec.Task
 	w.mu.Lock()
@@ -335,6 +347,8 @@ func (e *Engine) slotReason(a *Agent, place waiter, queue []queuedTask, worker b
 	switch {
 	case worker && e.draining():
 		reason = drainReason
+	case startOff:
+		reason = startOffReason
 	case paused != "":
 		reason = paused
 	default:

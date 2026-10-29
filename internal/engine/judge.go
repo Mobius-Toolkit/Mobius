@@ -100,7 +100,7 @@ type quietItem struct {
 //
 // It gives true when the task has work for the Judge and does not wait for a human. With no new item, it gives
 // otherWork when the task leaves the state reviewed. The drain holds each new Judge, also a Judge whose Worker starts
-// after the start of the drain, and the next poll after a cancel starts it.
+// after the start of the drain, and the next poll after a cancel starts it. While the Start switch is off, no new Judge starts either.
 func (e *Engine) judge(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest, otherWork bool) (bool, error) {
 	if e.draining() {
 		return false, nil
@@ -139,6 +139,13 @@ func (e *Engine) judge(ctx context.Context, repository github.Repository, task s
 		return false, err
 	}
 	if !slices.EqualFunc(items, fresh, func(a, b judgeItem) bool { return a.id == b.id && a.at.Equal(b.at) }) {
+		return work, nil
+	}
+	off, err := e.holdStart(ctx, task.Repository, task.Issue)
+	if err != nil {
+		return false, err
+	}
+	if off {
 		return work, nil
 	}
 	delete(e.quiet, task.ID)
