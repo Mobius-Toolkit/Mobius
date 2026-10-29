@@ -242,6 +242,38 @@ test("a long list of release changes scrolls inside the upgrade dialog on a phon
   await expect(dialog).toBeHidden();
 });
 
+test("a long word in a release change breaks inside the upgrade dialog on a phone", async ({
+  page,
+}) => {
+  const word =
+    "TestAStopOfATaskGivesItsReasonOnlyToThatTaskAndNotToATaskOfAnotherRepositoryWithTheSameNumber";
+  const long = `Fix the CI failure of ${word} (#1221)`;
+  const changes = ["Change number 1", long, "Change number 3"];
+  await page.route("/api/release/changes", (route) => route.fulfill({ json: { data: changes } }));
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/settings");
+  await page.getByRole("button", { name: "Upgrade v0.1.4" }).filter({ visible: true }).click();
+
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByText(long, { exact: true })).toBeVisible();
+
+  type Scrollable = { scrollWidth: number; clientWidth: number };
+  const measure = (el: Scrollable) => ({
+    scrollWidth: el.scrollWidth,
+    clientWidth: el.clientWidth,
+  });
+  const list = dialog.getByRole("list");
+  const box = list.locator("xpath=..");
+  const listSize = await list.evaluate(measure);
+  expect(listSize.scrollWidth).toBeLessThanOrEqual(listSize.clientWidth);
+  const boxSize = await box.evaluate(measure);
+  expect(boxSize.scrollWidth).toBeLessThanOrEqual(boxSize.clientWidth);
+
+  const dialogBox = await dialog.boundingBox();
+  expect(dialogBox!.x).toBeGreaterThanOrEqual(0);
+  expect(dialogBox!.x + dialogBox!.width).toBeLessThanOrEqual(390);
+});
+
 test("the upgrade dialog shows the newest release when it opens", async ({ page }) => {
   let version = "v0.1.4";
   await page.route("**/api/release", async (route) => {
