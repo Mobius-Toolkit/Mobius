@@ -397,8 +397,6 @@ export function Conversation({
   const [briefMeasured, setBriefMeasured] = useState(false);
   const measureBrief = useCallback(() => setBriefMeasured(true), []);
   const showBrief = Boolean(brief && loaded && !older);
-  // True when the last scroll of the list had the Brief bubble in it. The Workstream can load after the first scroll.
-  const briefScrolled = useRef(false);
   const pinned = useRef(true);
   // The scrollTop of the last scroll to the end. A scroll event can come after an image has made the list longer.
   const endTop = useRef<number>(undefined);
@@ -413,6 +411,25 @@ export function Conversation({
   const newest = useRef<number>(undefined);
   // The place of a message on the screen before the list gets older messages at its start.
   const anchor = useRef<{ id: number; offset: number }>(undefined);
+  // The place that the Owner sees, before the Brief bubble mounts above the messages. The Workstream can load after the
+  // first scroll.
+  const place = useRef<{ id: number; offset: number }>(undefined);
+  const keepPlace = (list: HTMLElement) => {
+    if (showBrief || scrolledCount.current === undefined) {
+      return;
+    }
+    const top = list.getBoundingClientRect().top;
+    for (const element of list.querySelectorAll("[data-message]")) {
+      const rect = element.getBoundingClientRect();
+      if (rect.bottom > top) {
+        place.current = {
+          id: Number(element.getAttribute("data-message")),
+          offset: rect.top - top,
+        };
+        return;
+      }
+    }
+  };
   const fetchPage = useCallback(
     async (before?: number): Promise<Chat | undefined> => {
       const res = await getChat({ organization, repository, workstream, before });
@@ -677,7 +694,6 @@ export function Conversation({
       }
       const unreadMessages = messages.filter(countsAsUnread);
       scrolledCount.current = count;
-      briefScrolled.current = showBrief;
       const first =
         openUnread > 0 && unreadMessages[Math.max(0, unreadMessages.length - openUnread)];
       const element = first && list.querySelector(`[data-message="${first.id}"]`);
@@ -690,6 +706,12 @@ export function Conversation({
       scrollToEnd(list);
       return;
     }
+    if (showBrief && place.current) {
+      if (!pinned.current) {
+        anchor.current ??= place.current;
+      }
+      place.current = undefined;
+    }
     if (anchor.current) {
       const element = list.querySelector(`[data-message="${anchor.current.id}"]`);
       if (element) {
@@ -700,17 +722,7 @@ export function Conversation({
       }
       anchor.current = undefined;
       scrolledCount.current = count;
-      briefScrolled.current = showBrief;
       return;
-    }
-    if (showBrief && !briefScrolled.current) {
-      briefScrolled.current = true;
-      const bubble = list.querySelector("[data-brief]");
-      const following = bubble?.nextElementSibling;
-      if (!pinned.current && bubble && following) {
-        list.scrollTop +=
-          following.getBoundingClientRect().top - bubble.getBoundingClientRect().top;
-      }
     }
     if (count > scrolledCount.current) {
       pinned.current = true;
@@ -718,6 +730,12 @@ export function Conversation({
     scrolledCount.current = count;
     if (pinned.current) {
       scrollToEnd(list);
+    }
+  });
+
+  useLayoutEffect(() => {
+    if (listRef.current) {
+      keepPlace(listRef.current);
     }
   });
 
@@ -783,6 +801,7 @@ export function Conversation({
         onScroll={(event) => {
           pinned.current =
             atEnd(event.currentTarget) || event.currentTarget.scrollTop === endTop.current;
+          keepPlace(event.currentTarget);
           if (
             older &&
             scrolledCount.current !== undefined &&
@@ -797,7 +816,7 @@ export function Conversation({
             scrollToEnd(event.currentTarget);
           }
         }}
-        className="grid min-h-0 grow grid-cols-[minmax(0,1fr)] content-start gap-3 overflow-y-auto overscroll-contain bg-muted/40 p-4 [overflow-anchor:none]"
+        className="grid min-h-0 grow grid-cols-[minmax(0,1fr)] content-start gap-3 overflow-y-auto overscroll-contain bg-muted/40 p-4"
       >
         {error && <Badge variant="destructive">{error}</Badge>}
         {brief && showBrief && <BriefBubble brief={brief} onMeasured={measureBrief} />}
