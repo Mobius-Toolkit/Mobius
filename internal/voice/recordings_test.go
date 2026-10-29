@@ -302,6 +302,7 @@ func TestTheDraftConverterHasItsOwnPIDFileAndStopStopsBothProcesses(t *testing.T
 	final, draft := voice.New(dataDir, bin), voice.NewDraft(dataDir, bin)
 	for _, w := range []*voice.Whisper{final, draft} {
 		w.ModelURL = model.URL
+		w.VADModelURL = model.URL
 		w.Address = testkit.FreeAddress(t)
 	}
 	r := voice.NewRecordings(final, draft)
