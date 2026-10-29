@@ -285,7 +285,7 @@ func (e *Engine) runTriager(ctx context.Context, repository github.Repository, n
 	}
 	err = a.Prompt(ctx, prompt, nil)
 	if err == nil {
-		err = a.waitBackground(ctx)
+		err = a.waitBackground(ctx, backgroundPrompt)
 	}
 	switch {
 	case ctx.Err() != nil:
