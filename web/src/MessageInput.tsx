@@ -69,7 +69,10 @@ function Thumbnail({
 // images and Inbox items back if the promise gives false. With onDecide, the field has no Send button and Enter sends nothing. The field has
 // a Reject button and an Approve button, and each one gives the text, empty or not, to onDecide. Both buttons stay
 // disabled while the promise runs. The field clears if the promise gives true. With autoFocus, the field gets the focus
-// when it mounts, on a device with a fine pointer.
+// when it mounts, on a device with a fine pointer. When the Send button comes while the field shows the live text of a
+// voice run, the field stays read-only until the run gives its final text. Then the message has the final text in place
+// of the live text, and the field stays empty. Else the Send button stops the voice run, and the final text of the run
+// goes into the empty field.
 export function MessageInput({
   draftKey,
   label,
@@ -104,6 +107,7 @@ export function MessageInput({
   // message. The next render has the empty input and clears the ref.
   const justSent = useRef(false);
   const [deciding, setDeciding] = useState(false);
+  const [waiting, setWaiting] = useState(false);
   useEffect(() => {
     justSent.current = false;
   });
@@ -208,7 +212,7 @@ export function MessageInput({
 
   const empty = !text.trim() && images.length === 0 && inboxItems.length === 0 && !selection;
   const showStop = empty && !!onStop;
-  const buttonPending = showStop && stopping;
+  const buttonPending = (showStop && stopping) || waiting;
   // A tap on Send can land on the Stop button that replaces it. Thus Stop takes no tap in its first moments.
   const [stopReady, setStopReady] = useState(false);
   useEffect(() => {
@@ -228,25 +232,45 @@ export function MessageInput({
       ? "Stop voice input"
       : "Start voice input";
 
-  const send = () => {
-    if (!onSend || empty || justSent.current) {
+  const send = async () => {
+    if (!onSend || empty || justSent.current || waiting) {
       return;
     }
-    voice.stop();
     justSent.current = true;
+    let message = text;
+    let sentImages = images;
+    let sentInboxItems = inboxItems;
+    const shown = voiceRegion.current;
+    if (voice.showsLive() && shown && shown.value === input.current?.value) {
+      setWaiting(true);
+      const final = await voice.finishForSend();
+      const draft = await loadDraft(draftKey);
+      sentImages = draft.images;
+      sentInboxItems = draft.inboxItems;
+      const region = voiceRegion.current;
+      if (region) {
+        message = final === undefined ? region.value : region.lead + final + region.trail;
+      }
+    } else {
+      voice.stop();
+    }
     void updateDraft(draftKey, () => emptyDraft);
+    setWaiting(false);
     onError("");
-    const result = onSend(text, images, inboxItems);
+    const result = onSend(message, sentImages, sentInboxItems);
     if (result instanceof Promise) {
       void result.then((done) => {
         if (!done) {
           // The Chat button of an Inbox row can add an item while the message goes out.
           void updateDraft(draftKey, (draft) => ({
-            text: draft.text === text ? text : [text, draft.text].filter(Boolean).join(" "),
-            images,
+            text:
+              draft.text === message ? message : [message, draft.text].filter(Boolean).join(" "),
+            images: sentImages,
             inboxItems: [
-              ...inboxItems,
-              ...draft.inboxItems.filter((item) => !inboxItems.some(({ id }) => id === item.id)),
+              ...sentInboxItems,
+              ...draft.inboxItems.filter(
+                (item) => !sentInboxItems.some(({ id }) => id === item.id),
+              ),
             ],
           }));
         }
@@ -274,7 +298,7 @@ export function MessageInput({
       className="grid gap-1 border-t p-2"
       onSubmit={(event) => {
         event.preventDefault();
-        send();
+        void send();
       }}
     >
       {withImages && (
@@ -316,7 +340,7 @@ export function MessageInput({
           aria-label={label}
           placeholder={placeholder}
           value={text}
-          readOnly={!stored}
+          readOnly={!stored || waiting}
           onChange={(event) => setText(event.target.value)}
           // Safari on iOS scrolls the page when the keyboard opens, and it can keep that offset after the keyboard closes.
           onBlur={() => window.scrollTo(0, 0)}
@@ -344,7 +368,7 @@ export function MessageInput({
               !window.matchMedia("(pointer: coarse)").matches
             ) {
               event.preventDefault();
-              send();
+              void send();
             }
           }}
           className="max-h-40 min-h-9 w-full resize-none rounded-none border-0 px-1 py-1.5 focus-visible:ring-0 dark:bg-transparent"
