@@ -168,3 +168,8 @@ func (e *Engine) TurnRunsForMessage(key ChatKey) bool {
 	c, ok := e.chats[key]
 	return ok && c.stoppable
 }
+
+// HoldWork records that the switch kind holds the work of the issue of repository.
+func (e *Engine) HoldWork(ctx context.Context, kind, repository string, issue int64) error {
+	return e.holdWork(ctx, kind, repository, issue)
+}

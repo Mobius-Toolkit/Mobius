@@ -1228,7 +1228,7 @@
     },
     "/api/events": {
       "get": {
-        "description": "StreamEvents sends the latest activities, and then each new activity, each change of a session, each change of the drain, each start and failure of an upgrade, each change of the Workstream list, each new or longer chat message, each new unread count, each change of the state of a chat, each new or dismissed Inbox item, each new or changed pending action, each change of the pauses, each change of the CI stops, and each Workstream that the Coordinator chat created. It also sends a ping at a fixed interval. When the request has Last-Event-ID, it sends the activities after that id in place of the latest activities. When the client does not read the session changes fast enough, the stream ends.",
+        "description": "StreamEvents sends the latest activities, and then each new activity, each change of a session, each change of the drain, each start and failure of an upgrade, each change of the Workstream list, each new or longer chat message, each new unread count, each change of the state of a chat, each new or dismissed Inbox item, each new or changed pending action, each change of the pauses, each change of the CI stops, each change of the global switches, and each Workstream that the Coordinator chat created. It also sends a ping at a fixed interval. When the request has Last-Event-ID, it sends the activities after that id in place of the latest activities. When the client does not read the session changes fast enough, the stream ends.",
         "operationId": "StreamEvents",
         "parameters": [
           {
@@ -2784,6 +2784,115 @@
         ],
         "tags": [
           "memory"
+        ]
+      }
+    },
+    "/api/switches": {
+      "get": {
+        "description": "GetSwitches returns the state of the global switches and the work that the off switches hold.",
+        "operationId": "GetSwitches",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_Switches"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "switches"
+        ]
+      }
+    },
+    "/api/switches/{kind}": {
+      "put": {
+        "description": "SetSwitch turns a global switch on or off. Turning a switch on ends the hold of its work.",
+        "operationId": "SetSwitch",
+        "parameters": [
+          {
+            "description": "Kind is the switch",
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "enum": [
+                "start",
+                "merge",
+                "repairs"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetSwitchBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "switches"
         ]
       }
     },
@@ -6030,6 +6139,20 @@
         ],
         "description": "Envelope is the body of each success response."
       },
+      "Envelope_Switches": {
+        "type": "object",
+        "title": "Envelope_Switches",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Switches",
+            "description": "Data is the payload of the response"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "description": "Envelope is the body of each success response."
+      },
       "Envelope_TranscriptPage": {
         "type": "object",
         "title": "Envelope_TranscriptPage",
@@ -6207,6 +6330,61 @@
           "time"
         ],
         "description": "Health is the state of the server."
+      },
+      "HeldWork": {
+        "type": "object",
+        "title": "HeldWork",
+        "properties": {
+          "heldAt": {
+            "type": "string",
+            "description": "HeldAt is the time of the first hold",
+            "format": "date-time"
+          },
+          "issue": {
+            "type": "integer",
+            "description": "Issue is the number of the issue"
+          },
+          "kind": {
+            "type": "string",
+            "description": "Kind is the switch that holds the work",
+            "enum": [
+              "start",
+              "merge",
+              "repairs"
+            ]
+          },
+          "repository": {
+            "type": "string",
+            "description": "Repository is the repository of the issue as \"owner/name\""
+          },
+          "title": {
+            "type": "string",
+            "description": "Title is the title of the issue"
+          },
+          "workstream": {
+            "type": "integer",
+            "description": "Workstream is the number of the Workstream issue"
+          },
+          "workstreamRepository": {
+            "type": "string",
+            "description": "WorkstreamRepository is the repository of the Workstream issue as \"owner/name\""
+          },
+          "workstreamTitle": {
+            "type": "string",
+            "description": "WorkstreamTitle is the title of the Workstream issue"
+          }
+        },
+        "required": [
+          "kind",
+          "repository",
+          "issue",
+          "title",
+          "workstreamRepository",
+          "workstream",
+          "workstreamTitle",
+          "heldAt"
+        ],
+        "description": "HeldWork is an open issue with work that an off switch holds."
       },
       "InboxItem": {
         "type": "object",
@@ -6725,6 +6903,29 @@
               "event": {
                 "type": "string",
                 "const": "ciStops"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "event",
+              "data"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "string",
+                "contentMediaType": "application/json",
+                "contentSchema": {
+                  "$ref": "#/components/schemas/Switches"
+                }
+              },
+              "event": {
+                "type": "string",
+                "const": "switches"
               },
               "id": {
                 "type": "string"
@@ -7346,6 +7547,16 @@
           }
         }
       },
+      "SetSwitchBody": {
+        "type": "object",
+        "title": "SetSwitchBody",
+        "properties": {
+          "on": {
+            "type": "boolean",
+            "description": "On turns the switch on when true, and off when false"
+          }
+        }
+      },
       "SkillTotals": {
         "type": "object",
         "title": "SkillTotals",
@@ -7502,6 +7713,39 @@
             "description": "Workstream is the number of the Workstream issue. It is 0 for the Coordinator chat"
           }
         }
+      },
+      "Switches": {
+        "type": "object",
+        "title": "Switches",
+        "properties": {
+          "held": {
+            "type": "array",
+            "title": "[]HeldWork",
+            "description": "Held is the open issues with work that an off switch holds, the oldest first",
+            "items": {
+              "$ref": "#/components/schemas/HeldWork"
+            }
+          },
+          "merge": {
+            "type": "boolean",
+            "description": "Merge is true when Mobius merges automatically"
+          },
+          "repairs": {
+            "type": "boolean",
+            "description": "Repairs is true when Mobius starts the tasks of its own repair issues"
+          },
+          "start": {
+            "type": "boolean",
+            "description": "Start is true when Mobius starts tasks and sessions of tasks"
+          }
+        },
+        "required": [
+          "start",
+          "merge",
+          "repairs",
+          "held"
+        ],
+        "description": "Switches is the state of the global switches. true means on."
       },
       "TaskLine": {
         "type": "object",
