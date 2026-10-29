@@ -191,6 +191,7 @@ const Message = memo(function Message({
 const briefCutHeight = 144;
 
 function BriefBubble({ brief, onMeasured }: { brief: Workstream; onMeasured: () => void }) {
+  const root = useRef<HTMLElement>(null);
   const box = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [long, setLong] = useState(false);
@@ -205,9 +206,19 @@ function BriefBubble({ brief, onMeasured }: { brief: Workstream; onMeasured: () 
     observer.observe(content);
     return () => observer.disconnect();
   }, [onMeasured]);
+  // A new height of the bubble must not move the end of the list out of view.
+  useLayoutEffect(() => {
+    if (!root.current) {
+      return;
+    }
+    const observer = new ResizeObserver(onMeasured);
+    observer.observe(root.current);
+    return () => observer.disconnect();
+  }, [onMeasured]);
 
   return (
     <section
+      ref={root}
       aria-label="Brief"
       className="grid max-w-[85%] grid-cols-[minmax(0,1fr)] gap-1 justify-self-start rounded-xl border bg-card px-3 py-2"
     >
@@ -394,7 +405,6 @@ export function Conversation({
   const listRef = useRef<HTMLDivElement>(null);
   // The button of the Brief bubble makes it taller, so a scroll before the first measure would be wrong.
   const [briefMeasured, setBriefMeasured] = useState(false);
-  const measureBrief = useCallback(() => setBriefMeasured(true), []);
   const showBrief = Boolean(brief && loaded && !older);
   const pinned = useRef(true);
   // The scrollTop of the last scroll to the end. A scroll event can come after an image has made the list longer.
@@ -403,6 +413,12 @@ export function Conversation({
     list.scrollTop = list.scrollHeight;
     endTop.current = list.scrollTop;
   }, []);
+  const measureBrief = useCallback(() => {
+    setBriefMeasured(true);
+    if (pinned.current && listRef.current) {
+      scrollToEnd(listRef.current);
+    }
+  }, [scrollToEnd]);
   // The number of messages at the last scroll, or undefined before the first scroll.
   const scrolledCount = useRef<number>(undefined);
   const loadingOlder = useRef(false);
