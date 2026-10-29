@@ -7,7 +7,7 @@ import type {
   Switches,
   Unread,
 } from "@/api/api.gen";
-import type { ChangeSwitch } from "./switches";
+import type { ChangeSwitch, SwitchKind } from "./switches";
 import type { Workstreams } from "./workstreams";
 
 type Shell = {
@@ -27,6 +27,7 @@ type Shell = {
   updateAction: (action: PendingAction) => void;
   activities: Activity[];
   switches?: Switches;
+  switchErrors: Partial<Record<SwitchKind, string>>;
   changeSwitch: ChangeSwitch;
 };
 

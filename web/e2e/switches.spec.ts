@@ -158,3 +158,28 @@ test("a failed request after which the server has the new value leaves no error 
   await expect(line(page, "start")).toBeVisible();
   await expect(page.getByText("The switch did not change.")).toBeHidden();
 });
+
+test("the Settings page shows the error of a switch under its row until the server gives a new value", async ({
+  page,
+}) => {
+  await page.goto("/settings");
+  await page.route(
+    "**/api/switches/start",
+    (route) => route.fulfill({ status: 500, json: { error: "The switch did not change." } }),
+    { times: 1 },
+  );
+
+  const failed = page.waitForResponse(
+    (res) => res.url().endsWith("/api/switches/start") && res.request().method() === "PUT",
+  );
+  await page.getByRole("main").getByRole("switch", { name: "Start" }).click();
+  await failed;
+
+  await expect(page.getByText("The switch did not change.")).toBeVisible();
+  await expect(page.getByText(lines.start, { exact: true })).toBeHidden();
+
+  await turnOff(page, "start");
+
+  await expect(line(page, "start")).toBeVisible();
+  await expect(page.getByText("The switch did not change.")).toBeHidden();
+});

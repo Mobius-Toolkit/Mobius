@@ -1,5 +1,6 @@
 import { use, useEffect, useState } from "react";
 import { getVersion } from "@/api/api.gen";
+import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { settingsPages } from "@/lib/settings";
@@ -8,14 +9,13 @@ import { switchKinds } from "@/lib/switches";
 import { uiRelease } from "@/lib/build";
 import { LoginContext } from "@/lib/login";
 import { cn } from "@/lib/utils";
-import { ErrorBadge, inset, LinkRow, List, PageHeader, Row, Section } from "@/components/page";
+import { inset, LinkRow, List, PageHeader, Row, Section } from "@/components/page";
 import { TopBar } from "./TopBar";
 
 export function Settings() {
   const showLogin = use(LoginContext);
-  const { switches, changeSwitch } = useShell();
+  const { switches, switchErrors, changeSwitch } = useShell();
   const [server, setServer] = useState("");
-  const [error, setError] = useState("");
 
   useEffect(() => {
     getVersion()
@@ -40,16 +40,24 @@ export function Settings() {
               <div className="grid min-w-0 grow gap-0.5">
                 <Label htmlFor={`switch-${kind}`}>{title}</Label>
                 <span className="text-sm text-muted-foreground">{description}</span>
+                {/* The amber line shows the error of a switch that is off. */}
+                {switches?.[kind] !== false && switchErrors[kind] && (
+                  <Badge
+                    variant="destructive"
+                    className="h-auto justify-self-start whitespace-normal"
+                  >
+                    {switchErrors[kind]}
+                  </Badge>
+                )}
               </div>
               <Switch
                 id={`switch-${kind}`}
                 checked={switches?.[kind] ?? true}
-                onCheckedChange={(on) => void changeSwitch(kind, on).then(setError)}
+                onCheckedChange={(on) => void changeSwitch(kind, on)}
               />
             </Row>
           ))}
         </List>
-        {error && <ErrorBadge>{error}</ErrorBadge>}
       </Section>
       <List>
         {settingsPages.map((page) => (

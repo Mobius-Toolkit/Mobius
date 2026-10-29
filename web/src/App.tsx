@@ -316,6 +316,7 @@ function App() {
             updateAction,
             activities,
             switches,
+            switchErrors,
             changeSwitch,
           }}
         >
