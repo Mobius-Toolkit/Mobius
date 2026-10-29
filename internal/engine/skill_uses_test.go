@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
@@ -104,6 +105,52 @@ reply = ["done"]
 	want := []skillUse{{session, "owner", shop, "lead_chat", "devin", "commit", "harness"}}
 	if got := skillUses(t, server, session); !slices.Equal(got, want) {
 		t.Errorf("skill uses = %+v, want %+v", got, want)
+	}
+}
+
+const dshModel = `["deepseek-account","deepseek-v4-pro"]`
+
+func dshLead(cfg *config.Config) {
+	keepSessionOpen(cfg)
+	cfg.Roles.Lead = config.RoleBinding{Harness: config.DSH, Model: dshModel, Effort: "high", Max: 8}
+}
+
+func dshScript(updates string) string {
+	return "[options]\nmodel = ['" + dshModel + "']\nthought_level = [\"high\"]\n" + `
+[[prompts]]
+updates = [
+` + updates + `]
+reply = ["done"]
+`
+}
+
+func TestADSHSkillUseAddsOneRowWithTheSourceOfTheSkill(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddRepository(skills)
+	fake.CommitFile(skills, "mobius-local-state/SKILL.md", "Read the state.", "Add mobius-local-state")
+	server, _ := connectScript(t, fake, dshScript(`  '{"sessionUpdate":"tool_call","toolCallId":"call_1","title":"skill","kind":"other","status":"in_progress","rawInput":{"name":"mobius-local-state"}}',
+  '{"sessionUpdate":"tool_call_update","toolCallId":"call_1","status":"completed"}',
+`), dshLead)
+
+	session, _ := leadReply(t, server)
+
+	want := []skillUse{{session, "owner", shop, "lead_chat", "dsh", "mobius-local-state", "mobius"}}
+	if got := skillUses(t, server, session); !slices.Equal(got, want) {
+		t.Errorf("skill uses = %+v, want %+v", got, want)
+	}
+}
+
+func TestADSHToolCallWithAnotherTitleAddsNoSkillUse(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectScript(t, fake, dshScript(`  '{"sessionUpdate":"tool_call","toolCallId":"call_1","title":"read_file","kind":"other","status":"in_progress","rawInput":{"name":"a.txt"}}',
+`), dshLead)
+
+	session, _ := leadReply(t, server)
+
+	if got := skillUses(t, server, session); len(got) != 0 {
+		t.Errorf("skill uses = %+v", got)
 	}
 }
 
