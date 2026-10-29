@@ -209,6 +209,7 @@ function BriefBubble({ brief, onMeasured }: { brief: Workstream; onMeasured: () 
   return (
     <section
       aria-label="Brief"
+      data-brief
       className="grid max-w-[85%] grid-cols-[minmax(0,1fr)] gap-1 justify-self-start rounded-xl border bg-card px-3 py-2"
     >
       <span className="text-xs text-muted-foreground">Brief</span>
@@ -396,6 +397,8 @@ export function Conversation({
   const [briefMeasured, setBriefMeasured] = useState(false);
   const measureBrief = useCallback(() => setBriefMeasured(true), []);
   const showBrief = Boolean(brief && loaded && !older);
+  // True when the last scroll of the list had the Brief bubble in it. The Workstream can load after the first scroll.
+  const briefScrolled = useRef(false);
   const pinned = useRef(true);
   // The scrollTop of the last scroll to the end. A scroll event can come after an image has made the list longer.
   const endTop = useRef<number>(undefined);
@@ -674,6 +677,7 @@ export function Conversation({
       }
       const unreadMessages = messages.filter(countsAsUnread);
       scrolledCount.current = count;
+      briefScrolled.current = showBrief;
       const first =
         openUnread > 0 && unreadMessages[Math.max(0, unreadMessages.length - openUnread)];
       const element = first && list.querySelector(`[data-message="${first.id}"]`);
@@ -696,7 +700,17 @@ export function Conversation({
       }
       anchor.current = undefined;
       scrolledCount.current = count;
+      briefScrolled.current = showBrief;
       return;
+    }
+    if (showBrief && !briefScrolled.current) {
+      briefScrolled.current = true;
+      const bubble = list.querySelector("[data-brief]");
+      const following = bubble?.nextElementSibling;
+      if (!pinned.current && bubble && following) {
+        list.scrollTop +=
+          following.getBoundingClientRect().top - bubble.getBoundingClientRect().top;
+      }
     }
     if (count > scrolledCount.current) {
       pinned.current = true;

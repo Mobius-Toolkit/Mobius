@@ -818,10 +818,20 @@ test("a switch to a chat shows its first unread message", async ({ page }) => {
     const expectShown = (text: string, place: "top" | "end") =>
       expect.poll(() => page.evaluate(shows(text, place))).toBe(true);
 
+    // The Workstream list can come after the first scroll, and a browser with no scroll anchoring moves the list.
+    const held: (() => Promise<void>)[] = [];
+    await page.route("**/api/workstreams", (route) => {
+      held.push(() => route.continue());
+    });
     await page.goto(`/workstreams/plants/garden/${first[0]}`);
+    await page.addStyleTag({ content: "* { overflow-anchor: none !important; }" });
     await expectShown(`Note 6 of #${first[0]}.`, "top");
+    await expect(briefBubble(page)).toHaveCount(0);
+    await Promise.all(held.map((release) => release()));
     // The bubble is not a message, so it does not change the first unread message.
     await expect(briefBubble(page)).toBeVisible();
+    await page.unroute("**/api/workstreams");
+    await expectShown(`Note 6 of #${first[0]}.`, "top");
     // The page marks the messages as seen, and the position stays.
     await expect.poll(() => unread(page, first[0])).toBe(0);
     await expectShown(`Note 6 of #${first[0]}.`, "top");
