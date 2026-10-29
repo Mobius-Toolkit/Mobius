@@ -119,7 +119,7 @@ func TestEachRoleGetsOnlyItsOwnTools(t *testing.T) {
 		{coordinator, []string{"ask", "create_workstream", "message_lead", "move_issue", "propose_skill", "start_researcher", "tell_curator", "withdraw"}},
 		{triager, []string{"background_state", "create_workstream", "message_lead", "propose_skill", "start_researcher"}},
 		{reviewer, []string{"background_state", "propose_skill", "report_deployment_needs", "submit_review"}},
-		{implementer, []string{"cannot_do", "propose_skill", "reply_thread"}},
+		{implementer, []string{"cannot_do", "propose_skill", "reply_thread", "submit_report"}},
 		{researcher, []string{"background_state", "propose_skill"}},
 		{judge, []string{"background_state", "propose_skill", "submit_verdicts"}},
 		{curator, []string{"background_state", "edit_memory", "propose_skill"}},

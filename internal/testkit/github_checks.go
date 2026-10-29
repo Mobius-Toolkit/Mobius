@@ -113,6 +113,7 @@ func (g *FakeGitHub) PullRequests(repository string) []PullRequest {
 	var found []PullRequest
 	for _, pull := range g.pullRequests {
 		if pull.repository == repository {
+			pull.Body = g.issues[issueKey{repository, pull.Number}].body
 			found = append(found, pull.PullRequest)
 		}
 	}
@@ -444,6 +445,7 @@ func (g *FakeGitHub) pullRequestJSON(repository string, number int64) map[string
 		"merged":          found.merged,
 		"head":            map[string]string{"sha": g.headOf(repository, number), "ref": pull.Head},
 		"draft":           pull.Draft,
+		"body":            found.body,
 		"mergeable":       mergeableValue,
 		"mergeable_state": state,
 		"created_at":      timestamp(g.createdAt[key]),

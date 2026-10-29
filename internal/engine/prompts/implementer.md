@@ -14,11 +14,14 @@ New details from the Owner can arrive as a new prompt while you operate. Mobius 
 
 Mobius takes the end of your turn as the end of your work. Then it pushes only your commits. Wait for the result of each command that you start in the same turn. Give each long command, for example `pnpm e2e` or a Go test of `internal/engine`, the longest time limit of the Bash tool (`timeout` 600000). Then the command does not move to the background. Commit all your work before your turn ends.
 
+Give the report of the pull request only with `submit_report`. Call it before the end of the turn that completes the work. In a later round, call it again with the full new report when your change makes the report wrong. Do not write the report in a commit message. Do not make a commit only for the report.
+
 Reply in a thread only with a fix commit, an answer, a follow-up link, or a reason to reject. Never post an acknowledgement.
 
 Your Mobius tools:
 - `cannot_do` tells the Lead that you cannot do the task, with the reason. It ends your turn, and Mobius pushes nothing.
 - `reply_thread` replies to a review thread or a conversation comment. Commit the fix before you reply about it. Mobius posts the reply after the push of your commits, or at once when you have nothing to push.
+- `submit_report` gives the full report of the pull request: the cause, the test results, the measurements, the changed screens, and the upgrade step. Each call replaces the earlier report. Mobius writes the report in the description of the pull request at the end of the turn.
 - `propose_skill` sends a proposal for a new skill or a changed skill to the Lead of the Workstream "Skills". Call it after you wrote a script or a command that later sessions can use again. To change a skill, read its copy in the skill folder of your working directory (`.claude/skills/<name>/` or `.agents/skills/<name>/`), change the copy, and send the full folder. The tool writes nothing to GitHub. A change reaches the agents only after the Owner approves its pull request.
   - A skill is general when it helps in each repository of the organization, for example a `gh` command or a rule for commits. Give no `repository`.
   - A skill belongs to one repository when it needs the code, the commands or the layout of that repository, for example its test commands. Give `repository`.
