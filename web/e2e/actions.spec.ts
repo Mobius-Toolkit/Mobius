@@ -1089,42 +1089,6 @@ test("a withdrawn question card shows Withdrawn and no button", async ({ page })
   await expect(card.getByRole("button")).toHaveCount(0);
 });
 
-test("a chat read that began before the withdrawal keeps the question card withdrawn", async ({
-  page,
-}) => {
-  let asked!: () => void;
-  const questionAsked = new Promise<void>((resolve) => (asked = resolve));
-  let read!: () => void;
-  const questionRead = new Promise<void>((resolve) => (read = resolve));
-  let withdrawn!: () => void;
-  const questionWithdrawn = new Promise<void>((resolve) => (withdrawn = resolve));
-  let held = false;
-  await page.route(/\/api\/chat(\?.*)?$/, async (route) => {
-    if (held) {
-      await route.continue();
-      return;
-    }
-    held = true;
-    await questionAsked;
-    const response = await route.fetch();
-    read();
-    await questionWithdrawn;
-    await route.fulfill({ response });
-  });
-  await openChat(page);
-  await ask(page, askDraft);
-  await expect(waiting(page, 1)).toBeVisible(agentTimeout);
-  asked();
-  await questionRead;
-  await ask(page, withdrawDraft);
-  await expect(waiting(page, 1)).toBeHidden(agentTimeout);
-  withdrawn();
-
-  const card = questionCard(page, draftQuestion);
-  await expect(card.getByText("Withdrawn", { exact: true })).toBeVisible();
-  await expect(card.getByText("Waits for your answer")).toHaveCount(0);
-});
-
 test("the question card of a Lead shows the role Lead, the Answer button and the answer", async ({
   page,
 }) => {

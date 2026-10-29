@@ -65,14 +65,12 @@ type Failure = { id: string; error: string; retryAt: number };
 
 function upsert(list: ChatMessage[], message: ChatMessage) {
   const known = list.find((other) => other.id === message.id);
-  // The agent only adds text to a message, so the longer text is the newer text. A message never loses a time, and a
-  // question never opens again.
+  // The agent only adds text to a message, so the longer text is the newer text. A message never loses a time.
   if (
     known &&
     (known.text.length > message.text.length ||
       (known.deliveredAt && !message.deliveredAt) ||
-      (known.stoppedAt && !message.stoppedAt) ||
-      (known.question?.dismissedAt && !message.question?.dismissedAt))
+      (known.stoppedAt && !message.stoppedAt))
   ) {
     return list;
   }
