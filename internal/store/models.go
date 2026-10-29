@@ -8,6 +8,12 @@ import (
 	"database/sql"
 )
 
+type BlockerCycle struct {
+	Cycle      string
+	Repository string
+	Workstream int64
+}
+
 type ChatMessage struct {
 	ID           int64
 	Repository   string
