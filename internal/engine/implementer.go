@@ -174,6 +174,9 @@ func (e *Engine) startImplementerTool(ctx context.Context, c caller, repository 
 	if err := e.startOffRefused(ctx); err != nil {
 		return "", err
 	}
+	if err := e.repairsOffRefused(ctx, repository.FullName, input.N); err != nil {
+		return "", err
+	}
 	if err := e.ciStopRefusal(ctx, repository, input.N); err != nil {
 		return "", err
 	}

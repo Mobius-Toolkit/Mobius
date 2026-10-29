@@ -1180,6 +1180,15 @@ ORDER BY ci_failures.id LIMIT 1;
 UPDATE ci_failures SET issue = ?
 WHERE issue = 0 AND ended_at = '' AND id IN (SELECT failure FROM ci_failure_places WHERE ci_break = ?);
 
+-- name: IsRepairIssue :one
+SELECT EXISTS (
+  SELECT 1 FROM ci_breaks WHERE ci_breaks.repository = ?1 AND ABS(ci_breaks.issue) = ?2
+  UNION ALL
+  SELECT 1 FROM check_timeouts WHERE check_timeouts.repository = ?1 AND ABS(check_timeouts.issue) = ?2
+  UNION ALL
+  SELECT 1 FROM ci_failures WHERE ci_failures.repository = ?1 AND ABS(ci_failures.issue) = ?2
+);
+
 -- name: HasOpenPullRequestFailureWithIssue :one
 SELECT EXISTS (
   SELECT 1 FROM ci_failures JOIN ci_failure_places ON ci_failure_places.failure = ci_failures.id
