@@ -547,6 +547,47 @@ func (q *Queries) AddGitHubApp(ctx context.Context, arg AddGitHubAppParams) erro
 	return err
 }
 
+const addGlobalPause = `-- name: AddGlobalPause :exec
+INSERT INTO global_pauses (kind, paused_at) VALUES (?, ?)
+ON CONFLICT (kind) DO NOTHING
+`
+
+type AddGlobalPauseParams struct {
+	Kind     string
+	PausedAt string
+}
+
+func (q *Queries) AddGlobalPause(ctx context.Context, arg AddGlobalPauseParams) error {
+	_, err := q.db.ExecContext(ctx, addGlobalPause, arg.Kind, arg.PausedAt)
+	return err
+}
+
+const addHeldWork = `-- name: AddHeldWork :execrows
+INSERT INTO held_work (kind, repository, issue, held_at)
+SELECT ?1, ?2, ?3, ?4 WHERE EXISTS (SELECT 1 FROM global_pauses WHERE kind = ?1)
+ON CONFLICT (kind, repository, issue) DO NOTHING
+`
+
+type AddHeldWorkParams struct {
+	Kind       string
+	Repository string
+	Issue      int64
+	HeldAt     string
+}
+
+func (q *Queries) AddHeldWork(ctx context.Context, arg AddHeldWorkParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, addHeldWork,
+		arg.Kind,
+		arg.Repository,
+		arg.Issue,
+		arg.HeldAt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const addInboxItem = `-- name: AddInboxItem :one
 INSERT INTO inbox_items (kind, organization, repository, workstream_repository, workstream, issue, title, reason, text, link, pull_request, report_link, chat_message, merging, questions, time)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -1548,12 +1589,30 @@ func (q *Queries) DeleteDeviceLogin(ctx context.Context, id int64) error {
 	return err
 }
 
+const deleteGlobalPause = `-- name: DeleteGlobalPause :exec
+DELETE FROM global_pauses WHERE kind = ?
+`
+
+func (q *Queries) DeleteGlobalPause(ctx context.Context, kind string) error {
+	_, err := q.db.ExecContext(ctx, deleteGlobalPause, kind)
+	return err
+}
+
 const deleteHarnessPause = `-- name: DeleteHarnessPause :exec
 DELETE FROM harness_pauses WHERE harness = ?
 `
 
 func (q *Queries) DeleteHarnessPause(ctx context.Context, harness string) error {
 	_, err := q.db.ExecContext(ctx, deleteHarnessPause, harness)
+	return err
+}
+
+const deleteHeldWork = `-- name: DeleteHeldWork :exec
+DELETE FROM held_work WHERE kind = ?
+`
+
+func (q *Queries) DeleteHeldWork(ctx context.Context, kind string) error {
+	_, err := q.db.ExecContext(ctx, deleteHeldWork, kind)
 	return err
 }
 
@@ -4944,6 +5003,33 @@ func (q *Queries) ListGitHubApps(ctx context.Context) ([]GithubApp, error) {
 	return items, nil
 }
 
+const listGlobalPauses = `-- name: ListGlobalPauses :many
+SELECT kind, paused_at FROM global_pauses ORDER BY kind
+`
+
+func (q *Queries) ListGlobalPauses(ctx context.Context) ([]GlobalPause, error) {
+	rows, err := q.db.QueryContext(ctx, listGlobalPauses)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GlobalPause
+	for rows.Next() {
+		var i GlobalPause
+		if err := rows.Scan(&i.Kind, &i.PausedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listHarnessPauses = `-- name: ListHarnessPauses :many
 SELECT harness, paused_until FROM harness_pauses ORDER BY harness
 `
@@ -5016,6 +5102,61 @@ func (q *Queries) ListHeldLeadEventsWithoutQuestion(ctx context.Context, arg Lis
 			&i.Review,
 			&i.HeldAt,
 			&i.IssueRepository,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listHeldWork = `-- name: ListHeldWork :many
+SELECT h.kind, h.repository, h.issue, h.held_at, i.title, i.repository AS workstream_repository, i.workstream,
+       w.title AS workstream_title
+FROM held_work h
+JOIN global_pauses p ON p.kind = h.kind
+JOIN copied_issues i ON i.number = h.issue AND i.state = 'open'
+  AND lower(substr(i.repository_url, instr(i.repository_url, '/repos/') + 7)) = lower(h.repository)
+JOIN copied_workstreams w ON w.repository = i.repository AND w.number = i.workstream
+ORDER BY julianday(h.held_at), h.kind, h.repository, h.issue, i.repository, i.workstream
+`
+
+type ListHeldWorkRow struct {
+	Kind                 string
+	Repository           string
+	Issue                int64
+	HeldAt               string
+	Title                string
+	WorkstreamRepository string
+	Workstream           int64
+	WorkstreamTitle      string
+}
+
+// The issue can be in the trees of the copies of many repositories, so a row can repeat. The API shows the first.
+func (q *Queries) ListHeldWork(ctx context.Context) ([]ListHeldWorkRow, error) {
+	rows, err := q.db.QueryContext(ctx, listHeldWork)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListHeldWorkRow
+	for rows.Next() {
+		var i ListHeldWorkRow
+		if err := rows.Scan(
+			&i.Kind,
+			&i.Repository,
+			&i.Issue,
+			&i.HeldAt,
+			&i.Title,
+			&i.WorkstreamRepository,
+			&i.Workstream,
+			&i.WorkstreamTitle,
 		); err != nil {
 			return nil, err
 		}

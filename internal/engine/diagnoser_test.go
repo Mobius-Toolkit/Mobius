@@ -86,8 +86,9 @@ const notCausedDiagnosis = "\nDiagnosis of the failed jobs:\n- The plan test exp
 	"\nFor each failure that the change of the pull request did not cause:\n" +
 	"1. When a commit of origin/main already fixed the test (git log HEAD..origin/main -- <test file>), merge origin/main, and write no second fix.\n" +
 	"2. When the newest runs of main fail the same test (gh run list --branch main), do not fix the test in this task.\n" +
-	"3. Fix the test only when the log and the code show its cause.\n" +
-	"4. Else make no commit. Then Mobius runs the failed jobs again one time.\n"
+	"3. When the reason of the failure names an open issue, do not fix the test, and make no commit for it.\n" +
+	"4. Fix the test only when the log and the code show its cause.\n" +
+	"5. Else make no commit. Then Mobius runs the failed jobs again one time.\n"
 
 func TestADiagnoserRunsBeforeTheFixRoundAndTheRoundGetsItsReason(t *testing.T) {
 	t.Parallel()
@@ -99,6 +100,9 @@ func TestADiagnoserRunsBeforeTheFixRoundAndTheRoundGetsItsReason(t *testing.T) {
 
 	round := roundPrompt(t, server)
 	inOrder(t, round, "Check run \"build\"", "Action: fix\n", notCausedDiagnosis)
+	if strings.Contains(round, "The open issue") {
+		t.Errorf("round = %s", round)
+	}
 	sessions := diagnoserSessions(t, server)
 	if len(sessions) != 1 {
 		t.Fatalf("Diagnosers = %d", len(sessions))
