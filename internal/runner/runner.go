@@ -29,11 +29,13 @@ func Program(harness config.Harness) string {
 		return "agy_acp_server"
 	case config.Devin:
 		return "devin"
+	case config.DSH:
+		return "dsh"
 	}
 	return "claude-agent-acp"
 }
 
-// The modes that run each tool with no permission request. Devin has no mode option.
+// The modes that run each tool with no permission request. Devin and dsh have no mode option.
 var fullAutoModes = map[config.Harness]string{
 	config.ClaudeCode:  "bypassPermissions",
 	config.Antigravity: "yolo",
@@ -185,8 +187,11 @@ func harnessCommand(ctx context.Context, harness config.Harness, cwd, dataDir, p
 		return nil, fmt.Errorf("%s is not on PATH", program)
 	}
 	cmd := command(ctx, file, cwd, dataDir, path, ghTokenURL, ghWritesURL, ghMark)
-	if harness == config.Devin {
+	switch harness {
+	case config.Devin:
 		cmd.Args = append(cmd.Args, "acp")
+	case config.DSH:
+		cmd.Args = append(cmd.Args, "--profile", "acp")
 	}
 	// The agent leads its own process group, so the end of ctx also stops the processes of its tools.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -212,6 +217,7 @@ func connect(cmd *exec.Cmd, updates func(json.RawMessage, bool)) (*acp.Connectio
 }
 
 // Start starts the agent of harness in cwd with the Mobius MCP server at mcpURL, and opens a session.
+// With an empty mcpURL, the session has no MCP server.
 // It gives the params of each session/update notification to updates, as the agent sent them. The second argument is
 // true when the agent wrote the notification after the response to the last prompt.
 // The gh of the agent gets its token from ghTokenURL, and sends its writes to ghWritesURL. With an empty ghTokenURL, the gh of
@@ -308,13 +314,17 @@ func (s *Session) open(ctx context.Context, cwd, mcpURL string) error {
 		return err
 	}
 	s.images = initialized.AgentCapabilities.PromptCapabilities.Image
-	response, err := acp.SendRequest[acp.NewSessionResponse](s.conn, ctx, acp.AgentMethodSessionNew, acp.NewSessionRequest{
-		Cwd: cwd,
-		McpServers: []acp.McpServer{{Http: &acp.McpServerHttpInline{
+	servers := []acp.McpServer{}
+	if mcpURL != "" {
+		servers = append(servers, acp.McpServer{Http: &acp.McpServerHttpInline{
 			Name:    "mobius",
 			Url:     mcpURL,
 			Headers: []acp.HttpHeader{},
-		}}},
+		}})
+	}
+	response, err := acp.SendRequest[acp.NewSessionResponse](s.conn, ctx, acp.AgentMethodSessionNew, acp.NewSessionRequest{
+		Cwd:        cwd,
+		McpServers: servers,
 	})
 	if err != nil {
 		return err

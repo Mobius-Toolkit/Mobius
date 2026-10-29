@@ -182,7 +182,7 @@ func TestAPutThatFailsACheckGives422AndChangesNoValue(t *testing.T) {
 	before := getRoles(t, server)
 
 	for _, c := range []struct{ name, role, body, want string }{
-		{"unknown Harness", "lead", `{"harness": "gpt", "model": "opus", "effort": "high", "max": 8}`, "roles.lead.harness: must be claude-code, antigravity or devin"},
+		{"unknown Harness", "lead", `{"harness": "gpt", "model": "opus", "effort": "high", "max": 8}`, "roles.lead.harness: must be claude-code, antigravity, devin or dsh"},
 		{"empty model", "lead", `{"harness": "claude-code", "model": "", "effort": "high", "max": 8}`, "roles.lead.model: must not be empty"},
 		{"effort for antigravity", "researcher", `{"harness": "antigravity", "model": "gemini-3-pro", "effort": "high", "max": 2}`, "roles.researcher.effort: is not allowed for antigravity"},
 		{"no effort for claude-code", "lead", `{"harness": "claude-code", "model": "opus", "effort": "", "max": 8}`, "roles.lead.effort: is required for claude-code"},
