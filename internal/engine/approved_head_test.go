@@ -21,7 +21,7 @@ func approvablePlan(t *testing.T, fake *testkit.FakeGitHub) *testserver.Server {
 	setWorkstreamAutopilot(t, server, "merge")
 	testkit.WaitFor(t, func() bool { return workstreams(t, server)[0].Autopilot == "merge" })
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
-	waitForReadyEvents(t, server, 1)
+	waitForReadyEvents(t, fake, server, 1)
 	return server
 }
 

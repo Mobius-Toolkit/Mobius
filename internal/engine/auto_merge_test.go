@@ -36,7 +36,7 @@ func approvableWith(t *testing.T, fake *testkit.FakeGitHub, level string, author
 	if !strings.HasPrefix(level, "start") {
 		fake.AddLabel(shop, 41, "mobius:ready", "owner")
 	}
-	waitForReadyEvents(t, server, 1)
+	waitForReadyEvents(t, fake, server, 1)
 	return server
 }
 
