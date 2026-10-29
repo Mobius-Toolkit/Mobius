@@ -245,7 +245,8 @@ test("a long list of release changes scrolls inside the upgrade dialog on a phon
 test("a long word in a release change breaks inside the upgrade dialog on a phone", async ({
   page,
 }) => {
-  const word = "TestAStopOfATaskGivesItsReasonOnlyToThatTaskAndNotToATaskOfAnotherRepositoryWithTheSameNumber";
+  const word =
+    "TestAStopOfATaskGivesItsReasonOnlyToThatTaskAndNotToATaskOfAnotherRepositoryWithTheSameNumber";
   const long = `Fix the CI failure of ${word} (#1221)`;
   const changes = ["Change number 1", long, "Change number 3"];
   await page.route("/api/release/changes", (route) => route.fulfill({ json: { data: changes } }));
@@ -257,7 +258,10 @@ test("a long word in a release change breaks inside the upgrade dialog on a phon
   await expect(dialog.getByText(long, { exact: true })).toBeVisible();
 
   type Scrollable = { scrollWidth: number; clientWidth: number };
-  const measure = (el: Scrollable) => ({ scrollWidth: el.scrollWidth, clientWidth: el.clientWidth });
+  const measure = (el: Scrollable) => ({
+    scrollWidth: el.scrollWidth,
+    clientWidth: el.clientWidth,
+  });
   const list = dialog.getByRole("list");
   const box = list.locator("xpath=..");
   const listSize = await list.evaluate(measure);

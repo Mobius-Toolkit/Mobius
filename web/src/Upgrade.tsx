@@ -80,7 +80,7 @@ function ReleaseChanges() {
     return <p className="text-muted-foreground">Mobius reads the changes.</p>;
   }
   return (
-    <ul className="grid list-disc gap-1 pl-5">
+    <ul className="grid list-disc gap-1 pl-5 wrap-anywhere">
       {changes.map((title, index) => (
         <li key={index}>{title}</li>
       ))}
