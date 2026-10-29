@@ -57,9 +57,10 @@ export function useSwitches(showLogin: () => void, source?: EventSource) {
         .then((res) => {
           if (res.status === 200) {
             receive(res.data.data);
+            return res.data.data;
           }
         })
-        .catch(() => {}),
+        .catch(() => undefined),
     [receive],
   );
 
@@ -78,25 +79,20 @@ export function useSwitches(showLogin: () => void, source?: EventSource) {
     };
   }, [source, load, receive]);
 
-  // Gives the error text, or an empty text when the request has no error text to show.
+  // Gives the error text, or an empty text when the request has no error text to show, and the switches that the server gave after the failure.
   const send = (kind: SwitchKind, on: boolean) =>
     setSwitch(kind, { on })
       .then(async (res) => {
         if (res.status === 204) {
-          return "";
+          return { text: "" };
         }
         if (res.status === 401) {
           showLogin();
-          await load();
-          return "";
+          return { text: "", read: await load() };
         }
-        await load();
-        return res.data.error;
+        return { text: res.data.error, read: await load() };
       })
-      .catch(async (err: unknown) => {
-        await load();
-        return String(err);
-      });
+      .catch(async (err: unknown) => ({ text: String(err), read: await load() }));
 
   // The amber line of a switch unmounts when the switch goes on, so the error stays here.
   const change: ChangeSwitch = (kind, on) => {
@@ -104,9 +100,10 @@ export function useSwitches(showLogin: () => void, source?: EventSource) {
     setFailures((current) =>
       Object.fromEntries(Object.entries(current).filter(([key]) => key !== kind)),
     );
-    return send(kind, on).then((text) => {
-      if (text) {
-        setFailures((current) => ({ ...current, [kind]: { text, on: !on } }));
+    return send(kind, on).then(({ text, read }) => {
+      const server = read?.[kind] ?? !on;
+      if (text && server !== on) {
+        setFailures((current) => ({ ...current, [kind]: { text, on: server } }));
       }
       return text;
     });
