@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"fmt"
 	"slices"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
@@ -142,6 +143,8 @@ func (e *Engine) repairsOffRefused(ctx context.Context, repository string, issue
 	return refuse(repairsOffRefusal)
 }
 
+var switchNames = map[string]string{"start": "Start", "merge": "Merge", "repairs": "Repairs"}
+
 // SetSwitch turns the switch kind on or off. Turning it on also forgets the work that it held. Turning it off again
 // keeps the first time.
 func (e *Engine) SetSwitch(ctx context.Context, kind string, on bool) error {
@@ -164,6 +167,13 @@ func (e *Engine) SetSwitch(ctx context.Context, kind string, on bool) error {
 		case e.pollWake <- struct{}{}:
 		default:
 		}
+	}
+	state := "off"
+	if on {
+		state = "on"
+	}
+	for _, organization := range e.github.Organizations() {
+		e.addRecord(ctx, ChatKey{Organization: organization}, fmt.Sprintf("You turned %s %s.", switchNames[kind], state))
 	}
 	return nil
 }
