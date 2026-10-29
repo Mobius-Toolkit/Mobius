@@ -69,6 +69,10 @@ let screenLock: WakeLockSentinel | undefined;
 // device also keeps the file in the store voice, so a reload does not lose it. A new recording, a discard and a
 // conversion that gives text remove it.
 let kept: { audio: Blob; shown: boolean } | undefined;
+// The live text of the run that records or converts, and the call that waits for the text of that run. The text of a run
+// with such a call goes to the call and not to the input.
+let activeLive: Pick<Live, "shown" | "hidden"> | undefined;
+let taker: ((text: string | undefined) => void) | undefined;
 
 // The conversion works with no stored audio.
 const storeAudio = (audio: Blob) =>
@@ -277,10 +281,16 @@ const settle = (
 ) => {
   const error = result.error || (result.text ? "" : emptyMessage);
   kept = error ? saved : undefined;
+  activeLive = undefined;
+  const take = taker;
+  taker = undefined;
   publish("idle", error || message);
+  take?.(error ? undefined : result.text);
   if (!error) {
     void removeAudio();
-    inputs.at(-1)?.insert(result.text, saved.shown);
+    if (!take) {
+      inputs.at(-1)?.insert(result.text, saved.shown);
+    }
   }
 };
 
@@ -306,6 +316,7 @@ const resend = async () => {
   if (!saved || snapshot.phase !== "idle") {
     return;
   }
+  activeLive = { shown: saved.shown, hidden: false };
   publish("converting", "");
   settle(await convert(saved.audio), saved, "");
 };
@@ -377,6 +388,7 @@ const start = async () => {
     },
   };
   current = recording;
+  activeLive = recording.live;
   runLive(recording.live, openLive(recording.live));
   recording.live.timer = setInterval(() => tick(recording), chunkInterval);
   const track = stream.getAudioTracks()[0];
@@ -425,6 +437,15 @@ const stopVoice = () => {
   }
 };
 
+const showsLive = () =>
+  snapshot.phase !== "idle" && activeLive !== undefined && activeLive.shown && !activeLive.hidden;
+
+const finishForSend = () =>
+  new Promise<string | undefined>((resolve) => {
+    taker = resolve;
+    stopVoice();
+  });
+
 export const voiceSupported =
   Boolean(navigator.mediaDevices?.getUserMedia) && typeof AudioWorkletNode !== "undefined";
 
@@ -437,7 +458,9 @@ export const voiceSupported =
 // conversion with a failure or with an empty text gives an error. error is the failure of the last run, or '' when a
 // run starts. The audio stays on the device from the stop until a conversion gives text, a run starts or discard
 // removes it. After a failed conversion, or after a reload that finds the audio, canResend is true, and resend sends
-// the audio again.
+// the audio again. When showsLive is true, the live text of the running run is in the input. Then finishForSend stops
+// the recording or joins the conversion, and it gives the final text, or undefined when the conversion fails or the
+// text is empty. The text of that run does not go to onText.
 export function useVoice(
   onText: (text: string, live: boolean) => void,
   onLive: (text: string, first: boolean) => boolean,
@@ -472,5 +495,7 @@ export function useVoice(
     discard,
     toggle: toggleVoice,
     stop: stopVoice,
+    showsLive,
+    finishForSend,
   };
 }
