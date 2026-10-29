@@ -9,7 +9,7 @@ test.beforeEach(async ({ page }) => {
 
 // The API request of the page carries the device login, but the request context of Playwright does not.
 test.afterEach(async ({ page }) => {
-  for (const role of ["judge", "reviewer"]) {
+  for (const role of ["judge", "reviewer", "lead"]) {
     const status = await page.evaluate(
       (path) => fetch(path, { method: "DELETE" }).then((response) => response.status),
       `/api/roles/${role}`,
@@ -116,4 +116,17 @@ test("Reset does not show for a role with no UI value", async ({ page }) => {
   const sheet = await openRole(page, "Lead");
   await expect(sheet.getByRole("button", { name: "Save" })).toBeVisible();
   await expect(sheet.getByRole("button", { name: "Reset" })).toBeHidden();
+});
+
+test("a Save with no model list keeps the effort of the role", async ({ page }) => {
+  await page.route("**/api/harnesses", (route) => route.fulfill({ json: { data: [] } }));
+  const sheet = await openRole(page, "Lead");
+  await expect(sheet.getByLabel("Effort", { exact: true })).toHaveText("high");
+
+  await sheet.getByLabel("Max", { exact: true }).fill("4");
+  const saved = written(page, "lead", "PUT");
+  await sheet.getByRole("button", { name: "Save" }).click();
+  const response = await saved;
+  expect(response.request().postDataJSON()).toMatchObject({ effort: "high" });
+  expect(response.ok()).toBe(true);
 });

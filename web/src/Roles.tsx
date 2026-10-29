@@ -156,7 +156,8 @@ function RoleSheet({
 
   const choices = harnesses?.find((other) => other.harness === harness);
   const models = choices?.models ?? [];
-  const efforts = models.find((other) => other.model === model)?.efforts ?? [];
+  const chosen = models.find((other) => other.model === model);
+  const efforts = chosen ? chosen.efforts : effort ? [effort] : [];
   const changed = Object.values(role.ui).some(Boolean);
 
   const pickHarness = (value: string) => {
