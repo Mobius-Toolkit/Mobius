@@ -130,6 +130,13 @@ func (e *Engine) judge(ctx context.Context, repository github.Repository, task s
 	if time.Since(seen.since) < e.config.ReviewQuietPeriod {
 		return work, nil
 	}
+	off, err := e.holdStart(ctx, task.Repository, task.Issue)
+	if err != nil {
+		return false, err
+	}
+	if off {
+		return work, nil
+	}
 	number := int64(pullRequest.GetNumber())
 	if err := e.readPullRequestInFull(ctx, repository, number); err != nil {
 		return false, err
@@ -139,13 +146,6 @@ func (e *Engine) judge(ctx context.Context, repository github.Repository, task s
 		return false, err
 	}
 	if !slices.EqualFunc(items, fresh, func(a, b judgeItem) bool { return a.id == b.id && a.at.Equal(b.at) }) {
-		return work, nil
-	}
-	off, err := e.holdStart(ctx, task.Repository, task.Issue)
-	if err != nil {
-		return false, err
-	}
-	if off {
 		return work, nil
 	}
 	delete(e.quiet, task.ID)
