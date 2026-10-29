@@ -153,3 +153,51 @@ func TestUpdateBlockersRefusesBeforeAnyWrite(t *testing.T) {
 		t.Errorf("blockers = %v", got)
 	}
 }
+
+func TestUpdateBlockersRefusesABlockerThatClosesACycleAndWritesNothing(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := issueRepositoryShop(t, fake, call("update_blockers", `{ repository = "owner/shop", n = 41, blocked_by = ["owner/shop#40"] }`)+
+		call("update_blockers", `{ repository = "owner/shop", n = 44, blocked_by = ["owner/shop#42"] }`))
+	for number, title := range map[int64]string{40: "A", 41: "B", 42: "C", 43: "D", 44: "E"} {
+		fake.AddIssue(shop, number, title)
+		fake.AddSubIssue(shop, 12, number)
+	}
+	fake.AddBlockedBy(shop, 40, 41)
+	fake.AddBlockedBy(shop, 42, 43)
+	fake.AddBlockedBy(shop, 43, 44)
+
+	session := run(t, server, leadSpec(t), "1. ", "2. ")
+
+	want := "error: owner/shop#40 cannot block owner/shop#41: owner/shop#40 is already blocked by owner/shop#41." +
+		"error: owner/shop#42 cannot block owner/shop#44: owner/shop#42 is already blocked by owner/shop#44 through owner/shop#43."
+	if got := reply(t, server, session); got != want {
+		t.Errorf("reply = %q", got)
+	}
+	if got := fake.BlockerNumbers(shop, 41); len(got) != 0 {
+		t.Errorf("blockers of 41 = %v", got)
+	}
+	if got := fake.BlockerNumbers(shop, 44); len(got) != 0 {
+		t.Errorf("blockers of 44 = %v", got)
+	}
+}
+
+func TestUpdateBlockersAddsABlockerWhoseBlockersDoNotLeadBack(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := issueRepositoryShop(t, fake, call("update_blockers", `{ repository = "owner/shop", n = 42, blocked_by = ["owner/shop#40"] }`))
+	for number, title := range map[int64]string{40: "A", 41: "B", 42: "C"} {
+		fake.AddIssue(shop, number, title)
+		fake.AddSubIssue(shop, 12, number)
+	}
+	fake.AddBlockedBy(shop, 40, 41)
+
+	session := run(t, server, leadSpec(t), "1. ")
+
+	if got := reply(t, server, session); got != "Added owner/shop#40 as blockers of owner/shop#42." {
+		t.Errorf("reply = %q", got)
+	}
+	if got := fake.BlockerNumbers(shop, 42); !slices.Equal(got, []int64{40}) {
+		t.Errorf("blockers = %v", got)
+	}
+}
