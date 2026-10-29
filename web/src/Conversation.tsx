@@ -82,7 +82,7 @@ function upsert(list: ChatMessage[], message: ChatMessage) {
 }
 
 const countsAsUnread = (message: ChatMessage) =>
-  message.author !== "Owner" && message.author !== "Event";
+  message.author !== "Owner" && message.author !== "Event" && message.author !== "Record";
 
 function OwnerState({ message }: { message: ChatMessage }) {
   if (message.stoppedAt) {
@@ -137,6 +137,16 @@ const Message = memo(function Message({
         item={pendingItem}
         onDecided={onDecided}
       />
+    );
+  }
+  if (message.author === "Record") {
+    return (
+      <div
+        data-message={message.id}
+        className="max-w-[85%] justify-self-end rounded-xl border border-transparent bg-secondary px-2 py-1 text-xs text-muted-foreground wrap-anywhere"
+      >
+        {message.text} · {clock(message.time)}
+      </div>
     );
   }
   const event = message.author === "Event";
@@ -679,7 +689,9 @@ export function Conversation({
   }
   const waiting =
     older && openUnread !== undefined && messages.filter(countsAsUnread).length < openUnread;
-  const lastAgentMessage = messages.findLast((message) => message.author !== "Owner")?.id;
+  const lastAgentMessage = messages.findLast(
+    (message) => message.author !== "Owner" && message.author !== "Record",
+  )?.id;
   useEffect(() => {
     if (queueLoaded && !waiting && unread && lastAgentMessage !== undefined) {
       // A failed call keeps the count, and the next message of the agent calls again.
