@@ -244,8 +244,6 @@ export function MessageInput({
     if (voice.showsLive() && shown && shown.value === input.current?.value) {
       setWaiting(true);
       const final = await voice.finishForSend();
-      setWaiting(false);
-      justSent.current = true;
       const draft = await loadDraft(draftKey);
       sentImages = draft.images;
       sentInboxItems = draft.inboxItems;
@@ -257,6 +255,7 @@ export function MessageInput({
       voice.stop();
     }
     void updateDraft(draftKey, () => emptyDraft);
+    setWaiting(false);
     onError("");
     const result = onSend(message, sentImages, sentInboxItems);
     if (result instanceof Promise) {
