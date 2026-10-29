@@ -21,6 +21,7 @@ import {
   WorkstreamsPage,
 } from "./pages";
 import { validateUsageSearch } from "./lib/usage";
+import { Roles } from "./Roles";
 import { Settings } from "./Settings";
 
 const rootRoute = createRootRoute({ component: App });
@@ -151,6 +152,12 @@ const memoryRoute = createRoute({
   component: MemoryPage,
 });
 
+const rolesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/settings/roles",
+  component: Roles,
+});
+
 const devicesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/devices",
@@ -181,6 +188,7 @@ const routeTree = rootRoute.addChildren([
   checkupWorkstreamsRoute,
   memoryRepositoriesRoute,
   memoryRoute,
+  rolesRoute,
   devicesRoute,
   githubRoute,
 ]);
