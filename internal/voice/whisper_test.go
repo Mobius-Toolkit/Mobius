@@ -235,6 +235,35 @@ func TestStartStopsAProcessOfAnEarlierProgramAndStartsOneWithTheNewArguments(t *
 	t.Cleanup(next.Stop)
 }
 
+func TestStartRemovesTheTemporaryFilesOfStoppedDownloadsAndKeepsThoseOfTheDraftModel(t *testing.T) {
+	c := newConverter(t)
+	testkit.InstallFakeWhisper(t, c.bin)
+	stale := []string{
+		"ggml-large-v3-turbo.bin.part", "ggml-large-v3-turbo.bin.123.part",
+		"ggml-silero-v6.2.0.bin.part", "ggml-silero-v6.2.0.bin.456.part",
+	}
+	draftPart := filepath.Join(c.Dir, "ggml-small.bin.789.part")
+	for _, name := range stale {
+		c.putFile(t, filepath.Join(c.Dir, name))
+	}
+	c.putFile(t, draftPart)
+
+	c.Start()
+
+	testkit.WaitFor(t, func() bool {
+		_, err := c.transcribe("RIFF")
+		return err == nil
+	})
+	for _, name := range stale {
+		if _, err := os.Stat(filepath.Join(c.Dir, name)); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	if _, err := os.Stat(draftPart); err != nil {
+		t.Errorf("part of the draft model: %v", err)
+	}
+}
+
 func TestWhileTheProcessLoadsTheModelTheConverterTellsItIsStarting(t *testing.T) {
 	c := newConverter(t)
 	program := testkit.InstallFakeWhisper(t, c.bin)

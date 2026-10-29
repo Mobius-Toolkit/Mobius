@@ -114,10 +114,16 @@ func (w *Whisper) vadModel() string {
 	return filepath.Join(w.Dir, vadName)
 }
 
-// Start stops a whisper-server of an earlier program, so the arguments of this program apply. Then it downloads the
-// model files if they are missing and starts whisper-server, in the background.
+// Start stops a whisper-server of an earlier program, so the arguments of this program apply. Then it removes the
+// temporary files of stopped downloads, downloads the model files if they are missing and starts whisper-server, in
+// the background. The final Whisper starts before the draft Whisper, so only it removes the temporary files of the
+// shared VAD model before a download of this program can write one.
 func (w *Whisper) Start() {
 	w.Stop()
+	w.removeParts(w.modelName)
+	if w.modelName == modelName {
+		w.removeParts(vadName)
+	}
 	go func() {
 		for i := 0; i < portWaits; i++ {
 			if _, answered := w.health(context.Background()); !answered {
@@ -127,6 +133,17 @@ func (w *Whisper) Start() {
 		}
 		_ = w.ensure(context.Background())
 	}()
+}
+
+// removeParts removes the temporary files that a stopped download of the file leaves in Dir.
+func (w *Whisper) removeParts(name string) {
+	parts, err := filepath.Glob(filepath.Join(w.Dir, name+"*.part"))
+	if err != nil {
+		return
+	}
+	for _, part := range parts {
+		_ = os.Remove(part)
+	}
 }
 
 func (w *Whisper) pidFile() string {
