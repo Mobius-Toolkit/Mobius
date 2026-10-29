@@ -3,6 +3,7 @@ import { dayClock } from "./time";
 
 const pausedPrefix = "paused until ";
 export const lowLoadReason = "waits for a low load";
+const startPausedReason = "Autopilot paused: no task starts";
 
 export function queueText({ queueReason, pausedUntil }: Agent) {
   if (!queueReason.startsWith(pausedPrefix)) {
@@ -21,7 +22,7 @@ export function queueState(queueReason: string) {
   if (queueReason === lowLoadReason) {
     return { badge: "waits for load", dot: "bg-amber-500" };
   }
-  if (queueReason.startsWith(pausedPrefix)) {
+  if (queueReason.startsWith(pausedPrefix) || queueReason === startPausedReason) {
     return { badge: "paused", dot: "bg-amber-500" };
   }
   if (queueReason) {
