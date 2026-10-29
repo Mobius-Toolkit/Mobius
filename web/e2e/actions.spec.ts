@@ -1089,6 +1089,33 @@ test("a withdrawn question card shows Withdrawn and no button", async ({ page })
   await expect(card.getByRole("button")).toHaveCount(0);
 });
 
+test("a chat read that is older than the withdrawal does not open the question card again", async ({
+  page,
+}) => {
+  await openChat(page);
+  await ask(page, askDraft);
+  await expect(waiting(page, 1)).toBeVisible(agentTimeout);
+
+  const card = questionCard(page, draftQuestion);
+  await page.route("**/api/chat?*", async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    for (const message of body.data.messages) {
+      if (message.text === draftQuestion) {
+        message.question.dismissedAt = null;
+        message.question.withdrawn = false;
+      }
+    }
+    await card.getByText("Withdrawn", { exact: true }).waitFor();
+    await route.fulfill({ response, json: body });
+  });
+  await ask(page, withdrawDraft);
+  await expect(card.getByText("Withdrawn", { exact: true })).toBeVisible();
+  await expect(page.getByRole("img", { name: "Not sent yet" })).toHaveCount(0);
+  await expect(card.getByText("Withdrawn", { exact: true })).toBeVisible();
+  await expect(card.getByText("Waits for your answer")).toHaveCount(0);
+});
+
 test("the question card of a Lead shows the role Lead, the Answer button and the answer", async ({
   page,
 }) => {
