@@ -26,6 +26,10 @@ type Engine struct {
 	github  *github.GitHub
 	config  *config.Config
 	agents  Agents
+	// rolesMu guards roles.
+	rolesMu sync.RWMutex
+	// roles are the Roles of config.toml with the rows of role_settings over them.
+	roles config.Roles
 	// labelsFixed holds the full names of the repositories whose labels the poll fixed. Only the poll uses it.
 	labelsFixed map[string]bool
 	// recovered holds the full names of the repositories whose lost tasks the poll handed to a human. Only the poll uses it.
@@ -182,6 +186,7 @@ func New(db *sql.DB, gh *github.GitHub, cfg *config.Config, agents Agents) *Engi
 		queries:         store.New(db),
 		github:          gh,
 		config:          cfg,
+		roles:           cfg.Roles,
 		agents:          agents,
 		labelsFixed:     map[string]bool{},
 		recovered:       map[string]bool{},
@@ -323,6 +328,9 @@ func (e *Engine) stopWorkers() {
 // that the earlier run started, and starts the timer of each pause.
 // The sessions of the earlier run have no Harness process. Call Recover before Run and before the first session.
 func (e *Engine) Recover(ctx context.Context) error {
+	if err := e.loadRoles(ctx); err != nil {
+		return err
+	}
 	ids, err := e.queries.ListOpenSessionIDs(ctx)
 	if err != nil {
 		return err

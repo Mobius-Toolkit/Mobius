@@ -43,7 +43,7 @@ func (a *Agent) readUsage(notification map[string]any, kind string) {
 	if !a.turn {
 		return
 	}
-	switch a.harness {
+	switch a.binding.Harness {
 	case config.ClaudeCode:
 		claudeUpdate(&a.turnUsage, update)
 	case config.Devin:
@@ -127,7 +127,7 @@ func (a *Agent) addUsage(ctx context.Context, result runner.PromptResult, prompt
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	usage := a.turnUsage
-	readResult(&usage, a.harness, result)
+	readResult(&usage, a.binding.Harness, result)
 	var cost sql.NullFloat64
 	if usage.costSeen {
 		cost = a.takeCost()
@@ -166,7 +166,7 @@ func (a *Agent) takeCost() sql.NullFloat64 {
 // insertUsage adds the usage row. The caller holds a.mu.
 func (a *Agent) insertUsage(ctx context.Context, usage turnUsage, cost sql.NullFloat64, endedAt string) error {
 	spec := a.spec
-	binding, _ := roleBinding(a.engine.config, spec.Role)
+	binding := a.binding
 	return a.engine.queries.AddTurnUsage(ctx, store.AddTurnUsageParams{
 		Session:          a.id,
 		Task:             sql.NullInt64{Int64: spec.Task, Valid: spec.Task != 0},
@@ -175,7 +175,7 @@ func (a *Agent) insertUsage(ctx context.Context, usage turnUsage, cost sql.NullF
 		Organization:     spec.Organization,
 		Repository:       spec.Repository,
 		Role:             spec.Role,
-		Harness:          string(a.harness),
+		Harness:          string(a.binding.Harness),
 		Model:            binding.Model,
 		ReportedModel:    usage.model,
 		Effort:           sql.NullString{String: binding.Effort, Valid: binding.Effort != ""},
