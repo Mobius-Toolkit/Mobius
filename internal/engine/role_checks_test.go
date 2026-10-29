@@ -119,6 +119,23 @@ func TestAFailedKeyGetsACheckAfterOneHourAndAPassStartsTheSessionAndDismissesThe
 	waitForAccessItems(t, server, 0)
 }
 
+func TestASessionThatWaitsOnAFailedKeyStartsOnTheNewBindingAfterAPutOfItsRole(t *testing.T) {
+	t.Parallel()
+	server, _, _ := accessServer(t, "", noKey)
+	held := startLater(t.Context(), server, accessSpec(t))
+	queued(t, server, engine.ImplementerRole)
+	waitForAccessItems(t, server, 1)
+
+	putRole(t, server, "implementer", `{"harness": "claude-code", "model": "haiku", "effort": "high", "max": 1}`)
+
+	agent := await(t, held)
+	defer end(t, agent, "idle")
+	if got := session(t, server, agent.ID()); got.Harness != "claude-code" || got.Model != "haiku" || got.QueueReason.Valid {
+		t.Errorf("session = %+v", got)
+	}
+	waitForAccessItems(t, server, 0)
+}
+
 func TestAPutWhoseAccessCheckFailsGives422AndKeepsTheValueAndAPutOfOnlyMaxRunsNoCheck(t *testing.T) {
 	t.Parallel()
 	server, _, dataDir := accessServer(t, countStarts, "")

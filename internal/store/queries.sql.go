@@ -8092,6 +8092,47 @@ func (q *Queries) SetReviewComment(ctx context.Context, arg SetReviewCommentPara
 	return err
 }
 
+const setSessionBinding = `-- name: SetSessionBinding :one
+UPDATE sessions SET harness = ?, model = ?, effort = ? WHERE id = ?
+RETURNING id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent, effort, workstream_repository
+`
+
+type SetSessionBindingParams struct {
+	Harness string
+	Model   string
+	Effort  sql.NullString
+	ID      int64
+}
+
+func (q *Queries) SetSessionBinding(ctx context.Context, arg SetSessionBindingParams) (Session, error) {
+	row := q.db.QueryRowContext(ctx, setSessionBinding,
+		arg.Harness,
+		arg.Model,
+		arg.Effort,
+		arg.ID,
+	)
+	var i Session
+	err := row.Scan(
+		&i.ID,
+		&i.Role,
+		&i.Harness,
+		&i.Model,
+		&i.Repository,
+		&i.Workstream,
+		&i.AcpSessionID,
+		&i.StartedAt,
+		&i.EndedAt,
+		&i.EndReason,
+		&i.QueueReason,
+		&i.Organization,
+		&i.Issue,
+		&i.Parent,
+		&i.Effort,
+		&i.WorkstreamRepository,
+	)
+	return i, err
+}
+
 const setSyncCursor = `-- name: SetSyncCursor :exec
 INSERT INTO sync_cursors (repository, endpoint, since, etag) VALUES (?, ?, ?, ?)
 ON CONFLICT (repository, endpoint) DO UPDATE SET since = excluded.since, etag = excluded.etag

@@ -245,6 +245,9 @@ func (e *Engine) takeSlot(ctx context.Context, a *Agent) error {
 		if err != nil {
 			return err
 		}
+		if err := e.followBinding(ctx, a); err != nil {
+			return err
+		}
 		paused := ""
 		if worker {
 			pause, err := e.queries.GetHarnessPause(ctx, string(a.binding.Harness))
@@ -301,6 +304,30 @@ func (e *Engine) takeSlot(ctx context.Context, a *Agent) error {
 	if moved == 0 {
 		return ErrLeftQueue
 	}
+	return nil
+}
+
+// followBinding gives the session of a that waits for a slot the current binding of its Role, because the Owner can
+// change the Role while the session waits. A session that runs keeps its binding.
+func (e *Engine) followBinding(ctx context.Context, a *Agent) error {
+	binding, ok := e.roleBinding(a.spec.Role)
+	if !ok {
+		return fmt.Errorf("the Role %s has no Role binding", a.spec.Role)
+	}
+	if binding == a.binding {
+		return nil
+	}
+	session, err := e.queries.SetSessionBinding(ctx, store.SetSessionBindingParams{
+		Harness: string(binding.Harness),
+		Model:   binding.Model,
+		Effort:  sql.NullString{String: binding.Effort, Valid: binding.Effort != ""},
+		ID:      a.id,
+	})
+	if err != nil {
+		return err
+	}
+	a.binding = binding
+	e.publish(Change{Node: new(e.node(session))})
 	return nil
 }
 
