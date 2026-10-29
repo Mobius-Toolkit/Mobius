@@ -797,7 +797,7 @@ export function Conversation({
             scrollToEnd(event.currentTarget);
           }
         }}
-        className="grid min-h-0 grow grid-cols-[minmax(0,1fr)] content-start gap-3 overflow-y-auto overscroll-contain bg-muted/40 p-4"
+        className="grid min-h-0 grow grid-cols-[minmax(0,1fr)] content-start gap-3 overflow-y-auto overscroll-contain bg-muted/40 p-4 [overflow-anchor:none]"
       >
         {error && <Badge variant="destructive">{error}</Badge>}
         {brief && showBrief && <BriefBubble brief={brief} onMeasured={measureBrief} />}
