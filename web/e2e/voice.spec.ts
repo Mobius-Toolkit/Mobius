@@ -766,6 +766,35 @@ test("the field keeps the live text and Send waits until the final text comes", 
   expect(bodies.length).toBe(1);
 });
 
+test("an image that the Owner attaches while Send waits goes out with the message", async ({
+  page,
+}) => {
+  await page.clock.install();
+  await liveServer(page, liveAnswers);
+  const release = await holdFinish(page, "Red roses");
+  const bodies = await messages(page);
+  await liveField(page);
+  await send(page).click();
+  await expect(send(page)).toBeDisabled();
+  await page
+    .getByRole("main")
+    .locator("input[type=file]")
+    .setInputFiles({
+      name: "photo.png",
+      mimeType: "image/png",
+      buffer: Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+        "base64",
+      ),
+    });
+  await expect(page.getByRole("img", { name: "Image 1" })).toBeVisible();
+  release();
+  await expect.poll(() => bodies.length).toBe(1);
+  expect(bodies[0]).toContain("Plant Red roses now");
+  expect(bodies[0]).toContain("image/png");
+  await expect(page.getByRole("img", { name: "Image 1" })).toBeHidden();
+});
+
 for (const [name, reply, alert] of [
   [
     "a failed",

@@ -238,12 +238,17 @@ export function MessageInput({
     }
     justSent.current = true;
     let message = text;
+    let sentImages = images;
+    let sentInboxItems = inboxItems;
     const shown = voiceRegion.current;
     if (voice.showsLive() && shown && shown.value === input.current?.value) {
       setWaiting(true);
       const final = await voice.finishForSend();
       setWaiting(false);
       justSent.current = true;
+      const draft = await loadDraft(draftKey);
+      sentImages = draft.images;
+      sentInboxItems = draft.inboxItems;
       const region = voiceRegion.current;
       if (region) {
         message = final === undefined ? region.value : region.lead + final + region.trail;
@@ -253,7 +258,7 @@ export function MessageInput({
     }
     void updateDraft(draftKey, () => emptyDraft);
     onError("");
-    const result = onSend(message, images, inboxItems);
+    const result = onSend(message, sentImages, sentInboxItems);
     if (result instanceof Promise) {
       void result.then((done) => {
         if (!done) {
@@ -261,10 +266,12 @@ export function MessageInput({
           void updateDraft(draftKey, (draft) => ({
             text:
               draft.text === message ? message : [message, draft.text].filter(Boolean).join(" "),
-            images,
+            images: sentImages,
             inboxItems: [
-              ...inboxItems,
-              ...draft.inboxItems.filter((item) => !inboxItems.some(({ id }) => id === item.id)),
+              ...sentInboxItems,
+              ...draft.inboxItems.filter(
+                (item) => !sentInboxItems.some(({ id }) => id === item.id),
+              ),
             ],
           }));
         }
