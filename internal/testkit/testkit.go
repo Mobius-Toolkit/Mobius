@@ -59,10 +59,10 @@ func Main(m *testing.M) {
 }
 
 // The Harness commands of the Roles.
-var harnessPrograms = []string{"claude-agent-acp", "agy_acp_server", "devin"}
+var harnessPrograms = []string{"claude-agent-acp", "agy_acp_server", "devin", "dsh"}
 
 // InstallFakeHarness makes the Harness command program in dataDir/harnesses run the fake agent with script.
-// The program is "claude-agent-acp", "agy_acp_server" or "devin". The command is a link to the test binary,
+// The program is "claude-agent-acp", "agy_acp_server", "devin" or "dsh". The command is a link to the test binary,
 // so the test package must call Main from its TestMain.
 // The fake agent writes the files env, pwd and mcp_url to dataDir/harnesses.
 func InstallFakeHarness(t testing.TB, dataDir, program, script string) {

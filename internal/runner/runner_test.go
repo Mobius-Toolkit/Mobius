@@ -151,8 +151,12 @@ func fakeAgentDir(t *testing.T) string {
 }
 
 func startFakeAgent(t *testing.T, updates func(json.RawMessage, bool)) *Session {
+	return startFakeAgentAt(t, "http://127.0.0.1:1/mcp/key", updates)
+}
+
+func startFakeAgentAt(t *testing.T, mcpURL string, updates func(json.RawMessage, bool)) *Session {
 	dir := fakeAgentDir(t)
-	session, err := Start(context.Background(), config.ClaudeCode, dir, dir, dir, "http://127.0.0.1:1/mcp/key", "", "", "", updates)
+	session, err := Start(context.Background(), config.ClaudeCode, dir, dir, dir, mcpURL, "", "", "", updates)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,6 +196,82 @@ func TestSessionGivesTheMCPServerSetsTheOptionsAndAllowsTools(t *testing.T) {
 		t.Errorf("stop reason = %s", result.StopReason)
 	}
 	want := `mcp [{"headers":[],"name":"mobius","type":"http","url":"http://127.0.0.1:1/mcp/key"}]; set model=sonnet effort=low mode=bypassPermissions; permission always`
+	if message.String() != want {
+		t.Errorf("message = %s", message.String())
+	}
+}
+
+func TestStartWithNoMCPURLGivesNoMCPServer(t *testing.T) {
+	var message strings.Builder
+	session := startFakeAgentAt(t, "", func(params json.RawMessage, _ bool) {
+		var notification struct {
+			Update struct {
+				Content struct {
+					Text string `json:"text"`
+				} `json:"content"`
+			} `json:"update"`
+		}
+		if err := json.Unmarshal(params, &notification); err != nil {
+			t.Error(err)
+		}
+		message.WriteString(notification.Update.Content.Text)
+	})
+
+	if _, err := session.Prompt(context.Background(), "Say the servers.", nil); err != nil {
+		t.Fatal(err)
+	}
+
+	if want := "mcp []; set ; permission always"; message.String() != want {
+		t.Errorf("message = %s, want %s", message.String(), want)
+	}
+}
+
+func TestDSHRunsWithTheACPProfileAndGetsTheModelAndTheEffortByTheirCategories(t *testing.T) {
+	t.Setenv("MOBIUS_FAKE_AGENT", "1")
+	t.Setenv("MOBIUS_FAKE_DSH", "1")
+	dir := t.TempDir()
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(exe, filepath.Join(dir, "dsh")); err != nil {
+		t.Fatal(err)
+	}
+	var message strings.Builder
+	session, err := Start(context.Background(), config.DSH, dir, dir, dir, "http://127.0.0.1:1/mcp/key", "", "", "", func(params json.RawMessage, _ bool) {
+		var notification struct {
+			Update struct {
+				Content struct {
+					Text string `json:"text"`
+				} `json:"content"`
+			} `json:"update"`
+		}
+		if err := json.Unmarshal(params, &notification); err != nil {
+			t.Error(err)
+		}
+		message.WriteString(notification.Update.Content.Text)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(session.Close)
+	ctx := context.Background()
+
+	if err := session.Configure(ctx, `["deepseek-account","deepseek-v4-pro"]`, "high"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := session.Prompt(ctx, "Say the options.", nil); err != nil {
+		t.Fatal(err)
+	}
+
+	args, err := os.ReadFile(filepath.Clean(filepath.Join(dir, "args")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "--profile acp"; string(args) != want {
+		t.Errorf("args = %q, want %q", args, want)
+	}
+	want := `mcp [{"headers":[],"name":"mobius","type":"http","url":"http://127.0.0.1:1/mcp/key"}]; set model=["deepseek-account","deepseek-v4-pro"] reasoning_effort=high; permission allow-once`
 	if message.String() != want {
 		t.Errorf("message = %s", message.String())
 	}
@@ -238,6 +318,23 @@ const fakeOptions = `[
 		"options": [{"value": "default", "name": "Default"}, {"value": "bypassPermissions", "name": "Bypass"}]}
 ]`
 
+// dshOptions are the options of dsh: the ids differ from the categories.
+const dshOptions = `[
+	{"type": "select", "id": "model", "name": "Model", "category": "model", "currentValue": "[\"deepseek-official\",\"deepseek-v4-flash\"]",
+		"options": [{"group": "deepseek-account", "name": "DeepSeek Account", "options": [
+			{"value": "[\"deepseek-account\",\"deepseek-flash\"]", "name": "DeepSeek-V4.1-Flash"},
+			{"value": "[\"deepseek-account\",\"deepseek-v4-pro\"]", "name": "DeepSeek-V4-Pro"}]}]},
+	{"type": "select", "id": "reasoning_effort", "name": "Reasoning effort", "category": "thought_level", "currentValue": "high",
+		"options": [{"value": "off", "name": "Off"}, {"value": "low", "name": "Low"}, {"value": "high", "name": "High"}, {"value": "max", "name": "Max"}]}
+]`
+
+func fakeOptionsText() string {
+	if os.Getenv("MOBIUS_FAKE_DSH") == "1" {
+		return dshOptions
+	}
+	return fakeOptions
+}
+
 // fakeAgent tells the received MCP servers and options in its reply to a prompt.
 type fakeAgent struct {
 	conn    *acp.AgentSideConnection
@@ -264,8 +361,13 @@ func (a *fakeAgent) Initialize(ctx context.Context, _ acp.InitializeRequest) (ac
 
 func (a *fakeAgent) NewSession(_ context.Context, request acp.NewSessionRequest) (acp.NewSessionResponse, error) {
 	a.servers = request.McpServers
+	if os.Getenv("MOBIUS_FAKE_DSH") == "1" {
+		if err := os.WriteFile("args", []byte(strings.Join(os.Args[1:], " ")), 0o600); err != nil {
+			return acp.NewSessionResponse{}, err
+		}
+	}
 	var options []acp.SessionConfigOption
-	if err := json.Unmarshal([]byte(fakeOptions), &options); err != nil {
+	if err := json.Unmarshal([]byte(fakeOptionsText()), &options); err != nil {
 		return acp.NewSessionResponse{}, err
 	}
 	return acp.NewSessionResponse{SessionId: "session-1", ConfigOptions: options}, nil
@@ -274,18 +376,25 @@ func (a *fakeAgent) NewSession(_ context.Context, request acp.NewSessionRequest)
 func (a *fakeAgent) SetSessionConfigOption(_ context.Context, request acp.SetSessionConfigOptionRequest) (acp.SetSessionConfigOptionResponse, error) {
 	a.sets = append(a.sets, fmt.Sprintf("%s=%s", request.ValueId.ConfigId, request.ValueId.Value))
 	var options []acp.SessionConfigOption
-	err := json.Unmarshal([]byte(fakeOptions), &options)
+	err := json.Unmarshal([]byte(fakeOptionsText()), &options)
 	return acp.SetSessionConfigOptionResponse{ConfigOptions: options}, err
 }
 
 func (a *fakeAgent) Prompt(ctx context.Context, request acp.PromptRequest) (acp.PromptResponse, error) {
+	options := []acp.PermissionOption{
+		{OptionId: "reject", Name: "Reject", Kind: acp.PermissionOptionKindRejectOnce},
+		{OptionId: "always", Name: "Always", Kind: acp.PermissionOptionKindAllowAlways},
+	}
+	if os.Getenv("MOBIUS_FAKE_DSH") == "1" {
+		options = []acp.PermissionOption{
+			{OptionId: "reject-once", Name: "Reject once", Kind: acp.PermissionOptionKindRejectOnce},
+			{OptionId: "allow-once", Name: "Allow once", Kind: acp.PermissionOptionKindAllowOnce},
+		}
+	}
 	permission, err := a.conn.RequestPermission(ctx, acp.RequestPermissionRequest{
 		SessionId: request.SessionId,
 		ToolCall:  acp.ToolCallUpdate{ToolCallId: "call-1"},
-		Options: []acp.PermissionOption{
-			{OptionId: "reject", Name: "Reject", Kind: acp.PermissionOptionKindRejectOnce},
-			{OptionId: "always", Name: "Always", Kind: acp.PermissionOptionKindAllowAlways},
-		},
+		Options:   options,
 	})
 	if err != nil {
 		return acp.PromptResponse{}, err

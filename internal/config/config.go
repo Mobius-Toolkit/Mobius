@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -23,15 +24,16 @@ const (
 	ClaudeCode  Harness = "claude-code"
 	Antigravity Harness = "antigravity"
 	Devin       Harness = "devin"
+	DSH         Harness = "dsh"
 )
 
 // Harnesses are all Harnesses, in the order that mobius init offers them.
-var Harnesses = []Harness{ClaudeCode, Antigravity, Devin}
+var Harnesses = []Harness{ClaudeCode, Antigravity, Devin, DSH}
 
 // HasEffortLevels tells if the Harness has the thought_level option. A Role
 // on such a Harness must have an effort, and a Role on another Harness must not.
 func (h Harness) HasEffortLevels() bool {
-	return h == ClaudeCode || h == Devin
+	return h == ClaudeCode || h == Devin || h == DSH
 }
 
 // SkillDirectory gives the skill folder that the Harness loads from its working directory, relative to that directory.
@@ -252,8 +254,8 @@ func CheckRoles(roles *Roles) error {
 		key := "roles." + b.Role
 		harness := b.Binding.Harness
 		switch {
-		case harness != ClaudeCode && harness != Antigravity && harness != Devin:
-			return fmt.Errorf("%s.harness: must be claude-code, antigravity or devin", key)
+		case !slices.Contains(Harnesses, harness):
+			return fmt.Errorf("%s.harness: must be claude-code, antigravity, devin or dsh", key)
 		case b.Binding.Model == "":
 			return fmt.Errorf("%s.model: must not be empty", key)
 		case harness.HasEffortLevels() && b.Binding.Effort == "":

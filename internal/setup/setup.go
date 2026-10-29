@@ -26,8 +26,6 @@ const (
 	startTimeout = 60 * time.Second
 	// Antigravity waits 300 s for the browser.
 	loginTimeout = 360 * time.Second
-	// The Harness gets no Mobius tools here, so the MCP URL has no server.
-	noMCPURL = "http://127.0.0.1:1/mcp/init"
 )
 
 type offer struct {
@@ -62,6 +60,7 @@ var titles = map[config.Harness]string{
 	config.ClaudeCode:  "Claude Code",
 	config.Antigravity: "Antigravity",
 	config.Devin:       "Devin",
+	config.DSH:         "DeepSeek Harness",
 }
 
 type terminal struct {
@@ -199,7 +198,7 @@ func offers(ctx context.Context, t terminal, path string) ([]offer, error) {
 			}
 		}
 		startCtx, cancel := context.WithTimeout(ctx, startTimeout)
-		session, err := runner.Start(startCtx, harness, dir, dir, path, noMCPURL, "", "", "", func(json.RawMessage, bool) {})
+		session, err := runner.Start(startCtx, harness, dir, dir, path, "", "", "", "", func(json.RawMessage, bool) {})
 		timedOut := startCtx.Err() != nil
 		cancel()
 		switch {

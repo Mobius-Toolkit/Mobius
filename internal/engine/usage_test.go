@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
@@ -253,6 +254,35 @@ func TestADevinTurnAddsTheTokensOfEachModelCallAndSkipsTheCopies(t *testing.T) {
 		t.Errorf("row = %+v", row)
 	}
 	if row.CacheWrite.Valid || row.Cost.Valid || row.ReportedModel.Valid {
+		t.Errorf("row = %+v", row)
+	}
+}
+
+func TestADSHTurnHasAUsageRowWithNullTokensAndANullCost(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	model := `["deepseek-account","deepseek-v4-pro"]`
+	script := "[options]\nmodel = ['" + model + "']\nthought_level = [\"high\"]\n" + `
+[[prompts]]
+updates = ['{"sessionUpdate": "usage_update", "used": 1, "size": 2}']
+`
+	server, _ := connectScript(t, fake, script, func(cfg *config.Config) {
+		cfg.Roles.Researcher = config.RoleBinding{Harness: config.DSH, Model: model, Effort: "high", Max: 2}
+	})
+	spec := leadSpec(t)
+	spec.Role = engine.ResearcherRole
+
+	session := run(t, server, spec, "One")
+
+	rows := usageRows(t, server, session)
+	if len(rows) != 1 {
+		t.Fatalf("rows = %+v", rows)
+	}
+	row := rows[0]
+	if row.Harness != "dsh" || row.Model != model || row.Effort.String != "high" {
+		t.Errorf("row = %+v", row)
+	}
+	if row.Input.Valid || row.Output.Valid || row.CacheRead.Valid || row.CacheWrite.Valid || row.Cost.Valid || row.ReportedModel.Valid {
 		t.Errorf("row = %+v", row)
 	}
 }

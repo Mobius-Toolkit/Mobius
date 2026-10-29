@@ -98,6 +98,40 @@ Do not use `claude setup-token` with `CLAUDE_CODE_OAUTH_TOKEN`. The token is the
 
    On a headless server, add `--force-manual-token-flow`, and paste the token.
 
+### DeepSeek Harness (dsh)
+
+Mobius starts dsh with `dsh --profile acp`. The tested version is 0.2.1-rc.5.
+
+1. Install dsh:
+
+   ```sh
+   npm install -g @deepseek-ai/dsh@0.2.1-rc.5
+   ```
+
+2. Give dsh access to a model route. The route of the model value selects the access. dsh has two routes:
+
+   - `deepseek-account`: sign in to your DeepSeek account.
+     1. Run `dsh --profile web`. dsh prints a URL and opens it in the browser.
+     2. Open Settings, then Account, and sign in. The browser opens the DeepSeek sign-in page.
+     3. On a headless server, run `dsh --profile web --no-open` and forward the port 3080 to your computer with SSH. Open the URL with the host `localhost`. The sign-in works only on a loopback address.
+   - `deepseek-official`: give dsh a DeepSeek API key. Do one of these steps:
+     - Write `DEEPSEEK_API_KEY=<key>` in `~/.dsh/.env`.
+     - Store the key on the Models page of the dsh web UI.
+
+   dsh keeps the sign-in and the key in its own files in `~/.dsh`. Mobius sets no environment for dsh.
+
+3. Bind a Role to dsh. The `model` is the value that dsh gives, with the route and the model name as a JSON array. Write it in single quotes:
+
+   ```toml
+   researcher = { harness = "dsh", model = '["deepseek-account","deepseek-v4-pro"]', effort = "high" }
+   ```
+
+   `mobius init` offers the values of dsh. The effort is `off`, `low`, `high` or `max`.
+
+A model of a route with no access passes the start of the session, and it fails at the first prompt. Check each route with one prompt before you use it.
+
+dsh gives Mobius no tokens and no cost, so the usage data of a dsh turn has no tokens and no cost.
+
 ### Antigravity
 
 1. Download the `agy_acp_server` zip for your host from the [`antigravity-acp` entry of the ACP registry](https://github.com/agentclientprotocol/registry/tree/main/registry/antigravity-acp).
@@ -120,6 +154,7 @@ Each agent loads your own skills from the user skill directory of its Harness:
 | Claude Code | `~/.claude/skills/` |
 | Antigravity | `~/.gemini/config/skills/` |
 | Devin | `~/.agents/skills/` or `~/.config/devin/skills/` |
+| dsh | `~/.agents/skills/` or `~/.dsh/skills/` |
 
 Mobius also gives each agent the skills of your organization. Put them in the repository `<organization>/mobius-skills`. The name is fixed. Install the Mobius App on this repository. Mobius treats it as each other repository, so a change of a skill uses a task issue, a pull request and your approval.
 
@@ -130,6 +165,7 @@ A skill is a top-level folder of the default branch with a `SKILL.md` file and o
 | Claude Code | `.claude/skills/` |
 | Antigravity | `.agents/skills/` |
 | Devin | `.agents/skills/` |
+| dsh | `.agents/skills/` |
 
 A change of a skill reaches the agents only after it merges into the default branch. A skill on another branch never reaches a session. Mobius does not change your own skill directories.
 
@@ -163,7 +199,7 @@ The config file is a TOML file. Mobius reads it one time when it starts, so you 
 
 - `access_password`: the password of the web UI.
 - `trusted_users`: the GitHub logins of the users that the agents act for.
-- `roles`: the `harness`, the `model` and the `effort` of each Role (`lead`, `coordinator`, `triager`, `implementer`, `researcher`, `reviewer`, `judge`, `curator` and `diagnoser`). A Devin or Claude Code Role must have an effort. An Antigravity Role must not have an effort.
+- `roles`: the `harness`, the `model` and the `effort` of each Role (`lead`, `coordinator`, `triager`, `implementer`, `researcher`, `reviewer`, `judge`, `curator` and `diagnoser`). A Devin, dsh or Claude Code Role must have an effort. An Antigravity Role must not have an effort.
 
 You can add these keys:
 
