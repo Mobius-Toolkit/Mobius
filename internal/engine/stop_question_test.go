@@ -84,7 +84,7 @@ func TestTheEndOfAQuestionAfterAResumeOpensNoStoppedItem(t *testing.T) {
 	server, _ := connectTask(t, fake, staleAsk+leadStarts, mergesCents, keepSessionOpen)
 	authorize(t, server)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
-	waitForReadyEvents(t, server, 1)
+	waitForReadyEvents(t, fake, server, 1)
 	fake.SetCreatedAt(shop, pullRequestNumber, 0)
 	fake.CommitFile(shop, "plan.txt", "dollars\n", "Use dollars")
 	waitForItem(t, server, "question")
