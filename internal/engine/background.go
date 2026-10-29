@@ -108,7 +108,7 @@ type backgroundStateInput struct {
 
 func (e *Engine) backgroundStateTool(c caller) mcp.Tool {
 	return tool(e, c, "background_state",
-		"Tell Mobius if a background task of this session still runs. Call it only when Mobius asks. Mobius waits for your final report while you give the state running.",
+		"Tell Mobius if a background task of this session still runs. Call it only when Mobius asks. Mobius continues to wait while you give the state running.",
 		map[string]any{
 			"state": map[string]any{"type": "string", "enum": []string{"running", "done"}, "description": "running: a background task still runs. done: each background task ended."},
 		},
