@@ -40,6 +40,7 @@ import {
   longTitleItem,
   routeInboxItems,
   stoppedItems,
+  todoItems,
 } from "./stops.js";
 
 const viewports = {
@@ -864,6 +865,26 @@ test("screenshots", async ({ page }) => {
       await showChatEnd(page);
     },
   );
+  await setTray(page, "expanded");
+  await page.unroute(inboxRoute);
+  await page.route(inboxRoute, (route) => route.fulfill({ json: { data: todoItems } }));
+  await screenshot(
+    page,
+    "chat-waits-todo",
+    "/workstreams/owner/shop/12",
+    (device) => [
+      ...frame(device, drain, {}, "2"),
+      trayToggle(page, 2, true),
+      main.getByText("Todo · mandatory"),
+      main.getByText("Todo · optional"),
+    ],
+    async () => {
+      await expect(trayToggle(page, 2, true)).toBeVisible();
+      await expect(main.getByText("Todo · mandatory")).toBeVisible();
+      await expect(main.getByText("Todo · optional")).toBeVisible();
+      await showChatEnd(page);
+    },
+  );
   await page.evaluate(() => localStorage.removeItem("tray"));
   await page.unroute(inboxRoute);
   await setQueueReason(page, "waits for a low load");
@@ -1186,6 +1207,27 @@ test("screenshots", async ({ page }) => {
           },
           {
             ...item,
+            id: 105,
+            issue: 43,
+            kind: "todo",
+            title: "Run the plan import",
+            reason: "optional · Deployment needs",
+            text: "manual_step: Run the plan import",
+            link: `${link}/issues/43`,
+            pullRequest: 1110,
+            pullRequestUrl: `${link}/pull/1110`,
+            todo: {
+              kind: "manual_step",
+              name: "Run the plan import",
+              path: "docs/install.md",
+              line: 12,
+              mandatory: false,
+              reason: "The old plans need the import once.",
+              note: "",
+            },
+          },
+          {
+            ...item,
             id: 104,
             issue: 12,
             kind: "Lead failed",
@@ -1198,18 +1240,21 @@ test("screenshots", async ({ page }) => {
   });
   const inboxReady = (device: string) => [
     chatCount,
-    ...frame(device, drain, { organizations: true }, "6"),
-    main.getByRole("tab", { name: "To do 6" }),
+    ...frame(device, drain, { organizations: true }, "7"),
+    main.getByRole("tab", { name: "To do 7" }),
     main.getByText("Integrate loyalty plans", { exact: true }),
     main.getByText("Let customers change plans"),
     main.getByText("The Lead did not get your message"),
     main.getByText("MOBIUS_SMTP_HOST"),
+    main.getByText("Run the plan import"),
+    main.getByText("Todo · mandatory"),
+    main.getByText("Todo · optional"),
   ];
   await screenshot(page, "inbox", "/inbox", inboxReady);
   const todoRow = main.getByRole("listitem").filter({ hasText: "MOBIUS_SMTP_HOST" });
   await screenshot(page, "inbox-todo", "/inbox", (device) => [
     ...inboxReady(device),
-    todoRow.getByRole("button", { name: "Done…" }),
+    todoRow.getByRole("button", { name: "Complete" }),
     todoRow.getByRole("link", { name: "Open PR" }),
   ]);
   // Radix hides the page behind the panel from the role queries, so the open step waits for the page first.
@@ -1236,10 +1281,10 @@ test("screenshots", async ({ page }) => {
     () => [
       page.getByRole("dialog").getByText("Mandatory env var"),
       page.getByRole("dialog").getByText("File: internal/config/config.go:42"),
-      page.getByRole("dialog").getByText("Mobius merges after this todo is done."),
+      page.getByRole("dialog").getByText("Mobius merges after you complete this todo."),
       page.getByRole("dialog").getByRole("textbox", { name: "Note" }),
     ],
-    openPanel("Done…", 0),
+    openPanel("Complete", 0),
   );
   await screenshot(
     page,

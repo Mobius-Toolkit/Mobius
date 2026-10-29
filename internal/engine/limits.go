@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -29,6 +30,15 @@ const (
 	// that failed again.
 	retryWindow = 5 * time.Minute
 )
+
+const dshTurnFailed = "Internal error: turn failed: "
+
+var dshLimit = regexp.MustCompile(`(?i)\binsufficient[\s_-]+(quota|balance|credits?)\b` +
+	`|\b(quota|usage[\s_-]+limit)[\s_-]+(exceeded|exhausted|reached)\b` +
+	`|\bexceed(ed|s)?[\s_-]+((your|the)[\s_-]+)?(current[\s_-]+)?quota\b` +
+	`|\b(balance|credits?)[\s_-]+(exhausted|depleted)\b` +
+	`|\bout[\s_-]+of[\s_-]+(credits?|budget)\b` +
+	`|rate limit|request failed \(402\)|request failed \(429\)`)
 
 // limitData holds the fields of the data of an ACP error that tell a usage limit.
 type limitData struct {
@@ -72,6 +82,14 @@ func detect(harness config.Harness, err *acp.RequestError, hint, now time.Time) 
 		}
 		if data.RetryAfterSeconds != nil {
 			reset = now.Add(time.Duration(*data.RetryAfterSeconds) * time.Second)
+		}
+	case config.DSH:
+		// dsh puts the message of a failed turn after "Internal error: turn failed: ", with no HTTP status, no retry time
+		// and no error kind. The patterns follow isQuotaExceededError of @deepseek-ai/dsh-llm, and the texts follow
+		// providerError of @deepseek-ai/dsh-llm-deepseek (both 0.2.1-rc.5).
+		failure, ok := strings.CutPrefix(err.Message, dshTurnFailed)
+		if err.Code != -32603 || !ok || !dshLimit.MatchString(failure) {
+			return time.Time{}, false
 		}
 	}
 	if reset.IsZero() {
