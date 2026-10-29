@@ -77,6 +77,38 @@ func TestDevinTakesTheRetryTimeAndWaits30MinutesWithNoTime(t *testing.T) {
 	}
 }
 
+func TestDSHWaits30MinutesOnABalanceOrRateLimitErrorOfAFailedTurn(t *testing.T) {
+	t.Parallel()
+	for _, message := range []string{
+		"Internal error: turn failed: Insufficient Balance",
+		"Internal error: turn failed: Rate Limit Reached",
+		"Internal error: turn failed: DeepSeek Messages request failed (429)",
+		"Internal error: turn failed: DeepSeek Messages request failed (402)",
+		"Internal error: turn failed: llm-deepseek: Your quota exceeded",
+		"Internal error: turn failed: llm-deepseek: out of credits",
+	} {
+		limit := &acp.RequestError{Code: -32603, Message: message}
+
+		if until, ok := detect(config.DSH, limit, time.Time{}, limitNow); !ok || !until.Equal(limitNow.Add(noTimeWait)) {
+			t.Errorf("%q: until = %v, %v", message, until, ok)
+		}
+	}
+}
+
+func TestDSHHasNoLimitOnAnotherErrorOrAnotherCode(t *testing.T) {
+	t.Parallel()
+	for _, limit := range []*acp.RequestError{
+		{Code: -32603, Message: "Internal error: turn failed: fetch failed"},
+		{Code: -32603, Message: "Internal error: turn failed: llm-deepseek: no API key for provider route \"deepseek-official\""},
+		{Code: -32603, Message: "Insufficient Balance"},
+		{Code: -32011, Message: "Internal error: turn failed: Insufficient Balance"},
+	} {
+		if until, ok := detect(config.DSH, limit, time.Time{}, limitNow); ok {
+			t.Errorf("%+v: until = %v", limit, until)
+		}
+	}
+}
+
 func TestAResetTimeThatJustPassedGivesTheWaitWithNoTimeAndALaterOneMovesToTheNextDay(t *testing.T) {
 	t.Parallel()
 	limit := &acp.RequestError{Code: -32603, Message: "Your limit resets 10am", Data: map[string]any{"errorKind": "rate_limit"}}

@@ -260,6 +260,69 @@ error = { code = -32011, message = "Rate limited", data = { errorKind = "rate_li
 reply = ["Done."]
 `
 
+// The first prompt of dsh fails with the balance error of the DeepSeek API, and the same prompt again does the work.
+const dshBalanceLimit = `
+[[prompts]]
+error = { code = -32603, message = "Internal error: turn failed: Insufficient Balance" }
+
+[[prompts]]
+reply = ["Done."]
+`
+
+// The first prompt of dsh fails with an error that is no usage limit.
+const dshOtherError = `
+[[prompts]]
+error = { code = -32603, message = "Internal error: turn failed: fetch failed" }
+`
+
+func dshImplementer(cfg *config.Config) {
+	cfg.Roles.Implementer = config.RoleBinding{Harness: config.DSH, Model: "opus", Effort: "high", Max: 2}
+}
+
+func dshPause(t *testing.T, server *testserver.Server) bool {
+	t.Helper()
+	return count(t, server, "SELECT COUNT(*) FROM harness_pauses WHERE harness = 'dsh'") == 1
+}
+
+func TestAPromptOfDSHThatFailsWithTheBalanceErrorPausesDSH(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, dshBalanceLimit, dshImplementer)
+	agent := start(t, server, implementerSpec(t, server, fake, 41))
+	defer end(t, agent, "done")
+	prompted := make(chan error, 1)
+	go func() { prompted <- agent.Prompt(t.Context(), "Store plans in cents.", nil) }()
+
+	testkit.WaitFor(t, func() bool { return dshPause(t, server) })
+
+	if status, text := send(t, server, http.MethodPost, "/api/pauses/dsh/resume", ""); status != http.StatusNoContent {
+		t.Fatalf("resume: status %d: %s", status, text)
+	}
+	if err := <-prompted; err != nil {
+		t.Fatal(err)
+	}
+	if text := reply(t, server, agent.ID()); text != "Done." {
+		t.Errorf("reply = %q", text)
+	}
+}
+
+func TestAPromptOfDSHThatFailsWithAnotherErrorDoesNotPauseDSH(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, dshOtherError, dshImplementer)
+	agent := start(t, server, implementerSpec(t, server, fake, 41))
+	defer end(t, agent, "done")
+
+	err := agent.Prompt(t.Context(), "Store plans in cents.", nil)
+
+	if err == nil || !strings.Contains(err.Error(), "fetch failed") {
+		t.Errorf("err = %v", err)
+	}
+	if dshPause(t, server) {
+		t.Error("dsh has a pause")
+	}
+}
+
 func count(t *testing.T, server *testserver.Server, query string) int {
 	t.Helper()
 	var n int
