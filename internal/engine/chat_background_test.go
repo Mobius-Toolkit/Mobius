@@ -146,3 +146,35 @@ call = { tool = "background_state", arguments = { state = "done" } }
 		t.Errorf("Lead messages = %q", leadMessages(t, server))
 	}
 }
+
+// Serial: the test changes backgroundCheckInterval.
+func TestTheDrainCancelsTheWaitTurnOfAnIdleLeadAndClosesTheChatWithNoMoreWaitPrompt(t *testing.T) {
+	shortBackgroundCheck(t, 50*time.Millisecond)
+	fake := testkit.NewFakeGitHub(t)
+	lead := `
+[[prompts]]
+updates = ['` + asyncAgentStart + `']
+reply = ["A helper starts."]
+
+[[prompts]]
+reply = ["The cancelled text."]
+hang = true
+`
+	server, _ := connect(t, fake, lead)
+	sendChat(t, server, leadChat, "Start a helper")
+	session := waitForChatSession(t, server, leadChat, engine.LeadRole, func(store.Session) bool { return true })
+	testkit.WaitFor(t, func() bool { return len(promptTexts(t, server, session.ID)) == 2 })
+
+	ends := startDrain(t, server)
+
+	if got := <-ends; got != "drained" {
+		t.Fatalf("drain end = %s", got)
+	}
+	prompts := promptTexts(t, server, endedChatSession(t, server, 0).ID)
+	if len(prompts) != 3 || !strings.HasPrefix(prompts[1], chatWaitPrompt) || prompts[2] != savePrompt {
+		t.Fatalf("prompts = %q", prompts)
+	}
+	if want := []string{"A helper starts."}; !slices.Equal(leadMessages(t, server), want) {
+		t.Errorf("Lead messages = %q", leadMessages(t, server))
+	}
+}

@@ -10,19 +10,23 @@ import (
 // chatBackgroundPrompt, and again each backgroundCheckInterval, until the agent calls background_state with done. The
 // reply text of the turn with done goes to the chat. started is the time of the first prompt of the session, and
 // waitChatBackground gives true when the chat must close: the drain started, or backgroundTimeout passed. A queued
-// item ends the wait at once, also during the sleep between two prompts and during a wait turn, and gives false.
+// item ends the wait at once, also during the sleep between two prompts and during a wait turn, and gives false. The
+// drain also cancels a wait turn.
 func (e *Engine) waitChatBackground(c *chat, a *Agent, started *time.Time) (bool, error) {
 	if started.IsZero() {
 		*started = time.Now()
 	}
 	for {
+		if e.draining() {
+			return true, nil
+		}
 		if time.Since(*started) >= backgroundTimeout {
 			return true, a.addNote(c.ctx, backgroundTimeoutNote())
 		}
 		a.setAuthor("")
 		cancelled, err := e.backgroundTurn(c, a)
 		if err != nil || cancelled {
-			return false, err
+			return cancelled && e.draining(), err
 		}
 		if !a.backgroundRunning() {
 			*started = time.Time{}
@@ -35,8 +39,9 @@ func (e *Engine) waitChatBackground(c *chat, a *Agent, started *time.Time) (bool
 	}
 }
 
-// backgroundTurn runs the wait turn. The turn can run for many minutes, so an item that is queued during it cancels it.
-// The background flag stays set, and the reply text of a cancelled turn goes to no chat message.
+// backgroundTurn runs the wait turn. The turn can run for many minutes, so an item that is queued during it, or the
+// start of the drain, cancels it. The background flag stays set, and the reply text of a cancelled turn goes to no chat
+// message.
 func (e *Engine) backgroundTurn(c *chat, a *Agent) (cancelled bool, err error) {
 	done := make(chan error, 1)
 	go func() { done <- e.turn(c, a, chatBackgroundPrompt, nil, false) }()
@@ -52,7 +57,7 @@ func (e *Engine) backgroundTurn(c *chat, a *Agent) (cancelled bool, err error) {
 		e.chatsMu.Lock()
 		queued := len(c.queue) > 0
 		e.chatsMu.Unlock()
-		if queued {
+		if queued || e.draining() {
 			cancelled = true
 			_ = a.cancel(context.WithoutCancel(c.ctx))
 		}
@@ -64,18 +69,18 @@ func (e *Engine) sleepBackground(c *chat) (closing, queued bool, err error) {
 	timer := time.NewTimer(backgroundCheckInterval)
 	defer timer.Stop()
 	for {
+		e.chatsMu.Lock()
+		queued := len(c.queue) > 0
+		e.chatsMu.Unlock()
+		if queued || e.draining() {
+			return !queued, queued, nil
+		}
 		select {
 		case <-c.ctx.Done():
 			return false, false, c.ctx.Err()
 		case <-timer.C:
 			return false, false, nil
 		case <-c.wake:
-		}
-		e.chatsMu.Lock()
-		queued := len(c.queue) > 0
-		e.chatsMu.Unlock()
-		if queued || e.draining() {
-			return !queued, queued, nil
 		}
 	}
 }
