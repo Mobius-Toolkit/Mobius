@@ -117,3 +117,28 @@ func TestSubmitReportRefusesAReportOfMoreThan20000CharactersAndKeepsTheReport(t 
 		t.Errorf("report = %q", task.Report)
 	}
 }
+
+func TestSubmitReportRefusesAReportThatContainsAMarkerAndKeepsTheReport(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fix := "call = { tool = \"submit_report\", arguments = { report = \"The section `<!-- /report -->` is the end.\" } }\n"
+	server, _ := connectTask(t, fake, noFinding+leadFindings+leadStarts, roundWithReport(fix), noChange)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" })
+
+	sendChat(t, server, leadChat, "Send the findings to #41")
+
+	replies := testkit.WaitForValue(t, func() ([]string, bool) {
+		var replies []string
+		for _, session := range roleSessions(t, server, engine.ImplementerRole) {
+			replies = append(replies, reply(t, server, session.ID))
+		}
+		return replies, len(replies) == 2 && strings.Contains(replies[1], "error:")
+	})
+	if want := "error: The report contains the marker `<!-- /report -->`."; !strings.Contains(replies[1], want) {
+		t.Errorf("reply = %q", replies[1])
+	}
+	if task := liveTask(t, server, 41); task.Report != firstReport {
+		t.Errorf("report = %q", task.Report)
+	}
+}

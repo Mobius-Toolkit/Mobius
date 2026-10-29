@@ -15,6 +15,7 @@ const (
 	reportStart      = "<!-- report -->"
 	reportEnd        = "<!-- /report -->"
 	screenshotsStart = "<!-- screenshots -->"
+	screenshotsEnd   = "<!-- /screenshots -->"
 	// maxReport is the longest report in characters. GitHub refuses a description of more than 65,535 characters.
 	maxReport = 20_000
 )
@@ -31,6 +32,11 @@ func (e *Engine) submitReport(ctx context.Context, c caller, repository github.R
 	}
 	if utf8.RuneCountInString(input.Report) > maxReport {
 		return "", refuse("The report has %d characters. The limit is %d. Shorten the report and call `submit_report` again.", utf8.RuneCountInString(input.Report), maxReport)
+	}
+	for _, marker := range []string{reportStart, reportEnd, screenshotsStart, screenshotsEnd} {
+		if strings.Contains(input.Report, marker) {
+			return "", refuse("The report contains the marker `%s`. Mobius uses this marker in the description. Remove it and call `submit_report` again.", marker)
+		}
 	}
 	task, err := e.workstreamTask(ctx, repository, c.agent.spec.WorkstreamRepository, c.workstream, c.agent.spec.Issue.Int64)
 	if err != nil {
