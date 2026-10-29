@@ -1562,6 +1562,7 @@ test("screenshots", async ({ page }) => {
   const openReviewer = async () => {
     await roleRow("Reviewer").click();
     await expect(roleSheet.getByLabel("Effort", { exact: true })).toBeVisible();
+    await expect(roleSheet.getByRole("button", { name: "Save" })).toBeEnabled();
   };
   const writeRole = (method: "PUT" | "DELETE") =>
     page.waitForResponse(
