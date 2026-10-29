@@ -886,8 +886,8 @@ func TestATriagerThatStartsAResearcherAgainAfterTheWaitPromptStartsOneResearcher
 	shortBackgroundCheck(t, 50*time.Millisecond)
 	fake := testkit.NewFakeGitHub(t)
 	start := `call = { tool = "start_researcher", arguments = { question = "Where do refunds hide?" } }`
-	script := "[[prompts]]\nwhen = \"You are a Researcher\"\nreply = [\"Refunds hide in the ledger.\"]\n\n" +
-		"[[prompts]]\nwhen = \"Report of the Researcher\"\nreply = [\"Thanks for the report.\"]\n\n" +
+	// The report of a Researcher restarts the Triager, so this Researcher never reports.
+	script := "[[prompts]]\nwhen = \"You are a Researcher\"\nhang = true\n\n" +
 		"[[prompts]]\nwhen = \"# Issue\"\nupdates = ['" + asyncAgentStart + "']\n" + start + "\n\n" +
 		"[[prompts]]\n" + start + "\n\n" +
 		"[[prompts]]\ncall = { tool = \"background_state\", arguments = { state = \"done\" } }\n\n"
