@@ -75,7 +75,7 @@ func TestACIThatCompletesGivesNoLongCIEvent(t *testing.T) {
 	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "success"))
 	server.Engine.SetClock(func() time.Time { return time.Now().Add(3 * time.Hour) })
 
-	waitForReadyEvents(t, server, 1)
+	waitForReadyEvents(t, fake, server, 1)
 	waitForPolls(t, fake)
 
 	if events := longCIEvents(t, server); events != 0 {

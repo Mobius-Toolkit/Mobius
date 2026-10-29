@@ -119,6 +119,15 @@ func (g *FakeGitHub) PullRequests(repository string) []PullRequest {
 	return found
 }
 
+// PullRequestState gives the head commit and the mergeable value ("true", "false" or "<nil>") that the pull request
+// number of repository gives.
+func (g *FakeGitHub) PullRequestState(repository string, number int64) (head, mergeable string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	body := g.pullRequestJSON(repository, number)
+	return g.headOf(repository, number), fmt.Sprint(body["mergeable"])
+}
+
 // SetDraft sets the draft status of the pull request number of repository.
 func (g *FakeGitHub) SetDraft(repository string, number int64, draft bool) {
 	g.mu.Lock()

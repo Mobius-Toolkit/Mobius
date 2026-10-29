@@ -32,7 +32,7 @@ func TestTheItemOfATaskThatLeftReadyForReviewAfterThePressIsDismissedAndTheNewIt
 
 	conflictAfterPress(t, fake, server, item)
 
-	waitForReadyEvents(t, server, 2)
+	waitForReadyEvents(t, fake, server, 2)
 	sendChat(t, server, leadChat, "Approve #41")
 	next := waitForItem(t, server, "ready for review")
 	if next.ID == item.ID || !next.Merging || next.MergeRefusal != "" {
@@ -59,7 +59,7 @@ func TestTheItemOfATaskThatLeftReadyForReviewWithNoPressIsDismissedAndTheNewItem
 	fake.CommitFile(shop, "plan.txt", "dollars\n", "Use dollars")
 
 	testkit.WaitFor(t, func() bool { return len(itemsOf(t, server, "ready for review")) == 0 })
-	waitForReadyEvents(t, server, 2)
+	waitForReadyEvents(t, fake, server, 2)
 	sendChat(t, server, leadChat, "Approve #41")
 	next := waitForItem(t, server, "ready for review")
 	if next.ID == item.ID || next.Merging || next.MergeRefusal != "" {
@@ -158,7 +158,7 @@ func TestARemovalOfTheReviewLabelDismissesTheItemWhileAJudgeRunsFromReadyForRevi
 		cfg.ReviewQuietPeriod = 200 * time.Millisecond
 	})
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
-	waitForReadyEvents(t, server, 1)
+	waitForReadyEvents(t, fake, server, 1)
 	sendChat(t, server, leadChat, "Approve #41")
 	waitForItem(t, server, "ready for review")
 	fake.AddComment(shop, 42, "owner", "Why cents?")
