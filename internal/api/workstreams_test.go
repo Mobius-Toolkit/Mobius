@@ -6,6 +6,9 @@ import (
 	"net/http/httptest"
 	"slices"
 	"testing"
+
+	"github.com/Mobius-Toolkit/Mobius/internal/config"
+	"github.com/Mobius-Toolkit/Mobius/internal/voice"
 )
 
 func TestListWorkstreams(t *testing.T) {
@@ -52,6 +55,31 @@ func TestListWorkstreams(t *testing.T) {
 	}
 	if !slices.Equal(body.Data, want) {
 		t.Errorf("workstreams = %+v, want %+v", body.Data, want)
+	}
+}
+
+func TestListWorkstreamsGivesTheBriefWithNoChatLink(t *testing.T) {
+	mux, db := testMuxConfig(t, voice.NewRecordings(voice.New(t.TempDir(), ""), voice.NewDraft(t.TempDir(), "")), &config.Config{UIURL: "https://mobius.example.com"})
+	exec(t, db, `
+		INSERT INTO copied_workstreams (repository, number, title, body, autopilot, evergreen) VALUES
+			('o/a', 1, 'Loyalty plans', 'Ship the plans.
+
+[Open the Lead chat in Mobius](https://mobius.example.com/workstreams/o/a/1)', 0, 0);
+	`)
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/workstreams", nil))
+
+	var body struct {
+		Data []struct {
+			Brief string `json:"brief"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode body %q: %v", rec.Body.String(), err)
+	}
+	if len(body.Data) != 1 || body.Data[0].Brief != "Ship the plans." {
+		t.Errorf("workstreams = %+v, want one with the brief %q", body.Data, "Ship the plans.")
 	}
 }
 
