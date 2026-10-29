@@ -149,6 +149,11 @@ type GithubApp struct {
 	UserTokenExpiresAt sql.NullString
 }
 
+type GlobalPause struct {
+	Kind     string
+	PausedAt string
+}
+
 type HarnessPause struct {
 	Harness     string
 	PausedUntil string

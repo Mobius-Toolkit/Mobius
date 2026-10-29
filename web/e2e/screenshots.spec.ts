@@ -148,6 +148,14 @@ const storedDrafts = `new Promise((resolve) => {
   };
 })`;
 
+const storedAudio = `new Promise((resolve) => {
+  const open = indexedDB.open("mobius");
+  open.onsuccess = () => {
+    const count = open.result.transaction("voice").objectStore("voice").count();
+    count.onsuccess = () => resolve(count.result);
+  };
+})`;
+
 const removedText = (scope: Locator) => scope.locator("del");
 const removedSwitch = (scope: Locator) => scope.getByRole("switch", { name: "Show removed text" });
 const addedText = (scope: Locator) => scope.locator("ins");
@@ -488,6 +496,31 @@ test("screenshots", async ({ page }) => {
       await main.getByLabel("Message to the Lead").fill("");
     },
   );
+  await page.route("**/api/voice/recordings/r1/finish", () => {});
+  await screenshot(
+    page,
+    "chat-voice-send-wait",
+    "/workstreams/owner/shop/12",
+    (device) => [
+      ...chatReady(device),
+      main.getByRole("button", { name: "Converting the voice input" }),
+      main.getByRole("button", { name: "Send", exact: true }).locator("[data-slot=spinner]"),
+    ],
+    async () => {
+      await main.getByRole("button", { name: "Start voice input" }).click();
+      await expect(main.getByLabel("Message to the Lead")).toHaveValue(
+        "Show the prices of the roses first. Then the tulips",
+      );
+      await main.getByRole("button", { name: "Send", exact: true }).click();
+    },
+    async () => {
+      await page.reload();
+      await main.getByRole("button", { name: "Discard" }).click();
+      await expect.poll(() => page.evaluate(storedAudio)).toBe(0);
+      await main.getByLabel("Message to the Lead").fill("");
+      await expect.poll(() => page.evaluate(storedDrafts)).toBe(0);
+    },
+  );
   await page.unroute("**/api/voice/recordings");
   await page.unroute("**/api/voice/recordings/r1/chunks?*");
   await page.unroute("**/api/voice/recordings/r1/finish");
@@ -508,6 +541,7 @@ test("screenshots", async ({ page }) => {
     async () => {
       await page.reload();
       await main.getByRole("button", { name: "Discard" }).click();
+      await expect.poll(() => page.evaluate(storedAudio)).toBe(0);
     },
   );
   await page.unroute("**/api/voice/transcriptions");
@@ -532,7 +566,10 @@ test("screenshots", async ({ page }) => {
       await expect.poll(() => page.evaluate("samples")).toBeGreaterThan(0);
       await main.getByRole("button", { name: "Stop voice input" }).click();
     },
-    () => main.getByRole("button", { name: "Discard" }).click(),
+    async () => {
+      await main.getByRole("button", { name: "Discard" }).click();
+      await expect.poll(() => page.evaluate(storedAudio)).toBe(0);
+    },
   );
   await page.unroute("**/api/voice/recordings");
   await page.unroute("**/api/voice/transcriptions");
@@ -1407,6 +1444,22 @@ test("screenshots", async ({ page }) => {
     ],
     () => shown("Upgrade v0.1.4").click(),
   );
+  const longWord =
+    "TestAStopOfATaskGivesItsReasonOnlyToThatTaskAndNotToATaskOfAnotherRepositoryWithTheSameNumber";
+  const longChange = `Fix the CI failure of ${longWord} (#1221)`;
+  await page.route("/api/release/changes", (route) =>
+    route.fulfill({
+      json: { data: ["Show the release changes in a modal", longChange, "Fix the memory scroll"] },
+    }),
+  );
+  await screenshot(
+    page,
+    "upgrade-long-word",
+    "/settings",
+    (device) => [...frame(device, release, { upgrade: true }), page.getByText(longChange)],
+    () => shown("Upgrade v0.1.4").click(),
+  );
+  await page.unroute("/api/release/changes");
   await page.route("/ui-version", (route) => route.fulfill({ body: "a new build" }));
   await screenshot(page, "new-version", "/settings", (device) => [
     ...frame(device, release, { upgrade: true }),
