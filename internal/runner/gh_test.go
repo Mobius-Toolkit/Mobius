@@ -55,11 +55,7 @@ func realGH(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dir := t.TempDir()
-	if err := os.Symlink(printenv, filepath.Join(dir, "gh")); err != nil {
-		t.Fatal(err)
-	}
-	return dir
+	return scriptGH(t, "exec "+printenv+` "$@"`)
 }
 
 func prepare(t *testing.T) string {
