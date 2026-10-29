@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"strings"
 	"time"
 )
@@ -9,7 +10,7 @@ import (
 // chatBackgroundPrompt, and again each backgroundCheckInterval, until the agent calls background_state with done. The
 // reply text of the turn with done goes to the chat. started is the time of the first prompt of the session, and
 // waitChatBackground gives true when the chat must close: the drain started, or backgroundTimeout passed. A queued
-// item ends the wait at once, also during the sleep between two prompts, and gives false.
+// item ends the wait at once, also during the sleep between two prompts and during a wait turn, and gives false.
 func (e *Engine) waitChatBackground(c *chat, a *Agent, started *time.Time) (bool, error) {
 	if started.IsZero() {
 		*started = time.Now()
@@ -19,7 +20,8 @@ func (e *Engine) waitChatBackground(c *chat, a *Agent, started *time.Time) (bool
 			return true, a.addNote(c.ctx, backgroundTimeoutNote())
 		}
 		a.setAuthor("")
-		if err := e.turn(c, a, chatBackgroundPrompt, nil, false); err != nil {
+		cancelled, err := e.backgroundTurn(c, a)
+		if err != nil || cancelled {
 			return false, err
 		}
 		if !a.backgroundRunning() {
@@ -29,6 +31,30 @@ func (e *Engine) waitChatBackground(c *chat, a *Agent, started *time.Time) (bool
 		closing, queued, err := e.sleepBackground(c)
 		if err != nil || closing || queued {
 			return closing, err
+		}
+	}
+}
+
+// backgroundTurn runs the wait turn. The turn can run for many minutes, so an item that is queued during it cancels it.
+// The background flag stays set, and the reply text of a cancelled turn goes to no chat message.
+func (e *Engine) backgroundTurn(c *chat, a *Agent) (cancelled bool, err error) {
+	done := make(chan error, 1)
+	go func() { done <- e.turn(c, a, chatBackgroundPrompt, nil, false) }()
+	ticker := time.NewTicker(cancelResend)
+	defer ticker.Stop()
+	for {
+		select {
+		case err := <-done:
+			return cancelled, err
+		case <-c.wake:
+		case <-ticker.C:
+		}
+		e.chatsMu.Lock()
+		queued := len(c.queue) > 0
+		e.chatsMu.Unlock()
+		if queued {
+			cancelled = true
+			_ = a.cancel(context.WithoutCancel(c.ctx))
 		}
 	}
 }
