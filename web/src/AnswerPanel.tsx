@@ -298,7 +298,7 @@ export function AnswerPanel({
                 PR #{item.pullRequest} ↗
               </a>
             </p>
-            {todo.mandatory && <p>Mobius merges after this todo is done.</p>}
+            {todo.mandatory && <p>Mobius merges after you complete this todo.</p>}
           </div>
         ) : (
           <div className="grid content-start gap-2 overflow-y-auto px-4 pb-4">
