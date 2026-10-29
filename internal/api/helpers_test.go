@@ -24,6 +24,12 @@ func newMux(t *testing.T) (*http.ServeMux, *sql.DB, *auth.Auth) {
 // newMuxWith gives the API with the voice recordings, a new database and the access password "correct horse".
 func newMuxWith(t *testing.T, recordings *voice.Recordings) (*http.ServeMux, *sql.DB, *auth.Auth) {
 	t.Helper()
+	return newMuxConfig(t, recordings, &config.Config{})
+}
+
+// newMuxConfig gives newMuxWith with the config.
+func newMuxConfig(t *testing.T, recordings *voice.Recordings, cfg *config.Config) (*http.ServeMux, *sql.DB, *auth.Auth) {
+	t.Helper()
 	db, err := store.Open(t.Context(), filepath.Join(t.TempDir(), "mobius.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -35,7 +41,7 @@ func newMuxWith(t *testing.T, recordings *voice.Recordings) (*http.ServeMux, *sq
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()
-	Routes(mux, queries, a, nil, engine.New(db, nil, &config.Config{}, engine.Agents{}), recordings)
+	Routes(mux, queries, a, nil, engine.New(db, nil, cfg, engine.Agents{}), recordings)
 	return mux, db, a
 }
 
@@ -48,7 +54,13 @@ func testMux(t *testing.T) (http.Handler, *sql.DB) {
 // testMuxWith gives testMux with the voice recordings.
 func testMuxWith(t *testing.T, recordings *voice.Recordings) (http.Handler, *sql.DB) {
 	t.Helper()
-	mux, db, a := newMuxWith(t, recordings)
+	return testMuxConfig(t, recordings, &config.Config{})
+}
+
+// testMuxConfig gives testMuxWith with the config.
+func testMuxConfig(t *testing.T, recordings *voice.Recordings, cfg *config.Config) (http.Handler, *sql.DB) {
+	t.Helper()
+	mux, db, a := newMuxConfig(t, recordings, cfg)
 	token, _, err := a.Login(t.Context(), password, "Go test")
 	if err != nil {
 		t.Fatal(err)

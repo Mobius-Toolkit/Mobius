@@ -91,7 +91,7 @@ func TestAHeadWithNoCIGivesTheLeadEventAfterTheQuietPeriod(t *testing.T) {
 	server, _ := connectTask(t, fake, leadStarts, commits, func(cfg *config.Config) { cfg.ReviewQuietPeriod = 300 * time.Millisecond })
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 
-	waitForReadyEvents(t, server, 1)
+	waitForReadyEvents(t, fake, server, 1)
 
 	if state := taskState(t, server); state != "approval" {
 		t.Errorf("state = %s", state)
@@ -119,7 +119,7 @@ func TestAWorkflowRunThatIsNotCompletedKeepsTheTaskInChecks(t *testing.T) {
 
 	fake.SetWorkflowRunStatus(workflow, "completed", "success")
 
-	waitForReadyEvents(t, server, 1)
+	waitForReadyEvents(t, fake, server, 1)
 	if state := taskState(t, server); state != "approval" {
 		t.Errorf("state = %s", state)
 	}
@@ -136,7 +136,7 @@ func TestAWorkflowRunThatANewerRunOfTheSameWorkflowReplacedDoesNotCount(t *testi
 	fake.SetWorkflowRunStatus(cancelled, "completed", "cancelled")
 	fake.SetWorkflowRunStatus(succeeded, "completed", "success")
 
-	waitForReadyEvents(t, server, 1)
+	waitForReadyEvents(t, fake, server, 1)
 	if state := taskState(t, server); state != "approval" {
 		t.Errorf("state = %s", state)
 	}
@@ -150,7 +150,7 @@ func TestACompletedWorkflowRunIsEnoughCIForTheLead(t *testing.T) {
 
 	fake.AddWorkflowRun(shop, testkit.WorkflowRun{HeadSHA: sha, Status: "completed", Conclusion: "success"})
 
-	waitForReadyEvents(t, server, 1)
+	waitForReadyEvents(t, fake, server, 1)
 }
 
 func TestACheckRunOfAnotherHeadDoesNotCountForTheHead(t *testing.T) {
@@ -353,7 +353,7 @@ func TestAPullRequestWithAnUnknownMergeabilityStaysInChecks(t *testing.T) {
 
 	fake.SetMergeableUnknown(shop, 42, false)
 
-	waitForReadyEvents(t, server, 1)
+	waitForReadyEvents(t, fake, server, 1)
 }
 
 func TestAFailedCheckRunInApprovalStartsAFixRound(t *testing.T) {
@@ -361,14 +361,14 @@ func TestAFailedCheckRunInApprovalStartsAFixRound(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, fixes, noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
-	waitForReadyEvents(t, server, 1)
+	waitForReadyEvents(t, fake, server, 1)
 	sha := head(t, fake, "mobius/41")
 
 	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
 
 	roundPrompt(t, server)
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" && head(t, fake, "mobius/41") != sha })
-	waitForReadyEvents(t, server, 2)
+	waitForReadyEvents(t, fake, server, 2)
 }
 
 func TestAMergeConflictInChecksStartsAConflictRoundAndGivesTheLeadNoEvent(t *testing.T) {
@@ -399,7 +399,7 @@ func TestAMergeConflictInApprovalStartsAConflictRound(t *testing.T) {
 
 	fake.CommitFile(shop, "plan.txt", "dollars\n", "Use dollars")
 
-	waitForReadyEvents(t, server, 2)
+	waitForReadyEvents(t, fake, server, 2)
 	isAncestor(t, fake, first, head(t, fake, "mobius/41"))
 }
 
@@ -482,7 +482,7 @@ func TestARestartKeepsTheWaitOfATaskInChecks(t *testing.T) {
 
 	fake.SetCheckRunStatus(id, "completed", "success")
 
-	waitForReadyEvents(t, server, 1)
+	waitForReadyEvents(t, fake, server, 1)
 	if state := taskState(t, server); state != "approval" {
 		t.Errorf("state = %s", state)
 	}
@@ -527,7 +527,7 @@ func TestApprovePullRequestMakesTheTaskReadyForReviewAndGivesTheOwnerTheInboxIte
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadApproves+leadStarts, commits, noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
-	waitForReadyEvents(t, server, 1)
+	waitForReadyEvents(t, fake, server, 1)
 	sha := head(t, fake, "mobius/41")
 
 	sendChat(t, server, leadChat, "Approve #41")
@@ -562,7 +562,7 @@ func TestApprovePullRequestRefusesAnEmptyReportAndChangesNothing(t *testing.T) {
 	empty := "[[prompts]]\nwhen = \"Approve #41\"\ncall = { tool = \"approve_pull_request\", arguments = { repository = \"owner/shop\", n = 41, report = \" \" } }\n\n"
 	server, _ := connectTask(t, fake, empty+leadStarts, commits, noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
-	waitForReadyEvents(t, server, 1)
+	waitForReadyEvents(t, fake, server, 1)
 
 	sendChat(t, server, leadChat, "Approve #41")
 
@@ -583,7 +583,7 @@ func TestAWorkstreamsChangeGoesOutWhenATaskEntersAndLeavesReadyForReview(t *test
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadApproves+leadFindings+leadStarts, commits, noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
-	waitForReadyEvents(t, server, 1)
+	waitForReadyEvents(t, fake, server, 1)
 	if list := workstreams(t, server); list[0].ReadyToMerge {
 		t.Fatalf("workstreams = %+v", list)
 	}
@@ -653,7 +653,7 @@ func TestApprovePullRequestRefusesANewHeadAndMovesTheTaskBackToChecks(t *testing
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadApproves+leadStarts, commits, keepSessionOpen)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
-	waitForReadyEvents(t, server, 1)
+	waitForReadyEvents(t, fake, server, 1)
 	waitForPolls(t, fake)
 	fake.UnlistPullRequests(true)
 	work := t.TempDir()
@@ -670,7 +670,7 @@ func TestApprovePullRequestRefusesANewHeadAndMovesTheTaskBackToChecks(t *testing
 	if items := inbox(t, server); len(items) != 0 {
 		t.Errorf("Inbox = %+v", items)
 	}
-	waitForReadyEvents(t, server, 2)
+	waitForReadyEvents(t, fake, server, 2)
 	if state := taskState(t, server); state != "approval" {
 		t.Errorf("state = %s", state)
 	}
@@ -681,7 +681,7 @@ func TestApprovePullRequestMakesThePollReadANewHeadThatNoIssueListShows(t *testi
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadApproves+leadStarts, commits, keepSessionOpen)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
-	waitForReadyEvents(t, server, 1)
+	waitForReadyEvents(t, fake, server, 1)
 	waitForPolls(t, fake)
 	fake.UnlistPullRequests(true)
 	work := t.TempDir()
@@ -698,7 +698,7 @@ func TestApprovePullRequestMakesThePollReadANewHeadThatNoIssueListShows(t *testi
 		t.Errorf("state = %s, ready events = %d", state, events)
 	}
 	fake.SetCheckRunStatus(build, "completed", "success")
-	waitForReadyEvents(t, server, 2)
+	waitForReadyEvents(t, fake, server, 2)
 	if state := taskState(t, server); state != "approval" {
 		t.Errorf("state = %s", state)
 	}
@@ -709,7 +709,7 @@ func TestAPollMovesATaskInApprovalBackToChecksWhenAHumanPushesANewHeadAndSendsTh
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, commits, keepSessionOpen)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
-	waitForReadyEvents(t, server, 1)
+	waitForReadyEvents(t, fake, server, 1)
 	waitForPolls(t, fake)
 	work := t.TempDir()
 	testkit.Git(t, work, "clone", "--branch=mobius/41", fake.Remote(shop), ".")
@@ -723,7 +723,7 @@ func TestAPollMovesATaskInApprovalBackToChecksWhenAHumanPushesANewHeadAndSendsTh
 		t.Errorf("state = %s, ready events = %d", state, events)
 	}
 	fake.SetCheckRunStatus(build, "completed", "success")
-	waitForReadyEvents(t, server, 2)
+	waitForReadyEvents(t, fake, server, 2)
 	if state := taskState(t, server); state != "approval" {
 		t.Errorf("state = %s", state)
 	}

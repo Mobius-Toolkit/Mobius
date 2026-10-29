@@ -94,7 +94,7 @@ func TestATaskThatLeavesDispatchedGetsNoReminder(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, commits, noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
-	waitForReadyEvents(t, server, 1)
+	waitForReadyEvents(t, fake, server, 1)
 	server.Engine.SetClock(func() time.Time { return time.Now().Add(3 * time.Hour) })
 
 	waitForPolls(t, fake)
