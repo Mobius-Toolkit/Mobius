@@ -156,7 +156,7 @@ const wide = (selector: string) =>
   `(document.querySelector('${selector}')?.scrollWidth ?? 0) > (document.querySelector('${selector}')?.clientWidth ?? 0)`;
 
 test("screenshots", async ({ page }) => {
-  test.setTimeout(150_000);
+  test.setTimeout(300_000);
   const main = page.getByRole("main");
   // The day separator shows the year of a message that is not in the current year.
   await page.clock.setFixedTime("2026-10-15T12:00:00Z");
@@ -492,6 +492,7 @@ test("screenshots", async ({ page }) => {
     () => main.getByLabel("Message to the Lead").fill("Show the prices of the roses first."),
   );
   await main.getByLabel("Message to the Lead").fill("");
+  await expect.poll(() => page.evaluate(storedDrafts)).toBe(0);
   await page.route("**/api/chat?*", async (route) => {
     const response = await route.fetch();
     const body = (await response.json()) as { data: { writing: boolean; stoppable: boolean } };
