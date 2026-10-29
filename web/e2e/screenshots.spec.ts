@@ -361,6 +361,58 @@ test("screenshots", async ({ page }) => {
   const typingReady = (device: string) =>
     chatReady(device).filter((locator) => device === "desktop" || locator !== trayRow);
   await screenshot(page, "chat", "/workstreams/owner/shop/12", chatReady);
+  const briefBubble = main.getByRole("region", { name: "Brief" });
+  // The Inbox of the organization plants has no item, so the frame has no Inbox count.
+  const briefFrame = (device: string, workstream: number) =>
+    device === "desktop"
+      ? [
+          drain,
+          page.getByLabel("Work in another organization"),
+          page.locator(`nav a[href="/workstreams/plants/garden/${workstream}"]`),
+        ]
+      : [page.getByLabel("Upgrade available")];
+  await screenshot(page, "chat-brief-empty", "/workstreams/plants/garden/18", (device) => [
+    ...briefFrame(device, 18),
+    briefBubble.getByText("Cut the old canes in March."),
+    main.getByText("No messages. Write to start a chat session."),
+  ]);
+  // The chat of plants/garden#60 has 50 messages in pages of 20. The scroll to the top loads the first page, and the
+  // Brief shows above its first message. The chat is at that top again after the Brief shows.
+  const scrollBriefTop = () =>
+    page.evaluate(`(() => {
+      const list = document.querySelector('[data-message]')?.parentElement
+      if (!list) {
+        return false
+      }
+      list.scrollTop = 0
+      return list.scrollTop === 0 && list.querySelector('section[aria-label="Brief"]') !== null
+    })()`);
+  await screenshot(
+    page,
+    "chat-brief-top",
+    "/workstreams/plants/garden/60",
+    (device) => [
+      ...briefFrame(device, 60),
+      briefBubble.getByText("Sort the seeds by month."),
+      main.getByText("Seed note 1.", { exact: false }).first(),
+    ],
+    async () => {
+      await expect.poll(scrollBriefTop).toBe(true);
+    },
+  );
+  await screenshot(
+    page,
+    "chat-brief-all",
+    "/workstreams/plants/garden/19",
+    (device) => [
+      ...briefFrame(device, 19),
+      briefBubble.getByRole("button", { name: "Show less" }),
+      briefBubble.getByText("The roses have no bark at their stems."),
+    ],
+    async () => {
+      await briefBubble.getByRole("button", { name: "Show all" }).click();
+    },
+  );
   // The open menu and the open sheet hide the other elements from the accessibility tree, so the open step waits for them.
   await screenshot(
     page,

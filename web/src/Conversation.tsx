@@ -188,6 +188,46 @@ const Message = memo(function Message({
   );
 });
 
+const briefCutHeight = 144;
+
+function BriefBubble({ brief }: { brief: Workstream }) {
+  const box = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const [long, setLong] = useState(false);
+  useLayoutEffect(() => {
+    const content = box.current?.firstElementChild;
+    if (!content) {
+      return;
+    }
+    const observer = new ResizeObserver(() => setLong(content.clientHeight > briefCutHeight));
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <section
+      aria-label="Brief"
+      className="grid max-w-[85%] grid-cols-[minmax(0,1fr)] gap-1 justify-self-start rounded-xl border bg-card px-3 py-2"
+    >
+      <span className="text-xs text-muted-foreground">Brief</span>
+      <span className="font-medium wrap-anywhere">{brief.title}</span>
+      <div ref={box} className={cn("min-w-0", !open && "max-h-36 overflow-hidden")}>
+        <Markdown text={brief.brief} />
+      </div>
+      {long && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="justify-self-start"
+          onClick={() => setOpen(!open)}
+        >
+          {open ? "Show less" : "Show all"}
+        </Button>
+      )}
+    </section>
+  );
+}
+
 function DaySeparator({ label }: { label: string }) {
   return (
     <div
@@ -331,7 +371,6 @@ export function Conversation({
   const [attempt, setAttempt] = useState<Failure>();
   // Ends the wait before the next try of the first message.
   const skipWait = useRef<() => void>(undefined);
-  const [briefOpen, setBriefOpen] = useState<boolean>();
   const updateAction = useCallback(
     (action: PendingAction) =>
       setMessages((list) =>
@@ -715,21 +754,6 @@ export function Conversation({
       <header className="hidden min-h-14 items-center gap-2 border-b px-4 py-2 md:flex">
         {head}
       </header>
-      {brief && (
-        <Collapsible
-          open={briefOpen ?? (loaded && messages.length === 0)}
-          onOpenChange={setBriefOpen}
-          className="border-b px-4 py-2"
-        >
-          <CollapsibleTrigger className="group flex w-full items-center gap-2 text-left font-medium">
-            <span className="grow truncate">{brief.title}</span>
-            <ChevronRightIcon className="size-4 shrink-0 transition-transform group-data-[state=open]:rotate-90" />
-          </CollapsibleTrigger>
-          <CollapsibleContent className="max-h-[40svh] overflow-y-auto pt-2">
-            <Markdown text={brief.brief} />
-          </CollapsibleContent>
-        </Collapsible>
-      )}
       {note}
       <div
         ref={listRef}
@@ -753,6 +777,7 @@ export function Conversation({
         className="grid min-h-0 grow grid-cols-[minmax(0,1fr)] content-start gap-3 overflow-y-auto overscroll-contain bg-muted/40 p-4"
       >
         {error && <Badge variant="destructive">{error}</Badge>}
+        {brief && loaded && !older && <BriefBubble brief={brief} />}
         {loaded && queueLoaded && count === 0 && (
           <p className="text-center text-sm text-muted-foreground">
             No messages. Write to start a chat session.

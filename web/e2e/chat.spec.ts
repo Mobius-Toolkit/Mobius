@@ -743,21 +743,58 @@ test("an event shows folded and muted in the chat, and wraps on a phone", async 
   }
 });
 
-test("an empty chat opens with the Brief, and a click on its head folds it", async ({ page }) => {
+const briefBubble = (page: Page) => page.getByRole("region", { name: "Brief" });
+
+test("an empty chat shows the Brief above the text for no messages, with no panel", async ({
+  page,
+}) => {
   const main = page.getByRole("main");
   await page.goto("/workstreams/plants/garden/18");
-  const brief = main.getByText("Cut the old canes in March.");
-  await expect(brief).toBeVisible();
+  const brief = briefBubble(page);
+  await expect(brief.getByText("Cut the old canes in March.")).toBeVisible();
   await expect(brief.locator("strong")).toHaveText("old");
-  const head = main.getByRole("button", { name: "Prune the roses" });
-  await head.click();
-  await expect(brief).toBeHidden();
-  await expect(head).toBeVisible();
-  // The chat of the next Workstream opens with its own Brief.
+  await expect(brief.getByText("Prune the roses")).toBeVisible();
+  await expect(brief.getByRole("button")).toHaveCount(0);
+  const empty = main.getByText("No messages. Write to start a chat session.");
+  await expect(empty).toBeVisible();
+  expect((await brief.boundingBox())?.y ?? 999).toBeLessThan((await empty.boundingBox())?.y ?? 0);
+  await expect(page.locator("[data-message]")).toHaveCount(0);
+  await expect(main.getByRole("button", { name: "Prune the roses" })).toHaveCount(0);
+  // The chat of the next Workstream shows its own Brief.
   await page.getByRole("link", { name: "Mulch the beds" }).click();
-  const next = main.getByText("Put bark on the beds.");
-  await expect(next).toBeVisible();
-  await expect(next.locator("strong")).toHaveText("bark");
+  await expect(briefBubble(page).locator("strong").first()).toHaveText("bark");
+});
+
+test("Show all opens the full Brief in the bubble, and Show less cuts it again", async ({
+  page,
+}) => {
+  await page.goto("/workstreams/plants/garden/19");
+  const brief = briefBubble(page);
+  const last = brief.getByText("The roses have no bark at their stems.");
+  await expect(last).toBeVisible();
+  // The cut box clips the last line, and Playwright still counts a clipped element as visible.
+  const showsLast = async () => {
+    const line = await last.boundingBox();
+    const bubble = await brief.boundingBox();
+    return (line?.y ?? 0) + (line?.height ?? 0) <= (bubble?.y ?? 0) + (bubble?.height ?? 0);
+  };
+  await expect.poll(showsLast).toBe(false);
+  await brief.getByRole("button", { name: "Show all" }).click();
+  await expect.poll(showsLast).toBe(true);
+  await brief.getByRole("button", { name: "Show less" }).click();
+  await expect.poll(showsLast).toBe(false);
+  await page.reload();
+  await expect(brief.getByRole("button", { name: "Show all" })).toBeVisible();
+});
+
+test("the Coordinator chat shows no Brief", async ({ page }) => {
+  await page.goto("/chat");
+  await expect(
+    page
+      .getByText("No messages. Write to start a chat session.")
+      .or(page.locator("[data-message]").first()),
+  ).toBeVisible();
+  await expect(briefBubble(page)).toHaveCount(0);
 });
 
 test("a switch to a chat shows its first unread message", async ({ page }) => {
@@ -783,6 +820,8 @@ test("a switch to a chat shows its first unread message", async ({ page }) => {
 
     await page.goto(`/workstreams/plants/garden/${first[0]}`);
     await expectShown(`Note 6 of #${first[0]}.`, "top");
+    // The bubble is not a message, so it does not change the first unread message.
+    await expect(briefBubble(page)).toBeVisible();
     // The page marks the messages as seen, and the position stays.
     await expect.poll(() => unread(page, first[0])).toBe(0);
     await expectShown(`Note 6 of #${first[0]}.`, "top");
@@ -851,6 +890,27 @@ test("a scroll up loads older messages and keeps the position", async ({ page })
   await expect.poll(() => page.evaluate(messageCount)).toBe(50);
   await expect.poll(() => page.evaluate(topOf("Seed note 11."))).toBe(second);
   await expect(page.getByText("Seed note 1.")).toBeAttached();
+});
+
+test("the Brief shows at the top of a long chat, after the first page of the history", async ({
+  page,
+}) => {
+  await page.goto(seeds);
+  await expect.poll(() => page.evaluate(shows("Seed note 50.", "end"))).toBe(true);
+  await expect(briefBubble(page)).toHaveCount(0);
+  const scrollToTop = () =>
+    page.evaluate(`document.querySelector('[data-message]').parentElement.scrollTop = 0`);
+
+  await scrollToTop();
+  await expect.poll(() => page.evaluate(messageCount)).toBe(40);
+  await expect(briefBubble(page)).toHaveCount(0);
+  await scrollToTop();
+  await expect.poll(() => page.evaluate(messageCount)).toBe(50);
+  await expect(briefBubble(page).getByText("Sort the seeds by month.")).toBeVisible();
+  expect((await briefBubble(page).boundingBox())?.y ?? 999).toBeLessThan(
+    (await page.getByText("Seed note 1.").boundingBox())?.y ?? 0,
+  );
+  expect(await page.evaluate(messageCount)).toBe(50);
 });
 
 test("the messages that came while the connection was down show after the reconnect", async ({
