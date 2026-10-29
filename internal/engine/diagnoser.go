@@ -75,12 +75,15 @@ const (
 	notCausedSentence = " The change of the pull request did not cause this failure.\n"
 )
 
+const openIssueSentence = "  The open issue #%d holds this failure. Do not fix it in this task.\n"
+
 const notCausedSteps = `
 For each failure that the change of the pull request did not cause:
 1. When a commit of origin/%[1]s already fixed the test (git log HEAD..origin/%[1]s -- <test file>), merge origin/%[1]s, and write no second fix.
 2. When the newest runs of %[1]s fail the same test (gh run list --branch %[1]s), do not fix the test in this task.
-3. Fix the test only when the log and the code show its cause.
-4. Else make no commit. Then Mobius runs the failed jobs again one time.
+3. When the reason of the failure names an open issue, do not fix the test, and make no commit for it.
+4. Fix the test only when the log and the code show its cause.
+5. Else make no commit. Then Mobius runs the failed jobs again one time.
 `
 
 func diagnosisSection(reasons, defaultBranch string) string {
@@ -377,8 +380,11 @@ func (e *Engine) reportFailure(ctx context.Context, c caller, _ github.Repositor
 	}
 	causedByPullRequest := input.CausedByPullRequest && diagnosis.CiBreak == 0
 	result := "Saved. The pull request caused the failure, so it has no record."
+	var issue int64
 	if !causedByPullRequest {
-		id, err := e.failureRecord(ctx, diagnosis, c.agent.jobURLs, input)
+		var id int64
+		var err error
+		id, issue, err = e.failureRecord(ctx, diagnosis, c.agent.jobURLs, input)
 		if err != nil {
 			return "", err
 		}
@@ -396,6 +402,9 @@ func (e *Engine) reportFailure(ctx context.Context, c caller, _ github.Repositor
 		reasons.WriteString(causedSentence)
 	} else {
 		reasons.WriteString(notCausedSentence)
+		if issue != 0 {
+			fmt.Fprintf(&reasons, openIssueSentence, max(issue, -issue))
+		}
 	}
 	if err := e.queries.AddCIDiagnosisReason(ctx, store.AddCIDiagnosisReasonParams{Reasons: reasons.String(), ID: diagnosis.ID}); err != nil {
 		return "", err
@@ -404,37 +413,38 @@ func (e *Engine) reportFailure(ctx context.Context, c caller, _ github.Repositor
 	return result, nil
 }
 
-// failureRecord adds the place of diagnosis to the record of the failure of input, and gives the id of the record.
-func (e *Engine) failureRecord(ctx context.Context, diagnosis store.CiDiagnosis, jobURLs string, input reportFailureInput) (int64, error) {
-	var id int64
+// failureRecord adds the place of diagnosis to the record of the failure of input, and gives the id and the issue of the
+// record. The issue is 0 when the record has none.
+func (e *Engine) failureRecord(ctx context.Context, diagnosis store.CiDiagnosis, jobURLs string, input reportFailureInput) (int64, int64, error) {
+	var id, issue int64
 	switch {
 	case input.SameRecord < 0:
-		return 0, refuse("same_record must not be negative.")
+		return 0, 0, refuse("same_record must not be negative.")
 	case input.SameRecord > 0:
 		record, err := e.queries.GetOpenCIFailure(ctx, store.GetOpenCIFailureParams{ID: input.SameRecord, Repository: diagnosis.Repository})
 		if errors.Is(err, sql.ErrNoRows) {
-			return 0, refuse("%d is not an open failure record of this repository.", input.SameRecord)
+			return 0, 0, refuse("%d is not an open failure record of this repository.", input.SameRecord)
 		}
 		if err != nil {
-			return 0, err
+			return 0, 0, err
 		}
-		id = record.ID
+		id, issue = record.ID, record.Issue
 	case input.Test != "" && input.Location != "":
 		record, err := e.queries.FindOpenCIFailure(ctx, store.FindOpenCIFailureParams{Repository: diagnosis.Repository, Test: input.Test, Location: input.Location})
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return 0, err
+			return 0, 0, err
 		}
-		id = record.ID
+		id, issue = record.ID, record.Issue
 	}
 	if id == 0 {
 		var err error
 		id, err = e.queries.AddCIFailure(ctx, store.AddCIFailureParams{Repository: diagnosis.Repository, Reason: strings.TrimSpace(input.Reason), Test: input.Test, Location: input.Location, CreatedAt: now()})
 		if err != nil {
-			return 0, err
+			return 0, 0, err
 		}
 	}
 	lines := strings.Split(strings.TrimRight(input.Lines, "\n"), "\n")
-	return id, e.queries.AddCIFailurePlace(ctx, store.AddCIFailurePlaceParams{
+	return id, issue, e.queries.AddCIFailurePlace(ctx, store.AddCIFailurePlaceParams{
 		Failure:     id,
 		PullRequest: diagnosis.PullRequest,
 		CiBreak:     diagnosis.CiBreak,
