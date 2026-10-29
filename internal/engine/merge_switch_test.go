@@ -80,6 +80,11 @@ func TestWhileMergeIsOffAnApprovalOfTheOwnerOnGitHubMerges(t *testing.T) {
 	pausedItem(t, server)
 
 	fake.AddReview(shop, 42, "owner", "APPROVED", "")
+
+	testkit.WaitFor(t, func() bool {
+		items := itemsOf(t, server, "ready for review")
+		return len(items) == 1 && items[0].MergeRefusal == ""
+	})
 	fake.SetCheckRunStatus(build, "completed", "success")
 
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "" })
