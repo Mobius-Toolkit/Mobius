@@ -79,20 +79,20 @@ export function useSwitches(showLogin: () => void, source?: EventSource) {
     };
   }, [source, load, receive]);
 
-  // Gives the error text, or an empty text when the request has no error text to show, and the switches that the server gave after the failure.
+  // Gives the error text of a failed request, or undefined when the request succeeded. A 401 gives an empty text.
   const send = (kind: SwitchKind, on: boolean) =>
     setSwitch(kind, { on })
-      .then(async (res) => {
+      .then((res) => {
         if (res.status === 204) {
-          return { text: "" };
+          return undefined;
         }
         if (res.status === 401) {
           showLogin();
-          return { text: "", read: await load() };
+          return "";
         }
-        return { text: res.data.error, read: await load() };
+        return res.data.error;
       })
-      .catch(async (err: unknown) => ({ text: String(err), read: await load() }));
+      .catch((err: unknown) => String(err));
 
   // The amber line of a switch unmounts when the switch goes on, so the error stays here.
   const change: ChangeSwitch = (kind, on) => {
@@ -100,11 +100,16 @@ export function useSwitches(showLogin: () => void, source?: EventSource) {
     setFailures((current) =>
       Object.fromEntries(Object.entries(current).filter(([key]) => key !== kind)),
     );
-    return send(kind, on).then(({ text, read }) => {
-      const server = read?.[kind] ?? !on;
-      if (text && server !== on) {
-        setFailures((current) => ({ ...current, [kind]: { text, on: server } }));
+    return send(kind, on).then(async (text) => {
+      if (text === undefined) {
+        return "";
       }
+      // The read can be late or fail, so the failure shows at once with the value from before the request. The read then replaces that value.
+      setSwitches((current) => current && { ...current, [kind]: !on });
+      if (text) {
+        setFailures((current) => ({ ...current, [kind]: { text, on: !on } }));
+      }
+      await load();
       return text;
     });
   };
