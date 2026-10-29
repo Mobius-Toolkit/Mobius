@@ -768,10 +768,12 @@ test("an empty chat shows the Brief above the text for no messages, with no pane
 test("Show all opens the full Brief in the bubble, and Show less cuts it again", async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 390, height: 520 });
   await page.goto("/workstreams/plants/garden/19");
   const brief = briefBubble(page);
   const last = brief.getByText("The roses have no bark at their stems.");
   await expect(last).toBeVisible();
+  const scrollTop = () => brief.evaluate((element) => element.parentElement?.scrollTop);
   // The cut box clips the last line, and Playwright still counts a clipped element as visible.
   const showsLast = async () => {
     const line = await last.boundingBox();
@@ -779,8 +781,11 @@ test("Show all opens the full Brief in the bubble, and Show less cuts it again",
     return (line?.y ?? 0) + (line?.height ?? 0) <= (bubble?.y ?? 0) + (bubble?.height ?? 0);
   };
   await expect.poll(showsLast).toBe(false);
-  await brief.getByRole("button", { name: "Show all" }).click();
+  const before = await scrollTop();
+  // A click scrolls the button into view by itself, so the test sends the click event.
+  await brief.getByRole("button", { name: "Show all" }).dispatchEvent("click");
   await expect.poll(showsLast).toBe(true);
+  expect(await scrollTop()).toBe(before);
   await brief.getByRole("button", { name: "Show less" }).click();
   await expect.poll(showsLast).toBe(false);
   await page.reload();

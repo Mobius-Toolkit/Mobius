@@ -192,6 +192,7 @@ const briefCutHeight = 144;
 
 function BriefBubble({ brief, onMeasured }: { brief: Workstream; onMeasured: () => void }) {
   const root = useRef<HTMLElement>(null);
+  const toggled = useRef(false);
   const box = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [long, setLong] = useState(false);
@@ -206,12 +207,18 @@ function BriefBubble({ brief, onMeasured }: { brief: Workstream; onMeasured: () 
     observer.observe(content);
     return () => observer.disconnect();
   }, [onMeasured]);
-  // A new height of the bubble must not move the end of the list out of view.
+  // A new height of the bubble must not move the end of the list out of view. The toggle of the Owner must not move it.
   useLayoutEffect(() => {
     if (!root.current) {
       return;
     }
-    const observer = new ResizeObserver(onMeasured);
+    const observer = new ResizeObserver(() => {
+      if (toggled.current) {
+        toggled.current = false;
+        return;
+      }
+      onMeasured();
+    });
     observer.observe(root.current);
     return () => observer.disconnect();
   }, [onMeasured]);
@@ -232,7 +239,10 @@ function BriefBubble({ brief, onMeasured }: { brief: Workstream; onMeasured: () 
           variant="ghost"
           size="sm"
           className="justify-self-start"
-          onClick={() => setOpen(!open)}
+          onClick={() => {
+            toggled.current = true;
+            setOpen(!open);
+          }}
         >
           {open ? "Show less" : "Show all"}
         </Button>
