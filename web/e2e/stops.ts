@@ -129,6 +129,32 @@ export const leadActionItem = {
   },
 };
 
+// A question and an action that the Coordinator chat shows.
+export const coordinatorQuestion = {
+  ...base,
+  id: 211,
+  issue: 0,
+  repository: "",
+  workstreamRepository: "",
+  workstream: 0,
+  kind: "question",
+  title: "Pick the shop currency",
+  reason: "The Coordinator asks a question",
+  text: "Which currency?",
+  link: "",
+};
+
+export const coordinatorActionItem = {
+  ...leadActionItem,
+  id: 212,
+  repository: "",
+  workstreamRepository: "",
+  workstream: 0,
+  title: "Message to the Lead of #14 Early renewals",
+  reason: "The Coordinator waits for your approval",
+  action: { ...leadActionItem.action, id: 79, role: "coordinator", tool: "message_lead" },
+};
+
 export const inboxRoute = "**/api/inbox";
 
 // Adds the items to the Inbox that the server gives.

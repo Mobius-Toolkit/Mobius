@@ -4,10 +4,12 @@ import {
   addHistoryTable,
   ask,
   askDraft,
+  askRenewals,
   askStore,
   briefTitle,
   cardOf,
   checksQuestion,
+  closeRenewals,
   createTitle,
   draftTea,
   draftText,
@@ -35,6 +37,7 @@ import {
   triagerItem,
   unknownTitle,
   waitText,
+  withdrawDraft,
 } from "./actions.js";
 import { countSamples, fakeMicrophone } from "./microphone.js";
 import { routeInboxItems } from "./stops.js";
@@ -1020,4 +1023,87 @@ test("the panel of a message_lead action of the Coordinator names the Coordinato
   const answered = rejected(page);
   await reject(page).click();
   expect((await answered).ok()).toBe(true);
+});
+
+const questionCard = (page: Page, text: string) =>
+  page.locator("[data-question]").filter({ hasText: text }).last();
+
+test("the Owner answers an open question in its card", async ({ page }) => {
+  await openChat(page);
+  await ask(page, askDraft);
+  await expect(waiting(page, 1)).toBeVisible(agentTimeout);
+
+  const card = questionCard(page, draftQuestion);
+  await expect(card.getByText(/^Coordinator · \d{1,2}:\d{2}/)).toBeVisible();
+  await expect(card.getByText(draftQuestion)).toBeVisible();
+  await expect(card.getByText("Waits for your answer", { exact: true })).toBeVisible();
+  await expect(card.getByRole("button")).toHaveText(["Answer"]);
+
+  await card.getByRole("button", { name: "Answer" }).click();
+  await panel(page).getByRole("textbox", { name: "Your answer" }).fill("Yes, draft it now.");
+  await panel(page).getByRole("button", { name: "Send" }).click();
+  await expect(panel(page)).toBeHidden();
+  await expect(card.getByText("Answered", { exact: true })).toBeVisible();
+  await expect(card.getByText("Yes, draft it now.")).toBeVisible();
+  await expect(card.getByRole("button")).toHaveText(["Details"]);
+  await expect(card.getByText("Waits for your answer")).toHaveCount(0);
+});
+
+test("Details on an answered question card opens the question and the full answer with no input", async ({
+  page,
+}) => {
+  await openChat(page);
+  await ask(page, askStore);
+  await expect(waiting(page, 1)).toBeVisible(agentTimeout);
+  await answer(page, storeQuestion);
+  await option(panel(page).getByRole("group", { name: storeQuestion }), "SQLite").click();
+  await panel(page).getByRole("textbox", { name: "Your answer" }).fill("Keep the old data.");
+  await panel(page).getByRole("button", { name: "Send" }).click();
+  await expect(panel(page)).toBeHidden();
+
+  const card = questionCard(page, "The shop needs a store for the plans.");
+  await expect(card.getByText("Answered", { exact: true })).toBeVisible();
+  await card.getByRole("button", { name: "Details" }).click();
+
+  const dialog = panel(page);
+  await expect(dialog.getByText("The shop needs a store for the plans.")).toBeVisible();
+  await expect(dialog.getByRole("group", { name: storeQuestion })).toBeVisible();
+  await expect(dialog.getByRole("group", { name: checksQuestion })).toBeVisible();
+  await expect(dialog.getByText("Your answer", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("Keep the old data.")).toBeVisible();
+  await expect(dialog.getByRole("textbox")).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "Send" })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(panel(page)).toBeHidden();
+});
+
+test("a withdrawn question card shows Withdrawn and no button", async ({ page }) => {
+  await openChat(page);
+  await ask(page, askDraft);
+  await expect(waiting(page, 1)).toBeVisible(agentTimeout);
+  await ask(page, withdrawDraft);
+  await expect(waiting(page, 1)).toBeHidden(agentTimeout);
+
+  const card = questionCard(page, draftQuestion);
+  await expect(card.getByText("Withdrawn", { exact: true })).toBeVisible();
+  await expect(card.getByRole("button")).toHaveCount(0);
+});
+
+test("the question card of a Lead shows the role Lead, the Answer button and the answer", async ({
+  page,
+}) => {
+  await openLeadChat(page);
+  await sendToLead(page, askRenewals);
+  await expect(waiting(page, 1)).toBeVisible(agentTimeout);
+
+  const card = questionCard(page, "How many months early can a customer renew?");
+  await expect(card.getByText(/^Lead · \d{1,2}:\d{2}/)).toBeVisible();
+  await expect(card.getByText("Waits for your answer", { exact: true })).toBeVisible();
+  await expect(card.getByRole("button")).toHaveText(["Answer"]);
+
+  await sendToLead(page, closeRenewals);
+  await expect(waiting(page, 1)).toBeHidden(agentTimeout);
+  await expect(card.getByText("Answered", { exact: true })).toBeVisible();
+  await expect(card.getByText("Two months.")).toBeVisible();
+  await expect(card.getByRole("button")).toHaveText(["Details"]);
 });

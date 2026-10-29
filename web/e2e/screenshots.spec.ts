@@ -1,11 +1,13 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import {
   ask,
+  askDraft,
   askStore,
   briefTitle,
   cardOf,
   checksQuestion,
   createTitle,
+  draftQuestion,
   draftWorkstream,
   dropColumn,
   editBrief,
@@ -21,6 +23,7 @@ import {
   storeQuestion,
   unknownTitle,
   waitText,
+  withdrawDraft,
 } from "./actions.js";
 import { waitForEvergreen } from "./evergreen.js";
 import { png } from "./images.js";
@@ -29,6 +32,8 @@ import { countSamples, fakeMicrophone } from "./microphone.js";
 import { boardTasks, mergingTask, refusedTask, routeTasks, tasksRoute } from "./tasks.js";
 import {
   inboxRoute,
+  coordinatorActionItem,
+  coordinatorQuestion,
   leadActionItem,
   longTitle,
   longTitleItem,
@@ -69,6 +74,31 @@ async function screenshot(
   await session.send("Emulation.setTouchEmulationEnabled", { enabled: false });
   await session.detach();
 }
+
+const trayToggle = (page: Page, count: number, expanded: boolean) =>
+  page.getByRole("button", { name: `Waits for you (${count})`, expanded });
+
+// The desktop image and the phone image share the browser storage, so each step sets the choice before it opens the page.
+const setTray = (page: Page, choice: "collapsed" | "expanded") =>
+  page.evaluate((value) => localStorage.setItem("tray", value), choice);
+
+// The chat scrolls to its end by itself, and the end is the only stable scroll.
+const showChatEnd = (page: Page) =>
+  expect
+    .poll(() =>
+      page
+        .locator("[data-message]")
+        .last()
+        .evaluate((el) => {
+          const list = el.parentElement;
+          if (!list) {
+            return false;
+          }
+          list.scrollTop = list.scrollHeight;
+          return list.scrollHeight - list.scrollTop - list.clientHeight < 1;
+        }),
+    )
+    .toBe(true);
 
 // Sets the queue reason of the live Implementer session of #41.
 const setQueueReason = async (page: Page, reason: string) => {
@@ -126,7 +156,7 @@ const wide = (selector: string) =>
   `(document.querySelector('${selector}')?.scrollWidth ?? 0) > (document.querySelector('${selector}')?.clientWidth ?? 0)`;
 
 test("screenshots", async ({ page }) => {
-  test.setTimeout(150_000);
+  test.setTimeout(300_000);
   const main = page.getByRole("main");
   // The day separator shows the year of a message that is not in the current year.
   await page.clock.setFixedTime("2026-10-15T12:00:00Z");
@@ -313,19 +343,23 @@ test("screenshots", async ({ page }) => {
   );
   // The server gives one Inbox item to the chat of owner/shop#12. The route adds the stopped issues #41 and #42.
   await routeInboxItems(page, stoppedItems);
+  const trayRow = main
+    .getByRole("listitem")
+    .filter({ hasText: "Add plan model" })
+    .filter({ hasText: "The agent asked a question" });
   const chatReady = (device: string) => [
     ...frame(device, drain, {}, "3"),
     main.getByText("#42 and #45 wait for your decision."),
-    main
-      .getByRole("listitem")
-      .filter({ hasText: "Add plan model" })
-      .filter({ hasText: "The agent asked a question" }),
+    trayRow,
     main.getByRole("button", { name: "Answer" }).first(),
     page.getByRole("button", { name: "Autopilot: Off" }).filter({ visible: true }),
     ...(device === "desktop"
       ? [page.getByRole("complementary").getByText("#45 Pick the plan limits")]
       : []),
   ];
+  // A phone hides the tray while the message field has the focus.
+  const typingReady = (device: string) =>
+    chatReady(device).filter((locator) => device === "desktop" || locator !== trayRow);
   await screenshot(page, "chat", "/workstreams/owner/shop/12", chatReady);
   // The open menu and the open sheet hide the other elements from the accessibility tree, so the open step waits for them.
   await screenshot(
@@ -454,10 +488,11 @@ test("screenshots", async ({ page }) => {
     page,
     "chat-typing",
     "/workstreams/owner/shop/12",
-    (device) => [...chatReady(device), main.getByRole("button", { name: "Send", exact: true })],
+    (device) => [...typingReady(device), main.getByRole("button", { name: "Send", exact: true })],
     () => main.getByLabel("Message to the Lead").fill("Show the prices of the roses first."),
   );
   await main.getByLabel("Message to the Lead").fill("");
+  await expect.poll(() => page.evaluate(storedDrafts)).toBe(0);
   await page.route("**/api/chat?*", async (route) => {
     const response = await route.fetch();
     const body = (await response.json()) as { data: { writing: boolean; stoppable: boolean } };
@@ -608,7 +643,7 @@ test("screenshots", async ({ page }) => {
     "chat-images",
     "/workstreams/owner/shop/12",
     (device) => [
-      ...chatReady(device),
+      ...typingReady(device),
       main.getByRole("img", { name: "Image 1" }),
       main.getByRole("img", { name: "Image 2" }),
     ],
@@ -673,23 +708,73 @@ test("screenshots", async ({ page }) => {
       await expect(
         main.getByRole("listitem").filter({ hasText: leadActionItem.title }),
       ).toBeVisible();
-      await expect
-        .poll(() =>
-          page
-            .locator("[data-message]")
-            .last()
-            .evaluate((el) => {
-              const list = el.parentElement;
-              if (!list) {
-                return false;
-              }
-              list.scrollTop = list.scrollHeight;
-              return list.scrollHeight - list.scrollTop - list.clientHeight < 1;
-            }),
-        )
-        .toBe(true);
+      await showChatEnd(page);
     },
   );
+  await page.unroute(inboxRoute);
+  await page.route(inboxRoute, (route) =>
+    route.fulfill({ json: { data: [longTitleItem, leadActionItem] } }),
+  );
+  await setTray(page, "collapsed");
+  await screenshot(
+    page,
+    "chat-waits-collapsed",
+    "/workstreams/owner/shop/12",
+    (device) => [...frame(device, drain, {}, "2"), trayToggle(page, 2, false)],
+    async () => {
+      await expect(trayToggle(page, 2, false)).toBeVisible();
+      await expect(page.getByRole("list", { name: "Pending actions" })).toBeHidden();
+      await showChatEnd(page);
+    },
+  );
+  await setTray(page, "expanded");
+  await screenshot(
+    page,
+    "chat-waits-typing",
+    "/workstreams/owner/shop/12",
+    (device) => [
+      ...frame(device, drain, {}, "2"),
+      page.getByLabel("Message to the Lead"),
+      ...(device === "desktop" ? [trayToggle(page, 2, true)] : []),
+    ],
+    async (device) => {
+      await showChatEnd(page);
+      await page.getByLabel("Message to the Lead").focus();
+      await expect(page.getByLabel("Message to the Lead")).toBeFocused();
+      await expect(trayToggle(page, 2, true)).toBeVisible({ visible: device === "desktop" });
+    },
+  );
+  await setTray(page, "expanded");
+  await page.unroute(inboxRoute);
+  await page.route(inboxRoute, (route) =>
+    route.fulfill({ json: { data: [coordinatorQuestion, coordinatorActionItem] } }),
+  );
+  await screenshot(
+    page,
+    "chat-coordinator-waits",
+    "/chat",
+    () => [
+      trayToggle(page, 2, true),
+      main.getByRole("listitem").filter({ hasText: coordinatorQuestion.title }),
+      main.getByRole("listitem").filter({ hasText: coordinatorActionItem.title }),
+    ],
+    async () => {
+      await expect(trayToggle(page, 2, true)).toBeVisible();
+      await showChatEnd(page);
+    },
+  );
+  await setTray(page, "collapsed");
+  await screenshot(
+    page,
+    "chat-coordinator-waits-collapsed",
+    "/chat",
+    () => trayToggle(page, 2, false),
+    async () => {
+      await expect(trayToggle(page, 2, false)).toBeVisible();
+      await showChatEnd(page);
+    },
+  );
+  await page.evaluate(() => localStorage.removeItem("tray"));
   await page.unroute(inboxRoute);
   await setQueueReason(page, "waits for a low load");
   await screenshot(
@@ -1807,11 +1892,96 @@ test("screenshots", async ({ page }) => {
   await panel.getByRole("textbox", { name: "Your answer" }).fill("Keep the old data.");
   await panel.getByRole("button", { name: "Send" }).click();
   await expect(panel).toBeHidden();
+
+  // The cards of the questions. The end of the chat is the only stable scroll, and the Coordinator ends each turn with
+  // its message.
+  const questionCard = (text: string) =>
+    page.locator("[data-question]").filter({ hasText: text }).last();
+  const showQuestionEnd = (text: string) => async () => {
+    await expect(questionCard(text)).toBeVisible();
+    await idle(page);
+    await expect
+      .poll(() =>
+        questionCard(text).evaluate((el) => {
+          const list = el.parentElement;
+          if (!list) {
+            return false;
+          }
+          list.scrollTop = list.scrollHeight;
+          return list.scrollHeight - list.scrollTop - list.clientHeight < 1;
+        }),
+      )
+      .toBe(true);
+  };
   await row(leadTitle).getByRole("button", { name: "Answer" }).click();
   await decide(page, panel, "reject");
   await expect(panel).toBeHidden();
   await settle(page);
   expect((await page.request.post("/e2e/approvals/times/fix")).ok()).toBe(true);
+
+  const storeCard = "The shop needs a store for the plans.";
+  await expect(questionCard(storeCard).getByText("Answered", { exact: true })).toBeVisible();
+  await fixActionTimes();
+  await screenshot(
+    page,
+    "question-answered",
+    "/chat",
+    (device) => [
+      ...approvalReady(device, "1"),
+      questionCard(storeCard).getByText("Answered", { exact: true }),
+      questionCard(storeCard).getByText("Keep the old data."),
+      questionCard(storeCard).getByRole("button", { name: "Details" }),
+    ],
+    showQuestionEnd(storeCard),
+  );
+  await screenshot(
+    page,
+    "question-details",
+    "/chat",
+    (device) => [
+      ...approvalReady(device, "1"),
+      panel.getByText(storeCard),
+      group(storeQuestion),
+      panel.getByText("Your answer", { exact: true }),
+      panel.getByText("Keep the old data."),
+    ],
+    async () => {
+      await showQuestionEnd(storeCard)();
+      await questionCard(storeCard).getByRole("button", { name: "Details" }).click();
+    },
+    () => page.keyboard.press("Escape"),
+  );
+
+  // The fake Coordinator asks whether to draft the Workstream, and withdraws the question after the screenshot.
+  await page.goto("/chat");
+  await ask(page, askDraft);
+  await expect(waits(1)).toBeVisible({ timeout: 30_000 });
+  await fixActionTimes();
+  await screenshot(
+    page,
+    "question-open",
+    "/chat",
+    (device) => [
+      ...approvalReady(device, "2"),
+      waits(1),
+      questionCard(draftQuestion).getByText("Waits for your answer", { exact: true }),
+      questionCard(draftQuestion).getByRole("button", { name: "Answer" }),
+    ],
+    showQuestionEnd(draftQuestion),
+  );
+  await ask(page, withdrawDraft);
+  await expect(waits(1)).toBeHidden({ timeout: 30_000 });
+  await fixActionTimes();
+  await screenshot(
+    page,
+    "question-withdrawn",
+    "/chat",
+    (device) => [
+      ...approvalReady(device, "1"),
+      questionCard(draftQuestion).getByText("Withdrawn", { exact: true }),
+    ],
+    showQuestionEnd(draftQuestion),
+  );
 
   // The fake Lead of #14 proposes a new Brief. The approval changes the Brief, and the last call sets it back.
   await page.goto("/workstreams/owner/shop/14");

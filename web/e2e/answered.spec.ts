@@ -261,3 +261,137 @@ test("the item and the mark come back two minutes after the answer when the serv
   await expect(rows(page)).toHaveCount(1);
   await expect(mark(page)).toBeVisible();
 });
+
+const leadChat = "/workstreams/owner/shop/12";
+const toggle = (page: Page, count: number) =>
+  page.getByRole("button", { name: `Waits for you (${count})`, includeHidden: true });
+const trayList = (page: Page) => page.locator('ul[aria-label="Pending actions"]');
+const trayRows = (page: Page) => trayList(page).locator("> li");
+
+test("a click on the header of the tray collapses the list and expands it again, and the rows stay mounted", async ({
+  page,
+}) => {
+  await routeLists(page, () => [question]);
+  await page.goto(leadChat);
+  await expect(toggle(page, 1)).toHaveAttribute("aria-expanded", "true");
+  await expect(trayList(page)).toBeVisible();
+
+  await toggle(page, 1).click();
+
+  await expect(toggle(page, 1)).toHaveAttribute("aria-expanded", "false");
+  await expect(trayList(page)).toBeHidden();
+  await expect(trayRows(page)).toHaveCount(1);
+
+  await toggle(page, 1).click();
+
+  await expect(toggle(page, 1)).toHaveAttribute("aria-expanded", "true");
+  await expect(trayList(page)).toBeVisible();
+});
+
+test("a collapsed tray stays collapsed after a reload, and in the Coordinator chat and each Lead chat", async ({
+  page,
+}) => {
+  await routeLists(page, () => [question, approval]);
+  await page.goto(leadChat);
+  await toggle(page, 1).click();
+  await expect(toggle(page, 1)).toHaveAttribute("aria-expanded", "false");
+
+  await page.reload();
+  await expect(toggle(page, 1)).toHaveAttribute("aria-expanded", "false");
+  await expect(trayList(page)).toBeHidden();
+
+  await page.goto("/chat");
+  await expect(toggle(page, 1)).toHaveAttribute("aria-expanded", "false");
+  await expect(trayList(page)).toBeHidden();
+
+  await toggle(page, 1).click();
+  await page.goto(leadChat);
+  await expect(toggle(page, 1)).toHaveAttribute("aria-expanded", "true");
+  await expect(trayList(page)).toBeVisible();
+});
+
+test("a collapsed tray changes its count when an item comes or goes, and it stays collapsed", async ({
+  page,
+  context,
+}) => {
+  let list: object[] = [question];
+  await routeLists(page, () => list);
+  await page.goto(leadChat);
+  await toggle(page, 1).click();
+  await expect(toggle(page, 1)).toHaveAttribute("aria-expanded", "false");
+
+  list = [question, otherQuestion];
+  await reconnect(page, context);
+  await expect(toggle(page, 2)).toHaveAttribute("aria-expanded", "false");
+  await expect(trayList(page)).toBeHidden();
+
+  list = [otherQuestion];
+  await reconnect(page, context);
+  await expect(toggle(page, 1)).toHaveAttribute("aria-expanded", "false");
+  await expect(trayRows(page)).toHaveCount(1);
+  await expect(trayRows(page).first()).toContainText("Pick the plan names");
+});
+
+test("an open panel keeps its text while the tray collapses behind it, and the row keeps its state when the tray expands", async ({
+  page,
+}) => {
+  await routeLists(page, () => [question]);
+  await page.goto(leadChat);
+  await trayRows(page).first().getByRole("button", { name: "Answer" }).click();
+  const field = panel(page).getByRole("textbox", { name: "Your answer" });
+  await field.fill("Ten seats.");
+
+  await toggle(page, 1).dispatchEvent("click");
+
+  await expect(toggle(page, 1)).toHaveAttribute("aria-expanded", "false");
+  await expect(panel(page)).toBeVisible();
+  await expect(field).toHaveValue("Ten seats.");
+
+  await toggle(page, 1).dispatchEvent("click");
+
+  await expect(toggle(page, 1)).toHaveAttribute("aria-expanded", "true");
+  await expect(panel(page)).toBeVisible();
+  await expect(field).toHaveValue("Ten seats.");
+  await page.keyboard.press("Escape");
+  await expect(panel(page)).toHaveCount(0);
+  await expect(trayRows(page)).toHaveCount(1);
+});
+
+test("on a touch device the tray hides while the message field has the focus, and the stored choice stays", async ({
+  page,
+}) => {
+  await routeLists(page, () => [question, otherQuestion]);
+  const session = await page.context().newCDPSession(page);
+  await session.send("Emulation.setTouchEmulationEnabled", { enabled: true });
+  await page.goto(leadChat);
+  const field = page.getByLabel("Message to the Lead");
+  await expect(toggle(page, 2)).toBeVisible();
+  await expect(trayRows(page)).toHaveCount(2);
+
+  await field.focus();
+
+  await expect(toggle(page, 2)).toBeHidden();
+  await expect(trayRows(page)).toHaveCount(2);
+  expect(await page.evaluate(() => localStorage.getItem("tray"))).toBeNull();
+
+  await field.blur();
+
+  await expect(toggle(page, 2)).toBeVisible();
+  await expect(trayList(page)).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem("tray"))).toBeNull();
+  await session.send("Emulation.setTouchEmulationEnabled", { enabled: false });
+});
+
+test("with a fine pointer the tray stays visible while the message field has the focus", async ({
+  page,
+}) => {
+  await routeLists(page, () => [question, otherQuestion]);
+  await page.goto(leadChat);
+  await expect(toggle(page, 2)).toBeVisible();
+
+  await page.getByLabel("Message to the Lead").focus();
+
+  await expect(page.getByLabel("Message to the Lead")).toBeFocused();
+  await expect(toggle(page, 2)).toBeVisible();
+  await expect(trayList(page)).toBeVisible();
+});
