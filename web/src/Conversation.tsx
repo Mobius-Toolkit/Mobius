@@ -209,7 +209,6 @@ function BriefBubble({ brief, onMeasured }: { brief: Workstream; onMeasured: () 
   return (
     <section
       aria-label="Brief"
-      data-brief
       className="grid max-w-[85%] grid-cols-[minmax(0,1fr)] gap-1 justify-self-start rounded-xl border bg-card px-3 py-2"
     >
       <span className="text-xs text-muted-foreground">Brief</span>
