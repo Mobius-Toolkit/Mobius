@@ -151,10 +151,18 @@ func (a *Agent) recordSkillUse(ctx context.Context, notification map[string]any,
 		if kind != "tool_call" || stringField(update, "_meta", "cognition.ai/inferenceToolName") != "skill" {
 			return
 		}
+	case config.DSH:
+		if kind != "tool_call" || stringField(update, "title") != "skill" {
+			return
+		}
 	default:
 		return
 	}
-	skill := stringField(update, "rawInput", "skill")
+	skillField := "skill"
+	if a.binding.Harness == config.DSH {
+		skillField = "name"
+	}
+	skill := stringField(update, "rawInput", skillField)
 	call := stringField(update, "toolCallId")
 	if skill == "" || a.skillCalls[call] {
 		return
