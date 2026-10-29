@@ -267,6 +267,9 @@ func (e *Engine) reviewRound(ctx context.Context, a *Agent, j *reviewJob, task s
 	if err := a.Prompt(ctx, prompt, nil); err != nil {
 		return err
 	}
+	if err := a.waitBackground(ctx); err != nil {
+		return err
+	}
 	if err := e.requireDeploymentNeeds(ctx, a); err != nil {
 		return err
 	}
@@ -464,6 +467,9 @@ const followUpMarker = "\n\n<!-- mobius:follow-up -->"
 // submitReview posts the review of the Reviewer of c on its pull request, at the head that it reviews. The body of
 // each follow-up comment gets followUpMarker.
 func (e *Engine) submitReview(ctx context.Context, c caller, repository github.Repository, input reviewInput) (string, error) {
+	if c.agent.reviewed {
+		return "", refuse("The review is already on GitHub. Do not call submit_review again.")
+	}
 	if empty(input.Body) {
 		return "", refuse("body must not be empty.")
 	}
@@ -485,6 +491,7 @@ func (e *Engine) submitReview(ctx context.Context, c caller, repository github.R
 	if err := repository.SubmitReview(ctx, c.agent.spec.PullRequest, c.agent.head, body, comments); err != nil {
 		return "", err
 	}
+	c.agent.reviewed = true
 	return "Posted the review.", nil
 }
 

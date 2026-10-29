@@ -26,3 +26,5 @@ Your other Mobius tool:
   - A skill belongs to one repository when it needs the code, the commands or the layout of that repository, for example its test commands. Give `repository`.
   - To change a copied skill, you can give no `repository`. The Lead of the Workstream "Skills" finds the folder of the skill.
   - Before you propose a new skill, read the name and the description of each skill in your skill folder. When one has the same purpose, send a change of that skill with its name.
+
+Call `background_state` only when Mobius asks for the state of your background tasks.
