@@ -1307,6 +1307,62 @@ export interface EnvelopeSkillUsage {
 }
 
 /**
+ * Kind is the switch that holds the work
+ */
+export type HeldWorkKind = typeof HeldWorkKind[keyof typeof HeldWorkKind];
+
+
+export const HeldWorkKind = {
+  start: 'start',
+  merge: 'merge',
+  repairs: 'repairs',
+} as const;
+
+/**
+ * HeldWork is an open issue with work that an off switch holds.
+ */
+export interface HeldWork {
+  /** HeldAt is the time of the first hold */
+  heldAt: string;
+  /** Issue is the number of the issue */
+  issue: number;
+  /** Kind is the switch that holds the work */
+  kind: HeldWorkKind;
+  /** Repository is the repository of the issue as "owner/name" */
+  repository: string;
+  /** Title is the title of the issue */
+  title: string;
+  /** Workstream is the number of the Workstream issue */
+  workstream: number;
+  /** WorkstreamRepository is the repository of the Workstream issue as "owner/name" */
+  workstreamRepository: string;
+  /** WorkstreamTitle is the title of the Workstream issue */
+  workstreamTitle: string;
+}
+
+/**
+ * Switches is the state of the global switches. true means on.
+ */
+export interface Switches {
+  /** Held is the open issues with work that an off switch holds, the oldest first */
+  held: HeldWork[];
+  /** Merge is true when Mobius merges automatically */
+  merge: boolean;
+  /** Repairs is true when Mobius starts the tasks of its own repair issues */
+  repairs: boolean;
+  /** Start is true when Mobius starts tasks and sessions of tasks */
+  start: boolean;
+}
+
+/**
+ * Envelope is the body of each success response.
+ */
+export interface EnvelopeSwitches {
+  /** Data is the payload of the response */
+  data: Switches;
+}
+
+/**
  * Kind is prompt, update, mcp_call, error, or check for a phase of the local check of an Implementer or a hang of the agent
  */
 export type TranscriptLineKind = typeof TranscriptLineKind[keyof typeof TranscriptLineKind];
@@ -1706,6 +1762,10 @@ export type LiveEvents = {
   event: 'ciStops';
   id?: string;
 } | {
+  data: Switches;
+  event: 'switches';
+  id?: string;
+} | {
   data: WorkstreamRef;
   event: 'workstreamCreated';
   id?: string;
@@ -1780,6 +1840,11 @@ export interface SetAutopilotBody {
 
 export interface SetEvergreenBody {
   /** On adds mobius:evergreen when true, and removes it when false */
+  on?: boolean;
+}
+
+export interface SetSwitchBody {
+  /** On turns the switch on when true, and off when false */
   on?: boolean;
 }
 
@@ -5136,6 +5201,137 @@ export const revertMemory = async (owner: string,
 
   const data: revertMemoryResponse['data'] = body ? JSON.parse(body) : undefined
   return { data, status: res.status, headers: res.headers } as revertMemoryResponse
+}
+
+
+
+export type getSwitchesResponse200 = {
+  data: EnvelopeSwitches
+  status: 200
+}
+
+export type getSwitchesResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type getSwitchesResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type getSwitchesResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type getSwitchesResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type getSwitchesResponseSuccess = (getSwitchesResponse200) & {
+  headers: Headers;
+};
+export type getSwitchesResponseError = (getSwitchesResponse400 | getSwitchesResponse401 | getSwitchesResponse422 | getSwitchesResponse500) & {
+  headers: Headers;
+};
+
+export type getSwitchesResponse = (getSwitchesResponseSuccess | getSwitchesResponseError)
+
+export const getGetSwitchesUrl = () => {
+
+
+
+
+  return `/api/switches`
+}
+
+/**
+ * GetSwitches returns the state of the global switches and the work that the off switches hold.
+ */
+export const getSwitches = async ( ): Promise<getSwitchesResponse> => {
+
+  const res = await fetch(getGetSwitchesUrl(),
+  {
+
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: getSwitchesResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as getSwitchesResponse
+}
+
+
+
+export type setSwitchResponse204 = {
+  data: void
+  status: 204
+}
+
+export type setSwitchResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type setSwitchResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type setSwitchResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type setSwitchResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type setSwitchResponseSuccess = (setSwitchResponse204) & {
+  headers: Headers;
+};
+export type setSwitchResponseError = (setSwitchResponse400 | setSwitchResponse401 | setSwitchResponse422 | setSwitchResponse500) & {
+  headers: Headers;
+};
+
+export type setSwitchResponse = (setSwitchResponseSuccess | setSwitchResponseError)
+
+export const getSetSwitchUrl = (kind: 'start' | 'merge' | 'repairs',) => {
+
+
+
+
+  return `/api/switches/${kind}`
+}
+
+/**
+ * SetSwitch turns a global switch on or off. Turning a switch on ends the hold of its work.
+ */
+export const setSwitch = async (kind: 'start' | 'merge' | 'repairs',
+    setSwitchBody: SetSwitchBody, ): Promise<setSwitchResponse> => {
+
+  const res = await fetch(getSetSwitchUrl(kind),
+  {
+
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(setSwitchBody)
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: setSwitchResponse['data'] = body ? JSON.parse(body) : undefined
+  return { data, status: res.status, headers: res.headers } as setSwitchResponse
 }
 
 

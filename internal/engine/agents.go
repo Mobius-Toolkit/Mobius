@@ -185,6 +185,7 @@ type Change struct {
 	Action       *store.PendingAction
 	Pauses       bool
 	CIStops      bool
+	Switches     bool
 	Created      *Created
 }
 

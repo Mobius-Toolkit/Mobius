@@ -1253,3 +1253,31 @@ INSERT INTO workstream_buckets (repository, workstream, issue, closed) VALUES (?
 
 -- name: DeleteWorkstreamBucket :exec
 DELETE FROM workstream_buckets WHERE repository = ? AND issue = ?;
+
+-- name: ListGlobalPauses :many
+SELECT * FROM global_pauses ORDER BY kind;
+
+-- name: AddGlobalPause :exec
+INSERT INTO global_pauses (kind, paused_at) VALUES (?, ?)
+ON CONFLICT (kind) DO NOTHING;
+
+-- name: DeleteGlobalPause :exec
+DELETE FROM global_pauses WHERE kind = ?;
+
+-- name: AddHeldWork :execrows
+INSERT INTO held_work (kind, repository, issue, held_at) VALUES (?, ?, ?, ?)
+ON CONFLICT (kind, repository, issue) DO NOTHING;
+
+-- name: DeleteHeldWork :exec
+DELETE FROM held_work WHERE kind = ?;
+
+-- The issue can be in the trees of the copies of many repositories, so a row can repeat. The API shows the first.
+-- name: ListHeldWork :many
+SELECT h.kind, h.repository, h.issue, h.held_at, i.title, i.repository AS workstream_repository, i.workstream,
+       w.title AS workstream_title
+FROM held_work h
+JOIN global_pauses p ON p.kind = h.kind
+JOIN copied_issues i ON i.number = h.issue AND i.state = 'open'
+  AND lower(substr(i.repository_url, instr(i.repository_url, '/repos/') + 7)) = lower(h.repository)
+JOIN copied_workstreams w ON w.repository = i.repository AND w.number = i.workstream
+ORDER BY h.held_at, h.kind, h.repository, h.issue, i.repository, i.workstream;
