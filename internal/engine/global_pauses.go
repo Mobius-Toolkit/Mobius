@@ -114,8 +114,8 @@ func (e *Engine) SetSwitch(ctx context.Context, kind string, on bool) error {
 		return err
 	}
 	e.publish(Change{Switches: true})
+	e.workers.changed.notify()
 	if on {
-		e.workers.changed.notify()
 		select {
 		case e.pollWake <- struct{}{}:
 		default:

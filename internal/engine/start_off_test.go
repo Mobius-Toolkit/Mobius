@@ -287,3 +287,32 @@ func TestStartOffLetsARunningImplementerPushItsCommits(t *testing.T) {
 		t.Errorf("session = %+v", sessions[0])
 	}
 }
+
+func TestStartOffHoldsASessionThatWaitsForAFullSlot(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, "", func(cfg *config.Config) { cfg.Roles.Implementer.Max = 1 })
+	fake.AddIssue(shop, 43, "Task")
+	fake.AddSubIssue(shop, 12, 43)
+	testkit.WaitFor(t, func() bool {
+		var count int
+		err := server.DB.QueryRow("SELECT count(*) FROM copied_issues WHERE number = 43").Scan(&count)
+		return err == nil && count > 0
+	})
+	first := start(t, server, implementerSpec(t, server, fake, 41))
+	second := startLater(t.Context(), server, implementerSpec(t, server, fake, 43))
+	waiting := queued(t, server, engine.ImplementerRole)
+	if waiting.QueueReason.String != "no free implementer slot (1/1)" {
+		t.Fatalf("queue reason = %q", waiting.QueueReason.String)
+	}
+
+	turnStartOff(t, server)
+
+	waitForQueueReason(t, server, startOffReason)
+	waitForStartHeld(t, server, 43)
+
+	turnStartOn(t, server)
+	end(t, first, "done")
+	agent := await(t, second)
+	end(t, agent, "done")
+}

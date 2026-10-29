@@ -273,12 +273,12 @@ func (e *Engine) takeSlot(ctx context.Context, a *Agent) error {
 			a.tracked = a.tracked || worker
 			break
 		}
-		if reason != shown {
-			if reason == startOffReason {
-				if err := e.holdWork(ctx, "start", a.spec.Repository, a.spec.Issue.Int64); err != nil {
-					return err
-				}
+		if reason == startOffReason {
+			if err := e.holdWork(ctx, "start", a.spec.Repository, a.spec.Issue.Int64); err != nil {
+				return err
 			}
+		}
+		if reason != shown {
 			session, err := e.queries.SetQueueReason(ctx, store.SetQueueReasonParams{QueueReason: sql.NullString{String: reason, Valid: true}, ID: a.id})
 			if err != nil {
 				return err
