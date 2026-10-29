@@ -63,6 +63,7 @@ func connectTaskIn(t *testing.T, fake *testkit.FakeGitHub, dataDir, lead, implem
 	adjust(cfg)
 	server := startServerWith(t, fake, cfg, "")
 	server.WaitForFirstPoll(t, shop)
+	testkit.WaitFor(t, server.Engine.AccessChecked)
 	return server, dataDir
 }
 

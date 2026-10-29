@@ -37,11 +37,16 @@ skip_tools_list = 1000
 `
 
 // choicesServer starts a server whose Harnesses play script. It has no repository work, so only the reads start agents.
+// The access checks of the start do not count in agentStarts.
 func choicesServer(t *testing.T, script string) (*testserver.Server, string) {
 	t.Helper()
 	dataDir := t.TempDir()
 	testkit.InstallFakeAgent(t, dataDir, script)
 	server := startServerWith(t, testkit.NewFakeGitHub(t), testserver.Config(t, dataDir), "")
+	testkit.WaitFor(t, server.Engine.AccessChecked)
+	if err := os.WriteFile(filepath.Join(dataDir, "harnesses", "starts"), []byte("0"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	return server, dataDir
 }
 

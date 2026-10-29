@@ -65,6 +65,7 @@ func connectScript(t *testing.T, fake *testkit.FakeGitHub, script string, adjust
 	adjust(cfg)
 	server := startServerWith(t, fake, cfg, "")
 	server.WaitForFirstPoll(t, shop)
+	testkit.WaitFor(t, server.Engine.AccessChecked)
 	return server, dataDir
 }
 

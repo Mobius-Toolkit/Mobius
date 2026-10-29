@@ -42,7 +42,7 @@ func accessSpec(t *testing.T) engine.Spec {
 func accessItems(t *testing.T, server *testserver.Server) []inboxItem {
 	t.Helper()
 	var items []inboxItem
-	for _, item := range inbox(t, server) {
+	for _, item := range allInbox(t, server) {
 		if item.Kind == "access check" {
 			items = append(items, item)
 		}

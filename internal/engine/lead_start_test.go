@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -14,7 +15,7 @@ import (
 func TestALaterPollStartsTheLeadAfterAFailedStartAndGivesItTheEvent(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectScript(t, fake, "skip_tools_list = 2\n"+options+"[[prompts]]\nreply = [\"Seen\"]\n", func(cfg *config.Config) { cfg.MaxWorkerRestarts = 1 })
+	server, _ := connectScript(t, fake, fmt.Sprintf("skip_tools_list = %d\n", 2+checkedKeys)+options+"[[prompts]]\nreply = [\"Seen\"]\n", func(cfg *config.Config) { cfg.MaxWorkerRestarts = 1 })
 
 	dispatchTask(fake, 41, "Add plan model")
 
@@ -64,8 +65,9 @@ func TestMorePollsStartNoLeadSessionForAHeldEvent(t *testing.T) {
 	}
 }
 
-// threeFailedLeadStarts fails the first three Lead starts. A start tries max_worker_restarts + 1 = 2 processes.
-const threeFailedLeadStarts = "skip_tools_list = 6\n" + options + "[[prompts]]\nreply = [\"Seen\"]\n"
+// threeFailedLeadStarts fails the first three Lead starts. A start tries max_worker_restarts + 1 = 2 processes. The
+// access checks start checkedKeys processes before the Lead.
+var threeFailedLeadStarts = fmt.Sprintf("skip_tools_list = %d\n", 6+checkedKeys) + options + "[[prompts]]\nreply = [\"Seen\"]\n"
 
 func leadNotTaken(t *testing.T, server *testserver.Server) activity {
 	t.Helper()

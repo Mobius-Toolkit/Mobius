@@ -32,8 +32,8 @@ func TestCheckAccessSendsOnePromptWithNoMCPServerAfterItSetsTheModelAndTheEffort
 	if prompt := readFile(t, dir, "prompt.json"); !strings.Contains(prompt, `"text":"Reply with the word OK."`) {
 		t.Errorf("prompt = %s", prompt)
 	}
-	if reply := readFile(t, dir, "reply.txt"); !strings.Contains(reply, "set model=sonnet effort=low mode=bypassPermissions;") {
-		t.Errorf("reply = %s", reply)
+	if sets := readFile(t, dir, "sets.json"); sets != `["model=sonnet","effort=low","mode=bypassPermissions"]` {
+		t.Errorf("sets = %s", sets)
 	}
 }
 
