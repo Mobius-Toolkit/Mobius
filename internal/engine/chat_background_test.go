@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -175,6 +176,47 @@ hang = true
 		t.Fatalf("prompts = %q", prompts)
 	}
 	if want := []string{"A helper starts."}; !slices.Equal(leadMessages(t, server), want) {
+		t.Errorf("Lead messages = %q", leadMessages(t, server))
+	}
+}
+
+// Serial: the test changes backgroundCheckInterval, and it waits for the idle timeout of the chat.
+func TestAnOwnerMessageDoesNotCancelAnAutonomousTurnThatHoldsTheWaitPromptOfAnIdleLead(t *testing.T) {
+	shortBackgroundCheck(t, time.Hour)
+	fake := testkit.NewFakeGitHub(t)
+	lead := `
+[[prompts]]
+updates = ['` + asyncAgentStart + `']
+reply = ["A helper starts."]
+later = { after = "10ms", updates = ['` + workUpdate + `'] }
+
+[[prompts]]
+reply = ["The second answer."]
+
+[[prompts]]
+reply = ["The helper result."]
+call = { tool = "background_state", arguments = { state = "done" } }
+`
+	server, _ := connect(t, fake, lead)
+	sendChat(t, server, leadChat, "Start a helper")
+	session := waitForChatSession(t, server, leadChat, engine.LeadRole, func(session store.Session) bool {
+		return lineID(t, server, session.ID, "update", "The task ended.") != 0
+	})
+	idleFrom := time.Now()
+	testkit.WaitFor(t, func() bool { return time.Since(idleFrom) > 3*time.Second })
+
+	sendChat(t, server, leadChat, "A second question")
+
+	agent := server.Engine.ChatAgent(leadChat)
+	testkit.WaitFor(t, agent.StopRequested)
+	agent.Update(fmt.Appendf(nil, agentUpdate, endUpdate))
+
+	session = endedChatSession(t, server, 0)
+	prompts := promptTexts(t, server, session.ID)
+	if len(prompts) != 4 || prompts[1] != "A second question" || !strings.HasPrefix(prompts[2], chatWaitPrompt) || prompts[3] != savePrompt {
+		t.Fatalf("prompts = %q", prompts)
+	}
+	if want := []string{"A helper starts.The task ended.", "The second answer.", "The helper result.Mobius has the state done."}; !slices.Equal(leadMessages(t, server), want) {
 		t.Errorf("Lead messages = %q", leadMessages(t, server))
 	}
 }

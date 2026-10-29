@@ -175,3 +175,20 @@ func (e *Engine) TurnRunsForMessage(key ChatKey) bool {
 func (e *Engine) HoldWork(ctx context.Context, kind, repository string, issue int64) error {
 	return e.holdWork(ctx, kind, repository, issue)
 }
+
+// ChatAgent gives the agent of the chat key, or nil.
+func (e *Engine) ChatAgent(key ChatKey) *Agent {
+	e.chatsMu.Lock()
+	defer e.chatsMu.Unlock()
+	if c, ok := e.chats[key]; ok {
+		return c.agent
+	}
+	return nil
+}
+
+// StopRequested tells if a stop came while no turn ran, and no prompt took it yet.
+func (a *Agent) StopRequested() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.stopRequested
+}

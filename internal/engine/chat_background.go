@@ -41,7 +41,8 @@ func (e *Engine) waitChatBackground(c *chat, a *Agent, started *time.Time) (bool
 
 // backgroundTurn runs the wait turn. The turn can run for many minutes, so an item that is queued during it, or the
 // start of the drain, cancels it. The background flag stays set, and the reply text of a cancelled turn goes to no chat
-// message.
+// message. While an autonomous turn of the CLI holds the wait prompt, the stop only keeps the prompt back, so the
+// autonomous turn ends by itself.
 func (e *Engine) backgroundTurn(c *chat, a *Agent) (cancelled bool, err error) {
 	done := make(chan error, 1)
 	go func() { done <- e.turn(c, a, chatBackgroundPrompt, nil, false) }()
@@ -59,7 +60,7 @@ func (e *Engine) backgroundTurn(c *chat, a *Agent) (cancelled bool, err error) {
 		e.chatsMu.Unlock()
 		if queued || e.draining() {
 			cancelled = true
-			_ = a.cancel(context.WithoutCancel(c.ctx))
+			_ = a.stop(context.WithoutCancel(c.ctx))
 		}
 	}
 }
