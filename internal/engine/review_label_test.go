@@ -19,7 +19,7 @@ func approved(t *testing.T, fake *testkit.FakeGitHub, lead, implementer string, 
 	t.Helper()
 	server, _ := connectTask(t, fake, lead+leadApproves+leadStarts, implementer+commits, adjust)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
-	waitForReadyEvents(t, server, 1)
+	waitForReadyEvents(t, fake, server, 1)
 	sendChat(t, server, leadChat, "Approve #41")
 	waitForChat(t, server, leadChat, "Lead", "Approved pull request #42 of #41. The Owner got it for review.")
 	return server
@@ -83,7 +83,7 @@ func TestAJudgeThatRunsFromReadyForReviewNeedsTheReviewLabel(t *testing.T) {
 		cfg.ReviewQuietPeriod = 200 * time.Millisecond
 	})
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
-	waitForReadyEvents(t, server, 1)
+	waitForReadyEvents(t, fake, server, 1)
 	sendChat(t, server, leadChat, "Approve #41")
 	waitForChat(t, server, leadChat, "Lead", "Approved pull request #42 of #41. The Owner got it for review.")
 	fake.AddComment(shop, 42, "owner", "Why cents?")
@@ -170,7 +170,7 @@ func TestAConflictRoundFromReadyForReviewPutsTheWorkingLabelBack(t *testing.T) {
 
 	fake.CommitFile(shop, "plan.txt", "dollars\n", "Use dollars")
 
-	waitForReadyEvents(t, server, 2)
+	waitForReadyEvents(t, fake, server, 2)
 	if !hasLabel(fake, "mobius:working") || hasLabel(fake, "mobius:review") {
 		t.Errorf("labels = %q", fake.Labels(shop, 41))
 	}

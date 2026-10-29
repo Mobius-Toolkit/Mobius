@@ -52,7 +52,7 @@ func TestATaskInNeedsHumanWithAMergeConflictGetsAConflictRoundAndGoesToApprovalW
 
 	fake.SetCreatedAt(shop, pullRequestNumber, time.Now().Unix())
 
-	waitForReadyEvents(t, server, 2)
+	waitForReadyEvents(t, fake, server, 2)
 	merged := head(t, fake, "mobius/41")
 	isAncestor(t, fake, first, merged)
 	isAncestor(t, fake, "main", merged)
@@ -139,7 +139,7 @@ func TestAPassedCIOnTheHeadOfAStopOnFailedCIMovesTheTaskToApprovalWithNoNeedsHum
 
 	fake.SetCheckRunStatus(id, "completed", "success")
 
-	waitForReadyEvents(t, server, 2)
+	waitForReadyEvents(t, fake, server, 2)
 	testkit.WaitFor(t, func() bool {
 		return taskState(t, server) == "approval" && !hasLabel(fake, "mobius:needs-human") && !pullRequestHasNeedsHuman(fake)
 	})
@@ -209,7 +209,7 @@ func TestATaskThatContinuesKeepsMobiusQuestion(t *testing.T) {
 
 	fake.SetCheckRunStatus(id, "completed", "success")
 
-	waitForReadyEvents(t, server, 2)
+	waitForReadyEvents(t, fake, server, 2)
 	testkit.WaitFor(t, func() bool { return !hasLabel(fake, "mobius:needs-human") })
 	if labels := fake.Labels(shop, 41); !slices.Contains(labels, "mobius:question") {
 		t.Errorf("labels = %v", labels)

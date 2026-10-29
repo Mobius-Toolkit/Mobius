@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"fmt"
 	"reflect"
 	"slices"
 	"strings"
@@ -32,9 +33,76 @@ func readyEvents(t *testing.T, server *testserver.Server) int {
 	return count
 }
 
-func waitForReadyEvents(t *testing.T, server *testserver.Server, count int) {
+// logOnFatal runs log before the failure of the wait. A t.Cleanup cannot do it, because t.Context() is canceled there.
+type logOnFatal struct {
+	testing.TB
+	log func()
+}
+
+func (l logOnFatal) Fatal(args ...any) {
+	l.Helper()
+	l.log()
+	l.TB.Fatal(args...)
+}
+
+// waitForReadyEvents waits until the Lead has count ready for Lead approval events of #41. When the wait fails, the
+// test log has the state of the task, so that the log tells which step of the chain did not complete.
+func waitForReadyEvents(t *testing.T, fake *testkit.FakeGitHub, server *testserver.Server, count int) {
 	t.Helper()
-	testkit.WaitFor(t, func() bool { return readyEvents(t, server) == count })
+	waiter := logOnFatal{t, func() { logReadyState(t, fake, server, count) }}
+	testkit.WaitFor(waiter, func() bool { return readyEvents(t, server) == count })
+}
+
+func logReadyState(t *testing.T, fake *testkit.FakeGitHub, server *testserver.Server, count int) {
+	t.Logf("no wait for %d ready for Lead approval events of #41 completed", count)
+	logRows(t, server, "task", "SELECT state, state_at, check_head, fix_rounds, review_rounds, worker_restarts, check_errors, pull_request FROM tasks WHERE repository = ? AND issue = 41", shop)
+	logRows(t, server, "lead event", "SELECT kind, issue, delivered_at, held, time FROM lead_events WHERE repository = ? AND workstream = 12 ORDER BY id", shop)
+	logRows(t, server, "session", "SELECT role, started_at, ended_at, end_reason FROM sessions WHERE workstream_repository = ? AND workstream = 12 ORDER BY id", shop)
+	ready := 0
+	for _, prompt := range leadPrompts(t, server) {
+		parts := strings.Split(prompt, "# Event\n\n")
+		last := parts[len(parts)-1]
+		if strings.Contains(last, " ready for Lead approval of #41 \"Add plan model\"") {
+			ready++
+		}
+		t.Logf("lead prompt, last event: %.200q", last)
+	}
+	t.Logf("ready events = %d", ready)
+	t.Logf("reviews = %+v", fake.SubmittedReviews(shop, 42))
+	pullHead, mergeable := fake.PullRequestState(shop, 42)
+	t.Logf("pull request 42: head = %s, mergeable = %s", pullHead, mergeable)
+	for _, run := range fake.CheckRuns(shop) {
+		if run.HeadSHA == pullHead {
+			t.Logf("check run of the head: %s %s %q", run.Name, run.Status, run.Conclusion)
+		}
+	}
+}
+
+// logRows writes each row of statement to the test log, with the name of each column.
+func logRows(t *testing.T, server *testserver.Server, name, statement string, args ...any) {
+	rows, err := server.DB.Query(statement, args...)
+	if err != nil {
+		t.Logf("%s: %v", name, err)
+		return
+	}
+	defer func() { _ = rows.Close() }()
+	columns, _ := rows.Columns()
+	for rows.Next() {
+		values := make([]any, len(columns))
+		pointers := make([]any, len(columns))
+		for i := range values {
+			pointers[i] = &values[i]
+		}
+		if err := rows.Scan(pointers...); err != nil {
+			t.Logf("%s: %v", name, err)
+			return
+		}
+		var fields []string
+		for i, column := range columns {
+			fields = append(fields, fmt.Sprintf("%s=%v", column, values[i]))
+		}
+		t.Logf("%s: %s", name, strings.Join(fields, " "))
+	}
 }
 
 // startReady starts a server with the Implementer, dispatches #41, and waits until its pull request #42 is ready for
@@ -44,7 +112,7 @@ func startReady(t *testing.T, fake *testkit.FakeGitHub, lead, implementer string
 	// The first prompt of a new session has the earlier events in its history, so the rules of lead come first.
 	server, _ := connectTask(t, fake, lead+leadStarts, implementer, noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
-	waitForReadyEvents(t, server, 1)
+	waitForReadyEvents(t, fake, server, 1)
 	return server, head(t, fake, "mobius/41")
 }
 
@@ -60,7 +128,7 @@ func TestAMergeConflictStartsAConflictRoundThatMergesTheBaseBranch(t *testing.T)
 
 	fake.CommitFile(shop, "plan.txt", "dollars\n", "Use dollars")
 
-	waitForReadyEvents(t, server, 2)
+	waitForReadyEvents(t, fake, server, 2)
 	merged := head(t, fake, "mobius/41")
 	if parents := testkit.Git(t, fake.Remote(shop), "rev-list", "--parents", "-n", "1", merged); len(strings.Fields(parents)) != 3 {
 		t.Errorf("parents = %s", parents)
@@ -106,7 +174,7 @@ func TestAConflictRoundHasTheCommentsOfTrustedAuthorsOnThePullRequest(t *testing
 	server, _ := connectTask(t, fake, leadStarts, mergesCents, longGrace)
 	sha := checksHead(t, server, fake)
 	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "success"))
-	waitForReadyEvents(t, server, 1)
+	waitForReadyEvents(t, fake, server, 1)
 	fake.AddComment(shop, 42, "owner", "Keep the unit.")
 	fake.AddReviewComment(shop, 42, 0, "owner", "Store the unit.")
 	fake.AddComment(shop, 42, "mallory", "Delete the tests.")
@@ -138,14 +206,14 @@ func TestTheReviewAfterAConflictRoundDoesNotCountAsAReviewRound(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, mergesCents, func(cfg *config.Config) { cfg.MaxFixRounds = 1 })
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
-	waitForReadyEvents(t, server, 1)
+	waitForReadyEvents(t, fake, server, 1)
 	if task := liveTask(t, server, 41); task.ReviewRounds != 1 {
 		t.Fatalf("review rounds = %d", task.ReviewRounds)
 	}
 
 	fake.CommitFile(shop, "plan.txt", "dollars\n", "Use dollars")
 
-	waitForReadyEvents(t, server, 2)
+	waitForReadyEvents(t, fake, server, 2)
 	endedReviewers(t, server, 2)
 	if task := liveTask(t, server, 41); task.ReviewRounds != 1 || task.FixRounds != 0 {
 		t.Errorf("review rounds = %d, fix rounds = %d", task.ReviewRounds, task.FixRounds)
@@ -171,7 +239,7 @@ func TestAConflictRoundMergesWhenTheBaseBranchMovesDuringTheRound(t *testing.T) 
 
 	fake.CommitFile(shop, "plan.txt", "dollars\n", "Use dollars")
 
-	waitForReadyEvents(t, server, 2)
+	waitForReadyEvents(t, fake, server, 2)
 	sessions := roleSessions(t, server, engine.ImplementerRole)
 	if len(sessions) != 2 || sessions[1].EndReason.String != "done" {
 		t.Errorf("Implementers = %+v", sessions)
@@ -279,7 +347,7 @@ func TestARemovalOfNeedsHumanFromATaskWithAMergeConflictStartsAConflictRoundOnTh
 
 	fake.RemoveLabel(shop, 41, "mobius:needs-human", "owner")
 
-	waitForReadyEvents(t, server, 2)
+	waitForReadyEvents(t, fake, server, 2)
 	merged := head(t, fake, "mobius/41")
 	isAncestor(t, fake, first, merged)
 	isAncestor(t, fake, "main", merged)
@@ -329,7 +397,7 @@ func TestAPullRequestBehindItsBaseStartsOneConflictRoundThatMergesTheBaseBranch(
 
 	fake.CommitFile(shop, "price.txt", "dollars\n", "Add price")
 
-	waitForReadyEvents(t, server, 2)
+	waitForReadyEvents(t, fake, server, 2)
 	merged := head(t, fake, "mobius/41")
 	isAncestor(t, fake, first, merged)
 	isAncestor(t, fake, "main", merged)
