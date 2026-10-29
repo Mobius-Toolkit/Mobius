@@ -58,16 +58,15 @@ func logReadyState(t *testing.T, fake *testkit.FakeGitHub, server *testserver.Se
 	logRows(t, server, "task", "SELECT state, state_at, check_head, fix_rounds, review_rounds, worker_restarts, check_errors, pull_request FROM tasks WHERE repository = ? AND issue = 41", shop)
 	logRows(t, server, "lead event", "SELECT kind, issue, delivered_at, held, time FROM lead_events WHERE repository = ? AND workstream = 12 ORDER BY id", shop)
 	logRows(t, server, "session", "SELECT role, started_at, ended_at, end_reason FROM sessions WHERE workstream_repository = ? AND workstream = 12 ORDER BY id", shop)
-	ready := 0
+	t.Logf("ready events = %d", readyEvents(t, server))
 	for _, prompt := range leadPrompts(t, server) {
 		parts := strings.Split(prompt, "# Event\n\n")
-		last := parts[len(parts)-1]
-		if strings.Contains(last, " ready for Lead approval of #41 \"Add plan model\"") {
-			ready++
-		}
-		t.Logf("lead prompt, last event: %.200q", last)
+		t.Logf("lead prompt, last event: %.200q", parts[len(parts)-1])
 	}
-	t.Logf("ready events = %d", ready)
+	if !slices.ContainsFunc(fake.PullRequests(shop), func(pull testkit.PullRequest) bool { return pull.Number == 42 }) {
+		t.Logf("pull request 42 does not exist")
+		return
+	}
 	t.Logf("reviews = %+v", fake.SubmittedReviews(shop, 42))
 	pullHead, mergeable := fake.PullRequestState(shop, 42)
 	t.Logf("pull request 42: head = %s, mergeable = %s", pullHead, mergeable)
