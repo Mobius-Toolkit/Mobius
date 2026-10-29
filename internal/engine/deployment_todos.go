@@ -90,13 +90,16 @@ func (e *Engine) blockedByTodos(ctx context.Context, task store.Task) (bool, err
 	}), nil
 }
 
-// clearBlockReason removes the reason mandatoryTodosReason from the open ready for review Inbox items of the task.
+// clearBlockReason removes the reason mandatoryTodosReason or mergePausedReason from the open ready for review Inbox
+// items of the task.
 func (e *Engine) clearBlockReason(ctx context.Context, task store.Task) error {
 	items, err := e.openReadyItems(ctx, task)
 	if err != nil {
 		return err
 	}
-	if !slices.ContainsFunc(items, func(item store.InboxItem) bool { return item.MergeRefusal == mandatoryTodosReason }) {
+	if !slices.ContainsFunc(items, func(item store.InboxItem) bool {
+		return item.MergeRefusal == mandatoryTodosReason || item.MergeRefusal == mergePausedReason
+	}) {
 		return nil
 	}
 	return e.refuseMergeItem(ctx, task, "")
