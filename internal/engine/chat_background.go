@@ -25,12 +25,15 @@ func (e *Engine) waitChatBackground(c *chat, a *Agent, started *time.Time) (bool
 		}
 		a.setAuthor("")
 		cancelled, err := e.backgroundTurn(c, a)
-		if err != nil || cancelled {
-			return cancelled && e.draining(), err
+		if err != nil {
+			return false, err
 		}
 		if !a.backgroundRunning() {
 			*started = time.Time{}
-			return false, e.tellBackgroundResult(c, a)
+			return cancelled && e.draining(), e.tellBackgroundResult(c, a)
+		}
+		if cancelled {
+			return e.draining(), nil
 		}
 		closing, queued, err := e.sleepBackground(c)
 		if err != nil || closing || queued {
@@ -51,6 +54,7 @@ func (e *Engine) backgroundTurn(c *chat, a *Agent) (cancelled bool, err error) {
 	for {
 		select {
 		case err := <-done:
+			a.takeStop()
 			return cancelled, err
 		case <-c.wake:
 		case <-ticker.C:

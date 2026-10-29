@@ -220,3 +220,37 @@ call = { tool = "background_state", arguments = { state = "done" } }
 		t.Errorf("Lead messages = %q", leadMessages(t, server))
 	}
 }
+
+// Serial: the test changes backgroundCheckInterval.
+func TestAnOwnerMessageThatCancelsAWaitTurnAfterDoneKeepsTheResultOfThatTurn(t *testing.T) {
+	shortBackgroundCheck(t, time.Hour)
+	fake := testkit.NewFakeGitHub(t)
+	lead := `
+[[prompts]]
+updates = ['` + asyncAgentStart + `']
+reply = ["A helper starts."]
+
+[[prompts]]
+reply = ["The helper result."]
+call = { tool = "background_state", arguments = { state = "done" } }
+hang = true
+
+[[prompts]]
+reply = ["The second answer."]
+`
+	server, _ := connect(t, fake, lead)
+	sendChat(t, server, leadChat, "Start a helper")
+	session := waitForChatSession(t, server, leadChat, engine.LeadRole, func(store.Session) bool { return true })
+	testkit.WaitFor(t, func() bool { return len(promptTexts(t, server, session.ID)) == 2 })
+
+	sendChat(t, server, leadChat, "A second question")
+
+	session = endedChatSession(t, server, 0)
+	prompts := promptTexts(t, server, session.ID)
+	if len(prompts) != 4 || !strings.HasPrefix(prompts[1], chatWaitPrompt) || prompts[2] != "A second question" || prompts[3] != savePrompt {
+		t.Fatalf("prompts = %q", prompts)
+	}
+	if want := []string{"A helper starts.", "The helper result.Mobius has the state done.", "The second answer."}; !slices.Equal(leadMessages(t, server), want) {
+		t.Errorf("Lead messages = %q", leadMessages(t, server))
+	}
+}
