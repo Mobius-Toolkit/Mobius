@@ -30,22 +30,37 @@ export const switchKinds: {
   },
 ];
 
+type Failure = { text: string; on: boolean };
+
 export type ChangeSwitch = (kind: SwitchKind, on: boolean) => Promise<string>;
 
 export function useSwitches(showLogin: () => void, source?: EventSource) {
   const [switches, setSwitches] = useState<Switches>();
-  const [errors, setErrors] = useState<Partial<Record<SwitchKind, string>>>({});
+  const [failures, setFailures] = useState<Partial<Record<SwitchKind, Failure>>>({});
+
+  // An error belongs to the server value from the time of the failure. The first other value from the server clears it.
+  const receive = useCallback((next: Switches) => {
+    setSwitches(next);
+    setFailures((current) => {
+      const kept = Object.fromEntries(
+        Object.entries(current).filter(
+          ([kind, failure]) => next[kind as SwitchKind] === failure.on,
+        ),
+      );
+      return Object.keys(kept).length === Object.keys(current).length ? current : kept;
+    });
+  }, []);
 
   const load = useCallback(
     () =>
       getSwitches()
         .then((res) => {
           if (res.status === 200) {
-            setSwitches(res.data.data);
+            receive(res.data.data);
           }
         })
         .catch(() => {}),
-    [],
+    [receive],
   );
 
   useEffect(() => {
@@ -56,14 +71,14 @@ export function useSwitches(showLogin: () => void, source?: EventSource) {
     void load();
     const reload = () => void load();
     source.addEventListener("open", reload);
-    const remove = onEvent<LiveEvents, "switches">(source, "switches", setSwitches);
+    const remove = onEvent<LiveEvents, "switches">(source, "switches", receive);
     return () => {
       source.removeEventListener("open", reload);
       remove();
     };
-  }, [source, load]);
+  }, [source, load, receive]);
 
-  // Gives the error text, or an empty text when the server turned the switch on or off.
+  // Gives the error text, or an empty text when the request has no error text to show.
   const send = (kind: SwitchKind, on: boolean) =>
     setSwitch(kind, { on })
       .then(async (res) => {
@@ -86,12 +101,20 @@ export function useSwitches(showLogin: () => void, source?: EventSource) {
   // The amber line of a switch unmounts when the switch goes on, so the error stays here.
   const change: ChangeSwitch = (kind, on) => {
     setSwitches((current) => current && { ...current, [kind]: on });
-    setErrors((current) => ({ ...current, [kind]: "" }));
+    setFailures((current) =>
+      Object.fromEntries(Object.entries(current).filter(([key]) => key !== kind)),
+    );
     return send(kind, on).then((text) => {
-      setErrors((current) => ({ ...current, [kind]: text }));
+      if (text) {
+        setFailures((current) => ({ ...current, [kind]: { text, on: !on } }));
+      }
       return text;
     });
   };
+
+  const errors: Partial<Record<SwitchKind, string>> = Object.fromEntries(
+    Object.entries(failures).map(([kind, failure]) => [kind, failure.text]),
+  );
 
   return { switches, errors, change };
 }
