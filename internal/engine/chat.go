@@ -884,6 +884,7 @@ func (e *Engine) chat(c *chat, a *Agent, first item) error {
 	if err := e.itemTurn(c, a, first, prompt, images); err != nil {
 		return err
 	}
+	var backgroundStart time.Time
 	for {
 		next, ok := e.next(c)
 		if ok {
@@ -913,6 +914,12 @@ func (e *Engine) chat(c *chat, a *Agent, first item) error {
 		closing, err := e.idle(c)
 		if err != nil {
 			return err
+		}
+		if closing && !e.draining() && a.backgroundRunning() {
+			closing, err = e.waitChatBackground(c, a, &backgroundStart)
+			if err != nil {
+				return err
+			}
 		}
 		if !closing {
 			continue

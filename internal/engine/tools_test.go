@@ -82,7 +82,7 @@ func TestTheLeadGetsTheMobiusURLAndOnlyTheLeadTools(t *testing.T) {
 	_, text := leadReply(t, server)
 
 	// The MCP SDK gives the tools in name order.
-	want := []string{"approve_pull_request", "ask", "close_question", "close_task", "comment_pull_request", "create_issue", "create_workstream", "decline", "edit_brief", "hold_event", "list_tasks", "mark_ready", "message_lead", "move_task", "propose_skill", "read_issue", "reply_thread", "send_details", "send_researcher_details", "start_fix_round", "start_implementer", "start_researcher", "stop_researcher", "stop_task", "tell_owner", "update_blockers", "withdraw"}
+	want := []string{"approve_pull_request", "ask", "background_state", "close_question", "close_task", "comment_pull_request", "create_issue", "create_workstream", "decline", "edit_brief", "hold_event", "list_tasks", "mark_ready", "message_lead", "move_task", "propose_skill", "read_issue", "reply_thread", "send_details", "send_researcher_details", "start_fix_round", "start_implementer", "start_researcher", "stop_researcher", "stop_task", "tell_owner", "update_blockers", "withdraw"}
 	if got := toolNames(t, text); !reflect.DeepEqual(got, want) {
 		t.Errorf("tools = %q", got)
 	}
@@ -116,7 +116,7 @@ func TestEachRoleGetsOnlyItsOwnTools(t *testing.T) {
 		spec engine.Spec
 		want []string
 	}{
-		{coordinator, []string{"ask", "create_workstream", "message_lead", "move_issue", "propose_skill", "start_researcher", "tell_curator", "withdraw"}},
+		{coordinator, []string{"ask", "background_state", "create_workstream", "message_lead", "move_issue", "propose_skill", "start_researcher", "tell_curator", "withdraw"}},
 		{triager, []string{"background_state", "create_workstream", "message_lead", "propose_skill", "start_researcher"}},
 		{reviewer, []string{"background_state", "propose_skill", "report_deployment_needs", "submit_review"}},
 		{implementer, []string{"background_state", "cannot_do", "propose_skill", "reply_thread"}},
