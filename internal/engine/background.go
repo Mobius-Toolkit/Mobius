@@ -28,8 +28,12 @@ var backgroundTimeout = time.Hour
 // backgroundPrompt is the prompt of waitBackground.
 const backgroundPrompt = "Before your final report, check each background task that you started. Wait for each task that still runs, for example with `TaskOutput` and `block`. Then call `background_state` with `done` and give your full final report. If a task still runs at the end of this turn, call `background_state` with `running`."
 
-// backgroundRoles are the Roles that end their session after their last Prompt. They get the tool background_state.
-var backgroundRoles = []string{ResearcherRole, JudgeRole, DiagnoserRole, CuratorRole, TriagerRole, ReviewerRole}
+// implementerBackgroundPrompt is the prompt of waitBackground for the Implementer. The Implementer gives no final report.
+const implementerBackgroundPrompt = "Before the local check, check each background task that you started. Wait for each task that still runs, for example with `TaskOutput` and `block`. Commit all work. Then call `background_state` with `done` and end the turn. If a task still runs at the end of this turn, call `background_state` with `running`."
+
+// backgroundRoles are the Roles that wait for the background tasks of their session before the work of the session
+// ends. They get the tool background_state.
+var backgroundRoles = []string{ResearcherRole, JudgeRole, DiagnoserRole, CuratorRole, TriagerRole, ReviewerRole, ImplementerRole}
 
 // errStopped is the error of waitQuiet when a stop ends the wait.
 var errStopped = errors.New("a stop ended the wait for an autonomous turn")
@@ -127,13 +131,13 @@ func (a *Agent) setBackground(running bool) {
 	a.background = running
 }
 
-// waitBackground is the last step of a Role that ends its session after its last Prompt. When the session started a
-// background task, it sends backgroundPrompt, and again each backgroundCheckInterval, until the agent calls
+// waitBackground is the step of a Role that waits for the background tasks of its session after a Prompt. When the
+// session started a background task, it sends prompt, and again each backgroundCheckInterval, until the agent calls
 // background_state with done. Prompt holds while an autonomous turn runs. After backgroundTimeout, waitBackground adds
 // a note and ends. The reply text of the session is the reply text of the last turn. New details end the wait at once,
 // also during the sleep between two prompts, so that the caller sends them. A stop ends the wait with no error: the
 // caller reads ctx.
-func (a *Agent) waitBackground(ctx context.Context) error {
+func (a *Agent) waitBackground(ctx context.Context, prompt string) error {
 	started := time.Now()
 	for {
 		a.mu.Lock()
@@ -142,7 +146,7 @@ func (a *Agent) waitBackground(ctx context.Context) error {
 		if !waiting {
 			return nil
 		}
-		if err := a.Prompt(ctx, backgroundPrompt, nil); err != nil {
+		if err := a.Prompt(ctx, prompt, nil); err != nil {
 			return err
 		}
 		a.mu.Lock()
