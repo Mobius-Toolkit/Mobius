@@ -59,7 +59,7 @@ func awaitsMerge(task store.Task) bool {
 // head commit passes these conditions: the pull request is not a draft and has no merge conflict, it has no open review
 // thread, and each check run of the head completed and passed, with the Mobius check among them. It reads the check
 // runs only when the other conditions are true, and it reads the review threads and the task again before the merge. A task with
-// auto_merge needs a Workstream with a merge level, else its automatic merge ends (endAutoMerge). It also needs a head
+// auto_merge needs a Workstream with a merge level, else its automatic merge ends (endAutoMerge). While the Merge switch is off, its automatic merge ends too (pauseAutoMerge). It also needs a head
 // that contains the default branch (updateForMerge). Its head with no Mobius check run, for example after the update of
 // the branch, sends the task in ready_for_review back to checks (returnForApproval). It gives true when GitHub merged the pull request, and then it dismisses the open ready for review Inbox items of the issue. When
 // GitHub refuses the merge, the open ready for review Inbox item of the issue gets the reason and the Lead gets an
@@ -77,6 +77,13 @@ func (e *Engine) mergeApproved(ctx context.Context, repository github.Repository
 		}
 		if !mergesPullRequests(level) {
 			return false, e.endAutoMerge(ctx, task)
+		}
+		off, err := e.mergeOff(ctx)
+		if err != nil {
+			return false, err
+		}
+		if off {
+			return false, e.pauseAutoMerge(ctx, task)
 		}
 	}
 	head := pullRequest.GetHead().GetSHA()

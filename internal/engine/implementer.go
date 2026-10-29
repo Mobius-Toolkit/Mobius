@@ -342,8 +342,11 @@ func (e *Engine) approvePullRequest(ctx context.Context, c caller, repository gi
 	if err != nil {
 		return fmt.Sprintf("%s The Owner got it for review. Mobius did not start the merge: %v", text, err), nil
 	}
-	if blocked {
+	switch blocked {
+	case mandatoryTodosReason:
 		return text + " Mobius merges it after the Owner marks the mandatory todos as done.", nil
+	case mergePausedReason:
+		return text + " Mobius merges it after the Owner turns the Merge switch on.", nil
 	}
 	return text + " Mobius merges it after its checks pass.", nil
 }
