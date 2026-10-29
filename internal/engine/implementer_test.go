@@ -252,8 +252,9 @@ func TestTheLeadAsksAfterACannotDoAndTheTaskFreesItsWorkerSlot(t *testing.T) {
 
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "asked" })
 	testkit.WaitFor(t, func() bool { return len(inbox(t, server)) == 1 })
+	testkit.WaitFor(t, func() bool { return !hasLabel(fake, "mobius:working") })
 
-	if hasLabel(fake, "mobius:working") || !hasLabel(fake, "mobius:question") || hasLabel(fake, "mobius:needs-human") {
+	if !hasLabel(fake, "mobius:question") || hasLabel(fake, "mobius:needs-human") {
 		t.Errorf("labels = %v", fake.Labels(shop, 41))
 	}
 	items := inbox(t, server)
