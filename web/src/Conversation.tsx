@@ -190,6 +190,78 @@ const Message = memo(function Message({
   );
 });
 
+const briefCutHeight = 144;
+
+function BriefBubble({
+  brief,
+  onMeasured,
+  onToggled,
+}: {
+  brief: Workstream;
+  onMeasured: () => void;
+  onToggled: () => void;
+}) {
+  const root = useRef<HTMLElement>(null);
+  const toggled = useRef(false);
+  const box = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const [long, setLong] = useState(false);
+  useLayoutEffect(() => {
+    const content = box.current?.firstElementChild;
+    if (!content) {
+      return;
+    }
+    setLong(content.clientHeight > briefCutHeight);
+    onMeasured();
+    const observer = new ResizeObserver(() => setLong(content.clientHeight > briefCutHeight));
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [onMeasured]);
+  // A new height of the bubble must not move the end of the list out of view. The toggle of the Owner must not move it.
+  useLayoutEffect(() => {
+    if (!root.current) {
+      return;
+    }
+    const observer = new ResizeObserver(() => {
+      if (toggled.current) {
+        toggled.current = false;
+        onToggled();
+        return;
+      }
+      onMeasured();
+    });
+    observer.observe(root.current);
+    return () => observer.disconnect();
+  }, [onMeasured, onToggled]);
+
+  return (
+    <section
+      ref={root}
+      aria-label="Brief"
+      className="grid max-w-[85%] grid-cols-[minmax(0,1fr)] gap-1 justify-self-start rounded-xl border bg-card px-3 py-2"
+    >
+      <span className="text-xs text-muted-foreground">Brief</span>
+      <span className="font-medium wrap-anywhere">{brief.title}</span>
+      <div ref={box} className={cn("min-w-0", !open && "max-h-36 overflow-hidden")}>
+        <Markdown text={brief.brief} />
+      </div>
+      {long && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="justify-self-start"
+          onClick={() => {
+            toggled.current = true;
+            setOpen(!open);
+          }}
+        >
+          {open ? "Show less" : "Show all"}
+        </Button>
+      )}
+    </section>
+  );
+}
+
 function DaySeparator({ label }: { label: string }) {
   return (
     <div
@@ -333,7 +405,6 @@ export function Conversation({
   const [attempt, setAttempt] = useState<Failure>();
   // Ends the wait before the next try of the first message.
   const skipWait = useRef<() => void>(undefined);
-  const [briefOpen, setBriefOpen] = useState<boolean>();
   const updateAction = useCallback(
     (action: PendingAction) =>
       setMessages((list) =>
@@ -353,12 +424,26 @@ export function Conversation({
     [],
   );
   const listRef = useRef<HTMLDivElement>(null);
+  // The button of the Brief bubble makes it taller, so a scroll before the first measure would be wrong.
+  const [briefMeasured, setBriefMeasured] = useState(false);
+  const showBrief = Boolean(brief && loaded && !older);
   const pinned = useRef(true);
   // The scrollTop of the last scroll to the end. A scroll event can come after an image has made the list longer.
   const endTop = useRef<number>(undefined);
   const scrollToEnd = useCallback((list: HTMLElement) => {
     list.scrollTop = list.scrollHeight;
     endTop.current = list.scrollTop;
+  }, []);
+  const measureBrief = useCallback(() => {
+    setBriefMeasured(true);
+    if (pinned.current && listRef.current) {
+      scrollToEnd(listRef.current);
+    }
+  }, [scrollToEnd]);
+  const settleBrief = useCallback(() => {
+    if (listRef.current) {
+      pinned.current = atEnd(listRef.current);
+    }
   }, []);
   // The number of messages at the last scroll, or undefined before the first scroll.
   const scrolledCount = useRef<number>(undefined);
@@ -367,6 +452,25 @@ export function Conversation({
   const newest = useRef<number>(undefined);
   // The place of a message on the screen before the list gets older messages at its start.
   const anchor = useRef<{ id: number; offset: number }>(undefined);
+  // The place that the Owner sees, before the Brief bubble mounts above the messages. The Workstream can load after the
+  // first scroll.
+  const place = useRef<{ id: number; offset: number }>(undefined);
+  const keepPlace = (list: HTMLElement) => {
+    if (showBrief || scrolledCount.current === undefined) {
+      return;
+    }
+    const top = list.getBoundingClientRect().top;
+    for (const element of list.querySelectorAll("[data-message]")) {
+      const rect = element.getBoundingClientRect();
+      if (rect.bottom > top) {
+        place.current = {
+          id: Number(element.getAttribute("data-message")),
+          offset: rect.top - top,
+        };
+        return;
+      }
+    }
+  };
   const fetchPage = useCallback(
     async (before?: number): Promise<Chat | undefined> => {
       const res = await getChat({ organization, repository, workstream, before });
@@ -622,6 +726,9 @@ export function Conversation({
     if (!list || !loaded || !queueLoaded || openUnread === undefined) {
       return;
     }
+    if (showBrief && !briefMeasured) {
+      return;
+    }
     if (scrolledCount.current === undefined) {
       if (waiting) {
         return;
@@ -639,6 +746,12 @@ export function Conversation({
       }
       scrollToEnd(list);
       return;
+    }
+    if (showBrief && place.current) {
+      if (!pinned.current) {
+        anchor.current ??= place.current;
+      }
+      place.current = undefined;
     }
     if (anchor.current) {
       const element = list.querySelector(`[data-message="${anchor.current.id}"]`);
@@ -658,6 +771,12 @@ export function Conversation({
     scrolledCount.current = count;
     if (pinned.current) {
       scrollToEnd(list);
+    }
+  });
+
+  useLayoutEffect(() => {
+    if (listRef.current) {
+      keepPlace(listRef.current);
     }
   });
 
@@ -717,27 +836,13 @@ export function Conversation({
       <header className="hidden min-h-14 items-center gap-2 border-b px-4 py-2 md:flex">
         {head}
       </header>
-      {brief && (
-        <Collapsible
-          open={briefOpen ?? (loaded && messages.length === 0)}
-          onOpenChange={setBriefOpen}
-          className="border-b px-4 py-2"
-        >
-          <CollapsibleTrigger className="group flex w-full items-center gap-2 text-left font-medium">
-            <span className="grow truncate">{brief.title}</span>
-            <ChevronRightIcon className="size-4 shrink-0 transition-transform group-data-[state=open]:rotate-90" />
-          </CollapsibleTrigger>
-          <CollapsibleContent className="max-h-[40svh] overflow-y-auto pt-2">
-            <Markdown text={brief.brief} />
-          </CollapsibleContent>
-        </Collapsible>
-      )}
       {note}
       <div
         ref={listRef}
         onScroll={(event) => {
           pinned.current =
             atEnd(event.currentTarget) || event.currentTarget.scrollTop === endTop.current;
+          keepPlace(event.currentTarget);
           if (
             older &&
             scrolledCount.current !== undefined &&
@@ -755,6 +860,9 @@ export function Conversation({
         className="grid min-h-0 grow grid-cols-[minmax(0,1fr)] content-start gap-3 overflow-y-auto overscroll-contain bg-muted/40 p-4"
       >
         {error && <Badge variant="destructive">{error}</Badge>}
+        {brief && showBrief && (
+          <BriefBubble brief={brief} onMeasured={measureBrief} onToggled={settleBrief} />
+        )}
         {loaded && queueLoaded && count === 0 && (
           <p className="text-center text-sm text-muted-foreground">
             No messages. Write to start a chat session.
