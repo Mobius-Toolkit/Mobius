@@ -222,7 +222,7 @@ for (const { name: place, path, open } of places) {
             ? page.getByRole("banner").getByRole("button", { name: "Back" })
             : path === "/agents"
               ? page.getByRole("main").getByRole("button", { name: "Back" })
-              : page.locator('[data-slot="card-header"]').getByRole("button", { name: "Back" }),
+              : page.locator('[data-slot="tabs-content"]').getByRole("button", { name: "Back" }),
         ).toBeInViewport();
         await expect(button(page)).toBeHidden();
       });
@@ -269,6 +269,34 @@ for (const { name: place, path, open } of places) {
       });
     });
   }
+}
+
+for (const { name: device, size } of devices) {
+  test.describe(`the agent log in the Agents tab on ${device}`, () => {
+    test.use({ viewport: size });
+
+    test("has no card and fills the height of the tab", async ({ page }) => {
+      await openLog(page, places[1].path, places[1].open);
+      const tab = page.locator('[data-slot="tabs-content"]').filter({ visible: true });
+      await expect(tab.locator('[data-slot="card"]')).toHaveCount(0);
+      await expect(tab.getByRole("button", { name: "Back" })).toBeVisible();
+      await expect(tab.locator(".line-clamp-2")).toContainText("implementer");
+      const note = tab.getByText("Read only. The Owner talks only to the Lead.");
+      const tabBox = await boxOf(tab);
+      const noteBox = await boxOf(note);
+      const padding = 8;
+      expect(tabBox.y + tabBox.height - (noteBox.y + noteBox.height)).toBeGreaterThanOrEqual(0);
+      expect(tabBox.y + tabBox.height - (noteBox.y + noteBox.height)).toBeLessThanOrEqual(
+        padding + 1,
+      );
+      expect(await tab.evaluate((el) => el.scrollHeight <= el.clientHeight)).toBe(true);
+      expect(
+        await page.evaluate(
+          `document.documentElement.scrollHeight <= document.documentElement.clientHeight`,
+        ),
+      ).toBe(true);
+    });
+  });
 }
 
 for (const { name: place, path, open } of places) {
@@ -418,7 +446,7 @@ test.describe("the back button on a desktop", () => {
   test("of the transcript in the side panel is on the left of the title", async ({ page }) => {
     const panel = await openPanelTranscript(page);
     const back = panel.getByRole("button", { name: "Back" });
-    const title = panel.locator('[data-slot="card-title"]');
+    const title = panel.locator(".line-clamp-2");
     await expect(title).toContainText("implementer");
     await expectLeftOf(back, title);
     await back.click();
@@ -491,13 +519,12 @@ test.describe("the back button on a desktop", () => {
   }) => {
     await withLowLoad(page, async () => {
       const panel = await openPanelTranscript(page, /waits for a low load/);
-      const header = panel.locator('[data-slot="card-header"]');
-      const title = header.locator('[data-slot="card-title"]');
+      const title = panel.locator(".line-clamp-2");
       await expect(title).toContainText("implementer");
-      expect((await boxOf(title)).width).toBeGreaterThan(100);
-      const headerBox = await boxOf(header);
+      const titleBox = await boxOf(title);
+      expect(titleBox.width).toBeGreaterThan(100);
       const startBox = await boxOf(panel.getByRole("button", { name: "Start the check now" }));
-      expect(startBox.y).toBeGreaterThanOrEqual(headerBox.y + headerBox.height);
+      expect(startBox.y).toBeGreaterThanOrEqual(titleBox.y + titleBox.height);
     });
   });
 });
