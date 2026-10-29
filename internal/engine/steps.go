@@ -11,7 +11,7 @@ import (
 // addStep adds the step row of the session of a. The group values are the values of the session.
 func (a *Agent) addStep(ctx context.Context, kind, startedAt, endedAt string, attempt sql.NullInt64, result string) error {
 	spec := a.spec
-	binding, _ := roleBinding(a.engine.config, spec.Role)
+	binding := a.binding
 	return a.engine.queries.AddStepTime(ctx, store.AddStepTimeParams{
 		Kind:         kind,
 		Session:      sql.NullInt64{Int64: a.id, Valid: true},
@@ -21,7 +21,7 @@ func (a *Agent) addStep(ctx context.Context, kind, startedAt, endedAt string, at
 		Organization: spec.Organization,
 		Repository:   spec.Repository,
 		Role:         spec.Role,
-		Harness:      string(a.harness),
+		Harness:      string(a.binding.Harness),
 		Model:        binding.Model,
 		Effort:       sql.NullString{String: binding.Effort, Valid: binding.Effort != ""},
 		StartedAt:    startedAt,

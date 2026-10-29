@@ -959,7 +959,7 @@ func (e *Engine) startAutopilot(ctx context.Context, repository github.Repositor
 	if err != nil {
 		return err
 	}
-	if active < int64(e.config.Roles.Implementer.Max) {
+	if active < int64(e.mergedRoles().Implementer.Max) {
 		if err := e.queries.EndFullSlots(ctx); err != nil {
 			return err
 		}
@@ -1057,7 +1057,7 @@ func (e *Engine) autopilotTree(ctx context.Context, repository github.Repository
 		if err != nil {
 			return false, err
 		}
-		if active >= int64(e.config.Roles.Implementer.Max) {
+		if active >= int64(e.mergedRoles().Implementer.Max) {
 			return true, e.noteFullSlots(ctx, repository, source, issue, workstream)
 		}
 		if answered {
@@ -1097,7 +1097,7 @@ func (e *Engine) noteFullSlots(ctx context.Context, repository, source github.Re
 		name = source.FullName
 	}
 	var text strings.Builder
-	fmt.Fprintf(&text, "All %d Autopilot slots are full for %s. Autopilot could not start %s#%d \"%s\". These tasks hold the slots:", e.config.Roles.Implementer.Max, current.Sub(since).Round(time.Minute), name, issue.GetNumber(), issue.GetTitle())
+	fmt.Fprintf(&text, "All %d Autopilot slots are full for %s. Autopilot could not start %s#%d \"%s\". These tasks hold the slots:", e.mergedRoles().Implementer.Max, current.Sub(since).Round(time.Minute), name, issue.GetNumber(), issue.GetTitle())
 	for _, task := range tasks {
 		entered, err := time.Parse(time.RFC3339Nano, task.StateAt)
 		if err != nil {

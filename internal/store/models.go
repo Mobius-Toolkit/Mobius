@@ -245,6 +245,15 @@ type PendingAction struct {
 	OldBrief     string
 }
 
+type RoleSetting struct {
+	Role      string
+	Harness   sql.NullString
+	Model     sql.NullString
+	Effort    sql.NullString
+	Max       sql.NullInt64
+	UpdatedAt string
+}
+
 type Session struct {
 	ID                   int64
 	Role                 string

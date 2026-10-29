@@ -71,7 +71,8 @@ type ToolCheck struct {
 func (e *Engine) Tools(ctx context.Context) []ToolCheck {
 	path := runner.AgentPath(e.config.DataDir, e.agents.Path)
 	harnesses := map[config.Harness]bool{}
-	for _, b := range e.config.Roles.Bindings() {
+	roles := e.mergedRoles()
+	for _, b := range roles.Bindings() {
 		harnesses[b.Binding.Harness] = true
 	}
 	var checks []ToolCheck
