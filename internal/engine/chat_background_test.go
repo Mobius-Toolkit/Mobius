@@ -85,6 +85,7 @@ call = { tool = "background_state", arguments = { state = "done" } }
 	sendChat(t, server, leadChat, "Start a helper")
 	session := waitForChatSession(t, server, leadChat, engine.LeadRole, func(store.Session) bool { return true })
 	testkit.WaitFor(t, func() bool { return len(promptTexts(t, server, session.ID)) == 2 })
+	testkit.WaitFor(t, func() bool { return !server.Engine.BackgroundTurnRuns(leadChat) })
 
 	sendChat(t, server, leadChat, "A second question")
 
