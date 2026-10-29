@@ -845,6 +845,36 @@ export interface EnvelopeArrayGitHubApp {
 }
 
 /**
+ * ModelChoice is a model of a Harness with its effort levels.
+ */
+export interface ModelChoice {
+  /** Efforts are the effort levels of the model, or empty for a Harness with no effort levels */
+  efforts: string[];
+  /** Model is the name of the model */
+  model: string;
+}
+
+/**
+ * HarnessChoices is a Harness with the models that it gives.
+ */
+export interface HarnessChoices {
+  /** Error is the reason of a failed read, or empty */
+  error: string;
+  /** Harness is the agent program */
+  harness: string;
+  /** Models are the models of the Harness. They are empty when the read failed. */
+  models: ModelChoice[];
+}
+
+/**
+ * Envelope is the body of each success response.
+ */
+export interface EnvelopeArrayHarnessChoices {
+  /** Data is the payload of the response */
+  data: HarnessChoices[];
+}
+
+/**
  * Envelope is the body of each success response.
  */
 export interface EnvelopeArrayInboxItem {
@@ -3853,6 +3883,71 @@ export const userCallback = async (params: UserCallbackParams, ): Promise<userCa
 
   const data: userCallbackResponse['data'] = body ? JSON.parse(body) : {}
   return { data, status: res.status, headers: res.headers } as userCallbackResponse
+}
+
+
+
+export type listHarnessesResponse200 = {
+  data: EnvelopeArrayHarnessChoices
+  status: 200
+}
+
+export type listHarnessesResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type listHarnessesResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type listHarnessesResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type listHarnessesResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type listHarnessesResponseSuccess = (listHarnessesResponse200) & {
+  headers: Headers;
+};
+export type listHarnessesResponseError = (listHarnessesResponse400 | listHarnessesResponse401 | listHarnessesResponse422 | listHarnessesResponse500) & {
+  headers: Headers;
+};
+
+export type listHarnessesResponse = (listHarnessesResponseSuccess | listHarnessesResponseError)
+
+export const getListHarnessesUrl = () => {
+
+
+
+
+  return `/api/harnesses`
+}
+
+/**
+ * ListHarnesses returns each Harness on the PATH of the agents with its models and their effort levels.
+ */
+export const listHarnesses = async ( ): Promise<listHarnessesResponse> => {
+
+  const res = await fetch(getListHarnessesUrl(),
+  {
+
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: listHarnessesResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as listHarnessesResponse
 }
 
 
