@@ -490,6 +490,7 @@ func (e *Engine) cannotDo(ctx context.Context, c caller, repository github.Repos
 	}
 	c.agent.mu.Lock()
 	c.agent.cannotDo = input.Reason
+	c.agent.background = false
 	c.agent.mu.Unlock()
 	return "Mobius ends this turn.", c.agent.cancel(ctx)
 }
@@ -1098,7 +1099,8 @@ func (e *Engine) prepareWorktree(ctx context.Context, j *job, worktree string) e
 	return runner.Pull(ctx, dataDir, worktree, j.branch)
 }
 
-// turnsAndChecks runs the turns of the agent until the local check passes. It gives a result when the Implementer
+// turnsAndChecks runs the turns of the agent until the local check passes. After each prompt, it waits for the
+// background tasks of the agent before the check. It gives a result when the Implementer
 // calls cannot_do, and the end of the output of the last check when the check fails max_check_attempts times. New
 // details of the Owner stop the turn that runs and go to the agent as the next prompt, with no check and no attempt
 // of their own. A check that does not end in check_timeout is no fault of the code, so it counts as an attempt and
@@ -1110,6 +1112,9 @@ func (e *Engine) turnsAndChecks(ctx context.Context, a *Agent, j *job) (*result,
 	for {
 		if !timedOut {
 			err := a.Prompt(ctx, prompt, nil)
+			if err == nil {
+				err = a.waitBackground(ctx, implementerBackgroundPrompt)
+			}
 			a.mu.Lock()
 			reason := a.cannotDo
 			a.mu.Unlock()
