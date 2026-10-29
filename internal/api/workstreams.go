@@ -55,7 +55,7 @@ func (h *handlers) ListWorkstreams(ctx context.Context, _ ListWorkstreamsRequest
 			Repository:     row.Repository,
 			Number:         row.Number,
 			Title:          row.Title,
-			Brief:          row.Body,
+			Brief:          h.engine.WithoutChatLink(row.Repository, row.Number, row.Body),
 			Autopilot:      engine.AutopilotLevel(row.Autopilot, row.AutoMerge),
 			Evergreen:      row.Evergreen,
 			AllTasksClosed: row.AllTasksClosed,

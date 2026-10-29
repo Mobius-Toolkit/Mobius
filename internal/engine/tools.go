@@ -1515,13 +1515,13 @@ func (e *Engine) withChatLink(repository github.Repository, workstream int64, bo
 	if e.config.UIURL == "" {
 		return body
 	}
-	return e.withoutChatLink(repository, workstream, body) + "\n\n" + e.chatLink(repository.FullName, workstream)
+	return e.WithoutChatLink(repository.FullName, workstream, body) + "\n\n" + e.chatLink(repository.FullName, workstream)
 }
 
-// withoutChatLink gives body with no link line to the Lead chat of the Workstream and no white space at the end.
-func (e *Engine) withoutChatLink(repository github.Repository, workstream int64, body string) string {
+// WithoutChatLink gives body with no link line to the Lead chat of the Workstream and no white space at the end.
+func (e *Engine) WithoutChatLink(repository string, workstream int64, body string) string {
 	if e.config.UIURL != "" {
-		link := e.chatLink(repository.FullName, workstream)
+		link := e.chatLink(repository, workstream)
 		lines := slices.DeleteFunc(strings.Split(body, "\n"), func(line string) bool { return strings.TrimSpace(line) == link })
 		body = strings.Join(lines, "\n")
 	}
@@ -1576,5 +1576,5 @@ func (e *Engine) currentBrief(ctx context.Context, repository github.Repository,
 	if issue == nil {
 		return "", refuse("The Workstream issue does not exist.")
 	}
-	return e.withoutChatLink(repository, workstream, issue.GetBody()), nil
+	return e.WithoutChatLink(repository.FullName, workstream, issue.GetBody()), nil
 }
