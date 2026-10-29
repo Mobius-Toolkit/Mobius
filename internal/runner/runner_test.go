@@ -17,6 +17,7 @@ import (
 	"github.com/coder/acp-go-sdk"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
+	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 )
 
 func TestMain(m *testing.M) {
@@ -35,7 +36,7 @@ func TestMain(m *testing.M) {
 		runFakeAgent()
 		return
 	}
-	os.Exit(m.Run())
+	testkit.Main(m)
 }
 
 func TestFindGivesTheFileOfAnExecutableProgram(t *testing.T) {
@@ -354,6 +355,13 @@ func (a *fakeAgent) Initialize(ctx context.Context, _ acp.InitializeRequest) (ac
 
 func (a *fakeAgent) NewSession(_ context.Context, request acp.NewSessionRequest) (acp.NewSessionResponse, error) {
 	a.servers = request.McpServers
+	servers, err := json.Marshal(request.McpServers)
+	if err != nil {
+		return acp.NewSessionResponse{}, err
+	}
+	if err := os.WriteFile("servers.json", servers, 0o600); err != nil {
+		return acp.NewSessionResponse{}, err
+	}
 	var options []acp.SessionConfigOption
 	if err := json.Unmarshal([]byte(fakeOptionsText()), &options); err != nil {
 		return acp.NewSessionResponse{}, err

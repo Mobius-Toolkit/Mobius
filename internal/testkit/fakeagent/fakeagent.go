@@ -13,6 +13,9 @@
 //	[options]               # one select option for each id, in id order; the first value is current
 //	model = ["sonnet", "opus"]
 //
+//	[efforts]               # the thought_level values for each model; a set of the model option replaces the values
+//	opus = ["low", "high"]  # of the thought_level option, and keeps its current value when the new list has it
+//
 //	[[prompts]]
 //	when = "text"           # answers each prompt that contains text; the prompts with no when answer in order
 //	updates = ['{"sessionUpdate": "plan", "entries": []}']  # the JSON of each session/update before the reply
@@ -87,6 +90,7 @@ type script struct {
 	SkipToolsList int                 `toml:"skip_tools_list"`
 	HangStart     int                 `toml:"hang_start"`
 	Options       map[string][]string `toml:"options"`
+	Efforts       map[string][]string `toml:"efforts"`
 	Prompts       []prompt            `toml:"prompts"`
 }
 
@@ -348,6 +352,9 @@ func (a *agent) setOption(ctx context.Context, params json.RawMessage) (any, *ac
 		return nil, acp.NewInvalidParams("no option " + request.ConfigID)
 	}
 	a.options[index].CurrentValue = request.Value
+	if efforts, ok := a.script.Efforts[request.Value]; ok && request.ConfigID == "model" {
+		a.setEfforts(efforts)
+	}
 	options := slices.Clone(a.options)
 	a.mu.Unlock()
 	update := map[string]any{"sessionUpdate": "config_option_update", "configOptions": options}
@@ -355,6 +362,22 @@ func (a *agent) setOption(ctx context.Context, params json.RawMessage) (any, *ac
 		return nil, acp.NewInternalError(err.Error())
 	}
 	return map[string]any{"configOptions": options}, nil
+}
+
+// setEfforts replaces the values of the thought_level option. The caller holds a.mu.
+func (a *agent) setEfforts(efforts []string) {
+	index := slices.IndexFunc(a.options, func(option option) bool { return option.ID == "thought_level" })
+	if index < 0 {
+		return
+	}
+	choices := []choice{}
+	for _, value := range efforts {
+		choices = append(choices, choice{Value: value, Name: value})
+	}
+	a.options[index].Options = choices
+	if !slices.Contains(efforts, a.options[index].CurrentValue) {
+		a.options[index].CurrentValue = efforts[0]
+	}
 }
 
 // next gives the script prompt for text, the URL of the Mobius MCP server, and the channel that closes at a session/cancel of the turn.

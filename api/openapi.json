@@ -1525,6 +1525,51 @@
         ]
       }
     },
+    "/api/harnesses": {
+      "get": {
+        "description": "ListHarnesses returns each Harness on the PATH of the agents with its models and their effort levels.",
+        "operationId": "ListHarnesses",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_Array_HarnessChoices"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "harnesses"
+        ]
+      }
+    },
     "/api/health": {
       "get": {
         "description": "GetHealth returns the state of the server.",
@@ -5986,6 +6031,24 @@
         ],
         "description": "Envelope is the body of each success response."
       },
+      "Envelope_Array_HarnessChoices": {
+        "type": "object",
+        "title": "Envelope_Array_HarnessChoices",
+        "properties": {
+          "data": {
+            "type": "array",
+            "title": "[]HarnessChoices",
+            "description": "Data is the payload of the response",
+            "items": {
+              "$ref": "#/components/schemas/HarnessChoices"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "description": "Envelope is the body of each success response."
+      },
       "Envelope_Array_InboxItem": {
         "type": "object",
         "title": "Envelope_Array_InboxItem",
@@ -6529,6 +6592,34 @@
           "repositories"
         ],
         "description": "GitHubApp is a Mobius App on GitHub."
+      },
+      "HarnessChoices": {
+        "type": "object",
+        "title": "HarnessChoices",
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "Error is the reason of a failed read, or empty"
+          },
+          "harness": {
+            "type": "string",
+            "description": "Harness is the agent program"
+          },
+          "models": {
+            "type": "array",
+            "title": "[]ModelChoice",
+            "description": "Models are the models of the Harness. They are empty when the read failed.",
+            "items": {
+              "$ref": "#/components/schemas/ModelChoice"
+            }
+          }
+        },
+        "required": [
+          "harness",
+          "models",
+          "error"
+        ],
+        "description": "HarnessChoices is a Harness with the models that it gives."
       },
       "Health": {
         "type": "object",
@@ -7330,6 +7421,29 @@
           "older"
         ],
         "description": "MemoryVersionsPage is a page of the versions of the memory file of a repository."
+      },
+      "ModelChoice": {
+        "type": "object",
+        "title": "ModelChoice",
+        "properties": {
+          "efforts": {
+            "type": "array",
+            "title": "[]string",
+            "description": "Efforts are the effort levels of the model, or empty for a Harness with no effort levels",
+            "items": {
+              "type": "string"
+            }
+          },
+          "model": {
+            "type": "string",
+            "description": "Model is the name of the model"
+          }
+        },
+        "required": [
+          "model",
+          "efforts"
+        ],
+        "description": "ModelChoice is a model of a Harness with its effort levels."
       },
       "NeedsHuman": {
         "type": "object",
