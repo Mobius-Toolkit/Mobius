@@ -55,12 +55,7 @@ func realGH(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dir := t.TempDir()
-	script := "#!/bin/sh\nexec " + printenv + " \"$@\"\n"
-	if err := os.WriteFile(filepath.Join(dir, "gh"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	return dir
+	return scriptGH(t, "exec "+printenv+` "$@"`)
 }
 
 func prepare(t *testing.T) string {

@@ -24,7 +24,12 @@ func connectGH(t *testing.T, fake *testkit.FakeGitHub) (*testserver.Server, stri
 		t.Fatal(err)
 	}
 	script := "#!/bin/sh\nexec " + printenv + " \"$@\"\n"
-	if err := os.WriteFile(filepath.Join(dataDir, "harnesses", "gh"), []byte(script), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(dataDir, "harnesses", "gh"), []byte(script), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	chmod := exec.Command("chmod", "+x", "gh")
+	chmod.Dir = filepath.Join(dataDir, "harnesses")
+	if err := chmod.Run(); err != nil {
 		t.Fatal(err)
 	}
 	return server, dataDir
