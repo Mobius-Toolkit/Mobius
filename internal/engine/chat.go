@@ -1473,7 +1473,16 @@ func (e *Engine) leadContext(ctx context.Context, repository github.Repository, 
 	if err != nil {
 		return "", false, false, err
 	}
+	pauses, err := e.queries.ListGlobalPauses(ctx)
+	if err != nil {
+		return "", false, false, err
+	}
 	autopilotText := levelContexts[level] + "\n\n"
+	for _, kind := range []string{"start", "merge", "repairs"} {
+		if slices.ContainsFunc(pauses, func(pause store.GlobalPause) bool { return pause.Kind == kind }) {
+			autopilotText += switchContexts[kind] + "\n\n"
+		}
+	}
 	return fmt.Sprintf("# Brief\n\n%s\n\n%s%s# MEMORY.md\n\n%s\n\n# Repositories\n\n%s\n\n# Task list\n\n%s\n\n", brief, evergreenText, autopilotText, memory, e.repositoriesText(repository.Owner()), taskText(repository.FullName, lines)), maintenance, skills, nil
 }
 
@@ -1483,6 +1492,13 @@ var levelContexts = map[string]string{
 	levelStart:         "Autopilot is \"Start tasks\": Mobius starts each open sub-issue with no blocker and no earlier task at the next poll.",
 	levelMerge:         "Autopilot is \"Merge only\": a task starts only after `mark_ready` or a start of the Owner. " + mergeContext,
 	levelStartAndMerge: "Autopilot is \"Start and merge\": Mobius starts each open sub-issue with no blocker and no earlier task at the next poll. " + mergeContext,
+}
+
+// switchContexts gives the text of the first prompt of the Lead for each global switch that is off.
+var switchContexts = map[string]string{
+	"start":   "The Owner turned Start off on the Settings page: Mobius starts no task and no session of a task in each Workstream. `start_implementer`, `mark_ready` and `start_fix_round` refuse.",
+	"merge":   "The Owner turned Merge off on the Settings page: Mobius merges no pull request automatically in each Workstream. Your approval does not merge. The Owner merges with the Inbox \"Merge\" button.",
+	"repairs": "The Owner turned Repairs off on the Settings page: Mobius starts no task for a CI break, a check timeout or a CI failure. `start_implementer` and `mark_ready` refuse for such an issue. During a hard break of the CI, the CI stop still holds each other task of its repository.",
 }
 
 const mergeContext = "Mobius merges each pull request after your approval, when the branch contains the current default branch and the checks passed. A mandatory deployment need that the Reviewer reports blocks the merge until the Owner marks its todo as done."

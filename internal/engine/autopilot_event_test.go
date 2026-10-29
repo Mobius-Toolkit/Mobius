@@ -117,3 +117,33 @@ func TestACloseOfTheWorkstreamAddsNoEventForAutopilot(t *testing.T) {
 		t.Errorf("events = %q", got)
 	}
 }
+
+func TestTheFirstPromptTellsTheLeadEachGlobalSwitchThatIsOff(t *testing.T) {
+	t.Parallel()
+	lines := map[string]string{
+		"start":   "The Owner turned Start off on the Settings page: Mobius starts no task and no session of a task in each Workstream. `start_implementer`, `mark_ready` and `start_fix_round` refuse.",
+		"merge":   "The Owner turned Merge off on the Settings page: Mobius merges no pull request automatically in each Workstream. Your approval does not merge. The Owner merges with the Inbox \"Merge\" button.",
+		"repairs": "The Owner turned Repairs off on the Settings page: Mobius starts no task for a CI break, a check timeout or a CI failure. `start_implementer` and `mark_ready` refuse for such an issue. During a hard break of the CI, the CI stop still holds each other task of its repository.",
+	}
+	for _, off := range []string{"", "start", "merge", "repairs"} {
+		t.Run("off "+off, func(t *testing.T) {
+			t.Parallel()
+			fake := testkit.NewFakeGitHub(t)
+			server, _ := connect(t, fake, "")
+			if off != "" {
+				if status := putSwitch(t, server, off, false); status != http.StatusNoContent {
+					t.Fatalf("%s off: status %d", off, status)
+				}
+			}
+
+			sendChat(t, server, leadChat, "Plan the next step")
+
+			prompt := promptTexts(t, server, endedChatSession(t, server, 0).ID)[0]
+			for kind, line := range lines {
+				if has := strings.Contains(prompt, line+"\n\n# MEMORY.md"); has != (kind == off) {
+					t.Errorf("%s line in the prompt = %t, switch off = %q", kind, has, off)
+				}
+			}
+		})
+	}
+}
