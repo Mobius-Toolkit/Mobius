@@ -263,7 +263,7 @@ func readyForReviewServer(t *testing.T, fake *testkit.FakeGitHub) *testserver.Se
 	t.Helper()
 	server, _ := connectTask(t, fake, leadApproves+leadStarts, commits, noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
-	waitForReadyEvents(t, server, 1)
+	waitForReadyEvents(t, fake, server, 1)
 	sendChat(t, server, leadChat, "Approve #41")
 	waitForItem(t, server, "ready for review")
 	return server

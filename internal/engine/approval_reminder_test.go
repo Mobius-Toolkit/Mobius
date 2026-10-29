@@ -29,7 +29,7 @@ func TestATaskThatWaitsInApprovalForMoreThanTwoHoursGivesTheLeadOneReminderAndTh
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, commits, noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
-	waitForReadyEvents(t, server, 1)
+	waitForReadyEvents(t, fake, server, 1)
 	start := time.Now()
 
 	server.Engine.SetClock(func() time.Time { return start.Add(time.Hour + 59*time.Minute) })
@@ -70,7 +70,7 @@ func TestATaskThatLeavesApprovalGetsNoReminder(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadApproves+leadStarts, commits, noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
-	waitForReadyEvents(t, server, 1)
+	waitForReadyEvents(t, fake, server, 1)
 	sendChat(t, server, leadChat, "Approve #41")
 	waitForChat(t, server, leadChat, "Lead", "Approved pull request #42 of #41. The Owner got it for review.")
 	waitForPolls(t, fake)

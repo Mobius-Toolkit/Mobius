@@ -1355,6 +1355,22 @@ test("screenshots", async ({ page }) => {
     ],
     () => shown("Upgrade v0.1.4").click(),
   );
+  const longWord =
+    "TestAStopOfATaskGivesItsReasonOnlyToThatTaskAndNotToATaskOfAnotherRepositoryWithTheSameNumber";
+  const longChange = `Fix the CI failure of ${longWord} (#1221)`;
+  await page.route("/api/release/changes", (route) =>
+    route.fulfill({
+      json: { data: ["Show the release changes in a modal", longChange, "Fix the memory scroll"] },
+    }),
+  );
+  await screenshot(
+    page,
+    "upgrade-long-word",
+    "/settings",
+    (device) => [...frame(device, release, { upgrade: true }), page.getByText(longChange)],
+    () => shown("Upgrade v0.1.4").click(),
+  );
+  await page.unroute("/api/release/changes");
   await page.route("/ui-version", (route) => route.fulfill({ body: "a new build" }));
   await screenshot(page, "new-version", "/settings", (device) => [
     ...frame(device, release, { upgrade: true }),

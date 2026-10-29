@@ -157,7 +157,7 @@ func TestApprovePullRequestClosesTheOpenQuestionOfTheTask(t *testing.T) {
 	ask := "[[prompts]]\nwhen = \"Ask #41\"\ncall = { tool = \"ask\", arguments = { repository = \"owner/shop\", n = 41, text = \"Cents or dollars?\" } }\n\n"
 	server, _ := connectTask(t, fake, ask+leadApproves+leadStarts, commits, noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
-	waitForReadyEvents(t, server, 1)
+	waitForReadyEvents(t, fake, server, 1)
 	sendChat(t, server, leadChat, "Ask #41")
 	waitForChat(t, server, leadChat, "Lead", "Asked on #41.")
 	if !slices.Contains(fake.Labels(shop, 41), "mobius:question") {
