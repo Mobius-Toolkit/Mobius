@@ -176,3 +176,26 @@ func TestWhileMergeIsOffAChangeOfTheLevelToALevelWithNoMergeRemovesTheReasonAndM
 		t.Errorf("merge calls = %d, approvals = %d, state = %s", calls, count, state)
 	}
 }
+
+func TestWhileMergeIsOffTheApprovalOfTheLeadKeepsAnApprovalOfTheOwnerAndThePullRequestMerges(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := approvable(t, fake, "merge", true)
+	build := fake.AddCheckRun(shop, checkRun("build", head(t, fake, "mobius/41"), "in_progress", ""))
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" })
+	turnMerge(t, server, false)
+	fake.AddReview(shop, 42, "owner", "APPROVED", "")
+	waitForPolls(t, fake)
+
+	sendChat(t, server, leadChat, "Approve #41")
+
+	waitForChat(t, server, leadChat, "Lead", "Approved pull request #42 of #41. Mobius merges it after its checks pass.")
+	fake.SetCheckRunStatus(build, "completed", "success")
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "" })
+	if calls, count, auto := fake.MergeCalls(), approvals(fake), autoMerge(t, server); calls != 1 || count != 0 || auto != 0 {
+		t.Errorf("merge calls = %d, approvals = %d, auto_merge = %d", calls, count, auto)
+	}
+	if held := getSwitches(t, server).Held; len(held) != 0 {
+		t.Errorf("held = %+v", held)
+	}
+}

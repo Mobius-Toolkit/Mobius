@@ -22,8 +22,8 @@ const mergePausedReason = "Autopilot paused: no automatic merge."
 // "Merge" button shows, and the task has no auto_merge. When a mandatory deployment need of the task has a todo that is
 // not done, it does not approve. The items get the reason mandatoryTodosReason. While the Merge switch is off, it does
 // not approve either. The items get the reason mergePausedReason, and the issue goes to the held work of the switch.
-// In both cases it gives the reason. An approval that the Owner gave with "Merge" stays, and the task does not count as
-// blocked.
+// In both cases it gives the reason. An approval that the Owner gave with "Merge" or on GitHub stays, and the task
+// does not count as blocked. While the Merge switch is off, that approval merges the pull request as it is.
 func (e *Engine) autoApprove(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) (string, error) {
 	blocked, err := e.blockedByTodos(ctx, task)
 	if err != nil {
@@ -36,7 +36,10 @@ func (e *Engine) autoApprove(ctx context.Context, repository github.Repository, 
 	if err != nil {
 		return "", err
 	}
-	if off && (task.AutoMerge == 1 || !awaitsMerge(task)) {
+	if off {
+		if task.AutoMerge == 0 && awaitsMerge(task) {
+			return "", nil
+		}
 		return mergePausedReason, e.holdMerge(ctx, task)
 	}
 	err = e.approveAsOwner(ctx, repository, task, pullRequest)
