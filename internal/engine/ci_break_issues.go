@@ -376,6 +376,12 @@ func (e *Engine) startCIBreakTasks(ctx context.Context, repository github.Reposi
 		if err != nil {
 			return err
 		}
+		if !off {
+			off, err = e.holdRepairs(ctx, repository.FullName, ciBreak.Issue)
+			if err != nil {
+				return err
+			}
+		}
 		if off {
 			continue
 		}

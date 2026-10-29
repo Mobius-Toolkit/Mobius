@@ -1121,6 +1121,9 @@ func (e *Engine) markReady(ctx context.Context, c caller, repository github.Repo
 	if err := e.startOffRefused(ctx); err != nil {
 		return "", err
 	}
+	if err := e.repairsOffRefused(ctx, repository.FullName, input.N); err != nil {
+		return "", err
+	}
 	issue, err := repository.Issue(ctx, input.N)
 	if err != nil {
 		return "", err
