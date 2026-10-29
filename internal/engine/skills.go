@@ -21,7 +21,7 @@ import (
 // folder of the Harness in the directory of a. A skill that is only on another branch never reaches the session.
 func (a *Agent) copySkills(ctx context.Context) error {
 	e := a.engine
-	folder := a.harness.SkillDirectory()
+	folder := a.binding.Harness.SkillDirectory()
 	_, err := os.Stat(filepath.Join(a.spec.Dir, ".git"))
 	worktree := err == nil
 	if !worktree {
@@ -129,7 +129,7 @@ func (a *Agent) addSessionSkills(ctx context.Context, names []string) {
 			Organization: spec.Organization,
 			Repository:   spec.Repository,
 			Role:         spec.Role,
-			Harness:      string(a.harness),
+			Harness:      string(a.binding.Harness),
 			Skill:        name,
 			CopiedAt:     now(),
 		})
@@ -142,7 +142,7 @@ func (a *Agent) addSessionSkills(ctx context.Context, names []string) {
 // recordSkillUse adds a skill_uses row for the first update of a skill tool call. The caller holds a.mu.
 func (a *Agent) recordSkillUse(ctx context.Context, notification map[string]any, kind string) {
 	update := notification["update"]
-	switch a.harness {
+	switch a.binding.Harness {
 	case config.ClaudeCode:
 		if (kind != "tool_call" && kind != "tool_call_update") || stringField(update, "_meta", "claudeCode", "toolName") != "Skill" {
 			return
@@ -169,7 +169,7 @@ func (a *Agent) recordSkillUse(ctx context.Context, notification map[string]any,
 		Organization: spec.Organization,
 		Repository:   spec.Repository,
 		Role:         spec.Role,
-		Harness:      string(a.harness),
+		Harness:      string(a.binding.Harness),
 		Skill:        skill,
 		Source:       source,
 		UsedAt:       now(),

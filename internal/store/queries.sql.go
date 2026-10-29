@@ -1634,6 +1634,15 @@ func (q *Queries) DeleteOtherPasswordLogins(ctx context.Context, passwordFingerp
 	return err
 }
 
+const deleteRoleSetting = `-- name: DeleteRoleSetting :exec
+DELETE FROM role_settings WHERE role = ?
+`
+
+func (q *Queries) DeleteRoleSetting(ctx context.Context, role string) error {
+	_, err := q.db.ExecContext(ctx, deleteRoleSetting, role)
+	return err
+}
+
 const deleteStopNotice = `-- name: DeleteStopNotice :exec
 DELETE FROM stop_notices WHERE id = ?
 `
@@ -6419,6 +6428,40 @@ func (q *Queries) ListRetryPromptsSince(ctx context.Context, arg ListRetryPrompt
 	return items, nil
 }
 
+const listRoleSettings = `-- name: ListRoleSettings :many
+SELECT role, harness, model, effort, max, updated_at FROM role_settings
+`
+
+func (q *Queries) ListRoleSettings(ctx context.Context) ([]RoleSetting, error) {
+	rows, err := q.db.QueryContext(ctx, listRoleSettings)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []RoleSetting
+	for rows.Next() {
+		var i RoleSetting
+		if err := rows.Scan(
+			&i.Role,
+			&i.Harness,
+			&i.Model,
+			&i.Effort,
+			&i.Max,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSessionSkillsBetween = `-- name: ListSessionSkillsBetween :many
 SELECT id, session, organization, repository, role, harness, skill, copied_at FROM session_skills WHERE copied_at >= ?1 AND copied_at < ?2
 `
@@ -8532,6 +8575,32 @@ func (q *Queries) UpdateCopiedWorkstream(ctx context.Context, arg UpdateCopiedWo
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const upsertRoleSetting = `-- name: UpsertRoleSetting :exec
+INSERT INTO role_settings (role, harness, model, effort, max, updated_at) VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT (role) DO UPDATE SET harness = excluded.harness, model = excluded.model, effort = excluded.effort, max = excluded.max, updated_at = excluded.updated_at
+`
+
+type UpsertRoleSettingParams struct {
+	Role      string
+	Harness   sql.NullString
+	Model     sql.NullString
+	Effort    sql.NullString
+	Max       sql.NullInt64
+	UpdatedAt string
+}
+
+func (q *Queries) UpsertRoleSetting(ctx context.Context, arg UpsertRoleSettingParams) error {
+	_, err := q.db.ExecContext(ctx, upsertRoleSetting,
+		arg.Role,
+		arg.Harness,
+		arg.Model,
+		arg.Effort,
+		arg.Max,
+		arg.UpdatedAt,
+	)
+	return err
 }
 
 const withdrawPendingAction = `-- name: WithdrawPendingAction :one
