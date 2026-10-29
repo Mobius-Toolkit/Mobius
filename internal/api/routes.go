@@ -72,6 +72,7 @@ func Routes(mux *http.ServeMux, queries *store.Queries, a *auth.Auth, gh *github
 	r.Get("/api/roles", h.ListRoles, loggedIn("roles")...)
 	r.Put("/api/roles/{role}", h.SetRole, append(loggedIn("roles"), api.WithErrorResponses(http.StatusUnprocessableEntity))...)
 	r.Delete("/api/roles/{role}", h.ResetRole, append(loggedIn("roles"), api.WithErrorResponses(http.StatusUnprocessableEntity))...)
+	r.Get("/api/harnesses", h.ListHarnesses, loggedIn("harnesses")...)
 	r.Get("/api/ci-stops", h.ListCIStops, loggedIn("ci-stops")...)
 	r.Get("/api/drain", h.GetDrain, loggedIn("upgrade")...)
 	r.Post("/api/drain", h.StartDrain, loggedIn("upgrade")...)
