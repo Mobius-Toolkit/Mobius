@@ -199,7 +199,7 @@ call = { tool = "background_state", arguments = { state = "done" } }
 `
 	server, _ := connect(t, fake, lead)
 	sendChat(t, server, leadChat, "Start a helper")
-	session := waitForChatSession(t, server, leadChat, engine.LeadRole, func(session store.Session) bool {
+	waitForChatSession(t, server, leadChat, engine.LeadRole, func(session store.Session) bool {
 		return lineID(t, server, session.ID, "update", "The task ended.") != 0
 	})
 	idleFrom := time.Now()
@@ -211,7 +211,7 @@ call = { tool = "background_state", arguments = { state = "done" } }
 	testkit.WaitFor(t, agent.StopRequested)
 	agent.Update(fmt.Appendf(nil, agentUpdate, endUpdate))
 
-	session = endedChatSession(t, server, 0)
+	session := endedChatSession(t, server, 0)
 	prompts := promptTexts(t, server, session.ID)
 	if len(prompts) != 4 || prompts[1] != "A second question" || !strings.HasPrefix(prompts[2], chatWaitPrompt) || prompts[3] != savePrompt {
 		t.Fatalf("prompts = %q", prompts)
