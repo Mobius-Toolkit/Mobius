@@ -2787,6 +2787,193 @@
         ]
       }
     },
+    "/api/roles": {
+      "get": {
+        "description": "ListRoles returns each Role with its values, in the order of config.toml.",
+        "operationId": "ListRoles",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_Array_Role"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "roles"
+        ]
+      }
+    },
+    "/api/roles/{role}": {
+      "put": {
+        "description": "SetRole sets the values of a Role. The next session of the Role uses them. It returns 422 with the reason when the values fail a check.",
+        "operationId": "SetRole",
+        "parameters": [
+          {
+            "description": "Role is the name of the Role",
+            "in": "path",
+            "name": "role",
+            "required": true,
+            "schema": {
+              "enum": [
+                "lead",
+                "coordinator",
+                "triager",
+                "implementer",
+                "researcher",
+                "reviewer",
+                "judge",
+                "curator",
+                "diagnoser"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetRoleBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_Role"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "roles"
+        ]
+      },
+      "delete": {
+        "description": "ResetRole removes the UI values of a Role, so it uses config.toml again. It returns 422 with the reason when the values of config.toml fail a check with the UI values of the other Roles.",
+        "operationId": "ResetRole",
+        "parameters": [
+          {
+            "description": "Role is the name of the Role",
+            "in": "path",
+            "name": "role",
+            "required": true,
+            "schema": {
+              "enum": [
+                "lead",
+                "coordinator",
+                "triager",
+                "implementer",
+                "researcher",
+                "reviewer",
+                "judge",
+                "curator",
+                "diagnoser"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_Role"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "roles"
+        ]
+      }
+    },
     "/api/switches": {
       "get": {
         "description": "GetSwitches returns the state of the global switches and the work that the off switches hold.",
@@ -5853,6 +6040,24 @@
         ],
         "description": "Envelope is the body of each success response."
       },
+      "Envelope_Array_Role": {
+        "type": "object",
+        "title": "Envelope_Array_Role",
+        "properties": {
+          "data": {
+            "type": "array",
+            "title": "[]Role",
+            "description": "Data is the payload of the response",
+            "items": {
+              "$ref": "#/components/schemas/Role"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "description": "Envelope is the body of each success response."
+      },
       "Envelope_Array_TaskLine": {
         "type": "object",
         "title": "Envelope_Array_TaskLine",
@@ -6117,6 +6322,20 @@
         "properties": {
           "data": {
             "$ref": "#/components/schemas/Release",
+            "description": "Data is the payload of the response"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "description": "Envelope is the body of each success response."
+      },
+      "Envelope_Role": {
+        "type": "object",
+        "title": "Envelope_Role",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Role",
             "description": "Data is the payload of the response"
           }
         },
@@ -7436,6 +7655,74 @@
         ],
         "description": "RepositoryCheckup is the status of each Mobius label in a repository."
       },
+      "Role": {
+        "type": "object",
+        "title": "Role",
+        "properties": {
+          "effort": {
+            "type": "string",
+            "description": "Effort is the effort level of the Role, or empty for a Harness with no effort levels"
+          },
+          "harness": {
+            "type": "string",
+            "description": "Harness is the agent program of the Role"
+          },
+          "max": {
+            "type": "integer",
+            "description": "Max is the number of sessions of the Role that run at the same time"
+          },
+          "model": {
+            "type": "string",
+            "description": "Model is the model of the Role"
+          },
+          "role": {
+            "type": "string",
+            "description": "Role is the name of the Role"
+          },
+          "ui": {
+            "$ref": "#/components/schemas/RoleFields",
+            "description": "UI tells which values come from the UI"
+          }
+        },
+        "required": [
+          "role",
+          "harness",
+          "model",
+          "effort",
+          "max",
+          "ui"
+        ],
+        "description": "Role is the binding of a Role to a Harness, with the source of each value."
+      },
+      "RoleFields": {
+        "type": "object",
+        "title": "RoleFields",
+        "properties": {
+          "effort": {
+            "type": "boolean",
+            "description": "Effort is true when the UI gives the effort level"
+          },
+          "harness": {
+            "type": "boolean",
+            "description": "Harness is true when the UI gives the Harness"
+          },
+          "max": {
+            "type": "boolean",
+            "description": "Max is true when the UI gives the session limit"
+          },
+          "model": {
+            "type": "boolean",
+            "description": "Model is true when the UI gives the model"
+          }
+        },
+        "required": [
+          "harness",
+          "model",
+          "effort",
+          "max"
+        ],
+        "description": "RoleFields tells for each field of a Role if the UI gives it. false means config.toml."
+      },
       "SaveMemoryBody": {
         "type": "object",
         "title": "SaveMemoryBody",
@@ -7544,6 +7831,28 @@
           "on": {
             "type": "boolean",
             "description": "On adds mobius:evergreen when true, and removes it when false"
+          }
+        }
+      },
+      "SetRoleBody": {
+        "type": "object",
+        "title": "SetRoleBody",
+        "properties": {
+          "effort": {
+            "type": "string",
+            "description": "Effort is the effort level of the Role. It is empty for a Harness with no effort levels."
+          },
+          "harness": {
+            "type": "string",
+            "description": "Harness is the agent program of the Role"
+          },
+          "max": {
+            "type": "integer",
+            "description": "Max is the number of sessions of the Role that run at the same time"
+          },
+          "model": {
+            "type": "string",
+            "description": "Model is the model of the Role"
           }
         }
       },

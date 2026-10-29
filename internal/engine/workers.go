@@ -60,9 +60,8 @@ var workerRoles = map[string]bool{ImplementerRole: true, ResearcherRole: true, R
 // ErrLeftQueue tells that the task of a session left the queue before the session got a slot, for example after a decline.
 var ErrLeftQueue = errors.New("the task left the queue")
 
-// roleBinding gives the Role binding of role in cfg.
-func roleBinding(cfg *config.Config, role string) (config.RoleBinding, bool) {
-	roles := &cfg.Roles
+// roleBinding gives the Role binding of role in roles.
+func roleBinding(roles *config.Roles, role string) (config.RoleBinding, bool) {
 	switch role {
 	case LeadRole:
 		return roles.Lead, true
@@ -248,7 +247,7 @@ func (e *Engine) takeSlot(ctx context.Context, a *Agent) error {
 		}
 		paused := ""
 		if worker {
-			pause, err := e.queries.GetHarnessPause(ctx, string(a.harness))
+			pause, err := e.queries.GetHarnessPause(ctx, string(a.binding.Harness))
 			switch {
 			case err == nil:
 				if paused, err = pausedReason(pause); err != nil {
@@ -258,7 +257,13 @@ func (e *Engine) takeSlot(ctx context.Context, a *Agent) error {
 				return err
 			}
 		}
-		reason, ok := e.slotReason(a, place, queue, worker, paused)
+		startOff := false
+		if task != 0 {
+			if startOff, err = e.startOff(ctx); err != nil {
+				return err
+			}
+		}
+		reason, ok := e.slotReason(a, place, queue, worker, paused, startOff)
 		if !ok {
 			return ErrLeftQueue
 		}
@@ -266,6 +271,11 @@ func (e *Engine) takeSlot(ctx context.Context, a *Agent) error {
 			a.slot = role
 			a.tracked = a.tracked || worker
 			break
+		}
+		if reason == startOffReason {
+			if err := e.holdWork(ctx, "start", a.spec.Repository, a.spec.Issue.Int64); err != nil {
+				return err
+			}
 		}
 		if reason != shown {
 			session, err := e.queries.SetQueueReason(ctx, store.SetQueueReasonParams{QueueReason: sql.NullString{String: reason, Valid: true}, ID: a.id})
@@ -296,8 +306,9 @@ func (e *Engine) takeSlot(ctx context.Context, a *Agent) error {
 
 // slotReason gives the reason why the session of a must wait, or "" when the session took a slot. A Worker that
 // takes a slot also counts in the drain. It gives false when the task of the session is not in queue. paused is
-// the reason of a pause of the Harness of a Worker, or "".
-func (e *Engine) slotReason(a *Agent, place waiter, queue []queuedTask, worker bool, paused string) (string, bool) {
+// the reason of a pause of the Harness of a Worker, or "". startOff tells that the Start switch is off and the
+// session has a task.
+func (e *Engine) slotReason(a *Agent, place waiter, queue []queuedTask, worker bool, paused string, startOff bool) (string, bool) {
 	w := &e.workers
 	role, task := a.spec.Role, a.spec.Task
 	w.mu.Lock()
@@ -335,10 +346,13 @@ func (e *Engine) slotReason(a *Agent, place waiter, queue []queuedTask, worker b
 	switch {
 	case worker && e.draining():
 		reason = drainReason
+	case startOff:
+		reason = startOffReason
 	case paused != "":
 		reason = paused
 	default:
-		reason = limitReason(e.config, w.running, roles, role)
+		merged := e.mergedRoles()
+		reason = limitReason(&merged, w.running, roles, role)
 	}
 	// The drain can start after the check above.
 	if reason == "" && worker && !e.trackWorker() {
@@ -364,18 +378,18 @@ func (e *Engine) releaseSlot(role string) {
 
 // limitReason gives the reason why a session of role must wait, or "". Each session of earlier that fits takes
 // a slot before it, so a session of a full Role does not hold a later session of another Role.
-func limitReason(cfg *config.Config, running map[string]int, earlier []string, role string) string {
+func limitReason(roles *config.Roles, running map[string]int, earlier []string, role string) string {
 	counts := maps.Clone(running)
 	for _, other := range earlier {
-		if fullReason(cfg, counts, other) == "" {
+		if fullReason(roles, counts, other) == "" {
 			counts[other]++
 		}
 	}
-	return fullReason(cfg, counts, role)
+	return fullReason(roles, counts, role)
 }
 
-func fullReason(cfg *config.Config, running map[string]int, role string) string {
-	binding, _ := roleBinding(cfg, role)
+func fullReason(roles *config.Roles, running map[string]int, role string) string {
+	binding, _ := roleBinding(roles, role)
 	if count := running[role]; count >= binding.Max {
 		index := slices.IndexFunc(groups, func(g group) bool { return g.role == role })
 		return fmt.Sprintf("no free %s slot (%d/%d)", groups[index].name, count, binding.Max)

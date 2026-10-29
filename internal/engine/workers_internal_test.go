@@ -36,7 +36,7 @@ func TestAnAgentWithFreeSlotsStarts(t *testing.T) {
 	t.Parallel()
 	running := map[string]int{ImplementerRole: 1}
 
-	if got := limitReason(limits(t), running, nil, ImplementerRole); got != "" {
+	if got := limitReason(&limits(t).Roles, running, nil, ImplementerRole); got != "" {
 		t.Errorf("reason = %q", got)
 	}
 }
@@ -45,7 +45,7 @@ func TestAFullRoleGivesItsCount(t *testing.T) {
 	t.Parallel()
 	running := map[string]int{ImplementerRole: 2}
 
-	if got := limitReason(limits(t), running, nil, ImplementerRole); got != "no free implementer slot (2/2)" {
+	if got := limitReason(&limits(t).Roles, running, nil, ImplementerRole); got != "no free implementer slot (2/2)" {
 		t.Errorf("reason = %q", got)
 	}
 }
@@ -54,7 +54,7 @@ func TestAFullLeadLimitBlocksALeadSession(t *testing.T) {
 	t.Parallel()
 	running := map[string]int{LeadRole: 8}
 
-	if got := limitReason(limits(t), running, nil, LeadRole); got != "no free lead slot (8/8)" {
+	if got := limitReason(&limits(t).Roles, running, nil, LeadRole); got != "no free lead slot (8/8)" {
 		t.Errorf("reason = %q", got)
 	}
 }
@@ -63,7 +63,7 @@ func TestAnEarlierAgentThatFitsTakesTheLastSlot(t *testing.T) {
 	t.Parallel()
 	running := map[string]int{ImplementerRole: 1}
 
-	if got := limitReason(limits(t), running, []string{ImplementerRole}, ImplementerRole); got != "no free implementer slot (2/2)" {
+	if got := limitReason(&limits(t).Roles, running, []string{ImplementerRole}, ImplementerRole); got != "no free implementer slot (2/2)" {
 		t.Errorf("reason = %q", got)
 	}
 }
@@ -72,7 +72,7 @@ func TestAnEarlierAgentOfAFullRoleDoesNotBlockALaterAgent(t *testing.T) {
 	t.Parallel()
 	running := map[string]int{ImplementerRole: 2}
 
-	if got := limitReason(limits(t), running, []string{ImplementerRole}, ReviewerRole); got != "" {
+	if got := limitReason(&limits(t).Roles, running, []string{ImplementerRole}, ReviewerRole); got != "" {
 		t.Errorf("reason = %q", got)
 	}
 }

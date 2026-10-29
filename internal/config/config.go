@@ -230,7 +230,25 @@ func check(config *Config) error {
 			return errors.New("ui_url: must be an absolute http or https URL")
 		}
 	}
-	for _, b := range config.Roles.Bindings() {
+	if err := CheckRoles(&config.Roles); err != nil {
+		return err
+	}
+	for organization, settings := range config.Organizations {
+		key := "organizations." + organization + ".issue_repository"
+		owner, name, found := strings.Cut(settings.IssueRepository, "/")
+		switch {
+		case !found || owner == "" || name == "" || strings.Contains(name, "/"):
+			return fmt.Errorf("%s: must be owner/name", key)
+		case owner != organization:
+			return fmt.Errorf("%s: the owner must be %s", key, organization)
+		}
+	}
+	return nil
+}
+
+// CheckRoles checks the binding of each Role.
+func CheckRoles(roles *Roles) error {
+	for _, b := range roles.Bindings() {
 		key := "roles." + b.Role
 		harness := b.Binding.Harness
 		switch {
@@ -244,18 +262,7 @@ func check(config *Config) error {
 			return fmt.Errorf("%s.effort: is not allowed for %s", key, harness)
 		}
 	}
-	for organization, settings := range config.Organizations {
-		key := "organizations." + organization + ".issue_repository"
-		owner, name, found := strings.Cut(settings.IssueRepository, "/")
-		switch {
-		case !found || owner == "" || name == "" || strings.Contains(name, "/"):
-			return fmt.Errorf("%s: must be owner/name", key)
-		case owner != organization:
-			return fmt.Errorf("%s: the owner must be %s", key, organization)
-		}
-	}
-	reviewer, implementer := config.Roles.Reviewer, config.Roles.Implementer
-	if reviewer.Harness == implementer.Harness && reviewer.Model == implementer.Model {
+	if roles.Reviewer.Harness == roles.Implementer.Harness && roles.Reviewer.Model == roles.Implementer.Model {
 		return errors.New("roles.reviewer: must not have the same harness and model as roles.implementer")
 	}
 	return nil

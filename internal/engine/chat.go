@@ -628,14 +628,15 @@ func (e *Engine) ChatView(ctx context.Context, key ChatKey, before int64) (ChatV
 	if err != nil {
 		return ChatView{}, err
 	}
-	view := ChatView{Older: len(messages) > chatPageSize, Harness: e.config.Roles.Lead.Harness}
+	roles := e.mergedRoles()
+	view := ChatView{Older: len(messages) > chatPageSize, Harness: roles.Lead.Harness}
 	if view.Older {
 		messages = messages[:chatPageSize]
 	}
 	slices.Reverse(messages)
 	view.Messages = messages
 	if key.Workstream == 0 {
-		view.Harness = e.config.Roles.Coordinator.Harness
+		view.Harness = roles.Coordinator.Harness
 	}
 	e.chatsMu.Lock()
 	if c, ok := e.chats[key]; ok {

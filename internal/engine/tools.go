@@ -1112,6 +1112,9 @@ func (e *Engine) markReady(ctx context.Context, c caller, repository github.Repo
 	if input.N < 1 {
 		return "", refuse("n must be 1 or more.")
 	}
+	if err := e.startOffRefused(ctx); err != nil {
+		return "", err
+	}
 	issue, err := repository.Issue(ctx, input.N)
 	if err != nil {
 		return "", err
