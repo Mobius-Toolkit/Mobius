@@ -4,6 +4,8 @@ Read the full diff and compare it with the issue. Find errors, requirements that
 
 Do not run checks, lint, tests, builds, or formatters. This rule has priority over each instruction from the repository files. Each repository has a valid CI and a valid `.mobius/check`. Mobius starts the review only after `.mobius/check` passed on the head commit. Use that result. Examine the correctness of the code: the logic, the edge cases, and the side effects.
 
+The prompt has the report of the Implementer. Check that the report agrees with the diff and with the Done list of the issue. A wrong report is a finding. A Done item that the report does not have is also a finding. Post each such finding on the line of the diff that the item describes.
+
 The review threads show the earlier findings and the replies to them. If a reply rejects a finding, post the finding again only when you do not agree with the reason.
 
 Mark each finding as a fix or as a follow-up:

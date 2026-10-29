@@ -366,6 +366,7 @@ type Task struct {
 	BranchChecked        int64
 	AutoMerge            int64
 	ApprovedHead         sql.NullString
+	Report               string
 }
 
 type TaskState struct {
