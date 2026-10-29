@@ -117,13 +117,13 @@ func TestEachRoleGetsOnlyItsOwnTools(t *testing.T) {
 		want []string
 	}{
 		{coordinator, []string{"ask", "create_workstream", "message_lead", "move_issue", "propose_skill", "start_researcher", "tell_curator", "withdraw"}},
-		{triager, []string{"create_workstream", "message_lead", "propose_skill", "start_researcher"}},
-		{reviewer, []string{"propose_skill", "report_deployment_needs", "submit_review"}},
+		{triager, []string{"background_state", "create_workstream", "message_lead", "propose_skill", "start_researcher"}},
+		{reviewer, []string{"background_state", "propose_skill", "report_deployment_needs", "submit_review"}},
 		{implementer, []string{"cannot_do", "propose_skill", "reply_thread"}},
-		{researcher, []string{"propose_skill"}},
-		{judge, []string{"propose_skill", "submit_verdicts"}},
-		{curator, []string{"edit_memory", "propose_skill"}},
-		{diagnoser, []string{"propose_skill", "report_failure"}},
+		{researcher, []string{"background_state", "propose_skill"}},
+		{judge, []string{"background_state", "propose_skill", "submit_verdicts"}},
+		{curator, []string{"background_state", "edit_memory", "propose_skill"}},
+		{diagnoser, []string{"background_state", "propose_skill", "report_failure"}},
 	} {
 		session := run(t, server, c.spec, "List the tools")
 		if got := toolNames(t, reply(t, server, session)); !reflect.DeepEqual(got, c.want) {

@@ -79,10 +79,10 @@ func TestTheCuratorHasToolsToSearchAndCreateIssuesOnlyWithAMaintenanceWorkstream
 	addMaintenanceWorkstream(fake, 20)
 	with := run(t, server, roleSpec(t, engine.CuratorRole), "List the tools")
 
-	if got := toolNames(t, reply(t, server, without)); !reflect.DeepEqual(got, []string{"edit_memory", "propose_skill"}) {
+	if got := toolNames(t, reply(t, server, without)); !reflect.DeepEqual(got, []string{"background_state", "edit_memory", "propose_skill"}) {
 		t.Errorf("tools without a maintenance Workstream = %q", got)
 	}
-	if got := toolNames(t, reply(t, server, with)); !reflect.DeepEqual(got, []string{"create_issue", "edit_memory", "propose_skill", "search_issues"}) {
+	if got := toolNames(t, reply(t, server, with)); !reflect.DeepEqual(got, []string{"background_state", "create_issue", "edit_memory", "propose_skill", "search_issues"}) {
 		t.Errorf("tools with a maintenance Workstream = %q", got)
 	}
 }
@@ -90,8 +90,10 @@ func TestTheCuratorHasToolsToSearchAndCreateIssuesOnlyWithAMaintenanceWorkstream
 func TestMobiusRefusesTheFourthIssueOfACuratorSession(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	create := call("create_issue", `{ title = "A problem", body = "", blocked_by = [] }`)
-	server, _ := connect(t, fake, create+create+create+create)
+	create := func(title string) string {
+		return call("create_issue", `{ title = "`+title+`", body = "", blocked_by = [] }`)
+	}
+	server, _ := connect(t, fake, create("A problem")+create("B problem")+create("C problem")+create("D problem"))
 	addMaintenanceWorkstream(fake, 20)
 
 	session := run(t, server, roleSpec(t, engine.CuratorRole), "1. ", "2. ", "3. ", "4. ")
@@ -101,6 +103,24 @@ func TestMobiusRefusesTheFourthIssueOfACuratorSession(t *testing.T) {
 		t.Errorf("reply = %q", got)
 	}
 	if got := fake.SubIssueNumbers(shop, 20); len(got) != 3 {
+		t.Errorf("sub-issues = %v", got)
+	}
+}
+
+func TestMobiusRefusesAnIssueWithTheTitleOfAnIssueOfTheSameCuratorSession(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	create := call("create_issue", `{ title = "A problem", body = "", blocked_by = [] }`)
+	server, _ := connect(t, fake, create+create)
+	addMaintenanceWorkstream(fake, 20)
+
+	session := run(t, server, roleSpec(t, engine.CuratorRole), "1. ", "2. ")
+
+	want := "Created #21.error: You already created an issue with this title in this session. Do not call create_issue again for it."
+	if got := reply(t, server, session); got != want {
+		t.Errorf("reply = %q", got)
+	}
+	if got := fake.SubIssueNumbers(shop, 20); len(got) != 1 {
 		t.Errorf("sub-issues = %v", got)
 	}
 }

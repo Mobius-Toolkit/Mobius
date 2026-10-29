@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
@@ -609,7 +610,7 @@ func TestTheTriagerHasNoMoveIssueTool(t *testing.T) {
 	fake.CreateIssue(shop, 60, "Add refunds", "Refund each order.", "owner")
 
 	session := waitForChatSession(t, server, issueTriagers, engine.TriagerRole, func(session store.Session) bool { return session.EndedAt.Valid })
-	if got := toolNames(t, reply(t, server, session.ID)); !slices.Equal(got, []string{"create_workstream", "message_lead", "propose_skill", "start_researcher"}) {
+	if got := toolNames(t, reply(t, server, session.ID)); !slices.Equal(got, []string{"background_state", "create_workstream", "message_lead", "propose_skill", "start_researcher"}) {
 		t.Errorf("tools = %q", got)
 	}
 }
@@ -878,6 +879,32 @@ func TestTheReportOfAResearcherOfTheTriagerIsACommentThatStartsTheNextTurn(t *te
 	}
 	thanks := triagerComment(63, "Thanks for the report.")
 	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 63), thanks) })
+}
+
+// Serial: the test changes backgroundCheckInterval.
+func TestATriagerThatStartsAResearcherAgainAfterTheWaitPromptStartsOneResearcher(t *testing.T) {
+	shortBackgroundCheck(t, 50*time.Millisecond)
+	fake := testkit.NewFakeGitHub(t)
+	start := `call = { tool = "start_researcher", arguments = { question = "Where do refunds hide?" } }`
+	// The report of a Researcher restarts the Triager, so this Researcher never reports.
+	script := "[[prompts]]\nwhen = \"You are a Researcher\"\nhang = true\n\n" +
+		"[[prompts]]\nwhen = \"# Issue\"\nupdates = ['" + asyncAgentStart + "']\n" + start + "\n\n" +
+		"[[prompts]]\n" + start + "\n\n" +
+		"[[prompts]]\ncall = { tool = \"background_state\", arguments = { state = \"done\" } }\n\n"
+	server, _ := connect(t, fake, script)
+	fake.SetBody(shop, 12, "Ship loyalty plans to all shops.")
+	waitForPoll(t, server, fake)
+
+	fake.CreateIssue(shop, 73, "Add refunds", "Refund each order.", "owner")
+
+	first := waitForChatSession(t, server, issueTriagers, engine.TriagerRole, func(session store.Session) bool { return session.EndedAt.Valid })
+	calls := mcpCalls(t, server, first.ID)
+	if len(calls) != 3 || calls[1]["error"] != "You already started a Researcher with this question in this session. Do not call start_researcher again for it." {
+		t.Errorf("calls = %v", calls)
+	}
+	if sessions := chatSessions(t, server, issueTriagers, engine.ResearcherRole); len(sessions) != 1 {
+		t.Errorf("Researchers = %d", len(sessions))
+	}
 }
 
 // Serial: the issue must close before the busy Researcher reports.

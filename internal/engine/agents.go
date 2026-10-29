@@ -84,6 +84,8 @@ type Agent struct {
 	// issues is the number of task issues that the Curator created. issuesMu holds the calls that create one.
 	issues   int
 	issuesMu sync.Mutex
+	// issueTitles are the titles of the task issues that the Curator created. issuesMu holds them.
+	issueTitles []string
 
 	// scratch is the directory of the session below scratch/, or "".
 	scratch string
@@ -96,6 +98,10 @@ type Agent struct {
 	activity time.Time
 	// subagent tells that the current prompt started a background subagent.
 	subagent bool
+	// background tells that the session started a background task and the agent did not tell with background_state
+	// that it ended. subagentCalls are the ids of the tool calls of subagents.
+	background    bool
+	subagentCalls map[string]struct{}
 	// autonomous tells that a turn runs that no prompt of Mobius started.
 	autonomous bool
 	// autonomousEnd is the time of the end of an autonomous turn while a prompt runs, until the next work update.
@@ -109,8 +115,8 @@ type Agent struct {
 	retries int
 	// details are the new details from the Owner that the next prompt of the Implementer or the Researcher carries.
 	details []string
-	// wake tells the running Prompt that new details wait. Only the goroutine of that Prompt sends the cancel, so the
-	// cancel never reaches a later turn.
+	// wake tells the running Prompt, or the sleep of waitBackground, that new details wait. Only the goroutine of that
+	// Prompt sends the cancel, so the cancel never reaches a later turn.
 	wake chan struct{}
 	// chunk is the JSON of the last Transcript row while that row is a message chunk or a thought chunk, and chunkID is its id.
 	chunk   map[string]any
@@ -146,6 +152,16 @@ type Agent struct {
 	head string
 	// reported tells that the Reviewer made a valid report_deployment_needs call.
 	reported bool
+	// reviewed tells that the Reviewer made a valid submit_review call.
+	reviewed bool
+	// failures are the report_failure calls that the Diagnoser saved.
+	failures []reportFailureInput
+	// memoryEdits are the edit_memory calls that the Curator saved.
+	memoryEdits []editMemoryInput
+	// skillProposals are the propose_skill calls that the session sent.
+	skillProposals []proposeSkillInput
+	// questions are the questions of the Researchers that the Triager started.
+	questions []string
 	// jobURLs are the links of the failed jobs of the Diagnoser, one for each line.
 	jobURLs string
 	// items are the items of the batch of the Judge.

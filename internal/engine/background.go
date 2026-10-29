@@ -3,8 +3,12 @@ package engine
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"time"
+
+	"github.com/Mobius-Toolkit/Mobius/internal/github"
+	"github.com/Mobius-Toolkit/Mobius/internal/mcp"
 )
 
 // quietPoll is the time between two checks of waitQuiet.
@@ -13,6 +17,19 @@ const quietPoll = 20 * time.Millisecond
 // absorbTimeout is the time with no work update after an autonomous end, while a prompt runs, after which Mobius
 // takes the prompt as absorbed into the autonomous turn.
 var absorbTimeout = 30 * time.Second
+
+// backgroundCheckInterval is the time between the end of a turn of waitBackground that left a background task running
+// and the next wait prompt.
+var backgroundCheckInterval = 5 * time.Minute
+
+// backgroundTimeout is the total time after which waitBackground stops to wait for the background tasks.
+var backgroundTimeout = time.Hour
+
+// backgroundPrompt is the prompt of waitBackground.
+const backgroundPrompt = "Before your final report, check each background task that you started. Wait for each task that still runs, for example with `TaskOutput` and `block`. Then call `background_state` with `done` and give your full final report. If a task still runs at the end of this turn, call `background_state` with `running`."
+
+// backgroundRoles are the Roles that end their session after their last Prompt. They get the tool background_state.
+var backgroundRoles = []string{ResearcherRole, JudgeRole, DiagnoserRole, CuratorRole, TriagerRole, ReviewerRole}
 
 // errStopped is the error of waitQuiet when a stop ends the wait.
 var errStopped = errors.New("a stop ended the wait for an autonomous turn")
@@ -38,6 +55,9 @@ func (a *Agent) track(notification map[string]any, kind string, late bool) {
 		if !running {
 			a.autonomous = true
 		}
+		if kind == "tool_call" || kind == "tool_call_update" {
+			a.markBackground(update)
+		}
 		if kind == "tool_call_update" && running && field(update, "_meta", "claudeCode", "toolResponse", "isAsync") == true {
 			a.subagent = true
 		}
@@ -54,6 +74,91 @@ func (a *Agent) track(notification map[string]any, kind string, late bool) {
 			case a.ended <- struct{}{}:
 			default:
 			}
+		}
+	}
+}
+
+// markBackground sets a.background when the tool call update starts a background task of the session: an async result
+// of the Agent tool, or a tool call with run_in_background. The mark parentToolUseId can be only on the first update
+// of a tool call, so the session keeps the calls of subagents. A task of a subagent is no start: the CLI sends its end
+// to the subagent. The caller holds a.mu.
+func (a *Agent) markBackground(update any) {
+	id := stringField(update, "toolCallId")
+	if field(update, "_meta", "claudeCode", "parentToolUseId") != nil {
+		if a.subagentCalls == nil {
+			a.subagentCalls = map[string]struct{}{}
+		}
+		a.subagentCalls[id] = struct{}{}
+	}
+	if _, subagent := a.subagentCalls[id]; subagent {
+		return
+	}
+	if field(update, "_meta", "claudeCode", "toolResponse", "isAsync") == true || field(update, "rawInput", "run_in_background") == true {
+		a.background = true
+	}
+}
+
+type backgroundStateInput struct {
+	State string `json:"state"`
+}
+
+func (e *Engine) backgroundStateTool(c caller) mcp.Tool {
+	return tool(e, c, "background_state",
+		"Tell Mobius if a background task of this session still runs. Call it only when Mobius asks. Mobius waits for your final report while you give the state running.",
+		map[string]any{
+			"state": map[string]any{"type": "string", "enum": []string{"running", "done"}, "description": "running: a background task still runs. done: each background task ended."},
+		},
+		e.backgroundState)
+}
+
+// backgroundState records the state of the background tasks on the session of c.
+func (e *Engine) backgroundState(_ context.Context, c caller, _ github.Repository, input backgroundStateInput) (string, error) {
+	if input.State != "running" && input.State != "done" {
+		return "", refuse("state must be running or done.")
+	}
+	c.agent.setBackground(input.State == "running")
+	return "Mobius has the state " + input.State + ".", nil
+}
+
+// setBackground records the state that the agent gave with background_state.
+func (a *Agent) setBackground(running bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.background = running
+}
+
+// waitBackground is the last step of a Role that ends its session after its last Prompt. When the session started a
+// background task, it sends backgroundPrompt, and again each backgroundCheckInterval, until the agent calls
+// background_state with done. Prompt holds while an autonomous turn runs. After backgroundTimeout, waitBackground adds
+// a note and ends. The reply text of the session is the reply text of the last turn. New details end the wait at once,
+// also during the sleep between two prompts, so that the caller sends them. A stop ends the wait with no error: the
+// caller reads ctx.
+func (a *Agent) waitBackground(ctx context.Context) error {
+	started := time.Now()
+	for {
+		a.mu.Lock()
+		waiting := a.background && len(a.details) == 0
+		a.mu.Unlock()
+		if !waiting {
+			return nil
+		}
+		if err := a.Prompt(ctx, backgroundPrompt, nil); err != nil {
+			return err
+		}
+		a.mu.Lock()
+		waiting = a.background && len(a.details) == 0
+		a.mu.Unlock()
+		if !waiting || ctx.Err() != nil {
+			return nil
+		}
+		if time.Since(started) >= backgroundTimeout {
+			return a.addNote(ctx, fmt.Sprintf("A background task still ran after %s. Mobius ends the wait for the background tasks.", backgroundTimeout))
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-a.wake:
+		case <-time.After(backgroundCheckInterval):
 		}
 	}
 }

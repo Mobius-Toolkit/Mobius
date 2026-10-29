@@ -1194,7 +1194,7 @@ func (e *Engine) addDetails(open map[int64]*Agent, id int64, text string) bool {
 	a.mu.Lock()
 	e.detailsMu.Unlock()
 	a.details = append(a.details, text)
-	if a.turn {
+	if a.turn || a.background {
 		select {
 		case a.wake <- struct{}{}:
 		default:
