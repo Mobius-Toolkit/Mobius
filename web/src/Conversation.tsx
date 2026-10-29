@@ -190,7 +190,7 @@ const Message = memo(function Message({
 
 const briefCutHeight = 144;
 
-function BriefBubble({ brief }: { brief: Workstream }) {
+function BriefBubble({ brief, onMeasured }: { brief: Workstream; onMeasured: () => void }) {
   const box = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [long, setLong] = useState(false);
@@ -199,10 +199,12 @@ function BriefBubble({ brief }: { brief: Workstream }) {
     if (!content) {
       return;
     }
+    setLong(content.clientHeight > briefCutHeight);
+    onMeasured();
     const observer = new ResizeObserver(() => setLong(content.clientHeight > briefCutHeight));
     observer.observe(content);
     return () => observer.disconnect();
-  }, []);
+  }, [onMeasured]);
 
   return (
     <section
@@ -390,6 +392,10 @@ export function Conversation({
     [],
   );
   const listRef = useRef<HTMLDivElement>(null);
+  // The button of the Brief bubble makes it taller, so a scroll before the first measure would be wrong.
+  const [briefMeasured, setBriefMeasured] = useState(false);
+  const measureBrief = useCallback(() => setBriefMeasured(true), []);
+  const showBrief = Boolean(brief && loaded && !older);
   const pinned = useRef(true);
   // The scrollTop of the last scroll to the end. A scroll event can come after an image has made the list longer.
   const endTop = useRef<number>(undefined);
@@ -659,6 +665,9 @@ export function Conversation({
     if (!list || !loaded || !queueLoaded || openUnread === undefined) {
       return;
     }
+    if (showBrief && !briefMeasured) {
+      return;
+    }
     if (scrolledCount.current === undefined) {
       if (waiting) {
         return;
@@ -777,7 +786,7 @@ export function Conversation({
         className="grid min-h-0 grow grid-cols-[minmax(0,1fr)] content-start gap-3 overflow-y-auto overscroll-contain bg-muted/40 p-4"
       >
         {error && <Badge variant="destructive">{error}</Badge>}
-        {brief && loaded && !older && <BriefBubble brief={brief} />}
+        {brief && showBrief && <BriefBubble brief={brief} onMeasured={measureBrief} />}
         {loaded && queueLoaded && count === 0 && (
           <p className="text-center text-sm text-muted-foreground">
             No messages. Write to start a chat session.
