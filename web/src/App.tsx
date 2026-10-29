@@ -14,6 +14,7 @@ import { useInbox } from "@/lib/inbox";
 import { LoginContext } from "@/lib/login";
 import { usePauses } from "@/lib/pauses";
 import { ShellContext } from "@/lib/shell";
+import { useSwitches } from "@/lib/switches";
 import { useUnread } from "@/lib/unread";
 import { useWorkstreams } from "@/lib/workstreams";
 import { Frame } from "./Frame";
@@ -84,6 +85,7 @@ function App() {
   const workstreams = { ...listed, needsHuman };
   const pauses = usePauses(source);
   const ciStops = useCIStops(source);
+  const { switches, change: changeSwitch } = useSwitches(showLogin, source);
 
   useEffect(() => {
     chatOwner.current = chat?.params.owner;
@@ -290,6 +292,8 @@ function App() {
         inbox={inbox}
         pauses={pauses}
         ciStops={ciStops}
+        switches={switches}
+        changeSwitch={changeSwitch}
         fill={chat !== undefined || pathname === "/chat" || pathname === "/tasks"}
         connection={!online ? "offline" : link === "connecting" ? "connecting" : "connected"}
       >
@@ -310,6 +314,8 @@ function App() {
             clearInboxFailure,
             updateAction,
             activities,
+            switches,
+            changeSwitch,
           }}
         >
           <Outlet />

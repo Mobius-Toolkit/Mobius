@@ -10,11 +10,12 @@ import {
   WifiOffIcon,
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
-import type { CIStop, InboxItem, Pause, Unread } from "@/api/api.gen";
+import type { CIStop, InboxItem, Pause, Switches, Unread } from "@/api/api.gen";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useNewBuild } from "@/lib/build";
 import { settingsPages } from "@/lib/settings";
+import type { ChangeSwitch } from "@/lib/switches";
 import { TopBarContext } from "@/lib/topbar";
 import { unreadCount } from "@/lib/unread";
 import { hasUpgradeControls, useUpgrade } from "@/lib/upgrade";
@@ -23,6 +24,7 @@ import { chatParams, organizationWorkstreams, type Workstreams } from "@/lib/wor
 import { CIStops } from "./CIStops";
 import { OrganizationSwitch } from "./OrganizationSwitch";
 import { Pauses } from "./Pauses";
+import { SwitchLines } from "./SwitchLines";
 import { UpgradeControls, UpgradeDialog } from "./Upgrade";
 import { WorkstreamBadges } from "./Workstreams";
 
@@ -92,6 +94,8 @@ export function Frame({
   inbox,
   pauses,
   ciStops,
+  switches,
+  changeSwitch,
   fill,
   connection,
   children,
@@ -106,6 +110,8 @@ export function Frame({
   inbox: InboxItem[];
   pauses: Pause[];
   ciStops: CIStop[];
+  switches?: Switches;
+  changeSwitch: ChangeSwitch;
   fill: boolean;
   connection: Connection;
   children: ReactNode;
@@ -222,6 +228,7 @@ export function Frame({
           >
             <CIStops stops={ciStops} />
             <Pauses pauses={pauses} />
+            <SwitchLines switches={switches} change={changeSwitch} />
           </div>
           <div className="grid gap-2 px-4 pt-4 empty:hidden md:hidden">
             {(path === "/chat" ||

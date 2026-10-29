@@ -1,5 +1,13 @@
 import { createContext, useContext } from "react";
-import type { Activity, GitHubApp, InboxItem, PendingAction, Unread } from "@/api/api.gen";
+import type {
+  Activity,
+  GitHubApp,
+  InboxItem,
+  PendingAction,
+  Switches,
+  Unread,
+} from "@/api/api.gen";
+import type { ChangeSwitch } from "./switches";
 import type { Workstreams } from "./workstreams";
 
 type Shell = {
@@ -18,6 +26,8 @@ type Shell = {
   clearInboxFailure: () => void;
   updateAction: (action: PendingAction) => void;
   activities: Activity[];
+  switches?: Switches;
+  changeSwitch: ChangeSwitch;
 };
 
 export const ShellContext = createContext<Shell | undefined>(undefined);

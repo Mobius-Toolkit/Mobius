@@ -29,6 +29,7 @@ import { waitForEvergreen } from "./evergreen.js";
 import { png } from "./images.js";
 import { longTaskTitle, routeLongTask, tasksUrl } from "./long-task.js";
 import { countSamples, fakeMicrophone } from "./microphone.js";
+import { lines, turnAllOn, turnOff } from "./switches.js";
 import { boardTasks, mergingTask, refusedTask, routeTasks, tasksRoute } from "./tasks.js";
 import {
   inboxRoute,
@@ -1305,6 +1306,11 @@ test("screenshots", async ({ page }) => {
     main.getByText(/Sep \d+, \d\d:\d\d [AP]M · Mobius prepares an upgrade/),
     ...queueReasons.map((reason) => main.getByText(reason)),
   ]);
+  await setQueueReason(page, "Autopilot paused: no task starts");
+  await screenshot(page, "agents-start-paused", "/agents", (device) => [
+    ...frame(device, drain),
+    main.getByText(/· Autopilot paused: no task starts/),
+  ]);
   await setQueueReason(page, "");
   await screenshot(
     page,
@@ -1384,6 +1390,34 @@ test("screenshots", async ({ page }) => {
     main.getByText("v0.1.0", { exact: true }),
     main.getByText("v0.1.3", { exact: true }),
   ]);
+  await screenshot(page, "settings-switches", "/settings", (device) => [
+    ...frame(device, release, { upgrade: true }),
+    ...["Start", "Merge", "Repairs"].map((name) => main.getByRole("switch", { name })),
+    main.getByText("Mobius starts the tasks of CI breaks, check timeouts and CI failures."),
+  ]);
+  // The held work comes after the switch is off, because turning a switch on deletes the held work of the switch.
+  await turnOff(page, "start", [38, 39, 45]);
+  await turnOff(page, "merge", [42]);
+  await screenshot(page, "settings-switches-off", "/settings", (device) => [
+    ...frame(device, release, { upgrade: true }),
+    page.getByText(lines.start, { exact: true }),
+    page.getByText(lines.merge, { exact: true }),
+    page.getByRole("button", { name: "3 held" }),
+    page.getByRole("button", { name: "1 held" }),
+  ]);
+  await screenshot(
+    page,
+    "paused-held",
+    "/settings",
+    (device) => [
+      ...frame(device, release, { upgrade: true }),
+      page.getByRole("dialog", { name: lines.start }).getByText("#38 Show the plan prices"),
+      page.getByRole("dialog", { name: lines.start }).getByText("#39 Send the plan receipts"),
+      page.getByRole("dialog", { name: lines.start }).getByText("#45 Pick the plan limits"),
+    ],
+    () => page.getByRole("button", { name: "3 held" }).click(),
+  );
+  await turnAllOn(page);
   await screenshot(
     page,
     "organizations",

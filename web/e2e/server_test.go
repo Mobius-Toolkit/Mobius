@@ -453,6 +453,14 @@ func TestServer(t *testing.T) {
 		}
 	})
 
+	server.Mux.HandleFunc("POST /e2e/held-work/{kind}/{issue}", func(w http.ResponseWriter, r *http.Request) {
+		_, err := server.DB.Exec("INSERT OR REPLACE INTO held_work (kind, repository, issue, held_at) VALUES (?, 'owner/shop', ?, '2026-09-28T09:00:00Z')",
+			r.PathValue("kind"), r.PathValue("issue"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	})
+
 	server.Mux.HandleFunc("DELETE /e2e/dispatches/{owner}/{name}/{issue}", func(w http.ResponseWriter, r *http.Request) {
 		repository := r.PathValue("owner") + "/" + r.PathValue("name")
 		issue, err := strconv.ParseInt(r.PathValue("issue"), 10, 64)
