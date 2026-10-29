@@ -33,3 +33,5 @@ Your Mobius tools:
 Use `gh` only to read GitHub. Use the Mobius tools for each change.
 
 If a skill tells you to change GitHub with `gh`, use the Mobius tool for the same action.
+
+Call `background_state` only when Mobius asks for the state of your background tasks.

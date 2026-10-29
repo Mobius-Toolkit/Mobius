@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -299,7 +300,10 @@ func (e *Engine) curateTurn(ctx context.Context, a *Agent, requests []store.List
 	if err := a.open(ctx); err != nil {
 		return err
 	}
-	return a.Prompt(ctx, curatorPrompt+"\n"+maintenanceSection(a.spec.Repository, a.maintenance)+requestsSection(requests)+skills+sections+versions+problems+leads, nil)
+	if err := a.Prompt(ctx, curatorPrompt+"\n"+maintenanceSection(a.spec.Repository, a.maintenance)+requestsSection(requests)+skills+sections+versions+problems+leads, nil); err != nil {
+		return err
+	}
+	return a.waitBackground(ctx)
 }
 
 // maintenanceSection gives the maintenance Workstream of the Curator as a prompt section.
@@ -435,6 +439,9 @@ func (e *Engine) editMemory(ctx context.Context, c caller, _ github.Repository, 
 	if strings.TrimSpace(input.Reason) == "" {
 		return "", refuse("The reason is empty. Name the type of change and the evidence.")
 	}
+	if slices.Contains(c.agent.memoryEdits, input) {
+		return "", refuse("Mobius already saved this edit. Do not call edit_memory again for it.")
+	}
 	e.memoryMu.Lock()
 	defer e.memoryMu.Unlock()
 	text, err := e.readMemory(c.repository)
@@ -459,5 +466,6 @@ func (e *Engine) editMemory(ctx context.Context, c caller, _ github.Repository, 
 	if err := e.saveMemory(ctx, c.repository, "curator", input.Reason, text); err != nil {
 		return "", err
 	}
+	c.agent.memoryEdits = append(c.agent.memoryEdits, input)
 	return fmt.Sprintf("Saved the memory file. It has %d of %d lines.", countLines(text), maxMemoryLines), nil
 }

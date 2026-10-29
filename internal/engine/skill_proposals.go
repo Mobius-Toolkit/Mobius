@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -93,6 +94,9 @@ func (e *Engine) proposeSkill(ctx context.Context, c caller, _ github.Repository
 	if err := checkSkillProposal(input); err != nil {
 		return "", err
 	}
+	if slices.Contains(backgroundRoles, c.role) && slices.ContainsFunc(c.agent.skillProposals, func(sent proposeSkillInput) bool { return reflect.DeepEqual(sent, input) }) {
+		return "", refuse("You already sent this proposal for the skill %q in this session. Do not call propose_skill again with the same input.", input.Name)
+	}
 	if input.Repository != "" {
 		if _, err := e.organizationRepository(c.organization, input.Repository); err != nil {
 			return "", err
@@ -108,6 +112,7 @@ func (e *Engine) proposeSkill(ctx context.Context, c caller, _ github.Repository
 	if err := e.addLeadEvent(ctx, workstream.Repository, workstream.Number, "", sql.NullInt64{}, skillProposalKind, skillProposalText(c, input)); err != nil {
 		return "", err
 	}
+	c.agent.skillProposals = append(c.agent.skillProposals, input)
 	return fmt.Sprintf("Sent the proposal to the Lead of the Workstream \"Skills\" (%s#%d). A change reaches the agents only after the Owner approves its pull request.", workstream.Repository, workstream.Number), nil
 }
 

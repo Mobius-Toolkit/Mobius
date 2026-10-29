@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -219,7 +220,10 @@ func (e *Engine) diagnoseTurn(ctx context.Context, a *Agent, row store.CiDiagnos
 		return err
 	}
 	prompt := fmt.Sprintf("%s\n%s%s\n# Failed jobs\n\n%s%s", diagnoserPrompt, serverSection(), place, jobs, failures)
-	return a.Prompt(ctx, prompt, nil)
+	if err := a.Prompt(ctx, prompt, nil); err != nil {
+		return err
+	}
+	return a.waitBackground(ctx)
 }
 
 func pullRequestPlace(ctx context.Context, repository github.Repository, row store.CiDiagnosis) (string, error) {
@@ -367,6 +371,9 @@ func (e *Engine) reportFailure(ctx context.Context, c caller, _ github.Repositor
 	if empty(input.Reason) || empty(input.Lines) {
 		return "", refuse("reason and lines must not be empty.")
 	}
+	if slices.Contains(c.agent.failures, input) {
+		return "", refuse("Mobius already saved this failure. Do not call report_failure again for it.")
+	}
 	diagnosis, err := e.queries.GetCIDiagnosisBySession(ctx, sql.NullInt64{Int64: c.session, Valid: true})
 	if err != nil {
 		return "", err
@@ -399,7 +406,11 @@ func (e *Engine) reportFailure(ctx context.Context, c caller, _ github.Repositor
 			fmt.Fprintf(&reasons, openIssueSentence, max(issue, -issue))
 		}
 	}
-	return result, e.queries.AddCIDiagnosisReason(ctx, store.AddCIDiagnosisReasonParams{Reasons: reasons.String(), ID: diagnosis.ID})
+	if err := e.queries.AddCIDiagnosisReason(ctx, store.AddCIDiagnosisReasonParams{Reasons: reasons.String(), ID: diagnosis.ID}); err != nil {
+		return "", err
+	}
+	c.agent.failures = append(c.agent.failures, input)
+	return result, nil
 }
 
 // failureRecord adds the place of diagnosis to the record of the failure of input, and gives the id and the issue of the

@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"log"
 	"os"
+	"slices"
 	"unicode/utf8"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
@@ -40,6 +41,9 @@ func (e *Engine) startResearcher(ctx context.Context, c caller, repository githu
 	}
 	if e.draining() {
 		return "", refuse("Mobius prepares an upgrade, so no Researcher starts now.")
+	}
+	if c.agent.spec.Role == TriagerRole && slices.Contains(c.agent.questions, input.Question) {
+		return "", refuse("You already started a Researcher with this question in this session. Do not call start_researcher again for it.")
 	}
 	a, err := e.newAgent(ctx, Spec{
 		Role:                 ResearcherRole,
@@ -74,6 +78,7 @@ func (e *Engine) startResearcher(ctx context.Context, c caller, repository githu
 		e.detailsMu.Unlock()
 		return "", errors.Join(refuse("Mobius stops, so no Researcher starts now."), a.End(context.WithoutCancel(ctx), "declined"))
 	}
+	c.agent.questions = append(c.agent.questions, input.Question)
 	return fmt.Sprintf("Started the Researcher %d. The report arrives later.", a.id), nil
 }
 
@@ -213,6 +218,9 @@ func (e *Engine) researchTurn(ctx context.Context, a *Agent, question string) (s
 	prompt := fmt.Sprintf("%s\n%s%s# Question\n\n%s", researcherPrompt, sections, briefSection, question)
 	for {
 		err := a.Prompt(ctx, prompt, nil)
+		if err == nil {
+			err = a.waitBackground(ctx)
+		}
 		if details := e.takeDetails(e.researchers, a.id, a, true); details != "" && ctx.Err() == nil {
 			prompt = detailsPrompt("question", details)
 			continue
