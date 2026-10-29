@@ -32,13 +32,21 @@ const (
 	draftModel   = "ggml-small.bin"
 	draftAddress = "127.0.0.1:6366"
 	modelsURL    = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/"
+	vadName      = "ggml-silero-v6.2.0.bin"
+	vadURL       = "https://huggingface.co/ggml-org/whisper-vad/resolve/main/" + vadName
 )
 
 // healthTimeout is the time that whisper-server has to answer GET /health.
 const healthTimeout = 2 * time.Second
 
-// stallTimeout is the time without a byte after which the download of the model ends.
+// stallTimeout is the time without a byte after which the download of a model file ends.
 const stallTimeout = time.Minute
+
+// portWaits and portInterval limit the wait of Start until the stopped process of an earlier program frees the address.
+const (
+	portWaits    = 100
+	portInterval = 100 * time.Millisecond
+)
 
 // finishTimeout is the time that Transcribe waits for the converter and converts.
 const finishTimeout = 5 * time.Minute
@@ -60,15 +68,17 @@ const (
 
 // Whisper converts WAV files to text with a whisper-server process.
 type Whisper struct {
-	// Dir holds the model file.
+	// Dir holds the model file and the VAD model file.
 	Dir string
 	// Path is the PATH where Whisper looks for whisper-server.
 	Path string
 	// ModelURL is the address of the model file.
 	ModelURL string
+	// VADModelURL is the address of the VAD model file.
+	VADModelURL string
 	// Address is the "host:port" where whisper-server listens.
 	Address string
-	// StallTimeout is the time without a byte after which the download of the model ends.
+	// StallTimeout is the time without a byte after which the download of a model file ends.
 	StallTimeout time.Duration
 
 	modelName string
@@ -83,16 +93,16 @@ type Whisper struct {
 // New gives a Whisper that keeps its model in the directory whisper of dataDir and looks for whisper-server in path.
 func New(dataDir, path string) *Whisper {
 	return &Whisper{
-		Dir: filepath.Join(dataDir, "whisper"), Path: path, ModelURL: modelsURL + modelName, Address: address,
-		StallTimeout: stallTimeout, modelName: modelName, pidName: program + ".pid",
+		Dir: filepath.Join(dataDir, "whisper"), Path: path, ModelURL: modelsURL + modelName, VADModelURL: vadURL,
+		Address: address, StallTimeout: stallTimeout, modelName: modelName, pidName: program + ".pid",
 	}
 }
 
 // NewDraft gives a Whisper with the small model for the live draft. It has its own address and its own PID file.
 func NewDraft(dataDir, path string) *Whisper {
 	return &Whisper{
-		Dir: filepath.Join(dataDir, "whisper"), Path: path, ModelURL: modelsURL + draftModel, Address: draftAddress,
-		StallTimeout: stallTimeout, modelName: draftModel, pidName: program + "-draft.pid",
+		Dir: filepath.Join(dataDir, "whisper"), Path: path, ModelURL: modelsURL + draftModel, VADModelURL: vadURL,
+		Address: draftAddress, StallTimeout: stallTimeout, modelName: draftModel, pidName: program + "-draft.pid",
 	}
 }
 
@@ -100,9 +110,40 @@ func (w *Whisper) model() string {
 	return filepath.Join(w.Dir, w.modelName)
 }
 
-// Start downloads the model if it is missing and starts whisper-server, in the background.
+func (w *Whisper) vadModel() string {
+	return filepath.Join(w.Dir, vadName)
+}
+
+// Start stops a whisper-server of an earlier program, so the arguments of this program apply. Then it removes the
+// temporary files of stopped downloads, downloads the model files if they are missing and starts whisper-server, in
+// the background. The final Whisper starts before the draft Whisper, so only it removes the temporary files of the
+// shared VAD model before a download of this program can write one.
 func (w *Whisper) Start() {
-	go func() { _ = w.ensure(context.Background()) }()
+	w.Stop()
+	w.removeParts(w.modelName)
+	if w.modelName == modelName {
+		w.removeParts(vadName)
+	}
+	go func() {
+		for i := 0; i < portWaits; i++ {
+			if _, answered := w.health(context.Background()); !answered {
+				break
+			}
+			time.Sleep(portInterval)
+		}
+		_ = w.ensure(context.Background())
+	}()
+}
+
+// removeParts removes the temporary files that a stopped download of the file leaves in Dir.
+func (w *Whisper) removeParts(name string) {
+	parts, err := filepath.Glob(filepath.Join(w.Dir, name+"*.part"))
+	if err != nil {
+		return
+	}
+	for _, part := range parts {
+		_ = os.Remove(part)
+	}
 }
 
 func (w *Whisper) pidFile() string {
@@ -245,12 +286,14 @@ func (w *Whisper) ensure(ctx context.Context) error {
 	if w.downloading {
 		return Downloading
 	}
-	if _, err := os.Stat(w.model()); errors.Is(err, fs.ErrNotExist) {
-		w.downloading = true
-		w.startDownload()
-		return Downloading
-	} else if err != nil {
-		return err
+	for _, file := range w.files() {
+		if _, err := os.Stat(file.path); errors.Is(err, fs.ErrNotExist) {
+			w.downloading = true
+			w.startDownload()
+			return Downloading
+		} else if err != nil {
+			return err
+		}
 	}
 	if w.cmd != nil {
 		return Starting
@@ -259,7 +302,7 @@ func (w *Whisper) ensure(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	cmd := server(file, w.model(), host, port)
+	cmd := server(file, w.model(), w.vadModel(), host, port)
 	if err := cmd.Start(); err != nil {
 		return err
 	}
@@ -281,9 +324,10 @@ func (w *Whisper) ensure(ctx context.Context) error {
 	return Starting
 }
 
-func server(file, model, host, port string) *exec.Cmd {
+func server(file, model, vadModel, host, port string) *exec.Cmd {
 	cmd := exec.Command(file)
-	cmd.Args = append(cmd.Args, "-m", model, "--host", host, "--port", port, "-l", "auto", "-t", "4")
+	cmd.Args = append(cmd.Args, "-m", model, "--host", host, "--port", port, "-l", "en", "-t", "4",
+		"--vad", "-vm", vadModel, "-sns", "-mc", "0")
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	return cmd
 }
@@ -309,9 +353,20 @@ func (w *Whisper) startDownload() {
 	go w.download()
 }
 
-// download gets the model, and then starts the process. A failed download ends, and the next ensure starts it again.
+// modelFile is a file that whisper-server needs, with the address where Whisper gets it.
+type modelFile struct {
+	url  string
+	path string
+}
+
+func (w *Whisper) files() []modelFile {
+	return []modelFile{{w.ModelURL, w.model()}, {w.VADModelURL, w.vadModel()}}
+}
+
+// download gets the missing model files, and then starts the process. A failed download ends, and the next ensure
+// starts it again.
 func (w *Whisper) download() {
-	err := w.fetch()
+	err := w.fetchMissing()
 	w.mu.Lock()
 	w.downloading = false
 	w.mu.Unlock()
@@ -322,9 +377,22 @@ func (w *Whisper) download() {
 	_ = w.ensure(context.Background())
 }
 
-// fetch writes the model to a temporary file and renames it after the full download, so the model file is always
-// complete.
-func (w *Whisper) fetch() error {
+func (w *Whisper) fetchMissing() error {
+	for _, file := range w.files() {
+		if _, err := os.Stat(file.path); err == nil {
+			continue
+		}
+		if err := w.fetch(file); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// fetch writes the file to a temporary file and renames it after the full download, so the file is always complete.
+// The final and the draft Whisper share Dir and can fetch the VAD model at the same time, so each fetch has its own
+// temporary file.
+func (w *Whisper) fetch(file modelFile) error {
 	if err := os.MkdirAll(w.Dir, 0o750); err != nil {
 		return err
 	}
@@ -332,7 +400,7 @@ func (w *Whisper) fetch() error {
 	defer cancel()
 	stall := time.AfterFunc(w.StallTimeout, cancel)
 	defer stall.Stop()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, w.ModelURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, file.url, nil)
 	if err != nil {
 		return err
 	}
@@ -342,22 +410,21 @@ func (w *Whisper) fetch() error {
 	}
 	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
-		return fmt.Errorf("%s: %s", w.ModelURL, res.Status)
+		return fmt.Errorf("%s: %s", file.url, res.Status)
 	}
-	part := w.model() + ".part"
-	file, err := os.Create(filepath.Clean(part))
+	part, err := os.CreateTemp(w.Dir, filepath.Base(file.path)+".*.part")
 	if err != nil {
 		return err
 	}
-	_, err = io.Copy(file, &stallReader{body: res.Body, timer: stall, timeout: w.StallTimeout})
-	if closeErr := file.Close(); err == nil {
+	_, err = io.Copy(part, &stallReader{body: res.Body, timer: stall, timeout: w.StallTimeout})
+	if closeErr := part.Close(); err == nil {
 		err = closeErr
 	}
 	if err != nil {
-		_ = os.Remove(part)
+		_ = os.Remove(part.Name())
 		return err
 	}
-	return os.Rename(part, w.model())
+	return os.Rename(part.Name(), file.path)
 }
 
 // stallReader restarts the timer at each read, so the timer fires only when no bytes come for the timeout.

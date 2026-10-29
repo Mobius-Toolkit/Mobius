@@ -27,16 +27,18 @@ func TestMain(m *testing.M) {
 type converter struct {
 	*voice.Whisper
 	model *testkit.FakeModel
+	vad   *testkit.FakeModel
 	bin   string
 }
 
-// newConverter gives a converter with a fake model server and a free address. It finds whisper-server only in bin. A
+// newConverter gives a converter with a fake model server, a fake VAD model server and a free address. It finds whisper-server only in bin. A
 // download can still write in the data directory when the test ends, so the cleanup removes the directory until it
 // succeeds.
 func newConverter(t *testing.T) converter {
 	t.Helper()
 	bin := t.TempDir()
 	model := testkit.NewFakeModel(t)
+	vad := testkit.NewFakeModel(t)
 	data, err := os.MkdirTemp("", "whisper")
 	if err != nil {
 		t.Fatal(err)
@@ -46,21 +48,32 @@ func newConverter(t *testing.T) converter {
 	})
 	w := voice.New(data, bin)
 	w.ModelURL = model.URL
+	w.VADModelURL = vad.URL
 	w.Address = testkit.FreeAddress(t)
 	t.Cleanup(w.Stop)
-	return converter{w, model, bin}
+	return converter{w, model, vad, bin}
 }
 
 func (c converter) modelFile() string {
 	return filepath.Join(c.Dir, "ggml-large-v3-turbo.bin")
 }
 
+func (c converter) vadFile() string {
+	return filepath.Join(c.Dir, "ggml-silero-v6.2.0.bin")
+}
+
 func (c converter) putModel(t *testing.T) {
+	t.Helper()
+	c.putFile(t, c.modelFile())
+	c.putFile(t, c.vadFile())
+}
+
+func (c converter) putFile(t *testing.T, path string) {
 	t.Helper()
 	if err := os.MkdirAll(c.Dir, 0o750); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(c.modelFile(), []byte("model"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte("model"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -119,10 +132,135 @@ func TestWhileTheModelDownloadsTheConverterTellsItAndThenItStartsTheProcess(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, port, _ := net.SplitHostPort(c.Address)
-	want := fmt.Sprintf("-m %s --host 127.0.0.1 --port %s -l auto -t 4\n", c.modelFile(), port)
-	if string(starts) != want {
+	if want := c.startLine(c.modelFile()); string(starts) != want {
 		t.Errorf("starts = %q, want %q", starts, want)
+	}
+	if c.vad.Downloads() != 1 {
+		t.Errorf("VAD downloads = %d", c.vad.Downloads())
+	}
+	if content, err := os.ReadFile(filepath.Clean(c.vadFile())); err != nil || string(content) != "model" {
+		t.Errorf("VAD model = %q, err = %v", content, err)
+	}
+}
+
+func (c converter) startLine(model string) string {
+	_, port, _ := net.SplitHostPort(c.Address)
+	return fmt.Sprintf("-m %s --host 127.0.0.1 --port %s -l en -t 4 --vad -vm %s -sns -mc 0\n", model, port, c.vadFile())
+}
+
+func TestWhileOnlyTheVADModelIsMissingTheConverterDownloadsItAndThenStartsTheProcess(t *testing.T) {
+	c := newConverter(t)
+	program := testkit.InstallFakeWhisper(t, c.bin)
+	c.putFile(t, c.modelFile())
+	c.vad.Hold()
+
+	err := c.transcribeBriefly()
+	c.vad.Release()
+	testkit.WaitFor(t, func() bool {
+		_, err := c.transcribe("RIFF")
+		return err == nil
+	})
+
+	if !errors.Is(err, voice.Downloading) {
+		t.Errorf("err = %v", err)
+	}
+	if c.model.Downloads() != 0 || c.vad.Downloads() != 1 {
+		t.Errorf("downloads = %d, VAD downloads = %d", c.model.Downloads(), c.vad.Downloads())
+	}
+	if content, err := os.ReadFile(filepath.Clean(c.vadFile())); err != nil || string(content) != "model" {
+		t.Errorf("VAD model = %q, err = %v", content, err)
+	}
+	if !fileHasLines(program+".starts", 1) {
+		t.Error("the converter did not start one process")
+	}
+}
+
+func TestTheFinalAndTheDraftConverterShareTheDirectoryAndBothStart(t *testing.T) {
+	c := newConverter(t)
+	program := testkit.InstallFakeWhisper(t, c.bin)
+	draft := voice.NewDraft(filepath.Dir(c.Dir), c.bin)
+	draft.ModelURL = c.model.URL
+	draft.VADModelURL = c.vad.URL
+	draft.Address = testkit.FreeAddress(t)
+	t.Cleanup(draft.Stop)
+	c.vad.Hold()
+	_ = c.transcribeBriefly()
+	_, _ = draft.Segments(context.Background(), []byte("RIFF"))
+	testkit.WaitFor(t, func() bool { return c.vad.Downloads() == 2 })
+
+	c.vad.Release()
+
+	testkit.WaitFor(t, func() bool {
+		_, err := c.transcribe("RIFF")
+		_, draftErr := draft.Segments(context.Background(), []byte("RIFF"))
+		return err == nil && draftErr == nil
+	})
+	if content, err := os.ReadFile(filepath.Clean(c.vadFile())); err != nil || string(content) != "model" {
+		t.Errorf("VAD model = %q, err = %v", content, err)
+	}
+	parts, err := filepath.Glob(filepath.Join(c.Dir, "*.part"))
+	if err != nil || len(parts) != 0 {
+		t.Errorf("parts = %v, err = %v", parts, err)
+	}
+	starts, err := os.ReadFile(filepath.Clean(program + ".starts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, draftPort, _ := net.SplitHostPort(draft.Address)
+	wantDraft := fmt.Sprintf("-m %s --host 127.0.0.1 --port %s -l en -t 4 --vad -vm %s -sns -mc 0\n",
+		filepath.Join(c.Dir, "ggml-small.bin"), draftPort, c.vadFile())
+	if got := string(starts); !strings.Contains(got, c.startLine(c.modelFile())) || !strings.Contains(got, wantDraft) {
+		t.Errorf("starts = %q", got)
+	}
+}
+
+func TestStartStopsAProcessOfAnEarlierProgramAndStartsOneWithTheNewArguments(t *testing.T) {
+	c := newConverter(t)
+	program := testkit.InstallFakeWhisper(t, c.bin)
+	c.putModel(t)
+	testkit.WaitFor(t, func() bool {
+		_, err := c.transcribe("RIFF")
+		return err == nil
+	})
+	next := voice.New(filepath.Dir(c.Dir), c.bin)
+	next.Address = c.Address
+
+	next.Start()
+
+	testkit.WaitFor(t, func() bool { return fileHasLines(program+".starts", 2) })
+	testkit.WaitFor(t, func() bool {
+		_, err := next.Transcribe(context.Background(), []byte("RIFF"))
+		return err == nil
+	})
+	t.Cleanup(next.Stop)
+}
+
+func TestStartRemovesTheTemporaryFilesOfStoppedDownloadsAndKeepsThoseOfTheDraftModel(t *testing.T) {
+	c := newConverter(t)
+	testkit.InstallFakeWhisper(t, c.bin)
+	stale := []string{
+		"ggml-large-v3-turbo.bin.part", "ggml-large-v3-turbo.bin.123.part",
+		"ggml-silero-v6.2.0.bin.part", "ggml-silero-v6.2.0.bin.456.part",
+	}
+	draftPart := filepath.Join(c.Dir, "ggml-small.bin.789.part")
+	for _, name := range stale {
+		c.putFile(t, filepath.Join(c.Dir, name))
+	}
+	c.putFile(t, draftPart)
+
+	c.Start()
+
+	testkit.WaitFor(t, func() bool {
+		_, err := c.transcribe("RIFF")
+		return err == nil
+	})
+	for _, name := range stale {
+		if _, err := os.Stat(filepath.Join(c.Dir, name)); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	if _, err := os.Stat(draftPart); err != nil {
+		t.Errorf("part of the draft model: %v", err)
 	}
 }
 
