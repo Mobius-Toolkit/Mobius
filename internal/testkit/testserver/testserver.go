@@ -149,9 +149,11 @@ func StartWith(t testing.TB, cfg *config.Config, githubURL string) *Server {
 	model := testkit.NewFakeModel(t)
 	whisper := voice.New(dataDir, filepath.Join(dataDir, "harnesses"))
 	whisper.ModelURL = model.URL
+	whisper.VADModelURL = model.URL
 	whisper.Address = testkit.FreeAddress(t)
 	draft := voice.NewDraft(dataDir, filepath.Join(dataDir, "harnesses"))
 	draft.ModelURL = model.URL
+	draft.VADModelURL = model.URL
 	draft.Address = testkit.FreeAddress(t)
 	recordings := voice.NewRecordings(whisper, draft)
 	t.Cleanup(recordings.Stop)
