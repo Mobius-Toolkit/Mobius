@@ -44,6 +44,12 @@ func (r Repository) CreateDraftPullRequest(ctx context.Context, title, head, bas
 	return pullRequest, err
 }
 
+// SetPullRequestBody replaces the description of the pull request number.
+func (r Repository) SetPullRequestBody(ctx context.Context, number int64, body string) error {
+	_, _, err := r.Client.PullRequests.Edit(ctx, r.Owner(), r.Name(), int(number), &gh.PullRequest{Body: &body})
+	return err
+}
+
 // MarkReadyForReview makes the draft pull request with the GraphQL node id ready for review.
 func (r Repository) MarkReadyForReview(ctx context.Context, id string) error {
 	const query = `mutation($id: ID!) { markPullRequestReadyForReview(input: { pullRequestId: $id }) { clientMutationId } }`

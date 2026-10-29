@@ -554,6 +554,9 @@ UPDATE tasks SET branch = ? WHERE id = ?;
 -- name: SetTaskPullRequest :exec
 UPDATE tasks SET pull_request = ? WHERE id = ?;
 
+-- name: SetTaskReport :exec
+UPDATE tasks SET report = ? WHERE id = ?;
+
 -- name: AddFixRound :execrows
 UPDATE tasks SET fix_rounds = fix_rounds + 1 WHERE id = sqlc.arg(id) AND fix_rounds < sqlc.arg(max);
 
