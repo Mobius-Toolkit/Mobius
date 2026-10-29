@@ -14,6 +14,7 @@ import {
   type Workstream,
 } from "@/api/api.gen";
 import { ErrorBadge, inset, List, Row } from "@/components/page";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { addDraftInboxItem, chatDraftKey } from "@/lib/draft";
 import { LoginContext } from "@/lib/login";
@@ -167,6 +168,11 @@ export function InboxRow({
     <Row className="flex-wrap gap-y-2 py-2">
       <div className="flex min-w-0 grow basis-full flex-wrap items-center gap-x-2 gap-y-2 sm:flex-nowrap">
         <span className="flex min-w-0 grow basis-full flex-wrap items-baseline gap-x-2 sm:basis-0 sm:flex-nowrap">
+          {item.todo && (
+            <Badge variant={item.todo.mandatory ? "default" : "outline"}>
+              Todo · {item.todo.mandatory ? "mandatory" : "optional"}
+            </Badge>
+          )}
           {reference &&
             (referenceLink ? (
               <a
@@ -231,7 +237,7 @@ export function InboxRow({
             )}
             {isTodo && (
               <Button size="sm" onClick={() => setPanel("answer")}>
-                Done…
+                Complete
               </Button>
             )}
             {isPullRequest && (
