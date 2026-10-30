@@ -192,6 +192,8 @@ func harnessCommand(ctx context.Context, harness config.Harness, cwd, dataDir, p
 		cmd.Args = append(cmd.Args, "acp")
 	case config.DSH:
 		cmd.Args = append(cmd.Args, "--profile", "acp")
+		// Mobius cannot know the folders that a session must write, so the shell of dsh has no sandbox.
+		cmd.Env = append(cmd.Env, "DSH_PERMISSION_MODE=danger-full-access")
 	}
 	// The agent leads its own process group, so the end of ctx also stops the processes of its tools.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
