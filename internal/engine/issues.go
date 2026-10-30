@@ -11,6 +11,7 @@ import (
 	gh "github.com/google/go-github/v92/github"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
+	"github.com/Mobius-Toolkit/Mobius/internal/runner"
 )
 
 // searchedComments is the number of comments that searchIssues gives for a closed issue.
@@ -83,7 +84,8 @@ func (e *Engine) readIssue(ctx context.Context, repository github.Repository, nu
 
 // searchIssues gives the issues of the repository that match the query, open and closed. An issue of an untrusted
 // author is absent from the text. A closed issue has its close reason and the last searchedComments comments of trusted
-// authors. An issue of another repository starts with owner/name before its number.
+// authors, but no engine notice: a comment of the Mobius App with no role mark is absent. An issue of another
+// repository starts with owner/name before its number.
 func (e *Engine) searchIssues(ctx context.Context, _ caller, repository github.Repository, input queryInput) (string, error) {
 	if empty(input.Query) {
 		return "", refuse("query must not be empty.")
@@ -116,7 +118,13 @@ func (e *Engine) searchIssues(ctx context.Context, _ caller, repository github.R
 		if err != nil {
 			return "", err
 		}
-		comments = slices.DeleteFunc(comments, func(comment *gh.IssueComment) bool { return !trusted(comment.GetUser().GetLogin()) })
+		comments = slices.DeleteFunc(comments, func(comment *gh.IssueComment) bool {
+			login := comment.GetUser().GetLogin()
+			if !trusted(login) {
+				return true
+			}
+			return strings.EqualFold(login, appLogin(source.AppSlug)) && runner.WithoutMark(comment.GetBody()) == comment.GetBody()
+		})
 		text.WriteString("\n# Last comments\n")
 		for _, comment := range comments[max(0, len(comments)-searchedComments):] {
 			text.WriteString(entry(comment.GetUser().GetLogin(), comment.GetCreatedAt().Time, "", comment.GetBody()))

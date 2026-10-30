@@ -27,6 +27,9 @@ var (
 	Cores                   = cores
 )
 
+// ClosedIssueReply is the reply of the engine to a comment on a closed issue, for the tests.
+var ClosedIssueReply = closedIssueReply
+
 // SetClock makes the long waits read the time from clock.
 func (e *Engine) SetClock(clock func() time.Time) {
 	e.clock.Store(&clock)

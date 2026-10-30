@@ -1272,6 +1272,110 @@ export interface EnvelopePendingAction {
 }
 
 /**
+ * QualityValues are the mean quality values of a set of ended tasks. Each round, state and token value is the mean for each task. A value that no task has is null.
+ */
+export interface QualityValues {
+  /**
+     * CacheReadTokens is the mean sum of the cache read tokens, for the tasks that have a value
+     * @nullable
+     */
+  cacheReadTokens: number | null;
+  /**
+     * CacheWriteTokens is the mean sum of the cache write tokens, for the tasks that have a value
+     * @nullable
+     */
+  cacheWriteTokens: number | null;
+  /**
+     * CostUSD is the mean cost in USD, for the tasks that have a value
+     * @nullable
+     */
+  costUsd: number | null;
+  /** FixRounds is the mean number of Implementer sessions after the first one. A task with one Implementer session has 0 */
+  fixRounds: number;
+  /**
+     * InputTokens is the mean sum of the input tokens, for the tasks that have a value
+     * @nullable
+     */
+  inputTokens: number | null;
+  /** Merged is the number of tasks whose pull request merged */
+  merged: number;
+  /** NeedsHuman is the mean number of needs_human states */
+  needsHuman: number;
+  /**
+     * OutputTokens is the mean sum of the output tokens, for the tasks that have a value
+     * @nullable
+     */
+  outputTokens: number | null;
+  /** Questions is the mean number of asked states */
+  questions: number;
+  /** ReviewRounds is the mean number of Reviewer sessions that ended with done */
+  reviewRounds: number;
+  /** Tasks is the number of ended tasks */
+  tasks: number;
+  /**
+     * WorkSeconds is the mean time from the first working state to the end, for the tasks that have a working state
+     * @nullable
+     */
+  workSeconds: number | null;
+}
+
+/**
+ * QualityDay is the quality of one group on the day of the end of its tasks.
+ */
+export interface QualityDay {
+  /** Day is the day of the end of the tasks, as "YYYY-MM-DD" in the time zone of the request */
+  day: string;
+  /** Group is the value of each selected field, in the order of the fields of the route. With no field it is empty */
+  group: string[];
+  values: QualityValues;
+}
+
+/**
+ * QualityGroup is the quality of one group in the period.
+ */
+export interface QualityGroup {
+  /** Group is the value of each selected field, in the order of the fields of the route. With no field it is empty */
+  group: string[];
+  values: QualityValues;
+}
+
+/**
+ * QualityOptions are the values that each filter can take in the period.
+ */
+export interface QualityOptions {
+  /** Efforts are the efforts of the tasks. A request cannot filter for the tasks with no effort */
+  efforts: string[];
+  /** Harnesses are the Harnesses of the tasks */
+  harnesses: string[];
+  /** Models are the models of the tasks */
+  models: string[];
+  /** Repositories are the repositories of the tasks as "owner/name" */
+  repositories: string[];
+}
+
+/**
+ * Quality is the quality statistics of the ended tasks in a period.
+ */
+export interface Quality {
+  /** Days are the values of each day and each group, the oldest day first */
+  days: QualityDay[];
+  /** Groups are the values of each group */
+  groups: QualityGroup[];
+  /** Options are the values that each filter can take, before the filters */
+  options: QualityOptions;
+  /** Totals are the values of all tasks that pass the filters */
+  totals: QualityValues;
+}
+
+/**
+ * Envelope is the body of each success response.
+ */
+export interface EnvelopeQuality {
+  /** Data is the payload of the response */
+  data: Quality;
+}
+
+/**
  * Recording is a voice recording that the server keeps while it runs.
  */
 export interface Recording {
@@ -2129,6 +2233,51 @@ export const GetUsageGroupItem = {
   modelVersion: 'modelVersion',
   effort: 'effort',
   role: 'role',
+  repository: 'repository',
+} as const;
+
+export type GetUsageQualityParams = {
+/**
+ * From is the start of the period. A task is in the period when its end is From or later
+ */
+from: string;
+/**
+ * To is the end of the period. A task is in the period when its end is before To
+ */
+to: string;
+/**
+ * Tz is the IANA name of the time zone for the days. The default is UTC
+ */
+tz?: string;
+/**
+ * Array of string
+ */
+harness?: string[];
+/**
+ * Array of string
+ */
+model?: string[];
+/**
+ * Array of string
+ */
+effort?: string[];
+/**
+ * Array of string
+ */
+repository?: string[];
+/**
+ * Array of string
+ */
+group?: GetUsageQualityGroupItem[];
+};
+
+export type GetUsageQualityGroupItem = typeof GetUsageQualityGroupItem[keyof typeof GetUsageQualityGroupItem];
+
+
+export const GetUsageQualityGroupItem = {
+  harness: 'harness',
+  model: 'model',
+  effort: 'effort',
   repository: 'repository',
 } as const;
 
@@ -6059,6 +6208,86 @@ export const getUsage = async (params: GetUsageParams, ): Promise<getUsageRespon
 
   const data: getUsageResponse['data'] = body ? JSON.parse(body) : {}
   return { data, status: res.status, headers: res.headers } as getUsageResponse
+}
+
+
+
+export type getUsageQualityResponse200 = {
+  data: EnvelopeQuality
+  status: 200
+}
+
+export type getUsageQualityResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type getUsageQualityResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type getUsageQualityResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type getUsageQualityResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type getUsageQualityResponseSuccess = (getUsageQualityResponse200) & {
+  headers: Headers;
+};
+export type getUsageQualityResponseError = (getUsageQualityResponse400 | getUsageQualityResponse401 | getUsageQualityResponse422 | getUsageQualityResponse500) & {
+  headers: Headers;
+};
+
+export type getUsageQualityResponse = (getUsageQualityResponseSuccess | getUsageQualityResponseError)
+
+export const getGetUsageQualityUrl = (params: GetUsageQualityParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    const explodeParameters = ["harness","model","effort","repository","group"];
+
+    if (Array.isArray(value) && explodeParameters.includes(key)) {
+      value.forEach((v) => {
+        normalizedParams.append(key, v === null ? 'null' : String(v));
+      });
+      return;
+    }
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/usage/quality?${stringifiedParams}` : `/api/usage/quality`
+}
+
+/**
+ * GetUsageQuality returns the quality values of the ended tasks that ended in the period.
+ */
+export const getUsageQuality = async (params: GetUsageQualityParams, ): Promise<getUsageQualityResponse> => {
+
+  const res = await fetch(getGetUsageQualityUrl(params),
+  {
+
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: getUsageQualityResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as getUsageQualityResponse
 }
 
 

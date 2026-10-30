@@ -348,7 +348,7 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 		}
 		return append(tools,
 			tool(e, c, "search_issues",
-				"Search the open and the closed issues of the repository. Give the words of the problem. For each closed issue, the result has the close reason and the last 3 comments of trusted authors. The result has only issues of trusted authors. It gives the first 20 matches.",
+				"Search the open and the closed issues of the repository. Give the words of the problem. For each closed issue, the result has the close reason and the last 3 comments of trusted authors, but no engine notice of the Mobius App. The result has only issues of trusted authors. It gives the first 20 matches.",
 				map[string]any{
 					"query": map[string]any{"type": "string", "minLength": 1, "description": "The words to search in the title and the body of the issues."},
 				},
