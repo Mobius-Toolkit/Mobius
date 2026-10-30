@@ -143,6 +143,55 @@ func TestTheGHEnvironmentOfAnAgentPassesTheDSHEnvironmentFilter(t *testing.T) {
 	}
 }
 
+// lastEnv gives the last value of name in env, which is the value that exec.Cmd gives the process.
+func lastEnv(env []string, name string) string {
+	value := ""
+	for _, entry := range env {
+		if got, ok := strings.CutPrefix(entry, name+"="); ok {
+			value = got
+		}
+	}
+	return value
+}
+
+func TestDSHGetsTheDangerFullAccessModeAndNoOtherHarnessGetsIt(t *testing.T) {
+	t.Setenv("DSH_PERMISSION_MODE", "workspace-write")
+	dir := t.TempDir()
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, harness := range config.Harnesses {
+		if err := os.Symlink(exe, filepath.Join(dir, Program(harness))); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	cmd, err := harnessCommand(context.Background(), config.DSH, "/work", t.TempDir(), dir, "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"--profile", "acp"}; !slices.Equal(cmd.Args[1:], want) {
+		t.Errorf("args = %v, want %v", cmd.Args, want)
+	}
+	if got := lastEnv(cmd.Env, "DSH_PERMISSION_MODE"); got != "danger-full-access" {
+		t.Errorf("dsh DSH_PERMISSION_MODE = %q, want danger-full-access", got)
+	}
+
+	for _, harness := range config.Harnesses {
+		if harness == config.DSH {
+			continue
+		}
+		cmd, err := harnessCommand(context.Background(), harness, "/work", t.TempDir(), dir, "", "", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := lastEnv(cmd.Env, "DSH_PERMISSION_MODE"); got != "workspace-write" {
+			t.Errorf("%s DSH_PERMISSION_MODE = %q, want the inherited workspace-write", harness, got)
+		}
+	}
+}
+
 func TestPermissionSelectsTheFirstAllowOption(t *testing.T) {
 	outcome := permission([]acp.PermissionOption{
 		{OptionId: "reject", Kind: acp.PermissionOptionKindRejectOnce},

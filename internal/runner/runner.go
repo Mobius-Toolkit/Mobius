@@ -192,6 +192,9 @@ func harnessCommand(ctx context.Context, harness config.Harness, cwd, dataDir, p
 		cmd.Args = append(cmd.Args, "acp")
 	case config.DSH:
 		cmd.Args = append(cmd.Args, "--profile", "acp")
+		// A dsh session writes in the folders of the bare clone and of the Go build cache, outside the worktree.
+		// dsh has no way to allow a folder, so the sandbox of its shell stays off.
+		cmd.Env = append(cmd.Env, "DSH_PERMISSION_MODE=danger-full-access")
 	}
 	// The agent leads its own process group, so the end of ctx also stops the processes of its tools.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
