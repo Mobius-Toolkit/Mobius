@@ -9,6 +9,8 @@
 //	                        # the file "starts" next to the script counts the processes
 //	hang_start = 1          # the first 1 agent processes of the script never answer initialize;
 //	                        # the file "hung_starts" next to the script counts the processes
+//	session_new_hold = true # session/new appends the program name to the file "session_new_started", and then waits
+//	                        # for the file "session_new_release"
 //
 //	[options]               # one select option for each id, in id order; the first value is current
 //	model = ["sonnet", "opus"]
@@ -76,6 +78,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/coder/acp-go-sdk"
@@ -94,14 +97,15 @@ const accessCheckRequest = "Reply with the word OK."
 const busyInterval = 10 * time.Millisecond
 
 type script struct {
-	LoginRequired bool                `toml:"login_required"`
-	LoginWorks    bool                `toml:"login_works"`
-	ImageSupport  bool                `toml:"image_support"`
-	SkipToolsList int                 `toml:"skip_tools_list"`
-	HangStart     int                 `toml:"hang_start"`
-	Options       map[string][]string `toml:"options"`
-	Efforts       map[string][]string `toml:"efforts"`
-	Prompts       []prompt            `toml:"prompts"`
+	LoginRequired  bool                `toml:"login_required"`
+	LoginWorks     bool                `toml:"login_works"`
+	ImageSupport   bool                `toml:"image_support"`
+	SkipToolsList  int                 `toml:"skip_tools_list"`
+	HangStart      int                 `toml:"hang_start"`
+	SessionNewHold bool                `toml:"session_new_hold"`
+	Options        map[string][]string `toml:"options"`
+	Efforts        map[string][]string `toml:"efforts"`
+	Prompts        []prompt            `toml:"prompts"`
 }
 
 type prompt struct {
@@ -251,7 +255,7 @@ func (a *agent) handle(ctx context.Context, method string, params json.RawMessag
 	case acp.AgentMethodAuthenticate:
 		return a.authenticate()
 	case acp.AgentMethodSessionNew:
-		return a.newSession(params)
+		return a.newSession(ctx, params)
 	case acp.AgentMethodSessionSetConfigOption:
 		return a.setOption(ctx, params)
 	case acp.AgentMethodSessionPrompt:
@@ -284,7 +288,7 @@ func (a *agent) authenticate() (any, *acp.RequestError) {
 }
 
 // newSession writes the URL of the Mobius MCP server to the file "mcp_url" next to the script.
-func (a *agent) newSession(params json.RawMessage) (any, *acp.RequestError) {
+func (a *agent) newSession(ctx context.Context, params json.RawMessage) (any, *acp.RequestError) {
 	var request struct {
 		McpServers []struct {
 			Type string `json:"type"`
@@ -294,6 +298,11 @@ func (a *agent) newSession(params json.RawMessage) (any, *acp.RequestError) {
 	}
 	if err := json.Unmarshal(params, &request); err != nil {
 		return nil, acp.NewInvalidParams(err.Error())
+	}
+	if a.script.SessionNewHold {
+		if err := a.holdSessionNew(ctx); err != nil {
+			return nil, acp.NewInternalError(err.Error())
+		}
 	}
 	if _, err := os.Stat(a.loggedInPath()); a.script.LoginRequired && err != nil {
 		return nil, acp.NewAuthRequired(nil)
@@ -321,36 +330,85 @@ func (a *agent) newSession(params json.RawMessage) (any, *acp.RequestError) {
 		return nil, acp.NewInternalError(err.Error())
 	}
 	if a.mcpURL != "" && !skip {
-		go listTools(a.mcpURL)
+		go listTools(ctx, a.mcpURL)
 	}
 	return map[string]any{"sessionId": "fake-session", "configOptions": a.options}, nil
 }
 
+// holdSessionNew appends the program name to session_new_started, and waits for session_new_release.
+func (a *agent) holdSessionNew(ctx context.Context) error {
+	dir := filepath.Dir(a.path)
+	started, err := os.OpenFile(filepath.Clean(filepath.Join(dir, "session_new_started")), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(started, strings.TrimSuffix(filepath.Base(a.path), filepath.Ext(a.path)))
+	if closeErr := started.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return err
+	}
+	release := filepath.Join(dir, "session_new_release")
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if _, err := os.Stat(release); err == nil {
+			return nil
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
 // within counts this agent process in the file name next to the script, and tells if the process is one of the
-// first limit processes.
+// first limit processes. A lock makes the count correct when agent processes start at the same time.
 func (a *agent) within(name string, limit int) (bool, error) {
 	if limit == 0 {
 		return false, nil
 	}
-	path := filepath.Join(filepath.Dir(a.path), name)
+	dir := filepath.Dir(a.path)
+	lock, err := os.OpenFile(filepath.Clean(filepath.Join(dir, name+".lock")), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = lock.Close() }()
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		return false, err
+	}
+	defer func() { _ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN) }()
+	path := filepath.Join(dir, name)
 	text, err := os.ReadFile(filepath.Clean(path))
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return false, err
 	}
 	starts, _ := strconv.Atoi(string(text))
 	starts++
-	return starts <= limit, os.WriteFile(path, []byte(strconv.Itoa(starts)), 0o600)
+	tmp := path + ".count"
+	if err := os.WriteFile(tmp, []byte(strconv.Itoa(starts)), 0o600); err != nil {
+		return false, err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return false, err
+	}
+	return starts <= limit, nil
 }
 
 // listTools lists the tools of the MCP server at url. As in Claude Code, a failed list only leaves the session with no tools.
-func listTools(url string) {
+func listTools(ctx context.Context, url string) {
+	ctx = context.WithoutCancel(ctx)
 	client := sdk.NewClient(&sdk.Implementation{Name: "fake-agent", Version: "0.1.0"}, nil)
-	session, err := client.Connect(context.Background(), &sdk.StreamableClientTransport{Endpoint: url}, nil)
+	session, err := client.Connect(ctx, &sdk.StreamableClientTransport{Endpoint: url}, nil)
 	if err != nil {
 		return
 	}
 	defer func() { _ = session.Close() }()
-	_, _ = session.ListTools(context.Background(), nil)
+	_, _ = session.ListTools(ctx, nil)
 }
 
 func (a *agent) send(ctx context.Context, sessionID string, update any) error {
