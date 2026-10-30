@@ -48,8 +48,15 @@ type inboxItem struct {
 	} `json:"todo"`
 }
 
-// inbox gives the Inbox through the API.
+// inbox gives the Inbox through the API, without the access check items. A server whose Role bindings have no fake
+// Harness has such an item for each binding.
 func inbox(t *testing.T, server *testserver.Server) []inboxItem {
+	t.Helper()
+	return slices.DeleteFunc(allInbox(t, server), func(item inboxItem) bool { return item.Kind == "access check" })
+}
+
+// allInbox gives the Inbox through the API.
+func allInbox(t *testing.T, server *testserver.Server) []inboxItem {
 	t.Helper()
 	status, text := send(t, server, http.MethodGet, "/api/inbox", "")
 	var body struct {

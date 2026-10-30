@@ -30,6 +30,12 @@ type Engine struct {
 	rolesMu sync.RWMutex
 	// roles are the Roles of config.toml with the rows of role_settings over them.
 	roles config.Roles
+	// roleWriteMu makes SetRole and ResetRole take turns. They check the access of a new binding before they take rolesMu.
+	roleWriteMu sync.Mutex
+	// accessMu guards access.
+	accessMu sync.Mutex
+	// access holds the result of the access check of each key. A key with no result is in the check.
+	access map[accessKey]accessState
 	// labelsFixed holds the full names of the repositories whose labels the poll fixed. Only the poll uses it.
 	labelsFixed map[string]bool
 	// recovered holds the full names of the repositories whose lost tasks the poll handed to a human. Only the poll uses it.
@@ -207,6 +213,7 @@ func New(db *sql.DB, gh *github.GitHub, cfg *config.Config, agents Agents) *Engi
 		ciWait:          map[int64]ciWait{},
 		newest:          map[string]newestVersion{},
 		harnessReads:    map[config.Harness]*harnessRead{},
+		access:          map[accessKey]accessState{},
 		workers:         newWorkers(),
 		chats:           map[ChatKey]*chat{},
 		triages:         map[triageKey]triage{},
@@ -368,6 +375,7 @@ func (e *Engine) Recover(ctx context.Context) error {
 func (e *Engine) Run(ctx context.Context) {
 	var wg sync.WaitGroup
 	wg.Go(func() { every(ctx, e.config.HousekeeperInterval, nil, e.keepHouse) })
+	wg.Go(func() { every(ctx, e.config.PollInterval, nil, e.checkAccess) })
 	every(ctx, e.config.PollInterval, e.pollWake, e.poll)
 	wg.Wait()
 	e.stopWorkers()

@@ -23,8 +23,9 @@ type InboxItem struct {
 	// that the Lead did not take, ready for review for a pull request of a task, stopped for a task that a person must
 	// continue (a stale pull request or a session that Mobius stopped after its hangs), lost for a task that Mobius lost,
 	// and full disk for a local check that waits for free disk space, and approval for a tool call of an agent that waits
-	// for the approval of the Owner, and todo for a deployment need of a pull request
-	Kind string `gork:"kind" validate:"oneof=question 'Lead failed' 'ready for review' stopped lost 'full disk' approval todo"`
+	// for the approval of the Owner, and todo for a deployment need of a pull request, and access check for a Harness that
+	// has no access to the model of a Role
+	Kind string `gork:"kind" validate:"oneof=question 'Lead failed' 'ready for review' stopped lost 'full disk' approval todo 'access check'"`
 	// Organization is the owner of the repository
 	Organization string `gork:"organization"`
 	// Repository is the repository as "owner/name"
