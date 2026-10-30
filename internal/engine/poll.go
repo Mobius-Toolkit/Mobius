@@ -26,7 +26,7 @@ const issuesEndpoint = "issues"
 // the lost tasks to a human and starts the Workers of the earlier run again until that step works one time, reads the
 // changed issues, reads the CI of the default branch, dispatches the ready issues, starts the tasks of the Workstreams
 // with Autopilot, checks the live tasks, and starts the Worker again of each task that has none. The work of a repository starts again at its first
-// poll, because the work needs GitHub. At the end, it tells the Leads of the cycles of blockers, and the pull requests with work for an agent replace the ones of the
+// poll, because the work needs GitHub. At the end, it gives the Skills Lead the weekly skill review, it tells the Leads of the cycles of blockers, and the pull requests with work for an agent replace the ones of the
 // last poll. With no App, the poll does nothing.
 func (e *Engine) poll(ctx context.Context) {
 	apps, err := e.queries.ListGitHubApps(ctx)
@@ -83,6 +83,7 @@ func (e *Engine) poll(ctx context.Context) {
 			}
 		}
 	}
+	e.reviewSkills(ctx, repositories)
 	e.reportBlockerCycles(ctx)
 	e.ReplaceWork(work)
 }

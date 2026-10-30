@@ -2521,6 +2521,25 @@ func (q *Queries) GetLastLeadEventDelivery(ctx context.Context, arg GetLastLeadE
 	return delivered_at, err
 }
 
+const getLastLeadEventTime = `-- name: GetLastLeadEventTime :one
+SELECT time FROM lead_events
+WHERE repository = ? AND workstream = ? AND kind = ?
+ORDER BY julianday(time) DESC LIMIT 1
+`
+
+type GetLastLeadEventTimeParams struct {
+	Repository string
+	Workstream int64
+	Kind       string
+}
+
+func (q *Queries) GetLastLeadEventTime(ctx context.Context, arg GetLastLeadEventTimeParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, getLastLeadEventTime, arg.Repository, arg.Workstream, arg.Kind)
+	var time string
+	err := row.Scan(&time)
+	return time, err
+}
+
 const getLastTaskState = `-- name: GetLastTaskState :one
 SELECT state FROM task_states WHERE task = ? ORDER BY id DESC LIMIT 1
 `
