@@ -199,6 +199,8 @@ type FakeGitHub struct {
 	workflowJobs []workflowJob
 	// rerunRefusal is the status that the re-run of the failed jobs gives, or 0 when it works.
 	rerunRefusal int
+	// rerunRequests is the number of the requests to run the failed jobs again.
+	rerunRequests int
 	// runListRefusal is the status that the list of workflow runs gives, or 0 when it works.
 	runListRefusal int
 	// jobListRefusal is the status that the list of the jobs of a run attempt gives, or 0 when it works.
