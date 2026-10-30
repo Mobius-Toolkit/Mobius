@@ -364,6 +364,14 @@ func (g *FakeGitHub) FailAddSubIssue(repository string, number int64, fail bool)
 	g.failedSubIssueAdds[issueKey{repository, number}] = fail
 }
 
+// RefuseAddSubIssues makes each new sub-issue that Mobius adds below the issue fail with 422, or work again when refuse
+// is false. GitHub gives 422 for a parent with 100 sub-issues and for a parent of another organization.
+func (g *FakeGitHub) RefuseAddSubIssues(repository string, number int64, refuse bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.refusedSubIssueAdds[issueKey{repository, number}] = refuse
+}
+
 // RefuseOpenBucketAdds makes each add of an open issue below an issue with the label mobius:bucket fail with 422, as
 // GitHub does at the depth limit, or work again when refuse is false.
 func (g *FakeGitHub) RefuseOpenBucketAdds(refuse bool) {
@@ -976,6 +984,10 @@ func (g *FakeGitHub) addSubIssue(w http.ResponseWriter, r *http.Request) {
 	}
 	if g.failedSubIssueAdds[key] {
 		message(w, http.StatusInternalServerError, "Server Error")
+		return
+	}
+	if g.refusedSubIssueAdds[key] {
+		message(w, http.StatusUnprocessableEntity, "Validation Failed")
 		return
 	}
 	child, ok := g.issueKeyOf(w, key, request.SubIssueID)

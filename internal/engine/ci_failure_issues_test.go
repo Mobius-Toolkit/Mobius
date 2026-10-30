@@ -133,7 +133,7 @@ func TestACIFailureIssueThatGitHubDidNotAddBelowTheWorkstreamGetsReadyAgainAndIt
 	fake := testkit.NewFakeGitHub(t)
 	server := connectDiagnoser(t, fake, leadStartsTwo, reportsPlan)
 	addMaintenanceWorkstream(fake, maintenance)
-	fake.FailAddSubIssue(shop, maintenance, true)
+	fake.RefuseAddSubIssues(shop, maintenance, true)
 
 	twoPlacesOfTheSameFailure(t, fake, server)
 
@@ -149,7 +149,7 @@ func TestACIFailureIssueThatGitHubDidNotAddBelowTheWorkstreamGetsReadyAgainAndIt
 		t.Errorf("the issue has a task")
 	}
 
-	fake.FailAddSubIssue(shop, maintenance, false)
+	fake.RefuseAddSubIssues(shop, maintenance, false)
 
 	testkit.WaitFor(t, func() bool {
 		return rowCount(t, server, fmt.Sprintf("SELECT count(*) FROM ci_failures WHERE issue = %d", number)) == 1
