@@ -1,4 +1,4 @@
-import type { TimeStat, UsageValues } from "@/api/api.gen";
+import type { QualityValues, TimeStat, UsageValues } from "@/api/api.gen";
 
 export const periods = [
   { value: "7d", title: "Last 7 days" },
@@ -39,19 +39,49 @@ export const skillGroups = [
   { key: "source", title: "Source" },
 ] as const;
 
+export const qualityDimensions = [
+  { key: "harness", title: "Harness", options: "harnesses" },
+  { key: "model", title: "Model", options: "models" },
+  { key: "effort", title: "Effort", options: "efforts" },
+  { key: "repository", title: "Repository", options: "repositories" },
+] as const;
+
+export const qualityGroups = [
+  { key: "harness", title: "Harness" },
+  { key: "model", title: "Model" },
+  { key: "effort", title: "Effort" },
+  { key: "repository", title: "Repository" },
+] as const;
+
+export const qualityValues = [
+  { key: "reviewRounds", title: "Review rounds" },
+  { key: "fixRounds", title: "Fix rounds" },
+  { key: "needsHuman", title: "Needs human" },
+  { key: "questions", title: "Questions" },
+  { key: "workSeconds", title: "Work time" },
+  { key: "costUsd", title: "Cost" },
+  { key: "tokens", title: "Tokens" },
+] as const;
+
 export type Period = (typeof periods)[number]["value"];
 export type Dimension = (typeof dimensions)[number]["key"];
-export type Group = (typeof groupOptions)[number]["key"] | (typeof skillGroups)[number]["key"];
+export type Group =
+  | (typeof groupOptions)[number]["key"]
+  | (typeof skillGroups)[number]["key"]
+  | (typeof qualityGroups)[number]["key"];
 export type SkillDimension = (typeof skillDimensions)[number]["key"];
+export type QualityDimension = (typeof qualityDimensions)[number]["key"];
+export type QualityValue = (typeof qualityValues)[number]["key"];
 
 // custom takes from and to as "YYYY-MM-DD" in the time zone of the browser. Both days are in the period.
 export type UsageSearch = {
-  tab?: "tokens" | "times" | "skills";
+  tab?: "tokens" | "times" | "skills" | "quality";
   period?: Period;
   from?: string;
   to?: string;
   group?: Group[];
   stat?: string;
+  value?: QualityValue;
 } & { [key in Dimension | SkillDimension]?: string[] };
 
 // The color of a group follows its position, and the position follows the sort order of the API.
@@ -97,7 +127,10 @@ export function validateUsageSearch(search: Record<string, unknown>): UsageSearc
   const period = periods.find((item) => item.value === search.period)?.value;
   return {
     tab:
-      search.tab === "tokens" || search.tab === "times" || search.tab === "skills"
+      search.tab === "tokens" ||
+      search.tab === "times" ||
+      search.tab === "skills" ||
+      search.tab === "quality"
         ? search.tab
         : undefined,
     period: period === "custom" && !(from && to) ? undefined : period,
@@ -108,6 +141,7 @@ export function validateUsageSearch(search: Record<string, unknown>): UsageSearc
       typeof search.stat === "string" && /^(step|state):.+/.test(search.stat)
         ? search.stat
         : undefined,
+    value: qualityValues.find((item) => item.key === search.value)?.key,
     harness: strings(search.harness),
     model: strings(search.model),
     modelVersion: strings(search.modelVersion),
@@ -148,7 +182,12 @@ export function usageRange(search: UsageSearch, now: Date) {
 
 export const costOf = (values: UsageValues) => values.costUsd;
 
-export function tokensOf(values: UsageValues) {
+type TokenValues = Pick<
+  UsageValues,
+  "inputTokens" | "outputTokens" | "cacheReadTokens" | "cacheWriteTokens"
+>;
+
+export function tokensOf(values: TokenValues) {
   const counts = [
     values.inputTokens,
     values.outputTokens,
@@ -156,6 +195,51 @@ export function tokensOf(values: UsageValues) {
     values.cacheWriteTokens,
   ].filter((tokens) => tokens !== null);
   return counts.length > 0 ? counts.reduce((sum, tokens) => sum + tokens, 0) : null;
+}
+
+export const findQualityValue = (value?: string) =>
+  qualityValues.find((item) => item.key === value) ?? qualityValues[0];
+
+export function qualityMetric(values: QualityValues, key: QualityValue): number | null {
+  switch (key) {
+    case "reviewRounds":
+      return values.reviewRounds;
+    case "fixRounds":
+      return values.fixRounds;
+    case "needsHuman":
+      return values.needsHuman;
+    case "questions":
+      return values.questions;
+    case "workSeconds":
+      return values.workSeconds;
+    case "costUsd":
+      return values.costUsd;
+    case "tokens":
+      return tokensOf(values);
+  }
+}
+
+export function formatQuality(key: QualityValue, value: number | null) {
+  if (value === null) {
+    return "—";
+  }
+  switch (key) {
+    case "workSeconds":
+      return duration(value);
+    case "costUsd":
+      return cost(value);
+    case "tokens":
+      return compact(value);
+    default:
+      return value.toLocaleString([], {
+        minimumFractionDigits: 1,
+        maximumFractionDigits: 1,
+      });
+  }
+}
+
+export function mergedShare(values: QualityValues) {
+  return values.tasks === 0 ? "—" : `${Math.round((values.merged / values.tasks) * 100)}%`;
 }
 
 export const groupKey = (index: number) => `group${index}`;
