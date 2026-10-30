@@ -63,7 +63,7 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 func (e *Engine) roleTools(c caller) []mcp.Tool {
 	switch c.role {
 	case LeadRole:
-		return []mcp.Tool{
+		tools := []mcp.Tool{
 			tool(e, c, "list_tasks",
 				"Give the task list of the Workstream: one line for each open issue.",
 				map[string]any{},
@@ -228,6 +228,10 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 				},
 				e.tellOwner),
 		}
+		if c.agent.skills {
+			tools = append(tools, e.readSkillUsageTool(c))
+		}
+		return tools
 	case ImplementerRole:
 		return []mcp.Tool{
 			tool(e, c, "cannot_do",
