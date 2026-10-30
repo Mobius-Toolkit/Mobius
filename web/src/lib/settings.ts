@@ -6,5 +6,6 @@ export const settingsPages = [
   { path: "/settings/memory", title: "Memory" },
   { path: "/agents", title: "Agents" },
   { path: "/settings/roles", title: "Roles" },
+  { path: "/settings/voice", title: "Voice" },
   { path: "/usage", title: "Usage" },
 ] as const;
