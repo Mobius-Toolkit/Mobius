@@ -260,7 +260,7 @@ func (a *Agent) commandSkill(command string) string {
 			continue
 		}
 		name := command[nameStart : end-1]
-		if !pathEnd(command, offset) || strings.ContainsAny(name, "*?[{") {
+		if !pathEnd(command, offset) || !plainSkillName(name) {
 			continue
 		}
 		before := command[:nameStart]
@@ -279,6 +279,23 @@ func (a *Agent) commandSkill(command string) string {
 		}
 	}
 	return ""
+}
+
+// plainSkillName tells whether name is a plain skill folder name. A glob, a brace list, a shell variable and a quoted
+// part are no name, so a command that reads many skill files gives no row for such a text.
+func plainSkillName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case r == '-', r == '_', r == '.':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // pathEnd tells whether command[index] ends a path, so a path with more text after SKILL.md, for example

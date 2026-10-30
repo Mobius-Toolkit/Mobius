@@ -397,6 +397,8 @@ func TestADSHBashCommandWithASkillFileAddsOneRowWithTheSourceOfTheSkill(t *testi
   '{"sessionUpdate":"tool_call","toolCallId":"call_4","title":"bash","kind":"other","status":"in_progress","rawInput":{"command":"cat .agents/skills/*/SKILL.md"}}',
   '{"sessionUpdate":"tool_call","toolCallId":"call_5","title":"bash","kind":"other","status":"in_progress","rawInput":{"command":"cat .agents/skills/{mobius-local-state,commit}/SKILL.md"}}',
   '{"sessionUpdate":"tool_call","toolCallId":"call_6","title":"bash","kind":"other","status":"in_progress","rawInput":{"command":"cat .agents/skills/mobius-local-state/SKILL.md.bak"}}',
+  '{"sessionUpdate":"tool_call","toolCallId":"call_7","title":"bash","kind":"other","status":"in_progress","rawInput":{"command":"for s in commit mobius-local-state; do cat .agents/skills/$s/SKILL.md; done"}}',
+  '{"sessionUpdate":"tool_call","toolCallId":"call_8","title":"bash","kind":"other","status":"in_progress","rawInput":{"command":"cat .agents/skills/\"$s\"/SKILL.md"}}',
 `), dshLead)
 
 	session, _ := leadReply(t, server)
