@@ -66,7 +66,8 @@ func TestATurnWithNoActivityGetsARetryPromptInTheSameSession(t *testing.T) {
 func TestTheRetryPromptOfAnImplementerTellsItToCallCannotDo(t *testing.T) {
 	shortHang(t)
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectTask(t, fake, leadStarts, hang+commits, longGrace)
+	implementer := "[[prompts]]\n" + commitCents + "hang = true\n\n[[prompts]]\nreply = [\"Done\"]\n"
+	server, _ := connectTask(t, fake, leadStarts, implementer, longGrace)
 
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 
