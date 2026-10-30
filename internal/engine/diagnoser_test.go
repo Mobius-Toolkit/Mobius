@@ -133,6 +133,36 @@ func TestADiagnoserRunsBeforeTheFixRoundAndTheRoundGetsItsReason(t *testing.T) {
 	}
 }
 
+func TestADiagnoserGetsTheFactsAndTheMemoryAndOneServerSection(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := connectDiagnoser(t, fake, leadStarts, reportsPlan)
+	sha := approvalHead(t, server, fake)
+	fake.CommitFile(shop, "AGENTS.md", fact, "Add the facts")
+	if err := server.Engine.SaveMemory(t.Context(), shop, "owner", "", lesson+"\n"); err != nil {
+		t.Fatal(err)
+	}
+
+	failActions(fake, sha)
+
+	testkit.WaitFor(t, func() bool { return len(diagnoserSessions(t, server)) == 1 })
+	prompt := testkit.WaitForValue(t, func() (string, bool) {
+		prompts := promptTexts(t, server, diagnoserSessions(t, server)[0].ID)
+		if len(prompts) == 0 {
+			return "", false
+		}
+		return prompts[0], true
+	})
+	for _, part := range []string{"# Repository facts\n\n" + fact + "\n\n", "# Memory\n\n" + lesson + "\n\n"} {
+		if !strings.Contains(prompt, part) {
+			t.Errorf("%q is not in %s", part, prompt)
+		}
+	}
+	if n := strings.Count(prompt, "# Server"); n != 1 {
+		t.Errorf("server sections = %d in %s", n, prompt)
+	}
+}
+
 func TestTheFixRoundWaitsForTheDiagnoser(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
