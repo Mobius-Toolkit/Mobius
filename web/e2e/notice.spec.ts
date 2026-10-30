@@ -150,6 +150,53 @@ test("a failed approval keeps the panel with its error and shows no notice", asy
   await expect(notice(page, "Approved")).toHaveCount(0);
 });
 
+test("a Stop in the Tasks tab shows its notice, and a refused Stop shows its error and no notice", async ({
+  page,
+}) => {
+  await page.route("**/api/workstreams/owner/shop/12/tasks", (route) =>
+    route.fulfill({
+      json: {
+        data: [
+          {
+            number: 84,
+            title: "Task",
+            state: "working",
+            depth: 0,
+            repository: "owner/shop",
+            otherRepository: false,
+            url: `${link}/issues/84`,
+            blockedBy: [],
+          },
+        ],
+      },
+    }),
+  );
+  let stops = 0;
+  await page.route("**/api/repositories/*/*/issues/*/stop", async (route) => {
+    stops += 1;
+    if (stops === 1) {
+      await route.fulfill({
+        status: 409,
+        json: { error: "The Owner must authorize the Mobius App." },
+      });
+    } else {
+      await route.fulfill({ status: 204 });
+    }
+  });
+  await page.goto(shop);
+  await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
+  const row = page.getByRole("listitem").filter({ hasText: "#84 Task" });
+  const stop = row.getByRole("button", { name: "Stop #84" });
+
+  await stop.click();
+  await expect(row.getByText("The Owner must authorize the Mobius App.")).toBeVisible();
+  await expect(notice(page, "Stopped #84")).toHaveCount(0);
+
+  await stop.click();
+  await expect(notice(page, "Stopped #84")).toBeVisible();
+  await expect(row.getByText("The Owner must authorize the Mobius App.")).toBeHidden();
+});
+
 test("a new level of the Autopilot shows its notice", async ({ page }) => {
   await page.route("**/api/workstreams/owner/shop/12/autopilot", (route) =>
     route.fulfill({ status: 204 }),
