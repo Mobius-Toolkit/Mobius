@@ -5062,10 +5062,7 @@ WITH working AS (
       AND ts.id = (SELECT MIN(inner_ts.id) FROM task_states inner_ts
                    WHERE inner_ts.task = ts.task AND inner_ts.state = 'working')
 )
-SELECT t.id AS task,
-       t.repository AS repository,
-       t.issue AS issue,
-       (SELECT ts.started_at FROM task_states ts WHERE ts.task = t.id ORDER BY ts.id LIMIT 1) AS first_started_at,
+SELECT t.repository AS repository,
        (SELECT ts.ended_at FROM task_states ts WHERE ts.task = t.id
         ORDER BY julianday(ts.ended_at) DESC LIMIT 1) AS ended_at,
        working.harness AS harness,
@@ -5115,10 +5112,7 @@ ORDER BY julianday(ended_at), t.id
 `
 
 type ListEndedTaskQualityRow struct {
-	Task                int64
 	Repository          string
-	Issue               int64
-	FirstStartedAt      string
 	EndedAt             string
 	Harness             sql.NullString
 	Model               sql.NullString
@@ -5146,10 +5140,7 @@ func (q *Queries) ListEndedTaskQuality(ctx context.Context) ([]ListEndedTaskQual
 	for rows.Next() {
 		var i ListEndedTaskQualityRow
 		if err := rows.Scan(
-			&i.Task,
 			&i.Repository,
-			&i.Issue,
-			&i.FirstStartedAt,
 			&i.EndedAt,
 			&i.Harness,
 			&i.Model,

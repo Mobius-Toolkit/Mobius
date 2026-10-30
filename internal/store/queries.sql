@@ -119,10 +119,7 @@ WITH working AS (
       AND ts.id = (SELECT MIN(inner_ts.id) FROM task_states inner_ts
                    WHERE inner_ts.task = ts.task AND inner_ts.state = 'working')
 )
-SELECT t.id AS task,
-       t.repository AS repository,
-       t.issue AS issue,
-       (SELECT ts.started_at FROM task_states ts WHERE ts.task = t.id ORDER BY ts.id LIMIT 1) AS first_started_at,
+SELECT t.repository AS repository,
        (SELECT ts.ended_at FROM task_states ts WHERE ts.task = t.id
         ORDER BY julianday(ts.ended_at) DESC LIMIT 1) AS ended_at,
        working.harness AS harness,

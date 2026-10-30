@@ -70,7 +70,8 @@ func seedUsageQuality(t *testing.T) func(query string) (int, qualityBody) {
 			(9, 'implementer', 'claude-code', 'sonnet', 'o/a', 1, 1, '2026-10-04T13:00:00Z', 'o', 'restart'),
 			(10, 'reviewer', 'devin', 'swe', 'o/b', 1, 1, '2026-10-04T14:00:00Z', 'o', 'done'),
 			(11, 'reviewer', 'claude-code', 'sonnet', 'o/a', 1, 1, '2026-10-05T02:00:00Z', 'o', 'done'),
-			(12, 'implementer', 'claude-code', 'opus', 'o/a', 1, 2, '2026-10-04T21:30:00Z', 'o', 'done');
+			(12, 'implementer', 'claude-code', 'opus', 'o/a', 1, 2, '2026-10-04T21:30:00Z', 'o', 'done'),
+			(13, 'reviewer', 'claude-code', 'sonnet', 'o/a', 1, 1, '2026-10-02T12:00:00Z', 'o', 'done');
 		INSERT INTO task_states (task, state, issue, workstream, organization, repository, session, role, harness, model, effort,
 			started_at, ended_at) VALUES
 			(1, 'dispatched', 1, 1, 'o', 'o/a', NULL, NULL, NULL, NULL, NULL,
