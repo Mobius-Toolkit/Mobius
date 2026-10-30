@@ -24,6 +24,7 @@ import { clock, dayClock } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { Transcript } from "./Agents";
 import { Details } from "./Details";
+import { Markdown } from "./Markdown";
 
 function shownAgents(agents: Agent[], showStopped: boolean) {
   return agents
@@ -320,18 +321,25 @@ export function AgentPanel({
   name,
   number,
   source,
+  brief,
+  tab,
+  onTabChange,
 }: {
   owner: string;
   name: string;
   number: number;
   source?: EventSource;
+  brief: string;
+  tab: string;
+  onTabChange: (tab: string) => void;
 }) {
   return (
-    <Tabs defaultValue="tasks" className="min-h-0 grow">
+    <Tabs value={tab} onValueChange={onTabChange} className="min-h-0 grow">
       <TabsList variant="line" className="px-2">
         <TabsTrigger value="tasks">Tasks</TabsTrigger>
         <TabsTrigger value="agents">Agents</TabsTrigger>
         <TabsTrigger value="details">Details</TabsTrigger>
+        <TabsTrigger value="brief">Brief</TabsTrigger>
       </TabsList>
       <TabsContent value="tasks" className="overflow-y-auto p-2">
         <Tasks owner={owner} name={name} number={number} source={source} />
@@ -341,6 +349,9 @@ export function AgentPanel({
       </TabsContent>
       <TabsContent value="details" className="overflow-y-auto p-2">
         <Details owner={owner} name={name} number={number} source={source} />
+      </TabsContent>
+      <TabsContent value="brief" className="overflow-y-auto p-2">
+        <Markdown text={brief} />
       </TabsContent>
     </Tabs>
   );
