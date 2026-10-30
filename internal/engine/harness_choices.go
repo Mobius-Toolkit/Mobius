@@ -50,7 +50,7 @@ func (e *Engine) HarnessChoices(ctx context.Context) []HarnessChoice {
 		<-read.done
 		choices = append(choices, read.choice)
 		if read.choice.Error != "" {
-			e.harnessReadSeen(read)
+			e.markHarnessReadSeen(read)
 		}
 	}
 	return choices
@@ -81,8 +81,8 @@ func (e *Engine) harnessReadChoice(ctx context.Context, harness config.Harness, 
 	return read
 }
 
-// harnessReadSeen marks that a request gave the error of read.
-func (e *Engine) harnessReadSeen(read *harnessRead) {
+// markHarnessReadSeen marks that a request gave the error of read.
+func (e *Engine) markHarnessReadSeen(read *harnessRead) {
 	e.harnessReadsMu.Lock()
 	read.seen = true
 	e.harnessReadsMu.Unlock()
