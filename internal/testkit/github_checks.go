@@ -355,6 +355,13 @@ func (g *FakeGitHub) WorkflowRunAttempt(id int64) int {
 	return max(g.workflowRuns[id-1].Attempt, 1)
 }
 
+// RerunRequests gives the number of the requests to run the failed jobs of a workflow run again.
+func (g *FakeGitHub) RerunRequests() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.rerunRequests
+}
+
 // AddAnnotation adds an annotation on line of path with message to the check run id.
 func (g *FakeGitHub) AddAnnotation(id int64, path string, line int64, message string) {
 	g.mu.Lock()
@@ -856,6 +863,7 @@ func (g *FakeGitHub) listWorkflowJobsAttempt(w http.ResponseWriter, r *http.Requ
 func (g *FakeGitHub) rerunFailedJobs(w http.ResponseWriter, r *http.Request) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	g.rerunRequests++
 	if g.rerunRefusal != 0 {
 		message(w, g.rerunRefusal, "Resource not accessible by integration")
 		return

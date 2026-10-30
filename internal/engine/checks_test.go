@@ -574,12 +574,18 @@ func TestARefusedRerunWaitsWhileAJobOfTheRunStillRunsAndThenRunsTheFailedJobsAga
 	if state, attempt := taskState(t, server), fake.WorkflowRunAttempt(workflow); state != "checks" || attempt != 1 || rerunHead(t, server) != "" || hasLabel(fake, "mobius:needs-human") {
 		t.Errorf("state = %s, attempt = %d, rerun_head = %s", state, attempt, rerunHead(t, server))
 	}
+	if requests := fake.RerunRequests(); requests != 0 {
+		t.Errorf("re-run requests while a job runs = %d", requests)
+	}
 
 	fake.CompleteWorkflowJob(700, "failure")
 
 	testkit.WaitFor(t, func() bool { return rerunHead(t, server) == sha })
 	if state, attempt := taskState(t, server), fake.WorkflowRunAttempt(workflow); state != "checks" || attempt != 2 || hasLabel(fake, "mobius:needs-human") {
 		t.Errorf("state = %s, attempt = %d", state, attempt)
+	}
+	if requests := fake.RerunRequests(); requests == 0 {
+		t.Error("no re-run request after each job completed")
 	}
 
 	fake.SetCheckRunStatus(check, "completed", "success")
