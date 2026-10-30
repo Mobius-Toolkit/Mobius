@@ -339,8 +339,10 @@ export function Roles() {
           role={role}
           harnesses={harnesses}
           onChange={(updated) => {
-            setRoles(roles?.map((other) => (other.role === updated.role ? updated : other)));
-            setSelected("");
+            setRoles((current) =>
+              current?.map((other) => (other.role === updated.role ? updated : other)),
+            );
+            setSelected((current) => (current === updated.role ? "" : current));
           }}
           onClose={() => setSelected("")}
         />
