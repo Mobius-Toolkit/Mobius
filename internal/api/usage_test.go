@@ -21,11 +21,11 @@ type usageBody struct {
 	Totals usageValues `json:"totals"`
 	Days   []struct {
 		Day    string      `json:"day"`
-		Group  string      `json:"group"`
+		Group  []string    `json:"group"`
 		Values usageValues `json:"values"`
 	} `json:"days"`
 	Groups []struct {
-		Group  string      `json:"group"`
+		Group  []string    `json:"group"`
 		Values usageValues `json:"values"`
 	} `json:"groups"`
 	Options struct {
@@ -155,22 +155,25 @@ func TestGetUsageGroups(t *testing.T) {
 	tests := []struct {
 		name  string
 		group string
-		want  []string
+		want  [][]string
 	}{
-		{"harness", "harness", []string{"claude-code", "devin"}},
-		{"model", "model", []string{"opus", "sonnet", "swe"}},
-		{"model and effort", "modelEffort", []string{"opus high", "sonnet low", "swe"}},
-		{"model version", "modelVersion", []string{"", "claude-opus-5"}},
-		{"model version and effort", "modelVersionEffort", []string{"", "claude-opus-5 high", "low"}},
-		{"role", "role", []string{"Implementer", "Reviewer"}},
-		{"repository", "repository", []string{"o/a", "o/b"}},
-		{"no group", "", []string{""}},
+		{"harness", "group=harness", [][]string{{"claude-code"}, {"devin"}}},
+		{"model", "group=model", [][]string{{"opus"}, {"sonnet"}, {"swe"}}},
+		{"effort", "group=effort", [][]string{{""}, {"high"}, {"low"}}},
+		{"model version", "group=modelVersion", [][]string{{""}, {"claude-opus-5"}}},
+		{"role", "group=role", [][]string{{"Implementer"}, {"Reviewer"}}},
+		{"repository", "group=repository", [][]string{{"o/a"}, {"o/b"}}},
+		{"no group", "", [][]string{{}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			body := getUsage(t, usagePeriod+"&group="+tt.group)
+			query := usagePeriod
+			if tt.group != "" {
+				query += "&" + tt.group
+			}
+			body := getUsage(t, query)
 
-			var got []string
+			var got [][]string
 			for _, group := range body.Groups {
 				got = append(got, group.Group)
 			}
@@ -178,6 +181,19 @@ func TestGetUsageGroups(t *testing.T) {
 				t.Errorf("groups = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestGetUsageGroupsCountAFieldOneTime(t *testing.T) {
+	body := getUsage(t, usagePeriod+"&group=harness&group=harness")
+
+	var got [][]string
+	for _, group := range body.Groups {
+		got = append(got, group.Group)
+	}
+	want := [][]string{{"claude-code"}, {"devin"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("groups = %q, want %q", got, want)
 	}
 }
 
@@ -195,21 +211,70 @@ func TestGetUsageGroupsSplitAModelByItsEfforts(t *testing.T) {
 	`)
 	get := usageGetter(t, mux)
 
-	for group, want := range map[string][]string{
-		"modelEffort":        {"opus high", "opus medium"},
-		"modelVersionEffort": {"claude-opus-5 high", "claude-opus-5 medium"},
+	for query, want := range map[string][][]string{
+		"group=model&group=effort":        {{"opus", "high"}, {"opus", "medium"}},
+		"group=modelVersion&group=effort": {{"claude-opus-5", "high"}, {"claude-opus-5", "medium"}},
 	} {
-		code, body := get(usagePeriod + "&group=" + group)
+		code, body := get(usagePeriod + "&" + query)
 		if code != http.StatusOK {
-			t.Fatalf("%s: status = %d, want %d", group, code, http.StatusOK)
+			t.Fatalf("%s: status = %d, want %d", query, code, http.StatusOK)
 		}
-		var got []string
+		var got [][]string
 		for _, item := range body.Groups {
 			got = append(got, item.Group)
 		}
 		if !reflect.DeepEqual(got, want) {
-			t.Errorf("%s: groups = %q, want %q", group, got, want)
+			t.Errorf("%s: groups = %q, want %q", query, got, want)
 		}
+	}
+}
+
+func TestGetUsageGroupsByTwoFieldsSumEachCombination(t *testing.T) {
+	body := getUsage(t, usagePeriod+"&group=role&group=harness")
+
+	type group struct {
+		group    []string
+		sessions int64
+		input    int64
+	}
+	var got []group
+	for _, item := range body.Groups {
+		got = append(got, group{item.Group, item.Values.Sessions, *item.Values.InputTokens})
+	}
+	want := []group{
+		{[]string{"claude-code", "Implementer"}, 1, 150},
+		{[]string{"claude-code", "Reviewer"}, 1, 7},
+		{[]string{"devin", "Reviewer"}, 1, 20},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("groups = %v, want %v", got, want)
+	}
+}
+
+func TestGetUsageGroupsKeepAnEmptyValue(t *testing.T) {
+	body := getUsage(t, usagePeriod+"&group=modelVersion&group=effort")
+
+	var got [][]string
+	for _, item := range body.Groups {
+		got = append(got, item.Group)
+	}
+	want := [][]string{{"", ""}, {"", "low"}, {"claude-opus-5", "high"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("groups = %q, want %q", got, want)
+	}
+}
+
+func TestGetUsageWithNoFieldGivesOneGroupWithNoValues(t *testing.T) {
+	body := getUsage(t, usagePeriod)
+
+	if len(body.Groups) != 1 {
+		t.Fatalf("groups = %v, want one group", body.Groups)
+	}
+	if !reflect.DeepEqual(body.Groups[0].Group, []string{}) {
+		t.Errorf("group = %q, want []", body.Groups[0].Group)
+	}
+	if len(body.Days) == 0 || !reflect.DeepEqual(body.Days[0].Group, []string{}) {
+		t.Errorf("days = %v, want a day with no group values", body.Days)
 	}
 }
 
@@ -221,8 +286,8 @@ func TestGetUsageGroupValues(t *testing.T) {
 		"devin":       {Sessions: 1, InputTokens: int64Ptr(20), OutputTokens: int64Ptr(2)},
 	}
 	for _, group := range body.Groups {
-		if !reflect.DeepEqual(group.Values, want[group.Group]) {
-			t.Errorf("group %s = %+v, want %+v", group.Group, group.Values, want[group.Group])
+		if !reflect.DeepEqual(group.Values, want[group.Group[0]]) {
+			t.Errorf("group %v = %+v, want %+v", group.Group, group.Values, want[group.Group[0]])
 		}
 	}
 }
@@ -230,15 +295,18 @@ func TestGetUsageGroupValues(t *testing.T) {
 func TestGetUsageDaysInUTC(t *testing.T) {
 	body := getUsage(t, usagePeriod+"&group=harness")
 
-	type day struct{ day, group string }
+	type day struct {
+		day   string
+		group []string
+	}
 	var got []day
 	for _, item := range body.Days {
 		got = append(got, day{item.Day, item.Group})
 	}
 	want := []day{
-		{"2026-10-04", "claude-code"},
-		{"2026-10-05", "claude-code"},
-		{"2026-10-05", "devin"},
+		{"2026-10-04", []string{"claude-code"}},
+		{"2026-10-05", []string{"claude-code"}},
+		{"2026-10-05", []string{"devin"}},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("days = %v, want %v", got, want)
@@ -252,17 +320,18 @@ func TestGetUsageDaysInATimeZone(t *testing.T) {
 	body := getUsage(t, usagePeriod+"&tz=Europe/Berlin&group=harness")
 
 	type day struct {
-		day, group string
-		input      int64
+		day   string
+		group []string
+		input int64
 	}
 	var got []day
 	for _, item := range body.Days {
 		got = append(got, day{item.Day, item.Group, *item.Values.InputTokens})
 	}
 	want := []day{
-		{"2026-10-05", "claude-code", 150},
-		{"2026-10-05", "devin", 20},
-		{"2026-10-06", "claude-code", 7},
+		{"2026-10-05", []string{"claude-code"}, 150},
+		{"2026-10-05", []string{"devin"}, 20},
+		{"2026-10-06", []string{"claude-code"}, 7},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("days = %v, want %v", got, want)
@@ -313,6 +382,7 @@ func TestGetUsageRejectsBadRequests(t *testing.T) {
 	}{
 		{"unknown time zone", usagePeriod + "&tz=Mars/Base", http.StatusBadRequest},
 		{"unknown group", usagePeriod + "&group=session", http.StatusBadRequest},
+		{"old group", usagePeriod + "&group=modelEffort", http.StatusBadRequest},
 		{"no period", "", http.StatusBadRequest},
 	}
 	for _, tt := range tests {
@@ -340,11 +410,11 @@ type usageTimesBody struct {
 	Totals []timeStat `json:"totals"`
 	Days   []struct {
 		Day   string     `json:"day"`
-		Group string     `json:"group"`
+		Group []string   `json:"group"`
 		Stats []timeStat `json:"stats"`
 	} `json:"days"`
 	Groups []struct {
-		Group string     `json:"group"`
+		Group []string   `json:"group"`
 		Stats []timeStat `json:"stats"`
 	} `json:"groups"`
 	Options struct {
@@ -516,22 +586,25 @@ func TestGetUsageTimesGroups(t *testing.T) {
 	tests := []struct {
 		name  string
 		group string
-		want  []string
+		want  [][]string
 	}{
-		{"harness", "harness", []string{"", "claude-code", "devin"}},
-		{"model", "model", []string{"", "opus", "sonnet", "swe"}},
-		{"model and effort", "modelEffort", []string{"", "opus high", "sonnet low", "swe"}},
-		{"model version", "modelVersion", []string{"", "claude-opus-5"}},
-		{"model version and effort", "modelVersionEffort", []string{"", "claude-opus-5 high", "high", "low"}},
-		{"role", "role", []string{"", "Implementer", "Reviewer"}},
-		{"repository", "repository", []string{"o/a", "o/b"}},
-		{"no group", "", []string{""}},
+		{"harness", "group=harness", [][]string{{""}, {"claude-code"}, {"devin"}}},
+		{"model", "group=model", [][]string{{""}, {"opus"}, {"sonnet"}, {"swe"}}},
+		{"effort", "group=effort", [][]string{{""}, {"high"}, {"low"}}},
+		{"model version", "group=modelVersion", [][]string{{""}, {"claude-opus-5"}}},
+		{"role", "group=role", [][]string{{""}, {"Implementer"}, {"Reviewer"}}},
+		{"repository", "group=repository", [][]string{{"o/a"}, {"o/b"}}},
+		{"no group", "", [][]string{{}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			body := getUsageTimes(t, usagePeriod+"&group="+tt.group)
+			query := usagePeriod
+			if tt.group != "" {
+				query += "&" + tt.group
+			}
+			body := getUsageTimes(t, query)
 
-			var got []string
+			var got [][]string
 			for _, group := range body.Groups {
 				got = append(got, group.Group)
 			}
@@ -542,16 +615,66 @@ func TestGetUsageTimesGroups(t *testing.T) {
 	}
 }
 
+func TestGetUsageTimesGroupsByTwoFieldsSumEachCombination(t *testing.T) {
+	body := getUsageTimes(t, usagePeriod+"&group=role&group=harness")
+
+	type group struct {
+		group []string
+		rows  int64
+	}
+	var got []group
+	for _, item := range body.Groups {
+		got = append(got, group{item.Group, statCount(item.Stats)})
+	}
+	want := []group{
+		{[]string{"", ""}, 1},
+		{[]string{"claude-code", "Implementer"}, 5},
+		{[]string{"claude-code", "Reviewer"}, 1},
+		{[]string{"devin", "Reviewer"}, 1},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("groups = %v, want %v", got, want)
+	}
+}
+
+func TestGetUsageTimesGroupsKeepAnEmptyValue(t *testing.T) {
+	body := getUsageTimes(t, usagePeriod+"&group=modelVersion&group=effort")
+
+	var got [][]string
+	for _, item := range body.Groups {
+		got = append(got, item.Group)
+	}
+	want := [][]string{{"", ""}, {"", "high"}, {"", "low"}, {"claude-opus-5", "high"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("groups = %q, want %q", got, want)
+	}
+}
+
+func TestGetUsageTimesWithNoFieldGivesOneGroupWithNoValues(t *testing.T) {
+	body := getUsageTimes(t, usagePeriod)
+
+	if len(body.Groups) != 1 {
+		t.Fatalf("groups = %v, want one group", body.Groups)
+	}
+	if !reflect.DeepEqual(body.Groups[0].Group, []string{}) {
+		t.Errorf("group = %q, want []", body.Groups[0].Group)
+	}
+}
+
 func TestGetUsageTimesModelVersionOfAStepWithNoTurn(t *testing.T) {
 	body := getUsageTimes(t, usagePeriod+"&group=modelVersion")
 
-	counts := map[string]int64{}
-	for _, group := range body.Groups {
-		counts[group.Group] = statCount(group.Stats)
+	type group struct {
+		group []string
+		rows  int64
 	}
-	want := map[string]int64{"": 4, "claude-opus-5": 4}
-	if !reflect.DeepEqual(counts, want) {
-		t.Errorf("rows of the groups = %v, want %v", counts, want)
+	var got []group
+	for _, item := range body.Groups {
+		got = append(got, group{item.Group, statCount(item.Stats)})
+	}
+	want := []group{{[]string{""}, 4}, {[]string{"claude-opus-5"}, 4}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("rows of the groups = %v, want %v", got, want)
 	}
 }
 
@@ -616,6 +739,7 @@ func TestGetUsageTimesRejectsBadRequests(t *testing.T) {
 	}{
 		{"unknown time zone", usagePeriod + "&tz=Mars/Base"},
 		{"unknown group", usagePeriod + "&group=session"},
+		{"old group", usagePeriod + "&group=modelEffort"},
 		{"no period", ""},
 	}
 	for _, tt := range tests {
@@ -627,20 +751,20 @@ func TestGetUsageTimesRejectsBadRequests(t *testing.T) {
 	}
 }
 
-func TestGetUsageRefusesTheEffortGroup(t *testing.T) {
+func TestGetUsageRefusesTheModelEffortGroup(t *testing.T) {
 	get := seedUsage(t)
 
-	code, _ := get(usagePeriod + "&group=effort")
+	code, _ := get(usagePeriod + "&group=modelEffort")
 
 	if code != http.StatusBadRequest {
 		t.Errorf("status = %d, want %d", code, http.StatusBadRequest)
 	}
 }
 
-func TestGetUsageTimesRefusesTheEffortGroup(t *testing.T) {
+func TestGetUsageTimesRefusesTheModelEffortGroup(t *testing.T) {
 	get := seedUsageTimes(t)
 
-	code, _ := get(usagePeriod + "&group=effort")
+	code, _ := get(usagePeriod + "&group=modelEffort")
 
 	if code != http.StatusBadRequest {
 		t.Errorf("status = %d, want %d", code, http.StatusBadRequest)

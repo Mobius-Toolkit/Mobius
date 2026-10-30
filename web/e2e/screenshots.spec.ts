@@ -2069,7 +2069,7 @@ test("screenshots", async ({ page }) => {
   await screenshot(
     page,
     "usage",
-    "/usage?group=model",
+    "/usage?group=%5B%22model%22%5D",
     (device) => [
       ...frame(device, release),
       main.getByRole("tab", { name: "Cost", selected: true }),
@@ -2083,14 +2083,14 @@ test("screenshots", async ({ page }) => {
   await screenshot(
     page,
     "usage-model-effort",
-    "/usage?group=modelEffort",
+    "/usage?group=%5B%22model%22%2C%22effort%22%5D",
     (device) => [
       ...frame(device, release),
-      main.getByRole("columnheader", { name: "Model and effort" }),
-      main.getByRole("rowheader", { name: "opus medium", exact: true }),
-      main.getByRole("rowheader", { name: "sonnet high", exact: true }),
-      main.getByRole("rowheader", { name: "sonnet low", exact: true }),
-      main.getByRole("rowheader", { name: "swe-1.5", exact: true }),
+      main.getByRole("columnheader", { name: "Model · Effort" }),
+      main.getByRole("rowheader", { name: "opus · medium", exact: true }),
+      main.getByRole("rowheader", { name: "sonnet · high", exact: true }),
+      main.getByRole("rowheader", { name: "sonnet · low", exact: true }),
+      main.getByRole("rowheader", { name: "swe-1.5 · —", exact: true }),
       main.locator(".recharts-bar-rectangle").first(),
       ...usageDays.map((day) => main.getByText(day, { exact: true })),
     ],
@@ -2099,7 +2099,7 @@ test("screenshots", async ({ page }) => {
   await screenshot(
     page,
     "usage-tokens",
-    "/usage?tab=tokens&group=harness&role=%5B%22implementer%22%5D",
+    "/usage?tab=tokens&group=%5B%22harness%22%5D&role=%5B%22implementer%22%5D",
     (device) => [
       ...frame(device, release),
       main.getByRole("tab", { name: "Tokens", selected: true }),
@@ -2118,7 +2118,7 @@ test("screenshots", async ({ page }) => {
     main.locator(".recharts-bar-rectangle").first(),
     ...usageDays.map((day) => main.getByText(day, { exact: true })),
   ];
-  const timesPath = "/usage?tab=times&group=harness&stat=step:check";
+  const timesPath = "/usage?tab=times&group=%5B%22harness%22%5D&stat=step:check";
   await screenshot(page, "usage-times", timesPath, timesReady);
   await screenshot(page, "usage-times-chart", timesPath, timesReady, async () => {
     await main.locator(".recharts-wrapper").scrollIntoViewIfNeeded();
@@ -2134,21 +2134,26 @@ test("screenshots", async ({ page }) => {
     main.getByRole("row", { name: /^commit Harness 3 — 2$/ }),
     main.getByRole("row", { name: /^frontend-design Harness 2 — 2$/ }),
   ]);
-  await screenshot(page, "usage-skills-role", "/usage?tab=skills&group=role", (device) => [
-    ...skillsFrame(device),
-    main.getByRole("columnheader", { name: "Role" }),
-    main.getByRole("row", { name: /^mobius-local-state Mobius lead_chat 3 2 2$/ }),
-    main.getByRole("row", { name: /^mobius-local-state Mobius implementer 2 2 2$/ }),
-    main.getByRole("row", { name: /^write-issue Mobius lead_chat 0 2 0$/ }),
-    main.getByRole("row", { name: /^write-issue Mobius implementer 0 2 0$/ }),
-  ]);
+  await screenshot(
+    page,
+    "usage-skills-role",
+    "/usage?tab=skills&group=%5B%22role%22%5D",
+    (device) => [
+      ...skillsFrame(device),
+      main.getByRole("columnheader", { name: "Role" }),
+      main.getByRole("row", { name: /^mobius-local-state Mobius lead_chat 3 2 2$/ }),
+      main.getByRole("row", { name: /^mobius-local-state Mobius implementer 2 2 2$/ }),
+      main.getByRole("row", { name: /^write-issue Mobius lead_chat 0 2 0$/ }),
+      main.getByRole("row", { name: /^write-issue Mobius implementer 0 2 0$/ }),
+    ],
+  );
   await page.setViewportSize(viewports.phone);
-  await page.goto("/usage?group=model");
+  await page.goto("/usage?group=%5B%22model%22%5D");
   await expect(main.getByRole("row", { name: /swe-1\.5/ })).toBeVisible();
   expect(await page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")).toBe(
     true,
   );
-  await page.goto("/usage?tab=skills&group=role");
+  await page.goto("/usage?tab=skills&group=%5B%22role%22%5D");
   await expect(main.getByRole("row", { name: /^write-issue Mobius lead_chat/ })).toBeVisible();
   expect(await page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")).toBe(
     true,

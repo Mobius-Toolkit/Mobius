@@ -8,7 +8,7 @@ test.beforeEach(async ({ page }) => {
   await expect(page.getByLabel("Access password")).toBeHidden();
 });
 
-test("the group menu has the model and effort groups and no effort group", async ({ page }) => {
+test("the group menu offers each field and sets the list to one field", async ({ page }) => {
   const main = page.getByRole("main");
   await page.goto("/usage");
   await main.getByRole("button", { name: /^Group by:/ }).click();
@@ -17,21 +17,40 @@ test("the group menu has the model and effort groups and no effort group", async
     "None",
     "Harness",
     "Model",
-    "Model and effort",
     "Model version",
-    "Model version and effort",
+    "Effort",
     "Role",
     "Repository",
   ]);
 
-  await page.getByRole("menuitemradio", { name: "Model and effort", exact: true }).click();
+  await page.getByRole("menuitemradio", { name: "Model", exact: true }).click();
 
+  await expect(page).toHaveURL(/group=%5B%22model%22%5D/);
   const table = main.getByRole("table");
-  await expect(table.getByRole("columnheader", { name: "Model and effort" })).toBeVisible();
-  for (const group of ["opus medium", "sonnet high", "sonnet low", "swe-1.5"]) {
+  await expect(table.getByRole("columnheader", { name: "Model" })).toBeVisible();
+  for (const group of ["opus", "sonnet", "swe-1.5"]) {
     await expect(table.getByRole("rowheader", { name: group, exact: true })).toBeVisible();
   }
-  await expect(main.getByRole("button", { name: /^Effort/ })).toBeVisible();
+  await expect(main.getByRole("button", { name: "Group by: Model" })).toBeVisible();
+});
+
+test("two group fields show their values in the field order", async ({ page }) => {
+  const main = page.getByRole("main");
+  await page.goto("/usage?group=%5B%22effort%22%2C%22model%22%5D");
+
+  const table = main.getByRole("table");
+  await expect(table.getByRole("columnheader", { name: "Model · Effort" })).toBeVisible();
+  for (const group of ["opus · medium", "sonnet · high", "sonnet · low", "swe-1.5 · —"]) {
+    await expect(table.getByRole("rowheader", { name: group, exact: true })).toBeVisible();
+  }
+  await expect(main.getByRole("button", { name: "Group by: Model · Effort" })).toBeVisible();
+});
+
+test("an old group key gives no group", async ({ page }) => {
+  const main = page.getByRole("main");
+  await page.goto("/usage?group=modelEffort");
+
+  await expect(main.getByRole("button", { name: "Group by: None" })).toBeVisible();
 });
 
 test("the source filter of the tab Skills keeps only the Harness rows", async ({ page }) => {
@@ -76,7 +95,7 @@ test("the tab Skills has no model filters and the other tabs have no source filt
 
 test("the tab Skills shows no group that it does not offer", async ({ page }) => {
   const main = page.getByRole("main");
-  await page.goto("/usage?tab=skills&group=model");
+  await page.goto("/usage?tab=skills&group=%5B%22model%22%5D");
   const table = main.getByRole("table");
   await expect(table.getByRole("rowheader", { name: "mobius-local-state" })).toBeVisible();
   await expect(main.getByRole("button", { name: "Group by: None" })).toBeVisible();

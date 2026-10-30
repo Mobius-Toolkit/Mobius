@@ -26,9 +26,8 @@ export const skillDimensions = [
 export const groupOptions = [
   { key: "harness", title: "Harness" },
   { key: "model", title: "Model" },
-  { key: "modelEffort", title: "Model and effort" },
   { key: "modelVersion", title: "Model version" },
-  { key: "modelVersionEffort", title: "Model version and effort" },
+  { key: "effort", title: "Effort" },
   { key: "role", title: "Role" },
   { key: "repository", title: "Repository" },
 ] as const;
@@ -51,7 +50,7 @@ export type UsageSearch = {
   period?: Period;
   from?: string;
   to?: string;
-  group?: Group;
+  group?: Group[];
   stat?: string;
 } & { [key in Dimension | SkillDimension]?: string[] };
 
@@ -84,6 +83,14 @@ function strings(value: unknown) {
   return list.length > 0 ? list : undefined;
 }
 
+function groupFields(value: unknown) {
+  const fields = (strings(value) ?? []).filter((key): key is Group =>
+    [...groupOptions, ...skillGroups].some((item) => item.key === key),
+  );
+  const unique = [...new Set(fields)];
+  return unique.length > 0 ? unique : undefined;
+}
+
 export function validateUsageSearch(search: Record<string, unknown>): UsageSearch {
   const from = day(search.from);
   const to = day(search.to);
@@ -96,7 +103,7 @@ export function validateUsageSearch(search: Record<string, unknown>): UsageSearc
     period: period === "custom" && !(from && to) ? undefined : period,
     from,
     to,
-    group: [...groupOptions, ...skillGroups].find((item) => item.key === search.group)?.key,
+    group: groupFields(search.group),
     stat:
       typeof search.stat === "string" && /^(step|state):.+/.test(search.stat)
         ? search.stat
@@ -153,10 +160,13 @@ export function tokensOf(values: UsageValues) {
 
 export const groupKey = (index: number) => `group${index}`;
 
+const sameGroup = (a: string[], b: string[]) =>
+  a.length === b.length && a.every((value, index) => value === b[index]);
+
 // A row has one value for each group key. A day with no value for a group has no key.
-export function chartRows<D extends { day: string; group: string }>(
+export function chartRows<D extends { day: string; group: string[] }>(
   days: D[],
-  groups: { group: string }[],
+  groups: { group: string[] }[],
   range: { from: Date; to: Date },
   metric: (item: D) => number | null,
 ) {
@@ -171,7 +181,7 @@ export function chartRows<D extends { day: string; group: string }>(
   }
   for (const item of days) {
     const value = metric(item);
-    const index = groups.findIndex((group) => group.group === item.group);
+    const index = groups.findIndex((group) => sameGroup(group.group, item.group));
     const row = rows.get(item.day);
     if (row && value !== null) {
       row[groupKey(index)] = value;
