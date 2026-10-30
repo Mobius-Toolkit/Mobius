@@ -82,6 +82,8 @@ type Agent struct {
 	// maintenance is the maintenance Workstream of the organization of a Curator at the start of the session. Its
 	// number is 0 when the organization has none, and when Mobius needs the issue repository in the config.
 	maintenance issueAt
+	// skills tells if the Workstream of a Lead has the label mobius:skills at the start of the session.
+	skills bool
 	// issues is the number of task issues that the Curator created. issuesMu holds the calls that create one.
 	issues   int
 	issuesMu sync.Mutex
@@ -379,6 +381,13 @@ func (a *Agent) startHarness(ctx context.Context) error {
 		if a.maintenance, err = e.organizationMaintenance(ctx, spec.Organization); err != nil && !Refused(err) {
 			return err
 		}
+	}
+	if spec.Role == LeadRole {
+		copied, err := e.queries.GetCopiedWorkstream(ctx, store.GetCopiedWorkstreamParams{Repository: spec.Repository, Number: spec.Workstream})
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		a.skills = copied.Skills
 	}
 	mcpCaller := mcp.Caller{Tools: e.tools(caller{
 		session:      a.id,
