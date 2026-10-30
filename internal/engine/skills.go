@@ -140,7 +140,7 @@ func (a *Agent) addSessionSkills(ctx context.Context, names []string) {
 }
 
 // recordedSkillHarnesses are the Harnesses for which recordSkillUse adds a skill_uses row.
-var recordedSkillHarnesses = []config.Harness{config.ClaudeCode, config.Devin, config.DSH}
+var recordedSkillHarnesses = []config.Harness{config.ClaudeCode, config.Devin, config.DSH, config.Antigravity}
 
 // recordSkillUse adds a skill_uses row for the first update of a skill tool call. The caller holds a.mu.
 func (a *Agent) recordSkillUse(ctx context.Context, notification map[string]any, kind string) {
@@ -158,6 +158,10 @@ func (a *Agent) recordSkillUse(ctx context.Context, notification map[string]any,
 		if kind != "tool_call" || stringField(update, "title") != "skill" {
 			return
 		}
+	case config.Antigravity:
+		if kind != "tool_call" || stringField(update, "title") != "Running view_file" {
+			return
+		}
 	default:
 		return
 	}
@@ -166,6 +170,9 @@ func (a *Agent) recordSkillUse(ctx context.Context, notification map[string]any,
 		skillField = "name"
 	}
 	skill := stringField(update, "rawInput", skillField)
+	if a.binding.Harness == config.Antigravity {
+		skill = a.viewedSkill(stringField(update, "rawInput", "absolute_path"))
+	}
 	call := stringField(update, "toolCallId")
 	if skill == "" || a.skillCalls[call] {
 		return
@@ -193,6 +200,21 @@ func (a *Agent) recordSkillUse(ctx context.Context, notification map[string]any,
 		a.skillCalls = map[string]bool{}
 	}
 	a.skillCalls[call] = true
+}
+
+// viewedSkill gives the name of the skill whose SKILL.md in the skill folder of the session directory is the file, or an
+// empty text for another file.
+func (a *Agent) viewedSkill(file string) string {
+	folder := filepath.Join(a.spec.Dir, a.binding.Harness.SkillDirectory()) + string(filepath.Separator)
+	rest, found := strings.CutPrefix(filepath.Clean(file), folder)
+	if !found {
+		return ""
+	}
+	name, base, found := strings.Cut(rest, string(filepath.Separator))
+	if !found || base != "SKILL.md" {
+		return ""
+	}
+	return name
 }
 
 // roleName gives the name of the Role of a in the config.

@@ -107,7 +107,9 @@ func (e *Engine) skillUsageText(ctx context.Context, organization string, from, 
 			unrecorded = append(unrecorded, string(h))
 		}
 	}
-	fmt.Fprintf(&text, "Mobius records no skill use for: %s.\n", strings.Join(unrecorded, ", "))
+	if len(unrecorded) > 0 {
+		fmt.Fprintf(&text, "Mobius records no skill use for: %s.\n", strings.Join(unrecorded, ", "))
+	}
 	for i, folder := range folders {
 		description, roles := skillFrontmatter(texts[i])
 		rolesText := "all roles"
