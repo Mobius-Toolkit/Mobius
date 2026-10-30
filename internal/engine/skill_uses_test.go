@@ -394,6 +394,9 @@ func TestADSHBashCommandWithASkillFileAddsOneRowWithTheSourceOfTheSkill(t *testi
 	server, _ := connectScript(t, fake, dshScript(`  '{"sessionUpdate":"tool_call","toolCallId":"call_1","title":"bash","kind":"other","status":"in_progress","rawInput":{"command":"cat .agents/skills/mobius-local-state/SKILL.md"}}',
   '{"sessionUpdate":"tool_call","toolCallId":"call_2","title":"bash","kind":"other","status":"in_progress","rawInput":{"command":"cat internal/engine/x.go"}}',
   '{"sessionUpdate":"tool_call","toolCallId":"call_3","title":"bash","kind":"other","status":"in_progress","rawInput":{"command":"cat ~/.agents/skills/mobius-local-state/SKILL.md"}}',
+  '{"sessionUpdate":"tool_call","toolCallId":"call_4","title":"bash","kind":"other","status":"in_progress","rawInput":{"command":"cat .agents/skills/*/SKILL.md"}}',
+  '{"sessionUpdate":"tool_call","toolCallId":"call_5","title":"bash","kind":"other","status":"in_progress","rawInput":{"command":"cat .agents/skills/{mobius-local-state,commit}/SKILL.md"}}',
+  '{"sessionUpdate":"tool_call","toolCallId":"call_6","title":"bash","kind":"other","status":"in_progress","rawInput":{"command":"cat .agents/skills/mobius-local-state/SKILL.md.bak"}}',
 `), dshLead)
 
 	session, _ := leadReply(t, server)

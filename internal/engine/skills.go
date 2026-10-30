@@ -260,6 +260,9 @@ func (a *Agent) commandSkill(command string) string {
 			continue
 		}
 		name := command[nameStart : end-1]
+		if !pathEnd(command, offset) || strings.ContainsAny(name, "*?[{") {
+			continue
+		}
 		before := command[:nameStart]
 		if strings.HasSuffix(before, absolute) {
 			return name
@@ -276,6 +279,19 @@ func (a *Agent) commandSkill(command string) string {
 		}
 	}
 	return ""
+}
+
+// pathEnd tells whether command[index] ends a path, so a path with more text after SKILL.md, for example
+// SKILL.md.bak, is no skill file.
+func pathEnd(command string, index int) bool {
+	if index >= len(command) {
+		return true
+	}
+	switch command[index] {
+	case ' ', '\t', '\n', '"', '\'', '`', ')', ']', '}', ',', ';', '|', '&', '<', '>':
+		return true
+	}
+	return false
 }
 
 // pathStart tells whether command[index] starts a word. A relative skill path must start a word, so a file below
