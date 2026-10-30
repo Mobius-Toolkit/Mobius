@@ -187,10 +187,10 @@ type answer struct {
 	Error    string    `json:"error"`
 }
 
-// Transcribe gives the text of the WAV file wav. While the converter downloads or starts the model, it waits. When the
+// Transcribe gives the text of the WAV file wav in the language with the code language. While the converter downloads or starts the model, it waits. When the
 // wait and the conversion together take more than finishTimeout, it gives the last Unavailable error. It gives
 // NotInstalled and each other error at once.
-func (w *Whisper) Transcribe(ctx context.Context, wav []byte) (string, error) {
+func (w *Whisper) Transcribe(ctx context.Context, wav []byte, language string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, finishTimeout)
 	defer cancel()
 	for {
@@ -207,23 +207,23 @@ func (w *Whisper) Transcribe(ctx context.Context, wav []byte) (string, error) {
 		case <-time.After(readyInterval):
 		}
 	}
-	result, err := w.infer(ctx, wav, "json")
+	result, err := w.infer(ctx, wav, "json", language)
 	if err != nil {
 		return "", err
 	}
 	return withoutInventedLines(result.Text), nil
 }
 
-// Segments gives the segments of the WAV file wav. It gives an Unavailable error while the converter is not ready.
-func (w *Whisper) Segments(ctx context.Context, wav []byte) ([]Segment, error) {
-	result, err := w.infer(ctx, wav, "verbose_json")
+// Segments gives the segments of the WAV file wav in the language with the code language. It gives an Unavailable error while the converter is not ready.
+func (w *Whisper) Segments(ctx context.Context, wav []byte, language string) ([]Segment, error) {
+	result, err := w.infer(ctx, wav, "verbose_json", language)
 	if err != nil {
 		return nil, err
 	}
 	return withoutInventedSegments(result.Segments), nil
 }
 
-func (w *Whisper) infer(ctx context.Context, wav []byte, format string) (answer, error) {
+func (w *Whisper) infer(ctx context.Context, wav []byte, format, language string) (answer, error) {
 	if err := w.ensure(ctx); err != nil {
 		return answer{}, err
 	}
@@ -237,6 +237,9 @@ func (w *Whisper) infer(ctx context.Context, wav []byte, format string) (answer,
 		return answer{}, err
 	}
 	if err := form.WriteField("response_format", format); err != nil {
+		return answer{}, err
+	}
+	if err := form.WriteField("language", language); err != nil {
 		return answer{}, err
 	}
 	if err := form.Close(); err != nil {

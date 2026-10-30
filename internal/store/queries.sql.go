@@ -3057,6 +3057,17 @@ func (q *Queries) GetSyncCursor(ctx context.Context, arg GetSyncCursorParams) (G
 	return i, err
 }
 
+const getVoiceLanguage = `-- name: GetVoiceLanguage :one
+SELECT id, language, updated_at FROM voice_language WHERE id = 1
+`
+
+func (q *Queries) GetVoiceLanguage(ctx context.Context) (VoiceLanguage, error) {
+	row := q.db.QueryRowContext(ctx, getVoiceLanguage)
+	var i VoiceLanguage
+	err := row.Scan(&i.ID, &i.Language, &i.UpdatedAt)
+	return i, err
+}
+
 const handTaskToHuman = `-- name: HandTaskToHuman :execrows
 UPDATE tasks SET state = 'needs_human', needs_human_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL
 WHERE id = ?1 AND state = ?2
@@ -8718,6 +8729,21 @@ func (q *Queries) UpsertRoleSetting(ctx context.Context, arg UpsertRoleSettingPa
 		arg.Max,
 		arg.UpdatedAt,
 	)
+	return err
+}
+
+const upsertVoiceLanguage = `-- name: UpsertVoiceLanguage :exec
+INSERT INTO voice_language (id, language, updated_at) VALUES (1, ?, ?)
+ON CONFLICT (id) DO UPDATE SET language = excluded.language, updated_at = excluded.updated_at
+`
+
+type UpsertVoiceLanguageParams struct {
+	Language  string
+	UpdatedAt string
+}
+
+func (q *Queries) UpsertVoiceLanguage(ctx context.Context, arg UpsertVoiceLanguageParams) error {
+	_, err := q.db.ExecContext(ctx, upsertVoiceLanguage, arg.Language, arg.UpdatedAt)
 	return err
 }
 
