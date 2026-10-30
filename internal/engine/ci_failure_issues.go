@@ -94,7 +94,8 @@ func (e *Engine) createCIFailureIssue(ctx context.Context, repository github.Rep
 }
 
 // addCIFailureIssueBelow adds the issue of failure below the Workstream, and stores its number as a positive number. It
-// tells whether the issue is below the Workstream. A 4xx answer of GitHub is no error, and the next poll tries again.
+// writes no label when the issue has a task, because dispatch removed the label when the task started. It tells whether
+// the issue is below the Workstream. A 4xx answer of GitHub is no error, and the next poll tries again.
 func (e *Engine) addCIFailureIssueBelow(ctx context.Context, repository github.Repository, workstream issueAt, failure store.CiFailure) (bool, error) {
 	number := -failure.Issue
 	issue, err := repository.Issue(ctx, number)
@@ -111,23 +112,31 @@ func (e *Engine) addCIFailureIssueBelow(ctx context.Context, repository github.R
 	if issue != nil {
 		// The add below the Workstream does not change the list of the issues with mobius:ready, and dispatchReady can
 		// have stored its ETag before the issue was below the Workstream. The new label event makes dispatchReady read
-		// the list again. When the issue has no mobius:ready, the label comes back only after a remove of the App, so a
-		// label that a person removed stays removed.
-		addLabel := hasLabel(issue, readyLabel)
-		if addLabel {
-			if err := repository.RemoveLabel(ctx, number, readyLabel); err != nil {
-				return issue != nil, labelWriteError(repository, number, "remove", err)
+		// the list again. An issue that already has a task needs no label: dispatch removed it when the task started,
+		// and the label would restart a stopped task. When the issue has no mobius:ready, the label comes back only
+		// after a remove of the App, so a label that a person removed stays removed.
+		hadTask, err := e.queries.HasTask(ctx, store.HasTaskParams{Repository: repository.FullName, Issue: number})
+		if err != nil {
+			return issue != nil, err
+		}
+		addLabel := false
+		if !hadTask {
+			addLabel = hasLabel(issue, readyLabel)
+			if addLabel {
+				if err := repository.RemoveLabel(ctx, number, readyLabel); err != nil {
+					return issue != nil, labelWriteError(repository, number, "remove", err)
+				}
+			} else {
+				removed, err := e.readyRemovedByApp(ctx, repository, number)
+				if refusedByGitHub(err) {
+					log.Printf("read the events of #%d of %s: %v", number, repository.FullName, err)
+					return issue != nil, nil
+				}
+				if err != nil {
+					return issue != nil, err
+				}
+				addLabel = removed
 			}
-		} else {
-			removed, err := e.readyRemovedByApp(ctx, repository, number)
-			if refusedByGitHub(err) {
-				log.Printf("read the events of #%d of %s: %v", number, repository.FullName, err)
-				return issue != nil, nil
-			}
-			if err != nil {
-				return issue != nil, err
-			}
-			addLabel = removed
 		}
 		if addLabel {
 			if err := repository.AddLabel(ctx, number, readyLabel); err != nil {
