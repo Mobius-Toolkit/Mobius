@@ -150,7 +150,12 @@ function TaskEntry({ line }: { line: TaskLine }) {
     const [owner, name] = line.repository.split("/");
     setStopping(true);
     stopIssue(owner, name, line.number)
-      .then((res) => setError(res.status === 204 ? "" : res.data.error))
+      .then((res) => {
+        setError(res.status === 204 ? "" : res.data.error);
+        if (res.status === 204) {
+          showNotice(`Stopped ${reference}`);
+        }
+      })
       .catch((err: unknown) => setError(String(err)))
       .finally(() => setStopping(false));
   };
