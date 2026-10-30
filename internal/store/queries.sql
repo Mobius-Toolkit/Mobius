@@ -419,6 +419,11 @@ SELECT delivered_at FROM lead_events
 WHERE repository = ? AND workstream = ? AND delivered_at IS NOT NULL
 ORDER BY julianday(delivered_at) DESC LIMIT 1;
 
+-- name: GetLastLeadEventTime :one
+SELECT time FROM lead_events
+WHERE repository = ? AND workstream = ? AND kind = ?
+ORDER BY julianday(time) DESC LIMIT 1;
+
 -- A failed start of a Lead session gets no first prompt. Compare the started_at texts with the bound only as a wide
 -- range, because the fractions of the times have no fixed length.
 -- name: ListFailedLeadStarts :many

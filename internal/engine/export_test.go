@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
@@ -42,6 +43,14 @@ func (e *Engine) AccessChecked() bool {
 		}
 	}
 	return true
+}
+
+// SetRecordedSkillHarnesses makes the Harnesses with a skill use record harnesses. It gives the function that sets the
+// old Harnesses again. A test that calls it is serial.
+func SetRecordedSkillHarnesses(harnesses ...config.Harness) func() {
+	old := recordedSkillHarnesses
+	recordedSkillHarnesses = harnesses
+	return func() { recordedSkillHarnesses = old }
 }
 
 // PollEnded tells if a poll ended. A poll replaces the work at its end.
