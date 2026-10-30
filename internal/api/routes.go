@@ -92,6 +92,8 @@ func Routes(mux *http.ServeMux, queries *store.Queries, a *auth.Auth, gh *github
 	r.Get("/api/usage/times", h.GetUsageTimes, append(loggedIn("usage"), api.WithErrorResponses(http.StatusBadRequest))...)
 	r.Get("/api/usage/skills", h.GetUsageSkills, append(loggedIn("usage"), api.WithErrorResponses(http.StatusBadRequest))...)
 	r.Post("/api/voice/transcriptions", h.Transcribe, append(loggedIn("voice"), api.WithRequestContentTypes("audio/wav"), api.WithErrorResponses(http.StatusBadGateway, http.StatusServiceUnavailable))...)
+	r.Get("/api/voice/language", h.GetVoiceLanguage, loggedIn("voice")...)
+	r.Put("/api/voice/language", h.SetVoiceLanguage, append(loggedIn("voice"), api.WithErrorResponses(http.StatusUnprocessableEntity))...)
 	r.Post("/api/voice/recordings", h.CreateRecording, loggedIn("voice")...)
 	r.Post("/api/voice/recordings/{id}/chunks", h.SendChunk, append(loggedIn("voice"), api.WithRequestContentTypes("application/octet-stream"), api.WithErrorResponses(http.StatusNotFound, http.StatusConflict, http.StatusBadGateway, http.StatusServiceUnavailable))...)
 	r.Post("/api/voice/recordings/{id}/finish", h.FinishRecording, append(loggedIn("voice"), api.WithErrorResponses(http.StatusNotFound, http.StatusBadGateway, http.StatusServiceUnavailable))...)
