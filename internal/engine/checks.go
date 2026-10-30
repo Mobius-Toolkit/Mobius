@@ -280,10 +280,10 @@ func (e *Engine) remindLead(ctx context.Context, task store.Task, limit time.Dur
 
 // rerunFailedJobs runs the failed jobs of each newest workflow run of the head again, when the run is in its first
 // attempt, and stores the head as the re-run head of the task after all calls. It tells if the task waits for the new
-// attempts. A 4xx answer of GitHub, for example with no permission, is a refusal: the failure stays a failure, except
-// when a job of the refused run does not complete. GitHub refuses the re-run while such a job runs, so the task waits
-// and the next poll tries again. Another error returns, and the next poll tries again. A run that already started its
-// second attempt is not run again.
+// attempts, or for the jobs of a run that did not complete: GitHub refuses a re-run while such a job runs, so the task
+// waits and the next poll reads the jobs again. A 4xx answer of the list of jobs counts as completed jobs. A 4xx answer
+// of the re-run, for example with no permission, is a refusal: the failure stays a failure. Another error returns, and
+// the next poll tries again. A run that already started its second attempt is not run again.
 func (e *Engine) rerunFailedJobs(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) (bool, error) {
 	head := pullRequest.GetHead().GetSHA()
 	workflows, err := repository.WorkflowRuns(ctx, head)
@@ -293,42 +293,38 @@ func (e *Engine) rerunFailedJobs(ctx context.Context, repository github.Reposito
 	failed := slices.DeleteFunc(newestWorkflowRuns(workflows), func(run *gh.WorkflowRun) bool {
 		return !failedWorkflowRun(run) || run.GetRunAttempt() != 1
 	})
+	if len(failed) == 0 {
+		return false, nil
+	}
+	var running []string
+	for _, run := range failed {
+		jobs, err := repository.RunAttemptJobs(ctx, run.GetID(), int64(run.GetRunAttempt()))
+		var refused *gh.ErrorResponse
+		if errors.As(err, &refused) && refused.Response.StatusCode < 500 {
+			continue
+		} else if err != nil {
+			return false, err
+		}
+		for _, job := range jobs {
+			if job.GetStatus() != "completed" {
+				running = append(running, job.GetName())
+			}
+		}
+	}
+	if len(running) > 0 {
+		return true, e.onLongCIWait(ctx, repository, task, pullRequest, running)
+	}
 	ids := make([]string, 0, len(failed))
 	for _, run := range failed {
 		ids = append(ids, strconv.FormatInt(run.GetID(), 10))
 		var refused *gh.ErrorResponse
 		if err := repository.RerunFailedJobs(ctx, run.GetID()); errors.As(err, &refused) && refused.Response.StatusCode < 500 {
-			return e.waitForJobs(ctx, repository, task, pullRequest, run)
+			return false, nil
 		} else if err != nil {
 			return false, err
 		}
 	}
-	if len(failed) == 0 {
-		return false, nil
-	}
 	return true, e.queries.SetTaskRerunHead(ctx, store.SetTaskRerunHeadParams{RerunHead: sql.NullString{String: head, Valid: true}, RerunRuns: sql.NullString{String: strings.Join(ids, ","), Valid: true}, ID: task.ID})
-}
-
-// waitForJobs tells if the task waits for the jobs of the first attempt of the run, because GitHub refused to run it
-// again. It waits while a job does not complete. A refused list of jobs, or a run with only completed jobs, gives no wait.
-func (e *Engine) waitForJobs(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest, run *gh.WorkflowRun) (bool, error) {
-	jobs, err := repository.RunAttemptJobs(ctx, run.GetID(), int64(run.GetRunAttempt()))
-	var refused *gh.ErrorResponse
-	if errors.As(err, &refused) && refused.Response.StatusCode < 500 {
-		return false, nil
-	} else if err != nil {
-		return false, err
-	}
-	var running []string
-	for _, job := range jobs {
-		if job.GetStatus() != "completed" {
-			running = append(running, job.GetName())
-		}
-	}
-	if len(running) == 0 {
-		return false, nil
-	}
-	return true, e.onLongCIWait(ctx, repository, task, pullRequest, running)
 }
 
 // rerunWaiting gives the names of the runs that Mobius ran again and that are still in their first attempt and failed.
