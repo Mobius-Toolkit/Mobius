@@ -1446,6 +1446,95 @@ test("the Tasks tab shows owner/name#N and the Start button for a task of anothe
   await expect.poll(() => requests).toEqual(["/api/repositories/plants/orchard/issues/5/start"]);
 });
 
+const stopStates = [
+  "open",
+  "triage",
+  "needs-human",
+  "closed",
+  "working",
+  "ready",
+  "review",
+  "queued",
+  "question",
+  "waits for CI",
+  "waits for Lead",
+  "waits for Owner",
+  "waits for start_implementer",
+];
+
+async function routeStopTasks(page: Page) {
+  await page.route("**/api/workstreams/plants/garden/19/tasks", (route) =>
+    route.fulfill({
+      json: {
+        data: stopStates.map((state, index) => ({
+          number: 80 + index,
+          title: `Task ${index}`,
+          state,
+          depth: 0,
+          repository: "plants/garden",
+          otherRepository: false,
+          url: `https://github.com/plants/garden/issues/${80 + index}`,
+          blockedBy: index === 5 ? [{ number: 70, workstreamTitle: "" }] : [],
+        })),
+      },
+    }),
+  );
+}
+
+test("the Tasks tab shows Stop for a ready or running task, also with a blocker, and for no other state", async ({
+  page,
+}) => {
+  await page.goto("/api/github/user-callback?code=user-code");
+  await routeStopTasks(page);
+  await page.goto("/workstreams/plants/garden/19");
+  await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
+  const rows = page.getByRole("listitem");
+  await expect(rows.filter({ hasText: "#80 Task 0" })).toBeVisible();
+  await page.getByLabel("Show closed tasks").filter({ visible: true }).click();
+  for (const [index, state] of stopStates.entries()) {
+    const row = rows.filter({ hasText: `#${80 + index} Task ${index}` });
+    await expect(row, state).toBeVisible();
+    const stop = row.getByRole("button", { name: `Stop #${80 + index}` });
+    if (index >= 4) {
+      await expect(stop, state).toHaveCount(1);
+      await expect(stop).toHaveAttribute("title", `Stop #${80 + index}`);
+    } else {
+      await expect(stop, state).toHaveCount(0);
+    }
+  }
+});
+
+test("Stop sends the stop request for its issue, and a 409 answer shows its error below the line", async ({
+  page,
+}) => {
+  await page.goto("/api/github/user-callback?code=user-code");
+  await routeStopTasks(page);
+  const requests: string[] = [];
+  await page.route("**/api/repositories/*/*/issues/*/stop", async (route) => {
+    requests.push(new URL(route.request().url()).pathname);
+    if (requests.length === 1) {
+      await route.fulfill({
+        status: 409,
+        json: { error: "The Owner must authorize the Mobius App." },
+      });
+    } else {
+      await route.fulfill({ status: 204 });
+    }
+  });
+  await page.goto("/workstreams/plants/garden/19");
+  await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
+  const row = page.getByRole("listitem").filter({ hasText: "#84 Task 4" });
+  const stop = row.getByRole("button", { name: "Stop #84" });
+
+  await stop.click();
+  await expect.poll(() => requests).toEqual(["/api/repositories/plants/garden/issues/84/stop"]);
+  await expect(row.getByText("The Owner must authorize the Mobius App.")).toBeVisible();
+
+  await stop.click();
+  await expect.poll(() => requests.length).toBe(2);
+  await expect(row.getByText("The Owner must authorize the Mobius App.")).toBeHidden();
+});
+
 test("the Tasks tab shows the closed tasks muted, with no Start button, when the switch is on", async ({
   page,
 }) => {
