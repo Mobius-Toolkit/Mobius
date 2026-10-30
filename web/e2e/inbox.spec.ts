@@ -127,31 +127,41 @@ test("the reason is on the line of the title on a desktop and below it on a phon
   const row = page.getByRole("main").getByRole("listitem").nth(1);
   const title = row.getByText("Let customers change plans");
   const reason = row.getByText("The implementer session hung");
-  const buttons = row.getByRole("button", { name: "Resume" });
+
+  // One call in the page reads all boxes, so they always come from one layout.
+  const layout = () =>
+    row.evaluate((element) => {
+      const deepest = (text: string) =>
+        [...element.querySelectorAll("*")]
+          .filter((e) => e.textContent?.includes(text))
+          .reduce((a, b) => (a.contains(b) ? b : a));
+      const titleElement = deepest("Let customers change plans");
+      // scrollWidth rounds, so a cut of less than one pixel needs the width of the text itself.
+      const range = document.createRange();
+      range.selectNodeContents(titleElement);
+      const resume = [...element.querySelectorAll("button")].find(
+        (e) => e.textContent?.trim() === "Resume",
+      )!;
+      return {
+        title: titleElement.getBoundingClientRect(),
+        reason: deepest("The implementer session hung").getBoundingClientRect(),
+        buttons: resume.getBoundingClientRect(),
+        cut: range.getBoundingClientRect().width - titleElement.getBoundingClientRect().width,
+      };
+    });
 
   await page.setViewportSize({ width: 1280, height: 800 });
-  // The banners above the list can change between two reads and move the rows, so all boxes are read again until they fit one layout.
   await expect(async () => {
-    const desktop = { title: await title.boundingBox(), reason: await reason.boundingBox() };
-    expect(desktop.reason!.y).toBeLessThan(desktop.title!.y + desktop.title!.height);
-    // scrollWidth rounds, so a cut of less than one pixel needs the width of the text itself.
-    const cut = await title.evaluate((e) => {
-      const range = document.createRange();
-      range.selectNodeContents(e);
-      return range.getBoundingClientRect().width - e.getBoundingClientRect().width;
-    });
-    expect(cut).toBeLessThanOrEqual(0);
+    const desktop = await layout();
+    expect(desktop.reason.y).toBeLessThan(desktop.title.bottom);
+    expect(desktop.cut).toBeLessThanOrEqual(0);
   }).toPass();
 
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(async () => {
-    const phone = {
-      title: await title.boundingBox(),
-      reason: await reason.boundingBox(),
-      buttons: await buttons.boundingBox(),
-    };
-    expect(phone.reason!.y).toBeGreaterThanOrEqual(phone.title!.y + phone.title!.height);
-    expect(phone.buttons!.y).toBeGreaterThanOrEqual(phone.reason!.y + phone.reason!.height);
+    const phone = await layout();
+    expect(phone.reason.y).toBeGreaterThanOrEqual(phone.title.bottom);
+    expect(phone.buttons.y).toBeGreaterThanOrEqual(phone.reason.bottom);
   }).toPass();
   await expect(title).toHaveJSProperty("scrollWidth", await title.evaluate((e) => e.clientWidth));
   await expect(reason).toHaveJSProperty("scrollWidth", await reason.evaluate((e) => e.clientWidth));
