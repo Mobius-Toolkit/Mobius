@@ -119,6 +119,47 @@ func TestTheFixRoundOfAFailureWithAnOpenRecordIssueGetsTheIssueAndTheStep(t *tes
 	if !strings.Contains(round, step) {
 		t.Errorf("%q is not in %s", step, round)
 	}
+	if n := strings.Count(round, "The open issue"); n != 1 {
+		t.Errorf("issue sentences = %d in %s", n, round)
+	}
+}
+
+func TestTheFixRoundsOfAFailureThatGotItsIssueAfterTheDiagnosisGetTheIssue(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := connectDiagnoserFixing(t, fake, leadStartsTwo, fixesNothing, reportsPlan)
+	addMaintenanceWorkstream(fake, maintenance)
+	fake.AddSubIssueOf(shop, 12, 43, "Task 43")
+	first := approvalHeadOf(t, server, fake, 41)
+	second := approvalHeadOf(t, server, fake, 43)
+	failActions(fake, first)
+	testkit.WaitFor(t, func() bool {
+		return liveTaskState(t, server, 41) == "needs_human" && slices.Contains(fake.Labels(shop, 41), "mobius:needs-human")
+	})
+
+	failActions(fake, second)
+
+	number := ciBreakIssue(t, fake)
+	sentence := fmt.Sprintf("  The open issue #%d holds this failure. Do not fix it in this task.\n", number)
+	roundsWithIssue := func() int {
+		rounds := 0
+		for _, session := range roleSessions(t, server, engine.ImplementerRole) {
+			for _, prompt := range promptTexts(t, server, session.ID) {
+				if strings.Contains(prompt, sentence) {
+					rounds++
+					if n := strings.Count(prompt, "The open issue"); n != 1 {
+						t.Errorf("issue sentences = %d in %s", n, prompt)
+					}
+				}
+			}
+		}
+		return rounds
+	}
+	testkit.WaitFor(t, func() bool { return roundsWithIssue() == 1 })
+
+	fake.RemoveLabel(shop, 41, "mobius:needs-human", "owner")
+
+	testkit.WaitFor(t, func() bool { return roundsWithIssue() == 2 })
 }
 
 func TestAFailureInOnePullRequestGivesNoIssue(t *testing.T) {

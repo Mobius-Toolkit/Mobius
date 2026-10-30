@@ -54,7 +54,8 @@ func (e *Engine) pullRequestDiagnosis(ctx context.Context, repository github.Rep
 		e.startDiagnoser(repository.FullName)
 		return "", true, nil
 	}
-	return diagnosisSection(diagnosis.Reasons, repository.DefaultBranch), false, nil
+	section, err := e.diagnosisWithIssues(ctx, repository, diagnosis)
+	return section, false, err
 }
 
 // endedDiagnosis gives the section of the items of a fix round with the diagnosis of an ended Diagnoser of the head. It
@@ -67,7 +68,7 @@ func (e *Engine) endedDiagnosis(ctx context.Context, repository github.Repositor
 	if err != nil {
 		return "", err
 	}
-	return diagnosisSection(diagnosis.Reasons, repository.DefaultBranch), nil
+	return e.diagnosisWithIssues(ctx, repository, diagnosis)
 }
 
 const (
@@ -85,6 +86,36 @@ For each failure that the change of the pull request did not cause:
 4. Fix the test only when the log and the code show its cause.
 5. Else make no commit. Then Mobius runs the failed jobs again one time.
 `
+
+// diagnosisWithIssues gives the section of diagnosis. A failure that the pull request did not cause gets the open issue
+// of its record, also when Mobius made the issue after the Diagnoser reported the failure.
+func (e *Engine) diagnosisWithIssues(ctx context.Context, repository github.Repository, diagnosis store.CiDiagnosis) (string, error) {
+	places, err := e.queries.ListHeadFailureIssues(ctx, store.ListHeadFailureIssuesParams{Repository: repository.FullName, PullRequest: diagnosis.PullRequest, Head: diagnosis.Head})
+	if err != nil {
+		return "", err
+	}
+	var reasons strings.Builder
+	rest := diagnosis.Reasons
+	for len(places) > 0 {
+		end := strings.Index(rest, notCausedSentence)
+		if end < 0 {
+			break
+		}
+		end += len(notCausedSentence)
+		reasons.WriteString(rest[:end])
+		rest = rest[end:]
+		place := places[0]
+		places = places[1:]
+		if place.EndedAt == "" && place.Issue != 0 {
+			sentence := fmt.Sprintf(openIssueSentence, max(place.Issue, -place.Issue))
+			if !strings.HasPrefix(rest, sentence) {
+				reasons.WriteString(sentence)
+			}
+		}
+	}
+	reasons.WriteString(rest)
+	return diagnosisSection(reasons.String(), repository.DefaultBranch), nil
+}
 
 func diagnosisSection(reasons, defaultBranch string) string {
 	if reasons == "" {

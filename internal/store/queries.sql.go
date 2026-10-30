@@ -5219,6 +5219,47 @@ func (q *Queries) ListHarnessPauses(ctx context.Context) ([]HarnessPause, error)
 	return items, nil
 }
 
+const listHeadFailureIssues = `-- name: ListHeadFailureIssues :many
+SELECT ci_failures.issue, ci_failures.ended_at
+FROM ci_failure_places JOIN ci_failures ON ci_failures.id = ci_failure_places.failure
+WHERE ci_failures.repository = ? AND ci_failure_places.pull_request = ? AND ci_failure_places.head = ?
+ORDER BY ci_failure_places.id
+`
+
+type ListHeadFailureIssuesParams struct {
+	Repository  string
+	PullRequest int64
+	Head        string
+}
+
+type ListHeadFailureIssuesRow struct {
+	Issue   int64
+	EndedAt string
+}
+
+func (q *Queries) ListHeadFailureIssues(ctx context.Context, arg ListHeadFailureIssuesParams) ([]ListHeadFailureIssuesRow, error) {
+	rows, err := q.db.QueryContext(ctx, listHeadFailureIssues, arg.Repository, arg.PullRequest, arg.Head)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListHeadFailureIssuesRow
+	for rows.Next() {
+		var i ListHeadFailureIssuesRow
+		if err := rows.Scan(&i.Issue, &i.EndedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listHeldLeadEventsWithoutQuestion = `-- name: ListHeldLeadEventsWithoutQuestion :many
 SELECT id, repository, workstream, kind, payload, time, delivered_at, chat_message, issue, held, comment, review, held_at, issue_repository FROM lead_events AS event
 WHERE event.repository = ?1 AND event.held = 1 AND event.delivered_at IS NULL

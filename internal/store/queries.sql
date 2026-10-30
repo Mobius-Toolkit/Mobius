@@ -1213,6 +1213,12 @@ FROM ci_failure_places LEFT JOIN ci_breaks ON ci_breaks.id = ci_failure_places.c
 WHERE ci_failure_places.failure = ?
 ORDER BY ci_failure_places.id;
 
+-- name: ListHeadFailureIssues :many
+SELECT ci_failures.issue, ci_failures.ended_at
+FROM ci_failure_places JOIN ci_failures ON ci_failures.id = ci_failure_places.failure
+WHERE ci_failures.repository = ? AND ci_failure_places.pull_request = ? AND ci_failure_places.head = ?
+ORDER BY ci_failure_places.id;
+
 -- name: AddLeadWrite :exec
 INSERT INTO lead_writes (session, repository, issue, kind, labels, text, created_at) VALUES (?, ?, ?, ?, ?, ?, ?);
 
