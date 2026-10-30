@@ -8,6 +8,8 @@ import {
 } from "@/api/api.gen";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { levelName } from "@/lib/autopilot";
+import { showNotice } from "@/lib/notice";
 import type { Workstreams } from "@/lib/workstreams";
 import { AgentPanel } from "./AgentPanel";
 import { AutopilotMenu, AutopilotSheet } from "./Autopilot";
@@ -65,6 +67,7 @@ export function Chat({
         if (res.status === 204) {
           setChosen({ from: serverLevel, to });
           setAutopilotError("");
+          showNotice(`Autopilot of #${number}: ${levelName(to)}`);
         } else {
           setAutopilotError(res.data.error);
         }
@@ -81,7 +84,9 @@ export function Chat({
     setCloseError("");
     completeWorkstream(owner, name, number)
       .then((res) => {
-        if (res.status !== 204) {
+        if (res.status === 204) {
+          showNotice(`Closed the Workstream #${number}`);
+        } else {
           setCloseError(res.data.error);
           setCloseBusy(false);
         }

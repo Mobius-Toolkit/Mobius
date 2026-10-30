@@ -15,6 +15,7 @@ import { actionState, roleName, type Decision } from "@/lib/actions";
 import { answerDraftKey, saveDraftText } from "@/lib/draft";
 import { useKeyboardHeight } from "@/lib/keyboard";
 import { LoginContext } from "@/lib/login";
+import { showNotice } from "@/lib/notice";
 import { useShell } from "@/lib/shell";
 import { dayClock } from "@/lib/time";
 import { cn } from "@/lib/utils";
@@ -165,6 +166,11 @@ export function AnswerPanel({
     try {
       const res = await answerInboxItem(item.id, { text });
       if (res.status === 200) {
+        showNotice(
+          item.workstream === 0
+            ? "Sent the answer to the Coordinator"
+            : `Sent the answer to the Lead of #${item.workstream}`,
+        );
         onClose();
         return true;
       }
@@ -187,6 +193,7 @@ export function AnswerPanel({
     try {
       const res = await doneInboxItem(item.id, { note });
       if (res.status === 200) {
+        showNotice(`Marked the todo ${item.todo?.name ?? item.title} as done`);
         onClose();
         return true;
       }
@@ -213,6 +220,9 @@ export function AnswerPanel({
         updateAction(decided);
         onDecided?.(decided);
         if (decided.state !== "pending") {
+          showNotice(
+            `${decision === "approve" ? "Approved" : "Rejected"}: ${item.title || item.reason}`,
+          );
           leaveInbox(item.id);
           onClose();
           return true;
