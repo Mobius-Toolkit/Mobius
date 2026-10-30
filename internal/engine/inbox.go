@@ -238,18 +238,25 @@ func (e *Engine) SendAgain(ctx context.Context, id int64) error {
 		return err
 	}
 	cancelled, err := e.queries.CancelChatMessage(ctx, store.CancelChatMessageParams{CancelledAt: sql.NullString{String: now(), Valid: true}, ID: message.ID})
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+	if errors.Is(err, sql.ErrNoRows) {
+		return e.Dismiss(ctx, id)
+	}
+	if err != nil {
 		return err
 	}
-	if err == nil && cancelled.Author != approvalAuthor {
+	if cancelled.Author != approvalAuthor {
 		e.publish(Change{Message: &cancelled})
 	}
 	key := ChatKey{Organization: message.Organization, Repository: message.Repository, Workstream: message.Workstream}
-	e.forgetChatMessage(key, message.ID)
-	if err := e.Dismiss(ctx, id); err != nil {
-		return err
+	if err := e.storeChat(ctx, key, ownerAuthor, rand.Text(), message.Text, images, inboxItems); err != nil {
+		restored, undoErr := e.queries.UndoCancelChatMessage(context.WithoutCancel(ctx), message.ID)
+		if undoErr == nil && restored.Author != approvalAuthor {
+			e.publish(Change{Message: &restored})
+		}
+		return errors.Join(err, undoErr)
 	}
-	return e.postChat(ctx, key, ownerAuthor, rand.Text(), message.Text, images, inboxItems)
+	e.forgetChatMessage(key, message.ID)
+	return e.Dismiss(ctx, id)
 }
 
 // ErrNoInboxItem is the error of an Inbox item that does not exist.

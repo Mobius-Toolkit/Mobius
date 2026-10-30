@@ -335,6 +335,11 @@ UPDATE chat_messages SET cancelled_at = sqlc.arg(cancelled_at)
 WHERE id = sqlc.arg(id) AND delivered_at IS NULL AND cancelled_at IS NULL
 RETURNING *;
 
+-- name: UndoCancelChatMessage :one
+UPDATE chat_messages SET cancelled_at = NULL
+WHERE id = sqlc.arg(id) AND delivered_at IS NULL AND cancelled_at IS NOT NULL
+RETURNING *;
+
 -- name: StopChatMessage :one
 UPDATE chat_messages SET stopped_at = ? WHERE id = ? AND delivered_at IS NULL AND stopped_at IS NULL AND cancelled_at IS NULL
 RETURNING *;
@@ -394,6 +399,7 @@ ORDER BY id DESC LIMIT ?;
 -- name: ListChatMessagesBefore :many
 SELECT * FROM chat_messages
 WHERE organization = ? AND repository = ? AND workstream = ? AND author != 'Record' AND id < ?
+  AND cancelled_at IS NULL
 ORDER BY id DESC LIMIT ?;
 
 -- name: SetChatSeen :exec

@@ -436,8 +436,12 @@ func TestSendAgainCancelsTheWaitingMessageAndPostsOneCopy(t *testing.T) {
 	}
 	waitForDeliveredMessage(t, server, leadChat, text)
 	sessions := chatSessions(t, server, leadChat, engine.LeadRole)
-	if got := len(promptTexts(t, server, sessions[len(sessions)-1].ID)); got != 1 {
-		t.Errorf("prompts of the copy = %d", got)
+	prompts := promptTexts(t, server, sessions[len(sessions)-1].ID)
+	if len(prompts) == 0 {
+		t.Fatal("the copy has no prompt")
+	}
+	if got := strings.Count(prompts[0], text); got != 1 {
+		t.Errorf("the first prompt of the copy gives the text %d times", got)
 	}
 	before := len(sessions)
 
@@ -453,6 +457,71 @@ func TestSendAgainCancelsTheWaitingMessageAndPostsOneCopy(t *testing.T) {
 	if got := len(chatSessions(t, restarted, leadChat, engine.LeadRole)); got != before {
 		t.Errorf("sessions after the restart = %d", got)
 	}
+}
+
+func TestSendAgainKeepsTheWaitingMessageWhenTheCopyFails(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	dataDir := t.TempDir()
+	fail := filepath.Join(dataDir, "fail")
+	if err := os.WriteFile(fail, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	script := options + fmt.Sprintf("[[prompts]]\nshell = \"%s\"\nreply = [\"Seen\"]\n", failedThen(fail, ""))
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
+	testkit.InstallFakeAgent(t, dataDir, script)
+	cfg := testserver.Config(t, dataDir)
+	server := startServerWith(t, fake, cfg, "")
+	server.WaitForFirstPoll(t, shop)
+	testkit.WaitFor(t, server.Engine.AccessChecked)
+	const text = "Plan the loyalty API"
+
+	sendChatImages(t, server, leadChat, text, []engine.Image{pngImage})
+	waitForFailedMessage(t, server, leadChat, text)
+	item := waitForFailedItem(t, server, text)
+	waitForChatEnd(t, server, leadChat)
+	if err := os.Remove(fail); err != nil {
+		t.Fatal(err)
+	}
+	images := filepath.Join(dataDir, "images")
+	last, err := store.New(server.DB).MaxChatMessageID(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The copy gets the next id, and its images cannot move onto a directory that is not empty.
+	taken := filepath.Join(images, fmt.Sprint(last+1))
+	if err := os.MkdirAll(taken, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(taken, "taken"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := server.Engine.SendAgain(t.Context(), item.ID); err == nil {
+		t.Fatal("Send again succeeded with a directory on the images of the copy")
+	}
+
+	message, ok := chatMessageByText(t, server, leadChat, text)
+	if !ok || message.CancelledAt.Valid || message.DeliveredAt.Valid || !message.FailedAt.Valid {
+		t.Errorf("message = %+v", message)
+	}
+	var owners int
+	for _, other := range chatView(t, server, leadChat).Messages {
+		if other.Author == "Owner" && other.Text == text {
+			owners++
+		}
+	}
+	if owners != 1 {
+		t.Errorf("Owner messages = %d", owners)
+	}
+	if items := itemsOf(t, server, "Lead failed"); len(items) != 1 || items[0].ID != item.ID {
+		t.Errorf("items = %+v", items)
+	}
+
+	server.Engine.SetClock(func() time.Time { return time.Now().Add(engine.FailedRetry + time.Minute) })
+
+	waitForDeliveredMessage(t, server, leadChat, text)
+	waitForNoFailedItems(t, server)
 }
 
 func TestDismissKeepsTheWaitingMessageAndTheNextTryDeliversIt(t *testing.T) {

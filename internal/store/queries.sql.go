@@ -4104,6 +4104,7 @@ func (q *Queries) ListCIFailuresWithoutIssue(ctx context.Context, repository str
 const listChatMessagesBefore = `-- name: ListChatMessagesBefore :many
 SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at FROM chat_messages
 WHERE organization = ? AND repository = ? AND workstream = ? AND author != 'Record' AND id < ?
+  AND cancelled_at IS NULL
 ORDER BY id DESC LIMIT ?
 `
 
@@ -8998,6 +8999,33 @@ RETURNING id, repository, workstream, author, time, text, organization, browser_
 
 func (q *Queries) UndeliverChatMessage(ctx context.Context, id int64) (ChatMessage, error) {
 	row := q.db.QueryRowContext(ctx, undeliverChatMessage, id)
+	var i ChatMessage
+	err := row.Scan(
+		&i.ID,
+		&i.Repository,
+		&i.Workstream,
+		&i.Author,
+		&i.Time,
+		&i.Text,
+		&i.Organization,
+		&i.BrowserID,
+		&i.DeliveredAt,
+		&i.StoppedAt,
+		&i.InboxItems,
+		&i.FailedAt,
+		&i.CancelledAt,
+	)
+	return i, err
+}
+
+const undoCancelChatMessage = `-- name: UndoCancelChatMessage :one
+UPDATE chat_messages SET cancelled_at = NULL
+WHERE id = ?1 AND delivered_at IS NULL AND cancelled_at IS NOT NULL
+RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at
+`
+
+func (q *Queries) UndoCancelChatMessage(ctx context.Context, id int64) (ChatMessage, error) {
+	row := q.db.QueryRowContext(ctx, undoCancelChatMessage, id)
 	var i ChatMessage
 	err := row.Scan(
 		&i.ID,
