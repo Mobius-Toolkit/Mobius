@@ -111,6 +111,62 @@ WHERE id IN (
     GROUP BY session
 );
 
+-- name: ListEndedTaskQuality :many
+WITH working AS (
+    SELECT ts.task, ts.started_at, ts.harness, ts.model, ts.effort
+    FROM task_states ts
+    WHERE ts.state = 'working'
+      AND ts.id = (SELECT MIN(inner_ts.id) FROM task_states inner_ts
+                   WHERE inner_ts.task = ts.task AND inner_ts.state = 'working')
+)
+SELECT t.repository AS repository,
+       (SELECT ts.ended_at FROM task_states ts WHERE ts.task = t.id
+        ORDER BY julianday(ts.ended_at) DESC LIMIT 1) AS ended_at,
+       working.harness AS harness,
+       working.model AS model,
+       working.effort AS effort,
+       working.started_at AS working_started_at,
+       (SELECT COUNT(*) FROM task_states ts WHERE ts.task = t.id AND ts.state = 'needs_human') AS needs_human,
+       (SELECT COUNT(*) FROM task_states ts WHERE ts.task = t.id AND ts.state = 'asked') AS questions,
+       (SELECT COUNT(*) FROM sessions s
+        WHERE s.repository = t.repository AND s.issue = t.issue
+          AND s.role = 'reviewer' AND s.end_reason = 'done'
+          AND julianday(s.started_at) >= julianday((SELECT ts.started_at FROM task_states ts
+                                                    WHERE ts.task = t.id ORDER BY ts.id LIMIT 1))
+          AND julianday(s.started_at) <= julianday((SELECT ts.ended_at FROM task_states ts
+                                                    WHERE ts.task = t.id
+                                                    ORDER BY julianday(ts.ended_at) DESC LIMIT 1))) AS review_rounds,
+       (SELECT COUNT(*) FROM sessions s
+        WHERE s.repository = t.repository AND s.issue = t.issue
+          AND s.role = 'implementer'
+          AND (s.end_reason IS NULL OR s.end_reason <> 'restart')
+          AND julianday(s.started_at) >= julianday((SELECT ts.started_at FROM task_states ts
+                                                    WHERE ts.task = t.id ORDER BY ts.id LIMIT 1))
+          AND julianday(s.started_at) <= julianday((SELECT ts.ended_at FROM task_states ts
+                                                    WHERE ts.task = t.id
+                                                    ORDER BY julianday(ts.ended_at) DESC LIMIT 1))) AS implementer_sessions,
+       (SELECT SUM(tu.input_tokens) FROM turn_usage tu WHERE tu.task = t.id) AS input_tokens,
+       (SELECT SUM(tu.output_tokens) FROM turn_usage tu WHERE tu.task = t.id) AS output_tokens,
+       (SELECT SUM(tu.cache_read_tokens) FROM turn_usage tu WHERE tu.task = t.id) AS cache_read_tokens,
+       (SELECT SUM(tu.cache_write_tokens) FROM turn_usage tu WHERE tu.task = t.id) AS cache_write_tokens,
+       (SELECT SUM(tu.cost_usd) FROM turn_usage tu WHERE tu.task = t.id) AS cost_usd,
+       EXISTS (
+           SELECT 1 FROM lead_events le
+           WHERE le.kind = 'end' AND le.issue_repository = t.repository AND le.issue = t.issue
+             AND julianday(le.time) >= julianday((SELECT ts.ended_at FROM task_states ts
+                                                  WHERE ts.task = t.id
+                                                  ORDER BY julianday(ts.ended_at) DESC LIMIT 1))
+             AND julianday(le.time) <= julianday((SELECT ts.ended_at FROM task_states ts
+                                                  WHERE ts.task = t.id
+                                                  ORDER BY julianday(ts.ended_at) DESC LIMIT 1), '+1 minute')
+             AND substr(le.payload, -8) = ' merged.'
+       ) AS merged
+FROM tasks t
+LEFT JOIN working ON working.task = t.id
+WHERE t.state = 'ended'
+  AND EXISTS (SELECT 1 FROM task_states ts WHERE ts.task = t.id)
+ORDER BY julianday(ended_at), t.id;
+
 -- name: AddStepTime :exec
 INSERT INTO step_times (kind, session, task, issue, workstream, organization, repository, role, harness, model, effort,
                         started_at, ended_at, attempt, result)

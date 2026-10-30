@@ -3498,6 +3498,158 @@
         ]
       }
     },
+    "/api/usage/quality": {
+      "get": {
+        "description": "GetUsageQuality returns the quality values of the ended tasks that ended in the period.",
+        "operationId": "GetUsageQuality",
+        "parameters": [
+          {
+            "description": "From is the start of the period. A task is in the period when its end is From or later",
+            "in": "query",
+            "name": "from",
+            "required": true,
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "description": "To is the end of the period. A task is in the period when its end is before To",
+            "in": "query",
+            "name": "to",
+            "required": true,
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Tz is the IANA name of the time zone for the days. The default is UTC",
+            "in": "query",
+            "name": "tz",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Harness limits the tasks to these Harnesses",
+            "in": "query",
+            "name": "harness",
+            "required": false,
+            "schema": {
+              "description": "Array of string",
+              "items": {
+                "type": "string"
+              },
+              "title": "[]string",
+              "type": "array"
+            }
+          },
+          {
+            "description": "Model limits the tasks to these models",
+            "in": "query",
+            "name": "model",
+            "required": false,
+            "schema": {
+              "description": "Array of string",
+              "items": {
+                "type": "string"
+              },
+              "title": "[]string",
+              "type": "array"
+            }
+          },
+          {
+            "description": "Effort limits the tasks to these efforts",
+            "in": "query",
+            "name": "effort",
+            "required": false,
+            "schema": {
+              "description": "Array of string",
+              "items": {
+                "type": "string"
+              },
+              "title": "[]string",
+              "type": "array"
+            }
+          },
+          {
+            "description": "Repository limits the tasks to these repositories as \"owner/name\"",
+            "in": "query",
+            "name": "repository",
+            "required": false,
+            "schema": {
+              "description": "Array of string",
+              "items": {
+                "type": "string"
+              },
+              "title": "[]string",
+              "type": "array"
+            }
+          },
+          {
+            "description": "Group is the list of fields that splits the days and the groups. With no Group, all tasks are in one group",
+            "in": "query",
+            "name": "group",
+            "required": false,
+            "schema": {
+              "description": "Array of string",
+              "items": {
+                "enum": [
+                  "harness",
+                  "model",
+                  "effort",
+                  "repository"
+                ],
+                "type": "string"
+              },
+              "title": "[]string",
+              "type": "array"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_Quality"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "usage"
+        ]
+      }
+    },
     "/api/usage/skills": {
       "get": {
         "description": "GetUsageSkills returns the skills that the sessions used or got in the period.",
@@ -6494,6 +6646,20 @@
         ],
         "description": "Envelope is the body of each success response."
       },
+      "Envelope_Quality": {
+        "type": "object",
+        "title": "Envelope_Quality",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Quality",
+            "description": "Data is the payload of the response"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "description": "Envelope is the body of each success response."
+      },
       "Envelope_Recording": {
         "type": "object",
         "title": "Envelope_Recording",
@@ -7804,6 +7970,224 @@
           "url"
         ],
         "description": "PermissionCheck is the status of a permission that the Mobius App needs."
+      },
+      "Quality": {
+        "type": "object",
+        "title": "Quality",
+        "properties": {
+          "days": {
+            "type": "array",
+            "title": "[]QualityDay",
+            "description": "Days are the values of each day and each group, the oldest day first",
+            "items": {
+              "$ref": "#/components/schemas/QualityDay"
+            }
+          },
+          "groups": {
+            "type": "array",
+            "title": "[]QualityGroup",
+            "description": "Groups are the values of each group",
+            "items": {
+              "$ref": "#/components/schemas/QualityGroup"
+            }
+          },
+          "options": {
+            "$ref": "#/components/schemas/QualityOptions",
+            "description": "Options are the values that each filter can take, before the filters"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/QualityValues",
+            "description": "Totals are the values of all tasks that pass the filters"
+          }
+        },
+        "required": [
+          "totals",
+          "days",
+          "groups",
+          "options"
+        ],
+        "description": "Quality is the quality statistics of the ended tasks in a period."
+      },
+      "QualityDay": {
+        "type": "object",
+        "title": "QualityDay",
+        "properties": {
+          "day": {
+            "type": "string",
+            "description": "Day is the day of the end of the tasks, as \"YYYY-MM-DD\" in the time zone of the request"
+          },
+          "group": {
+            "type": "array",
+            "title": "[]string",
+            "description": "Group is the value of each selected field, in the order of the fields of the route. With no field it is empty",
+            "items": {
+              "type": "string"
+            }
+          },
+          "values": {
+            "$ref": "#/components/schemas/QualityValues"
+          }
+        },
+        "required": [
+          "day",
+          "group",
+          "values"
+        ],
+        "description": "QualityDay is the quality of one group on the day of the end of its tasks."
+      },
+      "QualityGroup": {
+        "type": "object",
+        "title": "QualityGroup",
+        "properties": {
+          "group": {
+            "type": "array",
+            "title": "[]string",
+            "description": "Group is the value of each selected field, in the order of the fields of the route. With no field it is empty",
+            "items": {
+              "type": "string"
+            }
+          },
+          "values": {
+            "$ref": "#/components/schemas/QualityValues"
+          }
+        },
+        "required": [
+          "group",
+          "values"
+        ],
+        "description": "QualityGroup is the quality of one group in the period."
+      },
+      "QualityOptions": {
+        "type": "object",
+        "title": "QualityOptions",
+        "properties": {
+          "efforts": {
+            "type": "array",
+            "title": "[]string",
+            "description": "Efforts are the efforts of the tasks. A request cannot filter for the tasks with no effort",
+            "items": {
+              "type": "string"
+            }
+          },
+          "harnesses": {
+            "type": "array",
+            "title": "[]string",
+            "description": "Harnesses are the Harnesses of the tasks",
+            "items": {
+              "type": "string"
+            }
+          },
+          "models": {
+            "type": "array",
+            "title": "[]string",
+            "description": "Models are the models of the tasks",
+            "items": {
+              "type": "string"
+            }
+          },
+          "repositories": {
+            "type": "array",
+            "title": "[]string",
+            "description": "Repositories are the repositories of the tasks as \"owner/name\"",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "harnesses",
+          "models",
+          "efforts",
+          "repositories"
+        ],
+        "description": "QualityOptions are the values that each filter can take in the period."
+      },
+      "QualityValues": {
+        "type": "object",
+        "title": "QualityValues",
+        "properties": {
+          "cacheReadTokens": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "CacheReadTokens is the mean sum of the cache read tokens, for the tasks that have a value"
+          },
+          "cacheWriteTokens": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "CacheWriteTokens is the mean sum of the cache write tokens, for the tasks that have a value"
+          },
+          "costUsd": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "CostUSD is the mean cost in USD, for the tasks that have a value"
+          },
+          "fixRounds": {
+            "type": "number",
+            "description": "FixRounds is the mean number of Implementer sessions after the first one. A task with one Implementer session has 0"
+          },
+          "inputTokens": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "InputTokens is the mean sum of the input tokens, for the tasks that have a value"
+          },
+          "merged": {
+            "type": "integer",
+            "description": "Merged is the number of tasks whose pull request merged"
+          },
+          "needsHuman": {
+            "type": "number",
+            "description": "NeedsHuman is the mean number of needs_human states"
+          },
+          "outputTokens": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "OutputTokens is the mean sum of the output tokens, for the tasks that have a value"
+          },
+          "questions": {
+            "type": "number",
+            "description": "Questions is the mean number of asked states"
+          },
+          "reviewRounds": {
+            "type": "number",
+            "description": "ReviewRounds is the mean number of Reviewer sessions that ended with done"
+          },
+          "tasks": {
+            "type": "integer",
+            "description": "Tasks is the number of ended tasks"
+          },
+          "workSeconds": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "WorkSeconds is the mean time from the first working state to the end, for the tasks that have a working state"
+          }
+        },
+        "required": [
+          "tasks",
+          "merged",
+          "reviewRounds",
+          "fixRounds",
+          "needsHuman",
+          "questions",
+          "workSeconds",
+          "inputTokens",
+          "outputTokens",
+          "cacheReadTokens",
+          "cacheWriteTokens",
+          "costUsd"
+        ],
+        "description": "QualityValues are the mean quality values of a set of ended tasks. Each round, state and token value is the mean for each task. A value that no task has is null."
       },
       "Question": {
         "type": "object",
