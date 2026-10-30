@@ -231,7 +231,7 @@ func TestTheLeadWorksInTheLeadDirectoryWithTheGHOfTheOwner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(env), "MOBIUS_GH_TOKEN_URL=") {
+	if !strings.Contains(string(env), "MOBIUS_GH_SESSION_URL=") {
 		t.Errorf("env = %s", env)
 	}
 }
