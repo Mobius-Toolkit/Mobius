@@ -1304,3 +1304,17 @@ ON CONFLICT (role) DO UPDATE SET harness = excluded.harness, model = excluded.mo
 
 -- name: DeleteRoleSetting :exec
 DELETE FROM role_settings WHERE role = ?;
+
+-- name: ListBlockerEdges :many
+SELECT b.repository, b.workstream, i.repository_url, i.number, b.blocker_repository, b.number AS blocker_number
+FROM copied_blockers b
+JOIN copied_issues i ON i.repository = b.repository AND i.workstream = b.workstream AND i.position = b.position;
+
+-- name: ListBlockerCycles :many
+SELECT cycle, repository, workstream FROM blocker_cycles;
+
+-- name: AddBlockerCycle :exec
+INSERT INTO blocker_cycles (cycle, repository, workstream) VALUES (?, ?, ?);
+
+-- name: DeleteBlockerCycle :exec
+DELETE FROM blocker_cycles WHERE cycle = ?;
