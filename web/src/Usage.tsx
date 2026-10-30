@@ -33,6 +33,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { LoginContext } from "@/lib/login";
 import {
@@ -147,6 +148,23 @@ function FilterMenu({
   );
 }
 
+// The API and the URL keep the fields in the order of the tab, not the order of the selection.
+function toggleGroup(
+  group: Group[],
+  fields: readonly { key: Group }[],
+  key: Group,
+  checked: boolean,
+) {
+  return fields
+    .map((item) => item.key)
+    .filter((other) => (other === key ? checked : group.includes(other)));
+}
+
+function groupTriggerTitle(group: Group[], groups: readonly { key: Group; title: string }[]) {
+  const titles = groups.filter((item) => group.includes(item.key));
+  return `Group by: ${titles.map((item) => item.title).join(" · ") || "None"}`;
+}
+
 function GroupMenu({
   group,
   groups,
@@ -156,29 +174,72 @@ function GroupMenu({
   groups: readonly { key: Group; title: string }[];
   onChange: (group: Group[]) => void;
 }) {
-  const titles = groups.filter((item) => group.includes(item.key));
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline">
-          Group by: {titles.map((item) => item.title).join(" · ") || "None"}
+        <Button variant="outline" className="hidden md:inline-flex">
+          {groupTriggerTitle(group, groups)}
           <ChevronDownIcon />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start">
-        <DropdownMenuRadioGroup
-          value={group.length === 1 ? group[0] : ""}
-          onValueChange={(value) => onChange(value ? [value as Group] : [])}
-        >
-          <DropdownMenuRadioItem value="">None</DropdownMenuRadioItem>
-          {groups.map((item) => (
-            <DropdownMenuRadioItem key={item.key} value={item.key}>
-              {item.title}
-            </DropdownMenuRadioItem>
-          ))}
-        </DropdownMenuRadioGroup>
+        {groups.map((item) => (
+          <DropdownMenuCheckboxItem
+            key={item.key}
+            checked={group.includes(item.key)}
+            onSelect={(event) => event.preventDefault()}
+            onCheckedChange={(checked) =>
+              onChange(toggleGroup(group, groups, item.key, checked === true))
+            }
+          >
+            {item.title}
+          </DropdownMenuCheckboxItem>
+        ))}
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+function GroupSheet({
+  group,
+  groups,
+  onChange,
+}: {
+  group: Group[];
+  groups: readonly { key: Group; title: string }[];
+  onChange: (group: Group[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Sheet open={open} onOpenChange={setOpen}>
+      <SheetTrigger asChild>
+        <Button variant="outline" className="md:hidden">
+          {groupTriggerTitle(group, groups)}
+          <ChevronDownIcon />
+        </Button>
+      </SheetTrigger>
+      <SheetContent side="bottom" aria-describedby={undefined} className="gap-2 p-4 pt-3">
+        <SheetTitle>Group by</SheetTitle>
+        <div className="flex flex-col">
+          {groups.map((item) => (
+            <label
+              key={item.key}
+              className="flex items-center gap-2 rounded-md px-2 py-2 hover:bg-accent"
+            >
+              <input
+                type="checkbox"
+                className="size-4"
+                checked={group.includes(item.key)}
+                onChange={(event) =>
+                  onChange(toggleGroup(group, groups, item.key, event.target.checked))
+                }
+              />
+              {item.title}
+            </label>
+          ))}
+        </div>
+      </SheetContent>
+    </Sheet>
   );
 }
 
@@ -221,6 +282,11 @@ function Filters({
           />
         ))}
         <GroupMenu
+          group={group}
+          groups={groups}
+          onChange={(next) => onSearch({ group: next.length > 0 ? next : undefined })}
+        />
+        <GroupSheet
           group={group}
           groups={groups}
           onChange={(next) => onSearch({ group: next.length > 0 ? next : undefined })}
