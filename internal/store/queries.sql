@@ -1323,3 +1323,10 @@ INSERT INTO blocker_cycles (cycle, repository, workstream) VALUES (?, ?, ?);
 
 -- name: DeleteBlockerCycle :exec
 DELETE FROM blocker_cycles WHERE cycle = ?;
+
+-- name: GetVoiceLanguage :one
+SELECT * FROM voice_language WHERE id = 1;
+
+-- name: UpsertVoiceLanguage :exec
+INSERT INTO voice_language (id, language, updated_at) VALUES (1, ?, ?)
+ON CONFLICT (id) DO UPDATE SET language = excluded.language, updated_at = excluded.updated_at;
