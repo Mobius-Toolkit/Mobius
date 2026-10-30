@@ -17,9 +17,9 @@ import (
 // GH is the main function of the gh of the agent environment. It runs with args and the environment of getenv,
 // and gives the exit code.
 //
-// With MOBIUS_GH_TOKEN_URL, GH gets the token of the session from that URL, and runs the first gh on PATH that is not
+// With MOBIUS_GH_SESSION_URL, GH gets the token of the session from that URL, and runs the first gh on PATH that is not
 // this program with the token in GH_TOKEN. The Lead gets the installation token of the App, and each other role gets
-// the read-only installation token. With no MOBIUS_GH_TOKEN_URL, GH refuses to run.
+// the read-only installation token. With no MOBIUS_GH_SESSION_URL, GH refuses to run.
 //
 // With MOBIUS_GH_WRITES_URL, GH sends the label changes, the new issues and the comments of args to that URL before it
 // runs the real gh. When the send fails, it does not run the real gh.
