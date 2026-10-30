@@ -4,11 +4,12 @@ import {
   listTasks,
   resumeIssue,
   startIssue,
+  stopIssue,
   type Agent,
   type LiveEvents,
   type TaskLine,
 } from "@/api/api.gen";
-import { PlayIcon } from "lucide-react";
+import { PlayIcon, SquareIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -135,10 +136,23 @@ function AgentList({
 
 function TaskEntry({ line }: { line: TaskLine }) {
   const [starting, setStarting] = useState(false);
+  const [stopping, setStopping] = useState(false);
   const [error, setError] = useState("");
   const resumes = line.state === "needs-human";
+  const stops =
+    ["ready", "working", "review", "queued", "question"].includes(line.state) ||
+    line.state.startsWith("waits for ");
   const reference = `${line.otherRepository ? line.repository : ""}#${line.number}`;
   const label = `${resumes ? "Resume" : "Start"} ${reference}`;
+  const stopLabel = `Stop ${reference}`;
+  const stop = () => {
+    const [owner, name] = line.repository.split("/");
+    setStopping(true);
+    stopIssue(owner, name, line.number)
+      .then((res) => setError(res.status === 204 ? "" : res.data.error))
+      .catch((err: unknown) => setError(String(err)))
+      .finally(() => setStopping(false));
+  };
   const start = () => {
     const [owner, name] = line.repository.split("/");
     setStarting(true);
@@ -195,6 +209,19 @@ function TaskEntry({ line }: { line: TaskLine }) {
               {starting ? <Spinner aria-hidden /> : <PlayIcon />}
             </Button>
           )}
+        {stops && (
+          <Button
+            size="icon"
+            variant="ghost"
+            className="shrink-0"
+            aria-label={stopLabel}
+            title={stopLabel}
+            disabled={stopping}
+            onClick={stop}
+          >
+            {stopping ? <Spinner aria-hidden /> : <SquareIcon />}
+          </Button>
+        )}
       </div>
       {error && (
         <Badge variant="destructive" className="h-auto w-full justify-start whitespace-normal">

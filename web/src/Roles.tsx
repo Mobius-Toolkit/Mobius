@@ -22,13 +22,28 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { Spinner } from "@/components/ui/spinner";
 import { LoginContext } from "@/lib/login";
 import { cn } from "@/lib/utils";
 import { TopBar } from "./TopBar";
 
 const roleName = (role: Role) => role.role.charAt(0).toUpperCase() + role.role.slice(1);
+
+const roleDescription: Record<string, string> = {
+  lead: "Plans the tasks of one Workstream, talks with you in its chat, and approves the pull requests.",
+  coordinator: "Talks with you in the Coordinator chat and puts your requests into Workstreams.",
+  triager:
+    "Discusses each issue with no Workstream with you, and proposes a Workstream or a message to a Lead.",
+  implementer:
+    "Writes the code of a task, and does the fix rounds, CI fix rounds and conflict rounds of its pull request.",
+  researcher: "Answers a question about the code of a repository, and changes nothing.",
+  reviewer: "Reviews each new head of a pull request and gives its findings.",
+  judge: "Sorts the new comments on a pull request into fixes, questions, follow-ups and rejects.",
+  curator:
+    "Keeps the memory file of each repository up to date from the notes of the Leads and the sessions.",
+  diagnoser: "Reads the job logs of a failed CI run and finds the cause.",
+};
 
 const keepEffort = (effort: string, efforts: string[]) =>
   efforts.includes(effort) ? effort : (efforts[0] ?? "");
@@ -197,12 +212,9 @@ function RoleSheet({
 
   return (
     <Sheet open onOpenChange={(open) => !open && onClose()}>
-      <SheetContent
-        side="bottom"
-        aria-describedby={undefined}
-        className="gap-3 p-4 pt-3 md:mx-auto md:max-w-md md:rounded-t-xl"
-      >
+      <SheetContent side="bottom" className="gap-3 p-4 pt-3 md:mx-auto md:max-w-md md:rounded-t-xl">
         <SheetTitle>{roleName(role)}</SheetTitle>
+        <SheetDescription>{roleDescription[role.role]}</SheetDescription>
         <Field label="Harness" htmlFor="role-harness" ui={role.ui.harness}>
           <Choice
             id="role-harness"
