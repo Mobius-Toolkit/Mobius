@@ -9,12 +9,12 @@ import (
 )
 
 type skillRowBody struct {
-	Skill  string `json:"skill"`
-	Source string `json:"source"`
-	Group  string `json:"group"`
-	Uses   int64  `json:"uses"`
-	Had    int64  `json:"had"`
-	Used   int64  `json:"used"`
+	Skill  string   `json:"skill"`
+	Source string   `json:"source"`
+	Group  []string `json:"group"`
+	Uses   int64    `json:"uses"`
+	Had    int64    `json:"had"`
+	Used   int64    `json:"used"`
 }
 
 type usageSkillsBody struct {
@@ -85,9 +85,9 @@ func TestGetUsageSkillsCountsEachSkillInThePeriod(t *testing.T) {
 	body := getUsageSkills(t, usagePeriod)
 
 	want := []skillRowBody{
-		{Skill: "review-diff", Source: "mobius", Uses: 3, Had: 2, Used: 2},
-		{Skill: "frontend-design", Source: "harness", Uses: 1, Had: 0, Used: 1},
-		{Skill: "commit", Source: "mobius", Uses: 0, Had: 1, Used: 0},
+		{Skill: "review-diff", Source: "mobius", Group: []string{}, Uses: 3, Had: 2, Used: 2},
+		{Skill: "frontend-design", Source: "harness", Group: []string{}, Uses: 1, Had: 0, Used: 1},
+		{Skill: "commit", Source: "mobius", Group: []string{}, Uses: 0, Had: 1, Used: 0},
 	}
 	if !reflect.DeepEqual(body.Rows, want) {
 		t.Errorf("rows = %+v, want %+v", body.Rows, want)
@@ -132,7 +132,7 @@ func TestGetUsageSkillsFilters(t *testing.T) {
 func TestGetUsageSkillsHarnessSourceRemovesTheCopiedSkills(t *testing.T) {
 	body := getUsageSkills(t, usagePeriod+"&source=harness")
 
-	want := []skillRowBody{{Skill: "frontend-design", Source: "harness", Uses: 1, Had: 0, Used: 1}}
+	want := []skillRowBody{{Skill: "frontend-design", Source: "harness", Group: []string{}, Uses: 1, Had: 0, Used: 1}}
 	if !reflect.DeepEqual(body.Rows, want) {
 		t.Errorf("rows = %+v, want %+v", body.Rows, want)
 	}
@@ -145,10 +145,10 @@ func TestGetUsageSkillsGroupByRoleSplitsASkill(t *testing.T) {
 	body := getUsageSkills(t, usagePeriod+"&group=role")
 
 	want := []skillRowBody{
-		{Skill: "review-diff", Source: "mobius", Group: "Implementer", Uses: 2, Had: 1, Used: 1},
-		{Skill: "review-diff", Source: "mobius", Group: "Reviewer", Uses: 1, Had: 1, Used: 1},
-		{Skill: "frontend-design", Source: "harness", Group: "Reviewer", Uses: 1, Had: 0, Used: 1},
-		{Skill: "commit", Source: "mobius", Group: "Implementer", Uses: 0, Had: 1, Used: 0},
+		{Skill: "review-diff", Source: "mobius", Group: []string{"Implementer"}, Uses: 2, Had: 1, Used: 1},
+		{Skill: "review-diff", Source: "mobius", Group: []string{"Reviewer"}, Uses: 1, Had: 1, Used: 1},
+		{Skill: "frontend-design", Source: "harness", Group: []string{"Reviewer"}, Uses: 1, Had: 0, Used: 1},
+		{Skill: "commit", Source: "mobius", Group: []string{"Implementer"}, Uses: 0, Had: 1, Used: 0},
 	}
 	if !reflect.DeepEqual(body.Rows, want) {
 		t.Errorf("rows = %+v, want %+v", body.Rows, want)
@@ -159,8 +159,71 @@ func TestGetUsageSkillsGroupBySourceGivesTheSource(t *testing.T) {
 	body := getUsageSkills(t, usagePeriod+"&group=source")
 
 	for _, row := range body.Rows {
-		if row.Group != row.Source {
+		if row.Group[0] != row.Source {
 			t.Errorf("row %+v: group is not the source", row)
+		}
+	}
+}
+
+func TestGetUsageSkillsGroupsByTwoFieldsSumEachCombination(t *testing.T) {
+	body := getUsageSkills(t, usagePeriod+"&group=role&group=harness")
+
+	type row struct {
+		skill  string
+		source string
+		group  []string
+		uses   int64
+		had    int64
+		used   int64
+	}
+	var got []row
+	for _, item := range body.Rows {
+		got = append(got, row{item.Skill, item.Source, item.Group, item.Uses, item.Had, item.Used})
+	}
+	want := []row{
+		{"review-diff", "mobius", []string{"claude-code", "Implementer"}, 2, 1, 1},
+		{"review-diff", "mobius", []string{"claude-code", "Reviewer"}, 1, 1, 1},
+		{"frontend-design", "harness", []string{"devin", "Reviewer"}, 1, 0, 1},
+		{"commit", "mobius", []string{"claude-code", "Implementer"}, 0, 1, 0},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("rows = %v, want %v", got, want)
+	}
+}
+
+func TestGetUsageSkillsGroupsKeepAnEmptyValue(t *testing.T) {
+	mux, db := testMux(t)
+	exec(t, db, `
+		INSERT INTO sessions (id, role, harness, model, repository, workstream, started_at, organization) VALUES
+			(1, 'Implementer', 'claude-code', 'opus', 'o/a', 1, '2026-10-04T23:00:00Z', 'o');
+		INSERT INTO skill_uses (session, organization, repository, role, harness, skill, source, used_at) VALUES
+			(1, 'o', 'o/a', '', 'claude-code', 'review-diff', 'mobius', '2026-10-05T00:10:00Z');
+	`)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/usage/skills?"+usagePeriod+"&group=harness&group=role", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	var body struct {
+		Data usageSkillsBody `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode body %q: %v", rec.Body.String(), err)
+	}
+	want := []skillRowBody{
+		{Skill: "review-diff", Source: "mobius", Group: []string{"claude-code", ""}, Uses: 1, Had: 0, Used: 1},
+	}
+	if !reflect.DeepEqual(body.Data.Rows, want) {
+		t.Errorf("rows = %+v, want %+v", body.Data.Rows, want)
+	}
+}
+
+func TestGetUsageSkillsWithNoFieldGivesOneGroupWithNoValues(t *testing.T) {
+	body := getUsageSkills(t, usagePeriod)
+
+	for _, row := range body.Rows {
+		if !reflect.DeepEqual(row.Group, []string{}) {
+			t.Errorf("row %+v, want no group values", row)
 		}
 	}
 }
@@ -184,6 +247,7 @@ func TestGetUsageSkillsRejectsBadRequests(t *testing.T) {
 		query string
 	}{
 		{"unknown group", usagePeriod + "&group=skill"},
+		{"old group", usagePeriod + "&group=modelEffort"},
 		{"no period", ""},
 	}
 	for _, tt := range tests {

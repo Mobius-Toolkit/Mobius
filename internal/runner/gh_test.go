@@ -15,10 +15,13 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/Mobius-Toolkit/Mobius/internal/config"
+	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 )
 
 // startGH runs the gh of the agent environment of dataDir with args and the environment variable
-// MOBIUS_GH_TOKEN_URL=url when url is not empty. The real gh is the gh in realDir.
+// MOBIUS_GH_SESSION_URL=url when url is not empty. The real gh is the gh in realDir.
 func startGH(t *testing.T, dataDir, realDir, url string, args ...string) (string, string, int) {
 	t.Helper()
 	return startGHWithWrites(t, dataDir, realDir, url, "", "", args...)
@@ -100,6 +103,61 @@ func TestTheGHOfASessionWithNoTokenURLRefusesToRun(t *testing.T) {
 
 	if stdout != "" || stderr != "Do not use gh. Use the Mobius tools.\n" || code != 1 {
 		t.Errorf("gh = %q, %q, exit %d", stdout, stderr, code)
+	}
+}
+
+func TestTheGHOfADSHSessionGetsTheSessionURLThroughTheEnvironmentFilter(t *testing.T) {
+	dataDir := prepare(t)
+	realDir := realGH(t)
+	tokenURL := tokenServer(t, http.StatusOK, "ghu_1")
+	// dsh starts each shell command from scrubbedParentEnv of @deepseek-ai/dsh-subprocess. It drops each name that
+	// matches SENSITIVE_ENV_PATTERN = /KEY|PASSWORD|SECRET|TOKEN/i, and each name with the prefix DSH_. This script
+	// gives the command the environment that dsh keeps.
+	filter := filepath.Join(t.TempDir(), "dsh-environment")
+	filterScript := `#!/bin/sh
+set -f
+for name in $(env | cut -d= -f1); do
+  upper=$(printf '%s' "$name" | tr '[:lower:]' '[:upper:]')
+  case "$upper" in
+    *KEY*|*PASSWORD*|*SECRET*|*TOKEN*|DSH_*) unset "$name" ;;
+  esac
+done
+exec gh GH_TOKEN
+`
+	if err := os.WriteFile(filter, []byte(filterScript), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	testkit.InstallFakeHarness(t, dataDir, Program(config.DSH), fmt.Sprintf("[[prompts]]\nshell = %q\n", "sh '"+filter+"'"))
+	path := filepath.Join(dataDir, "harnesses") + string(filepath.ListSeparator) + realDir + string(filepath.ListSeparator) + "/usr/bin:/bin"
+
+	var reply strings.Builder
+	session, err := Start(t.Context(), config.DSH, dataDir, dataDir, path, "", tokenURL, "", "", func(params json.RawMessage, _ bool) {
+		var notification struct {
+			Update struct {
+				SessionUpdate string `json:"sessionUpdate"`
+				Content       struct {
+					Text string `json:"text"`
+				} `json:"content"`
+			} `json:"update"`
+		}
+		if err := json.Unmarshal(params, &notification); err != nil {
+			t.Error(err)
+		}
+		if notification.Update.SessionUpdate == "agent_message_chunk" {
+			reply.WriteString(notification.Update.Content.Text)
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(session.Close)
+
+	if _, err := session.Prompt(t.Context(), "Run gh.", nil); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := strings.TrimSpace(reply.String()); got != "ghu_1\nexit 0" {
+		t.Errorf("reply = %q, want the token of the session and exit 0", got)
 	}
 }
 

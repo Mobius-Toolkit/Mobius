@@ -97,6 +97,7 @@ func TestACycleThatGoesAndComesBackGivesANewEvent(t *testing.T) {
 	addCycle(fake)
 	server := startCopiedWithLead(t, fake)
 	testkit.WaitFor(t, func() bool { return len(blockerCycleEvents(t, server)) == 1 })
+	testkit.WaitFor(t, func() bool { return blockerCycleRows(t, server) == 1 })
 
 	fake.RemoveBlockedBy(shop, 43, 41)
 	testkit.WaitFor(t, func() bool { return blockerCycleRows(t, server) == 0 })

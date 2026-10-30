@@ -142,14 +142,16 @@ test("a failed request after which the server has the new value leaves no error 
 }) => {
   await turnOff(page, "start");
   await page.goto("/settings");
-  await page.route(
-    "**/api/switches/start",
-    async (route) => {
-      await route.fetch();
-      await route.fulfill({ status: 500, json: { error: "The switch did not change." } });
-    },
-    { times: 1 },
-  );
+  let answered = false;
+  await page.route("**/api/switches/start", async (route) => {
+    if (answered) {
+      await route.continue();
+      return;
+    }
+    answered = true;
+    await route.fetch();
+    await route.fulfill({ status: 500, json: { error: "The switch did not change." } });
+  });
 
   const failed = page.waitForResponse(
     (res) => res.url().endsWith("/api/switches/start") && res.request().method() === "PUT",
@@ -162,6 +164,7 @@ test("a failed request after which the server has the new value leaves no error 
 
   await expect(line(page, "start")).toBeVisible();
   await expect(page.getByText("The switch did not change.")).toBeHidden();
+  await page.unrouteAll({ behavior: "wait" });
 });
 
 test("the Settings page shows the error of a switch under its row until the server gives a new value", async ({

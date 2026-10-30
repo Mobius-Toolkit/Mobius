@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -66,7 +67,7 @@ func TestFindGivesTheFileOfAnExecutableProgram(t *testing.T) {
 func TestCommandHasTheAgentEnvironmentAndNoGitHubToken(t *testing.T) {
 	t.Setenv("GH_TOKEN", "ghs_secret")
 	t.Setenv("GITHUB_TOKEN", "ghs_secret")
-	t.Setenv("MOBIUS_GH_TOKEN_URL", "http://127.0.0.1:1/gh-token/parent")
+	t.Setenv("MOBIUS_GH_SESSION_URL", "http://127.0.0.1:1/gh-token/parent")
 	t.Setenv("MOBIUS_GH_WRITES_URL", "http://127.0.0.1:1/gh-writes/parent")
 	t.Setenv("MOBIUS_GH_MARK", "— Lead of #1")
 	dataDir := t.TempDir()
@@ -87,7 +88,7 @@ func TestCommandHasTheAgentEnvironmentAndNoGitHubToken(t *testing.T) {
 		}
 	}
 	for _, entry := range cmd.Env {
-		if strings.HasPrefix(entry, "GH_TOKEN=") || strings.HasPrefix(entry, "GITHUB_TOKEN=") || strings.HasPrefix(entry, "MOBIUS_GH_TOKEN_URL=") || strings.HasPrefix(entry, "MOBIUS_GH_WRITES_URL=") || strings.HasPrefix(entry, "MOBIUS_GH_MARK=") {
+		if strings.HasPrefix(entry, "GH_TOKEN=") || strings.HasPrefix(entry, "GITHUB_TOKEN=") || strings.HasPrefix(entry, "MOBIUS_GH_SESSION_URL=") || strings.HasPrefix(entry, "MOBIUS_GH_WRITES_URL=") || strings.HasPrefix(entry, "MOBIUS_GH_MARK=") {
 			t.Errorf("env has %s", entry)
 		}
 	}
@@ -96,7 +97,7 @@ func TestCommandHasTheAgentEnvironmentAndNoGitHubToken(t *testing.T) {
 func TestACommandWithAGHTokenURLHasTheURL(t *testing.T) {
 	cmd := command(context.Background(), "/bin/agent", "/work", t.TempDir(), "/usr/bin:/bin", "http://127.0.0.1:6363/gh-token/key", "", "")
 
-	if !slices.Contains(cmd.Env, "MOBIUS_GH_TOKEN_URL=http://127.0.0.1:6363/gh-token/key") {
+	if !slices.Contains(cmd.Env, "MOBIUS_GH_SESSION_URL=http://127.0.0.1:6363/gh-token/key") {
 		t.Errorf("env = %v", cmd.Env)
 	}
 }
@@ -114,6 +115,80 @@ func TestACommandWithAGHMarkHasTheMark(t *testing.T) {
 
 	if !slices.Contains(cmd.Env, "MOBIUS_GH_MARK=— Lead of #1") {
 		t.Errorf("env = %v", cmd.Env)
+	}
+}
+
+// SENSITIVE_ENV_PATTERN of scrubbedParentEnv in @deepseek-ai/dsh-subprocess drops each environment name that it
+// matches, and each name with the prefix DSH_.
+var dshSensitiveEnv = regexp.MustCompile(`(?i)KEY|PASSWORD|SECRET|TOKEN`)
+
+func dshDropsEnv(name string) bool {
+	return dshSensitiveEnv.MatchString(name) || strings.HasPrefix(strings.ToUpper(name), "DSH_")
+}
+
+func TestTheGHEnvironmentOfAnAgentPassesTheDSHEnvironmentFilter(t *testing.T) {
+	cmd := command(context.Background(), "/bin/agent", "/work", t.TempDir(), "/usr/bin:/bin", "http://127.0.0.1:6363/gh-token/key", "http://127.0.0.1:6363/gh-writes/key", "— Lead of #1")
+
+	kept := map[string]bool{}
+	for _, entry := range cmd.Env {
+		name, _, _ := strings.Cut(entry, "=")
+		if !dshDropsEnv(name) {
+			kept[name] = true
+		}
+	}
+	for _, name := range []string{ghURLEnv, ghWritesURLEnv, ghMarkEnv} {
+		if !kept[name] {
+			t.Errorf("dsh drops %s from the environment of a shell command", name)
+		}
+	}
+}
+
+// lastEnv gives the last value of name in env, which is the value that exec.Cmd gives the process.
+func lastEnv(env []string, name string) string {
+	value := ""
+	for _, entry := range env {
+		if got, ok := strings.CutPrefix(entry, name+"="); ok {
+			value = got
+		}
+	}
+	return value
+}
+
+func TestDSHGetsTheDangerFullAccessModeAndNoOtherHarnessGetsIt(t *testing.T) {
+	t.Setenv("DSH_PERMISSION_MODE", "workspace-write")
+	dir := t.TempDir()
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, harness := range config.Harnesses {
+		if err := os.Symlink(exe, filepath.Join(dir, Program(harness))); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	cmd, err := harnessCommand(context.Background(), config.DSH, "/work", t.TempDir(), dir, "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"--profile", "acp"}; !slices.Equal(cmd.Args[1:], want) {
+		t.Errorf("args = %v, want %v", cmd.Args, want)
+	}
+	if got := lastEnv(cmd.Env, "DSH_PERMISSION_MODE"); got != "danger-full-access" {
+		t.Errorf("dsh DSH_PERMISSION_MODE = %q, want danger-full-access", got)
+	}
+
+	for _, harness := range config.Harnesses {
+		if harness == config.DSH {
+			continue
+		}
+		cmd, err := harnessCommand(context.Background(), harness, "/work", t.TempDir(), dir, "", "", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := lastEnv(cmd.Env, "DSH_PERMISSION_MODE"); got != "workspace-write" {
+			t.Errorf("%s DSH_PERMISSION_MODE = %q, want the inherited workspace-write", harness, got)
+		}
 	}
 }
 

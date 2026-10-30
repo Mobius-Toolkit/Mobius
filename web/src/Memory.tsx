@@ -138,10 +138,10 @@ function EditDialog({
     >
       <DialogContent
         aria-describedby={undefined}
-        className="grid max-h-[calc(100dvh-var(--keyboard,0px)-2rem)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 p-0 max-sm:top-auto max-sm:bottom-(--keyboard,0px) max-sm:left-0 max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-b-none sm:max-h-[85dvh] sm:max-w-2xl"
+        className="grid max-h-[calc(100dvh-var(--keyboard,0px)-2rem)] grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 p-0 max-sm:top-auto max-sm:bottom-(--keyboard,0px) max-sm:left-0 max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-b-none sm:max-h-[85dvh] sm:max-w-2xl"
       >
         <DialogHeader className="p-4 pr-10">
-          <DialogTitle>{`Edit the memory of ${repository}`}</DialogTitle>
+          <DialogTitle className="wrap-anywhere">{`Edit the memory of ${repository}`}</DialogTitle>
         </DialogHeader>
         <div className="grid min-h-0 grid-rows-[minmax(0,1fr)_auto] gap-2 px-4 pb-4">
           <Textarea

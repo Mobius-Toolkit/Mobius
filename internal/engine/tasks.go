@@ -410,7 +410,11 @@ func (e *Engine) StopIssue(ctx context.Context, repositoryName string, number in
 		if err := e.stopTask(ctx, repository, task, issue, appLogin(repository.AppSlug), "Stopped by the Owner.", text); err != nil {
 			return err
 		}
-		return e.changeCopiedLabels(ctx, repository.FullName, number, nil, removed)
+		if err := e.changeCopiedLabels(ctx, repository.FullName, number, nil, removed); err != nil {
+			return err
+		}
+		e.addIssueRecord(ctx, repository, number, "You stopped")
+		return nil
 	}
 	if hasLabel(issue, readyLabel) {
 		if err := asOwner.AddLabel(ctx, number, triageLabel); err != nil {
@@ -419,7 +423,11 @@ func (e *Engine) StopIssue(ctx context.Context, repositoryName string, number in
 		if err := asOwner.RemoveLabel(ctx, number, readyLabel); err != nil {
 			return err
 		}
-		return e.changeCopiedLabels(ctx, repository.FullName, number, []string{triageLabel}, []string{readyLabel})
+		if err := e.changeCopiedLabels(ctx, repository.FullName, number, []string{triageLabel}, []string{readyLabel}); err != nil {
+			return err
+		}
+		e.addIssueRecord(ctx, repository, number, "You stopped")
+		return nil
 	}
 	workstreamRepository, _, err := e.issueWorkstream(ctx, repository, number)
 	if err != nil {

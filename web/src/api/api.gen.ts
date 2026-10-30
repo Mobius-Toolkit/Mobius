@@ -1350,8 +1350,8 @@ export const SkillUsageRowSource = {
  * SkillUsageRow is the count of one skill of one source in one group.
  */
 export interface SkillUsageRow {
-  /** Group is the value of the group, or empty when the request has no group */
-  group: string;
+  /** Group is the value of each selected field, in the order of the fields of the route. With no field it is empty */
+  group: string[];
   /** Had is the number of distinct sessions that Mobius gave the skill to. It is 0 for a harness skill */
   had: number;
   skill: string;
@@ -1580,8 +1580,8 @@ export interface UsageValues {
 export interface UsageDay {
   /** Day is the day of the start of the turns, as "YYYY-MM-DD" in the time zone of the request */
   day: string;
-  /** Group is the value of the group, or empty when the request has no group or the value is not set */
-  group: string;
+  /** Group is the value of each selected field, in the order of the fields of the route. With no field it is empty */
+  group: string[];
   values: UsageValues;
 }
 
@@ -1589,8 +1589,8 @@ export interface UsageDay {
  * UsageGroup is the usage of one group in the period.
  */
 export interface UsageGroup {
-  /** Group is the value of the group, or empty when the request has no group or the value is not set */
-  group: string;
+  /** Group is the value of each selected field, in the order of the fields of the route. With no field it is empty */
+  group: string[];
   values: UsageValues;
 }
 
@@ -1679,8 +1679,8 @@ export interface TimeStat {
 export interface UsageTimeDay {
   /** Day is the day of the start of the rows, as "YYYY-MM-DD" in the time zone of the request */
   day: string;
-  /** Group is the value of the group, or empty when the request has no group or the value is not set */
-  group: string;
+  /** Group is the value of each selected field, in the order of the fields of the route. With no field it is empty */
+  group: string[];
   /** Stats are the statistics of each step kind and each task state that has rows, sorted by kind and name */
   stats: TimeStat[];
 }
@@ -1689,8 +1689,8 @@ export interface UsageTimeDay {
  * UsageTimeGroup is the time statistics of one group in the period.
  */
 export interface UsageTimeGroup {
-  /** Group is the value of the group, or empty when the request has no group or the value is not set */
-  group: string;
+  /** Group is the value of each selected field, in the order of the fields of the route. With no field it is empty */
+  group: string[];
   /** Stats are the statistics of each step kind and each task state that has rows, sorted by kind and name */
   stats: TimeStat[];
 }
@@ -2125,20 +2125,19 @@ role?: string[];
  */
 repository?: string[];
 /**
- * Group is the value that splits the days and the groups. With no Group, all rows are in one group
+ * Array of string
  */
-group?: GetUsageGroup;
+group?: GetUsageGroupItem[];
 };
 
-export type GetUsageGroup = typeof GetUsageGroup[keyof typeof GetUsageGroup];
+export type GetUsageGroupItem = typeof GetUsageGroupItem[keyof typeof GetUsageGroupItem];
 
 
-export const GetUsageGroup = {
+export const GetUsageGroupItem = {
   harness: 'harness',
   model: 'model',
-  modelEffort: 'modelEffort',
   modelVersion: 'modelVersion',
-  modelVersionEffort: 'modelVersionEffort',
+  effort: 'effort',
   role: 'role',
   repository: 'repository',
 } as const;
@@ -2169,15 +2168,15 @@ repository?: string[];
  */
 source?: string[];
 /**
- * Group is the value that splits the rows. With no Group, all rows are in one group
+ * Array of string
  */
-group?: GetUsageSkillsGroup;
+group?: GetUsageSkillsGroupItem[];
 };
 
-export type GetUsageSkillsGroup = typeof GetUsageSkillsGroup[keyof typeof GetUsageSkillsGroup];
+export type GetUsageSkillsGroupItem = typeof GetUsageSkillsGroupItem[keyof typeof GetUsageSkillsGroupItem];
 
 
-export const GetUsageSkillsGroup = {
+export const GetUsageSkillsGroupItem = {
   harness: 'harness',
   role: 'role',
   repository: 'repository',
@@ -2222,20 +2221,19 @@ role?: string[];
  */
 repository?: string[];
 /**
- * Group is the value that splits the days and the groups. With no Group, all rows are in one group
+ * Array of string
  */
-group?: GetUsageTimesGroup;
+group?: GetUsageTimesGroupItem[];
 };
 
-export type GetUsageTimesGroup = typeof GetUsageTimesGroup[keyof typeof GetUsageTimesGroup];
+export type GetUsageTimesGroupItem = typeof GetUsageTimesGroupItem[keyof typeof GetUsageTimesGroupItem];
 
 
-export const GetUsageTimesGroup = {
+export const GetUsageTimesGroupItem = {
   harness: 'harness',
   model: 'model',
-  modelEffort: 'modelEffort',
   modelVersion: 'modelVersion',
-  modelVersionEffort: 'modelVersionEffort',
+  effort: 'effort',
   role: 'role',
   repository: 'repository',
 } as const;
@@ -6033,7 +6031,7 @@ export const getGetUsageUrl = (params: GetUsageParams,) => {
   const normalizedParams = new URLSearchParams();
 
   Object.entries(params || {}).forEach(([key, value]) => {
-    const explodeParameters = ["harness","model","modelVersion","effort","role","repository"];
+    const explodeParameters = ["harness","model","modelVersion","effort","role","repository","group"];
 
     if (Array.isArray(value) && explodeParameters.includes(key)) {
       value.forEach((v) => {
@@ -6113,7 +6111,7 @@ export const getGetUsageSkillsUrl = (params: GetUsageSkillsParams,) => {
   const normalizedParams = new URLSearchParams();
 
   Object.entries(params || {}).forEach(([key, value]) => {
-    const explodeParameters = ["harness","role","repository","source"];
+    const explodeParameters = ["harness","role","repository","source","group"];
 
     if (Array.isArray(value) && explodeParameters.includes(key)) {
       value.forEach((v) => {
@@ -6193,7 +6191,7 @@ export const getGetUsageTimesUrl = (params: GetUsageTimesParams,) => {
   const normalizedParams = new URLSearchParams();
 
   Object.entries(params || {}).forEach(([key, value]) => {
-    const explodeParameters = ["harness","model","modelVersion","effort","role","repository"];
+    const explodeParameters = ["harness","model","modelVersion","effort","role","repository","group"];
 
     if (Array.isArray(value) && explodeParameters.includes(key)) {
       value.forEach((v) => {

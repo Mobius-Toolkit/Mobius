@@ -38,6 +38,8 @@ import {
   leadActionItem,
   longTitle,
   longTitleItem,
+  longWordQuestionItem,
+  longWordTitle,
   routeInboxItems,
   stoppedItems,
   todoItems,
@@ -508,6 +510,30 @@ test("screenshots", async ({ page }) => {
     async () => {
       await briefBubble.getByRole("button", { name: "Show all" }).click();
     },
+  );
+  await screenshot(
+    page,
+    "chat-brief-tab",
+    "/workstreams/plants/garden/19",
+    (device) => [
+      ...briefFrame(device, 19),
+      page.getByRole("tab", { name: "Brief" }).filter({ visible: true }),
+      page
+        .getByRole("tabpanel", { name: "Brief" })
+        .filter({ visible: true })
+        .getByText("Put bark on the beds."),
+    ],
+    async (device) => {
+      if (device === "phone") {
+        await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
+      }
+      await page.getByRole("tab", { name: "Brief" }).filter({ visible: true }).click();
+    },
+  );
+  await screenshot(page, "chat-brief-button", "/workstreams/plants/garden/18", (device) =>
+    device === "desktop"
+      ? [page.getByRole("button", { name: "Brief" }).filter({ visible: true })]
+      : [page.getByRole("banner").getByRole("heading", { name: "Prune the roses" })],
   );
   // The open menu and the open sheet hide the other elements from the accessibility tree, so the open step waits for them.
   await screenshot(
@@ -2043,7 +2069,7 @@ test("screenshots", async ({ page }) => {
   await screenshot(
     page,
     "usage",
-    "/usage?group=model",
+    "/usage?group=%5B%22model%22%5D",
     (device) => [
       ...frame(device, release),
       main.getByRole("tab", { name: "Cost", selected: true }),
@@ -2057,14 +2083,14 @@ test("screenshots", async ({ page }) => {
   await screenshot(
     page,
     "usage-model-effort",
-    "/usage?group=modelEffort",
+    "/usage?group=%5B%22model%22%2C%22effort%22%5D",
     (device) => [
       ...frame(device, release),
-      main.getByRole("columnheader", { name: "Model and effort" }),
-      main.getByRole("rowheader", { name: "opus medium", exact: true }),
-      main.getByRole("rowheader", { name: "sonnet high", exact: true }),
-      main.getByRole("rowheader", { name: "sonnet low", exact: true }),
-      main.getByRole("rowheader", { name: "swe-1.5", exact: true }),
+      main.getByRole("columnheader", { name: "Model · Effort" }),
+      main.getByRole("rowheader", { name: "opus · medium", exact: true }),
+      main.getByRole("rowheader", { name: "sonnet · high", exact: true }),
+      main.getByRole("rowheader", { name: "sonnet · low", exact: true }),
+      main.getByRole("rowheader", { name: "swe-1.5 · —", exact: true }),
       main.locator(".recharts-bar-rectangle").first(),
       ...usageDays.map((day) => main.getByText(day, { exact: true })),
     ],
@@ -2073,7 +2099,7 @@ test("screenshots", async ({ page }) => {
   await screenshot(
     page,
     "usage-tokens",
-    "/usage?tab=tokens&group=harness&role=%5B%22implementer%22%5D",
+    "/usage?tab=tokens&group=%5B%22harness%22%5D&role=%5B%22implementer%22%5D",
     (device) => [
       ...frame(device, release),
       main.getByRole("tab", { name: "Tokens", selected: true }),
@@ -2092,7 +2118,7 @@ test("screenshots", async ({ page }) => {
     main.locator(".recharts-bar-rectangle").first(),
     ...usageDays.map((day) => main.getByText(day, { exact: true })),
   ];
-  const timesPath = "/usage?tab=times&group=harness&stat=step:check";
+  const timesPath = "/usage?tab=times&group=%5B%22harness%22%5D&stat=step:check";
   await screenshot(page, "usage-times", timesPath, timesReady);
   await screenshot(page, "usage-times-chart", timesPath, timesReady, async () => {
     await main.locator(".recharts-wrapper").scrollIntoViewIfNeeded();
@@ -2108,21 +2134,46 @@ test("screenshots", async ({ page }) => {
     main.getByRole("row", { name: /^commit Harness 3 — 2$/ }),
     main.getByRole("row", { name: /^frontend-design Harness 2 — 2$/ }),
   ]);
-  await screenshot(page, "usage-skills-role", "/usage?tab=skills&group=role", (device) => [
-    ...skillsFrame(device),
-    main.getByRole("columnheader", { name: "Role" }),
-    main.getByRole("row", { name: /^mobius-local-state Mobius lead_chat 3 2 2$/ }),
-    main.getByRole("row", { name: /^mobius-local-state Mobius implementer 2 2 2$/ }),
-    main.getByRole("row", { name: /^write-issue Mobius lead_chat 0 2 0$/ }),
-    main.getByRole("row", { name: /^write-issue Mobius implementer 0 2 0$/ }),
-  ]);
+  await screenshot(
+    page,
+    "usage-skills-role",
+    "/usage?tab=skills&group=%5B%22role%22%5D",
+    (device) => [
+      ...skillsFrame(device),
+      main.getByRole("columnheader", { name: "Role" }),
+      main.getByRole("row", { name: /^mobius-local-state Mobius lead_chat 3 2 2$/ }),
+      main.getByRole("row", { name: /^mobius-local-state Mobius implementer 2 2 2$/ }),
+      main.getByRole("row", { name: /^write-issue Mobius lead_chat 0 2 0$/ }),
+      main.getByRole("row", { name: /^write-issue Mobius implementer 0 2 0$/ }),
+    ],
+  );
+  await screenshot(
+    page,
+    "usage-group-by",
+    "/usage?group=%5B%22harness%22%2C%22role%22%5D",
+    () => [],
+    async (device) => {
+      await main.getByRole("button", { name: "Group by: Harness · Role" }).click();
+      if (device === "phone") {
+        await expect(page.getByRole("checkbox", { name: "Harness", checked: true })).toBeVisible();
+        await expect(page.getByRole("checkbox", { name: "Role", checked: true })).toBeVisible();
+      } else {
+        await expect(
+          page.getByRole("menuitemcheckbox", { name: "Harness", checked: true }),
+        ).toBeVisible();
+        await expect(
+          page.getByRole("menuitemcheckbox", { name: "Role", checked: true }),
+        ).toBeVisible();
+      }
+    },
+  );
   await page.setViewportSize(viewports.phone);
-  await page.goto("/usage?group=model");
+  await page.goto("/usage?group=%5B%22model%22%5D");
   await expect(main.getByRole("row", { name: /swe-1\.5/ })).toBeVisible();
   expect(await page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")).toBe(
     true,
   );
-  await page.goto("/usage?tab=skills&group=role");
+  await page.goto("/usage?tab=skills&group=%5B%22role%22%5D");
   await expect(main.getByRole("row", { name: /^write-issue Mobius lead_chat/ })).toBeVisible();
   expect(await page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")).toBe(
     true,
@@ -2468,6 +2519,30 @@ test("screenshots", async ({ page }) => {
     ],
     showQuestionEnd(draftQuestion),
   );
+
+  // The title of the question has one long word. The sheet must wrap it and stay inside the screen.
+  await page.unroute(inboxRoute);
+  await page.route(inboxRoute, (route) =>
+    route.fulfill({ json: { data: [longWordQuestionItem] } }),
+  );
+  await screenshot(
+    page,
+    "question-long-title",
+    "/chat",
+    () => [
+      panel.getByText(longWordTitle),
+      panel.getByText("The shop needs a store for the plans."),
+      group("Which store?"),
+      option("Which store?", "SQLite"),
+      option("Which store?", "Postgres"),
+    ],
+    async () => {
+      await row(longWordTitle).getByRole("button", { name: "Answer" }).click();
+      await expect(panel).toBeVisible();
+    },
+    () => page.keyboard.press("Escape"),
+  );
+  await page.unroute(inboxRoute);
 
   // The fake Lead of #14 proposes a new Brief. The approval changes the Brief, and the last call sets it back.
   await page.goto("/workstreams/owner/shop/14");

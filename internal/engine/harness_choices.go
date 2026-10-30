@@ -3,14 +3,10 @@ package engine
 import (
 	"context"
 	"os"
-	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/runner"
 )
-
-// harnessChoicesTTL is the time that the engine keeps a successful read of the models of a Harness.
-const harnessChoicesTTL = 10 * time.Minute
 
 // HarnessChoice is a Harness with its models. Error is the reason of a failed read, and then Models is empty.
 type HarnessChoice struct {
@@ -19,51 +15,78 @@ type HarnessChoice struct {
 	Error   string
 }
 
-// harnessRead is one read of the models of a Harness. done closes when the read ends, and then choice and at are final.
+// harnessRead is one read of the models of a Harness. done closes when the read ends, and then choice is final.
+// seen tells that a request gave the error of this ended read. The next request reads the Harness again.
 type harnessRead struct {
 	done   chan struct{}
 	choice HarnessChoice
-	at     time.Time
+	seen   bool
+}
+
+// ReadHarnessChoices starts a read of the models of each Harness of config.Harnesses whose program is on the PATH of
+// the agents. The reads run at the same time, and the method returns before they end.
+func (e *Engine) ReadHarnessChoices(ctx context.Context) {
+	path := runner.AgentPath(e.config.DataDir, e.agents.Path)
+	for _, harness := range config.Harnesses {
+		if len(runner.Missing(path, runner.Program(harness))) == 0 {
+			e.harnessReadChoice(ctx, harness, path)
+		}
+	}
 }
 
 // HarnessChoices gives the models and the effort levels of each Harness of config.Harnesses whose program is on the
-// PATH of the agents. It keeps a successful read for 10 minutes, and runs one read at a time for each Harness.
+// PATH of the agents, in the order of config.Harnesses. It reads the Harnesses at the same time and keeps a successful
+// read until the next start of Mobius. A failed read gives its error one time, and the next request reads it again.
 func (e *Engine) HarnessChoices(ctx context.Context) []HarnessChoice {
 	path := runner.AgentPath(e.config.DataDir, e.agents.Path)
-	var choices []HarnessChoice
+	var reads []*harnessRead
 	for _, harness := range config.Harnesses {
 		if len(runner.Missing(path, runner.Program(harness))) == 0 {
-			choices = append(choices, e.harnessChoice(ctx, harness, path))
+			reads = append(reads, e.harnessReadChoice(ctx, harness, path))
+		}
+	}
+	choices := make([]HarnessChoice, 0, len(reads))
+	for _, read := range reads {
+		<-read.done
+		choices = append(choices, read.choice)
+		if read.choice.Error != "" {
+			e.markHarnessReadSeen(read)
 		}
 	}
 	return choices
 }
 
-func (e *Engine) harnessChoice(ctx context.Context, harness config.Harness, path string) HarnessChoice {
+// harnessReadChoice gives the read of harness. It starts a read when there is none or when a request already gave the
+// error of the last failed read. It gives the last read while it runs, when it succeeded, or when its error is not
+// given yet. The caller waits for done.
+func (e *Engine) harnessReadChoice(ctx context.Context, harness config.Harness, path string) *harnessRead {
 	e.harnessReadsMu.Lock()
-	read := e.harnessReads[harness]
-	if read == nil || !e.fresh(read) {
-		read = &harnessRead{done: make(chan struct{})}
-		e.harnessReads[harness] = read
-		e.harnessReadsMu.Unlock()
-		read.choice = e.readHarness(context.WithoutCancel(ctx), harness, path)
-		read.at = e.timeNow()
-		close(read.done)
-	} else {
-		e.harnessReadsMu.Unlock()
-		<-read.done
+	defer e.harnessReadsMu.Unlock()
+	if read := e.harnessReads[harness]; read != nil {
+		select {
+		case <-read.done:
+			if read.choice.Error == "" || !read.seen {
+				read.seen = true
+				return read
+			}
+		default:
+			return read
+		}
 	}
-	return read.choice
+	read := &harnessRead{done: make(chan struct{})}
+	e.harnessReads[harness] = read
+	go func() {
+		read.choice = e.readHarness(context.WithoutCancel(ctx), harness, path)
+		close(read.done)
+	}()
+	return read
 }
 
-// fresh tells if read still runs, or ended with a success that is younger than harnessChoicesTTL.
-func (e *Engine) fresh(read *harnessRead) bool {
-	select {
-	case <-read.done:
-		return read.choice.Error == "" && e.timeNow().Sub(read.at) < harnessChoicesTTL
-	default:
-		return true
-	}
+// markHarnessReadSeen marks that a request gave the error of read.
+func (e *Engine) markHarnessReadSeen(read *harnessRead) {
+	e.harnessReadsMu.Lock()
+	read.seen = true
+	e.harnessReadsMu.Unlock()
 }
 
 func (e *Engine) readHarness(ctx context.Context, harness config.Harness, path string) HarnessChoice {

@@ -3435,21 +3435,25 @@
             }
           },
           {
-            "description": "Group is the value that splits the days and the groups. With no Group, all rows are in one group",
+            "description": "Group is the list of fields that splits the days and the groups. With no Group, all rows are in one group",
             "in": "query",
             "name": "group",
             "required": false,
             "schema": {
-              "enum": [
-                "harness",
-                "model",
-                "modelEffort",
-                "modelVersion",
-                "modelVersionEffort",
-                "role",
-                "repository"
-              ],
-              "type": "string"
+              "description": "Array of string",
+              "items": {
+                "enum": [
+                  "harness",
+                  "model",
+                  "modelVersion",
+                  "effort",
+                  "role",
+                  "repository"
+                ],
+                "type": "string"
+              },
+              "title": "[]string",
+              "type": "array"
             }
           }
         ],
@@ -3576,18 +3580,23 @@
             }
           },
           {
-            "description": "Group is the value that splits the rows. With no Group, all rows are in one group",
+            "description": "Group is the list of fields that splits the rows. With no Group, all rows are in one group",
             "in": "query",
             "name": "group",
             "required": false,
             "schema": {
-              "enum": [
-                "harness",
-                "role",
-                "repository",
-                "source"
-              ],
-              "type": "string"
+              "description": "Array of string",
+              "items": {
+                "enum": [
+                  "harness",
+                  "role",
+                  "repository",
+                  "source"
+                ],
+                "type": "string"
+              },
+              "title": "[]string",
+              "type": "array"
             }
           }
         ],
@@ -3751,21 +3760,25 @@
             }
           },
           {
-            "description": "Group is the value that splits the days and the groups. With no Group, all rows are in one group",
+            "description": "Group is the list of fields that splits the days and the groups. With no Group, all rows are in one group",
             "in": "query",
             "name": "group",
             "required": false,
             "schema": {
-              "enum": [
-                "harness",
-                "model",
-                "modelEffort",
-                "modelVersion",
-                "modelVersionEffort",
-                "role",
-                "repository"
-              ],
-              "type": "string"
+              "description": "Array of string",
+              "items": {
+                "enum": [
+                  "harness",
+                  "model",
+                  "modelVersion",
+                  "effort",
+                  "role",
+                  "repository"
+                ],
+                "type": "string"
+              },
+              "title": "[]string",
+              "type": "array"
             }
           }
         ],
@@ -8223,8 +8236,12 @@
         "title": "SkillUsageRow",
         "properties": {
           "group": {
-            "type": "string",
-            "description": "Group is the value of the group, or empty when the request has no group"
+            "type": "array",
+            "title": "[]string",
+            "description": "Group is the value of each selected field, in the order of the fields of the route. With no field it is empty",
+            "items": {
+              "type": "string"
+            }
           },
           "had": {
             "type": "integer",
@@ -8735,8 +8752,12 @@
             "description": "Day is the day of the start of the turns, as \"YYYY-MM-DD\" in the time zone of the request"
           },
           "group": {
-            "type": "string",
-            "description": "Group is the value of the group, or empty when the request has no group or the value is not set"
+            "type": "array",
+            "title": "[]string",
+            "description": "Group is the value of each selected field, in the order of the fields of the route. With no field it is empty",
+            "items": {
+              "type": "string"
+            }
           },
           "values": {
             "$ref": "#/components/schemas/UsageValues"
@@ -8754,8 +8775,12 @@
         "title": "UsageGroup",
         "properties": {
           "group": {
-            "type": "string",
-            "description": "Group is the value of the group, or empty when the request has no group or the value is not set"
+            "type": "array",
+            "title": "[]string",
+            "description": "Group is the value of each selected field, in the order of the fields of the route. With no field it is empty",
+            "items": {
+              "type": "string"
+            }
           },
           "values": {
             "$ref": "#/components/schemas/UsageValues"
@@ -8839,8 +8864,12 @@
             "description": "Day is the day of the start of the rows, as \"YYYY-MM-DD\" in the time zone of the request"
           },
           "group": {
-            "type": "string",
-            "description": "Group is the value of the group, or empty when the request has no group or the value is not set"
+            "type": "array",
+            "title": "[]string",
+            "description": "Group is the value of each selected field, in the order of the fields of the route. With no field it is empty",
+            "items": {
+              "type": "string"
+            }
           },
           "stats": {
             "type": "array",
@@ -8863,8 +8892,12 @@
         "title": "UsageTimeGroup",
         "properties": {
           "group": {
-            "type": "string",
-            "description": "Group is the value of the group, or empty when the request has no group or the value is not set"
+            "type": "array",
+            "title": "[]string",
+            "description": "Group is the value of each selected field, in the order of the fields of the route. With no field it is empty",
+            "items": {
+              "type": "string"
+            }
           },
           "stats": {
             "type": "array",

@@ -370,9 +370,8 @@ func TestAFixRoundOfTheLeadMakesTheReadyPullRequestADraftUntilTheEndOfTheRound(t
 	sendChat(t, server, leadChat, "Send the findings to #41")
 
 	testkit.WaitFor(t, func() bool { return fake.PullRequests(shop)[0].Draft })
-	if state := taskState(t, server); state != "working" {
-		t.Errorf("state = %s", state)
-	}
+	// The task is queued until the Worker takes a slot, and working after that.
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "working" })
 
 	touch(t, goFile)
 

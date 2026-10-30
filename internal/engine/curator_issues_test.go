@@ -175,11 +175,12 @@ func TestSearchIssuesGivesOpenAndClosedIssuesWithTheCloseReasonAndTheLastThreeCo
 	addMaintenanceWorkstream(fake, 20)
 	fake.AddIssue(shop, 40, "Flaky CI test")
 	fake.SetBody(shop, 40, "The test fails.")
+	// Close the issue before the comments, so the poll cannot decline the comments as comments in no Workstream.
+	fake.CloseIssueAs(shop, 40, "not_planned")
 	for _, comment := range []string{"Comment 1.", "Comment 2.", "Comment 3.", "Comment 4."} {
 		fake.AddComment(shop, 40, "owner", comment)
 	}
 	fake.AddComment(shop, 40, "mallory", "Comment of Mallory.")
-	fake.CloseIssueAs(shop, 40, "not_planned")
 	fake.AddIssue(shop, 41, "Flaky CI deploy")
 	fake.AddComment(shop, 41, "owner", "Comment on the open issue.")
 	fake.AddIssue(shop, 42, "Flaky CI cache")
@@ -187,6 +188,19 @@ func TestSearchIssuesGivesOpenAndClosedIssuesWithTheCloseReasonAndTheLastThreeCo
 	fake.AddIssue(shop, 43, "Flaky CI from Mallory")
 	fake.SetAuthor(shop, 43, "mallory")
 	fake.AddPullRequest(shop, 44, "Flaky CI pull request")
+	fake.AddIssue(shop, 45, "Flaky CI marked comment")
+	fake.CloseIssue(shop, 45)
+	fake.AddAppComment(shop, 45, testkit.AppSlug+"[bot]", marked("The agent wrote this.", "— Curator"))
+
+	testkit.WaitFor(t, func() bool {
+		notices := 0
+		for _, comment := range fake.Comments(shop, 40) {
+			if comment.Body == engine.ClosedIssueReply {
+				notices++
+			}
+		}
+		return notices == 4
+	})
 
 	session := run(t, server, roleSpec(t, engine.CuratorRole), "1. ", "2. ", "3. ")
 
@@ -196,6 +210,8 @@ func TestSearchIssuesGivesOpenAndClosedIssuesWithTheCloseReasonAndTheLastThreeCo
 		" UTC:\nComment 2.\n",
 		" UTC:\nComment 4.\n",
 		"#41 Flaky CI deploy (open)\n\n\n\n#42 Flaky CI cache (closed, no reason)\n",
+		"#45 Flaky CI marked comment (closed, no reason)\n\n\n\n# Last comments\n",
+		" UTC:\nThe agent wrote this.\n\n— Curator\n",
 		"No issue matches.error: query must not be empty.",
 	} {
 		if !strings.Contains(text, part) {
@@ -206,5 +222,8 @@ func TestSearchIssuesGivesOpenAndClosedIssuesWithTheCloseReasonAndTheLastThreeCo
 		if strings.Contains(text, part) {
 			t.Errorf("%q is in %q", part, text)
 		}
+	}
+	if strings.Contains(text, engine.ClosedIssueReply) {
+		t.Errorf("the engine notice is in %q", text)
 	}
 }
