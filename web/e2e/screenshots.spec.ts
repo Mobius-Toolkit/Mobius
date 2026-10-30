@@ -1201,6 +1201,45 @@ test("screenshots", async ({ page }) => {
     },
   );
   await page.unroute(otherRepositoryRoute);
+  const stopRoute = "**/api/workstreams/plants/garden/19/tasks";
+  await page.route(stopRoute, async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as { data: object[] };
+    body.data.push({
+      number: 74,
+      title: "Prune the hedge",
+      state: "working",
+      depth: 0,
+      repository: "plants/garden",
+      otherRepository: false,
+      url: "https://github.com/plants/garden/issues/74",
+      blockedBy: [],
+    });
+    await route.fulfill({ response, json: body });
+  });
+  await screenshot(
+    page,
+    "chat-tasks-stop",
+    "/workstreams/plants/garden/19",
+    (device) => [
+      ...(device === "desktop"
+        ? [
+            drain,
+            page.getByLabel("Work in another organization"),
+            page.locator('nav a[href="/workstreams/plants/garden/19"]'),
+          ]
+        : [page.getByLabel("Upgrade available")]),
+      page.getByText("#74 Prune the hedge").filter({ visible: true }),
+      page.getByRole("button", { name: "Stop #74" }).filter({ visible: true }),
+    ],
+    async (device) => {
+      if (device === "phone") {
+        await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
+      }
+      await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
+    },
+  );
+  await page.unroute(stopRoute);
   await screenshot(page, "chat-all-tasks-closed", "/workstreams/owner/shop/13", (device) => [
     ...frame(device, drain),
     main.getByText("All tasks are closed."),
