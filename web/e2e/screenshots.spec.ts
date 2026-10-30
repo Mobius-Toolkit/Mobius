@@ -246,6 +246,10 @@ test("screenshots", async ({ page }) => {
     const desktop = device === "desktop";
     return [
       ...(desktop || phone.upgrade ? [upgrade] : []),
+      // The Settings page shows the voice language after it reads it.
+      ...(phone.upgrade
+        ? [page.locator('main a[href="/settings/voice"]').getByText("English")]
+        : []),
       ...(desktop ? [] : [page.getByLabel("Upgrade available")]),
       ...(desktop || phone.organizations
         ? [page.getByLabel("Work in another organization").filter({ visible: true })]
@@ -1781,6 +1785,79 @@ test("screenshots", async ({ page }) => {
   await judgeSheet.getByRole("button", { name: "Reset" }).click();
   expect((await judgeReset).ok()).toBe(true);
   await expect(roleRow("Judge").getByText("haiku")).toBeVisible();
+  const voiceSection = (title: string) =>
+    main.locator("section").filter({ has: page.getByRole("heading", { name: title }) });
+  const voiceSearch = page.getByLabel("Search languages");
+  const saveVoice = async (click: () => Promise<void>) => {
+    const saved = page.waitForResponse(
+      (res) => res.url().endsWith("/api/voice/language") && res.request().method() === "PUT",
+    );
+    await click();
+    return saved;
+  };
+  const voiceLoaded = () =>
+    expect(voiceSection("Suggested").getByRole("button").first()).toBeVisible();
+  await screenshot(page, "voice", "/settings/voice", (device) => [
+    ...frame(device, release),
+    voiceSection("Suggested").locator('button[aria-current="true"]').getByText("English"),
+    voiceSection("All languages").getByRole("button", { name: "Afrikaans" }),
+  ]);
+  await screenshot(
+    page,
+    "voice-selected",
+    "/settings/voice",
+    (device) => [
+      ...frame(device, release),
+      voiceSection("Suggested").locator('button[aria-current="true"]').getByText("German"),
+    ],
+    async () => {
+      await voiceLoaded();
+      await voiceSearch.fill("ger");
+      const saved = await saveVoice(() => main.getByRole("button", { name: "German" }).click());
+      expect((await saved).ok()).toBe(true);
+      await voiceSearch.fill("");
+      await page.mouse.move(0, 0);
+    },
+    async () => {
+      const saved = await saveVoice(() =>
+        voiceSection("Suggested").getByRole("button", { name: "English" }).click(),
+      );
+      expect((await saved).ok()).toBe(true);
+    },
+  );
+  await screenshot(
+    page,
+    "voice-search",
+    "/settings/voice",
+    (device) => [...frame(device, release), main.getByRole("button", { name: "German" })],
+    async () => {
+      await voiceLoaded();
+      await voiceSearch.fill("ger");
+    },
+  );
+  await screenshot(
+    page,
+    "voice-error",
+    "/settings/voice",
+    (device) => [
+      ...frame(device, release),
+      page.getByText("Mobius could not save the language: database is locked."),
+    ],
+    async () => {
+      await page.route("**/api/voice/language", (route) =>
+        route.request().method() === "PUT"
+          ? route.fulfill({ status: 500, json: { error: "database is locked" } })
+          : route.continue(),
+      );
+      await voiceLoaded();
+      const saved = await saveVoice(() =>
+        voiceSection("Suggested").getByRole("button", { name: "Detect automatically" }).click(),
+      );
+      expect((await saved).status()).toBe(500);
+      await page.mouse.move(0, 0);
+    },
+    () => page.unroute("**/api/voice/language"),
+  );
   await screenshot(page, "checkup", "/settings/checkup", (device) => [
     ...frame(device, release),
     main.getByRole("link", { name: "Tools" }).getByText("needs you"),
