@@ -146,11 +146,11 @@ test("the Quality tab shows the totals of the ended tasks", async ({ page }) => 
   await expect(main.getByRole("tab", { name: "Quality", selected: true })).toBeVisible();
   const total = (title: string) =>
     main.locator("dt", { hasText: title }).locator("..").locator("dd");
-  await expect(total("Tasks")).toHaveText("3");
-  await expect(total("Merged")).toHaveText("67%");
-  await expect(total("Review rounds")).toHaveText("0.7");
-  await expect(total("Fix rounds")).toHaveText("1.3");
-  await expect(total("Cost per task")).toHaveText("$1.17");
+  await expect(total("Tasks")).toHaveText("5");
+  await expect(total("Merged")).toHaveText("60%");
+  await expect(total("Review rounds")).toHaveText("1.4");
+  await expect(total("Fix rounds")).toHaveText("1.4");
+  await expect(total("Cost per task")).toHaveText("$1.10");
 });
 
 test("the value menu puts the fix rounds on the chart", async ({ page }) => {

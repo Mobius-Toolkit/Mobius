@@ -1129,9 +1129,11 @@ func addStepTimes(t *testing.T, server *testserver.Server) {
 	}
 }
 
-// addQuality adds the ended tasks of the tab "Quality" on three of the 7 days that end on 2026-10-15. They are in
+// addQuality adds the ended tasks of the tab "Quality" on five of the 7 days that end on 2026-10-15. They are in
 // owner/quality, so the other screens do not show them. Only the working state starts in these days, so the tab "Times"
 // reads no other state of these tasks. The turns start before these days, so the tab "Cost" reads none of them.
+// sonnet has tasks on Oct 10, Oct 11 and Oct 15, and swe-1.5 has tasks on Oct 12 and Oct 13. Thus each model has two
+// days in a row, and the chart has a gap on Oct 14.
 func addQuality(t *testing.T, server *testserver.Server) {
 	t.Helper()
 	at := func(value string, minutes int) string {
@@ -1151,8 +1153,10 @@ func addQuality(t *testing.T, server *testserver.Server) {
 	}
 	tasks := []qualityTask{
 		{80, "claude-code", "sonnet", "high", "2026-10-10T08:00:00Z", "2026-10-10T12:00:00Z", true, 1, 4, 1, 1, 1000, 200, 3000, 400, 1},
-		{81, "devin", "swe-1.5", "", "2026-10-12T14:00:00Z", "2026-10-12T18:00:00Z", false, 0, 1, 0, 0, 2000, 400, 5000, 600, 2},
-		{82, "claude-code", "sonnet", "high", "2026-10-15T06:00:00Z", "2026-10-15T10:00:00Z", true, 1, 2, 0, 0, 500, 100, 1500, 200, 0.5},
+		{83, "claude-code", "sonnet", "high", "2026-10-11T09:00:00Z", "2026-10-11T12:30:00Z", true, 2, 2, 0, 0, 800, 150, 2400, 300, 0.6},
+		{81, "devin", "swe-1.5", "", "2026-10-12T14:00:00Z", "2026-10-12T18:00:00Z", false, 1, 1, 0, 0, 2000, 400, 5000, 600, 2},
+		{84, "devin", "swe-1.5", "", "2026-10-13T07:00:00Z", "2026-10-13T09:00:00Z", false, 2, 2, 0, 0, 1200, 250, 3500, 450, 1.4},
+		{82, "claude-code", "sonnet", "high", "2026-10-15T06:00:00Z", "2026-10-15T10:00:00Z", true, 1, 3, 0, 0, 500, 100, 1500, 200, 0.5},
 	}
 	for _, task := range tasks {
 		result, err := server.DB.Exec(`INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at)
