@@ -10,6 +10,7 @@ import (
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
+	"github.com/Mobius-Toolkit/Mobius/internal/runner"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
@@ -501,4 +502,128 @@ func TestDismissKeepsTheWaitingMessageAndTheNextTryDeliversIt(t *testing.T) {
 	server.Engine.SetClock(func() time.Time { return time.Now().Add(engine.FailedRetry + time.Minute) })
 
 	waitForDeliveredMessage(t, server, leadChat, text)
+}
+
+// Serial: it shortens HangTimeout.
+func TestAHangOnTheSecondMessageOfASessionFailsThatMessage(t *testing.T) {
+	shortHang(t)
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, `
+[[prompts]]
+when = "Plan the loyalty API"
+updates = ['{"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "Read."}}']
+reply = ["Seen"]
+
+[[prompts]]
+when = "Add a plan price"
+hang = true
+
+[[prompts]]
+when = "You had no activity"
+hang = true
+`, keepSessionOpen)
+	const first = "Plan the loyalty API"
+	const second = "Add a plan price"
+
+	sendChat(t, server, leadChat, first)
+	sendChat(t, server, leadChat, second)
+
+	waitForDeliveredMessage(t, server, leadChat, first)
+	failed := waitForFailedMessage(t, server, leadChat, second)
+	if failed.DeliveredAt.Valid || failed.StoppedAt.Valid {
+		t.Errorf("message = %+v", failed)
+	}
+	item := waitForFailedItem(t, server, second)
+	if item.Title != `Lead of #12 Integrate loyalty plans did not get: "Add a plan price"` {
+		t.Errorf("item = %+v", item)
+	}
+	message, ok := chatMessageByText(t, server, leadChat, first)
+	if !ok || !message.DeliveredAt.Valid || message.FailedAt.Valid {
+		t.Errorf("first message = %+v", message)
+	}
+	if got := len(itemsOf(t, server, "Lead failed")); got != 1 {
+		t.Errorf("items = %d", got)
+	}
+}
+
+// Serial: it changes runner.StartTimeout.
+func TestSendAgainWhileARetryChatWaitsForItsStartGivesTheTextOneTime(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	dataDir := t.TempDir()
+	fail := filepath.Join(dataDir, "fail")
+	if err := os.WriteFile(fail, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	script := options + fmt.Sprintf("[[prompts]]\nshell = \"%s\"\nreply = [\"Seen\"]\n", failedThen(fail, ""))
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
+	testkit.InstallFakeAgent(t, dataDir, script)
+	cfg := testserver.Config(t, dataDir)
+	server := startServerWith(t, fake, cfg, "")
+	server.WaitForFirstPoll(t, shop)
+	testkit.WaitFor(t, server.Engine.AccessChecked)
+	const text = "Plan the loyalty API"
+	const next = "Add a plan price"
+
+	sendChat(t, server, leadChat, text)
+	waitForFailedMessage(t, server, leadChat, text)
+	item := waitForFailedItem(t, server, text)
+	waitForChatEnd(t, server, leadChat)
+	if err := os.Remove(fail); err != nil {
+		t.Fatal(err)
+	}
+	before := len(chatSessions(t, server, leadChat, engine.LeadRole))
+
+	defer func(limit time.Duration) { runner.StartTimeout = limit }(runner.StartTimeout)
+	runner.StartTimeout = 2 * time.Second
+	testkit.InstallFakeAgent(t, dataDir, "hang_start = 1\n"+options+"[[prompts]]\nreply = [\"Seen\"]\n")
+
+	sendChat(t, server, leadChat, next)
+	testkit.WaitFor(t, func() bool {
+		return len(chatSessions(t, server, leadChat, engine.LeadRole)) > before
+	})
+	if err := server.Engine.SendAgain(t.Context(), item.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	waitForNoFailedItems(t, server)
+	old, ok := chatMessageByText(t, server, leadChat, text)
+	if !ok || !old.CancelledAt.Valid || old.StoppedAt.Valid || old.DeliveredAt.Valid {
+		t.Errorf("old message = %+v", old)
+	}
+	var copied store.ChatMessage
+	for _, message := range chatView(t, server, leadChat).Messages {
+		if message.Author == "Owner" && message.Text == text {
+			copied = message
+		}
+	}
+	if copied.ID == old.ID || copied.ID == 0 {
+		t.Fatalf("copy = %+v", copied)
+	}
+	if !copied.BrowserID.Valid {
+		t.Error("the copy has no browser id")
+	}
+	testkit.WaitFor(t, func() bool {
+		for _, message := range chatView(t, server, leadChat).Messages {
+			if message.ID == copied.ID {
+				return message.DeliveredAt.Valid
+			}
+		}
+		return false
+	})
+	for _, message := range chatView(t, server, leadChat).Messages {
+		if message.ID == old.ID && message.DeliveredAt.Valid {
+			t.Errorf("the old message was delivered")
+		}
+	}
+	sessions := chatSessions(t, server, leadChat, engine.LeadRole)
+	var got int
+	for _, prompt := range promptTexts(t, server, sessions[len(sessions)-1].ID) {
+		if prompt == text {
+			got++
+		}
+	}
+	if got != 1 {
+		t.Errorf("prompts that give the text = %d", got)
+	}
 }

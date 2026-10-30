@@ -244,10 +244,11 @@ func (e *Engine) SendAgain(ctx context.Context, id int64) error {
 	if err == nil && cancelled.Author != approvalAuthor {
 		e.publish(Change{Message: &cancelled})
 	}
+	key := ChatKey{Organization: message.Organization, Repository: message.Repository, Workstream: message.Workstream}
+	e.forgetChatMessage(key, message.ID)
 	if err := e.Dismiss(ctx, id); err != nil {
 		return err
 	}
-	key := ChatKey{Organization: message.Organization, Repository: message.Repository, Workstream: message.Workstream}
 	return e.postChat(ctx, key, ownerAuthor, rand.Text(), message.Text, images, inboxItems)
 }
 

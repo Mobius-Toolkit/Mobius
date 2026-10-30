@@ -532,6 +532,43 @@ func (e *Engine) waitingMessages(ctx context.Context, key ChatKey) ([]item, erro
 	return items, nil
 }
 
+// messageCancelled tells if "Send again" cancelled the message. A cancelled message gets no turn.
+func (e *Engine) messageCancelled(ctx context.Context, id int64) (bool, error) {
+	message, err := e.queries.GetChatMessage(ctx, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return message.CancelledAt.Valid, nil
+}
+
+// forgetChatMessage removes the message from the running chat of key before its turn, so "Send again" gives the text
+// only through the copy. While the session waits for its start, the next item takes its place. With no next item, the
+// chat ends.
+func (e *Engine) forgetChatMessage(key ChatKey, id int64) {
+	e.chatsMu.Lock()
+	defer e.chatsMu.Unlock()
+	c, ok := e.chats[key]
+	if !ok {
+		return
+	}
+	if c.stopWait != nil && c.first.message != nil && c.first.message.ID == id {
+		if len(c.queue) > 0 {
+			c.first, c.queue = c.queue[0], c.queue[1:]
+		} else {
+			delete(e.chats, key)
+			c.stopWait()
+			c.first = item{}
+		}
+	}
+	c.queue = slices.DeleteFunc(c.queue, func(queued item) bool {
+		return queued.message != nil && queued.message.ID == id
+	})
+	c.notify()
+}
+
 // StopChat stops the turn of the chat that answers a message of the Owner. A turn for an event goes on, and a stop
 // drops each queued message of the Owner. A chat whose session waits for its slot drops its first message, and it
 // ends when no later item waits.
@@ -842,9 +879,11 @@ func (e *Engine) runChat(c *chat) {
 		e.chatsMu.Lock()
 		current := c.current
 		c.current = nil
-		if current != nil && crashes <= maxCrashes {
+		if current != nil {
 			c.first = *current
-			c.wait, c.stopWait = context.WithCancel(c.ctx)
+			if crashes <= maxCrashes {
+				c.wait, c.stopWait = context.WithCancel(c.ctx)
+			}
 		}
 		e.chatsMu.Unlock()
 		if current != nil && crashes <= maxCrashes {
@@ -1153,6 +1192,15 @@ func (e *Engine) pending(ctx context.Context, event *store.LeadEvent) (bool, err
 // Transcript, and a stop does not cancel that turn: the Owner cannot see it. The Lead uses tell_owner to write to the
 // Owner. After a tell_owner call, the reply text of a turn for a message goes only to the Transcript.
 func (e *Engine) itemTurn(c *chat, a *Agent, current item, prompt string, images []Image) error {
+	if current.message != nil {
+		cancelled, err := e.messageCancelled(c.ctx, current.message.ID)
+		if err != nil {
+			return err
+		}
+		if cancelled {
+			return nil
+		}
+	}
 	e.chatsMu.Lock()
 	c.current = &current
 	e.chatsMu.Unlock()
