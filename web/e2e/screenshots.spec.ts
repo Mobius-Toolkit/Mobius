@@ -530,7 +530,8 @@ test("screenshots", async ({ page }) => {
       await page.getByRole("tab", { name: "Brief" }).filter({ visible: true }).click();
     },
   );
-  // The Workstream rows show before the nav reads the "needs you" list, so wait for each badge of the final state.
+  // The Workstream rows show before the nav reads the "needs you" list, and the pause banner comes from its own read, so
+  // wait for each badge of the final state and the banner.
   const needsYou = (number: number) =>
     page
       .locator(`nav a[href="/workstreams/plants/garden/${number}"]`)
@@ -540,6 +541,7 @@ test("screenshots", async ({ page }) => {
       ? [
           page.getByRole("button", { name: "Brief" }).filter({ visible: true }),
           ...[30, 20, 19].map(needsYou),
+          page.getByText(/^antigravity paused until Sep 28, 12:00\sPM$/),
         ]
       : [page.getByRole("banner").getByRole("heading", { name: "Prune the roses" })],
   );
