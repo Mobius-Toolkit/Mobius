@@ -107,21 +107,32 @@ func (e *Engine) addCIFailureIssueBelow(ctx context.Context, repository github.R
 	if err != nil {
 		return false, err
 	}
-	if issue != nil {
+	if issue != nil && hasLabel(issue, readyLabel) {
 		// The add below the Workstream does not change the list of the issues with mobius:ready, and dispatchReady can
 		// have stored its ETag before the issue was below the Workstream. The new label event makes dispatchReady read
-		// the list again.
+		// the list again. An issue with no mobius:ready keeps no label, because a label that a person removed must not
+		// come back.
 		if err := repository.RemoveLabel(ctx, number, readyLabel); err != nil {
-			return false, err
+			return issue != nil, labelWriteError(repository, number, "remove", err)
 		}
 		if err := repository.AddLabel(ctx, number, readyLabel); err != nil {
-			return false, err
+			return issue != nil, labelWriteError(repository, number, "add", err)
 		}
 	}
 	if err := e.queries.SetCIFailureIssue(ctx, store.SetCIFailureIssueParams{Issue: number, ID: failure.ID}); err != nil {
 		return issue != nil, err
 	}
 	return issue != nil, nil
+}
+
+// labelWriteError gives nil for a 4xx answer of GitHub, so the poll does not stop and the next poll writes the label
+// again with the negative number of the issue. It gives each other error.
+func labelWriteError(repository github.Repository, number int64, action string, err error) error {
+	if !refusedByGitHub(err) {
+		return err
+	}
+	log.Printf("%s the label %s of #%d of %s: %v", action, readyLabel, number, repository.FullName, err)
+	return nil
 }
 
 // ciFailureName gives the test of failure, else its location, else the start of its reason.
