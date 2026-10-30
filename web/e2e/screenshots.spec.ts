@@ -2147,6 +2147,26 @@ test("screenshots", async ({ page }) => {
       main.getByRole("row", { name: /^write-issue Mobius implementer 0 2 0$/ }),
     ],
   );
+  await screenshot(
+    page,
+    "usage-group-by",
+    "/usage?group=%5B%22harness%22%2C%22role%22%5D",
+    () => [],
+    async (device) => {
+      await main.getByRole("button", { name: "Group by: Harness · Role" }).click();
+      if (device === "phone") {
+        await expect(page.getByRole("checkbox", { name: "Harness", checked: true })).toBeVisible();
+        await expect(page.getByRole("checkbox", { name: "Role", checked: true })).toBeVisible();
+      } else {
+        await expect(
+          page.getByRole("menuitemcheckbox", { name: "Harness", checked: true }),
+        ).toBeVisible();
+        await expect(
+          page.getByRole("menuitemcheckbox", { name: "Role", checked: true }),
+        ).toBeVisible();
+      }
+    },
+  );
   await page.setViewportSize(viewports.phone);
   await page.goto("/usage?group=%5B%22model%22%5D");
   await expect(main.getByRole("row", { name: /swe-1\.5/ })).toBeVisible();
