@@ -371,6 +371,38 @@ error = { code = -32000, message = "Usage limit", data = { resets = "18:00" } }
 	}
 }
 
+func TestTheAccessCheckPromptEndsWithNoReplyAndTakesNoOrderedPrompt(t *testing.T) {
+	c := start(t, `
+[[prompts]]
+reply = ["First."]
+`)
+
+	check, stopReason := c.prompt(t, "Reply with the word OK.")
+	work, _ := c.prompt(t, "Work.")
+
+	if check != "" || stopReason != "end_turn" {
+		t.Errorf("check = %q, stop reason = %q", check, stopReason)
+	}
+	if work != "First." {
+		t.Errorf("work = %q", work)
+	}
+}
+
+func TestAWhenTextThatIsNotEmptyEndsTheAccessCheckWithItsError(t *testing.T) {
+	c := start(t, `
+[[prompts]]
+when = "the word OK"
+error = { code = -32603, message = "no API key" }
+`)
+
+	_, err := c.send("Reply with the word OK.")
+
+	var scripted *acp.RequestError
+	if !errors.As(err, &scripted) || scripted.Code != -32603 {
+		t.Errorf("error = %v", err)
+	}
+}
+
 func TestAHangEndsAtTheCancel(t *testing.T) {
 	c := start(t, `
 [[prompts]]

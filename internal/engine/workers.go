@@ -218,7 +218,8 @@ func (e *Engine) queuedTasks(ctx context.Context) ([]queuedTask, error) {
 
 // takeSlot holds until the session of a gets a slot of its Role, and shows the reason of the wait on the session.
 // A session with a task waits at the place of its task, and the task goes from queued to working. A session with
-// no task waits behind each session that queued before it.
+// no task waits behind each session that queued before it. The drain does not count a session that is not a Worker
+// while the access check of its binding holds it.
 func (e *Engine) takeSlot(ctx context.Context, a *Agent) error {
 	w := &e.workers
 	role, task := a.spec.Role, a.spec.Task
@@ -245,6 +246,9 @@ func (e *Engine) takeSlot(ctx context.Context, a *Agent) error {
 		if err != nil {
 			return err
 		}
+		if err := e.followBinding(ctx, a); err != nil {
+			return err
+		}
 		paused := ""
 		if worker {
 			pause, err := e.queries.GetHarnessPause(ctx, string(a.binding.Harness))
@@ -263,7 +267,15 @@ func (e *Engine) takeSlot(ctx context.Context, a *Agent) error {
 				return err
 			}
 		}
-		reason, ok := e.slotReason(a, place, queue, worker, paused, startOff)
+		noAccess := e.accessHold(a.binding)
+		if !worker {
+			if noAccess != "" {
+				a.setUncounted(true)
+			} else if !a.setUncounted(false) {
+				noAccess = drainReason
+			}
+		}
+		reason, ok := e.slotReason(a, place, queue, worker, paused, startOff, noAccess)
 		if !ok {
 			return ErrLeftQueue
 		}
@@ -304,11 +316,35 @@ func (e *Engine) takeSlot(ctx context.Context, a *Agent) error {
 	return nil
 }
 
+// followBinding gives the session of a that waits for a slot the current binding of its Role, because the Owner can
+// change the Role while the session waits. A session that runs keeps its binding.
+func (e *Engine) followBinding(ctx context.Context, a *Agent) error {
+	binding, ok := e.roleBinding(a.spec.Role)
+	if !ok {
+		return fmt.Errorf("the Role %s has no Role binding", a.spec.Role)
+	}
+	if binding == a.binding {
+		return nil
+	}
+	session, err := e.queries.SetSessionBinding(ctx, store.SetSessionBindingParams{
+		Harness: string(binding.Harness),
+		Model:   binding.Model,
+		Effort:  sql.NullString{String: binding.Effort, Valid: binding.Effort != ""},
+		ID:      a.id,
+	})
+	if err != nil {
+		return err
+	}
+	a.binding = binding
+	e.publish(Change{Node: new(e.node(session))})
+	return nil
+}
+
 // slotReason gives the reason why the session of a must wait, or "" when the session took a slot. A Worker that
 // takes a slot also counts in the drain. It gives false when the task of the session is not in queue. paused is
 // the reason of a pause of the Harness of a Worker, or "". startOff tells that the Start switch is off and the
-// session has a task.
-func (e *Engine) slotReason(a *Agent, place waiter, queue []queuedTask, worker bool, paused string, startOff bool) (string, bool) {
+// session has a task. noAccess is the reason why the access check of the Role binding of the session holds it, or "".
+func (e *Engine) slotReason(a *Agent, place waiter, queue []queuedTask, worker bool, paused string, startOff bool, noAccess string) (string, bool) {
 	w := &e.workers
 	role, task := a.spec.Role, a.spec.Task
 	w.mu.Lock()
@@ -348,6 +384,8 @@ func (e *Engine) slotReason(a *Agent, place waiter, queue []queuedTask, worker b
 		reason = drainReason
 	case startOff:
 		reason = startOffReason
+	case noAccess != "":
+		reason = noAccess
 	case paused != "":
 		reason = paused
 	default:
