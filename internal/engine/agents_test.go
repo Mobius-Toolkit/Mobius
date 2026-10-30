@@ -582,11 +582,12 @@ reply = ["Done."]
 func TestAFailedStartEndsTheSessionWithTheError(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectWith(t, fake, "", func(cfg *config.Config) { cfg.Roles.Lead.Model = "gpt-5" })
+	server, dataDir := connect(t, fake, "")
+	testkit.InstallFakeHarness(t, dataDir, "claude-agent-acp", "[options]\nmodel = [\"sonnet\", \"haiku\"]\n")
 
 	_, err := server.Engine.Start(t.Context(), leadSpec(t))
 
-	want := `claude-agent-acp refuses model "gpt-5", it has: sonnet, opus, haiku, swe-1.5, gemini-3-pro`
+	want := `claude-agent-acp refuses model "opus", it has: sonnet, haiku`
 	if err == nil || err.Error() != want {
 		t.Fatalf("error = %v", err)
 	}

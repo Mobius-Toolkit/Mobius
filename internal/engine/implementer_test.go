@@ -59,6 +59,10 @@ func connectTaskIn(t *testing.T, fake *testkit.FakeGitHub, dataDir, lead, implem
 	fake.SetBody(shop, 41, "Plans have a price.")
 	testkit.InstallFakeHarness(t, dataDir, "claude-agent-acp", options+lead)
 	testkit.InstallFakeHarness(t, dataDir, "devin", options+implementer)
+	// The access check of the start needs the program of each Role. A test can replace this script later.
+	if _, err := os.Stat(filepath.Join(dataDir, "harnesses", "agy_acp_server.toml")); err != nil {
+		testkit.InstallFakeHarness(t, dataDir, "agy_acp_server", options)
+	}
 	cfg := testserver.Config(t, dataDir)
 	adjust(cfg)
 	server := startServerWith(t, fake, cfg, "")
