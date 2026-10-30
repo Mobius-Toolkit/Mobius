@@ -47,6 +47,8 @@ export default defineConfig({
     { name: "switches", testMatch: "switches.spec.ts", dependencies: ["agents"] },
     // The Inbox tests give their own data with page.route, and they need the Apps of the screenshots test.
     { name: "inbox", testMatch: "inbox.spec.ts", dependencies: ["agents"] },
+    // The notice tests give their own data with page.route, and they need the Apps of the screenshots test.
+    { name: "notice", testMatch: "notice.spec.ts", dependencies: ["agents"] },
     // The Tasks tests give their own data with page.route, and they need the Apps of the screenshots test.
     { name: "tasks", testMatch: "tasks.spec.ts", dependencies: ["agents"] },
     // The answered tests give their own data with page.route, and they need the Apps of the screenshots test.
