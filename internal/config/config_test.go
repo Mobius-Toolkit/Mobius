@@ -252,10 +252,10 @@ func TestParseRefusesAWrongRoleOrPassword(t *testing.T) {
 func TestParseAcceptsADSHRole(t *testing.T) {
 	config := parse(t, strings.Replace(valid,
 		`harness = "antigravity", model = "gemini-3-pro"`,
-		`harness = "dsh", model = '["deepseek-account","deepseek-v4-pro"]', effort = "high"`, 1))
+		`harness = "dsh", model = "deepseek-account/deepseek-v4-pro", effort = "high"`, 1))
 
 	researcher := config.Roles.Researcher
-	if researcher.Harness != DSH || researcher.Model != `["deepseek-account","deepseek-v4-pro"]` || researcher.Effort != "high" {
+	if researcher.Harness != DSH || researcher.Model != "deepseek-account/deepseek-v4-pro" || researcher.Effort != "high" {
 		t.Errorf("researcher = %+v", researcher)
 	}
 }
