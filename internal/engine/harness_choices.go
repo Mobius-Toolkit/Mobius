@@ -56,8 +56,9 @@ func (e *Engine) HarnessChoices(ctx context.Context) []HarnessChoice {
 	return choices
 }
 
-// harnessReadChoice gives the read of harness. It starts a read when there is none, when the last read failed, or when
-// a request already gave the error of that failed read. The caller waits for done.
+// harnessReadChoice gives the read of harness. It starts a read when there is none or when a request already gave the
+// error of the last failed read. It gives the last read while it runs, when it succeeded, or when its error is not
+// given yet. The caller waits for done.
 func (e *Engine) harnessReadChoice(ctx context.Context, harness config.Harness, path string) *harnessRead {
 	e.harnessReadsMu.Lock()
 	defer e.harnessReadsMu.Unlock()
