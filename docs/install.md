@@ -145,6 +145,23 @@ On a headless server, the browser cannot reach the server. Nobody tested these m
 - After the login on another device, the browser opens an address such as `http://127.0.0.1:<port>/...`, and the page fails. Copy the full address. On the server, run `curl '<address>'` before the 300 seconds end.
 - Log in on a Linux machine with a browser, then copy `~/.gemini/antigravity-acp/` to the server. A copy from macOS does not work, because macOS keeps the token in the Keychain.
 
+### Access check
+
+Mobius checks each Role at the start of the server and at each save of a Role on the Roles page. For each Harness, model and effort level, Mobius starts the Harness and sets the model and the effort. Then it sends one short prompt. The prompt proves the access, because some Harnesses start a model with no access and fail only at the first prompt.
+
+Roles with the same Harness, model and effort level share one check. A check does not change the sessions list, the transcripts or the usage data.
+
+If a check fails at the start of the server:
+
+- Mobius keeps running.
+- Mobius holds each new session of the Roles that use this Harness, model and effort level. A session that already runs continues.
+- The Inbox shows the item "Access check failed" with the error text of the Harness.
+- Mobius checks the failed Roles again each hour. When a check passes, the held sessions start and the item goes away.
+
+If a check fails at a save of a Role, Mobius refuses the save and shows the error text of the Harness. A change of only the maximum number of sessions needs no check.
+
+When the program of a Harness is not on the `PATH`, the check fails with the reason `<program> is not on PATH`.
+
 ### Skill directories
 
 Each agent loads your own skills from the user skill directory of its Harness:
