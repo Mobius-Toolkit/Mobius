@@ -84,16 +84,6 @@ type GetUsageSkillsResponse struct {
 	Body Envelope[SkillUsage]
 }
 
-type skillRow struct {
-	session    int64
-	repository string
-	role       string
-	harness    string
-	skill      string
-	source     string
-	used       bool
-}
-
 type skillKey struct {
 	skill  string
 	source string
@@ -109,32 +99,9 @@ type skillSum struct {
 // GetUsageSkills returns the skills that the sessions used or got in the period.
 func (h *handlers) GetUsageSkills(ctx context.Context, req GetUsageSkillsRequest) (*GetUsageSkillsResponse, error) {
 	query := req.Query
-	after := query.From.Add(-time.Second).UTC().Format(utcSecond)
-	before := query.To.Add(time.Second).UTC().Format(utcSecond)
-	uses, err := h.queries.ListSkillUsesBetween(ctx, store.ListSkillUsesBetweenParams{After: after, Before: before})
+	rows, err := h.queries.ListSkillRowsBetween(ctx, query.From, query.To)
 	if err != nil {
 		return nil, err
-	}
-	copied, err := h.queries.ListSessionSkillsBetween(ctx, store.ListSessionSkillsBetweenParams{After: after, Before: before})
-	if err != nil {
-		return nil, err
-	}
-
-	rows := make([]skillRow, 0, len(uses)+len(copied))
-	times := make([]string, 0, len(uses)+len(copied))
-	for _, use := range uses {
-		rows = append(rows, skillRow{
-			session: use.Session, repository: use.Repository, role: use.Role, harness: use.Harness, skill: use.Skill,
-			source: use.Source, used: true,
-		})
-		times = append(times, use.UsedAt)
-	}
-	for _, skill := range copied {
-		rows = append(rows, skillRow{
-			session: skill.Session, repository: skill.Repository, role: skill.Role, harness: skill.Harness,
-			skill: skill.Skill, source: "mobius",
-		})
-		times = append(times, skill.CopiedAt)
 	}
 
 	var (
@@ -144,34 +111,27 @@ func (h *handlers) GetUsageSkills(ctx context.Context, req GetUsageSkillsRequest
 		totals   SkillTotals
 		sums     = map[skillKey]*skillSum{}
 	)
-	for i, row := range rows {
-		at, err := time.Parse(time.RFC3339Nano, times[i])
-		if err != nil {
-			return nil, err
-		}
-		if at.Before(query.From) || !at.Before(query.To) {
+	for _, row := range rows {
+		options.Harnesses = append(options.Harnesses, row.Harness)
+		options.Roles = append(options.Roles, row.Role)
+		options.Repositories = append(options.Repositories, row.Repository)
+		options.Sources = append(options.Sources, row.Source)
+		if !passes(query.Harness, row.Harness) || !passes(query.Role, row.Role) ||
+			!passes(query.Repository, row.Repository) || !passes(query.Source, row.Source) {
 			continue
 		}
-		options.Harnesses = append(options.Harnesses, row.harness)
-		options.Roles = append(options.Roles, row.role)
-		options.Repositories = append(options.Repositories, row.repository)
-		options.Sources = append(options.Sources, row.source)
-		if !passes(query.Harness, row.harness) || !passes(query.Role, row.role) ||
-			!passes(query.Repository, row.repository) || !passes(query.Source, row.source) {
-			continue
-		}
-		key := skillKey{skill: row.skill, source: row.source, group: skillGroup(row, query.Group)}
+		key := skillKey{skill: row.Skill, source: row.Source, group: skillGroup(row, query.Group)}
 		if sums[key] == nil {
 			sums[key] = &skillSum{had: map[int64]bool{}, used: map[int64]bool{}}
 		}
-		skills[row.skill] = true
-		if row.used {
+		skills[row.Skill] = true
+		if row.Used {
 			totals.Uses++
-			sessions[row.session] = true
+			sessions[row.Session] = true
 			sums[key].uses++
-			sums[key].used[row.session] = true
+			sums[key].used[row.Session] = true
 		} else {
-			sums[key].had[row.session] = true
+			sums[key].had[row.Session] = true
 		}
 	}
 
@@ -198,16 +158,16 @@ func (h *handlers) GetUsageSkills(ctx context.Context, req GetUsageSkillsRequest
 	return &GetUsageSkillsResponse{Body: Envelope[SkillUsage]{Data: usage}}, nil
 }
 
-func skillGroup(row skillRow, group string) string {
+func skillGroup(row store.SkillRow, group string) string {
 	switch group {
 	case "harness":
-		return row.harness
+		return row.Harness
 	case "role":
-		return row.role
+		return row.Role
 	case "repository":
-		return row.repository
+		return row.Repository
 	case "source":
-		return row.source
+		return row.Source
 	default:
 		return ""
 	}

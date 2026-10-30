@@ -10,6 +10,21 @@ import (
 	"database/sql"
 )
 
+const addBlockerCycle = `-- name: AddBlockerCycle :exec
+INSERT INTO blocker_cycles (cycle, repository, workstream) VALUES (?, ?, ?)
+`
+
+type AddBlockerCycleParams struct {
+	Cycle      string
+	Repository string
+	Workstream int64
+}
+
+func (q *Queries) AddBlockerCycle(ctx context.Context, arg AddBlockerCycleParams) error {
+	_, err := q.db.ExecContext(ctx, addBlockerCycle, arg.Cycle, arg.Repository, arg.Workstream)
+	return err
+}
+
 const addCIBreak = `-- name: AddCIBreak :exec
 INSERT INTO ci_breaks (repository, workflow_id, workflow_name, run_id, run_url, run_attempt, rerun_at, result, started_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -1383,6 +1398,15 @@ func (q *Queries) CountUnread(ctx context.Context, arg CountUnreadParams) (int64
 	var count int64
 	err := row.Scan(&count)
 	return count, err
+}
+
+const deleteBlockerCycle = `-- name: DeleteBlockerCycle :exec
+DELETE FROM blocker_cycles WHERE cycle = ?
+`
+
+func (q *Queries) DeleteBlockerCycle(ctx context.Context, cycle string) error {
+	_, err := q.db.ExecContext(ctx, deleteBlockerCycle, cycle)
+	return err
 }
 
 const deleteChatMessage = `-- name: DeleteChatMessage :exec
@@ -3413,6 +3437,78 @@ func (q *Queries) ListAutopilotWorkstreams(ctx context.Context, repository strin
 			return nil, err
 		}
 		items = append(items, number)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listBlockerCycles = `-- name: ListBlockerCycles :many
+SELECT cycle, repository, workstream FROM blocker_cycles
+`
+
+func (q *Queries) ListBlockerCycles(ctx context.Context) ([]BlockerCycle, error) {
+	rows, err := q.db.QueryContext(ctx, listBlockerCycles)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []BlockerCycle
+	for rows.Next() {
+		var i BlockerCycle
+		if err := rows.Scan(&i.Cycle, &i.Repository, &i.Workstream); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listBlockerEdges = `-- name: ListBlockerEdges :many
+SELECT b.repository, b.workstream, i.repository_url, i.number, b.blocker_repository, b.number AS blocker_number
+FROM copied_blockers b
+JOIN copied_issues i ON i.repository = b.repository AND i.workstream = b.workstream AND i.position = b.position
+`
+
+type ListBlockerEdgesRow struct {
+	Repository        string
+	Workstream        int64
+	RepositoryUrl     string
+	Number            int64
+	BlockerRepository string
+	BlockerNumber     int64
+}
+
+func (q *Queries) ListBlockerEdges(ctx context.Context) ([]ListBlockerEdgesRow, error) {
+	rows, err := q.db.QueryContext(ctx, listBlockerEdges)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListBlockerEdgesRow
+	for rows.Next() {
+		var i ListBlockerEdgesRow
+		if err := rows.Scan(
+			&i.Repository,
+			&i.Workstream,
+			&i.RepositoryUrl,
+			&i.Number,
+			&i.BlockerRepository,
+			&i.BlockerNumber,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
