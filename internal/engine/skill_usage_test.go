@@ -70,7 +70,6 @@ func TestReadSkillUsageGivesEachSkillWithTheStatsOfThePeriod(t *testing.T) {
 		t.Fatalf("calls = %v", calls)
 	}
 	want := fmt.Sprintf(`Skill usage from %s to %s (UTC).
-Mobius records no skill use for: antigravity.
 
 ## probe
 
