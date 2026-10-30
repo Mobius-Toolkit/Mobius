@@ -79,14 +79,14 @@ func (c converter) putFile(t *testing.T, path string) {
 }
 
 func (c converter) transcribe(wav string) (string, error) {
-	return c.Transcribe(context.Background(), []byte(wav))
+	return c.Transcribe(context.Background(), []byte(wav), "en")
 }
 
 // transcribeBriefly gives the Unavailable error that Transcribe has after a wait of 100 ms.
 func (c converter) transcribeBriefly() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
-	_, err := c.Transcribe(ctx, []byte("RIFF"))
+	_, err := c.Transcribe(ctx, []byte("RIFF"), "en")
 	return err
 }
 
@@ -185,14 +185,14 @@ func TestTheFinalAndTheDraftConverterShareTheDirectoryAndBothStart(t *testing.T)
 	t.Cleanup(draft.Stop)
 	c.vad.Hold()
 	_ = c.transcribeBriefly()
-	_, _ = draft.Segments(context.Background(), []byte("RIFF"))
+	_, _ = draft.Segments(context.Background(), []byte("RIFF"), "en")
 	testkit.WaitFor(t, func() bool { return c.vad.Downloads() == 2 })
 
 	c.vad.Release()
 
 	testkit.WaitFor(t, func() bool {
 		_, err := c.transcribe("RIFF")
-		_, draftErr := draft.Segments(context.Background(), []byte("RIFF"))
+		_, draftErr := draft.Segments(context.Background(), []byte("RIFF"), "en")
 		return err == nil && draftErr == nil
 	})
 	if content, err := os.ReadFile(filepath.Clean(c.vadFile())); err != nil || string(content) != "model" {
@@ -229,7 +229,7 @@ func TestStartStopsAProcessOfAnEarlierProgramAndStartsOneWithTheNewArguments(t *
 
 	testkit.WaitFor(t, func() bool { return fileHasLines(program+".starts", 2) })
 	testkit.WaitFor(t, func() bool {
-		_, err := next.Transcribe(context.Background(), []byte("RIFF"))
+		_, err := next.Transcribe(context.Background(), []byte("RIFF"), "en")
 		return err == nil
 	})
 	t.Cleanup(next.Stop)
@@ -393,7 +393,7 @@ func TestStopStopsAProcessThatAnEarlierConverterStarted(t *testing.T) {
 	})
 	next := voice.New(filepath.Dir(c.Dir), c.bin)
 	next.Address = c.Address
-	if _, err := next.Transcribe(context.Background(), []byte("RIFF")); err != nil {
+	if _, err := next.Transcribe(context.Background(), []byte("RIFF"), "en"); err != nil {
 		t.Fatal(err)
 	}
 

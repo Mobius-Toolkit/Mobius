@@ -308,11 +308,11 @@ func TestTheDraftConverterHasItsOwnPIDFileAndStopStopsBothProcesses(t *testing.T
 	r := voice.NewRecordings(final, draft)
 	t.Cleanup(r.Stop)
 	testkit.WaitFor(t, func() bool {
-		_, err := final.Transcribe(context.Background(), []byte("RIFF"))
+		_, err := final.Transcribe(context.Background(), []byte("RIFF"), "en")
 		return err == nil
 	})
 	segments := testkit.WaitForValue(t, func() ([]voice.Segment, bool) {
-		segments, err := draft.Segments(context.Background(), append([]byte("RIFF"), make([]byte, 40+second)...))
+		segments, err := draft.Segments(context.Background(), append([]byte("RIFF"), make([]byte, 40+second)...), "en")
 		return segments, err == nil
 	})
 
@@ -348,7 +348,7 @@ func TestAnInventedLastSegmentIsNotInTheLiveText(t *testing.T) {
 	c.putModel(t)
 	putText(t, program, "Plant red roses.\nThanks for watching!\n")
 	testkit.WaitFor(t, func() bool {
-		_, err := c.Segments(context.Background(), append([]byte("RIFF"), make([]byte, 40+second)...))
+		_, err := c.Segments(context.Background(), append([]byte("RIFF"), make([]byte, 40+second)...), "en")
 		return err == nil
 	})
 	final := fakeServer(t, func(http.ResponseWriter, *http.Request) {})
