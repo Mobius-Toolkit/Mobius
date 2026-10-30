@@ -421,3 +421,9 @@ type TurnUsage struct {
 	CacheWriteTokens sql.NullInt64
 	CostUsd          sql.NullFloat64
 }
+
+type VoiceLanguage struct {
+	ID        int64
+	Language  string
+	UpdatedAt string
+}

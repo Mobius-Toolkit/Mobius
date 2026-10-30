@@ -3855,6 +3855,104 @@
         ]
       }
     },
+    "/api/voice/language": {
+      "get": {
+        "description": "GetVoiceLanguage returns the language of the voice conversion and the languages that it accepts.",
+        "operationId": "GetVoiceLanguage",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_VoiceLanguage"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "voice"
+        ]
+      },
+      "put": {
+        "description": "SetVoiceLanguage sets the language of the voice conversion. A recording that starts after it uses the language, and a recording that is running keeps its language. It returns 422 for a code that is not in the list.",
+        "operationId": "SetVoiceLanguage",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetVoiceLanguageBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_VoiceLanguage"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "voice"
+        ]
+      }
+    },
     "/api/voice/recordings": {
       "post": {
         "description": "CreateRecording starts a voice recording on the server. The server removes the recording after 10 minutes with no chunk.",
@@ -6519,6 +6617,20 @@
         ],
         "description": "Envelope is the body of each success response."
       },
+      "Envelope_VoiceLanguage": {
+        "type": "object",
+        "title": "Envelope_VoiceLanguage",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/VoiceLanguage",
+            "description": "Data is the payload of the response"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "description": "Envelope is the body of each success response."
+      },
       "Envelope_WorkstreamDetails": {
         "type": "object",
         "title": "Envelope_WorkstreamDetails",
@@ -7980,6 +8092,16 @@
           }
         }
       },
+      "SetVoiceLanguageBody": {
+        "type": "object",
+        "title": "SetVoiceLanguageBody",
+        "properties": {
+          "language": {
+            "type": "string",
+            "description": "Language is the code of the language, one of the codes that GetVoiceLanguage gives"
+          }
+        }
+      },
       "SkillTotals": {
         "type": "object",
         "title": "SkillTotals",
@@ -8872,6 +8994,48 @@
           "release"
         ],
         "description": "Version is the version of the program."
+      },
+      "VoiceLanguage": {
+        "type": "object",
+        "title": "VoiceLanguage",
+        "properties": {
+          "language": {
+            "type": "string",
+            "description": "Language is the code of the language that new recordings use"
+          },
+          "languages": {
+            "type": "array",
+            "title": "[]VoiceLanguageItem",
+            "description": "Languages are the languages that the voice conversion accepts, with auto first and then sorted by name",
+            "items": {
+              "$ref": "#/components/schemas/VoiceLanguageItem"
+            }
+          }
+        },
+        "required": [
+          "language",
+          "languages"
+        ],
+        "description": "VoiceLanguage is the language of the voice conversion."
+      },
+      "VoiceLanguageItem": {
+        "type": "object",
+        "title": "VoiceLanguageItem",
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Code is the code of the language. The code auto detects the language"
+          },
+          "name": {
+            "type": "string",
+            "description": "Name is the English name of the language"
+          }
+        },
+        "required": [
+          "code",
+          "name"
+        ],
+        "description": "VoiceLanguageItem is a language that the voice conversion accepts."
       },
       "Workstream": {
         "type": "object",
