@@ -5054,6 +5054,131 @@ func (q *Queries) ListEndedTaskIssueLabels(ctx context.Context, arg ListEndedTas
 	return items, nil
 }
 
+const listEndedTaskQuality = `-- name: ListEndedTaskQuality :many
+WITH working AS (
+    SELECT ts.task, ts.started_at, ts.harness, ts.model, ts.effort
+    FROM task_states ts
+    WHERE ts.state = 'working'
+      AND ts.id = (SELECT MIN(inner_ts.id) FROM task_states inner_ts
+                   WHERE inner_ts.task = ts.task AND inner_ts.state = 'working')
+)
+SELECT t.id AS task,
+       t.repository AS repository,
+       t.issue AS issue,
+       (SELECT ts.started_at FROM task_states ts WHERE ts.task = t.id ORDER BY ts.id LIMIT 1) AS first_started_at,
+       (SELECT ts.ended_at FROM task_states ts WHERE ts.task = t.id
+        ORDER BY julianday(ts.ended_at) DESC LIMIT 1) AS ended_at,
+       working.harness AS harness,
+       working.model AS model,
+       working.effort AS effort,
+       working.started_at AS working_started_at,
+       (SELECT COUNT(*) FROM task_states ts WHERE ts.task = t.id AND ts.state = 'needs_human') AS needs_human,
+       (SELECT COUNT(*) FROM task_states ts WHERE ts.task = t.id AND ts.state = 'asked') AS questions,
+       (SELECT COUNT(*) FROM sessions s
+        WHERE s.repository = t.repository AND s.issue = t.issue
+          AND s.role = 'reviewer' AND s.end_reason = 'done'
+          AND julianday(s.started_at) >= julianday((SELECT ts.started_at FROM task_states ts
+                                                    WHERE ts.task = t.id ORDER BY ts.id LIMIT 1))
+          AND julianday(s.started_at) <= julianday((SELECT ts.ended_at FROM task_states ts
+                                                    WHERE ts.task = t.id
+                                                    ORDER BY julianday(ts.ended_at) DESC LIMIT 1))) AS review_rounds,
+       (SELECT COUNT(*) FROM sessions s
+        WHERE s.repository = t.repository AND s.issue = t.issue
+          AND s.role = 'implementer'
+          AND (s.end_reason IS NULL OR s.end_reason <> 'restart')
+          AND julianday(s.started_at) >= julianday((SELECT ts.started_at FROM task_states ts
+                                                    WHERE ts.task = t.id ORDER BY ts.id LIMIT 1))
+          AND julianday(s.started_at) <= julianday((SELECT ts.ended_at FROM task_states ts
+                                                    WHERE ts.task = t.id
+                                                    ORDER BY julianday(ts.ended_at) DESC LIMIT 1))) AS implementer_sessions,
+       (SELECT SUM(tu.input_tokens) FROM turn_usage tu WHERE tu.task = t.id) AS input_tokens,
+       (SELECT SUM(tu.output_tokens) FROM turn_usage tu WHERE tu.task = t.id) AS output_tokens,
+       (SELECT SUM(tu.cache_read_tokens) FROM turn_usage tu WHERE tu.task = t.id) AS cache_read_tokens,
+       (SELECT SUM(tu.cache_write_tokens) FROM turn_usage tu WHERE tu.task = t.id) AS cache_write_tokens,
+       (SELECT SUM(tu.cost_usd) FROM turn_usage tu WHERE tu.task = t.id) AS cost_usd,
+       EXISTS (
+           SELECT 1 FROM lead_events le
+           WHERE le.kind = 'end' AND le.issue_repository = t.repository AND le.issue = t.issue
+             AND julianday(le.time) >= julianday((SELECT ts.ended_at FROM task_states ts
+                                                  WHERE ts.task = t.id
+                                                  ORDER BY julianday(ts.ended_at) DESC LIMIT 1))
+             AND julianday(le.time) <= julianday((SELECT ts.ended_at FROM task_states ts
+                                                  WHERE ts.task = t.id
+                                                  ORDER BY julianday(ts.ended_at) DESC LIMIT 1), '+1 minute')
+             AND substr(le.payload, -8) = ' merged.'
+       ) AS merged
+FROM tasks t
+LEFT JOIN working ON working.task = t.id
+WHERE t.state = 'ended'
+  AND EXISTS (SELECT 1 FROM task_states ts WHERE ts.task = t.id)
+ORDER BY julianday(ended_at), t.id
+`
+
+type ListEndedTaskQualityRow struct {
+	Task                int64
+	Repository          string
+	Issue               int64
+	FirstStartedAt      string
+	EndedAt             string
+	Harness             sql.NullString
+	Model               sql.NullString
+	Effort              sql.NullString
+	WorkingStartedAt    sql.NullString
+	NeedsHuman          int64
+	Questions           int64
+	ReviewRounds        int64
+	ImplementerSessions int64
+	InputTokens         sql.NullFloat64
+	OutputTokens        sql.NullFloat64
+	CacheReadTokens     sql.NullFloat64
+	CacheWriteTokens    sql.NullFloat64
+	CostUsd             sql.NullFloat64
+	Merged              bool
+}
+
+func (q *Queries) ListEndedTaskQuality(ctx context.Context) ([]ListEndedTaskQualityRow, error) {
+	rows, err := q.db.QueryContext(ctx, listEndedTaskQuality)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListEndedTaskQualityRow
+	for rows.Next() {
+		var i ListEndedTaskQualityRow
+		if err := rows.Scan(
+			&i.Task,
+			&i.Repository,
+			&i.Issue,
+			&i.FirstStartedAt,
+			&i.EndedAt,
+			&i.Harness,
+			&i.Model,
+			&i.Effort,
+			&i.WorkingStartedAt,
+			&i.NeedsHuman,
+			&i.Questions,
+			&i.ReviewRounds,
+			&i.ImplementerSessions,
+			&i.InputTokens,
+			&i.OutputTokens,
+			&i.CacheReadTokens,
+			&i.CacheWriteTokens,
+			&i.CostUsd,
+			&i.Merged,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listEventsAfter = `-- name: ListEventsAfter :many
 SELECT id, time, repository, workstream, issue, actor, text, link, organization FROM events WHERE id > ? ORDER BY id
 `
