@@ -121,6 +121,15 @@ test("a refused Save shows the reason in the open sheet and keeps the old values
   await expect(roleRow(page, "Reviewer")).toContainText("high");
 });
 
+test("the sheet of the Implementer shows its sentence as the accessible description", async ({
+  page,
+}) => {
+  const sheet = await openRole(page, "Implementer");
+  await expect(sheet).toHaveAccessibleDescription(
+    "Writes the code of a task, and does the fix rounds, CI fix rounds and conflict rounds of its pull request.",
+  );
+});
+
 test("Reset does not show for a role with no UI value", async ({ page }) => {
   const sheet = await openRole(page, "Lead");
   await expect(sheet.getByRole("button", { name: "Save" })).toBeVisible();
