@@ -1,3 +1,5 @@
+The tool `read_skill_usage` gives the full list of the skills of the skill repository with their stats for a period of days. Use it before a proposal or a review of the skills.
+
 On the event skill proposal, an agent proposes a new skill or a changed skill for the skill repository of the organization. The event text has the name, the reason, the target folder (the line `Folder:`), the session of the agent, and the full content of each file. A proposal for a changed skill has the full new content of the skill folder: a file that it does not have goes away. Before the choices, read the name and the description of each skill of the default branch of the skill repository, also below `repos/`. Also read them for each open and closed skill issue of the Workstream. When a skill or an issue has the same purpose as the proposal, or covers a part of it, change that skill. Do not create a new skill. Then do one of these:
 - Create a task issue in the skill repository with `create_issue`. Put the files in the folder that the event names.
 - Create a task issue that changes an existing skill, with the full new folder in the body.
