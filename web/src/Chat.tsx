@@ -1,4 +1,5 @@
 import { useNavigate } from "@tanstack/react-router";
+import { FileTextIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
   completeWorkstream,
@@ -41,6 +42,7 @@ export function Chat({
     (other) => other.repository === repository && other.number === number,
   );
   const [chosen, setChosen] = useState<{ from: WorkstreamAutopilot; to: WorkstreamAutopilot }>();
+  const [tab, setTab] = useState("tasks");
   const [autopilotBusy, setAutopilotBusy] = useState(false);
   const [autopilotError, setAutopilotError] = useState("");
   const [closeBusy, setCloseBusy] = useState(false);
@@ -97,7 +99,17 @@ export function Chat({
       });
   };
 
-  const panel = <AgentPanel owner={owner} name={name} number={number} source={source} />;
+  const panel = (
+    <AgentPanel
+      owner={owner}
+      name={name}
+      number={number}
+      source={source}
+      brief={workstream?.brief ?? ""}
+      tab={tab}
+      onTabChange={setTab}
+    />
+  );
   return (
     <div className="flex min-h-0 min-w-0 grow">
       <TopBar title={workstream?.title ?? ""} back="/workstreams">
@@ -135,11 +147,24 @@ export function Chat({
           <>
             <h2 className="min-w-0 truncate text-base font-semibold">{workstream?.title}</h2>
             <span className="text-sm text-muted-foreground">#{number}</span>
-            <AutopilotMenu
-              level={level}
-              disabled={!workstream || autopilotBusy}
-              onSelect={selectAutopilot}
-            />
+            <div className="ml-auto flex shrink-0 items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0"
+                aria-label="Brief"
+                title="Brief"
+                onClick={() => setTab("brief")}
+              >
+                <FileTextIcon />
+                <span className="hidden lg:inline">Brief</span>
+              </Button>
+              <AutopilotMenu
+                level={level}
+                disabled={!workstream || autopilotBusy}
+                onSelect={selectAutopilot}
+              />
+            </div>
           </>
         }
         note={
