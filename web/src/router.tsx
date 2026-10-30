@@ -23,6 +23,7 @@ import {
 import { validateUsageSearch } from "./lib/usage";
 import { Roles } from "./Roles";
 import { Settings } from "./Settings";
+import { Voice } from "./Voice";
 
 const rootRoute = createRootRoute({ component: App });
 
@@ -158,6 +159,12 @@ const rolesRoute = createRoute({
   component: Roles,
 });
 
+const voiceRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/settings/voice",
+  component: Voice,
+});
+
 const devicesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/devices",
@@ -189,6 +196,7 @@ const routeTree = rootRoute.addChildren([
   memoryRepositoriesRoute,
   memoryRoute,
   rolesRoute,
+  voiceRoute,
   devicesRoute,
   githubRoute,
 ]);

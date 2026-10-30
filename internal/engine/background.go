@@ -31,9 +31,12 @@ const backgroundPrompt = "Before your final report, check each background task t
 // implementerBackgroundPrompt is the prompt of waitBackground for the Implementer. The Implementer gives no final report.
 const implementerBackgroundPrompt = "Before the local check, check each background task that you started. Wait for each task that still runs, for example with `TaskOutput` and `block`. Commit all work. Then call `background_state` with `done` and end the turn. If a task still runs at the end of this turn, call `background_state` with `running`."
 
+// chatBackgroundPrompt is the prompt of waitChatBackground. The reply text of the turn with done goes to the chat.
+const chatBackgroundPrompt = "Check each background task that you started. Wait for each task that still runs, for example with `TaskOutput` and `block`. Then call `background_state` with `done`, and write in your reply only what the Owner must know from their results. If a task still runs at the end of this turn, call `background_state` with `running`."
+
 // backgroundRoles are the Roles that wait for the background tasks of their session before the work of the session
 // ends. They get the tool background_state.
-var backgroundRoles = []string{ResearcherRole, JudgeRole, DiagnoserRole, CuratorRole, TriagerRole, ReviewerRole, ImplementerRole}
+var backgroundRoles = []string{ResearcherRole, JudgeRole, DiagnoserRole, CuratorRole, TriagerRole, ReviewerRole, ImplementerRole, LeadRole, CoordinatorRole}
 
 // errStopped is the error of waitQuiet when a stop ends the wait.
 var errStopped = errors.New("a stop ended the wait for an autonomous turn")
@@ -156,7 +159,7 @@ func (a *Agent) waitBackground(ctx context.Context, prompt string) error {
 			return nil
 		}
 		if time.Since(started) >= backgroundTimeout {
-			return a.addNote(ctx, fmt.Sprintf("A background task still ran after %s. Mobius ends the wait for the background tasks.", backgroundTimeout))
+			return a.addNote(ctx, backgroundTimeoutNote())
 		}
 		select {
 		case <-ctx.Done():
@@ -165,6 +168,10 @@ func (a *Agent) waitBackground(ctx context.Context, prompt string) error {
 		case <-time.After(backgroundCheckInterval):
 		}
 	}
+}
+
+func backgroundTimeoutNote() string {
+	return fmt.Sprintf("A background task still ran after %s. Mobius ends the wait for the background tasks.", backgroundTimeout)
 }
 
 // waitQuiet holds until no autonomous turn runs. When the agent has no activity for hangTimeout, the agent is stuck in
