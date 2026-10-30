@@ -109,7 +109,9 @@ reply = ["done"]
 	}
 }
 
-const dshModel = `["deepseek-account","deepseek-v4-pro"]`
+const dshModel = "deepseek-account/deepseek-v4-pro"
+
+const dshModelValue = `["deepseek-account","deepseek-v4-pro"]`
 
 func dshLead(cfg *config.Config) {
 	keepSessionOpen(cfg)
@@ -117,7 +119,7 @@ func dshLead(cfg *config.Config) {
 }
 
 func dshScript(updates string) string {
-	return "[options]\nmodel = ['" + dshModel + "']\nthought_level = [\"high\"]\n" + `
+	return "[options]\nmodel = ['" + dshModelValue + "']\nthought_level = [\"high\"]\n" + `
 [[prompts]]
 updates = [
 ` + updates + `]
