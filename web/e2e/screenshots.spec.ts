@@ -530,17 +530,23 @@ test("screenshots", async ({ page }) => {
       await page.getByRole("tab", { name: "Brief" }).filter({ visible: true }).click();
     },
   );
-  // The Workstream rows show before the nav reads the "needs you" list, and the pause banner comes from its own read, so
-  // wait for each badge of the final state and the banner.
-  const needsYou = (number: number) =>
-    page
-      .locator(`nav a[href="/workstreams/plants/garden/${number}"]`)
-      .getByText("needs you", { exact: true });
+  // The nav shows the Workstream rows before it reads the "needs you" list and the unread counts, the organization dot
+  // comes from the counts of the other organizations, and the pause banner comes from its own read, so wait for each
+  // element of the final state.
+  const navRow = (number: number) =>
+    page.locator(`nav a[href="/workstreams/plants/garden/${number}"]`);
+  const needsYou = (number: number) => navRow(number).getByText("needs you", { exact: true });
+  const unreadOf = (number: number, count: number) =>
+    navRow(number).getByText(`${count}`, { exact: true });
   await screenshot(page, "chat-brief-button", "/workstreams/plants/garden/18", (device) =>
     device === "desktop"
       ? [
           page.getByRole("button", { name: "Brief" }).filter({ visible: true }),
           ...[30, 20, 19].map(needsYou),
+          chatCount,
+          unreadOf(60, 35),
+          ...[17, 16, 15, 14].map((number) => unreadOf(number, 7)),
+          page.getByLabel("Work in another organization").filter({ visible: true }),
           page.getByText(/^antigravity paused until Sep 28, 12:00\sPM$/),
         ]
       : [page.getByRole("banner").getByRole("heading", { name: "Prune the roses" })],
