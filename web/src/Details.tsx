@@ -23,6 +23,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { onEvent } from "@/lib/events";
 import { LoginContext } from "@/lib/login";
+import { showNotice } from "@/lib/notice";
 import { dayLong } from "@/lib/time";
 
 type Workstream = { owner: string; name: string; number: number };
@@ -52,7 +53,9 @@ function Confirmation({ owner, name, number }: Workstream) {
     setError(undefined);
     closeWorkstream(owner, name, number)
       .then((res) => {
-        if (res.status !== 204) {
+        if (res.status === 204) {
+          showNotice(`Closed the Workstream #${number} as won't do`);
+        } else {
           setError(res.data.error);
           setBusy(false);
         }
@@ -161,6 +164,7 @@ export function Details({
           showLogin();
         } else if (res.status === 204) {
           setDetails((current) => current && { ...current, evergreen: on });
+          showNotice(`Evergreen is ${on ? "on" : "off"} for #${number}`);
         } else {
           setError(res.data.error);
         }

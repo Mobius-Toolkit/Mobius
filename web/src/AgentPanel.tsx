@@ -18,6 +18,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { queueState, queueText } from "@/lib/agents";
 import { onEvent } from "@/lib/events";
 import { LoginContext } from "@/lib/login";
+import { showNotice } from "@/lib/notice";
 import { clock, dayClock } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { Transcript } from "./Agents";
@@ -144,6 +145,9 @@ function TaskEntry({ line }: { line: TaskLine }) {
     (resumes ? resumeIssue : startIssue)(owner, name, line.number)
       .then((res) => {
         setError(res.status === 204 ? "" : res.data.error);
+        if (res.status === 204) {
+          showNotice(`${resumes ? "Resumed" : "Started"} ${reference}`);
+        }
       })
       .catch((err: unknown) => setError(String(err)))
       .finally(() => setStarting(false));

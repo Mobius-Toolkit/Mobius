@@ -115,7 +115,7 @@ async function send(page: Page, text: string) {
 
 async function reconnect(page: Page, context: BrowserContext) {
   await context.setOffline(true);
-  await expect(page.getByRole("status")).toHaveText("Offline");
+  await expect(page.getByRole("status").filter({ hasText: "Offline" })).toHaveText("Offline");
   const reopened = page.waitForResponse("/api/events");
   await context.setOffline(false);
   await reopened;
