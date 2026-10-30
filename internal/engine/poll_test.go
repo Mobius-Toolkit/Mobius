@@ -18,6 +18,16 @@ func startServer(t *testing.T, fake *testkit.FakeGitHub, dataDir, before string)
 	return startServerWith(t, fake, testserver.Config(t, dataDir), before)
 }
 
+// startServerWithHarness is startServer with the fake agent as each Harness. It waits for the access check of each Role
+// binding, so no session waits for the check.
+func startServerWithHarness(t *testing.T, fake *testkit.FakeGitHub, dataDir string) *testserver.Server {
+	t.Helper()
+	testkit.InstallFakeAgent(t, dataDir, options)
+	server := startServer(t, fake, dataDir, "")
+	testkit.WaitFor(t, server.Engine.AccessChecked)
+	return server
+}
+
 // startServerWith is startServer with the config cfg.
 func startServerWith(t *testing.T, fake *testkit.FakeGitHub, cfg *config.Config, before string) *testserver.Server {
 	t.Helper()

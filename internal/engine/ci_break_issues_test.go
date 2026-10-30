@@ -40,7 +40,7 @@ func TestAHardBreakGivesOneIssueBelowTheMaintenanceWorkstreamWithTheFailureAndNo
 	fake := testkit.NewFakeGitHub(t)
 	run := failedRunWithJob(fake)
 	addMaintenanceWorkstream(fake, maintenance)
-	server := startServer(t, fake, t.TempDir(), "")
+	server := startServerWithHarness(t, fake, t.TempDir())
 	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true})
 
 	fake.SetWorkflowRunStatus(run, "completed", "failure")
@@ -124,7 +124,7 @@ func TestAPassedRunClosesTheOpenIssueOfAHardBreakWithACommentAndTheRunLink(t *te
 	fake := testkit.NewFakeGitHub(t)
 	run := failedRunWithJob(fake)
 	addMaintenanceWorkstream(fake, maintenance)
-	server := startServer(t, fake, t.TempDir(), "")
+	server := startServerWithHarness(t, fake, t.TempDir())
 	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true})
 	fake.SetWorkflowRunStatus(run, "completed", "failure")
 	number := ciBreakIssue(t, fake)
@@ -137,7 +137,7 @@ func TestAPassedRunClosesTheOpenIssueOfAHardBreakWithACommentAndTheRunLink(t *te
 	if state, reason := fake.State(shop, number); state != "closed" || reason != "completed" {
 		t.Errorf("state = %q, reason = %q", state, reason)
 	}
-	comments := fake.Comments(shop, number)
+	comments := runLinkComments(fake, number)
 	if len(comments) != 1 || !strings.Contains(comments[0].Body, fake.URL+"/owner/shop/actions/runs/2") {
 		t.Errorf("comments = %v", comments)
 	}
@@ -148,7 +148,7 @@ func TestAPassedRunDoesNotCommentOnTheIssueOfAHardBreakThatIsAlreadyClosed(t *te
 	fake := testkit.NewFakeGitHub(t)
 	run := failedRunWithJob(fake)
 	addMaintenanceWorkstream(fake, maintenance)
-	server := startServer(t, fake, t.TempDir(), "")
+	server := startServerWithHarness(t, fake, t.TempDir())
 	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true})
 	fake.SetWorkflowRunStatus(run, "completed", "failure")
 	number := ciBreakIssue(t, fake)
@@ -159,7 +159,7 @@ func TestAPassedRunDoesNotCommentOnTheIssueOfAHardBreakThatIsAlreadyClosed(t *te
 	newer := fake.AddWorkflowRun(shop, passed)
 
 	waitForCIBreak(t, server, ciBreak{runID: run, endedRunID: newer, rerun: true, result: "hard"})
-	if comments := fake.Comments(shop, number); len(comments) != 0 {
+	if comments := runLinkComments(fake, number); len(comments) != 0 {
 		t.Errorf("comments = %v", comments)
 	}
 	if _, reason := fake.State(shop, number); reason != "not_planned" {
@@ -172,7 +172,7 @@ func TestABreakWithoutAMaintenanceWorkstreamGetsAnIssueWhenTheWorkstreamAppears(
 	fake := testkit.NewFakeGitHub(t)
 	run := failedRunWithJob(fake)
 	fake.RefuseRerun(http.StatusForbidden)
-	server := startServer(t, fake, t.TempDir(), "")
+	server := startServerWithHarness(t, fake, t.TempDir())
 	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true, result: "hard"})
 	waitForPolls(t, fake)
 
@@ -204,7 +204,7 @@ func TestTwoFailedJobsWithLongLogsGiveOneIssueBelowTheLimitOfGitHub(t *testing.T
 		fake.AddJobLog(id, log.String())
 	}
 	addMaintenanceWorkstream(fake, maintenance)
-	server := startServer(t, fake, t.TempDir(), "")
+	server := startServerWithHarness(t, fake, t.TempDir())
 	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true})
 
 	fake.SetWorkflowRunStatus(run, "completed", "failure")
@@ -226,7 +226,7 @@ func TestATimedOutJobGivesAnIssueWithTheJobTheCancelledStepAndTheTimeLimit(t *te
 	fake := testkit.NewFakeGitHub(t)
 	run := timedOutMainRun(fake, "")
 	addMaintenanceWorkstream(fake, maintenance)
-	server := startServer(t, fake, t.TempDir(), "")
+	server := startServerWithHarness(t, fake, t.TempDir())
 	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true})
 
 	timeOutAgain(fake, run)
@@ -255,7 +255,7 @@ func TestARefusedJobListCreatesNoIssueUntilTheListWorks(t *testing.T) {
 	run := failedRunWithJob(fake)
 	addMaintenanceWorkstream(fake, maintenance)
 	fake.RefuseWorkflowJobs(http.StatusForbidden)
-	server := startServer(t, fake, t.TempDir(), "")
+	server := startServerWithHarness(t, fake, t.TempDir())
 	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true})
 	fake.SetWorkflowRunStatus(run, "completed", "failure")
 	waitForPolls(t, fake)
@@ -277,7 +277,7 @@ func TestAFailedJobLogReadCreatesNoIssueUntilTheReadWorks(t *testing.T) {
 	run := failedRunWithJob(fake)
 	addMaintenanceWorkstream(fake, maintenance)
 	fake.RefuseJobLogs(http.StatusInternalServerError)
-	server := startServer(t, fake, t.TempDir(), "")
+	server := startServerWithHarness(t, fake, t.TempDir())
 	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true})
 	fake.SetWorkflowRunStatus(run, "completed", "failure")
 	waitForPolls(t, fake)
@@ -299,7 +299,7 @@ func TestAFailedAddBelowTheWorkstreamGivesOneIssueThatTheNextPollAddsBelowTheWor
 	run := failedRunWithJob(fake)
 	addMaintenanceWorkstream(fake, maintenance)
 	fake.FailAddSubIssue(shop, maintenance, true)
-	server := startServer(t, fake, t.TempDir(), "")
+	server := startServerWithHarness(t, fake, t.TempDir())
 	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true})
 	fake.SetWorkflowRunStatus(run, "completed", "failure")
 	testkit.WaitFor(t, func() bool { return createdIssues(fake) == 1 })
@@ -322,7 +322,7 @@ func TestARefusedCloseKeepsTheBreakOpenUntilTheCloseWorks(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	run := failedRunWithJob(fake)
 	addMaintenanceWorkstream(fake, maintenance)
-	server := startServer(t, fake, t.TempDir(), "")
+	server := startServerWithHarness(t, fake, t.TempDir())
 	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true})
 	fake.SetWorkflowRunStatus(run, "completed", "failure")
 	number := ciBreakIssue(t, fake)
@@ -343,9 +343,20 @@ func TestARefusedCloseKeepsTheBreakOpenUntilTheCloseWorks(t *testing.T) {
 	if state, reason := fake.State(shop, number); state != "closed" || reason != "completed" {
 		t.Errorf("state = %q, reason = %q", state, reason)
 	}
-	if comments := fake.Comments(shop, number); len(comments) != 1 {
+	if comments := runLinkComments(fake, number); len(comments) != 1 {
 		t.Errorf("comments = %v", comments)
 	}
+}
+
+// runLinkComments leaves out the comments of the Implementer that the fake Harness starts on the issue.
+func runLinkComments(fake *testkit.FakeGitHub, number int64) []testkit.Comment {
+	var comments []testkit.Comment
+	for _, comment := range fake.Comments(shop, number) {
+		if strings.Contains(comment.Body, fake.URL+"/owner/shop/actions/runs/") {
+			comments = append(comments, comment)
+		}
+	}
+	return comments
 }
 
 func createdIssues(fake *testkit.FakeGitHub) int {

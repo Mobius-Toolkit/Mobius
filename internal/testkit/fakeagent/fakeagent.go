@@ -44,8 +44,15 @@
 //	                        # prompt gets no response before session/cancel, which ends it as cancelled, as Claude
 //	                        # Code does when it takes a prompt into a turn that it started alone
 //
-// The prompts with no matching when answer in order. The exception is the prompt that asks a Reviewer for its deployment
-// needs: with no matching when, it calls report_deployment_needs with an empty list.
+// The prompts with no matching when answer in order. Two prompts are the exception. The prompt that asks a Reviewer for
+// its deployment needs calls report_deployment_needs with an empty list. The prompt of the access check of Mobius,
+// "Reply with the word OK.", ends the turn with no reply, no tool call and no error. Mobius sends it at its start and at
+// a save of a Role, to each Harness with an empty MCP server list. With no matching when, neither prompt takes an
+// ordered prompt. A when that is a part of the access check prompt, for example "OK", answers it too, so use a longer
+// text. A prompt with a when text that the access check prompt contains and an error makes the check fail.
+//
+// The agent writes the files env, pwd and mcp_url only for a session with the Mobius MCP server, so an access check
+// leaves them as they are.
 //
 // The reply has the texts of reply, then one text "image <MIME type> <base64 data>" for each image block of the
 // prompt, then the text of call or list_tools, then the text of shell.
@@ -79,6 +86,9 @@ import (
 // deploymentNeedsRequest is the start of the prompt that asks a Reviewer for its deployment needs. A turn with this
 // prompt and no matching when calls report_deployment_needs with an empty list.
 const deploymentNeedsRequest = "Call `report_deployment_needs` one time"
+
+// accessCheckRequest is the prompt of the access check of Mobius (runner.AccessPrompt).
+const accessCheckRequest = "Reply with the word OK."
 
 // busyInterval is the time between two updates of a busy turn.
 const busyInterval = 10 * time.Millisecond
@@ -152,6 +162,8 @@ type choice struct {
 type agent struct {
 	path   string
 	script script
+	// record writes the files env and pwd. It is nil when the agent does not write them.
+	record func() error
 
 	mu          sync.Mutex
 	conn        *acp.Connection
@@ -165,29 +177,34 @@ type agent struct {
 }
 
 // Run is the main function of the fake agent program, with the script at path.
-// It writes its environment to the file "env" and its working directory to the file "pwd" next to the script.
+// At the first session with the Mobius MCP server, it writes its environment to the file "env" and its working
+// directory to the file "pwd" next to the script.
 func Run(path string) error {
 	dir := filepath.Dir(path)
-	if err := os.WriteFile(filepath.Join(dir, "env"), []byte(strings.Join(os.Environ(), "\n")+"\n"), 0o600); err != nil {
-		return err
+	record := func() error {
+		if err := os.WriteFile(filepath.Join(dir, "env"), []byte(strings.Join(os.Environ(), "\n")+"\n"), 0o600); err != nil {
+			return err
+		}
+		cwd, err := os.Getwd()
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(dir, "pwd"), []byte(cwd+"\n"), 0o600)
 	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		return err
-	}
-	if err := os.WriteFile(filepath.Join(dir, "pwd"), []byte(cwd+"\n"), 0o600); err != nil {
-		return err
-	}
-	return Serve(path, os.Stdin, os.Stdout)
+	return serve(path, os.Stdin, os.Stdout, record)
 }
 
 // Serve plays the script at path to the ACP client that writes to r and reads from w. It returns when r ends.
 func Serve(path string, r io.Reader, w io.Writer) error {
+	return serve(path, r, w, nil)
+}
+
+func serve(path string, r io.Reader, w io.Writer, record func() error) error {
 	text, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return err
 	}
-	a := &agent{path: path}
+	a := &agent{path: path, record: record}
 	decoder := toml.NewDecoder(bytes.NewReader(text))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&a.script); err != nil {
@@ -289,8 +306,15 @@ func (a *agent) newSession(params json.RawMessage) (any, *acp.RequestError) {
 			a.mcpURL = server.URL
 		}
 	}
-	if err := os.WriteFile(filepath.Join(filepath.Dir(a.path), "mcp_url"), []byte(a.mcpURL), 0o600); err != nil {
-		return nil, acp.NewInternalError(err.Error())
+	if a.mcpURL != "" {
+		if err := os.WriteFile(filepath.Join(filepath.Dir(a.path), "mcp_url"), []byte(a.mcpURL), 0o600); err != nil {
+			return nil, acp.NewInternalError(err.Error())
+		}
+		if a.record != nil {
+			if err := a.record(); err != nil {
+				return nil, acp.NewInternalError(err.Error())
+			}
+		}
 	}
 	skip, err := a.within("starts", a.script.SkipToolsList)
 	if err != nil {
@@ -389,6 +413,9 @@ func (a *agent) next(text string) (prompt, string, chan struct{}) {
 		if candidate.When != "" && strings.Contains(text, candidate.When) {
 			return candidate, a.mcpURL, a.cancel
 		}
+	}
+	if text == accessCheckRequest {
+		return prompt{}, a.mcpURL, a.cancel
 	}
 	if strings.Contains(text, deploymentNeedsRequest) {
 		return prompt{Call: &call{Tool: "report_deployment_needs", Arguments: map[string]any{"needs": []any{}}}}, a.mcpURL, a.cancel
