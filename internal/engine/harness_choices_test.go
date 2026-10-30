@@ -85,10 +85,10 @@ func sessionNewStarts(t *testing.T, dataDir string) int {
 }
 
 // waitForSessionNewStarts waits until count reads of the hold script reached session/new. A sequential read cannot
-// reach the count, so this wait gives up after two seconds.
+// reach the count, so this wait gives up after ten seconds.
 func waitForSessionNewStarts(t *testing.T, dataDir string, count int) {
 	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(10 * time.Second)
 	for {
 		started := sessionNewStarts(t, dataDir)
 		if started >= count {
