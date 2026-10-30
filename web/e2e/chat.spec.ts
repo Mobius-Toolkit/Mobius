@@ -2594,3 +2594,99 @@ for (const viewport of [
     expect(rowBox!.x + rowBox!.width).toBeLessThanOrEqual(panelBox!.x + panelBox!.width);
   });
 }
+
+test.describe("the records of the actions of the Owner", () => {
+  const recordTime = /^(.*) · \d{2}:\d{2} [AP]M$/;
+
+  async function expectRecord(page: Page, path: string, owner: string, records: string[]) {
+    await page.goto(path);
+    const main = page.getByRole("main");
+    const typed = main.locator("[data-message]", { hasText: owner });
+    await expect(typed).toBeVisible();
+    const typedBox = await typed.boundingBox();
+    const typedSize = await typed
+      .getByText(owner)
+      .evaluate((element) => parseFloat(getComputedStyle(element).fontSize));
+    for (const text of records) {
+      const record = main.locator("[data-message]", { hasText: text });
+      await expect(record).toHaveText(recordTime);
+      expect((await record.textContent())!.match(recordTime)![1]).toBe(text);
+      await expect(record.getByRole("img")).toHaveCount(0);
+      const box = await record.boundingBox();
+      expect(box!.x + box!.width).toBeCloseTo(typedBox!.x + typedBox!.width, 0);
+      const size = await record.evaluate((element) =>
+        parseFloat(getComputedStyle(element).fontSize),
+      );
+      expect(size).toBeLessThan(typedSize);
+    }
+  }
+
+  test("the Lead chat shows each record on the right side with its time", async ({ page }) => {
+    await expectRecord(page, "/workstreams/plants/garden/12", "Which roses sell best?", [
+      "You started #1127.",
+      "You set the Autopilot level to Start tasks.",
+    ]);
+  });
+
+  test("the Coordinator chat shows a record on the right side with its time", async ({ page }) => {
+    // The navigation tests count the unread reply of this chat, so the page must not mark it as seen.
+    await page.route("/api/chat/seen", (route) => route.fulfill({ status: 204 }));
+    await page.addInitScript("localStorage.setItem('organization', 'plants')");
+    await expectRecord(page, "/chat", "Start a Workstream for gift cards.", [
+      'You dismissed "Which unit?".',
+    ]);
+  });
+
+  test("a live Record message shows the line and is not an unread message", async ({ page }) => {
+    await page.addInitScript(`
+      window.appSources = [];
+      const add = EventSource.prototype.addEventListener;
+      EventSource.prototype.addEventListener = function (type, listener, options) {
+        if (this.url.endsWith('/api/events') && !window.appSources.includes(this)) {
+          window.appSources.push(this);
+        }
+        return add.call(this, type, listener, options);
+      };
+    `);
+    await page.route("/api/unread", (route) =>
+      route.fulfill({
+        json: {
+          data: [{ organization: "plants", repository: "plants/garden", workstream: 12, count: 1 }],
+        },
+      }),
+    );
+    let seen = 0;
+    page.on("request", (request) => {
+      if (request.url().endsWith("/api/chat/seen")) {
+        seen++;
+      }
+    });
+    await page.goto("/workstreams/plants/garden/12");
+    const main = page.getByRole("main");
+    await expect(main.getByText("Red roses sell best.").first()).toBeVisible();
+    await expect.poll(() => seen).toBeGreaterThan(0);
+    const before = seen;
+
+    const record = {
+      id: 999999,
+      author: "Record",
+      browserId: "",
+      text: "You merged PR #1080.",
+      time: "2026-10-15T08:37:00Z",
+      deliveredAt: null,
+      stoppedAt: null,
+      images: 0,
+      inboxItems: [],
+      action: null,
+      question: null,
+      organization: "plants",
+      repository: "plants/garden",
+      workstream: 12,
+    };
+    await page.evaluate(
+      `window.appSources.forEach((source) => source.dispatchEvent(new MessageEvent('message', { data: ${JSON.stringify(JSON.stringify(record))} })))`,
+    );
+    await expect(main.locator("[data-message]", { hasText: record.text })).toHaveText(recordTime);
+    expect(seen).toBe(before);
+  });
+});
