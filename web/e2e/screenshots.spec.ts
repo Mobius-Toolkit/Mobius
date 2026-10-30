@@ -509,6 +509,30 @@ test("screenshots", async ({ page }) => {
       await briefBubble.getByRole("button", { name: "Show all" }).click();
     },
   );
+  await screenshot(
+    page,
+    "chat-brief-tab",
+    "/workstreams/plants/garden/19",
+    (device) => [
+      ...briefFrame(device, 19),
+      page.getByRole("tab", { name: "Brief" }).filter({ visible: true }),
+      page
+        .getByRole("tabpanel", { name: "Brief" })
+        .filter({ visible: true })
+        .getByText("Put bark on the beds."),
+    ],
+    async (device) => {
+      if (device === "phone") {
+        await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
+      }
+      await page.getByRole("tab", { name: "Brief" }).filter({ visible: true }).click();
+    },
+  );
+  await screenshot(page, "chat-brief-button", "/workstreams/plants/garden/18", (device) =>
+    device === "desktop"
+      ? [page.getByRole("button", { name: "Brief" }).filter({ visible: true })]
+      : [page.getByRole("banner").getByRole("heading", { name: "Prune the roses" })],
+  );
   // The open menu and the open sheet hide the other elements from the accessibility tree, so the open step waits for them.
   await screenshot(
     page,

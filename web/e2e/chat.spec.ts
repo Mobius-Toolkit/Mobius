@@ -823,6 +823,59 @@ test("the Coordinator chat shows no Brief", async ({ page }) => {
   await expect(briefBubble(page)).toHaveCount(0);
 });
 
+test("the Tasks sheet shows the tabs Tasks, Agents, Details and Brief", async ({ page }) => {
+  await page.setViewportSize(phone);
+  await page.goto("/workstreams/plants/garden/19");
+  await expect(page.getByRole("button", { name: "Brief" })).toHaveCount(0);
+  await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
+  const panel = page.getByRole("dialog");
+  await expect(panel.getByRole("tab")).toHaveText(["Tasks", "Agents", "Details", "Brief"]);
+  await expect(panel.getByRole("tab", { name: "Tasks" })).toHaveAttribute("aria-selected", "true");
+  await expect(panel.getByRole("tabpanel", { name: "Tasks" })).toBeVisible();
+  await panel.getByRole("tab", { name: "Brief" }).click();
+  await expect(
+    panel.getByRole("tabpanel", { name: "Brief" }).getByText("Put bark on the beds."),
+  ).toBeVisible();
+});
+
+test("a Brief change from the workstreams event shows in the open Brief tab", async ({ page }) => {
+  await page.addInitScript(`
+    window.appSources = [];
+    const add = EventSource.prototype.addEventListener;
+    EventSource.prototype.addEventListener = function (type, listener, options) {
+      if (this.url.endsWith('/api/events') && !window.appSources.includes(this)) {
+        window.appSources.push(this);
+      }
+      return add.call(this, type, listener, options);
+    };
+  `);
+  await page.goto("/workstreams/plants/garden/18");
+  const panel = page.getByRole("complementary");
+  await panel.getByRole("tab", { name: "Brief" }).click();
+  const tab = panel.getByRole("tabpanel", { name: "Brief" });
+  await expect(tab.getByText("Cut the old canes in March.")).toBeVisible();
+  await page.route("**/api/workstreams", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as {
+      data: { repository: string; number: number; brief: string }[];
+    };
+    for (const workstream of body.data) {
+      if (workstream.repository === "plants/garden" && workstream.number === 18) {
+        workstream.brief = "Cut the **young** canes in April.";
+      }
+    }
+    await route.fulfill({ response, json: body });
+  });
+  const reloaded = page.waitForResponse("**/api/workstreams");
+  await page.evaluate(
+    `window.appSources.forEach((source) => source.dispatchEvent(new MessageEvent('workstreams', { data: '{}' })))`,
+  );
+  await reloaded;
+  await expect(tab.getByText("Cut the young canes in April.")).toBeVisible();
+  await expect(tab.getByText("Cut the old canes in March.")).toHaveCount(0);
+  await page.unroute("**/api/workstreams");
+});
+
 test("a switch to a chat shows its first unread message", async ({ page }) => {
   for (const [size, first, second] of [
     [undefined, [14, "Water the roses"], [15, "Feed the roses"]],
@@ -2578,15 +2631,49 @@ test.describe("on a desktop", () => {
     await expect(input).toBeFocused();
   });
 
-  test("the side panel shows the tabs Tasks, Agents and Details, and opens Tasks", async ({
+  test("the side panel shows the tabs Tasks, Agents, Details and Brief, and opens Tasks", async ({
     page,
   }) => {
     await page.goto(shop);
     const panel = page.getByRole("complementary");
-    await expect(panel.getByRole("tab")).toHaveText(["Tasks", "Agents", "Details"]);
+    await expect(panel.getByRole("tab")).toHaveText(["Tasks", "Agents", "Details", "Brief"]);
     const tasks = panel.getByRole("tab", { name: "Tasks" });
     await expect(tasks).toHaveAttribute("aria-selected", "true");
     await expect(panel.getByRole("tabpanel", { name: "Tasks" })).toBeVisible();
+  });
+
+  test("the Brief button of the chat head selects the Brief tab", async ({ page }) => {
+    await page.goto(shop);
+    const panel = page.getByRole("complementary");
+    const button = page.getByRole("button", { name: "Brief" });
+    await expect(button).toBeVisible();
+    await expect(button).toHaveText("Brief");
+    await button.click();
+    await expect(panel.getByRole("tab", { name: "Brief" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    await expect(
+      panel.getByRole("tabpanel", { name: "Brief" }).getByText("Reward repeat customers."),
+    ).toBeVisible();
+  });
+
+  test("a narrow chat head shows only the Brief icon, with the name Brief", async ({ page }) => {
+    await page.setViewportSize({ width: 900, height: 800 });
+    await page.goto(shop);
+    const button = page.getByRole("button", { name: "Brief" });
+    await expect(button).toBeVisible();
+    await expect(button).toHaveAttribute("title", "Brief");
+    await expect(button.getByText("Brief")).toHaveCount(1);
+    await expect(button.getByText("Brief")).toBeHidden();
+    const head = page.getByRole("main").locator("section > header").first();
+    const centers = await head.locator(":scope > *").evaluateAll((elements) =>
+      elements.map((element) => {
+        const box = element.getBoundingClientRect();
+        return box.top + box.height / 2;
+      }),
+    );
+    expect(Math.max(...centers) - Math.min(...centers)).toBeLessThan(4);
   });
 
   test("the header of the chat does not show the role and the harness", async ({ page }) => {
