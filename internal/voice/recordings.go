@@ -45,11 +45,26 @@ type Recordings struct {
 
 	mu         sync.Mutex
 	recordings map[string]*recording
+	language   string
 }
 
 // NewRecordings gives Recordings that convert with final and draft.
 func NewRecordings(final, draft *Whisper) *Recordings {
-	return &Recordings{Final: final, Draft: draft, IdleTimeout: idleTimeout, recordings: map[string]*recording{}}
+	return &Recordings{Final: final, Draft: draft, IdleTimeout: idleTimeout, recordings: map[string]*recording{}, language: DefaultLanguage}
+}
+
+// SetLanguage sets the language of the recordings that Create starts after it. code is the code of an item of Languages.
+func (r *Recordings) SetLanguage(code string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.language = code
+}
+
+// Language gives the code of the language that Create gives to a new recording.
+func (r *Recordings) Language() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.language
 }
 
 // Start starts the two converters in the background.
@@ -65,6 +80,9 @@ func (r *Recordings) Stop() {
 }
 
 type recording struct {
+	// language is the code of the language of the recording. It does not change.
+	language string
+
 	// timer and last belong to Recordings.mu.
 	timer *time.Timer
 	last  time.Time
@@ -126,9 +144,9 @@ func (r *Recordings) Create() (string, error) {
 		return "", err
 	}
 	id := hex.EncodeToString(raw)
-	rec := &recording{last: time.Now()}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	rec := &recording{language: r.language, last: time.Now()}
 	rec.timer = time.AfterFunc(r.IdleTimeout, func() { r.expire(id, rec) })
 	r.recordings[id] = rec
 	return id, nil
@@ -183,7 +201,7 @@ func (r *Recordings) Chunk(ctx context.Context, id string, sequence int, pcm []b
 
 	ctx, cancel := context.WithTimeout(ctx, draftTimeout)
 	defer cancel()
-	segments, err := r.Draft.Segments(ctx, wav)
+	segments, err := r.Draft.Segments(ctx, wav, rec.language)
 	rec.mu.Lock()
 	defer rec.mu.Unlock()
 	rec.running = false
@@ -209,7 +227,7 @@ func (r *Recordings) Finish(ctx context.Context, id string) (string, error) {
 	rec.mu.Lock()
 	wav := wavFile(rec.pcm)
 	rec.mu.Unlock()
-	return r.Final.Transcribe(ctx, wav)
+	return r.Final.Transcribe(ctx, wav, rec.language)
 }
 
 func wavFile(pcm []byte) []byte {
