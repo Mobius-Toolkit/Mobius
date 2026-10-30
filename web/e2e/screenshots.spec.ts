@@ -84,6 +84,29 @@ const trayToggle = (page: Page, count: number, expanded: boolean) =>
 const setTray = (page: Page, choice: "collapsed" | "expanded") =>
   page.evaluate((value) => localStorage.setItem("tray", value), choice);
 
+const fixedTime = new Date("2026-10-15T12:00:00Z");
+
+const noticeOf = (page: Page, text: string) => page.getByRole("status").filter({ hasText: text });
+
+// The page clock stops 0.5 s after the fixed time, so the notice stays open for the screenshot. The close step lets the
+// clock run again and sets the fixed time of the test again.
+const holdNotice = async (page: Page, notice: Locator) => {
+  await expect(notice).toBeVisible();
+  await page.clock.pauseAt(new Date(fixedTime.getTime() + 500));
+};
+
+const releaseNotice = async (page: Page) => {
+  await page.clock.resume();
+  await page.clock.setFixedTime(fixedTime);
+};
+
+// A notice closes 4 s after it opens. The clock jumps past it, so that the screenshot shows no notice.
+const skipNotice = async (page: Page, notice: Locator) => {
+  await expect(notice).toBeVisible();
+  await page.clock.fastForward(5000);
+  await expect(notice).toBeHidden();
+};
+
 // The chat scrolls to its end by itself, and the end is the only stable scroll.
 const showChatEnd = (page: Page) =>
   expect
@@ -169,7 +192,7 @@ test("screenshots", async ({ page }) => {
   test.setTimeout(300_000);
   const main = page.getByRole("main");
   // The day separator shows the year of a message that is not in the current year.
-  await page.clock.setFixedTime("2026-10-15T12:00:00Z");
+  await page.clock.setFixedTime(fixedTime);
   await page.addInitScript(fakeMicrophone);
   await page.addInitScript(countSamples);
 
@@ -371,6 +394,38 @@ test("screenshots", async ({ page }) => {
   const typingReady = (device: string) =>
     chatReady(device).filter((locator) => device === "desktop" || locator !== trayRow);
   await screenshot(page, "chat", "/workstreams/owner/shop/12", chatReady);
+  await page.route("**/api/inbox/201/answer", (route) =>
+    route.fulfill({
+      json: { data: { url: "https://github.com/owner/shop/issues/41#issuecomment-1" } },
+    }),
+  );
+  const answered = noticeOf(page, "Sent the answer to the Lead of #12");
+  await screenshot(
+    page,
+    "notice-answer",
+    "/workstreams/owner/shop/12",
+    (device) => [
+      ...frame(device, drain, {}, "2"),
+      main.getByText("#42 and #45 wait for your decision."),
+      page.getByRole("button", { name: "Autopilot: Off" }).filter({ visible: true }),
+      answered,
+    ],
+    async (device) => {
+      for (const locator of chatReady(device)) {
+        await expect(locator).toBeVisible();
+      }
+      await trayRow.getByRole("button", { name: "Answer" }).click();
+      await page
+        .getByRole("dialog")
+        .getByRole("textbox", { name: "Your answer" })
+        .fill("Add the model first.");
+      await page.getByRole("dialog").getByRole("button", { name: "Send" }).click();
+      await expect(page.getByRole("dialog")).toBeHidden();
+      await holdNotice(page, answered);
+    },
+    () => releaseNotice(page),
+  );
+  await page.unroute("**/api/inbox/201/answer");
   const briefBubble = main.getByRole("region", { name: "Brief" });
   // The Inbox of the organization plants has no item, so the frame has no Inbox count.
   const briefFrame = (device: string, workstream: number) =>
@@ -1334,6 +1389,7 @@ test("screenshots", async ({ page }) => {
     },
   );
   const readyRow = main.getByRole("listitem").filter({ hasText: "Name the plan tiers" });
+  const merged = noticeOf(page, "Started the merge of PR #44");
   await screenshot(page, "inbox-merge", "/inbox", (device) => [
     ...inboxReady(device),
     readyRow.getByRole("button", { name: "Merge" }),
@@ -1351,7 +1407,22 @@ test("screenshots", async ({ page }) => {
         await expect(locator).toBeVisible();
       }
       await readyRow.getByRole("button", { name: "Merge" }).click();
+      await skipNotice(page, merged);
     },
+  );
+  await screenshot(
+    page,
+    "notice-merge",
+    "/inbox",
+    () => [merged, readyRow.getByRole("button", { name: "Merging" })],
+    async (device) => {
+      for (const locator of inboxReady(device)) {
+        await expect(locator).toBeVisible();
+      }
+      await readyRow.getByRole("button", { name: "Merge" }).click();
+      await holdNotice(page, merged);
+    },
+    () => releaseNotice(page),
   );
   await page.unroute("**/api/inbox/103/merge");
   mergeState = {
@@ -2045,6 +2116,7 @@ test("screenshots", async ({ page }) => {
         await answer(unknownTitle, "Wait for the migration of #12.")();
         await panel.getByRole("button", { name: "Reject" }).click();
         await expect(panel).toBeHidden();
+        await skipNotice(page, noticeOf(page, "Rejected: "));
       }
       const card = cardOf(page, unknownTitle);
       await expect(card.getByText("Rejected", { exact: true })).toBeVisible();
