@@ -1724,6 +1724,34 @@ export interface EnvelopeVersion {
 }
 
 /**
+ * VoiceLanguageItem is a language that the voice conversion accepts.
+ */
+export interface VoiceLanguageItem {
+  /** Code is the code of the language. The code auto detects the language */
+  code: string;
+  /** Name is the English name of the language */
+  name: string;
+}
+
+/**
+ * VoiceLanguage is the language of the voice conversion.
+ */
+export interface VoiceLanguage {
+  /** Language is the code of the language that new recordings use */
+  language: string;
+  /** Languages are the languages that the voice conversion accepts, with auto first and then sorted by name */
+  languages: VoiceLanguageItem[];
+}
+
+/**
+ * Envelope is the body of each success response.
+ */
+export interface EnvelopeVoiceLanguage {
+  /** Data is the payload of the response */
+  data: VoiceLanguage;
+}
+
+/**
  * WorkstreamDetails is the details of a Workstream.
  */
 export interface WorkstreamDetails {
@@ -1936,6 +1964,11 @@ export interface SetRoleBody {
 export interface SetSwitchBody {
   /** On turns the switch on when true, and off when false */
   on?: boolean;
+}
+
+export interface SetVoiceLanguageBody {
+  /** Language is the code of the language, one of the codes that GetVoiceLanguage gives */
+  language?: string;
 }
 
 export interface StopChatBody {
@@ -6253,6 +6286,136 @@ export const getVersion = async ( ): Promise<getVersionResponse> => {
 
   const data: getVersionResponse['data'] = body ? JSON.parse(body) : {}
   return { data, status: res.status, headers: res.headers } as getVersionResponse
+}
+
+
+
+export type getVoiceLanguageResponse200 = {
+  data: EnvelopeVoiceLanguage
+  status: 200
+}
+
+export type getVoiceLanguageResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type getVoiceLanguageResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type getVoiceLanguageResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type getVoiceLanguageResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type getVoiceLanguageResponseSuccess = (getVoiceLanguageResponse200) & {
+  headers: Headers;
+};
+export type getVoiceLanguageResponseError = (getVoiceLanguageResponse400 | getVoiceLanguageResponse401 | getVoiceLanguageResponse422 | getVoiceLanguageResponse500) & {
+  headers: Headers;
+};
+
+export type getVoiceLanguageResponse = (getVoiceLanguageResponseSuccess | getVoiceLanguageResponseError)
+
+export const getGetVoiceLanguageUrl = () => {
+
+
+
+
+  return `/api/voice/language`
+}
+
+/**
+ * GetVoiceLanguage returns the language of the voice conversion and the languages that it accepts.
+ */
+export const getVoiceLanguage = async ( ): Promise<getVoiceLanguageResponse> => {
+
+  const res = await fetch(getGetVoiceLanguageUrl(),
+  {
+
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: getVoiceLanguageResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as getVoiceLanguageResponse
+}
+
+
+
+export type setVoiceLanguageResponse200 = {
+  data: EnvelopeVoiceLanguage
+  status: 200
+}
+
+export type setVoiceLanguageResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type setVoiceLanguageResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type setVoiceLanguageResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type setVoiceLanguageResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type setVoiceLanguageResponseSuccess = (setVoiceLanguageResponse200) & {
+  headers: Headers;
+};
+export type setVoiceLanguageResponseError = (setVoiceLanguageResponse400 | setVoiceLanguageResponse401 | setVoiceLanguageResponse422 | setVoiceLanguageResponse500) & {
+  headers: Headers;
+};
+
+export type setVoiceLanguageResponse = (setVoiceLanguageResponseSuccess | setVoiceLanguageResponseError)
+
+export const getSetVoiceLanguageUrl = () => {
+
+
+
+
+  return `/api/voice/language`
+}
+
+/**
+ * SetVoiceLanguage sets the language of the voice conversion. A recording that starts after it uses the language, and a recording that is running keeps its language. It returns 422 for a code that is not in the list.
+ */
+export const setVoiceLanguage = async (setVoiceLanguageBody: SetVoiceLanguageBody, ): Promise<setVoiceLanguageResponse> => {
+
+  const res = await fetch(getSetVoiceLanguageUrl(),
+  {
+
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(setVoiceLanguageBody)
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: setVoiceLanguageResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as setVoiceLanguageResponse
 }
 
 

@@ -2,11 +2,14 @@ package api
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/gork-labs/gork/pkg/api"
 
+	"github.com/Mobius-Toolkit/Mobius/internal/store"
 	"github.com/Mobius-Toolkit/Mobius/internal/voice"
 )
 
@@ -36,7 +39,7 @@ type TranscribeResponse struct {
 // Transcribe converts a voice recording to text. It waits up to 5 minutes for the converter. It answers 503 when the
 // converter is still not ready after that time, and 502 when the converter returns an error.
 func (h *handlers) Transcribe(ctx context.Context, req TranscribeRequest) (*TranscribeResponse, error) {
-	text, err := h.recordings.Final.Transcribe(ctx, req.Body)
+	text, err := h.recordings.Final.Transcribe(ctx, req.Body, h.recordings.Language())
 	if err != nil {
 		return nil, voiceError(err)
 	}
@@ -137,4 +140,76 @@ func (h *handlers) FinishRecording(ctx context.Context, req FinishRecordingReque
 		return nil, voiceError(err)
 	}
 	return &FinishRecordingResponse{Body: Envelope[Transcription]{Data: Transcription{Text: text}}}, nil
+}
+
+// VoiceLanguageItem is a language that the voice conversion accepts.
+type VoiceLanguageItem struct {
+	// Code is the code of the language. The code auto detects the language
+	Code string `gork:"code"`
+	// Name is the English name of the language
+	Name string `gork:"name"`
+}
+
+// VoiceLanguage is the language of the voice conversion.
+type VoiceLanguage struct {
+	// Language is the code of the language that new recordings use
+	Language string `gork:"language"`
+	// Languages are the languages that the voice conversion accepts, with auto first and then sorted by name
+	Languages []VoiceLanguageItem `gork:"languages"`
+}
+
+// VoiceLanguageResponse is the response of GetVoiceLanguage and SetVoiceLanguage.
+type VoiceLanguageResponse struct {
+	Body Envelope[VoiceLanguage]
+}
+
+// GetVoiceLanguage returns the language of the voice conversion and the languages that it accepts.
+func (h *handlers) GetVoiceLanguage(context.Context, struct{}) (*VoiceLanguageResponse, error) {
+	return h.voiceLanguage(), nil
+}
+
+// SetVoiceLanguageRequest is the request of SetVoiceLanguage.
+type SetVoiceLanguageRequest struct {
+	Body struct {
+		// Language is the code of the language, one of the codes that GetVoiceLanguage gives
+		Language string `gork:"language"`
+	}
+}
+
+// SetVoiceLanguage sets the language of the voice conversion. A recording that starts after it uses the language, and
+// a recording that is running keeps its language. It returns 422 for a code that is not in the list.
+func (h *handlers) SetVoiceLanguage(ctx context.Context, req SetVoiceLanguageRequest) (*VoiceLanguageResponse, error) {
+	if !voice.IsLanguage(req.Body.Language) {
+		return nil, api.NewHTTPError(http.StatusUnprocessableEntity, "The language "+req.Body.Language+" does not exist.")
+	}
+	err := h.queries.UpsertVoiceLanguage(ctx, store.UpsertVoiceLanguageParams{
+		Language: req.Body.Language, UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+	})
+	if err != nil {
+		return nil, err
+	}
+	h.recordings.SetLanguage(req.Body.Language)
+	return h.voiceLanguage(), nil
+}
+
+func (h *handlers) voiceLanguage() *VoiceLanguageResponse {
+	languages := make([]VoiceLanguageItem, len(voice.Languages))
+	for i, language := range voice.Languages {
+		languages[i] = VoiceLanguageItem{Code: language.Code, Name: language.Name}
+	}
+	return &VoiceLanguageResponse{Body: Envelope[VoiceLanguage]{Data: VoiceLanguage{Language: h.recordings.Language(), Languages: languages}}}
+}
+
+// LoadVoiceLanguage sets the language of recordings to the stored language. With no stored language, the language stays
+// the default.
+func LoadVoiceLanguage(ctx context.Context, queries *store.Queries, recordings *voice.Recordings) error {
+	row, err := queries.GetVoiceLanguage(ctx)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	recordings.SetLanguage(row.Language)
+	return nil
 }
