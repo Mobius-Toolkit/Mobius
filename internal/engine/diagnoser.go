@@ -214,6 +214,10 @@ func (e *Engine) diagnoseTurn(ctx context.Context, a *Agent, row store.CiDiagnos
 	if err != nil {
 		return err
 	}
+	sections, err := e.repositorySections(ctx, repository, DiagnoserRole)
+	if err != nil {
+		return err
+	}
 	token, err := repository.Token(ctx)
 	if err != nil {
 		return err
@@ -247,7 +251,7 @@ func (e *Engine) diagnoseTurn(ctx context.Context, a *Agent, row store.CiDiagnos
 	if err := a.open(ctx); err != nil {
 		return err
 	}
-	prompt := fmt.Sprintf("%s\n%s%s\n# Failed jobs\n\n%s%s", diagnoserPrompt, serverSection(), place, jobs, failures)
+	prompt := fmt.Sprintf("%s\n%s%s\n# Failed jobs\n\n%s%s", diagnoserPrompt, sections, place, jobs, failures)
 	if err := a.Prompt(ctx, prompt, nil); err != nil {
 		return err
 	}
