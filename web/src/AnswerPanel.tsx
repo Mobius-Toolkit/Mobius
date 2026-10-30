@@ -255,10 +255,10 @@ export function AnswerPanel({
           event.preventDefault();
           content.current?.focus();
         }}
-        className="grid max-h-[calc(100dvh-var(--keyboard,0px)-2rem)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 p-0 max-sm:top-auto max-sm:bottom-(--keyboard,0px) max-sm:left-0 max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-b-none sm:max-h-[85dvh] sm:max-w-lg"
+        className="grid max-h-[calc(100dvh-var(--keyboard,0px)-2rem)] grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 p-0 max-sm:top-auto max-sm:bottom-(--keyboard,0px) max-sm:left-0 max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-b-none sm:max-h-[85dvh] sm:max-w-lg"
       >
         <DialogHeader className="gap-1 p-4 pr-10">
-          <DialogTitle>{item.title || item.reason}</DialogTitle>
+          <DialogTitle className="wrap-anywhere">{item.title || item.reason}</DialogTitle>
           {item.title && !action && !todo && (
             <p className="text-sm text-muted-foreground">{item.reason}</p>
           )}
