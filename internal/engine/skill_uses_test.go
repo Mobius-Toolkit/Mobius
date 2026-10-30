@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -202,5 +203,66 @@ shell = "echo cents > plan.txt && git add -A && git commit -q -m 'Add plan model
 	}
 	if got := strings.Join(sources, ","); got != "probe=harness,review=mobius" {
 		t.Errorf("skill uses = %q", got)
+	}
+}
+
+func antigravityLead(cfg *config.Config) {
+	keepSessionOpen(cfg)
+	cfg.Roles.Lead = config.RoleBinding{Harness: config.Antigravity, Model: "gemini-3-pro", Max: 8}
+}
+
+func viewFile(call, file string) string {
+	return `  '{"sessionUpdate":"tool_call","toolCallId":"` + call + `","title":"Running view_file","kind":"read","status":"in_progress","rawInput":{"absolute_path":"` + file + `"}}',
+`
+}
+
+func TestAnAntigravityViewOfASkillFileAddsOneRowWithTheSourceOfTheSkill(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddRepository(skills)
+	fake.CommitFile(skills, "mobius-local-state/SKILL.md", "Read the state.", "Add mobius-local-state")
+	dir := t.TempDir()
+	skillFile := filepath.Join(dir, config.Antigravity.SkillDirectory(), "mobius-local-state", "SKILL.md")
+	server, _ := connectWith(t, fake, `[[prompts]]
+updates = [
+`+viewFile("call_1", skillFile)+`  '{"sessionUpdate":"tool_call_update","toolCallId":"call_1","status":"completed"}',
+]
+reply = ["done"]
+`, antigravityLead)
+	spec := leadSpec(t)
+	spec.Dir = dir
+
+	session := run(t, server, spec, "Read the work")
+	reply(t, server, session)
+
+	want := []skillUse{{session, "owner", shop, "lead_chat", "antigravity", "mobius-local-state", "mobius"}}
+	if got := skillUses(t, server, session); !slices.Equal(got, want) {
+		t.Errorf("skill uses = %+v, want %+v", got, want)
+	}
+}
+
+func TestAnAntigravityViewOfAnotherFileAddsNoSkillUse(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddRepository(skills)
+	fake.CommitFile(skills, "mobius-local-state/SKILL.md", "Read the state.", "Add mobius-local-state")
+	fake.CommitFile(skills, "mobius-local-state/notes.md", "Notes.", "Add notes")
+	dir := t.TempDir()
+	skillFolder := filepath.Join(dir, config.Antigravity.SkillDirectory(), "mobius-local-state")
+	server, _ := connectWith(t, fake, `[[prompts]]
+updates = [
+`+viewFile("call_1", filepath.Join(skillFolder, "notes.md"))+
+		viewFile("call_2", filepath.Join(dir, "other", "mobius-local-state", "SKILL.md"))+
+		viewFile("call_3", filepath.Join(skillFolder, "..", "..", "SKILL.md"))+`]
+reply = ["done"]
+`, antigravityLead)
+	spec := leadSpec(t)
+	spec.Dir = dir
+
+	session := run(t, server, spec, "Read the work")
+	reply(t, server, session)
+
+	if got := skillUses(t, server, session); len(got) != 0 {
+		t.Errorf("skill uses = %+v", got)
 	}
 }
