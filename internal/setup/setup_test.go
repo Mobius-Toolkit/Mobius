@@ -240,7 +240,7 @@ func TestRunOffersDSHWithItsModelsAndEfforts(t *testing.T) {
 
 	for _, want := range []string{
 		"  1) claude-code\n  2) dsh\nHarness [1]: ",
-		`  2) ["deepseek-account","deepseek-flash"]`,
+		"  2) deepseek-account/deepseek-flash\n",
 		"  2) max\n",
 	} {
 		if !strings.Contains(out, want) {
@@ -251,7 +251,7 @@ func TestRunOffersDSHWithItsModelsAndEfforts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := `researcher = {harness = 'dsh', model = '["deepseek-account","deepseek-v4-pro"]', effort = 'max'}` + "\n"; !strings.Contains(string(text), want) {
+	if want := `researcher = {harness = 'dsh', model = 'deepseek-account/deepseek-v4-pro', effort = 'max'}` + "\n"; !strings.Contains(string(text), want) {
 		t.Errorf("config file has no %q:\n%s", want, text)
 	}
 	if _, err := config.Load(configPath); err != nil {

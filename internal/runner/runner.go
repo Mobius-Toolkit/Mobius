@@ -360,7 +360,30 @@ func (s *Session) choices(category acp.SessionConfigOptionCategory) Choices {
 	if option == nil {
 		return Choices{}
 	}
-	return Choices{Values: values(option), Current: string(option.CurrentValue)}
+	choices := Choices{Values: values(option), Current: string(option.CurrentValue)}
+	if s.harness == config.DSH && category == acp.SessionConfigOptionCategoryModel {
+		for i, value := range choices.Values {
+			choices.Values[i] = dshRouteModel(value)
+		}
+		choices.Current = dshRouteModel(choices.Current)
+	}
+	return choices
+}
+
+// dshRouteModel turns the JSON pair of a dsh model value into route/model. Other text stays as it is.
+func dshRouteModel(value string) string {
+	var pair []string
+	if err := json.Unmarshal([]byte(value), &pair); err != nil || len(pair) != 2 {
+		return value
+	}
+	return pair[0] + "/" + pair[1]
+}
+
+// dshValue turns route/model into the JSON pair that dsh uses as the model value.
+func dshValue(routeModel string) string {
+	route, model, _ := strings.Cut(routeModel, "/")
+	text, _ := json.Marshal([]string{route, model})
+	return string(text)
 }
 
 // Configure sets the model, the effort when it is not empty, and the full auto mode.
@@ -399,10 +422,13 @@ func (s *Session) set(ctx context.Context, category acp.SessionConfigOptionCateg
 	if option == nil {
 		return fmt.Errorf("%s has no %s option", program, name)
 	}
-	values := values(option)
+	values := s.choices(category).Values
 	refused := fmt.Sprintf("%s refuses %s %q, it has: %s", program, name, value, strings.Join(values, ", "))
 	if !slices.Contains(values, value) {
 		return errors.New(refused)
+	}
+	if s.harness == config.DSH && category == acp.SessionConfigOptionCategoryModel {
+		value = dshValue(value)
 	}
 	response, err := acp.SendRequest[acp.SetSessionConfigOptionResponse](s.conn, ctx, acp.AgentMethodSessionSetConfigOption, acp.SetSessionConfigOptionRequest{ValueId: &acp.SetSessionConfigOptionValueId{
 		SessionId: s.id,

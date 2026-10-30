@@ -261,8 +261,8 @@ func TestADevinTurnAddsTheTokensOfEachModelCallAndSkipsTheCopies(t *testing.T) {
 func TestADSHTurnHasAUsageRowWithNullTokensAndANullCost(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	model := `["deepseek-account","deepseek-v4-pro"]`
-	script := "[options]\nmodel = ['" + model + "']\nthought_level = [\"high\"]\n" + `
+	model := "deepseek-account/deepseek-v4-pro"
+	script := "[options]\nmodel = ['[\"deepseek-account\",\"deepseek-v4-pro\"]']\nthought_level = [\"high\"]\n" + `
 [[prompts]]
 updates = ['{"sessionUpdate": "usage_update", "used": 1, "size": 2}']
 `
