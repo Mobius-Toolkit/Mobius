@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
@@ -422,6 +424,31 @@ func (e *Engine) DismissByOwner(ctx context.Context, id int64) error {
 	if err != nil {
 		return err
 	}
-	e.addRecord(ctx, inboxChat(item), fmt.Sprintf("You dismissed \"%s\".", item.Title))
+	e.addRecord(ctx, inboxChat(item), dismissRecord(item))
 	return nil
+}
+
+const failedMessageStartLength = 40
+
+func failedMessageStart(text string) string {
+	start, _, _ := strings.Cut(strings.TrimSpace(text), "\n")
+	start = strings.TrimSpace(start)
+	if utf8.RuneCountInString(start) <= failedMessageStartLength {
+		return start
+	}
+	return string([]rune(start)[:failedMessageStartLength]) + "…"
+}
+
+func dismissRecord(item store.InboxItem) string {
+	if item.Title != "" {
+		return fmt.Sprintf("You dismissed \"%s\".", item.Title)
+	}
+	if item.Kind != leadFailedKind {
+		return fmt.Sprintf("You dismissed the item \"%s\".", item.Reason)
+	}
+	start := failedMessageStart(item.Text)
+	if start == "" {
+		return "You dismissed a failed message."
+	}
+	return fmt.Sprintf("You dismissed the failed message \"%s\".", start)
 }
