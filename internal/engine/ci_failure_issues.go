@@ -22,9 +22,9 @@ const (
 )
 
 // createCIFailureIssues creates the task issue of each open failure record of repository that has two or more places and
-// no issue. The issue stays in repository, goes below the maintenance Workstream of the organization and has no label.
-// An organization with no open maintenance Workstream, or with no issue repository that Mobius can find, gets no issue,
-// and the next poll tries again. The number of an issue that GitHub created but did not add
+// no issue. The issue stays in repository, goes below the maintenance Workstream of the organization and has
+// mobius:ready. An organization with no open maintenance Workstream, or with no issue repository that Mobius can find,
+// gets no issue, and the next poll tries again. The number of an issue that GitHub created but did not add
 // below the Workstream is stored as a negative number, and the next poll adds the issue below the Workstream. A 4xx
 // answer of GitHub is no error.
 func (e *Engine) createCIFailureIssues(ctx context.Context, repository github.Repository) error {
@@ -75,7 +75,7 @@ func (e *Engine) createCIFailureIssue(ctx context.Context, repository github.Rep
 		return 0, err
 	}
 	title := "Fix the CI failure of " + cutChars(ciFailureName(failure), failureNameChars)
-	number, err := e.addIssueAt(ctx, repository, workstream, newIssue{title: title, body: ciFailureBody(repository, failure, places), parent: workstream}, nil)
+	number, err := e.addIssueAt(ctx, repository, workstream, newIssue{title: title, body: ciFailureBody(repository, failure, places), parent: workstream}, []string{readyLabel})
 	if number != 0 {
 		stored := int64(number)
 		if err != nil {
@@ -106,6 +106,17 @@ func (e *Engine) addCIFailureIssueBelow(ctx context.Context, repository github.R
 	}
 	if err != nil {
 		return false, err
+	}
+	if issue != nil {
+		// The add below the Workstream does not change the list of the issues with mobius:ready, and dispatchReady can
+		// have stored its ETag before the issue was below the Workstream. The new label event makes dispatchReady read
+		// the list again.
+		if err := repository.RemoveLabel(ctx, number, readyLabel); err != nil {
+			return false, err
+		}
+		if err := repository.AddLabel(ctx, number, readyLabel); err != nil {
+			return false, err
+		}
 	}
 	if err := e.queries.SetCIFailureIssue(ctx, store.SetCIFailureIssueParams{Issue: number, ID: failure.ID}); err != nil {
 		return issue != nil, err

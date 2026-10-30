@@ -53,12 +53,116 @@ func TestTheSameTestInTwoPullRequestsGivesOneIssueBelowTheMaintenanceWorkstream(
 			t.Errorf("body does not have %q:\n%s", want, body)
 		}
 	}
-	if labels := fake.Labels(shop, number); slices.Contains(labels, "mobius:ready") || slices.Contains(labels, "mobius:triage") {
+	if labels := fake.Labels(shop, number); slices.Contains(labels, "mobius:triage") {
 		t.Errorf("labels = %v", labels)
+	}
+	if !fake.LabelAddedBy(shop, number, "mobius:ready", testkit.AppSlug+"[bot]") {
+		t.Errorf("the App did not add mobius:ready to the issue")
 	}
 	testkit.WaitFor(t, func() bool {
 		return rowCount(t, server, fmt.Sprintf("SELECT count(*) FROM ci_failures WHERE issue = %d", number)) == 1
 	})
+}
+
+// createdCIFailureIssue gives the number of the issue of the record that GitHub created but did not add below the
+// Workstream.
+func createdCIFailureIssue(t *testing.T, server *testserver.Server) int64 {
+	t.Helper()
+	var issue int64
+	if err := server.DB.QueryRow("SELECT issue FROM ci_failures WHERE issue < 0").Scan(&issue); err != nil {
+		t.Fatal(err)
+	}
+	return -issue
+}
+
+// twoPlacesOfTheSameFailure stops the tasks of #41 and #43 by the same CI failure, so that the two places give one record.
+func twoPlacesOfTheSameFailure(t *testing.T, fake *testkit.FakeGitHub, server *testserver.Server) {
+	t.Helper()
+	fake.AddSubIssueOf(shop, 12, 43, "Task 43")
+	first := approvalHeadOf(t, server, fake, 41)
+	second := approvalHeadOf(t, server, fake, 43)
+	failActions(fake, first)
+	failActions(fake, second)
+}
+
+func TestANewCIFailureIssueGetsReadyAndTheUsualFlowStartsItsTask(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := connectDiagnoser(t, fake, leadStartsTwo, reportsPlan)
+	addMaintenanceWorkstream(fake, maintenance)
+
+	twoPlacesOfTheSameFailure(t, fake, server)
+
+	number := ciBreakIssue(t, fake)
+	if !fake.LabelAddedBy(shop, number, "mobius:ready", testkit.AppSlug+"[bot]") {
+		t.Errorf("the App did not add mobius:ready to the issue")
+	}
+	if task := liveTaskOf(t, server, number); task.Workstream != maintenance {
+		t.Errorf("task = %+v", task)
+	}
+}
+
+func TestRepairsOffHoldsTheReadyIssueOfACIFailureAndRepairsOnStartsItsTask(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := connectDiagnoser(t, fake, leadStartsTwo, reportsPlan)
+	addMaintenanceWorkstream(fake, maintenance)
+	turnRepairsOff(t, server)
+
+	twoPlacesOfTheSameFailure(t, fake, server)
+
+	number := ciBreakIssue(t, fake)
+	waitForHeldWork(t, server, "repairs", number)
+	waitForPolls(t, fake)
+	if count := tasksOf(t, server, number); count != 0 {
+		t.Errorf("tasks = %d", count)
+	}
+	if labels := fake.Labels(shop, number); !slices.Contains(labels, "mobius:ready") {
+		t.Errorf("labels = %v", labels)
+	}
+
+	turnRepairsOn(t, server)
+
+	if task := liveTaskOf(t, server, number); task.Workstream != maintenance {
+		t.Errorf("task = %+v", task)
+	}
+}
+
+func TestACIFailureIssueThatGitHubDidNotAddBelowTheWorkstreamGetsReadyAgainAndItsTaskStarts(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := connectDiagnoser(t, fake, leadStartsTwo, reportsPlan)
+	addMaintenanceWorkstream(fake, maintenance)
+	fake.FailAddSubIssue(shop, maintenance, true)
+
+	twoPlacesOfTheSameFailure(t, fake, server)
+
+	testkit.WaitFor(t, func() bool {
+		return rowCount(t, server, "SELECT count(*) FROM ci_failures WHERE issue < 0") == 1
+	})
+	number := createdCIFailureIssue(t, server)
+	waitForPolls(t, fake)
+	if numbers := fake.SubIssueNumbers(shop, maintenance); len(numbers) != 0 {
+		t.Errorf("sub-issues = %v", numbers)
+	}
+	if hasLiveTask(t, server, number) {
+		t.Errorf("the issue has a task")
+	}
+
+	fake.FailAddSubIssue(shop, maintenance, false)
+
+	testkit.WaitFor(t, func() bool {
+		return rowCount(t, server, fmt.Sprintf("SELECT count(*) FROM ci_failures WHERE issue = %d", number)) == 1
+	})
+	if numbers := fake.SubIssueNumbers(shop, maintenance); !slices.Equal(numbers, []int64{number}) {
+		t.Errorf("sub-issues = %v", numbers)
+	}
+	if !fake.LabelAddedBy(shop, number, "mobius:ready", testkit.AppSlug+"[bot]") {
+		t.Errorf("the App did not add mobius:ready to the issue")
+	}
+	if task := liveTaskOf(t, server, number); task.Workstream != maintenance {
+		t.Errorf("task = %+v", task)
+	}
 }
 
 func TestAThirdFailureOfTheSameTestGivesNoSecondIssue(t *testing.T) {
