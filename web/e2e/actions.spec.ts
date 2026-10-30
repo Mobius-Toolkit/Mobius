@@ -40,7 +40,7 @@ import {
   withdrawDraft,
 } from "./actions.js";
 import { countSamples, fakeMicrophone } from "./microphone.js";
-import { routeInboxItems } from "./stops.js";
+import { routeInboxItems, longWordQuestionItem, longWordTitle } from "./stops.js";
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/github");
@@ -450,6 +450,22 @@ test("the phone shows the cards, the tray and the panel with no horizontal scrol
   expect(Math.abs((microphone?.y ?? 0) - (rejectBox?.y ?? 99))).toBeLessThan(4);
   expect(Math.abs((approveBox?.y ?? 0) - (rejectBox?.y ?? 99))).toBeLessThan(4);
   expect((approveBox?.x ?? 999) + (approveBox?.width ?? 0)).toBeLessThanOrEqual(390);
+});
+
+test("the phone shows the full title of a question in the Answer panel", async ({ page }) => {
+  await routeInboxItems(page, [longWordQuestionItem]);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openChat(page);
+  await answer(page, longWordTitle);
+
+  const box = await panel(page).evaluate((el) => ({
+    width: el.getBoundingClientRect().width,
+    viewport: window.innerWidth,
+    scrollWidth: el.scrollWidth,
+    clientWidth: el.clientWidth,
+  }));
+  expect(box.width).toBeLessThanOrEqual(box.viewport);
+  expect(box.scrollWidth).toBeLessThanOrEqual(box.clientWidth);
 });
 
 test("the Owner answers a question with options", async ({ page }) => {

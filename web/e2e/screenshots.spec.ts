@@ -38,6 +38,8 @@ import {
   leadActionItem,
   longTitle,
   longTitleItem,
+  longWordQuestionItem,
+  longWordTitle,
   routeInboxItems,
   stoppedItems,
   todoItems,
@@ -2492,6 +2494,30 @@ test("screenshots", async ({ page }) => {
     ],
     showQuestionEnd(draftQuestion),
   );
+
+  // The title of the question has one long word. The sheet must wrap it and stay inside the screen.
+  await page.unroute(inboxRoute);
+  await page.route(inboxRoute, (route) =>
+    route.fulfill({ json: { data: [longWordQuestionItem] } }),
+  );
+  await screenshot(
+    page,
+    "question-long-title",
+    "/chat",
+    () => [
+      panel.getByText(longWordTitle),
+      panel.getByText("The shop needs a store for the plans."),
+      group("Which store?"),
+      option("Which store?", "SQLite"),
+      option("Which store?", "Postgres"),
+    ],
+    async () => {
+      await row(longWordTitle).getByRole("button", { name: "Answer" }).click();
+      await expect(panel).toBeVisible();
+    },
+    () => page.keyboard.press("Escape"),
+  );
+  await page.unroute(inboxRoute);
 
   // The fake Lead of #14 proposes a new Brief. The approval changes the Brief, and the last call sets it back.
   await page.goto("/workstreams/owner/shop/14");
