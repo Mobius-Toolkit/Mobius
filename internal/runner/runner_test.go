@@ -227,7 +227,7 @@ func TestStartWithNoMCPURLGivesNoMCPServer(t *testing.T) {
 	}
 }
 
-func TestDSHRunsWithTheACPProfileAndGetsTheModelAndTheEffortByTheirCategories(t *testing.T) {
+func startDSH(t *testing.T, updates func(json.RawMessage, bool)) *Session {
 	t.Setenv("MOBIUS_FAKE_AGENT", "1")
 	t.Setenv("MOBIUS_FAKE_DSH", "1")
 	dir := t.TempDir()
@@ -238,8 +238,17 @@ func TestDSHRunsWithTheACPProfileAndGetsTheModelAndTheEffortByTheirCategories(t 
 	if err := os.Symlink(exe, filepath.Join(dir, "dsh")); err != nil {
 		t.Fatal(err)
 	}
+	session, err := Start(context.Background(), config.DSH, dir, dir, dir, "http://127.0.0.1:1/mcp/key", "", "", "", updates)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(session.Close)
+	return session
+}
+
+func TestDSHRunsWithTheACPProfileAndGetsTheModelAndTheEffortByTheirCategories(t *testing.T) {
 	var message strings.Builder
-	session, err := Start(context.Background(), config.DSH, dir, dir, dir, "http://127.0.0.1:1/mcp/key", "", "", "", func(params json.RawMessage, _ bool) {
+	session := startDSH(t, func(params json.RawMessage, _ bool) {
 		var notification struct {
 			Update struct {
 				Content struct {
@@ -252,13 +261,9 @@ func TestDSHRunsWithTheACPProfileAndGetsTheModelAndTheEffortByTheirCategories(t 
 		}
 		message.WriteString(notification.Update.Content.Text)
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(session.Close)
 	ctx := context.Background()
 
-	if err := session.Configure(ctx, `["deepseek-account","deepseek-v4-pro"]`, "high"); err != nil {
+	if err := session.Configure(ctx, "deepseek-account/deepseek-v4-pro", "high"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := session.Prompt(ctx, "Say the options.", nil); err != nil {
@@ -268,6 +273,40 @@ func TestDSHRunsWithTheACPProfileAndGetsTheModelAndTheEffortByTheirCategories(t 
 	want := `mcp [{"headers":[],"name":"mobius","type":"http","url":"http://127.0.0.1:1/mcp/key"}]; set model=["deepseek-account","deepseek-v4-pro"] reasoning_effort=high; permission allow-once; args --profile acp`
 	if message.String() != want {
 		t.Errorf("message = %s", message.String())
+	}
+}
+
+func TestDSHModelsAreRouteAndModel(t *testing.T) {
+	session := startDSH(t, func(json.RawMessage, bool) {})
+
+	models := session.Models()
+
+	if want := []string{"deepseek-account/deepseek-flash", "deepseek-account/deepseek-v4-pro"}; !slices.Equal(models.Values, want) {
+		t.Errorf("values = %v, want %v", models.Values, want)
+	}
+	if want := "deepseek-official/deepseek-v4-flash"; models.Current != want {
+		t.Errorf("current = %s, want %s", models.Current, want)
+	}
+}
+
+func TestConfigureRefusesADSHModelWithNoRouteAndListsRouteAndModel(t *testing.T) {
+	session := startDSH(t, func(json.RawMessage, bool) {})
+
+	err := session.Configure(context.Background(), "deepseek-v4-pro", "")
+
+	want := `dsh refuses model "deepseek-v4-pro", it has: deepseek-account/deepseek-flash, deepseek-account/deepseek-v4-pro`
+	if err == nil || err.Error() != want {
+		t.Errorf("error = %v", err)
+	}
+}
+
+func TestModelsOfAnotherHarnessStayAsTheAgentGivesThem(t *testing.T) {
+	session := startFakeAgent(t, func(json.RawMessage, bool) {})
+
+	models := session.Models()
+
+	if want := []string{"default", "sonnet"}; !slices.Equal(models.Values, want) || models.Current != "default" {
+		t.Errorf("models = %+v", models)
 	}
 }
 
