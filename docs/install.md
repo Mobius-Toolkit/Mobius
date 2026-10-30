@@ -102,6 +102,8 @@ Do not use `claude setup-token` with `CLAUDE_CODE_OAUTH_TOKEN`. The token is the
 
 Mobius starts dsh with `dsh --profile acp`. The tested version is 0.2.1-rc.5.
 
+Mobius starts dsh with `DSH_PERMISSION_MODE=danger-full-access`. Thus a dsh session has no sandbox, and it has the same file access as a Claude Code session. Git writes in the folders of the bare clone, and `go test` writes in the Go build cache, outside the worktree. A sandboxed dsh session cannot write there.
+
 1. Install dsh:
 
    ```sh
@@ -118,7 +120,7 @@ Mobius starts dsh with `dsh --profile acp`. The tested version is 0.2.1-rc.5.
      - Write `DEEPSEEK_API_KEY=<key>` in `~/.dsh/.env`.
      - Store the key on the Models page of the dsh web UI.
 
-   dsh keeps the sign-in and the key in its own files in `~/.dsh`. Mobius sets no environment for dsh.
+   dsh keeps the sign-in and the key in its own files in `~/.dsh`. Mobius gives dsh no key.
 
 3. Bind a Role to dsh. The `model` is the route and the model name of dsh, with a `/` between them:
 
