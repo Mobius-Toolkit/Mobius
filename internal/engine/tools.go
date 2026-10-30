@@ -63,7 +63,7 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 func (e *Engine) roleTools(c caller) []mcp.Tool {
 	switch c.role {
 	case LeadRole:
-		return []mcp.Tool{
+		tools := []mcp.Tool{
 			tool(e, c, "list_tasks",
 				"Give the task list of the Workstream: one line for each open issue.",
 				map[string]any{},
@@ -183,7 +183,7 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 				},
 				e.createIssue),
 			taskTool(e, c, "update_blockers",
-				"Set the open blockers of an existing issue of the Workstream. Mobius adds each issue of blocked_by that is not a blocker yet, and removes each open blocker that is not in blocked_by. Read the current blockers with list_tasks first. An empty blocked_by removes each open blocker. A second call with the same list changes nothing.",
+				"Set the open blockers of an existing issue of the Workstream. Mobius adds each issue of blocked_by that is not a blocker yet, and removes each open blocker that is not in blocked_by. It refuses a blocker that closes a cycle of blockers. Read the current blockers with list_tasks first. An empty blocked_by removes each open blocker. A second call with the same list changes nothing.",
 				map[string]any{
 					"repository": repositoryProperty,
 					"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the blocked issue."},
@@ -228,6 +228,10 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 				},
 				e.tellOwner),
 		}
+		if c.agent.skills {
+			tools = append(tools, e.readSkillUsageTool(c))
+		}
+		return tools
 	case ImplementerRole:
 		return []mcp.Tool{
 			tool(e, c, "cannot_do",
@@ -1020,9 +1024,22 @@ func (e *Engine) updateBlockers(ctx context.Context, c caller, repository github
 	}
 	var add, remove []blockerWrite
 	for i, id := range wanted {
-		if !slices.ContainsFunc(current, func(found *gh.Issue) bool { return found.GetID() == id }) {
-			add = append(add, blockerWrite{fmt.Sprintf("%s#%d", blockers[i].repository.FullName, blockers[i].number), id})
+		if slices.ContainsFunc(current, func(found *gh.Issue) bool { return found.GetID() == id }) {
+			continue
 		}
+		through, closes, err := e.blockerPath(ctx, blockers[i], issueAt{repository, input.N})
+		if err != nil {
+			return "", err
+		}
+		reference := fmt.Sprintf("%s#%d", blockers[i].repository.FullName, blockers[i].number)
+		if closes {
+			text := fmt.Sprintf("%s cannot block %s#%d: %s is already blocked by %s#%d", reference, repository.FullName, input.N, reference, repository.FullName, input.N)
+			if len(through) > 0 {
+				text += " through " + strings.Join(through, " and ")
+			}
+			return "", refuse("%s.", text)
+		}
+		add = append(add, blockerWrite{reference, id})
 	}
 	for _, found := range current {
 		if found.GetState() == "open" && !slices.Contains(wanted, found.GetID()) {
@@ -1050,6 +1067,44 @@ func (e *Engine) updateBlockers(ctx context.Context, c caller, repository github
 		return fmt.Sprintf("The blockers of %s#%d already match.", repository.FullName, input.N), nil
 	}
 	return fmt.Sprintf("%s as blockers of %s#%d.", change, repository.FullName, input.N), nil
+}
+
+// blockerPath walks the open blockers of from, and the open blockers of those, until it reaches to. It tells if it
+// reached to, and gives the references of the issues between from and to in path order. It does not walk past a blocker
+// in a repository that the App cannot read.
+func (e *Engine) blockerPath(ctx context.Context, from, to issueAt) (through []string, reached bool, err error) {
+	keyOf := func(issue issueAt) issueRef { return lowerRef(issue.repository.FullName, issue.number) }
+	parents := map[issueRef]issueAt{}
+	visited := map[issueRef]bool{keyOf(from): true}
+	queue := []issueAt{from}
+	for len(queue) > 0 {
+		node := queue[0]
+		queue = queue[1:]
+		found, err := openBlockers(ctx, node.repository, node.number)
+		if err != nil {
+			return nil, false, err
+		}
+		for _, blocker := range found {
+			repository, readable := e.issueRepository(blocker, node.repository)
+			if !readable {
+				continue
+			}
+			next := issueAt{repository, int64(blocker.GetNumber())}
+			if keyOf(next) == keyOf(to) {
+				for ; keyOf(node) != keyOf(from); node = parents[keyOf(node)] {
+					through = append([]string{fmt.Sprintf("%s#%d", node.repository.FullName, node.number)}, through...)
+				}
+				return through, true, nil
+			}
+			if visited[keyOf(next)] {
+				continue
+			}
+			visited[keyOf(next)] = true
+			parents[keyOf(next)] = node
+			queue = append(queue, next)
+		}
+	}
+	return nil, false, nil
 }
 
 // blockerWrite is an issue with its reference (owner/name#N) and its numeric id.

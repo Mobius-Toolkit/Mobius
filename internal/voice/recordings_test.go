@@ -302,6 +302,7 @@ func TestTheDraftConverterHasItsOwnPIDFileAndStopStopsBothProcesses(t *testing.T
 	final, draft := voice.New(dataDir, bin), voice.NewDraft(dataDir, bin)
 	for _, w := range []*voice.Whisper{final, draft} {
 		w.ModelURL = model.URL
+		w.VADModelURL = model.URL
 		w.Address = testkit.FreeAddress(t)
 	}
 	r := voice.NewRecordings(final, draft)
@@ -338,5 +339,29 @@ func TestTheDraftConverterHasItsOwnPIDFileAndStopStopsBothProcesses(t *testing.T
 			}
 			return err != nil
 		})
+	}
+}
+
+func TestAnInventedLastSegmentIsNotInTheLiveText(t *testing.T) {
+	c := newConverter(t)
+	program := testkit.InstallFakeWhisper(t, c.bin)
+	c.putModel(t)
+	putText(t, program, "Plant red roses.\nThanks for watching!\n")
+	testkit.WaitFor(t, func() bool {
+		_, err := c.Segments(context.Background(), append([]byte("RIFF"), make([]byte, 40+second)...))
+		return err == nil
+	})
+	final := fakeServer(t, func(http.ResponseWriter, *http.Request) {})
+	r := voice.NewRecordings(final, c.Whisper)
+	id := create(t, r)
+
+	first := chunk(t, r, id, 0, 3)
+	secondText := chunk(t, r, id, 1, 3)
+
+	if want := (voice.LiveText{Draft: "Plant red roses."}); first != want {
+		t.Errorf("first = %+v, want %+v", first, want)
+	}
+	if want := (voice.LiveText{Committed: "Plant red roses."}); secondText != want {
+		t.Errorf("second = %+v, want %+v", secondText, want)
 	}
 }
