@@ -364,6 +364,14 @@ func (g *FakeGitHub) FailAddSubIssue(repository string, number int64, fail bool)
 	g.failedSubIssueAdds[issueKey{repository, number}] = fail
 }
 
+// RefuseAddSubIssues makes each new sub-issue that Mobius adds below the issue fail with 422, or work again when refuse
+// is false. GitHub gives 422 for a parent with 100 sub-issues and for a parent of another organization.
+func (g *FakeGitHub) RefuseAddSubIssues(repository string, number int64, refuse bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.refusedSubIssueAdds[issueKey{repository, number}] = refuse
+}
+
 // RefuseOpenBucketAdds makes each add of an open issue below an issue with the label mobius:bucket fail with 422, as
 // GitHub does at the depth limit, or work again when refuse is false.
 func (g *FakeGitHub) RefuseOpenBucketAdds(refuse bool) {
@@ -406,6 +414,13 @@ func (g *FakeGitHub) FailAddLabels(repository string, number int64, fail bool) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.failedLabels[issueKey{repository, number}] = fail
+}
+
+// RefuseAddLabelOnce makes the next add of a label to the issue give the status. Later adds work.
+func (g *FakeGitHub) RefuseAddLabelOnce(repository string, number int64, status int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.refusedLabelOnce[issueKey{repository, number}] = status
 }
 
 // KeepLabelFromBot makes each removal of label from the issue by a bot fail, so only a user can remove it. An empty
@@ -978,6 +993,10 @@ func (g *FakeGitHub) addSubIssue(w http.ResponseWriter, r *http.Request) {
 		message(w, http.StatusInternalServerError, "Server Error")
 		return
 	}
+	if g.refusedSubIssueAdds[key] {
+		message(w, http.StatusUnprocessableEntity, "Validation Failed")
+		return
+	}
 	child, ok := g.issueKeyOf(w, key, request.SubIssueID)
 	if !ok {
 		return
@@ -1300,6 +1319,11 @@ func (g *FakeGitHub) addLabels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	g.labelWrites[key]++
+	if status := g.refusedLabelOnce[key]; status != 0 {
+		delete(g.refusedLabelOnce, key)
+		message(w, status, "Resource not accessible by integration")
+		return
+	}
 	if g.failedLabels[key] {
 		message(w, http.StatusInternalServerError, "Server Error")
 		return
