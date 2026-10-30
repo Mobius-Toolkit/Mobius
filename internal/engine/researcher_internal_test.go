@@ -57,6 +57,8 @@ func TestAResearcherThatStartsAfterTheShutdownIsDeclined(t *testing.T) {
 func TestAReportBeforeTheStopRefusesTheStop(t *testing.T) {
 	t.Parallel()
 	e := researchEngine(t)
+	binding, _ := e.roleBinding(ResearcherRole)
+	e.setAccess(keyOf(binding), nil)
 	a, err := e.newAgent(t.Context(), Spec{Role: ResearcherRole, Organization: "owner", Repository: "owner/shop", Workstream: 12})
 	if err != nil {
 		t.Fatal(err)

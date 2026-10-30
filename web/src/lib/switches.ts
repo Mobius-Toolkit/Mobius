@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { getSwitches, setSwitch, type LiveEvents, type Switches } from "@/api/api.gen";
 import { onEvent } from "./events";
+import { showNotice } from "./notice";
 
 export type SwitchKind = "start" | "merge" | "repairs";
 
@@ -102,6 +103,8 @@ export function useSwitches(showLogin: () => void, source?: EventSource) {
     );
     return send(kind, on).then(async (text) => {
       if (text === undefined) {
+        const { title } = switchKinds.find((entry) => entry.kind === kind)!;
+        showNotice(`${title} is ${on ? "on" : "off"}`);
         return "";
       }
       // The read can be late or fail, so the failure shows at once with the value from before the request. The read then replaces that value.

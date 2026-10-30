@@ -23,6 +23,7 @@ const (
 	lostKind           = "lost"
 	readyForReviewKind = "ready for review"
 	fullDiskKind       = "full disk"
+	accessCheckKind    = "access check"
 	approvalKind       = "approval"
 	todoKind           = "todo"
 )

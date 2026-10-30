@@ -32,6 +32,19 @@ func (e *Engine) SetClock(clock func() time.Time) {
 	e.clock.Store(&clock)
 }
 
+// AccessChecked tells if the access check of each Role binding has a result.
+func (e *Engine) AccessChecked() bool {
+	roles := e.mergedRoles()
+	e.accessMu.Lock()
+	defer e.accessMu.Unlock()
+	for _, named := range roles.Bindings() {
+		if _, checked := e.access[keyOf(*named.Binding)]; !checked {
+			return false
+		}
+	}
+	return true
+}
+
 // SetRecordedSkillHarnesses makes the Harnesses with a skill use record harnesses. It gives the function that sets the
 // old Harnesses again. A test that calls it is serial.
 func SetRecordedSkillHarnesses(harnesses ...config.Harness) func() {

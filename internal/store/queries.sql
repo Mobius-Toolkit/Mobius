@@ -164,6 +164,10 @@ RETURNING *;
 UPDATE sessions SET started_at = ?, queue_reason = NULL WHERE id = ?
 RETURNING *;
 
+-- name: SetSessionBinding :one
+UPDATE sessions SET harness = ?, model = ?, effort = ? WHERE id = ?
+RETURNING *;
+
 -- name: ListOpenSessionIDs :many
 SELECT id FROM sessions WHERE ended_at IS NULL ORDER BY id;
 
