@@ -124,7 +124,7 @@ func TestTranscribeAnswers503WithTheReasonWhenTheConverterIsNotReady(t *testing.
 	t.Cleanup(func() {
 		model.Release()
 		testkit.WaitFor(t, func() bool {
-			_, err := downloading.Transcribe(context.Background(), nil)
+			_, err := downloading.Transcribe(context.Background(), nil, "en")
 			return !errors.Is(err, voice.Downloading)
 		})
 		downloading.Stop()

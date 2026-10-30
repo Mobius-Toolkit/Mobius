@@ -169,6 +169,9 @@ func serve(configPath string) error {
 
 	voicePath := runner.AgentPath(cfg.DataDir, path)
 	recordings := voice.NewRecordings(voice.New(cfg.DataDir, voicePath), voice.NewDraft(cfg.DataDir, voicePath))
+	if err := api.LoadVoiceLanguage(ctx, queries, recordings); err != nil {
+		return err
+	}
 	recordings.Start()
 	defer recordings.Stop()
 	signals := make(chan os.Signal, 1)

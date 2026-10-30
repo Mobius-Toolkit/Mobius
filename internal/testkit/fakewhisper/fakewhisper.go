@@ -1,6 +1,8 @@
 // Package fakewhisper is the program whisper-server of the tests. It serves GET /health and POST /inference.
 //
-// The program writes one line with its arguments to the file program+".starts" at each start.
+// The program writes one line with its arguments to the file program+".starts" at each start. It appends one line with
+// the form field language of each /inference request to the file program+".languages". The line is empty when the
+// request has no such field.
 // While the file program+".loading" exists, /health answers 503. /inference answers the number of bytes of the WAV
 // file as the text "<n> bytes", and answers 400 for a file that does not start with "RIFF". With the form field
 // response_format=verbose_json, it also gives one segment with this text, from 0 to the length of the audio in seconds
@@ -36,15 +38,7 @@ func Run(program string, args []string) error {
 			port = args[i+1]
 		}
 	}
-	starts, err := os.OpenFile(filepath.Clean(program+".starts"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-	if err != nil {
-		return err
-	}
-	_, err = fmt.Fprintln(starts, strings.Join(args, " "))
-	if closeErr := starts.Close(); err == nil {
-		err = closeErr
-	}
-	if err != nil {
+	if err := appendLine(program+".starts", strings.Join(args, " ")); err != nil {
 		return err
 	}
 
@@ -61,6 +55,18 @@ func Run(program string, args []string) error {
 	return server.ListenAndServe()
 }
 
+func appendLine(name, line string) error {
+	file, err := os.OpenFile(filepath.Clean(name), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(file, line)
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
+	}
+	return err
+}
+
 func inference(program string, w http.ResponseWriter, r *http.Request) {
 	file, _, err := r.FormFile("file")
 	if err != nil {
@@ -71,6 +77,10 @@ func inference(program string, w http.ResponseWriter, r *http.Request) {
 	wav, err := io.ReadAll(file)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := appendLine(program+".languages", r.FormValue("language")); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

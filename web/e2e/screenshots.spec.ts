@@ -441,6 +441,33 @@ test("screenshots", async ({ page }) => {
     briefBubble.getByText("Cut the old canes in March."),
     main.getByText("No messages. Write to start a chat session."),
   ]);
+  const records = ["You started #1127.", "You set the Autopilot level to Start tasks."];
+  await screenshot(
+    page,
+    "chat-records",
+    "/workstreams/plants/garden/12",
+    (device) => [
+      ...briefFrame(device, 12),
+      main.getByText("Which roses sell best?"),
+      ...records.map((text) => main.locator("[data-message]", { hasText: text })),
+    ],
+    async () => {
+      await expect(main.locator("[data-message]", { hasText: records[1] })).toBeVisible();
+      await showChatEnd(page);
+    },
+  );
+  // The chat of plants/garden#12 sets the organization plants, and /chat shows the Coordinator chat of plants.
+  const dismissRecord = main.locator("[data-message]", { hasText: 'You dismissed "Which unit?".' });
+  await screenshot(
+    page,
+    "coordinator-records",
+    "/chat",
+    () => [main.getByText("Start a Workstream for gift cards."), dismissRecord],
+    async () => {
+      await expect(dismissRecord).toBeVisible();
+      await showChatEnd(page);
+    },
+  );
   // The chat of plants/garden#60 has 50 messages in pages of 20. The scroll to the top loads the first page, and the
   // Brief shows above its first message. The chat is at that top again after the Brief shows.
   const scrollBriefTop = () =>
