@@ -43,6 +43,24 @@ skip_tools_list = 1000
 // holdChoicesScript makes each read wait at session/new until the test writes the file session_new_release.
 const holdChoicesScript = "session_new_hold = true\n" + choicesScript
 
+// choicesModels gives the models of choicesScript for harness. The fake agent applies the efforts table to the plain
+// model value, and dsh sends the model as a JSON pair, so dsh keeps the full thought_level list.
+func choicesModels(harness config.Harness) []runner.ModelChoice {
+	if harness == config.Antigravity {
+		return []runner.ModelChoice{{Model: "sonnet"}, {Model: "opus"}}
+	}
+	if harness == config.DSH {
+		return []runner.ModelChoice{
+			{Model: "sonnet", Efforts: []string{"low", "medium", "high"}},
+			{Model: "opus", Efforts: []string{"low", "medium", "high"}},
+		}
+	}
+	return []runner.ModelChoice{
+		{Model: "sonnet", Efforts: []string{"low", "medium"}},
+		{Model: "opus", Efforts: []string{"low", "high", "max"}},
+	}
+}
+
 // choicesServer starts a server whose Harnesses play script. It has no repository work, so only the reads start agents.
 // The access checks of the start do not count in agentStarts.
 func choicesServer(t *testing.T, script string) (*testserver.Server, string) {
@@ -153,23 +171,23 @@ func TestARequestWhileTheStartReadRunsWaitsAndStartsNoSecondRead(t *testing.T) {
 	testkit.InstallFakeAgent(t, dataDir, holdChoicesScript)
 	defer releaseHarnessReads(t, dataDir)
 
-	started := make(chan struct{})
-	go func() {
-		server.Engine.ReadHarnessChoices(t.Context())
-		close(started)
-	}()
+	server.Engine.ReadHarnessChoices(t.Context())
 	waitForSessionNewStarts(t, dataDir, harnessCount)
-	select {
-	case <-started:
-	case <-time.After(2 * time.Second):
-		t.Fatal("ReadHarnessChoices did not return before the reads ended")
-	}
-	go func() {
-		time.Sleep(200 * time.Millisecond)
-		_ = os.WriteFile(filepath.Join(dataDir, "harnesses", "session_new_release"), nil, 0o600)
-	}()
 
-	choices := server.Engine.HarnessChoices(t.Context())
+	requested := make(chan struct{})
+	result := make(chan []engine.HarnessChoice, 1)
+	go func() {
+		close(requested)
+		result <- server.Engine.HarnessChoices(t.Context())
+	}()
+	<-requested
+	select {
+	case choices := <-result:
+		t.Fatalf("HarnessChoices returned before the reads ended: %+v", choices)
+	default:
+	}
+	releaseHarnessReads(t, dataDir)
+	choices := <-result
 
 	if got := sessionNewStarts(t, dataDir); got != harnessCount {
 		t.Errorf("reads at session/new = %d, want %d", got, harnessCount)
@@ -178,8 +196,8 @@ func TestARequestWhileTheStartReadRunsWaitsAndStartsNoSecondRead(t *testing.T) {
 		t.Fatalf("choices = %+v", choices)
 	}
 	for _, choice := range choices {
-		if choice.Error != "" {
-			t.Errorf("%s = %+v", choice.Harness, choice)
+		if want := choicesModels(choice.Harness); choice.Error != "" || !reflect.DeepEqual(choice.Models, want) {
+			t.Errorf("%s = %+v, want the models %+v", choice.Harness, choice, want)
 		}
 	}
 }
