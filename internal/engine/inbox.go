@@ -429,7 +429,6 @@ func (e *Engine) DismissByOwner(ctx context.Context, id int64) error {
 
 const failedMessageStartLength = 40
 
-// failedMessageStart is the first line of the text of a message, cut to failedMessageStartLength characters.
 func failedMessageStart(text string) string {
 	start, _, _ := strings.Cut(strings.TrimSpace(text), "\n")
 	start = strings.TrimSpace(start)
