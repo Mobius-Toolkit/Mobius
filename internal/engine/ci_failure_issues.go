@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"slices"
 	"strings"
 
 	gh "github.com/google/go-github/v92/github"
@@ -107,16 +108,31 @@ func (e *Engine) addCIFailureIssueBelow(ctx context.Context, repository github.R
 	if err != nil {
 		return false, err
 	}
-	if issue != nil && hasLabel(issue, readyLabel) {
+	if issue != nil {
 		// The add below the Workstream does not change the list of the issues with mobius:ready, and dispatchReady can
 		// have stored its ETag before the issue was below the Workstream. The new label event makes dispatchReady read
-		// the list again. An issue with no mobius:ready keeps no label, because a label that a person removed must not
-		// come back.
-		if err := repository.RemoveLabel(ctx, number, readyLabel); err != nil {
-			return issue != nil, labelWriteError(repository, number, "remove", err)
+		// the list again. When the issue has no mobius:ready, the label comes back only after a remove of the App, so a
+		// label that a person removed stays removed.
+		addLabel := hasLabel(issue, readyLabel)
+		if addLabel {
+			if err := repository.RemoveLabel(ctx, number, readyLabel); err != nil {
+				return issue != nil, labelWriteError(repository, number, "remove", err)
+			}
+		} else {
+			removed, err := e.readyRemovedByApp(ctx, repository, number)
+			if refusedByGitHub(err) {
+				log.Printf("read the events of #%d of %s: %v", number, repository.FullName, err)
+				return issue != nil, nil
+			}
+			if err != nil {
+				return issue != nil, err
+			}
+			addLabel = removed
 		}
-		if err := repository.AddLabel(ctx, number, readyLabel); err != nil {
-			return issue != nil, labelWriteError(repository, number, "add", err)
+		if addLabel {
+			if err := repository.AddLabel(ctx, number, readyLabel); err != nil {
+				return issue != nil, labelWriteError(repository, number, "add", err)
+			}
 		}
 	}
 	if err := e.queries.SetCIFailureIssue(ctx, store.SetCIFailureIssueParams{Issue: number, ID: failure.ID}); err != nil {
@@ -125,8 +141,25 @@ func (e *Engine) addCIFailureIssueBelow(ctx context.Context, repository github.R
 	return issue != nil, nil
 }
 
-// labelWriteError gives nil for a 4xx answer of GitHub, so the poll does not stop and the next poll writes the label
-// again with the negative number of the issue. It gives each other error.
+// readyRemovedByApp tells whether the Mobius App removed mobius:ready from the issue, and no later event of the label
+// followed. A label that a person removed gives false.
+func (e *Engine) readyRemovedByApp(ctx context.Context, repository github.Repository, number int64) (bool, error) {
+	events, err := e.issueEvents(ctx, repository, number)
+	if err != nil {
+		return false, err
+	}
+	app := appLogin(repository.AppSlug)
+	for _, event := range slices.Backward(events) {
+		if event.GetLabel().GetName() != readyLabel || event.GetEvent() != "labeled" && event.GetEvent() != "unlabeled" {
+			continue
+		}
+		return event.GetEvent() == "unlabeled" && strings.EqualFold(event.GetActor().GetLogin(), app), nil
+	}
+	return false, nil
+}
+
+// labelWriteError gives nil for a 4xx answer of GitHub, so the poll does not stop and the negative number of the issue
+// stays for the next poll. It gives each other error.
 func labelWriteError(repository github.Repository, number int64, action string, err error) error {
 	if !refusedByGitHub(err) {
 		return err

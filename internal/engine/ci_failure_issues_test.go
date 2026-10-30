@@ -2,6 +2,7 @@ package engine_test
 
 import (
 	"fmt"
+	"net/http"
 	"slices"
 	"strings"
 	"testing"
@@ -230,6 +231,39 @@ func TestARefusedLabelWriteOfACIFailureIssueDoesNotStopThePoll(t *testing.T) {
 	testkit.WaitFor(t, func() bool {
 		return rowCount(t, server, fmt.Sprintf("SELECT count(*) FROM ci_failures WHERE issue = %d", number)) == 1
 	})
+	if task := liveTaskOf(t, server, number); task.Workstream != maintenance {
+		t.Errorf("task = %+v", task)
+	}
+}
+
+func TestARefusedAddOfTheReadyLabelOfACIFailureIssueWritesItAgainAndStartsTheTask(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := connectDiagnoser(t, fake, leadStartsTwo, reportsPlan)
+	addMaintenanceWorkstream(fake, maintenance)
+	fake.RefuseAddSubIssues(shop, maintenance, true)
+
+	twoPlacesOfTheSameFailure(t, fake, server)
+
+	testkit.WaitFor(t, func() bool {
+		return rowCount(t, server, "SELECT count(*) FROM ci_failures WHERE issue < 0") == 1
+	})
+	number := createdCIFailureIssue(t, server)
+	fake.RefuseAddLabelOnce(shop, number, http.StatusForbidden)
+	fake.RefuseAddSubIssues(shop, maintenance, false)
+
+	testkit.WaitFor(t, func() bool {
+		return rowCount(t, server, fmt.Sprintf("SELECT count(*) FROM ci_failures WHERE issue = %d", number)) == 1
+	})
+	if numbers := fake.SubIssueNumbers(shop, maintenance); !slices.Equal(numbers, []int64{number}) {
+		t.Errorf("sub-issues = %v", numbers)
+	}
+	if labels := fake.Labels(shop, number); !slices.Contains(labels, "mobius:ready") {
+		t.Errorf("labels = %v", labels)
+	}
+	if writes := fake.LabelWrites(shop, number); writes < 3 {
+		t.Errorf("label writes = %d", writes)
+	}
 	if task := liveTaskOf(t, server, number); task.Workstream != maintenance {
 		t.Errorf("task = %+v", task)
 	}
