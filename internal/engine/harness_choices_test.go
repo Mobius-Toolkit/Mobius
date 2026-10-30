@@ -2,15 +2,19 @@ package engine_test
 
 import (
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
+	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 	"github.com/Mobius-Toolkit/Mobius/internal/runner"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
@@ -35,6 +39,9 @@ opus = ["low", "high", "max"]
 const noModelScript = `
 skip_tools_list = 1000
 `
+
+// holdChoicesScript makes each read wait at session/new until the test writes the file session_new_release.
+const holdChoicesScript = "session_new_hold = true\n" + choicesScript
 
 // choicesServer starts a server whose Harnesses play script. It has no repository work, so only the reads start agents.
 // The access checks of the start do not count in agentStarts.
@@ -64,14 +71,54 @@ func agentStarts(t *testing.T, dataDir string) int {
 	return starts
 }
 
-func TestHarnessChoicesKeepASuccessfulReadForTenMinutes(t *testing.T) {
+// sessionNewStarts gives the number of reads of the hold script that reached session/new.
+func sessionNewStarts(t *testing.T, dataDir string) int {
+	t.Helper()
+	text, err := os.ReadFile(filepath.Clean(filepath.Join(dataDir, "harnesses", "session_new_started")))
+	if errors.Is(err, fs.ErrNotExist) {
+		return 0
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.Count(string(text), "\n")
+}
+
+// waitForSessionNewStarts waits until count reads of the hold script reached session/new. A sequential read cannot
+// reach the count, so this wait gives up after two seconds.
+func waitForSessionNewStarts(t *testing.T, dataDir string, count int) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		started := sessionNewStarts(t, dataDir)
+		if started >= count {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("reads at session/new = %d, want %d at the same time", started, count)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// releaseHarnessReads lets each read of the hold script continue.
+func releaseHarnessReads(t *testing.T, dataDir string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dataDir, "harnesses", "session_new_release"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHarnessChoicesKeepASuccessfulReadUntilTheNextStart(t *testing.T) {
 	t.Parallel()
 	server, dataDir := choicesServer(t, choicesScript)
 	now := time.Now()
 	server.Engine.SetClock(func() time.Time { return now })
 
+	server.Engine.ReadHarnessChoices(t.Context())
+	testkit.WaitFor(t, func() bool { return agentStarts(t, dataDir) == harnessCount })
 	first := server.Engine.HarnessChoices(t.Context())
-	now = now.Add(9*time.Minute + 59*time.Second)
+	now = now.Add(24 * time.Hour)
 	second := server.Engine.HarnessChoices(t.Context())
 
 	if len(first) != harnessCount || !reflect.DeepEqual(first, second) {
@@ -85,12 +132,65 @@ func TestHarnessChoicesKeepASuccessfulReadForTenMinutes(t *testing.T) {
 	if claude.Harness != config.ClaudeCode || claude.Error != "" || !reflect.DeepEqual(claude.Models, want) {
 		t.Errorf("claude-code = %+v", claude)
 	}
+}
 
-	now = now.Add(2 * time.Second)
-	server.Engine.HarnessChoices(t.Context())
+func TestHarnessChoicesReadTheHarnessesAtTheSameTime(t *testing.T) {
+	t.Parallel()
+	server, dataDir := choicesServer(t, choicesScript)
+	testkit.InstallFakeAgent(t, dataDir, holdChoicesScript)
+	defer releaseHarnessReads(t, dataDir)
 
-	if starts := agentStarts(t, dataDir); starts != 2*harnessCount {
-		t.Errorf("starts = %d, want %d", starts, 2*harnessCount)
+	result := make(chan []engine.HarnessChoice, 1)
+	go func() { result <- server.Engine.HarnessChoices(t.Context()) }()
+
+	waitForSessionNewStarts(t, dataDir, harnessCount)
+	releaseHarnessReads(t, dataDir)
+	choices := <-result
+
+	if len(choices) != harnessCount {
+		t.Fatalf("choices = %+v", choices)
+	}
+	for _, choice := range choices {
+		if choice.Error != "" {
+			t.Errorf("%s = %+v", choice.Harness, choice)
+		}
+	}
+}
+
+func TestARequestWhileTheStartReadRunsWaitsAndStartsNoSecondRead(t *testing.T) {
+	t.Parallel()
+	server, dataDir := choicesServer(t, choicesScript)
+	testkit.InstallFakeAgent(t, dataDir, holdChoicesScript)
+	defer releaseHarnessReads(t, dataDir)
+
+	started := make(chan struct{})
+	go func() {
+		server.Engine.ReadHarnessChoices(t.Context())
+		close(started)
+	}()
+	waitForSessionNewStarts(t, dataDir, harnessCount)
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("ReadHarnessChoices did not return before the reads ended")
+	}
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		_ = os.WriteFile(filepath.Join(dataDir, "harnesses", "session_new_release"), nil, 0o600)
+	}()
+
+	choices := server.Engine.HarnessChoices(t.Context())
+
+	if got := sessionNewStarts(t, dataDir); got != harnessCount {
+		t.Errorf("reads at session/new = %d, want %d", got, harnessCount)
+	}
+	if len(choices) != harnessCount {
+		t.Fatalf("choices = %+v", choices)
+	}
+	for _, choice := range choices {
+		if choice.Error != "" {
+			t.Errorf("%s = %+v", choice.Harness, choice)
+		}
 	}
 }
 
@@ -98,6 +198,7 @@ func TestAFailedHarnessReadGivesTheErrorTextAndTheNextCallReadsAgain(t *testing.
 	t.Parallel()
 	server, dataDir := choicesServer(t, noModelScript)
 
+	server.Engine.ReadHarnessChoices(t.Context())
 	first := server.Engine.HarnessChoices(t.Context())
 
 	if len(first) != harnessCount {
@@ -107,6 +208,9 @@ func TestAFailedHarnessReadGivesTheErrorTextAndTheNextCallReadsAgain(t *testing.
 		if want := runner.Program(choice.Harness) + " gave no model option"; choice.Error != want || len(choice.Models) != 0 {
 			t.Errorf("%s = %+v, want the error %q", choice.Harness, choice, want)
 		}
+	}
+	if starts := agentStarts(t, dataDir); starts != harnessCount {
+		t.Errorf("starts = %d, want %d", starts, harnessCount)
 	}
 	server.Engine.HarnessChoices(t.Context())
 	if starts := agentStarts(t, dataDir); starts != 2*harnessCount {
