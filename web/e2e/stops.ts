@@ -155,6 +155,27 @@ export const coordinatorActionItem = {
   action: { ...leadActionItem.action, id: 79, role: "coordinator", tool: "message_lead" },
 };
 
+// A question of the Coordinator whose title is one long word, with the text and the options of a question.
+export const longWordTitle =
+  "Fix the CI failure of TestSearchIssuesGivesOpenAndClosedIssuesWithTheCloseReasonAndTheLastThreeCommentsOfTrustedAuthors";
+
+export const longWordQuestionItem = {
+  ...coordinatorQuestion,
+  id: 215,
+  title: longWordTitle,
+  text: "The shop needs a store for the plans.",
+  questions: [
+    {
+      text: "Which store?",
+      multiple: false,
+      options: [
+        { title: "SQLite", details: "One file, no server." },
+        { title: "Postgres", details: "A server that many writers share." },
+      ],
+    },
+  ],
+};
+
 // A mandatory todo and an optional todo of the pull requests of owner/shop#12.
 export const todoItems = [
   {
