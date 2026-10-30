@@ -145,6 +145,14 @@ func (e *Engine) Closing(key ChatKey) bool {
 	return ok && c.closing
 }
 
+// BackgroundTurnRuns tells if the wait turn for the background tasks of the chat key runs.
+func (e *Engine) BackgroundTurnRuns(key ChatKey) bool {
+	e.chatsMu.Lock()
+	defer e.chatsMu.Unlock()
+	c, ok := e.chats[key]
+	return ok && c.backgroundTurn
+}
+
 // QueueOwnerMessageWithoutWake adds a message of the Owner to the queue of the running chat key and sets writing, as
 // give does, but it does not wake the chat loop. Thus the chat loop does not take the message until another step wakes it.
 func (e *Engine) QueueOwnerMessageWithoutWake(ctx context.Context, key ChatKey, text string) error {
@@ -196,4 +204,24 @@ func (e *Engine) TurnRunsForMessage(key ChatKey) bool {
 // HoldWork records that the switch kind holds the work of the issue of repository.
 func (e *Engine) HoldWork(ctx context.Context, kind, repository string, issue int64) error {
 	return e.holdWork(ctx, kind, repository, issue)
+}
+
+// ChatAgent gives the agent of the chat key, or nil.
+func (e *Engine) ChatAgent(key ChatKey) *Agent {
+	e.chatsMu.Lock()
+	defer e.chatsMu.Unlock()
+	if c, ok := e.chats[key]; ok {
+		return c.agent
+	}
+	return nil
+}
+
+// ChatQueued gives the number of items that wait in the queue of the chat key.
+func (e *Engine) ChatQueued(key ChatKey) int {
+	e.chatsMu.Lock()
+	defer e.chatsMu.Unlock()
+	if c, ok := e.chats[key]; ok {
+		return len(c.queue)
+	}
+	return 0
 }
