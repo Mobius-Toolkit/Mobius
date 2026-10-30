@@ -142,36 +142,61 @@ func (a *Agent) addSessionSkills(ctx context.Context, names []string) {
 // recordedSkillHarnesses are the Harnesses for which recordSkillUse adds a skill_uses row.
 var recordedSkillHarnesses = []config.Harness{config.ClaudeCode, config.Devin, config.DSH, config.Antigravity}
 
-// recordSkillUse adds a skill_uses row for the first update of a skill tool call. The caller holds a.mu.
+// recordSkillUse adds a skill_uses row for the first update of a tool call that uses a skill: the skill tool, a read of
+// a SKILL.md in the skill folder of the session, or a shell command that names such a file. The caller holds a.mu.
 func (a *Agent) recordSkillUse(ctx context.Context, notification map[string]any, kind string) {
 	update := notification["update"]
+	var skill string
 	switch a.binding.Harness {
 	case config.ClaudeCode:
-		if (kind != "tool_call" && kind != "tool_call_update") || stringField(update, "_meta", "claudeCode", "toolName") != "Skill" {
+		if kind != "tool_call" && kind != "tool_call_update" {
+			return
+		}
+		switch stringField(update, "_meta", "claudeCode", "toolName") {
+		case "Skill":
+			skill = stringField(update, "rawInput", "skill")
+		case "Read":
+			skill = a.readSkill(stringField(update, "rawInput", "file_path"))
+		case "Bash":
+			skill = a.commandSkill(stringField(update, "rawInput", "command"))
+		default:
 			return
 		}
 	case config.Devin:
-		if kind != "tool_call" || stringField(update, "_meta", "cognition.ai/inferenceToolName") != "skill" {
+		if kind != "tool_call" {
+			return
+		}
+		switch stringField(update, "_meta", "cognition.ai/inferenceToolName") {
+		case "skill":
+			skill = stringField(update, "rawInput", "skill")
+		case "read":
+			skill = a.readSkill(stringField(update, "rawInput", "file_path"))
+		case "exec":
+			skill = a.commandSkill(stringField(update, "rawInput", "command"))
+		default:
 			return
 		}
 	case config.DSH:
-		if kind != "tool_call" || stringField(update, "title") != "skill" {
+		if kind != "tool_call" {
+			return
+		}
+		switch stringField(update, "title") {
+		case "skill":
+			skill = stringField(update, "rawInput", "name")
+		case "read":
+			skill = a.readSkill(stringField(update, "rawInput", "file_path"))
+		case "bash":
+			skill = a.commandSkill(stringField(update, "rawInput", "command"))
+		default:
 			return
 		}
 	case config.Antigravity:
 		if kind != "tool_call" || stringField(update, "title") != "Running view_file" {
 			return
 		}
+		skill = a.viewedSkill(stringField(update, "rawInput", "absolute_path"))
 	default:
 		return
-	}
-	skillField := "skill"
-	if a.binding.Harness == config.DSH {
-		skillField = "name"
-	}
-	skill := stringField(update, "rawInput", skillField)
-	if a.binding.Harness == config.Antigravity {
-		skill = a.viewedSkill(stringField(update, "rawInput", "absolute_path"))
 	}
 	call := stringField(update, "toolCallId")
 	if skill == "" || a.skillCalls[call] {
@@ -200,6 +225,103 @@ func (a *Agent) recordSkillUse(ctx context.Context, notification map[string]any,
 		a.skillCalls = map[string]bool{}
 	}
 	a.skillCalls[call] = true
+}
+
+// readSkill gives the name of the skill whose SKILL.md is the file of a file-read tool, or an empty text for another
+// file. A relative path is in the directory of the session.
+func (a *Agent) readSkill(file string) string {
+	if file == "" {
+		return ""
+	}
+	if !filepath.IsAbs(file) {
+		file = filepath.Join(a.spec.Dir, file)
+	}
+	return a.viewedSkill(file)
+}
+
+// commandSkill gives the name of the first skill whose SKILL.md a shell command names, or an empty text. The path is
+// either below the skill folder of the session directory, or it starts with the skill folder as a relative path. The
+// command is not parsed further.
+func (a *Agent) commandSkill(command string) string {
+	folder := a.binding.Harness.SkillDirectory() + "/"
+	absolute := filepath.Join(a.spec.Dir, a.binding.Harness.SkillDirectory()) + string(filepath.Separator)
+	for offset := 0; offset < len(command); {
+		index := strings.Index(command[offset:], "SKILL.md")
+		if index < 0 {
+			return ""
+		}
+		end := offset + index
+		offset = end + len("SKILL.md")
+		if end == 0 || command[end-1] != '/' {
+			continue
+		}
+		nameStart := strings.LastIndexByte(command[:end-1], '/') + 1
+		if nameStart >= end-1 {
+			continue
+		}
+		name := command[nameStart : end-1]
+		if !pathEnd(command, offset) || !plainSkillName(name) {
+			continue
+		}
+		before := command[:nameStart]
+		if strings.HasSuffix(before, absolute) {
+			return name
+		}
+		start := nameStart - len(folder)
+		if start < 0 || !strings.HasSuffix(before, folder) {
+			continue
+		}
+		if start >= 2 && command[start-2:start] == "./" {
+			start -= 2
+		}
+		if pathStart(command, start) {
+			return name
+		}
+	}
+	return ""
+}
+
+// plainSkillName tells whether name is a plain skill folder name. A glob, a brace list, a shell variable and a quoted
+// part are no name, so a command that reads many skill files gives no row for such a text.
+func plainSkillName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case r == '-', r == '_', r == '.':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// pathEnd tells whether command[index] ends a path, so a path with more text after SKILL.md, for example
+// SKILL.md.bak, is no skill file.
+func pathEnd(command string, index int) bool {
+	if index >= len(command) {
+		return true
+	}
+	switch command[index] {
+	case ' ', '\t', '\n', '"', '\'', '`', ')', ']', '}', ',', ';', '|', '&', '<', '>':
+		return true
+	}
+	return false
+}
+
+// pathStart tells whether command[index] starts a word. A relative skill path must start a word, so a file below
+// another directory, for example ~/.agents/skills/x/SKILL.md, is no skill file of the session.
+func pathStart(command string, index int) bool {
+	if index == 0 {
+		return true
+	}
+	switch command[index-1] {
+	case ' ', '\t', '\n', '"', '\'', '`', '=', '(', '[', '{', ';', '|', '&', '<', '>', ',':
+		return true
+	}
+	return false
 }
 
 // viewedSkill gives the name of the skill whose SKILL.md in the skill folder of the session directory is the file, or an
