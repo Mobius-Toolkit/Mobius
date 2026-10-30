@@ -530,9 +530,25 @@ test("screenshots", async ({ page }) => {
       await page.getByRole("tab", { name: "Brief" }).filter({ visible: true }).click();
     },
   );
+  // The nav shows the Workstream rows before it reads the "needs you" list and the unread counts, the organization dot
+  // comes from the counts of the other organizations, and the pause banner comes from its own read, so wait for each
+  // element of the final state.
+  const navRow = (number: number) =>
+    page.locator(`nav a[href="/workstreams/plants/garden/${number}"]`);
+  const needsYou = (number: number) => navRow(number).getByText("needs you", { exact: true });
+  const unreadOf = (number: number, count: number) =>
+    navRow(number).getByText(`${count}`, { exact: true });
   await screenshot(page, "chat-brief-button", "/workstreams/plants/garden/18", (device) =>
     device === "desktop"
-      ? [page.getByRole("button", { name: "Brief" }).filter({ visible: true })]
+      ? [
+          page.getByRole("button", { name: "Brief" }).filter({ visible: true }),
+          ...[30, 20, 19].map(needsYou),
+          chatCount,
+          unreadOf(60, 35),
+          ...[17, 16, 15, 14].map((number) => unreadOf(number, 7)),
+          page.getByLabel("Work in another organization").filter({ visible: true }),
+          page.getByText(/^antigravity paused until Sep 28, 12:00\sPM$/),
+        ]
       : [page.getByRole("banner").getByRole("heading", { name: "Prune the roses" })],
   );
   // The open menu and the open sheet hide the other elements from the accessibility tree, so the open step waits for them.
