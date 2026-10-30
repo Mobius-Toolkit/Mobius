@@ -85,20 +85,10 @@ func sessionNewStarts(t *testing.T, dataDir string) int {
 }
 
 // waitForSessionNewStarts waits until count reads of the hold script reached session/new. A sequential read cannot
-// reach the count, so this wait gives up after ten seconds.
+// reach the count, because its first read waits for the release.
 func waitForSessionNewStarts(t *testing.T, dataDir string, count int) {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		started := sessionNewStarts(t, dataDir)
-		if started >= count {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("reads at session/new = %d, want %d at the same time", started, count)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	testkit.WaitFor(t, func() bool { return sessionNewStarts(t, dataDir) >= count })
 }
 
 // releaseHarnessReads lets each read of the hold script continue.
