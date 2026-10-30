@@ -218,7 +218,8 @@ func (e *Engine) queuedTasks(ctx context.Context) ([]queuedTask, error) {
 
 // takeSlot holds until the session of a gets a slot of its Role, and shows the reason of the wait on the session.
 // A session with a task waits at the place of its task, and the task goes from queued to working. A session with
-// no task waits behind each session that queued before it.
+// no task waits behind each session that queued before it. The drain does not count a session that is not a Worker
+// while the access check of its binding holds it.
 func (e *Engine) takeSlot(ctx context.Context, a *Agent) error {
 	w := &e.workers
 	role, task := a.spec.Role, a.spec.Task
@@ -266,7 +267,15 @@ func (e *Engine) takeSlot(ctx context.Context, a *Agent) error {
 				return err
 			}
 		}
-		reason, ok := e.slotReason(a, place, queue, worker, paused, startOff, e.accessHold(a.binding))
+		noAccess := e.accessHold(a.binding)
+		if !worker {
+			if noAccess != "" {
+				a.setUncounted(true)
+			} else if !a.setUncounted(false) {
+				noAccess = drainReason
+			}
+		}
+		reason, ok := e.slotReason(a, place, queue, worker, paused, startOff, noAccess)
 		if !ok {
 			return ErrLeftQueue
 		}

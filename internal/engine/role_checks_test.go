@@ -136,6 +136,26 @@ func TestASessionThatWaitsOnAFailedKeyStartsOnTheNewBindingAfterAPutOfItsRole(t 
 	waitForAccessItems(t, server, 0)
 }
 
+func TestADrainDoesNotWaitForALeadSessionThatTheAccessCheckHolds(t *testing.T) {
+	t.Parallel()
+	server, _, _ := accessServer(t, noKey, "")
+	held := startLater(t.Context(), server, leadSpec(t))
+	waiting := queued(t, server, engine.LeadRole)
+	if !strings.HasPrefix(waiting.QueueReason.String, "access check failed:") {
+		t.Fatalf("queue reason = %q", waiting.QueueReason.String)
+	}
+
+	if got := <-startDrain(t, server); got != "drained" {
+		t.Errorf("drain end = %s", got)
+	}
+
+	select {
+	case got := <-held:
+		t.Errorf("the Lead started: %+v", got)
+	default:
+	}
+}
+
 func TestAPutWhoseAccessCheckFailsGives422AndKeepsTheValueAndAPutOfOnlyMaxRunsNoCheck(t *testing.T) {
 	t.Parallel()
 	server, _, dataDir := accessServer(t, countStarts, "")
