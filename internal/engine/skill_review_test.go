@@ -94,6 +94,10 @@ func TestTheSkillsWorkstreamGetsOneSkillReviewEachWeek(t *testing.T) {
 	}
 	server.Engine.SetClock(func() time.Time { return time.Now().Add(8 * 24 * time.Hour) })
 	second := waitForReviews(t, server, 2)
+	waitForPolls(t, fake)
+	if got := skillReviews(t, server); len(got) != 2 {
+		t.Fatalf("reviews after the second = %d, want 2", len(got))
+	}
 
 	for _, review := range []string{first[0], second[1]} {
 		for _, want := range []string{"Skill usage from ", "## idle\n\nFolder: idle/\n", "No copy and no use", "## Many copies, few uses", "## No use in 30 days", "## Used with no copy"} {

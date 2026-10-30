@@ -82,7 +82,7 @@ func (e *Engine) reviewOrganizationSkills(ctx context.Context, organization stri
 	if err != nil {
 		return err
 	}
-	return e.addLeadEvent(ctx, workstream.Repository, workstream.Number, "", sql.NullInt64{}, skillReviewKind, usage.reviewText())
+	return e.addLeadEventAt(ctx, workstream.Repository, workstream.Number, "", sql.NullInt64{}, skillReviewKind, usage.reviewText(), to.Format(time.RFC3339Nano), commentRef{})
 }
 
 // reviewText gives the text of the event skill review. The rules count only the Harnesses for which Mobius records a
