@@ -238,6 +238,41 @@ export function formatQuality(key: QualityValue, value: number | null) {
   }
 }
 
+// The count values show one decimal. The axis uses a step that one decimal shows,
+// so each label agrees with its grid line. Recharts puts its ticks at quarter steps.
+export function qualityAxisTicks(value: QualityValue, rows: Record<string, number | string>[]) {
+  if (
+    value !== "reviewRounds" &&
+    value !== "fixRounds" &&
+    value !== "needsHuman" &&
+    value !== "questions"
+  ) {
+    return undefined;
+  }
+  let max = 0;
+  for (const row of rows) {
+    for (const [key, item] of Object.entries(row)) {
+      if (key !== "day" && typeof item === "number" && item > max) {
+        max = item;
+      }
+    }
+  }
+  if (max <= 0) {
+    return [0, 1];
+  }
+  let step = 0;
+  for (let magnitude = 0.1; step === 0; magnitude *= 10) {
+    for (const factor of magnitude < 1 ? [1, 2, 5] : [1, 2, 2.5, 5]) {
+      if (max / (factor * magnitude) <= 4) {
+        step = factor * magnitude;
+        break;
+      }
+    }
+  }
+  const last = Math.ceil(max / step);
+  return Array.from({ length: last + 1 }, (_, index) => Number((index * step).toFixed(1)));
+}
+
 export function mergedShare(values: QualityValues) {
   return values.tasks === 0 ? "—" : `${Math.round((values.merged / values.tasks) * 100)}%`;
 }

@@ -57,6 +57,7 @@ import {
   mergedShare,
   palette,
   periods,
+  qualityAxisTicks,
   qualityDimensions,
   qualityGroups,
   qualityMetric,
@@ -703,6 +704,7 @@ function QualityChart({
       { label: groupTitle(item.group, group), color: palette[index % palette.length] },
     ]),
   );
+  const ticks = qualityAxisTicks(value, rows);
   return (
     <ChartContainer config={config} className={cn(inset, "aspect-auto h-72 w-full")}>
       <LineChart data={rows}>
@@ -716,6 +718,8 @@ function QualityChart({
           padding={{ left: 12, right: 12 }}
         />
         <YAxis
+          domain={ticks ? [0, ticks[ticks.length - 1]] : undefined}
+          ticks={ticks}
           tickFormatter={(item) => formatQuality(value, item)}
           tickLine={false}
           axisLine={false}
