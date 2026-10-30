@@ -374,6 +374,11 @@ type commentRef struct {
 // addCommentLeadEvent adds an event like addLeadEvent. The event keeps comment, so the turn of the event can add its
 // reaction to the comment.
 func (e *Engine) addCommentLeadEvent(ctx context.Context, repository string, workstream int64, issueRepository string, issue sql.NullInt64, kind, text string, comment commentRef) error {
+	return e.addLeadEventAt(ctx, repository, workstream, issueRepository, issue, kind, text, now(), comment)
+}
+
+// addLeadEventAt adds an event like addCommentLeadEvent, with the time at as its time.
+func (e *Engine) addLeadEventAt(ctx context.Context, repository string, workstream int64, issueRepository string, issue sql.NullInt64, kind, text, at string, comment commentRef) error {
 	e.chatOrder.Lock()
 	defer e.chatOrder.Unlock()
 	message, err := e.addChatMessage(ctx, leadChat(repository, workstream), eventAuthor, text, "", "", nil)
@@ -387,7 +392,7 @@ func (e *Engine) addCommentLeadEvent(ctx context.Context, repository string, wor
 		Issue:           issue,
 		Kind:            kind,
 		Payload:         text,
-		Time:            now(),
+		Time:            at,
 		ChatMessage:     sql.NullInt64{Int64: message.ID, Valid: true},
 		Comment:         sql.NullInt64{Int64: comment.id, Valid: comment.id != 0},
 		Review:          sql.NullBool{Bool: comment.review, Valid: comment.id != 0},
