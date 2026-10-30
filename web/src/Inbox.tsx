@@ -18,6 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { addDraftInboxItem, chatDraftKey } from "@/lib/draft";
 import { LoginContext } from "@/lib/login";
+import { issueRef, showNotice } from "@/lib/notice";
 import { useShell } from "@/lib/shell";
 import { cn } from "@/lib/utils";
 import { chatParams } from "@/lib/workstreams";
@@ -79,12 +80,16 @@ export function InboxRow({
   const act = (
     name: "action" | "dismiss",
     call: () => Promise<dismissResponse | resumeIssueResponse | sendAgainResponse>,
+    notice?: string,
   ) => {
     setRunning(name);
     call()
       .then((res) => {
         if (res.status === 204) {
           setError("");
+          if (notice) {
+            showNotice(notice);
+          }
           return;
         }
         if (res.status === 401) {
@@ -109,6 +114,9 @@ export function InboxRow({
           showLogin();
         } else if (res.status === 200) {
           setAnswered({ item, merging: res.data.data.merging });
+          showNotice(
+            `Started the merge of PR ${issueRef(item.repository, item.pullRequest, item.workstreamRepository)}`,
+          );
         } else {
           setRefusal(res.data.error);
         }
@@ -122,7 +130,11 @@ export function InboxRow({
 
   const resume = () => {
     const [owner, name] = item.repository.split("/");
-    act("action", () => resumeIssue(owner, name, item.issue));
+    act(
+      "action",
+      () => resumeIssue(owner, name, item.issue),
+      `Resumed ${issueRef(item.repository, item.issue, item.workstreamRepository)}`,
+    );
   };
 
   const isPullRequest = item.kind === InboxItemKind.ready_for_review;
@@ -270,7 +282,9 @@ export function InboxRow({
                 size="sm"
                 disabled={running !== null}
                 pending={running === "dismiss"}
-                onClick={() => act("dismiss", () => dismiss(item.id))}
+                onClick={() =>
+                  act("dismiss", () => dismiss(item.id), `Dismissed: ${item.title || item.reason}`)
+                }
               >
                 Dismiss
               </Button>

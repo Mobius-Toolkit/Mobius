@@ -13,7 +13,9 @@ import { useState, type ReactNode } from "react";
 import type { CIStop, InboxItem, Pause, Switches, Unread } from "@/api/api.gen";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Notice } from "@/components/ui/notice";
 import { useNewBuild } from "@/lib/build";
+import { useNotice } from "@/lib/notice";
 import { settingsPages } from "@/lib/settings";
 import type { ChangeSwitch, SwitchKind } from "@/lib/switches";
 import { TopBarContext } from "@/lib/topbar";
@@ -120,6 +122,7 @@ export function Frame({
 }) {
   const upgrade = useUpgrade(source);
   const newBuild = useNewBuild();
+  const notice = useNotice();
   const [topBar, setTopBar] = useState<HTMLElement | null>(null);
   const counts = new Map<string, number>();
   for (const item of inbox) {
@@ -213,6 +216,11 @@ export function Frame({
         </header>
         <div className="sticky top-0 z-10 h-0 shrink-0">
           <ConnectionBadge connection={connection} />
+          {notice && (
+            <div className="pointer-events-none flex justify-center px-4 pt-2">
+              <Notice>{notice}</Notice>
+            </div>
+          )}
         </div>
         <div
           id="content"
