@@ -291,3 +291,26 @@ func TestTheCloseOfAWorkstreamAddsOneRecordToTheLeadChat(t *testing.T) {
 		})
 	}
 }
+
+func TestEachSwitchChangeOfTheOwnerAddsOneRecordToTheCoordinatorChatThatIsNotUnread(t *testing.T) {
+	t.Parallel()
+	server := startWithTasks(t, testkit.NewFakeGitHub(t))
+	unread, err := server.Engine.UnreadChats(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want []string
+	for _, kind := range []string{"Start", "Merge", "Repairs"} {
+		for _, state := range []string{"off", "on"} {
+			if status := putSwitch(t, server, strings.ToLower(kind), state == "on"); status != http.StatusNoContent {
+				t.Fatalf("%s %s: status %d", kind, state, status)
+			}
+			want = append(want, "You turned "+kind+" "+state+".")
+			waitForRecords(t, server, coordinatorChat, want...)
+		}
+	}
+
+	if got, err := server.Engine.UnreadChats(t.Context()); err != nil || !reflect.DeepEqual(got, unread) {
+		t.Errorf("unread = %+v, %v, want %+v", got, err, unread)
+	}
+}
