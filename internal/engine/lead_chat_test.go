@@ -1371,12 +1371,22 @@ func TestTheChatAPISendsSeesAndStopsWithLiveEvents(t *testing.T) {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 
-	delivered := nextEventData(t, messages, func(message apiChatMessage) bool { return message.Author == "Owner" && message.DeliveredAt != nil })
+	// The reply of the Lead can come before the delivery time of the message: when the agent sends no thought and no
+	// tool call, the delivery time is set at the end of the turn.
+	var delivered, lead apiChatMessage
+	for delivered.ID == 0 || lead.ID == 0 {
+		message := nextEventData(t, messages, func(apiChatMessage) bool { return true })
+		if message.Author == "Lead" && lead.ID == 0 {
+			lead = message
+		}
+		if message.Author == "Owner" && message.DeliveredAt != nil && delivered.ID == 0 {
+			delivered = message
+		}
+	}
 	if delivered.BrowserID != "browser-1" || delivered.Text != "Plan the loyalty API" {
 		t.Errorf("delivered = %+v", delivered)
 	}
 	nextEventData(t, chats, func(state chatState) bool { return state.Workstream == 12 && state.Writing })
-	lead := nextEventData(t, messages, func(message apiChatMessage) bool { return message.Author == "Lead" })
 	nextEventData(t, unreads, func(unread apiUnread) bool { return unread.Count == 1 })
 	nextEventData(t, chats, func(state chatState) bool { return state.Workstream == 12 && !state.Writing })
 	chat := apiData[struct {
