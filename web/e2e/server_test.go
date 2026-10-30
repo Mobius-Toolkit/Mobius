@@ -1240,7 +1240,8 @@ func addQuality(t *testing.T, server *testserver.Server) {
 		if task.merged {
 			if _, err := server.DB.Exec(`INSERT INTO lead_events (repository, workstream, issue_repository, issue, kind,
 				payload, time, delivered_at) VALUES ('owner/quality', 0, 'owner/quality', ?, 'end', ?, ?, ?)`,
-				task.issue, task.ended+" pull request merged.", task.ended, task.ended); err != nil {
+				task.issue, fmt.Sprintf("%s end of #%d \"Quality task\": pull request #%d merged.", task.ended, task.issue, task.issue+100),
+				task.ended, task.ended); err != nil {
 				t.Fatal(err)
 			}
 		}
