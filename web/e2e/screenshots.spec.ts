@@ -1766,21 +1766,30 @@ test("screenshots", async ({ page }) => {
     },
   );
   await page.goto("/settings/roles");
-  await roleRow("Judge").click();
   const judgeSheet = page.getByRole("dialog", { name: "Judge" });
-  await expect(judgeSheet.getByLabel("Effort", { exact: true })).toBeVisible();
+  const openJudge = async () => {
+    await roleRow("Judge").click();
+    await expect(judgeSheet.getByLabel("Effort", { exact: true })).toBeVisible();
+  };
+  await openJudge();
   await judgeSheet.getByLabel("Model", { exact: true }).click();
   await page.getByRole("menuitemradio", { name: "sonnet", exact: true }).click();
   const judgeSaved = writeRole("PUT");
   await judgeSheet.getByRole("button", { name: "Save" }).click();
   expect((await judgeSaved).ok()).toBe(true);
   await expect(judgeSheet).toBeHidden();
-  await screenshot(page, "roles-ui", "/settings/roles", (device) => [
-    ...frame(device, release),
-    roleRow("Judge").getByText("sonnet"),
-    roleRow("Judge").getByText("UI", { exact: true }),
-  ]);
-  await roleRow("Judge").click();
+  await screenshot(
+    page,
+    "roles-ui",
+    "/settings/roles",
+    (device) => [
+      ...frame(device, release),
+      judgeSheet.getByText("sonnet"),
+      judgeSheet.getByText("UI", { exact: true }),
+      judgeSheet.getByRole("button", { name: "Save" }),
+    ],
+    openJudge,
+  );
   const judgeReset = writeRole("DELETE");
   await judgeSheet.getByRole("button", { name: "Reset" }).click();
   expect((await judgeReset).ok()).toBe(true);
