@@ -47,6 +47,12 @@ model = ["sonnet", "opus", "haiku", "swe-1.5", "gemini-3-pro"]
 thought_level = ["low", "medium", "high"]
 mode = ["default", "bypassPermissions", "yolo"]
 
+[efforts]
+sonnet = ["low", "medium", "high"]
+opus = ["low", "medium", "high"]
+haiku = ["low"]
+"swe-1.5" = ["high"]
+
 `
 
 const scriptHead = `[[prompts]]
