@@ -204,9 +204,10 @@ func (e *Engine) dismissIssueItems(ctx context.Context, repository string, numbe
 	return nil
 }
 
-// SendAgain adds a new Owner message to the chat of the open Lead failed item id, with the text, the images and the
-// Inbox items of the message that the Lead did not take. The new message has a browser id, so a restart of Mobius gives it again. Then
-// it removes the item from the Inbox.
+// SendAgain cancels the waiting message of the open Lead failed item id and closes the item. Then it adds a copy of
+// the message at the end of the chat, with its text, images and Inbox items, and the agent gets the copy at once. The
+// copy has a browser id, so a restart of Mobius gives it again. A message that is already delivered only closes the
+// item and gets no copy.
 func (e *Engine) SendAgain(ctx context.Context, id int64) error {
 	item, err := e.queries.GetInboxItem(ctx, id)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -218,9 +219,15 @@ func (e *Engine) SendAgain(ctx context.Context, id int64) error {
 	if item.Kind != leadFailedKind || item.DismissedAt.Valid || !item.ChatMessage.Valid {
 		return refuse("This item has no message to send again.")
 	}
+	if e.sealed() {
+		return refuse("Mobius restarts for an upgrade. Send the message after the restart.")
+	}
 	message, err := e.queries.GetChatMessage(ctx, item.ChatMessage.Int64)
 	if err != nil {
 		return err
+	}
+	if message.DeliveredAt.Valid {
+		return e.Dismiss(ctx, id)
 	}
 	images, err := e.messageImages(message.ID)
 	if err != nil {
@@ -230,10 +237,25 @@ func (e *Engine) SendAgain(ctx context.Context, id int64) error {
 	if err != nil {
 		return err
 	}
-	key := ChatKey{Organization: message.Organization, Repository: message.Repository, Workstream: message.Workstream}
-	if err := e.postChat(ctx, key, ownerAuthor, rand.Text(), message.Text, images, inboxItems); err != nil {
+	cancelled, err := e.queries.CancelChatMessage(ctx, store.CancelChatMessageParams{CancelledAt: sql.NullString{String: now(), Valid: true}, ID: message.ID})
+	if errors.Is(err, sql.ErrNoRows) {
+		return e.Dismiss(ctx, id)
+	}
+	if err != nil {
 		return err
 	}
+	if cancelled.Author != approvalAuthor {
+		e.publish(Change{Message: &cancelled})
+	}
+	key := ChatKey{Organization: message.Organization, Repository: message.Repository, Workstream: message.Workstream}
+	if err := e.storeChat(ctx, key, ownerAuthor, rand.Text(), message.Text, images, inboxItems); err != nil {
+		restored, undoErr := e.queries.UndoCancelChatMessage(context.WithoutCancel(ctx), message.ID)
+		if undoErr == nil && restored.Author != approvalAuthor {
+			e.publish(Change{Message: &restored})
+		}
+		return errors.Join(err, undoErr)
+	}
+	e.forgetChatMessage(key, message.ID)
 	return e.Dismiss(ctx, id)
 }
 
@@ -440,15 +462,15 @@ func failedMessageStart(text string) string {
 }
 
 func dismissRecord(item store.InboxItem) string {
+	if item.Kind == leadFailedKind {
+		start := failedMessageStart(item.Text)
+		if start == "" {
+			return "You dismissed a failed message."
+		}
+		return fmt.Sprintf("You dismissed the failed message \"%s\".", start)
+	}
 	if item.Title != "" {
 		return fmt.Sprintf("You dismissed \"%s\".", item.Title)
 	}
-	if item.Kind != leadFailedKind {
-		return fmt.Sprintf("You dismissed the item \"%s\".", item.Reason)
-	}
-	start := failedMessageStart(item.Text)
-	if start == "" {
-		return "You dismissed a failed message."
-	}
-	return fmt.Sprintf("You dismissed the failed message \"%s\".", start)
+	return fmt.Sprintf("You dismissed the item \"%s\".", item.Reason)
 }

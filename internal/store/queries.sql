@@ -371,11 +371,33 @@ ON CONFLICT DO NOTHING
 RETURNING *;
 
 -- name: DeliverChatMessage :one
-UPDATE chat_messages SET delivered_at = ? WHERE id = ? AND delivered_at IS NULL
+UPDATE chat_messages SET delivered_at = ?, failed_at = NULL WHERE id = ? AND delivered_at IS NULL
+RETURNING *;
+
+-- name: ClearChatMessageFailure :exec
+UPDATE chat_messages SET failed_at = NULL WHERE id = ?;
+
+-- name: UndeliverChatMessage :one
+UPDATE chat_messages SET delivered_at = NULL WHERE id = ? AND delivered_at IS NOT NULL
+RETURNING *;
+
+-- name: FailChatMessage :one
+UPDATE chat_messages SET failed_at = sqlc.arg(failed_at)
+WHERE id = sqlc.arg(id) AND delivered_at IS NULL AND stopped_at IS NULL AND cancelled_at IS NULL
+RETURNING *;
+
+-- name: CancelChatMessage :one
+UPDATE chat_messages SET cancelled_at = sqlc.arg(cancelled_at)
+WHERE id = sqlc.arg(id) AND delivered_at IS NULL AND cancelled_at IS NULL
+RETURNING *;
+
+-- name: UndoCancelChatMessage :one
+UPDATE chat_messages SET cancelled_at = NULL
+WHERE id = sqlc.arg(id) AND delivered_at IS NULL AND cancelled_at IS NOT NULL
 RETURNING *;
 
 -- name: StopChatMessage :one
-UPDATE chat_messages SET stopped_at = ? WHERE id = ? AND delivered_at IS NULL AND stopped_at IS NULL
+UPDATE chat_messages SET stopped_at = ? WHERE id = ? AND delivered_at IS NULL AND stopped_at IS NULL AND cancelled_at IS NULL
 RETURNING *;
 
 -- name: MaxChatMessageID :one
@@ -385,8 +407,32 @@ SELECT CAST(COALESCE(MAX(id), 0) AS INTEGER) FROM chat_messages;
 SELECT * FROM chat_messages
 WHERE organization = ? AND repository = ? AND id <= ?
   AND (author = 'Owner' AND browser_id IS NOT NULL OR author = 'Approval')
-  AND delivered_at IS NULL AND stopped_at IS NULL
+  AND delivered_at IS NULL AND stopped_at IS NULL AND cancelled_at IS NULL
 ORDER BY id;
+
+-- name: ListFailedChatMessages :many
+SELECT * FROM chat_messages
+WHERE organization = ? AND repository = ? AND workstream = ?
+  AND failed_at IS NOT NULL AND delivered_at IS NULL AND stopped_at IS NULL AND cancelled_at IS NULL
+ORDER BY id;
+
+-- name: ListFailedChatMessagesOfRepository :many
+SELECT * FROM chat_messages
+WHERE organization = ? AND repository = ?
+  AND failed_at IS NOT NULL AND delivered_at IS NULL AND stopped_at IS NULL AND cancelled_at IS NULL
+ORDER BY id;
+
+-- name: ListFailedCoordinatorMessages :many
+SELECT * FROM chat_messages
+WHERE organization = ? AND repository = ''
+  AND failed_at IS NOT NULL AND delivered_at IS NULL AND stopped_at IS NULL AND cancelled_at IS NULL
+ORDER BY id;
+
+-- name: GetOpenFailedItemOfMessage :one
+SELECT * FROM inbox_items WHERE kind = 'Lead failed' AND chat_message = ? AND dismissed_at IS NULL;
+
+-- name: ListOpenFailedItemsOfMessage :many
+SELECT * FROM inbox_items WHERE kind = 'Lead failed' AND chat_message = ? AND dismissed_at IS NULL;
 
 -- name: GetLastChatMessageOf :one
 SELECT * FROM chat_messages
@@ -409,6 +455,7 @@ ORDER BY id DESC LIMIT ?;
 -- name: ListChatMessagesBefore :many
 SELECT * FROM chat_messages
 WHERE organization = ? AND repository = ? AND workstream = ? AND author != 'Record' AND id < ?
+  AND cancelled_at IS NULL
 ORDER BY id DESC LIMIT ?;
 
 -- name: SetChatSeen :exec

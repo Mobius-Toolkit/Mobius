@@ -185,7 +185,7 @@ func TestALeadDoesNotStartWhenTheFetchFailsAndTheBareCloneHasNoDefaultBranch(t *
 
 	testkit.WaitFor(t, func() bool {
 		messages := chatView(t, server, leadChat).Messages
-		return len(messages) > 0 && messages[0].StoppedAt.Valid
+		return len(messages) > 0 && messages[0].FailedAt.Valid
 	})
 	for _, session := range chatSessions(t, server, leadChat, engine.LeadRole) {
 		if session.EndReason.String != "failed" || len(promptTexts(t, server, session.ID)) != 0 {
