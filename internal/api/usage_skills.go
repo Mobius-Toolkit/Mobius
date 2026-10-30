@@ -24,8 +24,8 @@ type SkillUsageRow struct {
 	Skill string `gork:"skill"`
 	// Source is "mobius" for a skill that Mobius copied into a session, and "harness" for each other skill
 	Source string `gork:"source" validate:"oneof=mobius harness"`
-	// Group is the value of the group, or empty when the request has no group
-	Group string `gork:"group"`
+	// Group is the value of each selected field, in the order of the fields of the route. With no field it is empty
+	Group []string `gork:"group"`
 	// Uses is the number of skill uses
 	Uses int64 `gork:"uses"`
 	// Had is the number of distinct sessions that Mobius gave the skill to. It is 0 for a harness skill
@@ -70,8 +70,8 @@ type SkillUsageQuery struct {
 	Repository []string `gork:"repository"`
 	// Source limits the rows to these sources. A copied skill has the source "mobius"
 	Source []string `gork:"source"`
-	// Group is the value that splits the rows. With no Group, all rows are in one group
-	Group string `gork:"group" validate:"omitempty,oneof=harness role repository source"`
+	// Group is the list of fields that splits the rows. With no Group, all rows are in one group
+	Group []string `gork:"group" validate:"omitempty,dive,oneof=harness role repository source"`
 }
 
 // GetUsageSkillsRequest is the request of GetUsageSkills.
@@ -87,7 +87,7 @@ type GetUsageSkillsResponse struct {
 type skillKey struct {
 	skill  string
 	source string
-	group  string
+	group  groupKey
 }
 
 type skillSum struct {
@@ -105,11 +105,12 @@ func (h *handlers) GetUsageSkills(ctx context.Context, req GetUsageSkillsRequest
 	}
 
 	var (
-		options  SkillUsageOptions
-		skills   = map[string]bool{}
-		sessions = map[int64]bool{}
-		totals   SkillTotals
-		sums     = map[skillKey]*skillSum{}
+		options     SkillUsageOptions
+		skills      = map[string]bool{}
+		sessions    = map[int64]bool{}
+		totals      SkillTotals
+		sums        = map[skillKey]*skillSum{}
+		groupValues = map[groupKey][]string{}
 	)
 	for _, row := range rows {
 		options.Harnesses = append(options.Harnesses, row.Harness)
@@ -120,10 +121,13 @@ func (h *handlers) GetUsageSkills(ctx context.Context, req GetUsageSkillsRequest
 			!passes(query.Repository, row.Repository) || !passes(query.Source, row.Source) {
 			continue
 		}
-		key := skillKey{skill: row.Skill, source: row.Source, group: skillGroup(row, query.Group)}
+		group := skillGroupValues(row, query.Group)
+		encoded := keyOfGroup(group)
+		key := skillKey{skill: row.Skill, source: row.Source, group: encoded}
 		if sums[key] == nil {
 			sums[key] = &skillSum{had: map[int64]bool{}, used: map[int64]bool{}}
 		}
+		groupValues[encoded] = group
 		skills[row.Skill] = true
 		if row.Used {
 			totals.Uses++
@@ -145,30 +149,34 @@ func (h *handlers) GetUsageSkills(ctx context.Context, req GetUsageSkillsRequest
 	}}
 	for key, sum := range sums {
 		usage.Rows = append(usage.Rows, SkillUsageRow{
-			Skill: key.skill, Source: key.source, Group: key.group, Uses: sum.uses, Had: int64(len(sum.had)),
-			Used: int64(len(sum.used)),
+			Skill: key.skill, Source: key.source, Group: groupValues[key.group], Uses: sum.uses,
+			Had: int64(len(sum.had)), Used: int64(len(sum.used)),
 		})
 	}
 	slices.SortFunc(usage.Rows, func(a, b SkillUsageRow) int {
 		return cmp.Or(
 			cmp.Compare(b.Uses, a.Uses), cmp.Compare(b.Had, a.Had), cmp.Compare(a.Skill, b.Skill),
-			cmp.Compare(a.Source, b.Source), cmp.Compare(a.Group, b.Group),
+			cmp.Compare(a.Source, b.Source), slices.Compare(a.Group, b.Group),
 		)
 	})
 	return &GetUsageSkillsResponse{Body: Envelope[SkillUsage]{Data: usage}}, nil
 }
 
-func skillGroup(row store.SkillRow, group string) string {
-	switch group {
-	case "harness":
-		return row.Harness
-	case "role":
-		return row.Role
-	case "repository":
-		return row.Repository
-	case "source":
-		return row.Source
-	default:
-		return ""
+var skillGroupFields = []string{"harness", "role", "repository", "source"}
+
+func skillGroupValues(row store.SkillRow, fields []string) []string {
+	values := make([]string, 0, len(fields))
+	for _, field := range selectedFields(fields, skillGroupFields) {
+		switch field {
+		case "harness":
+			values = append(values, row.Harness)
+		case "role":
+			values = append(values, row.Role)
+		case "repository":
+			values = append(values, row.Repository)
+		case "source":
+			values = append(values, row.Source)
+		}
 	}
+	return values
 }

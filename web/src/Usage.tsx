@@ -152,22 +152,23 @@ function GroupMenu({
   groups,
   onChange,
 }: {
-  group?: Group;
+  group: Group[];
   groups: readonly { key: Group; title: string }[];
-  onChange: (group?: Group) => void;
+  onChange: (group: Group[]) => void;
 }) {
+  const titles = groups.filter((item) => group.includes(item.key));
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="outline">
-          Group by: {groups.find((item) => item.key === group)?.title ?? "None"}
+          Group by: {titles.map((item) => item.title).join(" · ") || "None"}
           <ChevronDownIcon />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start">
         <DropdownMenuRadioGroup
-          value={group ?? ""}
-          onValueChange={(value) => onChange(groups.find((item) => item.key === value)?.key)}
+          value={group.length === 1 ? group[0] : ""}
+          onValueChange={(value) => onChange(value ? [value as Group] : [])}
         >
           <DropdownMenuRadioItem value="">None</DropdownMenuRadioItem>
           {groups.map((item) => (
@@ -200,7 +201,7 @@ function Filters({
     options: keyof FilterOptions;
   }[];
   groups: readonly { key: Group; title: string }[];
-  group?: Group;
+  group: Group[];
   options?: FilterOptions;
   onSearch: (patch: UsageSearch) => void;
 }) {
@@ -219,7 +220,11 @@ function Filters({
             }
           />
         ))}
-        <GroupMenu group={group} groups={groups} onChange={(next) => onSearch({ group: next })} />
+        <GroupMenu
+          group={group}
+          groups={groups}
+          onChange={(next) => onSearch({ group: next.length > 0 ? next : undefined })}
+        />
       </div>
       {search.period === "custom" && (
         <div className="flex flex-wrap items-center gap-2">
@@ -258,12 +263,28 @@ function Totals({ items }: { items: { title: string; value: string }[] }) {
   );
 }
 
-// A row with no value for the group has the empty group. With no group, the only row has all values.
-function groupTitle(group: string, selected?: Group) {
-  if (selected === undefined) {
+const sourceTitle = (source: string) => (source === "mobius" ? "Mobius" : "Harness");
+
+function fieldTitle(field: Group, value: string) {
+  if (value === "") {
+    return "—";
+  }
+  return field === "source" ? sourceTitle(value) : value;
+}
+
+// A row has one value for each selected field, in the order of the fields of the tab.
+function groupTitle(group: string[], fields: Group[]) {
+  if (fields.length === 0) {
     return "All";
   }
-  return group || "—";
+  return group.map((value, index) => fieldTitle(fields[index], value)).join(" · ");
+}
+
+function groupHeader(fields: Group[], groups: readonly { key: Group; title: string }[]) {
+  if (fields.length === 0) {
+    return "Group";
+  }
+  return fields.map((key) => groups.find((item) => item.key === key)?.title ?? key).join(" · ");
 }
 
 function rowFormatter(config: ChartConfig, format: (value: number | null) => string) {
@@ -284,8 +305,8 @@ function StackedChart({
   axisFormat,
 }: {
   rows: Record<string, number | string>[];
-  groups: { group: string }[];
-  group?: Group;
+  groups: { group: string[] }[];
+  group: Group[];
   format: (value: number | null) => string;
   axisFormat: (value: number) => string;
 }) {
@@ -315,7 +336,7 @@ function StackedChart({
             />
           }
         />
-        {group && <ChartLegend />}
+        {group.length > 0 && <ChartLegend />}
         {groups.map((_, index) => (
           <Bar
             key={groupKey(index)}
@@ -338,7 +359,7 @@ function UsageChart({
 }: {
   usage: UsageView;
   range: Range;
-  group?: Group;
+  group: Group[];
   kind: "cost" | "tokens";
 }) {
   const metric = kind === "cost" ? costOf : tokensOf;
@@ -369,7 +390,7 @@ function ValuesRow({ title, values }: { title: string; values: UsageValues }) {
   );
 }
 
-function GroupTable({ usage, group }: { usage: UsageView; group?: Group }) {
+function GroupTable({ usage, group }: { usage: UsageView; group: Group[] }) {
   const heads = ["Sessions", "Input", "Output", "Cache read", "Cache write", "Cost"];
   return (
     <div className={cn(inset, "overflow-x-auto")}>
@@ -377,7 +398,7 @@ function GroupTable({ usage, group }: { usage: UsageView; group?: Group }) {
         <thead>
           <tr className="border-b text-muted-foreground">
             <th scope="col" className="py-2 pr-4 text-left font-normal">
-              {groupOptions.find((item) => item.key === group)?.title ?? "Group"}
+              {groupHeader(group, groupOptions)}
             </th>
             {heads.map((head) => (
               <th key={head} scope="col" className="py-2 pr-4 text-right font-normal last:pr-0">
@@ -389,7 +410,7 @@ function GroupTable({ usage, group }: { usage: UsageView; group?: Group }) {
         <tbody>
           {usage.groups.map((item) => (
             <ValuesRow
-              key={item.group}
+              key={JSON.stringify(item.group)}
               title={groupTitle(item.group, group)}
               values={item.values}
             />
@@ -408,7 +429,7 @@ function UsageTab({
 }: {
   usage: UsageView;
   range: Range;
-  group?: Group;
+  group: Group[];
   kind: "cost" | "tokens";
 }) {
   const totals = usage.totals;
@@ -490,7 +511,7 @@ function StatMenu({
   );
 }
 
-function TimeTable({ times, group }: { times: UsageTimes; group?: Group }) {
+function TimeTable({ times, group }: { times: UsageTimes; group: Group[] }) {
   const heads = ["Stat", "Count", "Total", "Mean"];
   return (
     <div className={cn(inset, "overflow-x-auto")}>
@@ -498,7 +519,7 @@ function TimeTable({ times, group }: { times: UsageTimes; group?: Group }) {
         <thead>
           <tr className="border-b text-muted-foreground">
             <th scope="col" className="py-2 pr-4 text-left font-normal">
-              {groupOptions.find((item) => item.key === group)?.title ?? "Group"}
+              {groupHeader(group, groupOptions)}
             </th>
             {heads.map((head, index) => (
               <th
@@ -517,7 +538,10 @@ function TimeTable({ times, group }: { times: UsageTimes; group?: Group }) {
         <tbody>
           {times.groups.flatMap((item) =>
             item.stats.map((stat) => (
-              <tr key={`${item.group}|${statValue(stat)}`} className="border-b last:border-b-0">
+              <tr
+                key={`${JSON.stringify(item.group)}|${statValue(stat)}`}
+                className="border-b last:border-b-0"
+              >
                 <th scope="row" className="py-2 pr-4 text-left font-normal whitespace-nowrap">
                   {groupTitle(item.group, group)}
                 </th>
@@ -547,7 +571,7 @@ function TimesTab({
 }: {
   times: UsageTimes;
   range: Range;
-  group?: Group;
+  group: Group[];
   stat?: string;
   onStat: (stat: string) => void;
 }) {
@@ -578,15 +602,9 @@ function TimesTab({
   );
 }
 
-const sourceTitle = (source: string) => (source === "mobius" ? "Mobius" : "Harness");
-
-function SkillTable({ rows, group }: { rows: SkillUsageRow[]; group?: Group }) {
+function SkillTable({ rows, group }: { rows: SkillUsageRow[]; group: Group[] }) {
   const heads = ["Uses", "Had", "Used"];
-  const left = [
-    "Skill",
-    "Source",
-    ...(group ? [skillGroups.find((item) => item.key === group)?.title] : []),
-  ];
+  const left = ["Skill", "Source", ...(group.length > 0 ? [groupHeader(group, skillGroups)] : [])];
   return (
     <div className={cn(inset, "overflow-x-auto")}>
       <table className="w-full text-sm">
@@ -614,17 +632,15 @@ function SkillTable({ rows, group }: { rows: SkillUsageRow[]; group?: Group }) {
           )}
           {rows.map((row) => (
             <tr
-              key={`${row.skill}|${row.source}|${row.group}`}
+              key={JSON.stringify([row.skill, row.source, row.group])}
               className="border-b last:border-b-0"
             >
               <th scope="row" className="py-2 pr-4 text-left font-normal whitespace-nowrap">
                 {row.skill}
               </th>
               <td className="py-2 pr-4 whitespace-nowrap">{sourceTitle(row.source)}</td>
-              {group && (
-                <td className="py-2 pr-4 whitespace-nowrap">
-                  {group === "source" ? sourceTitle(row.group) : groupTitle(row.group, group)}
-                </td>
+              {group.length > 0 && (
+                <td className="py-2 pr-4 whitespace-nowrap">{groupTitle(row.group, group)}</td>
               )}
               <td className="py-2 pr-4 text-right tabular-nums">{row.uses}</td>
               <td className="py-2 pr-4 text-right tabular-nums">
@@ -639,7 +655,7 @@ function SkillTable({ rows, group }: { rows: SkillUsageRow[]; group?: Group }) {
   );
 }
 
-function SkillsTab({ skills, group }: { skills: SkillUsage; group?: Group }) {
+function SkillsTab({ skills, group }: { skills: SkillUsage; group: Group[] }) {
   return (
     <div className="grid gap-6">
       <Totals
@@ -670,11 +686,19 @@ export function Usage({
   const timesTab = tab === "times";
   const skillsTab = tab === "skills";
   const groups = skillsTab ? skillGroups : groupOptions;
-  const group = groups.find((item) => item.key === search.group)?.key;
+  const group: Group[] = groups
+    .map((item) => item.key)
+    .filter((key) => search.group?.includes(key));
 
   const [now] = useState(() => new Date());
   const query = useMemo(() => {
     const range = usageRange(search, now);
+    const usageFields = groupOptions
+      .map((item) => item.key)
+      .filter((key) => search.group?.includes(key));
+    const skillFields = skillGroups
+      .map((item) => item.key)
+      .filter((key) => search.group?.includes(key));
     const params: GetUsageParams = {
       from: range.from.toISOString(),
       to: range.to.toISOString(),
@@ -685,7 +709,7 @@ export function Usage({
       effort: search.effort,
       role: search.role,
       repository: search.repository,
-      group: groupOptions.find((item) => item.key === search.group)?.key,
+      group: usageFields.length > 0 ? usageFields : undefined,
     };
     const skillParams: GetUsageSkillsParams = {
       from: params.from,
@@ -694,7 +718,7 @@ export function Usage({
       role: search.role,
       repository: search.repository,
       source: search.source,
-      group: skillGroups.find((item) => item.key === search.group)?.key,
+      group: skillFields.length > 0 ? skillFields : undefined,
     };
     return { range, params, skillParams };
   }, [search, now]);
