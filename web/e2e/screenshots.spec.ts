@@ -530,9 +530,17 @@ test("screenshots", async ({ page }) => {
       await page.getByRole("tab", { name: "Brief" }).filter({ visible: true }).click();
     },
   );
+  // The Workstream rows show before the nav reads the "needs you" list, so wait for each badge of the final state.
+  const needsYou = (number: number) =>
+    page
+      .locator(`nav a[href="/workstreams/plants/garden/${number}"]`)
+      .getByText("needs you", { exact: true });
   await screenshot(page, "chat-brief-button", "/workstreams/plants/garden/18", (device) =>
     device === "desktop"
-      ? [page.getByRole("button", { name: "Brief" }).filter({ visible: true })]
+      ? [
+          page.getByRole("button", { name: "Brief" }).filter({ visible: true }),
+          ...[30, 20, 19].map(needsYou),
+        ]
       : [page.getByRole("banner").getByRole("heading", { name: "Prune the roses" })],
   );
   // The open menu and the open sheet hide the other elements from the accessibility tree, so the open step waits for them.
