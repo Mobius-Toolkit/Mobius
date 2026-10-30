@@ -26,6 +26,8 @@ type ChatMessage struct {
 	DeliveredAt  sql.NullString
 	StoppedAt    sql.NullString
 	InboxItems   string
+	FailedAt     sql.NullString
+	CancelledAt  sql.NullString
 }
 
 type CheckTimeout struct {

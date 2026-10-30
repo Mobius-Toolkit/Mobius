@@ -503,10 +503,20 @@ export interface ChatMessage {
   /** BrowserID is the id that the browser gave to the message of the Owner. It is empty for another message */
   browserId: string;
   /**
-     * DeliveredAt is the time when the turn of the agent for the message of the Owner started, or null before that and for another message
+     * CancelledAt is the time when Send again cancelled the message and posted a copy, or null
+     * @nullable
+     */
+  cancelledAt: string | null;
+  /**
+     * DeliveredAt is the time of the first thought or tool call of the agent for the message of the Owner, or of the successful end of the turn, or null before that and for another message
      * @nullable
      */
   deliveredAt: string | null;
+  /**
+     * FailedAt is the time of the last failed try of the message, or null for a message that no try failed
+     * @nullable
+     */
+  failedAt: string | null;
   /** ID increases with each new message of all chats */
   id: number;
   /** Images is the number of images of the message. GetChatImage gives each image by its position, from 0 */
@@ -4451,7 +4461,7 @@ export const getSendAgainUrl = (id: number,) => {
 }
 
 /**
- * SendAgain adds the Owner message of an open Lead failed item to its chat again, with the same text and images, and removes the item from the Inbox. It returns 409 for an item that is not an open Lead failed item with a message, and while Mobius restarts for an upgrade.
+ * SendAgain cancels the waiting message of an open Lead failed item and closes the item. Then it adds a copy of the message at the end of its chat, with the same text and images, and the agent gets the copy at once. A message that is already delivered only closes the item. It returns 409 for an item that is not an open Lead failed item with a message, and while Mobius restarts for an upgrade.
  */
 export const sendAgain = async (id: number, ): Promise<sendAgainResponse> => {
 

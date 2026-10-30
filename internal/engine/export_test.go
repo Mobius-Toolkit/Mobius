@@ -25,6 +25,7 @@ var (
 	LoadPoll                = &loadPoll
 	LoadWaitEvent           = &loadWaitEvent
 	Cores                   = cores
+	FailedRetry             = failedRetry
 )
 
 // SetClock makes the long waits read the time from clock.

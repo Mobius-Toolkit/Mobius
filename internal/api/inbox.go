@@ -152,9 +152,10 @@ type SendAgainRequest struct {
 	}
 }
 
-// SendAgain adds the Owner message of an open Lead failed item to its chat again, with the same text and images, and
-// removes the item from the Inbox. It returns 409 for an item that is not an open Lead failed item with a message, and
-// while Mobius restarts for an upgrade.
+// SendAgain cancels the waiting message of an open Lead failed item and closes the item. Then it adds a copy of the
+// message at the end of its chat, with the same text and images, and the agent gets the copy at once. A message that is
+// already delivered only closes the item. It returns 409 for an item that is not an open Lead failed item with a
+// message, and while Mobius restarts for an upgrade.
 func (h *handlers) SendAgain(ctx context.Context, req SendAgainRequest) error {
 	err := h.engine.SendAgain(ctx, req.Path.ID)
 	if engine.Refused(err) {

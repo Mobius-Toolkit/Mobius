@@ -48,6 +48,8 @@ const (
 	memoryLines = 200
 	// leadFailedKind is the kind of the Inbox item of an item that the Lead did not take.
 	leadFailedKind = "Lead failed"
+	// failedRetry is the time after the last failed try of a waiting message when Mobius starts its chat again.
+	failedRetry = 5 * time.Minute
 )
 
 // The authors of the chat messages, as the chat_messages table names them.
@@ -315,9 +317,20 @@ func afterOwnerMessages(queue []item) int {
 	return 0
 }
 
-// give gives the items to the chat of key, and starts the chat when none runs. tracked tells that the drain counts the
-// first session of a new chat from a tryTrack of the caller. The caller holds e.chatOrder.
+// give gives the items to the chat of key, and starts the chat when none runs. A new chat gets the messages of the
+// chat that wait after a failure first. tracked tells that the drain counts the first session of a new chat from a
+// tryTrack of the caller. The caller holds e.chatOrder.
 func (e *Engine) give(key ChatKey, tracked bool, items ...item) {
+	e.chatsMu.Lock()
+	_, ok := e.chats[key]
+	e.chatsMu.Unlock()
+	if !ok {
+		waiting, err := e.waitingMessages(context.Background(), key)
+		if err != nil {
+			log.Printf("read the waiting messages of the chat %v: %v", key, err)
+		}
+		items = appendWaiting(waiting, items)
+	}
 	e.chatsMu.Lock()
 	c, ok := e.chats[key]
 	var agent *Agent
@@ -346,6 +359,23 @@ func (e *Engine) give(key ChatKey, tracked bool, items ...item) {
 	e.chatsMu.Unlock()
 	e.publish(Change{Chat: &state})
 	e.publishSession(agent)
+}
+
+// appendWaiting puts the waiting messages before items and keeps each message one time, in the order of waiting and
+// then items.
+func appendWaiting(waiting, items []item) []item {
+	seen := map[int64]bool{}
+	result := make([]item, 0, len(waiting)+len(items))
+	for _, queued := range append(slices.Clone(waiting), items...) {
+		if queued.message != nil {
+			if seen[queued.message.ID] {
+				continue
+			}
+			seen[queued.message.ID] = true
+		}
+		result = append(result, queued)
+	}
+	return result
 }
 
 // publishSession sends the session of agent, so the clients read its working state again. It does nothing for nil.
@@ -483,6 +513,23 @@ func (e *Engine) earlierMessages(ctx context.Context, organization, repository s
 		}
 	}
 	return chats, nil
+}
+
+// waitingMessages lists the messages of the chat that wait after a failure, in the order of their ids.
+func (e *Engine) waitingMessages(ctx context.Context, key ChatKey) ([]item, error) {
+	messages, err := e.queries.ListFailedChatMessages(ctx, store.ListFailedChatMessagesParams{
+		Organization: key.Organization,
+		Repository:   key.Repository,
+		Workstream:   key.Workstream,
+	})
+	if err != nil {
+		return nil, err
+	}
+	items := make([]item, 0, len(messages))
+	for _, message := range messages {
+		items = append(items, item{message: &message})
+	}
+	return items, nil
 }
 
 // StopChat stops the turn of the chat that answers a message of the Owner. A turn for an event goes on, and a stop
@@ -712,8 +759,8 @@ func (e *Engine) UnreadChats(ctx context.Context) ([]Unread, error) {
 	return unread, nil
 }
 
-// runChat runs the sessions of the chat. After a crash, a new session gets the item of the failed turn as its first
-// item, at most maxCrashes times. A crash on a full context does not count.
+// runChat runs the sessions of the chat. After a failure, a new session gets the item of the failed turn or start as
+// its first item, at most maxCrashes times. A crash on a full context does not count.
 func (e *Engine) runChat(c *chat) {
 	defer close(c.done)
 	background := context.Background()
@@ -724,7 +771,7 @@ func (e *Engine) runChat(c *chat) {
 		if c.tracked {
 			e.untrack()
 		}
-		e.finishChat(c, err.Error())
+		e.failChat(c, err.Error(), false)
 		return
 	}
 	for {
@@ -752,7 +799,22 @@ func (e *Engine) runChat(c *chat) {
 		}
 		if err != nil {
 			log.Printf("start the chat session of %s %d: %v", c.key.Repository, c.key.Workstream, err)
-			e.finishChat(c, err.Error())
+			if Refused(err) {
+				e.failChat(c, err.Error(), false)
+				return
+			}
+			if !contextError(err) {
+				crashes++
+			}
+			e.chatsMu.Lock()
+			if crashes <= maxCrashes {
+				c.wait, c.stopWait = context.WithCancel(c.ctx)
+			}
+			e.chatsMu.Unlock()
+			if crashes <= maxCrashes {
+				continue
+			}
+			e.failChat(c, err.Error(), false)
 			return
 		}
 		err = e.chat(c, a, first)
@@ -788,12 +850,7 @@ func (e *Engine) runChat(c *chat) {
 		if current != nil && crashes <= maxCrashes {
 			continue
 		}
-		if current != nil {
-			if err := e.leadFailed(background, *current); err != nil {
-				log.Printf("send the failed item of the chat session %d to the Inbox: %v", a.ID(), err)
-			}
-		}
-		e.finishChat(c, failure.Error())
+		e.failChat(c, failure.Error(), true)
 		return
 	}
 }
@@ -826,32 +883,108 @@ func (e *Engine) finishChat(c *chat, failure string) {
 	if e.chats[c.key] == c {
 		delete(e.chats, c.key)
 	}
-	if failure != "" {
-		e.dropWaitingMessages(c)
-	}
 	e.chatsMu.Unlock()
 	e.publish(Change{Chat: &ChatState{Key: c.key, Error: failure}})
 }
 
-// leadFailed tells the Owner about the item that the Lead did not take. For a message, the Inbox gets an item. For an
-// event, the activity feed gets one activity on the Workstream issue for each ready event of the Workstream, and the
-// events count as delivered.
-func (e *Engine) leadFailed(ctx context.Context, failed item) error {
-	if failed.message != nil {
-		message := failed.message
-		err := e.addInboxItem(ctx, store.AddInboxItemParams{
-			Kind:                 leadFailedKind,
-			Organization:         message.Organization,
-			Repository:           message.Repository,
-			WorkstreamRepository: message.Repository,
-			Workstream:           message.Workstream,
-			Issue:                message.Workstream,
-			Reason:               "The Lead did not get your message",
-			Text:                 message.Text,
-			ChatMessage:          sql.NullInt64{Int64: message.ID, Valid: true},
-		})
+// failChat keeps each message of the chat that the agent did not get after the last failed try, adds one Inbox item
+// for each, and ends the chat. It sets no stop time: the message waits for the next try. A failed event goes to the
+// activity feed, unless the failure came before the first turn.
+func (e *Engine) failChat(c *chat, failure string, failedEvent bool) {
+	ctx := context.Background()
+	e.chatOrder.Lock()
+	defer e.chatOrder.Unlock()
+	e.chatsMu.Lock()
+	first := c.first
+	queue := slices.Clone(c.queue)
+	c.current = nil
+	if e.chats[c.key] == c {
+		delete(e.chats, c.key)
+	}
+	e.chatsMu.Unlock()
+	switch {
+	case first.event != nil && failedEvent:
+		if err := e.leadFailed(ctx, first); err != nil {
+			log.Printf("send the failed events of the chat %v to the activity feed: %v", c.key, err)
+		}
+	case first.event == nil:
+		e.failMessage(ctx, first.message)
+	}
+	for _, queued := range queue {
+		if isOwnerMessage(queued) {
+			e.failMessage(ctx, queued.message)
+		}
+	}
+	e.publish(Change{Chat: &ChatState{Key: c.key, Error: failure}})
+}
+
+// failMessage keeps the message as not delivered after the last failed try, sends it to the listeners, and adds one
+// Inbox item for it unless it has an open item.
+func (e *Engine) failMessage(ctx context.Context, message *store.ChatMessage) {
+	if message == nil || message.Author != ownerAuthor && message.Author != approvalAuthor {
+		return
+	}
+	failed, err := e.queries.FailChatMessage(ctx, store.FailChatMessageParams{
+		FailedAt: sql.NullString{String: e.timeNow().UTC().Format(time.RFC3339Nano), Valid: true},
+		ID:       message.ID,
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return
+	}
+	if err != nil {
+		log.Printf("mark the failed message %d: %v", message.ID, err)
+		return
+	}
+	if failed.Author != approvalAuthor {
+		e.publish(Change{Message: &failed})
+	}
+	if err := e.addFailedItem(ctx, failed); err != nil {
+		log.Printf("add the failed item of the message %d: %v", message.ID, err)
+	}
+}
+
+// addFailedItem adds the Inbox item of a message that the agent did not get, unless the message has an open item.
+func (e *Engine) addFailedItem(ctx context.Context, message store.ChatMessage) error {
+	_, err := e.queries.GetOpenFailedItemOfMessage(ctx, sql.NullInt64{Int64: message.ID, Valid: true})
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
+	chat, lead := "Coordinator", false
+	if message.Workstream != 0 {
+		name, err := e.workstreamName(ctx, message.Repository, message.Workstream)
+		if err != nil {
+			return err
+		}
+		chat, lead = "Lead of "+name, true
+	}
+	title := chat + " did not get your message"
+	if start := failedMessageStart(message.Text); start != "" {
+		title = fmt.Sprintf("%s did not get: \"%s\"", chat, start)
+	}
+	reason := "The Coordinator did not get your message"
+	if lead {
+		reason = "The Lead did not get your message"
+	}
+	return e.addInboxItem(ctx, store.AddInboxItemParams{
+		Kind:                 leadFailedKind,
+		Organization:         message.Organization,
+		Repository:           message.Repository,
+		WorkstreamRepository: message.Repository,
+		Workstream:           message.Workstream,
+		Issue:                message.Workstream,
+		Title:                title,
+		Reason:               reason,
+		Text:                 message.Text,
+		ChatMessage:          sql.NullInt64{Int64: message.ID, Valid: true},
+	})
+}
+
+// leadFailed tells the Owner that the Lead did not take the ready events of the Workstream: the activity feed gets
+// one activity on the Workstream issue for each event, and the events count as delivered.
+func (e *Engine) leadFailed(ctx context.Context, failed item) error {
 	repository, workstream := failed.event.Repository, failed.event.Workstream
 	events, err := e.queries.ListReadyLeadEvents(ctx, store.ListReadyLeadEventsParams{Repository: repository, Workstream: workstream})
 	if err != nil {
@@ -1039,16 +1172,22 @@ func (e *Engine) itemTurn(c *chat, a *Agent, current item, prompt string, images
 		a.setDelivery(current.message.ID)
 	}
 	turnErr := e.turn(c, a, prompt, images, current.message != nil)
-	if err := errors.Join(turnErr, a.deliver(c.ctx)); err != nil {
+	if turnErr != nil {
+		if current.message != nil && (current.message.Author == ownerAuthor || current.message.Author == approvalAuthor) {
+			turnErr = errors.Join(turnErr, e.undeliverMessage(c.ctx, current.message.ID))
+		}
+		return turnErr
+	}
+	if err := a.deliver(c.ctx); err != nil {
 		return err
 	}
 	return e.endTurn(c, current)
 }
 
-// deliverMessage sets the delivery time of a message of the Owner or of an approval and sends the message to the
-// listeners, unless it is hidden. A message that has a delivery time keeps it.
-func (e *Engine) deliverMessage(ctx context.Context, id int64) error {
-	message, err := e.queries.DeliverChatMessage(ctx, store.DeliverChatMessageParams{DeliveredAt: sql.NullString{String: now(), Valid: true}, ID: id})
+// undeliverMessage clears the delivery time of a message whose turn failed, and sends the message to the listeners,
+// unless it is hidden. A message with no delivery time changes nothing.
+func (e *Engine) undeliverMessage(ctx context.Context, id int64) error {
+	message, err := e.queries.UndeliverChatMessage(ctx, id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
@@ -1057,6 +1196,35 @@ func (e *Engine) deliverMessage(ctx context.Context, id int64) error {
 	}
 	if message.Author != approvalAuthor {
 		e.publish(Change{Message: &message})
+	}
+	return nil
+}
+
+// deliverMessage sets the delivery time of a message of the Owner or of an approval, clears its failure time, closes
+// its failed items, and sends the message to the listeners, unless it is hidden. A message that has a delivery time
+// keeps it.
+func (e *Engine) deliverMessage(ctx context.Context, id int64) error {
+	message, err := e.queries.DeliverChatMessage(ctx, store.DeliverChatMessageParams{DeliveredAt: sql.NullString{String: now(), Valid: true}, ID: id})
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+	case err != nil:
+		return err
+	default:
+		if message.Author != approvalAuthor {
+			e.publish(Change{Message: &message})
+		}
+	}
+	if err := e.queries.ClearChatMessageFailure(ctx, id); err != nil {
+		return err
+	}
+	items, err := e.queries.ListOpenFailedItemsOfMessage(ctx, sql.NullInt64{Int64: id, Valid: true})
+	if err != nil {
+		return err
+	}
+	for _, item := range items {
+		if err := e.Dismiss(ctx, item.ID); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -1258,6 +1426,69 @@ func (e *Engine) startIdleLeads(ctx context.Context, repository string) error {
 			return err
 		}
 	}
+	return nil
+}
+
+// retryFailedChats starts the chat of each key with a message that waits after a failure, when the last failure is
+// failedRetry old or older. It starts no second chat of a key.
+func (e *Engine) retryFailedChats(ctx context.Context, repository, organization string) error {
+	last := map[ChatKey]time.Time{}
+	add := func(messages []store.ChatMessage) error {
+		for _, message := range messages {
+			key := ChatKey{message.Organization, message.Repository, message.Workstream}
+			at, err := time.Parse(time.RFC3339Nano, message.FailedAt.String)
+			if err != nil {
+				return err
+			}
+			if known, ok := last[key]; !ok || at.After(known) {
+				last[key] = at
+			}
+		}
+		return nil
+	}
+	messages, err := e.queries.ListFailedChatMessagesOfRepository(ctx, store.ListFailedChatMessagesOfRepositoryParams{Organization: organization, Repository: repository})
+	if err != nil {
+		return err
+	}
+	if err := add(messages); err != nil {
+		return err
+	}
+	coordinator, err := e.queries.ListFailedCoordinatorMessages(ctx, organization)
+	if err != nil {
+		return err
+	}
+	if err := add(coordinator); err != nil {
+		return err
+	}
+	for key, at := range last {
+		if e.timeNow().Sub(at) < failedRetry {
+			continue
+		}
+		if err := e.startWaitingChat(ctx, key); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// startWaitingChat gives the messages that wait after a failure to a new chat of key, unless a chat of key runs.
+func (e *Engine) startWaitingChat(ctx context.Context, key ChatKey) error {
+	e.chatOrder.Lock()
+	defer e.chatOrder.Unlock()
+	e.chatsMu.Lock()
+	_, running := e.chats[key]
+	e.chatsMu.Unlock()
+	if running {
+		return nil
+	}
+	items, err := e.waitingMessages(ctx, key)
+	if err != nil || len(items) == 0 {
+		return err
+	}
+	if !e.tryTrack() {
+		return nil
+	}
+	e.give(key, true, items...)
 	return nil
 }
 

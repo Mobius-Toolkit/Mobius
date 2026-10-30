@@ -43,9 +43,13 @@ type ChatMessage struct {
 	InboxItems []ChatInboxItem `gork:"inboxItems"`
 	// BrowserID is the id that the browser gave to the message of the Owner. It is empty for another message
 	BrowserID string `gork:"browserId"`
-	// DeliveredAt is the time when the turn of the agent for the message of the Owner started, or null before that
-	// and for another message
+	// DeliveredAt is the time of the first thought or tool call of the agent for the message of the Owner, or of the
+	// successful end of the turn, or null before that and for another message
 	DeliveredAt *time.Time `gork:"deliveredAt"`
+	// FailedAt is the time of the last failed try of the message, or null for a message that no try failed
+	FailedAt *time.Time `gork:"failedAt"`
+	// CancelledAt is the time when Send again cancelled the message and posted a copy, or null
+	CancelledAt *time.Time `gork:"cancelledAt"`
 	// StoppedAt is the time when a stop of the Owner dropped the message of the Owner before the turn of the agent
 	// started, or null for a message that no stop dropped and for another message
 	StoppedAt *time.Time `gork:"stoppedAt"`
@@ -310,6 +314,20 @@ func (h *handlers) chatMessageOf(ctx context.Context, message store.ChatMessage)
 			return ChatMessage{}, err
 		}
 		found.DeliveredAt = &deliveredAt
+	}
+	if message.FailedAt.Valid {
+		failedAt, err := time.Parse(time.RFC3339Nano, message.FailedAt.String)
+		if err != nil {
+			return ChatMessage{}, err
+		}
+		found.FailedAt = &failedAt
+	}
+	if message.CancelledAt.Valid {
+		cancelledAt, err := time.Parse(time.RFC3339Nano, message.CancelledAt.String)
+		if err != nil {
+			return ChatMessage{}, err
+		}
+		found.CancelledAt = &cancelledAt
 	}
 	if message.StoppedAt.Valid {
 		stoppedAt, err := time.Parse(time.RFC3339Nano, message.StoppedAt.String)

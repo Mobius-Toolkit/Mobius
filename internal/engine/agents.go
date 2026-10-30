@@ -800,7 +800,8 @@ func storedUpdate(params json.RawMessage, notification map[string]any, kind stri
 
 // addReply adds content of an agent message chunk to the reply text, and to the chat when the session has an author.
 // After a usage update with the rate limit status "rejected", it adds nothing: the Transcript keeps the raw text.
-// A tool call starts a new reply text and a new chat message. The caller holds a.mu.
+// A tool call starts a new reply text and a new chat message. The first thought or tool call of a turn delivers the
+// message of the Owner, and an agent message chunk does not. The caller holds a.mu.
 func (a *Agent) addReply(ctx context.Context, kind, content string) error {
 	switch kind {
 	case "tool_call":
@@ -814,11 +815,6 @@ func (a *Agent) addReply(ctx context.Context, kind, content string) error {
 			return a.deliverLocked(ctx)
 		}
 		return nil
-	}
-	if a.turn {
-		if err := a.deliverLocked(ctx); err != nil {
-			return err
-		}
 	}
 	a.reply.WriteString(content)
 	if a.author == "" {
