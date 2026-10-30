@@ -162,6 +162,7 @@ func serve(configPath string) error {
 		Addr: net.JoinHostPort("127.0.0.1", strconv.FormatUint(port, 10)),
 		Path: path,
 	})
+	e.ReadHarnessChoices(ctx)
 	if err := e.Recover(ctx); err != nil {
 		return err
 	}
