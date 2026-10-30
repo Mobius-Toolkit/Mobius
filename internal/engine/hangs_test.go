@@ -64,9 +64,12 @@ func TestATurnWithNoActivityGetsARetryPromptInTheSameSession(t *testing.T) {
 }
 
 func TestTheRetryPromptOfAnImplementerTellsItToCallCannotDo(t *testing.T) {
-	shortHang(t)
+	// The fake agent sends no update while the shell of the first turn runs, so the timeout must be longer than the shell.
+	before := *engine.HangTimeout
+	*engine.HangTimeout = 3 * time.Second
+	t.Cleanup(func() { *engine.HangTimeout = before })
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectTask(t, fake, leadStarts, hang+commits, longGrace)
+	server, _ := connectTask(t, fake, leadStarts, "[[prompts]]\n"+commitCents+"hang = true\n\n[[prompts]]\nreply = [\"Done\"]\n", longGrace)
 
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 
