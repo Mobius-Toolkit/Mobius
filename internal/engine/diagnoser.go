@@ -410,8 +410,7 @@ func (e *Engine) reportFailure(ctx context.Context, c caller, _ github.Repositor
 	result := "Saved. The pull request caused the failure, so it has no record."
 	var id int64
 	if !causedByPullRequest {
-		var err error
-		id, _, err = e.failureRecord(ctx, diagnosis, c.agent.jobURLs, input)
+		id, err = e.failureRecord(ctx, diagnosis, c.agent.jobURLs, input)
 		if err != nil {
 			return "", err
 		}
@@ -438,38 +437,37 @@ func (e *Engine) reportFailure(ctx context.Context, c caller, _ github.Repositor
 	return result, nil
 }
 
-// failureRecord adds the place of diagnosis to the record of the failure of input, and gives the id and the issue of the
-// record. The issue is 0 when the record has none.
-func (e *Engine) failureRecord(ctx context.Context, diagnosis store.CiDiagnosis, jobURLs string, input reportFailureInput) (int64, int64, error) {
-	var id, issue int64
+// failureRecord adds the place of diagnosis to the record of the failure of input, and gives the id of the record.
+func (e *Engine) failureRecord(ctx context.Context, diagnosis store.CiDiagnosis, jobURLs string, input reportFailureInput) (int64, error) {
+	var id int64
 	switch {
 	case input.SameRecord < 0:
-		return 0, 0, refuse("same_record must not be negative.")
+		return 0, refuse("same_record must not be negative.")
 	case input.SameRecord > 0:
 		record, err := e.queries.GetOpenCIFailure(ctx, store.GetOpenCIFailureParams{ID: input.SameRecord, Repository: diagnosis.Repository})
 		if errors.Is(err, sql.ErrNoRows) {
-			return 0, 0, refuse("%d is not an open failure record of this repository.", input.SameRecord)
+			return 0, refuse("%d is not an open failure record of this repository.", input.SameRecord)
 		}
 		if err != nil {
-			return 0, 0, err
+			return 0, err
 		}
-		id, issue = record.ID, record.Issue
+		id = record.ID
 	case input.Test != "" && input.Location != "":
 		record, err := e.queries.FindOpenCIFailure(ctx, store.FindOpenCIFailureParams{Repository: diagnosis.Repository, Test: input.Test, Location: input.Location})
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return 0, 0, err
+			return 0, err
 		}
-		id, issue = record.ID, record.Issue
+		id = record.ID
 	}
 	if id == 0 {
 		var err error
 		id, err = e.queries.AddCIFailure(ctx, store.AddCIFailureParams{Repository: diagnosis.Repository, Reason: strings.TrimSpace(input.Reason), Test: input.Test, Location: input.Location, CreatedAt: now()})
 		if err != nil {
-			return 0, 0, err
+			return 0, err
 		}
 	}
 	lines := strings.Split(strings.TrimRight(input.Lines, "\n"), "\n")
-	return id, issue, e.queries.AddCIFailurePlace(ctx, store.AddCIFailurePlaceParams{
+	return id, e.queries.AddCIFailurePlace(ctx, store.AddCIFailurePlaceParams{
 		Failure:     id,
 		PullRequest: diagnosis.PullRequest,
 		CiBreak:     diagnosis.CiBreak,
