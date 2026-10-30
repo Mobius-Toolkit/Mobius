@@ -120,10 +120,10 @@ Mobius starts dsh with `dsh --profile acp`. The tested version is 0.2.1-rc.5.
 
    dsh keeps the sign-in and the key in its own files in `~/.dsh`. Mobius sets no environment for dsh.
 
-3. Bind a Role to dsh. The `model` is the value that dsh gives, with the route and the model name as a JSON array. Write it in single quotes:
+3. Bind a Role to dsh. The `model` is the route and the model name of dsh, with a `/` between them:
 
    ```toml
-   researcher = { harness = "dsh", model = '["deepseek-account","deepseek-v4-pro"]', effort = "high" }
+   researcher = { harness = "dsh", model = "deepseek-account/deepseek-v4-pro", effort = "high" }
    ```
 
    `mobius init` offers the values of dsh. The effort is `off`, `low`, `high` or `max`.
