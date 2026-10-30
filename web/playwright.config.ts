@@ -43,6 +43,8 @@ export default defineConfig({
     { name: "settings", testMatch: "settings.spec.ts", dependencies: ["agents"] },
     // The Roles tests reset each role that they change, and they need the Apps of the screenshots test.
     { name: "roles", testMatch: "roles.spec.ts", dependencies: ["agents"] },
+    // The voice language tests set the language to English again, and they need the Apps of the screenshots test.
+    { name: "voice-language", testMatch: "voice-language.spec.ts", dependencies: ["screenshots"] },
     // The switch tests turn each switch on again, and they need the Apps of the screenshots test.
     { name: "switches", testMatch: "switches.spec.ts", dependencies: ["agents"] },
     // The Inbox tests give their own data with page.route, and they need the Apps of the screenshots test.

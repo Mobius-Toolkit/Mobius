@@ -6,6 +6,7 @@ import { Switch } from "@/components/ui/switch";
 import { settingsPages } from "@/lib/settings";
 import { useShell } from "@/lib/shell";
 import { switchKinds } from "@/lib/switches";
+import { useVoiceLanguage } from "@/lib/voiceLanguage";
 import { uiRelease } from "@/lib/build";
 import { LoginContext } from "@/lib/login";
 import { cn } from "@/lib/utils";
@@ -16,6 +17,8 @@ export function Settings() {
   const showLogin = use(LoginContext);
   const { switches, switchErrors, changeSwitch } = useShell();
   const [server, setServer] = useState("");
+  const { voice } = useVoiceLanguage();
+  const language = voice?.languages.find((item) => item.code === voice.language)?.name;
 
   useEffect(() => {
     getVersion()
@@ -61,7 +64,11 @@ export function Settings() {
       </Section>
       <List>
         {settingsPages.map((page) => (
-          <LinkRow key={page.path} link={{ to: page.path }} title={page.title} />
+          <LinkRow key={page.path} link={{ to: page.path }} title={page.title}>
+            {page.path === "/settings/voice" && (
+              <span className="text-sm text-muted-foreground">{language}</span>
+            )}
+          </LinkRow>
         ))}
       </List>
       <dl className={cn("mt-4 grid gap-1 text-xs text-muted-foreground", inset)}>
