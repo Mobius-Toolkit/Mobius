@@ -560,8 +560,30 @@ func TestServer(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// The chats of plants/garden#14 to #17 have 12 Lead messages each, and the Owner saw the first 5.
 	queries := store.New(server.DB)
+	// The engine adds a record for each action of the Owner, and never counts it as unread.
+	for _, record := range []struct {
+		key  engine.ChatKey
+		text string
+	}{
+		{engine.ChatKey{Organization: "plants", Repository: "plants/garden", Workstream: 12}, "You started #1127."},
+		{engine.ChatKey{Organization: "plants", Repository: "plants/garden", Workstream: 12}, "You set the Autopilot level to Start tasks."},
+		{engine.ChatKey{Organization: "plants"}, `You dismissed "Which unit?".`},
+	} {
+		_, err := queries.AddChatMessage(ctx, store.AddChatMessageParams{
+			Organization: record.key.Organization,
+			Repository:   record.key.Repository,
+			Workstream:   record.key.Workstream,
+			Author:       "Record",
+			InboxItems:   "[]",
+			Time:         time.Now().UTC().Format(time.RFC3339Nano),
+			Text:         record.text,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The chats of plants/garden#14 to #17 have 12 Lead messages each, and the Owner saw the first 5.
 	for number := int64(14); number <= 17; number++ {
 		key := engine.ChatKey{Organization: "plants", Repository: "plants/garden", Workstream: number}
 		var seen int64
