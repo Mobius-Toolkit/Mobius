@@ -171,7 +171,6 @@ func TestThePromptOfTheCuratorTellsThatTheRepositoryHasNoMaintenanceWorkstream(t
 func TestSearchIssuesGivesOpenAndClosedIssuesWithTheCloseReasonAndTheLastThreeCommentsOfTrustedAuthors(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, call("search_issues", `{ query = "flaky" }`)+call("search_issues", `{ query = "nothing" }`)+call("search_issues", `{ query = " " }`))
 	addMaintenanceWorkstream(fake, 20)
 	fake.AddIssue(shop, 40, "Flaky CI test")
 	fake.SetBody(shop, 40, "The test fails.")
@@ -187,6 +186,10 @@ func TestSearchIssuesGivesOpenAndClosedIssuesWithTheCloseReasonAndTheLastThreeCo
 	fake.AddIssue(shop, 43, "Flaky CI from Mallory")
 	fake.SetAuthor(shop, 43, "mallory")
 	fake.AddPullRequest(shop, 44, "Flaky CI pull request")
+
+	// The comments must exist before the first poll. Else the poll sees them as new on the closed issue and answers them.
+	// Those answers replace the Owner comments in the last three comments of the search result.
+	server, _ := connect(t, fake, call("search_issues", `{ query = "flaky" }`)+call("search_issues", `{ query = "nothing" }`)+call("search_issues", `{ query = " " }`))
 
 	session := run(t, server, roleSpec(t, engine.CuratorRole), "1. ", "2. ", "3. ")
 
