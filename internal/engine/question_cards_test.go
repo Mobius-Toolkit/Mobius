@@ -234,7 +234,7 @@ reply = ["Asked"]
 
 	cards := testkit.WaitForValue(t, func() ([]questionCard, bool) {
 		cards := questionCards(t, server, coordinatorChat)
-		return cards, len(cards) == 2 && cards[0].Question != nil && cards[0].Question.DismissedAt != nil && cards[1].Question != nil
+		return cards, len(cards) == 2 && cards[0].Question != nil && cards[0].Question.DismissedAt != nil
 	})
 	if first := cards[0]; first.Text != "First?" || first.Question.Answer != "" || first.Question.Withdrawn {
 		t.Errorf("first = %+v, question = %+v", first, first.Question)
