@@ -1490,8 +1490,10 @@ test("the Tasks tab shows Stop for a ready or running task, also with a blocker,
   await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
   const rows = page.getByRole("listitem");
   await expect(rows.filter({ hasText: "#80 Task 0" })).toBeVisible();
+  await page.getByLabel("Show closed tasks").filter({ visible: true }).click();
   for (const [index, state] of stopStates.entries()) {
     const row = rows.filter({ hasText: `#${80 + index} Task ${index}` });
+    await expect(row, state).toBeVisible();
     const stop = row.getByRole("button", { name: `Stop #${80 + index}` });
     if (index >= 4) {
       await expect(stop, state).toHaveCount(1);
