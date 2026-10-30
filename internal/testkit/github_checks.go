@@ -865,6 +865,12 @@ func (g *FakeGitHub) rerunFailedJobs(w http.ResponseWriter, r *http.Request) {
 		notFound(w)
 		return
 	}
+	for _, job := range g.workflowJobs {
+		if job.repository == repository(r) && job.run == id && cmp.Or(job.Status, "completed") != "completed" {
+			message(w, http.StatusUnprocessableEntity, "Workflow run cannot be retried: a job is still running")
+			return
+		}
+	}
 	run := &g.workflowRuns[id-1]
 	run.Attempt = max(run.Attempt, 1) + 1
 	run.Status = "queued"

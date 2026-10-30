@@ -561,7 +561,6 @@ func TestARefusedRerunWaitsWhileAJobOfTheRunStillRunsAndThenRunsTheFailedJobsAga
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, fixesNothing, longGrace)
 	sha := checksHead(t, server, fake)
-	fake.RefuseRerun(422)
 	check := fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
 	workflow := fake.AddWorkflowRun(shop, testkit.WorkflowRun{Name: "ci", HeadSHA: sha, WorkflowID: 5, Status: "in_progress"})
 	fake.AddWorkflowJob(shop, workflow, 1, testkit.WorkflowJob{ID: 700, Name: "e2e", Status: "in_progress"})
@@ -577,7 +576,6 @@ func TestARefusedRerunWaitsWhileAJobOfTheRunStillRunsAndThenRunsTheFailedJobsAga
 	}
 
 	fake.CompleteWorkflowJob(700, "failure")
-	fake.RefuseRerun(0)
 
 	testkit.WaitFor(t, func() bool { return rerunHead(t, server) == sha })
 	if state, attempt := taskState(t, server), fake.WorkflowRunAttempt(workflow); state != "checks" || attempt != 2 || hasLabel(fake, "mobius:needs-human") {
