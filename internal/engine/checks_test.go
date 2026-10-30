@@ -561,7 +561,6 @@ func TestARefusedRerunWaitsWhileAJobOfTheRunStillRunsAndThenRunsTheFailedJobsAga
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, fixesNothing, longGrace)
 	sha := checksHead(t, server, fake)
-	fake.RefuseRerun(422)
 	check := fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
 	workflow := fake.AddWorkflowRun(shop, testkit.WorkflowRun{Name: "ci", HeadSHA: sha, WorkflowID: 5, Status: "in_progress"})
 	fake.AddWorkflowJob(shop, workflow, 1, testkit.WorkflowJob{ID: 700, Name: "e2e", Status: "in_progress"})
@@ -575,13 +574,18 @@ func TestARefusedRerunWaitsWhileAJobOfTheRunStillRunsAndThenRunsTheFailedJobsAga
 	if state, attempt := taskState(t, server), fake.WorkflowRunAttempt(workflow); state != "checks" || attempt != 1 || rerunHead(t, server) != "" || hasLabel(fake, "mobius:needs-human") {
 		t.Errorf("state = %s, attempt = %d, rerun_head = %s", state, attempt, rerunHead(t, server))
 	}
+	if requests := fake.RerunRequests(); requests != 0 {
+		t.Errorf("re-run requests while a job runs = %d", requests)
+	}
 
 	fake.CompleteWorkflowJob(700, "failure")
-	fake.RefuseRerun(0)
 
 	testkit.WaitFor(t, func() bool { return rerunHead(t, server) == sha })
 	if state, attempt := taskState(t, server), fake.WorkflowRunAttempt(workflow); state != "checks" || attempt != 2 || hasLabel(fake, "mobius:needs-human") {
 		t.Errorf("state = %s, attempt = %d", state, attempt)
+	}
+	if requests := fake.RerunRequests(); requests == 0 {
+		t.Error("no re-run request after each job completed")
 	}
 
 	fake.SetCheckRunStatus(check, "completed", "success")
