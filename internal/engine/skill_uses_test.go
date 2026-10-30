@@ -268,3 +268,143 @@ reply = ["done"]
 		t.Errorf("skill uses = %+v", got)
 	}
 }
+
+func TestAClaudeCodeReadOfASkillFileAddsOneRowWithTheSourceOfTheSkill(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddRepository(skills)
+	fake.CommitFile(skills, "mobius-local-state/SKILL.md", "Read the state.", "Add mobius-local-state")
+	dir := t.TempDir()
+	skillFile := filepath.Join(dir, config.ClaudeCode.SkillDirectory(), "mobius-local-state", "SKILL.md")
+	server, _ := connect(t, fake, `[[prompts]]
+updates = [
+  '{"sessionUpdate":"tool_call","toolCallId":"toolu_1","_meta":{"claudeCode":{"toolName":"Read"}},"rawInput":{},"title":"Read SKILL.md"}',
+  '{"sessionUpdate":"tool_call_update","toolCallId":"toolu_1","_meta":{"claudeCode":{"toolName":"Read"}},"rawInput":{"file_path":"`+skillFile+`"},"title":"Read SKILL.md"}',
+  '{"sessionUpdate":"tool_call","toolCallId":"toolu_2","_meta":{"claudeCode":{"toolName":"Read"}},"rawInput":{"file_path":"`+filepath.Join(dir, "notes.md")+`"},"title":"Read notes.md"}',
+]
+reply = ["done"]
+`)
+	spec := leadSpec(t)
+	spec.Dir = dir
+
+	session := run(t, server, spec, "Read the work")
+
+	want := []skillUse{{session, "owner", shop, "lead_chat", "claude-code", "mobius-local-state", "mobius"}}
+	if got := skillUses(t, server, session); !slices.Equal(got, want) {
+		t.Errorf("skill uses = %+v, want %+v", got, want)
+	}
+}
+
+func TestAClaudeCodeBashCommandWithASkillFileAddsOneRowWithTheSourceOfTheSkill(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddRepository(skills)
+	fake.CommitFile(skills, "mobius-local-state/SKILL.md", "Read the state.", "Add mobius-local-state")
+	dir := t.TempDir()
+	skillFile := filepath.Join(dir, config.ClaudeCode.SkillDirectory(), "mobius-local-state", "SKILL.md")
+	server, _ := connect(t, fake, `[[prompts]]
+updates = [
+  '{"sessionUpdate":"tool_call","toolCallId":"toolu_1","_meta":{"claudeCode":{"toolName":"Bash"}},"rawInput":{},"title":"Run cat"}',
+  '{"sessionUpdate":"tool_call_update","toolCallId":"toolu_1","_meta":{"claudeCode":{"toolName":"Bash"}},"rawInput":{"command":"cat `+skillFile+`"},"title":"Run cat"}',
+  '{"sessionUpdate":"tool_call","toolCallId":"toolu_2","_meta":{"claudeCode":{"toolName":"Bash"}},"rawInput":{"command":"cat notes.md"},"title":"Run cat"}',
+  '{"sessionUpdate":"tool_call","toolCallId":"toolu_3","_meta":{"claudeCode":{"toolName":"Bash"}},"rawInput":{"command":"cat /tmp/.claude/skills/mobius-local-state/SKILL.md"},"title":"Run cat"}',
+]
+reply = ["done"]
+`)
+	spec := leadSpec(t)
+	spec.Dir = dir
+
+	session := run(t, server, spec, "Read the work")
+
+	want := []skillUse{{session, "owner", shop, "lead_chat", "claude-code", "mobius-local-state", "mobius"}}
+	if got := skillUses(t, server, session); !slices.Equal(got, want) {
+		t.Errorf("skill uses = %+v, want %+v", got, want)
+	}
+}
+
+func TestADevinReadOfASkillFileAddsOneRowWithTheSourceOfTheSkill(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddRepository(skills)
+	fake.CommitFile(skills, "mobius-local-state/SKILL.md", "Read the state.", "Add mobius-local-state")
+	dir := t.TempDir()
+	skillFile := filepath.Join(dir, config.Devin.SkillDirectory(), "mobius-local-state", "SKILL.md")
+	server, _ := connectWith(t, fake, `[[prompts]]
+updates = [
+  '{"sessionUpdate":"tool_call","toolCallId":"call_1#a","title":"Read SKILL.md","rawInput":{"file_path":"`+skillFile+`"},"_meta":{"cognition.ai/inferenceToolName":"read"}}',
+  '{"sessionUpdate":"tool_call","toolCallId":"call_2#b","title":"Read notes.md","rawInput":{"file_path":"`+filepath.Join(dir, "notes.md")+`"},"_meta":{"cognition.ai/inferenceToolName":"read"}}',
+]
+reply = ["done"]
+`, devinLead)
+	spec := leadSpec(t)
+	spec.Dir = dir
+
+	session := run(t, server, spec, "Read the work")
+
+	want := []skillUse{{session, "owner", shop, "lead_chat", "devin", "mobius-local-state", "mobius"}}
+	if got := skillUses(t, server, session); !slices.Equal(got, want) {
+		t.Errorf("skill uses = %+v, want %+v", got, want)
+	}
+}
+
+func TestADevinExecCommandWithASkillFileAddsOneRowWithTheSourceOfTheSkill(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddRepository(skills)
+	fake.CommitFile(skills, "mobius-local-state/SKILL.md", "Read the state.", "Add mobius-local-state")
+	server, _ := connectWith(t, fake, `[[prompts]]
+updates = [
+  '{"sessionUpdate":"tool_call","toolCallId":"call_1#a","title":"Run cat","rawInput":{"command":"cat .agents/skills/mobius-local-state/SKILL.md","workdir":"`+t.TempDir()+`"},"_meta":{"cognition.ai/inferenceToolName":"exec"}}',
+  '{"sessionUpdate":"tool_call","toolCallId":"call_2#b","title":"Run cat","rawInput":{"command":"cat notes.md","workdir":"`+t.TempDir()+`"},"_meta":{"cognition.ai/inferenceToolName":"exec"}}',
+  '{"sessionUpdate":"tool_call","toolCallId":"call_3#c","title":"Run cat","rawInput":{"command":"cat ~/.agents/skills/mobius-local-state/SKILL.md","workdir":"`+t.TempDir()+`"},"_meta":{"cognition.ai/inferenceToolName":"exec"}}',
+]
+reply = ["done"]
+`, devinLead)
+
+	session, _ := leadReply(t, server)
+
+	want := []skillUse{{session, "owner", shop, "lead_chat", "devin", "mobius-local-state", "mobius"}}
+	if got := skillUses(t, server, session); !slices.Equal(got, want) {
+		t.Errorf("skill uses = %+v, want %+v", got, want)
+	}
+}
+
+func TestADSHReadOfARelativeSkillFileAddsOneRowWithTheSourceOfTheSkill(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddRepository(skills)
+	fake.CommitFile(skills, "mobius-local-state/SKILL.md", "Read the state.", "Add mobius-local-state")
+	server, _ := connectScript(t, fake, dshScript(`  '{"sessionUpdate":"tool_call","toolCallId":"call_1","title":"read","kind":"other","status":"in_progress","rawInput":{"file_path":".agents/skills/mobius-local-state/SKILL.md"}}',
+  '{"sessionUpdate":"tool_call","toolCallId":"call_2","title":"read","kind":"other","status":"in_progress","rawInput":{"file_path":"internal/engine/x.go"}}',
+`), dshLead)
+
+	session, _ := leadReply(t, server)
+
+	want := []skillUse{{session, "owner", shop, "lead_chat", "dsh", "mobius-local-state", "mobius"}}
+	if got := skillUses(t, server, session); !slices.Equal(got, want) {
+		t.Errorf("skill uses = %+v, want %+v", got, want)
+	}
+}
+
+func TestADSHBashCommandWithASkillFileAddsOneRowWithTheSourceOfTheSkill(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddRepository(skills)
+	fake.CommitFile(skills, "mobius-local-state/SKILL.md", "Read the state.", "Add mobius-local-state")
+	server, _ := connectScript(t, fake, dshScript(`  '{"sessionUpdate":"tool_call","toolCallId":"call_1","title":"bash","kind":"other","status":"in_progress","rawInput":{"command":"cat .agents/skills/mobius-local-state/SKILL.md"}}',
+  '{"sessionUpdate":"tool_call","toolCallId":"call_2","title":"bash","kind":"other","status":"in_progress","rawInput":{"command":"cat internal/engine/x.go"}}',
+  '{"sessionUpdate":"tool_call","toolCallId":"call_3","title":"bash","kind":"other","status":"in_progress","rawInput":{"command":"cat ~/.agents/skills/mobius-local-state/SKILL.md"}}',
+  '{"sessionUpdate":"tool_call","toolCallId":"call_4","title":"bash","kind":"other","status":"in_progress","rawInput":{"command":"cat .agents/skills/*/SKILL.md"}}',
+  '{"sessionUpdate":"tool_call","toolCallId":"call_5","title":"bash","kind":"other","status":"in_progress","rawInput":{"command":"cat .agents/skills/{mobius-local-state,commit}/SKILL.md"}}',
+  '{"sessionUpdate":"tool_call","toolCallId":"call_6","title":"bash","kind":"other","status":"in_progress","rawInput":{"command":"cat .agents/skills/mobius-local-state/SKILL.md.bak"}}',
+  '{"sessionUpdate":"tool_call","toolCallId":"call_7","title":"bash","kind":"other","status":"in_progress","rawInput":{"command":"for s in commit mobius-local-state; do cat .agents/skills/$s/SKILL.md; done"}}',
+  '{"sessionUpdate":"tool_call","toolCallId":"call_8","title":"bash","kind":"other","status":"in_progress","rawInput":{"command":"cat .agents/skills/\"$s\"/SKILL.md"}}',
+`), dshLead)
+
+	session, _ := leadReply(t, server)
+
+	want := []skillUse{{session, "owner", shop, "lead_chat", "dsh", "mobius-local-state", "mobius"}}
+	if got := skillUses(t, server, session); !slices.Equal(got, want) {
+		t.Errorf("skill uses = %+v, want %+v", got, want)
+	}
+}
