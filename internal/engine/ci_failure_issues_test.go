@@ -127,7 +127,8 @@ func TestTheFixRoundOfAFailureWithAnOpenRecordIssueGetsTheIssueAndTheStep(t *tes
 func TestTheFixRoundsOfAFailureThatGotItsIssueAfterTheDiagnosisGetTheIssue(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server := connectDiagnoserFixing(t, fake, leadStartsTwo, fixesNothing, reportsPlan)
+	lingers := reportsPlan + "linger = \"3s\"\n"
+	server := connectDiagnoserFixing(t, fake, leadStartsTwo, fixesNothing, lingers)
 	addMaintenanceWorkstream(fake, maintenance)
 	fake.AddSubIssueOf(shop, 12, 43, "Task 43")
 	first := approvalHeadOf(t, server, fake, 41)
