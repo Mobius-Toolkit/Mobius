@@ -14,6 +14,8 @@ test.afterEach(async ({ page }) => {
 
 const line = (page: Page, kind: Kind) => page.getByText(lines[kind], { exact: true }).locator("..");
 
+const notice = (page: Page, text: string) => page.getByRole("status").filter({ hasText: text });
+
 for (const [kind, title] of [
   ["start", "Start"],
   ["merge", "Merge"],
@@ -31,6 +33,7 @@ for (const [kind, title] of [
     );
     await toggle.click();
     await off;
+    await expect(notice(page, `${title} is off`)).toBeVisible();
     await expect(toggle).not.toBeChecked();
     await expect(line(page, kind)).toBeVisible();
     await expect(line(page, kind).getByRole("button", { name: "0 held" })).toBeVisible();
@@ -41,6 +44,7 @@ for (const [kind, title] of [
     );
     await line(page, kind).getByRole("button", { name: "Resume", exact: true }).click();
     await on;
+    await expect(notice(page, `${title} is on`)).toBeVisible();
     await expect(page.getByText(lines[kind], { exact: true })).toBeHidden();
     await expect(toggle).toBeChecked();
     expect((await getSwitches(page)).data[kind]).toBe(true);
@@ -105,6 +109,7 @@ test("the line stays with the error text when Resume fails", async ({ page }) =>
 
   await expect(line(page, "start")).toBeVisible();
   await expect(page.getByText("The switch did not change.")).toBeVisible();
+  await expect(notice(page, "Start is on")).toHaveCount(0);
   expect((await getSwitches(page)).data.start).toBe(false);
 });
 
@@ -176,6 +181,7 @@ test("the Settings page shows the error of a switch under its row until the serv
   await failed;
 
   await expect(page.getByText("The switch did not change.")).toBeVisible();
+  await expect(notice(page, "Start is off")).toHaveCount(0);
   await expect(page.getByText(lines.start, { exact: true })).toBeHidden();
 
   await turnOff(page, "start");
