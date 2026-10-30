@@ -99,8 +99,11 @@ func TestTheSkillsWorkstreamGetsOneSkillReviewEachWeek(t *testing.T) {
 		t.Fatalf("reviews after the second = %d, want 2", len(got))
 	}
 
+	if !strings.Contains(first[0], "No copy and no use") {
+		t.Errorf("review = %q, want %q in it", first[0], "No copy and no use")
+	}
 	for _, review := range []string{first[0], second[1]} {
-		for _, want := range []string{"Skill usage from ", "## idle\n\nFolder: idle/\n", "No copy and no use", "## Many copies, few uses", "## No use in 30 days", "## Used with no copy"} {
+		for _, want := range []string{"Skill usage from ", "## idle\n\nFolder: idle/\n", "## Many copies, few uses", "## No use in 30 days", "## Used with no copy"} {
 			if !strings.Contains(review, want) {
 				t.Errorf("review = %q, want %q in it", review, want)
 			}
