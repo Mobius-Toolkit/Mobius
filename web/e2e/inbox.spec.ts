@@ -130,24 +130,29 @@ test("the reason is on the line of the title on a desktop and below it on a phon
   const buttons = row.getByRole("button", { name: "Resume" });
 
   await page.setViewportSize({ width: 1280, height: 800 });
-  const desktop = { title: await title.boundingBox(), reason: await reason.boundingBox() };
-  expect(desktop.reason!.y).toBeLessThan(desktop.title!.y + desktop.title!.height);
-  // scrollWidth rounds, so a cut of less than one pixel needs the width of the text itself.
-  const cut = await title.evaluate((e) => {
-    const range = document.createRange();
-    range.selectNodeContents(e);
-    return range.getBoundingClientRect().width - e.getBoundingClientRect().width;
-  });
-  expect(cut).toBeLessThanOrEqual(0);
+  // The banners above the list can change between two reads and move the rows, so all boxes are read again until they fit one layout.
+  await expect(async () => {
+    const desktop = { title: await title.boundingBox(), reason: await reason.boundingBox() };
+    expect(desktop.reason!.y).toBeLessThan(desktop.title!.y + desktop.title!.height);
+    // scrollWidth rounds, so a cut of less than one pixel needs the width of the text itself.
+    const cut = await title.evaluate((e) => {
+      const range = document.createRange();
+      range.selectNodeContents(e);
+      return range.getBoundingClientRect().width - e.getBoundingClientRect().width;
+    });
+    expect(cut).toBeLessThanOrEqual(0);
+  }).toPass();
 
   await page.setViewportSize({ width: 390, height: 844 });
-  const phone = {
-    title: await title.boundingBox(),
-    reason: await reason.boundingBox(),
-    buttons: await buttons.boundingBox(),
-  };
-  expect(phone.reason!.y).toBeGreaterThanOrEqual(phone.title!.y + phone.title!.height);
-  expect(phone.buttons!.y).toBeGreaterThanOrEqual(phone.reason!.y + phone.reason!.height);
+  await expect(async () => {
+    const phone = {
+      title: await title.boundingBox(),
+      reason: await reason.boundingBox(),
+      buttons: await buttons.boundingBox(),
+    };
+    expect(phone.reason!.y).toBeGreaterThanOrEqual(phone.title!.y + phone.title!.height);
+    expect(phone.buttons!.y).toBeGreaterThanOrEqual(phone.reason!.y + phone.reason!.height);
+  }).toPass();
   await expect(title).toHaveJSProperty("scrollWidth", await title.evaluate((e) => e.clientWidth));
   await expect(reason).toHaveJSProperty("scrollWidth", await reason.evaluate((e) => e.clientWidth));
 });
