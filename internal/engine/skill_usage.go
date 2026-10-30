@@ -49,6 +49,13 @@ func (e *Engine) readSkillUsage(ctx context.Context, c caller, _ github.Reposito
 	return e.skillUsageText(ctx, c.organization, to.AddDate(0, 0, -input.Days), to)
 }
 
+// skillUsage is the usage of the skills of one skill repository in a period.
+type skillUsage struct {
+	from, to        time.Time
+	folders, texts  []string
+	copied, harness map[skillUsageKey]*skillUsageSum
+}
+
 // skillUsageText gives the list of the skills of the default branch of the skill repository of organization with their
 // usage from from, and before to.
 func (e *Engine) skillUsageText(ctx context.Context, organization string, from, to time.Time) (string, error) {
@@ -56,16 +63,26 @@ func (e *Engine) skillUsageText(ctx context.Context, organization string, from, 
 	if !ok {
 		return "The organization has no skill repository.", nil
 	}
-	rows, err := e.queries.ListSkillRowsBetween(ctx, from, to)
+	usage, err := e.readSkillUsageSums(ctx, repository, organization, from, to)
 	if err != nil {
 		return "", err
+	}
+	return usage.text(), nil
+}
+
+// readSkillUsageSums reads the skills of repository, the skill repository of organization, and their usage from from,
+// and before to.
+func (e *Engine) readSkillUsageSums(ctx context.Context, repository github.Repository, organization string, from, to time.Time) (skillUsage, error) {
+	rows, err := e.queries.ListSkillRowsBetween(ctx, from, to)
+	if err != nil {
+		return skillUsage{}, err
 	}
 	if err := e.fetchRepository(ctx, repository); err != nil {
 		log.Printf("fetch of %s for the skill usage failed, use the last fetch: %v", repository.FullName, err)
 	}
 	folders, texts, err := e.skillTexts(ctx, repository)
 	if err != nil {
-		return "", err
+		return skillUsage{}, err
 	}
 
 	copied := map[skillUsageKey]*skillUsageSum{}
@@ -98,9 +115,12 @@ func (e *Engine) skillUsageText(ctx context.Context, organization string, from, 
 			sum.lastUse = row.At
 		}
 	}
+	return skillUsage{from: from, to: to, folders: folders, texts: texts, copied: copied, harness: harness}, nil
+}
 
+func (u skillUsage) text() string {
 	var text strings.Builder
-	fmt.Fprintf(&text, "Skill usage from %s to %s (UTC).\n", from.UTC().Format(time.RFC3339), to.UTC().Format(time.RFC3339))
+	fmt.Fprintf(&text, "Skill usage from %s to %s (UTC).\n", u.from.UTC().Format(time.RFC3339), u.to.UTC().Format(time.RFC3339))
 	var unrecorded []string
 	for _, h := range config.Harnesses {
 		if !slices.Contains(recordedSkillHarnesses, h) {
@@ -110,36 +130,36 @@ func (e *Engine) skillUsageText(ctx context.Context, organization string, from, 
 	if len(unrecorded) > 0 {
 		fmt.Fprintf(&text, "Mobius records no skill use for: %s.\n", strings.Join(unrecorded, ", "))
 	}
-	for i, folder := range folders {
-		description, roles := skillFrontmatter(texts[i])
+	for i, folder := range u.folders {
+		description, roles := skillFrontmatter(u.texts[i])
 		rolesText := "all roles"
 		if roles != nil {
 			rolesText = *roles
 		}
 		fmt.Fprintf(&text, "\n## %s\n\nFolder: %s/\nDescription: %s\nRoles: %s\n\n", path.Base(folder), folder, strings.Join(strings.Fields(description), " "), rolesText)
-		keys := usageKeys(copied, func(key skillUsageKey) bool { return key.skill == folder })
+		keys := usageKeys(u.copied, func(key skillUsageKey) bool { return key.skill == folder })
 		if len(keys) == 0 {
 			text.WriteString("No copy and no use\n")
 			continue
 		}
 		text.WriteString("| Harness | Role | Had | Used | Uses | Last use |\n|---|---|---|---|---|---|\n")
 		for _, key := range keys {
-			sum := copied[key]
+			sum := u.copied[key]
 			fmt.Fprintf(&text, "| %s | %s | %d | %d | %d | %s |\n", key.harness, key.role, len(sum.had), len(sum.used), sum.uses, lastUse(sum))
 		}
 	}
 	text.WriteString("\n## Skills of the source harness\n\n")
-	keys := usageKeys(harness, func(skillUsageKey) bool { return true })
+	keys := usageKeys(u.harness, func(skillUsageKey) bool { return true })
 	if len(keys) == 0 {
 		text.WriteString("No use\n")
-		return text.String(), nil
+		return text.String()
 	}
 	text.WriteString("| Skill | Harness | Role | Used | Uses | Last use |\n|---|---|---|---|---|---|\n")
 	for _, key := range keys {
-		sum := harness[key]
+		sum := u.harness[key]
 		fmt.Fprintf(&text, "| %s | %s | %s | %d | %d | %s |\n", key.skill, key.harness, key.role, len(sum.used), sum.uses, lastUse(sum))
 	}
-	return text.String(), nil
+	return text.String()
 }
 
 // skillTexts gives the skill folders of the default branch of repository, and the text of the SKILL.md of each.
