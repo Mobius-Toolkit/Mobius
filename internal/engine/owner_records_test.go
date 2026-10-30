@@ -110,6 +110,61 @@ func TestTheResumeOfTheOwnerAddsOneRecordToTheLeadChat(t *testing.T) {
 	waitForRecords(t, server, leadChat, "You resumed #41.")
 }
 
+func TestTheStopOfAReadyIssueAddsOneRecordToTheLeadChat(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddUserCode(testkit.AppID, "user-code", "owner")
+	server := connectSeen(t, fake)
+	fake.AddIssue(shop, 40, "Add the price table")
+	fake.AddIssue(shop, 41, "Add plan model")
+	fake.AddSubIssue(shop, 12, 41)
+	fake.AddBlockedBy(shop, 41, 40)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	testkit.WaitFor(t, func() bool { return stateOfTask(t, server) == "ready" })
+	authorize(t, server)
+
+	if status, body := send(t, server, http.MethodPost, "/api/repositories/owner/shop/issues/41/stop", ""); status != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+
+	waitForRecords(t, server, leadChat, "You stopped #41.")
+}
+
+func TestTheStopOfARunningTaskAddsOneRecordToTheLeadChat(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddUserCode(testkit.AppID, "user-code", "owner")
+	server, _ := connectTask(t, fake, leadStarts, "[[prompts]]\nwhen = \"Plans have a price.\"\nhang = true\n", noChange)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "working" })
+	authorize(t, server)
+
+	if status, body := send(t, server, http.MethodPost, "/api/repositories/owner/shop/issues/41/stop", ""); status != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+
+	waitForRecords(t, server, leadChat, "You stopped #41.")
+}
+
+func TestTheRefusedStopOfTheOwnerAddsNoRecord(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddUserCode(testkit.AppID, "user-code", "owner")
+	addWorkstream(fake)
+	server := startCopiedWithLead(t, fake)
+	authorize(t, server)
+
+	status, body := send(t, server, http.MethodPost, "/api/repositories/owner/shop/issues/41/stop", "")
+
+	if status != http.StatusConflict {
+		t.Errorf("status = %d: %s", status, body)
+	}
+	waitForPolls(t, fake)
+	if got := records(t, server, leadChat); len(got) != 0 {
+		t.Errorf("records = %q", got)
+	}
+}
+
 func TestTheDismissOfTheOwnerAddsOneRecordToTheChatOfTheItem(t *testing.T) {
 	t.Parallel()
 	server, _ := connect(t, testkit.NewFakeGitHub(t), `
