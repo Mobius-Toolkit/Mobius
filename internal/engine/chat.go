@@ -889,7 +889,8 @@ func (e *Engine) runChat(c *chat) {
 		if current != nil && crashes <= maxCrashes {
 			continue
 		}
-		e.failChat(c, failure.Error(), true)
+		// A failure with no item of a turn must leave the ready events for a new session.
+		e.failChat(c, failure.Error(), current != nil)
 		return
 	}
 }
@@ -927,8 +928,9 @@ func (e *Engine) finishChat(c *chat, failure string) {
 }
 
 // failChat keeps each message of the chat that the agent did not get after the last failed try, adds one Inbox item
-// for each, and ends the chat. It sets no stop time: the message waits for the next try. A failed event goes to the
-// activity feed, unless the failure came before the first turn.
+// for each, and ends the chat. It sets no stop time: the message waits for the next try. A failed event of a turn goes
+// to the activity feed. A failure with no item of a turn, for example the save turn of an idle close, takes no event:
+// the ready events of the Workstream wait for a new session.
 func (e *Engine) failChat(c *chat, failure string, failedEvent bool) {
 	ctx := context.Background()
 	e.chatOrder.Lock()

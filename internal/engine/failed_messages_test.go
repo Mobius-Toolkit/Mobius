@@ -627,3 +627,55 @@ func TestSendAgainWhileARetryChatWaitsForItsStartGivesTheTextOneTime(t *testing.
 		t.Errorf("prompts that give the text = %d", got)
 	}
 }
+
+func TestAFailedSaveTurnKeepsAQueuedEventForANewSession(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, `
+[[prompts]]
+when = "dispatch of #42"
+reply = ["Seen two"]
+
+[[prompts]]
+when = "dispatch of #41"
+reply = ["Seen one"]
+
+[[prompts]]
+when = "Save in the Workstream memory"
+busy = "1s"
+error = { code = -32000, message = "Failed to save the memory" }
+`)
+
+	dispatchTask(fake, 41, "Add plan model")
+	first := waitForChatSession(t, server, leadChat, engine.LeadRole, func(session store.Session) bool {
+		prompts := promptTexts(t, server, session.ID)
+		return len(prompts) >= 2 && prompts[1] == savePrompt
+	})
+
+	dispatchTask(fake, 42, "Add plan route")
+	testkit.WaitFor(t, func() bool { return server.Engine.ChatQueued(leadChat) == 1 })
+
+	outcome := testkit.WaitForValue(t, func() (string, bool) {
+		for _, event := range activities(t, server) {
+			if strings.Contains(event.Text, "The Lead did not take this event") {
+				return "activity", true
+			}
+		}
+		for _, session := range chatSessions(t, server, leadChat, engine.LeadRole) {
+			if session.ID == first.ID {
+				continue
+			}
+			for _, prompt := range promptTexts(t, server, session.ID) {
+				if strings.Contains(prompt, "dispatch of #42") {
+					return "session", true
+				}
+			}
+		}
+		return "", false
+	})
+	if outcome != "session" {
+		t.Fatal("a failed turn with no item sent the queued event to the activity feed")
+	}
+
+	testkit.WaitFor(t, func() bool { return eventDelivered(t, server) })
+}
