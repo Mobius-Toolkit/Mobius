@@ -134,6 +134,47 @@ reply = ["Asked"]
 	}
 }
 
+func dismissFailedMessage(t *testing.T, server *testserver.Server, key engine.ChatKey, text string) {
+	t.Helper()
+	sendChat(t, server, key, text)
+	failed := testkit.WaitForValue(t, func() (inboxItem, bool) {
+		for _, item := range inbox(t, server) {
+			if item.Kind == "Lead failed" {
+				return item, true
+			}
+		}
+		return inboxItem{}, false
+	})
+
+	if status, body := send(t, server, http.MethodPost, "/api/inbox/"+itoa(failed.ID)+"/dismiss", ""); status != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+}
+
+func TestTheDismissOfAFailedMessageOfTheCoordinatorNamesTheStartOfTheMessage(t *testing.T) {
+	t.Parallel()
+	server, _ := connect(t, testkit.NewFakeGitHub(t), dies)
+
+	dismissFailedMessage(t, server, coordinatorChat, "  Please explain why the queue keeps growing after every plan\nSecond line.")
+
+	waitForRecords(t, server, coordinatorChat, `You dismissed the failed message "Please explain why the queue keeps growi…".`)
+	if got := records(t, server, leadChat); len(got) != 0 {
+		t.Errorf("records of the Lead chat = %q", got)
+	}
+}
+
+func TestTheDismissOfAFailedMessageOfTheLeadNamesTheStartOfTheMessage(t *testing.T) {
+	t.Parallel()
+	server, _ := connect(t, testkit.NewFakeGitHub(t), dies)
+
+	dismissFailedMessage(t, server, leadChat, "Plan the loyalty points API for the shop checkout\nSecond line.")
+
+	waitForRecords(t, server, leadChat, `You dismissed the failed message "Plan the loyalty points API for the shop…".`)
+	if got := records(t, server, coordinatorChat); len(got) != 0 {
+		t.Errorf("records of the Coordinator chat = %q", got)
+	}
+}
+
 func TestTheAnswerOfAQuestionOfTheCoordinatorAddsNoRecord(t *testing.T) {
 	t.Parallel()
 	server, _ := connect(t, testkit.NewFakeGitHub(t), `
