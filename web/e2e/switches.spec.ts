@@ -16,15 +16,36 @@ const line = (page: Page, kind: Kind) => page.getByText(lines[kind], { exact: tr
 
 const notice = (page: Page, text: string) => page.getByRole("status").filter({ hasText: text });
 
+const switchesRow = (page: Page) => page.getByRole("main").getByRole("link", { name: /^Switches/ });
+
+const back = (page: Page) => page.getByRole("button", { name: "Back" }).filter({ visible: true });
+
+// Fails the next request that turns the Start switch off. The switch stays on.
+async function failStartSwitch(page: Page) {
+  await page.route(
+    "**/api/switches/start",
+    (route) => route.fulfill({ status: 500, json: { error: "The switch did not change." } }),
+    { times: 1 },
+  );
+  const toggle = page.getByRole("main").getByRole("switch", { name: "Start" });
+  await expect(toggle).toBeChecked();
+  const failed = page.waitForResponse(
+    (res) => res.url().endsWith("/api/switches/start") && res.request().method() === "PUT",
+  );
+  await toggle.click();
+  await failed;
+  await expect(page.getByText("The switch did not change.")).toBeVisible();
+}
+
 for (const [kind, title] of [
   ["start", "Start"],
   ["merge", "Merge"],
   ["repairs", "Repairs"],
 ] as const) {
-  test(`the ${title} switch on the Settings page turns the switch off, and Resume turns it on`, async ({
+  test(`the ${title} switch on the Switches page turns the switch off, and Resume turns it on`, async ({
     page,
   }) => {
-    await page.goto("/settings");
+    await page.goto("/settings/switches");
     const toggle = page.getByRole("main").getByRole("switch", { name: title });
     await expect(toggle).toBeChecked();
 
@@ -167,10 +188,10 @@ test("a failed request after which the server has the new value leaves no error 
   await page.unrouteAll({ behavior: "wait" });
 });
 
-test("the Settings page shows the error of a switch under its row until the server gives a new value", async ({
+test("the Switches page shows the error of a switch under its row until the server gives a new value", async ({
   page,
 }) => {
-  await page.goto("/settings");
+  await page.goto("/settings/switches");
   await page.route(
     "**/api/switches/start",
     (route) => route.fulfill({ status: 500, json: { error: "The switch did not change." } }),
@@ -191,4 +212,46 @@ test("the Settings page shows the error of a switch under its row until the serv
 
   await expect(line(page, "start")).toBeVisible();
   await expect(page.getByText("The switch did not change.")).toBeHidden();
+});
+
+test("the Switches row of Settings shows All on when each switch is on", async ({ page }) => {
+  await page.goto("/settings");
+
+  await expect(switchesRow(page).getByText("All on", { exact: true })).toBeVisible();
+  await expect(switchesRow(page).getByText("Error", { exact: true })).toHaveCount(0);
+});
+
+test("the Switches row of Settings shows the titles of the switches that are off", async ({
+  page,
+}) => {
+  await turnOff(page, "start");
+  await turnOff(page, "merge");
+  await page.goto("/settings");
+
+  await expect(switchesRow(page).getByText("Start off, Merge off", { exact: true })).toBeVisible();
+});
+
+test("the Switches row of Settings shows Error after a failed switch request", async ({ page }) => {
+  await page.goto("/settings/switches");
+  await failStartSwitch(page);
+  await back(page).click();
+  await expect(page).toHaveURL("/settings");
+
+  await expect(switchesRow(page).getByText("All on", { exact: true })).toBeVisible();
+  await expect(switchesRow(page).getByText("Error", { exact: true })).toBeVisible();
+});
+
+test("the Switches row of Settings shows no Error after the server gives a new value", async ({
+  page,
+}) => {
+  await page.goto("/settings/switches");
+  await failStartSwitch(page);
+  await back(page).click();
+  await expect(page).toHaveURL("/settings");
+  await expect(switchesRow(page).getByText("Error", { exact: true })).toBeVisible();
+
+  await turnOff(page, "start");
+
+  await expect(switchesRow(page).getByText("Start off", { exact: true })).toBeVisible();
+  await expect(switchesRow(page).getByText("Error", { exact: true })).toHaveCount(0);
 });
