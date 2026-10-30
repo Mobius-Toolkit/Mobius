@@ -1694,6 +1694,93 @@ test("screenshots", async ({ page }) => {
       await page.unroute("**/api/devices/*");
     },
   );
+  // An open sheet hides the page behind it from the accessibility tree.
+  const roleRow = (name: string) =>
+    page.getByRole("button", { name: new RegExp(`^${name}`), includeHidden: true });
+  const roleSheet = page.getByRole("dialog", { name: "Reviewer" });
+  const pickRole = async (label: string, value: string) => {
+    await roleSheet.getByLabel(label, { exact: true }).click();
+    await page.getByRole("menuitemradio", { name: value, exact: true }).click();
+  };
+  const openReviewer = async () => {
+    await roleRow("Reviewer").click();
+    await expect(roleSheet.getByLabel("Effort", { exact: true })).toBeVisible();
+    await expect(roleSheet.getByRole("button", { name: "Save" })).toBeEnabled();
+  };
+  const writeRole = (method: "PUT" | "DELETE") =>
+    page.waitForResponse(
+      (res) => res.url().endsWith("/api/roles/judge") && res.request().method() === method,
+    );
+  await screenshot(page, "roles", "/settings/roles", (device) => [
+    ...frame(device, release),
+    roleRow("Lead"),
+    roleRow("Diagnoser"),
+  ]);
+  await screenshot(
+    page,
+    "roles-sheet",
+    "/settings/roles",
+    (device) => [
+      ...frame(device, release),
+      roleSheet.getByRole("button", { name: "Save" }),
+      roleSheet.getByLabel("Effort", { exact: true }),
+    ],
+    openReviewer,
+  );
+  await screenshot(
+    page,
+    "roles-model-list",
+    "/settings/roles",
+    (device) => [
+      ...frame(device, release),
+      page.getByRole("menuitemradio", { name: "sonnet", exact: true }),
+      page.getByRole("menuitemradio", { name: "gemini-3-pro", exact: true }),
+    ],
+    async () => {
+      await openReviewer();
+      await roleSheet.getByLabel("Model", { exact: true }).click();
+    },
+  );
+  await screenshot(
+    page,
+    "roles-refused",
+    "/settings/roles",
+    (device) => [
+      ...frame(device, release),
+      roleSheet.getByText("must not have the same harness and model"),
+    ],
+    async () => {
+      await openReviewer();
+      await pickRole("Harness", "devin");
+      await pickRole("Model", "swe-1.5");
+      const refused = page.waitForResponse(
+        (res) => res.url().endsWith("/api/roles/reviewer") && res.request().method() === "PUT",
+      );
+      await roleSheet.getByRole("button", { name: "Save" }).click();
+      expect((await refused).status()).toBe(422);
+      await page.mouse.move(0, 0);
+    },
+  );
+  await page.goto("/settings/roles");
+  await roleRow("Judge").click();
+  const judgeSheet = page.getByRole("dialog", { name: "Judge" });
+  await expect(judgeSheet.getByLabel("Effort", { exact: true })).toBeVisible();
+  await judgeSheet.getByLabel("Model", { exact: true }).click();
+  await page.getByRole("menuitemradio", { name: "sonnet", exact: true }).click();
+  const judgeSaved = writeRole("PUT");
+  await judgeSheet.getByRole("button", { name: "Save" }).click();
+  expect((await judgeSaved).ok()).toBe(true);
+  await expect(judgeSheet).toBeHidden();
+  await screenshot(page, "roles-ui", "/settings/roles", (device) => [
+    ...frame(device, release),
+    roleRow("Judge").getByText("sonnet"),
+    roleRow("Judge").getByText("UI", { exact: true }),
+  ]);
+  await roleRow("Judge").click();
+  const judgeReset = writeRole("DELETE");
+  await judgeSheet.getByRole("button", { name: "Reset" }).click();
+  expect((await judgeReset).ok()).toBe(true);
+  await expect(roleRow("Judge").getByText("haiku")).toBeVisible();
   await screenshot(page, "checkup", "/settings/checkup", (device) => [
     ...frame(device, release),
     main.getByRole("link", { name: "Tools" }).getByText("needs you"),
