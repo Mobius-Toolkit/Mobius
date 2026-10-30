@@ -440,7 +440,13 @@ test.describe("the back button of a settings page on a phone", () => {
   });
 
   test("opens the Settings after a direct open", async ({ page }) => {
-    for (const path of ["/github", "/devices", "/settings/checkup", "/agents"]) {
+    for (const path of [
+      "/github",
+      "/devices",
+      "/settings/checkup",
+      "/settings/switches",
+      "/agents",
+    ]) {
       await page.goto(path);
       await back(page).click();
       await expect(page).toHaveURL("/settings");
