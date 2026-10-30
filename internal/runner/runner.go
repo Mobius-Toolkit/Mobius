@@ -51,7 +51,7 @@ var StartTimeout = 5 * time.Minute
 var errStartTimeout = errors.New("the start took longer than")
 
 // ghURLEnv is the environment variable of an agent process that gives the URL of the token of its gh.
-const ghURLEnv = "MOBIUS_GH_TOKEN_URL"
+const ghURLEnv = "MOBIUS_GH_SESSION_URL"
 
 // ghWritesURLEnv is the environment variable of an agent process that gives the URL where its gh sends its writes.
 const ghWritesURLEnv = "MOBIUS_GH_WRITES_URL"
