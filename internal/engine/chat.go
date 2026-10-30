@@ -160,7 +160,9 @@ type chat struct {
 	// closing tells that the idle timeout or the drain started the close of the session, so no turn for an Owner
 	// message runs until the close ends.
 	closing bool
-	writing bool
+	// backgroundTurn tells that the wait turn of waitChatBackground runs.
+	backgroundTurn bool
+	writing        bool
 }
 
 // state gives the state of the chat. The caller holds e.chatsMu.
@@ -890,6 +892,7 @@ func (e *Engine) chat(c *chat, a *Agent, first item) error {
 	if err := e.itemTurn(c, a, first, prompt, images); err != nil {
 		return err
 	}
+	var backgroundStart time.Time
 	for {
 		next, ok := e.next(c)
 		if ok {
@@ -919,6 +922,12 @@ func (e *Engine) chat(c *chat, a *Agent, first item) error {
 		closing, err := e.idle(c)
 		if err != nil {
 			return err
+		}
+		if closing && !e.draining() && a.backgroundRunning() {
+			closing, err = e.waitChatBackground(c, a, &backgroundStart)
+			if err != nil {
+				return err
+			}
 		}
 		if !closing {
 			continue
