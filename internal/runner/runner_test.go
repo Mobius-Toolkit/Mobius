@@ -403,6 +403,20 @@ func (a *fakeAgent) Prompt(ctx context.Context, request acp.PromptRequest) (acp.
 	if os.Getenv("MOBIUS_FAKE_DSH") == "1" {
 		text += "; args " + strings.Join(os.Args[1:], " ")
 	}
+	prompt, err := json.Marshal(request.Prompt)
+	if err != nil {
+		return acp.PromptResponse{}, err
+	}
+	if err := os.WriteFile("prompt.json", prompt, 0o600); err != nil {
+		return acp.PromptResponse{}, err
+	}
+	sets, err := json.Marshal(a.sets)
+	if err != nil {
+		return acp.PromptResponse{}, err
+	}
+	if err := os.WriteFile("sets.json", sets, 0o600); err != nil {
+		return acp.PromptResponse{}, err
+	}
 	if err := a.conn.SessionUpdate(ctx, acp.SessionNotification{SessionId: request.SessionId, Update: acp.UpdateAgentMessageText(text)}); err != nil {
 		return acp.PromptResponse{}, err
 	}
