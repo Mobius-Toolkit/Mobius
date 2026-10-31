@@ -410,11 +410,6 @@ func (e *Engine) autoUpgradeTools(ctx context.Context) {
 		if errors.Is(err, errUpgradeRuns) {
 			continue
 		}
-		if ctx.Err() != nil {
-			// Mobius stops, so the npm run ended with the server. A record of this failure would keep the next start
-			// from installing the same version again.
-			return
-		}
 		if err != nil {
 			if failErr := e.failAutoUpgrade(ctx, check, err.Error()); failErr != nil {
 				log.Printf("auto-upgrade of %s: %v", check.Package, failErr)
