@@ -2079,6 +2079,12 @@ test("screenshots", async ({ page }) => {
     required: true,
     package: "@deepseek-ai/dsh",
   };
+  const npmError = [
+    "npm ERR! code EACCES",
+    "npm ERR! syscall mkdir",
+    "npm ERR! path /usr/local/lib/node_modules/@deepseek-ai",
+    ...Array.from({ length: 30 }, (_, index) => `npm ERR! at line ${index + 1} of the log`),
+  ].join("\n");
   await page.route("**/api/checkup/tools", (route) =>
     route.fulfill({ json: { data: [nodeTool] } }),
   );
@@ -2096,10 +2102,7 @@ test("screenshots", async ({ page }) => {
     },
   );
   await page.route("**/api/checkup/tools/upgrade", (route) =>
-    route.fulfill({
-      status: 409,
-      json: { error: "npm ERR! network request to the registry failed" },
-    }),
+    route.fulfill({ status: 409, json: { error: npmError } }),
   );
   await screenshot(
     page,
@@ -2107,7 +2110,9 @@ test("screenshots", async ({ page }) => {
     "/settings/checkup/tools",
     (device) => [
       ...frame(device, release),
-      page.getByRole("dialog").getByText("npm ERR! network request to the registry failed"),
+      page.getByRole("dialog").getByRole("heading", { name: "dsh" }),
+      page.getByRole("dialog").getByText("npm ERR! code EACCES"),
+      page.getByRole("dialog").getByRole("button", { name: "Upgrade" }),
     ],
     async () => {
       await main.getByRole("button", { name: /dsh/ }).click();

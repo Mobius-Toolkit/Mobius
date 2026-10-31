@@ -412,9 +412,15 @@ test("a failed upgrade shows the npm error and keeps the old version", async ({ 
     outdated: true,
     package: "@deepseek-ai/dsh",
   };
+  const npmError = [
+    "npm ERR! code EACCES",
+    "npm ERR! syscall mkdir",
+    "npm ERR! path /usr/local/lib/node_modules/@deepseek-ai",
+    ...Array.from({ length: 30 }, (_, index) => `npm ERR! at line ${index + 1} of the log`),
+  ].join("\n");
   await page.route(
     (url) => url.pathname === "/api/checkup/tools/upgrade",
-    (route) => route.fulfill({ status: 409, json: { error: "npm ERR! network down" } }),
+    (route) => route.fulfill({ status: 409, json: { error: npmError } }),
   );
   await routeCheckup(page, [outdated], { owner: healthy, plants: healthy });
 
@@ -423,8 +429,10 @@ test("a failed upgrade shows the npm error and keeps the old version", async ({ 
   const dialog = page.getByRole("dialog");
   await dialog.getByRole("button", { name: "Upgrade" }).click();
 
-  await expect(dialog.getByText("npm ERR! network down")).toBeVisible();
+  await expect(dialog.getByText("npm ERR! code EACCES")).toBeVisible();
   await expect(dialog.getByText("Installed: 0.2.1-rc.4")).toBeVisible();
+  await expect(dialog.getByRole("heading", { name: "dsh" })).toBeInViewport();
+  await expect(dialog.getByRole("button", { name: "Upgrade" })).toBeInViewport();
   await expect(page.locator("main").getByText("0.2.1-rc.4 · newest 0.2.1-rc.5")).toBeVisible();
 });
 

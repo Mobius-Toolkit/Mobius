@@ -278,20 +278,22 @@ function ToolUpgrade({
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent
         aria-describedby={undefined}
-        className="max-sm:top-auto max-sm:bottom-0 max-sm:left-0 max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-b-none sm:max-w-lg"
+        className="grid max-h-[calc(100dvh-2rem)] grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 p-0 max-sm:top-auto max-sm:bottom-0 max-sm:left-0 max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-b-none sm:max-h-[85dvh] sm:max-w-lg"
       >
-        <DialogHeader>
+        <DialogHeader className="p-4 pr-10">
           <DialogTitle className="wrap-anywhere">{tool.name}</DialogTitle>
         </DialogHeader>
-        <div className="grid gap-2">
+        <div className="grid min-w-0 content-start gap-2 overflow-y-auto px-4 pb-4">
           <p>
             Installed: <span className="wrap-anywhere">{tool.version}</span>
           </p>
           <p>
             Newest: <span className="wrap-anywhere">{tool.newest}</span>
           </p>
-          {error && <p className="text-destructive wrap-anywhere">{error}</p>}
-          <Button pending={pending} disabled={!tool.outdated} onClick={upgrade}>
+          {error && <p className="text-destructive wrap-anywhere whitespace-pre-wrap">{error}</p>}
+        </div>
+        <div className="border-t p-4">
+          <Button pending={pending} disabled={!tool.outdated} onClick={upgrade} className="w-full">
             Upgrade
           </Button>
         </div>
