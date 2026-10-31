@@ -2035,15 +2035,28 @@ test("screenshots", async ({ page }) => {
     ...frame(device, release),
     main.getByRole("link", { name: "owner/shop" }),
   ]);
-  await screenshot(page, "memory", "/settings/memory/owner/shop", (device) => [
+  await screenshot(page, "memory-files", "/settings/memory/owner/shop", (device) => [
     ...frame(device, release),
     page.getByText("Memory of owner/shop").filter({ visible: true }),
+    main.getByRole("link", { name: /Implementer/ }),
+    main.getByText("2 lines").first(),
+    main.getByText("Empty").first(),
+  ]);
+  await screenshot(page, "memory", "/settings/memory/owner/shop/shared", (device) => [
+    ...frame(device, release),
+    page.getByText("Shared · owner/shop").filter({ visible: true }),
     main.locator("ins", { hasText: "and each push" }),
     main.locator("del", { hasText: "fix round" }),
     main.locator("ins", { hasText: "Write each message in Simplified Technical English." }),
     main.locator("ins", { hasText: "Wait for a condition with testkit.WaitFor." }),
     main.getByText("A later version changed this part. Edit the file.").first(),
     main.getByText("Add: three fix rounds repeated the same wait with a fixed sleep in tests"),
+  ]);
+  await screenshot(page, "memory-role", "/settings/memory/owner/shop/implementer", (device) => [
+    ...frame(device, release),
+    page.getByText("Implementer · owner/shop").filter({ visible: true }),
+    main.getByText("Use pnpm for the frontend.").first(),
+    main.getByRole("heading", { name: "History" }),
   ]);
   const changedVersion = main
     .getByRole("heading", { name: "History" })
@@ -2052,7 +2065,7 @@ test("screenshots", async ({ page }) => {
   await screenshot(
     page,
     "memory-diff",
-    "/settings/memory/owner/shop",
+    "/settings/memory/owner/shop/shared",
     (device) => [
       ...frame(device, release),
       changedVersion.locator("del", { hasText: "fix round" }),
@@ -2063,7 +2076,7 @@ test("screenshots", async ({ page }) => {
     },
   );
   const memoryDialog = page.getByRole("dialog", {
-    name: "Edit the memory of owner/shop",
+    name: "Edit Shared · owner/shop",
     includeHidden: true,
   });
   const memoryDiscard = page.getByRole("dialog", { name: "Discard your changes?" });
@@ -2084,7 +2097,7 @@ test("screenshots", async ({ page }) => {
   await screenshot(
     page,
     "memory-edit",
-    "/settings/memory/owner/shop",
+    "/settings/memory/owner/shop/shared",
     (device) => [
       ...frame(device, release),
       memoryDialog.getByRole("button", { name: "Save" }),
@@ -2095,14 +2108,14 @@ test("screenshots", async ({ page }) => {
   await screenshot(
     page,
     "memory-edit-error",
-    "/settings/memory/owner/shop",
+    "/settings/memory/owner/shop/shared",
     (device) => [...frame(device, release), memoryDialog.getByText("the maximum is 200")],
     tooLong,
   );
   await screenshot(
     page,
     "memory-edit-discard",
-    "/settings/memory/owner/shop",
+    "/settings/memory/owner/shop/shared",
     (device) => [
       ...frame(device, release),
       memoryDiscard.getByRole("button", { name: "Keep editing" }),

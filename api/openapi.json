@@ -2577,7 +2577,82 @@
     },
     "/api/repositories/{owner}/{name}/memory": {
       "get": {
-        "description": "ListMemoryVersions returns a page of the versions of the memory file of the repository, the newest first, each with the result of the check of its revert. The first version of the first page is the current text of the file. It returns 404 when the repository is not a repository of Mobius.",
+        "description": "ListMemoryFiles returns each memory file of the repository in the order of the engine list, with the number of its lines. It returns 404 when the repository is not a repository of Mobius.",
+        "operationId": "ListMemoryFiles",
+        "parameters": [
+          {
+            "description": "Owner is the owner of the repository",
+            "in": "path",
+            "name": "owner",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Name is the name of the repository",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_Array_MemoryFile"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "memory"
+        ]
+      }
+    },
+    "/api/repositories/{owner}/{name}/memory/{file}": {
+      "get": {
+        "description": "ListMemoryVersions returns a page of the versions of the memory file of the repository, the newest first, each with the result of the check of its revert. The first version of the first page is the current text of the file. It returns 404 when the repository is not a repository of Mobius, or when it has no file with that name.",
         "operationId": "ListMemoryVersions",
         "parameters": [
           {
@@ -2593,6 +2668,15 @@
             "description": "Name is the name of the repository",
             "in": "path",
             "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "File is the name of the memory file: shared, or the name of a role",
+            "in": "path",
+            "name": "file",
             "required": true,
             "schema": {
               "type": "string"
@@ -2659,7 +2743,7 @@
         ]
       },
       "put": {
-        "description": "SaveMemory saves the text as the memory file of the repository and adds a version with the author owner. It does nothing when the text does not change. It returns 404 when the repository is not a repository of Mobius, 409 when a newer version exists than the base version, and 422 when the text has more than 200 lines.",
+        "description": "SaveMemory saves the text as the memory file of the repository and adds a version with the author owner. It does nothing when the text does not change. It returns 404 when the repository is not a repository of Mobius, or when it has no file with that name, 409 when a newer version exists than the base version, and 422 when the text has more than 200 lines.",
         "operationId": "SaveMemory",
         "parameters": [
           {
@@ -2675,6 +2759,15 @@
             "description": "Name is the name of the repository",
             "in": "path",
             "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "File is the name of the memory file: shared, or the name of a role",
+            "in": "path",
+            "name": "file",
             "required": true,
             "schema": {
               "type": "string"
@@ -2745,9 +2838,9 @@
         ]
       }
     },
-    "/api/repositories/{owner}/{name}/memory/{id}/revert": {
+    "/api/repositories/{owner}/{name}/memory/{file}/{id}/revert": {
       "post": {
-        "description": "RevertMemory undoes the change of the version in the current text of the memory file and saves the result as a new version with the author owner. It returns 404 when the repository is not a repository of Mobius, or when the version does not exist or belongs to another repository. It returns 409 when a later version changed the part, when the revert changes nothing, or when the result has more than 200 lines.",
+        "description": "RevertMemory undoes the change of the version in the current text of the memory file and saves the result as a new version with the author owner. It returns 404 when the repository is not a repository of Mobius, when it has no file with that name, or when the version does not exist or belongs to another repository or file. It returns 409 when a later version changed the part, when the revert changes nothing, or when the result has more than 200 lines.",
         "operationId": "RevertMemory",
         "parameters": [
           {
@@ -2763,6 +2856,15 @@
             "description": "Name is the name of the repository",
             "in": "path",
             "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "File is the name of the memory file: shared, or the name of a role",
+            "in": "path",
+            "name": "file",
             "required": true,
             "schema": {
               "type": "string"
@@ -6348,6 +6450,24 @@
         ],
         "description": "Envelope is the body of each success response."
       },
+      "Envelope_Array_MemoryFile": {
+        "type": "object",
+        "title": "Envelope_Array_MemoryFile",
+        "properties": {
+          "data": {
+            "type": "array",
+            "title": "[]MemoryFile",
+            "description": "Data is the payload of the response",
+            "items": {
+              "$ref": "#/components/schemas/MemoryFile"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "description": "Envelope is the body of each success response."
+      },
       "Envelope_Array_NeedsHuman": {
         "type": "object",
         "title": "Envelope_Array_NeedsHuman",
@@ -7655,6 +7775,35 @@
           "manifest"
         ],
         "description": "ManifestForm is the form that the browser posts to GitHub to create a Mobius App."
+      },
+      "MemoryFile": {
+        "type": "object",
+        "title": "MemoryFile",
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "File is the name of the memory file: shared, or the name of a role",
+            "enum": [
+              "shared",
+              "lead",
+              "implementer",
+              "reviewer",
+              "judge",
+              "researcher",
+              "diagnoser",
+              "curator"
+            ]
+          },
+          "lines": {
+            "type": "integer",
+            "description": "Lines is the number of lines of the file, and 0 when the file is empty or missing"
+          }
+        },
+        "required": [
+          "file",
+          "lines"
+        ],
+        "description": "MemoryFile is a memory file of a repository with the number of its lines."
       },
       "MemoryVersion": {
         "type": "object",
