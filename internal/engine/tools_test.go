@@ -122,7 +122,7 @@ func TestEachRoleGetsOnlyItsOwnTools(t *testing.T) {
 		{implementer, []string{"background_state", "cannot_do", "propose_skill", "reply_thread", "submit_report"}},
 		{researcher, []string{"background_state", "propose_skill"}},
 		{judge, []string{"background_state", "propose_skill", "submit_verdicts"}},
-		{curator, []string{"background_state", "edit_memory", "propose_skill"}},
+		{curator, []string{"background_state", "edit_memory", "propose_skill", "report_gap"}},
 		{diagnoser, []string{"background_state", "propose_skill", "report_failure"}},
 	} {
 		session := run(t, server, c.spec, "List the tools")

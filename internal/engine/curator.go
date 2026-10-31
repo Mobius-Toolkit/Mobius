@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
+	"github.com/Mobius-Toolkit/Mobius/internal/mcp"
 	"github.com/Mobius-Toolkit/Mobius/internal/runner"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
@@ -302,10 +303,14 @@ func (e *Engine) curateTurn(ctx context.Context, a *Agent, requests []store.List
 	if err != nil {
 		return err
 	}
+	roles, err := e.curatorRolesSection(a)
+	if err != nil {
+		return err
+	}
 	if err := a.open(ctx); err != nil {
 		return err
 	}
-	if err := a.Prompt(ctx, curatorPrompt+"\n"+maintenanceSection(a.spec.Repository, a.maintenance)+requestsSection(requests)+skills+rejections+sections+versions+problems+leads, nil); err != nil {
+	if err := a.Prompt(ctx, curatorPrompt+"\n"+maintenanceSection(a.spec.Repository, a.maintenance)+requestsSection(requests)+roles+skills+rejections+sections+versions+problems+leads, nil); err != nil {
 		return err
 	}
 	return a.waitBackground(ctx, backgroundPrompt)
@@ -476,4 +481,95 @@ func (e *Engine) editMemory(ctx context.Context, c caller, _ github.Repository, 
 	}
 	c.agent.memoryEdits = append(c.agent.memoryEdits, input)
 	return fmt.Sprintf("Saved the memory file %s. It has %d of %d lines.", input.File, countLines(text), maxMemoryLines), nil
+}
+
+// curatorRolesSection writes the role files for each role of memoryRoleFiles to a directory below scratch/
+// and gives the prompt section for them.
+func (e *Engine) curatorRolesSection(a *Agent) (string, error) {
+	rolesDir := filepath.Join(curatorScratch(e.config.DataDir, a.id), "roles")
+	if err := os.MkdirAll(rolesDir, 0o750); err != nil {
+		return "", err
+	}
+	var section strings.Builder
+	section.WriteString("# Mobius roles\n\n")
+	for _, role := range memoryRoleFiles {
+		callerRole := role
+		if role == "lead" {
+			callerRole = LeadRole
+		}
+		c := caller{
+			role: callerRole,
+			agent: &Agent{
+				skills:      true,
+				maintenance: issueAt{number: 1},
+			},
+		}
+		tools := e.tools(c)
+		slices.SortFunc(tools, func(t1, t2 mcp.Tool) int {
+			return strings.Compare(t1.Name, t2.Name)
+		})
+		names := make([]string, len(tools))
+		for i, t := range tools {
+			names[i] = t.Name
+		}
+		path := filepath.Join(rolesDir, role+".md")
+		fmt.Fprintf(&section, "- %s: %s\n", path, strings.Join(names, ", "))
+
+		var content strings.Builder
+		content.WriteString(rolePrompt(role))
+		if !strings.HasSuffix(content.String(), "\n") {
+			content.WriteString("\n")
+		}
+		content.WriteString("\n# Tools\n\n")
+		for _, t := range tools {
+			fmt.Fprintf(&content, "- `%s`: %s\n", t.Name, t.Description)
+		}
+		if err := os.WriteFile(path, []byte(content.String()), 0o600); err != nil {
+			return "", err
+		}
+	}
+	section.WriteString("\n")
+	return section.String(), nil
+}
+
+func rolePrompt(role string) string {
+	switch role {
+	case "lead", LeadRole:
+		return leadPrompt
+	case ImplementerRole:
+		return implementerPrompt
+	case ReviewerRole:
+		return reviewerPrompt
+	case JudgeRole:
+		return judgePrompt
+	case ResearcherRole:
+		return researcherPrompt
+	case DiagnoserRole:
+		return diagnoserPrompt
+	case CuratorRole:
+		return curatorPrompt
+	default:
+		return ""
+	}
+}
+
+type reportGapInput struct {
+	Text string `json:"text"`
+}
+
+func (e *Engine) reportGap(ctx context.Context, c caller, _ github.Repository, input reportGapInput) (string, error) {
+	if empty(input.Text) {
+		return "", refuse("text must not be empty.")
+	}
+	if c.agent != nil && slices.Contains(c.agent.reportedGaps, input.Text) {
+		return "", refuse("Mobius already posted this gap report. Do not call report_gap again for it.")
+	}
+	message := fmt.Sprintf("Gap of Mobius from the Curator %d of %s:\n\n%s", c.session, c.repository, input.Text)
+	if err := e.postChat(ctx, ChatKey{Organization: c.organization}, curatorAuthor, "", message, nil, nil); err != nil {
+		return "", err
+	}
+	if c.agent != nil {
+		c.agent.reportedGaps = append(c.agent.reportedGaps, input.Text)
+	}
+	return "Posted the gap report in the Coordinator chat.", nil
 }

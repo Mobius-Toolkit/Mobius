@@ -344,6 +344,12 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 					"reason": map[string]any{"type": "string", "minLength": 1, "description": "Why you make the change. Name the type of change (add, merge, change or remove) and the evidence, for example the Workstream, the issue or the pull request."},
 				},
 				e.editMemory),
+			tool(e, c, "report_gap",
+				"Report a gap of a Mobius tool or prompt to the Owner. Give the gap, the evidence, and the proposed change. Mobius posts the report in the Coordinator chat.",
+				map[string]any{
+					"text": map[string]any{"type": "string", "minLength": 1, "description": "The gap of a Mobius tool or prompt, the evidence, and the proposed change."},
+				},
+				e.reportGap),
 		}
 		if c.agent.maintenance.number == 0 {
 			return tools

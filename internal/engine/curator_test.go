@@ -928,3 +928,132 @@ func TestACuratorThatFailsToGetASlotSendsTheFailureToTheCoordinatorChat(t *testi
 		t.Errorf("requests = %d", got)
 	}
 }
+
+func TestTheCuratorGetsMobiusRoleFilesAndPromptSection(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	gate := filepath.Join(t.TempDir(), "gate")
+	script := fmt.Sprintf(`
+[[prompts]]
+when = "You are a Curator"
+later = { wait_for = %q, updates = ['{"sessionUpdate": "plan", "entries": []}'] }
+reply = ["The memory file is up to date."]
+`, gate) + curatorScript
+	server, dataDir := connect(t, fake, script)
+	endLeads(t, server, 10)
+
+	curator := testkit.WaitForValue(t, func() (store.Session, bool) {
+		sessions := curatorSessions(t, server)
+		if len(sessions) == 1 {
+			return sessions[0], true
+		}
+		return store.Session{}, false
+	})
+
+	scratchDir := filepath.Join(dataDir, "scratch", itoa(curator.ID))
+	leadFile := filepath.Join(scratchDir, "roles", "lead.md")
+	curatorFile := filepath.Join(scratchDir, "roles", "curator.md")
+
+	leadContent := testkit.WaitForValue(t, func() (string, bool) {
+		data, err := os.ReadFile(leadFile)
+		return string(data), err == nil
+	})
+
+	leadPromptData, err := os.ReadFile(filepath.Join("prompts", "lead.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(leadContent, string(leadPromptData)) {
+		t.Errorf("lead.md does not contain lead.md text: %s", leadContent)
+	}
+	if !strings.Contains(leadContent, "update_blockers") || !strings.Contains(leadContent, "Set the open blockers of an existing issue") {
+		t.Errorf("lead.md does not contain name and description of update_blockers: %s", leadContent)
+	}
+
+	curatorData, err := os.ReadFile(curatorFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	curatorContent := string(curatorData)
+	if !strings.Contains(curatorContent, "search_issues") || !strings.Contains(curatorContent, "report_gap") {
+		t.Errorf("curator.md does not contain search_issues and report_gap: %s", curatorContent)
+	}
+
+	prompts := testkit.WaitForValue(t, func() ([]string, bool) {
+		p := promptTexts(t, server, curator.ID)
+		return p, len(p) > 0
+	})
+	firstPrompt := prompts[0]
+	if !strings.Contains(firstPrompt, "# Mobius roles\n\n") {
+		t.Errorf("first prompt missing # Mobius roles section: %s", firstPrompt)
+	}
+	for _, role := range engine.MemoryRoleFiles {
+		rolePath := filepath.Join(scratchDir, "roles", role+".md")
+		if !strings.Contains(firstPrompt, rolePath) {
+			t.Errorf("first prompt does not contain role path %s", rolePath)
+		}
+	}
+	if !strings.Contains(firstPrompt, "update_blockers") {
+		t.Errorf("first prompt does not contain update_blockers in tool names")
+	}
+
+	if err := os.WriteFile(gate, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	testkit.WaitFor(t, func() bool {
+		sessions := curatorSessions(t, server)
+		return len(sessions) == 1 && sessions[0].EndReason.String == "done"
+	})
+
+	if _, err := os.Stat(scratchDir); !os.IsNotExist(err) {
+		t.Errorf("scratch folder %s still exists after session: %v", scratchDir, err)
+	}
+}
+
+func TestReportGapAddsCuratorMessageToCoordinatorChatAndRefusesRepeat(t *testing.T) {
+	t.Parallel()
+	gapText := "The Lead needs a tool to check widget prices."
+	script := fmt.Sprintf(`
+[[prompts]]
+when = "Report first"
+call = { tool = "report_gap", arguments = { text = %q } }
+
+[[prompts]]
+when = "Report second"
+call = { tool = "report_gap", arguments = { text = %q } }
+`, gapText, gapText)
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, script)
+
+	session := run(t, server, roleSpec(t, engine.CuratorRole), "Report first", "Report second")
+
+	calls := mcpCalls(t, server, session)
+	if len(calls) != 2 {
+		t.Fatalf("calls = %v", calls)
+	}
+	if calls[0]["result"] != "Posted the gap report in the Coordinator chat." {
+		t.Errorf("call 1 result = %v", calls[0]["result"])
+	}
+	if calls[1]["error"] != "Mobius already posted this gap report. Do not call report_gap again for it." {
+		t.Errorf("call 2 error = %v", calls[1]["error"])
+	}
+
+	rows, err := server.DB.Query("SELECT text FROM chat_messages WHERE organization = 'owner' AND repository = '' AND workstream = 0 AND author = 'Curator' ORDER BY id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+	var messages []string
+	for rows.Next() {
+		var text string
+		if err := rows.Scan(&text); err != nil {
+			t.Fatal(err)
+		}
+		messages = append(messages, text)
+	}
+	want := fmt.Sprintf("Gap of Mobius from the Curator %d of %s:\n\n%s", session, shop, gapText)
+	if len(messages) != 1 || messages[0] != want {
+		t.Errorf("messages = %v, want [%q]", messages, want)
+	}
+}
