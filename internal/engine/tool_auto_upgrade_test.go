@@ -231,13 +231,13 @@ func TestTheAutoUpgradeRunsNoNPMWhileTheDrainIsOn(t *testing.T) {
 	server, fake, _ := upgradeServer(t, prefix, npm, program)
 	t.Cleanup(func() { server.Engine.CancelDrain() })
 
-	if _, err := server.Engine.SetToolAutoUpgrade(context.Background(), upgradePackage, true); err != nil {
-		t.Fatal(err)
-	}
-
 	end, err := server.Engine.Drain(context.Background())
 	if err != nil || end != engine.Drained {
 		t.Fatalf("drain: %v, %v", end, err)
+	}
+
+	if _, err := server.Engine.SetToolAutoUpgrade(context.Background(), upgradePackage, true); err != nil {
+		t.Fatal(err)
 	}
 
 	server.Engine.SetClock(func() time.Time { return time.Now().Add(2 * time.Hour) })
