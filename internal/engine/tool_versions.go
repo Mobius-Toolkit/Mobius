@@ -293,6 +293,9 @@ func nodeInstall(programPath string) (prefix, npmPackage string) {
 // autoUpgradePackages gives each npm package whose auto-upgrade the Owner turned on. It gives no package when the
 // database read fails, so a failed read starts no upgrade.
 func (e *Engine) autoUpgradePackages(ctx context.Context) map[string]bool {
+	if e.db == nil {
+		return nil
+	}
 	rows, err := e.queries.ListToolAutoUpgrades(ctx)
 	if err != nil {
 		log.Printf("auto-upgrade packages: %v", err)
@@ -388,6 +391,9 @@ func (e *Engine) clearToolUpgradeFailure(ctx context.Context, npmPackage string)
 // autoUpgradeTools upgrades each package whose auto-upgrade is on when the newest version differs from the version that
 // failed last. It checks each poll, and it acts at the start and then each newestLife.
 func (e *Engine) autoUpgradeTools(ctx context.Context) {
+	if e.db == nil {
+		return
+	}
 	rows, err := e.queries.ListToolAutoUpgrades(ctx)
 	if err != nil {
 		log.Printf("auto-upgrade tools: %v", err)
