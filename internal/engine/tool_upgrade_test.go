@@ -190,3 +190,85 @@ func TestTheUpgradeRefusesAPackageThatNoRowHas(t *testing.T) {
 		t.Errorf("error = %v", err)
 	}
 }
+
+func TestTheDrainWaitsForARunningUpgrade(t *testing.T) {
+	prefix := t.TempDir()
+	program := filepath.Join(prefix, "lib", "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js")
+	started := filepath.Join(prefix, "started")
+	release := filepath.Join(prefix, "release")
+	npm := "#!/bin/sh\ntouch " + started + "\nwhile [ ! -e " + release + " ]; do sleep 0.05; done\nprintf '#!/bin/sh\\necho 0.2.1-rc.5\\n' > " + program + "\n"
+
+	server, _, _ := upgradeServer(t, prefix, npm, program)
+	t.Cleanup(func() { server.Engine.CancelDrain() })
+
+	upgradeDone := make(chan error, 1)
+	go func() {
+		_, err := server.Engine.UpgradeTool(context.Background(), upgradePackage)
+		upgradeDone <- err
+	}()
+	testkit.WaitFor(t, func() bool { _, err := os.Stat(started); return err == nil })
+
+	drainDone := make(chan engine.DrainEnd, 1)
+	go func() {
+		end, _ := server.Engine.Drain(context.Background())
+		drainDone <- end
+	}()
+
+	testkit.WaitFor(t, func() bool {
+		state := server.Engine.Draining()
+		return state.On && state.Waiting == 1
+	})
+	select {
+	case end := <-drainDone:
+		t.Fatalf("drain ended while upgrade was running: %v", end)
+	default:
+	}
+
+	touch(t, release)
+	if err := <-upgradeDone; err != nil {
+		t.Fatalf("upgrade: %v", err)
+	}
+	if end := <-drainDone; end != engine.Drained {
+		t.Errorf("drain end = %v, want %v", end, engine.Drained)
+	}
+}
+
+func TestAnUpgradeIsRefusedWhileTheDrainIsOn(t *testing.T) {
+	prefix := t.TempDir()
+	program := filepath.Join(prefix, "lib", "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js")
+	ran := filepath.Join(prefix, "ran")
+	npm := "#!/bin/sh\ntouch " + ran + "\nexit 0\n"
+
+	server, _, _ := upgradeServer(t, prefix, npm, program)
+	t.Cleanup(func() { server.Engine.CancelDrain() })
+
+	end, err := server.Engine.Drain(context.Background())
+	if err != nil || end != engine.Drained {
+		t.Fatalf("drain: %v, %v", end, err)
+	}
+
+	if _, err := server.Engine.UpgradeTool(context.Background(), upgradePackage); !engine.Refused(err) {
+		t.Errorf("error = %v, want refusal", err)
+	}
+	if _, err := os.Stat(ran); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("the fake npm ran: %v", err)
+	}
+}
+
+func TestTheDrainGivesDrainedAfterAFailedUpgrade(t *testing.T) {
+	prefix := t.TempDir()
+	program := filepath.Join(prefix, "lib", "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js")
+	npm := "#!/bin/sh\necho 'npm ERR! network down' >&2\nexit 1\n"
+
+	server, _, _ := upgradeServer(t, prefix, npm, program)
+	t.Cleanup(func() { server.Engine.CancelDrain() })
+
+	if _, err := server.Engine.UpgradeTool(context.Background(), upgradePackage); err == nil {
+		t.Fatal("upgrade succeeded, want failure")
+	}
+
+	end, err := server.Engine.Drain(context.Background())
+	if err != nil || end != engine.Drained {
+		t.Fatalf("drain: %v, %v", end, err)
+	}
+}

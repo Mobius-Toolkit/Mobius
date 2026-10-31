@@ -17,7 +17,7 @@ function DrainText({ waiting }: { waiting: number }) {
   if (waiting === 0) {
     return "Upgrade is ready to restart";
   }
-  return `Upgrade waits for ${waiting} ${waiting === 1 ? "agent" : "agents"}`;
+  return `Upgrade waits for ${waiting} ${waiting === 1 ? "agent or upgrade" : "agents or upgrades"}`;
 }
 
 export function UpgradeControls({ upgrade, newBuild }: { upgrade: Upgrade; newBuild: boolean }) {

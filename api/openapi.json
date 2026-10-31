@@ -6385,7 +6385,7 @@
           },
           "waiting": {
             "type": "integer",
-            "description": "Waiting is the number of agents that the drain waits for"
+            "description": "Waiting is the number of agents and npm upgrades that the drain waits for"
           }
         },
         "required": [
@@ -6400,7 +6400,7 @@
         "properties": {
           "end": {
             "type": "string",
-            "description": "End is drained when no agent of Mobius runs, and cancelled when the Owner cancelled the drain",
+            "description": "End is drained when no agent and no npm upgrade of Mobius runs, and cancelled when the Owner cancelled the drain",
             "enum": [
               "drained",
               "cancelled"

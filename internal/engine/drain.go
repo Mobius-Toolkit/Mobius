@@ -23,12 +23,13 @@ const (
 // DrainState is the state of the drain for an upgrade.
 type DrainState struct {
 	On bool
-	// Waiting is the number of sessions that the drain waits for.
+	// Waiting is the number of sessions and npm upgrades that the drain waits for.
 	Waiting int
 }
 
-// drain is the drain for an upgrade. While on, no Worker takes a slot. running counts each session that the drain
-// waits for: a Worker from its slot, and each other session from its start.
+// drain is the drain for an upgrade. While on, no Worker takes a slot. running counts each session and each npm
+// upgrade that the drain waits for: a Worker from its slot, each other session from its start, and an npm upgrade
+// of installNewest.
 type drain struct {
 	mu      sync.Mutex
 	on      bool
@@ -149,9 +150,9 @@ func (e *Engine) Draining() DrainState {
 	return DrainState{d.on, d.running}
 }
 
-// Drain holds each new Worker in the queue, asks each chat to close, and waits until no session runs. A session that
-// waits for the end of a pause does not count. A cancel ends the wait. A completed drain stays on, so a cancel still
-// releases the held Workers when the restart does not come.
+// Drain holds each new Worker in the queue, asks each chat to close, and waits until no session and no npm upgrade
+// runs. A session that waits for the end of a pause does not count. A cancel ends the wait. A completed drain stays on,
+// so a cancel still releases the held Workers when the restart does not come.
 func (e *Engine) Drain(ctx context.Context) (DrainEnd, error) {
 	d := &e.drain
 	d.mu.Lock()
@@ -192,8 +193,9 @@ func (e *Engine) CancelDrain() {
 	}
 }
 
-// seal closes a completed drain for the restart: no session starts and a cancel does nothing, until abortDrain.
-// It gives Drained when it sealed the drain, Cancelled after a cancel, and "" while a session runs.
+// seal closes a completed drain for the restart: no session and no npm upgrade starts and a cancel does nothing, until
+// abortDrain. It gives Drained when it sealed the drain, Cancelled after a cancel, and "" while a session or an npm
+// upgrade runs.
 func (e *Engine) seal() DrainEnd {
 	d := &e.drain
 	d.mu.Lock()

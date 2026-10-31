@@ -233,7 +233,7 @@ test("screenshots", async ({ page }) => {
   await expect(page).toHaveURL("/chat");
   // The side bar of a desktop and the Settings page of a phone have the same upgrade controls, and only one of them shows.
   const shown = (name: string) => page.getByRole("button", { name }).filter({ visible: true });
-  const drain = page.getByText("Upgrade waits for 2 agents").filter({ visible: true });
+  const drain = page.getByText("Upgrade waits for 2 agents or upgrades").filter({ visible: true });
   // The server starts the drain after the chats of the fake agents end.
   await expect(drain).toBeVisible({ timeout: 60_000 });
   await waitForEvergreen(page);

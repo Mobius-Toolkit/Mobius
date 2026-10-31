@@ -757,12 +757,12 @@ export interface DoneInboxItemBody {
 export interface Drain {
   /** On is true while the drain holds the new Workers. A completed drain stays on until a cancel or the restart */
   on: boolean;
-  /** Waiting is the number of agents that the drain waits for */
+  /** Waiting is the number of agents and npm upgrades that the drain waits for */
   waiting: number;
 }
 
 /**
- * End is drained when no agent of Mobius runs, and cancelled when the Owner cancelled the drain
+ * End is drained when no agent and no npm upgrade of Mobius runs, and cancelled when the Owner cancelled the drain
  */
 export type DrainEndEnd = typeof DrainEndEnd[keyof typeof DrainEndEnd];
 
@@ -776,7 +776,7 @@ export const DrainEndEnd = {
  * DrainEnd tells how a drain ended.
  */
 export interface DrainEnd {
-  /** End is drained when no agent of Mobius runs, and cancelled when the Owner cancelled the drain */
+  /** End is drained when no agent and no npm upgrade of Mobius runs, and cancelled when the Owner cancelled the drain */
   end: DrainEndEnd;
 }
 

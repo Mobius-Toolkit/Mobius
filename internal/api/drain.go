@@ -13,13 +13,13 @@ import (
 type Drain struct {
 	// On is true while the drain holds the new Workers. A completed drain stays on until a cancel or the restart
 	On bool `gork:"on"`
-	// Waiting is the number of agents that the drain waits for
+	// Waiting is the number of agents and npm upgrades that the drain waits for
 	Waiting int64 `gork:"waiting"`
 }
 
 // DrainEnd tells how a drain ended.
 type DrainEnd struct {
-	// End is drained when no agent of Mobius runs, and cancelled when the Owner cancelled the drain
+	// End is drained when no agent and no npm upgrade of Mobius runs, and cancelled when the Owner cancelled the drain
 	End string `gork:"end" validate:"oneof=drained cancelled"`
 }
 
