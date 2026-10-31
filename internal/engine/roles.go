@@ -22,7 +22,7 @@ type RoleSetting struct {
 
 // RoleFields has a flag for each field of a RoleBinding.
 type RoleFields struct {
-	Harness, Model, Effort, Max bool
+	Harness, Model, Effort, Context, Max bool
 }
 
 // mergedRoles gives the Roles of config.toml with the role_settings rows over them.
@@ -80,6 +80,9 @@ func overlay(binding *config.RoleBinding, row store.RoleSetting) {
 	if row.Effort.Valid {
 		binding.Effort = row.Effort.String
 	}
+	if row.Context.Valid {
+		binding.Context = int(row.Context.Int64)
+	}
 	if row.Max.Valid {
 		binding.Max = int(row.Max.Int64)
 	}
@@ -114,7 +117,7 @@ func (e *Engine) Roles(ctx context.Context) ([]RoleSetting, error) {
 		setting := RoleSetting{Role: b.Role, Binding: *b.Binding}
 		if index := slices.IndexFunc(rows, func(row store.RoleSetting) bool { return row.Role == b.Role }); index >= 0 {
 			row := rows[index]
-			setting.UI = RoleFields{Harness: row.Harness.Valid, Model: row.Model.Valid, Effort: row.Effort.Valid, Max: row.Max.Valid}
+			setting.UI = RoleFields{Harness: row.Harness.Valid, Model: row.Model.Valid, Effort: row.Effort.Valid, Context: row.Context.Valid, Max: row.Max.Valid}
 		}
 		settings = append(settings, setting)
 	}
@@ -157,11 +160,14 @@ func (e *Engine) SetRole(ctx context.Context, role string, binding config.RoleBi
 	if binding.Effort != base.Effort {
 		row.Effort = sql.NullString{String: binding.Effort, Valid: true}
 	}
+	if binding.Context != base.Context {
+		row.Context = sql.NullInt64{Int64: int64(binding.Context), Valid: true}
+	}
 	if binding.Max != base.Max {
 		row.Max = sql.NullInt64{Int64: int64(binding.Max), Valid: true}
 	}
 	var err error
-	if row.Harness.Valid || row.Model.Valid || row.Effort.Valid || row.Max.Valid {
+	if row.Harness.Valid || row.Model.Valid || row.Effort.Valid || row.Context.Valid || row.Max.Valid {
 		err = e.queries.UpsertRoleSetting(ctx, row)
 	} else {
 		err = e.queries.DeleteRoleSetting(ctx, role)

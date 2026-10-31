@@ -252,6 +252,7 @@ The Diagnoser reads the full log of each failed CI job of a pull request before 
 Each Role can also have these keys:
 
 - `max`: the maximum number of agents of the Role that run at the same time. The default is 8 for the Lead, 4 for the Coordinator, 12 for the Triager, and 2 for each other Role.
+- `context`: the largest context of a session of the Role, in tokens, from 100000 to 1000000. The Harness compacts the context before it reaches this value. Only `claude-code` has a context limit. No value means the default of the Harness.
 
 ## 6. Start
 

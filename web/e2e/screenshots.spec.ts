@@ -1923,6 +1923,62 @@ test("screenshots", async ({ page }) => {
   await judgeSheet.getByRole("button", { name: "Reset" }).click();
   expect((await judgeReset).ok()).toBe(true);
   await expect(roleRow("Judge").getByText("haiku")).toBeVisible();
+  await screenshot(
+    page,
+    "roles-context-sheet",
+    "/settings/roles",
+    (device) => [
+      ...frame(device, release),
+      roleSheet.getByLabel("Context", { exact: true }),
+      roleSheet.getByText("tokens", { exact: true }),
+    ],
+    async () => {
+      await openReviewer();
+      await roleSheet.getByLabel("Context", { exact: true }).fill("200000");
+      await expect(roleSheet.getByLabel("Context", { exact: true })).toHaveValue("200000");
+    },
+  );
+  const leadSheet = page.getByRole("dialog", { name: "Lead" });
+  await screenshot(
+    page,
+    "roles-context",
+    "/settings/roles",
+    (device) => [...frame(device, release), roleRow("Lead").getByText("200k", { exact: true })],
+    async () => {
+      await roleRow("Lead").click();
+      await leadSheet.getByLabel("Context", { exact: true }).fill("200000");
+      const saved = page.waitForResponse(
+        (res) => res.url().endsWith("/api/roles/lead") && res.request().method() === "PUT",
+      );
+      await leadSheet.getByRole("button", { name: "Save" }).click();
+      expect((await saved).ok()).toBe(true);
+      await expect(leadSheet).toBeHidden();
+    },
+    async () => {
+      await roleRow("Lead").click();
+      const reset = page.waitForResponse(
+        (res) => res.url().endsWith("/api/roles/lead") && res.request().method() === "DELETE",
+      );
+      await leadSheet.getByRole("button", { name: "Reset" }).click();
+      expect((await reset).ok()).toBe(true);
+      await expect(leadSheet).toBeHidden();
+    },
+  );
+  const implementerSheet = page.getByRole("dialog", { name: "Implementer" });
+  await screenshot(
+    page,
+    "roles-context-none",
+    "/settings/roles",
+    (device) => [
+      ...frame(device, release),
+      implementerSheet.getByLabel("Context", { exact: true }),
+      implementerSheet.getByText("This Harness has no context limit."),
+    ],
+    async () => {
+      await roleRow("Implementer").click();
+      await expect(implementerSheet.getByLabel("Context", { exact: true })).toBeDisabled();
+    },
+  );
   const voiceSection = (title: string) =>
     main.locator("section").filter({ has: page.getByRole("heading", { name: title }) });
   const voiceSearch = page.getByLabel("Search languages");

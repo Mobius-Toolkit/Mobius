@@ -20,7 +20,7 @@ type ModelChoice struct {
 // has no effort levels gives no efforts. The effort list follows the model, so ReadChoices sets each model and reads the
 // list that the Harness gives after the set.
 func ReadChoices(ctx context.Context, harness config.Harness, dir, dataDir, path string) ([]ModelChoice, error) {
-	session, err := Start(ctx, harness, dir, dataDir, path, "", "", "", "", func(json.RawMessage, bool) {})
+	session, err := Start(ctx, harness, 0, dir, dataDir, path, "", "", "", "", func(json.RawMessage, bool) {})
 	if err != nil {
 		return nil, err
 	}
