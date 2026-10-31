@@ -298,6 +298,9 @@ func (e *Engine) UpgradeTool(ctx context.Context, npmPackage string) ([]ToolChec
 		return nil, refuse("An upgrade of %s runs now.", check.Name)
 	}
 	defer e.endUpgrade(npmPackage)
+	// The npm run and the steps after it continue when the request ends, so a closed connection cannot leave the
+	// package of the Harness half written and without its record.
+	ctx = context.WithoutCancel(ctx)
 	output, err := runNPMUpgrade(ctx, filepath.Join(prefix, "bin", "npm"), prefix, npmPackage, check.Newest)
 	if err != nil {
 		return nil, refuse("The upgrade of %s failed: %v\n%s", check.Name, err, tail(string(output), upgradeOutput))
@@ -329,9 +332,7 @@ func (e *Engine) endUpgrade(npmPackage string) {
 // runNPMUpgrade runs npm to install npmPackage@version into the Node install at prefix. The PATH of the run starts
 // with the bin directory of the Node install, so the npm and the node of that install run.
 func runNPMUpgrade(ctx context.Context, npm, prefix, npmPackage, version string) ([]byte, error) {
-	// Only the time limit may stop the run: a stopped HTTP request must not kill npm in the middle of a global
-	// install, because that can leave the package of a Harness half written.
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), upgradeTimeout)
+	ctx, cancel := context.WithTimeout(ctx, upgradeTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, npm)
 	cmd.Args = append(cmd.Args, "install", "--global", "--prefix", prefix, npmPackage+"@"+version)

@@ -172,7 +172,12 @@ func TestAnUpgradeEndsAfterTheRequestOfTheOwnerEnds(t *testing.T) {
 	touch(t, release)
 
 	testkit.WaitFor(t, func() bool { _, err := os.Stat(ended); return err == nil })
-	<-done
+	if err := <-done; err != nil {
+		t.Fatalf("upgrade: %v", err)
+	}
+	if got := records(t, server, engine.ChatKey{Organization: "owner"}); !slices.Equal(got, []string{"You upgraded dsh to 0.2.1-rc.5."}) {
+		t.Errorf("records = %q", got)
+	}
 }
 
 func TestTheUpgradeRefusesAPackageThatNoRowHas(t *testing.T) {
