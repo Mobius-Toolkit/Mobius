@@ -180,9 +180,6 @@ func TestAFixRoundRepliesWithThePushedFixCommitAndResolvesTheThread(t *testing.T
 		t.Fatalf("prompts = %q", prompts)
 	}
 	inOrder(t, prompts[0],
-		"You are the Implementer",
-		"# Brief\n\nShip loyalty plans to all shops.\n",
-		"# Issue\n\n#41 Add plan model\n\nPlans have a price.\n",
 		"# Open items\n\nThread 2, plan.txt line 1:\n\n@"+app+", ",
 		"Store the unit.\n\nAction: fix\n")
 }
@@ -344,7 +341,7 @@ func TestStartFixRoundSendsTheFindingsOfTheLeadToAFixRound(t *testing.T) {
 		}
 		return "", false
 	})
-	inOrder(t, round, "# Issue\n\n#41 Add plan model\n\nPlans have a price.\n", "# Open items\n\nFindings of the Lead:\nRemove the lines out of scope.\n")
+	inOrder(t, round, "# Open items\n\nFindings of the Lead:\nRemove the lines out of scope.\n")
 	if task := liveTask(t, server, 41); task.FixRounds != 1 {
 		t.Errorf("task = %+v", task)
 	}
@@ -625,6 +622,7 @@ func TestAReviewWithAFindingAndAFollowUpStartsAFixRoundWithOnlyTheFinding(t *tes
 		t.Fatalf("prompts = %q", prompts)
 	}
 	_, items, _ := strings.Cut(prompts[0], "# Open items")
+	items, _, _ = strings.Cut(items, "# Pull request comments")
 	if !strings.Contains(items, "Thread 2, plan.txt line 1:") || strings.Contains(items, "Name the unit.") {
 		t.Errorf("open items = %q", items)
 	}

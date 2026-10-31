@@ -131,7 +131,7 @@ mode = ["default", "bypassPermissions"]
 	if err := c.call(t, acp.AgentMethodSessionNew, map[string]any{"cwd": c.dir, "mcpServers": []any{}}, &session); err != nil {
 		t.Fatal(err)
 	}
-	if session.SessionID != "fake-session" || len(session.ConfigOptions) != 2 ||
+	if !strings.HasPrefix(session.SessionID, "fake-session-") || len(session.ConfigOptions) != 2 ||
 		session.ConfigOptions[0]["id"] != "mode" || session.ConfigOptions[0]["category"] != "mode" ||
 		session.ConfigOptions[1]["id"] != "model" || session.ConfigOptions[1]["currentValue"] != "sonnet" {
 		t.Fatalf("session = %+v", session)

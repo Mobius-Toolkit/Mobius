@@ -91,6 +91,16 @@ func (s *Server) Close(key string) {
 	delete(s.callers, key)
 }
 
+// SetCaller replaces the caller of an open key. A continued Harness session uses it, so that its tools act for the new
+// session row.
+func (s *Server) SetCaller(key string, c Caller) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if found, ok := s.callers[key]; ok {
+		found.Caller = c
+	}
+}
+
 // Listed gives the protocol version of the first tools/list of the key, when it arrives.
 func (s *Server) Listed(key string) <-chan string {
 	s.mu.Lock()
@@ -120,6 +130,17 @@ func (s *Server) caller(key string) (*caller, bool) {
 	return found, ok
 }
 
+// current gives a copy of the caller of key, or false when the key is not open.
+func (s *Server) current(key string) (Caller, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	found, ok := s.callers[key]
+	if !ok {
+		return Caller{}, false
+	}
+	return found.Caller, true
+}
+
 func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.caller(r.PathValue("key")); !ok {
 		http.NotFound(w, r)
@@ -129,7 +150,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) ghToken(w http.ResponseWriter, r *http.Request) {
-	found, ok := s.caller(r.PathValue("key"))
+	found, ok := s.current(r.PathValue("key"))
 	if !ok || found.GHToken == nil {
 		http.NotFound(w, r)
 		return
@@ -145,7 +166,7 @@ func (s *Server) ghToken(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) ghWrites(w http.ResponseWriter, r *http.Request) {
-	found, ok := s.caller(r.PathValue("key"))
+	found, ok := s.current(r.PathValue("key"))
 	if !ok || found.GHWrites == nil {
 		http.NotFound(w, r)
 		return
@@ -182,7 +203,7 @@ func (s *Server) server(r *http.Request) *sdk.Server {
 		}
 	})
 	// The key can close between serve and this call. The server then has no tools.
-	found, ok := s.caller(key)
+	found, ok := s.current(key)
 	if !ok {
 		return server
 	}

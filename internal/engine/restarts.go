@@ -167,6 +167,7 @@ func (e *Engine) handFromStates(ctx context.Context, states []string, task store
 	if err != nil || from == "" {
 		return false, err
 	}
+	e.closeKept(task.ID)
 	e.publish(Change{Workstreams: true})
 	dismissErr := e.dismissReadyForReview(ctx, task, from)
 	repository, err := e.repository(task.Repository)

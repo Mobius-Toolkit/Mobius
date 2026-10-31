@@ -39,7 +39,7 @@ func TestStartFixRoundKeepsTheFindingsOfTheLeadOnAWorkingTaskForTheNextFixRound(
 		}
 		return "", false
 	})
-	if !strings.HasSuffix(prompt, "# Open items\n\nFindings of the Lead:\n"+keptFindings) {
+	if !strings.HasPrefix(prompt, "# Open items\n\nFindings of the Lead:\n"+keptFindings) {
 		t.Errorf("prompt = %s", prompt)
 	}
 	testkit.WaitFor(t, func() bool { return liveTask(t, server, 41).LeadFindings == "" })
@@ -81,7 +81,7 @@ func TestStartFixRoundKeepsTheFindingsOfTheLeadOnAReviewedTaskAndStartsAFixRound
 		}
 		return "", false
 	})
-	if !strings.HasSuffix(prompt, "# Open items\n\nFindings of the Lead:\n"+keptFindings) {
+	if !strings.HasPrefix(prompt, "# Open items\n\nFindings of the Lead:\n"+keptFindings) {
 		t.Errorf("prompt = %s", prompt)
 	}
 	testkit.WaitFor(t, func() bool { return liveTask(t, server, 41).LeadFindings == "" })
@@ -110,7 +110,7 @@ func TestThePollStartsAFixRoundForKeptFindingsOnATaskInApproval(t *testing.T) {
 		}
 		return "", false
 	})
-	if !strings.HasSuffix(prompt, "# Open items\n\nFindings of the Lead:\n"+keptFindings) {
+	if !strings.HasPrefix(prompt, "# Open items\n\nFindings of the Lead:\n"+keptFindings) {
 		t.Errorf("prompt = %s", prompt)
 	}
 	testkit.WaitFor(t, func() bool { return liveTask(t, server, 41).LeadFindings == "" })

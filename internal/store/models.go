@@ -279,6 +279,7 @@ type Session struct {
 	Parent               sql.NullInt64
 	Effort               sql.NullString
 	WorkstreamRepository string
+	Continued            int64
 }
 
 type SessionSkill struct {

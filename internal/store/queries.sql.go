@@ -841,7 +841,7 @@ func (q *Queries) AddReviewRound(ctx context.Context, id int64) error {
 const addSession = `-- name: AddSession :one
 INSERT INTO sessions (role, harness, model, effort, organization, repository, workstream_repository, workstream, issue, parent, started_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent, effort, workstream_repository
+RETURNING id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent, effort, workstream_repository, continued
 `
 
 type AddSessionParams struct {
@@ -890,6 +890,7 @@ func (q *Queries) AddSession(ctx context.Context, arg AddSessionParams) (Session
 		&i.Parent,
 		&i.Effort,
 		&i.WorkstreamRepository,
+		&i.Continued,
 	)
 	return i, err
 }
@@ -1363,7 +1364,7 @@ func (q *Queries) ClearChatMessageFailure(ctx context.Context, id int64) error {
 
 const clearQueueReason = `-- name: ClearQueueReason :one
 UPDATE sessions SET queue_reason = NULL WHERE id = ?
-RETURNING id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent, effort, workstream_repository
+RETURNING id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent, effort, workstream_repository, continued
 `
 
 func (q *Queries) ClearQueueReason(ctx context.Context, id int64) (Session, error) {
@@ -1386,6 +1387,7 @@ func (q *Queries) ClearQueueReason(ctx context.Context, id int64) (Session, erro
 		&i.Parent,
 		&i.Effort,
 		&i.WorkstreamRepository,
+		&i.Continued,
 	)
 	return i, err
 }
@@ -1952,7 +1954,7 @@ func (q *Queries) EndFullSlots(ctx context.Context) error {
 
 const endSession = `-- name: EndSession :one
 UPDATE sessions SET ended_at = ?, end_reason = ?, queue_reason = NULL WHERE id = ?
-RETURNING id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent, effort, workstream_repository
+RETURNING id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent, effort, workstream_repository, continued
 `
 
 type EndSessionParams struct {
@@ -1981,6 +1983,7 @@ func (q *Queries) EndSession(ctx context.Context, arg EndSessionParams) (Session
 		&i.Parent,
 		&i.Effort,
 		&i.WorkstreamRepository,
+		&i.Continued,
 	)
 	return i, err
 }
@@ -3172,7 +3175,7 @@ func (q *Queries) GetReviewComment(ctx context.Context, id int64) (sql.NullInt64
 }
 
 const getSession = `-- name: GetSession :one
-SELECT id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent, effort, workstream_repository FROM sessions WHERE id = ?
+SELECT id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent, effort, workstream_repository, continued FROM sessions WHERE id = ?
 `
 
 func (q *Queries) GetSession(ctx context.Context, id int64) (Session, error) {
@@ -3195,6 +3198,7 @@ func (q *Queries) GetSession(ctx context.Context, id int64) (Session, error) {
 		&i.Parent,
 		&i.Effort,
 		&i.WorkstreamRepository,
+		&i.Continued,
 	)
 	return i, err
 }
@@ -6638,7 +6642,7 @@ func (q *Queries) ListOpenSessionIDs(ctx context.Context) ([]int64, error) {
 }
 
 const listOpenSessions = `-- name: ListOpenSessions :many
-SELECT sessions.id, sessions.role, sessions.harness, sessions.model, sessions.repository, sessions.workstream, sessions.acp_session_id, sessions.started_at, sessions.ended_at, sessions.end_reason, sessions.queue_reason, sessions.organization, sessions.issue, sessions.parent, sessions.effort, sessions.workstream_repository, w.title AS workstream_title, i.title AS issue_title,
+SELECT sessions.id, sessions.role, sessions.harness, sessions.model, sessions.repository, sessions.workstream, sessions.acp_session_id, sessions.started_at, sessions.ended_at, sessions.end_reason, sessions.queue_reason, sessions.organization, sessions.issue, sessions.parent, sessions.effort, sessions.workstream_repository, sessions.continued, w.title AS workstream_title, i.title AS issue_title,
        (SELECT t.pull_request FROM tasks t
         WHERE t.repository = sessions.repository AND t.issue = sessions.issue
         ORDER BY t.id DESC LIMIT 1) AS pull_request
@@ -6683,6 +6687,7 @@ func (q *Queries) ListOpenSessions(ctx context.Context) ([]ListOpenSessionsRow, 
 			&i.Session.Parent,
 			&i.Session.Effort,
 			&i.Session.WorkstreamRepository,
+			&i.Session.Continued,
 			&i.WorkstreamTitle,
 			&i.IssueTitle,
 			&i.PullRequest,
@@ -7171,7 +7176,7 @@ func (q *Queries) ListSessionSkillsBetween(ctx context.Context, arg ListSessionS
 }
 
 const listSessions = `-- name: ListSessions :many
-SELECT id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent, effort, workstream_repository FROM sessions WHERE organization = ? AND workstream_repository = ? AND workstream = ? ORDER BY id
+SELECT id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent, effort, workstream_repository, continued FROM sessions WHERE organization = ? AND workstream_repository = ? AND workstream = ? ORDER BY id
 `
 
 type ListSessionsParams struct {
@@ -7206,6 +7211,7 @@ func (q *Queries) ListSessions(ctx context.Context, arg ListSessionsParams) ([]S
 			&i.Parent,
 			&i.Effort,
 			&i.WorkstreamRepository,
+			&i.Continued,
 		); err != nil {
 			return nil, err
 		}
@@ -8750,7 +8756,7 @@ func (q *Queries) SetPendingActionOldBrief(ctx context.Context, arg SetPendingAc
 
 const setQueueReason = `-- name: SetQueueReason :one
 UPDATE sessions SET queue_reason = ? WHERE id = ?
-RETURNING id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent, effort, workstream_repository
+RETURNING id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent, effort, workstream_repository, continued
 `
 
 type SetQueueReasonParams struct {
@@ -8778,6 +8784,7 @@ func (q *Queries) SetQueueReason(ctx context.Context, arg SetQueueReasonParams) 
 		&i.Parent,
 		&i.Effort,
 		&i.WorkstreamRepository,
+		&i.Continued,
 	)
 	return i, err
 }
@@ -8798,7 +8805,7 @@ func (q *Queries) SetReviewComment(ctx context.Context, arg SetReviewCommentPara
 
 const setSessionBinding = `-- name: SetSessionBinding :one
 UPDATE sessions SET harness = ?, model = ?, effort = ? WHERE id = ?
-RETURNING id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent, effort, workstream_repository
+RETURNING id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent, effort, workstream_repository, continued
 `
 
 type SetSessionBindingParams struct {
@@ -8833,8 +8840,18 @@ func (q *Queries) SetSessionBinding(ctx context.Context, arg SetSessionBindingPa
 		&i.Parent,
 		&i.Effort,
 		&i.WorkstreamRepository,
+		&i.Continued,
 	)
 	return i, err
+}
+
+const setSessionContinued = `-- name: SetSessionContinued :exec
+UPDATE sessions SET continued = 1 WHERE id = ?
+`
+
+func (q *Queries) SetSessionContinued(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, setSessionContinued, id)
+	return err
 }
 
 const setSyncCursor = `-- name: SetSyncCursor :exec
@@ -9185,7 +9202,7 @@ func (q *Queries) StartFullSlots(ctx context.Context, since string) error {
 
 const startSession = `-- name: StartSession :one
 UPDATE sessions SET started_at = ?, queue_reason = NULL WHERE id = ?
-RETURNING id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent, effort, workstream_repository
+RETURNING id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent, effort, workstream_repository, continued
 `
 
 type StartSessionParams struct {
@@ -9213,6 +9230,7 @@ func (q *Queries) StartSession(ctx context.Context, arg StartSessionParams) (Ses
 		&i.Parent,
 		&i.Effort,
 		&i.WorkstreamRepository,
+		&i.Continued,
 	)
 	return i, err
 }

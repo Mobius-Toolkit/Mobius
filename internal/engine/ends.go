@@ -495,6 +495,7 @@ func (e *Engine) stopTask(ctx context.Context, repository github.Repository, tas
 	if err != nil || stopped == 0 {
 		return err
 	}
+	e.closeKept(task.ID)
 	e.publish(Change{Workstreams: true})
 	from := task.State
 	if task.State == "working" && task.Worker.String == JudgeRole {
@@ -549,6 +550,7 @@ func (e *Engine) lostAccess(ctx context.Context, repositories []github.Repositor
 			if err := e.queries.EndTask(ctx, task.ID); err != nil {
 				return err
 			}
+			e.closeKept(task.ID)
 			e.publish(Change{Workstreams: true})
 			if err := e.stopWorkersOf(ctx, task); err != nil {
 				return err
@@ -564,6 +566,7 @@ func (e *Engine) endTask(ctx context.Context, repository github.Repository, task
 	if err := e.queries.EndTask(ctx, task.ID); err != nil {
 		return err
 	}
+	e.closeKept(task.ID)
 	e.publish(Change{Workstreams: true})
 	if err := e.dismissIssueItems(ctx, task.Repository, task.Issue, readyForReviewKind); err != nil {
 		return err

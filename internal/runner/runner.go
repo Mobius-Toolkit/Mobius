@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -172,6 +173,10 @@ type Session struct {
 	images  bool
 	cmd     *exec.Cmd
 	stop    context.CancelFunc
+	// mu guards updates.
+	mu sync.Mutex
+	// updates receives each session/update notification.
+	updates func(json.RawMessage, bool)
 }
 
 // Image is an image of a prompt.
@@ -232,12 +237,13 @@ func Start(ctx context.Context, harness config.Harness, cwd, dataDir, path, mcpU
 		stop()
 		return nil, err
 	}
-	conn, err := connect(cmd, updates)
+	session := &Session{harness: harness, cmd: cmd, stop: stop, updates: updates}
+	conn, err := connect(cmd, session.receive)
 	if err != nil {
 		stop()
 		return nil, fmt.Errorf("%s: %w", program, err)
 	}
-	session := &Session{harness: harness, conn: conn, cmd: cmd, stop: stop}
+	session.conn = conn
 	if err := session.limited(ctx, func(ctx context.Context) error { return session.open(ctx, cwd, mcpURL) }); err != nil {
 		session.Close()
 		if errors.Is(err, errStartTimeout) {
@@ -491,6 +497,33 @@ func (s *Session) Prompt(ctx context.Context, text string, images []Image) (Prom
 // Cancel asks the agent to end the turn of the session that runs.
 func (s *Session) Cancel(ctx context.Context) error {
 	return s.conn.SendNotification(ctx, acp.AgentMethodSessionCancel, acp.CancelNotification{SessionId: s.id})
+}
+
+// SetUpdates makes the session send its session/update notifications to updates.
+func (s *Session) SetUpdates(updates func(json.RawMessage, bool)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.updates = updates
+}
+
+// receive sends a session/update notification to the current updates function.
+func (s *Session) receive(params json.RawMessage, late bool) {
+	s.mu.Lock()
+	updates := s.updates
+	s.mu.Unlock()
+	if updates != nil {
+		updates(params, late)
+	}
+}
+
+// Alive tells if the Harness process of the session runs.
+func (s *Session) Alive() bool {
+	select {
+	case <-s.conn.Done():
+		return false
+	default:
+		return true
+	}
 }
 
 // Close ends the agent process.

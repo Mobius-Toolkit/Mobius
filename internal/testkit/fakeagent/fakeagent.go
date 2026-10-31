@@ -332,7 +332,7 @@ func (a *agent) newSession(ctx context.Context, params json.RawMessage) (any, *a
 	if a.mcpURL != "" && !skip {
 		go listTools(ctx, a.mcpURL)
 	}
-	return map[string]any{"sessionId": "fake-session", "configOptions": a.options}, nil
+	return map[string]any{"sessionId": "fake-session-" + strconv.Itoa(os.Getpid()), "configOptions": a.options}, nil
 }
 
 // holdSessionNew appends the program name to session_new_started, and waits for session_new_release.

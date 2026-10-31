@@ -208,6 +208,9 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 -- name: SetACPSessionID :exec
 UPDATE sessions SET acp_session_id = ? WHERE id = ?;
 
+-- name: SetSessionContinued :exec
+UPDATE sessions SET continued = 1 WHERE id = ?;
+
 -- name: EndSession :one
 UPDATE sessions SET ended_at = ?, end_reason = ?, queue_reason = NULL WHERE id = ?
 RETURNING *;

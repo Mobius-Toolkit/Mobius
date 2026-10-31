@@ -45,6 +45,9 @@ func (e *Engine) submitReport(ctx context.Context, c caller, repository github.R
 	if err := e.queries.SetTaskReport(ctx, store.SetTaskReportParams{Report: input.Report, ID: task.ID}); err != nil {
 		return "", err
 	}
+	c.agent.mu.Lock()
+	c.agent.report = input.Report
+	c.agent.mu.Unlock()
 	return "Mobius stored the report. Mobius writes it in the description of the pull request at the end of the turn.", nil
 }
 

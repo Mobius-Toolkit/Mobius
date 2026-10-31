@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
+	"github.com/Mobius-Toolkit/Mobius/internal/runner"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
@@ -51,6 +52,27 @@ func (e *Engine) AccessChecked() bool {
 		}
 	}
 	return true
+}
+
+// KeptSession gives the Harness session that the engine keeps for the task, or nil.
+func (e *Engine) KeptSession(task int64) *runner.Session {
+	e.keptMu.Lock()
+	defer e.keptMu.Unlock()
+	k := e.kept[task]
+	if k == nil {
+		return nil
+	}
+	return k.session
+}
+
+// StartImplementerForIssue starts the Implementer of the issue as the Lead tool does.
+func (e *Engine) StartImplementerForIssue(ctx context.Context, repositoryName string, workstream, number int64, instructions string) error {
+	repository, err := e.repository(repositoryName)
+	if err != nil {
+		return err
+	}
+	_, err = e.startImplementer(ctx, repository, repositoryName, workstream, number, instructions, sql.NullInt64{})
+	return err
 }
 
 // SetRecordedSkillHarnesses makes the Harnesses with a skill use record harnesses. It gives the function that sets the
@@ -124,6 +146,14 @@ func ClaudeMemoryDir(home, leadDir string) string {
 // StopWorker ends the Worker goroutines of the task with no state change.
 func (e *Engine) StopWorker(task int64) {
 	e.stop(task)
+}
+
+// SetBeforeKeep sets the function that runs after the row of a done round ends and before the engine stores the kept
+// session, and gives the function that sets the old one. A test that calls it is serial.
+func SetBeforeKeep(hook func(int64, *runner.Session)) func() {
+	old := beforeKeep
+	beforeKeep = hook
+	return func() { beforeKeep = old }
 }
 
 // DeliverMessage sets the delivery time of a message of the Owner.
