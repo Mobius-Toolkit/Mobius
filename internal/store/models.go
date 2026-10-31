@@ -376,6 +376,10 @@ type Task struct {
 	AutoMerge            int64
 	ApprovedHead         sql.NullString
 	Report               string
+	ApprovedReport       sql.NullString
+	ApprovedAgainHead    sql.NullString
+	ApprovedAgainComment sql.NullString
+	ApprovedReportHead   sql.NullString
 }
 
 type TaskState struct {

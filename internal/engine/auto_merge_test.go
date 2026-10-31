@@ -94,7 +94,7 @@ func TestWithoutAMergeLevelTheApprovalOfTheLeadAddsNoReviewAndTheItemKeepsTheMer
 	}
 }
 
-func TestAHeadThatDoesNotContainTheDefaultBranchGetsAnUpdateAndMergesAfterTheNewApproval(t *testing.T) {
+func TestAHeadThatDoesNotContainTheDefaultBranchGetsAnUpdateAndMobiusApprovesItAgain(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := approvable(t, fake, "merge", true)
@@ -103,25 +103,24 @@ func TestAHeadThatDoesNotContainTheDefaultBranchGetsAnUpdateAndMergesAfterTheNew
 
 	sendChat(t, server, leadChat, "Approve #41")
 
-	testkit.WaitFor(t, func() bool { return fake.UpdateBranchCalls() == 1 })
-	testkit.WaitFor(t, func() bool { return readyEvents(t, server) == 2 && taskState(t, server) == "approval" })
-	isAncestor(t, fake, "main", head(t, fake, "mobius/41"))
-	if calls := fake.MergeCalls(); calls != 0 {
-		t.Errorf("merge calls = %d", calls)
-	}
-	if got := head(t, fake, "mobius/41"); got == old {
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "" })
+	head := head(t, fake, "mobius/41")
+	if head == old {
 		t.Error("the head did not change")
 	}
-
-	sendChat(t, server, leadChat, "Approve #41")
-
-	testkit.WaitFor(t, func() bool { return taskState(t, server) == "" })
+	if got := approvedHead(t, server); got != head {
+		t.Errorf("approved_head = %q, want %q", got, head)
+	}
+	if got := approvedReport(t, server); got != "Checked the diff. Verified the tests." {
+		t.Errorf("approved_report = %q", got)
+	}
 	if calls, updates, count := fake.MergeCalls(), fake.UpdateBranchCalls(), approvals(fake); calls != 1 || updates != 1 || count != 2 {
 		t.Errorf("merge calls = %d, update calls = %d, approvals = %d", calls, updates, count)
 	}
 	if got := testkit.Git(t, fake.Remote(shop), "show", "main:price.txt"); got != "cents" {
 		t.Errorf("price.txt = %q", got)
 	}
+	checkApprovalAgain(t, fake, server, old, head, "Mobius merges it after its checks pass.")
 }
 
 func TestAHeadThatContainsTheDefaultBranchMergesWithNoUpdate(t *testing.T) {

@@ -691,6 +691,13 @@ func (g *FakeGitHub) FailUpdateCheckRuns(fail bool) {
 	g.failCheckUpdates = fail
 }
 
+// FailedCheckUpdates gives the number of updates of a check run that FailUpdateCheckRuns made fail.
+func (g *FakeGitHub) FailedCheckUpdates() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.failedCheckUpdates
+}
+
 func (g *FakeGitHub) updateCheckRun(w http.ResponseWriter, r *http.Request) {
 	var request struct {
 		Name       string          `json:"name"`
@@ -704,6 +711,7 @@ func (g *FakeGitHub) updateCheckRun(w http.ResponseWriter, r *http.Request) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.failCheckUpdates {
+		g.failedCheckUpdates++
 		http.Error(w, "check run update refused", http.StatusInternalServerError)
 		return
 	}

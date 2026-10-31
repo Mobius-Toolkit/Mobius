@@ -416,6 +416,13 @@ func (g *FakeGitHub) FailAddLabels(repository string, number int64, fail bool) {
 	g.failedLabels[issueKey{repository, number}] = fail
 }
 
+// RefuseAddLabels makes each add of a label to the issue give the status. The status 0 makes the label work.
+func (g *FakeGitHub) RefuseAddLabels(repository string, number int64, status int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.refusedLabels[issueKey{repository, number}] = status
+}
+
 // RefuseAddLabelOnce makes the next add of a label to the issue give the status. Later adds work.
 func (g *FakeGitHub) RefuseAddLabelOnce(repository string, number int64, status int) {
 	g.mu.Lock()
@@ -1319,6 +1326,10 @@ func (g *FakeGitHub) addLabels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	g.labelWrites[key]++
+	if status := g.refusedLabels[key]; status != 0 {
+		message(w, status, "Resource not accessible by integration")
+		return
+	}
 	if status := g.refusedLabelOnce[key]; status != 0 {
 		delete(g.refusedLabelOnce, key)
 		message(w, status, "Resource not accessible by integration")

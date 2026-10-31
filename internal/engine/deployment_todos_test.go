@@ -196,6 +196,8 @@ func TestWithAMergeLevelAndNoNeedThereIsNoTodoAndMobiusMerges(t *testing.T) {
 	}
 }
 
+// TestASecondApprovalOfTheSameTaskAddsNoSecondTodoForTheSameNeed checks that the approval again after the update of the
+// branch adds no second todo for the same need, and that the task still merges.
 func TestASecondApprovalOfTheSameTaskAddsNoSecondTodoForTheSameNeed(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
@@ -203,14 +205,14 @@ func TestASecondApprovalOfTheSameTaskAddsNoSecondTodoForTheSameNeed(t *testing.T
 	old := head(t, fake, "mobius/41")
 	fake.CommitFile(shop, "price.txt", "cents\n", "Add price")
 	sendChat(t, server, leadChat, "Approve #41")
-	testkit.WaitFor(t, func() bool { return readyEvents(t, server) == 2 && taskState(t, server) == "approval" })
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "" })
 	if head(t, fake, "mobius/41") == old {
 		t.Fatal("the head did not change")
 	}
-
-	sendChat(t, server, leadChat, "Approve #41")
-
-	testkit.WaitFor(t, func() bool { return taskState(t, server) == "" })
+	if got := approvalAgainComments(fake); got != 1 {
+		t.Errorf("comments of the approval again = %d, want 1", got)
+	}
 	var count int
 	if err := server.DB.QueryRow("SELECT count(*) FROM deployment_todos").Scan(&count); err != nil {
 		t.Fatal(err)
