@@ -259,10 +259,12 @@ func (e *Engine) differences(ctx context.Context, repository github.Repository, 
 		if len(resolved) > 0 {
 			again = false
 		}
-		if len(shared) == 0 {
+		if len(shared) == 0 && len(resolved) == 0 {
 			continue
 		}
-		again = false
+		if len(shared) > 0 {
+			again = false
+		}
 		if len(resolved) == 0 {
 			reasons = append(reasons, fmt.Sprintf("%.8s is a clean merge", sha))
 		} else {

@@ -358,10 +358,18 @@ func TestTheEventAfterAMergeWithAHandChangeAndNoSharedBroughtInCommitGetsReadyFo
 	testkit.Git(t, work, "add", "plan.txt")
 	testkit.Git(t, work, "commit", "-m", "Merge main by hand")
 	testkit.Git(t, work, "push", "origin", "mobius/41")
+	hand := testkit.Git(t, work, "rev-parse", "HEAD")
 	fake.ReleaseBranchUpdates()
 
 	event := eventAfterApproval(t, server, approved)
 	if !strings.Contains(event, " ready for Lead approval of #41 ") {
+		t.Errorf("event = %q", event)
+	}
+	want := fmt.Sprintf("\n- %.8s holds a hand resolution in plan.txt", hand)
+	if !strings.Contains(event, want) {
+		t.Errorf("event = %q, want %q", event, want)
+	}
+	if strings.Contains(event, "is the same as at the approved head") {
 		t.Errorf("event = %q", event)
 	}
 	waitForPolls(t, fake)
