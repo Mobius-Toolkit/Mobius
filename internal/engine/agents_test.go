@@ -176,7 +176,7 @@ func TestALeadSessionIsALeadNodeThatIsLiveUntilItEnds(t *testing.T) {
 	}
 	node := nodes[0]
 	if node.Name != "Lead" || node.Title != "chat session" || node.Session.Harness != "claude-code" || node.Session.Model != "opus" ||
-		node.Session.EndedAt.Valid || node.Session.AcpSessionID.String != "fake-session" {
+		node.Session.EndedAt.Valid || !strings.HasPrefix(node.Session.AcpSessionID.String, "fake-session-") {
 		t.Errorf("node = %+v", node)
 	}
 

@@ -84,7 +84,7 @@ func TestAFixRoundGetsTheReportAndReplacesTheSectionBeforeTheScreenshots(t *test
 		t.Errorf("body = %q", body)
 	}
 	round := roundPrompt(t, server)
-	if want := "# Report\n\n" + firstReport + "\n\nIf your change makes this report wrong, call `submit_report` with the full new report.\n\n# Open items"; !strings.Contains(round, want) {
+	if want := "# Open items\n\nFindings of the Lead:\nRemove the lines out of scope.\n\nIf your change makes your report wrong, call `submit_report` with the full new report."; !strings.Contains(round, want) {
 		t.Errorf("prompt = %s", round)
 	}
 	if task := liveTask(t, server, 41); task.Report != secondReport {

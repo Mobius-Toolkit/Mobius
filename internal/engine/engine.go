@@ -155,6 +155,10 @@ type Engine struct {
 	detailsMu sync.Mutex
 	// implementers holds the open Implementer session of each task, by the id of the task.
 	implementers map[int64]*Agent
+	// keptMu guards kept.
+	keptMu sync.Mutex
+	// kept holds the open Harness session of the Implementer of each task, by the id of the task.
+	kept map[int64]*keptSession
 	// researchers holds the session of each Researcher that runs, by the id of its session.
 	researchers map[int64]*Agent
 
@@ -221,6 +225,7 @@ func New(db *sql.DB, gh *github.GitHub, cfg *config.Config, agents Agents) *Engi
 		stops:           map[any]stopper{},
 		live:            map[any]int{},
 		implementers:    map[int64]*Agent{},
+		kept:            map[int64]*keptSession{},
 		loadWaits:       map[int64]chan struct{}{},
 		researchers:     map[int64]*Agent{},
 		curators:        map[string]bool{},
@@ -334,6 +339,7 @@ func (e *Engine) stopWorkers() {
 	}
 	e.stopsMu.Unlock()
 	e.running.Wait()
+	e.closeKeptSessions()
 }
 
 // Recover ends the sessions of the earlier run of the server, notes its last chat message, frees the pending actions

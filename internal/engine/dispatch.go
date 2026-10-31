@@ -129,6 +129,7 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 			if err := e.queries.EndTask(ctx, task.ID); err != nil {
 				return err
 			}
+			e.closeKept(task.ID)
 			e.publish(Change{Workstreams: true})
 		}
 		if err := e.dispatch(ctx, repository, issue, workstreamRepository, workstream, actor); err != nil {

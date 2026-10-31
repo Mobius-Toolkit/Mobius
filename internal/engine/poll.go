@@ -36,6 +36,7 @@ func (e *Engine) poll(ctx context.Context) {
 		}
 		return
 	}
+	e.expireKeptSessions()
 	known := repositoryKeys(e.github.Repositories())
 	complete, err := e.github.Refresh(ctx)
 	if err != nil {

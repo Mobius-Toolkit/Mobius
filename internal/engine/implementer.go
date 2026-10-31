@@ -51,6 +51,17 @@ type job struct {
 	// oldHead is the head of the pull request before the first try to push, or "" before that try.
 	oldHead string
 	prompt  string
+	// first is the first prompt of the attempt. It is the short prompt when the attempt continues the kept session.
+	first string
+	// cont tells that the round can continue the kept session of the task.
+	cont bool
+	// reused tells that the attempt continues the kept session, so it does not open a Harness.
+	reused bool
+	// items is the text of the open items of a fix round, or "".
+	items string
+	// brief and issueBody are the texts that the session got, for the short prompt of a later round.
+	brief     string
+	issueBody string
 	// parent is the session of the agent that started the work, or the newest session of the issue when Mobius started it.
 	parent sql.NullInt64
 }
@@ -155,6 +166,8 @@ func (e *Engine) startImplementer(ctx context.Context, repository github.Reposit
 		branch:      task.Branch.String,
 		pullRequest: pullRequest,
 		prompt:      fmt.Sprintf("%s\n%s# Brief\n\n%s\n\n# Issue\n\n%s\n# Lead instructions\n\n%s", implementerPrompt, sections, brief, text, instructions),
+		brief:       brief,
+		issueBody:   issue.GetBody(),
 		parent:      parent,
 	}
 	if err := e.setWorker(ctx, task.ID, ImplementerRole, j.prompt); err != nil {
@@ -607,7 +620,11 @@ func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r r
 		pullRequest: r.pullRequest,
 		prompt: fmt.Sprintf("%s\n%s# Brief\n\n%s\n\n# Issue\n\n#%d %s\n\n%s\n\n%s\n%s# Open items\n%s",
 			implementerPrompt, sections, brief, r.task.Issue, issue.GetTitle(), issue.GetBody(), comments, reportPrompt(r.task.Report), r.items),
-		parent: r.parent,
+		cont:      true,
+		items:     r.items,
+		brief:     brief,
+		issueBody: issue.GetBody(),
+		parent:    r.parent,
 	}
 	worker := ImplementerRole
 	if r.failedCheck {
@@ -712,7 +729,9 @@ func (e *Engine) conflictRound(ctx context.Context, repository github.Repository
 		conflictRound: true,
 		prompt: fmt.Sprintf("%s\n%s# Brief\n\n%s\n\n# Issue\n\n#%d %s\n\n%s\n\n%s\n# Base branch\n\norigin/%s\n\nMerge the base branch and remove the conflicts. Make no other change.",
 			implementerPrompt, sections, brief, task.Issue, issue.GetTitle(), issue.GetBody(), comments, repository.DefaultBranch),
-		parent: parent,
+		brief:     brief,
+		issueBody: issue.GetBody(),
+		parent:    parent,
 	}
 	if err := e.setWorker(ctx, task.ID, conflictRoundWorker, j.prompt); err != nil {
 		return err
@@ -746,6 +765,10 @@ func (e *Engine) restartImplementer(repository github.Repository, task store.Tas
 		if err != nil {
 			return false, err
 		}
+		brief, err := e.workstreamBrief(ctx, task)
+		if err != nil {
+			return false, err
+		}
 		queued, err := e.requeueTask(ctx, task.ID)
 		if err != nil || queued == 0 {
 			return false, err
@@ -757,6 +780,8 @@ func (e *Engine) restartImplementer(repository github.Repository, task store.Tas
 			pullRequest:   pullRequest,
 			conflictRound: task.Worker.String == conflictRoundWorker,
 			prompt:        task.WorkerInput.String,
+			brief:         brief,
+			issueBody:     issue.GetBody(),
 			parent:        parent,
 		}
 		return true, nil
@@ -861,6 +886,8 @@ func (e *Engine) queueAgain(ctx context.Context, task int64) (bool, error) {
 // An error tells that the Worker must start again.
 func (e *Engine) implementer(ctx context.Context, j *job) error {
 	task := j.task
+	j.reused = false
+	j.first = j.prompt
 	spec := Spec{
 		Role:                 ImplementerRole,
 		Organization:         owner(task.Repository),
@@ -882,6 +909,17 @@ func (e *Engine) implementer(ctx context.Context, j *job) error {
 		}
 		return err
 	}
+	if j.cont {
+		if kept := e.takeKeptSession(task.ID, a.binding); kept != nil {
+			if err := a.continueSession(ctx, kept); err != nil {
+				return a.Fail(context.WithoutCancel(ctx), err)
+			}
+			j.reused = true
+			j.first = shortPrompt(*j, kept)
+		}
+	} else {
+		e.closeKept(task.ID)
+	}
 	ended := context.WithoutCancel(ctx)
 	r, err := e.implement(ctx, a, j)
 	switch {
@@ -892,7 +930,11 @@ func (e *Engine) implementer(ctx context.Context, j *job) error {
 	case err != nil:
 		return a.Fail(ended, err)
 	}
-	if err := a.End(ended, string(r.outcome)); err != nil {
+	if r.outcome == done {
+		if err := e.keepImplementer(ended, a, task, j); err != nil {
+			return err
+		}
+	} else if err := a.End(ended, string(r.outcome)); err != nil {
 		return err
 	}
 	switch r.outcome {
@@ -940,6 +982,42 @@ func (e *Engine) implementer(ctx context.Context, j *job) error {
 		output: fmt.Sprintf("Git gave this error:\n\n```\n%s\n```", r.text),
 		next:   "Read the error in the Lead chat or the Inbox. Fix the cause, then Resume.",
 	})
+}
+
+// shortPrompt gives the first prompt of a round that continues the kept session. It has only the open items, and the
+// Brief or the issue text when it changed since the earlier round.
+func shortPrompt(j job, kept *keptSession) string {
+	var text strings.Builder
+	text.WriteString("# Open items\n")
+	text.WriteString(j.items)
+	text.WriteString("\nIf your change makes your report wrong, call `submit_report` with the full new report.\n")
+	if j.brief != kept.brief {
+		fmt.Fprintf(&text, "\n# Brief\n\n%s\n\nThis Brief replaces the Brief that the earlier round read.\n", j.brief)
+	}
+	if j.issueBody != kept.issue {
+		fmt.Fprintf(&text, "\n# Issue\n\n#%d %s\n\n%s\n\nThis issue text replaces the issue text that the earlier round read.\n", j.task.Issue, j.title, j.issueBody)
+	}
+	return text.String()
+}
+
+// keepImplementer ends the row of the done round and keeps its Harness process for the next round of the task. The
+// row ends as each other, so a kept session holds no slot.
+func (e *Engine) keepImplementer(ctx context.Context, a *Agent, task store.Task, j *job) error {
+	k := &keptSession{session: a.session, key: a.key, binding: a.binding, keptAt: e.timeNow(), brief: j.brief, issue: j.issueBody}
+	if err := a.end(ctx, string(done), true); err != nil {
+		e.closeKeptSession(k)
+		return err
+	}
+	a.mu.Lock()
+	k.costTotal, k.costBase = a.costTotal, a.costBase
+	a.mu.Unlock()
+	k.session, k.key = a.session, a.key
+	a.session, a.key = nil, ""
+	if k.session == nil {
+		return nil
+	}
+	e.keepSession(task.ID, k)
+	return nil
 }
 
 // stopAtLimit hands the task of the round to a human, because the pull request has open items after max_fix_rounds
@@ -1035,8 +1113,10 @@ func (e *Engine) implement(ctx context.Context, a *Agent, j *job) (result, error
 	if err != nil {
 		return result{}, err
 	}
-	if err := a.open(ctx); err != nil {
-		return result{}, err
+	if !j.reused {
+		if err := a.open(ctx); err != nil {
+			return result{}, err
+		}
 	}
 	e.detailsMu.Lock()
 	e.implementers[j.task.ID] = a
@@ -1045,7 +1125,6 @@ func (e *Engine) implement(ctx context.Context, a *Agent, j *job) (result, error
 	e.detailsMu.Lock()
 	delete(e.implementers, j.task.ID)
 	e.detailsMu.Unlock()
-	a.closeHarness()
 	if err != nil {
 		return result{}, err
 	}
@@ -1115,7 +1194,7 @@ func (e *Engine) prepareWorktree(ctx context.Context, j *job, worktree string) e
 // of their own. A check that does not end in check_timeout is no fault of the code, so it counts as an attempt and
 // runs again with no prompt.
 func (e *Engine) turnsAndChecks(ctx context.Context, a *Agent, j *job) (*result, string, error) {
-	prompt := j.prompt
+	prompt := j.first
 	attempts := 1
 	timedOut := false
 	for {

@@ -178,6 +178,7 @@ func TestAFixRoundHasTheCommentsOfTrustedAuthorsOnThePullRequest(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := connectJudge(t, fake, verdicts, renames, noChange)
+	server.Engine.SetClock(func() time.Time { return time.Now().Add(61 * time.Minute) })
 
 	fake.AddReviewComment(shop, 42, 0, "owner", "Use price_cents.")
 	fake.AddComment(shop, 42, "owner", "Why cents?")

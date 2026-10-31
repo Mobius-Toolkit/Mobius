@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
@@ -200,6 +201,8 @@ func TestARemovalOfNeedsHumanSendsTheOpenThreadOfTheMobiusAppToAFixRound(t *test
 	fake := testkit.NewFakeGitHub(t)
 	server, dataDir := connectTask(t, fake, leadStarts, fixes, noChange)
 	waitForApproval(t, server, fake)
+	// The round gets the new script only in a new Harness process.
+	server.Engine.SetClock(func() time.Time { return time.Now().Add(61 * time.Minute) })
 	thread := fake.AddReviewComment(shop, 42, 0, "mobius-test[bot]", "Store the unit.")
 	testkit.InstallFakeHarness(t, dataDir, "devin", options+"[[prompts]]\nwhen = \"Action: fix\"\ncall = { tool = \"reply_thread\", arguments = { thread = "+itoa(thread)+", text = \"Stored.\" } }\n")
 	if _, err := server.DB.Exec("UPDATE tasks SET state = 'needs_human' WHERE issue = 41"); err != nil {

@@ -372,23 +372,11 @@ func (a *Agent) listed() bool {
 	}
 }
 
-// startHarness opens a new session key with the tools of the Role, and starts the Harness with it.
-func (a *Agent) startHarness(ctx context.Context) error {
+// mcpCaller gives the caller of the Mobius MCP server of the session of a. It binds the tools to the row and the Agent
+// of the session, so a kept Harness process moves to a new row with SetCaller.
+func (a *Agent) mcpCaller() mcp.Caller {
 	e := a.engine
 	spec := a.spec
-	if spec.Role == CuratorRole {
-		var err error
-		if a.maintenance, err = e.organizationMaintenance(ctx, spec.Organization); err != nil && !Refused(err) {
-			return err
-		}
-	}
-	if spec.Role == LeadRole {
-		copied, err := e.queries.GetCopiedWorkstream(ctx, store.GetCopiedWorkstreamParams{Repository: spec.Repository, Number: spec.Workstream})
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return err
-		}
-		a.skills = copied.Skills
-	}
 	mcpCaller := mcp.Caller{Tools: e.tools(caller{
 		session:      a.id,
 		issue:        spec.Issue.Int64,
@@ -418,6 +406,27 @@ func (a *Agent) startHarness(ctx context.Context) error {
 	if spec.Role == LeadRole {
 		mcpCaller.GHWrites = a.recordGHWrites
 	}
+	return mcpCaller
+}
+
+// startHarness opens a new session key with the tools of the Role, and starts the Harness with it.
+func (a *Agent) startHarness(ctx context.Context) error {
+	e := a.engine
+	spec := a.spec
+	if spec.Role == CuratorRole {
+		var err error
+		if a.maintenance, err = e.organizationMaintenance(ctx, spec.Organization); err != nil && !Refused(err) {
+			return err
+		}
+	}
+	if spec.Role == LeadRole {
+		copied, err := e.queries.GetCopiedWorkstream(ctx, store.GetCopiedWorkstreamParams{Repository: spec.Repository, Number: spec.Workstream})
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		a.skills = copied.Skills
+	}
+	mcpCaller := a.mcpCaller()
 	a.key = e.agents.MCP.Open(mcpCaller)
 	ghTokenURL := mcp.GHTokenURL(e.agents.Addr, a.key)
 	ghWritesURL, ghMark := "", ""
@@ -451,6 +460,22 @@ func (a *Agent) closeHarness() {
 		a.session.Close()
 	}
 	a.engine.agents.MCP.Close(a.key)
+}
+
+// continueSession takes the Harness process and the MCP key of a kept session, so that the tools and the
+// session/update notifications act for the row of a.
+func (a *Agent) continueSession(ctx context.Context, k *keptSession) error {
+	a.session = k.session
+	a.key = k.key
+	a.binding = k.binding
+	a.costTotal = k.costTotal
+	a.costBase = k.costBase
+	a.session.SetUpdates(a.update)
+	a.engine.agents.MCP.SetCaller(a.key, a.mcpCaller())
+	if err := a.engine.queries.SetACPSessionID(ctx, store.SetACPSessionIDParams{AcpSessionID: sql.NullString{String: k.session.ID(), Valid: true}, ID: a.id}); err != nil {
+		return err
+	}
+	return a.engine.queries.SetSessionContinued(ctx, a.id)
 }
 
 // ID gives the id of the session.
@@ -642,7 +667,15 @@ func (a *Agent) setAuthor(author string) {
 
 // End ends the agent and the session with reason, for example "done". Then the session frees its slot.
 func (a *Agent) End(ctx context.Context, reason string) error {
-	a.closeHarness()
+	return a.end(ctx, reason, false)
+}
+
+// end ends the agent and the session with reason. With keep, it leaves the Harness process and the MCP key open for
+// the caller, which stores them as a kept session. The caller must close them when it cannot keep them.
+func (a *Agent) end(ctx context.Context, reason string, keep bool) error {
+	if !keep {
+		a.closeHarness()
+	}
 	defer a.release()
 	if err := a.addAutonomousUsage(context.WithoutCancel(ctx)); err != nil {
 		log.Printf("add the usage of the session %d: %v", a.id, err)

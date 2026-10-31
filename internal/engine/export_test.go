@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
+	"github.com/Mobius-Toolkit/Mobius/internal/runner"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
@@ -47,6 +48,27 @@ func (e *Engine) AccessChecked() bool {
 		}
 	}
 	return true
+}
+
+// KeptSession gives the Harness session that the engine keeps for the task, or nil.
+func (e *Engine) KeptSession(task int64) *runner.Session {
+	e.keptMu.Lock()
+	defer e.keptMu.Unlock()
+	k := e.kept[task]
+	if k == nil {
+		return nil
+	}
+	return k.session
+}
+
+// StartImplementerForIssue starts the Implementer of the issue as the Lead tool does.
+func (e *Engine) StartImplementerForIssue(ctx context.Context, repositoryName string, workstream, number int64, instructions string) error {
+	repository, err := e.repository(repositoryName)
+	if err != nil {
+		return err
+	}
+	_, err = e.startImplementer(ctx, repository, repositoryName, workstream, number, instructions, sql.NullInt64{})
+	return err
 }
 
 // SetRecordedSkillHarnesses makes the Harnesses with a skill use record harnesses. It gives the function that sets the
