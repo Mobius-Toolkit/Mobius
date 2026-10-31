@@ -738,11 +738,12 @@ func (q *Queries) AddLeadWrite(ctx context.Context, arg AddLeadWriteParams) erro
 }
 
 const addMemoryVersion = `-- name: AddMemoryVersion :exec
-INSERT INTO memory_versions (repository, time, author, reason, text) VALUES (?, ?, ?, ?, ?)
+INSERT INTO memory_versions (repository, file, time, author, reason, text) VALUES (?, ?, ?, ?, ?, ?)
 `
 
 type AddMemoryVersionParams struct {
 	Repository string
+	File       string
 	Time       string
 	Author     string
 	Reason     string
@@ -752,6 +753,7 @@ type AddMemoryVersionParams struct {
 func (q *Queries) AddMemoryVersion(ctx context.Context, arg AddMemoryVersionParams) error {
 	_, err := q.db.ExecContext(ctx, addMemoryVersion,
 		arg.Repository,
+		arg.File,
 		arg.Time,
 		arg.Author,
 		arg.Reason,
@@ -2772,12 +2774,13 @@ func (q *Queries) GetLiveTaskByPullRequest(ctx context.Context, arg GetLiveTaskB
 }
 
 const getMemoryVersion = `-- name: GetMemoryVersion :one
-SELECT id, repository, time, author, text FROM memory_versions WHERE id = ?
+SELECT id, repository, file, time, author, text FROM memory_versions WHERE id = ?
 `
 
 type GetMemoryVersionRow struct {
 	ID         int64
 	Repository string
+	File       string
 	Time       string
 	Author     string
 	Text       string
@@ -2789,6 +2792,7 @@ func (q *Queries) GetMemoryVersion(ctx context.Context, id int64) (GetMemoryVers
 	err := row.Scan(
 		&i.ID,
 		&i.Repository,
+		&i.File,
 		&i.Time,
 		&i.Author,
 		&i.Text,
@@ -2797,16 +2801,17 @@ func (q *Queries) GetMemoryVersion(ctx context.Context, id int64) (GetMemoryVers
 }
 
 const getMemoryVersionBefore = `-- name: GetMemoryVersionBefore :one
-SELECT text FROM memory_versions WHERE repository = ? AND id < ? ORDER BY id DESC LIMIT 1
+SELECT text FROM memory_versions WHERE repository = ? AND file = ? AND id < ? ORDER BY id DESC LIMIT 1
 `
 
 type GetMemoryVersionBeforeParams struct {
 	Repository string
+	File       string
 	ID         int64
 }
 
 func (q *Queries) GetMemoryVersionBefore(ctx context.Context, arg GetMemoryVersionBeforeParams) (string, error) {
-	row := q.db.QueryRowContext(ctx, getMemoryVersionBefore, arg.Repository, arg.ID)
+	row := q.db.QueryRowContext(ctx, getMemoryVersionBefore, arg.Repository, arg.File, arg.ID)
 	var text string
 	err := row.Scan(&text)
 	return text, err
@@ -2852,11 +2857,16 @@ func (q *Queries) GetNewestInboxItem(ctx context.Context, arg GetNewestInboxItem
 }
 
 const getNewestMemoryVersionID = `-- name: GetNewestMemoryVersionID :one
-SELECT CAST(COALESCE(MAX(id), 0) AS INTEGER) FROM memory_versions WHERE repository = ?
+SELECT CAST(COALESCE(MAX(id), 0) AS INTEGER) FROM memory_versions WHERE repository = ? AND file = ?
 `
 
-func (q *Queries) GetNewestMemoryVersionID(ctx context.Context, repository string) (int64, error) {
-	row := q.db.QueryRowContext(ctx, getNewestMemoryVersionID, repository)
+type GetNewestMemoryVersionIDParams struct {
+	Repository string
+	File       string
+}
+
+func (q *Queries) GetNewestMemoryVersionID(ctx context.Context, arg GetNewestMemoryVersionIDParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, getNewestMemoryVersionID, arg.Repository, arg.File)
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
@@ -4870,7 +4880,7 @@ func (q *Queries) ListCopiedWorkstreamsWithLabelChange(ctx context.Context, arg 
 }
 
 const listCuratorReasonsAfter = `-- name: ListCuratorReasonsAfter :many
-SELECT reason FROM memory_versions WHERE repository = ? AND author = 'curator' AND id > ? ORDER BY id
+SELECT file, reason FROM memory_versions WHERE repository = ? AND author = 'curator' AND id > ? ORDER BY id
 `
 
 type ListCuratorReasonsAfterParams struct {
@@ -4878,19 +4888,24 @@ type ListCuratorReasonsAfterParams struct {
 	ID         int64
 }
 
-func (q *Queries) ListCuratorReasonsAfter(ctx context.Context, arg ListCuratorReasonsAfterParams) ([]string, error) {
+type ListCuratorReasonsAfterRow struct {
+	File   string
+	Reason string
+}
+
+func (q *Queries) ListCuratorReasonsAfter(ctx context.Context, arg ListCuratorReasonsAfterParams) ([]ListCuratorReasonsAfterRow, error) {
 	rows, err := q.db.QueryContext(ctx, listCuratorReasonsAfter, arg.Repository, arg.ID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []string
+	var items []ListCuratorReasonsAfterRow
 	for rows.Next() {
-		var reason string
-		if err := rows.Scan(&reason); err != nil {
+		var i ListCuratorReasonsAfterRow
+		if err := rows.Scan(&i.File, &i.Reason); err != nil {
 			return nil, err
 		}
-		items = append(items, reason)
+		items = append(items, i)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
@@ -6040,11 +6055,12 @@ func (q *Queries) ListLiveTasks(ctx context.Context, repository string) ([]Task,
 }
 
 const listMemoryVersionsPage = `-- name: ListMemoryVersionsPage :many
-SELECT id, time, author, reason, text FROM memory_versions WHERE repository = ? AND id < ? ORDER BY id DESC LIMIT ?
+SELECT id, time, author, reason, text FROM memory_versions WHERE repository = ? AND file = ? AND id < ? ORDER BY id DESC LIMIT ?
 `
 
 type ListMemoryVersionsPageParams struct {
 	Repository string
+	File       string
 	ID         int64
 	Limit      int64
 }
@@ -6058,7 +6074,12 @@ type ListMemoryVersionsPageRow struct {
 }
 
 func (q *Queries) ListMemoryVersionsPage(ctx context.Context, arg ListMemoryVersionsPageParams) ([]ListMemoryVersionsPageRow, error) {
-	rows, err := q.db.QueryContext(ctx, listMemoryVersionsPage, arg.Repository, arg.ID, arg.Limit)
+	rows, err := q.db.QueryContext(ctx, listMemoryVersionsPage,
+		arg.Repository,
+		arg.File,
+		arg.ID,
+		arg.Limit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -6846,12 +6867,13 @@ func (q *Queries) ListReadyLeadEvents(ctx context.Context, arg ListReadyLeadEven
 }
 
 const listRecentMemoryVersions = `-- name: ListRecentMemoryVersions :many
-SELECT time, author, reason FROM memory_versions WHERE repository = ? ORDER BY id DESC LIMIT 20
+SELECT time, author, file, reason FROM memory_versions WHERE repository = ? ORDER BY id DESC LIMIT 20
 `
 
 type ListRecentMemoryVersionsRow struct {
 	Time   string
 	Author string
+	File   string
 	Reason string
 }
 
@@ -6864,7 +6886,12 @@ func (q *Queries) ListRecentMemoryVersions(ctx context.Context, repository strin
 	var items []ListRecentMemoryVersionsRow
 	for rows.Next() {
 		var i ListRecentMemoryVersionsRow
-		if err := rows.Scan(&i.Time, &i.Author, &i.Reason); err != nil {
+		if err := rows.Scan(
+			&i.Time,
+			&i.Author,
+			&i.File,
+			&i.Reason,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

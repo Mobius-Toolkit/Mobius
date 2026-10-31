@@ -31,6 +31,9 @@ var (
 // ClosedIssueReply is the reply of the engine to a comment on a closed issue, for the tests.
 var ClosedIssueReply = closedIssueReply
 
+// MemoryRoleFiles are the names of the role memory files.
+var MemoryRoleFiles = memoryRoleFiles
+
 // SetClock makes the long waits read the time from clock.
 func (e *Engine) SetClock(clock func() time.Time) {
 	e.clock.Store(&clock)
