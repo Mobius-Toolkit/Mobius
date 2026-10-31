@@ -36,6 +36,17 @@ func (h Harness) HasEffortLevels() bool {
 	return h == ClaudeCode || h == Devin || h == DSH
 }
 
+// HasContextLimit tells if the Harness can keep its context below a limit.
+func (h Harness) HasContextLimit() bool {
+	return h == ClaudeCode
+}
+
+// The range of a context limit, in tokens. Claude Code accepts only this range.
+const (
+	minContext = 100000
+	maxContext = 1000000
+)
+
 // SkillDirectory gives the skill folder that the Harness loads from its working directory, relative to that directory.
 func (h Harness) SkillDirectory() string {
 	if h == ClaudeCode {
@@ -90,7 +101,9 @@ type RoleBinding struct {
 	Model   string  `toml:"model"`
 	// Effort is empty for a Harness with no effort levels.
 	Effort string `toml:"effort"`
-	Max    int    `toml:"max"`
+	// Context is the largest context of a session in tokens. 0 means no limit.
+	Context int `toml:"context"`
+	Max     int `toml:"max"`
 }
 
 // file holds the durations as text, because TOML has no duration type.
@@ -262,6 +275,10 @@ func CheckRoles(roles *Roles) error {
 			return fmt.Errorf("%s.effort: is required for %s", key, harness)
 		case !harness.HasEffortLevels() && b.Binding.Effort != "":
 			return fmt.Errorf("%s.effort: is not allowed for %s", key, harness)
+		case b.Binding.Context != 0 && !harness.HasContextLimit():
+			return fmt.Errorf("%s: harness %s has no context limit", key, harness)
+		case b.Binding.Context != 0 && (b.Binding.Context < minContext || b.Binding.Context > maxContext):
+			return fmt.Errorf("%s: context must be from 100000 to 1000000 tokens", key)
 		}
 	}
 	if roles.Reviewer.Harness == roles.Implementer.Harness && roles.Reviewer.Model == roles.Implementer.Model {

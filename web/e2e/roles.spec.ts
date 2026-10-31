@@ -79,6 +79,36 @@ test("a Save of the model of the judge shows the UI badge, and Reset shows the v
   await expect(roleRow(page, "Judge").getByText("UI", { exact: true })).toHaveCount(0);
 });
 
+test("a Save of the context of a claude-code role shows its short form, and Reset removes it", async ({
+  page,
+}) => {
+  const sheet = await openRole(page, "Lead");
+  await expect(sheet.getByLabel("Context", { exact: true })).toHaveValue("");
+  await sheet.getByLabel("Context", { exact: true }).fill("200000");
+
+  const saved = written(page, "lead", "PUT");
+  await sheet.getByRole("button", { name: "Save" }).click();
+  expect((await saved).ok()).toBe(true);
+  await expect(sheet).toBeHidden();
+  await expect(roleRow(page, "Lead")).toContainText("200k");
+  await expect(roleRow(page, "Lead").getByText("UI", { exact: true })).toHaveCount(1);
+
+  await roleRow(page, "Lead").click();
+  const reset = written(page, "lead", "DELETE");
+  await sheet.getByRole("button", { name: "Reset" }).click();
+  expect((await reset).ok()).toBe(true);
+  await expect(sheet).toBeHidden();
+  await expect(roleRow(page, "Lead")).not.toContainText("200k");
+});
+
+test("a Harness with no context limit has a disabled Context field and a reason", async ({
+  page,
+}) => {
+  const sheet = await openRole(page, "Implementer");
+  await expect(sheet.getByLabel("Context", { exact: true })).toBeDisabled();
+  await expect(sheet.getByText("This Harness has no context limit.")).toBeVisible();
+});
+
 test("a pick of a Harness selects its first model, and the efforts follow the model", async ({
   page,
 }) => {

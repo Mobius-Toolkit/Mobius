@@ -131,7 +131,7 @@ exec gh GH_TOKEN
 	path := filepath.Join(dataDir, "harnesses") + string(filepath.ListSeparator) + realDir + string(filepath.ListSeparator) + "/usr/bin:/bin"
 
 	var reply strings.Builder
-	session, err := Start(t.Context(), config.DSH, dataDir, dataDir, path, "", tokenURL, "", "", func(params json.RawMessage, _ bool) {
+	session, err := Start(t.Context(), config.DSH, 0, dataDir, dataDir, path, "", tokenURL, "", "", func(params json.RawMessage, _ bool) {
 		var notification struct {
 			Update struct {
 				SessionUpdate string `json:"sessionUpdate"`

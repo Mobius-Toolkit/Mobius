@@ -167,7 +167,7 @@ func TestDSHGetsTheDangerFullAccessModeAndNoOtherHarnessGetsIt(t *testing.T) {
 		}
 	}
 
-	cmd, err := harnessCommand(context.Background(), config.DSH, "/work", t.TempDir(), dir, "", "", "")
+	cmd, err := harnessCommand(context.Background(), config.DSH, 0, "/work", t.TempDir(), dir, "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,12 +182,45 @@ func TestDSHGetsTheDangerFullAccessModeAndNoOtherHarnessGetsIt(t *testing.T) {
 		if harness == config.DSH {
 			continue
 		}
-		cmd, err := harnessCommand(context.Background(), harness, "/work", t.TempDir(), dir, "", "", "")
+		cmd, err := harnessCommand(context.Background(), harness, 0, "/work", t.TempDir(), dir, "", "", "")
 		if err != nil {
 			t.Fatal(err)
 		}
 		if got := lastEnv(cmd.Env, "DSH_PERMISSION_MODE"); got != "workspace-write" {
 			t.Errorf("%s DSH_PERMISSION_MODE = %q, want the inherited workspace-write", harness, got)
+		}
+	}
+}
+
+func TestOnlyClaudeCodeWithAContextGetsTheContextWindow(t *testing.T) {
+	t.Setenv(contextWindowEnv, "inherited")
+	dir := t.TempDir()
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, harness := range config.Harnesses {
+		if err := os.Symlink(exe, filepath.Join(dir, Program(harness))); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for _, c := range []struct {
+		name    string
+		harness config.Harness
+		context int
+		want    string
+	}{
+		{"claude-code with a context", config.ClaudeCode, 200000, "200000"},
+		{"claude-code with no context", config.ClaudeCode, 0, ""},
+		{"dsh with a context", config.DSH, 200000, ""},
+	} {
+		cmd, err := harnessCommand(context.Background(), c.harness, c.context, "/work", t.TempDir(), dir, "", "", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := lastEnv(cmd.Env, contextWindowEnv); got != c.want {
+			t.Errorf("%s: %s = %q, want %q", c.name, contextWindowEnv, got, c.want)
 		}
 	}
 }
@@ -232,7 +265,7 @@ func startFakeAgent(t *testing.T, updates func(json.RawMessage, bool)) *Session 
 
 func startFakeAgentAt(t *testing.T, mcpURL string, updates func(json.RawMessage, bool)) *Session {
 	dir := fakeAgentDir(t)
-	session, err := Start(context.Background(), config.ClaudeCode, dir, dir, dir, mcpURL, "", "", "", updates)
+	session, err := Start(context.Background(), config.ClaudeCode, 0, dir, dir, dir, mcpURL, "", "", "", updates)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -313,7 +346,7 @@ func startDSH(t *testing.T, updates func(json.RawMessage, bool)) *Session {
 	if err := os.Symlink(exe, filepath.Join(dir, "dsh")); err != nil {
 		t.Fatal(err)
 	}
-	session, err := Start(context.Background(), config.DSH, dir, dir, dir, "http://127.0.0.1:1/mcp/key", "", "", "", updates)
+	session, err := Start(context.Background(), config.DSH, 0, dir, dir, dir, "http://127.0.0.1:1/mcp/key", "", "", "", updates)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -391,7 +424,7 @@ func TestAStartThatDoesNotAnswerFailsAfterStartTimeoutAndKillsTheAgent(t *testin
 	defer func(limit time.Duration) { StartTimeout = limit }(StartTimeout)
 	StartTimeout = 200 * time.Millisecond
 
-	_, err := Start(context.Background(), config.ClaudeCode, dir, dir, dir, "http://127.0.0.1:1/mcp/key", "", "", "", func(json.RawMessage, bool) {})
+	_, err := Start(context.Background(), config.ClaudeCode, 0, dir, dir, dir, "http://127.0.0.1:1/mcp/key", "", "", "", func(json.RawMessage, bool) {})
 
 	if want := "claude-agent-acp: the start took longer than 200ms"; err == nil || err.Error() != want {
 		t.Errorf("error = %v, want %s", err, want)

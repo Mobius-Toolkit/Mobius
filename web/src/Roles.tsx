@@ -48,6 +48,11 @@ const roleDescription: Record<string, string> = {
 const keepEffort = (effort: string, efforts: string[]) =>
   efforts.includes(effort) ? effort : (efforts[0] ?? "");
 
+const hasContextLimit = (harness: string) => harness === "claude-code";
+
+const formatContext = (tokens: number) =>
+  tokens >= 1000 && tokens % 1000 === 0 ? `${tokens / 1000}k` : String(tokens);
+
 function UiBadge() {
   return (
     <Badge variant="secondary" className="shrink-0">
@@ -61,6 +66,7 @@ function RoleRow({ role, onOpen }: { role: Role; onOpen: () => void }) {
     { text: role.harness, ui: role.ui.harness },
     { text: role.model, ui: role.ui.model },
     ...(role.effort ? [{ text: role.effort, ui: role.ui.effort }] : []),
+    ...(role.context > 0 ? [{ text: formatContext(role.context), ui: role.ui.context }] : []),
     { text: `max ${role.max}`, ui: role.ui.max },
   ];
   return (
@@ -165,6 +171,7 @@ function RoleSheet({
   const [harness, setHarness] = useState(role.harness);
   const [model, setModel] = useState(role.model);
   const [effort, setEffort] = useState(role.effort);
+  const [context, setContext] = useState(role.context > 0 ? String(role.context) : "");
   const [max, setMax] = useState(String(role.max));
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -173,6 +180,7 @@ function RoleSheet({
   const models = choices?.models ?? [];
   const chosen = models.find((other) => other.model === model);
   const efforts = chosen ? chosen.efforts : effort ? [effort] : [];
+  const supportsContext = hasContextLimit(harness);
   const changed = Object.values(role.ui).some(Boolean);
 
   const pickHarness = (value: string) => {
@@ -181,6 +189,7 @@ function RoleSheet({
     setHarness(value);
     setModel(first?.model ?? "");
     setEffort(keepEffort(effort, first?.efforts ?? []));
+    if (!hasContextLimit(value)) setContext("");
   };
 
   const pickModel = (value: string) => {
@@ -253,6 +262,24 @@ function RoleSheet({
             onChange={(event) => setMax(event.target.value)}
           />
         </Field>
+        <Field label="Context" htmlFor="role-context" ui={role.ui.context}>
+          <Input
+            id="role-context"
+            type="number"
+            min={100000}
+            max={1000000}
+            step={1000}
+            placeholder="No limit"
+            value={context}
+            disabled={!supportsContext}
+            onChange={(event) => setContext(event.target.value)}
+            className="min-w-0 grow"
+          />
+          <span className="shrink-0 text-sm text-muted-foreground">tokens</span>
+        </Field>
+        {!supportsContext && (
+          <p className="text-sm text-muted-foreground">This Harness has no context limit.</p>
+        )}
         {choices?.error && (
           <Badge variant="destructive" className="h-auto whitespace-normal">
             {choices.error}
@@ -283,6 +310,7 @@ function RoleSheet({
                   harness,
                   model,
                   effort: efforts.length > 0 ? effort : "",
+                  context: supportsContext ? Number(context) : 0,
                   max: Number(max),
                 }),
               )

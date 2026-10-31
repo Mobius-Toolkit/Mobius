@@ -450,7 +450,7 @@ func (a *Agent) startHarness(ctx context.Context) error {
 			return err
 		}
 	}
-	session, err := runner.Start(ctx, a.binding.Harness, spec.Dir, e.config.DataDir, e.agents.Path, mcp.URL(e.agents.Addr, a.key), ghTokenURL, ghWritesURL, ghMark, a.update)
+	session, err := runner.Start(ctx, a.binding.Harness, a.binding.Context, spec.Dir, e.config.DataDir, e.agents.Path, mcp.URL(e.agents.Addr, a.key), ghTokenURL, ghWritesURL, ghMark, a.update)
 	if err != nil {
 		return err
 	}
