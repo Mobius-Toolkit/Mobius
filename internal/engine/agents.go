@@ -126,6 +126,8 @@ type Agent struct {
 	chunkID int64
 	// turnUsage is the usage data of the turn that runs, or of the last turn.
 	turnUsage turnUsage
+	// dshRecords is the number of assistant/message records of the dsh session log that the usage rows counted.
+	dshRecords int
 	// costTotal is the last cost total of the session. costBase is the cost total at the end of the last turn with a cost.
 	costTotal float64
 	costBase  float64
