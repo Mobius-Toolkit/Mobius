@@ -769,14 +769,12 @@ func (e *Engine) restartImplementer(repository github.Repository, task store.Tas
 		if err != nil {
 			return false, err
 		}
-		brief, err := e.workstreamBrief(ctx, task)
-		if err != nil {
-			return false, err
-		}
 		queued, err := e.requeueTask(ctx, task.ID)
 		if err != nil || queued == 0 {
 			return false, err
 		}
+		// The prompt comes from worker_input, so the texts of the Brief and of the issue that the session gets are
+		// unknown. A later short prompt sends them again.
 		j = job{
 			task:          task,
 			title:         j.title,
@@ -784,8 +782,6 @@ func (e *Engine) restartImplementer(repository github.Repository, task store.Tas
 			pullRequest:   pullRequest,
 			conflictRound: task.Worker.String == conflictRoundWorker,
 			prompt:        task.WorkerInput.String,
-			brief:         brief,
-			issueBody:     issue.GetBody(),
 			parent:        parent,
 		}
 		return true, nil

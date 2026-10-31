@@ -495,3 +495,50 @@ func TestAShortPromptHasTheEarlierReportAfterAConflictRound(t *testing.T) {
 		t.Errorf("prompts = %q", prompts)
 	}
 }
+
+func TestAShortPromptHasTheIssueBodyOfARestartedRound(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	// The fix round hangs, so that the test can stop the server while worker_input holds the old issue body.
+	hang := "[[prompts]]\nwhen = \"Remove the lines out of scope.\"\nhang = true\n\n"
+	server, dataDir := keptServer(t, fake, hang+commits, noChange)
+	firstRound(t, server, fake)
+	waitForKept(t, server, 41)
+
+	startFixRound(t, server)
+	testkit.WaitFor(t, func() bool {
+		sessions := roleSessions(t, server, engine.ImplementerRole)
+		return len(sessions) == 2 && len(promptTexts(t, server, sessions[1].ID)) == 1
+	})
+	server.Stop()
+
+	// The restart sends worker_input with the issue body of its round, so the kept session reads no new body.
+	fake.SetBody(shop, 41, "Plans have a new price.")
+	commitsMore := "[[prompts]]\nwhen = \"Remove the lines out of scope.\"\n" +
+		"shell = \"echo more >> plan.txt && git commit -q -am 'Add more'\"\n\n"
+	testkit.InstallFakeHarness(t, dataDir, "devin", counting+options+commitsMore+commits)
+	restarted := testserver.Start(t, dataDir, fake.URL)
+	restarted.WaitForFirstPoll(t, shop)
+	testkit.WaitFor(t, restarted.Engine.AccessChecked)
+	waitForTask(t, restarted, 41, "approval")
+	waitForImplementerSessions(t, restarted, 3)
+	waitForKept(t, restarted, 41)
+
+	startFixRound(t, restarted)
+
+	sessions := waitForImplementerSessions(t, restarted, 4)
+	if sessions[3].Continued != 1 {
+		t.Errorf("continued = %d", sessions[3].Continued)
+	}
+	prompts := promptTexts(t, restarted, sessions[3].ID)
+	if len(prompts) != 1 {
+		t.Fatalf("prompts = %q", prompts)
+	}
+	if !strings.Contains(prompts[0], "# Issue\n") || !strings.Contains(prompts[0], "Plans have a new price.") ||
+		!strings.Contains(prompts[0], "This issue text replaces the issue text that the earlier round read.") {
+		t.Errorf("prompt = %s", prompts[0])
+	}
+	if strings.Contains(prompts[0], "Plans have a price.") {
+		t.Errorf("prompt has the old issue body: %s", prompts[0])
+	}
+}
