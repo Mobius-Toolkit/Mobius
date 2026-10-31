@@ -56,7 +56,7 @@ func listMemory(t *testing.T, server *testserver.Server, repository string) []me
 func saveMemory(t *testing.T, server *testserver.Server, texts ...string) {
 	t.Helper()
 	for _, text := range texts {
-		if err := server.Engine.SaveMemory(t.Context(), shop, "curator", "", text); err != nil {
+		if err := server.Engine.SaveMemory(t.Context(), shop, "shared", "curator", "", text); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -91,7 +91,7 @@ func texts(versions []memoryVersion) []string {
 
 func TestTheMemoryRouteGivesTheVersionsNewestFirst(t *testing.T) {
 	server := startWithApp(t, testkit.NewFakeGitHub(t), "User")
-	if err := server.Engine.SaveMemory(t.Context(), shop, "curator", "", "Run make fmt.\n"); err != nil {
+	if err := server.Engine.SaveMemory(t.Context(), shop, "shared", "curator", "", "Run make fmt.\n"); err != nil {
 		t.Fatal(err)
 	}
 	base := listMemory(t, server, shop)[0].ID
@@ -137,14 +137,14 @@ func TestTheMemoryRouteGivesThe20NewestVersionsAndThePageBeforeAVersion(t *testi
 
 func TestTheMemoryRouteGivesTheReasonOfEachVersion(t *testing.T) {
 	server := startWithApp(t, testkit.NewFakeGitHub(t), "User")
-	if err := server.Engine.SaveMemory(t.Context(), shop, "curator", "Add: three fix rounds repeated the same format error", "Run make fmt.\n"); err != nil {
+	if err := server.Engine.SaveMemory(t.Context(), shop, "shared", "curator", "Add: three fix rounds repeated the same format error", "Run make fmt.\n"); err != nil {
 		t.Fatal(err)
 	}
-	if err := server.Engine.SaveMemory(t.Context(), shop, "owner", "", "Run make fmt.\nRun make check.\n"); err != nil {
+	if err := server.Engine.SaveMemory(t.Context(), shop, "shared", "owner", "", "Run make fmt.\nRun make check.\n"); err != nil {
 		t.Fatal(err)
 	}
 	first := listMemory(t, server, shop)[1]
-	if err := server.Engine.RevertMemory(t.Context(), shop, first.ID); err != nil {
+	if err := server.Engine.RevertMemory(t.Context(), shop, "shared", first.ID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -329,7 +329,7 @@ func TestTheRevertRouteGivesNotFoundForAnUnknownVersionAndForAVersionOfAnotherRe
 	github.AddRepository("owner/cafe")
 	server := startWithApp(t, github, "User")
 	testkit.WaitFor(t, func() bool { return len(github.RepositoryLabels("owner/cafe")) > 0 })
-	if err := server.Engine.SaveMemory(t.Context(), "owner/cafe", "curator", "", "One.\n"); err != nil {
+	if err := server.Engine.SaveMemory(t.Context(), "owner/cafe", "shared", "curator", "", "One.\n"); err != nil {
 		t.Fatal(err)
 	}
 	other := listMemory(t, server, "owner/cafe")[0]

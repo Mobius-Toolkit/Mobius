@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -21,7 +22,7 @@ func TestEachRoleGetsTheSameMemorySectionAfterTheRoleInstructions(t *testing.T) 
 	testkit.InstallFakeHarness(t, dataDir, "agy_acp_server", options+"[[prompts]]\nreply = [\"Plans store the price in cents.\"]\n")
 	fake.CommitFile(shop, ".mobius/roles/implementer.md", "Commit small steps.", "Add the role file")
 	fake.CommitFile(shop, ".mobius/roles/researcher.md", "Name each source.", "Add the role file")
-	if err := server.Engine.SaveMemory(t.Context(), shop, "owner", "", lesson+"\n"); err != nil {
+	if err := server.Engine.SaveMemory(t.Context(), shop, "shared", "owner", "", lesson+"\n"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -74,7 +75,7 @@ func TestASaveAddsOneVersionAndASaveOfTheSameTextAddsNone(t *testing.T) {
 	}
 
 	for _, author := range []string{"curator", "owner"} {
-		if err := server.Engine.SaveMemory(t.Context(), shop, author, "", lesson); err != nil {
+		if err := server.Engine.SaveMemory(t.Context(), shop, "shared", author, "", lesson); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -89,10 +90,10 @@ func TestASaveRefusesATextOf201Lines(t *testing.T) {
 	t.Parallel()
 	server, dataDir := connect(t, testkit.NewFakeGitHub(t), "")
 
-	if err := server.Engine.SaveMemory(t.Context(), shop, "curator", "", strings.Repeat("A lesson.\n", 200)); err != nil {
+	if err := server.Engine.SaveMemory(t.Context(), shop, "shared", "curator", "", strings.Repeat("A lesson.\n", 200)); err != nil {
 		t.Fatal(err)
 	}
-	err := server.Engine.SaveMemory(t.Context(), shop, "curator", "", strings.Repeat("A lesson.\n", 201))
+	err := server.Engine.SaveMemory(t.Context(), shop, "shared", "curator", "", strings.Repeat("A lesson.\n", 201))
 
 	var count int
 	if scanErr := server.DB.QueryRow("SELECT count(*) FROM memory_versions").Scan(&count); scanErr != nil {
@@ -107,7 +108,7 @@ func TestASaveRefusesATextOf201Lines(t *testing.T) {
 func TestTwoEditsFromTheSameVersionSaveOnlyOne(t *testing.T) {
 	t.Parallel()
 	server, _ := connect(t, testkit.NewFakeGitHub(t), "")
-	if err := server.Engine.SaveMemory(t.Context(), shop, "curator", "", lesson+"\n"); err != nil {
+	if err := server.Engine.SaveMemory(t.Context(), shop, "shared", "curator", "", lesson+"\n"); err != nil {
 		t.Fatal(err)
 	}
 	var base int64
@@ -119,7 +120,7 @@ func TestTwoEditsFromTheSameVersionSaveOnlyOne(t *testing.T) {
 	errs := make(chan error, edits)
 	for i := range edits {
 		go func() {
-			errs <- server.Engine.EditMemory(t.Context(), shop, base, fmt.Sprintf("Edit %d.\n", i))
+			errs <- server.Engine.EditMemory(t.Context(), shop, "shared", base, fmt.Sprintf("Edit %d.\n", i))
 		}()
 	}
 	saved := 0
@@ -137,5 +138,97 @@ func TestTwoEditsFromTheSameVersionSaveOnlyOne(t *testing.T) {
 	}
 	if saved != 1 || count != 2 {
 		t.Errorf("saved = %d, versions = %d", saved, count)
+	}
+}
+
+func TestEachMemoryFileHasItsOwn200LineLimit(t *testing.T) {
+	t.Parallel()
+	server, dataDir := connect(t, testkit.NewFakeGitHub(t), "")
+	shared := strings.Repeat("Shared lesson.\n", 200)
+	role := strings.Repeat("Role lesson.\n", 200)
+	if err := server.Engine.SaveMemory(t.Context(), shop, engine.MemoryFileShared, "curator", "", shared); err != nil {
+		t.Fatal(err)
+	}
+	if err := server.Engine.SaveMemory(t.Context(), shop, "implementer", "curator", "", role); err != nil {
+		t.Fatal(err)
+	}
+
+	err := server.Engine.SaveMemory(t.Context(), shop, "implementer", "curator", "", strings.Repeat("Role lesson.\n", 201))
+
+	var count int
+	if scanErr := server.DB.QueryRow("SELECT count(*) FROM memory_versions WHERE repository = ? AND file = 'implementer'", shop).Scan(&count); scanErr != nil {
+		t.Fatal(scanErr)
+	}
+	data, readErr := os.ReadFile(filepath.Clean(filepath.Join(dataDir, "memory", shop, "implementer.md")))
+	if !errors.Is(err, engine.ErrMemoryTooLong) || count != 1 || readErr != nil || string(data) != role {
+		t.Errorf("err = %v, versions = %d, file = %q, %v", err, count, data, readErr)
+	}
+}
+
+func TestAnEditOfOneFileUsesTheNewestVersionOfThatFile(t *testing.T) {
+	t.Parallel()
+	server, dataDir := connect(t, testkit.NewFakeGitHub(t), "")
+	if err := server.Engine.SaveMemory(t.Context(), shop, engine.MemoryFileShared, "owner", "", "Shared one.\n"); err != nil {
+		t.Fatal(err)
+	}
+	var sharedBase int64
+	if err := server.DB.QueryRow("SELECT max(id) FROM memory_versions WHERE repository = ? AND file = 'shared'", shop).Scan(&sharedBase); err != nil {
+		t.Fatal(err)
+	}
+	if err := server.Engine.SaveMemory(t.Context(), shop, "implementer", "owner", "", "Role one.\n"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := server.Engine.EditMemory(t.Context(), shop, "implementer", sharedBase, "Role two.\n"); err == nil || !engine.Refused(err) {
+		t.Errorf("stale edit of another file: err = %v", err)
+	}
+	if err := server.Engine.EditMemory(t.Context(), shop, engine.MemoryFileShared, sharedBase, "Shared two.\n"); err != nil {
+		t.Fatal(err)
+	}
+
+	shared, sharedErr := os.ReadFile(filepath.Clean(filepath.Join(dataDir, "memory", shop+".md")))
+	role, roleErr := os.ReadFile(filepath.Clean(filepath.Join(dataDir, "memory", shop, "implementer.md")))
+	if sharedErr != nil || roleErr != nil || string(shared) != "Shared two.\n" || string(role) != "Role one.\n" {
+		t.Errorf("shared = %q, %v, role = %q, %v", shared, sharedErr, role, roleErr)
+	}
+}
+
+func TestARevertOfARoleMemoryVersionChangesOnlyThatFile(t *testing.T) {
+	t.Parallel()
+	server, dataDir := connect(t, testkit.NewFakeGitHub(t), "")
+	for _, text := range []string{"Shared one.\n", "Shared two.\n"} {
+		if err := server.Engine.SaveMemory(t.Context(), shop, engine.MemoryFileShared, "owner", "", text); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var sharedNewest int64
+	if err := server.DB.QueryRow("SELECT max(id) FROM memory_versions WHERE repository = ? AND file = 'shared'", shop).Scan(&sharedNewest); err != nil {
+		t.Fatal(err)
+	}
+	for _, text := range []string{"One.\n", "Two.\n"} {
+		if err := server.Engine.SaveMemory(t.Context(), shop, "implementer", "owner", "", text); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var roleNewest int64
+	if err := server.DB.QueryRow("SELECT max(id) FROM memory_versions WHERE repository = ? AND file = 'implementer'", shop).Scan(&roleNewest); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := server.Engine.RevertMemory(t.Context(), shop, "implementer", roleNewest); err != nil {
+		t.Fatal(err)
+	}
+	role, roleErr := os.ReadFile(filepath.Clean(filepath.Join(dataDir, "memory", shop, "implementer.md")))
+	shared, sharedErr := os.ReadFile(filepath.Clean(filepath.Join(dataDir, "memory", shop+".md")))
+	if roleErr != nil || sharedErr != nil || string(role) != "One.\n" || string(shared) != "Shared two.\n" {
+		t.Errorf("role = %q, %v, shared = %q, %v", role, roleErr, shared, sharedErr)
+	}
+	for _, other := range []struct {
+		file string
+		id   int64
+	}{{"shared", roleNewest}, {"implementer", sharedNewest}} {
+		if err := server.Engine.RevertMemory(t.Context(), shop, other.file, other.id); !errors.Is(err, engine.ErrNoMemoryVersion) {
+			t.Errorf("revert of %s with version %d of another file: err = %v", other.file, other.id, err)
+		}
 	}
 }

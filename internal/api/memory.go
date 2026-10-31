@@ -77,13 +77,13 @@ func (h *handlers) ListMemoryVersions(ctx context.Context, req ListMemoryVersion
 		before = math.MaxInt64
 	}
 	// One more row than the page tells if older versions exist, and gives the text before the last version.
-	rows, err := h.queries.ListMemoryVersionsPage(ctx, store.ListMemoryVersionsPageParams{Repository: repository, ID: before, Limit: memoryPageSize + 1})
+	rows, err := h.queries.ListMemoryVersionsPage(ctx, store.ListMemoryVersionsPageParams{Repository: repository, File: engine.MemoryFileShared, ID: before, Limit: memoryPageSize + 1})
 	if err != nil {
 		return nil, err
 	}
 	page := MemoryVersionsPage{Older: len(rows) > memoryPageSize, Versions: []MemoryVersion{}}
 	for i, row := range rows[:min(len(rows), memoryPageSize)] {
-		problem, err := h.engine.MemoryRevertProblem(ctx, repository, row.ID)
+		problem, err := h.engine.MemoryRevertProblem(ctx, repository, engine.MemoryFileShared, row.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -120,7 +120,7 @@ func (h *handlers) SaveMemory(ctx context.Context, req SaveMemoryRequest) error 
 	if err := h.knownRepository(repository); err != nil {
 		return err
 	}
-	err := h.engine.EditMemory(ctx, repository, req.Body.BaseVersion, req.Body.Text)
+	err := h.engine.EditMemory(ctx, repository, engine.MemoryFileShared, req.Body.BaseVersion, req.Body.Text)
 	if errors.Is(err, engine.ErrMemoryTooLong) {
 		return api.NewHTTPError(http.StatusUnprocessableEntity, err.Error())
 	}
@@ -151,7 +151,7 @@ func (h *handlers) RevertMemory(ctx context.Context, req RevertMemoryRequest) er
 	if err := h.knownRepository(repository); err != nil {
 		return err
 	}
-	err := h.engine.RevertMemory(ctx, repository, req.Path.ID)
+	err := h.engine.RevertMemory(ctx, repository, engine.MemoryFileShared, req.Path.ID)
 	if errors.Is(err, engine.ErrNoMemoryVersion) {
 		return api.NewHTTPError(http.StatusNotFound, "The memory file has no such version.")
 	}

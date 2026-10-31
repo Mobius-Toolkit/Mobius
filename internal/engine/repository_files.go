@@ -22,9 +22,9 @@ func serverSection() string {
 	return fmt.Sprintf("# Server\n\n%s\n\n", text)
 }
 
-// repositorySections gives the server section, the facts file, the instruction file of role and the memory file as prompt sections. The
-// facts file and the instruction file come from the default branch, so a pull request cannot change them for its own
-// agents. The memory file comes from the data directory and is the same for each role.
+// repositorySections gives the server section, the facts file, the instruction file of role and the memory files as
+// prompt sections. The facts file and the instruction file come from the default branch, so a pull request cannot change
+// them for its own agents. The memory files come from the data directory.
 func (e *Engine) repositorySections(ctx context.Context, repository github.Repository, role string) (string, error) {
 	if err := e.fetchRepository(ctx, repository); err != nil {
 		if role != "lead" {
@@ -48,14 +48,50 @@ func (e *Engine) repositorySections(ctx context.Context, repository github.Repos
 			sections += fmt.Sprintf("# %s\n\n%s\n\n", file.heading, text)
 		}
 	}
-	memory, err := e.readMemory(repository.FullName)
+	memory, err := e.memorySections(repository.FullName, role)
 	if err != nil {
 		return "", err
 	}
-	if memory = strings.TrimSpace(memory); memory != "" {
-		sections += fmt.Sprintf("# Memory\n\n%s\n\n", memory)
+	return sections + memory, nil
+}
+
+// memorySections gives the shared memory file and the memory files of the role as prompt sections. The Curator gets each
+// role file in the section "Memory of the roles". Each other role gets only its own file in the section "Memory of the
+// role". An empty file gives no section.
+func (e *Engine) memorySections(repository, role string) (string, error) {
+	shared, err := e.readMemory(repository, MemoryFileShared)
+	if err != nil {
+		return "", err
 	}
-	return sections, nil
+	var sections strings.Builder
+	if shared = strings.TrimSpace(shared); shared != "" {
+		fmt.Fprintf(&sections, "# Memory\n\n%s\n\n", shared)
+	}
+	if role == CuratorRole {
+		var roles strings.Builder
+		for _, file := range memoryRoleFiles {
+			text, err := e.readMemory(repository, file)
+			if err != nil {
+				return "", err
+			}
+			if text = strings.TrimSpace(text); text == "" {
+				continue
+			}
+			fmt.Fprintf(&roles, "## %s\n\n%s\n\n", file, text)
+		}
+		if roles.Len() > 0 {
+			fmt.Fprintf(&sections, "# Memory of the roles\n\n%s", roles.String())
+		}
+		return sections.String(), nil
+	}
+	text, err := e.readMemory(repository, role)
+	if err != nil {
+		return "", err
+	}
+	if text = strings.TrimSpace(text); text != "" {
+		fmt.Fprintf(&sections, "# Memory of the role\n\n%s\n\n", text)
+	}
+	return sections.String(), nil
 }
 
 func (e *Engine) fetchRepository(ctx context.Context, repository github.Repository) error {
