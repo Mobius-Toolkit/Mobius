@@ -22,6 +22,7 @@ type roleFields struct {
 	Harness bool `json:"harness"`
 	Model   bool `json:"model"`
 	Effort  bool `json:"effort"`
+	Context bool `json:"context"`
 	Max     bool `json:"max"`
 }
 
@@ -30,6 +31,7 @@ type roleState struct {
 	Harness string     `json:"harness"`
 	Model   string     `json:"model"`
 	Effort  string     `json:"effort"`
+	Context int        `json:"context"`
 	Max     int        `json:"max"`
 	UI      roleFields `json:"ui"`
 }
@@ -169,6 +171,39 @@ func TestAPutWithTheValuesOfConfigStoresNoRow(t *testing.T) {
 	putRole(t, server, "lead", leadOpus)
 	if listed := getRole(t, server, "lead"); listed.UI != (roleFields{}) || listed.Model != "opus" || roleRows(t, server) != 0 {
 		t.Errorf("lead = %+v, rows = %d", listed, roleRows(t, server))
+	}
+}
+
+func TestAPutOfTheContextStoresItAndRefusesAContextOfAnotherHarness(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, "")
+
+	got := putRole(t, server, "lead", `{"harness": "claude-code", "model": "opus", "effort": "high", "max": 8, "context": 200000}`)
+
+	if got.Context != 200000 || !got.UI.Context {
+		t.Errorf("PUT answer = %+v", got)
+	}
+	if listed := getRole(t, server, "lead"); listed.Context != 200000 || !listed.UI.Context {
+		t.Errorf("GET answer = %+v", listed)
+	}
+	var stored sql.NullInt64
+	if err := server.DB.QueryRow("SELECT context FROM role_settings WHERE role = 'lead'").Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	if !stored.Valid || stored.Int64 != 200000 {
+		t.Errorf("role_settings.context = %+v", stored)
+	}
+
+	status, text := sendRole(t, server, "implementer", `{"harness": "devin", "model": "swe-1.5", "effort": "high", "max": 2, "context": 200000}`)
+	if status != http.StatusUnprocessableEntity || !strings.Contains(text, "roles.implementer: harness devin has no context limit") {
+		t.Errorf("implementer: status %d, answer %s", status, text)
+	}
+	if row := getRole(t, server, "implementer"); row.Context != 0 || row.UI.Context {
+		t.Errorf("implementer = %+v", row)
+	}
+	if roleRows(t, server) != 1 {
+		t.Errorf("rows = %d, want 1", roleRows(t, server))
 	}
 }
 

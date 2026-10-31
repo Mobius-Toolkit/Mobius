@@ -27,7 +27,7 @@ const accessTimeout = 2 * time.Minute
 // The access of the Harness to the model is good when the turn ends with no error. Only a prompt proves it, because a
 // model without access passes the start and the set. The error holds the error text of the Harness.
 func CheckAccess(ctx context.Context, harness config.Harness, model, effort, dir, dataDir, path string) error {
-	session, err := Start(ctx, harness, dir, dataDir, path, "", "", "", "", func(json.RawMessage, bool) {})
+	session, err := Start(ctx, harness, 0, false, dir, dataDir, path, "", "", "", "", func(json.RawMessage, bool) {})
 	if err != nil {
 		return err
 	}

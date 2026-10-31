@@ -990,6 +990,8 @@ export interface EnvelopeArrayPause {
  * RoleFields tells for each field of a Role if the UI gives it. false means config.toml.
  */
 export interface RoleFields {
+  /** Context is true when the UI gives the context limit */
+  context: boolean;
   /** Effort is true when the UI gives the effort level */
   effort: boolean;
   /** Harness is true when the UI gives the Harness */
@@ -1004,6 +1006,8 @@ export interface RoleFields {
  * Role is the binding of a Role to a Harness, with the source of each value.
  */
 export interface Role {
+  /** Context is the largest context of a session in tokens, or 0 for no limit */
+  context: number;
   /** Effort is the effort level of the Role, or empty for a Harness with no effort levels */
   effort: string;
   /** Harness is the agent program of the Role */
@@ -2102,6 +2106,8 @@ export interface SetEvergreenBody {
 }
 
 export interface SetRoleBody {
+  /** Context is the largest context of a session in tokens, or 0 for no limit */
+  context?: number;
   /** Effort is the effort level of the Role. It is empty for a Harness with no effort levels. */
   effort?: string;
   /** Harness is the agent program of the Role */

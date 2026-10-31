@@ -18,6 +18,8 @@ type RoleFields struct {
 	Model bool `gork:"model"`
 	// Effort is true when the UI gives the effort level
 	Effort bool `gork:"effort"`
+	// Context is true when the UI gives the context limit
+	Context bool `gork:"context"`
 	// Max is true when the UI gives the session limit
 	Max bool `gork:"max"`
 }
@@ -32,6 +34,8 @@ type Role struct {
 	Model string `gork:"model"`
 	// Effort is the effort level of the Role, or empty for a Harness with no effort levels
 	Effort string `gork:"effort"`
+	// Context is the largest context of a session in tokens, or 0 for no limit
+	Context int `gork:"context"`
 	// Max is the number of sessions of the Role that run at the same time
 	Max int `gork:"max"`
 	// UI tells which values come from the UI
@@ -62,7 +66,7 @@ func (h *handlers) ListRoles(ctx context.Context, _ ListRolesRequest) (*ListRole
 func role(setting engine.RoleSetting) Role {
 	return Role{
 		Role: setting.Role, Harness: string(setting.Binding.Harness), Model: setting.Binding.Model, Effort: setting.Binding.Effort,
-		Max: setting.Binding.Max, UI: RoleFields(setting.UI),
+		Context: setting.Binding.Context, Max: setting.Binding.Max, UI: RoleFields(setting.UI),
 	}
 }
 
@@ -79,6 +83,8 @@ type SetRoleRequest struct {
 		Model string `gork:"model"`
 		// Effort is the effort level of the Role. It is empty for a Harness with no effort levels.
 		Effort string `gork:"effort"`
+		// Context is the largest context of a session in tokens, or 0 for no limit
+		Context int `gork:"context"`
 		// Max is the number of sessions of the Role that run at the same time
 		Max int `gork:"max"`
 	}
@@ -100,7 +106,7 @@ type RoleResponse struct {
 // SetRole sets the values of a Role. The next session of the Role uses them. It returns 422 with the reason when the
 // values fail a check.
 func (h *handlers) SetRole(ctx context.Context, req SetRoleRequest) (*RoleResponse, error) {
-	binding := config.RoleBinding{Harness: config.Harness(req.Body.Harness), Model: req.Body.Model, Effort: req.Body.Effort, Max: req.Body.Max}
+	binding := config.RoleBinding{Harness: config.Harness(req.Body.Harness), Model: req.Body.Model, Effort: req.Body.Effort, Context: req.Body.Context, Max: req.Body.Max}
 	if err := h.engine.SetRole(ctx, req.Path.Role, binding); err != nil {
 		return nil, roleError(err)
 	}
