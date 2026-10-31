@@ -46,7 +46,9 @@ export function CoordinatorChat({
             (item.action
               ? item.action.role === "coordinator"
               : (item.kind === InboxItemKind.question && !item.repository && !item.issue) ||
-                (item.kind === InboxItemKind.Lead_failed && item.workstream === 0)),
+                (item.kind === InboxItemKind.Lead_failed &&
+                  item.workstream === 0 &&
+                  !item.repository)),
         )}
         head={
           <>
