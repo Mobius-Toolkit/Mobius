@@ -59,9 +59,10 @@ type job struct {
 	reused bool
 	// items is the text of the open items of a fix round, or "".
 	items string
-	// brief and issueBody are the texts that the session got, for the short prompt of a later round.
+	// brief, issueBody and comments are the texts that the session got, for the short prompt of a later round.
 	brief     string
 	issueBody string
+	comments  string
 	// parent is the session of the agent that started the work, or the newest session of the issue when Mobius started it.
 	parent sql.NullInt64
 }
@@ -624,6 +625,7 @@ func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r r
 		items:     r.items,
 		brief:     brief,
 		issueBody: issue.GetBody(),
+		comments:  comments,
 		parent:    r.parent,
 	}
 	worker := ImplementerRole
@@ -985,7 +987,7 @@ func (e *Engine) implementer(ctx context.Context, j *job) error {
 }
 
 // shortPrompt gives the first prompt of a round that continues the kept session. It has only the open items, and the
-// Brief or the issue text when it changed since the earlier round.
+// Brief, the issue or the pull request comments when they changed since the earlier round.
 func shortPrompt(j job, kept *keptSession) string {
 	var text strings.Builder
 	text.WriteString("# Open items\n")
@@ -997,13 +999,16 @@ func shortPrompt(j job, kept *keptSession) string {
 	if j.issueBody != kept.issue {
 		fmt.Fprintf(&text, "\n# Issue\n\n#%d %s\n\n%s\n\nThis issue text replaces the issue text that the earlier round read.\n", j.task.Issue, j.title, j.issueBody)
 	}
+	if j.comments != kept.comments {
+		fmt.Fprintf(&text, "\n%s\nThese comments replace the comments that the earlier round read.\n", j.comments)
+	}
 	return text.String()
 }
 
 // keepImplementer ends the row of the done round and keeps its Harness process for the next round of the task. The
 // row ends as each other, so a kept session holds no slot.
 func (e *Engine) keepImplementer(ctx context.Context, a *Agent, task store.Task, j *job) error {
-	k := &keptSession{session: a.session, key: a.key, binding: a.binding, keptAt: e.timeNow(), brief: j.brief, issue: j.issueBody}
+	k := &keptSession{session: a.session, key: a.key, binding: a.binding, keptAt: e.timeNow(), brief: j.brief, issue: j.issueBody, comments: j.comments}
 	if err := a.end(ctx, string(done), true); err != nil {
 		e.closeKeptSession(k)
 		return err

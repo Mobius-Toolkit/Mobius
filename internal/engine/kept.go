@@ -22,9 +22,10 @@ type keptSession struct {
 	keptAt    time.Time
 	costTotal float64
 	costBase  float64
-	// brief and issue are the texts that the session got, so a later short prompt sends only a change.
-	brief string
-	issue string
+	// brief, issue and comments are the texts that the session got, so a later short prompt sends only a change.
+	brief    string
+	issue    string
+	comments string
 }
 
 // keepSession keeps k for the next round of the task, and closes the earlier kept session of the task.

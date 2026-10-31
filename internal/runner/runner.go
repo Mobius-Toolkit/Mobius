@@ -171,9 +171,8 @@ type Session struct {
 	id      acp.SessionId
 	options []acp.SessionConfigOption
 	images  bool
+	cmd     *exec.Cmd
 	stop    context.CancelFunc
-	// done closes when the Harness process ends.
-	done chan struct{}
 	// mu guards updates.
 	mu sync.Mutex
 	// updates receives each session/update notification.
@@ -238,18 +237,13 @@ func Start(ctx context.Context, harness config.Harness, cwd, dataDir, path, mcpU
 		stop()
 		return nil, err
 	}
-	session := &Session{harness: harness, stop: stop, done: make(chan struct{}), updates: updates}
+	session := &Session{harness: harness, cmd: cmd, stop: stop, updates: updates}
 	conn, err := connect(cmd, session.receive)
 	if err != nil {
 		stop()
 		return nil, fmt.Errorf("%s: %w", program, err)
 	}
 	session.conn = conn
-	go func() {
-		// The kill ends the agent, so Wait gives an error that tells nothing new.
-		_ = cmd.Wait()
-		close(session.done)
-	}()
 	if err := session.limited(ctx, func(ctx context.Context) error { return session.open(ctx, cwd, mcpURL) }); err != nil {
 		session.Close()
 		if errors.Is(err, errStartTimeout) {
@@ -525,7 +519,7 @@ func (s *Session) receive(params json.RawMessage, late bool) {
 // Alive tells if the Harness process of the session runs.
 func (s *Session) Alive() bool {
 	select {
-	case <-s.done:
+	case <-s.conn.Done():
 		return false
 	default:
 		return true
@@ -535,7 +529,8 @@ func (s *Session) Alive() bool {
 // Close ends the agent process.
 func (s *Session) Close() {
 	s.stop()
-	<-s.done
+	// The kill ends the agent, so Wait gives an error that tells nothing new.
+	_ = s.cmd.Wait()
 }
 
 // handler gives the params of each session/update notification to updates, and allows each permission request.
