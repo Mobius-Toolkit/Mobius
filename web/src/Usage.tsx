@@ -1,12 +1,15 @@
 import { ChevronDownIcon } from "lucide-react";
 import { use, useEffect, useMemo, useState } from "react";
-import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts";
 import {
   getUsage,
+  getUsageQuality,
   getUsageSkills,
   getUsageTimes,
   type GetUsageParams,
+  type GetUsageQualityParams,
   type GetUsageSkillsParams,
+  type Quality,
   type SkillUsage,
   type SkillUsageRow,
   type TimeStat,
@@ -45,12 +48,20 @@ import {
   dayTitle,
   dimensions,
   duration,
+  findQualityValue,
   findStat,
   formatDay,
+  formatQuality,
   groupKey,
   groupOptions,
+  mergedShare,
   palette,
   periods,
+  qualityAxisTicks,
+  qualityDimensions,
+  qualityGroups,
+  qualityMetric,
+  qualityValues,
   skillDimensions,
   skillGroups,
   statTitle,
@@ -60,6 +71,8 @@ import {
   type Dimension,
   type Group,
   type Period,
+  type QualityDimension,
+  type QualityValue,
   type SkillDimension,
   type UsageSearch,
 } from "@/lib/usage";
@@ -244,7 +257,13 @@ function GroupSheet({
 }
 
 type FilterOptions = {
-  [key in (typeof dimensions | typeof skillDimensions)[number]["options"]]?: string[];
+  [
+    key in (
+      | typeof dimensions
+      | typeof skillDimensions
+      | typeof qualityDimensions
+    )[number]["options"]
+  ]?: string[];
 };
 
 function Filters({
@@ -257,7 +276,7 @@ function Filters({
 }: {
   search: UsageSearch;
   items: readonly {
-    key: Dimension | SkillDimension;
+    key: Dimension | SkillDimension | QualityDimension;
     title: string;
     options: keyof FilterOptions;
   }[];
@@ -668,6 +687,200 @@ function TimesTab({
   );
 }
 
+function QualityChart({
+  rows,
+  groups,
+  group,
+  value,
+}: {
+  rows: Record<string, number | string>[];
+  groups: { group: string[] }[];
+  group: Group[];
+  value: QualityValue;
+}) {
+  const config: ChartConfig = Object.fromEntries(
+    groups.map((item, index) => [
+      groupKey(index),
+      { label: groupTitle(item.group, group), color: palette[index % palette.length] },
+    ]),
+  );
+  const ticks = qualityAxisTicks(value, rows);
+  return (
+    <ChartContainer config={config} className={cn(inset, "aspect-auto h-72 w-full")}>
+      <LineChart data={rows}>
+        <CartesianGrid vertical={false} />
+        <XAxis
+          dataKey="day"
+          tickFormatter={dayTitle}
+          tickLine={false}
+          axisLine={false}
+          interval={0}
+          padding={{ left: 12, right: 12 }}
+        />
+        <YAxis
+          domain={ticks ? [0, ticks[ticks.length - 1]] : undefined}
+          ticks={ticks}
+          tickFormatter={(item) => formatQuality(value, item)}
+          tickLine={false}
+          axisLine={false}
+          width={64}
+        />
+        <ChartTooltip
+          content={
+            <ChartTooltipContent
+              labelFormatter={(label) => dayTitle(String(label))}
+              formatter={rowFormatter(config, (item) => formatQuality(value, item))}
+            />
+          }
+        />
+        {group.length > 0 && <ChartLegend />}
+        {groups.map((_, index) => (
+          <Line
+            key={groupKey(index)}
+            dataKey={groupKey(index)}
+            type="linear"
+            stroke={`var(--color-${groupKey(index)})`}
+            strokeWidth={2}
+            dot={{ r: 3 }}
+            isAnimationActive={false}
+          />
+        ))}
+      </LineChart>
+    </ChartContainer>
+  );
+}
+
+function QualityMenu({
+  value,
+  onChange,
+}: {
+  value: QualityValue;
+  onChange: (value: string) => void;
+}) {
+  const selected = findQualityValue(value);
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline">
+          Chart: {selected.title}
+          <ChevronDownIcon />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        <DropdownMenuRadioGroup value={selected.key} onValueChange={onChange}>
+          {qualityValues.map((item) => (
+            <DropdownMenuRadioItem key={item.key} value={item.key}>
+              {item.title}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function QualityTable({ quality, group }: { quality: Quality; group: Group[] }) {
+  const heads = [
+    "Tasks",
+    "Merged",
+    "Review rounds",
+    "Fix rounds",
+    "Needs human",
+    "Questions",
+    "Work time",
+    "Cost",
+    "Tokens",
+  ];
+  const values: QualityValue[] = [
+    "reviewRounds",
+    "fixRounds",
+    "needsHuman",
+    "questions",
+    "workSeconds",
+    "costUsd",
+    "tokens",
+  ];
+  return (
+    <div className={cn(inset, "overflow-x-auto")}>
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b text-muted-foreground">
+            <th scope="col" className="py-2 pr-4 text-left font-normal">
+              {groupHeader(group, qualityGroups)}
+            </th>
+            {heads.map((head) => (
+              <th key={head} scope="col" className="py-2 pr-4 text-right font-normal last:pr-0">
+                {head}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {quality.groups.map((item) => (
+            <tr key={JSON.stringify(item.group)} className="border-b last:border-b-0">
+              <th scope="row" className="py-2 pr-4 text-left font-normal whitespace-nowrap">
+                {groupTitle(item.group, group)}
+              </th>
+              <td className="py-2 pr-4 text-right tabular-nums">{item.values.tasks}</td>
+              <td className="py-2 pr-4 text-right tabular-nums">{mergedShare(item.values)}</td>
+              {values.map((key) => (
+                <td
+                  key={key}
+                  className="py-2 pr-4 text-right whitespace-nowrap tabular-nums last:pr-0"
+                >
+                  {formatQuality(key, qualityMetric(item.values, key))}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function QualityTab({
+  quality,
+  range,
+  group,
+  value,
+  onValue,
+}: {
+  quality: Quality;
+  range: Range;
+  group: Group[];
+  value?: string;
+  onValue: (value: string) => void;
+}) {
+  const selected = findQualityValue(value);
+  const rows = chartRows(quality.days, quality.groups, range, (item) =>
+    qualityMetric(item.values, selected.key),
+  );
+  return (
+    <div className="grid gap-6">
+      <Totals
+        items={[
+          { title: "Tasks", value: String(quality.totals.tasks) },
+          { title: "Merged", value: mergedShare(quality.totals) },
+          {
+            title: "Review rounds",
+            value: formatQuality("reviewRounds", quality.totals.reviewRounds),
+          },
+          { title: "Fix rounds", value: formatQuality("fixRounds", quality.totals.fixRounds) },
+          { title: "Cost per task", value: cost(quality.totals.costUsd) },
+        ]}
+      />
+      <div className="grid gap-2">
+        <div className={inset}>
+          <QualityMenu value={selected.key} onChange={onValue} />
+        </div>
+        <QualityChart rows={rows} groups={quality.groups} group={group} value={selected.key} />
+      </div>
+      <QualityTable quality={quality} group={group} />
+    </div>
+  );
+}
+
 function SkillTable({ rows, group }: { rows: SkillUsageRow[]; group: Group[] }) {
   const heads = ["Uses", "Had", "Used"];
   const left = ["Skill", "Source", ...(group.length > 0 ? [groupHeader(group, skillGroups)] : [])];
@@ -747,11 +960,13 @@ export function Usage({
   const [loaded, setLoaded] = useState<{ usage: UsageView; range: Range }>();
   const [loadedTimes, setLoadedTimes] = useState<{ times: UsageTimes; range: Range }>();
   const [loadedSkills, setLoadedSkills] = useState<SkillUsage>();
+  const [loadedQuality, setLoadedQuality] = useState<{ quality: Quality; range: Range }>();
   const [error, setError] = useState<string>();
   const tab = search.tab ?? "cost";
   const timesTab = tab === "times";
   const skillsTab = tab === "skills";
-  const groups = skillsTab ? skillGroups : groupOptions;
+  const qualityTab = tab === "quality";
+  const groups = qualityTab ? qualityGroups : skillsTab ? skillGroups : groupOptions;
   const group: Group[] = groups
     .map((item) => item.key)
     .filter((key) => search.group?.includes(key));
@@ -763,6 +978,9 @@ export function Usage({
       .map((item) => item.key)
       .filter((key) => search.group?.includes(key));
     const skillFields = skillGroups
+      .map((item) => item.key)
+      .filter((key) => search.group?.includes(key));
+    const qualityFields = qualityGroups
       .map((item) => item.key)
       .filter((key) => search.group?.includes(key));
     const params: GetUsageParams = {
@@ -786,11 +1004,21 @@ export function Usage({
       source: search.source,
       group: skillFields.length > 0 ? skillFields : undefined,
     };
-    return { range, params, skillParams };
+    const qualityParams: GetUsageQualityParams = {
+      from: params.from,
+      to: params.to,
+      tz: params.tz,
+      harness: search.harness,
+      model: search.model,
+      effort: search.effort,
+      repository: search.repository,
+      group: qualityFields.length > 0 ? qualityFields : undefined,
+    };
+    return { range, params, skillParams, qualityParams };
   }, [search, now]);
 
   useEffect(() => {
-    if (timesTab || skillsTab) {
+    if (timesTab || skillsTab || qualityTab) {
       return;
     }
     let current = true;
@@ -812,7 +1040,7 @@ export function Usage({
     return () => {
       current = false;
     };
-  }, [query, showLogin, timesTab, skillsTab]);
+  }, [query, showLogin, timesTab, skillsTab, qualityTab]);
 
   useEffect(() => {
     if (!timesTab) {
@@ -864,21 +1092,48 @@ export function Usage({
     };
   }, [query, showLogin, skillsTab]);
 
+  useEffect(() => {
+    if (!qualityTab) {
+      return;
+    }
+    let current = true;
+    getUsageQuality(query.qualityParams)
+      .then((res) => {
+        if (!current) {
+          return;
+        }
+        if (res.status === 401) {
+          showLogin();
+        } else if (res.status === 200) {
+          setLoadedQuality({ quality: res.data.data, range: query.range });
+          setError(undefined);
+        } else {
+          setError(res.data.error);
+        }
+      })
+      .catch((err: unknown) => current && setError(String(err)));
+    return () => {
+      current = false;
+    };
+  }, [query, showLogin, qualityTab]);
+
   return (
     <>
       <TopBar title="Usage" back="/settings" />
       <PageHeader title="Usage" />
       <Filters
         search={search}
-        items={skillsTab ? skillDimensions : dimensions}
+        items={qualityTab ? qualityDimensions : skillsTab ? skillDimensions : dimensions}
         groups={groups}
         group={group}
         options={
-          skillsTab
-            ? loadedSkills?.options
-            : timesTab
-              ? loadedTimes?.times.options
-              : loaded?.usage.options
+          qualityTab
+            ? loadedQuality?.quality.options
+            : skillsTab
+              ? loadedSkills?.options
+              : timesTab
+                ? loadedTimes?.times.options
+                : loaded?.usage.options
         }
         onSearch={onSearch}
       />
@@ -887,7 +1142,10 @@ export function Usage({
         value={tab}
         onValueChange={(value) =>
           onSearch({
-            tab: value === "tokens" || value === "times" || value === "skills" ? value : undefined,
+            tab:
+              value === "tokens" || value === "times" || value === "skills" || value === "quality"
+                ? value
+                : undefined,
           })
         }
       >
@@ -896,6 +1154,7 @@ export function Usage({
           <TabsTrigger value="tokens">Tokens</TabsTrigger>
           <TabsTrigger value="times">Times</TabsTrigger>
           <TabsTrigger value="skills">Skills</TabsTrigger>
+          <TabsTrigger value="quality">Quality</TabsTrigger>
         </TabsList>
         {loaded &&
           (["cost", "tokens"] as const).map((kind) => (
@@ -917,6 +1176,17 @@ export function Usage({
         {loadedSkills && (
           <TabsContent value="skills">
             <SkillsTab skills={loadedSkills} group={group} />
+          </TabsContent>
+        )}
+        {loadedQuality && (
+          <TabsContent value="quality">
+            <QualityTab
+              quality={loadedQuality.quality}
+              range={loadedQuality.range}
+              group={group}
+              value={search.value}
+              onValue={(value) => onSearch({ value: value as QualityValue })}
+            />
           </TabsContent>
         )}
       </Tabs>

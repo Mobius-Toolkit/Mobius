@@ -298,8 +298,8 @@ func TestARefusedAddOfTheReadyLabelOfACIFailureIssueWritesItAgainAndStartsTheTas
 	if numbers := fake.SubIssueNumbers(shop, maintenance); !slices.Equal(numbers, []int64{number}) {
 		t.Errorf("sub-issues = %v", numbers)
 	}
-	if labels := fake.Labels(shop, number); !slices.Contains(labels, "mobius:ready") {
-		t.Errorf("labels = %v", labels)
+	if !fake.LabelAddedBy(shop, number, "mobius:ready", testkit.AppSlug+"[bot]") {
+		t.Errorf("the App did not add mobius:ready to the issue")
 	}
 	if writes := fake.LabelWrites(shop, number); writes < 3 {
 		t.Errorf("label writes = %d", writes)
