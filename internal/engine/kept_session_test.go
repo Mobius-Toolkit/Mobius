@@ -450,3 +450,48 @@ func TestAShortPromptHasTheNewIssueBody(t *testing.T) {
 		t.Errorf("prompt still has the old issue body: %s", prompts[0])
 	}
 }
+
+func TestAShortPromptHasTheEarlierReportAfterAConflictRound(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	// The first round submits a report. The conflict round starts a new process that gets no report in its prompt,
+	// and it keeps that process. Thus the kept session never read the report of the task.
+	merges := "[[prompts]]\nwhen = \"Merge the base branch and remove the conflicts.\"\n" +
+		"shell = \"git merge -q origin/main; echo cents > plan.txt && git add plan.txt && git commit -q --no-edit\"\n\n"
+	server, _ := keptServer(t, fake, merges+fixWithCost+commitsWithReport, noChange)
+	firstRound(t, server, fake)
+	waitForKept(t, server, 41)
+
+	fake.CommitFile(shop, "plan.txt", "dollars\n", "Use dollars")
+
+	sessions := testkit.WaitForValue(t, func() ([]store.Session, bool) {
+		sessions := roleSessions(t, server, engine.ImplementerRole)
+		if len(sessions) != 2 || !sessions[1].EndedAt.Valid {
+			return nil, false
+		}
+		return sessions, true
+	})
+	if sessions[1].EndReason.String != "done" {
+		t.Fatalf("conflict round end reason = %s", sessions[1].EndReason.String)
+	}
+	testkit.WaitFor(t, func() bool {
+		kept := keptOf(t, server, 41)
+		return kept != nil && kept.ID() == sessions[1].AcpSessionID.String
+	})
+	testkit.WaitFor(t, func() bool {
+		state := taskStateOf(t, server, 41)
+		return state == "checks" || state == "approval"
+	})
+
+	startFixRound(t, server)
+
+	sessions = waitForImplementerSessions(t, server, 3)
+	if sessions[2].Continued != 1 || sessions[2].AcpSessionID.String != sessions[1].AcpSessionID.String {
+		t.Errorf("session = %+v", sessions[2])
+	}
+	prompts := promptTexts(t, server, sessions[2].ID)
+	if len(prompts) != 1 || !strings.Contains(prompts[0], "# Report\n\n"+firstReport+"\n") ||
+		!strings.Contains(prompts[0], "This report replaces the report that the earlier round read.") {
+		t.Errorf("prompts = %q", prompts)
+	}
+}

@@ -59,10 +59,11 @@ type job struct {
 	reused bool
 	// items is the text of the open items of a fix round, or "".
 	items string
-	// brief, issueBody and comments are the texts that the session got, for the short prompt of a later round.
+	// brief, issueBody, comments and report are the texts that the session got, for the short prompt of a later round.
 	brief     string
 	issueBody string
 	comments  string
+	report    string
 	// parent is the session of the agent that started the work, or the newest session of the issue when Mobius started it.
 	parent sql.NullInt64
 }
@@ -626,6 +627,7 @@ func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r r
 		brief:     brief,
 		issueBody: issue.GetBody(),
 		comments:  comments,
+		report:    r.task.Report,
 		parent:    r.parent,
 	}
 	worker := ImplementerRole
@@ -911,6 +913,9 @@ func (e *Engine) implementer(ctx context.Context, j *job) error {
 		}
 		return err
 	}
+	// a.report is the report text that the session knows: the report of its prompt, or the report of its own
+	// submit_report call. A continued session gets a new report only when shortPrompt sends one.
+	a.report = j.report
 	if j.cont {
 		if kept := e.takeKeptSession(task.ID, a.binding); kept != nil {
 			if err := a.continueSession(ctx, kept); err != nil {
@@ -918,6 +923,9 @@ func (e *Engine) implementer(ctx context.Context, j *job) error {
 			}
 			j.reused = true
 			j.first = shortPrompt(*j, kept)
+			if j.report != "" {
+				a.report = j.report
+			}
 		}
 	} else {
 		e.closeKept(task.ID)
@@ -987,7 +995,7 @@ func (e *Engine) implementer(ctx context.Context, j *job) error {
 }
 
 // shortPrompt gives the first prompt of a round that continues the kept session. It has only the open items, and the
-// Brief, the issue or the pull request comments when they changed since the earlier round.
+// Brief, the issue, the pull request comments or the report when they changed since the earlier round.
 func shortPrompt(j job, kept *keptSession) string {
 	var text strings.Builder
 	text.WriteString("# Open items\n")
@@ -1002,6 +1010,9 @@ func shortPrompt(j job, kept *keptSession) string {
 	if j.comments != kept.comments {
 		fmt.Fprintf(&text, "\n%s\nThese comments replace the comments that the earlier round read.\n", j.comments)
 	}
+	if j.report != kept.report {
+		fmt.Fprintf(&text, "\n# Report\n\n%s\n\nThis report replaces the report that the earlier round read.\n", j.report)
+	}
 	return text.String()
 }
 
@@ -1015,6 +1026,7 @@ func (e *Engine) keepImplementer(ctx context.Context, a *Agent, task store.Task,
 	}
 	a.mu.Lock()
 	k.costTotal, k.costBase = a.costTotal, a.costBase
+	k.report = a.report
 	a.mu.Unlock()
 	k.session, k.key = a.session, a.key
 	a.session, a.key = nil, ""

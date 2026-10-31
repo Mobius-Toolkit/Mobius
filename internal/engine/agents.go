@@ -149,6 +149,9 @@ type Agent struct {
 	reply strings.Builder
 	// cannotDo is the reason of the cannot_do of the Implementer in the last turn, or "".
 	cannotDo string
+	// report is the report text that the Implementer session knows, from its prompt or from its own submit_report
+	// call, or "" when it knows no report.
+	report string
 	// replies are the replies of the reply_thread calls of the Implementer that wait for the push.
 	replies []heldReply
 	// head is the head commit that the Reviewer reviews.
@@ -470,6 +473,7 @@ func (a *Agent) continueSession(ctx context.Context, k *keptSession) error {
 	a.binding = k.binding
 	a.costTotal = k.costTotal
 	a.costBase = k.costBase
+	a.report = k.report
 	a.session.SetUpdates(a.update)
 	a.engine.agents.MCP.SetCaller(a.key, a.mcpCaller())
 	if err := a.engine.queries.SetACPSessionID(ctx, store.SetACPSessionIDParams{AcpSessionID: sql.NullString{String: k.session.ID(), Valid: true}, ID: a.id}); err != nil {
