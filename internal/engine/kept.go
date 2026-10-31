@@ -11,6 +11,10 @@ import (
 // task. The prompt cache of the Harness stays valid in that time.
 const keepTime = 60 * time.Minute
 
+// beforeKeep runs after the row of the done round ends and before the engine stores the kept session. A test uses it
+// to stop the task in the window between the end of the round and the keep.
+var beforeKeep = func(int64, *runner.Session) {}
+
 // keptSession is the open Harness process of an Implementer round that a later round of the same task continues. The
 // row of the earlier round is ended, so a kept session holds no Worker slot.
 type keptSession struct {

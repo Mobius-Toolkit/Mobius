@@ -1028,13 +1028,25 @@ func (e *Engine) keepImplementer(ctx context.Context, a *Agent, task store.Task,
 			e.agents.MCP.Close(k.key)
 			return
 		}
+		beforeKeep(task.ID, k.session)
 		e.keepSession(task.ID, k)
+		if !e.taskContinues(ctx, task) {
+			e.closeKept(task.ID)
+		}
 	})
 	if err != nil {
 		a.closeHarness()
 		return err
 	}
 	return nil
+}
+
+// taskContinues tells if the task of the round still runs in working, so that a later round of the task continues the
+// kept process. A stop or an end that runs between the end of the round and the keep leaves another state, and its
+// closeKept finds no kept session yet. Thus the keep reads the state again, and one of the two steps closes the process.
+func (e *Engine) taskContinues(ctx context.Context, task store.Task) bool {
+	current, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: task.Repository, Issue: task.Issue})
+	return err == nil && current.ID == task.ID && current.State == "working"
 }
 
 // stopAtLimit hands the task of the round to a human, because the pull request has open items after max_fix_rounds

@@ -6,6 +6,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -113,6 +114,13 @@ func waitForClosedKept(t *testing.T, server *testserver.Server, taskID int64, ke
 	t.Helper()
 	testkit.WaitFor(t, func() bool {
 		return server.Engine.KeptSession(taskID) == nil && !kept.Alive()
+	})
+}
+
+// requestSeen tells if the fake GitHub got a request with method to path.
+func requestSeen(fake *testkit.FakeGitHub, method, path string) bool {
+	return slices.ContainsFunc(fake.Requests(), func(request testkit.Request) bool {
+		return request.Method == method && request.Path == path
 	})
 }
 
@@ -379,6 +387,49 @@ func TestAStoppedTaskClosesTheKeptImplementerSession(t *testing.T) {
 
 	waitForTask(t, server, 41, "stopped")
 	waitForClosedKept(t, server, taskID, kept)
+}
+
+// TestAStopWhileTheRoundEndsClosesTheKeptImplementerSession stops the task in the window between the work of the round
+// and its keep. The stop closes the kept session of the task, but the map has no entry then. The keep must close the
+// process, because the task is stopped.
+//
+// Serial: the test changes beforeKeep.
+func TestAStopWhileTheRoundEndsClosesTheKeptImplementerSession(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := keptServer(t, fake, commits, noChange)
+	kept := make(chan *runner.Session, 1)
+	timedOut := make(chan struct{})
+	restore := engine.SetBeforeKeep(func(_ int64, session *runner.Session) {
+		kept <- session
+		fake.RemoveLabel(shop, 41, "mobius:working", "owner")
+		deadline := time.Now().Add(time.Minute)
+		for !requestSeen(fake, "DELETE", "/repos/owner/shop/issues/41/labels/mobius:working") {
+			if time.Now().After(deadline) {
+				close(timedOut)
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	})
+	defer restore()
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	testkit.WaitFor(t, func() bool { return hasLabel(fake, "mobius:working") })
+	taskID := liveTask(t, server, 41).ID
+
+	var session *runner.Session
+	select {
+	case session = <-kept:
+	case <-time.After(time.Minute):
+		t.Fatal("the round did not end with a keep")
+	}
+	select {
+	case <-timedOut:
+		t.Fatal("the stop did not reach its label write")
+	default:
+	}
+	waitForTask(t, server, 41, "stopped")
+	waitForClosedKept(t, server, taskID, session)
 }
 
 func TestAKeptSessionDoesNotHoldTheImplementerSlot(t *testing.T) {

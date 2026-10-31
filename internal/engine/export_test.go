@@ -144,6 +144,14 @@ func (e *Engine) StopWorker(task int64) {
 	e.stop(task)
 }
 
+// SetBeforeKeep sets the function that runs after the row of a done round ends and before the engine stores the kept
+// session, and gives the function that sets the old one. A test that calls it is serial.
+func SetBeforeKeep(hook func(int64, *runner.Session)) func() {
+	old := beforeKeep
+	beforeKeep = hook
+	return func() { beforeKeep = old }
+}
+
 // DeliverMessage sets the delivery time of a message of the Owner.
 func (e *Engine) DeliverMessage(ctx context.Context, id int64) error {
 	return e.deliverMessage(ctx, id)
