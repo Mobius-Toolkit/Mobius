@@ -2214,6 +2214,44 @@ test("screenshots", async ({ page }) => {
       }
     },
   );
+  // The ended tasks end on Oct 10, Oct 11, Oct 12, Oct 13 and Oct 15 with the models sonnet and swe-1.5. Their first
+  // state and their turns are before these days, so the other screens show only their working states.
+  const qualityFrame = (device: string) => [
+    ...frame(device, release),
+    main.getByRole("tab", { name: "Quality", selected: true }),
+  ];
+  // The table is below the first screen, so the step scrolls the last row into the viewport. The row header is narrow,
+  // so the scroll stays vertical. A full row would scroll the overflow box to the right on a phone.
+  const showRow = (name: RegExp) => async () => {
+    await main.getByRole("row", { name }).getByRole("rowheader").scrollIntoViewIfNeeded();
+    await expect(main.getByRole("table").locator("..")).toHaveJSProperty("scrollLeft", 0);
+  };
+  await screenshot(
+    page,
+    "usage-quality",
+    "/usage?tab=quality",
+    (device) => [
+      ...qualityFrame(device),
+      main.getByRole("row", { name: /^All 5 60%/ }),
+      ...usageDays.map((day) => main.getByText(day, { exact: true })),
+    ],
+    showRow(/^All 5 60%/),
+  );
+  await screenshot(
+    page,
+    "usage-quality-model",
+    "/usage?tab=quality&group=%5B%22model%22%5D",
+    (device) => [
+      ...qualityFrame(device),
+      main.getByRole("columnheader", { name: "Model" }),
+      main.getByRole("row", { name: /^sonnet 3 100% 1\.3 2\.0/ }),
+      main.getByRole("row", { name: /^swe-1\.5 2 0% 1\.5 0\.5/ }),
+      main.locator(".recharts-legend-wrapper").getByText("sonnet", { exact: true }),
+      main.locator(".recharts-legend-wrapper").getByText("swe-1.5", { exact: true }),
+      ...usageDays.map((day) => main.getByText(day, { exact: true })),
+    ],
+    showRow(/^swe-1\.5 2 0% 1\.5 0\.5/),
+  );
   await page.setViewportSize(viewports.phone);
   await page.goto("/usage?group=%5B%22model%22%5D");
   await expect(main.getByRole("row", { name: /swe-1\.5/ })).toBeVisible();
