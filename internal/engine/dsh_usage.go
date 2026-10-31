@@ -34,8 +34,12 @@ type dshUsage struct {
 // cannot read gives an error and no usage.
 func readDSHUsage(home, cwd, session string, counted int) (dshUsage, error) {
 	var usage dshUsage
-	path := dshLogPath(home, cwd, session)
-	file, err := os.Open(path)
+	root, err := os.OpenRoot(home)
+	if err != nil {
+		return usage, err
+	}
+	defer func() { _ = root.Close() }()
+	file, err := root.Open(filepath.Join("sessions", dshProjectKey(cwd), dshEncodeSegment(session), "session.v4.jsonl.zstd"))
 	if err != nil {
 		return usage, err
 	}
@@ -110,7 +114,7 @@ func readDSHUsage(home, cwd, session string, counted int) (dshUsage, error) {
 		return usage, err
 	}
 	if header {
-		return usage, fmt.Errorf("dsh session log %q has no header", path)
+		return usage, fmt.Errorf("the dsh session log of %q has no header", cwd)
 	}
 	return usage, nil
 }

@@ -17,22 +17,27 @@ import (
 
 const dshLogHeader = `{"type":"session","version":4,"id":"fake-session","cwd":"/tmp"}`
 
-func dshLogMessage(turn int, provider, model string, input, output, cacheRead, cacheWrite int) string {
-	return fmt.Sprintf(`{"type":"assistant/message","time":1,"data":{"turn":%d,"message":{"source":{"provider":%q,"model":%q}},"usage":{"inputTokens":%d,"outputTokens":%d,"cacheReadTokens":%d,"cacheWriteTokens":%d,"totalTokens":0}}}`,
-		turn, provider, model, input, output, cacheRead, cacheWrite)
+func dshLogMessage(turn int, model string, input, output, cacheRead, cacheWrite int) string {
+	return fmt.Sprintf(`{"type":"assistant/message","time":1,"data":{"turn":%d,"message":{"source":{"provider":"deepseek-account","model":%q}},"usage":{"inputTokens":%d,"outputTokens":%d,"cacheReadTokens":%d,"cacheWriteTokens":%d,"totalTokens":0}}}`,
+		turn, model, input, output, cacheRead, cacheWrite)
 }
 
 // writeDSHLog writes one zstd frame of lines to the dsh session log at path.
 func writeDSHLog(t *testing.T, path string, appendFrame bool, lines ...string) {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		t.Fatal(err)
 	}
+	root, err := os.OpenRoot(filepath.Dir(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
 	flag := os.O_CREATE | os.O_WRONLY | os.O_TRUNC
 	if appendFrame {
 		flag = os.O_CREATE | os.O_WRONLY | os.O_APPEND
 	}
-	file, err := os.OpenFile(path, flag, 0o600)
+	file, err := root.OpenFile(filepath.Base(path), flag, 0o600)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,14 +88,14 @@ reply = ["Done again."]
 	logPath := engine.DSHLogPath(home, spec.Dir, acpSession.String)
 	writeDSHLog(t, logPath, false,
 		dshLogHeader,
-		dshLogMessage(1, "deepseek-account", "deepseek-v4-pro", 100, 10, 1000, 5),
-		dshLogMessage(1, "deepseek-account", "deepseek-v4-pro", 20, 10, 0, 5),
+		dshLogMessage(1, "deepseek-v4-pro", 100, 10, 1000, 5),
+		dshLogMessage(1, "deepseek-v4-pro", 20, 10, 0, 5),
 	)
 	if err := agent.Prompt(t.Context(), "One", nil); err != nil {
 		t.Fatal(err)
 	}
 	writeDSHLog(t, logPath, true,
-		dshLogMessage(2, "deepseek-account", "deepseek-flash", 30, 3, 200, 0),
+		dshLogMessage(2, "deepseek-flash", 30, 3, 200, 0),
 	)
 	if err := agent.Prompt(t.Context(), "Two", nil); err != nil {
 		t.Fatal(err)

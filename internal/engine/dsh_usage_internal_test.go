@@ -12,18 +12,23 @@ import (
 
 const dshHeader = `{"type":"session","version":4,"id":"fake-session","cwd":"/tmp"}`
 
-func dshMessage(turn int, provider, model string, input, output, cacheRead, cacheWrite int) string {
-	return fmt.Sprintf(`{"type":"assistant/message","time":1,"data":{"turn":%d,"message":{"source":{"provider":%q,"model":%q}},"usage":{"inputTokens":%d,"outputTokens":%d,"cacheReadTokens":%d,"cacheWriteTokens":%d,"totalTokens":0}}}`,
-		turn, provider, model, input, output, cacheRead, cacheWrite)
+func dshMessage(turn int, model string, input, output, cacheRead, cacheWrite int) string {
+	return fmt.Sprintf(`{"type":"assistant/message","time":1,"data":{"turn":%d,"message":{"source":{"provider":"deepseek-account","model":%q}},"usage":{"inputTokens":%d,"outputTokens":%d,"cacheReadTokens":%d,"cacheWriteTokens":%d,"totalTokens":0}}}`,
+		turn, model, input, output, cacheRead, cacheWrite)
 }
 
 // writeDSHLog writes one zstd frame of lines for each element of frames.
 func writeDSHLog(t *testing.T, path string, frames ...[]string) {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		t.Fatal(err)
 	}
-	file, err := os.Create(path)
+	root, err := os.OpenRoot(filepath.Dir(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+	file, err := root.Create(filepath.Base(path))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,12 +88,12 @@ func TestReadDSHUsageSumsTheNewRecordsOfTwoFrames(t *testing.T) {
 	path := dshLogPath(home, cwd, session)
 	writeDSHLog(t, path, []string{
 		dshHeader,
-		dshMessage(1, "deepseek-account", "deepseek-v4-pro", 100, 10, 1000, 5),
-		dshMessage(1, "deepseek-account", "deepseek-v4-pro", 200, 20, 2000, 0),
+		dshMessage(1, "deepseek-v4-pro", 100, 10, 1000, 5),
+		dshMessage(1, "deepseek-v4-pro", 200, 20, 2000, 0),
 		`{"type":"turn/end","time":2,"data":{}}`,
 	}, []string{
 		`{"type":"other","time":3,"data":{}}`,
-		dshMessage(2, "deepseek-account", "deepseek-flash", 300, 30, 3000, 7),
+		dshMessage(2, "deepseek-flash", 300, 30, 3000, 7),
 	})
 
 	all, err := readDSHUsage(home, cwd, session, 0)
@@ -127,7 +132,7 @@ func TestReadDSHUsageSkipsARecordWithNoUsage(t *testing.T) {
 	writeDSHLog(t, path, []string{
 		dshHeader,
 		`{"type":"assistant/message","time":1,"data":{"turn":1,"message":{"source":{"provider":"deepseek-account","model":"deepseek-v4-pro"}}}}`,
-		dshMessage(1, "deepseek-account", "deepseek-v4-pro", 10, 2, 30, 4),
+		dshMessage(1, "deepseek-v4-pro", 10, 2, 30, 4),
 	})
 
 	usage, err := readDSHUsage(home, cwd, session, 0)
@@ -159,7 +164,7 @@ func TestReadDSHUsageRefusesAnotherVersion(t *testing.T) {
 	path := dshLogPath(home, cwd, session)
 	writeDSHLog(t, path, []string{
 		`{"type":"session","version":5,"id":"fake-session","cwd":"/work/task"}`,
-		dshMessage(1, "deepseek-account", "deepseek-v4-pro", 10, 2, 30, 4),
+		dshMessage(1, "deepseek-v4-pro", 10, 2, 30, 4),
 	})
 
 	usage, err := readDSHUsage(home, cwd, session, 0)
@@ -179,10 +184,15 @@ func TestReadDSHUsageGivesAnErrorForAMissingOrBrokenLog(t *testing.T) {
 		t.Error("the missing log gave no error")
 	}
 	path := dshLogPath(home, cwd, "broken")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte("not a zstd frame"), 0o600); err != nil {
+	root, err := os.OpenRoot(filepath.Dir(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+	if err := root.WriteFile(filepath.Base(path), []byte("not a zstd frame"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := readDSHUsage(home, cwd, "broken", 0); err == nil {
