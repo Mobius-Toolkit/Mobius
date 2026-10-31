@@ -409,3 +409,26 @@ func TestTheUpgradeOfAPackageThatNoRowHasGivesAConflict(t *testing.T) {
 		t.Errorf("status = %d, error = %q", reply.StatusCode, body.Error)
 	}
 }
+
+func TestTheAutoUpgradeOfAPackageThatNoRowHasGivesAConflict(t *testing.T) {
+	t.Setenv("CLAUDE_CODE_EXECUTABLE", "")
+	server := testserver.Start(t, t.TempDir(), testkit.NewFakeGitHub(t).URL)
+
+	var body struct {
+		Error string `json:"error"`
+	}
+	reply := call(t, server.Client, http.MethodPut, server.URL+"/api/checkup/tools/auto-upgrade", `{"package": "@example/none", "on": true}`, &body)
+	if reply.StatusCode != http.StatusConflict || body.Error == "" {
+		t.Errorf("status = %d, error = %q", reply.StatusCode, body.Error)
+	}
+}
+
+func TestTheAutoUpgradeNeedsTheOnField(t *testing.T) {
+	t.Setenv("CLAUDE_CODE_EXECUTABLE", "")
+	server := testserver.Start(t, t.TempDir(), testkit.NewFakeGitHub(t).URL)
+
+	reply := call(t, server.Client, http.MethodPut, server.URL+"/api/checkup/tools/auto-upgrade", `{"package": "@example/none"}`, nil)
+	if reply.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d", reply.StatusCode)
+	}
+}

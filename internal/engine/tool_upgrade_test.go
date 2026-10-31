@@ -35,8 +35,8 @@ func nodeProgram(t *testing.T, file, text string) {
 }
 
 // upgradeServer starts a server whose dsh row is a program of the Node install at prefix. The install prints version,
-// and the fake npm at prefix/bin/npm runs the script npm.
-func upgradeServer(t *testing.T, prefix, npm, program string) *testserver.Server {
+// and the fake npm at prefix/bin/npm runs the script npm. It gives the fake GitHub and the fake npm registry.
+func upgradeServer(t *testing.T, prefix, npm, program string) (*testserver.Server, *testkit.FakeGitHub, *testkit.FakeNPM) {
 	t.Helper()
 	nodeProgram(t, program, "#!/bin/sh\necho 0.2.1-rc.4\n")
 	nodeProgram(t, filepath.Join(prefix, "bin", "npm"), npm)
@@ -57,15 +57,15 @@ func upgradeServer(t *testing.T, prefix, npm, program string) *testserver.Server
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	server := startServerWith(t, fake, testserver.Config(t, dataDir), "")
 	server.WaitForFirstPoll(t, shop)
-	return server
+	return server, fake, registry
 }
 
-// toolVersion gives the version of the tool name in checks.
-func toolVersion(t *testing.T, checks []engine.ToolCheck, name string) string {
+// dshVersion gives the version of the dsh row in checks.
+func dshVersion(t *testing.T, checks []engine.ToolCheck) string {
 	t.Helper()
-	index := slices.IndexFunc(checks, func(check engine.ToolCheck) bool { return check.Name == name })
+	index := slices.IndexFunc(checks, func(check engine.ToolCheck) bool { return check.Name == "dsh" })
 	if index < 0 {
-		t.Fatalf("no row %s", name)
+		t.Fatal("no dsh row")
 	}
 	return checks[index].Version
 }
@@ -80,7 +80,7 @@ func TestTheUpgradeRunsTheNPMOfTheNodeInstallOfTheProgram(t *testing.T) {
 	nodeProgram(t, filepath.Join(other, "npm"), "#!/bin/sh\ntouch "+otherRan+"\n")
 	t.Setenv("PATH", other+string(filepath.ListSeparator)+os.Getenv("PATH"))
 
-	server := upgradeServer(t, prefix, npm, program)
+	server, _, _ := upgradeServer(t, prefix, npm, program)
 
 	checks, err := server.Engine.UpgradeTool(context.Background(), upgradePackage)
 	if err != nil {
@@ -102,7 +102,7 @@ func TestTheUpgradeRunsTheNPMOfTheNodeInstallOfTheProgram(t *testing.T) {
 	if _, err := os.Stat(otherRan); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("the npm of the PATH of Mobius ran: %v", err)
 	}
-	if got := toolVersion(t, checks, "dsh"); got != "0.2.1-rc.5" {
+	if got := dshVersion(t, checks); got != "0.2.1-rc.5" {
 		t.Errorf("dsh version = %q", got)
 	}
 	if got := records(t, server, engine.ChatKey{Organization: "owner"}); !slices.Equal(got, []string{"You upgraded dsh to 0.2.1-rc.5."}) {
@@ -115,12 +115,12 @@ func TestAFailedUpgradeGivesTheNPMOutputAndKeepsTheVersion(t *testing.T) {
 	program := filepath.Join(prefix, "lib", "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js")
 	npm := "#!/bin/sh\necho 'npm ERR! network down' >&2\nexit 1\n"
 
-	server := upgradeServer(t, prefix, npm, program)
+	server, _, _ := upgradeServer(t, prefix, npm, program)
 
 	if _, err := server.Engine.UpgradeTool(context.Background(), upgradePackage); err == nil || !strings.Contains(err.Error(), "npm ERR! network down") {
 		t.Fatalf("error = %v", err)
 	}
-	if got := toolVersion(t, server.Engine.Tools(context.Background()), "dsh"); got != "0.2.1-rc.4" {
+	if got := dshVersion(t, server.Engine.Tools(context.Background())); got != "0.2.1-rc.4" {
 		t.Errorf("dsh version = %q", got)
 	}
 }
@@ -132,7 +132,7 @@ func TestASecondUpgradeOfTheSamePackageIsRefusedWhileTheFirstRuns(t *testing.T) 
 	release := filepath.Join(prefix, "release")
 	npm := "#!/bin/sh\ntouch " + started + "\nwhile [ ! -e " + release + " ]; do sleep 0.05; done\nprintf '#!/bin/sh\\necho 0.2.1-rc.5\\n' > " + program + "\n"
 
-	server := upgradeServer(t, prefix, npm, program)
+	server, _, _ := upgradeServer(t, prefix, npm, program)
 
 	done := make(chan error, 1)
 	go func() {
@@ -158,7 +158,7 @@ func TestAnUpgradeEndsAfterTheRequestOfTheOwnerEnds(t *testing.T) {
 	ended := filepath.Join(prefix, "ended")
 	npm := "#!/bin/sh\ntouch " + started + "\nwhile [ ! -e " + release + " ]; do sleep 0.05; done\nprintf '#!/bin/sh\\necho 0.2.1-rc.5\\n' > " + program + "\ntouch " + ended + "\n"
 
-	server := upgradeServer(t, prefix, npm, program)
+	server, _, _ := upgradeServer(t, prefix, npm, program)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -184,7 +184,7 @@ func TestTheUpgradeRefusesAPackageThatNoRowHas(t *testing.T) {
 	prefix := t.TempDir()
 	program := filepath.Join(prefix, "lib", "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js")
 
-	server := upgradeServer(t, prefix, "#!/bin/sh\nexit 0\n", program)
+	server, _, _ := upgradeServer(t, prefix, "#!/bin/sh\nexit 0\n", program)
 
 	if _, err := server.Engine.UpgradeTool(context.Background(), "@example/none"); !engine.Refused(err) {
 		t.Errorf("error = %v", err)

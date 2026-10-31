@@ -145,6 +145,8 @@ type ToolCheck struct {
 	Required bool `gork:"required"`
 	// Package is the npm package of the row. It is empty for a program that Mobius does not upgrade
 	Package string `gork:"package"`
+	// AutoUpgrade tells that Mobius installs the newest version of Package by itself
+	AutoUpgrade bool `gork:"autoUpgrade"`
 }
 
 // GetCheckupToolsRequest is the request of GetCheckupTools.
@@ -190,6 +192,35 @@ func (h *handlers) UpgradeCheckupTool(ctx context.Context, req UpgradeCheckupToo
 		tools = append(tools, ToolCheck(tool))
 	}
 	return &UpgradeCheckupToolResponse{Body: Envelope[[]ToolCheck]{Data: tools}}, nil
+}
+
+// SetToolAutoUpgradeRequest is the request of SetToolAutoUpgrade.
+type SetToolAutoUpgradeRequest struct {
+	Body struct {
+		// Package is the npm package of the tool
+		Package string `gork:"package" validate:"required"`
+		// On turns the auto-upgrade of the package on when true, and off when false
+		On *bool `gork:"on" validate:"required"`
+	}
+}
+
+// SetToolAutoUpgradeResponse is the response of SetToolAutoUpgrade.
+type SetToolAutoUpgradeResponse struct {
+	Body Envelope[[]ToolCheck]
+}
+
+// SetToolAutoUpgrade turns the auto-upgrade of the npm package of a tool on or off, and returns the new tool list. It
+// returns 409 with the reason when Mobius does not upgrade the package.
+func (h *handlers) SetToolAutoUpgrade(ctx context.Context, req SetToolAutoUpgradeRequest) (*SetToolAutoUpgradeResponse, error) {
+	found, err := h.engine.SetToolAutoUpgrade(ctx, req.Body.Package, *req.Body.On)
+	if err != nil {
+		return nil, api.NewHTTPError(http.StatusConflict, err.Error())
+	}
+	tools := make([]ToolCheck, 0, len(found))
+	for _, tool := range found {
+		tools = append(tools, ToolCheck(tool))
+	}
+	return &SetToolAutoUpgradeResponse{Body: Envelope[[]ToolCheck]{Data: tools}}, nil
 }
 
 // FixLabelsRequest is the request of FixLabels.

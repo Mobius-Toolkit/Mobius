@@ -963,6 +963,71 @@
         ]
       }
     },
+    "/api/checkup/tools/auto-upgrade": {
+      "put": {
+        "description": "SetToolAutoUpgrade turns the auto-upgrade of the npm package of a tool on or off, and returns the new tool list. It returns 409 with the reason when Mobius does not upgrade the package.",
+        "operationId": "SetToolAutoUpgrade",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetToolAutoUpgradeBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_Array_ToolCheck"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "checkup"
+        ]
+      }
+    },
     "/api/checkup/tools/upgrade": {
       "post": {
         "description": "UpgradeCheckupTool installs the newest version of the npm package of a tool, and returns the new tool list. It returns 409 with the reason when Mobius does not upgrade the package or the npm run fails.",
@@ -7227,7 +7292,7 @@
           },
           "kind": {
             "type": "string",
-            "description": "Kind tells what the item is about: question for a question of the Lead on an issue, Lead failed for a message that the Lead did not take, ready for review for a pull request of a task, stopped for a task that a person must continue (a stale pull request or a session that Mobius stopped after its hangs), lost for a task that Mobius lost, and full disk for a local check that waits for free disk space, and approval for a tool call of an agent that waits for the approval of the Owner, and todo for a deployment need of a pull request, and access check for a Harness that has no access to the model of a Role",
+            "description": "Kind tells what the item is about: question for a question of the Lead on an issue, Lead failed for a message that the Lead did not take, ready for review for a pull request of a task, stopped for a task that a person must continue (a stale pull request or a session that Mobius stopped after its hangs), lost for a task that Mobius lost, and full disk for a local check that waits for free disk space, and approval for a tool call of an agent that waits for the approval of the Owner, and todo for a deployment need of a pull request, and access check for a Harness that has no access to the model of a Role, and tool upgrade for an automatic upgrade of an npm package of a Harness that failed",
             "enum": [
               "question",
               "Lead failed",
@@ -7237,7 +7302,8 @@
               "full disk",
               "approval",
               "todo",
-              "access check"
+              "access check",
+              "tool upgrade"
             ]
           },
           "link": {
@@ -8736,6 +8802,24 @@
           }
         }
       },
+      "SetToolAutoUpgradeBody": {
+        "type": "object",
+        "title": "SetToolAutoUpgradeBody",
+        "properties": {
+          "on": {
+            "type": "boolean",
+            "description": "On turns the auto-upgrade of the package on when true, and off when false"
+          },
+          "package": {
+            "type": "string",
+            "description": "Package is the npm package of the tool"
+          }
+        },
+        "required": [
+          "package",
+          "on"
+        ]
+      },
       "SetVoiceLanguageBody": {
         "type": "object",
         "title": "SetVoiceLanguageBody",
@@ -9107,6 +9191,10 @@
         "type": "object",
         "title": "ToolCheck",
         "properties": {
+          "autoUpgrade": {
+            "type": "boolean",
+            "description": "AutoUpgrade tells that Mobius installs the newest version of Package by itself"
+          },
           "name": {
             "type": "string",
             "description": "Name is the name of the program"
@@ -9148,7 +9236,8 @@
           "newest",
           "outdated",
           "required",
-          "package"
+          "package",
+          "autoUpgrade"
         ],
         "description": "ToolCheck is the path and the version of a program that Mobius runs."
       },

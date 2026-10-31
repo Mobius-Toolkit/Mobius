@@ -287,7 +287,8 @@ export function InboxRow({
                   Details
                 </Button>
               )}
-            {item.kind === InboxItemKind.Lead_failed && (
+            {(item.kind === InboxItemKind.Lead_failed ||
+              item.kind === InboxItemKind.tool_upgrade) && (
               <Button
                 variant="outline"
                 size="sm"

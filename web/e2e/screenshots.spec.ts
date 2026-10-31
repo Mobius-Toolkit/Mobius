@@ -2078,6 +2078,7 @@ test("screenshots", async ({ page }) => {
     outdated: true,
     required: true,
     package: "@deepseek-ai/dsh",
+    autoUpgrade: false,
   };
   const npmError = [
     "npm ERR! code EACCES",
@@ -2096,6 +2097,7 @@ test("screenshots", async ({ page }) => {
       ...frame(device, release),
       page.getByRole("dialog").getByText("Installed: 0.2.1-rc.4"),
       page.getByRole("dialog").getByText("Newest: 0.2.1-rc.5"),
+      page.getByRole("switch", { name: "Auto-upgrade" }),
     ],
     async () => {
       await main.getByRole("button", { name: /dsh/ }).click();
@@ -2113,6 +2115,7 @@ test("screenshots", async ({ page }) => {
       page.getByRole("dialog").getByRole("heading", { name: "dsh" }),
       page.getByRole("dialog").getByText("npm ERR! code EACCES"),
       page.getByRole("dialog").getByRole("button", { name: "Upgrade" }),
+      page.getByRole("switch", { name: "Auto-upgrade" }),
     ],
     async () => {
       await main.getByRole("button", { name: /dsh/ }).click();
@@ -2121,6 +2124,27 @@ test("screenshots", async ({ page }) => {
   );
   await page.unroute("**/api/checkup/tools");
   await page.unroute("**/api/checkup/tools/upgrade");
+  await page.route("**/api/checkup/tools", (route) =>
+    route.fulfill({ json: { data: [{ ...nodeTool, autoUpgrade: true }] } }),
+  );
+  await screenshot(
+    page,
+    "checkup-tools-auto-upgrade",
+    "/settings/checkup/tools",
+    (device) => [
+      ...frame(device, release),
+      page.getByRole("dialog").getByText("Installed: 0.2.1-rc.4"),
+      page.getByRole("switch", { name: "Auto-upgrade" }),
+    ],
+    async () => {
+      await main.getByRole("button", { name: /dsh/ }).click();
+      await expect(page.getByRole("switch", { name: "Auto-upgrade" })).toHaveAttribute(
+        "aria-checked",
+        "true",
+      );
+    },
+  );
+  await page.unroute("**/api/checkup/tools");
   await screenshot(page, "checkup-permissions", "/settings/checkup/owner/permissions", (device) => [
     ...frame(device, release),
     main.getByText("workflows: write"),

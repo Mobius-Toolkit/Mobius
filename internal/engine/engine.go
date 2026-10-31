@@ -98,6 +98,8 @@ type Engine struct {
 	upgradesMu sync.Mutex
 	// upgrades holds each npm package whose upgrade runs now.
 	upgrades map[string]bool
+	// autoUpgradeAt is the time of the last run of the auto-upgrade check. Only the loop of that check uses it.
+	autoUpgradeAt time.Time
 	// harnessReadsMu guards harnessReads.
 	harnessReadsMu sync.Mutex
 	// harnessReads holds the newest read of the models of each Harness.
@@ -387,6 +389,7 @@ func (e *Engine) Run(ctx context.Context) {
 	var wg sync.WaitGroup
 	wg.Go(func() { every(ctx, e.config.HousekeeperInterval, nil, e.keepHouse) })
 	wg.Go(func() { every(ctx, e.config.PollInterval, nil, e.checkAccess) })
+	wg.Go(func() { every(ctx, e.config.PollInterval, nil, e.autoUpgradeTools) })
 	every(ctx, e.config.PollInterval, e.pollWake, e.poll)
 	wg.Wait()
 	e.stopWorkers()

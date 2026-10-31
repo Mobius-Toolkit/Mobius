@@ -26,6 +26,7 @@ const (
 	accessCheckKind    = "access check"
 	approvalKind       = "approval"
 	todoKind           = "todo"
+	toolUpgradeKind    = "tool upgrade"
 )
 
 var inboxKinds = []string{questionKind, stoppedKind, lostKind, readyForReviewKind, leadFailedKind}

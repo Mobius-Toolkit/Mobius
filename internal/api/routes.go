@@ -89,6 +89,7 @@ func Routes(mux *http.ServeMux, queries *store.Queries, a *auth.Auth, gh *github
 	r.Get("/api/checkup", h.GetCheckup, loggedIn("checkup")...)
 	r.Get("/api/checkup/tools", h.GetCheckupTools, loggedIn("checkup")...)
 	r.Post("/api/checkup/tools/upgrade", h.UpgradeCheckupTool, append(loggedIn("checkup"), api.WithErrorResponses(http.StatusConflict))...)
+	r.Put("/api/checkup/tools/auto-upgrade", h.SetToolAutoUpgrade, append(loggedIn("checkup"), api.WithErrorResponses(http.StatusConflict))...)
 	r.Post("/api/checkup/fix", h.FixLabels, loggedIn("checkup")...)
 	r.Get("/api/usage", h.GetUsage, append(loggedIn("usage"), api.WithErrorResponses(http.StatusBadRequest))...)
 	r.Get("/api/usage/times", h.GetUsageTimes, append(loggedIn("usage"), api.WithErrorResponses(http.StatusBadRequest))...)

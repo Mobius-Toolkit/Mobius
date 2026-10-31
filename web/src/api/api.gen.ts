@@ -378,7 +378,7 @@ export interface ChatInboxItem {
 }
 
 /**
- * Kind tells what the item is about: question for a question of the Lead on an issue, Lead failed for a message that the Lead did not take, ready for review for a pull request of a task, stopped for a task that a person must continue (a stale pull request or a session that Mobius stopped after its hangs), lost for a task that Mobius lost, and full disk for a local check that waits for free disk space, and approval for a tool call of an agent that waits for the approval of the Owner, and todo for a deployment need of a pull request, and access check for a Harness that has no access to the model of a Role
+ * Kind tells what the item is about: question for a question of the Lead on an issue, Lead failed for a message that the Lead did not take, ready for review for a pull request of a task, stopped for a task that a person must continue (a stale pull request or a session that Mobius stopped after its hangs), lost for a task that Mobius lost, and full disk for a local check that waits for free disk space, and approval for a tool call of an agent that waits for the approval of the Owner, and todo for a deployment need of a pull request, and access check for a Harness that has no access to the model of a Role, and tool upgrade for an automatic upgrade of an npm package of a Harness that failed
  */
 export type InboxItemKind = typeof InboxItemKind[keyof typeof InboxItemKind];
 
@@ -393,6 +393,7 @@ export const InboxItemKind = {
   approval: 'approval',
   todo: 'todo',
   access_check: 'access check',
+  tool_upgrade: 'tool upgrade',
 } as const;
 
 /**
@@ -454,7 +455,7 @@ export interface InboxItem {
   id: number;
   /** Issue is the number of the issue of the item */
   issue: number;
-  /** Kind tells what the item is about: question for a question of the Lead on an issue, Lead failed for a message that the Lead did not take, ready for review for a pull request of a task, stopped for a task that a person must continue (a stale pull request or a session that Mobius stopped after its hangs), lost for a task that Mobius lost, and full disk for a local check that waits for free disk space, and approval for a tool call of an agent that waits for the approval of the Owner, and todo for a deployment need of a pull request, and access check for a Harness that has no access to the model of a Role */
+  /** Kind tells what the item is about: question for a question of the Lead on an issue, Lead failed for a message that the Lead did not take, ready for review for a pull request of a task, stopped for a task that a person must continue (a stale pull request or a session that Mobius stopped after its hangs), lost for a task that Mobius lost, and full disk for a local check that waits for free disk space, and approval for a tool call of an agent that waits for the approval of the Owner, and todo for a deployment need of a pull request, and access check for a Harness that has no access to the model of a Role, and tool upgrade for an automatic upgrade of an npm package of a Harness that failed */
   kind: InboxItemKind;
   /** Link is the GitHub URL of the issue, or empty */
   link: string;
@@ -1064,6 +1065,8 @@ export interface EnvelopeArrayTaskLine {
  * ToolCheck is the path and the version of a program that Mobius runs.
  */
 export interface ToolCheck {
+  /** AutoUpgrade tells that Mobius installs the newest version of Package by itself */
+  autoUpgrade: boolean;
   /** Name is the name of the program */
   name: string;
   /** Newest is the newest version of the npm package of a critical tool. It is empty when the registry gave none, and for a tool that is not critical */
@@ -2138,6 +2141,13 @@ export interface SetRoleBody {
 export interface SetSwitchBody {
   /** On turns the switch on when true, and off when false */
   on?: boolean;
+}
+
+export interface SetToolAutoUpgradeBody {
+  /** On turns the auto-upgrade of the package on when true, and off when false */
+  on: boolean;
+  /** Package is the npm package of the tool */
+  package: string;
 }
 
 export interface SetVoiceLanguageBody {
@@ -3469,6 +3479,76 @@ export const getCheckupTools = async ( ): Promise<getCheckupToolsResponse> => {
 
   const data: getCheckupToolsResponse['data'] = body ? JSON.parse(body) : {}
   return { data, status: res.status, headers: res.headers } as getCheckupToolsResponse
+}
+
+
+
+export type setToolAutoUpgradeResponse200 = {
+  data: EnvelopeArrayToolCheck
+  status: 200
+}
+
+export type setToolAutoUpgradeResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type setToolAutoUpgradeResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type setToolAutoUpgradeResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
+export type setToolAutoUpgradeResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type setToolAutoUpgradeResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type setToolAutoUpgradeResponseSuccess = (setToolAutoUpgradeResponse200) & {
+  headers: Headers;
+};
+export type setToolAutoUpgradeResponseError = (setToolAutoUpgradeResponse400 | setToolAutoUpgradeResponse401 | setToolAutoUpgradeResponse409 | setToolAutoUpgradeResponse422 | setToolAutoUpgradeResponse500) & {
+  headers: Headers;
+};
+
+export type setToolAutoUpgradeResponse = (setToolAutoUpgradeResponseSuccess | setToolAutoUpgradeResponseError)
+
+export const getSetToolAutoUpgradeUrl = () => {
+
+
+
+
+  return `/api/checkup/tools/auto-upgrade`
+}
+
+/**
+ * SetToolAutoUpgrade turns the auto-upgrade of the npm package of a tool on or off, and returns the new tool list. It returns 409 with the reason when Mobius does not upgrade the package.
+ */
+export const setToolAutoUpgrade = async (setToolAutoUpgradeBody: SetToolAutoUpgradeBody, ): Promise<setToolAutoUpgradeResponse> => {
+
+  const res = await fetch(getSetToolAutoUpgradeUrl(),
+  {
+
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(setToolAutoUpgradeBody)
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: setToolAutoUpgradeResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as setToolAutoUpgradeResponse
 }
 
 
