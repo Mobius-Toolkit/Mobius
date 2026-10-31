@@ -71,7 +71,7 @@ func (e *Engine) SaveMemory(ctx context.Context, repository, file, author, reaso
 // saveMemory is SaveMemory for a caller that holds memoryMu.
 func (e *Engine) saveMemory(ctx context.Context, repository, file, author, reason, text string) error {
 	if lines := countLines(text); lines > maxMemoryLines {
-		return fmt.Errorf("%w: the text has %d lines and the maximum is %d", ErrMemoryTooLong, lines, maxMemoryLines)
+		return fmt.Errorf("%w: the memory file %s has %d lines and the maximum is %d", ErrMemoryTooLong, file, lines, maxMemoryLines)
 	}
 	current, err := e.readMemory(repository, file)
 	if err != nil || current == text {

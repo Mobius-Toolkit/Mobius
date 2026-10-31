@@ -285,7 +285,7 @@ func TestAnEditMemoryCallRefusesAnOldTextThatDoesNotOccurOneTimeAndAResultOfMore
 		"The old text does not occur in the memory file shared.",
 		"The old text occurs 2 times in the memory file shared. Make it longer, so that it occurs one time.",
 		"The reason is empty. Name the type of change and the evidence.",
-		"the memory file has too many lines: the text has 201 lines and the maximum is 200",
+		"the memory file has too many lines: the memory file shared has 201 lines and the maximum is 200",
 	}
 	calls := mcpCalls(t, server, session)
 	if len(calls) != len(want) {
