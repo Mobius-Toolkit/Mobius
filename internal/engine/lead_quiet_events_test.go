@@ -127,7 +127,7 @@ func TestAQuietEventWithNoLeadSessionWaitsForTheFirstPromptOfTheNextSession(t *t
 func TestTheSavePromptOfAnIdleCloseTakesNoQuietEvent(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectWith(t, fake, "[[prompts]]\nwhen = \"Plan the next step\"\nreply = [\"Next answer\"]\n\n[[prompts]]\nreply = [\"Seen\"]\n", func(cfg *config.Config) {
-		cfg.LeadIdleTimeout = time.Second
+		cfg.LeadIdleTimeout = 3 * time.Second
 	})
 
 	sendChat(t, server, leadChat, "Plan the loyalty API")
