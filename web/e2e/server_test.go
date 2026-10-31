@@ -820,6 +820,14 @@ func TestServer(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	for _, text := range []string{
+		"Use pnpm for the frontend.\n",
+		"Use pnpm for the frontend.\nRun the tests of a changed package.\n",
+	} {
+		if err := server.Engine.SaveMemory(ctx, "owner/shop", engine.ImplementerRole, "owner", "", text); err != nil {
+			t.Fatal(err)
+		}
+	}
 	for _, session := range []struct {
 		number  int64
 		harness string

@@ -14,7 +14,7 @@ import {
 import { GitHub } from "./GitHub";
 import { Inbox } from "./Inbox";
 import { InboxTabs } from "./InboxTabs";
-import { Memory, MemoryRepositories } from "./Memory";
+import { Memory, MemoryFiles, MemoryRepositories } from "./Memory";
 import { Tasks } from "./Tasks";
 import { CoordinatorChat } from "./CoordinatorChat";
 import { Usage } from "./Usage";
@@ -129,7 +129,12 @@ export function MemoryRepositoriesPage() {
 
 export function MemoryPage() {
   const { owner, name } = useParams({ from: "/settings/memory/$owner/$name" });
-  return <Memory key={`${owner}/${name}`} owner={owner} name={name} />;
+  return <MemoryFiles key={`${owner}/${name}`} owner={owner} name={name} />;
+}
+
+export function MemoryFilePage() {
+  const { owner, name, file } = useParams({ from: "/settings/memory/$owner/$name/$file" });
+  return <Memory key={`${owner}/${name}/${file}`} owner={owner} name={name} file={file} />;
 }
 
 export function UsagePage() {

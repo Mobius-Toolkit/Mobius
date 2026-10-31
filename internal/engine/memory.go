@@ -32,9 +32,35 @@ var ErrMemoryTooLong = errors.New("the memory file has too many lines")
 // ErrNoMemoryVersion is the error of a version that does not exist or belongs to another repository or file.
 var ErrNoMemoryVersion = errors.New("the memory file has no such version")
 
-// validMemoryFile tells if name is the name of a memory file.
-func validMemoryFile(name string) bool {
+// ValidMemoryFile tells if name is the name of a memory file.
+func ValidMemoryFile(name string) bool {
 	return slices.Contains(memoryFileNames, name)
+}
+
+// MemoryFileInfo is a memory file of a repository with the number of its lines.
+type MemoryFileInfo struct {
+	// File is the name of the file: MemoryFileShared or the name of a role.
+	File string
+	// Lines is the number of lines of the file, and 0 when the file is empty or missing.
+	Lines int
+}
+
+// MemoryFiles gives each memory file of the repository with the number of its lines, in the order of the prompt
+// sections.
+func (e *Engine) MemoryFiles(repository string) ([]MemoryFileInfo, error) {
+	files := make([]MemoryFileInfo, 0, len(memoryFileNames))
+	for _, file := range memoryFileNames {
+		text, err := e.readMemory(repository, file)
+		if err != nil {
+			return nil, err
+		}
+		lines := 0
+		if text != "" {
+			lines = countLines(text)
+		}
+		files = append(files, MemoryFileInfo{File: file, Lines: lines})
+	}
+	return files, nil
 }
 
 // countLines gives the number of lines of text.
