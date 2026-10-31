@@ -396,3 +396,16 @@ func TestTheToolsCheckGivesEachProgramWithItsStatus(t *testing.T) {
 		t.Errorf("Claude Code CLI status = %q", got)
 	}
 }
+
+func TestTheUpgradeOfAPackageThatNoRowHasGivesAConflict(t *testing.T) {
+	t.Setenv("CLAUDE_CODE_EXECUTABLE", "")
+	server := testserver.Start(t, t.TempDir(), testkit.NewFakeGitHub(t).URL)
+
+	var body struct {
+		Error string `json:"error"`
+	}
+	reply := call(t, server.Client, http.MethodPost, server.URL+"/api/checkup/tools/upgrade", `{"package": "@example/none"}`, &body)
+	if reply.StatusCode != http.StatusConflict || body.Error == "" {
+		t.Errorf("status = %d, error = %q", reply.StatusCode, body.Error)
+	}
+}

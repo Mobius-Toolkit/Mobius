@@ -1070,6 +1070,8 @@ export interface ToolCheck {
   newest: string;
   /** Outdated tells that the version of a critical tool is older than Newest */
   outdated: boolean;
+  /** Package is the npm package of the row. It is empty for a program that Mobius does not upgrade */
+  package: string;
   /** Path is the file that Mobius runs. It is empty when Mobius cannot find the program, and for the Claude Code CLI that is built in the adapter */
   path: string;
   /** Required tells that a role uses the Harness of the row, or that the program is git */
@@ -2160,6 +2162,11 @@ export type TranscriptEvents = {
   event: 'transcript';
   id?: string;
 };
+
+export interface UpgradeCheckupToolBody {
+  /** Package is the npm package of the tool to upgrade */
+  package: string;
+}
 
 /**
  * Field-level validation errors (maps field names to arrays of error messages)
@@ -3462,6 +3469,76 @@ export const getCheckupTools = async ( ): Promise<getCheckupToolsResponse> => {
 
   const data: getCheckupToolsResponse['data'] = body ? JSON.parse(body) : {}
   return { data, status: res.status, headers: res.headers } as getCheckupToolsResponse
+}
+
+
+
+export type upgradeCheckupToolResponse200 = {
+  data: EnvelopeArrayToolCheck
+  status: 200
+}
+
+export type upgradeCheckupToolResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type upgradeCheckupToolResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type upgradeCheckupToolResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
+export type upgradeCheckupToolResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type upgradeCheckupToolResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type upgradeCheckupToolResponseSuccess = (upgradeCheckupToolResponse200) & {
+  headers: Headers;
+};
+export type upgradeCheckupToolResponseError = (upgradeCheckupToolResponse400 | upgradeCheckupToolResponse401 | upgradeCheckupToolResponse409 | upgradeCheckupToolResponse422 | upgradeCheckupToolResponse500) & {
+  headers: Headers;
+};
+
+export type upgradeCheckupToolResponse = (upgradeCheckupToolResponseSuccess | upgradeCheckupToolResponseError)
+
+export const getUpgradeCheckupToolUrl = () => {
+
+
+
+
+  return `/api/checkup/tools/upgrade`
+}
+
+/**
+ * UpgradeCheckupTool installs the newest version of the npm package of a tool, and returns the new tool list. It returns 409 with the reason when Mobius does not upgrade the package or the npm run fails.
+ */
+export const upgradeCheckupTool = async (upgradeCheckupToolBody: UpgradeCheckupToolBody, ): Promise<upgradeCheckupToolResponse> => {
+
+  const res = await fetch(getUpgradeCheckupToolUrl(),
+  {
+
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(upgradeCheckupToolBody)
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: upgradeCheckupToolResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as upgradeCheckupToolResponse
 }
 
 

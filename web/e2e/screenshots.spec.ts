@@ -2069,6 +2069,58 @@ test("screenshots", async ({ page }) => {
     main.getByText("2.1.284 (Claude Code) · newest 2.1.300"),
     main.getByText("0.2.1-rc.4 · newest 0.2.1-rc.5"),
   ]);
+  const nodeTool = {
+    name: "dsh",
+    path: "/Users/owner/.local/state/fnm_multishells/1234/bin/dsh",
+    version: "0.2.1-rc.4",
+    status: "",
+    newest: "0.2.1-rc.5",
+    outdated: true,
+    required: true,
+    package: "@deepseek-ai/dsh",
+  };
+  const npmError = [
+    "npm ERR! code EACCES",
+    "npm ERR! syscall mkdir",
+    "npm ERR! path /usr/local/lib/node_modules/@deepseek-ai",
+    ...Array.from({ length: 30 }, (_, index) => `npm ERR! at line ${index + 1} of the log`),
+  ].join("\n");
+  await page.route("**/api/checkup/tools", (route) =>
+    route.fulfill({ json: { data: [nodeTool] } }),
+  );
+  await screenshot(
+    page,
+    "checkup-tools-upgrade",
+    "/settings/checkup/tools",
+    (device) => [
+      ...frame(device, release),
+      page.getByRole("dialog").getByText("Installed: 0.2.1-rc.4"),
+      page.getByRole("dialog").getByText("Newest: 0.2.1-rc.5"),
+    ],
+    async () => {
+      await main.getByRole("button", { name: /dsh/ }).click();
+    },
+  );
+  await page.route("**/api/checkup/tools/upgrade", (route) =>
+    route.fulfill({ status: 409, json: { error: npmError } }),
+  );
+  await screenshot(
+    page,
+    "checkup-tools-upgrade-error",
+    "/settings/checkup/tools",
+    (device) => [
+      ...frame(device, release),
+      page.getByRole("dialog").getByRole("heading", { name: "dsh" }),
+      page.getByRole("dialog").getByText("npm ERR! code EACCES"),
+      page.getByRole("dialog").getByRole("button", { name: "Upgrade" }),
+    ],
+    async () => {
+      await main.getByRole("button", { name: /dsh/ }).click();
+      await page.getByRole("dialog").getByRole("button", { name: "Upgrade" }).click();
+    },
+  );
+  await page.unroute("**/api/checkup/tools");
+  await page.unroute("**/api/checkup/tools/upgrade");
   await screenshot(page, "checkup-permissions", "/settings/checkup/owner/permissions", (device) => [
     ...frame(device, release),
     main.getByText("workflows: write"),

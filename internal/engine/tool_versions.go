@@ -3,10 +3,14 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"strings"
 	"time"
 
 	"golang.org/x/mod/semver"
@@ -42,6 +46,12 @@ const newestLife = time.Hour
 // registryTimeout is the time that the registry has to answer.
 const registryTimeout = 5 * time.Second
 
+// upgradeTimeout is the time that an npm upgrade of a Harness package has.
+const upgradeTimeout = 10 * time.Minute
+
+// upgradeOutput is the longest text of a failed npm run that Mobius gives back.
+const upgradeOutput = 4000
+
 var versionText = regexp.MustCompile(`\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?`)
 
 // newestVersion is the newest version of an npm package that Mobius read at read. It is empty when the registry gave
@@ -67,6 +77,9 @@ type ToolCheck struct {
 	Outdated bool
 	// Required tells that a role uses the Harness of the row, or that the program is git.
 	Required bool
+	// Package is the npm package of the row. It is empty for a program that is not in the node_modules of a Node
+	// install, and for each program that Mobius does not upgrade.
+	Package string
 }
 
 // Tools gives the path and the version of each program that Mobius runs for its agents and its work, in the PATH
@@ -85,6 +98,7 @@ func (e *Engine) Tools(ctx context.Context) []ToolCheck {
 		check.Required = used[harness]
 		if harness == config.ClaudeCode {
 			e.compareNewest(ctx, &check, adapterPackage)
+			check.Package = npmPackageOf(check.Path, adapterPackage)
 			cli := e.claudeCodeCLI(ctx, check.Path, path)
 			cli.Required = used[harness]
 			checks = append(checks, check, cli)
@@ -92,6 +106,7 @@ func (e *Engine) Tools(ctx context.Context) []ToolCheck {
 		}
 		if harness == config.DSH {
 			e.compareNewest(ctx, &check, dshPackage)
+			check.Package = npmPackageOf(check.Path, dshPackage)
 		}
 		checks = append(checks, check)
 	}
@@ -110,6 +125,7 @@ func (e *Engine) claudeCodeCLI(ctx context.Context, adapterPath, path string) To
 		}
 		check := checkVersion(ctx, name, runner.Find(program, dir), path)
 		e.compareNewest(ctx, &check, cliPackage)
+		check.Package = npmPackageOf(check.Path, cliPackage)
 		return check
 	}
 	check := ToolCheck{Name: name, Version: builtInClaudeCodeVersion(adapterPath)}
@@ -214,4 +230,118 @@ func readNewestVersion(ctx context.Context, npmPackage string) string {
 		return ""
 	}
 	return latest.Version
+}
+
+// npmPackageOf gives npmPackage when the real path of the program at programPath is inside
+// <prefix>/lib/node_modules/npmPackage and <prefix>/bin/npm is a file. It gives "" for each other program.
+func npmPackageOf(programPath, npmPackage string) string {
+	prefix, name := nodeInstall(programPath)
+	if prefix == "" || name != npmPackage {
+		return ""
+	}
+	return name
+}
+
+// nodeInstall gives the prefix of the Node install and the npm package of the program at programPath, when the real
+// path of the program is inside <prefix>/lib/node_modules/<package> and <prefix>/bin/npm is a file.
+func nodeInstall(programPath string) (prefix, npmPackage string) {
+	if programPath == "" {
+		return "", ""
+	}
+	resolved, err := filepath.EvalSymlinks(programPath)
+	if err != nil {
+		return "", ""
+	}
+	parts := strings.Split(filepath.ToSlash(resolved), "/")
+	for i := 0; i+2 < len(parts); i++ {
+		if parts[i] != "lib" || parts[i+1] != "node_modules" {
+			continue
+		}
+		rest := parts[i+2:]
+		name := rest[0]
+		if strings.HasPrefix(name, "@") {
+			if len(rest) < 2 || rest[1] == "" {
+				return "", ""
+			}
+			name += "/" + rest[1]
+		}
+		prefix := strings.Join(parts[:i], "/")
+		if prefix == "" {
+			return "", ""
+		}
+		info, err := os.Stat(filepath.Join(prefix, "bin", "npm"))
+		if err != nil || info.IsDir() {
+			return "", ""
+		}
+		return prefix, name
+	}
+	return "", ""
+}
+
+// UpgradeTool installs the newest version of the npm package of a tool, and gives the new tool list. It refuses a
+// package that no row has, a row with no newest version, and a package whose upgrade runs now.
+func (e *Engine) UpgradeTool(ctx context.Context, npmPackage string) ([]ToolCheck, error) {
+	checks := e.Tools(ctx)
+	index := slices.IndexFunc(checks, func(check ToolCheck) bool { return check.Package == npmPackage })
+	if index < 0 {
+		return nil, refuse("Mobius does not upgrade the package \"%s\".", npmPackage)
+	}
+	check := checks[index]
+	if check.Newest == "" {
+		return nil, refuse("Mobius has no newest version of %s.", check.Name)
+	}
+	prefix, _ := nodeInstall(check.Path)
+	if prefix == "" {
+		return nil, refuse("Mobius cannot find the Node install of %s.", check.Name)
+	}
+	if !e.beginUpgrade(npmPackage) {
+		return nil, refuse("An upgrade of %s runs now.", check.Name)
+	}
+	defer e.endUpgrade(npmPackage)
+	// The npm run and the steps after it continue when the request ends, so a closed connection cannot leave the
+	// package of the Harness half written and without its record.
+	ctx = context.WithoutCancel(ctx)
+	output, err := runNPMUpgrade(ctx, filepath.Join(prefix, "bin", "npm"), prefix, npmPackage, check.Newest)
+	if err != nil {
+		return nil, refuse("The upgrade of %s failed: %v\n%s", check.Name, err, tail(string(output), upgradeOutput))
+	}
+	for _, organization := range e.github.Organizations() {
+		e.addRecord(ctx, ChatKey{Organization: organization}, fmt.Sprintf("You upgraded %s to %s.", check.Name, check.Newest))
+	}
+	return e.Tools(ctx), nil
+}
+
+// beginUpgrade records that the upgrade of npmPackage starts. It gives false when an upgrade of the package runs.
+func (e *Engine) beginUpgrade(npmPackage string) bool {
+	e.upgradesMu.Lock()
+	defer e.upgradesMu.Unlock()
+	if e.upgrades[npmPackage] {
+		return false
+	}
+	e.upgrades[npmPackage] = true
+	return true
+}
+
+// endUpgrade records that the upgrade of npmPackage ends.
+func (e *Engine) endUpgrade(npmPackage string) {
+	e.upgradesMu.Lock()
+	defer e.upgradesMu.Unlock()
+	delete(e.upgrades, npmPackage)
+}
+
+// runNPMUpgrade runs npm to install npmPackage@version into the Node install at prefix. The PATH of the run starts
+// with the bin directory of the Node install, so the npm and the node of that install run.
+func runNPMUpgrade(ctx context.Context, npm, prefix, npmPackage, version string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, upgradeTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, npm)
+	// A program that the time limit kills can leave a child that holds the output open.
+	cmd.WaitDelay = time.Second
+	cmd.Args = append(cmd.Args, "install", "--global", "--prefix", prefix, npmPackage+"@"+version)
+	cmd.Env = append(os.Environ(), "PATH="+filepath.Join(prefix, "bin")+string(filepath.ListSeparator)+os.Getenv("PATH"))
+	output, err := cmd.CombinedOutput()
+	if ctx.Err() == context.DeadlineExceeded {
+		return output, fmt.Errorf("it did not end in %s", upgradeTimeout)
+	}
+	return output, err
 }

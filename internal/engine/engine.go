@@ -94,6 +94,10 @@ type Engine struct {
 	newestMu sync.Mutex
 	// newest holds the newest version of each npm package of the critical tools, by the name of the package.
 	newest map[string]newestVersion
+	// upgradesMu guards upgrades.
+	upgradesMu sync.Mutex
+	// upgrades holds each npm package whose upgrade runs now.
+	upgrades map[string]bool
 	// harnessReadsMu guards harnessReads.
 	harnessReadsMu sync.Mutex
 	// harnessReads holds the newest read of the models of each Harness.
@@ -216,6 +220,7 @@ func New(db *sql.DB, gh *github.GitHub, cfg *config.Config, agents Agents) *Engi
 		closing:         map[pullKey]bool{},
 		ciWait:          map[int64]ciWait{},
 		newest:          map[string]newestVersion{},
+		upgrades:        map[string]bool{},
 		harnessReads:    map[config.Harness]*harnessRead{},
 		access:          map[accessKey]accessState{},
 		workers:         newWorkers(),

@@ -368,6 +368,74 @@ test("the Checkup page shows no badge when a request fails", async ({ page }) =>
   await expect(page).toHaveURL("/settings/checkup/tools");
 });
 
+test("the Tools page upgrades an outdated package and shows the new version and the notice", async ({
+  page,
+}) => {
+  const main = page.getByRole("main");
+  const outdated = {
+    ...tool,
+    name: "dsh",
+    path: "/usr/local/bin/dsh",
+    version: "0.2.1-rc.4",
+    newest: "0.2.1-rc.5",
+    outdated: true,
+    package: "@deepseek-ai/dsh",
+  };
+  const upgraded = { ...outdated, version: "0.2.1-rc.5", outdated: false };
+  await page.route(
+    (url) => url.pathname === "/api/checkup/tools/upgrade",
+    (route) => route.fulfill({ json: { data: [upgraded] } }),
+  );
+  await routeCheckup(page, [outdated], { owner: healthy, plants: healthy });
+
+  await page.goto("/settings/checkup/tools");
+  await main.getByRole("button", { name: /dsh/ }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByText("Installed: 0.2.1-rc.4")).toBeVisible();
+  await expect(dialog.getByText("Newest: 0.2.1-rc.5")).toBeVisible();
+
+  await dialog.getByRole("button", { name: "Upgrade" }).click();
+
+  await expect(dialog.getByText("Installed: 0.2.1-rc.5")).toBeVisible();
+  await expect(page.locator("main").getByText("0.2.1-rc.5", { exact: true })).toBeVisible();
+  await expect(page.getByText("Upgraded dsh to 0.2.1-rc.5")).toBeVisible();
+});
+
+test("a failed upgrade shows the npm error and keeps the old version", async ({ page }) => {
+  const main = page.getByRole("main");
+  const outdated = {
+    ...tool,
+    name: "dsh",
+    path: "/usr/local/bin/dsh",
+    version: "0.2.1-rc.4",
+    newest: "0.2.1-rc.5",
+    outdated: true,
+    package: "@deepseek-ai/dsh",
+  };
+  const npmError = [
+    "npm ERR! code EACCES",
+    "npm ERR! syscall mkdir",
+    "npm ERR! path /usr/local/lib/node_modules/@deepseek-ai",
+    ...Array.from({ length: 30 }, (_, index) => `npm ERR! at line ${index + 1} of the log`),
+  ].join("\n");
+  await page.route(
+    (url) => url.pathname === "/api/checkup/tools/upgrade",
+    (route) => route.fulfill({ status: 409, json: { error: npmError } }),
+  );
+  await routeCheckup(page, [outdated], { owner: healthy, plants: healthy });
+
+  await page.goto("/settings/checkup/tools");
+  await main.getByRole("button", { name: /dsh/ }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("button", { name: "Upgrade" }).click();
+
+  await expect(dialog.getByText("npm ERR! code EACCES")).toBeVisible();
+  await expect(dialog.getByText("Installed: 0.2.1-rc.4")).toBeVisible();
+  await expect(dialog.getByRole("heading", { name: "dsh" })).toBeInViewport();
+  await expect(dialog.getByRole("button", { name: "Upgrade" })).toBeInViewport();
+  await expect(page.locator("main").getByText("0.2.1-rc.4 · newest 0.2.1-rc.5")).toBeVisible();
+});
+
 test.describe("on a phone", () => {
   test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
 
