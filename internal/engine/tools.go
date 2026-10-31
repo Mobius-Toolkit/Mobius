@@ -1294,10 +1294,7 @@ func (e *Engine) rerunFailedJobsTool(ctx context.Context, c caller, repository g
 	for _, run := range failed {
 		attempt := max(run.GetRunAttempt(), 1)
 		jobs, err := repository.RunAttemptJobs(ctx, run.GetID(), int64(attempt))
-		var refused *gh.ErrorResponse
-		if errors.As(err, &refused) && refused.Response.StatusCode >= 400 && refused.Response.StatusCode < 500 {
-			// A 4xx answer of the list of jobs counts as completed jobs.
-		} else if err != nil {
+		if err != nil && !refusedByGitHub(err) {
 			if len(startedIDs) > 0 {
 				_ = e.queries.SetTaskRerunHead(ctx, store.SetTaskRerunHeadParams{
 					RerunHead: sql.NullString{String: head, Valid: true},
@@ -1318,6 +1315,7 @@ func (e *Engine) rerunFailedJobsTool(ctx context.Context, c caller, repository g
 			lines = append(lines, fmt.Sprintf("%s (run %d, attempt %d): a job still runs: %s", run.GetName(), run.GetID(), attempt, strings.Join(running, ", ")))
 			continue
 		}
+		var refused *gh.ErrorResponse
 		err = repository.RerunFailedJobs(ctx, run.GetID())
 		if errors.As(err, &refused) && refused.Response.StatusCode >= 400 && refused.Response.StatusCode < 500 {
 			lines = append(lines, fmt.Sprintf("%s (run %d, attempt %d): GitHub refused: %s", run.GetName(), run.GetID(), attempt, refused.Message))
