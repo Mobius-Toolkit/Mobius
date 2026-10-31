@@ -202,6 +202,38 @@ func TestAFailedUpdateOfTheCheckRunOfTheApprovalAgainPostsOneComment(t *testing.
 	checkApprovalAgain(t, fake, server, approved, head, "Mobius merges it after its checks pass.")
 }
 
+// TestAFailedLabelWriteOfTheApprovalAgainGivesOneCommentAndNoReadyEvent checks that a 5xx answer after the comment of
+// the approval again returns, and that the next poll does the missing writes. The stored comment keeps one comment, and
+// the Lead gets no ready_for_approval for the head. The level is off, so the retry adds the Inbox item and does not
+// merge the pull request.
+func TestAFailedLabelWriteOfTheApprovalAgainGivesOneCommentAndNoReadyEvent(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, approved, head := approvalAgainWith(t, fake, func(cfg *config.Config) { cfg.ReviewQuietPeriod = 10 * time.Second })
+
+	testkit.WaitFor(t, func() bool { return hasLabel(fake, "mobius:working") })
+	setWorkstreamAutopilot(t, server, "off")
+	testkit.WaitFor(t, func() bool { return workstreams(t, server)[0].Autopilot == "off" })
+	fake.FailAddLabels(shop, 41, true)
+
+	testkit.WaitFor(t, func() bool { return approvalAgainComments(fake) == 1 && taskState(t, server) == "checks" })
+	fake.FailAddLabels(shop, 41, false)
+
+	item := waitForItem(t, server, "ready for review")
+	testkit.WaitFor(t, func() bool {
+		return taskState(t, server) == "ready_for_review" && approvedHead(t, server) == head
+	})
+	waitForPolls(t, fake)
+
+	if item.PullRequest != 42 {
+		t.Errorf("item = %+v", item)
+	}
+	if got := approvalAgainComments(fake); got != 1 {
+		t.Errorf("comments of the approval again = %d, want 1", got)
+	}
+	checkApprovalAgain(t, fake, server, approved, head, "The Owner got it for review.")
+}
+
 // TestARefusedCommentOfTheApprovalAgainGivesTheLeadReadyForApproval checks that a 4xx answer that stays ends the
 // approval again and gives the Lead the event that starts the manual approval. The Lead idle timeout is long, so the
 // event goes to the open session and the fake agent cannot approve the pull request a second time from the chat history.

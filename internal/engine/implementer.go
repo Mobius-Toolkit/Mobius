@@ -453,11 +453,12 @@ func approvalAgainComment(branch, head, approved, reportHead, report string) str
 	return header + tail(report, commentLimit-utf8.RuneCountInString(header))
 }
 
-// approve posts comment on the pull request, sets the Mobius check of the head to success, stores the approved head and
-// leadReport in the task, makes a draft pull request ready for review, replaces mobius:working with mobius:review, and
-// adds the Inbox item for the Owner. mark is the role mark of the Lead for the question text, or "" when Mobius writes
-// the comment. A leadReport of "" keeps the stored report of the approval. again tells that Mobius approves the head
-// again for the Lead: it keeps the stored comment of the same head, so a retry does not post it a second time.
+// approve posts comment on the pull request, sets the Mobius check of the head to success, stores leadReport in the
+// task, makes a draft pull request ready for review, replaces mobius:working with mobius:review, and adds the Inbox
+// item for the Owner. It stores the approved head last, so a retry after a failed write still sees the earlier approval.
+// mark is the role mark of the Lead for the question text, or "" when Mobius writes the comment. A leadReport of ""
+// keeps the stored report of the approval. again tells that Mobius approves the head again for the Lead: it keeps the
+// stored comment of the same head, so a retry does not post it a second time.
 func (e *Engine) approve(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue, pullRequest *gh.PullRequest, checkRun int64, comment, mark, leadReport string, again bool) error {
 	head := pullRequest.GetHead().GetSHA()
 	if mark != "" && hasLabel(issue, questionLabel) {
@@ -490,9 +491,6 @@ func (e *Engine) approve(ctx context.Context, repository github.Repository, task
 	if err := repository.UpdateCheckRun(ctx, checkRun, checkRunName, "completed", "success", "Approved", summary); err != nil {
 		return err
 	}
-	if err := e.queries.SetTaskApprovedHead(ctx, store.SetTaskApprovedHeadParams{ApprovedHead: sql.NullString{String: head, Valid: true}, ID: task.ID}); err != nil {
-		return err
-	}
 	if leadReport != "" {
 		if err := e.queries.SetTaskApprovedReport(ctx, store.SetTaskApprovedReportParams{
 			ApprovedReport:     sql.NullString{String: leadReport, Valid: true},
@@ -518,7 +516,7 @@ func (e *Engine) approve(ctx context.Context, repository github.Repository, task
 	if awaitsMerge(task) {
 		merging = 1
 	}
-	return e.addInboxItem(ctx, store.AddInboxItemParams{
+	if err := e.addInboxItem(ctx, store.AddInboxItemParams{
 		Kind:                 readyForReviewKind,
 		Organization:         repository.Owner(),
 		Repository:           task.Repository,
@@ -532,7 +530,10 @@ func (e *Engine) approve(ctx context.Context, repository github.Repository, task
 		PullRequest:          int64(pullRequest.GetNumber()),
 		ReportLink:           posted,
 		Merging:              merging,
-	})
+	}); err != nil {
+		return err
+	}
+	return e.queries.SetTaskApprovedHead(ctx, store.SetTaskApprovedHeadParams{ApprovedHead: sql.NullString{String: head, Valid: true}, ID: task.ID})
 }
 
 // cannotDo ends the turn of the Implementer with the reason for the Lead.
