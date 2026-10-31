@@ -21,7 +21,7 @@ func TestTheCoordinatorWithdrawsItsQuestionAndTheOwnerCanNoLongerAnswerIt(t *tes
 
 	asked := run(t, server, coordinatorSpec(t), "Ask the Owner")
 	items := coordinatorItems(t, server)
-	if len(items) != 1 || items[0].ID != 1 || !strings.Contains(reply(t, server, asked), "Its ID is 1.") {
+	if len(items) != 1 || items[0].ID != 1 || !strings.Contains(reply(t, server, asked), "Its tray row is \"Which unit?\"") || !strings.Contains(reply(t, server, asked), "Its ID is 1, only for withdraw.") {
 		t.Fatalf("items = %+v", items)
 	}
 
@@ -55,7 +55,7 @@ func TestTheLeadWithdrawsMessageLeadAndTheActionDoesNotRun(t *testing.T) {
 	called := run(t, server, leadSpec(t), "Tell it.")
 	action := waitForActions(t, server, 1)[0]
 	items := itemsOf(t, server, "approval")
-	if len(items) != 1 || items[0].ID != 1 || !strings.Contains(reply(t, server, called), "Its ID is 1.") {
+	if len(items) != 1 || items[0].ID != 1 || !strings.Contains(reply(t, server, called), "Its tray row is \"Message to the Lead of #20 Billing\"") || !strings.Contains(reply(t, server, called), "Its ID is 1, only for withdraw.") {
 		t.Fatalf("items = %+v", items)
 	}
 

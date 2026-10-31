@@ -30,7 +30,7 @@ func TestTwoMessageLeadCallsToTwoWorkstreamsBothStayPending(t *testing.T) {
 		t.Errorf("items = %+v", items)
 	}
 	calls := mcpCalls(t, server, session)
-	if len(calls) != 2 || calls[1]["result"] != actionWaits+"2." {
+	if len(calls) != 2 || calls[1]["result"] != actionWaitsText("Message to the Lead of #20 Billing", rows[1].ID) {
 		t.Errorf("calls = %v", calls)
 	}
 }
@@ -53,7 +53,9 @@ func TestTwoTellCuratorCallsToTwoRepositoriesBothStayPending(t *testing.T) {
 		t.Errorf("states = %v", got)
 	}
 	calls := mcpCalls(t, server, session)
-	if len(calls) != 3 || calls[1]["result"] != actionWaits+"2." || calls[2]["result"] != actionWaits+"3. It replaces the pending action 2, which does not run." {
+	title := "Request to the Curator of owner/other"
+	if len(calls) != 3 || calls[1]["result"] != actionWaitsText(title, rows[1].ID) ||
+		calls[2]["result"] != actionWaitsText(title, rows[2].ID)+replacesAction(title, rows[1].ID) {
 		t.Errorf("calls = %v", calls)
 	}
 }
@@ -67,7 +69,7 @@ func TestTheApprovalMessageNamesTheActionWithTheIDOfTheToolResultAndTheFirstLine
 	rows := waitForActions(t, server, 2)
 	var ids []string
 	for _, call := range mcpCalls(t, server, session) {
-		found := regexp.MustCompile(`Its ID is (\d+)\.`).FindStringSubmatch(call["result"].(string))
+		found := regexp.MustCompile(`Its ID is (\d+), only for withdraw\.`).FindStringSubmatch(call["result"].(string))
 		ids = append(ids, found[1])
 	}
 

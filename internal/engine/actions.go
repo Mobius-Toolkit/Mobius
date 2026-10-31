@@ -318,9 +318,9 @@ func (e *Engine) holdAction(ctx context.Context, c caller, tool, title string, a
 			return "", err
 		}
 	}
-	result := fmt.Sprintf("The action waits for the approval of the Owner. Its ID is %d.", item.ID)
+	result := fmt.Sprintf(`The action waits for the approval of the Owner. Its tray row is "%s". In the chat, name the action by these words. Its ID is %d, only for withdraw.`, item.Title, item.ID)
 	for _, old := range replaced {
-		result += fmt.Sprintf(" It replaces the pending action %d, which does not run.", old.InboxItem.Int64)
+		result += fmt.Sprintf(` It replaces the pending action "%s" (ID %d), which does not run.`, old.Title, old.ID)
 	}
 	return result, nil
 }
@@ -389,9 +389,15 @@ func (e *Engine) workstreamName(ctx context.Context, repository string, number i
 	return fmt.Sprintf("#%d %s", number, copied.Title), nil
 }
 
+// replacedAction is a pending action that a new call replaced, with the title of its tray row.
+type replacedAction struct {
+	ID    int64
+	Title string
+}
+
 // replaceActions marks each pending action that action replaces as replaced, and dismisses its Inbox item. It gives the
-// replaced actions.
-func (e *Engine) replaceActions(ctx context.Context, action store.PendingAction) ([]store.PendingAction, error) {
+// replaced actions with the titles of their tray rows.
+func (e *Engine) replaceActions(ctx context.Context, action store.PendingAction) ([]replacedAction, error) {
 	old, err := e.queries.ListReplaceablePendingActions(ctx, store.ListReplaceablePendingActionsParams{
 		Organization: action.Organization,
 		Repository:   action.Repository,
@@ -408,7 +414,7 @@ func (e *Engine) replaceActions(ctx context.Context, action store.PendingAction)
 	if err != nil {
 		return nil, err
 	}
-	var done []store.PendingAction
+	var done []replacedAction
 	for _, found := range old {
 		foundTarget, err := actionTarget(found.Tool, found.Arguments)
 		if err != nil {
@@ -424,11 +430,19 @@ func (e *Engine) replaceActions(ctx context.Context, action store.PendingAction)
 		if err != nil {
 			return nil, err
 		}
+		var title string
+		if replaced.InboxItem.Valid {
+			item, err := e.queries.GetInboxItem(ctx, replaced.InboxItem.Int64)
+			if err != nil {
+				return nil, err
+			}
+			title = item.Title
+		}
 		if err := e.dismissAction(ctx, replaced); err != nil {
 			return nil, err
 		}
 		e.publish(Change{Action: &replaced})
-		done = append(done, replaced)
+		done = append(done, replacedAction{ID: replaced.ID, Title: title})
 	}
 	return done, nil
 }

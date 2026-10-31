@@ -46,7 +46,7 @@ func (e *Engine) coordinatorAsk(ctx context.Context, c caller, _ github.Reposito
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("The question waits for the Owner. Its ID is %d. The answer arrives later as a chat message.", item.ID), nil
+	return fmt.Sprintf(`The question waits for the Owner. Its tray row is "%s". In the chat, name the question by these words. Its ID is %d, only for withdraw. The answer arrives later as a chat message.`, title, item.ID), nil
 }
 
 func isCoordinatorQuestion(item store.InboxItem) bool {
