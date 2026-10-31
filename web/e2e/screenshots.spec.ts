@@ -836,11 +836,14 @@ test("screenshots", async ({ page }) => {
   await page.unroute("**/api/chat?*");
   const stoppedRow = main.getByRole("listitem").filter({ hasText: "Add plan model" });
   const composer = main.locator("form");
+  // The next device opens the page again, and it must not find a draft of the last device.
   const clearComposer = async () => {
     const remove = composer.getByRole("button", { name: /^Remove / });
     while ((await remove.count()) > 0) {
       await remove.first().click();
     }
+    await main.getByLabel("Message to the Lead").fill("");
+    await expect.poll(() => page.evaluate(storedDrafts)).toBe(0);
   };
   await screenshot(page, "chat-stop-reason", "/workstreams/owner/shop/12", (device) => [
     ...chatReady(device),
@@ -876,8 +879,6 @@ test("screenshots", async ({ page }) => {
     },
     clearComposer,
   );
-  await main.getByLabel("Message to the Lead").fill("");
-  await expect.poll(() => page.evaluate(storedDrafts)).toBe(0);
   await screenshot(
     page,
     "chat-inbox-item",
