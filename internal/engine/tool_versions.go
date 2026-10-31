@@ -329,7 +329,9 @@ func (e *Engine) endUpgrade(npmPackage string) {
 // runNPMUpgrade runs npm to install npmPackage@version into the Node install at prefix. The PATH of the run starts
 // with the bin directory of the Node install, so the npm and the node of that install run.
 func runNPMUpgrade(ctx context.Context, npm, prefix, npmPackage, version string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(ctx, upgradeTimeout)
+	// Only the time limit may stop the run: a stopped HTTP request must not kill npm in the middle of a global
+	// install, because that can leave the package of a Harness half written.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), upgradeTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, npm)
 	cmd.Args = append(cmd.Args, "install", "--global", "--prefix", prefix, npmPackage+"@"+version)

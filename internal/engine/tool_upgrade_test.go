@@ -150,6 +150,31 @@ func TestASecondUpgradeOfTheSamePackageIsRefusedWhileTheFirstRuns(t *testing.T) 
 	}
 }
 
+func TestAnUpgradeEndsAfterTheRequestOfTheOwnerEnds(t *testing.T) {
+	prefix := t.TempDir()
+	program := filepath.Join(prefix, "lib", "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js")
+	started := filepath.Join(prefix, "started")
+	release := filepath.Join(prefix, "release")
+	ended := filepath.Join(prefix, "ended")
+	npm := "#!/bin/sh\ntouch " + started + "\nwhile [ ! -e " + release + " ]; do sleep 0.05; done\nprintf '#!/bin/sh\\necho 0.2.1-rc.5\\n' > " + program + "\ntouch " + ended + "\n"
+
+	server := upgradeServer(t, prefix, npm, program)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := server.Engine.UpgradeTool(ctx, upgradePackage)
+		done <- err
+	}()
+	testkit.WaitFor(t, func() bool { _, err := os.Stat(started); return err == nil })
+
+	cancel()
+	touch(t, release)
+
+	testkit.WaitFor(t, func() bool { _, err := os.Stat(ended); return err == nil })
+	<-done
+}
+
 func TestTheUpgradeRefusesAPackageThatNoRowHas(t *testing.T) {
 	prefix := t.TempDir()
 	program := filepath.Join(prefix, "lib", "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js")
