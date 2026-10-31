@@ -516,7 +516,7 @@ func (e *Engine) curatorRolesSection(a *Agent) (string, error) {
 		fmt.Fprintf(&section, "- %s: %s\n", path, strings.Join(names, ", "))
 
 		var content strings.Builder
-		content.WriteString(rolePrompt(role))
+		content.WriteString(rolePrompts[role])
 		if !strings.HasSuffix(content.String(), "\n") {
 			content.WriteString("\n")
 		}
@@ -532,25 +532,14 @@ func (e *Engine) curatorRolesSection(a *Agent) (string, error) {
 	return section.String(), nil
 }
 
-func rolePrompt(role string) string {
-	switch role {
-	case "lead", LeadRole:
-		return leadPrompt
-	case ImplementerRole:
-		return implementerPrompt
-	case ReviewerRole:
-		return reviewerPrompt
-	case JudgeRole:
-		return judgePrompt
-	case ResearcherRole:
-		return researcherPrompt
-	case DiagnoserRole:
-		return diagnoserPrompt
-	case CuratorRole:
-		return curatorPrompt
-	default:
-		return ""
-	}
+var rolePrompts = map[string]string{
+	"lead":        leadPrompt,
+	"implementer": implementerPrompt,
+	"reviewer":    reviewerPrompt,
+	"judge":       judgePrompt,
+	"researcher":  researcherPrompt,
+	"diagnoser":   diagnoserPrompt,
+	"curator":     curatorPrompt,
 }
 
 type reportGapInput struct {
@@ -561,15 +550,13 @@ func (e *Engine) reportGap(ctx context.Context, c caller, _ github.Repository, i
 	if empty(input.Text) {
 		return "", refuse("text must not be empty.")
 	}
-	if c.agent != nil && slices.Contains(c.agent.reportedGaps, input.Text) {
+	if slices.Contains(c.agent.reportedGaps, input.Text) {
 		return "", refuse("Mobius already posted this gap report. Do not call report_gap again for it.")
 	}
 	message := fmt.Sprintf("Gap of Mobius from the Curator %d of %s:\n\n%s", c.session, c.repository, input.Text)
 	if err := e.postChat(ctx, ChatKey{Organization: c.organization}, curatorAuthor, "", message, nil, nil); err != nil {
 		return "", err
 	}
-	if c.agent != nil {
-		c.agent.reportedGaps = append(c.agent.reportedGaps, input.Text)
-	}
+	c.agent.reportedGaps = append(c.agent.reportedGaps, input.Text)
 	return "Posted the gap report in the Coordinator chat.", nil
 }
