@@ -140,13 +140,15 @@ function CheckupLink({
   link,
   title,
   needsYou,
+  busy,
 }: {
   link: LinkProps;
   title: string;
   needsYou: boolean;
+  busy?: boolean;
 }) {
   return (
-    <LinkRow link={link} title={title}>
+    <LinkRow link={link} title={title} busy={busy}>
       {needsYou && (
         <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-400">needs you</Badge>
       )}
@@ -204,7 +206,7 @@ function CheckupOrganization({ organization }: { organization: string }) {
 }
 
 export function Checkup({ organizations }: { organizations: string[] }) {
-  const { tools } = useTools();
+  const { tools, error } = useTools();
 
   return (
     <>
@@ -215,7 +217,10 @@ export function Checkup({ organizations }: { organizations: string[] }) {
           <CheckupLink
             link={{ to: "/settings/checkup/tools" }}
             title="Tools"
-            needsYou={!!tools?.some((tool) => tool.status !== "" || tool.outdated)}
+            busy={!tools && !error}
+            needsYou={
+              !!tools?.some((tool) => tool.outdated || (tool.status !== "" && tool.required))
+            }
           />
         </List>
       </Section>
@@ -243,11 +248,18 @@ export function CheckupTools() {
                     {tool.outdated ? `${tool.version} · newest ${tool.newest}` : tool.version}
                   </span>
                 )}
+                {tool.status !== "" && !tool.required && (
+                  <span className="text-muted-foreground text-sm break-words">
+                    {tool.status.replace("-", " ")}
+                  </span>
+                )}
                 {tool.path && (
                   <span className="text-muted-foreground text-sm break-all">{tool.path}</span>
                 )}
               </span>
-              {(tool.status !== "" || tool.outdated) && <ToolProblem tool={tool} />}
+              {tool.outdated || (tool.status !== "" && tool.required) ? (
+                <ToolProblem tool={tool} />
+              ) : null}
             </Row>
           ))}
         </List>

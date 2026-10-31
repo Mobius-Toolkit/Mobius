@@ -9058,6 +9058,10 @@
             "type": "string",
             "description": "Path is the file that Mobius runs. It is empty when Mobius cannot find the program, and for the Claude Code CLI that is built in the adapter"
           },
+          "required": {
+            "type": "boolean",
+            "description": "Required tells that a role uses the Harness of the row, or that the program is git"
+          },
           "status": {
             "type": "string",
             "description": "Status is not-found for a program that Mobius cannot find, and no-version for a program that gives no version. It is empty for a program with a version"
@@ -9073,7 +9077,8 @@
           "version",
           "status",
           "newest",
-          "outdated"
+          "outdated",
+          "required"
         ],
         "description": "ToolCheck is the path and the version of a program that Mobius runs."
       },

@@ -2067,6 +2067,7 @@ test("screenshots", async ({ page }) => {
   await screenshot(page, "checkup-tools", "/settings/checkup/tools", (device) => [
     ...frame(device, release),
     main.getByText("2.1.284 (Claude Code) · newest 2.1.300"),
+    main.getByText("0.2.1-rc.4 · newest 0.2.1-rc.5"),
   ]);
   await screenshot(page, "checkup-permissions", "/settings/checkup/owner/permissions", (device) => [
     ...frame(device, release),

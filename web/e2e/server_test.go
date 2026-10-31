@@ -908,14 +908,13 @@ func waitForChat(t *testing.T, server *testserver.Server, key engine.ChatKey, au
 
 // fixTools makes each tool of the Checkup page give the same path and version in each run. The directory of the fake
 // Harness commands comes first in the PATH of the agents, so the programs there hide the programs of the machine.
-// tar gives no version. The fake npm registry gives a fixed newest version of the critical tools.
+// The fake npm registry gives a fixed newest version of the critical tools.
 func fixTools(t *testing.T, dataDir string) {
 	t.Helper()
 	harnesses := filepath.Join(dataDir, "harnesses")
 	for program, output := range map[string]string{
 		"git":    "git version 2.50.1\n",
-		"curl":   "curl 8.7.1 (x86_64-apple-darwin23.0) libcurl/8.7.1 (SecureTransport) LibreSSL/3.3.6 zlib/1.2.12 nghttp2/1.61.0\n",
-		"tar":    "",
+		"dsh":    "0.2.1-rc.4\n",
 		"claude": "2.1.284 (Claude Code)\n",
 	} {
 		testkit.InstallFakeProgram(t, harnesses, program, output)
@@ -924,6 +923,7 @@ func fixTools(t *testing.T, dataDir string) {
 	registry := testkit.NewFakeNPM(t)
 	registry.SetVersion("@agentclientprotocol/claude-agent-acp", "0.5.0")
 	registry.SetVersion("@anthropic-ai/claude-code", "2.1.300")
+	registry.SetVersion("@deepseek-ai/dsh", "0.2.1-rc.5")
 	was := engine.NPMRegistry
 	engine.NPMRegistry = registry.URL
 	t.Cleanup(func() { engine.NPMRegistry = was })

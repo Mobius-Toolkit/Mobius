@@ -138,6 +138,8 @@ type ToolCheck struct {
 	Newest string `gork:"newest"`
 	// Outdated tells that the version of a critical tool is older than Newest
 	Outdated bool `gork:"outdated"`
+	// Required tells that a role uses the Harness of the row, or that the program is git
+	Required bool `gork:"required"`
 }
 
 // GetCheckupToolsRequest is the request of GetCheckupTools.

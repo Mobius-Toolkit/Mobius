@@ -46,11 +46,11 @@ func TestAFoundProgramHasItsPathAndTheFirstLineOfItsVersion(t *testing.T) {
 
 	checks := toolEngine(t, bin).Tools(context.Background())
 
-	want := ToolCheck{Name: "devin", Path: filepath.Join(bin, "devin"), Version: "devin 3000.11.3 (9c803229faa4)"}
+	want := ToolCheck{Name: "devin", Path: filepath.Join(bin, "devin"), Version: "devin 3000.11.3 (9c803229faa4)", Required: true}
 	if got := find(checks, "devin"); got != want {
 		t.Errorf("devin = %+v, want %+v", got, want)
 	}
-	want = ToolCheck{Name: "git", Path: filepath.Join(bin, "git"), Version: "git version 2.50.1"}
+	want = ToolCheck{Name: "git", Path: filepath.Join(bin, "git"), Version: "git version 2.50.1", Required: true}
 	if got := find(checks, "git"); got != want {
 		t.Errorf("git = %+v, want %+v", got, want)
 	}
@@ -59,33 +59,35 @@ func TestAFoundProgramHasItsPathAndTheFirstLineOfItsVersion(t *testing.T) {
 func TestAProgramThatIsNotFoundHasTheStatusNotFound(t *testing.T) {
 	checks := toolEngine(t, t.TempDir()).Tools(context.Background())
 
-	if got, want := find(checks, "tar"), (ToolCheck{Name: "tar", Status: NotFound}); got != want {
-		t.Errorf("tar = %+v, want %+v", got, want)
+	if got, want := find(checks, "dsh"), (ToolCheck{Name: "dsh", Status: NotFound}); got != want {
+		t.Errorf("dsh = %+v, want %+v", got, want)
 	}
 }
 
 func TestAProgramWithNoVersionOutputHasTheStatusNoVersion(t *testing.T) {
 	bin := t.TempDir()
-	testkit.InstallFakeProgram(t, bin, "curl", "")
+	testkit.InstallFakeProgram(t, bin, "git", "")
 	fail, err := exec.LookPath("false")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(fail, filepath.Join(bin, "tar")); err != nil {
+	if err := os.Symlink(fail, filepath.Join(bin, "dsh")); err != nil {
 		t.Fatal(err)
 	}
 
 	checks := toolEngine(t, bin).Tools(context.Background())
 
-	for _, name := range []string{"curl", "tar"} {
-		want := ToolCheck{Name: name, Path: filepath.Join(bin, name), Status: NoVersion}
-		if got := find(checks, name); got != want {
-			t.Errorf("%s = %+v, want %+v", name, got, want)
-		}
+	want := ToolCheck{Name: "git", Path: filepath.Join(bin, "git"), Status: NoVersion, Required: true}
+	if got := find(checks, "git"); got != want {
+		t.Errorf("git = %+v, want %+v", got, want)
+	}
+	want = ToolCheck{Name: "dsh", Path: filepath.Join(bin, "dsh"), Status: NoVersion}
+	if got := find(checks, "dsh"); got != want {
+		t.Errorf("dsh = %+v, want %+v", got, want)
 	}
 }
 
-func TestTheToolsHaveOnlyTheHarnessesOfTheRoles(t *testing.T) {
+func TestTheToolsHaveEachHarnessAndGit(t *testing.T) {
 	cfg := limits(t)
 	cfg.DataDir = t.TempDir()
 	cfg.Roles.Researcher.Harness = cfg.Roles.Judge.Harness
@@ -100,8 +102,25 @@ func TestTheToolsHaveOnlyTheHarnessesOfTheRoles(t *testing.T) {
 	for _, check := range checks {
 		names = append(names, check.Name)
 	}
-	if want := []string{"claude-agent-acp", "Claude Code CLI", "git", "curl", "tar"}; !slices.Equal(names, want) {
+	if want := []string{"claude-agent-acp", "Claude Code CLI", "agy_acp_server", "devin", "dsh", "git"}; !slices.Equal(names, want) {
 		t.Errorf("names = %v, want %v", names, want)
+	}
+	required := map[string]bool{}
+	for _, check := range checks {
+		required[check.Name] = check.Required
+	}
+	want := map[string]bool{
+		"claude-agent-acp": true,
+		"Claude Code CLI":  true,
+		"agy_acp_server":   false,
+		"devin":            false,
+		"dsh":              false,
+		"git":              true,
+	}
+	for name, value := range want {
+		if required[name] != value {
+			t.Errorf("required of %s = %t, want %t", name, required[name], value)
+		}
 	}
 }
 
@@ -187,7 +206,7 @@ func TestAPackageWithNoClaudeCodeVersionGivesNoVersion(t *testing.T) {
 func TestAnAdapterThatIsNotFoundGivesTheStatusNoVersionForTheClaudeCodeCLI(t *testing.T) {
 	checks := toolEngine(t, t.TempDir()).Tools(context.Background())
 
-	if got, want := find(checks, "Claude Code CLI"), (ToolCheck{Name: "Claude Code CLI", Status: NoVersion}); got != want {
+	if got, want := find(checks, "Claude Code CLI"), (ToolCheck{Name: "Claude Code CLI", Status: NoVersion, Required: true}); got != want {
 		t.Errorf("cli = %+v, want %+v", got, want)
 	}
 }
@@ -201,7 +220,7 @@ func TestTheClaudeCodeExecutableGivesTheClaudeCodeCLI(t *testing.T) {
 
 	got := find(e.Tools(context.Background()), "Claude Code CLI")
 
-	if want := (ToolCheck{Name: "Claude Code CLI", Path: claude, Version: "2.1.285 (Claude Code)"}); got != want {
+	if want := (ToolCheck{Name: "Claude Code CLI", Path: claude, Version: "2.1.285 (Claude Code)", Required: true}); got != want {
 		t.Errorf("cli = %+v, want %+v", got, want)
 	}
 }
@@ -213,7 +232,7 @@ func TestAMissingClaudeCodeExecutableHasTheStatusNotFound(t *testing.T) {
 
 	got := find(e.Tools(context.Background()), "Claude Code CLI")
 
-	if want := (ToolCheck{Name: "Claude Code CLI", Status: NotFound}); got != want {
+	if want := (ToolCheck{Name: "Claude Code CLI", Status: NotFound, Required: true}); got != want {
 		t.Errorf("cli = %+v, want %+v", got, want)
 	}
 }
@@ -271,7 +290,7 @@ func TestARegistryWithNoAnswerGivesNoNewestVersion(t *testing.T) {
 
 	checks := e.Tools(context.Background())
 
-	want := ToolCheck{Name: "claude-agent-acp", Path: find(checks, "claude-agent-acp").Path, Version: "claude-agent-acp 0.9.12"}
+	want := ToolCheck{Name: "claude-agent-acp", Path: find(checks, "claude-agent-acp").Path, Version: "claude-agent-acp 0.9.12", Required: true}
 	if got := find(checks, "claude-agent-acp"); got != want {
 		t.Errorf("claude-agent-acp = %+v, want %+v", got, want)
 	}
@@ -298,6 +317,51 @@ func TestAVersionOutputWithNoNumberGivesNoNewestVersion(t *testing.T) {
 
 	if got.Newest != "" || got.Outdated || got.Status != "" || got.Version != "claude-agent-acp dev" {
 		t.Errorf("claude-agent-acp = %+v", got)
+	}
+}
+
+func TestTheCompareUsesThePreReleasePart(t *testing.T) {
+	cases := []struct {
+		name         string
+		installed    string
+		newest       string
+		wantNewest   string
+		wantOutdated bool
+	}{
+		{"older pre-release", "0.2.1-rc.4", "0.2.1-rc.5", "0.2.1-rc.5", true},
+		{"same pre-release", "0.2.1-rc.5", "0.2.1-rc.5", "0.2.1-rc.5", false},
+		{"pre-release of the newest", "0.2.1-rc.5", "0.2.1", "0.2.1", true},
+		{"output with a name", "2.1.284 (Claude Code)", "2.1.300", "2.1.300", true},
+		{"output with no version", "dev", "2.1.300", "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			e, registry := npmEngine(t, "claude-agent-acp 0.9.12\n", "2.1.9 (Claude Code)\n")
+			registry.SetVersion(adapterNPM, tc.newest)
+			check := ToolCheck{Version: tc.installed}
+
+			e.compareNewest(context.Background(), &check, adapterNPM)
+
+			if check.Newest != tc.wantNewest || check.Outdated != tc.wantOutdated {
+				t.Errorf("check = %+v", check)
+			}
+		})
+	}
+}
+
+func TestTheDSHRowReadsTheNewestVersionOfItsPackage(t *testing.T) {
+	bin := t.TempDir()
+	testkit.InstallFakeProgram(t, bin, "dsh", "0.2.1-rc.4\n")
+	registry := fakeRegistry(t)
+	t.Setenv(claudeCodeEnv, "")
+	cfg := limits(t)
+	cfg.DataDir = t.TempDir()
+	registry.SetVersion("@deepseek-ai/dsh", "0.2.1-rc.5")
+
+	got := find(New(nil, nil, cfg, Agents{Path: bin}).Tools(context.Background()), "dsh")
+
+	if got.Newest != "0.2.1-rc.5" || !got.Outdated {
+		t.Errorf("dsh = %+v", got)
 	}
 }
 

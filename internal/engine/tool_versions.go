@@ -7,9 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strconv"
-	"strings"
 	"time"
+
+	"golang.org/x/mod/semver"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/runner"
@@ -30,6 +30,7 @@ const claudeCodeEnv = "CLAUDE_CODE_EXECUTABLE"
 const (
 	adapterPackage = "@agentclientprotocol/claude-agent-acp"
 	cliPackage     = "@anthropic-ai/claude-code"
+	dshPackage     = "@deepseek-ai/dsh"
 )
 
 // NPMRegistry is the npm registry that gives the newest version of a package.
@@ -41,7 +42,7 @@ const newestLife = time.Hour
 // registryTimeout is the time that the registry has to answer.
 const registryTimeout = 5 * time.Second
 
-var versionNumber = regexp.MustCompile(`\d+\.\d+\.\d+`)
+var versionText = regexp.MustCompile(`\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?`)
 
 // newestVersion is the newest version of an npm package that Mobius read at read. It is empty when the registry gave
 // none.
@@ -60,39 +61,43 @@ type ToolCheck struct {
 	// Status is NotFound, NoVersion or empty.
 	Status string
 	// Newest is the newest version of the npm package of a critical tool. It is empty when the registry gave none, or
-	// when Version has no X.Y.Z.
+	// when Version has no version.
 	Newest string
-	// Outdated tells that the X.Y.Z of Version is older than Newest.
+	// Outdated tells that Version has a lower Semantic Versioning 2.0.0 precedence than Newest.
 	Outdated bool
+	// Required tells that a role uses the Harness of the row, or that the program is git.
+	Required bool
 }
 
 // Tools gives the path and the version of each program that Mobius runs for its agents and its work, in the PATH
 // of the agent sessions.
 func (e *Engine) Tools(ctx context.Context) []ToolCheck {
 	path := runner.AgentPath(e.config.DataDir, e.agents.Path)
-	harnesses := map[config.Harness]bool{}
+	used := map[config.Harness]bool{}
 	roles := e.mergedRoles()
 	for _, b := range roles.Bindings() {
-		harnesses[b.Binding.Harness] = true
+		used[b.Binding.Harness] = true
 	}
 	var checks []ToolCheck
 	for _, harness := range config.Harnesses {
-		if !harnesses[harness] {
+		program := runner.Program(harness)
+		check := checkVersion(ctx, program, runner.Find(program, path), path)
+		check.Required = used[harness]
+		if harness == config.ClaudeCode {
+			e.compareNewest(ctx, &check, adapterPackage)
+			cli := e.claudeCodeCLI(ctx, check.Path, path)
+			cli.Required = used[harness]
+			checks = append(checks, check, cli)
 			continue
 		}
-		program := runner.Program(harness)
-		adapter := checkVersion(ctx, program, runner.Find(program, path), path)
-		if harness == config.ClaudeCode {
-			e.compareNewest(ctx, &adapter, adapterPackage)
-			checks = append(checks, adapter, e.claudeCodeCLI(ctx, adapter.Path, path))
-		} else {
-			checks = append(checks, adapter)
+		if harness == config.DSH {
+			e.compareNewest(ctx, &check, dshPackage)
 		}
+		checks = append(checks, check)
 	}
-	for _, program := range []string{"git", "curl", "tar"} {
-		checks = append(checks, checkVersion(ctx, program, runner.Find(program, path), path))
-	}
-	return checks
+	git := checkVersion(ctx, "git", runner.Find("git", path), path)
+	git.Required = true
+	return append(checks, git)
 }
 
 // claudeCodeCLI checks the Claude Code CLI that the adapter at adapterPath runs.
@@ -154,13 +159,13 @@ func checkVersion(ctx context.Context, name, file, path string) ToolCheck {
 }
 
 // compareNewest sets Newest and Outdated of check from the newest version of the npm package. It does nothing when
-// the registry gave no version, or when the Version of check has no X.Y.Z.
+// the registry gave no version, or when the Version of check has no version.
 func (e *Engine) compareNewest(ctx context.Context, check *ToolCheck, npmPackage string) {
-	installed := versionNumber.FindString(check.Version)
+	installed := versionText.FindString(check.Version)
 	if installed == "" {
 		return
 	}
-	newest := versionNumber.FindString(e.newestVersion(ctx, npmPackage))
+	newest := versionText.FindString(e.newestVersion(ctx, npmPackage))
 	if newest == "" {
 		return
 	}
@@ -168,23 +173,9 @@ func (e *Engine) compareNewest(ctx context.Context, check *ToolCheck, npmPackage
 	check.Outdated = olderThan(installed, newest)
 }
 
-// olderThan tells if the X.Y.Z version a is older than the X.Y.Z version b. It compares the numbers.
+// olderThan tells if the version a has a lower Semantic Versioning 2.0.0 precedence than the version b.
 func olderThan(a, b string) bool {
-	x, y := versionNumbers(a), versionNumbers(b)
-	for i := range x {
-		if x[i] != y[i] {
-			return x[i] < y[i]
-		}
-	}
-	return false
-}
-
-func versionNumbers(version string) [3]int {
-	var numbers [3]int
-	for i, text := range strings.SplitN(version, ".", 3) {
-		numbers[i], _ = strconv.Atoi(text)
-	}
-	return numbers
+	return semver.Compare("v"+a, "v"+b) < 0
 }
 
 // newestVersion gives the newest version of the npm package, or "" when the registry gives none. It reads the

@@ -7,7 +7,13 @@ test.beforeEach(async ({ page }) => {
   await expect(page.getByLabel("Access password")).toBeHidden();
 });
 
-const tool = { name: "git", path: "/usr/bin/git", status: "", version: "git version 2.50.0" };
+const tool = {
+  name: "git",
+  path: "/usr/bin/git",
+  status: "",
+  version: "git version 2.50.0",
+  required: true,
+};
 const permission = { name: "issues", level: "write", status: "present", url: "" } as const;
 const label = { name: "mobius:ready", color: "0e8a16", found: "", status: "present" } as const;
 const healthy = {
@@ -49,21 +55,25 @@ test("the Checkup page shows a needs you badge on each row with a problem", asyn
     (section ? main.locator("section").filter({ hasText: section }) : main)
       .getByRole("link", { name })
       .first();
-  await routeCheckup(page, [tool, { ...tool, name: "tar", status: "no-version", version: "" }], {
-    owner: {
-      ...healthy,
-      permissions: [permission, { ...permission, name: "checks", status: "missing" }],
+  await routeCheckup(
+    page,
+    [tool, { ...tool, name: "devin", path: "/usr/bin/devin", status: "no-version", version: "" }],
+    {
+      owner: {
+        ...healthy,
+        permissions: [permission, { ...permission, name: "checks", status: "missing" }],
+      },
+      plants: {
+        ...healthy,
+        repositories: [
+          {
+            repository: "garden",
+            labels: [{ ...label, status: "wrong-case", found: "Mobius:Ready" }],
+          },
+        ],
+      },
     },
-    plants: {
-      ...healthy,
-      repositories: [
-        {
-          repository: "garden",
-          labels: [{ ...label, status: "wrong-case", found: "Mobius:Ready" }],
-        },
-      ],
-    },
-  });
+  );
 
   await page.goto("/settings/checkup");
 
@@ -97,6 +107,55 @@ test("the Checkup page shows an outdated badge and the newest version of an outd
   await expect(main.getByText("outdated")).toHaveCount(1);
   await expect(main.getByText("2.1.284 (Claude Code) · newest 2.1.300")).toBeVisible();
   await expect(main.getByText("git version 2.50.0", { exact: true })).toBeVisible();
+});
+
+test("the Checkup page shows an optional program that is not found with no badge", async ({
+  page,
+}) => {
+  const main = page.getByRole("main");
+  const dsh = {
+    ...tool,
+    name: "dsh",
+    path: "",
+    version: "",
+    status: "not-found",
+    required: false,
+  };
+  await routeCheckup(page, [tool, dsh], { owner: healthy, plants: healthy });
+
+  const loaded = page.waitForResponse((res) => res.url().endsWith("/api/checkup/tools"));
+  await page.goto("/settings/checkup");
+  await loaded;
+
+  const toolsLink = main.getByRole("link", { name: "Tools" });
+  await expect(toolsLink).toHaveAttribute("aria-busy", "false");
+  await expect(toolsLink.getByText("needs you")).toBeHidden();
+
+  await toolsLink.click();
+
+  const row = main.getByRole("listitem").filter({ hasText: "dsh" });
+  await expect(row.getByText("not found")).toBeVisible();
+  await expect(row.locator('[data-variant="destructive"]')).toHaveCount(0);
+});
+
+test("the Checkup page shows a required program that is not found with the badge", async ({
+  page,
+}) => {
+  const main = page.getByRole("main");
+  const devin = { ...tool, name: "devin", path: "", version: "", status: "not-found" };
+  await routeCheckup(page, [tool, devin], { owner: healthy, plants: healthy });
+
+  const loaded = page.waitForResponse((res) => res.url().endsWith("/api/checkup/tools"));
+  await page.goto("/settings/checkup");
+  await loaded;
+
+  await expect(main.getByRole("link", { name: "Tools" }).getByText("needs you")).toBeVisible();
+
+  await main.getByRole("link", { name: "Tools" }).click();
+
+  const row = main.getByRole("listitem").filter({ hasText: "devin" });
+  await expect(row.getByText("not found")).toBeVisible();
+  await expect(row.locator('[data-variant="destructive"]')).toHaveCount(1);
 });
 
 test("the Checkup page shows a needs you badge on Workstreams when the issue repository has no maintenance Workstream", async ({
@@ -314,8 +373,8 @@ test.describe("on a phone", () => {
 
   test("the Tools page wraps a long version and does not overflow", async ({ page }) => {
     const version =
-      "curl 8.7.1 (x86_64-apple-darwin23.0) libcurl/8.7.1 (SecureTransport) LibreSSL/3.3.6 zlib/1.2.12 nghttp2/1.61.0";
-    await routeCheckup(page, [{ ...tool, name: "curl", path: "/usr/bin/curl", version }], {});
+      "devin 3000.11.3 (9c803229faa4) a long version line that wraps on a phone screen of 390 pixels";
+    await routeCheckup(page, [{ ...tool, name: "devin", path: "/usr/bin/devin", version }], {});
 
     await page.goto("/settings/checkup/tools");
 

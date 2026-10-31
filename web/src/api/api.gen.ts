@@ -1072,6 +1072,8 @@ export interface ToolCheck {
   outdated: boolean;
   /** Path is the file that Mobius runs. It is empty when Mobius cannot find the program, and for the Claude Code CLI that is built in the adapter */
   path: string;
+  /** Required tells that a role uses the Harness of the row, or that the program is git */
+  required: boolean;
   /** Status is not-found for a program that Mobius cannot find, and no-version for a program that gives no version. It is empty for a program with a version */
   status: string;
   /** Version is the first line of the version output. It is empty when Status is not empty */
