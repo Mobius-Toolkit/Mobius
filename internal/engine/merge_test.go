@@ -53,7 +53,10 @@ func TestAnApprovalOfATrustedUserSquashMergesThePullRequestAndEndsTheTask(t *tes
 	if calls := fake.MergeCalls(); calls != 1 {
 		t.Errorf("merge calls = %d", calls)
 	}
-	waitForLeadPrompt(t, server, " end of #41 \"Add plan model\": pull request #42 merged.")
+	event := waitForLeadEvent(t, server, "end", " end of #41 \"Add plan model\": pull request #42 merged.")
+	if event.Delivered {
+		t.Error("the end event started a Lead turn")
+	}
 }
 
 func TestAnApprovedPullRequestMergesOnALaterPollWhenTheConditionBecomesTrue(t *testing.T) {

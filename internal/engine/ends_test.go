@@ -43,6 +43,19 @@ func exists(t *testing.T, path string) bool {
 	return err == nil
 }
 
+// waitForLeadEvent waits for an event of kind of the Workstream #12 with text, and gives it.
+func waitForLeadEvent(t *testing.T, server *testserver.Server, kind, text string) leadEvent {
+	t.Helper()
+	return testkit.WaitForValue(t, func() (leadEvent, bool) {
+		for _, event := range leadEvents(t, server) {
+			if event.Kind == kind && strings.Contains(event.Payload, text) {
+				return event, true
+			}
+		}
+		return leadEvent{}, false
+	})
+}
+
 func TestAMergeEndsTheTaskAndKeepsTheBranch(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
@@ -61,7 +74,10 @@ func TestAMergeEndsTheTaskAndKeepsTheBranch(t *testing.T) {
 		t.Error("the worktree stays")
 	}
 	head(t, fake, "mobius/41")
-	waitForLeadPrompt(t, server, " end of #41 \"Add plan model\": pull request #42 merged.")
+	event := waitForLeadEvent(t, server, "end", " end of #41 \"Add plan model\": pull request #42 merged.")
+	if event.Delivered {
+		t.Error("the end event started a Lead turn")
+	}
 }
 
 func TestAMergeClosesTheOpenIssueAsCompleted(t *testing.T) {
