@@ -132,7 +132,7 @@ Mobius starts dsh with `DSH_PERMISSION_MODE=danger-full-access`. Thus a dsh sess
 
 A model of a route with no access passes the start of the session, and it fails at the first prompt. Check each route with one prompt before you use it.
 
-dsh gives Mobius no tokens and no cost, so the usage data of a dsh turn has no tokens and no cost.
+dsh sends no tokens and no cost through ACP. Mobius reads the tokens of each dsh turn from the dsh session log. The log is in `<DSH_HOME>/sessions`, with the default home `~/.dsh`. Mobius records no cost for dsh. The reader counts only the log of the ACP session itself. A log that Mobius cannot read, or a turn with no new model call, gives a usage row with no tokens.
 
 ### Antigravity
 

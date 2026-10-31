@@ -127,6 +127,21 @@ func (a *Agent) addUsage(ctx context.Context, result runner.PromptResult, prompt
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	usage := a.turnUsage
+	if a.binding.Harness == config.DSH && a.session != nil {
+		// dsh sends no tokens through ACP. It writes the tokens of each model call to its session log.
+		if dsh, err := readDSHUsage(dshHome(), a.spec.Dir, a.session.ID(), a.dshRecords); err == nil {
+			a.dshRecords = dsh.records
+			if dsh.tokens {
+				usage.input = sql.NullInt64{Int64: dsh.input, Valid: true}
+				usage.output = sql.NullInt64{Int64: dsh.output, Valid: true}
+				usage.cacheRead = sql.NullInt64{Int64: dsh.cacheRead, Valid: true}
+				usage.cacheWrite = sql.NullInt64{Int64: dsh.cacheWrite, Valid: true}
+			}
+			if dsh.model != "" {
+				usage.model = sql.NullString{String: dsh.model, Valid: true}
+			}
+		}
+	}
 	readResult(&usage, a.binding.Harness, result)
 	var cost sql.NullFloat64
 	if usage.costSeen {

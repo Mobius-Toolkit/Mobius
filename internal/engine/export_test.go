@@ -232,3 +232,8 @@ func (e *Engine) ChatQueued(key ChatKey) int {
 	}
 	return 0
 }
+
+// DSHLogPath gives the path of the dsh session log of the ACP session in cwd.
+func DSHLogPath(home, cwd, session string) string {
+	return dshLogPath(home, cwd, session)
+}
