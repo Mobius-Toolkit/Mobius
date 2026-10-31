@@ -36,6 +36,89 @@ func skillProposals(events []leadEvent) []leadEvent {
 	return slices.DeleteFunc(events, func(event leadEvent) bool { return event.Kind != "skill_proposal" })
 }
 
+// callRejectSkillProposal gives the prompt entry that calls reject_skill_proposal when the prompt has when.
+func callRejectSkillProposal(when, name, reason string) string {
+	return fmt.Sprintf("[[prompts]]\nwhen = %q\ncall = { tool = \"reject_skill_proposal\", arguments = { name = %q, reason = %q } }\n\n", when, name, reason)
+}
+
+// skillsLeadSpec gives the spec of the Lead of the Workstream "Skills" #20 in owner/shop.
+func skillsLeadSpec(t *testing.T) engine.Spec {
+	t.Helper()
+	spec := leadSpec(t)
+	spec.Workstream = 20
+	return spec
+}
+
+func TestTheCuratorOfTheOrganizationGetsTheRejectedSkillProposals(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddRepository(skills)
+	addSkillsWorkstream(fake, 20)
+	server, _ := connect(t, fake, callRejectSkillProposal("Reject the proposal.", "failed-tests", "The purpose repeats the skill read-the-ci-log.")+curatorScript)
+
+	session := run(t, server, skillsLeadSpec(t), "Reject the proposal.")
+
+	want := `Saved the rejection of the skill "failed-tests". The first prompt of each Curator session of owner now has it.`
+	if got := reply(t, server, session); got != want {
+		t.Errorf("reply = %q", got)
+	}
+	prompt := nextCuratorPrompt(t, server, 1)
+	for _, part := range []string{
+		"# Rejected skill proposals\n\nEach line has the name of the skill folder and the reason of the Lead of the Workstream \"Skills\" for the rejection.\n\n- failed-tests: The purpose repeats the skill read-the-ci-log.\n\n",
+	} {
+		if !strings.Contains(prompt, part) {
+			t.Errorf("prompt %q does not have %q", prompt, part)
+		}
+	}
+}
+
+func TestTheCuratorOfAnotherOrganizationGetsNoRejectedSkillProposal(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddRepository(skills)
+	fake.AddRepository("other/shop")
+	fake.AddIssue("other/shop", 12, "Integrate loyalty plans")
+	addSkillsWorkstream(fake, 20)
+	server, _ := connect(t, fake, callRejectSkillProposal("Reject the proposal.", "failed-tests", "The purpose repeats the skill read-the-ci-log.")+curatorScript)
+	server.WaitForFirstPoll(t, "other/shop")
+
+	session := run(t, server, skillsLeadSpec(t), "Reject the proposal.")
+	want := `Saved the rejection of the skill "failed-tests". The first prompt of each Curator session of owner now has it.`
+	if got := reply(t, server, session); got != want {
+		t.Errorf("reply = %q", got)
+	}
+	for range 10 {
+		other := engine.Spec{Role: engine.LeadRole, Organization: "other", Repository: "other/shop", Workstream: 12, Dir: t.TempDir()}
+		run(t, server, other, "Plan the loyalty API")
+	}
+
+	curator := skillsCurators(t, server, "other/shop", 1)[0]
+	prompt := promptTexts(t, server, curator.ID)[0]
+	if strings.Contains(prompt, "# Rejected skill proposals") || strings.Contains(prompt, "failed-tests") {
+		t.Errorf("prompt of the Curator of other/shop has the rejection: %s", prompt)
+	}
+}
+
+func TestAnotherLeadCannotRejectASkillProposal(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddRepository(skills)
+	addSkillsWorkstream(fake, 20)
+	server, _ := connect(t, fake, callRejectSkillProposal("Reject the proposal.", "failed-tests", "The purpose repeats.")+seenScript)
+
+	session := run(t, server, leadSpec(t), "Reject the proposal.")
+
+	calls := mcpCalls(t, server, session)
+	want := `Only the Lead of the Workstream "Skills" (#20) can reject a skill proposal.`
+	if len(calls) != 1 || calls[0]["error"] != want {
+		t.Errorf("calls = %v, want the error %q", calls, want)
+	}
+	var count int
+	if err := server.DB.QueryRow("SELECT count(*) FROM skill_rejections").Scan(&count); err != nil || count != 0 {
+		t.Errorf("rejections = %d, error = %v", count, err)
+	}
+}
+
 func TestTheCoordinatorCreatesAWorkstreamWithTheLabelSkills(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
