@@ -335,6 +335,8 @@ func runNPMUpgrade(ctx context.Context, npm, prefix, npmPackage, version string)
 	ctx, cancel := context.WithTimeout(ctx, upgradeTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, npm)
+	// A program that the time limit kills can leave a child that holds the output open.
+	cmd.WaitDelay = time.Second
 	cmd.Args = append(cmd.Args, "install", "--global", "--prefix", prefix, npmPackage+"@"+version)
 	cmd.Env = append(os.Environ(), "PATH="+filepath.Join(prefix, "bin")+string(filepath.ListSeparator)+os.Getenv("PATH"))
 	output, err := cmd.CombinedOutput()
