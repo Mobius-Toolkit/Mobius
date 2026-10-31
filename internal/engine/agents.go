@@ -475,6 +475,7 @@ func (a *Agent) continueSession(ctx context.Context, k *keptSession) error {
 	a.binding = k.binding
 	a.costTotal = k.costTotal
 	a.costBase = k.costBase
+	a.dshRecords = k.dshRecords
 	a.report = k.report
 	a.session.SetUpdates(a.update)
 	a.engine.agents.MCP.SetCaller(a.key, a.mcpCaller())

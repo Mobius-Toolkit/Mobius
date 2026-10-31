@@ -593,3 +593,54 @@ func TestAShortPromptHasTheIssueBodyOfARestartedRound(t *testing.T) {
 		t.Errorf("prompt has the old issue body: %s", prompts[0])
 	}
 }
+
+// Serial: it sets DSH_HOME, which dsh and the reader of the dsh session log read.
+func TestAContinuedDSHRoundCountsOnlyTheNewLogRecords(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("DSH_HOME", home)
+	fake := testkit.NewFakeGitHub(t)
+	dataDir := t.TempDir()
+	// The linger of the first turn gives the test the time to write the dsh session log of that turn before the
+	// engine reads the log at the end of the turn.
+	script := counting + "[options]\nmodel = ['" + dshModelValue + "']\nthought_level = [\"high\"]\n" +
+		"[[prompts]]\nlinger = \"3s\"\n" + commitCents +
+		"\n[[prompts]]\nwhen = \"Remove the lines out of scope.\"\nshell = \"echo cents >> plan.txt && git commit -q -am 'Store plans in cents'\"\n"
+	server, _ := connectTaskIn(t, fake, dataDir, keptLead, "", func(cfg *config.Config) {
+		cfg.Roles.Implementer = config.RoleBinding{Harness: config.DSH, Model: dshModel, Effort: "high", Max: 2}
+		testkit.InstallFakeHarness(t, cfg.DataDir, "dsh", script)
+	})
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	first := testkit.WaitForValue(t, func() (store.Session, bool) {
+		sessions := roleSessions(t, server, engine.ImplementerRole)
+		if len(sessions) != 1 || !sessions[0].AcpSessionID.Valid {
+			return store.Session{}, false
+		}
+		return sessions[0], true
+	})
+	logPath := engine.DSHLogPath(home, runner.TaskDir(dataDir, shop, 41), first.AcpSessionID.String)
+	writeDSHLog(t, logPath, false, dshLogHeader, dshLogMessage(1, "deepseek-v4-pro", 100, 10, 1000, 5))
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" })
+	waitForKept(t, server, 41)
+	writeDSHLog(t, logPath, true, dshLogMessage(2, "deepseek-flash", 30, 3, 200, 0))
+
+	startFixRound(t, server)
+
+	sessions := waitForImplementerSessions(t, server, 2)
+	if rows := usageRows(t, server, sessions[0].ID); len(rows) != 1 || rows[0].Input != nullInt(100) {
+		t.Errorf("tokens of the first row = %+v", rows)
+	}
+	if sessions[1].Continued != 1 || sessions[1].AcpSessionID.String != sessions[0].AcpSessionID.String {
+		t.Errorf("second row = %+v", sessions[1])
+	}
+	if got := harnessStarts(t, dataDir); got != 2 {
+		t.Errorf("starts = %d, want the access check and one Implementer process", got)
+	}
+	rows := usageRows(t, server, sessions[1].ID)
+	if len(rows) != 1 {
+		t.Fatalf("rows = %+v", rows)
+	}
+	if rows[0].Input != nullInt(30) || rows[0].Output != nullInt(3) || rows[0].CacheRead != nullInt(200) {
+		t.Errorf("tokens of the continued row = %+v, want only the records after the earlier row", rows[0])
+	}
+}
