@@ -89,7 +89,10 @@ export function addDraftInboxItem(key: string, item: DraftInboxItem) {
 // Gives undefined until the store gives the draft.
 export function useDraft(key: string) {
   useEffect(() => {
-    void load(key);
+    // A read that starts after a change would write the older draft over the text that the Owner typed.
+    if (!drafts.has(key)) {
+      void load(key);
+    }
   }, [key]);
   return useSyncExternalStore(subscribe, () => drafts.get(key));
 }

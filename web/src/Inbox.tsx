@@ -199,10 +199,21 @@ export function InboxRow({
               <span className="shrink-0">{reference}</span>
             ))}
           <span className="contents sm:flex sm:min-w-0 sm:items-baseline sm:gap-x-2">
-            <span className="grow basis-0 truncate sm:max-w-full sm:shrink-0 sm:grow-0 sm:basis-auto">
+            <span
+              className={cn(
+                "grow basis-0 truncate sm:max-w-full sm:grow-0 sm:basis-auto",
+                // The engine title of a failed item is longer than the room of the row, and the reason must stay.
+                item.kind === InboxItemKind.Lead_failed ? "sm:shrink" : "sm:shrink-0",
+              )}
+            >
               {item.title}
             </span>
-            <span className="basis-full truncate text-sm text-muted-foreground sm:basis-auto">
+            <span
+              className={cn(
+                "basis-full truncate text-sm text-muted-foreground sm:basis-auto",
+                item.kind === InboxItemKind.Lead_failed && "sm:shrink-0",
+              )}
+            >
               {item.reason}
             </span>
           </span>
