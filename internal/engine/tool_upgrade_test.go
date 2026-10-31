@@ -60,12 +60,12 @@ func upgradeServer(t *testing.T, prefix, npm, program string) (*testserver.Serve
 	return server, fake, registry
 }
 
-// toolVersion gives the version of the tool name in checks.
-func toolVersion(t *testing.T, checks []engine.ToolCheck, name string) string {
+// dshVersion gives the version of the dsh row in checks.
+func dshVersion(t *testing.T, checks []engine.ToolCheck) string {
 	t.Helper()
-	index := slices.IndexFunc(checks, func(check engine.ToolCheck) bool { return check.Name == name })
+	index := slices.IndexFunc(checks, func(check engine.ToolCheck) bool { return check.Name == "dsh" })
 	if index < 0 {
-		t.Fatalf("no row %s", name)
+		t.Fatal("no dsh row")
 	}
 	return checks[index].Version
 }
@@ -102,7 +102,7 @@ func TestTheUpgradeRunsTheNPMOfTheNodeInstallOfTheProgram(t *testing.T) {
 	if _, err := os.Stat(otherRan); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("the npm of the PATH of Mobius ran: %v", err)
 	}
-	if got := toolVersion(t, checks, "dsh"); got != "0.2.1-rc.5" {
+	if got := dshVersion(t, checks); got != "0.2.1-rc.5" {
 		t.Errorf("dsh version = %q", got)
 	}
 	if got := records(t, server, engine.ChatKey{Organization: "owner"}); !slices.Equal(got, []string{"You upgraded dsh to 0.2.1-rc.5."}) {
@@ -120,7 +120,7 @@ func TestAFailedUpgradeGivesTheNPMOutputAndKeepsTheVersion(t *testing.T) {
 	if _, err := server.Engine.UpgradeTool(context.Background(), upgradePackage); err == nil || !strings.Contains(err.Error(), "npm ERR! network down") {
 		t.Fatalf("error = %v", err)
 	}
-	if got := toolVersion(t, server.Engine.Tools(context.Background()), "dsh"); got != "0.2.1-rc.4" {
+	if got := dshVersion(t, server.Engine.Tools(context.Background())); got != "0.2.1-rc.4" {
 		t.Errorf("dsh version = %q", got)
 	}
 }

@@ -32,12 +32,12 @@ func countRuns(t *testing.T, file string) int {
 	return strings.Count(string(text), "run\n")
 }
 
-// autoUpgradeTool gives the row of the npm package in checks.
-func autoUpgradeTool(t *testing.T, checks []engine.ToolCheck, npmPackage string) engine.ToolCheck {
+// dshTool gives the row of the dsh package in checks.
+func dshTool(t *testing.T, checks []engine.ToolCheck) engine.ToolCheck {
 	t.Helper()
-	index := slices.IndexFunc(checks, func(check engine.ToolCheck) bool { return check.Package == npmPackage })
+	index := slices.IndexFunc(checks, func(check engine.ToolCheck) bool { return check.Package == upgradePackage })
 	if index < 0 {
-		t.Fatalf("no package %s", npmPackage)
+		t.Fatalf("no package %s", upgradePackage)
 	}
 	return checks[index]
 }
@@ -50,7 +50,7 @@ func TestTheAutoUpgradeIsOffAndRunsNoNPM(t *testing.T) {
 
 	server, fake, _ := upgradeServer(t, prefix, npm, program)
 
-	if got := autoUpgradeTool(t, server.Engine.Tools(context.Background()), upgradePackage); got.AutoUpgrade {
+	if got := dshTool(t, server.Engine.Tools(context.Background())); got.AutoUpgrade {
 		t.Errorf("auto-upgrade is on")
 	}
 	waitForPolls(t, fake)
@@ -72,11 +72,11 @@ func TestTheAutoUpgradeInstallsTheNewestVersionWithTheNPMOfTheNodeInstall(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !autoUpgradeTool(t, checks, upgradePackage).AutoUpgrade {
+	if !dshTool(t, checks).AutoUpgrade {
 		t.Errorf("the switch is off after the turn on")
 	}
 	testkit.WaitFor(t, func() bool {
-		return toolVersion(t, server.Engine.Tools(context.Background()), "dsh") == "0.2.1-rc.5"
+		return dshVersion(t, server.Engine.Tools(context.Background())) == "0.2.1-rc.5"
 	})
 	if got := countRuns(t, runs); got != 1 {
 		t.Errorf("npm runs = %d, want 1", got)
@@ -136,7 +136,7 @@ func TestAFailedAutoUpgradeAddsOneItemAndWaitsForANewerVersion(t *testing.T) {
 	registry.SetVersion(upgradePackage, "0.2.1-rc.6")
 	server.Engine.SetClock(func() time.Time { return time.Now().Add(4 * time.Hour) })
 	testkit.WaitFor(t, func() bool {
-		return toolVersion(t, server.Engine.Tools(context.Background()), "dsh") == "0.2.1-rc.6"
+		return dshVersion(t, server.Engine.Tools(context.Background())) == "0.2.1-rc.6"
 	})
 	if got := countRuns(t, runs); got != 2 {
 		t.Errorf("npm runs for a newer version = %d, want 2", got)
@@ -192,17 +192,17 @@ func TestSetToolAutoUpgradeKeepsTheValueAndAddsTheRecord(t *testing.T) {
 	if _, err := server.Engine.SetToolAutoUpgrade(ctx, upgradePackage, true); err != nil {
 		t.Fatal(err)
 	}
-	if !autoUpgradeTool(t, server.Engine.Tools(ctx), upgradePackage).AutoUpgrade {
+	if !dshTool(t, server.Engine.Tools(ctx)).AutoUpgrade {
 		t.Errorf("the switch is off after a new tool list read")
 	}
 	checks, err := server.Engine.SetToolAutoUpgrade(ctx, upgradePackage, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if autoUpgradeTool(t, checks, upgradePackage).AutoUpgrade {
+	if dshTool(t, checks).AutoUpgrade {
 		t.Errorf("the switch is on after the turn off")
 	}
-	if autoUpgradeTool(t, server.Engine.Tools(ctx), upgradePackage).AutoUpgrade {
+	if dshTool(t, server.Engine.Tools(ctx)).AutoUpgrade {
 		t.Errorf("the switch is on after a new tool list read")
 	}
 	want := []string{"You turned Auto-upgrade of dsh on.", "You turned Auto-upgrade of dsh off."}
