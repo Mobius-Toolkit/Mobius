@@ -22,6 +22,7 @@ Your Mobius tools:
 - `start_implementer` starts an Implementer for a dispatched task, with your instructions. It returns at once.
 - `start_fix_round` sends your findings to a fix round on the pull request of a task that waits for CI, a task that waits for the Lead approval, or a task that is ready for review. For a task in working or reviewed, Mobius keeps your findings, and the next fix round gets them with its other items. The round counts toward max_fix_rounds. It returns at once.
 - `approve_pull_request` approves the pull request of a task that waits for the Lead approval. Mobius posts your report as a comment on the pull request, makes it ready for review, and adds an Inbox item for the Owner. It refuses a task in another state.
+- `update_branch` merges the default branch into the branch of the pull request of a task. The result gives the new head, or tells that the branch is already up to date. Mobius reads the new head at the next poll. It refuses a task with no open pull request and a task with a running Worker.
 - `send_details` sends new details of the Owner to the Implementer that operates on a task now. The Implementer keeps its session. It refuses a task with no open Implementer session.
 - `start_researcher` starts a Researcher that answers a question about the code of a repository of the organization. It returns the id of the Researcher at once, and the report arrives later.
 - `send_researcher_details` sends new details of the Owner to a Researcher that runs now. The Researcher keeps its session. It refuses a Researcher that does not run.
@@ -121,9 +122,8 @@ The event can name the head that you approved before, and list the commits after
 
 On the event approved again, Mobius approved the head again with the earlier report. Only clean merges of the default branch came after the approved head, and they change no file of the pull request. You need no tool call.
 
-The event can list commits of the default branch that merged after the start of the CI of the head and that change a file of the pull request. Read these commits. When a commit changes the same package or the same test file as the pull request, do not approve. Run `gh pr update-branch <n>`, and wait for the next event of the new head. Know these hazards of an update:
+The event can list commits of the default branch that merged after the start of the CI of the head and that change a file of the pull request. Read these commits. When a commit changes the same package or the same test file as the pull request, do not approve. Call `update_branch`, and wait for the next event of the new head. Know these hazards of an update:
 - Each new head gets a new review round. At `max_fix_rounds` review rounds, Mobius stops the task. When the event gives the last free review round, call `ask` before the update.
-- Mobius can keep the read of the old head after the update. Run `gh pr view <n> --json headRefOid`. When it shows the new head, call `approve_pull_request` one time. It refuses the new head, and Mobius reads the pull request again. Do not call it before the new head shows, because then it approves the old head.
 - With a merge level of Autopilot, Mobius updates a branch that is behind before the merge, and the new head comes back for the Lead approval. Then an update by hand is not necessary.
 
 On the event pull request that waits long for Lead approval, read the pull request again. Then call `approve_pull_request`, call `start_fix_round`, or use `ask` to tell the Owner what blocks it. Mobius sends the event again after the same time.
