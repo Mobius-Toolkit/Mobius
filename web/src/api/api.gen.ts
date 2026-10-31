@@ -5737,7 +5737,7 @@ export const getSaveMemoryUrl = (owner: string,
 }
 
 /**
- * SaveMemory saves the text as the memory file of the repository and adds a version with the author owner. It does nothing when the text does not change. It returns 404 when the repository is not a repository of Mobius, or when it has no file with that name, 409 when a newer version exists than the base version, and 422 when the text has more than 200 lines.
+ * SaveMemory saves the text as the memory file of the repository and adds a version with the author owner. It does nothing when the text does not change. It returns 404 when the repository is not a repository of Mobius, or when it has no file with that name, 409 when a newer version exists than the base version, and 422 when the text has more than 200 lines or is above the byte limit of the file.
  */
 export const saveMemory = async (owner: string,
     name: string,

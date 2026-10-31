@@ -65,7 +65,7 @@ You add, merge, change and remove lessons with no approval.
 - `old` is a text that occurs one time in the selected file. Make `old` longer when the tool tells that it occurs more than one time.
 - An empty `old` adds `new` at the end of the selected file. An empty `new` removes `old`.
 
-Each memory file has a maximum of 200 lines. When a result has more than 200 lines, the tool refuses the call. Then merge or remove lessons first.
+Each memory file has a maximum of 200 lines. The shared file has a limit of 16,384 bytes, and each role file has a limit of 4,096 bytes. When a result is above a limit, the tool refuses the call. At a limit, remove or shorten a lesson. Do not make a line longer. When a file is already above its byte limit, the tool accepts a result only when it has fewer bytes than the current text.
 
 When the memory files are up to date, make no call.
 

@@ -286,6 +286,18 @@ func TestTheSaveRouteRefusesATextOfMoreThan200LinesAndTellsTheLimit(t *testing.T
 	}
 }
 
+func TestTheSaveRouteRefusesATextAboveTheByteLimit(t *testing.T) {
+	server := startWithApp(t, testkit.NewFakeGitHub(t), "User")
+	var failure struct {
+		Error string `json:"error"`
+	}
+	body := `{"text": "` + strings.Repeat("A", 16385) + `"}`
+	res := call(t, server.Client, http.MethodPut, memoryFileURL(server, shop, "shared"), body, &failure)
+	if res.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(failure.Error, "16385 bytes") || !strings.Contains(failure.Error, "limit is 16384") {
+		t.Errorf("status %d, error %q", res.StatusCode, failure.Error)
+	}
+}
+
 func TestTheRevertRouteUndoesOnlyTheChangeOfTheVersionAndKeepsTheLaterChanges(t *testing.T) {
 	server := startWithApp(t, testkit.NewFakeGitHub(t), "User")
 	saveMemory(t, server, "One.\nTwo.\n", "One.\nTwo.\nThree.\n", "One.\nTwo.\nThree.\nFour.\n")

@@ -475,5 +475,5 @@ func (e *Engine) editMemory(ctx context.Context, c caller, _ github.Repository, 
 		return "", err
 	}
 	c.agent.memoryEdits = append(c.agent.memoryEdits, input)
-	return fmt.Sprintf("Saved the memory file %s. It has %d of %d lines.", input.File, countLines(text), maxMemoryLines), nil
+	return fmt.Sprintf("Saved the memory file %s. It has %d of %d lines and %d of %d bytes.", input.File, countLines(text), maxMemoryLines, len(text), maxMemoryBytes(input.File)), nil
 }

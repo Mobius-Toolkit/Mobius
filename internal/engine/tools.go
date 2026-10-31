@@ -336,7 +336,7 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 	case CuratorRole:
 		tools := []mcp.Tool{
 			tool(e, c, "edit_memory",
-				"Change one part of one memory file of the repository. Give the file: shared, or the name of a role. Give an old text that occurs one time in the file, and the new text. An empty old text adds the new text at the end of the file. An empty new text removes the old text. Give the reason of the change. The tool refuses an empty reason, an unknown file and a result of more than 200 lines.",
+				"Change one part of one memory file of the repository. Give the file: shared, or the name of a role. Give an old text that occurs one time in the file, and the new text. An empty old text adds the new text at the end of the file. An empty new text removes the old text. Give the reason of the change. The tool refuses an empty reason, an unknown file, a result of more than 200 lines, and a result above the byte limit of the file (16,384 bytes for shared, 4,096 bytes for a role file). When a file is already above its byte limit, the tool accepts a result only when it has fewer bytes than the current text.",
 				map[string]any{
 					"file":   map[string]any{"type": "string", "enum": memoryFileNames, "description": "The memory file: shared, or the name of a role."},
 					"old":    map[string]any{"type": "string", "description": "The text to replace. It occurs one time in the memory file. Empty to add the new text at the end."},

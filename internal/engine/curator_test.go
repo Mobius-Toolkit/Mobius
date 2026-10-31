@@ -246,7 +246,7 @@ func TestAnEditMemoryCallAddsAVersionOfTheCuratorAndTheNextAgentGetsTheText(t *t
 	if got := memoryReasons(t, server); len(got) != 1 || got[0] != "Add: Workstream 12 repeats the format failure." {
 		t.Errorf("reasons = %q", got)
 	}
-	if calls := mcpCalls(t, server, session); len(calls) != 1 || calls[0]["result"] != "Saved the memory file shared. It has 1 of 200 lines." {
+	if calls := mcpCalls(t, server, session); len(calls) != 1 || calls[0]["result"] != "Saved the memory file shared. It has 1 of 200 lines and 33 of 16384 bytes." {
 		t.Errorf("calls = %v", calls)
 	}
 	sendChat(t, server, leadChat, "Plan the loyalty API")
@@ -320,8 +320,8 @@ func TestAnEditMemoryCallChangesOnlyTheSelectedFile(t *testing.T) {
 		t.Errorf("files = %q", got)
 	}
 	for session, want := range map[int64]string{
-		sharedSession: "Saved the memory file shared. It has 1 of 200 lines.",
-		roleSession:   "Saved the memory file implementer. It has 1 of 200 lines.",
+		sharedSession: "Saved the memory file shared. It has 1 of 200 lines and 15 of 16384 bytes.",
+		roleSession:   "Saved the memory file implementer. It has 1 of 200 lines and 20 of 4096 bytes.",
 	} {
 		if calls := mcpCalls(t, server, session); len(calls) != 1 || calls[0]["result"] != want {
 			t.Errorf("calls = %v", calls)
@@ -341,6 +341,122 @@ func TestAnEditMemoryCallRefusesAnUnknownFile(t *testing.T) {
 	}
 	if got := memoryFiles(t, server); len(got) != 0 {
 		t.Errorf("files = %q", got)
+	}
+}
+
+func TestAnEditMemoryCallRefusesATextAboveTheByteLimit(t *testing.T) {
+	t.Parallel()
+	longShared := strings.Repeat("A", 16385)
+	longRole := strings.Repeat("B", 4097)
+	script := fmt.Sprintf(`
+[[prompts]]
+when = "Make shared too long"
+call = { tool = "edit_memory", arguments = { file = "shared", old = "", new = %q, reason = "Add: issue 41." } }
+
+[[prompts]]
+when = "Make role too long"
+call = { tool = "edit_memory", arguments = { file = "implementer", old = "", new = %q, reason = "Add: issue 41." } }
+`, longShared, longRole)
+	server, dataDir := connect(t, testkit.NewFakeGitHub(t), script)
+
+	session := run(t, server, roleSpec(t, engine.CuratorRole), "Make shared too long", "Make role too long")
+
+	calls := mcpCalls(t, server, session)
+	if len(calls) != 2 {
+		t.Fatalf("calls = %v", calls)
+	}
+	wantShared := "the memory file has too many lines: the memory file shared has 16385 bytes and the limit is 16384. Remove or shorten a lesson. Do not make a line longer."
+	if calls[0]["error"] != wantShared {
+		t.Errorf("shared error = %v, want %s", calls[0]["error"], wantShared)
+	}
+	wantRole := "the memory file has too many lines: the memory file implementer has 4097 bytes and the limit is 4096. Remove or shorten a lesson. Do not make a line longer."
+	if calls[1]["error"] != wantRole {
+		t.Errorf("role error = %v, want %s", calls[1]["error"], wantRole)
+	}
+	if got := memoryVersions(t, server); len(got) != 0 {
+		t.Errorf("versions = %v", got)
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, "memory", shop+".md")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("shared file exists: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, "memory", shop, "implementer.md")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("implementer file exists: %v", err)
+	}
+}
+
+func TestAnEditMemoryCallOfAFileAboveTheByteLimitAcceptsOnlyAShorterText(t *testing.T) {
+	t.Parallel()
+	script := `
+[[prompts]]
+when = "Make it shorter"
+call = { tool = "edit_memory", arguments = { file = "shared", old = "REMOVE_ME_NOW\n", new = "", reason = "Remove: issue 41." } }
+
+[[prompts]]
+when = "Make it longer"
+call = { tool = "edit_memory", arguments = { file = "shared", old = "", new = "ADD_EXTRA_BYTES\n", reason = "Add: issue 41." } }
+`
+	server, dataDir := connect(t, testkit.NewFakeGitHub(t), script)
+	marker := "REMOVE_ME_NOW\n"
+	initial := marker + strings.Repeat("A", 20000-len(marker))
+	sharedPath := filepath.Join(dataDir, "memory", shop+".md")
+	if err := os.MkdirAll(filepath.Dir(sharedPath), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sharedPath, []byte(initial), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	session := run(t, server, roleSpec(t, engine.CuratorRole), "Make it shorter", "Make it longer")
+
+	calls := mcpCalls(t, server, session)
+	if len(calls) != 2 {
+		t.Fatalf("calls = %v", calls)
+	}
+	wantSaved := fmt.Sprintf("Saved the memory file shared. It has 1 of 200 lines and %d of 16384 bytes.", 20000-len(marker))
+	if calls[0]["result"] != wantSaved {
+		t.Errorf("shorter result = %v, want %s", calls[0]["result"], wantSaved)
+	}
+	// "Make it longer" adds 16 bytes at the end of the 19986-byte file -> 20002 bytes (> 19986) -> refused!
+	wantRefused := "the memory file has too many lines: the memory file shared has 20003 bytes and the limit is 16384. Remove or shorten a lesson. Do not make a line longer."
+	if calls[1]["error"] != wantRefused {
+		t.Errorf("longer error = %v, want %s", calls[1]["error"], wantRefused)
+	}
+	data, err := os.ReadFile(sharedPath)
+	if err != nil || len(data) != 20000-len(marker) {
+		t.Errorf("file len = %d, err = %v", len(data), err)
+	}
+	if got := memoryVersions(t, server); len(got) != 1 || got[0] != "curator" {
+		t.Errorf("versions = %v", got)
+	}
+}
+
+func TestTheDescriptionOfEditMemoryNamesTheByteLimits(t *testing.T) {
+	t.Parallel()
+	server, _ := connect(t, testkit.NewFakeGitHub(t), "[[prompts]]\nlist_tools = true\n")
+	session := run(t, server, roleSpec(t, engine.CuratorRole), "List tools")
+	text := reply(t, server, session)
+	var list struct {
+		Tools []struct {
+			Name        string `json:"name"`
+			Description string `json:"description"`
+		} `json:"tools"`
+	}
+	if err := json.Unmarshal([]byte(text), &list); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, tool := range list.Tools {
+		if tool.Name == "edit_memory" {
+			found = true
+			for _, part := range []string{"16,384 bytes", "4,096 bytes", "fewer bytes than the current text"} {
+				if !strings.Contains(tool.Description, part) {
+					t.Errorf("description %q does not contain %q", tool.Description, part)
+				}
+			}
+		}
+	}
+	if !found {
+		t.Error("edit_memory tool not found in list")
 	}
 }
 
@@ -636,7 +752,7 @@ func TestATellCuratorCallStartsACuratorWithTheRequestAndTheResultGoesToTheCoordi
 		"- Add the lesson: run make fmt before each commit.\n\n"+
 		"The Curator changed the memory files. The reasons of the changes:\n\n"+
 		"- shared: Add: request 1 of the Owner.\n\n"+
-		"Reply of the Curator:\n\nAdded the lesson.Saved the memory file shared. It has 1 of 200 lines.", curator.ID)
+		"Reply of the Curator:\n\nAdded the lesson.Saved the memory file shared. It has 1 of 200 lines and 33 of 16384 bytes.", curator.ID)
 	testkit.WaitFor(t, func() bool {
 		for _, session := range chatSessions(t, server, coordinatorChat, engine.CoordinatorRole) {
 			if slices.ContainsFunc(promptTexts(t, server, session.ID), func(prompt string) bool { return strings.HasSuffix(prompt, result) }) {
