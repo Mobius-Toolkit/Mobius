@@ -17,22 +17,28 @@ import (
 
 const upgradePackage = "@deepseek-ai/dsh"
 
+// fakeProgramMode makes the shell script of a fake program executable, as the test program that takes its place.
+const fakeProgramMode = 0o700
+
 // nodeProgram writes the shell script text at file, and gives it the executable permission.
 func nodeProgram(t *testing.T, file, text string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(file), 0o750); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(file, []byte(text), 0o700); err != nil {
+	if err := os.WriteFile(file, []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(file, fakeProgramMode); err != nil {
 		t.Fatal(err)
 	}
 }
 
 // upgradeServer starts a server whose dsh row is a program of the Node install at prefix. The install prints version,
 // and the fake npm at prefix/bin/npm runs the script npm.
-func upgradeServer(t *testing.T, prefix, npm, program, version string) *testserver.Server {
+func upgradeServer(t *testing.T, prefix, npm, program string) *testserver.Server {
 	t.Helper()
-	nodeProgram(t, program, "#!/bin/sh\necho "+version+"\n")
+	nodeProgram(t, program, "#!/bin/sh\necho 0.2.1-rc.4\n")
 	nodeProgram(t, filepath.Join(prefix, "bin", "npm"), npm)
 	dataDir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dataDir, "harnesses"), 0o750); err != nil {
@@ -74,14 +80,14 @@ func TestTheUpgradeRunsTheNPMOfTheNodeInstallOfTheProgram(t *testing.T) {
 	nodeProgram(t, filepath.Join(other, "npm"), "#!/bin/sh\ntouch "+otherRan+"\n")
 	t.Setenv("PATH", other+string(filepath.ListSeparator)+os.Getenv("PATH"))
 
-	server := upgradeServer(t, prefix, npm, program, "0.2.1-rc.4")
+	server := upgradeServer(t, prefix, npm, program)
 
 	checks, err := server.Engine.UpgradeTool(context.Background(), upgradePackage)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	written, err := os.ReadFile(args)
+	written, err := os.ReadFile(filepath.Clean(args))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +115,7 @@ func TestAFailedUpgradeGivesTheNPMOutputAndKeepsTheVersion(t *testing.T) {
 	program := filepath.Join(prefix, "lib", "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js")
 	npm := "#!/bin/sh\necho 'npm ERR! network down' >&2\nexit 1\n"
 
-	server := upgradeServer(t, prefix, npm, program, "0.2.1-rc.4")
+	server := upgradeServer(t, prefix, npm, program)
 
 	if _, err := server.Engine.UpgradeTool(context.Background(), upgradePackage); err == nil || !strings.Contains(err.Error(), "npm ERR! network down") {
 		t.Fatalf("error = %v", err)
@@ -126,7 +132,7 @@ func TestASecondUpgradeOfTheSamePackageIsRefusedWhileTheFirstRuns(t *testing.T) 
 	release := filepath.Join(prefix, "release")
 	npm := "#!/bin/sh\ntouch " + started + "\nwhile [ ! -e " + release + " ]; do sleep 0.05; done\nprintf '#!/bin/sh\\necho 0.2.1-rc.5\\n' > " + program + "\n"
 
-	server := upgradeServer(t, prefix, npm, program, "0.2.1-rc.4")
+	server := upgradeServer(t, prefix, npm, program)
 
 	done := make(chan error, 1)
 	go func() {
@@ -148,7 +154,7 @@ func TestTheUpgradeRefusesAPackageThatNoRowHas(t *testing.T) {
 	prefix := t.TempDir()
 	program := filepath.Join(prefix, "lib", "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js")
 
-	server := upgradeServer(t, prefix, "#!/bin/sh\nexit 0\n", program, "0.2.1-rc.4")
+	server := upgradeServer(t, prefix, "#!/bin/sh\nexit 0\n", program)
 
 	if _, err := server.Engine.UpgradeTool(context.Background(), "@example/none"); !engine.Refused(err) {
 		t.Errorf("error = %v", err)

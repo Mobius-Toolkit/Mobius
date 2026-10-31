@@ -248,11 +248,11 @@ func nodeInstall(programPath string) (prefix, npmPackage string) {
 	if programPath == "" {
 		return "", ""
 	}
-	real, err := filepath.EvalSymlinks(programPath)
+	resolved, err := filepath.EvalSymlinks(programPath)
 	if err != nil {
 		return "", ""
 	}
-	parts := strings.Split(filepath.ToSlash(real), "/")
+	parts := strings.Split(filepath.ToSlash(resolved), "/")
 	for i := 0; i+2 < len(parts); i++ {
 		if parts[i] != "lib" || parts[i+1] != "node_modules" {
 			continue
@@ -298,7 +298,7 @@ func (e *Engine) UpgradeTool(ctx context.Context, npmPackage string) ([]ToolChec
 		return nil, refuse("An upgrade of %s runs now.", check.Name)
 	}
 	defer e.endUpgrade(npmPackage)
-	output, err := runNPMUpgrade(ctx, prefix, npmPackage, check.Newest)
+	output, err := runNPMUpgrade(ctx, filepath.Join(prefix, "bin", "npm"), prefix, npmPackage, check.Newest)
 	if err != nil {
 		return nil, refuse("The upgrade of %s failed: %v\n%s", check.Name, err, tail(string(output), upgradeOutput))
 	}
@@ -326,12 +326,13 @@ func (e *Engine) endUpgrade(npmPackage string) {
 	delete(e.upgrades, npmPackage)
 }
 
-// runNPMUpgrade runs the npm of the Node install at prefix to install npmPackage@version. The PATH of the run starts
+// runNPMUpgrade runs npm to install npmPackage@version into the Node install at prefix. The PATH of the run starts
 // with the bin directory of the Node install, so the npm and the node of that install run.
-func runNPMUpgrade(ctx context.Context, prefix, npmPackage, version string) ([]byte, error) {
+func runNPMUpgrade(ctx context.Context, npm, prefix, npmPackage, version string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, upgradeTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, filepath.Join(prefix, "bin", "npm"), "install", "--global", "--prefix", prefix, npmPackage+"@"+version)
+	cmd := exec.CommandContext(ctx, npm)
+	cmd.Args = append(cmd.Args, "install", "--global", "--prefix", prefix, npmPackage+"@"+version)
 	cmd.Env = append(os.Environ(), "PATH="+filepath.Join(prefix, "bin")+string(filepath.ListSeparator)+os.Getenv("PATH"))
 	output, err := cmd.CombinedOutput()
 	if ctx.Err() == context.DeadlineExceeded {

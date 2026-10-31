@@ -411,13 +411,19 @@ func TestAReadOfTheRegistryThatTheContextEndsIsNotKept(t *testing.T) {
 	}
 }
 
+// fakeProgramMode makes the shell script of a fake program executable, as the test program that takes its place.
+const fakeProgramMode = 0o700
+
 // nodeExecutable writes a shell script at file that prints version, and gives it the executable permission.
 func nodeExecutable(t *testing.T, file, version string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(file), 0o750); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(file, []byte("#!/bin/sh\necho "+version+"\n"), 0o700); err != nil {
+	if err := os.WriteFile(file, []byte("#!/bin/sh\necho "+version+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(file, fakeProgramMode); err != nil {
 		t.Fatal(err)
 	}
 }
