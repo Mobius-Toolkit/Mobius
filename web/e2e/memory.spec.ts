@@ -116,9 +116,13 @@ test("the Owner edits the memory file in a dialog, sees the 200-line error, and 
   await expect(dialog).toBeHidden();
 });
 
-// Radix listens for a click outside only after the dialog mounts, so wait for the open animation first.
-const clickOutside = async (page: Page, dialog: Locator) => {
+// Radix adds the listeners of a dialog in an effect after the render that makes it the top layer, so wait for the open animation first.
+const waitForOpen = async (dialog: Locator) => {
   await dialog.evaluate((element) => Promise.all(element.getAnimations().map((a) => a.finished)));
+};
+
+const clickOutside = async (page: Page, dialog: Locator) => {
+  await waitForOpen(dialog);
   await page.mouse.click(2, 2);
 };
 
@@ -131,6 +135,7 @@ const closeDialogOf = async (close: string, page: Page, discard: Locator) => {
   if (close === "Cancel") {
     await keep.click();
   } else if (close === "Escape") {
+    await waitForOpen(discard);
     await page.keyboard.press("Escape");
   } else {
     await clickOutside(page, discard);
