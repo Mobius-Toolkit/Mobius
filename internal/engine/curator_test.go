@@ -955,11 +955,11 @@ reply = ["The memory file is up to date."]
 	curatorFile := filepath.Join(scratchDir, "roles", "curator.md")
 
 	leadContent := testkit.WaitForValue(t, func() (string, bool) {
-		data, err := os.ReadFile(leadFile)
+		data, err := os.ReadFile(filepath.Clean(leadFile))
 		return string(data), err == nil
 	})
 
-	leadPromptData, err := os.ReadFile(filepath.Join("prompts", "lead.md"))
+	leadPromptData, err := os.ReadFile(filepath.Clean(filepath.Join("prompts", "lead.md")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -970,7 +970,7 @@ reply = ["The memory file is up to date."]
 		t.Errorf("lead.md does not contain name and description of update_blockers: %s", leadContent)
 	}
 
-	curatorData, err := os.ReadFile(curatorFile)
+	curatorData, err := os.ReadFile(filepath.Clean(curatorFile))
 	if err != nil {
 		t.Fatal(err)
 	}
