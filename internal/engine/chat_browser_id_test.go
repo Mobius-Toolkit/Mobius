@@ -80,11 +80,19 @@ func TestASecondTurnForAnOwnerMessageKeepsItsDeliveryTime(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectScript(t, fake, options+"[[prompts]]\nreply = [\"Ok\"]\n", keepSessionOpen)
-	sendChatID(t, server, "one", "First")
-	waitForChat(t, server, leadChat, "Lead", "Ok")
-	first := chatView(t, server, leadChat).Messages[0]
 	changes, stop := server.Engine.Listen()
 	defer stop()
+
+	sendChatID(t, server, "one", "First")
+	isOwner := func(change engine.Change) bool { return change.Message != nil && change.Message.Author == "Owner" }
+	added := waitForChange(t, changes, isOwner).Message
+	// The reply comes before the end of the turn, and a turn with no thought and no tool call sets the delivery time at
+	// its end. Wait for the change of the time, so that DeliverMessage gets a message that the first turn already
+	// delivered, and so that no change of the first turn can reach the listener of this test.
+	first := waitForChange(t, changes, isOwner).Message
+	if first.ID != added.ID || !first.DeliveredAt.Valid {
+		t.Fatalf("delivered message = %+v", first)
+	}
 
 	if err := server.Engine.DeliverMessage(t.Context(), first.ID); err != nil {
 		t.Fatal(err)
