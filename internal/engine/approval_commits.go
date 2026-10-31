@@ -73,21 +73,26 @@ func sharedCommitLines(ctx context.Context, repository github.Repository, pullRe
 }
 
 // approvedHeadText gives the lines that follow the first line of the event ready_for_approval when the Lead approved
-// an earlier head of the pull request. A 4xx answer of GitHub gives a line about it, and any other error returns.
-func (e *Engine) approvedHeadText(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) (string, error) {
+// an earlier head of the pull request. again tells that Mobius can approve the head again: only clean merges of the
+// default branch came after the approved head, and the task has the report of the Lead. A 4xx answer of GitHub gives a
+// line about it, and any other error returns.
+func (e *Engine) approvedHeadText(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) (text string, again bool, err error) {
 	approved := task.ApprovedHead.String
 	if approved == "" || approved == pullRequest.GetHead().GetSHA() {
-		return "", nil
+		return "", false, nil
 	}
 	if err := e.fetchRepository(ctx, repository); err != nil {
-		return "", err
+		return "", false, err
 	}
-	text, err := e.changesAfterApproval(ctx, repository, pullRequest, approved)
+	text, again, err = e.changesAfterApproval(ctx, repository, pullRequest, approved)
 	var refused *gh.ErrorResponse
 	if errors.As(err, &refused) && refused.Response.StatusCode < 500 {
-		return fmt.Sprintf("\nMobius could not compare the approved head %.8s with the head: %d.", approved, refused.Response.StatusCode), nil
+		return fmt.Sprintf("\nMobius could not compare the approved head %.8s with the head: %d.", approved, refused.Response.StatusCode), false, nil
 	}
-	return text, err
+	if err != nil {
+		return "", false, err
+	}
+	return text, again && task.ApprovedReport.Valid && task.ApprovedReport.String != "", nil
 }
 
 // commitAfterApproval is a commit of the first-parent chain from the approved head to the head. Brought holds the
@@ -99,16 +104,16 @@ type commitAfterApproval struct {
 }
 
 // changesAfterApproval lists the commits after the approved head and tells if the change of the pull request is the
-// same as at the approved head.
-func (e *Engine) changesAfterApproval(ctx context.Context, repository github.Repository, pullRequest *gh.PullRequest, approved string) (string, error) {
+// same as at the approved head. again tells that only clean merges of the default branch came after the approved head.
+func (e *Engine) changesAfterApproval(ctx context.Context, repository github.Repository, pullRequest *gh.PullRequest, approved string) (string, bool, error) {
 	branch := repository.DefaultBranch
 	comparison, err := repository.Compare(ctx, approved, pullRequest.GetHead().GetSHA())
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	notInHistory := fmt.Sprintf("\nThe Lead approved the head %.8s before. It is not in the history of the head, so the change can differ.", approved)
 	if comparison.GetStatus() != "ahead" {
-		return notInHistory, nil
+		return notInHistory, false, nil
 	}
 	commits := map[string]*gh.RepositoryCommit{}
 	for _, commit := range comparison.Commits {
@@ -118,7 +123,7 @@ func (e *Engine) changesAfterApproval(ctx context.Context, repository github.Rep
 	for sha := pullRequest.GetHead().GetSHA(); sha != approved; {
 		commit, found := commits[sha]
 		if !found || len(commit.Parents) == 0 {
-			return notInHistory, nil
+			return notInHistory, false, nil
 		}
 		chain = append(chain, commitAfterApproval{commit: commit})
 		sha = commit.Parents[0].GetSHA()
@@ -133,7 +138,7 @@ func (e *Engine) changesAfterApproval(ctx context.Context, repository github.Rep
 		if len(parents) == 2 {
 			second, err := repository.Compare(ctx, branch, parents[1].GetSHA())
 			if err != nil {
-				return "", err
+				return "", false, err
 			}
 			chain[i].merge = second.GetStatus() == "behind" || second.GetStatus() == "identical"
 		}
@@ -180,34 +185,37 @@ func (e *Engine) changesAfterApproval(ctx context.Context, repository github.Rep
 		}
 		fmt.Fprintf(&text, "\n- %.8s %s", commit.GetSHA(), commitSubject(commit))
 	}
-	reasons, err := e.differences(ctx, repository, pullRequest, approved, chain)
+	reasons, again, err := e.differences(ctx, repository, pullRequest, approved, chain)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	if len(reasons) == 0 {
 		fmt.Fprintf(&text, "\nThe change of the pull request is the same as at the approved head: only merges of %s came after it.", branch)
-		return text.String(), nil
+		return text.String(), again, nil
 	}
 	text.WriteString("\nThe change of the pull request can differ from the approved head:")
 	for _, reason := range reasons {
 		fmt.Fprintf(&text, "\n- %s", reason)
 	}
-	return text.String(), nil
+	return text.String(), again, nil
 }
 
 // differences gives the reasons why the change of the pull request can differ from the change at the approved head.
-// The bare clone of the repository must have the commits of the chain.
-func (e *Engine) differences(ctx context.Context, repository github.Repository, pullRequest *gh.PullRequest, approved string, chain []commitAfterApproval) ([]string, error) {
+// again tells that there is no reason and that each merge of the chain has no hand change. The bare clone of the
+// repository must have the commits of the chain.
+func (e *Engine) differences(ctx context.Context, repository github.Repository, pullRequest *gh.PullRequest, approved string, chain []commitAfterApproval) ([]string, bool, error) {
 	branch := repository.DefaultBranch
 	var reasons []string
+	again := true
 	for _, link := range chain {
 		if !link.merge {
 			reasons = append(reasons, fmt.Sprintf("%.8s is not a merge of %s", link.commit.GetSHA(), branch))
+			again = false
 		}
 	}
 	oldComparison, err := repository.Compare(ctx, branch, approved)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	var oldFiles []string
 	for _, file := range oldComparison.Files {
@@ -215,19 +223,23 @@ func (e *Engine) differences(ctx context.Context, repository github.Repository, 
 	}
 	files, err := repository.PullRequestFiles(ctx, int64(pullRequest.GetNumber()))
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	added := slices.DeleteFunc(slices.Clone(files), func(file string) bool { return slices.Contains(oldFiles, file) })
 	removed := slices.DeleteFunc(oldFiles, func(file string) bool { return slices.Contains(files, file) })
 	if len(added) > 0 || len(removed) > 0 {
 		reasons = append(reasons, fmt.Sprintf("the changed files differ: added %s, removed %s", fileNames(added), fileNames(removed)))
+		again = false
 	}
 	for _, link := range chain {
+		if !link.merge {
+			continue
+		}
 		var shared []string
 		for _, commit := range link.brought {
 			changed, err := repository.CommitFiles(ctx, commit.GetSHA())
 			if err != nil {
-				return nil, err
+				return nil, false, err
 			}
 			for _, file := range changed {
 				if slices.Contains(files, file) && !slices.Contains(shared, file) {
@@ -235,25 +247,29 @@ func (e *Engine) differences(ctx context.Context, repository github.Repository, 
 				}
 			}
 		}
-		if len(shared) == 0 {
-			continue
-		}
 		dataDir, name, sha := e.config.DataDir, repository.FullName, link.commit.GetSHA()
 		tree, err := runner.MergeTree(ctx, dataDir, name, link.commit.Parents[0].GetSHA(), link.commit.Parents[1].GetSHA())
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		resolved, err := runner.DiffFiles(ctx, dataDir, name, tree, sha)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
+		if len(resolved) > 0 {
+			again = false
+		}
+		if len(shared) == 0 {
+			continue
+		}
+		again = false
 		if len(resolved) == 0 {
 			reasons = append(reasons, fmt.Sprintf("%.8s is a clean merge", sha))
 		} else {
 			reasons = append(reasons, fmt.Sprintf("%.8s holds a hand resolution in %s", sha, strings.Join(resolved, ", ")))
 		}
 	}
-	return reasons, nil
+	return reasons, again, nil
 }
 
 func fileNames(files []string) string {

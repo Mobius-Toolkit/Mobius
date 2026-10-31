@@ -304,6 +304,10 @@ func (e *Engine) approvePullRequest(ctx context.Context, c caller, repository gi
 		}
 		return "", refuse("The head of the pull request of #%d changed after the CI passed. The task waits for the CI of the new head.", input.N)
 	}
+	mark, err := e.mark(ctx, c, repository.FullName)
+	if err != nil {
+		return "", err
+	}
 	issue, err := existingIssue(ctx, repository, input.N)
 	if err != nil {
 		return "", err
@@ -312,12 +316,25 @@ func (e *Engine) approvePullRequest(ctx context.Context, c caller, repository gi
 	if err != nil {
 		return "", err
 	}
+	result, err := e.finishApproval(ctx, repository, task, issue, pullRequest, level, checkRun, runner.WithMark(input.Report, mark), mark, input.Report)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Approved pull request #%d of #%d. %s", pullRequest.GetNumber(), task.Issue, result), nil
+}
+
+// finishApproval does the steps of an approval after its reads: it moves the task from approval to ready_for_review,
+// approves the pull request with comment, adds a todo for each new deployment need, and with a merge level starts the
+// merge. comment is the text to post on the pull request. mark is the role mark of the Lead for the question text, or
+// "" when Mobius writes the comment. leadReport is stored as the report of the approval, or "" keeps the stored report.
+// It gives the result text for the Lead.
+func (e *Engine) finishApproval(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue, pullRequest *gh.PullRequest, level string, checkRun int64, comment, mark, leadReport string) (string, error) {
 	moved, err := e.setTaskState(ctx, store.SetTaskStateParams{State: "ready_for_review", ID: task.ID, FromState: "approval"})
 	if err != nil {
 		return "", err
 	}
 	if moved == 0 {
-		return "", refuse("The task of #%d is not approval any more.", input.N)
+		return "", refuse("The task of #%d is not approval any more.", task.Issue)
 	}
 	if task.AutoMerge == 1 && awaitsMerge(task) {
 		err := e.queries.SetTaskRefusedReview(ctx, store.SetTaskRefusedReviewParams{RefusedReview: task.ApprovedReview, ID: task.ID})
@@ -326,32 +343,32 @@ func (e *Engine) approvePullRequest(ctx context.Context, c caller, repository gi
 		}
 		task.RefusedReview = task.ApprovedReview
 	}
-	if err := e.approve(ctx, c, repository, task, issue, pullRequest, checkRun, input.Report); err != nil {
+	if err := e.approve(ctx, repository, task, issue, pullRequest, checkRun, comment, mark, leadReport); err != nil {
 		_, stateErr := e.setTaskState(ctx, store.SetTaskStateParams{State: "approval", ID: task.ID, FromState: "ready_for_review"})
 		return "", errors.Join(err, stateErr)
 	}
-	text := fmt.Sprintf("Approved pull request #%d of #%d.", pullRequest.GetNumber(), input.N)
+	text := ""
 	todos, err := e.addDeploymentTodos(ctx, repository, task, int64(pullRequest.GetNumber()))
 	if len(todos) > 0 {
-		text += fmt.Sprintf(" The Owner got the deployment todos: %s.", strings.Join(todos, ", "))
+		text = fmt.Sprintf("The Owner got the deployment todos: %s. ", strings.Join(todos, ", "))
 	}
 	if err != nil {
-		return fmt.Sprintf("%s The Owner got it for review. Mobius did not add all deployment todos: %v", text, err), nil
+		return text + fmt.Sprintf("The Owner got it for review. Mobius did not add all deployment todos: %v", err), nil
 	}
 	if !mergesPullRequests(level) {
-		return text + " The Owner got it for review.", nil
+		return text + "The Owner got it for review.", nil
 	}
 	blocked, err := e.autoApprove(ctx, repository, task, pullRequest)
 	if err != nil {
-		return fmt.Sprintf("%s The Owner got it for review. Mobius did not start the merge: %v", text, err), nil
+		return text + fmt.Sprintf("The Owner got it for review. Mobius did not start the merge: %v", err), nil
 	}
 	switch blocked {
 	case mandatoryTodosReason:
-		return text + " Mobius merges it after the Owner marks the mandatory todos as done.", nil
+		return text + "Mobius merges it after the Owner marks the mandatory todos as done.", nil
 	case mergePausedReason:
-		return text + " Mobius merges it after the Owner turns the Merge switch on.", nil
+		return text + "Mobius merges it after the Owner turns the Merge switch on.", nil
 	}
-	return text + " Mobius merges it after its checks pass.", nil
+	return text + "Mobius merges it after its checks pass.", nil
 }
 
 // openCheckRun returns the id of the Mobius check run of the head that is not complete, or 0 when it has none. A head
@@ -428,17 +445,22 @@ func replaceCheckRun(ctx context.Context, repository github.Repository, head str
 	return repository.UpdateCheckRun(ctx, checkRun, checkRunName, "completed", "neutral", "Replaced by a new head", "A new head of the pull request replaced this commit.")
 }
 
-func (e *Engine) approve(ctx context.Context, c caller, repository github.Repository, task store.Task, issue *gh.Issue, pullRequest *gh.PullRequest, checkRun int64, report string) error {
-	mark, err := e.mark(ctx, c, repository.FullName)
-	if err != nil {
-		return err
-	}
-	if hasLabel(issue, questionLabel) {
+// approvalAgainComment gives the comment of the approval again. Mobius writes it, so it has no role mark.
+func approvalAgainComment(branch, head, approved, report string) string {
+	return fmt.Sprintf("Mobius approved the head %.8s again. Only clean merges of %s came after the head %.8s, and they change no file of the pull request. The report of the Lead for %.8s:\n\n%s", head, branch, approved, approved, report)
+}
+
+// approve posts comment on the pull request, sets the Mobius check of the head to success, stores the approved head and
+// leadReport in the task, makes a draft pull request ready for review, replaces mobius:working with mobius:review, and
+// adds the Inbox item for the Owner. mark is the role mark of the Lead for the question text, or "" when Mobius writes
+// the comment. A leadReport of "" keeps the stored report of the approval.
+func (e *Engine) approve(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue, pullRequest *gh.PullRequest, checkRun int64, comment, mark, leadReport string) error {
+	if mark != "" && hasLabel(issue, questionLabel) {
 		if err := e.closeQuestion(ctx, repository, issue, task, runner.WithMark(fmt.Sprintf("The Lead approved PR #%d, so the question is closed.", pullRequest.GetNumber()), mark), ""); err != nil {
 			return err
 		}
 	}
-	comment, err := repository.AddComment(ctx, int64(pullRequest.GetNumber()), runner.WithMark(report, mark))
+	posted, err := repository.AddComment(ctx, int64(pullRequest.GetNumber()), comment)
 	if err != nil {
 		return err
 	}
@@ -447,6 +469,11 @@ func (e *Engine) approve(ctx context.Context, c caller, repository github.Reposi
 	}
 	if err := e.queries.SetTaskApprovedHead(ctx, store.SetTaskApprovedHeadParams{ApprovedHead: sql.NullString{String: pullRequest.GetHead().GetSHA(), Valid: true}, ID: task.ID}); err != nil {
 		return err
+	}
+	if leadReport != "" {
+		if err := e.queries.SetTaskApprovedReport(ctx, store.SetTaskApprovedReportParams{ApprovedReport: sql.NullString{String: leadReport, Valid: true}, ID: task.ID}); err != nil {
+			return err
+		}
 	}
 	if pullRequest.GetDraft() {
 		if err := repository.MarkReadyForReview(ctx, pullRequest.GetNodeID()); err != nil {
@@ -476,7 +503,7 @@ func (e *Engine) approve(ctx context.Context, c caller, repository github.Reposi
 		Text:                 fmt.Sprintf("Pull request #%d of #%d \"%s\" is ready for review.", pullRequest.GetNumber(), task.Issue, title),
 		Link:                 issueLink(task.Repository, task.Issue),
 		PullRequest:          int64(pullRequest.GetNumber()),
-		ReportLink:           comment.GetHTMLURL(),
+		ReportLink:           posted.GetHTMLURL(),
 		Merging:              merging,
 	})
 }
