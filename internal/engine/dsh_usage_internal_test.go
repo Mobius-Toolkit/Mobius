@@ -85,7 +85,7 @@ func TestReadDSHUsageSumsTheNewRecordsOfTwoFrames(t *testing.T) {
 	home := t.TempDir()
 	cwd := "/Users/bohdan/My Project/.cache"
 	session := "session-1"
-	path := dshLogPath(home, cwd, session)
+	path := filepath.Join(home, dshLogPath(cwd, session))
 	writeDSHLog(t, path, []string{
 		dshHeader,
 		dshMessage(1, "deepseek-v4-pro", 100, 10, 1000, 5),
@@ -128,7 +128,7 @@ func TestReadDSHUsageSkipsARecordWithNoUsage(t *testing.T) {
 	home := t.TempDir()
 	cwd := "/work/task"
 	session := "session-2"
-	path := dshLogPath(home, cwd, session)
+	path := filepath.Join(home, dshLogPath(cwd, session))
 	writeDSHLog(t, path, []string{
 		dshHeader,
 		`{"type":"assistant/message","time":1,"data":{"turn":1,"message":{"source":{"provider":"deepseek-account","model":"deepseek-v4-pro"}}}}`,
@@ -161,7 +161,7 @@ func TestReadDSHUsageRefusesAnotherVersion(t *testing.T) {
 	home := t.TempDir()
 	cwd := "/work/task"
 	session := "session-3"
-	path := dshLogPath(home, cwd, session)
+	path := filepath.Join(home, dshLogPath(cwd, session))
 	writeDSHLog(t, path, []string{
 		`{"type":"session","version":5,"id":"fake-session","cwd":"/work/task"}`,
 		dshMessage(1, "deepseek-v4-pro", 10, 2, 30, 4),
@@ -183,7 +183,7 @@ func TestReadDSHUsageGivesAnErrorForAMissingOrBrokenLog(t *testing.T) {
 	if _, err := readDSHUsage(home, cwd, "missing", 0); err == nil {
 		t.Error("the missing log gave no error")
 	}
-	path := dshLogPath(home, cwd, "broken")
+	path := filepath.Join(home, dshLogPath(cwd, "broken"))
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		t.Fatal(err)
 	}

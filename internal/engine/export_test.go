@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"path/filepath"
 	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
@@ -235,5 +236,5 @@ func (e *Engine) ChatQueued(key ChatKey) int {
 
 // DSHLogPath gives the path of the dsh session log of the ACP session in cwd.
 func DSHLogPath(home, cwd, session string) string {
-	return dshLogPath(home, cwd, session)
+	return filepath.Join(home, dshLogPath(cwd, session))
 }

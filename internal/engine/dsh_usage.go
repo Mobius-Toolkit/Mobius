@@ -39,7 +39,7 @@ func readDSHUsage(home, cwd, session string, counted int) (dshUsage, error) {
 		return usage, err
 	}
 	defer func() { _ = root.Close() }()
-	file, err := root.Open(filepath.Join("sessions", dshProjectKey(cwd), dshEncodeSegment(session), "session.v4.jsonl.zstd"))
+	file, err := root.Open(dshLogPath(cwd, session))
 	if err != nil {
 		return usage, err
 	}
@@ -119,9 +119,9 @@ func readDSHUsage(home, cwd, session string, counted int) (dshUsage, error) {
 	return usage, nil
 }
 
-// dshLogPath gives the path of the dsh session log of the ACP session in cwd.
-func dshLogPath(home, cwd, session string) string {
-	return filepath.Join(home, "sessions", dshProjectKey(cwd), dshEncodeSegment(session), "session.v4.jsonl.zstd")
+// dshLogPath gives the path of the dsh session log of the ACP session in cwd, relative to the dsh home.
+func dshLogPath(cwd, session string) string {
+	return filepath.Join("sessions", dshProjectKey(cwd), dshEncodeSegment(session), "session.v4.jsonl.zstd")
 }
 
 // dshHome gives the home of dsh: DSH_HOME when it is not empty, else ~/.dsh. It reads DSH_HOME as dsh reads it.
