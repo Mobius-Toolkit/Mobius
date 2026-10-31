@@ -1291,19 +1291,25 @@ func (e *Engine) rerunFailedJobsTool(ctx context.Context, c caller, repository g
 	var lines []string
 	var startedIDs []string
 	var startedNames []string
+	storeRerun := func(err error) error {
+		if len(startedIDs) == 0 {
+			return err
+		}
+		storeErr := e.queries.SetTaskRerunHead(ctx, store.SetTaskRerunHeadParams{
+			RerunHead: sql.NullString{String: head, Valid: true},
+			RerunRuns: sql.NullString{String: strings.Join(startedIDs, ","), Valid: true},
+			ID:        task.ID,
+		})
+		if err != nil {
+			return errors.Join(fmt.Errorf("%w (already started again: %s)", err, strings.Join(startedNames, ", ")), storeErr)
+		}
+		return storeErr
+	}
 	for _, run := range failed {
 		attempt := max(run.GetRunAttempt(), 1)
 		jobs, err := repository.RunAttemptJobs(ctx, run.GetID(), int64(attempt))
 		if err != nil && !refusedByGitHub(err) {
-			if len(startedIDs) > 0 {
-				_ = e.queries.SetTaskRerunHead(ctx, store.SetTaskRerunHeadParams{
-					RerunHead: sql.NullString{String: head, Valid: true},
-					RerunRuns: sql.NullString{String: strings.Join(startedIDs, ","), Valid: true},
-					ID:        task.ID,
-				})
-				return "", fmt.Errorf("%w (already started again: %s)", err, strings.Join(startedNames, ", "))
-			}
-			return "", err
+			return "", storeRerun(err)
 		}
 		var running []string
 		for _, job := range jobs {
@@ -1321,29 +1327,14 @@ func (e *Engine) rerunFailedJobsTool(ctx context.Context, c caller, repository g
 			lines = append(lines, fmt.Sprintf("%s (run %d, attempt %d): GitHub refused: %s", run.GetName(), run.GetID(), attempt, refused.Message))
 			continue
 		} else if err != nil {
-			if len(startedIDs) > 0 {
-				_ = e.queries.SetTaskRerunHead(ctx, store.SetTaskRerunHeadParams{
-					RerunHead: sql.NullString{String: head, Valid: true},
-					RerunRuns: sql.NullString{String: strings.Join(startedIDs, ","), Valid: true},
-					ID:        task.ID,
-				})
-				return "", fmt.Errorf("%w (already started again: %s)", err, strings.Join(startedNames, ", "))
-			}
-			return "", err
+			return "", storeRerun(err)
 		}
 		startedIDs = append(startedIDs, strconv.FormatInt(run.GetID(), 10))
 		startedNames = append(startedNames, run.GetName())
 		lines = append(lines, fmt.Sprintf("%s (run %d, attempt %d): started again", run.GetName(), run.GetID(), attempt))
 	}
-	if len(startedIDs) > 0 {
-		err := e.queries.SetTaskRerunHead(ctx, store.SetTaskRerunHeadParams{
-			RerunHead: sql.NullString{String: head, Valid: true},
-			RerunRuns: sql.NullString{String: strings.Join(startedIDs, ","), Valid: true},
-			ID:        task.ID,
-		})
-		if err != nil {
-			return "", err
-		}
+	if err := storeRerun(nil); err != nil {
+		return "", err
 	}
 	return strings.Join(lines, "\n"), nil
 }
