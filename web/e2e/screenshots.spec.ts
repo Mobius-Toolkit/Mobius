@@ -34,6 +34,7 @@ import { boardTasks, mergingTask, refusedTask, routeTasks, tasksRoute } from "./
 import {
   inboxRoute,
   coordinatorActionItem,
+  coordinatorFailedItem,
   coordinatorQuestion,
   leadActionItem,
   longTitle,
@@ -835,11 +836,14 @@ test("screenshots", async ({ page }) => {
   await page.unroute("**/api/chat?*");
   const stoppedRow = main.getByRole("listitem").filter({ hasText: "Add plan model" });
   const composer = main.locator("form");
+  // The next device opens the page again, and it must not find a draft of the last device.
   const clearComposer = async () => {
     const remove = composer.getByRole("button", { name: /^Remove / });
     while ((await remove.count()) > 0) {
       await remove.first().click();
     }
+    await main.getByLabel("Message to the Lead").fill("");
+    await expect.poll(() => page.evaluate(storedDrafts)).toBe(0);
   };
   await screenshot(page, "chat-stop-reason", "/workstreams/owner/shop/12", (device) => [
     ...chatReady(device),
@@ -875,8 +879,6 @@ test("screenshots", async ({ page }) => {
     },
     clearComposer,
   );
-  await main.getByLabel("Message to the Lead").fill("");
-  await expect.poll(() => page.evaluate(storedDrafts)).toBe(0);
   await screenshot(
     page,
     "chat-inbox-item",
@@ -990,6 +992,26 @@ test("screenshots", async ({ page }) => {
     () => trayToggle(page, 2, false),
     async () => {
       await expect(trayToggle(page, 2, false)).toBeVisible();
+      await showChatEnd(page);
+    },
+  );
+  await setTray(page, "expanded");
+  await page.unroute(inboxRoute);
+  await page.route(inboxRoute, (route) =>
+    route.fulfill({ json: { data: [coordinatorFailedItem] } }),
+  );
+  await screenshot(
+    page,
+    "chat-coordinator-failed",
+    "/chat",
+    () => [
+      trayToggle(page, 1, true),
+      main.getByRole("listitem").filter({ hasText: coordinatorFailedItem.title }),
+      main.getByRole("button", { name: "Send again" }),
+      main.getByRole("button", { name: "Dismiss" }),
+    ],
+    async () => {
+      await expect(trayToggle(page, 1, true)).toBeVisible();
       await showChatEnd(page);
     },
   );
@@ -1398,6 +1420,7 @@ test("screenshots", async ({ page }) => {
             id: 104,
             issue: 12,
             kind: "Lead failed",
+            title: `Lead of #12 Integrate loyalty plans did not get: "Start the work on the plan tiers."`,
             reason: "The Lead did not get your message",
             text: "Start the work on the plan tiers.",
           },
@@ -1411,6 +1434,9 @@ test("screenshots", async ({ page }) => {
     main.getByRole("tab", { name: "To do 7" }),
     main.getByText("Integrate loyalty plans", { exact: true }),
     main.getByText("Let customers change plans"),
+    main.getByText(
+      `Lead of #12 Integrate loyalty plans did not get: "Start the work on the plan tiers."`,
+    ),
     main.getByText("The Lead did not get your message"),
     main.getByText("MOBIUS_SMTP_HOST"),
     main.getByText("Run the plan import"),
@@ -2842,4 +2868,42 @@ test("screenshots", async ({ page }) => {
       await withCard.evaluate((el) => el.scrollIntoView({ block: "start" }));
     },
   );
+  const plantsFrame = (device: string, workstream: number) =>
+    device === "desktop"
+      ? [
+          release,
+          page.getByLabel("Work in another organization"),
+          page.locator(`nav a[href="/workstreams/plants/garden/${workstream}"]`),
+        ]
+      : [page.getByLabel("Upgrade available")];
+  // The chat tests of the later projects need the first unread message of these chats.
+  await page.route("/api/chat/seen", (route) => route.fulfill({ status: 204 }));
+  await screenshot(
+    page,
+    "chat-not-delivered",
+    "/workstreams/plants/garden/14",
+    (device) => [
+      ...plantsFrame(device, 14),
+      main.getByLabel("Not delivered, the agent failed, at 09:30"),
+    ],
+    async () => {
+      await expect(main.getByText("It shows this crossed O icon. Should be a tick.")).toBeVisible();
+      await showChatEnd(page);
+    },
+  );
+  await screenshot(
+    page,
+    "chat-cancelled",
+    "/workstreams/plants/garden/15",
+    (device) => [
+      ...plantsFrame(device, 15),
+      main.getByLabel("Cancelled, sent again below, at 09:30"),
+      main.getByText("Plan the tiers for the shop.").first(),
+    ],
+    async () => {
+      await expect(main.getByText("Plan the tiers for the shop.")).toHaveCount(2);
+      await showChatEnd(page);
+    },
+  );
+  await page.unroute("/api/chat/seen");
 });
