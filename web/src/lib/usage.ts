@@ -351,3 +351,7 @@ export function count(value: number | null) {
 export function compact(value: number) {
   return value.toLocaleString([], { notation: "compact" });
 }
+
+export function context(value: number | null, size: number | null) {
+  return value === null || size === null ? "—" : `${compact(value)} of ${compact(size)}`;
+}

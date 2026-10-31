@@ -953,6 +953,17 @@ func addTurnUsage(t *testing.T, server *testserver.Server) {
 	if err := rows.Close(); err != nil {
 		t.Fatal(err)
 	}
+	// Session 2 (antigravity) has no context, so the group shows a mean of the sessions with a value.
+	for index, context := range map[int]struct{ used, size int64 }{
+		0: {412000, 1000000},
+		1: {180000, 200000},
+		3: {95000, 200000},
+	} {
+		if _, err := server.DB.Exec("UPDATE sessions SET context_used = ?, context_size = ? WHERE id = ?",
+			context.used, context.size, sessions[index]); err != nil {
+			t.Fatal(err)
+		}
+	}
 	type turn struct {
 		harness, model, reported, effort, role, repository, startedAt string
 		input, output, cacheRead, cacheWrite                          int64

@@ -1701,6 +1701,21 @@ export interface UsageValues {
      */
   cacheWriteTokens: number | null;
   /**
+     * ContextMax is the largest context_used of the sessions of the rows, or null when no session has a value
+     * @nullable
+     */
+  contextMax: number | null;
+  /**
+     * ContextMaxSize is the context_size of the session that gave ContextMax
+     * @nullable
+     */
+  contextMaxSize: number | null;
+  /**
+     * ContextMean is the mean context_used of the sessions with a value, rounded to a whole token
+     * @nullable
+     */
+  contextMean: number | null;
+  /**
      * CostUSD is the sum of the cost in USD
      * @nullable
      */

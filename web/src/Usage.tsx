@@ -42,6 +42,7 @@ import { LoginContext } from "@/lib/login";
 import {
   chartRows,
   compact,
+  context,
   cost,
   costOf,
   count,
@@ -459,13 +460,31 @@ function UsageChart({
   );
 }
 
-function ValuesRow({ title, values }: { title: string; values: UsageValues }) {
+function ValuesRow({
+  title,
+  values,
+  context: showContext,
+}: {
+  title: string;
+  values: UsageValues;
+  context: boolean;
+}) {
   return (
     <tr className="border-b last:border-b-0">
       <th scope="row" className="py-2 pr-4 text-left font-normal whitespace-nowrap">
         {title}
       </th>
       <td className="py-2 pr-4 text-right tabular-nums">{values.sessions}</td>
+      {showContext && (
+        <>
+          <td className="py-2 pr-4 text-right tabular-nums">
+            {context(values.contextMax, values.contextMaxSize)}
+          </td>
+          <td className="py-2 pr-4 text-right tabular-nums">
+            {values.contextMean === null ? "—" : compact(values.contextMean)}
+          </td>
+        </>
+      )}
       <td className="py-2 pr-4 text-right tabular-nums">{count(values.inputTokens)}</td>
       <td className="py-2 pr-4 text-right tabular-nums">{count(values.outputTokens)}</td>
       <td className="py-2 pr-4 text-right tabular-nums">{count(values.cacheReadTokens)}</td>
@@ -475,8 +494,27 @@ function ValuesRow({ title, values }: { title: string; values: UsageValues }) {
   );
 }
 
-function GroupTable({ usage, group }: { usage: UsageView; group: Group[] }) {
-  const heads = ["Sessions", "Input", "Output", "Cache read", "Cache write", "Cost"];
+function GroupTable({
+  usage,
+  group,
+  context: showContext,
+}: {
+  usage: UsageView;
+  group: Group[];
+  context: boolean;
+}) {
+  const heads = showContext
+    ? [
+        "Sessions",
+        "Largest context",
+        "Mean context",
+        "Input",
+        "Output",
+        "Cache read",
+        "Cache write",
+        "Cost",
+      ]
+    : ["Sessions", "Input", "Output", "Cache read", "Cache write", "Cost"];
   return (
     <div className={cn(inset, "overflow-x-auto")}>
       <table className="w-full text-sm">
@@ -498,6 +536,7 @@ function GroupTable({ usage, group }: { usage: UsageView; group: Group[] }) {
               key={JSON.stringify(item.group)}
               title={groupTitle(item.group, group)}
               values={item.values}
+              context={showContext}
             />
           ))}
         </tbody>
@@ -537,7 +576,7 @@ function UsageTab({
         }
       />
       <UsageChart usage={usage} range={range} group={group} kind={kind} />
-      <GroupTable usage={usage} group={group} />
+      <GroupTable usage={usage} group={group} context={kind === "tokens"} />
     </div>
   );
 }

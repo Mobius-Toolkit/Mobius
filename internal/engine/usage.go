@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/runner"
@@ -23,13 +24,14 @@ type turnUsage struct {
 	costSeen bool
 }
 
-// readUsage adds a usage_update to the usage data of the turn that runs and to the cost total of the session.
-// The caller holds a.mu.
+// readUsage adds a usage_update to the usage data of the turn that runs, to the cost total of the session, and to
+// the largest context of the session. The caller holds a.mu.
 func (a *Agent) readUsage(notification map[string]any, kind string) {
 	if kind != "usage_update" {
 		return
 	}
 	update := notification["update"]
+	a.readContext(update)
 	if stringField(update, "cost", "currency") == "USD" {
 		if amount, ok := field(update, "cost", "amount").(json.Number); ok {
 			if total, err := amount.Float64(); err == nil {
@@ -49,6 +51,50 @@ func (a *Agent) readUsage(notification map[string]any, kind string) {
 	case config.Devin:
 		devinUpdate(&a.turnUsage, update)
 	}
+}
+
+// readContext keeps the largest used of a usage_update and its size. It counts an update also outside a turn.
+// The caller holds a.mu.
+func (a *Agent) readContext(update any) {
+	used, usedOK := field(update, "used").(json.Number)
+	size, sizeOK := field(update, "size").(json.Number)
+	if !usedOK || !sizeOK {
+		return
+	}
+	usedTokens, err := used.Int64()
+	if err != nil {
+		return
+	}
+	sizeTokens, err := size.Int64()
+	if err != nil {
+		return
+	}
+	if a.contextUsed.Valid && usedTokens <= a.contextUsed.Int64 {
+		return
+	}
+	a.contextUsed = sql.NullInt64{Int64: usedTokens, Valid: true}
+	a.contextSize = sql.NullInt64{Int64: sizeTokens, Valid: true}
+}
+
+// writeContext writes the largest context of the session to its row. The caller holds a.mu.
+func (a *Agent) writeContext(ctx context.Context) error {
+	if !a.contextUsed.Valid {
+		return nil
+	}
+	if a.savedContext && a.savedContextUsed == a.contextUsed.Int64 && a.savedContextSize == a.contextSize.Int64 {
+		return nil
+	}
+	if err := a.engine.queries.SetSessionContext(ctx, store.SetSessionContextParams{
+		ContextUsed: a.contextUsed,
+		ContextSize: a.contextSize,
+		ID:          a.id,
+	}); err != nil {
+		return err
+	}
+	a.savedContext = true
+	a.savedContextUsed = a.contextUsed.Int64
+	a.savedContextSize = a.contextSize.Int64
+	return nil
 }
 
 // readResult adds the result of session/prompt to the usage data of the turn.
@@ -147,14 +193,15 @@ func (a *Agent) addUsage(ctx context.Context, result runner.PromptResult, prompt
 	if usage.costSeen {
 		cost = a.takeCost()
 	}
+	contextErr := a.writeContext(ctx)
 	hasData := usage.input.Valid || usage.output.Valid || usage.cacheRead.Valid || usage.cacheWrite.Valid || cost.Valid
 	ended := promptErr == nil && result.StopReason != acp.StopReasonCancelled
 	if !hasData && !ended {
-		return nil
+		return contextErr
 	}
 	endedAt := now()
 	a.turnUsage = turnUsage{started: endedAt, model: usage.model}
-	return a.insertUsage(ctx, usage, cost, endedAt)
+	return errors.Join(contextErr, a.insertUsage(ctx, usage, cost, endedAt))
 }
 
 // addAutonomousUsage adds a usage row with the cost that autonomous turns added after the last row. The caller

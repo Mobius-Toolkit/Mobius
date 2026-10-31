@@ -9525,6 +9525,27 @@
             ],
             "description": "CacheWriteTokens is the sum of the cache write tokens"
           },
+          "contextMax": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "ContextMax is the largest context_used of the sessions of the rows, or null when no session has a value"
+          },
+          "contextMaxSize": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "ContextMaxSize is the context_size of the session that gave ContextMax"
+          },
+          "contextMean": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "ContextMean is the mean context_used of the sessions with a value, rounded to a whole token"
+          },
           "costUsd": {
             "type": [
               "number",
@@ -9553,6 +9574,9 @@
         },
         "required": [
           "sessions",
+          "contextMax",
+          "contextMaxSize",
+          "contextMean",
           "inputTokens",
           "outputTokens",
           "cacheReadTokens",
