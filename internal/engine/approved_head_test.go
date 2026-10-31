@@ -134,6 +134,9 @@ func checkApprovalAgain(t *testing.T, fake *testkit.FakeGitHub, server *testserv
 	}) {
 		t.Errorf("no Mobius check run of the approval again with success on %s: %+v", head, fake.CheckRuns(shop))
 	}
+	testkit.WaitFor(t, func() bool {
+		return slices.ContainsFunc(leadEvents(t, server), func(event leadEvent) bool { return event.Kind == "approved_again" })
+	})
 	events := leadEvents(t, server)
 	var again []leadEvent
 	ready := 0
