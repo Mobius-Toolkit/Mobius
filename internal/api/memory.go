@@ -16,6 +16,29 @@ import (
 
 const memoryPageSize = 20
 
+// MemoryFile is a memory file of a repository with the number of its lines.
+type MemoryFile struct {
+	// File is the name of the memory file: shared, or the name of a role
+	File string `gork:"file" validate:"oneof=shared lead implementer reviewer judge researcher diagnoser curator"`
+	// Lines is the number of lines of the file, and 0 when the file is empty or missing
+	Lines int `gork:"lines"`
+}
+
+// ListMemoryFilesRequest is the request of ListMemoryFiles.
+type ListMemoryFilesRequest struct {
+	Path struct {
+		// Owner is the owner of the repository
+		Owner string `gork:"owner"`
+		// Name is the name of the repository
+		Name string `gork:"name"`
+	}
+}
+
+// ListMemoryFilesResponse is the response of ListMemoryFiles.
+type ListMemoryFilesResponse struct {
+	Body Envelope[[]MemoryFile]
+}
+
 // MemoryVersion is a version of the memory file of a repository.
 type MemoryVersion struct {
 	// ID is the id of the version
@@ -43,6 +66,8 @@ type ListMemoryVersionsRequest struct {
 		Owner string `gork:"owner"`
 		// Name is the name of the repository
 		Name string `gork:"name"`
+		// File is the name of the memory file: shared, or the name of a role
+		File string `gork:"file"`
 	}
 	Query struct {
 		// Before is the id of a version. The page has at most 20 versions with an id below Before. With no Before,
@@ -64,12 +89,34 @@ type ListMemoryVersionsResponse struct {
 	Body Envelope[MemoryVersionsPage]
 }
 
+// ListMemoryFiles returns each memory file of the repository in the order of the engine list, with the number of its
+// lines. It returns 404 when the repository is not a repository of Mobius.
+func (h *handlers) ListMemoryFiles(_ context.Context, req ListMemoryFilesRequest) (*ListMemoryFilesResponse, error) {
+	repository := req.Path.Owner + "/" + req.Path.Name
+	if err := h.knownRepository(repository); err != nil {
+		return nil, err
+	}
+	infos, err := h.engine.MemoryFiles(repository)
+	if err != nil {
+		return nil, err
+	}
+	files := make([]MemoryFile, 0, len(infos))
+	for _, info := range infos {
+		files = append(files, MemoryFile{File: info.File, Lines: info.Lines})
+	}
+	return &ListMemoryFilesResponse{Body: Envelope[[]MemoryFile]{Data: files}}, nil
+}
+
 // ListMemoryVersions returns a page of the versions of the memory file of the repository, the newest first, each with the
 // result of the check of its revert. The first version of the first page is the current text of the file. It returns 404
-// when the repository is not a repository of Mobius.
+// when the repository is not a repository of Mobius, or when it has no file with that name.
 func (h *handlers) ListMemoryVersions(ctx context.Context, req ListMemoryVersionsRequest) (*ListMemoryVersionsResponse, error) {
 	repository := req.Path.Owner + "/" + req.Path.Name
 	if err := h.knownRepository(repository); err != nil {
+		return nil, err
+	}
+	file := req.Path.File
+	if err := knownMemoryFile(file); err != nil {
 		return nil, err
 	}
 	before := req.Query.Before
@@ -77,13 +124,13 @@ func (h *handlers) ListMemoryVersions(ctx context.Context, req ListMemoryVersion
 		before = math.MaxInt64
 	}
 	// One more row than the page tells if older versions exist, and gives the text before the last version.
-	rows, err := h.queries.ListMemoryVersionsPage(ctx, store.ListMemoryVersionsPageParams{Repository: repository, ID: before, Limit: memoryPageSize + 1})
+	rows, err := h.queries.ListMemoryVersionsPage(ctx, store.ListMemoryVersionsPageParams{Repository: repository, File: file, ID: before, Limit: memoryPageSize + 1})
 	if err != nil {
 		return nil, err
 	}
 	page := MemoryVersionsPage{Older: len(rows) > memoryPageSize, Versions: []MemoryVersion{}}
 	for i, row := range rows[:min(len(rows), memoryPageSize)] {
-		problem, err := h.engine.MemoryRevertProblem(ctx, repository, row.ID)
+		problem, err := h.engine.MemoryRevertProblem(ctx, repository, file, row.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -103,6 +150,8 @@ type SaveMemoryRequest struct {
 		Owner string `gork:"owner"`
 		// Name is the name of the repository
 		Name string `gork:"name"`
+		// File is the name of the memory file: shared, or the name of a role
+		File string `gork:"file"`
 	}
 	Body struct {
 		// Text is the new text of the memory file
@@ -113,14 +162,19 @@ type SaveMemoryRequest struct {
 }
 
 // SaveMemory saves the text as the memory file of the repository and adds a version with the author owner. It does
-// nothing when the text does not change. It returns 404 when the repository is not a repository of Mobius, 409 when a
-// newer version exists than the base version, and 422 when the text has more than 200 lines.
+// nothing when the text does not change. It returns 404 when the repository is not a repository of Mobius, or when it
+// has no file with that name, 409 when a newer version exists than the base version, and 422 when the text has more than
+// 200 lines.
 func (h *handlers) SaveMemory(ctx context.Context, req SaveMemoryRequest) error {
 	repository := req.Path.Owner + "/" + req.Path.Name
 	if err := h.knownRepository(repository); err != nil {
 		return err
 	}
-	err := h.engine.EditMemory(ctx, repository, req.Body.BaseVersion, req.Body.Text)
+	file := req.Path.File
+	if err := knownMemoryFile(file); err != nil {
+		return err
+	}
+	err := h.engine.EditMemory(ctx, repository, file, req.Body.BaseVersion, req.Body.Text)
 	if errors.Is(err, engine.ErrMemoryTooLong) {
 		return api.NewHTTPError(http.StatusUnprocessableEntity, err.Error())
 	}
@@ -137,21 +191,27 @@ type RevertMemoryRequest struct {
 		Owner string `gork:"owner"`
 		// Name is the name of the repository
 		Name string `gork:"name"`
+		// File is the name of the memory file: shared, or the name of a role
+		File string `gork:"file"`
 		// ID is the id of the version to revert
 		ID int64 `gork:"id"`
 	}
 }
 
 // RevertMemory undoes the change of the version in the current text of the memory file and saves the result as a new
-// version with the author owner. It returns 404 when the repository is not a repository of Mobius, or when the version
-// does not exist or belongs to another repository. It returns 409 when a later version changed the part, when the
-// revert changes nothing, or when the result has more than 200 lines.
+// version with the author owner. It returns 404 when the repository is not a repository of Mobius, when it has no file
+// with that name, or when the version does not exist or belongs to another repository or file. It returns 409 when a
+// later version changed the part, when the revert changes nothing, or when the result has more than 200 lines.
 func (h *handlers) RevertMemory(ctx context.Context, req RevertMemoryRequest) error {
 	repository := req.Path.Owner + "/" + req.Path.Name
 	if err := h.knownRepository(repository); err != nil {
 		return err
 	}
-	err := h.engine.RevertMemory(ctx, repository, req.Path.ID)
+	file := req.Path.File
+	if err := knownMemoryFile(file); err != nil {
+		return err
+	}
+	err := h.engine.RevertMemory(ctx, repository, file, req.Path.ID)
 	if errors.Is(err, engine.ErrNoMemoryVersion) {
 		return api.NewHTTPError(http.StatusNotFound, "The memory file has no such version.")
 	}
@@ -165,6 +225,14 @@ func (h *handlers) RevertMemory(ctx context.Context, req RevertMemoryRequest) er
 func (h *handlers) knownRepository(fullName string) error {
 	if !slices.ContainsFunc(h.github.Repositories(), func(r github.Repository) bool { return r.FullName == fullName }) {
 		return api.NewHTTPError(http.StatusNotFound, "Mobius has no repository "+fullName+".")
+	}
+	return nil
+}
+
+// knownMemoryFile gives a 404 error when the repository has no memory file with the name.
+func knownMemoryFile(file string) error {
+	if !engine.ValidMemoryFile(file) {
+		return api.NewHTTPError(http.StatusNotFound, "The memory has no file "+file+".")
 	}
 	return nil
 }

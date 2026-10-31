@@ -36,11 +36,11 @@ test("the Owner edits the memory file in a dialog, sees the 200-line error, and 
 }) => {
   const main = page.locator("main");
   const dialog = page.getByRole("dialog", {
-    name: "Edit the memory of plants/garden",
+    name: "Edit Shared · plants/garden",
     includeHidden: true,
   });
   const field = dialog.getByLabel("Memory text");
-  await page.goto("/settings/memory/plants/garden");
+  await page.goto("/settings/memory/plants/garden/shared");
   await expect(main.getByText("The memory file is empty.")).toBeVisible();
   await expect(main.getByText("The memory file has no version.")).toBeVisible();
 
@@ -92,7 +92,7 @@ test("the Owner edits the memory file in a dialog, sees the 200-line error, and 
   await expect(field).toBeEditable();
   await field.fill("My text.\n");
   await page.evaluate(`(async () => {
-    const url = "/api/repositories/plants/garden/memory";
+    const url = "/api/repositories/plants/garden/memory/shared";
     const listed = await fetch(url).then((response) => response.json());
     await fetch(url, {
       method: "PUT",
@@ -116,9 +116,13 @@ test("the Owner edits the memory file in a dialog, sees the 200-line error, and 
   await expect(dialog).toBeHidden();
 });
 
-// Radix listens for a click outside only after the dialog mounts, so wait for the open animation first.
-const clickOutside = async (page: Page, dialog: Locator) => {
+// Radix adds the listeners of a dialog in an effect after the render that makes it the top layer, so wait for the open animation first.
+const waitForOpen = async (dialog: Locator) => {
   await dialog.evaluate((element) => Promise.all(element.getAnimations().map((a) => a.finished)));
+};
+
+const clickOutside = async (page: Page, dialog: Locator) => {
+  await waitForOpen(dialog);
   await page.mouse.click(2, 2);
 };
 
@@ -131,6 +135,7 @@ const closeDialogOf = async (close: string, page: Page, discard: Locator) => {
   if (close === "Cancel") {
     await keep.click();
   } else if (close === "Escape") {
+    await waitForOpen(discard);
     await page.keyboard.press("Escape");
   } else {
     await clickOutside(page, discard);
@@ -143,7 +148,7 @@ for (const close of ["Cancel", "Escape", "Outside"]) {
   }) => {
     const main = page.locator("main");
     const dialog = page.getByRole("dialog", {
-      name: "Edit the memory of owner/shop",
+      name: "Edit Shared · owner/shop",
       includeHidden: true,
     });
     const field = dialog.getByLabel("Memory text");
@@ -159,7 +164,7 @@ for (const close of ["Cancel", "Escape", "Outside"]) {
     };
     let saves = 0;
     await page.route(
-      (url) => url.pathname === "/api/repositories/owner/shop/memory",
+      (url) => url.pathname === "/api/repositories/owner/shop/memory/shared",
       (route) => {
         if (route.request().method() === "PUT") {
           saves++;
@@ -167,7 +172,7 @@ for (const close of ["Cancel", "Escape", "Outside"]) {
         return route.fallback();
       },
     );
-    await page.goto("/settings/memory/owner/shop");
+    await page.goto("/settings/memory/owner/shop/shared");
     const current = main.locator("section").first().locator("div.rounded-lg");
     await expect(current).toContainText("Run make fmt before each commit and each push.");
 
@@ -189,7 +194,7 @@ for (const close of ["Cancel", "Escape", "Outside"]) {
     await expect(discard).toBeHidden();
     await expect(dialog).toBeVisible();
     await expect(field).toHaveValue(`${text}Another line.\n`);
-    await expect(page.getByRole("dialog", { name: "Edit the memory of owner/shop" })).toBeVisible();
+    await expect(page.getByRole("dialog", { name: "Edit Shared · owner/shop" })).toBeVisible();
 
     await closeDialog();
     await discard.getByRole("button", { name: "Discard" }).click();
@@ -203,7 +208,7 @@ for (const close of ["Cancel", "Escape", "Outside"]) {
 test("the edit dialog cannot close while a save runs", async ({ page }) => {
   const main = page.locator("main");
   const dialog = page.getByRole("dialog", {
-    name: "Edit the memory of owner/shop",
+    name: "Edit Shared · owner/shop",
     includeHidden: true,
   });
   const field = dialog.getByLabel("Memory text");
@@ -213,7 +218,7 @@ test("the edit dialog cannot close while a save runs", async ({ page }) => {
   let saving!: () => void;
   const started = new Promise<void>((resolve) => (saving = resolve));
   await page.route(
-    (url) => url.pathname === "/api/repositories/owner/shop/memory",
+    (url) => url.pathname === "/api/repositories/owner/shop/memory/shared",
     async (route) => {
       if (route.request().method() !== "PUT") {
         return route.fallback();
@@ -223,7 +228,7 @@ test("the edit dialog cannot close while a save runs", async ({ page }) => {
       return route.fallback();
     },
   );
-  await page.goto("/settings/memory/owner/shop");
+  await page.goto("/settings/memory/owner/shop/shared");
   await main.getByRole("button", { name: "Edit" }).click();
   await expect(field).toBeEditable();
   await field.fill("Water the roses.\n".repeat(201));
@@ -250,11 +255,11 @@ test("the edit dialog has the full width and sits at the bottom of a phone viewp
 }) => {
   const main = page.locator("main");
   const dialog = page.getByRole("dialog", {
-    name: "Edit the memory of owner/shop",
+    name: "Edit Shared · owner/shop",
     includeHidden: true,
   });
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/settings/memory/owner/shop");
+  await page.goto("/settings/memory/owner/shop/shared");
   await main.getByRole("button", { name: "Edit" }).click();
   await expect(dialog.getByLabel("Memory text")).toBeEditable();
 
@@ -277,7 +282,7 @@ test("a changed line shows its removed words and its added words, and the unchan
   page,
 }) => {
   const main = page.getByRole("main");
-  await page.goto("/settings/memory/owner/shop");
+  await page.goto("/settings/memory/owner/shop/shared");
 
   const commit = main
     .getByRole("heading", { name: "History" })
@@ -299,7 +304,7 @@ test("a hunk has one unchanged line above and below the change, and a separator 
 }) => {
   const main = page.getByRole("main");
   await page.route(
-    (url) => url.pathname === "/api/repositories/owner/shop/memory",
+    (url) => url.pathname === "/api/repositories/owner/shop/memory/shared",
     (route) =>
       route.fulfill({
         json: {
@@ -331,7 +336,7 @@ test("a hunk has one unchanged line above and below the change, and a separator 
         },
       }),
   );
-  await page.goto("/settings/memory/owner/shop");
+  await page.goto("/settings/memory/owner/shop/shared");
 
   const newest = versionsOf(main).first();
   const hunks = newest.locator("p");
@@ -346,7 +351,7 @@ test("a memory text with a heading and a list shows as Markdown, and a hunk of a
 }) => {
   const main = page.getByRole("main");
   await page.route(
-    (url) => url.pathname === "/api/repositories/owner/shop/memory",
+    (url) => url.pathname === "/api/repositories/owner/shop/memory/shared",
     (route) =>
       route.fulfill({
         json: {
@@ -368,7 +373,7 @@ test("a memory text with a heading and a list shows as Markdown, and a hunk of a
         },
       }),
   );
-  await page.goto("/settings/memory/owner/shop");
+  await page.goto("/settings/memory/owner/shop/shared");
 
   const current = main.locator("section").first().locator("div.rounded-lg");
   await expect(current.getByRole("heading", { level: 2, name: "Rules" })).toBeVisible();
@@ -422,7 +427,7 @@ for (const viewport of [
     const main = page.getByRole("main");
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
     await page.route(
-      (url) => url.pathname === "/api/repositories/plants/garden/memory",
+      (url) => url.pathname === "/api/repositories/plants/garden/memory/shared",
       (route) =>
         route.fulfill({
           json: {
@@ -447,7 +452,7 @@ for (const viewport of [
           },
         }),
     );
-    await page.goto("/settings/memory/plants/garden");
+    await page.goto("/settings/memory/plants/garden/shared");
     await expect(main.getByText("The last line changed.").first()).toBeVisible();
 
     const root = await page
@@ -480,7 +485,7 @@ for (const viewport of [
 
 test("the Owner loads the older versions of the memory file in pages", async ({ page }) => {
   const main = page.getByRole("main");
-  const url = "/api/repositories/plants/garden/memory";
+  const url = "/api/repositories/plants/garden/memory/shared";
   const saved: number = await page.evaluate(`(async () => {
     const count = (await fetch("${url}").then((response) => response.json())).data.versions.length;
     for (let i = 1; i <= 22; i++) {
@@ -494,7 +499,7 @@ test("the Owner loads the older versions of the memory file in pages", async ({ 
     return count;
   })()`);
 
-  await page.goto("/settings/memory/plants/garden");
+  await page.goto("/settings/memory/plants/garden/shared");
   const items = versionsOf(main);
   const older = main.getByRole("button", { name: "Show older versions" });
   await expect(items).toHaveCount(20);
@@ -507,4 +512,110 @@ test("the Owner loads the older versions of the memory file in pages", async ({ 
   await expect(older).toBeHidden();
   await expect(items.nth(20).locator("del")).toHaveText("1");
   await expect(items.nth(20).locator("ins")).toHaveText("2");
+});
+
+const memoryOf = async (page: Page, repository: string, file: string) =>
+  page.evaluate(
+    async ({ repository: repo, file: name }) => {
+      const listed = await fetch(`/api/repositories/${repo}/memory/${name}`).then((response) =>
+        response.json(),
+      );
+      return listed.data.versions[0]?.text ?? "";
+    },
+    { repository, file },
+  );
+
+const saveMemoryOf = async (page: Page, repository: string, file: string, value: string) => {
+  await page.evaluate(
+    async ({ repository: repo, file: name, text: content }) => {
+      const url = `/api/repositories/${repo}/memory/${name}`;
+      const listed = await fetch(url).then((response) => response.json());
+      await fetch(url, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: content, base_version: listed.data.versions[0]?.id ?? 0 }),
+      });
+    },
+    { repository, file, text: value },
+  );
+};
+
+test("the file list shows each memory file with its line text", async ({ page }) => {
+  const main = page.getByRole("main");
+  await page.goto("/settings/memory/owner/shop");
+
+  const row = (title: string) => main.getByRole("link").filter({ hasText: title });
+  await expect(row("Shared")).toContainText("5 lines");
+  await expect(row("Implementer")).toContainText("2 lines");
+  await expect(row("Lead")).toContainText("Empty");
+  await expect(main.getByRole("link")).toHaveCount(8);
+});
+
+test("a tap on a role file opens its page", async ({ page }) => {
+  const main = page.getByRole("main");
+  await page.goto("/settings/memory/owner/shop");
+  await main.getByRole("link", { name: /Implementer/ }).click();
+
+  await expect(page).toHaveURL("/settings/memory/owner/shop/implementer");
+  await expect(page.getByText("Implementer · owner/shop").filter({ visible: true })).toBeVisible();
+  await expect(main.getByText("Use pnpm for the frontend.").first()).toBeVisible();
+  await expect(main.getByRole("heading", { name: "History" })).toBeVisible();
+});
+
+test("Back on the file page and then on the file list returns to the repository list", async ({
+  page,
+}) => {
+  const back = page.getByRole("button", { name: "Back" }).filter({ visible: true });
+  await page.goto("/settings/memory");
+  await page.getByRole("link", { name: "owner/shop" }).click();
+  await expect(page).toHaveURL("/settings/memory/owner/shop");
+  await page.getByRole("link", { name: /Shared/ }).click();
+  await expect(page).toHaveURL("/settings/memory/owner/shop/shared");
+
+  await back.click();
+  await expect(page).toHaveURL("/settings/memory/owner/shop");
+  await back.click();
+  await expect(page).toHaveURL("/settings/memory");
+});
+
+test("an edit of a role file saves and the shared file does not change", async ({ page }) => {
+  const main = page.getByRole("main");
+  const dialog = page.getByRole("dialog", {
+    name: "Edit Implementer · owner/shop",
+    includeHidden: true,
+  });
+  const original = await memoryOf(page, "owner/shop", "implementer");
+  const shared = await memoryOf(page, "owner/shop", "shared");
+  await page.goto("/settings/memory/owner/shop/implementer");
+
+  await main.getByRole("button", { name: "Edit" }).click();
+  const field = dialog.getByLabel("Memory text");
+  await expect(field).toBeEditable();
+  await field.fill("Water the roses in the morning.\n");
+  await dialog.getByRole("button", { name: "Save" }).click();
+  await expect(dialog).toBeHidden();
+  await expect(main.getByText("Water the roses in the morning.").first()).toBeVisible();
+  expect(await memoryOf(page, "owner/shop", "shared")).toBe(shared);
+
+  await saveMemoryOf(page, "owner/shop", "implementer", original);
+});
+
+test("a revert on a role file page changes only that file", async ({ page }) => {
+  const main = page.getByRole("main");
+  const original = await memoryOf(page, "owner/shop", "implementer");
+  await saveMemoryOf(page, "owner/shop", "implementer", "First line.\n");
+  await saveMemoryOf(page, "owner/shop", "implementer", "First line.\nSecond line.\n");
+  const shared = await memoryOf(page, "owner/shop", "shared");
+  await page.goto("/settings/memory/owner/shop/implementer");
+
+  const current = main.locator("section").first().locator("div.rounded-lg");
+  await expect(current).toContainText("Second line.");
+  const reverts = main.getByRole("button", { name: "Revert" });
+  await expect(reverts.first()).toBeEnabled();
+  await reverts.first().click();
+  await expect(current).toContainText("First line.");
+  await expect(current).not.toContainText("Second line.");
+  expect(await memoryOf(page, "owner/shop", "shared")).toBe(shared);
+
+  await saveMemoryOf(page, "owner/shop", "implementer", original);
 });

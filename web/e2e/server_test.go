@@ -816,7 +816,15 @@ func TestServer(t *testing.T) {
 		{"curator", "Add: fix rounds searched the same log files again", "Run make fmt before each commit and each push.\nUse pnpm for the frontend.\nWait for a condition with testkit.WaitFor.\nWrite each message in Simplified Technical English.\nCheck the logs of each failed job before you change a test, and name the test that failed, the line of the log that shows the failure, the cause that you found, and the change that fixes the cause, so the next fix round does not repeat the same search of the log files in the same pull request.\n"},
 		{"curator", "Change: the long line names the edit of a test", "Run make fmt before each commit and each push.\nUse pnpm for the frontend.\nWait for a condition with testkit.WaitFor.\nWrite each message in Simplified Technical English.\nCheck the logs of each failed job before you edit a test, and name the test that failed, the line of the log that shows the failure, the cause that you found, and the change that fixes the cause, so the next Implementer does not repeat the same search of the log files in the same pull request.\n"},
 	} {
-		if err := server.Engine.SaveMemory(ctx, "owner/shop", version.author, version.reason, version.text); err != nil {
+		if err := server.Engine.SaveMemory(ctx, "owner/shop", "shared", version.author, version.reason, version.text); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, text := range []string{
+		"Use pnpm for the frontend.\n",
+		"Use pnpm for the frontend.\nRun the tests of a changed package.\n",
+	} {
+		if err := server.Engine.SaveMemory(ctx, "owner/shop", engine.ImplementerRole, "owner", "", text); err != nil {
 			t.Fatal(err)
 		}
 	}

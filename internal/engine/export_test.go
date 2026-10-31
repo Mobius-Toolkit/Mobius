@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"path/filepath"
 	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
@@ -30,6 +31,9 @@ var (
 
 // ClosedIssueReply is the reply of the engine to a comment on a closed issue, for the tests.
 var ClosedIssueReply = closedIssueReply
+
+// MemoryRoleFiles are the names of the role memory files.
+var MemoryRoleFiles = memoryRoleFiles
 
 // SetClock makes the long waits read the time from clock.
 func (e *Engine) SetClock(clock func() time.Time) {
@@ -228,4 +232,9 @@ func (e *Engine) ChatQueued(key ChatKey) int {
 		return len(c.queue)
 	}
 	return 0
+}
+
+// DSHLogPath gives the path of the dsh session log of the ACP session in cwd.
+func DSHLogPath(home, cwd, session string) string {
+	return filepath.Join(home, dshLogPath(cwd, session))
 }

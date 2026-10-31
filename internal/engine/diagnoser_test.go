@@ -139,7 +139,7 @@ func TestADiagnoserGetsTheFactsAndTheMemoryAndOneServerSection(t *testing.T) {
 	server := connectDiagnoser(t, fake, leadStarts, reportsPlan)
 	sha := approvalHead(t, server, fake)
 	fake.CommitFile(shop, "AGENTS.md", fact, "Add the facts")
-	if err := server.Engine.SaveMemory(t.Context(), shop, "owner", "", lesson+"\n"); err != nil {
+	if err := server.Engine.SaveMemory(t.Context(), shop, "shared", "owner", "", lesson+"\n"); err != nil {
 		t.Fatal(err)
 	}
 

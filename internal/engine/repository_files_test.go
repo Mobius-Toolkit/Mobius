@@ -11,6 +11,7 @@ import (
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
+	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
 
 const fact = "Screenshots come from a CI job."
@@ -87,11 +88,20 @@ func TestTheImplementerAndTheResearcherGetTheFactsAndOnlyTheirOwnInstructions(t 
 // Role.
 func workerPrompts(t *testing.T, fake *testkit.FakeGitHub, implementer string, files ...[2]string) map[string]string {
 	t.Helper()
+	return workerPromptsAfter(t, fake, nil, implementer, files...)
+}
+
+// workerPromptsAfter is workerPrompts with before, which runs after the server starts and before a session starts.
+func workerPromptsAfter(t *testing.T, fake *testkit.FakeGitHub, before func(*testserver.Server), implementer string, files ...[2]string) map[string]string {
+	t.Helper()
 	lead := "[[prompts]]\nwhen = \"" + question + "\"\ncall = { tool = \"start_researcher\", arguments = { repository = \"owner/shop\", question = \"" + question + "\" } }\n\n" + leadStarts
 	server, dataDir := connectTask(t, fake, lead, "[[prompts]]\nshell = \""+implementer+"\"\n", func(cfg *config.Config) { cfg.ReviewQuietPeriod = 200 * time.Millisecond })
 	testkit.InstallFakeHarness(t, dataDir, "agy_acp_server", options+"[[prompts]]\nreply = [\"Plans store the price in cents.\"]\n")
 	for _, file := range files {
 		fake.CommitFile(shop, file[0], file[1], "Add "+file[0])
+	}
+	if before != nil {
+		before(server)
 	}
 	waitForApproval(t, server, fake)
 	fake.AddReviewComment(shop, 42, 0, "owner", "Rename plan to tier.")
@@ -289,5 +299,123 @@ func TestTheLeadNamesOnlyTheTasksThatEndedAfterItsPreviousReport(t *testing.T) {
 	}
 	if strings.Contains(prompt, "The message lists the merged tasks with their pull requests.") {
 		t.Errorf("prompt lists each merged task: %s", prompt)
+	}
+}
+
+const sharedMemoryLesson = "Run make fmt before each commit."
+
+// roleMemoryLesson gives a lesson that only the memory file of role has.
+func roleMemoryLesson(role string) string {
+	return "The " + role + " role lesson."
+}
+
+// saveAllMemoryFiles saves a text in the shared memory file and in each role memory file.
+func saveAllMemoryFiles(t *testing.T, server *testserver.Server) {
+	t.Helper()
+	if err := server.Engine.SaveMemory(t.Context(), shop, engine.MemoryFileShared, "owner", "", sharedMemoryLesson+"\n"); err != nil {
+		t.Fatal(err)
+	}
+	for _, role := range engine.MemoryRoleFiles {
+		if err := server.Engine.SaveMemory(t.Context(), shop, role, "owner", "", roleMemoryLesson(role)+"\n"); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// assertRoleMemory fails when prompt has no shared memory section, no memory section of role, or a memory section of
+// another role.
+func assertRoleMemory(t *testing.T, role, prompt string) {
+	t.Helper()
+	if !strings.Contains(prompt, "# Memory\n\n"+sharedMemoryLesson+"\n\n") {
+		t.Errorf("%s: no shared memory section: %s", role, prompt)
+	}
+	if !strings.Contains(prompt, "# Memory of the role\n\n"+roleMemoryLesson(role)+"\n\n") {
+		t.Errorf("%s: no memory section of its role: %s", role, prompt)
+	}
+	if strings.Contains(prompt, "# Memory of the roles") {
+		t.Errorf("%s: a roles section: %s", role, prompt)
+	}
+	for _, other := range engine.MemoryRoleFiles {
+		if other != role && strings.Contains(prompt, roleMemoryLesson(other)) {
+			t.Errorf("%s: the memory of %s: %s", role, other, prompt)
+		}
+	}
+}
+
+// assertCuratorMemory fails when prompt has no shared memory section, no roles section, or a role file that is not one
+// time in the roles section.
+func assertCuratorMemory(t *testing.T, prompt string) {
+	t.Helper()
+	if !strings.Contains(prompt, "# Memory\n\n"+sharedMemoryLesson+"\n\n") {
+		t.Errorf("no shared memory section: %s", prompt)
+	}
+	if !strings.Contains(prompt, "# Memory of the roles\n\n") {
+		t.Errorf("no roles section: %s", prompt)
+	}
+	if strings.Contains(prompt, "# Memory of the role\n\n") {
+		t.Errorf("a section of one role: %s", prompt)
+	}
+	for _, role := range engine.MemoryRoleFiles {
+		if got := strings.Count(prompt, "## "+role+"\n\n"+roleMemoryLesson(role)+"\n\n"); got != 1 {
+			t.Errorf("the memory of %s is %d times in %s", role, got, prompt)
+		}
+	}
+}
+
+func TestEachRoleGetsTheSharedMemoryAndOnlyItsOwnRoleMemory(t *testing.T) {
+	t.Parallel()
+
+	leadFake := testkit.NewFakeGitHub(t)
+	leadServer, _ := connect(t, leadFake, "[[prompts]]\nreply = [\"Hello\"]\n")
+	saveAllMemoryFiles(t, leadServer)
+	sendChat(t, leadServer, leadChat, "Plan the loyalty API")
+	assertRoleMemory(t, "lead", promptTexts(t, leadServer, endedChatSession(t, leadServer, 0).ID)[0])
+
+	workerFake := testkit.NewFakeGitHub(t)
+	for role, prompt := range workerPromptsAfter(t, workerFake, func(server *testserver.Server) { saveAllMemoryFiles(t, server) }, commitShell) {
+		assertRoleMemory(t, role, prompt)
+	}
+
+	diagnoserFake := testkit.NewFakeGitHub(t)
+	diagnoserServer := connectDiagnoser(t, diagnoserFake, leadStarts, findsNothing)
+	sha := approvalHead(t, diagnoserServer, diagnoserFake)
+	saveAllMemoryFiles(t, diagnoserServer)
+	failActions(diagnoserFake, sha)
+	diagnoserPrompt := testkit.WaitForValue(t, func() (string, bool) {
+		sessions := diagnoserSessions(t, diagnoserServer)
+		if len(sessions) == 0 {
+			return "", false
+		}
+		prompts := promptTexts(t, diagnoserServer, sessions[0].ID)
+		return strings.Join(prompts, ""), len(prompts) > 0
+	})
+	assertRoleMemory(t, engine.DiagnoserRole, diagnoserPrompt)
+
+	curatorFake := testkit.NewFakeGitHub(t)
+	curatorServer, _ := connect(t, curatorFake, curatorScript)
+	saveAllMemoryFiles(t, curatorServer)
+	endLeads(t, curatorServer, 10)
+	curatorSession := testkit.WaitForValue(t, func() (store.Session, bool) {
+		sessions := curatorSessions(t, curatorServer)
+		return sessions[0], len(sessions) == 1 && sessions[0].EndedAt.Valid
+	})
+	assertCuratorMemory(t, promptTexts(t, curatorServer, curatorSession.ID)[0])
+}
+
+func TestAnEmptySharedAndRoleMemoryFileGivesNoMemorySection(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"Hello\"]\n")
+	for _, file := range []string{engine.MemoryFileShared, "lead"} {
+		if err := server.Engine.SaveMemory(t.Context(), shop, file, "owner", "", "  \n"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	sendChat(t, server, leadChat, "Plan the loyalty API")
+	prompt := promptTexts(t, server, endedChatSession(t, server, 0).ID)[0]
+
+	if strings.Contains(prompt, "# Memory") {
+		t.Errorf("prompt = %s", prompt)
 	}
 }

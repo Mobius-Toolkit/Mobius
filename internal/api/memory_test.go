@@ -28,17 +28,37 @@ func memoryURL(server *testserver.Server, repository string) string {
 	return server.URL + "/api/repositories/" + repository + "/memory"
 }
 
+func memoryFileURL(server *testserver.Server, repository, file string) string {
+	return memoryURL(server, repository) + "/" + file
+}
+
+type memoryFile struct {
+	File  string `json:"file"`
+	Lines int    `json:"lines"`
+}
+
+func listMemoryFiles(t *testing.T, server *testserver.Server, repository string) []memoryFile {
+	t.Helper()
+	var body struct {
+		Data []memoryFile `json:"data"`
+	}
+	if reply := call(t, server.Client, http.MethodGet, memoryURL(server, repository), "", &body); reply.StatusCode != http.StatusOK {
+		t.Fatalf("list memory files: status %d", reply.StatusCode)
+	}
+	return body.Data
+}
+
 type memoryPage struct {
 	Versions []memoryVersion `json:"versions"`
 	Older    bool            `json:"older"`
 }
 
-func listMemoryPage(t *testing.T, server *testserver.Server, repository string, before int64) memoryPage {
+func listMemoryPage(t *testing.T, server *testserver.Server, repository, file string, before int64) memoryPage {
 	t.Helper()
 	var body struct {
 		Data memoryPage `json:"data"`
 	}
-	address := memoryURL(server, repository)
+	address := memoryFileURL(server, repository, file)
 	if before != 0 {
 		address += "?before=" + strconv.FormatInt(before, 10)
 	}
@@ -50,21 +70,26 @@ func listMemoryPage(t *testing.T, server *testserver.Server, repository string, 
 
 func listMemory(t *testing.T, server *testserver.Server, repository string) []memoryVersion {
 	t.Helper()
-	return listMemoryPage(t, server, repository, 0).Versions
+	return listMemoryPage(t, server, repository, "shared", 0).Versions
 }
 
-func saveMemory(t *testing.T, server *testserver.Server, texts ...string) {
+func saveMemoryFile(t *testing.T, server *testserver.Server, file string, texts ...string) {
 	t.Helper()
 	for _, text := range texts {
-		if err := server.Engine.SaveMemory(t.Context(), shop, "curator", "", text); err != nil {
+		if err := server.Engine.SaveMemory(t.Context(), shop, file, "curator", "", text); err != nil {
 			t.Fatal(err)
 		}
 	}
 }
 
+func saveMemory(t *testing.T, server *testserver.Server, texts ...string) {
+	t.Helper()
+	saveMemoryFile(t, server, "shared", texts...)
+}
+
 func revertMemory(t *testing.T, server *testserver.Server, version memoryVersion) result {
 	t.Helper()
-	return call(t, server.Client, http.MethodPost, memoryURL(server, shop)+"/"+strconv.FormatInt(version.ID, 10)+"/revert", "", nil)
+	return call(t, server.Client, http.MethodPost, memoryFileURL(server, shop, "shared")+"/"+strconv.FormatInt(version.ID, 10)+"/revert", "", nil)
 }
 
 func refusedRevert(t *testing.T, server *testserver.Server, version memoryVersion) (result, string) {
@@ -72,7 +97,7 @@ func refusedRevert(t *testing.T, server *testserver.Server, version memoryVersio
 	var failure struct {
 		Error string `json:"error"`
 	}
-	reply := call(t, server.Client, http.MethodPost, memoryURL(server, shop)+"/"+strconv.FormatInt(version.ID, 10)+"/revert", "", &failure)
+	reply := call(t, server.Client, http.MethodPost, memoryFileURL(server, shop, "shared")+"/"+strconv.FormatInt(version.ID, 10)+"/revert", "", &failure)
 	return reply, failure.Error
 }
 
@@ -91,11 +116,11 @@ func texts(versions []memoryVersion) []string {
 
 func TestTheMemoryRouteGivesTheVersionsNewestFirst(t *testing.T) {
 	server := startWithApp(t, testkit.NewFakeGitHub(t), "User")
-	if err := server.Engine.SaveMemory(t.Context(), shop, "curator", "", "Run make fmt.\n"); err != nil {
+	if err := server.Engine.SaveMemory(t.Context(), shop, "shared", "curator", "", "Run make fmt.\n"); err != nil {
 		t.Fatal(err)
 	}
 	base := listMemory(t, server, shop)[0].ID
-	if reply := call(t, server.Client, http.MethodPut, memoryURL(server, shop), `{"text": "Run make fmt.\nRun make check.\n", "base_version": `+strconv.FormatInt(base, 10)+`}`, nil); reply.StatusCode != http.StatusNoContent {
+	if reply := call(t, server.Client, http.MethodPut, memoryFileURL(server, shop, "shared"), `{"text": "Run make fmt.\nRun make check.\n", "base_version": `+strconv.FormatInt(base, 10)+`}`, nil); reply.StatusCode != http.StatusNoContent {
 		t.Fatalf("save: status %d", reply.StatusCode)
 	}
 
@@ -116,8 +141,8 @@ func TestTheMemoryRouteGivesThe20NewestVersionsAndThePageBeforeAVersion(t *testi
 		saveMemory(t, server, fmt.Sprintf("Version %d.\n", i))
 	}
 
-	first := listMemoryPage(t, server, shop, 0)
-	second := listMemoryPage(t, server, shop, first.Versions[19].ID)
+	first := listMemoryPage(t, server, shop, "shared", 0)
+	second := listMemoryPage(t, server, shop, "shared", first.Versions[19].ID)
 
 	if len(first.Versions) != 20 || !first.Older || len(second.Versions) != 5 || second.Older {
 		t.Fatalf("pages = %d %t, %d %t", len(first.Versions), first.Older, len(second.Versions), second.Older)
@@ -137,14 +162,14 @@ func TestTheMemoryRouteGivesThe20NewestVersionsAndThePageBeforeAVersion(t *testi
 
 func TestTheMemoryRouteGivesTheReasonOfEachVersion(t *testing.T) {
 	server := startWithApp(t, testkit.NewFakeGitHub(t), "User")
-	if err := server.Engine.SaveMemory(t.Context(), shop, "curator", "Add: three fix rounds repeated the same format error", "Run make fmt.\n"); err != nil {
+	if err := server.Engine.SaveMemory(t.Context(), shop, "shared", "curator", "Add: three fix rounds repeated the same format error", "Run make fmt.\n"); err != nil {
 		t.Fatal(err)
 	}
-	if err := server.Engine.SaveMemory(t.Context(), shop, "owner", "", "Run make fmt.\nRun make check.\n"); err != nil {
+	if err := server.Engine.SaveMemory(t.Context(), shop, "shared", "owner", "", "Run make fmt.\nRun make check.\n"); err != nil {
 		t.Fatal(err)
 	}
 	first := listMemory(t, server, shop)[1]
-	if err := server.Engine.RevertMemory(t.Context(), shop, first.ID); err != nil {
+	if err := server.Engine.RevertMemory(t.Context(), shop, "shared", first.ID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -168,6 +193,78 @@ func TestTheMemoryRouteGivesNoVersionForARepositoryWithNoMemory(t *testing.T) {
 	}
 }
 
+func TestTheMemoryRouteGivesEachFileWithItsLineCount(t *testing.T) {
+	server := startWithApp(t, testkit.NewFakeGitHub(t), "User")
+	saveMemoryFile(t, server, "shared", "One.\nTwo.\n")
+	saveMemoryFile(t, server, "implementer", "Only line.\n")
+
+	files := listMemoryFiles(t, server, shop)
+
+	want := []memoryFile{
+		{File: "shared", Lines: 2},
+		{File: "lead", Lines: 0},
+		{File: "implementer", Lines: 1},
+		{File: "reviewer", Lines: 0},
+		{File: "judge", Lines: 0},
+		{File: "researcher", Lines: 0},
+		{File: "diagnoser", Lines: 0},
+		{File: "curator", Lines: 0},
+	}
+	if !slices.Equal(files, want) {
+		t.Errorf("files = %+v, want %+v", files, want)
+	}
+}
+
+func TestTheVersionsOfAFileHaveNoVersionOfAnotherFile(t *testing.T) {
+	server := startWithApp(t, testkit.NewFakeGitHub(t), "User")
+	saveMemoryFile(t, server, "shared", "Shared.\n")
+	saveMemoryFile(t, server, "implementer", "First.\n", "Second.\n")
+
+	versions := listMemoryPage(t, server, shop, "implementer", 0).Versions
+
+	want := []string{"curator:Second.\n", "curator:First.\n"}
+	if got := texts(versions); !slices.Equal(got, want) {
+		t.Errorf("versions = %q, want %q", got, want)
+	}
+}
+
+func TestTheSaveRouteOfARoleFileChangesOnlyThatFile(t *testing.T) {
+	server := startWithApp(t, testkit.NewFakeGitHub(t), "User")
+	saveMemoryFile(t, server, "shared", "Shared.\n")
+	saveMemoryFile(t, server, "implementer", "Old.\n")
+	implementer := listMemoryPage(t, server, shop, "implementer", 0).Versions[0]
+
+	if reply := call(t, server.Client, http.MethodPut, memoryFileURL(server, shop, "implementer"), `{"text": "New.\n", "base_version": `+strconv.FormatInt(implementer.ID, 10)+`}`, nil); reply.StatusCode != http.StatusNoContent {
+		t.Fatalf("save: status %d", reply.StatusCode)
+	}
+
+	if got := listMemoryPage(t, server, shop, "implementer", 0).Versions[0].Text; got != "New.\n" {
+		t.Errorf("implementer text = %q", got)
+	}
+	if got := listMemory(t, server, shop); len(got) != 1 || got[0].Text != "Shared.\n" {
+		t.Errorf("shared versions = %q", texts(got))
+	}
+}
+
+func TestTheRevertRouteOfAFileGivesNotFoundForAVersionOfAnotherFile(t *testing.T) {
+	server := startWithApp(t, testkit.NewFakeGitHub(t), "User")
+	saveMemoryFile(t, server, "shared", "Shared.\n")
+	saveMemoryFile(t, server, "implementer", "Old.\n")
+	shared := listMemory(t, server, shop)[0]
+
+	reply := call(t, server.Client, http.MethodPost, memoryFileURL(server, shop, "implementer")+"/"+strconv.FormatInt(shared.ID, 10)+"/revert", "", nil)
+
+	if reply.StatusCode != http.StatusNotFound {
+		t.Errorf("status %d", reply.StatusCode)
+	}
+	if got := listMemoryPage(t, server, shop, "implementer", 0).Versions; len(got) != 1 || got[0].Text != "Old.\n" {
+		t.Errorf("implementer versions = %q", texts(got))
+	}
+	if got := listMemory(t, server, shop); len(got) != 1 || got[0].Text != "Shared.\n" {
+		t.Errorf("shared versions = %q", texts(got))
+	}
+}
+
 func TestTheSaveRouteRefusesATextOfMoreThan200LinesAndTellsTheLimit(t *testing.T) {
 	server := startWithApp(t, testkit.NewFakeGitHub(t), "User")
 	lines := func(n int) string { return `{"text": "` + strings.Repeat(`Run make fmt.\n`, n) + `"}` }
@@ -175,8 +272,8 @@ func TestTheSaveRouteRefusesATextOfMoreThan200LinesAndTellsTheLimit(t *testing.T
 		Error string `json:"error"`
 	}
 
-	long := call(t, server.Client, http.MethodPut, memoryURL(server, shop), lines(201), &failure)
-	limit := call(t, server.Client, http.MethodPut, memoryURL(server, shop), lines(200), nil)
+	long := call(t, server.Client, http.MethodPut, memoryFileURL(server, shop, "shared"), lines(201), &failure)
+	limit := call(t, server.Client, http.MethodPut, memoryFileURL(server, shop, "shared"), lines(200), nil)
 
 	if long.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(failure.Error, "201 lines") || !strings.Contains(failure.Error, "maximum is 200") {
 		t.Errorf("long text: status %d, error %q", long.StatusCode, failure.Error)
@@ -310,8 +407,8 @@ func TestTheSaveRouteGivesConflictWhenANewerVersionExistsThanTheVersionOfTheEdit
 		Error string `json:"error"`
 	}
 
-	stale := call(t, server.Client, http.MethodPut, memoryURL(server, shop), `{"text": "Mine.\n", "base_version": `+strconv.FormatInt(first.ID, 10)+`}`, &failure)
-	none := call(t, server.Client, http.MethodPut, memoryURL(server, shop), `{"text": "Mine.\n"}`, nil)
+	stale := call(t, server.Client, http.MethodPut, memoryFileURL(server, shop, "shared"), `{"text": "Mine.\n", "base_version": `+strconv.FormatInt(first.ID, 10)+`}`, &failure)
+	none := call(t, server.Client, http.MethodPut, memoryFileURL(server, shop, "shared"), `{"text": "Mine.\n"}`, nil)
 
 	if stale.StatusCode != http.StatusConflict || failure.Error != "The memory file changed after the start of your edit. Copy your text, then load the file again." {
 		t.Errorf("stale edit: status %d, error %q", stale.StatusCode, failure.Error)
@@ -329,13 +426,13 @@ func TestTheRevertRouteGivesNotFoundForAnUnknownVersionAndForAVersionOfAnotherRe
 	github.AddRepository("owner/cafe")
 	server := startWithApp(t, github, "User")
 	testkit.WaitFor(t, func() bool { return len(github.RepositoryLabels("owner/cafe")) > 0 })
-	if err := server.Engine.SaveMemory(t.Context(), "owner/cafe", "curator", "", "One.\n"); err != nil {
+	if err := server.Engine.SaveMemory(t.Context(), "owner/cafe", "shared", "curator", "", "One.\n"); err != nil {
 		t.Fatal(err)
 	}
 	other := listMemory(t, server, "owner/cafe")[0]
 
 	for _, id := range []int64{other.ID, other.ID + 100} {
-		reply := call(t, server.Client, http.MethodPost, memoryURL(server, shop)+"/"+strconv.FormatInt(id, 10)+"/revert", "", nil)
+		reply := call(t, server.Client, http.MethodPost, memoryFileURL(server, shop, "shared")+"/"+strconv.FormatInt(id, 10)+"/revert", "", nil)
 		if reply.StatusCode != http.StatusNotFound {
 			t.Errorf("version %d: status %d", id, reply.StatusCode)
 		}
@@ -348,13 +445,32 @@ func TestTheRevertRouteGivesNotFoundForAnUnknownVersionAndForAVersionOfAnotherRe
 func TestEachMemoryRouteGivesNotFoundForAnUnknownRepository(t *testing.T) {
 	server := startWithApp(t, testkit.NewFakeGitHub(t), "User")
 
-	for method, address := range map[string]string{
-		http.MethodGet:  memoryURL(server, "owner/none"),
-		http.MethodPut:  memoryURL(server, "owner/none"),
-		http.MethodPost: memoryURL(server, "owner/none") + "/1/revert",
+	for _, route := range []struct{ method, address string }{
+		{http.MethodGet, memoryURL(server, "owner/none")},
+		{http.MethodGet, memoryFileURL(server, "owner/none", "shared")},
+		{http.MethodPut, memoryFileURL(server, "owner/none", "shared")},
+		{http.MethodPost, memoryFileURL(server, "owner/none", "shared") + "/1/revert"},
 	} {
-		if reply := call(t, server.Client, method, address, `{"text": "One.\n"}`, nil); reply.StatusCode != http.StatusNotFound {
-			t.Errorf("%s %s: status %d", method, address, reply.StatusCode)
+		if reply := call(t, server.Client, route.method, route.address, `{"text": "One.\n"}`, nil); reply.StatusCode != http.StatusNotFound {
+			t.Errorf("%s %s: status %d", route.method, route.address, reply.StatusCode)
+		}
+	}
+}
+
+func TestEachMemoryRouteGivesNotFoundForAnUnknownFile(t *testing.T) {
+	server := startWithApp(t, testkit.NewFakeGitHub(t), "User")
+
+	for _, route := range []struct{ method, address string }{
+		{http.MethodGet, memoryFileURL(server, shop, "nobody")},
+		{http.MethodPut, memoryFileURL(server, shop, "nobody")},
+		{http.MethodPost, memoryFileURL(server, shop, "nobody") + "/1/revert"},
+	} {
+		var failure struct {
+			Error string `json:"error"`
+		}
+		reply := call(t, server.Client, route.method, route.address, `{"text": "One.\n"}`, &failure)
+		if reply.StatusCode != http.StatusNotFound || failure.Error != "The memory has no file nobody." {
+			t.Errorf("%s %s: status %d, error %q", route.method, route.address, reply.StatusCode, failure.Error)
 		}
 	}
 }
@@ -364,13 +480,14 @@ func TestEachMemoryRouteNeedsADeviceLogin(t *testing.T) {
 	anonymous := *server.Client
 	anonymous.Jar = nil
 
-	for method, address := range map[string]string{
-		http.MethodGet:  memoryURL(server, shop),
-		http.MethodPut:  memoryURL(server, shop),
-		http.MethodPost: memoryURL(server, shop) + "/1/revert",
+	for _, route := range []struct{ method, address string }{
+		{http.MethodGet, memoryURL(server, shop)},
+		{http.MethodGet, memoryFileURL(server, shop, "shared")},
+		{http.MethodPut, memoryFileURL(server, shop, "shared")},
+		{http.MethodPost, memoryFileURL(server, shop, "shared") + "/1/revert"},
 	} {
-		if reply := call(t, &anonymous, method, address, `{"text": "One.\n"}`, nil); reply.StatusCode != http.StatusUnauthorized {
-			t.Errorf("%s %s: status %d", method, address, reply.StatusCode)
+		if reply := call(t, &anonymous, route.method, route.address, `{"text": "One.\n"}`, nil); reply.StatusCode != http.StatusUnauthorized {
+			t.Errorf("%s %s: status %d", route.method, route.address, reply.StatusCode)
 		}
 	}
 }

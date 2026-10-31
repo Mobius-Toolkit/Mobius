@@ -3,6 +3,7 @@ package engine_test
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -32,23 +33,35 @@ reply = ["Hello"]
 
 [[prompts]]
 when = "Add the lesson"
-call = { tool = "edit_memory", arguments = { old = "", new = "Run make fmt before each commit.\n", reason = "Add: Workstream 12 repeats the format failure." } }
+call = { tool = "edit_memory", arguments = { file = "shared", old = "", new = "Run make fmt before each commit.\n", reason = "Add: Workstream 12 repeats the format failure." } }
 
 [[prompts]]
 when = "Edit a missing text"
-call = { tool = "edit_memory", arguments = { old = "Absent.", new = "Present.\n", reason = "Change: issue 41." } }
+call = { tool = "edit_memory", arguments = { file = "shared", old = "Absent.", new = "Present.\n", reason = "Change: issue 41." } }
 
 [[prompts]]
 when = "Edit a repeated text"
-call = { tool = "edit_memory", arguments = { old = "Same.", new = "Different.", reason = "Change: issue 41." } }
+call = { tool = "edit_memory", arguments = { file = "shared", old = "Same.", new = "Different.", reason = "Change: issue 41." } }
 
 [[prompts]]
 when = "Add without a reason"
-call = { tool = "edit_memory", arguments = { old = "", new = "No reason.\n", reason = " " } }
+call = { tool = "edit_memory", arguments = { file = "shared", old = "", new = "No reason.\n", reason = " " } }
 
 [[prompts]]
 when = "Add a line"
-call = { tool = "edit_memory", arguments = { old = "", new = "One more.\n", reason = "Add: issue 41." } }
+call = { tool = "edit_memory", arguments = { file = "shared", old = "", new = "One more.\n", reason = "Add: issue 41." } }
+
+[[prompts]]
+when = "Save the shared file"
+call = { tool = "edit_memory", arguments = { file = "shared", old = "", new = "Shared lesson.\n", reason = "Add: issue 41." } }
+
+[[prompts]]
+when = "Save the implementer file"
+call = { tool = "edit_memory", arguments = { file = "implementer", old = "", new = "Implementer lesson.\n", reason = "Add: issue 41." } }
+
+[[prompts]]
+when = "Save an unknown file"
+call = { tool = "edit_memory", arguments = { file = "other", old = "", new = "Lesson.\n", reason = "Add: issue 41." } }
 `
 
 func curatorSessions(t *testing.T, server *testserver.Server) []store.Session {
@@ -118,6 +131,24 @@ func memoryVersions(t *testing.T, server *testserver.Server) (authors []string) 
 	return authors
 }
 
+// memoryFiles gives the file of each version of the memory of the repository, in the order of the versions.
+func memoryFiles(t *testing.T, server *testserver.Server) (files []string) {
+	t.Helper()
+	rows, err := server.DB.Query("SELECT file FROM memory_versions WHERE repository = ? ORDER BY id", shop)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var file string
+		if err := rows.Scan(&file); err != nil {
+			t.Fatal(err)
+		}
+		files = append(files, file)
+	}
+	return files
+}
+
 func TestTheTenthEndedSessionStartsACurator(t *testing.T) {
 	t.Parallel()
 	server, _ := connect(t, testkit.NewFakeGitHub(t), curatorScript)
@@ -166,7 +197,7 @@ func TestTheCloseOfAWorkstreamStartsACurator(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(lead, "MEMORY.md"), []byte(leadNote+"\n"), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			if err := server.Engine.SaveMemory(t.Context(), shop, "owner", "", lesson+"\n"); err != nil {
+			if err := server.Engine.SaveMemory(t.Context(), shop, "shared", "owner", "", lesson+"\n"); err != nil {
 				t.Fatal(err)
 			}
 
@@ -215,7 +246,7 @@ func TestAnEditMemoryCallAddsAVersionOfTheCuratorAndTheNextAgentGetsTheText(t *t
 	if got := memoryReasons(t, server); len(got) != 1 || got[0] != "Add: Workstream 12 repeats the format failure." {
 		t.Errorf("reasons = %q", got)
 	}
-	if calls := mcpCalls(t, server, session); len(calls) != 1 || calls[0]["result"] != "Saved the memory file. It has 1 of 200 lines." {
+	if calls := mcpCalls(t, server, session); len(calls) != 1 || calls[0]["result"] != "Saved the memory file shared. It has 1 of 200 lines." {
 		t.Errorf("calls = %v", calls)
 	}
 	sendChat(t, server, leadChat, "Plan the loyalty API")
@@ -244,17 +275,17 @@ func TestAnEditMemoryCallRefusesTheSameEditAgainInTheSameSession(t *testing.T) {
 func TestAnEditMemoryCallRefusesAnOldTextThatDoesNotOccurOneTimeAndAResultOfMoreThan200Lines(t *testing.T) {
 	t.Parallel()
 	server, _ := connect(t, testkit.NewFakeGitHub(t), curatorScript)
-	if err := server.Engine.SaveMemory(t.Context(), shop, "owner", "", "Same.\nSame.\n"+strings.Repeat("A lesson.\n", 198)); err != nil {
+	if err := server.Engine.SaveMemory(t.Context(), shop, "shared", "owner", "", "Same.\nSame.\n"+strings.Repeat("A lesson.\n", 198)); err != nil {
 		t.Fatal(err)
 	}
 
 	session := run(t, server, roleSpec(t, engine.CuratorRole), "Edit a missing text", "Edit a repeated text", "Add without a reason", "Add a line")
 
 	want := []string{
-		"The old text does not occur in the memory file.",
-		"The old text occurs 2 times in the memory file. Make it longer, so that it occurs one time.",
+		"The old text does not occur in the memory file shared.",
+		"The old text occurs 2 times in the memory file shared. Make it longer, so that it occurs one time.",
 		"The reason is empty. Name the type of change and the evidence.",
-		"the memory file has too many lines: the text has 201 lines and the maximum is 200",
+		"the memory file has too many lines: the memory file shared has 201 lines and the maximum is 200",
 	}
 	calls := mcpCalls(t, server, session)
 	if len(calls) != len(want) {
@@ -270,13 +301,56 @@ func TestAnEditMemoryCallRefusesAnOldTextThatDoesNotOccurOneTimeAndAResultOfMore
 	}
 }
 
+func TestAnEditMemoryCallChangesOnlyTheSelectedFile(t *testing.T) {
+	t.Parallel()
+	server, dataDir := connect(t, testkit.NewFakeGitHub(t), curatorScript)
+
+	sharedSession := run(t, server, roleSpec(t, engine.CuratorRole), "Save the shared file")
+	roleSession := run(t, server, roleSpec(t, engine.CuratorRole), "Save the implementer file")
+
+	shared, sharedErr := os.ReadFile(filepath.Clean(filepath.Join(dataDir, "memory", shop+".md")))
+	role, roleErr := os.ReadFile(filepath.Clean(filepath.Join(dataDir, "memory", shop, "implementer.md")))
+	if sharedErr != nil || roleErr != nil || string(shared) != "Shared lesson.\n" || string(role) != "Implementer lesson.\n" {
+		t.Errorf("shared = %q, %v, implementer = %q, %v", shared, sharedErr, role, roleErr)
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, "memory", shop, "reviewer.md")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("reviewer file: %v", err)
+	}
+	if got := memoryFiles(t, server); !slices.Equal(got, []string{"shared", "implementer"}) {
+		t.Errorf("files = %q", got)
+	}
+	for session, want := range map[int64]string{
+		sharedSession: "Saved the memory file shared. It has 1 of 200 lines.",
+		roleSession:   "Saved the memory file implementer. It has 1 of 200 lines.",
+	} {
+		if calls := mcpCalls(t, server, session); len(calls) != 1 || calls[0]["result"] != want {
+			t.Errorf("calls = %v", calls)
+		}
+	}
+}
+
+func TestAnEditMemoryCallRefusesAnUnknownFile(t *testing.T) {
+	t.Parallel()
+	server, _ := connect(t, testkit.NewFakeGitHub(t), curatorScript)
+
+	session := run(t, server, roleSpec(t, engine.CuratorRole), "Save an unknown file")
+
+	calls := mcpCalls(t, server, session)
+	if len(calls) != 1 || calls[0]["error"] != `There is no memory file named "other". Use shared or the name of a role.` {
+		t.Errorf("calls = %v", calls)
+	}
+	if got := memoryFiles(t, server); len(got) != 0 {
+		t.Errorf("files = %q", got)
+	}
+}
+
 func TestThePromptOfTheCuratorHasTheLastVersionsWithTheirAuthorAndReason(t *testing.T) {
 	t.Parallel()
 	server, _ := connect(t, testkit.NewFakeGitHub(t), curatorScript)
-	if err := server.Engine.SaveMemory(t.Context(), shop, "owner", "", lesson+"\n"); err != nil {
+	if err := server.Engine.SaveMemory(t.Context(), shop, "shared", "owner", "", lesson+"\n"); err != nil {
 		t.Fatal(err)
 	}
-	if err := server.Engine.SaveMemory(t.Context(), shop, "curator", "Add: issue 41.", lesson+"\nA second lesson.\n"); err != nil {
+	if err := server.Engine.SaveMemory(t.Context(), shop, "shared", "curator", "Add: issue 41.", lesson+"\nA second lesson.\n"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -290,7 +364,7 @@ func TestThePromptOfTheCuratorHasTheLastVersionsWithTheirAuthorAndReason(t *test
 	_, versions, found := strings.Cut(prompt, "newest first.\n\n")
 	versions, _, _ = strings.Cut(versions, "\n\n")
 	lines := strings.Split(versions, "\n")
-	if !found || len(lines) != 2 || !strings.HasSuffix(lines[0], ", curator: Add: issue 41.") || !strings.HasSuffix(lines[1], ", owner: ") {
+	if !found || len(lines) != 2 || !strings.HasSuffix(lines[0], ", curator, shared: Add: issue 41.") || !strings.HasSuffix(lines[1], ", owner, shared: ") {
 		t.Errorf("versions = %q", versions)
 	}
 }
@@ -525,7 +599,7 @@ reply = ["I told the Owner."]
 
 [[prompts]]
 when = "# Requests of the Owner"
-call = { tool = "edit_memory", arguments = { old = "", new = "Run make fmt before each commit.\n", reason = "Add: request 1 of the Owner." } }
+call = { tool = "edit_memory", arguments = { file = "shared", old = "", new = "Run make fmt before each commit.\n", reason = "Add: request 1 of the Owner." } }
 reply = ["Added the lesson."]
 
 [[prompts]]
@@ -560,9 +634,9 @@ func TestATellCuratorCallStartsACuratorWithTheRequestAndTheResultGoesToTheCoordi
 	}
 	result := fmt.Sprintf("# Curator message\n\nResult of the Curator %d on the requests of the Owner:\n\n"+
 		"- Add the lesson: run make fmt before each commit.\n\n"+
-		"The Curator changed the memory file. The reasons of the changes:\n\n"+
-		"- Add: request 1 of the Owner.\n\n"+
-		"Reply of the Curator:\n\nAdded the lesson.Saved the memory file. It has 1 of 200 lines.", curator.ID)
+		"The Curator changed the memory files. The reasons of the changes:\n\n"+
+		"- shared: Add: request 1 of the Owner.\n\n"+
+		"Reply of the Curator:\n\nAdded the lesson.Saved the memory file shared. It has 1 of 200 lines.", curator.ID)
 	testkit.WaitFor(t, func() bool {
 		for _, session := range chatSessions(t, server, coordinatorChat, engine.CoordinatorRole) {
 			if slices.ContainsFunc(promptTexts(t, server, session.ID), func(prompt string) bool { return strings.HasSuffix(prompt, result) }) {
@@ -843,7 +917,7 @@ func TestACuratorThatFailsToGetASlotSendsTheFailureToTheCoordinatorChat(t *testi
 	testkit.WaitFor(t, func() bool {
 		for _, session := range chatSessions(t, server, coordinatorChat, engine.CoordinatorRole) {
 			if slices.ContainsFunc(promptTexts(t, server, session.ID), func(prompt string) bool {
-				return strings.Contains(prompt, "- Add the lesson.\n\nThe Curator did not change the memory file.\n\nThe Curator failed:")
+				return strings.Contains(prompt, "- Add the lesson.\n\nThe Curator did not change the memory files.\n\nThe Curator failed:")
 			}) {
 				return true
 			}
