@@ -725,6 +725,34 @@ func TestTheHotQueriesReadAnIndex(t *testing.T) {
 	}
 }
 
+func TestTheEndedTaskQualityQueryHasNoCorrelatedSubquery(t *testing.T) {
+	db, err := Open(t.Context(), filepath.Join(t.TempDir(), "mobius.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	rows, err := db.Query("EXPLAIN QUERY PLAN " + listEndedTaskQuality)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var details []string
+	for rows.Next() {
+		var id, parent, unused int
+		var detail string
+		if err := rows.Scan(&id, &parent, &unused, &detail); err != nil {
+			t.Fatal(err)
+		}
+		details = append(details, detail)
+	}
+	if err := rows.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if plan := strings.Join(details, "\n"); strings.Contains(plan, "CORRELATED SCALAR SUBQUERY") {
+		t.Errorf("ListEndedTaskQuality plan has a correlated scalar subquery:\n%s", plan)
+	}
+}
+
 func TestTheCountOfEndedSessionsSinceTheCuratorUsesTheRepositoryOfTheQuery(t *testing.T) {
 	ctx := context.Background()
 	db, err := Open(ctx, filepath.Join(t.TempDir(), "mobius.db"))
