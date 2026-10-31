@@ -59,7 +59,7 @@ const upgradeOutput = 4000
 var errUpgradeRuns = errors.New("an upgrade of the package runs now")
 
 // errDraining is the error of an upgrade while the drain of an upgrade is on.
-var errDraining = errors.New("Mobius prepares an upgrade")
+var errDraining = errors.New("the drain is on")
 
 var versionText = regexp.MustCompile(`\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?`)
 
