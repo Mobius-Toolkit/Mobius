@@ -4,15 +4,27 @@ import {
   fixLabels,
   getCheckup,
   getCheckupTools,
+  upgradeCheckupTool,
   type Checkup as CheckupView,
   type LabelCheck,
   type PermissionCheck,
   type ToolCheck,
 } from "@/api/api.gen";
-import { ErrorBadge, inset, LinkRow, List, PageHeader, Row, Section } from "@/components/page";
+import {
+  ErrorBadge,
+  inset,
+  LinkRow,
+  List,
+  PageHeader,
+  Row,
+  rowClass,
+  Section,
+} from "@/components/page";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { LoginContext } from "@/lib/login";
+import { showNotice } from "@/lib/notice";
 import { addCoordinatorMessage } from "@/lib/outbox";
 import { useShell } from "@/lib/shell";
 import { cn } from "@/lib/utils";
@@ -111,7 +123,7 @@ function useTools() {
       .catch((err: unknown) => setError(String(err)));
   }, [showLogin]);
 
-  return { tools, error };
+  return { tools, error, setTools };
 }
 
 function CheckupCard({
@@ -231,38 +243,122 @@ export function Checkup({ organizations }: { organizations: string[] }) {
   );
 }
 
+function ToolUpgrade({
+  tool,
+  onClose,
+  onUpgraded,
+}: {
+  tool: ToolCheck;
+  onClose: () => void;
+  onUpgraded: (tools: ToolCheck[]) => void;
+}) {
+  const showLogin = use(LoginContext);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
+
+  const upgrade = () => {
+    setPending(true);
+    setError("");
+    upgradeCheckupTool({ package: tool.package })
+      .then((res) => {
+        if (res.status === 200) {
+          onUpgraded(res.data.data);
+          showNotice(`Upgraded ${tool.name} to ${tool.newest}`);
+        } else if (res.status === 401) {
+          showLogin();
+        } else {
+          setError(res.data.error);
+        }
+      })
+      .catch((err: unknown) => setError(String(err)))
+      .finally(() => setPending(false));
+  };
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent
+        aria-describedby={undefined}
+        className="max-sm:top-auto max-sm:bottom-0 max-sm:left-0 max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-b-none sm:max-w-lg"
+      >
+        <DialogHeader>
+          <DialogTitle className="wrap-anywhere">{tool.name}</DialogTitle>
+        </DialogHeader>
+        <div className="grid gap-2">
+          <p>
+            Installed: <span className="wrap-anywhere">{tool.version}</span>
+          </p>
+          <p>
+            Newest: <span className="wrap-anywhere">{tool.newest}</span>
+          </p>
+          {error && <p className="text-destructive wrap-anywhere">{error}</p>}
+          <Button pending={pending} disabled={!tool.outdated} onClick={upgrade}>
+            Upgrade
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ToolText({ tool, grow }: { tool: ToolCheck; grow?: boolean }) {
+  return (
+    <span className={cn("grid min-w-0", grow && "grow text-left")}>
+      {tool.name}
+      {tool.status === "" && (
+        <span className="text-muted-foreground text-sm break-words">
+          {tool.outdated ? `${tool.version} · newest ${tool.newest}` : tool.version}
+        </span>
+      )}
+      {tool.status !== "" && !tool.required && (
+        <span className="text-muted-foreground text-sm break-words">
+          {tool.status.replace("-", " ")}
+        </span>
+      )}
+      {tool.path && <span className="text-muted-foreground text-sm break-all">{tool.path}</span>}
+    </span>
+  );
+}
+
 export function CheckupTools() {
-  const { tools, error } = useTools();
+  const { tools, error, setTools } = useTools();
+  const [openName, setOpenName] = useState<string>();
+  const open = tools?.find((tool) => tool.name === openName);
 
   return (
     <CheckupCard title="Tools">
       {error && <ErrorBadge>{error}</ErrorBadge>}
       {tools && (
         <List>
-          {tools.map((tool) => (
-            <Row key={tool.name} className="justify-between">
-              <span className="grid min-w-0">
-                {tool.name}
-                {tool.status === "" && (
-                  <span className="text-muted-foreground text-sm break-words">
-                    {tool.outdated ? `${tool.version} · newest ${tool.newest}` : tool.version}
-                  </span>
-                )}
-                {tool.status !== "" && !tool.required && (
-                  <span className="text-muted-foreground text-sm break-words">
-                    {tool.status.replace("-", " ")}
-                  </span>
-                )}
-                {tool.path && (
-                  <span className="text-muted-foreground text-sm break-all">{tool.path}</span>
-                )}
-              </span>
-              {tool.outdated || (tool.status !== "" && tool.required) ? (
+          {tools.map((tool) => {
+            const problem =
+              tool.outdated || (tool.status !== "" && tool.required) ? (
                 <ToolProblem tool={tool} />
-              ) : null}
-            </Row>
-          ))}
+              ) : null;
+            if (!tool.package) {
+              return (
+                <Row key={tool.name} className="justify-between">
+                  <ToolText tool={tool} />
+                  {problem}
+                </Row>
+              );
+            }
+            return (
+              <li key={tool.name}>
+                <button
+                  type="button"
+                  onClick={() => setOpenName(tool.name)}
+                  className={cn(rowClass, "w-full justify-between hover:bg-muted")}
+                >
+                  <ToolText tool={tool} grow />
+                  {problem}
+                </button>
+              </li>
+            );
+          })}
         </List>
+      )}
+      {open && (
+        <ToolUpgrade tool={open} onClose={() => setOpenName(undefined)} onUpgraded={setTools} />
       )}
     </CheckupCard>
   );

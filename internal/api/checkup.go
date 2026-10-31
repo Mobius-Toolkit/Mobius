@@ -2,7 +2,10 @@ package api
 
 import (
 	"context"
+	"net/http"
 	"slices"
+
+	"github.com/gork-labs/gork/pkg/api"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 )
@@ -140,6 +143,8 @@ type ToolCheck struct {
 	Outdated bool `gork:"outdated"`
 	// Required tells that a role uses the Harness of the row, or that the program is git
 	Required bool `gork:"required"`
+	// Package is the npm package of the row. It is empty for a program that Mobius does not upgrade
+	Package string `gork:"package"`
 }
 
 // GetCheckupToolsRequest is the request of GetCheckupTools.
@@ -158,6 +163,33 @@ func (h *handlers) GetCheckupTools(ctx context.Context, _ GetCheckupToolsRequest
 		tools = append(tools, ToolCheck(tool))
 	}
 	return &GetCheckupToolsResponse{Body: Envelope[[]ToolCheck]{Data: tools}}, nil
+}
+
+// UpgradeCheckupToolRequest is the request of UpgradeCheckupTool.
+type UpgradeCheckupToolRequest struct {
+	Body struct {
+		// Package is the npm package of the tool to upgrade
+		Package string `gork:"package" validate:"required"`
+	}
+}
+
+// UpgradeCheckupToolResponse is the response of UpgradeCheckupTool.
+type UpgradeCheckupToolResponse struct {
+	Body Envelope[[]ToolCheck]
+}
+
+// UpgradeCheckupTool installs the newest version of the npm package of a tool, and returns the new tool list. It
+// returns 409 with the reason when Mobius does not upgrade the package or the npm run fails.
+func (h *handlers) UpgradeCheckupTool(ctx context.Context, req UpgradeCheckupToolRequest) (*UpgradeCheckupToolResponse, error) {
+	found, err := h.engine.UpgradeTool(ctx, req.Body.Package)
+	if err != nil {
+		return nil, api.NewHTTPError(http.StatusConflict, err.Error())
+	}
+	tools := make([]ToolCheck, 0, len(found))
+	for _, tool := range found {
+		tools = append(tools, ToolCheck(tool))
+	}
+	return &UpgradeCheckupToolResponse{Body: Envelope[[]ToolCheck]{Data: tools}}, nil
 }
 
 // FixLabelsRequest is the request of FixLabels.

@@ -410,3 +410,85 @@ func TestAReadOfTheRegistryThatTheContextEndsIsNotKept(t *testing.T) {
 		t.Errorf("newest after the ended context = %q", got)
 	}
 }
+
+// nodeExecutable writes a shell script at file that prints version, and gives it the executable permission.
+func nodeExecutable(t *testing.T, file, version string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(file), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte("#!/bin/sh\necho "+version+"\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestThePackageOfAProgramInTheNodeModulesOfANodeInstall(t *testing.T) {
+	prefix := t.TempDir()
+	bin := filepath.Join(prefix, "bin")
+	program := filepath.Join(prefix, "lib", "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js")
+	nodeExecutable(t, program, "0.2.1-rc.4")
+	nodeExecutable(t, filepath.Join(bin, "npm"), "10.0.0")
+	if err := os.Symlink(program, filepath.Join(bin, "dsh")); err != nil {
+		t.Fatal(err)
+	}
+
+	checks := toolEngine(t, bin).Tools(context.Background())
+
+	if got := find(checks, "dsh").Package; got != dshPackage {
+		t.Errorf("package = %q, want %q", got, dshPackage)
+	}
+}
+
+func TestAProgramOutsideTheNodeModulesHasNoPackage(t *testing.T) {
+	bin := t.TempDir()
+	testkit.InstallFakeProgram(t, bin, "dsh", "0.2.1-rc.4\n")
+
+	checks := toolEngine(t, bin).Tools(context.Background())
+
+	if got := find(checks, "dsh").Package; got != "" {
+		t.Errorf("package = %q, want empty", got)
+	}
+}
+
+func TestAProgramInTheNodeModulesWithoutNPMHasNoPackage(t *testing.T) {
+	prefix := t.TempDir()
+	bin := filepath.Join(prefix, "bin")
+	program := filepath.Join(prefix, "lib", "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js")
+	nodeExecutable(t, program, "0.2.1-rc.4")
+	if err := os.MkdirAll(bin, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(program, filepath.Join(bin, "dsh")); err != nil {
+		t.Fatal(err)
+	}
+
+	checks := toolEngine(t, bin).Tools(context.Background())
+
+	if got := find(checks, "dsh").Package; got != "" {
+		t.Errorf("package = %q, want empty", got)
+	}
+}
+
+func TestTheAdapterAndTheSeparateClaudeCodeCLIHaveTheirPackages(t *testing.T) {
+	prefix := t.TempDir()
+	bin := filepath.Join(prefix, "bin")
+	adapterPath := filepath.Join(prefix, "lib", "node_modules", "@agentclientprotocol", "claude-agent-acp", "dist", "index.js")
+	cliPath := filepath.Join(prefix, "lib", "node_modules", "@anthropic-ai", "claude-code", "cli.js")
+	nodeExecutable(t, adapterPath, "0.9.12")
+	nodeExecutable(t, cliPath, "2.1.9")
+	nodeExecutable(t, filepath.Join(bin, "npm"), "10.0.0")
+	if err := os.Symlink(adapterPath, filepath.Join(bin, "claude-agent-acp")); err != nil {
+		t.Fatal(err)
+	}
+	e := toolEngine(t, bin)
+	t.Setenv(claudeCodeEnv, cliPath)
+
+	checks := e.Tools(context.Background())
+
+	if got := find(checks, "claude-agent-acp").Package; got != adapterPackage {
+		t.Errorf("adapter package = %q, want %q", got, adapterPackage)
+	}
+	if got := find(checks, "Claude Code CLI").Package; got != cliPackage {
+		t.Errorf("CLI package = %q, want %q", got, cliPackage)
+	}
+}
