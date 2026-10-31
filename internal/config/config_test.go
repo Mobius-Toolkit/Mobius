@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -257,6 +258,53 @@ func TestParseAcceptsADSHRole(t *testing.T) {
 	researcher := config.Roles.Researcher
 	if researcher.Harness != DSH || researcher.Model != "deepseek-account/deepseek-v4-pro" || researcher.Effort != "high" {
 		t.Errorf("researcher = %+v", researcher)
+	}
+}
+
+func TestParseAcceptsAContextForClaudeCode(t *testing.T) {
+	for _, value := range []int{100000, 200000, 1000000} {
+		config := parse(t, strings.Replace(valid,
+			`lead        = { harness = "claude-code", model = "opus",    effort = "high" }`,
+			fmt.Sprintf(`lead        = { harness = "claude-code", model = "opus",    effort = "high", context = %d }`, value), 1))
+
+		if got := config.Roles.Lead.Context; got != value {
+			t.Errorf("context %d: roles.lead.context = %d", value, got)
+		}
+	}
+	if got := parse(t, valid).Roles.Lead.Context; got != 0 {
+		t.Errorf("no context: roles.lead.context = %d, want 0", got)
+	}
+}
+
+func TestParseRefusesAContextThatTheHarnessCannotUse(t *testing.T) {
+	checks := []struct {
+		name, text, want string
+	}{
+		{"dsh", strings.Replace(valid,
+			`researcher  = { harness = "antigravity", model = "gemini-3-pro" }`,
+			`researcher  = { harness = "dsh", model = "deepseek-account/deepseek-v4-pro", effort = "high", context = 200000 }`, 1),
+			"roles.researcher: harness dsh has no context limit"},
+		{"devin", strings.Replace(valid,
+			`implementer = { harness = "devin",       model = "swe-1.5", effort = "high" }`,
+			`implementer = { harness = "devin", model = "swe-1.5", effort = "high", context = 200000 }`, 1),
+			"roles.implementer: harness devin has no context limit"},
+		{"antigravity", strings.Replace(valid,
+			`researcher  = { harness = "antigravity", model = "gemini-3-pro" }`,
+			`researcher  = { harness = "antigravity", model = "gemini-3-pro", context = 200000 }`, 1),
+			"roles.researcher: harness antigravity has no context limit"},
+		{"below the range", strings.Replace(valid,
+			`judge       = { harness = "claude-code", model = "haiku",   effort = "low" }`,
+			`judge       = { harness = "claude-code", model = "haiku", effort = "low", context = 99999 }`, 1),
+			"roles.judge: context must be from 100000 to 1000000 tokens"},
+		{"above the range", strings.Replace(valid,
+			`judge       = { harness = "claude-code", model = "haiku",   effort = "low" }`,
+			`judge       = { harness = "claude-code", model = "haiku", effort = "low", context = 1000001 }`, 1),
+			"roles.judge: context must be from 100000 to 1000000 tokens"},
+	}
+	for _, c := range checks {
+		if got := parseError(t, c.text); got != c.want {
+			t.Errorf("%s: error = %q, want %q", c.name, got, c.want)
+		}
 	}
 }
 

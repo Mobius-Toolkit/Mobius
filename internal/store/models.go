@@ -260,6 +260,7 @@ type RoleSetting struct {
 	Effort    sql.NullString
 	Max       sql.NullInt64
 	UpdatedAt string
+	Context   sql.NullInt64
 }
 
 type Session struct {

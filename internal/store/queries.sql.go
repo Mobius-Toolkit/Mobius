@@ -7111,7 +7111,7 @@ func (q *Queries) ListRetryPromptsSince(ctx context.Context, arg ListRetryPrompt
 }
 
 const listRoleSettings = `-- name: ListRoleSettings :many
-SELECT role, harness, model, effort, max, updated_at FROM role_settings
+SELECT role, harness, model, effort, max, updated_at, context FROM role_settings
 `
 
 func (q *Queries) ListRoleSettings(ctx context.Context) ([]RoleSetting, error) {
@@ -7130,6 +7130,7 @@ func (q *Queries) ListRoleSettings(ctx context.Context) ([]RoleSetting, error) {
 			&i.Effort,
 			&i.Max,
 			&i.UpdatedAt,
+			&i.Context,
 		); err != nil {
 			return nil, err
 		}
@@ -9510,8 +9511,8 @@ func (q *Queries) UpdateCopiedWorkstream(ctx context.Context, arg UpdateCopiedWo
 }
 
 const upsertRoleSetting = `-- name: UpsertRoleSetting :exec
-INSERT INTO role_settings (role, harness, model, effort, max, updated_at) VALUES (?, ?, ?, ?, ?, ?)
-ON CONFLICT (role) DO UPDATE SET harness = excluded.harness, model = excluded.model, effort = excluded.effort, max = excluded.max, updated_at = excluded.updated_at
+INSERT INTO role_settings (role, harness, model, effort, max, context, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (role) DO UPDATE SET harness = excluded.harness, model = excluded.model, effort = excluded.effort, max = excluded.max, context = excluded.context, updated_at = excluded.updated_at
 `
 
 type UpsertRoleSettingParams struct {
@@ -9520,6 +9521,7 @@ type UpsertRoleSettingParams struct {
 	Model     sql.NullString
 	Effort    sql.NullString
 	Max       sql.NullInt64
+	Context   sql.NullInt64
 	UpdatedAt string
 }
 
@@ -9530,6 +9532,7 @@ func (q *Queries) UpsertRoleSetting(ctx context.Context, arg UpsertRoleSettingPa
 		arg.Model,
 		arg.Effort,
 		arg.Max,
+		arg.Context,
 		arg.UpdatedAt,
 	)
 	return err

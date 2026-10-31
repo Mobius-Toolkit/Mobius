@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -59,6 +60,9 @@ const ghWritesURLEnv = "MOBIUS_GH_WRITES_URL"
 
 // ghMarkEnv is the environment variable of an agent process that gives the mark line that its gh adds to each body.
 const ghMarkEnv = "MOBIUS_GH_MARK"
+
+// contextWindowEnv is the environment variable of a Claude Code process that sets its auto-compact window in tokens.
+const contextWindowEnv = "CLAUDE_CODE_AUTO_COMPACT_WINDOW"
 
 func agentEnv(dataDir string) string {
 	return filepath.Join(dataDir, "agent-env")
@@ -144,7 +148,7 @@ func command(ctx context.Context, file, cwd, dataDir, path, ghTokenURL, ghWrites
 	cmd := exec.CommandContext(ctx, file)
 	cmd.Dir = cwd
 	cmd.Env = slices.DeleteFunc(os.Environ(), func(entry string) bool {
-		return strings.HasPrefix(entry, "GH_TOKEN=") || strings.HasPrefix(entry, "GITHUB_TOKEN=") || strings.HasPrefix(entry, ghURLEnv+"=") || strings.HasPrefix(entry, ghWritesURLEnv+"=") || strings.HasPrefix(entry, ghMarkEnv+"=")
+		return strings.HasPrefix(entry, "GH_TOKEN=") || strings.HasPrefix(entry, "GITHUB_TOKEN=") || strings.HasPrefix(entry, ghURLEnv+"=") || strings.HasPrefix(entry, ghWritesURLEnv+"=") || strings.HasPrefix(entry, ghMarkEnv+"=") || strings.HasPrefix(entry, contextWindowEnv+"=")
 	})
 	cmd.Env = append(cmd.Env,
 		"GH_CONFIG_DIR="+filepath.Join(agentEnv, "gh-config"),
@@ -185,7 +189,7 @@ type Image struct {
 	Data     []byte
 }
 
-func harnessCommand(ctx context.Context, harness config.Harness, cwd, dataDir, path, ghTokenURL, ghWritesURL, ghMark string) (*exec.Cmd, error) {
+func harnessCommand(ctx context.Context, harness config.Harness, contextLimit int, cwd, dataDir, path, ghTokenURL, ghWritesURL, ghMark string) (*exec.Cmd, error) {
 	program := Program(harness)
 	file := Find(program, path)
 	if file == "" {
@@ -199,6 +203,9 @@ func harnessCommand(ctx context.Context, harness config.Harness, cwd, dataDir, p
 		cmd.Args = append(cmd.Args, "--profile", "acp")
 		// Mobius cannot know the folders that a session must write, so the shell of dsh has no sandbox.
 		cmd.Env = append(cmd.Env, "DSH_PERMISSION_MODE=danger-full-access")
+	}
+	if harness.HasContextLimit() && contextLimit > 0 {
+		cmd.Env = append(cmd.Env, contextWindowEnv+"="+strconv.Itoa(contextLimit))
 	}
 	// The agent leads its own process group, so the end of ctx also stops the processes of its tools.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -229,10 +236,10 @@ func connect(cmd *exec.Cmd, updates func(json.RawMessage, bool)) (*acp.Connectio
 // true when the agent wrote the notification after the response to the last prompt.
 // The gh of the agent gets its token from ghTokenURL, and sends its writes to ghWritesURL. With an empty ghTokenURL, the gh of
 // the agent refuses to run. With an empty ghWritesURL, it sends no write.
-func Start(ctx context.Context, harness config.Harness, cwd, dataDir, path, mcpURL, ghTokenURL, ghWritesURL, ghMark string, updates func(json.RawMessage, bool)) (*Session, error) {
+func Start(ctx context.Context, harness config.Harness, contextLimit int, cwd, dataDir, path, mcpURL, ghTokenURL, ghWritesURL, ghMark string, updates func(json.RawMessage, bool)) (*Session, error) {
 	program := Program(harness)
 	processCtx, stop := context.WithCancel(context.Background())
-	cmd, err := harnessCommand(processCtx, harness, cwd, dataDir, path, ghTokenURL, ghWritesURL, ghMark)
+	cmd, err := harnessCommand(processCtx, harness, contextLimit, cwd, dataDir, path, ghTokenURL, ghWritesURL, ghMark)
 	if err != nil {
 		stop()
 		return nil, err
@@ -272,7 +279,7 @@ func (s *Session) limited(ctx context.Context, request func(context.Context) err
 func LogInAntigravity(ctx context.Context, cwd, dataDir, path string) (bool, error) {
 	processCtx, stop := context.WithCancel(context.Background())
 	defer stop()
-	cmd, err := harnessCommand(processCtx, config.Antigravity, cwd, dataDir, path, "", "", "")
+	cmd, err := harnessCommand(processCtx, config.Antigravity, 0, cwd, dataDir, path, "", "", "")
 	if err != nil {
 		return false, err
 	}

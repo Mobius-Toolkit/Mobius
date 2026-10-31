@@ -8450,6 +8450,10 @@
         "type": "object",
         "title": "Role",
         "properties": {
+          "context": {
+            "type": "integer",
+            "description": "Context is the largest context of a session in tokens, or 0 for no limit"
+          },
           "effort": {
             "type": "string",
             "description": "Effort is the effort level of the Role, or empty for a Harness with no effort levels"
@@ -8480,6 +8484,7 @@
           "harness",
           "model",
           "effort",
+          "context",
           "max",
           "ui"
         ],
@@ -8489,6 +8494,10 @@
         "type": "object",
         "title": "RoleFields",
         "properties": {
+          "context": {
+            "type": "boolean",
+            "description": "Context is true when the UI gives the context limit"
+          },
           "effort": {
             "type": "boolean",
             "description": "Effort is true when the UI gives the effort level"
@@ -8510,6 +8519,7 @@
           "harness",
           "model",
           "effort",
+          "context",
           "max"
         ],
         "description": "RoleFields tells for each field of a Role if the UI gives it. false means config.toml."
@@ -8629,6 +8639,10 @@
         "type": "object",
         "title": "SetRoleBody",
         "properties": {
+          "context": {
+            "type": "integer",
+            "description": "Context is the largest context of a session in tokens, or 0 for no limit"
+          },
           "effort": {
             "type": "string",
             "description": "Effort is the effort level of the Role. It is empty for a Harness with no effort levels."

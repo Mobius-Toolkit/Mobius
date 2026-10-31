@@ -1459,8 +1459,8 @@ ORDER BY julianday(h.held_at), h.kind, h.repository, h.issue, i.repository, i.wo
 SELECT * FROM role_settings;
 
 -- name: UpsertRoleSetting :exec
-INSERT INTO role_settings (role, harness, model, effort, max, updated_at) VALUES (?, ?, ?, ?, ?, ?)
-ON CONFLICT (role) DO UPDATE SET harness = excluded.harness, model = excluded.model, effort = excluded.effort, max = excluded.max, updated_at = excluded.updated_at;
+INSERT INTO role_settings (role, harness, model, effort, max, context, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (role) DO UPDATE SET harness = excluded.harness, model = excluded.model, effort = excluded.effort, max = excluded.max, context = excluded.context, updated_at = excluded.updated_at;
 
 -- name: DeleteRoleSetting :exec
 DELETE FROM role_settings WHERE role = ?;
