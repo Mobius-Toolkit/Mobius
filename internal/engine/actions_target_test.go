@@ -30,7 +30,7 @@ func TestTwoMessageLeadCallsToTwoWorkstreamsBothStayPending(t *testing.T) {
 		t.Errorf("items = %+v", items)
 	}
 	calls := mcpCalls(t, server, session)
-	if len(calls) != 2 || calls[1]["result"] != actionWaitsText("Message to the Lead of #20 Billing", rows[1].ID) {
+	if len(calls) != 2 || calls[1]["result"] != actionWaitsText("Message to the Lead of #20 Billing", rows[1].InboxItem.Int64) {
 		t.Errorf("calls = %v", calls)
 	}
 }
@@ -54,8 +54,8 @@ func TestTwoTellCuratorCallsToTwoRepositoriesBothStayPending(t *testing.T) {
 	}
 	calls := mcpCalls(t, server, session)
 	title := "Request to the Curator of owner/other"
-	if len(calls) != 3 || calls[1]["result"] != actionWaitsText(title, rows[1].ID) ||
-		calls[2]["result"] != actionWaitsText(title, rows[2].ID)+replacesAction(title, rows[1].ID) {
+	if len(calls) != 3 || calls[1]["result"] != actionWaitsText(title, rows[1].InboxItem.Int64) ||
+		calls[2]["result"] != actionWaitsText(title, rows[2].InboxItem.Int64)+replacesAction(title, rows[1].InboxItem.Int64) {
 		t.Errorf("calls = %v", calls)
 	}
 }

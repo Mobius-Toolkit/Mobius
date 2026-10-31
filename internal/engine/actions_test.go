@@ -33,11 +33,12 @@ type actionJSON struct {
 }
 
 type actionRow struct {
-	ID      int64
-	State   string
-	Error   string
-	Result  string
-	Message string
+	ID        int64
+	InboxItem sql.NullInt64
+	State     string
+	Error     string
+	Result    string
+	Message   string
 }
 
 const (
@@ -69,8 +70,8 @@ func coordinatorSpec(t *testing.T) engine.Spec {
 func actionRows(t *testing.T, server *testserver.Server) []actionRow {
 	t.Helper()
 	return query(t, server, func(rows *sql.Rows, a *actionRow) error {
-		return rows.Scan(&a.ID, &a.State, &a.Error, &a.Result, &a.Message)
-	}, "SELECT id, state, error, result, message FROM pending_actions ORDER BY id")
+		return rows.Scan(&a.ID, &a.InboxItem, &a.State, &a.Error, &a.Result, &a.Message)
+	}, "SELECT id, inbox_item, state, error, result, message FROM pending_actions ORDER BY id")
 }
 
 func waitForActions(t *testing.T, server *testserver.Server, count int) []actionRow {
@@ -359,7 +360,7 @@ func TestASecondCallOfMessageLeadReplacesTheWaitingActionAndDismissesItsItem(t *
 
 	calls := mcpCalls(t, server, session)
 	title := "Message to the Lead of #12 Integrate loyalty plans"
-	if len(calls) != 2 || calls[1]["result"] != actionWaitsText(title, second.ID)+replacesAction(title, first.ID) {
+	if len(calls) != 2 || calls[1]["result"] != actionWaitsText(title, second.InboxItem.Int64)+replacesAction(title, first.InboxItem.Int64) {
 		t.Errorf("calls = %v", calls)
 	}
 
@@ -389,21 +390,26 @@ func TestASecondCallOfMessageLeadReplacesTheWaitingActionAndDismissesItsItem(t *
 func TestTheResultOfAToolNamesTheTrayRowOfTheActionAndOfTheReplacedAction(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
+	askFirst := "[[prompts]]\nwhen = \"Ask first.\"\ncall = { tool = \"ask\", arguments = { text = \"Which unit?\" } }\n\n"
 	server, _ := connect(t, fake, approvalSeen+
+		askFirst+
 		callCreateWorkstream("Create loyalty.", "Loyalty API", "Plan the loyalty API.")+
 		callCreateWorkstream("Create billing.", "Billing API", "Plan the billing API.")+
 		seenScript)
-	session := run(t, server, coordinatorSpec(t), "Create loyalty.", "Create billing.")
+	session := run(t, server, coordinatorSpec(t), "Ask first.", "Create loyalty.", "Create billing.")
 	rows := waitForActions(t, server, 2)
+	if rows[0].InboxItem.Int64 == rows[0].ID || rows[1].InboxItem.Int64 == rows[1].ID {
+		t.Fatalf("the ID of the Inbox item and of the pending action are equal: %+v", rows)
+	}
 
 	calls := mcpCalls(t, server, session)
 	loyalty := `Create the Workstream "Loyalty API"`
 	billing := `Create the Workstream "Billing API"`
-	if len(calls) != 2 || calls[0]["result"] != actionWaitsText(loyalty, rows[0].ID) {
+	if len(calls) != 3 || calls[1]["result"] != actionWaitsText(loyalty, rows[0].InboxItem.Int64) {
 		t.Errorf("calls = %v", calls)
 	}
-	if calls[1]["result"] != actionWaitsText(billing, rows[1].ID)+replacesAction(loyalty, rows[0].ID) {
-		t.Errorf("result = %q", calls[1]["result"])
+	if calls[2]["result"] != actionWaitsText(billing, rows[1].InboxItem.Int64)+replacesAction(loyalty, rows[0].InboxItem.Int64) {
+		t.Errorf("result = %q", calls[2]["result"])
 	}
 	for _, call := range calls {
 		if result := call["result"].(string); !strings.Contains(result, "only for withdraw") {

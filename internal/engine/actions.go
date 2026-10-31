@@ -320,7 +320,7 @@ func (e *Engine) holdAction(ctx context.Context, c caller, tool, title string, a
 	}
 	result := fmt.Sprintf(`The action waits for the approval of the Owner. Its tray row is "%s". In the chat, name the action by these words. Its ID is %d, only for withdraw.`, item.Title, item.ID)
 	for _, old := range replaced {
-		result += fmt.Sprintf(` It replaces the pending action "%s" (ID %d), which does not run.`, old.Title, old.ID)
+		result += fmt.Sprintf(` It replaces the pending action "%s" (ID %d), which does not run.`, old.Title, old.InboxItem)
 	}
 	return result, nil
 }
@@ -389,10 +389,11 @@ func (e *Engine) workstreamName(ctx context.Context, repository string, number i
 	return fmt.Sprintf("#%d %s", number, copied.Title), nil
 }
 
-// replacedAction is a pending action that a new call replaced, with the title of its tray row.
+// replacedAction is a pending action that a new call replaced, with the ID of its Inbox item and the title of its tray
+// row.
 type replacedAction struct {
-	ID    int64
-	Title string
+	InboxItem int64
+	Title     string
 }
 
 // replaceActions marks each pending action that action replaces as replaced, and dismisses its Inbox item. It gives the
@@ -442,7 +443,7 @@ func (e *Engine) replaceActions(ctx context.Context, action store.PendingAction)
 			return nil, err
 		}
 		e.publish(Change{Action: &replaced})
-		done = append(done, replacedAction{ID: replaced.ID, Title: title})
+		done = append(done, replacedAction{InboxItem: replaced.InboxItem.Int64, Title: title})
 	}
 	return done, nil
 }
