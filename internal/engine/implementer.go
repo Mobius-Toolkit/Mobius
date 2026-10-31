@@ -1013,23 +1013,27 @@ func shortPrompt(j job, kept *keptSession) string {
 }
 
 // keepImplementer ends the row of the done round and keeps its Harness process for the next round of the task. The
-// row ends as each other, so a kept session holds no slot.
+// row ends as each other, so a kept session holds no slot. The keep runs before end frees the drain count, because a
+// drain that completes in between lets the restart leave the Harness process behind.
 func (e *Engine) keepImplementer(ctx context.Context, a *Agent, task store.Task, j *job) error {
-	k := &keptSession{session: a.session, key: a.key, binding: a.binding, keptAt: e.timeNow(), brief: j.brief, issue: j.issueBody, comments: j.comments}
-	if err := a.end(ctx, string(done), true); err != nil {
-		e.closeKeptSession(k)
+	k := &keptSession{binding: a.binding, keptAt: e.timeNow(), brief: j.brief, issue: j.issueBody, comments: j.comments}
+	err := a.end(ctx, string(done), func() {
+		a.mu.Lock()
+		k.costTotal, k.costBase = a.costTotal, a.costBase
+		k.report = a.report
+		a.mu.Unlock()
+		k.session, k.key = a.session, a.key
+		a.session, a.key = nil, ""
+		if k.session == nil {
+			e.agents.MCP.Close(k.key)
+			return
+		}
+		e.keepSession(task.ID, k)
+	})
+	if err != nil {
+		a.closeHarness()
 		return err
 	}
-	a.mu.Lock()
-	k.costTotal, k.costBase = a.costTotal, a.costBase
-	k.report = a.report
-	a.mu.Unlock()
-	k.session, k.key = a.session, a.key
-	a.session, a.key = nil, ""
-	if k.session == nil {
-		return nil
-	}
-	e.keepSession(task.ID, k)
 	return nil
 }
 

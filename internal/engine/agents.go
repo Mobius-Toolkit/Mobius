@@ -671,13 +671,14 @@ func (a *Agent) setAuthor(author string) {
 
 // End ends the agent and the session with reason, for example "done". Then the session frees its slot.
 func (a *Agent) End(ctx context.Context, reason string) error {
-	return a.end(ctx, reason, false)
+	return a.end(ctx, reason, nil)
 }
 
-// end ends the agent and the session with reason. With keep, it leaves the Harness process and the MCP key open for
-// the caller, which stores them as a kept session. The caller must close them when it cannot keep them.
-func (a *Agent) end(ctx context.Context, reason string, keep bool) error {
-	if !keep {
+// end ends the agent and the session with reason. keep runs after the row ends, and before release frees the drain
+// count, so the kept Harness process is stored before a drain can complete. Nil closes the Harness. When keep != nil
+// and end returns an error before keep ran, the caller closes the Harness.
+func (a *Agent) end(ctx context.Context, reason string, keep func()) error {
+	if keep == nil {
 		a.closeHarness()
 	}
 	defer a.release()
@@ -694,6 +695,9 @@ func (a *Agent) end(ctx context.Context, reason string, keep bool) error {
 		return err
 	}
 	a.engine.publish(Change{Node: new(a.engine.node(session))})
+	if keep != nil {
+		keep()
+	}
 	if spec := a.spec; spec.Role != CuratorRole && spec.Repository != "" {
 		if err := a.engine.startCuratorAfterEnds(ctx, spec.Repository); err != nil {
 			log.Printf("start a Curator of %s: %v", spec.Repository, err)
