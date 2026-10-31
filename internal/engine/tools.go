@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	gh "github.com/google/go-github/v92/github"
 
@@ -99,6 +100,13 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 					"report":     map[string]any{"type": "string", "minLength": 1, "description": "Your approval report in two parts: what you checked, and what you verified and how."},
 				},
 				e.approvePullRequest),
+			taskTool(e, c, "update_branch",
+				"Update the branch of the pull request of a task with the default branch. Mobius merges the default branch into the branch and reads the pull request again at the next poll. It refuses a task with no open pull request and a task with a running Worker.",
+				map[string]any{
+					"repository": repositoryProperty,
+					"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
+				},
+				e.updateBranchTool),
 			taskTool(e, c, "stop_task",
 				"Stop the work on a task of this Workstream that is queued or working. Call it only when the Owner tells you to stop that task. The pull request and the branch stay.",
 				map[string]any{
@@ -1169,6 +1177,75 @@ func (e *Engine) stopTaskTool(ctx context.Context, c caller, repository github.R
 		return "", err
 	}
 	return fmt.Sprintf("Stopped the task of #%d.", input.N), nil
+}
+
+var (
+	updateBranchInterval = 2 * time.Second
+	updateBranchTimeout  = 30 * time.Second
+)
+
+func (e *Engine) updateBranchTool(ctx context.Context, c caller, repository github.Repository, input taskInput) (string, error) {
+	if input.N < 1 {
+		return "", refuse("n must be 1 or more.")
+	}
+	task, err := e.workstreamTask(ctx, repository, c.repository, c.workstream, input.N)
+	if err != nil {
+		return "", err
+	}
+	if !task.PullRequest.Valid {
+		return "", refuse("The task of %s has no open pull request.", taskEventRef(task, input.N))
+	}
+	if task.State == "working" {
+		return "", refuse("The task of %s is working.", taskEventRef(task, input.N))
+	}
+	pullRequest, err := repository.PullRequest(ctx, task.PullRequest.Int64)
+	if err != nil {
+		return "", err
+	}
+	if pullRequest.GetState() != "open" {
+		return "", refuse("The task of %s has no open pull request.", taskEventRef(task, input.N))
+	}
+	oldHead := pullRequest.GetHead().GetSHA()
+	behind, err := repository.CommitsBehind(ctx, repository.DefaultBranch, oldHead)
+	if err != nil {
+		return "", err
+	}
+	if behind == 0 {
+		return fmt.Sprintf("The branch of pull request %s is already up to date with %s, head %.8s.", taskEventRef(task, task.PullRequest.Int64), repository.DefaultBranch, oldHead), nil
+	}
+	err = repository.UpdatePullRequestBranch(ctx, task.PullRequest.Int64, oldHead)
+	var refused *gh.ErrorResponse
+	if errors.As(err, &refused) && refused.Response.StatusCode >= 400 && refused.Response.StatusCode < 500 {
+		return "", refuse("%s", refused.Message)
+	}
+	if err != nil {
+		return "", err
+	}
+	deadline := time.Now().Add(updateBranchTimeout)
+	var newHead string
+	for {
+		pr, err := repository.PullRequest(ctx, task.PullRequest.Int64)
+		if err != nil {
+			return "", err
+		}
+		if pr.GetHead().GetSHA() != oldHead {
+			newHead = pr.GetHead().GetSHA()
+			break
+		}
+		if !time.Now().Before(deadline) {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(min(updateBranchInterval, time.Until(deadline))):
+		}
+	}
+	e.markPushed(repository, task.PullRequest.Int64)
+	if newHead != "" {
+		return fmt.Sprintf("Mobius updated the branch of pull request %s: new head %.8s, old head %.8s. The new head gets a new CI run, and a new review round only when an Implementer pushes.", taskEventRef(task, task.PullRequest.Int64), newHead, oldHead), nil
+	}
+	return fmt.Sprintf("GitHub accepted the update of pull request %s, but the head is still %.8s after 30 seconds. The next poll reads the pull request again.", taskEventRef(task, task.PullRequest.Int64), oldHead), nil
 }
 
 func (e *Engine) markReady(ctx context.Context, c caller, repository github.Repository, input taskInput) (string, error) {
