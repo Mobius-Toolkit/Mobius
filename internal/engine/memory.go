@@ -120,7 +120,7 @@ func (e *Engine) saveMemory(ctx context.Context, repository, file, author, reaso
 	}
 	limit := maxMemoryBytes(file)
 	if len(text) > limit && (len(current) <= limit || len(text) >= len(current)) {
-		return fmt.Errorf("%w: the memory file %s has %d bytes and the limit is %d. Remove or shorten a lesson. Do not make a line longer.", ErrMemoryTooLong, file, len(text), limit)
+		return fmt.Errorf("%w: the memory file %s has %d bytes and the limit is %d. Remove or shorten a lesson. Do not make a line longer", ErrMemoryTooLong, file, len(text), limit)
 	}
 	if current == text {
 		return nil

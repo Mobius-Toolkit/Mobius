@@ -241,7 +241,7 @@ func TestTheEditOfTheOwnerGivesErrMemoryTooLongAboveTheByteLimit(t *testing.T) {
 	if !errors.Is(err, engine.ErrMemoryTooLong) {
 		t.Fatalf("err = %v, want ErrMemoryTooLong", err)
 	}
-	want := "the memory file has too many lines: the memory file shared has 16385 bytes and the limit is 16384. Remove or shorten a lesson. Do not make a line longer."
+	want := "the memory file has too many lines: the memory file shared has 16385 bytes and the limit is 16384. Remove or shorten a lesson. Do not make a line longer"
 	if err.Error() != want {
 		t.Errorf("error = %q, want %q", err.Error(), want)
 	}
