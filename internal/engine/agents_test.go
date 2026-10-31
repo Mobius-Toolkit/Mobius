@@ -503,17 +503,18 @@ updates = [
 ]
 `)
 
-	session, _ := leadReply(t, server)
+	sess, _ := leadReply(t, server)
+	acp := session(t, server, sess).AcpSessionID.String
 
 	var stored []string
-	for _, line := range transcript(t, server, session) {
+	for _, line := range transcript(t, server, sess) {
 		if line.Text == "tool call update" || line.Text == "available_commands_update" {
 			stored = append(stored, line.Raw)
 		}
 	}
 	want := []string{
-		`{"sessionId":"fake-session","update":{"_meta":{"claudeCode":{"toolName":"Bash"}},"content":[{"content":{"text":"out","type":"text"},"type":"content"}],"sessionUpdate":"tool_call_update","status":"completed","toolCallId":"toolu_4"}}`,
-		`{"sessionId":"fake-session","update":{"sessionUpdate":"available_commands_update"}}`,
+		`{"sessionId":"` + acp + `","update":{"_meta":{"claudeCode":{"toolName":"Bash"}},"content":[{"content":{"text":"out","type":"text"},"type":"content"}],"sessionUpdate":"tool_call_update","status":"completed","toolCallId":"toolu_4"}}`,
+		`{"sessionId":"` + acp + `","update":{"sessionUpdate":"available_commands_update"}}`,
 	}
 	if !reflect.DeepEqual(stored, want) {
 		t.Errorf("stored = %s", stored)
@@ -524,15 +525,16 @@ updates = [
 func TestTheAPIGivesTheFullTranscriptWithAnUpdateOfAnUnknownKind(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	unknown := `{"sessionId":"fake-session","update":{"sessionUpdate":"a_future_kind","items":[1,2.5,"three"],"_meta":{"x":true}}}`
 	server, _ := connect(t, fake, `
 [[prompts]]
 updates = ['{"sessionUpdate":"a_future_kind","items":[1,2.5,"three"],"_meta":{"x":true}}']
 reply = ["Done."]
 `)
-	session, _ := leadReply(t, server)
+	sess, _ := leadReply(t, server)
+	acp := session(t, server, sess).AcpSessionID.String
+	unknown := `{"sessionId":"` + acp + `","update":{"sessionUpdate":"a_future_kind","items":[1,2.5,"three"],"_meta":{"x":true}}}`
 
-	response, err := server.Client.Get(server.URL + "/api/agents/" + strconv.FormatInt(session, 10) + "/transcript")
+	response, err := server.Client.Get(server.URL + "/api/agents/" + strconv.FormatInt(sess, 10) + "/transcript")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -557,7 +559,7 @@ reply = ["Done."]
 
 	var got []string
 	for _, line := range body.Data.Lines {
-		if line.Session != session {
+		if line.Session != sess {
 			t.Errorf("line = %+v", line)
 		}
 		if line.Text != "config_option_update" {

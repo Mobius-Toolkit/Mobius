@@ -622,6 +622,7 @@ func TestAReviewWithAFindingAndAFollowUpStartsAFixRoundWithOnlyTheFinding(t *tes
 		t.Fatalf("prompts = %q", prompts)
 	}
 	_, items, _ := strings.Cut(prompts[0], "# Open items")
+	items, _, _ = strings.Cut(items, "# Pull request comments")
 	if !strings.Contains(items, "Thread 2, plan.txt line 1:") || strings.Contains(items, "Name the unit.") {
 		t.Errorf("open items = %q", items)
 	}

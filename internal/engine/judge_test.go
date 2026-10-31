@@ -139,6 +139,7 @@ func TestTheJudgeRoutesOneItemOfEachVerdict(t *testing.T) {
 	}
 	prompts := implementerPrompts(t, server)
 	_, round, _ := strings.Cut(prompts[len(prompts)-1], "# Open items\n")
+	round, _, _ = strings.Cut(round, "# Pull request comments")
 	for _, part := range []string{"Thread 2, src/plan.rs line 12:", "Action: fix: Rename the field.\n", "Comment 3:", "Action: question: Explain why the plan stores cents.\n"} {
 		if !strings.Contains(round, part) {
 			t.Errorf("%q is not in %s", part, round)
