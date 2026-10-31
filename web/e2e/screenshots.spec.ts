@@ -2245,10 +2245,34 @@ test("screenshots", async ({ page }) => {
     (device) => [
       ...frame(device, release),
       main.getByRole("tab", { name: "Tokens", selected: true }),
-      main.getByRole("row", { name: /devin 3 49,000 12,100 156,000 17,000 —$/ }),
+      main.getByRole("row", { name: /devin 3 412K of 1M 254K 49,000 12,100 156,000 17,000 —$/ }),
       main.locator(".recharts-bar-rectangle").first(),
       ...usageDays.map((day) => main.getByText(day, { exact: true })),
     ],
+  );
+  const usageContextRows = [
+    /^implementer 4 412K of 1M 229K/,
+    /^lead_chat 1 95K of 200K 95K/,
+    /^reviewer 2 412K of 1M 296K/,
+  ];
+  await screenshot(
+    page,
+    "usage-context",
+    "/usage?tab=tokens&group=%5B%22role%22%5D",
+    (device) => [
+      ...frame(device, release),
+      main.getByRole("tab", { name: "Tokens", selected: true }),
+      main.getByRole("columnheader", { name: "Largest context" }),
+      main.getByRole("columnheader", { name: "Mean context" }),
+      ...usageContextRows.map((name) => main.getByRole("row", { name })),
+    ],
+    async () => {
+      await legendSettled();
+      await expect(main.getByRole("row", { name: usageContextRows[2] })).toBeVisible();
+      await main
+        .getByRole("table")
+        .evaluate((table) => table.scrollIntoView({ block: "center", inline: "start" }));
+    },
   );
   // The engine writes the times of its own steps and states at the real time, which can be in the 7 days.
   expect((await page.request.post("/e2e/times/fix")).ok()).toBe(true);

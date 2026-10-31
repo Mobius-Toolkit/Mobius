@@ -237,6 +237,7 @@ func TestANewMessageAfterTheLastTryGivesTheFailedMessageFirst(t *testing.T) {
 	sendChat(t, server, leadChat, second)
 
 	waitForDeliveredMessage(t, server, leadChat, first)
+	waitForDeliveredMessage(t, server, leadChat, second)
 	waitForNoFailedItems(t, server)
 	sessions := chatSessions(t, server, leadChat, engine.LeadRole)
 	last := sessions[len(sessions)-1]

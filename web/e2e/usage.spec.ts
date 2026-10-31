@@ -76,6 +76,27 @@ test("an old group key gives no group", async ({ page }) => {
   await expect(main.getByRole("button", { name: "Group by: None" })).toBeVisible();
 });
 
+test("the tab Tokens shows the largest and the mean context of each group", async ({ page }) => {
+  const main = page.getByRole("main");
+  await page.goto("/usage?tab=tokens&group=%5B%22role%22%5D");
+
+  const table = main.getByRole("table");
+  await expect(table.getByRole("columnheader", { name: "Largest context" })).toBeVisible();
+  await expect(table.getByRole("columnheader", { name: "Mean context" })).toBeVisible();
+  await expect(table.getByRole("row", { name: /^implementer 4 412K of 1M 229K/ })).toBeVisible();
+  await expect(table.getByRole("row", { name: /^lead_chat 1 95K of 200K 95K/ })).toBeVisible();
+  await expect(table.getByRole("row", { name: /^reviewer 2 412K of 1M 296K/ })).toBeVisible();
+});
+
+test("the tab Cost shows no context columns", async ({ page }) => {
+  const main = page.getByRole("main");
+  await page.goto("/usage");
+
+  await expect(main.getByRole("columnheader", { name: "Sessions" })).toBeVisible();
+  await expect(main.getByRole("columnheader", { name: "Largest context" })).toHaveCount(0);
+  await expect(main.getByRole("columnheader", { name: "Mean context" })).toHaveCount(0);
+});
+
 test("the source filter of the tab Skills keeps only the Harness rows", async ({ page }) => {
   const main = page.getByRole("main");
   await page.goto("/usage?tab=skills");

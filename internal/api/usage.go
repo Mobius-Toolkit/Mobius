@@ -24,6 +24,12 @@ const utcSecond = "2006-01-02T15:04:05Z"
 type UsageValues struct {
 	// Sessions is the number of distinct sessions of the rows
 	Sessions int64 `gork:"sessions"`
+	// ContextMax is the largest context_used of the sessions of the rows, or null when no session has a value
+	ContextMax *int64 `gork:"contextMax"`
+	// ContextMaxSize is the context_size of the session that gave ContextMax
+	ContextMaxSize *int64 `gork:"contextMaxSize"`
+	// ContextMean is the mean context_used of the sessions with a value, rounded to a whole token
+	ContextMean *int64 `gork:"contextMean"`
 	// InputTokens is the sum of the input tokens
 	InputTokens *int64 `gork:"inputTokens"`
 	// OutputTokens is the sum of the output tokens
@@ -215,18 +221,23 @@ type usageDayKey struct {
 
 // usageSum adds the usage rows of a set. A sum stays invalid until a row has a value.
 type usageSum struct {
-	sessions   map[int64]bool
-	input      sql.NullInt64
-	output     sql.NullInt64
-	cacheRead  sql.NullInt64
-	cacheWrite sql.NullInt64
-	cost       sql.NullFloat64
+	sessions       map[int64]bool
+	contextMax     sql.NullInt64
+	contextMaxSize sql.NullInt64
+	contextSum     int64
+	contexts       int64
+	input          sql.NullInt64
+	output         sql.NullInt64
+	cacheRead      sql.NullInt64
+	cacheWrite     sql.NullInt64
+	cost           sql.NullFloat64
 }
 
-func (s *usageSum) add(row store.TurnUsage) {
+func (s *usageSum) add(row store.ListTurnUsageBetweenRow) {
 	if s.sessions == nil {
 		s.sessions = map[int64]bool{}
 	}
+	first := !s.sessions[row.Session]
 	s.sessions[row.Session] = true
 	addInt(&s.input, row.InputTokens)
 	addInt(&s.output, row.OutputTokens)
@@ -236,11 +247,26 @@ func (s *usageSum) add(row store.TurnUsage) {
 		s.cost.Float64 += row.CostUsd.Float64
 		s.cost.Valid = true
 	}
+	if first && row.SessionContextUsed.Valid {
+		s.contexts++
+		s.contextSum += row.SessionContextUsed.Int64
+		if !s.contextMax.Valid || row.SessionContextUsed.Int64 > s.contextMax.Int64 {
+			s.contextMax = row.SessionContextUsed
+			s.contextMaxSize = row.SessionContextSize
+		}
+	}
 }
 
 func (s *usageSum) values() UsageValues {
+	var mean sql.NullInt64
+	if s.contexts > 0 {
+		mean = sql.NullInt64{Int64: (s.contextSum + s.contexts/2) / s.contexts, Valid: true}
+	}
 	return UsageValues{
 		Sessions:         int64(len(s.sessions)),
+		ContextMax:       nullableInt(s.contextMax),
+		ContextMaxSize:   nullableInt(s.contextMaxSize),
+		ContextMean:      nullableInt(mean),
 		InputTokens:      nullableInt(s.input),
 		OutputTokens:     nullableInt(s.output),
 		CacheReadTokens:  nullableInt(s.cacheRead),
@@ -296,7 +322,7 @@ func selectedFields(fields []string, route []string) []string {
 
 var usageFields = []string{"harness", "model", "modelVersion", "effort", "role", "repository"}
 
-func usageGroupValues(row store.TurnUsage, fields []string) []string {
+func usageGroupValues(row store.ListTurnUsageBetweenRow, fields []string) []string {
 	values := make([]string, 0, len(fields))
 	for _, field := range selectedFields(fields, usageFields) {
 		switch field {
