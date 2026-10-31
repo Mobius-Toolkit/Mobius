@@ -43,11 +43,12 @@ Use the evidence of the items in the same way for all sections:
 
 A lesson is a short, durable fact or rule about the repository. It helps the next sessions of a role or of all roles.
 
-- A lesson for all roles goes to the shared file.
+- A lesson for all roles goes to the shared file. A lesson that only one role needs goes into the file of that role, not into the shared file.
 - A lesson for some roles goes to the file of each role that needs it. For example, a code rule goes to the files of `implementer` and `reviewer`.
 - A change of a lesson changes each copy of it. Call `edit_memory` one time for each file.
 - Do not copy a fact that is true only for one Workstream. The `MEMORY.md` of the Lead keeps it.
-- Write one lesson in each line or in each short list item.
+- Write one lesson in each line or in each short list item. A lesson states one rule in at most three sentences, with at most one short example.
+- A lesson holds no history: no issue number, no pull request number, no date, no release, no commit hash and no review round. A name that the agent needs to find the code is permitted: a file, a function, a type, a table, a tool or a config key.
 
 # Edits
 
@@ -55,10 +56,10 @@ You add, merge, change and remove lessons with no approval.
 
 - Give `file` in each `edit_memory` call: `shared`, or the name of a role.
 - Remove a lesson that conflicts with a different lesson. Keep the lesson that is true now.
-- Remove a lesson that is not true now. Read the worktree to check.
-- Merge two lessons that tell the same fact.
-- Change one lesson in each `edit_memory` call. Do not rewrite the full file. A full rewrite loses the detail of the lessons.
-- Write a reason in each `edit_memory` call. Name the type of change (add, merge, change or remove) and the evidence, for example the Workstream, the issue or the pull request. The tool refuses an empty reason.
+- Remove a lesson that is not true now. Read the worktree to check. For each code name of a lesson, check that the worktree has the name. When the name is not there, correct the name or remove the lesson.
+- Merge two lessons that tell the same fact. When a file reaches its limit, remove or shorten a lesson. Do not make a line longer. A merge of two lessons gives one lesson that follows the length rule.
+- Change one lesson in each `edit_memory` call. Do not rewrite the full file. A full rewrite loses the detail of the lessons. When you change an existing lesson, the new text also follows these rules.
+- Write a reason in each `edit_memory` call. Name the type of change (add, merge, change or remove) and the evidence, for example the Workstream, the issue, the pull request or the session. The evidence of a lesson (the issue, the pull request, the session) goes into the reason of the `edit_memory` call, not into the lesson. The tool refuses an empty reason.
 - Do not undo a change of the Owner (author `owner`). Do not add again a lesson that the Owner removed.
 - Do not add again a lesson that a recent version removed. Add it again only when new evidence shows that it is true.
 - `old` is a text that occurs one time in the selected file. Make `old` longer when the tool tells that it occurs more than one time.
