@@ -101,6 +101,64 @@ func TestAClaudeCodeTurnHasAUsageRowWithTheTokensTheModelAndTheCostOfTheTurn(t *
 	}
 }
 
+func TestTheSessionRecordsTheLargestContextOfItsUsageUpdates(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, `
+[[prompts]]
+updates = ['{"sessionUpdate": "usage_update", "used": 1000, "size": 200000}', '{"sessionUpdate": "usage_update", "used": 5000, "size": 200000}', '{"sessionUpdate": "usage_update", "used": 3000, "size": 200000}']
+reply = ["One"]
+`)
+
+	session := run(t, server, leadSpec(t), "One")
+
+	used, size := sessionContext(t, server, session)
+	if used != nullInt(5000) || size != nullInt(200000) {
+		t.Errorf("context = %+v of %+v, want 5000 of 200000", used, size)
+	}
+}
+
+func TestAUsageUpdateOutsideATurnCountsForTheSessionContext(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	gate := filepath.Join(t.TempDir(), "turn-ended")
+	server, _ := connect(t, fake, `
+[[prompts]]
+updates = ['{"sessionUpdate": "usage_update", "used": 1000, "size": 200000}']
+reply = ["One"]
+later = { wait_for = '`+gate+`', updates = ['{"sessionUpdate": "usage_update", "used": 7000, "size": 200000}'] }
+`)
+	agent := start(t, server, leadSpec(t))
+	if err := agent.Prompt(t.Context(), "One", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(gate, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	testkit.WaitFor(t, func() bool {
+		var updates int
+		if err := server.DB.QueryRowContext(t.Context(), `SELECT count(*) FROM transcript WHERE session = ? AND json LIKE '%7000%'`, agent.ID()).Scan(&updates); err != nil {
+			t.Fatal(err)
+		}
+		return updates > 0
+	})
+	end(t, agent, "done")
+
+	if used, _ := sessionContext(t, server, agent.ID()); used != nullInt(7000) {
+		t.Errorf("context used = %+v, want 7000 from the update outside the turn", used)
+	}
+}
+
+// sessionContext gives the largest context that the session row records.
+func sessionContext(t *testing.T, server *testserver.Server, session int64) (sql.NullInt64, sql.NullInt64) {
+	t.Helper()
+	var used, size sql.NullInt64
+	if err := server.DB.QueryRowContext(t.Context(), `SELECT context_used, context_size FROM sessions WHERE id = ?`, session).Scan(&used, &size); err != nil {
+		t.Fatal(err)
+	}
+	return used, size
+}
+
 func TestTheCostOfAnAutonomousTurnAfterTheLastPromptHasAUsageRowAtTheEndOfTheSession(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	gate := filepath.Join(t.TempDir(), "turn-ended")

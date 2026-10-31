@@ -10,6 +10,9 @@ import (
 
 type usageValues struct {
 	Sessions         int64    `json:"sessions"`
+	ContextMax       *int64   `json:"contextMax"`
+	ContextMaxSize   *int64   `json:"contextMaxSize"`
+	ContextMean      *int64   `json:"contextMean"`
 	InputTokens      *int64   `json:"inputTokens"`
 	OutputTokens     *int64   `json:"outputTokens"`
 	CacheReadTokens  *int64   `json:"cacheReadTokens"`
@@ -110,6 +113,61 @@ func TestGetUsageTotalsCountDistinctSessionsInThePeriod(t *testing.T) {
 	}
 	if !reflect.DeepEqual(body.Totals, want) {
 		t.Errorf("totals = %+v, want %+v", body.Totals, want)
+	}
+}
+
+func TestGetUsageContextOfAGroupAndOfTheTotals(t *testing.T) {
+	mux, db := testMux(t)
+	exec(t, db, `
+		INSERT INTO sessions (id, role, harness, model, repository, workstream, started_at, organization,
+			context_used, context_size) VALUES
+			(1, 'Implementer', 'claude-code', 'opus', 'o/a', 1, '2026-10-05T10:00:00Z', 'o', 412000, 1000000),
+			(2, 'Implementer', 'claude-code', 'opus', 'o/a', 1, '2026-10-05T11:00:00Z', 'o', 180000, 200000),
+			(4, 'Implementer', 'claude-code', 'opus', 'o/a', 1, '2026-10-05T11:30:00Z', 'o', 95002, 200000),
+			(3, 'Reviewer', 'claude-code', 'sonnet', 'o/a', 1, '2026-10-05T12:00:00Z', 'o', NULL, NULL);
+		INSERT INTO turn_usage (session, workstream, organization, repository, role, harness, model,
+			started_at, ended_at, input_tokens, output_tokens) VALUES
+			(1, 1, 'o', 'o/a', 'Implementer', 'claude-code', 'opus', '2026-10-05T10:00:00Z', '2026-10-05T10:10:00Z', 10, 1),
+			(1, 1, 'o', 'o/a', 'Implementer', 'claude-code', 'opus', '2026-10-05T10:20:00Z', '2026-10-05T10:30:00Z', 20, 2),
+			(2, 1, 'o', 'o/a', 'Implementer', 'claude-code', 'opus', '2026-10-05T11:00:00Z', '2026-10-05T11:10:00Z', 30, 3),
+			(4, 1, 'o', 'o/a', 'Implementer', 'claude-code', 'opus', '2026-10-05T11:30:00Z', '2026-10-05T11:40:00Z', 40, 4),
+			(3, 1, 'o', 'o/a', 'Reviewer', 'claude-code', 'sonnet', '2026-10-05T12:00:00Z', '2026-10-05T12:10:00Z', 40, 4);
+	`)
+	get := usageGetter(t, mux)
+
+	code, body := get(usagePeriod + "&group=role")
+	if code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", code, http.StatusOK)
+	}
+	wantTotals := usageValues{
+		Sessions:       4,
+		ContextMax:     int64Ptr(412000),
+		ContextMaxSize: int64Ptr(1000000),
+		ContextMean:    int64Ptr(229001),
+		InputTokens:    int64Ptr(140),
+		OutputTokens:   int64Ptr(14),
+	}
+	if !reflect.DeepEqual(body.Totals, wantTotals) {
+		t.Errorf("totals = %+v, want %+v", body.Totals, wantTotals)
+	}
+	want := map[string]usageValues{
+		"Implementer": {
+			Sessions:       3,
+			ContextMax:     int64Ptr(412000),
+			ContextMaxSize: int64Ptr(1000000),
+			ContextMean:    int64Ptr(229001),
+			InputTokens:    int64Ptr(100),
+			OutputTokens:   int64Ptr(10),
+		},
+		"Reviewer": {Sessions: 1, InputTokens: int64Ptr(40), OutputTokens: int64Ptr(4)},
+	}
+	if len(body.Groups) != len(want) {
+		t.Fatalf("groups = %+v, want %d", body.Groups, len(want))
+	}
+	for _, group := range body.Groups {
+		if !reflect.DeepEqual(group.Values, want[group.Group[0]]) {
+			t.Errorf("group %v = %+v, want %+v", group.Group, group.Values, want[group.Group[0]])
+		}
 	}
 }
 

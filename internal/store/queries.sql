@@ -83,7 +83,10 @@ INSERT INTO session_skills (session, organization, repository, role, harness, sk
 VALUES (?, ?, ?, ?, ?, ?, ?);
 
 -- name: ListTurnUsageBetween :many
-SELECT * FROM turn_usage WHERE started_at >= sqlc.arg(after) AND started_at < sqlc.arg(before);
+SELECT t.*, s.context_used AS session_context_used, s.context_size AS session_context_size
+FROM turn_usage t
+LEFT JOIN sessions s ON s.id = t.session
+WHERE t.started_at >= sqlc.arg(after) AND t.started_at < sqlc.arg(before);
 
 -- name: ListSkillUsesBetween :many
 SELECT * FROM skill_uses WHERE used_at >= sqlc.arg(after) AND used_at < sqlc.arg(before);
@@ -210,6 +213,9 @@ UPDATE sessions SET acp_session_id = ? WHERE id = ?;
 
 -- name: SetSessionContinued :exec
 UPDATE sessions SET continued = 1 WHERE id = ?;
+
+-- name: SetSessionContext :exec
+UPDATE sessions SET context_used = ?, context_size = ? WHERE id = ?;
 
 -- name: EndSession :one
 UPDATE sessions SET ended_at = ?, end_reason = ?, queue_reason = NULL WHERE id = ?

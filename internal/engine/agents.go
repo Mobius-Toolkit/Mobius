@@ -131,6 +131,14 @@ type Agent struct {
 	// costTotal is the last cost total of the session. costBase is the cost total at the end of the last turn with a cost.
 	costTotal float64
 	costBase  float64
+	// contextUsed is the largest used of the usage_update of the session, and contextSize is the size of that update.
+	contextUsed sql.NullInt64
+	contextSize sql.NullInt64
+	// savedContext tells that the session row has the largest context of the session. savedContextUsed and
+	// savedContextSize are the values that the row has.
+	savedContext     bool
+	savedContextUsed int64
+	savedContextSize int64
 	// copiedSkills are the names of the skills that exportSkills copied into the session. skillCalls are the
 	// toolCallId values that have a skill_uses row.
 	copiedSkills []string
@@ -687,6 +695,12 @@ func (a *Agent) end(ctx context.Context, reason string, keep func()) error {
 	defer a.release()
 	if err := a.addAutonomousUsage(context.WithoutCancel(ctx)); err != nil {
 		log.Printf("add the usage of the session %d: %v", a.id, err)
+	}
+	a.mu.Lock()
+	contextErr := a.writeContext(context.WithoutCancel(ctx))
+	a.mu.Unlock()
+	if contextErr != nil {
+		log.Printf("write the context of the session %d: %v", a.id, contextErr)
 	}
 	if a.scratch != "" {
 		if err := os.RemoveAll(a.scratch); err != nil {
