@@ -1126,6 +1126,15 @@ func (q *Queries) AddTask(ctx context.Context, arg AddTaskParams) (Task, error) 
 	return i, err
 }
 
+const addToolAutoUpgrade = `-- name: AddToolAutoUpgrade :exec
+INSERT INTO tool_auto_upgrades (package) VALUES (?) ON CONFLICT (package) DO NOTHING
+`
+
+func (q *Queries) AddToolAutoUpgrade(ctx context.Context, package_ string) error {
+	_, err := q.db.ExecContext(ctx, addToolAutoUpgrade, package_)
+	return err
+}
+
 const addTranscriptRow = `-- name: AddTranscriptRow :one
 INSERT INTO transcript (session, time, kind, json) VALUES (?, ?, ?, ?)
 RETURNING id, session, time, kind, json
@@ -1753,6 +1762,15 @@ DELETE FROM stop_notices WHERE id = ?
 
 func (q *Queries) DeleteStopNotice(ctx context.Context, id int64) error {
 	_, err := q.db.ExecContext(ctx, deleteStopNotice, id)
+	return err
+}
+
+const deleteToolAutoUpgrade = `-- name: DeleteToolAutoUpgrade :exec
+DELETE FROM tool_auto_upgrades WHERE package = ?
+`
+
+func (q *Queries) DeleteToolAutoUpgrade(ctx context.Context, package_ string) error {
+	_, err := q.db.ExecContext(ctx, deleteToolAutoUpgrade, package_)
 	return err
 }
 
@@ -7593,6 +7611,33 @@ func (q *Queries) ListTaskStatesBetween(ctx context.Context, arg ListTaskStatesB
 	return items, nil
 }
 
+const listToolAutoUpgrades = `-- name: ListToolAutoUpgrades :many
+SELECT package, failed_version FROM tool_auto_upgrades ORDER BY package
+`
+
+func (q *Queries) ListToolAutoUpgrades(ctx context.Context) ([]ToolAutoUpgrade, error) {
+	rows, err := q.db.QueryContext(ctx, listToolAutoUpgrades)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ToolAutoUpgrade
+	for rows.Next() {
+		var i ToolAutoUpgrade
+		if err := rows.Scan(&i.Package, &i.FailedVersion); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listToolCallUpdates = `-- name: ListToolCallUpdates :many
 SELECT json FROM transcript
 WHERE session = ? AND kind = 'update' AND json_extract(json, '$.update.sessionUpdate') IN ('tool_call', 'tool_call_update')
@@ -9204,6 +9249,20 @@ type SetTaskWorkerParams struct {
 
 func (q *Queries) SetTaskWorker(ctx context.Context, arg SetTaskWorkerParams) error {
 	_, err := q.db.ExecContext(ctx, setTaskWorker, arg.Worker, arg.WorkerInput, arg.ID)
+	return err
+}
+
+const setToolAutoUpgradeFailure = `-- name: SetToolAutoUpgradeFailure :exec
+UPDATE tool_auto_upgrades SET failed_version = ? WHERE package = ?
+`
+
+type SetToolAutoUpgradeFailureParams struct {
+	FailedVersion string
+	Package       string
+}
+
+func (q *Queries) SetToolAutoUpgradeFailure(ctx context.Context, arg SetToolAutoUpgradeFailureParams) error {
+	_, err := q.db.ExecContext(ctx, setToolAutoUpgradeFailure, arg.FailedVersion, arg.Package)
 	return err
 }
 

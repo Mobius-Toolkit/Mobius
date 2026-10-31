@@ -402,6 +402,11 @@ type TaskState struct {
 	EndedAt      string
 }
 
+type ToolAutoUpgrade struct {
+	Package       string
+	FailedVersion string
+}
+
 type Transcript struct {
 	ID      int64
 	Session int64

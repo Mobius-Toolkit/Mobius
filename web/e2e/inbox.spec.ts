@@ -119,6 +119,30 @@ test("each item shows on one line with the action of its kind, oldest first", as
   await expect(page.getByRole("main").getByRole("tab", { name: "To do 6" })).toBeVisible();
 });
 
+test("a failed auto-upgrade shows its npm error and the Owner dismisses it", async ({ page }) => {
+  const failed = {
+    ...base,
+    id: 9,
+    issue: 0,
+    kind: "tool upgrade",
+    title: "Auto-upgrade of dsh failed",
+    reason: "npm ERR! network down",
+  };
+  await routeInbox(page, [failed]);
+  await page.route("**/api/inbox/9/dismiss", (route) => route.fulfill({ status: 204 }));
+
+  await page.goto("/inbox");
+  const row = page.getByRole("main").getByRole("listitem");
+  await expect(row).toContainText("Auto-upgrade of dsh failed");
+  await expect(row).toContainText("npm ERR! network down");
+
+  const dismissed = page.waitForResponse("**/api/inbox/9/dismiss");
+  await row.getByRole("button", { name: "Dismiss" }).click();
+
+  await expect(page.getByText("Dismissed: Auto-upgrade of dsh failed")).toBeVisible();
+  await dismissed;
+});
+
 test("the reason is on the line of the title on a desktop and below it on a phone", async ({
   page,
 }) => {

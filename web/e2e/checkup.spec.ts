@@ -380,6 +380,7 @@ test("the Tools page upgrades an outdated package and shows the new version and 
     newest: "0.2.1-rc.5",
     outdated: true,
     package: "@deepseek-ai/dsh",
+    autoUpgrade: false,
   };
   const upgraded = { ...outdated, version: "0.2.1-rc.5", outdated: false };
   await page.route(
@@ -411,6 +412,7 @@ test("a failed upgrade shows the npm error and keeps the old version", async ({ 
     newest: "0.2.1-rc.5",
     outdated: true,
     package: "@deepseek-ai/dsh",
+    autoUpgrade: false,
   };
   const npmError = [
     "npm ERR! code EACCES",
@@ -434,6 +436,49 @@ test("a failed upgrade shows the npm error and keeps the old version", async ({ 
   await expect(dialog.getByRole("heading", { name: "dsh" })).toBeInViewport();
   await expect(dialog.getByRole("button", { name: "Upgrade" })).toBeInViewport();
   await expect(page.locator("main").getByText("0.2.1-rc.4 · newest 0.2.1-rc.5")).toBeVisible();
+});
+
+test("the Tools page turns the Auto-upgrade of a package on and off and shows the notice", async ({
+  page,
+}) => {
+  const main = page.getByRole("main");
+  const outdated = {
+    ...tool,
+    name: "dsh",
+    path: "/usr/local/bin/dsh",
+    version: "0.2.1-rc.4",
+    newest: "0.2.1-rc.5",
+    outdated: true,
+    package: "@deepseek-ai/dsh",
+    autoUpgrade: false,
+  };
+  const sent: boolean[] = [];
+  await page.route(
+    (url) => url.pathname === "/api/checkup/tools/auto-upgrade",
+    (route) => {
+      const body = JSON.parse(route.request().postData() ?? "{}") as { on: boolean };
+      sent.push(body.on);
+      return route.fulfill({ json: { data: [{ ...outdated, autoUpgrade: body.on }] } });
+    },
+  );
+  await routeCheckup(page, [outdated], { owner: healthy, plants: healthy });
+
+  await page.goto("/settings/checkup/tools");
+  await main.getByRole("button", { name: /dsh/ }).click();
+  const dialog = page.getByRole("dialog");
+  const auto = dialog.getByRole("switch", { name: "Auto-upgrade" });
+  await expect(auto).not.toBeChecked();
+
+  await auto.click();
+
+  await expect(page.getByText("Auto-upgrade of dsh on")).toBeVisible();
+  await expect(auto).toBeChecked();
+
+  await auto.click();
+
+  await expect(page.getByText("Auto-upgrade of dsh off")).toBeVisible();
+  await expect(auto).not.toBeChecked();
+  expect(sent).toEqual([true, false]);
 });
 
 test.describe("on a phone", () => {

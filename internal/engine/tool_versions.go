@@ -3,7 +3,9 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -17,6 +19,7 @@ import (
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/runner"
+	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
 // The status values of a tool check.
@@ -52,6 +55,9 @@ const upgradeTimeout = 10 * time.Minute
 // upgradeOutput is the longest text of a failed npm run that Mobius gives back.
 const upgradeOutput = 4000
 
+// errUpgradeRuns is the error of an upgrade that waits for the end of an upgrade of the same npm package.
+var errUpgradeRuns = errors.New("an upgrade of the package runs now")
+
 var versionText = regexp.MustCompile(`\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?`)
 
 // newestVersion is the newest version of an npm package that Mobius read at read. It is empty when the registry gave
@@ -80,6 +86,8 @@ type ToolCheck struct {
 	// Package is the npm package of the row. It is empty for a program that is not in the node_modules of a Node
 	// install, and for each program that Mobius does not upgrade.
 	Package string
+	// AutoUpgrade tells that Mobius installs the newest version of Package by itself.
+	AutoUpgrade bool
 }
 
 // Tools gives the path and the version of each program that Mobius runs for its agents and its work, in the PATH
@@ -91,6 +99,7 @@ func (e *Engine) Tools(ctx context.Context) []ToolCheck {
 	for _, b := range roles.Bindings() {
 		used[b.Binding.Harness] = true
 	}
+	auto := e.autoUpgradePackages(ctx)
 	var checks []ToolCheck
 	for _, harness := range config.Harnesses {
 		program := runner.Program(harness)
@@ -99,14 +108,17 @@ func (e *Engine) Tools(ctx context.Context) []ToolCheck {
 		if harness == config.ClaudeCode {
 			e.compareNewest(ctx, &check, adapterPackage)
 			check.Package = npmPackageOf(check.Path, adapterPackage)
+			check.AutoUpgrade = auto[check.Package]
 			cli := e.claudeCodeCLI(ctx, check.Path, path)
 			cli.Required = used[harness]
+			cli.AutoUpgrade = auto[cli.Package]
 			checks = append(checks, check, cli)
 			continue
 		}
 		if harness == config.DSH {
 			e.compareNewest(ctx, &check, dshPackage)
 			check.Package = npmPackageOf(check.Path, dshPackage)
+			check.AutoUpgrade = auto[check.Package]
 		}
 		checks = append(checks, check)
 	}
@@ -278,6 +290,21 @@ func nodeInstall(programPath string) (prefix, npmPackage string) {
 	return "", ""
 }
 
+// autoUpgradePackages gives each npm package whose auto-upgrade the Owner turned on. It gives no package when the
+// database read fails, so a failed read starts no upgrade.
+func (e *Engine) autoUpgradePackages(ctx context.Context) map[string]bool {
+	rows, err := e.queries.ListToolAutoUpgrades(ctx)
+	if err != nil {
+		log.Printf("auto-upgrade packages: %v", err)
+		return nil
+	}
+	on := make(map[string]bool, len(rows))
+	for _, row := range rows {
+		on[row.Package] = true
+	}
+	return on
+}
+
 // UpgradeTool installs the newest version of the npm package of a tool, and gives the new tool list. It refuses a
 // package that no row has, a row with no newest version, and a package whose upgrade runs now.
 func (e *Engine) UpgradeTool(ctx context.Context, npmPackage string) ([]ToolCheck, error) {
@@ -290,25 +317,156 @@ func (e *Engine) UpgradeTool(ctx context.Context, npmPackage string) ([]ToolChec
 	if check.Newest == "" {
 		return nil, refuse("Mobius has no newest version of %s.", check.Name)
 	}
-	prefix, _ := nodeInstall(check.Path)
-	if prefix == "" {
-		return nil, refuse("Mobius cannot find the Node install of %s.", check.Name)
-	}
-	if !e.beginUpgrade(npmPackage) {
-		return nil, refuse("An upgrade of %s runs now.", check.Name)
-	}
-	defer e.endUpgrade(npmPackage)
 	// The npm run and the steps after it continue when the request ends, so a closed connection cannot leave the
 	// package of the Harness half written and without its record.
 	ctx = context.WithoutCancel(ctx)
-	output, err := runNPMUpgrade(ctx, filepath.Join(prefix, "bin", "npm"), prefix, npmPackage, check.Newest)
-	if err != nil {
-		return nil, refuse("The upgrade of %s failed: %v\n%s", check.Name, err, tail(string(output), upgradeOutput))
+	if err := e.installNewest(ctx, check); err != nil {
+		if errors.Is(err, errUpgradeRuns) {
+			return nil, refuse("An upgrade of %s runs now.", check.Name)
+		}
+		return nil, err
 	}
+	e.clearToolUpgradeFailure(ctx, npmPackage)
 	for _, organization := range e.github.Organizations() {
 		e.addRecord(ctx, ChatKey{Organization: organization}, fmt.Sprintf("You upgraded %s to %s.", check.Name, check.Newest))
 	}
 	return e.Tools(ctx), nil
+}
+
+// installNewest runs npm to install the newest version of check in the Node install of its program.
+func (e *Engine) installNewest(ctx context.Context, check ToolCheck) error {
+	prefix, _ := nodeInstall(check.Path)
+	if prefix == "" {
+		return refuse("Mobius cannot find the Node install of %s.", check.Name)
+	}
+	if !e.beginUpgrade(check.Package) {
+		return errUpgradeRuns
+	}
+	defer e.endUpgrade(check.Package)
+	output, err := runNPMUpgrade(ctx, filepath.Join(prefix, "bin", "npm"), prefix, check.Package, check.Newest)
+	if err != nil {
+		return refuse("The upgrade of %s failed: %v\n%s", check.Name, err, tail(string(output), upgradeOutput))
+	}
+	return nil
+}
+
+// SetToolAutoUpgrade turns the auto-upgrade of the npm package of a tool on or off, and gives the new tool list. It
+// refuses a package that no row has.
+func (e *Engine) SetToolAutoUpgrade(ctx context.Context, npmPackage string, on bool) ([]ToolCheck, error) {
+	checks := e.Tools(ctx)
+	index := slices.IndexFunc(checks, func(check ToolCheck) bool { return check.Package == npmPackage })
+	if index < 0 {
+		return nil, refuse("Mobius does not upgrade the package \"%s\".", npmPackage)
+	}
+	if on {
+		if err := e.queries.AddToolAutoUpgrade(ctx, npmPackage); err != nil {
+			return nil, err
+		}
+	} else if err := e.queries.DeleteToolAutoUpgrade(ctx, npmPackage); err != nil {
+		return nil, err
+	}
+	checks[index].AutoUpgrade = on
+	state := "off"
+	if on {
+		state = "on"
+	}
+	for _, organization := range e.github.Organizations() {
+		e.addRecord(ctx, ChatKey{Organization: organization}, fmt.Sprintf("You turned Auto-upgrade of %s %s.", checks[index].Name, state))
+	}
+	return checks, nil
+}
+
+// clearToolUpgradeFailure records that npmPackage has no failed version, so a later auto-upgrade of the same version
+// can run again.
+func (e *Engine) clearToolUpgradeFailure(ctx context.Context, npmPackage string) {
+	err := e.queries.SetToolAutoUpgradeFailure(ctx, store.SetToolAutoUpgradeFailureParams{FailedVersion: "", Package: npmPackage})
+	if err != nil {
+		log.Printf("clear the failed version of %s: %v", npmPackage, err)
+	}
+}
+
+// autoUpgradeTools upgrades each package whose auto-upgrade is on when the newest version differs from the version that
+// failed last. It checks each poll, and it acts at the start and then each newestLife.
+func (e *Engine) autoUpgradeTools(ctx context.Context) {
+	rows, err := e.queries.ListToolAutoUpgrades(ctx)
+	if err != nil {
+		log.Printf("auto-upgrade tools: %v", err)
+		return
+	}
+	if len(rows) == 0 || !e.autoUpgradeDue() {
+		return
+	}
+	checks := e.Tools(ctx)
+	for _, row := range rows {
+		index := slices.IndexFunc(checks, func(check ToolCheck) bool { return check.Package == row.Package })
+		if index < 0 {
+			continue
+		}
+		check := checks[index]
+		if !check.Outdated || check.Newest == row.FailedVersion {
+			continue
+		}
+		err := e.installNewest(ctx, check)
+		if errors.Is(err, errUpgradeRuns) {
+			continue
+		}
+		if ctx.Err() != nil {
+			// Mobius stops, so the npm run ended with the server. A record of this failure would keep the next start
+			// from installing the same version again.
+			return
+		}
+		if err != nil {
+			if failErr := e.failAutoUpgrade(ctx, check, err.Error()); failErr != nil {
+				log.Printf("auto-upgrade of %s: %v", check.Package, failErr)
+			}
+			continue
+		}
+		e.clearToolUpgradeFailure(ctx, check.Package)
+	}
+}
+
+// autoUpgradeDue tells if the auto-upgrade check runs now, and records the time of the run.
+func (e *Engine) autoUpgradeDue() bool {
+	at := e.timeNow()
+	if !e.autoUpgradeAt.IsZero() && at.Sub(e.autoUpgradeAt) < newestLife {
+		return false
+	}
+	e.autoUpgradeAt = at
+	return true
+}
+
+// failAutoUpgrade records that the auto-upgrade of check to check.Newest failed, and adds one Inbox item for each
+// organization. It writes the record and the items in one transaction, so a failed item does not keep the error from
+// the next check.
+func (e *Engine) failAutoUpgrade(ctx context.Context, check ToolCheck, reason string) error {
+	var items []store.InboxItem
+	err := e.inTx(ctx, func(q *store.Queries) error {
+		err := q.SetToolAutoUpgradeFailure(ctx, store.SetToolAutoUpgradeFailureParams{FailedVersion: check.Newest, Package: check.Package})
+		if err != nil {
+			return err
+		}
+		for _, organization := range e.github.Organizations() {
+			item, err := q.AddInboxItem(ctx, store.AddInboxItemParams{
+				Kind:         toolUpgradeKind,
+				Organization: organization,
+				Title:        fmt.Sprintf("Auto-upgrade of %s failed", check.Name),
+				Reason:       reason,
+				Time:         now(),
+			})
+			if err != nil {
+				return err
+			}
+			items = append(items, item)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	for _, item := range items {
+		e.publish(Change{Inbox: &item})
+	}
+	return nil
 }
 
 // beginUpgrade records that the upgrade of npmPackage starts. It gives false when an upgrade of the package runs.

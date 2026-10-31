@@ -1492,3 +1492,15 @@ ON CONFLICT (organization, name) DO UPDATE SET reason = excluded.reason, rejecte
 
 -- name: ListSkillRejections :many
 SELECT name, reason, rejected_at FROM skill_rejections WHERE organization = ? ORDER BY name;
+
+-- name: ListToolAutoUpgrades :many
+SELECT * FROM tool_auto_upgrades ORDER BY package;
+
+-- name: AddToolAutoUpgrade :exec
+INSERT INTO tool_auto_upgrades (package) VALUES (?) ON CONFLICT (package) DO NOTHING;
+
+-- name: DeleteToolAutoUpgrade :exec
+DELETE FROM tool_auto_upgrades WHERE package = ?;
+
+-- name: SetToolAutoUpgradeFailure :exec
+UPDATE tool_auto_upgrades SET failed_version = ? WHERE package = ?;

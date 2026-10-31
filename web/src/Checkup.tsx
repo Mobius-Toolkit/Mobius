@@ -4,6 +4,7 @@ import {
   fixLabels,
   getCheckup,
   getCheckupTools,
+  setToolAutoUpgrade,
   upgradeCheckupTool,
   type Checkup as CheckupView,
   type LabelCheck,
@@ -23,6 +24,8 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { LoginContext } from "@/lib/login";
 import { showNotice } from "@/lib/notice";
 import { addCoordinatorMessage } from "@/lib/outbox";
@@ -254,6 +257,7 @@ function ToolUpgrade({
 }) {
   const showLogin = use(LoginContext);
   const [pending, setPending] = useState(false);
+  const [autoPending, setAutoPending] = useState(false);
   const [error, setError] = useState("");
 
   const upgrade = () => {
@@ -274,6 +278,24 @@ function ToolUpgrade({
       .finally(() => setPending(false));
   };
 
+  const toggleAuto = (on: boolean) => {
+    setAutoPending(true);
+    setError("");
+    setToolAutoUpgrade({ package: tool.package, on })
+      .then((res) => {
+        if (res.status === 200) {
+          onUpgraded(res.data.data);
+          showNotice(`Auto-upgrade of ${tool.name} ${on ? "on" : "off"}`);
+        } else if (res.status === 401) {
+          showLogin();
+        } else {
+          setError(res.data.error);
+        }
+      })
+      .catch((err: unknown) => setError(String(err)))
+      .finally(() => setAutoPending(false));
+  };
+
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent
@@ -292,10 +314,24 @@ function ToolUpgrade({
           </p>
           {error && <p className="text-destructive wrap-anywhere whitespace-pre-wrap">{error}</p>}
         </div>
-        <div className="border-t p-4">
-          <Button pending={pending} disabled={!tool.outdated} onClick={upgrade} className="w-full">
+        <div className="grid gap-3 border-t p-4">
+          <Button
+            pending={pending}
+            disabled={!tool.outdated || autoPending}
+            onClick={upgrade}
+            className="w-full"
+          >
             Upgrade
           </Button>
+          <div className="flex items-center justify-between gap-2">
+            <Label htmlFor="auto-upgrade">Auto-upgrade</Label>
+            <Switch
+              id="auto-upgrade"
+              checked={tool.autoUpgrade}
+              disabled={autoPending || pending}
+              onCheckedChange={toggleAuto}
+            />
+          </div>
         </div>
       </DialogContent>
     </Dialog>
