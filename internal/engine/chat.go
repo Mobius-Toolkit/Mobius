@@ -50,7 +50,18 @@ const (
 	leadFailedKind = "Lead failed"
 	// failedRetry is the time after the last failed try of a waiting message when Mobius starts its chat again.
 	failedRetry = 5 * time.Minute
+	// quietEventsHeading is the heading of the section of a Lead prompt that holds the quiet events.
+	quietEventsHeading = "# Events with no turn"
 )
+
+// quietEventKinds are the kinds of Lead events that need no decision. Such an event starts no turn and no session, and
+// the next prompt of the Lead holds it in the section quietEventsHeading.
+var quietEventKinds = []string{"end", "autopilot", "approval_reminder"}
+
+// isQuietEvent tells if the event needs no decision of the Lead.
+func isQuietEvent(event store.LeadEvent) bool {
+	return slices.Contains(quietEventKinds, event.Kind)
+}
 
 // The authors of the chat messages, as the chat_messages table names them.
 const (
@@ -456,13 +467,23 @@ func (e *Engine) wakeAllEvents(ctx context.Context) error {
 	return nil
 }
 
-// sendEvents gives each ready event of the Workstream to its Lead. A Lead that already has an event skips the copy
-// at its turn. The drain holds each new Lead, so the events of a Workstream with no Lead stay undelivered. The caller
-// holds e.chatOrder.
+// sendEvents gives each ready non-quiet event of the Workstream to its Lead. A quiet event starts no turn, so it stays
+// ready for the next prompt. A Lead that already has an event skips the copy at its turn. The drain holds each new
+// Lead, so the events of a Workstream with no Lead stay undelivered. The caller holds e.chatOrder.
 func (e *Engine) sendEvents(ctx context.Context, repository string, workstream int64) error {
 	events, err := e.queries.ListReadyLeadEvents(ctx, store.ListReadyLeadEventsParams{Repository: repository, Workstream: workstream})
 	if err != nil || len(events) == 0 {
 		return err
+	}
+	items := make([]item, 0, len(events))
+	for _, event := range events {
+		if isQuietEvent(event) {
+			continue
+		}
+		items = append(items, item{event: &event})
+	}
+	if len(items) == 0 {
+		return nil
 	}
 	key := leadChat(repository, workstream)
 	e.chatsMu.Lock()
@@ -470,10 +491,6 @@ func (e *Engine) sendEvents(ctx context.Context, repository string, workstream i
 	e.chatsMu.Unlock()
 	if !running && !e.tryTrack() {
 		return nil
-	}
-	items := make([]item, 0, len(events))
-	for _, event := range events {
-		items = append(items, item{event: &event})
 	}
 	e.give(key, !running, items...)
 	return nil
@@ -1059,11 +1076,15 @@ func (e *Engine) leadFailed(ctx context.Context, failed item) error {
 // lead_idle_timeout or the drain asks it to close, the Lead saves its memory and the session ends.
 func (e *Engine) chat(c *chat, a *Agent, first item) error {
 	ctx := c.ctx
-	prompt, images, err := e.firstPrompt(ctx, c.key, first)
+	quiet, err := e.quietEvents(ctx, c.key)
 	if err != nil {
 		return err
 	}
-	if err := e.itemTurn(c, a, first, prompt, images); err != nil {
+	prompt, images, err := e.firstPrompt(ctx, c.key, first, quiet)
+	if err != nil {
+		return err
+	}
+	if err := e.itemTurn(c, a, first, prompt, images, quiet); err != nil {
 		return err
 	}
 	var backgroundStart time.Time
@@ -1072,6 +1093,7 @@ func (e *Engine) chat(c *chat, a *Agent, first item) error {
 		if ok {
 			var prompt string
 			var images []Image
+			var quiet []store.LeadEvent
 			if next.message != nil {
 				prompt, images, err = e.messagePrompt(*next.message)
 				if err != nil {
@@ -1088,7 +1110,11 @@ func (e *Engine) chat(c *chat, a *Agent, first item) error {
 				}
 				prompt = "# Event\n\n" + next.event.Payload
 			}
-			if err := e.itemTurn(c, a, next, prompt, images); err != nil {
+			if quiet, err = e.quietEvents(ctx, c.key); err != nil {
+				return err
+			}
+			prompt = quietEventsText(quiet) + prompt
+			if err := e.itemTurn(c, a, next, prompt, images, quiet); err != nil {
 				return err
 			}
 			continue
@@ -1190,10 +1216,36 @@ func (e *Engine) pending(ctx context.Context, event *store.LeadEvent) (bool, err
 	return slices.ContainsFunc(ready, func(other store.LeadEvent) bool { return other.ID == event.ID }), err
 }
 
+// quietEvents lists the ready quiet events of the Workstream in id order. The drain takes no event, so it gives no
+// quiet event.
+func (e *Engine) quietEvents(ctx context.Context, key ChatKey) ([]store.LeadEvent, error) {
+	if key.Workstream == 0 || e.draining() {
+		return nil, nil
+	}
+	events, err := e.queries.ListReadyLeadEvents(ctx, store.ListReadyLeadEventsParams{Repository: key.Repository, Workstream: key.Workstream})
+	if err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(events, func(event store.LeadEvent) bool { return !isQuietEvent(event) }), nil
+}
+
+// quietEventsText gives the section of a prompt that holds the quiet events, or "" with no event.
+func quietEventsText(events []store.LeadEvent) string {
+	if len(events) == 0 {
+		return ""
+	}
+	payloads := make([]string, 0, len(events))
+	for _, event := range events {
+		payloads = append(payloads, event.Payload)
+	}
+	return quietEventsHeading + "\n\n" + strings.Join(payloads, "\n\n") + "\n\n"
+}
+
 // itemTurn runs the turn of the item, and then ends the turn. The reply text of a turn for an event goes only to the
 // Transcript, and a stop does not cancel that turn: the Owner cannot see it. The Lead uses tell_owner to write to the
-// Owner. After a tell_owner call, the reply text of a turn for a message goes only to the Transcript.
-func (e *Engine) itemTurn(c *chat, a *Agent, current item, prompt string, images []Image) error {
+// Owner. After a tell_owner call, the reply text of a turn for a message goes only to the Transcript. quiet holds the
+// quiet events of the prompt.
+func (e *Engine) itemTurn(c *chat, a *Agent, current item, prompt string, images []Image, quiet []store.LeadEvent) error {
 	if current.message != nil {
 		cancelled, err := e.messageCancelled(c.ctx, current.message.ID)
 		if err != nil {
@@ -1231,7 +1283,7 @@ func (e *Engine) itemTurn(c *chat, a *Agent, current item, prompt string, images
 	if err := a.deliver(c.ctx); err != nil {
 		return err
 	}
-	return e.endTurn(c, current)
+	return e.endTurn(c, current, quiet)
 }
 
 // undeliverMessage clears the delivery time of a message whose turn failed, and sends the message to the listeners,
@@ -1297,15 +1349,22 @@ func (e *Engine) turn(c *chat, a *Agent, prompt string, images []Image, stoppabl
 	return a.Prompt(c.ctx, prompt, images)
 }
 
-// endTurn delivers the event of the turn, or holds it when the Lead called hold_event. The end of a turn for a
-// message of the Owner frees each held event. The freed events and the ready events of their task issues go after
-// the queued messages of the Owner and replace their queued copies. Each other queued item keeps its place.
-func (e *Engine) endTurn(c *chat, current item) error {
+// endTurn delivers the event of the turn, or holds it when the Lead called hold_event. It also delivers each quiet
+// event of the prompt, also when the Lead holds the event of the turn: a quiet event starts no turn of its own. The
+// end of a turn for a message of the Owner frees each held event. The freed events and the ready events of their task
+// issues go after the queued messages of the Owner and replace their queued copies. Each other queued item keeps its
+// place.
+func (e *Engine) endTurn(c *chat, current item, quiet []store.LeadEvent) error {
 	ctx := c.ctx
 	e.chatsMu.Lock()
 	held := c.held
 	c.current, c.held = nil, false
 	e.chatsMu.Unlock()
+	for _, event := range quiet {
+		if err := e.queries.DeliverLeadEvent(ctx, store.DeliverLeadEventParams{DeliveredAt: sql.NullString{String: now(), Valid: true}, ID: event.ID}); err != nil {
+			return err
+		}
+	}
 	switch {
 	case current.event != nil && held:
 		if err := e.queries.HoldLeadEvent(ctx, store.HoldLeadEventParams{HeldAt: sql.NullString{String: now(), Valid: true}, ID: current.event.ID}); err != nil {
@@ -1542,9 +1601,9 @@ func (e *Engine) startWaitingChat(ctx context.Context, key ChatKey) error {
 	return nil
 }
 
-// startIdleLead wakes the Lead of the Workstream, or calls leadFailed after maxLeadStarts failed starts. It holds
-// e.chatOrder from the read of the ready events to their delivery, so a new event cannot join the events that the
-// count used.
+// startIdleLead wakes the Lead of the Workstream, or calls leadFailed after maxLeadStarts failed starts. A quiet event
+// starts no session. It holds e.chatOrder from the read of the ready events to their delivery, so a new event cannot
+// join the events that the count used.
 func (e *Engine) startIdleLead(ctx context.Context, repository string, workstream int64) error {
 	e.chatOrder.Lock()
 	defer e.chatOrder.Unlock()
@@ -1557,6 +1616,10 @@ func (e *Engine) startIdleLead(ctx context.Context, repository string, workstrea
 	events, err := e.queries.ListReadyLeadEvents(ctx, store.ListReadyLeadEventsParams{Repository: repository, Workstream: workstream})
 	if err != nil || len(events) == 0 {
 		return err
+	}
+	events = slices.DeleteFunc(events, isQuietEvent)
+	if len(events) == 0 {
+		return nil
 	}
 	failed, err := e.failedLeadStarts(ctx, repository, workstream, events)
 	if err != nil {
@@ -1666,8 +1729,9 @@ func (e *Engine) tellOwner(ctx context.Context, c caller, _ github.Repository, i
 }
 
 // firstPrompt gives the first prompt of a session with the item first: the Role prompt, the context and the chat
-// history before the item. It also gives the images of the item.
-func (e *Engine) firstPrompt(ctx context.Context, key ChatKey, first item) (string, []Image, error) {
+// history before the item. quiet holds the quiet events, which the prompt shows once in their own section. It also
+// gives the images of the item.
+func (e *Engine) firstPrompt(ctx context.Context, key ChatKey, first item, quiet []store.LeadEvent) (string, []Image, error) {
 	var images []Image
 	if first.message != nil {
 		var err error
@@ -1676,7 +1740,7 @@ func (e *Engine) firstPrompt(ctx context.Context, key ChatKey, first item) (stri
 		}
 	}
 	if key.Workstream == 0 {
-		history, err := e.history(ctx, key, first.message.ID)
+		history, err := e.history(ctx, key, first.message.ID, nil)
 		if err != nil {
 			return "", nil, err
 		}
@@ -1722,7 +1786,13 @@ func (e *Engine) firstPrompt(ctx context.Context, key ChatKey, first item) (stri
 	if err != nil {
 		return "", nil, err
 	}
-	history, err := e.history(ctx, key, before)
+	skip := make(map[int64]bool, len(quiet))
+	for _, event := range quiet {
+		if event.ChatMessage.Valid {
+			skip[event.ChatMessage.Int64] = true
+		}
+	}
+	history, err := e.history(ctx, key, before, skip)
 	if err != nil {
 		return "", nil, err
 	}
@@ -1733,7 +1803,7 @@ func (e *Engine) firstPrompt(ctx context.Context, key ChatKey, first item) (stri
 	if maintenance {
 		rules += leadMaintenancePrompt + "\n"
 	}
-	return fmt.Sprintf("%s\n%s%s%s%s%s# %s\n\n%s", leadPrompt, rules, sections, lead, requests, history, heading, text), images, nil
+	return fmt.Sprintf("%s\n%s%s%s%s%s%s# %s\n\n%s", leadPrompt, rules, sections, lead, requests, history, quietEventsText(quiet), heading, text), images, nil
 }
 
 // leadContext gives the Brief, the memory and the task list of the Workstream, and tells if the Workstream is a
@@ -1842,8 +1912,9 @@ func readMemory(dir string) (string, error) {
 	return strings.Join(lines[:memoryLines], "\n") + "\nMEMORY.md is too long. Make it shorter.\n", nil
 }
 
-// history gives the last historySize messages of the chat before the message id before.
-func (e *Engine) history(ctx context.Context, key ChatKey, before int64) (string, error) {
+// history gives the last historySize messages of the chat before the message id before. skip holds the chat messages
+// that the quiet events section of the prompt already shows.
+func (e *Engine) history(ctx context.Context, key ChatKey, before int64, skip map[int64]bool) (string, error) {
 	messages, err := e.queries.ListChatMessagesBefore(ctx, store.ListChatMessagesBeforeParams{
 		Organization: key.Organization,
 		Repository:   key.Repository,
@@ -1857,6 +1928,9 @@ func (e *Engine) history(ctx context.Context, key ChatKey, before int64) (string
 	var history strings.Builder
 	history.WriteString("# Chat history\n\n")
 	for _, message := range slices.Backward(messages) {
+		if skip[message.ID] {
+			continue
+		}
 		t, err := time.Parse(time.RFC3339Nano, message.Time)
 		if err != nil {
 			return "", err

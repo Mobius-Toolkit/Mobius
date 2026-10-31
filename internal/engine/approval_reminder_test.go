@@ -11,17 +11,17 @@ import (
 
 const approvalReminderText = " #41 \"Add plan model\" waits for Lead approval for "
 
-// approvalReminders gives the number of turns of the Lead for an approval reminder of #41.
-func approvalReminders(t *testing.T, server *testserver.Server) int {
+// approvalReminders gives the approval reminder events of #41. A reminder starts no Lead turn, so the test reads the
+// event instead of a prompt.
+func approvalReminders(t *testing.T, server *testserver.Server) []leadEvent {
 	t.Helper()
-	count := 0
-	for _, prompt := range leadPrompts(t, server) {
-		parts := strings.Split(prompt, "# Event\n\n")
-		if len(parts) > 1 && strings.Contains(parts[len(parts)-1], approvalReminderText) {
-			count++
+	var events []leadEvent
+	for _, event := range leadEvents(t, server) {
+		if event.Kind == "approval_reminder" && strings.Contains(event.Payload, approvalReminderText) {
+			events = append(events, event)
 		}
 	}
-	return count
+	return events
 }
 
 func TestATaskThatWaitsInApprovalForMoreThanTwoHoursGivesTheLeadOneReminderAndThenOneForEachTwoHours(t *testing.T) {
@@ -35,19 +35,28 @@ func TestATaskThatWaitsInApprovalForMoreThanTwoHoursGivesTheLeadOneReminderAndTh
 	server.Engine.SetClock(func() time.Time { return start.Add(time.Hour + 59*time.Minute) })
 	waitForPolls(t, fake)
 
-	if reminders := approvalReminders(t, server); reminders != 0 {
-		t.Errorf("reminders = %d", reminders)
+	if reminders := approvalReminders(t, server); len(reminders) != 0 {
+		t.Errorf("reminders = %+v", reminders)
 	}
 
 	server.Engine.SetClock(func() time.Time { return start.Add(2*time.Hour + time.Minute) })
 
-	prompt := waitForLeadPrompt(t, server, approvalReminderText+"2h")
-	if want := "pull request #42 https://github.com/owner/shop/pull/42."; !strings.Contains(prompt, want) {
-		t.Errorf("prompt = %s, want %q", prompt, want)
+	reminders := testkit.WaitForValue(t, func() ([]leadEvent, bool) {
+		reminders := approvalReminders(t, server)
+		return reminders, len(reminders) == 1
+	})
+	if !strings.Contains(reminders[0].Payload, approvalReminderText+"2h") {
+		t.Errorf("reminder = %s", reminders[0].Payload)
+	}
+	if want := "pull request #42 https://github.com/owner/shop/pull/42."; !strings.Contains(reminders[0].Payload, want) {
+		t.Errorf("reminder = %s, want %q", reminders[0].Payload, want)
+	}
+	if reminders[0].Delivered {
+		t.Error("the reminder turn was delivered, but it starts no turn")
 	}
 	waitForPolls(t, fake)
-	if reminders := approvalReminders(t, server); reminders != 1 {
-		t.Errorf("reminders = %d", reminders)
+	if reminders := approvalReminders(t, server); len(reminders) != 1 {
+		t.Errorf("reminders = %+v", reminders)
 	}
 	if state := taskState(t, server); state != "approval" {
 		t.Errorf("state = %s", state)
@@ -56,13 +65,13 @@ func TestATaskThatWaitsInApprovalForMoreThanTwoHoursGivesTheLeadOneReminderAndTh
 	server.Engine.SetClock(func() time.Time { return start.Add(4 * time.Hour) })
 	waitForPolls(t, fake)
 
-	if reminders := approvalReminders(t, server); reminders != 1 {
-		t.Errorf("reminders = %d", reminders)
+	if reminders := approvalReminders(t, server); len(reminders) != 1 {
+		t.Errorf("reminders = %+v", reminders)
 	}
 
 	server.Engine.SetClock(func() time.Time { return start.Add(4*time.Hour + 2*time.Minute) })
 
-	testkit.WaitFor(t, func() bool { return approvalReminders(t, server) == 2 })
+	testkit.WaitFor(t, func() bool { return len(approvalReminders(t, server)) == 2 })
 }
 
 func TestATaskThatLeavesApprovalGetsNoReminder(t *testing.T) {
@@ -78,7 +87,7 @@ func TestATaskThatLeavesApprovalGetsNoReminder(t *testing.T) {
 
 	waitForPolls(t, fake)
 
-	if reminders := approvalReminders(t, server); reminders != 0 {
-		t.Errorf("reminders = %d", reminders)
+	if reminders := approvalReminders(t, server); len(reminders) != 0 {
+		t.Errorf("reminders = %+v", reminders)
 	}
 }
