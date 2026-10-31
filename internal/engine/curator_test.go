@@ -416,7 +416,6 @@ call = { tool = "edit_memory", arguments = { file = "shared", old = "", new = "A
 	if calls[0]["result"] != wantSaved {
 		t.Errorf("shorter result = %v, want %s", calls[0]["result"], wantSaved)
 	}
-	// "Make it longer" adds 16 bytes at the end of the 19986-byte file -> 20002 bytes (> 19986) -> refused!
 	wantRefused := "the memory file is too long: the memory file shared has 20003 bytes and the limit is 16384. Remove or shorten a lesson. Do not make a line longer"
 	if calls[1]["error"] != wantRefused {
 		t.Errorf("longer error = %v, want %s", calls[1]["error"], wantRefused)
