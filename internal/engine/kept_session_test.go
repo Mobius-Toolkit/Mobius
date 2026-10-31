@@ -415,7 +415,11 @@ func TestAStopWhileTheRoundEndsClosesTheKeptImplementerSession(t *testing.T) {
 
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 	testkit.WaitFor(t, func() bool { return hasLabel(fake, "mobius:working") })
-	taskID := liveTask(t, server, 41).ID
+	// dispatch adds mobius:working before it adds the task row, so the row can still be missing here.
+	taskID := testkit.WaitForValue(t, func() (int64, bool) {
+		task, err := store.New(server.DB).GetLiveTask(t.Context(), store.GetLiveTaskParams{Repository: shop, Issue: 41})
+		return task.ID, err == nil
+	})
 
 	var session *runner.Session
 	select {
