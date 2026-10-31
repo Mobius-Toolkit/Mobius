@@ -170,7 +170,7 @@ func TestAFailedUpdateOfTheCheckRunOfTheApprovalAgainPostsOneComment(t *testing.
 	server, approved, head := approvalAgain(t, fake)
 
 	fake.FailUpdateCheckRuns(true)
-	testkit.WaitFor(t, func() bool { return approvalAgainComments(fake) == 1 })
+	testkit.WaitFor(t, func() bool { return approvalAgainComments(fake) == 1 && fake.FailedCheckUpdates() > 0 })
 	fake.FailUpdateCheckRuns(false)
 
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "" })
