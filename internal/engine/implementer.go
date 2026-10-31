@@ -456,6 +456,8 @@ func approvalAgainComment(branch, head, approved, reportHead, report string) str
 // approve posts comment on the pull request, sets the Mobius check of the head to success, stores leadReport in the
 // task, makes a draft pull request ready for review, replaces mobius:working with mobius:review, and adds the Inbox
 // item for the Owner. It stores the approved head last, so a retry after a failed write still sees the earlier approval.
+// It completes the check after each GitHub write that can be refused, so a refused write leaves the check open and a
+// task in approval stays there instead of calling onChecks again at each poll.
 // mark is the role mark of the Lead for the question text, or "" when Mobius writes the comment. A leadReport of ""
 // keeps the stored report of the approval. again tells that Mobius approves the head again for the Lead: it keeps the
 // stored comment of the same head, so a retry does not post it a second time.
@@ -488,9 +490,6 @@ func (e *Engine) approve(ctx context.Context, repository github.Repository, task
 			}
 		}
 	}
-	if err := repository.UpdateCheckRun(ctx, checkRun, checkRunName, "completed", "success", "Approved", summary); err != nil {
-		return err
-	}
 	if leadReport != "" {
 		if err := e.queries.SetTaskApprovedReport(ctx, store.SetTaskApprovedReportParams{
 			ApprovedReport:     sql.NullString{String: leadReport, Valid: true},
@@ -509,6 +508,9 @@ func (e *Engine) approve(ctx context.Context, repository github.Repository, task
 		return err
 	}
 	if err := repository.RemoveLabel(ctx, task.Issue, workingLabel); err != nil {
+		return err
+	}
+	if err := repository.UpdateCheckRun(ctx, checkRun, checkRunName, "completed", "success", "Approved", summary); err != nil {
 		return err
 	}
 	title := issue.GetTitle()

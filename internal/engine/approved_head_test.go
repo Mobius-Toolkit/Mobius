@@ -270,6 +270,54 @@ func TestARefusedCommentOfTheApprovalAgainGivesTheLeadReadyForApproval(t *testin
 	}
 }
 
+// TestARefusedLabelOfTheApprovalAgainGivesOneReadyEvent checks that a 4xx answer that stays on a label write of the
+// approval again gives the Lead one ready_for_approval event for the head. The Mobius check of the head stays open, so
+// the task waits in approval, and each poll does not try the refused approval again.
+func TestARefusedLabelOfTheApprovalAgainGivesOneReadyEvent(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, approved, head := approvalAgainWith(t, fake, func(cfg *config.Config) {
+		cfg.ReviewQuietPeriod = 500 * time.Millisecond
+		cfg.LeadIdleTimeout = time.Hour
+	})
+
+	testkit.WaitFor(t, func() bool { return hasLabel(fake, "mobius:working") })
+	fake.RefuseAddLabels(shop, 41, http.StatusUnprocessableEntity)
+
+	event := eventAfterApproval(t, server, approved)
+	if !strings.Contains(event, "The change of the pull request is the same as at the approved head") {
+		t.Errorf("event = %q", event)
+	}
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" })
+	before := fake.NotModifiedCount()
+	testkit.WaitFor(t, func() bool { return fake.NotModifiedCount() >= before+20 })
+
+	if got := approvalAgainComments(fake); got != 1 {
+		t.Errorf("comments of the approval again = %d, want 1", got)
+	}
+	if !slices.ContainsFunc(fake.CheckRuns(shop), func(run testkit.CheckRun) bool {
+		return run.Name == "Mobius" && run.HeadSHA == head && run.Status == "in_progress" &&
+			run.Output != nil && run.Output.Title == "Wait for the Lead approval"
+	}) {
+		t.Errorf("no open Mobius check run of the head %s: %+v", head, fake.CheckRuns(shop))
+	}
+	ready := 0
+	events := leadEvents(t, server)
+	for _, event := range events {
+		switch event.Kind {
+		case "approved_again":
+			t.Errorf("approved_again event after a refused label write: %q", event.Payload)
+		case "ready_for_approval":
+			if strings.Contains(event.Payload, fmt.Sprintf("The Lead approved the head %.8s before.", approved)) {
+				ready++
+			}
+		}
+	}
+	if ready != 1 {
+		t.Errorf("ready_for_approval events for the approved head = %d, want 1: %+v", ready, events)
+	}
+}
+
 // TestTwoUpdateHeadsAfterOneLeadApprovalNameTheLeadHeadInTheSecondComment checks that the report of the Lead stays with
 // the head that the Lead approved, also after an earlier approval again changed approved_head.
 func TestTwoUpdateHeadsAfterOneLeadApprovalNameTheLeadHeadInTheSecondComment(t *testing.T) {
