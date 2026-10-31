@@ -1303,7 +1303,10 @@ func (e *Engine) rerunFailedJobsTool(ctx context.Context, c caller, repository g
 		if err != nil {
 			return errors.Join(fmt.Errorf("%w (already started again: %s)", err, strings.Join(startedNames, ", ")), storeErr)
 		}
-		return storeErr
+		if storeErr != nil {
+			return fmt.Errorf("%w (already started again: %s)", storeErr, strings.Join(startedNames, ", "))
+		}
+		return nil
 	}
 	for _, run := range failed {
 		attempt := max(run.GetRunAttempt(), 1)
