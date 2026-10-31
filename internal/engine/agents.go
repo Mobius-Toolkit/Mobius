@@ -422,6 +422,16 @@ func (a *Agent) mcpCaller() mcp.Caller {
 	return mcpCaller
 }
 
+// shortCacheRole tells if role gets the 5-minute prompt cache of Claude Code. The other Roles keep the default of the
+// CLI. A Role whose sessions have almost one turn pays the higher write price of the 1-hour cache and gets no hit.
+func shortCacheRole(role string) bool {
+	switch role {
+	case ReviewerRole, CuratorRole, ResearcherRole:
+		return true
+	}
+	return false
+}
+
 // startHarness opens a new session key with the tools of the Role, and starts the Harness with it.
 func (a *Agent) startHarness(ctx context.Context) error {
 	e := a.engine
@@ -458,7 +468,7 @@ func (a *Agent) startHarness(ctx context.Context) error {
 			return err
 		}
 	}
-	session, err := runner.Start(ctx, a.binding.Harness, a.binding.Context, spec.Dir, e.config.DataDir, e.agents.Path, mcp.URL(e.agents.Addr, a.key), ghTokenURL, ghWritesURL, ghMark, a.update)
+	session, err := runner.Start(ctx, a.binding.Harness, a.binding.Context, shortCacheRole(spec.Role), spec.Dir, e.config.DataDir, e.agents.Path, mcp.URL(e.agents.Addr, a.key), ghTokenURL, ghWritesURL, ghMark, a.update)
 	if err != nil {
 		return err
 	}
