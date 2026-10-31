@@ -215,7 +215,9 @@ export function Checkup({ organizations }: { organizations: string[] }) {
           <CheckupLink
             link={{ to: "/settings/checkup/tools" }}
             title="Tools"
-            needsYou={!!tools?.some((tool) => tool.status !== "" || tool.outdated)}
+            needsYou={
+              !!tools?.some((tool) => tool.outdated || (tool.status !== "" && tool.required))
+            }
           />
         </List>
       </Section>
@@ -243,11 +245,18 @@ export function CheckupTools() {
                     {tool.outdated ? `${tool.version} · newest ${tool.newest}` : tool.version}
                   </span>
                 )}
+                {tool.status !== "" && !tool.required && (
+                  <span className="text-muted-foreground text-sm break-words">
+                    {tool.status.replace("-", " ")}
+                  </span>
+                )}
                 {tool.path && (
                   <span className="text-muted-foreground text-sm break-all">{tool.path}</span>
                 )}
               </span>
-              {(tool.status !== "" || tool.outdated) && <ToolProblem tool={tool} />}
+              {tool.outdated || (tool.status !== "" && tool.required) ? (
+                <ToolProblem tool={tool} />
+              ) : null}
             </Row>
           ))}
         </List>
