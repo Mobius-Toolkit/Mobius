@@ -840,6 +840,7 @@ func TestServer(t *testing.T) {
 	addTurnUsage(t, server)
 	addSkillUses(t, server)
 	addStepTimes(t, server)
+	addQuality(t, server)
 	for query, last := range map[string]*atomic.Int64{
 		"SELECT MAX(id) FROM step_times":  &lastStepTime,
 		"SELECT MAX(id) FROM task_states": &lastTaskState,
@@ -1179,6 +1180,129 @@ func addStepTimes(t *testing.T, server *testserver.Server) {
 			tasks[i%len(tasks)], state.state, organization, repository, session, role, state.harness, state.model, state.effort,
 			state.startedAt, ended(state.startedAt, state.seconds).Format(time.RFC3339Nano)); err != nil {
 			t.Fatal(err)
+		}
+	}
+}
+
+// addQuality adds the ended tasks of the tab "Quality" on five of the 7 days that end on 2026-10-15. They are in
+// owner/quality, so the other screens do not show them. Only the working state starts in these days, so the tab "Times"
+// reads no other state of these tasks. The turns start before these days, so the tab "Cost" reads none of them.
+// sonnet has tasks on Oct 10, Oct 11 and Oct 15, and swe-1.5 has tasks on Oct 12 and Oct 13. Thus each model has two
+// days in a row, and the chart has a gap on Oct 14.
+func addQuality(t *testing.T, server *testserver.Server) {
+	t.Helper()
+	at := func(value string, minutes int) string {
+		parsed, err := time.Parse(time.RFC3339, value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return parsed.Add(time.Duration(minutes) * time.Minute).Format(time.RFC3339Nano)
+	}
+	type qualityTask struct {
+		issue                                      int64
+		harness, model, effort, working, ended     string
+		merged                                     bool
+		reviewers, implementers, needsHuman, asked int
+		input, output, cacheRead, cacheWrite       int64
+		cost                                       float64
+	}
+	tasks := []qualityTask{
+		{80, "claude-code", "sonnet", "high", "2026-10-10T08:00:00Z", "2026-10-10T12:00:00Z", true, 1, 4, 1, 1, 1000, 200, 3000, 400, 1},
+		{83, "claude-code", "sonnet", "high", "2026-10-11T09:00:00Z", "2026-10-11T12:30:00Z", true, 2, 2, 0, 0, 800, 150, 2400, 300, 0.6},
+		{81, "devin", "swe-1.5", "", "2026-10-12T14:00:00Z", "2026-10-12T18:00:00Z", false, 1, 1, 0, 0, 2000, 400, 5000, 600, 2},
+		{84, "devin", "swe-1.5", "", "2026-10-13T07:00:00Z", "2026-10-13T09:00:00Z", false, 2, 2, 0, 0, 1200, 250, 3500, 450, 1.4},
+		{82, "claude-code", "sonnet", "high", "2026-10-15T06:00:00Z", "2026-10-15T10:00:00Z", true, 1, 3, 0, 0, 500, 100, 1500, 200, 0.5},
+	}
+	for _, task := range tasks {
+		result, err := server.DB.Exec(`INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at)
+			VALUES ('owner/quality', 'owner/quality', ?, 0, 'ended', ?)`, task.issue, task.working)
+		if err != nil {
+			t.Fatal(err)
+		}
+		id, err := result.LastInsertId()
+		if err != nil {
+			t.Fatal(err)
+		}
+		addSession := func(role, startedAt, endedAt, reason string) int64 {
+			result, err := server.DB.Exec(`INSERT INTO sessions (role, harness, model, effort, organization, repository,
+				workstream_repository, workstream, issue, started_at, ended_at, end_reason)
+				VALUES (?, ?, ?, nullif(?, ''), 'owner', 'owner/quality', 'owner/quality', 0, ?, ?, ?, ?)`,
+				role, task.harness, task.model, task.effort, task.issue, startedAt, endedAt, reason)
+			if err != nil {
+				t.Fatal(err)
+			}
+			session, err := result.LastInsertId()
+			if err != nil {
+				t.Fatal(err)
+			}
+			return session
+		}
+		var implementer int64
+		for i := range task.implementers {
+			session := addSession(engine.ImplementerRole, at(task.working, 10*i), at(task.working, 10*i+5), "done")
+			if i == 0 {
+				implementer = session
+			}
+		}
+		for i := range task.reviewers {
+			addSession(engine.ReviewerRole, at(task.ended, -30-10*i), at(task.ended, -20-10*i), "done")
+		}
+		if task.needsHuman > 0 {
+			_, err = server.DB.Exec(`INSERT INTO task_states (task, state, issue, workstream, organization, repository,
+				started_at, ended_at) VALUES (?, 'needs_human', ?, 0, 'owner', 'owner/quality', ?, ?)`,
+				id, task.issue, "2026-09-01T00:20:00Z", "2026-09-01T00:30:00Z")
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		if task.asked > 0 {
+			_, err = server.DB.Exec(`INSERT INTO task_states (task, state, issue, workstream, organization, repository,
+				started_at, ended_at) VALUES (?, 'asked', ?, 0, 'owner', 'owner/quality', ?, ?)`,
+				id, task.issue, "2026-09-01T00:40:00Z", "2026-09-01T00:50:00Z")
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		for _, state := range []struct{ name, startedAt, endedAt string }{
+			{"dispatched", "2026-09-01T00:00:00Z", "2026-09-01T00:10:00Z"},
+			{"working", task.working, task.ended},
+			{"approval", "2026-09-01T01:00:00Z", task.ended},
+		} {
+			session := sql.NullInt64{}
+			role := sql.NullString{}
+			if state.name == "working" {
+				session = sql.NullInt64{Int64: implementer, Valid: true}
+				role = sql.NullString{String: engine.ImplementerRole, Valid: true}
+				_, err = server.DB.Exec(`INSERT INTO task_states (task, state, issue, workstream, organization, repository,
+					session, role, harness, model, effort, started_at, ended_at)
+					VALUES (?, ?, ?, 0, 'owner', 'owner/quality', ?, ?, ?, ?, nullif(?, ''), ?, ?)`,
+					id, state.name, task.issue, session, role, task.harness, task.model, task.effort,
+					state.startedAt, state.endedAt)
+			} else {
+				_, err = server.DB.Exec(`INSERT INTO task_states (task, state, issue, workstream, organization, repository,
+					session, role, harness, model, effort, started_at, ended_at)
+					VALUES (?, ?, ?, 0, 'owner', 'owner/quality', ?, ?, null, null, null, ?, ?)`,
+					id, state.name, task.issue, session, role, state.startedAt, state.endedAt)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := server.DB.Exec(`INSERT INTO turn_usage (session, task, workstream, organization, repository, role,
+			harness, model, effort, started_at, ended_at, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd)
+			VALUES (?, ?, 0, 'owner', 'owner/quality', ?, ?, ?, nullif(?, ''), '2026-09-01T00:00:00Z', '2026-09-01T00:00:00Z',
+			?, ?, ?, ?, ?)`,
+			implementer, id, engine.ImplementerRole, task.harness, task.model, task.effort,
+			task.input, task.output, task.cacheRead, task.cacheWrite, task.cost); err != nil {
+			t.Fatal(err)
+		}
+		if task.merged {
+			if _, err := server.DB.Exec(`INSERT INTO lead_events (repository, workstream, issue_repository, issue, kind,
+				payload, time, delivered_at) VALUES ('owner/quality', 0, 'owner/quality', ?, 'end', ?, ?, ?)`,
+				task.issue, fmt.Sprintf("%s end of #%d \"Quality task\": pull request #%d merged.", task.ended, task.issue, task.issue+100),
+				task.ended, task.ended); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
 }

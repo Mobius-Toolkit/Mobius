@@ -138,3 +138,53 @@ test("the tab Skills shows no group that it does not offer", async ({ page }) =>
     "Source",
   ]);
 });
+
+test("the Quality tab shows the totals of the ended tasks", async ({ page }) => {
+  const main = page.getByRole("main");
+  await page.goto("/usage?tab=quality");
+
+  await expect(main.getByRole("tab", { name: "Quality", selected: true })).toBeVisible();
+  const total = (title: string) =>
+    main.locator("dt", { hasText: title }).locator("..").locator("dd");
+  await expect(total("Tasks")).toHaveText("5");
+  await expect(total("Merged")).toHaveText("60%");
+  await expect(total("Review rounds")).toHaveText("1.4");
+  await expect(total("Fix rounds")).toHaveText("1.4");
+  await expect(total("Cost per task")).toHaveText("$1.10");
+});
+
+test("the value menu puts the fix rounds on the chart", async ({ page }) => {
+  const main = page.getByRole("main");
+  await page.goto("/usage?tab=quality");
+
+  await main.getByRole("button", { name: "Chart: Review rounds" }).click();
+  await page.getByRole("menuitemradio", { name: "Fix rounds" }).click();
+
+  await expect(page).toHaveURL(/value=fixRounds/);
+  await expect(main.getByRole("button", { name: "Chart: Fix rounds" })).toBeVisible();
+  await expect(main.locator(".recharts-yAxis-tick-labels")).toContainText("3.0");
+});
+
+test("the group Model shows one line and one row for each model", async ({ page }) => {
+  const main = page.getByRole("main");
+  await page.goto("/usage?tab=quality&group=%5B%22model%22%5D");
+
+  const legend = main.locator(".recharts-legend-wrapper");
+  await expect(legend.getByText("sonnet", { exact: true })).toBeVisible();
+  await expect(legend.getByText("swe-1.5", { exact: true })).toBeVisible();
+  const table = main.getByRole("table");
+  await expect(table.getByRole("columnheader", { name: "Model" })).toBeVisible();
+  await expect(table.getByRole("rowheader")).toHaveText(["sonnet", "swe-1.5"]);
+});
+
+test("the Quality tab filters by the task fields and not by Role", async ({ page }) => {
+  const main = page.getByRole("main");
+  await page.goto("/usage?tab=quality&role=%5B%22lead_chat%22%5D");
+
+  for (const name of ["Harness", "Model", "Effort", "Repository"]) {
+    await expect(main.getByRole("button", { name: new RegExp(`^${name}`) })).toBeVisible();
+  }
+  await expect(main.getByRole("button", { name: /^Role/ })).toHaveCount(0);
+  await expect(main.getByRole("button", { name: /^Model version/ })).toHaveCount(0);
+  await expect(main.getByRole("button", { name: "Group by: None" })).toBeVisible();
+});
