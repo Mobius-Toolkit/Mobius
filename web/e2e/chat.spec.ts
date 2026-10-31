@@ -2153,11 +2153,15 @@ test("the status line tells that the agent writes when the Owner sent each messa
   await page.route("**/api/chat?*", async (route) => {
     const response = await route.fetch();
     const body = (await response.json()) as {
-      data: { writing: boolean; messages: { author: string; cancelledAt: string | null }[] };
+      data: {
+        writing: boolean;
+        messages: { author: string; deliveredAt: string | null; cancelledAt: string | null }[];
+      };
     };
     body.data.writing = true;
     for (const message of body.data.messages) {
       if (message.author === "Owner") {
+        message.deliveredAt = null;
         message.cancelledAt = "2026-10-15T08:45:00Z";
       }
     }
