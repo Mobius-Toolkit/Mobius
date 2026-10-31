@@ -228,6 +228,7 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 				},
 				e.tellOwner),
 		}
+		tools = append(tools, e.rejectSkillProposalTool(c))
 		if c.agent.skills {
 			tools = append(tools, e.readSkillUsageTool(c))
 		}
