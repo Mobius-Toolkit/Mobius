@@ -4,7 +4,7 @@ On the event skill proposal, an agent proposes a new skill or a changed skill fo
 - Create a task issue in the skill repository with `create_issue`. Put the files in the folder that the event names.
 - Create a task issue that changes an existing skill, with the full new folder in the body.
 - Add the proposal to an open task issue of the same skill.
-- Reject the proposal, for example when it is a duplicate, when it has a value for one task only, or when it has a secret or a local path.
+- Reject the proposal, for example when it is a duplicate, when it has a value for one task only, or when it has a secret or a local path. Then call `reject_skill_proposal` with the name of the skill folder and the reason. The tool stores the rejection, and the Curator of the organization reads it in its next session.
 
 When the event names a top-level folder, and `repos/<name of the session repository>/<skill>/` exists on the default branch of the skill repository, the proposal changes that repository skill. The session got that skill in place of the general skill.
 

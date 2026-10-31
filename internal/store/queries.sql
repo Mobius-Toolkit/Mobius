@@ -1470,3 +1470,10 @@ SELECT * FROM voice_language WHERE id = 1;
 -- name: UpsertVoiceLanguage :exec
 INSERT INTO voice_language (id, language, updated_at) VALUES (1, ?, ?)
 ON CONFLICT (id) DO UPDATE SET language = excluded.language, updated_at = excluded.updated_at;
+
+-- name: AddSkillRejection :exec
+INSERT INTO skill_rejections (organization, name, reason, rejected_at) VALUES (?, ?, ?, ?)
+ON CONFLICT (organization, name) DO UPDATE SET reason = excluded.reason, rejected_at = excluded.rejected_at;
+
+-- name: ListSkillRejections :many
+SELECT name, reason, rejected_at FROM skill_rejections WHERE organization = ? ORDER BY name;
