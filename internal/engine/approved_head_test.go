@@ -215,6 +215,10 @@ func TestARefusedCommentOfTheApprovalAgainGivesTheLeadReadyForApproval(t *testin
 	if !strings.Contains(event, "The change of the pull request is the same as at the approved head") {
 		t.Errorf("event = %q", event)
 	}
+	if !strings.Contains(event, "\nNo commit of main after the start of the CI of the head") &&
+		!strings.Contains(event, "\nThe head has no CI run, so Mobius lists no commit of main.") {
+		t.Errorf("event without the newer commits text: %q", event)
+	}
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" })
 	waitForPolls(t, fake)
 	if got := approvalAgainComments(fake); got != 0 {
@@ -331,6 +335,43 @@ func TestTheEventAfterANewCommitOfTheBranchListsItWithNoMergeMarkAndSaysThatTheC
 	}
 	if strings.Contains(event, "Add extra (merge of main)") || strings.Contains(event, "is the same as at the approved head") {
 		t.Errorf("event = %q", event)
+	}
+}
+
+func TestTheEventAfterAMergeWithAHandChangeAndNoSharedBroughtInCommitGetsReadyForApproval(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := approvable(t, fake, "merge", true)
+	approved := head(t, fake, "mobius/41")
+	fake.CommitFile(shop, "other.txt", "other\n", "Add other")
+	fake.HoldBranchUpdates()
+
+	sendChat(t, server, leadChat, "Approve #41")
+
+	testkit.WaitFor(t, func() bool { return fake.UpdateBranchCalls() == 1 })
+	work := t.TempDir()
+	testkit.Git(t, work, "clone", "--branch=mobius/41", fake.Remote(shop), ".")
+	testkit.Git(t, work, "merge", "--no-ff", "--no-commit", "origin/main")
+	if err := os.WriteFile(filepath.Join(work, "plan.txt"), []byte("cents\nHAND\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	testkit.Git(t, work, "add", "plan.txt")
+	testkit.Git(t, work, "commit", "-m", "Merge main by hand")
+	testkit.Git(t, work, "push", "origin", "mobius/41")
+	fake.ReleaseBranchUpdates()
+
+	event := eventAfterApproval(t, server, approved)
+	if !strings.Contains(event, " ready for Lead approval of #41 ") {
+		t.Errorf("event = %q", event)
+	}
+	waitForPolls(t, fake)
+	if got := approvalAgainComments(fake); got != 0 {
+		t.Errorf("comments of the approval again = %d, want 0", got)
+	}
+	for _, event := range leadEvents(t, server) {
+		if event.Kind == "approved_again" {
+			t.Errorf("approved_again event for a hand change: %q", event.Payload)
+		}
 	}
 }
 

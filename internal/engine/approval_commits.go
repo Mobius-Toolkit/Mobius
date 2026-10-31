@@ -232,7 +232,7 @@ func (e *Engine) differences(ctx context.Context, repository github.Repository, 
 		again = false
 	}
 	for _, link := range chain {
-		if !link.merge {
+		if len(link.commit.Parents) < 2 {
 			continue
 		}
 		var shared []string

@@ -232,15 +232,20 @@ func (e *Engine) onChecks(ctx context.Context, repository github.Repository, tas
 	}
 	delete(e.ciWait, task.ID)
 	if again {
-		if err := e.approveAgain(ctx, repository, task, issue, pullRequest, level, checkRun); err != nil {
-			var refused *gh.ErrorResponse
-			if errors.As(err, &refused) && refused.Response.StatusCode < 500 {
-				return e.addReadyForApproval(ctx, task, issue, pullRequest, approvedHead, "")
-			}
-			_, stateErr := e.setTaskState(ctx, store.SetTaskStateParams{State: "checks", ID: task.ID, FromState: "approval"})
-			return errors.Join(err, stateErr)
+		err := e.approveAgain(ctx, repository, task, issue, pullRequest, level, checkRun)
+		if err == nil {
+			return nil
 		}
-		return nil
+		var refused *gh.ErrorResponse
+		if errors.As(err, &refused) && refused.Response.StatusCode < 500 {
+			newerCommits, textErr := e.newerCommitsText(ctx, repository, task, pullRequest, state.started)
+			if textErr == nil {
+				return e.addReadyForApproval(ctx, task, issue, pullRequest, approvedHead, newerCommits)
+			}
+			err = textErr
+		}
+		_, stateErr := e.setTaskState(ctx, store.SetTaskStateParams{State: "checks", ID: task.ID, FromState: "approval"})
+		return errors.Join(err, stateErr)
 	}
 	return e.addReadyForApproval(ctx, task, issue, pullRequest, approvedHead, newerCommits)
 }
