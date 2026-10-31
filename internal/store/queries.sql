@@ -724,6 +724,9 @@ UPDATE tasks SET approved_head = ? WHERE id = ?;
 -- name: SetTaskApprovedReport :exec
 UPDATE tasks SET approved_report = ? WHERE id = ?;
 
+-- name: SetTaskApprovedAgainComment :exec
+UPDATE tasks SET approved_again_head = ?, approved_again_comment = ? WHERE id = ?;
+
 -- name: SetTaskConflictHead :exec
 UPDATE tasks SET conflict_head = ? WHERE id = ?;
 

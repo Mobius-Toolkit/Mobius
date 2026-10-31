@@ -376,6 +376,8 @@ type Task struct {
 	ApprovedHead         sql.NullString
 	Report               string
 	ApprovedReport       sql.NullString
+	ApprovedAgainHead    sql.NullString
+	ApprovedAgainComment sql.NullString
 }
 
 type TaskState struct {

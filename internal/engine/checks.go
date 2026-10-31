@@ -247,7 +247,7 @@ func (e *Engine) onChecks(ctx context.Context, repository github.Repository, tas
 func (e *Engine) approveAgain(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue, pullRequest *gh.PullRequest, level string, checkRun int64) error {
 	head, approved := pullRequest.GetHead().GetSHA(), task.ApprovedHead.String
 	comment := approvalAgainComment(repository.DefaultBranch, head, approved, task.ApprovedReport.String)
-	result, err := e.finishApproval(ctx, repository, task, issue, pullRequest, level, checkRun, comment, "", "")
+	result, err := e.finishApproval(ctx, repository, task, issue, pullRequest, level, checkRun, comment, "", "", true)
 	if err != nil {
 		return err
 	}

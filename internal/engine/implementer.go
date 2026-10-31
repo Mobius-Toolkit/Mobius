@@ -316,7 +316,7 @@ func (e *Engine) approvePullRequest(ctx context.Context, c caller, repository gi
 	if err != nil {
 		return "", err
 	}
-	result, err := e.finishApproval(ctx, repository, task, issue, pullRequest, level, checkRun, runner.WithMark(input.Report, mark), mark, input.Report)
+	result, err := e.finishApproval(ctx, repository, task, issue, pullRequest, level, checkRun, runner.WithMark(input.Report, mark), mark, input.Report, false)
 	if err != nil {
 		return "", err
 	}
@@ -327,8 +327,8 @@ func (e *Engine) approvePullRequest(ctx context.Context, c caller, repository gi
 // approves the pull request with comment, adds a todo for each new deployment need, and with a merge level starts the
 // merge. comment is the text to post on the pull request. mark is the role mark of the Lead for the question text, or
 // "" when Mobius writes the comment. leadReport is stored as the report of the approval, or "" keeps the stored report.
-// It gives the result text for the Lead.
-func (e *Engine) finishApproval(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue, pullRequest *gh.PullRequest, level string, checkRun int64, comment, mark, leadReport string) (string, error) {
+// again tells that Mobius approves the head again for the Lead. It gives the result text for the Lead.
+func (e *Engine) finishApproval(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue, pullRequest *gh.PullRequest, level string, checkRun int64, comment, mark, leadReport string, again bool) (string, error) {
 	moved, err := e.setTaskState(ctx, store.SetTaskStateParams{State: "ready_for_review", ID: task.ID, FromState: "approval"})
 	if err != nil {
 		return "", err
@@ -343,7 +343,7 @@ func (e *Engine) finishApproval(ctx context.Context, repository github.Repositor
 		}
 		task.RefusedReview = task.ApprovedReview
 	}
-	if err := e.approve(ctx, repository, task, issue, pullRequest, checkRun, comment, mark, leadReport); err != nil {
+	if err := e.approve(ctx, repository, task, issue, pullRequest, checkRun, comment, mark, leadReport, again); err != nil {
 		_, stateErr := e.setTaskState(ctx, store.SetTaskStateParams{State: "approval", ID: task.ID, FromState: "ready_for_review"})
 		return "", errors.Join(err, stateErr)
 	}
@@ -453,21 +453,41 @@ func approvalAgainComment(branch, head, approved, report string) string {
 // approve posts comment on the pull request, sets the Mobius check of the head to success, stores the approved head and
 // leadReport in the task, makes a draft pull request ready for review, replaces mobius:working with mobius:review, and
 // adds the Inbox item for the Owner. mark is the role mark of the Lead for the question text, or "" when Mobius writes
-// the comment. A leadReport of "" keeps the stored report of the approval.
-func (e *Engine) approve(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue, pullRequest *gh.PullRequest, checkRun int64, comment, mark, leadReport string) error {
+// the comment. A leadReport of "" keeps the stored report of the approval. again tells that Mobius approves the head
+// again for the Lead: it keeps the stored comment of the same head, so a retry does not post it a second time.
+func (e *Engine) approve(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue, pullRequest *gh.PullRequest, checkRun int64, comment, mark, leadReport string, again bool) error {
+	head := pullRequest.GetHead().GetSHA()
 	if mark != "" && hasLabel(issue, questionLabel) {
 		if err := e.closeQuestion(ctx, repository, issue, task, runner.WithMark(fmt.Sprintf("The Lead approved PR #%d, so the question is closed.", pullRequest.GetNumber()), mark), ""); err != nil {
 			return err
 		}
 	}
-	posted, err := repository.AddComment(ctx, int64(pullRequest.GetNumber()), comment)
-	if err != nil {
+	summary := "The Lead approved the pull request."
+	posted := ""
+	if again {
+		summary = "Mobius approved the head again: only clean merges of the default branch came after the approval of the Lead."
+		posted = task.ApprovedAgainComment.String
+	}
+	if !again || task.ApprovedAgainHead.String != head || task.ApprovedAgainComment.String == "" {
+		added, err := repository.AddComment(ctx, int64(pullRequest.GetNumber()), comment)
+		if err != nil {
+			return err
+		}
+		posted = added.GetHTMLURL()
+		if again {
+			if err := e.queries.SetTaskApprovedAgainComment(ctx, store.SetTaskApprovedAgainCommentParams{
+				ApprovedAgainHead:    sql.NullString{String: head, Valid: true},
+				ApprovedAgainComment: sql.NullString{String: posted, Valid: true},
+				ID:                   task.ID,
+			}); err != nil {
+				return err
+			}
+		}
+	}
+	if err := repository.UpdateCheckRun(ctx, checkRun, checkRunName, "completed", "success", "Approved", summary); err != nil {
 		return err
 	}
-	if err := repository.UpdateCheckRun(ctx, checkRun, checkRunName, "completed", "success", "Approved", "The Lead approved the pull request."); err != nil {
-		return err
-	}
-	if err := e.queries.SetTaskApprovedHead(ctx, store.SetTaskApprovedHeadParams{ApprovedHead: sql.NullString{String: pullRequest.GetHead().GetSHA(), Valid: true}, ID: task.ID}); err != nil {
+	if err := e.queries.SetTaskApprovedHead(ctx, store.SetTaskApprovedHeadParams{ApprovedHead: sql.NullString{String: head, Valid: true}, ID: task.ID}); err != nil {
 		return err
 	}
 	if leadReport != "" {
@@ -503,7 +523,7 @@ func (e *Engine) approve(ctx context.Context, repository github.Repository, task
 		Text:                 fmt.Sprintf("Pull request #%d of #%d \"%s\" is ready for review.", pullRequest.GetNumber(), task.Issue, title),
 		Link:                 issueLink(task.Repository, task.Issue),
 		PullRequest:          int64(pullRequest.GetNumber()),
-		ReportLink:           posted.GetHTMLURL(),
+		ReportLink:           posted,
 		Merging:              merging,
 	})
 }

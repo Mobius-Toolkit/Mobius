@@ -85,6 +85,13 @@ func approvedReport(t *testing.T, server *testserver.Server) string {
 	return report
 }
 
+// approvalAgainComments gives the number of comments of the approval again on the pull request of #41.
+func approvalAgainComments(fake *testkit.FakeGitHub) int {
+	return len(slices.DeleteFunc(fake.Comments(shop, 42), func(comment testkit.Comment) bool {
+		return !strings.HasPrefix(comment.Body, "Mobius approved the head ")
+	}))
+}
+
 // checkApprovalAgain checks the approval again of head after approved: the comment, the check run, the event, and
 // that the Lead got no ready_for_approval for head.
 func checkApprovalAgain(t *testing.T, fake *testkit.FakeGitHub, server *testserver.Server, approved, head, result string) {
@@ -101,9 +108,10 @@ func checkApprovalAgain(t *testing.T, fake *testkit.FakeGitHub, server *testserv
 		t.Errorf("comment = %q, want %q", got, want)
 	}
 	if !slices.ContainsFunc(fake.CheckRuns(shop), func(run testkit.CheckRun) bool {
-		return run.Name == "Mobius" && run.HeadSHA == head && run.Conclusion == "success"
+		return run.Name == "Mobius" && run.HeadSHA == head && run.Conclusion == "success" &&
+			run.Output != nil && run.Output.Summary == "Mobius approved the head again: only clean merges of the default branch came after the approval of the Lead."
 	}) {
-		t.Errorf("no Mobius check run with success on %s: %+v", head, fake.CheckRuns(shop))
+		t.Errorf("no Mobius check run of the approval again with success on %s: %+v", head, fake.CheckRuns(shop))
 	}
 	events := leadEvents(t, server)
 	var again []leadEvent
@@ -154,6 +162,23 @@ func TestTheApprovalAgainAddsTheInboxItemAndWaitsForTheOwner(t *testing.T) {
 		t.Errorf("merge calls = %d", calls)
 	}
 	checkApprovalAgain(t, fake, server, approved, head, "The Owner got it for review.")
+}
+
+func TestAFailedUpdateOfTheCheckRunOfTheApprovalAgainPostsOneComment(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, approved, head := approvalAgain(t, fake)
+
+	fake.FailUpdateCheckRuns(true)
+	testkit.WaitFor(t, func() bool { return approvalAgainComments(fake) == 1 })
+	fake.FailUpdateCheckRuns(false)
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "" })
+	waitForPolls(t, fake)
+	if got := approvalAgainComments(fake); got != 1 {
+		t.Errorf("comments of the approval again = %d, want 1", got)
+	}
+	checkApprovalAgain(t, fake, server, approved, head, "Mobius merges it after its checks pass.")
 }
 
 func TestTheEventAfterAMergeWithAConflictThatTheBranchResolvedByHandNamesTheFile(t *testing.T) {
