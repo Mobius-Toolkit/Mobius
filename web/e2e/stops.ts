@@ -93,6 +93,7 @@ export const otherItems = [
     id: 206,
     issue: 12,
     kind: "Lead failed",
+    title: `Lead of #12 Integrate loyalty plans did not get: "Start the work on the plan tiers."`,
     reason: "The Lead did not get your message",
     text: "Start the work on the plan tiers.",
   },
@@ -153,6 +154,20 @@ export const coordinatorActionItem = {
   title: "Message to the Lead of #14 Early renewals",
   reason: "The Coordinator waits for your approval",
   action: { ...leadActionItem.action, id: 79, role: "coordinator", tool: "message_lead" },
+};
+
+// A message that the Coordinator did not get.
+export const coordinatorFailedItem = {
+  ...base,
+  id: 216,
+  issue: 0,
+  repository: "",
+  workstreamRepository: "",
+  workstream: 0,
+  kind: "Lead failed",
+  title: `Coordinator did not get: "It shows this crossed O icon. Should be…"`,
+  reason: "The Coordinator did not get your message",
+  text: "It shows this crossed O icon. Should be a tick, not a cross.",
 };
 
 // A question of the Coordinator whose title is one long word, with the text and the options of a question.

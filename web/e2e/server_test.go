@@ -394,7 +394,7 @@ func TestServer(t *testing.T) {
 	})
 	server.Mux.HandleFunc("POST /e2e/approvals/times/fix", func(w http.ResponseWriter, _ *http.Request) {
 		for _, query := range []string{
-			"UPDATE chat_messages SET time = ?1, delivered_at = iif(delivered_at IS NULL, NULL, ?1), stopped_at = iif(stopped_at IS NULL, NULL, ?1) WHERE time > ?1",
+			"UPDATE chat_messages SET time = ?1, delivered_at = iif(delivered_at IS NULL, NULL, ?1), stopped_at = iif(stopped_at IS NULL, NULL, ?1), cancelled_at = iif(cancelled_at IS NULL, NULL, ?1) WHERE time > ?1",
 			"UPDATE inbox_items SET time = ?1 WHERE time > ?1",
 			"UPDATE pending_actions SET time = ?1, decided_at = iif(decided_at IS NULL, NULL, ?1) WHERE time > ?1",
 		} {
@@ -402,6 +402,11 @@ func TestServer(t *testing.T) {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
+		}
+		// The engine retries a failed message after 5 minutes, so a failure time in the past would start a chat in the test.
+		if _, err := server.DB.Exec("UPDATE chat_messages SET failed_at = '2100-09-28T09:30:00Z' WHERE failed_at IS NOT NULL"); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 	})
 	server.Mux.HandleFunc("PUT /e2e/actions/{id}/state", func(w http.ResponseWriter, r *http.Request) {
@@ -419,6 +424,7 @@ func TestServer(t *testing.T) {
 			WorkstreamRepository: "owner/shop",
 			Workstream:           12,
 			Issue:                40,
+			Title:                `Lead of #12 Integrate loyalty plans did not get: "Start the work on the plan tiers."`,
 			Reason:               "The Lead did not get your message",
 			Time:                 "2026-09-28T09:30:00Z",
 		}
@@ -605,6 +611,55 @@ func TestServer(t *testing.T) {
 			}
 		}
 		if err := server.Engine.SeeChat(ctx, key, seen); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// One Owner message that the agent did not get, and one that the Owner sent again with a copy after it.
+	for _, fixture := range []struct {
+		key    engine.ChatKey
+		text   string
+		failed bool
+	}{
+		{engine.ChatKey{Organization: "plants", Repository: "plants/garden", Workstream: 14}, "It shows this crossed O icon. Should be a tick.", true},
+		{engine.ChatKey{Organization: "plants", Repository: "plants/garden", Workstream: 15}, "Plan the tiers for the shop.", false},
+	} {
+		fixtureTime := time.Now().UTC().Format(time.RFC3339Nano)
+		message, err := queries.AddChatMessage(ctx, store.AddChatMessageParams{
+			Organization: fixture.key.Organization,
+			Repository:   fixture.key.Repository,
+			Workstream:   fixture.key.Workstream,
+			Author:       "Owner",
+			InboxItems:   "[]",
+			Time:         fixtureTime,
+			Text:         fixture.text,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if fixture.failed {
+			if _, err := queries.FailChatMessage(ctx, store.FailChatMessageParams{
+				FailedAt: sql.NullString{String: fixtureTime, Valid: true},
+				ID:       message.ID,
+			}); err != nil {
+				t.Fatal(err)
+			}
+			continue
+		}
+		if _, err := queries.CancelChatMessage(ctx, store.CancelChatMessageParams{
+			CancelledAt: sql.NullString{String: fixtureTime, Valid: true},
+			ID:          message.ID,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := queries.AddChatMessage(ctx, store.AddChatMessageParams{
+			Organization: fixture.key.Organization,
+			Repository:   fixture.key.Repository,
+			Workstream:   fixture.key.Workstream,
+			Author:       "Owner",
+			InboxItems:   "[]",
+			Time:         fixtureTime,
+			Text:         fixture.text,
+		}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -1268,7 +1323,7 @@ func fixTimes(t *testing.T, server *testserver.Server, github *testkit.FakeGitHu
 		"UPDATE session_skills SET copied_at = ?1",
 		"UPDATE step_times SET started_at = ?1, ended_at = ?1",
 		"UPDATE task_states SET started_at = ?1, ended_at = ?1",
-		"UPDATE chat_messages SET time = ?1, delivered_at = iif(delivered_at IS NULL, NULL, ?1), stopped_at = iif(stopped_at IS NULL, NULL, ?1)",
+		"UPDATE chat_messages SET time = ?1, delivered_at = iif(delivered_at IS NULL, NULL, ?1), stopped_at = iif(stopped_at IS NULL, NULL, ?1), cancelled_at = iif(cancelled_at IS NULL, NULL, ?1)",
 		"UPDATE inbox_items SET time = ?1",
 		"UPDATE memory_versions SET time = ?1",
 		"UPDATE copied_workstreams SET created_at = ?1",
@@ -1276,6 +1331,10 @@ func fixTimes(t *testing.T, server *testserver.Server, github *testkit.FakeGitHu
 		if _, err := server.DB.Exec(query, "2026-09-28T09:30:00Z"); err != nil {
 			t.Fatal(err)
 		}
+	}
+	// The engine retries a failed message after 5 minutes, so a failure time in the past would start a chat in the test.
+	if _, err := server.DB.Exec("UPDATE chat_messages SET failed_at = '2100-09-28T09:30:00Z' WHERE failed_at IS NOT NULL"); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := server.DB.Exec("UPDATE chat_messages SET text = '2026-09-28 09:30 UTC' || substr(text, 21) WHERE author = 'Event' AND text LIKE '____-__-__ __:__ UTC %'"); err != nil {
 		t.Fatal(err)
