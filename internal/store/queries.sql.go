@@ -920,6 +920,28 @@ func (q *Queries) AddSessionSkill(ctx context.Context, arg AddSessionSkillParams
 	return err
 }
 
+const addSkillRejection = `-- name: AddSkillRejection :exec
+INSERT INTO skill_rejections (organization, name, reason, rejected_at) VALUES (?, ?, ?, ?)
+ON CONFLICT (organization, name) DO UPDATE SET reason = excluded.reason, rejected_at = excluded.rejected_at
+`
+
+type AddSkillRejectionParams struct {
+	Organization string
+	Name         string
+	Reason       string
+	RejectedAt   string
+}
+
+func (q *Queries) AddSkillRejection(ctx context.Context, arg AddSkillRejectionParams) error {
+	_, err := q.db.ExecContext(ctx, addSkillRejection,
+		arg.Organization,
+		arg.Name,
+		arg.Reason,
+		arg.RejectedAt,
+	)
+	return err
+}
+
 const addSkillUse = `-- name: AddSkillUse :exec
 INSERT INTO skill_uses (session, organization, repository, role, harness, skill, source, used_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -7101,6 +7123,39 @@ func (q *Queries) ListSessions(ctx context.Context, arg ListSessionsParams) ([]S
 			&i.Effort,
 			&i.WorkstreamRepository,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSkillRejections = `-- name: ListSkillRejections :many
+SELECT name, reason, rejected_at FROM skill_rejections WHERE organization = ? ORDER BY name
+`
+
+type ListSkillRejectionsRow struct {
+	Name       string
+	Reason     string
+	RejectedAt string
+}
+
+func (q *Queries) ListSkillRejections(ctx context.Context, organization string) ([]ListSkillRejectionsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listSkillRejections, organization)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListSkillRejectionsRow
+	for rows.Next() {
+		var i ListSkillRejectionsRow
+		if err := rows.Scan(&i.Name, &i.Reason, &i.RejectedAt); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
