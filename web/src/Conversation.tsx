@@ -4,8 +4,10 @@ import {
   CheckIcon,
   ChevronRightIcon,
   CircleAlertIcon,
+  CircleXIcon,
   ClockIcon,
   Trash2Icon,
+  TriangleAlertIcon,
 } from "lucide-react";
 import {
   Fragment,
@@ -65,12 +67,14 @@ type Failure = { id: string; error: string; retryAt: number };
 
 function upsert(list: ChatMessage[], message: ChatMessage) {
   const known = list.find((other) => other.id === message.id);
-  // The agent only adds text to a message, so the longer text is the newer text. A message never loses a time, and a
-  // question that ended never opens again.
+  // The agent only adds text to a message, so the longer text is the newer text. A message never loses a time, except
+  // that a failed try after the delivery clears the delivery time. A question that ended never opens again.
   if (
     known &&
     (known.text.length > message.text.length ||
-      (known.deliveredAt && !message.deliveredAt) ||
+      (known.deliveredAt &&
+        !message.deliveredAt &&
+        !(message.failedAt && new Date(message.failedAt) > new Date(known.deliveredAt))) ||
       (known.stoppedAt && !message.stoppedAt) ||
       (known.question?.dismissedAt && !message.question?.dismissedAt))
   ) {
@@ -93,11 +97,27 @@ function OwnerState({ message }: { message: ChatMessage }) {
       </span>
     );
   }
+  if (message.cancelledAt) {
+    const label = `Cancelled, sent again below, at ${clock(message.cancelledAt)}`;
+    return (
+      <span role="img" aria-label={label} title={label}>
+        <CircleXIcon className="size-3.5" />
+      </span>
+    );
+  }
   if (message.deliveredAt) {
     const label = `Delivered to the agent at ${clock(message.deliveredAt)}`;
     return (
       <span role="img" aria-label={label} title={label}>
         <CheckCheckIcon className="size-3.5" />
+      </span>
+    );
+  }
+  if (message.failedAt) {
+    const label = `Not delivered, the agent failed, at ${clock(message.failedAt)}`;
+    return (
+      <span role="img" aria-label={label} title={label} className="text-destructive">
+        <TriangleAlertIcon className="size-3.5" />
       </span>
     );
   }
@@ -923,7 +943,10 @@ export function Conversation({
               ? `The ${agent} waits for the usage limit until ${dayClock(pausedUntil)}.`
               : messages.some(
                     (message) =>
-                      message.author === "Owner" && !message.deliveredAt && !message.stoppedAt,
+                      message.author === "Owner" &&
+                      !message.deliveredAt &&
+                      !message.stoppedAt &&
+                      !message.cancelledAt,
                   )
                 ? `The message waits for the ${agent}.`
                 : `The ${agent} writes a reply.`}

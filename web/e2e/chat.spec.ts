@@ -5,6 +5,7 @@ import { longTaskTitle, routeLongTask } from "./long-task.js";
 import { fakeMicrophone } from "./microphone.js";
 import { addStoppedItems, removeItems } from "./stopped-items.js";
 import {
+  coordinatorFailedItem,
   inboxRoute,
   leadActionItem,
   longTitle,
@@ -2146,6 +2147,28 @@ test("the status line tells that the agent writes when the agent got each messag
   await expect(main.getByText("The message waits for the Lead.")).toHaveCount(0);
 });
 
+test("the status line tells that the agent writes when the Owner sent each message again", async ({
+  page,
+}) => {
+  await page.route("**/api/chat?*", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as {
+      data: { writing: boolean; messages: { author: string; cancelledAt: string | null }[] };
+    };
+    body.data.writing = true;
+    for (const message of body.data.messages) {
+      if (message.author === "Owner") {
+        message.cancelledAt = "2026-10-15T08:45:00Z";
+      }
+    }
+    await route.fulfill({ response, json: body });
+  });
+  await page.goto(shop);
+  const main = page.getByRole("main");
+  await expect(main.getByText("The Lead writes a reply.")).toBeVisible();
+  await expect(main.getByText("The message waits for the Lead.")).toHaveCount(0);
+});
+
 test("the stop button shows only while a stop has an effect", async ({ page }) => {
   await page.route("**/api/chat?*", async (route) => {
     const response = await route.fetch();
@@ -2481,6 +2504,22 @@ async function expectStates(page: Page) {
   });
   await expect(stopped).toBeVisible();
   await expect(stopped).toHaveAttribute("title", "Stopped, the agent did not get it, at 08:41 AM");
+  const failed = message("Failed note").getByRole("img", {
+    name: "Not delivered, the agent failed, at 08:42 AM",
+  });
+  await expect(failed).toBeVisible();
+  await expect(failed).toHaveAttribute("title", "Not delivered, the agent failed, at 08:42 AM");
+  await expect(failed).toHaveClass(/text-destructive/);
+  await expect(
+    message("Failed after a delivery note").getByRole("img", {
+      name: "Delivered to the agent at 08:44 AM",
+    }),
+  ).toBeVisible();
+  const cancelled = message("Cancelled note").getByRole("img", {
+    name: "Cancelled, sent again below, at 08:45 AM",
+  });
+  await expect(cancelled).toBeVisible();
+  await expect(cancelled).toHaveAttribute("title", "Cancelled, sent again below, at 08:45 AM");
   await expect(message("Lead note").getByRole("img")).toHaveCount(0);
   await expect(main.getByText("Waits for the agent")).toHaveCount(0);
 }
@@ -2508,9 +2547,48 @@ async function fulfillLoad(route: Route, deliveredAt: string | null, marker?: st
 
 test.describe("the state of an Owner message", () => {
   const states = [
-    { text: "Stored note", deliveredAt: null, stoppedAt: null },
-    { text: "Delivered note", deliveredAt: "2026-10-15T08:40:00Z", stoppedAt: null },
-    { text: "Stopped note", deliveredAt: null, stoppedAt: "2026-10-15T08:41:00Z" },
+    {
+      text: "Stored note",
+      deliveredAt: null,
+      stoppedAt: null,
+      failedAt: null,
+      cancelledAt: null,
+    },
+    {
+      text: "Delivered note",
+      deliveredAt: "2026-10-15T08:40:00Z",
+      stoppedAt: null,
+      failedAt: null,
+      cancelledAt: null,
+    },
+    {
+      text: "Stopped note",
+      deliveredAt: null,
+      stoppedAt: "2026-10-15T08:41:00Z",
+      failedAt: null,
+      cancelledAt: null,
+    },
+    {
+      text: "Failed note",
+      deliveredAt: null,
+      stoppedAt: null,
+      failedAt: "2026-10-15T08:42:00Z",
+      cancelledAt: null,
+    },
+    {
+      text: "Failed after a delivery note",
+      deliveredAt: "2026-10-15T08:44:00Z",
+      stoppedAt: null,
+      failedAt: "2026-10-15T08:43:00Z",
+      cancelledAt: null,
+    },
+    {
+      text: "Cancelled note",
+      deliveredAt: null,
+      stoppedAt: null,
+      failedAt: null,
+      cancelledAt: "2026-10-15T08:45:00Z",
+    },
   ];
 
   async function showStates(
@@ -2531,6 +2609,8 @@ test.describe("the state of an Owner message", () => {
           time: "2026-10-15T08:37:00Z",
           deliveredAt: state.deliveredAt,
           stoppedAt: state.stoppedAt,
+          failedAt: state.failedAt,
+          cancelledAt: state.cancelledAt,
           images: 0,
           inboxItems: [],
           organization,
@@ -2604,6 +2684,87 @@ test.describe("the state of an Owner message", () => {
     await expect(main.getByText("Older load read")).toBeVisible();
     expect(await deliveredIcon.count()).toBe(1);
     await expect(message.getByRole("img", { name: "Stored, waits for the agent" })).toHaveCount(0);
+  });
+
+  test("a live message that fails after a delivery shows Not delivered", async ({ page }) => {
+    await page.addInitScript(`
+      window.sources = [];
+      const add = EventSource.prototype.addEventListener;
+      EventSource.prototype.addEventListener = function (type, listener, options) {
+        if (this.url.endsWith('/api/events') && !window.sources.includes(this)) {
+          window.sources.push(this);
+        }
+        return add.call(this, type, listener, options);
+      };
+    `);
+    const id = 9999;
+    const text = "Delivered then failed by a live event";
+    const deliveredAt = "2026-10-15T08:40:00Z";
+    await page.route("**/api/chat?*", (route) =>
+      route.fulfill({
+        json: {
+          data: {
+            harness: "claude-code",
+            messages: [
+              {
+                id,
+                author: "Owner",
+                browserId: "",
+                text,
+                time: "2026-10-15T08:39:00Z",
+                deliveredAt,
+                stoppedAt: null,
+                failedAt: null,
+                cancelledAt: null,
+                images: 0,
+                inboxItems: [],
+                organization: "owner",
+                repository: "owner/shop",
+                workstream: 12,
+                action: null,
+                question: null,
+              },
+            ],
+            older: false,
+            pausedUntil: null,
+            stoppable: false,
+            writing: false,
+          },
+        },
+      }),
+    );
+    await page.goto(shop);
+    const main = page.getByRole("main");
+    const message = main.locator("[data-message]", { hasText: text });
+    const delivered = message.getByRole("img", {
+      name: `Delivered to the agent at 08:40 AM`,
+    });
+    await expect(delivered).toBeVisible();
+
+    const failed = {
+      id,
+      author: "Owner",
+      browserId: "",
+      text,
+      time: "2026-10-15T08:39:00Z",
+      deliveredAt: null,
+      stoppedAt: null,
+      failedAt: "2026-10-15T08:45:00Z",
+      cancelledAt: null,
+      images: 0,
+      inboxItems: [],
+      organization: "owner",
+      repository: "owner/shop",
+      workstream: 12,
+      action: null,
+      question: null,
+    };
+    await page.evaluate(
+      `window.sources.at(-1).dispatchEvent(new MessageEvent('message', { data: ${JSON.stringify(JSON.stringify(failed))} }))`,
+    );
+    await expect(
+      message.getByRole("img", { name: "Not delivered, the agent failed, at 08:45 AM" }),
+    ).toBeVisible();
   });
 });
 
@@ -2704,6 +2865,32 @@ test("the chat of a Workstream shows a Lead question and a Lead action in one li
   await expect(list.getByRole("listitem")).toHaveCount(2);
   await expect(question.getByRole("button")).toHaveText(["Answer", "Chat"]);
   await expect(action.getByRole("button")).toHaveText(["Answer", "Chat"]);
+});
+
+test("the Coordinator chat shows a Lead failed item in its tray, and a Lead chat does not", async ({
+  page,
+}) => {
+  await page.route(inboxRoute, (route) =>
+    route.fulfill({ json: { data: [coordinatorFailedItem] } }),
+  );
+  await page.goto("/chat");
+  const main = page.getByRole("main");
+  const row = main
+    .getByRole("list", { name: "Pending actions" })
+    .getByRole("listitem")
+    .filter({ hasText: coordinatorFailedItem.title });
+
+  await expect(main.getByRole("heading", { name: "Waits for you (1)" })).toBeVisible();
+  await expect(row).toBeVisible();
+  await expect(row.getByText(coordinatorFailedItem.reason)).toBeVisible();
+  await expect(row.getByRole("button")).toHaveText(["Send again", "Chat", "Details", "Dismiss"]);
+  await row.getByRole("button", { name: "Details" }).click();
+  await expect(page.getByRole("dialog").getByText(coordinatorFailedItem.text)).toBeVisible();
+
+  await page.goto(shop);
+  await expect(page.getByRole("main").getByRole("heading", { name: /^Waits for you/ })).toHaveCount(
+    0,
+  );
 });
 
 test("a row with no link shows no Open GitHub, on the Inbox page and in the chat", async ({
