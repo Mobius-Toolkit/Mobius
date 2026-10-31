@@ -127,9 +127,11 @@ test("the Checkup page shows an optional program that is not found with no badge
   await page.goto("/settings/checkup");
   await loaded;
 
-  await expect(main.getByRole("link", { name: "Tools" }).getByText("needs you")).toBeHidden();
+  const toolsLink = main.getByRole("link", { name: "Tools" });
+  await expect(toolsLink).toHaveAttribute("aria-busy", "false");
+  await expect(toolsLink.getByText("needs you")).toBeHidden();
 
-  await main.getByRole("link", { name: "Tools" }).click();
+  await toolsLink.click();
 
   const row = main.getByRole("listitem").filter({ hasText: "dsh" });
   await expect(row.getByText("not found")).toBeVisible();

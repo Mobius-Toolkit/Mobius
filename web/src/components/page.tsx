@@ -56,15 +56,17 @@ export function Row({ className, children }: { className?: string; children: Rea
 export function LinkRow({
   link,
   title,
+  busy,
   children,
 }: {
   link: LinkProps;
   title: ReactNode;
+  busy?: boolean;
   children?: ReactNode;
 }) {
   return (
     <li>
-      <Link {...link} className={cn(rowClass, "hover:bg-muted")}>
+      <Link {...link} aria-busy={busy} className={cn(rowClass, "hover:bg-muted")}>
         <span className="min-w-0 grow break-words">{title}</span>
         {children}
         <ChevronRightIcon className="size-4 shrink-0" />

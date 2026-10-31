@@ -140,13 +140,15 @@ function CheckupLink({
   link,
   title,
   needsYou,
+  busy,
 }: {
   link: LinkProps;
   title: string;
   needsYou: boolean;
+  busy?: boolean;
 }) {
   return (
-    <LinkRow link={link} title={title}>
+    <LinkRow link={link} title={title} busy={busy}>
       {needsYou && (
         <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-400">needs you</Badge>
       )}
@@ -204,7 +206,7 @@ function CheckupOrganization({ organization }: { organization: string }) {
 }
 
 export function Checkup({ organizations }: { organizations: string[] }) {
-  const { tools } = useTools();
+  const { tools, error } = useTools();
 
   return (
     <>
@@ -215,6 +217,7 @@ export function Checkup({ organizations }: { organizations: string[] }) {
           <CheckupLink
             link={{ to: "/settings/checkup/tools" }}
             title="Tools"
+            busy={!tools && !error}
             needsYou={
               !!tools?.some((tool) => tool.outdated || (tool.status !== "" && tool.required))
             }
