@@ -174,6 +174,8 @@ type Agent struct {
 	failures []reportFailureInput
 	// memoryEdits are the edit_memory calls that the Curator saved.
 	memoryEdits []editMemoryInput
+	// reportedGaps are the texts of the report_gap calls that the Curator reported.
+	reportedGaps []string
 	// skillProposals are the propose_skill calls that the session sent.
 	skillProposals []proposeSkillInput
 	// questions are the questions of the Researchers that the Triager started.
