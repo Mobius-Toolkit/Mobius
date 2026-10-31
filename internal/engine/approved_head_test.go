@@ -2,6 +2,7 @@ package engine_test
 
 import (
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -56,10 +57,20 @@ func eventAfterApproval(t *testing.T, server *testserver.Server, approved string
 // long, so a test can change the level while the task is in checks.
 func approvalAgain(t *testing.T, fake *testkit.FakeGitHub) (*testserver.Server, string, string) {
 	t.Helper()
+	return approvalAgainWith(t, fake, nil)
+}
+
+// approvalAgainWith is approvalAgain with adjust after the config of the test. LeadIdleTimeout stays long unless adjust
+// changes it, so a later Lead event goes to the open session.
+func approvalAgainWith(t *testing.T, fake *testkit.FakeGitHub, adjust func(*config.Config)) (*testserver.Server, string, string) {
+	t.Helper()
 	fake.AddUserCode(testkit.AppID, "user-code", "owner")
 	server, _ := connectTask(t, fake, leadApproves+leadStarts, commits, func(cfg *config.Config) {
 		cfg.ReviewQuietPeriod = 3 * time.Second
 		cfg.LeadIdleTimeout = 30 * time.Second
+		if adjust != nil {
+			adjust(cfg)
+		}
 	})
 	authorize(t, server)
 	setWorkstreamAutopilot(t, server, "merge")
@@ -83,6 +94,16 @@ func approvedReport(t *testing.T, server *testserver.Server) string {
 		t.Fatal(err)
 	}
 	return report
+}
+
+// approvedReportHead gives the head of the approved report of the task of #41.
+func approvedReportHead(t *testing.T, server *testserver.Server) string {
+	t.Helper()
+	var head string
+	if err := server.DB.QueryRow("SELECT coalesce(max(approved_report_head), '') FROM tasks WHERE issue = 41").Scan(&head); err != nil {
+		t.Fatal(err)
+	}
+	return head
 }
 
 // approvalAgainComments gives the number of comments of the approval again on the pull request of #41.
@@ -179,6 +200,71 @@ func TestAFailedUpdateOfTheCheckRunOfTheApprovalAgainPostsOneComment(t *testing.
 		t.Errorf("comments of the approval again = %d, want 1", got)
 	}
 	checkApprovalAgain(t, fake, server, approved, head, "Mobius merges it after its checks pass.")
+}
+
+// TestARefusedCommentOfTheApprovalAgainGivesTheLeadReadyForApproval checks that a 4xx answer that stays ends the
+// approval again and gives the Lead the event that starts the manual approval. The Lead idle timeout is long, so the
+// event goes to the open session and the fake agent cannot approve the pull request a second time from the chat history.
+func TestARefusedCommentOfTheApprovalAgainGivesTheLeadReadyForApproval(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, approved, _ := approvalAgainWith(t, fake, func(cfg *config.Config) { cfg.LeadIdleTimeout = time.Hour })
+	fake.RefuseAddComment(shop, 42, http.StatusUnprocessableEntity)
+
+	event := eventAfterApproval(t, server, approved)
+	if !strings.Contains(event, "The change of the pull request is the same as at the approved head") {
+		t.Errorf("event = %q", event)
+	}
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" })
+	waitForPolls(t, fake)
+	if got := approvalAgainComments(fake); got != 0 {
+		t.Errorf("comments of the approval again = %d, want 0", got)
+	}
+	ready := 0
+	for _, event := range leadEvents(t, server) {
+		switch {
+		case event.Kind == "approved_again":
+			t.Errorf("approved_again event after a refused comment: %q", event.Payload)
+		case event.Kind == "ready_for_approval" && strings.Contains(event.Payload, fmt.Sprintf("The Lead approved the head %.8s before.", approved)):
+			ready++
+		}
+	}
+	if ready != 1 {
+		t.Errorf("ready_for_approval events for the approved head = %d, want 1", ready)
+	}
+}
+
+// TestTwoUpdateHeadsAfterOneLeadApprovalNameTheLeadHeadInTheSecondComment checks that the report of the Lead stays with
+// the head that the Lead approved, also after an earlier approval again changed approved_head.
+func TestTwoUpdateHeadsAfterOneLeadApprovalNameTheLeadHeadInTheSecondComment(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, approved, first := approvalAgainWith(t, fake, func(cfg *config.Config) {
+		cfg.ReviewQuietPeriod = 5 * time.Second
+		cfg.LeadIdleTimeout = time.Hour
+	})
+	fake.CommitFile(shop, "other.txt", "other\n", "Add other")
+
+	testkit.WaitFor(t, func() bool { return fake.UpdateBranchCalls() == 2 })
+	second := head(t, fake, "mobius/41")
+	if second == first {
+		t.Fatalf("the second update did not change the head: %s", first)
+	}
+	testkit.WaitFor(t, func() bool { return approvalAgainComments(fake) == 2 })
+
+	var comments []string
+	for _, comment := range fake.Comments(shop, 42) {
+		if strings.HasPrefix(comment.Body, "Mobius approved the head ") {
+			comments = append(comments, comment.Body)
+		}
+	}
+	want := fmt.Sprintf("Mobius approved the head %.8s again. Only clean merges of main came after the head %.8s, and they change no file of the pull request. The report of the Lead for %.8s:\n\nChecked the diff. Verified the tests.", second, first, approved)
+	if !slices.Contains(comments, want) {
+		t.Errorf("comments = %q, want %q", comments, want)
+	}
+	if got := approvedReportHead(t, server); got != approved {
+		t.Errorf("approved_report_head = %q, want %q", got, approved)
+	}
 }
 
 func TestTheEventAfterAMergeWithAConflictThatTheBranchResolvedByHandNamesTheFile(t *testing.T) {

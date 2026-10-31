@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	gh "github.com/google/go-github/v92/github"
 
@@ -445,9 +446,11 @@ func replaceCheckRun(ctx context.Context, repository github.Repository, head str
 	return repository.UpdateCheckRun(ctx, checkRun, checkRunName, "completed", "neutral", "Replaced by a new head", "A new head of the pull request replaced this commit.")
 }
 
-// approvalAgainComment gives the comment of the approval again. Mobius writes it, so it has no role mark.
-func approvalAgainComment(branch, head, approved, report string) string {
-	return fmt.Sprintf("Mobius approved the head %.8s again. Only clean merges of %s came after the head %.8s, and they change no file of the pull request. The report of the Lead for %.8s:\n\n%s", head, branch, approved, approved, report)
+// approvalAgainComment gives the comment of the approval again. Mobius writes it, so it has no role mark. reportHead
+// is the head that the Lead approved with report. The comment keeps the end of a report that is too long for GitHub.
+func approvalAgainComment(branch, head, approved, reportHead, report string) string {
+	header := fmt.Sprintf("Mobius approved the head %.8s again. Only clean merges of %s came after the head %.8s, and they change no file of the pull request. The report of the Lead for %.8s:\n\n", head, branch, approved, reportHead)
+	return header + tail(report, commentLimit-utf8.RuneCountInString(header))
 }
 
 // approve posts comment on the pull request, sets the Mobius check of the head to success, stores the approved head and
@@ -491,7 +494,11 @@ func (e *Engine) approve(ctx context.Context, repository github.Repository, task
 		return err
 	}
 	if leadReport != "" {
-		if err := e.queries.SetTaskApprovedReport(ctx, store.SetTaskApprovedReportParams{ApprovedReport: sql.NullString{String: leadReport, Valid: true}, ID: task.ID}); err != nil {
+		if err := e.queries.SetTaskApprovedReport(ctx, store.SetTaskApprovedReportParams{
+			ApprovedReport:     sql.NullString{String: leadReport, Valid: true},
+			ApprovedReportHead: sql.NullString{String: head, Valid: true},
+			ID:                 task.ID,
+		}); err != nil {
 			return err
 		}
 	}
