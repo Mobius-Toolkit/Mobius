@@ -51,6 +51,7 @@ type tellCuratorInput struct {
 }
 
 type editMemoryInput struct {
+	File   string `json:"file"`
 	Old    string `json:"old"`
 	New    string `json:"new"`
 	Reason string `json:"reason"`
@@ -192,7 +193,7 @@ func (e *Engine) runCurator(ctx context.Context, repository string) error {
 // Owner are not empty, the Coordinator chat gets the result.
 func (e *Engine) curate(ctx context.Context, a *Agent, requests []store.ListCuratorRequestsRow) error {
 	repository := a.spec.Repository
-	newest, err := e.queries.GetNewestMemoryVersionID(ctx, repository)
+	newest, err := e.newestMemoryVersionID(ctx, repository)
 	if err != nil {
 		return errors.Join(a.Fail(context.WithoutCancel(ctx), err), e.answerRequests(ctx, a, requests, newest, "The Curator failed: "+err.Error()))
 	}
@@ -248,11 +249,11 @@ func (e *Engine) deliverCuratorResult(ctx context.Context, a *Agent, requests []
 		fmt.Fprintf(&text, "- %s\n", request.Text)
 	}
 	if len(reasons) == 0 {
-		text.WriteString("\nThe Curator did not change the memory file.\n")
+		text.WriteString("\nThe Curator did not change the memory files.\n")
 	} else {
-		text.WriteString("\nThe Curator changed the memory file. The reasons of the changes:\n\n")
+		text.WriteString("\nThe Curator changed the memory files. The reasons of the changes:\n\n")
 		for _, reason := range reasons {
-			fmt.Fprintf(&text, "- %s\n", reason)
+			fmt.Fprintf(&text, "- %s: %s\n", reason.File, reason.Reason)
 		}
 	}
 	if failure != "" {
@@ -331,16 +332,16 @@ func requestsSection(requests []store.ListCuratorRequestsRow) string {
 	return section.String()
 }
 
-// memoryHistory gives the last versions of the memory file of repository as a prompt section, newest first.
+// memoryHistory gives the last versions of the memory files of repository as a prompt section, newest first.
 func (e *Engine) memoryHistory(ctx context.Context, repository string) (string, error) {
 	versions, err := e.queries.ListRecentMemoryVersions(ctx, repository)
 	if err != nil || len(versions) == 0 {
 		return "", err
 	}
 	var section strings.Builder
-	section.WriteString("# Last versions of the memory file\n\nThe time, the author and the reason of each version, newest first.\n\n")
+	section.WriteString("# Last versions of the memory files\n\nThe time, the author, the file and the reason of each version, newest first.\n\n")
 	for _, version := range versions {
-		fmt.Fprintf(&section, "- %s, %s: %s\n", version.Time, version.Author, version.Reason)
+		fmt.Fprintf(&section, "- %s, %s, %s: %s\n", version.Time, version.Author, version.File, version.Reason)
 	}
 	section.WriteString("\n")
 	return section.String(), nil
@@ -437,9 +438,12 @@ func readNotes(dir string, since time.Time) (string, bool, error) {
 	return sections.String(), changed, nil
 }
 
-// editMemory replaces the one occurrence of input.Old in the memory file of the repository of c with input.New. An
-// empty input.Old adds input.New at the end of the file. It saves input.Reason in the version.
+// editMemory replaces the one occurrence of input.Old in input.File of the repository of c with input.New. An empty
+// input.Old adds input.New at the end of the file. It saves input.Reason in the version.
 func (e *Engine) editMemory(ctx context.Context, c caller, _ github.Repository, input editMemoryInput) (string, error) {
+	if !validMemoryFile(input.File) {
+		return "", refuse("There is no memory file named %q. Use shared or the name of a role.", input.File)
+	}
 	if strings.TrimSpace(input.Reason) == "" {
 		return "", refuse("The reason is empty. Name the type of change and the evidence.")
 	}
@@ -448,7 +452,7 @@ func (e *Engine) editMemory(ctx context.Context, c caller, _ github.Repository, 
 	}
 	e.memoryMu.Lock()
 	defer e.memoryMu.Unlock()
-	text, err := e.readMemory(c.repository)
+	text, err := e.readMemory(c.repository, input.File)
 	if err != nil {
 		return "", err
 	}
@@ -460,16 +464,16 @@ func (e *Engine) editMemory(ctx context.Context, c caller, _ github.Repository, 
 	} else {
 		switch count := strings.Count(text, input.Old); count {
 		case 0:
-			return "", refuse("The old text does not occur in the memory file.")
+			return "", refuse("The old text does not occur in the memory file %s.", input.File)
 		case 1:
 		default:
-			return "", refuse("The old text occurs %d times in the memory file. Make it longer, so that it occurs one time.", count)
+			return "", refuse("The old text occurs %d times in the memory file %s. Make it longer, so that it occurs one time.", count, input.File)
 		}
 		text = strings.Replace(text, input.Old, input.New, 1)
 	}
-	if err := e.saveMemory(ctx, c.repository, "curator", input.Reason, text); err != nil {
+	if err := e.saveMemory(ctx, c.repository, input.File, "curator", input.Reason, text); err != nil {
 		return "", err
 	}
 	c.agent.memoryEdits = append(c.agent.memoryEdits, input)
-	return fmt.Sprintf("Saved the memory file. It has %d of %d lines.", countLines(text), maxMemoryLines), nil
+	return fmt.Sprintf("Saved the memory file %s. It has %d of %d lines.", input.File, countLines(text), maxMemoryLines), nil
 }

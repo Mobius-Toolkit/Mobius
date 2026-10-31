@@ -969,7 +969,7 @@ WHERE i.repository = sqlc.arg(repository) AND i.state = 'open'
 ORDER BY i.number, l.name;
 
 -- name: AddMemoryVersion :exec
-INSERT INTO memory_versions (repository, time, author, reason, text) VALUES (?, ?, ?, ?, ?);
+INSERT INTO memory_versions (repository, file, time, author, reason, text) VALUES (?, ?, ?, ?, ?, ?);
 
 -- name: SetTaskApprovedReview :exec
 UPDATE tasks SET approved_review = ? WHERE id = ?;
@@ -991,19 +991,19 @@ SELECT issue FROM triager_turns WHERE repository = ? ORDER BY issue;
 DELETE FROM triager_turns WHERE repository = ? AND issue = ?;
 
 -- name: ListMemoryVersionsPage :many
-SELECT id, time, author, reason, text FROM memory_versions WHERE repository = ? AND id < ? ORDER BY id DESC LIMIT ?;
+SELECT id, time, author, reason, text FROM memory_versions WHERE repository = ? AND file = ? AND id < ? ORDER BY id DESC LIMIT ?;
 
 -- name: GetMemoryVersion :one
-SELECT id, repository, time, author, text FROM memory_versions WHERE id = ?;
+SELECT id, repository, file, time, author, text FROM memory_versions WHERE id = ?;
 
 -- name: GetMemoryVersionBefore :one
-SELECT text FROM memory_versions WHERE repository = ? AND id < ? ORDER BY id DESC LIMIT 1;
+SELECT text FROM memory_versions WHERE repository = ? AND file = ? AND id < ? ORDER BY id DESC LIMIT 1;
 
 -- name: GetNewestMemoryVersionID :one
-SELECT CAST(COALESCE(MAX(id), 0) AS INTEGER) FROM memory_versions WHERE repository = ?;
+SELECT CAST(COALESCE(MAX(id), 0) AS INTEGER) FROM memory_versions WHERE repository = ? AND file = ?;
 
 -- name: ListCuratorReasonsAfter :many
-SELECT reason FROM memory_versions WHERE repository = ? AND author = 'curator' AND id > ? ORDER BY id;
+SELECT file, reason FROM memory_versions WHERE repository = ? AND author = 'curator' AND id > ? ORDER BY id;
 
 -- name: AddCuratorRequest :one
 INSERT INTO curator_requests (repository, text) VALUES (?, ?) RETURNING id;
@@ -1018,7 +1018,7 @@ DELETE FROM curator_requests WHERE repository = ? AND id <= ?;
 DELETE FROM curator_requests WHERE id = ?;
 
 -- name: ListRecentMemoryVersions :many
-SELECT time, author, reason FROM memory_versions WHERE repository = ? ORDER BY id DESC LIMIT 20;
+SELECT time, author, file, reason FROM memory_versions WHERE repository = ? ORDER BY id DESC LIMIT 20;
 
 -- name: CountSessionsEndedSinceCurator :one
 SELECT count(*) FROM sessions s
