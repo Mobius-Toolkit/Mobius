@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
+	"github.com/Mobius-Toolkit/Mobius/internal/store"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
@@ -82,7 +83,13 @@ func TestASecondTurnForAnOwnerMessageKeepsItsDeliveryTime(t *testing.T) {
 	server, _ := connectScript(t, fake, options+"[[prompts]]\nreply = [\"Ok\"]\n", keepSessionOpen)
 	sendChatID(t, server, "one", "First")
 	waitForChat(t, server, leadChat, "Lead", "Ok")
-	first := chatView(t, server, leadChat).Messages[0]
+	// The reply comes before the end of the turn, and a turn with no thought and no tool call sets the delivery time at
+	// its end. Wait for the time, so that DeliverMessage gets a message that the first turn already delivered.
+	var first store.ChatMessage
+	testkit.WaitFor(t, func() bool {
+		first = chatView(t, server, leadChat).Messages[0]
+		return first.DeliveredAt.Valid
+	})
 	changes, stop := server.Engine.Listen()
 	defer stop()
 
