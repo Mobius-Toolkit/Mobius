@@ -530,9 +530,25 @@ test("screenshots", async ({ page }) => {
       await page.getByRole("tab", { name: "Brief" }).filter({ visible: true }).click();
     },
   );
+  // The nav shows the Workstream rows before it reads the "needs you" list and the unread counts, the organization dot
+  // comes from the counts of the other organizations, and the pause banner comes from its own read, so wait for each
+  // element of the final state.
+  const navRow = (number: number) =>
+    page.locator(`nav a[href="/workstreams/plants/garden/${number}"]`);
+  const needsYou = (number: number) => navRow(number).getByText("needs you", { exact: true });
+  const unreadOf = (number: number, count: number) =>
+    navRow(number).getByText(`${count}`, { exact: true });
   await screenshot(page, "chat-brief-button", "/workstreams/plants/garden/18", (device) =>
     device === "desktop"
-      ? [page.getByRole("button", { name: "Brief" }).filter({ visible: true })]
+      ? [
+          page.getByRole("button", { name: "Brief" }).filter({ visible: true }),
+          ...[30, 20, 19].map(needsYou),
+          chatCount,
+          unreadOf(60, 35),
+          ...[17, 16, 15, 14].map((number) => unreadOf(number, 7)),
+          page.getByLabel("Work in another organization").filter({ visible: true }),
+          page.getByText(/^antigravity paused until Sep 28, 12:00\sPM$/),
+        ]
       : [page.getByRole("banner").getByRole("heading", { name: "Prune the roses" })],
   );
   // The open menu and the open sheet hide the other elements from the accessibility tree, so the open step waits for them.
@@ -1688,11 +1704,12 @@ test("screenshots", async ({ page }) => {
   await screenshot(page, "settings", "/settings", (device) => [
     ...frame(device, release, { upgrade: true }),
     main.getByRole("link", { name: "Devices" }),
+    main.getByText("All on", { exact: true }),
     main.getByText("v0.1.0", { exact: true }),
     main.getByText("v0.1.3", { exact: true }),
   ]);
-  await screenshot(page, "settings-switches", "/settings", (device) => [
-    ...frame(device, release, { upgrade: true }),
+  await screenshot(page, "settings-switches", "/settings/switches", (device) => [
+    ...frame(device, release),
     ...["Start", "Merge", "Repairs"].map((name) => main.getByRole("switch", { name })),
     main.getByText("Mobius starts the tasks of CI breaks, check timeouts and CI failures."),
   ]);
@@ -1705,6 +1722,7 @@ test("screenshots", async ({ page }) => {
     page.getByText(lines.merge, { exact: true }),
     page.getByRole("button", { name: "3 held" }),
     page.getByRole("button", { name: "1 held" }),
+    main.getByText("Start off, Merge off", { exact: true }),
   ]);
   await screenshot(
     page,
@@ -1719,6 +1737,35 @@ test("screenshots", async ({ page }) => {
     () => page.getByRole("button", { name: "3 held" }).click(),
   );
   await turnAllOn(page);
+  await screenshot(
+    page,
+    "settings-switches-error",
+    "/settings",
+    (device) => [
+      ...frame(device, release, { upgrade: true }),
+      main.getByText("All on", { exact: true }),
+      main.getByRole("link", { name: /^Switches/ }).getByText("Error", { exact: true }),
+    ],
+    async () => {
+      await page.goto("/settings/switches");
+      await page.route(
+        "**/api/switches/start",
+        (route) => route.fulfill({ status: 500, json: { error: "The switch did not change." } }),
+        { times: 1 },
+      );
+      const toggle = main.getByRole("switch", { name: "Start" });
+      await expect(toggle).toBeChecked();
+      const failed = page.waitForResponse(
+        (res) => res.url().endsWith("/api/switches/start") && res.request().method() === "PUT",
+      );
+      await toggle.click();
+      await failed;
+      await expect(main.getByText("The switch did not change.")).toBeVisible();
+      await page.getByRole("button", { name: "Back" }).filter({ visible: true }).click();
+      await expect(page).toHaveURL("/settings");
+      await page.unroute("**/api/switches/start");
+    },
+  );
   await screenshot(
     page,
     "organizations",

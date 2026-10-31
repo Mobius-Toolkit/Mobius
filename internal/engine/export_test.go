@@ -25,6 +25,7 @@ var (
 	LoadPoll                = &loadPoll
 	LoadWaitEvent           = &loadWaitEvent
 	Cores                   = cores
+	FailedRetry             = failedRetry
 )
 
 // ClosedIssueReply is the reply of the engine to a comment on a closed issue, for the tests.

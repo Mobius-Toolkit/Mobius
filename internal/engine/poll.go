@@ -186,6 +186,9 @@ func (e *Engine) pollRepository(ctx context.Context, repository github.Repositor
 	if err := e.freeClosedQuestionHolds(ctx, repository.FullName); err != nil {
 		return err
 	}
+	if err := e.retryFailedChats(ctx, repository.FullName, repository.Owner()); err != nil {
+		return err
+	}
 	if err := e.startIdleLeads(ctx, repository.FullName); err != nil {
 		return err
 	}

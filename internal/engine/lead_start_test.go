@@ -65,9 +65,9 @@ func TestMorePollsStartNoLeadSessionForAHeldEvent(t *testing.T) {
 	}
 }
 
-// threeFailedLeadStarts fails the first three Lead starts. A start tries max_worker_restarts + 1 = 2 processes. The
-// access checks start checkedKeys processes before the Lead.
-var threeFailedLeadStarts = fmt.Sprintf("skip_tools_list = %d\n", 6+checkedKeys) + options + "[[prompts]]\nreply = [\"Seen\"]\n"
+// failedLeadStarts fails each start of one Lead chat: maxCrashes+1 starts, each with max_worker_restarts+1 = 2
+// processes. The access checks start checkedKeys processes before the Lead.
+var failedLeadStarts = fmt.Sprintf("skip_tools_list = %d\n", 8+checkedKeys) + options + "[[prompts]]\nreply = [\"Seen\"]\n"
 
 func leadNotTaken(t *testing.T, server *testserver.Server) activity {
 	t.Helper()
@@ -81,10 +81,10 @@ func leadNotTaken(t *testing.T, server *testserver.Server) activity {
 	})
 }
 
-func TestThreeFailedLeadStartsGiveTheEventToTheActivityFeedAndStartNoFourthSession(t *testing.T) {
+func TestTheFailedStartsOfOneChatGiveTheEventToTheActivityFeedAndStartNoSecondChat(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectScript(t, fake, threeFailedLeadStarts, func(cfg *config.Config) { cfg.MaxWorkerRestarts = 1 })
+	server, _ := connectScript(t, fake, failedLeadStarts, func(cfg *config.Config) { cfg.MaxWorkerRestarts = 1 })
 
 	dispatchTask(fake, 41, "Add plan model")
 
@@ -96,7 +96,7 @@ func TestThreeFailedLeadStartsGiveTheEventToTheActivityFeedAndStartNoFourthSessi
 	waitForPolls(t, fake)
 
 	sessions := chatSessions(t, server, leadChat, engine.LeadRole)
-	if len(sessions) != 3 || len(undelivered(t, server)) != 0 || len(leadPrompts(t, server)) != 0 {
+	if len(sessions) != 4 || len(undelivered(t, server)) != 0 || len(leadPrompts(t, server)) != 0 {
 		t.Errorf("sessions = %+v", sessions)
 	}
 	for _, session := range sessions {
@@ -109,7 +109,7 @@ func TestThreeFailedLeadStartsGiveTheEventToTheActivityFeedAndStartNoFourthSessi
 func TestANewLeadEventAfterTheLimitStartsANewLeadSession(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectScript(t, fake, threeFailedLeadStarts, func(cfg *config.Config) { cfg.MaxWorkerRestarts = 1 })
+	server, _ := connectScript(t, fake, failedLeadStarts, func(cfg *config.Config) { cfg.MaxWorkerRestarts = 1 })
 	dispatchTask(fake, 41, "Add plan model")
 	leadNotTaken(t, server)
 
@@ -123,7 +123,7 @@ func TestANewLeadEventAfterTheLimitStartsANewLeadSession(t *testing.T) {
 	if !strings.Contains(event, " dispatch of #42 ") || strings.Contains(event, " dispatch of #41 ") {
 		t.Errorf("prompt = %q", prompts[0][max(0, len(prompts[0])-200):])
 	}
-	if sessions := chatSessions(t, server, leadChat, engine.LeadRole); len(sessions) != 4 {
+	if sessions := chatSessions(t, server, leadChat, engine.LeadRole); len(sessions) != 5 {
 		t.Errorf("sessions = %+v", sessions)
 	}
 }

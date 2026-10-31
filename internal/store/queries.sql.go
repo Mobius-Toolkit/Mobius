@@ -158,7 +158,7 @@ const addChatMessage = `-- name: AddChatMessage :one
 INSERT INTO chat_messages (organization, repository, workstream, author, time, text, browser_id, inbox_items)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT DO NOTHING
-RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items
+RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at
 `
 
 type AddChatMessageParams struct {
@@ -196,6 +196,8 @@ func (q *Queries) AddChatMessage(ctx context.Context, arg AddChatMessageParams) 
 		&i.DeliveredAt,
 		&i.StoppedAt,
 		&i.InboxItems,
+		&i.FailedAt,
+		&i.CancelledAt,
 	)
 	return i, err
 }
@@ -1229,7 +1231,7 @@ func (q *Queries) AddWorkstreamBucket(ctx context.Context, arg AddWorkstreamBuck
 
 const appendChatMessage = `-- name: AppendChatMessage :one
 UPDATE chat_messages SET text = text || ?1 WHERE id = ?2
-RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items
+RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at
 `
 
 type AppendChatMessageParams struct {
@@ -1252,6 +1254,40 @@ func (q *Queries) AppendChatMessage(ctx context.Context, arg AppendChatMessagePa
 		&i.DeliveredAt,
 		&i.StoppedAt,
 		&i.InboxItems,
+		&i.FailedAt,
+		&i.CancelledAt,
+	)
+	return i, err
+}
+
+const cancelChatMessage = `-- name: CancelChatMessage :one
+UPDATE chat_messages SET cancelled_at = ?1
+WHERE id = ?2 AND delivered_at IS NULL AND cancelled_at IS NULL
+RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at
+`
+
+type CancelChatMessageParams struct {
+	CancelledAt sql.NullString
+	ID          int64
+}
+
+func (q *Queries) CancelChatMessage(ctx context.Context, arg CancelChatMessageParams) (ChatMessage, error) {
+	row := q.db.QueryRowContext(ctx, cancelChatMessage, arg.CancelledAt, arg.ID)
+	var i ChatMessage
+	err := row.Scan(
+		&i.ID,
+		&i.Repository,
+		&i.Workstream,
+		&i.Author,
+		&i.Time,
+		&i.Text,
+		&i.Organization,
+		&i.BrowserID,
+		&i.DeliveredAt,
+		&i.StoppedAt,
+		&i.InboxItems,
+		&i.FailedAt,
+		&i.CancelledAt,
 	)
 	return i, err
 }
@@ -1286,6 +1322,15 @@ func (q *Queries) ClaimPendingAction(ctx context.Context, id int64) (PendingActi
 		&i.OldBrief,
 	)
 	return i, err
+}
+
+const clearChatMessageFailure = `-- name: ClearChatMessageFailure :exec
+UPDATE chat_messages SET failed_at = NULL WHERE id = ?
+`
+
+func (q *Queries) ClearChatMessageFailure(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, clearChatMessageFailure, id)
+	return err
 }
 
 const clearQueueReason = `-- name: ClearQueueReason :one
@@ -1692,8 +1737,8 @@ func (q *Queries) DeleteWorkstreamBucket(ctx context.Context, arg DeleteWorkstre
 }
 
 const deliverChatMessage = `-- name: DeliverChatMessage :one
-UPDATE chat_messages SET delivered_at = ? WHERE id = ? AND delivered_at IS NULL
-RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items
+UPDATE chat_messages SET delivered_at = ?, failed_at = NULL WHERE id = ? AND delivered_at IS NULL
+RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at
 `
 
 type DeliverChatMessageParams struct {
@@ -1716,6 +1761,8 @@ func (q *Queries) DeliverChatMessage(ctx context.Context, arg DeliverChatMessage
 		&i.DeliveredAt,
 		&i.StoppedAt,
 		&i.InboxItems,
+		&i.FailedAt,
+		&i.CancelledAt,
 	)
 	return i, err
 }
@@ -1931,6 +1978,38 @@ type EndTriagerTurnParams struct {
 func (q *Queries) EndTriagerTurn(ctx context.Context, arg EndTriagerTurnParams) error {
 	_, err := q.db.ExecContext(ctx, endTriagerTurn, arg.Repository, arg.Issue)
 	return err
+}
+
+const failChatMessage = `-- name: FailChatMessage :one
+UPDATE chat_messages SET failed_at = ?1
+WHERE id = ?2 AND delivered_at IS NULL AND stopped_at IS NULL AND cancelled_at IS NULL
+RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at
+`
+
+type FailChatMessageParams struct {
+	FailedAt sql.NullString
+	ID       int64
+}
+
+func (q *Queries) FailChatMessage(ctx context.Context, arg FailChatMessageParams) (ChatMessage, error) {
+	row := q.db.QueryRowContext(ctx, failChatMessage, arg.FailedAt, arg.ID)
+	var i ChatMessage
+	err := row.Scan(
+		&i.ID,
+		&i.Repository,
+		&i.Workstream,
+		&i.Author,
+		&i.Time,
+		&i.Text,
+		&i.Organization,
+		&i.BrowserID,
+		&i.DeliveredAt,
+		&i.StoppedAt,
+		&i.InboxItems,
+		&i.FailedAt,
+		&i.CancelledAt,
+	)
+	return i, err
 }
 
 const failPendingAction = `-- name: FailPendingAction :one
@@ -2169,7 +2248,7 @@ func (q *Queries) GetCIDiagnosisBySession(ctx context.Context, session sql.NullI
 }
 
 const getChatMessage = `-- name: GetChatMessage :one
-SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items FROM chat_messages WHERE id = ?
+SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at FROM chat_messages WHERE id = ?
 `
 
 func (q *Queries) GetChatMessage(ctx context.Context, id int64) (ChatMessage, error) {
@@ -2187,6 +2266,8 @@ func (q *Queries) GetChatMessage(ctx context.Context, id int64) (ChatMessage, er
 		&i.DeliveredAt,
 		&i.StoppedAt,
 		&i.InboxItems,
+		&i.FailedAt,
+		&i.CancelledAt,
 	)
 	return i, err
 }
@@ -2454,7 +2535,7 @@ func (q *Queries) GetInboxItem(ctx context.Context, id int64) (InboxItem, error)
 }
 
 const getLastChatMessageOf = `-- name: GetLastChatMessageOf :one
-SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items FROM chat_messages
+SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at FROM chat_messages
 WHERE organization = ? AND repository = ? AND workstream = ? AND author = ?
 ORDER BY id DESC LIMIT 1
 `
@@ -2486,6 +2567,8 @@ func (q *Queries) GetLastChatMessageOf(ctx context.Context, arg GetLastChatMessa
 		&i.DeliveredAt,
 		&i.StoppedAt,
 		&i.InboxItems,
+		&i.FailedAt,
+		&i.CancelledAt,
 	)
 	return i, err
 }
@@ -2839,6 +2922,39 @@ func (q *Queries) GetOpenCheckTimeout(ctx context.Context, repository string) (C
 		&i.Issue,
 		&i.CreatedAt,
 		&i.EndedAt,
+	)
+	return i, err
+}
+
+const getOpenFailedItemOfMessage = `-- name: GetOpenFailedItemOfMessage :one
+SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal, workstream_repository, questions, answer, withdrawn FROM inbox_items WHERE kind = 'Lead failed' AND chat_message = ? AND dismissed_at IS NULL
+`
+
+func (q *Queries) GetOpenFailedItemOfMessage(ctx context.Context, chatMessage sql.NullInt64) (InboxItem, error) {
+	row := q.db.QueryRowContext(ctx, getOpenFailedItemOfMessage, chatMessage)
+	var i InboxItem
+	err := row.Scan(
+		&i.ID,
+		&i.Kind,
+		&i.Repository,
+		&i.Workstream,
+		&i.Issue,
+		&i.Text,
+		&i.Link,
+		&i.Time,
+		&i.DismissedAt,
+		&i.Organization,
+		&i.Title,
+		&i.Reason,
+		&i.PullRequest,
+		&i.ReportLink,
+		&i.ChatMessage,
+		&i.Merging,
+		&i.MergeRefusal,
+		&i.WorkstreamRepository,
+		&i.Questions,
+		&i.Answer,
+		&i.Withdrawn,
 	)
 	return i, err
 }
@@ -3986,8 +4102,9 @@ func (q *Queries) ListCIFailuresWithoutIssue(ctx context.Context, repository str
 }
 
 const listChatMessagesBefore = `-- name: ListChatMessagesBefore :many
-SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items FROM chat_messages
+SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at FROM chat_messages
 WHERE organization = ? AND repository = ? AND workstream = ? AND author != 'Record' AND id < ?
+  AND cancelled_at IS NULL
 ORDER BY id DESC LIMIT ?
 `
 
@@ -4026,6 +4143,8 @@ func (q *Queries) ListChatMessagesBefore(ctx context.Context, arg ListChatMessag
 			&i.DeliveredAt,
 			&i.StoppedAt,
 			&i.InboxItems,
+			&i.FailedAt,
+			&i.CancelledAt,
 		); err != nil {
 			return nil, err
 		}
@@ -4041,7 +4160,7 @@ func (q *Queries) ListChatMessagesBefore(ctx context.Context, arg ListChatMessag
 }
 
 const listChatMessagesPage = `-- name: ListChatMessagesPage :many
-SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items FROM chat_messages
+SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at FROM chat_messages
 WHERE organization = ? AND repository = ? AND workstream = ? AND author NOT IN ('Researcher', 'Curator', 'Approval') AND id < ?
 ORDER BY id DESC LIMIT ?
 `
@@ -4082,6 +4201,8 @@ func (q *Queries) ListChatMessagesPage(ctx context.Context, arg ListChatMessages
 			&i.DeliveredAt,
 			&i.StoppedAt,
 			&i.InboxItems,
+			&i.FailedAt,
+			&i.CancelledAt,
 		); err != nil {
 			return nil, err
 		}
@@ -5207,6 +5328,149 @@ func (q *Queries) ListEventsAfter(ctx context.Context, id int64) ([]Event, error
 	return items, nil
 }
 
+const listFailedChatMessages = `-- name: ListFailedChatMessages :many
+SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at FROM chat_messages
+WHERE organization = ? AND repository = ? AND workstream = ?
+  AND failed_at IS NOT NULL AND delivered_at IS NULL AND stopped_at IS NULL AND cancelled_at IS NULL
+ORDER BY id
+`
+
+type ListFailedChatMessagesParams struct {
+	Organization string
+	Repository   string
+	Workstream   int64
+}
+
+func (q *Queries) ListFailedChatMessages(ctx context.Context, arg ListFailedChatMessagesParams) ([]ChatMessage, error) {
+	rows, err := q.db.QueryContext(ctx, listFailedChatMessages, arg.Organization, arg.Repository, arg.Workstream)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ChatMessage
+	for rows.Next() {
+		var i ChatMessage
+		if err := rows.Scan(
+			&i.ID,
+			&i.Repository,
+			&i.Workstream,
+			&i.Author,
+			&i.Time,
+			&i.Text,
+			&i.Organization,
+			&i.BrowserID,
+			&i.DeliveredAt,
+			&i.StoppedAt,
+			&i.InboxItems,
+			&i.FailedAt,
+			&i.CancelledAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listFailedChatMessagesOfRepository = `-- name: ListFailedChatMessagesOfRepository :many
+SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at FROM chat_messages
+WHERE organization = ? AND repository = ?
+  AND failed_at IS NOT NULL AND delivered_at IS NULL AND stopped_at IS NULL AND cancelled_at IS NULL
+ORDER BY id
+`
+
+type ListFailedChatMessagesOfRepositoryParams struct {
+	Organization string
+	Repository   string
+}
+
+func (q *Queries) ListFailedChatMessagesOfRepository(ctx context.Context, arg ListFailedChatMessagesOfRepositoryParams) ([]ChatMessage, error) {
+	rows, err := q.db.QueryContext(ctx, listFailedChatMessagesOfRepository, arg.Organization, arg.Repository)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ChatMessage
+	for rows.Next() {
+		var i ChatMessage
+		if err := rows.Scan(
+			&i.ID,
+			&i.Repository,
+			&i.Workstream,
+			&i.Author,
+			&i.Time,
+			&i.Text,
+			&i.Organization,
+			&i.BrowserID,
+			&i.DeliveredAt,
+			&i.StoppedAt,
+			&i.InboxItems,
+			&i.FailedAt,
+			&i.CancelledAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listFailedCoordinatorMessages = `-- name: ListFailedCoordinatorMessages :many
+SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at FROM chat_messages
+WHERE organization = ? AND repository = ''
+  AND failed_at IS NOT NULL AND delivered_at IS NULL AND stopped_at IS NULL AND cancelled_at IS NULL
+ORDER BY id
+`
+
+func (q *Queries) ListFailedCoordinatorMessages(ctx context.Context, organization string) ([]ChatMessage, error) {
+	rows, err := q.db.QueryContext(ctx, listFailedCoordinatorMessages, organization)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ChatMessage
+	for rows.Next() {
+		var i ChatMessage
+		if err := rows.Scan(
+			&i.ID,
+			&i.Repository,
+			&i.Workstream,
+			&i.Author,
+			&i.Time,
+			&i.Text,
+			&i.Organization,
+			&i.BrowserID,
+			&i.DeliveredAt,
+			&i.StoppedAt,
+			&i.InboxItems,
+			&i.FailedAt,
+			&i.CancelledAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listFailedLeadStarts = `-- name: ListFailedLeadStarts :many
 SELECT started_at FROM sessions AS session
 WHERE session.repository = ?1 AND session.workstream = ?2 AND session.role = 'lead_chat'
@@ -6008,6 +6272,55 @@ ORDER BY id
 
 func (q *Queries) ListOpenCoordinatorQuestions(ctx context.Context, organization string) ([]InboxItem, error) {
 	rows, err := q.db.QueryContext(ctx, listOpenCoordinatorQuestions, organization)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []InboxItem
+	for rows.Next() {
+		var i InboxItem
+		if err := rows.Scan(
+			&i.ID,
+			&i.Kind,
+			&i.Repository,
+			&i.Workstream,
+			&i.Issue,
+			&i.Text,
+			&i.Link,
+			&i.Time,
+			&i.DismissedAt,
+			&i.Organization,
+			&i.Title,
+			&i.Reason,
+			&i.PullRequest,
+			&i.ReportLink,
+			&i.ChatMessage,
+			&i.Merging,
+			&i.MergeRefusal,
+			&i.WorkstreamRepository,
+			&i.Questions,
+			&i.Answer,
+			&i.Withdrawn,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOpenFailedItemsOfMessage = `-- name: ListOpenFailedItemsOfMessage :many
+SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal, workstream_repository, questions, answer, withdrawn FROM inbox_items WHERE kind = 'Lead failed' AND chat_message = ? AND dismissed_at IS NULL
+`
+
+func (q *Queries) ListOpenFailedItemsOfMessage(ctx context.Context, chatMessage sql.NullInt64) ([]InboxItem, error) {
+	rows, err := q.db.QueryContext(ctx, listOpenFailedItemsOfMessage, chatMessage)
 	if err != nil {
 		return nil, err
 	}
@@ -7363,10 +7676,10 @@ func (q *Queries) ListUndeliveredLeadEvents(ctx context.Context, arg ListUndeliv
 }
 
 const listUndeliveredOwnerMessages = `-- name: ListUndeliveredOwnerMessages :many
-SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items FROM chat_messages
+SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at FROM chat_messages
 WHERE organization = ? AND repository = ? AND id <= ?
   AND (author = 'Owner' AND browser_id IS NOT NULL OR author = 'Approval')
-  AND delivered_at IS NULL AND stopped_at IS NULL
+  AND delivered_at IS NULL AND stopped_at IS NULL AND cancelled_at IS NULL
 ORDER BY id
 `
 
@@ -7397,6 +7710,8 @@ func (q *Queries) ListUndeliveredOwnerMessages(ctx context.Context, arg ListUnde
 			&i.DeliveredAt,
 			&i.StoppedAt,
 			&i.InboxItems,
+			&i.FailedAt,
+			&i.CancelledAt,
 		); err != nil {
 			return nil, err
 		}
@@ -8751,8 +9066,8 @@ func (q *Queries) StartTaskWorker(ctx context.Context, arg StartTaskWorkerParams
 }
 
 const stopChatMessage = `-- name: StopChatMessage :one
-UPDATE chat_messages SET stopped_at = ? WHERE id = ? AND delivered_at IS NULL AND stopped_at IS NULL
-RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items
+UPDATE chat_messages SET stopped_at = ? WHERE id = ? AND delivered_at IS NULL AND stopped_at IS NULL AND cancelled_at IS NULL
+RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at
 `
 
 type StopChatMessageParams struct {
@@ -8775,6 +9090,8 @@ func (q *Queries) StopChatMessage(ctx context.Context, arg StopChatMessageParams
 		&i.DeliveredAt,
 		&i.StoppedAt,
 		&i.InboxItems,
+		&i.FailedAt,
+		&i.CancelledAt,
 	)
 	return i, err
 }
@@ -8789,6 +9106,59 @@ func (q *Queries) StopTask(ctx context.Context, id int64) (int64, error) {
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const undeliverChatMessage = `-- name: UndeliverChatMessage :one
+UPDATE chat_messages SET delivered_at = NULL WHERE id = ? AND delivered_at IS NOT NULL
+RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at
+`
+
+func (q *Queries) UndeliverChatMessage(ctx context.Context, id int64) (ChatMessage, error) {
+	row := q.db.QueryRowContext(ctx, undeliverChatMessage, id)
+	var i ChatMessage
+	err := row.Scan(
+		&i.ID,
+		&i.Repository,
+		&i.Workstream,
+		&i.Author,
+		&i.Time,
+		&i.Text,
+		&i.Organization,
+		&i.BrowserID,
+		&i.DeliveredAt,
+		&i.StoppedAt,
+		&i.InboxItems,
+		&i.FailedAt,
+		&i.CancelledAt,
+	)
+	return i, err
+}
+
+const undoCancelChatMessage = `-- name: UndoCancelChatMessage :one
+UPDATE chat_messages SET cancelled_at = NULL
+WHERE id = ?1 AND delivered_at IS NULL AND cancelled_at IS NOT NULL
+RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at
+`
+
+func (q *Queries) UndoCancelChatMessage(ctx context.Context, id int64) (ChatMessage, error) {
+	row := q.db.QueryRowContext(ctx, undoCancelChatMessage, id)
+	var i ChatMessage
+	err := row.Scan(
+		&i.ID,
+		&i.Repository,
+		&i.Workstream,
+		&i.Author,
+		&i.Time,
+		&i.Text,
+		&i.Organization,
+		&i.BrowserID,
+		&i.DeliveredAt,
+		&i.StoppedAt,
+		&i.InboxItems,
+		&i.FailedAt,
+		&i.CancelledAt,
+	)
+	return i, err
 }
 
 const updateCopiedBlockerTitles = `-- name: UpdateCopiedBlockerTitles :execrows
