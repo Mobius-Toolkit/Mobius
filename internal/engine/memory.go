@@ -41,7 +41,7 @@ var memoryRoleFiles = []string{"lead", "implementer", "reviewer", "judge", "rese
 var memoryFileNames = slices.Concat([]string{MemoryFileShared}, memoryRoleFiles)
 
 // ErrMemoryTooLong is the error of a text of more than maxMemoryLines lines or more bytes than the limit of the file.
-var ErrMemoryTooLong = errors.New("the memory file has too many lines")
+var ErrMemoryTooLong = errors.New("the memory file is too long")
 
 // ErrNoMemoryVersion is the error of a version that does not exist or belongs to another repository or file.
 var ErrNoMemoryVersion = errors.New("the memory file has no such version")
@@ -115,15 +115,12 @@ func (e *Engine) saveMemory(ctx context.Context, repository, file, author, reaso
 		return fmt.Errorf("%w: the memory file %s has %d lines and the maximum is %d", ErrMemoryTooLong, file, lines, maxMemoryLines)
 	}
 	current, err := e.readMemory(repository, file)
-	if err != nil {
+	if err != nil || current == text {
 		return err
 	}
 	limit := maxMemoryBytes(file)
 	if len(text) > limit && (len(current) <= limit || len(text) >= len(current)) {
 		return fmt.Errorf("%w: the memory file %s has %d bytes and the limit is %d. Remove or shorten a lesson. Do not make a line longer", ErrMemoryTooLong, file, len(text), limit)
-	}
-	if current == text {
-		return nil
 	}
 	return e.inTx(ctx, func(queries *store.Queries) error {
 		err := queries.AddMemoryVersion(ctx, store.AddMemoryVersionParams{Repository: repository, File: file, Time: now(), Author: author, Reason: reason, Text: text})

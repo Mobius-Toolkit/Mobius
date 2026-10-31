@@ -285,7 +285,7 @@ func TestAnEditMemoryCallRefusesAnOldTextThatDoesNotOccurOneTimeAndAResultOfMore
 		"The old text does not occur in the memory file shared.",
 		"The old text occurs 2 times in the memory file shared. Make it longer, so that it occurs one time.",
 		"The reason is empty. Name the type of change and the evidence.",
-		"the memory file has too many lines: the memory file shared has 201 lines and the maximum is 200",
+		"the memory file is too long: the memory file shared has 201 lines and the maximum is 200",
 	}
 	calls := mcpCalls(t, server, session)
 	if len(calls) != len(want) {
@@ -365,11 +365,11 @@ call = { tool = "edit_memory", arguments = { file = "implementer", old = "", new
 	if len(calls) != 2 {
 		t.Fatalf("calls = %v", calls)
 	}
-	wantShared := "the memory file has too many lines: the memory file shared has 16385 bytes and the limit is 16384. Remove or shorten a lesson. Do not make a line longer"
+	wantShared := "the memory file is too long: the memory file shared has 16385 bytes and the limit is 16384. Remove or shorten a lesson. Do not make a line longer"
 	if calls[0]["error"] != wantShared {
 		t.Errorf("shared error = %v, want %s", calls[0]["error"], wantShared)
 	}
-	wantRole := "the memory file has too many lines: the memory file implementer has 4097 bytes and the limit is 4096. Remove or shorten a lesson. Do not make a line longer"
+	wantRole := "the memory file is too long: the memory file implementer has 4097 bytes and the limit is 4096. Remove or shorten a lesson. Do not make a line longer"
 	if calls[1]["error"] != wantRole {
 		t.Errorf("role error = %v, want %s", calls[1]["error"], wantRole)
 	}
@@ -417,7 +417,7 @@ call = { tool = "edit_memory", arguments = { file = "shared", old = "", new = "A
 		t.Errorf("shorter result = %v, want %s", calls[0]["result"], wantSaved)
 	}
 	// "Make it longer" adds 16 bytes at the end of the 19986-byte file -> 20002 bytes (> 19986) -> refused!
-	wantRefused := "the memory file has too many lines: the memory file shared has 20003 bytes and the limit is 16384. Remove or shorten a lesson. Do not make a line longer"
+	wantRefused := "the memory file is too long: the memory file shared has 20003 bytes and the limit is 16384. Remove or shorten a lesson. Do not make a line longer"
 	if calls[1]["error"] != wantRefused {
 		t.Errorf("longer error = %v, want %s", calls[1]["error"], wantRefused)
 	}

@@ -241,7 +241,7 @@ func TestTheEditOfTheOwnerGivesErrMemoryTooLongAboveTheByteLimit(t *testing.T) {
 	if !errors.Is(err, engine.ErrMemoryTooLong) {
 		t.Fatalf("err = %v, want ErrMemoryTooLong", err)
 	}
-	want := "the memory file has too many lines: the memory file shared has 16385 bytes and the limit is 16384. Remove or shorten a lesson. Do not make a line longer"
+	want := "the memory file is too long: the memory file shared has 16385 bytes and the limit is 16384. Remove or shorten a lesson. Do not make a line longer"
 	if err.Error() != want {
 		t.Errorf("error = %q, want %q", err.Error(), want)
 	}
@@ -252,6 +252,31 @@ func TestTheEditOfTheOwnerGivesErrMemoryTooLongAboveTheByteLimit(t *testing.T) {
 	}
 	if _, statErr := os.Stat(filepath.Join(dataDir, "memory", shop+".md")); count != 0 || !errors.Is(statErr, os.ErrNotExist) {
 		t.Errorf("versions = %d, statErr = %v", count, statErr)
+	}
+}
+
+func TestASaveOfTheSameTextAboveTheByteLimitDoesNothing(t *testing.T) {
+	t.Parallel()
+	server, dataDir := connect(t, testkit.NewFakeGitHub(t), "")
+	long := strings.Repeat("A", 20000)
+	sharedPath := filepath.Join(dataDir, "memory", shop+".md")
+	if err := os.MkdirAll(filepath.Dir(sharedPath), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sharedPath, []byte(long), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := server.Engine.SaveMemory(t.Context(), shop, engine.MemoryFileShared, "owner", "", long); err != nil {
+		t.Fatalf("save of the same text above the limit: %v", err)
+	}
+
+	var count int
+	if err := server.DB.QueryRow("SELECT count(*) FROM memory_versions WHERE repository = ?", shop).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Errorf("versions = %d, want 0", count)
 	}
 }
 
