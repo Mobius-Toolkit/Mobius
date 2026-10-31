@@ -562,6 +562,22 @@ test("a tap on a role file opens its page", async ({ page }) => {
   await expect(main.getByRole("heading", { name: "History" })).toBeVisible();
 });
 
+test("Back on the file page and then on the file list returns to the repository list", async ({
+  page,
+}) => {
+  const back = page.getByRole("button", { name: "Back" }).filter({ visible: true });
+  await page.goto("/settings/memory");
+  await page.getByRole("link", { name: "owner/shop" }).click();
+  await expect(page).toHaveURL("/settings/memory/owner/shop");
+  await page.getByRole("link", { name: /Shared/ }).click();
+  await expect(page).toHaveURL("/settings/memory/owner/shop/shared");
+
+  await back.click();
+  await expect(page).toHaveURL("/settings/memory/owner/shop");
+  await back.click();
+  await expect(page).toHaveURL("/settings/memory");
+});
+
 test("an edit of a role file saves and the shared file does not change", async ({ page }) => {
   const main = page.getByRole("main");
   const dialog = page.getByRole("dialog", {

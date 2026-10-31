@@ -1,5 +1,5 @@
 import { Fragment, use, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "@tanstack/react-router";
+import { useRouter } from "@tanstack/react-router";
 import {
   listMemoryFiles,
   listMemoryVersions,
@@ -257,7 +257,7 @@ function EditDialog({
 
 export function Memory({ owner, name, file }: { owner: string; name: string; file: string }) {
   const showLogin = use(LoginContext);
-  const navigate = useNavigate();
+  const router = useRouter();
   const [versions, setVersions] = useState<MemoryVersion[]>();
   const [older, setOlder] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
@@ -268,8 +268,17 @@ export function Memory({ owner, name, file }: { owner: string; name: string; fil
   const [error, setError] = useState<string>();
   const [saveError, setSaveError] = useState<string>();
   const title = `${fileTitle(file)} · ${owner}/${name}`;
-  const backToFiles = () =>
-    navigate({ to: "/settings/memory/$owner/$name", params: { owner, name } });
+  const backToFiles = () => {
+    if (router.history.canGoBack()) {
+      router.history.back();
+    } else {
+      void router.navigate({
+        to: "/settings/memory/$owner/$name",
+        params: { owner, name },
+        replace: true,
+      });
+    }
+  };
 
   const load = useCallback(() => {
     listMemoryVersions(owner, name, file)
