@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -66,7 +67,13 @@ func TestAProgramThatIsNotFoundHasTheStatusNotFound(t *testing.T) {
 func TestAProgramWithNoVersionOutputHasTheStatusNoVersion(t *testing.T) {
 	bin := t.TempDir()
 	testkit.InstallFakeProgram(t, bin, "git", "")
-	testkit.InstallFakeProgram(t, bin, "dsh", "")
+	fail, err := exec.LookPath("false")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(fail, filepath.Join(bin, "dsh")); err != nil {
+		t.Fatal(err)
+	}
 
 	checks := toolEngine(t, bin).Tools(context.Background())
 
