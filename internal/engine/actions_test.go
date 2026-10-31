@@ -33,19 +33,30 @@ type actionJSON struct {
 }
 
 type actionRow struct {
-	ID      int64
-	State   string
-	Error   string
-	Result  string
-	Message string
+	ID        int64
+	InboxItem sql.NullInt64
+	State     string
+	Error     string
+	Result    string
+	Message   string
 }
 
 const (
-	actionWaits = "The action waits for the approval of the Owner. Its ID is "
+	actionWaits = `The action waits for the approval of the Owner. Its tray row is "`
 	// approvalSeen answers the Approval messages, so the Coordinator that gets one calls no tool.
 	approvalSeen = "[[prompts]]\nwhen = \"# Approval message\"\nreply = [\"Seen\"]\n\n"
 	seenScript   = "[[prompts]]\nreply = [\"Seen\"]\n"
 )
+
+// actionWaitsText gives the result of a tool that waits for the approval, with the title of its tray row and its ID.
+func actionWaitsText(title string, id int64) string {
+	return fmt.Sprintf(`%s%s". In the chat, name the action by these words. Its ID is %d, only for withdraw.`, actionWaits, title, id)
+}
+
+// replacesAction gives the result part for a replaced pending action, with the title of its tray row.
+func replacesAction(title string, id int64) string {
+	return fmt.Sprintf(` It replaces the pending action "%s" (ID %d), which does not run.`, title, id)
+}
 
 func callMessageLead(when string, workstream int, text string) string {
 	return fmt.Sprintf("[[prompts]]\nwhen = %q\ncall = { tool = \"message_lead\", arguments = { workstream = %d, text = %q } }\n\n", when, workstream, text)
@@ -59,8 +70,8 @@ func coordinatorSpec(t *testing.T) engine.Spec {
 func actionRows(t *testing.T, server *testserver.Server) []actionRow {
 	t.Helper()
 	return query(t, server, func(rows *sql.Rows, a *actionRow) error {
-		return rows.Scan(&a.ID, &a.State, &a.Error, &a.Result, &a.Message)
-	}, "SELECT id, state, error, result, message FROM pending_actions ORDER BY id")
+		return rows.Scan(&a.ID, &a.InboxItem, &a.State, &a.Error, &a.Result, &a.Message)
+	}, "SELECT id, inbox_item, state, error, result, message FROM pending_actions ORDER BY id")
 }
 
 func waitForActions(t *testing.T, server *testserver.Server, count int) []actionRow {
@@ -348,7 +359,8 @@ func TestASecondCallOfMessageLeadReplacesTheWaitingActionAndDismissesItsItem(t *
 	first, second := rows[0], rows[1]
 
 	calls := mcpCalls(t, server, session)
-	if len(calls) != 2 || calls[1]["result"] != actionWaits+"2. It replaces the pending action 1, which does not run." {
+	title := "Message to the Lead of #12 Integrate loyalty plans"
+	if len(calls) != 2 || calls[1]["result"] != actionWaitsText(title, second.InboxItem.Int64)+replacesAction(title, first.InboxItem.Int64) {
 		t.Errorf("calls = %v", calls)
 	}
 
@@ -372,6 +384,37 @@ func TestASecondCallOfMessageLeadReplacesTheWaitingActionAndDismissesItsItem(t *
 	want := "Message of the Coordinator, approved by the Owner:\n\nSecond text."
 	if events := toLead12(t, server); !slices.Equal(events, []leadEvent{{Workstream: 12, Kind: "coordinator", Payload: want, Delivered: true}}) {
 		t.Errorf("events = %v", events)
+	}
+}
+
+func TestTheResultOfAToolNamesTheTrayRowOfTheActionAndOfTheReplacedAction(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	askFirst := "[[prompts]]\nwhen = \"Ask first.\"\ncall = { tool = \"ask\", arguments = { text = \"Which unit?\" } }\n\n"
+	server, _ := connect(t, fake, approvalSeen+
+		askFirst+
+		callCreateWorkstream("Create loyalty.", "Loyalty API", "Plan the loyalty API.")+
+		callCreateWorkstream("Create billing.", "Billing API", "Plan the billing API.")+
+		seenScript)
+	session := run(t, server, coordinatorSpec(t), "Ask first.", "Create loyalty.", "Create billing.")
+	rows := waitForActions(t, server, 2)
+	if rows[0].InboxItem.Int64 == rows[0].ID || rows[1].InboxItem.Int64 == rows[1].ID {
+		t.Fatalf("the ID of the Inbox item and of the pending action are equal: %+v", rows)
+	}
+
+	calls := mcpCalls(t, server, session)
+	loyalty := `Create the Workstream "Loyalty API"`
+	billing := `Create the Workstream "Billing API"`
+	if len(calls) != 3 || calls[1]["result"] != actionWaitsText(loyalty, rows[0].InboxItem.Int64) {
+		t.Errorf("calls = %v", calls)
+	}
+	if calls[2]["result"] != actionWaitsText(billing, rows[1].InboxItem.Int64)+replacesAction(loyalty, rows[0].InboxItem.Int64) {
+		t.Errorf("result = %q", calls[2]["result"])
+	}
+	for _, call := range calls {
+		if result := call["result"].(string); !strings.Contains(result, "only for withdraw") {
+			t.Errorf("result = %q", result)
+		}
 	}
 }
 

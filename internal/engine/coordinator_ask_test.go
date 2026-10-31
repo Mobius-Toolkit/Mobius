@@ -2,6 +2,7 @@ package engine_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"slices"
 	"testing"
@@ -79,6 +80,28 @@ reply = ["Asked"]
 	waitForChat(t, server, coordinatorChat, "Coordinator", "Got the answer")
 	if items := coordinatorItems(t, server); len(items) != 0 {
 		t.Errorf("inbox = %+v", items)
+	}
+}
+
+func TestTheResultOfAskNamesTheTrayRowAndTheIDOfTheQuestion(t *testing.T) {
+	t.Parallel()
+	server, _ := connect(t, testkit.NewFakeGitHub(t), `
+[[prompts]]
+when = "Ask the Owner"
+call = { tool = "ask", arguments = { text = "Which unit?", questions = [{ text = "Which unit?", options = [{ title = "Cents" }, { title = "Dollars" }] }] } }
+
+[[prompts]]
+reply = ["Asked"]
+`)
+	session := run(t, server, coordinatorSpec(t), "Ask the Owner")
+	items := coordinatorItems(t, server)
+	if len(items) != 1 {
+		t.Fatalf("items = %+v", items)
+	}
+	want := fmt.Sprintf(`The question waits for the Owner. Its tray row is "%s". In the chat, name the question by these words. Its ID is %d, only for withdraw. The answer arrives later as a chat message.`, items[0].Title, items[0].ID)
+	calls := mcpCalls(t, server, session)
+	if len(calls) != 1 || calls[0]["result"] != want {
+		t.Errorf("calls = %v", calls)
 	}
 }
 

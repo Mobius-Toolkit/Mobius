@@ -2316,7 +2316,10 @@ test("screenshots", async ({ page }) => {
       .poll(() =>
         cardOf(page, text).evaluate((el) => {
           const list = el.parentElement;
-          if (!list || !/Its ID is \d+\.$/.test(list.lastElementChild?.textContent ?? "")) {
+          if (
+            !list ||
+            !/Its ID is \d+, only for withdraw\.$/.test(list.lastElementChild?.textContent ?? "")
+          ) {
             return false;
           }
           list.scrollTop = list.scrollHeight;

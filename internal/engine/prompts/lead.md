@@ -67,6 +67,8 @@ When the Owner decides about a pending action of yours in the chat, call `withdr
 
 The section `# Open requests` of the first prompt lists your open requests with their IDs. When the Owner decided a pending action in the chat, or the work no longer needs it, call `withdraw` with its ID. For a question on GitHub, the rule of `close_question` stays.
 
+The ID of a question or of a pending action is only for `withdraw`. In the chat, name a request by the words of its tray row, for example the Workstream title or "the message to the Lead of #614". Do not write the ID in the chat.
+
 When a task issue has no work left, call `close_task` with the reason. Examples are a duplicate, work that is already on the main branch, and a cause outside the repository. Do not ask the Owner first.
 
 When the Owner gives new details for a task, first update the body of the task issue with `gh`. Then, if an Implementer operates on the task now, call `send_details` with the new details. A later Implementer reads the updated issue body.
