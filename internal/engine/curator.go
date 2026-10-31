@@ -441,7 +441,7 @@ func readNotes(dir string, since time.Time) (string, bool, error) {
 // editMemory replaces the one occurrence of input.Old in input.File of the repository of c with input.New. An empty
 // input.Old adds input.New at the end of the file. It saves input.Reason in the version.
 func (e *Engine) editMemory(ctx context.Context, c caller, _ github.Repository, input editMemoryInput) (string, error) {
-	if !validMemoryFile(input.File) {
+	if !ValidMemoryFile(input.File) {
 		return "", refuse("There is no memory file named %q. Use shared or the name of a role.", input.File)
 	}
 	if strings.TrimSpace(input.Reason) == "" {

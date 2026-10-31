@@ -1,9 +1,12 @@
 import { Fragment, use, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import {
+  listMemoryFiles,
   listMemoryVersions,
   revertMemory,
   saveMemory,
   type GitHubApp,
+  type MemoryFile,
   type MemoryVersion,
 } from "@/api/api.gen";
 import { inset, LinkRow, List, PageHeader, Section } from "@/components/page";
@@ -71,6 +74,71 @@ export function MemoryRepositories({
   );
 }
 
+const fileTitles: Record<string, string> = {
+  shared: "Shared",
+  lead: "Lead",
+  implementer: "Implementer",
+  reviewer: "Reviewer",
+  judge: "Judge",
+  researcher: "Researcher",
+  diagnoser: "Diagnoser",
+  curator: "Curator",
+};
+
+const fileTitle = (file: string) => fileTitles[file] ?? file;
+
+const lineText = (lines: number) =>
+  lines === 0 ? "Empty" : lines === 1 ? "1 line" : `${lines} lines`;
+
+export function MemoryFiles({ owner, name }: { owner: string; name: string }) {
+  const showLogin = use(LoginContext);
+  const [files, setFiles] = useState<MemoryFile[]>();
+  const [error, setError] = useState<string>();
+  const title = `Memory of ${owner}/${name}`;
+
+  useEffect(() => {
+    listMemoryFiles(owner, name)
+      .then((res) => {
+        if (res.status === 401) {
+          showLogin();
+        } else if (res.status === 200) {
+          setFiles(res.data.data);
+        } else {
+          setError(res.data.error);
+        }
+      })
+      .catch((err: unknown) => setError(String(err)));
+  }, [owner, name, showLogin]);
+
+  return (
+    <>
+      <TopBar title={title} back="/settings/memory" />
+      <PageHeader title={title} back="/settings/memory" />
+      {error && (
+        <div className={inset}>
+          <Badge variant="destructive">{error}</Badge>
+        </div>
+      )}
+      {files && (
+        <List>
+          {files.map((file) => (
+            <LinkRow
+              key={file.file}
+              link={{
+                to: "/settings/memory/$owner/$name/$file",
+                params: { owner, name, file: file.file },
+              }}
+              title={fileTitle(file.file)}
+            >
+              <span className="text-sm text-muted-foreground">{lineText(file.lines)}</span>
+            </LinkRow>
+          ))}
+        </List>
+      )}
+    </>
+  );
+}
+
 function Diff({ before, after }: { before: string; after: string }) {
   const hunks = useMemo(() => diffHunks(before, after), [before, after]);
   if (hunks.length === 0) {
@@ -91,7 +159,7 @@ function Diff({ before, after }: { before: string; after: string }) {
 }
 
 function EditDialog({
-  repository,
+  title,
   initial,
   draft,
   onChange,
@@ -100,7 +168,7 @@ function EditDialog({
   onSave,
   onClose,
 }: {
-  repository: string;
+  title: string;
   initial: string;
   draft: string;
   onChange: (text: string) => void;
@@ -141,7 +209,7 @@ function EditDialog({
         className="grid max-h-[calc(100dvh-var(--keyboard,0px)-2rem)] grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 p-0 max-sm:top-auto max-sm:bottom-(--keyboard,0px) max-sm:left-0 max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-b-none sm:max-h-[85dvh] sm:max-w-2xl"
       >
         <DialogHeader className="p-4 pr-10">
-          <DialogTitle className="wrap-anywhere">{`Edit the memory of ${repository}`}</DialogTitle>
+          <DialogTitle className="wrap-anywhere">{title}</DialogTitle>
         </DialogHeader>
         <div className="grid min-h-0 grid-rows-[minmax(0,1fr)_auto] gap-2 px-4 pb-4">
           <Textarea
@@ -187,8 +255,9 @@ function EditDialog({
   );
 }
 
-export function Memory({ owner, name }: { owner: string; name: string }) {
+export function Memory({ owner, name, file }: { owner: string; name: string; file: string }) {
   const showLogin = use(LoginContext);
+  const navigate = useNavigate();
   const [versions, setVersions] = useState<MemoryVersion[]>();
   const [older, setOlder] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
@@ -198,9 +267,12 @@ export function Memory({ owner, name }: { owner: string; name: string }) {
   const [reverting, setReverting] = useState<number>();
   const [error, setError] = useState<string>();
   const [saveError, setSaveError] = useState<string>();
+  const title = `${fileTitle(file)} · ${owner}/${name}`;
+  const backToFiles = () =>
+    navigate({ to: "/settings/memory/$owner/$name", params: { owner, name } });
 
   const load = useCallback(() => {
-    listMemoryVersions(owner, name)
+    listMemoryVersions(owner, name, file)
       .then((res) => {
         if (res.status === 401) {
           showLogin();
@@ -212,13 +284,13 @@ export function Memory({ owner, name }: { owner: string; name: string }) {
         }
       })
       .catch((err: unknown) => setError(String(err)));
-  }, [owner, name, showLogin]);
+  }, [owner, name, file, showLogin]);
 
   useEffect(load, [load]);
 
   const loadOlder = (before: number) => {
     setLoadingOlder(true);
-    listMemoryVersions(owner, name, { before })
+    listMemoryVersions(owner, name, file, { before })
       .then((res) => {
         if (res.status === 401) {
           showLogin();
@@ -240,7 +312,7 @@ export function Memory({ owner, name }: { owner: string; name: string }) {
 
   const save = (text: string) => {
     setSaving(true);
-    saveMemory(owner, name, { text, base_version: base })
+    saveMemory(owner, name, file, { text, base_version: base })
       .then((res) => {
         if (res.status === 401) {
           showLogin();
@@ -257,7 +329,7 @@ export function Memory({ owner, name }: { owner: string; name: string }) {
 
   const revert = (id: number) => {
     setReverting(id);
-    revertMemory(owner, name, id)
+    revertMemory(owner, name, file, id)
       .then((res) => {
         if (res.status === 401) {
           showLogin();
@@ -276,8 +348,8 @@ export function Memory({ owner, name }: { owner: string; name: string }) {
 
   return (
     <>
-      <TopBar title={`Memory of ${owner}/${name}`} back="/settings/memory" />
-      <PageHeader title={`Memory of ${owner}/${name}`} back="/settings/memory" />
+      <TopBar title={title} back="/settings/memory/$owner/$name" onBack={backToFiles} />
+      <PageHeader title={title} back="/settings/memory/$owner/$name" onBack={backToFiles} />
       <div className={cn("grid gap-6", inset)}>
         {error && <Badge variant="destructive">{error}</Badge>}
         {versions && (
@@ -345,7 +417,7 @@ export function Memory({ owner, name }: { owner: string; name: string }) {
       </div>
       {draft !== undefined && (
         <EditDialog
-          repository={`${owner}/${name}`}
+          title={`Edit ${title}`}
           initial={current}
           draft={draft}
           onChange={setDraft}

@@ -13,6 +13,7 @@ import {
   GitHubPage,
   InboxPage,
   InboxLayoutPage,
+  MemoryFilePage,
   MemoryPage,
   MemoryRepositoriesPage,
   TasksPage,
@@ -154,6 +155,12 @@ const memoryRoute = createRoute({
   component: MemoryPage,
 });
 
+const memoryFileRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/settings/memory/$owner/$name/$file",
+  component: MemoryFilePage,
+});
+
 const rolesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/settings/roles",
@@ -202,6 +209,7 @@ const routeTree = rootRoute.addChildren([
   checkupWorkstreamsRoute,
   memoryRepositoriesRoute,
   memoryRoute,
+  memoryFileRoute,
   rolesRoute,
   switchSettingsRoute,
   voiceRoute,

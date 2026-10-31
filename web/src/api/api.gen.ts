@@ -894,6 +894,41 @@ export interface EnvelopeArrayInboxItem {
 }
 
 /**
+ * File is the name of the memory file: shared, or the name of a role
+ */
+export type MemoryFileFile = typeof MemoryFileFile[keyof typeof MemoryFileFile];
+
+
+export const MemoryFileFile = {
+  shared: 'shared',
+  lead: 'lead',
+  implementer: 'implementer',
+  reviewer: 'reviewer',
+  judge: 'judge',
+  researcher: 'researcher',
+  diagnoser: 'diagnoser',
+  curator: 'curator',
+} as const;
+
+/**
+ * MemoryFile is a memory file of a repository with the number of its lines.
+ */
+export interface MemoryFile {
+  /** File is the name of the memory file: shared, or the name of a role */
+  file: MemoryFileFile;
+  /** Lines is the number of lines of the file, and 0 when the file is empty or missing */
+  lines: number;
+}
+
+/**
+ * Envelope is the body of each success response.
+ */
+export interface EnvelopeArrayMemoryFile {
+  /** Data is the payload of the response */
+  data: MemoryFile[];
+}
+
+/**
  * NeedsHuman is an open task issue with mobius:needs-human or mobius:question.
  */
 export interface NeedsHuman {
@@ -5312,6 +5347,78 @@ export const stopIssue = async (owner: string,
 
 
 
+export type listMemoryFilesResponse200 = {
+  data: EnvelopeArrayMemoryFile
+  status: 200
+}
+
+export type listMemoryFilesResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type listMemoryFilesResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type listMemoryFilesResponse404 = {
+  data: ErrorResponse
+  status: 404
+}
+
+export type listMemoryFilesResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type listMemoryFilesResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type listMemoryFilesResponseSuccess = (listMemoryFilesResponse200) & {
+  headers: Headers;
+};
+export type listMemoryFilesResponseError = (listMemoryFilesResponse400 | listMemoryFilesResponse401 | listMemoryFilesResponse404 | listMemoryFilesResponse422 | listMemoryFilesResponse500) & {
+  headers: Headers;
+};
+
+export type listMemoryFilesResponse = (listMemoryFilesResponseSuccess | listMemoryFilesResponseError)
+
+export const getListMemoryFilesUrl = (owner: string,
+    name: string,) => {
+
+
+
+
+  return `/api/repositories/${owner}/${name}/memory`
+}
+
+/**
+ * ListMemoryFiles returns each memory file of the repository in the order of the engine list, with the number of its lines. It returns 404 when the repository is not a repository of Mobius.
+ */
+export const listMemoryFiles = async (owner: string,
+    name: string, ): Promise<listMemoryFilesResponse> => {
+
+  const res = await fetch(getListMemoryFilesUrl(owner,name),
+  {
+
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: listMemoryFilesResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as listMemoryFilesResponse
+}
+
+
+
 export type listMemoryVersionsResponse200 = {
   data: EnvelopeMemoryVersionsPage
   status: 200
@@ -5353,6 +5460,7 @@ export type listMemoryVersionsResponse = (listMemoryVersionsResponseSuccess | li
 
 export const getListMemoryVersionsUrl = (owner: string,
     name: string,
+    file: string,
     params?: ListMemoryVersionsParams,) => {
   const normalizedParams = new URLSearchParams();
 
@@ -5365,17 +5473,18 @@ export const getListMemoryVersionsUrl = (owner: string,
 
   const stringifiedParams = normalizedParams.toString();
 
-  return stringifiedParams.length > 0 ? `/api/repositories/${owner}/${name}/memory?${stringifiedParams}` : `/api/repositories/${owner}/${name}/memory`
+  return stringifiedParams.length > 0 ? `/api/repositories/${owner}/${name}/memory/${file}?${stringifiedParams}` : `/api/repositories/${owner}/${name}/memory/${file}`
 }
 
 /**
- * ListMemoryVersions returns a page of the versions of the memory file of the repository, the newest first, each with the result of the check of its revert. The first version of the first page is the current text of the file. It returns 404 when the repository is not a repository of Mobius.
+ * ListMemoryVersions returns a page of the versions of the memory file of the repository, the newest first, each with the result of the check of its revert. The first version of the first page is the current text of the file. It returns 404 when the repository is not a repository of Mobius, or when it has no file with that name.
  */
 export const listMemoryVersions = async (owner: string,
     name: string,
+    file: string,
     params?: ListMemoryVersionsParams, ): Promise<listMemoryVersionsResponse> => {
 
-  const res = await fetch(getListMemoryVersionsUrl(owner,name,params),
+  const res = await fetch(getListMemoryVersionsUrl(owner,name,file,params),
   {
 
     method: 'GET'
@@ -5438,22 +5547,24 @@ export type saveMemoryResponseError = (saveMemoryResponse400 | saveMemoryRespons
 export type saveMemoryResponse = (saveMemoryResponseSuccess | saveMemoryResponseError)
 
 export const getSaveMemoryUrl = (owner: string,
-    name: string,) => {
+    name: string,
+    file: string,) => {
 
 
 
 
-  return `/api/repositories/${owner}/${name}/memory`
+  return `/api/repositories/${owner}/${name}/memory/${file}`
 }
 
 /**
- * SaveMemory saves the text as the memory file of the repository and adds a version with the author owner. It does nothing when the text does not change. It returns 404 when the repository is not a repository of Mobius, 409 when a newer version exists than the base version, and 422 when the text has more than 200 lines.
+ * SaveMemory saves the text as the memory file of the repository and adds a version with the author owner. It does nothing when the text does not change. It returns 404 when the repository is not a repository of Mobius, or when it has no file with that name, 409 when a newer version exists than the base version, and 422 when the text has more than 200 lines.
  */
 export const saveMemory = async (owner: string,
     name: string,
+    file: string,
     saveMemoryBody: SaveMemoryBody, ): Promise<saveMemoryResponse> => {
 
-  const res = await fetch(getSaveMemoryUrl(owner,name),
+  const res = await fetch(getSaveMemoryUrl(owner,name,file),
   {
 
     method: 'PUT',
@@ -5517,22 +5628,24 @@ export type revertMemoryResponse = (revertMemoryResponseSuccess | revertMemoryRe
 
 export const getRevertMemoryUrl = (owner: string,
     name: string,
+    file: string,
     id: number,) => {
 
 
 
 
-  return `/api/repositories/${owner}/${name}/memory/${id}/revert`
+  return `/api/repositories/${owner}/${name}/memory/${file}/${id}/revert`
 }
 
 /**
- * RevertMemory undoes the change of the version in the current text of the memory file and saves the result as a new version with the author owner. It returns 404 when the repository is not a repository of Mobius, or when the version does not exist or belongs to another repository. It returns 409 when a later version changed the part, when the revert changes nothing, or when the result has more than 200 lines.
+ * RevertMemory undoes the change of the version in the current text of the memory file and saves the result as a new version with the author owner. It returns 404 when the repository is not a repository of Mobius, when it has no file with that name, or when the version does not exist or belongs to another repository or file. It returns 409 when a later version changed the part, when the revert changes nothing, or when the result has more than 200 lines.
  */
 export const revertMemory = async (owner: string,
     name: string,
+    file: string,
     id: number, ): Promise<revertMemoryResponse> => {
 
-  const res = await fetch(getRevertMemoryUrl(owner,name,id),
+  const res = await fetch(getRevertMemoryUrl(owner,name,file,id),
   {
 
     method: 'POST'
