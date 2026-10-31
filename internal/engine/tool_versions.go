@@ -58,6 +58,9 @@ const upgradeOutput = 4000
 // errUpgradeRuns is the error of an upgrade that waits for the end of an upgrade of the same npm package.
 var errUpgradeRuns = errors.New("an upgrade of the package runs now")
 
+// errDraining is the error of an upgrade while the drain of an upgrade is on.
+var errDraining = errors.New("Mobius prepares an upgrade")
+
 var versionText = regexp.MustCompile(`\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?`)
 
 // newestVersion is the newest version of an npm package that Mobius read at read. It is empty when the registry gave
@@ -327,6 +330,9 @@ func (e *Engine) UpgradeTool(ctx context.Context, npmPackage string) ([]ToolChec
 		if errors.Is(err, errUpgradeRuns) {
 			return nil, refuse("An upgrade of %s runs now.", check.Name)
 		}
+		if errors.Is(err, errDraining) {
+			return nil, refuse("Mobius prepares an upgrade, so no upgrade of %s starts now.", check.Name)
+		}
 		return nil, err
 	}
 	e.clearToolUpgradeFailure(ctx, npmPackage)
@@ -345,6 +351,11 @@ func (e *Engine) installNewest(ctx context.Context, check ToolCheck) error {
 	if !e.beginUpgrade(check.Package) {
 		return errUpgradeRuns
 	}
+	if !e.tryTrack() {
+		e.endUpgrade(check.Package)
+		return errDraining
+	}
+	defer e.untrack()
 	defer e.endUpgrade(check.Package)
 	output, err := runNPMUpgrade(ctx, filepath.Join(prefix, "bin", "npm"), prefix, check.Package, check.Newest)
 	if err != nil {
@@ -413,7 +424,7 @@ func (e *Engine) autoUpgradeTools(ctx context.Context) {
 			continue
 		}
 		err := e.installNewest(ctx, check)
-		if errors.Is(err, errUpgradeRuns) {
+		if errors.Is(err, errUpgradeRuns) || errors.Is(err, errDraining) {
 			continue
 		}
 		if err != nil {

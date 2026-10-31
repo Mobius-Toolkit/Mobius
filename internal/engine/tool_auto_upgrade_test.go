@@ -221,3 +221,48 @@ func TestSetToolAutoUpgradeRefusesAPackageThatNoRowHas(t *testing.T) {
 		t.Errorf("error = %v", err)
 	}
 }
+
+func TestTheAutoUpgradeRunsNoNPMWhileTheDrainIsOn(t *testing.T) {
+	prefix := t.TempDir()
+	program := filepath.Join(prefix, "lib", "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js")
+	runs := autoUpgradeRuns(prefix)
+	npm := "#!/bin/sh\necho run >> " + runs + "\nprintf '#!/bin/sh\\necho 0.2.1-rc.5\\n' > " + program + "\n"
+
+	server, fake, _ := upgradeServer(t, prefix, npm, program)
+	t.Cleanup(func() { server.Engine.CancelDrain() })
+
+	if _, err := server.Engine.SetToolAutoUpgrade(context.Background(), upgradePackage, true); err != nil {
+		t.Fatal(err)
+	}
+
+	end, err := server.Engine.Drain(context.Background())
+	if err != nil || end != engine.Drained {
+		t.Fatalf("drain: %v, %v", end, err)
+	}
+
+	server.Engine.SetClock(func() time.Time { return time.Now().Add(2 * time.Hour) })
+	waitForPolls(t, fake)
+
+	if got := countRuns(t, runs); got != 0 {
+		t.Errorf("npm runs = %d, want 0", got)
+	}
+	rows, err := store.New(server.DB).ListToolAutoUpgrades(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].FailedVersion != "" {
+		t.Errorf("rows = %+v, want no failed version", rows)
+	}
+	if got := len(inbox(t, server)); got != 0 {
+		t.Errorf("items = %+v, want no inbox item", inbox(t, server))
+	}
+
+	server.Engine.CancelDrain()
+	server.Engine.SetClock(func() time.Time { return time.Now().Add(4 * time.Hour) })
+	testkit.WaitFor(t, func() bool {
+		return dshVersion(t, server.Engine.Tools(context.Background())) == "0.2.1-rc.5"
+	})
+	if got := countRuns(t, runs); got != 1 {
+		t.Errorf("npm runs after cancel = %d, want 1", got)
+	}
+}
