@@ -131,6 +131,7 @@ type FakeGitHub struct {
 	refusedComments                            map[issueKey]int
 	failedCommentUpdates                       map[issueKey]bool
 	failedLabels                               map[issueKey]bool
+	refusedLabels                              map[issueKey]int
 	refusedLabelOnce                           map[issueKey]int
 	botKeptLabels                              map[issueKey]string
 	labelWrites                                map[issueKey]int
@@ -142,12 +143,14 @@ type FakeGitHub struct {
 	failResolves     bool
 	failPullReads    bool
 	failCheckUpdates bool
-	latestRelease    *releaseJSON
-	comparedCommits  []string
-	holds            map[issueKey]*hold
-	threadHolds      map[issueKey][]*hold
-	mergeHolds       map[issueKey][]*hold
-	issueHolds       map[issueKey]*hold
+	// failedCheckUpdates counts the updates of a check run that failCheckUpdates made fail.
+	failedCheckUpdates int
+	latestRelease      *releaseJSON
+	comparedCommits    []string
+	holds              map[issueKey]*hold
+	threadHolds        map[issueKey][]*hold
+	mergeHolds         map[issueKey][]*hold
+	issueHolds         map[issueKey]*hold
 	// anonymousRateLimited tells if each request of the releases and of the comparisons with no token gets the
 	// rate-limit answer.
 	anonymousRateLimited bool
@@ -272,6 +275,7 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		refusedComments:         map[issueKey]int{},
 		failedCommentUpdates:    map[issueKey]bool{},
 		failedLabels:            map[issueKey]bool{},
+		refusedLabels:           map[issueKey]int{},
 		refusedLabelOnce:        map[issueKey]int{},
 		botKeptLabels:           map[issueKey]string{},
 		labelWrites:             map[issueKey]int{},

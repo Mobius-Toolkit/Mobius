@@ -199,13 +199,29 @@ func (e *Engine) onChecks(ctx context.Context, repository github.Repository, tas
 	if err != nil {
 		return err
 	}
-	approvedHead, err := e.approvedHeadText(ctx, repository, task, pullRequest)
+	approvedHead, again, err := e.approvedHeadText(ctx, repository, task, pullRequest)
 	if err != nil {
 		return err
 	}
-	newerCommits, err := e.newerCommitsText(ctx, repository, task, pullRequest, state.started)
-	if err != nil {
-		return err
+	var newerCommits string
+	var level string
+	var checkRun int64
+	if again {
+		level, err = e.workstreamLevel(ctx, task.WorkstreamRepository, task.Workstream)
+		if err != nil {
+			return err
+		}
+		if checkRun, err = openCheckRun(ctx, repository, head); err != nil {
+			return err
+		}
+		if checkRun == 0 {
+			return fmt.Errorf("the head %s of pull request #%d has no open Mobius check run", head, pullRequest.GetNumber())
+		}
+	} else {
+		newerCommits, err = e.newerCommitsText(ctx, repository, task, pullRequest, state.started)
+		if err != nil {
+			return err
+		}
 	}
 	moved, err := e.setTaskState(ctx, store.SetTaskStateParams{State: "approval", ID: task.ID, FromState: "checks"})
 	if err != nil || moved == 0 {
@@ -215,8 +231,44 @@ func (e *Engine) onChecks(ctx context.Context, repository github.Repository, tas
 		e.addCIStep(ctx, task, implementer, "success")
 	}
 	delete(e.ciWait, task.ID)
+	if again {
+		err := e.approveAgain(ctx, repository, task, issue, pullRequest, level, checkRun)
+		if err == nil {
+			return nil
+		}
+		var refused *gh.ErrorResponse
+		if errors.As(err, &refused) && refused.Response.StatusCode < 500 {
+			newerCommits, textErr := e.newerCommitsText(ctx, repository, task, pullRequest, state.started)
+			if textErr == nil {
+				return e.addReadyForApproval(ctx, task, issue, pullRequest, approvedHead, newerCommits)
+			}
+			err = textErr
+		}
+		_, stateErr := e.setTaskState(ctx, store.SetTaskStateParams{State: "checks", ID: task.ID, FromState: "approval"})
+		return errors.Join(err, stateErr)
+	}
+	return e.addReadyForApproval(ctx, task, issue, pullRequest, approvedHead, newerCommits)
+}
+
+// addReadyForApproval gives the Lead the event ready_for_approval for the head of the pull request. approvedHead and
+// newerCommits are the lines that follow its first line.
+func (e *Engine) addReadyForApproval(ctx context.Context, task store.Task, issue *gh.Issue, pullRequest *gh.PullRequest, approvedHead, newerCommits string) error {
 	text := fmt.Sprintf("%s ready for Lead approval of %s \"%s\": pull request %s %s.", time.Now().UTC().Format(timeFormat), taskEventRef(task, task.Issue), issue.GetTitle(), taskEventRef(task, int64(pullRequest.GetNumber())), pullRequest.GetHTMLURL()) + approvedHead + newerCommits
 	return e.addLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, task.Repository, sql.NullInt64{Int64: task.Issue, Valid: true}, "ready_for_approval", text)
+}
+
+// approveAgain approves the head again with the report of the Lead, after onChecks moved the task to approval. It
+// approves the task with the same steps as approvePullRequest, and adds the quiet Lead event approved_again.
+func (e *Engine) approveAgain(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue, pullRequest *gh.PullRequest, level string, checkRun int64) error {
+	head, approved := pullRequest.GetHead().GetSHA(), task.ApprovedHead.String
+	comment := approvalAgainComment(repository.DefaultBranch, head, approved, task.ApprovedReportHead.String, task.ApprovedReport.String)
+	result, err := e.finishApproval(ctx, repository, task, issue, pullRequest, level, checkRun, comment, "", "", true)
+	if err != nil {
+		return err
+	}
+	text := fmt.Sprintf("%s Mobius approved again %s \"%s\": pull request %s %s, head %.8s. Only clean merges of %s came after the approved head %.8s. %s",
+		time.Now().UTC().Format(timeFormat), taskEventRef(task, task.Issue), issue.GetTitle(), taskEventRef(task, int64(pullRequest.GetNumber())), pullRequest.GetHTMLURL(), head, repository.DefaultBranch, approved, result)
+	return e.addLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, task.Repository, sql.NullInt64{Int64: task.Issue, Valid: true}, "approved_again", text)
 }
 
 // onLongCIWait gives the Lead the event long_ci_wait when longCIWait passed since the task entered checks, or since the
