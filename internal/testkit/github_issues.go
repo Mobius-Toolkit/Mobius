@@ -350,6 +350,17 @@ func (g *FakeGitHub) PendingIssueReadFailures(repository string, number int64) i
 	return g.failedIssueReads[issueKey{repository, number}]
 }
 
+// HideFromIssueList leaves the changes of the issue number of repository out of the issue list read (IssuesSince).
+func (g *FakeGitHub) HideFromIssueList(repository string, number int64) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	key := issueKey{repository, number}
+	g.hiddenFromIssueList[key] = true
+	if found := g.issues[key]; found != nil {
+		found.updatedAt = g.tick()
+	}
+}
+
 // FailSubIssues makes each read of the sub-issues of the issue fail, or work again when fail is false.
 func (g *FakeGitHub) FailSubIssues(repository string, number int64, fail bool) {
 	g.mu.Lock()
@@ -758,6 +769,7 @@ func (g *FakeGitHub) listIssues(w http.ResponseWriter, r *http.Request) {
 	var keys []issueKey
 	for key, found := range g.issues {
 		if key.repository == repository(r) &&
+			!g.hiddenFromIssueList[key] &&
 			(state == "all" || state == found.state) &&
 			found.updatedAt >= since &&
 			(!g.pullRequestsUnlisted || !found.pullRequest) &&

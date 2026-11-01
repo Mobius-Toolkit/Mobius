@@ -351,6 +351,12 @@ func TestTheIssueListFiltersByLabelAndTimeAndGivesNotModifiedForTheSameETag(t *t
 	if second.StatusCode != http.StatusNotModified || third.StatusCode != http.StatusOK || github.NotModifiedCount() != 1 {
 		t.Errorf("statuses = %d, %d, not modified = %d", second.StatusCode, third.StatusCode, github.NotModifiedCount())
 	}
+
+	github.HideFromIssueList("owner/shop", 12)
+	send(t, http.MethodGet, github.URL+"/repos/owner/shop/issues", token, "", &issues)
+	if numbers := issueNumbers(issues); !reflect.DeepEqual(numbers, []int64{13}) {
+		t.Errorf("hidden = %v", numbers)
+	}
 }
 
 func TestALabelWriteRecordsAnEventWithTheTokenOwner(t *testing.T) {
