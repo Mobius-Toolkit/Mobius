@@ -82,7 +82,7 @@ func TestTheLeadGetsTheMobiusURLAndOnlyTheLeadTools(t *testing.T) {
 	_, text := leadReply(t, server)
 
 	// The MCP SDK gives the tools in name order.
-	want := []string{"approve_pull_request", "ask", "background_state", "close_question", "close_task", "comment_pull_request", "create_issue", "create_workstream", "decline", "edit_brief", "hold_event", "list_tasks", "mark_ready", "message_lead", "move_task", "propose_skill", "read_issue", "reject_skill_proposal", "reply_thread", "send_details", "send_researcher_details", "start_fix_round", "start_implementer", "start_researcher", "stop_researcher", "stop_task", "tell_owner", "update_blockers", "update_branch", "withdraw"}
+	want := []string{"approve_pull_request", "ask", "background_state", "close_question", "close_task", "comment_pull_request", "create_issue", "create_workstream", "decline", "edit_brief", "hold_event", "list_tasks", "mark_ready", "message_lead", "move_task", "propose_skill", "read_issue", "reject_skill_proposal", "reply_thread", "rerun_failed_jobs", "send_details", "send_researcher_details", "start_fix_round", "start_implementer", "start_researcher", "stop_researcher", "stop_task", "tell_owner", "update_blockers", "update_branch", "withdraw"}
 	if got := toolNames(t, text); !reflect.DeepEqual(got, want) {
 		t.Errorf("tools = %q", got)
 	}
@@ -122,7 +122,7 @@ func TestEachRoleGetsOnlyItsOwnTools(t *testing.T) {
 		{implementer, []string{"background_state", "cannot_do", "propose_skill", "reply_thread", "submit_report"}},
 		{researcher, []string{"background_state", "propose_skill"}},
 		{judge, []string{"background_state", "propose_skill", "submit_verdicts"}},
-		{curator, []string{"background_state", "edit_memory", "propose_skill"}},
+		{curator, []string{"background_state", "edit_memory", "propose_skill", "report_gap"}},
 		{diagnoser, []string{"background_state", "propose_skill", "report_failure"}},
 	} {
 		session := run(t, server, c.spec, "List the tools")
