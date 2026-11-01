@@ -49,7 +49,7 @@ func waitForLeadEvent(t *testing.T, server *testserver.Server, kind, text string
 	t.Helper()
 	return testkit.WaitForValue(t, func() (leadEvent, bool) {
 		for _, event := range leadEvents(t, server) {
-			if event.Kind == kind && strings.Contains(event.Payload, text) {
+			if event.Kind == kind && strings.Contains(event.Payload, text) && event.Delivered {
 				return event, true
 			}
 		}
@@ -75,9 +75,10 @@ func TestAMergeEndsTheTaskAndKeepsTheBranch(t *testing.T) {
 		t.Error("the worktree stays")
 	}
 	head(t, fake, "mobius/41")
+	waitForLeadPrompt(t, server, " end of #41 \"Add plan model\": pull request #42 merged.")
 	event := waitForLeadEvent(t, server, "end", " end of #41 \"Add plan model\": pull request #42 merged.")
-	if event.Delivered {
-		t.Error("the end event started a Lead turn")
+	if !event.Delivered {
+		t.Error("the end event was not delivered")
 	}
 }
 
@@ -280,5 +281,36 @@ func TestARetryAfterAFailedResolveOfAFollowUpThreadSendsNoSecondEventToTheLead(t
 	}
 	if events != 1 {
 		t.Errorf("follow-up events = %d", events)
+	}
+}
+
+func TestAnEndEventStartsANewLeadSessionWhenNoSessionIsOpen(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	lead := "[[prompts]]\nwhen = \"end of #41\"\nreply = [\"Seen\"]\n\n" + leadStarts
+	server, _ := connectTask(t, fake, lead, commits, noChange)
+	waitForApproval(t, server, fake)
+
+	ended := endedChatSession(t, server, 0)
+	if !ended.EndedAt.Valid {
+		t.Fatal("the initial Lead session did not end")
+	}
+
+	fake.MergePullRequest(shop, 42)
+
+	session := waitForChatSession(t, server, leadChat, engine.LeadRole, func(session store.Session) bool {
+		return session.ID > ended.ID
+	})
+	endText := " end of #41 \"Add plan model\": pull request #42 merged."
+	prompt := waitForLeadPrompt(t, server, endText)
+	inOrder(t, prompt, "# Event\n\n", endText)
+	if strings.Contains(prompt, "# Events with no turn") {
+		t.Errorf("prompt holds end text in quiet events section: %s", prompt)
+	}
+	if strings.Contains(prompt, "# Owner message") {
+		t.Errorf("prompt holds an Owner message: %s", prompt)
+	}
+	if session.ID <= ended.ID {
+		t.Errorf("session ID %d <= ended session ID %d", session.ID, ended.ID)
 	}
 }
