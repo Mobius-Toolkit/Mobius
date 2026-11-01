@@ -164,7 +164,7 @@ type SaveMemoryRequest struct {
 // SaveMemory saves the text as the memory file of the repository and adds a version with the author owner. It does
 // nothing when the text does not change. It returns 404 when the repository is not a repository of Mobius, or when it
 // has no file with that name, 409 when a newer version exists than the base version, and 422 when the text has more than
-// 200 lines.
+// 200 lines or is above the byte limit of the file.
 func (h *handlers) SaveMemory(ctx context.Context, req SaveMemoryRequest) error {
 	repository := req.Path.Owner + "/" + req.Path.Name
 	if err := h.knownRepository(repository); err != nil {
@@ -201,7 +201,8 @@ type RevertMemoryRequest struct {
 // RevertMemory undoes the change of the version in the current text of the memory file and saves the result as a new
 // version with the author owner. It returns 404 when the repository is not a repository of Mobius, when it has no file
 // with that name, or when the version does not exist or belongs to another repository or file. It returns 409 when a
-// later version changed the part, when the revert changes nothing, or when the result has more than 200 lines.
+// later version changed the part, when the revert changes nothing, or when the result has more than 200 lines or is above
+// the byte limit of the file.
 func (h *handlers) RevertMemory(ctx context.Context, req RevertMemoryRequest) error {
 	repository := req.Path.Owner + "/" + req.Path.Name
 	if err := h.knownRepository(repository); err != nil {

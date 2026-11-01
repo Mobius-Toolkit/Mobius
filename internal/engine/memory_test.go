@@ -232,3 +232,94 @@ func TestARevertOfARoleMemoryVersionChangesOnlyThatFile(t *testing.T) {
 		}
 	}
 }
+
+func TestTheEditOfTheOwnerGivesErrMemoryTooLongAboveTheByteLimit(t *testing.T) {
+	t.Parallel()
+	server, dataDir := connect(t, testkit.NewFakeGitHub(t), "")
+
+	err := server.Engine.EditMemory(t.Context(), shop, engine.MemoryFileShared, 0, strings.Repeat("A", 16385))
+	if !errors.Is(err, engine.ErrMemoryTooLong) {
+		t.Fatalf("err = %v, want ErrMemoryTooLong", err)
+	}
+	want := "the memory file is too long: the memory file shared has 16385 bytes and the limit is 16384. Remove or shorten a lesson. Do not make a line longer"
+	if err.Error() != want {
+		t.Errorf("error = %q, want %q", err.Error(), want)
+	}
+
+	var count int
+	if scanErr := server.DB.QueryRow("SELECT count(*) FROM memory_versions WHERE repository = ?", shop).Scan(&count); scanErr != nil {
+		t.Fatal(scanErr)
+	}
+	if _, statErr := os.Stat(filepath.Join(dataDir, "memory", shop+".md")); count != 0 || !errors.Is(statErr, os.ErrNotExist) {
+		t.Errorf("versions = %d, statErr = %v", count, statErr)
+	}
+}
+
+func TestASaveOfTheSameTextAboveTheByteLimitDoesNothing(t *testing.T) {
+	t.Parallel()
+	server, dataDir := connect(t, testkit.NewFakeGitHub(t), "")
+	long := strings.Repeat("A", 20000)
+	sharedPath := filepath.Join(dataDir, "memory", shop+".md")
+	if err := os.MkdirAll(filepath.Dir(sharedPath), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sharedPath, []byte(long), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := server.Engine.SaveMemory(t.Context(), shop, engine.MemoryFileShared, "owner", "", long); err != nil {
+		t.Fatalf("save of the same text above the limit: %v", err)
+	}
+
+	var count int
+	if err := server.DB.QueryRow("SELECT count(*) FROM memory_versions WHERE repository = ?", shop).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Errorf("versions = %d, want 0", count)
+	}
+}
+
+func TestARevertAboveTheByteLimitWithMoreBytesThanTheCurrentTextIsRefused(t *testing.T) {
+	t.Parallel()
+	server, dataDir := connect(t, testkit.NewFakeGitHub(t), "")
+	sharedPath := filepath.Join(dataDir, "memory", shop+".md")
+	if err := os.MkdirAll(filepath.Dir(sharedPath), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sharedPath, []byte("Start.\n"+strings.Repeat("A", 19987)+"\nEnd.\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	v1Text := "Start.\n" + strings.Repeat("A", 17987) + "\nEnd.\n"
+	if err := server.Engine.SaveMemory(t.Context(), shop, engine.MemoryFileShared, "owner", "v1", v1Text); err != nil {
+		t.Fatal(err)
+	}
+	var v1ID int64
+	if err := server.DB.QueryRow("SELECT max(id) FROM memory_versions WHERE repository = ? AND file = 'shared'", shop).Scan(&v1ID); err != nil {
+		t.Fatal(err)
+	}
+
+	v2Text := "Start.\n" + strings.Repeat("A", 16987) + "\nEnd.\n"
+	if err := server.Engine.SaveMemory(t.Context(), shop, engine.MemoryFileShared, "owner", "v2", v2Text); err != nil {
+		t.Fatal(err)
+	}
+	var v2ID int64
+	if err := server.DB.QueryRow("SELECT max(id) FROM memory_versions WHERE repository = ? AND file = 'shared'", shop).Scan(&v2ID); err != nil {
+		t.Fatal(err)
+	}
+
+	problem, err := server.Engine.MemoryRevertProblem(t.Context(), shop, engine.MemoryFileShared, v2ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "The revert gives 18000 bytes and the limit is 16384. Edit the file."
+	if problem != want {
+		t.Errorf("problem = %q, want %q", problem, want)
+	}
+
+	err = server.Engine.RevertMemory(t.Context(), shop, engine.MemoryFileShared, v2ID)
+	if err == nil || !engine.Refused(err) || err.Error() != want {
+		t.Errorf("err = %v, want refusal %q", err, want)
+	}
+}

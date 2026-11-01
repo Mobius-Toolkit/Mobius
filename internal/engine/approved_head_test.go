@@ -20,7 +20,7 @@ import (
 func approvablePlan(t *testing.T, fake *testkit.FakeGitHub) *testserver.Server {
 	t.Helper()
 	fake.AddUserCode(testkit.AppID, "user-code", "owner")
-	server, _ := connectTask(t, fake, leadApproves+leadStarts, "[[prompts]]\n"+appendCents, noChange)
+	server, _ := connectTask(t, fake, leadApproves+leadStarts, "[[prompts]]\n"+appendCents, keepSessionOpen)
 	fake.CommitFileAt(shop, "plan.txt", fmt.Sprintf(planLines, "top"), "Add the plan", seededAt)
 	authorize(t, server)
 	setWorkstreamAutopilot(t, server, "merge")

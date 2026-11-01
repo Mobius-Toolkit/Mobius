@@ -16,6 +16,20 @@ import (
 // maxMemoryLines is the largest number of lines of a memory file.
 const maxMemoryLines = 200
 
+// maxSharedMemoryBytes is the largest number of bytes of the shared memory file.
+const maxSharedMemoryBytes = 16384
+
+// maxRoleMemoryBytes is the largest number of bytes of a role memory file.
+const maxRoleMemoryBytes = 4096
+
+// maxMemoryBytes gives the largest number of bytes of the memory file.
+func maxMemoryBytes(file string) int {
+	if file == MemoryFileShared {
+		return maxSharedMemoryBytes
+	}
+	return maxRoleMemoryBytes
+}
+
 // MemoryFileShared is the name of the memory file that each role gets. The other memory files are the roles that get the
 // memory section.
 const MemoryFileShared = "shared"
@@ -26,8 +40,8 @@ var memoryRoleFiles = []string{"lead", "implementer", "reviewer", "judge", "rese
 // memoryFileNames are the names of each memory file of a repository.
 var memoryFileNames = slices.Concat([]string{MemoryFileShared}, memoryRoleFiles)
 
-// ErrMemoryTooLong is the error of a text of more than maxMemoryLines lines.
-var ErrMemoryTooLong = errors.New("the memory file has too many lines")
+// ErrMemoryTooLong is the error of a text of more than maxMemoryLines lines or more bytes than the limit of the file.
+var ErrMemoryTooLong = errors.New("the memory file is too long")
 
 // ErrNoMemoryVersion is the error of a version that does not exist or belongs to another repository or file.
 var ErrNoMemoryVersion = errors.New("the memory file has no such version")
@@ -87,7 +101,8 @@ func (e *Engine) readMemory(repository, file string) (string, error) {
 }
 
 // SaveMemory writes text to the memory file of the repository with the name file and adds a version with author and
-// reason. It refuses a text of more than maxMemoryLines lines. It does nothing when text is the text of the file.
+// reason. It refuses a text of more than maxMemoryLines lines or more bytes than the limit of the file. It does
+// nothing when text is the text of the file.
 func (e *Engine) SaveMemory(ctx context.Context, repository, file, author, reason, text string) error {
 	e.memoryMu.Lock()
 	defer e.memoryMu.Unlock()
@@ -102,6 +117,10 @@ func (e *Engine) saveMemory(ctx context.Context, repository, file, author, reaso
 	current, err := e.readMemory(repository, file)
 	if err != nil || current == text {
 		return err
+	}
+	limit := maxMemoryBytes(file)
+	if len(text) > limit && (len(current) <= limit || len(text) >= len(current)) {
+		return fmt.Errorf("%w: the memory file %s has %d bytes and the limit is %d. Remove or shorten a lesson. Do not make a line longer", ErrMemoryTooLong, file, len(text), limit)
 	}
 	return e.inTx(ctx, func(queries *store.Queries) error {
 		err := queries.AddMemoryVersion(ctx, store.AddMemoryVersionParams{Repository: repository, File: file, Time: now(), Author: author, Reason: reason, Text: text})
@@ -217,6 +236,10 @@ func (e *Engine) revertedMemory(ctx context.Context, repository, file string, id
 	reverted := strings.Join(slices.Concat(lines[:from], removed, lines[from+len(added):]), "")
 	if n := countLines(reverted); n > maxMemoryLines {
 		return "", refuse("The revert gives %d lines and the maximum is %d. Edit the file.", n, maxMemoryLines)
+	}
+	limit := maxMemoryBytes(file)
+	if bytes := len(reverted); bytes > limit && bytes >= len(current) {
+		return "", refuse("The revert gives %d bytes and the limit is %d. Edit the file.", bytes, limit)
 	}
 	return reverted, nil
 }
