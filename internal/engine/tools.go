@@ -2,6 +2,7 @@ package engine
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -107,6 +108,13 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 					"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
 				},
 				e.updateBranchTool),
+			taskTool(e, c, "rerun_failed_jobs",
+				"Run the failed CI jobs of the newest failed workflow runs of the head of the pull request of a task again. It works for each attempt of a run. The result names each run that started again, and each run that GitHub refused, with the reason of GitHub. It refuses a task with no open pull request.",
+				map[string]any{
+					"repository": repositoryProperty,
+					"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
+				},
+				e.rerunFailedJobsTool),
 			taskTool(e, c, "stop_task",
 				"Stop the work on a task of this Workstream that is queued or working. Call it only when the Owner tells you to stop that task. The pull request and the branch stay.",
 				map[string]any{
@@ -1252,6 +1260,92 @@ func (e *Engine) updateBranchTool(ctx context.Context, c caller, repository gith
 		return fmt.Sprintf("Mobius updated the branch of pull request %s: new head %.8s, old head %.8s. The new head gets a new CI run, and a new review round only when an Implementer pushes.", taskEventRef(task, task.PullRequest.Int64), newHead, oldHead), nil
 	}
 	return fmt.Sprintf("GitHub accepted the update of pull request %s, but the head is still %.8s after 30 seconds. The next poll reads the pull request again.", taskEventRef(task, task.PullRequest.Int64), oldHead), nil
+}
+
+func (e *Engine) rerunFailedJobsTool(ctx context.Context, c caller, repository github.Repository, input taskInput) (string, error) {
+	if input.N < 1 {
+		return "", refuse("n must be 1 or more.")
+	}
+	task, err := e.workstreamTask(ctx, repository, c.repository, c.workstream, input.N)
+	if err != nil {
+		return "", err
+	}
+	if !task.PullRequest.Valid {
+		return "", refuse("The task of %s has no open pull request.", taskEventRef(task, input.N))
+	}
+	pullRequest, err := repository.PullRequest(ctx, task.PullRequest.Int64)
+	if err != nil {
+		return "", err
+	}
+	if pullRequest.GetState() != "open" {
+		return "", refuse("The task of %s has no open pull request.", taskEventRef(task, input.N))
+	}
+	head := pullRequest.GetHead().GetSHA()
+	workflows, err := repository.WorkflowRuns(ctx, head)
+	if err != nil {
+		return "", err
+	}
+	failed := slices.DeleteFunc(newestWorkflowRuns(workflows), func(run *gh.WorkflowRun) bool {
+		return !failedWorkflowRun(run)
+	})
+	if len(failed) == 0 {
+		return fmt.Sprintf("The head %.8s of pull request %s has no failed workflow run.", head, taskEventRef(task, task.PullRequest.Int64)), nil
+	}
+	slices.SortFunc(failed, func(a, b *gh.WorkflowRun) int {
+		return cmp.Compare(a.GetID(), b.GetID())
+	})
+	var lines []string
+	var startedIDs []string
+	var startedNames []string
+	storeRerun := func(err error) error {
+		if len(startedIDs) == 0 {
+			return err
+		}
+		storeErr := e.queries.SetTaskRerunHead(ctx, store.SetTaskRerunHeadParams{
+			RerunHead: sql.NullString{String: head, Valid: true},
+			RerunRuns: sql.NullString{String: strings.Join(startedIDs, ","), Valid: true},
+			ID:        task.ID,
+		})
+		if err != nil {
+			return errors.Join(fmt.Errorf("%w (already started again: %s)", err, strings.Join(startedNames, ", ")), storeErr)
+		}
+		if storeErr != nil {
+			return fmt.Errorf("%w (already started again: %s)", storeErr, strings.Join(startedNames, ", "))
+		}
+		return nil
+	}
+	for _, run := range failed {
+		attempt := max(run.GetRunAttempt(), 1)
+		jobs, err := repository.RunAttemptJobs(ctx, run.GetID(), int64(attempt))
+		if err != nil && !refusedByGitHub(err) {
+			return "", storeRerun(err)
+		}
+		var running []string
+		for _, job := range jobs {
+			if job.GetStatus() != "completed" {
+				running = append(running, job.GetName())
+			}
+		}
+		if len(running) > 0 {
+			lines = append(lines, fmt.Sprintf("%s (run %d, attempt %d): a job still runs: %s", run.GetName(), run.GetID(), attempt, strings.Join(running, ", ")))
+			continue
+		}
+		var refused *gh.ErrorResponse
+		err = repository.RerunFailedJobs(ctx, run.GetID())
+		if errors.As(err, &refused) && refused.Response.StatusCode >= 400 && refused.Response.StatusCode < 500 {
+			lines = append(lines, fmt.Sprintf("%s (run %d, attempt %d): GitHub refused: %s", run.GetName(), run.GetID(), attempt, refused.Message))
+			continue
+		} else if err != nil {
+			return "", storeRerun(err)
+		}
+		startedIDs = append(startedIDs, strconv.FormatInt(run.GetID(), 10))
+		startedNames = append(startedNames, run.GetName())
+		lines = append(lines, fmt.Sprintf("%s (run %d, attempt %d): started again", run.GetName(), run.GetID(), attempt))
+	}
+	if err := storeRerun(nil); err != nil {
+		return "", err
+	}
+	return strings.Join(lines, "\n"), nil
 }
 
 func (e *Engine) markReady(ctx context.Context, c caller, repository github.Repository, input taskInput) (string, error) {
