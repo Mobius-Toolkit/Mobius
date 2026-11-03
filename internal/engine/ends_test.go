@@ -44,16 +44,16 @@ func exists(t *testing.T, path string) bool {
 	return err == nil
 }
 
-// waitForLeadEvent waits for a delivered event of kind of the Workstream #12 with text, and gives it.
-func waitForLeadEvent(t *testing.T, server *testserver.Server, kind, text string) leadEvent {
+// waitForLeadEvent waits for a delivered event of kind of the Workstream #12 with text.
+func waitForLeadEvent(t *testing.T, server *testserver.Server, kind, text string) {
 	t.Helper()
-	return testkit.WaitForValue(t, func() (leadEvent, bool) {
+	testkit.WaitFor(t, func() bool {
 		for _, event := range leadEvents(t, server) {
 			if event.Kind == kind && strings.Contains(event.Payload, text) && event.Delivered {
-				return event, true
+				return true
 			}
 		}
-		return leadEvent{}, false
+		return false
 	})
 }
 
