@@ -60,6 +60,17 @@ func TestAntigravityReadsTheDaysAndHours(t *testing.T) {
 	}
 }
 
+func TestResetInReadsMinutesAndSeconds(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 11, 3, 10, 0, 0, 0, time.UTC)
+	if got := resetIn("Your limit will reset in 35 minutes, 32 seconds.", now); !got.Equal(now.Add(35*time.Minute + 32*time.Second)) {
+		t.Errorf("got = %v", got)
+	}
+	if got := resetIn("Your limit will reset in 45 seconds.", now); !got.Equal(now.Add(45 * time.Second)) {
+		t.Errorf("got = %v", got)
+	}
+}
+
 func TestDevinTakesTheRetryTimeAndWaits30MinutesWithNoTime(t *testing.T) {
 	t.Parallel()
 	limit := &acp.RequestError{Code: -32011, Message: "Rate limited", Data: map[string]any{"retryAfterSeconds": 600}}
