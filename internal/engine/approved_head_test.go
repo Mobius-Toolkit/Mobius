@@ -155,8 +155,13 @@ func checkApprovalAgain(t *testing.T, fake *testkit.FakeGitHub, server *testserv
 	if !strings.Contains(again[0].Payload, wantStart) {
 		t.Errorf("event = %q, want %q", again[0].Payload, wantStart)
 	}
-	if again[0].Delivered {
+	if result != "Mobius merges it after its checks pass." && again[0].Delivered {
 		t.Errorf("the approval again event started a turn: %q", again[0].Payload)
+	}
+	for _, prompt := range leadPrompts(t, server) {
+		if strings.Contains(prompt, "# Event\n\n"+again[0].Payload) {
+			t.Errorf("the approval again event started a turn: %q", again[0].Payload)
+		}
 	}
 	if ready != 1 {
 		t.Errorf("ready_for_approval events = %d", ready)

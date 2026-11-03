@@ -142,6 +142,8 @@ dsh sends no tokens and no cost through ACP. Mobius reads the tokens of each dsh
 2. Put both files of the zip on `PATH`: the server as `agy_acp_server`, and `localharness_external` with its own name.
 3. Log in with `mobius init` (step 4). `agy_acp_server` has no login command.
 
+Antigravity sends no tokens and no cost through ACP. Mobius reads the tokens and the model of each turn from `~/.gemini/antigravity-acp/conversations/<ACP session id>.db`. Mobius records no cost and no cache write tokens for Antigravity. The tested version is 1.4.1.
+
 When Antigravity is not logged in, `mobius init` starts its Google login. Antigravity writes a link to the terminal and opens a browser. Log in within 300 seconds. If the login fails, Antigravity also removes its old login.
 
 On a headless server, the browser cannot reach the server. Nobody tested these methods:

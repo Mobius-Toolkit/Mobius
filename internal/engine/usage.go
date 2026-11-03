@@ -188,6 +188,20 @@ func (a *Agent) addUsage(ctx context.Context, result runner.PromptResult, prompt
 			}
 		}
 	}
+	if a.binding.Harness == config.Antigravity && a.session != nil {
+		// Antigravity sends no tokens through ACP. It writes the metadata of each model call to its conversation database.
+		if agy, err := readAntigravityUsage(antigravityDir(), a.session.ID(), a.antigravityIdx); err == nil {
+			a.antigravityIdx = agy.highestIdx
+			if agy.tokens {
+				usage.input = sql.NullInt64{Int64: agy.input, Valid: true}
+				usage.output = sql.NullInt64{Int64: agy.output, Valid: true}
+				usage.cacheRead = sql.NullInt64{Int64: agy.cacheRead, Valid: true}
+			}
+			if agy.model != "" {
+				usage.model = sql.NullString{String: agy.model, Valid: true}
+			}
+		}
+	}
 	readResult(&usage, a.binding.Harness, result)
 	var cost sql.NullFloat64
 	if usage.costSeen {
