@@ -506,15 +506,15 @@ func (e *Engine) endPullRequest(ctx context.Context, repository github.Repositor
 			return err
 		}
 	}
-	if err := e.endTask(ctx, repository, task); err != nil {
-		return err
-	}
 	what := "closed with no merge"
 	if pullRequest.GetMerged() {
 		what = "merged"
 	}
 	text := fmt.Sprintf("%s end of %s \"%s\": pull request %s %s.", time.Now().UTC().Format(timeFormat), taskEventRef(task, task.Issue), issue.GetTitle(), taskEventRef(task, int64(pullRequest.GetNumber())), what)
-	return e.addLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, task.Repository, sql.NullInt64{Int64: task.Issue, Valid: true}, "end", text)
+	if err := e.addLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, task.Repository, sql.NullInt64{Int64: task.Issue, Valid: true}, "end", text); err != nil {
+		return err
+	}
+	return e.endTask(ctx, repository, task)
 }
 
 // labelRemoved stops the task when a person removed label from its issue, and tells if it did. The pull request and

@@ -427,6 +427,13 @@ func (g *FakeGitHub) FailAddLabels(repository string, number int64, fail bool) {
 	g.failedLabels[issueKey{repository, number}] = fail
 }
 
+// FailRemoveLabels makes each removal of a label from the issue fail, or work again when fail is false.
+func (g *FakeGitHub) FailRemoveLabels(repository string, number int64, fail bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.failedRemoveLabels[issueKey{repository, number}] = fail
+}
+
 // RefuseAddLabels makes each add of a label to the issue give the status. The status 0 makes the label work.
 func (g *FakeGitHub) RefuseAddLabels(repository string, number int64, status int) {
 	g.mu.Lock()
@@ -1386,6 +1393,10 @@ func (g *FakeGitHub) removeLabel(w http.ResponseWriter, r *http.Request) {
 	g.labelWrites[key]++
 	if kept := g.botKeptLabels[key]; kept != "" && kept == r.PathValue("name") && strings.HasSuffix(caller.login, "[bot]") {
 		message(w, http.StatusForbidden, "Forbidden")
+		return
+	}
+	if g.failedRemoveLabels[key] {
+		message(w, http.StatusInternalServerError, "Server Error")
 		return
 	}
 	if !g.unlabel(key, r.PathValue("name"), caller.login) {

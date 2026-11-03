@@ -80,6 +80,42 @@ func TestAMergeEndsTheTaskAndKeepsTheBranch(t *testing.T) {
 	waitForLeadEvent(t, server, "end", " end of #41 \"Add plan model\": pull request #42 merged.")
 }
 
+func TestAMergeKeepsTheEndEventWhenALabelRemovalFails(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, commits, noChange)
+	waitForApproval(t, server, fake)
+
+	fake.FailRemoveLabels(shop, 41, true)
+	fake.MergePullRequest(shop, 42)
+
+	testkit.WaitFor(t, func() bool {
+		var count int
+		if err := server.DB.QueryRow("SELECT count(*) FROM lead_events WHERE repository = ? AND issue = 41 AND kind = 'end'", shop).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		return count > 0
+	})
+	var (
+		kind    string
+		payload string
+	)
+	if err := server.DB.QueryRow("SELECT kind, payload FROM lead_events WHERE repository = ? AND issue = 41 AND kind = 'end'", shop).Scan(&kind, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if kind != "end" || !strings.Contains(payload, "pull request #42 merged.") {
+		t.Errorf("kind = %s, payload = %s", kind, payload)
+	}
+	waitForPolls(t, fake)
+	var count int
+	if err := server.DB.QueryRow("SELECT count(*) FROM lead_events WHERE repository = ? AND issue = 41 AND kind = 'end'", shop).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Errorf("end events = %d, want 1", count)
+	}
+}
+
 func TestAMergeClosesTheOpenIssueAsCompleted(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
