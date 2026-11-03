@@ -273,3 +273,8 @@ func DSHLogPath(home, cwd, session string) string {
 func AntigravityDBPath(dir, session string) string {
 	return antigravityDBPath(dir, session)
 }
+
+// AntigravityDir gives the default Antigravity directory.
+func AntigravityDir() string {
+	return antigravityDir()
+}

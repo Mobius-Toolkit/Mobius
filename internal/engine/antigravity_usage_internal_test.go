@@ -167,11 +167,43 @@ func TestReadAntigravityUsageNoFileAndInvalidProtobuf(t *testing.T) {
 	)
 
 	usage, err := readAntigravityUsage(dir, session, -1)
-	if err == nil {
-		t.Fatal("broken protobuf gave no error")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if usage.tokens || usage.model != "" || usage.highestIdx != -1 {
-		t.Errorf("usage = %+v", usage)
+	if usage.tokens || usage.model != "" || usage.highestIdx != 0 {
+		t.Errorf("usage = %+v, want no tokens and highestIdx 0", usage)
+	}
+}
+
+func TestReadAntigravityUsageTurnAfterInvalidBlobGetsTokens(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	session := "session-recover"
+	dbPath := antigravityDBPath(dir, session)
+
+	writeAntigravityDB(t, dbPath,
+		antigravityEntry{idx: 0, data: makeAntigravityData(100, 10, 1000, "gemini-3.8-flash-high")},
+		antigravityEntry{idx: 1, data: []byte("broken protobuf")},
+	)
+
+	first, err := readAntigravityUsage(dir, session, -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.tokens || first.model != "" || first.highestIdx != 1 {
+		t.Errorf("first turn = %+v, want no tokens and highestIdx 1", first)
+	}
+
+	writeAntigravityDB(t, dbPath,
+		antigravityEntry{idx: 2, data: makeAntigravityData(50, 5, 200, "gemini-3.8-flash-pro")},
+	)
+
+	second, err := readAntigravityUsage(dir, session, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !second.tokens || second.input != 50 || second.output != 5 || second.cacheRead != 200 || second.model != "gemini-3.8-flash-pro" || second.highestIdx != 2 {
+		t.Errorf("second turn = %+v", second)
 	}
 }
 

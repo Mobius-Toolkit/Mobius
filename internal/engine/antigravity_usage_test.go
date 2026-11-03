@@ -72,10 +72,10 @@ func writeAntigravityDB(t *testing.T, path string, entries ...antigravityEntry) 
 	}
 }
 
-// Serial: it sets ANTIGRAVITY_DIR, which the reader of the Antigravity conversation database reads.
+// Serial: it sets HOME, which os.UserHomeDir and the reader of the Antigravity conversation database read.
 func TestAnAntigravityTurnReadsTheTokensOfItsOwnDatabaseRows(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("ANTIGRAVITY_DIR", home)
+	t.Setenv("HOME", home)
 	fake := testkit.NewFakeGitHub(t)
 	model := "gemini-3-pro"
 	script := options + `
@@ -99,7 +99,7 @@ reply = ["Done again."]
 	if !acpSession.Valid {
 		t.Fatal("the session has no ACP session id")
 	}
-	dbPath := engine.AntigravityDBPath(home, acpSession.String)
+	dbPath := engine.AntigravityDBPath(engine.AntigravityDir(), acpSession.String)
 	writeAntigravityDB(t, dbPath,
 		antigravityEntry{idx: 0, data: makeAntigravityData(100, 10, 1000, "gemini-3.8-flash-high")},
 		antigravityEntry{idx: 1, data: makeAntigravityData(20, 10, 0, "gemini-3.8-flash-high")},
@@ -142,10 +142,10 @@ reply = ["Done again."]
 	}
 }
 
-// Serial: it sets ANTIGRAVITY_DIR, which the reader of the Antigravity conversation database reads.
+// Serial: it sets HOME, which os.UserHomeDir and the reader of the Antigravity conversation database read.
 func TestAnAntigravityTurnWithNoDatabaseGivesNoTokens(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("ANTIGRAVITY_DIR", home)
+	t.Setenv("HOME", home)
 	fake := testkit.NewFakeGitHub(t)
 	model := "gemini-3-pro"
 	script := options + `
@@ -174,51 +174,10 @@ reply = ["Done."]
 	}
 }
 
-// Serial: it sets ANTIGRAVITY_DIR, which the reader of the Antigravity conversation database reads.
-func TestAnAntigravityTurnWithBrokenProtobufGivesNoTokens(t *testing.T) {
+// Serial: it sets HOME, which os.UserHomeDir and the reader of the Antigravity conversation database read.
+func TestAnAntigravityTurnAfterInvalidBlobGetsTokens(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("ANTIGRAVITY_DIR", home)
-	fake := testkit.NewFakeGitHub(t)
-	model := "gemini-3-pro"
-	script := options + `
-[[prompts]]
-reply = ["Done."]
-`
-	server, _ := connectScript(t, fake, script, func(cfg *config.Config) {
-		cfg.Roles.Researcher = config.RoleBinding{Harness: config.Antigravity, Model: model, Max: 2}
-	})
-	spec := leadSpec(t)
-	spec.Role = engine.ResearcherRole
-	agent := start(t, server, spec)
-
-	var acpSession sql.NullString
-	if err := server.DB.QueryRowContext(t.Context(), `SELECT acp_session_id FROM sessions WHERE id = ?`, agent.ID()).Scan(&acpSession); err != nil {
-		t.Fatal(err)
-	}
-	dbPath := engine.AntigravityDBPath(home, acpSession.String)
-	writeAntigravityDB(t, dbPath,
-		antigravityEntry{idx: 0, data: []byte("broken protobuf not valid")},
-	)
-	if err := agent.Prompt(t.Context(), "One", nil); err != nil {
-		t.Fatal(err)
-	}
-	if err := agent.End(t.Context(), "done"); err != nil {
-		t.Fatal(err)
-	}
-
-	rows := usageRows(t, server, agent.ID())
-	if len(rows) != 1 {
-		t.Fatalf("rows = %+v", rows)
-	}
-	if rows[0].Input.Valid || rows[0].Output.Valid || rows[0].CacheRead.Valid || rows[0].ReportedModel.Valid {
-		t.Errorf("row = %+v, want no tokens and no model", rows[0])
-	}
-}
-
-// Serial: it sets ANTIGRAVITY_DIR, which the reader of the Antigravity conversation database reads.
-func TestAnAntigravityTurnWithNoNewRowGivesNoTokens(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("ANTIGRAVITY_DIR", home)
+	t.Setenv("HOME", home)
 	fake := testkit.NewFakeGitHub(t)
 	model := "gemini-3-pro"
 	script := options + `
@@ -239,7 +198,61 @@ reply = ["Done again."]
 	if err := server.DB.QueryRowContext(t.Context(), `SELECT acp_session_id FROM sessions WHERE id = ?`, agent.ID()).Scan(&acpSession); err != nil {
 		t.Fatal(err)
 	}
-	dbPath := engine.AntigravityDBPath(home, acpSession.String)
+	dbPath := engine.AntigravityDBPath(engine.AntigravityDir(), acpSession.String)
+	writeAntigravityDB(t, dbPath,
+		antigravityEntry{idx: 0, data: []byte("broken protobuf not valid")},
+	)
+	if err := agent.Prompt(t.Context(), "One", nil); err != nil {
+		t.Fatal(err)
+	}
+
+	writeAntigravityDB(t, dbPath,
+		antigravityEntry{idx: 1, data: makeAntigravityData(50, 5, 200, "gemini-3.8-flash-pro")},
+	)
+	if err := agent.Prompt(t.Context(), "Two", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := agent.End(t.Context(), "done"); err != nil {
+		t.Fatal(err)
+	}
+
+	rows := usageRows(t, server, agent.ID())
+	if len(rows) != 2 {
+		t.Fatalf("rows = %+v", rows)
+	}
+	if rows[0].Input.Valid || rows[0].Output.Valid || rows[0].CacheRead.Valid || rows[0].ReportedModel.Valid {
+		t.Errorf("first turn = %+v, want no tokens and no model", rows[0])
+	}
+	if rows[1].Input != nullInt(50) || rows[1].Output != nullInt(5) || rows[1].CacheRead != nullInt(200) || rows[1].ReportedModel.String != "gemini-3.8-flash-pro" {
+		t.Errorf("second turn = %+v, want tokens and model from row 1", rows[1])
+	}
+}
+
+// Serial: it sets HOME, which os.UserHomeDir and the reader of the Antigravity conversation database read.
+func TestAnAntigravityTurnWithNoNewRowGivesNoTokens(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	fake := testkit.NewFakeGitHub(t)
+	model := "gemini-3-pro"
+	script := options + `
+[[prompts]]
+reply = ["Done."]
+
+[[prompts]]
+reply = ["Done again."]
+`
+	server, _ := connectScript(t, fake, script, func(cfg *config.Config) {
+		cfg.Roles.Researcher = config.RoleBinding{Harness: config.Antigravity, Model: model, Max: 2}
+	})
+	spec := leadSpec(t)
+	spec.Role = engine.ResearcherRole
+	agent := start(t, server, spec)
+
+	var acpSession sql.NullString
+	if err := server.DB.QueryRowContext(t.Context(), `SELECT acp_session_id FROM sessions WHERE id = ?`, agent.ID()).Scan(&acpSession); err != nil {
+		t.Fatal(err)
+	}
+	dbPath := engine.AntigravityDBPath(engine.AntigravityDir(), acpSession.String)
 	writeAntigravityDB(t, dbPath,
 		antigravityEntry{idx: 0, data: makeAntigravityData(100, 10, 500, "gemini-3.8-flash-high")},
 	)
@@ -265,10 +278,10 @@ reply = ["Done again."]
 	}
 }
 
-// Serial: it sets ANTIGRAVITY_DIR, which the reader of the Antigravity conversation database reads.
+// Serial: it sets HOME, which os.UserHomeDir and the reader of the Antigravity conversation database read.
 func TestAContinuedAntigravityRoundCountsOnlyTheNewRows(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("ANTIGRAVITY_DIR", home)
+	t.Setenv("HOME", home)
 	fake := testkit.NewFakeGitHub(t)
 	dataDir := t.TempDir()
 	// The linger of the first turn gives the test the time to write the conversation database of that turn before the
@@ -288,7 +301,7 @@ func TestAContinuedAntigravityRoundCountsOnlyTheNewRows(t *testing.T) {
 		}
 		return sessions[0], true
 	})
-	dbPath := engine.AntigravityDBPath(home, first.AcpSessionID.String)
+	dbPath := engine.AntigravityDBPath(engine.AntigravityDir(), first.AcpSessionID.String)
 	writeAntigravityDB(t, dbPath, antigravityEntry{idx: 0, data: makeAntigravityData(100, 10, 1000, "gemini-3.8-flash-high")})
 
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" })

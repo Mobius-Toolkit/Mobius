@@ -6,7 +6,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"google.golang.org/protobuf/encoding/protowire"
 	_ "modernc.org/sqlite" // registers the database/sql driver "sqlite"
@@ -40,9 +39,6 @@ type antigravityRow struct {
 func readAntigravityUsage(dir, session string, highestIdx int64) (antigravityUsage, error) {
 	usage := antigravityUsage{highestIdx: highestIdx}
 	dbPath := antigravityDBPath(dir, session)
-	if _, err := os.Stat(dbPath); err != nil {
-		return usage, err
-	}
 	db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(dbPath)+"?mode=ro")
 	if err != nil {
 		return usage, err
@@ -55,20 +51,24 @@ func readAntigravityUsage(dir, session string, highestIdx int64) (antigravityUsa
 	}
 	defer func() { _ = rows.Close() }()
 
-	var lastModel string
+	var (
+		lastModel string
+		parseErr  error
+	)
 	for rows.Next() {
 		var (
 			idx  int64
 			data []byte
 		)
 		if err := rows.Scan(&idx, &data); err != nil {
-			return antigravityUsage{highestIdx: highestIdx}, err
-		}
-		row, err := parseAntigravityMetadata(data)
-		if err != nil {
-			return antigravityUsage{highestIdx: highestIdx}, err
+			return antigravityUsage{highestIdx: usage.highestIdx}, err
 		}
 		usage.highestIdx = idx
+		row, err := parseAntigravityMetadata(data)
+		if err != nil {
+			parseErr = err
+			continue
+		}
 		if row.hasUsage {
 			usage.input += row.input
 			usage.output += row.output
@@ -80,7 +80,10 @@ func readAntigravityUsage(dir, session string, highestIdx int64) (antigravityUsa
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return antigravityUsage{highestIdx: highestIdx}, err
+		return antigravityUsage{highestIdx: usage.highestIdx}, err
+	}
+	if parseErr != nil {
+		return antigravityUsage{highestIdx: usage.highestIdx}, nil
 	}
 	if usage.tokens {
 		usage.model = lastModel
@@ -123,38 +126,18 @@ func parseAntigravityMetadata(b []byte) (antigravityRow, error) {
 							return row, protowire.ParseError(n44)
 						}
 						sub4 = sub4[n44:]
+						var target *int64
 						switch num4 {
 						case 2:
-							if typ4 != protowire.VarintType {
-								return row, fmt.Errorf("unexpected wire type %v for field 1.4.2", typ4)
-							}
-							v, nVal := protowire.ConsumeVarint(sub4)
-							if nVal < 0 {
-								return row, protowire.ParseError(nVal)
-							}
-							val, err := varint(v)
-							if err != nil {
-								return row, err
-							}
-							sub4 = sub4[nVal:]
-							row.input = val
+							target = &row.input
 						case 3:
-							if typ4 != protowire.VarintType {
-								return row, fmt.Errorf("unexpected wire type %v for field 1.4.3", typ4)
-							}
-							v, nVal := protowire.ConsumeVarint(sub4)
-							if nVal < 0 {
-								return row, protowire.ParseError(nVal)
-							}
-							val, err := varint(v)
-							if err != nil {
-								return row, err
-							}
-							sub4 = sub4[nVal:]
-							row.output = val
+							target = &row.output
 						case 5:
+							target = &row.cacheRead
+						}
+						if target != nil {
 							if typ4 != protowire.VarintType {
-								return row, fmt.Errorf("unexpected wire type %v for field 1.4.5", typ4)
+								return row, fmt.Errorf("unexpected wire type %v for field 1.4.%d", typ4, num4)
 							}
 							v, nVal := protowire.ConsumeVarint(sub4)
 							if nVal < 0 {
@@ -165,14 +148,14 @@ func parseAntigravityMetadata(b []byte) (antigravityRow, error) {
 								return row, err
 							}
 							sub4 = sub4[nVal:]
-							row.cacheRead = val
-						default:
-							nVal := protowire.ConsumeFieldValue(num4, typ4, sub4)
-							if nVal < 0 {
-								return row, protowire.ParseError(nVal)
-							}
-							sub4 = sub4[nVal:]
+							*target = val
+							continue
 						}
+						nVal := protowire.ConsumeFieldValue(num4, typ4, sub4)
+						if nVal < 0 {
+							return row, protowire.ParseError(nVal)
+						}
+						sub4 = sub4[nVal:]
 					}
 				case num1 == 21 && typ1 == protowire.BytesType:
 					str, nStr := protowire.ConsumeString(sub1)
@@ -206,11 +189,8 @@ func antigravityDBPath(dir, session string) string {
 	return filepath.Join(dir, "conversations", session+".db")
 }
 
-// antigravityDir gives the Antigravity directory: ANTIGRAVITY_DIR when not empty, else ~/.gemini/antigravity-acp.
+// antigravityDir gives the Antigravity directory: ~/.gemini/antigravity-acp.
 func antigravityDir() string {
-	if dir := strings.TrimSpace(os.Getenv("ANTIGRAVITY_DIR")); dir != "" {
-		return dir
-	}
 	userHome, err := os.UserHomeDir()
 	if err != nil || userHome == "" {
 		return ""
