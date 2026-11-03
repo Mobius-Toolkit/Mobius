@@ -292,7 +292,7 @@ func (e *Engine) endDuePauses(ctx context.Context) {
 			continue
 		}
 		if !until.After(now) {
-			if err := e.endPause(ctx, pause); err != nil {
+			if err := e.endPauseSince(ctx, &pause); err != nil {
 				log.Printf("end the pause of %s: %v", pause.Harness, err)
 			}
 		}
