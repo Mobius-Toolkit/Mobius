@@ -98,6 +98,8 @@ Do not use `claude setup-token` with `CLAUDE_CODE_OAUTH_TOKEN`. The token is the
 
    On a headless server, add `--force-manual-token-flow`, and paste the token.
 
+Mobius records the input, output and cache read tokens of each Devin turn from the `_meta` of `usage_update`, records no cost, and the tested version is 3000.11.92.
+
 ### DeepSeek Harness (dsh)
 
 Mobius starts dsh with `dsh --profile acp`. The tested version is 0.2.1-rc.5.
