@@ -262,3 +262,13 @@ func (e *Engine) ChatQueued(key ChatKey) int {
 func DSHLogPath(home, cwd, session string) string {
 	return filepath.Join(home, dshLogPath(cwd, session))
 }
+
+// AntigravityDBPath gives the path of the Antigravity conversation database of session in dir.
+func AntigravityDBPath(dir, session string) string {
+	return antigravityDBPath(dir, session)
+}
+
+// AntigravityDir gives the default Antigravity directory.
+func AntigravityDir() string {
+	return antigravityDir()
+}
