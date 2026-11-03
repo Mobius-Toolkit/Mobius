@@ -226,7 +226,7 @@ const question = "What is the state of the plans? The full report is at " +
 // Lead chats of owner/shop#12 and plants/garden#12 and to the Coordinator chats of owner and plants. Each chat session ends before
 // the next step. Then an Implementer and a Lead run, a drain waits for them, and the drain holds a second
 // Implementer. The parent of the first Implementer is a Lead session that ended. Release v0.1.4 of Mobius is newer
-// than this server. The table of the pauses has a row of antigravity, with no timer. The Curator of a repository uses
+// than this server. The table of the pauses has a row of antigravity. The Curator of a repository uses
 // antigravity too, so it waits for the pause. A Curator starts after 10 ended sessions of a repository. Fewer
 // sessions have ended when the screenshots test takes its screenshots, so no Curator session shows in them. The tools
 // of the Checkup page have fixed paths and versions, and tar gives no
@@ -791,6 +791,7 @@ func TestServer(t *testing.T) {
 			return issue.Number == 41 && issue.Stopped && issue.PullRequest == 44
 		}) && slices.Contains(github.Labels("owner/shop", 41), "mobius:needs-human")
 	})
+	server.Engine.SetClock(func() time.Time { return time.Date(2026, 9, 28, 9, 30, 0, 0, time.UTC) })
 	if err := queries.SetHarnessPause(ctx, store.SetHarnessPauseParams{Harness: "antigravity", PausedUntil: "2026-09-28T12:00:00Z"}); err != nil {
 		t.Fatal(err)
 	}

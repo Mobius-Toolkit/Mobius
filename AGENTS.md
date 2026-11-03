@@ -15,6 +15,7 @@
 - Use oxfmt to format the frontend (`pnpm format`). Do not add Prettier or Biome.
 - Run `make fmt` before each commit. CI only checks the format. It never writes it.
 - Put the body of each success response in `Envelope[T]` (`{"data": …}`). Error responses keep the Gork format. Server-sent events have no envelope.
+- A new Harness records the tokens, the cost and the reported model of each turn when the Harness gives them, in `internal/engine/usage.go`, with a Go test of the read.
 
 ## Gork
 

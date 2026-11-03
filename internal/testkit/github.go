@@ -105,6 +105,8 @@ type FakeGitHub struct {
 	issueKeys   map[int64]issueKey
 	// commentsAfterList holds the comments that the next issue list adds after it builds its page.
 	commentsAfterList []listedComment
+	// afterIssueListReads holds the functions that run once after the next issue list read of a repository.
+	afterIssueListReads map[string]func()
 	// The comment ids of all issues are different, as on GitHub.
 	lastCommentID int64
 	lastReviewID  int64
@@ -299,6 +301,7 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		cloneURLs:               map[string]string{},
 		checkRunApps:            map[int64]string{},
 		jobLogs:                 map[int64]string{},
+		afterIssueListReads:     map[string]func(){},
 	}
 	server := httptest.NewServer(g.logging(g.hanging(g.routes())))
 	t.Cleanup(server.Close)

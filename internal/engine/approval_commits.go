@@ -36,7 +36,7 @@ func (e *Engine) newerCommitsText(ctx context.Context, repository github.Reposit
 	if text == "" {
 		return fmt.Sprintf("\nNo commit of %s after the start of the CI of the head (%s) changes a file of the pull request.", branch, started.UTC().Format(timeFormat)), nil
 	}
-	return fmt.Sprintf("\nCommits of %s after the start of the CI of the head (%s) that change a file of the pull request:%s\nReview rounds: %d of %d.", branch, started.UTC().Format(timeFormat), text, task.ReviewRounds, e.config.MaxFixRounds), nil
+	return fmt.Sprintf("\nCommits of %s after the start of the CI of the head (%s) that change a file of the pull request:%s\nFix rounds: %d of %d.", branch, started.UTC().Format(timeFormat), text, task.FixRounds, e.config.MaxFixRounds), nil
 }
 
 // sharedCommitLines gives one line for each commit of the default branch after started that changes a file of the pull
