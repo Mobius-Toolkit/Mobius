@@ -268,7 +268,7 @@ func (e *Engine) pause(ctx context.Context, a *Agent, until time.Time) error {
 		return err
 	}
 	e.publish(Change{Pauses: true})
-	return e.timer(pause)
+	return nil
 }
 
 // addLimitMessage adds text to the chat of the Workstream of a.
@@ -278,26 +278,25 @@ func (e *Engine) addLimitMessage(ctx context.Context, a *Agent, text string) err
 	return err
 }
 
-// timer ends the pause at its time. A later pause of the same Harness has its own timer.
-func (e *Engine) timer(pause store.HarnessPause) error {
-	until, err := time.Parse(time.RFC3339Nano, pause.PausedUntil)
+func (e *Engine) endDuePauses(ctx context.Context) {
+	pauses, err := e.queries.ListHarnessPauses(ctx)
 	if err != nil {
-		return err
+		log.Printf("list harness pauses: %v", err)
+		return
 	}
-	time.AfterFunc(time.Until(until), func() {
-		ctx := context.Background()
-		current, err := e.queries.GetHarnessPause(ctx, pause.Harness)
-		if errors.Is(err, sql.ErrNoRows) || err == nil && current.PausedUntil != pause.PausedUntil {
-			return
-		}
-		if err == nil {
-			err = e.endPause(ctx, current)
-		}
+	now := e.timeNow()
+	for _, pause := range pauses {
+		until, err := pauseEnd(pause)
 		if err != nil {
-			log.Printf("end the pause of %s: %v", pause.Harness, err)
+			log.Printf("parse pause of %s: %v", pause.Harness, err)
+			continue
 		}
-	})
-	return nil
+		if !until.After(now) {
+			if err := e.endPause(ctx, pause); err != nil {
+				log.Printf("end the pause of %s: %v", pause.Harness, err)
+			}
+		}
+	}
 }
 
 // Resume ends the pause of harness now. A Harness with no pause is no error.

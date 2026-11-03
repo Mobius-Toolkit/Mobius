@@ -349,8 +349,8 @@ func (e *Engine) stopWorkers() {
 	e.closeKeptSessions()
 }
 
-// Recover ends the sessions of the earlier run of the server, notes its last chat message, frees the pending actions
-// that the earlier run started, and starts the timer of each pause.
+// Recover ends the sessions of the earlier run of the server, notes its last chat message, and frees the pending actions
+// that the earlier run started.
 // The sessions of the earlier run have no Harness process. Call Recover before Run and before the first session.
 func (e *Engine) Recover(ctx context.Context) error {
 	if err := e.loadRoles(ctx); err != nil {
@@ -368,19 +368,7 @@ func (e *Engine) Recover(ctx context.Context) error {
 	if e.earlierMessage, err = e.queries.MaxChatMessageID(ctx); err != nil {
 		return err
 	}
-	if err := e.queries.FailRunningPendingActions(ctx, interruptedActionError); err != nil {
-		return err
-	}
-	pauses, err := e.queries.ListHarnessPauses(ctx)
-	if err != nil {
-		return err
-	}
-	for _, pause := range pauses {
-		if err := e.timer(pause); err != nil {
-			return err
-		}
-	}
-	return nil
+	return e.queries.FailRunningPendingActions(ctx, interruptedActionError)
 }
 
 // Run polls each poll_interval and runs the Housekeeper each housekeeper_interval, until ctx ends. Then it ends each
@@ -390,6 +378,7 @@ func (e *Engine) Run(ctx context.Context) {
 	wg.Go(func() { every(ctx, e.config.HousekeeperInterval, nil, e.keepHouse) })
 	wg.Go(func() { every(ctx, e.config.PollInterval, nil, e.checkAccess) })
 	wg.Go(func() { every(ctx, e.config.PollInterval, nil, e.autoUpgradeTools) })
+	wg.Go(func() { every(ctx, e.config.PollInterval, nil, e.endDuePauses) })
 	every(ctx, e.config.PollInterval, e.pollWake, e.poll)
 	wg.Wait()
 	e.stopWorkers()
