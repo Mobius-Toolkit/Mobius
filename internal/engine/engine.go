@@ -199,6 +199,11 @@ func (e *Engine) timeNow() time.Time {
 	return time.Now()
 }
 
+// SetClock makes the long waits read the time from clock.
+func (e *Engine) SetClock(clock func() time.Time) {
+	e.clock.Store(&clock)
+}
+
 // New gives the Engine of the database db and of the GitHub Apps of gh with the settings of cfg.
 func New(db *sql.DB, gh *github.GitHub, cfg *config.Config, agents Agents) *Engine {
 	return &Engine{
