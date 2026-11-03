@@ -116,6 +116,29 @@ func TestAMergeKeepsTheEndEventWhenALabelRemovalFails(t *testing.T) {
 	}
 }
 
+func TestAMergeSetsTheMergedQualityValue(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, commits, noChange)
+	waitForApproval(t, server, fake)
+
+	fake.MergePullRequest(shop, 42)
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "" })
+	waitForLeadEvent(t, server, "end", " end of #41 \"Add plan model\": pull request #42 merged.")
+
+	rows, err := store.New(server.DB).ListEndedTaskQuality(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) == 0 {
+		t.Fatal("no ended task quality rows")
+	}
+	if !rows[0].Merged {
+		t.Errorf("task quality row merged = %v, want true", rows[0].Merged)
+	}
+}
+
 func TestAMergeClosesTheOpenIssueAsCompleted(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

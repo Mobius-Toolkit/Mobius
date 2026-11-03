@@ -5322,7 +5322,7 @@ merged AS (
     FROM bounds b
     JOIN lead_events le ON le.kind = 'end'
         AND le.issue_repository = b.repository AND le.issue = b.issue
-        AND julianday(le.time) >= julianday(b.ended_at)
+        AND julianday(le.time) >= julianday(b.ended_at, '-1 minute')
         AND julianday(le.time) <= julianday(b.ended_at, '+1 minute')
         AND substr(le.payload, -8) = ' merged.'
     GROUP BY b.task
