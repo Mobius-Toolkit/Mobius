@@ -29,6 +29,8 @@ type keptSession struct {
 	// dshRecords is the number of assistant/message records of the dsh session log that the earlier rows counted. The
 	// log belongs to the ACP session, so a continued row reads only the later records.
 	dshRecords int
+	// antigravityIdx is the highest gen_metadata idx of the Antigravity session that the earlier rows counted.
+	antigravityIdx int64
 	// brief, issue, comments and report are the texts that the session got, so a later short prompt sends only a change.
 	brief    string
 	issue    string
