@@ -44,7 +44,7 @@ func exists(t *testing.T, path string) bool {
 	return err == nil
 }
 
-// waitForLeadEvent waits for an event of kind of the Workstream #12 with text, and gives it.
+// waitForLeadEvent waits for a delivered event of kind of the Workstream #12 with text, and gives it.
 func waitForLeadEvent(t *testing.T, server *testserver.Server, kind, text string) leadEvent {
 	t.Helper()
 	return testkit.WaitForValue(t, func() (leadEvent, bool) {
@@ -76,10 +76,7 @@ func TestAMergeEndsTheTaskAndKeepsTheBranch(t *testing.T) {
 	}
 	head(t, fake, "mobius/41")
 	waitForLeadPrompt(t, server, " end of #41 \"Add plan model\": pull request #42 merged.")
-	event := waitForLeadEvent(t, server, "end", " end of #41 \"Add plan model\": pull request #42 merged.")
-	if !event.Delivered {
-		t.Error("the end event was not delivered")
-	}
+	waitForLeadEvent(t, server, "end", " end of #41 \"Add plan model\": pull request #42 merged.")
 }
 
 func TestAMergeClosesTheOpenIssueAsCompleted(t *testing.T) {
@@ -291,26 +288,52 @@ func TestAnEndEventStartsANewLeadSessionWhenNoSessionIsOpen(t *testing.T) {
 	server, _ := connectTask(t, fake, lead, commits, noChange)
 	waitForApproval(t, server, fake)
 
-	ended := endedChatSession(t, server, 0)
-	if !ended.EndedAt.Valid {
-		t.Fatal("the initial Lead session did not end")
-	}
+	waitForLeadPrompt(t, server, "ready for Lead approval")
+	testkit.WaitFor(t, func() bool {
+		if !eventDelivered(t, server) {
+			return false
+		}
+		sessions := chatSessions(t, server, leadChat, engine.LeadRole)
+		if len(sessions) == 0 {
+			return false
+		}
+		for _, s := range sessions {
+			if !s.EndedAt.Valid {
+				return false
+			}
+		}
+		return true
+	})
+	before := chatSessions(t, server, leadChat, engine.LeadRole)
+	lastBefore := before[len(before)-1]
 
 	fake.MergePullRequest(shop, 42)
 
-	session := waitForChatSession(t, server, leadChat, engine.LeadRole, func(session store.Session) bool {
-		return session.ID > ended.ID
-	})
 	endText := " end of #41 \"Add plan model\": pull request #42 merged."
-	prompt := waitForLeadPrompt(t, server, endText)
+	session := waitForChatSession(t, server, leadChat, engine.LeadRole, func(session store.Session) bool {
+		texts := promptTexts(t, server, session.ID)
+		return len(texts) > 0 && strings.Contains(texts[0], endText)
+	})
+	prompt := promptTexts(t, server, session.ID)[0]
 	inOrder(t, prompt, "# Event\n\n", endText)
-	if strings.Contains(prompt, "# Events with no turn") {
+	if strings.Contains(prompt, "# Events with no turn\n\n") {
 		t.Errorf("prompt holds end text in quiet events section: %s", prompt)
 	}
 	if strings.Contains(prompt, "# Owner message") {
 		t.Errorf("prompt holds an Owner message: %s", prompt)
 	}
-	if session.ID <= ended.ID {
-		t.Errorf("session ID %d <= ended session ID %d", session.ID, ended.ID)
+	if session.ID <= lastBefore.ID {
+		t.Errorf("session ID %d <= last session ID before merge %d", session.ID, lastBefore.ID)
+	}
+	started, err := time.Parse(time.RFC3339Nano, session.StartedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ended, err := time.Parse(time.RFC3339Nano, lastBefore.EndedAt.String)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if started.Before(ended) {
+		t.Errorf("session started at %v before last session ended at %v", started, ended)
 	}
 }
