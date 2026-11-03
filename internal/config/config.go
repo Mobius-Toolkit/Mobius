@@ -19,7 +19,9 @@ import (
 // Harness is the agent program of a Role.
 type Harness string
 
-// The Harnesses that Mobius can run.
+// The Harnesses that Mobius can run. Each Harness records the input, output, cache read and cache write tokens,
+// the cost and the reported model of each turn when the Harness gives them. A new Harness adds its read in
+// readUsage, readResult or addUsage of internal/engine/usage.go.
 const (
 	ClaudeCode  Harness = "claude-code"
 	Antigravity Harness = "antigravity"
