@@ -1041,7 +1041,8 @@ func (e *Engine) addFailedItem(ctx context.Context, message store.ChatMessage) e
 }
 
 // leadFailed tells the Owner that the Lead did not take the ready events of the Workstream: the activity feed gets
-// one activity on the Workstream issue for each event, and the events count as delivered.
+// one activity on the Workstream issue for each event, and the events count as delivered. An end event stays
+// undelivered.
 func (e *Engine) leadFailed(ctx context.Context, failed item) error {
 	repository, workstream := failed.event.Repository, failed.event.Workstream
 	events, err := e.queries.ListReadyLeadEvents(ctx, store.ListReadyLeadEventsParams{Repository: repository, Workstream: workstream})
@@ -1051,6 +1052,9 @@ func (e *Engine) leadFailed(ctx context.Context, failed item) error {
 	organization, _, _ := strings.Cut(repository, "/")
 	return e.inTx(ctx, func(q *store.Queries) error {
 		for _, event := range events {
+			if event.Kind == "end" {
+				continue
+			}
 			err := q.AddEvent(ctx, store.AddEventParams{
 				Time:         now(),
 				Organization: organization,
@@ -1621,12 +1625,20 @@ func (e *Engine) startIdleLead(ctx context.Context, repository string, workstrea
 	if len(events) == 0 {
 		return nil
 	}
-	failed, err := e.failedLeadStarts(ctx, repository, workstream, events)
-	if err != nil {
-		return err
-	}
-	if failed >= maxLeadStarts {
-		return e.leadFailed(ctx, item{event: &events[0]})
+	nonEnd := slices.DeleteFunc(slices.Clone(events), func(e store.LeadEvent) bool { return e.Kind == "end" })
+	if len(nonEnd) > 0 {
+		failed, err := e.failedLeadStarts(ctx, repository, workstream, nonEnd)
+		if err != nil {
+			return err
+		}
+		if failed >= maxLeadStarts {
+			if err := e.leadFailed(ctx, item{event: &nonEnd[0]}); err != nil {
+				return err
+			}
+			if len(nonEnd) == len(events) {
+				return nil
+			}
+		}
 	}
 	return e.sendEvents(ctx, repository, workstream)
 }

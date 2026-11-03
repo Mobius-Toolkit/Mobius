@@ -3,6 +3,7 @@ package engine_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
@@ -360,4 +362,44 @@ func TestAnEndEventStartsANewLeadSessionWhenNoSessionIsOpen(t *testing.T) {
 	if started.Before(ended) {
 		t.Errorf("session started at %v before last session ended at %v", started, ended)
 	}
+}
+
+func TestAFailedLeadStartDoesNotLoseTheEndEvent(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	lead := "[[prompts]]\nwhen = \"end of #41\"\nreply = [\"Seen\"]\n\n" + leadStarts
+	server, dataDir := connectTask(t, fake, lead, commits, func(cfg *config.Config) { cfg.MaxWorkerRestarts = 1 })
+	waitForApproval(t, server, fake)
+
+	waitForLeadPrompt(t, server, "ready for Lead approval")
+	testkit.WaitFor(t, func() bool {
+		if !eventDelivered(t, server) {
+			return false
+		}
+		sessions := chatSessions(t, server, leadChat, engine.LeadRole)
+		if len(sessions) == 0 {
+			return false
+		}
+		for _, s := range sessions {
+			if !s.EndedAt.Valid {
+				return false
+			}
+		}
+		return true
+	})
+
+	testkit.InstallFakeHarness(t, dataDir, "claude-agent-acp", fmt.Sprintf("skip_tools_list = %d\n", 8)+options+lead)
+	if err := os.Remove(filepath.Join(dataDir, "harnesses", "starts")); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		t.Fatal(err)
+	}
+
+	fake.MergePullRequest(shop, 42)
+
+	endText := " end of #41 \"Add plan model\": pull request #42 merged."
+	session := waitForChatSession(t, server, leadChat, engine.LeadRole, func(session store.Session) bool {
+		texts := promptTexts(t, server, session.ID)
+		return len(texts) > 0 && strings.Contains(texts[0], endText)
+	})
+	prompt := promptTexts(t, server, session.ID)[0]
+	inOrder(t, prompt, "# Event\n\n", endText)
 }
