@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"path/filepath"
-	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/runner"
@@ -35,11 +34,6 @@ var ClosedIssueReply = closedIssueReply
 
 // MemoryRoleFiles are the names of the role memory files.
 var MemoryRoleFiles = memoryRoleFiles
-
-// SetClock makes the long waits read the time from clock.
-func (e *Engine) SetClock(clock func() time.Time) {
-	e.clock.Store(&clock)
-}
 
 // AccessChecked tells if the access check of each Role binding has a result.
 func (e *Engine) AccessChecked() bool {
