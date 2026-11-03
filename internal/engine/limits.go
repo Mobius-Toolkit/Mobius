@@ -168,6 +168,7 @@ func resetIn(text string, now time.Time) time.Time {
 		"day": 24 * time.Hour, "days": 24 * time.Hour,
 		"hour": time.Hour, "hours": time.Hour,
 		"minute": time.Minute, "minutes": time.Minute,
+		"second": time.Second, "seconds": time.Second,
 	}
 	var wait time.Duration
 	for i := 0; i+1 < len(words); i++ {
@@ -181,6 +182,21 @@ func resetIn(text string, now time.Time) time.Time {
 		return time.Time{}
 	}
 	return now.Add(wait)
+}
+
+// waitOutReplyLimit pauses the Harness of a until the reset time in text, or noTimeWait when text has no reset
+// time, and holds until the pause ends.
+func (a *Agent) waitOutReplyLimit(ctx context.Context, text string) error {
+	now := time.Now().UTC()
+	until := resetIn(text, now)
+	if until.IsZero() {
+		until = now.Add(noTimeWait)
+	}
+	log.Printf("usage limit of %s in reply text: pause until %s", a.binding.Harness, until.UTC().Format(timeFormat))
+	if err := a.engine.pause(ctx, a, until); err != nil {
+		return err
+	}
+	return a.waitForPause(ctx)
 }
 
 // waitOutLimit gives true when err of a prompt is a usage limit of the Harness of a. Then it pauses the Harness,

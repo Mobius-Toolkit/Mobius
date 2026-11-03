@@ -272,3 +272,8 @@ func AntigravityDBPath(dir, session string) string {
 func AntigravityDir() string {
 	return antigravityDir()
 }
+
+// ReplyText gives the reply text of the last turn of a, for the tests.
+func (a *Agent) ReplyText() string {
+	return a.replyText()
+}
