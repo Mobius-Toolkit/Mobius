@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"context"
 	"errors"
 	"io/fs"
 	"os"
@@ -93,6 +94,29 @@ func TestAMergeClosesTheOpenIssueAsCompleted(t *testing.T) {
 	if state, reason := fake.State(shop, 41); state != "closed" || reason != "completed" {
 		t.Errorf("state = %s, %s", state, reason)
 	}
+}
+
+func TestAMergeShowsTheEndedTaskAsClosedInTheTasksTabWhenTheIssueListHidesTheIssue(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, commits, noChange)
+	waitForApproval(t, server, fake)
+
+	fake.HideFromIssueList(shop, 41)
+	fake.MergePullRequest(shop, 42)
+
+	testkit.WaitFor(t, func() bool {
+		lines, err := server.Engine.Tasks(context.Background(), shop, 12)
+		if err != nil || len(lines) == 0 {
+			return false
+		}
+		for _, line := range lines {
+			if line.Number == 41 {
+				return line.State == "closed"
+			}
+		}
+		return false
+	})
 }
 
 func TestACloseOfTheIssueBeforeAPullRequestStopsTheImplementerAndEndsTheTask(t *testing.T) {

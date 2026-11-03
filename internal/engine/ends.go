@@ -387,14 +387,64 @@ func (e *Engine) clearEndedTaskLabels(ctx context.Context, repository github.Rep
 	if err != nil {
 		return err
 	}
+	type endedIssue struct {
+		repositoryURL string
+		number        int64
+		labels        []string
+	}
+	type endedRef struct {
+		repositoryURL string
+		number        int64
+	}
+	var issues []endedIssue
+	index := map[endedRef]int{}
 	for _, row := range rows {
-		source, ok := e.urlRepository(row.RepositoryUrl, repository)
+		key := endedRef{row.RepositoryUrl, row.Number}
+		if idx, ok := index[key]; ok {
+			issues[idx].labels = append(issues[idx].labels, row.Name)
+		} else {
+			index[key] = len(issues)
+			issues = append(issues, endedIssue{
+				repositoryURL: row.RepositoryUrl,
+				number:        row.Number,
+				labels:        []string{row.Name},
+			})
+		}
+	}
+	changed := false
+	for _, item := range issues {
+		source, ok := e.urlRepository(item.repositoryURL, repository)
 		if !ok {
 			continue
 		}
-		if err := source.RemoveLabel(ctx, row.Number, row.Name); err != nil {
-			log.Printf("remove %s from %s#%d: %v", row.Name, source.FullName, row.Number, err)
+		removed := true
+		for _, name := range item.labels {
+			if err := source.RemoveLabel(ctx, item.number, name); err != nil {
+				log.Printf("remove %s from %s#%d: %v", name, source.FullName, item.number, err)
+				removed = false
+			}
 		}
+		if !removed {
+			continue
+		}
+		changes := e.labelChangeCount(source.FullName)
+		issue, err := source.Issue(ctx, item.number)
+		if err != nil {
+			log.Printf("read %s#%d: %v", source.FullName, item.number, err)
+			continue
+		}
+		if issue == nil {
+			continue
+		}
+		issueChanged, err := e.updateCopiedIssue(ctx, issue, source.FullName, changes)
+		if err != nil {
+			log.Printf("update the copy of %s#%d: %v", source.FullName, item.number, err)
+			continue
+		}
+		changed = changed || issueChanged
+	}
+	if changed {
+		e.publish(Change{Workstreams: true})
 	}
 	return nil
 }
