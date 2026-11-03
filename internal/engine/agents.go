@@ -128,6 +128,8 @@ type Agent struct {
 	turnUsage turnUsage
 	// dshRecords is the number of assistant/message records of the dsh session log that the usage rows counted.
 	dshRecords int
+	// antigravityIdx is the highest gen_metadata idx of the Antigravity session that the usage rows counted.
+	antigravityIdx int64
 	// costTotal is the last cost total of the session. costBase is the cost total at the end of the last turn with a cost.
 	costTotal float64
 	costBase  float64
@@ -319,7 +321,7 @@ func (e *Engine) newAgent(ctx context.Context, spec Spec) (*Agent, error) {
 		return nil, err
 	}
 	e.publish(Change{Node: new(e.node(session))})
-	return &Agent{engine: e, id: session.ID, spec: spec, binding: binding, tracked: !worker, queuedAt: session.StartedAt, wake: make(chan struct{}, 1), ended: make(chan struct{}, 1)}, nil
+	return &Agent{engine: e, id: session.ID, spec: spec, binding: binding, tracked: !worker, queuedAt: session.StartedAt, wake: make(chan struct{}, 1), ended: make(chan struct{}, 1), antigravityIdx: -1}, nil
 }
 
 // waitForSlot waits for a slot of the Role of a, and starts the session. A failed wait ends the session, like Start.
@@ -496,6 +498,7 @@ func (a *Agent) continueSession(ctx context.Context, k *keptSession) error {
 	a.costTotal = k.costTotal
 	a.costBase = k.costBase
 	a.dshRecords = k.dshRecords
+	a.antigravityIdx = k.antigravityIdx
 	a.report = k.report
 	a.session.SetUpdates(a.update)
 	a.engine.agents.MCP.SetCaller(a.key, a.mcpCaller())
