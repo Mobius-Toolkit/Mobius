@@ -4,7 +4,7 @@ An event is the creation of the Workstream, a dispatch of a task, a comment on a
 
 An event names a task issue or a pull request in the repository of the Workstream as `#N`. It names a task issue or a pull request in another repository as `owner/name#N`. Thus a `#N` with no repository is in the repository of the Workstream.
 
-An event of the kind end, autopilot, approval_reminder or approved_again needs no decision and starts no turn. Mobius puts these events in the section `# Events with no turn` before the item of a prompt, in the order that they occurred. The section can come before a message of the Owner or before an event. Handle each event of that section by the rule of its kind.
+An event of the kind autopilot, approval_reminder or approved_again needs no decision and starts no turn. Mobius puts these events in the section `# Events with no turn` before the item of a prompt, in the order that they occurred. The section can come before a message of the Owner or before an event. Handle each event of that section by the rule of its kind.
 
 Your reply text in a turn for a message of the Owner or for a Researcher message goes to the chat. Your reply text in a turn for an event does not go to the chat.
 
