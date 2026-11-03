@@ -442,7 +442,15 @@ func (e *Engine) commentsWithoutTask(ctx context.Context, repository github.Repo
 		return nil
 	}
 	if issue.GetState() != "open" {
-		return e.declineComments(ctx, repository, int64(issue.GetNumber()), events, closedIssueReply)
+		fresh, err := repository.Issue(ctx, int64(issue.GetNumber()))
+		if err != nil {
+			return err
+		}
+		if fresh != nil && fresh.GetState() == "open" {
+			issue = fresh
+		} else {
+			return e.declineComments(ctx, repository, int64(issue.GetNumber()), events, closedIssueReply)
+		}
 	}
 	return e.workstreamCommentEvents(ctx, repository, issue, events, answered)
 }
