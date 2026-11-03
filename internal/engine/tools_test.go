@@ -30,6 +30,11 @@ func call(tool, arguments string) string {
 	return "[[prompts]]\ncall = { tool = \"" + tool + "\", arguments = " + arguments + " }\n"
 }
 
+// callWhen gives the prompt of the fake agent that calls tool with the TOML arguments when the prompt contains when.
+func callWhen(when, tool, arguments string) string {
+	return "[[prompts]]\nwhen = \"" + when + "\"\ncall = { tool = \"" + tool + "\", arguments = " + arguments + " }\n\n"
+}
+
 // mcpCalls gives the JSON of each mcp_call row of the session.
 func mcpCalls(t *testing.T, server *testserver.Server, session int64) []map[string]any {
 	t.Helper()
@@ -524,7 +529,7 @@ func TestReplyThreadRepliesInAReviewThreadAndResolvesIt(t *testing.T) {
 func TestCreateWorkstreamCreatesTheIssueWithTheWorkstreamLabel(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, approvalSeen+call("create_workstream", `{ title = "Billing", brief = "Bill the plans." }`))
+	server, _ := connect(t, fake, approvalSeen+callWhen("Create it.", "create_workstream", `{ title = "Billing", brief = "Bill the plans." }`)+seenScript)
 
 	leadSession := run(t, server, leadSpec(t), "Create it.")
 	leadDone := approveNext(t, server, 1)
