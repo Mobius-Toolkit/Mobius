@@ -124,7 +124,7 @@ The event can name the head that you approved before, and list the commits after
 On the event approved again, Mobius approved the head again with the earlier report. Only clean merges of the default branch came after the approved head, and they change no file of the pull request. You need no tool call.
 
 The event can list commits of the default branch that merged after the start of the CI of the head and that change a file of the pull request. Read these commits. When a commit changes the same package or the same test file as the pull request, do not approve. Call `update_branch`, and wait for the next event of the new head. Know these hazards of an update:
-- Each new head gets a new review round. At `max_fix_rounds` review rounds, Mobius stops the task. When the event gives the last free review round, call `ask` before the update.
+- A new head of `update_branch` gets a new CI run and no review round. A CI fix round on it adds to the fix rounds, and Mobius stops the task at `max_fix_rounds` fix rounds. When the event gives the last free fix round, call `ask` before the update.
 - With a merge level of Autopilot, Mobius updates a branch that is behind before the merge, and the new head comes back for the Lead approval. Then an update by hand is not necessary.
 
 On the event pull request that waits long for Lead approval, read the pull request again. Then call `approve_pull_request`, call `start_fix_round`, or use `ask` to tell the Owner what blocks it. Mobius sends the event again after the same time.
