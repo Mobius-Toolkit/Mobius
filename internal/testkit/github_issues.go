@@ -566,6 +566,13 @@ func (g *FakeGitHub) AddCommentAfterNextList(repository string, number int64, au
 	g.commentsAfterList = append(g.commentsAfterList, listedComment{key: issueKey{repository, number}, author: author, body: body, anyList: true})
 }
 
+// AfterNextIssueListRead makes the fake run f once, after the next issue list read of repository.
+func (g *FakeGitHub) AfterNextIssueListRead(repository string, f func()) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.afterIssueListReads[repository] = f
+}
+
 // AddAppComment adds a comment with body of author to the issue number, written through the Mobius App, as the gh of
 // the Lead writes it. It gives the id of the comment.
 func (g *FakeGitHub) AddAppComment(repository string, number int64, author, body string) int64 {
@@ -763,6 +770,12 @@ func (g *FakeGitHub) listIssues(w http.ResponseWriter, r *http.Request) {
 	if query.Has("labels") {
 		labels = strings.Split(query.Get("labels"), ",")
 	}
+	var afterRead func()
+	defer func() {
+		if afterRead != nil {
+			afterRead()
+		}
+	}()
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.touchPushedPullRequests(repository(r))
@@ -791,11 +804,13 @@ func (g *FakeGitHub) listIssues(w http.ResponseWriter, r *http.Request) {
 	}
 	sum := sha256.Sum256(body)
 	etag := fmt.Sprintf(`"%x"`, sum[:8])
-	if r.Header.Get("If-None-Match") == etag {
+	if g.afterIssueListReads[repository(r)] == nil && r.Header.Get("If-None-Match") == etag {
 		g.notModified++
 		w.WriteHeader(http.StatusNotModified)
 		return
 	}
+	afterRead = g.afterIssueListReads[repository(r)]
+	delete(g.afterIssueListReads, repository(r))
 	g.commentsAfterList = slices.DeleteFunc(g.commentsAfterList, func(pending listedComment) bool {
 		if !pending.anyList && !slices.Contains(keys, pending.key) || pending.key.repository != repository(r) {
 			return false
