@@ -239,6 +239,36 @@ func TestAUsageLimitPausesTheHarnessUntilResumeNowSendsThePromptAgain(t *testing
 	}
 }
 
+func TestAUsageLimitEndsWhenTheClockPassesPausedUntil(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, usageLimit)
+	agent := start(t, server, implementerSpec(t, server, fake, 41))
+	defer end(t, agent, "done")
+	prompted := make(chan error, 1)
+	go func() { prompted <- agent.Prompt(t.Context(), "Store plans in cents.", nil) }()
+
+	found := testkit.WaitForValue(t, func() (pause, bool) { return devinPause(t, server) })
+	until := parseTime(t, found.until)
+
+	server.Engine.SetClock(func() time.Time { return until.Add(time.Second) })
+
+	testkit.WaitFor(t, func() bool { _, paused := devinPause(t, server); return !paused })
+	if err := <-prompted; err != nil {
+		t.Fatal(err)
+	}
+	if text := reply(t, server, agent.ID()); text != "Done." {
+		t.Errorf("reply = %q", text)
+	}
+	var prompts []string
+	for _, row := range rows(t, server, agent.ID(), "prompt") {
+		prompts = append(prompts, row["text"].(string))
+	}
+	if !reflect.DeepEqual(prompts, []string{"Store plans in cents.", "Store plans in cents."}) {
+		t.Errorf("prompts = %q", prompts)
+	}
+}
+
 // The first two prompts hit the usage limit, the second one with a later reset, and the same prompt again does the work.
 const usageLimitTwice = `
 [[prompts]]
