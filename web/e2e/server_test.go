@@ -393,7 +393,6 @@ func TestServer(t *testing.T) {
 		}
 	})
 	server.Mux.HandleFunc("POST /e2e/approvals/times/fix", func(w http.ResponseWriter, _ *http.Request) {
-		server.Engine.SetClock(func() time.Time { return time.Date(2026, 9, 28, 9, 30, 0, 0, time.UTC) })
 		for _, query := range []string{
 			"UPDATE chat_messages SET time = ?1, delivered_at = iif(delivered_at IS NULL, NULL, ?1), stopped_at = iif(stopped_at IS NULL, NULL, ?1), cancelled_at = iif(cancelled_at IS NULL, NULL, ?1) WHERE time > ?1",
 			"UPDATE inbox_items SET time = ?1 WHERE time > ?1",
@@ -1332,7 +1331,6 @@ func addQuality(t *testing.T, server *testserver.Server) {
 // starts with its time in the format of the engine.
 func fixTimes(t *testing.T, server *testserver.Server, github *testkit.FakeGitHub) {
 	t.Helper()
-	server.Engine.SetClock(func() time.Time { return time.Date(2026, 9, 28, 9, 30, 0, 0, time.UTC) })
 	github.SetCreatedAt("owner/shop", 12, 1790587800)
 	github.SetCreatedAt("plants/garden", 30, 1790587800)
 	for _, query := range []string{
