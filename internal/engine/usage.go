@@ -133,8 +133,8 @@ func claudeResult(usage *turnUsage, result runner.PromptResult) {
 	usage.cacheWrite = nullInt(tokens.CacheWrite)
 }
 
-// devinUpdate adds the tokens of a usage_update to the usage data. Devin sends the tokens in the cognition.ai/*
-// keys of _meta, one usage_update for each model call, and a second copy of each with the key
+// devinUpdate adds the tokens of a usage_update to the usage data. Devin sends input, output and cache read tokens
+// in the cognition.ai/* keys of _meta, one usage_update for each model call, and a second copy of each with the key
 // cognition.ai/subagent_context. Devin sends no cache write tokens and no model.
 func devinUpdate(usage *turnUsage, update any) {
 	if field(update, "_meta", "cognition.ai/subagent_context") != nil {
