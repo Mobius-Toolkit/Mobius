@@ -885,6 +885,10 @@ func TestAnAntigravityLimitReplyPausesTheHarnessUntilTheResetTime(t *testing.T) 
 	wantMobius := "antigravity reached a usage limit. Mobius sends the prompt again at " + gotUntil.UTC().Format("2006-01-02 15:04 UTC") + "."
 	testkit.WaitFor(t, func() bool { return reflect.DeepEqual(chatTexts(t, server, "Mobius"), []string{wantMobius}) })
 
+	if got := agent.ReplyText(); got != "" {
+		t.Errorf("reply before resume = %q", got)
+	}
+
 	if err := server.Engine.Resume(t.Context(), "antigravity"); err != nil {
 		t.Fatal(err)
 	}
@@ -902,6 +906,36 @@ func TestAnAntigravityLimitReplyPausesTheHarnessUntilTheResetTime(t *testing.T) 
 	if got := agent.ReplyText(); got != "Done." {
 		t.Errorf("reply = %q", got)
 	}
+}
+
+func TestAnAntigravityLimitTurnWritesNoReplyToTheChat(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, antigravityLimitReply, func(cfg *config.Config) {
+		cfg.Roles.Lead = config.RoleBinding{Harness: config.Antigravity, Model: "gemini-3-pro", Max: 2}
+	})
+
+	sendChat(t, server, leadChat, "Plan the API")
+
+	testkit.WaitFor(t, func() bool { return antigravityPaused(t, server) })
+	if got := chatTexts(t, server, "Lead"); len(got) != 0 {
+		t.Errorf("Lead chat messages = %q", got)
+	}
+
+	if err := server.Engine.Resume(t.Context(), "antigravity"); err != nil {
+		t.Fatal(err)
+	}
+
+	testkit.WaitFor(t, func() bool { return reflect.DeepEqual(chatTexts(t, server, "Lead"), []string{"Done."}) })
+}
+
+func antigravityPaused(t *testing.T, server *testserver.Server) bool {
+	t.Helper()
+	var n int
+	if err := server.DB.QueryRow("SELECT COUNT(*) FROM harness_pauses WHERE harness = 'antigravity'").Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n > 0
 }
 
 func TestAnAntigravityReplyWithUsageLimitAfterOtherTextGivesNoPause(t *testing.T) {
