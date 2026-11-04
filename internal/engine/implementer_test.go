@@ -836,7 +836,12 @@ func TestAPushThatGitHubAnswersWithAServerErrorTriesAgainWithNoNewSession(t *tes
 	asked := filepath.Join(t.TempDir(), "asked")
 	// The hook of proc-receive refuses the first push of the branch with the reason that GitHub gives for a server error.
 	hook := fmt.Sprintf("#!/bin/sh\nprintf '000eversion=1\\n0000'\nprintf '0032ng refs/heads/mobius/41 Internal Server Error\\n0000'\ntouch '%s'\ncat >/dev/null\n", asked)
-	if err := os.WriteFile(filepath.Join(remote, "hooks", "proc-receive"), []byte(hook), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(remote, "hooks", "proc-receive"), []byte(hook), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	chmod := exec.Command("chmod", "+x", "proc-receive")
+	chmod.Dir = filepath.Join(remote, "hooks")
+	if err := chmod.Run(); err != nil {
 		t.Fatal(err)
 	}
 	testkit.Git(t, remote, "config", "receive.procReceiveRefs", "refs/heads/mobius")
