@@ -216,6 +216,33 @@ describe("chat update story tests", () => {
       );
     });
 
+    it("removes a sent item on the next PageLoaded, also when the server gives no browserId", () => {
+      const sent = { ...createQueuedItem("browser-1", "Hello"), sent: true } as Waiting;
+      const waiting = createQueuedItem("browser-2", "World") as Waiting;
+      const base = createTestModel({ queue: [sent, waiting] });
+
+      story(
+        update,
+        given(base),
+        message(
+          Message.PageLoaded({
+            page: {
+              messages: [createChatMessage(101, "Hello")],
+              older: false,
+              writing: false,
+              stoppable: false,
+              pausedUntil: null,
+            },
+            isInitial: false,
+          }),
+        ),
+        model((m) => {
+          expect((m.queue as Waiting[]).map((item) => item.id)).toEqual(["browser-2"]);
+        }),
+        StoryCommand.expectNone(),
+      );
+    });
+
     it("discards a queued message and removes it from storage", () => {
       const q1 = createQueuedItem("q1", "Delete me");
       const base = createTestModel({

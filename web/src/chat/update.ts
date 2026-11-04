@@ -260,7 +260,10 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
       }
       const nextMessages = upsert(messages, liveMsg);
       const storedIds = new Set(nextMessages.map((m) => m.browserId));
-      const nextQueue = (model.queue as Waiting[]).filter((item) => !storedIds.has(item.id));
+      // A sent message stays on the screen until the load that follows its send ends.
+      const nextQueue = (model.queue as Waiting[]).filter(
+        (item) => !storedIds.has(item.id) && !item.sent,
+      );
       const commands = [];
       const storedInQueue = (model.queue as Waiting[]).filter((item) => storedIds.has(item.id));
       for (const item of storedInQueue) {
@@ -332,7 +335,10 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
       const messages = model.messages as ChatMessage[];
       const nextMessages = page.messages.reduce(upsert, messages);
       const storedIds = new Set(nextMessages.map((m) => m.browserId));
-      const nextQueue = (model.queue as Waiting[]).filter((item) => !storedIds.has(item.id));
+      // A sent message stays on the screen until the load that follows its send ends.
+      const nextQueue = (model.queue as Waiting[]).filter(
+        (item) => !storedIds.has(item.id) && !item.sent,
+      );
       const commands = [];
       for (const item of (model.queue as Waiting[]).filter((i) => storedIds.has(i.id))) {
         commands.push(RemoveQueued({ id: item.id }));
