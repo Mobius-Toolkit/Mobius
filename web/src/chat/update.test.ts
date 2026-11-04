@@ -294,6 +294,25 @@ describe("chat update story tests", () => {
       );
     });
 
+    it("posts the next item when the request of a stored item fails after the item left the queue", () => {
+      const b = createQueuedItem("b", "Second") as Waiting;
+      const base = createTestModel({ queue: [b] });
+
+      story(
+        update,
+        given(base),
+        message(Message.SendAttemptFailed({ id: "a", error: "lost", retryAt: 1 })),
+        model((m) => {
+          expect(m.attempt).toBeNull();
+          expect(m.failureCount).toBe(0);
+        }),
+        StoryCommand.expectExact(PostQueued({ item: b, delay: retryDelays[0] })),
+        StoryCommand.resolve(PostQueued, Message.SendAttemptSucceeded({ id: "b" })),
+        StoryCommand.resolve(FetchPage, Message.PageFailed({ error: "x", sent: "b" })),
+        StoryCommand.expectNone(),
+      );
+    });
+
     it("removes a sent item at the end of its own load, also when the server gives no browserId", () => {
       const sent = { ...createQueuedItem("browser-1", "Hello"), sent: true } as Waiting;
       const waiting = createQueuedItem("browser-2", "World") as Waiting;
@@ -757,6 +776,8 @@ describe("chat update story tests", () => {
           expect(m.answerError).toBe("The server failed.");
           expect(m.decisionSubmitting).toBe(false);
         }),
+        StoryCommand.expectExact(LoadAnswerDraft({ id: 8 })),
+        StoryCommand.resolve(LoadAnswerDraft, Message.AnswerDraftLoaded({ text: "" })),
         StoryCommand.expectNone(),
       );
     });
@@ -946,7 +967,7 @@ describe("chat update story tests", () => {
       story(
         update,
         given(base),
-        message(Message.ActionDecided({ decision: "approve", text: "" })),
+        message(Message.ActionDecided({ decision: "approve" })),
         model((m) => {
           expect(m.answerError).toBe("");
           expect(m.answerErrorId).toBe(0);
@@ -990,6 +1011,86 @@ describe("chat update story tests", () => {
         ),
         model((m) => {
           expect(m.trayMerging).toEqual({});
+        }),
+        StoryCommand.expectNone(),
+      );
+    });
+
+    it("ignores a second tap on Approve while the first request runs, and sends the note of the field", () => {
+      const base = createTestModel({
+        activePanel: { type: "answer", item: approval },
+        answerText: "Go ahead.",
+      });
+
+      const first = update(base, Message.ActionDecided({ decision: "approve" }));
+      expect(first.model.decisionSubmitting).toBe(true);
+      expect((first.commands ?? []).map((command) => command.name)).toEqual([
+        "StopVoice",
+        "ApproveAction",
+      ]);
+      expect(first.commands?.[1].args).toEqual({
+        actionId: 42,
+        inboxItemId: 8,
+        repository: "test-repo",
+        issue: 3,
+        title: "Approve it",
+        text: "Go ahead.",
+      });
+      const second = update(first.model, Message.ActionDecided({ decision: "reject" }));
+      expect(second.model).toBe(first.model);
+      expect(second.commands ?? []).toEqual([]);
+    });
+
+    it("sends an answer one time when the Owner taps Send again before the row leaves", () => {
+      const base = createTestModel({
+        activePanel: { type: "answer", item: question },
+        answerText: "Ten seats.",
+      });
+
+      const probing = update(base, Message.AnswerSubmitted());
+      const probed = update(probing.model, Message.VoiceProbed({ live: false, target: "answer" }));
+      expect(probed.model.answerSubmitting).toBe(true);
+      const second = update(probed.model, Message.AnswerSubmitted());
+      expect(second.model).toBe(probed.model);
+      expect(second.commands ?? []).toEqual([]);
+      const done = update(probed.model, Message.AnswerCompleted({ id: 7, result: {} }));
+      expect(done.model.answerSubmitting).toBe(false);
+    });
+
+    it("reads the draft of its own item when a panel opens again", () => {
+      const base = createTestModel({
+        activePanel: null,
+        closedPanel: { type: "answer", item: question },
+        answerText: "The note of another item.",
+        answerLoaded: true,
+      });
+
+      story(
+        update,
+        given(base),
+        message(Message.AnswerCompleted({ id: 7, result: { error: "No." } })),
+        model((m) => {
+          expect(m.activePanel?.item).toBe(question);
+          expect(m.answerText).toBe("");
+          expect(m.answerLoaded).toBe(false);
+        }),
+        StoryCommand.expectExact(LoadAnswerDraft({ id: 7 })),
+        StoryCommand.resolve(LoadAnswerDraft, Message.AnswerDraftLoaded({ text: "My own note." })),
+        model((m) => {
+          expect(m.answerText).toBe("My own note.");
+        }),
+        StoryCommand.expectNone(),
+      );
+    });
+
+    it("ends the load of the queue and shows the error when the store fails", () => {
+      story(
+        update,
+        given(createTestModel()),
+        message(Message.QueueFailed({ error: "The store failed." })),
+        model((m) => {
+          expect(m.queueLoaded).toBe(true);
+          expect(m.error).toBe("The store failed.");
         }),
         StoryCommand.expectNone(),
       );

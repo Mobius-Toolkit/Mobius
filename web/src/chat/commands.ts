@@ -49,7 +49,7 @@ import {
 import { Message } from "./message";
 import { ports } from "./ports";
 
-// A 401 asks the host for the login, as showLogin does in the React code.
+// A 401 asks the host for the login.
 function withLogin<M>(run: () => Promise<{ message: M; status?: number }>) {
   return Effect.promise(run).pipe(
     Effect.tap(({ status }) =>
@@ -447,6 +447,9 @@ function decide(decision: "approve" | "reject") {
           if (res.status === 200) {
             const decided = res.data.data;
             if (decided.state !== "pending") {
+              if (inboxItemId > 0) {
+                await updateDraft(answerDraftKey(inboxItemId), () => emptyDraft).catch(() => {});
+              }
               showNotice(`${decision === "approve" ? "Approved" : "Rejected"}: ${title}`);
             } else if (decided.error && inboxItemId > 0) {
               restoreInboxItem(inboxItemId);

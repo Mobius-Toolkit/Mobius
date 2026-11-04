@@ -1,7 +1,7 @@
 import * as Markdown from "@foldkit/markdown";
 import { Effect, Queue, Schema, Stream } from "effect";
 import { Mount } from "foldkit";
-import { parseChatMarkdown } from "./markdown";
+import { parseChatMarkdown, restoreEquals, shieldEquals } from "./markdown";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import {
   InboxItemKind,
@@ -46,7 +46,7 @@ const markdownClass =
 
 // diff is true for the Brief diff of an action: briefMarkdown marks a removed line with "~~" and an added text with
 // "==". In a chat message, "==" and "~~" have no special meaning here.
-function renderMarkdown(h: H, text: string, diff = false): Html {
+export function renderMarkdown(h: H, text: string, diff = false): Html {
   if (!text) return h.empty;
   const doc = parseChatMarkdown(localTimes(text));
   if (!doc) {
@@ -72,11 +72,20 @@ function renderMarkdown(h: H, text: string, diff = false): Html {
                     .split("==")
                     .map((part, index) =>
                       index % 2 === 1
-                        ? h.ins([h.Class("bg-green-500/40 no-underline")], [part])
-                        : part,
+                        ? h.ins([h.Class("bg-green-500/40 no-underline")], [restoreEquals(part)])
+                        : restoreEquals(part),
                     ),
                 )
               : Markdown.defaultViews.Text(node),
+          InlineCode: (node) =>
+            Markdown.defaultViews.InlineCode(
+              diff ? { ...node, value: restoreEquals(node.value) } : node,
+            ),
+          CodeBlock: (node, ...rest) =>
+            Markdown.defaultViews.CodeBlock(
+              diff ? { ...node, value: restoreEquals(node.value) } : node,
+              ...rest,
+            ),
           Link: (linkNode, content) =>
             h.a(
               [
@@ -181,8 +190,7 @@ function renderInboxItemCard(
   );
 }
 
-// A plain click on a link goes to the host router, as the Link of the React code does. A click with a modifier key
-// keeps the default of the browser.
+// A plain click on a link goes to the host router. A click with a modifier key keeps the default of the browser.
 const RouterLink = Mount.defineStream("RouterLink", {
   args: { path: Schema.String },
   messages: [Message.NavigateTo],
@@ -1133,7 +1141,10 @@ function renderFullArgument(h: H, arg: ActionArgument, model: Model, action?: Pe
         : action.oldBrief || undefined
       : undefined;
   if (before !== undefined) {
-    const marked = briefMarkdown(diffLines(before, arg.value), !model.showRemovedText);
+    const marked = briefMarkdown(
+      diffLines(shieldEquals(before), shieldEquals(arg.value)),
+      !model.showRemovedText,
+    );
     return h.div(
       [h.Class("grid min-w-0 gap-0.5")],
       [

@@ -40,3 +40,15 @@ export function parseChatMarkdown(text: string) {
   parsedTexts.set(text, document);
   return document ?? undefined;
 }
+
+// briefMarkdown puts "==" around an added text. A "==" in the text of the Brief is shielded with a private-use
+// character before the diff, so it cannot open an added text, and the views of the Brief diff restore it.
+const shieldedEquals = "\uE000";
+
+export function shieldEquals(text: string) {
+  return text.replaceAll("==", shieldedEquals.repeat(2));
+}
+
+export function restoreEquals(text: string) {
+  return text.replaceAll(shieldedEquals, "=");
+}

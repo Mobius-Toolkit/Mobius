@@ -72,7 +72,12 @@ const ChatModelSchema = Schema.Struct({
   voicePhase: Schema.Literals(["idle", "recording", "converting"]),
   voiceError: Schema.String,
   voiceRegion: Schema.NullOr(
-    Schema.Unknown as Schema.Schema<{ lead: string; trail: string; value: string }>,
+    Schema.Unknown as Schema.Schema<{
+      lead: string;
+      trail: string;
+      value: string;
+      target: "chat" | "answer";
+    }>,
   ),
   stopReady: Schema.Boolean,
   probingSend: Schema.Boolean,

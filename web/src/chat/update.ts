@@ -173,6 +173,26 @@ function finishRequest(model: Model, id: number, error: string): Model {
   };
 }
 
+// A panel that opens again reads the draft of its own item. The note of another panel that the Owner used in the
+// meantime is not its note.
+function reopened(before: Model, after: Model, id: number) {
+  if (before.activePanel !== null || after.activePanel === null) {
+    return { model: after, commands: noCommands };
+  }
+  return {
+    model: { ...after, answerText: "", answerLoaded: false, selectedOptions: {} },
+    commands: [LoadAnswerDraft({ id })],
+  };
+}
+
+// The region of the voice text belongs to one field.
+function regionOf(model: Model, target: "chat" | "answer") {
+  const region = model.voiceRegion;
+  return region && region.target === target
+    ? { lead: region.lead, trail: region.trail, value: region.value }
+    : null;
+}
+
 function newestMessage(model: Model) {
   const messages = model.messages as ChatMessage[];
   return model.loaded && messages.length > 0 ? Math.max(...messages.map((m) => m.id)) : null;
@@ -564,7 +584,8 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
     QueueFailed: ({ error }) => ({
       model: {
         ...model,
-        sendError: error,
+        queueLoaded: true,
+        error,
       },
     }),
 
@@ -650,6 +671,15 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
     },
 
     SendAttemptFailed: ({ id, error, retryAt }) => {
+      const waiting = model.queue as Waiting[];
+      if (!waiting.some((item) => item.id === id)) {
+        // The server stored the message while the request ran, so the item is not in the queue. No wait is needed.
+        const next = waiting.find((item) => !item.sent);
+        return {
+          model,
+          commands: next ? [PostQueued({ item: next, delay: retryDelays[0] })] : noCommands,
+        };
+      }
       const delay = retryDelays[Math.min(model.failureCount, retryDelays.length - 1)];
       return {
         model: {
@@ -889,7 +919,11 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
       return {
         model: { ...model, probingSend: true },
         commands: [
-          ProbeVoice({ region: model.voiceRegion, draftText: model.draftText, target: "chat" }),
+          ProbeVoice({
+            region: regionOf(model, "chat"),
+            draftText: model.draftText,
+            target: "chat",
+          }),
         ],
       };
     },
@@ -903,7 +937,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
           };
         }
         return {
-          model: { ...model, probingSend: false },
+          model: { ...model, probingSend: false, answerSubmitting: true },
           commands: [StopVoice(), ...answerCommands(model, model.answerText)],
         };
       }
@@ -1147,7 +1181,13 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
 
     AnswerSubmitted: () => {
       const panel = model.activePanel;
-      if (!panel || panel.type !== "answer" || model.answerWaiting || model.probingSend) {
+      if (
+        !panel ||
+        panel.type !== "answer" ||
+        model.answerWaiting ||
+        model.probingSend ||
+        model.answerSubmitting
+      ) {
         return { model };
       }
       const empty = !model.answerText.trim() && !hasSelection(model) && !panel.item.todo;
@@ -1157,21 +1197,31 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
       return {
         model: { ...model, probingSend: true, answerError: "", answerErrorId: 0 },
         commands: [
-          ProbeVoice({ region: model.voiceRegion, draftText: model.answerText, target: "answer" }),
+          ProbeVoice({
+            region: regionOf(model, "answer"),
+            draftText: model.answerText,
+            target: "answer",
+          }),
         ],
       };
     },
 
     AnswerCompleted: ({ id, result: rawRes }) => {
       const res = rawRes as { error?: string };
-      return { model: { ...finishRequest(model, id, res.error || ""), answerSubmitting: false } };
+      return reopened(
+        model,
+        { ...finishRequest(model, id, res.error || ""), answerSubmitting: false },
+        id,
+      );
     },
 
-    ActionDecided: ({ decision, text }) => {
+    // The note is the text of the field, because the text of the Message comes from the last render.
+    ActionDecided: ({ decision }) => {
       const panel = model.activePanel;
-      if (!panel) {
+      if (!panel || model.decisionSubmitting) {
         return { model };
       }
+      const text = model.answerText;
       const item = panel.item;
       const actionId = item.action ? item.action.id : item.id;
       const inboxItemId = item.action ? item.id : 0;
@@ -1206,9 +1256,8 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
     },
 
     // The request failed, so the list does not change. The panel of the item opens again with the error and the note.
-    ActionFailed: ({ id, error }) => ({
-      model: { ...finishRequest(model, id, error), decisionSubmitting: false },
-    }),
+    ActionFailed: ({ id, error }) =>
+      reopened(model, { ...finishRequest(model, id, error), decisionSubmitting: false }, id),
 
     ActionCompleted: ({ id, action: rawAction }) => {
       const action = rawAction as PendingAction & { error?: string };
@@ -1226,8 +1275,9 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
         panel && panel.item.id === id && err
           ? { ...panel, item: { ...panel.item, action: { ...panel.item.action, ...action } } }
           : panel;
-      return {
-        model: {
+      return reopened(
+        model,
+        {
           ...finishRequest(
             {
               ...model,
@@ -1241,7 +1291,8 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
           trayItems: updatedTrayItems,
           decisionSubmitting: false,
         },
-      };
+        id,
+      );
     },
 
     VoiceButtonClicked: () => ({ model, commands: [ToggleVoice()] }),
@@ -1264,7 +1315,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
     }),
 
     VoiceSendFinished: ({ text, target }) => {
-      const region = model.voiceRegion;
+      const region = regionOf(model, target);
       const current = target === "answer" ? model.answerText : model.draftText;
       const sent = !region
         ? current
@@ -1273,7 +1324,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
           : region.lead + text + region.trail;
       if (target === "answer") {
         return {
-          model: { ...model, answerWaiting: false, voiceRegion: null },
+          model: { ...model, answerWaiting: false, answerSubmitting: true, voiceRegion: null },
           commands: answerCommands(model, sent),
         };
       }
@@ -1295,13 +1346,13 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
     VoiceTextPlaced: ({ value, lead, trail, target }) =>
       target === "answer"
         ? {
-            model: { ...model, answerText: value, voiceRegion: { lead, trail, value } },
+            model: { ...model, answerText: value, voiceRegion: { lead, trail, value, target } },
             commands: model.activePanel
               ? [SaveAnswerDraft({ id: model.activePanel.item.id, text: value })]
               : [],
           }
         : {
-            model: { ...model, draftText: value, voiceRegion: { lead, trail, value } },
+            model: { ...model, draftText: value, voiceRegion: { lead, trail, value, target } },
             commands: [
               SaveDraft({
                 organization: model.organization,

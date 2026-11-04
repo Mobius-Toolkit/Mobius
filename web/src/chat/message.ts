@@ -79,7 +79,7 @@ export const Message = defineMessageUnion({
   CompletedSaveAnswerDraft: {},
   AnswerSubmitted: {},
   AnswerCompleted: { id: Schema.Number, result: Schema.Unknown },
-  ActionDecided: { decision: Schema.String, text: Schema.String },
+  ActionDecided: { decision: Schema.String },
   ActionCompleted: { id: Schema.Number, action: Schema.Unknown },
   ActionFailed: { id: Schema.Number, error: Schema.String },
   TrayActionDone: {

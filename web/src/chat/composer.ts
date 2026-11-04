@@ -97,7 +97,7 @@ export const ComposerBehavior = Mount.defineStream("ComposerBehavior", {
           }
         };
         // Foldkit renders in the next frame, so a tap right after a key sees the Send button of the empty draft.
-        // The button is enabled at once, as the controlled field of the React code did.
+        // The button is enabled at once.
         const typed = (event: Event) => {
           const target = event.target as HTMLTextAreaElement;
           const submit = element.querySelector<HTMLButtonElement>("button[type=submit]");
@@ -464,7 +464,7 @@ export function renderPanelComposer(h: H, model: Model, item: InboxItem): Html {
                   className: "rounded-full text-muted-foreground max-md:size-11",
                 }),
               ),
-              h.OnClick(Message.ActionDecided({ decision: "reject", text: model.answerText })),
+              h.OnClick(Message.ActionDecided({ decision: "reject" })),
             ],
             [banIcon(h, "size-4")],
           ),
@@ -474,7 +474,7 @@ export function renderPanelComposer(h: H, model: Model, item: InboxItem): Html {
               h.DataAttribute("keep-focus", ""),
               h.Disabled(model.decisionSubmitting),
               h.Class(buttonClass({ className: "rounded-full max-md:h-11 max-md:px-4" })),
-              h.OnClick(Message.ActionDecided({ decision: "approve", text: model.answerText })),
+              h.OnClick(Message.ActionDecided({ decision: "approve" })),
             ],
             [checkIcon(h, "size-4"), "Approve"],
           ),

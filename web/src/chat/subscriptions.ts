@@ -37,14 +37,11 @@ function createVoiceStream() {
   return Stream.callback<Message>(
     (queue) =>
       Effect.gen(function* () {
-        // The text around the voice text of the run. An edit of the Owner in the field ends the region, and a render
-        // that sets the Model value again must not end it.
-        let region: VoiceRegion | undefined;
+        // The text around the voice text of the run, for each field. An edit of the Owner in a field ends its region,
+        // and a render that sets the Model value again must not end it.
+        const regions = new Map<string, VoiceRegion>();
         const edited = (event: Event) => {
-          const id = (event.target as Element).id;
-          if (id === inputId || id === answerInputId) {
-            region = undefined;
-          }
+          regions.delete((event.target as Element).id);
         };
         document.addEventListener("input", edited, true);
 
@@ -63,7 +60,7 @@ function createVoiceStream() {
           target.value = value;
           target.setSelectionRange(cursor, cursor);
           target.scrollTop = top;
-          region = { lead, trail, value: target.value };
+          regions.set(target.id, { lead, trail, value: target.value });
           Queue.offerUnsafe(
             queue,
             Message.VoiceTextPlaced({
@@ -94,6 +91,7 @@ function createVoiceStream() {
             if (!target) {
               return;
             }
+            const region = regions.get(target.id);
             if (live && region) {
               place(target, voiceText, region.lead, region.trail);
             } else if (voiceText) {
@@ -109,6 +107,7 @@ function createVoiceStream() {
               placeAtCursor(target, voiceText);
               return true;
             }
+            const region = regions.get(target.id);
             if (!region) {
               return false;
             }
@@ -151,7 +150,7 @@ function createLiveEventsStream(target: {
 
         const reconnect = () => {
           if (stopped) return;
-          // A new connection ends a retry that waits, as the one timer of App.tsx does.
+          // A new connection ends a retry that waits.
           clearTimeout(retryTimer);
           if (source) {
             source.close();
