@@ -388,6 +388,8 @@ func (e *Engine) finishApproval(ctx context.Context, repository github.Repositor
 		return text + "Mobius merges it after the Owner marks the mandatory todos as done.", nil
 	case mergePausedReason:
 		return text + "Mobius merges it after the Owner turns the Merge switch on.", nil
+	case mergeRetryReason:
+		return text + "GitHub gave a server error for the approval of the Owner. Mobius tries the approval again, then it merges.", nil
 	}
 	return text + "Mobius merges it after its checks pass.", nil
 }
