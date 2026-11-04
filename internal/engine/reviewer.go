@@ -263,8 +263,8 @@ func (e *Engine) reviewRound(ctx context.Context, a *Agent, j *reviewJob, task s
 	if report == "" {
 		report = "The Implementer gave no report."
 	}
-	prompt := fmt.Sprintf("%s\n%s# Brief\n\n%s\n\n# Issue\n\n#%d %s\n\n%s\n\n# Report\n\n%s\n\n# Commits\n\nBase commit: %s\nHead commit: %s\n\nThe changes are `git diff %s %s`.\n\n# Review threads\n%s",
-		reviewerPrompt, sections, brief, task.Issue, issue.GetTitle(), issue.GetBody(), report, base, j.head, base, j.head, threads(reviewComments, trusted))
+	prompt := fmt.Sprintf("%s\n%s# Brief\n\n%s\n\n# Issue\n\n#%d %s\n\n%s\n\n# Pull request\n\n#%d %s\n\n# Report\n\n%s\n\n# Commits\n\nBase commit: %s\nHead commit: %s\n\nThe changes are `git diff %s %s`.\n\n# Review threads\n%s",
+		reviewerPrompt, sections, brief, task.Issue, issue.GetTitle(), issue.GetBody(), j.pullRequest.GetNumber(), j.pullRequest.GetHTMLURL(), report, base, j.head, base, j.head, threads(reviewComments, trusted))
 	if err := a.open(ctx); err != nil {
 		return err
 	}
