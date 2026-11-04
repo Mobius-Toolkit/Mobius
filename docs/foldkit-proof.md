@@ -9,7 +9,7 @@ This document reports a proof of Foldkit on the chat screen of Mobius. The Owner
 ## Result in short
 
 - The chat screen runs in Foldkit on `/chat` and on `/workstreams/$owner/$name/$number`, inside a React host. The program covers the message list, the live events, the send queue with the retry waits, the chat input with the voice button and the pictures, the scroll rules, the Brief bubble, the tray of pending actions, the question and action cards, and the answer panel.
-- All 459 Playwright tests pass on the head of the branch, and the 29 Story tests pass. The spec files of the Done list ran: `chat`, `attachments`, `voice`, `voice-language`, `actions`, `answered`, `pending`, `live`, `notice`, `navigation`, `inbox` and `screenshots`. See "Tests" for the flaky tests.
+- All 459 Playwright tests pass on the head of the branch, and the 39 Story tests pass. The spec files of the Done list ran: `chat`, `attachments`, `voice`, `voice-language`, `actions`, `answered`, `pending`, `live`, `notice`, `navigation`, `inbox` and `screenshots`. See "Tests" for the flaky tests.
 - 4 of 298 screenshots differ from the base commit. Two are the React Checkup screen (a number in a temporary path), one is a hover state, and one is a scroll offset. See "Screenshots" for each image and its cause.
 - The move cost much more work than the line counts show. The first session of the port stopped at the point where about 50 specs failed, and the next session needed about 15 rounds of fixes, with a full test run of 5 to 10 minutes after each round, to get all of them to pass. The causes were not limits of Foldkit. They were behavior that the first port left out: the retry waits, the pictures, the voice text, the scroll rules and the answer panel. Plan for this cost.
 - Foldkit gave no blocker. It has three limits that cost time: the Markdown parser throws on text such as `09:30`, the attributes `OnPaste` and `OnKeyDown` give too little data for the chat input, and the view renders in the next frame, so a test that reads the DOM right after an input event can see the old state. Each one has a workaround. See "Problems".
@@ -156,20 +156,22 @@ Changed tests (the issue asks for each change by name):
 
 ### Story tests
 
-`web/src/chat/update.test.ts` has 29 tests with Vitest and the Story tools of Foldkit (`pnpm test`; `.mobius/check` runs it, in 0.4 s). They cover:
+`web/src/chat/update.test.ts` has 35 tests with Vitest and the Story tools of Foldkit, and `web/src/chat/markdown.test.ts` has 4 tests of the Markdown parse (`pnpm test`; `.mobius/check` runs both, in 0.5 s). They cover:
 
 - the send queue: queue, send, the next item, discard, and the removal of a sent item after the next load, also when the server gives no `browserId`;
 - the retry waits: the wait grows to the last value and stays, a wait that "Retry now" replaced is ignored;
 - the merge of a live message into the list: sort, longer text wins, shorter text ignored, older than the first message dropped, queued item removed;
 - the first steps of the answer panel, a todo with an empty note, a failed decision (the list stays, the panel opens again with the error), the Details panel of a card (it stays when the host sends the tray again) and of a tray row (it closes with the row);
 - the pending state of the Stop button (it stays after a success), and of Merge and Send again in the tray, with the refusal;
+- the send queue after a lost answer: the item that the server stored ends the wait, and the next item goes;
+- the panel of a request: a success, an error and a new request change only the panel and the error of their own item, and the local merge answer ends when the row comes with other data;
 - a sent item leaves the queue at the end of its own load, and stays when a live message or the load of another send comes.
 
 The new test "removes a sent item on the next PageLoaded" fails on the earlier code (the item stayed), and the Playwright test `attachments.spec.ts` "the bubble of a sent message shows the card of the Inbox item" failed in the same way before the fix.
 
 ### Screenshots
 
-The screenshots of the base commit and of the branch were made on the same machine, and they were compared pixel by pixel (a tolerance of 2 of 255 for each color channel). Result on the head of the branch: **4 of 298 images differ**. The earlier versions of the port differed in 141 images, and the causes were: classes of the buttons and of the tray row, the gap of the Markdown blocks, the icons, the dialog markup, and `" · "` in a card line that React splits in three text nodes (the sub-pixel position of the next word differs when the line is one text node).
+The screenshots of the base commit and of the branch were made on the same machine, and they were compared pixel by pixel (a tolerance of 2 of 255 for each color channel). Result on the head `76bc329b` (the comparison was not repeated after the later fixes of the review; they change keys and logic, not classes): **4 of 298 images differ**. The earlier versions of the port differed in 141 images, and the causes were: classes of the buttons and of the tray row, the gap of the Markdown blocks, the icons, the dialog markup, and `" · "` in a card line that React splits in three text nodes (the sub-pixel position of the next word differs when the line is one text node).
 
 | Image | Pixels | Cause |
 |---|---|---|
