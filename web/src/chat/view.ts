@@ -1,4 +1,6 @@
 import * as Markdown from "@foldkit/markdown";
+import { Effect, Queue, Stream } from "effect";
+import { Mount } from "foldkit";
 import { parseMarkdown } from "@foldkit/markdown/vite";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import {
@@ -31,9 +33,11 @@ import {
   triangleAlertIcon,
   xIcon,
 } from "./icons";
-import { renderComposer } from "./composer";
+import { fileUrl, renderComposer } from "./composer";
+import { ChatList } from "./scroll";
+import { badgeClass, buttonClass, cn } from "./ui";
 import { Message } from "./message";
-import type { Failure, Model, Waiting } from "./model";
+import { countsAsUnread, type Failure, type Model, type Waiting } from "./model";
 
 type H = HtmlBuilder<Message>;
 
@@ -154,9 +158,7 @@ function renderInboxItemCard(
       ? h.span([h.Class("truncate text-xs text-muted-foreground")], [item.reference])
       : h.empty,
     h.span([h.Class("truncate font-medium")], [item.title]),
-    item.reason
-      ? h.span([h.Class("truncate text-xs text-muted-foreground")], [item.reason])
-      : h.empty,
+    h.span([h.Class("truncate text-xs text-muted-foreground")], [item.reason ?? ""]),
   ];
   const cardClass = "grid min-w-0 gap-0.5 rounded-lg border bg-card px-2 py-1.5 text-sm";
   if (!item.link) {
@@ -248,9 +250,7 @@ function renderActionCard(h: H, message: ChatMessage, action: PendingAction): Ht
             ? h.button(
                 [
                   h.Type("button"),
-                  h.Class(
-                    "inline-flex items-center justify-center rounded-md text-sm font-medium bg-primary text-primary-foreground h-8 px-3",
-                  ),
+                  h.Class(buttonClass({ size: "sm" })),
                   h.OnClick(
                     Message.OpenAnswerPanel({
                       item: {
@@ -286,9 +286,7 @@ function renderActionCard(h: H, message: ChatMessage, action: PendingAction): Ht
             : h.button(
                 [
                   h.Type("button"),
-                  h.Class(
-                    "inline-flex items-center justify-center rounded-md text-sm font-medium hover:bg-accent hover:text-accent-foreground h-8 px-3",
-                  ),
+                  h.Class(buttonClass({ variant: "ghost", size: "sm" })),
                   h.OnClick(
                     Message.OpenDetailsPanel({
                       item: {
@@ -375,9 +373,7 @@ function renderQuestionCard(h: H, message: ChatMessage, question: InboxItem): Ht
             ? h.button(
                 [
                   h.Type("button"),
-                  h.Class(
-                    "inline-flex items-center justify-center rounded-md text-sm font-medium bg-primary text-primary-foreground h-8 px-3",
-                  ),
+                  h.Class(buttonClass({ size: "sm" })),
                   h.OnClick(Message.OpenAnswerPanel({ item: question })),
                 ],
                 ["Answer"],
@@ -386,9 +382,7 @@ function renderQuestionCard(h: H, message: ChatMessage, question: InboxItem): Ht
               ? h.button(
                   [
                     h.Type("button"),
-                    h.Class(
-                      "inline-flex items-center justify-center rounded-md text-sm font-medium hover:bg-accent hover:text-accent-foreground h-8 px-3",
-                    ),
+                    h.Class(buttonClass({ variant: "ghost", size: "sm" })),
                     h.OnClick(Message.OpenDetailsPanel({ item: question })),
                   ],
                   ["Details"],
@@ -400,7 +394,43 @@ function renderQuestionCard(h: H, message: ChatMessage, question: InboxItem): Ht
   );
 }
 
-function renderMessage(h: H, message: ChatMessage): Html {
+function renderEventBody(h: H, id: number, summary: string, body: string, open: boolean): Html {
+  const state = open ? "open" : "closed";
+  return h.div(
+    [h.DataAttribute("slot", "collapsible"), h.DataAttribute("state", state)],
+    [
+      h.button(
+        [
+          h.Type("button"),
+          h.AriaExpanded(open),
+          h.DataAttribute("slot", "collapsible-trigger"),
+          h.DataAttribute("state", state),
+          h.Class("group flex w-full min-w-0 items-start gap-1 text-left break-words"),
+          h.OnClick(Message.EventToggled({ id })),
+        ],
+        [
+          chevronRightIcon(
+            h,
+            cn("mt-0.5 size-4 shrink-0 transition-transform", open && "rotate-90"),
+          ),
+          h.span([h.Class("min-w-0")], [localTimes(summary)]),
+        ],
+      ),
+      open
+        ? h.div(
+            [
+              h.DataAttribute("slot", "collapsible-content"),
+              h.DataAttribute("state", state),
+              h.Class("pt-2"),
+            ],
+            [renderMarkdown(h, body)],
+          )
+        : h.empty,
+    ],
+  );
+}
+
+function renderMessage(h: H, message: ChatMessage, open: boolean): Html {
   if (message.question) {
     return renderQuestionCard(h, message, message.question as InboxItem);
   }
@@ -421,9 +451,13 @@ function renderMessage(h: H, message: ChatMessage): Html {
 
   const isOwner = message.author === "Owner";
   const isEvent = message.author === "Event";
-  const cardClass = `grid max-w-[85%] grid-cols-[minmax(0,1fr)] gap-1 rounded-xl border px-3 py-2 ${
-    isOwner ? "justify-self-end border-transparent bg-secondary" : "justify-self-start bg-card"
-  } ${isEvent ? "border-dashed bg-transparent text-muted-foreground" : ""}`;
+  const [summary, ...rest] = message.text.split("\n");
+  const body = rest.join("\n").trim();
+  const cardClass = cn(
+    "grid max-w-[85%] grid-cols-[minmax(0,1fr)] gap-1 rounded-xl border px-3 py-2",
+    isOwner ? "justify-self-end border-transparent bg-secondary" : "justify-self-start bg-card",
+    isEvent && "border-dashed bg-transparent text-muted-foreground",
+  );
 
   return h.div(
     [h.DataAttribute("message", String(message.id)), h.Class(cardClass)],
@@ -436,11 +470,12 @@ function renderMessage(h: H, message: ChatMessage): Html {
           isOwner ? renderOwnerStatus(h, message) : h.empty,
         ],
       ),
-      h.div(
-        [h.Class("grid gap-1")],
-        (message.inboxItems || []).map((item) => renderInboxItemCard(h, item)),
-      ),
-      message.text ? renderMarkdown(h, message.text) : h.empty,
+      ...(message.inboxItems || []).map((item) => renderInboxItemCard(h, item)),
+      isEvent && body
+        ? renderEventBody(h, message.id, summary, body, open)
+        : message.text
+          ? renderMarkdown(h, message.text)
+          : h.empty,
       message.images > 0
         ? h.div(
             [h.Class("flex flex-wrap gap-2")],
@@ -457,7 +492,12 @@ function renderMessage(h: H, message: ChatMessage): Html {
   );
 }
 
-function renderQueuedMessage(h: H, item: Waiting, failure: Failure | null): Html {
+function renderQueuedMessage(
+  h: H,
+  item: Waiting,
+  failure: Failure | null,
+  deletable: boolean,
+): Html {
   return h.div(
     [
       h.DataAttribute("queued", item.id),
@@ -487,11 +527,21 @@ function renderQueuedMessage(h: H, item: Waiting, failure: Failure | null): Html
               ),
         ],
       ),
-      h.div(
-        [h.Class("grid gap-1")],
-        (item.inboxItems || []).map((inboxItem) => renderInboxItemCard(h, inboxItem)),
-      ),
+      ...(item.inboxItems || []).map((inboxItem) => renderInboxItemCard(h, inboxItem)),
       item.text ? renderMarkdown(h, item.text) : h.empty,
+      item.images.length > 0
+        ? h.div(
+            [h.Class("flex flex-wrap gap-2")],
+            item.images.map((file, position) =>
+              h.img([
+                h.Key(`queued-image-${position}`),
+                h.Src(fileUrl(file)),
+                h.Alt(`Picture ${position + 1} of an unsent message`),
+                h.Class("max-h-48 max-w-full rounded-lg border object-contain"),
+              ]),
+            ),
+          )
+        : h.empty,
       failure
         ? h.p(
             [h.Role("alert"), h.Class("grid gap-0.5 text-xs text-destructive")],
@@ -501,7 +551,7 @@ function renderQueuedMessage(h: H, item: Waiting, failure: Failure | null): Html
             ],
           )
         : h.empty,
-      failure || !item.sent
+      failure || deletable
         ? h.div(
             [h.Class("flex gap-2")],
             [
@@ -509,21 +559,17 @@ function renderQueuedMessage(h: H, item: Waiting, failure: Failure | null): Html
                 ? h.button(
                     [
                       h.Type("button"),
-                      h.Class(
-                        "inline-flex items-center justify-center rounded-md text-sm font-medium border border-input bg-background hover:bg-accent hover:text-accent-foreground h-8 px-3",
-                      ),
+                      h.Class(buttonClass({ variant: "outline", size: "sm" })),
                       h.OnClick(Message.RetryNowClicked()),
                     ],
                     ["Retry now"],
                   )
                 : h.empty,
-              !item.sent
+              deletable
                 ? h.button(
                     [
                       h.Type("button"),
-                      h.Class(
-                        "inline-flex items-center justify-center rounded-md hover:bg-accent hover:text-accent-foreground size-8",
-                      ),
+                      h.Class(buttonClass({ variant: "ghost", size: "icon-sm" })),
                       h.AriaLabel("Delete the message"),
                       h.Attribute("title", "Delete the message"),
                       h.OnClick(Message.DiscardQueuedClicked({ id: item.id })),
@@ -537,6 +583,31 @@ function renderQueuedMessage(h: H, item: Waiting, failure: Failure | null): Html
     ],
   );
 }
+
+const briefCutHeight = 144;
+
+// The button of the Brief bubble shows only when the text is taller than the cut height.
+const BriefLength = Mount.defineStream("BriefLength", {
+  messages: [Message.BriefMeasured],
+  execute: ({ element }) =>
+    Stream.callback<ReturnType<typeof Message.BriefMeasured>>((queue) =>
+      Effect.gen(function* () {
+        const content = element.firstElementChild;
+        if (!content) {
+          return;
+        }
+        const measure = () =>
+          Queue.offerUnsafe(
+            queue,
+            Message.BriefMeasured({ long: content.clientHeight > briefCutHeight }),
+          );
+        measure();
+        const observer = new ResizeObserver(measure);
+        observer.observe(content);
+        yield* Effect.addFinalizer(() => Effect.sync(() => observer.disconnect()));
+      }),
+    ),
+});
 
 function renderBriefBubble(h: H, model: Model): Html {
   const brief = model.brief as Workstream | null;
@@ -553,19 +624,25 @@ function renderBriefBubble(h: H, model: Model): Html {
       h.span([h.Class("text-xs text-muted-foreground")], ["Brief"]),
       h.span([h.Class("font-medium wrap-anywhere")], [brief.title]),
       h.div(
-        [h.Class(`min-w-0 ${!model.briefOpen ? "max-h-36 overflow-hidden" : ""}`)],
+        [
+          h.Class(cn("min-w-0", !model.briefOpen && "max-h-36 overflow-hidden")),
+          h.OnMount(BriefLength()),
+        ],
         [renderMarkdown(h, brief.brief)],
       ),
-      h.button(
-        [
-          h.Type("button"),
-          h.Class(
-            "justify-self-start inline-flex items-center justify-center rounded-md text-sm font-medium hover:bg-accent hover:text-accent-foreground h-8 px-2",
-          ),
-          h.OnClick(Message.BriefToggled()),
-        ],
-        [model.briefOpen ? "Show less" : "Show all"],
-      ),
+      model.briefLong
+        ? h.button(
+            [
+              h.Type("button"),
+              h.DataAttribute("slot", "button"),
+              h.Class(
+                buttonClass({ variant: "ghost", size: "sm", className: "justify-self-start" }),
+              ),
+              h.OnClick(Message.BriefToggled()),
+            ],
+            [model.briefOpen ? "Show less" : "Show all"],
+          )
+        : h.empty,
     ],
   );
 }
@@ -577,9 +654,7 @@ function renderTrayButtons(h: H, item: InboxItem, model: Model): Html[] {
       h.button(
         [
           h.Type("button"),
-          h.Class(
-            "inline-flex items-center justify-center rounded-md text-sm font-medium bg-primary text-primary-foreground h-8 px-3",
-          ),
+          h.Class(buttonClass({ size: "sm" })),
           h.OnClick(Message.OpenAnswerPanel({ item })),
         ],
         ["Answer"],
@@ -593,11 +668,7 @@ function renderTrayButtons(h: H, item: InboxItem, model: Model): Html[] {
         [
           h.Type("button"),
           h.Disabled(model.resumingId !== null),
-          h.Class(
-            `inline-flex items-center justify-center rounded-md text-sm font-medium bg-primary text-primary-foreground h-8 px-3 ${
-              isResuming ? "disabled:opacity-50" : ""
-            }`,
-          ),
+          h.Class(buttonClass({ size: "sm" })),
           h.OnClick(Message.ResumeClicked({ item })),
         ],
         [
@@ -612,9 +683,7 @@ function renderTrayButtons(h: H, item: InboxItem, model: Model): Html[] {
       h.button(
         [
           h.Type("button"),
-          h.Class(
-            "inline-flex items-center justify-center rounded-md text-sm font-medium border border-input bg-background hover:bg-accent hover:text-accent-foreground h-8 px-3",
-          ),
+          h.Class(buttonClass({ variant: "outline", size: "sm" })),
           h.OnClick(Message.OpenAnswerPanel({ item })),
         ],
         ["Answer"],
@@ -628,9 +697,7 @@ function renderTrayButtons(h: H, item: InboxItem, model: Model): Html[] {
           h.Attribute("href", item.link),
           h.Attribute("target", "_blank"),
           h.Attribute("rel", "noreferrer"),
-          h.Class(
-            "inline-flex items-center justify-center rounded-md text-sm font-medium border border-input bg-background hover:bg-accent hover:text-accent-foreground h-8 px-3",
-          ),
+          h.Class(buttonClass({ variant: "outline", size: "sm" })),
         ],
         ["Open GitHub"],
       ),
@@ -638,15 +705,7 @@ function renderTrayButtons(h: H, item: InboxItem, model: Model): Html[] {
   }
   if (item.kind === InboxItemKind.Lead_failed) {
     buttons.push(
-      h.button(
-        [
-          h.Type("button"),
-          h.Class(
-            "inline-flex items-center justify-center rounded-md text-sm font-medium bg-primary text-primary-foreground h-8 px-3",
-          ),
-        ],
-        ["Send again"],
-      ),
+      h.button([h.Type("button"), h.Class(buttonClass({ size: "sm" }))], ["Send again"]),
     );
   }
   const isPullRequest = item.kind === InboxItemKind.ready_for_review;
@@ -656,9 +715,7 @@ function renderTrayButtons(h: H, item: InboxItem, model: Model): Html[] {
       h.button(
         [
           h.Type("button"),
-          h.Class(
-            "inline-flex items-center justify-center rounded-md text-sm font-medium bg-primary text-primary-foreground h-8 px-3",
-          ),
+          h.Class(buttonClass({ size: "sm" })),
           h.OnClick(Message.OpenAnswerPanel({ item })),
         ],
         ["Complete"],
@@ -666,17 +723,7 @@ function renderTrayButtons(h: H, item: InboxItem, model: Model): Html[] {
     );
   }
   if (isPullRequest) {
-    buttons.push(
-      h.button(
-        [
-          h.Type("button"),
-          h.Class(
-            "inline-flex items-center justify-center rounded-md text-sm font-medium bg-primary text-primary-foreground h-8 px-3",
-          ),
-        ],
-        ["Merge"],
-      ),
-    );
+    buttons.push(h.button([h.Type("button"), h.Class(buttonClass({ size: "sm" }))], ["Merge"]));
   }
   if ((isPullRequest || isTodo) && item.pullRequestUrl) {
     buttons.push(
@@ -685,9 +732,7 @@ function renderTrayButtons(h: H, item: InboxItem, model: Model): Html[] {
           h.Attribute("href", item.pullRequestUrl),
           h.Attribute("target", "_blank"),
           h.Attribute("rel", "noreferrer"),
-          h.Class(
-            "inline-flex items-center justify-center rounded-md text-sm font-medium border border-input bg-background hover:bg-accent hover:text-accent-foreground h-8 px-3",
-          ),
+          h.Class(buttonClass({ variant: "outline", size: "sm" })),
         ],
         ["Open PR"],
       ),
@@ -710,9 +755,7 @@ function renderTrayButtons(h: H, item: InboxItem, model: Model): Html[] {
     h.button(
       [
         h.Type("button"),
-        h.Class(
-          "inline-flex items-center justify-center rounded-md text-sm font-medium border border-input bg-background hover:bg-accent hover:text-accent-foreground h-8 px-3",
-        ),
+        h.Class(buttonClass({ variant: "outline", size: "sm" })),
         h.OnClick(Message.DraftInboxItemAdded({ item: draftItem })),
       ],
       ["Chat"],
@@ -728,9 +771,7 @@ function renderTraySideButtons(h: H, item: InboxItem): Html[] {
       h.button(
         [
           h.Type("button"),
-          h.Class(
-            "inline-flex items-center justify-center rounded-md text-sm font-medium hover:bg-accent hover:text-accent-foreground h-8 px-3",
-          ),
+          h.Class(buttonClass({ variant: "ghost", size: "sm" })),
           h.OnClick(Message.OpenDetailsPanel({ item })),
         ],
         ["Details"],
@@ -740,12 +781,7 @@ function renderTraySideButtons(h: H, item: InboxItem): Html[] {
   if (item.kind === InboxItemKind.Lead_failed || item.kind === InboxItemKind.tool_upgrade) {
     buttons.push(
       h.button(
-        [
-          h.Type("button"),
-          h.Class(
-            "inline-flex items-center justify-center rounded-md text-sm font-medium border border-input bg-background hover:bg-accent hover:text-accent-foreground h-8 px-3",
-          ),
-        ],
+        [h.Type("button"), h.Class(buttonClass({ variant: "outline", size: "sm" }))],
         ["Dismiss"],
       ),
     );
@@ -1298,6 +1334,21 @@ export function view(model: Model, h: H): Html {
   const storedIds = new Set(messages.map((m) => m.browserId));
   const pending = queue.filter((item) => !storedIds.has(item.id));
   const count = messages.length + pending.length;
+  const next = pending.find((item) => !item.sent);
+  const unreadMessages = messages.filter(countsAsUnread);
+  const waiting =
+    model.older && model.openUnread !== null && unreadMessages.length < model.openUnread;
+  const showBrief = Boolean(model.brief) && model.loaded && !model.older;
+  const listReady =
+    model.loaded &&
+    model.queueLoaded &&
+    model.openUnread !== null &&
+    !waiting &&
+    !(showBrief && !model.briefMeasured);
+  const firstUnread =
+    model.openUnread !== null && model.openUnread > 0
+      ? (unreadMessages[Math.max(0, unreadMessages.length - model.openUnread)]?.id ?? "")
+      : "";
 
   return h.div(
     [h.Class("flex min-h-0 min-w-0 grow flex-col")],
@@ -1305,7 +1356,9 @@ export function view(model: Model, h: H): Html {
       // Main scrollable message list
       h.div(
         [
-          h.OnScroll((scrollTop) => Message.Scrolled({ scrollTop })),
+          h.OnMount(ChatList()),
+          h.DataAttribute("ready", String(listReady)),
+          h.DataAttribute("first-unread", String(firstUnread)),
           h.Class(
             "grid min-h-0 grow grid-cols-[minmax(0,1fr)] content-start gap-3 overflow-y-auto overscroll-contain bg-muted/40 p-4",
           ),
@@ -1313,11 +1366,7 @@ export function view(model: Model, h: H): Html {
         [
           model.error
             ? h.span(
-                [
-                  h.Class(
-                    "inline-flex items-center rounded-md border border-transparent bg-destructive px-2.5 py-0.5 text-xs font-semibold text-destructive-foreground",
-                  ),
-                ],
+                [h.DataAttribute("slot", "badge"), h.Class(badgeClass("destructive"))],
                 [model.error],
               )
             : h.empty,
@@ -1336,7 +1385,7 @@ export function view(model: Model, h: H): Html {
             if (idx === 0 || label !== prevLabel) {
               items.push(renderDaySeparator(h, label));
             }
-            items.push(renderMessage(h, msg));
+            items.push(renderMessage(h, msg, (model.openEvents as number[]).includes(msg.id)));
             return items;
           }),
           // Render queued messages
@@ -1353,6 +1402,7 @@ export function view(model: Model, h: H): Html {
                 h,
                 queued,
                 model.attempt?.id === queued.id ? (model.attempt as Failure) : null,
+                !queued.sent && (queued !== next || model.attempt?.id === queued.id),
               ),
             );
             return items;
@@ -1381,8 +1431,9 @@ export function view(model: Model, h: H): Html {
           model.failure
             ? h.span(
                 [
+                  h.DataAttribute("slot", "badge"),
                   h.Class(
-                    "inline-flex items-center rounded-md border border-transparent bg-destructive px-2.5 py-0.5 text-xs font-semibold text-destructive-foreground h-auto w-full justify-start whitespace-normal",
+                    badgeClass("destructive", "h-auto w-full justify-start whitespace-normal"),
                   ),
                 ],
                 [`The chat session failed: ${model.failure}`],

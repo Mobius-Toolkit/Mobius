@@ -15,7 +15,7 @@ export const inputId = "chat-input";
 const pickerId = "chat-attach";
 const fileUrls = new WeakMap<File, string>();
 
-function fileUrl(file: File) {
+export function fileUrl(file: File) {
   let url = fileUrls.get(file);
   if (!url) {
     url = URL.createObjectURL(file);

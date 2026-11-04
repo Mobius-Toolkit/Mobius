@@ -18,7 +18,7 @@ export const Message = defineMessageUnion({
   OlderPageLoaded: { page: Schema.Unknown },
   PageFailed: { error: Schema.String },
   LoadOlderRequested: {},
-  Scrolled: { scrollTop: Schema.Number },
+  ListNearTop: {},
 
   QueueLoaded: { items: Schema.Unknown },
   QueueFailed: { error: Schema.String },
@@ -51,6 +51,7 @@ export const Message = defineMessageUnion({
   CompletedSaveDraft: {},
 
   BriefToggled: {},
+  EventToggled: { id: Schema.Number },
   BriefMeasured: { long: Schema.Boolean },
   TrayToggled: {},
 

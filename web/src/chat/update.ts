@@ -359,9 +359,9 @@ export function update(model: Model, message: Message): UpdateReturn<Model, Mess
       };
     },
 
-    Scrolled: ({ scrollTop }) => {
+    ListNearTop: () => {
       const messages = model.messages as ChatMessage[];
-      if (model.older && !model.loadingOlder && scrollTop < 600 && messages.length > 0) {
+      if (model.older && !model.loadingOlder && messages.length > 0) {
         return {
           model: {
             ...model,
@@ -735,6 +735,15 @@ export function update(model: Model, message: Message): UpdateReturn<Model, Mess
     StopReadyChanged: ({ ready }) => ({ model: { ...model, stopReady: ready } }),
 
     CompletedSaveDraft: () => ({ model }),
+
+    EventToggled: ({ id }) => ({
+      model: {
+        ...model,
+        openEvents: (model.openEvents as number[]).includes(id)
+          ? (model.openEvents as number[]).filter((other) => other !== id)
+          : [...(model.openEvents as number[]), id],
+      },
+    }),
 
     BriefToggled: () => ({
       model: {
