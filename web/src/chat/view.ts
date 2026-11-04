@@ -66,9 +66,10 @@ function renderMarkdown(h: H, text: string, diff = false): Html {
             diff
               ? h.span(
                   [],
-                  // Only a closed pair ==text== is an added text.
+                  // briefMarkdown puts "==" around each added text, and the text can have inline code, so a "=="
+                  // at the end of a node can open an added text that ends in the next node.
                   node.value
-                    .split(/==(.+?)==/)
+                    .split("==")
                     .map((part, index) =>
                       index % 2 === 1
                         ? h.ins([h.Class("bg-green-500/40 no-underline")], [part])
