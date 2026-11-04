@@ -22,6 +22,12 @@ export const Message = defineMessageUnion({
 
   QueueLoaded: { items: Schema.Unknown },
   QueueFailed: { error: Schema.String },
+  MessageRefused: {
+    error: Schema.String,
+    text: Schema.String,
+    images: Schema.Unknown,
+    inboxItems: Schema.Unknown,
+  },
   MessageQueued: { item: Schema.Unknown },
   SendAttemptSucceeded: { id: Schema.String },
   SendAttemptFailed: { id: Schema.String, error: Schema.String, retryAt: Schema.Number },
@@ -34,7 +40,10 @@ export const Message = defineMessageUnion({
 
   DraftLoaded: { draft: Schema.Unknown },
   DraftTextChanged: { text: Schema.String },
-  DraftImagesAdded: { images: Schema.Unknown },
+  ImagesChosen: { files: Schema.Unknown },
+  ImagesFitted: { images: Schema.Unknown, problem: Schema.String },
+  AttachClicked: {},
+  CompletedClickAttach: {},
   DraftImageRemoved: { position: Schema.Number },
   DraftInboxItemAdded: { item: Schema.Unknown },
   DraftInboxItemRemoved: { id: Schema.Number },
@@ -72,8 +81,10 @@ export const Message = defineMessageUnion({
     error: Schema.String,
     canResend: Schema.Boolean,
   },
-  VoiceLiveTextChanged: { text: Schema.String, first: Schema.Boolean },
-  VoiceFinalTextReceived: { text: Schema.String, live: Schema.Boolean },
+  VoiceTextPlaced: { value: Schema.String, lead: Schema.String, trail: Schema.String },
+  VoiceProbed: { live: Schema.Boolean },
+  CompletedStopVoice: {},
+  StopReadyChanged: { ready: Schema.Boolean },
 
   NavigateTo: { path: Schema.String },
   CompletedNavigate: {},

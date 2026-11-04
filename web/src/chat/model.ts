@@ -67,7 +67,11 @@ const ChatModelSchema = Schema.Struct({
   draftLoaded: Schema.Boolean,
   voicePhase: Schema.Literals(["idle", "recording", "converting"]),
   voiceError: Schema.String,
-  voiceLiveText: Schema.String,
+  voiceRegion: Schema.NullOr(
+    Schema.Unknown as Schema.Schema<{ lead: string; trail: string; value: string }>,
+  ),
+  stopReady: Schema.Boolean,
+  probingSend: Schema.Boolean,
   voiceCanResend: Schema.Boolean,
   waitingForSend: Schema.Boolean,
   activePanel: Schema.NullOr(
@@ -135,7 +139,9 @@ export function initialModel(flags: Flags): Model {
     draftLoaded: false,
     voicePhase: "idle",
     voiceError: "",
-    voiceLiveText: "",
+    voiceRegion: null,
+    stopReady: false,
+    probingSend: false,
     voiceCanResend: false,
     waitingForSend: false,
     activePanel: null,

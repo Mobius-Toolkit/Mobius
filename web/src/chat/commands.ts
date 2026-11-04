@@ -23,13 +23,17 @@ import {
 } from "@/lib/outbox";
 import { failInboxItem, hideInboxItem } from "@/lib/inbox";
 import { issueRef, showNotice } from "@/lib/notice";
+import { fitImage, maxImages } from "@/lib/images";
 import {
   discardVoiceAction,
   finishForSendAction,
   getVoiceSnapshot,
   resendVoiceAction,
+  showsLiveVoice,
+  stopVoiceAction,
   toggleVoiceAction,
 } from "@/lib/voice";
+import { inputId } from "./composer";
 import { Message } from "./message";
 import { ports } from "./ports";
 
@@ -107,7 +111,7 @@ export const EnqueueMessage = Command.define("EnqueueMessage", {
     images: Schema.Unknown as Schema.Schema<File[]>,
     inboxItems: Schema.Unknown as Schema.Schema<ChatInboxItem[]>,
   },
-  messages: [Message.MessageQueued, Message.QueueFailed],
+  messages: [Message.MessageQueued, Message.MessageRefused],
   execute: ({ organization, repository, workstream, text, images, inboxItems }) =>
     Effect.promise(async () => {
       const item: Queued = {
@@ -124,7 +128,7 @@ export const EnqueueMessage = Command.define("EnqueueMessage", {
         await addQueued(item);
         return Message.MessageQueued({ item });
       } catch (err) {
-        return Message.QueueFailed({ error: String(err) });
+        return Message.MessageRefused({ error: String(err), text, images, inboxItems });
       }
     }),
 });
@@ -418,6 +422,59 @@ export const ToggleVoice = Command.define("ToggleVoice", {
       error: snap.error,
       canResend: snap.canResend,
     });
+  }),
+});
+
+export const FitImages = Command.define("FitImages", {
+  args: { files: Schema.Unknown as Schema.Schema<File[]>, room: Schema.Number },
+  messages: [Message.ImagesFitted],
+  execute: ({ files, room }) =>
+    Effect.promise(async () => {
+      let problem = "";
+      const added: File[] = [];
+      for (const file of files.slice(0, Math.max(0, room))) {
+        try {
+          added.push(await fitImage(file));
+        } catch (err) {
+          problem = err instanceof Error ? err.message : String(err);
+        }
+      }
+      if (!problem && files.length > room) {
+        problem = `A message has at most ${maxImages} images.`;
+      }
+      return Message.ImagesFitted({ images: added, problem });
+    }),
+});
+
+export const ClickAttach = Command.define("ClickAttach", {
+  messages: [Message.CompletedClickAttach],
+  execute: Effect.sync(() => {
+    document.getElementById("chat-attach")?.click();
+    return Message.CompletedClickAttach();
+  }),
+});
+
+export const ProbeVoice = Command.define("ProbeVoice", {
+  args: {
+    region: Schema.NullOr(
+      Schema.Unknown as Schema.Schema<{ lead: string; trail: string; value: string }>,
+    ),
+  },
+  messages: [Message.VoiceProbed],
+  execute: ({ region }) =>
+    Effect.sync(() => {
+      const field = document.getElementById(inputId) as HTMLTextAreaElement | null;
+      return Message.VoiceProbed({
+        live: showsLiveVoice() && region !== null && region.value === field?.value,
+      });
+    }),
+});
+
+export const StopVoice = Command.define("StopVoice", {
+  messages: [Message.CompletedStopVoice],
+  execute: Effect.sync(() => {
+    stopVoiceAction();
+    return Message.CompletedStopVoice();
   }),
 });
 

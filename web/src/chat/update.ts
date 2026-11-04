@@ -12,14 +12,17 @@ import type { Queued } from "@/lib/outbox";
 import {
   AnswerInboxItem,
   ApproveAction,
+  ClickAttach,
   DiscardVoice,
   EnqueueMessage,
   FetchActionBrief,
   FetchOlder,
   FetchPage,
   FinishVoiceForSend,
+  FitImages,
   Navigate,
   PostQueued,
+  ProbeVoice,
   RejectAction,
   RemoveQueued,
   RequestLogin,
@@ -28,9 +31,10 @@ import {
   SaveDraft,
   SeeChat,
   StopChat,
+  StopVoice,
   ToggleVoice,
 } from "./commands";
-import { showsLiveVoice, stopVoiceAction } from "@/lib/voice";
+import { maxImages } from "@/lib/images";
 import { Message } from "./message";
 import {
   countsAsUnread,
@@ -40,6 +44,46 @@ import {
   type Model,
   type Waiting,
 } from "./model";
+
+function isEmptyDraft(model: Model) {
+  return (
+    !model.draftText.trim() &&
+    (model.draftImages as File[]).length === 0 &&
+    (model.draftInboxItems as DraftInboxItem[]).length === 0
+  );
+}
+
+function clearedDraft(model: Model): Model {
+  return {
+    ...model,
+    draftText: "",
+    draftImages: [],
+    draftInboxItems: [],
+    voiceRegion: null,
+  };
+}
+
+function sendCommands(model: Model, text: string) {
+  const inboxItems: ChatInboxItem[] = (model.draftInboxItems as DraftInboxItem[]).map(
+    ({ reference, title, reason, link }) => ({ reference, title, reason, link }),
+  );
+  return [
+    EnqueueMessage({
+      organization: model.organization,
+      repository: model.repository,
+      workstream: model.workstream,
+      text,
+      images: model.draftImages as File[],
+      inboxItems,
+    }),
+    SaveDraft({
+      organization: model.organization,
+      repository: model.repository,
+      workstream: model.workstream,
+      draft: { text: "", images: [], inboxItems: [] },
+    }),
+  ];
+}
 
 export function update(model: Model, message: Message): UpdateReturn<Model, Message> {
   return Message.match<UpdateReturn<Model, Message>>(message, {
@@ -369,6 +413,38 @@ export function update(model: Model, message: Message): UpdateReturn<Model, Mess
       },
     }),
 
+    MessageRefused: ({ error, text, images, inboxItems }) => {
+      const draftImages = images as File[];
+      const draftItems = inboxItems as DraftInboxItem[];
+      const restored = {
+        text: model.draftText === text ? text : [text, model.draftText].filter(Boolean).join(" "),
+        images: draftImages,
+        inboxItems: [
+          ...draftItems,
+          ...(model.draftInboxItems as DraftInboxItem[]).filter(
+            (item) => !draftItems.some(({ id }) => id === item.id),
+          ),
+        ],
+      };
+      return {
+        model: {
+          ...model,
+          sendError: error,
+          draftText: restored.text,
+          draftImages: restored.images,
+          draftInboxItems: restored.inboxItems,
+        },
+        commands: [
+          SaveDraft({
+            organization: model.organization,
+            repository: model.repository,
+            workstream: model.workstream,
+            draft: restored,
+          }),
+        ],
+      };
+    },
+
     MessageQueued: ({ item: rawItem }) => {
       const item = rawItem as Queued;
       const queue: Waiting[] = [...(model.queue as Waiting[]), item];
@@ -507,7 +583,6 @@ export function update(model: Model, message: Message): UpdateReturn<Model, Mess
         model: {
           ...model,
           draftText: text,
-          voiceLiveText: "",
         },
         commands: [
           SaveDraft({
@@ -520,28 +595,41 @@ export function update(model: Model, message: Message): UpdateReturn<Model, Mess
       };
     },
 
-    DraftImagesAdded: ({ images: rawImages }) => {
-      const nextImages = [...(model.draftImages as File[]), ...(rawImages as File[])];
-      const draft = {
-        text: model.draftText,
-        images: nextImages,
-        inboxItems: model.draftInboxItems as DraftInboxItem[],
-      };
+    ImagesChosen: ({ files }) => ({
+      model,
+      commands: [
+        FitImages({
+          files: files as File[],
+          room: maxImages - (model.draftImages as File[]).length,
+        }),
+      ],
+    }),
+
+    ImagesFitted: ({ images: rawImages, problem }) => {
+      const nextImages = [...(model.draftImages as File[]), ...(rawImages as File[])].slice(
+        0,
+        maxImages,
+      );
       return {
-        model: {
-          ...model,
-          draftImages: nextImages,
-        },
+        model: { ...model, draftImages: nextImages, sendError: problem },
         commands: [
           SaveDraft({
             organization: model.organization,
             repository: model.repository,
             workstream: model.workstream,
-            draft,
+            draft: {
+              text: model.draftText,
+              images: nextImages,
+              inboxItems: model.draftInboxItems as DraftInboxItem[],
+            },
           }),
         ],
       };
     },
+
+    AttachClicked: () => ({ model, commands: [ClickAttach()] }),
+
+    CompletedClickAttach: () => ({ model }),
 
     DraftImageRemoved: ({ position }) => {
       const nextImages = (model.draftImages as File[]).filter((_, i) => i !== position);
@@ -620,56 +708,31 @@ export function update(model: Model, message: Message): UpdateReturn<Model, Mess
     },
 
     SendSubmitted: () => {
-      if (model.waitingForSend) {
+      if (model.waitingForSend || model.probingSend || isEmptyDraft(model)) {
         return { model };
       }
-      if (showsLiveVoice() || (model.voicePhase === "recording" && Boolean(model.voiceLiveText))) {
+      return {
+        model: { ...model, probingSend: true },
+        commands: [ProbeVoice({ region: model.voiceRegion })],
+      };
+    },
+
+    VoiceProbed: ({ live }) => {
+      if (live) {
         return {
-          model: {
-            ...model,
-            waitingForSend: true,
-            voicePhase: "converting",
-          },
+          model: { ...model, probingSend: false, waitingForSend: true },
           commands: [FinishVoiceForSend()],
         };
       }
-      stopVoiceAction();
-      const text = model.draftText || model.voiceLiveText;
-      const inboxItems: ChatInboxItem[] = (model.draftInboxItems as DraftInboxItem[]).map(
-        ({ reference, title, reason, link }) => ({
-          reference,
-          title,
-          reason,
-          link,
-        }),
-      );
-      const empty = { text: "", images: [], inboxItems: [] };
       return {
-        model: {
-          ...model,
-          draftText: "",
-          voiceLiveText: "",
-          draftImages: [],
-          draftInboxItems: [],
-        },
-        commands: [
-          EnqueueMessage({
-            organization: model.organization,
-            repository: model.repository,
-            workstream: model.workstream,
-            text,
-            images: model.draftImages as File[],
-            inboxItems,
-          }),
-          SaveDraft({
-            organization: model.organization,
-            repository: model.repository,
-            workstream: model.workstream,
-            draft: empty,
-          }),
-        ],
+        model: { ...clearedDraft(model), probingSend: false, sendError: "" },
+        commands: [StopVoice(), ...sendCommands(model, model.draftText)],
       };
     },
+
+    CompletedStopVoice: () => ({ model }),
+
+    StopReadyChanged: ({ ready }) => ({ model: { ...model, stopReady: ready } }),
 
     CompletedSaveDraft: () => ({ model }),
 
@@ -948,16 +1011,7 @@ export function update(model: Model, message: Message): UpdateReturn<Model, Mess
       };
     },
 
-    VoiceButtonClicked: () => {
-      const nextPhase = model.voicePhase === "idle" ? "recording" : "idle";
-      return {
-        model: {
-          ...model,
-          voicePhase: nextPhase,
-        },
-        commands: [ToggleVoice()],
-      };
-    },
+    VoiceButtonClicked: () => ({ model, commands: [ToggleVoice()] }),
 
     VoiceResendClicked: () => ({
       model: {
@@ -977,41 +1031,15 @@ export function update(model: Model, message: Message): UpdateReturn<Model, Mess
     }),
 
     VoiceSendFinished: ({ text }) => {
-      const finalText = text ?? model.voiceLiveText ?? model.draftText;
-      const inboxItems: ChatInboxItem[] = (model.draftInboxItems as DraftInboxItem[]).map(
-        ({ reference, title, reason, link }) => ({
-          reference,
-          title,
-          reason,
-          link,
-        }),
-      );
-      const empty = { text: "", images: [], inboxItems: [] };
+      const region = model.voiceRegion;
+      const sent = !region
+        ? model.draftText
+        : text === undefined
+          ? region.value
+          : region.lead + text + region.trail;
       return {
-        model: {
-          ...model,
-          waitingForSend: false,
-          draftText: "",
-          voiceLiveText: "",
-          draftImages: [],
-          draftInboxItems: [],
-        },
-        commands: [
-          EnqueueMessage({
-            organization: model.organization,
-            repository: model.repository,
-            workstream: model.workstream,
-            text: finalText,
-            images: model.draftImages as File[],
-            inboxItems,
-          }),
-          SaveDraft({
-            organization: model.organization,
-            repository: model.repository,
-            workstream: model.workstream,
-            draft: empty,
-          }),
-        ],
+        model: { ...clearedDraft(model), waitingForSend: false, sendError: "" },
+        commands: sendCommands(model, sent),
       };
     },
 
@@ -1024,36 +1052,21 @@ export function update(model: Model, message: Message): UpdateReturn<Model, Mess
       },
     }),
 
-    VoiceLiveTextChanged: ({ text }) => ({
-      model: {
-        ...model,
-        voiceLiveText: text,
-      },
+    VoiceTextPlaced: ({ value, lead, trail }) => ({
+      model: { ...model, draftText: value, voiceRegion: { lead, trail, value } },
+      commands: [
+        SaveDraft({
+          organization: model.organization,
+          repository: model.repository,
+          workstream: model.workstream,
+          draft: {
+            text: value,
+            images: model.draftImages as File[],
+            inboxItems: model.draftInboxItems as DraftInboxItem[],
+          },
+        }),
+      ],
     }),
-
-    VoiceFinalTextReceived: ({ text }) => {
-      const nextText =
-        model.draftText && !text.startsWith(model.draftText) ? `${model.draftText} ${text}` : text;
-      return {
-        model: {
-          ...model,
-          voiceLiveText: "",
-          draftText: nextText,
-        },
-        commands: [
-          SaveDraft({
-            organization: model.organization,
-            repository: model.repository,
-            workstream: model.workstream,
-            draft: {
-              text: nextText,
-              images: model.draftImages as File[],
-              inboxItems: model.draftInboxItems as DraftInboxItem[],
-            },
-          }),
-        ],
-      };
-    },
 
     NavigateTo: ({ path }) => ({
       model,

@@ -19,7 +19,6 @@ import type { DraftInboxItem } from "@/lib/draft";
 import { getGetChatImageUrl } from "@/api/api.gen";
 import { clock, clockSeconds, dayClock, dayLabel, localTimes } from "@/lib/time";
 import {
-  arrowUpIcon,
   banIcon,
   checkCheckIcon,
   checkIcon,
@@ -27,13 +26,12 @@ import {
   circleAlertIcon,
   circleXIcon,
   clockIcon,
-  micIcon,
   spinnerIcon,
-  squareIcon,
   trash2Icon,
   triangleAlertIcon,
   xIcon,
 } from "./icons";
+import { renderComposer } from "./composer";
 import { Message } from "./message";
 import type { Failure, Model, Waiting } from "./model";
 
@@ -932,236 +930,6 @@ function renderActionTray(h: H, model: Model): Html {
                 }),
               ),
             ],
-          )
-        : h.empty,
-    ],
-  );
-}
-
-const fileUrls = new WeakMap<File, string>();
-
-function getFileUrl(file: File): string {
-  let url = fileUrls.get(file);
-  if (!url) {
-    url = URL.createObjectURL(file);
-    fileUrls.set(file, url);
-  }
-  return url;
-}
-
-function renderComposer(h: H, model: Model): Html {
-  const inputLabel = `Message to the ${model.agent}`;
-  const inputPlaceholder = `Write to the ${model.agent}`;
-  const isRecording = model.voicePhase === "recording";
-  const isConverting = model.voicePhase === "converting";
-  const voiceLabel = isConverting
-    ? "Converting the voice input"
-    : isRecording
-      ? "Stop voice input"
-      : "Start voice input";
-  const textValue = model.voiceLiveText
-    ? model.draftText && !model.voiceLiveText.startsWith(model.draftText)
-      ? `${model.draftText} ${model.voiceLiveText}`
-      : model.voiceLiveText
-    : model.draftText;
-  const hasText = Boolean(textValue.trim());
-
-  return h.form(
-    [h.Class("grid min-w-0 border-t bg-card p-4 gap-2"), h.OnSubmit(Message.SendSubmitted())],
-    [
-      h.input([
-        h.Type("file"),
-        h.Accept("image/*"),
-        h.Multiple(true),
-        h.Hidden(true),
-        h.OnFileChange((files) => Message.DraftImagesAdded({ images: [...files] })),
-      ]),
-      // Attachment preview if any
-      (model.draftInboxItems as DraftInboxItem[]).length > 0
-        ? h.div(
-            [h.Class("flex flex-wrap gap-2")],
-            (model.draftInboxItems as DraftInboxItem[]).map((item) => {
-              const name = item.reference || item.title;
-              return h.div(
-                [
-                  h.Key(`inbox-${item.id}`),
-                  h.Class(
-                    "grid min-w-0 gap-0.5 rounded-lg border bg-card px-2 py-1.5 text-sm relative w-56 max-w-full pr-9",
-                  ),
-                ],
-                [
-                  item.reference
-                    ? h.span([h.Class("truncate text-xs text-muted-foreground")], [item.reference])
-                    : h.empty,
-                  h.span([h.Class("truncate font-medium")], [item.title]),
-                  item.reason
-                    ? h.span([h.Class("truncate text-xs text-muted-foreground")], [item.reason])
-                    : h.empty,
-                  h.button(
-                    [
-                      h.Type("button"),
-                      h.AriaLabel(`Remove ${name}`),
-                      h.Attribute("title", `Remove ${name}`),
-                      h.Class(
-                        "absolute top-0.5 right-0.5 inline-flex items-center justify-center rounded-full bg-secondary size-6 max-md:size-8",
-                      ),
-                      h.OnClick(Message.DraftInboxItemRemoved({ id: item.id })),
-                    ],
-                    [xIcon(h, "size-3.5")],
-                  ),
-                ],
-              );
-            }),
-          )
-        : h.empty,
-      (model.draftImages as File[]).length > 0
-        ? h.div(
-            [h.Class("flex flex-wrap gap-2")],
-            (model.draftImages as File[]).map((file, idx) => {
-              const url = getFileUrl(file);
-              return h.div(
-                [h.Key(`thumb-${idx}`), h.Class("relative")],
-                [
-                  h.img([
-                    h.Src(url),
-                    h.Alt(`Image ${idx + 1}`),
-                    h.Class("size-16 rounded-lg border object-cover"),
-                  ]),
-                  h.button(
-                    [
-                      h.Type("button"),
-                      h.AriaLabel(`Remove image ${idx + 1}`),
-                      h.Attribute("title", `Remove image ${idx + 1}`),
-                      h.Class(
-                        "absolute top-0.5 right-0.5 inline-flex items-center justify-center rounded-full bg-secondary size-6 max-md:size-8",
-                      ),
-                      h.OnClick(Message.DraftImageRemoved({ position: idx })),
-                    ],
-                    [xIcon(h, "size-3.5")],
-                  ),
-                ],
-              );
-            }),
-          )
-        : h.empty,
-      // Textarea and actions
-      h.div(
-        [h.Class("relative flex items-end gap-2")],
-        [
-          h.textarea([
-            h.AriaLabel(inputLabel),
-            h.Placeholder(inputPlaceholder),
-            h.Value(textValue),
-            h.OnInput((val) => Message.DraftTextChanged({ text: val })),
-            h.Class(
-              "flex min-h-[4rem] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-none",
-            ),
-          ]),
-          h.div(
-            [h.Class("flex items-center gap-1")],
-            [
-              h.button(
-                [
-                  h.Type("button"),
-                  h.AriaLabel(voiceLabel),
-                  h.Attribute("title", voiceLabel),
-                  h.Attribute("aria-pressed", isRecording ? "true" : "false"),
-                  h.Class(
-                    `inline-flex items-center justify-center rounded-full size-9 max-md:size-11 text-muted-foreground ${
-                      isRecording
-                        ? "bg-destructive/10 text-destructive hover:bg-destructive/20 hover:text-destructive motion-safe:animate-pulse"
-                        : "hover:text-foreground"
-                    }`,
-                  ),
-                  h.OnClick(Message.VoiceButtonClicked()),
-                ],
-                [isConverting ? h.empty : isRecording ? squareIcon(h) : micIcon(h)],
-              ),
-              model.waitingForSend
-                ? h.button(
-                    [
-                      h.Type("button"),
-                      h.AriaLabel("Send"),
-                      h.Attribute("title", "Send"),
-                      h.Disabled(true),
-                      h.Class(
-                        "inline-flex items-center justify-center rounded-md size-9 bg-primary text-primary-foreground disabled:opacity-50",
-                      ),
-                    ],
-                    [spinnerIcon(h)],
-                  )
-                : model.stoppable && !hasText
-                  ? h.button(
-                      [
-                        h.Type("button"),
-                        h.AriaLabel("Stop the reply"),
-                        h.Attribute("title", "Stop the reply"),
-                        h.Disabled(model.stopping),
-                        h.Class(
-                          `inline-flex items-center justify-center rounded-md size-9 bg-destructive text-destructive-foreground ${
-                            model.stopping ? "disabled:opacity-50" : ""
-                          }`,
-                        ),
-                        h.OnClick(Message.StopChatClicked()),
-                      ],
-                      [model.stopping ? spinnerIcon(h) : squareIcon(h)],
-                    )
-                  : h.button(
-                      [
-                        h.Type("button"),
-                        h.AriaLabel("Send"),
-                        h.Attribute("title", "Send"),
-                        h.Disabled(!hasText),
-                        h.Class(
-                          "inline-flex items-center justify-center rounded-md size-9 bg-primary text-primary-foreground disabled:opacity-50",
-                        ),
-                        h.OnClick(Message.SendSubmitted()),
-                      ],
-                      [arrowUpIcon(h)],
-                    ),
-            ],
-          ),
-        ],
-      ),
-      model.voiceError
-        ? h.div(
-            [h.Class("flex flex-wrap items-center gap-2")],
-            [
-              h.p(
-                [h.Attribute("role", "alert"), h.Class("text-sm text-destructive")],
-                [model.voiceError],
-              ),
-              model.voiceCanResend
-                ? h.button(
-                    [
-                      h.Type("button"),
-                      h.Class(
-                        "inline-flex items-center justify-center rounded-md text-xs font-medium border border-input bg-background hover:bg-accent h-6 px-2",
-                      ),
-                      h.OnClick(Message.VoiceResendClicked()),
-                    ],
-                    ["Send again"],
-                  )
-                : h.empty,
-              model.voiceCanResend
-                ? h.button(
-                    [
-                      h.Type("button"),
-                      h.Class(
-                        "inline-flex items-center justify-center rounded-md text-xs font-medium border border-input bg-background hover:bg-accent h-6 px-2",
-                      ),
-                      h.OnClick(Message.VoiceDiscardClicked()),
-                    ],
-                    ["Discard"],
-                  )
-                : h.empty,
-            ],
-          )
-        : h.empty,
-      model.sendError
-        ? h.p(
-            [h.Attribute("role", "alert"), h.Class("text-sm text-destructive")],
-            [model.sendError],
           )
         : h.empty,
     ],
