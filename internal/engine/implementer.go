@@ -1609,7 +1609,7 @@ func (e *Engine) push(ctx context.Context, a *Agent, j *job, failedLog string, m
 	head, err := runner.Push(ctx, dataDir, worktree, token, j.branch)
 	a.endStep(ctx, "push", pushStartedAt, sql.NullInt64{}, err)
 	e.gitMu.Unlock()
-	if err != nil && strings.Contains(err.Error(), "[remote rejected]") {
+	if err != nil && strings.Contains(err.Error(), "[remote rejected]") && !strings.Contains(err.Error(), "(Internal Server Error)") {
 		return result{outcome: pushRejected, text: err.Error()}, nil
 	}
 	if err != nil {

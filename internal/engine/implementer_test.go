@@ -828,6 +828,45 @@ func TestASessionShowsEachPhaseOfItsCheck(t *testing.T) {
 	}
 }
 
+func TestAPushThatGitHubAnswersWithAServerErrorTriesAgainWithNoNewSession(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, commits, func(cfg *config.Config) { cfg.MaxWorkerRestarts = 20 })
+	remote := fake.Remote(shop)
+	asked := filepath.Join(t.TempDir(), "asked")
+	// The hook of proc-receive refuses the first push of the branch with the reason that GitHub gives for a server error.
+	hook := fmt.Sprintf("#!/bin/sh\nprintf '000eversion=1\\n0000'\nprintf '0032ng refs/heads/mobius/41 Internal Server Error\\n0000'\ntouch '%s'\ncat >/dev/null\n", asked)
+	if err := os.WriteFile(filepath.Join(remote, "hooks", "proc-receive"), []byte(hook), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	chmod := exec.Command("chmod", "+x", "proc-receive")
+	chmod.Dir = filepath.Join(remote, "hooks")
+	if err := chmod.Run(); err != nil {
+		t.Fatal(err)
+	}
+	testkit.Git(t, remote, "config", "receive.procReceiveRefs", "refs/heads/mobius")
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	testkit.WaitFor(t, func() bool {
+		_, err := os.Stat(asked)
+		return err == nil
+	})
+	testkit.Git(t, remote, "config", "--unset", "receive.procReceiveRefs")
+
+	runs := checkRuns(t, fake)
+	if runs[0].HeadSHA != head(t, fake, "mobius/41") || len(fake.PullRequests(shop)) != 1 {
+		t.Errorf("check runs = %+v, pull requests = %+v", runs, fake.PullRequests(shop))
+	}
+	session := endedImplementers(t, server, 1)[0]
+	if session.EndReason.String != "done" || len(promptTexts(t, server, session.ID)) != 1 {
+		t.Errorf("session = %+v, prompts = %q", session, promptTexts(t, server, session.ID))
+	}
+	if sessions := roleSessions(t, server, engine.ImplementerRole); len(sessions) != 1 {
+		t.Errorf("sessions = %+v", sessions)
+	}
+}
+
 func TestAPushThatFailsAfterAPassedCheckTriesAgainWithNoNewSession(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
