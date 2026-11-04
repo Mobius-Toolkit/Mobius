@@ -22,9 +22,13 @@ const drafts = new Map<string, Draft>();
 const loading = new Map<string, Promise<void>>();
 const listeners = new Set<() => void>();
 
-function subscribe(listener: () => void) {
+export function subscribeDraft(listener: () => void) {
   listeners.add(listener);
   return () => listeners.delete(listener);
+}
+
+function subscribe(listener: () => void) {
+  return subscribeDraft(listener);
 }
 
 function load(key: string) {

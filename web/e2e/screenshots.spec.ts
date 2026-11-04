@@ -840,7 +840,9 @@ test("screenshots", async ({ page }) => {
   const clearComposer = async () => {
     const remove = composer.getByRole("button", { name: /^Remove / });
     while ((await remove.count()) > 0) {
+      const count = await remove.count();
       await remove.first().click();
+      await expect(remove).toHaveCount(count - 1);
     }
     await main.getByLabel("Message to the Lead").fill("");
     await expect.poll(() => page.evaluate(storedDrafts)).toBe(0);

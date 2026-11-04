@@ -70,6 +70,7 @@ export default defineConfig({
     // The attachment tests give their own data with page.route, and they open chats, which marks their messages as seen.
     // Thus they run last.
     { name: "attachments", testMatch: "attachments.spec.ts", dependencies: ["live"] },
+    { name: "load-time", testMatch: "load-time.spec.ts", dependencies: ["screenshots"] },
   ],
   use: {
     baseURL: `http://${addr}`,

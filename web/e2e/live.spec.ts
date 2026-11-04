@@ -142,3 +142,34 @@ for (const [device, size] of Object.entries(viewports)) {
     await expect(status).toBeEmpty();
   });
 }
+
+test("the chat screen receives a live message after the live connection closes", async ({
+  page,
+  browser,
+}) => {
+  await page.goto("/workstreams/plants/garden/12");
+  await expect(page.getByText("Red roses sell best.")).toBeVisible();
+
+  let closed = false;
+  await page.route("/api/events", (route) => {
+    if (!closed) {
+      closed = true;
+      return route.abort();
+    }
+    return route.fallback();
+  });
+  await page.evaluate("window.dispatchEvent(new Event('online'))");
+
+  const other = await browser.newPage();
+  await other.goto("/github");
+  await other.getByLabel("Access password").fill("correct horse");
+  await other.getByRole("button", { name: "Log in" }).click();
+  await other.goto("/workstreams/plants/garden/12");
+  await other.getByLabel("Message to the Lead").fill("Water the roses in spring.");
+  await other.getByRole("button", { name: "Send" }).click();
+  await expect(other.getByText("Water the roses in spring.")).toBeVisible();
+  await other.context().close();
+
+  await expect(page.getByText("Water the roses in spring.")).toBeVisible({ timeout: 15_000 });
+});
+

@@ -21,12 +21,24 @@ type Answered = {
   mark: boolean;
 };
 
+const hideListeners = new Set<(item: { id: number; repository: string; issue: number }) => void>();
+
+export function hideInboxItem(item: { id: number; repository: string; issue: number }) {
+  hideListeners.forEach((listener) => listener(item));
+}
+
+const failListeners = new Set<(id: number, error: string) => void>();
+
+export function failInboxItem(id: number, error: string) {
+  failListeners.forEach((listener) => listener(id, error));
+}
+
 export function useInbox(source: EventSource | undefined, needsHuman: NeedsHuman[]) {
   const [items, setItems] = useState<InboxItem[]>([]);
   const [answered, setAnswered] = useState<Answered[]>([]);
   const [failure, setFailure] = useState<{ id: number; error: string }>();
 
-  const hide = useCallback((item: InboxItem) => {
+  const hide = useCallback((item: { id: number; repository: string; issue: number }) => {
     setFailure(undefined);
     setAnswered((list) => [
       ...list.filter((other) => other.id !== item.id),
@@ -41,10 +53,24 @@ export function useInbox(source: EventSource | undefined, needsHuman: NeedsHuman
     ]);
   }, []);
 
+  useEffect(() => {
+    hideListeners.add(hide);
+    return () => {
+      hideListeners.delete(hide);
+    };
+  }, [hide]);
+
   const fail = useCallback((id: number, error: string) => {
     setAnswered((list) => list.filter((other) => other.id !== id));
     setFailure({ id, error });
   }, []);
+
+  useEffect(() => {
+    failListeners.add(fail);
+    return () => {
+      failListeners.delete(fail);
+    };
+  }, [fail]);
 
   const clearFailure = useCallback(() => setFailure(undefined), []);
 
