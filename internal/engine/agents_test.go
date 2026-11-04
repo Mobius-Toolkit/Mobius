@@ -2,6 +2,7 @@ package engine_test
 
 import (
 	"bufio"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"net/http"
@@ -107,10 +108,14 @@ func leadReply(t *testing.T, server *testserver.Server) (int64, string) {
 
 func transcript(t *testing.T, server *testserver.Server, session int64) []engine.Line {
 	t.Helper()
+	ctx := t.Context()
+	if ctx.Err() != nil {
+		ctx = context.Background()
+	}
 	var lines []engine.Line
 	var before int64
 	for {
-		page, err := server.Engine.Transcript(t.Context(), session, before)
+		page, err := server.Engine.Transcript(ctx, session, before)
 		if err != nil {
 			t.Fatal(err)
 		}
