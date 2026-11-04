@@ -852,6 +852,26 @@ You have reached your current quota for this period. Your limit will reset in 35
 reply = ["Done."]
 `
 
+// The first prompt of Antigravity has reply text, a usage update and failed tool calls before the limit text, and the
+// second prompt works.
+const antigravityLimitAfterLongTurn = `
+[[prompts]]
+updates = [
+  '{"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "I run the checks."}}',
+  '{"sessionUpdate": "usage_update", "used": 1, "size": 2}',
+  '{"sessionUpdate": "tool_call", "toolCallId": "call-1", "title": "Bash", "kind": "execute", "status": "pending"}',
+  '{"sessionUpdate": "tool_call_update", "toolCallId": "call-1", "status": "failed"}',
+  '{"sessionUpdate": "tool_call_update", "toolCallId": "call-2", "status": "failed"}',
+  '{"sessionUpdate": "tool_call_update", "toolCallId": "call-3", "status": "failed"}',
+]
+reply = ["""Usage Limit Reached
+
+You have reached your current quota for this period. Your limit will reset in 18 hours, 9 minutes."""]
+
+[[prompts]]
+reply = ["Done."]
+`
+
 // The prompt of Antigravity has the limit text after other text in the reply, with no error.
 const antigravityReplyWithLimitInBody = `
 [[prompts]]
@@ -887,6 +907,48 @@ func TestAnAntigravityLimitReplyPausesTheHarnessUntilTheResetTime(t *testing.T) 
 
 	if got := agent.ReplyText(); got != "" {
 		t.Errorf("reply before resume = %q", got)
+	}
+
+	if err := server.Engine.Resume(t.Context(), "antigravity"); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-prompted; err != nil {
+		t.Fatal(err)
+	}
+
+	var prompts []string
+	for _, row := range rows(t, server, agent.ID(), "prompt") {
+		prompts = append(prompts, row["text"].(string))
+	}
+	if !reflect.DeepEqual(prompts, []string{"Store plans in cents.", "Store plans in cents."}) {
+		t.Errorf("prompts = %q", prompts)
+	}
+	if got := agent.ReplyText(); got != "Done." {
+		t.Errorf("reply = %q", got)
+	}
+}
+
+func TestAnAntigravityLimitAfterReplyTextAndFailedToolCallsPausesTheHarness(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, antigravityLimitAfterLongTurn, func(cfg *config.Config) {
+		cfg.Roles.Implementer = config.RoleBinding{Harness: config.Antigravity, Model: "gemini-3-pro", Max: 2}
+	})
+	agent := start(t, server, implementerSpec(t, server, fake, 41))
+	defer end(t, agent, "done")
+	before := time.Now().UTC()
+	prompted := make(chan error, 1)
+	go func() { prompted <- agent.Prompt(t.Context(), "Store plans in cents.", nil) }()
+
+	until := testkit.WaitForValue(t, func() (string, bool) {
+		var until string
+		err := server.DB.QueryRow("SELECT paused_until FROM harness_pauses WHERE harness = 'antigravity'").Scan(&until)
+		return until, err == nil
+	})
+	gotUntil := parseTime(t, until)
+	wait := 18*time.Hour + 9*time.Minute
+	if gotUntil.Before(before.Add(wait)) || gotUntil.After(time.Now().UTC().Add(wait+5*time.Second)) {
+		t.Errorf("until = %v, before = %v", gotUntil, before)
 	}
 
 	if err := server.Engine.Resume(t.Context(), "antigravity"); err != nil {
