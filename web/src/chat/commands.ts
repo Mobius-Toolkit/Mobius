@@ -34,7 +34,7 @@ import {
   removeQueued,
   type Queued,
 } from "@/lib/outbox";
-import { failInboxItem, hideInboxItem } from "@/lib/inbox";
+import { restoreInboxItem, hideInboxItem } from "@/lib/inbox";
 import { issueRef, showNotice } from "@/lib/notice";
 import { fitImage, tooManyImages } from "@/lib/images";
 import {
@@ -366,7 +366,7 @@ export const AnswerInboxItem = Command.define("AnswerInboxItem", {
               ? "Sent the answer to the Coordinator"
               : `Sent the answer to the Lead of #${workstream}`,
           );
-          return { message: Message.AnswerCompleted({ result: res.data }) };
+          return { message: Message.AnswerCompleted({ id, result: res.data }) };
         }
         status = res.status;
         failure = res.status === 401 ? "" : res.data.error;
@@ -374,8 +374,8 @@ export const AnswerInboxItem = Command.define("AnswerInboxItem", {
         failure = String(err);
       }
       await saveDraftText(answerDraftKey(id), answer).catch(() => {});
-      failInboxItem(id, failure);
-      return { message: Message.AnswerCompleted({ result: { error: failure } }), status };
+      restoreInboxItem(id);
+      return { message: Message.AnswerCompleted({ id, result: { error: failure } }), status };
     }),
 });
 
@@ -398,7 +398,7 @@ export const DoneInboxItem = Command.define("DoneInboxItem", {
         const res = await doneInboxItem(id, { note });
         if (res.status === 200) {
           showNotice(`Marked the todo ${name} as done`);
-          return { message: Message.AnswerCompleted({ result: res.data }) };
+          return { message: Message.AnswerCompleted({ id, result: res.data }) };
         }
         status = res.status;
         failure = res.status === 401 ? "" : res.data.error;
@@ -406,8 +406,8 @@ export const DoneInboxItem = Command.define("DoneInboxItem", {
         failure = String(err);
       }
       await saveDraftText(answerDraftKey(id), note).catch(() => {});
-      failInboxItem(id, failure);
-      return { message: Message.AnswerCompleted({ result: { error: failure } }), status };
+      restoreInboxItem(id);
+      return { message: Message.AnswerCompleted({ id, result: { error: failure } }), status };
     }),
 });
 
@@ -438,9 +438,9 @@ function decide(decision: "approve" | "reject") {
         }
         const failed = (error: string, status?: number) => {
           if (inboxItemId > 0) {
-            failInboxItem(inboxItemId, error);
+            restoreInboxItem(inboxItemId);
           }
-          return { message: Message.ActionFailed({ error }), status };
+          return { message: Message.ActionFailed({ id: inboxItemId, error }), status };
         };
         try {
           const res = await decisions[decision](actionId, { message: text });
@@ -449,9 +449,9 @@ function decide(decision: "approve" | "reject") {
             if (decided.state !== "pending") {
               showNotice(`${decision === "approve" ? "Approved" : "Rejected"}: ${title}`);
             } else if (decided.error && inboxItemId > 0) {
-              failInboxItem(inboxItemId, decided.error);
+              restoreInboxItem(inboxItemId);
             }
-            return { message: Message.ActionCompleted({ action: decided }) };
+            return { message: Message.ActionCompleted({ id: inboxItemId, action: decided }) };
           }
           return failed(res.status === 401 ? "" : res.data.error, res.status);
         } catch (err) {

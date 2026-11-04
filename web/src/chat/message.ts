@@ -78,10 +78,10 @@ export const Message = defineMessageUnion({
   AnswerDraftLoaded: { text: Schema.String },
   CompletedSaveAnswerDraft: {},
   AnswerSubmitted: {},
-  AnswerCompleted: { result: Schema.Unknown },
+  AnswerCompleted: { id: Schema.Number, result: Schema.Unknown },
   ActionDecided: { decision: Schema.String, text: Schema.String },
-  ActionCompleted: { action: Schema.Unknown },
-  ActionFailed: { error: Schema.String },
+  ActionCompleted: { id: Schema.Number, action: Schema.Unknown },
+  ActionFailed: { id: Schema.Number, error: Schema.String },
   TrayActionDone: {
     id: Schema.Number,
     kind: Schema.Literals(["action", "dismiss", "merge"]),

@@ -1,7 +1,7 @@
 import * as Markdown from "@foldkit/markdown";
 import { Effect, Queue, Schema, Stream } from "effect";
 import { Mount } from "foldkit";
-import { parseMarkdown } from "@foldkit/markdown/vite";
+import { parseChatMarkdown } from "./markdown";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import {
   InboxItemKind,
@@ -41,84 +41,65 @@ import { countsAsUnread, type Failure, type Model, type Waiting } from "./model"
 
 type H = HtmlBuilder<Message>;
 
-const parsedTexts = new Map<string, ReturnType<typeof parseMarkdown>>();
+const markdownClass =
+  "grid grid-cols-[minmax(0,1fr)] gap-2 break-words [&>div]:grid [&>div]:grid-cols-[minmax(0,1fr)] [&>div]:gap-2 [&_blockquote]:border-l-2 [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:font-mono [&_code]:text-[0.9em] [&_h1]:text-lg [&_h1]:font-semibold [&_h2]:text-base [&_h2]:font-semibold [&_h3]:font-semibold [&_hr]:border-border [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:whitespace-pre-line [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-2 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_table]:block [&_table]:overflow-x-auto [&_td]:border [&_td]:px-2 [&_td]:py-1 [&_th]:border [&_th]:px-2 [&_th]:py-1 [&_th]:font-semibold [&_ul]:list-disc [&_ul]:pl-5";
 
-// The view renders again after each Message, so the parse of a text is kept. remark is the slow part. remark-directive
-// is always on in @foldkit/markdown, and it throws on text such as "at 09:30". The second try escapes each colon
-// between two word characters.
-function parseChatMarkdown(text: string) {
-  const known = parsedTexts.get(text);
-  if (known) {
-    return known;
-  }
-  let document;
-  try {
-    document = parseMarkdown(text);
-  } catch {
-    document = parseMarkdown(text.replace(/(?<=\w):(?=\w)/g, "\\:"));
-  }
-  if (parsedTexts.size >= 500) {
-    parsedTexts.clear();
-  }
-  parsedTexts.set(text, document);
-  return document;
-}
-
-function renderMarkdown(h: H, text: string): Html {
+// diff is true for the Brief diff of an action: briefMarkdown marks a removed line with "~~" and an added text with
+// "==". In a chat message, "==" and "~~" have no special meaning here.
+function renderMarkdown(h: H, text: string, diff = false): Html {
   if (!text) return h.empty;
-  try {
-    const doc = parseChatMarkdown(localTimes(text));
-    return h.div(
-      [
-        h.Class(
-          "grid grid-cols-[minmax(0,1fr)] gap-2 break-words [&>div]:grid [&>div]:grid-cols-[minmax(0,1fr)] [&>div]:gap-2 [&_blockquote]:border-l-2 [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:font-mono [&_code]:text-[0.9em] [&_h1]:text-lg [&_h1]:font-semibold [&_h2]:text-base [&_h2]:font-semibold [&_h3]:font-semibold [&_hr]:border-border [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:whitespace-pre-line [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-2 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_table]:block [&_table]:overflow-x-auto [&_td]:border [&_td]:px-2 [&_td]:py-1 [&_th]:border [&_th]:px-2 [&_th]:py-1 [&_th]:font-semibold [&_ul]:list-disc [&_ul]:pl-5",
-        ),
-      ],
-      [
-        Markdown.view(doc, {
-          views: {
-            ...Markdown.defaultViews,
-            Strikethrough: (_strikethrough, content) =>
-              h.del([h.Class("bg-red-500/40 line-through")], content),
-            Text: ({ value }) => {
-              if (!value.includes("==")) {
-                return value;
-              }
-              const parts = value.split("==");
-              return h.span(
-                [],
-                parts.map((part, index) =>
-                  index % 2 === 1 ? h.ins([h.Class("bg-green-500/40 no-underline")], [part]) : part,
-                ),
-              );
-            },
-            Link: (linkNode, content) =>
-              h.a(
-                [
-                  h.Attribute("href", linkNode.url),
-                  h.Attribute("target", "_blank"),
-                  h.Attribute("rel", "noopener noreferrer"),
-                  h.Class("break-words text-primary underline underline-offset-2"),
-                ],
-                content,
-              ),
-            Image: (imgNode) =>
-              h.a(
-                [
-                  h.Attribute("href", imgNode.url),
-                  h.Attribute("target", "_blank"),
-                  h.Attribute("rel", "noopener noreferrer"),
-                  h.Class("break-words text-primary underline underline-offset-2"),
-                ],
-                [imgNode.alt || imgNode.url],
-              ),
-          },
-        }),
-      ],
-    );
-  } catch {
+  const doc = parseChatMarkdown(localTimes(text));
+  if (!doc) {
     return h.div([h.Class("whitespace-pre-line break-words")], [localTimes(text)]);
   }
+  return h.div(
+    [h.Class(markdownClass)],
+    [
+      Markdown.view(doc, {
+        views: {
+          ...Markdown.defaultViews,
+          Strikethrough: (strikethrough, content) =>
+            diff
+              ? h.del([h.Class("bg-red-500/40 line-through")], content)
+              : Markdown.defaultViews.Strikethrough(strikethrough, content),
+          Text: (node) =>
+            diff
+              ? h.span(
+                  [],
+                  // Only a closed pair ==text== is an added text.
+                  node.value
+                    .split(/==(.+?)==/)
+                    .map((part, index) =>
+                      index % 2 === 1
+                        ? h.ins([h.Class("bg-green-500/40 no-underline")], [part])
+                        : part,
+                    ),
+                )
+              : Markdown.defaultViews.Text(node),
+          Link: (linkNode, content) =>
+            h.a(
+              [
+                h.Attribute("href", linkNode.url),
+                h.Attribute("target", "_blank"),
+                h.Attribute("rel", "noopener noreferrer"),
+                h.Class("break-words text-primary underline underline-offset-2"),
+              ],
+              content,
+            ),
+          Image: (imgNode) =>
+            h.a(
+              [
+                h.Attribute("href", imgNode.url),
+                h.Attribute("target", "_blank"),
+                h.Attribute("rel", "noopener noreferrer"),
+                h.Class("break-words text-primary underline underline-offset-2"),
+              ],
+              [imgNode.alt || imgNode.url],
+            ),
+        },
+      }),
+    ],
+  );
 }
 
 function renderOwnerStatus(h: H, message: ChatMessage): Html {
@@ -157,9 +138,10 @@ function renderOwnerStatus(h: H, message: ChatMessage): Html {
   );
 }
 
-function renderDaySeparator(h: H, label: string): Html {
+function renderDaySeparator(h: H, key: string, label: string): Html {
   return h.div(
     [
+      h.Key(key),
       h.Role("separator"),
       h.AriaLabel(label),
       h.Class("flex items-center gap-3 text-xs text-muted-foreground"),
@@ -273,6 +255,7 @@ function renderActionCard(
 
   return h.div(
     [
+      h.Key(`message-${message.id}`),
       h.DataAttribute("message", String(message.id)),
       h.DataAttribute("action", String(action.id)),
       h.Class(
@@ -371,6 +354,7 @@ function renderQuestionCard(
   const answer = question.dismissedAt ? question.answer : "";
   return h.div(
     [
+      h.Key(`message-${message.id}`),
       h.DataAttribute("message", String(message.id)),
       h.DataAttribute("question", String(question.id)),
       h.Class(
@@ -483,6 +467,7 @@ function renderMessage(h: H, message: ChatMessage, open: boolean, rows: InboxIte
   if (message.author === "Record") {
     return h.div(
       [
+        h.Key(`message-${message.id}`),
         h.DataAttribute("message", String(message.id)),
         h.Class(
           "max-w-[85%] justify-self-end rounded-xl border border-transparent bg-secondary px-2 py-1 text-xs text-muted-foreground wrap-anywhere",
@@ -503,7 +488,11 @@ function renderMessage(h: H, message: ChatMessage, open: boolean, rows: InboxIte
   );
 
   return h.div(
-    [h.DataAttribute("message", String(message.id)), h.Class(cardClass)],
+    [
+      h.Key(`message-${message.id}`),
+      h.DataAttribute("message", String(message.id)),
+      h.Class(cardClass),
+    ],
     [
       h.div(
         [h.Class("flex items-center gap-2 text-xs text-muted-foreground")],
@@ -543,6 +532,7 @@ function renderQueuedMessage(
 ): Html {
   return h.div(
     [
+      h.Key(`queued-${item.id}`),
       h.DataAttribute("queued", item.id),
       h.Class(
         "grid max-w-[85%] grid-cols-[minmax(0,1fr)] gap-1 justify-self-end rounded-xl border border-transparent bg-secondary px-3 py-2",
@@ -1147,7 +1137,7 @@ function renderFullArgument(h: H, arg: ActionArgument, model: Model, action?: Pe
       [h.Class("grid min-w-0 gap-0.5")],
       [
         h.span([h.Class("text-xs text-muted-foreground")], [arg.name]),
-        renderMarkdown(h, marked),
+        renderMarkdown(h, marked, true),
         renderRemovedSwitch(h, model.showRemovedText),
       ],
     );
@@ -1543,7 +1533,7 @@ export function view(model: Model, h: H): Html {
             const prevLabel = idx > 0 ? dayLabel(messages[idx - 1].time) : null;
             const items = [];
             if (idx === 0 || label !== prevLabel) {
-              items.push(renderDaySeparator(h, label));
+              items.push(renderDaySeparator(h, `day-${msg.id}`, label));
             }
             items.push(
               renderMessage(h, msg, (model.openEvents as number[]).includes(msg.id), rows),
@@ -1557,7 +1547,7 @@ export function view(model: Model, h: H): Html {
             const prevLabel = prev ? dayLabel(prev.time) : null;
             const items = [];
             if (!prevLabel || label !== prevLabel) {
-              items.push(renderDaySeparator(h, label));
+              items.push(renderDaySeparator(h, `day-queued-${queued.id}`, label));
             }
             items.push(
               renderQueuedMessage(

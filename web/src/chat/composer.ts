@@ -436,7 +436,7 @@ export function renderPanelComposer(h: H, model: Model, item: InboxItem): Html {
     autoFocus: false,
     images: null,
     inboxItems: [],
-    error: model.answerError,
+    error: model.answerErrorId === item.id ? model.answerError : "",
     actions: decide
       ? [
           h.button(

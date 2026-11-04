@@ -3,6 +3,7 @@ import { Command as StoryCommand, given, message, model, story } from "foldkit/s
 import type { ChatMessage } from "@/api/api.gen";
 import type { Queued } from "@/lib/outbox";
 import {
+  ApproveAction,
   FetchActionBrief,
   FetchPage,
   DoneInboxItem,
@@ -228,6 +229,70 @@ describe("chat update story tests", () => {
       stoppable: false,
       pausedUntil: null,
     };
+
+    it("posts the next item when the server stored the item of a failed attempt", () => {
+      const a = createQueuedItem("a", "First") as Waiting;
+      const b = createQueuedItem("b", "Second") as Waiting;
+      const base = createTestModel({
+        queue: [a, b],
+        attempt: { id: "a", error: "lost", retryAt: 1 },
+        failureCount: 3,
+      });
+
+      story(
+        update,
+        given(base),
+        message(
+          Message.PageLoaded({
+            page: { ...page, messages: [createChatMessage(101, "First", "a")] },
+            isInitial: false,
+          }),
+        ),
+        model((m) => {
+          expect(m.attempt).toBeNull();
+          expect(m.failureCount).toBe(0);
+          expect((m.queue as Waiting[]).map((item) => item.id)).toEqual(["b"]);
+        }),
+        StoryCommand.expectExact(
+          RemoveQueued({ id: "a" }),
+          PostQueued({ item: b, delay: retryDelays[0] }),
+        ),
+        StoryCommand.resolve(RemoveQueued, Message.CompletedRemoveQueued({ id: "a" })),
+        StoryCommand.resolve(PostQueued, Message.SendAttemptSucceeded({ id: "b" })),
+        StoryCommand.resolve(FetchPage, Message.PageFailed({ error: "x", sent: "b" })),
+        StoryCommand.expectNone(),
+      );
+    });
+
+    it("ignores the wait of a stored item, and posts the next item after a live message", () => {
+      const a = createQueuedItem("a", "First") as Waiting;
+      const b = createQueuedItem("b", "Second") as Waiting;
+      const base = createTestModel({
+        queue: [a, b],
+        attempt: { id: "a", error: "lost", retryAt: 1 },
+        failureCount: 1,
+        retrySequence: 2,
+      });
+
+      story(
+        update,
+        given(base),
+        message(Message.ReceivedLiveMessage({ message: createChatMessage(101, "First", "a") })),
+        model((m) => {
+          expect(m.attempt).toBeNull();
+          expect(m.retrySequence).toBe(3);
+        }),
+        StoryCommand.expectExact(
+          RemoveQueued({ id: "a" }),
+          PostQueued({ item: b, delay: retryDelays[0] }),
+        ),
+        StoryCommand.resolve(RemoveQueued, Message.CompletedRemoveQueued({ id: "a" })),
+        StoryCommand.resolve(PostQueued, Message.SendAttemptSucceeded({ id: "b" })),
+        StoryCommand.resolve(FetchPage, Message.PageFailed({ error: "x", sent: "b" })),
+        message(Message.RetryDue({ id: "a", sequence: 2 })),
+        StoryCommand.expectNone(),
+      );
+    });
 
     it("removes a sent item at the end of its own load, also when the server gives no browserId", () => {
       const sent = { ...createQueuedItem("browser-1", "Hello"), sent: true } as Waiting;
@@ -646,6 +711,10 @@ describe("chat update story tests", () => {
     const approval = {
       id: 8,
       kind: "approval",
+      title: "Approve it",
+      reason: "",
+      issue: 3,
+      repository: "test-repo",
       questions: [],
       todo: null,
       action: {
@@ -679,7 +748,7 @@ describe("chat update story tests", () => {
       story(
         update,
         given(base),
-        message(Message.ActionFailed({ error: "The server failed." })),
+        message(Message.ActionFailed({ id: 8, error: "The server failed." })),
         model((m) => {
           expect(m.messages).toBe(messages);
           expect(m.trayItems).toEqual([question]);
@@ -712,7 +781,7 @@ describe("chat update story tests", () => {
           DoneInboxItem({ id: 9, repository: "test-repo", issue: 5, name: "plan", note: "" }),
         ),
         StoryCommand.resolve(StopVoice, Message.CompletedStopVoice()),
-        StoryCommand.resolve(DoneInboxItem, Message.AnswerCompleted({ result: {} })),
+        StoryCommand.resolve(DoneInboxItem, Message.AnswerCompleted({ id: 9, result: {} })),
         StoryCommand.expectNone(),
       );
     });
@@ -823,6 +892,104 @@ describe("chat update story tests", () => {
         model((m) => {
           expect(m.trayRunning).toEqual({});
           expect(m.trayError).toBe("No.");
+        }),
+        StoryCommand.expectNone(),
+      );
+    });
+
+    it("keeps the panel of another item when a request ends with a success", () => {
+      const other = { id: 11, kind: "question", questions: [], action: null, todo: null } as any;
+      const base = createTestModel({
+        activePanel: { type: "answer", item: other },
+        closedPanel: null,
+      });
+
+      story(
+        update,
+        given(base),
+        message(Message.AnswerCompleted({ id: 7, result: {} })),
+        model((m) => {
+          expect(m.activePanel?.item).toBe(other);
+        }),
+        StoryCommand.expectNone(),
+      );
+    });
+
+    it("keeps the panel of another item when a request ends with an error, and shows the error only for its item", () => {
+      const other = { id: 11, kind: "question", questions: [], action: null, todo: null } as any;
+      const base = createTestModel({
+        activePanel: { type: "answer", item: other },
+        closedPanel: { type: "answer", item: question },
+      });
+
+      story(
+        update,
+        given(base),
+        message(Message.AnswerCompleted({ id: 7, result: { error: "No." } })),
+        model((m) => {
+          expect(m.activePanel?.item).toBe(other);
+          expect(m.closedPanel?.item).toBe(question);
+          expect(m.answerError).toBe("No.");
+          expect(m.answerErrorId).toBe(7);
+        }),
+        StoryCommand.expectNone(),
+      );
+    });
+
+    it("clears the error at a new decision", () => {
+      const base = createTestModel({
+        activePanel: { type: "answer", item: approval },
+        answerError: "Old error.",
+        answerErrorId: 7,
+      });
+
+      story(
+        update,
+        given(base),
+        message(Message.ActionDecided({ decision: "approve", text: "" })),
+        model((m) => {
+          expect(m.answerError).toBe("");
+          expect(m.answerErrorId).toBe(0);
+        }),
+        StoryCommand.expectExact(
+          StopVoice(),
+          ApproveAction({
+            actionId: 42,
+            inboxItemId: 8,
+            repository: "test-repo",
+            issue: 3,
+            title: "Approve it",
+            text: "",
+          }),
+        ),
+        StoryCommand.resolve(StopVoice, Message.CompletedStopVoice()),
+        StoryCommand.resolve(ApproveAction, Message.ActionFailed({ id: 8, error: "x" })),
+        StoryCommand.expectNone(),
+      );
+    });
+
+    it("drops the local merge answer when the row comes again with other data", () => {
+      const merging = { ...question, merging: true };
+      const base = createTestModel({
+        trayItems: [question],
+        trayMerging: { 7: true },
+        trayRefusals: {},
+      });
+
+      story(
+        update,
+        given(base),
+        message(Message.ReceivedTrayItems({ items: [{ ...question }] })),
+        model((m) => {
+          expect(m.trayMerging).toEqual({ 7: true });
+        }),
+        message(
+          Message.ReceivedTrayItems({
+            items: [{ ...merging, merging: false, mergeRefusal: "A check fails." }],
+          }),
+        ),
+        model((m) => {
+          expect(m.trayMerging).toEqual({});
         }),
         StoryCommand.expectNone(),
       );

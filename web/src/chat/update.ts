@@ -134,6 +134,45 @@ function withoutKey<T>(record: Record<number, T>, key: number): Record<number, T
   return Object.fromEntries(Object.entries(record).filter(([name]) => Number(name) !== key));
 }
 
+// When the server stored the item of the last failed attempt, the wait for the retry ends, and the next item goes.
+const noCommands: Array<ReturnType<typeof PostQueued>> = [];
+
+function settleAttempt(model: Model, queue: Waiting[]) {
+  const attempt = model.attempt;
+  if (!attempt || queue.some((item) => item.id === attempt.id)) {
+    return { fields: {}, commands: noCommands };
+  }
+  const next = queue.find((item) => !item.sent);
+  return {
+    fields: { attempt: null, failureCount: 0, retrySequence: model.retrySequence + 1 },
+    commands: next ? [PostQueued({ item: next, delay: retryDelays[0] })] : noCommands,
+  };
+}
+
+// The request of the item ends. Only the panel of that item changes: a success closes it, and a failure opens it again
+// with the error. The panel of another item that the Owner opened in the meantime stays as it is.
+function finishRequest(model: Model, id: number, error: string): Model {
+  const ownActive = model.activePanel?.item.id === id;
+  const ownClosed = model.closedPanel?.item.id === id;
+  if (!error) {
+    return {
+      ...model,
+      activePanel: ownActive ? null : model.activePanel,
+      closedPanel: ownClosed ? null : model.closedPanel,
+      answerError: model.answerErrorId === id ? "" : model.answerError,
+      answerErrorId: model.answerErrorId === id ? 0 : model.answerErrorId,
+    };
+  }
+  const reopen = !model.activePanel && ownClosed;
+  return {
+    ...model,
+    activePanel: reopen ? model.closedPanel : model.activePanel,
+    closedPanel: reopen ? null : model.closedPanel,
+    answerError: error,
+    answerErrorId: id,
+  };
+}
+
 function newestMessage(model: Model) {
   const messages = model.messages as ChatMessage[];
   return model.loaded && messages.length > 0 ? Math.max(...messages.map((m) => m.id)) : null;
@@ -232,10 +271,24 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
         panel.item.id !== 0 &&
         (panel.type === "answer" || panel.fromTray === true) &&
         !rows.some((row) => row.id === panel.item.id);
+      // The local answer of a merge or a refusal belongs to the row that the Owner saw. A new read of the row, with other
+      // data or without the row, replaces it.
+      const before = model.trayItems as InboxItem[];
+      const kept = (id: number) => {
+        const old = before.find((item) => item.id === id);
+        const next = (items as InboxItem[]).find((item) => item.id === id);
+        return (
+          old !== undefined && next !== undefined && JSON.stringify(old) === JSON.stringify(next)
+        );
+      };
+      const keepKnown = <T>(record: Record<number, T>) =>
+        Object.fromEntries(Object.entries(record).filter(([id]) => kept(Number(id))));
       return {
         model: {
           ...model,
           trayItems: items as InboxItem[],
+          trayMerging: keepKnown(model.trayMerging as Record<number, boolean>),
+          trayRefusals: keepKnown(model.trayRefusals as Record<number, string>),
           activePanel: gone ? null : model.activePanel,
           closedPanel: gone ? panel : model.closedPanel,
         },
@@ -277,13 +330,15 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
       for (const item of storedInQueue) {
         commands.push(RemoveQueued({ id: item.id }));
       }
+      const settled = settleAttempt(model, nextQueue);
       return {
         model: {
           ...model,
           messages: nextMessages,
           queue: nextQueue,
+          ...settled.fields,
         },
-        commands,
+        commands: [...commands, ...settled.commands],
       };
     },
 
@@ -351,6 +406,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
       for (const item of (model.queue as Waiting[]).filter((i) => storedIds.has(i.id))) {
         commands.push(RemoveQueued({ id: item.id }));
       }
+      const settled = settleAttempt(model, nextQueue);
       const nextOlder = isInitial ? page.older : model.older;
       const waiting =
         nextOlder &&
@@ -379,8 +435,9 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
           stopping: page.stoppable ? model.stopping : false,
           messages: nextMessages,
           queue: nextQueue,
+          ...settled.fields,
         },
-        commands,
+        commands: [...commands, ...settled.commands],
       };
     },
 
@@ -924,7 +981,6 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
           answerText: "",
           answerLoaded: false,
           answerWaiting: false,
-          answerError: model.answerError,
           selectedOptions: {},
           showRemovedText: false,
           briefActionBrief: "",
@@ -950,7 +1006,6 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
             fromTray,
           },
           selectedOptions: {},
-          answerError: "",
           showRemovedText: false,
           briefActionBrief: "",
         },
@@ -1100,24 +1155,16 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
         return { model };
       }
       return {
-        model: { ...model, probingSend: true },
+        model: { ...model, probingSend: true, answerError: "", answerErrorId: 0 },
         commands: [
           ProbeVoice({ region: model.voiceRegion, draftText: model.answerText, target: "answer" }),
         ],
       };
     },
 
-    AnswerCompleted: ({ result: rawRes }) => {
+    AnswerCompleted: ({ id, result: rawRes }) => {
       const res = rawRes as { error?: string };
-      return {
-        model: {
-          ...model,
-          answerSubmitting: false,
-          activePanel: res.error ? (model.activePanel ?? model.closedPanel) : null,
-          closedPanel: null,
-          answerError: res.error || "",
-        },
-      };
+      return { model: { ...finishRequest(model, id, res.error || ""), answerSubmitting: false } };
     },
 
     ActionDecided: ({ decision, text }) => {
@@ -1151,23 +1198,19 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
         model: {
           ...model,
           decisionSubmitting: true,
+          answerError: "",
+          answerErrorId: 0,
         },
         commands: [StopVoice(), cmd],
       };
     },
 
-    // The request failed, so the list does not change. The panel opens again with the error and the note.
-    ActionFailed: ({ error }) => ({
-      model: {
-        ...model,
-        decisionSubmitting: false,
-        activePanel: model.activePanel ?? model.closedPanel,
-        closedPanel: null,
-        answerError: error,
-      },
+    // The request failed, so the list does not change. The panel of the item opens again with the error and the note.
+    ActionFailed: ({ id, error }) => ({
+      model: { ...finishRequest(model, id, error), decisionSubmitting: false },
     }),
 
-    ActionCompleted: ({ action: rawAction }) => {
+    ActionCompleted: ({ id, action: rawAction }) => {
       const action = rawAction as PendingAction & { error?: string };
       const isPending = action.state === "pending";
       const err = isPending ? action.error || "" : "";
@@ -1179,23 +1222,24 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
             item.action?.id === action.id ? { ...item, action } : item,
           )
         : (model.trayItems as InboxItem[]).filter((item) => item.action?.id !== action.id);
-      const panel = model.activePanel ?? model.closedPanel;
-      const activePanel =
-        isPending && err && panel
-          ? {
-              ...panel,
-              item: { ...panel.item, action: { ...panel.item.action, ...action } },
-            }
-          : null;
+      const withAction = (panel: Model["activePanel"]) =>
+        panel && panel.item.id === id && err
+          ? { ...panel, item: { ...panel.item, action: { ...panel.item.action, ...action } } }
+          : panel;
       return {
         model: {
-          ...model,
+          ...finishRequest(
+            {
+              ...model,
+              activePanel: withAction(model.activePanel),
+              closedPanel: withAction(model.closedPanel),
+            },
+            id,
+            err,
+          ),
           messages: updatedMessages,
           trayItems: updatedTrayItems,
           decisionSubmitting: false,
-          activePanel,
-          closedPanel: null,
-          answerError: err,
         },
       };
     },

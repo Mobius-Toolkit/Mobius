@@ -27,10 +27,11 @@ export function hideInboxItem(item: { id: number; repository: string; issue: num
   hideListeners.forEach((listener) => listener(item));
 }
 
-const failListeners = new Set<(id: number, error: string) => void>();
+const restoreListeners = new Set<(id: number) => void>();
 
-export function failInboxItem(id: number, error: string) {
-  failListeners.forEach((listener) => listener(id, error));
+// Brings the item back after a failed request. The caller shows the error itself, so the shell keeps no failure.
+export function restoreInboxItem(id: number) {
+  restoreListeners.forEach((listener) => listener(id));
 }
 
 export function useInbox(source: EventSource | undefined, needsHuman: NeedsHuman[]) {
@@ -65,12 +66,17 @@ export function useInbox(source: EventSource | undefined, needsHuman: NeedsHuman
     setFailure({ id, error });
   }, []);
 
+  const restore = useCallback(
+    (id: number) => setAnswered((list) => list.filter((other) => other.id !== id)),
+    [],
+  );
+
   useEffect(() => {
-    failListeners.add(fail);
+    restoreListeners.add(restore);
     return () => {
-      failListeners.delete(fail);
+      restoreListeners.delete(restore);
     };
-  }, [fail]);
+  }, [restore]);
 
   const clearFailure = useCallback(() => setFailure(undefined), []);
 
