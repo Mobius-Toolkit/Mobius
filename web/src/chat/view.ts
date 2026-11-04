@@ -867,26 +867,17 @@ function renderActionTray(h: H, model: Model): Html {
                         h.Attribute("href", referenceLink),
                         h.Attribute("target", "_blank"),
                         h.Attribute("rel", "noreferrer"),
-                        h.Class(
-                          "shrink-0 font-medium text-foreground underline-offset-4 hover:underline",
-                        ),
+                        h.Class(cn("shrink-0", link)),
                       ],
                       [reference],
                     )
-                  : h.span([h.Class("shrink-0 font-medium")], [reference])
+                  : h.span([h.Class("shrink-0")], [reference])
                 : h.empty;
               const todoBadge = item.todo
                 ? h.span(
                     [
-                      h.Attribute("data-slot", "badge"),
-                      h.Attribute("data-variant", item.todo.mandatory ? "default" : "outline"),
-                      h.Class(
-                        `group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-4xl border px-2 py-0.5 text-xs font-medium whitespace-nowrap ${
-                          item.todo.mandatory
-                            ? "border-transparent bg-primary text-primary-foreground"
-                            : "border-border text-foreground"
-                        }`,
-                      ),
+                      h.DataAttribute("slot", "badge"),
+                      h.Class(badgeClass(item.todo.mandatory ? "default" : "outline")),
                     ],
                     [`Todo · ${item.todo.mandatory ? "mandatory" : "optional"}`],
                   )
