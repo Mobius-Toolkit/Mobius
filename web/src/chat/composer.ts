@@ -375,7 +375,9 @@ export function renderComposer(h: H, model: Model): Html {
     actions: [
       h.button(
         [
-          h.Type(showStop ? "button" : "submit"),
+          // Foldkit renders in the next frame, so a tap right after the input can still see the old button.
+          // A Stop button of type submit sends nothing, because the draft is empty then.
+          h.Type("submit"),
           h.AriaLabel(sendLabel),
           h.Attribute("title", sendLabel),
           h.DataAttribute("keep-focus", ""),
