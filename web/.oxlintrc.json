@@ -54,7 +54,6 @@
         "foldkit/no-hardcoded-route-strings": "error",
         "foldkit/no-impure-call-at-decision-time": "error",
         "foldkit/no-module-level-mutable-state": "error",
-        "foldkit/no-nonportable-server-globals": "off",
         "foldkit/no-noop-message": "error",
         "foldkit/no-prevent-default-in-stream-operator": "error",
         "foldkit/no-raw-dom-event-attributes": "error",
