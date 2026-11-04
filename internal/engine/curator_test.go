@@ -1051,7 +1051,7 @@ func TestTheCuratorGetsMobiusRoleFilesAndPromptSection(t *testing.T) {
 	script := fmt.Sprintf(`
 [[prompts]]
 when = "You are a Curator"
-later = { wait_for = %q, updates = ['{"sessionUpdate": "plan", "entries": []}'] }
+shell = '''until [ -e %s ]; do sleep 0.01; done'''
 reply = ["The memory file is up to date."]
 `, gate) + curatorScript
 	server, dataDir := connect(t, fake, script)
