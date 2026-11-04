@@ -1164,32 +1164,22 @@ function renderFullArgument(h: H, arg: ActionArgument, model: Model, action?: Pe
   );
 }
 
-// The dialog lives outside the chat section, so a focused field in the dialog does not hide the tray of the chat.
-const PortalToBody = Mount.define("PortalToBody", {
-  messages: [Message.CompletedPortalToBody],
-  execute: ({ element }) =>
-    Effect.gen(function* () {
-      yield* Effect.acquireRelease(
-        Effect.sync(() => document.body.appendChild(element)),
-        () => Effect.sync(() => element.remove()),
-      );
-      return Message.CompletedPortalToBody();
-    }),
-});
-
 const focusable =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-// The modal behavior of the dialog: the focus goes into the dialog, Tab stays in it, the page does not scroll, the
-// keyboard of a phone moves the dialog up, and the focus goes back to the opener when the dialog closes.
+// The dialog lives outside the chat section, so a focused field in the dialog does not hide the tray of the chat. The
+// element moves to the body before the focus goes into the dialog, because a move takes the focus away. Tab stays in
+// the dialog, the page does not scroll, the keyboard of a phone moves the dialog up, and the focus goes back to the
+// opener when the dialog closes.
 const PanelOpened = Mount.define("PanelOpened", {
   messages: [Message.CompletedFocusPanel],
   execute: ({ element }) =>
     Effect.gen(function* () {
-      const dialog = element as HTMLElement;
+      const dialog = element.querySelector<HTMLElement>('[role="dialog"]') as HTMLElement;
       yield* Effect.acquireRelease(
         Effect.sync(() => {
           const opener = document.activeElement;
+          document.body.appendChild(element);
           const overflow = document.body.style.overflow;
           const trap = (event: KeyboardEvent) => {
             if (event.key !== "Tab") {
@@ -1216,6 +1206,7 @@ const PanelOpened = Mount.define("PanelOpened", {
         }),
         ({ opener, overflow, trap, stopKeyboard }) =>
           Effect.sync(() => {
+            element.remove();
             document.removeEventListener("keydown", trap);
             document.body.style.overflow = overflow;
             stopKeyboard();
@@ -1423,7 +1414,7 @@ function renderAnswerDialog(h: H, model: Model): Html {
         );
 
   return h.div(
-    [h.DataAttribute("slot", "dialog-portal"), h.OnMount(PortalToBody())],
+    [h.DataAttribute("slot", "dialog-portal"), h.OnMount(PanelOpened())],
     [
       h.div([
         h.DataAttribute("slot", "dialog-overlay"),
@@ -1441,7 +1432,6 @@ function renderAnswerDialog(h: H, model: Model): Html {
           h.AriaLabelledBy("answer-title"),
           h.DataAttribute("slot", "dialog-content"),
           h.DataAttribute("state", "open"),
-          h.OnMount(PanelOpened()),
           h.Class(
             cn(
               "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm",
