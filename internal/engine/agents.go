@@ -168,6 +168,8 @@ type Agent struct {
 	report string
 	// replies are the replies of the reply_thread calls of the Implementer that wait for the push.
 	replies []heldReply
+	// replied tells that the Implementer session posted a reply in a review thread or a conversation comment.
+	replied bool
 	// head is the head commit that the Reviewer reviews.
 	head string
 	// reported tells that the Reviewer made a valid report_deployment_needs call.
@@ -698,6 +700,13 @@ func (a *Agent) replyText() string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.reply.String()
+}
+
+// hasReplied tells if the session posted a reply in a review thread or a conversation comment.
+func (a *Agent) hasReplied() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.replied
 }
 
 // setAuthor sets the author of the chat messages of the reply text, or "" for no chat message.
