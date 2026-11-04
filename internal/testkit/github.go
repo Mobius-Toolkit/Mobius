@@ -220,6 +220,8 @@ type FakeGitHub struct {
 	closeRefusal int
 	// replyRefusal is the status that a reply in a review thread gives, or 0 when it works.
 	replyRefusal int
+	// reviewFailure is the status that the next reviewFailures review writes give.
+	reviewFailure, reviewFailures int
 }
 
 // A grant is a user code or a refresh token: the login of the user and the App index.

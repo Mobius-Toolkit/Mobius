@@ -16,13 +16,16 @@ const mergeOffReason = "The merge is off for this Workstream."
 
 const mergePausedReason = "Autopilot paused: no automatic merge."
 
+const mergeRetryReason = "GitHub gave a server error. Mobius tries the approval again."
+
 // autoApprove does what MergeInboxItem does, for a Workstream with a merge level: it adds an APPROVED review of the
 // Owner on the head, sets auto_merge of the task, and marks the open ready for review Inbox items as merging. The poll
 // then merges the pull request (mergeApproved). When it fails, the items get the error text as their reason, so the
 // "Merge" button shows, and the task has no auto_merge. When a mandatory deployment need of the task has a todo that is
 // not done, it does not approve. The items get the reason mandatoryTodosReason. While the Merge switch is off, it does
 // not approve either. The items get the reason mergePausedReason, and the issue goes to the held work of the switch.
-// In both cases it gives the reason. An approval that the Owner gave with "Merge" or on GitHub stays, and the task
+// In both cases it gives the reason. When GitHub answers the review with a 5xx error, the task has no auto_merge, and
+// the items get the reason mergeRetryReason. It gives that reason, and continuePausedMerges tries again. An approval that the Owner gave with "Merge" or on GitHub stays, and the task
 // does not count as blocked. While the Merge switch is off, that approval merges the pull request as it is.
 func (e *Engine) autoApprove(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) (string, error) {
 	blocked, err := e.blockedByTodos(ctx, task)
@@ -46,6 +49,10 @@ func (e *Engine) autoApprove(ctx context.Context, repository github.Repository, 
 	if err == nil {
 		return "", nil
 	}
+	var refused *gh.ErrorResponse
+	if errors.As(err, &refused) && refused.Response.StatusCode >= 500 {
+		return mergeRetryReason, e.refuseMergeItem(ctx, task, mergeRetryReason)
+	}
 	return "", errors.Join(err, e.refuseMergeItem(ctx, task, err.Error()))
 }
 
@@ -59,9 +66,9 @@ func (e *Engine) holdMerge(ctx context.Context, task store.Task) error {
 }
 
 // continuePausedMerges gives approveWaitingTask to each task of repository whose open ready for review Inbox item has
-// the reason mergePausedReason, while the Merge switch is on. When the Workstream of the task has no merge level, the
-// item loses the reason. The item also loses the reason when the task has an approval of a person, also while the
-// switch is off, because that approval merges the pull request.
+// the reason mergePausedReason or mergeRetryReason, while the Merge switch is on. When the Workstream of the task has
+// no merge level, the item loses the reason. The item also loses the reason when the task has an approval of a person,
+// also while the switch is off, because that approval merges the pull request.
 func (e *Engine) continuePausedMerges(ctx context.Context, repository github.Repository) error {
 	off, err := e.mergeOff(ctx)
 	if err != nil {
@@ -72,7 +79,7 @@ func (e *Engine) continuePausedMerges(ctx context.Context, repository github.Rep
 		return err
 	}
 	for _, item := range items {
-		if item.Repository != repository.FullName || item.Kind != readyForReviewKind || item.MergeRefusal != mergePausedReason {
+		if item.Repository != repository.FullName || item.Kind != readyForReviewKind || (item.MergeRefusal != mergePausedReason && item.MergeRefusal != mergeRetryReason) {
 			continue
 		}
 		task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: item.Repository, Issue: item.Issue})
