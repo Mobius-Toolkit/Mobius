@@ -41,10 +41,20 @@ import { countsAsUnread, type Failure, type Model, type Waiting } from "./model"
 
 type H = HtmlBuilder<Message>;
 
+// remark-directive is always on in @foldkit/markdown, and it throws on text such as "at 09:30". The second try escapes
+// each colon between two word characters.
+function parseChatMarkdown(text: string) {
+  try {
+    return parseMarkdown(text);
+  } catch {
+    return parseMarkdown(text.replace(/(?<=\w):(?=\w)/g, "\\:"));
+  }
+}
+
 function renderMarkdown(h: H, text: string): Html {
   if (!text) return h.empty;
   try {
-    const doc = parseMarkdown(localTimes(text));
+    const doc = parseChatMarkdown(localTimes(text));
     return h.div(
       [
         h.Class(
@@ -94,7 +104,7 @@ function renderMarkdown(h: H, text: string): Html {
       ],
     );
   } catch {
-    return h.div([h.Class("whitespace-pre-line break-words")], [text]);
+    return h.div([h.Class("whitespace-pre-line break-words")], [localTimes(text)]);
   }
 }
 
@@ -961,6 +971,15 @@ function renderActionTray(h: H, model: Model): Html {
                           ),
                         ],
                       ),
+                      (item.merging ? "" : item.mergeRefusal) || item.action?.error
+                        ? h.p(
+                            [
+                              h.Role("alert"),
+                              h.Class("basis-full text-sm text-destructive wrap-anywhere"),
+                            ],
+                            [(item.merging ? "" : item.mergeRefusal) || (item.action?.error ?? "")],
+                          )
+                        : h.empty,
                     ],
                   );
                 }),

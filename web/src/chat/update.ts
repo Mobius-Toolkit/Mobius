@@ -79,14 +79,53 @@ function sendCommands(model: Model, text: string) {
   ];
 }
 
+function lastAgentMessage(model: Model) {
+  return (model.messages as ChatMessage[]).findLast(
+    (m) => m.author !== "Owner" && m.author !== "Event" && m.author !== "Record",
+  )?.id;
+}
+
+// The page marks the messages as seen when the list has the first unread message. A failed call keeps the count, and
+// the next message of the agent calls again.
+function seesChat(model: Model) {
+  const waiting =
+    model.older &&
+    model.openUnread !== null &&
+    (model.messages as ChatMessage[]).filter(countsAsUnread).length < model.openUnread;
+  return (
+    model.queueLoaded && !waiting && Boolean(model.unread) && lastAgentMessage(model) !== undefined
+  );
+}
+
 export function update(model: Model, message: Message): UpdateReturn<Model, Message> {
+  const result = step(model, message);
+  const next = result.model;
+  const seen = lastAgentMessage(next);
+  if (
+    !seesChat(next) ||
+    (seesChat(model) && lastAgentMessage(model) === seen && model.unread === next.unread)
+  ) {
+    return result;
+  }
+  return {
+    model: next,
+    commands: [
+      ...(result.commands ?? []),
+      SeeChat({
+        organization: next.organization,
+        repository: next.repository,
+        workstream: next.workstream,
+        message: seen ?? 0,
+      }),
+    ],
+  };
+}
+
+function step(model: Model, message: Message): UpdateReturn<Model, Message> {
   return Message.match<UpdateReturn<Model, Message>>(message, {
     ReceivedUnread: ({ unread }) => {
       const nextOpen = model.openUnread === null ? unread : model.openUnread;
       const messages = model.messages as ChatMessage[];
-      const lastAgent = messages.findLast(
-        (m) => m.author !== "Owner" && m.author !== "Event" && m.author !== "Record",
-      )?.id;
       const commands = [];
       const waiting =
         model.older &&
@@ -100,22 +139,6 @@ export function update(model: Model, message: Message): UpdateReturn<Model, Mess
             repository: model.repository,
             workstream: model.workstream,
             before: messages[0].id,
-          }),
-        );
-      }
-      if (
-        model.queueLoaded &&
-        unread &&
-        unread > 0 &&
-        lastAgent !== undefined &&
-        messages.filter(countsAsUnread).length >= unread
-      ) {
-        commands.push(
-          SeeChat({
-            organization: model.organization,
-            repository: model.repository,
-            workstream: model.workstream,
-            message: lastAgent,
           }),
         );
       }
