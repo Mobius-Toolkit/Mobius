@@ -1,17 +1,31 @@
 import { Effect, Queue, Schema, Stream } from "effect";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import { Mount } from "foldkit";
+import type { InboxItem } from "@/api/api.gen";
+import { roleName } from "@/lib/actions";
 import type { DraftInboxItem } from "@/lib/draft";
 import { voiceSupported } from "@/lib/voice";
-import { arrowUpIcon, micIcon, paperclipIcon, spinnerIcon, squareIcon, xIcon } from "./icons";
+import {
+  arrowUpIcon,
+  banIcon,
+  checkIcon,
+  micIcon,
+  paperclipIcon,
+  spinnerIcon,
+  squareIcon,
+  xIcon,
+} from "./icons";
 import { Message } from "./message";
 import type { Model } from "./model";
 import { buttonClass, cn, textareaClass } from "./ui";
 
 type H = HtmlBuilder<Message>;
-type ComposerMessage = ReturnType<typeof Message.SendSubmitted | typeof Message.ImagesChosen>;
+type ComposerMessage = ReturnType<
+  typeof Message.SendSubmitted | typeof Message.AnswerSubmitted | typeof Message.ImagesChosen
+>;
 
 export const inputId = "chat-input";
+export const answerInputId = "answer-input";
 const pickerId = "chat-attach";
 const fileUrls = new WeakMap<File, string>();
 
@@ -34,12 +48,16 @@ function keepFocus(event: Event) {
 // One Mount owns the behavior that needs the DOM event: Enter, a paste with a picture, a blur on iOS, the focus at
 // the start, and a mouse down on a button that must not take the focus from the field.
 export const ComposerBehavior = Mount.defineStream("ComposerBehavior", {
-  args: { autoFocus: Schema.Boolean },
-  messages: [Message.SendSubmitted, Message.ImagesChosen],
-  execute: ({ element, autoFocus }) =>
+  args: {
+    autoFocus: Schema.Boolean,
+    enter: Schema.Literals(["send", "answer", "none"]),
+    field: Schema.String,
+  },
+  messages: [Message.SendSubmitted, Message.AnswerSubmitted, Message.ImagesChosen],
+  execute: ({ element, autoFocus, enter, field: fieldId }) =>
     Stream.callback<ComposerMessage>((queue) =>
       Effect.gen(function* () {
-        const field = () => element.querySelector<HTMLTextAreaElement>(`#${inputId}`);
+        const field = () => element.querySelector<HTMLTextAreaElement>(`#${fieldId}`);
         const keydown = (event: Event) => {
           const key = event as KeyboardEvent;
           // On a touch screen, Enter adds a line and only the Send button sends. Safari gives the Enter that ends
@@ -53,7 +71,11 @@ export const ComposerBehavior = Mount.defineStream("ComposerBehavior", {
             !window.matchMedia("(pointer: coarse)").matches
           ) {
             key.preventDefault();
-            Queue.offerUnsafe(queue, Message.SendSubmitted());
+            if (enter === "send") {
+              Queue.offerUnsafe(queue, Message.SendSubmitted());
+            } else if (enter === "answer") {
+              Queue.offerUnsafe(queue, Message.AnswerSubmitted());
+            }
           }
         };
         const paste = (event: Event) => {
@@ -159,37 +181,106 @@ function thumbnail(h: H, file: File, index: number): Html {
   );
 }
 
-export function renderComposer(h: H, model: Model): Html {
-  const images = model.draftImages as File[];
-  const inboxItems = model.draftInboxItems as DraftInboxItem[];
-  const empty = !model.draftText.trim() && images.length === 0 && inboxItems.length === 0;
-  const showStop = empty && model.stoppable;
-  const buttonPending = (showStop && model.stopping) || model.waitingForSend;
+type Box = {
+  field: string;
+  label: string;
+  placeholder: string;
+  text: string;
+  readOnly: boolean;
+  onInput: (text: string) => Message;
+  submit: Message | null;
+  enter: "send" | "answer" | "none";
+  autoFocus: boolean;
+  images: File[] | null;
+  inboxItems: DraftInboxItem[];
+  actions: Html[];
+  error: string;
+};
+
+function voiceButton(h: H, model: Model): Html {
+  if (!voiceSupported) {
+    return h.empty;
+  }
   const recording = model.voicePhase === "recording";
   const converting = model.voicePhase === "converting";
-  const voiceLabel = converting
+  const label = converting
     ? "Converting the voice input"
     : recording
       ? "Stop voice input"
       : "Start voice input";
-  const sendLabel = showStop ? "Stop the reply" : "Send";
-  const sendDisabled = buttonPending || (showStop ? !model.stopReady : empty);
+  return h.button(
+    [
+      h.Type("button"),
+      h.AriaLabel(label),
+      h.Attribute("title", label),
+      h.AriaPressed(recording ? "true" : "false"),
+      h.DataAttribute("keep-focus", ""),
+      h.Disabled(converting),
+      h.Class(
+        cn(
+          buttonClass({
+            variant: "ghost",
+            size: "icon",
+            className: "rounded-full text-muted-foreground max-md:size-11",
+          }),
+          recording &&
+            "bg-destructive/10 text-destructive hover:bg-destructive/20 hover:text-destructive motion-safe:animate-pulse",
+          converting && "disabled:pointer-events-auto disabled:opacity-100",
+        ),
+      ),
+      h.OnClick(Message.VoiceButtonClicked()),
+    ],
+    converting ? [spinnerIcon(h)] : [recording ? squareIcon(h) : micIcon(h)],
+  );
+}
 
+function voiceError(h: H, model: Model): Html {
+  if (!model.voiceError) {
+    return h.empty;
+  }
+  const small = (label: string, message: Message) =>
+    h.button(
+      [
+        h.Type("button"),
+        h.DataAttribute("keep-focus", ""),
+        h.Class(buttonClass({ variant: "outline", size: "xs" })),
+        h.OnClick(message),
+      ],
+      [label],
+    );
+  return h.div(
+    [h.Class("flex flex-wrap items-center gap-2")],
+    [
+      h.p([h.Attribute("role", "alert"), h.Class("text-sm text-destructive")], [model.voiceError]),
+      ...(model.voiceCanResend
+        ? [
+            small("Send again", Message.VoiceResendClicked()),
+            small("Discard", Message.VoiceDiscardClicked()),
+          ]
+        : []),
+    ],
+  );
+}
+
+function composerBox(h: H, model: Model, box: Box): Html {
+  const images = box.images ?? [];
   return h.form(
     [
       h.Class("grid gap-1 border-t p-2"),
-      h.OnSubmit(Message.SendSubmitted()),
-      h.OnMount(ComposerBehavior({ autoFocus: true })),
+      ...(box.submit ? [h.OnSubmit(box.submit)] : []),
+      h.OnMount(ComposerBehavior({ autoFocus: box.autoFocus, enter: box.enter, field: box.field })),
     ],
     [
-      h.input([
-        h.Id(pickerId),
-        h.Type("file"),
-        h.Accept("image/*"),
-        h.Multiple(true),
-        h.Hidden(true),
-        h.OnFileChange((files) => Message.ImagesChosen({ files: [...files] })),
-      ]),
+      box.images
+        ? h.input([
+            h.Id(pickerId),
+            h.Type("file"),
+            h.Accept("image/*"),
+            h.Multiple(true),
+            h.Hidden(true),
+            h.OnFileChange((files) => Message.ImagesChosen({ files: [...files] })),
+          ])
+        : h.empty,
       h.div(
         [
           h.Class(
@@ -197,24 +288,24 @@ export function renderComposer(h: H, model: Model): Html {
           ),
         ],
         [
-          images.length > 0 || inboxItems.length > 0
+          images.length > 0 || box.inboxItems.length > 0
             ? h.div(
                 [h.Class("flex flex-wrap gap-2 pb-1")],
                 [
-                  ...inboxItems.map((item) => attachedInboxItem(h, item)),
+                  ...box.inboxItems.map((item) => attachedInboxItem(h, item)),
                   ...images.map((file, index) => thumbnail(h, file, index)),
                 ],
               )
             : h.empty,
           h.textarea([
-            h.Id(inputId),
+            h.Id(box.field),
             h.DataAttribute("slot", "textarea"),
             h.Rows(1),
-            h.AriaLabel(`Message to the ${model.agent}`),
-            h.Placeholder(`Write to the ${model.agent}`),
-            h.Value(model.draftText),
-            h.Readonly(!model.draftLoaded || model.waitingForSend),
-            h.OnInput((text) => Message.DraftTextChanged({ text })),
+            h.AriaLabel(box.label),
+            h.Placeholder(box.placeholder),
+            h.Value(box.text),
+            h.Readonly(box.readOnly),
+            h.OnInput(box.onInput),
             h.Class(
               textareaClass(
                 "max-h-40 min-h-9 w-full resize-none rounded-none border-0 px-1 py-1.5 focus-visible:ring-0 dark:bg-transparent",
@@ -224,122 +315,174 @@ export function renderComposer(h: H, model: Model): Html {
           h.div(
             [h.Class("flex items-center justify-between gap-2")],
             [
-              h.button(
-                [
-                  h.Type("button"),
-                  h.AriaLabel("Attach images"),
-                  h.Attribute("title", "Attach images"),
-                  h.DataAttribute("keep-focus", ""),
-                  h.Class(
-                    buttonClass({
-                      variant: "ghost",
-                      size: "icon",
-                      className: "rounded-full text-muted-foreground max-md:size-11",
-                    }),
-                  ),
-                  h.OnClick(Message.AttachClicked()),
-                ],
-                [paperclipIcon(h)],
-              ),
+              box.images
+                ? h.button(
+                    [
+                      h.Type("button"),
+                      h.AriaLabel("Attach images"),
+                      h.Attribute("title", "Attach images"),
+                      h.DataAttribute("keep-focus", ""),
+                      h.Class(
+                        buttonClass({
+                          variant: "ghost",
+                          size: "icon",
+                          className: "rounded-full text-muted-foreground max-md:size-11",
+                        }),
+                      ),
+                      h.OnClick(Message.AttachClicked()),
+                    ],
+                    [paperclipIcon(h)],
+                  )
+                : h.empty,
               h.div(
                 [h.Class("ml-auto flex items-center gap-1")],
-                [
-                  voiceSupported
-                    ? h.button(
-                        [
-                          h.Type("button"),
-                          h.AriaLabel(voiceLabel),
-                          h.Attribute("title", voiceLabel),
-                          h.AriaPressed(recording ? "true" : "false"),
-                          h.DataAttribute("keep-focus", ""),
-                          h.Disabled(converting),
-                          h.Class(
-                            cn(
-                              buttonClass({
-                                variant: "ghost",
-                                size: "icon",
-                                className: "rounded-full text-muted-foreground max-md:size-11",
-                              }),
-                              recording &&
-                                "bg-destructive/10 text-destructive hover:bg-destructive/20 hover:text-destructive motion-safe:animate-pulse",
-                              converting && "disabled:pointer-events-auto disabled:opacity-100",
-                            ),
-                          ),
-                          h.OnClick(Message.VoiceButtonClicked()),
-                        ],
-                        converting ? [spinnerIcon(h)] : [recording ? squareIcon(h) : micIcon(h)],
-                      )
-                    : h.empty,
-                  h.button(
-                    [
-                      h.Type(showStop ? "button" : "submit"),
-                      h.AriaLabel(sendLabel),
-                      h.Attribute("title", sendLabel),
-                      h.DataAttribute("keep-focus", ""),
-                      h.Disabled(sendDisabled),
-                      h.Class(
-                        cn(
-                          buttonClass({ size: "icon", className: "rounded-full max-md:size-11" }),
-                          showStop &&
-                            !model.stopReady &&
-                            !buttonPending &&
-                            "disabled:pointer-events-auto disabled:opacity-100",
-                          empty &&
-                            !showStop &&
-                            "bg-muted text-muted-foreground hover:bg-muted disabled:opacity-100",
-                        ),
-                      ),
-                      ...(showStop ? [h.OnClick(Message.StopChatClicked())] : []),
-                    ],
-                    buttonPending
-                      ? [spinnerIcon(h)]
-                      : [showStop ? squareIcon(h, "size-3 fill-current") : arrowUpIcon(h)],
-                  ),
-                ],
+                [voiceButton(h, model), ...box.actions],
               ),
             ],
           ),
         ],
       ),
-      model.voiceError
-        ? h.div(
-            [h.Class("flex flex-wrap items-center gap-2")],
-            [
-              h.p(
-                [h.Attribute("role", "alert"), h.Class("text-sm text-destructive")],
-                [model.voiceError],
-              ),
-              ...(model.voiceCanResend
-                ? [
-                    h.button(
-                      [
-                        h.Type("button"),
-                        h.DataAttribute("keep-focus", ""),
-                        h.Class(buttonClass({ variant: "outline", size: "xs" })),
-                        h.OnClick(Message.VoiceResendClicked()),
-                      ],
-                      ["Send again"],
-                    ),
-                    h.button(
-                      [
-                        h.Type("button"),
-                        h.DataAttribute("keep-focus", ""),
-                        h.Class(buttonClass({ variant: "outline", size: "xs" })),
-                        h.OnClick(Message.VoiceDiscardClicked()),
-                      ],
-                      ["Discard"],
-                    ),
-                  ]
-                : []),
-            ],
-          )
-        : h.empty,
-      model.sendError
-        ? h.p(
-            [h.Attribute("role", "alert"), h.Class("text-sm text-destructive")],
-            [model.sendError],
-          )
+      voiceError(h, model),
+      box.error
+        ? h.p([h.Attribute("role", "alert"), h.Class("text-sm text-destructive")], [box.error])
         : h.empty,
     ],
   );
+}
+
+export function renderComposer(h: H, model: Model): Html {
+  const images = model.draftImages as File[];
+  const inboxItems = model.draftInboxItems as DraftInboxItem[];
+  const empty = !model.draftText.trim() && images.length === 0 && inboxItems.length === 0;
+  const showStop = empty && model.stoppable;
+  const buttonPending = (showStop && model.stopping) || model.waitingForSend;
+  const sendLabel = showStop ? "Stop the reply" : "Send";
+  const sendDisabled = buttonPending || (showStop ? !model.stopReady : empty);
+
+  return composerBox(h, model, {
+    field: inputId,
+    label: `Message to the ${model.agent}`,
+    placeholder: `Write to the ${model.agent}`,
+    text: model.draftText,
+    readOnly: !model.draftLoaded || model.waitingForSend,
+    onInput: (text) => Message.DraftTextChanged({ text }),
+    submit: Message.SendSubmitted(),
+    enter: "send",
+    autoFocus: true,
+    images,
+    inboxItems,
+    error: model.sendError,
+    actions: [
+      h.button(
+        [
+          h.Type(showStop ? "button" : "submit"),
+          h.AriaLabel(sendLabel),
+          h.Attribute("title", sendLabel),
+          h.DataAttribute("keep-focus", ""),
+          h.Disabled(sendDisabled),
+          h.Class(
+            cn(
+              buttonClass({ size: "icon", className: "rounded-full max-md:size-11" }),
+              showStop &&
+                !model.stopReady &&
+                !buttonPending &&
+                "disabled:pointer-events-auto disabled:opacity-100",
+              empty &&
+                !showStop &&
+                "bg-muted text-muted-foreground hover:bg-muted disabled:opacity-100",
+            ),
+          ),
+          ...(showStop ? [h.OnClick(Message.StopChatClicked())] : []),
+        ],
+        buttonPending
+          ? [spinnerIcon(h)]
+          : [showStop ? squareIcon(h, "size-3 fill-current") : arrowUpIcon(h)],
+      ),
+    ],
+  });
+}
+
+// The field of the answer panel. A pending action has the buttons Reject and Approve, and each other item has the
+// Send button.
+export function renderPanelComposer(h: H, model: Model, item: InboxItem): Html {
+  const action = item.action;
+  const todo = item.todo;
+  const selected = Object.values(model.selectedOptions as Record<number, number[]>).some(
+    (options) => options.length > 0,
+  );
+  const decide = Boolean(action);
+  const empty = !model.answerText.trim() && !(todo ? true : !action && selected);
+  const role = action ? (roleName[action.role] ?? action.role) : "";
+  const label = action ? `Note for the ${role}` : todo ? "Note" : "Your answer";
+  const placeholder = action
+    ? `Add a note for the ${role} (optional)`
+    : todo
+      ? "Note (optional)"
+      : item.questions.length > 0
+        ? "Add a note (optional)"
+        : "Write your answer";
+
+  return composerBox(h, model, {
+    field: answerInputId,
+    label,
+    placeholder,
+    text: model.answerText,
+    readOnly: !model.answerLoaded || model.answerWaiting,
+    onInput: (text) => Message.AnswerTextChanged({ text }),
+    submit: decide ? null : Message.AnswerSubmitted(),
+    enter: decide ? "none" : "answer",
+    autoFocus: false,
+    images: null,
+    inboxItems: [],
+    error: model.answerError,
+    actions: decide
+      ? [
+          h.button(
+            [
+              h.Type("button"),
+              h.AriaLabel("Reject"),
+              h.Attribute("title", "Reject"),
+              h.DataAttribute("keep-focus", ""),
+              h.Disabled(model.decisionSubmitting),
+              h.Class(
+                buttonClass({
+                  variant: "ghost",
+                  size: "icon",
+                  className: "rounded-full text-muted-foreground max-md:size-11",
+                }),
+              ),
+              h.OnClick(Message.ActionDecided({ decision: "reject", text: model.answerText })),
+            ],
+            [banIcon(h, "size-4")],
+          ),
+          h.button(
+            [
+              h.Type("button"),
+              h.DataAttribute("keep-focus", ""),
+              h.Disabled(model.decisionSubmitting),
+              h.Class(buttonClass({ className: "rounded-full max-md:h-11 max-md:px-4" })),
+              h.OnClick(Message.ActionDecided({ decision: "approve", text: model.answerText })),
+            ],
+            [checkIcon(h, "size-4"), "Approve"],
+          ),
+        ]
+      : [
+          h.button(
+            [
+              h.Type("submit"),
+              h.AriaLabel("Send"),
+              h.Attribute("title", "Send"),
+              h.DataAttribute("keep-focus", ""),
+              h.Disabled(model.answerWaiting || empty),
+              h.Class(
+                cn(
+                  buttonClass({ size: "icon", className: "rounded-full max-md:size-11" }),
+                  empty && "bg-muted text-muted-foreground hover:bg-muted disabled:opacity-100",
+                ),
+              ),
+            ],
+            [model.answerWaiting ? spinnerIcon(h) : arrowUpIcon(h)],
+          ),
+        ],
+  });
 }

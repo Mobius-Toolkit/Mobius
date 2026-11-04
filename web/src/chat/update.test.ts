@@ -2,7 +2,14 @@ import { describe, expect, it } from "vitest";
 import { Command as StoryCommand, given, message, model, story } from "foldkit/story";
 import type { ChatMessage } from "@/api/api.gen";
 import type { Queued } from "@/lib/outbox";
-import { FetchActionBrief, FetchPage, PostQueued, RemoveQueued, WaitToRetry } from "./commands";
+import {
+  FetchActionBrief,
+  FetchPage,
+  LoadAnswerDraft,
+  PostQueued,
+  RemoveQueued,
+  WaitToRetry,
+} from "./commands";
 import { Message } from "./message";
 import { initialModel, retryDelays, type Model, type Waiting } from "./model";
 import { update } from "./update";
@@ -517,11 +524,15 @@ describe("chat update story tests", () => {
           expect(m.showRemovedText).toBe(false);
           expect(m.briefActionBrief).toBe("");
         }),
-        StoryCommand.expectExact(FetchActionBrief({ actionId: 42 })),
+        StoryCommand.expectExact(FetchActionBrief({ actionId: 42 }), LoadAnswerDraft({ id: 101 })),
         StoryCommand.resolve(
           FetchActionBrief,
           Message.ActionBriefFetched({ brief: "Old brief content" }),
         ),
+        StoryCommand.resolve(LoadAnswerDraft, Message.AnswerDraftLoaded({ text: "" })),
+        model((m) => {
+          expect(m.answerLoaded).toBe(true);
+        }),
         StoryCommand.expectNone(),
       );
     });

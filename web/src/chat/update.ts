@@ -4,7 +4,6 @@ import type {
   ChatMessage,
   InboxItem,
   PendingAction,
-  Question,
   Workstream,
 } from "@/api/api.gen";
 import type { DraftInboxItem } from "@/lib/draft";
@@ -14,12 +13,14 @@ import {
   ApproveAction,
   ClickAttach,
   DiscardVoice,
+  DoneInboxItem,
   EnqueueMessage,
   FetchActionBrief,
   FetchOlder,
   FetchPage,
   FinishVoiceForSend,
   FitImages,
+  LoadAnswerDraft,
   Navigate,
   PostQueued,
   ProbeVoice,
@@ -28,6 +29,7 @@ import {
   RequestLogin,
   ResendVoice,
   ResumeIssue,
+  SaveAnswerDraft,
   SaveDraft,
   SeeChat,
   StopChat,
@@ -45,6 +47,53 @@ function isEmptyDraft(model: Model) {
     (model.draftImages as File[]).length === 0 &&
     (model.draftInboxItems as DraftInboxItem[]).length === 0
   );
+}
+
+function hasSelection(model: Model) {
+  return Object.values(model.selectedOptions as Record<number, number[]>).some(
+    (options) => options.length > 0,
+  );
+}
+
+// The answer has one block for each question with a selected option, and then the note.
+function selectionText(model: Model, item: InboxItem, note: string) {
+  const selected = model.selectedOptions as Record<number, number[]>;
+  return [
+    ...item.questions.flatMap((question, index) => {
+      const lines = question.options
+        .filter((_, option) => selected[index]?.includes(option))
+        .map((option) => `- ${option.title}`);
+      return lines.length > 0 ? [[question.text, ...lines].join("\n")] : [];
+    }),
+    ...(note.trim() ? [note] : []),
+  ].join("\n\n");
+}
+
+function answerCommands(model: Model, text: string) {
+  const item = model.activePanel?.item;
+  if (!item) {
+    return [];
+  }
+  const target = {
+    id: item.id,
+    repository: item.repository || model.repository,
+    issue: item.issue,
+  };
+  return item.todo
+    ? [
+        DoneInboxItem({
+          ...target,
+          name: item.todo.name || item.title,
+          note: text,
+        }),
+      ]
+    : [
+        AnswerInboxItem({
+          ...target,
+          workstream: item.workstream || model.workstream,
+          answer: selectionText(model, item, text),
+        }),
+      ];
 }
 
 function clearedDraft(model: Model): Model {
@@ -759,15 +808,29 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
       }
       return {
         model: { ...model, probingSend: true },
-        commands: [ProbeVoice({ region: model.voiceRegion, draftText: model.draftText })],
+        commands: [
+          ProbeVoice({ region: model.voiceRegion, draftText: model.draftText, target: "chat" }),
+        ],
       };
     },
 
-    VoiceProbed: ({ live }) => {
+    VoiceProbed: ({ live, target }) => {
+      if (target === "answer") {
+        if (live) {
+          return {
+            model: { ...model, probingSend: false, answerWaiting: true },
+            commands: [FinishVoiceForSend({ target })],
+          };
+        }
+        return {
+          model: { ...model, probingSend: false },
+          commands: [StopVoice(), ...answerCommands(model, model.answerText)],
+        };
+      }
       if (live) {
         return {
           model: { ...model, probingSend: false, waitingForSend: true },
-          commands: [FinishVoiceForSend()],
+          commands: [FinishVoiceForSend({ target })],
         };
       }
       return {
@@ -836,12 +899,15 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
             workstreamTitle,
           },
           answerText: "",
-          answerError: "",
+          answerLoaded: false,
+          answerWaiting: false,
+          answerError: model.answerError,
           selectedOptions: {},
           showRemovedText: false,
           briefActionBrief: "",
+          voiceRegion: null,
         },
-        commands,
+        commands: [...commands, LoadAnswerDraft({ id: inboxItem.id })],
       };
     },
 
@@ -945,39 +1011,33 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
     },
 
     AnswerTextChanged: ({ text }) => ({
+      model: { ...model, answerText: text },
+      commands: model.activePanel ? [SaveAnswerDraft({ id: model.activePanel.item.id, text })] : [],
+    }),
+
+    AnswerDraftLoaded: ({ text }) => ({
       model: {
         ...model,
-        answerText: text,
+        answerLoaded: true,
+        answerText: model.answerLoaded ? model.answerText : text,
       },
     }),
 
+    CompletedSaveAnswerDraft: () => ({ model }),
+
     AnswerSubmitted: () => {
       const panel = model.activePanel;
-      if (!panel || panel.type !== "answer") {
+      if (!panel || panel.type !== "answer" || model.answerWaiting || model.probingSend) {
         return { model };
       }
-      const item = panel.item;
-      // Compose answer from selected options and answer text
-      const optionsText = (item.questions || [])
-        .flatMap((q: Question, qIdx: number) => {
-          const sel = (model.selectedOptions as Record<number, number[]>)[qIdx] ?? [];
-          return sel.map((idx) => q.options[idx]?.title).filter(Boolean);
-        })
-        .join("\n");
-      const answer = [optionsText, model.answerText].filter(Boolean).join("\n\n");
+      const empty = !model.answerText.trim() && !hasSelection(model);
+      if (empty || panel.item.action) {
+        return { model };
+      }
       return {
-        model: {
-          ...model,
-          answerSubmitting: true,
-        },
+        model: { ...model, probingSend: true },
         commands: [
-          AnswerInboxItem({
-            id: item.id,
-            repository: item.repository || model.repository,
-            issue: item.issue,
-            workstream: item.workstream || model.workstream,
-            answer,
-          }),
+          ProbeVoice({ region: model.voiceRegion, draftText: model.answerText, target: "answer" }),
         ],
       };
     },
@@ -1026,7 +1086,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
           ...model,
           decisionSubmitting: true,
         },
-        commands: [cmd],
+        commands: [StopVoice(), cmd],
       };
     },
 
@@ -1085,13 +1145,20 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
       commands: [DiscardVoice()],
     }),
 
-    VoiceSendFinished: ({ text }) => {
+    VoiceSendFinished: ({ text, target }) => {
       const region = model.voiceRegion;
+      const current = target === "answer" ? model.answerText : model.draftText;
       const sent = !region
-        ? model.draftText
+        ? current
         : text === undefined
           ? region.value
           : region.lead + text + region.trail;
+      if (target === "answer") {
+        return {
+          model: { ...model, answerWaiting: false, voiceRegion: null },
+          commands: answerCommands(model, sent),
+        };
+      }
       return {
         model: { ...clearedDraft(model), waitingForSend: false, sendError: "" },
         commands: sendCommands(model, sent),
@@ -1107,27 +1174,36 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
       },
     }),
 
-    VoiceTextPlaced: ({ value, lead, trail }) => ({
-      model: { ...model, draftText: value, voiceRegion: { lead, trail, value } },
-      commands: [
-        SaveDraft({
-          organization: model.organization,
-          repository: model.repository,
-          workstream: model.workstream,
-          draft: {
-            text: value,
-            images: model.draftImages as File[],
-            inboxItems: model.draftInboxItems as DraftInboxItem[],
+    VoiceTextPlaced: ({ value, lead, trail, target }) =>
+      target === "answer"
+        ? {
+            model: { ...model, answerText: value, voiceRegion: { lead, trail, value } },
+            commands: model.activePanel
+              ? [SaveAnswerDraft({ id: model.activePanel.item.id, text: value })]
+              : [],
+          }
+        : {
+            model: { ...model, draftText: value, voiceRegion: { lead, trail, value } },
+            commands: [
+              SaveDraft({
+                organization: model.organization,
+                repository: model.repository,
+                workstream: model.workstream,
+                draft: {
+                  text: value,
+                  images: model.draftImages as File[],
+                  inboxItems: model.draftInboxItems as DraftInboxItem[],
+                },
+              }),
+            ],
           },
-        }),
-      ],
-    }),
 
     NavigateTo: ({ path }) => ({
       model,
       commands: [Navigate({ path })],
     }),
 
+    CompletedFocusPanel: () => ({ model }),
     CompletedNavigate: () => ({ model }),
     CompletedSeeChat: () => ({ model }),
     CompletedRequestLogin: () => ({ model }),

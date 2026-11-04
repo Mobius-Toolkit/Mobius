@@ -10,8 +10,7 @@ import {
   type ChatMessage,
   type InboxItem,
   type PendingAction,
-  type Question,
-  type QuestionOption,
+  type Question as QuestionType,
   type Workstream,
 } from "@/api/api.gen";
 import { actionState, roleName } from "@/lib/actions";
@@ -33,7 +32,7 @@ import {
   triangleAlertIcon,
   xIcon,
 } from "./icons";
-import { fileUrl, renderComposer } from "./composer";
+import { fileUrl, renderComposer, renderPanelComposer } from "./composer";
 import { ChatList } from "./scroll";
 import { badgeClass, buttonClass, cn } from "./ui";
 import { Message } from "./message";
@@ -242,9 +241,8 @@ function renderActionCard(h: H, message: ChatMessage, action: PendingAction): Ht
             [
               h.span(
                 [
-                  h.Class(
-                    `inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-semibold ${failed ? "border-transparent bg-destructive text-destructive-foreground" : "border-transparent bg-secondary text-secondary-foreground"}`,
-                  ),
+                  h.DataAttribute("slot", "badge"),
+                  h.Class(badgeClass(failed ? "destructive" : "secondary")),
                 ],
                 [actionState(action)],
               ),
@@ -269,7 +267,7 @@ function renderActionCard(h: H, message: ChatMessage, action: PendingAction): Ht
                         title: message.text,
                         questions: [],
                         time: action.time,
-                        kind: "approval" as any,
+                        kind: InboxItemKind.approval,
                         answer: "",
                         dismissedAt: null,
                         issue: 0,
@@ -305,7 +303,7 @@ function renderActionCard(h: H, message: ChatMessage, action: PendingAction): Ht
                         title: message.text,
                         questions: [],
                         time: action.time,
-                        kind: "approval" as any,
+                        kind: InboxItemKind.approval,
                         answer: "",
                         dismissedAt: null,
                         issue: 0,
@@ -831,161 +829,155 @@ function renderActionTray(h: H, model: Model): Html {
           ),
         ],
       ),
-      !model.trayCollapsed
-        ? h.div(
-            [h.Class("grid gap-1")],
+      h.div(
+        [
+          h.DataAttribute("slot", "collapsible-content"),
+          h.DataAttribute("state", model.trayCollapsed ? "closed" : "open"),
+          h.Class(cn("grid gap-1", model.trayCollapsed && "hidden")),
+        ],
+        [
+          model.trayError
+            ? h.div(
+                [h.Class("px-4 md:px-0")],
+                [
+                  h.span(
+                    [
+                      h.DataAttribute("slot", "badge"),
+                      h.Class(badgeClass("destructive", "h-auto whitespace-normal")),
+                    ],
+                    [model.trayError],
+                  ),
+                ],
+              )
+            : h.empty,
+          h.ul(
             [
-              model.trayError
-                ? h.div(
-                    [h.Class("px-4 md:px-0")],
+              h.AriaLabel("Pending actions"),
+              h.Class("max-h-[35svh] divide-y overflow-y-auto md:-mx-2"),
+            ],
+            rows.map((item) => {
+              const reference = !item.issue
+                ? ""
+                : item.kind === InboxItemKind.ready_for_review || item.kind === InboxItemKind.todo
+                  ? `PR #${item.pullRequest}`
+                  : `#${item.issue}`;
+              const referenceLink =
+                item.kind === InboxItemKind.ready_for_review || item.kind === InboxItemKind.todo
+                  ? item.pullRequestUrl
+                  : item.link;
+              const refNode = reference
+                ? referenceLink
+                  ? h.a(
+                      [
+                        h.Attribute("href", referenceLink),
+                        h.Attribute("target", "_blank"),
+                        h.Attribute("rel", "noreferrer"),
+                        h.Class(
+                          "shrink-0 font-medium text-foreground underline-offset-4 hover:underline",
+                        ),
+                      ],
+                      [reference],
+                    )
+                  : h.span([h.Class("shrink-0 font-medium")], [reference])
+                : h.empty;
+              const todoBadge = item.todo
+                ? h.span(
+                    [
+                      h.Attribute("data-slot", "badge"),
+                      h.Attribute("data-variant", item.todo.mandatory ? "default" : "outline"),
+                      h.Class(
+                        `group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-4xl border px-2 py-0.5 text-xs font-medium whitespace-nowrap ${
+                          item.todo.mandatory
+                            ? "border-transparent bg-primary text-primary-foreground"
+                            : "border-border text-foreground"
+                        }`,
+                      ),
+                    ],
+                    [`Todo · ${item.todo.mandatory ? "mandatory" : "optional"}`],
+                  )
+                : h.empty;
+              return h.li(
+                [
+                  h.Class(
+                    "flex min-h-11 items-center gap-4 px-4 py-2 md:px-2 flex-wrap gap-y-2 py-2",
+                  ),
+                ],
+                [
+                  h.div(
+                    [
+                      h.Class(
+                        "flex min-w-0 grow basis-full flex-wrap items-center gap-x-2 gap-y-2 sm:flex-nowrap",
+                      ),
+                    ],
                     [
                       h.span(
                         [
-                          h.Attribute("data-slot", "badge"),
-                          h.Attribute("data-variant", "destructive"),
                           h.Class(
-                            "inline-flex items-center rounded-md border border-transparent bg-destructive text-destructive-foreground px-2.5 py-0.5 text-xs font-semibold h-auto whitespace-normal",
-                          ),
-                        ],
-                        [model.trayError],
-                      ),
-                    ],
-                  )
-                : h.empty,
-              h.ul(
-                [
-                  h.AriaLabel("Pending actions"),
-                  h.Class("max-h-[35svh] divide-y overflow-y-auto md:-mx-2"),
-                ],
-                rows.map((item) => {
-                  const reference = !item.issue
-                    ? ""
-                    : item.kind === InboxItemKind.ready_for_review ||
-                        item.kind === InboxItemKind.todo
-                      ? `PR #${item.pullRequest}`
-                      : `#${item.issue}`;
-                  const referenceLink =
-                    item.kind === InboxItemKind.ready_for_review || item.kind === InboxItemKind.todo
-                      ? item.pullRequestUrl
-                      : item.link;
-                  const refNode = reference
-                    ? referenceLink
-                      ? h.a(
-                          [
-                            h.Attribute("href", referenceLink),
-                            h.Attribute("target", "_blank"),
-                            h.Attribute("rel", "noreferrer"),
-                            h.Class(
-                              "shrink-0 font-medium text-foreground underline-offset-4 hover:underline",
-                            ),
-                          ],
-                          [reference],
-                        )
-                      : h.span([h.Class("shrink-0 font-medium")], [reference])
-                    : h.empty;
-                  const todoBadge = item.todo
-                    ? h.span(
-                        [
-                          h.Attribute("data-slot", "badge"),
-                          h.Attribute("data-variant", item.todo.mandatory ? "default" : "outline"),
-                          h.Class(
-                            `group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-4xl border px-2 py-0.5 text-xs font-medium whitespace-nowrap ${
-                              item.todo.mandatory
-                                ? "border-transparent bg-primary text-primary-foreground"
-                                : "border-border text-foreground"
-                            }`,
-                          ),
-                        ],
-                        [`Todo · ${item.todo.mandatory ? "mandatory" : "optional"}`],
-                      )
-                    : h.empty;
-                  return h.li(
-                    [
-                      h.Class(
-                        "flex min-h-11 items-center gap-4 px-4 py-2 md:px-2 flex-wrap gap-y-2 py-2",
-                      ),
-                    ],
-                    [
-                      h.div(
-                        [
-                          h.Class(
-                            "flex min-w-0 grow basis-full flex-wrap items-center gap-x-2 gap-y-2 sm:flex-nowrap",
+                            "flex min-w-0 grow basis-full flex-wrap items-baseline gap-x-2 sm:basis-0 sm:flex-nowrap",
                           ),
                         ],
                         [
+                          todoBadge,
+                          refNode,
                           h.span(
+                            [h.Class("contents sm:flex sm:min-w-0 sm:items-baseline sm:gap-x-2")],
                             [
-                              h.Class(
-                                "flex min-w-0 grow basis-full flex-wrap items-baseline gap-x-2 sm:basis-0 sm:flex-nowrap",
-                              ),
-                            ],
-                            [
-                              todoBadge,
-                              refNode,
                               h.span(
                                 [
                                   h.Class(
-                                    "contents sm:flex sm:min-w-0 sm:items-baseline sm:gap-x-2",
+                                    "grow basis-0 truncate sm:max-w-full sm:grow-0 sm:basis-auto",
                                   ),
                                 ],
-                                [
-                                  h.span(
+                                [item.title],
+                              ),
+                              item.reason
+                                ? h.span(
                                     [
                                       h.Class(
-                                        "grow basis-0 truncate sm:max-w-full sm:grow-0 sm:basis-auto",
+                                        "basis-full truncate text-sm text-muted-foreground sm:basis-auto",
                                       ),
                                     ],
-                                    [item.title],
-                                  ),
-                                  item.reason
-                                    ? h.span(
-                                        [
-                                          h.Class(
-                                            "basis-full truncate text-sm text-muted-foreground sm:basis-auto",
-                                          ),
-                                        ],
-                                        [item.reason],
-                                      )
-                                    : h.empty,
-                                ],
-                              ),
-                            ],
-                          ),
-                          h.div(
-                            [
-                              h.Class(
-                                "flex basis-full items-center gap-2 sm:basis-auto sm:shrink-0 sm:gap-4",
-                              ),
-                            ],
-                            [
-                              h.div(
-                                [h.Class("flex flex-wrap items-center gap-2 empty:hidden")],
-                                renderTrayButtons(h, item, model),
-                              ),
-                              h.div(
-                                [h.Class("ml-auto flex items-center gap-2 empty:hidden")],
-                                renderTraySideButtons(h, item),
-                              ),
+                                    [item.reason],
+                                  )
+                                : h.empty,
                             ],
                           ),
                         ],
                       ),
-                      (item.merging ? "" : item.mergeRefusal) || item.action?.error
-                        ? h.p(
-                            [
-                              h.Role("alert"),
-                              h.Class("basis-full text-sm text-destructive wrap-anywhere"),
-                            ],
-                            [(item.merging ? "" : item.mergeRefusal) || (item.action?.error ?? "")],
-                          )
-                        : h.empty,
+                      h.div(
+                        [
+                          h.Class(
+                            "flex basis-full items-center gap-2 sm:basis-auto sm:shrink-0 sm:gap-4",
+                          ),
+                        ],
+                        [
+                          h.div(
+                            [h.Class("flex flex-wrap items-center gap-2 empty:hidden")],
+                            renderTrayButtons(h, item, model),
+                          ),
+                          h.div(
+                            [h.Class("ml-auto flex items-center gap-2 empty:hidden")],
+                            renderTraySideButtons(h, item),
+                          ),
+                        ],
+                      ),
                     ],
-                  );
-                }),
-              ),
-            ],
-          )
-        : h.empty,
+                  ),
+                  (item.merging ? "" : item.mergeRefusal) || item.action?.error
+                    ? h.p(
+                        [
+                          h.Role("alert"),
+                          h.Class("basis-full text-sm text-destructive wrap-anywhere"),
+                        ],
+                        [(item.merging ? "" : item.mergeRefusal) || (item.action?.error ?? "")],
+                      )
+                    : h.empty,
+                ],
+              );
+            }),
+          ),
+        ],
+      ),
     ],
   );
 }
@@ -1002,22 +994,14 @@ function renderLabelChips(h: H, labels: ActionLabel[]): Html {
       label.color
         ? h.span(
             [
-              h.Class(
-                "group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-4xl border border-transparent px-2 py-0.5 text-xs font-medium whitespace-nowrap wrap-anywhere",
-              ),
-              h.Style({
-                background: `#${label.color}`,
-                color: textColor(label.color),
-              }),
+              h.DataAttribute("slot", "badge"),
+              h.Class(badgeClass("default", "wrap-anywhere")),
+              h.Style({ background: `#${label.color}`, color: textColor(label.color) }),
             ],
             [label.name],
           )
         : h.span(
-            [
-              h.Class(
-                "group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-4xl border border-border text-foreground px-2 py-0.5 text-xs font-medium whitespace-nowrap wrap-anywhere",
-              ),
-            ],
+            [h.DataAttribute("slot", "badge"), h.Class(badgeClass("outline", "wrap-anywhere"))],
             [label.name],
           ),
     ),
@@ -1095,251 +1079,257 @@ function renderFullArgument(h: H, arg: ActionArgument, model: Model, action?: Pe
   );
 }
 
+const PanelOpened = Mount.define("PanelOpened", {
+  messages: [Message.CompletedFocusPanel],
+  execute: ({ element }) =>
+    Effect.sync(() => {
+      (element as HTMLElement).focus();
+      return Message.CompletedFocusPanel();
+    }),
+});
+
+const link = "text-primary underline-offset-4 hover:underline";
+
+function renderOutcome(h: H, label: string, text: string): Html {
+  return h.div(
+    [h.Class("grid min-w-0 gap-0.5")],
+    [
+      h.span([h.Class("text-xs text-muted-foreground")], [label]),
+      h.span([h.Class("wrap-anywhere whitespace-pre-line")], [text]),
+    ],
+  );
+}
+
+// The options of a question as buttons. A click selects or clears an option. In a single choice, a click on an option
+// clears the other option.
+function renderOptions(h: H, model: Model, question: QuestionType, index: number): Html {
+  const selected = (model.selectedOptions as Record<number, number[]>)[index] ?? [];
+  return h.div(
+    [h.Role("group"), h.AriaLabel(question.text), h.Class("grid gap-2")],
+    [
+      h.p(
+        [h.Class("wrap-anywhere")],
+        [
+          h.span([h.Class("font-medium")], [question.text]),
+          " ",
+          h.span(
+            [h.Class("text-sm text-muted-foreground")],
+            [question.multiple ? "Select one or more." : "Select one."],
+          ),
+        ],
+      ),
+      ...question.options.map((option, position) => {
+        const on = selected.includes(position);
+        return h.button(
+          [
+            h.Key(`option-${position}`),
+            h.Type("button"),
+            h.Attribute("aria-pressed", String(on)),
+            h.Class(
+              cn(
+                "flex w-full items-start gap-3 rounded-lg border p-3 text-left",
+                on && "border-primary",
+              ),
+            ),
+            h.OnClick(
+              Message.OptionToggled({
+                questionIndex: index,
+                optionIndex: position,
+                multiple: question.multiple,
+              }),
+            ),
+          ],
+          [
+            h.span([
+              h.AriaHidden(true),
+              h.Class(
+                cn(
+                  "mt-0.5 size-4 shrink-0 border",
+                  question.multiple ? "rounded-sm" : "rounded-full",
+                  on ? "border-primary bg-primary" : "border-input",
+                ),
+              ),
+            ]),
+            h.span(
+              [h.Class("grid min-w-0 gap-0.5")],
+              [
+                h.span([h.Class("wrap-anywhere")], [option.title]),
+                option.details
+                  ? h.span(
+                      [h.Class("text-sm text-muted-foreground wrap-anywhere")],
+                      [option.details],
+                    )
+                  : h.empty,
+              ],
+            ),
+          ],
+        );
+      }),
+    ],
+  );
+}
+
+function workstreamName(model: Model, item: InboxItem) {
+  if (item.workstream === 0) {
+    return "Coordinator";
+  }
+  return (
+    (model.workstreams as Workstream[] | null)?.find(
+      (workstream) =>
+        workstream.repository === item.workstreamRepository &&
+        workstream.number === item.workstream,
+    )?.title ?? `#${item.workstream}`
+  );
+}
+
 function renderAnswerDialog(h: H, model: Model): Html {
   const panel = model.activePanel;
   if (!panel) return h.empty;
 
   const item = panel.item;
-  const isAnswer = panel.type === "answer";
+  const input = panel.type === "answer";
   const action = item.action;
+  const todo = item.todo;
+  if (input && action && action.state !== "pending") {
+    return h.empty;
+  }
+  const title = item.title || item.reason;
+
+  const body = action
+    ? h.div(
+        [h.Class("grid min-w-0 content-start gap-2 overflow-y-auto px-4 pb-4")],
+        [
+          renderActionSender(h, action, true),
+          ...(action.arguments || [])
+            .filter((arg) => !(action.tool === "message_lead" && arg.name === "workstream"))
+            .map((arg) => renderFullArgument(h, arg, model, action)),
+          ...(action.state !== "pending"
+            ? [
+                h.span(
+                  [
+                    h.DataAttribute("slot", "badge"),
+                    h.Class(badgeClass("secondary", "justify-self-start")),
+                  ],
+                  [actionState(action)],
+                ),
+                action.state === "done" ? renderOutcome(h, "Result", action.result) : h.empty,
+                action.message ? renderOutcome(h, "Your message", action.message) : h.empty,
+              ]
+            : []),
+        ],
+      )
+    : todo
+      ? h.div(
+          [h.Class("grid min-w-0 content-start gap-2 overflow-y-auto px-4 pb-4 wrap-anywhere")],
+          [
+            h.span(
+              [h.Class("text-muted-foreground")],
+              [`${todo.mandatory ? "Mandatory" : "Optional"} ${todo.kind.replace("_", " ")}`],
+            ),
+            h.p([], [`Reason: ${todo.reason}`]),
+            h.p([], [`File: ${todo.path}:${todo.line}`]),
+            h.p(
+              [],
+              [
+                "Pull request: ",
+                h.a(
+                  [
+                    h.Attribute("href", item.pullRequestUrl),
+                    h.Attribute("target", "_blank"),
+                    h.Attribute("rel", "noreferrer"),
+                    h.Class(link),
+                  ],
+                  [`PR #${item.pullRequest} ↗`],
+                ),
+              ],
+            ),
+            todo.mandatory ? h.p([], ["Mobius merges after you complete this todo."]) : h.empty,
+          ],
+        )
+      : h.div(
+          [h.Class("grid content-start gap-2 overflow-y-auto px-4 pb-4")],
+          [
+            h.span(
+              [h.Class("text-muted-foreground")],
+              [`${workstreamName(model, item)} · ${dayClock(item.time)}`],
+            ),
+            renderMarkdown(h, item.text),
+            ...item.questions.map((question, index) => renderOptions(h, model, question, index)),
+            !input && item.answer ? renderOutcome(h, "Your answer", item.answer) : h.empty,
+            item.reportUrl
+              ? h.a(
+                  [
+                    h.Attribute("href", item.reportUrl),
+                    h.Attribute("target", "_blank"),
+                    h.Attribute("rel", "noreferrer"),
+                    h.Class(link),
+                  ],
+                  ["Approval report"],
+                )
+              : h.empty,
+          ],
+        );
 
   return h.div(
-    [h.Class("fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4")],
+    [h.DataAttribute("slot", "dialog-portal")],
     [
+      h.div([
+        h.DataAttribute("slot", "dialog-overlay"),
+        h.DataAttribute("state", "open"),
+        h.Class(
+          "fixed inset-0 isolate z-50 bg-black/10 duration-100 supports-backdrop-filter:backdrop-blur-xs",
+        ),
+        h.OnClick(Message.ClosePanel()),
+      ]),
       h.div(
         [
           h.Role("dialog"),
-          h.AriaLabel(item.title || item.reason),
-          h.Attribute("aria-modal", "true"),
+          h.Tabindex(-1),
+          h.AriaLabelledBy("answer-title"),
+          h.DataAttribute("slot", "dialog-content"),
+          h.DataAttribute("state", "open"),
+          h.OnMount(PanelOpened()),
           h.Class(
-            "grid w-full max-w-lg gap-4 rounded-xl border bg-background p-6 shadow-lg max-h-[90vh] overflow-y-auto",
+            cn(
+              "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm",
+              "grid max-h-[calc(100dvh-var(--keyboard,0px)-2rem)] grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 p-0 max-sm:top-auto max-sm:bottom-(--keyboard,0px) max-sm:left-0 max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-b-none sm:max-h-[85dvh] sm:max-w-lg",
+            ),
           ),
         ],
         [
           h.div(
-            [h.Class("flex items-center justify-between")],
+            [h.DataAttribute("slot", "dialog-header"), h.Class("flex flex-col gap-1 p-4 pr-10")],
             [
-              h.h2([h.Class("text-lg font-semibold wrap-anywhere")], [item.title || item.reason]),
-              h.button(
+              h.h2(
                 [
-                  h.Type("button"),
-                  h.Class("rounded-sm opacity-70 hover:opacity-100"),
-                  h.OnClick(Message.ClosePanel()),
+                  h.Id("answer-title"),
+                  h.DataAttribute("slot", "dialog-title"),
+                  h.Class("font-heading text-base leading-none font-medium wrap-anywhere"),
                 ],
-                [xIcon(h)],
+                [title],
               ),
+              item.title && !action && !todo
+                ? h.p([h.Class("text-sm text-muted-foreground")], [item.reason])
+                : h.empty,
             ],
           ),
-          item.title && !action && !item.todo && item.reason
-            ? h.p([h.Class("text-sm text-muted-foreground")], [item.reason])
-            : h.empty,
-          action
-            ? h.div(
-                [h.Class("grid min-w-0 content-start gap-2 overflow-y-auto px-4 pb-4")],
-                [
-                  renderActionSender(h, action, true),
-                  ...(action.arguments || [])
-                    .filter((arg) => !(action.tool === "message_lead" && arg.name === "workstream"))
-                    .map((arg) => renderFullArgument(h, arg, model, action)),
-                ],
-              )
-            : h.empty,
-          !action && item.text ? renderMarkdown(h, item.text) : h.empty,
-          // Question options if any
-          ...(!action && item.questions
-            ? item.questions.map((q: Question, qIdx: number) =>
-                h.div(
-                  [h.Class("grid gap-2"), h.Role("group"), h.AriaLabel(q.text)],
-                  [
-                    h.p([h.Class("text-sm font-medium")], [q.text]),
-                    h.div(
-                      [h.Class("grid gap-1.5")],
-                      (q.options || []).map((opt: QuestionOption, optIdx: number) => {
-                        const sel =
-                          (model.selectedOptions as Record<number, number[]>)[qIdx]?.includes(
-                            optIdx,
-                          ) ?? false;
-                        return h.button(
-                          [
-                            h.Type("button"),
-                            h.Attribute("aria-pressed", String(sel)),
-                            h.Class(
-                              `flex w-full items-start gap-3 rounded-lg border p-3 text-left ${sel ? "border-primary" : ""}`,
-                            ),
-                            h.OnClick(
-                              Message.OptionToggled({
-                                questionIndex: qIdx,
-                                optionIndex: optIdx,
-                                multiple: q.multiple,
-                              }),
-                            ),
-                          ],
-                          [
-                            h.span([
-                              h.AriaHidden(true),
-                              h.Class(
-                                `mt-0.5 size-4 shrink-0 border ${
-                                  q.multiple ? "rounded-sm" : "rounded-full"
-                                } ${sel ? "border-primary bg-primary" : "border-input"}`,
-                              ),
-                            ]),
-                            h.span(
-                              [h.Class("grid min-w-0 gap-0.5")],
-                              [
-                                h.span([h.Class("font-medium wrap-anywhere")], [opt.title]),
-                                opt.details
-                                  ? h.span(
-                                      [h.Class("text-sm text-muted-foreground wrap-anywhere")],
-                                      [opt.details],
-                                    )
-                                  : h.empty,
-                              ],
-                            ),
-                          ],
-                        );
-                      }),
-                    ),
-                  ],
-                ),
-              )
-            : []),
-          !isAnswer && item.answer
-            ? h.div(
-                [h.Class("grid min-w-0 gap-0.5")],
-                [
-                  h.span([h.Class("text-xs text-muted-foreground")], ["Your answer"]),
-                  h.span([h.Class("wrap-anywhere whitespace-pre-line")], [item.answer]),
-                ],
-              )
-            : h.empty,
-          // Actions or Answer submission
-          action && action.state === "pending"
-            ? h.div(
-                [h.Class("grid gap-3 pt-2")],
-                [
-                  h.textarea([
-                    h.AriaLabel(`Note for the ${roleName[action.role] || action.role}`),
-                    h.Placeholder(
-                      `Add a note for the ${roleName[action.role] || action.role} (optional)`,
-                    ),
-                    h.Value(model.answerText),
-                    h.OnInput((val) => Message.AnswerTextChanged({ text: val })),
-                    h.Class(
-                      "flex min-h-[5rem] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs",
-                    ),
-                  ]),
-                  model.answerError
-                    ? h.p(
-                        [h.Role("alert"), h.Class("text-sm text-destructive")],
-                        [model.answerError],
-                      )
-                    : h.empty,
-                  h.div(
-                    [h.Class("flex justify-end gap-2")],
-                    [
-                      h.button(
-                        [
-                          h.Type("button"),
-                          h.AriaLabel("Reject"),
-                          h.Class(
-                            "inline-flex items-center justify-center rounded-md text-sm font-medium border border-input bg-background hover:bg-accent h-9 px-4",
-                          ),
-                          h.OnClick(
-                            Message.ActionDecided({
-                              decision: "reject",
-                              text: model.answerText,
-                            }),
-                          ),
-                        ],
-                        ["Reject"],
-                      ),
-                      h.button(
-                        [
-                          h.Type("button"),
-                          h.AriaLabel("Approve"),
-                          h.Class(
-                            "inline-flex items-center justify-center rounded-md text-sm font-medium bg-primary text-primary-foreground h-9 px-4",
-                          ),
-                          h.OnClick(
-                            Message.ActionDecided({
-                              decision: "approve",
-                              text: model.answerText,
-                            }),
-                          ),
-                        ],
-                        ["Approve"],
-                      ),
-                    ],
-                  ),
-                ],
-              )
-            : isAnswer
-              ? h.div(
-                  [h.Class("grid gap-3 pt-2")],
-                  [
-                    h.textarea([
-                      h.AriaLabel("Your answer"),
-                      h.Placeholder(
-                        (item.questions || []).length > 0
-                          ? "Add a note (optional)"
-                          : "Write your answer",
-                      ),
-                      h.Value(model.answerText),
-                      h.OnInput((val) => Message.AnswerTextChanged({ text: val })),
-                      h.Class(
-                        "flex min-h-[5rem] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs",
-                      ),
-                    ]),
-                    model.answerError
-                      ? h.p(
-                          [h.Role("alert"), h.Class("text-sm text-destructive")],
-                          [model.answerError],
-                        )
-                      : h.empty,
-                    h.div(
-                      [h.Class("flex justify-end gap-2")],
-                      [
-                        h.button(
-                          [
-                            h.Type("button"),
-                            h.Class(
-                              "inline-flex items-center justify-center rounded-md text-sm font-medium hover:bg-accent h-9 px-4",
-                            ),
-                            h.OnClick(Message.ClosePanel()),
-                          ],
-                          ["Cancel"],
-                        ),
-                        h.button(
-                          [
-                            h.Type("button"),
-                            h.AriaLabel("Send"),
-                            h.Disabled(model.answerSubmitting),
-                            h.Class(
-                              "inline-flex items-center justify-center rounded-md text-sm font-medium bg-primary text-primary-foreground h-9 px-4 disabled:opacity-50",
-                            ),
-                            h.OnClick(Message.AnswerSubmitted()),
-                          ],
-                          [model.answerSubmitting ? "Sending..." : "Send"],
-                        ),
-                      ],
-                    ),
-                  ],
-                )
-              : h.div(
-                  [h.Class("flex justify-end pt-2")],
-                  [
-                    h.button(
-                      [
-                        h.Type("button"),
-                        h.Class(
-                          "inline-flex items-center justify-center rounded-md text-sm font-medium border border-input bg-background hover:bg-accent h-9 px-4",
-                        ),
-                        h.OnClick(Message.ClosePanel()),
-                      ],
-                      ["Close"],
-                    ),
-                  ],
-                ),
+          body,
+          input ? renderPanelComposer(h, model, item) : h.empty,
+          h.button(
+            [
+              h.Type("button"),
+              h.DataAttribute("slot", "dialog-close"),
+              h.Class(
+                buttonClass({
+                  variant: "ghost",
+                  size: "icon-sm",
+                  className: "absolute top-2 right-2",
+                }),
+              ),
+              h.OnClick(Message.ClosePanel()),
+            ],
+            [xIcon(h), h.span([h.Class("sr-only")], ["Close"])],
+          ),
         ],
       ),
     ],

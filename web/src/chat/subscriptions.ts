@@ -5,7 +5,7 @@ import { listGitHubApps, type LiveEvents } from "@/api/api.gen";
 import { onEvent, retryDelay } from "@/lib/events";
 import { sameChat } from "@/lib/unread";
 import { getVoiceSnapshot, registerVoiceInput, subscribeVoice } from "@/lib/voice";
-import { inputId } from "./composer";
+import { answerInputId, inputId } from "./composer";
 import { Message } from "./message";
 import type { Model } from "./model";
 import { ports } from "./ports";
@@ -25,8 +25,10 @@ function emitVoice(queue: Queue.Enqueue<Message>) {
   );
 }
 
-function chatInput() {
-  return document.getElementById(inputId) as HTMLTextAreaElement | null;
+// The newest input gets the voice text: the field of the answer panel, when it is open, else the field of the chat.
+function voiceInput() {
+  const panel = document.getElementById(answerInputId) as HTMLTextAreaElement | null;
+  return panel ?? (document.getElementById(inputId) as HTMLTextAreaElement | null);
 }
 
 type VoiceRegion = { lead: string; trail: string; value: string };
@@ -39,7 +41,8 @@ function createVoiceStream() {
         // that sets the Model value again must not end it.
         let region: VoiceRegion | undefined;
         const edited = (event: Event) => {
-          if ((event.target as Element).id === inputId) {
+          const id = (event.target as Element).id;
+          if (id === inputId || id === answerInputId) {
             region = undefined;
           }
         };
@@ -61,7 +64,15 @@ function createVoiceStream() {
           target.setSelectionRange(cursor, cursor);
           target.scrollTop = top;
           region = { lead, trail, value: target.value };
-          Queue.offerUnsafe(queue, Message.VoiceTextPlaced({ value, lead, trail }));
+          Queue.offerUnsafe(
+            queue,
+            Message.VoiceTextPlaced({
+              value,
+              lead,
+              trail,
+              target: target.id === answerInputId ? "answer" : "chat",
+            }),
+          );
         };
 
         const placeAtCursor = (target: HTMLTextAreaElement, voiceText: string) => {
@@ -79,7 +90,7 @@ function createVoiceStream() {
         const unsubVoice = subscribeVoice(() => emitVoice(queue));
         const unregInput = registerVoiceInput({
           insert: (voiceText, live) => {
-            const target = chatInput();
+            const target = voiceInput();
             if (!target) {
               return;
             }
@@ -90,7 +101,7 @@ function createVoiceStream() {
             }
           },
           insertLive: (voiceText, first) => {
-            const target = chatInput();
+            const target = voiceInput();
             if (!target) {
               return false;
             }

@@ -4,6 +4,7 @@ import * as Port from "foldkit/port";
 import {
   answerInboxItem,
   approveAction,
+  doneInboxItem,
   getActionBrief,
   getChat,
   rejectAction,
@@ -12,7 +13,15 @@ import {
   stopChat,
   type ChatInboxItem,
 } from "@/api/api.gen";
-import { chatDraftKey, emptyDraft, loadDraft, updateDraft, type Draft } from "@/lib/draft";
+import {
+  answerDraftKey,
+  chatDraftKey,
+  emptyDraft,
+  loadDraft,
+  saveDraftText,
+  updateDraft,
+  type Draft,
+} from "@/lib/draft";
 import {
   addQueued,
   listQueued,
@@ -302,6 +311,8 @@ export const AnswerInboxItem = Command.define("AnswerInboxItem", {
   execute: ({ id, repository, issue, workstream, answer }) =>
     Effect.promise(async () => {
       hideInboxItem({ id, repository, issue });
+      await updateDraft(answerDraftKey(id), () => emptyDraft).catch(() => {});
+      let failure = "";
       try {
         const res = await answerInboxItem(id, { text: answer });
         if (res.status === 200) {
@@ -312,12 +323,43 @@ export const AnswerInboxItem = Command.define("AnswerInboxItem", {
           );
           return Message.AnswerCompleted({ result: res.data });
         }
-        failInboxItem(id, res.data.error);
-        return Message.AnswerCompleted({ result: { error: res.data.error } });
+        failure = res.data.error;
       } catch (err) {
-        failInboxItem(id, String(err));
-        return Message.AnswerCompleted({ result: { error: String(err) } });
+        failure = String(err);
       }
+      await saveDraftText(answerDraftKey(id), answer).catch(() => {});
+      failInboxItem(id, failure);
+      return Message.AnswerCompleted({ result: { error: failure } });
+    }),
+});
+
+export const DoneInboxItem = Command.define("DoneInboxItem", {
+  args: {
+    id: Schema.Number,
+    repository: Schema.String,
+    issue: Schema.Number,
+    name: Schema.String,
+    note: Schema.String,
+  },
+  messages: [Message.AnswerCompleted],
+  execute: ({ id, repository, issue, name, note }) =>
+    Effect.promise(async () => {
+      hideInboxItem({ id, repository, issue });
+      await updateDraft(answerDraftKey(id), () => emptyDraft).catch(() => {});
+      let failure = "";
+      try {
+        const res = await doneInboxItem(id, { note });
+        if (res.status === 200) {
+          showNotice(`Marked the todo ${name} as done`);
+          return Message.AnswerCompleted({ result: res.data });
+        }
+        failure = res.data.error;
+      } catch (err) {
+        failure = String(err);
+      }
+      await saveDraftText(answerDraftKey(id), note).catch(() => {});
+      failInboxItem(id, failure);
+      return Message.AnswerCompleted({ result: { error: failure } });
     }),
 });
 
@@ -490,12 +532,14 @@ export const ProbeVoice = Command.define("ProbeVoice", {
       Schema.Unknown as Schema.Schema<{ lead: string; trail: string; value: string }>,
     ),
     draftText: Schema.String,
+    target: Schema.Literals(["chat", "answer"]),
   },
   messages: [Message.VoiceProbed],
-  execute: ({ region, draftText }) =>
+  execute: ({ region, draftText, target }) =>
     Effect.sync(() =>
       Message.VoiceProbed({
         live: showsLiveVoice() && region !== null && region.value === draftText,
+        target,
       }),
     ),
 });
@@ -509,11 +553,33 @@ export const StopVoice = Command.define("StopVoice", {
 });
 
 export const FinishVoiceForSend = Command.define("FinishVoiceForSend", {
+  args: { target: Schema.Literals(["chat", "answer"]) },
   messages: [Message.VoiceSendFinished],
-  execute: Effect.promise(async () => {
-    const text = await finishForSendAction();
-    return Message.VoiceSendFinished({ text });
-  }),
+  execute: ({ target }) =>
+    Effect.promise(async () => {
+      const text = await finishForSendAction();
+      return Message.VoiceSendFinished({ text, target });
+    }),
+});
+
+export const LoadAnswerDraft = Command.define("LoadAnswerDraft", {
+  args: { id: Schema.Number },
+  messages: [Message.AnswerDraftLoaded],
+  execute: ({ id }) =>
+    Effect.promise(async () => {
+      const draft = await loadDraft(answerDraftKey(id)).catch(() => emptyDraft);
+      return Message.AnswerDraftLoaded({ text: draft.text });
+    }),
+});
+
+export const SaveAnswerDraft = Command.define("SaveAnswerDraft", {
+  args: { id: Schema.Number, text: Schema.String },
+  messages: [Message.CompletedSaveAnswerDraft],
+  execute: ({ id, text }) =>
+    Effect.promise(async () => {
+      await saveDraftText(answerDraftKey(id), text).catch(() => {});
+      return Message.CompletedSaveAnswerDraft();
+    }),
 });
 
 export const ResendVoice = Command.define("ResendVoice", {
