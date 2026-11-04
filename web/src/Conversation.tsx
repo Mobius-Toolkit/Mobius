@@ -4,6 +4,7 @@ import * as Runtime from "foldkit/runtime";
 import { use, useEffect, useRef, type ReactNode } from "react";
 import type { InboxItem, Workstream } from "@/api/api.gen";
 import { LoginContext } from "@/lib/login";
+import { atEnd } from "@/lib/scroll";
 import type { ChatPorts } from "./chat/ports";
 import { createChatProgram } from "./chat/program";
 
@@ -106,8 +107,16 @@ export function Conversation({
     let initialScrolled = false;
     let hookedList: HTMLElement | null = null;
     let anchor: { id: string; offset: number } | null = null;
+    let pinned = true;
+    let endTop: number | undefined;
+    let scrolledCount = 0;
 
-    const hookScrollTop = (list: HTMLElement) => {
+    const scrollToEnd = (list: HTMLElement) => {
+      list.scrollTop = list.scrollHeight;
+      endTop = list.scrollTop;
+    };
+
+    const hookList = (list: HTMLElement) => {
       if (hookedList === list) return;
       hookedList = list;
       const desc =
@@ -127,19 +136,39 @@ export function Conversation({
           configurable: true,
         });
       }
+      list.addEventListener("scroll", () => {
+        pinned = atEnd(list) || list.scrollTop === endTop;
+      });
+      // An image has no height before it loads, and its load moves the end of the list.
+      list.addEventListener(
+        "load",
+        () => {
+          if (pinned) scrollToEnd(list);
+        },
+        true,
+      );
+      // The list gets shorter when the input gets taller, and the end of the list must stay in view.
+      listResize.disconnect();
+      listResize.observe(list);
     };
+
+    const listResize = new ResizeObserver(() => {
+      if (pinned && hookedList) scrollToEnd(hookedList);
+    });
 
     const checkScroll = () => {
       const list = wrapper.querySelector("[data-message]")?.parentElement;
       if (!list) return;
-      hookScrollTop(list);
+      hookList(list);
 
       const hasBrief = list.querySelector('section[aria-label="Brief"]') !== null;
       if (hasBrief) {
         anchor = null;
       }
 
-      // Check if older messages were prepended
+      const elements = list.querySelectorAll("[data-message]");
+      if (elements.length === 0) return;
+
       if (anchor) {
         const anchorElem = list.querySelector(`[data-message="${anchor.id}"]`);
         if (anchorElem) {
@@ -148,10 +177,9 @@ export function Conversation({
           list.scrollTop += currentOffset - anchor.offset;
         }
         anchor = null;
+        scrolledCount = elements.length;
+        return;
       }
-
-      const elements = list.querySelectorAll("[data-message]");
-      if (elements.length === 0) return;
 
       const firstElem = elements[0];
       const currentFirstId = firstElem.getAttribute("data-message");
@@ -175,15 +203,24 @@ export function Conversation({
           const target = elements[Math.max(0, elements.length - openUnread)];
           if (target instanceof HTMLElement) {
             target.scrollIntoView();
+            pinned = atEnd(list);
           } else {
-            list.scrollTop = list.scrollHeight;
+            scrollToEnd(list);
           }
         } else {
-          list.scrollTop = list.scrollHeight;
+          scrollToEnd(list);
         }
         initialScrolled = true;
+        scrolledCount = elements.length;
         return;
       }
+
+      // A new message scrolls to the end, and a longer last message scrolls only while the Owner is at the end.
+      if (elements.length > scrolledCount) {
+        pinned = true;
+      }
+      scrolledCount = elements.length;
+      if (pinned) scrollToEnd(list);
     };
 
     checkScroll();
@@ -196,6 +233,7 @@ export function Conversation({
 
     return () => {
       observer.disconnect();
+      listResize.disconnect();
     };
   }, [chatKey]);
 
