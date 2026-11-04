@@ -9,11 +9,11 @@ This document reports a proof of Foldkit on the chat screen of Mobius. The Owner
 ## Result in short
 
 - The chat screen runs in Foldkit on `/chat` and on `/workstreams/$owner/$name/$number`, inside a React host. The program covers the message list, the live events, the send queue with the retry waits, the chat input with the voice button and the pictures, the scroll rules, the Brief bubble, the tray of pending actions, the question and action cards, and the answer panel.
-- All 459 Playwright tests pass in the run at commit `6f197e36`, and the 59 Vitest tests pass at the same commit. Commits after it change only this file. The spec files of the Done list ran: `chat`, `attachments`, `voice`, `voice-language`, `actions`, `answered`, `pending`, `live`, `notice`, `navigation`, `inbox` and `screenshots`. See "Tests" for the flaky tests.
+- 459 Playwright tests ran at commit `754de151`: 458 passed and 1 flaky (a Tasks tab test, React code, which passed on the retry). The 59 Vitest tests pass at the same commit. Commits after it change only this file. The spec files of the Done list ran: `chat`, `attachments`, `voice`, `voice-language`, `actions`, `answered`, `pending`, `live`, `notice`, `navigation`, `inbox` and `screenshots`. See "Tests" for the flaky tests.
 - The CI comparison of the screenshots listed 80 changed images for the code of `481d6eff` (the run of `13f5f478`, image commit `1c935ae1`). Each one differed only at the heading of the tray, and commit `9b56ed24` fixed the cause. The run of `b98e19de` (the code of `9b56ed24`) shows "No screen changed". The CI workflow `CI` passed at `b98e19de`. See "Screenshots" for each image.
 - The move cost much more work than the line counts show. The first session of the port stopped at the point where about 50 specs failed, and the next session needed about 15 rounds of fixes, with a full test run of 5 to 10 minutes after each round, to get all of them to pass. The causes were not limits of Foldkit. They were behavior that the first port left out: the retry waits, the pictures, the voice text, the scroll rules and the answer panel. Plan for this cost.
 - Foldkit gave no blocker. It has three limits that cost time: the Markdown parser throws on text such as `09:30`, the attributes `OnPaste` and `OnKeyDown` give too little data for the chat input, and the view renders in the next frame, so a test that reads the DOM right after an input event can see the old state. Each one has a workaround. See "Problems".
-- The cost on the wire is large because the Mobius server sends the files with no compression: +52 % raw JavaScript and +47 % load time on the emulated phone. See "Size and load time".
+- The cost on the wire is large because the Mobius server sends the files with no compression: +52 % raw JavaScript and +46 % load time on the emulated phone. See "Size and load time".
 
 ## 1. Live events
 
@@ -96,19 +96,19 @@ Recommendation: draw the two charts of `Usage.tsx` as plain SVG in the Foldkit v
 
 ## 5. Size and load time
 
-Measured on this machine (macOS), one run for each commit, as the issue asks. The branch numbers are from the run at commit `6f197e36`. A Chromium emulation is not a real phone: it throttles the CPU by a factor of 4 and the network to the Slow 4G values of Chrome DevTools (1.6 Mbit/s down, 750 kbit/s up, 150 ms latency), but the CPU and the memory of a real phone differ.
+Measured on this machine (macOS), one run for each commit, as the issue asks. The branch numbers are from the run at commit `754de151`. A Chromium emulation is not a real phone: it throttles the CPU by a factor of 4 and the network to the Slow 4G values of Chrome DevTools (1.6 Mbit/s down, 750 kbit/s up, 150 ms latency), but the CPU and the memory of a real phone differ.
 
 | | Base `7c8beea` | Branch | Change |
 |---|---|---|---|
-| JavaScript that `/chat` loads, gzip | 330.1 kB (one chunk) | 500.0 kB (`index` 355.2 kB, `foldkit-effect` 144.4 kB, runtime 0.4 kB) | +169.9 kB (+51 %) |
-| JavaScript that `/chat` loads, raw | 1,082.7 kB | 1,649.0 kB | +566.3 kB (+52 %) |
+| JavaScript that `/chat` loads, gzip | 330.1 kB (one chunk) | 499.9 kB (`index` 355.1 kB, `foldkit-effect` 144.4 kB, runtime 0.4 kB) | +169.8 kB (+51 %) |
+| JavaScript that `/chat` loads, raw | 1,082.7 kB | 1,648.6 kB | +565.9 kB (+52 %) |
 | CSS, gzip | 15.1 kB | 15.3 kB | +0.2 kB |
-| Median of 5 loads until the chat input is editable (`web/e2e/load-time.spec.ts`) | 6,537 ms | 9,612 ms | +3,075 ms (+47 %) |
+| Median of 5 loads until the chat input is editable (`web/e2e/load-time.spec.ts`) | 6,537 ms | 9,555 ms | +3,018 ms (+46 %) |
 
 Notes:
 
 - Foldkit and Effect are 144.4 kB gzip in their own chunk (`foldkit-effect`, from `manualChunks` in `web/vite.config.ts`). The Foldkit part of the app (`web/src/chat/`) is in the main chunk.
-- The Mobius server sends the files with no compression (`web/embed.go` has no gzip code). Thus the emulated network carries the raw bytes, and the load time follows the raw size (+52 % bytes, +47 % time). Compression on the server would remove most of the cost. The proof did not add it, because the issue forbids a change of the Go code.
+- The Mobius server sends the files with no compression (`web/embed.go` has no gzip code). Thus the emulated network carries the raw bytes, and the load time follows the raw size (+52 % bytes, +46 % time). Compression on the server would remove most of the cost. The proof did not add it, because the issue forbids a change of the Go code.
 - Estimate of a client with no React. The inputs come from two real builds of this branch and of the base commit, with `manualChunks` that put each library group in its own chunk (a temporary Vite config, not in the branch). The gzip sizes of the chunks:
 
   | Chunk | Base `7c8beea` | Branch |
@@ -139,7 +139,7 @@ Notes:
 
 ### Playwright
 
-Command: `pnpm e2e --retries=2` in `web` (all 459 tests of 22 spec files). The last run, at commit `6f197e36`: 459 passed, 0 failed, 0 flaky. The runs before it: at `9b56ed24` 459 passed, 0 flaky; at `481d6eff` 459 passed, 0 flaky; at `20d5bb40` 459 passed, 0 flaky; at `9fa7bc86` 459 passed, 0 flaky; at `133fc9f0` 458 passed, 1 flaky (a Tasks tab test, first in the list below, which passed on the retry). These tests failed sometimes in the runs of this work. None of them has a Foldkit cause that the proof found, and each passed in the next run:
+Command: `pnpm e2e --retries=2` in `web` (all 459 tests of 22 spec files). The last run, at commit `754de151`: 458 passed, 0 failed, 1 flaky (a Tasks tab test, first in the list below, which passed on the retry). The runs before it: at `6f197e36` 459 passed, 0 flaky; at `9b56ed24` 459 passed, 0 flaky; at `481d6eff` 459 passed, 0 flaky; at `20d5bb40` 459 passed, 0 flaky; at `9fa7bc86` 459 passed, 0 flaky; at `133fc9f0` 458 passed, 1 flaky (a Tasks tab test, first in the list below, which passed on the retry). These tests failed sometimes in the runs of this work. None of them has a Foldkit cause that the proof found, and each passed in the next run:
 
 - `chat.spec.ts` "the Tasks tab shows owner/name#N and the Start button ..." (error `route.fetch: Test ended`), and "Resume gives a needs-human task ..." (error `Response has been disposed`). Both belong to the Tasks tab (React code). A route callback of one test is still in flight when the test ends, and the error shows in the next test. They failed in 3 of the 10 full runs. The proof did not change the Tasks tab.
 - `chat.spec.ts` "two taps on Send in one turn send one message ...". It failed in 2 runs before the Send button got `type="submit"` in all states (see Problems, item 4), and it passed in the 5 runs after the change.
