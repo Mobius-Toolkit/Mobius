@@ -2,6 +2,7 @@ package engine_test
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"io/fs"
 	"os"
@@ -364,11 +365,43 @@ func TestARetryAfterAFailedResolveOfAFollowUpThreadSendsNoSecondEventToTheLead(t
 	}
 }
 
+type loggedLeadEvent struct {
+	id          int64
+	kind        string
+	time        string
+	deliveredAt sql.NullString
+	held        int64
+	payload     string
+}
+
 func TestAnEndEventStartsANewLeadSessionWhenNoSessionIsOpen(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	lead := "[[prompts]]\nwhen = \"end of #41\"\nreply = [\"Seen\"]\n\n" + leadStarts
 	server, _ := connectTask(t, fake, lead, commits, noChange)
+	t.Cleanup(func() {
+		if !t.Failed() {
+			return
+		}
+		t.Logf("task state: %s", taskState(t, server))
+		events := query(t, server, func(rows *sql.Rows, e *loggedLeadEvent) error {
+			return rows.Scan(&e.id, &e.kind, &e.time, &e.deliveredAt, &e.held, &e.payload)
+		}, "SELECT id, kind, time, delivered_at, held, payload FROM lead_events WHERE repository = ? ORDER BY id", shop)
+		for _, e := range events {
+			t.Logf("lead event: id=%d kind=%s time=%s delivered_at=%s held=%d payload=%s", e.id, e.kind, e.time, e.deliveredAt.String, e.held, e.payload)
+		}
+		for _, s := range chatSessions(t, server, leadChat, engine.LeadRole) {
+			prompts := promptTexts(t, server, s.ID)
+			t.Logf("lead session: id=%d started_at=%s ended_at=%s end_reason=%s queue_reason=%s prompts=%d", s.ID, s.StartedAt, s.EndedAt.String, s.EndReason.String, s.QueueReason.String, len(prompts))
+			for i, prompt := range prompts {
+				tail := prompt
+				if runes := []rune(prompt); len(runes) > 500 {
+					tail = string(runes[len(runes)-500:])
+				}
+				t.Logf("session %d prompt %d: %s", s.ID, i+1, tail)
+			}
+		}
+	})
 	waitForApproval(t, server, fake)
 
 	waitForLeadPrompt(t, server, "ready for Lead approval")
