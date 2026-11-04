@@ -8,9 +8,11 @@ This document reports a proof of Foldkit on the chat screen of Mobius. The Owner
 
 ## Result in short
 
-- The program covers the message list, the live events, the send queue with the retry waits, the chat input with the voice button and the pictures, the scroll rules, the Brief bubble, the tray of pending actions and a first version of the answer panel.
-- The Foldkit part is not complete. See "Tests" for the specs that fail and the screens that differ. The failures that remain come from code that the proof did not port, not from a limit of Foldkit.
-- Foldkit gave no blocker. It has two limits that cost time: the Markdown parser throws on text such as `09:30`, and the `OnPaste` and `OnKeyDown` attributes give too little data for the chat input. Each one has a workaround. See "Problems".
+- The chat screen runs in Foldkit on `/chat` and on `/workstreams/$owner/$name/$number`, inside a React host. The program covers the message list, the live events, the send queue with the retry waits, the chat input with the voice button and the pictures, the scroll rules, the Brief bubble, the tray of pending actions, the question and action cards, and the answer panel.
+- All 459 Playwright tests pass on the head of the branch, and the 18 Story tests pass. The spec files of the Done list ran: `chat`, `attachments`, `voice`, `voice-language`, `actions`, `answered`, `pending`, `live`, `notice`, `navigation`, `inbox` and `screenshots`. See "Tests" for the flaky tests.
+- 28 of 298 screenshots differ from the base commit, and 23 of them differ by 835 pixels or less (a chevron icon, a scroll offset of 4 pixels). See "Screenshots".
+- The move cost much more work than the line counts show. The first session of the port stopped at the point where about 50 specs failed, and the next session needed about 15 rounds of fixes, with a full test run of 5 to 10 minutes after each round, to get all of them to pass. The causes were not limits of Foldkit. They were behavior that the first port left out: the retry waits, the pictures, the voice text, the scroll rules and the answer panel. Plan for this cost.
+- Foldkit gave no blocker. It has three limits that cost time: the Markdown parser throws on text such as `09:30`, the attributes `OnPaste` and `OnKeyDown` give too little data for the chat input, and the view renders in the next frame, so a test that reads the DOM right after an input event can see the old state. Each one has a workaround. See "Problems".
 - The cost on the wire is large because the Mobius server sends the files with no compression: +51 % raw JavaScript and +45 % load time on the emulated phone. See "Size and load time".
 
 ## 1. Live events
@@ -31,7 +33,7 @@ The program opens its own `EventSource` of `/api/events`. It does not read the e
   | `visibilitychange` | `handleWake` calls `reconnect` when the page is visible. |
 
 - After each new connection, the `open` event gives the Message `ConnectionOpened`. The update runs the Command `FetchPage` with the id of the newest known message. The Command reads pages until it reaches that id, so a message that came while the connection was down is not lost. This is the `load` function of the React code.
-- Proof by test: `web/e2e/live.spec.ts`, the test "the chat screen receives a live message after the live connection closes". The test aborts the next request to `/api/events`. The source then has the state `CLOSED`. The test sends a message from a second browser page, and the first page must show it. The test needs the retry timer and the check of `/api/github/apps`.
+- Proof by test: `web/e2e/live.spec.ts`, the test "the chat screen receives a live message after the live connection closes". The test answers each request of `/api/events` with a 502. That closes the source for good (`readyState` is `CLOSED`), so only the retry timer and the check of `/api/github/apps` can reconnect. The test sends a message from a second page, then lets the requests pass, and the first page must show the message after the retry. The `online`, `pageshow` and `visibilitychange` cases and the silence timer have the same `reconnect` function, but the proof has no test for them. The `online` event starts the test.
 - A difference from React: `App.tsx` keeps its own `EventSource` for the other pages. Thus an open chat has two connections to `/api/events`. The move of the whole client removes the second one.
 
 ## 2. Replacements
@@ -63,7 +65,7 @@ The right column comes from the exports of `@foldkit/ui` 0.170.0 and from its do
 
 ### `lucide-react`
 
-The proof copied each icon of the chat screen by hand as an SVG function (`web/src/chat/icons.ts`, 15 icons). The app uses 25 icons. For the full client, generate the functions from the icon data of the package `lucide` (it has no React code) with a small script. The 25 icons are 4.2 kB gzip in a React build, so the size is not a reason to keep `lucide-react`.
+The chat screen uses 15 icons. A first version drew them by hand, and 10 pixels of 5 of the icons differed from the React icons. `web/src/chat/icons.ts` now holds the icon data of `lucide-react`, which a one-off script copied, and one small function draws all icons. The app uses 25 icons. For the full client, generate the data from the package `lucide` (it has no React code) in the same way. The 25 icons are 4.2 kB gzip in a React build, so the size is not a reason to keep `lucide-react`.
 
 ### `recharts`
 
@@ -97,10 +99,10 @@ Measured on this machine (macOS), one run for each commit, as the issue asks. A 
 
 | | Base `7c8beea` | Branch | Change |
 |---|---|---|---|
-| JavaScript that `/chat` loads, gzip | 330.1 kB (one chunk) | 495.1 kB (`index` 350.3 kB, `foldkit-effect` 144.4 kB, runtime 0.4 kB) | +165.0 kB (+50 %) |
-| JavaScript that `/chat` loads, raw | 1,082.7 kB | 1,636.6 kB | +553.9 kB (+51 %) |
+| JavaScript that `/chat` loads, gzip | 330.1 kB (one chunk) | 497.0 kB (`index` 352.2 kB, `foldkit-effect` 144.4 kB, runtime 0.4 kB) | +166.9 kB (+51 %) |
+| JavaScript that `/chat` loads, raw | 1,082.7 kB | 1,639.4 kB | +556.7 kB (+51 %) |
 | CSS, gzip | 15.1 kB | 15.3 kB | +0.2 kB |
-| Median of 5 loads until the chat input is editable (`web/e2e/load-time.spec.ts`) | 6,537 ms | 9,496 ms | +2,959 ms (+45 %) |
+| Median of 5 loads until the chat input is editable (`web/e2e/load-time.spec.ts`) | 6,537 ms | 9,492 ms | +2,955 ms (+45 %) |
 
 Notes:
 
@@ -111,30 +113,47 @@ Notes:
 
 ## 6. Tests
 
-Command: `pnpm e2e` (all 459 tests of 21 spec files), run one time on the head of the branch, and then the specs that need a fix.
-
 ### Playwright
 
-- At the head of this document: see the table "Status of the specs". Do not read a pass of a spec as a proof of parity. The specs test the behavior and the text, and some of the screens still differ in pixels (see "Screenshots").
-- Changed selectors: none. The specs use roles, labels and `data-*` attributes, and the Foldkit markup keeps them.
-- Changed tests:
-  - `web/e2e/live.spec.ts`: one new test (the closed connection).
-  - `web/e2e/screenshots.spec.ts`: `clearComposer` waits for the count of the remove buttons after each click. The old loop failed one time on the base commit too (`toHaveValue` in the first run of the base). It is a wait, not a change of a selector.
-  - `web/e2e/load-time.spec.ts`: new spec for the load time. `web/playwright.config.ts` has a project for it.
-- Tests with `test.fail`: none.
+Command: `pnpm e2e --retries=2` in `web` (all 459 tests of 21 spec files). The run on the head of the branch: 459 passed, 0 failed, 0 flaky. The runs before it showed these tests that fail sometimes. None of them has a Foldkit cause that the proof found, and each passed in the next run:
+
+- `chat.spec.ts` "the Tasks tab shows owner/name#N and the Start button ..." (error `route.fetch: Test ended`), and "Resume gives a needs-human task ..." (error `Response has been disposed`). Both belong to the Tasks tab (React code). A route callback of one test is still in flight when the test ends, and the error shows in the next test. They failed in 3 of the 10 full runs. The proof did not change the Tasks tab.
+- `chat.spec.ts` "two taps on Send in one turn send one message ...". It failed in 2 runs before the Send button got `type="submit"` in all states (see Problems, item 4), and it passed in the 5 runs after the change.
+- `screenshots.spec.ts` (the step `chat-voice-send-wait`): the field had the text two times. A `fill("")` of the step before it did not wait for the draft in the browser store, so the next page loaded the old draft. The step now waits for the stored draft, as the three other voice steps of the spec do. It failed in 4 runs before this wait.
+
+Changed selectors: none. The specs use roles, labels and `data-*` attributes, and the Foldkit markup keeps them (`data-message`, `data-queued`, `data-action`, `data-question`, `data-slot`).
+
+Changed tests (the issue asks for each change by name):
+
+- `web/e2e/live.spec.ts`: one new test, "the chat screen receives a live message after the live connection closes". It answers the next requests of `/api/events` with a 502, which closes the source for good. It sends a message from a second page, then lets the requests pass, and the first page must show the message. The test is a parity test: it also passes on the base commit (run in a worktree of `7c8beea`), because the React `App.tsx` has the same reconnect rules. It does not fail on the base commit, because the proof must not change the behavior.
+- `web/e2e/screenshots.spec.ts`: two waits, no selector. (1) `clearComposer` waits for the count of the remove buttons after each click (the spec failed one time on the base commit in this loop). (2) The voice step `chat-voice-send-wait` waits for the stored draft after `fill("")`. Foldkit saves the draft a little later than the React code did, so the next `page.goto` could win the race.
+- `web/e2e/load-time.spec.ts`: new spec for the load time, with the project `load-time` in `web/playwright.config.ts`. It runs in CI, and it asserts nothing but that the input becomes editable.
+- Tests with `test.fail`: none. Each failure that the proof met was a port gap, not a limit of Foldkit.
 
 ### Story tests
 
-`web/src/chat/update.test.ts` has 17 tests with Vitest and the Story tools of Foldkit (`pnpm test`; `.mobius/check` runs it). They cover the send queue, the retry waits (the wait grows to the last value and stays, and a wait that "Retry now" replaced is ignored), the merge of a live message into the list, and the first steps of the answer panel. The Story tests run in 0.4 s.
+`web/src/chat/update.test.ts` has 18 tests with Vitest and the Story tools of Foldkit (`pnpm test`; `.mobius/check` runs it, in 0.4 s). They cover:
+
+- the send queue: queue, send, the next item, discard, and the removal of a sent item after the next load, also when the server gives no `browserId`;
+- the retry waits: the wait grows to the last value and stays, a wait that "Retry now" replaced is ignored;
+- the merge of a live message into the list: sort, longer text wins, shorter text ignored, older than the first message dropped, queued item removed;
+- the first steps of the answer panel.
+
+The new test "removes a sent item on the next PageLoaded" fails on the earlier code (the item stayed), and the Playwright test `attachments.spec.ts` "the bubble of a sent message shows the card of the Inbox item" failed in the same way before the fix.
 
 ### Screenshots
 
-The screenshots of the base commit and of the branch were made on the same machine, and they were compared pixel by pixel (a tolerance of 2 of 255 for each color channel). 132 of 298 images differ. All of them show the chat screen (the message list, the tray, the input or the answer panel). The causes that the proof found:
+The screenshots of the base commit and of the branch were made on the same machine, and they were compared pixel by pixel (a tolerance of 2 of 255 for each color channel). Result: 28 of 298 images differ.
 
-- The tray rows and the answer panel are rewritten from the markup of `InboxRow` and `AnswerPanel` with a smaller set of classes.
-- The Markdown output of `@foldkit/markdown` can have other spacing than `markdown-to-jsx`. The proof did not check this for each image.
+| Images | Difference |
+|---|---|
+| `checkup-tools-desktop`, `checkup-tools-phone` (8,452 and 8,327 pixels) | The Checkup screen is React code that the proof did not change. The cause is not known. The difference can come from the time of the two runs. |
+| `question-long-title-desktop` (3,785) | The area of the buttons at the bottom right of the question card. Not analyzed. |
+| `chat-waits-todo-desktop` (2,299), `chat-brief-all-desktop` (1,922) | The list is scrolled 4 pixels differently, and the Brief button. Not analyzed further. |
+| 5 images of 237 to 835 pixels (`chat-waits-desktop`, `chat-waits-typing-desktop`, `chat-stop-long-title-desktop`, `chat-records-desktop`, `chat-records-phone`) | A scroll offset of 4 pixels, and the record bubble. Not analyzed further. |
+| 18 images of 55 pixels or less | A small icon of 7 by 10 pixels (a chevron in the tray header or in the folded event), and one small icon in `chat-waits-todo-phone`. Not analyzed further. |
 
-The screenshots section of the pull request shows the same difference. The Owner must read it before the decision.
+The Owner must read the section "Screenshots" of the pull request. The names above show where to look. The comparison of CI is against `main`, and its images come from another machine, so these numbers do not predict it.
 
 ## 7. Problems
 
@@ -142,26 +161,27 @@ Each item has the workaround that the proof used.
 
 1. `@foldkit/markdown` always enables `remark-directive`. A text such as `Keep 09:30 UTC` makes `parseMarkdown` throw `Unsupported markdown node "textDirective"`. Agent text has such colons often. Workaround: `parseChatMarkdown` in `web/src/chat/view.ts` catches the error and parses the text again with each colon between two word characters escaped. The Owner can ask for an option to turn directives off.
 2. Flags are read one time, and the host must send the inbound Ports again for each new program. The proof did not test whether a Port message that the host sends before the program starts is lost. It avoids the question: a React `key` on the host component mounts a new host for a new chat, and its Port effects run after the embed effect.
-3. `OnPaste` does not give the clipboard files, and `OnKeyDown` does not give `isComposing` or `keyCode`. The chat input needs both: a pasted picture, and the Enter of an IME. Workaround: one `Mount` on the form (`ComposerBehavior` in `web/src/chat/composer.ts`) adds the DOM listeners. The same `Mount` keeps a button from taking the focus (`mousedown` with `preventDefault`) because `OnMouseDown` cannot call `preventDefault`.
-4. A controlled `textarea` and the voice text. The voice code puts text at the cursor and sets the scroll position of the field. The Model cannot hold the cursor. Workaround: the Subscription sets the DOM value and the cursor directly, and sends `VoiceTextPlaced` so the Model gets the same value. A render that sets an old Model value in the gap between the two can undo the placement, so the region state lives in the Stream and an `input` event ends it.
-5. Scroll rules need DOM data that the view cannot give: the position at the end, the position of the first unread message and the place of the message after a prepend. Workaround: one `Mount` (`ChatList` in `web/src/chat/scroll.ts`) with a `MutationObserver`, a `ResizeObserver` and a `scroll` listener. The view gives it two data attributes (`data-ready` and `data-first-unread`). This is the largest piece of imperative code in the program. It does the same work as 6 refs, 3 effects and 2 layout effects in the React code, and it is as hard to read.
-6. The Model must be an Effect Schema, so API types become `Schema.Unknown` casts (see section 3).
-7. A Mount runs when the element exists and its arguments are read one time. The data for the Brief bubble and the list (`data-ready`) go through attributes, and the Mount reads them with an observer. This works but looks like the pattern that Foldkit wants to avoid.
-8. `@foldkit/ui` has no component for a side sheet, a toast with the focus rules of Mobius, or a chart. The first two are in `Dialog` and `Toast`. The chart is in section 2.
-9. React inside Foldkit: a program that replaces its container (`Runtime.embed` replaces the element) breaks React if React owns that element. Workaround: a wrapper `div` that has only the container as child (see the comment in `web/src/Conversation.tsx`).
+3. `OnPaste` does not give the clipboard files, and `OnKeyDown` does not give `isComposing` or `keyCode`. The chat input needs both: a pasted picture, and the Enter of an IME. Workaround: one `Mount` on the form (`ComposerBehavior` in `web/src/chat/composer.ts`) adds the DOM listeners. The same `Mount` keeps a button from taking the focus (`mousedown` with `preventDefault`), because `OnMouseDown` cannot call `preventDefault`.
+4. Foldkit renders in the next animation frame. A Message goes through a queue, and a Command starts in a microtask. A DOM event that Playwright sends right after another one can see the old view. Two tests saw it: the type of the Send button (it was `button` while the Model had an empty draft and a running agent), and the draft in the browser store (see "Tests"). Workaround: the Send button has `type="submit"` in all states, and the spec waits for the stored draft. React updates a controlled input in the same turn, so the old tests relied on it.
+5. A controlled `textarea` and the voice text. The voice code puts text at the cursor and sets the scroll position of the field. The Model cannot hold the cursor. Workaround: the Subscription sets the DOM value and the cursor directly, and sends `VoiceTextPlaced` so the Model gets the same value. The region state (the text around the voice text) lives in the Stream, and an `input` event ends it.
+6. Scroll rules need DOM data that the view cannot give: the position at the end, the position of the first unread message, and the place of the message after a prepend. Workaround: one `Mount` (`ChatList` in `web/src/chat/scroll.ts`) with a `MutationObserver`, a `ResizeObserver` and a `scroll` listener. The view gives it two data attributes (`data-ready` and `data-first-unread`). This is the largest piece of imperative code in the program. It does the work of 6 refs, 3 effects and 2 layout effects of the React code, and it is as hard to read. At least six of the Playwright tests of `chat.spec.ts` failed because of details of this Mount.
+7. The Model must be an Effect Schema, so API types become `Schema.Unknown` casts (see section 3).
+8. A Mount reads its arguments one time. The data for the Brief bubble and the list go through attributes, and the Mount reads them with an observer. This works, but it looks like the pattern that Foldkit wants to avoid. The program has five Mounts: `ComposerBehavior`, `ChatList`, `BriefLength`, `PanelOpened` and `PortalToBody`.
+9. React inside Foldkit: `Runtime.embed` replaces the container element with its own root. A container that React owns breaks React. Workaround: a wrapper `div` that has only the container as child (see the comment in `web/src/Conversation.tsx`).
 10. The type of a Mount Stream must list only the Messages that the Mount declares, so a `Stream.callback` needs a narrow type (`ComposerMessage`). This is a small cost, but each Mount repeats it.
-11. Time: the earlier Implementer session used more than 6 hours of agent time on the port and did not finish. This proof used about the same time again to finish the input, the scroll rules, the retry waits and the tests. The port of a screen with this much behavior takes long, because the TypeScript, the lint rules of Foldkit and the Effect types need care.
+11. A dialog inside the chat section hides the tray, because a Tailwind rule of the chat section (`group-has-[textarea:focus]/chat`) sees the focused field of the dialog. The React dialog is in a Radix portal. Workaround: the Mount `PortalToBody` moves the dialog to the body. This is the example of the Foldkit docs.
+12. The cost of a faithful port. The Tailwind classes and the markup of each component came from the React code, and the first version of the port guessed them. 141 of 298 screenshots differed at that time, and about 50 specs failed. A port needs the exact classes, and a check by screenshot comparison after each component finds the errors early. The proof built a comparison tool for this (a few lines with the PNG reader of Playwright).
 
 ### Line counts
 
 | | Lines |
 |---|---|
-| React code of the screen at the base commit: `Conversation.tsx` 977, `MessageInput.tsx` 507, `ActionCard.tsx` 247, `ActionTray.tsx` 73, `QuestionCard.tsx` 89, `InboxItemCard.tsx` 54, `AnswerPanel.tsx` 376, `Markdown.tsx` 40, `FileImage.tsx` 21 | 2,384 |
-| Foldkit code: `web/src/chat/*.ts` without the test (`commands` 540, `view` 1,450, `update` 1,100, `composer` 345, `subscriptions` 320, `icons` 317, `scroll` 140, `model` 160, `message` 97, rest 100) | about 4,600 |
+| React code of the screen at the base commit: `Conversation.tsx` 977, `MessageInput.tsx` 507, `ActionCard.tsx` 247, `ActionTray.tsx` 73, `QuestionCard.tsx` 89, `InboxItemCard.tsx` 54, `AnswerPanel.tsx` 376, `Markdown.tsx` 40, `FileImage.tsx` 21 | 2,384 (and about 270 lines of `InboxRow` in `Inbox.tsx`, which the tray reuses) |
+| Foldkit code: `web/src/chat/*.ts` without the test: `view` 1,463, `update` 1,227, `commands` 609, `composer` 490, `subscriptions` 341, `icons` 172, `model` 172, `scroll` 152, `message` 109, `program`, `ports`, `flags` and `ui` 95 | 4,830 |
 | React host (`web/src/Conversation.tsx`) | 112 |
-| Story tests | 557 |
+| Story tests | 595 |
 
-The Foldkit code is about twice as long as the React code. Part of the difference is the icons (317 lines, which a generator removes) and a port that is longer than needed because it copies the markup by hand. The code is more explicit: each effect is a Command, and each change of state is a Message.
+The Foldkit code is about 1.8 times as long as the React code. Part of the difference is explicit code that React hides: each effect is a Command, and each change of state is a Message with a handler. Another part is a copy of the markup that a generator or shared helper can remove. `icons.ts` now has the data of the `lucide-react` icons, and `ui.ts` shares the class helpers (`buttonVariants` and `badgeVariants` moved to files that React and Foldkit both import).
 
 ## 8. Input for the plan
 
@@ -198,7 +218,7 @@ Facts from the proof:
 - Each screen that is embedded adds a Foldkit runtime start (an Effect runtime, a Subscription system and one Port set). The size of Foldkit and Effect (144 kB gzip) is paid at the first screen, and later screens add only their code.
 - Two programs on a page need care: a Port holds only data that a Schema can encode. A function, a DOM reference or a React element cannot cross it. The chat host keeps `head` and `note` in React for this reason. The wrapper `div` and the `key` on the host are needed (see Problems 2 and 9).
 - The shared state is the hard part: the Inbox screen and the chat screen write the same draft store, the Workstream list and the unread counts live in React hooks, and `App.tsx` owns the `EventSource`. Each of them must cross the Port, or must move to `lib/` as a store with a subscription, before the second screen moves.
-- The size grows during the move: React stays until the last screen moves. The bundle is the sum of both, so the Foldkit move is +165 kB gzip until the end.
+- The size grows during the move: React stays until the last screen moves. The bundle is the sum of both, so the Foldkit move is +167 kB gzip until the end.
 - `main` stays releasable: each screen is a separate pull request, and the Playwright specs of that screen are the check. The screens that other Workstreams change (`Inbox.tsx`, `Pauses.tsx`, `Checkup.tsx`, and the files of voice) move last.
 
 ### Move in one step on a long branch
