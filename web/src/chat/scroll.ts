@@ -57,7 +57,17 @@ export const ChatList = Mount.defineStream("ChatList", {
           }
         };
 
+        // The end of the list moves when a message grows after its first layout, for example a table or a font.
+        const resize = new ResizeObserver(() => {
+          if (pinned) {
+            scrollToEnd();
+          }
+        });
+
         const layout = () => {
+          for (const child of list.children) {
+            resize.observe(child);
+          }
           const items = list.querySelectorAll("[data-message], [data-queued]");
           const messages = list.querySelectorAll("[data-message]");
           const nextFirst =
@@ -116,7 +126,6 @@ export const ChatList = Mount.defineStream("ChatList", {
         list.addEventListener("scroll", onScroll);
         list.addEventListener("load", onLoad, true);
         // The list gets shorter when the input gets taller, and the end of the list must stay in view.
-        const resize = new ResizeObserver(onLoad);
         resize.observe(list);
         const mutations = new MutationObserver(layout);
         mutations.observe(list, {
