@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"log"
+	"slices"
 
 	gh "github.com/google/go-github/v92/github"
 
@@ -127,9 +128,18 @@ func (e *Engine) continuePausedMerges(ctx context.Context, repository github.Rep
 	return nil
 }
 
+// approveAsOwner writes no review when an open ready for review Inbox item of the task is merging, because the Owner
+// already approved with "Merge".
 func (e *Engine) approveAsOwner(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) error {
 	e.mergeMu.Lock()
 	defer e.mergeMu.Unlock()
+	items, err := e.openReadyItems(ctx, task)
+	if err != nil {
+		return err
+	}
+	if slices.ContainsFunc(items, func(item store.InboxItem) bool { return item.Merging != 0 }) {
+		return nil
+	}
 	asOwner, err := e.github.AsOwner(ctx, repository)
 	if err != nil {
 		return err

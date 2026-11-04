@@ -323,3 +323,25 @@ func TestAnApprovalOfAPersonAfterAServerErrorOfTheApprovalGetsNoSecondApproval(t
 		t.Errorf("reviews = %d", got)
 	}
 }
+
+func TestAMergeTapDuringTheRetryOfTheApprovalGivesOneApproval(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := approvable(t, fake, "merge", true)
+	fake.FailReviews(http.StatusInternalServerError, 1000)
+	sendChat(t, server, leadChat, "Approve #41")
+	item := retryItem(t, server)
+	reached, release := fake.HoldPullRequest(shop, 42)
+	<-reached
+	fake.FailReviews(0, 0)
+
+	if status, body := merge(t, server, item.ID); status != http.StatusOK {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+	release()
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "" })
+	if calls, count := fake.MergeCalls(), approvals(fake); calls != 1 || count != 1 {
+		t.Errorf("merge calls = %d, approvals = %d", calls, count)
+	}
+}

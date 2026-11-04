@@ -477,8 +477,27 @@ func (g *FakeGitHub) headOf(repository string, number int64) string {
 	return strings.TrimSpace(string(head))
 }
 
+// HoldPullRequest makes the next read of the pull request number wait until a call of release. The channel closes when
+// the request arrives.
+func (g *FakeGitHub) HoldPullRequest(repository string, number int64) (<-chan struct{}, func()) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	h := &hold{reached: make(chan struct{}), release: make(chan struct{})}
+	g.pullHolds[issueKey{repository, number}] = h
+	return h.reached, func() { close(h.release) }
+}
+
 func (g *FakeGitHub) getPullRequest(w http.ResponseWriter, r *http.Request) {
 	number, _ := strconv.ParseInt(r.PathValue("number"), 10, 64)
+	g.mu.Lock()
+	key := issueKey{repository(r), number}
+	h := g.pullHolds[key]
+	delete(g.pullHolds, key)
+	g.mu.Unlock()
+	if h != nil {
+		close(h.reached)
+		<-h.release
+	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.failPullReads {
