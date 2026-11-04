@@ -156,13 +156,13 @@ Changed tests (the issue asks for each change by name):
 
 ### Story tests
 
-`web/src/chat/update.test.ts` has 48 tests with Vitest and the Story tools of Foldkit, `web/src/chat/markdown.test.ts` has 6 tests of the Markdown parse and its cache, and `web/src/chat/view.test.ts` has 3 tests of the Markdown view (`pnpm test`; `.mobius/check` runs all of them, in 0.6 s). They cover:
+`web/src/chat/update.test.ts` has 48 tests with Vitest and the Story tools of Foldkit, `web/src/chat/markdown.test.ts` has 6 tests of the Markdown parse and its cache, and `web/src/chat/view.test.ts` has 5 tests of the Markdown view (`pnpm test`; `.mobius/check` runs all of them, in 0.6 s). They cover:
 
 - the send queue: queue, send, the next item, discard, and the removal of a sent item after the next load, also when the server gives no `browserId`;
 - the retry waits: the wait grows to the last value and stays, a wait that "Retry now" replaced is ignored;
 - the merge of a live message into the list: sort, longer text wins, shorter text ignored, older than the first message dropped, queued item removed;
 - the first steps of the answer panel, a todo with an empty note, a failed decision (the list stays, the panel opens again with the error), the Details panel of a card (it stays when the host sends the tray again) and of a tray row (it closes with the row);
-- the pending state of the Stop button (it stays after a success), and of Merge and Send again in the tray, with the refusal;
+- the pending state of the Stop button (it stays after a success, and a second tap does nothing), and of Merge and Send again in the tray, with the refusal;
 - the send queue after a lost answer: the item that the server stored ends the wait, and the next item goes, also when the request of that item fails after the item left the queue;
 - two taps on Approve, Reject or Send in the answer panel send one request for the item, and a request of one item does not block another item;
 - an answer that waits for the final voice text goes to the item of the tap, also when the panel closes or another panel opens, and the voice region of the chat field stays when a panel opens;
@@ -170,6 +170,7 @@ Changed tests (the issue asks for each change by name):
 - a failed read of the browser store ends the load of the queue and shows the error;
 - the panel of a request: a success, an error and a new request change only the panel and the error of their own item, and the local merge answer ends when the row comes with other data;
 - a sent item leaves the queue at the end of its own load, and stays when a live message or the load of another send comes.
+- a `javascript:` link and a `javascript:` image show as text with no link, and a link with a safe scheme keeps its `href`.
 
 The test "removes a sent item at the end of its own load, also when the server gives no browserId" fails on the earlier code (the item stayed), and the Playwright test `attachments.spec.ts` "the bubble of a sent message shows the card of the Inbox item" failed in the same way before the fix.
 
