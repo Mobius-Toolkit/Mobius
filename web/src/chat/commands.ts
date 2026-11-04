@@ -23,7 +23,7 @@ import {
 } from "@/lib/outbox";
 import { failInboxItem, hideInboxItem } from "@/lib/inbox";
 import { issueRef, showNotice } from "@/lib/notice";
-import { fitImage, maxImages } from "@/lib/images";
+import { fitImage, tooManyImages } from "@/lib/images";
 import {
   discardVoiceAction,
   finishForSendAction,
@@ -161,6 +161,13 @@ export const PostQueued = Command.define("PostQueued", {
         });
       }
     }),
+});
+
+export const WaitToRetry = Command.define("WaitToRetry", {
+  args: { id: Schema.String, delay: Schema.Number, sequence: Schema.Number },
+  messages: [Message.RetryDue],
+  execute: ({ id, delay, sequence }) =>
+    Effect.sleep(delay).pipe(Effect.as(Message.RetryDue({ id, sequence }))),
 });
 
 export const RemoveQueued = Command.define("RemoveQueued", {
@@ -440,7 +447,7 @@ export const FitImages = Command.define("FitImages", {
         }
       }
       if (!problem && files.length > room) {
-        problem = `A message has at most ${maxImages} images.`;
+        problem = tooManyImages;
       }
       return Message.ImagesFitted({ images: added, problem });
     }),

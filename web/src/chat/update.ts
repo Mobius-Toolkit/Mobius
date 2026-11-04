@@ -33,17 +33,11 @@ import {
   StopChat,
   StopVoice,
   ToggleVoice,
+  WaitToRetry,
 } from "./commands";
-import { maxImages } from "@/lib/images";
+import { maxImages, tooManyImages } from "@/lib/images";
 import { Message } from "./message";
-import {
-  countsAsUnread,
-  retryDelays,
-  upsert,
-  type Failure,
-  type Model,
-  type Waiting,
-} from "./model";
+import { countsAsUnread, retryDelays, upsert, type Model, type Waiting } from "./model";
 
 function isEmptyDraft(model: Model) {
   return (
@@ -493,14 +487,26 @@ export function update(model: Model, message: Message): UpdateReturn<Model, Mess
     },
 
     SendAttemptFailed: ({ id, error, retryAt }) => {
-      const failureCount = model.failureCount + 1;
-      const attempt: Failure = { id, error, retryAt };
+      const delay = retryDelays[Math.min(model.failureCount, retryDelays.length - 1)];
       return {
         model: {
           ...model,
-          attempt,
-          failureCount,
+          attempt: { id, error, retryAt },
+          failureCount: model.failureCount + 1,
         },
+        commands: [WaitToRetry({ id, delay, sequence: model.retrySequence })],
+      };
+    },
+
+    RetryDue: ({ id, sequence }) => {
+      const next = (model.queue as Waiting[]).find((item) => !item.sent);
+      if (sequence !== model.retrySequence || !next || next.id !== id || model.attempt?.id !== id) {
+        return { model };
+      }
+      const delay = retryDelays[Math.min(model.failureCount, retryDelays.length - 1)];
+      return {
+        model: { ...model, attempt: null },
+        commands: [PostQueued({ item: next, delay })],
       };
     },
 
@@ -515,6 +521,7 @@ export function update(model: Model, message: Message): UpdateReturn<Model, Mess
         model: {
           ...model,
           attempt: null,
+          retrySequence: model.retrySequence + 1,
         },
         commands,
       };
@@ -522,13 +529,20 @@ export function update(model: Model, message: Message): UpdateReturn<Model, Mess
 
     DiscardQueuedClicked: ({ id }) => {
       const queue = (model.queue as Waiting[]).filter((item) => item.id !== id);
+      const retrying = model.attempt?.id === id;
+      const next = queue.find((item) => !item.sent);
       return {
         model: {
           ...model,
           queue,
-          attempt: model.attempt?.id === id ? null : model.attempt,
+          attempt: retrying ? null : model.attempt,
+          failureCount: retrying ? 0 : model.failureCount,
+          retrySequence: retrying ? model.retrySequence + 1 : model.retrySequence,
         },
-        commands: [RemoveQueued({ id })],
+        commands: [
+          RemoveQueued({ id }),
+          ...(retrying && next ? [PostQueued({ item: next, delay: retryDelays[0] })] : []),
+        ],
       };
     },
 
@@ -606,12 +620,14 @@ export function update(model: Model, message: Message): UpdateReturn<Model, Mess
     }),
 
     ImagesFitted: ({ images: rawImages, problem }) => {
-      const nextImages = [...(model.draftImages as File[]), ...(rawImages as File[])].slice(
-        0,
-        maxImages,
-      );
+      const all = [...(model.draftImages as File[]), ...(rawImages as File[])];
+      const nextImages = all.slice(0, maxImages);
       return {
-        model: { ...model, draftImages: nextImages, sendError: problem },
+        model: {
+          ...model,
+          draftImages: nextImages,
+          sendError: !problem && all.length > maxImages ? tooManyImages : problem,
+        },
         commands: [
           SaveDraft({
             organization: model.organization,

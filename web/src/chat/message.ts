@@ -31,6 +31,7 @@ export const Message = defineMessageUnion({
   MessageQueued: { item: Schema.Unknown },
   SendAttemptSucceeded: { id: Schema.String },
   SendAttemptFailed: { id: Schema.String, error: Schema.String, retryAt: Schema.Number },
+  RetryDue: { id: Schema.String, sequence: Schema.Number },
   RetryNowClicked: {},
   DiscardQueuedClicked: { id: Schema.String },
   CompletedRemoveQueued: { id: Schema.String },

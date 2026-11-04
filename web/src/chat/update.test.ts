@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Command as StoryCommand, given, message, model, story } from "foldkit/story";
 import type { ChatMessage } from "@/api/api.gen";
 import type { Queued } from "@/lib/outbox";
-import { FetchActionBrief, FetchPage, PostQueued, RemoveQueued } from "./commands";
+import { FetchActionBrief, FetchPage, PostQueued, RemoveQueued, WaitToRetry } from "./commands";
 import { Message } from "./message";
 import { initialModel, retryDelays, type Model, type Waiting } from "./model";
 import { update } from "./update";
@@ -231,11 +231,9 @@ describe("chat update story tests", () => {
   });
 
   describe("retry waits logic", () => {
-    it("sets failure count and attempt on SendAttemptFailed", () => {
-      const base = createTestModel({
-        failureCount: 0,
-      });
-
+    it("sets failure count and attempt on SendAttemptFailed, and waits for the first delay", () => {
+      const q1 = createQueuedItem("q1", "Retry message");
+      const base = createTestModel({ queue: [q1 as Waiting], failureCount: 0 });
       const retryTime = 1700000000000 + retryDelays[0];
 
       story(
@@ -255,6 +253,88 @@ describe("chat update story tests", () => {
             error: "Temporary network failure",
             retryAt: retryTime,
           });
+        }),
+        StoryCommand.expectExact(WaitToRetry({ id: "q1", delay: retryDelays[0], sequence: 0 })),
+        StoryCommand.resolve(WaitToRetry, Message.RetryDue({ id: "q1", sequence: 0 })),
+        model((m) => {
+          expect(m.attempt).toBeNull();
+        }),
+        StoryCommand.expectExact(PostQueued({ item: q1, delay: retryDelays[1] })),
+        StoryCommand.resolve(PostQueued, Message.SendAttemptSucceeded({ id: "q1" })),
+        StoryCommand.resolve(
+          FetchPage,
+          Message.PageLoaded({
+            page: {
+              messages: [],
+              older: false,
+              writing: false,
+              stoppable: false,
+              pausedUntil: null,
+            },
+            isInitial: false,
+          }),
+        ),
+        StoryCommand.expectNone(),
+      );
+    });
+
+    it("grows the wait to the last delay and keeps it", () => {
+      const q1 = createQueuedItem("q1", "Retry message");
+      const base = createTestModel({
+        queue: [q1 as Waiting],
+        failureCount: retryDelays.length + 2,
+      });
+
+      story(
+        update,
+        given(base),
+        message(Message.SendAttemptFailed({ id: "q1", error: "down", retryAt: 1 })),
+        StoryCommand.expectExact(
+          WaitToRetry({ id: "q1", delay: retryDelays[retryDelays.length - 1], sequence: 0 }),
+        ),
+        StoryCommand.resolve(WaitToRetry, Message.RetryDue({ id: "q1", sequence: 0 })),
+        StoryCommand.expectExact(
+          PostQueued({ item: q1, delay: retryDelays[retryDelays.length - 1] }),
+        ),
+        StoryCommand.resolve(PostQueued, Message.SendAttemptSucceeded({ id: "q1" })),
+        StoryCommand.resolve(
+          FetchPage,
+          Message.PageLoaded({
+            page: {
+              messages: [],
+              older: false,
+              writing: false,
+              stoppable: false,
+              pausedUntil: null,
+            },
+            isInitial: false,
+          }),
+        ),
+        StoryCommand.expectNone(),
+      );
+    });
+
+    it("ignores a wait that ended after Retry now", () => {
+      const q1 = createQueuedItem("q1", "Retry message");
+      const base = createTestModel({
+        queue: [q1 as Waiting],
+        failureCount: 1,
+        attempt: { id: "q1", error: "down", retryAt: 1 },
+      });
+
+      story(
+        update,
+        given(base),
+        message(Message.RetryNowClicked()),
+        StoryCommand.expectExact(PostQueued({ item: q1, delay: retryDelays[1] })),
+        StoryCommand.resolve(
+          PostQueued,
+          Message.SendAttemptFailed({ id: "q1", error: "down", retryAt: 2 }),
+        ),
+        StoryCommand.expectExact(WaitToRetry({ id: "q1", delay: retryDelays[1], sequence: 1 })),
+        StoryCommand.resolve(WaitToRetry, Message.RetryDue({ id: "q1", sequence: 0 })),
+        model((m) => {
+          expect(m.attempt).toEqual({ id: "q1", error: "down", retryAt: 2 });
         }),
         StoryCommand.expectNone(),
       );

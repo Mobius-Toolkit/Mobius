@@ -1,4 +1,5 @@
 export const maxImages = 4;
+export const tooManyImages = `A message has at most ${maxImages} images.`;
 const maxEdge = 1568;
 const maxBytes = 5 * 1024 * 1024;
 const types = ["image/png", "image/jpeg", "image/gif", "image/webp"];
