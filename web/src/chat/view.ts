@@ -380,7 +380,7 @@ function renderQuestionCard(
     [
       h.div(
         [h.Class("text-xs text-muted-foreground")],
-        [`${question.repository === "" ? "Coordinator" : "Lead"} · ${clock(message.time)}`],
+        [question.repository === "" ? "Coordinator" : "Lead", " · ", clock(message.time)],
       ),
       h.p([h.Class("truncate")], [message.text]),
       h.div(
@@ -488,7 +488,7 @@ function renderMessage(h: H, message: ChatMessage, open: boolean, rows: InboxIte
           "max-w-[85%] justify-self-end rounded-xl border border-transparent bg-secondary px-2 py-1 text-xs text-muted-foreground wrap-anywhere",
         ),
       ],
-      [`${message.text} · ${clock(message.time)}`],
+      [message.text, " · ", clock(message.time)],
     );
   }
 
@@ -967,7 +967,7 @@ function renderActionTray(h: H, model: Model): Html {
                       h.DataAttribute("slot", "badge"),
                       h.Class(badgeClass(item.todo.mandatory ? "default" : "outline")),
                     ],
-                    [`Todo · ${item.todo.mandatory ? "mandatory" : "optional"}`],
+                    ["Todo · ", item.todo.mandatory ? "mandatory" : "optional"],
                   )
                 : h.empty;
               return h.li(
@@ -999,7 +999,12 @@ function renderActionTray(h: H, model: Model): Html {
                               h.span(
                                 [
                                   h.Class(
-                                    "grow basis-0 truncate sm:max-w-full sm:grow-0 sm:basis-auto",
+                                    cn(
+                                      "grow basis-0 truncate sm:max-w-full sm:grow-0 sm:basis-auto",
+                                      item.kind === InboxItemKind.Lead_failed
+                                        ? "sm:shrink"
+                                        : "sm:shrink-0",
+                                    ),
                                   ),
                                 ],
                                 [item.title],
@@ -1008,7 +1013,10 @@ function renderActionTray(h: H, model: Model): Html {
                                 ? h.span(
                                     [
                                       h.Class(
-                                        "basis-full truncate text-sm text-muted-foreground sm:basis-auto",
+                                        cn(
+                                          "basis-full truncate text-sm text-muted-foreground sm:basis-auto",
+                                          item.kind === InboxItemKind.Lead_failed && "sm:shrink-0",
+                                        ),
                                       ),
                                     ],
                                     [item.reason],
