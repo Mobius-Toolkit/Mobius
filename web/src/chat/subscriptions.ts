@@ -35,8 +35,15 @@ function createVoiceStream() {
   return Stream.callback<Message>(
     (queue) =>
       Effect.gen(function* () {
-        // The text around the voice text of the run, and the value of the field after the last voice text.
+        // The text around the voice text of the run. An edit of the Owner in the field ends the region, and a render
+        // that sets the Model value again must not end it.
         let region: VoiceRegion | undefined;
+        const edited = (event: Event) => {
+          if ((event.target as Element).id === inputId) {
+            region = undefined;
+          }
+        };
+        document.addEventListener("input", edited, true);
 
         const place = (
           target: HTMLTextAreaElement,
@@ -76,7 +83,7 @@ function createVoiceStream() {
             if (!target) {
               return;
             }
-            if (live && region && target.value === region.value) {
+            if (live && region) {
               place(target, voiceText, region.lead, region.trail);
             } else if (voiceText) {
               placeAtCursor(target, voiceText);
@@ -91,7 +98,7 @@ function createVoiceStream() {
               placeAtCursor(target, voiceText);
               return true;
             }
-            if (!region || target.value !== region.value) {
+            if (!region) {
               return false;
             }
             place(target, voiceText, region.lead, region.trail);
@@ -103,6 +110,7 @@ function createVoiceStream() {
           Effect.sync(() => {
             unsubVoice();
             unregInput();
+            document.removeEventListener("input", edited, true);
           }),
         );
       }),

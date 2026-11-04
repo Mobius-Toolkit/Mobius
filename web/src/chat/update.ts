@@ -79,6 +79,11 @@ function sendCommands(model: Model, text: string) {
   ];
 }
 
+function newestMessage(model: Model) {
+  const messages = model.messages as ChatMessage[];
+  return model.loaded && messages.length > 0 ? Math.max(...messages.map((m) => m.id)) : null;
+}
+
 function lastAgentMessage(model: Model) {
   return (model.messages as ChatMessage[]).findLast(
     (m) => m.author !== "Owner" && m.author !== "Event" && m.author !== "Record",
@@ -182,6 +187,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
           repository: model.repository,
           workstream: model.workstream,
           isInitial: !model.loaded,
+          known: newestMessage(model),
         }),
       ],
     }),
@@ -492,6 +498,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
           repository: model.repository,
           workstream: model.workstream,
           isInitial: false,
+          known: newestMessage(model),
         }),
       );
       if (next) {
@@ -752,7 +759,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
       }
       return {
         model: { ...model, probingSend: true },
-        commands: [ProbeVoice({ region: model.voiceRegion })],
+        commands: [ProbeVoice({ region: model.voiceRegion, draftText: model.draftText })],
       };
     },
 

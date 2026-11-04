@@ -33,29 +33,52 @@ import {
   stopVoiceAction,
   toggleVoiceAction,
 } from "@/lib/voice";
-import { inputId } from "./composer";
 import { Message } from "./message";
 import { ports } from "./ports";
 
+// A load after a reconnect gets pages until one has the newest message that the list got before.
 export const FetchPage = Command.define("FetchPage", {
   args: {
     organization: Schema.String,
     repository: Schema.String,
     workstream: Schema.Number,
     isInitial: Schema.Boolean,
+    known: Schema.NullOr(Schema.Number),
   },
   messages: [Message.PageLoaded, Message.PageFailed],
-  execute: ({ organization, repository, workstream, isInitial }) =>
+  execute: ({ organization, repository, workstream, isInitial, known }) =>
     Effect.promise(async () => {
       try {
         const res = await getChat({ organization, repository, workstream });
-        if (res.status === 200) {
-          return Message.PageLoaded({ page: res.data.data, isInitial });
-        }
         if (res.status === 401) {
           return Message.PageFailed({ error: "login required" });
         }
-        return Message.PageFailed({ error: res.data.error || "Failed to load chat" });
+        if (res.status !== 200) {
+          return Message.PageFailed({ error: res.data.error || "Failed to load chat" });
+        }
+        const page = res.data.data;
+        const messages = [...page.messages];
+        let oldest = page;
+        for (;;) {
+          if (known === null || !oldest.older || oldest.messages[0].id <= known) {
+            break;
+          }
+          const older = await getChat({
+            organization,
+            repository,
+            workstream,
+            before: oldest.messages[0].id,
+          });
+          if (older.status === 401) {
+            return Message.PageFailed({ error: "login required" });
+          }
+          if (older.status !== 200) {
+            return Message.PageFailed({ error: older.data.error || "Failed to load chat" });
+          }
+          oldest = older.data.data;
+          messages.unshift(...oldest.messages);
+        }
+        return Message.PageLoaded({ page: { ...page, messages }, isInitial });
       } catch (err) {
         return Message.PageFailed({ error: String(err) });
       }
@@ -466,15 +489,15 @@ export const ProbeVoice = Command.define("ProbeVoice", {
     region: Schema.NullOr(
       Schema.Unknown as Schema.Schema<{ lead: string; trail: string; value: string }>,
     ),
+    draftText: Schema.String,
   },
   messages: [Message.VoiceProbed],
-  execute: ({ region }) =>
-    Effect.sync(() => {
-      const field = document.getElementById(inputId) as HTMLTextAreaElement | null;
-      return Message.VoiceProbed({
-        live: showsLiveVoice() && region !== null && region.value === field?.value,
-      });
-    }),
+  execute: ({ region, draftText }) =>
+    Effect.sync(() =>
+      Message.VoiceProbed({
+        live: showsLiveVoice() && region !== null && region.value === draftText,
+      }),
+    ),
 });
 
 export const StopVoice = Command.define("StopVoice", {

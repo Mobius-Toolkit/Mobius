@@ -21,6 +21,7 @@ export function createChatProgram(container: HTMLElement, flags: Flags) {
           repository: flags.repository,
           workstream: flags.workstream,
           isInitial: true,
+          known: null,
         }),
         ListQueued({
           organization: flags.organization,

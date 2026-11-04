@@ -603,17 +603,16 @@ const BriefLength = Mount.defineStream("BriefLength", {
     Stream.callback<ReturnType<typeof Message.BriefMeasured>>((queue) =>
       Effect.gen(function* () {
         const content = element.firstElementChild;
-        if (!content) {
-          return;
-        }
         const measure = () =>
           Queue.offerUnsafe(
             queue,
-            Message.BriefMeasured({ long: content.clientHeight > briefCutHeight }),
+            Message.BriefMeasured({ long: (content?.clientHeight ?? 0) > briefCutHeight }),
           );
         measure();
         const observer = new ResizeObserver(measure);
-        observer.observe(content);
+        if (content) {
+          observer.observe(content);
+        }
         yield* Effect.addFinalizer(() => Effect.sync(() => observer.disconnect()));
       }),
     ),

@@ -136,6 +136,7 @@ describe("chat update story tests", () => {
             repository: "test-repo",
             workstream: 1428,
             isInitial: false,
+            known: null,
           }),
           PostQueued({
             item: second,
