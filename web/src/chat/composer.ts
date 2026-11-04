@@ -96,6 +96,16 @@ export const ComposerBehavior = Mount.defineStream("ComposerBehavior", {
             window.scrollTo(0, 0);
           }
         };
+        // Foldkit renders in the next frame, so a tap right after a key sees the Send button of the empty draft.
+        // The button is enabled at once, as the controlled field of the React code did.
+        const typed = (event: Event) => {
+          const target = event.target as HTMLTextAreaElement;
+          const submit = element.querySelector<HTMLButtonElement>("button[type=submit]");
+          if (target === field() && submit && target.value.trim()) {
+            submit.disabled = false;
+          }
+        };
+        element.addEventListener("input", typed);
         element.addEventListener("keydown", keydown);
         element.addEventListener("paste", paste);
         element.addEventListener("focusout", blur);
@@ -105,6 +115,7 @@ export const ComposerBehavior = Mount.defineStream("ComposerBehavior", {
         }
         yield* Effect.addFinalizer(() =>
           Effect.sync(() => {
+            element.removeEventListener("input", typed);
             element.removeEventListener("keydown", keydown);
             element.removeEventListener("paste", paste);
             element.removeEventListener("focusout", blur);
