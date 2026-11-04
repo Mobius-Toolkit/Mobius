@@ -166,7 +166,7 @@ Changed tests (the issue asks for each change by name):
 - the send queue after a lost answer: the item that the server stored ends the wait, and the next item goes, also when the request of that item fails after the item left the queue;
 - two taps on Approve, Reject or Send in the answer panel send one request for the item, and a request of one item does not block another item;
 - an answer that waits for the final voice text goes to the item of the tap, also when the panel closes or another panel opens, and the voice region of the chat field stays when a panel opens;
--  and a panel that opens again reads the draft of its own item;
+- a panel that opens again reads the draft of its own item;
 - a failed read of the browser store ends the load of the queue and shows the error;
 - the panel of a request: a success, an error and a new request change only the panel and the error of their own item, and the local merge answer ends when the row comes with other data;
 - a sent item leaves the queue at the end of its own load, and stays when a live message or the load of another send comes.
