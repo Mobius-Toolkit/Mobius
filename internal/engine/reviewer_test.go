@@ -119,6 +119,7 @@ func TestAReviewerThatFindsNothingTakesTheTaskToChecksAndThenToApproval(t *testi
 		"You are the Reviewer",
 		"# Brief\n\nShip loyalty plans to all shops.\n",
 		"# Issue\n\n#41 Add plan model\n\nPlans have a price.\n",
+		"# Pull request\n\n#42 https://github.com/owner/shop/pull/42\n",
 		"Base commit: "+base+"\nHead commit: "+sha+"\n",
 		"# Review threads\n")
 	if text := reply(t, server, session.ID); !strings.Contains(text, fmt.Sprintf("/worktrees/owner/shop/review-%d\n%s\nHEAD\nexit 0", session.ID, sha)) {
