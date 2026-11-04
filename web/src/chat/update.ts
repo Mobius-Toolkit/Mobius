@@ -214,12 +214,23 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
       },
     }),
 
-    ReceivedTrayItems: ({ items }) => ({
-      model: {
-        ...model,
-        trayItems: items as InboxItem[],
-      },
-    }),
+    // The panel of a row goes away with the row. A failed request brings the row back, and the panel with it.
+    ReceivedTrayItems: ({ items }) => {
+      const panel = model.activePanel;
+      const rows = (items as InboxItem[]).filter(
+        (item) => !item.action || item.action.state === "pending",
+      );
+      const gone =
+        panel !== null && panel.item.id !== 0 && !rows.some((row) => row.id === panel.item.id);
+      return {
+        model: {
+          ...model,
+          trayItems: items as InboxItem[],
+          activePanel: gone ? null : model.activePanel,
+          closedPanel: gone ? panel : model.closedPanel,
+        },
+      };
+    },
 
     ReceivedWorkstreams: ({ workstreams }) => ({
       model: {
@@ -1048,7 +1059,8 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
         model: {
           ...model,
           answerSubmitting: false,
-          activePanel: res.error ? model.activePanel : null,
+          activePanel: res.error ? (model.activePanel ?? model.closedPanel) : null,
+          closedPanel: null,
           answerError: res.error || "",
         },
       };
@@ -1102,17 +1114,13 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
             item.action?.id === action.id ? { ...item, action } : item,
           )
         : (model.trayItems as InboxItem[]).filter((item) => item.action?.id !== action.id);
+      const panel = model.activePanel ?? model.closedPanel;
       const activePanel =
-        isPending && err
-          ? model.activePanel
-            ? {
-                ...model.activePanel,
-                item: {
-                  ...model.activePanel.item,
-                  action: { ...model.activePanel.item.action, ...action },
-                },
-              }
-            : null
+        isPending && err && panel
+          ? {
+              ...panel,
+              item: { ...panel.item, action: { ...panel.item.action, ...action } },
+            }
           : null;
       return {
         model: {
@@ -1121,6 +1129,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
           trayItems: updatedTrayItems,
           decisionSubmitting: false,
           activePanel,
+          closedPanel: null,
           answerError: err,
         },
       };

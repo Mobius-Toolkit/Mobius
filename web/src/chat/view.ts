@@ -217,7 +217,12 @@ function renderActionSender(h: H, action: PendingAction, onNavigate = false): Ht
   );
 }
 
-function renderActionCard(h: H, message: ChatMessage, action: PendingAction): Html {
+function renderActionCard(
+  h: H,
+  message: ChatMessage,
+  action: PendingAction,
+  pendingItem: InboxItem | undefined,
+): Html {
   const pending = action.state === "pending";
   const failed = pending && action.error !== "";
   const outcome = failed ? action.error : action.state === "done" ? action.result : "";
@@ -255,42 +260,16 @@ function renderActionCard(h: H, message: ChatMessage, action: PendingAction): Ht
             ],
           ),
           pending
-            ? h.button(
-                [
-                  h.Type("button"),
-                  h.Class(buttonClass({ size: "sm" })),
-                  h.OnClick(
-                    Message.OpenAnswerPanel({
-                      item: {
-                        id: 0,
-                        action,
-                        title: message.text,
-                        questions: [],
-                        time: action.time,
-                        kind: InboxItemKind.approval,
-                        answer: "",
-                        dismissedAt: null,
-                        issue: 0,
-                        link: "",
-                        mergeRefusal: "",
-                        merging: false,
-                        organization: "",
-                        pullRequest: 0,
-                        pullRequestUrl: "",
-                        reason: "",
-                        reportUrl: "",
-                        repository: "",
-                        text: "",
-                        todo: null,
-                        withdrawn: false,
-                        workstream: 0,
-                        workstreamRepository: "",
-                      },
-                    }),
-                  ),
-                ],
-                ["Answer"],
-              )
+            ? pendingItem
+              ? h.button(
+                  [
+                    h.Type("button"),
+                    h.Class(buttonClass({ size: "sm" })),
+                    h.OnClick(Message.OpenAnswerPanel({ item: pendingItem })),
+                  ],
+                  ["Answer"],
+                )
+              : h.empty
             : h.button(
                 [
                   h.Type("button"),
@@ -339,7 +318,12 @@ function questionState(q: InboxItem) {
   return q.withdrawn ? "Withdrawn" : "No answer";
 }
 
-function renderQuestionCard(h: H, message: ChatMessage, question: InboxItem): Html {
+function renderQuestionCard(
+  h: H,
+  message: ChatMessage,
+  question: InboxItem,
+  pendingItem: InboxItem | undefined,
+): Html {
   const answer = question.dismissedAt ? question.answer : "";
   return h.div(
     [
@@ -362,11 +346,7 @@ function renderQuestionCard(h: H, message: ChatMessage, question: InboxItem): Ht
             [h.Class("flex min-w-0 grow flex-wrap items-center gap-x-2 gap-y-1")],
             [
               h.span(
-                [
-                  h.Class(
-                    "inline-flex items-center rounded-md border border-transparent bg-secondary px-2 py-0.5 text-xs font-semibold text-secondary-foreground",
-                  ),
-                ],
+                [h.DataAttribute("slot", "badge"), h.Class(badgeClass("secondary"))],
                 [questionState(question)],
               ),
               answer
@@ -377,25 +357,26 @@ function renderQuestionCard(h: H, message: ChatMessage, question: InboxItem): Ht
                 : h.empty,
             ],
           ),
-          !question.dismissedAt
+          !question.dismissedAt && pendingItem
             ? h.button(
                 [
                   h.Type("button"),
                   h.Class(buttonClass({ size: "sm" })),
-                  h.OnClick(Message.OpenAnswerPanel({ item: question })),
+                  h.OnClick(Message.OpenAnswerPanel({ item: pendingItem })),
                 ],
                 ["Answer"],
               )
-            : answer
-              ? h.button(
-                  [
-                    h.Type("button"),
-                    h.Class(buttonClass({ variant: "ghost", size: "sm" })),
-                    h.OnClick(Message.OpenDetailsPanel({ item: question })),
-                  ],
-                  ["Details"],
-                )
-              : h.empty,
+            : h.empty,
+          answer
+            ? h.button(
+                [
+                  h.Type("button"),
+                  h.Class(buttonClass({ variant: "ghost", size: "sm" })),
+                  h.OnClick(Message.OpenDetailsPanel({ item: question })),
+                ],
+                ["Details"],
+              )
+            : h.empty,
         ],
       ),
     ],
@@ -438,12 +419,22 @@ function renderEventBody(h: H, id: number, summary: string, body: string, open: 
   );
 }
 
-function renderMessage(h: H, message: ChatMessage, open: boolean): Html {
+function renderMessage(h: H, message: ChatMessage, open: boolean, rows: InboxItem[]): Html {
   if (message.question) {
-    return renderQuestionCard(h, message, message.question as InboxItem);
+    return renderQuestionCard(
+      h,
+      message,
+      message.question as InboxItem,
+      rows.find((row) => row.id === (message.question as InboxItem).id),
+    );
   }
   if (message.action) {
-    return renderActionCard(h, message, message.action as PendingAction);
+    return renderActionCard(
+      h,
+      message,
+      message.action as PendingAction,
+      rows.find((row) => row.action?.id === (message.action as PendingAction).id),
+    );
   }
   if (message.author === "Record") {
     return h.div(
@@ -796,10 +787,14 @@ function renderTraySideButtons(h: H, item: InboxItem): Html[] {
   return buttons;
 }
 
+function trayRows(model: Model) {
+  return (model.trayItems as InboxItem[])
+    .filter((item) => !item.action || item.action.state === "pending")
+    .toSorted((a, b) => a.id - b.id);
+}
+
 function renderActionTray(h: H, model: Model): Html {
-  const rows = (model.trayItems as InboxItem[]).filter(
-    (item) => !item.action || item.action.state === "pending",
-  );
+  const rows = trayRows(model);
   if (rows.length === 0) return h.empty;
 
   return h.div(
@@ -1053,13 +1048,14 @@ function renderFullArgument(h: H, arg: ActionArgument, model: Model, action?: Pe
   if (arg.name === "labels") {
     return (arg.labels || []).length > 0 ? renderLabelChips(h, arg.labels) : h.empty;
   }
-  if (action?.tool === "edit_brief" && arg.name === "brief") {
-    const before =
-      action.state === "pending"
-        ? model.briefActionBrief || (model.brief as Workstream | null)?.brief || ""
-        : action.oldBrief || "";
-    const diff = diffLines(before, arg.value);
-    const marked = briefMarkdown(diff, !model.showRemovedText);
+  const before =
+    action?.tool === "edit_brief" && arg.name === "brief"
+      ? action.state === "pending"
+        ? model.briefActionBrief || undefined
+        : action.oldBrief || undefined
+      : undefined;
+  if (before !== undefined) {
+    const marked = briefMarkdown(diffLines(before, arg.value), !model.showRemovedText);
     return h.div(
       [h.Class("grid min-w-0 gap-0.5")],
       [
@@ -1343,6 +1339,7 @@ export function view(model: Model, h: H): Html {
   const pending = queue.filter((item) => !storedIds.has(item.id));
   const count = messages.length + pending.length;
   const next = pending.find((item) => !item.sent);
+  const rows = trayRows(model);
   const unreadMessages = messages.filter(countsAsUnread);
   const waiting =
     model.older && model.openUnread !== null && unreadMessages.length < model.openUnread;
@@ -1393,7 +1390,9 @@ export function view(model: Model, h: H): Html {
             if (idx === 0 || label !== prevLabel) {
               items.push(renderDaySeparator(h, label));
             }
-            items.push(renderMessage(h, msg, (model.openEvents as number[]).includes(msg.id)));
+            items.push(
+              renderMessage(h, msg, (model.openEvents as number[]).includes(msg.id), rows),
+            );
             return items;
           }),
           // Render queued messages

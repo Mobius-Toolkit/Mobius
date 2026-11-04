@@ -76,6 +76,13 @@ const ChatModelSchema = Schema.Struct({
   probingSend: Schema.Boolean,
   voiceCanResend: Schema.Boolean,
   waitingForSend: Schema.Boolean,
+  closedPanel: Schema.NullOr(
+    Schema.Unknown as Schema.Schema<{
+      type: "answer" | "details";
+      item: InboxItem;
+      workstreamTitle?: string;
+    }>,
+  ),
   activePanel: Schema.NullOr(
     Schema.Unknown as Schema.Schema<{
       type: "answer" | "details";
@@ -150,6 +157,7 @@ export function initialModel(flags: Flags): Model {
     probingSend: false,
     voiceCanResend: false,
     waitingForSend: false,
+    closedPanel: null,
     activePanel: null,
     selectedOptions: {},
     answerText: "",
