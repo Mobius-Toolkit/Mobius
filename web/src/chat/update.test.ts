@@ -785,6 +785,59 @@ describe("chat update story tests", () => {
       );
     });
 
+    it("keeps the panel with the error when the tray without its row comes after the failed request", () => {
+      const base = createTestModel({
+        trayItems: [approval],
+        activePanel: { type: "answer", item: approval },
+        requesting: [8],
+      });
+
+      story(
+        update,
+        given(base),
+        message(Message.ActionFailed({ id: 8, error: "The server failed." })),
+        message(Message.ReceivedTrayItems({ items: [] })),
+        model((m) => {
+          expect(m.activePanel?.item).toBe(approval);
+          expect(m.closedPanel).toBeNull();
+          expect(m.answerError).toBe("The server failed.");
+        }),
+        message(Message.ReceivedTrayItems({ items: [approval] })),
+        model((m) => {
+          expect(m.activePanel?.item).toBe(approval);
+          expect(m.answerError).toBe("The server failed.");
+        }),
+        StoryCommand.expectNone(),
+      );
+    });
+
+    it("opens the panel again with the error when the tray without its row comes before the failed request", () => {
+      const base = createTestModel({
+        trayItems: [approval],
+        activePanel: { type: "answer", item: approval },
+        requesting: [8],
+      });
+
+      story(
+        update,
+        given(base),
+        message(Message.ReceivedTrayItems({ items: [] })),
+        model((m) => {
+          expect(m.activePanel).toBeNull();
+          expect(m.closedPanel?.item).toBe(approval);
+        }),
+        message(Message.ActionFailed({ id: 8, error: "The server failed." })),
+        model((m) => {
+          expect(m.activePanel?.item).toBe(approval);
+          expect(m.closedPanel).toBeNull();
+          expect(m.answerError).toBe("The server failed.");
+        }),
+        StoryCommand.expectExact(LoadAnswerDraft({ id: 8 })),
+        StoryCommand.resolve(LoadAnswerDraft, Message.AnswerDraftLoaded({ text: "" })),
+        StoryCommand.expectNone(),
+      );
+    });
+
     it("sends a todo with an empty note", () => {
       const base = createTestModel({
         activePanel: { type: "answer", item: todo },

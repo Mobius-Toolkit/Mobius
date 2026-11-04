@@ -288,17 +288,20 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
       },
     }),
 
-    // The panel of a row goes away with the row. A failed request brings the row back, and the panel with it.
+    // The panel of a row goes away with the row, unless the request of the panel failed. A failed request brings the
+    // row back, and a panel that closed meanwhile opens again at the end of the request.
     ReceivedTrayItems: ({ items }) => {
       const panel = model.activePanel;
       const rows = (items as InboxItem[]).filter(
         (item) => !item.action || item.action.state === "pending",
       );
       // Only the panel of a tray row goes away with the row. The Details panel of a card stays.
+      // A panel that shows the error of its request stays: the Port can come before the row is back.
       const gone =
         panel !== null &&
         panel.item.id !== 0 &&
         (panel.type === "answer" || panel.fromTray === true) &&
+        !(model.answerErrorId === panel.item.id && model.answerError !== "") &&
         !rows.some((row) => row.id === panel.item.id);
       // The local answer of a merge or a refusal belongs to the row that the Owner saw. A new read of the row, with other
       // data or without the row, replaces it.
