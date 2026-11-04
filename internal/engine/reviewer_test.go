@@ -942,3 +942,27 @@ func TestAFixRoundThatPostedAReplyAndRestartsTheWorkerStartsTheReviewer(t *testi
 		t.Errorf("thread comments = %+v", thread.Comments)
 	}
 }
+
+func TestAFixRoundWithAFindingThatHasFinishTheIssueStopsTheTaskWithNoChange(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	findingWithWords := "[[prompts]]\nwhen = \"You are the Reviewer\"\ncall = { tool = \"submit_review\", arguments = { body = \"One finding.\", comments = [{ path = \"plan.txt\", line = 1, body = \"Finish the issue with cents.\" }] } }\n\n"
+	server, _ := connectTask(t, fake, findingWithWords+leadStarts, fixesNothing, noChange)
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" })
+	implementers := endedImplementers(t, server, 2)
+	session := implementers[1]
+	if session.EndReason.String != "no_change" {
+		t.Errorf("end reason = %s, want no_change", session.EndReason.String)
+	}
+	wantText := fmt.Sprintf("The fix round of session %d made no commit, no reply and no new report.", session.ID)
+	wantNext := "Resume starts a new fix round with the open review threads."
+	wantStopNotice(t, server, fake, "No change", wantText, wantNext)
+
+	waitForPolls(t, fake)
+	if reviewers := roleSessions(t, server, engine.ReviewerRole); len(reviewers) != 1 {
+		t.Errorf("reviewers = %d, want 1", len(reviewers))
+	}
+}

@@ -680,7 +680,7 @@ func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r r
 	}
 	openReviewItems := !r.failedCheck &&
 		(r.cause == reviewCause || r.cause == leadCause || r.cause == judgeCause) &&
-		r.items != "" && !strings.Contains(r.items, "Finish the issue")
+		r.items != "" && r.items != finishTheIssue
 	j := job{
 		task:        r.task,
 		title:       r.title,
