@@ -51,6 +51,8 @@ type job struct {
 	conflictRound bool
 	// reviewItems tells that the job is a fix round with open review items.
 	reviewItems bool
+	// replied tells that the round posted a reply in a review thread or a conversation comment.
+	replied bool
 	// oldHead is the head of the pull request before the first try to push, or "" before that try.
 	oldHead string
 	prompt  string
@@ -609,14 +611,13 @@ func (e *Engine) holdReply(ctx context.Context, c caller, repository github.Repo
 		return "", err
 	}
 	if !unpushed && target.reply(ctx, repository, pullRequest, text) == nil {
-		c.agent.mu.Lock()
-		c.agent.replied = true
+		c.agent.setReplied()
 		if target.resolve(ctx, repository) != nil {
+			c.agent.mu.Lock()
 			c.agent.replies = append(c.agent.replies, heldReply{target: target, posted: true})
 			c.agent.mu.Unlock()
 			return "Mobius posted the reply, but it could not resolve the thread. Mobius resolves the thread later. Do not reply again.", nil
 		}
-		c.agent.mu.Unlock()
 		return "Mobius posted the reply.", nil
 	}
 	c.agent.mu.Lock()
@@ -975,6 +976,7 @@ func (e *Engine) implementer(ctx context.Context, j *job) error {
 		}
 		return err
 	}
+	a.job = j
 	// a.report is the report text that the session knows: the report of its prompt, or the report of its own
 	// submit_report call. A continued session gets a new report only when shortPrompt sends one.
 	a.report = j.report
@@ -1671,7 +1673,7 @@ func (e *Engine) push(ctx context.Context, a *Agent, j *job, failedLog string, m
 	if err != nil {
 		return result{}, err
 	}
-	if j.reviewItems && head == j.oldHead && !a.hasReplied() && task.Report == j.report {
+	if j.reviewItems && head == j.oldHead && !j.replied && !a.hasReplied() && task.Report == j.report {
 		return result{outcome: noChange}, nil
 	}
 	if !j.conflictRound && task.ReviewRounds >= int64(e.config.MaxFixRounds) {
@@ -1693,6 +1695,9 @@ func (a *Agent) postReplies(ctx context.Context, repository github.Repository, p
 			}
 			held.posted = true
 			a.replied = true
+			if a.job != nil {
+				a.job.replied = true
+			}
 		}
 		if err := held.target.resolve(ctx, repository); err != nil {
 			return err

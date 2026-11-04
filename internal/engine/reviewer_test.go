@@ -356,7 +356,7 @@ func TestAFixRoundOfTheLeadMakesTheReadyPullRequestADraftUntilTheEndOfTheRound(t
 	fake := testkit.NewFakeGitHub(t)
 	dataDir := t.TempDir()
 	goFile := filepath.Join(dataDir, "go")
-	round := fmt.Sprintf("[[prompts]]\nwhen = \"Remove the lines out of scope.\"\nshell = \"while [ ! -e '%s' ]; do sleep 0.05; done\"\n\n", goFile)
+	round := fmt.Sprintf("[[prompts]]\nwhen = \"Remove the lines out of scope.\"\nshell = \"while [ ! -e '%s' ]; do sleep 0.05; done && echo more >> plan.txt && git commit -q -am 'Remove lines out of scope'\"\n\n", goFile)
 	server, _ := connectTaskIn(t, fake, dataDir, noFinding+leadFindings+leadStarts, round+commits, noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 	readyForReview(t, server, fake)
@@ -912,4 +912,33 @@ func TestACIFixRoundWithNoCommitAndNoReplyDoesNotStopWithNoChange(t *testing.T) 
 	}
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" })
 	assertCIStop(t, server, fake, sha)
+}
+
+func TestAFixRoundThatPostedAReplyAndRestartsTheWorkerStartsTheReviewer(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	repliesAndFails := "[[prompts]]\n" + commitCents + "\n" +
+		"[[prompts]]\ncall = { tool = \"reply_thread\", arguments = { thread = 2, text = \"This is intended.\" } }\nerror = { code = -32603, message = \"turn failed: transient error\" }\n\n" +
+		"[[prompts]]\nshell = \"true\"\n"
+	server, _ := connectTask(t, fake, finding+leadStarts, repliesAndFails, func(cfg *config.Config) {
+		cfg.MaxWorkerRestarts = 2
+	})
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	reviewers := endedReviewers(t, server, 2)
+	if len(reviewers) != 2 {
+		t.Fatalf("reviewers = %d, want 2", len(reviewers))
+	}
+	implementers := endedImplementers(t, server, 3)
+	if implementers[1].EndReason.String != "failed" {
+		t.Errorf("implementer 1 end reason = %s, want failed", implementers[1].EndReason.String)
+	}
+	if implementers[2].EndReason.String != "done" {
+		t.Errorf("implementer 2 end reason = %s, want done", implementers[2].EndReason.String)
+	}
+	thread := fake.ReviewThread(shop, 42, 2)
+	if len(thread.Comments) < 2 || !strings.Contains(thread.Comments[1].Body, "This is intended.") {
+		t.Errorf("thread comments = %+v", thread.Comments)
+	}
 }
