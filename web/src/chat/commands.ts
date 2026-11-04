@@ -4,14 +4,18 @@ import * as Port from "foldkit/port";
 import {
   answerInboxItem,
   approveAction,
+  dismiss,
   doneInboxItem,
   getActionBrief,
   getChat,
+  mergeInboxItem,
   rejectAction,
   resumeIssue,
   seeChat,
+  sendAgain,
   stopChat,
   type ChatInboxItem,
+  type InboxItem,
 } from "@/api/api.gen";
 import {
   answerDraftKey,
@@ -45,7 +49,22 @@ import {
 import { Message } from "./message";
 import { ports } from "./ports";
 
-// A load after a reconnect gets pages until one has the newest message that the list got before.
+// A 401 asks the host for the login, as showLogin does in the React code.
+function withLogin<M>(run: () => Promise<{ message: M; status?: number }>) {
+  return Effect.promise(run).pipe(
+    Effect.tap(({ status }) =>
+      status === 401 ? Port.emit(ports.outbound.loginRequested, undefined) : Effect.void,
+    ),
+    Effect.map(({ message }) => message),
+  );
+}
+
+function pageFailed(sent: string | null, error: string) {
+  return { message: Message.PageFailed({ error, sent: sent ?? undefined }) };
+}
+
+// A load after a reconnect gets pages until one has the newest message that the list got before. sent is the id of
+// the message whose send started this load. The message leaves the queue when the load ends.
 export const FetchPage = Command.define("FetchPage", {
   args: {
     organization: Schema.String,
@@ -53,45 +72,54 @@ export const FetchPage = Command.define("FetchPage", {
     workstream: Schema.Number,
     isInitial: Schema.Boolean,
     known: Schema.NullOr(Schema.Number),
+    sent: Schema.NullOr(Schema.String),
   },
   messages: [Message.PageLoaded, Message.PageFailed],
-  execute: ({ organization, repository, workstream, isInitial, known }) =>
-    Effect.promise(async () => {
-      try {
-        const res = await getChat({ organization, repository, workstream });
-        if (res.status === 401) {
-          return Message.PageFailed({ error: "login required" });
-        }
-        if (res.status !== 200) {
-          return Message.PageFailed({ error: res.data.error || "Failed to load chat" });
-        }
-        const page = res.data.data;
-        const messages = [...page.messages];
-        let oldest = page;
-        for (;;) {
-          if (known === null || !oldest.older || oldest.messages[0].id <= known) {
-            break;
+  execute: ({ organization, repository, workstream, isInitial, known, sent }) =>
+    withLogin<ReturnType<typeof Message.PageLoaded> | ReturnType<typeof Message.PageFailed>>(
+      async () => {
+        try {
+          const res = await getChat({ organization, repository, workstream });
+          if (res.status === 401) {
+            return pageFailed(sent, "login required");
           }
-          const older = await getChat({
-            organization,
-            repository,
-            workstream,
-            before: oldest.messages[0].id,
-          });
-          if (older.status === 401) {
-            return Message.PageFailed({ error: "login required" });
+          if (res.status !== 200) {
+            return pageFailed(sent, res.data.error || "Failed to load chat");
           }
-          if (older.status !== 200) {
-            return Message.PageFailed({ error: older.data.error || "Failed to load chat" });
+          const page = res.data.data;
+          const messages = [...page.messages];
+          let oldest = page;
+          for (;;) {
+            if (known === null || !oldest.older || oldest.messages[0].id <= known) {
+              break;
+            }
+            const older = await getChat({
+              organization,
+              repository,
+              workstream,
+              before: oldest.messages[0].id,
+            });
+            if (older.status === 401) {
+              return pageFailed(sent, "login required");
+            }
+            if (older.status !== 200) {
+              return pageFailed(sent, older.data.error || "Failed to load chat");
+            }
+            oldest = older.data.data;
+            messages.unshift(...oldest.messages);
           }
-          oldest = older.data.data;
-          messages.unshift(...oldest.messages);
+          return {
+            message: Message.PageLoaded({
+              page: { ...page, messages },
+              isInitial,
+              sent: sent ?? undefined,
+            }),
+          };
+        } catch (err) {
+          return pageFailed(sent, String(err));
         }
-        return Message.PageLoaded({ page: { ...page, messages }, isInitial });
-      } catch (err) {
-        return Message.PageFailed({ error: String(err) });
-      }
-    }),
+      },
+    ),
 });
 
 export const FetchOlder = Command.define("FetchOlder", {
@@ -103,17 +131,26 @@ export const FetchOlder = Command.define("FetchOlder", {
   },
   messages: [Message.OlderPageLoaded, Message.PageFailed],
   execute: ({ organization, repository, workstream, before }) =>
-    Effect.promise(async () => {
-      try {
-        const res = await getChat({ organization, repository, workstream, before });
-        if (res.status === 200) {
-          return Message.OlderPageLoaded({ page: res.data.data });
+    withLogin<ReturnType<typeof Message.OlderPageLoaded> | ReturnType<typeof Message.PageFailed>>(
+      async () => {
+        try {
+          const res = await getChat({ organization, repository, workstream, before });
+          if (res.status === 200) {
+            return { message: Message.OlderPageLoaded({ page: res.data.data }) };
+          }
+          return {
+            message: Message.PageFailed({
+              error:
+                res.status === 401
+                  ? "login required"
+                  : res.data.error || "Failed to load older messages",
+            }),
+          };
+        } catch (err) {
+          return { message: Message.PageFailed({ error: String(err) }) };
         }
-        return Message.PageFailed({ error: res.data.error || "Failed to load older messages" });
-      } catch (err) {
-        return Message.PageFailed({ error: String(err) });
-      }
-    }),
+      },
+    ),
 });
 
 export const ListQueued = Command.define("ListQueued", {
@@ -172,25 +209,32 @@ export const PostQueued = Command.define("PostQueued", {
   },
   messages: [Message.SendAttemptSucceeded, Message.SendAttemptFailed],
   execute: ({ item, delay }) =>
-    Effect.promise(async () => {
+    withLogin<
+      ReturnType<typeof Message.SendAttemptSucceeded> | ReturnType<typeof Message.SendAttemptFailed>
+    >(async () => {
       const controller = new AbortController();
       try {
         const res = await postQueued(item, controller.signal);
         if (res.status === 204) {
           await removeQueued(item.id).catch(() => {});
-          return Message.SendAttemptSucceeded({ id: item.id });
+          return { message: Message.SendAttemptSucceeded({ id: item.id }) };
         }
-        return Message.SendAttemptFailed({
-          id: item.id,
-          error: res.error || "Send failed",
-          retryAt: Date.now() + delay,
-        });
+        return {
+          message: Message.SendAttemptFailed({
+            id: item.id,
+            error: res.error || "Send failed",
+            retryAt: Date.now() + delay,
+          }),
+          status: res.status,
+        };
       } catch (err) {
-        return Message.SendAttemptFailed({
-          id: item.id,
-          error: String(err),
-          retryAt: Date.now() + delay,
-        });
+        return {
+          message: Message.SendAttemptFailed({
+            id: item.id,
+            error: String(err),
+            retryAt: Date.now() + delay,
+          }),
+        };
       }
     }),
 });
@@ -309,10 +353,11 @@ export const AnswerInboxItem = Command.define("AnswerInboxItem", {
   },
   messages: [Message.AnswerCompleted],
   execute: ({ id, repository, issue, workstream, answer }) =>
-    Effect.promise(async () => {
+    withLogin<ReturnType<typeof Message.AnswerCompleted>>(async () => {
       hideInboxItem({ id, repository, issue });
       await updateDraft(answerDraftKey(id), () => emptyDraft).catch(() => {});
       let failure = "";
+      let status: number | undefined;
       try {
         const res = await answerInboxItem(id, { text: answer });
         if (res.status === 200) {
@@ -321,15 +366,16 @@ export const AnswerInboxItem = Command.define("AnswerInboxItem", {
               ? "Sent the answer to the Coordinator"
               : `Sent the answer to the Lead of #${workstream}`,
           );
-          return Message.AnswerCompleted({ result: res.data });
+          return { message: Message.AnswerCompleted({ result: res.data }) };
         }
-        failure = res.data.error;
+        status = res.status;
+        failure = res.status === 401 ? "" : res.data.error;
       } catch (err) {
         failure = String(err);
       }
       await saveDraftText(answerDraftKey(id), answer).catch(() => {});
       failInboxItem(id, failure);
-      return Message.AnswerCompleted({ result: { error: failure } });
+      return { message: Message.AnswerCompleted({ result: { error: failure } }), status };
     }),
 });
 
@@ -343,102 +389,97 @@ export const DoneInboxItem = Command.define("DoneInboxItem", {
   },
   messages: [Message.AnswerCompleted],
   execute: ({ id, repository, issue, name, note }) =>
-    Effect.promise(async () => {
+    withLogin<ReturnType<typeof Message.AnswerCompleted>>(async () => {
       hideInboxItem({ id, repository, issue });
       await updateDraft(answerDraftKey(id), () => emptyDraft).catch(() => {});
       let failure = "";
+      let status: number | undefined;
       try {
         const res = await doneInboxItem(id, { note });
         if (res.status === 200) {
           showNotice(`Marked the todo ${name} as done`);
-          return Message.AnswerCompleted({ result: res.data });
+          return { message: Message.AnswerCompleted({ result: res.data }) };
         }
-        failure = res.data.error;
+        status = res.status;
+        failure = res.status === 401 ? "" : res.data.error;
       } catch (err) {
         failure = String(err);
       }
       await saveDraftText(answerDraftKey(id), note).catch(() => {});
       failInboxItem(id, failure);
-      return Message.AnswerCompleted({ result: { error: failure } });
+      return { message: Message.AnswerCompleted({ result: { error: failure } }), status };
     }),
 });
 
-export const ApproveAction = Command.define("ApproveAction", {
-  args: {
-    actionId: Schema.Number,
-    inboxItemId: Schema.Number,
-    repository: Schema.String,
-    issue: Schema.Number,
-    title: Schema.String,
-    text: Schema.String,
-  },
-  messages: [Message.ActionCompleted],
-  execute: ({ actionId, inboxItemId, repository, issue, title, text }) =>
-    Effect.promise(async () => {
-      if (inboxItemId > 0) {
-        hideInboxItem({ id: inboxItemId, repository, issue });
-      }
-      try {
-        const res = await approveAction(actionId, { message: text });
-        if (res.status === 200) {
-          const decided = res.data.data;
-          if (decided.state !== "pending") {
-            showNotice(`Approved: ${title}`);
-          } else if (decided.error && inboxItemId > 0) {
-            failInboxItem(inboxItemId, decided.error);
+const decisions = { approve: approveAction, reject: rejectAction };
+
+// A decision hides the Inbox item while the request runs. A failure brings the item back with the error. The answer of
+// the server with the action that still waits has the error in the action.
+function decide(decision: "approve" | "reject") {
+  return ({
+    actionId,
+    inboxItemId,
+    repository,
+    issue,
+    title,
+    text,
+  }: {
+    actionId: number;
+    inboxItemId: number;
+    repository: string;
+    issue: number;
+    title: string;
+    text: string;
+  }) =>
+    withLogin<ReturnType<typeof Message.ActionCompleted> | ReturnType<typeof Message.ActionFailed>>(
+      async () => {
+        if (inboxItemId > 0) {
+          hideInboxItem({ id: inboxItemId, repository, issue });
+        }
+        const failed = (error: string, status?: number) => {
+          if (inboxItemId > 0) {
+            failInboxItem(inboxItemId, error);
           }
-          return Message.ActionCompleted({ action: decided });
+          return { message: Message.ActionFailed({ error }), status };
+        };
+        try {
+          const res = await decisions[decision](actionId, { message: text });
+          if (res.status === 200) {
+            const decided = res.data.data;
+            if (decided.state !== "pending") {
+              showNotice(`${decision === "approve" ? "Approved" : "Rejected"}: ${title}`);
+            } else if (decided.error && inboxItemId > 0) {
+              failInboxItem(inboxItemId, decided.error);
+            }
+            return { message: Message.ActionCompleted({ action: decided }) };
+          }
+          return failed(res.status === 401 ? "" : res.data.error, res.status);
+        } catch (err) {
+          return failed(String(err));
         }
-        if (inboxItemId > 0) {
-          failInboxItem(inboxItemId, res.data.error);
-        }
-        return Message.ActionCompleted({ action: { error: res.data.error } });
-      } catch (err) {
-        if (inboxItemId > 0) {
-          failInboxItem(inboxItemId, String(err));
-        }
-        return Message.ActionCompleted({ action: { error: String(err) } });
-      }
-    }),
+      },
+    );
+}
+
+const decisionArgs = {
+  actionId: Schema.Number,
+  inboxItemId: Schema.Number,
+  repository: Schema.String,
+  issue: Schema.Number,
+  title: Schema.String,
+  text: Schema.String,
+};
+
+export const ApproveAction = Command.define("ApproveAction", {
+  args: decisionArgs,
+  messages: [Message.ActionCompleted, Message.ActionFailed],
+  execute: decide("approve"),
 });
 
 export const RejectAction = Command.define("RejectAction", {
-  args: {
-    actionId: Schema.Number,
-    inboxItemId: Schema.Number,
-    repository: Schema.String,
-    issue: Schema.Number,
-    title: Schema.String,
-    text: Schema.String,
-  },
-  messages: [Message.ActionCompleted],
-  execute: ({ actionId, inboxItemId, repository, issue, title, text }) =>
-    Effect.promise(async () => {
-      if (inboxItemId > 0) {
-        hideInboxItem({ id: inboxItemId, repository, issue });
-      }
-      try {
-        const res = await rejectAction(actionId, { message: text });
-        if (res.status === 200) {
-          const decided = res.data.data;
-          if (decided.state !== "pending") {
-            showNotice(`Rejected: ${title}`);
-          } else if (decided.error && inboxItemId > 0) {
-            failInboxItem(inboxItemId, decided.error);
-          }
-          return Message.ActionCompleted({ action: decided });
-        }
-        if (inboxItemId > 0) {
-          failInboxItem(inboxItemId, res.data.error);
-        }
-        return Message.ActionCompleted({ action: { error: res.data.error } });
-      } catch (err) {
-        if (inboxItemId > 0) {
-          failInboxItem(inboxItemId, String(err));
-        }
-        return Message.ActionCompleted({ action: { error: String(err) } });
-      }
-    }),
+  args: decisionArgs,
+  messages: [Message.ActionCompleted, Message.ActionFailed],
+  execute: decide("reject"),
 });
 
 export const FetchActionBrief = Command.define("FetchActionBrief", {
@@ -447,16 +488,17 @@ export const FetchActionBrief = Command.define("FetchActionBrief", {
   },
   messages: [Message.ActionBriefFetched],
   execute: ({ actionId }) =>
-    Effect.promise(async () => {
+    withLogin<ReturnType<typeof Message.ActionBriefFetched>>(async () => {
       try {
         const res = await getActionBrief(actionId);
         if (res.status === 200) {
-          return Message.ActionBriefFetched({ brief: res.data.data.brief });
+          return { message: Message.ActionBriefFetched({ brief: res.data.data.brief }) };
         }
+        return { message: Message.ActionBriefFetched({ brief: "" }), status: res.status };
       } catch {
-        // ignore
+        // The dialog shows the full new Brief.
+        return { message: Message.ActionBriefFetched({ brief: "" }) };
       }
-      return Message.ActionBriefFetched({ brief: "" });
     }),
 });
 
@@ -469,17 +511,64 @@ export const ResumeIssue = Command.define("ResumeIssue", {
   },
   messages: [Message.ResumeCompleted],
   execute: ({ id, repository, issue, workstreamRepository }) =>
-    Effect.promise(async () => {
+    withLogin<ReturnType<typeof Message.ResumeCompleted>>(async () => {
       const [owner, name] = repository.split("/");
       try {
         const res = await resumeIssue(owner, name, issue);
         if (res.status === 204) {
           showNotice(`Resumed ${issueRef(repository, issue, workstreamRepository)}`);
-          return Message.ResumeCompleted({ id, error: undefined });
+          return { message: Message.ResumeCompleted({ id, error: undefined }) };
         }
-        return Message.ResumeCompleted({ id, error: res.data.error || "The server failed." });
+        return {
+          message: Message.ResumeCompleted({ id, error: res.data.error || "The server failed." }),
+          status: res.status,
+        };
       } catch (err) {
-        return Message.ResumeCompleted({ id, error: String(err) });
+        return { message: Message.ResumeCompleted({ id, error: String(err) }) };
+      }
+    }),
+});
+
+// The Send again, Dismiss and Merge buttons of a tray row.
+export const RunTrayAction = Command.define("RunTrayAction", {
+  args: {
+    item: Schema.Unknown as Schema.Schema<InboxItem>,
+    kind: Schema.Literals(["dismiss", "merge", "send_again"]),
+  },
+  messages: [Message.TrayActionDone],
+  execute: ({ item, kind }) =>
+    withLogin<ReturnType<typeof Message.TrayActionDone>>(async () => {
+      const id = item.id;
+      const done = (error: string, status?: number, merging = false) => ({
+        message: Message.TrayActionDone({
+          id,
+          kind: kind === "merge" ? "merge" : kind === "dismiss" ? "dismiss" : "action",
+          error,
+          merging,
+        }),
+        status,
+      });
+      try {
+        if (kind === "merge") {
+          const res = await mergeInboxItem(id);
+          if (res.status === 200) {
+            showNotice(
+              `Started the merge of PR ${issueRef(item.repository, item.pullRequest, item.workstreamRepository)}`,
+            );
+            return done("", undefined, res.data.data.merging);
+          }
+          return done(res.status === 401 ? "" : res.data.error, res.status);
+        }
+        const res = await (kind === "dismiss" ? dismiss(id) : sendAgain(id));
+        if (res.status === 204) {
+          if (kind === "dismiss") {
+            showNotice(`Dismissed: ${item.title || item.reason}`);
+          }
+          return done("");
+        }
+        return done(res.status === 401 ? "" : res.data.error, res.status);
+      } catch (err) {
+        return done(String(err));
       }
     }),
 });

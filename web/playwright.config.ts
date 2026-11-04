@@ -65,7 +65,8 @@ export default defineConfig({
     { name: "voice", testMatch: "voice.spec.ts", dependencies: ["screenshots"] },
     // The usage tests change no data, but they need the Apps of the screenshots test.
     { name: "usage", testMatch: "usage.spec.ts", dependencies: ["screenshots"] },
-    // The live tests change no data, but they need the Apps of the screenshots test.
+    // The live tests add two Owner messages to the Lead chat of plants/garden#12, which no later spec reads. They need the
+    // Apps of the screenshots test.
     { name: "live", testMatch: "live.spec.ts", dependencies: ["checkup", "actions"] },
     // The attachment tests give their own data with page.route, and they open chats, which marks their messages as seen.
     // Thus they run last.

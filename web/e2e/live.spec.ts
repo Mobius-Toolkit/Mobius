@@ -143,6 +143,8 @@ for (const [device, size] of Object.entries(viewports)) {
   });
 }
 
+// The test adds two Owner messages to the Lead chat of plants/garden#12. The messages stay, and no later spec reads
+// that chat.
 test("the chat screen receives a live message after the live connection closes", async ({
   page,
   browser,
@@ -162,12 +164,26 @@ test("the chat screen receives a live message after the live connection closes",
   await other.getByLabel("Access password").fill("correct horse");
   await other.getByRole("button", { name: "Log in" }).click();
   await other.goto("/workstreams/plants/garden/12");
-  await other.getByLabel("Message to the Lead").fill("Water the roses in spring.");
-  await other.getByRole("button", { name: "Send" }).click();
-  await expect(other.getByText("Water the roses in spring.")).toBeVisible();
-  await other.context().close();
+  const send = async (text: string) => {
+    await other.getByLabel("Message to the Lead").fill(text);
+    await other.getByRole("button", { name: "Send" }).click();
+    await expect(other.getByText(text)).toBeVisible();
+  };
+  await send("Water the roses in spring.");
 
   await expect(page.getByText("Water the roses in spring.")).toBeHidden();
   refuse = false;
+  // The load after the new connection shows the first message.
   await expect(page.getByText("Water the roses in spring.")).toBeVisible({ timeout: 15_000 });
+
+  // The new connection of the chat screen gets a live event with no reload of the page.
+  const loads: string[] = [];
+  await page.route("**/api/chat?*", (route) => {
+    loads.push(route.request().url());
+    return route.fallback();
+  });
+  await send("Mulch the beds in autumn.");
+  await expect(page.getByText("Mulch the beds in autumn.")).toBeVisible();
+  expect(loads).toHaveLength(0);
+  await other.context().close();
 });

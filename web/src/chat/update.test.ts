@@ -5,9 +5,13 @@ import type { Queued } from "@/lib/outbox";
 import {
   FetchActionBrief,
   FetchPage,
+  DoneInboxItem,
   LoadAnswerDraft,
   PostQueued,
+  ProbeVoice,
   RemoveQueued,
+  RunTrayAction,
+  StopVoice,
   WaitToRetry,
 } from "./commands";
 import { Message } from "./message";
@@ -144,6 +148,7 @@ describe("chat update story tests", () => {
             workstream: 1428,
             isInitial: false,
             known: null,
+            sent: "q1",
           }),
           PostQueued({
             item: second,
@@ -216,7 +221,15 @@ describe("chat update story tests", () => {
       );
     });
 
-    it("removes a sent item on the next PageLoaded, also when the server gives no browserId", () => {
+    const page = {
+      messages: [createChatMessage(101, "Hello")],
+      older: false,
+      writing: false,
+      stoppable: false,
+      pausedUntil: null,
+    };
+
+    it("removes a sent item at the end of its own load, also when the server gives no browserId", () => {
       const sent = { ...createQueuedItem("browser-1", "Hello"), sent: true } as Waiting;
       const waiting = createQueuedItem("browser-2", "World") as Waiting;
       const base = createTestModel({ queue: [sent, waiting] });
@@ -224,20 +237,55 @@ describe("chat update story tests", () => {
       story(
         update,
         given(base),
-        message(
-          Message.PageLoaded({
-            page: {
-              messages: [createChatMessage(101, "Hello")],
-              older: false,
-              writing: false,
-              stoppable: false,
-              pausedUntil: null,
-            },
-            isInitial: false,
-          }),
-        ),
+        message(Message.PageLoaded({ page, isInitial: false, sent: "browser-1" })),
         model((m) => {
           expect((m.queue as Waiting[]).map((item) => item.id)).toEqual(["browser-2"]);
+        }),
+        StoryCommand.expectNone(),
+      );
+    });
+
+    it("keeps a sent item while the load of another send ends", () => {
+      const first = { ...createQueuedItem("browser-1", "Hello"), sent: true } as Waiting;
+      const second = { ...createQueuedItem("browser-2", "World"), sent: true } as Waiting;
+      const base = createTestModel({ queue: [first, second] });
+
+      story(
+        update,
+        given(base),
+        message(Message.PageLoaded({ page, isInitial: false, sent: "browser-1" })),
+        model((m) => {
+          expect((m.queue as Waiting[]).map((item) => item.id)).toEqual(["browser-2"]);
+        }),
+        StoryCommand.expectNone(),
+      );
+    });
+
+    it("keeps a sent item when a live message comes before the end of its load", () => {
+      const sent = { ...createQueuedItem("browser-1", "Hello"), sent: true } as Waiting;
+      const base = createTestModel({ queue: [sent] });
+
+      story(
+        update,
+        given(base),
+        message(Message.ReceivedLiveMessage({ message: createChatMessage(102, "Reply") })),
+        model((m) => {
+          expect((m.queue as Waiting[]).map((item) => item.id)).toEqual(["browser-1"]);
+        }),
+        StoryCommand.expectNone(),
+      );
+    });
+
+    it("removes a sent item when its own load fails", () => {
+      const sent = { ...createQueuedItem("browser-1", "Hello"), sent: true } as Waiting;
+      const base = createTestModel({ queue: [sent] });
+
+      story(
+        update,
+        given(base),
+        message(Message.PageFailed({ error: "down", sent: "browser-1" })),
+        model((m) => {
+          expect(m.queue).toEqual([]);
         }),
         StoryCommand.expectNone(),
       );
@@ -587,6 +635,194 @@ describe("chat update story tests", () => {
         message(Message.ActionBriefFetched({ brief: "Fetched brief from server" })),
         model((m) => {
           expect(m.briefActionBrief).toBe("Fetched brief from server");
+        }),
+        StoryCommand.expectNone(),
+      );
+    });
+  });
+
+  describe("tray and panel", () => {
+    const question = { id: 7, kind: "question", questions: [], action: null, todo: null } as any;
+    const approval = {
+      id: 8,
+      kind: "approval",
+      questions: [],
+      todo: null,
+      action: {
+        id: 42,
+        tool: "message_lead",
+        state: "pending",
+        role: "Coordinator",
+        arguments: [],
+      },
+    } as any;
+    const todo = {
+      id: 9,
+      kind: "todo",
+      questions: [],
+      action: null,
+      issue: 5,
+      repository: "test-repo",
+      todo: { name: "plan", mandatory: true },
+    } as any;
+
+    it("keeps the list and opens the panel again with the error after a failed decision", () => {
+      const messages = [createChatMessage(1, "Hello")];
+      const base = createTestModel({
+        messages,
+        trayItems: [question],
+        activePanel: null,
+        closedPanel: { type: "answer", item: approval },
+        decisionSubmitting: true,
+      });
+
+      story(
+        update,
+        given(base),
+        message(Message.ActionFailed({ error: "The server failed." })),
+        model((m) => {
+          expect(m.messages).toBe(messages);
+          expect(m.trayItems).toEqual([question]);
+          expect(m.activePanel?.item).toBe(approval);
+          expect(m.closedPanel).toBeNull();
+          expect(m.answerError).toBe("The server failed.");
+          expect(m.decisionSubmitting).toBe(false);
+        }),
+        StoryCommand.expectNone(),
+      );
+    });
+
+    it("sends a todo with an empty note", () => {
+      const base = createTestModel({
+        activePanel: { type: "answer", item: todo },
+        answerLoaded: true,
+      });
+
+      story(
+        update,
+        given(base),
+        message(Message.AnswerSubmitted()),
+        model((m) => {
+          expect(m.probingSend).toBe(true);
+        }),
+        StoryCommand.expectExact(ProbeVoice({ region: null, draftText: "", target: "answer" })),
+        StoryCommand.resolve(ProbeVoice, Message.VoiceProbed({ live: false, target: "answer" })),
+        StoryCommand.expectExact(
+          StopVoice(),
+          DoneInboxItem({ id: 9, repository: "test-repo", issue: 5, name: "plan", note: "" }),
+        ),
+        StoryCommand.resolve(StopVoice, Message.CompletedStopVoice()),
+        StoryCommand.resolve(DoneInboxItem, Message.AnswerCompleted({ result: {} })),
+        StoryCommand.expectNone(),
+      );
+    });
+
+    it("keeps the pending Stop button after a successful request", () => {
+      const base = createTestModel({ stoppable: true, stopping: true });
+
+      story(
+        update,
+        given(base),
+        message(Message.StopChatCompleted({ error: null })),
+        model((m) => {
+          expect(m.stopping).toBe(true);
+        }),
+        StoryCommand.expectNone(),
+      );
+    });
+
+    it("ends the pending Stop button after a failed request", () => {
+      const base = createTestModel({ stoppable: true, stopping: true });
+
+      story(
+        update,
+        given(base),
+        message(Message.StopChatCompleted({ error: "Stop failed" })),
+        model((m) => {
+          expect(m.stopping).toBe(false);
+          expect(m.sendError).toBe("Stop failed");
+        }),
+        StoryCommand.expectNone(),
+      );
+    });
+
+    it("keeps the Details panel of a card when the host sends the tray again", () => {
+      const answered = { ...question, dismissedAt: "2026-11-04T08:00:00Z" };
+      const base = createTestModel({
+        activePanel: { type: "details", item: answered },
+        trayItems: [],
+      });
+
+      story(
+        update,
+        given(base),
+        message(Message.ReceivedTrayItems({ items: [] })),
+        model((m) => {
+          expect(m.activePanel?.item).toBe(answered);
+        }),
+        StoryCommand.expectNone(),
+      );
+    });
+
+    it("closes the Details panel of a tray row with the row", () => {
+      const base = createTestModel({
+        activePanel: { type: "details", item: question, fromTray: true },
+        trayItems: [question],
+      });
+
+      story(
+        update,
+        given(base),
+        message(Message.ReceivedTrayItems({ items: [] })),
+        model((m) => {
+          expect(m.activePanel).toBeNull();
+        }),
+        StoryCommand.expectNone(),
+      );
+    });
+
+    it("runs Merge, shows the pending state, and shows a refusal", () => {
+      const base = createTestModel({ trayItems: [question] });
+
+      story(
+        update,
+        given(base),
+        message(Message.TrayActionClicked({ item: question, kind: "merge" })),
+        model((m) => {
+          expect(m.trayRunning).toEqual({ 7: "merge" });
+        }),
+        StoryCommand.expectExact(RunTrayAction({ item: question, kind: "merge" })),
+        StoryCommand.resolve(
+          RunTrayAction,
+          Message.TrayActionDone({ id: 7, kind: "merge", error: "A check fails.", merging: false }),
+        ),
+        model((m) => {
+          expect(m.trayRunning).toEqual({});
+          expect(m.trayRefusals).toEqual({ 7: "A check fails." });
+        }),
+        StoryCommand.expectNone(),
+      );
+    });
+
+    it("keeps Send again pending after a success, and ends it after a failure", () => {
+      const base = createTestModel({ trayItems: [question] });
+
+      story(
+        update,
+        given(base),
+        message(Message.TrayActionClicked({ item: question, kind: "send_again" })),
+        StoryCommand.expectExact(RunTrayAction({ item: question, kind: "send_again" })),
+        StoryCommand.resolve(
+          RunTrayAction,
+          Message.TrayActionDone({ id: 7, kind: "action", error: "", merging: false }),
+        ),
+        model((m) => {
+          expect(m.trayRunning).toEqual({ 7: "action" });
+        }),
+        message(Message.TrayActionDone({ id: 7, kind: "action", error: "No.", merging: false })),
+        model((m) => {
+          expect(m.trayRunning).toEqual({});
+          expect(m.trayError).toBe("No.");
         }),
         StoryCommand.expectNone(),
       );

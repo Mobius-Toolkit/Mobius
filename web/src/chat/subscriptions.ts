@@ -151,6 +151,8 @@ function createLiveEventsStream(target: {
 
         const reconnect = () => {
           if (stopped) return;
+          // A new connection ends a retry that waits, as the one timer of App.tsx does.
+          clearTimeout(retryTimer);
           if (source) {
             source.close();
           }

@@ -1,5 +1,5 @@
 import * as Markdown from "@foldkit/markdown";
-import { Effect, Queue, Stream } from "effect";
+import { Effect, Queue, Schema, Stream } from "effect";
 import { Mount } from "foldkit";
 import { parseMarkdown } from "@foldkit/markdown/vite";
 import type { Html, HtmlBuilder } from "foldkit/html";
@@ -18,6 +18,7 @@ import { briefMarkdown } from "@/lib/briefDiff";
 import { diffLines } from "@/lib/diff";
 import type { DraftInboxItem } from "@/lib/draft";
 import { getGetChatImageUrl } from "@/api/api.gen";
+import { trackKeyboardHeight } from "@/lib/keyboard";
 import { clock, clockSeconds, dayClock, dayLabel, localTimes } from "@/lib/time";
 import {
   banIcon,
@@ -40,14 +41,27 @@ import { countsAsUnread, type Failure, type Model, type Waiting } from "./model"
 
 type H = HtmlBuilder<Message>;
 
-// remark-directive is always on in @foldkit/markdown, and it throws on text such as "at 09:30". The second try escapes
-// each colon between two word characters.
+const parsedTexts = new Map<string, ReturnType<typeof parseMarkdown>>();
+
+// The view renders again after each Message, so the parse of a text is kept. remark is the slow part. remark-directive
+// is always on in @foldkit/markdown, and it throws on text such as "at 09:30". The second try escapes each colon
+// between two word characters.
 function parseChatMarkdown(text: string) {
-  try {
-    return parseMarkdown(text);
-  } catch {
-    return parseMarkdown(text.replace(/(?<=\w):(?=\w)/g, "\\:"));
+  const known = parsedTexts.get(text);
+  if (known) {
+    return known;
   }
+  let document;
+  try {
+    document = parseMarkdown(text);
+  } catch {
+    document = parseMarkdown(text.replace(/(?<=\w):(?=\w)/g, "\\:"));
+  }
+  if (parsedTexts.size >= 500) {
+    parsedTexts.clear();
+  }
+  parsedTexts.set(text, document);
+  return document;
 }
 
 function renderMarkdown(h: H, text: string): Html {
@@ -184,7 +198,37 @@ function renderInboxItemCard(
   );
 }
 
-function renderActionSender(h: H, action: PendingAction, onNavigate = false): Html {
+// A plain click on a link goes to the host router, as the Link of the React code does. A click with a modifier key
+// keeps the default of the browser.
+const RouterLink = Mount.defineStream("RouterLink", {
+  args: { path: Schema.String },
+  messages: [Message.NavigateTo],
+  execute: ({ element, path }) =>
+    Stream.callback<ReturnType<typeof Message.NavigateTo>>((queue) => {
+      const click = (event: Event) => {
+        const mouse = event as MouseEvent;
+        if (
+          mouse.button !== 0 ||
+          mouse.metaKey ||
+          mouse.ctrlKey ||
+          mouse.shiftKey ||
+          mouse.altKey
+        ) {
+          return;
+        }
+        mouse.preventDefault();
+        Queue.offerUnsafe(queue, Message.NavigateTo({ path }));
+      };
+      return Effect.gen(function* () {
+        element.addEventListener("click", click);
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => element.removeEventListener("click", click)),
+        );
+      });
+    }),
+});
+
+function renderActionSender(h: H, action: PendingAction): Html {
   const [owner, name] = action.sender ? action.sender.repository.split("/") : ["", ""];
   const senderLink = action.sender ? `/workstreams/${owner}/${name}/${action.sender.number}` : "";
   const senderText = action.sender
@@ -203,8 +247,8 @@ function renderActionSender(h: H, action: PendingAction, onNavigate = false): Ht
               h.a(
                 [
                   h.Attribute("href", senderLink),
-                  h.Class("text-primary underline-offset-4 hover:underline"),
-                  ...(onNavigate ? [h.OnClick(Message.ClosePanel())] : []),
+                  h.Class(link),
+                  h.OnMount(RouterLink({ path: senderLink })),
                 ],
                 [senderText],
               ),
@@ -645,7 +689,31 @@ function renderBriefBubble(h: H, model: Model): Html {
   );
 }
 
+// A button of a tray row. While the request runs, the row has no second request, and the pending button shows a spinner.
+function trayButton(
+  h: H,
+  options: {
+    label: string;
+    variant?: "default" | "outline" | "ghost";
+    disabled: boolean;
+    pending: boolean;
+    message: Message;
+  },
+): Html {
+  return h.button(
+    [
+      h.Type("button"),
+      h.Disabled(options.disabled || options.pending),
+      h.Class(buttonClass({ variant: options.variant, size: "sm" })),
+      h.OnClick(options.message),
+    ],
+    [...(options.pending ? [spinnerIcon(h)] : []), options.label],
+  );
+}
+
 function renderTrayButtons(h: H, item: InboxItem, model: Model): Html[] {
+  const running = (model.trayRunning as Record<number, string>)[item.id];
+  const merging = (model.trayMerging as Record<number, boolean>)[item.id] ?? item.merging;
   const buttons: Html[] = [];
   if (item.kind === InboxItemKind.question || item.action) {
     buttons.push(
@@ -660,20 +728,13 @@ function renderTrayButtons(h: H, item: InboxItem, model: Model): Html[] {
     );
   }
   if (item.kind === InboxItemKind.stopped || item.kind === InboxItemKind.lost) {
-    const isResuming = model.resumingId === item.id;
     buttons.push(
-      h.button(
-        [
-          h.Type("button"),
-          h.Disabled(model.resumingId !== null),
-          h.Class(buttonClass({ size: "sm" })),
-          h.OnClick(Message.ResumeClicked({ item })),
-        ],
-        [
-          isResuming ? spinnerIcon(h) : h.empty,
-          item.kind === InboxItemKind.stopped ? "Resume" : "Start again",
-        ],
-      ),
+      trayButton(h, {
+        label: item.kind === InboxItemKind.stopped ? "Resume" : "Start again",
+        disabled: running !== undefined,
+        pending: running === "action",
+        message: Message.ResumeClicked({ item }),
+      }),
     );
   }
   if (item.kind === InboxItemKind.stopped) {
@@ -703,7 +764,12 @@ function renderTrayButtons(h: H, item: InboxItem, model: Model): Html[] {
   }
   if (item.kind === InboxItemKind.Lead_failed) {
     buttons.push(
-      h.button([h.Type("button"), h.Class(buttonClass({ size: "sm" }))], ["Send again"]),
+      trayButton(h, {
+        label: "Send again",
+        disabled: running !== undefined,
+        pending: running === "action",
+        message: Message.TrayActionClicked({ item, kind: "send_again" }),
+      }),
     );
   }
   const isPullRequest = item.kind === InboxItemKind.ready_for_review;
@@ -721,7 +787,15 @@ function renderTrayButtons(h: H, item: InboxItem, model: Model): Html[] {
     );
   }
   if (isPullRequest) {
-    buttons.push(h.button([h.Type("button"), h.Class(buttonClass({ size: "sm" }))], ["Merge"]));
+    const merges = running === "merge" || merging;
+    buttons.push(
+      trayButton(h, {
+        label: merges ? "Merging" : "Merge",
+        disabled: false,
+        pending: merges,
+        message: Message.TrayActionClicked({ item, kind: "merge" }),
+      }),
+    );
   }
   if ((isPullRequest || isTodo) && item.pullRequestUrl) {
     buttons.push(
@@ -762,7 +836,8 @@ function renderTrayButtons(h: H, item: InboxItem, model: Model): Html[] {
   return buttons;
 }
 
-function renderTraySideButtons(h: H, item: InboxItem): Html[] {
+function renderTraySideButtons(h: H, item: InboxItem, model: Model): Html[] {
+  const running = (model.trayRunning as Record<number, string>)[item.id];
   const buttons: Html[] = [];
   if (item.kind !== InboxItemKind.question && item.kind !== InboxItemKind.stopped && !item.action) {
     buttons.push(
@@ -770,7 +845,7 @@ function renderTraySideButtons(h: H, item: InboxItem): Html[] {
         [
           h.Type("button"),
           h.Class(buttonClass({ variant: "ghost", size: "sm" })),
-          h.OnClick(Message.OpenDetailsPanel({ item })),
+          h.OnClick(Message.OpenDetailsPanel({ item, fromTray: true })),
         ],
         ["Details"],
       ),
@@ -778,13 +853,26 @@ function renderTraySideButtons(h: H, item: InboxItem): Html[] {
   }
   if (item.kind === InboxItemKind.Lead_failed || item.kind === InboxItemKind.tool_upgrade) {
     buttons.push(
-      h.button(
-        [h.Type("button"), h.Class(buttonClass({ variant: "outline", size: "sm" }))],
-        ["Dismiss"],
-      ),
+      trayButton(h, {
+        label: "Dismiss",
+        variant: "outline",
+        disabled: running !== undefined,
+        pending: running === "dismiss",
+        message: Message.TrayActionClicked({ item, kind: "dismiss" }),
+      }),
     );
   }
   return buttons;
+}
+
+function refusalText(model: Model, item: InboxItem) {
+  const merging = (model.trayMerging as Record<number, boolean>)[item.id] ?? item.merging;
+  return (
+    (model.trayRefusals as Record<number, string>)[item.id] ||
+    (merging ? "" : item.mergeRefusal) ||
+    item.action?.error ||
+    ""
+  );
 }
 
 function trayRows(model: Model) {
@@ -943,19 +1031,19 @@ function renderActionTray(h: H, model: Model): Html {
                           ),
                           h.div(
                             [h.Class("ml-auto flex items-center gap-2")],
-                            renderTraySideButtons(h, item),
+                            renderTraySideButtons(h, item, model),
                           ),
                         ],
                       ),
                     ],
                   ),
-                  (item.merging ? "" : item.mergeRefusal) || item.action?.error
+                  refusalText(model, item)
                     ? h.p(
                         [
                           h.Role("alert"),
                           h.Class("basis-full text-sm text-destructive wrap-anywhere"),
                         ],
-                        [(item.merging ? "" : item.mergeRefusal) || (item.action?.error ?? "")],
+                        [refusalText(model, item)],
                       )
                     : h.empty,
                 ],
@@ -1079,11 +1167,53 @@ const PortalToBody = Mount.define("PortalToBody", {
     }),
 });
 
+const focusable =
+  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+// The modal behavior of the dialog: the focus goes into the dialog, Tab stays in it, the page does not scroll, the
+// keyboard of a phone moves the dialog up, and the focus goes back to the opener when the dialog closes.
 const PanelOpened = Mount.define("PanelOpened", {
   messages: [Message.CompletedFocusPanel],
   execute: ({ element }) =>
-    Effect.sync(() => {
-      (element as HTMLElement).focus();
+    Effect.gen(function* () {
+      const dialog = element as HTMLElement;
+      yield* Effect.acquireRelease(
+        Effect.sync(() => {
+          const opener = document.activeElement;
+          const overflow = document.body.style.overflow;
+          const trap = (event: KeyboardEvent) => {
+            if (event.key !== "Tab") {
+              return;
+            }
+            const items = [...dialog.querySelectorAll<HTMLElement>(focusable)];
+            const first = items[0];
+            const last = items[items.length - 1];
+            if (!first || !dialog.contains(document.activeElement)) {
+              event.preventDefault();
+              (first ?? dialog).focus();
+            } else if (event.shiftKey && document.activeElement === first) {
+              event.preventDefault();
+              last.focus();
+            } else if (!event.shiftKey && document.activeElement === last) {
+              event.preventDefault();
+              first.focus();
+            }
+          };
+          dialog.focus();
+          document.body.style.overflow = "hidden";
+          document.addEventListener("keydown", trap);
+          return { opener, overflow, trap, stopKeyboard: trackKeyboardHeight() };
+        }),
+        ({ opener, overflow, trap, stopKeyboard }) =>
+          Effect.sync(() => {
+            document.removeEventListener("keydown", trap);
+            document.body.style.overflow = overflow;
+            stopKeyboard();
+            if (opener instanceof HTMLElement) {
+              opener.focus();
+            }
+          }),
+      );
       return Message.CompletedFocusPanel();
     }),
 });
@@ -1102,7 +1232,13 @@ function renderOutcome(h: H, label: string, text: string): Html {
 
 // The options of a question as buttons. A click selects or clears an option. In a single choice, a click on an option
 // clears the other option.
-function renderOptions(h: H, model: Model, question: QuestionType, index: number): Html {
+function renderOptions(
+  h: H,
+  model: Model,
+  question: QuestionType,
+  index: number,
+  input: boolean,
+): Html {
   const selected = (model.selectedOptions as Record<number, number[]>)[index] ?? [];
   return h.div(
     [h.Role("group"), h.AriaLabel(question.text), h.Class("grid gap-2")],
@@ -1131,13 +1267,17 @@ function renderOptions(h: H, model: Model, question: QuestionType, index: number
                 on && "border-primary",
               ),
             ),
-            h.OnClick(
-              Message.OptionToggled({
-                questionIndex: index,
-                optionIndex: position,
-                multiple: question.multiple,
-              }),
-            ),
+            ...(input
+              ? [
+                  h.OnClick(
+                    Message.OptionToggled({
+                      questionIndex: index,
+                      optionIndex: position,
+                      multiple: question.multiple,
+                    }),
+                  ),
+                ]
+              : []),
           ],
           [
             h.span([
@@ -1199,7 +1339,7 @@ function renderAnswerDialog(h: H, model: Model): Html {
     ? h.div(
         [h.Class("grid min-w-0 content-start gap-2 overflow-y-auto px-4 pb-4")],
         [
-          renderActionSender(h, action, true),
+          renderActionSender(h, action),
           ...(action.arguments || [])
             .filter((arg) => !(action.tool === "message_lead" && arg.name === "workstream"))
             .map((arg) => renderFullArgument(h, arg, model, action)),
@@ -1254,7 +1394,9 @@ function renderAnswerDialog(h: H, model: Model): Html {
               [`${workstreamName(model, item)} · ${dayClock(item.time)}`],
             ),
             renderMarkdown(h, item.text),
-            ...item.questions.map((question, index) => renderOptions(h, model, question, index)),
+            ...item.questions.map((question, index) =>
+              renderOptions(h, model, question, index, input),
+            ),
             !input && item.answer ? renderOutcome(h, "Your answer", item.answer) : h.empty,
             item.reportUrl
               ? h.a(
@@ -1284,6 +1426,7 @@ function renderAnswerDialog(h: H, model: Model): Html {
       h.div(
         [
           h.Role("dialog"),
+          h.Attribute("aria-modal", "true"),
           h.Tabindex(-1),
           h.AriaLabelledBy("answer-title"),
           h.DataAttribute("slot", "dialog-content"),

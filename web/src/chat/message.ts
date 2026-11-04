@@ -14,9 +14,13 @@ export const Message = defineMessageUnion({
   ReceivedLiveQuestion: { question: Schema.Unknown },
   RequestLoginFromSubscription: {},
 
-  PageLoaded: { page: Schema.Unknown, isInitial: Schema.Boolean },
+  PageLoaded: {
+    page: Schema.Unknown,
+    isInitial: Schema.Boolean,
+    sent: Schema.optional(Schema.String),
+  },
   OlderPageLoaded: { page: Schema.Unknown },
-  PageFailed: { error: Schema.String },
+  PageFailed: { error: Schema.String, sent: Schema.optional(Schema.String) },
   LoadOlderRequested: {},
   ListNearTop: {},
 
@@ -57,7 +61,11 @@ export const Message = defineMessageUnion({
   TrayToggled: {},
 
   OpenAnswerPanel: { item: Schema.Unknown, workstreamTitle: Schema.optional(Schema.String) },
-  OpenDetailsPanel: { item: Schema.Unknown, workstreamTitle: Schema.optional(Schema.String) },
+  OpenDetailsPanel: {
+    item: Schema.Unknown,
+    workstreamTitle: Schema.optional(Schema.String),
+    fromTray: Schema.optional(Schema.Boolean),
+  },
   ClosePanel: {},
   CompletedFocusPanel: {},
   CompletedPortalToBody: {},
@@ -73,6 +81,17 @@ export const Message = defineMessageUnion({
   AnswerCompleted: { result: Schema.Unknown },
   ActionDecided: { decision: Schema.String, text: Schema.String },
   ActionCompleted: { action: Schema.Unknown },
+  ActionFailed: { error: Schema.String },
+  TrayActionDone: {
+    id: Schema.Number,
+    kind: Schema.Literals(["action", "dismiss", "merge"]),
+    error: Schema.String,
+    merging: Schema.Boolean,
+  },
+  TrayActionClicked: {
+    item: Schema.Unknown,
+    kind: Schema.Literals(["dismiss", "merge", "send_again"]),
+  },
   ToggleRemovedText: {},
   ActionBriefFetched: { brief: Schema.String },
   ResumeClicked: { item: Schema.Unknown },

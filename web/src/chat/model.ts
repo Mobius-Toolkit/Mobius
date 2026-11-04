@@ -62,7 +62,9 @@ const ChatModelSchema = Schema.Struct({
   openEvents: Schema.Unknown as Schema.Schema<number[]>,
   trayCollapsed: Schema.Boolean,
   trayError: Schema.String,
-  resumingId: Schema.NullOr(Schema.Number),
+  trayRunning: Schema.Unknown as Schema.Schema<Record<number, "action" | "dismiss" | "merge">>,
+  trayMerging: Schema.Unknown as Schema.Schema<Record<number, boolean>>,
+  trayRefusals: Schema.Unknown as Schema.Schema<Record<number, string>>,
   draftText: Schema.String,
   draftImages: Schema.Unknown as Schema.Schema<File[]>,
   draftInboxItems: Schema.Unknown as Schema.Schema<DraftInboxItem[]>,
@@ -81,6 +83,7 @@ const ChatModelSchema = Schema.Struct({
       type: "answer" | "details";
       item: InboxItem;
       workstreamTitle?: string;
+      fromTray?: boolean;
     }>,
   ),
   activePanel: Schema.NullOr(
@@ -88,6 +91,7 @@ const ChatModelSchema = Schema.Struct({
       type: "answer" | "details";
       item: InboxItem;
       workstreamTitle?: string;
+      fromTray?: boolean;
     }>,
   ),
   selectedOptions: Schema.Unknown as Schema.Schema<Record<number, number[]>>,
@@ -145,7 +149,9 @@ export function initialModel(flags: Flags): Model {
     openEvents: [],
     trayCollapsed: savedTrayCollapsed(),
     trayError: "",
-    resumingId: null,
+    trayRunning: {},
+    trayMerging: {},
+    trayRefusals: {},
     draftText: "",
     draftImages: [],
     draftInboxItems: [],

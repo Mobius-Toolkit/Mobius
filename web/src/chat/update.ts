@@ -28,6 +28,7 @@ import {
   RemoveQueued,
   RequestLogin,
   ResendVoice,
+  RunTrayAction,
   ResumeIssue,
   SaveAnswerDraft,
   SaveDraft,
@@ -39,6 +40,7 @@ import {
 } from "./commands";
 import { maxImages, tooManyImages } from "@/lib/images";
 import { Message } from "./message";
+type Running = "action" | "dismiss" | "merge";
 import { countsAsUnread, retryDelays, upsert, type Model, type Waiting } from "./model";
 
 function isEmptyDraft(model: Model) {
@@ -126,6 +128,10 @@ function sendCommands(model: Model, text: string) {
       draft: { text: "", images: [], inboxItems: [] },
     }),
   ];
+}
+
+function withoutKey<T>(record: Record<number, T>, key: number): Record<number, T> {
+  return Object.fromEntries(Object.entries(record).filter(([name]) => Number(name) !== key));
 }
 
 function newestMessage(model: Model) {
@@ -220,8 +226,12 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
       const rows = (items as InboxItem[]).filter(
         (item) => !item.action || item.action.state === "pending",
       );
+      // Only the panel of a tray row goes away with the row. The Details panel of a card stays.
       const gone =
-        panel !== null && panel.item.id !== 0 && !rows.some((row) => row.id === panel.item.id);
+        panel !== null &&
+        panel.item.id !== 0 &&
+        (panel.type === "answer" || panel.fromTray === true) &&
+        !rows.some((row) => row.id === panel.item.id);
       return {
         model: {
           ...model,
@@ -248,6 +258,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
           workstream: model.workstream,
           isInitial: !model.loaded,
           known: newestMessage(model),
+          sent: null,
         }),
       ],
     }),
@@ -260,10 +271,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
       }
       const nextMessages = upsert(messages, liveMsg);
       const storedIds = new Set(nextMessages.map((m) => m.browserId));
-      // A sent message stays on the screen until the load that follows its send ends.
-      const nextQueue = (model.queue as Waiting[]).filter(
-        (item) => !storedIds.has(item.id) && !item.sent,
-      );
+      const nextQueue = (model.queue as Waiting[]).filter((item) => !storedIds.has(item.id));
       const commands = [];
       const storedInQueue = (model.queue as Waiting[]).filter((item) => storedIds.has(item.id));
       for (const item of storedInQueue) {
@@ -324,7 +332,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
       };
     },
 
-    PageLoaded: ({ page: rawPage, isInitial }) => {
+    PageLoaded: ({ page: rawPage, isInitial, sent }) => {
       const page = rawPage as {
         messages: ChatMessage[];
         older: boolean;
@@ -335,9 +343,9 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
       const messages = model.messages as ChatMessage[];
       const nextMessages = page.messages.reduce(upsert, messages);
       const storedIds = new Set(nextMessages.map((m) => m.browserId));
-      // A sent message stays on the screen until the load that follows its send ends.
+      // A sent message stays on the screen until the end of the load that its own send started.
       const nextQueue = (model.queue as Waiting[]).filter(
-        (item) => !storedIds.has(item.id) && !item.sent,
+        (item) => !storedIds.has(item.id) && item.id !== sent,
       );
       const commands = [];
       for (const item of (model.queue as Waiting[]).filter((i) => storedIds.has(i.id))) {
@@ -415,13 +423,14 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
       commands: [RequestLogin()],
     }),
 
-    PageFailed: ({ error }) => {
+    PageFailed: ({ error, sent }) => {
       const commands = error === "login required" ? [RequestLogin()] : [];
       return {
         model: {
           ...model,
           loadingOlder: false,
           error,
+          queue: (model.queue as Waiting[]).filter((item) => item.id !== sent),
         },
         commands,
       };
@@ -565,6 +574,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
           workstream: model.workstream,
           isInitial: false,
           known: newestMessage(model),
+          sent: id,
         }),
       );
       if (next) {
@@ -658,13 +668,9 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
       ],
     }),
 
-    StopChatCompleted: ({ error }) => ({
-      model: {
-        ...model,
-        stopping: false,
-        sendError: error || "",
-      },
-    }),
+    // After a success the button stays pending until the server says that the chat is not stoppable.
+    StopChatCompleted: ({ error }) =>
+      error === null ? { model } : { model: { ...model, stopping: false, sendError: error } },
 
     DraftLoaded: ({ draft: rawDraft }) => {
       const draft = rawDraft as {
@@ -928,7 +934,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
       };
     },
 
-    OpenDetailsPanel: ({ item, workstreamTitle }) => {
+    OpenDetailsPanel: ({ item, workstreamTitle, fromTray }) => {
       const inboxItem = item as InboxItem;
       const commands = [];
       if (inboxItem.action?.tool === "edit_brief" && inboxItem.action.state === "pending") {
@@ -941,7 +947,9 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
             type: "details",
             item: inboxItem,
             workstreamTitle,
+            fromTray,
           },
+          selectedOptions: {},
           answerError: "",
           showRemovedText: false,
           briefActionBrief: "",
@@ -978,7 +986,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
       return {
         model: {
           ...model,
-          resumingId: item.id,
+          trayRunning: { ...(model.trayRunning as Record<number, Running>), [item.id]: "action" },
           trayError: "",
         },
         commands: [
@@ -999,9 +1007,49 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
       return {
         model: {
           ...model,
-          resumingId: null,
+          trayRunning: error
+            ? withoutKey(model.trayRunning as Record<number, Running>, id)
+            : model.trayRunning,
           trayError: error || "",
           trayItems,
+        },
+      };
+    },
+
+    // The row leaves the tray when the server sends the new list, so the button stays pending after a success.
+    TrayActionClicked: ({ item: rawItem, kind }) => {
+      const item = rawItem as InboxItem;
+      const running: Running =
+        kind === "merge" ? "merge" : kind === "dismiss" ? "dismiss" : "action";
+      return {
+        model: {
+          ...model,
+          trayRunning: { ...(model.trayRunning as Record<number, Running>), [item.id]: running },
+          trayRefusals: withoutKey(model.trayRefusals as Record<number, string>, item.id),
+        },
+        commands: [RunTrayAction({ item, kind })],
+      };
+    },
+
+    TrayActionDone: ({ id, kind, error, merging }) => {
+      const running = model.trayRunning as Record<number, Running>;
+      if (kind === "merge") {
+        return {
+          model: {
+            ...model,
+            trayRunning: withoutKey(running, id),
+            trayMerging: { ...(model.trayMerging as Record<number, boolean>), [id]: merging },
+            trayRefusals: error
+              ? { ...(model.trayRefusals as Record<number, string>), [id]: error }
+              : model.trayRefusals,
+          },
+        };
+      }
+      return {
+        model: {
+          ...model,
+          trayRunning: error ? withoutKey(running, id) : running,
+          trayError: error,
         },
       };
     },
@@ -1047,7 +1095,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
       if (!panel || panel.type !== "answer" || model.answerWaiting || model.probingSend) {
         return { model };
       }
-      const empty = !model.answerText.trim() && !hasSelection(model);
+      const empty = !model.answerText.trim() && !hasSelection(model) && !panel.item.todo;
       if (empty || panel.item.action) {
         return { model };
       }
@@ -1107,6 +1155,17 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
         commands: [StopVoice(), cmd],
       };
     },
+
+    // The request failed, so the list does not change. The panel opens again with the error and the note.
+    ActionFailed: ({ error }) => ({
+      model: {
+        ...model,
+        decisionSubmitting: false,
+        activePanel: model.activePanel ?? model.closedPanel,
+        closedPanel: null,
+        answerError: error,
+      },
+    }),
 
     ActionCompleted: ({ action: rawAction }) => {
       const action = rawAction as PendingAction & { error?: string };
@@ -1214,7 +1273,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
           },
 
     NavigateTo: ({ path }) => ({
-      model,
+      model: { ...model, activePanel: null },
       commands: [Navigate({ path })],
     }),
 
