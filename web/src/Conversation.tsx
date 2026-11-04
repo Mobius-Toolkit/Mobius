@@ -38,7 +38,6 @@ function ChatProgram({
   const containerRef = useRef<HTMLDivElement>(null);
   const handleRef = useRef<Runtime.EmbedHandle<ChatPorts>>(null);
 
-  // The Flags are organization, repository, workstream and agent.
   // A change of a Flag disposes the program and embeds it again.
   useEffect(() => {
     const container = containerRef.current;
@@ -53,7 +52,6 @@ function ChatProgram({
     });
     handleRef.current = handle;
 
-    // Outbound Ports: login and navigation
     const unsubLogin = handle.ports.loginRequested.subscribe(() => {
       showLogin();
     });
@@ -69,7 +67,6 @@ function ChatProgram({
     };
   }, [organization, repository, workstream, agent, showLogin, navigate]);
 
-  // Inbound Ports carry host data that changes
   useEffect(() => {
     handleRef.current?.ports.unread.send(unread ?? null);
   }, [unread]);

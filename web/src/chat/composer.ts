@@ -424,6 +424,8 @@ export function renderPanelComposer(h: H, model: Model, item: InboxItem): Html {
     (options) => options.length > 0,
   );
   const decide = Boolean(action);
+  const waiting = model.answerSend?.item.id === item.id;
+  const busy = (model.requesting as number[]).includes(item.id);
   const empty = !model.answerText.trim() && !(todo ? true : !action && selected);
   const role = action ? (roleName[action.role] ?? action.role) : "";
   const label = action ? `Note for the ${role}` : todo ? "Note" : "Your answer";
@@ -440,7 +442,7 @@ export function renderPanelComposer(h: H, model: Model, item: InboxItem): Html {
     label,
     placeholder,
     text: model.answerText,
-    readOnly: !model.answerLoaded || model.answerWaiting,
+    readOnly: !model.answerLoaded || waiting,
     onInput: (text) => Message.AnswerTextChanged({ text }),
     submit: decide ? null : Message.AnswerSubmitted(),
     enter: decide ? "none" : "answer",
@@ -456,7 +458,7 @@ export function renderPanelComposer(h: H, model: Model, item: InboxItem): Html {
               h.AriaLabel("Reject"),
               h.Attribute("title", "Reject"),
               h.DataAttribute("keep-focus", ""),
-              h.Disabled(model.decisionSubmitting),
+              h.Disabled(busy),
               h.Class(
                 buttonClass({
                   variant: "ghost",
@@ -472,7 +474,7 @@ export function renderPanelComposer(h: H, model: Model, item: InboxItem): Html {
             [
               h.Type("button"),
               h.DataAttribute("keep-focus", ""),
-              h.Disabled(model.decisionSubmitting),
+              h.Disabled(busy),
               h.Class(buttonClass({ className: "rounded-full max-md:h-11 max-md:px-4" })),
               h.OnClick(Message.ActionDecided({ decision: "approve" })),
             ],
@@ -486,7 +488,7 @@ export function renderPanelComposer(h: H, model: Model, item: InboxItem): Html {
               h.AriaLabel("Send"),
               h.Attribute("title", "Send"),
               h.DataAttribute("keep-focus", ""),
-              h.Disabled(model.answerWaiting || empty),
+              h.Disabled(waiting || busy || empty),
               h.Class(
                 cn(
                   buttonClass({ size: "icon", className: "rounded-full max-md:size-11" }),
@@ -494,7 +496,7 @@ export function renderPanelComposer(h: H, model: Model, item: InboxItem): Html {
                 ),
               ),
             ],
-            [model.answerWaiting ? spinnerIcon(h) : arrowUpIcon(h)],
+            [waiting ? spinnerIcon(h) : arrowUpIcon(h)],
           ),
         ],
   });

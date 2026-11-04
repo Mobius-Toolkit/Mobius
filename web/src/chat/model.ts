@@ -102,11 +102,17 @@ const ChatModelSchema = Schema.Struct({
   selectedOptions: Schema.Unknown as Schema.Schema<Record<number, number[]>>,
   answerText: Schema.String,
   answerLoaded: Schema.Boolean,
-  answerWaiting: Schema.Boolean,
+  answerSend: Schema.NullOr(
+    Schema.Unknown as Schema.Schema<{
+      item: InboxItem;
+      text: string;
+      selected: Record<number, number[]>;
+      region: { lead: string; trail: string; value: string } | null;
+    }>,
+  ),
   answerError: Schema.String,
   answerErrorId: Schema.Number,
-  answerSubmitting: Schema.Boolean,
-  decisionSubmitting: Schema.Boolean,
+  requesting: Schema.Unknown as Schema.Schema<number[]>,
   showRemovedText: Schema.Boolean,
   briefActionBrief: Schema.String,
 });
@@ -174,11 +180,10 @@ export function initialModel(flags: Flags): Model {
     selectedOptions: {},
     answerText: "",
     answerLoaded: false,
-    answerWaiting: false,
+    answerSend: null,
     answerError: "",
     answerErrorId: 0,
-    answerSubmitting: false,
-    decisionSubmitting: false,
+    requesting: [],
     showRemovedText: false,
     briefActionBrief: "",
   };

@@ -104,6 +104,8 @@ function createVoiceStream() {
               return false;
             }
             if (first) {
+              // A region belongs to one run.
+              regions.clear();
               placeAtCursor(target, voiceText);
               return true;
             }

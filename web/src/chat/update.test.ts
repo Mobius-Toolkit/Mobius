@@ -3,6 +3,7 @@ import { Command as StoryCommand, given, message, model, story } from "foldkit/s
 import type { ChatMessage } from "@/api/api.gen";
 import type { Queued } from "@/lib/outbox";
 import {
+  AnswerInboxItem,
   ApproveAction,
   FetchActionBrief,
   FetchPage,
@@ -761,7 +762,7 @@ describe("chat update story tests", () => {
         trayItems: [question],
         activePanel: null,
         closedPanel: { type: "answer", item: approval },
-        decisionSubmitting: true,
+        requesting: [8],
       });
 
       story(
@@ -774,7 +775,7 @@ describe("chat update story tests", () => {
           expect(m.activePanel?.item).toBe(approval);
           expect(m.closedPanel).toBeNull();
           expect(m.answerError).toBe("The server failed.");
-          expect(m.decisionSubmitting).toBe(false);
+          expect(m.requesting).toEqual([]);
         }),
         StoryCommand.expectExact(LoadAnswerDraft({ id: 8 })),
         StoryCommand.resolve(LoadAnswerDraft, Message.AnswerDraftLoaded({ text: "" })),
@@ -1023,7 +1024,7 @@ describe("chat update story tests", () => {
       });
 
       const first = update(base, Message.ActionDecided({ decision: "approve" }));
-      expect(first.model.decisionSubmitting).toBe(true);
+      expect(first.model.requesting).toEqual([8]);
       expect((first.commands ?? []).map((command) => command.name)).toEqual([
         "StopVoice",
         "ApproveAction",
@@ -1049,12 +1050,12 @@ describe("chat update story tests", () => {
 
       const probing = update(base, Message.AnswerSubmitted());
       const probed = update(probing.model, Message.VoiceProbed({ live: false, target: "answer" }));
-      expect(probed.model.answerSubmitting).toBe(true);
+      expect(probed.model.requesting).toEqual([7]);
       const second = update(probed.model, Message.AnswerSubmitted());
       expect(second.model).toBe(probed.model);
       expect(second.commands ?? []).toEqual([]);
       const done = update(probed.model, Message.AnswerCompleted({ id: 7, result: {} }));
-      expect(done.model.answerSubmitting).toBe(false);
+      expect(done.model.requesting).toEqual([]);
     });
 
     it("reads the draft of its own item when a panel opens again", () => {
@@ -1094,6 +1095,100 @@ describe("chat update story tests", () => {
         }),
         StoryCommand.expectNone(),
       );
+    });
+
+    it("sends the answer of the first item when the panel closes during the wait for the final voice text", () => {
+      const other = { id: 11, kind: "question", questions: [], action: null, todo: null } as any;
+      const base = createTestModel({
+        activePanel: { type: "answer", item: question },
+        answerText: "Ten seats.",
+        answerLoaded: true,
+        voiceRegion: { lead: "", trail: "", value: "Ten seats.", target: "answer" },
+      });
+
+      const probed = update(base, Message.VoiceProbed({ live: true, target: "answer" }));
+      expect(probed.model.answerSend?.item).toBe(question);
+      const closed = update(probed.model, Message.ClosePanel());
+      const opened = update(closed.model, Message.OpenAnswerPanel({ item: other }));
+      const typed = update(opened.model, Message.AnswerTextChanged({ text: "Unfinished note." }));
+      const finished = update(
+        typed.model,
+        Message.VoiceSendFinished({ text: "Twelve seats.", target: "answer" }),
+      );
+      expect(finished.model.answerSend).toBeNull();
+      expect(finished.model.requesting).toEqual([7]);
+      const commands = finished.commands ?? [];
+      expect(commands.map((command) => command.name)).toEqual(["AnswerInboxItem"]);
+      expect(commands[0].args).toMatchObject({ id: 7, answer: "Twelve seats." });
+    });
+
+    it("sends the answer of the first item when the final voice text comes while the panel stays open", () => {
+      const base = createTestModel({
+        activePanel: { type: "answer", item: question },
+        answerText: "Ten seats.",
+      });
+
+      const probed = update(base, Message.VoiceProbed({ live: true, target: "answer" }));
+      const finished = update(
+        probed.model,
+        Message.VoiceSendFinished({ text: undefined, target: "answer" }),
+      );
+      expect(finished.model.requesting).toEqual([7]);
+      expect((finished.commands ?? [])[0].args).toMatchObject({ id: 7, answer: "Ten seats." });
+    });
+
+    it("lets another item send while the request of the first item runs", () => {
+      const other = {
+        id: 11,
+        kind: "question",
+        questions: [],
+        action: null,
+        todo: null,
+        issue: 0,
+        repository: "test-repo",
+      } as any;
+      const base = createTestModel({
+        activePanel: { type: "answer", item: other },
+        answerText: "Eleven.",
+        requesting: [7],
+      });
+
+      story(
+        update,
+        given(base),
+        message(Message.AnswerSubmitted()),
+        StoryCommand.expectExact(
+          ProbeVoice({ region: null, draftText: "Eleven.", target: "answer" }),
+        ),
+        StoryCommand.resolve(ProbeVoice, Message.VoiceProbed({ live: false, target: "answer" })),
+        model((m) => {
+          expect(m.requesting).toEqual([7, 11]);
+        }),
+        StoryCommand.expectExact(
+          StopVoice(),
+          AnswerInboxItem({
+            id: 11,
+            repository: "test-repo",
+            issue: 0,
+            workstream: 1428,
+            answer: "Eleven.",
+          }),
+        ),
+        StoryCommand.resolve(StopVoice, Message.CompletedStopVoice()),
+        StoryCommand.resolve(AnswerInboxItem, Message.AnswerCompleted({ id: 11, result: {} })),
+        model((m) => {
+          expect(m.requesting).toEqual([7]);
+        }),
+        StoryCommand.expectNone(),
+      );
+    });
+
+    it("keeps the voice region of the chat field when a panel opens", () => {
+      const region = { lead: "a ", trail: "", value: "a b", target: "chat" as const };
+      const base = createTestModel({ voiceRegion: region, waitingForSend: true });
+
+      const opened = update(base, Message.OpenAnswerPanel({ item: question }));
+      expect(opened.model.voiceRegion).toBe(region);
     });
   });
 });

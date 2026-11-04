@@ -1515,7 +1515,6 @@ export function view(model: Model, h: H): Html {
   return h.div(
     [h.Class("flex min-h-0 min-w-0 grow flex-col")],
     [
-      // Main scrollable message list
       h.div(
         [
           h.OnMount(ChatList()),
@@ -1539,7 +1538,6 @@ export function view(model: Model, h: H): Html {
                 ["No messages. Write to start a chat session."],
               )
             : h.empty,
-          // Render messages
           ...messages.flatMap((msg, idx) => {
             const label = dayLabel(msg.time);
             const prevLabel = idx > 0 ? dayLabel(messages[idx - 1].time) : null;
@@ -1552,7 +1550,6 @@ export function view(model: Model, h: H): Html {
             );
             return items;
           }),
-          // Render queued messages
           ...pending.flatMap((queued, idx) => {
             const label = dayLabel(queued.time);
             const prev = idx === 0 ? messages.at(-1) : pending[idx - 1];
@@ -1571,7 +1568,6 @@ export function view(model: Model, h: H): Html {
             );
             return items;
           }),
-          // Writing indicator
           model.writing
             ? h.p(
                 [h.Class("flex items-center gap-2 text-sm text-muted-foreground")],
@@ -1591,7 +1587,6 @@ export function view(model: Model, h: H): Html {
                 ],
               )
             : h.empty,
-          // Chat session failure
           model.failure
             ? h.span(
                 [
@@ -1605,11 +1600,8 @@ export function view(model: Model, h: H): Html {
             : h.empty,
         ],
       ),
-      // Action Tray
       renderActionTray(h, model),
-      // Composer
       renderComposer(h, model),
-      // Modal dialogs
       renderAnswerDialog(h, model),
     ],
   );

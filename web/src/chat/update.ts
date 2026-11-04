@@ -58,8 +58,7 @@ function hasSelection(model: Model) {
 }
 
 // The answer has one block for each question with a selected option, and then the note.
-function selectionText(model: Model, item: InboxItem, note: string) {
-  const selected = model.selectedOptions as Record<number, number[]>;
+function selectionText(selected: Record<number, number[]>, item: InboxItem, note: string) {
   return [
     ...item.questions.flatMap((question, index) => {
       const lines = question.options
@@ -71,11 +70,12 @@ function selectionText(model: Model, item: InboxItem, note: string) {
   ].join("\n\n");
 }
 
-function answerCommands(model: Model, text: string) {
-  const item = model.activePanel?.item;
-  if (!item) {
-    return [];
-  }
+function answerCommands(
+  model: Model,
+  item: InboxItem,
+  text: string,
+  selected: Record<number, number[]>,
+) {
   const target = {
     id: item.id,
     repository: item.repository || model.repository,
@@ -93,7 +93,7 @@ function answerCommands(model: Model, text: string) {
         AnswerInboxItem({
           ...target,
           workstream: item.workstream || model.workstream,
-          answer: selectionText(model, item, text),
+          answer: selectionText(selected, item, text),
         }),
       ];
 }
@@ -134,9 +134,9 @@ function withoutKey<T>(record: Record<number, T>, key: number): Record<number, T
   return Object.fromEntries(Object.entries(record).filter(([name]) => Number(name) !== key));
 }
 
-// When the server stored the item of the last failed attempt, the wait for the retry ends, and the next item goes.
 const noCommands: Array<ReturnType<typeof PostQueued>> = [];
 
+// When the server stored the item of the last failed attempt, the wait for the retry ends, and the next item goes.
 function settleAttempt(model: Model, queue: Waiting[]) {
   const attempt = model.attempt;
   if (!attempt || queue.some((item) => item.id === attempt.id)) {
@@ -171,6 +171,14 @@ function finishRequest(model: Model, id: number, error: string): Model {
     answerError: error,
     answerErrorId: id,
   };
+}
+
+function requestingOf(model: Model) {
+  return model.requesting as number[];
+}
+
+function without(model: Model, id: number) {
+  return requestingOf(model).filter((other) => other !== id);
 }
 
 // A panel that opens again reads the draft of its own item. The note of another panel that the Owner used in the
@@ -930,15 +938,29 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
 
     VoiceProbed: ({ live, target }) => {
       if (target === "answer") {
+        const item = model.activePanel?.item;
+        if (!item) {
+          return { model: { ...model, probingSend: false } };
+        }
+        const selected = model.selectedOptions as Record<number, number[]>;
         if (live) {
           return {
-            model: { ...model, probingSend: false, answerWaiting: true },
+            model: {
+              ...model,
+              probingSend: false,
+              answerSend: {
+                item,
+                text: model.answerText,
+                selected,
+                region: regionOf(model, "answer"),
+              },
+            },
             commands: [FinishVoiceForSend({ target })],
           };
         }
         return {
-          model: { ...model, probingSend: false, answerSubmitting: true },
-          commands: [StopVoice(), ...answerCommands(model, model.answerText)],
+          model: { ...model, probingSend: false, requesting: [...requestingOf(model), item.id] },
+          commands: [StopVoice(), ...answerCommands(model, item, model.answerText, selected)],
         };
       }
       if (live) {
@@ -1014,11 +1036,10 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
           },
           answerText: "",
           answerLoaded: false,
-          answerWaiting: false,
           selectedOptions: {},
           showRemovedText: false,
           briefActionBrief: "",
-          voiceRegion: null,
+          voiceRegion: model.voiceRegion?.target === "answer" ? null : model.voiceRegion,
         },
         commands: [...commands, LoadAnswerDraft({ id: inboxItem.id })],
       };
@@ -1184,9 +1205,9 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
       if (
         !panel ||
         panel.type !== "answer" ||
-        model.answerWaiting ||
+        model.answerSend !== null ||
         model.probingSend ||
-        model.answerSubmitting
+        requestingOf(model).includes(panel.item.id)
       ) {
         return { model };
       }
@@ -1210,15 +1231,14 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
       const res = rawRes as { error?: string };
       return reopened(
         model,
-        { ...finishRequest(model, id, res.error || ""), answerSubmitting: false },
+        { ...finishRequest(model, id, res.error || ""), requesting: without(model, id) },
         id,
       );
     },
 
-    // The note is the text of the field, because the text of the Message comes from the last render.
     ActionDecided: ({ decision }) => {
       const panel = model.activePanel;
-      if (!panel || model.decisionSubmitting) {
+      if (!panel || requestingOf(model).includes(panel.item.id)) {
         return { model };
       }
       const text = model.answerText;
@@ -1247,7 +1267,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
       return {
         model: {
           ...model,
-          decisionSubmitting: true,
+          requesting: [...requestingOf(model), panel.item.id],
           answerError: "",
           answerErrorId: 0,
         },
@@ -1257,7 +1277,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
 
     // The request failed, so the list does not change. The panel of the item opens again with the error and the note.
     ActionFailed: ({ id, error }) =>
-      reopened(model, { ...finishRequest(model, id, error), decisionSubmitting: false }, id),
+      reopened(model, { ...finishRequest(model, id, error), requesting: without(model, id) }, id),
 
     ActionCompleted: ({ id, action: rawAction }) => {
       const action = rawAction as PendingAction & { error?: string };
@@ -1289,7 +1309,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
           ),
           messages: updatedMessages,
           trayItems: updatedTrayItems,
-          decisionSubmitting: false,
+          requesting: without(model, id),
         },
         id,
       );
@@ -1315,19 +1335,31 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
     }),
 
     VoiceSendFinished: ({ text, target }) => {
+      if (target === "answer") {
+        const send = model.answerSend;
+        if (!send) {
+          return { model };
+        }
+        const sent = !send.region
+          ? send.text
+          : text === undefined
+            ? send.region.value
+            : send.region.lead + text + send.region.trail;
+        return {
+          model: {
+            ...model,
+            answerSend: null,
+            requesting: [...requestingOf(model), send.item.id],
+          },
+          commands: answerCommands(model, send.item, sent, send.selected),
+        };
+      }
       const region = regionOf(model, target);
-      const current = target === "answer" ? model.answerText : model.draftText;
       const sent = !region
-        ? current
+        ? model.draftText
         : text === undefined
           ? region.value
           : region.lead + text + region.trail;
-      if (target === "answer") {
-        return {
-          model: { ...model, answerWaiting: false, answerSubmitting: true, voiceRegion: null },
-          commands: answerCommands(model, sent),
-        };
-      }
       return {
         model: { ...clearedDraft(model), waitingForSend: false, sendError: "" },
         commands: sendCommands(model, sent),
