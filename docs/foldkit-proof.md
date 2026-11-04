@@ -280,7 +280,7 @@ Facts from the proof:
 Facts from the proof:
 
 - The proof screen took about two full sessions of agent time for 2,400 lines of React. The full client is 12,600 lines. A linear estimate is far above ten sessions, and the first screen is the one that has the new patterns (Mounts, Subscriptions, Ports), so the later screens may be faster.
-- A long branch has no size cost in the middle. The bundle is smaller at the end, and the Foldkit router replaces `@tanstack/react-router` at once.
+- A long branch has no size cost in the middle. The Foldkit router replaces `@tanstack/react-router` at once. The size at the end is 216 to 344 kB gzip with plain SVG charts (section 5), and the base is 331 kB, so the bundle is not clearly smaller.
 - The branch is behind `main` all the time, and other Workstreams change `Inbox.tsx`, `MessageInput.tsx`, `voice.ts`, `outbox.ts`, `Pauses.tsx` and `Checkup.tsx`. Each merge from `main` needs a manual port of those changes into Foldkit code. The proof already saw this risk: Workstream #1420 changes the files that the chat input uses.
 - The specs of the whole client can check the branch only at the end, because the Playwright projects depend on each other (a failed project stops the next ones, as this proof saw: one failed spec left 258 tests that did not run).
 
