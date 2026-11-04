@@ -65,8 +65,11 @@ export const ChatList = Mount.defineStream("ChatList", {
         });
 
         const layout = () => {
+          // The toggle of the Brief bubble must not move the list.
           for (const child of list.children) {
-            resize.observe(child);
+            if (child.tagName !== "SECTION") {
+              resize.observe(child);
+            }
           }
           const items = list.querySelectorAll("[data-message], [data-queued]");
           const messages = list.querySelectorAll("[data-message]");
