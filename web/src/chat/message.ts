@@ -60,6 +60,7 @@ export const Message = defineMessageUnion({
   OpenDetailsPanel: { item: Schema.Unknown, workstreamTitle: Schema.optional(Schema.String) },
   ClosePanel: {},
   CompletedFocusPanel: {},
+  CompletedPortalToBody: {},
   OptionToggled: {
     questionIndex: Schema.Number,
     optionIndex: Schema.Number,

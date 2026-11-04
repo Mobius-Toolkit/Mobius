@@ -1219,6 +1219,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
     }),
 
     CompletedFocusPanel: () => ({ model }),
+    CompletedPortalToBody: () => ({ model }),
     CompletedNavigate: () => ({ model }),
     CompletedSeeChat: () => ({ model }),
     CompletedRequestLogin: () => ({ model }),

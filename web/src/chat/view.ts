@@ -1075,6 +1075,19 @@ function renderFullArgument(h: H, arg: ActionArgument, model: Model, action?: Pe
   );
 }
 
+// The dialog lives outside the chat section, so a focused field in the dialog does not hide the tray of the chat.
+const PortalToBody = Mount.define("PortalToBody", {
+  messages: [Message.CompletedPortalToBody],
+  execute: ({ element }) =>
+    Effect.gen(function* () {
+      yield* Effect.acquireRelease(
+        Effect.sync(() => document.body.appendChild(element)),
+        () => Effect.sync(() => element.remove()),
+      );
+      return Message.CompletedPortalToBody();
+    }),
+});
+
 const PanelOpened = Mount.define("PanelOpened", {
   messages: [Message.CompletedFocusPanel],
   execute: ({ element }) =>
@@ -1267,7 +1280,7 @@ function renderAnswerDialog(h: H, model: Model): Html {
         );
 
   return h.div(
-    [h.DataAttribute("slot", "dialog-portal")],
+    [h.DataAttribute("slot", "dialog-portal"), h.OnMount(PortalToBody())],
     [
       h.div([
         h.DataAttribute("slot", "dialog-overlay"),
