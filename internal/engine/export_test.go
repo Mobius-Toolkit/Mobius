@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"path/filepath"
-	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/runner"
@@ -35,11 +34,6 @@ var ClosedIssueReply = closedIssueReply
 
 // MemoryRoleFiles are the names of the role memory files.
 var MemoryRoleFiles = memoryRoleFiles
-
-// SetClock makes the long waits read the time from clock.
-func (e *Engine) SetClock(clock func() time.Time) {
-	e.clock.Store(&clock)
-}
 
 // AccessChecked tells if the access check of each Role binding has a result.
 func (e *Engine) AccessChecked() bool {
@@ -267,4 +261,19 @@ func (e *Engine) ChatQueued(key ChatKey) int {
 // DSHLogPath gives the path of the dsh session log of the ACP session in cwd.
 func DSHLogPath(home, cwd, session string) string {
 	return filepath.Join(home, dshLogPath(cwd, session))
+}
+
+// AntigravityDBPath gives the path of the Antigravity conversation database of session in dir.
+func AntigravityDBPath(dir, session string) string {
+	return antigravityDBPath(dir, session)
+}
+
+// AntigravityDir gives the default Antigravity directory.
+func AntigravityDir() string {
+	return antigravityDir()
+}
+
+// ReplyText gives the reply text of the last turn of a, for the tests.
+func (a *Agent) ReplyText() string {
+	return a.replyText()
 }

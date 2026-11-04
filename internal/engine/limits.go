@@ -168,6 +168,7 @@ func resetIn(text string, now time.Time) time.Time {
 		"day": 24 * time.Hour, "days": 24 * time.Hour,
 		"hour": time.Hour, "hours": time.Hour,
 		"minute": time.Minute, "minutes": time.Minute,
+		"second": time.Second, "seconds": time.Second,
 	}
 	var wait time.Duration
 	for i := 0; i+1 < len(words); i++ {
@@ -181,6 +182,21 @@ func resetIn(text string, now time.Time) time.Time {
 		return time.Time{}
 	}
 	return now.Add(wait)
+}
+
+// waitOutReplyLimit pauses the Harness of a until the reset time in text, or noTimeWait when text has no reset
+// time, and holds until the pause ends.
+func (a *Agent) waitOutReplyLimit(ctx context.Context, text string) error {
+	now := time.Now().UTC()
+	until := resetIn(text, now)
+	if until.IsZero() {
+		until = now.Add(noTimeWait)
+	}
+	log.Printf("usage limit of %s in reply text: pause until %s", a.binding.Harness, until.UTC().Format(timeFormat))
+	if err := a.engine.pause(ctx, a, until); err != nil {
+		return err
+	}
+	return a.waitForPause(ctx)
 }
 
 // waitOutLimit gives true when err of a prompt is a usage limit of the Harness of a. Then it pauses the Harness,
@@ -268,7 +284,7 @@ func (e *Engine) pause(ctx context.Context, a *Agent, until time.Time) error {
 		return err
 	}
 	e.publish(Change{Pauses: true})
-	return e.timer(pause)
+	return nil
 }
 
 // addLimitMessage adds text to the chat of the Workstream of a.
@@ -278,26 +294,25 @@ func (e *Engine) addLimitMessage(ctx context.Context, a *Agent, text string) err
 	return err
 }
 
-// timer ends the pause at its time. A later pause of the same Harness has its own timer.
-func (e *Engine) timer(pause store.HarnessPause) error {
-	until, err := time.Parse(time.RFC3339Nano, pause.PausedUntil)
+func (e *Engine) endDuePauses(ctx context.Context) {
+	pauses, err := e.queries.ListHarnessPauses(ctx)
 	if err != nil {
-		return err
+		log.Printf("list harness pauses: %v", err)
+		return
 	}
-	time.AfterFunc(time.Until(until), func() {
-		ctx := context.Background()
-		current, err := e.queries.GetHarnessPause(ctx, pause.Harness)
-		if errors.Is(err, sql.ErrNoRows) || err == nil && current.PausedUntil != pause.PausedUntil {
-			return
-		}
-		if err == nil {
-			err = e.endPause(ctx, current)
-		}
+	now := e.timeNow()
+	for _, pause := range pauses {
+		until, err := pauseEnd(pause)
 		if err != nil {
-			log.Printf("end the pause of %s: %v", pause.Harness, err)
+			log.Printf("parse pause of %s: %v", pause.Harness, err)
+			continue
 		}
-	})
-	return nil
+		if !until.After(now) {
+			if err := e.endPauseSince(ctx, &pause); err != nil {
+				log.Printf("end the pause of %s: %v", pause.Harness, err)
+			}
+		}
+	}
 }
 
 // Resume ends the pause of harness now. A Harness with no pause is no error.

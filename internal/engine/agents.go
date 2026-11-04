@@ -128,6 +128,8 @@ type Agent struct {
 	turnUsage turnUsage
 	// dshRecords is the number of assistant/message records of the dsh session log that the usage rows counted.
 	dshRecords int
+	// antigravityIdx is the highest gen_metadata idx of the Antigravity session that the usage rows counted.
+	antigravityIdx int64
 	// costTotal is the last cost total of the session. costBase is the cost total at the end of the last turn with a cost.
 	costTotal float64
 	costBase  float64
@@ -148,6 +150,8 @@ type Agent struct {
 	// limited tells that a usage update of the turn of a prompt has the rate limit status "rejected" with no overage in
 	// use. The agent message chunks that follow are the raw text of the usage limit. It ends with the turn.
 	limited bool
+	// limitText is the raw text of the usage limit of Antigravity in the reply text, or "".
+	limitText string
 	// delivery is the id of the chat message of the turn that has no delivery time yet, or 0.
 	delivery int64
 	// author is the author of the chat messages that the reply text adds to the chat of the session, or "" when the
@@ -319,7 +323,7 @@ func (e *Engine) newAgent(ctx context.Context, spec Spec) (*Agent, error) {
 		return nil, err
 	}
 	e.publish(Change{Node: new(e.node(session))})
-	return &Agent{engine: e, id: session.ID, spec: spec, binding: binding, tracked: !worker, queuedAt: session.StartedAt, wake: make(chan struct{}, 1), ended: make(chan struct{}, 1)}, nil
+	return &Agent{engine: e, id: session.ID, spec: spec, binding: binding, tracked: !worker, queuedAt: session.StartedAt, wake: make(chan struct{}, 1), ended: make(chan struct{}, 1), antigravityIdx: -1}, nil
 }
 
 // waitForSlot waits for a slot of the Role of a, and starts the session. A failed wait ends the session, like Start.
@@ -496,6 +500,7 @@ func (a *Agent) continueSession(ctx context.Context, k *keptSession) error {
 	a.costTotal = k.costTotal
 	a.costBase = k.costBase
 	a.dshRecords = k.dshRecords
+	a.antigravityIdx = k.antigravityIdx
 	a.report = k.report
 	a.session.SetUpdates(a.update)
 	a.engine.agents.MCP.SetCaller(a.key, a.mcpCaller())
@@ -559,6 +564,7 @@ func (a *Agent) Prompt(ctx context.Context, text string, images []Image) error {
 		a.reply.Reset()
 		a.cannotDo = ""
 		a.limited = false
+		a.limitText = ""
 		if err != nil {
 			a.mu.Unlock()
 			return err
@@ -580,13 +586,22 @@ func (a *Agent) Prompt(ctx context.Context, text string, images []Image) error {
 		<-resent
 		// While a retry runs, turn stays true, so a late update of the hung turn is no autonomous turn.
 		retrying = errors.Is(err, errHung) && a.retries < maxRetries
+		a.mu.Lock()
+		wasLimited := a.limited && a.binding.Harness == config.Antigravity
+		limitText := a.limitText
 		if !retrying {
-			a.mu.Lock()
 			a.turn = false
 			a.limited = false
-			a.mu.Unlock()
+			a.limitText = ""
 		}
+		a.mu.Unlock()
 		if err == nil {
+			if wasLimited {
+				if err := a.waitOutReplyLimit(ctx, limitText); err != nil {
+					return err
+				}
+				continue
+			}
 			return a.engine.endPauseSince(ctx, paused)
 		}
 		if errors.Is(err, errHung) {
@@ -802,6 +817,10 @@ func (a *Agent) record(params json.RawMessage, late bool) error {
 	}
 	if kind == "agent_message_chunk" && a.turn && a.binding.Harness == config.ClaudeCode && isLimitText(a.chunkText(kind)+content) {
 		a.limited = true
+	}
+	if kind == "agent_message_chunk" && a.turn && a.binding.Harness == config.Antigravity && strings.HasPrefix(a.chunkText(kind)+content, "Usage Limit Reached") {
+		a.limited = true
+		a.limitText = a.chunkText(kind) + content
 	}
 	if isChunk && a.chunk != nil && stringField(a.chunk, "update", "sessionUpdate") == kind {
 		update := a.chunk["update"].(map[string]any)

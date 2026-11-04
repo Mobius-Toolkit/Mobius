@@ -42,7 +42,7 @@ func TestTheApprovalEventListsTheCommitsOfMainAfterTheStartOfTheCIThatChangeAFil
 
 	event, commit := readyAfterMainCommit(t, "plan.txt", fmt.Sprintf(planLines, "TOP"))
 
-	want := fmt.Sprintf("Commits of main after the start of the CI of the head (2026-10-22 23:59 UTC) that change a file of the pull request:\n- %.8s 2026-10-23 06:04 UTC Change the plan heading. Shared files: plan.txt.\nReview rounds: ", commit)
+	want := fmt.Sprintf("Commits of main after the start of the CI of the head (2026-10-22 23:59 UTC) that change a file of the pull request:\n- %.8s 2026-10-23 06:04 UTC Change the plan heading. Shared files: plan.txt.\nFix rounds: ", commit)
 	if !strings.Contains(event, want) {
 		t.Errorf("event = %q, want %q", event, want)
 	}

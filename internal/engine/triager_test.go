@@ -737,6 +737,38 @@ func TestAnIssueThatTheOwnerReopensAfterTheEndOfTheTriageGetsANewTurn(t *testing
 	}
 }
 
+func TestAnIssueThatTheOwnerReopensAfterAnIssueListReadGivesItClosedGetsANewTurnAndNoRefusal(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTriager(t, fake)
+	fake.CreateIssue(shop, 68, "Add refunds", "Refund each order.", "owner")
+	proposal := triagerComment(68, "Proposal: the Workstream Refunds.")
+	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 68), proposal) })
+	fake.AddComment(shop, 68, "owner", "Create it as proposed.")
+	decided(t, server, waitForActions(t, server, 1)[0].ID, "approve", "")
+	testkit.WaitFor(t, func() bool { state, _ := fake.State(shop, 68); return state == "closed" })
+	testkit.WaitFor(t, func() bool {
+		sessions := chatSessions(t, server, issueTriagers, engine.TriagerRole)
+		return len(sessions) == 2 && sessions[1].EndedAt.Valid
+	})
+
+	fake.AfterNextIssueListRead(shop, func() {
+		fake.ReopenIssue(shop, 68)
+		fake.AddComment(shop, 68, "owner", "Keep triaging.")
+	})
+
+	answer := triagerComment(68, "The triage goes on.")
+	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 68), answer) })
+	for _, comment := range fake.Comments(shop, 68) {
+		if comment.Body == engine.ClosedIssueReply {
+			t.Errorf("comment = %s", comment.Body)
+		}
+	}
+	if state, _ := fake.State(shop, 68); state != "open" {
+		t.Errorf("state = %s", state)
+	}
+}
+
 func TestTheOwnerRejectsAMessageOfTheTriagerAndTheIssueGetsTheMessageAndANewTurn(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

@@ -427,6 +427,13 @@ func (g *FakeGitHub) FailAddLabels(repository string, number int64, fail bool) {
 	g.failedLabels[issueKey{repository, number}] = fail
 }
 
+// FailRemoveLabels makes each removal of a label from the issue fail, or work again when fail is false.
+func (g *FakeGitHub) FailRemoveLabels(repository string, number int64, fail bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.failedRemoveLabels[issueKey{repository, number}] = fail
+}
+
 // RefuseAddLabels makes each add of a label to the issue give the status. The status 0 makes the label work.
 func (g *FakeGitHub) RefuseAddLabels(repository string, number int64, status int) {
 	g.mu.Lock()
@@ -564,6 +571,13 @@ func (g *FakeGitHub) AddCommentAfterNextList(repository string, number int64, au
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.commentsAfterList = append(g.commentsAfterList, listedComment{key: issueKey{repository, number}, author: author, body: body, anyList: true})
+}
+
+// AfterNextIssueListRead makes the fake run f once, after the next issue list read with since of repository.
+func (g *FakeGitHub) AfterNextIssueListRead(repository string, f func()) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.afterIssueListReads[repository] = f
 }
 
 // AddAppComment adds a comment with body of author to the issue number, written through the Mobius App, as the gh of
@@ -763,6 +777,12 @@ func (g *FakeGitHub) listIssues(w http.ResponseWriter, r *http.Request) {
 	if query.Has("labels") {
 		labels = strings.Split(query.Get("labels"), ",")
 	}
+	var afterRead func()
+	defer func() {
+		if afterRead != nil {
+			afterRead()
+		}
+	}()
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.touchPushedPullRequests(repository(r))
@@ -791,10 +811,15 @@ func (g *FakeGitHub) listIssues(w http.ResponseWriter, r *http.Request) {
 	}
 	sum := sha256.Sum256(body)
 	etag := fmt.Sprintf(`"%x"`, sum[:8])
-	if r.Header.Get("If-None-Match") == etag {
+	sinceList := query.Has("since") && !query.Has("labels")
+	if (!sinceList || g.afterIssueListReads[repository(r)] == nil) && r.Header.Get("If-None-Match") == etag {
 		g.notModified++
 		w.WriteHeader(http.StatusNotModified)
 		return
+	}
+	if sinceList {
+		afterRead = g.afterIssueListReads[repository(r)]
+		delete(g.afterIssueListReads, repository(r))
 	}
 	g.commentsAfterList = slices.DeleteFunc(g.commentsAfterList, func(pending listedComment) bool {
 		if !pending.anyList && !slices.Contains(keys, pending.key) || pending.key.repository != repository(r) {
@@ -1368,6 +1393,10 @@ func (g *FakeGitHub) removeLabel(w http.ResponseWriter, r *http.Request) {
 	g.labelWrites[key]++
 	if kept := g.botKeptLabels[key]; kept != "" && kept == r.PathValue("name") && strings.HasSuffix(caller.login, "[bot]") {
 		message(w, http.StatusForbidden, "Forbidden")
+		return
+	}
+	if g.failedRemoveLabels[key] {
+		message(w, http.StatusInternalServerError, "Server Error")
 		return
 	}
 	if !g.unlabel(key, r.PathValue("name"), caller.login) {

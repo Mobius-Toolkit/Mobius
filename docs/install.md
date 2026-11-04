@@ -98,6 +98,8 @@ Do not use `claude setup-token` with `CLAUDE_CODE_OAUTH_TOKEN`. The token is the
 
    On a headless server, add `--force-manual-token-flow`, and paste the token.
 
+Mobius records the input, output and cache read tokens of each Devin turn from the `_meta` of `usage_update`, records no cost, and the tested version is 3000.11.92.
+
 ### DeepSeek Harness (dsh)
 
 Mobius starts dsh with `dsh --profile acp`. The tested version is 0.2.1-rc.5.
@@ -139,6 +141,8 @@ dsh sends no tokens and no cost through ACP. Mobius reads the tokens of each dsh
 1. Download the `agy_acp_server` zip for your host from the [`antigravity-acp` entry of the ACP registry](https://github.com/agentclientprotocol/registry/tree/main/registry/antigravity-acp).
 2. Put both files of the zip on `PATH`: the server as `agy_acp_server`, and `localharness_external` with its own name.
 3. Log in with `mobius init` (step 4). `agy_acp_server` has no login command.
+
+Antigravity sends no tokens and no cost through ACP. Mobius reads the tokens and the model of each turn from `~/.gemini/antigravity-acp/conversations/<ACP session id>.db`. Mobius records no cost and no cache write tokens for Antigravity. The tested version is 1.4.1.
 
 When Antigravity is not logged in, `mobius init` starts its Google login. Antigravity writes a link to the terminal and opens a browser. Log in within 300 seconds. If the login fails, Antigravity also removes its old login.
 

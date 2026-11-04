@@ -239,6 +239,36 @@ func TestAUsageLimitPausesTheHarnessUntilResumeNowSendsThePromptAgain(t *testing
 	}
 }
 
+func TestAUsageLimitEndsWhenTheClockPassesPausedUntil(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, usageLimit)
+	agent := start(t, server, implementerSpec(t, server, fake, 41))
+	defer end(t, agent, "done")
+	prompted := make(chan error, 1)
+	go func() { prompted <- agent.Prompt(t.Context(), "Store plans in cents.", nil) }()
+
+	found := testkit.WaitForValue(t, func() (pause, bool) { return devinPause(t, server) })
+	until := parseTime(t, found.until)
+
+	server.Engine.SetClock(func() time.Time { return until.Add(time.Second) })
+
+	testkit.WaitFor(t, func() bool { _, paused := devinPause(t, server); return !paused })
+	if err := <-prompted; err != nil {
+		t.Fatal(err)
+	}
+	if text := reply(t, server, agent.ID()); text != "Done." {
+		t.Errorf("reply = %q", text)
+	}
+	var prompts []string
+	for _, row := range rows(t, server, agent.ID(), "prompt") {
+		prompts = append(prompts, row["text"].(string))
+	}
+	if !reflect.DeepEqual(prompts, []string{"Store plans in cents.", "Store plans in cents."}) {
+		t.Errorf("prompts = %q", prompts)
+	}
+}
+
 // The first two prompts hit the usage limit, the second one with a later reset, and the same prompt again does the work.
 const usageLimitTwice = `
 [[prompts]]
@@ -809,4 +839,127 @@ func TestATurnWithNoUsageLimitDeliversTheOwnerMessage(t *testing.T) {
 	sendChat(t, server, leadChat, "Plan the API")
 
 	testkit.WaitFor(t, func() bool { return ownerMessageDelivered(t, server) })
+}
+
+// The first prompt hits the usage limit of Antigravity in the reply text with no error, and the second prompt works.
+const antigravityLimitReply = `
+[[prompts]]
+reply = ["""Usage Limit Reached
+
+You have reached your current quota for this period. Your limit will reset in 35 minutes, 32 seconds."""]
+
+[[prompts]]
+reply = ["Done."]
+`
+
+// The prompt of Antigravity has the limit text after other text in the reply, with no error.
+const antigravityReplyWithLimitInBody = `
+[[prompts]]
+reply = ["""Here is the answer:
+Usage Limit Reached
+Everything is fine."""]
+`
+
+func TestAnAntigravityLimitReplyPausesTheHarnessUntilTheResetTime(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, antigravityLimitReply, func(cfg *config.Config) {
+		cfg.Roles.Implementer = config.RoleBinding{Harness: config.Antigravity, Model: "gemini-3-pro", Max: 2}
+	})
+	agent := start(t, server, implementerSpec(t, server, fake, 41))
+	defer end(t, agent, "done")
+	before := time.Now().UTC()
+	prompted := make(chan error, 1)
+	go func() { prompted <- agent.Prompt(t.Context(), "Store plans in cents.", nil) }()
+
+	until := testkit.WaitForValue(t, func() (string, bool) {
+		var until string
+		err := server.DB.QueryRow("SELECT paused_until FROM harness_pauses WHERE harness = 'antigravity'").Scan(&until)
+		return until, err == nil
+	})
+	gotUntil := parseTime(t, until)
+	if gotUntil.Before(before.Add(35*time.Minute+30*time.Second)) || gotUntil.After(time.Now().UTC().Add(35*time.Minute+35*time.Second)) {
+		t.Errorf("until = %v, before = %v", gotUntil, before)
+	}
+
+	wantMobius := "antigravity reached a usage limit. Mobius sends the prompt again at " + gotUntil.UTC().Format("2006-01-02 15:04 UTC") + "."
+	testkit.WaitFor(t, func() bool { return reflect.DeepEqual(chatTexts(t, server, "Mobius"), []string{wantMobius}) })
+
+	if got := agent.ReplyText(); got != "" {
+		t.Errorf("reply before resume = %q", got)
+	}
+
+	if err := server.Engine.Resume(t.Context(), "antigravity"); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-prompted; err != nil {
+		t.Fatal(err)
+	}
+
+	var prompts []string
+	for _, row := range rows(t, server, agent.ID(), "prompt") {
+		prompts = append(prompts, row["text"].(string))
+	}
+	if !reflect.DeepEqual(prompts, []string{"Store plans in cents.", "Store plans in cents."}) {
+		t.Errorf("prompts = %q", prompts)
+	}
+	if got := agent.ReplyText(); got != "Done." {
+		t.Errorf("reply = %q", got)
+	}
+}
+
+func TestAnAntigravityLimitTurnWritesNoReplyToTheChat(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, antigravityLimitReply, func(cfg *config.Config) {
+		cfg.Roles.Lead = config.RoleBinding{Harness: config.Antigravity, Model: "gemini-3-pro", Max: 2}
+	})
+
+	sendChat(t, server, leadChat, "Plan the API")
+
+	testkit.WaitFor(t, func() bool { return antigravityPaused(t, server) })
+	if got := chatTexts(t, server, "Lead"); len(got) != 0 {
+		t.Errorf("Lead chat messages = %q", got)
+	}
+
+	if err := server.Engine.Resume(t.Context(), "antigravity"); err != nil {
+		t.Fatal(err)
+	}
+
+	testkit.WaitFor(t, func() bool { return reflect.DeepEqual(chatTexts(t, server, "Lead"), []string{"Done."}) })
+}
+
+func antigravityPaused(t *testing.T, server *testserver.Server) bool {
+	t.Helper()
+	var n int
+	if err := server.DB.QueryRow("SELECT COUNT(*) FROM harness_pauses WHERE harness = 'antigravity'").Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n > 0
+}
+
+func TestAnAntigravityReplyWithUsageLimitAfterOtherTextGivesNoPause(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, antigravityReplyWithLimitInBody, func(cfg *config.Config) {
+		cfg.Roles.Implementer = config.RoleBinding{Harness: config.Antigravity, Model: "gemini-3-pro", Max: 2}
+	})
+	agent := start(t, server, implementerSpec(t, server, fake, 41))
+	defer end(t, agent, "done")
+
+	if err := agent.Prompt(t.Context(), "Check quota", nil); err != nil {
+		t.Fatal(err)
+	}
+
+	var count int
+	if err := server.DB.QueryRow("SELECT COUNT(*) FROM harness_pauses WHERE harness = 'antigravity'").Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Errorf("pauses count = %d", count)
+	}
+	want := "Here is the answer:\nUsage Limit Reached\nEverything is fine."
+	if got := agent.ReplyText(); got != want {
+		t.Errorf("reply = %q, want %q", got, want)
+	}
 }

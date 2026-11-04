@@ -45,6 +45,8 @@ func (a *Agent) readUsage(notification map[string]any, kind string) {
 	if !a.turn {
 		return
 	}
+	// Each Harness records the input, output, cache read and cache write tokens, the cost and the reported model of
+	// each turn when the Harness gives them.
 	switch a.binding.Harness {
 	case config.ClaudeCode:
 		claudeUpdate(&a.turnUsage, update)
@@ -97,7 +99,8 @@ func (a *Agent) writeContext(ctx context.Context) error {
 	return nil
 }
 
-// readResult adds the result of session/prompt to the usage data of the turn.
+// readResult adds the result of session/prompt to the usage data of the turn. Each Harness records the input,
+// output, cache read and cache write tokens, the cost and the reported model of each turn when the Harness gives them.
 func readResult(usage *turnUsage, harness config.Harness, result runner.PromptResult) {
 	if harness == config.ClaudeCode {
 		claudeResult(usage, result)
@@ -130,8 +133,8 @@ func claudeResult(usage *turnUsage, result runner.PromptResult) {
 	usage.cacheWrite = nullInt(tokens.CacheWrite)
 }
 
-// devinUpdate adds the tokens of a usage_update to the usage data. Devin sends the tokens in the cognition.ai/*
-// keys of _meta, one usage_update for each model call, and a second copy of each with the key
+// devinUpdate adds the tokens of a usage_update to the usage data. Devin sends input, output and cache read tokens
+// in the cognition.ai/* keys of _meta, one usage_update for each model call, and a second copy of each with the key
 // cognition.ai/subagent_context. Devin sends no cache write tokens and no model.
 func devinUpdate(usage *turnUsage, update any) {
 	if field(update, "_meta", "cognition.ai/subagent_context") != nil {
@@ -173,6 +176,8 @@ func (a *Agent) addUsage(ctx context.Context, result runner.PromptResult, prompt
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	usage := a.turnUsage
+	// Each Harness records the input, output, cache read and cache write tokens, the cost and the reported model of
+	// each turn when the Harness gives them.
 	if a.binding.Harness == config.DSH && a.session != nil {
 		// dsh sends no tokens through ACP. It writes the tokens of each model call to its session log.
 		if dsh, err := readDSHUsage(dshHome(), a.spec.Dir, a.session.ID(), a.dshRecords); err == nil {
@@ -185,6 +190,20 @@ func (a *Agent) addUsage(ctx context.Context, result runner.PromptResult, prompt
 			}
 			if dsh.model != "" {
 				usage.model = sql.NullString{String: dsh.model, Valid: true}
+			}
+		}
+	}
+	if a.binding.Harness == config.Antigravity && a.session != nil {
+		// Antigravity sends no tokens through ACP. It writes the metadata of each model call to its conversation database.
+		if agy, err := readAntigravityUsage(antigravityDir(), a.session.ID(), a.antigravityIdx); err == nil {
+			a.antigravityIdx = agy.highestIdx
+			if agy.tokens {
+				usage.input = sql.NullInt64{Int64: agy.input, Valid: true}
+				usage.output = sql.NullInt64{Int64: agy.output, Valid: true}
+				usage.cacheRead = sql.NullInt64{Int64: agy.cacheRead, Valid: true}
+			}
+			if agy.model != "" {
+				usage.model = sql.NullString{String: agy.model, Valid: true}
 			}
 		}
 	}
