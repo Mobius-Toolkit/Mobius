@@ -812,7 +812,7 @@ func TestAFixRoundWithNoCommitNoReplyAndNoNewReportStopsTheTaskWithNoChange(t *t
 		t.Errorf("end reason = %s, want no_change", session.EndReason.String)
 	}
 	wantText := fmt.Sprintf("The fix round of session %d made no commit, no reply and no new report.", session.ID)
-	wantNext := "Resume starts a new fix round with the open review threads."
+	wantNext := "Resume starts a new fix round with the open review threads. With no open thread, the round gets no finding of the Lead, so the Lead must send the findings again after the Resume."
 	wantStopNotice(t, server, fake, "No change", wantText, wantNext)
 
 	sha := head(t, fake, "mobius/41")
@@ -958,7 +958,7 @@ func TestAFixRoundWithAFindingThatHasFinishTheIssueStopsTheTaskWithNoChange(t *t
 		t.Errorf("end reason = %s, want no_change", session.EndReason.String)
 	}
 	wantText := fmt.Sprintf("The fix round of session %d made no commit, no reply and no new report.", session.ID)
-	wantNext := "Resume starts a new fix round with the open review threads."
+	wantNext := "Resume starts a new fix round with the open review threads. With no open thread, the round gets no finding of the Lead, so the Lead must send the findings again after the Resume."
 	wantStopNotice(t, server, fake, "No change", wantText, wantNext)
 
 	waitForPolls(t, fake)

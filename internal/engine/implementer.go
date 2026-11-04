@@ -1046,7 +1046,7 @@ func (e *Engine) implementer(ctx context.Context, j *job) error {
 		return e.handOverFailed(ended, task, j.title, fmt.Sprintf("the fix round of session %d made no commit, no reply and no new report. Mobius added mobius:needs-human.", a.id), "No change", "The fix round made no commit, no reply and no new report.", stopNotice{
 			reason: "No change",
 			text:   fmt.Sprintf("The fix round of session %d made no commit, no reply and no new report.", a.id),
-			next:   "Resume starts a new fix round with the open review threads.",
+			next:   "Resume starts a new fix round with the open review threads. With no open thread, the round gets no finding of the Lead, so the Lead must send the findings again after the Resume.",
 		})
 	case mergeConflict:
 		return e.handOver(ended, task, j.title, fmt.Sprintf("the local branch diverged from origin/%s, and the merge had conflicts. Mobius pushed nothing and added mobius:needs-human. Git gave this error: %s. Resume gives the same conflict. First, in %s, merge origin/%s into the local branch and resolve the conflicts, or reset the local branch to origin/%s.", j.branch, r.text, a.spec.Dir, j.branch, j.branch), stopNotice{
