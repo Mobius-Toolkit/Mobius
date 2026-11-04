@@ -1673,7 +1673,7 @@ func (e *Engine) push(ctx context.Context, a *Agent, j *job, failedLog string, m
 	if err != nil {
 		return result{}, err
 	}
-	if j.reviewItems && head == j.oldHead && !j.replied && !a.hasReplied() && task.Report == j.report {
+	if j.reviewItems && head == j.oldHead && !a.hasReplied() && task.Report == j.report {
 		return result{outcome: noChange}, nil
 	}
 	if !j.conflictRound && task.ReviewRounds >= int64(e.config.MaxFixRounds) {
@@ -1694,10 +1694,7 @@ func (a *Agent) postReplies(ctx context.Context, repository github.Repository, p
 				return err
 			}
 			held.posted = true
-			a.replied = true
-			if a.job != nil {
-				a.job.replied = true
-			}
+			a.job.replied = true
 		}
 		if err := held.target.resolve(ctx, repository); err != nil {
 			return err

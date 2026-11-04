@@ -406,7 +406,8 @@ func TestAMergeConflictInApprovalStartsAConflictRound(t *testing.T) {
 func TestACommentInChecksGoesOnlyToTheJudgeAndTheTaskReturnsToChecks(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectTask(t, fake, "[[prompts]]\nwhen = \"You are the Judge\"\nshell = \"true\"\n\n"+leadStarts, commits, func(cfg *config.Config) { cfg.ReviewQuietPeriod = time.Second })
+	round := "[[prompts]]\nwhen = \"Why cents?\"\nshell = \"echo dollars > plan.txt && git commit -q -am 'Use dollars'\"\n\n"
+	server, _ := connectTask(t, fake, "[[prompts]]\nwhen = \"You are the Judge\"\nshell = \"true\"\n\n"+leadStarts, round+commits, func(cfg *config.Config) { cfg.ReviewQuietPeriod = time.Second })
 	sha := checksHead(t, server, fake)
 	fake.AddCheckRun(shop, checkRun("build", sha, "in_progress", ""))
 
