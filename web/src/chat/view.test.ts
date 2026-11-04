@@ -19,6 +19,18 @@ describe("renderMarkdown", () => {
     expect(render("a ~~b~~ c")).not.toContain("bg-red-500/40");
   });
 
+  it("shows a javascript: link and a javascript: image as text, with no link", () => {
+    for (const text of ["[open](javascript:alert(1))", "![pic](javascript:alert(2))"]) {
+      const result = render(text);
+      expect(result).not.toContain('"href"');
+      expect(result).toContain(text);
+    }
+  });
+
+  it("gives the link of a text with a safe scheme to the element", () => {
+    expect(render("[open](https://example.com/a)")).toContain('"href":"https://example.com/a"');
+  });
+
   it("marks the added text of a Brief diff, and keeps the == of an unchanged line", () => {
     const before = "Check x == 1 first\nKeep this";
     const after = "Check x == 1 first\nKeep this now";

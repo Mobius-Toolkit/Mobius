@@ -89,7 +89,7 @@ export function renderMarkdown(h: H, text: string, diff = false): Html {
           Link: (linkNode, content) =>
             h.a(
               [
-                h.Attribute("href", linkNode.url),
+                h.Href(linkNode.url),
                 h.Attribute("target", "_blank"),
                 h.Attribute("rel", "noopener noreferrer"),
                 h.Class("break-words text-primary underline underline-offset-2"),
@@ -99,7 +99,7 @@ export function renderMarkdown(h: H, text: string, diff = false): Html {
           Image: (imgNode) =>
             h.a(
               [
-                h.Attribute("href", imgNode.url),
+                h.Href(imgNode.url),
                 h.Attribute("target", "_blank"),
                 h.Attribute("rel", "noopener noreferrer"),
                 h.Class("break-words text-primary underline underline-offset-2"),
