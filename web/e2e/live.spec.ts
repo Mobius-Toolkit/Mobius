@@ -148,16 +148,13 @@ test("the chat screen receives a live message after the live connection closes",
   browser,
 }) => {
   await page.goto("/workstreams/plants/garden/12");
-  await expect(page.getByText("Red roses sell best.")).toBeVisible();
+  await expect(page.getByLabel("Message to the Lead")).toBeEditable();
 
-  let closed = false;
-  await page.route("/api/events", (route) => {
-    if (!closed) {
-      closed = true;
-      return route.abort();
-    }
-    return route.fallback();
-  });
+  // An answer that is not an event stream closes the source for good, so the page must retry by itself.
+  let refuse = true;
+  await page.route("/api/events", (route) =>
+    refuse ? route.fulfill({ status: 502 }) : route.fallback(),
+  );
   await page.evaluate("window.dispatchEvent(new Event('online'))");
 
   const other = await browser.newPage();
@@ -170,5 +167,7 @@ test("the chat screen receives a live message after the live connection closes",
   await expect(other.getByText("Water the roses in spring.")).toBeVisible();
   await other.context().close();
 
+  await expect(page.getByText("Water the roses in spring.")).toBeHidden();
+  refuse = false;
   await expect(page.getByText("Water the roses in spring.")).toBeVisible({ timeout: 15_000 });
 });
