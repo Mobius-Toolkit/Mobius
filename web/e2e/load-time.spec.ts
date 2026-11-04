@@ -10,9 +10,9 @@ test("load time of chat screen on Slow 4G and 4x CPU slowdown", async ({ page })
   const client = await page.context().newCDPSession(page);
   await client.send("Network.emulateNetworkConditions", {
     offline: false,
-    latency: 400,
-    downloadThroughput: (500 * 1000) / 8,
-    uploadThroughput: (500 * 1000) / 8,
+    latency: 150,
+    downloadThroughput: (1_600 * 1000) / 8,
+    uploadThroughput: (750 * 1000) / 8,
   });
   await client.send("Emulation.setCPUThrottlingRate", { rate: 4 });
 
@@ -22,8 +22,7 @@ test("load time of chat screen on Slow 4G and 4x CPU slowdown", async ({ page })
     await page.goto("/chat");
     const input = page.getByLabel("Message to the Coordinator");
     await expect(input).toBeEditable({ timeout: 60_000 });
-    const duration = Math.round(performance.now() - start);
-    times.push(duration);
+    times.push(Math.round(performance.now() - start));
   }
 
   times.sort((a, b) => a - b);
