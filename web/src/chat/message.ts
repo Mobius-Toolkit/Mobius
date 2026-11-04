@@ -68,6 +68,7 @@ export const Message = defineMessageUnion({
   ClosePanel: {},
   CompletedFocusPanel: {},
   CompletedPortalToBody: {},
+  CompletedShowFile: {},
   OptionToggled: {
     questionIndex: Schema.Number,
     optionIndex: Schema.Number,

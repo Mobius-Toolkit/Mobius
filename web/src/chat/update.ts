@@ -721,19 +721,22 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
 
     CompletedRemoveQueued: () => ({ model }),
 
-    StopChatClicked: () => ({
-      model: {
-        ...model,
-        stopping: true,
-      },
-      commands: [
-        StopChat({
-          organization: model.organization,
-          repository: model.repository,
-          workstream: model.workstream,
-        }),
-      ],
-    }),
+    StopChatClicked: () =>
+      model.stopping
+        ? { model }
+        : {
+            model: {
+              ...model,
+              stopping: true,
+            },
+            commands: [
+              StopChat({
+                organization: model.organization,
+                repository: model.repository,
+                workstream: model.workstream,
+              }),
+            ],
+          },
 
     // After a success the button stays pending until the server says that the chat is not stoppable.
     StopChatCompleted: ({ error }) =>
@@ -1376,6 +1379,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
 
     CompletedFocusPanel: () => ({ model }),
     CompletedPortalToBody: () => ({ model }),
+    CompletedShowFile: () => ({ model }),
     CompletedNavigate: () => ({ model }),
     CompletedSeeChat: () => ({ model }),
     CompletedRequestLogin: () => ({ model }),

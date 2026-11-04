@@ -14,6 +14,7 @@ import {
   RemoveQueued,
   RunTrayAction,
   SaveTrayState,
+  StopChat,
   StopVoice,
   WaitToRetry,
 } from "./commands";
@@ -805,6 +806,25 @@ describe("chat update story tests", () => {
         ),
         StoryCommand.resolve(StopVoice, Message.CompletedStopVoice()),
         StoryCommand.resolve(DoneInboxItem, Message.AnswerCompleted({ id: 9, result: {} })),
+        StoryCommand.expectNone(),
+      );
+    });
+
+    it("ignores a second tap on Stop while the first request runs", () => {
+      const base = createTestModel({ stoppable: true });
+
+      story(
+        update,
+        given(base),
+        message(Message.StopChatClicked()),
+        StoryCommand.expectExact(
+          StopChat({ organization: "test-org", repository: "test-repo", workstream: 1428 }),
+        ),
+        StoryCommand.resolve(StopChat, Message.StopChatCompleted({ error: null })),
+        message(Message.StopChatClicked()),
+        model((m) => {
+          expect(m.stopping).toBe(true);
+        }),
         StoryCommand.expectNone(),
       );
     });

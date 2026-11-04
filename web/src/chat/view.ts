@@ -33,7 +33,7 @@ import {
   triangleAlertIcon,
   xIcon,
 } from "./icons";
-import { fileUrl, renderComposer, renderPanelComposer } from "./composer";
+import { renderComposer, renderFileImage, renderPanelComposer } from "./composer";
 import { ChatList } from "./scroll";
 import { badgeClass, buttonClass, cn } from "./ui";
 import { Message } from "./message";
@@ -574,10 +574,8 @@ function renderQueuedMessage(
       item.images.length > 0
         ? h.div(
             [h.Class("flex flex-wrap gap-2")],
-            item.images.map((file, position) =>
-              h.img([
-                h.Key(`queued-image-${position}`),
-                h.Src(fileUrl(file)),
+            item.images.map((_, position) =>
+              renderFileImage(h, item.images, position, [
                 h.Alt(`Picture ${position + 1} of an unsent message`),
                 h.Class("max-h-48 max-w-full rounded-lg border object-contain"),
               ]),
@@ -902,7 +900,9 @@ function renderActionTray(h: H, model: Model): Html {
               h.OnClick(Message.TrayToggled()),
             ],
             [
-              `Waits for you (${rows.length})`,
+              "Waits for you (",
+              String(rows.length),
+              ")",
               chevronRightIcon(
                 h,
                 `size-4 shrink-0 transition-transform ${!model.trayCollapsed ? "rotate-90" : ""}`,

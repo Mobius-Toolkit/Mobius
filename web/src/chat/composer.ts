@@ -1,5 +1,5 @@
 import { Effect, Queue, Schema, Stream } from "effect";
-import type { Html, HtmlBuilder } from "foldkit/html";
+import type { Attribute, Html, HtmlBuilder } from "foldkit/html";
 import { Mount } from "foldkit";
 import type { InboxItem } from "@/api/api.gen";
 import { roleName } from "@/lib/actions";
@@ -27,15 +27,48 @@ type ComposerMessage = ReturnType<
 export const inputId = "chat-input";
 export const answerInputId = "answer-input";
 const pickerId = "chat-attach";
-const fileUrls = new WeakMap<File, string>();
+// The Mount of an image reads its file only at insert, so each file of a list needs its own key.
+function fileKey(files: File[], index: number) {
+  const file = files[index];
+  const same = files
+    .slice(0, index)
+    .filter(
+      (other) =>
+        other.name === file.name &&
+        other.size === file.size &&
+        other.lastModified === file.lastModified,
+    ).length;
+  return `file-${file.name}-${file.size}-${file.lastModified}-${same}`;
+}
 
-export function fileUrl(file: File) {
-  let url = fileUrls.get(file);
-  if (!url) {
-    url = URL.createObjectURL(file);
-    fileUrls.set(file, url);
-  }
-  return url;
+const ShowFile = Mount.define("ShowFile", {
+  args: { file: Schema.Unknown as Schema.Schema<File> },
+  messages: [Message.CompletedShowFile],
+  execute: ({ element, file }) =>
+    Effect.gen(function* () {
+      yield* Effect.acquireRelease(
+        Effect.sync(() => {
+          const url = URL.createObjectURL(file);
+          (element as HTMLImageElement).src = url;
+          return url;
+        }),
+        (url) => Effect.sync(() => URL.revokeObjectURL(url)),
+      );
+      return Message.CompletedShowFile();
+    }),
+});
+
+export function renderFileImage(
+  h: H,
+  files: File[],
+  index: number,
+  attributes: ReadonlyArray<Attribute<Message>>,
+): Html {
+  return h.img([
+    h.Key(fileKey(files, index)),
+    h.OnMount(ShowFile({ file: files[index] })),
+    ...attributes,
+  ]);
 }
 
 // A button that takes the focus closes the keyboard of a phone, and the button moves before the click.
@@ -162,12 +195,11 @@ function attachedInboxItem(h: H, item: DraftInboxItem): Html {
   );
 }
 
-function thumbnail(h: H, file: File, index: number): Html {
+function thumbnail(h: H, files: File[], index: number): Html {
   return h.div(
-    [h.Key(`thumb-${index}`), h.Class("relative")],
+    [h.Key(`thumb-${fileKey(files, index)}`), h.Class("relative")],
     [
-      h.img([
-        h.Src(fileUrl(file)),
+      renderFileImage(h, files, index, [
         h.Alt(`Image ${index + 1}`),
         h.Class("size-16 rounded-lg border object-cover"),
       ]),
@@ -304,7 +336,7 @@ function composerBox(h: H, model: Model, box: Box): Html {
                 [h.Class("flex flex-wrap gap-2 pb-1")],
                 [
                   ...box.inboxItems.map((item) => attachedInboxItem(h, item)),
-                  ...images.map((file, index) => thumbnail(h, file, index)),
+                  ...images.map((_, index) => thumbnail(h, images, index)),
                 ],
               )
             : h.empty,
