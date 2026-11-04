@@ -86,13 +86,17 @@ function ChatProgram({
     handleRef.current?.ports.workstreams.send(workstreams ?? null);
   }, [workstreams]);
 
+  // Foldkit replaces the container element with its own root. Thus the wrapper keeps the container as its only child,
+  // and React never moves the container.
   return (
     <section className="group/chat flex min-h-0 min-w-0 grow flex-col">
       <header className="hidden min-h-14 items-center gap-2 border-b px-4 py-2 md:flex">
         {head}
       </header>
       {note}
-      <div id="chat-app" ref={containerRef} className="flex min-h-0 min-w-0 grow flex-col" />
+      <div id="chat-app-wrapper" className="flex min-h-0 min-w-0 grow flex-col">
+        <div id="chat-app" ref={containerRef} className="flex min-h-0 min-w-0 grow flex-col" />
+      </div>
     </section>
   );
 }
