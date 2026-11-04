@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -712,10 +713,30 @@ func TestAnApprovalThatFailsAtTheCloseOfTheIssueCommentsAndRunsAgainWithoutANewW
 	}
 }
 
+// dumpTriage logs the state of the issue number of owner/shop, its comments, the Triager sessions and the Triager
+// turns that did not end.
+func dumpTriage(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHub, number int64) {
+	state, reason := fake.State(shop, number)
+	t.Logf("issue %d: state = %s, reason = %q, labels = %v", number, state, reason, fake.Labels(shop, number))
+	for _, comment := range fake.Comments(shop, number) {
+		t.Logf("issue %d: comment of %s: %q", number, comment.Author, comment.Body)
+	}
+	for _, session := range chatSessions(t, server, issueTriagers, engine.TriagerRole) {
+		t.Logf("session %d: issue = %v, started = %s, ended = %v, reason = %q, prompts = %q", session.ID, session.Issue.Int64, session.StartedAt, session.EndedAt.String, session.EndReason.String, promptTexts(t, server, session.ID))
+	}
+	turns, err := store.New(server.DB).ListTriagerTurns(context.Background(), shop)
+	t.Logf("triager turns = %v, error = %v", turns, err)
+}
+
 func TestAnIssueThatTheOwnerReopensAfterTheEndOfTheTriageGetsANewTurn(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTriager(t, fake)
+	t.Cleanup(func() {
+		if t.Failed() {
+			dumpTriage(t, server, fake, 68)
+		}
+	})
 	fake.CreateIssue(shop, 68, "Add refunds", "Refund each order.", "owner")
 	proposal := triagerComment(68, "Proposal: the Workstream Refunds.")
 	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 68), proposal) })
