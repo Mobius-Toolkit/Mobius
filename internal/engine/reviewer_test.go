@@ -357,7 +357,7 @@ func TestAFixRoundOfTheLeadMakesTheReadyPullRequestADraftUntilTheEndOfTheRound(t
 	fake := testkit.NewFakeGitHub(t)
 	dataDir := t.TempDir()
 	goFile := filepath.Join(dataDir, "go")
-	round := fmt.Sprintf("[[prompts]]\nwhen = \"Remove the lines out of scope.\"\nshell = \"while [ ! -e '%s' ]; do sleep 0.05; done\"\n\n", goFile)
+	round := fmt.Sprintf("[[prompts]]\nwhen = \"Remove the lines out of scope.\"\nshell = \"while [ ! -e '%s' ]; do sleep 0.05; done && echo more >> plan.txt && git commit -q -am 'Remove lines out of scope'\"\n\n", goFile)
 	server, _ := connectTaskIn(t, fake, dataDir, noFinding+leadFindings+leadStarts, round+commits, noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 	readyForReview(t, server, fake)
@@ -796,5 +796,174 @@ func TestAReviewerThatGivesNoValidDeploymentNeedsFailsTheRunAndStoresNothing(t *
 	}
 	if needs := deploymentNeeds(t, server); len(needs) != 0 {
 		t.Errorf("needs = %+v", needs)
+	}
+}
+
+func TestAFixRoundWithNoCommitNoReplyAndNoNewReportStopsTheTaskWithNoChange(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, finding+leadStarts, fixesNothing, noChange)
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" })
+	implementers := endedImplementers(t, server, 2)
+	session := implementers[1]
+	if session.EndReason.String != "no_change" {
+		t.Errorf("end reason = %s, want no_change", session.EndReason.String)
+	}
+	wantText := fmt.Sprintf("The fix round of session %d made no commit, no reply and no new report.", session.ID)
+	wantNext := "Resume starts a new fix round with the open review threads. With no open thread, the round gets no finding of the Lead, so the Lead must send the findings again after the Resume."
+	wantStopNotice(t, server, fake, "No change", wantText, wantNext)
+
+	sha := head(t, fake, "mobius/41")
+	runs := fake.CheckRuns(shop)
+	found := false
+	for _, run := range runs {
+		if run.HeadSHA == sha && run.Name == "Mobius" {
+			found = true
+			if run.Status != "completed" || run.Conclusion != "failure" || run.Output == nil || run.Output.Title != "No change" {
+				t.Errorf("check run = %+v", run)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("no Mobius check run on %s: %+v", sha, runs)
+	}
+
+	waitForPolls(t, fake)
+	if reviewers := roleSessions(t, server, engine.ReviewerRole); len(reviewers) != 1 {
+		t.Errorf("reviewers = %d, want 1", len(reviewers))
+	}
+}
+
+func TestAFixRoundWithAReplyAndNoCommitStartsTheReviewer(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	repliesOnly := "[[prompts]]\nwhen = \"Action: fix\"\nshell = \"true\"\ncall = { tool = \"reply_thread\", arguments = { thread = 2, text = \"This is intended.\" } }\n\n" + commits
+	server, _ := connectTask(t, fake, finding+leadStarts, repliesOnly, noChange)
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	reviewers := endedReviewers(t, server, 2)
+	if len(reviewers) != 2 {
+		t.Fatalf("reviewers = %d, want 2", len(reviewers))
+	}
+	implementers := endedImplementers(t, server, 2)
+	if implementers[1].EndReason.String != "done" {
+		t.Errorf("implementer 2 end reason = %s, want done", implementers[1].EndReason.String)
+	}
+	thread := fake.ReviewThread(shop, 42, 2)
+	if len(thread.Comments) < 2 || !strings.Contains(thread.Comments[1].Body, "This is intended.") {
+		t.Errorf("thread comments = %+v", thread.Comments)
+	}
+}
+
+func TestAFixRoundWithANewReportAndNoCommitStartsTheReviewer(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	reportOnly := "[[prompts]]\nwhen = \"Action: fix\"\nshell = \"true\"\ncall = { tool = \"submit_report\", arguments = { report = \"Updated report text for the fix round.\" } }\n\n" + commits
+	server, _ := connectTask(t, fake, finding+leadStarts, reportOnly, noChange)
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	reviewers := endedReviewers(t, server, 2)
+	if len(reviewers) != 2 {
+		t.Fatalf("reviewers = %d, want 2", len(reviewers))
+	}
+	implementers := endedImplementers(t, server, 2)
+	if implementers[1].EndReason.String != "done" {
+		t.Errorf("implementer 2 end reason = %s, want done", implementers[1].EndReason.String)
+	}
+	task := liveTask(t, server, 41)
+	if task.Report != "Updated report text for the fix round." {
+		t.Errorf("task report = %q", task.Report)
+	}
+}
+
+func TestAResumeWithNoOpenThreadAndNoCommitStartsTheReviewer(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	finishes := "[[prompts]]\nwhen = \"The human continued the task.\"\nshell = \"true\"\n\n" + commits
+	server, _ := connectTask(t, fake, noFinding+leadStarts, finishes, noChange)
+	waitForApproval(t, server, fake)
+
+	fake.RemoveLabel(shop, 41, "mobius:working", "mallory")
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "stopped" })
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	testkit.WaitFor(t, func() bool { return implementers(t, server) == 2 })
+	endedImplementers(t, server, 2)
+
+	endedReviewers(t, server, 2)
+}
+
+func TestACIFixRoundWithNoCommitAndNoReplyDoesNotStopWithNoChange(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, fixesNothing, longGrace)
+	sha := checksHead(t, server, fake)
+	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
+
+	testkit.WaitFor(t, func() bool { return implementers(t, server) == 2 })
+	sessions := endedImplementers(t, server, 2)
+	if session := sessions[1]; session.EndReason.String != "done" {
+		t.Errorf("end reason = %s, want done", session.EndReason.String)
+	}
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" })
+	assertCIStop(t, server, fake, sha)
+}
+
+func TestAFixRoundThatPostedAReplyAndRestartsTheWorkerStartsTheReviewer(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	repliesAndFails := "[[prompts]]\n" + commitCents + "\n" +
+		"[[prompts]]\ncall = { tool = \"reply_thread\", arguments = { thread = 2, text = \"This is intended.\" } }\nerror = { code = -32603, message = \"turn failed: transient error\" }\n\n" +
+		"[[prompts]]\nshell = \"true\"\n"
+	server, _ := connectTask(t, fake, finding+leadStarts, repliesAndFails, func(cfg *config.Config) {
+		cfg.MaxWorkerRestarts = 2
+	})
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	reviewers := endedReviewers(t, server, 2)
+	if len(reviewers) != 2 {
+		t.Fatalf("reviewers = %d, want 2", len(reviewers))
+	}
+	implementers := endedImplementers(t, server, 3)
+	if implementers[1].EndReason.String != "failed" {
+		t.Errorf("implementer 1 end reason = %s, want failed", implementers[1].EndReason.String)
+	}
+	if implementers[2].EndReason.String != "done" {
+		t.Errorf("implementer 2 end reason = %s, want done", implementers[2].EndReason.String)
+	}
+	thread := fake.ReviewThread(shop, 42, 2)
+	if len(thread.Comments) < 2 || !strings.Contains(thread.Comments[1].Body, "This is intended.") {
+		t.Errorf("thread comments = %+v", thread.Comments)
+	}
+}
+
+func TestAFixRoundWithAFindingThatHasFinishTheIssueStopsTheTaskWithNoChange(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	findingWithWords := "[[prompts]]\nwhen = \"You are the Reviewer\"\ncall = { tool = \"submit_review\", arguments = { body = \"One finding.\", comments = [{ path = \"plan.txt\", line = 1, body = \"Finish the issue with cents.\" }] } }\n\n"
+	server, _ := connectTask(t, fake, findingWithWords+leadStarts, fixesNothing, noChange)
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" })
+	implementers := endedImplementers(t, server, 2)
+	session := implementers[1]
+	if session.EndReason.String != "no_change" {
+		t.Errorf("end reason = %s, want no_change", session.EndReason.String)
+	}
+	wantText := fmt.Sprintf("The fix round of session %d made no commit, no reply and no new report.", session.ID)
+	wantNext := "Resume starts a new fix round with the open review threads. With no open thread, the round gets no finding of the Lead, so the Lead must send the findings again after the Resume."
+	wantStopNotice(t, server, fake, "No change", wantText, wantNext)
+
+	waitForPolls(t, fake)
+	if reviewers := roleSessions(t, server, engine.ReviewerRole); len(reviewers) != 1 {
+		t.Errorf("reviewers = %d, want 1", len(reviewers))
 	}
 }
