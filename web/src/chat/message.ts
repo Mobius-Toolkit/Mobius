@@ -7,17 +7,17 @@ export const Message = defineMessageUnion({
   ReceivedTrayItems: { items: Schema.Unknown },
   ReceivedWorkstreams: { workstreams: Schema.NullOr(Schema.Unknown) },
 
-  ConnectionOpened: { },
+  ConnectionOpened: {},
   ReceivedLiveMessage: { message: Schema.Unknown },
   ReceivedLiveChatState: { state: Schema.Unknown },
   ReceivedLiveAction: { action: Schema.Unknown },
   ReceivedLiveQuestion: { question: Schema.Unknown },
-  RequestLoginFromSubscription: { },
+  RequestLoginFromSubscription: {},
 
   PageLoaded: { page: Schema.Unknown, isInitial: Schema.Boolean },
   OlderPageLoaded: { page: Schema.Unknown },
   PageFailed: { error: Schema.String },
-  LoadOlderRequested: { },
+  LoadOlderRequested: {},
   Scrolled: { scrollTop: Schema.Number },
 
   QueueLoaded: { items: Schema.Unknown },
@@ -25,11 +25,11 @@ export const Message = defineMessageUnion({
   MessageQueued: { item: Schema.Unknown },
   SendAttemptSucceeded: { id: Schema.String },
   SendAttemptFailed: { id: Schema.String, error: Schema.String, retryAt: Schema.Number },
-  RetryNowClicked: { },
+  RetryNowClicked: {},
   DiscardQueuedClicked: { id: Schema.String },
   CompletedRemoveQueued: { id: Schema.String },
 
-  StopChatClicked: { },
+  StopChatClicked: {},
   StopChatCompleted: { error: Schema.NullOr(Schema.String) },
 
   DraftLoaded: { draft: Schema.Unknown },
@@ -38,7 +38,7 @@ export const Message = defineMessageUnion({
   DraftImageRemoved: { position: Schema.Number },
   DraftInboxItemAdded: { item: Schema.Unknown },
   DraftInboxItemRemoved: { id: Schema.Number },
-  SendSubmitted: { },
+  SendSubmitted: {},
   CompletedSaveDraft: {},
 
   BriefToggled: {},
@@ -54,7 +54,7 @@ export const Message = defineMessageUnion({
     multiple: Schema.Boolean,
   },
   AnswerTextChanged: { text: Schema.String },
-  AnswerSubmitted: { },
+  AnswerSubmitted: {},
   AnswerCompleted: { result: Schema.Unknown },
   ActionDecided: { decision: Schema.String, text: Schema.String },
   ActionCompleted: { action: Schema.Unknown },
@@ -63,9 +63,9 @@ export const Message = defineMessageUnion({
   ResumeClicked: { item: Schema.Unknown },
   ResumeCompleted: { id: Schema.Number, error: Schema.optional(Schema.String) },
 
-  VoiceButtonClicked: { },
-  VoiceResendClicked: { },
-  VoiceDiscardClicked: { },
+  VoiceButtonClicked: {},
+  VoiceResendClicked: {},
+  VoiceDiscardClicked: {},
   VoiceSendFinished: { text: Schema.optional(Schema.String) },
   VoicePhaseChanged: {
     phase: Schema.String,
@@ -76,9 +76,9 @@ export const Message = defineMessageUnion({
   VoiceFinalTextReceived: { text: Schema.String, live: Schema.Boolean },
 
   NavigateTo: { path: Schema.String },
-  CompletedNavigate: { },
-  CompletedSeeChat: { },
-  CompletedRequestLogin: { },
+  CompletedNavigate: {},
+  CompletedSeeChat: {},
+  CompletedRequestLogin: {},
 });
 
 export type Message = typeof Message.Type;

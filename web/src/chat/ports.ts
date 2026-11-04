@@ -7,9 +7,7 @@ export const ports = {
     unread: Port.inbound(Schema.NullOr(Schema.Number)),
     brief: Port.inbound(Schema.NullOr(Schema.Unknown) as Schema.Codec<Workstream | null>),
     trayItems: Port.inbound(Schema.Unknown as Schema.Codec<InboxItem[]>),
-    workstreams: Port.inbound(
-      Schema.NullOr(Schema.Unknown) as Schema.Codec<Workstream[] | null>,
-    ),
+    workstreams: Port.inbound(Schema.NullOr(Schema.Unknown) as Schema.Codec<Workstream[] | null>),
   },
   outbound: {
     loginRequested: Port.outbound(Schema.Void),

@@ -59,116 +59,116 @@ function createLiveEventsStream(target: {
     (queue) =>
       Effect.gen(function* () {
         let source: EventSource | null = null;
-    let silenceTimer: ReturnType<typeof setTimeout> | undefined;
-    let retryTimer: ReturnType<typeof setTimeout> | undefined;
-    let stopped = false;
+        let silenceTimer: ReturnType<typeof setTimeout> | undefined;
+        let retryTimer: ReturnType<typeof setTimeout> | undefined;
+        let stopped = false;
 
-    const resetSilenceWatchdog = () => {
-      clearTimeout(silenceTimer);
-      silenceTimer = setTimeout(() => {
-        reconnect();
-      }, silenceLimit);
-    };
+        const resetSilenceWatchdog = () => {
+          clearTimeout(silenceTimer);
+          silenceTimer = setTimeout(() => {
+            reconnect();
+          }, silenceLimit);
+        };
 
-    const reconnect = () => {
-      if (stopped) return;
-      if (source) {
-        source.close();
-      }
-      connect();
-    };
+        const reconnect = () => {
+          if (stopped) return;
+          if (source) {
+            source.close();
+          }
+          connect();
+        };
 
-    const handleRetry = () => {
-      listGitHubApps()
-        .then((res) => {
-          if (res.status === 401) {
-            Queue.offerUnsafe(queue, Message.PageFailed({ error: "login required" }));
-          } else if (!stopped) {
+        const handleRetry = () => {
+          listGitHubApps()
+            .then((res) => {
+              if (res.status === 401) {
+                Queue.offerUnsafe(queue, Message.PageFailed({ error: "login required" }));
+              } else if (!stopped) {
+                reconnect();
+              }
+            })
+            .catch(() => {
+              if (!stopped) {
+                reconnect();
+              }
+            });
+        };
+
+        const connect = () => {
+          source = new EventSource("/api/events");
+          resetSilenceWatchdog();
+
+          source.addEventListener("open", () => {
+            resetSilenceWatchdog();
+            Queue.offerUnsafe(queue, Message.ConnectionOpened());
+          });
+
+          source.addEventListener("error", () => {
+            if (source?.readyState === EventSource.CLOSED) {
+              clearTimeout(retryTimer);
+              retryTimer = setTimeout(handleRetry, retryDelay);
+            }
+          });
+
+          onEvent<LiveEvents, "ping">(source, "ping", () => {
+            resetSilenceWatchdog();
+          });
+
+          onEvent<LiveEvents, "message">(source, "message", (message) => {
+            if (sameChat(message, target)) {
+              Queue.offerUnsafe(queue, Message.ReceivedLiveMessage({ message }));
+            }
+          });
+
+          onEvent<LiveEvents, "chat">(source, "chat", (state) => {
+            if (sameChat(state, target)) {
+              Queue.offerUnsafe(queue, Message.ReceivedLiveChatState({ state }));
+            }
+          });
+
+          onEvent<LiveEvents, "action">(source, "action", (action) => {
+            Queue.offerUnsafe(queue, Message.ReceivedLiveAction({ action }));
+          });
+
+          onEvent<LiveEvents, "question">(source, "question", (question) => {
+            Queue.offerUnsafe(queue, Message.ReceivedLiveQuestion({ question }));
+          });
+        };
+
+        const handleWake = () => {
+          if (!document.hidden) {
             reconnect();
           }
-        })
-        .catch(() => {
-          if (!stopped) {
+        };
+
+        const handleRestore = (event: PageTransitionEvent) => {
+          if (event.persisted) {
             reconnect();
           }
-        });
-    };
+        };
 
-    const connect = () => {
-      source = new EventSource("/api/events");
-      resetSilenceWatchdog();
+        window.addEventListener("online", handleWake);
+        window.addEventListener("pageshow", handleRestore as EventListener);
+        document.addEventListener("visibilitychange", handleWake);
 
-      source.addEventListener("open", () => {
-        resetSilenceWatchdog();
-        Queue.offerUnsafe(queue, Message.ConnectionOpened());
-      });
+        connect();
 
-      source.addEventListener("error", () => {
-        if (source?.readyState === EventSource.CLOSED) {
-          clearTimeout(retryTimer);
-          retryTimer = setTimeout(handleRetry, retryDelay);
-        }
-      });
-
-      onEvent<LiveEvents, "ping">(source, "ping", () => {
-        resetSilenceWatchdog();
-      });
-
-      onEvent<LiveEvents, "message">(source, "message", (message) => {
-        if (sameChat(message, target)) {
-          Queue.offerUnsafe(queue, Message.ReceivedLiveMessage({ message }));
-        }
-      });
-
-      onEvent<LiveEvents, "chat">(source, "chat", (state) => {
-        if (sameChat(state, target)) {
-          Queue.offerUnsafe(queue, Message.ReceivedLiveChatState({ state }));
-        }
-      });
-
-      onEvent<LiveEvents, "action">(source, "action", (action) => {
-        Queue.offerUnsafe(queue, Message.ReceivedLiveAction({ action }));
-      });
-
-      onEvent<LiveEvents, "question">(source, "question", (question) => {
-        Queue.offerUnsafe(queue, Message.ReceivedLiveQuestion({ question }));
-      });
-    };
-
-    const handleWake = () => {
-      if (!document.hidden) {
-        reconnect();
-      }
-    };
-
-    const handleRestore = (event: PageTransitionEvent) => {
-      if (event.persisted) {
-        reconnect();
-      }
-    };
-
-    window.addEventListener("online", handleWake);
-    window.addEventListener("pageshow", handleRestore as EventListener);
-    document.addEventListener("visibilitychange", handleWake);
-
-    connect();
-
-    yield* Effect.addFinalizer(() =>
-      Effect.sync(() => {
-        stopped = true;
-        clearTimeout(silenceTimer);
-        clearTimeout(retryTimer);
-        window.removeEventListener("online", handleWake);
-        window.removeEventListener("pageshow", handleRestore as EventListener);
-        document.removeEventListener("visibilitychange", handleWake);
-        if (source) {
-          source.close();
-        }
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => {
+            stopped = true;
+            clearTimeout(silenceTimer);
+            clearTimeout(retryTimer);
+            window.removeEventListener("online", handleWake);
+            window.removeEventListener("pageshow", handleRestore as EventListener);
+            document.removeEventListener("visibilitychange", handleWake);
+            if (source) {
+              source.close();
+            }
+          }),
+        );
       }),
-    );
-  }),
-  { bufferSize: 1000 },
-);
+    { bufferSize: 1000 },
+  );
 }
 
 function createEscapeListener(queue: Queue.Enqueue<Message>) {

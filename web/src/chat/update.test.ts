@@ -74,10 +74,7 @@ describe("chat update story tests", () => {
             delay: retryDelays[0],
           }),
         ),
-        StoryCommand.resolve(
-          PostQueued,
-          Message.SendAttemptSucceeded({ id: "q1" }),
-        ),
+        StoryCommand.resolve(PostQueued, Message.SendAttemptSucceeded({ id: "q1" })),
         StoryCommand.resolve(
           FetchPage,
           Message.PageLoaded({
@@ -158,10 +155,7 @@ describe("chat update story tests", () => {
             isInitial: false,
           }),
         ),
-        StoryCommand.resolve(
-          PostQueued,
-          Message.SendAttemptSucceeded({ id: "q2" }),
-        ),
+        StoryCommand.resolve(PostQueued, Message.SendAttemptSucceeded({ id: "q2" })),
         StoryCommand.resolve(
           FetchPage,
           Message.PageLoaded({
@@ -209,10 +203,7 @@ describe("chat update story tests", () => {
           expect(q[0].id).toBe("browser-2");
         }),
         StoryCommand.expectExact(RemoveQueued({ id: "browser-1" })),
-        StoryCommand.resolve(
-          RemoveQueued,
-          Message.CompletedRemoveQueued({ id: "browser-1" }),
-        ),
+        StoryCommand.resolve(RemoveQueued, Message.CompletedRemoveQueued({ id: "browser-1" })),
         StoryCommand.expectNone(),
       );
     });
@@ -233,10 +224,7 @@ describe("chat update story tests", () => {
           expect(m.attempt).toBeNull();
         }),
         StoryCommand.expectExact(RemoveQueued({ id: "q1" })),
-        StoryCommand.resolve(
-          RemoveQueued,
-          Message.CompletedRemoveQueued({ id: "q1" }),
-        ),
+        StoryCommand.resolve(RemoveQueued, Message.CompletedRemoveQueued({ id: "q1" })),
         StoryCommand.expectNone(),
       );
     });
@@ -293,10 +281,7 @@ describe("chat update story tests", () => {
             delay: retryDelays[2],
           }),
         ),
-        StoryCommand.resolve(
-          PostQueued,
-          Message.SendAttemptSucceeded({ id: "q1" }),
-        ),
+        StoryCommand.resolve(PostQueued, Message.SendAttemptSucceeded({ id: "q1" })),
         StoryCommand.resolve(
           FetchPage,
           Message.PageLoaded({
@@ -419,10 +404,7 @@ describe("chat update story tests", () => {
           expect((m.messages as ChatMessage[]).length).toBe(1);
         }),
         StoryCommand.expectExact(RemoveQueued({ id: "client-123" })),
-        StoryCommand.resolve(
-          RemoveQueued,
-          Message.CompletedRemoveQueued({ id: "client-123" }),
-        ),
+        StoryCommand.resolve(RemoveQueued, Message.CompletedRemoveQueued({ id: "client-123" })),
         StoryCommand.expectNone(),
       );
     });

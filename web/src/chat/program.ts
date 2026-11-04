@@ -1,10 +1,6 @@
 import { Effect } from "effect";
 import * as Runtime from "foldkit/runtime";
-import {
-  FetchPage,
-  ListQueued,
-  LoadDraft,
-} from "./commands";
+import { FetchPage, ListQueued, LoadDraft } from "./commands";
 import { Flags } from "./flags";
 import { initialModel, Model } from "./model";
 import { ports } from "./ports";

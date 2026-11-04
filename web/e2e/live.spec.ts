@@ -172,4 +172,3 @@ test("the chat screen receives a live message after the live connection closes",
 
   await expect(page.getByText("Water the roses in spring.")).toBeVisible({ timeout: 15_000 });
 });
-

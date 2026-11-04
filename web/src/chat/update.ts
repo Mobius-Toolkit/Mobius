@@ -635,14 +635,14 @@ export function update(model: Model, message: Message): UpdateReturn<Model, Mess
       }
       stopVoiceAction();
       const text = model.draftText || model.voiceLiveText;
-      const inboxItems: ChatInboxItem[] = (
-        model.draftInboxItems as DraftInboxItem[]
-      ).map(({ reference, title, reason, link }) => ({
-        reference,
-        title,
-        reason,
-        link,
-      }));
+      const inboxItems: ChatInboxItem[] = (model.draftInboxItems as DraftInboxItem[]).map(
+        ({ reference, title, reason, link }) => ({
+          reference,
+          title,
+          reason,
+          link,
+        }),
+      );
       const empty = { text: "", images: [], inboxItems: [] };
       return {
         model: {
@@ -923,9 +923,7 @@ export function update(model: Model, message: Message): UpdateReturn<Model, Mess
         ? (model.trayItems as InboxItem[]).map((item) =>
             item.action?.id === action.id ? { ...item, action } : item,
           )
-        : (model.trayItems as InboxItem[]).filter(
-            (item) => item.action?.id !== action.id,
-          );
+        : (model.trayItems as InboxItem[]).filter((item) => item.action?.id !== action.id);
       const activePanel =
         isPending && err
           ? model.activePanel
@@ -980,14 +978,14 @@ export function update(model: Model, message: Message): UpdateReturn<Model, Mess
 
     VoiceSendFinished: ({ text }) => {
       const finalText = text ?? model.voiceLiveText ?? model.draftText;
-      const inboxItems: ChatInboxItem[] = (
-        model.draftInboxItems as DraftInboxItem[]
-      ).map(({ reference, title, reason, link }) => ({
-        reference,
-        title,
-        reason,
-        link,
-      }));
+      const inboxItems: ChatInboxItem[] = (model.draftInboxItems as DraftInboxItem[]).map(
+        ({ reference, title, reason, link }) => ({
+          reference,
+          title,
+          reason,
+          link,
+        }),
+      );
       const empty = { text: "", images: [], inboxItems: [] };
       return {
         model: {
@@ -1035,9 +1033,7 @@ export function update(model: Model, message: Message): UpdateReturn<Model, Mess
 
     VoiceFinalTextReceived: ({ text }) => {
       const nextText =
-        model.draftText && !text.startsWith(model.draftText)
-          ? `${model.draftText} ${text}`
-          : text;
+        model.draftText && !text.startsWith(model.draftText) ? `${model.draftText} ${text}` : text;
       return {
         model: {
           ...model,

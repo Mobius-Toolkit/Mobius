@@ -63,9 +63,7 @@ function renderMarkdown(h: H, text: string): Html {
               return h.span(
                 [],
                 parts.map((part, index) =>
-                  index % 2 === 1
-                    ? h.ins([h.Class("bg-green-500/40 no-underline")], [part])
-                    : part,
+                  index % 2 === 1 ? h.ins([h.Class("bg-green-500/40 no-underline")], [part]) : part,
                 ),
               );
             },
@@ -120,12 +118,7 @@ function renderOwnerStatus(h: H, message: ChatMessage): Html {
   if (message.failedAt) {
     const label = `Not delivered, the agent failed, at ${clock(message.failedAt)}`;
     return h.span(
-      [
-        h.Role("img"),
-        h.AriaLabel(label),
-        h.Attribute("title", label),
-        h.Class("text-destructive"),
-      ],
+      [h.Role("img"), h.AriaLabel(label), h.Attribute("title", label), h.Class("text-destructive")],
       [triangleAlertIcon(h)],
     );
   }
@@ -184,9 +177,7 @@ function renderInboxItemCard(
 
 function renderActionSender(h: H, action: PendingAction, onNavigate = false): Html {
   const [owner, name] = action.sender ? action.sender.repository.split("/") : ["", ""];
-  const senderLink = action.sender
-    ? `/workstreams/${owner}/${name}/${action.sender.number}`
-    : "";
+  const senderLink = action.sender ? `/workstreams/${owner}/${name}/${action.sender.number}` : "";
   const senderText = action.sender
     ? `#${action.sender.number}${action.sender.title ? ` ${action.sender.title}` : ""}`
     : "";
@@ -249,11 +240,7 @@ function renderActionCard(h: H, message: ChatMessage, action: PendingAction): Ht
               ),
               outcome
                 ? h.span(
-                    [
-                      h.Class(
-                        "line-clamp-2 min-w-0 text-sm wrap-anywhere whitespace-pre-line",
-                      ),
-                    ],
+                    [h.Class("line-clamp-2 min-w-0 text-sm wrap-anywhere whitespace-pre-line")],
                     [outcome],
                   )
                 : h.empty,
@@ -380,11 +367,7 @@ function renderQuestionCard(h: H, message: ChatMessage, question: InboxItem): Ht
               ),
               answer
                 ? h.span(
-                    [
-                      h.Class(
-                        "line-clamp-2 min-w-0 text-sm wrap-anywhere whitespace-pre-line",
-                      ),
-                    ],
+                    [h.Class("line-clamp-2 min-w-0 text-sm wrap-anywhere whitespace-pre-line")],
                     [answer],
                   )
                 : h.empty,
@@ -441,9 +424,7 @@ function renderMessage(h: H, message: ChatMessage): Html {
   const isOwner = message.author === "Owner";
   const isEvent = message.author === "Event";
   const cardClass = `grid max-w-[85%] grid-cols-[minmax(0,1fr)] gap-1 rounded-xl border px-3 py-2 ${
-    isOwner
-      ? "justify-self-end border-transparent bg-secondary"
-      : "justify-self-start bg-card"
+    isOwner ? "justify-self-end border-transparent bg-secondary" : "justify-self-start bg-card"
   } ${isEvent ? "border-dashed bg-transparent text-muted-foreground" : ""}`;
 
   return h.div(
@@ -503,11 +484,7 @@ function renderQueuedMessage(h: H, item: Waiting, failure: Failure | null): Html
                 [circleAlertIcon(h)],
               )
             : h.span(
-                [
-                  h.Role("img"),
-                  h.AriaLabel("Not sent yet"),
-                  h.Attribute("title", "Not sent yet"),
-                ],
+                [h.Role("img"), h.AriaLabel("Not sent yet"), h.Attribute("title", "Not sent yet")],
                 [clockIcon(h)],
               ),
         ],
@@ -646,10 +623,7 @@ function renderTrayButtons(h: H, item: InboxItem, model: Model): Html[] {
       ),
     );
   }
-  if (
-    (item.kind === InboxItemKind.question || item.kind === InboxItemKind.stopped) &&
-    item.link
-  ) {
+  if ((item.kind === InboxItemKind.question || item.kind === InboxItemKind.stopped) && item.link) {
     buttons.push(
       h.a(
         [
@@ -751,11 +725,7 @@ function renderTrayButtons(h: H, item: InboxItem, model: Model): Html[] {
 
 function renderTraySideButtons(h: H, item: InboxItem): Html[] {
   const buttons: Html[] = [];
-  if (
-    item.kind !== InboxItemKind.question &&
-    item.kind !== InboxItemKind.stopped &&
-    !item.action
-  ) {
+  if (item.kind !== InboxItemKind.question && item.kind !== InboxItemKind.stopped && !item.action) {
     buttons.push(
       h.button(
         [
@@ -769,10 +739,7 @@ function renderTraySideButtons(h: H, item: InboxItem): Html[] {
       ),
     );
   }
-  if (
-    item.kind === InboxItemKind.Lead_failed ||
-    item.kind === InboxItemKind.tool_upgrade
-  ) {
+  if (item.kind === InboxItemKind.Lead_failed || item.kind === InboxItemKind.tool_upgrade) {
     buttons.push(
       h.button(
         [
@@ -802,19 +769,13 @@ function renderActionTray(h: H, model: Model): Html {
     ],
     [
       h.h3(
-        [
-          h.Class(
-            "text-xs font-semibold tracking-wide text-muted-foreground uppercase",
-          ),
-        ],
+        [h.Class("text-xs font-semibold tracking-wide text-muted-foreground uppercase")],
         [
           h.button(
             [
               h.Type("button"),
               h.AriaExpanded(!model.trayCollapsed),
-              h.Class(
-                "group flex w-full items-center gap-1 px-4 text-left uppercase md:px-0",
-              ),
+              h.Class("group flex w-full items-center gap-1 px-4 text-left uppercase md:px-0"),
               h.OnClick(Message.TrayToggled()),
             ],
             [
@@ -856,7 +817,8 @@ function renderActionTray(h: H, model: Model): Html {
                 rows.map((item) => {
                   const reference = !item.issue
                     ? ""
-                    : item.kind === InboxItemKind.ready_for_review || item.kind === InboxItemKind.todo
+                    : item.kind === InboxItemKind.ready_for_review ||
+                        item.kind === InboxItemKind.todo
                       ? `PR #${item.pullRequest}`
                       : `#${item.issue}`;
                   const referenceLink =
@@ -918,7 +880,11 @@ function renderActionTray(h: H, model: Model): Html {
                               todoBadge,
                               refNode,
                               h.span(
-                                [h.Class("contents sm:flex sm:min-w-0 sm:items-baseline sm:gap-x-2")],
+                                [
+                                  h.Class(
+                                    "contents sm:flex sm:min-w-0 sm:items-baseline sm:gap-x-2",
+                                  ),
+                                ],
                                 [
                                   h.span(
                                     [
@@ -994,17 +960,14 @@ function renderComposer(h: H, model: Model): Html {
       ? "Stop voice input"
       : "Start voice input";
   const textValue = model.voiceLiveText
-    ? (model.draftText && !model.voiceLiveText.startsWith(model.draftText)
-        ? `${model.draftText} ${model.voiceLiveText}`
-        : model.voiceLiveText)
+    ? model.draftText && !model.voiceLiveText.startsWith(model.draftText)
+      ? `${model.draftText} ${model.voiceLiveText}`
+      : model.voiceLiveText
     : model.draftText;
   const hasText = Boolean(textValue.trim());
 
   return h.form(
-    [
-      h.Class("grid min-w-0 border-t bg-card p-4 gap-2"),
-      h.OnSubmit(Message.SendSubmitted()),
-    ],
+    [h.Class("grid min-w-0 border-t bg-card p-4 gap-2"), h.OnSubmit(Message.SendSubmitted())],
     [
       h.input([
         h.Type("file"),
@@ -1028,10 +991,7 @@ function renderComposer(h: H, model: Model): Html {
                 ],
                 [
                   item.reference
-                    ? h.span(
-                        [h.Class("truncate text-xs text-muted-foreground")],
-                        [item.reference],
-                      )
+                    ? h.span([h.Class("truncate text-xs text-muted-foreground")], [item.reference])
                     : h.empty,
                   h.span([h.Class("truncate font-medium")], [item.title]),
                   item.reason
@@ -1131,34 +1091,34 @@ function renderComposer(h: H, model: Model): Html {
                     [spinnerIcon(h)],
                   )
                 : model.stoppable && !hasText
-                ? h.button(
-                    [
-                      h.Type("button"),
-                      h.AriaLabel("Stop the reply"),
-                      h.Attribute("title", "Stop the reply"),
-                      h.Disabled(model.stopping),
-                      h.Class(
-                        `inline-flex items-center justify-center rounded-md size-9 bg-destructive text-destructive-foreground ${
-                          model.stopping ? "disabled:opacity-50" : ""
-                        }`,
-                      ),
-                      h.OnClick(Message.StopChatClicked()),
-                    ],
-                    [model.stopping ? spinnerIcon(h) : squareIcon(h)],
-                  )
-                : h.button(
-                    [
-                      h.Type("button"),
-                      h.AriaLabel("Send"),
-                      h.Attribute("title", "Send"),
-                      h.Disabled(!hasText),
-                      h.Class(
-                        "inline-flex items-center justify-center rounded-md size-9 bg-primary text-primary-foreground disabled:opacity-50",
-                      ),
-                      h.OnClick(Message.SendSubmitted()),
-                    ],
-                    [arrowUpIcon(h)],
-                  ),
+                  ? h.button(
+                      [
+                        h.Type("button"),
+                        h.AriaLabel("Stop the reply"),
+                        h.Attribute("title", "Stop the reply"),
+                        h.Disabled(model.stopping),
+                        h.Class(
+                          `inline-flex items-center justify-center rounded-md size-9 bg-destructive text-destructive-foreground ${
+                            model.stopping ? "disabled:opacity-50" : ""
+                          }`,
+                        ),
+                        h.OnClick(Message.StopChatClicked()),
+                      ],
+                      [model.stopping ? spinnerIcon(h) : squareIcon(h)],
+                    )
+                  : h.button(
+                      [
+                        h.Type("button"),
+                        h.AriaLabel("Send"),
+                        h.Attribute("title", "Send"),
+                        h.Disabled(!hasText),
+                        h.Class(
+                          "inline-flex items-center justify-center rounded-md size-9 bg-primary text-primary-foreground disabled:opacity-50",
+                        ),
+                        h.OnClick(Message.SendSubmitted()),
+                      ],
+                      [arrowUpIcon(h)],
+                    ),
             ],
           ),
         ],
@@ -1209,12 +1169,8 @@ function renderComposer(h: H, model: Model): Html {
 }
 
 function textColor(color: string): string {
-  const [red, green, blue] = [0, 2, 4].map((start) =>
-    parseInt(color.slice(start, start + 2), 16),
-  );
-  return (0.2126 * red + 0.7152 * green + 0.0722 * blue) / 255 > 0.453
-    ? "#000000"
-    : "#ffffff";
+  const [red, green, blue] = [0, 2, 4].map((start) => parseInt(color.slice(start, start + 2), 16));
+  return (0.2126 * red + 0.7152 * green + 0.0722 * blue) / 255 > 0.453 ? "#000000" : "#ffffff";
 }
 
 function renderLabelChips(h: H, labels: ActionLabel[]): Html {
@@ -1287,12 +1243,7 @@ function renderRemovedSwitch(h: H, checked: boolean): Html {
   );
 }
 
-function renderFullArgument(
-  h: H,
-  arg: ActionArgument,
-  model: Model,
-  action?: PendingAction,
-): Html {
+function renderFullArgument(h: H, arg: ActionArgument, model: Model, action?: PendingAction): Html {
   if (arg.name === "labels") {
     return (arg.labels || []).length > 0 ? renderLabelChips(h, arg.labels) : h.empty;
   }
@@ -1317,9 +1268,7 @@ function renderFullArgument(
     [h.Class("grid min-w-0 gap-0.5")],
     [
       h.span([h.Class("text-xs text-muted-foreground")], [arg.name]),
-      isShort
-        ? h.span([h.Class("wrap-anywhere")], [arg.value])
-        : renderMarkdown(h, arg.value),
+      isShort ? h.span([h.Class("wrap-anywhere")], [arg.value]) : renderMarkdown(h, arg.value),
     ],
   );
 }
@@ -1333,11 +1282,7 @@ function renderAnswerDialog(h: H, model: Model): Html {
   const action = item.action;
 
   return h.div(
-    [
-      h.Class(
-        "fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4",
-      ),
-    ],
+    [h.Class("fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4")],
     [
       h.div(
         [
@@ -1372,9 +1317,7 @@ function renderAnswerDialog(h: H, model: Model): Html {
                 [
                   renderActionSender(h, action, true),
                   ...(action.arguments || [])
-                    .filter(
-                      (arg) => !(action.tool === "message_lead" && arg.name === "workstream"),
-                    )
+                    .filter((arg) => !(action.tool === "message_lead" && arg.name === "workstream"))
                     .map((arg) => renderFullArgument(h, arg, model, action)),
                 ],
               )
@@ -1442,14 +1385,8 @@ function renderAnswerDialog(h: H, model: Model): Html {
             ? h.div(
                 [h.Class("grid min-w-0 gap-0.5")],
                 [
-                  h.span(
-                    [h.Class("text-xs text-muted-foreground")],
-                    ["Your answer"],
-                  ),
-                  h.span(
-                    [h.Class("wrap-anywhere whitespace-pre-line")],
-                    [item.answer],
-                  ),
+                  h.span([h.Class("text-xs text-muted-foreground")], ["Your answer"]),
+                  h.span([h.Class("wrap-anywhere whitespace-pre-line")], [item.answer]),
                 ],
               )
             : h.empty,
@@ -1657,10 +1594,7 @@ export function view(model: Model, h: H): Html {
             ? h.p(
                 [h.Class("flex items-center gap-2 text-sm text-muted-foreground")],
                 [
-                  h.span(
-                    [h.Class("size-2 animate-pulse rounded-full bg-green-600")],
-                    [],
-                  ),
+                  h.span([h.Class("size-2 animate-pulse rounded-full bg-green-600")], []),
                   model.pausedUntil
                     ? `The ${model.agent} waits for the usage limit until ${dayClock(model.pausedUntil)}.`
                     : messages.some(

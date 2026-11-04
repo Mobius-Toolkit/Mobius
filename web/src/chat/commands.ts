@@ -12,13 +12,7 @@ import {
   stopChat,
   type ChatInboxItem,
 } from "@/api/api.gen";
-import {
-  chatDraftKey,
-  emptyDraft,
-  loadDraft,
-  updateDraft,
-  type Draft,
-} from "@/lib/draft";
+import { chatDraftKey, emptyDraft, loadDraft, updateDraft, type Draft } from "@/lib/draft";
 import {
   addQueued,
   listQueued,
