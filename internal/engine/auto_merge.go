@@ -68,7 +68,8 @@ func (e *Engine) holdMerge(ctx context.Context, task store.Task) error {
 // continuePausedMerges gives approveWaitingTask to each task of repository whose open ready for review Inbox item has
 // the reason mergePausedReason or mergeRetryReason, while the Merge switch is on. When the Workstream of the task has
 // no merge level, the item loses the reason. The item also loses the reason when the task has an approval of a person,
-// also while the switch is off, because that approval merges the pull request.
+// also while the switch is off, because that approval merges the pull request. Before it gives the task to
+// approveWaitingTask, it reads the reviews, so an approval that a person gave since the last poll counts.
 func (e *Engine) continuePausedMerges(ctx context.Context, repository github.Repository) error {
 	off, err := e.mergeOff(ctx)
 	if err != nil {
@@ -102,10 +103,22 @@ func (e *Engine) continuePausedMerges(ctx context.Context, repository github.Rep
 		if err != nil {
 			return err
 		}
-		if mergesPullRequests(level) {
-			err = e.approveWaitingTask(ctx, task)
-		} else {
+		if !mergesPullRequests(level) {
+			if err := e.clearBlockReason(ctx, task); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := e.readPullRequests(ctx, repository, []int64{task.PullRequest.Int64}); err != nil {
+			return err
+		}
+		if task, err = e.keepApproval(ctx, repository, task); err != nil {
+			return err
+		}
+		if task.AutoMerge == 0 && awaitsMerge(task) {
 			err = e.clearBlockReason(ctx, task)
+		} else {
+			err = e.approveWaitingTask(ctx, task)
 		}
 		if err != nil {
 			return err

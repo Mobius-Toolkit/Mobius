@@ -301,3 +301,25 @@ func TestAWorkstreamWithNoMergeLevelAfterAServerErrorOfTheApprovalLosesTheReason
 		t.Errorf("state = %s, merge calls = %d, approvals = %d", state, calls, count)
 	}
 }
+
+func TestAnApprovalOfAPersonAfterAServerErrorOfTheApprovalGetsNoSecondApproval(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := approvable(t, fake, "merge", true)
+	fake.FailReviews(http.StatusInternalServerError, 1000)
+	sendChat(t, server, leadChat, "Approve #41")
+	retryItem(t, server)
+
+	fake.AfterNextIssueListRead(shop, func() {
+		fake.AddReview(shop, 42, "owner", "APPROVED", "")
+		fake.FailReviews(0, 0)
+	})
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "" })
+	if calls, count := fake.MergeCalls(), approvals(fake); calls != 1 || count != 0 {
+		t.Errorf("merge calls = %d, approvals of Mobius = %d", calls, count)
+	}
+	if got := len(fake.ReviewIDs(shop, 42)); got != 1 {
+		t.Errorf("reviews = %d", got)
+	}
+}
