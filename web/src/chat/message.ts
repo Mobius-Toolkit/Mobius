@@ -12,7 +12,6 @@ export const Message = defineMessageUnion({
   ReceivedLiveChatState: { state: Schema.Unknown },
   ReceivedLiveAction: { action: Schema.Unknown },
   ReceivedLiveQuestion: { question: Schema.Unknown },
-  RequestLoginFromSubscription: {},
 
   PageLoaded: {
     page: Schema.Unknown,
@@ -21,7 +20,6 @@ export const Message = defineMessageUnion({
   },
   OlderPageLoaded: { page: Schema.Unknown },
   PageFailed: { error: Schema.String, sent: Schema.optional(Schema.String) },
-  LoadOlderRequested: {},
   ListNearTop: {},
 
   QueueLoaded: { items: Schema.Unknown },
@@ -59,6 +57,7 @@ export const Message = defineMessageUnion({
   EventToggled: { id: Schema.Number },
   BriefMeasured: { long: Schema.Boolean },
   TrayToggled: {},
+  CompletedSaveTrayState: {},
 
   OpenAnswerPanel: { item: Schema.Unknown, workstreamTitle: Schema.optional(Schema.String) },
   OpenDetailsPanel: {

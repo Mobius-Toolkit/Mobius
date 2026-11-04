@@ -32,6 +32,7 @@ import {
   ResumeIssue,
   SaveAnswerDraft,
   SaveDraft,
+  SaveTrayState,
   SeeChat,
   StopChat,
   StopVoice,
@@ -500,14 +501,6 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
       };
     },
 
-    RequestLoginFromSubscription: () => ({
-      model: {
-        ...model,
-        error: "login required",
-      },
-      commands: [RequestLogin()],
-    }),
-
     PageFailed: ({ error, sent }) => {
       const commands = error === "login required" ? [RequestLogin()] : [];
       return {
@@ -518,27 +511,6 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
           queue: (model.queue as Waiting[]).filter((item) => item.id !== sent),
         },
         commands,
-      };
-    },
-
-    LoadOlderRequested: () => {
-      const messages = model.messages as ChatMessage[];
-      if (model.loadingOlder || !model.older || messages.length === 0) {
-        return { model };
-      }
-      return {
-        model: {
-          ...model,
-          loadingOlder: true,
-        },
-        commands: [
-          FetchOlder({
-            organization: model.organization,
-            repository: model.repository,
-            workstream: model.workstream,
-            before: messages[0].id,
-          }),
-        ],
       };
     },
 
@@ -1005,20 +977,12 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
       },
     }),
 
-    TrayToggled: () => {
-      const next = !model.trayCollapsed;
-      try {
-        localStorage.setItem("tray", next ? "collapsed" : "expanded");
-      } catch {
-        // works with no saved choice
-      }
-      return {
-        model: {
-          ...model,
-          trayCollapsed: next,
-        },
-      };
-    },
+    TrayToggled: () => ({
+      model: { ...model, trayCollapsed: !model.trayCollapsed },
+      commands: [SaveTrayState({ collapsed: !model.trayCollapsed })],
+    }),
+
+    CompletedSaveTrayState: () => ({ model }),
 
     OpenAnswerPanel: ({ item, workstreamTitle }) => {
       const inboxItem = item as InboxItem;
@@ -1093,6 +1057,9 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
 
     ResumeClicked: ({ item: rawItem }) => {
       const item = rawItem as InboxItem;
+      if (item.id in (model.trayRunning as Record<number, Running>)) {
+        return { model };
+      }
       return {
         model: {
           ...model,
@@ -1129,6 +1096,9 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
     // The row leaves the tray when the server sends the new list, so the button stays pending after a success.
     TrayActionClicked: ({ item: rawItem, kind }) => {
       const item = rawItem as InboxItem;
+      if (item.id in (model.trayRunning as Record<number, Running>)) {
+        return { model };
+      }
       const running: Running =
         kind === "merge" ? "merge" : kind === "dismiss" ? "dismiss" : "action";
       return {
@@ -1205,7 +1175,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
       if (
         !panel ||
         panel.type !== "answer" ||
-        model.answerSend !== null ||
+        model.answerSend?.item.id === panel.item.id ||
         model.probingSend ||
         requestingOf(model).includes(panel.item.id)
       ) {

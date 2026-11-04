@@ -13,6 +13,7 @@ import {
   ProbeVoice,
   RemoveQueued,
   RunTrayAction,
+  SaveTrayState,
   StopVoice,
   WaitToRetry,
 } from "./commands";
@@ -1189,6 +1190,57 @@ describe("chat update story tests", () => {
 
       const opened = update(base, Message.OpenAnswerPanel({ item: question }));
       expect(opened.model.voiceRegion).toBe(region);
+    });
+
+    it("ignores a second tap on a tray button while the request of the row runs", () => {
+      const base = createTestModel({ trayItems: [question] });
+
+      const first = update(base, Message.TrayActionClicked({ item: question, kind: "dismiss" }));
+      expect(first.commands?.map((command) => command.name)).toEqual(["RunTrayAction"]);
+      const second = update(
+        first.model,
+        Message.TrayActionClicked({ item: question, kind: "merge" }),
+      );
+      expect(second.model).toBe(first.model);
+      expect(second.commands ?? []).toEqual([]);
+      const resume = update(first.model, Message.ResumeClicked({ item: question }));
+      expect(resume.model).toBe(first.model);
+      expect(resume.commands ?? []).toEqual([]);
+    });
+
+    it("saves the state of the tray with a Command", () => {
+      story(
+        update,
+        given(createTestModel({ trayCollapsed: false })),
+        message(Message.TrayToggled()),
+        model((m) => {
+          expect(m.trayCollapsed).toBe(true);
+        }),
+        StoryCommand.expectExact(SaveTrayState({ collapsed: true })),
+        StoryCommand.resolve(SaveTrayState, Message.CompletedSaveTrayState()),
+        StoryCommand.expectNone(),
+      );
+    });
+
+    it("lets a panel send while the answer of another item waits for the final voice text", () => {
+      const other = {
+        id: 11,
+        kind: "question",
+        questions: [],
+        action: null,
+        todo: null,
+        issue: 0,
+        repository: "test-repo",
+      } as any;
+      const base = createTestModel({
+        activePanel: { type: "answer", item: other },
+        answerText: "Eleven.",
+        answerSend: { item: question, text: "Ten.", selected: {}, region: null },
+      });
+
+      const result = update(base, Message.AnswerSubmitted());
+      expect(result.model.probingSend).toBe(true);
+      expect(result.commands?.map((command) => command.name)).toEqual(["ProbeVoice"]);
     });
   });
 });

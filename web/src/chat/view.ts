@@ -1,7 +1,7 @@
 import * as Markdown from "@foldkit/markdown";
 import { Effect, Queue, Schema, Stream } from "effect";
 import { Mount } from "foldkit";
-import { parseChatMarkdown, restoreEquals, shieldEquals } from "./markdown";
+import { beginMarkdownRender, parseChatMarkdown, restoreEquals, shieldEquals } from "./markdown";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import {
   InboxItemKind,
@@ -1490,6 +1490,7 @@ function renderAnswerDialog(h: H, model: Model): Html {
 }
 
 export function view(model: Model, h: H): Html {
+  beginMarkdownRender();
   const messages = model.messages as ChatMessage[];
   const queue = model.queue as Waiting[];
   const storedIds = new Set(messages.map((m) => m.browserId));

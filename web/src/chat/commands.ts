@@ -325,6 +325,20 @@ export const SaveDraft = Command.define("SaveDraft", {
     }),
 });
 
+export const SaveTrayState = Command.define("SaveTrayState", {
+  args: { collapsed: Schema.Boolean },
+  messages: [Message.CompletedSaveTrayState],
+  execute: ({ collapsed }) =>
+    Effect.sync(() => {
+      try {
+        localStorage.setItem("tray", collapsed ? "collapsed" : "expanded");
+      } catch {
+        // The tray works with no saved choice.
+      }
+      return Message.CompletedSaveTrayState();
+    }),
+});
+
 export const Navigate = Command.define("Navigate", {
   args: {
     path: Schema.String,

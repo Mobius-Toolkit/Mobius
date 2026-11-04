@@ -1,6 +1,9 @@
 import { parseMarkdown } from "@foldkit/markdown/vite";
 
-const parsedTexts = new Map<string, ReturnType<typeof parseMarkdown> | null>();
+type Entry = { document: ReturnType<typeof parseMarkdown> | null; render: number };
+
+const parsedTexts = new Map<string, Entry>();
+const renders = { count: 0 };
 
 const protectedText = /(```[\s\S]*?```|`[^`\n]*`|https?:\/\/\S+)/;
 
@@ -21,8 +24,10 @@ function escapeForSecondParse(text: string) {
 // parse reads the text as it is. The second parse escapes the colons and the "<" outside code and URLs. A text that
 // fails both parses shows as plain text.
 export function parseChatMarkdown(text: string) {
-  if (parsedTexts.has(text)) {
-    return parsedTexts.get(text) ?? undefined;
+  const known = parsedTexts.get(text);
+  if (known) {
+    known.render = renders.count;
+    return known.document ?? undefined;
   }
   let document: ReturnType<typeof parseMarkdown> | null = null;
   try {
@@ -34,11 +39,19 @@ export function parseChatMarkdown(text: string) {
       document = null;
     }
   }
-  if (parsedTexts.size >= 500) {
-    parsedTexts.clear();
-  }
-  parsedTexts.set(text, document);
+  parsedTexts.set(text, { document, render: renders.count });
   return document ?? undefined;
+}
+
+// Each render calls this first. A text that the last render did not use leaves the cache, so the cache holds the texts
+// of the chat on the screen, however long the chat is.
+export function beginMarkdownRender() {
+  renders.count++;
+  for (const [text, entry] of parsedTexts) {
+    if (entry.render < renders.count - 1) {
+      parsedTexts.delete(text);
+    }
+  }
 }
 
 // briefMarkdown puts "==" around an added text. A "==" in the text of the Brief is shielded with a private-use

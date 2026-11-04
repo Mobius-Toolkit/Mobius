@@ -92,7 +92,7 @@ function createVoiceStream() {
               return;
             }
             const region = regions.get(target.id);
-            if (live && region) {
+            if (live && region && target.value === region.value) {
               place(target, voiceText, region.lead, region.trail);
             } else if (voiceText) {
               placeAtCursor(target, voiceText);
@@ -110,7 +110,7 @@ function createVoiceStream() {
               return true;
             }
             const region = regions.get(target.id);
-            if (!region) {
+            if (!region || target.value !== region.value) {
               return false;
             }
             place(target, voiceText, region.lead, region.trail);
