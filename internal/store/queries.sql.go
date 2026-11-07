@@ -2416,7 +2416,7 @@ func (q *Queries) GetCopiedWorkstream(ctx context.Context, arg GetCopiedWorkstre
 }
 
 const getDeploymentTodoOfItem = `-- name: GetDeploymentTodoOfItem :one
-SELECT id, task, inbox_item, kind, name, path, line, reason, mandatory, note, done_at FROM deployment_todos WHERE inbox_item = ?
+SELECT id, task, inbox_item, kind, name, path, line, reason, mandatory, note, done_at, dismissed_at FROM deployment_todos WHERE inbox_item = ?
 `
 
 func (q *Queries) GetDeploymentTodoOfItem(ctx context.Context, inboxItem int64) (DeploymentTodo, error) {
@@ -2434,6 +2434,7 @@ func (q *Queries) GetDeploymentTodoOfItem(ctx context.Context, inboxItem int64) 
 		&i.Mandatory,
 		&i.Note,
 		&i.DoneAt,
+		&i.DismissedAt,
 	)
 	return i, err
 }
@@ -5036,7 +5037,7 @@ func (q *Queries) ListDeploymentNeeds(ctx context.Context, task int64) ([]Deploy
 }
 
 const listDeploymentTodos = `-- name: ListDeploymentTodos :many
-SELECT id, task, inbox_item, kind, name, path, line, reason, mandatory, note, done_at FROM deployment_todos WHERE task = ? ORDER BY id
+SELECT id, task, inbox_item, kind, name, path, line, reason, mandatory, note, done_at, dismissed_at FROM deployment_todos WHERE task = ? ORDER BY id
 `
 
 func (q *Queries) ListDeploymentTodos(ctx context.Context, task int64) ([]DeploymentTodo, error) {
@@ -5060,6 +5061,7 @@ func (q *Queries) ListDeploymentTodos(ctx context.Context, task int64) ([]Deploy
 			&i.Mandatory,
 			&i.Note,
 			&i.DoneAt,
+			&i.DismissedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -8665,6 +8667,20 @@ type SetCopiedEvergreenParams struct {
 
 func (q *Queries) SetCopiedEvergreen(ctx context.Context, arg SetCopiedEvergreenParams) error {
 	_, err := q.db.ExecContext(ctx, setCopiedEvergreen, arg.Evergreen, arg.Repository, arg.Number)
+	return err
+}
+
+const setDeploymentTodoDismissed = `-- name: SetDeploymentTodoDismissed :exec
+UPDATE deployment_todos SET dismissed_at = ? WHERE id = ?
+`
+
+type SetDeploymentTodoDismissedParams struct {
+	DismissedAt sql.NullString
+	ID          int64
+}
+
+func (q *Queries) SetDeploymentTodoDismissed(ctx context.Context, arg SetDeploymentTodoDismissedParams) error {
+	_, err := q.db.ExecContext(ctx, setDeploymentTodoDismissed, arg.DismissedAt, arg.ID)
 	return err
 }
 

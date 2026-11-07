@@ -1878,7 +1878,7 @@
     },
     "/api/inbox/{id}/dismiss": {
       "post": {
-        "description": "Dismiss removes an item from the Inbox.",
+        "description": "Dismiss removes an item from the Inbox. For a todo item, it also marks the todo as dismissed. It returns 409 for a todo item that is not open and for a mandatory todo.",
         "operationId": "Dismiss",
         "parameters": [
           {
@@ -1907,6 +1907,16 @@
               }
             },
             "description": "Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
           },
           "422": {
             "$ref": "#/components/responses/UnprocessableEntity"
@@ -9147,6 +9157,10 @@
         "type": "object",
         "title": "Todo",
         "properties": {
+          "dismissable": {
+            "type": "boolean",
+            "description": "Dismissable is true when the Owner can dismiss the todo: it is open and its need is optional"
+          },
           "kind": {
             "type": "string",
             "description": "Kind is the kind of the need: env_var, config, secret or manual_step"
@@ -9183,7 +9197,8 @@
           "line",
           "reason",
           "mandatory",
-          "note"
+          "note",
+          "dismissable"
         ],
         "description": "Todo is the deployment need of a todo Inbox item."
       },

@@ -87,6 +87,8 @@ type Todo struct {
 	Mandatory bool `gork:"mandatory"`
 	// Note is the note of the Owner when the todo is done, or empty
 	Note string `gork:"note"`
+	// Dismissable is true when the Owner can dismiss the todo: it is open and its need is optional
+	Dismissable bool `gork:"dismissable"`
 }
 
 // Question is a question of the Lead with its options.
@@ -140,9 +142,14 @@ type DismissRequest struct {
 	}
 }
 
-// Dismiss removes an item from the Inbox.
+// Dismiss removes an item from the Inbox. For a todo item, it also marks the todo as dismissed. It returns 409 for a
+// todo item that is not open and for a mandatory todo.
 func (h *handlers) Dismiss(ctx context.Context, req DismissRequest) error {
-	return h.engine.DismissByOwner(ctx, req.Path.ID)
+	err := h.engine.DismissByOwner(ctx, req.Path.ID)
+	if engine.Refused(err) {
+		return api.NewHTTPError(http.StatusConflict, err.Error())
+	}
+	return err
 }
 
 // SendAgainRequest is the request of SendAgain.
@@ -348,7 +355,11 @@ func (h *handlers) inboxItemOf(ctx context.Context, item store.InboxItem) (Inbox
 		if err != nil {
 			return InboxItem{}, err
 		}
-		found.Todo = &Todo{Kind: todo.Kind, Name: todo.Name, Path: todo.Path, Line: todo.Line, Reason: todo.Reason, Mandatory: todo.Mandatory != 0, Note: todo.Note}
+		mandatory, err := h.engine.TodoMandatory(ctx, todo)
+		if err != nil {
+			return InboxItem{}, err
+		}
+		found.Todo = &Todo{Kind: todo.Kind, Name: todo.Name, Path: todo.Path, Line: todo.Line, Reason: todo.Reason, Mandatory: todo.Mandatory != 0, Note: todo.Note, Dismissable: !item.DismissedAt.Valid && !mandatory}
 	}
 	return found, nil
 }

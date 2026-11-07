@@ -441,8 +441,17 @@ func (e *Engine) dismiss(ctx context.Context, id int64) (store.InboxItem, error)
 	return item, nil
 }
 
-// DismissByOwner removes the Inbox item id at the request of the Owner, and adds a record to the chat of the item.
+// DismissByOwner removes the Inbox item id at the request of the Owner, and adds a record to the chat of the item. For a
+// todo item, it also marks the todo as dismissed, and it returns a refusal when the item is not open or the todo is
+// mandatory.
 func (e *Engine) DismissByOwner(ctx context.Context, id int64) error {
+	found, err := e.queries.GetInboxItem(ctx, id)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if err == nil && found.Kind == todoKind {
+		return e.dismissTodo(ctx, found)
+	}
 	item, err := e.dismiss(ctx, id)
 	if err != nil {
 		return err

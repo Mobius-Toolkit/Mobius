@@ -512,6 +512,7 @@ const todo = {
     mandatory: true,
     reason: "The server reads it at the start and has no default.",
     note: "",
+    dismissable: false,
   },
 };
 
@@ -536,7 +537,7 @@ test("a todo row shows a badge that tells if the todo is mandatory or optional",
     id: 8,
     title: "MOBIUS_SMTP_TIMEOUT",
     reason: "optional · Deployment needs",
-    todo: { ...todo.todo, mandatory: false },
+    todo: { ...todo.todo, mandatory: false, dismissable: true },
   };
   await routeInbox(page, [todo, optional]);
   await page.goto("/inbox");
@@ -552,7 +553,69 @@ test("a todo row shows a badge that tells if the todo is mandatory or optional",
     "Complete",
     "Chat",
     "Details",
+    "Dismiss",
   ]);
+});
+
+test("an optional todo shows Dismiss, and the item leaves the Inbox after a tap", async ({
+  page,
+  context,
+}) => {
+  const optional = {
+    ...todo,
+    id: 8,
+    title: "MOBIUS_SMTP_TIMEOUT",
+    reason: "optional · Deployment needs",
+    todo: { ...todo.todo, mandatory: false, dismissable: true },
+  };
+  let current = [optional];
+  await page.route("**/api/inbox", (route) => route.fulfill({ json: { data: current } }));
+  await page.route("**/api/inbox/8/dismiss", (route) => {
+    current = [];
+    return route.fulfill({ status: 204 });
+  });
+  await page.goto("/inbox");
+  const row = page.getByRole("main").getByRole("listitem");
+
+  const dismissed = page.waitForResponse("**/api/inbox/8/dismiss");
+  await row.getByRole("button", { name: "Dismiss" }).click();
+  await dismissed;
+
+  await expect(page.getByText("Dismissed: MOBIUS_SMTP_TIMEOUT")).toBeVisible();
+  await reconnect(page, context);
+  await expect(row).toHaveCount(0);
+});
+
+test("a mandatory todo shows no Dismiss", async ({ page }) => {
+  await routeInbox(page, [todo]);
+  await page.goto("/inbox");
+  const row = page.getByRole("main").getByRole("listitem");
+
+  await expect(row.getByRole("button", { name: "Complete" })).toBeVisible();
+  await expect(row.getByRole("button", { name: "Dismiss" })).toHaveCount(0);
+});
+
+test("the row shows the refusal of Dismiss", async ({ page }) => {
+  const optional = {
+    ...todo,
+    todo: { ...todo.todo, mandatory: false, dismissable: true },
+  };
+  await routeInbox(page, [optional]);
+  await page.route("**/api/inbox/7/dismiss", (route) =>
+    route.fulfill({
+      status: 409,
+      json: { error: "A mandatory todo cannot be dismissed. Mark it as done." },
+    }),
+  );
+  await page.goto("/inbox");
+  const row = page.getByRole("main").getByRole("listitem");
+
+  await row.getByRole("button", { name: "Dismiss" }).click();
+
+  await expect(
+    page.getByText("A mandatory todo cannot be dismissed. Mark it as done."),
+  ).toBeVisible();
+  await expect(row.getByRole("button", { name: "Dismiss" })).toBeEnabled();
 });
 
 test("Done opens a panel with the details of the need, and the note marks the todo as done", async ({
