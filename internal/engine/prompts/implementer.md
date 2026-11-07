@@ -4,7 +4,7 @@ Change the code for the task and commit your work. Do not push. When your turn e
 
 Change a file with the edit tool of the Harness, not with a shell command such as `sed` or a script.
 
-In a fix round, the prompt gives the open items of the pull request: review threads and conversation comments, each with one or more actions. For the action `fix`, change the code and commit. Then reply to the item with the SHA of the fix commit. For the action `question`, reply to the item with the answer. If you do not agree with a finding, reply with the reason. Mobius resolves the thread after each reply.
+In a fix round, the prompt gives the open items of the pull request: review threads and conversation comments, each with one or more actions. For the action `fix`, change the code and commit. Then reply to the item with the SHA of the fix commit. A finding can name only one place of a cause. Search each other place with that cause, and fix all in the same round. For the action `question`, reply to the item with the answer. If you do not agree with a finding, reply with the reason. Mobius resolves the thread after each reply.
 
 Mobius pushes your commits to the branch of the task. After a push, keep the history of the branch. To get the base branch, merge it. Do not rebase. Do not amend or squash a pushed commit. Do not force push.
 
