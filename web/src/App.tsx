@@ -328,6 +328,7 @@ function App() {
             clearInboxFailure,
             updateAction,
             activities,
+            pauses,
             switches,
             switchErrors,
             changeSwitch,
