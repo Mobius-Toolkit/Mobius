@@ -15,8 +15,9 @@ import { LoginContext } from "@/lib/login";
 import { usePauses } from "@/lib/pauses";
 import { ShellContext } from "@/lib/shell";
 import { useSwitches } from "@/lib/switches";
-import { useUnread } from "@/lib/unread";
-import { useWorkstreams } from "@/lib/workstreams";
+import { useUnread, useWorkstreams } from "@/lib/storeHooks";
+import { startUnread } from "@/lib/unread";
+import { startWorkstreams } from "@/lib/workstreams";
 import { Frame } from "./Frame";
 import { GitHub } from "./GitHub";
 import { Login } from "./Login";
@@ -70,8 +71,8 @@ function App() {
   const [activities, setActivities] = useState<ActivityRow[]>([]);
   const live = !loginShown && apps !== undefined && apps.length > 0;
   const showLogin = useCallback(() => setLoginShown(true), []);
-  const listed = useWorkstreams(showLogin, source);
-  const unread = useUnread(source);
+  const listed = useWorkstreams();
+  const unread = useUnread();
   const {
     items: inbox,
     needsHuman,
@@ -86,6 +87,18 @@ function App() {
   const pauses = usePauses(source);
   const ciStops = useCIStops(source);
   const { switches, errors: switchErrors, change: changeSwitch } = useSwitches(showLogin, source);
+
+  useEffect(() => {
+    if (!source) {
+      return;
+    }
+    const stopUnread = startUnread(source);
+    const stopWorkstreams = startWorkstreams(source, showLogin);
+    return () => {
+      stopUnread();
+      stopWorkstreams();
+    };
+  }, [source, showLogin]);
 
   useEffect(() => {
     chatOwner.current = chat?.params.owner;
