@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -295,6 +296,9 @@ func (e *Engine) takeSlot(ctx context.Context, a *Agent) error {
 				return err
 			}
 			e.publish(Change{Node: new(e.node(session))})
+			if strings.HasPrefix(reason, pausedPrefix) || strings.HasPrefix(shown, pausedPrefix) {
+				e.publish(Change{Pauses: true})
+			}
 			shown = reason
 		}
 		select {
@@ -337,6 +341,7 @@ func (e *Engine) followBinding(ctx context.Context, a *Agent) error {
 	}
 	a.binding = binding
 	e.publish(Change{Node: new(e.node(session))})
+	e.publish(Change{Pauses: true})
 	return nil
 }
 

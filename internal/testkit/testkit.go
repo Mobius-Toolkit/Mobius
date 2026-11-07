@@ -64,7 +64,7 @@ var harnessPrograms = []string{"claude-agent-acp", "agy_acp_server", "devin", "d
 // InstallFakeHarness makes the Harness command program in dataDir/harnesses run the fake agent with script.
 // The program is "claude-agent-acp", "agy_acp_server", "devin" or "dsh". The command is a link to the test binary,
 // so the test package must call Main from its TestMain.
-// The fake agent writes the files env, pwd and mcp_url to dataDir/harnesses.
+// The fake agent writes the files env, pwd, mcp_url and session_meta to dataDir/harnesses.
 func InstallFakeHarness(t testing.TB, dataDir, program, script string) {
 	t.Helper()
 	harnesses := filepath.Join(dataDir, "harnesses")

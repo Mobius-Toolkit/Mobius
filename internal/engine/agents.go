@@ -343,7 +343,11 @@ func (a *Agent) waitForSlot(ctx context.Context) error {
 		return a.Fail(ended, err)
 	}
 	startedAt := now()
-	started, err := e.queries.StartSession(ctx, store.StartSessionParams{StartedAt: startedAt, ID: a.id})
+	waited, err := e.waitsForPause(ctx, a.id)
+	var started store.Session
+	if err == nil {
+		started, err = e.queries.StartSession(ctx, store.StartSessionParams{StartedAt: startedAt, ID: a.id})
+	}
 	if err != nil {
 		a.endStep(ctx, "queue", a.queuedAt, sql.NullInt64{}, err)
 		if ctx.Err() != nil {
@@ -352,6 +356,9 @@ func (a *Agent) waitForSlot(ctx context.Context) error {
 		return a.Fail(ended, err)
 	}
 	e.publish(Change{Node: new(e.node(started))})
+	if waited {
+		e.publish(Change{Pauses: true})
+	}
 	if err := a.addStep(ctx, "queue", a.queuedAt, startedAt, sql.NullInt64{}, ""); err != nil {
 		log.Printf("add the queue wait of the session %d: %v", a.id, err)
 	}
@@ -440,6 +447,11 @@ func shortCacheRole(role string) bool {
 	return false
 }
 
+// chromeRole tells if a session of role on harness gets the tools of Claude in Chrome.
+func chromeRole(role string, harness config.Harness) bool {
+	return (role == LeadRole || role == CoordinatorRole) && harness == config.ClaudeCode
+}
+
 // startHarness opens a new session key with the tools of the Role, and starts the Harness with it.
 func (a *Agent) startHarness(ctx context.Context) error {
 	e := a.engine
@@ -476,7 +488,7 @@ func (a *Agent) startHarness(ctx context.Context) error {
 			return err
 		}
 	}
-	session, err := runner.Start(ctx, a.binding.Harness, a.binding.Context, shortCacheRole(spec.Role), spec.Dir, e.config.DataDir, e.agents.Path, mcp.URL(e.agents.Addr, a.key), ghTokenURL, ghWritesURL, ghMark, a.update)
+	session, err := runner.Start(ctx, a.binding.Harness, a.binding.Context, shortCacheRole(spec.Role), chromeRole(spec.Role, a.binding.Harness), spec.Dir, e.config.DataDir, e.agents.Path, mcp.URL(e.agents.Addr, a.key), ghTokenURL, ghWritesURL, ghMark, a.update)
 	if err != nil {
 		return err
 	}
@@ -750,11 +762,18 @@ func (a *Agent) end(ctx context.Context, reason string, keep func()) error {
 			return err
 		}
 	}
+	waited, err := a.engine.waitsForPause(ctx, a.id)
+	if err != nil {
+		return err
+	}
 	session, err := a.engine.queries.EndSession(ctx, endParams(a.id, reason))
 	if err != nil {
 		return err
 	}
 	a.engine.publish(Change{Node: new(a.engine.node(session))})
+	if waited {
+		a.engine.publish(Change{Pauses: true})
+	}
 	if keep != nil {
 		keep()
 	}
