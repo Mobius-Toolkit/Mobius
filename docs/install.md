@@ -82,6 +82,14 @@ Install each Harness that you want to use, as your own OS user. Mobius needs onl
 
 Do not use `claude setup-token` with `CLAUDE_CODE_OAUTH_TOKEN`. The token is then in the environment of Mobius.
 
+The Lead and the Coordinator on Claude Code use your Chrome through Claude in Chrome. To give them this tool, do these steps:
+
+1. Install Google Chrome.
+2. Install the Claude in Chrome extension.
+3. Log in to the extension with the same Claude account as Claude Code.
+
+Chrome must run when the Lead or the Coordinator uses the browser tools. A session also starts with no Chrome. Then a browser tool gives an error, and the agent continues with no browser.
+
 ### Devin
 
 1. Install Devin:

@@ -481,6 +481,53 @@ test("the Tools page turns the Auto-upgrade of a package on and off and shows th
   expect(sent).toEqual([true, false]);
 });
 
+test("the Tools page shows the usage limit badge on the row of the paused Harness only", async ({
+  page,
+}) => {
+  const main = page.getByRole("main");
+  await page.goto("/settings/checkup/tools");
+
+  const antigravity = main.getByRole("listitem").filter({ hasText: "agy_acp_server" });
+  await expect(antigravity).toBeVisible();
+  await expect(antigravity.getByText(/^usage limit until Sep 28, 12:00\sPM$/)).toBeVisible();
+  await expect(main.getByRole("listitem").filter({ hasText: "git" })).toBeVisible();
+  await expect(main.getByText(/usage limit until/)).toHaveCount(1);
+});
+
+test("the Tools page shows the usage limit badge for a Harness that no role uses, with no needs you", async ({
+  page,
+}) => {
+  const main = page.getByRole("main");
+  const dsh = {
+    ...tool,
+    name: "dsh",
+    harness: "dsh",
+    path: "/usr/bin/dsh",
+    version: "0.2.1",
+    required: false,
+  };
+  await routeCheckup(page, [{ ...tool, harness: "" }, dsh], { owner: healthy, plants: healthy });
+  await page.route("**/api/pauses", (route) =>
+    route.fulfill({ json: { data: [{ harness: "dsh", pausedUntil: "2026-09-29T08:30:00Z" }] } }),
+  );
+
+  const loaded = page.waitForResponse((res) => res.url().endsWith("/api/checkup/tools"));
+  await page.goto("/settings/checkup");
+  await loaded;
+
+  const toolsLink = main.getByRole("link", { name: "Tools" });
+  await expect(toolsLink).toHaveAttribute("aria-busy", "false");
+  await expect(toolsLink.getByText("needs you")).toBeHidden();
+
+  await toolsLink.click();
+
+  const row = main.getByRole("listitem").filter({ hasText: "dsh" });
+  await expect(row.getByText(/^usage limit until Sep 29, 08:30\sAM$/)).toBeVisible();
+  await expect(main.getByRole("listitem").filter({ hasText: "git" })).toBeVisible();
+  await expect(main.getByText(/usage limit until/)).toHaveCount(1);
+  await expect(row.locator('[data-variant="destructive"]')).toHaveCount(0);
+});
+
 test.describe("on a phone", () => {
   test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
 

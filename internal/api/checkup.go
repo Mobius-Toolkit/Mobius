@@ -131,6 +131,8 @@ func labelFix(repositories []engine.RepositoryCheckup) string {
 type ToolCheck struct {
 	// Name is the name of the program
 	Name string `gork:"name"`
+	// Harness is the name of the Harness that runs the program. It is empty for the Claude Code CLI and for git
+	Harness string `gork:"harness"`
 	// Path is the file that Mobius runs. It is empty when Mobius cannot find the program, and for the Claude Code CLI that is built in the adapter
 	Path string `gork:"path"`
 	// Version is the first line of the version output. It is empty when Status is not empty
