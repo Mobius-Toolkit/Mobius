@@ -2,6 +2,7 @@ package engine_test
 
 import (
 	"encoding/json"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -30,7 +31,7 @@ func browserText(t *testing.T) string {
 // when the request had no _meta.
 func sessionMeta(t *testing.T, dataDir string) string {
 	t.Helper()
-	meta, err := os.ReadFile(filepath.Join(dataDir, "harnesses", "session_meta"))
+	meta, err := fs.ReadFile(os.DirFS(filepath.Join(dataDir, "harnesses")), "session_meta")
 	if err != nil {
 		t.Fatal(err)
 	}
