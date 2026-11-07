@@ -1,4 +1,3 @@
-import { useEffect, useSyncExternalStore } from "react";
 import type { ChatInboxItem } from "@/api/api.gen";
 import { run } from "./database";
 
@@ -22,9 +21,13 @@ const drafts = new Map<string, Draft>();
 const loading = new Map<string, Promise<void>>();
 const listeners = new Set<() => void>();
 
-function subscribe(listener: () => void) {
+export function subscribeDrafts(listener: () => void) {
   listeners.add(listener);
   return () => listeners.delete(listener);
+}
+
+export function currentDraft(key: string) {
+  return drafts.get(key);
 }
 
 function load(key: string) {
@@ -84,15 +87,4 @@ export function addDraftInboxItem(key: string, item: DraftInboxItem) {
       ? draft
       : { ...draft, inboxItems: [...draft.inboxItems, item] },
   );
-}
-
-// Gives undefined until the store gives the draft.
-export function useDraft(key: string) {
-  useEffect(() => {
-    // A read that starts after a change would write the older draft over the text that the Owner typed.
-    if (!drafts.has(key)) {
-      void load(key);
-    }
-  }, [key]);
-  return useSyncExternalStore(subscribe, () => drafts.get(key));
 }
