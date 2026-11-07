@@ -930,6 +930,35 @@ describe("chat update story tests", () => {
       );
     });
 
+    it("clears the error of an item when its panel opens from the tray with no close before", () => {
+      const other = createInboxItem({ id: 11 });
+      const base = createTestModel({
+        trayItems: [approval],
+        activePanel: { type: "answer", item: other },
+        closedPanel: { type: "answer", item: approval },
+        requesting: [8],
+      });
+
+      story(
+        update,
+        given(base),
+        message(Message.ActionFailed({ id: 8, error: "The server failed." })),
+        model((m) => {
+          expect(m.answerError).toBe("The server failed.");
+          expect(m.answerErrorId).toBe(8);
+        }),
+        message(Message.OpenAnswerPanel({ item: approval })),
+        model((m) => {
+          expect(m.activePanel?.item.id).toBe(8);
+          expect(m.answerError).toBe("");
+          expect(m.answerErrorId).toBe(0);
+        }),
+        StoryCommand.expectExact(LoadAnswerDraft({ id: 8 })),
+        StoryCommand.resolve(LoadAnswerDraft, Message.AnswerDraftLoaded({ text: "" })),
+        StoryCommand.expectNone(),
+      );
+    });
+
     it("sends a todo with an empty note", () => {
       const base = createTestModel({
         activePanel: { type: "answer", item: todo },
