@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"io/fs"
@@ -194,7 +195,7 @@ func (a *Agent) recordSkillUse(ctx context.Context, notification map[string]any,
 		if kind != "tool_call" || stringField(update, "title") != "Running view_file" {
 			return
 		}
-		skill = a.viewedSkill(stringField(update, "rawInput", "absolute_path"))
+		skill = a.viewedSkill(cmp.Or(stringField(update, "rawInput", "AbsolutePath"), stringField(update, "rawInput", "absolute_path")))
 	default:
 		return
 	}
