@@ -266,6 +266,23 @@ func TestANewIssueOfATrustedUserGetsMobiusTriageAndOneTriagerThatReplies(t *test
 	}
 }
 
+func TestTheFirstIssueOfARepositoryWithNoIssueStartsATriager(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	dataDir := t.TempDir()
+	testkit.InstallFakeAgent(t, dataDir, options+triager)
+	server := startEmpty(t, fake, dataDir)
+	testkit.WaitFor(t, server.Engine.AccessChecked)
+
+	fake.CreateIssue(shop, 52, "Add loyalty points", "Points for each order.", "owner")
+
+	proposal := triagerComment(52, `Create the Workstream "Loyalty points" for this issue.`)
+	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 52), proposal) })
+	if got := chatSessions(t, server, issueTriagers, engine.TriagerRole); len(got) != 1 {
+		t.Errorf("sessions = %+v", got)
+	}
+}
+
 // triagerTurns gives the issues of owner/shop with a Triager turn that did not end.
 func triagerTurns(t *testing.T, server *testserver.Server) []int64 {
 	t.Helper()
