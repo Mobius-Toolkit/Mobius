@@ -303,7 +303,7 @@ func startFakeAgent(t *testing.T, updates func(json.RawMessage, bool)) *Session 
 
 func startFakeAgentAt(t *testing.T, mcpURL string, updates func(json.RawMessage, bool)) *Session {
 	dir := fakeAgentDir(t)
-	session, err := Start(context.Background(), config.ClaudeCode, 0, false, dir, dir, dir, mcpURL, "", "", "", updates)
+	session, err := Start(context.Background(), config.ClaudeCode, 0, false, false, dir, dir, dir, mcpURL, "", "", "", updates)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -384,7 +384,7 @@ func startDSH(t *testing.T, updates func(json.RawMessage, bool)) *Session {
 	if err := os.Symlink(exe, filepath.Join(dir, "dsh")); err != nil {
 		t.Fatal(err)
 	}
-	session, err := Start(context.Background(), config.DSH, 0, false, dir, dir, dir, "http://127.0.0.1:1/mcp/key", "", "", "", updates)
+	session, err := Start(context.Background(), config.DSH, 0, false, false, dir, dir, dir, "http://127.0.0.1:1/mcp/key", "", "", "", updates)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -462,7 +462,7 @@ func TestAStartThatDoesNotAnswerFailsAfterStartTimeoutAndKillsTheAgent(t *testin
 	defer func(limit time.Duration) { StartTimeout = limit }(StartTimeout)
 	StartTimeout = 200 * time.Millisecond
 
-	_, err := Start(context.Background(), config.ClaudeCode, 0, false, dir, dir, dir, "http://127.0.0.1:1/mcp/key", "", "", "", func(json.RawMessage, bool) {})
+	_, err := Start(context.Background(), config.ClaudeCode, 0, false, false, dir, dir, dir, "http://127.0.0.1:1/mcp/key", "", "", "", func(json.RawMessage, bool) {})
 
 	if want := "claude-agent-acp: the start took longer than 200ms"; err == nil || err.Error() != want {
 		t.Errorf("error = %v, want %s", err, want)

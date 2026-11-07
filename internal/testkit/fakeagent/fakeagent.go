@@ -58,8 +58,8 @@
 // ordered prompt. A when that is a part of the access check prompt, for example "OK", answers it too, so use a longer
 // text. A prompt with a when text that the access check prompt contains and an error makes the check fail.
 //
-// The agent writes the files env, pwd and mcp_url only for a session with the Mobius MCP server, so an access check
-// leaves them as they are.
+// The agent writes the files env, pwd, mcp_url and session_meta only for a session with the Mobius MCP server, so an
+// access check leaves them as they are. session_meta holds the raw _meta of session/new, and is empty with no _meta.
 //
 // The reply has the texts of reply, then one text "image <MIME type> <base64 data>" for each image block of the
 // prompt, then the text of call or list_tools, then the text of shell.
@@ -305,7 +305,8 @@ func (a *agent) authenticate() (any, *acp.RequestError) {
 	return acp.AuthenticateResponse{}, nil
 }
 
-// newSession writes the URL of the Mobius MCP server to the file "mcp_url" next to the script.
+// newSession writes the URL of the Mobius MCP server to the file "mcp_url" and the _meta of the request to the file
+// "session_meta" next to the script.
 func (a *agent) newSession(ctx context.Context, params json.RawMessage) (any, *acp.RequestError) {
 	var request struct {
 		McpServers []struct {
@@ -313,6 +314,7 @@ func (a *agent) newSession(ctx context.Context, params json.RawMessage) (any, *a
 			Name string `json:"name"`
 			URL  string `json:"url"`
 		} `json:"mcpServers"`
+		Meta json.RawMessage `json:"_meta"`
 	}
 	if err := json.Unmarshal(params, &request); err != nil {
 		return nil, acp.NewInvalidParams(err.Error())
@@ -335,6 +337,9 @@ func (a *agent) newSession(ctx context.Context, params json.RawMessage) (any, *a
 	}
 	if a.mcpURL != "" {
 		if err := os.WriteFile(filepath.Join(filepath.Dir(a.path), "mcp_url"), []byte(a.mcpURL), 0o600); err != nil {
+			return nil, acp.NewInternalError(err.Error())
+		}
+		if err := os.WriteFile(filepath.Join(filepath.Dir(a.path), "session_meta"), request.Meta, 0o600); err != nil {
 			return nil, acp.NewInternalError(err.Error())
 		}
 		if a.record != nil {

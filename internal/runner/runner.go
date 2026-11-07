@@ -246,9 +246,10 @@ func connect(cmd *exec.Cmd, updates func(json.RawMessage, bool)) (*acp.Connectio
 // With an empty mcpURL, the session has no MCP server.
 // It gives the params of each session/update notification to updates, as the agent sent them. The second argument is
 // true when the agent wrote the notification after the response to the last prompt.
+// With chrome true, the session starts Claude Code with the flag --chrome.
 // The gh of the agent gets its token from ghTokenURL, and sends its writes to ghWritesURL. With an empty ghTokenURL, the gh of
 // the agent refuses to run. With an empty ghWritesURL, it sends no write.
-func Start(ctx context.Context, harness config.Harness, contextLimit int, shortCache bool, cwd, dataDir, path, mcpURL, ghTokenURL, ghWritesURL, ghMark string, updates func(json.RawMessage, bool)) (*Session, error) {
+func Start(ctx context.Context, harness config.Harness, contextLimit int, shortCache, chrome bool, cwd, dataDir, path, mcpURL, ghTokenURL, ghWritesURL, ghMark string, updates func(json.RawMessage, bool)) (*Session, error) {
 	program := Program(harness)
 	processCtx, stop := context.WithCancel(context.Background())
 	cmd, err := harnessCommand(processCtx, harness, contextLimit, shortCache, cwd, dataDir, path, ghTokenURL, ghWritesURL, ghMark)
@@ -263,7 +264,7 @@ func Start(ctx context.Context, harness config.Harness, contextLimit int, shortC
 		return nil, fmt.Errorf("%s: %w", program, err)
 	}
 	session.conn = conn
-	if err := session.limited(ctx, func(ctx context.Context) error { return session.open(ctx, cwd, mcpURL) }); err != nil {
+	if err := session.limited(ctx, func(ctx context.Context) error { return session.open(ctx, cwd, mcpURL, chrome) }); err != nil {
 		session.Close()
 		if errors.Is(err, errStartTimeout) {
 			return nil, err
@@ -335,7 +336,7 @@ func describe(err error) error {
 	return fmt.Errorf("%s %s", requestErr.Message, data)
 }
 
-func (s *Session) open(ctx context.Context, cwd, mcpURL string) error {
+func (s *Session) open(ctx context.Context, cwd, mcpURL string, chrome bool) error {
 	initialized, err := acp.SendRequest[acp.InitializeResponse](s.conn, ctx, acp.AgentMethodInitialize, acp.InitializeRequest{ProtocolVersion: acp.ProtocolVersionNumber})
 	if err != nil {
 		return err
@@ -351,10 +352,12 @@ func (s *Session) open(ctx context.Context, cwd, mcpURL string) error {
 			Headers: []acp.HttpHeader{},
 		}})
 	}
-	response, err := acp.SendRequest[acp.NewSessionResponse](s.conn, ctx, acp.AgentMethodSessionNew, acp.NewSessionRequest{
-		Cwd:        cwd,
-		McpServers: servers,
-	})
+	request := acp.NewSessionRequest{Cwd: cwd, McpServers: servers}
+	if chrome {
+		// The adapter gives extraArgs to the SDK, which turns a null value into a flag with no value.
+		request.Meta = map[string]any{"claudeCode": map[string]any{"options": map[string]any{"extraArgs": map[string]any{"chrome": nil}}}}
+	}
+	response, err := acp.SendRequest[acp.NewSessionResponse](s.conn, ctx, acp.AgentMethodSessionNew, request)
 	if err != nil {
 		return err
 	}
