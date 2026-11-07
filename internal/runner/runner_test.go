@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"slices"
 	"strconv"
@@ -34,6 +35,10 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	if os.Getenv("MOBIUS_FAKE_AGENT") == "1" {
+		if outcome := os.Getenv("MOBIUS_FAKE_STEERING"); outcome != "" {
+			runSteeringAgent(outcome)
+			return
+		}
 		runFakeAgent()
 		return
 	}
@@ -470,6 +475,82 @@ func TestAStartThatDoesNotAnswerFailsAfterStartTimeoutAndKillsTheAgent(t *testin
 	if killErr := syscall.Kill(pid, 0); !errors.Is(killErr, syscall.ESRCH) {
 		t.Errorf("the agent runs: %v", killErr)
 	}
+}
+
+func startSteeringAgent(t *testing.T, outcome string) (*Session, string) {
+	dir := fakeAgentDir(t)
+	t.Setenv("MOBIUS_FAKE_STEERING", outcome)
+	session, err := Start(context.Background(), config.ClaudeCode, 0, false, dir, dir, dir, "", "", "", "", func(json.RawMessage, bool) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(session.Close)
+	return session, dir
+}
+
+func TestASessionThatDeclaresSteeringSendsTheMessageWithTheIdleBehaviorPromptRequired(t *testing.T) {
+	session, dir := startSteeringAgent(t, "injected")
+
+	injected, err := session.Steer(context.Background(), "Tell Mobius your state.")
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !session.Steering() || !injected {
+		t.Errorf("Steering = %v, injected = %v", session.Steering(), injected)
+	}
+	text, err := os.ReadFile(filepath.Clean(filepath.Join(dir, "steering.json")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var params map[string]any
+	if err := json.Unmarshal(text, &params); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{
+		"sessionId": "session-1",
+		"prompt":    []any{map[string]any{"type": "text", "text": "Tell Mobius your state."}},
+		"_meta":     map[string]any{"steering": map[string]any{"idleBehavior": "promptRequired"}},
+	}
+	if !reflect.DeepEqual(params, want) {
+		t.Errorf("params = %s, want %v", text, want)
+	}
+}
+
+func TestASessionWithNoSteeringInTheInitializeResponseHasNoSteering(t *testing.T) {
+	session := startFakeAgent(t, func(json.RawMessage, bool) {})
+
+	if session.Steering() {
+		t.Error("Steering = true")
+	}
+}
+
+func TestSteerGivesFalseForAnOutcomeOtherThanInjected(t *testing.T) {
+	session, _ := startSteeringAgent(t, "promptRequired")
+
+	injected, err := session.Steer(context.Background(), "Tell Mobius your state.")
+
+	if err != nil || injected {
+		t.Errorf("injected = %v, error = %v", injected, err)
+	}
+}
+
+func runSteeringAgent(outcome string) {
+	conn := acp.NewConnection(func(_ context.Context, method string, params json.RawMessage) (any, *acp.RequestError) {
+		switch method {
+		case acp.AgentMethodInitialize:
+			return acp.InitializeResponse{ProtocolVersion: acp.ProtocolVersionNumber, Meta: map[string]any{"steering": map[string]any{"supported": true}}}, nil
+		case acp.AgentMethodSessionNew:
+			return acp.NewSessionResponse{SessionId: "session-1"}, nil
+		case steeringMethod:
+			if err := os.WriteFile("steering.json", params, 0o600); err != nil {
+				return nil, acp.NewInternalError(err.Error())
+			}
+			return map[string]any{"outcome": outcome}, nil
+		}
+		return nil, acp.NewMethodNotFound(method)
+	}, os.Stdout, os.Stdin)
+	<-conn.Done()
 }
 
 func TestConfigureRefusesAnUnknownModel(t *testing.T) {

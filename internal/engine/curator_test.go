@@ -653,7 +653,7 @@ func addProblems(t *testing.T, server *testserver.Server, marker string, at time
 	addChat(t, server, "Owner", "Owner correction "+marker, at.Add(time.Second))
 	implementer := addSession(t, server, engine.ImplementerRole, 41, at, "hung")
 	addCall(t, server, implementer, at, "cannot_do", map[string]string{"reason": "Cannot do " + marker})
-	addTranscript(t, server, implementer, at, "prompt", map[string]string{"text": "You had no activity for 15 minutes. You are probably stuck.\n\nRetry " + marker})
+	addTranscript(t, server, implementer, at, "prompt", map[string]string{"text": "You had no activity for 15 minutes. Tell Mobius your state.\n\nRetry " + marker})
 	lead := addSession(t, server, engine.LeadRole, 0, at, "done")
 	addCall(t, server, lead, at, "start_fix_round", map[string]any{"n": 41, "findings": "Fix round " + marker})
 	reviewer := addSession(t, server, engine.ReviewerRole, 41, at, "done")

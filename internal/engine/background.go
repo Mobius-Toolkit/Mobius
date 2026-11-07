@@ -26,13 +26,13 @@ var backgroundCheckInterval = 5 * time.Minute
 var backgroundTimeout = time.Hour
 
 // backgroundPrompt is the prompt of waitBackground.
-const backgroundPrompt = "Before your final report, check each background task that you started. Wait for each task that still runs, for example with `TaskOutput` and `block`. Then call `background_state` with `done` and give your full final report. If a task still runs at the end of this turn, call `background_state` with `running`."
+const backgroundPrompt = "Before your final report, check each background task that you started. If a task still runs, call `background_state` with `running` and end the turn. Mobius asks again later. If each task ended, call `background_state` with `done` and give your full final report."
 
 // implementerBackgroundPrompt is the prompt of waitBackground for the Implementer. The Implementer gives no final report.
-const implementerBackgroundPrompt = "Before the local check, check each background task that you started. Wait for each task that still runs, for example with `TaskOutput` and `block`. Commit all work. Then call `background_state` with `done` and end the turn. If a task still runs at the end of this turn, call `background_state` with `running`."
+const implementerBackgroundPrompt = "Before the local check, check each background task that you started. If a task still runs, call `background_state` with `running` and end the turn. Mobius asks again later. If each task ended, commit all work, call `background_state` with `done`, and end the turn."
 
 // chatBackgroundPrompt is the prompt of waitChatBackground. The reply text of the turn with done goes to the chat.
-const chatBackgroundPrompt = "Check each background task that you started. Wait for each task that still runs, for example with `TaskOutput` and `block`. Then call `background_state` with `done`, and write in your reply only what the Owner must know from their results. If a task still runs at the end of this turn, call `background_state` with `running`."
+const chatBackgroundPrompt = "Check each background task that you started. If a task still runs, call `background_state` with `running` and end the turn. Mobius asks again later. If each task ended, call `background_state` with `done`, and write in your reply only what the Owner must know from their results."
 
 // backgroundRoles are the Roles that wait for the background tasks of their session before the work of the session
 // ends. They get the tool background_state.
@@ -64,6 +64,7 @@ func (a *Agent) track(notification map[string]any, kind string, late bool) {
 		}
 		if kind == "tool_call" || kind == "tool_call_update" {
 			a.markBackground(update)
+			a.trackOpenCalls(kind, update)
 		}
 		if kind == "tool_call_update" && running && field(update, "_meta", "claudeCode", "toolResponse", "isAsync") == true {
 			a.subagent = true
@@ -86,7 +87,8 @@ func (a *Agent) track(notification map[string]any, kind string, late bool) {
 }
 
 // markBackground sets a.background when the tool call update starts a background task of the session: an async result
-// of the Agent tool, or a tool call with run_in_background. The mark parentToolUseId can be only on the first update
+// of the Agent tool, a tool call with run_in_background, or a command that the CLI moved to the background to deliver a
+// message. The mark parentToolUseId can be only on the first update
 // of a tool call, so the session keeps the calls of subagents. A task of a subagent is no start: the CLI sends its end
 // to the subagent. The caller holds a.mu.
 func (a *Agent) markBackground(update any) {
@@ -100,8 +102,28 @@ func (a *Agent) markBackground(update any) {
 	if _, subagent := a.subagentCalls[id]; subagent {
 		return
 	}
-	if field(update, "_meta", "claudeCode", "toolResponse", "isAsync") == true || field(update, "rawInput", "run_in_background") == true {
+	if field(update, "_meta", "claudeCode", "toolResponse", "isAsync") == true ||
+		field(update, "_meta", "claudeCode", "toolResponse", "backgroundedToDeliverMessage") == true ||
+		field(update, "rawInput", "run_in_background") == true {
 		a.background = true
+	}
+}
+
+// trackOpenCalls keeps the ids of the tool calls that no update has ended. A tool_call adds its id unless its status
+// is an end status. An update with an end status removes the id. The caller holds a.mu.
+func (a *Agent) trackOpenCalls(kind string, update any) {
+	id := stringField(update, "toolCallId")
+	switch stringField(update, "status") {
+	case "completed", "failed":
+		delete(a.openCalls, id)
+	default:
+		if kind != "tool_call" {
+			return
+		}
+		if a.openCalls == nil {
+			a.openCalls = map[string]struct{}{}
+		}
+		a.openCalls[id] = struct{}{}
 	}
 }
 
@@ -111,7 +133,7 @@ type backgroundStateInput struct {
 
 func (e *Engine) backgroundStateTool(c caller) mcp.Tool {
 	return tool(e, c, "background_state",
-		"Tell Mobius if a background task of this session still runs. Call it only when Mobius asks. Mobius continues to wait while you give the state running.",
+		"Tell Mobius if a background task of this session still runs. Call it with running before you end a turn while a task still runs, and call it when Mobius asks. Mobius continues to wait while you give the state running.",
 		map[string]any{
 			"state": map[string]any{"type": "string", "enum": []string{"running", "done"}, "description": "running: a background task still runs. done: each background task ended."},
 		},
@@ -159,6 +181,7 @@ func (a *Agent) waitBackground(ctx context.Context, prompt string) error {
 			return nil
 		}
 		if time.Since(started) >= backgroundTimeout {
+			a.setBackground(false)
 			return a.addNote(ctx, backgroundTimeoutNote())
 		}
 		select {

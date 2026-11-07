@@ -74,11 +74,13 @@ func (a *Agent) sendPrompt(ctx context.Context, text string, images []Image) err
 	return err
 }
 
-// watch holds until ctx ends or the turn has no activity for hangTimeout. In the second case, it sends the cancel,
-// calls stop, and gives true.
+// watch holds until ctx ends or the turn has no activity for hangTimeout. In the second case, watch first asks the
+// agent for its state with check, or waits for an open tool call (openCallWait), and waits for the activity of the
+// agent. Otherwise it sends the cancel, calls stop, and gives true.
 func (a *Agent) watch(ctx context.Context, stop context.CancelFunc) bool {
 	timer := time.NewTimer(hangTimeout)
 	defer timer.Stop()
+	noted := false
 	for {
 		select {
 		case <-ctx.Done():
@@ -88,13 +90,91 @@ func (a *Agent) watch(ctx context.Context, stop context.CancelFunc) bool {
 		a.mu.Lock()
 		idle := time.Since(a.activity)
 		a.mu.Unlock()
-		if idle >= hangTimeout {
-			_ = a.cancel(ctx)
-			stop()
-			return true
+		if idle < hangTimeout {
+			noted = false
+			timer.Reset(hangTimeout - idle)
+			continue
 		}
-		timer.Reset(hangTimeout - idle)
+		if a.session.Steering() {
+			if a.check(ctx) {
+				timer.Reset(hangTimeout)
+				continue
+			}
+			if ctx.Err() != nil {
+				return false
+			}
+		} else if wait := a.openCallWait(idle); wait > 0 {
+			if !noted {
+				noted = true
+				if err := a.addNote(ctx, fmt.Sprintf("The agent had no activity for %s and a tool call is open. Mobius sends no cancel until %s after the last activity.", hangTimeout, backgroundTimeout)); err != nil {
+					log.Printf("add the note of the open tool call of the session %d: %v", a.id, err)
+				}
+			}
+			timer.Reset(wait)
+			continue
+		}
+		_ = a.cancel(ctx)
+		stop()
+		return true
 	}
+}
+
+// openCallWait gives the time that watch waits before it reads the state again, or 0 when watch sends the cancel. A
+// cancel can end a command that still runs, so a turn with an open tool call that is not a retry gets no cancel until
+// backgroundTimeout after its last activity. idle is the time with no activity.
+func (a *Agent) openCallWait(idle time.Duration) time.Duration {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.retries > 0 || len(a.openCalls) == 0 || idle >= backgroundTimeout {
+		return 0
+	}
+	return min(hangTimeout, backgroundTimeout-idle)
+}
+
+// check asks the agent for its state with a steering request, and gives true when the Harness put the request into
+// the running turn. A check goes out only in a turn that is no retry, and only when the agent had activity after the
+// last check. A check goes out for at most backgroundTimeout after the first check of the current hour. Work of
+// hangTimeout or more after the last check starts a new hour.
+func (a *Agent) check(ctx context.Context) bool {
+	a.mu.Lock()
+	if a.retries > 0 || (!a.lastCheck.IsZero() && !a.activity.After(a.lastCheck)) {
+		a.mu.Unlock()
+		return false
+	}
+	if a.lastCheck.IsZero() || a.activity.Sub(a.lastCheck) >= hangTimeout {
+		a.firstCheck = time.Now()
+	}
+	if time.Since(a.firstCheck) >= backgroundTimeout {
+		a.mu.Unlock()
+		return false
+	}
+	a.lastCheck = time.Now()
+	a.mu.Unlock()
+	text := retryText(a.spec.Role)
+	if err := a.addCheckRows(ctx, text); err != nil {
+		log.Printf("add the check rows of the session %d: %v", a.id, err)
+		return false
+	}
+	injected, err := a.session.Steer(ctx, text)
+	if err != nil && ctx.Err() == nil {
+		log.Printf("steer the session %d: %v", a.id, err)
+	}
+	return injected
+}
+
+// addCheckRows adds the note of a check and the prompt row with its text to the Transcript.
+func (a *Agent) addCheckRows(ctx context.Context, text string) error {
+	if err := a.addNote(ctx, fmt.Sprintf("The agent had no activity for %s. Mobius asks the agent for its state and does not stop the turn.", hangTimeout)); err != nil {
+		return err
+	}
+	row, err := compact(promptRow(text, nil))
+	if err != nil {
+		return err
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.chunk = nil
+	return a.engine.addRow(ctx, a.id, "prompt", row, false)
 }
 
 // touch records activity of the agent now.

@@ -11,8 +11,13 @@
 //	                        # the file "hung_starts" next to the script counts the processes
 //	session_new_hold = true # session/new appends the program name to the file "session_new_started", and then waits
 //	                        # for the file "session_new_release"
+//	steering_outcome = "injected"  # initialize tells _meta.steering.supported, and _session/steering answers with this
+//	                        # outcome. With the outcome injected, the text takes a prompt by the rules of a prompt, and
+//	                        # the agent plays it in the running turn. The turn then ends with end_turn, unless the
+//	                        # played prompt has hang. With no running turn, the outcome is promptRequired
+//	steering_hang = true    # initialize tells _meta.steering.supported, and _session/steering gets no response
 //
-//	[options]               # one select option for each id, in id order; the first value is current
+//	[options]              # one select option for each id, in id order; the first value is current
 //	model = ["sonnet", "opus"]
 //
 //	[efforts]               # the thought_level values for each model; a set of the model option replaces the values
@@ -96,16 +101,21 @@ const accessCheckRequest = "Reply with the word OK."
 // busyInterval is the time between two updates of a busy turn.
 const busyInterval = 10 * time.Millisecond
 
+// steeringMethod is the request of claude-agent-acp that puts a message into a running turn.
+const steeringMethod = "_session/steering"
+
 type script struct {
-	LoginRequired  bool                `toml:"login_required"`
-	LoginWorks     bool                `toml:"login_works"`
-	ImageSupport   bool                `toml:"image_support"`
-	SkipToolsList  int                 `toml:"skip_tools_list"`
-	HangStart      int                 `toml:"hang_start"`
-	SessionNewHold bool                `toml:"session_new_hold"`
-	Options        map[string][]string `toml:"options"`
-	Efforts        map[string][]string `toml:"efforts"`
-	Prompts        []prompt            `toml:"prompts"`
+	LoginRequired   bool                `toml:"login_required"`
+	LoginWorks      bool                `toml:"login_works"`
+	ImageSupport    bool                `toml:"image_support"`
+	SkipToolsList   int                 `toml:"skip_tools_list"`
+	HangStart       int                 `toml:"hang_start"`
+	SessionNewHold  bool                `toml:"session_new_hold"`
+	SteeringOutcome string              `toml:"steering_outcome"`
+	SteeringHang    bool                `toml:"steering_hang"`
+	Options         map[string][]string `toml:"options"`
+	Efforts         map[string][]string `toml:"efforts"`
+	Prompts         []prompt            `toml:"prompts"`
 }
 
 type prompt struct {
@@ -176,6 +186,8 @@ type agent struct {
 	mcpURL      string
 	// cancel closes at a session/cancel. It is nil when no turn runs.
 	cancel chan struct{}
+	// steered closes when a steering request with the outcome injected finished its prompt. It is nil when no turn runs.
+	steered chan struct{}
 	// absorbed is the later with absorb that waits for the next session/prompt, or nil.
 	absorbed *later
 }
@@ -248,10 +260,14 @@ func (a *agent) handle(ctx context.Context, method string, params json.RawMessag
 		if err := json.Unmarshal(params, &request); err != nil {
 			return nil, acp.NewInvalidParams(err.Error())
 		}
-		return acp.InitializeResponse{
+		response := acp.InitializeResponse{
 			ProtocolVersion:   request.ProtocolVersion,
 			AgentCapabilities: acp.AgentCapabilities{PromptCapabilities: acp.PromptCapabilities{Image: a.script.ImageSupport}},
-		}, nil
+		}
+		if a.script.SteeringOutcome != "" || a.script.SteeringHang {
+			response.Meta = map[string]any{"steering": map[string]any{"supported": true}}
+		}
+		return response, nil
 	case acp.AgentMethodAuthenticate:
 		return a.authenticate()
 	case acp.AgentMethodSessionNew:
@@ -260,6 +276,8 @@ func (a *agent) handle(ctx context.Context, method string, params json.RawMessag
 		return a.setOption(ctx, params)
 	case acp.AgentMethodSessionPrompt:
 		return a.prompt(ctx, params)
+	case steeringMethod:
+		return a.steer(ctx, params)
 	case acp.AgentMethodSessionCancel:
 		a.mu.Lock()
 		defer a.mu.Unlock()
@@ -462,21 +480,28 @@ func (a *agent) setEfforts(efforts []string) {
 	}
 }
 
-// next gives the script prompt for text, the URL of the Mobius MCP server, and the channel that closes at a session/cancel of the turn.
-func (a *agent) next(text string) (prompt, string, chan struct{}) {
+// next gives the script prompt for text, the URL of the Mobius MCP server, the channel that closes at a session/cancel
+// of the turn, and the channel that closes when a steering request finished its prompt.
+func (a *agent) next(text string) (prompt, string, chan struct{}, chan struct{}) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.cancel = make(chan struct{})
+	a.steered = make(chan struct{})
+	return a.choose(text), a.mcpURL, a.cancel, a.steered
+}
+
+// choose gives the script prompt for text. The caller holds a.mu.
+func (a *agent) choose(text string) prompt {
 	for _, candidate := range a.script.Prompts {
 		if candidate.When != "" && strings.Contains(text, candidate.When) {
-			return candidate, a.mcpURL, a.cancel
+			return candidate
 		}
 	}
 	if text == accessCheckRequest {
-		return prompt{}, a.mcpURL, a.cancel
+		return prompt{}
 	}
 	if strings.Contains(text, deploymentNeedsRequest) {
-		return prompt{Call: &call{Tool: "report_deployment_needs", Arguments: map[string]any{"needs": []any{}}}}, a.mcpURL, a.cancel
+		return prompt{Call: &call{Tool: "report_deployment_needs", Arguments: map[string]any{"needs": []any{}}}}
 	}
 	var ordered []prompt
 	for _, candidate := range a.script.Prompts {
@@ -486,9 +511,58 @@ func (a *agent) next(text string) (prompt, string, chan struct{}) {
 	}
 	a.promptsDone++
 	if a.promptsDone > len(ordered) {
-		return prompt{}, a.mcpURL, a.cancel
+		return prompt{}
 	}
-	return ordered[a.promptsDone-1], a.mcpURL, a.cancel
+	return ordered[a.promptsDone-1]
+}
+
+// steer answers a steering request. With the outcome injected and a running turn, it plays the prompt of the text in
+// the background, and the running turn ends when that prompt ends.
+func (a *agent) steer(ctx context.Context, params json.RawMessage) (any, *acp.RequestError) {
+	if a.script.SteeringHang {
+		<-ctx.Done()
+		return nil, acp.NewRequestCancelled(nil)
+	}
+	var request struct {
+		SessionID string `json:"sessionId"`
+		Prompt    []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"prompt"`
+	}
+	if err := json.Unmarshal(params, &request); err != nil {
+		return nil, acp.NewInvalidParams(err.Error())
+	}
+	if a.script.SteeringOutcome != "injected" {
+		return map[string]any{"outcome": a.script.SteeringOutcome}, nil
+	}
+	var text strings.Builder
+	for _, block := range request.Prompt {
+		if block.Type == "text" {
+			text.WriteString(block.Text)
+		}
+	}
+	a.mu.Lock()
+	steered := a.steered
+	if steered == nil {
+		a.mu.Unlock()
+		return map[string]any{"outcome": "promptRequired", "reason": "noRunningTurn"}, nil
+	}
+	turn, mcpURL, cancel := a.choose(text.String()), a.mcpURL, a.cancel
+	a.mu.Unlock()
+	go func() {
+		_, _ = a.play(context.Background(), request.SessionID, turn, mcpURL, cancel, nil)
+		if turn.Hang {
+			return
+		}
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		if a.steered == steered {
+			close(steered)
+			a.steered = nil
+		}
+	}()
+	return map[string]any{"outcome": "injected"}, nil
 }
 
 func (a *agent) prompt(ctx context.Context, params json.RawMessage) (any, *acp.RequestError) {
@@ -527,12 +601,15 @@ func (a *agent) prompt(ctx context.Context, params json.RawMessage) (any, *acp.R
 			return nil, acp.NewRequestCancelled(nil)
 		}
 	}
-	turn, mcpURL, cancel := a.next(text.String())
+	turn, mcpURL, cancel, steered := a.next(text.String())
 	turn.Reply = append(slices.Clone(turn.Reply), images...)
-	stopReason, err := a.play(ctx, request.SessionID, turn, mcpURL, cancel)
+	stopReason, err := a.play(ctx, request.SessionID, turn, mcpURL, cancel, steered)
 	a.mu.Lock()
 	if a.cancel == cancel {
 		a.cancel = nil
+	}
+	if a.steered == steered {
+		a.steered = nil
 	}
 	a.mu.Unlock()
 	if err != nil {
@@ -604,7 +681,7 @@ func (a *agent) startLater(sessionID, mcpURL string, l later) error {
 	return nil
 }
 
-func (a *agent) play(ctx context.Context, sessionID string, turn prompt, mcpURL string, cancel chan struct{}) (acp.StopReason, *acp.RequestError) {
+func (a *agent) play(ctx context.Context, sessionID string, turn prompt, mcpURL string, cancel, steered chan struct{}) (acp.StopReason, *acp.RequestError) {
 	for _, update := range turn.Updates {
 		if err := a.send(ctx, sessionID, json.RawMessage(update)); err != nil {
 			return "", acp.NewInternalError(err.Error())
@@ -651,6 +728,7 @@ func (a *agent) play(ctx context.Context, sessionID string, turn prompt, mcpURL 
 		}
 		select {
 		case <-time.After(linger):
+		case <-steered:
 		case <-cancel:
 			return acp.StopReasonCancelled, nil
 		case <-ctx.Done():
@@ -659,6 +737,7 @@ func (a *agent) play(ctx context.Context, sessionID string, turn prompt, mcpURL 
 	}
 	if turn.Hang {
 		select {
+		case <-steered:
 		case <-cancel:
 			return acp.StopReasonCancelled, nil
 		case <-ctx.Done():
