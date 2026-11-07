@@ -325,6 +325,10 @@ SELECT * FROM harness_pauses ORDER BY harness;
 INSERT INTO harness_pauses (harness, paused_until) VALUES (?, ?)
 ON CONFLICT (harness) DO UPDATE SET paused_until = excluded.paused_until;
 
+-- name: ListWaitingHarnesses :many
+SELECT DISTINCT harness FROM sessions WHERE ended_at IS NULL AND queue_reason LIKE CAST(sqlc.arg(prefix) AS TEXT) || '%'
+ORDER BY harness;
+
 -- name: DeleteHarnessPause :exec
 DELETE FROM harness_pauses WHERE harness = ?;
 

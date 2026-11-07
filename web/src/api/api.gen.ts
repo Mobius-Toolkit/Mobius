@@ -977,6 +977,8 @@ export interface EnvelopeArrayNeedsHuman {
 export interface Pause {
   /** Harness is the name of the paused Harness */
   harness: string;
+  /** InUse tells that a Role uses the Harness, or that an open session waits for the pause */
+  inUse: boolean;
   /** PausedUntil is the end of the pause */
   pausedUntil: string;
 }
