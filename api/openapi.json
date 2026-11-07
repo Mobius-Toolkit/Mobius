@@ -8108,6 +8108,10 @@
             "type": "string",
             "description": "Harness is the name of the paused Harness"
           },
+          "inUse": {
+            "type": "boolean",
+            "description": "InUse tells that a Role uses the Harness, or that an open session waits for the pause"
+          },
           "pausedUntil": {
             "type": "string",
             "description": "PausedUntil is the end of the pause",
@@ -8116,7 +8120,8 @@
         },
         "required": [
           "harness",
-          "pausedUntil"
+          "pausedUntil",
+          "inUse"
         ],
         "description": "Pause is the usage-limit pause of a Harness."
       },
