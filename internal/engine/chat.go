@@ -1804,7 +1804,7 @@ func (e *Engine) firstPrompt(ctx context.Context, key ChatKey, harness config.Ha
 	}
 	rules := browser
 	if skills {
-		rules = leadSkillsPrompt + "\n"
+		rules += leadSkillsPrompt + "\n"
 	}
 	if maintenance {
 		rules += leadMaintenancePrompt + "\n"

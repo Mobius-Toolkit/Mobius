@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
+	"github.com/Mobius-Toolkit/Mobius/internal/engine"
+	"github.com/Mobius-Toolkit/Mobius/internal/store"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 )
 
@@ -60,6 +62,31 @@ func TestALeadSessionOnClaudeCodeGetsChromeAndTheBrowserText(t *testing.T) {
 	assertChromeMeta(t, dataDir)
 	if !strings.Contains(prompt, browserText(t)) {
 		t.Errorf("prompt has no browser text: %s", prompt)
+	}
+}
+
+func TestALeadOfASkillsWorkstreamOnClaudeCodeGetsTheBrowserTextBeforeTheSkillsRules(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addSkillsWorkstream(fake, 20)
+	server, dataDir := connect(t, fake, replyHello)
+	key := engine.ChatKey{Organization: "owner", Repository: shop, Workstream: 20}
+
+	sendChat(t, server, key, "Plan the skills")
+	session := testkit.WaitForValue(t, func() (store.Session, bool) {
+		sessions := chatSessions(t, server, key, engine.LeadRole)
+		if len(sessions) == 0 {
+			return store.Session{}, false
+		}
+		return sessions[0], sessions[0].EndedAt.Valid
+	})
+	prompt := promptTexts(t, server, session.ID)[0]
+
+	assertChromeMeta(t, dataDir)
+	browser := strings.Index(prompt, browserText(t))
+	skills := strings.Index(prompt, "read_skill_usage")
+	if browser < 0 || skills < browser {
+		t.Errorf("browser text at %d, skills rules at %d: %s", browser, skills, prompt)
 	}
 }
 
