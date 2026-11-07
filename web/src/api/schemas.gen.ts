@@ -409,6 +409,7 @@ export const FixLabelsBody = S.Struct({
 export const GetCheckupToolsResponse = S.Struct({
   "data": S.Array(S.Struct({
   "autoUpgrade": S.Boolean.annotate({ description: 'AutoUpgrade tells that Mobius installs the newest version of Package by itself' }),
+  "harness": S.String.annotate({ description: 'Harness is the name of the Harness that runs the program. It is empty for the Claude Code CLI and for git' }),
   "name": S.String.annotate({ description: 'Name is the name of the program' }),
   "newest": S.String.annotate({ description: 'Newest is the newest version of the npm package of a critical tool. It is empty when the registry gave none, and for a tool that is not critical' }),
   "outdated": S.Boolean.annotate({ description: 'Outdated tells that the version of a critical tool is older than Newest' }),
@@ -432,6 +433,7 @@ export const SetToolAutoUpgradeBody = S.Struct({
 export const SetToolAutoUpgradeResponse = S.Struct({
   "data": S.Array(S.Struct({
   "autoUpgrade": S.Boolean.annotate({ description: 'AutoUpgrade tells that Mobius installs the newest version of Package by itself' }),
+  "harness": S.String.annotate({ description: 'Harness is the name of the Harness that runs the program. It is empty for the Claude Code CLI and for git' }),
   "name": S.String.annotate({ description: 'Name is the name of the program' }),
   "newest": S.String.annotate({ description: 'Newest is the newest version of the npm package of a critical tool. It is empty when the registry gave none, and for a tool that is not critical' }),
   "outdated": S.Boolean.annotate({ description: 'Outdated tells that the version of a critical tool is older than Newest' }),
@@ -454,6 +456,7 @@ export const UpgradeCheckupToolBody = S.Struct({
 export const UpgradeCheckupToolResponse = S.Struct({
   "data": S.Array(S.Struct({
   "autoUpgrade": S.Boolean.annotate({ description: 'AutoUpgrade tells that Mobius installs the newest version of Package by itself' }),
+  "harness": S.String.annotate({ description: 'Harness is the name of the Harness that runs the program. It is empty for the Claude Code CLI and for git' }),
   "name": S.String.annotate({ description: 'Name is the name of the program' }),
   "newest": S.String.annotate({ description: 'Newest is the newest version of the npm package of a critical tool. It is empty when the registry gave none, and for a tool that is not critical' }),
   "outdated": S.Boolean.annotate({ description: 'Outdated tells that the version of a critical tool is older than Newest' }),
