@@ -550,8 +550,9 @@ func (a *agent) steer(ctx context.Context, params json.RawMessage) (any, *acp.Re
 	}
 	turn, mcpURL, cancel := a.choose(text.String()), a.mcpURL, a.cancel
 	a.mu.Unlock()
+	played := context.WithoutCancel(ctx)
 	go func() {
-		_, _ = a.play(context.Background(), request.SessionID, turn, mcpURL, cancel, nil)
+		_, _ = a.play(played, request.SessionID, turn, mcpURL, cancel, nil)
 		if turn.Hang {
 			return
 		}
