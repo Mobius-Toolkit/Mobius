@@ -2068,9 +2068,11 @@ test("screenshots", async ({ page }) => {
     ...frame(device, release),
     main.getByText("2.1.284 (Claude Code) · newest 2.1.300"),
     main.getByText("0.2.1-rc.4 · newest 0.2.1-rc.5"),
+    main.getByText(/^usage limit until Sep 28, 12:00\sPM$/),
   ]);
   const nodeTool = {
     name: "dsh",
+    harness: "dsh",
     path: "/Users/owner/.local/state/fnm_multishells/1234/bin/dsh",
     version: "0.2.1-rc.4",
     status: "",

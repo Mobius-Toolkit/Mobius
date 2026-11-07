@@ -8,6 +8,7 @@ import {
   upgradeCheckupTool,
   type Checkup as CheckupView,
   type LabelCheck,
+  type Pause,
   type PermissionCheck,
   type ToolCheck,
 } from "@/api/api.gen";
@@ -30,6 +31,7 @@ import { LoginContext } from "@/lib/login";
 import { showNotice } from "@/lib/notice";
 import { addCoordinatorMessage } from "@/lib/outbox";
 import { useShell } from "@/lib/shell";
+import { dayClock } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { chatParams } from "@/lib/workstreams";
 import { TopBar } from "./TopBar";
@@ -338,10 +340,15 @@ function ToolUpgrade({
   );
 }
 
-function ToolText({ tool, grow }: { tool: ToolCheck; grow?: boolean }) {
+function ToolText({ tool, pause, grow }: { tool: ToolCheck; pause?: Pause; grow?: boolean }) {
   return (
     <span className={cn("grid min-w-0", grow && "grow text-left")}>
       {tool.name}
+      {pause && (
+        <Badge className="w-fit bg-amber-500/15 text-amber-700 dark:text-amber-400">
+          usage limit until {dayClock(pause.pausedUntil)}
+        </Badge>
+      )}
       {tool.status === "" && (
         <span className="text-muted-foreground text-sm break-words">
           {tool.outdated ? `${tool.version} · newest ${tool.newest}` : tool.version}
@@ -357,7 +364,7 @@ function ToolText({ tool, grow }: { tool: ToolCheck; grow?: boolean }) {
   );
 }
 
-export function CheckupTools() {
+export function CheckupTools({ pauses }: { pauses: Pause[] }) {
   const { tools, error, setTools } = useTools();
   const [openName, setOpenName] = useState<string>();
   const open = tools?.find((tool) => tool.name === openName);
@@ -368,6 +375,9 @@ export function CheckupTools() {
       {tools && (
         <List>
           {tools.map((tool) => {
+            const pause = tool.harness
+              ? pauses.find((paused) => paused.harness === tool.harness)
+              : undefined;
             const problem =
               tool.outdated || (tool.status !== "" && tool.required) ? (
                 <ToolProblem tool={tool} />
@@ -375,7 +385,7 @@ export function CheckupTools() {
             if (!tool.package) {
               return (
                 <Row key={tool.name} className="justify-between">
-                  <ToolText tool={tool} />
+                  <ToolText tool={tool} pause={pause} />
                   {problem}
                 </Row>
               );
@@ -387,7 +397,7 @@ export function CheckupTools() {
                   onClick={() => setOpenName(tool.name)}
                   className={cn(rowClass, "w-full justify-between hover:bg-muted")}
                 >
-                  <ToolText tool={tool} grow />
+                  <ToolText tool={tool} pause={pause} grow />
                   {problem}
                 </button>
               </li>

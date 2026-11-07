@@ -99,7 +99,8 @@ export function CheckupPage() {
 }
 
 export function CheckupToolsPage() {
-  return <CheckupTools />;
+  const { pauses } = useShell();
+  return <CheckupTools pauses={pauses} />;
 }
 
 export function CheckupPermissionsPage() {

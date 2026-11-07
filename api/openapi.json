@@ -9200,6 +9200,10 @@
             "type": "boolean",
             "description": "AutoUpgrade tells that Mobius installs the newest version of Package by itself"
           },
+          "harness": {
+            "type": "string",
+            "description": "Harness is the name of the Harness that runs the program. It is empty for the Claude Code CLI and for git"
+          },
           "name": {
             "type": "string",
             "description": "Name is the name of the program"
@@ -9235,6 +9239,7 @@
         },
         "required": [
           "name",
+          "harness",
           "path",
           "version",
           "status",
