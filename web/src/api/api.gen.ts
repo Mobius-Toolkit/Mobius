@@ -422,6 +422,8 @@ export interface Question {
  * Todo is the deployment need of a todo Inbox item.
  */
 export interface Todo {
+  /** Dismissable is true when the Owner can dismiss the todo: it is open and its need is optional */
+  dismissable: boolean;
   /** Kind is the kind of the need: env_var, config, secret or manual_step */
   kind: string;
   /** Line is the line of the file that adds the need */
@@ -4583,6 +4585,11 @@ export type dismissResponse401 = {
   status: 401
 }
 
+export type dismissResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
 export type dismissResponse422 = {
   data: UnprocessableEntityResponse
   status: 422
@@ -4596,7 +4603,7 @@ export type dismissResponse500 = {
 export type dismissResponseSuccess = (dismissResponse204) & {
   headers: Headers;
 };
-export type dismissResponseError = (dismissResponse400 | dismissResponse401 | dismissResponse422 | dismissResponse500) & {
+export type dismissResponseError = (dismissResponse400 | dismissResponse401 | dismissResponse409 | dismissResponse422 | dismissResponse500) & {
   headers: Headers;
 };
 
@@ -4611,7 +4618,7 @@ export const getDismissUrl = (id: number,) => {
 }
 
 /**
- * Dismiss removes an item from the Inbox.
+ * Dismiss removes an item from the Inbox. For a todo item, it also marks the todo as dismissed. It returns 409 for a todo item that is not open and for a mandatory todo.
  */
 export const dismiss = async (id: number, ): Promise<dismissResponse> => {
 
