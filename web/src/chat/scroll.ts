@@ -19,6 +19,8 @@ export const ChatList = Mount.defineStream("ChatList", {
         }
         let pinned = true;
         let endTop: number | undefined;
+        // The scrollTop that the code or the last scroll event knows.
+        let knownTop = 0;
         let scrolled = false;
         let count = 0;
         let firstId: number | undefined;
@@ -27,6 +29,7 @@ export const ChatList = Mount.defineStream("ChatList", {
         const scrollToEnd = () => {
           list.scrollTop = list.scrollHeight;
           endTop = list.scrollTop;
+          knownTop = list.scrollTop;
         };
 
         const nearTop = () => {
@@ -57,11 +60,31 @@ export const ChatList = Mount.defineStream("ChatList", {
           if (item) {
             list.scrollTop +=
               item.getBoundingClientRect().top - list.getBoundingClientRect().top - place.offset;
+            knownTop = list.scrollTop;
+          }
+        };
+
+        const onScroll = () => {
+          knownTop = list.scrollTop;
+          pinned = atEnd(list) || list.scrollTop === endTop;
+          keepPlace();
+          nearTop();
+        };
+
+        // A scroll event comes in the next frame, and a layout or a resize can run before it. Such a run must not undo
+        // the scroll of the Owner, so it handles the scroll first.
+        const catchUp = () => {
+          if (list.scrollTop !== knownTop) {
+            onScroll();
           }
         };
 
         // The end of the list moves when a message grows after its first layout, for example a table or a font.
         const resize = new ResizeObserver(() => {
+          if (!scrolled) {
+            return;
+          }
+          catchUp();
           if (pinned) {
             scrollToEnd();
           }
@@ -90,6 +113,7 @@ export const ChatList = Mount.defineStream("ChatList", {
             if (target) {
               list.scrollTop +=
                 target.getBoundingClientRect().top - list.getBoundingClientRect().top;
+              knownTop = list.scrollTop;
               pinned = atEnd(list);
             } else {
               scrollToEnd();
@@ -98,6 +122,7 @@ export const ChatList = Mount.defineStream("ChatList", {
             nearTop();
             return;
           }
+          catchUp();
           const prepended = firstId !== undefined && nextFirst !== undefined && nextFirst < firstId;
           firstId = nextFirst;
           if (prepended || (!pinned && items.length <= count)) {
@@ -118,13 +143,12 @@ export const ChatList = Mount.defineStream("ChatList", {
           nearTop();
         };
 
-        const onScroll = () => {
-          pinned = atEnd(list) || list.scrollTop === endTop;
-          keepPlace();
-          nearTop();
-        };
         // An image has no height before it loads, and its load moves the end of the list.
         const onLoad = () => {
+          if (!scrolled) {
+            return;
+          }
+          catchUp();
           if (pinned) {
             scrollToEnd();
           }

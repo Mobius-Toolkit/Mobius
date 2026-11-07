@@ -981,6 +981,20 @@ test("a scroll up loads older messages and keeps the position", async ({ page })
   await expect(page.getByText("Seed note 1.")).toBeAttached();
 });
 
+test("a scroll up that comes with a layout of the list in the same frame loads older messages", async ({
+  page,
+}) => {
+  await page.goto(seeds);
+  await expect.poll(() => page.evaluate(shows("Seed note 50.", "end"))).toBe(true);
+  // A change of an attribute that the list watches runs the layout before the scroll event of the frame.
+  await page.evaluate(`(() => {
+    const list = document.querySelector('[data-message]').parentElement
+    list.scrollTop = 0
+    list.setAttribute('data-ready', list.dataset.ready)
+  })()`);
+  await expect.poll(() => page.evaluate(messageCount)).toBeGreaterThan(20);
+});
+
 test("the Brief shows at the top of a long chat, after the first page of the history", async ({
   page,
 }) => {
