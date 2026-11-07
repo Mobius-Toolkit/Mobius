@@ -885,6 +885,15 @@ func (e *Engine) runChat(c *chat) {
 			}
 			return
 		}
+		if errors.Is(err, errMoved) {
+			if err := a.End(background, "moved"); err != nil {
+				log.Printf("end the chat session %d: %v", a.ID(), err)
+			}
+			if e.moveChat(c) {
+				continue
+			}
+			return
+		}
 		var failure error
 		if errors.Is(err, errHung) {
 			failure = errors.Join(err, a.endHung(background))
@@ -912,6 +921,30 @@ func (e *Engine) runChat(c *chat) {
 		e.failChat(c, failure.Error(), current != nil)
 		return
 	}
+}
+
+// moveChat prepares the next session of the chat after the session ended with the reason "moved". The item of the
+// turn that ran, or else the first queued item, is the first item of the next session, and moveChat gives true. The
+// turn of a moved session with no item, the memory save turn or the wait turn for a background task, is lost: with no
+// queued item the chat closes as at an idle end, and moveChat gives false.
+func (e *Engine) moveChat(c *chat) bool {
+	e.chatsMu.Lock()
+	defer e.chatsMu.Unlock()
+	current := c.current
+	c.current, c.held, c.closing = nil, false, false
+	switch {
+	case current != nil:
+		c.first = *current
+	case len(c.queue) > 0:
+		c.first, c.queue = c.queue[0], c.queue[1:]
+	default:
+		if e.chats[c.key] == c {
+			delete(e.chats, c.key)
+		}
+		return false
+	}
+	c.wait, c.stopWait = context.WithCancel(c.ctx)
+	return true
 }
 
 // chatSpec gives the session of the chat of key. It makes the directory of a Lead.

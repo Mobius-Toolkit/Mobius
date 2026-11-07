@@ -5308,7 +5308,7 @@ usage AS (
 rounds AS (
     SELECT b.task,
            SUM(CASE WHEN s.role = 'reviewer' AND s.end_reason = 'done' THEN 1 ELSE 0 END) AS review_rounds,
-           SUM(CASE WHEN s.role = 'implementer' AND (s.end_reason IS NULL OR s.end_reason <> 'restart')
+           SUM(CASE WHEN s.role = 'implementer' AND (s.end_reason IS NULL OR s.end_reason NOT IN ('restart', 'moved'))
                     THEN 1 ELSE 0 END) AS implementer_sessions
     FROM bounds b
     JOIN sessions s ON s.repository = b.repository AND s.issue = b.issue

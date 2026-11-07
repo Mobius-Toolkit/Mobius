@@ -448,11 +448,51 @@ func pauseEnd(pause store.HarnessPause) (*time.Time, error) {
 	return &until, nil
 }
 
+// movingRoles are the Roles whose session leaves a wait for a pause when the Harness of its Role changes.
+var movingRoles = map[string]bool{LeadRole: true, CoordinatorRole: true}
+
+// errMoved tells that the Owner changed the Harness of the Role of a session while it waited for a pause. The session
+// ends with the reason "moved", and its caller starts the work again on the new binding.
+var errMoved = errors.New("the Harness of the Role changed")
+
+// watchMove adds a to pauseWaiters. It gives the channel that closes when a must move, and the function that removes a.
+func (e *Engine) watchMove(a *Agent) (<-chan struct{}, func()) {
+	moved := make(chan struct{})
+	e.pauseWaitersMu.Lock()
+	e.pauseWaiters[a] = moved
+	e.pauseWaitersMu.Unlock()
+	roles := e.mergedRoles()
+	e.moveWaiters(&roles)
+	return moved, func() {
+		e.pauseWaitersMu.Lock()
+		delete(e.pauseWaiters, a)
+		e.pauseWaitersMu.Unlock()
+	}
+}
+
+// moveWaiters wakes each agent in pauseWaiters of a moving Role whose Harness is not the Harness of its Role in roles.
+func (e *Engine) moveWaiters(roles *config.Roles) {
+	e.pauseWaitersMu.Lock()
+	defer e.pauseWaitersMu.Unlock()
+	for a, moved := range e.pauseWaiters {
+		if !movingRoles[a.spec.Role] {
+			continue
+		}
+		if binding, _ := roleBinding(roles, a.spec.Role); binding.Harness != a.binding.Harness {
+			close(moved)
+			delete(e.pauseWaiters, a)
+		}
+	}
+}
+
 // waitForPause holds until the Harness of a has no pause. The session shows the pause in its queue reason while it
 // waits. While the drain is on, the drain does not count the session. After the end of the pause, the session counts
-// again before it goes on. After seal, it does not go on: it waits until abortDrain or the restart ends it.
+// again before it goes on. After seal, it does not go on: it waits until abortDrain or the restart ends it. A session of
+// a moving Role gives errMoved when the Harness of its Role changes.
 func (a *Agent) waitForPause(ctx context.Context) error {
 	e := a.engine
+	moved, forget := e.watchMove(a)
+	defer forget()
 	shown := false
 	for {
 		changed := e.pausesChanged.wait()
@@ -499,6 +539,8 @@ func (a *Agent) waitForPause(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case <-moved:
+			return errMoved
 		case <-changed:
 		}
 	}
