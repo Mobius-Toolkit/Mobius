@@ -625,6 +625,7 @@ test("screenshots", async ({ page }) => {
       await main.getByRole("button", { name: "Stop voice input" }).click();
       await expect(main.getByRole("button", { name: "Start voice input" })).toBeVisible();
       await main.getByLabel("Message to the Lead").fill("");
+      await expect.poll(() => page.evaluate(storedDrafts)).toBe(0);
     },
   );
   await page.route("**/api/voice/recordings/r1/finish", () => {});
@@ -840,7 +841,9 @@ test("screenshots", async ({ page }) => {
   const clearComposer = async () => {
     const remove = composer.getByRole("button", { name: /^Remove / });
     while ((await remove.count()) > 0) {
+      const count = await remove.count();
       await remove.first().click();
+      await expect(remove).toHaveCount(count - 1);
     }
     await main.getByLabel("Message to the Lead").fill("");
     await expect.poll(() => page.evaluate(storedDrafts)).toBe(0);

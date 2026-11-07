@@ -21,12 +21,25 @@ type Answered = {
   mark: boolean;
 };
 
+const hideListeners = new Set<(item: { id: number; repository: string; issue: number }) => void>();
+
+export function hideInboxItem(item: { id: number; repository: string; issue: number }) {
+  hideListeners.forEach((listener) => listener(item));
+}
+
+const restoreListeners = new Set<(id: number) => void>();
+
+// Brings the item back after a failed request. The caller shows the error itself, so the shell keeps no failure.
+export function restoreInboxItem(id: number) {
+  restoreListeners.forEach((listener) => listener(id));
+}
+
 export function useInbox(source: EventSource | undefined, needsHuman: NeedsHuman[]) {
   const [items, setItems] = useState<InboxItem[]>([]);
   const [answered, setAnswered] = useState<Answered[]>([]);
   const [failure, setFailure] = useState<{ id: number; error: string }>();
 
-  const hide = useCallback((item: InboxItem) => {
+  const hide = useCallback((item: { id: number; repository: string; issue: number }) => {
     setFailure(undefined);
     setAnswered((list) => [
       ...list.filter((other) => other.id !== item.id),
@@ -41,10 +54,29 @@ export function useInbox(source: EventSource | undefined, needsHuman: NeedsHuman
     ]);
   }, []);
 
+  useEffect(() => {
+    hideListeners.add(hide);
+    return () => {
+      hideListeners.delete(hide);
+    };
+  }, [hide]);
+
   const fail = useCallback((id: number, error: string) => {
     setAnswered((list) => list.filter((other) => other.id !== id));
     setFailure({ id, error });
   }, []);
+
+  const restore = useCallback(
+    (id: number) => setAnswered((list) => list.filter((other) => other.id !== id)),
+    [],
+  );
+
+  useEffect(() => {
+    restoreListeners.add(restore);
+    return () => {
+      restoreListeners.delete(restore);
+    };
+  }, [restore]);
 
   const clearFailure = useCallback(() => setFailure(undefined), []);
 

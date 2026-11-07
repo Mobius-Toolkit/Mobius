@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
+import { foldkit } from "@foldkit/vite-plugin";
 import { defineConfig } from "vite";
 
 // The app compares its build with the build in /ui-version of the server.
@@ -14,6 +15,7 @@ export default defineConfig({
     UI_RELEASE: JSON.stringify(process.env.RELEASE ?? ""),
   },
   plugins: [
+    ...foldkit({ devToolsMcpPort: false }),
     react(),
     tailwindcss(),
     {
@@ -23,6 +25,22 @@ export default defineConfig({
       },
     },
   ],
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (
+            id.includes("/node_modules/foldkit/") ||
+            id.includes("/node_modules/@foldkit/") ||
+            id.includes("/node_modules/effect/") ||
+            id.includes("/node_modules/@effect/")
+          ) {
+            return "foldkit-effect";
+          }
+        },
+      },
+    },
+  },
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "./src"),

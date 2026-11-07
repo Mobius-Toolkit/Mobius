@@ -142,3 +142,48 @@ for (const [device, size] of Object.entries(viewports)) {
     await expect(status).toBeEmpty();
   });
 }
+
+// The test adds two Owner messages to the Lead chat of plants/garden#12. The messages stay, and no later spec reads
+// that chat.
+test("the chat screen receives a live message after the live connection closes", async ({
+  page,
+  browser,
+}) => {
+  await page.goto("/workstreams/plants/garden/12");
+  await expect(page.getByLabel("Message to the Lead")).toBeEditable();
+
+  // An answer that is not an event stream closes the source for good, so the page must retry by itself.
+  let refuse = true;
+  await page.route("/api/events", (route) =>
+    refuse ? route.fulfill({ status: 502 }) : route.fallback(),
+  );
+  await page.evaluate("window.dispatchEvent(new Event('online'))");
+
+  const other = await browser.newPage();
+  await other.goto("/github");
+  await other.getByLabel("Access password").fill("correct horse");
+  await other.getByRole("button", { name: "Log in" }).click();
+  await other.goto("/workstreams/plants/garden/12");
+  const send = async (text: string) => {
+    await other.getByLabel("Message to the Lead").fill(text);
+    await other.getByRole("button", { name: "Send" }).click();
+    await expect(other.getByText(text)).toBeVisible();
+  };
+  await send("Water the roses in spring.");
+
+  await expect(page.getByText("Water the roses in spring.")).toBeHidden();
+  refuse = false;
+  // The load after the new connection shows the first message.
+  await expect(page.getByText("Water the roses in spring.")).toBeVisible({ timeout: 15_000 });
+
+  // The new connection of the chat screen gets a live event with no reload of the page.
+  const loads: string[] = [];
+  await page.route("**/api/chat?*", (route) => {
+    loads.push(route.request().url());
+    return route.fallback();
+  });
+  await send("Mulch the beds in autumn.");
+  await expect(page.getByText("Mulch the beds in autumn.")).toBeVisible();
+  expect(loads).toHaveLength(0);
+  await other.context().close();
+});

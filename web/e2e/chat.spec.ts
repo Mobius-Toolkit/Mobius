@@ -1199,6 +1199,7 @@ test("Answer of a row in the chat opens a panel with the rendered text", async (
   ).toBeVisible();
   await expect(dialog.locator("strong", { hasText: "Question:" })).toBeVisible();
   await expect(dialog).not.toContainText("**");
+  await expect(dialog).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
 });
