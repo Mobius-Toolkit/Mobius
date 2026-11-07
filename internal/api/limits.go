@@ -11,6 +11,8 @@ type Pause struct {
 	Harness string `gork:"harness"`
 	// PausedUntil is the end of the pause
 	PausedUntil time.Time `gork:"pausedUntil"`
+	// InUse tells that a Role uses the Harness, or that an open session waits for the pause
+	InUse bool `gork:"inUse"`
 }
 
 // ListPausesRequest is the request of ListPauses.
@@ -41,7 +43,7 @@ func (h *handlers) pauses(ctx context.Context) ([]Pause, error) {
 		if err != nil {
 			return nil, err
 		}
-		pauses = append(pauses, Pause{Harness: row.Harness, PausedUntil: pausedUntil})
+		pauses = append(pauses, Pause{Harness: row.Harness, PausedUntil: pausedUntil, InUse: row.InUse})
 	}
 	return pauses, nil
 }

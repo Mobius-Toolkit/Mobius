@@ -8007,6 +8007,34 @@ func (q *Queries) ListUnread(ctx context.Context) ([]ListUnreadRow, error) {
 	return items, nil
 }
 
+const listWaitingHarnesses = `-- name: ListWaitingHarnesses :many
+SELECT DISTINCT harness FROM sessions WHERE ended_at IS NULL AND queue_reason LIKE CAST(?1 AS TEXT) || '%'
+ORDER BY harness
+`
+
+func (q *Queries) ListWaitingHarnesses(ctx context.Context, prefix string) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listWaitingHarnesses, prefix)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var harness string
+		if err := rows.Scan(&harness); err != nil {
+			return nil, err
+		}
+		items = append(items, harness)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listWaitingLeadWorkstreams = `-- name: ListWaitingLeadWorkstreams :many
 SELECT DISTINCT repository, workstream FROM lead_events WHERE delivered_at IS NULL ORDER BY repository, workstream
 `
