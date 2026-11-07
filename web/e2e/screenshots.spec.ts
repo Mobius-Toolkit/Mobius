@@ -790,10 +790,13 @@ test("screenshots", async ({ page }) => {
     const fields = {
       action: null,
       browserId: "",
+      cancelledAt: null,
       deliveredAt: null,
+      failedAt: null,
       images: 0,
       inboxItems: [],
       organization: "owner",
+      question: null,
       repository: "owner/shop",
       stoppedAt: null,
       workstream: 12,
@@ -1325,6 +1328,12 @@ test("screenshots", async ({ page }) => {
     const link = "https://github.com/owner/shop";
     const item = {
       dismissedAt: null,
+      action: null,
+      answer: "",
+      mergeRefusal: "",
+      merging: false,
+      todo: null,
+      withdrawn: false,
       questions: [],
       organization: "owner",
       repository: "owner/shop",

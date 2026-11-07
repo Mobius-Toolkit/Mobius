@@ -1,13 +1,5 @@
+import { Schema } from "effect";
 import type { Return as UpdateReturn } from "foldkit/update";
-import type {
-  ChatInboxItem,
-  ChatMessage,
-  InboxItem,
-  PendingAction,
-  Workstream,
-} from "@/api/api.gen";
-import type { DraftInboxItem } from "@/lib/draft";
-import type { Queued } from "@/lib/outbox";
 import {
   AnswerInboxItem,
   ApproveAction,
@@ -43,19 +35,16 @@ import { maxImages, tooManyImages } from "@/lib/images";
 import { Message } from "./message";
 type Running = "action" | "dismiss" | "merge";
 import { countsAsUnread, retryDelays, upsert, type Model, type Waiting } from "./model";
+import { InboxItem } from "./schemas";
 
 function isEmptyDraft(model: Model) {
   return (
-    !model.draftText.trim() &&
-    (model.draftImages as File[]).length === 0 &&
-    (model.draftInboxItems as DraftInboxItem[]).length === 0
+    !model.draftText.trim() && model.draftImages.length === 0 && model.draftInboxItems.length === 0
   );
 }
 
 function hasSelection(model: Model) {
-  return Object.values(model.selectedOptions as Record<number, number[]>).some(
-    (options) => options.length > 0,
-  );
+  return Object.values(model.selectedOptions).some((options) => options.length > 0);
 }
 
 // The answer has one block for each question with a selected option, and then the note.
@@ -110,17 +99,14 @@ function clearedDraft(model: Model): Model {
 }
 
 function sendCommands(model: Model, text: string) {
-  const inboxItems: ChatInboxItem[] = (model.draftInboxItems as DraftInboxItem[]).map(
-    ({ reference, title, reason, link }) => ({ reference, title, reason, link }),
-  );
   return [
     EnqueueMessage({
       organization: model.organization,
       repository: model.repository,
       workstream: model.workstream,
       text,
-      images: model.draftImages as File[],
-      inboxItems,
+      images: model.draftImages,
+      inboxItems: model.draftInboxItems,
     }),
     SaveDraft({
       organization: model.organization,
@@ -134,6 +120,8 @@ function sendCommands(model: Model, text: string) {
 function withoutKey<T>(record: Record<number, T>, key: number): Record<number, T> {
   return Object.fromEntries(Object.entries(record).filter(([name]) => Number(name) !== key));
 }
+
+const sameInboxItem = Schema.toEquivalence(InboxItem);
 
 const noCommands: Array<ReturnType<typeof PostQueued>> = [];
 
@@ -176,7 +164,7 @@ function finishRequest(model: Model, id: number, error: string): Model {
 }
 
 function requestingOf(model: Model) {
-  return model.requesting as number[];
+  return model.requesting;
 }
 
 function without(model: Model, id: number) {
@@ -204,12 +192,12 @@ function regionOf(model: Model, target: "chat" | "answer") {
 }
 
 function newestMessage(model: Model) {
-  const messages = model.messages as ChatMessage[];
+  const messages = model.messages;
   return model.loaded && messages.length > 0 ? Math.max(...messages.map((m) => m.id)) : null;
 }
 
 function lastAgentMessage(model: Model) {
-  return (model.messages as ChatMessage[]).findLast(
+  return model.messages.findLast(
     (m) => m.author !== "Owner" && m.author !== "Event" && m.author !== "Record",
   )?.id;
 }
@@ -220,7 +208,7 @@ function seesChat(model: Model) {
   const waiting =
     model.older &&
     model.openUnread !== null &&
-    (model.messages as ChatMessage[]).filter(countsAsUnread).length < model.openUnread;
+    model.messages.filter(countsAsUnread).length < model.openUnread;
   return (
     model.queueLoaded && !waiting && Boolean(model.unread) && lastAgentMessage(model) !== undefined
   );
@@ -254,7 +242,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
   return Message.match<UpdateReturn<Model, Message>>(message, {
     ReceivedUnread: ({ unread }) => {
       const nextOpen = model.openUnread === null ? unread : model.openUnread;
-      const messages = model.messages as ChatMessage[];
+      const messages = model.messages;
       const commands = [];
       const waiting =
         model.older &&
@@ -285,7 +273,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
     ReceivedBrief: ({ brief }) => ({
       model: {
         ...model,
-        brief: brief as Workstream | null,
+        brief,
       },
     }),
 
@@ -293,9 +281,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
     // row back, and a panel that closed meanwhile opens again at the end of the request.
     ReceivedTrayItems: ({ items }) => {
       const panel = model.activePanel;
-      const rows = (items as InboxItem[]).filter(
-        (item) => !item.action || item.action.state === "pending",
-      );
+      const rows = items.filter((item) => !item.action || item.action.state === "pending");
       // Only the panel of a tray row goes away with the row. The Details panel of a card stays.
       // A panel that shows the error of its request stays until a read shows its row again: the Port can come before
       // the row is back. After that read, a list without the row closes the panel.
@@ -312,22 +298,20 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
         !rows.some((row) => row.id === panel.item.id);
       // The local answer of a merge or a refusal belongs to the row that the Owner saw. A new read of the row, with other
       // data or without the row, replaces it.
-      const before = model.trayItems as InboxItem[];
+      const before = model.trayItems;
       const kept = (id: number) => {
         const old = before.find((item) => item.id === id);
-        const next = (items as InboxItem[]).find((item) => item.id === id);
-        return (
-          old !== undefined && next !== undefined && JSON.stringify(old) === JSON.stringify(next)
-        );
+        const next = items.find((item) => item.id === id);
+        return old !== undefined && next !== undefined && sameInboxItem(old, next);
       };
       const keepKnown = <T>(record: Record<number, T>) =>
         Object.fromEntries(Object.entries(record).filter(([id]) => kept(Number(id))));
       return {
         model: {
           ...model,
-          trayItems: items as InboxItem[],
-          trayMerging: keepKnown(model.trayMerging as Record<number, boolean>),
-          trayRefusals: keepKnown(model.trayRefusals as Record<number, string>),
+          trayItems: items,
+          trayMerging: keepKnown(model.trayMerging),
+          trayRefusals: keepKnown(model.trayRefusals),
           answerErrorAwaitsRow:
             model.answerErrorAwaitsRow && !rows.some((row) => row.id === model.answerErrorId),
           activePanel: gone ? null : model.activePanel,
@@ -339,7 +323,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
     ReceivedWorkstreams: ({ workstreams }) => ({
       model: {
         ...model,
-        workstreams: workstreams as Workstream[] | null,
+        workstreams,
       },
     }),
 
@@ -357,17 +341,16 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
       ],
     }),
 
-    ReceivedLiveMessage: ({ message: rawMsg }) => {
-      const liveMsg = rawMsg as ChatMessage;
-      const messages = model.messages as ChatMessage[];
+    ReceivedLiveMessage: ({ message: liveMsg }) => {
+      const messages = model.messages;
       if (messages.length > 0 && liveMsg.id < messages[0].id) {
         return { model };
       }
       const nextMessages = upsert(messages, liveMsg);
       const storedIds = new Set(nextMessages.map((m) => m.browserId));
-      const nextQueue = (model.queue as Waiting[]).filter((item) => !storedIds.has(item.id));
+      const nextQueue = model.queue.filter((item) => !storedIds.has(item.id));
       const commands = [];
-      const storedInQueue = (model.queue as Waiting[]).filter((item) => storedIds.has(item.id));
+      const storedInQueue = model.queue.filter((item) => storedIds.has(item.id));
       for (const item of storedInQueue) {
         commands.push(RemoveQueued({ id: item.id }));
       }
@@ -383,13 +366,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
       };
     },
 
-    ReceivedLiveChatState: ({ state: rawState }) => {
-      const state = rawState as {
-        writing: boolean;
-        stoppable: boolean;
-        pausedUntil: string | null;
-        error: string;
-      };
+    ReceivedLiveChatState: ({ state }) => {
       return {
         model: {
           ...model,
@@ -402,9 +379,8 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
       };
     },
 
-    ReceivedLiveAction: ({ action: rawAction }) => {
-      const action = rawAction as PendingAction;
-      const nextMessages = (model.messages as ChatMessage[]).map((m) =>
+    ReceivedLiveAction: ({ action }) => {
+      const nextMessages = model.messages.map((m) =>
         m.action?.id === action.id ? { ...m, action } : m,
       );
       return {
@@ -415,9 +391,8 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
       };
     },
 
-    ReceivedLiveQuestion: ({ question: rawQuestion }) => {
-      const question = rawQuestion as InboxItem;
-      const nextMessages = (model.messages as ChatMessage[]).map((m) =>
+    ReceivedLiveQuestion: ({ question }) => {
+      const nextMessages = model.messages.map((m) =>
         m.question?.id === question.id ? { ...m, question } : m,
       );
       return {
@@ -428,23 +403,14 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
       };
     },
 
-    PageLoaded: ({ page: rawPage, isInitial, sent }) => {
-      const page = rawPage as {
-        messages: ChatMessage[];
-        older: boolean;
-        writing: boolean;
-        stoppable: boolean;
-        pausedUntil: string | null;
-      };
-      const messages = model.messages as ChatMessage[];
+    PageLoaded: ({ page, isInitial, sent }) => {
+      const messages = model.messages;
       const nextMessages = page.messages.reduce(upsert, messages);
       const storedIds = new Set(nextMessages.map((m) => m.browserId));
       // A sent message stays on the screen until the end of the load that its own send started.
-      const nextQueue = (model.queue as Waiting[]).filter(
-        (item) => !storedIds.has(item.id) && item.id !== sent,
-      );
+      const nextQueue = model.queue.filter((item) => !storedIds.has(item.id) && item.id !== sent);
       const commands = [];
-      for (const item of (model.queue as Waiting[]).filter((i) => storedIds.has(i.id))) {
+      for (const item of model.queue.filter((i) => storedIds.has(i.id))) {
         commands.push(RemoveQueued({ id: item.id }));
       }
       const settled = settleAttempt(model, nextQueue);
@@ -482,9 +448,8 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
       };
     },
 
-    OlderPageLoaded: ({ page: rawPage }) => {
-      const page = rawPage as { messages: ChatMessage[]; older: boolean };
-      const messages = model.messages as ChatMessage[];
+    OlderPageLoaded: ({ page }) => {
+      const messages = model.messages;
       const nextMessages = page.messages.reduce(upsert, messages);
       const waiting =
         page.older &&
@@ -520,14 +485,14 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
           ...model,
           loadingOlder: false,
           error,
-          queue: (model.queue as Waiting[]).filter((item) => item.id !== sent),
+          queue: model.queue.filter((item) => item.id !== sent),
         },
         commands,
       };
     },
 
     ListNearTop: () => {
-      const messages = model.messages as ChatMessage[];
+      const messages = model.messages;
       if (model.older && !model.loadingOlder && messages.length > 0) {
         return {
           model: {
@@ -547,14 +512,11 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
       return { model };
     },
 
-    QueueLoaded: ({ items: rawItems }) => {
-      const stored = rawItems as Queued[];
-      const storedIds = new Set((model.messages as ChatMessage[]).map((m) => m.browserId));
-      const queue = (model.queue as Waiting[]).concat(
+    QueueLoaded: ({ items: stored }) => {
+      const storedIds = new Set(model.messages.map((m) => m.browserId));
+      const queue = model.queue.concat(
         stored.filter(
-          (item) =>
-            !storedIds.has(item.id) &&
-            !(model.queue as Waiting[]).some((other) => other.id === item.id),
+          (item) => !storedIds.has(item.id) && !model.queue.some((other) => other.id === item.id),
         ),
       );
       const next = queue.find((item) => !item.sent);
@@ -582,16 +544,12 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
     }),
 
     MessageRefused: ({ error, text, images, inboxItems }) => {
-      const draftImages = images as File[];
-      const draftItems = inboxItems as DraftInboxItem[];
       const restored = {
         text: model.draftText === text ? text : [text, model.draftText].filter(Boolean).join(" "),
-        images: draftImages,
+        images,
         inboxItems: [
-          ...draftItems,
-          ...(model.draftInboxItems as DraftInboxItem[]).filter(
-            (item) => !draftItems.some(({ id }) => id === item.id),
-          ),
+          ...inboxItems,
+          ...model.draftInboxItems.filter((item) => !inboxItems.some(({ id }) => id === item.id)),
         ],
       };
       return {
@@ -613,9 +571,8 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
       };
     },
 
-    MessageQueued: ({ item: rawItem }) => {
-      const item = rawItem as Queued;
-      const queue: Waiting[] = [...(model.queue as Waiting[]), item];
+    MessageQueued: ({ item }) => {
+      const queue: Waiting[] = [...model.queue, item];
       const next = queue.find((i) => !i.sent);
       const commands = [];
       if (next && !model.attempt && next.id === item.id) {
@@ -632,9 +589,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
     },
 
     SendAttemptSucceeded: ({ id }) => {
-      const queue = (model.queue as Waiting[]).map((item) =>
-        item.id === id ? { ...item, sent: true } : item,
-      );
+      const queue = model.queue.map((item) => (item.id === id ? { ...item, sent: true } : item));
       const next = queue.find((item) => !item.sent);
       const commands = [];
       commands.push(
@@ -663,7 +618,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
     },
 
     SendAttemptFailed: ({ id, error, retryAt }) => {
-      const waiting = model.queue as Waiting[];
+      const waiting = model.queue;
       if (!waiting.some((item) => item.id === id)) {
         // The server stored the message while the request ran, so the item is not in the queue. No wait is needed.
         const next = waiting.find((item) => !item.sent);
@@ -684,7 +639,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
     },
 
     RetryDue: ({ id, sequence }) => {
-      const next = (model.queue as Waiting[]).find((item) => !item.sent);
+      const next = model.queue.find((item) => !item.sent);
       if (sequence !== model.retrySequence || !next || next.id !== id || model.attempt?.id !== id) {
         return { model };
       }
@@ -696,7 +651,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
     },
 
     RetryNowClicked: () => {
-      const next = (model.queue as Waiting[]).find((item) => !item.sent);
+      const next = model.queue.find((item) => !item.sent);
       const commands = [];
       if (next) {
         const delay = retryDelays[Math.min(model.failureCount, retryDelays.length - 1)];
@@ -713,7 +668,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
     },
 
     DiscardQueuedClicked: ({ id }) => {
-      const queue = (model.queue as Waiting[]).filter((item) => item.id !== id);
+      const queue = model.queue.filter((item) => item.id !== id);
       const retrying = model.attempt?.id === id;
       const next = queue.find((item) => !item.sent);
       return {
@@ -754,12 +709,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
     StopChatCompleted: ({ error }) =>
       error === null ? { model } : { model: { ...model, stopping: false, sendError: error } },
 
-    DraftLoaded: ({ draft: rawDraft }) => {
-      const draft = rawDraft as {
-        text: string;
-        images: File[];
-        inboxItems: DraftInboxItem[];
-      };
+    DraftLoaded: ({ draft }) => {
       return {
         model: {
           ...model,
@@ -774,8 +724,8 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
     DraftTextChanged: ({ text }) => {
       const draft = {
         text,
-        images: model.draftImages as File[],
-        inboxItems: model.draftInboxItems as DraftInboxItem[],
+        images: model.draftImages,
+        inboxItems: model.draftInboxItems,
       };
       return {
         model: {
@@ -797,14 +747,14 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
       model,
       commands: [
         FitImages({
-          files: files as File[],
-          room: maxImages - (model.draftImages as File[]).length,
+          files,
+          room: maxImages - model.draftImages.length,
         }),
       ],
     }),
 
-    ImagesFitted: ({ images: rawImages, problem }) => {
-      const all = [...(model.draftImages as File[]), ...(rawImages as File[])];
+    ImagesFitted: ({ images, problem }) => {
+      const all = [...model.draftImages, ...images];
       const nextImages = all.slice(0, maxImages);
       return {
         model: {
@@ -820,7 +770,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
             draft: {
               text: model.draftText,
               images: nextImages,
-              inboxItems: model.draftInboxItems as DraftInboxItem[],
+              inboxItems: model.draftInboxItems,
             },
           }),
         ],
@@ -832,11 +782,11 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
     CompletedClickAttach: () => ({ model }),
 
     DraftImageRemoved: ({ position }) => {
-      const nextImages = (model.draftImages as File[]).filter((_, i) => i !== position);
+      const nextImages = model.draftImages.filter((_, i) => i !== position);
       const draft = {
         text: model.draftText,
         images: nextImages,
-        inboxItems: model.draftInboxItems as DraftInboxItem[],
+        inboxItems: model.draftInboxItems,
       };
       return {
         model: {
@@ -854,16 +804,13 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
       };
     },
 
-    DraftInboxItemAdded: ({ item: rawItem }) => {
-      const item = rawItem as DraftInboxItem;
-      const nextItems = (model.draftInboxItems as DraftInboxItem[]).some(
-        (other) => other.id === item.id,
-      )
-        ? (model.draftInboxItems as DraftInboxItem[])
-        : [...(model.draftInboxItems as DraftInboxItem[]), item];
+    DraftInboxItemAdded: ({ item }) => {
+      const nextItems = model.draftInboxItems.some((other) => other.id === item.id)
+        ? model.draftInboxItems
+        : [...model.draftInboxItems, item];
       const draft = {
         text: model.draftText,
-        images: model.draftImages as File[],
+        images: model.draftImages,
         inboxItems: nextItems,
       };
       return {
@@ -883,12 +830,10 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
     },
 
     DraftInboxItemRemoved: ({ id }) => {
-      const nextItems = (model.draftInboxItems as DraftInboxItem[]).filter(
-        (item) => item.id !== id,
-      );
+      const nextItems = model.draftInboxItems.filter((item) => item.id !== id);
       const draft = {
         text: model.draftText,
-        images: model.draftImages as File[],
+        images: model.draftImages,
         inboxItems: nextItems,
       };
       return {
@@ -929,7 +874,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
         if (!item) {
           return { model: { ...model, probingSend: false } };
         }
-        const selected = model.selectedOptions as Record<number, number[]>;
+        const selected = model.selectedOptions;
         if (live) {
           return {
             model: {
@@ -971,9 +916,9 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
     EventToggled: ({ id }) => ({
       model: {
         ...model,
-        openEvents: (model.openEvents as number[]).includes(id)
-          ? (model.openEvents as number[]).filter((other) => other !== id)
-          : [...(model.openEvents as number[]), id],
+        openEvents: model.openEvents.includes(id)
+          ? model.openEvents.filter((other) => other !== id)
+          : [...model.openEvents, id],
       },
     }),
 
@@ -999,8 +944,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
 
     CompletedSaveTrayState: () => ({ model }),
 
-    OpenAnswerPanel: ({ item, workstreamTitle }) => {
-      const inboxItem = item as InboxItem;
+    OpenAnswerPanel: ({ item: inboxItem, workstreamTitle }) => {
       const commands = [];
       if (inboxItem.action?.tool === "edit_brief" && inboxItem.action.state === "pending") {
         commands.push(FetchActionBrief({ actionId: inboxItem.action.id }));
@@ -1026,8 +970,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
       };
     },
 
-    OpenDetailsPanel: ({ item, workstreamTitle, fromTray }) => {
-      const inboxItem = item as InboxItem;
+    OpenDetailsPanel: ({ item: inboxItem, workstreamTitle, fromTray }) => {
       const commands = [];
       if (inboxItem.action?.tool === "edit_brief" && inboxItem.action.state === "pending") {
         commands.push(FetchActionBrief({ actionId: inboxItem.action.id }));
@@ -1074,15 +1017,14 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
       },
     }),
 
-    ResumeClicked: ({ item: rawItem }) => {
-      const item = rawItem as InboxItem;
-      if (item.id in (model.trayRunning as Record<number, Running>)) {
+    ResumeClicked: ({ item }) => {
+      if (item.id in model.trayRunning) {
         return { model };
       }
       return {
         model: {
           ...model,
-          trayRunning: { ...(model.trayRunning as Record<number, Running>), [item.id]: "action" },
+          trayRunning: { ...model.trayRunning, [item.id]: "action" },
           trayError: "",
         },
         commands: [
@@ -1097,15 +1039,11 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
     },
 
     ResumeCompleted: ({ id, error }) => {
-      const trayItems = error
-        ? model.trayItems
-        : (model.trayItems as InboxItem[]).filter((item) => item.id !== id);
+      const trayItems = error ? model.trayItems : model.trayItems.filter((item) => item.id !== id);
       return {
         model: {
           ...model,
-          trayRunning: error
-            ? withoutKey(model.trayRunning as Record<number, Running>, id)
-            : model.trayRunning,
+          trayRunning: error ? withoutKey(model.trayRunning, id) : model.trayRunning,
           trayError: error || "",
           trayItems,
         },
@@ -1113,9 +1051,8 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
     },
 
     // The row leaves the tray when the server sends the new list, so the button stays pending after a success.
-    TrayActionClicked: ({ item: rawItem, kind }) => {
-      const item = rawItem as InboxItem;
-      if (item.id in (model.trayRunning as Record<number, Running>)) {
+    TrayActionClicked: ({ item, kind }) => {
+      if (item.id in model.trayRunning) {
         return { model };
       }
       const running: Running =
@@ -1123,24 +1060,22 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
       return {
         model: {
           ...model,
-          trayRunning: { ...(model.trayRunning as Record<number, Running>), [item.id]: running },
-          trayRefusals: withoutKey(model.trayRefusals as Record<number, string>, item.id),
+          trayRunning: { ...model.trayRunning, [item.id]: running },
+          trayRefusals: withoutKey(model.trayRefusals, item.id),
         },
         commands: [RunTrayAction({ item, kind })],
       };
     },
 
     TrayActionDone: ({ id, kind, error, merging }) => {
-      const running = model.trayRunning as Record<number, Running>;
+      const running = model.trayRunning;
       if (kind === "merge") {
         return {
           model: {
             ...model,
             trayRunning: withoutKey(running, id),
-            trayMerging: { ...(model.trayMerging as Record<number, boolean>), [id]: merging },
-            trayRefusals: error
-              ? { ...(model.trayRefusals as Record<number, string>), [id]: error }
-              : model.trayRefusals,
+            trayMerging: { ...model.trayMerging, [id]: merging },
+            trayRefusals: error ? { ...model.trayRefusals, [id]: error } : model.trayRefusals,
           },
         };
       }
@@ -1154,7 +1089,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
     },
 
     OptionToggled: ({ questionIndex, optionIndex, multiple }) => {
-      const current = (model.selectedOptions as Record<number, number[]>)[questionIndex] ?? [];
+      const current = model.selectedOptions[questionIndex] ?? [];
       let next: number[];
       if (multiple) {
         next = current.includes(optionIndex)
@@ -1167,7 +1102,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
         model: {
           ...model,
           selectedOptions: {
-            ...(model.selectedOptions as Record<number, number[]>),
+            ...model.selectedOptions,
             [questionIndex]: next,
           },
         },
@@ -1216,11 +1151,10 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
       };
     },
 
-    AnswerCompleted: ({ id, result: rawRes }) => {
-      const res = rawRes as { error?: string };
+    AnswerCompleted: ({ id, error }) => {
       return reopened(
         model,
-        { ...finishRequest(model, id, res.error || ""), requesting: without(model, id) },
+        { ...finishRequest(model, id, error), requesting: without(model, id) },
         id,
       );
     },
@@ -1268,18 +1202,17 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
     ActionFailed: ({ id, error }) =>
       reopened(model, { ...finishRequest(model, id, error), requesting: without(model, id) }, id),
 
-    ActionCompleted: ({ id, action: rawAction }) => {
-      const action = rawAction as PendingAction & { error?: string };
+    ActionCompleted: ({ id, action }) => {
       const isPending = action.state === "pending";
-      const err = isPending ? action.error || "" : "";
-      const updatedMessages = (model.messages as ChatMessage[]).map((msg) =>
+      const err = isPending ? action.error : "";
+      const updatedMessages = model.messages.map((msg) =>
         msg.action?.id === action.id ? { ...msg, action } : msg,
       );
       const updatedTrayItems = isPending
-        ? (model.trayItems as InboxItem[]).map((item) =>
+        ? model.trayItems.map((item) =>
             item.action?.id === action.id ? { ...item, action } : item,
           )
-        : (model.trayItems as InboxItem[]).filter((item) => item.action?.id !== action.id);
+        : model.trayItems.filter((item) => item.action?.id !== action.id);
       const withAction = (panel: Model["activePanel"]) =>
         panel && panel.item.id === id && err
           ? { ...panel, item: { ...panel.item, action: { ...panel.item.action, ...action } } }
@@ -1381,8 +1314,8 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
                 workstream: model.workstream,
                 draft: {
                   text: value,
-                  images: model.draftImages as File[],
-                  inboxItems: model.draftInboxItems as DraftInboxItem[],
+                  images: model.draftImages,
+                  inboxItems: model.draftInboxItems,
                 },
               }),
             ],

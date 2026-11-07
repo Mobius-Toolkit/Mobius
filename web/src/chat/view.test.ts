@@ -6,7 +6,7 @@ import { shieldEquals } from "./markdown";
 import { renderMarkdown } from "./view";
 
 const render = (text: string, diff = false) =>
-  JSON.stringify(renderMarkdown(inertHtml as never, text, diff));
+  JSON.stringify(renderMarkdown(inertHtml, text, diff));
 
 describe("renderMarkdown", () => {
   it("keeps == and === of a chat message as text", () => {

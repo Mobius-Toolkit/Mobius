@@ -3,20 +3,10 @@ import { Effect, Queue, Schema, Stream } from "effect";
 import { Mount } from "foldkit";
 import { beginMarkdownRender, parseChatMarkdown, restoreEquals, shieldEquals } from "./markdown";
 import type { Html, HtmlBuilder } from "foldkit/html";
-import {
-  InboxItemKind,
-  type ActionArgument,
-  type ActionLabel,
-  type ChatMessage,
-  type InboxItem,
-  type PendingAction,
-  type Question as QuestionType,
-  type Workstream,
-} from "@/api/api.gen";
+import { InboxItemKind } from "@/api/api.gen";
 import { actionState, roleName } from "@/lib/actions";
 import { briefMarkdown } from "@/lib/briefDiff";
 import { diffLines } from "@/lib/diff";
-import type { DraftInboxItem } from "@/lib/draft";
 import { getGetChatImageUrl } from "@/api/api.gen";
 import { trackKeyboardHeight } from "@/lib/keyboard";
 import { clock, clockSeconds, dayClock, dayLabel, localTimes } from "@/lib/time";
@@ -38,6 +28,11 @@ import { ChatList } from "./scroll";
 import { badgeClass, buttonClass, cn } from "./ui";
 import { Message } from "./message";
 import { countsAsUnread, type Failure, type Model, type Waiting } from "./model";
+import type { ChatMessage, DraftInboxItem, InboxItem, PendingAction } from "./schemas";
+
+type ActionArgument = PendingAction["arguments"][number];
+type ActionLabel = ActionArgument["labels"][number];
+type QuestionType = InboxItem["questions"][number];
 
 type H = HtmlBuilder<Message>;
 
@@ -46,7 +41,7 @@ const markdownClass =
 
 // diff is true for the Brief diff of an action: briefMarkdown marks a removed line with "~~" and an added text with
 // "==". In a chat message, "==" and "~~" have no special meaning here.
-export function renderMarkdown(h: H, text: string, diff = false): Html {
+export function renderMarkdown<M>(h: HtmlBuilder<M>, text: string, diff = false): Html {
   if (!text) return h.empty;
   const doc = parseChatMarkdown(localTimes(text));
   if (!doc) {
@@ -196,9 +191,9 @@ const RouterLink = Mount.defineStream("RouterLink", {
   messages: [Message.NavigateTo],
   execute: ({ element, path }) =>
     Stream.callback<ReturnType<typeof Message.NavigateTo>>((queue) => {
-      const click = (event: Event) => {
-        const mouse = event as MouseEvent;
+      const click = (mouse: Event) => {
         if (
+          !(mouse instanceof MouseEvent) ||
           mouse.button !== 0 ||
           mouse.metaKey ||
           mouse.ctrlKey ||
@@ -461,16 +456,16 @@ function renderMessage(h: H, message: ChatMessage, open: boolean, rows: InboxIte
     return renderQuestionCard(
       h,
       message,
-      message.question as InboxItem,
-      rows.find((row) => row.id === (message.question as InboxItem).id),
+      message.question,
+      rows.find((row) => row.id === message.question?.id),
     );
   }
   if (message.action) {
     return renderActionCard(
       h,
       message,
-      message.action as PendingAction,
-      rows.find((row) => row.action?.id === (message.action as PendingAction).id),
+      message.action,
+      rows.find((row) => row.action?.id === message.action?.id),
     );
   }
   if (message.author === "Record") {
@@ -649,7 +644,7 @@ const BriefLength = Mount.defineStream("BriefLength", {
 });
 
 function renderBriefBubble(h: H, model: Model): Html {
-  const brief = model.brief as Workstream | null;
+  const brief = model.brief;
   if (!brief || !model.loaded || model.older) return h.empty;
 
   return h.section(
@@ -709,8 +704,8 @@ function trayButton(
 }
 
 function renderTrayButtons(h: H, item: InboxItem, model: Model): Html[] {
-  const running = (model.trayRunning as Record<number, string>)[item.id];
-  const merging = (model.trayMerging as Record<number, boolean>)[item.id] ?? item.merging;
+  const running = model.trayRunning[item.id];
+  const merging = model.trayMerging[item.id] ?? item.merging;
   const buttons: Html[] = [];
   if (item.kind === InboxItemKind.question || item.action) {
     buttons.push(
@@ -834,7 +829,7 @@ function renderTrayButtons(h: H, item: InboxItem, model: Model): Html[] {
 }
 
 function renderTraySideButtons(h: H, item: InboxItem, model: Model): Html[] {
-  const running = (model.trayRunning as Record<number, string>)[item.id];
+  const running = model.trayRunning[item.id];
   const buttons: Html[] = [];
   if (item.kind !== InboxItemKind.question && item.kind !== InboxItemKind.stopped && !item.action) {
     buttons.push(
@@ -863,17 +858,14 @@ function renderTraySideButtons(h: H, item: InboxItem, model: Model): Html[] {
 }
 
 function refusalText(model: Model, item: InboxItem) {
-  const merging = (model.trayMerging as Record<number, boolean>)[item.id] ?? item.merging;
+  const merging = model.trayMerging[item.id] ?? item.merging;
   return (
-    (model.trayRefusals as Record<number, string>)[item.id] ||
-    (merging ? "" : item.mergeRefusal) ||
-    item.action?.error ||
-    ""
+    model.trayRefusals[item.id] || (merging ? "" : item.mergeRefusal) || item.action?.error || ""
   );
 }
 
 function trayRows(model: Model) {
-  return (model.trayItems as InboxItem[])
+  return model.trayItems
     .filter((item) => !item.action || item.action.state === "pending")
     .toSorted((a, b) => a.id - b.id);
 }
@@ -1068,7 +1060,7 @@ function textColor(color: string): string {
   return (0.2126 * red + 0.7152 * green + 0.0722 * blue) / 255 > 0.453 ? "#000000" : "#ffffff";
 }
 
-function renderLabelChips(h: H, labels: ActionLabel[]): Html {
+function renderLabelChips(h: H, labels: readonly ActionLabel[]): Html {
   return h.div(
     [h.Class("flex flex-wrap gap-1")],
     labels.map((label) =>
@@ -1175,7 +1167,10 @@ const PanelOpened = Mount.define("PanelOpened", {
   messages: [Message.CompletedFocusPanel],
   execute: ({ element }) =>
     Effect.gen(function* () {
-      const dialog = element.querySelector<HTMLElement>('[role="dialog"]') as HTMLElement;
+      const dialog = element.querySelector<HTMLElement>('[role="dialog"]');
+      if (dialog === null) {
+        return Message.CompletedFocusPanel();
+      }
       yield* Effect.acquireRelease(
         Effect.sync(() => {
           const opener = document.activeElement;
@@ -1240,7 +1235,7 @@ function renderOptions(
   index: number,
   input: boolean,
 ): Html {
-  const selected = (model.selectedOptions as Record<number, number[]>)[index] ?? [];
+  const selected = model.selectedOptions[index] ?? [];
   return h.div(
     [h.Role("group"), h.AriaLabel(question.text), h.Class("grid gap-2")],
     [
@@ -1315,7 +1310,7 @@ function workstreamName(model: Model, item: InboxItem) {
     return "Coordinator";
   }
   return (
-    (model.workstreams as Workstream[] | null)?.find(
+    model.workstreams?.find(
       (workstream) =>
         workstream.repository === item.workstreamRepository &&
         workstream.number === item.workstream,
@@ -1481,8 +1476,8 @@ function renderAnswerDialog(h: H, model: Model): Html {
 
 export function view(model: Model, h: H): Html {
   beginMarkdownRender();
-  const messages = model.messages as ChatMessage[];
-  const queue = model.queue as Waiting[];
+  const messages = model.messages;
+  const queue = model.queue;
   const storedIds = new Set(messages.map((m) => m.browserId));
   const pending = queue.filter((item) => !storedIds.has(item.id));
   const count = messages.length + pending.length;
@@ -1536,9 +1531,7 @@ export function view(model: Model, h: H): Html {
             if (idx === 0 || label !== prevLabel) {
               items.push(renderDaySeparator(h, `day-${msg.id}`, label));
             }
-            items.push(
-              renderMessage(h, msg, (model.openEvents as number[]).includes(msg.id), rows),
-            );
+            items.push(renderMessage(h, msg, model.openEvents.includes(msg.id), rows));
             return items;
           }),
           ...pending.flatMap((queued, idx) => {
@@ -1553,7 +1546,7 @@ export function view(model: Model, h: H): Html {
               renderQueuedMessage(
                 h,
                 queued,
-                model.attempt?.id === queued.id ? (model.attempt as Failure) : null,
+                model.attempt?.id === queued.id ? model.attempt : null,
                 !queued.sent && (queued !== next || model.attempt?.id === queued.id),
               ),
             );

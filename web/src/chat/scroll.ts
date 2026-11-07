@@ -13,7 +13,10 @@ export const ChatList = Mount.defineStream("ChatList", {
   execute: ({ element }) =>
     Stream.callback<ReturnType<typeof Message.ListNearTop>>((queue) =>
       Effect.gen(function* () {
-        const list = element as HTMLElement;
+        const list = element instanceof HTMLElement ? element : null;
+        if (list === null) {
+          return;
+        }
         let pinned = true;
         let endTop: number | undefined;
         let scrolled = false;

@@ -1,14 +1,16 @@
 import { Effect, Queue, Schema, Stream } from "effect";
 import * as Port from "foldkit/port";
 import * as Subscription from "foldkit/subscription";
-import { listGitHubApps, type LiveEvents } from "@/api/api.gen";
-import { onEvent, retryDelay } from "@/lib/events";
+import { listGitHubApps } from "@/api/api.gen";
+import { retryDelay } from "@/lib/events";
 import { sameChat } from "@/lib/unread";
 import { getVoiceSnapshot, registerVoiceInput, subscribeVoice } from "@/lib/voice";
 import { answerInputId, inputId } from "./composer";
+import { request } from "./errors";
 import { Message } from "./message";
 import type { Model } from "./model";
 import { ports } from "./ports";
+import { ChatMessage, ChatState, InboxItem, PendingAction } from "./schemas";
 
 const silenceLimit = 35_000;
 const stopDelay = 500;
@@ -26,9 +28,13 @@ function emitVoice(queue: Queue.Enqueue<Message>) {
 }
 
 // The newest input gets the voice text: the field of the answer panel, when it is open, else the field of the chat.
+function textArea(id: string) {
+  const element = document.getElementById(id);
+  return element instanceof HTMLTextAreaElement ? element : null;
+}
+
 function voiceInput() {
-  const panel = document.getElementById(answerInputId) as HTMLTextAreaElement | null;
-  return panel ?? (document.getElementById(inputId) as HTMLTextAreaElement | null);
+  return textArea(answerInputId) ?? textArea(inputId);
 }
 
 type VoiceRegion = { lead: string; trail: string; value: string };
@@ -41,7 +47,9 @@ function createVoiceStream() {
         // and a render that sets the Model value again must not end it.
         const regions = new Map<string, VoiceRegion>();
         const edited = (event: Event) => {
-          regions.delete((event.target as Element).id);
+          if (event.target instanceof Element) {
+            regions.delete(event.target.id);
+          }
         };
         document.addEventListener("input", edited, true);
 
@@ -160,20 +168,53 @@ function createLiveEventsStream(target: {
           connect();
         };
 
+        const reconnectUnlessStopped = Effect.sync(() => {
+          if (!stopped) {
+            reconnect();
+          }
+        });
+
         const handleRetry = () => {
-          listGitHubApps()
-            .then((res) => {
-              if (res.status === 401) {
-                Queue.offerUnsafe(queue, Message.PageFailed({ error: "login required" }));
-              } else if (!stopped) {
-                reconnect();
-              }
-            })
-            .catch(() => {
-              if (!stopped) {
-                reconnect();
-              }
-            });
+          Effect.runFork(
+            request(() => listGitHubApps()).pipe(
+              Effect.flatMap((res) =>
+                res.status === 401
+                  ? Effect.sync(() =>
+                      Queue.offerUnsafe(queue, Message.PageFailed({ error: "login required" })),
+                    )
+                  : reconnectUnlessStopped,
+              ),
+              Effect.catchTag("RequestFailed", () => reconnectUnlessStopped),
+            ),
+          );
+        };
+
+        const listen = <T>(
+          name: string,
+          schema: Schema.Decoder<T>,
+          toMessage: (value: T) => Message | null,
+        ) => {
+          const decode = Schema.decodeUnknownEffect(Schema.fromJsonString(schema));
+          source?.addEventListener(name, (event) => {
+            if (!(event instanceof MessageEvent)) {
+              return;
+            }
+            Effect.runFork(
+              decode(event.data).pipe(
+                Effect.flatMap((value) =>
+                  Effect.sync(() => {
+                    const message = toMessage(value);
+                    if (message !== null) {
+                      Queue.offerUnsafe(queue, message);
+                    }
+                  }),
+                ),
+                Effect.catchTag("SchemaError", (error) =>
+                  Effect.logWarning(`The live event ${name} has no valid data`, error.message),
+                ),
+              ),
+            );
+          });
         };
 
         const connect = () => {
@@ -192,29 +233,16 @@ function createLiveEventsStream(target: {
             }
           });
 
-          onEvent<LiveEvents, "ping">(source, "ping", () => {
-            resetSilenceWatchdog();
-          });
+          source.addEventListener("ping", resetSilenceWatchdog);
 
-          onEvent<LiveEvents, "message">(source, "message", (message) => {
-            if (sameChat(message, target)) {
-              Queue.offerUnsafe(queue, Message.ReceivedLiveMessage({ message }));
-            }
-          });
-
-          onEvent<LiveEvents, "chat">(source, "chat", (state) => {
-            if (sameChat(state, target)) {
-              Queue.offerUnsafe(queue, Message.ReceivedLiveChatState({ state }));
-            }
-          });
-
-          onEvent<LiveEvents, "action">(source, "action", (action) => {
-            Queue.offerUnsafe(queue, Message.ReceivedLiveAction({ action }));
-          });
-
-          onEvent<LiveEvents, "question">(source, "question", (question) => {
-            Queue.offerUnsafe(queue, Message.ReceivedLiveQuestion({ question }));
-          });
+          listen("message", ChatMessage, (message) =>
+            sameChat(message, target) ? Message.ReceivedLiveMessage({ message }) : null,
+          );
+          listen("chat", ChatState, (state) =>
+            sameChat(state, target) ? Message.ReceivedLiveChatState({ state }) : null,
+          );
+          listen("action", PendingAction, (action) => Message.ReceivedLiveAction({ action }));
+          listen("question", InboxItem, (question) => Message.ReceivedLiveQuestion({ question }));
         };
 
         const handleWake = () => {
@@ -230,7 +258,7 @@ function createLiveEventsStream(target: {
         };
 
         window.addEventListener("online", handleWake);
-        window.addEventListener("pageshow", handleRestore as EventListener);
+        window.addEventListener("pageshow", handleRestore);
         document.addEventListener("visibilitychange", handleWake);
 
         connect();
@@ -241,7 +269,7 @@ function createLiveEventsStream(target: {
             clearTimeout(silenceTimer);
             clearTimeout(retryTimer);
             window.removeEventListener("online", handleWake);
-            window.removeEventListener("pageshow", handleRestore as EventListener);
+            window.removeEventListener("pageshow", handleRestore);
             document.removeEventListener("visibilitychange", handleWake);
             if (source) {
               source.close();
@@ -318,8 +346,8 @@ export const subscriptions = Subscription.make<Model, Message>()((entry) => ({
         showStop:
           model.stoppable &&
           !model.draftText.trim() &&
-          (model.draftImages as File[]).length === 0 &&
-          (model.draftInboxItems as unknown[]).length === 0,
+          model.draftImages.length === 0 &&
+          model.draftInboxItems.length === 0,
       }),
       // A tap on Send can land on the Stop button that replaces it. Thus Stop takes no tap in its first moments.
       dependenciesToStream: ({ showStop }) =>

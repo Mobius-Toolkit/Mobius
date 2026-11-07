@@ -1,13 +1,13 @@
 import { Schema } from "effect";
 import * as Port from "foldkit/port";
-import type { InboxItem, Workstream } from "@/api/api.gen";
+import { InboxItem, Workstream } from "./schemas";
 
 export const ports = {
   inbound: {
     unread: Port.inbound(Schema.NullOr(Schema.Number)),
-    brief: Port.inbound(Schema.NullOr(Schema.Unknown) as Schema.Codec<Workstream | null>),
-    trayItems: Port.inbound(Schema.Unknown as Schema.Codec<InboxItem[]>),
-    workstreams: Port.inbound(Schema.NullOr(Schema.Unknown) as Schema.Codec<Workstream[] | null>),
+    brief: Port.inbound(Schema.NullOr(Workstream)),
+    trayItems: Port.inbound(Schema.Array(InboxItem)),
+    workstreams: Port.inbound(Schema.NullOr(Schema.Array(Workstream))),
   },
   outbound: {
     loginRequested: Port.outbound(Schema.Void),

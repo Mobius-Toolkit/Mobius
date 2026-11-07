@@ -1,9 +1,7 @@
 import { Effect, Queue, Schema, Stream } from "effect";
 import type { Attribute, Html, HtmlBuilder } from "foldkit/html";
 import { Mount } from "foldkit";
-import type { InboxItem } from "@/api/api.gen";
 import { roleName } from "@/lib/actions";
-import type { DraftInboxItem } from "@/lib/draft";
 import { voiceSupported } from "@/lib/voice";
 import {
   arrowUpIcon,
@@ -17,6 +15,7 @@ import {
 } from "./icons";
 import { Message } from "./message";
 import type { Model } from "./model";
+import type { DraftInboxItem, InboxItem } from "./schemas";
 import { buttonClass, cn, textareaClass } from "./ui";
 
 type H = HtmlBuilder<Message>;
@@ -42,14 +41,16 @@ function fileKey(files: File[], index: number) {
 }
 
 const ShowFile = Mount.define("ShowFile", {
-  args: { file: Schema.Unknown as Schema.Schema<File> },
+  args: { file: Schema.instanceOf(File) },
   messages: [Message.CompletedShowFile],
   execute: ({ element, file }) =>
     Effect.gen(function* () {
       yield* Effect.acquireRelease(
         Effect.sync(() => {
           const url = URL.createObjectURL(file);
-          (element as HTMLImageElement).src = url;
+          if (element instanceof HTMLImageElement) {
+            element.src = url;
+          }
           return url;
         }),
         (url) => Effect.sync(() => URL.revokeObjectURL(url)),
@@ -73,7 +74,7 @@ export function renderFileImage(
 
 // A button that takes the focus closes the keyboard of a phone, and the button moves before the click.
 function keepFocus(event: Event) {
-  if ((event.target as Element).closest("[data-keep-focus]")) {
+  if (event.target instanceof Element && event.target.closest("[data-keep-focus]")) {
     event.preventDefault();
   }
 }
@@ -91,8 +92,10 @@ export const ComposerBehavior = Mount.defineStream("ComposerBehavior", {
     Stream.callback<ComposerMessage>((queue) =>
       Effect.gen(function* () {
         const field = () => element.querySelector<HTMLTextAreaElement>(`#${fieldId}`);
-        const keydown = (event: Event) => {
-          const key = event as KeyboardEvent;
+        const keydown = (key: Event) => {
+          if (!(key instanceof KeyboardEvent)) {
+            return;
+          }
           // On a touch screen, Enter adds a line and only the Send button sends. Safari gives the Enter that ends
           // an IME composition with isComposing false and keyCode 229.
           if (
@@ -112,7 +115,7 @@ export const ComposerBehavior = Mount.defineStream("ComposerBehavior", {
           }
         };
         const paste = (event: Event) => {
-          const data = (event as ClipboardEvent).clipboardData;
+          const data = event instanceof ClipboardEvent ? event.clipboardData : null;
           if (!data || event.target !== field() || !element.querySelector(`#${pickerId}`)) {
             return;
           }
@@ -132,9 +135,14 @@ export const ComposerBehavior = Mount.defineStream("ComposerBehavior", {
         // Foldkit renders in the next frame, so a tap right after a key sees the Send button of the empty draft.
         // The button is enabled at once.
         const typed = (event: Event) => {
-          const target = event.target as HTMLTextAreaElement;
+          const target = event.target;
           const submit = element.querySelector<HTMLButtonElement>("button[type=submit]");
-          if (target === field() && submit && target.value.trim()) {
+          if (
+            target instanceof HTMLTextAreaElement &&
+            target === field() &&
+            submit &&
+            target.value.trim()
+          ) {
             submit.disabled = false;
           }
         };
@@ -394,8 +402,8 @@ function composerBox(h: H, model: Model, box: Box): Html {
 }
 
 export function renderComposer(h: H, model: Model): Html {
-  const images = model.draftImages as File[];
-  const inboxItems = model.draftInboxItems as DraftInboxItem[];
+  const images = model.draftImages;
+  const inboxItems = model.draftInboxItems;
   const empty = !model.draftText.trim() && images.length === 0 && inboxItems.length === 0;
   const showStop = empty && model.stoppable;
   const buttonPending = (showStop && model.stopping) || model.waitingForSend;
@@ -452,12 +460,10 @@ export function renderComposer(h: H, model: Model): Html {
 export function renderPanelComposer(h: H, model: Model, item: InboxItem): Html {
   const action = item.action;
   const todo = item.todo;
-  const selected = Object.values(model.selectedOptions as Record<number, number[]>).some(
-    (options) => options.length > 0,
-  );
+  const selected = Object.values(model.selectedOptions).some((options) => options.length > 0);
   const decide = Boolean(action);
   const waiting = model.answerSend?.item.id === item.id;
-  const busy = (model.requesting as number[]).includes(item.id);
+  const busy = model.requesting.includes(item.id);
   const empty = !model.answerText.trim() && !(todo ? true : !action && selected);
   const role = action ? (roleName[action.role] ?? action.role) : "";
   const label = action ? `Note for the ${role}` : todo ? "Note" : "Your answer";

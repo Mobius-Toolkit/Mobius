@@ -1,6 +1,7 @@
 {
   "ignorePatterns": [
     "src/api/api.gen.ts",
+    "src/api/schemas.gen.ts",
     "dist",
     "screenshots",
     "test-results",

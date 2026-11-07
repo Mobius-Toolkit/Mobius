@@ -14,8 +14,6 @@ import {
   seeChat,
   sendAgain,
   stopChat,
-  type ChatInboxItem,
-  type InboxItem,
 } from "@/api/api.gen";
 import {
   answerDraftKey,
@@ -24,16 +22,8 @@ import {
   loadDraft,
   saveDraftText,
   updateDraft,
-  type Draft,
 } from "@/lib/draft";
-import {
-  addQueued,
-  listQueued,
-  newMessageId,
-  postQueued,
-  removeQueued,
-  type Queued,
-} from "@/lib/outbox";
+import { addQueued, listQueued, newMessageId, postQueued, removeQueued } from "@/lib/outbox";
 import { restoreInboxItem, hideInboxItem } from "@/lib/inbox";
 import { issueRef, showNotice } from "@/lib/notice";
 import { fitImage, tooManyImages } from "@/lib/images";
@@ -46,18 +36,47 @@ import {
   stopVoiceAction,
   toggleVoiceAction,
 } from "@/lib/voice";
+import { StoreFailed, fitted, request, store, voice } from "./errors";
 import { Message } from "./message";
 import { ports } from "./ports";
+import {
+  Draft,
+  DraftInboxItems,
+  Images,
+  InboxItem,
+  PendingAction,
+  Queued,
+  VoiceRegion,
+  VoiceTarget,
+} from "./schemas";
+
+type Outcome = { message: Message; status?: number | undefined };
 
 // A 401 asks the host for the login.
-function withLogin<M>(run: () => Promise<{ message: M; status?: number }>) {
-  return Effect.promise(run).pipe(
+function withLogin<A extends Outcome>(
+  outcome: Effect.Effect<A>,
+): Effect.Effect<NoInfer<A>["message"]> {
+  return outcome.pipe(
     Effect.tap(({ status }) =>
       status === 401 ? Port.emit(ports.outbound.loginRequested, undefined) : Effect.void,
     ),
     Effect.map(({ message }) => message),
   );
 }
+
+const readDraft = (key: string) =>
+  store(() => loadDraft(key)).pipe(
+    Effect.flatMap(Schema.decodeUnknownEffect(Draft)),
+    Effect.orElseSucceed(() => emptyDraft),
+  );
+
+const clearDraft = (key: string) =>
+  store(() => updateDraft(key, () => emptyDraft)).pipe(Effect.ignore);
+
+const saveNote = (key: string, text: string) =>
+  store(() => saveDraftText(key, text)).pipe(Effect.ignore);
+
+const showNoticeOf = (text: string) => Effect.sync(() => showNotice(text));
 
 function pageFailed(sent: string | null, error: string) {
   return { message: Message.PageFailed({ error, sent: sent ?? undefined }) };
@@ -76,49 +95,46 @@ export const FetchPage = Command.define("FetchPage", {
   },
   messages: [Message.PageLoaded, Message.PageFailed],
   execute: ({ organization, repository, workstream, isInitial, known, sent }) =>
-    withLogin<ReturnType<typeof Message.PageLoaded> | ReturnType<typeof Message.PageFailed>>(
-      async () => {
-        try {
-          const res = await getChat({ organization, repository, workstream });
-          if (res.status === 401) {
+    withLogin(
+      Effect.gen(function* () {
+        const res = yield* request(() => getChat({ organization, repository, workstream }));
+        if (res.status === 401) {
+          return pageFailed(sent, "login required");
+        }
+        if (res.status !== 200) {
+          return pageFailed(sent, res.data.error || "Failed to load chat");
+        }
+        const page = res.data.data;
+        const messages = [...page.messages];
+        let oldest = page;
+        for (;;) {
+          if (known === null || !oldest.older || oldest.messages[0].id <= known) {
+            break;
+          }
+          const older = yield* request(() =>
+            getChat({ organization, repository, workstream, before: oldest.messages[0].id }),
+          );
+          if (older.status === 401) {
             return pageFailed(sent, "login required");
           }
-          if (res.status !== 200) {
-            return pageFailed(sent, res.data.error || "Failed to load chat");
+          if (older.status !== 200) {
+            return pageFailed(sent, older.data.error || "Failed to load chat");
           }
-          const page = res.data.data;
-          const messages = [...page.messages];
-          let oldest = page;
-          for (;;) {
-            if (known === null || !oldest.older || oldest.messages[0].id <= known) {
-              break;
-            }
-            const older = await getChat({
-              organization,
-              repository,
-              workstream,
-              before: oldest.messages[0].id,
-            });
-            if (older.status === 401) {
-              return pageFailed(sent, "login required");
-            }
-            if (older.status !== 200) {
-              return pageFailed(sent, older.data.error || "Failed to load chat");
-            }
-            oldest = older.data.data;
-            messages.unshift(...oldest.messages);
-          }
-          return {
-            message: Message.PageLoaded({
-              page: { ...page, messages },
-              isInitial,
-              sent: sent ?? undefined,
-            }),
-          };
-        } catch (err) {
-          return pageFailed(sent, String(err));
+          oldest = older.data.data;
+          messages.unshift(...oldest.messages);
         }
-      },
+        return {
+          message: Message.PageLoaded({
+            page: { ...page, messages },
+            isInitial,
+            sent: sent ?? undefined,
+          }),
+        };
+      }).pipe(
+        Effect.catchTag("RequestFailed", (error) =>
+          Effect.succeed(pageFailed(sent, error.message)),
+        ),
+      ),
     ),
 });
 
@@ -131,25 +147,24 @@ export const FetchOlder = Command.define("FetchOlder", {
   },
   messages: [Message.OlderPageLoaded, Message.PageFailed],
   execute: ({ organization, repository, workstream, before }) =>
-    withLogin<ReturnType<typeof Message.OlderPageLoaded> | ReturnType<typeof Message.PageFailed>>(
-      async () => {
-        try {
-          const res = await getChat({ organization, repository, workstream, before });
-          if (res.status === 200) {
-            return { message: Message.OlderPageLoaded({ page: res.data.data }) };
-          }
-          return {
-            message: Message.PageFailed({
-              error:
-                res.status === 401
-                  ? "login required"
-                  : res.data.error || "Failed to load older messages",
-            }),
-          };
-        } catch (err) {
-          return { message: Message.PageFailed({ error: String(err) }) };
-        }
-      },
+    withLogin(
+      request(() => getChat({ organization, repository, workstream, before })).pipe(
+        Effect.map((res) =>
+          res.status === 200
+            ? { message: Message.OlderPageLoaded({ page: res.data.data }) }
+            : {
+                message: Message.PageFailed({
+                  error:
+                    res.status === 401
+                      ? "login required"
+                      : res.data.error || "Failed to load older messages",
+                }),
+              },
+        ),
+        Effect.catchTag("RequestFailed", (error) =>
+          Effect.succeed({ message: Message.PageFailed({ error: error.message }) }),
+        ),
+      ),
     ),
 });
 
@@ -161,14 +176,11 @@ export const ListQueued = Command.define("ListQueued", {
   },
   messages: [Message.QueueLoaded, Message.QueueFailed],
   execute: ({ organization, repository, workstream }) =>
-    Effect.promise(async () => {
-      try {
-        const stored = await listQueued({ organization, repository, workstream });
-        return Message.QueueLoaded({ items: stored });
-      } catch (err) {
-        return Message.QueueFailed({ error: String(err) });
-      }
-    }),
+    store(() => listQueued({ organization, repository, workstream })).pipe(
+      Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(Queued))),
+      Effect.map((items) => Message.QueueLoaded({ items })),
+      Effect.catch((error) => Effect.succeed(Message.QueueFailed({ error: error.message }))),
+    ),
 });
 
 export const EnqueueMessage = Command.define("EnqueueMessage", {
@@ -177,12 +189,12 @@ export const EnqueueMessage = Command.define("EnqueueMessage", {
     repository: Schema.String,
     workstream: Schema.Number,
     text: Schema.String,
-    images: Schema.Unknown as Schema.Schema<File[]>,
-    inboxItems: Schema.Unknown as Schema.Schema<ChatInboxItem[]>,
+    images: Images,
+    inboxItems: DraftInboxItems,
   },
   messages: [Message.MessageQueued, Message.MessageRefused],
   execute: ({ organization, repository, workstream, text, images, inboxItems }) =>
-    Effect.promise(async () => {
+    Effect.gen(function* () {
       const item: Queued = {
         id: newMessageId(),
         organization,
@@ -190,33 +202,35 @@ export const EnqueueMessage = Command.define("EnqueueMessage", {
         workstream,
         text,
         images,
-        inboxItems,
+        inboxItems: inboxItems.map(({ reference, title, reason, link }) => ({
+          reference,
+          title,
+          reason,
+          link,
+        })),
         time: new Date().toISOString(),
       };
-      try {
-        await addQueued(item);
-        return Message.MessageQueued({ item });
-      } catch (err) {
-        return Message.MessageRefused({ error: String(err), text, images, inboxItems });
-      }
-    }),
+      yield* store(() => addQueued(item));
+      return Message.MessageQueued({ item });
+    }).pipe(
+      Effect.catchTag("StoreFailed", (error) =>
+        Effect.succeed(Message.MessageRefused({ error: error.message, text, images, inboxItems })),
+      ),
+    ),
 });
 
 export const PostQueued = Command.define("PostQueued", {
   args: {
-    item: Schema.Unknown as Schema.Schema<Queued>,
+    item: Queued,
     delay: Schema.Number,
   },
   messages: [Message.SendAttemptSucceeded, Message.SendAttemptFailed],
   execute: ({ item, delay }) =>
-    withLogin<
-      ReturnType<typeof Message.SendAttemptSucceeded> | ReturnType<typeof Message.SendAttemptFailed>
-    >(async () => {
-      const controller = new AbortController();
-      try {
-        const res = await postQueued(item, controller.signal);
+    withLogin(
+      Effect.gen(function* () {
+        const res = yield* request((signal) => postQueued(item, signal));
         if (res.status === 204) {
-          await removeQueued(item.id).catch(() => {});
+          yield* store(() => removeQueued(item.id)).pipe(Effect.ignore);
           return { message: Message.SendAttemptSucceeded({ id: item.id }) };
         }
         return {
@@ -227,16 +241,18 @@ export const PostQueued = Command.define("PostQueued", {
           }),
           status: res.status,
         };
-      } catch (err) {
-        return {
-          message: Message.SendAttemptFailed({
-            id: item.id,
-            error: String(err),
-            retryAt: Date.now() + delay,
+      }).pipe(
+        Effect.catchTag("RequestFailed", (error) =>
+          Effect.succeed({
+            message: Message.SendAttemptFailed({
+              id: item.id,
+              error: error.message,
+              retryAt: Date.now() + delay,
+            }),
           }),
-        };
-      }
-    }),
+        ),
+      ),
+    ),
 });
 
 export const WaitToRetry = Command.define("WaitToRetry", {
@@ -252,10 +268,10 @@ export const RemoveQueued = Command.define("RemoveQueued", {
   },
   messages: [Message.CompletedRemoveQueued],
   execute: ({ id }) =>
-    Effect.promise(async () => {
-      await removeQueued(id).catch(() => {});
-      return Message.CompletedRemoveQueued({ id });
-    }),
+    store(() => removeQueued(id)).pipe(
+      Effect.ignore,
+      Effect.as(Message.CompletedRemoveQueued({ id })),
+    ),
 });
 
 export const SeeChat = Command.define("SeeChat", {
@@ -267,10 +283,10 @@ export const SeeChat = Command.define("SeeChat", {
   },
   messages: [Message.CompletedSeeChat],
   execute: ({ organization, repository, workstream, message }) =>
-    Effect.promise(async () => {
-      await seeChat({ organization, repository, workstream, message }).catch(() => {});
-      return Message.CompletedSeeChat();
-    }),
+    request(() => seeChat({ organization, repository, workstream, message })).pipe(
+      Effect.ignore,
+      Effect.as(Message.CompletedSeeChat()),
+    ),
 });
 
 export const StopChat = Command.define("StopChat", {
@@ -281,17 +297,16 @@ export const StopChat = Command.define("StopChat", {
   },
   messages: [Message.StopChatCompleted],
   execute: ({ organization, repository, workstream }) =>
-    Effect.promise(async () => {
-      try {
-        const res = await stopChat({ organization, repository, workstream });
-        if (res.status === 204) {
-          return Message.StopChatCompleted({ error: null });
-        }
-        return Message.StopChatCompleted({ error: res.data.error || "Stop failed" });
-      } catch (err) {
-        return Message.StopChatCompleted({ error: String(err) });
-      }
-    }),
+    request(() => stopChat({ organization, repository, workstream })).pipe(
+      Effect.map((res) =>
+        Message.StopChatCompleted({
+          error: res.status === 204 ? null : res.data.error || "Stop failed",
+        }),
+      ),
+      Effect.catchTag("RequestFailed", (error) =>
+        Effect.succeed(Message.StopChatCompleted({ error: error.message })),
+      ),
+    ),
 });
 
 export const LoadDraft = Command.define("LoadDraft", {
@@ -302,11 +317,9 @@ export const LoadDraft = Command.define("LoadDraft", {
   },
   messages: [Message.DraftLoaded],
   execute: ({ organization, repository, workstream }) =>
-    Effect.promise(async () => {
-      const key = chatDraftKey(organization, repository, workstream);
-      const draft = await loadDraft(key).catch(() => emptyDraft);
-      return Message.DraftLoaded({ draft });
-    }),
+    readDraft(chatDraftKey(organization, repository, workstream)).pipe(
+      Effect.map((draft) => Message.DraftLoaded({ draft })),
+    ),
 });
 
 export const SaveDraft = Command.define("SaveDraft", {
@@ -314,29 +327,28 @@ export const SaveDraft = Command.define("SaveDraft", {
     organization: Schema.String,
     repository: Schema.String,
     workstream: Schema.Number,
-    draft: Schema.Unknown as Schema.Schema<Draft>,
+    draft: Draft,
   },
   messages: [Message.CompletedSaveDraft],
   execute: ({ organization, repository, workstream, draft }) =>
-    Effect.promise(async () => {
-      const key = chatDraftKey(organization, repository, workstream);
-      await updateDraft(key, () => draft).catch(() => {});
-      return Message.CompletedSaveDraft();
-    }),
+    store(() => updateDraft(chatDraftKey(organization, repository, workstream), () => draft)).pipe(
+      Effect.ignore,
+      Effect.as(Message.CompletedSaveDraft()),
+    ),
 });
 
 export const SaveTrayState = Command.define("SaveTrayState", {
   args: { collapsed: Schema.Boolean },
   messages: [Message.CompletedSaveTrayState],
   execute: ({ collapsed }) =>
-    Effect.sync(() => {
-      try {
-        localStorage.setItem("tray", collapsed ? "collapsed" : "expanded");
-      } catch {
-        // The tray works with no saved choice.
-      }
-      return Message.CompletedSaveTrayState();
-    }),
+    Effect.try({
+      try: () => localStorage.setItem("tray", collapsed ? "collapsed" : "expanded"),
+      catch: (cause) => new StoreFailed({ message: String(cause) }),
+    }).pipe(
+      // The tray works with no saved choice.
+      Effect.ignore,
+      Effect.as(Message.CompletedSaveTrayState()),
+    ),
 });
 
 export const Navigate = Command.define("Navigate", {
@@ -357,6 +369,17 @@ export const RequestLogin = Command.define("RequestLogin", {
   ),
 });
 
+type Refusal = { error: string; status?: number };
+
+// A 401 has no text: the host shows the login.
+const refusalOf = (res: { status: number; data: { error: string } }): Refusal => ({
+  error: res.status === 401 ? "" : res.data.error,
+  status: res.status,
+});
+
+const unreachable = (error: { message: string }): Effect.Effect<Refusal> =>
+  Effect.succeed({ error: error.message });
+
 export const AnswerInboxItem = Command.define("AnswerInboxItem", {
   args: {
     id: Schema.Number,
@@ -367,30 +390,30 @@ export const AnswerInboxItem = Command.define("AnswerInboxItem", {
   },
   messages: [Message.AnswerCompleted],
   execute: ({ id, repository, issue, workstream, answer }) =>
-    withLogin<ReturnType<typeof Message.AnswerCompleted>>(async () => {
-      hideInboxItem({ id, repository, issue });
-      await updateDraft(answerDraftKey(id), () => emptyDraft).catch(() => {});
-      let failure = "";
-      let status: number | undefined;
-      try {
-        const res = await answerInboxItem(id, { text: answer });
-        if (res.status === 200) {
-          showNotice(
+    withLogin(
+      Effect.gen(function* () {
+        yield* Effect.sync(() => hideInboxItem({ id, repository, issue }));
+        yield* clearDraft(answerDraftKey(id));
+        const refusal = yield* request(() => answerInboxItem(id, { text: answer })).pipe(
+          Effect.map((res) => (res.status === 200 ? null : refusalOf(res))),
+          Effect.catchTag("RequestFailed", unreachable),
+        );
+        if (refusal === null) {
+          yield* showNoticeOf(
             workstream === 0
               ? "Sent the answer to the Coordinator"
               : `Sent the answer to the Lead of #${workstream}`,
           );
-          return { message: Message.AnswerCompleted({ id, result: res.data }) };
+          return { message: Message.AnswerCompleted({ id, error: "" }) };
         }
-        status = res.status;
-        failure = res.status === 401 ? "" : res.data.error;
-      } catch (err) {
-        failure = String(err);
-      }
-      await saveDraftText(answerDraftKey(id), answer).catch(() => {});
-      restoreInboxItem(id);
-      return { message: Message.AnswerCompleted({ id, result: { error: failure } }), status };
-    }),
+        yield* saveNote(answerDraftKey(id), answer);
+        yield* Effect.sync(() => restoreInboxItem(id));
+        return {
+          message: Message.AnswerCompleted({ id, error: refusal.error }),
+          status: refusal.status,
+        };
+      }),
+    ),
 });
 
 export const DoneInboxItem = Command.define("DoneInboxItem", {
@@ -403,27 +426,32 @@ export const DoneInboxItem = Command.define("DoneInboxItem", {
   },
   messages: [Message.AnswerCompleted],
   execute: ({ id, repository, issue, name, note }) =>
-    withLogin<ReturnType<typeof Message.AnswerCompleted>>(async () => {
-      hideInboxItem({ id, repository, issue });
-      await updateDraft(answerDraftKey(id), () => emptyDraft).catch(() => {});
-      let failure = "";
-      let status: number | undefined;
-      try {
-        const res = await doneInboxItem(id, { note });
-        if (res.status === 200) {
-          showNotice(`Marked the todo ${name} as done`);
-          return { message: Message.AnswerCompleted({ id, result: res.data }) };
+    withLogin(
+      Effect.gen(function* () {
+        yield* Effect.sync(() => hideInboxItem({ id, repository, issue }));
+        yield* clearDraft(answerDraftKey(id));
+        const refusal = yield* request(() => doneInboxItem(id, { note })).pipe(
+          Effect.map((res) => (res.status === 200 ? null : refusalOf(res))),
+          Effect.catchTag("RequestFailed", unreachable),
+        );
+        if (refusal === null) {
+          yield* showNoticeOf(`Marked the todo ${name} as done`);
+          return { message: Message.AnswerCompleted({ id, error: "" }) };
         }
-        status = res.status;
-        failure = res.status === 401 ? "" : res.data.error;
-      } catch (err) {
-        failure = String(err);
-      }
-      await saveDraftText(answerDraftKey(id), note).catch(() => {});
-      restoreInboxItem(id);
-      return { message: Message.AnswerCompleted({ id, result: { error: failure } }), status };
-    }),
+        yield* saveNote(answerDraftKey(id), note);
+        yield* Effect.sync(() => restoreInboxItem(id));
+        return {
+          message: Message.AnswerCompleted({ id, error: refusal.error }),
+          status: refusal.status,
+        };
+      }),
+    ),
 });
+
+type Decided = {
+  message: ReturnType<typeof Message.ActionCompleted> | ReturnType<typeof Message.ActionFailed>;
+  status?: number | undefined;
+};
 
 const decisions = { approve: approveAction, reject: rejectAction };
 
@@ -445,36 +473,38 @@ function decide(decision: "approve" | "reject") {
     title: string;
     text: string;
   }) =>
-    withLogin<ReturnType<typeof Message.ActionCompleted> | ReturnType<typeof Message.ActionFailed>>(
-      async () => {
+    withLogin(
+      Effect.gen(function* () {
         if (inboxItemId > 0) {
-          hideInboxItem({ id: inboxItemId, repository, issue });
+          yield* Effect.sync(() => hideInboxItem({ id: inboxItemId, repository, issue }));
         }
-        const failed = (error: string, status?: number) => {
-          if (inboxItemId > 0) {
-            restoreInboxItem(inboxItemId);
-          }
-          return { message: Message.ActionFailed({ id: inboxItemId, error }), status };
-        };
-        try {
-          const res = await decisions[decision](actionId, { message: text });
-          if (res.status === 200) {
-            const decided = res.data.data;
-            if (decided.state !== "pending") {
-              if (inboxItemId > 0) {
-                await updateDraft(answerDraftKey(inboxItemId), () => emptyDraft).catch(() => {});
-              }
-              showNotice(`${decision === "approve" ? "Approved" : "Rejected"}: ${title}`);
-            } else if (decided.error && inboxItemId > 0) {
+        const failed = (error: string, status?: number): Effect.Effect<Decided> =>
+          Effect.sync(() => {
+            if (inboxItemId > 0) {
               restoreInboxItem(inboxItemId);
             }
+          }).pipe(Effect.as({ message: Message.ActionFailed({ id: inboxItemId, error }), status }));
+        const completed = (decided: PendingAction): Effect.Effect<Decided> =>
+          Effect.gen(function* () {
+            if (decided.state !== "pending") {
+              if (inboxItemId > 0) {
+                yield* clearDraft(answerDraftKey(inboxItemId));
+              }
+              yield* showNoticeOf(`${decision === "approve" ? "Approved" : "Rejected"}: ${title}`);
+            } else if (decided.error && inboxItemId > 0) {
+              yield* Effect.sync(() => restoreInboxItem(inboxItemId));
+            }
             return { message: Message.ActionCompleted({ id: inboxItemId, action: decided }) };
-          }
-          return failed(res.status === 401 ? "" : res.data.error, res.status);
-        } catch (err) {
-          return failed(String(err));
-        }
-      },
+          });
+        return yield* request(() => decisions[decision](actionId, { message: text })).pipe(
+          Effect.flatMap((res) =>
+            res.status === 200
+              ? completed(res.data.data)
+              : failed(res.status === 401 ? "" : res.data.error, res.status),
+          ),
+          Effect.catchTag("RequestFailed", (error) => failed(error.message)),
+        );
+      }),
     );
 }
 
@@ -505,18 +535,19 @@ export const FetchActionBrief = Command.define("FetchActionBrief", {
   },
   messages: [Message.ActionBriefFetched],
   execute: ({ actionId }) =>
-    withLogin<ReturnType<typeof Message.ActionBriefFetched>>(async () => {
-      try {
-        const res = await getActionBrief(actionId);
-        if (res.status === 200) {
-          return { message: Message.ActionBriefFetched({ brief: res.data.data.brief }) };
-        }
-        return { message: Message.ActionBriefFetched({ brief: "" }), status: res.status };
-      } catch {
+    withLogin(
+      request(() => getActionBrief(actionId)).pipe(
+        Effect.map((res) =>
+          res.status === 200
+            ? { message: Message.ActionBriefFetched({ brief: res.data.data.brief }) }
+            : { message: Message.ActionBriefFetched({ brief: "" }), status: res.status },
+        ),
         // The dialog shows the full new Brief.
-        return { message: Message.ActionBriefFetched({ brief: "" }) };
-      }
-    }),
+        Effect.catchTag("RequestFailed", () =>
+          Effect.succeed({ message: Message.ActionBriefFetched({ brief: "" }) }),
+        ),
+      ),
+    ),
 });
 
 export const ResumeIssue = Command.define("ResumeIssue", {
@@ -528,94 +559,114 @@ export const ResumeIssue = Command.define("ResumeIssue", {
   },
   messages: [Message.ResumeCompleted],
   execute: ({ id, repository, issue, workstreamRepository }) =>
-    withLogin<ReturnType<typeof Message.ResumeCompleted>>(async () => {
-      const [owner, name] = repository.split("/");
-      try {
-        const res = await resumeIssue(owner, name, issue);
+    withLogin(
+      Effect.gen(function* () {
+        const [owner, name] = repository.split("/");
+        const res = yield* request(() => resumeIssue(owner, name, issue));
         if (res.status === 204) {
-          showNotice(`Resumed ${issueRef(repository, issue, workstreamRepository)}`);
+          yield* showNoticeOf(`Resumed ${issueRef(repository, issue, workstreamRepository)}`);
           return { message: Message.ResumeCompleted({ id, error: undefined }) };
         }
         return {
           message: Message.ResumeCompleted({ id, error: res.data.error || "The server failed." }),
           status: res.status,
         };
-      } catch (err) {
-        return { message: Message.ResumeCompleted({ id, error: String(err) }) };
-      }
-    }),
+      }).pipe(
+        Effect.catchTag("RequestFailed", (error) =>
+          Effect.succeed({ message: Message.ResumeCompleted({ id, error: error.message }) }),
+        ),
+      ),
+    ),
 });
 
 // The Send again, Dismiss and Merge buttons of a tray row.
 export const RunTrayAction = Command.define("RunTrayAction", {
   args: {
-    item: Schema.Unknown as Schema.Schema<InboxItem>,
+    item: InboxItem,
     kind: Schema.Literals(["dismiss", "merge", "send_again"]),
   },
   messages: [Message.TrayActionDone],
   execute: ({ item, kind }) =>
-    withLogin<ReturnType<typeof Message.TrayActionDone>>(async () => {
-      const id = item.id;
-      const done = (error: string, status?: number, merging = false) => ({
-        message: Message.TrayActionDone({
-          id,
-          kind: kind === "merge" ? "merge" : kind === "dismiss" ? "dismiss" : "action",
-          error,
-          merging,
-        }),
-        status,
-      });
-      try {
+    withLogin(
+      Effect.gen(function* () {
+        const id = item.id;
+        const done = (error: string, status?: number, merging = false) => ({
+          message: Message.TrayActionDone({
+            id,
+            kind: kind === "merge" ? "merge" : kind === "dismiss" ? "dismiss" : "action",
+            error,
+            merging,
+          }),
+          status,
+        });
         if (kind === "merge") {
-          const res = await mergeInboxItem(id);
+          const res = yield* request(() => mergeInboxItem(id));
           if (res.status === 200) {
-            showNotice(
+            yield* showNoticeOf(
               `Started the merge of PR ${issueRef(item.repository, item.pullRequest, item.workstreamRepository)}`,
             );
             return done("", undefined, res.data.data.merging);
           }
           return done(res.status === 401 ? "" : res.data.error, res.status);
         }
-        const res = await (kind === "dismiss" ? dismiss(id) : sendAgain(id));
+        const res = yield* request(() => (kind === "dismiss" ? dismiss(id) : sendAgain(id)));
         if (res.status === 204) {
           if (kind === "dismiss") {
-            showNotice(`Dismissed: ${item.title || item.reason}`);
+            yield* showNoticeOf(`Dismissed: ${item.title || item.reason}`);
           }
           return done("");
         }
         return done(res.status === 401 ? "" : res.data.error, res.status);
-      } catch (err) {
-        return done(String(err));
-      }
-    }),
+      }).pipe(
+        Effect.catchTag("RequestFailed", (error) =>
+          Effect.succeed({
+            message: Message.TrayActionDone({
+              id: item.id,
+              kind: kind === "merge" ? "merge" : kind === "dismiss" ? "dismiss" : "action",
+              error: error.message,
+              merging: false,
+            }),
+          }),
+        ),
+      ),
+    ),
 });
+
+const voicePhase = () => {
+  const snap = getVoiceSnapshot();
+  return Message.VoicePhaseChanged({
+    phase: snap.phase,
+    error: snap.error,
+    canResend: snap.canResend,
+  });
+};
 
 export const ToggleVoice = Command.define("ToggleVoice", {
   messages: [Message.VoicePhaseChanged],
   execute: Effect.sync(() => {
     toggleVoiceAction();
-    const snap = getVoiceSnapshot();
-    return Message.VoicePhaseChanged({
-      phase: snap.phase,
-      error: snap.error,
-      canResend: snap.canResend,
-    });
+    return voicePhase();
   }),
 });
 
 export const FitImages = Command.define("FitImages", {
-  args: { files: Schema.Unknown as Schema.Schema<File[]>, room: Schema.Number },
+  args: { files: Images, room: Schema.Number },
   messages: [Message.ImagesFitted],
   execute: ({ files, room }) =>
-    Effect.promise(async () => {
+    Effect.gen(function* () {
       let problem = "";
       const added: File[] = [];
       for (const file of files.slice(0, Math.max(0, room))) {
-        try {
-          added.push(await fitImage(file));
-        } catch (err) {
-          problem = err instanceof Error ? err.message : String(err);
-        }
+        yield* fitted(() => fitImage(file)).pipe(
+          Effect.match({
+            onSuccess: (image) => {
+              added.push(image);
+            },
+            onFailure: (error) => {
+              problem = error.message;
+            },
+          }),
+        );
       }
       if (!problem && files.length > room) {
         problem = tooManyImages;
@@ -634,11 +685,9 @@ export const ClickAttach = Command.define("ClickAttach", {
 
 export const ProbeVoice = Command.define("ProbeVoice", {
   args: {
-    region: Schema.NullOr(
-      Schema.Unknown as Schema.Schema<{ lead: string; trail: string; value: string }>,
-    ),
+    region: Schema.NullOr(VoiceRegion),
     draftText: Schema.String,
-    target: Schema.Literals(["chat", "answer"]),
+    target: VoiceTarget,
   },
   messages: [Message.VoiceProbed],
   execute: ({ region, draftText, target }) =>
@@ -659,57 +708,43 @@ export const StopVoice = Command.define("StopVoice", {
 });
 
 export const FinishVoiceForSend = Command.define("FinishVoiceForSend", {
-  args: { target: Schema.Literals(["chat", "answer"]) },
+  args: { target: VoiceTarget },
   messages: [Message.VoiceSendFinished],
   execute: ({ target }) =>
-    Effect.promise(async () => {
-      const text = await finishForSendAction();
-      return Message.VoiceSendFinished({ text, target });
-    }),
+    voice(() => finishForSendAction()).pipe(
+      Effect.orElseSucceed(() => undefined),
+      Effect.map((text) => Message.VoiceSendFinished({ text, target })),
+    ),
 });
 
 export const LoadAnswerDraft = Command.define("LoadAnswerDraft", {
   args: { id: Schema.Number },
   messages: [Message.AnswerDraftLoaded],
   execute: ({ id }) =>
-    Effect.promise(async () => {
-      const draft = await loadDraft(answerDraftKey(id)).catch(() => emptyDraft);
-      return Message.AnswerDraftLoaded({ text: draft.text });
-    }),
+    readDraft(answerDraftKey(id)).pipe(
+      Effect.map((draft) => Message.AnswerDraftLoaded({ text: draft.text })),
+    ),
 });
 
 export const SaveAnswerDraft = Command.define("SaveAnswerDraft", {
   args: { id: Schema.Number, text: Schema.String },
   messages: [Message.CompletedSaveAnswerDraft],
   execute: ({ id, text }) =>
-    Effect.promise(async () => {
-      await saveDraftText(answerDraftKey(id), text).catch(() => {});
-      return Message.CompletedSaveAnswerDraft();
-    }),
+    saveNote(answerDraftKey(id), text).pipe(Effect.as(Message.CompletedSaveAnswerDraft())),
 });
 
 export const ResendVoice = Command.define("ResendVoice", {
   messages: [Message.VoicePhaseChanged],
-  execute: Effect.promise(async () => {
-    await resendVoiceAction();
-    const snap = getVoiceSnapshot();
-    return Message.VoicePhaseChanged({
-      phase: snap.phase,
-      error: snap.error,
-      canResend: snap.canResend,
-    });
-  }),
+  execute: voice(() => resendVoiceAction()).pipe(
+    Effect.ignore,
+    Effect.map(() => voicePhase()),
+  ),
 });
 
 export const DiscardVoice = Command.define("DiscardVoice", {
   messages: [Message.VoicePhaseChanged],
   execute: Effect.sync(() => {
     discardVoiceAction();
-    const snap = getVoiceSnapshot();
-    return Message.VoicePhaseChanged({
-      phase: snap.phase,
-      error: snap.error,
-      canResend: snap.canResend,
-    });
+    return voicePhase();
   }),
 });

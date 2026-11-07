@@ -43,7 +43,7 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^6.1.1",
-    "orval": "8.39.0",
+    "orval": "8.47.0",
     "oxfmt": "^0.71.0",
     "oxlint": "^1.86.0",
     "typescript": "~6.0.2",

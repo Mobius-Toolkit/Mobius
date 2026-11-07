@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { Command as StoryCommand, given, message, model, story } from "foldkit/story";
-import type { ChatMessage } from "@/api/api.gen";
-import type { Queued } from "@/lib/outbox";
 import {
   AnswerInboxItem,
   ApproveAction,
@@ -20,6 +18,7 @@ import {
 } from "./commands";
 import { Message } from "./message";
 import { initialModel, retryDelays, type Model, type Waiting } from "./model";
+import type { ChatMessage, InboxItem, PendingAction, Queued } from "./schemas";
 import { update } from "./update";
 
 function createTestModel(overrides: Partial<Model> = {}): Model {
@@ -69,6 +68,53 @@ function createChatMessage(id: number, text: string, browserId = ""): ChatMessag
   };
 }
 
+function createPendingAction(overrides: Partial<PendingAction> = {}): PendingAction {
+  return {
+    id: 42,
+    tool: "message_lead",
+    state: "pending",
+    role: "coordinator",
+    sender: null,
+    time: "2026-11-04T08:00:00Z",
+    arguments: [],
+    decidedAt: null,
+    error: "",
+    message: "",
+    oldBrief: "",
+    result: "",
+    ...overrides,
+  };
+}
+
+function createInboxItem(overrides: Partial<InboxItem> = {}): InboxItem {
+  return {
+    id: 1,
+    kind: "question",
+    action: null,
+    answer: "",
+    dismissedAt: null,
+    issue: 0,
+    link: "",
+    mergeRefusal: "",
+    merging: false,
+    organization: "test-org",
+    pullRequest: 0,
+    pullRequestUrl: "",
+    questions: [],
+    reason: "",
+    reportUrl: "",
+    repository: "test-repo",
+    text: "",
+    time: "2026-11-04T08:00:00Z",
+    title: "",
+    todo: null,
+    withdrawn: false,
+    workstream: 1428,
+    workstreamRepository: "test-repo",
+    ...overrides,
+  };
+}
+
 describe("chat update story tests", () => {
   describe("send queue logic", () => {
     it("queues an outgoing message and dispatches PostQueued if idle", () => {
@@ -80,8 +126,8 @@ describe("chat update story tests", () => {
         given(base),
         message(Message.MessageQueued({ item })),
         model((m) => {
-          expect((m.queue as Waiting[]).length).toBe(1);
-          expect((m.queue as Waiting[])[0].id).toBe("q1");
+          expect(m.queue.length).toBe(1);
+          expect(m.queue[0].id).toBe("q1");
         }),
         StoryCommand.expectExact(
           PostQueued({
@@ -94,6 +140,7 @@ describe("chat update story tests", () => {
           FetchPage,
           Message.PageLoaded({
             page: {
+              harness: "claude-code",
               messages: [],
               older: false,
               writing: false,
@@ -111,7 +158,7 @@ describe("chat update story tests", () => {
       const first = createQueuedItem("q1", "First");
       const second = createQueuedItem("q2", "Second");
       const base = createTestModel({
-        queue: [first as Waiting],
+        queue: [first],
         attempt: { id: "q1", error: "network error", retryAt: 1700000005000 },
       });
 
@@ -120,8 +167,8 @@ describe("chat update story tests", () => {
         given(base),
         message(Message.MessageQueued({ item: second })),
         model((m) => {
-          expect((m.queue as Waiting[]).length).toBe(2);
-          expect((m.queue as Waiting[])[1].id).toBe("q2");
+          expect(m.queue.length).toBe(2);
+          expect(m.queue[1].id).toBe("q2");
         }),
         StoryCommand.expectNone(),
       );
@@ -139,7 +186,7 @@ describe("chat update story tests", () => {
         given(base),
         message(Message.SendAttemptSucceeded({ id: "q1" })),
         model((m) => {
-          const q = m.queue as Waiting[];
+          const q = m.queue;
           expect(q[0].sent).toBe(true);
           expect(q[1].sent).toBeFalsy();
           expect(m.attempt).toBeNull();
@@ -163,6 +210,7 @@ describe("chat update story tests", () => {
           FetchPage,
           Message.PageLoaded({
             page: {
+              harness: "claude-code",
               messages: [],
               older: false,
               writing: false,
@@ -177,6 +225,7 @@ describe("chat update story tests", () => {
           FetchPage,
           Message.PageLoaded({
             page: {
+              harness: "claude-code",
               messages: [],
               older: false,
               writing: false,
@@ -194,7 +243,7 @@ describe("chat update story tests", () => {
       const q1 = createQueuedItem("browser-1", "Hello");
       const q2 = createQueuedItem("browser-2", "World");
       const base = createTestModel({
-        queue: [q1 as Waiting, q2 as Waiting],
+        queue: [q1, q2],
       });
 
       const serverMsg = createChatMessage(101, "Hello", "browser-1");
@@ -205,6 +254,7 @@ describe("chat update story tests", () => {
         message(
           Message.PageLoaded({
             page: {
+              harness: "claude-code",
               messages: [serverMsg],
               older: false,
               writing: false,
@@ -215,7 +265,7 @@ describe("chat update story tests", () => {
           }),
         ),
         model((m) => {
-          const q = m.queue as Waiting[];
+          const q = m.queue;
           expect(q.length).toBe(1);
           expect(q[0].id).toBe("browser-2");
         }),
@@ -226,6 +276,7 @@ describe("chat update story tests", () => {
     });
 
     const page = {
+      harness: "claude-code",
       messages: [createChatMessage(101, "Hello")],
       older: false,
       writing: false,
@@ -234,8 +285,8 @@ describe("chat update story tests", () => {
     };
 
     it("posts the next item when the server stored the item of a failed attempt", () => {
-      const a = createQueuedItem("a", "First") as Waiting;
-      const b = createQueuedItem("b", "Second") as Waiting;
+      const a = createQueuedItem("a", "First");
+      const b = createQueuedItem("b", "Second");
       const base = createTestModel({
         queue: [a, b],
         attempt: { id: "a", error: "lost", retryAt: 1 },
@@ -254,7 +305,7 @@ describe("chat update story tests", () => {
         model((m) => {
           expect(m.attempt).toBeNull();
           expect(m.failureCount).toBe(0);
-          expect((m.queue as Waiting[]).map((item) => item.id)).toEqual(["b"]);
+          expect(m.queue.map((item) => item.id)).toEqual(["b"]);
         }),
         StoryCommand.expectExact(
           RemoveQueued({ id: "a" }),
@@ -268,8 +319,8 @@ describe("chat update story tests", () => {
     });
 
     it("ignores the wait of a stored item, and posts the next item after a live message", () => {
-      const a = createQueuedItem("a", "First") as Waiting;
-      const b = createQueuedItem("b", "Second") as Waiting;
+      const a = createQueuedItem("a", "First");
+      const b = createQueuedItem("b", "Second");
       const base = createTestModel({
         queue: [a, b],
         attempt: { id: "a", error: "lost", retryAt: 1 },
@@ -298,7 +349,7 @@ describe("chat update story tests", () => {
     });
 
     it("posts the next item when the request of a stored item fails after the item left the queue", () => {
-      const b = createQueuedItem("b", "Second") as Waiting;
+      const b = createQueuedItem("b", "Second");
       const base = createTestModel({ queue: [b] });
 
       story(
@@ -317,8 +368,8 @@ describe("chat update story tests", () => {
     });
 
     it("removes a sent item at the end of its own load, also when the server gives no browserId", () => {
-      const sent = { ...createQueuedItem("browser-1", "Hello"), sent: true } as Waiting;
-      const waiting = createQueuedItem("browser-2", "World") as Waiting;
+      const sent = { ...createQueuedItem("browser-1", "Hello"), sent: true };
+      const waiting = createQueuedItem("browser-2", "World");
       const base = createTestModel({ queue: [sent, waiting] });
 
       story(
@@ -326,15 +377,15 @@ describe("chat update story tests", () => {
         given(base),
         message(Message.PageLoaded({ page, isInitial: false, sent: "browser-1" })),
         model((m) => {
-          expect((m.queue as Waiting[]).map((item) => item.id)).toEqual(["browser-2"]);
+          expect(m.queue.map((item) => item.id)).toEqual(["browser-2"]);
         }),
         StoryCommand.expectNone(),
       );
     });
 
     it("keeps a sent item while the load of another send ends", () => {
-      const first = { ...createQueuedItem("browser-1", "Hello"), sent: true } as Waiting;
-      const second = { ...createQueuedItem("browser-2", "World"), sent: true } as Waiting;
+      const first = { ...createQueuedItem("browser-1", "Hello"), sent: true };
+      const second = { ...createQueuedItem("browser-2", "World"), sent: true };
       const base = createTestModel({ queue: [first, second] });
 
       story(
@@ -342,14 +393,14 @@ describe("chat update story tests", () => {
         given(base),
         message(Message.PageLoaded({ page, isInitial: false, sent: "browser-1" })),
         model((m) => {
-          expect((m.queue as Waiting[]).map((item) => item.id)).toEqual(["browser-2"]);
+          expect(m.queue.map((item) => item.id)).toEqual(["browser-2"]);
         }),
         StoryCommand.expectNone(),
       );
     });
 
     it("keeps a sent item when a live message comes before the end of its load", () => {
-      const sent = { ...createQueuedItem("browser-1", "Hello"), sent: true } as Waiting;
+      const sent = { ...createQueuedItem("browser-1", "Hello"), sent: true };
       const base = createTestModel({ queue: [sent] });
 
       story(
@@ -357,14 +408,14 @@ describe("chat update story tests", () => {
         given(base),
         message(Message.ReceivedLiveMessage({ message: createChatMessage(102, "Reply") })),
         model((m) => {
-          expect((m.queue as Waiting[]).map((item) => item.id)).toEqual(["browser-1"]);
+          expect(m.queue.map((item) => item.id)).toEqual(["browser-1"]);
         }),
         StoryCommand.expectNone(),
       );
     });
 
     it("removes a sent item when its own load fails", () => {
-      const sent = { ...createQueuedItem("browser-1", "Hello"), sent: true } as Waiting;
+      const sent = { ...createQueuedItem("browser-1", "Hello"), sent: true };
       const base = createTestModel({ queue: [sent] });
 
       story(
@@ -381,7 +432,7 @@ describe("chat update story tests", () => {
     it("discards a queued message and removes it from storage", () => {
       const q1 = createQueuedItem("q1", "Delete me");
       const base = createTestModel({
-        queue: [q1 as Waiting],
+        queue: [q1],
         attempt: { id: "q1", error: "failed", retryAt: 12345 },
       });
 
@@ -390,7 +441,7 @@ describe("chat update story tests", () => {
         given(base),
         message(Message.DiscardQueuedClicked({ id: "q1" })),
         model((m) => {
-          expect((m.queue as Waiting[]).length).toBe(0);
+          expect(m.queue.length).toBe(0);
           expect(m.attempt).toBeNull();
         }),
         StoryCommand.expectExact(RemoveQueued({ id: "q1" })),
@@ -403,7 +454,7 @@ describe("chat update story tests", () => {
   describe("retry waits logic", () => {
     it("sets failure count and attempt on SendAttemptFailed, and waits for the first delay", () => {
       const q1 = createQueuedItem("q1", "Retry message");
-      const base = createTestModel({ queue: [q1 as Waiting], failureCount: 0 });
+      const base = createTestModel({ queue: [q1], failureCount: 0 });
       const retryTime = 1700000000000 + retryDelays[0];
 
       story(
@@ -435,6 +486,7 @@ describe("chat update story tests", () => {
           FetchPage,
           Message.PageLoaded({
             page: {
+              harness: "claude-code",
               messages: [],
               older: false,
               writing: false,
@@ -451,7 +503,7 @@ describe("chat update story tests", () => {
     it("grows the wait to the last delay and keeps it", () => {
       const q1 = createQueuedItem("q1", "Retry message");
       const base = createTestModel({
-        queue: [q1 as Waiting],
+        queue: [q1],
         failureCount: retryDelays.length + 2,
       });
 
@@ -471,6 +523,7 @@ describe("chat update story tests", () => {
           FetchPage,
           Message.PageLoaded({
             page: {
+              harness: "claude-code",
               messages: [],
               older: false,
               writing: false,
@@ -487,7 +540,7 @@ describe("chat update story tests", () => {
     it("ignores a wait that ended after Retry now", () => {
       const q1 = createQueuedItem("q1", "Retry message");
       const base = createTestModel({
-        queue: [q1 as Waiting],
+        queue: [q1],
         failureCount: 1,
         attempt: { id: "q1", error: "down", retryAt: 1 },
       });
@@ -513,7 +566,7 @@ describe("chat update story tests", () => {
     it("resets attempt on RetryNowClicked and immediately posts next unsent item with current delay", () => {
       const q1 = createQueuedItem("q1", "Retry message");
       const base = createTestModel({
-        queue: [q1 as Waiting],
+        queue: [q1],
         failureCount: 2,
         attempt: { id: "q1", error: "error", retryAt: 1700000010000 },
       });
@@ -536,6 +589,7 @@ describe("chat update story tests", () => {
           FetchPage,
           Message.PageLoaded({
             page: {
+              harness: "claude-code",
               messages: [],
               older: false,
               writing: false,
@@ -565,7 +619,7 @@ describe("chat update story tests", () => {
         given(base),
         message(Message.ReceivedLiveMessage({ message: m2 })),
         model((m) => {
-          const list = m.messages as ChatMessage[];
+          const list = m.messages;
           expect(list.length).toBe(3);
           expect(list.map((x) => x.id)).toEqual([10, 20, 30]);
         }),
@@ -586,7 +640,7 @@ describe("chat update story tests", () => {
         given(base),
         message(Message.ReceivedLiveMessage({ message: longer })),
         model((m) => {
-          const list = m.messages as ChatMessage[];
+          const list = m.messages;
           expect(list.length).toBe(1);
           expect(list[0].text).toBe("Thinking about the task...");
         }),
@@ -607,7 +661,7 @@ describe("chat update story tests", () => {
         given(base),
         message(Message.ReceivedLiveMessage({ message: shorter })),
         model((m) => {
-          const list = m.messages as ChatMessage[];
+          const list = m.messages;
           expect(list.length).toBe(1);
           expect(list[0].text).toBe("Complete response text");
         }),
@@ -628,7 +682,7 @@ describe("chat update story tests", () => {
         given(base),
         message(Message.ReceivedLiveMessage({ message: m5 })),
         model((m) => {
-          const list = m.messages as ChatMessage[];
+          const list = m.messages;
           expect(list.length).toBe(1);
           expect(list[0].id).toBe(20);
         }),
@@ -642,7 +696,7 @@ describe("chat update story tests", () => {
 
       const base = createTestModel({
         messages: [],
-        queue: [queued as Waiting],
+        queue: [queued],
       });
 
       story(
@@ -650,8 +704,8 @@ describe("chat update story tests", () => {
         given(base),
         message(Message.ReceivedLiveMessage({ message: liveMsg })),
         model((m) => {
-          expect((m.queue as Waiting[]).length).toBe(0);
-          expect((m.messages as ChatMessage[]).length).toBe(1);
+          expect(m.queue.length).toBe(0);
+          expect(m.messages.length).toBe(1);
         }),
         StoryCommand.expectExact(RemoveQueued({ id: "client-123" })),
         StoryCommand.resolve(RemoveQueued, Message.CompletedRemoveQueued({ id: "client-123" })),
@@ -663,19 +717,15 @@ describe("chat update story tests", () => {
   describe("brief diff and answer panel logic", () => {
     it("fetches action brief when opening answer panel for pending edit_brief", () => {
       const base = createTestModel();
-      const item = {
+      const item = createInboxItem({
         id: 101,
-        kind: "approval" as const,
-        action: {
-          id: 42,
+        kind: "approval",
+        action: createPendingAction({
           tool: "edit_brief",
-          state: "pending",
-          role: "Lead",
-          sender: null,
-          time: "2026-11-04T08:00:00Z",
+          role: "lead",
           arguments: [{ name: "brief", value: "Updated brief text", labels: [] }],
-        },
-      } as any;
+        }),
+      });
 
       story(
         update,
@@ -729,33 +779,28 @@ describe("chat update story tests", () => {
   });
 
   describe("tray and panel", () => {
-    const question = { id: 7, kind: "question", questions: [], action: null, todo: null } as any;
-    const approval = {
+    const question = createInboxItem({ id: 7 });
+    const approval = createInboxItem({
       id: 8,
       kind: "approval",
       title: "Approve it",
-      reason: "",
       issue: 3,
-      repository: "test-repo",
-      questions: [],
-      todo: null,
-      action: {
-        id: 42,
-        tool: "message_lead",
-        state: "pending",
-        role: "Coordinator",
-        arguments: [],
-      },
-    } as any;
-    const todo = {
+      action: createPendingAction(),
+    });
+    const todo = createInboxItem({
       id: 9,
       kind: "todo",
-      questions: [],
-      action: null,
       issue: 5,
-      repository: "test-repo",
-      todo: { name: "plan", mandatory: true },
-    } as any;
+      todo: {
+        kind: "env_var",
+        line: 1,
+        mandatory: true,
+        name: "plan",
+        note: "",
+        path: "app.yaml",
+        reason: "",
+      },
+    });
 
     it("keeps the list and opens the panel again with the error after a failed decision", () => {
       const messages = [createChatMessage(1, "Hello")];
@@ -905,7 +950,7 @@ describe("chat update story tests", () => {
           DoneInboxItem({ id: 9, repository: "test-repo", issue: 5, name: "plan", note: "" }),
         ),
         StoryCommand.resolve(StopVoice, Message.CompletedStopVoice()),
-        StoryCommand.resolve(DoneInboxItem, Message.AnswerCompleted({ id: 9, result: {} })),
+        StoryCommand.resolve(DoneInboxItem, Message.AnswerCompleted({ id: 9, error: "" })),
         StoryCommand.expectNone(),
       );
     });
@@ -1041,7 +1086,7 @@ describe("chat update story tests", () => {
     });
 
     it("keeps the panel of another item when a request ends with a success", () => {
-      const other = { id: 11, kind: "question", questions: [], action: null, todo: null } as any;
+      const other = createInboxItem({ id: 11 });
       const base = createTestModel({
         activePanel: { type: "answer", item: other },
         closedPanel: null,
@@ -1050,7 +1095,7 @@ describe("chat update story tests", () => {
       story(
         update,
         given(base),
-        message(Message.AnswerCompleted({ id: 7, result: {} })),
+        message(Message.AnswerCompleted({ id: 7, error: "" })),
         model((m) => {
           expect(m.activePanel?.item).toBe(other);
         }),
@@ -1059,7 +1104,7 @@ describe("chat update story tests", () => {
     });
 
     it("keeps the panel of another item when a request ends with an error, and shows the error only for its item", () => {
-      const other = { id: 11, kind: "question", questions: [], action: null, todo: null } as any;
+      const other = createInboxItem({ id: 11 });
       const base = createTestModel({
         activePanel: { type: "answer", item: other },
         closedPanel: { type: "answer", item: question },
@@ -1068,7 +1113,7 @@ describe("chat update story tests", () => {
       story(
         update,
         given(base),
-        message(Message.AnswerCompleted({ id: 7, result: { error: "No." } })),
+        message(Message.AnswerCompleted({ id: 7, error: "No." })),
         model((m) => {
           expect(m.activePanel?.item).toBe(other);
           expect(m.closedPanel?.item).toBe(question);
@@ -1175,7 +1220,7 @@ describe("chat update story tests", () => {
       const second = update(probed.model, Message.AnswerSubmitted());
       expect(second.model).toBe(probed.model);
       expect(second.commands ?? []).toEqual([]);
-      const done = update(probed.model, Message.AnswerCompleted({ id: 7, result: {} }));
+      const done = update(probed.model, Message.AnswerCompleted({ id: 7, error: "" }));
       expect(done.model.requesting).toEqual([]);
     });
 
@@ -1190,7 +1235,7 @@ describe("chat update story tests", () => {
       story(
         update,
         given(base),
-        message(Message.AnswerCompleted({ id: 7, result: { error: "No." } })),
+        message(Message.AnswerCompleted({ id: 7, error: "No." })),
         model((m) => {
           expect(m.activePanel?.item).toBe(question);
           expect(m.answerText).toBe("");
@@ -1219,7 +1264,7 @@ describe("chat update story tests", () => {
     });
 
     it("sends the answer of the first item when the panel closes during the wait for the final voice text", () => {
-      const other = { id: 11, kind: "question", questions: [], action: null, todo: null } as any;
+      const other = createInboxItem({ id: 11 });
       const base = createTestModel({
         activePanel: { type: "answer", item: question },
         answerText: "Ten seats.",
@@ -1259,15 +1304,7 @@ describe("chat update story tests", () => {
     });
 
     it("lets another item send while the request of the first item runs", () => {
-      const other = {
-        id: 11,
-        kind: "question",
-        questions: [],
-        action: null,
-        todo: null,
-        issue: 0,
-        repository: "test-repo",
-      } as any;
+      const other = createInboxItem({ id: 11 });
       const base = createTestModel({
         activePanel: { type: "answer", item: other },
         answerText: "Eleven.",
@@ -1296,7 +1333,7 @@ describe("chat update story tests", () => {
           }),
         ),
         StoryCommand.resolve(StopVoice, Message.CompletedStopVoice()),
-        StoryCommand.resolve(AnswerInboxItem, Message.AnswerCompleted({ id: 11, result: {} })),
+        StoryCommand.resolve(AnswerInboxItem, Message.AnswerCompleted({ id: 11, error: "" })),
         model((m) => {
           expect(m.requesting).toEqual([7]);
         }),
@@ -1343,15 +1380,7 @@ describe("chat update story tests", () => {
     });
 
     it("lets a panel send while the answer of another item waits for the final voice text", () => {
-      const other = {
-        id: 11,
-        kind: "question",
-        questions: [],
-        action: null,
-        todo: null,
-        issue: 0,
-        repository: "test-repo",
-      } as any;
+      const other = createInboxItem({ id: 11 });
       const base = createTestModel({
         activePanel: { type: "answer", item: other },
         answerText: "Eleven.",
