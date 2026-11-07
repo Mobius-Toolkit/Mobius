@@ -75,8 +75,8 @@ test("the status line shows each pause, and Resume now ends the pause of its Har
     route.fulfill({
       json: {
         data: [
-          { harness: "antigravity", pausedUntil: "2026-09-28T12:00:00Z" },
-          { harness: "devin", pausedUntil: "2026-09-29T08:30:00Z" },
+          { harness: "antigravity", pausedUntil: "2026-09-28T12:00:00Z", inUse: true },
+          { harness: "devin", pausedUntil: "2026-09-29T08:30:00Z", inUse: true },
         ],
       },
     }),
@@ -95,6 +95,23 @@ test("the status line shows each pause, and Resume now ends the pause of its Har
   await devin.locator("..").getByRole("button", { name: "Resume now" }).click();
 
   await expect.poll(() => resumed).toEqual(["/api/pauses/devin/resume"]);
+});
+
+test("the status line shows only the pause that a Role or a session uses", async ({ page }) => {
+  await page.route("**/api/pauses", (route) =>
+    route.fulfill({
+      json: {
+        data: [
+          { harness: "antigravity", pausedUntil: "2026-09-28T12:00:00Z", inUse: true },
+          { harness: "devin", pausedUntil: "2026-09-29T08:30:00Z", inUse: false },
+        ],
+      },
+    }),
+  );
+  await page.goto("/workstreams");
+
+  await expect(page.getByText(/^antigravity paused until Sep 28, 12:00\sPM$/)).toBeVisible();
+  await expect(page.getByText(/devin paused until/)).toHaveCount(0);
 });
 
 test("the status line shows each CI stop with its task issue, and drops it when the stop ends", async ({

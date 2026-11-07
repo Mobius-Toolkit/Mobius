@@ -77,7 +77,7 @@ type LiveEvents struct {
 	Action *PendingAction `gork:"action"`
 	// Question is a question item with a chat message, when the question ends, with its final answer and withdrawn
 	Question *InboxItem `gork:"question"`
-	// Pauses is the list of the pauses of all Harnesses at each start and each end of a pause
+	// Pauses is the list of the pauses of all Harnesses at each start and each end of a pause, and at each change of a Role or of a session that waits for a pause
 	Pauses *[]Pause `gork:"pauses"`
 	// CIStops is the list of the CI stops of all repositories at each change of a stop
 	CIStops *[]CIStop `gork:"ciStops"`
