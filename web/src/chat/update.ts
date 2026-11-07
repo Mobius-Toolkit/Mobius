@@ -171,6 +171,7 @@ function finishRequest(model: Model, id: number, error: string): Model {
     closedPanel: reopen ? null : model.closedPanel,
     answerError: error,
     answerErrorId: id,
+    answerErrorAwaitsRow: true,
   };
 }
 
@@ -296,12 +297,18 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
         (item) => !item.action || item.action.state === "pending",
       );
       // Only the panel of a tray row goes away with the row. The Details panel of a card stays.
-      // A panel that shows the error of its request stays: the Port can come before the row is back.
+      // A panel that shows the error of its request stays until a read shows its row again: the Port can come before
+      // the row is back. After that read, a list without the row closes the panel.
+      const awaitsRow =
+        panel !== null &&
+        model.answerErrorAwaitsRow &&
+        model.answerErrorId === panel.item.id &&
+        model.answerError !== "";
       const gone =
         panel !== null &&
         panel.item.id !== 0 &&
         (panel.type === "answer" || panel.fromTray === true) &&
-        !(model.answerErrorId === panel.item.id && model.answerError !== "") &&
+        !awaitsRow &&
         !rows.some((row) => row.id === panel.item.id);
       // The local answer of a merge or a refusal belongs to the row that the Owner saw. A new read of the row, with other
       // data or without the row, replaces it.
@@ -321,6 +328,8 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
           trayItems: items as InboxItem[],
           trayMerging: keepKnown(model.trayMerging as Record<number, boolean>),
           trayRefusals: keepKnown(model.trayRefusals as Record<number, string>),
+          answerErrorAwaitsRow:
+            model.answerErrorAwaitsRow && !rows.some((row) => row.id === model.answerErrorId),
           activePanel: gone ? null : model.activePanel,
           closedPanel: gone ? panel : model.closedPanel,
         },
@@ -1007,6 +1016,8 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
           answerText: "",
           answerLoaded: false,
           selectedOptions: {},
+          answerError: model.answerErrorId === inboxItem.id ? "" : model.answerError,
+          answerErrorId: model.answerErrorId === inboxItem.id ? 0 : model.answerErrorId,
           showRemovedText: false,
           briefActionBrief: "",
           voiceRegion: model.voiceRegion?.target === "answer" ? null : model.voiceRegion,
@@ -1041,6 +1052,8 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
     ClosePanel: () => ({
       model: {
         ...model,
+        answerError: model.answerErrorId === model.activePanel?.item.id ? "" : model.answerError,
+        answerErrorId: model.answerErrorId === model.activePanel?.item.id ? 0 : model.answerErrorId,
         activePanel: null,
         showRemovedText: false,
         briefActionBrief: "",

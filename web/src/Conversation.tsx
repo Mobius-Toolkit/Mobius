@@ -7,8 +7,6 @@ import { LoginContext } from "@/lib/login";
 import type { ChatPorts } from "./chat/ports";
 import { createChatProgram } from "./chat/program";
 
-// The chat screen runs in Foldkit in web/src/chat/ as one program.
-// Conversation.tsx is the React host that embeds the Foldkit program.
 function ChatProgram({
   organization,
   repository,

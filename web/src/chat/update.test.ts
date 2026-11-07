@@ -838,6 +838,53 @@ describe("chat update story tests", () => {
       );
     });
 
+    it("closes the panel with the error when a list without its row comes after a read that showed the row", () => {
+      const base = createTestModel({
+        trayItems: [approval],
+        activePanel: { type: "answer", item: approval },
+        requesting: [8],
+      });
+
+      story(
+        update,
+        given(base),
+        message(Message.ActionFailed({ id: 8, error: "The server failed." })),
+        message(Message.ReceivedTrayItems({ items: [approval] })),
+        message(Message.ReceivedTrayItems({ items: [] })),
+        model((m) => {
+          expect(m.activePanel).toBeNull();
+          expect(m.closedPanel?.item).toBe(approval);
+        }),
+        StoryCommand.expectNone(),
+      );
+    });
+
+    it("shows no old error in a panel that the Owner opens again", () => {
+      const base = createTestModel({
+        trayItems: [approval],
+        activePanel: { type: "answer", item: approval },
+        requesting: [8],
+      });
+
+      story(
+        update,
+        given(base),
+        message(Message.ActionFailed({ id: 8, error: "The server failed." })),
+        message(Message.ClosePanel()),
+        model((m) => {
+          expect(m.answerError).toBe("");
+          expect(m.answerErrorId).toBe(0);
+        }),
+        message(Message.OpenAnswerPanel({ item: approval })),
+        model((m) => {
+          expect(m.answerError).toBe("");
+        }),
+        StoryCommand.expectExact(LoadAnswerDraft({ id: 8 })),
+        StoryCommand.resolve(LoadAnswerDraft, Message.AnswerDraftLoaded({ text: "" })),
+        StoryCommand.expectNone(),
+      );
+    });
+
     it("sends a todo with an empty note", () => {
       const base = createTestModel({
         activePanel: { type: "answer", item: todo },
