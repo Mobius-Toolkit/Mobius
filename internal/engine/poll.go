@@ -208,11 +208,13 @@ func (e *Engine) pollRepository(ctx context.Context, repository github.Repositor
 // changedIssues reads the issues and pull requests that changed at or after the `since` cursor, reads the new comments
 // of the repository with two calls, and reads the reviews and the review threads of the open pull requests with one
 // call. Then it starts the Triager of an issue, acts on the comments, stops a Triager, updates the copy, acts on the new events of the Workstreams, and
-// moves the cursors to the last change. The first poll of a repository has no cursor, so it reads all issues, and it
-// cannot see which event is new. It reads no comment: the next poll starts each comment list at the issue cursor.
+// moves the cursors to the last change. The first poll of a repository has no issues row in the cursors, so it reads
+// all issues, and it cannot see which event is new. It reads no comment: the next poll starts each comment list at the
+// issue cursor. A repository with no issue has a row with no time, so its next poll is not a first poll.
 func (e *Engine) changedIssues(ctx context.Context, repository github.Repository) error {
 	cursor, err := e.queries.GetSyncCursor(ctx, store.GetSyncCursorParams{Repository: repository.FullName, Endpoint: issuesEndpoint})
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+	firstPoll := errors.Is(err, sql.ErrNoRows)
+	if err != nil && !firstPoll {
 		return err
 	}
 	var since time.Time
@@ -227,7 +229,6 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 		return err
 	}
 	e.markChangedPullRequests(repository, page.Issues)
-	firstPoll := since.IsZero()
 	var conversation map[int64][]*gh.IssueComment
 	var review map[int64][]*gh.PullRequestComment
 	var commentCursors []store.SetSyncCursorParams
@@ -272,7 +273,7 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 	listChanged := false
 	for _, issue := range page.Issues {
 		number := int64(issue.GetNumber())
-		triaged, err := e.startTriage(ctx, repository, issue, conversation[number], since)
+		triaged, err := e.startTriage(ctx, repository, issue, conversation[number], since, firstPoll)
 		if err != nil {
 			return err
 		}
