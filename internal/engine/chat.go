@@ -31,6 +31,8 @@ var (
 	leadSkillsPrompt string
 	//go:embed prompts/coordinator.md
 	coordinatorPrompt string
+	//go:embed prompts/claude_code.md
+	claudeCodePrompt string
 )
 
 const (
@@ -1080,7 +1082,7 @@ func (e *Engine) chat(c *chat, a *Agent, first item) error {
 	if err != nil {
 		return err
 	}
-	prompt, images, err := e.firstPrompt(ctx, c.key, first, quiet)
+	prompt, images, err := e.firstPrompt(ctx, c.key, a.binding.Harness, first, quiet)
 	if err != nil {
 		return err
 	}
@@ -1731,8 +1733,12 @@ func (e *Engine) tellOwner(ctx context.Context, c caller, _ github.Repository, i
 // firstPrompt gives the first prompt of a session with the item first: the Role prompt, the context and the chat
 // history before the item. quiet holds the quiet events, which the prompt shows once in their own section. It also
 // gives the images of the item.
-func (e *Engine) firstPrompt(ctx context.Context, key ChatKey, first item, quiet []store.LeadEvent) (string, []Image, error) {
+func (e *Engine) firstPrompt(ctx context.Context, key ChatKey, harness config.Harness, first item, quiet []store.LeadEvent) (string, []Image, error) {
 	var images []Image
+	browser := ""
+	if harness == config.ClaudeCode {
+		browser = claudeCodePrompt + "\n"
+	}
 	if first.message != nil {
 		var err error
 		if images, err = e.messageImages(first.message.ID); err != nil {
@@ -1756,7 +1762,7 @@ func (e *Engine) firstPrompt(ctx context.Context, key ChatKey, first item, quiet
 		if err != nil {
 			return "", nil, err
 		}
-		return fmt.Sprintf("%s\n%s%s\n%s%s# %s message\n\n%s", coordinatorPrompt, serverSection(), workstreams, requests, history, first.message.Author, text), images, nil
+		return fmt.Sprintf("%s\n%s%s%s\n%s%s# %s message\n\n%s", coordinatorPrompt, browser, serverSection(), workstreams, requests, history, first.message.Author, text), images, nil
 	}
 	repository, err := e.repository(key.Repository)
 	if err != nil {
@@ -1796,9 +1802,9 @@ func (e *Engine) firstPrompt(ctx context.Context, key ChatKey, first item, quiet
 	if err != nil {
 		return "", nil, err
 	}
-	rules := ""
+	rules := browser
 	if skills {
-		rules = leadSkillsPrompt + "\n"
+		rules += leadSkillsPrompt + "\n"
 	}
 	if maintenance {
 		rules += leadMaintenancePrompt + "\n"
