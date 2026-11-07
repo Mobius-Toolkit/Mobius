@@ -480,7 +480,7 @@ func TestAStartThatDoesNotAnswerFailsAfterStartTimeoutAndKillsTheAgent(t *testin
 func startSteeringAgent(t *testing.T, outcome string) (*Session, string) {
 	dir := fakeAgentDir(t)
 	t.Setenv("MOBIUS_FAKE_STEERING", outcome)
-	session, err := Start(context.Background(), config.ClaudeCode, 0, false, dir, dir, dir, "", "", "", "", func(json.RawMessage, bool) {})
+	session, err := Start(context.Background(), config.ClaudeCode, 0, false, false, dir, dir, dir, "", "", "", "", func(json.RawMessage, bool) {})
 	if err != nil {
 		t.Fatal(err)
 	}
