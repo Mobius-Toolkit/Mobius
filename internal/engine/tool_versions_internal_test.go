@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -46,7 +47,7 @@ func TestAFoundProgramHasItsPathAndTheFirstLineOfItsVersion(t *testing.T) {
 
 	checks := toolEngine(t, bin).Tools(context.Background())
 
-	want := ToolCheck{Name: "devin", Path: filepath.Join(bin, "devin"), Version: "devin 3000.11.3 (9c803229faa4)", Required: true}
+	want := ToolCheck{Name: "devin", Harness: "devin", Path: filepath.Join(bin, "devin"), Version: "devin 3000.11.3 (9c803229faa4)", Required: true}
 	if got := find(checks, "devin"); got != want {
 		t.Errorf("devin = %+v, want %+v", got, want)
 	}
@@ -59,7 +60,7 @@ func TestAFoundProgramHasItsPathAndTheFirstLineOfItsVersion(t *testing.T) {
 func TestAProgramThatIsNotFoundHasTheStatusNotFound(t *testing.T) {
 	checks := toolEngine(t, t.TempDir()).Tools(context.Background())
 
-	if got, want := find(checks, "dsh"), (ToolCheck{Name: "dsh", Status: NotFound}); got != want {
+	if got, want := find(checks, "dsh"), (ToolCheck{Name: "dsh", Harness: "dsh", Status: NotFound}); got != want {
 		t.Errorf("dsh = %+v, want %+v", got, want)
 	}
 }
@@ -81,9 +82,29 @@ func TestAProgramWithNoVersionOutputHasTheStatusNoVersion(t *testing.T) {
 	if got := find(checks, "git"); got != want {
 		t.Errorf("git = %+v, want %+v", got, want)
 	}
-	want = ToolCheck{Name: "dsh", Path: filepath.Join(bin, "dsh"), Status: NoVersion}
+	want = ToolCheck{Name: "dsh", Harness: "dsh", Path: filepath.Join(bin, "dsh"), Status: NoVersion}
 	if got := find(checks, "dsh"); got != want {
 		t.Errorf("dsh = %+v, want %+v", got, want)
+	}
+}
+
+func TestEachProgramOfAHarnessNamesItsHarness(t *testing.T) {
+	checks := toolEngine(t, t.TempDir()).Tools(context.Background())
+
+	harnesses := map[string]string{}
+	for _, check := range checks {
+		harnesses[check.Name] = check.Harness
+	}
+	want := map[string]string{
+		"claude-agent-acp": "claude-code",
+		"Claude Code CLI":  "",
+		"agy_acp_server":   "antigravity",
+		"devin":            "devin",
+		"dsh":              "dsh",
+		"git":              "",
+	}
+	if !maps.Equal(harnesses, want) {
+		t.Errorf("harnesses = %v, want %v", harnesses, want)
 	}
 }
 
@@ -290,7 +311,7 @@ func TestARegistryWithNoAnswerGivesNoNewestVersion(t *testing.T) {
 
 	checks := e.Tools(context.Background())
 
-	want := ToolCheck{Name: "claude-agent-acp", Path: find(checks, "claude-agent-acp").Path, Version: "claude-agent-acp 0.9.12", Required: true}
+	want := ToolCheck{Name: "claude-agent-acp", Harness: "claude-code", Path: find(checks, "claude-agent-acp").Path, Version: "claude-agent-acp 0.9.12", Required: true}
 	if got := find(checks, "claude-agent-acp"); got != want {
 		t.Errorf("claude-agent-acp = %+v, want %+v", got, want)
 	}
