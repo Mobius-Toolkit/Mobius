@@ -440,6 +440,11 @@ func shortCacheRole(role string) bool {
 	return false
 }
 
+// chromeRole tells if a session of role on harness gets the tools of Claude in Chrome.
+func chromeRole(role string, harness config.Harness) bool {
+	return (role == LeadRole || role == CoordinatorRole) && harness == config.ClaudeCode
+}
+
 // startHarness opens a new session key with the tools of the Role, and starts the Harness with it.
 func (a *Agent) startHarness(ctx context.Context) error {
 	e := a.engine
@@ -476,7 +481,7 @@ func (a *Agent) startHarness(ctx context.Context) error {
 			return err
 		}
 	}
-	session, err := runner.Start(ctx, a.binding.Harness, a.binding.Context, shortCacheRole(spec.Role), spec.Dir, e.config.DataDir, e.agents.Path, mcp.URL(e.agents.Addr, a.key), ghTokenURL, ghWritesURL, ghMark, a.update)
+	session, err := runner.Start(ctx, a.binding.Harness, a.binding.Context, shortCacheRole(spec.Role), chromeRole(spec.Role, a.binding.Harness), spec.Dir, e.config.DataDir, e.agents.Path, mcp.URL(e.agents.Addr, a.key), ghTokenURL, ghWritesURL, ghMark, a.update)
 	if err != nil {
 		return err
 	}
