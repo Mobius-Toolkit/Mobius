@@ -250,7 +250,8 @@ func TestAWaitingImplementerStaysInItsWaitAfterAChangeOfItsHarness(t *testing.T)
 	server, _ := connect(t, fake, usageLimit)
 	agent := start(t, server, implementerSpec(t, server, fake, 41))
 	defer end(t, agent, "done")
-	go func() { _ = agent.Prompt(t.Context(), "Store plans in cents.", nil) }()
+	prompted := make(chan error, 1)
+	go func() { prompted <- agent.Prompt(t.Context(), "Store plans in cents.", nil) }()
 	testkit.WaitFor(t, func() bool {
 		return strings.HasPrefix(session(t, server, agent.ID()).QueueReason.String, "paused until ")
 	})
@@ -259,7 +260,9 @@ func TestAWaitingImplementerStaysInItsWaitAfterAChangeOfItsHarness(t *testing.T)
 	waitForPolls(t, fake)
 	waitForPolls(t, fake)
 
-	if waiting := session(t, server, agent.ID()); waiting.EndedAt.Valid || !strings.HasPrefix(waiting.QueueReason.String, "paused until ") {
-		t.Errorf("session = %+v", waiting)
+	select {
+	case err := <-prompted:
+		t.Errorf("Prompt returned %v, but the Implementer must stay in its wait", err)
+	default:
 	}
 }
