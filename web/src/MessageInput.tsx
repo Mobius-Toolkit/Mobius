@@ -18,9 +18,9 @@ import {
   loadDraft,
   saveDraftText,
   updateDraft,
-  useDraft,
 } from "@/lib/draft";
 import { fitImage, maxImages } from "@/lib/images";
+import { useDraft } from "@/lib/storeHooks";
 import { cn } from "@/lib/utils";
 import { useVoice } from "@/lib/voice";
 import { FileImage } from "./FileImage";
