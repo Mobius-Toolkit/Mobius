@@ -3,6 +3,7 @@ import type {
   Activity,
   GitHubApp,
   InboxItem,
+  Pause,
   PendingAction,
   Switches,
   Unread,
@@ -26,6 +27,7 @@ type Shell = {
   clearInboxFailure: () => void;
   updateAction: (action: PendingAction) => void;
   activities: Activity[];
+  pauses: Pause[];
   switches?: Switches;
   switchErrors: Partial<Record<SwitchKind, string>>;
   changeSwitch: ChangeSwitch;
