@@ -404,7 +404,7 @@ func TestAnEndEventStartsANewLeadSessionWhenNoSessionIsOpen(t *testing.T) {
 	})
 	waitForApproval(t, server, fake)
 
-	waitForLeadPrompt(t, server, "ready for Lead approval")
+	waitForLeadPrompt(t, server, " ready for Lead approval of #41 \"Add plan model\": pull request #42")
 	testkit.WaitFor(t, func() bool {
 		if !eventDelivered(t, server) {
 			return false
