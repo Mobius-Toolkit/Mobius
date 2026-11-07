@@ -1,4 +1,3 @@
-import { useCallback, useEffect, useState } from "react";
 import {
   listActiveAgents,
   listNeedsHuman,
@@ -9,7 +8,32 @@ import {
 } from "@/api/api.gen";
 import { onEvent } from "./events";
 
-export type Workstreams = ReturnType<typeof useWorkstreams>;
+export type WorkstreamState = {
+  list?: Workstream[];
+  needsHuman: NeedsHuman[];
+  working: Set<string>;
+  error?: string;
+};
+
+export type Workstreams = WorkstreamState & { load: () => Promise<unknown> };
+
+let state: WorkstreamState = { needsHuman: [], working: new Set() };
+let showLogin = () => {};
+const listeners = new Set<() => void>();
+
+export function currentWorkstreams() {
+  return state;
+}
+
+export function subscribeWorkstreams(listener: () => void) {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+function setState(change: Partial<WorkstreamState>) {
+  state = { ...state, ...change };
+  listeners.forEach((listener) => listener());
+}
 
 export function workstreamKey(workstream: { repository: string; number: number }) {
   return `${workstream.repository}#${workstream.number}`;
@@ -26,79 +50,66 @@ export function organizationWorkstreams(workstreams: Workstreams, organization: 
   );
 }
 
-export function useWorkstreams(showLogin: () => void, source?: EventSource) {
-  const [list, setList] = useState<Workstream[]>();
-  const [needsHuman, setNeedsHuman] = useState<NeedsHuman[]>([]);
-  const [working, setWorking] = useState<Set<string>>(new Set());
-  const [error, setError] = useState<string>();
-
-  const loadWorking = useCallback(
-    () =>
-      listActiveAgents()
-        .then((res) => {
-          if (res.status === 200) {
-            setWorking(
-              new Set(
-                res.data.data.groups
-                  .flatMap((group) => group.agents)
-                  .filter((row) => row.agent.working)
-                  .map((row) =>
-                    workstreamKey({
-                      repository: row.agent.workstreamRepository,
-                      number: row.agent.workstream,
-                    }),
-                  ),
+function loadWorking() {
+  return listActiveAgents()
+    .then((res) => {
+      if (res.status === 200) {
+        setState({
+          working: new Set(
+            res.data.data.groups
+              .flatMap((group) => group.agents)
+              .filter((row) => row.agent.working)
+              .map((row) =>
+                workstreamKey({
+                  repository: row.agent.workstreamRepository,
+                  number: row.agent.workstream,
+                }),
               ),
-            );
-          }
-        })
-        .catch(() => {}),
-    [],
-  );
+          ),
+        });
+      }
+    })
+    .catch(() => {});
+}
 
-  const load = useCallback(() => {
-    const lists = listWorkstreams()
-      .then((res) => {
-        if (res.status === 401) {
-          showLogin();
-        } else if (res.status === 200) {
-          setList(res.data.data);
-        } else {
-          setError(res.data.error);
-        }
-      })
-      .catch((err: unknown) => setError(String(err)));
-    const needsHumanList = listNeedsHuman()
-      .then((res) => {
-        if (res.status === 200) {
-          setNeedsHuman(res.data.data);
-        }
-      })
-      .catch(() => {});
-    return Promise.all([lists, needsHumanList, loadWorking()]);
-  }, [showLogin, loadWorking]);
+export function loadWorkstreams() {
+  const lists = listWorkstreams()
+    .then((res) => {
+      if (res.status === 401) {
+        showLogin();
+      } else if (res.status === 200) {
+        setState({ list: res.data.data });
+      } else {
+        setState({ error: res.data.error });
+      }
+    })
+    .catch((err: unknown) => setState({ error: String(err) }));
+  const needsHumanList = listNeedsHuman()
+    .then((res) => {
+      if (res.status === 200) {
+        setState({ needsHuman: res.data.data });
+      }
+    })
+    .catch(() => {});
+  return Promise.all([lists, needsHumanList, loadWorking()]);
+}
 
+export function startWorkstreams(source: EventSource, onLogin: () => void) {
+  showLogin = onLogin;
   // An event of the lists that comes while the connection is down is lost, so each connection reads the lists.
-  useEffect(() => {
-    if (!source) {
-      return;
-    }
-    load();
-    source.addEventListener("open", load);
-    const removeChange = onEvent<LiveEvents, "workstreams">(source, "workstreams", load);
-    const removeCreated = onEvent<LiveEvents, "workstreamCreated">(
-      source,
-      "workstreamCreated",
-      load,
-    );
-    const removeAgent = onEvent<LiveEvents, "agent">(source, "agent", loadWorking);
-    return () => {
-      source.removeEventListener("open", load);
-      removeChange();
-      removeCreated();
-      removeAgent();
-    };
-  }, [source, load, loadWorking]);
-
-  return { list, needsHuman, working, error, load };
+  loadWorkstreams();
+  source.addEventListener("open", loadWorkstreams);
+  const removeChange = onEvent<LiveEvents, "workstreams">(source, "workstreams", loadWorkstreams);
+  const removeCreated = onEvent<LiveEvents, "workstreamCreated">(
+    source,
+    "workstreamCreated",
+    loadWorkstreams,
+  );
+  const removeAgent = onEvent<LiveEvents, "agent">(source, "agent", loadWorking);
+  return () => {
+    source.removeEventListener("open", loadWorkstreams);
+    removeChange();
+    removeCreated();
+    removeAgent();
+  };
 }
