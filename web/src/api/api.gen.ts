@@ -1067,6 +1067,8 @@ export interface EnvelopeArrayTaskLine {
 export interface ToolCheck {
   /** AutoUpgrade tells that Mobius installs the newest version of Package by itself */
   autoUpgrade: boolean;
+  /** Harness is the name of the Harness that runs the program. It is empty for the Claude Code CLI and for git */
+  harness: string;
   /** Name is the name of the program */
   name: string;
   /** Newest is the newest version of the npm package of a critical tool. It is empty when the registry gave none, and for a tool that is not critical */

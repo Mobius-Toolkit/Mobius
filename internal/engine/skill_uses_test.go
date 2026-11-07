@@ -214,7 +214,11 @@ func antigravityLead(cfg *config.Config) {
 }
 
 func viewFile(call, file string) string {
-	return `  '{"sessionUpdate":"tool_call","toolCallId":"` + call + `","title":"Running view_file","kind":"read","status":"in_progress","rawInput":{"absolute_path":"` + file + `"}}',
+	return viewFileWithKey(call, "absolute_path", file)
+}
+
+func viewFileWithKey(call, key, file string) string {
+	return `  '{"sessionUpdate":"tool_call","toolCallId":"` + call + `","title":"Running view_file","kind":"read","status":"in_progress","rawInput":{"` + key + `":"` + file + `"}}',
 `
 }
 
@@ -228,6 +232,31 @@ func TestAnAntigravityViewOfASkillFileAddsOneRowWithTheSourceOfTheSkill(t *testi
 	server, _ := connectWith(t, fake, `[[prompts]]
 updates = [
 `+viewFile("call_1", skillFile)+`  '{"sessionUpdate":"tool_call_update","toolCallId":"call_1","status":"completed"}',
+]
+reply = ["done"]
+`, antigravityLead)
+	spec := leadSpec(t)
+	spec.Dir = dir
+
+	session := run(t, server, spec, "Read the work")
+	reply(t, server, session)
+
+	want := []skillUse{{session, "owner", shop, "lead_chat", "antigravity", "mobius-local-state", "mobius"}}
+	if got := skillUses(t, server, session); !slices.Equal(got, want) {
+		t.Errorf("skill uses = %+v, want %+v", got, want)
+	}
+}
+
+func TestAnAntigravityViewOfASkillFileWithAbsolutePathAddsOneRowWithTheSourceOfTheSkill(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddRepository(skills)
+	fake.CommitFile(skills, "mobius-local-state/SKILL.md", "Read the state.", "Add mobius-local-state")
+	dir := t.TempDir()
+	skillFile := filepath.Join(dir, config.Antigravity.SkillDirectory(), "mobius-local-state", "SKILL.md")
+	server, _ := connectWith(t, fake, `[[prompts]]
+updates = [
+`+viewFileWithKey("call_1", "AbsolutePath", skillFile)+`  '{"sessionUpdate":"tool_call_update","toolCallId":"call_1","status":"completed"}',
 ]
 reply = ["done"]
 `, antigravityLead)

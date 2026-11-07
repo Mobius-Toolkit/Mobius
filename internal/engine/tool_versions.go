@@ -73,6 +73,8 @@ type newestVersion struct {
 // ToolCheck is the path and the version of a program that Mobius runs.
 type ToolCheck struct {
 	Name string
+	// Harness is the name of the Harness that runs the program. It is empty for the Claude Code CLI and for git.
+	Harness string
 	// Path is empty for a program that Mobius cannot find, and for the Claude Code CLI that is built in the adapter.
 	Path string
 	// Version is empty when Status is not empty.
@@ -107,6 +109,7 @@ func (e *Engine) Tools(ctx context.Context) []ToolCheck {
 	for _, harness := range config.Harnesses {
 		program := runner.Program(harness)
 		check := checkVersion(ctx, program, runner.Find(program, path), path)
+		check.Harness = string(harness)
 		check.Required = used[harness]
 		if harness == config.ClaudeCode {
 			e.compareNewest(ctx, &check, adapterPackage)

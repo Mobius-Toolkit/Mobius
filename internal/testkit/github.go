@@ -134,6 +134,7 @@ type FakeGitHub struct {
 	refusedComments                            map[issueKey]int
 	failedCommentUpdates                       map[issueKey]bool
 	failedLabels                               map[issueKey]bool
+	failedRemoveLabels                         map[issueKey]bool
 	refusedLabels                              map[issueKey]int
 	refusedLabelOnce                           map[issueKey]int
 	botKeptLabels                              map[issueKey]string
@@ -154,6 +155,7 @@ type FakeGitHub struct {
 	threadHolds        map[issueKey][]*hold
 	mergeHolds         map[issueKey][]*hold
 	issueHolds         map[issueKey]*hold
+	pullHolds          map[issueKey]*hold
 	// anonymousRateLimited tells if each request of the releases and of the comparisons with no token gets the
 	// rate-limit answer.
 	anonymousRateLimited bool
@@ -219,6 +221,8 @@ type FakeGitHub struct {
 	closeRefusal int
 	// replyRefusal is the status that a reply in a review thread gives, or 0 when it works.
 	replyRefusal int
+	// reviewFailure is the status that the next reviewFailures review writes give.
+	reviewFailure, reviewFailures int
 }
 
 // A grant is a user code or a refresh token: the login of the user and the App index.
@@ -279,6 +283,7 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		refusedComments:         map[issueKey]int{},
 		failedCommentUpdates:    map[issueKey]bool{},
 		failedLabels:            map[issueKey]bool{},
+		failedRemoveLabels:      map[issueKey]bool{},
 		refusedLabels:           map[issueKey]int{},
 		refusedLabelOnce:        map[issueKey]int{},
 		botKeptLabels:           map[issueKey]string{},
@@ -287,6 +292,7 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		threadHolds:             map[issueKey][]*hold{},
 		mergeHolds:              map[issueKey][]*hold{},
 		issueHolds:              map[issueKey]*hold{},
+		pullHolds:               map[issueKey]*hold{},
 		hangs:                   map[string]chan struct{}{},
 		routeHolds:              map[string]chan struct{}{},
 		routeLimits:             map[string]time.Time{},

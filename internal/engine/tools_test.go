@@ -524,7 +524,7 @@ func TestReplyThreadRepliesInAReviewThreadAndResolvesIt(t *testing.T) {
 func TestCreateWorkstreamCreatesTheIssueWithTheWorkstreamLabel(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, approvalSeen+call("create_workstream", `{ title = "Billing", brief = "Bill the plans." }`))
+	server, _ := connect(t, fake, approvalSeen+callCreateWorkstream("Create it.", "Billing", "Bill the plans.")+seenScript)
 
 	leadSession := run(t, server, leadSpec(t), "Create it.")
 	leadDone := approveNext(t, server, 1)

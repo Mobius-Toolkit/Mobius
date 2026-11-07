@@ -210,3 +210,138 @@ func TestAnOwnerWithNoUserTokenGetsTheApprovalAndTheMergeButtonWithTheReason(t *
 		t.Errorf("state = %s, merge calls = %d, approvals = %d", state, calls, approvals(fake))
 	}
 }
+
+const mergeRetry = "GitHub gave a server error. Mobius tries the approval again."
+
+// retryItem waits for the only ready for review item with the reason mergeRetry.
+func retryItem(t *testing.T, server *testserver.Server) inboxItem {
+	t.Helper()
+	return testkit.WaitForValue(t, func() (inboxItem, bool) {
+		items := itemsOf(t, server, "ready for review")
+		if len(items) != 1 {
+			return inboxItem{}, false
+		}
+		return items[0], items[0].MergeRefusal == mergeRetry && !items[0].Merging
+	})
+}
+
+func TestAServerErrorOfTheApprovalGetsAnotherApprovalAndTheMergeFromALaterPoll(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := approvable(t, fake, "merge", true)
+	fake.FailReviews(http.StatusInternalServerError, 1)
+
+	sendChat(t, server, leadChat, "Approve #41")
+
+	waitForChat(t, server, leadChat, "Lead", "Approved pull request #42 of #41. GitHub gave a server error for the approval of the Owner. Mobius tries the approval again, then it merges.")
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "" })
+	if calls, count := fake.MergeCalls(), approvals(fake); calls != 1 || count != 1 {
+		t.Errorf("merge calls = %d, approvals = %d", calls, count)
+	}
+}
+
+func TestARefusedApprovalKeepsTheRefusalAndGetsNoRetry(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := approvable(t, fake, "merge", true)
+	fake.FailReviews(http.StatusUnprocessableEntity, 1)
+
+	sendChat(t, server, leadChat, "Approve #41")
+
+	testkit.WaitFor(t, func() bool {
+		items := itemsOf(t, server, "ready for review")
+		return len(items) == 1 && !items[0].Merging && strings.Contains(items[0].MergeRefusal, "422")
+	})
+	waitForPolls(t, fake)
+	items := itemsOf(t, server, "ready for review")
+	if len(items) != 1 || !strings.Contains(items[0].MergeRefusal, "422") || approvals(fake) != 0 || fake.MergeCalls() != 0 {
+		t.Errorf("items = %+v, approvals = %d, merge calls = %d", items, approvals(fake), fake.MergeCalls())
+	}
+}
+
+func TestTheMergeButtonAfterAServerErrorOfTheApprovalGivesOneApproval(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := approvable(t, fake, "merge", true)
+	fake.FailReviews(http.StatusInternalServerError, 1000)
+	sendChat(t, server, leadChat, "Approve #41")
+	item := retryItem(t, server)
+	turnMerge(t, server, false)
+	fake.FailReviews(0, 0)
+
+	if status, body := merge(t, server, item.ID); status != http.StatusOK {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+	turnMerge(t, server, true)
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "" })
+	waitForPolls(t, fake)
+	if calls, count := fake.MergeCalls(), approvals(fake); calls != 1 || count != 1 {
+		t.Errorf("merge calls = %d, approvals = %d", calls, count)
+	}
+}
+
+func TestAWorkstreamWithNoMergeLevelAfterAServerErrorOfTheApprovalLosesTheReasonAndGetsNoRetry(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := approvable(t, fake, "merge", true)
+	fake.FailReviews(http.StatusInternalServerError, 1000)
+	sendChat(t, server, leadChat, "Approve #41")
+	retryItem(t, server)
+
+	setWorkstreamAutopilot(t, server, "off")
+
+	testkit.WaitFor(t, func() bool {
+		items := itemsOf(t, server, "ready for review")
+		return len(items) == 1 && !items[0].Merging && items[0].MergeRefusal == ""
+	})
+	fake.FailReviews(0, 0)
+	waitForPolls(t, fake)
+	if state, calls, count := taskState(t, server), fake.MergeCalls(), approvals(fake); state != "ready_for_review" || calls != 0 || count != 0 {
+		t.Errorf("state = %s, merge calls = %d, approvals = %d", state, calls, count)
+	}
+}
+
+func TestAnApprovalOfAPersonAfterAServerErrorOfTheApprovalGetsNoSecondApproval(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := approvable(t, fake, "merge", true)
+	fake.FailReviews(http.StatusInternalServerError, 1000)
+	sendChat(t, server, leadChat, "Approve #41")
+	retryItem(t, server)
+
+	fake.AfterNextIssueListRead(shop, func() {
+		fake.AddReview(shop, 42, "owner", "APPROVED", "")
+		fake.FailReviews(0, 0)
+	})
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "" })
+	if calls, count := fake.MergeCalls(), approvals(fake); calls != 1 || count != 0 {
+		t.Errorf("merge calls = %d, approvals of Mobius = %d", calls, count)
+	}
+	if got := len(fake.ReviewIDs(shop, 42)); got != 1 {
+		t.Errorf("reviews = %d", got)
+	}
+}
+
+func TestAMergeTapDuringTheRetryOfTheApprovalGivesOneApproval(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := approvable(t, fake, "merge", true)
+	fake.FailReviews(http.StatusInternalServerError, 1000)
+	sendChat(t, server, leadChat, "Approve #41")
+	item := retryItem(t, server)
+	reached, release := fake.HoldPullRequest(shop, 42)
+	<-reached
+	fake.FailReviews(0, 0)
+
+	if status, body := merge(t, server, item.ID); status != http.StatusOK {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+	release()
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "" })
+	if calls, count := fake.MergeCalls(), approvals(fake); calls != 1 || count != 1 {
+		t.Errorf("merge calls = %d, approvals = %d", calls, count)
+	}
+}

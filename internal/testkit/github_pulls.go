@@ -264,6 +264,13 @@ func (g *FakeGitHub) replyToReviewComment(w http.ResponseWriter, r *http.Request
 	notFound(w)
 }
 
+// FailReviews makes the next times review writes give the status. The count 0 makes the review writes work.
+func (g *FakeGitHub) FailReviews(status, times int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.reviewFailure, g.reviewFailures = status, times
+}
+
 // submitReview adds the review and its inline comments as the token owner.
 func (g *FakeGitHub) submitReview(w http.ResponseWriter, r *http.Request) {
 	var review SubmittedReview
@@ -275,6 +282,11 @@ func (g *FakeGitHub) submitReview(w http.ResponseWriter, r *http.Request) {
 	defer g.mu.Unlock()
 	key, ok := g.issue(w, r)
 	if !ok {
+		return
+	}
+	if g.reviewFailures > 0 {
+		g.reviewFailures--
+		message(w, g.reviewFailure, "Server Error")
 		return
 	}
 	found := g.issues[key]

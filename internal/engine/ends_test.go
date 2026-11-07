@@ -2,6 +2,7 @@ package engine_test
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"io/fs"
 	"os"
@@ -78,6 +79,65 @@ func TestAMergeEndsTheTaskAndKeepsTheBranch(t *testing.T) {
 	head(t, fake, "mobius/41")
 	waitForLeadPrompt(t, server, " end of #41 \"Add plan model\": pull request #42 merged.")
 	waitForLeadEvent(t, server, "end", " end of #41 \"Add plan model\": pull request #42 merged.")
+}
+
+func TestAMergeKeepsTheEndEventWhenALabelRemovalFails(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, commits, noChange)
+	waitForApproval(t, server, fake)
+
+	fake.FailRemoveLabels(shop, 41, true)
+	fake.MergePullRequest(shop, 42)
+
+	testkit.WaitFor(t, func() bool {
+		var count int
+		if err := server.DB.QueryRow("SELECT count(*) FROM lead_events WHERE repository = ? AND issue = 41 AND kind = 'end'", shop).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		return count > 0
+	})
+	var (
+		kind    string
+		payload string
+	)
+	if err := server.DB.QueryRow("SELECT kind, payload FROM lead_events WHERE repository = ? AND issue = 41 AND kind = 'end'", shop).Scan(&kind, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if kind != "end" || !strings.Contains(payload, "pull request #42 merged.") {
+		t.Errorf("kind = %s, payload = %s", kind, payload)
+	}
+	waitForPolls(t, fake)
+	var count int
+	if err := server.DB.QueryRow("SELECT count(*) FROM lead_events WHERE repository = ? AND issue = 41 AND kind = 'end'", shop).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Errorf("end events = %d, want 1", count)
+	}
+}
+
+func TestAMergeSetsTheMergedQualityValue(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, commits, noChange)
+	waitForApproval(t, server, fake)
+
+	fake.MergePullRequest(shop, 42)
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "" })
+	waitForLeadEvent(t, server, "end", " end of #41 \"Add plan model\": pull request #42 merged.")
+
+	rows, err := store.New(server.DB).ListEndedTaskQuality(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) == 0 {
+		t.Fatal("no ended task quality rows")
+	}
+	if !rows[0].Merged {
+		t.Errorf("task quality row merged = %v, want true", rows[0].Merged)
+	}
 }
 
 func TestAMergeClosesTheOpenIssueAsCompleted(t *testing.T) {
@@ -305,14 +365,46 @@ func TestARetryAfterAFailedResolveOfAFollowUpThreadSendsNoSecondEventToTheLead(t
 	}
 }
 
+type loggedLeadEvent struct {
+	id          int64
+	kind        string
+	time        string
+	deliveredAt sql.NullString
+	held        int64
+	payload     string
+}
+
 func TestAnEndEventStartsANewLeadSessionWhenNoSessionIsOpen(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	lead := "[[prompts]]\nwhen = \"end of #41\"\nreply = [\"Seen\"]\n\n" + leadStarts
 	server, _ := connectTask(t, fake, lead, commits, noChange)
+	t.Cleanup(func() {
+		if !t.Failed() {
+			return
+		}
+		t.Logf("task state: %s", taskState(t, server))
+		events := query(t, server, func(rows *sql.Rows, e *loggedLeadEvent) error {
+			return rows.Scan(&e.id, &e.kind, &e.time, &e.deliveredAt, &e.held, &e.payload)
+		}, "SELECT id, kind, time, delivered_at, held, payload FROM lead_events WHERE repository = ? ORDER BY id", shop)
+		for _, e := range events {
+			t.Logf("lead event: id=%d kind=%s time=%s delivered_at=%s held=%d payload=%s", e.id, e.kind, e.time, e.deliveredAt.String, e.held, e.payload)
+		}
+		for _, s := range chatSessions(t, server, leadChat, engine.LeadRole) {
+			prompts := promptTexts(t, server, s.ID)
+			t.Logf("lead session: id=%d started_at=%s ended_at=%s end_reason=%s queue_reason=%s prompts=%d", s.ID, s.StartedAt, s.EndedAt.String, s.EndReason.String, s.QueueReason.String, len(prompts))
+			for i, prompt := range prompts {
+				tail := prompt
+				if runes := []rune(prompt); len(runes) > 500 {
+					tail = string(runes[len(runes)-500:])
+				}
+				t.Logf("session %d prompt %d: %s", s.ID, i+1, tail)
+			}
+		}
+	})
 	waitForApproval(t, server, fake)
 
-	waitForLeadPrompt(t, server, "ready for Lead approval")
+	waitForLeadPrompt(t, server, " ready for Lead approval of #41 \"Add plan model\": pull request #42")
 	testkit.WaitFor(t, func() bool {
 		if !eventDelivered(t, server) {
 			return false

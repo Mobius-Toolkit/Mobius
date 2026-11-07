@@ -1258,6 +1258,9 @@ func (e *Engine) continueTask(ctx context.Context, repository github.Repository,
 	return true, nil
 }
 
+// finishTheIssue is the items text of a fix round that continues a pull request with no open thread and no CI item.
+const finishTheIssue = "\nThe human continued the task. Finish the issue.\n"
+
 // continueItems gives the items of a fix round that continues the pull request number of the task: each open review
 // thread, with the action fix, and then ci. It first sends the follow-up threads to the Lead. With no open thread and
 // no ci, it tells the Implementer to finish the issue.
@@ -1279,7 +1282,7 @@ func (e *Engine) continueItems(ctx context.Context, repository github.Repository
 	items, err := fixThreads(ctx, repository, int64(number), open, trusted)
 	items += ci
 	if items == "" && err == nil {
-		return "\nThe human continued the task. Finish the issue.\n", nil
+		return finishTheIssue, nil
 	}
 	return items, err
 }

@@ -49,6 +49,10 @@ type job struct {
 	// fix round or a conflict round works on the pull request of that round.
 	pullRequest   *gh.PullRequest
 	conflictRound bool
+	// reviewItems tells that the job is a fix round with open review items.
+	reviewItems bool
+	// replied tells that the round posted a reply in a review thread or a conversation comment.
+	replied bool
 	// oldHead is the head of the pull request before the first try to push, or "" before that try.
 	oldHead string
 	prompt  string
@@ -79,6 +83,7 @@ const (
 	notMerged     outcome = "not_merged"
 	pushRejected  outcome = "push_rejected"
 	noCommits     outcome = "no_commits"
+	noChange      outcome = "no_change"
 	mergeConflict outcome = "merge_conflict"
 )
 
@@ -383,6 +388,8 @@ func (e *Engine) finishApproval(ctx context.Context, repository github.Repositor
 		return text + "Mobius merges it after the Owner marks the mandatory todos as done.", nil
 	case mergePausedReason:
 		return text + "Mobius merges it after the Owner turns the Merge switch on.", nil
+	case mergeRetryReason:
+		return text + "GitHub gave a server error for the approval of the Owner. Mobius tries the approval again, then it merges.", nil
 	}
 	return text + "Mobius merges it after its checks pass.", nil
 }
@@ -606,6 +613,7 @@ func (e *Engine) holdReply(ctx context.Context, c caller, repository github.Repo
 		return "", err
 	}
 	if !unpushed && target.reply(ctx, repository, pullRequest, text) == nil {
+		c.agent.setReplied()
 		if target.resolve(ctx, repository) != nil {
 			c.agent.mu.Lock()
 			c.agent.replies = append(c.agent.replies, heldReply{target: target, posted: true})
@@ -672,6 +680,9 @@ func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r r
 	if err != nil || queued == 0 {
 		return err
 	}
+	openReviewItems := !r.failedCheck &&
+		(r.cause == reviewCause || r.cause == leadCause || r.cause == judgeCause) &&
+		r.items != "" && r.items != finishTheIssue
 	j := job{
 		task:        r.task,
 		title:       r.title,
@@ -679,13 +690,14 @@ func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r r
 		pullRequest: r.pullRequest,
 		prompt: fmt.Sprintf("%s\n%s# Brief\n\n%s\n\n# Issue\n\n#%d %s\n\n%s\n\n%s\n%s# Open items\n%s",
 			implementerPrompt, sections, brief, r.task.Issue, issue.GetTitle(), issue.GetBody(), comments, reportPrompt(r.task.Report), r.items),
-		cont:      true,
-		items:     r.items,
-		brief:     brief,
-		issueBody: issue.GetBody(),
-		comments:  comments,
-		report:    r.task.Report,
-		parent:    r.parent,
+		cont:        true,
+		items:       r.items,
+		brief:       brief,
+		issueBody:   issue.GetBody(),
+		comments:    comments,
+		report:      r.task.Report,
+		parent:      r.parent,
+		reviewItems: openReviewItems,
 	}
 	worker := ImplementerRole
 	if r.failedCheck {
@@ -966,6 +978,7 @@ func (e *Engine) implementer(ctx context.Context, j *job) error {
 		}
 		return err
 	}
+	a.job = j
 	// a.report is the report text that the session knows: the report of its prompt, or the report of its own
 	// submit_report call. A continued session gets a new report only when shortPrompt sends one.
 	a.report = j.report
@@ -1030,6 +1043,12 @@ func (e *Engine) implementer(ctx context.Context, j *job) error {
 			text:   "The branch has no commit, so GitHub opened no pull request.",
 			output: fmt.Sprintf("GitHub gave this error: %s\nThe worktree is %s.", r.text, a.spec.Dir),
 			next:   "Read the Transcript of the Implementer. Commit the work in the worktree, or tell the Lead the next step. Then Resume.",
+		})
+	case noChange:
+		return e.handOverFailed(ended, task, j.title, fmt.Sprintf("the fix round of session %d made no commit, no reply and no new report. Mobius added mobius:needs-human.", a.id), "No change", "The fix round made no commit, no reply and no new report.", stopNotice{
+			reason: "No change",
+			text:   fmt.Sprintf("The fix round of session %d made no commit, no reply and no new report.", a.id),
+			next:   "Resume starts a new fix round with the open review threads. With no open thread, the round gets no finding of the Lead, so the Lead must send the findings again after the Resume.",
 		})
 	case mergeConflict:
 		return e.handOver(ended, task, j.title, fmt.Sprintf("the local branch diverged from origin/%s, and the merge had conflicts. Mobius pushed nothing and added mobius:needs-human. Git gave this error: %s. Resume gives the same conflict. First, in %s, merge origin/%s into the local branch and resolve the conflicts, or reset the local branch to origin/%s.", j.branch, r.text, a.spec.Dir, j.branch, j.branch), stopNotice{
@@ -1590,7 +1609,7 @@ func (e *Engine) push(ctx context.Context, a *Agent, j *job, failedLog string, m
 	head, err := runner.Push(ctx, dataDir, worktree, token, j.branch)
 	a.endStep(ctx, "push", pushStartedAt, sql.NullInt64{}, err)
 	e.gitMu.Unlock()
-	if err != nil && strings.Contains(err.Error(), "[remote rejected]") {
+	if err != nil && strings.Contains(err.Error(), "[remote rejected]") && !strings.Contains(err.Error(), "(Internal Server Error)") {
 		return result{outcome: pushRejected, text: err.Error()}, nil
 	}
 	if err != nil {
@@ -1656,6 +1675,9 @@ func (e *Engine) push(ctx context.Context, a *Agent, j *job, failedLog string, m
 	if err != nil {
 		return result{}, err
 	}
+	if j.reviewItems && head == j.oldHead && !a.hasReplied() && task.Report == j.report {
+		return result{outcome: noChange}, nil
+	}
 	if !j.conflictRound && task.ReviewRounds >= int64(e.config.MaxFixRounds) {
 		return pushedHead, nil
 	}
@@ -1674,6 +1696,7 @@ func (a *Agent) postReplies(ctx context.Context, repository github.Repository, p
 				return err
 			}
 			held.posted = true
+			a.job.replied = true
 		}
 		if err := held.target.resolve(ctx, repository); err != nil {
 			return err

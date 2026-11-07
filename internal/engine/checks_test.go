@@ -114,9 +114,7 @@ func TestAFailedCheckRunMakesTheReadyPullRequestADraftUntilTheEndOfTheRound(t *t
 	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
 
 	testkit.WaitFor(t, func() bool { return fake.PullRequests(shop)[0].Draft })
-	if state := taskState(t, server); state != "working" {
-		t.Errorf("state = %s", state)
-	}
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "working" })
 
 	touch(t, goFile)
 

@@ -1051,7 +1051,7 @@ func TestTheCuratorGetsMobiusRoleFilesAndPromptSection(t *testing.T) {
 	script := fmt.Sprintf(`
 [[prompts]]
 when = "You are a Curator"
-later = { wait_for = %q, updates = ['{"sessionUpdate": "plan", "entries": []}'] }
+shell = '''until [ -e %s ]; do sleep 0.01; done'''
 reply = ["The memory file is up to date."]
 `, gate) + curatorScript
 	server, dataDir := connect(t, fake, script)
@@ -1069,10 +1069,17 @@ reply = ["The memory file is up to date."]
 	leadFile := filepath.Join(scratchDir, "roles", "lead.md")
 	curatorFile := filepath.Join(scratchDir, "roles", "curator.md")
 
-	leadContent := testkit.WaitForValue(t, func() (string, bool) {
-		data, err := os.ReadFile(filepath.Clean(leadFile))
-		return string(data), err == nil
+	prompts := testkit.WaitForValue(t, func() ([]string, bool) {
+		p := promptTexts(t, server, curator.ID)
+		return p, len(p) > 0
 	})
+	firstPrompt := prompts[0]
+
+	leadData, err := os.ReadFile(filepath.Clean(leadFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	leadContent := string(leadData)
 
 	leadPromptData, err := os.ReadFile(filepath.Clean(filepath.Join("prompts", "lead.md")))
 	if err != nil {
@@ -1094,11 +1101,6 @@ reply = ["The memory file is up to date."]
 		t.Errorf("curator.md does not contain search_issues and report_gap: %s", curatorContent)
 	}
 
-	prompts := testkit.WaitForValue(t, func() ([]string, bool) {
-		p := promptTexts(t, server, curator.ID)
-		return p, len(p) > 0
-	})
-	firstPrompt := prompts[0]
 	if !strings.Contains(firstPrompt, "# Mobius roles\n\n") {
 		t.Errorf("first prompt missing # Mobius roles section: %s", firstPrompt)
 	}
