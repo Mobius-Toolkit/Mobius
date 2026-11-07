@@ -42,10 +42,10 @@ func triageEndpoint(number int64) string {
 // startTriage starts the first turn of the Triager of the open issue, which has no Workstream, in two cases. A trusted
 // user created the issue at or after since. Or the issue has mobius:triage, and a trusted user added that label at or after
 // since, and no earlier turn started for that label.
-// The first case adds mobius:triage. The first poll of a repository, with no since, starts no Triager. It adds the
+// The first case adds mobius:triage. The first poll of a repository, with no issues row in the cursors, starts no Triager. It adds the
 // reaction of an agent to the comments, because the first turn reads them. It gives true when it started a turn.
-func (e *Engine) startTriage(ctx context.Context, repository github.Repository, issue *gh.Issue, comments []*gh.IssueComment, since time.Time) (bool, error) {
-	if issue.IsPullRequest() || hasLabel(issue, bucketLabel) || issue.GetState() != "open" || since.IsZero() {
+func (e *Engine) startTriage(ctx context.Context, repository github.Repository, issue *gh.Issue, comments []*gh.IssueComment, since time.Time, firstPoll bool) (bool, error) {
+	if issue.IsPullRequest() || hasLabel(issue, bucketLabel) || issue.GetState() != "open" || firstPoll {
 		return false, nil
 	}
 	number := int64(issue.GetNumber())

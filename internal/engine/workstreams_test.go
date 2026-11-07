@@ -249,6 +249,38 @@ func TestANewWorkstreamAddsACreationEventForTheLead(t *testing.T) {
 	}
 }
 
+// startEmpty starts the server on a repository with no issue and waits for the poll that writes its issues cursor.
+func startEmpty(t *testing.T, fake *testkit.FakeGitHub, dataDir string) *testserver.Server {
+	t.Helper()
+	server := startServer(t, fake, dataDir, "")
+	testkit.WaitFor(t, func() bool {
+		var rows int
+		err := server.DB.QueryRow("SELECT count(*) FROM sync_cursors WHERE repository = ? AND endpoint = 'issues'", shop).Scan(&rows)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return rows == 1
+	})
+	return server
+}
+
+func TestTheFirstWorkstreamOfARepositoryWithNoIssueAddsACreationEventForTheLead(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := startEmpty(t, fake, t.TempDir())
+
+	fake.CreateLabeledIssue(shop, 1, "Plan prices", "Price each plan.", "owner", "mobius:workstream")
+
+	events := testkit.WaitForValue(t, func() ([]leadEvent, bool) {
+		events := leadEvents(t, server)
+		return events, len(events) > 0
+	})
+	waitForPolls(t, fake)
+	if got := leadEvents(t, server); len(got) != 1 || got[0].Workstream != 1 || got[0].Kind != "creation" {
+		t.Errorf("Lead events = %+v, first read = %+v", got, events)
+	}
+}
+
 func TestABodyEditSendsAWorkstreamsChangeAndTheListHasTheNewBrief(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
