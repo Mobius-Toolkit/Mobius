@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -134,6 +135,51 @@ func seed(t *testing.T, dataDir string, statements ...string) {
 type apiPause struct {
 	Harness     string    `json:"harness"`
 	PausedUntil time.Time `json:"pausedUntil"`
+	InUse       *bool     `json:"inUse"`
+}
+
+// inUse gives the inUse value of the pause of Harness harness, and fails when no pause has it.
+func inUse(t *testing.T, pauses []apiPause, harness string) bool {
+	t.Helper()
+	for _, found := range pauses {
+		if found.Harness == harness && found.InUse != nil {
+			return *found.InUse
+		}
+	}
+	t.Fatalf("no pause of %s with inUse in %+v", harness, pauses)
+	return false
+}
+
+// pausedDevinWithNoSession gives a pause of Devin that no open session waits for. The Implementer uses Devin.
+func pausedDevinWithNoSession(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHub) {
+	t.Helper()
+	agent := start(t, server, implementerSpec(t, server, fake, 41))
+	ctx, cancel := context.WithCancel(t.Context())
+	prompted := make(chan error, 1)
+	go func() { prompted <- agent.Prompt(ctx, "Store plans in cents.", nil) }()
+	testkit.WaitFor(t, func() bool { _, paused := devinPause(t, server); return paused })
+	cancel()
+	<-prompted
+	end(t, agent, "stopped")
+}
+
+// moveImplementerToClaudeCode makes the Implementer use Claude Code, so no Role uses Devin.
+func moveImplementerToClaudeCode(t *testing.T, server *testserver.Server) {
+	t.Helper()
+	settings, err := server.Engine.Roles(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var binding config.RoleBinding
+	for _, setting := range settings {
+		if setting.Role == engine.ImplementerRole {
+			binding = setting.Binding
+		}
+	}
+	binding.Harness, binding.Model = config.ClaudeCode, "haiku"
+	if err := server.Engine.SetRole(t.Context(), engine.ImplementerRole, binding); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // apiPauses gives the pauses through the API.
@@ -445,6 +491,68 @@ func TestARetryThatHitsTheUsageLimitAfterARestartThatFollowsTheEndOfThePauseAdds
 	}
 	if err := <-prompted; err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestAPauseOfAHarnessThatARoleUsesIsInUse(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, usageLimit)
+	pausedDevinWithNoSession(t, server, fake)
+
+	if !inUse(t, apiPauses(t, server), "devin") {
+		t.Error("the pause of devin is not in use, but the Implementer uses devin")
+	}
+}
+
+func TestAPauseOfAHarnessThatNoRoleUsesAndNoSessionWaitsForIsNotInUse(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, usageLimit)
+	pausedDevinWithNoSession(t, server, fake)
+
+	moveImplementerToClaudeCode(t, server)
+
+	if inUse(t, apiPauses(t, server), "devin") {
+		t.Error("the pause of devin is in use, but no Role uses devin and no session waits")
+	}
+	if _, paused := devinPause(t, server); !paused {
+		t.Error("the pause of devin ended")
+	}
+}
+
+func TestAPauseOfAHarnessThatNoRoleUsesIsInUseWhileASessionWaitsForIt(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, usageLimit)
+	agent := start(t, server, implementerSpec(t, server, fake, 41))
+	defer end(t, agent, "done")
+	go func() { _ = agent.Prompt(t.Context(), "Store plans in cents.", nil) }()
+	testkit.WaitFor(t, func() bool {
+		return strings.HasPrefix(session(t, server, agent.ID()).QueueReason.String, "paused until ")
+	})
+
+	moveImplementerToClaudeCode(t, server)
+
+	if !inUse(t, apiPauses(t, server), "devin") {
+		t.Error("the pause of devin is not in use, but a session waits for it")
+	}
+}
+
+func TestAChangeOfTheLastRoleOfAPausedHarnessSendsThePausesEventWithInUseFalse(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, usageLimit)
+	pausedDevinWithNoSession(t, server, fake)
+	events := liveEvents(t, server, "pauses")
+
+	moveImplementerToClaudeCode(t, server)
+
+	changed := nextEventData(t, events, func(pauses []apiPause) bool {
+		return len(pauses) == 1 && pauses[0].InUse != nil && !*pauses[0].InUse
+	})
+	if changed[0].Harness != "devin" {
+		t.Errorf("pauses event = %+v", changed)
 	}
 }
 

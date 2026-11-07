@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -324,9 +325,32 @@ func (e *Engine) Resume(ctx context.Context, harness string) error {
 	return e.endPause(ctx, *pause)
 }
 
+// PauseState is the pause of a Harness. InUse tells that a Role uses the Harness, or that an open session waits for
+// the pause.
+type PauseState struct {
+	store.HarnessPause
+	InUse bool
+}
+
 // Pauses gives the pause of each Harness that has one.
-func (e *Engine) Pauses(ctx context.Context) ([]store.HarnessPause, error) {
-	return e.queries.ListHarnessPauses(ctx)
+func (e *Engine) Pauses(ctx context.Context) ([]PauseState, error) {
+	pauses, err := e.queries.ListHarnessPauses(ctx)
+	if err != nil {
+		return nil, err
+	}
+	waiting, err := e.queries.ListWaitingHarnesses(ctx, pausedPrefix)
+	if err != nil {
+		return nil, err
+	}
+	roles := e.mergedRoles()
+	bindings := roles.Bindings()
+	states := make([]PauseState, 0, len(pauses))
+	for _, pause := range pauses {
+		inUse := slices.Contains(waiting, pause.Harness) ||
+			slices.ContainsFunc(bindings, func(b config.NamedBinding) bool { return string(b.Binding.Harness) == pause.Harness })
+		states = append(states, PauseState{HarnessPause: pause, InUse: inUse})
+	}
+	return states, nil
 }
 
 // harnessPause gives the pause of harness, or nil when harness has no pause.
@@ -407,6 +431,15 @@ func (e *Engine) PausedUntil(ctx context.Context, session store.Session) (*time.
 	return pauseEnd(*pause)
 }
 
+// waitsForPause tells if the open session id has the queue reason of a wait for a pause.
+func (e *Engine) waitsForPause(ctx context.Context, id int64) (bool, error) {
+	session, err := e.queries.GetSession(ctx, id)
+	if err != nil {
+		return false, err
+	}
+	return strings.HasPrefix(session.QueueReason.String, pausedPrefix), nil
+}
+
 func pauseEnd(pause store.HarnessPause) (*time.Time, error) {
 	until, err := time.Parse(time.RFC3339Nano, pause.PausedUntil)
 	if err != nil {
@@ -441,6 +474,7 @@ func (a *Agent) waitForPause(ctx context.Context) error {
 				return err
 			}
 			e.publish(Change{Node: new(e.node(cleared))})
+			e.publish(Change{Pauses: true})
 			e.publishChat(a)
 			return nil
 		}
@@ -457,6 +491,7 @@ func (a *Agent) waitForPause(ctx context.Context) error {
 				return err
 			}
 			e.publish(Change{Node: new(e.node(queued))})
+			e.publish(Change{Pauses: true})
 			e.publishChat(a)
 			shown = true
 		}

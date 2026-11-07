@@ -209,5 +209,6 @@ func (e *Engine) ResetRole(ctx context.Context, role string) error {
 // change. The caller holds the write lock of rolesMu.
 func (e *Engine) applyRoles(merged config.Roles) {
 	e.roles = merged
+	e.publish(Change{Pauses: true})
 	e.workers.changed.notify()
 }
