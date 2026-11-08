@@ -47,6 +47,7 @@ type inboxItem struct {
 		Note      string `json:"note"`
 
 		Dismissable bool `json:"dismissable"`
+		AfterMerge  bool `json:"afterMerge"`
 	} `json:"todo"`
 }
 

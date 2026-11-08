@@ -422,6 +422,8 @@ export interface Question {
  * Todo is the deployment need of a todo Inbox item.
  */
 export interface Todo {
+  /** AfterMerge is true when a person can do the step only after the merge, so the todo does not block the merge */
+  afterMerge: boolean;
   /** Dismissable is true when the Owner can dismiss the todo: it is open and its need is optional */
   dismissable: boolean;
   /** Kind is the kind of the need: env_var, config, secret or manual_step */
