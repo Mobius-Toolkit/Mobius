@@ -1,5 +1,5 @@
 CREATE TABLE issue_bindings (
-    repository TEXT NOT NULL,
+    repository TEXT NOT NULL COLLATE NOCASE,
     issue INTEGER NOT NULL,
     role TEXT NOT NULL CHECK (role IN ('implementer', 'lead')),
     harness TEXT NOT NULL,

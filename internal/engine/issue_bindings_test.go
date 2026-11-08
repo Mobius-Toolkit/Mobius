@@ -132,6 +132,7 @@ func TestALeadOfAWorkstreamWithNoSettingAndWithASettingGetsEachBinding(t *testin
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"Seen\"]\n")
+	addCopiedTask(t, server, fake, 41)
 
 	sendChat(t, server, leadChat, "Plan the API")
 	first := endedChatSession(t, server, 0)
@@ -142,6 +143,25 @@ func TestALeadOfAWorkstreamWithNoSettingAndWithASettingGetsEachBinding(t *testin
 	requireBinding(t, first, "claude-code", "opus", "high")
 	requireBinding(t, second, "claude-code", "sonnet", "low")
 	requireNext(t, server, "lead", shop, 12, engine.LevelWorkstream, "claude-code", "sonnet", "low")
+	requireBinding(t, taskSession(t, server, shop, 41), "devin", "swe-1.5", "high")
+}
+
+func TestASettingOfARepositoryNameInAnotherCaseIsTheSettingOfTheTask(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, answersDone)
+	addCopiedTask(t, server, fake, 41)
+
+	if err := server.Engine.SetIssueBinding(t.Context(), "implementer", "OWNER/Shop", 41, config.Devin, "opus", "low"); err != nil {
+		t.Fatal(err)
+	}
+
+	requireBinding(t, taskSession(t, server, shop, 41), "devin", "opus", "low")
+	requireNext(t, server, "implementer", shop, 41, engine.LevelTask, "devin", "opus", "low")
+	if err := server.Engine.ClearIssueBinding(t.Context(), "implementer", "owner/SHOP", 41); err != nil {
+		t.Fatal(err)
+	}
+	requireNext(t, server, "implementer", shop, 41, engine.LevelRole, "devin", "swe-1.5", "high")
 }
 
 func TestTheTaskSettingWinsOverTheWorkstreamSettingAndTheBindingOfTheRole(t *testing.T) {
