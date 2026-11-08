@@ -488,3 +488,23 @@ func TestASettingOfAClosedTaskIsNoUserOfItsAccessKeyAndItsRowStays(t *testing.T)
 		t.Errorf("rows = %+v, err = %v, want the row of the closed task", rows, err)
 	}
 }
+
+func TestAnImplementerWithATaskSettingThatWaitsForAPauseStaysAfterAChangeOfTheHarnessOfItsRole(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, implementerCommits+noFinding+leadStarts, implementerLimit, noChange)
+	waitForCopy(t, server, shop, 41)
+	setBinding(t, server, "implementer", 41, config.Devin, "opus", "low")
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	waitForPausedSession(t, server, leadChat, engine.ImplementerRole, 1)
+
+	moveImplementerToClaudeCode(t, server)
+	waitForPolls(t, fake)
+	waitForPolls(t, fake)
+
+	sessions := roleSessions(t, server, engine.ImplementerRole)
+	if len(sessions) != 1 || sessions[0].EndedAt.Valid || sessions[0].EndReason.Valid {
+		t.Fatalf("sessions = %+v", sessions)
+	}
+	requireBinding(t, sessions[0], "devin", "opus", "low")
+}
