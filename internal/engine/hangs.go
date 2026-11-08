@@ -6,7 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"slices"
 	"time"
+
+	"github.com/coder/acp-go-sdk"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
@@ -23,11 +26,25 @@ const (
 	implementerRetryAdvice = "If you cannot do the work, call `cannot_do` with the reason."
 )
 
+// incompletePrompt is the start of the prompt that follows a turn with an incomplete stop reason. It has the stop
+// reason as its argument.
+const incompletePrompt = "Your previous turn ended with the stop reason `%s` before your work was complete. Read the state of your work and continue. The prompt of that turn follows."
+
 // hangTimeout is the time with no activity after which a running turn is hung.
 var hangTimeout = 15 * time.Minute
 
 // errHung is the error of a prompt that hung after the last retry.
 var errHung = errors.New("the agent had no activity after the last retry")
+
+// errIncomplete is the error of a prompt that the Harness ended with the stop reason max_tokens, max_turn_requests or
+// refusal. The agent did not complete its work.
+type errIncomplete struct {
+	reason acp.StopReason
+}
+
+func (e *errIncomplete) Error() string {
+	return fmt.Sprintf("the turn ended with the stop reason %s before the work was complete", e.reason)
+}
 
 func retryText(role string) string {
 	if role == ImplementerRole {
@@ -70,6 +87,9 @@ func (a *Agent) sendPrompt(ctx context.Context, text string, images []Image) err
 	}
 	if <-absorbed {
 		return a.addNote(ctx, fmt.Sprintf("The agent ended an autonomous turn and had no more work for %s, so the prompt had no response. Mobius cancelled the prompt and counts the turn as complete.", absorbTimeout))
+	}
+	if err == nil && slices.Contains([]acp.StopReason{acp.StopReasonMaxTokens, acp.StopReasonMaxTurnRequests, acp.StopReasonRefusal}, result.StopReason) {
+		return &errIncomplete{reason: result.StopReason}
 	}
 	return err
 }
