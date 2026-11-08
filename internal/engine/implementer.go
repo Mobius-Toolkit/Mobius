@@ -1154,7 +1154,16 @@ func (e *Engine) keepImplementer(ctx context.Context, a *Agent, task store.Task,
 			return
 		}
 		beforeKeep(task.ID, k.session)
-		e.keepSession(task.ID, k)
+		e.rolesMu.RLock()
+		stale := k.level == LevelRole && k.binding != e.roles.Implementer
+		if !stale {
+			e.keepSession(task.ID, k)
+		}
+		e.rolesMu.RUnlock()
+		if stale {
+			e.closeKeptSession(k)
+			return
+		}
 		if !e.taskContinues(ctx, task) {
 			e.closeKept(task.ID)
 		}
