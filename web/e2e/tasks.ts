@@ -96,3 +96,31 @@ export const tasksRoute = "/api/tasks";
 export async function routeTasks(page: Page, tasks: unknown[]) {
   await page.route(tasksRoute, (route) => route.fulfill({ json: { data: tasks } }));
 }
+
+// The data of a live event inbox: the board reads again and does not use the item.
+export const inboxItem = {
+  id: 1,
+  kind: "question",
+  action: null,
+  answer: "",
+  blockingTodos: [],
+  dismissedAt: null,
+  issue: 12,
+  link: `${shop}/issues/12`,
+  mergeRefusal: "",
+  merging: false,
+  organization: "owner",
+  pullRequest: 0,
+  pullRequestUrl: "",
+  questions: [],
+  reason: "",
+  reportUrl: "",
+  repository: "owner/shop",
+  text: "",
+  time: "2026-10-15T11:50:00Z",
+  title: "Pick the plan limits",
+  todo: null,
+  withdrawn: false,
+  workstream: 12,
+  workstreamRepository: "owner/shop",
+};

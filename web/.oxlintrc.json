@@ -31,7 +31,13 @@
   ],
   "overrides": [
     {
-      "files": ["src/chat/**/*.{ts,tsx}", "src/ui/**/*.{ts,tsx}", "src/live/**/*.{ts,tsx}"],
+      "files": [
+        "src/chat/**/*.{ts,tsx}",
+        "src/ui/**/*.{ts,tsx}",
+        "src/live/**/*.{ts,tsx}",
+        "src/workstreams/**/*.{ts,tsx}",
+        "src/tasks/**/*.{ts,tsx}"
+      ],
       "rules": {
         "foldkit/acquire-release-constructs-in-acquire-body": "error",
         "foldkit/command-binding-matches-name": "error",
