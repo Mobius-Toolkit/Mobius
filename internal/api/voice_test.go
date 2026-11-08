@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -59,18 +60,116 @@ func transcribeWithin(ctx context.Context, t *testing.T, handler http.Handler, b
 	return recorder.Code, string(text)
 }
 
-func TestTranscribeGivesTheTextOfTheWAVFile(t *testing.T) {
+func conversionOf(t *testing.T, body string) Conversion {
+	t.Helper()
+	var response Envelope[Conversion]
+	if err := json.Unmarshal([]byte(body), &response); err != nil {
+		t.Fatalf("body = %s, err = %v", body, err)
+	}
+	return response.Data
+}
+
+func getConversion(handler http.Handler, id string) (int, string) {
+	request := httptest.NewRequest(http.MethodGet, "/api/voice/conversions/"+id, nil)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	return recorder.Code, recorder.Body.String()
+}
+
+// waitForConversion asks GetConversion until the state is not converting.
+func waitForConversion(t *testing.T, handler http.Handler, id string) Conversion {
+	t.Helper()
+	return testkit.WaitForValue(t, func() (Conversion, bool) {
+		status, body := getConversion(handler, id)
+		if status != http.StatusOK {
+			t.Fatalf("status = %d, body = %s", status, body)
+		}
+		conversion := conversionOf(t, body)
+		return conversion, conversion.State != "converting"
+	})
+}
+
+func TestTranscribeAnswersAtOnceWithAConversionThatGivesTheText(t *testing.T) {
 	whisper, _ := fakeWhisperServer(t, http.StatusOK, http.StatusOK)
 	handler, _ := testMuxWith(t, whisper)
 
 	status, text := transcribe(t, handler, []byte("RIFF"))
+	started := conversionOf(t, text)
+	done := waitForConversion(t, handler, started.ID)
 
-	var response Envelope[Transcription]
-	if err := json.Unmarshal([]byte(text), &response); err != nil {
-		t.Fatal(err)
-	}
-	if status != http.StatusOK || response.Data.Text != "hello" {
+	if status != http.StatusOK || len(started.ID) != 32 || started.State != "converting" {
 		t.Errorf("status = %d, body = %s", status, text)
+	}
+	if want := (Conversion{ID: started.ID, State: "done", Text: "hello"}); done != want {
+		t.Errorf("done = %+v, want %+v", done, want)
+	}
+}
+
+// gatedWhisper gives recordings with a final converter that answers " hello " after release is called.
+func gatedWhisper(t *testing.T) (recordings *voice.Recordings, release func()) {
+	t.Helper()
+	gate := make(chan struct{})
+	var once sync.Once
+	release = func() { once.Do(func() { close(gate) }) }
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /health", func(http.ResponseWriter, *http.Request) {})
+	mux.HandleFunc("POST /inference", func(w http.ResponseWriter, _ *http.Request) {
+		<-gate
+		_, _ = w.Write([]byte(`{"text":" hello "}`))
+	})
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+	t.Cleanup(release)
+	w := voice.New(t.TempDir(), "")
+	w.Address = strings.TrimPrefix(server.URL, "http://")
+	return withoutDraft(t, w), release
+}
+
+func TestTranscribeAnswersWhileTheConverterWorks(t *testing.T) {
+	whisper, _ := gatedWhisper(t)
+	handler, _ := testMuxWith(t, whisper)
+
+	_, text := transcribe(t, handler, []byte("RIFF"))
+	started := conversionOf(t, text)
+	status, body := getConversion(handler, started.ID)
+
+	if want := (Conversion{ID: started.ID, State: "converting"}); started != want || conversionOf(t, body) != want || status != http.StatusOK {
+		t.Errorf("started = %+v, status = %d, body = %s", started, status, body)
+	}
+}
+
+func TestAnUnknownConversionGives404(t *testing.T) {
+	handler, _ := testMuxWith(t, liveRecordings(t))
+
+	status, _ := getConversion(handler, "unknown")
+
+	if status != http.StatusNotFound {
+		t.Errorf("status = %d", status)
+	}
+}
+
+func TestGetConversionNeedsADeviceLogin(t *testing.T) {
+	mux, _, _ := newMuxWith(t, liveRecordings(t))
+
+	status, _ := getConversion(mux, "unknown")
+
+	if status != http.StatusUnauthorized {
+		t.Errorf("status = %d", status)
+	}
+}
+
+func TestTheEndOfTheRequestContextDoesNotCancelTheConversion(t *testing.T) {
+	whisper, release := gatedWhisper(t)
+	handler, _ := testMuxWith(t, whisper)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	_, text := transcribeWithin(ctx, t, handler, []byte("RIFF"))
+	cancel()
+	release()
+	done := waitForConversion(t, handler, conversionOf(t, text).ID)
+
+	if done.State != "done" || done.Text != "hello" {
+		t.Errorf("done = %+v", done)
 	}
 }
 
@@ -110,7 +209,7 @@ func TestTranscribeAcceptsABodyOf20MB(t *testing.T) {
 	}
 }
 
-func TestTranscribeAnswers503WithTheReasonWhenTheConverterIsNotReady(t *testing.T) {
+func TestAConversionFailsWithTheReasonWhenTheConverterIsNotReady(t *testing.T) {
 	notInstalled := voice.New(t.TempDir(), "")
 	notInstalled.Address = testkit.FreeAddress(t)
 	starting, _ := fakeWhisperServer(t, http.StatusServiceUnavailable, http.StatusOK)
@@ -140,27 +239,28 @@ func TestTranscribeAnswers503WithTheReasonWhenTheConverterIsNotReady(t *testing.
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			test.whisper.ConversionTimeout = 100 * time.Millisecond
 			handler, _ := testMuxWith(t, test.whisper)
-			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-			defer cancel()
 
-			status, text := transcribeWithin(ctx, t, handler, []byte("RIFF"))
+			_, text := transcribe(t, handler, []byte("RIFF"))
+			done := waitForConversion(t, handler, conversionOf(t, text).ID)
 
-			if status != http.StatusServiceUnavailable || strings.TrimSpace(text) != `{"error":"`+test.message+`"}` {
-				t.Errorf("status = %d, body = %s", status, text)
+			if done.State != "failed" || done.Error != test.message || done.Text != "" {
+				t.Errorf("done = %+v", done)
 			}
 		})
 	}
 }
 
-func TestTranscribeAnswers502WhenWhisperServerReturnsAnError(t *testing.T) {
+func TestAConversionFailsWhenWhisperServerReturnsAnError(t *testing.T) {
 	whisper, _ := fakeWhisperServer(t, http.StatusOK, http.StatusInternalServerError)
 	handler, _ := testMuxWith(t, whisper)
 
-	status, text := transcribe(t, handler, []byte("RIFF"))
+	_, text := transcribe(t, handler, []byte("RIFF"))
+	done := waitForConversion(t, handler, conversionOf(t, text).ID)
 
-	if status != http.StatusBadGateway || strings.TrimSpace(text) != `{"error":"whisper-server: 500 Internal Server Error"}` {
-		t.Errorf("status = %d, body = %s", status, text)
+	if want := (Conversion{ID: done.ID, State: "failed", Error: "whisper-server: 500 Internal Server Error"}); done != want {
+		t.Errorf("done = %+v, want %+v", done, want)
 	}
 }
 
@@ -205,12 +305,17 @@ func TestAChunkGivesTheLiveTextAndFinishGivesTheTextOfTheRecording(t *testing.T)
 
 	status, body := post(handler, "/api/voice/recordings/"+id+"/chunks?sequence=0", make([]byte, 64000))
 	finishStatus, finishBody := post(handler, "/api/voice/recordings/"+id+"/finish", nil)
+	finished := conversionOf(t, finishBody)
+	done := waitForConversion(t, handler, finished.ID)
 
 	if status != http.StatusOK || strings.TrimSpace(body) != `{"data":{"committed":"","draft":"draft"}}` {
 		t.Errorf("chunk: status = %d, body = %s", status, body)
 	}
-	if finishStatus != http.StatusOK || strings.TrimSpace(finishBody) != `{"data":{"text":"hello"}}` {
+	if finishStatus != http.StatusOK || finished.State != "converting" || len(finished.ID) != 32 {
 		t.Errorf("finish: status = %d, body = %s", finishStatus, finishBody)
+	}
+	if want := (Conversion{ID: finished.ID, State: "done", Text: "hello"}); done != want {
+		t.Errorf("done = %+v, want %+v", done, want)
 	}
 	if status, _ := post(handler, "/api/voice/recordings/"+id+"/finish", nil); status != http.StatusNotFound {
 		t.Errorf("second finish: status = %d", status)

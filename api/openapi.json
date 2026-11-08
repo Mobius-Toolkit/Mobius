@@ -4262,6 +4262,72 @@
         ]
       }
     },
+    "/api/voice/conversions/{id}": {
+      "get": {
+        "description": "GetConversion returns the current state of a conversion. It answers 404 for an unknown conversion.",
+        "operationId": "GetConversion",
+        "parameters": [
+          {
+            "description": "ID is the id of the conversion",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_Conversion"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "voice"
+        ]
+      }
+    },
     "/api/voice/language": {
       "get": {
         "description": "GetVoiceLanguage returns the language of the voice conversion and the languages that it accepts.",
@@ -4523,7 +4589,7 @@
     },
     "/api/voice/recordings/{id}/finish": {
       "post": {
-        "description": "FinishRecording converts the full audio of a recording to text and removes the recording. It answers 404 for an unknown recording. It waits up to 5 minutes for the converter. It answers 503 when the converter is still not ready after that time, and 502 when the converter returns an error.",
+        "description": "FinishRecording removes a recording, starts the conversion of its full audio and answers at once with the conversion in the state converting. It answers 404 for an unknown recording.",
         "operationId": "FinishRecording",
         "parameters": [
           {
@@ -4541,7 +4607,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Envelope_Transcription"
+                  "$ref": "#/components/schemas/Envelope_Conversion"
                 }
               }
             },
@@ -4575,26 +4641,6 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
-          },
-          "502": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Bad Gateway"
-          },
-          "503": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Service Unavailable"
           }
         },
         "security": [
@@ -4609,7 +4655,7 @@
     },
     "/api/voice/transcriptions": {
       "post": {
-        "description": "Transcribe converts a voice recording to text. It waits up to 5 minutes for the converter. It answers 503 when the converter is still not ready after that time, and 502 when the converter returns an error.",
+        "description": "Transcribe starts the conversion of a voice recording to text and answers at once with the conversion in the state converting. The converter waits up to 5 minutes until it is ready, and the conversion ends with an error after 15 minutes.",
         "operationId": "Transcribe",
         "requestBody": {
           "content": {
@@ -4627,7 +4673,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Envelope_Transcription"
+                  "$ref": "#/components/schemas/Envelope_Conversion"
                 }
               }
             },
@@ -4651,26 +4697,6 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
-          },
-          "502": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Bad Gateway"
-          },
-          "503": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Service Unavailable"
           }
         },
         "security": [
@@ -6305,6 +6331,40 @@
         ],
         "description": "ClosureItem is an issue or a pull request that the close of a Workstream as \"won't do\" closes."
       },
+      "Conversion": {
+        "type": "object",
+        "title": "Conversion",
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "Error is the text of the failure. It is empty unless the state is failed"
+          },
+          "id": {
+            "type": "string",
+            "description": "ID is the id of the conversion"
+          },
+          "state": {
+            "type": "string",
+            "description": "State is converting while the converter works, done after the text is ready, and failed after an error",
+            "enum": [
+              "converting",
+              "done",
+              "failed"
+            ]
+          },
+          "text": {
+            "type": "string",
+            "description": "Text is the text of the recording, with no leading or trailing spaces. It is empty before done"
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "text",
+          "error"
+        ],
+        "description": "Conversion is the conversion of a voice recording to text. The server keeps it in memory, converts in the background and removes it 1 hour after its end. A restart of the server loses it."
+      },
       "CreateManifestFormBody": {
         "type": "object",
         "title": "CreateManifestFormBody",
@@ -6780,6 +6840,20 @@
         ],
         "description": "Envelope is the body of each success response."
       },
+      "Envelope_Conversion": {
+        "type": "object",
+        "title": "Envelope_Conversion",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Conversion",
+            "description": "Data is the payload of the response"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "description": "Envelope is the body of each success response."
+      },
       "Envelope_Devices": {
         "type": "object",
         "title": "Envelope_Devices",
@@ -6996,20 +7070,6 @@
         "properties": {
           "data": {
             "$ref": "#/components/schemas/TranscriptPage",
-            "description": "Data is the payload of the response"
-          }
-        },
-        "required": [
-          "data"
-        ],
-        "description": "Envelope is the body of each success response."
-      },
-      "Envelope_Transcription": {
-        "type": "object",
-        "title": "Envelope_Transcription",
-        "properties": {
-          "data": {
-            "$ref": "#/components/schemas/Transcription",
             "description": "Data is the payload of the response"
           }
         },
@@ -9389,20 +9449,6 @@
           "older"
         ],
         "description": "TranscriptPage is a page of the Transcript of a session."
-      },
-      "Transcription": {
-        "type": "object",
-        "title": "Transcription",
-        "properties": {
-          "text": {
-            "type": "string",
-            "description": "Text is the text of the recording, with no leading or trailing spaces"
-          }
-        },
-        "required": [
-          "text"
-        ],
-        "description": "Transcription is the text of a voice recording."
       },
       "Unread": {
         "type": "object",

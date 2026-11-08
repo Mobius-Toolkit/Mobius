@@ -19,10 +19,28 @@ const maxTranscriptionBody = 20 * 1024 * 1024
 // maxChunkBody is more than 30 seconds of 16 kHz mono 16-bit samples.
 const maxChunkBody = 1024 * 1024
 
-// Transcription is the text of a voice recording.
-type Transcription struct {
-	// Text is the text of the recording, with no leading or trailing spaces
+// Conversion is the conversion of a voice recording to text. The server keeps it in memory, converts in the background
+// and removes it 1 hour after its end. A restart of the server loses it.
+type Conversion struct {
+	// ID is the id of the conversion
+	ID string `gork:"id"`
+	// State is converting while the converter works, done after the text is ready, and failed after an error
+	State string `gork:"state" validate:"oneof=converting done failed"`
+	// Text is the text of the recording, with no leading or trailing spaces. It is empty before done
 	Text string `gork:"text"`
+	// Error is the text of the failure. It is empty unless the state is failed
+	Error string `gork:"error"`
+}
+
+// ConversionResponse is the response of Transcribe, FinishRecording and GetConversion.
+type ConversionResponse struct {
+	Body Envelope[Conversion]
+}
+
+func conversionResponse(conversion voice.Conversion) *ConversionResponse {
+	return &ConversionResponse{Body: Envelope[Conversion]{Data: Conversion{
+		ID: conversion.ID, State: conversion.State, Text: conversion.Text, Error: conversion.Error,
+	}}}
 }
 
 // TranscribeRequest is the request of Transcribe.
@@ -31,19 +49,32 @@ type TranscribeRequest struct {
 	Body []byte
 }
 
-// TranscribeResponse is the response of Transcribe.
-type TranscribeResponse struct {
-	Body Envelope[Transcription]
+// Transcribe starts the conversion of a voice recording to text and answers at once with the conversion in the state
+// converting. The converter waits up to 5 minutes until it is ready, and the conversion ends with an error after 15
+// minutes.
+func (h *handlers) Transcribe(ctx context.Context, req TranscribeRequest) (*ConversionResponse, error) {
+	id, err := h.recordings.Transcribe(ctx, req.Body, h.recordings.Language())
+	if err != nil {
+		return nil, err
+	}
+	return conversionResponse(voice.Conversion{ID: id, State: voice.Converting}), nil
 }
 
-// Transcribe converts a voice recording to text. It waits up to 5 minutes for the converter. It answers 503 when the
-// converter is still not ready after that time, and 502 when the converter returns an error.
-func (h *handlers) Transcribe(ctx context.Context, req TranscribeRequest) (*TranscribeResponse, error) {
-	text, err := h.recordings.Final.Transcribe(ctx, req.Body, h.recordings.Language())
+// GetConversionRequest is the request of GetConversion.
+type GetConversionRequest struct {
+	Path struct {
+		// ID is the id of the conversion
+		ID string `gork:"id"`
+	}
+}
+
+// GetConversion returns the current state of a conversion. It answers 404 for an unknown conversion.
+func (h *handlers) GetConversion(_ context.Context, req GetConversionRequest) (*ConversionResponse, error) {
+	conversion, err := h.recordings.Conversion(req.Path.ID)
 	if err != nil {
 		return nil, voiceError(err)
 	}
-	return &TranscribeResponse{Body: Envelope[Transcription]{Data: Transcription{Text: text}}}, nil
+	return conversionResponse(conversion), nil
 }
 
 func voiceError(err error) error {
@@ -126,20 +157,14 @@ type FinishRecordingRequest struct {
 	}
 }
 
-// FinishRecordingResponse is the response of FinishRecording.
-type FinishRecordingResponse struct {
-	Body Envelope[Transcription]
-}
-
-// FinishRecording converts the full audio of a recording to text and removes the recording. It answers 404 for an
-// unknown recording. It waits up to 5 minutes for the converter. It answers 503 when the converter is still not ready
-// after that time, and 502 when the converter returns an error.
-func (h *handlers) FinishRecording(ctx context.Context, req FinishRecordingRequest) (*FinishRecordingResponse, error) {
-	text, err := h.recordings.Finish(ctx, req.Path.ID)
+// FinishRecording removes a recording, starts the conversion of its full audio and answers at once with the conversion
+// in the state converting. It answers 404 for an unknown recording.
+func (h *handlers) FinishRecording(ctx context.Context, req FinishRecordingRequest) (*ConversionResponse, error) {
+	id, err := h.recordings.Finish(ctx, req.Path.ID)
 	if err != nil {
 		return nil, voiceError(err)
 	}
-	return &FinishRecordingResponse{Body: Envelope[Transcription]{Data: Transcription{Text: text}}}, nil
+	return conversionResponse(voice.Conversion{ID: id, State: voice.Converting}), nil
 }
 
 // VoiceLanguageItem is a language that the voice conversion accepts.

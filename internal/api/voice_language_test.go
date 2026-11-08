@@ -97,16 +97,20 @@ func (s languageServer) chunk(t *testing.T, id string) {
 
 func (s languageServer) finish(t *testing.T, id string) {
 	t.Helper()
-	if status, body := post(s.handler, "/api/voice/recordings/"+id+"/finish", nil); status != http.StatusOK {
+	status, body := post(s.handler, "/api/voice/recordings/"+id+"/finish", nil)
+	if status != http.StatusOK {
 		t.Fatalf("finish: status = %d, body = %s", status, body)
 	}
+	waitForConversion(t, s.handler, conversionOf(t, body).ID)
 }
 
 func (s languageServer) transcribe(t *testing.T) {
 	t.Helper()
-	if status, body := transcribe(t, s.handler, []byte("RIFF")); status != http.StatusOK {
+	status, body := transcribe(t, s.handler, []byte("RIFF"))
+	if status != http.StatusOK {
 		t.Fatalf("transcribe: status = %d, body = %s", status, body)
 	}
+	waitForConversion(t, s.handler, conversionOf(t, body).ID)
 }
 
 func (s languageServer) lines(t *testing.T, extension string) []string {

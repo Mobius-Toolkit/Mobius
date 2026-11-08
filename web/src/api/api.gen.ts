@@ -719,6 +719,32 @@ export interface ClosureItem {
   url: string;
 }
 
+/**
+ * State is converting while the converter works, done after the text is ready, and failed after an error
+ */
+export type ConversionState = typeof ConversionState[keyof typeof ConversionState];
+
+
+export const ConversionState = {
+  converting: 'converting',
+  done: 'done',
+  failed: 'failed',
+} as const;
+
+/**
+ * Conversion is the conversion of a voice recording to text. The server keeps it in memory, converts in the background and removes it 1 hour after its end. A restart of the server loses it.
+ */
+export interface Conversion {
+  /** Error is the text of the failure. It is empty unless the state is failed */
+  error: string;
+  /** ID is the id of the conversion */
+  id: string;
+  /** State is converting while the converter works, done after the text is ready, and failed after an error */
+  state: ConversionState;
+  /** Text is the text of the recording, with no leading or trailing spaces. It is empty before done */
+  text: string;
+}
+
 export interface CreateManifestFormBody {
   /** Account is the GitHub user or organization that owns the new App */
   account: string;
@@ -1188,6 +1214,14 @@ export interface EnvelopeChat {
 export interface EnvelopeCheckup {
   /** Data is the payload of the response */
   data: Checkup;
+}
+
+/**
+ * Envelope is the body of each success response.
+ */
+export interface EnvelopeConversion {
+  /** Data is the payload of the response */
+  data: Conversion;
 }
 
 /**
@@ -1665,22 +1699,6 @@ export interface TranscriptPage {
 export interface EnvelopeTranscriptPage {
   /** Data is the payload of the response */
   data: TranscriptPage;
-}
-
-/**
- * Transcription is the text of a voice recording.
- */
-export interface Transcription {
-  /** Text is the text of the recording, with no leading or trailing spaces */
-  text: string;
-}
-
-/**
- * Envelope is the body of each success response.
- */
-export interface EnvelopeTranscription {
-  /** Data is the payload of the response */
-  data: Transcription;
 }
 
 /**
@@ -6833,6 +6851,76 @@ export const getVersion = async ( ): Promise<getVersionResponse> => {
 
 
 
+export type getConversionResponse200 = {
+  data: EnvelopeConversion
+  status: 200
+}
+
+export type getConversionResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type getConversionResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type getConversionResponse404 = {
+  data: ErrorResponse
+  status: 404
+}
+
+export type getConversionResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type getConversionResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type getConversionResponseSuccess = (getConversionResponse200) & {
+  headers: Headers;
+};
+export type getConversionResponseError = (getConversionResponse400 | getConversionResponse401 | getConversionResponse404 | getConversionResponse422 | getConversionResponse500) & {
+  headers: Headers;
+};
+
+export type getConversionResponse = (getConversionResponseSuccess | getConversionResponseError)
+
+export const getGetConversionUrl = (id: string,) => {
+
+
+
+
+  return `/api/voice/conversions/${id}`
+}
+
+/**
+ * GetConversion returns the current state of a conversion. It answers 404 for an unknown conversion.
+ */
+export const getConversion = async (id: string, ): Promise<getConversionResponse> => {
+
+  const res = await fetch(getGetConversionUrl(id),
+  {
+
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: getConversionResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as getConversionResponse
+}
+
+
+
 export type getVoiceLanguageResponse200 = {
   data: EnvelopeVoiceLanguage
   status: 200
@@ -7124,7 +7212,7 @@ export const sendChunk = async (id: string,
 
 
 export type finishRecordingResponse200 = {
-  data: EnvelopeTranscription
+  data: EnvelopeConversion
   status: 200
 }
 
@@ -7153,20 +7241,10 @@ export type finishRecordingResponse500 = {
   status: 500
 }
 
-export type finishRecordingResponse502 = {
-  data: ErrorResponse
-  status: 502
-}
-
-export type finishRecordingResponse503 = {
-  data: ErrorResponse
-  status: 503
-}
-
 export type finishRecordingResponseSuccess = (finishRecordingResponse200) & {
   headers: Headers;
 };
-export type finishRecordingResponseError = (finishRecordingResponse400 | finishRecordingResponse401 | finishRecordingResponse404 | finishRecordingResponse422 | finishRecordingResponse500 | finishRecordingResponse502 | finishRecordingResponse503) & {
+export type finishRecordingResponseError = (finishRecordingResponse400 | finishRecordingResponse401 | finishRecordingResponse404 | finishRecordingResponse422 | finishRecordingResponse500) & {
   headers: Headers;
 };
 
@@ -7181,7 +7259,7 @@ export const getFinishRecordingUrl = (id: string,) => {
 }
 
 /**
- * FinishRecording converts the full audio of a recording to text and removes the recording. It answers 404 for an unknown recording. It waits up to 5 minutes for the converter. It answers 503 when the converter is still not ready after that time, and 502 when the converter returns an error.
+ * FinishRecording removes a recording, starts the conversion of its full audio and answers at once with the conversion in the state converting. It answers 404 for an unknown recording.
  */
 export const finishRecording = async (id: string, ): Promise<finishRecordingResponse> => {
 
@@ -7204,7 +7282,7 @@ export const finishRecording = async (id: string, ): Promise<finishRecordingResp
 
 
 export type transcribeResponse200 = {
-  data: EnvelopeTranscription
+  data: EnvelopeConversion
   status: 200
 }
 
@@ -7228,20 +7306,10 @@ export type transcribeResponse500 = {
   status: 500
 }
 
-export type transcribeResponse502 = {
-  data: ErrorResponse
-  status: 502
-}
-
-export type transcribeResponse503 = {
-  data: ErrorResponse
-  status: 503
-}
-
 export type transcribeResponseSuccess = (transcribeResponse200) & {
   headers: Headers;
 };
-export type transcribeResponseError = (transcribeResponse400 | transcribeResponse401 | transcribeResponse422 | transcribeResponse500 | transcribeResponse502 | transcribeResponse503) & {
+export type transcribeResponseError = (transcribeResponse400 | transcribeResponse401 | transcribeResponse422 | transcribeResponse500) & {
   headers: Headers;
 };
 
@@ -7256,7 +7324,7 @@ export const getTranscribeUrl = () => {
 }
 
 /**
- * Transcribe converts a voice recording to text. It waits up to 5 minutes for the converter. It answers 503 when the converter is still not ready after that time, and 502 when the converter returns an error.
+ * Transcribe starts the conversion of a voice recording to text and answers at once with the conversion in the state converting. The converter waits up to 5 minutes until it is ready, and the conversion ends with an error after 15 minutes.
  */
 export const transcribe = async (transcribeBody: Blob, ): Promise<transcribeResponse> => {
 

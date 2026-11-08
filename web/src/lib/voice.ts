@@ -2,13 +2,15 @@ import { useEffect, useRef, useSyncExternalStore } from "react";
 import {
   getCreateRecordingUrl,
   getFinishRecordingUrl,
+  getGetConversionUrl,
   getSendChunkUrl,
   getTranscribeUrl,
-  type createRecordingResponse,
-  type finishRecordingResponse,
+  type createRecordingResponse200,
+  type finishRecordingResponse200,
+  type getConversionResponse200,
   type LiveText,
-  type sendChunkResponse,
-  type transcribeResponse,
+  type sendChunkResponse200,
+  type transcribeResponse200,
 } from "@/api/api.gen";
 import { run as inDatabase } from "./database";
 import workletUrl from "./recorder-worklet.ts?worker&url";
@@ -17,14 +19,15 @@ const sampleRate = 16000;
 const maxRecording = 10 * 60 * 1000;
 const chunkInterval = 2000;
 const quickLimit = 30 * 1000;
-// The server holds a conversion for up to 5 minutes.
-const conversionLimit = 6 * 60 * 1000;
+const conversionInterval = 2000;
 const takenMessage = "The recording stopped because another app took the microphone.";
 const backgroundMessage = "The recording stopped because the app went to the background.";
 const unreachableMessage =
   "The recording did not reach the server. Check the connection and try again.";
 const emptyMessage = "The recording has no text.";
 const lostMessage = "The last recording was not converted.";
+
+type Result = { text: string; error: string };
 
 type Phase = "idle" | "recording" | "converting";
 
@@ -157,31 +160,65 @@ const wav = (chunks: Int16Array<ArrayBuffer>[]) => {
   return new Blob([header, ...chunks], { type: "audio/wav" });
 };
 
-// The request fails with a TimeoutError when it does not end within limit.
-const post = async <T>(url: string, limit: number, init: RequestInit = {}) => {
+type Answer<T> = { status: number; data?: T & { error?: string } };
+
+// The request fails with a TimeoutError when it does not end within limit. data is undefined when the answer is not
+// JSON.
+const request = async <T>(
+  url: string,
+  limit: number,
+  init: RequestInit = {},
+): Promise<Answer<T>> => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(new DOMException("", "TimeoutError")), limit);
   try {
-    const res = await fetch(url, { ...init, method: "POST", signal: controller.signal });
-    return { status: res.status, data: await res.json() } as T;
+    const res = await fetch(url, { ...init, signal: controller.signal });
+    return { status: res.status, data: await res.json().catch(() => undefined) };
   } finally {
     clearTimeout(timer);
   }
 };
 
-const convert = async (audio: Blob) => {
+const post = <T>(url: string, limit: number, init: RequestInit = {}) =>
+  request<T>(url, limit, { ...init, method: "POST" });
+
+const failure = (answer: Answer<unknown>) =>
+  answer.data?.error ?? `The server answered ${answer.status}.`;
+
+const pause = (time: number) => new Promise((resolve) => setTimeout(resolve, time));
+
+// awaitConversion asks for the conversion each conversionInterval until it ends. A request that fails does not end
+// the conversion. A conversion that the server lost starts again with the audio.
+const awaitConversion = async (id: string, audio: Blob): Promise<Result> => {
+  for (;;) {
+    await pause(conversionInterval);
+    const answer = await request<getConversionResponse200["data"]>(
+      getGetConversionUrl(id),
+      quickLimit,
+    ).catch(() => undefined);
+    if (answer?.status === 404) {
+      return convert(audio);
+    }
+    const conversion = answer?.status === 200 ? answer.data?.data : undefined;
+    if (conversion?.state === "done") {
+      return { text: conversion.text.trim(), error: "" };
+    }
+    if (conversion?.state === "failed") {
+      return { text: "", error: conversion.error };
+    }
+  }
+};
+
+const convert = async (audio: Blob): Promise<Result> => {
   try {
-    const response = await post<transcribeResponse>(getTranscribeUrl(), conversionLimit, {
+    const answer = await post<transcribeResponse200["data"]>(getTranscribeUrl(), quickLimit, {
       headers: { "Content-Type": "audio/wav" },
       body: audio,
     });
-    if (response.status === 200) {
-      return { text: response.data.data.text.trim(), error: "" };
+    if (answer.status === 200 && answer.data) {
+      return await awaitConversion(answer.data.data.id, audio);
     }
-    if (response.status === 502 || response.status === 503) {
-      return { text: "", error: response.data.error };
-    }
-    return { text: "", error: "The server did not convert the recording." };
+    return { text: "", error: failure(answer) };
   } catch {
     return { text: "", error: unreachableMessage };
   }
@@ -195,10 +232,11 @@ const runLive = (live: Live, task: Promise<void>) => {
 };
 
 const openLive = async (live: Live) => {
-  const response = await post<createRecordingResponse>(getCreateRecordingUrl(), quickLimit).catch(
-    () => undefined,
-  );
-  if (response?.status === 200) {
+  const response = await post<createRecordingResponse200["data"]>(
+    getCreateRecordingUrl(),
+    quickLimit,
+  ).catch(() => undefined);
+  if (response?.status === 200 && response.data) {
     live.id = response.data.data.id;
   } else {
     live.failed = true;
@@ -225,12 +263,12 @@ const sendNew = async (recording: Recording) => {
     return;
   }
   live.sent = recording.chunks.length;
-  const response = await post<sendChunkResponse>(
+  const response = await post<sendChunkResponse200["data"]>(
     getSendChunkUrl(live.id, { sequence: live.sequence++ }),
     quickLimit,
     { headers: { "Content-Type": "application/octet-stream" }, body: new Blob(part) },
   ).catch(() => undefined);
-  if (response?.status !== 200) {
+  if (response?.status !== 200 || !response.data) {
     live.failed = true;
   } else {
     showLive(live, response.data.data);
@@ -244,9 +282,8 @@ const tick = (recording: Recording) => {
 };
 
 // convertLive sends the last samples and gets the text of the full recording. It gives nothing when the live text
-// failed or the request failed, and then the caller sends the full recording as one file. A request that reaches its
-// time limit gives the error, because the server can still hold the conversion.
-const convertLive = async (recording: Recording) => {
+// failed or the request failed, and then the caller sends the full recording as one file.
+const convertLive = async (recording: Recording, audio: Blob) => {
   const live = recording.live;
   await live.pending;
   if (!live.failed) {
@@ -255,30 +292,17 @@ const convertLive = async (recording: Recording) => {
   if (live.failed) {
     return undefined;
   }
-  try {
-    const response = await post<finishRecordingResponse>(
-      getFinishRecordingUrl(live.id),
-      conversionLimit,
-    );
-    if (response.status === 200) {
-      return { text: response.data.data.text.trim(), error: "" };
-    }
-    if (response.status === 502 || response.status === 503) {
-      return { text: "", error: response.data.error };
-    }
+  const answer = await post<finishRecordingResponse200["data"]>(
+    getFinishRecordingUrl(live.id),
+    quickLimit,
+  ).catch(() => undefined);
+  if (answer?.status !== 200 || !answer.data) {
     return undefined;
-  } catch (err) {
-    return err instanceof DOMException && err.name === "TimeoutError"
-      ? { text: "", error: unreachableMessage }
-      : undefined;
   }
+  return awaitConversion(answer.data.data.id, audio);
 };
 
-const settle = (
-  result: { text: string; error: string },
-  saved: NonNullable<typeof kept>,
-  message: string,
-) => {
+const settle = (result: Result, saved: NonNullable<typeof kept>, message: string) => {
   const error = result.error || (result.text ? "" : emptyMessage);
   kept = error ? saved : undefined;
   activeLive = undefined;
@@ -307,7 +331,7 @@ const finish = async (message: string) => {
   await stopMedia(recording.stream, recording.context);
   const audio = wav(recording.chunks);
   await storeAudio(audio);
-  const result = (await convertLive(recording)) ?? (await convert(audio));
+  const result = (await convertLive(recording, audio)) ?? (await convert(audio));
   settle(result, { audio, shown: recording.live.shown }, message);
 };
 

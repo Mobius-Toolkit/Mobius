@@ -344,9 +344,14 @@ for (const [decision, message, button] of [
     await page.addInitScript(countSamples);
     let release!: () => void;
     const held = new Promise<void>((resolve) => (release = resolve));
-    await page.route("**/api/voice/transcriptions", async (route) => {
+    await page.route("**/api/voice/transcriptions", (route) =>
+      route.fulfill({ json: { data: { id: "c1", state: "converting", text: "", error: "" } } }),
+    );
+    await page.route("**/api/voice/conversions/c1", async (route) => {
       await held;
-      await route.fulfill({ json: { data: { text: "red roses" } } });
+      await route.fulfill({
+        json: { data: { id: "c1", state: "done", text: "red roses", error: "" } },
+      });
     });
     await openChat(page);
     await ask(page, message);
