@@ -1,12 +1,10 @@
 package api
 
 import (
-	"bufio"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 )
 
 // rustTimes are times in the format that the Rust version writes into each time column: RFC 3339 of the time crate in
@@ -22,7 +20,6 @@ func TestTheAPIReadsTheTimesThatTheRustVersionWrote(t *testing.T) {
 		exec(t, db, `INSERT INTO transcript (session, time, kind, json) VALUES (1, '`+at+`', 'prompt', '{"text":"Plan"}')`)
 		exec(t, db, `INSERT INTO chat_messages (organization, repository, workstream, author, time, text) VALUES ('owner', 'owner/shop', 12, 'Owner', '`+at+`', 'Plan')`)
 		exec(t, db, `INSERT INTO inbox_items (kind, organization, repository, workstream_repository, workstream, issue, text, link, time) VALUES ('question', 'owner', 'owner/shop', 'owner/shop', 12, 41, 'Why?', 'https://example.com/41', '`+at+`')`)
-		exec(t, db, `INSERT INTO events (time, repository, workstream, issue, actor, text, link) VALUES ('`+at+`', 'owner/shop', 12, 41, 'owner', 'Dispatched', 'https://example.com/41')`)
 	}
 
 	for path, times := range map[string][]string{
@@ -42,20 +39,6 @@ func TestTheAPIReadsTheTimesThatTheRustVersionWrote(t *testing.T) {
 			if !strings.Contains(rec.Body.String(), `"`+at+`"`) {
 				t.Errorf("%s: %s is not in %s", path, at, rec.Body)
 			}
-		}
-	}
-	server := httptest.NewServer(mux)
-	defer server.Close()
-	client := &http.Client{Timeout: 10 * time.Second}
-	response, err := client.Get(server.URL + "/api/events")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = response.Body.Close() }()
-	events := bufio.NewReader(response.Body)
-	for _, at := range rustTimes {
-		if event := readEvent(t, events); !strings.Contains(event, `"time":"`+at+`"`) {
-			t.Errorf("event = %q", event)
 		}
 	}
 }

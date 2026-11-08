@@ -251,9 +251,7 @@ func TestMarkReadyOnATaskAtMaxFixRoundsStopsTheTaskAgainWithNoImplementer(t *tes
 	if task := liveTask(t, server, 41); task.FixRounds != 2 {
 		t.Errorf("task = %+v", task)
 	}
-	testkit.WaitFor(t, func() bool {
-		return slices.ContainsFunc(activities(t, server), func(a activity) bool { return a.Text == `Continued "Add plan model"` })
-	})
+	waitForPolls(t, fake)
 	if items := itemsOf(t, server, "stopped"); len(items) != 1 || items[0].Reason != "Round limit" {
 		t.Errorf("stopped items = %+v", items)
 	}

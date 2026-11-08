@@ -501,35 +501,6 @@ func (q *Queries) AddDeviceLogin(ctx context.Context, arg AddDeviceLoginParams) 
 	return err
 }
 
-const addEvent = `-- name: AddEvent :exec
-INSERT INTO events (time, organization, repository, workstream, issue, actor, text, link) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-`
-
-type AddEventParams struct {
-	Time         string
-	Organization string
-	Repository   string
-	Workstream   int64
-	Issue        int64
-	Actor        string
-	Text         string
-	Link         string
-}
-
-func (q *Queries) AddEvent(ctx context.Context, arg AddEventParams) error {
-	_, err := q.db.ExecContext(ctx, addEvent,
-		arg.Time,
-		arg.Organization,
-		arg.Repository,
-		arg.Workstream,
-		arg.Issue,
-		arg.Actor,
-		arg.Text,
-		arg.Link,
-	)
-	return err
-}
-
 const addFixRound = `-- name: AddFixRound :execrows
 UPDATE tasks SET fix_rounds = fix_rounds + 1 WHERE id = ?1 AND fix_rounds < ?2
 `
@@ -1990,15 +1961,6 @@ func (q *Queries) EndCheckTimeout(ctx context.Context, arg EndCheckTimeoutParams
 	return err
 }
 
-const endFullSlots = `-- name: EndFullSlots :exec
-DELETE FROM full_slots
-`
-
-func (q *Queries) EndFullSlots(ctx context.Context) error {
-	_, err := q.db.ExecContext(ctx, endFullSlots)
-	return err
-}
-
 const endSession = `-- name: EndSession :one
 UPDATE sessions SET ended_at = ?, end_reason = ?, queue_reason = NULL WHERE id = ?
 RETURNING id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent, effort, workstream_repository, continued, context_used, context_size
@@ -2559,17 +2521,6 @@ func (q *Queries) GetFirstTranscriptPrompt(ctx context.Context, session int64) (
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
-}
-
-const getFullSlots = `-- name: GetFullSlots :one
-SELECT id, since, item_at FROM full_slots
-`
-
-func (q *Queries) GetFullSlots(ctx context.Context) (FullSlot, error) {
-	row := q.db.QueryRowContext(ctx, getFullSlots)
-	var i FullSlot
-	err := row.Scan(&i.ID, &i.Since, &i.ItemAt)
-	return i, err
 }
 
 const getGitHubApp = `-- name: GetGitHubApp :one
@@ -5512,43 +5463,6 @@ func (q *Queries) ListEndedTaskQuality(ctx context.Context) ([]ListEndedTaskQual
 	return items, nil
 }
 
-const listEventsAfter = `-- name: ListEventsAfter :many
-SELECT id, time, repository, workstream, issue, actor, text, link, organization FROM events WHERE id > ? ORDER BY id
-`
-
-func (q *Queries) ListEventsAfter(ctx context.Context, id int64) ([]Event, error) {
-	rows, err := q.db.QueryContext(ctx, listEventsAfter, id)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []Event
-	for rows.Next() {
-		var i Event
-		if err := rows.Scan(
-			&i.ID,
-			&i.Time,
-			&i.Repository,
-			&i.Workstream,
-			&i.Issue,
-			&i.Actor,
-			&i.Text,
-			&i.Link,
-			&i.Organization,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listFailedChatMessages = `-- name: ListFailedChatMessages :many
 SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice FROM chat_messages
 WHERE organization = ? AND repository = ? AND workstream = ?
@@ -6060,43 +5974,6 @@ func (q *Queries) ListIssueInboxItems(ctx context.Context, arg ListIssueInboxIte
 			&i.Questions,
 			&i.Answer,
 			&i.Withdrawn,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listLatestEvents = `-- name: ListLatestEvents :many
-SELECT id, time, repository, workstream, issue, actor, text, link, organization FROM events ORDER BY id DESC LIMIT ?
-`
-
-func (q *Queries) ListLatestEvents(ctx context.Context, limit int64) ([]Event, error) {
-	rows, err := q.db.QueryContext(ctx, listLatestEvents, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []Event
-	for rows.Next() {
-		var i Event
-		if err := rows.Scan(
-			&i.ID,
-			&i.Time,
-			&i.Repository,
-			&i.Workstream,
-			&i.Issue,
-			&i.Actor,
-			&i.Text,
-			&i.Link,
-			&i.Organization,
 		); err != nil {
 			return nil, err
 		}
@@ -8935,15 +8812,6 @@ func (q *Queries) SetDeploymentTodoMandatory(ctx context.Context, arg SetDeploym
 	return err
 }
 
-const setFullSlotsItemAt = `-- name: SetFullSlotsItemAt :exec
-UPDATE full_slots SET item_at = ? WHERE item_at IS NULL
-`
-
-func (q *Queries) SetFullSlotsItemAt(ctx context.Context, itemAt sql.NullString) error {
-	_, err := q.db.ExecContext(ctx, setFullSlotsItemAt, itemAt)
-	return err
-}
-
 const setHarnessPause = `-- name: SetHarnessPause :exec
 INSERT INTO harness_pauses (harness, paused_until) VALUES (?, ?)
 ON CONFLICT (harness) DO UPDATE SET paused_until = excluded.paused_until
@@ -9599,15 +9467,6 @@ func (q *Queries) SetUserTokens(ctx context.Context, arg SetUserTokensParams) er
 		arg.UserTokenExpiresAt,
 		arg.AppID,
 	)
-	return err
-}
-
-const startFullSlots = `-- name: StartFullSlots :exec
-INSERT INTO full_slots (id, since) VALUES (1, ?) ON CONFLICT DO NOTHING
-`
-
-func (q *Queries) StartFullSlots(ctx context.Context, since string) error {
-	_, err := q.db.ExecContext(ctx, startFullSlots, since)
 	return err
 }
 

@@ -1287,12 +1287,10 @@ func (e *Engine) stopTaskTool(ctx context.Context, c caller, repository github.R
 	if task.State != "queued" && task.State != "working" {
 		return "", refuse("The task of #%d is %s, so it has no work to stop.", input.N, task.State)
 	}
-	issue, err := existingIssue(ctx, repository, input.N)
-	if err != nil {
+	if _, err := existingIssue(ctx, repository, input.N); err != nil {
 		return "", err
 	}
-	text := fmt.Sprintf("Stopped \"%s\" on request of the Owner", issue.GetTitle())
-	if err := e.stopTask(ctx, repository, task, issue, appLogin(repository.AppSlug), "Stopped by the Owner.", text); err != nil {
+	if err := e.stopTask(ctx, repository, task, "Stopped by the Owner."); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("Stopped the task of #%d.", input.N), nil

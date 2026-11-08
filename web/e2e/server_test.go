@@ -252,8 +252,8 @@ const question = "What is the state of the plans? The full report is at " +
 // gives the ID of the newest open question of the Coordinator. POST and DELETE
 // /e2e/repositories/{owner}/{name} add and remove a repository of the fake GitHub. PUT
 // /e2e/agents/{issue}/queue-reason sets the queue reason of the live agent of an issue, with no event. DELETE
-// /e2e/dispatches/{owner}/{name}/{issue} waits for the dispatch of an issue, removes its task, its feed events and
-// its Lead events, and takes mobius:working off the issue. The query label, if present, is added to the issue.
+// /e2e/dispatches/{owner}/{name}/{issue} waits for the dispatch of an issue, removes its task and its
+// Lead events, and takes mobius:working off the issue. The query label, if present, is added to the issue.
 // PUT and DELETE /e2e/workstreams/owner/shop/12/implementer set the Implementer setting of that Workstream to
 // claude-code, sonnet and low, and clear it, with no record in the chat.
 func TestServer(t *testing.T) {
@@ -511,7 +511,6 @@ func TestServer(t *testing.T) {
 		for _, query := range []string{
 			"DELETE FROM chat_messages WHERE id IN (SELECT chat_message FROM lead_events WHERE repository = ?1 AND issue = ?2)",
 			"DELETE FROM lead_events WHERE repository = ?1 AND issue = ?2",
-			"DELETE FROM events WHERE repository = ?1 AND issue = ?2",
 			"DELETE FROM tasks WHERE repository = ?1 AND issue = ?2",
 		} {
 			if _, err := server.DB.Exec(query, repository, issue); err != nil {

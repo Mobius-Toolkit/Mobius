@@ -63,7 +63,7 @@ func (e *Engine) checkTasks(ctx context.Context, repository github.Repository, w
 			log.Printf("check the task of %s#%d: %v", repository.FullName, task.Issue, err)
 			found, ok = e.currentWork()[task.ID]
 		}
-		if countErr := e.countCheckErrors(ctx, repository, task, err); countErr != nil {
+		if countErr := e.countCheckErrors(ctx, task, err); countErr != nil {
 			log.Printf("count the check errors of %s#%d: %v", repository.FullName, task.Issue, countErr)
 		}
 		if ok {
@@ -75,10 +75,9 @@ func (e *Engine) checkTasks(ctx context.Context, repository github.Repository, w
 }
 
 // countCheckErrors adds 1 to the count of polls in a row with an error of checkTask for the task, or sets the count to
-// 0 when checkErr is nil. It writes the count first. When the count becomes checkErrorPolls, it then tells the Lead and
-// adds an activity with the last error, so a failed write loses the message and never repeats it. It does not change the
-// task.
-func (e *Engine) countCheckErrors(ctx context.Context, repository github.Repository, task store.Task, checkErr error) error {
+// 0 when checkErr is nil. It writes the count first. When the count becomes checkErrorPolls, it then tells the Lead
+// the last error, so a failed write loses the message and never repeats it. It does not change the task.
+func (e *Engine) countCheckErrors(ctx context.Context, task store.Task, checkErr error) error {
 	count := task.CheckErrors + 1
 	if checkErr == nil {
 		count = 0
@@ -101,27 +100,12 @@ func (e *Engine) countCheckErrors(ctx context.Context, repository github.Reposit
 			break
 		}
 	}
-	checkErrorsText := func(ref func(int64) string) string {
-		pullRequest := ""
-		if task.PullRequest.Valid {
-			pullRequest = fmt.Sprintf(", pull request %s,", ref(task.PullRequest.Int64))
-		}
-		return fmt.Sprintf("Mobius failed to check %s \"%s\"%s on %d polls in a row. The last error: %v.", ref(task.Issue), copied.Title, pullRequest, checkErrorPolls, checkErr)
+	pullRequest := ""
+	if task.PullRequest.Valid {
+		pullRequest = fmt.Sprintf(", pull request %s,", taskEventRef(task, task.PullRequest.Int64))
 	}
-	err = e.queries.AddEvent(ctx, store.AddEventParams{
-		Time:         now(),
-		Organization: repository.Owner(),
-		Repository:   task.WorkstreamRepository,
-		Workstream:   task.Workstream,
-		Issue:        task.Issue,
-		Actor:        appLogin(repository.AppSlug),
-		Text:         checkErrorsText(func(number int64) string { return fmt.Sprintf("#%d", number) }),
-		Link:         copied.HtmlUrl,
-	})
-	if err != nil {
-		return err
-	}
-	return e.addLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, task.Repository, sql.NullInt64{Int64: task.Issue, Valid: true}, "check_errors", time.Now().UTC().Format(timeFormat)+" "+checkErrorsText(func(number int64) string { return taskEventRef(task, number) }))
+	text := fmt.Sprintf("Mobius failed to check %s \"%s\"%s on %d polls in a row. The last error: %v.", taskEventRef(task, task.Issue), copied.Title, pullRequest, checkErrorPolls, checkErr)
+	return e.addLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, task.Repository, sql.NullInt64{Int64: task.Issue, Valid: true}, "check_errors", time.Now().UTC().Format(timeFormat)+" "+text)
 }
 
 // checkTask acts on the state of the issue and the pull request of the task, and gives the pull request when the task
@@ -174,7 +158,7 @@ func (e *Engine) checkTask(ctx context.Context, repository github.Repository, ta
 	}
 	needed := neededLabel(task)
 	if slices.Contains([]string{workingLabel, reviewLabel}, needed) && !hasLabel(issue, needed) {
-		if stopped, err := e.labelRemoved(ctx, repository, task, issue, needed); err != nil || stopped {
+		if stopped, err := e.labelRemoved(ctx, repository, task, needed); err != nil || stopped {
 			return Work{}, false, err
 		}
 	}
@@ -525,7 +509,7 @@ func (e *Engine) endPullRequest(ctx context.Context, repository github.Repositor
 
 // labelRemoved stops the task when a person removed label from its issue, and tells if it did. The pull request and
 // the branch stay, and the head of the pull request gets a failed Mobius check.
-func (e *Engine) labelRemoved(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue, label string) (bool, error) {
+func (e *Engine) labelRemoved(ctx context.Context, repository github.Repository, task store.Task, label string) (bool, error) {
 	events, err := e.issueEvents(ctx, repository, task.Issue)
 	if err != nil {
 		return false, err
@@ -540,13 +524,12 @@ func (e *Engine) labelRemoved(ctx context.Context, repository github.Repository,
 	if actor == "" || strings.EqualFold(actor, appLogin(repository.AppSlug)) {
 		return false, nil
 	}
-	return true, e.stopTask(ctx, repository, task, issue, actor, "Stopped by a label removal.", fmt.Sprintf("Stopped \"%s\" after a removal of %s", issue.GetTitle(), label))
+	return true, e.stopTask(ctx, repository, task, "Stopped by a label removal.")
 }
 
 // stopTask stops the task and its Worker, and removes the Mobius state labels from its issue. The head
-// of its pull request gets a failed Mobius check with summary, and the activity feed gets text. A task that is already
-// stopped or ended stays as it is.
-func (e *Engine) stopTask(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue, actor, summary, text string) error {
+// of its pull request gets a failed Mobius check with summary. A task that is already stopped or ended stays as it is.
+func (e *Engine) stopTask(ctx context.Context, repository github.Repository, task store.Task, summary string) error {
 	stopped, err := e.queries.StopTask(ctx, task.ID)
 	if err != nil || stopped == 0 {
 		return err
@@ -557,10 +540,10 @@ func (e *Engine) stopTask(ctx context.Context, repository github.Repository, tas
 	if task.State == "working" && task.Worker.String == JudgeRole {
 		from = task.WorkerInput.String
 	}
-	return errors.Join(e.dismissReadyForReview(ctx, task, from), e.finishStop(ctx, repository, task, issue, actor, summary, text))
+	return errors.Join(e.dismissReadyForReview(ctx, task, from), e.finishStop(ctx, repository, task, summary))
 }
 
-func (e *Engine) finishStop(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue, actor, summary, text string) error {
+func (e *Engine) finishStop(ctx context.Context, repository github.Repository, task store.Task, summary string) error {
 	if err := e.stopWorkersOf(ctx, task); err != nil {
 		return err
 	}
@@ -581,11 +564,9 @@ func (e *Engine) finishStop(ctx context.Context, repository github.Repository, t
 		if err != nil {
 			return err
 		}
-		if err := setCheckRun(ctx, repository, pullRequest.GetHead().GetSHA(), "completed", "failure", "Stopped", summary); err != nil {
-			return err
-		}
+		return setCheckRun(ctx, repository, pullRequest.GetHead().GetSHA(), "completed", "failure", "Stopped", summary)
 	}
-	return e.addActivity(ctx, task.WorkstreamRepository, task.Workstream, issue, actor, text)
+	return nil
 }
 
 // lostAccess ends the live tasks of each repository that no App gives, and stops their Workers.
@@ -668,8 +649,7 @@ func (e *Engine) decline(ctx context.Context, c caller, repository github.Reposi
 	if err != nil {
 		return "", err
 	}
-	issue, err := existingIssue(ctx, repository, input.N)
-	if err != nil {
+	if _, err := existingIssue(ctx, repository, input.N); err != nil {
 		return "", err
 	}
 	reason, err := e.withMark(ctx, c, repository.FullName, input.Reason)
@@ -683,9 +663,6 @@ func (e *Engine) decline(ctx context.Context, c caller, repository github.Reposi
 		return "", err
 	}
 	if err := e.endTask(ctx, repository, task); err != nil {
-		return "", err
-	}
-	if err := e.addActivity(ctx, c.repository, c.workstream, issue, appLogin(repository.AppSlug), fmt.Sprintf("Declined \"%s\"", issue.GetTitle())); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("Declined #%d.", input.N), nil
@@ -770,8 +747,5 @@ func (e *Engine) closeTask(ctx context.Context, c caller, repository github.Repo
 		return "", err
 	}
 	e.publish(Change{Workstreams: true})
-	if err := e.addActivity(ctx, c.repository, c.workstream, issue, appLogin(repository.AppSlug), fmt.Sprintf("Closed \"%s\"", issue.GetTitle())); err != nil {
-		return "", err
-	}
 	return fmt.Sprintf("Closed #%d.", input.N), nil
 }

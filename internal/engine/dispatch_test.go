@@ -45,15 +45,6 @@ func hasLiveTask(t *testing.T, server *testserver.Server, number int64) bool {
 	return count > 0
 }
 
-func feedTexts(t *testing.T, server *testserver.Server) []string {
-	t.Helper()
-	var texts []string
-	for _, a := range activities(t, server) {
-		texts = append(texts, a.Text)
-	}
-	return texts
-}
-
 func TestAnEventShowsInTheChatAndInTheHistoryAndIsNeverUnread(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
@@ -94,9 +85,6 @@ func TestAReadyLabelOfATrustedUserDispatchesTheIssueToTheLead(t *testing.T) {
 	}
 	testkit.WaitFor(t, func() bool { return slices.Equal(fake.Labels(shop, 41), []string{"mobius:working"}) })
 	testkit.WaitFor(t, func() bool { return eventDelivered(t, server) })
-	if !slices.Contains(feedTexts(t, server), `Dispatched "Add plan model"`) {
-		t.Errorf("feed = %q", feedTexts(t, server))
-	}
 	session := endedChatSession(t, server, 0)
 	if session.EndReason.String != "idle" {
 		t.Errorf("end reason = %s", session.EndReason.String)
@@ -276,21 +264,9 @@ func TestAReadyLabelOnAnIssueWithALiveTaskHasNoEffect(t *testing.T) {
 
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 
-	testkit.WaitFor(t, func() bool {
-		return slices.Contains(feedTexts(t, server), `No effect: "Add plan model" has a live task`)
-	})
 	testkit.WaitFor(t, func() bool { return slices.Equal(fake.Labels(shop, 41), []string{"mobius:working"}) })
 	if got := liveTaskOf(t, server, 41); got.ID != task.ID || got.State != "working" {
 		t.Errorf("task = %+v", got)
-	}
-	dispatched := 0
-	for _, text := range feedTexts(t, server) {
-		if strings.HasPrefix(text, "Dispatched") {
-			dispatched++
-		}
-	}
-	if dispatched != 1 {
-		t.Errorf("feed = %q", feedTexts(t, server))
 	}
 	lines := testkit.WaitForValue(t, func() ([]engine.TaskLine, bool) {
 		lines, err := server.Engine.Tasks(t.Context(), shop, 12)
@@ -491,10 +467,6 @@ func TestTheLeadDeclinesADispatchedTask(t *testing.T) {
 		if line.Author != "Event" {
 			t.Errorf("chat = %+v", chatLines(t, server, leadChat))
 		}
-	}
-	feed := feedTexts(t, server)
-	if !slices.Contains(feed, `Dispatched "Add plan model"`) || !slices.Contains(feed, `Declined "Add plan model"`) {
-		t.Errorf("feed = %q", feed)
 	}
 }
 

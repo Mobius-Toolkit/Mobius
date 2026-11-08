@@ -213,9 +213,9 @@ func TestARemovalOfTheWorkingLabelStopsTheTask(t *testing.T) {
 	fake.AddLabel(shop, 41, "mobius:question", testkit.AppSlug+"[bot]")
 	fake.RemoveLabel(shop, 41, "mobius:working", "mallory")
 
-	last := testkit.WaitForValue(t, func() (activity, bool) {
-		feed := activities(t, server)
-		return feed[len(feed)-1], strings.HasPrefix(feed[len(feed)-1].Text, "Stopped")
+	testkit.WaitFor(t, func() bool {
+		runs := fake.CheckRuns(shop)
+		return len(runs) > 0 && runs[len(runs)-1].Output.Title == "Stopped"
 	})
 	if state := taskState(t, server); state != "stopped" {
 		t.Errorf("state = %s", state)
@@ -230,10 +230,6 @@ func TestARemovalOfTheWorkingLabelStopsTheTask(t *testing.T) {
 	}
 	if len(fake.PullRequests(shop)) != 1 || len(inbox(t, server)) != items {
 		t.Errorf("pull requests = %+v, Inbox = %+v", fake.PullRequests(shop), inbox(t, server))
-	}
-	want := activity{ID: last.ID, Organization: "owner", Repository: shop, Workstream: 12, Issue: 41, Actor: "mallory", Text: "Stopped \"Add plan model\" after a removal of mobius:working", Link: "https://github.com/owner/shop/issues/41"}
-	if last != want {
-		t.Errorf("activity = %+v", last)
 	}
 }
 

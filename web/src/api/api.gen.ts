@@ -147,30 +147,6 @@ export interface ActiveAgents {
   groups: AgentGroup[];
 }
 
-/**
- * Activity is an entry of the activity feed of a Workstream.
- */
-export interface Activity {
-  /** Actor is the GitHub login that did the activity, or "Mobius" when no GitHub login did it */
-  actor: string;
-  /** ID increases with each new activity */
-  id: number;
-  /** Issue is the number of the issue of the activity, or 0 for a session of the Coordinator */
-  issue: number;
-  /** Link is the GitHub URL of the issue of the activity, or empty when the activity has no issue */
-  link: string;
-  /** Organization is the owner of the repository, or the organization of the Coordinator chat */
-  organization: string;
-  /** Repository is the repository of the Workstream issue, as "owner/name". It is empty for a session of the Coordinator */
-  repository: string;
-  /** Text tells what happened */
-  text: string;
-  /** Time is the time of the activity */
-  time: string;
-  /** Workstream is the number of the Workstream issue. It is 0 for a session of the Coordinator */
-  workstream: number;
-}
-
 export interface AnswerInboxItemBody {
   /** Text is the answer of the Owner */
   text?: string;
@@ -2059,13 +2035,9 @@ export interface WorkstreamRef {
 }
 
 /**
- * LiveEvents are the events of the live event stream. Only an activity has an event id.
+ * LiveEvents are the events of the live event stream.
  */
 export type LiveEvents = {
-  data: Activity;
-  event: 'activity';
-  id?: string;
-} | {
   data: Agent;
   event: 'agent';
   id?: string;

@@ -55,14 +55,7 @@ func TestWithAutopilotAFreeWorkerAndNoBlockerATaskStarts(t *testing.T) {
 	if task := liveTaskOf(t, server, 41); task.Workstream != 12 {
 		t.Errorf("task = %+v", task)
 	}
-	testkit.WaitFor(t, func() bool {
-		for _, a := range activities(t, server) {
-			if a.Text == `Dispatched "Add plan model"` {
-				return a.Actor == testkit.AppSlug+"[bot]"
-			}
-		}
-		return false
-	})
+	testkit.WaitFor(t, func() bool { return fake.LabelAddedBy(shop, 41, "mobius:working", testkit.AppSlug+"[bot]") })
 	if labels := fake.Labels(shop, 41); len(labels) != 1 || labels[0] != "mobius:working" {
 		t.Errorf("labels = %v", labels)
 	}

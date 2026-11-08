@@ -132,24 +132,6 @@ type DeploymentTodo struct {
 	AfterMerge  int64
 }
 
-type Event struct {
-	ID           int64
-	Time         string
-	Repository   string
-	Workstream   int64
-	Issue        int64
-	Actor        string
-	Text         string
-	Link         string
-	Organization string
-}
-
-type FullSlot struct {
-	ID     int64
-	Since  string
-	ItemAt sql.NullString
-}
-
 type GithubApp struct {
 	AppID              int64
 	Slug               string

@@ -12,15 +12,6 @@ SELECT w.repository, w.number, w.title, w.body, CAST(w.autopilot AS BOOLEAN) AS 
 FROM copied_workstreams w
 ORDER BY w.repository, w.number DESC;
 
--- name: ListLatestEvents :many
-SELECT * FROM events ORDER BY id DESC LIMIT ?;
-
--- name: ListEventsAfter :many
-SELECT * FROM events WHERE id > ? ORDER BY id;
-
--- name: AddEvent :exec
-INSERT INTO events (time, organization, repository, workstream, issue, actor, text, link) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
-
 -- name: AddDeviceLogin :exec
 INSERT INTO device_logins (token_hash, password_fingerprint, user_agent, created_at)
 VALUES (?, ?, ?, ?);
@@ -647,18 +638,6 @@ SELECT count(*) FROM tasks WHERE state IN ('dispatched', 'queued', 'working');
 
 -- name: ListActiveTasks :many
 SELECT repository, issue, state, state_at FROM tasks WHERE state IN ('dispatched', 'queued', 'working') ORDER BY id;
-
--- name: StartFullSlots :exec
-INSERT INTO full_slots (id, since) VALUES (1, ?) ON CONFLICT DO NOTHING;
-
--- name: GetFullSlots :one
-SELECT * FROM full_slots;
-
--- name: SetFullSlotsItemAt :exec
-UPDATE full_slots SET item_at = ? WHERE item_at IS NULL;
-
--- name: EndFullSlots :exec
-DELETE FROM full_slots;
 
 -- name: ResetTaskCounters :exec
 UPDATE tasks SET fix_rounds = 0, review_rounds = 0, worker_restarts = 0, check_head = NULL WHERE id = ?;
