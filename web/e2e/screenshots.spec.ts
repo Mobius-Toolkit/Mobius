@@ -3299,5 +3299,41 @@ test("screenshots", async ({ page }) => {
       await showChatEnd(page);
     },
   );
+  const voiceText = "Add a price for the yearly plan.";
+  await page.route("**/api/chat?*", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as { data: { messages: Record<string, unknown>[] } };
+    const last = body.data.messages.at(-1);
+    if (!new URL(route.request().url()).searchParams.has("before") && last) {
+      body.data.messages.push({
+        ...last,
+        id: Number(last.id) + 1,
+        author: "Owner",
+        text: voiceText,
+        images: 0,
+        inboxItems: [],
+        voice: true,
+        deliveredAt: last.time,
+        failedAt: null,
+        cancelledAt: null,
+        stoppedAt: null,
+        action: null,
+        question: null,
+      });
+    }
+    await route.fulfill({ response, json: body });
+  });
+  const voiceMessage = main.locator("[data-message]", { hasText: voiceText });
+  await screenshot(
+    page,
+    "chat-history-voice",
+    "/workstreams/plants/garden/25",
+    (device) => [...plantsFrame(device, 25), voiceMessage.getByRole("img", { name: "Voice" })],
+    async () => {
+      await showChatEnd(page);
+      await expect(voiceMessage.getByRole("img", { name: "Voice" })).toBeInViewport();
+    },
+  );
+  await page.unroute("**/api/chat?*");
   await page.unroute("/api/chat/seen");
 });

@@ -193,7 +193,7 @@ func (e *Engine) BackgroundTurnRuns(key ChatKey) bool {
 // QueueOwnerMessageWithoutWake adds a message of the Owner to the queue of the running chat key and sets writing, as
 // give does, but it does not wake the chat loop. Thus the chat loop does not take the message until another step wakes it.
 func (e *Engine) QueueOwnerMessageWithoutWake(ctx context.Context, key ChatKey, text string) error {
-	message, err := e.addChatMessage(ctx, key, ownerAuthor, text, "", "", nil)
+	message, err := e.addChatMessage(ctx, key, ownerAuthor, text, "", "", nil, false)
 	if err != nil {
 		return err
 	}

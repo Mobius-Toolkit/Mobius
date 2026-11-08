@@ -1124,7 +1124,7 @@ func TestTheCoordinatorChatRefusesAnUnknownOrganization(t *testing.T) {
 	server, _ := connectTriager(t, fake)
 	unknown := engine.ChatKey{}
 
-	err := server.Engine.SendChat(t.Context(), unknown, "", "Start a Workstream for loyalty points.", nil, nil)
+	err := server.Engine.SendChat(t.Context(), unknown, "", "Start a Workstream for loyalty points.", nil, nil, false)
 
 	if !engine.Refused(err) || err.Error() != `Mobius has no repository in the organization "".` {
 		t.Errorf("err = %v", err)
