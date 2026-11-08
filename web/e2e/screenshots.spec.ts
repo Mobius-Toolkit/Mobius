@@ -1404,6 +1404,7 @@ test("screenshots", async ({ page }) => {
               mandatory: true,
               reason: "The server reads it at the start and has no default.",
               note: "",
+              dismissable: false,
             },
           },
           {
@@ -1425,6 +1426,7 @@ test("screenshots", async ({ page }) => {
               mandatory: false,
               reason: "The old plans need the import once.",
               note: "",
+              dismissable: true,
             },
           },
           {
@@ -1462,6 +1464,20 @@ test("screenshots", async ({ page }) => {
     todoRow.getByRole("button", { name: "Complete" }),
     todoRow.getByRole("link", { name: "Open PR" }),
   ]);
+  const optionalTodoRow = main.getByRole("listitem").filter({ hasText: "Run the plan import" });
+  await screenshot(
+    page,
+    "inbox-todo-optional",
+    "/inbox",
+    (device) => [
+      ...inboxReady(device),
+      optionalTodoRow.getByRole("button", { name: "Complete" }),
+      optionalTodoRow.getByRole("button", { name: "Dismiss" }),
+    ],
+    async () => {
+      await optionalTodoRow.scrollIntoViewIfNeeded();
+    },
+  );
   // Radix hides the page behind the panel from the role queries, so the open step waits for the page first.
   const openPanel = (button: string, index: number) => async (device: string) => {
     for (const locator of inboxReady(device)) {
