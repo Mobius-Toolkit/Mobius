@@ -16,6 +16,10 @@
 //	                        # the agent plays it in the running turn. The turn then ends with end_turn, unless the
 //	                        # played prompt has hang. With no running turn, the outcome is promptRequired
 //	steering_hang = true    # initialize tells _meta.steering.supported, and _session/steering gets no response
+//	steering_hold = true    # with steering_outcome, _session/steering appends the program name to the file "steerings",
+//	                        # and then waits for the file "steering_release" before it answers
+//
+// Each session/cancel appends the program name to the file "cancels" next to the script.
 //
 //	[options]               # one select option for each id, in id order; the first value is current
 //	model = ["sonnet", "opus"]
@@ -114,6 +118,7 @@ type script struct {
 	SessionNewHold  bool                `toml:"session_new_hold"`
 	SteeringOutcome string              `toml:"steering_outcome"`
 	SteeringHang    bool                `toml:"steering_hang"`
+	SteeringHold    bool                `toml:"steering_hold"`
 	Options         map[string][]string `toml:"options"`
 	Efforts         map[string][]string `toml:"efforts"`
 	Prompts         []prompt            `toml:"prompts"`
@@ -281,6 +286,9 @@ func (a *agent) handle(ctx context.Context, method string, params json.RawMessag
 	case steeringMethod:
 		return a.steer(ctx, params)
 	case acp.AgentMethodSessionCancel:
+		if err := a.appendName("cancels"); err != nil {
+			return nil, acp.NewInternalError(err.Error())
+		}
 		a.mu.Lock()
 		defer a.mu.Unlock()
 		if a.cancel != nil {
@@ -360,25 +368,34 @@ func (a *agent) newSession(ctx context.Context, params json.RawMessage) (any, *a
 	return map[string]any{"sessionId": "fake-session-" + strconv.Itoa(os.Getpid()), "configOptions": a.options}, nil
 }
 
-// holdSessionNew appends the program name to session_new_started, and waits for session_new_release.
-func (a *agent) holdSessionNew(ctx context.Context) error {
-	dir := filepath.Dir(a.path)
-	started, err := os.OpenFile(filepath.Clean(filepath.Join(dir, "session_new_started")), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+// appendName appends the program name to the file name next to the script.
+func (a *agent) appendName(name string) error {
+	file, err := os.OpenFile(filepath.Clean(filepath.Join(filepath.Dir(a.path), name)), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return err
 	}
-	_, err = fmt.Fprintln(started, strings.TrimSuffix(filepath.Base(a.path), filepath.Ext(a.path)))
-	if closeErr := started.Close(); err == nil {
+	_, err = fmt.Fprintln(file, strings.TrimSuffix(filepath.Base(a.path), filepath.Ext(a.path)))
+	if closeErr := file.Close(); err == nil {
 		err = closeErr
 	}
-	if err != nil {
+	return err
+}
+
+// holdSessionNew appends the program name to session_new_started, and waits for session_new_release.
+func (a *agent) holdSessionNew(ctx context.Context) error {
+	if err := a.appendName("session_new_started"); err != nil {
 		return err
 	}
-	release := filepath.Join(dir, "session_new_release")
+	return a.waitForFile(ctx, "session_new_release")
+}
+
+// waitForFile waits until the file name next to the script exists.
+func (a *agent) waitForFile(ctx context.Context, name string) error {
+	path := filepath.Join(filepath.Dir(a.path), name)
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		if _, err := os.Stat(release); err == nil {
+		if _, err := os.Stat(path); err == nil {
 			return nil
 		} else if !errors.Is(err, fs.ErrNotExist) {
 			return err
@@ -539,6 +556,14 @@ func (a *agent) steer(ctx context.Context, params json.RawMessage) (any, *acp.Re
 	}
 	if err := json.Unmarshal(params, &request); err != nil {
 		return nil, acp.NewInvalidParams(err.Error())
+	}
+	if a.script.SteeringHold {
+		if err := a.appendName("steerings"); err != nil {
+			return nil, acp.NewInternalError(err.Error())
+		}
+		if err := a.waitForFile(ctx, "steering_release"); err != nil {
+			return nil, acp.NewRequestCancelled(nil)
+		}
 	}
 	if a.script.SteeringOutcome != "injected" {
 		return map[string]any{"outcome": a.script.SteeringOutcome}, nil

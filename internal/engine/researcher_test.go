@@ -193,7 +193,7 @@ func waitForResearchers(t *testing.T, server *testserver.Server, replies ...stri
 func TestSendResearcherDetailsStopsTheTurnAndGivesTheReportOfTheNewTurn(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectResearcher(t, fake, researchLeadOfDetails, hangingResearcher)
+	server, dataDir := connectResearcher(t, fake, researchLeadOfDetails, hangingResearcher)
 	sendChat(t, server, leadChat, "Begin alpha.")
 	session := waitForResearchers(t, server, "Looking.")[0]
 	if session.ID != 2 {
@@ -215,6 +215,9 @@ func TestSendResearcherDetailsStopsTheTurnAndGivesTheReportOfTheNewTurn(t *testi
 	}
 	if want := "The Owner gave new details for the question. They replace the old text where they differ.\n\nAsk about the discount too."; prompts[1] != want {
 		t.Errorf("prompt = %q", prompts[1])
+	}
+	if cancels := harnessFileLines(t, dataDir, "cancels"); len(cancels) == 0 {
+		t.Error("the session got no cancel")
 	}
 	ended := waitForChatSession(t, server, leadChat, engine.ResearcherRole, func(session store.Session) bool { return session.EndedAt.Valid })
 	if ended.EndReason.String != "done" {

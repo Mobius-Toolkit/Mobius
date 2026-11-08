@@ -848,6 +848,16 @@ SELECT EXISTS (SELECT 1 FROM copied_workstreams WHERE repository = ? AND number 
 -- name: GetCopiedIssueWorkstream :one
 SELECT workstream FROM copied_issues WHERE repository = ? AND number = ? AND repository_url = ? LIMIT 1;
 
+-- name: HasCopiedWorkstreamAnyCase :one
+SELECT EXISTS (SELECT 1 FROM copied_workstreams WHERE repository = ? COLLATE NOCASE AND number = ?);
+
+-- name: GetCopiedIssueTree :one
+SELECT repository, workstream FROM copied_issues
+WHERE number = sqlc.arg(number)
+  AND substr(lower(repository_url), -(length(CAST(sqlc.arg(repository) AS TEXT)) + 7)) = '/repos/' || lower(CAST(sqlc.arg(repository) AS TEXT))
+ORDER BY repository, workstream
+LIMIT 1;
+
 -- The issue can be in the trees of the copies of many repositories.
 -- name: ListCopiedWorkstreamsWithLabelChange :many
 SELECT i.repository, i.workstream FROM copied_issues i
@@ -1482,6 +1492,27 @@ ON CONFLICT (role) DO UPDATE SET harness = excluded.harness, model = excluded.mo
 
 -- name: DeleteRoleSetting :exec
 DELETE FROM role_settings WHERE role = ?;
+
+-- name: GetIssueBinding :one
+SELECT * FROM issue_bindings WHERE repository = ? AND issue = ? AND role = ?;
+
+-- name: ListIssueBindings :many
+SELECT * FROM issue_bindings ORDER BY repository, issue, role;
+
+-- A row is live when its task issue is open in a copied tree, or its Workstream issue is copied.
+-- name: ListLiveIssueBindings :many
+SELECT b.* FROM issue_bindings b
+WHERE EXISTS (SELECT 1 FROM copied_workstreams w WHERE b.repository = w.repository AND w.number = b.issue)
+   OR EXISTS (SELECT 1 FROM copied_issues i WHERE i.number = b.issue AND i.state = 'open'
+              AND substr(lower(i.repository_url), -(length(b.repository) + 7)) = '/repos/' || lower(b.repository))
+ORDER BY b.repository, b.issue, b.role;
+
+-- name: UpsertIssueBinding :exec
+INSERT INTO issue_bindings (repository, issue, role, harness, model, effort, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (repository, issue, role) DO UPDATE SET harness = excluded.harness, model = excluded.model, effort = excluded.effort, updated_at = excluded.updated_at;
+
+-- name: DeleteIssueBinding :exec
+DELETE FROM issue_bindings WHERE repository = ? AND issue = ? AND role = ?;
 
 -- name: ListBlockerEdges :many
 SELECT b.repository, b.workstream, i.repository_url, i.number, b.blocker_repository, b.number AS blocker_number

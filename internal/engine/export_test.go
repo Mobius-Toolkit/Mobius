@@ -282,3 +282,16 @@ func AntigravityDir() string {
 func (a *Agent) ReplyText() string {
 	return a.replyText()
 }
+
+// AddDetails gives text as new details to the session a, as for an open Researcher. It tells if the session is open.
+func (e *Engine) AddDetails(a *Agent, text string) bool {
+	e.detailsMu.Lock()
+	e.researchers[a.id] = a
+	e.detailsMu.Unlock()
+	return e.addDetails(e.researchers, a.id, text)
+}
+
+// TakeDetails gives the new details that wait for the session a, and clears them.
+func (e *Engine) TakeDetails(a *Agent) string {
+	return e.takeDetails(e.researchers, a.id, a, false)
+}
