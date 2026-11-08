@@ -270,7 +270,7 @@ func (e *Engine) deliverCuratorResult(ctx context.Context, a *Agent, requests []
 	if reply := strings.TrimSpace(a.replyText()); reply != "" {
 		fmt.Fprintf(&text, "\nReply of the Curator:\n\n%s", reply)
 	}
-	return e.postChat(ctx, ChatKey{Organization: a.spec.Organization}, curatorAuthor, "", text.String(), nil, nil)
+	return e.postChat(ctx, ChatKey{Organization: a.spec.Organization}, curatorAuthor, "", text.String(), nil, nil, false)
 }
 
 // curateTurn makes the worktree of the Curator a and runs its turn.
@@ -561,7 +561,7 @@ func (e *Engine) reportGap(ctx context.Context, c caller, _ github.Repository, i
 		return "", refuse("Mobius already posted this gap report. Do not call report_gap again for it.")
 	}
 	message := fmt.Sprintf("Gap of Mobius from the Curator %d of %s:\n\n%s", c.session, c.repository, input.Text)
-	if err := e.postChat(ctx, ChatKey{Organization: c.organization}, curatorAuthor, "", message, nil, nil); err != nil {
+	if err := e.postChat(ctx, ChatKey{Organization: c.organization}, curatorAuthor, "", message, nil, nil, false); err != nil {
 		return "", err
 	}
 	c.agent.reportedGaps = append(c.agent.reportedGaps, input.Text)

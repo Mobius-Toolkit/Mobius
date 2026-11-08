@@ -274,7 +274,7 @@ func (e *Engine) holdAction(ctx context.Context, c caller, tool, title string, a
 	}
 	var message store.ChatMessage
 	if c.role != TriagerRole {
-		if message, err = e.addChatMessage(ctx, actionChat(action), actionAuthor, title, "", "", nil); err != nil {
+		if message, err = e.addChatMessage(ctx, actionChat(action), actionAuthor, title, "", "", nil, false); err != nil {
 			return "", err
 		}
 	}

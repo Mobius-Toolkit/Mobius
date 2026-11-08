@@ -6,6 +6,7 @@ import {
   CircleAlertIcon,
   CircleXIcon,
   ClockIcon,
+  MicIcon,
   Trash2Icon,
   TriangleAlertIcon,
 } from "lucide-react";
@@ -204,8 +205,9 @@ const Message = memo(function Message({
       ) : (
         message.text && <Markdown text={message.text} />
       )}
-      {message.images > 0 && (
+      {(message.voice || message.images > 0) && (
         <div className="flex flex-wrap gap-2">
+          {message.voice && <VoiceCard />}
           {Array.from({ length: message.images }, (_, position) => (
             <img
               key={position}
@@ -219,6 +221,18 @@ const Message = memo(function Message({
     </div>
   );
 });
+
+function VoiceCard() {
+  return (
+    <div
+      role="img"
+      aria-label="Voice"
+      className="flex size-24 items-center justify-center rounded-lg border bg-muted text-muted-foreground"
+    >
+      <MicIcon className="size-8" />
+    </div>
+  );
+}
 
 const briefCutHeight = 144;
 
@@ -346,8 +360,9 @@ function QueuedMessage({
         <InboxItemCard key={position} item={inboxItem} />
       ))}
       {item.text && <Markdown text={item.text} />}
-      {item.images.length > 0 && (
+      {(item.voice || item.images.length > 0) && (
         <div className="flex flex-wrap gap-2">
+          {item.voice && <VoiceCard />}
           {item.images.map((file, position) => (
             <FileImage
               key={position}
@@ -812,7 +827,12 @@ export function Conversation({
     }
   });
 
-  const send = async (text: string, images: File[], inboxItems: DraftInboxItem[]) => {
+  const send = async (
+    text: string,
+    images: File[],
+    inboxItems: DraftInboxItem[],
+    voice = false,
+  ) => {
     const item: Queued = {
       id: newMessageId(),
       organization,
@@ -826,6 +846,7 @@ export function Conversation({
         reason,
         link,
       })),
+      voice,
       time: new Date().toISOString(),
     };
     try {
