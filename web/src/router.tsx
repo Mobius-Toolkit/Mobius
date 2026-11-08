@@ -2,7 +2,6 @@ import { createRootRoute, createRoute, createRouter, redirect } from "@tanstack/
 import App from "./App";
 import { Devices } from "./Devices";
 import {
-  ActivityPage,
   AgentsPage,
   ChatPage,
   CheckupLabelsPage,
@@ -86,12 +85,6 @@ const inboxTodoRoute = createRoute({
   getParentRoute: () => inboxRoute,
   path: "/",
   component: InboxPage,
-});
-
-const inboxActivityRoute = createRoute({
-  getParentRoute: () => inboxRoute,
-  path: "/activity",
-  component: ActivityPage,
 });
 
 const agentsRoute = createRoute({
@@ -198,7 +191,7 @@ const routeTree = rootRoute.addChildren([
   workstreamsRoute,
   tasksRoute,
   chatRoute,
-  inboxRoute.addChildren([inboxTodoRoute, inboxActivityRoute]),
+  inboxRoute.addChildren([inboxTodoRoute]),
   agentsRoute,
   usageRoute,
   settingsRoute,

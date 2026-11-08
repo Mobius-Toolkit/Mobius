@@ -54,7 +54,7 @@ A Foldkit screen runs inside its React host (for example `web/src/Conversation.t
 - To listen to `/api/events`, use `liveEvents` and `liveListener` of `web/src/live/events.ts` with a Schema for the data of each event. Do not open an `EventSource` in a screen.
 - Write each new Foldkit screen with the rules of the Brief of the move: real Schemas from `web/src/api/schemas.gen.ts`, no type cast, no `unknown` and no `any`, `Effect.tryPromise` with a `Schema.TaggedError` for each Promise that can fail (`web/src/lib/effects.ts`).
 
-To listen to a server-sent event in a React screen, use `onEvent` from `web/src/lib/events.ts` with the generated event type, for example `onEvent<LiveEvents, 'activity'>(source, 'activity', listener)`. A wrong event name or a wrong data field gives a type error.
+To listen to a server-sent event in a React screen, use `onEvent` from `web/src/lib/events.ts` with the generated event type, for example `onEvent<LiveEvents, 'message'>(source, 'message', listener)`. A wrong event name or a wrong data field gives a type error.
 
 ## Migrations
 

@@ -1600,7 +1600,6 @@ test("screenshots", async ({ page }) => {
   const inboxReady = (device: string) => [
     chatCount,
     ...frame(device, drain, { organizations: true }, "7"),
-    main.getByRole("tab", { name: "To do 7" }),
     main.getByText("Integrate loyalty plans", { exact: true }),
     main.getByText("Let customers change plans"),
     main.getByText(
@@ -1823,12 +1822,6 @@ test("screenshots", async ({ page }) => {
     true,
   );
   await page.unroute("**/api/ci-stops");
-  await screenshot(page, "inbox-activity", "/inbox/activity", (device) => [
-    chatCount,
-    ...frame(device, drain, { organizations: true }),
-    main.getByText('Dispatched "Pick the plan limits"'),
-    main.getByRole("button", { name: "Integrate loyalty plans" }),
-  ]);
   await page.unroute("/api/unread");
   await page.unroute("/api/chat/seen");
 
@@ -2840,7 +2833,6 @@ test("screenshots", async ({ page }) => {
   );
   await screenshot(page, "action-inbox", "/inbox", (device) => [
     ...frame(device, release, { organizations: true }, "3"),
-    main.getByRole("tab", { name: "To do 3" }),
     row(createTitle),
     row(leadTitle),
   ]);

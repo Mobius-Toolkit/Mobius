@@ -123,7 +123,6 @@ test("each item shows on one line with the action of its kind, oldest first", as
   ]);
   await expect(rows.nth(5).getByRole("button")).toHaveText(["Chat", "Details"]);
   await expect(rows.getByRole("button", { name: "Dismiss" })).toHaveCount(1);
-  await expect(page.getByRole("main").getByRole("tab", { name: "To do 6" })).toBeVisible();
 });
 
 test("a failed auto-upgrade shows its npm error and the Owner dismisses it", async ({ page }) => {
@@ -423,7 +422,7 @@ test("an item that is merging is not in the To do list and not in the counts aft
   await page.goto("/inbox");
   const main = page.getByRole("main");
 
-  await expect(main.getByRole("tab", { name: "To do", exact: true })).toBeVisible();
+  await expect(main.getByText("Inbox", { exact: true })).toBeVisible();
   await expect(main.getByRole("listitem")).toHaveCount(0);
   await expect(main.getByRole("button", { name: "Merging" })).toHaveCount(0);
   await expect(page.getByRole("link", { name: "Inbox" }).filter({ visible: true })).toHaveText(
@@ -454,7 +453,6 @@ test("a merging item leaves the To do list and the counts, and comes back with t
   const badge = page.getByRole("link", { name: "Inbox" }).filter({ visible: true });
 
   await expect(row).toHaveCount(1);
-  await expect(main.getByRole("tab", { name: "To do 1" })).toBeVisible();
   await expect(badge).toHaveText(/^Inbox\s*1$/);
 
   await row.getByRole("button", { name: "Merge" }).click();
@@ -463,7 +461,6 @@ test("a merging item leaves the To do list and the counts, and comes back with t
   await reconnect(page, context);
 
   await expect(row).toHaveCount(0);
-  await expect(main.getByRole("tab", { name: "To do", exact: true })).toBeVisible();
   await expect(badge).toHaveText(/^Inbox$/);
 
   const refusal = "Pull request #44 has an open review thread.";
@@ -472,7 +469,6 @@ test("a merging item leaves the To do list and the counts, and comes back with t
 
   await expect(row.getByText(refusal)).toBeVisible();
   await expect(row.getByRole("button", { name: "Merge" })).toBeEnabled();
-  await expect(main.getByRole("tab", { name: "To do 1" })).toBeVisible();
   await expect(badge).toHaveText(/^Inbox\s*1$/);
 });
 
