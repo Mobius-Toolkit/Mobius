@@ -44,15 +44,16 @@ func TestATurnWithNoActivityGetsARetryPromptInTheSameSession(t *testing.T) {
 	if len(prompts) != 2 || prompts[0] != "Plan the loyalty API" {
 		t.Fatalf("prompts = %q", prompts)
 	}
-	for _, part := range []string{
-		"You had no activity for 15 minutes. You are probably stuck.",
-		"Continue your work in a different way.",
+	want := strings.Join([]string{
+		"You had no activity for 15 minutes. Tell Mobius your state.",
+		"If a command or a background task still runs, call `background_state` with `running` and end the turn.",
+		"If each task ended and your work is complete, call `background_state` with `done` and finish your work.",
+		"If you can continue the work, continue it now.",
 		"If you cannot do the work, say so in your reply and give the reason.",
-		"`TaskStop`",
-	} {
-		if !strings.Contains(prompts[1], part) {
-			t.Errorf("%q is not in %s", part, prompts[1])
-		}
+		"Stop each background task that you do not need, for example with `TaskStop`.",
+	}, "\n\n") + "\n"
+	if prompts[1] != want {
+		t.Errorf("retry prompt = %q, want %q", prompts[1], want)
 	}
 	if text := reply(t, server, session); text != "Done" {
 		t.Errorf("reply = %q", text)
