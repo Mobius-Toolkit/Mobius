@@ -103,10 +103,10 @@ func waitForKept(t *testing.T, server *testserver.Server, issue int64) *runner.S
 	})
 }
 
-// keptOf gives the Harness session that the engine keeps for the task of the issue, or nil.
-func keptOf(t *testing.T, server *testserver.Server, issue int64) *runner.Session {
+// keptOf gives the Harness session that the engine keeps for the task of #41, or nil.
+func keptOf(t *testing.T, server *testserver.Server) *runner.Session {
 	t.Helper()
-	return server.Engine.KeptSession(liveTask(t, server, issue).ID)
+	return server.Engine.KeptSession(liveTask(t, server, 41).ID)
 }
 
 // waitForClosedKept waits until the engine no longer keeps the task session and its Harness process ended.
@@ -360,8 +360,8 @@ func TestAChangeOfTheReviewerRoleKeepsTheKeptImplementerSession(t *testing.T) {
 
 	setRoleModel(t, server, engine.ReviewerRole, "haiku")
 
-	if !kept.Alive() || keptOf(t, server, 41) != kept {
-		t.Fatalf("kept = %v", keptOf(t, server, 41))
+	if !kept.Alive() || keptOf(t, server) != kept {
+		t.Fatalf("kept = %v", keptOf(t, server))
 	}
 	startFixRound(t, server)
 	sessions := waitForImplementerSessions(t, server, 2)
@@ -384,8 +384,8 @@ func TestAChangeOfTheImplementerRoleKeepsTheKeptSessionOfATaskWithItsOwnSetting(
 
 	setRoleModel(t, server, engine.ImplementerRole, "sonnet")
 
-	if !kept.Alive() || keptOf(t, server, 41) != kept {
-		t.Fatalf("kept = %v", keptOf(t, server, 41))
+	if !kept.Alive() || keptOf(t, server) != kept {
+		t.Fatalf("kept = %v", keptOf(t, server))
 	}
 }
 
@@ -412,7 +412,7 @@ func TestAConflictRoundStartsANewImplementerSession(t *testing.T) {
 	if sessions[1].EndReason.String != "not_merged" {
 		t.Errorf("end reason = %s", sessions[1].EndReason.String)
 	}
-	if kept := keptOf(t, server, 41); kept != nil {
+	if kept := keptOf(t, server); kept != nil {
 		t.Errorf("the kept session of the earlier round is still open")
 	}
 	if got := harnessStarts(t, dataDir); got != 2 {
@@ -616,7 +616,7 @@ func TestAShortPromptHasTheEarlierReportAfterAConflictRound(t *testing.T) {
 		t.Fatalf("conflict round end reason = %s", sessions[1].EndReason.String)
 	}
 	testkit.WaitFor(t, func() bool {
-		kept := keptOf(t, server, 41)
+		kept := keptOf(t, server)
 		return kept != nil && kept.ID() == sessions[1].AcpSessionID.String
 	})
 	testkit.WaitFor(t, func() bool {
