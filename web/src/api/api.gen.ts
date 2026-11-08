@@ -1486,6 +1486,74 @@ export interface EnvelopeRecording {
 }
 
 /**
+ * Result is event when the Lead got an event, or skipped
+ */
+export type RecurringTaskRunResult = typeof RecurringTaskRunResult[keyof typeof RecurringTaskRunResult];
+
+
+export const RecurringTaskRunResult = {
+  event: 'event',
+  skipped: 'skipped',
+} as const;
+
+/**
+ * RecurringTaskRun is a time of a recurring task that gave an event or was skipped.
+ */
+export interface RecurringTaskRun {
+  /** Reason is the reason of a skipped time, or empty */
+  reason: string;
+  /** Result is event when the Lead got an event, or skipped */
+  result: RecurringTaskRunResult;
+  /** Time is the time of the run */
+  time: string;
+}
+
+/**
+ * RecurringTask is a recurring task of a Workstream.
+ */
+export interface RecurringTask {
+  /** Cron is the cron expression with five fields, in the local time zone of the Mobius server */
+  cron: string;
+  /** ID is the id of the recurring task */
+  id: number;
+  /**
+     * Next is the next time of the task, or null for a paused task
+     * @nullable
+     */
+  next: string | null;
+  /** Paused is true when the task gives no event */
+  paused: boolean;
+  /** Runs are the last 20 times of the task, newest first */
+  runs: RecurringTaskRun[];
+  /** Text is the text that the Lead gets at each time */
+  text: string;
+}
+
+/**
+ * Envelope is the body of each success response.
+ */
+export interface EnvelopeRecurringTask {
+  /** Data is the payload of the response */
+  data: RecurringTask;
+}
+
+/**
+ * RecurringTasksList is the tasks of a Workstream.
+ */
+export interface RecurringTasksList {
+  /** Tasks are the recurring tasks in id order */
+  tasks: RecurringTask[];
+}
+
+/**
+ * Envelope is the body of each success response.
+ */
+export interface EnvelopeRecurringTasksList {
+  /** Data is the payload of the response */
+  data: RecurringTasksList;
+}
+
+/**
  * Release is the newest release of Mobius.
  */
 export interface Release {
@@ -2100,6 +2168,10 @@ export type LiveEvents = {
   event: 'workstreamCreated';
   id?: string;
 } | {
+  data: WorkstreamRef;
+  event: 'recurring_tasks';
+  id?: string;
+} | {
   data: { [key: string]: unknown };
   event: 'ping';
   id?: string;
@@ -2173,6 +2245,11 @@ export interface SetAutopilotBody {
 export interface SetEvergreenBody {
   /** On adds mobius:evergreen when true, and removes it when false */
   on?: boolean;
+}
+
+export interface SetRecurringTaskPausedBody {
+  /** Paused is true to pause the task and false to resume it */
+  paused?: boolean;
 }
 
 export interface SetRoleBody {
@@ -8294,6 +8371,228 @@ export const clearWorkstreamLead = async (owner: string,
 
   const data: clearWorkstreamLeadResponse['data'] = body ? JSON.parse(body) : undefined
   return { data, status: res.status, headers: res.headers } as clearWorkstreamLeadResponse
+}
+
+
+
+export type listRecurringTasksResponse200 = {
+  data: EnvelopeRecurringTasksList
+  status: 200
+}
+
+export type listRecurringTasksResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type listRecurringTasksResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type listRecurringTasksResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type listRecurringTasksResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type listRecurringTasksResponseSuccess = (listRecurringTasksResponse200) & {
+  headers: Headers;
+};
+export type listRecurringTasksResponseError = (listRecurringTasksResponse400 | listRecurringTasksResponse401 | listRecurringTasksResponse422 | listRecurringTasksResponse500) & {
+  headers: Headers;
+};
+
+export type listRecurringTasksResponse = (listRecurringTasksResponseSuccess | listRecurringTasksResponseError)
+
+export const getListRecurringTasksUrl = (owner: string,
+    name: string,
+    number: number,) => {
+
+
+
+
+  return `/api/workstreams/${owner}/${name}/${number}/recurring-tasks`
+}
+
+/**
+ * ListRecurringTasks returns the recurring tasks of the Workstream with their last 20 times, in id order.
+ */
+export const listRecurringTasks = async (owner: string,
+    name: string,
+    number: number, ): Promise<listRecurringTasksResponse> => {
+
+  const res = await fetch(getListRecurringTasksUrl(owner,name,number),
+  {
+
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: listRecurringTasksResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as listRecurringTasksResponse
+}
+
+
+
+export type deleteRecurringTaskResponse204 = {
+  data: void
+  status: 204
+}
+
+export type deleteRecurringTaskResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type deleteRecurringTaskResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type deleteRecurringTaskResponse404 = {
+  data: ErrorResponse
+  status: 404
+}
+
+export type deleteRecurringTaskResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type deleteRecurringTaskResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type deleteRecurringTaskResponseSuccess = (deleteRecurringTaskResponse204) & {
+  headers: Headers;
+};
+export type deleteRecurringTaskResponseError = (deleteRecurringTaskResponse400 | deleteRecurringTaskResponse401 | deleteRecurringTaskResponse404 | deleteRecurringTaskResponse422 | deleteRecurringTaskResponse500) & {
+  headers: Headers;
+};
+
+export type deleteRecurringTaskResponse = (deleteRecurringTaskResponseSuccess | deleteRecurringTaskResponseError)
+
+export const getDeleteRecurringTaskUrl = (owner: string,
+    name: string,
+    number: number,
+    id: number,) => {
+
+
+
+
+  return `/api/workstreams/${owner}/${name}/${number}/recurring-tasks/${id}`
+}
+
+/**
+ * DeleteRecurringTask deletes a recurring task with its history and gives the Lead the quiet event recurring_change. It returns 404 for an id that is not a task of the Workstream.
+ */
+export const deleteRecurringTask = async (owner: string,
+    name: string,
+    number: number,
+    id: number, ): Promise<deleteRecurringTaskResponse> => {
+
+  const res = await fetch(getDeleteRecurringTaskUrl(owner,name,number,id),
+  {
+
+    method: 'DELETE'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: deleteRecurringTaskResponse['data'] = body ? JSON.parse(body) : undefined
+  return { data, status: res.status, headers: res.headers } as deleteRecurringTaskResponse
+}
+
+
+
+export type setRecurringTaskPausedResponse200 = {
+  data: EnvelopeRecurringTask
+  status: 200
+}
+
+export type setRecurringTaskPausedResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type setRecurringTaskPausedResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type setRecurringTaskPausedResponse404 = {
+  data: ErrorResponse
+  status: 404
+}
+
+export type setRecurringTaskPausedResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type setRecurringTaskPausedResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type setRecurringTaskPausedResponseSuccess = (setRecurringTaskPausedResponse200) & {
+  headers: Headers;
+};
+export type setRecurringTaskPausedResponseError = (setRecurringTaskPausedResponse400 | setRecurringTaskPausedResponse401 | setRecurringTaskPausedResponse404 | setRecurringTaskPausedResponse422 | setRecurringTaskPausedResponse500) & {
+  headers: Headers;
+};
+
+export type setRecurringTaskPausedResponse = (setRecurringTaskPausedResponseSuccess | setRecurringTaskPausedResponseError)
+
+export const getSetRecurringTaskPausedUrl = (owner: string,
+    name: string,
+    number: number,
+    id: number,) => {
+
+
+
+
+  return `/api/workstreams/${owner}/${name}/${number}/recurring-tasks/${id}/paused`
+}
+
+/**
+ * SetRecurringTaskPaused pauses or resumes a recurring task and gives the Lead the quiet event recurring_change. A task that already has the state stays as it is and gives no event. A resume gives no event for the times of the pause. It returns 404 for an id that is not a task of the Workstream.
+ */
+export const setRecurringTaskPaused = async (owner: string,
+    name: string,
+    number: number,
+    id: number,
+    setRecurringTaskPausedBody: SetRecurringTaskPausedBody, ): Promise<setRecurringTaskPausedResponse> => {
+
+  const res = await fetch(getSetRecurringTaskPausedUrl(owner,name,number,id),
+  {
+
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(setRecurringTaskPausedBody)
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: setRecurringTaskPausedResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as setRecurringTaskPausedResponse
 }
 
 

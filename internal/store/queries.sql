@@ -1541,6 +1541,10 @@ SELECT * FROM recurring_tasks
 WHERE repository = ? AND workstream = ?
 ORDER BY id;
 
+-- name: GetRecurringTask :one
+SELECT * FROM recurring_tasks
+WHERE id = ? AND repository = ? AND workstream = ?;
+
 -- name: ListRecurringTaskRuns :many
 SELECT * FROM recurring_task_runs
 WHERE recurring_task = ?
