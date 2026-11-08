@@ -3829,9 +3829,10 @@ func (q *Queries) ListAllOpenHardCIBreaks(ctx context.Context) ([]CiBreak, error
 }
 
 const listAllRecurringTasks = `-- name: ListAllRecurringTasks :many
-SELECT id, repository, workstream, cron, text, paused, checked_at, event FROM recurring_tasks
-WHERE paused = 0
-ORDER BY id
+SELECT t.id, t.repository, t.workstream, t.cron, t.text, t.paused, t.checked_at, t.event FROM recurring_tasks t
+JOIN copied_workstreams w ON w.repository = t.repository AND w.number = t.workstream
+WHERE t.paused = 0
+ORDER BY t.id
 `
 
 func (q *Queries) ListAllRecurringTasks(ctx context.Context) ([]RecurringTask, error) {

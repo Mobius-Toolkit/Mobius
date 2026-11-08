@@ -1547,9 +1547,10 @@ WHERE recurring_task = ?
 ORDER BY id DESC;
 
 -- name: ListAllRecurringTasks :many
-SELECT * FROM recurring_tasks
-WHERE paused = 0
-ORDER BY id;
+SELECT t.* FROM recurring_tasks t
+JOIN copied_workstreams w ON w.repository = t.repository AND w.number = t.workstream
+WHERE t.paused = 0
+ORDER BY t.id;
 
 -- A new cron expression gives no event for a time before the change.
 -- name: UpdateRecurringTask :one

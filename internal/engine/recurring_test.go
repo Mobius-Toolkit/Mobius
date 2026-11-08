@@ -329,6 +329,35 @@ func TestTheRemovalOfTheWorkstreamLabelDeletesItsRecurringTasks(t *testing.T) {
 	}
 }
 
+func TestARecurringTaskOfAWorkstreamThatLeftTheLocalCopyGivesNoEvent(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, "")
+	setNow(server, friday)
+	addRecurringTask(t, server, hourly, planCheck)
+	copied := func() int {
+		var count int
+		if err := server.DB.QueryRow("SELECT count(*) FROM copied_workstreams WHERE repository = ?", shop).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		return count
+	}
+	testkit.WaitFor(t, func() bool { return copied() == 1 })
+
+	fake.RemoveRepository(shop)
+
+	testkit.WaitFor(t, func() bool { return copied() == 0 })
+	setNow(server, friday.Add(time.Hour))
+	server.Engine.RunRecurringTasks(t.Context())
+	if got := recurringEvents(t, server); len(got) != 0 {
+		t.Errorf("events = %d, want 0", len(got))
+	}
+	var runs int
+	if err := server.DB.QueryRow("SELECT count(*) FROM recurring_task_runs").Scan(&runs); err != nil || runs != 0 {
+		t.Errorf("stored runs = %d, %v", runs, err)
+	}
+}
+
 func TestAddRecurringTaskRefusesAnEmptyTextAndAWorkstreamThatIsNotOpen(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

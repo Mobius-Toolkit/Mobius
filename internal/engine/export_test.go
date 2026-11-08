@@ -311,3 +311,6 @@ func (e *Engine) RunStaleRecurringTasks(ctx context.Context, change func()) erro
 	}
 	return nil
 }
+
+// RunRecurringTasks runs the step of the recurring tasks one time and waits for its end.
+func (e *Engine) RunRecurringTasks(ctx context.Context) { e.runRecurringTasks(ctx) }
