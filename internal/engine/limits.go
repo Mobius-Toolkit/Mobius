@@ -342,7 +342,7 @@ func (e *Engine) Pauses(ctx context.Context) ([]PauseState, error) {
 	if err != nil {
 		return nil, err
 	}
-	settings, err := e.queries.ListIssueBindings(ctx)
+	settings, err := e.queries.ListLiveIssueBindings(ctx)
 	if err != nil {
 		return nil, err
 	}

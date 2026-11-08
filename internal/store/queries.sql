@@ -1488,6 +1488,14 @@ SELECT * FROM issue_bindings WHERE repository = ? AND issue = ? AND role = ?;
 -- name: ListIssueBindings :many
 SELECT * FROM issue_bindings ORDER BY repository, issue, role;
 
+-- A row is live when its task issue is open in a copied tree, or its Workstream issue is copied.
+-- name: ListLiveIssueBindings :many
+SELECT b.* FROM issue_bindings b
+WHERE EXISTS (SELECT 1 FROM copied_workstreams w WHERE b.repository = w.repository AND w.number = b.issue)
+   OR EXISTS (SELECT 1 FROM copied_issues i WHERE i.number = b.issue AND i.state = 'open'
+              AND substr(lower(i.repository_url), -(length(b.repository) + 7)) = '/repos/' || lower(b.repository))
+ORDER BY b.repository, b.issue, b.role;
+
 -- name: UpsertIssueBinding :exec
 INSERT INTO issue_bindings (repository, issue, role, harness, model, effort, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (repository, issue, role) DO UPDATE SET harness = excluded.harness, model = excluded.model, effort = excluded.effort, updated_at = excluded.updated_at;

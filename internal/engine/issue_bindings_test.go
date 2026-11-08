@@ -3,7 +3,9 @@ package engine_test
 import (
 	"database/sql"
 	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
@@ -441,5 +443,48 @@ func TestAPauseOfAHarnessThatOnlyASettingUsesIsInUse(t *testing.T) {
 
 	if !devinInUse(t, apiPauses(t, server)) {
 		t.Error("the pause of devin is not in use, but a task has a setting with devin")
+	}
+
+	fake.CloseIssue(shop, 43)
+
+	testkit.WaitFor(t, func() bool { return !devinInUse(t, apiPauses(t, server)) })
+	if rows, err := store.New(server.DB).ListIssueBindings(t.Context()); err != nil || len(rows) != 1 {
+		t.Errorf("rows = %+v, err = %v, want the row of the closed task", rows, err)
+	}
+}
+
+func TestASettingOfAClosedTaskIsNoUserOfItsAccessKeyAndItsRowStays(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, dataDir := connect(t, fake, answersDone)
+	addCopiedTask(t, server, fake, 41)
+	setBinding(t, server, "implementer", 41, config.Devin, "opus", "low")
+	server.Stop()
+	testkit.InstallFakeHarness(t, dataDir, "devin", countStarts+options+noKey)
+	restarted := testserver.Start(t, dataDir, fake.URL)
+	restarted.WaitForFirstPoll(t, shop)
+	items := waitForAccessItems(t, restarted, 2)
+	if !slices.ContainsFunc(items, func(item inboxItem) bool {
+		return item.Title == "Access check failed: devin opus low" && strings.Contains(item.Text, "implementer of owner/shop#41")
+	}) {
+		t.Fatalf("items = %+v", items)
+	}
+
+	fake.CloseIssue(shop, 41)
+
+	remaining := waitForAccessItems(t, restarted, 1)
+	if remaining[0].Title != "Access check failed: devin swe-1.5 high" {
+		t.Errorf("remaining item = %+v", remaining[0])
+	}
+	starts := agentStarts(t, dataDir)
+	restarted.Engine.SetClock(func() time.Time { return time.Now().Add(time.Hour) })
+	testkit.WaitFor(t, func() bool { return agentStarts(t, dataDir) > starts })
+	waitForPolls(t, fake)
+	waitForPolls(t, fake)
+	if got := agentStarts(t, dataDir); got != starts+1 {
+		t.Errorf("starts = %d, want %d: only the key of the Implementer role gets a new check", got, starts+1)
+	}
+	if rows, err := store.New(restarted.DB).ListIssueBindings(t.Context()); err != nil || len(rows) != 1 {
+		t.Errorf("rows = %+v, err = %v, want the row of the closed task", rows, err)
 	}
 }

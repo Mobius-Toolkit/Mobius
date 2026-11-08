@@ -6132,6 +6132,46 @@ func (q *Queries) ListLeadWrites(ctx context.Context, arg ListLeadWritesParams) 
 	return items, nil
 }
 
+const listLiveIssueBindings = `-- name: ListLiveIssueBindings :many
+SELECT b.repository, b.issue, b.role, b.harness, b.model, b.effort, b.updated_at FROM issue_bindings b
+WHERE EXISTS (SELECT 1 FROM copied_workstreams w WHERE b.repository = w.repository AND w.number = b.issue)
+   OR EXISTS (SELECT 1 FROM copied_issues i WHERE i.number = b.issue AND i.state = 'open'
+              AND substr(lower(i.repository_url), -(length(b.repository) + 7)) = '/repos/' || lower(b.repository))
+ORDER BY b.repository, b.issue, b.role
+`
+
+// A row is live when its task issue is open in a copied tree, or its Workstream issue is copied.
+func (q *Queries) ListLiveIssueBindings(ctx context.Context) ([]IssueBinding, error) {
+	rows, err := q.db.QueryContext(ctx, listLiveIssueBindings)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []IssueBinding
+	for rows.Next() {
+		var i IssueBinding
+		if err := rows.Scan(
+			&i.Repository,
+			&i.Issue,
+			&i.Role,
+			&i.Harness,
+			&i.Model,
+			&i.Effort,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listLiveTaskRepositories = `-- name: ListLiveTaskRepositories :many
 SELECT DISTINCT repository FROM tasks WHERE state <> 'ended' ORDER BY repository
 `

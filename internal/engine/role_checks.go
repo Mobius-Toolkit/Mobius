@@ -90,9 +90,9 @@ func (e *Engine) runAccess(ctx context.Context, key accessKey) error {
 }
 
 // accessUses gives the users of each access key, and the keys in the order of their first user. A user is a Role of roles,
-// or the task issue or the Workstream issue that has a setting.
+// or the open task issue or the copied Workstream issue that has a setting.
 func (e *Engine) accessUses(ctx context.Context, roles *config.Roles) (map[accessKey][]string, []accessKey, error) {
-	settings, err := e.queries.ListIssueBindings(ctx)
+	settings, err := e.queries.ListLiveIssueBindings(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
