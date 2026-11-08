@@ -352,6 +352,9 @@ func closureItem(repository string, issue *gh.Issue, pullRequest bool) ClosureIt
 // dismisses the Inbox items of its issues, closes the open pull requests of its
 // tasks, and closes the issues below it as not planned. A nested Workstream and the issues below it stay open.
 func (e *Engine) closeWorkstream(ctx context.Context, repository github.Repository, workstream int64) error {
+	if err := e.deleteRecurringTasks(ctx, repository.FullName, workstream); err != nil {
+		return err
+	}
 	if err := e.stopWorkstream(ctx, repository, workstream); err != nil {
 		return err
 	}

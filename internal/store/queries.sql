@@ -515,9 +515,10 @@ WHERE m.organization = sqlc.arg(organization) AND m.repository = sqlc.arg(reposi
   AND m.id > coalesce((SELECT s.message FROM chat_seen s
                        WHERE s.organization = m.organization AND s.repository = m.repository AND s.workstream = m.workstream), 0);
 
--- name: AddLeadEvent :exec
+-- name: AddLeadEvent :one
 INSERT INTO lead_events (repository, workstream, issue_repository, issue, kind, payload, time, chat_message, comment, review)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id;
 
 -- name: HasLeadEvent :one
 SELECT EXISTS (
@@ -1529,3 +1530,75 @@ DELETE FROM tool_auto_upgrades WHERE package = ?;
 
 -- name: SetToolAutoUpgradeFailure :exec
 UPDATE tool_auto_upgrades SET failed_version = ? WHERE package = ?;
+
+-- name: AddRecurringTask :one
+INSERT INTO recurring_tasks (repository, workstream, cron, text, checked_at)
+VALUES (?, ?, ?, ?, ?)
+RETURNING *;
+
+-- name: ListRecurringTasks :many
+SELECT * FROM recurring_tasks
+WHERE repository = ? AND workstream = ?
+ORDER BY id;
+
+-- name: ListRecurringTaskRuns :many
+SELECT * FROM recurring_task_runs
+WHERE recurring_task = ?
+ORDER BY id DESC;
+
+-- name: ListAllRecurringTasks :many
+SELECT t.* FROM recurring_tasks t
+JOIN copied_workstreams w ON w.repository = t.repository AND w.number = t.workstream
+WHERE t.paused = 0
+ORDER BY t.id;
+
+-- A new cron expression gives no event for a time before the change.
+-- name: UpdateRecurringTask :one
+UPDATE recurring_tasks
+SET checked_at = CASE WHEN cron != sqlc.arg(cron) THEN sqlc.arg(checked_at) ELSE checked_at END,
+    cron = sqlc.arg(cron), text = sqlc.arg(text)
+WHERE id = sqlc.arg(id) AND repository = sqlc.arg(repository) AND workstream = sqlc.arg(workstream)
+RETURNING *;
+
+-- A resume gives no event for the times of the pause.
+-- name: SetRecurringTaskPaused :one
+UPDATE recurring_tasks
+SET paused = CAST(sqlc.arg(paused) AS BOOLEAN), checked_at = sqlc.arg(checked_at)
+WHERE id = sqlc.arg(id) AND repository = sqlc.arg(repository) AND workstream = sqlc.arg(workstream)
+RETURNING *;
+
+-- name: DeleteRecurringTask :execrows
+DELETE FROM recurring_tasks WHERE id = ? AND repository = ? AND workstream = ?;
+
+-- name: DeleteRecurringTaskRuns :exec
+DELETE FROM recurring_task_runs WHERE recurring_task = ?;
+
+-- name: DeleteWorkstreamRecurringTaskRuns :exec
+DELETE FROM recurring_task_runs
+WHERE recurring_task IN (SELECT id FROM recurring_tasks WHERE repository = ? AND workstream = ?);
+
+-- name: DeleteWorkstreamRecurringTasks :exec
+DELETE FROM recurring_tasks WHERE repository = ? AND workstream = ?;
+
+-- The row changes only when the task still has the cron expression and the check time that the step read, and is not
+-- paused. Else a person changed the task during the step.
+-- name: AdvanceRecurringTask :execrows
+UPDATE recurring_tasks SET checked_at = sqlc.arg(checked_at), event = coalesce(sqlc.narg(event), event)
+WHERE id = sqlc.arg(id) AND cron = sqlc.arg(cron) AND checked_at = sqlc.arg(read_checked_at) AND paused = 0;
+
+-- name: HasUnchangedRecurringTask :one
+SELECT EXISTS (
+    SELECT 1 FROM recurring_tasks
+    WHERE id = ? AND cron = ? AND checked_at = ? AND paused = 0
+);
+
+-- name: AddRecurringTaskRun :exec
+INSERT INTO recurring_task_runs (recurring_task, time, result, reason) VALUES (?, ?, ?, ?);
+
+-- name: TrimRecurringTaskRuns :exec
+DELETE FROM recurring_task_runs
+WHERE recurring_task_runs.recurring_task = sqlc.arg(task)
+  AND recurring_task_runs.id NOT IN (SELECT newest.id FROM recurring_task_runs AS newest WHERE newest.recurring_task = sqlc.arg(task) ORDER BY newest.id DESC LIMIT 20);
+
+-- name: HasUndeliveredLeadEvent :one
+SELECT EXISTS (SELECT 1 FROM lead_events WHERE id = ? AND delivered_at IS NULL);

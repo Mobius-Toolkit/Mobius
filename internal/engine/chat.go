@@ -424,18 +424,20 @@ type commentRef struct {
 // addCommentLeadEvent adds an event like addLeadEvent. The event keeps comment, so the turn of the event can add its
 // reaction to the comment.
 func (e *Engine) addCommentLeadEvent(ctx context.Context, repository string, workstream int64, issueRepository string, issue sql.NullInt64, kind, text string, comment commentRef) error {
-	return e.addLeadEventAt(ctx, repository, workstream, issueRepository, issue, kind, text, now(), comment)
+	_, err := e.addLeadEventAt(ctx, repository, workstream, issueRepository, issue, kind, text, now(), comment)
+	return err
 }
 
-// addLeadEventAt adds an event like addCommentLeadEvent, with the time at as its time.
-func (e *Engine) addLeadEventAt(ctx context.Context, repository string, workstream int64, issueRepository string, issue sql.NullInt64, kind, text, at string, comment commentRef) error {
+// addLeadEventAt adds an event like addCommentLeadEvent, with the time at as its time. It gives the id of the new
+// event, which is not zero when the event exists, also when the error is not nil.
+func (e *Engine) addLeadEventAt(ctx context.Context, repository string, workstream int64, issueRepository string, issue sql.NullInt64, kind, text, at string, comment commentRef) (int64, error) {
 	e.chatOrder.Lock()
 	defer e.chatOrder.Unlock()
 	message, err := e.addChatMessage(ctx, leadChat(repository, workstream), eventAuthor, text, "", "", nil, false)
 	if err != nil {
-		return err
+		return 0, err
 	}
-	err = e.queries.AddLeadEvent(ctx, store.AddLeadEventParams{
+	id, err := e.queries.AddLeadEvent(ctx, store.AddLeadEventParams{
 		Repository:      repository,
 		Workstream:      workstream,
 		IssueRepository: issueRepository,
@@ -448,9 +450,9 @@ func (e *Engine) addLeadEventAt(ctx context.Context, repository string, workstre
 		Review:          sql.NullBool{Bool: comment.review, Valid: comment.id != 0},
 	})
 	if err != nil {
-		return err
+		return 0, err
 	}
-	return e.sendEvents(ctx, repository, workstream)
+	return id, e.sendEvents(ctx, repository, workstream)
 }
 
 // wakeEvents gives the ready events of the Workstream to its Lead.
