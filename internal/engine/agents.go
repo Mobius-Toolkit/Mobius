@@ -68,6 +68,8 @@ type Agent struct {
 	spec   Spec
 	// binding is the Role binding that newAgent read. The session keeps it after a change of the Role settings.
 	binding config.RoleBinding
+	// level is the level of binding: LevelTask, LevelWorkstream or LevelRole.
+	level   string
 	key     string
 	session *runner.Session
 	// queuedAt is the time when the session was added.
@@ -301,16 +303,17 @@ func (e *Engine) addAgent(ctx context.Context, spec Spec) (*Agent, error) {
 
 // newAgent adds the session of spec. The agent holds no slot yet.
 func (e *Engine) newAgent(ctx context.Context, spec Spec) (*Agent, error) {
-	binding, ok := e.roleBinding(spec.Role)
-	if !ok {
-		return nil, fmt.Errorf("the Role %s has no Role binding", spec.Role)
+	if spec.WorkstreamRepository == "" {
+		spec.WorkstreamRepository = spec.Repository
+	}
+	roles := e.mergedRoles()
+	binding, level, err := e.sessionBinding(ctx, &roles, spec)
+	if err != nil {
+		return nil, err
 	}
 	worker := workerRoles[spec.Role]
 	if !worker && !spec.Tracked && !e.track() {
 		return nil, refuse("Mobius restarts for an upgrade.")
-	}
-	if spec.WorkstreamRepository == "" {
-		spec.WorkstreamRepository = spec.Repository
 	}
 	session, err := e.queries.AddSession(ctx, store.AddSessionParams{
 		Role:                 spec.Role,
@@ -332,7 +335,7 @@ func (e *Engine) newAgent(ctx context.Context, spec Spec) (*Agent, error) {
 		return nil, err
 	}
 	e.publish(Change{Node: new(e.node(session))})
-	return &Agent{engine: e, id: session.ID, spec: spec, binding: binding, tracked: !worker, queuedAt: session.StartedAt, wake: make(chan struct{}, 1), ended: make(chan struct{}, 1), antigravityIdx: -1}, nil
+	return &Agent{engine: e, id: session.ID, spec: spec, binding: binding, level: level, tracked: !worker, queuedAt: session.StartedAt, wake: make(chan struct{}, 1), ended: make(chan struct{}, 1), antigravityIdx: -1}, nil
 }
 
 // waitForSlot waits for a slot of the Role of a, and starts the session. A failed wait ends the session, like Start.

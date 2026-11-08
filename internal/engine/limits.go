@@ -342,12 +342,17 @@ func (e *Engine) Pauses(ctx context.Context) ([]PauseState, error) {
 	if err != nil {
 		return nil, err
 	}
+	settings, err := e.queries.ListLiveIssueBindings(ctx)
+	if err != nil {
+		return nil, err
+	}
 	roles := e.mergedRoles()
 	bindings := roles.Bindings()
 	states := make([]PauseState, 0, len(pauses))
 	for _, pause := range pauses {
 		inUse := slices.Contains(waiting, pause.Harness) ||
-			slices.ContainsFunc(bindings, func(b config.NamedBinding) bool { return string(b.Binding.Harness) == pause.Harness })
+			slices.ContainsFunc(bindings, func(b config.NamedBinding) bool { return string(b.Binding.Harness) == pause.Harness }) ||
+			slices.ContainsFunc(settings, func(s store.IssueBinding) bool { return s.Harness == pause.Harness })
 		states = append(states, PauseState{HarnessPause: pause, InUse: inUse})
 	}
 	return states, nil
@@ -474,11 +479,12 @@ func (e *Engine) watchMove(a *Agent) (<-chan struct{}, func()) {
 }
 
 // moveWaiters wakes each agent in pauseWaiters of a moving Role whose Harness is not the Harness of its Role in roles.
+// A session that got its binding from a setting of its task or Workstream never moves.
 func (e *Engine) moveWaiters(roles *config.Roles) {
 	e.pauseWaitersMu.Lock()
 	defer e.pauseWaitersMu.Unlock()
 	for a, moved := range e.pauseWaiters {
-		if !movingRoles[a.spec.Role] {
+		if !movingRoles[a.spec.Role] || a.level != LevelRole {
 			continue
 		}
 		if binding, _ := roleBinding(roles, a.spec.Role); binding.Harness != a.binding.Harness {
