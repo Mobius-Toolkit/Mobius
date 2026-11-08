@@ -15,7 +15,7 @@ export function sameChat(a: ChatKey, b: ChatKey) {
   );
 }
 
-export function unreadCount(unread: Unread[], chat: ChatKey) {
+export function unreadCount(unread: readonly Unread[], chat: ChatKey) {
   return unread.find((other) => sameChat(other, chat))?.count ?? 0;
 }
 

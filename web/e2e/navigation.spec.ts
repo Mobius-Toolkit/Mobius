@@ -307,6 +307,7 @@ test.describe("the list of a phone after a back navigation", () => {
       brief: "",
       autopilot: "off",
       allTasksClosed: false,
+      evergreen: false,
       readyToMerge: false,
     }));
     await page.route("**/api/workstreams", (route) =>

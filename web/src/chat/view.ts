@@ -1,4 +1,4 @@
-import { Effect, Queue, Schema, Stream } from "effect";
+import { Effect, Queue, Stream } from "effect";
 import { Mount } from "foldkit";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import { cn } from "cn";
@@ -24,6 +24,7 @@ import {
   triangleAlertIcon,
 } from "@/ui/icons";
 import { defineDialogMount, renderDialog } from "@/ui/dialog";
+import { defineRouterLink } from "@/ui/link";
 import { beginMarkdownRender, renderMarkdown, shieldEquals } from "@/ui/markdown";
 import { renderComposer, renderFileImage, renderPanelComposer } from "./composer";
 import { ChatList } from "./scroll";
@@ -122,34 +123,7 @@ function renderInboxItemCard(
   );
 }
 
-// A plain click on a link goes to the host router. A click with a modifier key keeps the default of the browser.
-const RouterLink = Mount.defineStream("RouterLink", {
-  args: { path: Schema.String },
-  messages: [Message.NavigateTo],
-  execute: ({ element, path }) =>
-    Stream.callback<ReturnType<typeof Message.NavigateTo>>((queue) => {
-      const click = (mouse: Event) => {
-        if (
-          !(mouse instanceof MouseEvent) ||
-          mouse.button !== 0 ||
-          mouse.metaKey ||
-          mouse.ctrlKey ||
-          mouse.shiftKey ||
-          mouse.altKey
-        ) {
-          return;
-        }
-        mouse.preventDefault();
-        Queue.offerUnsafe(queue, Message.NavigateTo({ path }));
-      };
-      return Effect.gen(function* () {
-        element.addEventListener("click", click);
-        yield* Effect.addFinalizer(() =>
-          Effect.sync(() => element.removeEventListener("click", click)),
-        );
-      });
-    }),
-});
+const RouterLink = defineRouterLink(Message.NavigateTo);
 
 function renderActionSender(h: H, action: PendingAction): Html {
   const [owner, name] = action.sender ? action.sender.repository.split("/") : ["", ""];

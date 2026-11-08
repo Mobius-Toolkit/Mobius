@@ -20,15 +20,23 @@ import { Usage } from "./Usage";
 import { Workstreams } from "./Workstreams";
 
 export function WorkstreamsPage() {
-  const { organization, workstreams, unread } = useShell();
+  const { organization, workstreams } = useShell();
   return (
-    <Workstreams organization={organization} workstreams={workstreams} unread={unread ?? []} />
+    <>
+      <TopBar title="Workstreams" />
+      <Workstreams organization={organization} needsHuman={workstreams.needsHuman} />
+    </>
   );
 }
 
 export function TasksPage() {
-  const { organization, source } = useShell();
-  return <Tasks organization={organization} source={source} />;
+  const { organization } = useShell();
+  return (
+    <>
+      <TopBar title="Tasks" />
+      <Tasks organization={organization} />
+    </>
+  );
 }
 
 export function CoordinatorChatPage() {
