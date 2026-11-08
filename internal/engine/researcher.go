@@ -166,7 +166,7 @@ func (e *Engine) research(ctx context.Context, c caller, repository github.Repos
 		if err := errors.Join(e.removeCopy(ended, repository.FullName, a.spec.Dir), a.End(ended, "moved")); err != nil {
 			log.Printf("Researcher %d: end the moved session %d: %v", id, a.id, err)
 		}
-		next, err := e.moveResearcher(ctx, id, a)
+		next, err := e.moveResearcher(ctx, c, repository, id, question, a)
 		if err != nil || next == nil {
 			return err
 		}
@@ -191,11 +191,12 @@ func (e *Engine) research(ctx context.Context, c caller, repository github.Repos
 
 // moveResearcher adds a new session for the Researcher id after the session old ended with the reason "moved". The new
 // session gets the details that wait for old, and replaces old in e.researchers. It gives nil when a stop came before.
-func (e *Engine) moveResearcher(ctx context.Context, id int64, old *Agent) (*Agent, error) {
+// When it cannot add the new session, it reports the failure.
+func (e *Engine) moveResearcher(ctx context.Context, c caller, repository github.Repository, id int64, question string, old *Agent) (*Agent, error) {
 	next, err := e.newAgent(ctx, old.spec)
 	if err != nil {
 		e.leave(ctx, id)
-		return nil, err
+		return nil, errors.Join(err, e.deliverReport(context.WithoutCancel(ctx), c, repository, id, question, "The Researcher failed: "+err.Error()))
 	}
 	e.detailsMu.Lock()
 	defer e.detailsMu.Unlock()
@@ -251,16 +252,23 @@ func (e *Engine) researchTurn(ctx context.Context, a *Agent, id int64, question 
 		return "", err
 	}
 	prompt := fmt.Sprintf("%s\n%s%s# Question\n\n%s", researcherPrompt, sections, briefSection, question)
+	taken := ""
 	for {
 		err := a.Prompt(ctx, prompt, nil)
 		if err == nil {
 			err = a.waitBackground(ctx, backgroundPrompt)
 		}
 		if errors.Is(err, errMoved) {
+			if taken != "" {
+				a.mu.Lock()
+				a.details = append([]string{taken}, a.details...)
+				a.mu.Unlock()
+			}
 			return "", err
 		}
-		if details := e.takeDetails(e.researchers, id, a, true); details != "" && ctx.Err() == nil {
-			prompt = detailsPrompt("question", details)
+		taken = e.takeDetails(e.researchers, id, a, true)
+		if taken != "" && ctx.Err() == nil {
+			prompt = detailsPrompt("question", taken)
 			continue
 		}
 		return a.replyText(), err

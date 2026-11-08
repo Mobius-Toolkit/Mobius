@@ -217,6 +217,49 @@ reply = ["Plans store the price in cents.\n"]
 	}
 }
 
+func TestAResearcherThatMovesWhileItsDetailsPromptWaitsGivesTheDetailsToTheNewSession(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, dataDir := connectResearcher(t, fake, researchLeadOfDetails, antigravityLimit("The Owner gave new details")+`
+[[prompts]]
+when = "# Question"
+reply = ["Looking."]
+hang = true
+`)
+	installDevin(t, dataDir, `
+[[prompts]]
+when = "The Owner gave new details"
+reply = ["Discounts are in cents.\n"]
+
+[[prompts]]
+when = "# Question"
+reply = ["Plans store the price in cents.\n"]
+`)
+	sessions := func() []store.Session { return roleSessions(t, server, engine.ResearcherRole) }
+	sendChat(t, server, leadChat, "Begin alpha.")
+	testkit.WaitFor(t, func() bool {
+		found := sessions()
+		return len(found) == 1 && reply(t, server, found[0].ID) == "Looking."
+	})
+	sendChat(t, server, leadChat, "Details for alpha.")
+	waitForPausedWorker(t, sessions)
+
+	moveRole(t, server, "researcher", config.Devin, "swe-1.5", "high")
+
+	report := waitForLeadPrompt(t, server, "# Researcher message\n\nReport of the Researcher 2")
+	if want := "# Researcher message\n\nReport of the Researcher 2 on \"Alpha question\":\n\nDiscounts are in cents.\n"; report != want {
+		t.Errorf("report = %q", report)
+	}
+	moved := sessions()
+	if len(moved) != 2 {
+		t.Fatalf("sessions = %+v", moved)
+	}
+	prompts := promptTexts(t, server, moved[1].ID)
+	if len(prompts) != 2 || prompts[1] != "The Owner gave new details for the question. They replace the old text where they differ.\n\nAsk about the discount too." {
+		t.Errorf("prompts of the new session = %q", prompts)
+	}
+}
+
 func TestAChangeOfOnlyTheModelOfTheResearcherKeepsTheWaitingResearcher(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
