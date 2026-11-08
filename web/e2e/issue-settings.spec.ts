@@ -171,3 +171,34 @@ test("the Implementer setting of the Workstream is the default in the sheet of a
   await gear(page).click();
   await expect(taskSheet).toContainText("Default: devin · swe-1.5 · high (role)");
 });
+
+test("on a phone, Escape closes the setting sheet and the close dialog, and keeps the Tasks sheet", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/workstreams/owner/shop/12");
+  await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
+  const tasks = page.getByRole("dialog", { name: "Tasks" });
+  await expect(taskRow(page)).toBeVisible();
+
+  await gear(page).click();
+  const sheet = page.getByRole("dialog", { name: "Implementer of #39" });
+  await expect(sheet).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(sheet).toBeHidden();
+  await expect(tasks).toBeVisible();
+
+  await tasks.getByRole("tab", { name: "Details" }).click();
+  await tasks
+    .getByRole("tabpanel", { name: "Details" })
+    .getByRole("button", { name: "Close" })
+    .click();
+  const closing = page.getByRole("dialog", { name: "Close the Workstream" });
+  await expect(closing).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(closing).toBeHidden();
+  await expect(tasks).toBeVisible();
+
+  await page.keyboard.press("Escape");
+  await expect(tasks).toBeHidden();
+});
