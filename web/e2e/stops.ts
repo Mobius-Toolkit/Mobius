@@ -26,6 +26,7 @@ const base = {
   pullRequest: 0,
   pullRequestUrl: "",
   reportUrl: "",
+  blockingTodos: [],
 };
 
 // The stopped issue #41 has the long text, and the stopped issue #42 a short text.

@@ -450,6 +450,8 @@ export interface InboxItem {
   action: PendingAction | null;
   /** Answer is the answer of the Owner to a question item, or empty */
   answer: string;
+  /** BlockingTodos are the IDs of the open todo Inbox items whose todo blocks the merge of the pull request of a ready for review item, oldest first. It is an empty list for another item */
+  blockingTodos: number[];
   /**
      * DismissedAt is the time when the Owner dismissed the item, or null
      * @nullable
