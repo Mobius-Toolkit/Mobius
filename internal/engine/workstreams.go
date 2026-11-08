@@ -65,6 +65,10 @@ type WorkstreamDetails struct {
 	Evergreen      bool
 	Maintenance    bool
 	Skills         bool
+	// Lead is the binding of the next Lead session of the Workstream.
+	Lead NextSetting
+	// Implementer is the binding of the next Implementer session of a task with no setting of its own.
+	Implementer NextSetting
 }
 
 // walkTasks calls visit for each task below the issue parent of repository, depth first in the order of the sub-issues,
@@ -164,6 +168,12 @@ func (e *Engine) WorkstreamDetails(ctx context.Context, repositoryName string, n
 		return WorkstreamDetails{}, err
 	}
 	details := WorkstreamDetails{CreatedAt: createdAt, Evergreen: copied.Evergreen, Maintenance: copied.Maintenance, Skills: copied.Skills}
+	if details.Lead, err = e.nextSetting(ctx, "lead", repository.FullName, number); err != nil {
+		return WorkstreamDetails{}, err
+	}
+	if details.Implementer, err = e.nextSetting(ctx, "implementer", repository.FullName, number); err != nil {
+		return WorkstreamDetails{}, err
+	}
 	for _, task := range tasks {
 		if task.bucket {
 			continue

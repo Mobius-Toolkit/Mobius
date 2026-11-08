@@ -24,6 +24,8 @@ type Agent struct {
 	Harness string `gork:"harness"`
 	// Model is the model of the session
 	Model string `gork:"model"`
+	// Effort is the effort level of the session, or empty for a Harness with no effort levels
+	Effort string `gork:"effort"`
 	// Organization is the owner of the repository
 	Organization string `gork:"organization"`
 	// Repository is the repository as "owner/name". It is empty for the Coordinator chat
@@ -263,6 +265,7 @@ func (h *handlers) agentOf(ctx context.Context, node engine.Node) (Agent, error)
 		Title:                node.Title,
 		Harness:              session.Harness,
 		Model:                session.Model,
+		Effort:               session.Effort.String,
 		Organization:         session.Organization,
 		Repository:           session.Repository,
 		WorkstreamRepository: session.WorkstreamRepository,

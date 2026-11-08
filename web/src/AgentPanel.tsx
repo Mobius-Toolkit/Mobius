@@ -1,15 +1,20 @@
 import { use, useCallback, useEffect, useId, useState } from "react";
 import {
+  clearTaskImplementer,
+  getWorkstreamDetails,
   listAgents,
   listTasks,
   resumeIssue,
+  setTaskImplementer,
   startIssue,
   stopIssue,
   type Agent,
+  type IssueSetting,
   type LiveEvents,
+  type NextSetting,
   type TaskLine,
 } from "@/api/api.gen";
-import { PlayIcon, SquareIcon } from "lucide-react";
+import { PlayIcon, SettingsIcon, SquareIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -18,6 +23,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { queueState, queueText } from "@/lib/agents";
 import { onEvent } from "@/lib/events";
+import { bindingText } from "@/lib/harness";
 import { LoginContext } from "@/lib/login";
 import { showNotice } from "@/lib/notice";
 import { clock, dayClock } from "@/lib/time";
@@ -25,6 +31,7 @@ import { cn } from "@/lib/utils";
 import { Transcript } from "./Agents";
 import { Details } from "./Details";
 import { Markdown } from "./Markdown";
+import { SettingSheet } from "./SettingSheet";
 
 function shownAgents(agents: Agent[], showStopped: boolean) {
   return agents
@@ -54,7 +61,7 @@ function AgentEntry({ agent, onOpen }: { agent: Agent; onOpen: (agent: Agent) =>
             <span className="font-medium">{agent.name}</span> {agent.title}
           </span>
           <span className="text-sm text-muted-foreground">
-            {agent.harness} · {agent.model} · {detail}
+            {bindingText(agent)} · {detail}
           </span>
         </span>
         {agent.endedAt && <Badge variant="secondary">stopped</Badge>}
@@ -135,10 +142,20 @@ function AgentList({
   );
 }
 
-function TaskEntry({ line }: { line: TaskLine }) {
+function TaskEntry({
+  line,
+  fallback,
+  onSetting,
+}: {
+  line: TaskLine;
+  fallback: NextSetting | undefined;
+  onSetting: (setting: IssueSetting | null) => void;
+}) {
   const [starting, setStarting] = useState(false);
   const [stopping, setStopping] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [error, setError] = useState("");
+  const [owner, name] = line.repository.split("/");
   const resumes = line.state === "needs-human";
   const stops =
     ["ready", "working", "review", "queued", "question"].includes(line.state) ||
@@ -146,8 +163,8 @@ function TaskEntry({ line }: { line: TaskLine }) {
   const reference = `${line.otherRepository ? line.repository : ""}#${line.number}`;
   const label = `${resumes ? "Resume" : "Start"} ${reference}`;
   const stopLabel = `Stop ${reference}`;
+  const settingLabel = `Implementer of ${reference}`;
   const stop = () => {
-    const [owner, name] = line.repository.split("/");
     setStopping(true);
     stopIssue(owner, name, line.number)
       .then((res) => {
@@ -160,7 +177,6 @@ function TaskEntry({ line }: { line: TaskLine }) {
       .finally(() => setStopping(false));
   };
   const start = () => {
-    const [owner, name] = line.repository.split("/");
     setStarting(true);
     (resumes ? resumeIssue : startIssue)(owner, name, line.number)
       .then((res) => {
@@ -190,6 +206,11 @@ function TaskEntry({ line }: { line: TaskLine }) {
           >
             {reference} {line.title}
           </span>
+          {line.implementer && (
+            <span className="w-full text-sm text-muted-foreground wrap-anywhere">
+              {bindingText(line.implementer)}
+            </span>
+          )}
           {line.blockedBy.map((blocker) => (
             <span
               key={`${blocker.repository}#${blocker.number}`}
@@ -201,38 +222,69 @@ function TaskEntry({ line }: { line: TaskLine }) {
           ))}
           <Badge variant={line.state === "open" ? "outline" : "secondary"}>{line.state}</Badge>
         </a>
-        {(line.state === "open" || line.state === "triage" || resumes) &&
-          line.blockedBy.length === 0 && (
-            <Button
-              size="icon"
-              variant="ghost"
-              className="shrink-0"
-              aria-label={label}
-              title={label}
-              disabled={starting}
-              onClick={start}
-            >
-              {starting ? <Spinner aria-hidden /> : <PlayIcon />}
-            </Button>
-          )}
-        {stops && (
+        {line.state !== "closed" && fallback && (
           <Button
             size="icon"
             variant="ghost"
             className="shrink-0"
-            aria-label={stopLabel}
-            title={stopLabel}
-            disabled={stopping}
-            onClick={stop}
+            aria-label={settingLabel}
+            title={settingLabel}
+            onClick={() => setEditing(true)}
           >
-            {stopping ? <Spinner aria-hidden /> : <SquareIcon />}
+            <SettingsIcon />
           </Button>
         )}
+        <div className={cn("flex shrink-0 justify-end", line.state !== "closed" && "size-8")}>
+          {(line.state === "open" || line.state === "triage" || resumes) &&
+            line.blockedBy.length === 0 && (
+              <Button
+                size="icon"
+                variant="ghost"
+                className="shrink-0"
+                aria-label={label}
+                title={label}
+                disabled={starting}
+                onClick={start}
+              >
+                {starting ? <Spinner aria-hidden /> : <PlayIcon />}
+              </Button>
+            )}
+          {stops && (
+            <Button
+              size="icon"
+              variant="ghost"
+              className="shrink-0"
+              aria-label={stopLabel}
+              title={stopLabel}
+              disabled={stopping}
+              onClick={stop}
+            >
+              {stopping ? <Spinner aria-hidden /> : <SquareIcon />}
+            </Button>
+          )}
+        </div>
       </div>
       {error && (
         <Badge variant="destructive" className="h-auto w-full justify-start whitespace-normal">
           {error}
         </Badge>
+      )}
+      {editing && fallback && (
+        <SettingSheet
+          target={{
+            title: settingLabel,
+            own: line.implementer,
+            fallback,
+            fallbackSource: fallback.own ? "Workstream" : "role",
+            save: (setting) => setTaskImplementer(owner, name, line.number, setting),
+            clear: () => clearTaskImplementer(owner, name, line.number),
+          }}
+          onChange={(setting) => {
+            onSetting(setting);
+            setEditing(false);
+          }}
+          onClose={() => setEditing(false)}
+        />
       )}
     </li>
   );
@@ -268,6 +320,7 @@ function Tasks({
 }) {
   const showLogin = use(LoginContext);
   const [lines, setLines] = useState<TaskLine[]>();
+  const [fallback, setFallback] = useState<NextSetting>();
   const [error, setError] = useState<string>();
   const [showClosed, setShowClosed] = useState(false);
   const closedId = useId();
@@ -281,6 +334,13 @@ function Tasks({
           setLines(res.data.data);
         } else {
           setError(res.data.error);
+        }
+      })
+      .catch((err: unknown) => setError(String(err)));
+    getWorkstreamDetails(owner, name, number)
+      .then((res) => {
+        if (res.status === 200) {
+          setFallback(res.data.data.implementer);
         }
       })
       .catch((err: unknown) => setError(String(err)));
@@ -313,7 +373,18 @@ function Tasks({
       {shown?.length === 0 && <p className="px-2 text-sm text-muted-foreground">No tasks.</p>}
       <ul>
         {shown?.map((line) => (
-          <TaskEntry key={`${line.url} ${line.state}`} line={line} />
+          <TaskEntry
+            key={`${line.url} ${line.state}`}
+            line={line}
+            fallback={fallback}
+            onSetting={(setting) =>
+              setLines((current) =>
+                current?.map((other) =>
+                  other.url === line.url ? { ...other, implementer: setting } : other,
+                ),
+              )
+            }
+          />
         ))}
       </ul>
     </div>
