@@ -25,6 +25,7 @@ const base = {
   pullRequest: 0,
   pullRequestUrl: "",
   reportUrl: "",
+  blockingTodos: [],
 };
 
 const question = {
