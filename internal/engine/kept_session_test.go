@@ -545,13 +545,14 @@ func TestAChangeOfTheImplementerRoleDuringARoundClosesItsProcess(t *testing.T) {
 	taskID := liveTask(t, server, 41).ID
 
 	waitForClosedKept(t, server, taskID, session)
+	before := harnessStarts(t, dataDir)
 	startFixRound(t, server)
 	sessions := waitForImplementerSessions(t, server, 2)
 	if sessions[1].Continued != 0 || sessions[1].Model != "opus" {
 		t.Errorf("session = %+v", sessions[1])
 	}
-	if got := harnessStarts(t, dataDir); got != 2 {
-		t.Errorf("starts = %d, want a new process for the new binding", got)
+	if got := harnessStarts(t, dataDir); got != before+1 {
+		t.Errorf("starts = %d, want %d", got, before+1)
 	}
 }
 
