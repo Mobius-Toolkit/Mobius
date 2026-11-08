@@ -342,12 +342,17 @@ func (e *Engine) Pauses(ctx context.Context) ([]PauseState, error) {
 	if err != nil {
 		return nil, err
 	}
+	settings, err := e.queries.ListIssueBindings(ctx)
+	if err != nil {
+		return nil, err
+	}
 	roles := e.mergedRoles()
 	bindings := roles.Bindings()
 	states := make([]PauseState, 0, len(pauses))
 	for _, pause := range pauses {
 		inUse := slices.Contains(waiting, pause.Harness) ||
-			slices.ContainsFunc(bindings, func(b config.NamedBinding) bool { return string(b.Binding.Harness) == pause.Harness })
+			slices.ContainsFunc(bindings, func(b config.NamedBinding) bool { return string(b.Binding.Harness) == pause.Harness }) ||
+			slices.ContainsFunc(settings, func(s store.IssueBinding) bool { return s.Harness == pause.Harness })
 		states = append(states, PauseState{HarnessPause: pause, InUse: inUse})
 	}
 	return states, nil
@@ -456,13 +461,13 @@ var movingRoles = map[string]bool{LeadRole: true, CoordinatorRole: true}
 var errMoved = errors.New("the Harness of the Role changed")
 
 // watchMove adds a to pauseWaiters. It gives the channel that closes when a must move, and the function that removes a.
-func (e *Engine) watchMove(a *Agent) (<-chan struct{}, func()) {
+func (e *Engine) watchMove(ctx context.Context, a *Agent) (<-chan struct{}, func()) {
 	moved := make(chan struct{})
 	e.pauseWaitersMu.Lock()
 	e.pauseWaiters[a] = moved
 	e.pauseWaitersMu.Unlock()
 	roles := e.mergedRoles()
-	e.moveWaiters(&roles)
+	e.moveWaiters(ctx, &roles)
 	return moved, func() {
 		e.pauseWaitersMu.Lock()
 		delete(e.pauseWaiters, a)
@@ -470,15 +475,21 @@ func (e *Engine) watchMove(a *Agent) (<-chan struct{}, func()) {
 	}
 }
 
-// moveWaiters wakes each agent in pauseWaiters of a moving Role whose Harness is not the Harness of its Role in roles.
-func (e *Engine) moveWaiters(roles *config.Roles) {
+// moveWaiters wakes each agent in pauseWaiters of a moving Role whose Harness is not the Harness of its binding in roles.
+// A session with a setting of its task or Workstream has the Harness of that setting.
+func (e *Engine) moveWaiters(ctx context.Context, roles *config.Roles) {
 	e.pauseWaitersMu.Lock()
 	defer e.pauseWaitersMu.Unlock()
 	for a, moved := range e.pauseWaiters {
 		if !movingRoles[a.spec.Role] {
 			continue
 		}
-		if binding, _ := roleBinding(roles, a.spec.Role); binding.Harness != a.binding.Harness {
+		binding, _, err := e.sessionBinding(ctx, roles, a.spec)
+		if err != nil {
+			log.Printf("binding of session %d: %v", a.id, err)
+			continue
+		}
+		if binding.Harness != a.binding.Harness {
 			close(moved)
 			delete(e.pauseWaiters, a)
 		}
@@ -491,7 +502,7 @@ func (e *Engine) moveWaiters(roles *config.Roles) {
 // a moving Role gives errMoved when the Harness of its Role changes.
 func (a *Agent) waitForPause(ctx context.Context) error {
 	e := a.engine
-	moved, forget := e.watchMove(a)
+	moved, forget := e.watchMove(ctx, a)
 	defer forget()
 	shown := false
 	for {

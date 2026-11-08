@@ -320,12 +320,13 @@ func (e *Engine) takeSlot(ctx context.Context, a *Agent) error {
 	return nil
 }
 
-// followBinding gives the session of a that waits for a slot the current binding of its Role, because the Owner can
-// change the Role while the session waits. A session that runs keeps its binding.
+// followBinding gives the session of a that waits for a slot the current binding of its task, Workstream or Role,
+// because the Owner can change a setting while the session waits. A session that runs keeps its binding.
 func (e *Engine) followBinding(ctx context.Context, a *Agent) error {
-	binding, ok := e.roleBinding(a.spec.Role)
-	if !ok {
-		return fmt.Errorf("the Role %s has no Role binding", a.spec.Role)
+	roles := e.mergedRoles()
+	binding, _, err := e.sessionBinding(ctx, &roles, a.spec)
+	if err != nil {
+		return err
 	}
 	if binding == a.binding {
 		return nil

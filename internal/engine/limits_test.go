@@ -138,15 +138,15 @@ type apiPause struct {
 	InUse       *bool     `json:"inUse"`
 }
 
-// inUse gives the inUse value of the pause of Harness harness, and fails when no pause has it.
-func inUse(t *testing.T, pauses []apiPause, harness string) bool {
+// devinInUse gives the inUse value of the pause of Devin, and fails when no pause has it.
+func devinInUse(t *testing.T, pauses []apiPause) bool {
 	t.Helper()
 	for _, found := range pauses {
-		if found.Harness == harness && found.InUse != nil {
+		if found.Harness == "devin" && found.InUse != nil {
 			return *found.InUse
 		}
 	}
-	t.Fatalf("no pause of %s with inUse in %+v", harness, pauses)
+	t.Fatalf("no pause of devin with inUse in %+v", pauses)
 	return false
 }
 
@@ -500,7 +500,7 @@ func TestAPauseOfAHarnessThatARoleUsesIsInUse(t *testing.T) {
 	server, _ := connect(t, fake, usageLimit)
 	pausedDevinWithNoSession(t, server, fake)
 
-	if !inUse(t, apiPauses(t, server), "devin") {
+	if !devinInUse(t, apiPauses(t, server)) {
 		t.Error("the pause of devin is not in use, but the Implementer uses devin")
 	}
 }
@@ -513,7 +513,7 @@ func TestAPauseOfAHarnessThatNoRoleUsesAndNoSessionWaitsForIsNotInUse(t *testing
 
 	moveImplementerToClaudeCode(t, server)
 
-	if inUse(t, apiPauses(t, server), "devin") {
+	if devinInUse(t, apiPauses(t, server)) {
 		t.Error("the pause of devin is in use, but no Role uses devin and no session waits")
 	}
 	if _, paused := devinPause(t, server); !paused {
@@ -534,7 +534,7 @@ func TestAPauseOfAHarnessThatNoRoleUsesIsInUseWhileASessionWaitsForIt(t *testing
 
 	moveImplementerToClaudeCode(t, server)
 
-	if !inUse(t, apiPauses(t, server), "devin") {
+	if !devinInUse(t, apiPauses(t, server)) {
 		t.Error("the pause of devin is not in use, but a session waits for it")
 	}
 }

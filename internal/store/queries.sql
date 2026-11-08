@@ -848,6 +848,13 @@ SELECT EXISTS (SELECT 1 FROM copied_workstreams WHERE repository = ? AND number 
 -- name: GetCopiedIssueWorkstream :one
 SELECT workstream FROM copied_issues WHERE repository = ? AND number = ? AND repository_url = ? LIMIT 1;
 
+-- name: GetCopiedIssueTree :one
+SELECT repository, workstream FROM copied_issues
+WHERE number = sqlc.arg(number)
+  AND substr(lower(repository_url), -(length(CAST(sqlc.arg(repository) AS TEXT)) + 7)) = '/repos/' || lower(CAST(sqlc.arg(repository) AS TEXT))
+ORDER BY repository, workstream
+LIMIT 1;
+
 -- The issue can be in the trees of the copies of many repositories.
 -- name: ListCopiedWorkstreamsWithLabelChange :many
 SELECT i.repository, i.workstream FROM copied_issues i
@@ -1471,6 +1478,19 @@ ON CONFLICT (role) DO UPDATE SET harness = excluded.harness, model = excluded.mo
 
 -- name: DeleteRoleSetting :exec
 DELETE FROM role_settings WHERE role = ?;
+
+-- name: GetIssueBinding :one
+SELECT * FROM issue_bindings WHERE repository = ? AND issue = ? AND role = ?;
+
+-- name: ListIssueBindings :many
+SELECT * FROM issue_bindings ORDER BY repository, issue, role;
+
+-- name: UpsertIssueBinding :exec
+INSERT INTO issue_bindings (repository, issue, role, harness, model, effort, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (repository, issue, role) DO UPDATE SET harness = excluded.harness, model = excluded.model, effort = excluded.effort, updated_at = excluded.updated_at;
+
+-- name: DeleteIssueBinding :exec
+DELETE FROM issue_bindings WHERE repository = ? AND issue = ? AND role = ?;
 
 -- name: ListBlockerEdges :many
 SELECT b.repository, b.workstream, i.repository_url, i.number, b.blocker_repository, b.number AS blocker_number

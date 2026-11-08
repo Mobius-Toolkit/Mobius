@@ -192,6 +192,16 @@ type InboxItem struct {
 	Withdrawn            int64
 }
 
+type IssueBinding struct {
+	Repository string
+	Issue      int64
+	Role       string
+	Harness    string
+	Model      string
+	Effort     string
+	UpdatedAt  string
+}
+
 type LeadEvent struct {
 	ID              int64
 	Repository      string

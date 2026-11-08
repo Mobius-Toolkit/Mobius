@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log"
 	"maps"
 	"os"
@@ -294,16 +293,17 @@ func (e *Engine) addAgent(ctx context.Context, spec Spec) (*Agent, error) {
 
 // newAgent adds the session of spec. The agent holds no slot yet.
 func (e *Engine) newAgent(ctx context.Context, spec Spec) (*Agent, error) {
-	binding, ok := e.roleBinding(spec.Role)
-	if !ok {
-		return nil, fmt.Errorf("the Role %s has no Role binding", spec.Role)
+	if spec.WorkstreamRepository == "" {
+		spec.WorkstreamRepository = spec.Repository
+	}
+	roles := e.mergedRoles()
+	binding, _, err := e.sessionBinding(ctx, &roles, spec)
+	if err != nil {
+		return nil, err
 	}
 	worker := workerRoles[spec.Role]
 	if !worker && !spec.Tracked && !e.track() {
 		return nil, refuse("Mobius restarts for an upgrade.")
-	}
-	if spec.WorkstreamRepository == "" {
-		spec.WorkstreamRepository = spec.Repository
 	}
 	session, err := e.queries.AddSession(ctx, store.AddSessionParams{
 		Role:                 spec.Role,

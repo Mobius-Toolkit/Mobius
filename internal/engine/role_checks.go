@@ -89,12 +89,49 @@ func (e *Engine) runAccess(ctx context.Context, key accessKey) error {
 	return runner.CheckAccess(ctx, key.harness, key.model, key.effort, dir, dir, runner.AgentPath(e.config.DataDir, e.agents.Path))
 }
 
-// checkAccess checks the key of each Role binding that has no check or that failed an hour ago, one key at a time. Then
-// it adds an Inbox item for each failed key, and dismisses the item of each key that passed or that no Role uses.
+// accessUses gives the users of each access key, and the keys in the order of their first user. A user is a Role of roles,
+// or the task issue or the Workstream issue that has a setting.
+func (e *Engine) accessUses(ctx context.Context, roles *config.Roles) (map[accessKey][]string, []accessKey, error) {
+	settings, err := e.queries.ListIssueBindings(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	uses := map[accessKey][]string{}
+	var keys []accessKey
+	use := func(key accessKey, user string) {
+		if _, listed := uses[key]; !listed {
+			keys = append(keys, key)
+		}
+		uses[key] = append(uses[key], user)
+	}
+	for _, named := range roles.Bindings() {
+		use(keyOf(*named.Binding), named.Role)
+	}
+	for _, setting := range settings {
+		workstream, err := e.queries.HasCopiedWorkstream(ctx, store.HasCopiedWorkstreamParams{Repository: setting.Repository, Number: setting.Issue})
+		if err != nil {
+			return nil, nil, err
+		}
+		user := fmt.Sprintf("%s of %s#%d", setting.Role, setting.Repository, setting.Issue)
+		if workstream {
+			user = fmt.Sprintf("%s of Workstream %s#%d", setting.Role, setting.Repository, setting.Issue)
+		}
+		use(accessKey{config.Harness(setting.Harness), setting.Model, setting.Effort}, user)
+	}
+	return uses, keys, nil
+}
+
+// checkAccess checks the key of each Role binding and of each setting of a task or a Workstream that has no check or
+// that failed an hour ago, one key at a time. Then it adds an Inbox item for each failed key, and dismisses the item of
+// each key that passed or that nothing uses.
 func (e *Engine) checkAccess(ctx context.Context) {
 	roles := e.mergedRoles()
-	for _, named := range roles.Bindings() {
-		key := keyOf(*named.Binding)
+	uses, keys, err := e.accessUses(ctx, &roles)
+	if err != nil {
+		log.Printf("access check keys: %v", err)
+		return
+	}
+	for _, key := range keys {
 		if !e.accessDue(key) {
 			continue
 		}
@@ -104,7 +141,7 @@ func (e *Engine) checkAccess(ctx context.Context) {
 		}
 		e.setAccess(key, err)
 	}
-	if err := e.syncAccessItems(ctx, &roles); err != nil {
+	if err := e.syncAccessItems(ctx, uses); err != nil {
 		log.Printf("access check items: %v", err)
 	}
 }
@@ -122,17 +159,12 @@ func (e *Engine) checkChange(ctx context.Context, current, next config.RoleBindi
 	return nil
 }
 
-// syncAccessItems gives each failed key of roles one open Inbox item in each organization, and dismisses each open item
-// whose key passed or is not in roles.
-func (e *Engine) syncAccessItems(ctx context.Context, roles *config.Roles) error {
+// syncAccessItems gives each failed key of uses one open Inbox item in each organization, and dismisses each open item
+// whose key passed or is not in uses.
+func (e *Engine) syncAccessItems(ctx context.Context, uses map[accessKey][]string) error {
 	items, err := e.Inbox(ctx)
 	if err != nil {
 		return err
-	}
-	uses := map[accessKey][]string{}
-	for _, named := range roles.Bindings() {
-		key := keyOf(*named.Binding)
-		uses[key] = append(uses[key], named.Role)
 	}
 	e.accessMu.Lock()
 	states := make(map[accessKey]accessState, len(uses))
