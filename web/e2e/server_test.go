@@ -1353,7 +1353,6 @@ func fixTimes(t *testing.T, server *testserver.Server, github *testkit.FakeGitHu
 	github.SetCreatedAt("plants/garden", 30, 1790587800)
 	for _, query := range []string{
 		"UPDATE device_logins SET created_at = ?1",
-		"UPDATE events SET time = ?1",
 		"UPDATE sessions SET started_at = ?1, ended_at = iif(ended_at IS NULL, NULL, ?1)",
 		"UPDATE transcript SET time = ?1",
 		"UPDATE turn_usage SET started_at = ?1, ended_at = ?1",
