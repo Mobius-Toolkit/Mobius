@@ -129,14 +129,18 @@ func TestThePollMovesTheCursorToTheLastChangeAndSendsTheETag(t *testing.T) {
 	polls := fake.NotModifiedCount()
 	testkit.WaitFor(t, func() bool { return fake.NotModifiedCount() >= polls+2 })
 
+	before := time.Now().Unix()
 	fake.AddComment(shop, 1, "owner", "A change")
+	after := time.Now().Unix()
 
 	last := testkit.WaitForValue(t, func() (time.Time, bool) {
 		since, _ := cursor(t, server)
 		last, err := time.Parse(time.RFC3339, since.String)
 		return last, err == nil && last.After(first)
 	})
-	if last.Sub(first) != time.Second {
+	// The fake gives a write the time max(last write + 1, now + 1) in seconds.
+	earliest, latest := max(first.Unix()+1, before+1), max(first.Unix()+1, after+1)
+	if last.Unix() < earliest || last.Unix() > latest {
 		t.Errorf("the cursor moved from %v to %v, want the time of the comment", first, last)
 	}
 }
