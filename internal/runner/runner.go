@@ -50,6 +50,9 @@ const authRequired = -32000
 // Configure. A start of a Harness on a loaded machine takes seconds, so a start that reaches this time has hung.
 var StartTimeout = 5 * time.Minute
 
+// steeringMethod is the request of claude-agent-acp that puts a message into a running turn.
+const steeringMethod = "_session/steering"
+
 var errStartTimeout = errors.New("the start took longer than")
 
 // ghURLEnv is the environment variable of an agent process that gives the URL of the token of its gh.
@@ -179,8 +182,10 @@ type Session struct {
 	id      acp.SessionId
 	options []acp.SessionConfigOption
 	images  bool
-	cmd     *exec.Cmd
-	stop    context.CancelFunc
+	// steering tells that the agent declared _meta.steering.supported in its initialize response.
+	steering bool
+	cmd      *exec.Cmd
+	stop     context.CancelFunc
 	// mu guards updates.
 	mu sync.Mutex
 	// updates receives each session/update notification.
@@ -337,6 +342,8 @@ func (s *Session) open(ctx context.Context, cwd, mcpURL string, chrome bool) err
 		return err
 	}
 	s.images = initialized.AgentCapabilities.PromptCapabilities.Image
+	steering, _ := initialized.Meta["steering"].(map[string]any)
+	s.steering = steering["supported"] == true
 	servers := []acp.McpServer{}
 	if mcpURL != "" {
 		servers = append(servers, acp.McpServer{Http: &acp.McpServerHttpInline{
@@ -509,6 +516,29 @@ func (s *Session) Prompt(ctx context.Context, text string, images []Image) (Prom
 		blocks = append(blocks, acp.ImageBlock(base64.StdEncoding.EncodeToString(image.Data), image.MIMEType))
 	}
 	return acp.SendRequest[PromptResult](s.conn, ctx, acp.AgentMethodSessionPrompt, acp.PromptRequest{SessionId: s.id, Prompt: blocks})
+}
+
+// Steering tells if the agent puts a message into a running turn with Steer.
+func (s *Session) Steering() bool {
+	return s.steering
+}
+
+// Steer puts text into the turn of the session that runs, and gives true when the agent took it. With no running turn,
+// the agent changes nothing and Steer gives false. The request has the limit StartTimeout.
+func (s *Session) Steer(ctx context.Context, text string) (bool, error) {
+	var injected bool
+	err := s.limited(ctx, func(ctx context.Context) error {
+		response, err := acp.SendRequest[struct {
+			Outcome string `json:"outcome"`
+		}](s.conn, ctx, steeringMethod, map[string]any{
+			"sessionId": s.id,
+			"prompt":    []acp.ContentBlock{acp.TextBlock(text)},
+			"_meta":     map[string]any{"steering": map[string]any{"idleBehavior": "promptRequired"}},
+		})
+		injected = response.Outcome == "injected"
+		return err
+	})
+	return injected, err
 }
 
 // Cancel asks the agent to end the turn of the session that runs.

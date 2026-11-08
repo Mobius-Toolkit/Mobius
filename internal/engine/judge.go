@@ -304,6 +304,13 @@ func (e *Engine) runJudge(ctx context.Context, j judgeJob) {
 	}
 	log.Printf("Judge of %s#%d: %v", j.task.Repository, j.task.Issue, err)
 	ended := context.WithoutCancel(ctx)
+	if errors.Is(err, errMoved) {
+		// The poll gives the items to a new Judge.
+		if _, err := e.setTaskState(ended, store.SetTaskStateParams{State: j.from, ID: j.task.ID, FromState: "working"}); err != nil {
+			log.Printf("start the Judge of %s#%d again: %v", j.task.Repository, j.task.Issue, err)
+		}
+		return
+	}
 	if err := e.markJudged(ended, j); err != nil {
 		log.Printf("Judge of %s#%d: %v", j.task.Repository, j.task.Issue, err)
 	}
@@ -391,6 +398,8 @@ func (e *Engine) judgeSession(ctx context.Context, j judgeJob) error {
 	switch {
 	case ctx.Err() != nil:
 		return a.End(ended, "stopped")
+	case errors.Is(err, errMoved):
+		return errors.Join(err, a.End(ended, "moved"))
 	case errors.Is(err, errHung):
 		return errors.Join(err, e.endHungTask(ended, a, j.task, j.title))
 	case err != nil:

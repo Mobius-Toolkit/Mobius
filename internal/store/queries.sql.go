@@ -7241,6 +7241,7 @@ SELECT s.role, s.issue, t.time, CAST(json_extract(t.json, '$.text') AS TEXT) AS 
 JOIN sessions s ON s.id = t.session
 WHERE s.repository = ?1 AND s.role <> 'curator' AND t.kind = 'prompt'
   AND julianday(t.time) > julianday(CAST(?2 AS TEXT))
+  AND json_extract(t.json, '$.check') IS NULL
   AND substr(json_extract(t.json, '$.text'), 1, length(CAST(?3 AS TEXT))) = CAST(?3 AS TEXT)
 ORDER BY t.id
 `
