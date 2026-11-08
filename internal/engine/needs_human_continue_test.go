@@ -155,6 +155,44 @@ func TestAPassedCIOnTheHeadOfAStopOnFailedCIMovesTheTaskToApprovalWithNoNeedsHum
 	}
 }
 
+func TestAPassedCIOnTheHeadOfAStopOnFailedCIDismissesTheStoppedItemBeforeTheNextIssueRead(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, id := stoppedOnFailedCI(t, fake, noChange)
+	testkit.WaitFor(t, func() bool { return staleItems(t, server) == 1 })
+	before := len(fake.Requests())
+
+	fake.SetCheckRunStatus(id, "completed", "success")
+
+	var dismissedAt string
+	testkit.WaitFor(t, func() bool {
+		err := server.DB.QueryRow("SELECT coalesce(max(dismissed_at), '') FROM inbox_items WHERE kind = 'stopped' AND issue = 41").Scan(&dismissedAt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return dismissedAt != ""
+	})
+	dismissed, err := time.Parse(time.RFC3339Nano, dismissedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	removed := false
+	for _, request := range fake.Requests()[before:] {
+		if request.Method == "DELETE" && request.Path == "/repos/owner/shop/issues/41/labels/mobius:needs-human" {
+			removed = true
+		}
+		if removed && request.Method == "GET" && request.Path == "/repos/owner/shop/issues/41" {
+			if request.Time.Before(dismissed) {
+				t.Errorf("the issue was read at %s, the item was dismissed at %s", request.Time.UTC().Format(time.RFC3339Nano), dismissedAt)
+			}
+			break
+		}
+	}
+	if !removed {
+		t.Errorf("mobius:needs-human was not removed after request %d", before)
+	}
+}
+
 func TestAPassedCIOnANewHeadOfAStopOnFailedCIMovesTheTaskToApprovalWithNoResume(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := stoppedOnFailedCI(t, fake, noChange)
