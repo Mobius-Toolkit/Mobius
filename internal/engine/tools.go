@@ -250,6 +250,9 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 			e.moveTaskTool(c),
 			e.messageLeadTool(c),
 			e.editBriefTool(c),
+			e.createRecurringTaskTool(c),
+			e.updateRecurringTaskTool(c),
+			e.deleteRecurringTaskTool(c),
 			tool(e, c, "hold_event",
 				"Hold the event of this turn until the Owner decides. Mobius sends the event again after the end of your next reply to a chat message of the Owner, or after the Owner answers a question on an issue of the Workstream. A later event of the same task issue waits behind it. Call it only in a turn for an event.",
 				map[string]any{},
@@ -794,6 +797,21 @@ type moveIssueInput struct {
 type editBriefInput struct {
 	Brief  string `json:"brief"`
 	Reason string `json:"reason"`
+}
+
+type createRecurringInput struct {
+	Cron string `json:"cron"`
+	Text string `json:"text"`
+}
+
+type updateRecurringInput struct {
+	ID   int64  `json:"id"`
+	Cron string `json:"cron"`
+	Text string `json:"text"`
+}
+
+type deleteRecurringInput struct {
+	ID int64 `json:"id"`
 }
 
 type messageLeadInput struct {
@@ -1807,6 +1825,60 @@ func (e *Engine) editBrief(ctx context.Context, c caller, repository github.Repo
 	}
 	e.publish(Change{Workstreams: true})
 	return fmt.Sprintf("Changed the Brief of %s.", name), nil
+}
+
+// recurringTimes gives the next 3 times of the cron expression in the local time zone, with the zone name.
+func (e *Engine) recurringTimes(expression string) (string, error) {
+	times, err := e.NextTimes(expression, 3)
+	if err != nil {
+		return "", err
+	}
+	texts := make([]string, len(times))
+	for i, t := range times {
+		texts[i] = t.Format("Mon 2 Jan 15:04 MST")
+	}
+	return strings.Join(texts, ", "), nil
+}
+
+func checkCreateRecurring(_ caller, input createRecurringInput) error {
+	return checkRecurringTask(input.Cron, input.Text)
+}
+
+func checkUpdateRecurring(_ caller, input updateRecurringInput) error {
+	if input.ID < 1 {
+		return refuse("id must be 1 or more.")
+	}
+	return checkRecurringTask(input.Cron, input.Text)
+}
+
+func checkDeleteRecurring(_ caller, input deleteRecurringInput) error {
+	if input.ID < 1 {
+		return refuse("id must be 1 or more.")
+	}
+	return nil
+}
+
+func (e *Engine) createRecurringTask(ctx context.Context, c caller, repository github.Repository, input createRecurringInput) (string, error) {
+	task, err := e.AddRecurringTask(ctx, repository.FullName, c.workstream, input.Cron, input.Text)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Added the recurring task %d. Next time: %s.", task.ID, task.Next.UTC().Format(timeFormat)), nil
+}
+
+func (e *Engine) updateRecurringTask(ctx context.Context, c caller, repository github.Repository, input updateRecurringInput) (string, error) {
+	task, err := e.UpdateRecurringTask(ctx, repository.FullName, c.workstream, input.ID, input.Cron, input.Text)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Changed the recurring task %d. Next time: %s.", task.ID, task.Next.UTC().Format(timeFormat)), nil
+}
+
+func (e *Engine) deleteRecurringTask(ctx context.Context, c caller, repository github.Repository, input deleteRecurringInput) (string, error) {
+	if err := e.DeleteRecurringTask(ctx, repository.FullName, c.workstream, input.ID); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Deleted the recurring task %d.", input.ID), nil
 }
 
 func checkMessageLead(c caller, input messageLeadInput) error {
