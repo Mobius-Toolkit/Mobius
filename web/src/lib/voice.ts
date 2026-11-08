@@ -26,6 +26,7 @@ const takenMessage = "The recording stopped because another app took the microph
 const backgroundMessage = "The recording stopped because the app went to the background.";
 const unreachableMessage =
   "The recording did not reach the server. Check the connection and try again.";
+const unconvertedMessage = "The server did not convert the recording.";
 const emptyMessage = "The recording has no text.";
 const lostMessage = "The last recording was not converted.";
 
@@ -207,7 +208,11 @@ const awaitConversion = async (id: string, audio: Blob): Promise<Result> => {
     if (answer && answer.status >= 400 && answer.status < 500) {
       return { text: "", error: failure(answer) };
     }
-    last = answer ? failure(answer) : unreachableMessage;
+    last = !answer
+      ? unreachableMessage
+      : answer.status === 200
+        ? unconvertedMessage
+        : failure(answer);
     const conversion = answer?.status === 200 ? answer.data?.data : undefined;
     if (conversion?.state === "done") {
       return { text: conversion.text.trim(), error: "" };

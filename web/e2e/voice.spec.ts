@@ -660,6 +660,32 @@ test("a 500 for each request for a conversion ends the wait after 16 minutes", a
   expect(requests).toBeGreaterThanOrEqual(470);
 });
 
+test("a conversion that does not end is a failure after 16 minutes", async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.clock.install();
+  let requests = 0;
+  await answer(page, "red roses");
+  await page.route("**/api/voice/conversions/*", (route) => {
+    requests++;
+    return route.fulfill(pending("c1"));
+  });
+  await page.goto("/chat");
+  await begin(page);
+  await stop(page).click();
+  await expect
+    .poll(
+      async () => {
+        await tick(page);
+        return start(page).isVisible();
+      },
+      { timeout: 120_000, intervals: [10] },
+    )
+    .toBe(true);
+  await expect(page.getByRole("alert")).toHaveText("The server did not convert the recording.");
+  await expect(again(page)).toBeVisible();
+  expect(requests).toBeGreaterThanOrEqual(470);
+});
+
 test("a non-JSON answer with the status 524 shows the status", async ({ page }) => {
   await page.route("**/api/voice/transcriptions", (route) =>
     route.fulfill({ status: 524, contentType: "text/html", body: "<html>error code: 524</html>" }),
