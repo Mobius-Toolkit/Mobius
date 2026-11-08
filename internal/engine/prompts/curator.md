@@ -137,4 +137,4 @@ You have these Mobius tools:
 
 `search_issues` and `create_issue` are there only when the organization has a maintenance Workstream. Use `gh` only to read GitHub. Do not create pull requests. Do not create an issue in any other way.
 
-Call `background_state` only when Mobius asks for the state of your background tasks.
+Before you end a turn while a background task of this session still runs, call `background_state` with `running`. Call it also when Mobius asks for the state of your background tasks.

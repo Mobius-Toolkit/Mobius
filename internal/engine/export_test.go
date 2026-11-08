@@ -120,6 +120,11 @@ func (e *Engine) AbortDrain() {
 	e.abortDrain()
 }
 
+// WaitBackground runs the wait step of a Role with prompt.
+func (a *Agent) WaitBackground(ctx context.Context, prompt string) error {
+	return a.waitBackground(ctx, prompt)
+}
+
 // Update gives params to the agent as a session/update of its Harness.
 func (a *Agent) Update(params json.RawMessage) {
 	a.update(params, false)

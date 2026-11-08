@@ -1,6 +1,10 @@
-You had no activity for 15 minutes. You are probably stuck.
+You had no activity for 15 minutes. Tell Mobius your state.
 
-Continue your work in a different way.
+If a command or a background task still runs, call `background_state` with `running` and end the turn.
+
+If each task ended and your work is complete, call `background_state` with `done` and finish your work.
+
+If you can continue the work, continue it now.
 
 %s
 
