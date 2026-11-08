@@ -236,6 +236,14 @@ type Change struct {
 	CIStops      bool
 	Switches     bool
 	Created      *Created
+	// RecurringTasks names the Workstream whose recurring tasks or their history changed.
+	RecurringTasks *RecurringChange
+}
+
+// RecurringChange is the Workstream of a change of recurring tasks.
+type RecurringChange struct {
+	Repository string
+	Number     int64
 }
 
 // Created is a Workstream that the Coordinator chat created.

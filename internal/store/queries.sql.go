@@ -3363,6 +3363,33 @@ func (q *Queries) GetQuestionByChatMessage(ctx context.Context, chatMessage sql.
 	return i, err
 }
 
+const getRecurringTask = `-- name: GetRecurringTask :one
+SELECT id, repository, workstream, cron, text, paused, checked_at, event FROM recurring_tasks
+WHERE id = ? AND repository = ? AND workstream = ?
+`
+
+type GetRecurringTaskParams struct {
+	ID         int64
+	Repository string
+	Workstream int64
+}
+
+func (q *Queries) GetRecurringTask(ctx context.Context, arg GetRecurringTaskParams) (RecurringTask, error) {
+	row := q.db.QueryRowContext(ctx, getRecurringTask, arg.ID, arg.Repository, arg.Workstream)
+	var i RecurringTask
+	err := row.Scan(
+		&i.ID,
+		&i.Repository,
+		&i.Workstream,
+		&i.Cron,
+		&i.Text,
+		&i.Paused,
+		&i.CheckedAt,
+		&i.Event,
+	)
+	return i, err
+}
+
 const getReviewComment = `-- name: GetReviewComment :one
 SELECT review_comment FROM tasks WHERE id = ?
 `
