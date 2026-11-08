@@ -225,8 +225,9 @@ func (e *Engine) dismissTodo(ctx context.Context, item store.InboxItem) error {
 
 // closeTodoStep acts after a todo closed. It acts only when the live task is the task of the todo, the task is in
 // ready_for_review, the todo has a need in the current list that is not an after-merge need, and no todo of the task
-// blocks. Then, for an open pull request, it makes a draft ready for review, clears the block reason of the Inbox
-// items, and with a merge level of the Workstream it gives the task to approveWaitingTask.
+// blocks. Then, for an open pull request, it makes a draft ready for review and clears the block reason of the Inbox
+// items. A task with an approval gets merging items, because the poll merges it. Else, with a merge level of the
+// Workstream, it gives the task to approveWaitingTask.
 func (e *Engine) closeTodoStep(ctx context.Context, item store.InboxItem, todo store.DeploymentTodo) error {
 	task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: item.Repository, Issue: item.Issue})
 	if errors.Is(err, sql.ErrNoRows) || err == nil && (task.ID != todo.Task || task.State != "ready_for_review" || !task.PullRequest.Valid) {
@@ -263,6 +264,11 @@ func (e *Engine) closeTodoStep(ctx context.Context, item store.InboxItem, todo s
 	}
 	if err := e.clearBlockReason(ctx, task); err != nil {
 		return err
+	}
+	if awaitsMerge(task) {
+		e.mergeMu.Lock()
+		defer e.mergeMu.Unlock()
+		return e.setMergeItems(ctx, task, 1, "")
 	}
 	level, err := e.workstreamLevel(ctx, task.WorkstreamRepository, task.Workstream)
 	if err != nil || !mergesPullRequests(level) {

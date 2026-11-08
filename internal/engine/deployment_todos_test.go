@@ -806,3 +806,44 @@ func TestADismissedOptionalTodoWhoseNeedTurnsMandatoryGetsANewInboxItemThatBlock
 		t.Errorf("approvals = %d, draft = %v", approvals(fake), draft(fake))
 	}
 }
+
+func TestAnApprovalOfTheOwnerKeepsTheItemOfANewBlockingNeedNotMergingUntilTheTodoCloses(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddUserCode(testkit.AppID, "user-code", "owner")
+	fixRound := "[[prompts]]\nwhen = \"Remove the lines out of scope.\"\nshell = \"echo fixed > fix.txt && git add fix.txt && git commit -q -m Fix\"\n\n"
+	server, _ := connectTask(t, fake, mandatoryNeedInRoundTwo+leadApproves+leadFindings+leadStarts, fixRound+commits, keepSessionOpen)
+	authorize(t, server)
+	setWorkstreamAutopilot(t, server, "off")
+	testkit.WaitFor(t, func() bool { return workstreams(t, server)[0].Autopilot == "off" })
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	waitForReadyEvents(t, fake, server, 1)
+	fake.AddCheckRun(shop, checkRun("CI", head(t, fake, "mobius/41"), "in_progress", ""))
+	sendChat(t, server, leadChat, "Approve #41")
+	ready := waitForItem(t, server, "ready for review")
+	if status, body := merge(t, server, ready.ID); status != http.StatusOK {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+	fake.SetBody(shop, 41, "Plans have a price. Round two.")
+	sendChat(t, server, leadChat, "Send the findings to #41")
+	waitForReadyEvents(t, fake, server, 2)
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" })
+	fake.AddCheckRun(shop, checkRun("CI", head(t, fake, "mobius/41"), "in_progress", ""))
+
+	sendChat(t, server, leadChat, "Approve #41")
+
+	testkit.WaitFor(t, func() bool {
+		items := itemsOf(t, server, "ready for review")
+		return len(items) == 1 && !items[0].Merging && items[0].MergeRefusal == openTodosReason
+	})
+	todo := waitForItem(t, server, "todo")
+
+	if status, body := doneTodo(t, server, todo.ID, `{"note":""}`); status != http.StatusOK {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+
+	testkit.WaitFor(t, func() bool {
+		items := itemsOf(t, server, "ready for review")
+		return len(items) == 1 && items[0].Merging && items[0].MergeRefusal == ""
+	})
+}

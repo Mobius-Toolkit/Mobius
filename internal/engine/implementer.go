@@ -489,7 +489,8 @@ func approvalAgainComment(branch, head, approved, reportHead, report string) str
 // approve posts comment on the pull request, sets the Mobius check of the head to success, stores leadReport in the
 // task, makes a draft pull request ready for review, or a ready pull request a draft while a deployment need blocks
 // (blockedByTodos), replaces mobius:working with mobius:review, and adds the Inbox
-// item for the Owner. It stores the approved head last, so a retry after a failed write still sees the earlier approval.
+// item for the Owner. While a todo blocks, the item is not merging, even when the task has an approval, and it gets
+// the reason openTodosReason. It stores the approved head last, so a retry after a failed write still sees the earlier approval.
 // It completes the check after each GitHub write that can be refused, so a refused write leaves the check open and a
 // task in approval stays there instead of calling onChecks again at each poll.
 // mark is the role mark of the Lead for the question text, or "" when Mobius writes the comment. A leadReport of ""
@@ -557,7 +558,7 @@ func (e *Engine) approve(ctx context.Context, repository github.Repository, task
 	}
 	title := issue.GetTitle()
 	var merging int64
-	if awaitsMerge(task) {
+	if awaitsMerge(task) && !blocked {
 		merging = 1
 	}
 	if err := e.addInboxItem(ctx, store.AddInboxItemParams{
@@ -576,6 +577,11 @@ func (e *Engine) approve(ctx context.Context, repository github.Repository, task
 		Merging:              merging,
 	}); err != nil {
 		return err
+	}
+	if blocked && awaitsMerge(task) {
+		if err := e.refuseMergeItem(ctx, task, openTodosReason); err != nil {
+			return err
+		}
 	}
 	return e.queries.SetTaskApprovedHead(ctx, store.SetTaskApprovedHeadParams{ApprovedHead: sql.NullString{String: head, Valid: true}, ID: task.ID})
 }
