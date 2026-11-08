@@ -3106,7 +3106,10 @@ test("a queued message with the voice mark shows the voice card before the serve
 }) => {
   await page.goto(shop);
   await expect(page.locator("[data-message]").first()).toBeVisible();
-  await page.route("**/api/chat/messages", () => {});
+  const held: Route[] = [];
+  await page.route("**/api/chat/messages", (route) => {
+    held.push(route);
+  });
   await page.route("**/api/events", (route) =>
     route.fulfill({ contentType: "text/event-stream", body: "" }),
   );
@@ -3137,6 +3140,7 @@ test("a queued message with the voice mark shows the voice card before the serve
     await expect(queued(page).getByText("Queued spoken words")).toBeVisible();
     await expect(voiceCard(queued(page))).toBeVisible();
   } finally {
+    await Promise.all(held.map((route) => route.abort()));
     await page.evaluate(`new Promise((resolve, reject) => {
       const open = indexedDB.open("mobius");
       open.onerror = () => reject(open.error);
