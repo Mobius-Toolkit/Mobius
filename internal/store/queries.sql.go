@@ -8411,6 +8411,21 @@ func (q *Queries) RejectPendingAction(ctx context.Context, arg RejectPendingActi
 	return i, err
 }
 
+const reopenDeploymentTodo = `-- name: ReopenDeploymentTodo :exec
+UPDATE deployment_todos SET mandatory = ?, dismissed_at = NULL, inbox_item = ? WHERE id = ?
+`
+
+type ReopenDeploymentTodoParams struct {
+	Mandatory int64
+	InboxItem int64
+	ID        int64
+}
+
+func (q *Queries) ReopenDeploymentTodo(ctx context.Context, arg ReopenDeploymentTodoParams) error {
+	_, err := q.db.ExecContext(ctx, reopenDeploymentTodo, arg.Mandatory, arg.InboxItem, arg.ID)
+	return err
+}
+
 const reopenInboxItem = `-- name: ReopenInboxItem :one
 UPDATE inbox_items SET dismissed_at = NULL WHERE id = ?
 RETURNING id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal, workstream_repository, questions, answer, withdrawn
@@ -8735,6 +8750,20 @@ func (q *Queries) SetDeploymentTodoDone(ctx context.Context, arg SetDeploymentTo
 	return err
 }
 
+const setDeploymentTodoMandatory = `-- name: SetDeploymentTodoMandatory :exec
+UPDATE deployment_todos SET mandatory = ? WHERE id = ?
+`
+
+type SetDeploymentTodoMandatoryParams struct {
+	Mandatory int64
+	ID        int64
+}
+
+func (q *Queries) SetDeploymentTodoMandatory(ctx context.Context, arg SetDeploymentTodoMandatoryParams) error {
+	_, err := q.db.ExecContext(ctx, setDeploymentTodoMandatory, arg.Mandatory, arg.ID)
+	return err
+}
+
 const setFullSlotsItemAt = `-- name: SetFullSlotsItemAt :exec
 UPDATE full_slots SET item_at = ? WHERE item_at IS NULL
 `
@@ -8801,6 +8830,45 @@ type SetInboxItemMergeParams struct {
 
 func (q *Queries) SetInboxItemMerge(ctx context.Context, arg SetInboxItemMergeParams) (InboxItem, error) {
 	row := q.db.QueryRowContext(ctx, setInboxItemMerge, arg.Merging, arg.MergeRefusal, arg.ID)
+	var i InboxItem
+	err := row.Scan(
+		&i.ID,
+		&i.Kind,
+		&i.Repository,
+		&i.Workstream,
+		&i.Issue,
+		&i.Text,
+		&i.Link,
+		&i.Time,
+		&i.DismissedAt,
+		&i.Organization,
+		&i.Title,
+		&i.Reason,
+		&i.PullRequest,
+		&i.ReportLink,
+		&i.ChatMessage,
+		&i.Merging,
+		&i.MergeRefusal,
+		&i.WorkstreamRepository,
+		&i.Questions,
+		&i.Answer,
+		&i.Withdrawn,
+	)
+	return i, err
+}
+
+const setInboxItemReason = `-- name: SetInboxItemReason :one
+UPDATE inbox_items SET reason = ? WHERE id = ?
+RETURNING id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal, workstream_repository, questions, answer, withdrawn
+`
+
+type SetInboxItemReasonParams struct {
+	Reason string
+	ID     int64
+}
+
+func (q *Queries) SetInboxItemReason(ctx context.Context, arg SetInboxItemReasonParams) (InboxItem, error) {
+	row := q.db.QueryRowContext(ctx, setInboxItemReason, arg.Reason, arg.ID)
 	var i InboxItem
 	err := row.Scan(
 		&i.ID,

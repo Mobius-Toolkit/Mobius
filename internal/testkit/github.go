@@ -146,6 +146,7 @@ type FakeGitHub struct {
 	resolvedThreads  map[int64]bool
 	failResolves     bool
 	failPullReads    bool
+	failMarkReady    bool
 	failCheckUpdates bool
 	// failedCheckUpdates counts the updates of a check run that failCheckUpdates made fail.
 	failedCheckUpdates int
