@@ -38,7 +38,7 @@ func fakeWhisperServer(t *testing.T, health, inference int) (*voice.Recordings, 
 
 func withoutDraft(t *testing.T, whisper *voice.Whisper) *voice.Recordings {
 	t.Helper()
-	return voice.NewRecordings(whisper, voice.NewDraft(t.TempDir(), ""))
+	return voice.NewRecordings(whisper, newDraftWhisper(t))
 }
 
 func transcribe(t *testing.T, handler http.Handler, body []byte) (int, string) {
@@ -234,7 +234,7 @@ func TestAnUnknownRecordingGives404AndAWrongSequenceGives409(t *testing.T) {
 }
 
 func TestAChunkAnswers503WhenTheDraftConverterIsNotReady(t *testing.T) {
-	handler, _ := testMuxWith(t, withoutDraft(t, voice.New(t.TempDir(), "")))
+	handler, _ := testMuxWith(t, withoutDraft(t, newWhisper(t)))
 	id := createRecording(t, handler)
 
 	status, body := post(handler, "/api/voice/recordings/"+id+"/chunks?sequence=0", []byte("aa"))
