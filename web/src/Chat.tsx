@@ -1,6 +1,6 @@
 import { useNavigate } from "@tanstack/react-router";
 import { FileTextIcon } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import {
   completeWorkstream,
   setAutopilot,
@@ -12,10 +12,21 @@ import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/s
 import { levelName } from "@/lib/autopilot";
 import { showNotice } from "@/lib/notice";
 import type { Workstreams } from "@/lib/workstreams";
-import { AgentPanel } from "./AgentPanel";
 import { AutopilotMenu, AutopilotSheet } from "./Autopilot";
 import { Conversation } from "./Conversation";
+import { Panel } from "./Panel";
+import type { Tab } from "./panel/schemas";
 import { TopBar } from "./TopBar";
+
+const wideQuery = "(min-width: 768px)";
+
+function subscribeWide(listener: () => void) {
+  const query = window.matchMedia(wideQuery);
+  query.addEventListener("change", listener);
+  return () => query.removeEventListener("change", listener);
+}
+
+const currentWide = () => window.matchMedia(wideQuery).matches;
 
 export function Chat({
   owner,
@@ -23,14 +34,12 @@ export function Chat({
   number,
   workstreams,
   inbox,
-  source,
 }: {
   owner: string;
   name: string;
   number: number;
   workstreams: Workstreams;
   inbox: InboxItem[];
-  source?: EventSource;
 }) {
   const repository = `${owner}/${name}`;
   const inWorkstream = inbox
@@ -40,7 +49,8 @@ export function Chat({
     (other) => other.repository === repository && other.number === number,
   );
   const [chosen, setChosen] = useState<{ from: WorkstreamAutopilot; to: WorkstreamAutopilot }>();
-  const [tab, setTab] = useState("tasks");
+  const [tab, setTab] = useState<Tab>("tasks");
+  const wide = useSyncExternalStore(subscribeWide, currentWide);
   const [autopilotBusy, setAutopilotBusy] = useState(false);
   const [autopilotError, setAutopilotError] = useState("");
   const [closeBusy, setCloseBusy] = useState(false);
@@ -97,13 +107,12 @@ export function Chat({
       });
   };
 
-  const panel = (
-    <AgentPanel
+  const panel = (instance: string) => (
+    <Panel
       owner={owner}
       name={name}
       number={number}
-      source={source}
-      brief={workstream?.brief ?? ""}
+      instance={instance}
       tab={tab}
       onTabChange={setTab}
     />
@@ -129,7 +138,7 @@ export function Chat({
             className="pt-2 data-[side=bottom]:h-[80svh]"
           >
             <SheetTitle className="sr-only">Tasks</SheetTitle>
-            {panel}
+            {panel("sheet")}
           </SheetContent>
         </Sheet>
       </TopBar>
@@ -181,7 +190,9 @@ export function Chat({
         }
         trayItems={inWorkstream}
       />
-      <aside className="hidden w-80 shrink-0 flex-col border-l pt-2 md:flex">{panel}</aside>
+      <aside className="hidden w-80 shrink-0 flex-col border-l pt-2 md:flex">
+        {wide && panel("side")}
+      </aside>
     </div>
   );
 }

@@ -21,7 +21,7 @@ export function liveListener<Value, Message>(
   return { name, handle: (data) => decode(data).pipe(Effect.map(toMessage)) };
 }
 
-function listen<Message>(
+export function listen<Message>(
   queue: Queue.Enqueue<Message>,
   source: EventSource,
   listener: LiveListener<Message>,
