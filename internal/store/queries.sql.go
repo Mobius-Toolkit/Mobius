@@ -1733,6 +1733,21 @@ func (q *Queries) DeleteHeldWork(ctx context.Context, kind string) error {
 	return err
 }
 
+const deleteIssueBinding = `-- name: DeleteIssueBinding :exec
+DELETE FROM issue_bindings WHERE repository = ? AND issue = ? AND role = ?
+`
+
+type DeleteIssueBindingParams struct {
+	Repository string
+	Issue      int64
+	Role       string
+}
+
+func (q *Queries) DeleteIssueBinding(ctx context.Context, arg DeleteIssueBindingParams) error {
+	_, err := q.db.ExecContext(ctx, deleteIssueBinding, arg.Repository, arg.Issue, arg.Role)
+	return err
+}
+
 const deleteOldSkillUse = `-- name: DeleteOldSkillUse :exec
 DELETE FROM old_skill_uses WHERE id = ?
 `
@@ -2368,6 +2383,31 @@ func (q *Queries) GetCopiedIssueState(ctx context.Context, arg GetCopiedIssueSta
 	return state, err
 }
 
+const getCopiedIssueTree = `-- name: GetCopiedIssueTree :one
+SELECT repository, workstream FROM copied_issues
+WHERE number = ?1
+  AND substr(lower(repository_url), -(length(CAST(?2 AS TEXT)) + 7)) = '/repos/' || lower(CAST(?2 AS TEXT))
+ORDER BY repository, workstream
+LIMIT 1
+`
+
+type GetCopiedIssueTreeParams struct {
+	Number     int64
+	Repository string
+}
+
+type GetCopiedIssueTreeRow struct {
+	Repository string
+	Workstream int64
+}
+
+func (q *Queries) GetCopiedIssueTree(ctx context.Context, arg GetCopiedIssueTreeParams) (GetCopiedIssueTreeRow, error) {
+	row := q.db.QueryRowContext(ctx, getCopiedIssueTree, arg.Number, arg.Repository)
+	var i GetCopiedIssueTreeRow
+	err := row.Scan(&i.Repository, &i.Workstream)
+	return i, err
+}
+
 const getCopiedIssueWorkstream = `-- name: GetCopiedIssueWorkstream :one
 SELECT workstream FROM copied_issues WHERE repository = ? AND number = ? AND repository_url = ? LIMIT 1
 `
@@ -2595,6 +2635,31 @@ func (q *Queries) GetInboxItem(ctx context.Context, id int64) (InboxItem, error)
 		&i.Questions,
 		&i.Answer,
 		&i.Withdrawn,
+	)
+	return i, err
+}
+
+const getIssueBinding = `-- name: GetIssueBinding :one
+SELECT repository, issue, role, harness, model, effort, updated_at FROM issue_bindings WHERE repository = ? AND issue = ? AND role = ?
+`
+
+type GetIssueBindingParams struct {
+	Repository string
+	Issue      int64
+	Role       string
+}
+
+func (q *Queries) GetIssueBinding(ctx context.Context, arg GetIssueBindingParams) (IssueBinding, error) {
+	row := q.db.QueryRowContext(ctx, getIssueBinding, arg.Repository, arg.Issue, arg.Role)
+	var i IssueBinding
+	err := row.Scan(
+		&i.Repository,
+		&i.Issue,
+		&i.Role,
+		&i.Harness,
+		&i.Model,
+		&i.Effort,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
@@ -3316,6 +3381,22 @@ type HasCopiedWorkstreamParams struct {
 
 func (q *Queries) HasCopiedWorkstream(ctx context.Context, arg HasCopiedWorkstreamParams) (bool, error) {
 	row := q.db.QueryRowContext(ctx, hasCopiedWorkstream, arg.Repository, arg.Number)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const hasCopiedWorkstreamAnyCase = `-- name: HasCopiedWorkstreamAnyCase :one
+SELECT EXISTS (SELECT 1 FROM copied_workstreams WHERE repository = ? COLLATE NOCASE AND number = ?)
+`
+
+type HasCopiedWorkstreamAnyCaseParams struct {
+	Repository string
+	Number     int64
+}
+
+func (q *Queries) HasCopiedWorkstreamAnyCase(ctx context.Context, arg HasCopiedWorkstreamAnyCaseParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, hasCopiedWorkstreamAnyCase, arg.Repository, arg.Number)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
@@ -5889,6 +5970,41 @@ func (q *Queries) ListHungSessionsSince(ctx context.Context, arg ListHungSession
 	return items, nil
 }
 
+const listIssueBindings = `-- name: ListIssueBindings :many
+SELECT repository, issue, role, harness, model, effort, updated_at FROM issue_bindings ORDER BY repository, issue, role
+`
+
+func (q *Queries) ListIssueBindings(ctx context.Context) ([]IssueBinding, error) {
+	rows, err := q.db.QueryContext(ctx, listIssueBindings)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []IssueBinding
+	for rows.Next() {
+		var i IssueBinding
+		if err := rows.Scan(
+			&i.Repository,
+			&i.Issue,
+			&i.Role,
+			&i.Harness,
+			&i.Model,
+			&i.Effort,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listIssueInboxItems = `-- name: ListIssueInboxItems :many
 SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal, workstream_repository, questions, answer, withdrawn FROM inbox_items WHERE repository = ? AND issue = ? AND kind = ? ORDER BY id
 `
@@ -6009,6 +6125,46 @@ func (q *Queries) ListLeadWrites(ctx context.Context, arg ListLeadWritesParams) 
 			&i.Text,
 			&i.CreatedAt,
 			&i.Item,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listLiveIssueBindings = `-- name: ListLiveIssueBindings :many
+SELECT b.repository, b.issue, b.role, b.harness, b.model, b.effort, b.updated_at FROM issue_bindings b
+WHERE EXISTS (SELECT 1 FROM copied_workstreams w WHERE b.repository = w.repository AND w.number = b.issue)
+   OR EXISTS (SELECT 1 FROM copied_issues i WHERE i.number = b.issue AND i.state = 'open'
+              AND substr(lower(i.repository_url), -(length(b.repository) + 7)) = '/repos/' || lower(b.repository))
+ORDER BY b.repository, b.issue, b.role
+`
+
+// A row is live when its task issue is open in a copied tree, or its Workstream issue is copied.
+func (q *Queries) ListLiveIssueBindings(ctx context.Context) ([]IssueBinding, error) {
+	rows, err := q.db.QueryContext(ctx, listLiveIssueBindings)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []IssueBinding
+	for rows.Next() {
+		var i IssueBinding
+		if err := rows.Scan(
+			&i.Repository,
+			&i.Issue,
+			&i.Role,
+			&i.Harness,
+			&i.Model,
+			&i.Effort,
+			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -9619,6 +9775,34 @@ func (q *Queries) UpdateCopiedWorkstream(ctx context.Context, arg UpdateCopiedWo
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const upsertIssueBinding = `-- name: UpsertIssueBinding :exec
+INSERT INTO issue_bindings (repository, issue, role, harness, model, effort, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (repository, issue, role) DO UPDATE SET harness = excluded.harness, model = excluded.model, effort = excluded.effort, updated_at = excluded.updated_at
+`
+
+type UpsertIssueBindingParams struct {
+	Repository string
+	Issue      int64
+	Role       string
+	Harness    string
+	Model      string
+	Effort     string
+	UpdatedAt  string
+}
+
+func (q *Queries) UpsertIssueBinding(ctx context.Context, arg UpsertIssueBindingParams) error {
+	_, err := q.db.ExecContext(ctx, upsertIssueBinding,
+		arg.Repository,
+		arg.Issue,
+		arg.Role,
+		arg.Harness,
+		arg.Model,
+		arg.Effort,
+		arg.UpdatedAt,
+	)
+	return err
 }
 
 const upsertRoleSetting = `-- name: UpsertRoleSetting :exec
