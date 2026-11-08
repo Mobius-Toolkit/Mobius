@@ -243,6 +243,10 @@ type WorkstreamDetails struct {
 	Maintenance bool `gork:"maintenance"`
 	// Skills is true when the Workstream issue has mobius:skills
 	Skills bool `gork:"skills"`
+	// Lead is the binding of the next Lead session of the Workstream
+	Lead NextSetting `gork:"lead"`
+	// Implementer is the binding of the next Implementer session of a task with no setting of its own
+	Implementer NextSetting `gork:"implementer"`
 }
 
 // WorkstreamDetailsResponse is the response of GetWorkstreamDetails.
@@ -268,5 +272,7 @@ func (h *handlers) GetWorkstreamDetails(ctx context.Context, req WorkstreamDetai
 		Evergreen:      details.Evergreen,
 		Maintenance:    details.Maintenance,
 		Skills:         details.Skills,
+		Lead:           nextSetting(details.Lead),
+		Implementer:    nextSetting(details.Implementer),
 	}}}, nil
 }

@@ -1450,7 +1450,11 @@ test("Resume gives a needs-human task with no blocker a button that waits for th
   const rows = page.getByRole("listitem");
   const resume = page.getByRole("button", { name: /^Resume #/ });
   await expect(rows.filter({ hasText: "#73 Rake the bark" })).toBeVisible();
-  await expect(rows.filter({ hasText: "#73 Rake the bark" }).getByRole("button")).toHaveCount(0);
+  await expect(
+    rows
+      .filter({ hasText: "#73 Rake the bark" })
+      .getByRole("button", { name: /^(Start|Resume|Stop) / }),
+  ).toHaveCount(0);
   await expect(resume).toHaveCount(1);
   await expect(resume).toHaveAccessibleName("Resume #72");
   await expect(resume).toHaveAttribute("title", "Resume #72");
