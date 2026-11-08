@@ -60,7 +60,7 @@ func (e *Engine) addDeploymentTodos(ctx context.Context, repository github.Repos
 			}
 			return queries.AddDeploymentTodo(ctx, store.AddDeploymentTodoParams{
 				Task: task.ID, InboxItem: item.ID, Kind: need.Kind, Name: need.Name, Path: need.Path,
-				Line: need.Line, Reason: need.Reason, Mandatory: need.Mandatory,
+				Line: need.Line, Reason: need.Reason, Mandatory: need.Mandatory, AfterMerge: need.AfterMerge,
 			})
 		})
 		if err != nil {
@@ -73,7 +73,8 @@ func (e *Engine) addDeploymentTodos(ctx context.Context, repository github.Repos
 	return names, nil
 }
 
-// blockedByTodos tells if a mandatory deployment need of the task has a todo that is not done.
+// blockedByTodos tells if a mandatory deployment need of the task that is not an after-merge need has a todo that is not
+// done.
 func (e *Engine) blockedByTodos(ctx context.Context, task store.Task) (bool, error) {
 	needs, err := e.queries.ListDeploymentNeeds(ctx, task.ID)
 	if err != nil || len(needs) == 0 {
@@ -84,7 +85,7 @@ func (e *Engine) blockedByTodos(ctx context.Context, task store.Task) (bool, err
 		return false, err
 	}
 	return slices.ContainsFunc(needs, func(need store.DeploymentNeed) bool {
-		return need.Mandatory == 1 && slices.ContainsFunc(todos, func(todo store.DeploymentTodo) bool {
+		return need.Mandatory == 1 && need.AfterMerge == 0 && slices.ContainsFunc(todos, func(todo store.DeploymentTodo) bool {
 			return todo.Kind == need.Kind && todo.Name == need.Name && !todo.DoneAt.Valid
 		})
 	}), nil
@@ -106,7 +107,8 @@ func (e *Engine) clearBlockReason(ctx context.Context, task store.Task) error {
 }
 
 // DoneInboxItem stores the note and the time on the todo of the open todo Inbox item id, and dismisses the item. It
-// gives the changed item. When the todo is for a mandatory need of the current list and no mandatory todo of its task is open, the task gets the
+// gives the changed item. When the todo is for a mandatory need of the current list that is not an after-merge need
+// and no mandatory todo of its task is open, the task gets the
 // automatic merge as after a change of the Autopilot level to a merge level. It dismisses the item only after that
 // step succeeds, so the Owner can mark the todo as done again after an error. It returns a refusal when the item is
 // not an open todo.
@@ -139,18 +141,18 @@ func (e *Engine) DoneInboxItem(ctx context.Context, id int64, note string) (stor
 	return e.queries.GetInboxItem(ctx, id)
 }
 
-// TodoMandatory tells if the todo is mandatory. The need of the same kind and name in the current need list of its task
-// decides. When the list has no such need, the mandatory mark of the todo decides.
-func (e *Engine) TodoMandatory(ctx context.Context, todo store.DeploymentTodo) (bool, error) {
+// TodoMarks tells if the todo is mandatory and if it is an after-merge todo. The need of the same kind and name in the
+// current need list of its task decides. When the list has no such need, the marks of the todo decide.
+func (e *Engine) TodoMarks(ctx context.Context, todo store.DeploymentTodo) (mandatory, afterMerge bool, err error) {
 	needs, err := e.queries.ListDeploymentNeeds(ctx, todo.Task)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	i := slices.IndexFunc(needs, func(need store.DeploymentNeed) bool { return need.Kind == todo.Kind && need.Name == todo.Name })
 	if i < 0 {
-		return todo.Mandatory == 1, nil
+		return todo.Mandatory == 1, todo.AfterMerge == 1, nil
 	}
-	return needs[i].Mandatory == 1, nil
+	return needs[i].Mandatory == 1, needs[i].AfterMerge == 1, nil
 }
 
 // dismissTodo stores the time on the todo of the open todo Inbox item, and dismisses the item. It returns a refusal
@@ -163,7 +165,7 @@ func (e *Engine) dismissTodo(ctx context.Context, item store.InboxItem) error {
 	if err != nil {
 		return err
 	}
-	mandatory, err := e.TodoMandatory(ctx, todo)
+	mandatory, _, err := e.TodoMarks(ctx, todo)
 	if err != nil {
 		return err
 	}
@@ -182,7 +184,7 @@ func (e *Engine) dismissTodo(ctx context.Context, item store.InboxItem) error {
 }
 
 // mergeAfterTodos gives the task of the done todo the automatic merge, when the todo is for a mandatory need of the
-// current list, its Workstream has a merge level and no mandatory todo of the task is open.
+// current list that is not an after-merge need, its Workstream has a merge level and no mandatory todo of the task is open.
 func (e *Engine) mergeAfterTodos(ctx context.Context, item store.InboxItem, todo store.DeploymentTodo) error {
 	task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: item.Repository, Issue: item.Issue})
 	if errors.Is(err, sql.ErrNoRows) || err == nil && task.ID != todo.Task {
@@ -196,7 +198,7 @@ func (e *Engine) mergeAfterTodos(ctx context.Context, item store.InboxItem, todo
 		return err
 	}
 	if !slices.ContainsFunc(needs, func(need store.DeploymentNeed) bool {
-		return need.Mandatory == 1 && need.Kind == todo.Kind && need.Name == todo.Name
+		return need.Mandatory == 1 && need.AfterMerge == 0 && need.Kind == todo.Kind && need.Name == todo.Name
 	}) {
 		return nil
 	}
