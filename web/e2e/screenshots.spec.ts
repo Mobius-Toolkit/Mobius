@@ -51,13 +51,30 @@ const viewports = {
   phone: { width: 390, height: 844 },
 };
 
+// A step that waits for a state that no locator shows.
+type Wait = (page: Page) => Promise<void>;
+
+// The chat list scrolls to its end by itself.
+const chatEnd: Wait = (page) =>
+  expect
+    .poll(() =>
+      page.evaluate(`(() => {
+        const list = document.querySelector('main [data-ready]')
+        return list ? list.scrollHeight - list.scrollTop - list.clientHeight : Infinity
+      })()`),
+    )
+    .toBeLessThanOrEqual(1);
+
+const show = (page: Page, step: Locator | Wait) =>
+  typeof step === "function" ? step(page) : expect(step).toBeVisible();
+
 // Writes screenshots/<name>-desktop.png and screenshots/<name>-phone.png.
 // The phone image comes from a browser with a coarse pointer, as on a real phone.
 async function screenshot(
   page: Page,
   name: string,
   path: string,
-  ready: (device: string) => Locator | Locator[],
+  ready: (device: string) => (Locator | Wait)[] | Locator,
   open?: (device: string) => Promise<void>,
   close?: () => Promise<void>,
 ) {
@@ -67,8 +84,8 @@ async function screenshot(
     await page.setViewportSize(size);
     await page.goto(path);
     await open?.(device);
-    for (const locator of [ready(device)].flat()) {
-      await expect(locator).toBeVisible();
+    for (const step of [ready(device)].flat()) {
+      await show(page, step);
     }
     await page.screenshot({
       path: `screenshots/${name}-${device}.png`,
@@ -617,6 +634,7 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...chatReady(device),
+      chatEnd,
       main.getByRole("button", { name: "Stop voice input" }),
       voiceCard,
     ],
@@ -815,12 +833,16 @@ test("screenshots", async ({ page }) => {
     const fields = {
       action: null,
       browserId: "",
+      cancelledAt: null,
       deliveredAt: null,
+      failedAt: null,
       images: 0,
       inboxItems: [],
       organization: "owner",
+      question: null,
       repository: "owner/shop",
       stoppedAt: null,
+      voice: false,
       workstream: 12,
     };
     body.data.messages.push(
@@ -866,7 +888,9 @@ test("screenshots", async ({ page }) => {
   const clearComposer = async () => {
     const remove = composer.getByRole("button", { name: /^Remove / });
     while ((await remove.count()) > 0) {
+      const count = await remove.count();
       await remove.first().click();
+      await expect(remove).toHaveCount(count - 1);
     }
     await main.getByLabel("Message to the Lead").fill("");
     await expect.poll(() => page.evaluate(storedDrafts)).toBe(0);
@@ -1053,6 +1077,7 @@ test("screenshots", async ({ page }) => {
       trayToggle(page, 2, true),
       main.getByText("Todo · mandatory"),
       main.getByText("Todo · optional"),
+      main.getByRole("button", { name: "Dismiss" }),
     ],
     async () => {
       await expect(trayToggle(page, 2, true)).toBeVisible();
@@ -1070,6 +1095,7 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...frame(device, drain),
+      chatEnd,
       page
         .getByText(/Sep \d+, \d\d:\d\d [AP]M · Mobius prepares an upgrade/)
         .filter({ visible: true }),
@@ -1092,6 +1118,7 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...frame(device, drain),
+      chatEnd,
       page.getByText("#45 Pick the plan limits").filter({ visible: true }),
       page.getByText("waits for CI").filter({ visible: true }),
       page.getByText("waits for Lead").filter({ visible: true }),
@@ -1109,6 +1136,7 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...frame(device, drain),
+      chatEnd,
       page.getByText("#45 Pick the plan limits").filter({ visible: true }),
       page.getByText("waits for CI").filter({ visible: true }),
       page.getByText("waits for Lead").filter({ visible: true }),
@@ -1130,6 +1158,7 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...frame(device, drain),
+      chatEnd,
       page.getByText(longTaskTitle, { exact: false }).filter({ visible: true }),
     ],
     async (device) => {
@@ -1159,6 +1188,7 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...frame(device, drain),
+      chatEnd,
       created,
       page.getByText("Completed tasks").filter({ visible: true }),
       closeButton,
@@ -1183,7 +1213,7 @@ test("screenshots", async ({ page }) => {
     page,
     "chat-details-evergreen",
     "/workstreams/owner/shop/12",
-    (device) => [...frame(device, drain), created, evergreenSwitch],
+    (device) => [...frame(device, drain), chatEnd, created, evergreenSwitch],
     async (device) => {
       await openDetails(device);
       await evergreenSwitch.click();
@@ -1207,6 +1237,7 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/14",
     (device) => [
       ...frame(device, drain),
+      chatEnd,
       evergreenSwitch,
       page
         .getByText("Mobius manages this Workstream, so this value cannot change.")
@@ -1225,6 +1256,7 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...frame(device, drain),
+      chatEnd,
       page.getByRole("dialog").getByText("#41 Add plan model"),
       page.getByRole("dialog").getByText("#12 Integrate loyalty plans"),
     ],
@@ -1260,6 +1292,7 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...frame(device, drain),
+      chatEnd,
       planPrices.getByText("claude-code · sonnet · medium"),
       planReceipts.getByRole("button", { name: "Implementer of #39" }),
     ],
@@ -1275,6 +1308,7 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...frame(device, drain),
+      chatEnd,
       taskSheet.getByText("Default: devin · swe-1.5 · high (role)"),
       taskSheet.getByRole("button", { name: "Use the default" }),
       taskSheet.getByRole("button", { name: "Save" }),
@@ -1292,6 +1326,7 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...frame(device, drain),
+      chatEnd,
       detailsPanel.getByText("claude-code · opus · high"),
       detailsPanel.getByText("devin · swe-1.5 · high"),
       detailsPanel.getByRole("button", { name: "Change Lead" }),
@@ -1306,6 +1341,7 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...frame(device, drain),
+      chatEnd,
       workstreamLeadSheet.getByText("Default: claude-code · opus · high (role)"),
       workstreamLeadSheet.getByRole("button", { name: "Save" }),
     ],
@@ -1323,6 +1359,7 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...frame(device, drain),
+      chatEnd,
       detailsPanel.getByText("claude-code · sonnet · low"),
       detailsPanel.getByText("Workstream", { exact: true }),
       detailsPanel.getByRole("button", { name: "Change Implementer" }),
@@ -1336,6 +1373,7 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...frame(device, drain),
+      chatEnd,
       receiptsSheet.getByText("Default: claude-code · sonnet · low (Workstream)"),
       receiptsSheet.getByRole("button", { name: "Save" }),
     ],
@@ -1474,6 +1512,12 @@ test("screenshots", async ({ page }) => {
     const link = "https://github.com/owner/shop";
     const item = {
       dismissedAt: null,
+      action: null,
+      answer: "",
+      mergeRefusal: "",
+      merging: false,
+      todo: null,
+      withdrawn: false,
       questions: [],
       organization: "owner",
       repository: "owner/shop",

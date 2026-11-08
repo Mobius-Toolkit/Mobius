@@ -8,7 +8,7 @@ export const roleName: Record<PendingActionRole, string> = {
 
 export type Decision = "approve" | "reject";
 
-export function actionState(action: PendingAction) {
+export function actionState(action: Pick<PendingAction, "state" | "error">) {
   if (action.state === "pending") {
     return action.error ? "Failed" : "Waits for the approval";
   }

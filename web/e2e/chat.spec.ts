@@ -703,6 +703,32 @@ test("the chat stays at its end when the input gets taller", async ({ page }) =>
   await expect.poll(() => page.evaluate(shows("tall 9 ", "end"))).toBe(true);
 });
 
+test("the list shows no message while the chat waits for the older page of its first unread message", async ({
+  page,
+}) => {
+  await page.route("**/api/chat/seen", (route) => route.fulfill({ status: 204 }));
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  await page.route("**/api/chat?*before=*", async (route) => {
+    await gate;
+    await route.fallback();
+  });
+  await page.goto(seeds);
+  const main = page.getByRole("main");
+  await expect(main.locator("[data-ready]")).toHaveAttribute("data-ready", "false");
+  await expect(main.locator("[data-message]").first()).toBeHidden();
+  release();
+  await expect.poll(() => page.evaluate(shows("Seed note 16.", "top"))).toBe(true);
+  await expect(main.getByText("Seed note 16.")).toBeVisible();
+});
+
+test("the list shows its messages when the unread read fails", async ({ page }) => {
+  await page.route("**/api/unread", (route) => route.fulfill({ status: 500, json: {} }));
+  await page.goto(shop);
+  const main = page.getByRole("main");
+  await expect(main.locator("[data-message]").last()).toBeVisible();
+});
+
 test("an event shows folded and muted in the chat, and wraps on a phone", async ({ page }) => {
   const main = page.getByRole("main");
   // The tests have no DOM types, so the checks are scripts.
@@ -985,6 +1011,20 @@ test("a scroll up loads older messages and keeps the position", async ({ page })
   await expect(page.getByText("Seed note 1.")).toBeAttached();
 });
 
+test("a scroll up that comes with a layout of the list in the same frame loads older messages", async ({
+  page,
+}) => {
+  await page.goto(seeds);
+  await expect.poll(() => page.evaluate(shows("Seed note 50.", "end"))).toBe(true);
+  // A change of an attribute that the list watches runs the layout before the scroll event of the frame.
+  await page.evaluate(`(() => {
+    const list = document.querySelector('[data-message]').parentElement
+    list.scrollTop = 0
+    list.setAttribute('data-ready', list.dataset.ready)
+  })()`);
+  await expect.poll(() => page.evaluate(messageCount)).toBeGreaterThan(20);
+});
+
 test("the Brief shows at the top of a long chat, after the first page of the history", async ({
   page,
 }) => {
@@ -1203,6 +1243,7 @@ test("Answer of a row in the chat opens a panel with the rendered text", async (
   ).toBeVisible();
   await expect(dialog.locator("strong", { hasText: "Question:" })).toBeVisible();
   await expect(dialog).not.toContainText("**");
+  await expect(dialog).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
 });
@@ -2335,6 +2376,14 @@ test("the chat shows one separator before the first message of each day", async 
       author: "Lead",
       text: `Message ${index + 1}`,
       time,
+      action: null,
+      browserId: "",
+      cancelledAt: null,
+      deliveredAt: null,
+      failedAt: null,
+      question: null,
+      stoppedAt: null,
+      voice: false,
       images: 0,
       inboxItems: [],
       organization: "owner",
@@ -2384,6 +2433,14 @@ test.describe("a time zone east of UTC", () => {
           author: "Event",
           text: "2026-09-28 09:30 UTC stop of #42\n\nSince 2026-09-28 23:45 UTC the check fails. Keep 09:30 UTC.",
           time: "2026-09-28T09:30:00Z",
+          action: null,
+          browserId: "",
+          cancelledAt: null,
+          deliveredAt: null,
+          failedAt: null,
+          question: null,
+          stoppedAt: null,
+          voice: false,
           images: 0,
           inboxItems: [],
           organization: "owner",
@@ -2412,6 +2469,14 @@ async function longHistory(page: Page) {
       author: index % 2 === 0 ? "Owner" : "Lead",
       text: `History ${index} ${"word ".repeat(30)}`,
       time: "2026-10-15T08:37:00Z",
+      action: null,
+      browserId: "",
+      cancelledAt: null,
+      deliveredAt: null,
+      failedAt: null,
+      question: null,
+      stoppedAt: null,
+      voice: false,
       images: 0,
       inboxItems: [],
       organization: "owner",
@@ -2625,6 +2690,7 @@ test.describe("the state of an Owner message", () => {
           time: "2026-10-15T08:37:00Z",
           deliveredAt: state.deliveredAt,
           stoppedAt: state.stoppedAt,
+          voice: false,
           failedAt: state.failedAt,
           cancelledAt: state.cancelledAt,
           images: 0,
@@ -2632,6 +2698,8 @@ test.describe("the state of an Owner message", () => {
           organization,
           repository,
           workstream,
+          action: null,
+          question: null,
         })),
         {
           id: 4,
@@ -2641,11 +2709,16 @@ test.describe("the state of an Owner message", () => {
           time: "2026-10-15T08:37:00Z",
           deliveredAt: null,
           stoppedAt: null,
+          voice: false,
+          failedAt: null,
+          cancelledAt: null,
           images: 0,
           inboxItems: [],
           organization,
           repository,
           workstream,
+          action: null,
+          question: null,
         },
       ];
       await route.fulfill({ response, json: body });
@@ -2730,6 +2803,7 @@ test.describe("the state of an Owner message", () => {
                 time: "2026-10-15T08:39:00Z",
                 deliveredAt,
                 stoppedAt: null,
+                voice: false,
                 failedAt: null,
                 cancelledAt: null,
                 images: 0,
@@ -2765,6 +2839,7 @@ test.describe("the state of an Owner message", () => {
       time: "2026-10-15T08:39:00Z",
       deliveredAt: null,
       stoppedAt: null,
+      voice: false,
       failedAt: "2026-10-15T08:45:00Z",
       cancelledAt: null,
       images: 0,
@@ -3054,6 +3129,9 @@ test.describe("the records of the actions of the Owner", () => {
       time: "2026-10-15T08:37:00Z",
       deliveredAt: null,
       stoppedAt: null,
+      voice: false,
+      failedAt: null,
+      cancelledAt: null,
       images: 0,
       inboxItems: [],
       action: null,

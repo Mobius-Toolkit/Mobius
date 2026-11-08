@@ -23,7 +23,6 @@ export function Chat({
   number,
   workstreams,
   inbox,
-  unread,
   source,
 }: {
   owner: string;
@@ -31,7 +30,6 @@ export function Chat({
   number: number;
   workstreams: Workstreams;
   inbox: InboxItem[];
-  unread?: number;
   source?: EventSource;
 }) {
   const repository = `${owner}/${name}`;
@@ -140,8 +138,6 @@ export function Chat({
         repository={repository}
         workstream={number}
         agent="Lead"
-        source={source}
-        unread={unread}
         brief={workstream}
         head={
           <>
@@ -184,7 +180,6 @@ export function Chat({
           </>
         }
         trayItems={inWorkstream}
-        workstreams={workstreams.list}
       />
       <aside className="hidden w-80 shrink-0 flex-col border-l pt-2 md:flex">{panel}</aside>
     </div>
