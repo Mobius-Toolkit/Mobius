@@ -342,14 +342,14 @@ test("screenshots", async ({ page }) => {
     (device) => [
       chatCount,
       ...frame(device, drain, { organizations: true }),
-      main.getByRole("region", { name: "Waiting" }).getByText("merging", { exact: true }),
+      main.getByRole("region", { name: "Ready to merge" }).getByText("approved", { exact: true }),
       main.getByText("Required status check is expected."),
     ],
     async () => {
-      const waiting = main.getByRole("region", { name: "Waiting" });
-      await expect(waiting.getByText("merging", { exact: true })).toBeAttached();
+      const ready = main.getByRole("region", { name: "Ready to merge" });
+      await expect(ready.getByText("approved", { exact: true })).toBeAttached();
       await expect(main.getByText("Required status check is expected.")).toBeAttached();
-      await waiting.evaluate((el) => el.scrollIntoView({ block: "nearest", inline: "start" }));
+      await ready.evaluate((el) => el.scrollIntoView({ block: "nearest", inline: "start" }));
     },
   );
   await page.unroute(tasksRoute);
