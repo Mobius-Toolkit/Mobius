@@ -86,7 +86,7 @@ func (e *Engine) issueSpec(ctx context.Context, role, repository string, issue i
 	default:
 		return Spec{}, refuse("The Role %s has no setting for an issue.", role)
 	}
-	workstream, err := e.queries.HasCopiedWorkstream(ctx, store.HasCopiedWorkstreamParams{Repository: repository, Number: issue})
+	workstream, err := e.queries.HasCopiedWorkstreamAnyCase(ctx, store.HasCopiedWorkstreamAnyCaseParams{Repository: repository, Number: issue})
 	if err != nil {
 		return Spec{}, err
 	}

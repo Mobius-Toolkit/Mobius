@@ -162,6 +162,16 @@ func TestASettingOfARepositoryNameInAnotherCaseIsTheSettingOfTheTask(t *testing.
 		t.Fatal(err)
 	}
 	requireNext(t, server, "implementer", shop, 41, engine.LevelRole, "devin", "swe-1.5", "high")
+
+	if err := server.Engine.SetIssueBinding(t.Context(), "lead", "OWNER/Shop", 12, config.ClaudeCode, "sonnet", "low"); err != nil {
+		t.Fatal(err)
+	}
+	if err := server.Engine.SetIssueBinding(t.Context(), "implementer", "Owner/SHOP", 12, config.Devin, "opus", "medium"); err != nil {
+		t.Fatal(err)
+	}
+	requireNext(t, server, "lead", shop, 12, engine.LevelWorkstream, "claude-code", "sonnet", "low")
+	requireNext(t, server, "implementer", shop, 41, engine.LevelWorkstream, "devin", "opus", "medium")
+	requireNext(t, server, "implementer", "OWNER/shop", 12, engine.LevelWorkstream, "devin", "opus", "medium")
 }
 
 func TestTheTaskSettingWinsOverTheWorkstreamSettingAndTheBindingOfTheRole(t *testing.T) {

@@ -848,6 +848,9 @@ SELECT EXISTS (SELECT 1 FROM copied_workstreams WHERE repository = ? AND number 
 -- name: GetCopiedIssueWorkstream :one
 SELECT workstream FROM copied_issues WHERE repository = ? AND number = ? AND repository_url = ? LIMIT 1;
 
+-- name: HasCopiedWorkstreamAnyCase :one
+SELECT EXISTS (SELECT 1 FROM copied_workstreams WHERE repository = ? COLLATE NOCASE AND number = ?);
+
 -- name: GetCopiedIssueTree :one
 SELECT repository, workstream FROM copied_issues
 WHERE number = sqlc.arg(number)

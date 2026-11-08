@@ -3381,6 +3381,22 @@ func (q *Queries) HasCopiedWorkstream(ctx context.Context, arg HasCopiedWorkstre
 	return exists, err
 }
 
+const hasCopiedWorkstreamAnyCase = `-- name: HasCopiedWorkstreamAnyCase :one
+SELECT EXISTS (SELECT 1 FROM copied_workstreams WHERE repository = ? COLLATE NOCASE AND number = ?)
+`
+
+type HasCopiedWorkstreamAnyCaseParams struct {
+	Repository string
+	Number     int64
+}
+
+func (q *Queries) HasCopiedWorkstreamAnyCase(ctx context.Context, arg HasCopiedWorkstreamAnyCaseParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, hasCopiedWorkstreamAnyCase, arg.Repository, arg.Number)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const hasDiagnosingHardCIBreak = `-- name: HasDiagnosingHardCIBreak :one
 SELECT EXISTS (
   SELECT 1 FROM ci_breaks JOIN ci_diagnoses ON ci_diagnoses.ci_break = ci_breaks.id
