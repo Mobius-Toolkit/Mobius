@@ -127,42 +127,59 @@ function sourceOf<M>(context: Context<M>, node: Node | Inline) {
     : context.source.slice(start, end);
 }
 
-function inline<M>(context: Context<M>, node: Inline): Html | string {
+// Whether a "==" of the Brief diff has opened an added text that is not closed yet. briefMarkdown puts "==" around each
+// added text, and the text can have inline code, bold text or a link, so a "==" in one node can open an added text that
+// ends in a later node of the same block.
+type Mark = { open: boolean };
+
+const insertedClass = "bg-green-500/40 no-underline";
+
+function marked<M>(context: Context<M>, text: string, mark: Mark): Html {
+  const { h } = context;
+  return h.span(
+    [],
+    text.split("==").map((part, index) => {
+      if (index > 0) {
+        mark.open = !mark.open;
+      }
+      const shown = restoreEquals(part);
+      return mark.open && part ? h.ins([h.Class(insertedClass)], [shown]) : shown;
+    }),
+  );
+}
+
+const holdsInline = new Set<Inline["type"]>([
+  "text",
+  "emphasis",
+  "strong",
+  "delete",
+  "link",
+  "linkReference",
+]);
+
+function inline<M>(context: Context<M>, node: Inline, mark: Mark): Html | string {
   const { h, diff } = context;
   switch (node.type) {
     case "text":
-      return diff
-        ? h.span(
-            [],
-            // briefMarkdown puts "==" around each added text, and the text can have inline code, so a "=="
-            // at the end of a node can open an added text that ends in the next node.
-            node.value
-              .split("==")
-              .map((part, index) =>
-                index % 2 === 1
-                  ? h.ins([h.Class("bg-green-500/40 no-underline")], [restoreEquals(part)])
-                  : restoreEquals(part),
-              ),
-          )
-        : node.value;
+      return diff ? marked(context, node.value, mark) : node.value;
     case "emphasis":
-      return h.em([], content(context, node.children));
+      return h.em([], content(context, node.children, mark));
     case "strong":
-      return h.strong([], content(context, node.children));
+      return h.strong([], content(context, node.children, mark));
     case "delete":
       return diff
-        ? h.del([h.Class("bg-red-500/40 line-through")], content(context, node.children))
-        : h.del([], content(context, node.children));
+        ? h.del([h.Class("bg-red-500/40 line-through")], content(context, node.children, mark))
+        : h.del([], content(context, node.children, mark));
     case "inlineCode":
       return h.code([], [diff ? restoreEquals(node.value) : node.value]);
     case "break":
       return h.br([]);
     case "link":
-      return link(context, node.url, content(context, node.children));
+      return link(context, node.url, content(context, node.children, mark));
     case "linkReference": {
       const definition = context.definitions.get(node.identifier);
       return definition
-        ? link(context, definition.url, content(context, node.children))
+        ? link(context, definition.url, content(context, node.children, mark))
         : sourceOf(context, node);
     }
     // A message does not load images, so an image shows as a link.
@@ -186,8 +203,18 @@ function inline<M>(context: Context<M>, node: Inline): Html | string {
   }
 }
 
-function content<M>(context: Context<M>, nodes: readonly Inline[]): Array<Html | string> {
-  return nodes.map((node) => inline(context, node));
+// The inline nodes of one block. A node that holds no inline nodes, such as inline code, shows inside an added text when
+// the added text is open at the node.
+function content<M>(
+  context: Context<M>,
+  nodes: readonly Inline[],
+  mark: Mark = { open: false },
+): Array<Html | string> {
+  return nodes.map((node) => {
+    const added = context.diff && mark.open && !holdsInline.has(node.type);
+    const shown = inline(context, node, mark);
+    return added ? context.h.ins([context.h.Class(insertedClass)], [shown]) : shown;
+  });
 }
 
 function listItem<M>(context: Context<M>, list: List, item: ListItem): Html {

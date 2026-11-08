@@ -4,6 +4,25 @@ import { briefMarkdown } from "@/lib/briefDiff";
 import { diffLines } from "@/lib/diff";
 import { beginMarkdownRender, parseMarkdown, renderMarkdown, shieldEquals } from "./markdown";
 
+type Vnode = { sel?: string; text?: string; children?: Array<Vnode | string | null> };
+
+// The text of each node that has an ins element above it.
+function insertedTexts(text: string) {
+  const found: string[] = [];
+  const walk = (node: Vnode | string | null, inside: boolean) => {
+    if (node === null || typeof node === "string") {
+      return;
+    }
+    const open = inside || node.sel === "ins";
+    if (node.text !== undefined && open) {
+      found.push(node.text);
+    }
+    node.children?.forEach((child) => walk(child, open));
+  };
+  walk(renderMarkdown(inertHtml, text, true), false);
+  return found;
+}
+
 const render = (text: string, diff = false) =>
   JSON.stringify(renderMarkdown(inertHtml, text, diff));
 
@@ -106,6 +125,29 @@ describe("renderMarkdown", () => {
     const result = render(marked, true);
     expect(result).toContain("bg-green-500/40");
     expect(result).toContain("Check x == 1 first");
+  });
+
+  it("keeps an added text open across the inline nodes of its block", () => {
+    const shown = insertedTexts(
+      "- ==Use `make fmt` and **bold** and [a link](https://example.com) before each commit==, then plain",
+    );
+    expect(shown).toEqual([
+      "Use ",
+      "make fmt",
+      " and ",
+      "bold",
+      " and ",
+      "a link",
+      " before each commit",
+    ]);
+  });
+
+  it("closes an added text at its second mark, and opens the next one", () => {
+    expect(insertedTexts("==one== plain **bold** ==two `code`==")).toEqual(["one", "two ", "code"]);
+  });
+
+  it("starts each block with no open added text", () => {
+    expect(insertedTexts("==open\n\nnext block")).toEqual(["open"]);
   });
 
   it("gives an empty view for an empty text", () => {
