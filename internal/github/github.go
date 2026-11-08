@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -280,7 +281,7 @@ func (g *GitHub) DownloadReleaseAsset(ctx context.Context, id int64, path string
 }
 
 func writeFile(path string, source io.Reader) error {
-	file, err := os.Create(path)
+	file, err := os.Create(filepath.Clean(path))
 	if err != nil {
 		return err
 	}
