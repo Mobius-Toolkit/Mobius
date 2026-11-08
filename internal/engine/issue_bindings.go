@@ -144,21 +144,33 @@ func (e *Engine) SetIssueBinding(ctx context.Context, role, repository string, i
 	if err != nil {
 		return err
 	}
+	if err := e.checkIssueBinding(ctx, spec, harness, model, effort); err != nil {
+		return err
+	}
+	return e.putIssueBinding(ctx, role, repository, issue, harness, model, effort)
+}
+
+// checkIssueBinding refuses a setting for the session of spec that the Roles page would refuse, and a setting whose
+// access check fails. The caller holds roleWriteMu.
+func (e *Engine) checkIssueBinding(ctx context.Context, spec Spec, harness config.Harness, model, effort string) error {
 	roles := e.mergedRoles()
 	current, _, err := e.sessionBinding(ctx, &roles, spec)
 	if err != nil {
 		return err
 	}
+	role := issueBindingRole(spec.Role)
 	target := namedBinding(&roles, role)
 	next := withSetting(*target, harness, model, effort)
 	*target = next
 	if err := e.checkRoles(&roles, role); err != nil {
 		return refuse("%s", err)
 	}
-	if err := e.checkChange(ctx, current, next); err != nil {
-		return err
-	}
-	err = e.queries.UpsertIssueBinding(ctx, store.UpsertIssueBindingParams{
+	return e.checkChange(ctx, current, next)
+}
+
+// putIssueBinding stores the setting with no check.
+func (e *Engine) putIssueBinding(ctx context.Context, role, repository string, issue int64, harness config.Harness, model, effort string) error {
+	err := e.queries.UpsertIssueBinding(ctx, store.UpsertIssueBindingParams{
 		Repository: repository,
 		Issue:      issue,
 		Role:       role,
