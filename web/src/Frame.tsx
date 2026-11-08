@@ -28,7 +28,7 @@ import { OrganizationSwitch } from "./OrganizationSwitch";
 import { Pauses } from "./Pauses";
 import { SwitchLines } from "./SwitchLines";
 import { UpgradeControls, UpgradeDialog } from "./Upgrade";
-import { WorkstreamBadges } from "./Workstreams";
+import { WorkstreamBadges } from "./WorkstreamBadges";
 
 const tabs = [
   { path: "/chat", title: "Chat", Icon: MessageCircleIcon },

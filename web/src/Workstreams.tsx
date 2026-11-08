@@ -1,114 +1,64 @@
-import { GitPullRequestArrowIcon } from "lucide-react";
-import type { Unread, Workstream } from "@/api/api.gen";
-import { Badge } from "@/components/ui/badge";
-import { ErrorBadge, inset, LinkRow, List, PageHeader, Section } from "@/components/page";
-import { levelName } from "@/lib/autopilot";
-import { unreadCount } from "@/lib/unread";
-import { cn } from "@/lib/utils";
-import {
-  chatParams,
-  organizationWorkstreams,
-  workstreamKey,
-  type Workstreams as WorkstreamLists,
-} from "@/lib/workstreams";
-import { AutopilotIcon } from "./Autopilot";
-import { TopBar } from "./TopBar";
+import { useNavigate } from "@tanstack/react-router";
+import { Effect } from "effect";
+import * as Runtime from "foldkit/runtime";
+import { useEffect, useRef } from "react";
+import type { NeedsHuman } from "@/api/api.gen";
+import { useRestoredScroll } from "@/lib/restoreScroll";
+import type { WorkstreamsPorts } from "./workstreams/ports";
+import { createWorkstreamsProgram } from "./workstreams/program";
 
-export function WorkstreamBadges({
-  workstream,
-  workstreams,
-  unread,
+function WorkstreamsProgram({
+  organization,
+  needsHuman,
 }: {
-  workstream: Workstream;
-  workstreams: WorkstreamLists;
-  unread: Unread[];
+  organization: string;
+  needsHuman: NeedsHuman[];
 }) {
-  const needsHuman = workstreams.needsHuman.some(
-    (issue) => issue.repository === workstream.repository && issue.workstream === workstream.number,
-  );
-  const count = unreadCount(unread, {
-    organization: workstream.repository.split("/")[0],
-    repository: workstream.repository,
-    workstream: workstream.number,
-  });
+  const navigate = useNavigate();
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const handleRef = useRef<Runtime.EmbedHandle<WorkstreamsPorts>>(null);
+
+  // A change of a Flag disposes the program and embeds it again.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) {
+      return;
+    }
+
+    const flags = { organization };
+    const handle = Runtime.embed(createWorkstreamsProgram(container, flags), {
+      flags: Effect.succeed(flags),
+    });
+    handleRef.current = handle;
+
+    const unsubNav = handle.ports.navigationRequested.subscribe((path) => {
+      void navigate({ to: path });
+    });
+
+    return () => {
+      unsubNav();
+      handle.dispose();
+      handleRef.current = null;
+    };
+  }, [organization, navigate]);
+
+  useRestoredScroll(wrapperRef);
+
+  useEffect(() => {
+    handleRef.current?.ports.needsHuman.send(needsHuman);
+  }, [needsHuman]);
+
+  // Foldkit replaces the container element with its own root. Thus the wrapper keeps the container as its only child,
+  // and React never moves the container.
   return (
-    <span className="flex shrink-0 items-center gap-1.5">
-      {workstreams.working.has(workstreamKey(workstream)) && (
-        <span
-          role="img"
-          aria-label="Agent running"
-          title="Agent running"
-          className="size-2 rounded-full bg-green-600"
-        />
-      )}
-      {workstream.autopilot !== "off" && (
-        <span
-          role="img"
-          aria-label={`Autopilot: ${levelName(workstream.autopilot)}`}
-          title={`Autopilot: ${levelName(workstream.autopilot)}`}
-        >
-          <AutopilotIcon level={workstream.autopilot} />
-        </span>
-      )}
-      {workstream.readyToMerge && (
-        <span
-          role="img"
-          aria-label="Ready to merge"
-          title="Ready to merge"
-          className="text-green-600 dark:text-green-500"
-        >
-          <GitPullRequestArrowIcon className="size-3.5" />
-        </span>
-      )}
-      <span className="text-muted-foreground">#{workstream.number}</span>
-      {workstream.allTasksClosed && !workstream.evergreen && (
-        <Badge variant="secondary">done</Badge>
-      )}
-      {needsHuman && (
-        <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-400">needs you</Badge>
-      )}
-      {count > 0 && <Badge>{count}</Badge>}
-    </span>
+    <div id="workstreams-app-wrapper" ref={wrapperRef}>
+      <div id="workstreams-app" ref={containerRef} />
+    </div>
   );
 }
 
-export function Workstreams({
-  organization,
-  workstreams,
-  unread,
-}: {
-  organization: string;
-  workstreams: WorkstreamLists;
-  unread: Unread[];
-}) {
-  const shown = organizationWorkstreams(workstreams, organization);
-  const evergreen = shown?.filter((workstream) => workstream.evergreen);
-  const others = shown?.filter((workstream) => !workstream.evergreen);
-  const row = (workstream: Workstream) => (
-    <LinkRow
-      key={`${workstream.repository}#${workstream.number}`}
-      link={{ to: "/workstreams/$owner/$name/$number", params: chatParams(workstream) }}
-      title={workstream.title}
-    >
-      <WorkstreamBadges workstream={workstream} workstreams={workstreams} unread={unread} />
-    </LinkRow>
-  );
-  return (
-    <>
-      <TopBar title="Workstreams" />
-      <PageHeader title="Workstreams" />
-      {workstreams.error && <ErrorBadge>{workstreams.error}</ErrorBadge>}
-      {shown?.length === 0 && (
-        <p className={cn("text-muted-foreground", inset)}>
-          This organization has no open Workstream.
-        </p>
-      )}
-      {evergreen && evergreen.length > 0 && (
-        <Section title="Evergreen">
-          <List>{evergreen.map(row)}</List>
-        </Section>
-      )}
-      {others && others.length > 0 && <List>{others.map(row)}</List>}
-    </>
-  );
+// An organization change gets a new program, so its inbound Port starts with the data of that organization.
+export function Workstreams(props: Parameters<typeof WorkstreamsProgram>[0]) {
+  return <WorkstreamsProgram key={props.organization} {...props} />;
 }
