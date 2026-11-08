@@ -377,6 +377,9 @@ func (e *Engine) finishApproval(ctx context.Context, repository github.Repositor
 	if len(todos) > 0 {
 		text = fmt.Sprintf("The Owner got the deployment todos: %s. ", strings.Join(todos, ", "))
 	}
+	if writeErr := e.writeTodos(ctx, repository, task.ID, int64(pullRequest.GetNumber())); writeErr != nil {
+		text += fmt.Sprintf("Mobius did not write the deployment todos in the description of the pull request: %v. ", writeErr)
+	}
 	if err != nil {
 		return text + fmt.Sprintf("The Owner got it for review. Mobius did not add all deployment todos: %v", err), nil
 	}

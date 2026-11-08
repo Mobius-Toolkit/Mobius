@@ -136,6 +136,21 @@ func (g *FakeGitHub) FailPullRequestReads(fail bool) {
 	g.failPullReads = fail
 }
 
+// FailBodyWrites makes each body write of an issue or a pull request through the API fail, or work again when fail is
+// false.
+func (g *FakeGitHub) FailBodyWrites(fail bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.failBodyWrites = fail
+}
+
+// BodyWrites gives the number of body writes through the API for the issue or pull request number.
+func (g *FakeGitHub) BodyWrites(repository string, number int64) int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.bodyWrites[issueKey{repository, number}]
+}
+
 // FailMarkReadyForReview makes each mutation markPullRequestReadyForReview fail, or work again when fail is false.
 func (g *FakeGitHub) FailMarkReadyForReview(fail bool) {
 	g.mu.Lock()

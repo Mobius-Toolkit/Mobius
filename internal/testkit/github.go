@@ -148,6 +148,9 @@ type FakeGitHub struct {
 	failPullReads    bool
 	failMarkReady    bool
 	failCheckUpdates bool
+	failBodyWrites   bool
+	// bodyWrites counts the body writes through the API, for each issue and pull request.
+	bodyWrites map[issueKey]int
 	// failedCheckUpdates counts the updates of a check run that failCheckUpdates made fail.
 	failedCheckUpdates int
 	latestRelease      *releaseJSON
@@ -257,6 +260,7 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		manifestCodes:           map[string]bool{},
 		secondAppAccounts:       map[string]bool{},
 		failedApps:              map[int64]bool{},
+		bodyWrites:              map[issueKey]int{},
 		appPermissions:          map[int64]map[string]string{},
 		installationPermissions: map[int64]map[string]string{},
 		userCodes:               map[string]grant{},
