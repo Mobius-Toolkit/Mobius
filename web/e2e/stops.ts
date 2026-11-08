@@ -213,6 +213,7 @@ export const todoItems = [
       reason: "The server reads it at the start and has no default.",
       note: "",
       dismissable: false,
+      afterMerge: false,
     },
   },
   {
@@ -235,6 +236,7 @@ export const todoItems = [
       reason: "The server waits 10 seconds when the variable is not set.",
       note: "",
       dismissable: true,
+      afterMerge: false,
     },
   },
 ];

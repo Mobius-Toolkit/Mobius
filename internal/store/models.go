@@ -103,15 +103,16 @@ type CommentWrite struct {
 }
 
 type DeploymentNeed struct {
-	ID        int64
-	Task      int64
-	Head      string
-	Kind      string
-	Name      string
-	Path      string
-	Line      int64
-	Reason    string
-	Mandatory int64
+	ID         int64
+	Task       int64
+	Head       string
+	Kind       string
+	Name       string
+	Path       string
+	Line       int64
+	Reason     string
+	Mandatory  int64
+	AfterMerge int64
 }
 
 type DeploymentTodo struct {
@@ -127,6 +128,7 @@ type DeploymentTodo struct {
 	Note        string
 	DoneAt      sql.NullString
 	DismissedAt sql.NullString
+	AfterMerge  int64
 }
 
 type Event struct {

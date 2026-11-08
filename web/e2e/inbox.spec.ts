@@ -513,6 +513,7 @@ const todo = {
     reason: "The server reads it at the start and has no default.",
     note: "",
     dismissable: false,
+    afterMerge: false,
   },
 };
 
@@ -593,6 +594,45 @@ test("a mandatory todo shows no Dismiss", async ({ page }) => {
 
   await expect(row.getByRole("button", { name: "Complete" })).toBeVisible();
   await expect(row.getByRole("button", { name: "Dismiss" })).toHaveCount(0);
+});
+
+test("an after-merge todo shows its badge and says that it does not block the merge", async ({
+  page,
+}) => {
+  const mandatory = { ...todo, todo: { ...todo.todo, afterMerge: true } };
+  const optional = {
+    ...todo,
+    id: 8,
+    title: "MOBIUS_SMTP_TIMEOUT",
+    reason: "optional · Deployment needs",
+    todo: { ...todo.todo, mandatory: false, dismissable: true, afterMerge: true },
+  };
+  await routeInbox(page, [mandatory, optional]);
+  await page.goto("/inbox");
+  const rows = page.getByRole("main").getByRole("listitem");
+
+  await expect(
+    rows.filter({ hasText: "MOBIUS_SMTP_HOST" }).locator("[data-slot=badge]"),
+  ).toHaveText("Todo · mandatory · after merge");
+  await expect(
+    rows.filter({ hasText: "MOBIUS_SMTP_TIMEOUT" }).locator("[data-slot=badge]"),
+  ).toHaveText("Todo · optional · after merge");
+  await expect(rows.filter({ hasText: "MOBIUS_SMTP_HOST" }).getByRole("button")).toHaveText([
+    "Complete",
+    "Chat",
+    "Details",
+  ]);
+
+  await rows
+    .filter({ hasText: "MOBIUS_SMTP_HOST" })
+    .getByRole("button", { name: "Complete" })
+    .click();
+  const panel = page.getByRole("dialog");
+
+  await expect(
+    panel.getByText("Do this step after the merge. This todo does not block the merge."),
+  ).toBeVisible();
+  await expect(panel.getByText("Mobius merges after you complete this todo.")).toHaveCount(0);
 });
 
 test("the row shows the refusal of Dismiss", async ({ page }) => {

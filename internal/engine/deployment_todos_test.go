@@ -15,15 +15,23 @@ import (
 const (
 	// mandatoryNeed is a Reviewer that reports one mandatory env var.
 	mandatoryNeed = "[[prompts]]\nwhen = \"You are the Reviewer\"\ncall = { tool = \"report_deployment_needs\", arguments = { needs = [" +
-		"{ kind = \"env_var\", name = \"PLAN_API_KEY\", path = \"plan.txt\", line = 1, reason = \"The code reads it at start.\", mandatory = true }] } }\n\n"
+		"{ kind = \"env_var\", name = \"PLAN_API_KEY\", path = \"plan.txt\", line = 1, reason = \"The code reads it at start.\", mandatory = true, after_merge = false }] } }\n\n"
 	// optionalNeed is a Reviewer that reports one optional config value.
 	optionalNeed = "[[prompts]]\nwhen = \"You are the Reviewer\"\ncall = { tool = \"report_deployment_needs\", arguments = { needs = [" +
-		"{ kind = \"config\", name = \"plan.currency\", path = \"plan.txt\", line = 2, reason = \"The code has a default.\", mandatory = false }] } }\n\n"
+		"{ kind = \"config\", name = \"plan.currency\", path = \"plan.txt\", line = 2, reason = \"The code has a default.\", mandatory = false, after_merge = false }] } }\n\n"
 	// mandatoryNeedInRoundTwo is a Reviewer that reports plan.currency as mandatory for the issue body of the second round.
 	mandatoryNeedInRoundTwo = "[[prompts]]\nwhen = \"Plans have a price. Round two.\"\ncall = { tool = \"report_deployment_needs\", arguments = { needs = [" +
-		"{ kind = \"config\", name = \"plan.currency\", path = \"plan.txt\", line = 2, reason = \"The code needs it at start.\", mandatory = true }] } }\n\n"
-	blockedText     = "Approved pull request #42 of #41. The Owner got the deployment todos: PLAN_API_KEY. Mobius merges it after the Owner marks the mandatory todos as done."
-	workstreamTitle = "Integrate loyalty plans"
+		"{ kind = \"config\", name = \"plan.currency\", path = \"plan.txt\", line = 2, reason = \"The code needs it at start.\", mandatory = true, after_merge = false }] } }\n\n"
+	// afterMergeNeed is a Reviewer that reports one mandatory config key that a person can add only after the merge.
+	afterMergeNeed = "[[prompts]]\nwhen = \"You are the Reviewer\"\ncall = { tool = \"report_deployment_needs\", arguments = { needs = [" +
+		"{ kind = \"config\", name = \"roles.lead.context\", path = \"plan.txt\", line = 3, reason = \"An older release refuses the key.\", mandatory = true, after_merge = true }] } }\n\n"
+	// afterMergeInRoundTwo is a Reviewer that reports PLAN_API_KEY as an after-merge need for the issue body of the second round.
+	afterMergeInRoundTwo = "[[prompts]]\nwhen = \"Plans have a price. Round two.\"\ncall = { tool = \"report_deployment_needs\", arguments = { needs = [" +
+		"{ kind = \"env_var\", name = \"PLAN_API_KEY\", path = \"plan.txt\", line = 1, reason = \"Add it after the upgrade.\", mandatory = true, after_merge = true }] } }\n\n"
+	// noNeedInRoundTwo is a Reviewer that reports no need for the issue body of the second round.
+	noNeedInRoundTwo = "[[prompts]]\nwhen = \"Plans have a price. Round two.\"\ncall = { tool = \"report_deployment_needs\", arguments = { needs = [] } }\n\n"
+	blockedText      = "Approved pull request #42 of #41. The Owner got the deployment todos: PLAN_API_KEY. Mobius merges it after the Owner marks the mandatory todos as done."
+	workstreamTitle  = "Integrate loyalty plans"
 )
 
 func todoRows(t *testing.T, server *testserver.Server) []store.DeploymentTodo {
@@ -460,4 +468,123 @@ func TestTheOwnerDismissesAnItemOfAnotherKindWithTheRecordOfTheTitle(t *testing.
 		t.Errorf("dismissed_at = %v, done_at = %v", dismissedAt, doneAt)
 	}
 	waitForRecords(t, server, leadChat, "You set the Autopilot level to Off.", `You dismissed "`+ready.Title+`".`)
+}
+
+func TestTheReviewerMarksANeedAsAfterMergeAndTheNeedRowAndTheTodoRowKeepTheMark(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := approvableWith(t, fake, "off", true, afterMergeNeed)
+
+	sendChat(t, server, leadChat, "Approve #41")
+
+	todo := waitForItem(t, server, "todo")
+	needs := deploymentNeeds(t, server)
+	if len(needs) != 1 || needs[0].Mandatory != 1 || needs[0].AfterMerge != 1 {
+		t.Errorf("needs = %+v", needs)
+	}
+	if rows := todoRows(t, server); len(rows) != 1 || rows[0].Mandatory != 1 || rows[0].AfterMerge != 1 {
+		t.Errorf("rows = %+v", rows)
+	}
+	if todo.Todo == nil || !todo.Todo.Mandatory || !todo.Todo.AfterMerge || todo.Todo.Dismissable {
+		t.Errorf("todo = %+v", todo.Todo)
+	}
+}
+
+func TestAMandatoryNeedThatIsAfterMergeDoesNotStopTheAutomaticMergeAndItsTodoStaysOpenAfterTheMerge(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := approvableWith(t, fake, "merge", true, afterMergeNeed)
+
+	sendChat(t, server, leadChat, "Approve #41")
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "" })
+	if fake.MergeCalls() != 1 || approvals(fake) != 1 || autoMerge(t, server) != 1 {
+		t.Errorf("merge calls = %d, approvals = %d", fake.MergeCalls(), approvals(fake))
+	}
+	todo := waitForItem(t, server, "todo")
+	if todo.DismissedAt != nil || todo.Todo == nil || !todo.Todo.AfterMerge {
+		t.Fatalf("todo = %+v", todo)
+	}
+
+	if status, body := doneTodo(t, server, todo.ID, `{"note":"Added."}`); status != http.StatusOK {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+
+	if got := itemsOf(t, server, "todo"); len(got) != 0 {
+		t.Errorf("todo items = %+v", got)
+	}
+	if dismissedAt, doneAt := todoTimes(t, server, "roles.lead.context"); dismissedAt.Valid || !doneAt.Valid {
+		t.Errorf("dismissed_at = %v, done_at = %v", dismissedAt, doneAt)
+	}
+}
+
+// todoBeforeAFixRound gives a server with a task whose first review gave a todo item, and that the Lead sent to a fix
+// round. It waits for the second review and the new approval state of the task. The check of the first head is open.
+func todoBeforeAFixRound(t *testing.T, fake *testkit.FakeGitHub, level, reviewer string) (*testserver.Server, inboxItem) {
+	t.Helper()
+	fake.AddUserCode(testkit.AppID, "user-code", "owner")
+	fixRound := "[[prompts]]\nwhen = \"Remove the lines out of scope.\"\nshell = \"echo fixed > fix.txt && git add fix.txt && git commit -q -m Fix\"\n\n"
+	server, _ := connectTask(t, fake, reviewer+leadApproves+leadFindings+leadStarts, fixRound+commits, keepSessionOpen)
+	authorize(t, server)
+	setWorkstreamAutopilot(t, server, level)
+	testkit.WaitFor(t, func() bool { return workstreams(t, server)[0].Autopilot == level })
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	waitForReadyEvents(t, fake, server, 1)
+	fake.AddCheckRun(shop, checkRun("CI", head(t, fake, "mobius/41"), "in_progress", ""))
+	sendChat(t, server, leadChat, "Approve #41")
+	first := waitForItem(t, server, "todo")
+	waitForPolls(t, fake)
+	if autoMerge(t, server) != 0 {
+		t.Fatalf("auto merge = %d", autoMerge(t, server))
+	}
+	fake.SetBody(shop, 41, "Plans have a price. Round two.")
+	sendChat(t, server, leadChat, "Send the findings to #41")
+	waitForReadyEvents(t, fake, server, 2)
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" })
+	return server, first
+}
+
+func TestALaterReviewThatMarksTheNeedOfAnOpenMandatoryTodoAsAfterMergeUnblocksTheAutomaticMerge(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, first := todoBeforeAFixRound(t, fake, "merge", afterMergeInRoundTwo+mandatoryNeed)
+	if first.Todo == nil || !first.Todo.Mandatory || first.Todo.AfterMerge {
+		t.Fatalf("first = %+v", first.Todo)
+	}
+
+	sendChat(t, server, leadChat, "Approve #41")
+
+	testkit.WaitFor(t, func() bool { return autoMerge(t, server) == 1 })
+	testkit.WaitFor(t, func() bool {
+		items := itemsOf(t, server, "ready for review")
+		return len(items) == 1 && items[0].Merging && items[0].MergeRefusal == ""
+	})
+	todos := itemsOf(t, server, "todo")
+	if len(todos) != 1 || todos[0].DismissedAt != nil || todos[0].Todo == nil || !todos[0].Todo.Mandatory || !todos[0].Todo.AfterMerge {
+		t.Errorf("todos = %+v", todos)
+	}
+	if rows := todoRows(t, server); len(rows) != 1 || rows[0].AfterMerge != 0 {
+		t.Errorf("rows = %+v", rows)
+	}
+}
+
+func TestATodoWhoseNeedTheReviewerLaterRemovedKeepsTheAfterMergeMarkOfItsRow(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, first := todoBeforeAFixRound(t, fake, "off", noNeedInRoundTwo+afterMergeNeed)
+	if first.Todo == nil || !first.Todo.AfterMerge {
+		t.Fatalf("first = %+v", first.Todo)
+	}
+
+	if needs := deploymentNeeds(t, server); len(needs) != 0 {
+		t.Fatalf("needs = %+v", needs)
+	}
+
+	todos := itemsOf(t, server, "todo")
+	if len(todos) != 1 || todos[0].DismissedAt != nil || todos[0].Todo == nil || !todos[0].Todo.AfterMerge {
+		t.Errorf("todos = %+v", todos)
+	}
+	if rows := todoRows(t, server); len(rows) != 1 || rows[0].AfterMerge != 1 {
+		t.Errorf("rows = %+v", rows)
+	}
 }
