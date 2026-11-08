@@ -1,7 +1,6 @@
 import { Outlet, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { PageHeader } from "@/components/page";
 import { useShell } from "@/lib/shell";
-import { unreadCount } from "@/lib/unread";
 import { Agents } from "./Agents";
 import { Chat } from "./Chat";
 import {
