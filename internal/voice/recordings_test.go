@@ -473,16 +473,27 @@ func TestAConversionIsGoneAfterTheConversionRetention(t *testing.T) {
 	r := finalRecordings(t, func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]string{"text": "red roses"})
 	})
-	r.ConversionRetention = 50 * time.Millisecond
+	r.ConversionRetention = time.Hour
 
+	kept, err := r.Transcribe(context.Background(), []byte("RIFF"), "en")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := waitConversion(t, r, kept); got.State != voice.Done {
+		t.Fatalf("conversion = %+v", got)
+	}
+
+	r.ConversionRetention = 50 * time.Millisecond
 	id, err := r.Transcribe(context.Background(), []byte("RIFF"), "en")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	waitConversion(t, r, id)
 	testkit.WaitFor(t, func() bool {
 		_, err := r.Conversion(id)
 		return errors.Is(err, voice.ErrUnknown)
 	})
+	if _, err := r.Conversion(kept); err != nil {
+		t.Errorf("conversion with the long retention: %v", err)
+	}
 }
