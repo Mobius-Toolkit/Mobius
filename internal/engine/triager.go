@@ -206,11 +206,22 @@ func (e *Engine) startTriager(repository github.Repository, number int64) {
 	e.triagesMu.Unlock()
 	go func() {
 		defer close(running.done)
-		if err := e.runTriager(triageCtx, repository, number); err != nil {
+		var err error
+		for {
+			err = e.runTriager(triageCtx, repository, number)
+			if !errors.Is(err, errMoved) {
+				break
+			}
+			if triageCtx.Err() != nil || !e.tryTrack() {
+				break
+			}
+		}
+		moved := errors.Is(err, errMoved)
+		if err != nil && !moved {
 			log.Printf("Triager of %s#%d: %v", repository.FullName, number, err)
 		}
 		e.triagesMu.Lock()
-		if triageCtx.Err() == nil {
+		if triageCtx.Err() == nil && !moved {
 			if err := e.queries.EndTriagerTurn(context.Background(), store.EndTriagerTurnParams{Repository: repository.FullName, Issue: number}); err != nil {
 				log.Printf("Triager of %s#%d: %v", repository.FullName, number, err)
 			}
@@ -292,6 +303,8 @@ func (e *Engine) runTriager(ctx context.Context, repository github.Repository, n
 		return a.End(ended, "stopped")
 	case errors.Is(err, errHung):
 		return a.endHung(ended)
+	case errors.Is(err, errMoved):
+		return errors.Join(errMoved, a.End(ended, "moved"))
 	case err != nil:
 		return a.Fail(ended, err)
 	}
