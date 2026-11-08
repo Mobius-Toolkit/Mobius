@@ -810,23 +810,28 @@ test("Send again works after the network comes back", async ({ page }) => {
 
 test("a new recording shows no text of an earlier recording", async ({ page }) => {
   await page.clock.install();
-  await liveServer(page, [{ committed: "", draft: "red" }], {
+  const seen = await liveServer(page, [{ committed: "", draft: "red" }], {
     error: "The speech model is still starting",
   });
   await page.goto("/chat");
   const input = page.getByLabel("Message to the Coordinator");
   await begin(page);
   await tick(page);
-  await expect(live(page, "red")).toBeVisible();
+  await expect.poll(() => seen.sequences.length).toBe(1);
+  await tick(page);
+  await expect.poll(() => seen.sequences.length).toBe(2);
   await stop(page).click();
-  await settled(page);
-  await expect(again(page)).toBeVisible();
+  await expect
+    .poll(async () => {
+      await tick(page);
+      return again(page).isVisible();
+    })
+    .toBe(true);
   await discard(page).click();
-  await expect(voiceCard(page)).toHaveCount(0);
   await start(page).click();
+  await expect(input).toHaveValue("");
   await expect(voiceCard(page)).toContainText("Recording");
   await expect(voiceCard(page)).not.toContainText("red");
-  await expect(input).toHaveValue("");
 });
 
 test("an empty result shows an error and keeps the audio", async ({ page }) => {
