@@ -1139,7 +1139,7 @@ func shortPrompt(j job, kept *keptSession) string {
 // row ends as each other, so a kept session holds no slot. The keep runs before end frees the drain count, because a
 // drain that completes in between lets the restart leave the Harness process behind.
 func (e *Engine) keepImplementer(ctx context.Context, a *Agent, task store.Task, j *job) error {
-	k := &keptSession{binding: a.binding, keptAt: e.timeNow(), brief: j.brief, issue: j.issueBody, comments: j.comments}
+	k := &keptSession{binding: a.binding, level: a.level, keptAt: e.timeNow(), brief: j.brief, issue: j.issueBody, comments: j.comments}
 	err := a.end(ctx, string(done), func() {
 		a.mu.Lock()
 		k.costTotal, k.costBase = a.costTotal, a.costBase
@@ -1154,7 +1154,16 @@ func (e *Engine) keepImplementer(ctx context.Context, a *Agent, task store.Task,
 			return
 		}
 		beforeKeep(task.ID, k.session)
-		e.keepSession(task.ID, k)
+		e.rolesMu.RLock()
+		stale := k.level == LevelRole && k.binding != e.roles.Implementer
+		if !stale {
+			e.keepSession(task.ID, k)
+		}
+		e.rolesMu.RUnlock()
+		if stale {
+			e.closeKeptSession(k)
+			return
+		}
 		if !e.taskContinues(ctx, task) {
 			e.closeKept(task.ID)
 		}
