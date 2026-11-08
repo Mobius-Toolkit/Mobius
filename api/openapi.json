@@ -9162,6 +9162,10 @@
         "type": "object",
         "title": "Todo",
         "properties": {
+          "afterMerge": {
+            "type": "boolean",
+            "description": "AfterMerge is true when a person can do the step only after the merge, so the todo does not block the merge"
+          },
           "dismissable": {
             "type": "boolean",
             "description": "Dismissable is true when the Owner can dismiss the todo: it is open and its need is optional"
@@ -9203,7 +9207,8 @@
           "reason",
           "mandatory",
           "note",
-          "dismissable"
+          "dismissable",
+          "afterMerge"
         ],
         "description": "Todo is the deployment need of a todo Inbox item."
       },

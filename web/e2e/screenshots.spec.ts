@@ -1393,6 +1393,7 @@ test("screenshots", async ({ page }) => {
               reason: "The server reads it at the start and has no default.",
               note: "",
               dismissable: false,
+              afterMerge: false,
             },
           },
           {
@@ -1415,6 +1416,7 @@ test("screenshots", async ({ page }) => {
               reason: "The old plans need the import once.",
               note: "",
               dismissable: true,
+              afterMerge: false,
             },
           },
           {
@@ -1466,6 +1468,46 @@ test("screenshots", async ({ page }) => {
       await optionalTodoRow.scrollIntoViewIfNeeded();
     },
   );
+  const [mandatoryTodo] = todoItems;
+  const afterMergeTodo = {
+    ...mandatoryTodo,
+    id: 106,
+    title: "roles.lead.context",
+    text: "config: roles.lead.context",
+    todo: {
+      ...mandatoryTodo.todo,
+      kind: "config",
+      name: "roles.lead.context",
+      path: "internal/config/config.go",
+      line: 88,
+      reason: "An older release refuses the key. Add it after the upgrade to this release.",
+      afterMerge: true,
+    },
+  };
+  await page.route(inboxRoute, (route) => route.fulfill({ json: { data: [afterMergeTodo] } }));
+  const afterMergeRow = main.getByRole("listitem").filter({ hasText: "roles.lead.context" });
+  await screenshot(page, "inbox-todo-after-merge", "/inbox", (device) => [
+    ...frame(device, drain, { organizations: true }),
+    afterMergeRow.getByText("Todo · mandatory · after merge"),
+    afterMergeRow.getByRole("button", { name: "Complete" }),
+  ]);
+  await screenshot(
+    page,
+    "todo-dialog-after-merge",
+    "/inbox",
+    () => [
+      page.getByRole("dialog").getByText("Mandatory config"),
+      page
+        .getByRole("dialog")
+        .getByText("Do this step after the merge. This todo does not block the merge."),
+      page.getByRole("dialog").getByRole("textbox", { name: "Note" }),
+    ],
+    async () => {
+      await expect(afterMergeRow.getByRole("button", { name: "Complete" })).toBeVisible();
+      await afterMergeRow.getByRole("button", { name: "Complete" }).click();
+    },
+  );
+  await page.unroute(inboxRoute);
   // Radix hides the page behind the panel from the role queries, so the open step waits for the page first.
   const openPanel = (button: string, index: number) => async (device: string) => {
     for (const locator of inboxReady(device)) {

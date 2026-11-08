@@ -303,14 +303,15 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 						"items": map[string]any{
 							"type": "object",
 							"properties": map[string]any{
-								"kind":      map[string]any{"type": "string", "enum": deploymentNeedKinds, "description": "The kind of the need."},
-								"name":      map[string]any{"type": "string", "minLength": 1, "description": "The name of the env var, the config key or the secret, or a short name of the manual step."},
-								"path":      map[string]any{"type": "string", "minLength": 1, "description": "The file that adds the need, relative to the repository root."},
-								"line":      map[string]any{"type": "integer", "minimum": 1, "description": "The line in the new version of the file."},
-								"reason":    map[string]any{"type": "string", "minLength": 1, "description": "Why the deployment needs it."},
-								"mandatory": map[string]any{"type": "boolean", "description": "True when the deployment fails or the application does not start without it. False when the application works without it."},
+								"kind":        map[string]any{"type": "string", "enum": deploymentNeedKinds, "description": "The kind of the need."},
+								"name":        map[string]any{"type": "string", "minLength": 1, "description": "The name of the env var, the config key or the secret, or a short name of the manual step."},
+								"path":        map[string]any{"type": "string", "minLength": 1, "description": "The file that adds the need, relative to the repository root."},
+								"line":        map[string]any{"type": "integer", "minimum": 1, "description": "The line in the new version of the file."},
+								"reason":      map[string]any{"type": "string", "minLength": 1, "description": "Why the deployment needs it."},
+								"mandatory":   map[string]any{"type": "boolean", "description": "True when the deployment fails or the application does not start without it. False when the application works without it."},
+								"after_merge": map[string]any{"type": "boolean", "description": "True when a person can do this step only after the merge. Such a need does not block the merge."},
 							},
-							"required":             []string{"kind", "name", "path", "line", "reason", "mandatory"},
+							"required":             []string{"kind", "name", "path", "line", "reason", "mandatory", "after_merge"},
 							"additionalProperties": false,
 						},
 					},
@@ -810,12 +811,13 @@ type deploymentNeedsInput struct {
 }
 
 type deploymentNeedInput struct {
-	Kind      string `json:"kind"`
-	Name      string `json:"name"`
-	Path      string `json:"path"`
-	Line      int64  `json:"line"`
-	Reason    string `json:"reason"`
-	Mandatory bool   `json:"mandatory"`
+	Kind       string `json:"kind"`
+	Name       string `json:"name"`
+	Path       string `json:"path"`
+	Line       int64  `json:"line"`
+	Reason     string `json:"reason"`
+	Mandatory  bool   `json:"mandatory"`
+	AfterMerge bool   `json:"after_merge"`
 }
 
 type verdictsInput struct {

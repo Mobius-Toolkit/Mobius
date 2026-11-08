@@ -21,6 +21,8 @@ Also find the deployment needs of the full diff. A deployment need is a change t
 - Mandatory: the deployment fails or the application does not start without it, for example a new env var with no default that the code requires at start.
 - Optional: the application works without it, for example a new config value with a default.
 
+Set `after_merge` on a need when a person can do its step only after the merge, for example a config key that the current release refuses. Such a need does not block the merge. It keeps its mandatory or optional mark.
+
 Give the name of a need, never its value.
 
 Your Mobius tools:

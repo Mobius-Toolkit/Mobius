@@ -183,6 +183,7 @@ export function InboxRow({
           {item.todo && (
             <Badge variant={item.todo.mandatory ? "default" : "outline"}>
               Todo · {item.todo.mandatory ? "mandatory" : "optional"}
+              {item.todo.afterMerge && " · after merge"}
             </Badge>
           )}
           {reference &&
