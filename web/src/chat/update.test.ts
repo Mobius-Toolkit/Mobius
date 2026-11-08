@@ -792,6 +792,7 @@ describe("chat update story tests", () => {
       kind: "todo",
       issue: 5,
       todo: {
+        dismissable: false,
         kind: "env_var",
         line: 1,
         mandatory: true,
