@@ -180,11 +180,12 @@ const storedDrafts = `new Promise((resolve) => {
   };
 })`;
 
-const storedAudio = `new Promise((resolve) => {
+const clearDrafts = `new Promise((resolve) => {
   const open = indexedDB.open("mobius");
   open.onsuccess = () => {
-    const count = open.result.transaction("voice").objectStore("voice").count();
-    count.onsuccess = () => resolve(count.result);
+    const transaction = open.result.transaction("drafts", "readwrite");
+    transaction.objectStore("drafts").clear();
+    transaction.oncomplete = () => resolve(undefined);
   };
 })`;
 
@@ -213,6 +214,7 @@ const converted = (route: Route) =>
 test("screenshots", async ({ page }) => {
   test.setTimeout(300_000);
   const main = page.getByRole("main");
+  const voiceCard = main.getByRole("group", { name: "Voice recording" });
   // The day separator shows the year of a message that is not in the current year.
   await page.clock.setFixedTime(fixedTime);
   await page.addInitScript(fakeMicrophone);
@@ -613,7 +615,11 @@ test("screenshots", async ({ page }) => {
     page,
     "chat-listening",
     "/workstreams/owner/shop/12",
-    (device) => [...chatReady(device), main.getByRole("button", { name: "Stop voice input" })],
+    (device) => [
+      ...chatReady(device),
+      main.getByRole("button", { name: "Stop voice input" }),
+      voiceCard,
+    ],
     () => main.getByRole("button", { name: "Start voice input" }).click(),
   );
   await page.route("**/api/voice/recordings", (route) =>
@@ -632,42 +638,34 @@ test("screenshots", async ({ page }) => {
     page,
     "chat-live",
     "/workstreams/owner/shop/12",
-    (device) => [...chatReady(device), main.getByRole("button", { name: "Stop voice input" })],
-    async () => {
-      await main.getByRole("button", { name: "Start voice input" }).click();
-      await expect(main.getByLabel("Message to the Lead")).toHaveValue(
-        "Show the prices of the roses first. Then the tulips",
-      );
-    },
+    (device) => [
+      ...chatReady(device),
+      main.getByRole("button", { name: "Stop voice input" }),
+      voiceCard.getByText("Show the prices of the roses first. Then the tulips", { exact: true }),
+    ],
+    () => main.getByRole("button", { name: "Start voice input" }).click(),
     async () => {
       await main.getByRole("button", { name: "Stop voice input" }).click();
-      await expect(main.getByRole("button", { name: "Start voice input" })).toBeVisible();
+      await main.getByRole("button", { name: "Remove voice" }).click();
       await main.getByLabel("Message to the Lead").fill("");
       await expect.poll(() => page.evaluate(storedDrafts)).toBe(0);
     },
   );
-  await page.unroute("**/api/voice/conversions/c1", converted);
-  await page.route("**/api/voice/conversions/c1", () => {});
   await screenshot(
     page,
-    "chat-voice-send-wait",
+    "chat-voice-ready",
     "/workstreams/owner/shop/12",
-    (device) => [
-      ...chatReady(device),
-      main.getByRole("button", { name: "Converting the voice input" }),
-      main.getByRole("button", { name: "Send", exact: true }).locator("[data-slot=spinner]"),
-    ],
+    (device) => [...chatReady(device), main.getByRole("button", { name: "Remove voice" })],
     async () => {
       await main.getByRole("button", { name: "Start voice input" }).click();
+      await expect.poll(() => page.evaluate("samples")).toBeGreaterThan(0);
+      await main.getByRole("button", { name: "Stop voice input" }).click();
       await expect(main.getByLabel("Message to the Lead")).toHaveValue(
-        "Show the prices of the roses first. Then the tulips",
+        "Show the prices of the roses first.",
       );
-      await main.getByRole("button", { name: "Send", exact: true }).click();
     },
     async () => {
-      await page.reload();
-      await main.getByRole("button", { name: "Discard" }).click();
-      await expect.poll(() => page.evaluate(storedAudio)).toBe(0);
+      await main.getByRole("button", { name: "Remove voice" }).click();
       await main.getByLabel("Message to the Lead").fill("");
       await expect.poll(() => page.evaluate(storedDrafts)).toBe(0);
     },
@@ -682,20 +680,14 @@ test("screenshots", async ({ page }) => {
     page,
     "chat-converting",
     "/workstreams/owner/shop/12",
-    (device) => [
-      ...chatReady(device),
-      main.getByRole("button", { name: "Converting the voice input" }),
-    ],
+    (device) => [...chatReady(device), voiceCard.getByText("Converting", { exact: true })],
     async () => {
       await main.getByRole("button", { name: "Start voice input" }).click();
       await expect.poll(() => page.evaluate("samples")).toBeGreaterThan(0);
       await main.getByRole("button", { name: "Stop voice input" }).click();
     },
-    async () => {
-      await page.reload();
-      await main.getByRole("button", { name: "Discard" }).click();
-      await expect.poll(() => page.evaluate(storedAudio)).toBe(0);
-    },
+    // A card that converts has no button to remove it. The next page load would convert it again.
+    () => page.evaluate(clearDrafts),
   );
   await page.unroute("**/api/voice/transcriptions");
   await page.unroute("**/api/voice/conversions/c2");
@@ -732,7 +724,7 @@ test("screenshots", async ({ page }) => {
     },
     async () => {
       await main.getByRole("button", { name: "Discard" }).click();
-      await expect.poll(() => page.evaluate(storedAudio)).toBe(0);
+      await expect.poll(() => page.evaluate(storedDrafts)).toBe(0);
     },
   );
   await page.unroute("**/api/voice/recordings");

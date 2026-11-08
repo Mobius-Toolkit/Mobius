@@ -337,7 +337,7 @@ for (const [decision, message, button] of [
   ["Approve", keepPrices, approve],
   ["Reject", dropColumn, reject],
 ] as const) {
-  test(`${decision} during a conversion keeps it, and the text goes to the field of the chat`, async ({
+  test(`${decision} stays off while the voice card converts, and the text goes to the note`, async ({
     page,
   }) => {
     await page.addInitScript(fakeMicrophone);
@@ -361,15 +361,16 @@ for (const [decision, message, button] of [
     await expect.poll(() => page.evaluate("samples")).toBeGreaterThan(0);
     await panel(page).getByRole("button", { name: "Stop voice input" }).click();
     await expect(
-      panel(page).getByRole("button", { name: "Converting the voice input" }),
+      panel(page).getByRole("group", { name: "Voice recording" }).getByText("Converting"),
     ).toBeVisible();
+    await expect(approve(page)).toBeDisabled();
+    await expect(reject(page)).toBeDisabled();
 
+    release();
+    await expect(note(page)).toHaveValue("red roses");
+    await expect(button(page)).toBeEnabled();
     await button(page).click();
     await expect(panel(page)).toBeHidden();
-    const input = page.getByRole("textbox", { name: "Message to the Coordinator" });
-    await expect(input).toHaveValue("");
-    release();
-    await expect(input).toHaveValue("red roses");
   });
 }
 
