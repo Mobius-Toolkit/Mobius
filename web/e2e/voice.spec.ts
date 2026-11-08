@@ -639,7 +639,7 @@ const hangFirst = async (page: Page, pattern: string, result: Result) => {
   return seen;
 };
 
-test("a hung upload ends after 30 seconds, and Send again gives the text", async ({ page }) => {
+test("a hung upload ends after 6 minutes, and Send again gives the text", async ({ page }) => {
   await page.clock.install();
   await page.route("**/api/voice/recordings", (route) =>
     route.fulfill({ status: 500, json: { error: "failed" } }),
@@ -650,7 +650,7 @@ test("a hung upload ends after 30 seconds, and Send again gives the text", async
   await begin(page);
   await stop(page).click();
   await expect.poll(() => seen.requests).toBe(1);
-  await page.clock.runFor(30 * 1000 - 1000);
+  await page.clock.runFor(6 * 60 * 1000 - 1000);
   await expect(page.getByRole("button", { name: "Converting the voice input" })).toBeVisible();
   await page.clock.runFor(1000);
   await expect(page.getByRole("alert")).toHaveText(unreachable);

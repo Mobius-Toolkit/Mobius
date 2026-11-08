@@ -19,6 +19,7 @@ const sampleRate = 16000;
 const maxRecording = 10 * 60 * 1000;
 const chunkInterval = 2000;
 const quickLimit = 30 * 1000;
+const uploadLimit = 6 * 60 * 1000;
 const conversionInterval = 2000;
 const takenMessage = "The recording stopped because another app took the microphone.";
 const backgroundMessage = "The recording stopped because the app went to the background.";
@@ -211,7 +212,7 @@ const awaitConversion = async (id: string, audio: Blob): Promise<Result> => {
 
 const convert = async (audio: Blob): Promise<Result> => {
   try {
-    const answer = await post<transcribeResponse200["data"]>(getTranscribeUrl(), quickLimit, {
+    const answer = await post<transcribeResponse200["data"]>(getTranscribeUrl(), uploadLimit, {
       headers: { "Content-Type": "audio/wav" },
       body: audio,
     });
