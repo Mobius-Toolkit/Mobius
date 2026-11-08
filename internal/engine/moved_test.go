@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -244,7 +245,7 @@ reply = ["Noted."]
 	}
 }
 
-func TestAWaitingImplementerStaysInItsWaitAfterAChangeOfItsHarness(t *testing.T) {
+func TestAChangeOfOnlyTheModelOfTheImplementerKeepsTheWaitingImplementer(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, usageLimit)
@@ -256,7 +257,7 @@ func TestAWaitingImplementerStaysInItsWaitAfterAChangeOfItsHarness(t *testing.T)
 		return strings.HasPrefix(session(t, server, agent.ID()).QueueReason.String, "paused until ")
 	})
 
-	moveImplementerToClaudeCode(t, server)
+	setHarness(t, server, engine.ImplementerRole, config.Devin, "gemini-3-pro")
 	waitForPolls(t, fake)
 	waitForPolls(t, fake)
 
@@ -264,5 +265,137 @@ func TestAWaitingImplementerStaysInItsWaitAfterAChangeOfItsHarness(t *testing.T)
 	case err := <-prompted:
 		t.Errorf("Prompt returned %v, but the Implementer must stay in its wait", err)
 	default:
+	}
+}
+
+const (
+	devinLimit = "error = { code = -32011, message = \"Rate limited\", data = { retryAfterSeconds = 3600 } }\n\n"
+	// implementerLimit is an Implementer on Devin whose prompt hits the usage limit.
+	implementerLimit = "[[prompts]]\nwhen = \"You are the Implementer of one task.\"\n" + devinLimit
+	// implementerCommits is an Implementer that commits plan.txt with cents in its first round.
+	implementerCommits = "[[prompts]]\nwhen = \"You are the Implementer of one task.\"\n" + commitCents + "\n"
+	// reviewerLimit is a Reviewer on Devin whose prompt hits the usage limit.
+	reviewerLimit = "[[prompts]]\nwhen = \"You are the Reviewer\"\n" + devinLimit
+	// leadFix is an Implementer that commits a change in the fix round of the Lead.
+	leadFix = "[[prompts]]\nwhen = \"Remove the lines out of scope.\"\nshell = \"echo $$ >> plan.txt && git commit -q -am 'Remove the lines'\"\n\n"
+)
+
+// taskCounters gives the restarts, the fix rounds and the review rounds of the live task of #41.
+func taskCounters(t *testing.T, server *testserver.Server) [3]int64 {
+	t.Helper()
+	task := liveTask(t, server, 41)
+	return [3]int64{task.WorkerRestarts, task.FixRounds, task.ReviewRounds}
+}
+
+func TestAnImplementerOfAFirstRoundThatWaitsForAPauseMovesToTheNewHarnessAndPushes(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, implementerCommits+noFinding+leadStarts, implementerLimit, noChange)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	waitForPausedSession(t, server, leadChat, engine.ImplementerRole, 1)
+
+	moveImplementerToClaudeCode(t, server)
+
+	approvalCheckRuns(t, server, fake)
+	sessions := endedImplementers(t, server, 2)
+	if sessions[0].EndReason.String != "moved" || sessions[0].Harness != "devin" || sessions[1].EndReason.String != "done" || sessions[1].Harness != "claude-code" {
+		t.Fatalf("sessions = %+v", sessions)
+	}
+	first, second := promptTexts(t, server, sessions[0].ID), promptTexts(t, server, sessions[1].ID)
+	if len(first) != 1 || len(second) != 1 || first[0] != second[0] {
+		t.Errorf("prompts = %q and %q", first, second)
+	}
+	if got := testkit.Git(t, fake.Remote(shop), "show", "mobius/41:plan.txt"); got != "cents" {
+		t.Errorf("plan.txt = %q", got)
+	}
+	if got := taskCounters(t, server); got != [3]int64{0, 0, 1} {
+		t.Errorf("restarts, fix rounds and review rounds = %v", got)
+	}
+}
+
+func TestAnImplementerOfAFixRoundWithAFindingOfTheLeadThatWaitsForAPauseMovesToTheNewHarness(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	devin := "[[prompts]]\nwhen = \"Remove the lines out of scope.\"\n" + devinLimit + commits
+	server, _ := connectTask(t, fake, leadFix+noFinding+leadFindings+leadStarts, devin, noChange)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	readyForReview(t, server, fake)
+	sendChat(t, server, leadChat, "Send the findings to #41")
+	waitForPausedSession(t, server, leadChat, engine.ImplementerRole, 2)
+	if got := taskCounters(t, server); got[1] != 1 {
+		t.Fatalf("restarts, fix rounds and review rounds = %v", got)
+	}
+
+	moveImplementerToClaudeCode(t, server)
+
+	sessions := endedImplementers(t, server, 3)
+	if sessions[1].EndReason.String != "moved" || sessions[2].EndReason.String != "done" || sessions[2].Harness != "claude-code" {
+		t.Fatalf("sessions = %+v", sessions)
+	}
+	if prompts := promptTexts(t, server, sessions[2].ID); len(prompts) != 1 || !strings.Contains(prompts[0], "# Open items\n\nFindings of the Lead:\nRemove the lines out of scope.\n") {
+		t.Errorf("prompts = %q", prompts)
+	}
+	if got := taskCounters(t, server); got[0] != 0 || got[1] != 1 {
+		t.Errorf("restarts, fix rounds and review rounds = %v", got)
+	}
+}
+
+func TestAReviewerThatWaitsForAPauseMovesToTheNewHarnessAndReviewsTheSameHead(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, noFinding+leadStarts, reviewerLimit+commits, noChange)
+	setHarness(t, server, engine.ReviewerRole, config.Devin, "gemini-3-pro")
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	waitForPausedSession(t, server, leadChat, engine.ReviewerRole, 1)
+	reviewed := head(t, fake, "mobius/41")
+
+	setHarness(t, server, engine.ReviewerRole, config.ClaudeCode, "opus")
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" })
+	sessions := endedReviewers(t, server, 2)
+	if sessions[0].EndReason.String != "moved" || sessions[0].Harness != "devin" || sessions[1].EndReason.String != "done" || sessions[1].Harness != "claude-code" {
+		t.Fatalf("sessions = %+v", sessions)
+	}
+	if !slices.ContainsFunc(roundComments(fake), func(body string) bool { return strings.Contains(body, "The Reviewer moved to claude-code.") }) {
+		t.Errorf("comments = %q", roundComments(fake))
+	}
+	if head(t, fake, "mobius/41") != reviewed {
+		t.Error("the head changed")
+	}
+	if got := taskCounters(t, server); got != [3]int64{0, 0, 1} {
+		t.Errorf("restarts, fix rounds and review rounds = %v", got)
+	}
+}
+
+func TestAJudgeThatWaitsForAPauseBeforeItsStartMovesToTheNewHarnessAndJudgesTheSameItems(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	pauseDevin := "[[prompts]]\nwhen = \"Pause Devin.\"\n" + devinLimit
+	rejects := "call = { tool = \"submit_verdicts\", arguments = { items = [{ item = 2, actions = [{ verdict = \"reject\", text = \"Cents avoid rounding.\" }] }] } }\n"
+	server := connectJudgeAfter(t, fake, "", rejects, pauseDevin, noChange)
+	setHarness(t, server, engine.JudgeRole, config.Devin, "gemini-3-pro")
+	agent := start(t, server, implementerSpec(t, server, fake, 50))
+	go func() { _ = agent.Prompt(t.Context(), "Pause Devin.", nil) }()
+	testkit.WaitFor(t, func() bool { _, paused := devinPause(t, server); return paused })
+	if id := fake.AddComment(shop, 42, bot, "Why cents?"); id != 2 {
+		t.Fatalf("comment = %d", id)
+	}
+	waitForPausedSession(t, server, leadChat, engine.JudgeRole, 1)
+
+	setHarness(t, server, engine.JudgeRole, config.ClaudeCode, "sonnet")
+
+	sessions := testkit.WaitForValue(t, func() ([]store.Session, bool) {
+		sessions := roleSessions(t, server, engine.JudgeRole)
+		return sessions, len(sessions) == 2 && sessions[1].EndedAt.Valid
+	})
+	if sessions[0].EndReason.String != "moved" || sessions[0].Harness != "devin" || sessions[1].EndReason.String != "done" || sessions[1].Harness != "claude-code" {
+		t.Fatalf("sessions = %+v", sessions)
+	}
+	if prompts := judgePrompts(t, server); len(prompts) != 1 || !strings.Contains(prompts[0], "Why cents?") {
+		t.Errorf("Judge prompts = %q", prompts)
+	}
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" })
+	if hasLabel(fake, "mobius:needs-human") {
+		t.Errorf("labels = %v", fake.Labels(shop, 41))
 	}
 }
