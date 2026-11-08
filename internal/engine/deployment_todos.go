@@ -139,6 +139,48 @@ func (e *Engine) DoneInboxItem(ctx context.Context, id int64, note string) (stor
 	return e.queries.GetInboxItem(ctx, id)
 }
 
+// TodoMandatory tells if the todo is mandatory. The need of the same kind and name in the current need list of its task
+// decides. When the list has no such need, the mandatory mark of the todo decides.
+func (e *Engine) TodoMandatory(ctx context.Context, todo store.DeploymentTodo) (bool, error) {
+	needs, err := e.queries.ListDeploymentNeeds(ctx, todo.Task)
+	if err != nil {
+		return false, err
+	}
+	i := slices.IndexFunc(needs, func(need store.DeploymentNeed) bool { return need.Kind == todo.Kind && need.Name == todo.Name })
+	if i < 0 {
+		return todo.Mandatory == 1, nil
+	}
+	return needs[i].Mandatory == 1, nil
+}
+
+// dismissTodo stores the time on the todo of the open todo Inbox item, and dismisses the item. It returns a refusal
+// when the item is not open or the todo is mandatory.
+func (e *Engine) dismissTodo(ctx context.Context, item store.InboxItem) error {
+	if item.DismissedAt.Valid {
+		return refuse("This item is not an open todo.")
+	}
+	todo, err := e.queries.GetDeploymentTodoOfItem(ctx, item.ID)
+	if err != nil {
+		return err
+	}
+	mandatory, err := e.TodoMandatory(ctx, todo)
+	if err != nil {
+		return err
+	}
+	if mandatory {
+		return refuse("A mandatory todo cannot be dismissed. Mark it as done.")
+	}
+	ctx = context.WithoutCancel(ctx)
+	if err := e.queries.SetDeploymentTodoDismissed(ctx, store.SetDeploymentTodoDismissedParams{DismissedAt: sql.NullString{String: now(), Valid: true}, ID: todo.ID}); err != nil {
+		return err
+	}
+	if err := e.Dismiss(ctx, item.ID); err != nil {
+		return err
+	}
+	e.addRecord(ctx, inboxChat(item), fmt.Sprintf("You dismissed the todo \"%s\" of PR %s.", item.Title, eventRef(item.WorkstreamRepository, item.Repository, item.PullRequest)))
+	return nil
+}
+
 // mergeAfterTodos gives the task of the done todo the automatic merge, when the todo is for a mandatory need of the
 // current list, its Workstream has a merge level and no mandatory todo of the task is open.
 func (e *Engine) mergeAfterTodos(ctx context.Context, item store.InboxItem, todo store.DeploymentTodo) error {

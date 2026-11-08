@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"database/sql"
 	"net/http"
 	"reflect"
 	"strings"
@@ -258,9 +259,10 @@ func TestDoneInboxItemRefusesAnUnknownItemAndAnItemThatIsNotATodo(t *testing.T) 
 	}
 }
 
-func TestAnOptionalTodoOfANeedThatTheReviewerLaterReportsAsMandatoryContinuesTheMergeWhenItIsDone(t *testing.T) {
-	t.Parallel()
-	fake := testkit.NewFakeGitHub(t)
+// optionalTodoOfAMandatoryNeed gives a server with a task whose todo row is optional and whose current need of the same
+// kind and name is mandatory, and gives the todo item. The Autopilot level is off.
+func optionalTodoOfAMandatoryNeed(t *testing.T, fake *testkit.FakeGitHub) (*testserver.Server, inboxItem) {
+	t.Helper()
 	fake.AddUserCode(testkit.AppID, "user-code", "owner")
 	fixRound := "[[prompts]]\nwhen = \"Remove the lines out of scope.\"\nshell = \"echo fixed > fix.txt && git add fix.txt && git commit -q -m Fix\"\n\n"
 	server, _ := connectTask(t, fake, mandatoryNeedInRoundTwo+optionalNeed+leadApproves+leadFindings+leadStarts, fixRound+commits, keepSessionOpen)
@@ -280,6 +282,13 @@ func TestAnOptionalTodoOfANeedThatTheReviewerLaterReportsAsMandatoryContinuesThe
 	if needs := deploymentNeeds(t, server); len(needs) != 1 || needs[0].Mandatory != 1 || len(itemsOf(t, server, "todo")) != 1 {
 		t.Fatalf("needs = %+v", needs)
 	}
+	return server, todo
+}
+
+func TestAnOptionalTodoOfANeedThatTheReviewerLaterReportsAsMandatoryContinuesTheMergeWhenItIsDone(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, todo := optionalTodoOfAMandatoryNeed(t, fake)
 	setWorkstreamAutopilot(t, server, "merge")
 	testkit.WaitFor(t, func() bool {
 		items := itemsOf(t, server, "ready for review")
@@ -328,4 +337,127 @@ func TestAMandatoryNeedOfAFixRoundEndsTheApprovalThatMobiusAlreadyHas(t *testing
 	if taskState(t, server) != "ready_for_review" || autoMerge(t, server) != 0 || fake.MergeCalls() != 0 || len(itemsOf(t, server, "todo")) != 1 {
 		t.Errorf("state = %s, merge calls = %d", taskState(t, server), fake.MergeCalls())
 	}
+}
+
+func todoTimes(t *testing.T, server *testserver.Server, name string) (dismissedAt, doneAt sql.NullString) {
+	t.Helper()
+	if err := server.DB.QueryRow("SELECT dismissed_at, done_at FROM deployment_todos WHERE name = ?", name).Scan(&dismissedAt, &doneAt); err != nil {
+		t.Fatal(err)
+	}
+	return dismissedAt, doneAt
+}
+
+func dismissItem(t *testing.T, server *testserver.Server, id int64) (int, string) {
+	t.Helper()
+	return send(t, server, http.MethodPost, "/api/inbox/"+itoa(id)+"/dismiss", "")
+}
+
+func TestTheOwnerDismissesAnOptionalTodoAndTheTodoRowKeepsTheTimeOfTheDismissal(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := approvableWith(t, fake, "off", true, optionalNeed)
+	sendChat(t, server, leadChat, "Approve #41")
+	todo := waitForItem(t, server, "todo")
+	if todo.Todo == nil || !todo.Todo.Dismissable {
+		t.Fatalf("todo = %+v", todo.Todo)
+	}
+
+	if status, body := dismissItem(t, server, todo.ID); status != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+
+	dismissedAt, doneAt := todoTimes(t, server, "plan.currency")
+	if !dismissedAt.Valid || doneAt.Valid {
+		t.Errorf("dismissed_at = %v, done_at = %v", dismissedAt, doneAt)
+	}
+	if got := itemsOf(t, server, "todo"); len(got) != 0 {
+		t.Errorf("todo items = %+v", got)
+	}
+	waitForRecords(t, server, leadChat, "You set the Autopilot level to Off.", `You dismissed the todo "plan.currency" of PR #42.`)
+}
+
+func TestMobiusRefusesToDismissAMandatoryTodoAndTheTodoAndItsItemStayOpen(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := approvableWith(t, fake, "off", true, mandatoryNeed)
+	sendChat(t, server, leadChat, "Approve #41")
+	todo := waitForItem(t, server, "todo")
+	if todo.Todo == nil || todo.Todo.Dismissable {
+		t.Fatalf("todo = %+v", todo.Todo)
+	}
+
+	status, body := dismissItem(t, server, todo.ID)
+
+	if status != http.StatusConflict || !strings.Contains(body, "A mandatory todo cannot be dismissed.") {
+		t.Errorf("status = %d: %s", status, body)
+	}
+	dismissedAt, doneAt := todoTimes(t, server, "PLAN_API_KEY")
+	if dismissedAt.Valid || doneAt.Valid {
+		t.Errorf("dismissed_at = %v, done_at = %v", dismissedAt, doneAt)
+	}
+	if got := itemsOf(t, server, "todo"); len(got) != 1 || got[0].DismissedAt != nil {
+		t.Errorf("todo items = %+v", got)
+	}
+}
+
+func TestTheCurrentNeedListDecidesIfTheOwnerCanDismissATodo(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, todo := optionalTodoOfAMandatoryNeed(t, fake)
+	if rows := todoRows(t, server); len(rows) != 1 || rows[0].Mandatory != 0 {
+		t.Fatalf("rows = %+v", rows)
+	}
+
+	status, body := dismissItem(t, server, todo.ID)
+
+	if status != http.StatusConflict {
+		t.Errorf("status = %d: %s", status, body)
+	}
+	if dismissedAt, _ := todoTimes(t, server, "plan.currency"); dismissedAt.Valid {
+		t.Errorf("dismissed_at = %v", dismissedAt)
+	}
+	got := itemsOf(t, server, "todo")
+	if len(got) != 1 || got[0].DismissedAt != nil || got[0].Todo == nil || got[0].Todo.Dismissable {
+		t.Errorf("todo items = %+v", got)
+	}
+}
+
+func TestTheOwnerDismissesAnOptionalTodoOfAnEndedTask(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := approvableWith(t, fake, "merge", true, optionalNeed)
+	sendChat(t, server, leadChat, "Approve #41")
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "" })
+	todo := waitForItem(t, server, "todo")
+
+	if status, body := dismissItem(t, server, todo.ID); status != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+
+	if dismissedAt, doneAt := todoTimes(t, server, "plan.currency"); !dismissedAt.Valid || doneAt.Valid {
+		t.Errorf("dismissed_at = %v, done_at = %v", dismissedAt, doneAt)
+	}
+	if got := itemsOf(t, server, "todo"); len(got) != 0 {
+		t.Errorf("todo items = %+v", got)
+	}
+}
+
+func TestTheOwnerDismissesAnItemOfAnotherKindWithTheRecordOfTheTitle(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := approvableWith(t, fake, "off", true, optionalNeed)
+	sendChat(t, server, leadChat, "Approve #41")
+	ready := waitForItem(t, server, "ready for review")
+
+	if status, body := dismissItem(t, server, ready.ID); status != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+
+	if got := itemsOf(t, server, "ready for review"); len(got) != 0 {
+		t.Errorf("ready items = %+v", got)
+	}
+	if dismissedAt, doneAt := todoTimes(t, server, "plan.currency"); dismissedAt.Valid || doneAt.Valid {
+		t.Errorf("dismissed_at = %v, done_at = %v", dismissedAt, doneAt)
+	}
+	waitForRecords(t, server, leadChat, "You set the Autopilot level to Off.", `You dismissed "`+ready.Title+`".`)
 }

@@ -212,6 +212,7 @@ export const todoItems = [
       mandatory: true,
       reason: "The server reads it at the start and has no default.",
       note: "",
+      dismissable: false,
     },
   },
   {
@@ -233,6 +234,7 @@ export const todoItems = [
       mandatory: false,
       reason: "The server waits 10 seconds when the variable is not set.",
       note: "",
+      dismissable: true,
     },
   },
 ];
