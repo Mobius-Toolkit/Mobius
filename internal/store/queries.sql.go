@@ -5310,7 +5310,7 @@ usage AS (
 rounds AS (
     SELECT b.task,
            SUM(CASE WHEN s.role = 'reviewer' AND s.end_reason = 'done' THEN 1 ELSE 0 END) AS review_rounds,
-           SUM(CASE WHEN s.role = 'implementer' AND (s.end_reason IS NULL OR s.end_reason <> 'restart')
+           SUM(CASE WHEN s.role = 'implementer' AND (s.end_reason IS NULL OR s.end_reason NOT IN ('restart', 'moved'))
                     THEN 1 ELSE 0 END) AS implementer_sessions
     FROM bounds b
     JOIN sessions s ON s.repository = b.repository AND s.issue = b.issue
@@ -7085,6 +7085,7 @@ SELECT s.role, s.issue, t.time, CAST(json_extract(t.json, '$.text') AS TEXT) AS 
 JOIN sessions s ON s.id = t.session
 WHERE s.repository = ?1 AND s.role <> 'curator' AND t.kind = 'prompt'
   AND julianday(t.time) > julianday(CAST(?2 AS TEXT))
+  AND json_extract(t.json, '$.check') IS NULL
   AND substr(json_extract(t.json, '$.text'), 1, length(CAST(?3 AS TEXT))) = CAST(?3 AS TEXT)
 ORDER BY t.id
 `

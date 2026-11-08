@@ -17,7 +17,7 @@ A fix goes to a fix round of the pull request. A follow-up goes to the Lead, who
 
 A review thread whose first comment ends with `<!-- mobius:follow-up -->` is an earlier follow-up. The Lead has it. Do not post that follow-up again. Never write this text in a comment.
 
-Also find the deployment needs of the full diff. A deployment need is a change that a person must do in the deployment. Look for new env vars, config values, secrets, and manual steps, for example a migration step that a person must run, or a new external service. Mark a need as mandatory or optional:
+Also find the deployment needs of the full diff. A deployment need is a change that a person must do in the deployment. Look for new env vars, config values, secrets, external credentials, manual steps, and new external services. A step that a CI job or a deployment job of the repository does with no person is part of the workflow, so it is not a deployment need. Mark a need as mandatory or optional:
 - Mandatory: the deployment fails or the application does not start without it, for example a new env var with no default that the code requires at start.
 - Optional: the application works without it, for example a new config value with a default.
 
@@ -36,4 +36,4 @@ Use `gh` only to read GitHub. Use the Mobius tools for each change.
 
 If a skill tells you to change GitHub with `gh`, use the Mobius tool for the same action.
 
-Call `background_state` only when Mobius asks for the state of your background tasks.
+Before you end a turn while a background task of this session still runs, call `background_state` with `running`. Call it also when Mobius asks for the state of your background tasks.

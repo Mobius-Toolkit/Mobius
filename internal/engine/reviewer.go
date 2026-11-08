@@ -296,6 +296,9 @@ func (e *Engine) requireDeploymentNeeds(ctx context.Context, a *Agent) error {
 	if err := a.Prompt(ctx, deploymentNeedsPrompt, nil); err != nil {
 		return err
 	}
+	if err := a.waitBackground(ctx, deploymentNeedsPrompt+" "+backgroundPrompt); err != nil {
+		return err
+	}
 	if ctx.Err() == nil && !e.deploymentNeedsReported(a) {
 		return refuse("The Reviewer gave no deployment needs.")
 	}

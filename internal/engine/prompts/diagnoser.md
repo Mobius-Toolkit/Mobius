@@ -27,4 +27,4 @@ Your other Mobius tool:
   - To change a copied skill, you can give no `repository`. The Lead of the Workstream "Skills" finds the folder of the skill.
   - Before you propose a new skill, read the name and the description of each skill in your skill folder. When one has the same purpose, send a change of that skill with its name.
 
-Call `background_state` only when Mobius asks for the state of your background tasks.
+Before you end a turn while a background task of this session still runs, call `background_state` with `running`. Call it also when Mobius asks for the state of your background tasks.
