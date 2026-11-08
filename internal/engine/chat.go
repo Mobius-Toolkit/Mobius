@@ -1852,6 +1852,10 @@ func (e *Engine) leadContext(ctx context.Context, repository github.Repository, 
 	if err != nil {
 		return "", false, false, err
 	}
+	recurring, err := e.RecurringTasks(ctx, repository.FullName, workstream)
+	if err != nil {
+		return "", false, false, err
+	}
 	evergreenText := ""
 	if evergreen {
 		evergreenText = "This Workstream is evergreen: it has no end.\n\n"
@@ -1870,7 +1874,27 @@ func (e *Engine) leadContext(ctx context.Context, repository github.Repository, 
 			autopilotText += switchContexts[kind] + "\n\n"
 		}
 	}
-	return fmt.Sprintf("# Brief\n\n%s\n\n%s%s# MEMORY.md\n\n%s\n\n# Repositories\n\n%s\n\n# Task list\n\n%s\n\n", brief, evergreenText, autopilotText, memory, e.repositoriesText(repository.Owner()), taskText(repository.FullName, lines)), maintenance, skills, nil
+	return fmt.Sprintf("# Brief\n\n%s\n\n%s%s# MEMORY.md\n\n%s\n\n# Repositories\n\n%s\n\n# Task list\n\n%s\n\n# Recurring tasks\n\n%s\n\n", brief, evergreenText, autopilotText, memory, e.repositoriesText(repository.Owner()), taskText(repository.FullName, lines), recurringText(recurring)), maintenance, skills, nil
+}
+
+func recurringText(tasks []RecurringTask) string {
+	var b strings.Builder
+	for _, task := range tasks {
+		next := "paused"
+		if !task.Paused {
+			next = "next " + task.Next.UTC().Format(timeFormat)
+		}
+		last := "no time yet"
+		if len(task.Runs) > 0 {
+			run := task.Runs[0]
+			last = "last " + run.Time.UTC().Format(timeFormat) + " " + run.Result
+			if run.Reason != "" {
+				last += " (" + run.Reason + ")"
+			}
+		}
+		fmt.Fprintf(&b, "- %d: `%s`, %s, %s, %q\n", task.ID, task.Cron, next, last, task.Text)
+	}
+	return b.String()
 }
 
 // levelContexts gives the text of the first prompt of the Lead for each Autopilot level.

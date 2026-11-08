@@ -105,6 +105,12 @@ func (e *Engine) approvedToolOf(c caller, name string) (mcp.Tool, bool) {
 		return e.moveTaskTool(c), true
 	case name == "edit_brief" && lead:
 		return e.editBriefTool(c), true
+	case name == "create_recurring_task" && lead:
+		return e.createRecurringTaskTool(c), true
+	case name == "update_recurring_task" && lead:
+		return e.updateRecurringTaskTool(c), true
+	case name == "delete_recurring_task" && lead:
+		return e.deleteRecurringTaskTool(c), true
 	}
 	return mcp.Tool{}, false
 }
@@ -186,6 +192,49 @@ func (e *Engine) editBriefTool(c caller) mcp.Tool {
 		e.editBrief)
 }
 
+const recurringToolRules = "The cron expression has five fields (minute, hour, day of month, month, day of week) and uses the local time zone of the Mobius server. Call it at once. The tool returns at once, and Mobius changes the recurring tasks only after the Owner approves it. The result arrives later as an Approval message. Call it only when the Owner asks for it in the chat."
+
+var (
+	cronProperty          = map[string]any{"type": "string", "minLength": 1, "description": "The cron expression with five fields, in the local time zone of the Mobius server."}
+	recurringTextProperty = map[string]any{"type": "string", "minLength": 1, "description": "The text of the Lead event at each time of the cron expression."}
+	recurringIDProperty   = map[string]any{"type": "integer", "minimum": 1, "description": "The ID of the recurring task in the section \"Recurring tasks\" of the first prompt."}
+)
+
+func (e *Engine) createRecurringTaskTool(c caller) mcp.Tool {
+	return approvedTool(e, c, e.callerRepository, "create_recurring_task",
+		"Add a recurring task to this Workstream. At each time of the cron expression, you get an event with the text. "+recurringToolRules+" Each call adds its own waiting action.",
+		map[string]any{"cron": cronProperty, "text": recurringTextProperty},
+		func(_ context.Context, _ github.Repository, input createRecurringInput) (string, error) {
+			times, err := e.recurringTimes(input.Cron)
+			return "Add a recurring task: next " + times, err
+		},
+		checkCreateRecurring,
+		e.createRecurringTask)
+}
+
+func (e *Engine) updateRecurringTaskTool(c caller) mcp.Tool {
+	return approvedTool(e, c, e.callerRepository, "update_recurring_task",
+		"Change the cron expression and the text of a recurring task of this Workstream. "+recurringToolRules+" A new call with the same id replaces the waiting action for that task, and the result names the replaced action.",
+		map[string]any{"id": recurringIDProperty, "cron": cronProperty, "text": recurringTextProperty},
+		func(_ context.Context, _ github.Repository, input updateRecurringInput) (string, error) {
+			times, err := e.recurringTimes(input.Cron)
+			return fmt.Sprintf("Change the recurring task %d: next %s", input.ID, times), err
+		},
+		checkUpdateRecurring,
+		e.updateRecurringTask)
+}
+
+func (e *Engine) deleteRecurringTaskTool(c caller) mcp.Tool {
+	return approvedTool(e, c, e.callerRepository, "delete_recurring_task",
+		"Delete a recurring task of this Workstream with its history. "+recurringToolRules+" A new call with the same id replaces the waiting action for that task, and the result names the replaced action.",
+		map[string]any{"id": recurringIDProperty},
+		func(_ context.Context, _ github.Repository, input deleteRecurringInput) (string, error) {
+			return fmt.Sprintf("Delete the recurring task %d", input.ID), nil
+		},
+		checkDeleteRecurring,
+		e.deleteRecurringTask)
+}
+
 func (e *Engine) tellCuratorTool(c caller) mcp.Tool {
 	return approvedTool(e, c, noRepository, "tell_curator",
 		"Send a request to the Curator of a repository. The Curator changes the memory file of the repository. Call it at once with the exact request. The tool returns at once, and Mobius sends the request only after the Owner approves it. The result arrives later as an Approval message. A new call with the same repository replaces the waiting action for that repository, and the result names the replaced action.",
@@ -205,11 +254,14 @@ func actionChat(action store.PendingAction) ChatKey {
 }
 
 var argumentOrder = map[string][]string{
-	"create_workstream": {"title", "labels", "brief"},
-	"edit_brief":        {"reason", "brief"},
-	"message_lead":      {"workstream", "text"},
-	"move_task":         {"repository", "n", "workstream"},
-	"tell_curator":      {"repository", "text"},
+	"create_recurring_task": {"text", "cron"},
+	"create_workstream":     {"title", "labels", "brief"},
+	"delete_recurring_task": {"id"},
+	"edit_brief":            {"reason", "brief"},
+	"message_lead":          {"workstream", "text"},
+	"move_task":             {"repository", "n", "workstream"},
+	"tell_curator":          {"repository", "text"},
+	"update_recurring_task": {"id", "text", "cron"},
 }
 
 // ActionArguments gives the arguments of the JSON object arguments in the order of the tool. An argument that the order
@@ -332,6 +384,7 @@ func actionTarget(tool, arguments string) (string, error) {
 		Workstream int64  `json:"workstream"`
 		Repository string `json:"repository"`
 		N          int64  `json:"n"`
+		ID         int64  `json:"id"`
 	}
 	if err := json.Unmarshal([]byte(arguments), &input); err != nil {
 		return "", err
@@ -343,6 +396,8 @@ func actionTarget(tool, arguments string) (string, error) {
 		return input.Repository, nil
 	case "move_task":
 		return fmt.Sprintf("%s#%d", input.Repository, input.N), nil
+	case "update_recurring_task", "delete_recurring_task":
+		return fmt.Sprint(input.ID), nil
 	}
 	return "", nil
 }
@@ -397,8 +452,11 @@ type replacedAction struct {
 }
 
 // replaceActions marks each pending action that action replaces as replaced, and dismisses its Inbox item. It gives the
-// replaced actions with the titles of their tray rows.
+// replaced actions with the titles of their tray rows. A call of create_recurring_task replaces no action.
 func (e *Engine) replaceActions(ctx context.Context, action store.PendingAction) ([]replacedAction, error) {
+	if action.Tool == "create_recurring_task" {
+		return nil, nil
+	}
 	old, err := e.queries.ListReplaceablePendingActions(ctx, store.ListReplaceablePendingActionsParams{
 		Organization: action.Organization,
 		Repository:   action.Repository,
