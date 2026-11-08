@@ -175,7 +175,7 @@ func (e *Engine) SetRole(ctx context.Context, role string, binding config.RoleBi
 	if err != nil {
 		return err
 	}
-	e.applyRoles(ctx, merged)
+	e.applyRoles(merged)
 	return nil
 }
 
@@ -201,16 +201,16 @@ func (e *Engine) ResetRole(ctx context.Context, role string) error {
 	if err := e.queries.DeleteRoleSetting(ctx, role); err != nil {
 		return err
 	}
-	e.applyRoles(ctx, merged)
+	e.applyRoles(merged)
 	return nil
 }
 
 // applyRoles makes merged the Roles of the engine and wakes the sessions that wait for a slot, because a max can
 // change. It also moves each waiting session whose Harness is not the new Harness of its Role. The caller holds the
 // write lock of rolesMu.
-func (e *Engine) applyRoles(ctx context.Context, merged config.Roles) {
+func (e *Engine) applyRoles(merged config.Roles) {
 	e.roles = merged
-	e.moveWaiters(ctx, &merged)
+	e.moveWaiters(&merged)
 	e.publish(Change{Pauses: true})
 	e.workers.changed.notify()
 }

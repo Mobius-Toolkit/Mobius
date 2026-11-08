@@ -324,10 +324,11 @@ func (e *Engine) takeSlot(ctx context.Context, a *Agent) error {
 // because the Owner can change a setting while the session waits. A session that runs keeps its binding.
 func (e *Engine) followBinding(ctx context.Context, a *Agent) error {
 	roles := e.mergedRoles()
-	binding, _, err := e.sessionBinding(ctx, &roles, a.spec)
+	binding, level, err := e.sessionBinding(ctx, &roles, a.spec)
 	if err != nil {
 		return err
 	}
+	a.level = level
 	if binding == a.binding {
 		return nil
 	}

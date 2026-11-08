@@ -268,6 +268,7 @@ func TestAChangeOfTheLeadSettingMovesNoLeadThatWaitsForAPause(t *testing.T) {
 	waitForPausedSession(t, server, leadChat, engine.LeadRole, 1)
 
 	setBinding(t, server, "lead", 12, config.Devin, "swe-1.5", "high")
+	setHarness(t, server, "judge", config.Devin, "swe-1.5")
 	waitForPolls(t, fake)
 	waitForPolls(t, fake)
 

@@ -461,13 +461,13 @@ var movingRoles = map[string]bool{LeadRole: true, CoordinatorRole: true}
 var errMoved = errors.New("the Harness of the Role changed")
 
 // watchMove adds a to pauseWaiters. It gives the channel that closes when a must move, and the function that removes a.
-func (e *Engine) watchMove(ctx context.Context, a *Agent) (<-chan struct{}, func()) {
+func (e *Engine) watchMove(a *Agent) (<-chan struct{}, func()) {
 	moved := make(chan struct{})
 	e.pauseWaitersMu.Lock()
 	e.pauseWaiters[a] = moved
 	e.pauseWaitersMu.Unlock()
 	roles := e.mergedRoles()
-	e.moveWaiters(ctx, &roles)
+	e.moveWaiters(&roles)
 	return moved, func() {
 		e.pauseWaitersMu.Lock()
 		delete(e.pauseWaiters, a)
@@ -475,21 +475,16 @@ func (e *Engine) watchMove(ctx context.Context, a *Agent) (<-chan struct{}, func
 	}
 }
 
-// moveWaiters wakes each agent in pauseWaiters of a moving Role whose Harness is not the Harness of its binding in roles.
-// A session with a setting of its task or Workstream has the Harness of that setting.
-func (e *Engine) moveWaiters(ctx context.Context, roles *config.Roles) {
+// moveWaiters wakes each agent in pauseWaiters of a moving Role whose Harness is not the Harness of its Role in roles.
+// A session that got its binding from a setting of its task or Workstream never moves.
+func (e *Engine) moveWaiters(roles *config.Roles) {
 	e.pauseWaitersMu.Lock()
 	defer e.pauseWaitersMu.Unlock()
 	for a, moved := range e.pauseWaiters {
-		if !movingRoles[a.spec.Role] {
+		if !movingRoles[a.spec.Role] || a.level != LevelRole {
 			continue
 		}
-		binding, _, err := e.sessionBinding(ctx, roles, a.spec)
-		if err != nil {
-			log.Printf("binding of session %d: %v", a.id, err)
-			continue
-		}
-		if binding.Harness != a.binding.Harness {
+		if binding, _ := roleBinding(roles, a.spec.Role); binding.Harness != a.binding.Harness {
 			close(moved)
 			delete(e.pauseWaiters, a)
 		}
@@ -502,7 +497,7 @@ func (e *Engine) moveWaiters(ctx context.Context, roles *config.Roles) {
 // a moving Role gives errMoved when the Harness of its Role changes.
 func (a *Agent) waitForPause(ctx context.Context) error {
 	e := a.engine
-	moved, forget := e.watchMove(ctx, a)
+	moved, forget := e.watchMove(a)
 	defer forget()
 	shown := false
 	for {
