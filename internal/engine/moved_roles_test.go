@@ -19,12 +19,15 @@ func antigravityLimit(text string) string {
 	return fmt.Sprintf("\n[[prompts]]\nwhen = %q\nerror = { code = -32603, message = \"Usage Limit Reached. Your quota will reset in 2 days, 3 hours.\" }\n", text)
 }
 
-// waitForPausedSessions waits until sessions gives n sessions and the last one waits for a pause. It gives the sessions.
-func waitForPausedSessions(t *testing.T, sessions func() []store.Session, n int) []store.Session {
+// waitForPausedWorker waits until sessions gives one session and it waits for a pause. It gives the session.
+func waitForPausedWorker(t *testing.T, sessions func() []store.Session) store.Session {
 	t.Helper()
-	return testkit.WaitForValue(t, func() ([]store.Session, bool) {
+	return testkit.WaitForValue(t, func() (store.Session, bool) {
 		found := sessions()
-		return found, len(found) == n && strings.HasPrefix(found[n-1].QueueReason.String, "paused until ")
+		if len(found) != 1 {
+			return store.Session{}, false
+		}
+		return found[0], strings.HasPrefix(found[0].QueueReason.String, "paused until ")
 	})
 }
 
@@ -61,7 +64,7 @@ reply = ["Create the Workstream \"Loyalty points\" for this issue."]
 `, gate))
 	triagerSessions := func() []store.Session { return chatSessions(t, server, issueTriagers, engine.TriagerRole) }
 	fake.CreateIssue(shop, 52, "Add loyalty points", "Points for each order.", "owner")
-	waitForPausedSessions(t, triagerSessions, 1)
+	waitForPausedWorker(t, triagerSessions)
 
 	setHarness(t, server, "triager", config.Devin, "swe-1.5")
 
@@ -100,7 +103,7 @@ func TestACuratorThatWaitsForAPauseMovesToTheNewHarnessAndKeepsItsRequests(t *te
 	sessions := func() []store.Session { return curatorSessions(t, server) }
 	sendChat(t, server, coordinatorChat, "Remember the format rule.")
 	approveNext(t, server, 1)
-	waitForPausedSessions(t, sessions, 1)
+	waitForPausedWorker(t, sessions)
 
 	moveRole(t, server, "curator", config.Devin, "swe-1.5", "high")
 
@@ -139,7 +142,7 @@ func TestADiagnoserThatWaitsForAPauseMovesToTheNewHarnessAndTheRowEndsWithItsRea
 	})
 	sha := approvalHead(t, server, fake)
 	failActions(fake, sha)
-	waitForPausedSessions(t, func() []store.Session { return diagnoserSessions(t, server) }, 1)
+	waitForPausedWorker(t, func() []store.Session { return diagnoserSessions(t, server) })
 	var row int64
 	if err := server.DB.QueryRow("SELECT id FROM ci_diagnoses").Scan(&row); err != nil {
 		t.Fatal(err)
@@ -189,7 +192,7 @@ reply = ["Plans store the price in cents.\n"]
 `)
 	sessions := func() []store.Session { return roleSessions(t, server, engine.ResearcherRole) }
 	sendChat(t, server, leadChat, "Begin alpha.")
-	waitForPausedSessions(t, sessions, 1)
+	waitForPausedWorker(t, sessions)
 	sendChat(t, server, leadChat, "Details for alpha.")
 	testkit.WaitFor(t, func() bool {
 		return slices.ContainsFunc(leadCalls(t, server), func(call map[string]any) bool {
@@ -220,13 +223,13 @@ func TestAChangeOfOnlyTheModelOfTheResearcherKeepsTheWaitingResearcher(t *testin
 	server, _ := connectResearcher(t, fake, researchLeadOfDetails, antigravityLimit("# Question"))
 	sessions := func() []store.Session { return roleSessions(t, server, engine.ResearcherRole) }
 	sendChat(t, server, leadChat, "Begin alpha.")
-	waitForPausedSessions(t, sessions, 1)
+	waitForPausedWorker(t, sessions)
 
 	setHarness(t, server, "researcher", config.Antigravity, "haiku")
 	waitForPolls(t, fake)
 	waitForPolls(t, fake)
 
-	waiting := waitForPausedSessions(t, sessions, 1)[0]
+	waiting := waitForPausedWorker(t, sessions)
 	if waiting.EndedAt.Valid {
 		t.Errorf("session = %+v", waiting)
 	}
