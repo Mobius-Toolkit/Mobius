@@ -113,6 +113,10 @@ type Engine struct {
 	// pausesChanged wakes the sessions that wait for the end of a pause.
 	pausesChanged signal
 	upgrading     atomic.Bool
+	// pauseWaitersMu guards pauseWaiters.
+	pauseWaitersMu sync.Mutex
+	// pauseWaiters holds the agents that wait in waitForPause. Each has a channel that closes to move it.
+	pauseWaiters map[*Agent]chan struct{}
 
 	// chatOrder makes a chat message and its item take the same place in the chat and in the queue of the agent.
 	chatOrder sync.Mutex
@@ -232,6 +236,7 @@ func New(db *sql.DB, gh *github.GitHub, cfg *config.Config, agents Agents) *Engi
 		access:          map[accessKey]accessState{},
 		workers:         newWorkers(),
 		chats:           map[ChatKey]*chat{},
+		pauseWaiters:    map[*Agent]chan struct{}{},
 		triages:         map[triageKey]triage{},
 		checks:          make(chan struct{}, cfg.MaxChecks),
 		stops:           map[any]stopper{},
