@@ -75,6 +75,36 @@ func TestAHardBreakGivesOneIssueBelowTheMaintenanceWorkstreamWithTheFailureAndNo
 	}
 }
 
+func TestAHardBreakFromANewerFailedRunGivesAnIssueThatDoesNotSayThatTheRerunFailed(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	run := failedRunWithJob(fake)
+	running := failedMainRun(7)
+	running.Status = "in_progress"
+	running.Conclusion = ""
+	newer := fake.AddWorkflowRun(shop, running)
+	addMaintenanceWorkstream(fake, maintenance)
+	server := startServerWithHarness(t, fake, t.TempDir())
+	testkit.WaitFor(t, func() bool { return len(ciBreaks(t, server)) == 1 })
+	waitForPolls(t, fake)
+
+	fake.SetWorkflowRunStatus(newer, "completed", "failure")
+
+	number := ciBreakIssue(t, fake)
+	if attempt := fake.WorkflowRunAttempt(run); attempt != 1 {
+		t.Errorf("attempt = %d", attempt)
+	}
+	_, body := fake.Issue(shop, number)
+	for _, want := range []string{"Result of the re-run: hard.", "a newer run of the workflow failed"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body does not have %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "failed again") {
+		t.Errorf("body says that the re-run failed again:\n%s", body)
+	}
+}
+
 func TestAFlakyBreakGivesAnIssueWithReadyThatTheUsualFlowDispatchesWithAutopilotOff(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
