@@ -28,6 +28,8 @@ type TaskLine struct {
 	OtherRepository bool `gork:"otherRepository"`
 	// BlockedBy are the open blockers of the task
 	BlockedBy []Blocker `gork:"blockedBy"`
+	// Implementer is the own Implementer setting of the task, or null when the task has none
+	Implementer *IssueSetting `gork:"implementer"`
 }
 
 // Blocker is an open blocker of a task.
@@ -70,6 +72,9 @@ func (h *handlers) ListTasks(ctx context.Context, req ListTasksRequest) (*ListTa
 	tasks := make([]TaskLine, 0, len(lines))
 	for _, line := range lines {
 		task := TaskLine{Number: line.Number, Title: line.Title, State: line.State, URL: line.URL, Repository: line.Repository, Depth: line.Depth, OtherRepository: line.OtherRepository, BlockedBy: make([]Blocker, 0, len(line.BlockedBy))}
+		if line.Implementer != nil {
+			task.Implementer = &IssueSetting{Harness: line.Implementer.Harness, Model: line.Implementer.Model, Effort: line.Implementer.Effort}
+		}
 		for _, blocker := range line.BlockedBy {
 			found := Blocker{Number: blocker.Number}
 			if blocker.Repository != "" {

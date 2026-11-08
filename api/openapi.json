@@ -2484,6 +2484,148 @@
         ]
       }
     },
+    "/api/repositories/{owner}/{name}/issues/{number}/implementer": {
+      "put": {
+        "description": "SetTaskImplementer sets the Harness, the model and the effort of the Implementer of a task. The next Implementer round of the task uses them. It returns 422 with the reason when the values fail a check.",
+        "operationId": "SetTaskImplementer",
+        "parameters": [
+          {
+            "description": "Owner is the owner of the repository",
+            "in": "path",
+            "name": "owner",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Name is the name of the repository",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Number is the number of the issue",
+            "in": "path",
+            "name": "number",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IssueSettingBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "tasks"
+        ]
+      },
+      "delete": {
+        "description": "ClearTaskImplementer removes the Implementer setting of a task. It returns 204 also when the task has no setting.",
+        "operationId": "ClearTaskImplementer",
+        "parameters": [
+          {
+            "description": "Owner is the owner of the repository",
+            "in": "path",
+            "name": "owner",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Name is the name of the repository",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Number is the number of the issue",
+            "in": "path",
+            "name": "number",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "tasks"
+        ]
+      }
+    },
     "/api/repositories/{owner}/{name}/issues/{number}/resume": {
       "post": {
         "description": "ResumeIssue removes mobius:needs-human from an issue and from the pull request of its task, so Mobius continues the task. Mobius changes the labels with the user token of the Owner, so the Owner must authorize the Mobius App first. It returns 409 with the steps when the Owner did not.",
@@ -5298,6 +5440,330 @@
         ]
       }
     },
+    "/api/workstreams/{owner}/{name}/{number}/implementer": {
+      "put": {
+        "description": "SetWorkstreamImplementer sets the Harness, the model and the effort of the Implementer of each task of a Workstream that has no setting of its own. It returns 409 when the issue is not an open Workstream, and 422 with the reason when the values fail a check.",
+        "operationId": "SetWorkstreamImplementer",
+        "parameters": [
+          {
+            "description": "Owner is the owner of the repository",
+            "in": "path",
+            "name": "owner",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Name is the name of the repository",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Number is the number of the issue",
+            "in": "path",
+            "name": "number",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IssueSettingBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "workstreams"
+        ]
+      },
+      "delete": {
+        "description": "ClearWorkstreamImplementer removes the Implementer setting of a Workstream. It returns 409 when the issue is not an open Workstream.",
+        "operationId": "ClearWorkstreamImplementer",
+        "parameters": [
+          {
+            "description": "Owner is the owner of the repository",
+            "in": "path",
+            "name": "owner",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Name is the name of the repository",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Number is the number of the issue",
+            "in": "path",
+            "name": "number",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "workstreams"
+        ]
+      }
+    },
+    "/api/workstreams/{owner}/{name}/{number}/lead": {
+      "put": {
+        "description": "SetWorkstreamLead sets the Harness, the model and the effort of the Lead of a Workstream. The next Lead session uses them. It returns 409 when the issue is not an open Workstream, and 422 with the reason when the values fail a check.",
+        "operationId": "SetWorkstreamLead",
+        "parameters": [
+          {
+            "description": "Owner is the owner of the repository",
+            "in": "path",
+            "name": "owner",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Name is the name of the repository",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Number is the number of the issue",
+            "in": "path",
+            "name": "number",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IssueSettingBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "workstreams"
+        ]
+      },
+      "delete": {
+        "description": "ClearWorkstreamLead removes the Lead setting of a Workstream. It returns 409 when the issue is not an open Workstream.",
+        "operationId": "ClearWorkstreamLead",
+        "parameters": [
+          {
+            "description": "Owner is the owner of the repository",
+            "in": "path",
+            "name": "owner",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Name is the name of the repository",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Number is the number of the issue",
+            "in": "path",
+            "name": "number",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "workstreams"
+        ]
+      }
+    },
     "/api/workstreams/{owner}/{name}/{number}/tasks": {
       "get": {
         "description": "ListTasks returns the open and closed tasks of trusted authors in the tree of a Workstream, from the local copy of GitHub. A nested task follows its parent. The copy can be one poll interval old.",
@@ -5585,6 +6051,10 @@
         "type": "object",
         "title": "Agent",
         "properties": {
+          "effort": {
+            "type": "string",
+            "description": "Effort is the effort level of the session, or empty for a Harness with no effort levels"
+          },
           "endReason": {
             "type": "string",
             "description": "EndReason tells why the session ended, for example done or failed. It is empty while the session is live"
@@ -5680,6 +6150,7 @@
           "title",
           "harness",
           "model",
+          "effort",
           "organization",
           "repository",
           "workstreamRepository",
@@ -7289,6 +7760,14 @@
             "type": "string",
             "description": "Answer is the answer of the Owner to a question item, or empty"
           },
+          "blockingTodos": {
+            "type": "array",
+            "title": "[]int64",
+            "description": "BlockingTodos are the IDs of the open todo Inbox items whose todo blocks the merge of the pull request of a ready for review item, oldest first. It is an empty list for another item",
+            "items": {
+              "type": "integer"
+            }
+          },
           "dismissedAt": {
             "type": [
               "string",
@@ -7425,9 +7904,53 @@
           "answer",
           "withdrawn",
           "action",
-          "todo"
+          "todo",
+          "blockingTodos"
         ],
         "description": "InboxItem is an item of the Inbox of the Owner."
+      },
+      "IssueSetting": {
+        "type": "object",
+        "title": "IssueSetting",
+        "properties": {
+          "effort": {
+            "type": "string",
+            "description": "Effort is the effort level. It is empty for a Harness with no effort levels."
+          },
+          "harness": {
+            "type": "string",
+            "description": "Harness is the agent program"
+          },
+          "model": {
+            "type": "string",
+            "description": "Model is the model"
+          }
+        },
+        "required": [
+          "harness",
+          "model",
+          "effort"
+        ],
+        "description": "IssueSetting is the Harness, the model and the effort that the Owner sets for the sessions of a Role in a task or a Workstream."
+      },
+      "IssueSettingBody": {
+        "type": "object",
+        "title": "IssueSettingBody",
+        "properties": {
+          "effort": {
+            "type": "string",
+            "description": "Effort is the effort level. It is empty for a Harness with no effort levels."
+          },
+          "harness": {
+            "type": "string",
+            "description": "Harness is the agent program"
+          },
+          "model": {
+            "type": "string",
+            "description": "Model is the model"
+          }
+        },
+        "description": "IssueSetting is the Harness, the model and the effort that the Owner sets for the sessions of a Role in a task or a Workstream."
       },
       "LabelCheck": {
         "type": "object",
@@ -8114,6 +8637,35 @@
           "reason"
         ],
         "description": "NeedsHuman is an open task issue with mobius:needs-human or mobius:question."
+      },
+      "NextSetting": {
+        "type": "object",
+        "title": "NextSetting",
+        "properties": {
+          "effort": {
+            "type": "string",
+            "description": "Effort is the effort level, or empty for a Harness with no effort levels"
+          },
+          "harness": {
+            "type": "string",
+            "description": "Harness is the agent program"
+          },
+          "model": {
+            "type": "string",
+            "description": "Model is the model"
+          },
+          "own": {
+            "type": "boolean",
+            "description": "Own is true when the Workstream has its own setting, and false when the binding comes from the Role"
+          }
+        },
+        "required": [
+          "harness",
+          "model",
+          "effort",
+          "own"
+        ],
+        "description": "NextSetting is the binding of the next session of a Role in a Workstream."
       },
       "Pause": {
         "type": "object",
@@ -9064,6 +9616,17 @@
             "type": "integer",
             "description": "Depth is 0 for a sub-issue of the Workstream issue, and one more for each level below"
           },
+          "implementer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IssueSetting"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Implementer is the own Implementer setting of the task, or null when the task has none"
+          },
           "number": {
             "type": "integer",
             "description": "Number is the number of the task issue"
@@ -9097,7 +9660,8 @@
           "repository",
           "depth",
           "otherRepository",
-          "blockedBy"
+          "blockedBy",
+          "implementer"
         ],
         "description": "TaskLine is a task of a Workstream."
       },
@@ -9948,6 +10512,14 @@
             "type": "boolean",
             "description": "Evergreen is true when the Workstream issue has mobius:evergreen"
           },
+          "implementer": {
+            "$ref": "#/components/schemas/NextSetting",
+            "description": "Implementer is the binding of the next Implementer session of a task with no setting of its own"
+          },
+          "lead": {
+            "$ref": "#/components/schemas/NextSetting",
+            "description": "Lead is the binding of the next Lead session of the Workstream"
+          },
           "maintenance": {
             "type": "boolean",
             "description": "Maintenance is true when the Workstream issue has mobius:maintenance"
@@ -9967,7 +10539,9 @@
           "openTasks",
           "evergreen",
           "maintenance",
-          "skills"
+          "skills",
+          "lead",
+          "implementer"
         ],
         "description": "WorkstreamDetails is the details of a Workstream."
       },

@@ -50,6 +50,8 @@ export interface ActionSender {
  * Agent is the session of an agent.
  */
 export interface Agent {
+  /** Effort is the effort level of the session, or empty for a Harness with no effort levels */
+  effort: string;
   /** EndReason tells why the session ended, for example done or failed. It is empty while the session is live */
   endReason: string;
   /**
@@ -450,6 +452,8 @@ export interface InboxItem {
   action: PendingAction | null;
   /** Answer is the answer of the Owner to a question item, or empty */
   answer: string;
+  /** BlockingTodos are the IDs of the open todo Inbox items whose todo blocks the merge of the pull request of a ready for review item, oldest first. It is an empty list for another item */
+  blockingTodos: number[];
   /**
      * DismissedAt is the time when the Owner dismissed the item, or null
      * @nullable
@@ -1040,6 +1044,18 @@ export interface EnvelopeArrayRole {
 }
 
 /**
+ * IssueSetting is the Harness, the model and the effort that the Owner sets for the sessions of a Role in a task or a Workstream.
+ */
+export interface IssueSetting {
+  /** Effort is the effort level. It is empty for a Harness with no effort levels. */
+  effort: string;
+  /** Harness is the agent program */
+  harness: string;
+  /** Model is the model */
+  model: string;
+}
+
+/**
  * TaskLine is a task of a Workstream.
  */
 export interface TaskLine {
@@ -1047,6 +1063,8 @@ export interface TaskLine {
   blockedBy: Blocker[];
   /** Depth is 0 for a sub-issue of the Workstream issue, and one more for each level below */
   depth: number;
+  /** Implementer is the own Implementer setting of the task, or null when the task has none */
+  implementer: IssueSetting | null;
   /** Number is the number of the task issue */
   number: number;
   /** OtherRepository is true for a task in another repository than the Workstream */
@@ -1937,6 +1955,20 @@ export interface EnvelopeVoiceLanguage {
 }
 
 /**
+ * NextSetting is the binding of the next session of a Role in a Workstream.
+ */
+export interface NextSetting {
+  /** Effort is the effort level, or empty for a Harness with no effort levels */
+  effort: string;
+  /** Harness is the agent program */
+  harness: string;
+  /** Model is the model */
+  model: string;
+  /** Own is true when the Workstream has its own setting, and false when the binding comes from the Role */
+  own: boolean;
+}
+
+/**
  * WorkstreamDetails is the details of a Workstream.
  */
 export interface WorkstreamDetails {
@@ -1946,6 +1978,10 @@ export interface WorkstreamDetails {
   createdAt: string;
   /** Evergreen is true when the Workstream issue has mobius:evergreen */
   evergreen: boolean;
+  /** Implementer is the binding of the next Implementer session of a task with no setting of its own */
+  implementer: NextSetting;
+  /** Lead is the binding of the next Lead session of the Workstream */
+  lead: NextSetting;
   /** Maintenance is true when the Workstream issue has mobius:maintenance */
   maintenance: boolean;
   /** OpenTasks is the number of open tasks */
@@ -1980,6 +2016,18 @@ export interface ErrorResponse {
 export interface FixLabelsBody {
   /** Organization is the owner of the repositories */
   organization: string;
+}
+
+/**
+ * IssueSetting is the Harness, the model and the effort that the Owner sets for the sessions of a Role in a task or a Workstream.
+ */
+export interface IssueSettingBody {
+  /** Effort is the effort level. It is empty for a Harness with no effort levels. */
+  effort?: string;
+  /** Harness is the agent program */
+  harness?: string;
+  /** Model is the model */
+  model?: string;
 }
 
 /**
@@ -5325,6 +5373,145 @@ export const listReleaseChanges = async ( ): Promise<listReleaseChangesResponse>
 
 
 
+export type setTaskImplementerResponse204 = {
+  data: void
+  status: 204
+}
+
+export type setTaskImplementerResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type setTaskImplementerResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type setTaskImplementerResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type setTaskImplementerResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type setTaskImplementerResponseSuccess = (setTaskImplementerResponse204) & {
+  headers: Headers;
+};
+export type setTaskImplementerResponseError = (setTaskImplementerResponse400 | setTaskImplementerResponse401 | setTaskImplementerResponse422 | setTaskImplementerResponse500) & {
+  headers: Headers;
+};
+
+export type setTaskImplementerResponse = (setTaskImplementerResponseSuccess | setTaskImplementerResponseError)
+
+export const getSetTaskImplementerUrl = (owner: string,
+    name: string,
+    number: number,) => {
+
+
+
+
+  return `/api/repositories/${owner}/${name}/issues/${number}/implementer`
+}
+
+/**
+ * SetTaskImplementer sets the Harness, the model and the effort of the Implementer of a task. The next Implementer round of the task uses them. It returns 422 with the reason when the values fail a check.
+ */
+export const setTaskImplementer = async (owner: string,
+    name: string,
+    number: number,
+    issueSettingBody: IssueSettingBody, ): Promise<setTaskImplementerResponse> => {
+
+  const res = await fetch(getSetTaskImplementerUrl(owner,name,number),
+  {
+
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(issueSettingBody)
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: setTaskImplementerResponse['data'] = body ? JSON.parse(body) : undefined
+  return { data, status: res.status, headers: res.headers } as setTaskImplementerResponse
+}
+
+
+
+export type clearTaskImplementerResponse204 = {
+  data: void
+  status: 204
+}
+
+export type clearTaskImplementerResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type clearTaskImplementerResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type clearTaskImplementerResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type clearTaskImplementerResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type clearTaskImplementerResponseSuccess = (clearTaskImplementerResponse204) & {
+  headers: Headers;
+};
+export type clearTaskImplementerResponseError = (clearTaskImplementerResponse400 | clearTaskImplementerResponse401 | clearTaskImplementerResponse422 | clearTaskImplementerResponse500) & {
+  headers: Headers;
+};
+
+export type clearTaskImplementerResponse = (clearTaskImplementerResponseSuccess | clearTaskImplementerResponseError)
+
+export const getClearTaskImplementerUrl = (owner: string,
+    name: string,
+    number: number,) => {
+
+
+
+
+  return `/api/repositories/${owner}/${name}/issues/${number}/implementer`
+}
+
+/**
+ * ClearTaskImplementer removes the Implementer setting of a task. It returns 204 also when the task has no setting.
+ */
+export const clearTaskImplementer = async (owner: string,
+    name: string,
+    number: number, ): Promise<clearTaskImplementerResponse> => {
+
+  const res = await fetch(getClearTaskImplementerUrl(owner,name,number),
+  {
+
+    method: 'DELETE'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: clearTaskImplementerResponse['data'] = body ? JSON.parse(body) : undefined
+  return { data, status: res.status, headers: res.headers } as clearTaskImplementerResponse
+}
+
+
+
 export type resumeIssueResponse204 = {
   data: void
   status: 204
@@ -7861,6 +8048,304 @@ export const setEvergreen = async (owner: string,
 
   const data: setEvergreenResponse['data'] = body ? JSON.parse(body) : undefined
   return { data, status: res.status, headers: res.headers } as setEvergreenResponse
+}
+
+
+
+export type setWorkstreamImplementerResponse204 = {
+  data: void
+  status: 204
+}
+
+export type setWorkstreamImplementerResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type setWorkstreamImplementerResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type setWorkstreamImplementerResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
+export type setWorkstreamImplementerResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type setWorkstreamImplementerResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type setWorkstreamImplementerResponseSuccess = (setWorkstreamImplementerResponse204) & {
+  headers: Headers;
+};
+export type setWorkstreamImplementerResponseError = (setWorkstreamImplementerResponse400 | setWorkstreamImplementerResponse401 | setWorkstreamImplementerResponse409 | setWorkstreamImplementerResponse422 | setWorkstreamImplementerResponse500) & {
+  headers: Headers;
+};
+
+export type setWorkstreamImplementerResponse = (setWorkstreamImplementerResponseSuccess | setWorkstreamImplementerResponseError)
+
+export const getSetWorkstreamImplementerUrl = (owner: string,
+    name: string,
+    number: number,) => {
+
+
+
+
+  return `/api/workstreams/${owner}/${name}/${number}/implementer`
+}
+
+/**
+ * SetWorkstreamImplementer sets the Harness, the model and the effort of the Implementer of each task of a Workstream that has no setting of its own. It returns 409 when the issue is not an open Workstream, and 422 with the reason when the values fail a check.
+ */
+export const setWorkstreamImplementer = async (owner: string,
+    name: string,
+    number: number,
+    issueSettingBody: IssueSettingBody, ): Promise<setWorkstreamImplementerResponse> => {
+
+  const res = await fetch(getSetWorkstreamImplementerUrl(owner,name,number),
+  {
+
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(issueSettingBody)
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: setWorkstreamImplementerResponse['data'] = body ? JSON.parse(body) : undefined
+  return { data, status: res.status, headers: res.headers } as setWorkstreamImplementerResponse
+}
+
+
+
+export type clearWorkstreamImplementerResponse204 = {
+  data: void
+  status: 204
+}
+
+export type clearWorkstreamImplementerResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type clearWorkstreamImplementerResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type clearWorkstreamImplementerResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
+export type clearWorkstreamImplementerResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type clearWorkstreamImplementerResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type clearWorkstreamImplementerResponseSuccess = (clearWorkstreamImplementerResponse204) & {
+  headers: Headers;
+};
+export type clearWorkstreamImplementerResponseError = (clearWorkstreamImplementerResponse400 | clearWorkstreamImplementerResponse401 | clearWorkstreamImplementerResponse409 | clearWorkstreamImplementerResponse422 | clearWorkstreamImplementerResponse500) & {
+  headers: Headers;
+};
+
+export type clearWorkstreamImplementerResponse = (clearWorkstreamImplementerResponseSuccess | clearWorkstreamImplementerResponseError)
+
+export const getClearWorkstreamImplementerUrl = (owner: string,
+    name: string,
+    number: number,) => {
+
+
+
+
+  return `/api/workstreams/${owner}/${name}/${number}/implementer`
+}
+
+/**
+ * ClearWorkstreamImplementer removes the Implementer setting of a Workstream. It returns 409 when the issue is not an open Workstream.
+ */
+export const clearWorkstreamImplementer = async (owner: string,
+    name: string,
+    number: number, ): Promise<clearWorkstreamImplementerResponse> => {
+
+  const res = await fetch(getClearWorkstreamImplementerUrl(owner,name,number),
+  {
+
+    method: 'DELETE'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: clearWorkstreamImplementerResponse['data'] = body ? JSON.parse(body) : undefined
+  return { data, status: res.status, headers: res.headers } as clearWorkstreamImplementerResponse
+}
+
+
+
+export type setWorkstreamLeadResponse204 = {
+  data: void
+  status: 204
+}
+
+export type setWorkstreamLeadResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type setWorkstreamLeadResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type setWorkstreamLeadResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
+export type setWorkstreamLeadResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type setWorkstreamLeadResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type setWorkstreamLeadResponseSuccess = (setWorkstreamLeadResponse204) & {
+  headers: Headers;
+};
+export type setWorkstreamLeadResponseError = (setWorkstreamLeadResponse400 | setWorkstreamLeadResponse401 | setWorkstreamLeadResponse409 | setWorkstreamLeadResponse422 | setWorkstreamLeadResponse500) & {
+  headers: Headers;
+};
+
+export type setWorkstreamLeadResponse = (setWorkstreamLeadResponseSuccess | setWorkstreamLeadResponseError)
+
+export const getSetWorkstreamLeadUrl = (owner: string,
+    name: string,
+    number: number,) => {
+
+
+
+
+  return `/api/workstreams/${owner}/${name}/${number}/lead`
+}
+
+/**
+ * SetWorkstreamLead sets the Harness, the model and the effort of the Lead of a Workstream. The next Lead session uses them. It returns 409 when the issue is not an open Workstream, and 422 with the reason when the values fail a check.
+ */
+export const setWorkstreamLead = async (owner: string,
+    name: string,
+    number: number,
+    issueSettingBody: IssueSettingBody, ): Promise<setWorkstreamLeadResponse> => {
+
+  const res = await fetch(getSetWorkstreamLeadUrl(owner,name,number),
+  {
+
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(issueSettingBody)
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: setWorkstreamLeadResponse['data'] = body ? JSON.parse(body) : undefined
+  return { data, status: res.status, headers: res.headers } as setWorkstreamLeadResponse
+}
+
+
+
+export type clearWorkstreamLeadResponse204 = {
+  data: void
+  status: 204
+}
+
+export type clearWorkstreamLeadResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type clearWorkstreamLeadResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type clearWorkstreamLeadResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
+export type clearWorkstreamLeadResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type clearWorkstreamLeadResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type clearWorkstreamLeadResponseSuccess = (clearWorkstreamLeadResponse204) & {
+  headers: Headers;
+};
+export type clearWorkstreamLeadResponseError = (clearWorkstreamLeadResponse400 | clearWorkstreamLeadResponse401 | clearWorkstreamLeadResponse409 | clearWorkstreamLeadResponse422 | clearWorkstreamLeadResponse500) & {
+  headers: Headers;
+};
+
+export type clearWorkstreamLeadResponse = (clearWorkstreamLeadResponseSuccess | clearWorkstreamLeadResponseError)
+
+export const getClearWorkstreamLeadUrl = (owner: string,
+    name: string,
+    number: number,) => {
+
+
+
+
+  return `/api/workstreams/${owner}/${name}/${number}/lead`
+}
+
+/**
+ * ClearWorkstreamLead removes the Lead setting of a Workstream. It returns 409 when the issue is not an open Workstream.
+ */
+export const clearWorkstreamLead = async (owner: string,
+    name: string,
+    number: number, ): Promise<clearWorkstreamLeadResponse> => {
+
+  const res = await fetch(getClearWorkstreamLeadUrl(owner,name,number),
+  {
+
+    method: 'DELETE'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: clearWorkstreamLeadResponse['data'] = body ? JSON.parse(body) : undefined
+  return { data, status: res.status, headers: res.headers } as clearWorkstreamLeadResponse
 }
 
 

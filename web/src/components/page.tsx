@@ -1,6 +1,6 @@
 import { Link, type LinkProps } from "@tanstack/react-router";
 import { ChevronRightIcon } from "lucide-react";
-import type { ReactNode } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import { BackButton } from "@/BackButton";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -49,8 +49,12 @@ export function List({ children }: { children: ReactNode }) {
   return <ul className="divide-y md:-mx-2">{children}</ul>;
 }
 
-export function Row({ className, children }: { className?: string; children: ReactNode }) {
-  return <li className={cn(rowClass, className)}>{children}</li>;
+export function Row({ className, children, ...props }: ComponentProps<"li">) {
+  return (
+    <li className={cn(rowClass, className)} {...props}>
+      {children}
+    </li>
+  );
 }
 
 export function LinkRow({

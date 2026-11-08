@@ -141,6 +141,10 @@ const fixRecordTimes = async (page: Page) => {
   expect((await page.request.post("/e2e/approvals/times/fix")).ok()).toBe(true);
 };
 
+// The sheet reads the Harness choices after it opens, and Save waits for them.
+const settingSheetReady = (sheet: Locator) =>
+  expect(sheet.getByRole("button", { name: "Save" })).toBeEnabled();
+
 const queueReasons = [
   "runs .mobius/check",
   "waits for a check slot",
@@ -1048,6 +1052,10 @@ test("screenshots", async ({ page }) => {
         .getByText(/Sep \d+, \d\d:\d\d [AP]M · Mobius prepares an upgrade/)
         .filter({ visible: true }),
       ...queueReasons.map((reason) => page.getByText(reason).filter({ visible: true })),
+      page
+        .getByText(/^devin · swe-1\.5 · high · Sep \d+, \d\d:\d\d [AP]M/)
+        .filter({ visible: true })
+        .first(),
     ],
     async (device) => {
       if (device === "phone") {
@@ -1204,6 +1212,119 @@ test("screenshots", async ({ page }) => {
       await closeButton.click();
     },
   );
+  // The server gives #38 an own Implementer setting. #39 has none.
+  const openTasks = async (device: string) => {
+    if (device === "phone") {
+      await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
+    }
+    await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
+  };
+  const taskOf = (title: string) =>
+    page.getByRole("listitem").filter({ hasText: title }).filter({ visible: true });
+  const planPrices = taskOf("#38 Show the plan prices");
+  const planReceipts = taskOf("#39 Send the plan receipts");
+  const detailsPanel = page.getByRole("tabpanel", { name: "Details" });
+  const settingSheet = (title: string) => page.getByRole("dialog", { name: title });
+  const workstreamImplementer = "/e2e/workstreams/owner/shop/12/implementer";
+  const setWorkstreamImplementer = async () => {
+    expect((await page.request.put(workstreamImplementer)).ok()).toBe(true);
+  };
+  const clearWorkstreamImplementer = async () => {
+    expect((await page.request.delete(workstreamImplementer)).ok()).toBe(true);
+  };
+  await screenshot(
+    page,
+    "chat-tasks-setting",
+    "/workstreams/owner/shop/12",
+    (device) => [
+      ...frame(device, drain),
+      planPrices.getByText("claude-code · sonnet · medium"),
+      planReceipts.getByRole("button", { name: "Implementer of #39" }),
+    ],
+    async (device) => {
+      await openTasks(device);
+      await planPrices.scrollIntoViewIfNeeded();
+    },
+  );
+  const taskSheet = settingSheet("Implementer of #38");
+  await screenshot(
+    page,
+    "chat-tasks-setting-sheet",
+    "/workstreams/owner/shop/12",
+    (device) => [
+      ...frame(device, drain),
+      taskSheet.getByText("Default: devin · swe-1.5 · high (role)"),
+      taskSheet.getByRole("button", { name: "Use the default" }),
+      taskSheet.getByRole("button", { name: "Save" }),
+    ],
+    async (device) => {
+      await openTasks(device);
+      await planPrices.getByRole("button", { name: "Implementer of #38" }).click();
+      await settingSheetReady(taskSheet);
+    },
+    () => page.keyboard.press("Escape"),
+  );
+  await screenshot(
+    page,
+    "chat-details-settings",
+    "/workstreams/owner/shop/12",
+    (device) => [
+      ...frame(device, drain),
+      detailsPanel.getByText("claude-code · opus · high"),
+      detailsPanel.getByText("devin · swe-1.5 · high"),
+      detailsPanel.getByRole("button", { name: "Change Lead" }),
+      detailsPanel.getByRole("button", { name: "Change Implementer" }),
+    ],
+    openDetails,
+  );
+  const workstreamLeadSheet = settingSheet("Lead");
+  await screenshot(
+    page,
+    "chat-details-lead-sheet",
+    "/workstreams/owner/shop/12",
+    (device) => [
+      ...frame(device, drain),
+      workstreamLeadSheet.getByText("Default: claude-code · opus · high (role)"),
+      workstreamLeadSheet.getByRole("button", { name: "Save" }),
+    ],
+    async (device) => {
+      await openDetails(device);
+      await detailsPanel.getByRole("button", { name: "Change Lead" }).click();
+      await settingSheetReady(workstreamLeadSheet);
+    },
+    () => page.keyboard.press("Escape"),
+  );
+  await setWorkstreamImplementer();
+  await screenshot(
+    page,
+    "chat-details-implementer",
+    "/workstreams/owner/shop/12",
+    (device) => [
+      ...frame(device, drain),
+      detailsPanel.getByText("claude-code · sonnet · low"),
+      detailsPanel.getByText("Workstream", { exact: true }),
+      detailsPanel.getByRole("button", { name: "Change Implementer" }),
+    ],
+    openDetails,
+  );
+  const receiptsSheet = settingSheet("Implementer of #39");
+  await screenshot(
+    page,
+    "chat-tasks-setting-sheet-workstream",
+    "/workstreams/owner/shop/12",
+    (device) => [
+      ...frame(device, drain),
+      receiptsSheet.getByText("Default: claude-code · sonnet · low (Workstream)"),
+      receiptsSheet.getByRole("button", { name: "Save" }),
+    ],
+    async (device) => {
+      await openTasks(device);
+      await planReceipts.getByRole("button", { name: "Implementer of #39" }).click();
+      await settingSheetReady(receiptsSheet);
+    },
+    () => page.keyboard.press("Escape"),
+  );
+  await clearWorkstreamImplementer();
   // The Inbox of the organization plants has no item, so the frame has no Inbox count.
   await screenshot(
     page,
@@ -1316,6 +1437,15 @@ test("screenshots", async ({ page }) => {
   ]);
   // The Inbox of the server has one item. The route adds one item of each other kind.
   let mergeState = { merging: false, mergeRefusal: "" };
+  // While the todos block, they belong to the pull request of the ready for review item.
+  let blocked = false;
+  const todoPullRequest = () => {
+    const number = blocked ? 44 : 1110;
+    return {
+      pullRequest: number,
+      pullRequestUrl: `https://github.com/owner/shop/pull/${number}`,
+    };
+  };
   await page.route("/api/inbox", async (route) => {
     const response = await route.fetch();
     const { data } = (await response.json()) as { data: object[] };
@@ -1334,6 +1464,7 @@ test("screenshots", async ({ page }) => {
       pullRequest: 0,
       pullRequestUrl: "",
       reportUrl: "",
+      blockingTodos: [],
     };
     await route.fulfill({
       json: {
@@ -1372,6 +1503,7 @@ test("screenshots", async ({ page }) => {
             pullRequestUrl: `${link}/pull/44`,
             reportUrl: `${link}/pull/44#issuecomment-1`,
             ...mergeState,
+            blockingTodos: blocked ? [100, 105] : [],
           },
           {
             ...item,
@@ -1382,8 +1514,7 @@ test("screenshots", async ({ page }) => {
             reason: "mandatory · Deployment needs",
             text: "env_var: MOBIUS_SMTP_HOST",
             link: `${link}/issues/40`,
-            pullRequest: 1110,
-            pullRequestUrl: `${link}/pull/1110`,
+            ...todoPullRequest(),
             todo: {
               kind: "env_var",
               name: "MOBIUS_SMTP_HOST",
@@ -1405,8 +1536,7 @@ test("screenshots", async ({ page }) => {
             reason: "optional · Deployment needs",
             text: "manual_step: Run the plan import",
             link: `${link}/issues/43`,
-            pullRequest: 1110,
-            pullRequestUrl: `${link}/pull/1110`,
+            ...todoPullRequest(),
             todo: {
               kind: "manual_step",
               name: "Run the plan import",
@@ -1603,6 +1733,35 @@ test("screenshots", async ({ page }) => {
     readyRow.getByText(mergeState.mergeRefusal),
     readyRow.getByRole("button", { name: "Merge" }),
   ]);
+  mergeState = { merging: false, mergeRefusal: "" };
+  blocked = true;
+  const blockedCount = readyRow.getByRole("button", { name: "2 open todos" });
+  await screenshot(
+    page,
+    "inbox-blocked",
+    "/inbox",
+    (device) => [...inboxReady(device), blockedCount],
+    async () => {
+      await expect(blockedCount).toBeVisible();
+      await expect(readyRow.getByRole("button", { name: "Merge" })).toHaveCount(0);
+    },
+  );
+  const firstBlockingRow = main.getByRole("listitem").filter({ hasText: "MOBIUS_SMTP_HOST" });
+  await screenshot(
+    page,
+    "inbox-blocked-todo",
+    "/inbox",
+    (device) => [...inboxReady(device), firstBlockingRow.getByRole("button", { name: "Complete" })],
+    async () => {
+      await expect(blockedCount).toBeVisible();
+      await page.clock.pauseAt(new Date(fixedTime.getTime() + 500));
+      await blockedCount.click();
+      await expect(firstBlockingRow).toHaveAttribute("data-marked", "");
+      await expect(firstBlockingRow).toBeInViewport();
+    },
+    () => releaseNotice(page),
+  );
+  blocked = false;
   await page.unroute("/api/inbox");
   await page.route("**/api/ci-stops", (route) =>
     route.fulfill({
@@ -1673,7 +1832,9 @@ test("screenshots", async ({ page }) => {
       }
       await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
       await page
-        .getByRole("button", { name: /^implementer devin · swe-1.5 · Sep \d+, \d\d:\d\d [AP]M$/ })
+        .getByRole("button", {
+          name: /^implementer devin · swe-1.5 · high · Sep \d+, \d\d:\d\d [AP]M$/,
+        })
         .filter({ visible: true })
         .click();
       await logConnected(page);
@@ -1695,7 +1856,7 @@ test("screenshots", async ({ page }) => {
       await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
       await page
         .getByRole("button", {
-          name: /^implementer devin · swe-1.5 · Sep \d+, \d\d:\d\d [AP]M · waits for a low load/,
+          name: /^implementer devin · swe-1.5 · high · Sep \d+, \d\d:\d\d [AP]M · waits for a low load/,
         })
         .filter({ visible: true })
         .click();

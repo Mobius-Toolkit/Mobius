@@ -197,7 +197,7 @@ const places = [
       }
       await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
       await page
-        .getByRole("button", { name: /^implementer devin · swe-1.5 · Sep \d+,/ })
+        .getByRole("button", { name: /^implementer devin · swe-1.5 · high · Sep \d+,/ })
         .filter({ visible: true })
         .click();
     },
@@ -419,7 +419,10 @@ test("the Transcript of a session that does not wait for a low load has no start
   await expect(main.getByRole("button", { name: "Start the check now" })).toBeHidden();
 });
 
-async function openPanelTranscript(page: Page, name = /^implementer devin · swe-1.5 · Sep \d+,/) {
+async function openPanelTranscript(
+  page: Page,
+  name = /^implementer devin · swe-1.5 · high · Sep \d+,/,
+) {
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto("/workstreams/owner/shop/12");
   await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
@@ -451,7 +454,7 @@ test.describe("the back button on a desktop", () => {
     await expectLeftOf(back, title);
     await back.click();
     await expect(
-      panel.getByRole("button", { name: /^implementer devin · swe-1.5 · Sep \d+,/ }),
+      panel.getByRole("button", { name: /^implementer devin · swe-1.5 · high · Sep \d+,/ }),
     ).toBeVisible();
     await expect(back).toBeHidden();
   });

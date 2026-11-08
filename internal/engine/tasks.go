@@ -64,6 +64,8 @@ type TaskLine struct {
 	OtherRepository bool
 	// BlockedBy holds the open blockers.
 	BlockedBy []Blocker
+	// Implementer is the own Implementer setting of an open task, or nil.
+	Implementer *store.IssueBinding
 }
 
 // Blocker is an open blocker of a task.
@@ -131,6 +133,13 @@ func (e *Engine) Tasks(ctx context.Context, repositoryName string, workstream in
 				line.State = "closed"
 			} else {
 				line.BlockedBy = append(line.BlockedBy, blockers[row.Position]...)
+				setting, found, err := e.IssueBinding(ctx, "implementer", issueRepositoryName, row.Number)
+				if err != nil {
+					return nil, err
+				}
+				if found {
+					line.Implementer = &setting
+				}
 				if line.State == "working" || line.State == "open" {
 					task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: issueRepositoryName, Issue: row.Number})
 					if err != nil && !errors.Is(err, sql.ErrNoRows) {
