@@ -31,8 +31,8 @@ func harnessFileLines(t *testing.T, dataDir, name string) []string {
 }
 
 // implementerGetsDetails runs an Implementer on a fake Harness with the script header, sends it details in its first
-// turn, and gives the data directory and the session when the task reaches the approval.
-func implementerGetsDetails(t *testing.T, header string) (string, store.Session) {
+// turn, and gives the data directory when the task reaches the approval.
+func implementerGetsDetails(t *testing.T, header string) string {
 	t.Helper()
 	fake := testkit.NewFakeGitHub(t)
 	lead := "[[prompts]]\nwhen = \"Send the details\"\ncall = { tool = \"send_details\", arguments = { repository = \"owner/shop\", n = 41, text = \"Round prices down.\" } }\n\n" + leadStarts
@@ -61,13 +61,13 @@ func implementerGetsDetails(t *testing.T, header string) (string, store.Session)
 	if len(prompts) != 2 || prompts[1] != taskDetails {
 		t.Errorf("prompts = %q", prompts)
 	}
-	return dataDir, session
+	return dataDir
 }
 
 func TestAnImplementerWithSteeringGetsDetailsInTheRunningTurnWithNoCancel(t *testing.T) {
 	t.Parallel()
 
-	dataDir, _ := implementerGetsDetails(t, injected)
+	dataDir := implementerGetsDetails(t, injected)
 
 	if cancels := harnessFileLines(t, dataDir, "cancels"); len(cancels) != 0 {
 		t.Errorf("cancels = %q", cancels)
@@ -77,7 +77,7 @@ func TestAnImplementerWithSteeringGetsDetailsInTheRunningTurnWithNoCancel(t *tes
 func TestAnImplementerWithASteeringOutcomeOtherThanInjectedGetsTheCancelAndTheDetailsAsTheNextPrompt(t *testing.T) {
 	t.Parallel()
 
-	dataDir, _ := implementerGetsDetails(t, "steering_outcome = \"promptRequired\"\n\n")
+	dataDir := implementerGetsDetails(t, "steering_outcome = \"promptRequired\"\n\n")
 
 	if cancels := harnessFileLines(t, dataDir, "cancels"); len(cancels) == 0 {
 		t.Error("the session got no cancel")
