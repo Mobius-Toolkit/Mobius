@@ -144,8 +144,9 @@ type DismissRequest struct {
 	}
 }
 
-// Dismiss removes an item from the Inbox. For a todo item, it also marks the todo as dismissed. It returns 409 for a
-// todo item that is not open and for a mandatory todo.
+// Dismiss removes an item from the Inbox. For a todo item, it also marks the todo as dismissed. When that closes the last
+// blocking todo of a task, Mobius makes the pull request ready for review. It returns 409 for a todo item that is not
+// open and for a mandatory todo.
 func (h *handlers) Dismiss(ctx context.Context, req DismissRequest) error {
 	err := h.engine.DismissByOwner(ctx, req.Path.ID)
 	if engine.Refused(err) {
@@ -276,8 +277,8 @@ type DoneInboxItemResponse struct {
 }
 
 // DoneInboxItem marks the todo of an open todo Inbox item as done, with the note, and removes the item from the Inbox.
-// When the todo was the last mandatory todo of a task with the automatic merge of Autopilot, Mobius approves the pull
-// request for the merge. It returns the changed item. It returns 404 for an unknown item and 409 for an item that is
+// When the todo was the last blocking todo of a task, Mobius makes the pull request ready for review, and with a merge
+// level of Autopilot it approves the pull request for the merge. It returns the changed item. It returns 404 for an unknown item and 409 for an item that is
 // not an open todo.
 func (h *handlers) DoneInboxItem(ctx context.Context, req DoneInboxItemRequest) (*DoneInboxItemResponse, error) {
 	item, err := h.engine.DoneInboxItem(ctx, req.Path.ID, req.Body.Note)
@@ -361,7 +362,7 @@ func (h *handlers) inboxItemOf(ctx context.Context, item store.InboxItem) (Inbox
 		if err != nil {
 			return InboxItem{}, err
 		}
-		found.Todo = &Todo{Kind: todo.Kind, Name: todo.Name, Path: todo.Path, Line: todo.Line, Reason: todo.Reason, Mandatory: todo.Mandatory != 0, Note: todo.Note, Dismissable: !item.DismissedAt.Valid && !mandatory, AfterMerge: afterMerge}
+		found.Todo = &Todo{Kind: todo.Kind, Name: todo.Name, Path: todo.Path, Line: todo.Line, Reason: todo.Reason, Mandatory: mandatory, Note: todo.Note, Dismissable: !item.DismissedAt.Valid && !mandatory, AfterMerge: afterMerge}
 	}
 	return found, nil
 }

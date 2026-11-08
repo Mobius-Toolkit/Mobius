@@ -655,12 +655,17 @@ func (g *FakeGitHub) ReleaseBranchUpdates() {
 
 // markReadyForReview answers the GraphQL mutation markPullRequestReadyForReview. The caller must hold the lock.
 func (g *FakeGitHub) markReadyForReview(w http.ResponseWriter, id string) {
+	if g.failMarkReady {
+		writeJSON(w, http.StatusOK, map[string]any{"data": nil, "errors": []map[string]string{{"message": "Something went wrong"}}})
+		return
+	}
 	index := slices.IndexFunc(g.pullRequests, func(pull pullRequest) bool { return fmt.Sprintf("PR_%d", pull.Number) == id })
 	if index < 0 {
 		writeJSON(w, http.StatusOK, map[string]any{"data": nil, "errors": []map[string]string{{"message": "Could not resolve to a node"}}})
 		return
 	}
 	g.pullRequests[index].Draft = false
+	g.issues[issueKey{g.pullRequests[index].repository, g.pullRequests[index].Number}].updatedAt = g.tick()
 	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"markPullRequestReadyForReview": map[string]any{"clientMutationId": nil}}})
 }
 
@@ -672,6 +677,7 @@ func (g *FakeGitHub) convertToDraft(w http.ResponseWriter, id string) {
 		return
 	}
 	g.pullRequests[index].Draft = true
+	g.issues[issueKey{g.pullRequests[index].repository, g.pullRequests[index].Number}].updatedAt = g.tick()
 	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"convertPullRequestToDraft": map[string]any{"clientMutationId": nil}}})
 }
 

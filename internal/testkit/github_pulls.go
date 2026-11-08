@@ -136,6 +136,13 @@ func (g *FakeGitHub) FailPullRequestReads(fail bool) {
 	g.failPullReads = fail
 }
 
+// FailMarkReadyForReview makes each mutation markPullRequestReadyForReview fail, or work again when fail is false.
+func (g *FakeGitHub) FailMarkReadyForReview(fail bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.failMarkReady = fail
+}
+
 // UnresolveReviewThread marks the review thread that starts with the comment root as not resolved.
 func (g *FakeGitHub) UnresolveReviewThread(root int64) {
 	g.mu.Lock()

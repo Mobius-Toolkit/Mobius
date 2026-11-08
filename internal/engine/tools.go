@@ -95,7 +95,7 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 				},
 				e.startFixRound),
 			taskTool(e, c, "approve_pull_request",
-				"Approve the pull request of a task that waits for the Lead approval. Mobius posts the report as a comment on the pull request, removes the draft status, sets the Mobius check to success, and adds the \"ready for review\" Inbox item for the Owner. The item links to the comment.",
+				"Approve the pull request of a task that waits for the Lead approval. Mobius posts the report as a comment on the pull request, sets the Mobius check to success, and adds the \"ready for review\" Inbox item for the Owner. The item links to the comment. It removes the draft status, but the pull request stays a draft while a blocking deployment todo is open.",
 				map[string]any{
 					"repository": repositoryProperty,
 					"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},

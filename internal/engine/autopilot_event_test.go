@@ -10,7 +10,7 @@ import (
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
 
-const mergeSentence = "Mobius merges each pull request after your approval, when the branch contains the current default branch and the checks passed. A mandatory deployment need that the Reviewer reports blocks the merge until the Owner marks its todo as done."
+const mergeSentence = "Mobius merges each pull request after your approval, when the branch contains the current default branch and the checks passed. A deployment need that the Reviewer reports keeps the pull request a draft and blocks the merge until the Owner closes its todo. A mandatory todo closes with \"Complete\", and an optional todo closes with \"Complete\" or \"Dismiss\". An after-merge todo does not block."
 
 func TestTheFirstPromptTellsTheLeadTheAutopilotLevel(t *testing.T) {
 	t.Parallel()

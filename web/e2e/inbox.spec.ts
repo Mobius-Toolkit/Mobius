@@ -587,6 +587,26 @@ test("an optional todo shows Dismiss, and the item leaves the Inbox after a tap"
   await expect(row).toHaveCount(0);
 });
 
+test("an optional todo panel says that it blocks the merge until it is completed or dismissed", async ({
+  page,
+}) => {
+  const optional = {
+    ...todo,
+    title: "MOBIUS_SMTP_TIMEOUT",
+    reason: "optional · Deployment needs",
+    todo: { ...todo.todo, mandatory: false, dismissable: true },
+  };
+  await routeInbox(page, [optional]);
+  await page.goto("/inbox");
+
+  await page.getByRole("main").getByRole("button", { name: "Details" }).click();
+  await expect(
+    page
+      .getByRole("dialog")
+      .getByText("This todo blocks the merge until you complete or dismiss it."),
+  ).toBeVisible();
+});
+
 test("a mandatory todo shows no Dismiss", async ({ page }) => {
   await routeInbox(page, [todo]);
   await page.goto("/inbox");
@@ -632,7 +652,7 @@ test("an after-merge todo shows its badge and says that it does not block the me
   await expect(
     panel.getByText("Do this step after the merge. This todo does not block the merge."),
   ).toBeVisible();
-  await expect(panel.getByText("Mobius merges after you complete this todo.")).toHaveCount(0);
+  await expect(panel.getByText("This todo blocks the merge until you complete it.")).toHaveCount(0);
 });
 
 test("the row shows the refusal of Dismiss", async ({ page }) => {
@@ -678,7 +698,7 @@ test("Done opens a panel with the details of the need, and the note marks the to
     "href",
     `${link}/pull/1110`,
   );
-  await expect(panel.getByText("Mobius merges after you complete this todo.")).toBeVisible();
+  await expect(panel.getByText("This todo blocks the merge until you complete it.")).toBeVisible();
   await panel.getByRole("textbox", { name: "Note" }).fill("Set in prod.");
   const response = page.waitForResponse("**/api/inbox/7/done");
   await panel.getByRole("button", { name: "Send" }).click();
@@ -730,6 +750,6 @@ test("Details of a todo opens the same panel with no note field", async ({ page 
 
   await page.getByRole("main").getByRole("button", { name: "Details" }).click();
   await expect(panel.getByText("File: internal/config/config.go:42")).toBeVisible();
-  await expect(panel.getByText("Mobius merges after you complete this todo.")).toBeVisible();
+  await expect(panel.getByText("This todo blocks the merge until you complete it.")).toBeVisible();
   await expect(panel.getByRole("textbox")).toHaveCount(0);
 });
