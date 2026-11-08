@@ -1316,6 +1316,15 @@ test("screenshots", async ({ page }) => {
   ]);
   // The Inbox of the server has one item. The route adds one item of each other kind.
   let mergeState = { merging: false, mergeRefusal: "" };
+  // While the todos block, they belong to the pull request of the ready for review item.
+  let blocked = false;
+  const todoPullRequest = () => {
+    const number = blocked ? 44 : 1110;
+    return {
+      pullRequest: number,
+      pullRequestUrl: `https://github.com/owner/shop/pull/${number}`,
+    };
+  };
   await page.route("/api/inbox", async (route) => {
     const response = await route.fetch();
     const { data } = (await response.json()) as { data: object[] };
@@ -1334,6 +1343,7 @@ test("screenshots", async ({ page }) => {
       pullRequest: 0,
       pullRequestUrl: "",
       reportUrl: "",
+      blockingTodos: [],
     };
     await route.fulfill({
       json: {
@@ -1372,6 +1382,7 @@ test("screenshots", async ({ page }) => {
             pullRequestUrl: `${link}/pull/44`,
             reportUrl: `${link}/pull/44#issuecomment-1`,
             ...mergeState,
+            blockingTodos: blocked ? [100, 105] : [],
           },
           {
             ...item,
@@ -1382,8 +1393,7 @@ test("screenshots", async ({ page }) => {
             reason: "mandatory · Deployment needs",
             text: "env_var: MOBIUS_SMTP_HOST",
             link: `${link}/issues/40`,
-            pullRequest: 1110,
-            pullRequestUrl: `${link}/pull/1110`,
+            ...todoPullRequest(),
             todo: {
               kind: "env_var",
               name: "MOBIUS_SMTP_HOST",
@@ -1405,8 +1415,7 @@ test("screenshots", async ({ page }) => {
             reason: "optional · Deployment needs",
             text: "manual_step: Run the plan import",
             link: `${link}/issues/43`,
-            pullRequest: 1110,
-            pullRequestUrl: `${link}/pull/1110`,
+            ...todoPullRequest(),
             todo: {
               kind: "manual_step",
               name: "Run the plan import",
@@ -1603,6 +1612,35 @@ test("screenshots", async ({ page }) => {
     readyRow.getByText(mergeState.mergeRefusal),
     readyRow.getByRole("button", { name: "Merge" }),
   ]);
+  mergeState = { merging: false, mergeRefusal: "" };
+  blocked = true;
+  const blockedCount = readyRow.getByRole("button", { name: "2 open todos" });
+  await screenshot(
+    page,
+    "inbox-blocked",
+    "/inbox",
+    (device) => [...inboxReady(device), blockedCount],
+    async () => {
+      await expect(blockedCount).toBeVisible();
+      await expect(readyRow.getByRole("button", { name: "Merge" })).toHaveCount(0);
+    },
+  );
+  const firstBlockingRow = main.getByRole("listitem").filter({ hasText: "MOBIUS_SMTP_HOST" });
+  await screenshot(
+    page,
+    "inbox-blocked-todo",
+    "/inbox",
+    (device) => [...inboxReady(device), firstBlockingRow.getByRole("button", { name: "Complete" })],
+    async () => {
+      await expect(blockedCount).toBeVisible();
+      await page.clock.pauseAt(new Date(fixedTime.getTime() + 500));
+      await blockedCount.click();
+      await expect(firstBlockingRow).toHaveAttribute("data-marked", "");
+      await expect(firstBlockingRow).toBeInViewport();
+    },
+    () => releaseNotice(page),
+  );
+  blocked = false;
   await page.unroute("/api/inbox");
   await page.route("**/api/ci-stops", (route) =>
     route.fulfill({
