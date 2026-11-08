@@ -12,6 +12,7 @@ require (
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/pressly/goose/v3 v3.28.0
+	github.com/robfig/cron/v3 v3.0.1
 	golang.org/x/mod v0.41.0
 	golang.org/x/sys v0.48.0
 	google.golang.org/protobuf v1.36.12

@@ -249,6 +249,25 @@ type PendingAction struct {
 	OldBrief     string
 }
 
+type RecurringTask struct {
+	ID         int64
+	Repository string
+	Workstream int64
+	Cron       string
+	Text       string
+	Paused     int64
+	CheckedAt  string
+	Event      sql.NullInt64
+}
+
+type RecurringTaskRun struct {
+	ID            int64
+	RecurringTask int64
+	Time          string
+	Result        string
+	Reason        string
+}
+
 type RoleSetting struct {
 	Role      string
 	Harness   sql.NullString

@@ -296,3 +296,21 @@ func (e *Engine) AddDetails(a *Agent, text string) bool {
 func (e *Engine) TakeDetails(a *Agent) string {
 	return e.takeDetails(e.researchers, a.id, a, false)
 }
+
+// RunStaleRecurringTasks reads the recurring tasks, calls change, and then runs the step for the rows that it read.
+func (e *Engine) RunStaleRecurringTasks(ctx context.Context, change func()) error {
+	tasks, err := e.queries.ListAllRecurringTasks(ctx)
+	if err != nil {
+		return err
+	}
+	change()
+	for _, task := range tasks {
+		if err := e.runRecurringTask(ctx, task); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// RunRecurringTasks runs the step of the recurring tasks one time and waits for its end.
+func (e *Engine) RunRecurringTasks(ctx context.Context) { e.runRecurringTasks(ctx) }
