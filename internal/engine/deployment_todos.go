@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
@@ -168,6 +169,9 @@ func (e *Engine) DoneInboxItem(ctx context.Context, id int64, note string) (stor
 	if err := e.queries.SetDeploymentTodoDone(ctx, store.SetDeploymentTodoDoneParams{Note: note, DoneAt: sql.NullString{String: now(), Valid: true}, ID: todo.ID}); err != nil {
 		return store.InboxItem{}, err
 	}
+	if err := e.writeTodosOfItem(ctx, item, todo); err != nil {
+		return store.InboxItem{}, err
+	}
 	if err := e.closeTodoStep(ctx, item, todo); err != nil {
 		return store.InboxItem{}, err
 	}
@@ -192,6 +196,84 @@ func (e *Engine) TodoMarks(ctx context.Context, todo store.DeploymentTodo) (mand
 	return needs[i].Mandatory == 1, needs[i].AfterMerge == 1, nil
 }
 
+// todoLine gives the checklist line of the todo with the marks of its need.
+func todoLine(todo store.DeploymentTodo, need store.DeploymentNeed) string {
+	marks := "optional"
+	if need.Mandatory == 1 {
+		marks = "mandatory"
+	}
+	if need.AfterMerge == 1 {
+		marks += ", after merge"
+	}
+	switch {
+	case todo.DoneAt.Valid:
+		return fmt.Sprintf("- [x] %s (%s, done)", todo.Name, marks)
+	case todo.DismissedAt.Valid:
+		return fmt.Sprintf("- [x] %s (%s, dismissed)", todo.Name, marks)
+	}
+	return fmt.Sprintf("- [ ] %s (%s, open)", todo.Name, marks)
+}
+
+// withTodos gives body with section in place of the todos section of body. Without a todos section, it puts section
+// before the screenshots section, or at the end of body. With an empty section, it removes the todos section.
+func withTodos(body, section string) string {
+	if section != "" {
+		return withSection(body, todosStart, todosEnd, section, screenshotsStart)
+	}
+	start, end, found := sectionBounds(body, todosStart, todosEnd)
+	if !found {
+		return body
+	}
+	head := strings.TrimRight(body[:start], "\n")
+	tail := strings.TrimLeft(body[end:], "\n")
+	if head == "" || tail == "" {
+		return head + tail
+	}
+	return head + "\n\n" + tail
+}
+
+// writeTodos writes the todos section of the task in the description of the pull request number. The section has a line
+// for each todo whose need is in the current need list of the task. It does nothing when the task has no todo, and
+// writes nothing when the description does not change.
+func (e *Engine) writeTodos(ctx context.Context, repository github.Repository, taskID, pullRequest int64) error {
+	todos, err := e.queries.ListDeploymentTodos(ctx, taskID)
+	if err != nil || len(todos) == 0 {
+		return err
+	}
+	needs, err := e.queries.ListDeploymentNeeds(ctx, taskID)
+	if err != nil {
+		return err
+	}
+	var lines []string
+	for _, todo := range todos {
+		if i := slices.IndexFunc(needs, func(need store.DeploymentNeed) bool { return need.Kind == todo.Kind && need.Name == todo.Name }); i >= 0 {
+			lines = append(lines, todoLine(todo, needs[i]))
+		}
+	}
+	section := ""
+	if len(lines) > 0 {
+		section = todosStart + "\n### Deployment todos\n\n" + strings.Join(lines, "\n") + "\n" + todosEnd
+	}
+	current, err := repository.PullRequest(ctx, pullRequest)
+	if err != nil {
+		return err
+	}
+	body := withTodos(current.GetBody(), section)
+	if body == current.GetBody() {
+		return nil
+	}
+	return repository.SetPullRequestBody(ctx, pullRequest, body)
+}
+
+// writeTodosOfItem writes the todos section of the task of todo in the pull request of the Inbox item.
+func (e *Engine) writeTodosOfItem(ctx context.Context, item store.InboxItem, todo store.DeploymentTodo) error {
+	repository, err := e.repository(item.Repository)
+	if err != nil {
+		return err
+	}
+	return e.writeTodos(ctx, repository, todo.Task, item.PullRequest)
+}
+
 // dismissTodo stores the time on the todo of the open todo Inbox item, runs closeTodoStep, and dismisses the item. It
 // returns a refusal when the item is not open or the todo is mandatory.
 func (e *Engine) dismissTodo(ctx context.Context, item store.InboxItem) error {
@@ -211,6 +293,9 @@ func (e *Engine) dismissTodo(ctx context.Context, item store.InboxItem) error {
 	}
 	ctx = context.WithoutCancel(ctx)
 	if err := e.queries.SetDeploymentTodoDismissed(ctx, store.SetDeploymentTodoDismissedParams{DismissedAt: sql.NullString{String: now(), Valid: true}, ID: todo.ID}); err != nil {
+		return err
+	}
+	if err := e.writeTodosOfItem(ctx, item, todo); err != nil {
 		return err
 	}
 	if err := e.closeTodoStep(ctx, item, todo); err != nil {

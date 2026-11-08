@@ -915,6 +915,11 @@ func (g *FakeGitHub) closeIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if request.Body != nil {
+		if g.failBodyWrites {
+			message(w, http.StatusInternalServerError, "Server Error")
+			return
+		}
+		g.bodyWrites[key]++
 		g.setBody(key, *request.Body)
 		if request.State == "" {
 			writeJSON(w, http.StatusOK, g.issueJSON(key))
