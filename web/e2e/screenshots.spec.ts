@@ -51,45 +51,25 @@ const viewports = {
   phone: { width: 390, height: 844 },
 };
 
-// Writes screenshots/<name>-desktop.png and screenshots/<name>-phone.png.
-// The phone image comes from a browser with a coarse pointer, as on a real phone.
 // A step that waits for a state that no locator shows.
 type Wait = (page: Page) => Promise<void>;
 
-// The chat list scrolls to its end by itself. The log has each change of the list, so a failed wait shows the step that
-// left the list above its end.
-const listLog = `(() => {
-  window.__listLog = []
-  let last = ''
-  const tick = () => {
-    const list = document.querySelector('main [data-ready]')
-    if (list) {
-      const now = [list.scrollHeight - list.scrollTop - list.clientHeight, list.clientHeight, list.scrollHeight, list.dataset.ready].join(',')
-      if (now !== last) {
-        last = now
-        window.__listLog.push(Math.round(performance.now()) + ':' + now)
-        window.__listLog.splice(0, window.__listLog.length - 30)
-      }
-    }
-    requestAnimationFrame(tick)
-  }
-  requestAnimationFrame(tick)
-})()`;
-
+// The chat list scrolls to its end by itself.
 const chatEnd: Wait = (page) =>
   expect
     .poll(() =>
       page.evaluate(`(() => {
         const list = document.querySelector('main [data-ready]')
-        const gap = list ? list.scrollHeight - list.scrollTop - list.clientHeight : -1
-        return 'gap=' + gap + ' log(ms:gap,height,scrollHeight,ready)=' + window.__listLog.join(' | ')
+        return list ? list.scrollHeight - list.scrollTop - list.clientHeight : Infinity
       })()`),
     )
-    .toMatch(/^gap=[01] /);
+    .toBeLessThanOrEqual(1);
 
 const show = (page: Page, step: Locator | Wait) =>
   typeof step === "function" ? step(page) : expect(step).toBeVisible();
 
+// Writes screenshots/<name>-desktop.png and screenshots/<name>-phone.png.
+// The phone image comes from a browser with a coarse pointer, as on a real phone.
 async function screenshot(
   page: Page,
   name: string,
@@ -256,7 +236,6 @@ test("screenshots", async ({ page }) => {
   await page.clock.setFixedTime(fixedTime);
   await page.addInitScript(fakeMicrophone);
   await page.addInitScript(countSamples);
-  await page.addInitScript(listLog);
 
   await screenshot(page, "login", "/github", () => page.getByLabel("Access password"));
   await page.getByLabel("Access password").fill("correct horse");
