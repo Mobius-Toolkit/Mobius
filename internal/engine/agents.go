@@ -10,6 +10,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -27,7 +28,7 @@ var toolsTimeout = 30 * time.Second
 // listenerBuffer is the number of changes that the channel of a listener holds.
 const listenerBuffer = 256
 
-// cancelResend is the time between two cancels for the same new details.
+// cancelResend is the time between two tries to give the same new details to a turn that runs.
 const cancelResend = time.Second
 
 // errNoTools is the error of a Claude Code session that gets no tools/list (Mobius-rust#254).
@@ -698,11 +699,14 @@ func (a *Agent) cancel(ctx context.Context) error {
 	return a.session.Cancel(ctx)
 }
 
-// resendCancel sends the cancel at each wake and each cancelResend while new details wait, until ctx ends. A cancel
+// resendCancel gives the new details that wait to the agent until ctx ends, at each wake and each cancelResend. When
+// the Harness has steering, it first puts the details into the running turn, and the turn continues. When a steering
+// request fails, or gives no injection, resendCancel sends no more steering request, and it sends the cancel. A cancel
 // that the agent gets before it reads the prompt request does not end the turn.
 func (a *Agent) resendCancel(ctx context.Context) {
 	ticker := time.NewTicker(cancelResend)
 	defer ticker.Stop()
+	steer := a.session.Steering()
 	for {
 		select {
 		case <-ctx.Done():
@@ -711,12 +715,51 @@ func (a *Agent) resendCancel(ctx context.Context) {
 		case <-ticker.C:
 		}
 		a.mu.Lock()
-		waiting := len(a.details) > 0
+		waiting := slices.Clone(a.details)
 		a.mu.Unlock()
-		if waiting {
-			_ = a.cancel(ctx)
+		if len(waiting) == 0 {
+			continue
 		}
+		if steer {
+			if a.steerDetails(ctx, waiting) {
+				continue
+			}
+			steer = false
+		}
+		_ = a.cancel(ctx)
 	}
+}
+
+// steerDetails puts the details into the running turn, and gives true when the agent took them. Then it removes them
+// from a.details and adds a prompt row with their text. Details that arrived during the request stay.
+func (a *Agent) steerDetails(ctx context.Context, details []string) bool {
+	subject := "task"
+	if a.spec.Role == ResearcherRole {
+		subject = "question"
+	}
+	text := detailsPrompt(subject, strings.Join(details, "\n\n"))
+	injected, err := a.session.Steer(ctx, text)
+	if err != nil && ctx.Err() == nil {
+		log.Printf("steer the session %d: %v", a.id, err)
+	}
+	if !injected {
+		return false
+	}
+	row, err := compact(promptRow(text, nil))
+	if err != nil {
+		log.Printf("add the details row of the session %d: %v", a.id, err)
+		return true
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if len(a.details) >= len(details) && slices.Equal(a.details[:len(details)], details) {
+		a.details = a.details[len(details):]
+	}
+	a.chunk = nil
+	if err := a.engine.addRow(context.WithoutCancel(ctx), a.id, "prompt", row, false); err != nil {
+		log.Printf("add the details row of the session %d: %v", a.id, err)
+	}
+	return true
 }
 
 // replyText gives the reply text of the last turn after its last tool call.

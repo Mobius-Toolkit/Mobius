@@ -1297,9 +1297,9 @@ func (e *Engine) prepareWorktree(ctx context.Context, j *job, worktree string) e
 // turnsAndChecks runs the turns of the agent until the local check passes. After each prompt, it waits for the
 // background tasks of the agent before the check. It gives a result when the Implementer
 // calls cannot_do, and the end of the output of the last check when the check fails max_check_attempts times. New
-// details of the Owner stop the turn that runs and go to the agent as the next prompt, with no check and no attempt
-// of their own. A check that does not end in check_timeout is no fault of the code, so it counts as an attempt and
-// runs again with no prompt.
+// details of the Owner go into the turn that runs when the Harness has steering. Else they stop the turn and go to the
+// agent as the next prompt, with no check and no attempt of their own. A check that does not end in check_timeout is
+// no fault of the code, so it counts as an attempt and runs again with no prompt.
 func (e *Engine) turnsAndChecks(ctx context.Context, a *Agent, j *job) (*result, string, error) {
 	prompt := j.first
 	attempts := 1
@@ -1382,8 +1382,8 @@ func (e *Engine) takeDetails(open map[int64]*Agent, id int64, a *Agent, last boo
 	return details
 }
 
-// addDetails gives text as new details to the open session id of open, and ends the turn that runs. It tells if the
-// session is open.
+// addDetails gives text as new details to the open session id of open. A turn that runs gets them at once: with
+// steering they go into the turn, else the turn ends. It tells if the session is open.
 func (e *Engine) addDetails(open map[int64]*Agent, id int64, text string) bool {
 	e.detailsMu.Lock()
 	a, ok := open[id]
@@ -1404,8 +1404,8 @@ func (e *Engine) addDetails(open map[int64]*Agent, id int64, text string) bool {
 	return true
 }
 
-// sendDetails gives new details of the Owner to the open Implementer session of the task. A turn that runs ends, and
-// the details go to the agent as the next prompt.
+// sendDetails gives new details of the Owner to the open Implementer session of the task. With steering, the details
+// go into the turn that runs. Else the turn ends, and the details go to the agent as the next prompt.
 func (e *Engine) sendDetails(ctx context.Context, c caller, repository github.Repository, input textInput) (string, error) {
 	if empty(input.Text) {
 		return "", refuse("text must not be empty.")
