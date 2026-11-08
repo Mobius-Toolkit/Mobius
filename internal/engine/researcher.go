@@ -191,11 +191,13 @@ func (e *Engine) research(ctx context.Context, c caller, repository github.Repos
 
 // moveResearcher adds a new session for the Researcher id after the session old ended with the reason "moved". The new
 // session gets the details that wait for old, and replaces old in e.researchers. It gives nil when a stop came before.
-// When it cannot add the new session, it reports the failure.
+// When it cannot add the new session and no stop came, it reports the failure.
 func (e *Engine) moveResearcher(ctx context.Context, c caller, repository github.Repository, id int64, question string, old *Agent) (*Agent, error) {
 	next, err := e.newAgent(ctx, old.spec)
 	if err != nil {
-		e.leave(ctx, id)
+		if e.leave(ctx, id) {
+			return nil, nil
+		}
 		return nil, errors.Join(err, e.deliverReport(context.WithoutCancel(ctx), c, repository, id, question, "The Researcher failed: "+err.Error()))
 	}
 	e.detailsMu.Lock()
