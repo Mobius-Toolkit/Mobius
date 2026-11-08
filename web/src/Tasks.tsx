@@ -18,9 +18,9 @@ import { TopBar } from "./TopBar";
 const columns: { title: string; has: (task: BoardTask) => boolean }[] = [
   { title: "Queued", has: (task) => inStates(task, ["dispatched", "queued", "answered"]) },
   { title: "Working", has: (task) => inStates(task, ["working", "reviewed"]) },
-  { title: "Waiting", has: (task) => inStates(task, ["checks", "approval"]) || task.merging },
+  { title: "Waiting", has: (task) => inStates(task, ["checks", "approval"]) },
   { title: "Needs you", has: (task) => inStates(task, ["needs_human", "asked", "stopped"]) },
-  { title: "Ready to merge", has: (task) => task.state === "ready_for_review" && !task.merging },
+  { title: "Ready to merge", has: (task) => task.state === "ready_for_review" },
   { title: "Done", has: (task) => task.state === "ended" },
 ];
 
@@ -46,8 +46,7 @@ function TaskCard({ task, now }: { task: BoardTask; now: number }) {
         {task.repository.split("/")[1]}#{task.number} · {task.workstreamTitle}
       </span>
       <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <Badge variant="secondary">{task.state}</Badge>
-        {task.merging && <Badge variant="secondary">merging</Badge>}
+        <Badge variant="secondary">{task.merging ? "approved" : task.state}</Badge>
         {task.pullRequest !== null && task.pullRequestUrl !== null && (
           <a
             href={task.pullRequestUrl}

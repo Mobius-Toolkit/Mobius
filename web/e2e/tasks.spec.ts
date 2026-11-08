@@ -187,7 +187,7 @@ test("on a desktop the six columns fit the page", async ({ page }) => {
   await expect(page.getByRole("region", { name: "Done" })).toBeInViewport();
 });
 
-test("a task in the merge is in Waiting with two badges, and a refused task is in Ready to merge with its reason", async ({
+test("a task in the merge is in Ready to merge with the badge approved, and a refused task keeps its reason", async ({
   page,
 }) => {
   await routeTasks(page, [...boardTasks, mergingTask, refusedTask]);
@@ -197,24 +197,26 @@ test("a task in the merge is in Waiting with two badges, and a refused task is i
   await expect(headings).toHaveText([
     "Queued3",
     "Working2",
-    "Waiting3",
+    "Waiting2",
     "Needs you3",
-    "Ready to merge2",
+    "Ready to merge3",
     "Done2",
   ]);
   const waiting = page.getByRole("region", { name: "Waiting" });
-  const merging = waiting.getByRole("listitem").filter({ hasText: "Show the renewal date" });
-  await expect(merging.getByText("ready_for_review", { exact: true })).toBeVisible();
-  await expect(merging.getByText("merging", { exact: true })).toBeVisible();
   const ready = page.getByRole("region", { name: "Ready to merge" });
-  await expect(ready.getByText("Show the renewal date")).toHaveCount(0);
-  await expect(ready.getByText("merging", { exact: true })).toHaveCount(0);
+  await expect(waiting.getByText("Show the renewal date")).toHaveCount(0);
+  const merging = ready.getByRole("listitem").filter({ hasText: "Show the renewal date" });
+  await expect(merging.getByText("approved", { exact: true })).toBeVisible();
+  await expect(merging.getByText("ready_for_review", { exact: true })).toHaveCount(0);
+  await expect(merging.getByText("merging", { exact: true })).toHaveCount(0);
   const refused = ready.getByRole("listitem").filter({ hasText: "Add the coupon field" });
   await expect(refused.getByText("Required status check is expected.")).toBeVisible();
   await expect(waiting.getByText("Required status check is expected.")).toHaveCount(0);
 });
 
-test("the board moves a task to Waiting after an inbox event, with no reload", async ({ page }) => {
+test("the board changes the badge of a task to approved after an inbox event, with no reload", async ({
+  page,
+}) => {
   await page.addInitScript(`
     window.sources = [];
     const add = EventSource.prototype.addEventListener;
@@ -231,15 +233,18 @@ test("the board moves a task to Waiting after an inbox event, with no reload", a
 
   const ready = page.getByRole("region", { name: "Ready to merge" });
   const waiting = page.getByRole("region", { name: "Waiting" });
-  await expect(ready.getByText("Show the renewal date")).toBeVisible();
+  const renewal = ready.getByRole("listitem").filter({ hasText: "Show the renewal date" });
+  await expect(renewal.getByText("ready_for_review", { exact: true })).toBeVisible();
+  await expect(renewal.getByText("approved", { exact: true })).toHaveCount(0);
   await expect(waiting.getByText("Show the renewal date")).toHaveCount(0);
 
   tasks = [...boardTasks, mergingTask];
   await page.evaluate(
     `window.sources.at(-1).dispatchEvent(new MessageEvent('inbox', { data: '{}' }))`,
   );
-  await expect(waiting.getByText("Show the renewal date")).toBeVisible();
-  await expect(ready.getByText("Show the renewal date")).toHaveCount(0);
-  await expect(waiting.getByRole("heading")).toHaveText("Waiting3");
-  await expect(ready.getByRole("heading")).toHaveText("Ready to merge1");
+  await expect(renewal.getByText("approved", { exact: true })).toBeVisible();
+  await expect(renewal.getByText("ready_for_review", { exact: true })).toHaveCount(0);
+  await expect(waiting.getByText("Show the renewal date")).toHaveCount(0);
+  await expect(waiting.getByRole("heading")).toHaveText("Waiting2");
+  await expect(ready.getByRole("heading")).toHaveText("Ready to merge2");
 });
