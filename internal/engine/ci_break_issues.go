@@ -172,7 +172,7 @@ func ciBreakBody(ctx context.Context, repository github.Repository, ciBreak stor
 	if ciBreak.Result == "flaky" {
 		head.WriteString("Result of the re-run: flaky. The re-run of the failed jobs passed.\n")
 	} else {
-		head.WriteString("Result of the re-run: hard. The re-run of the failed jobs failed again, or GitHub refused the re-run.\n")
+		head.WriteString("Result of the re-run: hard. One of these causes applies: the re-run of the failed jobs failed, GitHub refused the re-run, or a newer run of the workflow failed.\n")
 	}
 	var sections, logs []string
 	used := head.Len()

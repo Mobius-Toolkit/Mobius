@@ -287,6 +287,7 @@ test("a new page starts at the top", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 200 });
   await page.goto("/workstreams");
   await expect(page.getByRole("banner").getByText("Workstreams")).toBeVisible();
+  await expect(page.getByRole("link", { name: /Phone plans/ })).toBeVisible();
   await page.evaluate("document.getElementById('content').scrollTo(0, 10000)");
   expect(await scrollTop(page)).toBeGreaterThan(0);
   await page.getByRole("link", { name: "Inbox" }).filter({ visible: true }).click();
