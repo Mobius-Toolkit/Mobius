@@ -1,5 +1,12 @@
 import { expect, test } from "@playwright/test";
-import { boardTasks, mergingTask, refusedTask, routeTasks, tasksRoute } from "./tasks.js";
+import {
+  boardTasks,
+  inboxItem,
+  mergingTask,
+  refusedTask,
+  routeTasks,
+  tasksRoute,
+} from "./tasks.js";
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/github");
@@ -240,7 +247,9 @@ test("the board changes the badge of a task to approved after an inbox event, wi
 
   tasks = [...boardTasks, mergingTask];
   await page.evaluate(
-    `window.sources.at(-1).dispatchEvent(new MessageEvent('inbox', { data: '{}' }))`,
+    `window.sources.at(-1).dispatchEvent(new MessageEvent('inbox', { data: ${JSON.stringify(
+      JSON.stringify(inboxItem),
+    )} }))`,
   );
   await expect(renewal.getByText("approved", { exact: true })).toBeVisible();
   await expect(renewal.getByText("ready_for_review", { exact: true })).toHaveCount(0);
