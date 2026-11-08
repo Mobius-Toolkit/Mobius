@@ -1532,7 +1532,7 @@ test("screenshots", async ({ page }) => {
     () => [
       page.getByRole("dialog").getByText("Mandatory env var"),
       page.getByRole("dialog").getByText("File: internal/config/config.go:42"),
-      page.getByRole("dialog").getByText("Mobius merges after you complete this todo."),
+      page.getByRole("dialog").getByText("This todo blocks the merge until you complete it."),
       page.getByRole("dialog").getByRole("textbox", { name: "Note" }),
     ],
     openPanel("Complete", 0),

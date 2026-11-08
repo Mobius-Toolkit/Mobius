@@ -1412,6 +1412,16 @@ UPDATE deployment_todos SET note = ?, done_at = ? WHERE id = ?;
 -- name: SetDeploymentTodoDismissed :exec
 UPDATE deployment_todos SET dismissed_at = ? WHERE id = ?;
 
+-- name: SetDeploymentTodoMandatory :exec
+UPDATE deployment_todos SET mandatory = ? WHERE id = ?;
+
+-- name: ReopenDeploymentTodo :exec
+UPDATE deployment_todos SET mandatory = ?, dismissed_at = NULL, inbox_item = ? WHERE id = ?;
+
+-- name: SetInboxItemReason :one
+UPDATE inbox_items SET reason = ? WHERE id = ?
+RETURNING *;
+
 -- A Workstream needs buckets when it has more than the maximum of direct sub-issues, or when an open bucket has no
 -- sub-issues or holds a closed issue.
 -- name: ListWorkstreamsNeedingBuckets :many

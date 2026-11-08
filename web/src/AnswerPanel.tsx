@@ -310,8 +310,10 @@ export function AnswerPanel({
             </p>
             {todo.afterMerge ? (
               <p>Do this step after the merge. This todo does not block the merge.</p>
+            ) : todo.mandatory ? (
+              <p>This todo blocks the merge until you complete it.</p>
             ) : (
-              todo.mandatory && <p>Mobius merges after you complete this todo.</p>
+              <p>This todo blocks the merge until you complete or dismiss it.</p>
             )}
           </div>
         ) : (

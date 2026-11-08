@@ -367,7 +367,7 @@ func (e *Engine) setMergeItems(ctx context.Context, task store.Task, merging int
 // MergeInboxItem approves the pull request of the open ready for review Inbox item id with the user token of the Owner,
 // marks the item as merging, and starts a poll at once. The poll merges the pull request (mergeApproved). It gives the
 // changed item. It returns a refusal when the item is not open, when the task of its issue is not in ready_for_review
-// with the pull request of the item, when the pull request is not open, and when the Owner did not authorize the Mobius
+// with the pull request of the item, when a todo of the task blocks (blockedByTodos), when the pull request is not open, and when the Owner did not authorize the Mobius
 // App. Requests take turns, so two requests at the same time give one review.
 func (e *Engine) MergeInboxItem(ctx context.Context, id int64) (store.InboxItem, error) {
 	e.mergeMu.Lock()
@@ -388,6 +388,13 @@ func (e *Engine) MergeInboxItem(ctx context.Context, id int64) (store.InboxItem,
 	}
 	if err != nil || task.State != "ready_for_review" || task.PullRequest.Int64 != item.PullRequest {
 		return store.InboxItem{}, refuse("The task of #%d is not ready for review.", item.Issue)
+	}
+	blocked, err := e.blockedByTodos(ctx, task)
+	if err != nil {
+		return store.InboxItem{}, err
+	}
+	if blocked {
+		return store.InboxItem{}, refuse("Pull request #%d has open todos. Close them first.", item.PullRequest)
 	}
 	repository, err := e.repository(item.Repository)
 	if err != nil {

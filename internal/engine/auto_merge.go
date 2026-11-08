@@ -22,19 +22,20 @@ const mergeRetryReason = "GitHub gave a server error. Mobius tries the approval 
 // autoApprove does what MergeInboxItem does, for a Workstream with a merge level: it adds an APPROVED review of the
 // Owner on the head, sets auto_merge of the task, and marks the open ready for review Inbox items as merging. The poll
 // then merges the pull request (mergeApproved). When it fails, the items get the error text as their reason, so the
-// "Merge" button shows, and the task has no auto_merge. When a mandatory deployment need of the task has a todo that is
-// not done, it does not approve. The items get the reason mandatoryTodosReason. While the Merge switch is off, it does
+// "Merge" button shows, and the task has no auto_merge. While a deployment need of the task blocks (blockedByTodos), it
+// does not approve. The items get the reason openTodosReason. While the Merge switch is off, it does
 // not approve either. The items get the reason mergePausedReason, and the issue goes to the held work of the switch.
 // In both cases it gives the reason. When GitHub answers the review with a 5xx error, the task has no auto_merge, and
-// the items get the reason mergeRetryReason. It gives that reason, and continuePausedMerges tries again. An approval that the Owner gave with "Merge" or on GitHub stays, and the task
-// does not count as blocked. While the Merge switch is off, that approval merges the pull request as it is.
+// the items get the reason mergeRetryReason. It gives that reason, and continuePausedMerges tries again. An approval that the Owner gave with "Merge" or on GitHub stays. While a
+// todo blocks, mergeApproved does not merge that pull request. While the Merge switch is off, that approval merges the
+// pull request as it is.
 func (e *Engine) autoApprove(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) (string, error) {
 	blocked, err := e.blockedByTodos(ctx, task)
 	if err != nil {
 		return "", err
 	}
-	if blocked && (task.AutoMerge == 1 || !awaitsMerge(task)) {
-		return mandatoryTodosReason, e.refuseMergeItem(ctx, task, mandatoryTodosReason)
+	if blocked {
+		return openTodosReason, e.refuseMergeItem(ctx, task, openTodosReason)
 	}
 	off, err := e.mergeOff(ctx)
 	if err != nil {
@@ -164,7 +165,7 @@ func (e *Engine) approveAsOwner(ctx context.Context, repository github.Repositor
 // applyLevel acts on the live tasks of the Workstream after a person changed its Autopilot level to level. With a merge
 // level, a task in ready_for_review with an open ready for review Inbox item and no approval gets autoApprove. Without
 // a merge level, a task that Mobius approved for the merge and that waits for the merge gets the reason
-// mergeOffReason, and the "Merge" button shows again. A task whose items have mandatoryTodosReason or mergePausedReason
+// mergeOffReason, and the "Merge" button shows again. A task whose items have openTodosReason or mergePausedReason
 // loses that reason.
 // A task that already has the result stays as it is, so a poll that runs the step again changes nothing.
 func (e *Engine) applyLevel(ctx context.Context, workstreamRepository string, workstream int64, level string) error {
