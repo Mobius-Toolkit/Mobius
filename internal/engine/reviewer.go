@@ -183,6 +183,10 @@ func (e *Engine) reviewer(ctx context.Context, j *reviewJob) error {
 	switch {
 	case ctx.Err() != nil:
 		reason = "The task stopped."
+	case errors.Is(err, errMoved):
+		roles := e.mergedRoles()
+		binding, _ := roleBinding(&roles, ReviewerRole)
+		reason = fmt.Sprintf("The Reviewer moved to %s.", binding.Harness)
 	case err != nil:
 		reason = "The run failed: " + err.Error()
 	}
@@ -199,6 +203,8 @@ func (e *Engine) reviewer(ctx context.Context, j *reviewJob) error {
 	switch {
 	case ctx.Err() != nil:
 		return a.End(ended, "stopped")
+	case errors.Is(err, errMoved):
+		return errors.Join(err, a.End(ended, "moved"))
 	case errors.Is(err, errHung):
 		return e.endHungTask(ended, a, task, j.title)
 	case err != nil:
