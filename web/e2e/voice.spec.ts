@@ -617,6 +617,49 @@ test("a 404 for a conversion uploads the kept audio again", async ({ page }) => 
   expect(files[1].equals(files[0])).toBe(true);
 });
 
+test("a 401 for a conversion ends the wait at once", async ({ page }) => {
+  await page.clock.install();
+  let requests = 0;
+  await answer(page, "red roses");
+  await page.route("**/api/voice/conversions/*", (route) => {
+    requests++;
+    return route.fulfill({ status: 401, json: { error: "login required" } });
+  });
+  await page.goto("/chat");
+  await begin(page);
+  await stop(page).click();
+  await settled(page);
+  await expect(page.getByRole("alert")).toHaveText("login required");
+  await expect(again(page)).toBeVisible();
+  expect(requests).toBe(1);
+});
+
+test("a 500 for each request for a conversion ends the wait after 16 minutes", async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.clock.install();
+  let requests = 0;
+  await answer(page, "red roses");
+  await page.route("**/api/voice/conversions/*", (route) => {
+    requests++;
+    return route.fulfill({ status: 500, contentType: "text/html", body: "<html>500</html>" });
+  });
+  await page.goto("/chat");
+  await begin(page);
+  await stop(page).click();
+  await expect
+    .poll(
+      async () => {
+        await tick(page);
+        return start(page).isVisible();
+      },
+      { timeout: 120_000, intervals: [10] },
+    )
+    .toBe(true);
+  await expect(page.getByRole("alert")).toHaveText("The server answered 500.");
+  await expect(again(page)).toBeVisible();
+  expect(requests).toBeGreaterThanOrEqual(470);
+});
+
 test("a non-JSON answer with the status 524 shows the status", async ({ page }) => {
   await page.route("**/api/voice/transcriptions", (route) =>
     route.fulfill({ status: 524, contentType: "text/html", body: "<html>error code: 524</html>" }),

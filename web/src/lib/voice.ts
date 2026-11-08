@@ -21,6 +21,7 @@ const chunkInterval = 2000;
 const quickLimit = 30 * 1000;
 const uploadLimit = 6 * 60 * 1000;
 const conversionInterval = 2000;
+const waitLimit = 16 * 60 * 1000;
 const takenMessage = "The recording stopped because another app took the microphone.";
 const backgroundMessage = "The recording stopped because the app went to the background.";
 const unreachableMessage =
@@ -189,9 +190,12 @@ const failure = (answer: Answer<unknown>) =>
 const pause = (time: number) => new Promise((resolve) => setTimeout(resolve, time));
 
 // awaitConversion asks for the conversion each conversionInterval until it ends. A request that fails does not end
-// the conversion. A conversion that the server lost starts again with the audio.
+// the conversion, but a 4xx answer other than 404 does. A conversion that the server lost starts again with the audio.
+// The wait ends with the last failure after waitLimit.
 const awaitConversion = async (id: string, audio: Blob): Promise<Result> => {
-  for (;;) {
+  const end = Date.now() + waitLimit;
+  let last = unreachableMessage;
+  while (Date.now() < end) {
     await pause(conversionInterval);
     const answer = await request<getConversionResponse200["data"]>(
       getGetConversionUrl(id),
@@ -200,6 +204,10 @@ const awaitConversion = async (id: string, audio: Blob): Promise<Result> => {
     if (answer?.status === 404) {
       return convert(audio);
     }
+    if (answer && answer.status >= 400 && answer.status < 500) {
+      return { text: "", error: failure(answer) };
+    }
+    last = answer ? failure(answer) : unreachableMessage;
     const conversion = answer?.status === 200 ? answer.data?.data : undefined;
     if (conversion?.state === "done") {
       return { text: conversion.text.trim(), error: "" };
@@ -208,6 +216,7 @@ const awaitConversion = async (id: string, audio: Blob): Promise<Result> => {
       return { text: "", error: conversion.error };
     }
   }
+  return { text: "", error: last };
 };
 
 const convert = async (audio: Blob): Promise<Result> => {
