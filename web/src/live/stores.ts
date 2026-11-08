@@ -2,7 +2,7 @@ import { Effect, Queue, Stream } from "effect";
 
 // Gives the value of a plain store of web/src/lib to the program: first its current value, then each new value.
 export function storeValues<Value, Message>(
-  subscribe: (listener: () => void) => () => unknown,
+  subscribe: (listener: () => void) => () => void,
   current: () => Value,
   toMessage: (value: Value) => Message,
 ) {
