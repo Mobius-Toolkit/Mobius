@@ -843,7 +843,11 @@ function renderTraySideButtons(h: H, item: InboxItem, model: Model): Html[] {
       ),
     );
   }
-  if (item.kind === InboxItemKind.Lead_failed || item.kind === InboxItemKind.tool_upgrade) {
+  if (
+    item.kind === InboxItemKind.Lead_failed ||
+    item.kind === InboxItemKind.tool_upgrade ||
+    item.todo?.dismissable
+  ) {
     buttons.push(
       trayButton(h, {
         label: "Dismiss",

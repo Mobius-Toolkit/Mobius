@@ -1033,6 +1033,7 @@ test("screenshots", async ({ page }) => {
       trayToggle(page, 2, true),
       main.getByText("Todo · mandatory"),
       main.getByText("Todo · optional"),
+      main.getByRole("button", { name: "Dismiss" }),
     ],
     async () => {
       await expect(trayToggle(page, 2, true)).toBeVisible();
