@@ -11,9 +11,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -254,9 +256,50 @@ func (g *GitHub) CommitMessages(ctx context.Context, base, head string) ([]strin
 	return messages, nil
 }
 
-// ReleaseURL gives the download URL of the file asset of the release of Mobius with tag.
-func (g *GitHub) ReleaseURL(tag, asset string) string {
-	return g.webURL + "/Mobius-Toolkit/Mobius/releases/download/" + url.PathEscape(tag) + "/" + url.PathEscape(asset)
+// DownloadStallLimit is the longest time that DownloadReleaseAsset waits for a byte.
+var DownloadStallLimit = 60 * time.Second
+
+var errDownloadStalled = errors.New("the download got no byte within the stall limit")
+
+// DownloadReleaseAsset writes the file asset id of the latest release of Mobius to the file path, through the API
+// asset URL. The storage host of GitHub gets no token. The call uses publicClient.
+func (g *GitHub) DownloadReleaseAsset(ctx context.Context, id int64, path string) error {
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	stall := time.AfterFunc(DownloadStallLimit, func() { cancel(errDownloadStalled) })
+	defer stall.Stop()
+	body, _, err := g.publicClient().Repositories.DownloadReleaseAsset(ctx, "Mobius-Toolkit", "Mobius", id, &http.Client{})
+	if err == nil {
+		err = writeFile(path, &stallReader{body, stall})
+		err = errors.Join(err, body.Close())
+	}
+	if cause := context.Cause(ctx); errors.Is(cause, errDownloadStalled) {
+		return cause
+	}
+	return err
+}
+
+func writeFile(path string, source io.Reader) error {
+	file, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(file, source)
+	return errors.Join(err, file.Close())
+}
+
+// stallReader restarts the timer stall at each read that gives bytes.
+type stallReader struct {
+	io.Reader
+	stall *time.Timer
+}
+
+func (s *stallReader) Read(p []byte) (int, error) {
+	n, err := s.Reader.Read(p)
+	if n > 0 {
+		s.stall.Reset(DownloadStallLimit)
+	}
+	return n, err
 }
 
 type userTokens struct {
