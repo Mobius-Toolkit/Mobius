@@ -1382,13 +1382,13 @@ UPDATE lead_writes SET item = ? WHERE id = ? AND item IS NULL;
 DELETE FROM deployment_needs WHERE task = ?;
 
 -- name: AddDeploymentNeed :exec
-INSERT INTO deployment_needs (task, head, kind, name, path, line, reason, mandatory) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO deployment_needs (task, head, kind, name, path, line, reason, mandatory, after_merge) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: ListDeploymentNeeds :many
 SELECT * FROM deployment_needs WHERE task = ? ORDER BY id;
 
 -- name: AddDeploymentTodo :exec
-INSERT INTO deployment_todos (task, inbox_item, kind, name, path, line, reason, mandatory) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO deployment_todos (task, inbox_item, kind, name, path, line, reason, mandatory, after_merge) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: ListDeploymentTodos :many
 SELECT * FROM deployment_todos WHERE task = ? ORDER BY id;

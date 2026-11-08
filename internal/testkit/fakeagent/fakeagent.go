@@ -37,6 +37,7 @@
 //	meta = '{"quota": {}}'  # the _meta field of the response
 //	error = { code = -32000, message = "Usage limit", data = "..." }  # the turn ends with this error
 //	hang = true             # the turn ends only at session/cancel
+//	stop_reason = "max_tokens"  # the stop reason of the response, with no hang and no cancel; the default is end_turn
 //	busy = "300ms"          # before the reply, the agent sends a tool_call_update every 10 ms for this long
 //	linger = "1s"           # after the reply, the turn waits this long or until session/cancel
 //	later = { after = "100ms", updates = ['{"sessionUpdate": "plan", "entries": []}'] }
@@ -119,19 +120,20 @@ type script struct {
 }
 
 type prompt struct {
-	When      string       `toml:"when"`
-	Reply     []string     `toml:"reply"`
-	Updates   []string     `toml:"updates"`
-	Hang      bool         `toml:"hang"`
-	Busy      string       `toml:"busy"`
-	Linger    string       `toml:"linger"`
-	ListTools bool         `toml:"list_tools"`
-	Call      *call        `toml:"call"`
-	Shell     string       `toml:"shell"`
-	Error     *scriptError `toml:"error"`
-	Usage     string       `toml:"usage"`
-	Meta      string       `toml:"meta"`
-	Later     *later       `toml:"later"`
+	When       string       `toml:"when"`
+	Reply      []string     `toml:"reply"`
+	Updates    []string     `toml:"updates"`
+	Hang       bool         `toml:"hang"`
+	StopReason string       `toml:"stop_reason"`
+	Busy       string       `toml:"busy"`
+	Linger     string       `toml:"linger"`
+	ListTools  bool         `toml:"list_tools"`
+	Call       *call        `toml:"call"`
+	Shell      string       `toml:"shell"`
+	Error      *scriptError `toml:"error"`
+	Usage      string       `toml:"usage"`
+	Meta       string       `toml:"meta"`
+	Later      *later       `toml:"later"`
 }
 
 type promptResult struct {
@@ -749,6 +751,9 @@ func (a *agent) play(ctx context.Context, sessionID string, turn prompt, mcpURL 
 		case <-ctx.Done():
 			return "", acp.NewRequestCancelled(nil)
 		}
+	}
+	if turn.StopReason != "" {
+		return acp.StopReason(turn.StopReason), nil
 	}
 	return acp.StopReasonEndTurn, nil
 }
