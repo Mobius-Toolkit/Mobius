@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -103,10 +104,10 @@ func waitForKept(t *testing.T, server *testserver.Server, issue int64) *runner.S
 	})
 }
 
-// keptOf gives the Harness session that the engine keeps for the task of the issue, or nil.
-func keptOf(t *testing.T, server *testserver.Server, issue int64) *runner.Session {
+// keptOf gives the Harness session that the engine keeps for the task of #41, or nil.
+func keptOf(t *testing.T, server *testserver.Server) *runner.Session {
 	t.Helper()
-	return server.Engine.KeptSession(liveTask(t, server, issue).ID)
+	return server.Engine.KeptSession(liveTask(t, server, 41).ID)
 }
 
 // waitForClosedKept waits until the engine no longer keeps the task session and its Harness process ended.
@@ -303,6 +304,92 @@ func TestARoundAfterAChangeOfTheImplementerBindingStartsANewSession(t *testing.T
 	}
 }
 
+// setRoleModel gives the Role role the model, and keeps the other fields of its binding.
+func setRoleModel(t *testing.T, server *testserver.Server, role, model string) {
+	t.Helper()
+	settings, err := server.Engine.Roles(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var binding config.RoleBinding
+	for _, setting := range settings {
+		if setting.Role == role {
+			binding = setting.Binding
+		}
+	}
+	binding.Model = model
+	if err := server.Engine.SetRole(t.Context(), role, binding); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAChangeOfTheImplementerRoleClosesTheKeptImplementerSession(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := keptServer(t, fake, commits, noChange)
+	firstRound(t, server, fake)
+	kept := waitForKept(t, server, 41)
+	taskID := liveTask(t, server, 41).ID
+
+	setRoleModel(t, server, engine.ImplementerRole, "opus")
+
+	waitForClosedKept(t, server, taskID, kept)
+}
+
+func TestAResetOfTheImplementerRoleClosesTheKeptImplementerSession(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := keptServer(t, fake, commits, noChange)
+	setRoleModel(t, server, engine.ImplementerRole, "opus")
+	firstRound(t, server, fake)
+	kept := waitForKept(t, server, 41)
+	taskID := liveTask(t, server, 41).ID
+
+	if err := server.Engine.ResetRole(t.Context(), engine.ImplementerRole); err != nil {
+		t.Fatal(err)
+	}
+
+	waitForClosedKept(t, server, taskID, kept)
+}
+
+func TestAChangeOfTheReviewerRoleKeepsTheKeptImplementerSession(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, dataDir := keptServer(t, fake, fixWithCost+commitWithCost, noChange)
+	first := firstRound(t, server, fake)
+	kept := waitForKept(t, server, 41)
+
+	setRoleModel(t, server, engine.ReviewerRole, "haiku")
+
+	if !kept.Alive() || keptOf(t, server) != kept {
+		t.Fatalf("kept = %v", keptOf(t, server))
+	}
+	startFixRound(t, server)
+	sessions := waitForImplementerSessions(t, server, 2)
+	if sessions[1].Continued != 1 || sessions[1].AcpSessionID.String != first.AcpSessionID.String {
+		t.Errorf("session = %+v", sessions[1])
+	}
+	if got := harnessStarts(t, dataDir); got != 1 {
+		t.Errorf("starts = %d, want 1 process for two rounds", got)
+	}
+}
+
+func TestAChangeOfTheImplementerRoleKeepsTheKeptSessionOfATaskWithItsOwnSetting(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := keptServer(t, fake, commits, noChange)
+	waitForCopy(t, server, shop, 41)
+	setBinding(t, server, engine.ImplementerRole, 41, config.Devin, "opus", "low")
+	firstRound(t, server, fake)
+	kept := waitForKept(t, server, 41)
+
+	setRoleModel(t, server, engine.ImplementerRole, "sonnet")
+
+	if !kept.Alive() || keptOf(t, server) != kept {
+		t.Fatalf("kept = %v", keptOf(t, server))
+	}
+}
+
 func TestAConflictRoundStartsANewImplementerSession(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
@@ -326,7 +413,7 @@ func TestAConflictRoundStartsANewImplementerSession(t *testing.T) {
 	if sessions[1].EndReason.String != "not_merged" {
 		t.Errorf("end reason = %s", sessions[1].EndReason.String)
 	}
-	if kept := keptOf(t, server, 41); kept != nil {
+	if kept := keptOf(t, server); kept != nil {
 		t.Errorf("the kept session of the earlier round is still open")
 	}
 	if got := harnessStarts(t, dataDir); got != 2 {
@@ -436,6 +523,39 @@ func TestAStopWhileTheRoundEndsClosesTheKeptImplementerSession(t *testing.T) {
 	waitForClosedKept(t, server, taskID, session)
 }
 
+// TestAChangeOfTheImplementerRoleDuringARoundClosesItsProcess changes the Implementer role in the window between the
+// end of the round and its keep. The change finds no kept session, so the keep must close the process.
+//
+// Serial: the test changes beforeKeep.
+func TestAChangeOfTheImplementerRoleDuringARoundClosesItsProcess(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, dataDir := keptServer(t, fake, commits, noChange)
+	var once sync.Once
+	kept := make(chan *runner.Session, 1)
+	restore := engine.SetBeforeKeep(func(_ int64, session *runner.Session) {
+		once.Do(func() {
+			kept <- session
+			setRoleModel(t, server, engine.ImplementerRole, "opus")
+		})
+	})
+	defer restore()
+
+	firstRound(t, server, fake)
+	session := <-kept
+	taskID := liveTask(t, server, 41).ID
+
+	waitForClosedKept(t, server, taskID, session)
+	before := harnessStarts(t, dataDir)
+	startFixRound(t, server)
+	sessions := waitForImplementerSessions(t, server, 2)
+	if sessions[1].Continued != 0 || sessions[1].Model != "opus" {
+		t.Errorf("session = %+v", sessions[1])
+	}
+	if got := harnessStarts(t, dataDir); got != before+1 {
+		t.Errorf("starts = %d, want %d", got, before+1)
+	}
+}
+
 func TestAKeptSessionDoesNotHoldTheImplementerSlot(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
@@ -530,7 +650,7 @@ func TestAShortPromptHasTheEarlierReportAfterAConflictRound(t *testing.T) {
 		t.Fatalf("conflict round end reason = %s", sessions[1].EndReason.String)
 	}
 	testkit.WaitFor(t, func() bool {
-		kept := keptOf(t, server, 41)
+		kept := keptOf(t, server)
 		return kept != nil && kept.ID() == sessions[1].AcpSessionID.String
 	})
 	testkit.WaitFor(t, func() bool {
