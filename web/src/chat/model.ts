@@ -49,6 +49,7 @@ export function upsert(list: readonly ChatMessage[], message: ChatMessage): read
         !(message.failedAt && new Date(message.failedAt) > new Date(known.deliveredAt))) ||
       (known.stoppedAt && !message.stoppedAt) ||
       (known.question && !message.question) ||
+      (known.action && !message.action) ||
       (known.question?.dismissedAt && !message.question?.dismissedAt))
   ) {
     return list;
