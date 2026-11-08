@@ -65,7 +65,8 @@ export default defineConfig({
     { name: "voice", testMatch: "voice.spec.ts", dependencies: ["screenshots"] },
     // The usage tests change no data, but they need the Apps of the screenshots test.
     { name: "usage", testMatch: "usage.spec.ts", dependencies: ["screenshots"] },
-    // The live tests change no data, but they need the Apps of the screenshots test.
+    // The live tests add two Owner messages to the Lead chat of plants/garden#12, which no later spec reads. They need the
+    // Apps of the screenshots test.
     { name: "live", testMatch: "live.spec.ts", dependencies: ["checkup", "actions"] },
     // The setting tests set and clear the Harness settings of owner/shop#12 and #39. Each setting adds a record to the
     // chat of owner/shop#12, so they run after the tests that read that chat.

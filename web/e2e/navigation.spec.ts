@@ -626,6 +626,12 @@ test.describe("the bars of a phone", () => {
   test("stay in position with short content and with long content", async ({ page }) => {
     const items = Array.from({ length: 40 }, (_, index) => ({
       dismissedAt: null,
+      action: null,
+      answer: "",
+      mergeRefusal: "",
+      merging: false,
+      todo: null,
+      withdrawn: false,
       questions: [],
       id: index + 1,
       issue: 40,

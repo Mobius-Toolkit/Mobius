@@ -173,19 +173,26 @@ const triagerAction = {
   role: "triager",
   tool: "message_lead",
   arguments: [
-    { name: "workstream", value: "12" },
-    { name: "text", value: "Change the price column of the plan table to an integer." },
+    { name: "workstream", value: "12", labels: [] },
+    { name: "text", value: "Change the price column of the plan table to an integer.", labels: [] },
   ],
   state: "pending",
   error: "",
   result: "",
   message: "",
+  oldBrief: "",
+  sender: null,
   time: "2026-10-15T11:55:00Z",
   decidedAt: null,
 };
 
 export const triagerItem = {
   dismissedAt: null,
+  answer: "",
+  mergeRefusal: "",
+  merging: false,
+  todo: null,
+  withdrawn: false,
   questions: [],
   id: 333,
   organization: "owner",

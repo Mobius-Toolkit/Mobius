@@ -2287,104 +2287,64 @@ export type InternalServerErrorResponse = ErrorResponse;
 export type UnprocessableEntityResponse = ErrorResponse;
 
 export type GetTranscriptParams = {
-/**
- * Before is the id of a row. The page has at most 100 lines with an id below Before. With no Before, the page has the newest 100 lines
- */
-before?: number;
+  /** Before is the id of a row. The page has at most 100 lines with an id below Before. With no Before, the page has the newest 100 lines */
+  before?: number;
 };
 
 export type GetChatParams = {
-/**
- * Organization is the owner of the repository, or the organization of the Coordinator chat
- */
-organization?: string;
-/**
- * Repository is the repository of the Workstream as "owner/name". It is empty for the Coordinator chat
- */
-repository?: string;
-/**
- * Workstream is the number of the Workstream issue. It is 0 for the Coordinator chat
- */
-workstream?: number;
-/**
- * Before is the id of a message. The page has at most 20 messages with an id below Before. With no Before, the page has the newest 20 messages
- */
-before?: number;
+  /** Organization is the owner of the repository, or the organization of the Coordinator chat */
+  organization?: string;
+  /** Repository is the repository of the Workstream as "owner/name". It is empty for the Coordinator chat */
+  repository?: string;
+  /** Workstream is the number of the Workstream issue. It is 0 for the Coordinator chat */
+  workstream?: number;
+  /** Before is the id of a message. The page has at most 20 messages with an id below Before. With no Before, the page has the newest 20 messages */
+  before?: number;
 };
 
 export type GetCheckupParams = {
-/**
- * Organization is the owner of the repositories
- */
-organization: string;
+  /** Organization is the owner of the repositories */
+  organization: string;
 };
 
 export type ManifestCallbackParams = {
-/**
- * Code is the code that converts the manifest into an App
- */
-code: string;
-/**
- * State is the state of the manifest form
- */
-state: string;
+  /** Code is the code that converts the manifest into an App */
+  code: string;
+  /** State is the state of the manifest form */
+  state: string;
 };
 
 export type UserCallbackParams = {
-/**
- * Code is the code that GitHub exchanges for a user token
- */
-code: string;
+  /** Code is the code that GitHub exchanges for a user token */
+  code: string;
 };
 
 export type ListMemoryVersionsParams = {
-/**
- * Before is the id of a version. The page has at most 20 versions with an id below Before. With no Before, the page has the newest 20 versions
- */
-before?: number;
+  /** Before is the id of a version. The page has at most 20 versions with an id below Before. With no Before, the page has the newest 20 versions */
+  before?: number;
 };
 
 export type GetUsageParams = {
-/**
- * From is the start of the period. A row is in the period when it started at From or later
- */
-from: string;
-/**
- * To is the end of the period. A row is in the period when it started before To
- */
-to: string;
-/**
- * Tz is the IANA name of the time zone for the days. The default is UTC
- */
-tz?: string;
-/**
- * Array of string
- */
-harness?: string[];
-/**
- * Array of string
- */
-model?: string[];
-/**
- * Array of string
- */
-modelVersion?: string[];
-/**
- * Array of string
- */
-effort?: string[];
-/**
- * Array of string
- */
-role?: string[];
-/**
- * Array of string
- */
-repository?: string[];
-/**
- * Array of string
- */
-group?: GetUsageGroupItem[];
+  /** From is the start of the period. A row is in the period when it started at From or later */
+  from: string;
+  /** To is the end of the period. A row is in the period when it started before To */
+  to: string;
+  /** Tz is the IANA name of the time zone for the days. The default is UTC */
+  tz?: string;
+  /** Array of string */
+  harness?: string[];
+  /** Array of string */
+  model?: string[];
+  /** Array of string */
+  modelVersion?: string[];
+  /** Array of string */
+  effort?: string[];
+  /** Array of string */
+  role?: string[];
+  /** Array of string */
+  repository?: string[];
+  /** Array of string */
+  group?: GetUsageGroupItem[];
 };
 
 export type GetUsageGroupItem = typeof GetUsageGroupItem[keyof typeof GetUsageGroupItem];
@@ -2400,38 +2360,22 @@ export const GetUsageGroupItem = {
 } as const;
 
 export type GetUsageQualityParams = {
-/**
- * From is the start of the period. A task is in the period when its end is From or later
- */
-from: string;
-/**
- * To is the end of the period. A task is in the period when its end is before To
- */
-to: string;
-/**
- * Tz is the IANA name of the time zone for the days. The default is UTC
- */
-tz?: string;
-/**
- * Array of string
- */
-harness?: string[];
-/**
- * Array of string
- */
-model?: string[];
-/**
- * Array of string
- */
-effort?: string[];
-/**
- * Array of string
- */
-repository?: string[];
-/**
- * Array of string
- */
-group?: GetUsageQualityGroupItem[];
+  /** From is the start of the period. A task is in the period when its end is From or later */
+  from: string;
+  /** To is the end of the period. A task is in the period when its end is before To */
+  to: string;
+  /** Tz is the IANA name of the time zone for the days. The default is UTC */
+  tz?: string;
+  /** Array of string */
+  harness?: string[];
+  /** Array of string */
+  model?: string[];
+  /** Array of string */
+  effort?: string[];
+  /** Array of string */
+  repository?: string[];
+  /** Array of string */
+  group?: GetUsageQualityGroupItem[];
 };
 
 export type GetUsageQualityGroupItem = typeof GetUsageQualityGroupItem[keyof typeof GetUsageQualityGroupItem];
@@ -2445,34 +2389,20 @@ export const GetUsageQualityGroupItem = {
 } as const;
 
 export type GetUsageSkillsParams = {
-/**
- * From is the start of the period. A row is in the period when its time is From or later
- */
-from: string;
-/**
- * To is the end of the period. A row is in the period when its time is before To
- */
-to: string;
-/**
- * Array of string
- */
-harness?: string[];
-/**
- * Array of string
- */
-role?: string[];
-/**
- * Array of string
- */
-repository?: string[];
-/**
- * Array of string
- */
-source?: string[];
-/**
- * Array of string
- */
-group?: GetUsageSkillsGroupItem[];
+  /** From is the start of the period. A row is in the period when its time is From or later */
+  from: string;
+  /** To is the end of the period. A row is in the period when its time is before To */
+  to: string;
+  /** Array of string */
+  harness?: string[];
+  /** Array of string */
+  role?: string[];
+  /** Array of string */
+  repository?: string[];
+  /** Array of string */
+  source?: string[];
+  /** Array of string */
+  group?: GetUsageSkillsGroupItem[];
 };
 
 export type GetUsageSkillsGroupItem = typeof GetUsageSkillsGroupItem[keyof typeof GetUsageSkillsGroupItem];
@@ -2486,46 +2416,26 @@ export const GetUsageSkillsGroupItem = {
 } as const;
 
 export type GetUsageTimesParams = {
-/**
- * From is the start of the period. A row is in the period when it started at From or later
- */
-from: string;
-/**
- * To is the end of the period. A row is in the period when it started before To
- */
-to: string;
-/**
- * Tz is the IANA name of the time zone for the days. The default is UTC
- */
-tz?: string;
-/**
- * Array of string
- */
-harness?: string[];
-/**
- * Array of string
- */
-model?: string[];
-/**
- * Array of string
- */
-modelVersion?: string[];
-/**
- * Array of string
- */
-effort?: string[];
-/**
- * Array of string
- */
-role?: string[];
-/**
- * Array of string
- */
-repository?: string[];
-/**
- * Array of string
- */
-group?: GetUsageTimesGroupItem[];
+  /** From is the start of the period. A row is in the period when it started at From or later */
+  from: string;
+  /** To is the end of the period. A row is in the period when it started before To */
+  to: string;
+  /** Tz is the IANA name of the time zone for the days. The default is UTC */
+  tz?: string;
+  /** Array of string */
+  harness?: string[];
+  /** Array of string */
+  model?: string[];
+  /** Array of string */
+  modelVersion?: string[];
+  /** Array of string */
+  effort?: string[];
+  /** Array of string */
+  role?: string[];
+  /** Array of string */
+  repository?: string[];
+  /** Array of string */
+  group?: GetUsageTimesGroupItem[];
 };
 
 export type GetUsageTimesGroupItem = typeof GetUsageTimesGroupItem[keyof typeof GetUsageTimesGroupItem];
@@ -2541,10 +2451,8 @@ export const GetUsageTimesGroupItem = {
 } as const;
 
 export type SendChunkParams = {
-/**
- * Sequence is the number of the chunk. The first chunk is 0, and each chunk has the next number
- */
-sequence?: number;
+  /** Sequence is the number of the chunk. The first chunk is 0, and each chunk has the next number */
+  sequence?: number;
 };
 
 export type approveActionResponse200 = {

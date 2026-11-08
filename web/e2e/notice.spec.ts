@@ -13,6 +13,12 @@ const shop = "/workstreams/owner/shop/12";
 
 const base = {
   dismissedAt: null,
+  action: null,
+  answer: "",
+  mergeRefusal: "",
+  merging: false,
+  todo: null,
+  withdrawn: false,
   questions: [],
   organization: "owner",
   repository: "owner/shop",

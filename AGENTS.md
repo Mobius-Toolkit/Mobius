@@ -32,6 +32,7 @@ Do not edit these files by hand:
 
 - `api/openapi.json` comes from the Gork handlers in `internal/api`.
 - `web/src/api/api.gen.ts` comes from `api/openapi.json`. orval writes it with the settings in `web/orval.config.ts`.
+- `web/src/api/schemas.gen.ts` comes from `api/openapi.json`. orval writes the Effect Schemas of the requests and the responses with the second output of `web/orval.config.ts`.
 - `internal/store/*.sql.go`, `internal/store/db.go` and `internal/store/models.go` come from `sqlc.yaml`, the migrations and `internal/store/queries.sql`.
 
 After a change to the API or to the queries, run `make generate` and commit the result.
@@ -60,7 +61,7 @@ To listen to a server-sent event, use `onEvent` from `web/src/lib/events.ts` wit
   | `*.go` in package `P` | `go test ./P -run <names>`. Do not run the full `internal/engine` package. |
   | An MCP tool of a role | Run the tool list tests. The command is below the table. |
   | `internal/store/migrations/`, `internal/store/queries.sql` | `make generate`, then `go test ./internal/store`. Search the store tests for a fixed migration version. |
-  | `internal/api/` | `make generate`. Commit `api/openapi.json` and `web/src/api/api.gen.ts`. |
+  | `internal/api/` | `make generate`. Commit `api/openapi.json`, `web/src/api/api.gen.ts` and `web/src/api/schemas.gen.ts`. |
   | `web/src/` | In `web`, `pnpm e2e e2e/<changed>.spec.ts e2e/screenshots.spec.ts`. Then read the `-desktop` and `-phone` image of each changed screen in `web/screenshots`. |
   | A new test | It must fail on the base commit and pass on the commit of the change. |
   | Each change | `make fmt` before each commit. Mobius runs `.mobius/check` after each turn. |

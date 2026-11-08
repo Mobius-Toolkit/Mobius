@@ -815,10 +815,13 @@ test("screenshots", async ({ page }) => {
     const fields = {
       action: null,
       browserId: "",
+      cancelledAt: null,
       deliveredAt: null,
+      failedAt: null,
       images: 0,
       inboxItems: [],
       organization: "owner",
+      question: null,
       repository: "owner/shop",
       stoppedAt: null,
       workstream: 12,
@@ -866,7 +869,9 @@ test("screenshots", async ({ page }) => {
   const clearComposer = async () => {
     const remove = composer.getByRole("button", { name: /^Remove / });
     while ((await remove.count()) > 0) {
+      const count = await remove.count();
       await remove.first().click();
+      await expect(remove).toHaveCount(count - 1);
     }
     await main.getByLabel("Message to the Lead").fill("");
     await expect.poll(() => page.evaluate(storedDrafts)).toBe(0);
@@ -1053,6 +1058,7 @@ test("screenshots", async ({ page }) => {
       trayToggle(page, 2, true),
       main.getByText("Todo · mandatory"),
       main.getByText("Todo · optional"),
+      main.getByRole("button", { name: "Dismiss" }),
     ],
     async () => {
       await expect(trayToggle(page, 2, true)).toBeVisible();
@@ -1474,6 +1480,12 @@ test("screenshots", async ({ page }) => {
     const link = "https://github.com/owner/shop";
     const item = {
       dismissedAt: null,
+      action: null,
+      answer: "",
+      mergeRefusal: "",
+      merging: false,
+      todo: null,
+      withdrawn: false,
       questions: [],
       organization: "owner",
       repository: "owner/shop",

@@ -470,11 +470,13 @@ const start = async (key: string) => {
   }
 };
 
-document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "hidden") {
-    void finish(backgroundMessage);
-  }
-});
+if (typeof document !== "undefined") {
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") {
+      void finish(backgroundMessage);
+    }
+  });
+}
 
 const cancelStart = () => {
   run++;
@@ -507,7 +509,29 @@ const stopWithoutInput = () => {
 };
 
 export const voiceSupported =
-  Boolean(navigator.mediaDevices?.getUserMedia) && typeof AudioWorkletNode !== "undefined";
+  Boolean(typeof navigator !== "undefined" && navigator.mediaDevices?.getUserMedia) &&
+  typeof AudioWorkletNode !== "undefined";
+
+export const subscribeVoice = subscribe;
+export const getVoiceSnapshot = () => snapshot;
+export const toggleVoiceAction = toggleVoice;
+export const stopVoiceAction = stopVoice;
+export const resendVoiceAction = resend;
+export const discardVoiceAction = discard;
+export const finishForSendAction = finishForSend;
+export const showsLiveVoice = showsLive;
+export const registerVoiceInput = (input: {
+  insert: (text: string, live: boolean) => void;
+  insertLive: (text: string, first: boolean) => boolean;
+}) => {
+  inputs.push(input);
+  return () => {
+    const idx = inputs.indexOf(input);
+    if (idx !== -1) {
+      inputs.splice(idx, 1);
+    }
+  };
+};
 
 // useVoice gives the voice run of the page to the input with the draft key. toggle starts a recording that belongs to
 // that key, or stops the recording. During the recording, the server gives the live text about each 2 seconds, and live
