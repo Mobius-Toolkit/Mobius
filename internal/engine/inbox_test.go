@@ -45,6 +45,8 @@ type inboxItem struct {
 		Reason    string `json:"reason"`
 		Mandatory bool   `json:"mandatory"`
 		Note      string `json:"note"`
+
+		Dismissable bool `json:"dismissable"`
 	} `json:"todo"`
 }
 

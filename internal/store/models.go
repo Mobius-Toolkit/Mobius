@@ -115,17 +115,18 @@ type DeploymentNeed struct {
 }
 
 type DeploymentTodo struct {
-	ID        int64
-	Task      int64
-	InboxItem int64
-	Kind      string
-	Name      string
-	Path      string
-	Line      int64
-	Reason    string
-	Mandatory int64
-	Note      string
-	DoneAt    sql.NullString
+	ID          int64
+	Task        int64
+	InboxItem   int64
+	Kind        string
+	Name        string
+	Path        string
+	Line        int64
+	Reason      string
+	Mandatory   int64
+	Note        string
+	DoneAt      sql.NullString
+	DismissedAt sql.NullString
 }
 
 type Event struct {

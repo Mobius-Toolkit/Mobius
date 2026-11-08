@@ -288,7 +288,8 @@ export function InboxRow({
                 </Button>
               )}
             {(item.kind === InboxItemKind.Lead_failed ||
-              item.kind === InboxItemKind.tool_upgrade) && (
+              item.kind === InboxItemKind.tool_upgrade ||
+              item.todo?.dismissable) && (
               <Button
                 variant="outline"
                 size="sm"
