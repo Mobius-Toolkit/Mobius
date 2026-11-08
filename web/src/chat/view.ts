@@ -1362,6 +1362,11 @@ export function view(model: Model, h: H): Html {
     model.openUnread !== null &&
     !waiting &&
     !(showBrief && !model.briefMeasured);
+  // A failed unread read keeps openUnread null, and then the list shows with no scroll.
+  const hiddenUntilScroll =
+    model.loaded &&
+    !model.error &&
+    (!model.queueLoaded || waiting || (showBrief && !model.briefMeasured));
   const firstUnread =
     model.openUnread !== null && model.openUnread > 0
       ? (unreadMessages[Math.max(0, unreadMessages.length - model.openUnread)]?.id ?? "")
@@ -1378,7 +1383,7 @@ export function view(model: Model, h: H): Html {
           h.Class(
             cn(
               "grid min-h-0 grow grid-cols-[minmax(0,1fr)] content-start gap-3 overflow-y-auto overscroll-contain bg-muted/40 p-4",
-              model.loaded && !listReady && !model.error && "invisible",
+              hiddenUntilScroll && "invisible",
             ),
           ),
         ],

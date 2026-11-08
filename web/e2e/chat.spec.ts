@@ -703,25 +703,30 @@ test("the chat stays at its end when the input gets taller", async ({ page }) =>
   await expect.poll(() => page.evaluate(shows("tall 9 ", "end"))).toBe(true);
 });
 
-test("the list shows no message before its first scroll, and the last message is in view after it", async ({
+test("the list shows no message while the chat waits for the older page of its first unread message", async ({
   page,
 }) => {
+  await page.route("**/api/chat/seen", (route) => route.fulfill({ status: 204 }));
   let release!: () => void;
   const gate = new Promise<void>((resolve) => (release = resolve));
-  await page.route("**/api/unread", async (route) => {
+  await page.route("**/api/chat?*before=*", async (route) => {
     await gate;
-    await route.fulfill({ json: { data: [] } });
+    await route.fallback();
   });
-  await routeInboxItems(page, [longTitleItem, leadActionItem]);
-  await page.goto(shop);
+  await page.goto(seeds);
   const main = page.getByRole("main");
-  const list = main.locator("[data-ready]");
-  await expect(list).toHaveAttribute("data-ready", "false");
-  await expect(main.getByRole("heading", { name: /^Waits for you/ })).toBeVisible();
+  await expect(main.locator("[data-ready]")).toHaveAttribute("data-ready", "false");
   await expect(main.locator("[data-message]").first()).toBeHidden();
   release();
-  await expect(list).toHaveAttribute("data-ready", "true");
-  await expect(main.locator("[data-message]").last()).toBeInViewport({ ratio: 1 });
+  await expect.poll(() => page.evaluate(shows("Seed note 16.", "top"))).toBe(true);
+  await expect(main.getByText("Seed note 16.")).toBeVisible();
+});
+
+test("the list shows its messages when the unread read fails", async ({ page }) => {
+  await page.route("**/api/unread", (route) => route.fulfill({ status: 500, json: {} }));
+  await page.goto(shop);
+  const main = page.getByRole("main");
+  await expect(main.locator("[data-message]").last()).toBeVisible();
 });
 
 test("an event shows folded and muted in the chat, and wraps on a phone", async ({ page }) => {
