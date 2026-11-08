@@ -284,6 +284,7 @@ export const GetChatResponse = S.Struct({
   "time": S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/)).annotate({ description: 'Time is the time of the item' }),
   "title": S.String.annotate({ description: 'Title is the title of the issue, or empty' }),
   "todo": S.Union([S.Struct({
+  "dismissable": S.Boolean.annotate({ description: 'Dismissable is true when the Owner can dismiss the todo: it is open and its need is optional' }),
   "kind": S.String.annotate({ description: 'Kind is the kind of the need: env_var, config, secret or manual_step' }),
   "line": S.Number.annotate({ description: 'Line is the line of the file that adds the need' }),
   "mandatory": S.Boolean.annotate({ description: 'Mandatory is true when the deployment fails or the application does not start without it' }),
@@ -656,6 +657,7 @@ export const ListInboxResponse = S.Struct({
   "time": S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/)).annotate({ description: 'Time is the time of the item' }),
   "title": S.String.annotate({ description: 'Title is the title of the issue, or empty' }),
   "todo": S.Union([S.Struct({
+  "dismissable": S.Boolean.annotate({ description: 'Dismissable is true when the Owner can dismiss the todo: it is open and its need is optional' }),
   "kind": S.String.annotate({ description: 'Kind is the kind of the need: env_var, config, secret or manual_step' }),
   "line": S.Number.annotate({ description: 'Line is the line of the file that adds the need' }),
   "mandatory": S.Boolean.annotate({ description: 'Mandatory is true when the deployment fails or the application does not start without it' }),
@@ -690,7 +692,7 @@ export const AnswerInboxItemResponse = S.Struct({
 
 
 /**
- * Dismiss removes an item from the Inbox.
+ * Dismiss removes an item from the Inbox. For a todo item, it also marks the todo as dismissed. It returns 409 for a todo item that is not open and for a mandatory todo.
  */
 export const DismissParams = S.Struct({
   "id": S.Number.annotate({ description: 'ID is the id of the Inbox item' })
@@ -761,6 +763,7 @@ export const DoneInboxItemResponse = S.Struct({
   "time": S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/)).annotate({ description: 'Time is the time of the item' }),
   "title": S.String.annotate({ description: 'Title is the title of the issue, or empty' }),
   "todo": S.Union([S.Struct({
+  "dismissable": S.Boolean.annotate({ description: 'Dismissable is true when the Owner can dismiss the todo: it is open and its need is optional' }),
   "kind": S.String.annotate({ description: 'Kind is the kind of the need: env_var, config, secret or manual_step' }),
   "line": S.Number.annotate({ description: 'Line is the line of the file that adds the need' }),
   "mandatory": S.Boolean.annotate({ description: 'Mandatory is true when the deployment fails or the application does not start without it' }),
@@ -836,6 +839,7 @@ export const MergeInboxItemResponse = S.Struct({
   "time": S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/)).annotate({ description: 'Time is the time of the item' }),
   "title": S.String.annotate({ description: 'Title is the title of the issue, or empty' }),
   "todo": S.Union([S.Struct({
+  "dismissable": S.Boolean.annotate({ description: 'Dismissable is true when the Owner can dismiss the todo: it is open and its need is optional' }),
   "kind": S.String.annotate({ description: 'Kind is the kind of the need: env_var, config, secret or manual_step' }),
   "line": S.Number.annotate({ description: 'Line is the line of the file that adds the need' }),
   "mandatory": S.Boolean.annotate({ description: 'Mandatory is true when the deployment fails or the application does not start without it' }),
@@ -904,6 +908,7 @@ export const ListOrganizationsResponse = S.Struct({
 export const ListPausesResponse = S.Struct({
   "data": S.Array(S.Struct({
   "harness": S.String.annotate({ description: 'Harness is the name of the paused Harness' }),
+  "inUse": S.Boolean.annotate({ description: 'InUse tells that a Role uses the Harness, or that an open session waits for the pause' }),
   "pausedUntil": S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/)).annotate({ description: 'PausedUntil is the end of the pause' })
 }).annotate({ description: 'Pause is the usage-limit pause of a Harness.' })).annotate({ description: 'Data is the payload of the response' })
 }).annotate({ description: 'Envelope is the body of each success response.' })
