@@ -469,7 +469,10 @@ func (e *Engine) continueNeedsHuman(ctx context.Context, repository github.Repos
 		if err := repository.AddLabel(ctx, task.Issue, workingLabel); err != nil {
 			return task, false, err
 		}
-		return task, true, e.conflictRound(ctx, repository, task, pullRequest)
+		if err := e.conflictRound(ctx, repository, task, pullRequest); err != nil {
+			return task, true, err
+		}
+		return task, true, e.dismissIssueItems(ctx, task.Repository, task.Issue, stoppedKind)
 	}
 	if !task.CiFailedHead.Valid || pullRequest.Mergeable == nil {
 		return task, false, nil
@@ -489,7 +492,10 @@ func (e *Engine) continueNeedsHuman(ctx context.Context, repository github.Repos
 	if err := repository.AddLabel(ctx, task.Issue, workingLabel); err != nil {
 		return task, false, err
 	}
-	return task, false, removeNeedsHuman(ctx, repository, task)
+	if err := removeNeedsHuman(ctx, repository, task); err != nil {
+		return task, false, err
+	}
+	return task, false, e.dismissIssueItems(ctx, task.Repository, task.Issue, stoppedKind)
 }
 
 // afterReview tells if the state is one of the states of a task whose Reviewer has no open finding: the task waits for

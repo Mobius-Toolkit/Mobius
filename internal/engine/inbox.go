@@ -197,6 +197,11 @@ func (e *Engine) dismissIssueItems(ctx context.Context, repository string, numbe
 	if err != nil {
 		return err
 	}
+	return e.dismissItems(ctx, items)
+}
+
+// dismissItems dismisses each item of items.
+func (e *Engine) dismissItems(ctx context.Context, items []store.InboxItem) error {
 	for _, item := range items {
 		if err := e.Dismiss(ctx, item.ID); err != nil {
 			return err

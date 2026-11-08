@@ -1151,8 +1151,11 @@ func (e *Engine) resume(ctx context.Context, repository github.Repository, issue
 			return err
 		}
 	}
+	stopped, err := e.openIssueItems(ctx, task.Repository, task.Issue, stoppedKind)
+	if err != nil {
+		return err
+	}
 	var moved bool
-	var err error
 	if task.PullRequest.Valid {
 		var pullRequest *gh.PullRequest
 		if pullRequest, err = repository.PullRequest(ctx, task.PullRequest.Int64); err != nil {
@@ -1163,6 +1166,9 @@ func (e *Engine) resume(ctx context.Context, repository github.Repository, issue
 		moved, err = e.redispatch(ctx, repository, issue, task, eventText(time.Now(), "resume of", taskEventRef(task, task.Issue), issue, actor, issue.GetBody()), commentRef{})
 	}
 	if err != nil || !moved {
+		return err
+	}
+	if err := e.dismissItems(ctx, stopped); err != nil {
 		return err
 	}
 	if err := repository.RemoveLabel(ctx, int64(issue.GetNumber()), readyLabel); err != nil {
