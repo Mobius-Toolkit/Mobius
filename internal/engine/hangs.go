@@ -230,25 +230,9 @@ func (a *Agent) hungText() string {
 	return text
 }
 
-// endHung ends the session after the hang that follows the last retry, and adds an activity on the issue of the
-// session, or on the Workstream issue when the session has no issue. A session with no Workstream has no issue and no link.
+// endHung ends the session after the hang that follows the last retry.
 func (a *Agent) endHung(ctx context.Context) error {
-	spec := a.spec
-	issue := spec.Issue.Int64
-	if !spec.Issue.Valid {
-		issue = spec.Workstream
-	}
-	err := a.engine.queries.AddEvent(ctx, store.AddEventParams{
-		Time:         now(),
-		Organization: spec.Organization,
-		Repository:   spec.Repository,
-		Workstream:   spec.Workstream,
-		Issue:        issue,
-		Actor:        mobiusActor,
-		Text:         a.hungText(),
-		Link:         issueLink(spec.Repository, issue),
-	})
-	return errors.Join(err, a.End(ctx, "hung"))
+	return a.End(ctx, "hung")
 }
 
 // endHungTask ends the session of the task after the hang that follows the last retry. It hands the task to a human

@@ -676,13 +676,13 @@ func TestAFailedUpdateOfTheCopyDoesNotRepeatTheEventsOfThePoll(t *testing.T) {
 
 	waitForPoll(t, server, fake)
 	count := 0
-	for _, activity := range activities(t, server) {
-		if activity.Text == `New Workstream "Billing"` {
+	for _, event := range leadEvents(t, server) {
+		if event.Kind == "creation" && event.Workstream == 13 {
 			count++
 		}
 	}
 	if count != 1 {
-		t.Errorf("activities of the new Workstream = %d", count)
+		t.Errorf("creation events of the new Workstream = %d", count)
 	}
 }
 

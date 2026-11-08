@@ -985,8 +985,8 @@ func (e *Engine) finishChat(c *chat, failure string) {
 }
 
 // failChat keeps each message of the chat that the agent did not get after the last failed try, adds one Inbox item
-// for each, and ends the chat. It sets no stop time: the message waits for the next try. A failed event of a turn goes
-// to the activity feed. A failure with no item of a turn, for example the save turn of an idle close, takes no event:
+// for each, and ends the chat. It sets no stop time: the message waits for the next try. A failed event of a turn
+// counts as delivered. A failure with no item of a turn, for example the save turn of an idle close, takes no event:
 // the ready events of the Workstream wait for a new session.
 func (e *Engine) failChat(c *chat, failure string, failedEvent bool) {
 	ctx := context.Background()
@@ -1003,7 +1003,7 @@ func (e *Engine) failChat(c *chat, failure string, failedEvent bool) {
 	switch {
 	case first.event != nil && failedEvent:
 		if err := e.leadFailed(ctx, first); err != nil {
-			log.Printf("send the failed events of the chat %v to the activity feed: %v", c.key, err)
+			log.Printf("mark the failed events of the chat %v as delivered: %v", c.key, err)
 		}
 	case first.event == nil:
 		e.failMessage(ctx, first.message)
@@ -1080,30 +1080,15 @@ func (e *Engine) addFailedItem(ctx context.Context, message store.ChatMessage) e
 	})
 }
 
-// leadFailed tells the Owner that the Lead did not take the ready events of the Workstream: the activity feed gets
-// one activity on the Workstream issue for each event, and the events count as delivered.
+// leadFailed marks the ready events of the Workstream as delivered, because the Lead did not take them.
 func (e *Engine) leadFailed(ctx context.Context, failed item) error {
 	repository, workstream := failed.event.Repository, failed.event.Workstream
 	events, err := e.queries.ListReadyLeadEvents(ctx, store.ListReadyLeadEventsParams{Repository: repository, Workstream: workstream})
 	if err != nil {
 		return err
 	}
-	organization, _, _ := strings.Cut(repository, "/")
 	return e.inTx(ctx, func(q *store.Queries) error {
 		for _, event := range events {
-			err := q.AddEvent(ctx, store.AddEventParams{
-				Time:         now(),
-				Organization: organization,
-				Repository:   repository,
-				Workstream:   workstream,
-				Issue:        workstream,
-				Actor:        mobiusActor,
-				Text:         "The Lead did not take this event: " + event.Payload,
-				Link:         issueLink(repository, workstream),
-			})
-			if err != nil {
-				return err
-			}
 			if err := q.DeliverLeadEvent(ctx, store.DeliverLeadEventParams{DeliveredAt: sql.NullString{String: now(), Valid: true}, ID: event.ID}); err != nil {
 				return err
 			}

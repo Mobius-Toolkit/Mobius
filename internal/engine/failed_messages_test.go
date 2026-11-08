@@ -725,27 +725,19 @@ error = { code = -32000, message = "Failed to save the memory" }
 	dispatchTask(fake, 42, "Add plan route")
 	testkit.WaitFor(t, func() bool { return server.Engine.ChatQueued(leadChat) == 1 })
 
-	outcome := testkit.WaitForValue(t, func() (string, bool) {
-		for _, event := range activities(t, server) {
-			if strings.Contains(event.Text, "The Lead did not take this event") {
-				return "activity", true
-			}
-		}
+	testkit.WaitFor(t, func() bool {
 		for _, session := range chatSessions(t, server, leadChat, engine.LeadRole) {
 			if session.ID == first.ID {
 				continue
 			}
 			for _, prompt := range promptTexts(t, server, session.ID) {
 				if strings.Contains(prompt, "dispatch of #42") {
-					return "session", true
+					return true
 				}
 			}
 		}
-		return "", false
+		return false
 	})
-	if outcome != "session" {
-		t.Fatal("a failed turn with no item sent the queued event to the activity feed")
-	}
 
 	testkit.WaitFor(t, func() bool { return eventDelivered(t, server) })
 }

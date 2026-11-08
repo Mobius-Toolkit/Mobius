@@ -2,7 +2,6 @@ package engine_test
 
 import (
 	"bufio"
-	"database/sql"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -25,17 +24,6 @@ type workstream struct {
 	Evergreen      bool   `json:"evergreen"`
 	AllTasksClosed bool   `json:"allTasksClosed"`
 	ReadyToMerge   bool   `json:"readyToMerge"`
-}
-
-type activity struct {
-	ID           int64  `json:"id"`
-	Organization string `json:"organization"`
-	Repository   string `json:"repository"`
-	Workstream   int64  `json:"workstream"`
-	Issue        int64  `json:"issue"`
-	Actor        string `json:"actor"`
-	Text         string `json:"text"`
-	Link         string `json:"link"`
 }
 
 // send sends a request with the JSON body to the API path, and gives the status and the body of the response.
@@ -75,13 +63,6 @@ func complete(t *testing.T, server *testserver.Server, number int64) (int, strin
 	return send(t, server, http.MethodPost, "/api/workstreams/owner/shop/"+itoa(number)+"/complete", "")
 }
 
-func activities(t *testing.T, server *testserver.Server) []activity {
-	t.Helper()
-	return query(t, server, func(rows *sql.Rows, a *activity) error {
-		return rows.Scan(&a.ID, &a.Organization, &a.Repository, &a.Workstream, &a.Issue, &a.Actor, &a.Text, &a.Link)
-	}, "SELECT id, organization, repository, workstream, issue, actor, text, link FROM events ORDER BY id")
-}
-
 // liveEvents gives the data of each event name of the live event stream.
 func liveEvents(t *testing.T, server *testserver.Server, name string) <-chan string {
 	t.Helper()
@@ -108,22 +89,6 @@ func liveEvents(t *testing.T, server *testserver.Server, name string) <-chan str
 		}
 	}()
 	return found
-}
-
-// nextActivity waits for the next activity of the live event stream. The test fails after one minute.
-func nextActivity(t *testing.T, events <-chan string) activity {
-	t.Helper()
-	select {
-	case data := <-events:
-		var found activity
-		if err := json.Unmarshal([]byte(data), &found); err != nil {
-			t.Fatal(err)
-		}
-		return found
-	case <-time.After(time.Minute):
-		t.Fatal("no activity after one minute")
-	}
-	return activity{}
 }
 
 // addWorkstream adds the Workstream #12 with the task #41.
@@ -173,58 +138,35 @@ func TestAMaintenanceWorkstreamGetsTheEvergreenLabel(t *testing.T) {
 	}
 }
 
-func TestANewWorkstreamAddsOneActivityThatGoesLive(t *testing.T) {
-	t.Parallel()
-	fake := testkit.NewFakeGitHub(t)
-	fake.AddIssue(shop, 12, "Integrate loyalty plans")
-	fake.AddIssue(shop, 13, "Price rounding")
-	server := startCopiedWithLead(t, fake)
-	events := liveEvents(t, server, "activity")
-
-	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
-	first := nextActivity(t, events)
-	fake.AddLabel(shop, 13, "mobius:workstream", "Owner")
-	second := nextActivity(t, events)
-
-	want := activity{ID: first.ID, Organization: "owner", Repository: shop, Workstream: 12, Issue: 12, Actor: "owner", Text: `New Workstream "Integrate loyalty plans"`, Link: "https://github.com/owner/shop/issues/12"}
-	if first != want {
-		t.Errorf("first = %+v", first)
-	}
-	if second.Issue != 13 {
-		t.Errorf("second = %+v", second)
-	}
-	if got := activities(t, server); !reflect.DeepEqual(got, []activity{first, second}) {
-		t.Errorf("activities = %+v", got)
-	}
-}
-
-func TestAWorkstreamLabelFromAnUntrustedAuthorAddsNoActivity(t *testing.T) {
+func TestAWorkstreamLabelFromAnUntrustedAuthorAddsNoCreationEvent(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 12, "Mine the servers")
 	fake.AddIssue(shop, 13, "Integrate loyalty plans")
 	server := startCopied(t, fake)
-	events := liveEvents(t, server, "activity")
 
 	fake.AddLabel(shop, 12, "mobius:workstream", "mallory")
 	fake.AddLabel(shop, 13, "mobius:workstream", "owner")
 
-	if got := nextActivity(t, events); got.Issue != 13 {
-		t.Errorf("activity = %+v", got)
+	events := testkit.WaitForValue(t, func() ([]leadEvent, bool) {
+		events := leadEvents(t, server)
+		return events, len(events) > 0
+	})
+	if len(events) != 1 || events[0].Workstream != 13 || events[0].Kind != "creation" {
+		t.Errorf("Lead events = %+v", events)
 	}
 }
 
 // The first poll cannot see which event is new, so the Lead gets no creation event.
-func TestAWorkstreamLabelFromBeforeTheFirstPollAddsAnActivity(t *testing.T) {
+func TestAWorkstreamLabelFromBeforeTheFirstPollAddsNoCreationEvent(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
 	server := startCopied(t, fake)
 
-	if got := nextActivity(t, liveEvents(t, server, "activity")); got.Issue != 12 {
-		t.Errorf("activity = %+v", got)
-	}
+	testkit.WaitFor(t, func() bool { return len(workstreams(t, server)) == 1 })
+	waitForPolls(t, fake)
 	if got := leadEvents(t, server); len(got) != 0 {
 		t.Errorf("Lead events = %+v", got)
 	}

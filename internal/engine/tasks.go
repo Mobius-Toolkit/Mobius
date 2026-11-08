@@ -415,8 +415,7 @@ func (e *Engine) StopIssue(ctx context.Context, repositoryName string, number in
 			}
 			removed = append(removed, readyLabel)
 		}
-		text := fmt.Sprintf("Stopped \"%s\" on request of the Owner", issue.GetTitle())
-		if err := e.stopTask(ctx, repository, task, issue, appLogin(repository.AppSlug), "Stopped by the Owner.", text); err != nil {
+		if err := e.stopTask(ctx, repository, task, "Stopped by the Owner."); err != nil {
 			return err
 		}
 		if err := e.changeCopiedLabels(ctx, repository.FullName, number, nil, removed); err != nil {
