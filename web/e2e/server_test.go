@@ -254,6 +254,8 @@ const question = "What is the state of the plans? The full report is at " +
 // /e2e/agents/{issue}/queue-reason sets the queue reason of the live agent of an issue, with no event. DELETE
 // /e2e/dispatches/{owner}/{name}/{issue} waits for the dispatch of an issue, removes its task, its feed events and
 // its Lead events, and takes mobius:working off the issue. The query label, if present, is added to the issue.
+// PUT and DELETE /e2e/workstreams/owner/shop/12/implementer set the Implementer setting of that Workstream to
+// claude-code, sonnet and low, and clear it, with no record in the chat.
 func TestServer(t *testing.T) {
 	addr := os.Getenv("MOBIUS_E2E_ADDR")
 	if addr == "" {
@@ -456,6 +458,16 @@ func TestServer(t *testing.T) {
 	})
 	server.Mux.HandleFunc("DELETE /e2e/inbox-items/{id}", func(w http.ResponseWriter, r *http.Request) {
 		if _, err := server.DB.Exec("DELETE FROM inbox_items WHERE id = ?", r.PathValue("id")); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	})
+	server.Mux.HandleFunc("PUT /e2e/workstreams/owner/shop/12/implementer", func(w http.ResponseWriter, r *http.Request) {
+		if err := server.Engine.SetIssueBinding(r.Context(), "implementer", "owner/shop", 12, config.ClaudeCode, "sonnet", "low"); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	})
+	server.Mux.HandleFunc("DELETE /e2e/workstreams/owner/shop/12/implementer", func(w http.ResponseWriter, r *http.Request) {
+		if err := server.Engine.ClearIssueBinding(r.Context(), "implementer", "owner/shop", 12); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 	})

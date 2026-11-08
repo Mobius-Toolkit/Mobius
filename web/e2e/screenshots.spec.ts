@@ -1225,27 +1225,12 @@ test("screenshots", async ({ page }) => {
   const planReceipts = taskOf("#39 Send the plan receipts");
   const detailsPanel = page.getByRole("tabpanel", { name: "Details" });
   const settingSheet = (title: string) => page.getByRole("dialog", { name: title });
-  const workstreamImplementer = "/api/workstreams/owner/shop/12/implementer";
+  const workstreamImplementer = "/e2e/workstreams/owner/shop/12/implementer";
   const setWorkstreamImplementer = async () => {
-    const status = await page.evaluate(
-      (path) =>
-        fetch(path, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ harness: "claude-code", model: "sonnet", effort: "low" }),
-        }).then((response) => response.status),
-      workstreamImplementer,
-    );
-    expect(status).toBe(204);
-    await fixRecordTimes(page);
+    expect((await page.request.put(workstreamImplementer)).ok()).toBe(true);
   };
   const clearWorkstreamImplementer = async () => {
-    const status = await page.evaluate(
-      (path) => fetch(path, { method: "DELETE" }).then((response) => response.status),
-      workstreamImplementer,
-    );
-    expect(status).toBe(204);
-    await fixRecordTimes(page);
+    expect((await page.request.delete(workstreamImplementer)).ok()).toBe(true);
   };
   await screenshot(
     page,
