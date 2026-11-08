@@ -68,7 +68,7 @@ func TestAReportBeforeTheStopRefusesTheStop(t *testing.T) {
 	e.chats[leadChat("owner/shop", 12)] = queue
 	e.gitMu.Lock()
 	finished := make(chan error, 1)
-	go func() { finished <- e.research(t.Context(), leadCaller, shopRepository, a, "Where?") }()
+	go func() { finished <- e.research(t.Context(), leadCaller, shopRepository, a, a.id, "Where?") }()
 	testkit.WaitFor(t, func() bool {
 		e.detailsMu.Lock()
 		defer e.detailsMu.Unlock()

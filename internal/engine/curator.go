@@ -169,11 +169,16 @@ func (e *Engine) runCurator(ctx context.Context, repository string) error {
 	key := curatorKey(a.id)
 	started := e.startWorker(key, func(ctx context.Context) {
 		defer e.stop(key)
-		if err := e.curate(ctx, a, requests); err != nil {
+		err := e.curate(ctx, a, requests)
+		moved := errors.Is(err, errMoved)
+		if err != nil && !moved {
 			log.Printf("Curator %d of %s: %v", a.id, repository, err)
 		}
 		e.curatorsMu.Lock()
 		defer e.curatorsMu.Unlock()
+		if moved {
+			e.curators[repository] = true
+		}
 		if !e.curators[repository] || ctx.Err() != nil {
 			delete(e.curators, repository)
 			return
@@ -216,6 +221,8 @@ func (e *Engine) curate(ctx context.Context, a *Agent, requests []store.ListCura
 		return a.End(ended, "stopped")
 	case errors.Is(err, errHung):
 		endErr, failure = a.endHung(ended), "The Curator hung: "+err.Error()
+	case errors.Is(err, errMoved):
+		return errors.Join(errMoved, a.End(ended, "moved"))
 	case err != nil:
 		endErr, failure = a.Fail(ended, err), "The Curator failed: "+err.Error()
 	default:

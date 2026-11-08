@@ -160,6 +160,9 @@ func (e *Engine) diagnoseRows(ctx context.Context, repository string) {
 		if ctx.Err() != nil {
 			return
 		}
+		if errors.Is(failure, errMoved) {
+			continue
+		}
 		if failure != nil {
 			log.Printf("Diagnoser of %s#%d: %v", repository, row.PullRequest, failure)
 		}
@@ -190,6 +193,8 @@ func (e *Engine) diagnose(ctx context.Context, row store.CiDiagnosis) error {
 		return a.End(ended, "stopped")
 	case errors.Is(err, errHung):
 		return errors.Join(err, a.endHung(ended))
+	case errors.Is(err, errMoved):
+		return errors.Join(errMoved, a.End(ended, "moved"))
 	case err != nil:
 		return a.Fail(ended, err)
 	}
