@@ -2167,12 +2167,11 @@ test("screenshots", async ({ page }) => {
     "/settings/roles",
     (device) => [
       ...frame(device, release),
-      roleSheet.getByText("must not have the same harness and model"),
+      roleSheet.getByText("roles.reviewer.model: must not be empty"),
     ],
     async () => {
       await openReviewer();
-      await pickRole("Harness", "devin");
-      await pickRole("Model", "swe-1.5");
+      await pickRole("Harness", "dsh");
       const refused = page.waitForResponse(
         (res) => res.url().endsWith("/api/roles/reviewer") && res.request().method() === "PUT",
       );

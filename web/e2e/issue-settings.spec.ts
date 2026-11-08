@@ -98,19 +98,15 @@ test("a refused value shows the reason in the sheet, and the task keeps no setti
   await openTab(page, "Tasks");
   await gear(page).click();
   const sheet = page.getByRole("dialog", { name: "Implementer of #39" });
-  await pick(page, sheet, "Harness", "claude-code");
-  await pick(page, sheet, "Model", "opus");
-  await pick(page, sheet, "Effort", "high");
+  await pick(page, sheet, "Harness", "dsh");
   const saved = written(page, "PUT", task);
   await sheet.getByRole("button", { name: "Save" }).click();
   expect((await saved).status()).toBe(422);
 
-  await expect(sheet).toContainText(
-    "roles.reviewer: must not have the same harness and model as roles.implementer",
-  );
+  await expect(sheet).toContainText("roles.implementer.model: must not be empty");
   await page.keyboard.press("Escape");
   await expect(sheet).toBeHidden();
-  await expect(taskRow(page).getByText("claude-code")).toHaveCount(0);
+  await expect(taskRow(page).getByText("dsh")).toHaveCount(0);
 });
 
 test("a Save of the Lead shows Workstream on the Details tab, and Use the default shows role", async ({
