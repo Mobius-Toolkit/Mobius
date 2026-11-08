@@ -43,7 +43,7 @@ function connect() {
 }
 
 export async function run<T>(
-  name: "outbox" | "drafts" | "voice",
+  name: "outbox" | "drafts",
   mode: IDBTransactionMode,
   use: (store: IDBObjectStore) => IDBRequest<T>,
 ) {

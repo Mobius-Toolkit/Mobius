@@ -831,7 +831,7 @@ export function Conversation({
     text: string,
     images: File[],
     inboxItems: DraftInboxItem[],
-    voice = false,
+    voice: boolean,
   ) => {
     const item: Queued = {
       id: newMessageId(),
