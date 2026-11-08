@@ -71,6 +71,10 @@ type job struct {
 	report    string
 	// parent is the session of the agent that started the work, or the newest session of the issue when Mobius started it.
 	parent sql.NullInt64
+	// replies and details are the held replies and the new details of a session that moved. The next session of the job
+	// takes them.
+	replies []heldReply
+	details []string
 }
 
 // outcome is the end of an Implementer session with no error. It is the end reason of the session.
@@ -889,7 +893,8 @@ func (e *Engine) runPreparedWorker(task store.Task, title *string, name string, 
 
 // runWorker runs work, the Worker name of the task, in the background until the task stops. title points to the title
 // of the issue of the task, which is empty until work reads it. An error of work tells that the Worker must start
-// again: after the wait of RestartWorker, the queued or working task goes to the queue and work runs again. A task in
+// again: after the wait of RestartWorker, the queued or working task goes to the queue and work runs again. The error
+// errMoved is no failure: the task goes to the queue at its place with no wait and no count, and work runs again. A task in
 // another state, for example after a decline, does not start again. A Worker that a newer Worker replaced, for example
 // the Reviewer after it started a fix round, does not start again, also when it started during the wait.
 //
@@ -923,6 +928,16 @@ func (e *Engine) runWorker(task store.Task, title *string, name string, lost boo
 			log.Printf("%s of %s#%d: %v", name, task.Repository, task.Issue, err)
 			if e.startedAfter(task.ID, start) {
 				return
+			}
+			if errors.Is(err, errMoved) {
+				queued, err := e.requeueTask(ctx, task.ID)
+				if err != nil && ctx.Err() == nil {
+					log.Printf("queue %s#%d again after the move: %v", task.Repository, task.Issue, err)
+				}
+				if err != nil || queued == 0 {
+					return
+				}
+				continue
 			}
 			again, err := e.RestartWorker(ctx, task, *title, err)
 			if err == nil && again {
@@ -979,6 +994,8 @@ func (e *Engine) implementer(ctx context.Context, j *job) error {
 		return err
 	}
 	a.job = j
+	a.replies, a.details = j.replies, j.details
+	j.replies, j.details = nil, nil
 	// a.report is the report text that the session knows: the report of its prompt, or the report of its own
 	// submit_report call. A continued session gets a new report only when shortPrompt sends one.
 	a.report = j.report
@@ -1001,6 +1018,11 @@ func (e *Engine) implementer(ctx context.Context, j *job) error {
 	switch {
 	case ctx.Err() != nil:
 		return a.End(ended, "stopped")
+	case errors.Is(err, errMoved):
+		a.mu.Lock()
+		j.replies, j.details = a.replies, a.details
+		a.mu.Unlock()
+		return errors.Join(err, a.End(ended, "moved"))
 	case errors.Is(err, errHung):
 		return e.endHungTask(ended, a, task, j.title)
 	case err != nil:
@@ -1309,6 +1331,9 @@ func (e *Engine) turnsAndChecks(ctx context.Context, a *Agent, j *job) (*result,
 			err := a.Prompt(ctx, prompt, nil)
 			if err == nil {
 				err = a.waitBackground(ctx, implementerBackgroundPrompt)
+			}
+			if errors.Is(err, errMoved) {
+				return nil, "", err
 			}
 			a.mu.Lock()
 			reason := a.cannotDo
