@@ -176,13 +176,10 @@ func TestTheApprovalAgainAddsTheInboxItemAndWaitsForTheOwner(t *testing.T) {
 	setWorkstreamAutopilot(t, server, "off")
 	testkit.WaitFor(t, func() bool { return workstreams(t, server)[0].Autopilot == "off" })
 	item := waitForItem(t, server, "ready for review")
-	testkit.WaitFor(t, func() bool { return taskState(t, server) == "ready_for_review" })
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "ready_for_review" && approvedHead(t, server) == head })
 
 	if item.PullRequest != 42 || item.Merging {
 		t.Errorf("item = %+v", item)
-	}
-	if got := approvedHead(t, server); got != head {
-		t.Errorf("approved_head = %q, want %q", got, head)
 	}
 	if got := approvedReport(t, server); got != "Checked the diff. Verified the tests." {
 		t.Errorf("approved_report = %q", got)
