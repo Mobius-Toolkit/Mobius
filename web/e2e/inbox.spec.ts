@@ -819,6 +819,25 @@ test("a blocked ready for review row shows the count in place of Merge, and a ta
   await expect(ready.getByRole("button", { name: /open todo/ })).toHaveCount(0);
 });
 
+test("a second tap marks the row for 2 seconds after the second tap", async ({ page }) => {
+  await routeInbox(page, blockedList([100, 101], blockingTodoRows));
+  await page.clock.install();
+  await page.goto("/inbox");
+  const main = page.getByRole("main");
+  const ready = main.getByRole("listitem").filter({ hasText: "Name the plan tiers" });
+  const first = main.getByRole("listitem").filter({ hasText: "MOBIUS_SMTP_HOST" });
+
+  await ready.getByRole("button", { name: "2 open todos" }).click();
+  await expect(first).toHaveAttribute("data-marked", "");
+  await page.clock.fastForward(1500);
+  await ready.getByRole("button", { name: "2 open todos" }).click();
+  await page.clock.fastForward(1000);
+
+  await expect(first).toHaveAttribute("data-marked", "");
+  await page.clock.fastForward(1000);
+  await expect(first).not.toHaveAttribute("data-marked");
+});
+
 test("a tap on the count does nothing when the list has no row of the first blocking todo", async ({
   page,
 }) => {

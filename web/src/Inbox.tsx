@@ -57,6 +57,8 @@ export const link = "text-primary underline-offset-4 hover:underline";
 
 const markDuration = 2000;
 
+const markTimers = new WeakMap<Element, ReturnType<typeof setTimeout>>();
+
 export function InboxRow({
   item,
   workstreams,
@@ -184,7 +186,11 @@ export function InboxRow({
     }
     row.scrollIntoView({ block: "center" });
     row.setAttribute("data-marked", "");
-    setTimeout(() => row.removeAttribute("data-marked"), markDuration);
+    clearTimeout(markTimers.get(row));
+    markTimers.set(
+      row,
+      setTimeout(() => row.removeAttribute("data-marked"), markDuration),
+    );
   };
   const merging = answered?.item === item ? answered.merging : item.merging;
   const refusalText = refusal || (merging ? "" : item.mergeRefusal) || item.action?.error;
