@@ -305,6 +305,30 @@ func TestTheCloseOfAWorkstreamDeletesItsRecurringTasks(t *testing.T) {
 	}
 }
 
+func TestTheRemovalOfTheWorkstreamLabelDeletesItsRecurringTasks(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, "")
+	setNow(server, friday)
+	addRecurringTask(t, server, hourly, planCheck)
+	setNow(server, friday.Add(time.Hour))
+	waitForRuns(t, server, 1)
+
+	fake.RemoveLabel(shop, 12, "mobius:workstream", "owner")
+
+	testkit.WaitFor(t, func() bool { return len(recurringTasks(t, server)) == 0 })
+	var stored int
+	if err := server.DB.QueryRow("SELECT count(*) FROM recurring_task_runs").Scan(&stored); err != nil || stored != 0 {
+		t.Errorf("stored runs = %d, %v", stored, err)
+	}
+	before := len(recurringEvents(t, server))
+	setNow(server, friday.Add(3*time.Hour))
+	waitForPolls(t, fake)
+	if got := len(recurringEvents(t, server)); got != before {
+		t.Errorf("events after the removal = %d, want %d", got, before)
+	}
+}
+
 func TestAddRecurringTaskRefusesAnEmptyTextAndAWorkstreamThatIsNotOpen(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

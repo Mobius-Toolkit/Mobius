@@ -236,12 +236,14 @@ func (e *Engine) SetRecurringTaskPaused(ctx context.Context, repository string, 
 
 // deleteRecurringTasks deletes the recurring tasks of the Workstream and their history.
 func (e *Engine) deleteRecurringTasks(ctx context.Context, repository string, workstream int64) error {
-	return e.inTx(ctx, func(q *store.Queries) error {
-		if err := q.DeleteWorkstreamRecurringTaskRuns(ctx, store.DeleteWorkstreamRecurringTaskRunsParams{Repository: repository, Workstream: workstream}); err != nil {
-			return err
-		}
-		return q.DeleteWorkstreamRecurringTasks(ctx, store.DeleteWorkstreamRecurringTasksParams{Repository: repository, Workstream: workstream})
-	})
+	return e.inTx(ctx, func(q *store.Queries) error { return deleteWorkstreamRecurringTasks(ctx, q, repository, workstream) })
+}
+
+func deleteWorkstreamRecurringTasks(ctx context.Context, q *store.Queries, repository string, workstream int64) error {
+	if err := q.DeleteWorkstreamRecurringTaskRuns(ctx, store.DeleteWorkstreamRecurringTaskRunsParams{Repository: repository, Workstream: workstream}); err != nil {
+		return err
+	}
+	return q.DeleteWorkstreamRecurringTasks(ctx, store.DeleteWorkstreamRecurringTasksParams{Repository: repository, Workstream: workstream})
 }
 
 // runRecurringTasks gives each recurring task that is not paused and has a cron time since its last check one Lead
