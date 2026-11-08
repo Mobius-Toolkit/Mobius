@@ -14,7 +14,10 @@ import (
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
-const recurringKind = "recurring"
+const (
+	recurringKind       = "recurring"
+	recurringChangeKind = "recurring_change"
+)
 
 const (
 	recurringEvent   = "event"
@@ -176,7 +179,12 @@ func (e *Engine) AddRecurringTask(ctx context.Context, repository string, workst
 	if err != nil {
 		return RecurringTask{}, err
 	}
+	e.publishRecurring(repository, workstream)
 	return e.recurringTask(ctx, row)
+}
+
+func (e *Engine) publishRecurring(repository string, workstream int64) {
+	e.publish(Change{RecurringTasks: &RecurringChange{Repository: repository, Number: workstream}})
 }
 
 // UpdateRecurringTask changes the cron expression and the text of a recurring task. A new cron expression gives no
@@ -199,12 +207,13 @@ func (e *Engine) UpdateRecurringTask(ctx context.Context, repository string, wor
 	if err != nil {
 		return RecurringTask{}, err
 	}
+	e.publishRecurring(repository, workstream)
 	return e.recurringTask(ctx, row)
 }
 
 // DeleteRecurringTask deletes a recurring task and its history.
 func (e *Engine) DeleteRecurringTask(ctx context.Context, repository string, workstream, id int64) error {
-	return e.inTx(ctx, func(q *store.Queries) error {
+	err := e.inTx(ctx, func(q *store.Queries) error {
 		deleted, err := q.DeleteRecurringTask(ctx, store.DeleteRecurringTaskParams{ID: id, Repository: repository, Workstream: workstream})
 		if err != nil {
 			return err
@@ -214,6 +223,10 @@ func (e *Engine) DeleteRecurringTask(ctx context.Context, repository string, wor
 		}
 		return q.DeleteRecurringTaskRuns(ctx, id)
 	})
+	if err == nil {
+		e.publishRecurring(repository, workstream)
+	}
+	return err
 }
 
 // SetRecurringTaskPaused pauses or resumes a recurring task. A resume gives no event for the times of the pause.
@@ -231,7 +244,52 @@ func (e *Engine) SetRecurringTaskPaused(ctx context.Context, repository string, 
 	if err != nil {
 		return RecurringTask{}, err
 	}
+	e.publishRecurring(repository, workstream)
 	return e.recurringTask(ctx, row)
+}
+
+// OwnerSetRecurringTaskPaused is SetRecurringTaskPaused for the Owner. A task that already has the state changes
+// nothing and gives no Lead event. Else the Lead gets the quiet event recurring_change.
+func (e *Engine) OwnerSetRecurringTaskPaused(ctx context.Context, repository string, workstream, id int64, paused bool) (RecurringTask, error) {
+	row, err := e.queries.GetRecurringTask(ctx, store.GetRecurringTaskParams{ID: id, Repository: repository, Workstream: workstream})
+	if errors.Is(err, sql.ErrNoRows) {
+		return RecurringTask{}, ErrNoRecurringTask
+	}
+	if err != nil {
+		return RecurringTask{}, err
+	}
+	if (row.Paused != 0) == paused {
+		return e.recurringTask(ctx, row)
+	}
+	task, err := e.SetRecurringTaskPaused(ctx, repository, workstream, id, paused)
+	if err != nil {
+		return RecurringTask{}, err
+	}
+	verb := "resumed"
+	if paused {
+		verb = "paused"
+	}
+	return task, e.addRecurringChange(ctx, row, verb)
+}
+
+// OwnerDeleteRecurringTask is DeleteRecurringTask for the Owner. The Lead gets the quiet event recurring_change.
+func (e *Engine) OwnerDeleteRecurringTask(ctx context.Context, repository string, workstream, id int64) error {
+	row, err := e.queries.GetRecurringTask(ctx, store.GetRecurringTaskParams{ID: id, Repository: repository, Workstream: workstream})
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNoRecurringTask
+	}
+	if err != nil {
+		return err
+	}
+	if err := e.DeleteRecurringTask(ctx, repository, workstream, id); err != nil {
+		return err
+	}
+	return e.addRecurringChange(ctx, row, "deleted")
+}
+
+func (e *Engine) addRecurringChange(ctx context.Context, task store.RecurringTask, verb string) error {
+	text := fmt.Sprintf("%s the Owner %s the recurring task %d `%s`:\n\n%s", e.timeNow().UTC().Format(timeFormat), verb, task.ID, task.Cron, quote(task.Text))
+	return e.addLeadEvent(ctx, task.Repository, task.Workstream, "", sql.NullInt64{}, recurringChangeKind, text)
 }
 
 // deleteRecurringTasks deletes the recurring tasks of the Workstream and their history.
@@ -302,7 +360,8 @@ func (e *Engine) runRecurringTask(ctx context.Context, task store.RecurringTask)
 		}
 		advance.Event = sql.NullInt64{Int64: id, Valid: true}
 	}
-	return e.inTx(ctx, func(q *store.Queries) error {
+	added := false
+	err = e.inTx(ctx, func(q *store.Queries) error {
 		advanced, err := q.AdvanceRecurringTask(ctx, advance)
 		if err != nil || advanced == 0 {
 			return err
@@ -310,6 +369,11 @@ func (e *Engine) runRecurringTask(ctx context.Context, task store.RecurringTask)
 		if err := q.AddRecurringTaskRun(ctx, run); err != nil {
 			return err
 		}
+		added = true
 		return q.TrimRecurringTaskRuns(ctx, task.ID)
 	})
+	if err == nil && added {
+		e.publishRecurring(task.Repository, task.Workstream)
+	}
+	return err
 }

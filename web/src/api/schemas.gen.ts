@@ -1828,6 +1828,74 @@ export const ClearWorkstreamLeadParams = S.Struct({
 
 
 /**
+ * ListRecurringTasks returns the recurring tasks of the Workstream with their last 20 times, in id order.
+ */
+export const ListRecurringTasksParams = S.Struct({
+  "owner": S.String.annotate({ description: 'Owner is the owner of the repository' }),
+  "name": S.String.annotate({ description: 'Name is the name of the repository' }),
+  "number": S.Number.annotate({ description: 'Number is the number of the Workstream issue' })
+})
+
+export const ListRecurringTasksResponse = S.Struct({
+  "data": S.Struct({
+  "tasks": S.Array(S.Struct({
+  "cron": S.String.annotate({ description: 'Cron is the cron expression with five fields, in the local time zone of the Mobius server' }),
+  "id": S.Number.annotate({ description: 'ID is the id of the recurring task' }),
+  "next": S.NullOr(S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/))).annotate({ description: 'Next is the next time of the task, or null for a paused task' }),
+  "paused": S.Boolean.annotate({ description: 'Paused is true when the task gives no event' }),
+  "runs": S.Array(S.Struct({
+  "reason": S.String.annotate({ description: 'Reason is the reason of a skipped time, or empty' }),
+  "result": S.Literals(['event', 'skipped']).annotate({ description: 'Result is event when the Lead got an event, or skipped' }),
+  "time": S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/)).annotate({ description: 'Time is the time of the run' })
+}).annotate({ description: 'RecurringTaskRun is a time of a recurring task that gave an event or was skipped.' })).annotate({ description: 'Runs are the last 20 times of the task, newest first' }),
+  "text": S.String.annotate({ description: 'Text is the text that the Lead gets at each time' })
+}).annotate({ description: 'RecurringTask is a recurring task of a Workstream.' })).annotate({ description: 'Tasks are the recurring tasks in id order' })
+}).annotate({ description: 'Data is the payload of the response' })
+}).annotate({ description: 'Envelope is the body of each success response.' })
+
+
+/**
+ * DeleteRecurringTask deletes a recurring task with its history and gives the Lead the quiet event recurring_change. It returns 404 for an id that is not a task of the Workstream.
+ */
+export const DeleteRecurringTaskParams = S.Struct({
+  "owner": S.String.annotate({ description: 'Owner is the owner of the repository' }),
+  "name": S.String.annotate({ description: 'Name is the name of the repository' }),
+  "number": S.Number.annotate({ description: 'Number is the number of the Workstream issue' }),
+  "id": S.Number.annotate({ description: 'ID is the id of the recurring task' })
+})
+
+
+/**
+ * SetRecurringTaskPaused pauses or resumes a recurring task and gives the Lead the quiet event recurring_change. A task that already has the state stays as it is and gives no event. A resume gives no event for the times of the pause. It returns 404 for an id that is not a task of the Workstream.
+ */
+export const SetRecurringTaskPausedParams = S.Struct({
+  "owner": S.String.annotate({ description: 'Owner is the owner of the repository' }),
+  "name": S.String.annotate({ description: 'Name is the name of the repository' }),
+  "number": S.Number.annotate({ description: 'Number is the number of the Workstream issue' }),
+  "id": S.Number.annotate({ description: 'ID is the id of the recurring task' })
+})
+
+export const SetRecurringTaskPausedBody = S.Struct({
+  "paused": S.optional(S.Boolean).annotate({ description: 'Paused is true to pause the task and false to resume it' })
+})
+
+export const SetRecurringTaskPausedResponse = S.Struct({
+  "data": S.Struct({
+  "cron": S.String.annotate({ description: 'Cron is the cron expression with five fields, in the local time zone of the Mobius server' }),
+  "id": S.Number.annotate({ description: 'ID is the id of the recurring task' }),
+  "next": S.NullOr(S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/))).annotate({ description: 'Next is the next time of the task, or null for a paused task' }),
+  "paused": S.Boolean.annotate({ description: 'Paused is true when the task gives no event' }),
+  "runs": S.Array(S.Struct({
+  "reason": S.String.annotate({ description: 'Reason is the reason of a skipped time, or empty' }),
+  "result": S.Literals(['event', 'skipped']).annotate({ description: 'Result is event when the Lead got an event, or skipped' }),
+  "time": S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/)).annotate({ description: 'Time is the time of the run' })
+}).annotate({ description: 'RecurringTaskRun is a time of a recurring task that gave an event or was skipped.' })).annotate({ description: 'Runs are the last 20 times of the task, newest first' }),
+  "text": S.String.annotate({ description: 'Text is the text that the Lead gets at each time' })
+}).annotate({ description: 'Data is the payload of the response' })
+}).annotate({ description: 'Envelope is the body of each success response.' })
+
+
+/**
  * ListTasks returns the open and closed tasks of trusted authors in the tree of a Workstream, from the local copy of GitHub. A nested task follows its parent. The copy can be one poll interval old.
  */
 export const ListTasksParams = S.Struct({
