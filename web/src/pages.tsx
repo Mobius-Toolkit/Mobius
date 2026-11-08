@@ -1,7 +1,7 @@
-import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
+import { Outlet, useNavigate, useParams, useSearch } from "@tanstack/react-router";
+import { PageHeader } from "@/components/page";
 import { useShell } from "@/lib/shell";
 import { unreadCount } from "@/lib/unread";
-import { Activity } from "./Activity";
 import { Agents } from "./Agents";
 import { Chat } from "./Chat";
 import {
@@ -13,9 +13,9 @@ import {
 } from "./Checkup";
 import { GitHub } from "./GitHub";
 import { Inbox } from "./Inbox";
-import { InboxTabs } from "./InboxTabs";
 import { Memory, MemoryFiles, MemoryRepositories } from "./Memory";
 import { Tasks } from "./Tasks";
+import { TopBar } from "./TopBar";
 import { CoordinatorChat } from "./CoordinatorChat";
 import { Usage } from "./Usage";
 import { Workstreams } from "./Workstreams";
@@ -72,20 +72,18 @@ export function ChatPage() {
 }
 
 export function InboxLayoutPage() {
-  const { organization, inbox } = useShell();
-  return <InboxTabs count={inbox.filter((item) => item.organization === organization).length} />;
+  return (
+    <>
+      <TopBar title="Inbox" />
+      <PageHeader title="Inbox" />
+      <Outlet />
+    </>
+  );
 }
 
 export function InboxPage() {
   const { organization, inbox, workstreams } = useShell();
   return <Inbox organization={organization} items={inbox} workstreams={workstreams.list} />;
-}
-
-export function ActivityPage() {
-  const { organization, activities, workstreams } = useShell();
-  return (
-    <Activity organization={organization} activities={activities} workstreams={workstreams.list} />
-  );
 }
 
 export function AgentsPage() {

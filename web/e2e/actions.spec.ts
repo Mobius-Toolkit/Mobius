@@ -137,7 +137,7 @@ test("the Owner approves an action with a note", async ({ page }) => {
   await expect(panel(page)).toBeHidden();
 
   await link(page, "/inbox").click();
-  await expect(main.getByRole("tab", { name: /^To do/ })).toBeVisible();
+  await expect(main.getByText("Inbox", { exact: true })).toBeVisible();
   await expect(row(page, leadTitle)).toBeHidden();
 });
 
