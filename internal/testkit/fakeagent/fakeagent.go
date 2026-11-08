@@ -19,7 +19,8 @@
 //	steering_hold = true    # with steering_outcome, _session/steering appends the program name to the file "steerings",
 //	                        # and then waits for the file "steering_release" before it answers
 //
-// Each session/cancel appends the program name to the file "cancels" next to the script.
+// Each session/cancel appends the program name to the file "cancels" next to the script. A session/cancel ends only a
+// turn whose session/prompt the agent read before that session/cancel, as an agent that handles its input in order does.
 //
 //	[options]               # one select option for each id, in id order; the first value is current
 //	model = ["sonnet", "opus"]
@@ -191,8 +192,15 @@ type agent struct {
 	options     []option
 	promptsDone int
 	mcpURL      string
-	// cancel closes at a session/cancel. It is nil when no turn runs.
-	cancel chan struct{}
+	// order records the position of each session/cancel among the session/prompt lines of the input.
+	order *inputOrder
+	// promptsStarted counts the session/prompt requests that the agent started to handle.
+	promptsStarted int
+	// cancels has the channel of each running turn, by the number of its session/prompt. The channel closes at a
+	// session/cancel that the agent read after that session/prompt.
+	cancels map[int]chan struct{}
+	// cancelledUpTo is the highest number of a session/prompt that a session/cancel ended or will end.
+	cancelledUpTo int
 	// steered closes when a steering request with the outcome injected finished its prompt. It is nil when no turn runs.
 	steered chan struct{}
 	// absorbed is the later with absorb that waits for the next session/prompt, or nil.
@@ -245,8 +253,10 @@ func serve(path string, r io.Reader, w io.Writer, record func() error) error {
 		}
 		a.options = append(a.options, option{Type: "select", ID: id, Name: id, Category: id, CurrentValue: values[0], Options: choices})
 	}
+	a.order = &inputOrder{r: r}
+	a.cancels = map[int]chan struct{}{}
 	a.mu.Lock()
-	a.conn = acp.NewConnection(a.handle, w, r)
+	a.conn = acp.NewConnection(a.handle, w, a.order)
 	a.mu.Unlock()
 	<-a.conn.Done()
 	return nil
@@ -289,15 +299,65 @@ func (a *agent) handle(ctx context.Context, method string, params json.RawMessag
 		if err := a.appendName("cancels"); err != nil {
 			return nil, acp.NewInternalError(err.Error())
 		}
+		promptsRead := a.order.takeCancel()
 		a.mu.Lock()
 		defer a.mu.Unlock()
-		if a.cancel != nil {
-			close(a.cancel)
-			a.cancel = nil
+		a.cancelledUpTo = max(a.cancelledUpTo, promptsRead)
+		for number, cancel := range a.cancels {
+			if number <= promptsRead {
+				close(cancel)
+				delete(a.cancels, number)
+			}
 		}
 		return nil, nil
 	}
 	return nil, acp.NewMethodNotFound(method)
+}
+
+// inputOrder reads the input of the agent and keeps the order of its session/prompt and session/cancel lines. The
+// connection runs each request in a new goroutine and each notification in a queue, so a handler cannot see this order.
+type inputOrder struct {
+	r io.Reader
+
+	mu      sync.Mutex
+	partial []byte
+	prompts int
+	cancels []int
+}
+
+func (o *inputOrder) Read(p []byte) (int, error) {
+	n, err := o.r.Read(p)
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.partial = append(o.partial, p[:n]...)
+	for {
+		end := bytes.IndexByte(o.partial, '\n')
+		if end < 0 {
+			return n, err
+		}
+		var line struct {
+			Method string `json:"method"`
+		}
+		if json.Unmarshal(o.partial[:end], &line) == nil {
+			switch line.Method {
+			case acp.AgentMethodSessionPrompt:
+				o.prompts++
+			case acp.AgentMethodSessionCancel:
+				o.cancels = append(o.cancels, o.prompts)
+			}
+		}
+		o.partial = o.partial[end+1:]
+	}
+}
+
+// takeCancel gives the number of session/prompt lines that the agent read before the oldest session/cancel that no
+// handler took yet. The connection handles the notifications in the order of the input.
+func (o *inputOrder) takeCancel() int {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	promptsRead := o.cancels[0]
+	o.cancels = o.cancels[1:]
+	return promptsRead
 }
 
 func (a *agent) loggedInPath() string {
@@ -505,13 +565,14 @@ func (a *agent) setEfforts(efforts []string) {
 }
 
 // next gives the script prompt for text, the URL of the Mobius MCP server, the channel that closes at a session/cancel
-// of the turn, and the channel that closes when a steering request finished its prompt.
-func (a *agent) next(text string) (prompt, string, chan struct{}, chan struct{}) {
+// of the turn, and the channel that closes when a steering request finished its prompt. Number is the number of the
+// session/prompt of the turn.
+func (a *agent) next(text string, number int) (prompt, string, chan struct{}, chan struct{}) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.cancel = make(chan struct{})
+	cancel := a.newCancel(number)
 	a.steered = make(chan struct{})
-	return a.choose(text), a.mcpURL, a.cancel, a.steered
+	return a.choose(text), a.mcpURL, cancel, a.steered
 }
 
 // choose gives the script prompt for text. The caller holds a.mu.
@@ -580,7 +641,7 @@ func (a *agent) steer(ctx context.Context, params json.RawMessage) (any, *acp.Re
 		a.mu.Unlock()
 		return map[string]any{"outcome": "promptRequired", "reason": "noRunningTurn"}, nil
 	}
-	turn, mcpURL, cancel := a.choose(text.String()), a.mcpURL, a.cancel
+	turn, mcpURL, cancel := a.choose(text.String()), a.mcpURL, a.cancels[a.promptsStarted]
 	a.mu.Unlock()
 	played := context.WithoutCancel(ctx)
 	go func() {
@@ -621,12 +682,14 @@ func (a *agent) prompt(ctx context.Context, params json.RawMessage) (any, *acp.R
 			images = append(images, "image "+block.MIMEType+" "+block.Data)
 		}
 	}
-	if cancel, absorbed := a.absorb(); absorbed != nil {
+	number := a.startPrompt()
+	if cancel, absorbed := a.absorb(number); absorbed != nil {
 		for _, update := range absorbed.Updates {
 			if err := a.send(ctx, request.SessionID, json.RawMessage(update)); err != nil {
 				return nil, acp.NewInternalError(err.Error())
 			}
 		}
+		defer a.endTurn(number)
 		select {
 		case <-cancel:
 			return acp.PromptResponse{StopReason: acp.StopReasonCancelled}, nil
@@ -634,13 +697,11 @@ func (a *agent) prompt(ctx context.Context, params json.RawMessage) (any, *acp.R
 			return nil, acp.NewRequestCancelled(nil)
 		}
 	}
-	turn, mcpURL, cancel, steered := a.next(text.String())
+	turn, mcpURL, cancel, steered := a.next(text.String(), number)
 	turn.Reply = append(slices.Clone(turn.Reply), images...)
 	stopReason, err := a.play(ctx, request.SessionID, turn, mcpURL, cancel, steered)
 	a.mu.Lock()
-	if a.cancel == cancel {
-		a.cancel = nil
-	}
+	delete(a.cancels, number)
 	if a.steered == steered {
 		a.steered = nil
 	}
@@ -663,8 +724,36 @@ func (a *agent) prompt(ctx context.Context, params json.RawMessage) (any, *acp.R
 	return result, nil
 }
 
+// newCancel gives the cancel channel of the session/prompt number. The channel is closed when a session/cancel that came
+// after that session/prompt in the input was handled before the turn started. The caller holds a.mu.
+func (a *agent) newCancel(number int) chan struct{} {
+	cancel := make(chan struct{})
+	if number <= a.cancelledUpTo {
+		close(cancel)
+		return cancel
+	}
+	a.cancels[number] = cancel
+	return cancel
+}
+
+// endTurn removes the cancel channel of the session/prompt number.
+func (a *agent) endTurn(number int) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	delete(a.cancels, number)
+}
+
+// startPrompt gives the number of the session/prompt that the agent starts to handle.
+func (a *agent) startPrompt() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.promptsStarted++
+	return a.promptsStarted
+}
+
 // absorb gives the channel that closes at a session/cancel, and the later with absorb that waited for this prompt, or nil.
-func (a *agent) absorb() (chan struct{}, *later) {
+// Number is the number of the session/prompt.
+func (a *agent) absorb(number int) (chan struct{}, *later) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	absorbed := a.absorbed
@@ -672,8 +761,7 @@ func (a *agent) absorb() (chan struct{}, *later) {
 		return nil, nil
 	}
 	a.absorbed = nil
-	a.cancel = make(chan struct{})
-	return a.cancel, absorbed
+	return a.newCancel(number), absorbed
 }
 
 // startLater sends the updates of l in the background after the response of the prompt, or holds a later with
