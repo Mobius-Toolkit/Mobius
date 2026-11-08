@@ -1,6 +1,5 @@
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useShell } from "@/lib/shell";
-import { unreadCount } from "@/lib/unread";
 import { Activity } from "./Activity";
 import { Agents } from "./Agents";
 import { Chat } from "./Chat";
@@ -33,15 +32,9 @@ export function TasksPage() {
 }
 
 export function CoordinatorChatPage() {
-  const { organizations, organization, inbox, unread, source } = useShell();
+  const { organizations, organization, inbox } = useShell();
   return (
-    <CoordinatorChat
-      organizations={organizations}
-      organization={organization}
-      inbox={inbox}
-      unread={unread && unreadCount(unread, { organization, repository: "", workstream: 0 })}
-      source={source}
-    />
+    <CoordinatorChat organizations={organizations} organization={organization} inbox={inbox} />
   );
 }
 
@@ -49,7 +42,7 @@ export function ChatPage() {
   const { owner, name, number } = useParams({
     from: "/workstreams/$owner/$name/$number",
   });
-  const { workstreams, inbox, unread, source } = useShell();
+  const { workstreams, inbox, source } = useShell();
   return (
     <Chat
       key={`${owner}/${name}#${number}`}
@@ -58,14 +51,6 @@ export function ChatPage() {
       number={Number(number)}
       workstreams={workstreams}
       inbox={inbox}
-      unread={
-        unread &&
-        unreadCount(unread, {
-          organization: owner,
-          repository: `${owner}/${name}`,
-          workstream: Number(number),
-        })
-      }
       source={source}
     />
   );

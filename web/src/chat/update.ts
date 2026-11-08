@@ -4,43 +4,54 @@ import {
   AnswerInboxItem,
   ApproveAction,
   ClickAttach,
-  DiscardVoice,
   DoneInboxItem,
   EnqueueMessage,
   FetchActionBrief,
   FetchOlder,
   FetchPage,
-  FinishVoiceForSend,
   FitImages,
-  LoadAnswerDraft,
   Navigate,
   PostQueued,
-  ProbeVoice,
   RejectAction,
   RemoveQueued,
+  RemoveVoice,
   RequestLogin,
   ResendVoice,
   RunTrayAction,
   ResumeIssue,
-  SaveAnswerDraft,
-  SaveDraft,
+  SaveDraftImages,
+  SaveDraftInboxItems,
+  SaveDraftText,
   SaveTrayState,
   SeeChat,
+  ShowBlockingTodo,
   StopChat,
   StopVoice,
   ToggleVoice,
   WaitToRetry,
 } from "./commands";
+import { answerDraftKey, chatDraftKey } from "@/lib/draft";
 import { maxImages, tooManyImages } from "@/lib/images";
 import { Message } from "./message";
 type Running = "action" | "dismiss" | "merge";
-import { countsAsUnread, retryDelays, upsert, type Model, type Waiting } from "./model";
+import { countsAsUnread, retryDelays, upsert, voiceBusy, type Model, type Waiting } from "./model";
 import { InboxItem } from "./schemas";
+
+const chatKey = (model: Model) =>
+  chatDraftKey(model.organization, model.repository, model.workstream);
 
 function isEmptyDraft(model: Model) {
   return (
     !model.draftText.trim() && model.draftImages.length === 0 && model.draftInboxItems.length === 0
   );
+}
+
+// The draft key of the field that a voice Message names: the field of the chat, or the field of the open answer panel.
+function voiceKey(model: Model, target: "chat" | "answer") {
+  if (target === "chat") {
+    return chatKey(model);
+  }
+  return model.activePanel ? answerDraftKey(model.activePanel.item.id) : null;
 }
 
 function hasSelection(model: Model) {
@@ -70,6 +81,7 @@ function answerCommands(
     id: item.id,
     repository: item.repository || model.repository,
     issue: item.issue,
+    voice: model.answerVoice?.state === "ready",
   };
   return item.todo
     ? [
@@ -94,25 +106,21 @@ function clearedDraft(model: Model): Model {
     draftText: "",
     draftImages: [],
     draftInboxItems: [],
-    voiceRegion: null,
+    draftVoice: null,
   };
 }
 
-function sendCommands(model: Model, text: string) {
+function sendCommands(model: Model) {
   return [
     EnqueueMessage({
       organization: model.organization,
       repository: model.repository,
       workstream: model.workstream,
-      text,
+      key: chatKey(model),
+      text: model.draftText,
       images: model.draftImages,
       inboxItems: model.draftInboxItems,
-    }),
-    SaveDraft({
-      organization: model.organization,
-      repository: model.repository,
-      workstream: model.workstream,
-      draft: { text: "", images: [], inboxItems: [] },
+      voice: model.draftVoice?.state === "ready",
     }),
   ];
 }
@@ -171,24 +179,22 @@ function without(model: Model, id: number) {
   return requestingOf(model).filter((other) => other !== id);
 }
 
-// A panel that opens again reads the draft of its own item. The note of another panel that the Owner used in the
-// meantime is not its note.
-function reopened(before: Model, after: Model, id: number) {
+// A panel that opens again reads the draft of its own item: the Subscription of the answer draft starts again. The note
+// of another panel that the Owner used in the meantime is not its note.
+function reopened(before: Model, after: Model) {
   if (before.activePanel !== null || after.activePanel === null) {
     return { model: after, commands: noCommands };
   }
   return {
-    model: { ...after, answerText: "", answerLoaded: false, selectedOptions: {} },
-    commands: [LoadAnswerDraft({ id })],
+    model: {
+      ...after,
+      answerText: "",
+      answerVoice: null,
+      answerLoaded: false,
+      selectedOptions: {},
+    },
+    commands: noCommands,
   };
-}
-
-// The region of the voice text belongs to one field.
-function regionOf(model: Model, target: "chat" | "answer") {
-  const region = model.voiceRegion;
-  return region && region.target === target
-    ? { lead: region.lead, trail: region.trail, value: region.value }
-    : null;
 }
 
 function newestMessage(model: Model) {
@@ -543,33 +549,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
       },
     }),
 
-    MessageRefused: ({ error, text, images, inboxItems }) => {
-      const restored = {
-        text: model.draftText === text ? text : [text, model.draftText].filter(Boolean).join(" "),
-        images,
-        inboxItems: [
-          ...inboxItems,
-          ...model.draftInboxItems.filter((item) => !inboxItems.some(({ id }) => id === item.id)),
-        ],
-      };
-      return {
-        model: {
-          ...model,
-          sendError: error,
-          draftText: restored.text,
-          draftImages: restored.images,
-          draftInboxItems: restored.inboxItems,
-        },
-        commands: [
-          SaveDraft({
-            organization: model.organization,
-            repository: model.repository,
-            workstream: model.workstream,
-            draft: restored,
-          }),
-        ],
-      };
-    },
+    MessageRefused: ({ error }) => ({ model: { ...model, sendError: error } }),
 
     MessageQueued: ({ item }) => {
       const queue: Waiting[] = [...model.queue, item];
@@ -709,39 +689,21 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
     StopChatCompleted: ({ error }) =>
       error === null ? { model } : { model: { ...model, stopping: false, sendError: error } },
 
-    DraftLoaded: ({ draft }) => {
-      return {
-        model: {
-          ...model,
-          draftLoaded: true,
-          draftText: draft.text,
-          draftImages: draft.images,
-          draftInboxItems: draft.inboxItems,
-        },
-      };
-    },
+    ReceivedDraft: ({ draft }) => ({
+      model: {
+        ...model,
+        draftLoaded: true,
+        draftText: draft.text,
+        draftImages: draft.images,
+        draftInboxItems: draft.inboxItems,
+        draftVoice: draft.voice,
+      },
+    }),
 
-    DraftTextChanged: ({ text }) => {
-      const draft = {
-        text,
-        images: model.draftImages,
-        inboxItems: model.draftInboxItems,
-      };
-      return {
-        model: {
-          ...model,
-          draftText: text,
-        },
-        commands: [
-          SaveDraft({
-            organization: model.organization,
-            repository: model.repository,
-            workstream: model.workstream,
-            draft,
-          }),
-        ],
-      };
-    },
+    DraftTextChanged: ({ text }) => ({
+      model: { ...model, draftText: text },
+      commands: [SaveDraftText({ key: chatKey(model), text })],
+    }),
 
     ImagesChosen: ({ files }) => ({
       model,
@@ -762,18 +724,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
           draftImages: nextImages,
           sendError: !problem && all.length > maxImages ? tooManyImages : problem,
         },
-        commands: [
-          SaveDraft({
-            organization: model.organization,
-            repository: model.repository,
-            workstream: model.workstream,
-            draft: {
-              text: model.draftText,
-              images: nextImages,
-              inboxItems: model.draftInboxItems,
-            },
-          }),
-        ],
+        commands: [SaveDraftImages({ key: chatKey(model), images: nextImages })],
       };
     },
 
@@ -783,24 +734,9 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
 
     DraftImageRemoved: ({ position }) => {
       const nextImages = model.draftImages.filter((_, i) => i !== position);
-      const draft = {
-        text: model.draftText,
-        images: nextImages,
-        inboxItems: model.draftInboxItems,
-      };
       return {
-        model: {
-          ...model,
-          draftImages: nextImages,
-        },
-        commands: [
-          SaveDraft({
-            organization: model.organization,
-            repository: model.repository,
-            workstream: model.workstream,
-            draft,
-          }),
-        ],
+        model: { ...model, draftImages: nextImages },
+        commands: [SaveDraftImages({ key: chatKey(model), images: nextImages })],
       };
     },
 
@@ -808,102 +744,31 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
       const nextItems = model.draftInboxItems.some((other) => other.id === item.id)
         ? model.draftInboxItems
         : [...model.draftInboxItems, item];
-      const draft = {
-        text: model.draftText,
-        images: model.draftImages,
-        inboxItems: nextItems,
-      };
       return {
-        model: {
-          ...model,
-          draftInboxItems: nextItems,
-        },
-        commands: [
-          SaveDraft({
-            organization: model.organization,
-            repository: model.repository,
-            workstream: model.workstream,
-            draft,
-          }),
-        ],
+        model: { ...model, draftInboxItems: nextItems },
+        commands: [SaveDraftInboxItems({ key: chatKey(model), inboxItems: nextItems })],
       };
     },
 
     DraftInboxItemRemoved: ({ id }) => {
       const nextItems = model.draftInboxItems.filter((item) => item.id !== id);
-      const draft = {
-        text: model.draftText,
-        images: model.draftImages,
-        inboxItems: nextItems,
-      };
       return {
-        model: {
-          ...model,
-          draftInboxItems: nextItems,
-        },
-        commands: [
-          SaveDraft({
-            organization: model.organization,
-            repository: model.repository,
-            workstream: model.workstream,
-            draft,
-          }),
-        ],
+        model: { ...model, draftInboxItems: nextItems },
+        commands: [SaveDraftInboxItems({ key: chatKey(model), inboxItems: nextItems })],
       };
     },
 
+    // The Send button and Enter stop a voice run and send nothing.
     SendSubmitted: () => {
-      if (model.waitingForSend || model.probingSend || isEmptyDraft(model)) {
+      if (model.voice.recording) {
+        return { model, commands: [StopVoice()] };
+      }
+      if (isEmptyDraft(model) || voiceBusy(model.draftVoice)) {
         return { model };
       }
       return {
-        model: { ...model, probingSend: true },
-        commands: [
-          ProbeVoice({
-            region: regionOf(model, "chat"),
-            draftText: model.draftText,
-            target: "chat",
-          }),
-        ],
-      };
-    },
-
-    VoiceProbed: ({ live, target }) => {
-      if (target === "answer") {
-        const item = model.activePanel?.item;
-        if (!item) {
-          return { model: { ...model, probingSend: false } };
-        }
-        const selected = model.selectedOptions;
-        if (live) {
-          return {
-            model: {
-              ...model,
-              probingSend: false,
-              answerSend: {
-                item,
-                text: model.answerText,
-                selected,
-                region: regionOf(model, "answer"),
-              },
-            },
-            commands: [FinishVoiceForSend({ target })],
-          };
-        }
-        return {
-          model: { ...model, probingSend: false, requesting: [...requestingOf(model), item.id] },
-          commands: [StopVoice(), ...answerCommands(model, item, model.answerText, selected)],
-        };
-      }
-      if (live) {
-        return {
-          model: { ...model, probingSend: false, waitingForSend: true },
-          commands: [FinishVoiceForSend({ target })],
-        };
-      }
-      return {
-        model: { ...clearedDraft(model), probingSend: false, sendError: "" },
-        commands: [StopVoice(), ...sendCommands(model, model.draftText)],
+        model: { ...clearedDraft(model), sendError: "" },
+        commands: sendCommands(model),
       };
     },
 
@@ -944,7 +809,11 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
 
     CompletedSaveTrayState: () => ({ model }),
 
+    // The Subscription of the answer draft reads the draft of the panel when the panel opens. A panel that is open
+    // already has its draft.
     OpenAnswerPanel: ({ item: inboxItem, workstreamTitle }) => {
+      const sameAnswerPanel =
+        model.activePanel?.type === "answer" && model.activePanel.item.id === inboxItem.id;
       const commands = [];
       if (inboxItem.action?.tool === "edit_brief" && inboxItem.action.state === "pending") {
         commands.push(FetchActionBrief({ actionId: inboxItem.action.id }));
@@ -957,16 +826,15 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
             item: inboxItem,
             workstreamTitle,
           },
-          answerText: "",
-          answerLoaded: false,
-          selectedOptions: {},
+          ...(sameAnswerPanel
+            ? {}
+            : { answerText: "", answerVoice: null, answerLoaded: false, selectedOptions: {} }),
           answerError: model.answerErrorId === inboxItem.id ? "" : model.answerError,
           answerErrorId: model.answerErrorId === inboxItem.id ? 0 : model.answerErrorId,
           showRemovedText: false,
           briefActionBrief: "",
-          voiceRegion: model.voiceRegion?.target === "answer" ? null : model.voiceRegion,
         },
-        commands: [...commands, LoadAnswerDraft({ id: inboxItem.id })],
+        commands,
       };
     },
 
@@ -1111,57 +979,57 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
 
     AnswerTextChanged: ({ text }) => ({
       model: { ...model, answerText: text },
-      commands: model.activePanel ? [SaveAnswerDraft({ id: model.activePanel.item.id, text })] : [],
+      commands: model.activePanel
+        ? [SaveDraftText({ key: answerDraftKey(model.activePanel.item.id), text })]
+        : [],
     }),
 
-    AnswerDraftLoaded: ({ text }) => ({
-      model: {
-        ...model,
-        answerLoaded: true,
-        answerText: model.answerLoaded ? model.answerText : text,
-      },
-    }),
+    ReceivedAnswerDraft: ({ id, draft }) =>
+      model.activePanel?.type === "answer" && model.activePanel.item.id === id
+        ? {
+            model: {
+              ...model,
+              answerLoaded: true,
+              answerText: draft.text,
+              answerVoice: draft.voice,
+            },
+          }
+        : { model },
 
-    CompletedSaveAnswerDraft: () => ({ model }),
-
+    // The Send button and Enter stop a voice run and send nothing.
     AnswerSubmitted: () => {
       const panel = model.activePanel;
-      if (
-        !panel ||
-        panel.type !== "answer" ||
-        model.answerSend?.item.id === panel.item.id ||
-        model.probingSend ||
-        requestingOf(model).includes(panel.item.id)
-      ) {
+      if (!panel || panel.type !== "answer" || requestingOf(model).includes(panel.item.id)) {
         return { model };
       }
+      if (model.voice.recording) {
+        return { model, commands: [StopVoice()] };
+      }
       const empty = !model.answerText.trim() && !hasSelection(model) && !panel.item.todo;
-      if (empty || panel.item.action) {
+      if (empty || panel.item.action || voiceBusy(model.answerVoice)) {
         return { model };
       }
       return {
-        model: { ...model, probingSend: true, answerError: "", answerErrorId: 0 },
-        commands: [
-          ProbeVoice({
-            region: regionOf(model, "answer"),
-            draftText: model.answerText,
-            target: "answer",
-          }),
-        ],
+        model: {
+          ...model,
+          requesting: [...requestingOf(model), panel.item.id],
+          answerError: "",
+          answerErrorId: 0,
+        },
+        commands: answerCommands(model, panel.item, model.answerText, model.selectedOptions),
       };
     },
 
     AnswerCompleted: ({ id, error }) => {
-      return reopened(
-        model,
-        { ...finishRequest(model, id, error), requesting: without(model, id) },
-        id,
-      );
+      return reopened(model, {
+        ...finishRequest(model, id, error),
+        requesting: without(model, id),
+      });
     },
 
     ActionDecided: ({ decision }) => {
       const panel = model.activePanel;
-      if (!panel || requestingOf(model).includes(panel.item.id)) {
+      if (!panel || requestingOf(model).includes(panel.item.id) || voiceBusy(model.answerVoice)) {
         return { model };
       }
       const text = model.answerText;
@@ -1200,7 +1068,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
 
     // The request failed, so the list does not change. The panel of the item opens again with the error and the note.
     ActionFailed: ({ id, error }) =>
-      reopened(model, { ...finishRequest(model, id, error), requesting: without(model, id) }, id),
+      reopened(model, { ...finishRequest(model, id, error), requesting: without(model, id) }),
 
     ActionCompleted: ({ id, action }) => {
       const isPending = action.state === "pending";
@@ -1217,109 +1085,42 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
         panel && panel.item.id === id && err
           ? { ...panel, item: { ...panel.item, action: { ...panel.item.action, ...action } } }
           : panel;
-      return reopened(
-        model,
-        {
-          ...finishRequest(
-            {
-              ...model,
-              activePanel: withAction(model.activePanel),
-              closedPanel: withAction(model.closedPanel),
-            },
-            id,
-            err,
-          ),
-          messages: updatedMessages,
-          trayItems: updatedTrayItems,
-          requesting: without(model, id),
-        },
-        id,
-      );
-    },
-
-    VoiceButtonClicked: () => ({ model, commands: [ToggleVoice()] }),
-
-    VoiceResendClicked: () => ({
-      model: {
-        ...model,
-        voicePhase: "converting",
-      },
-      commands: [ResendVoice()],
-    }),
-
-    VoiceDiscardClicked: () => ({
-      model: {
-        ...model,
-        voiceError: "",
-        voiceCanResend: false,
-      },
-      commands: [DiscardVoice()],
-    }),
-
-    VoiceSendFinished: ({ text, target }) => {
-      if (target === "answer") {
-        const send = model.answerSend;
-        if (!send) {
-          return { model };
-        }
-        const sent = !send.region
-          ? send.text
-          : text === undefined
-            ? send.region.value
-            : send.region.lead + text + send.region.trail;
-        return {
-          model: {
+      return reopened(model, {
+        ...finishRequest(
+          {
             ...model,
-            answerSend: null,
-            requesting: [...requestingOf(model), send.item.id],
+            activePanel: withAction(model.activePanel),
+            closedPanel: withAction(model.closedPanel),
           },
-          commands: answerCommands(model, send.item, sent, send.selected),
-        };
-      }
-      const region = regionOf(model, target);
-      const sent = !region
-        ? model.draftText
-        : text === undefined
-          ? region.value
-          : region.lead + text + region.trail;
-      return {
-        model: { ...clearedDraft(model), waitingForSend: false, sendError: "" },
-        commands: sendCommands(model, sent),
-      };
+          id,
+          err,
+        ),
+        messages: updatedMessages,
+        trayItems: updatedTrayItems,
+        requesting: without(model, id),
+      });
     },
 
-    VoicePhaseChanged: ({ phase, error, canResend }) => ({
-      model: {
-        ...model,
-        voicePhase: phase as "idle" | "recording" | "converting",
-        voiceError: error,
-        voiceCanResend: canResend,
-      },
-    }),
+    VoiceButtonClicked: ({ target }) => {
+      const key = voiceKey(model, target);
+      return key === null ? { model } : { model, commands: [ToggleVoice({ key })] };
+    },
 
-    VoiceTextPlaced: ({ value, lead, trail, target }) =>
-      target === "answer"
-        ? {
-            model: { ...model, answerText: value, voiceRegion: { lead, trail, value, target } },
-            commands: model.activePanel
-              ? [SaveAnswerDraft({ id: model.activePanel.item.id, text: value })]
-              : [],
-          }
-        : {
-            model: { ...model, draftText: value, voiceRegion: { lead, trail, value, target } },
-            commands: [
-              SaveDraft({
-                organization: model.organization,
-                repository: model.repository,
-                workstream: model.workstream,
-                draft: {
-                  text: value,
-                  images: model.draftImages,
-                  inboxItems: model.draftInboxItems,
-                },
-              }),
-            ],
-          },
+    VoiceResendClicked: ({ target }) => {
+      const key = voiceKey(model, target);
+      return key === null ? { model } : { model, commands: [ResendVoice({ key })] };
+    },
+
+    VoiceRemoveClicked: ({ target }) => {
+      const key = voiceKey(model, target);
+      return key === null ? { model } : { model, commands: [RemoveVoice({ key })] };
+    },
+
+    VoiceChanged: ({ voice }) => ({ model: { ...model, voice } }),
+
+    VoiceTicked: ({ now }) => ({ model: { ...model, now } }),
+
+    BlockingTodoClicked: ({ id }) => ({ model, commands: [ShowBlockingTodo({ id })] }),
 
     NavigateTo: ({ path }) => ({
       model: { ...model, activePanel: null },
@@ -1329,6 +1130,11 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
     CompletedFocusPanel: () => ({ model }),
     CompletedShowFile: () => ({ model }),
     CompletedNavigate: () => ({ model }),
+    CompletedToggleVoice: () => ({ model }),
+    CompletedResendVoice: () => ({ model }),
+    CompletedRemoveVoice: () => ({ model }),
+    CompletedScrollLive: () => ({ model }),
+    CompletedShowBlockingTodo: () => ({ model }),
     CompletedSeeChat: () => ({ model }),
     CompletedRequestLogin: () => ({ model }),
   });

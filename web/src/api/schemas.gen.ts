@@ -110,6 +110,7 @@ export const ListActiveAgentsResponse = S.Struct({
   "groups": S.Array(S.Struct({
   "agents": S.Array(S.Struct({
   "agent": S.Struct({
+  "effort": S.String.annotate({ description: 'Effort is the effort level of the session, or empty for a Harness with no effort levels' }),
   "endReason": S.String.annotate({ description: 'EndReason tells why the session ended, for example done or failed. It is empty while the session is live' }),
   "endedAt": S.NullOr(S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/))).annotate({ description: 'EndedAt is the end of the session, or null while the session is live' }),
   "harness": S.String.annotate({ description: 'Harness is the Harness of the session, for example claude-code' }),
@@ -259,6 +260,7 @@ export const GetChatResponse = S.Struct({
   "tool": S.String.annotate({ description: 'Tool is the name of the tool' })
 }).annotate({ description: 'PendingAction is a tool call of an agent that waits for the approval of the Owner.' }), S.Null]).annotate({ description: 'Action is the action of an approval item, or null for another item' }),
   "answer": S.String.annotate({ description: 'Answer is the answer of the Owner to a question item, or empty' }),
+  "blockingTodos": S.Array(S.Number).annotate({ description: 'BlockingTodos are the IDs of the open todo Inbox items whose todo blocks the merge of the pull request of a ready for review item, oldest first. It is an empty list for another item' }),
   "dismissedAt": S.NullOr(S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/))).annotate({ description: 'DismissedAt is the time when the Owner dismissed the item, or null' }),
   "id": S.Number.annotate({ description: 'ID increases with each new item' }),
   "issue": S.Number.annotate({ description: 'Issue is the number of the issue of the item' }),
@@ -284,6 +286,7 @@ export const GetChatResponse = S.Struct({
   "time": S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/)).annotate({ description: 'Time is the time of the item' }),
   "title": S.String.annotate({ description: 'Title is the title of the issue, or empty' }),
   "todo": S.Union([S.Struct({
+  "afterMerge": S.Boolean.annotate({ description: 'AfterMerge is true when a person can do the step only after the merge, so the todo does not block the merge' }),
   "dismissable": S.Boolean.annotate({ description: 'Dismissable is true when the Owner can dismiss the todo: it is open and its need is optional' }),
   "kind": S.String.annotate({ description: 'Kind is the kind of the need: env_var, config, secret or manual_step' }),
   "line": S.Number.annotate({ description: 'Line is the line of the file that adds the need' }),
@@ -301,6 +304,7 @@ export const GetChatResponse = S.Struct({
   "stoppedAt": S.NullOr(S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/))).annotate({ description: 'StoppedAt is the time when a stop of the Owner dropped the message of the Owner before the turn of the agent started, or null for a message that no stop dropped and for another message' }),
   "text": S.String.annotate({ description: 'Text is the text of the message' }),
   "time": S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/)).annotate({ description: 'Time is the time of the message' }),
+  "voice": S.Boolean.annotate({ description: 'Voice is true when the message came from a voice recording' }),
   "workstream": S.Number.annotate({ description: 'Workstream is the number of the Workstream issue. It is 0 for the Coordinator chat' })
 }).annotate({ description: 'ChatMessage is a message of a Lead chat or of the Coordinator chat.' })).annotate({ description: 'Messages are the messages of the page, the oldest first' }),
   "older": S.Boolean.annotate({ description: 'Older is true when the chat has an older message than the first message of the page' }),
@@ -326,6 +330,7 @@ export const SendChatBody = S.Struct({
   "organization": S.optional(S.String).annotate({ description: 'Organization is the owner of the repository, or the organization of the Coordinator chat' }),
   "repository": S.optional(S.String).annotate({ description: 'Repository is the repository of the Workstream as \"owner\/name\". It is empty for the Coordinator chat' }),
   "text": S.String.annotate({ description: 'Text is the message of the Owner. It is required when the message has no image and no Inbox item' }),
+  "voice": S.optional(S.Boolean).annotate({ description: 'Voice is true when the message came from a voice recording' }),
   "workstream": S.optional(S.Number).annotate({ description: 'Workstream is the number of the Workstream issue. It is 0 for the Coordinator chat' })
 })
 
@@ -632,6 +637,7 @@ export const ListInboxResponse = S.Struct({
   "tool": S.String.annotate({ description: 'Tool is the name of the tool' })
 }).annotate({ description: 'PendingAction is a tool call of an agent that waits for the approval of the Owner.' }), S.Null]).annotate({ description: 'Action is the action of an approval item, or null for another item' }),
   "answer": S.String.annotate({ description: 'Answer is the answer of the Owner to a question item, or empty' }),
+  "blockingTodos": S.Array(S.Number).annotate({ description: 'BlockingTodos are the IDs of the open todo Inbox items whose todo blocks the merge of the pull request of a ready for review item, oldest first. It is an empty list for another item' }),
   "dismissedAt": S.NullOr(S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/))).annotate({ description: 'DismissedAt is the time when the Owner dismissed the item, or null' }),
   "id": S.Number.annotate({ description: 'ID increases with each new item' }),
   "issue": S.Number.annotate({ description: 'Issue is the number of the issue of the item' }),
@@ -657,6 +663,7 @@ export const ListInboxResponse = S.Struct({
   "time": S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/)).annotate({ description: 'Time is the time of the item' }),
   "title": S.String.annotate({ description: 'Title is the title of the issue, or empty' }),
   "todo": S.Union([S.Struct({
+  "afterMerge": S.Boolean.annotate({ description: 'AfterMerge is true when a person can do the step only after the merge, so the todo does not block the merge' }),
   "dismissable": S.Boolean.annotate({ description: 'Dismissable is true when the Owner can dismiss the todo: it is open and its need is optional' }),
   "kind": S.String.annotate({ description: 'Kind is the kind of the need: env_var, config, secret or manual_step' }),
   "line": S.Number.annotate({ description: 'Line is the line of the file that adds the need' }),
@@ -692,7 +699,7 @@ export const AnswerInboxItemResponse = S.Struct({
 
 
 /**
- * Dismiss removes an item from the Inbox. For a todo item, it also marks the todo as dismissed. It returns 409 for a todo item that is not open and for a mandatory todo.
+ * Dismiss removes an item from the Inbox. For a todo item, it also marks the todo as dismissed. When that closes the last blocking todo of a task, Mobius makes the pull request ready for review. It returns 409 for a todo item that is not open and for a mandatory todo.
  */
 export const DismissParams = S.Struct({
   "id": S.Number.annotate({ description: 'ID is the id of the Inbox item' })
@@ -700,7 +707,7 @@ export const DismissParams = S.Struct({
 
 
 /**
- * DoneInboxItem marks the todo of an open todo Inbox item as done, with the note, and removes the item from the Inbox. When the todo was the last mandatory todo of a task with the automatic merge of Autopilot, Mobius approves the pull request for the merge. It returns the changed item. It returns 404 for an unknown item and 409 for an item that is not an open todo.
+ * DoneInboxItem marks the todo of an open todo Inbox item as done, with the note, and removes the item from the Inbox. When the todo was the last blocking todo of a task, Mobius makes the pull request ready for review, and with a merge level of Autopilot it approves the pull request for the merge. It returns the changed item. It returns 404 for an unknown item and 409 for an item that is not an open todo.
  */
 export const DoneInboxItemParams = S.Struct({
   "id": S.Number.annotate({ description: 'ID is the id of the Inbox item' })
@@ -738,6 +745,7 @@ export const DoneInboxItemResponse = S.Struct({
   "tool": S.String.annotate({ description: 'Tool is the name of the tool' })
 }).annotate({ description: 'PendingAction is a tool call of an agent that waits for the approval of the Owner.' }), S.Null]).annotate({ description: 'Action is the action of an approval item, or null for another item' }),
   "answer": S.String.annotate({ description: 'Answer is the answer of the Owner to a question item, or empty' }),
+  "blockingTodos": S.Array(S.Number).annotate({ description: 'BlockingTodos are the IDs of the open todo Inbox items whose todo blocks the merge of the pull request of a ready for review item, oldest first. It is an empty list for another item' }),
   "dismissedAt": S.NullOr(S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/))).annotate({ description: 'DismissedAt is the time when the Owner dismissed the item, or null' }),
   "id": S.Number.annotate({ description: 'ID increases with each new item' }),
   "issue": S.Number.annotate({ description: 'Issue is the number of the issue of the item' }),
@@ -763,6 +771,7 @@ export const DoneInboxItemResponse = S.Struct({
   "time": S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/)).annotate({ description: 'Time is the time of the item' }),
   "title": S.String.annotate({ description: 'Title is the title of the issue, or empty' }),
   "todo": S.Union([S.Struct({
+  "afterMerge": S.Boolean.annotate({ description: 'AfterMerge is true when a person can do the step only after the merge, so the todo does not block the merge' }),
   "dismissable": S.Boolean.annotate({ description: 'Dismissable is true when the Owner can dismiss the todo: it is open and its need is optional' }),
   "kind": S.String.annotate({ description: 'Kind is the kind of the need: env_var, config, secret or manual_step' }),
   "line": S.Number.annotate({ description: 'Line is the line of the file that adds the need' }),
@@ -814,6 +823,7 @@ export const MergeInboxItemResponse = S.Struct({
   "tool": S.String.annotate({ description: 'Tool is the name of the tool' })
 }).annotate({ description: 'PendingAction is a tool call of an agent that waits for the approval of the Owner.' }), S.Null]).annotate({ description: 'Action is the action of an approval item, or null for another item' }),
   "answer": S.String.annotate({ description: 'Answer is the answer of the Owner to a question item, or empty' }),
+  "blockingTodos": S.Array(S.Number).annotate({ description: 'BlockingTodos are the IDs of the open todo Inbox items whose todo blocks the merge of the pull request of a ready for review item, oldest first. It is an empty list for another item' }),
   "dismissedAt": S.NullOr(S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/))).annotate({ description: 'DismissedAt is the time when the Owner dismissed the item, or null' }),
   "id": S.Number.annotate({ description: 'ID increases with each new item' }),
   "issue": S.Number.annotate({ description: 'Issue is the number of the issue of the item' }),
@@ -839,6 +849,7 @@ export const MergeInboxItemResponse = S.Struct({
   "time": S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/)).annotate({ description: 'Time is the time of the item' }),
   "title": S.String.annotate({ description: 'Title is the title of the issue, or empty' }),
   "todo": S.Union([S.Struct({
+  "afterMerge": S.Boolean.annotate({ description: 'AfterMerge is true when a person can do the step only after the merge, so the todo does not block the merge' }),
   "dismissable": S.Boolean.annotate({ description: 'Dismissable is true when the Owner can dismiss the todo: it is open and its need is optional' }),
   "kind": S.String.annotate({ description: 'Kind is the kind of the need: env_var, config, secret or manual_step' }),
   "line": S.Number.annotate({ description: 'Line is the line of the file that adds the need' }),
@@ -938,6 +949,32 @@ export const GetReleaseResponse = S.Struct({
 export const ListReleaseChangesResponse = S.Struct({
   "data": S.Array(S.String).annotate({ description: 'Data is the payload of the response' })
 }).annotate({ description: 'Envelope is the body of each success response.' })
+
+
+/**
+ * SetTaskImplementer sets the Harness, the model and the effort of the Implementer of a task. The next Implementer round of the task uses them. It returns 422 with the reason when the values fail a check.
+ */
+export const SetTaskImplementerParams = S.Struct({
+  "owner": S.String.annotate({ description: 'Owner is the owner of the repository' }),
+  "name": S.String.annotate({ description: 'Name is the name of the repository' }),
+  "number": S.Number.annotate({ description: 'Number is the number of the issue' })
+})
+
+export const SetTaskImplementerBody = S.Struct({
+  "effort": S.optional(S.String).annotate({ description: 'Effort is the effort level. It is empty for a Harness with no effort levels.' }),
+  "harness": S.optional(S.String).annotate({ description: 'Harness is the agent program' }),
+  "model": S.optional(S.String).annotate({ description: 'Model is the model' })
+}).annotate({ description: 'IssueSetting is the Harness, the model and the effort that the Owner sets for the sessions of a Role in a task or a Workstream.' })
+
+
+/**
+ * ClearTaskImplementer removes the Implementer setting of a task. It returns 204 also when the task has no setting.
+ */
+export const ClearTaskImplementerParams = S.Struct({
+  "owner": S.String.annotate({ description: 'Owner is the owner of the repository' }),
+  "name": S.String.annotate({ description: 'Name is the name of the repository' }),
+  "number": S.Number.annotate({ description: 'Number is the number of the issue' })
+})
 
 
 /**
@@ -1479,6 +1516,23 @@ export const GetVersionResponse = S.Struct({
 
 
 /**
+ * GetConversion returns the current state of a conversion. It answers 404 for an unknown conversion.
+ */
+export const GetConversionParams = S.Struct({
+  "id": S.String.annotate({ description: 'ID is the id of the conversion' })
+})
+
+export const GetConversionResponse = S.Struct({
+  "data": S.Struct({
+  "error": S.String.annotate({ description: 'Error is the text of the failure. It is empty unless the state is failed' }),
+  "id": S.String.annotate({ description: 'ID is the id of the conversion' }),
+  "state": S.Literals(['converting', 'done', 'failed']).annotate({ description: 'State is converting while the converter works, done after the text is ready, and failed after an error' }),
+  "text": S.String.annotate({ description: 'Text is the text of the recording, with no leading or trailing spaces. It is empty before done' })
+}).annotate({ description: 'Data is the payload of the response' })
+}).annotate({ description: 'Envelope is the body of each success response.' })
+
+
+/**
  * GetVoiceLanguage returns the language of the voice conversion and the languages that it accepts.
  */
 export const GetVoiceLanguageResponse = S.Struct({
@@ -1540,7 +1594,7 @@ export const SendChunkResponse = S.Struct({
 
 
 /**
- * FinishRecording converts the full audio of a recording to text and removes the recording. It answers 404 for an unknown recording. It waits up to 5 minutes for the converter. It answers 503 when the converter is still not ready after that time, and 502 when the converter returns an error.
+ * FinishRecording removes a recording, starts the conversion of its full audio and answers at once with the conversion in the state converting. It answers 404 for an unknown recording.
  */
 export const FinishRecordingParams = S.Struct({
   "id": S.String.annotate({ description: 'ID is the id of the recording' })
@@ -1548,17 +1602,23 @@ export const FinishRecordingParams = S.Struct({
 
 export const FinishRecordingResponse = S.Struct({
   "data": S.Struct({
-  "text": S.String.annotate({ description: 'Text is the text of the recording, with no leading or trailing spaces' })
+  "error": S.String.annotate({ description: 'Error is the text of the failure. It is empty unless the state is failed' }),
+  "id": S.String.annotate({ description: 'ID is the id of the conversion' }),
+  "state": S.Literals(['converting', 'done', 'failed']).annotate({ description: 'State is converting while the converter works, done after the text is ready, and failed after an error' }),
+  "text": S.String.annotate({ description: 'Text is the text of the recording, with no leading or trailing spaces. It is empty before done' })
 }).annotate({ description: 'Data is the payload of the response' })
 }).annotate({ description: 'Envelope is the body of each success response.' })
 
 
 /**
- * Transcribe converts a voice recording to text. It waits up to 5 minutes for the converter. It answers 503 when the converter is still not ready after that time, and 502 when the converter returns an error.
+ * Transcribe starts the conversion of a voice recording to text and answers at once with the conversion in the state converting. The converter waits up to 5 minutes until it is ready, and the conversion ends with an error after 15 minutes.
  */
 export const TranscribeResponse = S.Struct({
   "data": S.Struct({
-  "text": S.String.annotate({ description: 'Text is the text of the recording, with no leading or trailing spaces' })
+  "error": S.String.annotate({ description: 'Error is the text of the failure. It is empty unless the state is failed' }),
+  "id": S.String.annotate({ description: 'ID is the id of the conversion' }),
+  "state": S.Literals(['converting', 'done', 'failed']).annotate({ description: 'State is converting while the converter works, done after the text is ready, and failed after an error' }),
+  "text": S.String.annotate({ description: 'Text is the text of the recording, with no leading or trailing spaces. It is empty before done' })
 }).annotate({ description: 'Data is the payload of the response' })
 }).annotate({ description: 'Envelope is the body of each success response.' })
 
@@ -1591,6 +1651,7 @@ export const ListAgentsParams = S.Struct({
 
 export const ListAgentsResponse = S.Struct({
   "data": S.Array(S.Struct({
+  "effort": S.String.annotate({ description: 'Effort is the effort level of the session, or empty for a Harness with no effort levels' }),
   "endReason": S.String.annotate({ description: 'EndReason tells why the session ended, for example done or failed. It is empty while the session is live' }),
   "endedAt": S.NullOr(S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/))).annotate({ description: 'EndedAt is the end of the session, or null while the session is live' }),
   "harness": S.String.annotate({ description: 'Harness is the Harness of the session, for example claude-code' }),
@@ -1681,6 +1742,18 @@ export const GetWorkstreamDetailsResponse = S.Struct({
   "completedTasks": S.Number.annotate({ description: 'CompletedTasks is the number of closed tasks, with each close reason' }),
   "createdAt": S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/)).annotate({ description: 'CreatedAt is the creation time of the Workstream issue' }),
   "evergreen": S.Boolean.annotate({ description: 'Evergreen is true when the Workstream issue has mobius:evergreen' }),
+  "implementer": S.Struct({
+  "effort": S.String.annotate({ description: 'Effort is the effort level, or empty for a Harness with no effort levels' }),
+  "harness": S.String.annotate({ description: 'Harness is the agent program' }),
+  "model": S.String.annotate({ description: 'Model is the model' }),
+  "own": S.Boolean.annotate({ description: 'Own is true when the Workstream has its own setting, and false when the binding comes from the Role' })
+}).annotate({ description: 'Implementer is the binding of the next Implementer session of a task with no setting of its own' }),
+  "lead": S.Struct({
+  "effort": S.String.annotate({ description: 'Effort is the effort level, or empty for a Harness with no effort levels' }),
+  "harness": S.String.annotate({ description: 'Harness is the agent program' }),
+  "model": S.String.annotate({ description: 'Model is the model' }),
+  "own": S.Boolean.annotate({ description: 'Own is true when the Workstream has its own setting, and false when the binding comes from the Role' })
+}).annotate({ description: 'Lead is the binding of the next Lead session of the Workstream' }),
   "maintenance": S.Boolean.annotate({ description: 'Maintenance is true when the Workstream issue has mobius:maintenance' }),
   "openTasks": S.Number.annotate({ description: 'OpenTasks is the number of open tasks' }),
   "skills": S.Boolean.annotate({ description: 'Skills is true when the Workstream issue has mobius:skills' })
@@ -1703,6 +1776,58 @@ export const SetEvergreenBody = S.Struct({
 
 
 /**
+ * SetWorkstreamImplementer sets the Harness, the model and the effort of the Implementer of each task of a Workstream that has no setting of its own. It returns 409 when the issue is not an open Workstream, and 422 with the reason when the values fail a check.
+ */
+export const SetWorkstreamImplementerParams = S.Struct({
+  "owner": S.String.annotate({ description: 'Owner is the owner of the repository' }),
+  "name": S.String.annotate({ description: 'Name is the name of the repository' }),
+  "number": S.Number.annotate({ description: 'Number is the number of the issue' })
+})
+
+export const SetWorkstreamImplementerBody = S.Struct({
+  "effort": S.optional(S.String).annotate({ description: 'Effort is the effort level. It is empty for a Harness with no effort levels.' }),
+  "harness": S.optional(S.String).annotate({ description: 'Harness is the agent program' }),
+  "model": S.optional(S.String).annotate({ description: 'Model is the model' })
+}).annotate({ description: 'IssueSetting is the Harness, the model and the effort that the Owner sets for the sessions of a Role in a task or a Workstream.' })
+
+
+/**
+ * ClearWorkstreamImplementer removes the Implementer setting of a Workstream. It returns 409 when the issue is not an open Workstream.
+ */
+export const ClearWorkstreamImplementerParams = S.Struct({
+  "owner": S.String.annotate({ description: 'Owner is the owner of the repository' }),
+  "name": S.String.annotate({ description: 'Name is the name of the repository' }),
+  "number": S.Number.annotate({ description: 'Number is the number of the issue' })
+})
+
+
+/**
+ * SetWorkstreamLead sets the Harness, the model and the effort of the Lead of a Workstream. The next Lead session uses them. It returns 409 when the issue is not an open Workstream, and 422 with the reason when the values fail a check.
+ */
+export const SetWorkstreamLeadParams = S.Struct({
+  "owner": S.String.annotate({ description: 'Owner is the owner of the repository' }),
+  "name": S.String.annotate({ description: 'Name is the name of the repository' }),
+  "number": S.Number.annotate({ description: 'Number is the number of the issue' })
+})
+
+export const SetWorkstreamLeadBody = S.Struct({
+  "effort": S.optional(S.String).annotate({ description: 'Effort is the effort level. It is empty for a Harness with no effort levels.' }),
+  "harness": S.optional(S.String).annotate({ description: 'Harness is the agent program' }),
+  "model": S.optional(S.String).annotate({ description: 'Model is the model' })
+}).annotate({ description: 'IssueSetting is the Harness, the model and the effort that the Owner sets for the sessions of a Role in a task or a Workstream.' })
+
+
+/**
+ * ClearWorkstreamLead removes the Lead setting of a Workstream. It returns 409 when the issue is not an open Workstream.
+ */
+export const ClearWorkstreamLeadParams = S.Struct({
+  "owner": S.String.annotate({ description: 'Owner is the owner of the repository' }),
+  "name": S.String.annotate({ description: 'Name is the name of the repository' }),
+  "number": S.Number.annotate({ description: 'Number is the number of the issue' })
+})
+
+
+/**
  * ListTasks returns the open and closed tasks of trusted authors in the tree of a Workstream, from the local copy of GitHub. A nested task follows its parent. The copy can be one poll interval old.
  */
 export const ListTasksParams = S.Struct({
@@ -1719,6 +1844,11 @@ export const ListTasksResponse = S.Struct({
   "workstreamTitle": S.NullOr(S.String).annotate({ description: 'WorkstreamTitle is the title of the Workstream of a blocker in another Workstream, or null' })
 }).annotate({ description: 'Blocker is an open blocker of a task.' })).annotate({ description: 'BlockedBy are the open blockers of the task' }),
   "depth": S.Number.annotate({ description: 'Depth is 0 for a sub-issue of the Workstream issue, and one more for each level below' }),
+  "implementer": S.Union([S.Struct({
+  "effort": S.String.annotate({ description: 'Effort is the effort level. It is empty for a Harness with no effort levels.' }),
+  "harness": S.String.annotate({ description: 'Harness is the agent program' }),
+  "model": S.String.annotate({ description: 'Model is the model' })
+}).annotate({ description: 'IssueSetting is the Harness, the model and the effort that the Owner sets for the sessions of a Role in a task or a Workstream.' }), S.Null]).annotate({ description: 'Implementer is the own Implementer setting of the task, or null when the task has none' }),
   "number": S.Number.annotate({ description: 'Number is the number of the task issue' }),
   "otherRepository": S.Boolean.annotate({ description: 'OtherRepository is true for a task in another repository than the Workstream' }),
   "repository": S.String.annotate({ description: 'Repository is the full name of the repository of the task issue' }),

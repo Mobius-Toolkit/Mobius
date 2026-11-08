@@ -1,342 +1,234 @@
 import { Effect, Queue, Schema, Stream } from "effect";
 import * as Port from "foldkit/port";
 import * as Subscription from "foldkit/subscription";
-import { listGitHubApps } from "@/api/api.gen";
-import { retryDelay } from "@/lib/events";
+import {
+  answerDraftKey,
+  chatDraftKey,
+  currentDraft,
+  type Draft as StoredDraft,
+  loadDraft,
+  subscribeDrafts,
+  updateDraft,
+} from "@/lib/draft";
+import { store } from "@/lib/effects";
+import { currentUnread, subscribeUnread, unreadCount } from "@/lib/unread";
 import { sameChat } from "@/lib/unread";
-import { getVoiceSnapshot, registerVoiceInput, subscribeVoice } from "@/lib/voice";
+import { insertVoiceText, registerVoiceInput, subscribeVoice, voiceSnapshot } from "@/lib/voice";
+import { currentWorkstreams, subscribeWorkstreams } from "@/lib/workstreams";
+import { liveEvents, liveListener } from "@/live/events";
+import { storeValues } from "@/live/stores";
 import { answerInputId, inputId } from "./composer";
-import { request } from "./errors";
 import { Message } from "./message";
 import type { Model } from "./model";
 import { ports } from "./ports";
-import { ChatMessage, ChatState, InboxItem, PendingAction } from "./schemas";
+import { ChatMessage, ChatState, type Draft, InboxItem, PendingAction } from "./schemas";
 
-const silenceLimit = 35_000;
 const stopDelay = 500;
 
-function emitVoice(queue: Queue.Enqueue<Message>) {
-  const snap = getVoiceSnapshot();
-  Queue.offerUnsafe(
-    queue,
-    Message.VoicePhaseChanged({
-      phase: snap.phase,
-      error: snap.error,
-      canResend: snap.canResend,
+// Gives the draft of the key to the program: first the draft that the browser store holds, then each change.
+function draftValues(key: string, toMessage: (draft: Draft) => Message) {
+  return Stream.callback<Message>((queue) =>
+    Effect.gen(function* () {
+      let last: StoredDraft | undefined;
+      const emit = () => {
+        const draft = currentDraft(key);
+        if (draft !== undefined && draft !== last) {
+          last = draft;
+          Queue.offerUnsafe(queue, toMessage(draft));
+        }
+      };
+      const unsubscribe = subscribeDrafts(emit);
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => {
+          unsubscribe();
+        }),
+      );
+      yield* store(() => loadDraft(key)).pipe(Effect.ignore);
+      emit();
     }),
   );
 }
 
-// The newest input gets the voice text: the field of the answer panel, when it is open, else the field of the chat.
-function textArea(id: string) {
-  const element = document.getElementById(id);
-  return element instanceof HTMLTextAreaElement ? element : null;
-}
-
-function voiceInput() {
-  return textArea(answerInputId) ?? textArea(inputId);
-}
-
-type VoiceRegion = { lead: string; trail: string; value: string };
-
-function createVoiceStream() {
-  return Stream.callback<Message>(
-    (queue) =>
-      Effect.gen(function* () {
-        // The text around the voice text of the run, for each field. An edit of the Owner in a field ends its region,
-        // and a render that sets the Model value again must not end it.
-        const regions = new Map<string, VoiceRegion>();
-        const edited = (event: Event) => {
-          if (event.target instanceof Element) {
-            regions.delete(event.target.id);
-          }
-        };
-        document.addEventListener("input", edited, true);
-
-        const place = (
-          target: HTMLTextAreaElement,
-          voiceText: string,
-          lead: string,
-          trail: string,
-        ) => {
-          const value = lead + voiceText + trail;
-          const cursor = lead.length + voiceText.length;
-          // The height of the text up to the end of the voice text gives the scroll position. setSelectionRange does
-          // not scroll a field without the focus, and WebKit on iOS does not scroll it reliably.
-          target.value = lead + voiceText;
-          const top = target.scrollHeight - target.clientHeight;
-          target.value = value;
-          target.setSelectionRange(cursor, cursor);
-          target.scrollTop = top;
-          regions.set(target.id, { lead, trail, value: target.value });
-          Queue.offerUnsafe(
-            queue,
-            Message.VoiceTextPlaced({
-              value,
-              lead,
-              trail,
-              target: target.id === answerInputId ? "answer" : "chat",
-            }),
-          );
-        };
-
-        const placeAtCursor = (target: HTMLTextAreaElement, voiceText: string) => {
-          const focused = document.activeElement === target;
-          const start = focused ? target.selectionStart : target.value.length;
-          const end = focused ? target.selectionEnd : target.value.length;
-          const before = target.value.slice(0, start);
-          const after = target.value.slice(end);
-          const lead = before === "" || /\s$/.test(before) ? before : `${before} `;
-          const trail = after === "" || /^\s/.test(after) ? after : ` ${after}`;
-          place(target, voiceText, lead, trail);
-        };
-
-        emitVoice(queue);
-        const unsubVoice = subscribeVoice(() => emitVoice(queue));
-        const unregInput = registerVoiceInput({
-          insert: (voiceText, live) => {
-            const target = voiceInput();
-            if (!target) {
-              return;
-            }
-            const region = regions.get(target.id);
-            if (live && region && target.value === region.value) {
-              place(target, voiceText, region.lead, region.trail);
-            } else if (voiceText) {
-              placeAtCursor(target, voiceText);
-            }
-          },
-          insertLive: (voiceText, first) => {
-            const target = voiceInput();
-            if (!target) {
-              return false;
-            }
-            if (first) {
-              // A region belongs to one run.
-              regions.clear();
-              placeAtCursor(target, voiceText);
-              return true;
-            }
-            const region = regions.get(target.id);
-            if (!region || target.value !== region.value) {
-              return false;
-            }
-            place(target, voiceText, region.lead, region.trail);
-            return true;
-          },
-        });
-
-        yield* Effect.addFinalizer(() =>
-          Effect.sync(() => {
-            unsubVoice();
-            unregInput();
-            document.removeEventListener("input", edited, true);
-          }),
-        );
-      }),
-    { bufferSize: 1000 },
-  );
-}
-
-function createLiveEventsStream(target: {
-  organization: string;
-  repository: string;
-  workstream: number;
-}) {
-  return Stream.callback<Message>(
-    (queue) =>
-      Effect.gen(function* () {
-        let source: EventSource | null = null;
-        let silenceTimer: ReturnType<typeof setTimeout> | undefined;
-        let retryTimer: ReturnType<typeof setTimeout> | undefined;
-        let stopped = false;
-
-        const resetSilenceWatchdog = () => {
-          clearTimeout(silenceTimer);
-          silenceTimer = setTimeout(() => {
-            reconnect();
-          }, silenceLimit);
-        };
-
-        const reconnect = () => {
-          if (stopped) return;
-          // A new connection ends a retry that waits.
-          clearTimeout(retryTimer);
-          if (source) {
-            source.close();
-          }
-          connect();
-        };
-
-        const reconnectUnlessStopped = Effect.sync(() => {
-          if (!stopped) {
-            reconnect();
-          }
-        });
-
-        const handleRetry = () => {
-          Effect.runFork(
-            request(() => listGitHubApps()).pipe(
-              Effect.flatMap((res) =>
-                res.status === 401
-                  ? Effect.sync(() =>
-                      Queue.offerUnsafe(queue, Message.PageFailed({ error: "login required" })),
-                    )
-                  : reconnectUnlessStopped,
-              ),
-              Effect.catchTag("RequestFailed", () => reconnectUnlessStopped),
-            ),
-          );
-        };
-
-        const listen = <T>(
-          name: string,
-          schema: Schema.Decoder<T>,
-          toMessage: (value: T) => Message | null,
-        ) => {
-          const decode = Schema.decodeUnknownEffect(Schema.fromJsonString(schema));
-          source?.addEventListener(name, (event) => {
-            if (!(event instanceof MessageEvent)) {
-              return;
-            }
-            Effect.runFork(
-              decode(event.data).pipe(
-                Effect.flatMap((value) =>
-                  Effect.sync(() => {
-                    const message = toMessage(value);
-                    if (message !== null) {
-                      Queue.offerUnsafe(queue, message);
-                    }
-                  }),
-                ),
-                Effect.catchTag("SchemaError", (error) =>
-                  Effect.logWarning(`The live event ${name} has no valid data`, error.message),
-                ),
-              ),
-            );
-          });
-        };
-
-        const connect = () => {
-          source = new EventSource("/api/events");
-          resetSilenceWatchdog();
-
-          source.addEventListener("open", () => {
-            resetSilenceWatchdog();
-            Queue.offerUnsafe(queue, Message.ConnectionOpened());
-          });
-
-          source.addEventListener("error", () => {
-            if (source?.readyState === EventSource.CLOSED) {
-              clearTimeout(retryTimer);
-              retryTimer = setTimeout(handleRetry, retryDelay);
-            }
-          });
-
-          source.addEventListener("ping", resetSilenceWatchdog);
-
-          listen("message", ChatMessage, (message) =>
-            sameChat(message, target) ? Message.ReceivedLiveMessage({ message }) : null,
-          );
-          listen("chat", ChatState, (state) =>
-            sameChat(state, target) ? Message.ReceivedLiveChatState({ state }) : null,
-          );
-          listen("action", PendingAction, (action) => Message.ReceivedLiveAction({ action }));
-          listen("question", InboxItem, (question) => Message.ReceivedLiveQuestion({ question }));
-        };
-
-        const handleWake = () => {
-          if (!document.hidden) {
-            reconnect();
-          }
-        };
-
-        const handleRestore = (event: PageTransitionEvent) => {
-          if (event.persisted) {
-            reconnect();
-          }
-        };
-
-        window.addEventListener("online", handleWake);
-        window.addEventListener("pageshow", handleRestore);
-        document.addEventListener("visibilitychange", handleWake);
-
-        connect();
-
-        yield* Effect.addFinalizer(() =>
-          Effect.sync(() => {
-            stopped = true;
-            clearTimeout(silenceTimer);
-            clearTimeout(retryTimer);
-            window.removeEventListener("online", handleWake);
-            window.removeEventListener("pageshow", handleRestore);
-            document.removeEventListener("visibilitychange", handleWake);
-            if (source) {
-              source.close();
-            }
-          }),
-        );
-      }),
-    { bufferSize: 1000 },
-  );
-}
-
-function createEscapeListener(queue: Queue.Enqueue<Message>) {
-  return (e: KeyboardEvent) => {
-    if (e.key === "Escape") {
-      Queue.offerUnsafe(queue, Message.ClosePanel());
+// The text of a conversion goes to the cursor of the field. The height of the text up to the end of the voice text
+// gives the scroll position, because setSelectionRange does not scroll a field without the focus and WebKit on iOS does
+// not scroll it reliably.
+function insertAtCursor(key: string, fieldId: string) {
+  return (voiceText: string) => {
+    const field = document.getElementById(fieldId);
+    if (!(field instanceof HTMLTextAreaElement)) {
+      return;
     }
+    const focused = document.activeElement === field;
+    const start = focused ? field.selectionStart : field.value.length;
+    const end = focused ? field.selectionEnd : field.value.length;
+    const { text, cursor } = insertVoiceText(field.value, voiceText, start, end);
+    void updateDraft(key, (draft) => ({ ...draft, text }));
+    field.value = text.slice(0, cursor);
+    const top = field.scrollHeight - field.clientHeight;
+    field.value = text;
+    field.setSelectionRange(cursor, cursor);
+    field.scrollTop = top;
   };
 }
 
-function createEscapeKeyStream() {
-  return Stream.callback<Message>((queue) =>
+// The recording stops when no mounted input has its draft key, so each field has its own Subscription: a change of the
+// answer panel must not unmount the input of the chat.
+function voiceInput(key: string, fieldId: string) {
+  return Stream.callback<Message>(() =>
     Effect.gen(function* () {
-      const listener = createEscapeListener(queue);
-      window.addEventListener("keydown", listener);
+      const unregister = registerVoiceInput(key, insertAtCursor(key, fieldId));
       yield* Effect.addFinalizer(() =>
         Effect.sync(() => {
-          window.removeEventListener("keydown", listener);
+          unregister();
         }),
       );
     }),
   );
 }
 
+const voiceClock = Stream.callback<Message>((queue) => {
+  const tick = () => Queue.offerUnsafe(queue, Message.VoiceTicked({ now: Date.now() }));
+  return Effect.gen(function* () {
+    tick();
+    const timer = setInterval(tick, 1000);
+    yield* Effect.addFinalizer(() =>
+      Effect.sync(() => {
+        clearInterval(timer);
+      }),
+    );
+  });
+});
+
+function createEscapeKeyStream() {
+  return Stream.callback<Message>((queue) => {
+    const listener = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        Queue.offerUnsafe(queue, Message.ClosePanel());
+      }
+    };
+    return Effect.gen(function* () {
+      window.addEventListener("keydown", listener);
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => {
+          window.removeEventListener("keydown", listener);
+        }),
+      );
+    });
+  });
+}
+
+const chatDependencies = {
+  organization: Schema.String,
+  repository: Schema.String,
+  workstream: Schema.Number,
+};
+
 export const subscriptions = Subscription.make<Model, Message>()((entry) => ({
-  unreadPort: Port.subscriptionEntry(ports.inbound.unread, (unread) =>
-    Message.ReceivedUnread({ unread }),
-  ),
   briefPort: Port.subscriptionEntry(ports.inbound.brief, (brief) =>
     Message.ReceivedBrief({ brief }),
   ),
   trayItemsPort: Port.subscriptionEntry(ports.inbound.trayItems, (items) =>
     Message.ReceivedTrayItems({ items }),
   ),
-  workstreamsPort: Port.subscriptionEntry(ports.inbound.workstreams, (workstreams) =>
-    Message.ReceivedWorkstreams({ workstreams }),
-  ),
-  liveEvents: entry(
+  unread: entry(chatDependencies, {
+    modelToDependencies: ({ organization, repository, workstream }) => ({
+      organization,
+      repository,
+      workstream,
+    }),
+    dependenciesToStream: (chat) =>
+      storeValues(subscribeUnread, currentUnread, (list) =>
+        Message.ReceivedUnread({ unread: list === undefined ? null : unreadCount(list, chat) }),
+      ),
+  }),
+  workstreams: entry(
+    {},
     {
-      organization: Schema.String,
-      repository: Schema.String,
-      workstream: Schema.Number,
+      modelToDependencies: () => ({}),
+      dependenciesToStream: () =>
+        storeValues(subscribeWorkstreams, currentWorkstreams, (state) =>
+          Message.ReceivedWorkstreams({ workstreams: state.list ?? null }),
+        ),
     },
+  ),
+  chatDraft: entry(
+    { key: Schema.String },
+    {
+      modelToDependencies: ({ organization, repository, workstream }) => ({
+        key: chatDraftKey(organization, repository, workstream),
+      }),
+      dependenciesToStream: ({ key }) =>
+        draftValues(key, (draft) => Message.ReceivedDraft({ draft })),
+    },
+  ),
+  answerDraft: entry(
+    { id: Schema.NullOr(Schema.Number) },
     {
       modelToDependencies: (model) => ({
-        organization: model.organization,
-        repository: model.repository,
-        workstream: model.workstream,
+        id: model.activePanel?.type === "answer" ? model.activePanel.item.id : null,
       }),
-      dependenciesToStream: ({ organization, repository, workstream }) =>
-        createLiveEventsStream({ organization, repository, workstream }),
+      dependenciesToStream: ({ id }) =>
+        id === null
+          ? Stream.empty
+          : draftValues(answerDraftKey(id), (draft) => Message.ReceivedAnswerDraft({ id, draft })),
     },
   ),
+  liveEvents: entry(chatDependencies, {
+    modelToDependencies: ({ organization, repository, workstream }) => ({
+      organization,
+      repository,
+      workstream,
+    }),
+    dependenciesToStream: (chat) =>
+      liveEvents<Message>({
+        opened: Message.ConnectionOpened(),
+        loginRequired: Message.PageFailed({ error: "login required" }),
+        listeners: [
+          liveListener("message", ChatMessage, (message) =>
+            sameChat(message, chat) ? Message.ReceivedLiveMessage({ message }) : null,
+          ),
+          liveListener("chat", ChatState, (state) =>
+            sameChat(state, chat) ? Message.ReceivedLiveChatState({ state }) : null,
+          ),
+          liveListener("action", PendingAction, (action) => Message.ReceivedLiveAction({ action })),
+          liveListener("question", InboxItem, (question) =>
+            Message.ReceivedLiveQuestion({ question }),
+          ),
+        ],
+      }),
+  }),
   voice: entry(
     {},
     {
       modelToDependencies: () => ({}),
-      dependenciesToStream: () => createVoiceStream(),
+      dependenciesToStream: () =>
+        storeValues(subscribeVoice, voiceSnapshot, (voice) => Message.VoiceChanged({ voice })),
+    },
+  ),
+  voiceClock: entry(
+    { recording: Schema.Boolean },
+    {
+      modelToDependencies: (model) => ({ recording: model.voice.recording }),
+      dependenciesToStream: ({ recording }) => (recording ? voiceClock : Stream.empty),
+    },
+  ),
+  chatVoiceInput: entry(
+    { key: Schema.String },
+    {
+      modelToDependencies: ({ organization, repository, workstream }) => ({
+        key: chatDraftKey(organization, repository, workstream),
+      }),
+      dependenciesToStream: ({ key }) => voiceInput(key, inputId),
+    },
+  ),
+  answerVoiceInput: entry(
+    { id: Schema.NullOr(Schema.Number) },
+    {
+      modelToDependencies: (model) => ({
+        id: model.activePanel?.type === "answer" ? model.activePanel.item.id : null,
+      }),
+      dependenciesToStream: ({ id }) =>
+        id === null ? Stream.empty : voiceInput(answerDraftKey(id), answerInputId),
     },
   ),
   stopReady: entry(

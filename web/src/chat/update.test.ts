@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { Command as StoryCommand, given, message, model, story } from "foldkit/story";
 import {
   AnswerInboxItem,
@@ -6,20 +6,43 @@ import {
   FetchActionBrief,
   FetchPage,
   DoneInboxItem,
-  LoadAnswerDraft,
+  EnqueueMessage,
   PostQueued,
-  ProbeVoice,
   RemoveQueued,
+  RemoveVoice,
+  ResendVoice,
   RunTrayAction,
+  SaveDraftImages,
+  SaveDraftInboxItems,
+  SaveDraftText,
   SaveTrayState,
+  ShowBlockingTodo,
   StopChat,
   StopVoice,
+  ToggleVoice,
   WaitToRetry,
 } from "./commands";
 import { Message } from "./message";
 import { initialModel, retryDelays, type Model, type Waiting } from "./model";
-import type { ChatMessage, InboxItem, PendingAction, Queued } from "./schemas";
+import type { ChatMessage, Draft, InboxItem, PendingAction, Queued } from "./schemas";
 import { update } from "./update";
+
+// The voice library reads the document of the browser when it loads.
+vi.mock("@/lib/voice", () => ({ resend: vi.fn(), stopVoice: vi.fn(), toggleVoice: vi.fn() }));
+
+type Commands = ReturnType<typeof update>["commands"];
+
+// A Command holds a function, so a test compares the name and the arguments.
+const described = (commands: Commands) =>
+  (commands ?? []).map(({ name, args }) => ({ name, args }));
+
+const createDraft = (text = "", overrides: Partial<Draft> = {}): Draft => ({
+  text,
+  images: [],
+  inboxItems: [],
+  voice: null,
+  ...overrides,
+});
 
 function createTestModel(overrides: Partial<Model> = {}): Model {
   const base = initialModel({
@@ -43,6 +66,7 @@ function createQueuedItem(id: string, text: string): Queued {
     text,
     images: [],
     inboxItems: [],
+    voice: false,
     time: "2026-11-04T08:00:00Z",
   };
 }
@@ -65,6 +89,7 @@ function createChatMessage(id: number, text: string, browserId = ""): ChatMessag
     inboxItems: [],
     question: null,
     stoppedAt: null,
+    voice: false,
   };
 }
 
@@ -92,6 +117,7 @@ function createInboxItem(overrides: Partial<InboxItem> = {}): InboxItem {
     kind: "question",
     action: null,
     answer: "",
+    blockingTodos: [],
     dismissedAt: null,
     issue: 0,
     link: "",
@@ -764,12 +790,12 @@ describe("chat update story tests", () => {
           expect(m.showRemovedText).toBe(false);
           expect(m.briefActionBrief).toBe("");
         }),
-        StoryCommand.expectExact(FetchActionBrief({ actionId: 42 }), LoadAnswerDraft({ id: 101 })),
+        StoryCommand.expectExact(FetchActionBrief({ actionId: 42 })),
         StoryCommand.resolve(
           FetchActionBrief,
           Message.ActionBriefFetched({ brief: "Old brief content" }),
         ),
-        StoryCommand.resolve(LoadAnswerDraft, Message.AnswerDraftLoaded({ text: "" })),
+        message(Message.ReceivedAnswerDraft({ id: 101, draft: createDraft("") })),
         model((m) => {
           expect(m.answerLoaded).toBe(true);
         }),
@@ -820,6 +846,7 @@ describe("chat update story tests", () => {
       kind: "todo",
       issue: 5,
       todo: {
+        afterMerge: false,
         dismissable: false,
         kind: "env_var",
         line: 1,
@@ -853,8 +880,7 @@ describe("chat update story tests", () => {
           expect(m.answerError).toBe("The server failed.");
           expect(m.requesting).toEqual([]);
         }),
-        StoryCommand.expectExact(LoadAnswerDraft({ id: 8 })),
-        StoryCommand.resolve(LoadAnswerDraft, Message.AnswerDraftLoaded({ text: "" })),
+        message(Message.ReceivedAnswerDraft({ id: 8, draft: createDraft("") })),
         StoryCommand.expectNone(),
       );
     });
@@ -906,8 +932,7 @@ describe("chat update story tests", () => {
           expect(m.closedPanel).toBeNull();
           expect(m.answerError).toBe("The server failed.");
         }),
-        StoryCommand.expectExact(LoadAnswerDraft({ id: 8 })),
-        StoryCommand.resolve(LoadAnswerDraft, Message.AnswerDraftLoaded({ text: "" })),
+        message(Message.ReceivedAnswerDraft({ id: 8, draft: createDraft("") })),
         StoryCommand.expectNone(),
       );
     });
@@ -953,8 +978,7 @@ describe("chat update story tests", () => {
         model((m) => {
           expect(m.answerError).toBe("");
         }),
-        StoryCommand.expectExact(LoadAnswerDraft({ id: 8 })),
-        StoryCommand.resolve(LoadAnswerDraft, Message.AnswerDraftLoaded({ text: "" })),
+        message(Message.ReceivedAnswerDraft({ id: 8, draft: createDraft("") })),
         StoryCommand.expectNone(),
       );
     });
@@ -982,8 +1006,7 @@ describe("chat update story tests", () => {
           expect(m.answerError).toBe("");
           expect(m.answerErrorId).toBe(0);
         }),
-        StoryCommand.expectExact(LoadAnswerDraft({ id: 8 })),
-        StoryCommand.resolve(LoadAnswerDraft, Message.AnswerDraftLoaded({ text: "" })),
+        message(Message.ReceivedAnswerDraft({ id: 8, draft: createDraft("") })),
         StoryCommand.expectNone(),
       );
     });
@@ -999,15 +1022,18 @@ describe("chat update story tests", () => {
         given(base),
         message(Message.AnswerSubmitted()),
         model((m) => {
-          expect(m.probingSend).toBe(true);
+          expect(m.requesting).toEqual([9]);
         }),
-        StoryCommand.expectExact(ProbeVoice({ region: null, draftText: "", target: "answer" })),
-        StoryCommand.resolve(ProbeVoice, Message.VoiceProbed({ live: false, target: "answer" })),
         StoryCommand.expectExact(
-          StopVoice(),
-          DoneInboxItem({ id: 9, repository: "test-repo", issue: 5, name: "plan", note: "" }),
+          DoneInboxItem({
+            id: 9,
+            repository: "test-repo",
+            issue: 5,
+            name: "plan",
+            note: "",
+            voice: false,
+          }),
         ),
-        StoryCommand.resolve(StopVoice, Message.CompletedStopVoice()),
         StoryCommand.resolve(DoneInboxItem, Message.AnswerCompleted({ id: 9, error: "" })),
         StoryCommand.expectNone(),
       );
@@ -1272,13 +1298,12 @@ describe("chat update story tests", () => {
         answerText: "Ten seats.",
       });
 
-      const probing = update(base, Message.AnswerSubmitted());
-      const probed = update(probing.model, Message.VoiceProbed({ live: false, target: "answer" }));
-      expect(probed.model.requesting).toEqual([7]);
-      const second = update(probed.model, Message.AnswerSubmitted());
-      expect(second.model).toBe(probed.model);
+      const sent = update(base, Message.AnswerSubmitted());
+      expect(sent.model.requesting).toEqual([7]);
+      const second = update(sent.model, Message.AnswerSubmitted());
+      expect(second.model).toBe(sent.model);
       expect(second.commands ?? []).toEqual([]);
-      const done = update(probed.model, Message.AnswerCompleted({ id: 7, error: "" }));
+      const done = update(sent.model, Message.AnswerCompleted({ id: 7, error: "" }));
       expect(done.model.requesting).toEqual([]);
     });
 
@@ -1299,8 +1324,7 @@ describe("chat update story tests", () => {
           expect(m.answerText).toBe("");
           expect(m.answerLoaded).toBe(false);
         }),
-        StoryCommand.expectExact(LoadAnswerDraft({ id: 7 })),
-        StoryCommand.resolve(LoadAnswerDraft, Message.AnswerDraftLoaded({ text: "My own note." })),
+        message(Message.ReceivedAnswerDraft({ id: 7, draft: createDraft("My own note.") })),
         model((m) => {
           expect(m.answerText).toBe("My own note.");
         }),
@@ -1321,46 +1345,6 @@ describe("chat update story tests", () => {
       );
     });
 
-    it("sends the answer of the first item when the panel closes during the wait for the final voice text", () => {
-      const other = createInboxItem({ id: 11 });
-      const base = createTestModel({
-        activePanel: { type: "answer", item: question },
-        answerText: "Ten seats.",
-        answerLoaded: true,
-        voiceRegion: { lead: "", trail: "", value: "Ten seats.", target: "answer" },
-      });
-
-      const probed = update(base, Message.VoiceProbed({ live: true, target: "answer" }));
-      expect(probed.model.answerSend?.item).toBe(question);
-      const closed = update(probed.model, Message.ClosePanel());
-      const opened = update(closed.model, Message.OpenAnswerPanel({ item: other }));
-      const typed = update(opened.model, Message.AnswerTextChanged({ text: "Unfinished note." }));
-      const finished = update(
-        typed.model,
-        Message.VoiceSendFinished({ text: "Twelve seats.", target: "answer" }),
-      );
-      expect(finished.model.answerSend).toBeNull();
-      expect(finished.model.requesting).toEqual([7]);
-      const commands = finished.commands ?? [];
-      expect(commands.map((command) => command.name)).toEqual(["AnswerInboxItem"]);
-      expect(commands[0].args).toMatchObject({ id: 7, answer: "Twelve seats." });
-    });
-
-    it("sends the answer of the first item when the final voice text comes while the panel stays open", () => {
-      const base = createTestModel({
-        activePanel: { type: "answer", item: question },
-        answerText: "Ten seats.",
-      });
-
-      const probed = update(base, Message.VoiceProbed({ live: true, target: "answer" }));
-      const finished = update(
-        probed.model,
-        Message.VoiceSendFinished({ text: undefined, target: "answer" }),
-      );
-      expect(finished.model.requesting).toEqual([7]);
-      expect((finished.commands ?? [])[0].args).toMatchObject({ id: 7, answer: "Ten seats." });
-    });
-
     it("lets another item send while the request of the first item runs", () => {
       const other = createInboxItem({ id: 11 });
       const base = createTestModel({
@@ -1373,38 +1357,25 @@ describe("chat update story tests", () => {
         update,
         given(base),
         message(Message.AnswerSubmitted()),
-        StoryCommand.expectExact(
-          ProbeVoice({ region: null, draftText: "Eleven.", target: "answer" }),
-        ),
-        StoryCommand.resolve(ProbeVoice, Message.VoiceProbed({ live: false, target: "answer" })),
         model((m) => {
           expect(m.requesting).toEqual([7, 11]);
         }),
         StoryCommand.expectExact(
-          StopVoice(),
           AnswerInboxItem({
             id: 11,
             repository: "test-repo",
             issue: 0,
             workstream: 1428,
             answer: "Eleven.",
+            voice: false,
           }),
         ),
-        StoryCommand.resolve(StopVoice, Message.CompletedStopVoice()),
         StoryCommand.resolve(AnswerInboxItem, Message.AnswerCompleted({ id: 11, error: "" })),
         model((m) => {
           expect(m.requesting).toEqual([7]);
         }),
         StoryCommand.expectNone(),
       );
-    });
-
-    it("keeps the voice region of the chat field when a panel opens", () => {
-      const region = { lead: "a ", trail: "", value: "a b", target: "chat" as const };
-      const base = createTestModel({ voiceRegion: region, waitingForSend: true });
-
-      const opened = update(base, Message.OpenAnswerPanel({ item: question }));
-      expect(opened.model.voiceRegion).toBe(region);
     });
 
     it("ignores a second tap on a tray button while the request of the row runs", () => {
@@ -1437,17 +1408,251 @@ describe("chat update story tests", () => {
       );
     });
 
-    it("lets a panel send while the answer of another item waits for the final voice text", () => {
-      const other = createInboxItem({ id: 11 });
+    it("takes the draft of the chat from the store", () => {
+      const image = new File(["x"], "a.png", { type: "image/png" });
+      const draft = createDraft("Hello", {
+        images: [image],
+        voice: { state: "ready", audio: null, conversion: "", error: "" },
+      });
+
+      const result = update(createTestModel(), Message.ReceivedDraft({ draft }));
+      expect(result.model.draftLoaded).toBe(true);
+      expect(result.model.draftText).toBe("Hello");
+      expect(result.model.draftImages).toEqual([image]);
+      expect(result.model.draftVoice?.state).toBe("ready");
+    });
+
+    it("writes each change of the draft of the chat to the store under the key of the chat", () => {
+      const key = "chatDraft:test-org/test-repo/1428";
+      const image = new File(["x"], "a.png", { type: "image/png" });
       const base = createTestModel({
-        activePanel: { type: "answer", item: other },
-        answerText: "Eleven.",
-        answerSend: { item: question, text: "Ten.", selected: {}, region: null },
+        draftImages: [image],
+        draftInboxItems: [{ id: 7, reference: "#7", title: "Question", reason: "", link: "" }],
+      });
+
+      const text = update(base, Message.DraftTextChanged({ text: "Hi" }));
+      expect(text.model.draftText).toBe("Hi");
+      expect(described(text.commands)).toEqual(described([SaveDraftText({ key, text: "Hi" })]));
+      const images = update(base, Message.DraftImageRemoved({ position: 0 }));
+      expect(described(images.commands)).toEqual(described([SaveDraftImages({ key, images: [] })]));
+      const items = update(base, Message.DraftInboxItemRemoved({ id: 7 }));
+      expect(described(items.commands)).toEqual(
+        described([SaveDraftInboxItems({ key, inboxItems: [] })]),
+      );
+    });
+
+    it("sends the draft of the chat with the voice mark when the card is ready, and clears the draft", () => {
+      const base = createTestModel({
+        draftText: "Show the prices.",
+        draftVoice: { state: "ready", audio: null, conversion: "", error: "" },
+        sendError: "Old error.",
+      });
+
+      story(
+        update,
+        given(base),
+        message(Message.SendSubmitted()),
+        model((m) => {
+          expect(m.draftText).toBe("");
+          expect(m.draftVoice).toBeNull();
+          expect(m.sendError).toBe("");
+        }),
+        StoryCommand.expectExact(
+          EnqueueMessage({
+            organization: "test-org",
+            repository: "test-repo",
+            workstream: 1428,
+            key: "chatDraft:test-org/test-repo/1428",
+            text: "Show the prices.",
+            images: [],
+            inboxItems: [],
+            voice: true,
+          }),
+        ),
+        StoryCommand.resolve(
+          EnqueueMessage,
+          Message.MessageQueued({ item: createQueuedItem("q1", "Show the prices.") }),
+        ),
+        StoryCommand.expectExact(
+          PostQueued({ item: createQueuedItem("q1", "Show the prices."), delay: retryDelays[0] }),
+        ),
+        StoryCommand.resolve(PostQueued, Message.SendAttemptSucceeded({ id: "q1" })),
+        StoryCommand.resolve(
+          FetchPage,
+          Message.PageLoaded({
+            page: {
+              harness: "",
+              messages: [],
+              older: false,
+              stoppable: false,
+              writing: false,
+              pausedUntil: null,
+            },
+            isInitial: false,
+            sent: "q1",
+          }),
+        ),
+        StoryCommand.expectNone(),
+      );
+    });
+
+    it("sends a second tap on Send in the chat one time, because the first tap clears the draft", () => {
+      const base = createTestModel({ draftText: "Once." });
+
+      const first = update(base, Message.SendSubmitted());
+      expect(first.commands?.map((command) => command.name)).toEqual(["EnqueueMessage"]);
+      const second = update(first.model, Message.SendSubmitted());
+      expect(second.commands ?? []).toEqual([]);
+    });
+
+    it("sends nothing from the chat while the voice card converts or has failed", () => {
+      for (const state of ["converting", "failed"] as const) {
+        const base = createTestModel({
+          draftText: "Text.",
+          draftVoice: { state, audio: null, conversion: "", error: "" },
+        });
+        const result = update(base, Message.SendSubmitted());
+        expect(result.model).toBe(base);
+        expect(result.commands ?? []).toEqual([]);
+      }
+    });
+
+    it("stops the recording and sends nothing when Send is tapped during a recording", () => {
+      const voice = {
+        recording: true,
+        key: "x",
+        startedAt: 1,
+        live: "",
+        notice: { key: "", text: "" },
+      };
+      const chat = createTestModel({ draftText: "Text.", voice });
+      const chatResult = update(chat, Message.SendSubmitted());
+      expect(chatResult.model).toBe(chat);
+      expect(described(chatResult.commands)).toEqual(described([StopVoice()]));
+
+      const answer = createTestModel({
+        activePanel: { type: "answer", item: question },
+        answerText: "Ten seats.",
+        voice,
+      });
+      const answerResult = update(answer, Message.AnswerSubmitted());
+      expect(answerResult.model).toBe(answer);
+      expect(described(answerResult.commands)).toEqual(described([StopVoice()]));
+    });
+
+    it("sends the answer with the voice mark when the card of the panel is ready", () => {
+      const base = createTestModel({
+        activePanel: { type: "answer", item: question },
+        answerText: "Ten seats.",
+        answerVoice: { state: "ready", audio: null, conversion: "", error: "" },
       });
 
       const result = update(base, Message.AnswerSubmitted());
-      expect(result.model.probingSend).toBe(true);
-      expect(result.commands?.map((command) => command.name)).toEqual(["ProbeVoice"]);
+      expect(described(result.commands)).toEqual(
+        described([
+          AnswerInboxItem({
+            id: 7,
+            repository: "test-repo",
+            issue: 0,
+            workstream: 1428,
+            answer: "Ten seats.",
+            voice: true,
+          }),
+        ]),
+      );
+    });
+
+    it("sends nothing from the panel while its voice card converts or has failed", () => {
+      for (const state of ["converting", "failed"] as const) {
+        const base = createTestModel({
+          activePanel: { type: "answer", item: question },
+          answerText: "Ten seats.",
+          answerVoice: { state, audio: null, conversion: "", error: "" },
+        });
+        const send = update(base, Message.AnswerSubmitted());
+        expect(send.model).toBe(base);
+        expect(send.commands ?? []).toEqual([]);
+        const decide = update(
+          { ...base, activePanel: { type: "answer", item: approval } },
+          Message.ActionDecided({ decision: "approve" }),
+        );
+        expect(decide.commands ?? []).toEqual([]);
+      }
+    });
+
+    it("starts the voice of the field that the Message names", () => {
+      const base = createTestModel({ activePanel: { type: "answer", item: question } });
+
+      expect(
+        described(update(base, Message.VoiceButtonClicked({ target: "chat" })).commands),
+      ).toEqual(described([ToggleVoice({ key: "chatDraft:test-org/test-repo/1428" })]));
+      expect(
+        described(update(base, Message.VoiceButtonClicked({ target: "answer" })).commands),
+      ).toEqual(described([ToggleVoice({ key: "answerDraft:7" })]));
+      expect(
+        update(createTestModel(), Message.VoiceButtonClicked({ target: "answer" })).commands ?? [],
+      ).toEqual([]);
+    });
+
+    it("sends again and removes the voice card of the field that the Message names", () => {
+      const base = createTestModel({ activePanel: { type: "answer", item: question } });
+
+      expect(
+        described(update(base, Message.VoiceResendClicked({ target: "answer" })).commands),
+      ).toEqual(described([ResendVoice({ key: "answerDraft:7" })]));
+      expect(
+        described(update(base, Message.VoiceRemoveClicked({ target: "chat" })).commands),
+      ).toEqual(described([RemoveVoice({ key: "chatDraft:test-org/test-repo/1428" })]));
+    });
+
+    it("takes the voice state and the time from the Subscriptions", () => {
+      const voice = {
+        recording: true,
+        key: "chatDraft:test-org/test-repo/1428",
+        startedAt: 1000,
+        live: "Show",
+        notice: { key: "", text: "" },
+      };
+
+      const changed = update(createTestModel(), Message.VoiceChanged({ voice }));
+      expect(changed.model.voice).toEqual(voice);
+      expect(update(changed.model, Message.VoiceTicked({ now: 4000 })).model.now).toBe(4000);
+    });
+
+    it("takes the draft of the panel only when the panel of that item is open", () => {
+      const draft = createDraft("My note.", {
+        voice: { state: "converting", audio: null, conversion: "c1", error: "" },
+      });
+      const base = createTestModel({ activePanel: { type: "answer", item: question } });
+
+      const other = update(base, Message.ReceivedAnswerDraft({ id: 99, draft }));
+      expect(other.model).toBe(base);
+      const own = update(base, Message.ReceivedAnswerDraft({ id: 7, draft }));
+      expect(own.model.answerText).toBe("My note.");
+      expect(own.model.answerVoice?.state).toBe("converting");
+      expect(own.model.answerLoaded).toBe(true);
+    });
+
+    it("keeps the answer of an open panel when the Owner opens the same panel again", () => {
+      const base = createTestModel({
+        activePanel: { type: "answer", item: question },
+        answerText: "Typed.",
+        answerLoaded: true,
+      });
+
+      const result = update(base, Message.OpenAnswerPanel({ item: question }));
+      expect(result.model.answerText).toBe("Typed.");
+      expect(result.model.answerLoaded).toBe(true);
+    });
+
+    it("shows the error of a refused message", () => {
+      const result = update(createTestModel(), Message.MessageRefused({ error: "No room." }));
+      expect(result.model.sendError).toBe("No room.");
+    });
+
+    it("scrolls to the first blocking todo of a pull request", () => {
+      const result = update(createTestModel(), Message.BlockingTodoClicked({ id: 12 }));
+      expect(described(result.commands)).toEqual(described([ShowBlockingTodo({ id: 12 })]));
     });
   });
 });

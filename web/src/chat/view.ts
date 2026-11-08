@@ -1,8 +1,7 @@
-import * as Markdown from "@foldkit/markdown";
 import { Effect, Queue, Schema, Stream } from "effect";
 import { Mount } from "foldkit";
-import { beginMarkdownRender, parseChatMarkdown, restoreEquals, shieldEquals } from "./markdown";
 import type { Html, HtmlBuilder } from "foldkit/html";
+import { cn } from "cn";
 import { InboxItemKind } from "@/api/api.gen";
 import { actionState, roleName } from "@/lib/actions";
 import { briefMarkdown } from "@/lib/briefDiff";
@@ -10,6 +9,8 @@ import { diffLines } from "@/lib/diff";
 import { getGetChatImageUrl } from "@/api/api.gen";
 import { trackKeyboardHeight } from "@/lib/keyboard";
 import { clock, clockSeconds, dayClock, dayLabel, localTimes } from "@/lib/time";
+import { badgeClass } from "@/ui/badge";
+import { buttonClass } from "@/ui/button";
 import {
   banIcon,
   checkCheckIcon,
@@ -18,14 +19,15 @@ import {
   circleAlertIcon,
   circleXIcon,
   clockIcon,
+  micIcon,
   spinnerIcon,
   trash2Icon,
   triangleAlertIcon,
   xIcon,
-} from "./icons";
+} from "@/ui/icons";
+import { beginMarkdownRender, renderMarkdown, shieldEquals } from "@/ui/markdown";
 import { renderComposer, renderFileImage, renderPanelComposer } from "./composer";
 import { ChatList } from "./scroll";
-import { badgeClass, buttonClass, cn } from "./ui";
 import { Message } from "./message";
 import { countsAsUnread, type Failure, type Model, type Waiting } from "./model";
 import type { ChatMessage, DraftInboxItem, InboxItem, PendingAction } from "./schemas";
@@ -35,77 +37,6 @@ type ActionLabel = ActionArgument["labels"][number];
 type QuestionType = InboxItem["questions"][number];
 
 type H = HtmlBuilder<Message>;
-
-const markdownClass =
-  "grid grid-cols-[minmax(0,1fr)] gap-2 break-words [&>div]:grid [&>div]:grid-cols-[minmax(0,1fr)] [&>div]:gap-2 [&_blockquote]:border-l-2 [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:font-mono [&_code]:text-[0.9em] [&_h1]:text-lg [&_h1]:font-semibold [&_h2]:text-base [&_h2]:font-semibold [&_h3]:font-semibold [&_hr]:border-border [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:whitespace-pre-line [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-2 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_table]:block [&_table]:overflow-x-auto [&_td]:border [&_td]:px-2 [&_td]:py-1 [&_th]:border [&_th]:px-2 [&_th]:py-1 [&_th]:font-semibold [&_ul]:list-disc [&_ul]:pl-5";
-
-// diff is true for the Brief diff of an action: briefMarkdown marks a removed line with "~~" and an added text with
-// "==". In a chat message, "==" and "~~" have no special meaning here.
-export function renderMarkdown<M>(h: HtmlBuilder<M>, text: string, diff = false): Html {
-  if (!text) return h.empty;
-  const doc = parseChatMarkdown(localTimes(text));
-  if (!doc) {
-    return h.div([h.Class("whitespace-pre-line break-words")], [localTimes(text)]);
-  }
-  return h.div(
-    [h.Class(markdownClass)],
-    [
-      Markdown.view(doc, {
-        views: {
-          ...Markdown.defaultViews,
-          Strikethrough: (strikethrough, content) =>
-            diff
-              ? h.del([h.Class("bg-red-500/40 line-through")], content)
-              : Markdown.defaultViews.Strikethrough(strikethrough, content),
-          Text: (node) =>
-            diff
-              ? h.span(
-                  [],
-                  // briefMarkdown puts "==" around each added text, and the text can have inline code, so a "=="
-                  // at the end of a node can open an added text that ends in the next node.
-                  node.value
-                    .split("==")
-                    .map((part, index) =>
-                      index % 2 === 1
-                        ? h.ins([h.Class("bg-green-500/40 no-underline")], [restoreEquals(part)])
-                        : restoreEquals(part),
-                    ),
-                )
-              : Markdown.defaultViews.Text(node),
-          InlineCode: (node) =>
-            Markdown.defaultViews.InlineCode(
-              diff ? { ...node, value: restoreEquals(node.value) } : node,
-            ),
-          CodeBlock: (node, ...rest) =>
-            Markdown.defaultViews.CodeBlock(
-              diff ? { ...node, value: restoreEquals(node.value) } : node,
-              ...rest,
-            ),
-          Link: (linkNode, content) =>
-            h.a(
-              [
-                h.Href(linkNode.url),
-                h.Attribute("target", "_blank"),
-                h.Attribute("rel", "noopener noreferrer"),
-                h.Class("break-words text-primary underline underline-offset-2"),
-              ],
-              content,
-            ),
-          Image: (imgNode) =>
-            h.a(
-              [
-                h.Href(imgNode.url),
-                h.Attribute("target", "_blank"),
-                h.Attribute("rel", "noopener noreferrer"),
-                h.Class("break-words text-primary underline underline-offset-2"),
-              ],
-              [imgNode.alt || imgNode.url],
-            ),
-        },
-      }),
-    ],
-  );
-}
 
 function renderOwnerStatus(h: H, message: ChatMessage): Html {
   if (message.stoppedAt) {
@@ -315,6 +246,7 @@ function renderActionCard(
                         time: action.time,
                         kind: InboxItemKind.approval,
                         answer: "",
+                        blockingTodos: [],
                         dismissedAt: null,
                         issue: 0,
                         link: "",
@@ -451,6 +383,19 @@ function renderEventBody(h: H, id: number, summary: string, body: string, open: 
   );
 }
 
+function renderVoiceCard(h: H): Html {
+  return h.div(
+    [
+      h.Role("img"),
+      h.AriaLabel("Voice"),
+      h.Class(
+        "flex size-24 items-center justify-center rounded-lg border bg-muted text-muted-foreground",
+      ),
+    ],
+    [micIcon(h, "size-8")],
+  );
+}
+
 function renderMessage(h: H, message: ChatMessage, open: boolean, rows: InboxItem[]): Html {
   if (message.question) {
     return renderQuestionCard(
@@ -512,16 +457,19 @@ function renderMessage(h: H, message: ChatMessage, open: boolean, rows: InboxIte
         : message.text
           ? renderMarkdown(h, message.text)
           : h.empty,
-      message.images > 0
+      message.voice || message.images > 0
         ? h.div(
             [h.Class("flex flex-wrap gap-2")],
-            Array.from({ length: message.images }, (_, position) =>
-              h.img([
-                h.Attribute("src", getGetChatImageUrl(message.id, position)),
-                h.Attribute("alt", `Picture ${position + 1} of message ${message.id}`),
-                h.Class("max-h-48 max-w-full rounded-lg border object-contain"),
-              ]),
-            ),
+            [
+              ...(message.voice ? [renderVoiceCard(h)] : []),
+              ...Array.from({ length: message.images }, (_, position) =>
+                h.img([
+                  h.Attribute("src", getGetChatImageUrl(message.id, position)),
+                  h.Attribute("alt", `Picture ${position + 1} of message ${message.id}`),
+                  h.Class("max-h-48 max-w-full rounded-lg border object-contain"),
+                ]),
+              ),
+            ],
           )
         : h.empty,
     ],
@@ -566,15 +514,18 @@ function renderQueuedMessage(
       ),
       ...(item.inboxItems || []).map((inboxItem) => renderInboxItemCard(h, inboxItem)),
       item.text ? renderMarkdown(h, item.text) : h.empty,
-      item.images.length > 0
+      item.voice || item.images.length > 0
         ? h.div(
             [h.Class("flex flex-wrap gap-2")],
-            item.images.map((_, position) =>
-              renderFileImage(h, item.images, position, [
-                h.Alt(`Picture ${position + 1} of an unsent message`),
-                h.Class("max-h-48 max-w-full rounded-lg border object-contain"),
-              ]),
-            ),
+            [
+              ...(item.voice ? [renderVoiceCard(h)] : []),
+              ...item.images.map((_, position) =>
+                renderFileImage(h, item.images, position, [
+                  h.Alt(`Picture ${position + 1} of an unsent message`),
+                  h.Class("max-h-48 max-w-full rounded-lg border object-contain"),
+                ]),
+              ),
+            ],
           )
         : h.empty,
       failure
@@ -778,7 +729,19 @@ function renderTrayButtons(h: H, item: InboxItem, model: Model): Html[] {
       ),
     );
   }
-  if (isPullRequest) {
+  if (isPullRequest && item.blockingTodos.length > 0) {
+    const count = item.blockingTodos.length;
+    buttons.push(
+      h.button(
+        [
+          h.Type("button"),
+          h.Class(buttonClass({ size: "sm" })),
+          h.OnClick(Message.BlockingTodoClicked({ id: item.blockingTodos[0] })),
+        ],
+        [`${count} open todo${count === 1 ? "" : "s"}`],
+      ),
+    );
+  } else if (isPullRequest) {
     const merges = running === "merge" || merging;
     buttons.push(
       trayButton(h, {
@@ -962,13 +925,18 @@ function renderActionTray(h: H, model: Model): Html {
                       h.DataAttribute("slot", "badge"),
                       h.Class(badgeClass(item.todo.mandatory ? "default" : "outline")),
                     ],
-                    ["Todo · ", item.todo.mandatory ? "mandatory" : "optional"],
+                    [
+                      "Todo · ",
+                      item.todo.mandatory ? "mandatory" : "optional",
+                      item.todo.afterMerge ? " · after merge" : "",
+                    ],
                   )
                 : h.empty;
               return h.li(
                 [
+                  h.DataAttribute("inbox-item", String(item.id)),
                   h.Class(
-                    "flex min-h-11 items-center gap-4 px-4 py-2 md:px-2 flex-wrap gap-y-2 py-2",
+                    "flex min-h-11 items-center gap-4 px-4 py-2 md:px-2 flex-wrap gap-y-2 py-2 data-marked:bg-muted data-marked:ring-2 data-marked:ring-primary data-marked:ring-inset motion-safe:transition-shadow",
                   ),
                 ],
                 [
@@ -1383,7 +1351,16 @@ function renderAnswerDialog(h: H, model: Model): Html {
                 ),
               ],
             ),
-            todo.mandatory ? h.p([], ["Mobius merges after you complete this todo."]) : h.empty,
+            h.p(
+              [],
+              [
+                todo.afterMerge
+                  ? "Do this step after the merge. This todo does not block the merge."
+                  : todo.mandatory
+                    ? "This todo blocks the merge until you complete it."
+                    : "This todo blocks the merge until you complete or dismiss it.",
+              ],
+            ),
           ],
         )
       : h.div(

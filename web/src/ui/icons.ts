@@ -1,18 +1,16 @@
 import type { Html, HtmlBuilder } from "foldkit/html";
-import type { Message } from "./message";
 
-type H = HtmlBuilder<Message>;
 type Shape = readonly [
   "path" | "circle" | "line" | "rect" | "polyline" | "polygon" | "ellipse",
   Readonly<Record<string, string>>,
 ];
 
 // The data of each icon comes from the icon set of the package lucide-react.
-function icon(
-  h: H,
+function icon<M>(
+  h: HtmlBuilder<M>,
   shapes: readonly Shape[],
   className: string,
-  extra: ReadonlyArray<ReturnType<H["Attribute"]>> = [],
+  extra: ReadonlyArray<ReturnType<HtmlBuilder<M>["Attribute"]>> = [],
 ): Html {
   return h.svg(
     [
@@ -108,63 +106,63 @@ const paperclip: readonly Shape[] = [
 
 const spinner: readonly Shape[] = [["path", { d: "M21 12a9 9 0 1 1-6.219-8.56" }]];
 
-export function banIcon(h: H, className = "size-3.5"): Html {
+export function banIcon<M>(h: HtmlBuilder<M>, className = "size-3.5"): Html {
   return icon(h, ban, className);
 }
 
-export function circleXIcon(h: H, className = "size-3.5"): Html {
+export function circleXIcon<M>(h: HtmlBuilder<M>, className = "size-3.5"): Html {
   return icon(h, circleX, className);
 }
 
-export function checkCheckIcon(h: H, className = "size-3.5"): Html {
+export function checkCheckIcon<M>(h: HtmlBuilder<M>, className = "size-3.5"): Html {
   return icon(h, checkCheck, className);
 }
 
-export function triangleAlertIcon(h: H, className = "size-3.5"): Html {
+export function triangleAlertIcon<M>(h: HtmlBuilder<M>, className = "size-3.5"): Html {
   return icon(h, triangleAlert, className);
 }
 
-export function checkIcon(h: H, className = "size-3.5"): Html {
+export function checkIcon<M>(h: HtmlBuilder<M>, className = "size-3.5"): Html {
   return icon(h, check, className);
 }
 
-export function circleAlertIcon(h: H, className = "size-3.5"): Html {
+export function circleAlertIcon<M>(h: HtmlBuilder<M>, className = "size-3.5"): Html {
   return icon(h, circleAlert, className);
 }
 
-export function clockIcon(h: H, className = "size-3.5"): Html {
+export function clockIcon<M>(h: HtmlBuilder<M>, className = "size-3.5"): Html {
   return icon(h, clock, className);
 }
 
-export function chevronRightIcon(h: H, className = "size-4"): Html {
+export function chevronRightIcon<M>(h: HtmlBuilder<M>, className = "size-4"): Html {
   return icon(h, chevronRight, className);
 }
 
-export function trash2Icon(h: H, className = "size-4"): Html {
+export function trash2Icon<M>(h: HtmlBuilder<M>, className = "size-4"): Html {
   return icon(h, trash2, className);
 }
 
-export function xIcon(h: H, className = "size-4"): Html {
+export function xIcon<M>(h: HtmlBuilder<M>, className = "size-4"): Html {
   return icon(h, x, className);
 }
 
-export function arrowUpIcon(h: H, className = "size-4"): Html {
+export function arrowUpIcon<M>(h: HtmlBuilder<M>, className = "size-4"): Html {
   return icon(h, arrowUp, className);
 }
 
-export function squareIcon(h: H, className = "size-4"): Html {
+export function squareIcon<M>(h: HtmlBuilder<M>, className = "size-4"): Html {
   return icon(h, square, className);
 }
 
-export function micIcon(h: H, className = "size-4"): Html {
+export function micIcon<M>(h: HtmlBuilder<M>, className = "size-4"): Html {
   return icon(h, mic, className);
 }
 
-export function paperclipIcon(h: H, className = "size-4"): Html {
+export function paperclipIcon<M>(h: HtmlBuilder<M>, className = "size-4"): Html {
   return icon(h, paperclip, className);
 }
 
-export function spinnerIcon(h: H, className = "size-4 animate-spin"): Html {
+export function spinnerIcon<M>(h: HtmlBuilder<M>, className = "size-4 animate-spin"): Html {
   return icon(h, spinner, className, [
     h.Attribute("data-slot", "spinner"),
     h.Attribute("aria-hidden", "true"),

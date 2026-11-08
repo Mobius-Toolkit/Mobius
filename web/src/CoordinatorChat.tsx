@@ -7,14 +7,10 @@ export function CoordinatorChat({
   organizations,
   organization,
   inbox,
-  unread,
-  source,
 }: {
   organizations: string[];
   organization: string;
   inbox: InboxItem[];
-  unread?: number;
-  source?: EventSource;
 }) {
   if (!organizations.includes(organization)) {
     return (
@@ -38,8 +34,6 @@ export function CoordinatorChat({
         repository=""
         workstream={0}
         agent="Coordinator"
-        source={source}
-        unread={unread}
         trayItems={inbox.filter(
           (item) =>
             item.organization === organization &&

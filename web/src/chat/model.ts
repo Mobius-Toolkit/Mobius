@@ -1,17 +1,17 @@
 import { Result, Schema } from "effect";
-import { StoreFailed } from "./errors";
+import { StoreFailed } from "@/lib/effects";
 import type { Flags } from "./flags";
 import {
-  AnswerSend,
   ChatMessage,
   DraftInboxItems,
+  DraftVoice,
   Failure,
   Images,
   InboxItem,
   Panel,
   Selection,
-  TargetedVoiceRegion,
   TrayRunning,
+  VoiceState,
   Waiting,
   Workstream,
 } from "./schemas";
@@ -40,6 +40,10 @@ export function upsert(list: readonly ChatMessage[], message: ChatMessage): read
     (a, b) => a.id - b.id,
   );
 }
+
+// A card that converts or has failed blocks each send.
+export const voiceBusy = (voice: DraftVoice | null) =>
+  voice?.state === "converting" || voice?.state === "failed";
 
 export const countsAsUnread = (message: ChatMessage) =>
   message.author !== "Owner" && message.author !== "Event" && message.author !== "Record";
@@ -82,20 +86,17 @@ const ChatModelSchema = Schema.Struct({
   draftText: Schema.String,
   draftImages: Images,
   draftInboxItems: DraftInboxItems,
+  draftVoice: Schema.NullOr(DraftVoice),
   draftLoaded: Schema.Boolean,
-  voicePhase: Schema.Literals(["idle", "recording", "converting"]),
-  voiceError: Schema.String,
-  voiceRegion: Schema.NullOr(TargetedVoiceRegion),
+  voice: VoiceState,
+  now: Schema.Number,
   stopReady: Schema.Boolean,
-  probingSend: Schema.Boolean,
-  voiceCanResend: Schema.Boolean,
-  waitingForSend: Schema.Boolean,
   closedPanel: Schema.NullOr(Panel),
   activePanel: Schema.NullOr(Panel),
   selectedOptions: Selection,
   answerText: Schema.String,
+  answerVoice: Schema.NullOr(DraftVoice),
   answerLoaded: Schema.Boolean,
-  answerSend: Schema.NullOr(AnswerSend),
   answerError: Schema.String,
   answerErrorId: Schema.Number,
   answerErrorAwaitsRow: Schema.Boolean,
@@ -152,20 +153,17 @@ export function initialModel(flags: Flags): Model {
     draftText: "",
     draftImages: [],
     draftInboxItems: [],
+    draftVoice: null,
     draftLoaded: false,
-    voicePhase: "idle",
-    voiceError: "",
-    voiceRegion: null,
+    voice: { recording: false, key: "", startedAt: 0, live: "", notice: { key: "", text: "" } },
+    now: 0,
     stopReady: false,
-    probingSend: false,
-    voiceCanResend: false,
-    waitingForSend: false,
     closedPanel: null,
     activePanel: null,
     selectedOptions: {},
     answerText: "",
+    answerVoice: null,
     answerLoaded: false,
-    answerSend: null,
     answerError: "",
     answerErrorId: 0,
     answerErrorAwaitsRow: false,

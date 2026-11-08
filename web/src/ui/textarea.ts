@@ -1,17 +1,4 @@
 import { cn } from "cn";
-import { badgeVariants } from "@/components/ui/badge-variants";
-import { buttonVariants } from "@/components/ui/button-variants";
-
-export function buttonClass(options: NonNullable<Parameters<typeof buttonVariants>[0]>) {
-  return cn(buttonVariants(options));
-}
-
-export function badgeClass(
-  variant: NonNullable<Parameters<typeof badgeVariants>[0]>["variant"],
-  className?: string,
-) {
-  return cn(badgeVariants({ variant }), className);
-}
 
 export function textareaClass(className: string) {
   return cn(
@@ -19,5 +6,3 @@ export function textareaClass(className: string) {
     className,
   );
 }
-
-export { cn };

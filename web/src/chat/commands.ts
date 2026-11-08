@@ -17,38 +17,20 @@ import {
 } from "@/api/api.gen";
 import {
   answerDraftKey,
-  chatDraftKey,
-  emptyDraft,
-  loadDraft,
-  saveDraftText,
+  type Draft as StoredDraft,
+  type DraftInboxItem,
+  type DraftVoice,
   updateDraft,
 } from "@/lib/draft";
-import { addQueued, listQueued, newMessageId, postQueued, removeQueued } from "@/lib/outbox";
+import { StoreFailed, fitted, request, store } from "@/lib/effects";
+import { fitImage, tooManyImages } from "@/lib/images";
 import { restoreInboxItem, hideInboxItem } from "@/lib/inbox";
 import { issueRef, showNotice } from "@/lib/notice";
-import { fitImage, tooManyImages } from "@/lib/images";
-import {
-  discardVoiceAction,
-  finishForSendAction,
-  getVoiceSnapshot,
-  resendVoiceAction,
-  showsLiveVoice,
-  stopVoiceAction,
-  toggleVoiceAction,
-} from "@/lib/voice";
-import { StoreFailed, fitted, request, store, voice } from "./errors";
+import { addQueued, listQueued, newMessageId, postQueued, removeQueued } from "@/lib/outbox";
+import { resend, stopVoice, toggleVoice } from "@/lib/voice";
 import { Message } from "./message";
 import { ports } from "./ports";
-import {
-  Draft,
-  DraftInboxItems,
-  Images,
-  InboxItem,
-  PendingAction,
-  Queued,
-  VoiceRegion,
-  VoiceTarget,
-} from "./schemas";
+import { DraftInboxItems, Images, InboxItem, PendingAction, Queued } from "./schemas";
 
 type Outcome = { message: Message; status?: number | undefined };
 
@@ -64,17 +46,35 @@ function withLogin<A extends Outcome>(
   );
 }
 
-const readDraft = (key: string) =>
-  store(() => loadDraft(key)).pipe(
-    Effect.flatMap(Schema.decodeUnknownEffect(Draft)),
-    Effect.orElseSucceed(() => emptyDraft),
-  );
-
 const clearDraft = (key: string) =>
-  store(() => updateDraft(key, () => emptyDraft)).pipe(Effect.ignore);
+  store(() =>
+    updateDraft(key, (draft) => ({ ...draft, text: "", images: [], inboxItems: [], voice: null })),
+  ).pipe(Effect.ignore);
 
-const saveNote = (key: string, text: string) =>
-  store(() => saveDraftText(key, text)).pipe(Effect.ignore);
+const readyVoice: DraftVoice = { state: "ready", audio: null, conversion: "", error: "" };
+
+// Puts a draft that did not go out back in the store. The Owner can have typed or added an item in the meantime.
+const restoreDraft = (
+  key: string,
+  sent: {
+    text: string;
+    images: File[];
+    inboxItems: DraftInboxItem[];
+    voice: boolean;
+  },
+) =>
+  store(() =>
+    updateDraft(key, (draft) => ({
+      text:
+        draft.text === sent.text ? sent.text : [sent.text, draft.text].filter(Boolean).join(" "),
+      images: sent.images,
+      inboxItems: [
+        ...sent.inboxItems,
+        ...draft.inboxItems.filter((item) => !sent.inboxItems.some(({ id }) => id === item.id)),
+      ],
+      voice: draft.voice ?? (sent.voice ? readyVoice : null),
+    })),
+  ).pipe(Effect.ignore);
 
 const showNoticeOf = (text: string) => Effect.sync(() => showNotice(text));
 
@@ -188,12 +188,14 @@ export const EnqueueMessage = Command.define("EnqueueMessage", {
     organization: Schema.String,
     repository: Schema.String,
     workstream: Schema.Number,
+    key: Schema.String,
     text: Schema.String,
     images: Images,
     inboxItems: DraftInboxItems,
+    voice: Schema.Boolean,
   },
   messages: [Message.MessageQueued, Message.MessageRefused],
-  execute: ({ organization, repository, workstream, text, images, inboxItems }) =>
+  execute: ({ organization, repository, workstream, key, text, images, inboxItems, voice }) =>
     Effect.gen(function* () {
       const item: Queued = {
         id: newMessageId(),
@@ -208,13 +210,17 @@ export const EnqueueMessage = Command.define("EnqueueMessage", {
           reason,
           link,
         })),
+        voice,
         time: new Date().toISOString(),
       };
+      yield* clearDraft(key);
       yield* store(() => addQueued(item));
       return Message.MessageQueued({ item });
     }).pipe(
       Effect.catchTag("StoreFailed", (error) =>
-        Effect.succeed(Message.MessageRefused({ error: error.message, text, images, inboxItems })),
+        restoreDraft(key, { text, images, inboxItems, voice }).pipe(
+          Effect.as(Message.MessageRefused({ error: error.message })),
+        ),
       ),
     ),
 });
@@ -309,32 +315,28 @@ export const StopChat = Command.define("StopChat", {
     ),
 });
 
-export const LoadDraft = Command.define("LoadDraft", {
-  args: {
-    organization: Schema.String,
-    repository: Schema.String,
-    workstream: Schema.Number,
-  },
-  messages: [Message.DraftLoaded],
-  execute: ({ organization, repository, workstream }) =>
-    readDraft(chatDraftKey(organization, repository, workstream)).pipe(
-      Effect.map((draft) => Message.DraftLoaded({ draft })),
-    ),
+const savedDraft = (key: string, change: (draft: StoredDraft) => StoredDraft) =>
+  store(() => updateDraft(key, change)).pipe(
+    Effect.ignore,
+    Effect.as(Message.CompletedSaveDraft()),
+  );
+
+export const SaveDraftText = Command.define("SaveDraftText", {
+  args: { key: Schema.String, text: Schema.String },
+  messages: [Message.CompletedSaveDraft],
+  execute: ({ key, text }) => savedDraft(key, (draft) => ({ ...draft, text })),
 });
 
-export const SaveDraft = Command.define("SaveDraft", {
-  args: {
-    organization: Schema.String,
-    repository: Schema.String,
-    workstream: Schema.Number,
-    draft: Draft,
-  },
+export const SaveDraftImages = Command.define("SaveDraftImages", {
+  args: { key: Schema.String, images: Images },
   messages: [Message.CompletedSaveDraft],
-  execute: ({ organization, repository, workstream, draft }) =>
-    store(() => updateDraft(chatDraftKey(organization, repository, workstream), () => draft)).pipe(
-      Effect.ignore,
-      Effect.as(Message.CompletedSaveDraft()),
-    ),
+  execute: ({ key, images }) => savedDraft(key, (draft) => ({ ...draft, images })),
+});
+
+export const SaveDraftInboxItems = Command.define("SaveDraftInboxItems", {
+  args: { key: Schema.String, inboxItems: DraftInboxItems },
+  messages: [Message.CompletedSaveDraft],
+  execute: ({ key, inboxItems }) => savedDraft(key, (draft) => ({ ...draft, inboxItems })),
 });
 
 export const SaveTrayState = Command.define("SaveTrayState", {
@@ -387,9 +389,10 @@ export const AnswerInboxItem = Command.define("AnswerInboxItem", {
     issue: Schema.Number,
     workstream: Schema.Number,
     answer: Schema.String,
+    voice: Schema.Boolean,
   },
   messages: [Message.AnswerCompleted],
-  execute: ({ id, repository, issue, workstream, answer }) =>
+  execute: ({ id, repository, issue, workstream, answer, voice }) =>
     withLogin(
       Effect.gen(function* () {
         yield* Effect.sync(() => hideInboxItem({ id, repository, issue }));
@@ -406,7 +409,12 @@ export const AnswerInboxItem = Command.define("AnswerInboxItem", {
           );
           return { message: Message.AnswerCompleted({ id, error: "" }) };
         }
-        yield* saveNote(answerDraftKey(id), answer);
+        yield* restoreDraft(answerDraftKey(id), {
+          text: answer,
+          images: [],
+          inboxItems: [],
+          voice,
+        });
         yield* Effect.sync(() => restoreInboxItem(id));
         return {
           message: Message.AnswerCompleted({ id, error: refusal.error }),
@@ -423,9 +431,10 @@ export const DoneInboxItem = Command.define("DoneInboxItem", {
     issue: Schema.Number,
     name: Schema.String,
     note: Schema.String,
+    voice: Schema.Boolean,
   },
   messages: [Message.AnswerCompleted],
-  execute: ({ id, repository, issue, name, note }) =>
+  execute: ({ id, repository, issue, name, note, voice }) =>
     withLogin(
       Effect.gen(function* () {
         yield* Effect.sync(() => hideInboxItem({ id, repository, issue }));
@@ -438,7 +447,7 @@ export const DoneInboxItem = Command.define("DoneInboxItem", {
           yield* showNoticeOf(`Marked the todo ${name} as done`);
           return { message: Message.AnswerCompleted({ id, error: "" }) };
         }
-        yield* saveNote(answerDraftKey(id), note);
+        yield* restoreDraft(answerDraftKey(id), { text: note, images: [], inboxItems: [], voice });
         yield* Effect.sync(() => restoreInboxItem(id));
         return {
           message: Message.AnswerCompleted({ id, error: refusal.error }),
@@ -632,23 +641,6 @@ export const RunTrayAction = Command.define("RunTrayAction", {
     ),
 });
 
-const voicePhase = () => {
-  const snap = getVoiceSnapshot();
-  return Message.VoicePhaseChanged({
-    phase: snap.phase,
-    error: snap.error,
-    canResend: snap.canResend,
-  });
-};
-
-export const ToggleVoice = Command.define("ToggleVoice", {
-  messages: [Message.VoicePhaseChanged],
-  execute: Effect.sync(() => {
-    toggleVoiceAction();
-    return voicePhase();
-  }),
-});
-
 export const FitImages = Command.define("FitImages", {
   args: { files: Images, room: Schema.Number },
   messages: [Message.ImagesFitted],
@@ -683,68 +675,61 @@ export const ClickAttach = Command.define("ClickAttach", {
   }),
 });
 
-export const ProbeVoice = Command.define("ProbeVoice", {
-  args: {
-    region: Schema.NullOr(VoiceRegion),
-    draftText: Schema.String,
-    target: VoiceTarget,
-  },
-  messages: [Message.VoiceProbed],
-  execute: ({ region, draftText, target }) =>
-    Effect.sync(() =>
-      Message.VoiceProbed({
-        live: showsLiveVoice() && region !== null && region.value === draftText,
-        target,
-      }),
-    ),
+export const ToggleVoice = Command.define("ToggleVoice", {
+  args: { key: Schema.String },
+  messages: [Message.CompletedToggleVoice],
+  execute: ({ key }) =>
+    Effect.sync(() => {
+      toggleVoice(key);
+      return Message.CompletedToggleVoice();
+    }),
 });
 
 export const StopVoice = Command.define("StopVoice", {
   messages: [Message.CompletedStopVoice],
   execute: Effect.sync(() => {
-    stopVoiceAction();
+    stopVoice();
     return Message.CompletedStopVoice();
   }),
 });
 
-export const FinishVoiceForSend = Command.define("FinishVoiceForSend", {
-  args: { target: VoiceTarget },
-  messages: [Message.VoiceSendFinished],
-  execute: ({ target }) =>
-    voice(() => finishForSendAction()).pipe(
-      Effect.orElseSucceed(() => undefined),
-      Effect.map((text) => Message.VoiceSendFinished({ text, target })),
-    ),
-});
-
-export const LoadAnswerDraft = Command.define("LoadAnswerDraft", {
-  args: { id: Schema.Number },
-  messages: [Message.AnswerDraftLoaded],
-  execute: ({ id }) =>
-    readDraft(answerDraftKey(id)).pipe(
-      Effect.map((draft) => Message.AnswerDraftLoaded({ text: draft.text })),
-    ),
-});
-
-export const SaveAnswerDraft = Command.define("SaveAnswerDraft", {
-  args: { id: Schema.Number, text: Schema.String },
-  messages: [Message.CompletedSaveAnswerDraft],
-  execute: ({ id, text }) =>
-    saveNote(answerDraftKey(id), text).pipe(Effect.as(Message.CompletedSaveAnswerDraft())),
-});
-
 export const ResendVoice = Command.define("ResendVoice", {
-  messages: [Message.VoicePhaseChanged],
-  execute: voice(() => resendVoiceAction()).pipe(
-    Effect.ignore,
-    Effect.map(() => voicePhase()),
-  ),
+  args: { key: Schema.String },
+  messages: [Message.CompletedResendVoice],
+  execute: ({ key }) =>
+    store(() => resend(key)).pipe(Effect.ignore, Effect.as(Message.CompletedResendVoice())),
 });
 
-export const DiscardVoice = Command.define("DiscardVoice", {
-  messages: [Message.VoicePhaseChanged],
-  execute: Effect.sync(() => {
-    discardVoiceAction();
-    return voicePhase();
-  }),
+export const RemoveVoice = Command.define("RemoveVoice", {
+  args: { key: Schema.String },
+  messages: [Message.CompletedRemoveVoice],
+  execute: ({ key }) =>
+    savedDraft(key, (draft) => ({ ...draft, voice: null })).pipe(
+      Effect.as(Message.CompletedRemoveVoice()),
+    ),
+});
+
+const markDuration = 2000;
+const markTimers = new WeakMap<Element, ReturnType<typeof setTimeout>>();
+
+// Scrolls to the tray row of a blocking todo and marks it for a short time.
+export const ShowBlockingTodo = Command.define("ShowBlockingTodo", {
+  args: { id: Schema.Number },
+  messages: [Message.CompletedShowBlockingTodo],
+  execute: ({ id }) =>
+    Effect.sync(() => {
+      const row = document.querySelector(
+        `ul[aria-label="Pending actions"] [data-inbox-item="${id}"]`,
+      );
+      if (row) {
+        row.scrollIntoView({ block: "center" });
+        row.setAttribute("data-marked", "");
+        clearTimeout(markTimers.get(row));
+        markTimers.set(
+          row,
+          setTimeout(() => row.removeAttribute("data-marked"), markDuration),
+        );
+      }
+      return Message.CompletedShowBlockingTodo();
+    }),
 });

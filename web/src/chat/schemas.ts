@@ -22,10 +22,17 @@ export const ChatState = Schema.Struct({
 export const DraftInboxItem = Schema.Struct({ ...ChatInboxItem.fields, id: Schema.Number });
 export const DraftInboxItems = Schema.mutable(Schema.Array(DraftInboxItem));
 export const Images = Schema.mutable(Schema.Array(Schema.instanceOf(File)));
+export const DraftVoice = Schema.Struct({
+  state: Schema.Literals(["converting", "failed", "ready"]),
+  audio: Schema.NullOr(Schema.instanceOf(Blob)),
+  conversion: Schema.String,
+  error: Schema.String,
+});
 export const Draft = Schema.Struct({
   text: Schema.String,
   images: Images,
   inboxItems: DraftInboxItems,
+  voice: Schema.NullOr(DraftVoice),
 });
 export const Queued = Schema.Struct({
   id: Schema.String,
@@ -35,6 +42,7 @@ export const Queued = Schema.Struct({
   text: Schema.String,
   images: Images,
   inboxItems: Schema.mutable(Schema.Array(ChatInboxItem)),
+  voice: Schema.Boolean,
   time: Schema.String,
 });
 export const Waiting = Schema.Struct({ ...Queued.fields, sent: Schema.optional(Schema.Boolean) });
@@ -45,12 +53,13 @@ export const Failure = Schema.Struct({
 });
 
 export const VoiceTarget = Schema.Literals(["chat", "answer"]);
-export const VoiceRegion = Schema.Struct({
-  lead: Schema.String,
-  trail: Schema.String,
-  value: Schema.String,
+export const VoiceState = Schema.Struct({
+  recording: Schema.Boolean,
+  key: Schema.String,
+  startedAt: Schema.Number,
+  live: Schema.String,
+  notice: Schema.Struct({ key: Schema.String, text: Schema.String }),
 });
-export const TargetedVoiceRegion = Schema.Struct({ ...VoiceRegion.fields, target: VoiceTarget });
 
 export const Panel = Schema.Struct({
   type: Schema.Literals(["answer", "details"]),
@@ -59,13 +68,6 @@ export const Panel = Schema.Struct({
   fromTray: Schema.optional(Schema.Boolean),
 });
 export const Selection = Schema.Record(Schema.Number, Schema.mutable(Schema.Array(Schema.Number)));
-export const AnswerSend = Schema.Struct({
-  item: InboxItem,
-  text: Schema.String,
-  selected: Selection,
-  region: Schema.NullOr(VoiceRegion),
-});
-
 export const TrayRunning = Schema.Literals(["action", "dismiss", "merge"]);
 
 export type ChatMessage = typeof ChatMessage.Type;
@@ -76,6 +78,7 @@ export type Workstream = typeof Workstream.Type;
 export type ChatState = typeof ChatState.Type;
 export type DraftInboxItem = typeof DraftInboxItem.Type;
 export type Draft = typeof Draft.Type;
+export type DraftVoice = typeof DraftVoice.Type;
 export type Queued = typeof Queued.Type;
 export type Waiting = typeof Waiting.Type;
 export type Failure = typeof Failure.Type;

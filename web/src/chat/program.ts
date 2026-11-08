@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import * as Runtime from "foldkit/runtime";
-import { FetchPage, ListQueued, LoadDraft } from "./commands";
+import { FetchPage, ListQueued } from "./commands";
 import { Flags } from "./flags";
 import { initialModel, Model } from "./model";
 import { ports } from "./ports";
@@ -25,11 +25,6 @@ export function createChatProgram(container: HTMLElement, flags: Flags) {
           sent: null,
         }),
         ListQueued({
-          organization: flags.organization,
-          repository: flags.repository,
-          workstream: flags.workstream,
-        }),
-        LoadDraft({
           organization: flags.organization,
           repository: flags.repository,
           workstream: flags.workstream,

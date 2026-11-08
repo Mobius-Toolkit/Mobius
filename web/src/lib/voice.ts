@@ -85,12 +85,14 @@ const publish = (patch: Partial<typeof snapshot>) => {
   listeners.forEach((listener) => listener());
 };
 
-const subscribe = (listener: () => void) => {
+export const subscribeVoice = (listener: () => void) => {
   listeners.add(listener);
   return () => {
     listeners.delete(listener);
   };
 };
+
+export const voiceSnapshot = () => snapshot;
 
 // WebKit grants the lock only after a recent tap while the permission state is prompt.
 // Thus the tap on the voice button requests the lock.
@@ -470,13 +472,11 @@ const start = async (key: string) => {
   }
 };
 
-if (typeof document !== "undefined") {
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") {
-      void finish(backgroundMessage);
-    }
-  });
-}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") {
+    void finish(backgroundMessage);
+  }
+});
 
 const cancelStart = () => {
   run++;
@@ -485,7 +485,7 @@ const cancelStart = () => {
 };
 
 // A stop while the microphone starts cancels the start.
-const stopVoice = () => {
+export const stopVoice = () => {
   if (current) {
     void finish("");
   } else if (snapshot.recording && !stopping) {
@@ -493,7 +493,7 @@ const stopVoice = () => {
   }
 };
 
-const toggleVoice = (key: string) => {
+export const toggleVoice = (key: string) => {
   if (snapshot.recording) {
     stopVoice();
   } else {
@@ -509,27 +509,16 @@ const stopWithoutInput = () => {
 };
 
 export const voiceSupported =
-  Boolean(typeof navigator !== "undefined" && navigator.mediaDevices?.getUserMedia) &&
-  typeof AudioWorkletNode !== "undefined";
+  Boolean(navigator.mediaDevices?.getUserMedia) && typeof AudioWorkletNode !== "undefined";
 
-export const subscribeVoice = subscribe;
-export const getVoiceSnapshot = () => snapshot;
-export const toggleVoiceAction = toggleVoice;
-export const stopVoiceAction = stopVoice;
-export const resendVoiceAction = resend;
-export const discardVoiceAction = discard;
-export const finishForSendAction = finishForSend;
-export const showsLiveVoice = showsLive;
-export const registerVoiceInput = (input: {
-  insert: (text: string, live: boolean) => void;
-  insertLive: (text: string, first: boolean) => boolean;
-}) => {
+// Mounts an input for the draft key. insert puts the text of a conversion at the cursor of the field. The call that
+// this function gives unmounts the input.
+export const registerVoiceInput = (key: string, insert: (text: string) => void) => {
+  const input = { key, insert };
   inputs.push(input);
   return () => {
-    const idx = inputs.indexOf(input);
-    if (idx !== -1) {
-      inputs.splice(idx, 1);
-    }
+    inputs.splice(inputs.indexOf(input), 1);
+    queueMicrotask(stopWithoutInput);
   };
 };
 
@@ -540,21 +529,14 @@ export const registerVoiceInput = (input: {
 // toggle or stop stops it, the recording reaches 10 minutes, the microphone stops, or no mounted input has the key. A
 // stop while the microphone starts cancels the start. notice is the message of the last start or stop of the key.
 export function useVoice(key: string, onText: (text: string) => void) {
-  const state = useSyncExternalStore(subscribe, () => snapshot);
+  const state = useSyncExternalStore(subscribeVoice, voiceSnapshot);
   const latestOnText = useRef(onText);
 
   useEffect(() => {
     latestOnText.current = onText;
   });
 
-  useEffect(() => {
-    const input = { key, insert: (text: string) => latestOnText.current(text) };
-    inputs.push(input);
-    return () => {
-      inputs.splice(inputs.indexOf(input), 1);
-      queueMicrotask(stopWithoutInput);
-    };
-  }, [key]);
+  useEffect(() => registerVoiceInput(key, (text: string) => latestOnText.current(text)), [key]);
 
   const mine = state.recording && state.key === key;
   return {

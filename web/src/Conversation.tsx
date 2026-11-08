@@ -12,24 +12,19 @@ function ChatProgram({
   repository,
   workstream,
   agent,
-  unread,
   head,
   brief,
   note,
   trayItems = [],
-  workstreams,
 }: {
   organization: string;
   repository: string;
   workstream: number;
   agent: string;
-  source?: EventSource;
-  unread?: number;
   head: ReactNode;
   brief?: Workstream;
   note?: ReactNode;
   trayItems?: InboxItem[];
-  workstreams?: Workstream[];
 }) {
   const showLogin = use(LoginContext);
   const navigate = useNavigate();
@@ -66,20 +61,12 @@ function ChatProgram({
   }, [organization, repository, workstream, agent, showLogin, navigate]);
 
   useEffect(() => {
-    handleRef.current?.ports.unread.send(unread ?? null);
-  }, [unread]);
-
-  useEffect(() => {
     handleRef.current?.ports.brief.send(brief ?? null);
   }, [brief]);
 
   useEffect(() => {
     handleRef.current?.ports.trayItems.send(trayItems);
   }, [trayItems]);
-
-  useEffect(() => {
-    handleRef.current?.ports.workstreams.send(workstreams ?? null);
-  }, [workstreams]);
 
   // Foldkit replaces the container element with its own root. Thus the wrapper keeps the container as its only child,
   // and React never moves the container.
