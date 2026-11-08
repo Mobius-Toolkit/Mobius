@@ -1896,7 +1896,7 @@ var switchContexts = map[string]string{
 	"repairs": "The Owner turned Repairs off on the Settings page: Mobius starts no task for a CI break, a check timeout or a CI failure. `start_implementer` and `mark_ready` refuse for such an issue. During a hard break of the CI, the CI stop still holds each other task of its repository.",
 }
 
-const mergeContext = "Mobius merges each pull request after your approval, when the branch contains the current default branch and the checks passed. A mandatory deployment need that the Reviewer reports blocks the merge until the Owner marks its todo as done."
+const mergeContext = "Mobius merges each pull request after your approval, when the branch contains the current default branch and the checks passed. A deployment need that the Reviewer reports keeps the pull request a draft and blocks the merge until the Owner closes its todo. A mandatory todo closes with \"Complete\", and an optional todo closes with \"Complete\" or \"Dismiss\". An after-merge todo does not block."
 
 // repositoriesText names the repositories of the organization, and its issue repository when the organization has one.
 func (e *Engine) repositoriesText(organization string) string {

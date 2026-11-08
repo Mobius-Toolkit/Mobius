@@ -4666,7 +4666,7 @@ export const getDismissUrl = (id: number,) => {
 }
 
 /**
- * Dismiss removes an item from the Inbox. For a todo item, it also marks the todo as dismissed. It returns 409 for a todo item that is not open and for a mandatory todo.
+ * Dismiss removes an item from the Inbox. For a todo item, it also marks the todo as dismissed. When that closes the last blocking todo of a task, Mobius makes the pull request ready for review. It returns 409 for a todo item that is not open and for a mandatory todo.
  */
 export const dismiss = async (id: number, ): Promise<dismissResponse> => {
 
@@ -4741,7 +4741,7 @@ export const getDoneInboxItemUrl = (id: number,) => {
 }
 
 /**
- * DoneInboxItem marks the todo of an open todo Inbox item as done, with the note, and removes the item from the Inbox. When the todo was the last mandatory todo of a task with the automatic merge of Autopilot, Mobius approves the pull request for the merge. It returns the changed item. It returns 404 for an unknown item and 409 for an item that is not an open todo.
+ * DoneInboxItem marks the todo of an open todo Inbox item as done, with the note, and removes the item from the Inbox. When the todo was the last blocking todo of a task, Mobius makes the pull request ready for review, and with a merge level of Autopilot it approves the pull request for the merge. It returns the changed item. It returns 404 for an unknown item and 409 for an item that is not an open todo.
  */
 export const doneInboxItem = async (id: number,
     doneInboxItemBody: DoneInboxItemBody, ): Promise<doneInboxItemResponse> => {

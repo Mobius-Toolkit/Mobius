@@ -70,6 +70,9 @@ func (e *Engine) mergeApproved(ctx context.Context, repository github.Repository
 	if !awaitsMerge(task) || task.State == "queued" || task.State == "working" || pullRequest.GetDraft() || !pullRequest.GetMergeable() || hasOpenThread(e.pull(repository, number)) {
 		return false, nil
 	}
+	if blocked, err := e.blockedByTodos(ctx, task); err != nil || blocked {
+		return false, err
+	}
 	if task.AutoMerge == 1 {
 		level, err := e.workstreamLevel(ctx, task.WorkstreamRepository, task.Workstream)
 		if err != nil {

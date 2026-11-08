@@ -17,6 +17,7 @@ import (
 
 	gh "github.com/google/go-github/v92/github"
 
+	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
 	"github.com/Mobius-Toolkit/Mobius/internal/mcp"
 	"github.com/Mobius-Toolkit/Mobius/internal/runner"
@@ -94,7 +95,7 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 				},
 				e.startFixRound),
 			taskTool(e, c, "approve_pull_request",
-				"Approve the pull request of a task that waits for the Lead approval. Mobius posts the report as a comment on the pull request, removes the draft status, sets the Mobius check to success, and adds the \"ready for review\" Inbox item for the Owner. The item links to the comment.",
+				"Approve the pull request of a task that waits for the Lead approval. Mobius posts the report as a comment on the pull request, sets the Mobius check to success, and adds the \"ready for review\" Inbox item for the Owner. The item links to the comment. It removes the draft status, but the pull request stays a draft while a blocking deployment todo is open.",
 				map[string]any{
 					"repository": repositoryProperty,
 					"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
@@ -196,8 +197,24 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 					"body":       map[string]any{"type": "string", "description": "The body of the issue, with the sections Goal, Today (optional), Change, Limits, and Done, in this order."},
 					"parent":     map[string]any{"type": "string", "minLength": 1, "description": "The Workstream issue or an issue below it, as owner/name#N. The issue can be in any repository of the organization."},
 					"blocked_by": map[string]any{"type": "array", "items": map[string]any{"type": "string", "minLength": 1}, "description": "The issues that block this issue, each as owner/name#N. They can be in another repository or in another Workstream."},
+					"implementer": map[string]any{
+						"type":        "object",
+						"description": "Optional. The Implementer setting of the new task. Give it only when the Owner asks for it. Mobius refuses a setting that the Roles page refuses, and then creates no issue.",
+						"required":    []string{"harness", "model", "effort"},
+						"properties":  implementerSettingProperties,
+					},
 				},
 				e.createIssue),
+			taskTool(e, c, "set_implementer_binding",
+				"Set or clear the Implementer setting (Harness, model and effort) of a task issue, or of the Workstream issue. Use it only when the Owner asks for it. For the Workstream issue, the setting applies to each task of the Workstream with no setting of its own. An empty harness, model and effort clear the setting. The next Implementer session uses the setting, and a session that runs keeps its binding. Mobius refuses a setting that the Roles page refuses. It acts at once.",
+				map[string]any{
+					"repository": repositoryProperty,
+					"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue, or of the Workstream issue."},
+					"harness":    implementerSettingProperties["harness"],
+					"model":      implementerSettingProperties["model"],
+					"effort":     implementerSettingProperties["effort"],
+				},
+				e.setImplementerBinding),
 			taskTool(e, c, "update_blockers",
 				"Set the open blockers of an existing issue of the Workstream. Mobius adds each issue of blocked_by that is not a blocker yet, and removes each open blocker that is not in blocked_by. It refuses a blocker that closes a cycle of blockers. Read the current blockers with list_tasks first. An empty blocked_by removes each open blocker. A second call with the same list changes nothing.",
 				map[string]any{
@@ -724,10 +741,30 @@ type issueInput struct {
 
 type leadIssueInput struct {
 	repositoryInput
-	Title     string   `json:"title"`
-	Body      string   `json:"body"`
-	Parent    string   `json:"parent"`
-	BlockedBy []string `json:"blocked_by"`
+	Title       string                   `json:"title"`
+	Body        string                   `json:"body"`
+	Parent      string                   `json:"parent"`
+	BlockedBy   []string                 `json:"blocked_by"`
+	Implementer *implementerSettingInput `json:"implementer"`
+}
+
+// implementerSettingProperties are the properties of an Implementer setting in the input of a Lead tool.
+var implementerSettingProperties = map[string]any{
+	"harness": map[string]any{"type": "string", "description": "The Harness."},
+	"model":   map[string]any{"type": "string", "description": "The model of the Harness."},
+	"effort":  map[string]any{"type": "string", "description": "The effort. Empty for a Harness with no effort levels."},
+}
+
+type implementerSettingInput struct {
+	Harness string `json:"harness"`
+	Model   string `json:"model"`
+	Effort  string `json:"effort"`
+}
+
+type implementerBindingInput struct {
+	repositoryInput
+	N int64 `json:"n"`
+	implementerSettingInput
 }
 
 type blockersInput struct {
@@ -869,6 +906,13 @@ func (e *Engine) createIssue(ctx context.Context, c caller, repository github.Re
 			return "", refuse("%s#%d is not in this Workstream.", parent.repository.FullName, parent.number)
 		}
 	}
+	setting := input.Implementer
+	if setting != nil {
+		spec := Spec{Role: ImplementerRole, Repository: repository.FullName, WorkstreamRepository: workstream.FullName, Workstream: c.workstream}
+		if err := e.checkNewTaskBinding(ctx, spec, *setting); err != nil {
+			return "", err
+		}
+	}
 	mark, err := e.mark(ctx, c, repository.FullName)
 	if err != nil {
 		return "", err
@@ -877,10 +921,69 @@ func (e *Engine) createIssue(ctx context.Context, c caller, repository github.Re
 	if err != nil {
 		return "", err
 	}
+	text := fmt.Sprintf("Created %s#%d.", repository.FullName, number)
+	if setting != nil {
+		if err := e.putIssueBinding(ctx, "implementer", repository.FullName, int64(number), config.Harness(setting.Harness), setting.Model, setting.Effort); err != nil {
+			return "", fmt.Errorf("%s The store of its Implementer setting failed. Set it with set_implementer_binding: %w", text, err)
+		}
+		text += fmt.Sprintf(" Its Implementer setting is %s.", settingText(setting.Harness, setting.Model, setting.Effort))
+	}
 	if err := e.recopyTrees(ctx, workstream, c.workstream); err != nil {
 		log.Printf("copy the tree of %s#%d: %v", workstream.FullName, c.workstream, err)
 	}
-	return fmt.Sprintf("Created %s#%d.", repository.FullName, number), nil
+	return text, nil
+}
+
+// checkNewTaskBinding checks the Implementer setting of a task that does not exist yet. spec is the spec of an Implementer
+// session of the task, with no issue.
+func (e *Engine) checkNewTaskBinding(ctx context.Context, spec Spec, setting implementerSettingInput) error {
+	e.roleWriteMu.Lock()
+	defer e.roleWriteMu.Unlock()
+	return e.checkIssueBinding(ctx, spec, config.Harness(setting.Harness), setting.Model, setting.Effort)
+}
+
+func settingText(harness, model, effort string) string {
+	return strings.Join(slices.DeleteFunc([]string{harness, model, effort}, func(part string) bool { return part == "" }), " ")
+}
+
+// setImplementerBinding sets, or with an empty setting clears, the Implementer setting of the task input.N or of the
+// Workstream issue of c. It refuses an issue that is not in the Workstream of c.
+func (e *Engine) setImplementerBinding(ctx context.Context, c caller, repository github.Repository, input implementerBindingInput) (string, error) {
+	if input.N < 1 {
+		return "", refuse("n must be 1 or more.")
+	}
+	workstream, err := e.repository(c.repository)
+	if err != nil {
+		return "", err
+	}
+	isWorkstream := repository.FullName == workstream.FullName && input.N == c.workstream
+	if !isWorkstream {
+		in, err := e.inWorkstream(ctx, workstream.FullName, c.workstream, repository, input.N)
+		if err != nil {
+			return "", err
+		}
+		if !in {
+			return "", refuse("%s#%d is not a task of this Workstream and not the Workstream issue.", repository.FullName, input.N)
+		}
+	}
+	owner := fmt.Sprintf("%s#%d", repository.FullName, input.N)
+	if isWorkstream {
+		owner = "the Workstream " + owner
+	}
+	if input.implementerSettingInput == (implementerSettingInput{}) {
+		if err := e.ClearIssueBinding(ctx, "implementer", repository.FullName, input.N); err != nil {
+			return "", err
+		}
+		next, level, err := e.NextBinding(ctx, "implementer", repository.FullName, input.N)
+		if err != nil {
+			return "", fmt.Errorf("the Implementer setting of %s is cleared, but the read of the next binding failed: %w", owner, err)
+		}
+		return fmt.Sprintf("Cleared the Implementer setting of %s. The next Implementer session uses %s (level: %s).", owner, settingText(string(next.Harness), next.Model, next.Effort), level), nil
+	}
+	if err := e.SetIssueBinding(ctx, "implementer", repository.FullName, input.N, config.Harness(input.Harness), input.Model, input.Effort); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Set the Implementer setting of %s to %s.", owner, settingText(input.Harness, input.Model, input.Effort)), nil
 }
 
 // issueAt is the issue number of repository.
