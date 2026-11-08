@@ -222,20 +222,6 @@ function TaskEntry({
           ))}
           <Badge variant={line.state === "open" ? "outline" : "secondary"}>{line.state}</Badge>
         </a>
-        {(line.state === "open" || line.state === "triage" || resumes) &&
-          line.blockedBy.length === 0 && (
-            <Button
-              size="icon"
-              variant="ghost"
-              className="shrink-0"
-              aria-label={label}
-              title={label}
-              disabled={starting}
-              onClick={start}
-            >
-              {starting ? <Spinner aria-hidden /> : <PlayIcon />}
-            </Button>
-          )}
         {line.state !== "closed" && fallback && (
           <Button
             size="icon"
@@ -248,19 +234,35 @@ function TaskEntry({
             <SettingsIcon />
           </Button>
         )}
-        {stops && (
-          <Button
-            size="icon"
-            variant="ghost"
-            className="shrink-0"
-            aria-label={stopLabel}
-            title={stopLabel}
-            disabled={stopping}
-            onClick={stop}
-          >
-            {stopping ? <Spinner aria-hidden /> : <SquareIcon />}
-          </Button>
-        )}
+        <div className={cn("flex shrink-0 justify-end", line.state !== "closed" && "size-8")}>
+          {(line.state === "open" || line.state === "triage" || resumes) &&
+            line.blockedBy.length === 0 && (
+              <Button
+                size="icon"
+                variant="ghost"
+                className="shrink-0"
+                aria-label={label}
+                title={label}
+                disabled={starting}
+                onClick={start}
+              >
+                {starting ? <Spinner aria-hidden /> : <PlayIcon />}
+              </Button>
+            )}
+          {stops && (
+            <Button
+              size="icon"
+              variant="ghost"
+              className="shrink-0"
+              aria-label={stopLabel}
+              title={stopLabel}
+              disabled={stopping}
+              onClick={stop}
+            >
+              {stopping ? <Spinner aria-hidden /> : <SquareIcon />}
+            </Button>
+          )}
+        </div>
       </div>
       {error && (
         <Badge variant="destructive" className="h-auto w-full justify-start whitespace-normal">
