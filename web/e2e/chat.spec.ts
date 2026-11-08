@@ -703,6 +703,27 @@ test("the chat stays at its end when the input gets taller", async ({ page }) =>
   await expect.poll(() => page.evaluate(shows("tall 9 ", "end"))).toBe(true);
 });
 
+test("the list shows no message before its first scroll, and the last message is in view after it", async ({
+  page,
+}) => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  await page.route("**/api/unread", async (route) => {
+    await gate;
+    await route.fulfill({ json: { data: [] } });
+  });
+  await routeInboxItems(page, [longTitleItem, leadActionItem]);
+  await page.goto(shop);
+  const main = page.getByRole("main");
+  const list = main.locator("[data-ready]");
+  await expect(list).toHaveAttribute("data-ready", "false");
+  await expect(main.getByRole("heading", { name: /^Waits for you/ })).toBeVisible();
+  await expect(main.locator("[data-message]").first()).toBeHidden();
+  release();
+  await expect(list).toHaveAttribute("data-ready", "true");
+  await expect(main.locator("[data-message]").last()).toBeInViewport({ ratio: 1 });
+});
+
 test("an event shows folded and muted in the chat, and wraps on a phone", async ({ page }) => {
   const main = page.getByRole("main");
   // The tests have no DOM types, so the checks are scripts.

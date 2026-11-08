@@ -1376,7 +1376,10 @@ export function view(model: Model, h: H): Html {
           h.DataAttribute("ready", String(listReady)),
           h.DataAttribute("first-unread", String(firstUnread)),
           h.Class(
-            "grid min-h-0 grow grid-cols-[minmax(0,1fr)] content-start gap-3 overflow-y-auto overscroll-contain bg-muted/40 p-4",
+            cn(
+              "grid min-h-0 grow grid-cols-[minmax(0,1fr)] content-start gap-3 overflow-y-auto overscroll-contain bg-muted/40 p-4",
+              model.loaded && !listReady && !model.error && "invisible",
+            ),
           ),
         ],
         [
