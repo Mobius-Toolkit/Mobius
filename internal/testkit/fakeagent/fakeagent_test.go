@@ -569,3 +569,77 @@ reply = ["second"]
 		t.Errorf("reply after the cancel = %q", reply)
 	}
 }
+
+func TestACancelEndsNoTurnWhoseRequestCameAfterItInTheInput(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "claude-agent-acp.toml")
+	script := `
+[[prompts]]
+when = "first"
+hang = true
+
+[[prompts]]
+when = "second"
+hang = true
+`
+	if err := os.WriteFile(path, []byte(script), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	agentIn, input := io.Pipe()
+	output, agentOut := io.Pipe()
+	go func() { _ = Serve(path, agentIn, agentOut) }()
+	t.Cleanup(func() { _ = input.Close() })
+	responses := make(chan map[string]any, 2)
+	go func() {
+		decoder := json.NewDecoder(output)
+		for {
+			var message map[string]any
+			if decoder.Decode(&message) != nil {
+				return
+			}
+			if _, ok := message["id"]; ok && message["method"] == nil {
+				responses <- message
+			}
+		}
+	}()
+	prompt := func(id int, text string) string {
+		return fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"session/prompt","params":{"sessionId":"fake-session","prompt":[{"type":"text","text":%q}]}}`+"\n", id, text)
+	}
+	cancel := `{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"fake-session"}}` + "\n"
+	cancelRequest := `{"jsonrpc":"2.0","method":"$/cancel_request","params":{"requestId":1}}` + "\n"
+	stopReason := func(response map[string]any) string {
+		return response["result"].(map[string]any)["stopReason"].(string)
+	}
+
+	if _, err := io.WriteString(input, prompt(1, "first")); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if _, err := io.WriteString(input, cancel+cancelRequest+prompt(2, "second")); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case response := <-responses:
+		if response["id"] != float64(1) {
+			t.Fatalf("first response = %+v", response)
+		}
+	case <-time.After(time.Minute):
+		t.Fatal("the first turn did not end")
+	}
+	select {
+	case response := <-responses:
+		t.Fatalf("the cancel before the second prompt ended the second turn: %+v", response)
+	case <-time.After(300 * time.Millisecond):
+	}
+	if _, err := io.WriteString(input, cancel); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case response := <-responses:
+		if response["id"] != float64(2) || stopReason(response) != "cancelled" {
+			t.Errorf("second response = %+v", response)
+		}
+	case <-time.After(time.Minute):
+		t.Fatal("the second turn did not end")
+	}
+}
