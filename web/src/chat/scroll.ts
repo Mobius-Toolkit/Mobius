@@ -64,9 +64,12 @@ export const ChatList = Mount.defineStream("ChatList", {
           }
         };
 
+        // The browser moves the scrollTop down when a message grows or a block comes in above the end (scroll anchoring),
+        // and the list can get shorter in the same frame. Only a scroll up leaves the end.
         const onScroll = () => {
+          const down = list.scrollTop > knownTop;
           knownTop = list.scrollTop;
-          pinned = atEnd(list) || list.scrollTop === endTop;
+          pinned = atEnd(list) || list.scrollTop === endTop || (pinned && down);
           keepPlace();
           nearTop();
         };

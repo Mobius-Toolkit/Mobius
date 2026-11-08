@@ -53,11 +53,48 @@ const viewports = {
 
 // Writes screenshots/<name>-desktop.png and screenshots/<name>-phone.png.
 // The phone image comes from a browser with a coarse pointer, as on a real phone.
+// A step that waits for a state that no locator shows.
+type Wait = (page: Page) => Promise<void>;
+
+// The chat list scrolls to its end by itself. The log has each change of the list, so a failed wait shows the step that
+// left the list above its end.
+const listLog = `(() => {
+  window.__listLog = []
+  let last = ''
+  const tick = () => {
+    const list = document.querySelector('main [data-ready]')
+    if (list) {
+      const now = [list.scrollHeight - list.scrollTop - list.clientHeight, list.clientHeight, list.scrollHeight, list.dataset.ready].join(',')
+      if (now !== last) {
+        last = now
+        window.__listLog.push(Math.round(performance.now()) + ':' + now)
+        window.__listLog.splice(0, window.__listLog.length - 30)
+      }
+    }
+    requestAnimationFrame(tick)
+  }
+  requestAnimationFrame(tick)
+})()`;
+
+const chatEnd: Wait = (page) =>
+  expect
+    .poll(() =>
+      page.evaluate(`(() => {
+        const list = document.querySelector('main [data-ready]')
+        const gap = list ? list.scrollHeight - list.scrollTop - list.clientHeight : -1
+        return 'gap=' + gap + ' log(ms:gap,height,scrollHeight,ready)=' + window.__listLog.join(' | ')
+      })()`),
+    )
+    .toMatch(/^gap=[01] /);
+
+const show = (page: Page, step: Locator | Wait) =>
+  typeof step === "function" ? step(page) : expect(step).toBeVisible();
+
 async function screenshot(
   page: Page,
   name: string,
   path: string,
-  ready: (device: string) => Locator | Locator[],
+  ready: (device: string) => (Locator | Wait)[] | Locator,
   open?: (device: string) => Promise<void>,
   close?: () => Promise<void>,
 ) {
@@ -67,8 +104,8 @@ async function screenshot(
     await page.setViewportSize(size);
     await page.goto(path);
     await open?.(device);
-    for (const locator of [ready(device)].flat()) {
-      await expect(locator).toBeVisible();
+    for (const step of [ready(device)].flat()) {
+      await show(page, step);
     }
     await page.screenshot({
       path: `screenshots/${name}-${device}.png`,
@@ -219,6 +256,7 @@ test("screenshots", async ({ page }) => {
   await page.clock.setFixedTime(fixedTime);
   await page.addInitScript(fakeMicrophone);
   await page.addInitScript(countSamples);
+  await page.addInitScript(listLog);
 
   await screenshot(page, "login", "/github", () => page.getByLabel("Access password"));
   await page.getByLabel("Access password").fill("correct horse");
@@ -617,6 +655,7 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...chatReady(device),
+      chatEnd,
       main.getByRole("button", { name: "Stop voice input" }),
       voiceCard,
     ],
@@ -1077,6 +1116,7 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...frame(device, drain),
+      chatEnd,
       page
         .getByText(/Sep \d+, \d\d:\d\d [AP]M · Mobius prepares an upgrade/)
         .filter({ visible: true }),
@@ -1099,6 +1139,7 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...frame(device, drain),
+      chatEnd,
       page.getByText("#45 Pick the plan limits").filter({ visible: true }),
       page.getByText("waits for CI").filter({ visible: true }),
       page.getByText("waits for Lead").filter({ visible: true }),
@@ -1116,6 +1157,7 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...frame(device, drain),
+      chatEnd,
       page.getByText("#45 Pick the plan limits").filter({ visible: true }),
       page.getByText("waits for CI").filter({ visible: true }),
       page.getByText("waits for Lead").filter({ visible: true }),
@@ -1137,6 +1179,7 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...frame(device, drain),
+      chatEnd,
       page.getByText(longTaskTitle, { exact: false }).filter({ visible: true }),
     ],
     async (device) => {
@@ -1166,6 +1209,7 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...frame(device, drain),
+      chatEnd,
       created,
       page.getByText("Completed tasks").filter({ visible: true }),
       closeButton,
@@ -1190,7 +1234,7 @@ test("screenshots", async ({ page }) => {
     page,
     "chat-details-evergreen",
     "/workstreams/owner/shop/12",
-    (device) => [...frame(device, drain), created, evergreenSwitch],
+    (device) => [...frame(device, drain), chatEnd, created, evergreenSwitch],
     async (device) => {
       await openDetails(device);
       await evergreenSwitch.click();
@@ -1214,6 +1258,7 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/14",
     (device) => [
       ...frame(device, drain),
+      chatEnd,
       evergreenSwitch,
       page
         .getByText("Mobius manages this Workstream, so this value cannot change.")
@@ -1232,6 +1277,7 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...frame(device, drain),
+      chatEnd,
       page.getByRole("dialog").getByText("#41 Add plan model"),
       page.getByRole("dialog").getByText("#12 Integrate loyalty plans"),
     ],
@@ -1267,6 +1313,7 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...frame(device, drain),
+      chatEnd,
       planPrices.getByText("claude-code · sonnet · medium"),
       planReceipts.getByRole("button", { name: "Implementer of #39" }),
     ],
@@ -1282,6 +1329,7 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...frame(device, drain),
+      chatEnd,
       taskSheet.getByText("Default: devin · swe-1.5 · high (role)"),
       taskSheet.getByRole("button", { name: "Use the default" }),
       taskSheet.getByRole("button", { name: "Save" }),
@@ -1299,6 +1347,7 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...frame(device, drain),
+      chatEnd,
       detailsPanel.getByText("claude-code · opus · high"),
       detailsPanel.getByText("devin · swe-1.5 · high"),
       detailsPanel.getByRole("button", { name: "Change Lead" }),
@@ -1313,6 +1362,7 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...frame(device, drain),
+      chatEnd,
       workstreamLeadSheet.getByText("Default: claude-code · opus · high (role)"),
       workstreamLeadSheet.getByRole("button", { name: "Save" }),
     ],
@@ -1330,6 +1380,7 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...frame(device, drain),
+      chatEnd,
       detailsPanel.getByText("claude-code · sonnet · low"),
       detailsPanel.getByText("Workstream", { exact: true }),
       detailsPanel.getByRole("button", { name: "Change Implementer" }),
@@ -1343,6 +1394,7 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...frame(device, drain),
+      chatEnd,
       receiptsSheet.getByText("Default: claude-code · sonnet · low (Workstream)"),
       receiptsSheet.getByRole("button", { name: "Save" }),
     ],
