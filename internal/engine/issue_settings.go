@@ -20,15 +20,27 @@ func BindingText(harness, model, effort string) string {
 	return text
 }
 
-// settingSubject names the session that the setting of spec decides, as the Owner reads it in the chat.
-func settingSubject(spec Spec) string {
-	switch {
-	case spec.Issue.Valid:
-		return "Implementer of " + eventRef(spec.WorkstreamRepository, spec.Repository, spec.Issue.Int64)
-	case spec.Role == LeadRole:
-		return "Lead"
+// recordSetting adds a record to the Lead chat of the Workstream of the issue, in the form "The Owner <action> the
+// <session>". The session is the Lead, the Implementer of the Workstream or the Implementer of a task.
+func (e *Engine) recordSetting(ctx context.Context, role, repository string, issue int64, action func(subject string) string) error {
+	workstream, err := e.queries.HasCopiedWorkstreamAnyCase(ctx, store.HasCopiedWorkstreamAnyCaseParams{Repository: repository, Number: issue})
+	if err != nil {
+		return err
 	}
-	return "Implementer of the Workstream"
+	if workstream {
+		subject := "Implementer of the Workstream"
+		if role == "lead" {
+			subject = "Lead"
+		}
+		e.addRecord(ctx, leadChat(repository, issue), action(subject))
+		return nil
+	}
+	tree, err := e.queries.GetCopiedIssueTree(ctx, store.GetCopiedIssueTreeParams{Number: issue, Repository: repository})
+	if err != nil {
+		return err
+	}
+	e.addRecord(ctx, leadChat(tree.Repository, tree.Workstream), action("Implementer of "+eventRef(tree.Repository, repository, issue)))
+	return nil
 }
 
 // CheckOpenWorkstream refuses an issue that is not an open Workstream in the local copy.
@@ -51,26 +63,19 @@ func (e *Engine) SetSetting(ctx context.Context, role, repositoryName string, is
 	if err != nil {
 		return err
 	}
-	spec, err := e.issueSpec(ctx, role, repository.FullName, issue)
-	if err != nil {
-		return err
-	}
 	if err := e.SetIssueBinding(ctx, role, repository.FullName, issue, harness, model, effort); err != nil {
 		return err
 	}
 	e.publish(Change{Workstreams: true})
-	e.addRecord(ctx, leadChat(spec.WorkstreamRepository, spec.Workstream), fmt.Sprintf("The Owner set the %s to %s.", settingSubject(spec), BindingText(string(harness), model, effort)))
-	return nil
+	return e.recordSetting(ctx, role, repository.FullName, issue, func(subject string) string {
+		return fmt.Sprintf("The Owner set the %s to %s.", subject, BindingText(string(harness), model, effort))
+	})
 }
 
 // ClearSetting removes the setting of role for the task issue or the Workstream issue of repositoryName, as
 // ClearIssueBinding does. When the issue has no setting, it changes nothing.
 func (e *Engine) ClearSetting(ctx context.Context, role, repositoryName string, issue int64) error {
 	repository, err := e.repository(repositoryName)
-	if err != nil {
-		return err
-	}
-	spec, err := e.issueSpec(ctx, role, repository.FullName, issue)
 	if err != nil {
 		return err
 	}
@@ -82,8 +87,9 @@ func (e *Engine) ClearSetting(ctx context.Context, role, repositoryName string, 
 		return err
 	}
 	e.publish(Change{Workstreams: true})
-	e.addRecord(ctx, leadChat(spec.WorkstreamRepository, spec.Workstream), fmt.Sprintf("The Owner cleared the setting of the %s.", settingSubject(spec)))
-	return nil
+	return e.recordSetting(ctx, role, repository.FullName, issue, func(subject string) string {
+		return fmt.Sprintf("The Owner cleared the setting of the %s.", subject)
+	})
 }
 
 // NextSetting is the binding of the next session of a Role in a Workstream.
