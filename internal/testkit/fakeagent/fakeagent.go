@@ -199,6 +199,8 @@ type agent struct {
 	// cancels has the channel of each running turn, by the number of its session/prompt. The channel closes at a
 	// session/cancel that the agent read after that session/prompt.
 	cancels map[int]chan struct{}
+	// cancelledUpTo is the highest number of a session/prompt that a session/cancel ended or will end.
+	cancelledUpTo int
 	// steered closes when a steering request with the outcome injected finished its prompt. It is nil when no turn runs.
 	steered chan struct{}
 	// absorbed is the later with absorb that waits for the next session/prompt, or nil.
@@ -300,6 +302,7 @@ func (a *agent) handle(ctx context.Context, method string, params json.RawMessag
 		promptsRead := a.order.takeCancel()
 		a.mu.Lock()
 		defer a.mu.Unlock()
+		a.cancelledUpTo = max(a.cancelledUpTo, promptsRead)
 		for number, cancel := range a.cancels {
 			if number <= promptsRead {
 				close(cancel)
@@ -567,8 +570,7 @@ func (a *agent) setEfforts(efforts []string) {
 func (a *agent) next(text string, number int) (prompt, string, chan struct{}, chan struct{}) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	cancel := make(chan struct{})
-	a.cancels[number] = cancel
+	cancel := a.newCancel(number)
 	a.steered = make(chan struct{})
 	return a.choose(text), a.mcpURL, cancel, a.steered
 }
@@ -722,6 +724,18 @@ func (a *agent) prompt(ctx context.Context, params json.RawMessage) (any, *acp.R
 	return result, nil
 }
 
+// newCancel gives the cancel channel of the session/prompt number. The channel is closed when a session/cancel that came
+// after that session/prompt in the input was handled before the turn started. The caller holds a.mu.
+func (a *agent) newCancel(number int) chan struct{} {
+	cancel := make(chan struct{})
+	if number <= a.cancelledUpTo {
+		close(cancel)
+		return cancel
+	}
+	a.cancels[number] = cancel
+	return cancel
+}
+
 // endTurn removes the cancel channel of the session/prompt number.
 func (a *agent) endTurn(number int) {
 	a.mu.Lock()
@@ -747,9 +761,7 @@ func (a *agent) absorb(number int) (chan struct{}, *later) {
 		return nil, nil
 	}
 	a.absorbed = nil
-	cancel := make(chan struct{})
-	a.cancels[number] = cancel
-	return cancel, absorbed
+	return a.newCancel(number), absorbed
 }
 
 // startLater sends the updates of l in the background after the response of the prompt, or holds a later with

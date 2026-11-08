@@ -575,6 +575,7 @@ reply = ["second"]
 type rawAgent struct {
 	input     io.Writer
 	responses chan map[string]any
+	updates   chan struct{}
 }
 
 func startRawAgent(t *testing.T) *rawAgent {
@@ -583,10 +584,12 @@ func startRawAgent(t *testing.T) *rawAgent {
 	script := `
 [[prompts]]
 when = "first"
+reply = ["running"]
 hang = true
 
 [[prompts]]
 when = "second"
+reply = ["running"]
 hang = true
 `
 	if err := os.WriteFile(path, []byte(script), 0o600); err != nil {
@@ -596,7 +599,7 @@ hang = true
 	output, agentOut := io.Pipe()
 	go func() { _ = Serve(path, agentIn, agentOut) }()
 	t.Cleanup(func() { _ = input.Close() })
-	a := &rawAgent{input: input, responses: make(chan map[string]any, 2)}
+	a := &rawAgent{input: input, responses: make(chan map[string]any, 2), updates: make(chan struct{}, 2)}
 	go func() {
 		decoder := json.NewDecoder(output)
 		for {
@@ -604,7 +607,9 @@ hang = true
 			if decoder.Decode(&message) != nil {
 				return
 			}
-			if _, ok := message["id"]; ok && message["method"] == nil {
+			if message["method"] == "session/update" {
+				a.updates <- struct{}{}
+			} else if _, ok := message["id"]; ok && message["method"] == nil {
 				a.responses <- message
 			}
 		}
@@ -648,6 +653,16 @@ func (a *rawAgent) response(t *testing.T, id int, stopReason string) {
 	}
 }
 
+// running waits until a turn sends its update.
+func (a *rawAgent) running(t *testing.T) {
+	t.Helper()
+	select {
+	case <-a.updates:
+	case <-time.After(time.Minute):
+		t.Fatal("no turn runs")
+	}
+}
+
 func (a *rawAgent) requireNoResponse(t *testing.T) {
 	t.Helper()
 	select {
@@ -660,7 +675,7 @@ func (a *rawAgent) requireNoResponse(t *testing.T) {
 func TestACancelEndsNoTurnWhoseRequestCameAfterItInTheInput(t *testing.T) {
 	a := startRawAgent(t)
 	a.write(t, rawPrompt(1, "first"))
-	time.Sleep(100 * time.Millisecond)
+	a.running(t)
 	a.write(t, rawCancel+rawCancelRequest+rawPrompt(2, "second"))
 
 	a.response(t, 1, "")
@@ -673,10 +688,24 @@ func TestACancelEndsNoTurnWhoseRequestCameAfterItInTheInput(t *testing.T) {
 func TestACancelEndsTheTurnThatRunsWhenItsRequestCameBeforeTheCancelInTheSameRead(t *testing.T) {
 	a := startRawAgent(t)
 	a.write(t, rawPrompt(1, "first"))
-	time.Sleep(100 * time.Millisecond)
+	a.running(t)
 	a.write(t, rawCancel+rawPrompt(2, "second"))
 
 	a.response(t, 1, "cancelled")
+	a.requireNoResponse(t)
+	a.write(t, rawCancel)
+
+	a.response(t, 2, "cancelled")
+}
+
+func TestACancelEndsTheTurnOfARequestThatCameBeforeItInTheSameReadAlsoWhenTheCancelRunsFirst(t *testing.T) {
+	a := startRawAgent(t)
+	a.write(t, rawPrompt(1, "first")+rawCancel)
+
+	a.response(t, 1, "cancelled")
+	a.running(t)
+	a.write(t, rawPrompt(2, "second"))
+	a.running(t)
 	a.requireNoResponse(t)
 	a.write(t, rawCancel)
 
