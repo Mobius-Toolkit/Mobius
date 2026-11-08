@@ -449,7 +449,7 @@ func pauseEnd(pause store.HarnessPause) (*time.Time, error) {
 }
 
 // movingRoles are the Roles whose session leaves a wait for a pause when the Harness of its Role changes.
-var movingRoles = map[string]bool{LeadRole: true, CoordinatorRole: true}
+var movingRoles = map[string]bool{LeadRole: true, CoordinatorRole: true, ImplementerRole: true, ReviewerRole: true, JudgeRole: true}
 
 // errMoved tells that the Owner changed the Harness of the Role of a session while it waited for a pause. The session
 // ends with the reason "moved", and its caller starts the work again on the new binding.
