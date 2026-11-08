@@ -111,6 +111,9 @@ func TestACheckThatTheAgentAnswersWithRunningEndsTheTurnWithNoCancelAndStartsThe
 	if len(notes) != 1 || !strings.Contains(notes[0], checkNote) {
 		t.Errorf("notes = %q", notes)
 	}
+	if sent := rows(t, server, agent.ID(), "prompt"); sent[1]["check"] != true || sent[0]["check"] != nil {
+		t.Errorf("prompt rows = %v", sent)
+	}
 	if err := agent.End(t.Context(), "done"); err != nil {
 		t.Fatal(err)
 	}
@@ -245,19 +248,19 @@ func TestAnAgentWithNoSteeringWhoseToolCallEndedGetsTheCancelAtTheHangTime(t *te
 // Serial: the test changes hangTimeout and backgroundTimeout.
 func TestAnUpdateOfAnAgentWithNoSteeringAndAnOpenToolCallGivesANewTimeWithNoActivity(t *testing.T) {
 	shortHang(t)
-	shortBackgroundTimeout(t, 2*time.Second)
+	shortBackgroundTimeout(t, 10*time.Second)
 	fake := testkit.NewFakeGitHub(t)
 	gate := filepath.Join(t.TempDir(), "gate")
 	server, _ := connect(t, fake, "[[prompts]]\nupdates = ['"+openCall+"']\nshell = \"while [ ! -e '"+gate+"' ]; do sleep 0.05; done\"\n")
 	agent := start(t, server, leadSpec(t))
-	started := time.Now()
 	done := make(chan error, 1)
 	go func() { done <- agent.Prompt(t.Context(), "One", nil) }()
 	testkit.WaitFor(t, func() bool { return countNotes(t, server, agent.ID(), openNote) == 1 })
 
-	time.Sleep(time.Until(started.Add(1700 * time.Millisecond)))
 	agent.Update(fmt.Appendf(nil, agentUpdate, workUpdate))
-	time.Sleep(time.Until(started.Add(2250 * time.Millisecond)))
+
+	// The wait adds its note again only after new activity, so the second note shows that the update reset the idle time.
+	testkit.WaitFor(t, func() bool { return countNotes(t, server, agent.ID(), openNote) == 2 })
 	touch(t, gate)
 
 	if err := <-done; err != nil {

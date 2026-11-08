@@ -162,12 +162,13 @@ func (a *Agent) check(ctx context.Context) bool {
 	return injected
 }
 
-// addCheckRows adds the note of a check and the prompt row with its text to the Transcript.
+// addCheckRows adds the note of a check and the prompt row with its text to the Transcript. The prompt row has the
+// field check, so the list of retry prompts of the Curator does not show it.
 func (a *Agent) addCheckRows(ctx context.Context, text string) error {
 	if err := a.addNote(ctx, fmt.Sprintf("The agent had no activity for %s. Mobius asks the agent for its state and does not stop the turn.", hangTimeout)); err != nil {
 		return err
 	}
-	row, err := compact(promptRow(text, nil))
+	row, err := compact(map[string]any{"text": text, "check": true})
 	if err != nil {
 		return err
 	}

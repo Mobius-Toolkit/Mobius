@@ -17,7 +17,7 @@
 //	                        # played prompt has hang. With no running turn, the outcome is promptRequired
 //	steering_hang = true    # initialize tells _meta.steering.supported, and _session/steering gets no response
 //
-//	[options]              # one select option for each id, in id order; the first value is current
+//	[options]               # one select option for each id, in id order; the first value is current
 //	model = ["sonnet", "opus"]
 //
 //	[efforts]               # the thought_level values for each model; a set of the model option replaces the values

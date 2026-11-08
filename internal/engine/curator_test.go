@@ -705,6 +705,21 @@ func TestThePromptOfTheCuratorHasEachKindOfItemOfTheSessionsOfTheRepository(t *t
 	}
 }
 
+func TestThePromptOfTheCuratorHasNoCheckPromptInTheRetryPrompts(t *testing.T) {
+	t.Parallel()
+	server, _ := connect(t, testkit.NewFakeGitHub(t), curatorScript)
+	at := time.Now().Add(-time.Hour)
+	addProblems(t, server, "alpha", at)
+	checked := addSession(t, server, engine.ImplementerRole, 42, at, "done")
+	addTranscript(t, server, checked, at, "prompt", map[string]any{"text": "You had no activity for 15 minutes. Tell Mobius your state.\n\nCheck beta", "check": true})
+
+	prompt := nextCuratorPrompt(t, server, 1)
+
+	if !strings.Contains(prompt, "Retry alpha") || strings.Contains(prompt, "Check beta") {
+		t.Errorf("prompt = %s", prompt)
+	}
+}
+
 // requestScript plays a Coordinator that tells the Curator for a message of the Owner, and a Curator that adds a lesson
 // for the request.
 const requestScript = approvalSeen + `
