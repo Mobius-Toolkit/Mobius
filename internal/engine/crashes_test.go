@@ -227,23 +227,13 @@ func TestALeadThatCrashesGetsTheSameEventInANewSession(t *testing.T) {
 	testkit.WaitFor(t, func() bool { return len(undelivered(t, server)) == 0 })
 }
 
-func TestALeadThatAlwaysCrashesSendsTheEventToTheActivityFeed(t *testing.T) {
+func TestALeadThatAlwaysCrashesMarksTheEventAsDelivered(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nwhen = \"dispatch of #41\"\nshell = \"kill -9 $PPID; sleep 5\"\n")
 
 	dispatchTask(fake, 41, "Add plan model")
 
-	failed := testkit.WaitForValue(t, func() (activity, bool) {
-		for _, a := range activities(t, server) {
-			if strings.HasPrefix(a.Text, "The Lead did not take this event: ") {
-				return a, true
-			}
-		}
-		return activity{}, false
-	})
-	if !strings.Contains(failed.Text, ` dispatch of #41 "Add plan model" by @owner:`) {
-		t.Errorf("activity = %+v", failed)
-	}
+	testkit.WaitFor(t, func() bool { return eventDelivered(t, server) })
 	for _, item := range inbox(t, server) {
 		if item.Kind == "Lead failed" {
 			t.Errorf("Inbox item = %+v", item)
@@ -388,9 +378,6 @@ func TestMobiusReadyOnATaskInNeedsHumanHasNoEffect(t *testing.T) {
 
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 
-	testkit.WaitFor(t, func() bool {
-		return slices.Contains(feedTexts(t, server), `No effect: "Add plan model" has a live task`)
-	})
 	testkit.WaitFor(t, func() bool { return !hasLabel(fake, "mobius:ready") })
 	waitForPolls(t, fake)
 	if state := taskState(t, server); state != "needs_human" {

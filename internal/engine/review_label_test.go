@@ -67,8 +67,8 @@ func TestARemovalOfTheReviewLabelStopsATaskInReadyForReview(t *testing.T) {
 	fake.RemoveLabel(shop, 41, "mobius:review", "mallory")
 
 	testkit.WaitFor(t, func() bool {
-		feed := activities(t, server)
-		return feed[len(feed)-1].Text == "Stopped \"Add plan model\" after a removal of mobius:review"
+		runs := fake.CheckRuns(shop)
+		return len(runs) > 0 && runs[len(runs)-1].Output.Title == "Stopped"
 	})
 	if state := taskState(t, server); state != "stopped" {
 		t.Errorf("state = %s", state)

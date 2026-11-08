@@ -152,7 +152,7 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 				},
 				e.stopResearcher),
 			taskTool(e, c, "ask",
-				"Ask the people on a task issue, or on the Workstream issue, a question. Use it when you need a decision of the Owner. For a choice between alternatives, give the questions with their options in questions, and the context in text. Mobius posts the text and the questions as a comment, adds mobius:question, and adds an Inbox item for the Owner. A new question on an issue replaces the open question of that issue in the Inbox. Thus put all open questions of one issue into one call. The reply arrives later as an event. On a dispatched task, the task frees its Autopilot slot until the Owner replies. Then you get a dispatch event again.",
+				"Ask the people on a task issue, or on the Workstream issue, a question. For a task issue with no live task, ask on the Workstream issue, and name the task issue in the text. Use it when you need a decision of the Owner. For a choice between alternatives, give the questions with their options in questions, and the context in text. Mobius posts the text and the questions as a comment, adds mobius:question, and adds an Inbox item for the Owner. A new question on an issue replaces the open question of that issue in the Inbox. Thus put all open questions of one issue into one call. The reply arrives later as an event. On a dispatched task, the task frees its Autopilot slot until the Owner replies. Then you get a dispatch event again.",
 				map[string]any{
 					"repository": repositoryProperty,
 					"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue, or of the Workstream issue."},
@@ -1287,12 +1287,10 @@ func (e *Engine) stopTaskTool(ctx context.Context, c caller, repository github.R
 	if task.State != "queued" && task.State != "working" {
 		return "", refuse("The task of #%d is %s, so it has no work to stop.", input.N, task.State)
 	}
-	issue, err := existingIssue(ctx, repository, input.N)
-	if err != nil {
+	if _, err := existingIssue(ctx, repository, input.N); err != nil {
 		return "", err
 	}
-	text := fmt.Sprintf("Stopped \"%s\" on request of the Owner", issue.GetTitle())
-	if err := e.stopTask(ctx, repository, task, issue, appLogin(repository.AppSlug), "Stopped by the Owner.", text); err != nil {
+	if err := e.stopTask(ctx, repository, task, "Stopped by the Owner."); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("Stopped the task of #%d.", input.N), nil

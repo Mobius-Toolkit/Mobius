@@ -69,29 +69,19 @@ func TestMorePollsStartNoLeadSessionForAHeldEvent(t *testing.T) {
 // processes. The access checks start checkedKeys processes before the Lead.
 var failedLeadStarts = fmt.Sprintf("skip_tools_list = %d\n", 8+checkedKeys) + options + "[[prompts]]\nreply = [\"Seen\"]\n"
 
-func leadNotTaken(t *testing.T, server *testserver.Server) activity {
+func leadNotTaken(t *testing.T, server *testserver.Server) {
 	t.Helper()
-	return testkit.WaitForValue(t, func() (activity, bool) {
-		for _, a := range activities(t, server) {
-			if strings.HasPrefix(a.Text, "The Lead did not take this event: ") {
-				return a, true
-			}
-		}
-		return activity{}, false
-	})
+	testkit.WaitFor(t, func() bool { return eventDelivered(t, server) })
 }
 
-func TestTheFailedStartsOfOneChatGiveTheEventToTheActivityFeedAndStartNoSecondChat(t *testing.T) {
+func TestTheFailedStartsOfOneChatMarkTheEventAsDeliveredAndStartNoSecondChat(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectScript(t, fake, failedLeadStarts, func(cfg *config.Config) { cfg.MaxWorkerRestarts = 1 })
 
 	dispatchTask(fake, 41, "Add plan model")
 
-	failed := leadNotTaken(t, server)
-	if failed.Workstream != 12 || failed.Issue != 12 || !strings.Contains(failed.Text, " dispatch of #41 ") {
-		t.Errorf("activity = %+v", failed)
-	}
+	leadNotTaken(t, server)
 	waitForPolls(t, fake)
 	waitForPolls(t, fake)
 

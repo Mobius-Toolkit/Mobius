@@ -2,57 +2,21 @@ package api
 
 import (
 	"context"
-	"slices"
-	"strconv"
 	"time"
 
 	"github.com/gork-labs/gork/pkg/api"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
-	"github.com/Mobius-Toolkit/Mobius/internal/store"
-)
-
-const (
-	backlog      = 20
-	pollInterval = time.Second
 )
 
 // pingInterval is the time between two ping events. The client connects again after two intervals with no ping.
 var pingInterval = 15 * time.Second
 
 // StreamEventsRequest is the request of StreamEvents.
-type StreamEventsRequest struct {
-	Headers struct {
-		// LastEventID is the id of the last activity that the client got
-		LastEventID *int64 `gork:"Last-Event-ID"`
-	}
-}
+type StreamEventsRequest struct{}
 
-// Activity is an entry of the activity feed of a Workstream.
-type Activity struct {
-	// ID increases with each new activity
-	ID int64 `gork:"id"`
-	// Time is the time of the activity
-	Time time.Time `gork:"time"`
-	// Organization is the owner of the repository, or the organization of the Coordinator chat
-	Organization string `gork:"organization"`
-	// Repository is the repository of the Workstream issue, as "owner/name". It is empty for a session of the Coordinator
-	Repository string `gork:"repository"`
-	// Workstream is the number of the Workstream issue. It is 0 for a session of the Coordinator
-	Workstream int64 `gork:"workstream"`
-	// Issue is the number of the issue of the activity, or 0 for a session of the Coordinator
-	Issue int64 `gork:"issue"`
-	// Actor is the GitHub login that did the activity, or "Mobius" when no GitHub login did it
-	Actor string `gork:"actor"`
-	// Text tells what happened
-	Text string `gork:"text"`
-	// Link is the GitHub URL of the issue of the activity, or empty when the activity has no issue
-	Link string `gork:"link"`
-}
-
-// LiveEvents are the events of the live event stream. Only an activity has an event id.
+// LiveEvents are the events of the live event stream.
 type LiveEvents struct {
-	Activity *Activity `gork:"activity"`
 	// Agent is a session at its start and at its end
 	Agent *Agent `gork:"agent"`
 	// Drain is the state of the drain at each change
@@ -115,41 +79,21 @@ type WorkstreamRef struct {
 	Number int64 `gork:"number"`
 }
 
-// StreamEvents sends the latest activities, and then each new activity, each change of a session,
+// StreamEvents sends a ping at once, and then each change of a session,
 // each change of the drain, each start and failure of an upgrade,
 // each change of the Workstream list, each new or longer chat message, each new unread count, each change of the
 // state of a chat, each new or dismissed Inbox item, each new or changed pending action, each change of the pauses, each change of the CI stops, each change of the global switches, and each Workstream that the Coordinator chat created.
 // It also sends a ping at a fixed interval.
-// When the request has Last-Event-ID, it sends the activities after that id in place of the latest activities.
 // When the client does not read the session changes fast enough, the stream ends.
-func (h *handlers) StreamEvents(ctx context.Context, req StreamEventsRequest, stream *api.Stream[LiveEvents]) error {
+func (h *handlers) StreamEvents(ctx context.Context, _ StreamEventsRequest, stream *api.Stream[LiveEvents]) error {
 	changes, stop := h.engine.Listen()
 	defer stop()
-	var events []store.Event
-	var err error
-	var last int64
-	if req.Headers.LastEventID != nil {
-		last = *req.Headers.LastEventID
-		events, err = h.queries.ListEventsAfter(ctx, last)
-	} else {
-		events, err = h.queries.ListLatestEvents(ctx, backlog)
-		slices.Reverse(events)
-	}
-	if err != nil {
+	if err := stream.Send(LiveEvents{Ping: &struct{}{}}); err != nil {
 		return err
 	}
-	ticker := time.NewTicker(pollInterval)
-	defer ticker.Stop()
 	pings := time.NewTicker(pingInterval)
 	defer pings.Stop()
 	for {
-		for _, e := range events {
-			if err := sendActivity(stream, e); err != nil {
-				return err
-			}
-			last = e.ID
-		}
-		events = nil
 		select {
 		case <-ctx.Done():
 			return nil
@@ -162,11 +106,6 @@ func (h *handlers) StreamEvents(ctx context.Context, req StreamEventsRequest, st
 			}
 		case <-pings.C:
 			if err := stream.Send(LiveEvents{Ping: &struct{}{}}); err != nil {
-				return err
-			}
-		case <-ticker.C:
-			events, err = h.queries.ListEventsAfter(ctx, last)
-			if err != nil {
 				return err
 			}
 		}
@@ -253,22 +192,4 @@ func (h *handlers) sendChange(ctx context.Context, stream *api.Stream[LiveEvents
 		return err
 	}
 	return stream.Send(LiveEvents{Agent: &agent})
-}
-
-func sendActivity(stream *api.Stream[LiveEvents], e store.Event) error {
-	t, err := time.Parse(time.RFC3339Nano, e.Time)
-	if err != nil {
-		return err
-	}
-	return stream.SendWithID(strconv.FormatInt(e.ID, 10), LiveEvents{Activity: &Activity{
-		ID:           e.ID,
-		Time:         t,
-		Organization: e.Organization,
-		Repository:   e.Repository,
-		Workstream:   e.Workstream,
-		Issue:        e.Issue,
-		Actor:        e.Actor,
-		Text:         e.Text,
-		Link:         e.Link,
-	}})
 }

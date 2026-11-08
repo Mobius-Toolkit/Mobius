@@ -20,10 +20,6 @@ import (
 // readyEndpoint is the endpoint of the list of the issues with mobius:ready in the sync_cursors table.
 const readyEndpoint = "ready"
 
-// fullSlotsWait is the time with all Autopilot slots full before Mobius tells the Owner. A normal task leaves
-// dispatched in some minutes, so a full queue for 30 minutes shows that a task is stuck.
-const fullSlotsWait = 30 * time.Minute
-
 // dispatchReady acts on the open issues with mobius:ready of a trusted actor:
 //   - An issue with no Workstream waits.
 //   - A stopped task with a pull request continues (Mobius-rust#225, Mobius-rust#253). Each other issue with a live
@@ -82,9 +78,6 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 			continue
 		case live && task.State != "stopped":
 			if err := repository.RemoveLabel(ctx, number, readyLabel); err != nil {
-				return err
-			}
-			if err := e.addActivity(ctx, task.WorkstreamRepository, task.Workstream, issue, actor, fmt.Sprintf("No effect: \"%s\" has a live task", issue.GetTitle())); err != nil {
 				return err
 			}
 			continue
@@ -146,7 +139,7 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 	})
 }
 
-// dispatch adds a task for the issue in the Workstream, with an activity and a dispatch event for the Lead.
+// dispatch adds a task for the issue in the Workstream, with a dispatch event for the Lead.
 // mobius:working comes before the removal of mobius:ready, so a failure between the two leaves the issue in the
 // list of the next poll.
 func (e *Engine) dispatch(ctx context.Context, repository github.Repository, issue *gh.Issue, workstreamRepository string, workstream int64, actor string) error {
@@ -165,30 +158,9 @@ func (e *Engine) dispatch(ctx context.Context, repository github.Repository, iss
 		return err
 	}
 	e.publish(Change{Workstreams: true})
-	if err := e.addActivity(ctx, workstreamRepository, workstream, issue, actor, fmt.Sprintf("Dispatched \"%s\"", issue.GetTitle())); err != nil {
-		return err
-	}
 	text := eventText(time.Now(), "dispatch of", eventRef(workstreamRepository, repository.FullName, number), issue, actor, issue.GetBody())
 	return e.addLeadEvent(ctx, workstreamRepository, workstream, repository.FullName, sql.NullInt64{Int64: number, Valid: true}, "dispatch", text)
 }
-
-// addActivity adds an activity about the issue to the feed.
-func (e *Engine) addActivity(ctx context.Context, repository string, workstream int64, issue *gh.Issue, actor, text string) error {
-	organization, _, _ := strings.Cut(repository, "/")
-	return e.queries.AddEvent(ctx, store.AddEventParams{
-		Time:         now(),
-		Organization: organization,
-		Repository:   repository,
-		Workstream:   workstream,
-		Issue:        int64(issue.GetNumber()),
-		Actor:        actor,
-		Text:         text,
-		Link:         issue.GetHTMLURL(),
-	})
-}
-
-// mobiusActor is the actor of an activity that Mobius adds with no GitHub login.
-const mobiusActor = "Mobius"
 
 // issueLink gives the GitHub URL of the issue, or an empty text for the issue 0 of a session with no Workstream.
 func issueLink(repository string, number int64) string {
@@ -976,15 +948,6 @@ func (e *Engine) startAutopilot(ctx context.Context, repository github.Repositor
 	if err := e.dispatchAnsweredWithoutAutopilot(ctx, repository, stop); err != nil {
 		return err
 	}
-	active, err := e.queries.CountActiveTasks(ctx)
-	if err != nil {
-		return err
-	}
-	if active < int64(e.mergedRoles().Implementer.Max) {
-		if err := e.queries.EndFullSlots(ctx); err != nil {
-			return err
-		}
-	}
 	if !e.copied[repository.FullName] {
 		return nil
 	}
@@ -1088,7 +1051,7 @@ func (e *Engine) autopilotTree(ctx context.Context, repository github.Repository
 			return false, err
 		}
 		if active >= int64(e.mergedRoles().Implementer.Max) {
-			return true, e.noteFullSlots(ctx, repository, source, issue, workstream)
+			return true, nil
 		}
 		if answered {
 			err = e.dispatchAnswer(ctx, source, issue, task)
@@ -1097,48 +1060,6 @@ func (e *Engine) autopilotTree(ctx context.Context, repository github.Repository
 		}
 		return false, err
 	})
-}
-
-// noteFullSlots keeps the time when Autopilot first could not start a task because all slots were full. When
-// fullSlotsWait passed since then, it adds one activity on the issue that Autopilot could not start, with the tasks
-// that hold the slots. It writes item_at after the activity, so a failed step runs again on the next poll.
-func (e *Engine) noteFullSlots(ctx context.Context, repository, source github.Repository, issue *gh.Issue, workstream int64) error {
-	current := e.timeNow().UTC()
-	if err := e.queries.StartFullSlots(ctx, current.Format(time.RFC3339Nano)); err != nil {
-		return err
-	}
-	full, err := e.queries.GetFullSlots(ctx)
-	if err != nil {
-		return err
-	}
-	since, err := time.Parse(time.RFC3339Nano, full.Since)
-	if err != nil {
-		return err
-	}
-	if full.ItemAt.Valid || current.Sub(since) < fullSlotsWait {
-		return nil
-	}
-	tasks, err := e.queries.ListActiveTasks(ctx)
-	if err != nil {
-		return err
-	}
-	name := ""
-	if source.FullName != repository.FullName {
-		name = source.FullName
-	}
-	var text strings.Builder
-	fmt.Fprintf(&text, "All %d Autopilot slots are full for %s. Autopilot could not start %s#%d \"%s\". These tasks hold the slots:", e.mergedRoles().Implementer.Max, current.Sub(since).Round(time.Minute), name, issue.GetNumber(), issue.GetTitle())
-	for _, task := range tasks {
-		entered, err := time.Parse(time.RFC3339Nano, task.StateAt)
-		if err != nil {
-			return err
-		}
-		fmt.Fprintf(&text, "\n- %s#%d is %s for %s", task.Repository, task.Issue, task.State, current.Sub(entered).Round(time.Minute))
-	}
-	if err := e.addActivity(ctx, repository.FullName, workstream, issue, appLogin(repository.AppSlug), text.String()); err != nil {
-		return err
-	}
-	return e.queries.SetFullSlotsItemAt(ctx, sql.NullString{String: current.Format(time.RFC3339Nano), Valid: true})
 }
 
 // resume continues the task of the issue that waits for a human, or the stopped task with a pull request, for the
@@ -1174,7 +1095,7 @@ func (e *Engine) resume(ctx context.Context, repository github.Repository, issue
 	if err := repository.RemoveLabel(ctx, int64(issue.GetNumber()), readyLabel); err != nil {
 		return err
 	}
-	return e.addActivity(ctx, task.WorkstreamRepository, task.Workstream, issue, actor, fmt.Sprintf("Continued \"%s\"", issue.GetTitle()))
+	return nil
 }
 
 // redispatch gives the task with no pull request back to the Lead with a dispatch event that has text and comment. It

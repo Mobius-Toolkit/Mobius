@@ -33,6 +33,9 @@ const incompletePrompt = "Your previous turn ended with the stop reason `%s` bef
 // hangTimeout is the time with no activity after which a running turn is hung.
 var hangTimeout = 15 * time.Minute
 
+// afterHangRead is a hook of the tests. watch calls it after each read of the idle time, with no lock held.
+var afterHangRead func()
+
 // errHung is the error of a prompt that hung after the last retry.
 var errHung = errors.New("the agent had no activity after the last retry")
 
@@ -100,7 +103,7 @@ func (a *Agent) sendPrompt(ctx context.Context, text string, images []Image) err
 func (a *Agent) watch(ctx context.Context, stop context.CancelFunc) bool {
 	timer := time.NewTimer(hangTimeout)
 	defer timer.Stop()
-	noted := false
+	var notedActivity time.Time
 	for {
 		select {
 		case <-ctx.Done():
@@ -108,10 +111,13 @@ func (a *Agent) watch(ctx context.Context, stop context.CancelFunc) bool {
 		case <-timer.C:
 		}
 		a.mu.Lock()
-		idle := time.Since(a.activity)
+		activity := a.activity
+		idle := time.Since(activity)
 		a.mu.Unlock()
+		if afterHangRead != nil {
+			afterHangRead()
+		}
 		if idle < hangTimeout {
-			noted = false
 			timer.Reset(hangTimeout - idle)
 			continue
 		}
@@ -124,8 +130,8 @@ func (a *Agent) watch(ctx context.Context, stop context.CancelFunc) bool {
 				return false
 			}
 		} else if wait := a.openCallWait(idle); wait > 0 {
-			if !noted {
-				noted = true
+			if activity.After(notedActivity) {
+				notedActivity = activity
 				if err := a.addNote(ctx, fmt.Sprintf("The agent had no activity for %s and a tool call is open. Mobius sends no cancel until %s after the last activity.", hangTimeout, backgroundTimeout)); err != nil {
 					log.Printf("add the note of the open tool call of the session %d: %v", a.id, err)
 				}
@@ -224,25 +230,9 @@ func (a *Agent) hungText() string {
 	return text
 }
 
-// endHung ends the session after the hang that follows the last retry, and adds an activity on the issue of the
-// session, or on the Workstream issue when the session has no issue. A session with no Workstream has no issue and no link.
+// endHung ends the session after the hang that follows the last retry.
 func (a *Agent) endHung(ctx context.Context) error {
-	spec := a.spec
-	issue := spec.Issue.Int64
-	if !spec.Issue.Valid {
-		issue = spec.Workstream
-	}
-	err := a.engine.queries.AddEvent(ctx, store.AddEventParams{
-		Time:         now(),
-		Organization: spec.Organization,
-		Repository:   spec.Repository,
-		Workstream:   spec.Workstream,
-		Issue:        issue,
-		Actor:        mobiusActor,
-		Text:         a.hungText(),
-		Link:         issueLink(spec.Repository, issue),
-	})
-	return errors.Join(err, a.End(ctx, "hung"))
+	return a.End(ctx, "hung")
 }
 
 // endHungTask ends the session of the task after the hang that follows the last retry. It hands the task to a human

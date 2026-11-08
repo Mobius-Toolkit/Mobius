@@ -212,7 +212,6 @@ func TestAPendingCIFailureIssueWithATaskGetsBelowTheWorkstreamWithNoLabelAgain(t
 		return rowCount(t, server, "SELECT count(*) FROM ci_failures WHERE issue < 0") == 1
 	})
 	number := createdCIFailureIssue(t, server)
-	title, _ := fake.Issue(shop, number)
 	fake.RemoveLabel(shop, number, "mobius:ready", "owner")
 	fake.AddSubIssue(shop, maintenance, number)
 	fake.AddLabel(shop, number, "mobius:ready", "owner")
@@ -233,9 +232,6 @@ func TestAPendingCIFailureIssueWithATaskGetsBelowTheWorkstreamWithNoLabelAgain(t
 	}
 	if got := fake.LabelWrites(shop, number); got != writes {
 		t.Errorf("label writes = %d, want %d", got, writes)
-	}
-	if text := fmt.Sprintf("No effect: %q has a live task", title); slices.Contains(feedTexts(t, server), text) {
-		t.Errorf("the issue got mobius:ready again: %s", text)
 	}
 }
 

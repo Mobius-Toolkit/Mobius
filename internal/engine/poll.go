@@ -364,7 +364,7 @@ func (e *Engine) routeComments(ctx context.Context, repository github.Repository
 // mobius:autopilot or mobius:auto-merge makes the next poll read the ready list in full, because a mobius:ready of
 // the Mobius App can dispatch with Autopilot. After the first poll, the newest change of one of them by a person also
 // adds an event for the Lead. A Workstream label of a trusted
-// actor adds an activity, and after the first poll also a creation event for the Lead. After the first poll, a
+// actor adds, after the first poll, a creation event for the Lead. After the first poll, a
 // removal of the Workstream label stops the work, and a close or a reopen of a trusted actor closes or reopens the
 // Workstream.
 func (e *Engine) workstreamEvent(ctx context.Context, repository github.Repository, issue *gh.Issue, events []*gh.IssueEvent, event *gh.IssueEvent, firstPoll bool) error {
@@ -380,9 +380,8 @@ func (e *Engine) workstreamEvent(ctx context.Context, repository github.Reposito
 		}
 		return e.autopilotEvent(ctx, repository, issue, events, event)
 	case event.GetEvent() == "labeled" && workstreamChange && trusted:
-		err := e.addActivity(ctx, repository.FullName, number, issue, actor, fmt.Sprintf("New Workstream \"%s\"", issue.GetTitle()))
-		if err != nil || firstPoll {
-			return err
+		if firstPoll {
+			return nil
 		}
 		return e.addLeadEvent(ctx, repository.FullName, number, "", sql.NullInt64{}, "creation", eventText(time.Now(), "creation of Workstream", fmt.Sprintf("#%d", number), issue, actor, issue.GetBody()))
 	case firstPoll:

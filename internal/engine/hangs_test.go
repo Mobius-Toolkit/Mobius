@@ -208,16 +208,11 @@ func TestTheHangAfterTheThirdRetryStopsTheSessionAndHandsTheTaskToAHuman(t *test
 	}
 }
 
-// hungActivity waits for the activity about the stopped session of role, and gives it.
-func hungActivity(t *testing.T, server *testserver.Server, role string) activity {
+// waitForHungSession waits until a session of role ended as hung.
+func waitForHungSession(t *testing.T, server *testserver.Server, role string) {
 	t.Helper()
-	return testkit.WaitForValue(t, func() (activity, bool) {
-		for _, a := range activities(t, server) {
-			if strings.Contains(a.Text, "Mobius stopped the "+role+" session") {
-				return a, true
-			}
-		}
-		return activity{}, false
+	testkit.WaitFor(t, func() bool {
+		return countRows(t, server, "SELECT count(*) FROM sessions WHERE role = ? AND end_reason = 'hung'", role) == 1
 	})
 }
 
@@ -230,27 +225,15 @@ func noStoppedItem(t *testing.T, server *testserver.Server) {
 	}
 }
 
-func TestALeadThatHangsAfterTheThirdRetryEndsWithNoNewSessionAndAddsTwoActivities(t *testing.T) {
+func TestALeadThatHangsAfterTheThirdRetryEndsWithNoNewSessionAndMarksTheEventAsDelivered(t *testing.T) {
 	shortHang(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nwhen = \"dispatch of #41\"\nhang = true\n\n"+strings.Repeat(hang, 3))
 
 	dispatchTask(fake, 41, "Add plan model")
 
-	hung := hungActivity(t, server, engine.LeadRole)
-	if hung.Organization != "owner" || hung.Repository != shop || hung.Workstream != 12 || hung.Issue != 12 || hung.Link != "https://github.com/"+shop+"/issues/12" {
-		t.Errorf("activity = %+v", hung)
-	}
-	testkit.WaitFor(t, func() bool { return len(undelivered(t, server)) == 0 })
-	var failed []activity
-	for _, a := range activities(t, server) {
-		if strings.HasPrefix(a.Text, "The Lead did not take this event: ") {
-			failed = append(failed, a)
-		}
-	}
-	if len(failed) != 1 || failed[0].Workstream != 12 || failed[0].Issue != 12 || !strings.Contains(failed[0].Text, ` dispatch of #41 "Add plan model"`) {
-		t.Errorf("activities = %+v", failed)
-	}
+	waitForHungSession(t, server, engine.LeadRole)
+	testkit.WaitFor(t, func() bool { return eventDelivered(t, server) })
 	sessions := chatSessions(t, server, leadChat, engine.LeadRole)
 	if len(sessions) != 1 || sessions[0].EndReason.String != "hung" {
 		t.Errorf("sessions = %+v", sessions)
@@ -263,30 +246,24 @@ func TestALeadThatHangsAfterTheThirdRetryEndsWithNoNewSessionAndAddsTwoActivitie
 	}
 }
 
-func TestAResearcherThatHangsAfterTheThirdRetryAddsAnActivityAndNoInboxItem(t *testing.T) {
+func TestAResearcherThatHangsAfterTheThirdRetryEndsAsHungAndAddsNoInboxItem(t *testing.T) {
 	shortHang(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectResearcher(t, fake, researchLead, strings.Repeat(hang, 4))
 
 	sendChat(t, server, leadChat, "Plan the price model.")
 
-	hung := hungActivity(t, server, "researcher")
-	if hung.Organization != "owner" || hung.Repository != shop || hung.Workstream != 12 || hung.Link == "" {
-		t.Errorf("activity = %+v", hung)
-	}
+	waitForHungSession(t, server, "researcher")
 	noStoppedItem(t, server)
 }
 
-func TestACuratorThatHangsAfterTheThirdRetryAddsAnActivityAndNoInboxItem(t *testing.T) {
+func TestACuratorThatHangsAfterTheThirdRetryEndsAsHungAndAddsNoInboxItem(t *testing.T) {
 	shortHang(t)
 	script := "[[prompts]]\nwhen = \"# Curator message\"\nreply = [\"I told the Owner.\"]\n\n" + strings.Repeat(hang, 4)
 	server, _ := connectWith(t, testkit.NewFakeGitHub(t), script, func(cfg *config.Config) {
 		seed(t, cfg.DataDir, `INSERT INTO curator_requests (repository, text) VALUES ('owner/shop', 'Add the lesson.')`)
 	})
 
-	hung := hungActivity(t, server, "curator")
-	if hung.Organization != "owner" || hung.Repository != shop || hung.Workstream != 0 || hung.Issue != 0 || hung.Link != "" {
-		t.Errorf("activity = %+v", hung)
-	}
+	waitForHungSession(t, server, "curator")
 	noStoppedItem(t, server)
 }

@@ -31,8 +31,8 @@ func failPolls(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHub
 	})
 }
 
-// checkErrorEvents gives the Lead events and the activities about the errors of the check.
-func checkErrorEvents(t *testing.T, server *testserver.Server) ([]leadEvent, []activity) {
+// checkErrorEvents gives the Lead events about the errors of the check.
+func checkErrorEvents(t *testing.T, server *testserver.Server) []leadEvent {
 	t.Helper()
 	var events []leadEvent
 	for _, event := range leadEvents(t, server) {
@@ -40,13 +40,7 @@ func checkErrorEvents(t *testing.T, server *testserver.Server) ([]leadEvent, []a
 			events = append(events, event)
 		}
 	}
-	var found []activity
-	for _, a := range activities(t, server) {
-		if strings.Contains(a.Text, "Mobius failed to check") {
-			found = append(found, a)
-		}
-	}
-	return events, found
+	return events
 }
 
 func TestNinePollsWithAnErrorOfTheCheckTellNobody(t *testing.T) {
@@ -55,23 +49,20 @@ func TestNinePollsWithAnErrorOfTheCheckTellNobody(t *testing.T) {
 
 	failPolls(t, server, fake, 9)
 
-	if events, found := checkErrorEvents(t, server); len(events) != 0 || len(found) != 0 {
-		t.Errorf("events = %+v, found = %+v", events, found)
+	if events := checkErrorEvents(t, server); len(events) != 0 {
+		t.Errorf("events = %+v", events)
 	}
 }
 
-func TestTenPollsWithAnErrorOfTheCheckGiveOneLeadEventAndOneActivity(t *testing.T) {
+func TestTenPollsWithAnErrorOfTheCheckGiveOneLeadEvent(t *testing.T) {
 	t.Parallel()
 	server, fake := connectDispatched(t)
 
 	failPolls(t, server, fake, 10)
 
-	events, found := checkErrorEvents(t, server)
-	if len(events) != 1 || !strings.Contains(events[0].Payload, `Mobius failed to check #41 "Add plan model" on 10 polls in a row. The last error: `) {
+	events := checkErrorEvents(t, server)
+	if len(events) != 1 || events[0].Workstream != 12 || !strings.Contains(events[0].Payload, `Mobius failed to check #41 "Add plan model" on 10 polls in a row. The last error: `) {
 		t.Errorf("events = %+v", events)
-	}
-	if len(found) != 1 || found[0].Issue != 41 || found[0].Workstream != 12 || !strings.Contains(found[0].Text, `Mobius failed to check #41 "Add plan model" on 10 polls in a row. The last error: `) || found[0].Link == "" {
-		t.Errorf("found = %+v", found)
 	}
 	if items := inbox(t, server); len(items) != 0 {
 		t.Errorf("items = %+v", items)
@@ -84,8 +75,8 @@ func TestMorePollsWithAnErrorOfTheCheckGiveNoSecondEvent(t *testing.T) {
 
 	failPolls(t, server, fake, 15)
 
-	if events, found := checkErrorEvents(t, server); len(events) != 1 || len(found) != 1 {
-		t.Errorf("events = %+v, found = %+v", events, found)
+	if events := checkErrorEvents(t, server); len(events) != 1 {
+		t.Errorf("events = %+v", events)
 	}
 }
 
@@ -96,8 +87,8 @@ func TestASuccessfulCheckResetsTheCountOfErrors(t *testing.T) {
 	failPolls(t, server, fake, 9)
 	failPolls(t, server, fake, 9)
 
-	if events, found := checkErrorEvents(t, server); len(events) != 0 || len(found) != 0 {
-		t.Errorf("events = %+v, found = %+v", events, found)
+	if events := checkErrorEvents(t, server); len(events) != 0 {
+		t.Errorf("events = %+v", events)
 	}
 }
 
@@ -108,7 +99,7 @@ func TestTenMorePollsWithAnErrorOfTheCheckGiveANewEvent(t *testing.T) {
 	failPolls(t, server, fake, 10)
 	failPolls(t, server, fake, 10)
 
-	if events, found := checkErrorEvents(t, server); len(events) != 2 || len(found) != 2 {
-		t.Errorf("events = %+v, found = %+v", events, found)
+	if events := checkErrorEvents(t, server); len(events) != 2 {
+		t.Errorf("events = %+v", events)
 	}
 }
