@@ -138,7 +138,7 @@ func (e *Engine) blockingTodoItems(ctx context.Context, task store.Task) ([]int6
 		switch {
 		case i < 0:
 			items = append(items, 0)
-		case !todos[i].DoneAt.Valid && !(need.Mandatory == 0 && todos[i].DismissedAt.Valid):
+		case !todos[i].DoneAt.Valid && (need.Mandatory == 1 || !todos[i].DismissedAt.Valid):
 			items = append(items, todos[i].InboxItem)
 		}
 	}
