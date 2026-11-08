@@ -908,7 +908,7 @@ func TestSendDetailsStopsTheTurnAndSendsTheDetailsInTheSameSession(t *testing.T)
 	fake := testkit.NewFakeGitHub(t)
 	lead := "[[prompts]]\nwhen = \"Send the details\"\ncall = { tool = \"send_details\", arguments = { repository = \"owner/shop\", n = 41, text = \"Round prices down.\" } }\n\n" + leadStarts
 	implementer := "[[prompts]]\nreply = [\"Working.\"]\nhang = true\n\n[[prompts]]\nwhen = \"The Owner gave new details\"\n" + commitCents
-	server, _ := connectTask(t, fake, lead, implementer, noChange)
+	server, dataDir := connectTask(t, fake, lead, implementer, noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 	session := testkit.WaitForValue(t, func() (store.Session, bool) {
 		sessions := roleSessions(t, server, engine.ImplementerRole)
@@ -933,6 +933,9 @@ func TestSendDetailsStopsTheTurnAndSendsTheDetailsInTheSameSession(t *testing.T)
 	}
 	if want := "The Owner gave new details for the task. They replace the old text where they differ.\n\nRound prices down."; prompts[1] != want {
 		t.Errorf("prompt = %q", prompts[1])
+	}
+	if cancels := harnessFileLines(t, dataDir, "cancels"); len(cancels) == 0 {
+		t.Error("the session got no cancel")
 	}
 	if plan := testkit.Git(t, fake.Remote(shop), "show", "mobius/41:plan.txt"); plan != "cents" {
 		t.Errorf("plan.txt = %s", plan)
