@@ -1334,6 +1334,7 @@ test("screenshots", async ({ page }) => {
       pullRequest: 0,
       pullRequestUrl: "",
       reportUrl: "",
+      blockingTodos: [],
     };
     await route.fulfill({
       json: {

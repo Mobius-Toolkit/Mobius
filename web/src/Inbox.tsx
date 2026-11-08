@@ -1,5 +1,5 @@
 import { useNavigate } from "@tanstack/react-router";
-import { use, useState } from "react";
+import { type MouseEvent, use, useState } from "react";
 import {
   dismiss,
   type dismissResponse,
@@ -54,6 +54,8 @@ export function Inbox({
 }
 
 export const link = "text-primary underline-offset-4 hover:underline";
+
+const markDuration = 2000;
 
 export function InboxRow({
   item,
@@ -173,11 +175,25 @@ export function InboxRow({
     }
     await navigate({ to: "/chat" });
   };
+  const showBlockingTodo = (event: MouseEvent<HTMLButtonElement>) => {
+    const row = event.currentTarget
+      .closest("ul")
+      ?.querySelector(`[data-inbox-item="${item.blockingTodos[0]}"]`);
+    if (!row) {
+      return;
+    }
+    row.scrollIntoView({ block: "center" });
+    row.setAttribute("data-marked", "");
+    setTimeout(() => row.removeAttribute("data-marked"), markDuration);
+  };
   const merging = answered?.item === item ? answered.merging : item.merging;
   const refusalText = refusal || (merging ? "" : item.mergeRefusal) || item.action?.error;
 
   return (
-    <Row className="flex-wrap gap-y-2 py-2">
+    <Row
+      data-inbox-item={item.id}
+      className="flex-wrap gap-y-2 py-2 data-marked:bg-muted data-marked:ring-2 data-marked:ring-primary data-marked:ring-inset motion-safe:transition-shadow"
+    >
       <div className="flex min-w-0 grow basis-full flex-wrap items-center gap-x-2 gap-y-2 sm:flex-nowrap">
         <span className="flex min-w-0 grow basis-full flex-wrap items-baseline gap-x-2 sm:basis-0 sm:flex-nowrap">
           {item.todo && (
@@ -264,11 +280,16 @@ export function InboxRow({
                 Complete
               </Button>
             )}
-            {isPullRequest && (
-              <Button size="sm" pending={running === "merge" || merging} onClick={merge}>
-                {running === "merge" || merging ? "Merging" : "Merge"}
-              </Button>
-            )}
+            {isPullRequest &&
+              (item.blockingTodos.length > 0 ? (
+                <Button size="sm" onClick={showBlockingTodo}>
+                  {item.blockingTodos.length} open todo{item.blockingTodos.length === 1 ? "" : "s"}
+                </Button>
+              ) : (
+                <Button size="sm" pending={running === "merge" || merging} onClick={merge}>
+                  {running === "merge" || merging ? "Merging" : "Merge"}
+                </Button>
+              ))}
             {(isPullRequest || isTodo) && (
               <Button variant="outline" size="sm" asChild>
                 <a href={item.pullRequestUrl} target="_blank" rel="noreferrer">

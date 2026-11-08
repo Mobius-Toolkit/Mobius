@@ -18,8 +18,15 @@ const openTodosReason = "Mobius merges after you close the open todos."
 // has no todo yet. A todo exists for each (kind, name) of a task, so a later approval adds a todo only for a new need.
 // For a todo with another mandatory value than its need, it sets the value of the need on the row and on the reason of
 // its open Inbox item. A dismissed todo whose need is mandatory opens again with a new Inbox item. A done todo stays
-// done. It gives the names of the new and the opened again todos.
-func (e *Engine) addDeploymentTodos(ctx context.Context, repository github.Repository, task store.Task, pullRequest int64) ([]string, error) {
+// done. It gives the names of the new and the opened again todos. After a change, it sends the open ready for review
+// Inbox items of the task to the listeners again.
+func (e *Engine) addDeploymentTodos(ctx context.Context, repository github.Repository, task store.Task, pullRequest int64) (names []string, err error) {
+	changed := false
+	defer func() {
+		if changed {
+			err = errors.Join(err, e.publishReadyItems(context.WithoutCancel(ctx), task))
+		}
+	}()
 	needs, err := e.queries.ListDeploymentNeeds(ctx, task.ID)
 	if err != nil || len(needs) == 0 {
 		return nil, err
@@ -32,7 +39,6 @@ func (e *Engine) addDeploymentTodos(ctx context.Context, repository github.Repos
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
-	var names []string
 	for _, need := range needs {
 		i := slices.IndexFunc(todos, func(todo store.DeploymentTodo) bool { return todo.Kind == need.Kind && todo.Name == need.Name })
 		var todo store.DeploymentTodo
@@ -89,6 +95,7 @@ func (e *Engine) addDeploymentTodos(ctx context.Context, repository github.Repos
 		if err != nil {
 			return names, err
 		}
+		changed = true
 		if !item.DismissedAt.Valid {
 			e.publish(Change{Inbox: &item})
 		}
@@ -110,26 +117,67 @@ func todoReason(need store.DeploymentNeed, workstream string) string {
 	return importance + " · " + workstream
 }
 
-// blockedByTodos tells if a deployment need of the task that is not an after-merge need has no closed todo. A mandatory
-// todo is closed when it is done. An optional todo is closed when it is done or dismissed. A need with no todo counts
-// as open.
-func (e *Engine) blockedByTodos(ctx context.Context, task store.Task) (bool, error) {
+// blockingTodoItems gives the Inbox item of the todo of each deployment need of the task that is not an after-merge need
+// and has no closed todo, oldest first. A mandatory todo is closed when it is done. An optional todo is closed when it
+// is done or dismissed. A need with no todo gives the ID 0.
+func (e *Engine) blockingTodoItems(ctx context.Context, task store.Task) ([]int64, error) {
 	needs, err := e.queries.ListDeploymentNeeds(ctx, task.ID)
 	if err != nil || len(needs) == 0 {
-		return false, err
+		return nil, err
 	}
 	todos, err := e.queries.ListDeploymentTodos(ctx, task.ID)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
-	return slices.ContainsFunc(needs, func(need store.DeploymentNeed) bool {
+	var items []int64
+	for _, need := range needs {
 		if need.AfterMerge == 1 {
-			return false
+			continue
 		}
-		return !slices.ContainsFunc(todos, func(todo store.DeploymentTodo) bool {
-			return todo.Kind == need.Kind && todo.Name == need.Name && (todo.DoneAt.Valid || need.Mandatory == 0 && todo.DismissedAt.Valid)
-		})
-	}), nil
+		i := slices.IndexFunc(todos, func(todo store.DeploymentTodo) bool { return todo.Kind == need.Kind && todo.Name == need.Name })
+		switch {
+		case i < 0:
+			items = append(items, 0)
+		case !todos[i].DoneAt.Valid && !(need.Mandatory == 0 && todos[i].DismissedAt.Valid):
+			items = append(items, todos[i].InboxItem)
+		}
+	}
+	slices.Sort(items)
+	return items, nil
+}
+
+// blockedByTodos tells if a deployment need of the task blocks the merge (blockingTodoItems).
+func (e *Engine) blockedByTodos(ctx context.Context, task store.Task) (bool, error) {
+	items, err := e.blockingTodoItems(ctx, task)
+	return len(items) > 0, err
+}
+
+// BlockingTodos gives the IDs of the todo Inbox items that block the merge of the pull request of the ready for review
+// Inbox item, oldest first. It gives none for another item, a dismissed item, and an item whose issue has no live task
+// with the pull request of the item.
+func (e *Engine) BlockingTodos(ctx context.Context, item store.InboxItem) ([]int64, error) {
+	if item.Kind != readyForReviewKind || item.DismissedAt.Valid {
+		return nil, nil
+	}
+	task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: item.Repository, Issue: item.Issue})
+	if errors.Is(err, sql.ErrNoRows) || err == nil && task.PullRequest.Int64 != item.PullRequest {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	items, err := e.blockingTodoItems(ctx, task)
+	return slices.DeleteFunc(items, func(id int64) bool { return id == 0 }), err
+}
+
+// publishReadyItems sends each open ready for review Inbox item of the task to the listeners again, because the
+// blocking todos of the task changed.
+func (e *Engine) publishReadyItems(ctx context.Context, task store.Task) error {
+	items, err := e.openReadyItems(ctx, task)
+	for _, item := range items {
+		e.publish(Change{Inbox: &item})
+	}
+	return err
 }
 
 // clearBlockReason removes the reason openTodosReason, mergePausedReason or mergeRetryReason from the open ready
@@ -148,7 +196,8 @@ func (e *Engine) clearBlockReason(ctx context.Context, task store.Task) error {
 }
 
 // DoneInboxItem stores the note and the time on the todo of the open todo Inbox item id, and dismisses the item. It
-// gives the changed item. Before it dismisses the item, it runs closeTodoStep. Thus the Owner can mark the todo as done
+// gives the changed item. Before it dismisses the item, it runs closeTodoStep and sends the open ready for review Inbox
+// items of the task to the listeners again. Thus the Owner can mark the todo as done
 // again after an error. It returns a refusal when the item is not an open todo.
 func (e *Engine) DoneInboxItem(ctx context.Context, id int64, note string) (store.InboxItem, error) {
 	item, err := e.queries.GetInboxItem(ctx, id)
@@ -173,6 +222,9 @@ func (e *Engine) DoneInboxItem(ctx context.Context, id int64, note string) (stor
 		return store.InboxItem{}, err
 	}
 	if err := e.closeTodoStep(ctx, item, todo); err != nil {
+		return store.InboxItem{}, err
+	}
+	if err := e.publishReadyItemsOfTodo(ctx, item); err != nil {
 		return store.InboxItem{}, err
 	}
 	if err := e.Dismiss(ctx, id); err != nil {
@@ -274,7 +326,8 @@ func (e *Engine) writeTodosOfItem(ctx context.Context, item store.InboxItem, tod
 	return e.writeTodos(ctx, repository, todo.Task, item.PullRequest)
 }
 
-// dismissTodo stores the time on the todo of the open todo Inbox item, runs closeTodoStep, and dismisses the item. It
+// dismissTodo stores the time on the todo of the open todo Inbox item, runs closeTodoStep, sends the open ready for
+// review Inbox items of the task to the listeners again, and dismisses the item. It
 // returns a refusal when the item is not open or the todo is mandatory.
 func (e *Engine) dismissTodo(ctx context.Context, item store.InboxItem) error {
 	if item.DismissedAt.Valid {
@@ -301,11 +354,27 @@ func (e *Engine) dismissTodo(ctx context.Context, item store.InboxItem) error {
 	if err := e.closeTodoStep(ctx, item, todo); err != nil {
 		return err
 	}
+	if err := e.publishReadyItemsOfTodo(ctx, item); err != nil {
+		return err
+	}
 	if err := e.Dismiss(ctx, item.ID); err != nil {
 		return err
 	}
 	e.addRecord(ctx, inboxChat(item), fmt.Sprintf("You dismissed the todo \"%s\" of PR %s.", item.Title, eventRef(item.WorkstreamRepository, item.Repository, item.PullRequest)))
 	return nil
+}
+
+// publishReadyItemsOfTodo runs publishReadyItems for the live task of the issue of the todo Inbox item. It does nothing
+// when the issue has no live task.
+func (e *Engine) publishReadyItemsOfTodo(ctx context.Context, item store.InboxItem) error {
+	task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: item.Repository, Issue: item.Issue})
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return e.publishReadyItems(ctx, task)
 }
 
 // closeTodoStep acts after a todo closed. It acts only when the live task is the task of the todo, the task is in
