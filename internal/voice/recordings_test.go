@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 	"github.com/Mobius-Toolkit/Mobius/internal/voice"
@@ -101,6 +102,27 @@ func chunk(t *testing.T, r *voice.Recordings, id string, sequence, seconds int) 
 		t.Fatal(err)
 	}
 	return text
+}
+
+// finish finishes the recording id and waits until its conversion ends.
+func finish(t *testing.T, r *voice.Recordings, id string) voice.Conversion {
+	t.Helper()
+	conversionID, err := r.Finish(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return waitConversion(t, r, conversionID)
+}
+
+func waitConversion(t *testing.T, r *voice.Recordings, id string) voice.Conversion {
+	t.Helper()
+	return testkit.WaitForValue(t, func() (voice.Conversion, bool) {
+		conversion, err := r.Conversion(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return conversion, conversion.State != voice.Converting
+	})
 }
 
 func create(t *testing.T, r *voice.Recordings) string {
@@ -208,10 +230,10 @@ func TestFinishGivesTheTextOfTheFullAudioAndRemovesTheRecording(t *testing.T) {
 	chunk(t, r, id, 0, 2)
 	chunk(t, r, id, 1, 3)
 
-	text, err := r.Finish(context.Background(), id)
+	conversion := finish(t, r, id)
 
-	if err != nil || text != fmt.Sprintf("%d bytes", 44+5*second) {
-		t.Errorf("text = %q, err = %v", text, err)
+	if conversion.State != voice.Done || conversion.Text != fmt.Sprintf("%d bytes", 44+5*second) {
+		t.Errorf("conversion = %+v", conversion)
 	}
 	if _, err := r.Finish(context.Background(), id); !errors.Is(err, voice.ErrUnknown) {
 		t.Errorf("second finish: %v", err)
@@ -231,29 +253,22 @@ func TestFinishWaitsWhileTheModelStartsAndThenGivesTheText(t *testing.T) {
 	r := voice.NewRecordings(c.Whisper, newDraft(t, []voice.Segment{segment(1, "red")}).Whisper)
 	id := create(t, r)
 	chunk(t, r, id, 0, 2)
-	type result struct {
-		text string
-		err  error
+	conversionID, err := r.Finish(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
 	}
-	done := make(chan result, 1)
-	go func() {
-		text, err := r.Finish(context.Background(), id)
-		done <- result{text, err}
-	}()
 	testkit.WaitFor(t, func() bool { return fileHasLines(program+".starts", 1) })
 
-	select {
-	case got := <-done:
-		t.Fatalf("Finish ended while the model starts: %q, %v", got.text, got.err)
-	default:
+	if conversion, err := r.Conversion(conversionID); err != nil || conversion.State != voice.Converting {
+		t.Fatalf("conversion = %+v, err = %v while the model starts", conversion, err)
 	}
 	if err := os.Remove(program + ".loading"); err != nil {
 		t.Fatal(err)
 	}
 
-	got := <-done
-	if got.err != nil || got.text != fmt.Sprintf("%d bytes", 44+2*second) {
-		t.Errorf("text = %q, err = %v", got.text, got.err)
+	got := waitConversion(t, r, conversionID)
+	if got.State != voice.Done || got.Text != fmt.Sprintf("%d bytes", 44+2*second) {
+		t.Errorf("conversion = %+v", got)
 	}
 }
 
@@ -269,9 +284,9 @@ func TestAChunkWithAWrongSequenceIsRefusedAndAddsNoAudio(t *testing.T) {
 		}
 	}
 
-	text, err := r.Finish(context.Background(), id)
-	if err != nil || text != fmt.Sprintf("%d bytes", 44+second) {
-		t.Errorf("text = %q, err = %v", text, err)
+	conversion := finish(t, r, id)
+	if conversion.State != voice.Done || conversion.Text != fmt.Sprintf("%d bytes", 44+second) {
+		t.Errorf("conversion = %+v", conversion)
 	}
 }
 
@@ -284,13 +299,13 @@ func TestADraftErrorKeepsTheAudioOfTheChunk(t *testing.T) {
 	id := create(t, r)
 
 	_, err := r.Chunk(context.Background(), id, 0, audio(1))
-	text, finishErr := r.Finish(context.Background(), id)
+	conversion := finish(t, r, id)
 
 	if err == nil || !strings.Contains(err.Error(), "whisper-server") {
 		t.Errorf("err = %v", err)
 	}
-	if finishErr != nil || text != fmt.Sprint(44+second) {
-		t.Errorf("text = %q, err = %v", text, finishErr)
+	if conversion.State != voice.Done || conversion.Text != fmt.Sprint(44+second) {
+		t.Errorf("conversion = %+v", conversion)
 	}
 }
 
@@ -363,5 +378,122 @@ func TestAnInventedLastSegmentIsNotInTheLiveText(t *testing.T) {
 	}
 	if want := (voice.LiveText{Committed: "Plant red roses."}); secondText != want {
 		t.Errorf("second = %+v, want %+v", secondText, want)
+	}
+}
+
+func finalRecordings(t *testing.T, handler http.HandlerFunc) *voice.Recordings {
+	t.Helper()
+	return voice.NewRecordings(fakeServer(t, handler), newDraft(t, []voice.Segment{segment(1, "red")}).Whisper)
+}
+
+func TestTranscribeStartsAConversionThatGivesTheText(t *testing.T) {
+	release := make(chan struct{})
+	r := finalRecordings(t, func(w http.ResponseWriter, _ *http.Request) {
+		<-release
+		_ = json.NewEncoder(w).Encode(map[string]string{"text": " red roses "})
+	})
+
+	id, err := r.Transcribe(context.Background(), []byte("RIFF"), "en")
+	if err != nil {
+		t.Fatal(err)
+	}
+	converting, convertingErr := r.Conversion(id)
+	close(release)
+	done := waitConversion(t, r, id)
+
+	if convertingErr != nil || converting != (voice.Conversion{ID: id, State: voice.Converting}) {
+		t.Errorf("converting = %+v, err = %v", converting, convertingErr)
+	}
+	if done != (voice.Conversion{ID: id, State: voice.Done, Text: "red roses"}) {
+		t.Errorf("done = %+v", done)
+	}
+}
+
+func TestAConversionWithAConverterErrorFailsWithTheError(t *testing.T) {
+	r := finalRecordings(t, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusInternalServerError) })
+
+	id, err := r.Transcribe(context.Background(), []byte("RIFF"), "en")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := waitConversion(t, r, id)
+	if want := (voice.Conversion{ID: id, State: voice.Failed, Error: "whisper-server: 500 Internal Server Error"}); got != want {
+		t.Errorf("conversion = %+v, want %+v", got, want)
+	}
+}
+
+func TestAnUnknownConversionGivesErrUnknown(t *testing.T) {
+	r := finalRecordings(t, func(http.ResponseWriter, *http.Request) {})
+
+	if _, err := r.Conversion("unknown"); !errors.Is(err, voice.ErrUnknown) {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestTheEndOfTheContextOfTranscribeDoesNotCancelTheConversion(t *testing.T) {
+	release := make(chan struct{})
+	r := finalRecordings(t, func(w http.ResponseWriter, _ *http.Request) {
+		<-release
+		_ = json.NewEncoder(w).Encode(map[string]string{"text": "red roses"})
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+
+	id, err := r.Transcribe(ctx, []byte("RIFF"), "en")
+	cancel()
+	close(release)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := waitConversion(t, r, id)
+	if got.State != voice.Done || got.Text != "red roses" {
+		t.Errorf("conversion = %+v", got)
+	}
+}
+
+func TestAConversionThatDoesNotEndFailsAfterTheConversionTimeout(t *testing.T) {
+	release := make(chan struct{})
+	r := finalRecordings(t, func(http.ResponseWriter, *http.Request) { <-release })
+	t.Cleanup(func() { close(release) })
+	r.ConversionTimeout = 50 * time.Millisecond
+
+	id, err := r.Transcribe(context.Background(), []byte("RIFF"), "en")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := waitConversion(t, r, id)
+	if got.State != voice.Failed || !strings.Contains(got.Error, "context deadline exceeded") {
+		t.Errorf("conversion = %+v", got)
+	}
+}
+
+func TestAConversionIsGoneAfterTheConversionRetention(t *testing.T) {
+	r := finalRecordings(t, func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]string{"text": "red roses"})
+	})
+	r.ConversionRetention = time.Hour
+
+	kept, err := r.Transcribe(context.Background(), []byte("RIFF"), "en")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := waitConversion(t, r, kept); got.State != voice.Done {
+		t.Fatalf("conversion = %+v", got)
+	}
+
+	r.ConversionRetention = 50 * time.Millisecond
+	id, err := r.Transcribe(context.Background(), []byte("RIFF"), "en")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	testkit.WaitFor(t, func() bool {
+		_, err := r.Conversion(id)
+		return errors.Is(err, voice.ErrUnknown)
+	})
+	if _, err := r.Conversion(kept); err != nil {
+		t.Errorf("conversion with the long retention: %v", err)
 	}
 }

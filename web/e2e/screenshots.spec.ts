@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page, type Route } from "@playwright/test";
 import {
   ask,
   askDraft,
@@ -194,6 +194,21 @@ const addedText = (scope: Locator) => scope.locator("ins");
 
 const wide = (selector: string) =>
   `(document.querySelector('${selector}')?.scrollWidth ?? 0) > (document.querySelector('${selector}')?.clientWidth ?? 0)`;
+
+const pending = (id: string) => ({
+  json: { data: { id, state: "converting", text: "", error: "" } },
+});
+const converted = (route: Route) =>
+  route.fulfill({
+    json: {
+      data: {
+        id: "c1",
+        state: "done",
+        text: "Show the prices of the roses first.",
+        error: "",
+      },
+    },
+  });
 
 test("screenshots", async ({ page }) => {
   test.setTimeout(300_000);
@@ -611,9 +626,8 @@ test("screenshots", async ({ page }) => {
       },
     }),
   );
-  await page.route("**/api/voice/recordings/r1/finish", (route) =>
-    route.fulfill({ json: { data: { text: "Show the prices of the roses first." } } }),
-  );
+  await page.route("**/api/voice/recordings/r1/finish", (route) => route.fulfill(pending("c1")));
+  await page.route("**/api/voice/conversions/c1", converted);
   await screenshot(
     page,
     "chat-live",
@@ -629,9 +643,11 @@ test("screenshots", async ({ page }) => {
       await main.getByRole("button", { name: "Stop voice input" }).click();
       await expect(main.getByRole("button", { name: "Start voice input" })).toBeVisible();
       await main.getByLabel("Message to the Lead").fill("");
+      await expect.poll(() => page.evaluate(storedDrafts)).toBe(0);
     },
   );
-  await page.route("**/api/voice/recordings/r1/finish", () => {});
+  await page.unroute("**/api/voice/conversions/c1", converted);
+  await page.route("**/api/voice/conversions/c1", () => {});
   await screenshot(
     page,
     "chat-voice-send-wait",
@@ -659,7 +675,9 @@ test("screenshots", async ({ page }) => {
   await page.unroute("**/api/voice/recordings");
   await page.unroute("**/api/voice/recordings/r1/chunks?*");
   await page.unroute("**/api/voice/recordings/r1/finish");
-  await page.route("**/api/voice/transcriptions", () => {});
+  await page.unroute("**/api/voice/conversions/c1");
+  await page.route("**/api/voice/transcriptions", (route) => route.fulfill(pending("c2")));
+  await page.route("**/api/voice/conversions/c2", () => {});
   await screenshot(
     page,
     "chat-converting",
@@ -680,11 +698,22 @@ test("screenshots", async ({ page }) => {
     },
   );
   await page.unroute("**/api/voice/transcriptions");
+  await page.unroute("**/api/voice/conversions/c2");
   await page.route("**/api/voice/recordings", (route) =>
     route.fulfill({ status: 500, json: { error: "failed" } }),
   );
-  await page.route("**/api/voice/transcriptions", (route) =>
-    route.fulfill({ status: 503, json: { error: "The speech model is still starting" } }),
+  await page.route("**/api/voice/transcriptions", (route) => route.fulfill(pending("c3")));
+  await page.route("**/api/voice/conversions/c3", (route) =>
+    route.fulfill({
+      json: {
+        data: {
+          id: "c3",
+          state: "failed",
+          text: "",
+          error: "The speech model is still starting",
+        },
+      },
+    }),
   );
   await screenshot(
     page,
@@ -708,6 +737,7 @@ test("screenshots", async ({ page }) => {
   );
   await page.unroute("**/api/voice/recordings");
   await page.unroute("**/api/voice/transcriptions");
+  await page.unroute("**/api/voice/conversions/c3");
   await screenshot(
     page,
     "chat-typing",

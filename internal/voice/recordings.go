@@ -19,6 +19,17 @@ const (
 	maxWindow    = 15 * bytesPerSecond
 	idleTimeout  = 10 * time.Minute
 	draftTimeout = 10 * time.Second
+	// conversionTimeout is the time after which a conversion that did not end gets the state Failed.
+	conversionTimeout = 15 * time.Minute
+	// conversionRetention is the time that Recordings keeps a conversion after its end.
+	conversionRetention = time.Hour
+)
+
+// The states of a Conversion.
+const (
+	Converting = "converting"
+	Done       = "done"
+	Failed     = "failed"
 )
 
 // The errors of Recordings.
@@ -34,7 +45,17 @@ type LiveText struct {
 	Draft     string
 }
 
-// Recordings keeps the audio of the voice recordings that run, and gives their live text.
+// Conversion is the state of the conversion of a recording to text. Text is empty before Done. Error is empty unless
+// State is Failed.
+type Conversion struct {
+	ID    string
+	State string
+	Text  string
+	Error string
+}
+
+// Recordings keeps the audio of the voice recordings that run, and gives their live text. It also keeps the
+// conversions of the recordings that ended.
 type Recordings struct {
 	// Final converts the full audio of a recording when it ends.
 	Final *Whisper
@@ -42,15 +63,24 @@ type Recordings struct {
 	Draft *Whisper
 	// IdleTimeout is the time after which a recording with no chunk ends.
 	IdleTimeout time.Duration
+	// ConversionTimeout is the time after which a conversion that did not end gets the state Failed.
+	ConversionTimeout time.Duration
+	// ConversionRetention is the time that Recordings keeps a conversion after its end.
+	ConversionRetention time.Duration
 
-	mu         sync.Mutex
-	recordings map[string]*recording
-	language   string
+	mu          sync.Mutex
+	recordings  map[string]*recording
+	conversions map[string]*Conversion
+	language    string
 }
 
 // NewRecordings gives Recordings that convert with final and draft.
 func NewRecordings(final, draft *Whisper) *Recordings {
-	return &Recordings{Final: final, Draft: draft, IdleTimeout: idleTimeout, recordings: map[string]*recording{}, language: DefaultLanguage}
+	return &Recordings{
+		Final: final, Draft: draft, IdleTimeout: idleTimeout, ConversionTimeout: conversionTimeout,
+		ConversionRetention: conversionRetention, recordings: map[string]*recording{},
+		conversions: map[string]*Conversion{}, language: DefaultLanguage,
+	}
 }
 
 // SetLanguage sets the language of the recordings that Create starts after it. code is the code of an item of Languages.
@@ -137,13 +167,20 @@ func cutAt(commit int, ends []float64, window int) int {
 	return min(int(ends[commit-1]*sampleRate)*2, window)
 }
 
-// Create starts a recording and gives its id.
-func (r *Recordings) Create() (string, error) {
+func newID() (string, error) {
 	raw := make([]byte, 16)
 	if _, err := rand.Read(raw); err != nil {
 		return "", err
 	}
-	id := hex.EncodeToString(raw)
+	return hex.EncodeToString(raw), nil
+}
+
+// Create starts a recording and gives its id.
+func (r *Recordings) Create() (string, error) {
+	id, err := newID()
+	if err != nil {
+		return "", err
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	rec := &recording{language: r.language, last: time.Now()}
@@ -212,7 +249,7 @@ func (r *Recordings) Chunk(ctx context.Context, id string, sequence int, pcm []b
 	return rec.text(), nil
 }
 
-// Finish removes the recording id and gives the text of its full audio.
+// Finish removes the recording id and starts the conversion of its full audio. It gives the id of the conversion.
 func (r *Recordings) Finish(ctx context.Context, id string) (string, error) {
 	r.mu.Lock()
 	rec, ok := r.recordings[id]
@@ -227,7 +264,51 @@ func (r *Recordings) Finish(ctx context.Context, id string) (string, error) {
 	rec.mu.Lock()
 	wav := wavFile(rec.pcm)
 	rec.mu.Unlock()
-	return r.Final.Transcribe(ctx, wav, rec.language)
+	return r.Transcribe(ctx, wav, rec.language)
+}
+
+// Transcribe starts the conversion of the WAV file wav in the language with the code language, and gives the id of the
+// conversion. The conversion goes on when ctx ends. It gets the state Failed after ConversionTimeout, and Recordings
+// removes it ConversionRetention after its end.
+func (r *Recordings) Transcribe(ctx context.Context, wav []byte, language string) (string, error) {
+	id, err := newID()
+	if err != nil {
+		return "", err
+	}
+	r.mu.Lock()
+	r.conversions[id] = &Conversion{ID: id, State: Converting}
+	r.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), r.ConversionTimeout)
+	retention := r.ConversionRetention
+	go func() {
+		defer cancel()
+		text, err := r.Final.Transcribe(ctx, wav, language)
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		conversion := r.conversions[id]
+		if err != nil {
+			conversion.State, conversion.Error = Failed, err.Error()
+		} else {
+			conversion.State, conversion.Text = Done, strings.TrimSpace(text)
+		}
+		time.AfterFunc(retention, func() {
+			r.mu.Lock()
+			defer r.mu.Unlock()
+			delete(r.conversions, id)
+		})
+	}()
+	return id, nil
+}
+
+// Conversion gives the state of the conversion id, or ErrUnknown.
+func (r *Recordings) Conversion(id string) (Conversion, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	conversion, ok := r.conversions[id]
+	if !ok {
+		return Conversion{}, ErrUnknown
+	}
+	return *conversion, nil
 }
 
 func wavFile(pcm []byte) []byte {

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type Route } from "@playwright/test";
 import { countSamples, fakeMicrophone, fakeWakeLock } from "./microphone.js";
 
 const shop = "/workstreams/owner/shop/12";
@@ -13,10 +13,45 @@ test.beforeEach(async ({ page }) => {
   await page.getByLabel("Access password").fill("correct horse");
   await page.getByRole("button", { name: "Log in" }).click();
   await expect(page.getByLabel("Access password")).toBeHidden();
+  await page.route("**/api/voice/conversions/*", conversionReply);
 });
 
+type Result = { text?: string; error?: string };
+
+// The id of a conversion holds its result, so the route of the conversions needs no state.
+const upload = (result: Result) => ({
+  json: {
+    data: {
+      id: Buffer.from(JSON.stringify(result)).toString("base64url"),
+      state: "converting",
+      text: "",
+      error: "",
+    },
+  },
+});
+
+// Answers the request for a conversion that upload made with the result of the conversion.
+const conversionReply = (route: Route) => {
+  const id = new URL(route.request().url()).pathname.split("/").at(-1)!;
+  const { text = "", error = "" }: Result = JSON.parse(Buffer.from(id, "base64url").toString());
+  return route.fulfill({
+    json: { data: { id, state: error ? "failed" : "done", text, error } },
+  });
+};
+
+// Holds the answer of each request for a conversion until release runs.
+const holdConversions = async (page: Page) => {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  await page.route("**/api/voice/conversions/*", async (route) => {
+    await held;
+    await conversionReply(route);
+  });
+  return release;
+};
+
 const answer = (page: Page, text: string) =>
-  page.route("**/api/voice/transcriptions", (route) => route.fulfill({ json: { data: { text } } }));
+  page.route("**/api/voice/transcriptions", (route) => route.fulfill(upload({ text })));
 
 const start = (page: Page) =>
   page.getByRole("main").getByRole("button", { name: "Start voice input", exact: true });
@@ -60,7 +95,7 @@ test("the request has a WAV file with 16 kHz mono 16-bit samples", async ({ page
   await page.route("**/api/voice/transcriptions", (route) => {
     body = route.request().postDataBuffer();
     type = route.request().headers()["content-type"];
-    return route.fulfill({ json: { data: { text: "red roses" } } });
+    return route.fulfill(upload({ text: "red roses" }));
   });
   await page.goto(shop);
   await begin(page);
@@ -117,12 +152,10 @@ test("the field scrolls to the last words of the voice text", async ({ page }) =
 
 test("the converting state shows until the answer comes", async ({ page }) => {
   let requests = 0;
-  let release!: () => void;
-  const held = new Promise<void>((resolve) => (release = resolve));
-  await page.route("**/api/voice/transcriptions", async (route) => {
+  const release = await holdConversions(page);
+  await page.route("**/api/voice/transcriptions", (route) => {
     requests++;
-    await held;
-    await route.fulfill({ json: { data: { text: "red roses" } } });
+    return route.fulfill(upload({ text: "red roses" }));
   });
   await page.goto("/chat");
   const input = page.getByLabel("Message to the Coordinator");
@@ -163,12 +196,8 @@ test("the button shows an icon, a name and its state", async ({ page }) => {
 type Live = { committed: string; draft: string };
 
 // The server keeps the recording r1. Each chunk gets the next answer of answers, and the last answer repeats. A number
-// is the status of an error answer. finish is the answer of the end of the recording.
-const liveServer = async (
-  page: Page,
-  answers: (Live | number)[],
-  finish: { status?: number; text?: string } = {},
-) => {
+// is the status of an error answer. finish is the result of the conversion at the end of the recording.
+const liveServer = async (page: Page, answers: (Live | number)[], finish: Result = {}) => {
   const seen = { sequences: [] as string[], sizes: [] as number[], finishes: 0 };
   await page.route("**/api/voice/recordings", (route) =>
     route.fulfill({ json: { data: { id: "r1" } } }),
@@ -184,17 +213,22 @@ const liveServer = async (
   });
   await page.route("**/api/voice/recordings/r1/finish", (route) => {
     seen.finishes++;
-    return route.fulfill(
-      finish.status
-        ? { status: finish.status, json: { error: finish.text } }
-        : { json: { data: { text: finish.text } } },
-    );
+    return route.fulfill(upload(finish));
   });
   return seen;
 };
 
 // The clock stands still, so a tick of the live text comes only after tick.
 const tick = (page: Page) => page.clock.runFor(2000);
+
+// The page asks for a conversion each 2 seconds, so the tests with a clock run it until the voice button is back.
+const settled = (page: Page) =>
+  expect
+    .poll(async () => {
+      await tick(page);
+      return start(page).isVisible();
+    })
+    .toBe(true);
 
 test("the live text shows during the recording and the final text replaces it", async ({
   page,
@@ -217,6 +251,7 @@ test("the live text shows during the recording and the final text replaces it", 
   await tick(page);
   await expect(input).toHaveValue("Please red roses");
   await stop(page).click();
+  await settled(page);
   await expect(input).toHaveValue("Please Red roses, please.");
   await expect(start(page)).toBeVisible();
   await expect(page.getByRole("alert")).toHaveCount(0);
@@ -247,6 +282,7 @@ test("text after the voice text stays when the live text changes", async ({ page
   await tick(page);
   await expect(input).toHaveValue("Plant red roses now");
   await stop(page).click();
+  await settled(page);
   await expect(input).toHaveValue("Plant Red roses now");
 });
 
@@ -270,6 +306,7 @@ test("a change of the field during the recording stops the live text", async ({ 
   await expect.poll(() => seen.sequences.length).toBe(2);
   await expect(input).toHaveValue("red!");
   await stop(page).click();
+  await settled(page);
   await expect(input).toHaveValue("red! Red roses");
   await expect(start(page)).toBeVisible();
 });
@@ -282,7 +319,7 @@ test("a failed chunk keeps the recording and the stop sends the file for the tex
   let files = 0;
   await page.route("**/api/voice/transcriptions", (route) => {
     files++;
-    return route.fulfill({ json: { data: { text: "red roses" } } });
+    return route.fulfill(upload({ text: "red roses" }));
   });
   await page.goto("/chat");
   const input = page.getByLabel("Message to the Coordinator");
@@ -295,8 +332,8 @@ test("a failed chunk keeps the recording and the stop sends the file for the tex
   await expect(stop(page)).toBeVisible();
   expect(seen.sequences.length).toBe(2);
   await stop(page).click();
+  await settled(page);
   await expect(input).toHaveValue("red roses");
-  await expect(start(page)).toBeVisible();
   await expect(page.getByRole("alert")).toHaveCount(0);
   expect(files).toBe(1);
   expect(seen.finishes).toBe(0);
@@ -305,15 +342,14 @@ test("a failed chunk keeps the recording and the stop sends the file for the tex
 test("a failed conversion keeps the audio and Send again sends it", async ({ page }) => {
   await page.clock.install();
   const seen = await liveServer(page, [{ committed: "", draft: "red" }], {
-    status: 503,
-    text: "The speech model is still starting",
+    error: "The speech model is still starting",
   });
   const files: Buffer[] = [];
   await page.route("**/api/voice/transcriptions", (route) => {
     files.push(route.request().postDataBuffer() ?? Buffer.alloc(0));
     return files.length === 1
-      ? route.fulfill({ status: 502, json: { error: "The converter returned an error" } })
-      : route.fulfill({ json: { data: { text: "red roses" } } });
+      ? route.fulfill(upload({ error: "The converter returned an error" }))
+      : route.fulfill(upload({ text: "red roses" }));
   });
   await page.goto("/chat");
   const input = page.getByLabel("Message to the Coordinator");
@@ -322,17 +358,20 @@ test("a failed conversion keeps the audio and Send again sends it", async ({ pag
   await tick(page);
   await expect(input).toHaveValue("red");
   await stop(page).click();
+  await settled(page);
   await expect(page.getByRole("alert")).toHaveText("The speech model is still starting");
   await expect(again).toBeVisible();
   expect(files.length).toBe(0);
   expect(seen.finishes).toBe(1);
 
   await again.click();
+  await settled(page);
   await expect(page.getByRole("alert")).toHaveText("The converter returned an error");
   await expect(again).toBeVisible();
   await expect(input).toHaveValue("red");
 
   await again.click();
+  await settled(page);
   await expect(input).toHaveValue("red roses");
   await expect(page.getByRole("alert")).toHaveCount(0);
   await expect(again).toHaveCount(0);
@@ -359,21 +398,22 @@ test("a recording that the server does not start still gets its text at the stop
   await begin(page);
   await tick(page);
   await stop(page).click();
+  await settled(page);
   await expect(page.getByLabel("Message to the Coordinator")).toHaveValue("red roses");
   expect(chunks).toBe(0);
 });
 
-for (const [status, message] of [
-  [503, "The speech model is still downloading"],
-  [502, "The converter returned an error"],
-] as const) {
-  test(`an answer ${status} of the end of the recording shows its message`, async ({ page }) => {
+for (const message of [
+  "The speech model is still downloading",
+  "The converter returned an error",
+]) {
+  test(`the error "${message}" of the end of the recording shows its message`, async ({ page }) => {
     await page.clock.install();
     let files = 0;
-    await liveServer(page, [{ committed: "", draft: "red" }], { status, text: message });
+    await liveServer(page, [{ committed: "", draft: "red" }], { error: message });
     await page.route("**/api/voice/transcriptions", (route) => {
       files++;
-      return route.fulfill({ json: { data: { text: "red roses" } } });
+      return route.fulfill(upload({ text: "red roses" }));
     });
     await page.goto("/chat");
     const input = page.getByLabel("Message to the Coordinator");
@@ -381,9 +421,9 @@ for (const [status, message] of [
     await tick(page);
     await expect(input).toHaveValue("red");
     await stop(page).click();
+    await settled(page);
     await expect(page.getByRole("alert")).toHaveText(message);
     await expect(input).toHaveValue("red");
-    await expect(start(page)).toBeVisible();
     expect(files).toBe(0);
   });
 }
@@ -395,7 +435,7 @@ for (const event of ["ended", "mute"]) {
     let requests = 0;
     await page.route("**/api/voice/transcriptions", (route) => {
       requests++;
-      return route.fulfill({ json: { data: { text: "red roses" } } });
+      return route.fulfill(upload({ text: "red roses" }));
     });
     await page.goto("/chat");
     const input = page.getByLabel("Message to the Coordinator");
@@ -445,18 +485,18 @@ test("a recording of 10 minutes stops with no error", async ({ page }) => {
   const input = page.getByLabel("Message to the Coordinator");
   await begin(page);
   await page.clock.runFor(10 * 60 * 1000);
+  await settled(page);
   await expect(input).toHaveValue("red roses");
-  await expect(start(page)).toBeVisible();
   await expect(page.getByRole("alert")).toHaveCount(0);
 });
 
-for (const [status, message] of [
-  [503, "The speech model is still downloading"],
-  [502, "The converter returned an error"],
-] as const) {
-  test(`an answer ${status} shows its message`, async ({ page }) => {
+for (const message of [
+  "The speech model is still downloading",
+  "The converter returned an error",
+]) {
+  test(`the error "${message}" of a conversion shows its message`, async ({ page }) => {
     await page.route("**/api/voice/transcriptions", (route) =>
-      route.fulfill({ status, json: { error: message } }),
+      route.fulfill(upload({ error: message })),
     );
     await page.goto("/chat");
     await begin(page);
@@ -511,22 +551,169 @@ const again = (page: Page) => page.getByRole("button", { name: "Send again" });
 const send = (page: Page) =>
   page.getByRole("main").getByRole("button", { name: "Send", exact: true });
 
-// Answers the first request of the route never, and each later request with the text.
-const hangFirst = async (page: Page, pattern: string, text: string) => {
+const pending = (id: string) => ({
+  json: { data: { id, state: "converting", text: "", error: "" } },
+});
+
+test("a conversion that ends after more than one request puts its text into the field", async ({
+  page,
+}) => {
+  await page.clock.install();
+  let requests = 0;
+  await answer(page, "red roses");
+  await page.route("**/api/voice/conversions/*", (route) =>
+    ++requests < 3 ? route.fulfill(pending("c1")) : conversionReply(route),
+  );
+  await page.goto("/chat");
+  await begin(page);
+  await stop(page).click();
+  await settled(page);
+  await expect(page.getByLabel("Message to the Coordinator")).toHaveValue("red roses");
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  expect(requests).toBe(3);
+});
+
+test("a failed request for a conversion does not end it", async ({ page }) => {
+  await page.clock.install();
+  let requests = 0;
+  await answer(page, "red roses");
+  await page.route("**/api/voice/conversions/*", (route) => {
+    requests++;
+    if (requests === 1) {
+      return route.abort();
+    }
+    if (requests === 2) {
+      return route.fulfill({ status: 524, contentType: "text/html", body: "<html>524</html>" });
+    }
+    return conversionReply(route);
+  });
+  await page.goto("/chat");
+  await begin(page);
+  await stop(page).click();
+  await settled(page);
+  await expect(page.getByLabel("Message to the Coordinator")).toHaveValue("red roses");
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  expect(requests).toBe(3);
+});
+
+test("a 404 for a conversion uploads the kept audio again", async ({ page }) => {
+  await page.clock.install();
+  const files: Buffer[] = [];
+  await page.route("**/api/voice/transcriptions", (route) => {
+    files.push(route.request().postDataBuffer() ?? Buffer.alloc(0));
+    return route.fulfill(files.length === 1 ? pending("lost") : upload({ text: "red roses" }));
+  });
+  await page.route("**/api/voice/conversions/lost", (route) =>
+    route.fulfill({ status: 404, json: { error: "unknown recording" } }),
+  );
+  await page.goto("/chat");
+  await begin(page);
+  await stop(page).click();
+  await settled(page);
+  await expect(page.getByLabel("Message to the Coordinator")).toHaveValue("red roses");
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  expect(files.length).toBe(2);
+  expect(files[0].subarray(0, 4).toString()).toBe("RIFF");
+  expect(files[1].equals(files[0])).toBe(true);
+});
+
+test("a 401 for a conversion ends the wait at once", async ({ page }) => {
+  await page.clock.install();
+  let requests = 0;
+  await answer(page, "red roses");
+  await page.route("**/api/voice/conversions/*", (route) => {
+    requests++;
+    return route.fulfill({ status: 401, json: { error: "login required" } });
+  });
+  await page.goto("/chat");
+  await begin(page);
+  await stop(page).click();
+  await settled(page);
+  await expect(page.getByRole("alert")).toHaveText("login required");
+  await expect(again(page)).toBeVisible();
+  expect(requests).toBe(1);
+});
+
+test("a 500 for each request for a conversion ends the wait after 16 minutes", async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.clock.install();
+  let requests = 0;
+  await answer(page, "red roses");
+  await page.route("**/api/voice/conversions/*", (route) => {
+    requests++;
+    return route.fulfill({ status: 500, contentType: "text/html", body: "<html>500</html>" });
+  });
+  await page.goto("/chat");
+  await begin(page);
+  await stop(page).click();
+  await expect
+    .poll(
+      async () => {
+        await tick(page);
+        return start(page).isVisible();
+      },
+      { timeout: 120_000, intervals: [10] },
+    )
+    .toBe(true);
+  await expect(page.getByRole("alert")).toHaveText("The server answered 500.");
+  await expect(again(page)).toBeVisible();
+  expect(requests).toBeGreaterThanOrEqual(470);
+});
+
+test("a conversion that does not end is a failure after 16 minutes", async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.clock.install();
+  let requests = 0;
+  await answer(page, "red roses");
+  await page.route("**/api/voice/conversions/*", (route) => {
+    requests++;
+    return route.fulfill(pending("c1"));
+  });
+  await page.goto("/chat");
+  await begin(page);
+  await stop(page).click();
+  await expect
+    .poll(
+      async () => {
+        await tick(page);
+        return start(page).isVisible();
+      },
+      { timeout: 120_000, intervals: [10] },
+    )
+    .toBe(true);
+  await expect(page.getByRole("alert")).toHaveText("The server did not convert the recording.");
+  await expect(again(page)).toBeVisible();
+  expect(requests).toBeGreaterThanOrEqual(470);
+});
+
+test("a non-JSON answer with the status 524 shows the status", async ({ page }) => {
+  await page.route("**/api/voice/transcriptions", (route) =>
+    route.fulfill({ status: 524, contentType: "text/html", body: "<html>error code: 524</html>" }),
+  );
+  await page.goto("/chat");
+  await begin(page);
+  await stop(page).click();
+  await expect(page.getByRole("alert")).toHaveText("The server answered 524.");
+  await expect(again(page)).toBeVisible();
+  await expect(start(page)).toBeVisible();
+});
+
+// Answers the first request of the route never, and each later request with the result.
+const hangFirst = async (page: Page, pattern: string, result: Result) => {
   const seen = { requests: 0 };
   await page.route(pattern, (route) => {
     seen.requests++;
-    return seen.requests === 1 ? undefined : route.fulfill({ json: { data: { text } } });
+    return seen.requests === 1 ? undefined : route.fulfill(upload(result));
   });
   return seen;
 };
 
-test("a hung conversion ends after 6 minutes, and Send again gives the text", async ({ page }) => {
+test("a hung upload ends after 6 minutes, and Send again gives the text", async ({ page }) => {
   await page.clock.install();
   await page.route("**/api/voice/recordings", (route) =>
     route.fulfill({ status: 500, json: { error: "failed" } }),
   );
-  const seen = await hangFirst(page, "**/api/voice/transcriptions", "red roses");
+  const seen = await hangFirst(page, "**/api/voice/transcriptions", { text: "red roses" });
   await page.goto("/chat");
   const input = page.getByLabel("Message to the Coordinator");
   await begin(page);
@@ -539,27 +726,31 @@ test("a hung conversion ends after 6 minutes, and Send again gives the text", as
   await expect(again(page)).toBeVisible();
   await expect(input).toHaveValue("");
   await again(page).click();
+  await settled(page);
   await expect(input).toHaveValue("red roses");
   await expect(page.getByRole("alert")).toHaveCount(0);
 });
 
-test("a hung end of the recording shows the error and sends no file", async ({ page }) => {
+test("a hung end of the recording ends after 30 seconds, and the stop sends the file", async ({
+  page,
+}) => {
   await page.clock.install();
   let files = 0;
   await liveServer(page, [{ committed: "", draft: "red" }]);
-  const seen = await hangFirst(page, "**/api/voice/recordings/r1/finish", "");
+  const seen = await hangFirst(page, "**/api/voice/recordings/r1/finish", {});
   await page.route("**/api/voice/transcriptions", (route) => {
     files++;
-    return route.fulfill({ json: { data: { text: "red roses" } } });
+    return route.fulfill(upload({ text: "red roses" }));
   });
   await page.goto("/chat");
   await begin(page);
   await stop(page).click();
   await expect.poll(() => seen.requests).toBe(1);
-  await page.clock.runFor(6 * 60 * 1000);
-  await expect(page.getByRole("alert")).toHaveText(unreachable);
-  await expect(again(page)).toBeVisible();
-  expect(files).toBe(0);
+  await page.clock.runFor(30 * 1000);
+  await settled(page);
+  await expect(page.getByLabel("Message to the Coordinator")).toHaveValue("red roses");
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  expect(files).toBe(1);
 });
 
 test("a hung chunk fails the live text after 30 seconds, and the stop sends the file", async ({
@@ -583,6 +774,7 @@ test("a hung chunk fails the live text after 30 seconds, and the stop sends the 
     .toBe(1);
   await page.clock.runFor(30 * 1000);
   await stop(page).click();
+  await settled(page);
   await expect(input).toHaveValue("red roses");
   await expect(page.getByRole("alert")).toHaveCount(0);
 });
@@ -602,7 +794,7 @@ test("a stopped network shows the error and Send again", async ({ page }) => {
 test("an empty result shows an error and keeps the audio", async ({ page }) => {
   let texts = ["  ", "red roses"];
   await page.route("**/api/voice/transcriptions", (route) =>
-    route.fulfill({ json: { data: { text: texts.shift() } } }),
+    route.fulfill(upload({ text: texts.shift() })),
   );
   await page.goto("/chat");
   const input = page.getByLabel("Message to the Coordinator");
@@ -624,7 +816,7 @@ test("Send during a recording stops it, and the text goes into the empty field",
   let files = 0;
   await page.route("**/api/voice/transcriptions", (route) => {
     files++;
-    return route.fulfill({ json: { data: { text: "red roses" } } });
+    return route.fulfill(upload({ text: "red roses" }));
   });
   await page.route("**/api/chat/messages", () => {});
   await page.goto(shop);
@@ -643,12 +835,8 @@ test("Send during a recording stops it, and the text goes into the empty field",
 test("Send during a conversion keeps it, and the text goes into the empty field", async ({
   page,
 }) => {
-  let release!: () => void;
-  const held = new Promise<void>((resolve) => (release = resolve));
-  await page.route("**/api/voice/transcriptions", async (route) => {
-    await held;
-    await route.fulfill({ json: { data: { text: "red roses" } } });
-  });
+  const release = await holdConversions(page);
+  await answer(page, "red roses");
   await page.route("**/api/chat/messages", () => {});
   await page.goto(shop);
   const input = page.getByLabel("Message to the Lead");
@@ -676,12 +864,12 @@ const messages = async (page: Page) => {
 };
 
 // Holds the answer of the end of the recording until release runs.
-const holdFinish = async (page: Page, reply: { json: unknown; status?: number } | string) => {
+const holdFinish = async (page: Page, reply: Result | string) => {
   let release!: () => void;
   const held = new Promise<void>((resolve) => (release = resolve));
   await page.route("**/api/voice/recordings/r1/finish", async (route) => {
     await held;
-    await route.fulfill(typeof reply === "string" ? { json: { data: { text: reply } } } : reply);
+    await route.fulfill(upload(typeof reply === "string" ? { text: reply } : reply));
   });
   return release;
 };
@@ -718,7 +906,7 @@ test("Send during a recording with live text sends the final text", async ({ pag
   await expect(converting(page)).toBeVisible();
   expect(bodies).toEqual([]);
   release();
-  await expect(start(page)).toBeVisible();
+  await settled(page);
   await expect.poll(() => bodies.length).toBe(1);
   expect(bodies[0]).toContain("Plant Red roses now");
   await expect(input).toHaveValue("");
@@ -738,7 +926,7 @@ test("Send during a conversion with live text sends the final text", async ({ pa
   await expect(send(page)).toBeDisabled();
   expect(bodies).toEqual([]);
   release();
-  await expect(start(page)).toBeVisible();
+  await settled(page);
   await expect.poll(() => bodies.length).toBe(1);
   expect(bodies[0]).toContain("Plant Red roses now");
   await expect(input).toHaveValue("");
@@ -762,6 +950,7 @@ test("the field keeps the live text and Send waits until the final text comes", 
   await input.press("Enter");
   expect(bodies).toEqual([]);
   release();
+  await settled(page);
   await expect.poll(() => bodies.length).toBe(1);
   expect(bodies.length).toBe(1);
 });
@@ -789,6 +978,7 @@ test("an image that the Owner attaches while Send waits goes out with the messag
     });
   await expect(page.getByRole("img", { name: "Image 1" })).toBeVisible();
   release();
+  await settled(page);
   await expect.poll(() => bodies.length).toBe(1);
   expect(bodies[0]).toContain("Plant Red roses now");
   expect(bodies[0]).toContain("image/png");
@@ -796,12 +986,8 @@ test("an image that the Owner attaches while Send waits goes out with the messag
 });
 
 for (const [name, reply, alert] of [
-  [
-    "a failed",
-    { status: 502, json: { error: "The converter returned an error" } },
-    "The converter returned an error",
-  ],
-  ["an empty", { json: { data: { text: "" } } }, "The recording has no text."],
+  ["a failed", { error: "The converter returned an error" }, "The converter returned an error"],
+  ["an empty", { text: "" }, "The recording has no text."],
 ] as const) {
   test(`Send during a recording with live text and ${name} final conversion sends the live text`, async ({
     page,
@@ -813,13 +999,14 @@ for (const [name, reply, alert] of [
     let files = 0;
     await page.route("**/api/voice/transcriptions", (route) => {
       files++;
-      return route.fulfill({ json: { data: { text: "red roses" } } });
+      return route.fulfill(upload({ text: "red roses" }));
     });
     const input = await liveField(page);
     await send(page).click();
     await expect(input).not.toBeEditable();
     expect(bodies).toEqual([]);
     release();
+    await settled(page);
     await expect.poll(() => bodies.length).toBe(1);
     expect(bodies[0]).toContain("Plant red roses now");
     await expect(page.getByRole("alert")).toHaveText(alert);
@@ -849,6 +1036,7 @@ test("Send after the user changed the field during the recording sends at once",
   expect(bodies[0]).toContain("red!");
   await expect(input).toHaveValue("");
   release();
+  await settled(page);
   await expect(input).toHaveValue("Red roses");
 });
 
@@ -879,12 +1067,8 @@ test("a refused Send keeps the text of a conversion that answers while the messa
       return wait();
     };
   `);
-  let release!: () => void;
-  const held = new Promise<void>((resolve) => (release = resolve));
-  await page.route("**/api/voice/transcriptions", async (route) => {
-    await held;
-    await route.fulfill({ json: { data: { text: "red roses" } } });
-  });
+  const release = await holdConversions(page);
+  await answer(page, "red roses");
   await page.goto(shop);
   const input = page.getByLabel("Message to the Lead");
   await begin(page);
@@ -904,8 +1088,8 @@ test("Send after a failed conversion keeps the error and Send again", async ({ p
   let files = 0;
   await page.route("**/api/voice/transcriptions", (route) =>
     ++files === 1
-      ? route.fulfill({ status: 503, json: { error: "The speech model is still starting" } })
-      : route.fulfill({ json: { data: { text: "red roses" } } }),
+      ? route.fulfill(upload({ error: "The speech model is still starting" }))
+      : route.fulfill(upload({ text: "red roses" })),
   );
   await page.route("**/api/chat/messages", () => {});
   await page.goto(shop);
@@ -985,9 +1169,7 @@ test("a reload during a conversion keeps the audio, and Send again sends it", as
   const files: Buffer[] = [];
   await page.route("**/api/voice/transcriptions", (route) => {
     files.push(route.request().postDataBuffer() ?? Buffer.alloc(0));
-    return files.length === 1
-      ? undefined
-      : route.fulfill({ json: { data: { text: "red roses" } } });
+    return files.length === 1 ? undefined : route.fulfill(upload({ text: "red roses" }));
   });
   await page.goto("/chat");
   const input = page.getByLabel("Message to the Coordinator");
@@ -1017,8 +1199,8 @@ test("a failed conversion and a reload keep the audio", async ({ page }) => {
   await page.route("**/api/voice/transcriptions", (route) => {
     files.push(route.request().postDataBuffer() ?? Buffer.alloc(0));
     return files.length === 1
-      ? route.fulfill({ status: 502, json: { error: "The converter returned an error" } })
-      : route.fulfill({ json: { data: { text: "red roses" } } });
+      ? route.fulfill(upload({ error: "The converter returned an error" }))
+      : route.fulfill(upload({ text: "red roses" }));
   });
   await page.goto("/chat");
   await begin(page);
@@ -1038,7 +1220,7 @@ test("a failed conversion and a reload keep the audio", async ({ page }) => {
 
 test("Discard removes the error and the audio", async ({ page }) => {
   await page.route("**/api/voice/transcriptions", (route) =>
-    route.fulfill({ status: 502, json: { error: "The converter returned an error" } }),
+    route.fulfill(upload({ error: "The converter returned an error" })),
   );
   await page.goto("/chat");
   await begin(page);
@@ -1048,18 +1230,18 @@ test("Discard removes the error and the audio", async ({ page }) => {
   await expect(page.getByRole("alert")).toHaveCount(0);
   await expect(again(page)).toHaveCount(0);
   await expect(discard(page)).toHaveCount(0);
+  await expect.poll(() => page.evaluate(storedAudio)).toBe(0);
   await page.reload();
   await expect(start(page)).toBeVisible();
   await expect(page.getByRole("alert")).toHaveCount(0);
-  expect(await page.evaluate(storedAudio)).toBe(0);
 });
 
 test("a new recording removes the stored audio", async ({ page }) => {
   let files = 0;
   await page.route("**/api/voice/transcriptions", (route) =>
     ++files === 1
-      ? route.fulfill({ status: 502, json: { error: "The converter returned an error" } })
-      : route.fulfill({ json: { data: { text: "red roses" } } }),
+      ? route.fulfill(upload({ error: "The converter returned an error" }))
+      : route.fulfill(upload({ text: "red roses" })),
   );
   await page.goto("/chat");
   await begin(page);
@@ -1078,7 +1260,7 @@ test("a new recording removes the stored audio", async ({ page }) => {
 
 test("Send after a failed conversion keeps the stored audio", async ({ page }) => {
   await page.route("**/api/voice/transcriptions", (route) =>
-    route.fulfill({ status: 503, json: { error: "The speech model is still starting" } }),
+    route.fulfill(upload({ error: "The speech model is still starting" })),
   );
   await page.route("**/api/chat/messages", () => {});
   await page.goto(shop);
@@ -1127,12 +1309,8 @@ test("a switch during a recording keeps it and the text goes to the new field", 
 test("a switch during the conversion keeps it and the text goes to the new field", async ({
   page,
 }) => {
-  let release!: () => void;
-  const held = new Promise<void>((resolve) => (release = resolve));
-  await page.route("**/api/voice/transcriptions", async (route) => {
-    await held;
-    await route.fulfill({ json: { data: { text: "red roses" } } });
-  });
+  const release = await holdConversions(page);
+  await answer(page, "red roses");
   await page.goto(shop);
   const input = page.getByLabel("Message to the Lead");
   await begin(page);
