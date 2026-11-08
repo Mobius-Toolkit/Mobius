@@ -1,4 +1,4 @@
-import { ChevronDownIcon, ChevronRightIcon } from "lucide-react";
+import { ChevronRightIcon } from "lucide-react";
 import { Fragment, use, useEffect, useState } from "react";
 import {
   listHarnesses,
@@ -13,19 +13,13 @@ import {
 import { ErrorBadge, List, PageHeader, rowClass } from "@/components/page";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { Spinner } from "@/components/ui/spinner";
+import { keepEffort } from "@/lib/harness";
 import { LoginContext } from "@/lib/login";
 import { cn } from "@/lib/utils";
+import { Choice, Field, UiBadge } from "./Choice";
 import { TopBar } from "./TopBar";
 
 const roleName = (role: Role) => role.role.charAt(0).toUpperCase() + role.role.slice(1);
@@ -45,21 +39,10 @@ const roleDescription: Record<string, string> = {
   diagnoser: "Reads the job logs of a failed CI run and finds the cause.",
 };
 
-const keepEffort = (effort: string, efforts: string[]) =>
-  efforts.includes(effort) ? effort : (efforts[0] ?? "");
-
 const hasContextLimit = (harness: string) => harness === "claude-code";
 
 const formatContext = (tokens: number) =>
   tokens >= 1000 && tokens % 1000 === 0 ? `${tokens / 1000}k` : String(tokens);
-
-function UiBadge() {
-  return (
-    <Badge variant="secondary" className="shrink-0">
-      UI
-    </Badge>
-  );
-}
 
 function RoleRow({ role, onOpen }: { role: Role; onOpen: () => void }) {
   const values = [
@@ -91,68 +74,6 @@ function RoleRow({ role, onOpen }: { role: Role; onOpen: () => void }) {
         <ChevronRightIcon className="size-4 shrink-0" />
       </button>
     </li>
-  );
-}
-
-function Choice({
-  id,
-  value,
-  values,
-  loading,
-  onSelect,
-}: {
-  id: string;
-  value: string;
-  values: string[];
-  loading: boolean;
-  onSelect: (value: string) => void;
-}) {
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button id={id} variant="outline" className="min-w-0 grow justify-between">
-          <span className="truncate">{value}</span>
-          <ChevronDownIcon />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent>
-        {loading ? (
-          <div className="flex justify-center p-2">
-            <Spinner />
-          </div>
-        ) : (
-          <DropdownMenuRadioGroup value={value} onValueChange={onSelect}>
-            {values.map((other) => (
-              <DropdownMenuRadioItem key={other} value={other}>
-                {other}
-              </DropdownMenuRadioItem>
-            ))}
-          </DropdownMenuRadioGroup>
-        )}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
-function Field({
-  label,
-  htmlFor,
-  ui,
-  children,
-}: {
-  label: string;
-  htmlFor: string;
-  ui: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="grid grid-cols-[4rem_1fr] items-center gap-2">
-      <Label htmlFor={htmlFor}>{label}</Label>
-      <div className="flex min-w-0 items-center gap-2">
-        {children}
-        {ui && <UiBadge />}
-      </div>
-    </div>
   );
 }
 

@@ -12,11 +12,45 @@ import (
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
+	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
 
 // autoUpgradeRuns gives the file that each run of the fake npm of prefix appends a line to.
 func autoUpgradeRuns(prefix string) string {
 	return filepath.Join(prefix, "runs")
+}
+
+// installScript gives the shell commands that replace program with a program that prints version. The rename replaces the
+// file in one step, so a parallel run of program never blocks the write.
+func installScript(program, version string) string {
+	return "printf '#!/bin/sh\\necho " + version + "\\n' > " + program + ".new && chmod +x " + program + ".new && mv " + program + ".new " + program
+}
+
+// logAutoUpgradeStateOnFailure logs the state of the auto-upgrade when the test fails.
+func logAutoUpgradeStateOnFailure(t *testing.T, server *testserver.Server, runs string) {
+	t.Helper()
+	t.Cleanup(func() {
+		if !t.Failed() {
+			return
+		}
+		ctx := context.Background()
+		t.Logf("npm runs = %d", countRuns(t, runs))
+		rows, err := store.New(server.DB).ListToolAutoUpgrades(ctx)
+		if err != nil {
+			t.Logf("auto-upgrade rows: %v", err)
+		}
+		for _, row := range rows {
+			t.Logf("auto-upgrade row: package %s, failed version %q", row.Package, row.FailedVersion)
+		}
+		for _, item := range inbox(t, server) {
+			t.Logf("inbox item: title %q, reason %q", item.Title, item.Reason)
+		}
+		for _, check := range server.Engine.Tools(ctx) {
+			if check.Name == "dsh" {
+				t.Logf("dsh row: version %q, newest %q, outdated %t, status %q", check.Version, check.Newest, check.Outdated, check.Status)
+			}
+		}
+	})
 }
 
 // countRuns gives the number of runs of the fake npm.
@@ -64,7 +98,7 @@ func TestTheAutoUpgradeInstallsTheNewestVersionWithTheNPMOfTheNodeInstall(t *tes
 	program := filepath.Join(prefix, "lib", "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js")
 	runs := autoUpgradeRuns(prefix)
 	args := filepath.Join(prefix, "args")
-	npm := "#!/bin/sh\necho run >> " + runs + "\nprintf '%s\\n' \"$@\" > " + args + "\nprintf '#!/bin/sh\\necho 0.2.1-rc.5\\n' > " + program + "\n"
+	npm := "#!/bin/sh\necho run >> " + runs + "\nprintf '%s\\n' \"$@\" > " + args + "\n" + installScript(program, "0.2.1-rc.5") + "\n"
 
 	server, _, _ := upgradeServer(t, prefix, npm, program)
 
@@ -101,12 +135,13 @@ func TestAFailedAutoUpgradeAddsOneItemAndWaitsForANewerVersion(t *testing.T) {
 	runs := autoUpgradeRuns(prefix)
 	npm := "#!/bin/sh\necho run >> " + runs + "\n" +
 		"case \"$5\" in\n" +
-		"*@0.2.1-rc.6) printf '#!/bin/sh\\necho 0.2.1-rc.6\\n' > " + program + "; exit 0;;\n" +
+		"*@0.2.1-rc.6) " + installScript(program, "0.2.1-rc.6") + "; exit 0;;\n" +
 		"esac\n" +
 		"echo 'npm ERR! network down' >&2\n" +
 		"exit 1\n"
 
 	server, fake, registry := upgradeServer(t, prefix, npm, program)
+	logAutoUpgradeStateOnFailure(t, server, runs)
 
 	if _, err := server.Engine.SetToolAutoUpgrade(context.Background(), upgradePackage, true); err != nil {
 		t.Fatal(err)
@@ -168,7 +203,7 @@ func TestAnUpgradeByTheOwnerClearsTheFailedVersion(t *testing.T) {
 		t.Fatalf("rows = %+v, want the failed version 0.2.1-rc.5", rows)
 	}
 
-	nodeProgram(t, filepath.Join(prefix, "bin", "npm"), "#!/bin/sh\nprintf '#!/bin/sh\\necho 0.2.1-rc.5\\n' > "+program+"\n")
+	nodeProgram(t, filepath.Join(prefix, "bin", "npm"), "#!/bin/sh\n"+installScript(program, "0.2.1-rc.5")+"\n")
 	if _, err := server.Engine.UpgradeTool(context.Background(), upgradePackage); err != nil {
 		t.Fatal(err)
 	}
@@ -226,9 +261,10 @@ func TestTheAutoUpgradeRunsNoNPMWhileTheDrainIsOn(t *testing.T) {
 	prefix := t.TempDir()
 	program := filepath.Join(prefix, "lib", "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js")
 	runs := autoUpgradeRuns(prefix)
-	npm := "#!/bin/sh\necho run >> " + runs + "\nprintf '#!/bin/sh\\necho 0.2.1-rc.5\\n' > " + program + "\n"
+	npm := "#!/bin/sh\necho run >> " + runs + "\n" + installScript(program, "0.2.1-rc.5") + "\n"
 
 	server, fake, _ := upgradeServer(t, prefix, npm, program)
+	logAutoUpgradeStateOnFailure(t, server, runs)
 	t.Cleanup(func() { server.Engine.CancelDrain() })
 
 	end, err := server.Engine.Drain(context.Background())

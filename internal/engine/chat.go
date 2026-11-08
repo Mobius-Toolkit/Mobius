@@ -200,14 +200,18 @@ func (c *chat) notify() {
 // that is not of the Owner, of a Researcher, of an event or of a record also changes the unread count of the chat. When
 // images is not empty, it is the directory of saveImages. The message gets the images before the listeners see it, and
 // Mobius does not add it when the move fails. When browserID is not empty and a message has it, Mobius adds nothing and
-// the error is sql.ErrNoRows.
-func (e *Engine) addChatMessage(ctx context.Context, key ChatKey, author, text, images, browserID string, inboxItems []ChatInboxItem) (store.ChatMessage, error) {
+// the error is sql.ErrNoRows. voice tells that the message came from a voice recording.
+func (e *Engine) addChatMessage(ctx context.Context, key ChatKey, author, text, images, browserID string, inboxItems []ChatInboxItem, voice bool) (store.ChatMessage, error) {
 	if inboxItems == nil {
 		inboxItems = []ChatInboxItem{}
 	}
 	items, err := json.Marshal(inboxItems)
 	if err != nil {
 		return store.ChatMessage{}, err
+	}
+	var marked int64
+	if voice {
+		marked = 1
 	}
 	message, err := e.queries.AddChatMessage(ctx, store.AddChatMessageParams{
 		Organization: key.Organization,
@@ -218,6 +222,7 @@ func (e *Engine) addChatMessage(ctx context.Context, key ChatKey, author, text, 
 		Text:         text,
 		BrowserID:    sql.NullString{String: browserID, Valid: browserID != ""},
 		InboxItems:   string(items),
+		Voice:        marked,
 	})
 	if err != nil {
 		return message, err
@@ -240,7 +245,7 @@ func (e *Engine) addChatMessage(ctx context.Context, key ChatKey, author, text, 
 // addRecord adds a record line about an action of the Owner to the chat. No agent gets the record. A failed write only
 // goes to the log, because the action has succeeded.
 func (e *Engine) addRecord(ctx context.Context, key ChatKey, text string) {
-	if _, err := e.addChatMessage(ctx, key, recordAuthor, text, "", "", nil); err != nil {
+	if _, err := e.addChatMessage(ctx, key, recordAuthor, text, "", "", nil, false); err != nil {
 		log.Printf("add a record to the chat of %s #%d: %v", key.Repository, key.Workstream, err)
 	}
 }
@@ -256,34 +261,34 @@ func (e *Engine) publishUnread(ctx context.Context, key ChatKey) error {
 
 // SendChat adds the message text of the Owner with its images and Inbox items to the chat, and gives it to the agent of the chat. It
 // starts the agent when none runs. The text can be empty when the message has an image or an Inbox item. When a message has the
-// browserID already, it does nothing.
-func (e *Engine) SendChat(ctx context.Context, key ChatKey, browserID, text string, images []Image, inboxItems []ChatInboxItem) error {
+// browserID already, it does nothing. voice tells that the message came from a voice recording.
+func (e *Engine) SendChat(ctx context.Context, key ChatKey, browserID, text string, images []Image, inboxItems []ChatInboxItem, voice bool) error {
 	if !slices.Contains(e.github.Organizations(), key.Organization) {
 		return refuse("Mobius has no repository in the organization \"%s\".", key.Organization)
 	}
 	if text == "" && len(images) == 0 && len(inboxItems) == 0 {
 		return refuse("A message must have text, an image or an Inbox item.")
 	}
-	return e.postChat(ctx, key, ownerAuthor, browserID, text, images, inboxItems)
+	return e.postChat(ctx, key, ownerAuthor, browserID, text, images, inboxItems, voice)
 }
 
 // postChat adds the message text of author with its images to the chat, and gives it to the agent of the chat. It
 // starts the agent when none runs. A message that has images is not added when Mobius cannot keep them. A message
 // with a browserID that another message has is not added, and its images are removed.
-func (e *Engine) postChat(ctx context.Context, key ChatKey, author, browserID, text string, images []Image, inboxItems []ChatInboxItem) error {
+func (e *Engine) postChat(ctx context.Context, key ChatKey, author, browserID, text string, images []Image, inboxItems []ChatInboxItem, voice bool) error {
 	if e.sealed() {
 		return refuse("Mobius restarts for an upgrade. Send the message after the restart.")
 	}
-	return e.storeChat(ctx, key, author, browserID, text, images, inboxItems)
+	return e.storeChat(ctx, key, author, browserID, text, images, inboxItems, voice)
 }
 
 // postApproval adds the message text of the Approval author to the chat. While Mobius is sealed, it only stores the
 // message, and the restart gives it to the agent.
 func (e *Engine) postApproval(ctx context.Context, key ChatKey, text string) error {
-	return e.storeChat(ctx, key, approvalAuthor, "", text, nil, nil)
+	return e.storeChat(ctx, key, approvalAuthor, "", text, nil, nil, false)
 }
 
-func (e *Engine) storeChat(ctx context.Context, key ChatKey, author, browserID, text string, images []Image, inboxItems []ChatInboxItem) error {
+func (e *Engine) storeChat(ctx context.Context, key ChatKey, author, browserID, text string, images []Image, inboxItems []ChatInboxItem, voice bool) error {
 	var saved string
 	if len(images) > 0 {
 		var err error
@@ -296,7 +301,7 @@ func (e *Engine) storeChat(ctx context.Context, key ChatKey, author, browserID, 
 	earlier, err := e.earlierMessages(ctx, key.Organization, key.Repository, key)
 	var message store.ChatMessage
 	if err == nil {
-		message, err = e.addChatMessage(ctx, key, author, text, saved, browserID, inboxItems)
+		message, err = e.addChatMessage(ctx, key, author, text, saved, browserID, inboxItems, voice)
 	}
 	if err != nil {
 		if saved != "" {
@@ -426,7 +431,7 @@ func (e *Engine) addCommentLeadEvent(ctx context.Context, repository string, wor
 func (e *Engine) addLeadEventAt(ctx context.Context, repository string, workstream int64, issueRepository string, issue sql.NullInt64, kind, text, at string, comment commentRef) error {
 	e.chatOrder.Lock()
 	defer e.chatOrder.Unlock()
-	message, err := e.addChatMessage(ctx, leadChat(repository, workstream), eventAuthor, text, "", "", nil)
+	message, err := e.addChatMessage(ctx, leadChat(repository, workstream), eventAuthor, text, "", "", nil, false)
 	if err != nil {
 		return err
 	}
@@ -1756,7 +1761,7 @@ func (e *Engine) tellOwner(ctx context.Context, c caller, _ github.Repository, i
 	if empty(input.Text) {
 		return "", refuse("text must not be empty.")
 	}
-	if _, err := e.addChatMessage(ctx, ChatKey{c.organization, c.repository, c.workstream}, tellOwnerAuthor, input.Text, "", "", nil); err != nil {
+	if _, err := e.addChatMessage(ctx, ChatKey{c.organization, c.repository, c.workstream}, tellOwnerAuthor, input.Text, "", "", nil, false); err != nil {
 		return "", err
 	}
 	c.agent.setAuthor("")

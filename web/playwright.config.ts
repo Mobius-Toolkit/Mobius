@@ -67,6 +67,9 @@ export default defineConfig({
     { name: "usage", testMatch: "usage.spec.ts", dependencies: ["screenshots"] },
     // The live tests change no data, but they need the Apps of the screenshots test.
     { name: "live", testMatch: "live.spec.ts", dependencies: ["checkup", "actions"] },
+    // The setting tests set and clear the Harness settings of owner/shop#12 and #39. Each setting adds a record to the
+    // chat of owner/shop#12, so they run after the tests that read that chat.
+    { name: "issue-settings", testMatch: "issue-settings.spec.ts", dependencies: ["live"] },
     // The attachment tests give their own data with page.route, and they open chats, which marks their messages as seen.
     // Thus they run last.
     { name: "attachments", testMatch: "attachments.spec.ts", dependencies: ["live"] },

@@ -254,6 +254,8 @@ const question = "What is the state of the plans? The full report is at " +
 // /e2e/agents/{issue}/queue-reason sets the queue reason of the live agent of an issue, with no event. DELETE
 // /e2e/dispatches/{owner}/{name}/{issue} waits for the dispatch of an issue, removes its task, its feed events and
 // its Lead events, and takes mobius:working off the issue. The query label, if present, is added to the issue.
+// PUT and DELETE /e2e/workstreams/owner/shop/12/implementer set the Implementer setting of that Workstream to
+// claude-code, sonnet and low, and clear it, with no record in the chat.
 func TestServer(t *testing.T) {
 	addr := os.Getenv("MOBIUS_E2E_ADDR")
 	if addr == "" {
@@ -456,6 +458,16 @@ func TestServer(t *testing.T) {
 	})
 	server.Mux.HandleFunc("DELETE /e2e/inbox-items/{id}", func(w http.ResponseWriter, r *http.Request) {
 		if _, err := server.DB.Exec("DELETE FROM inbox_items WHERE id = ?", r.PathValue("id")); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	})
+	server.Mux.HandleFunc("PUT /e2e/workstreams/owner/shop/12/implementer", func(w http.ResponseWriter, r *http.Request) {
+		if err := server.Engine.SetIssueBinding(r.Context(), "implementer", "owner/shop", 12, config.ClaudeCode, "sonnet", "low"); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	})
+	server.Mux.HandleFunc("DELETE /e2e/workstreams/owner/shop/12/implementer", func(w http.ResponseWriter, r *http.Request) {
+		if err := server.Engine.ClearIssueBinding(r.Context(), "implementer", "owner/shop", 12); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 	})
@@ -845,6 +857,13 @@ func TestServer(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	testkit.WaitFor(t, func() bool {
+		_, _, err := server.Engine.NextBinding(ctx, "implementer", "owner/shop", 38)
+		return err == nil
+	})
+	if err := server.Engine.SetIssueBinding(ctx, "implementer", "owner/shop", 38, config.ClaudeCode, "sonnet", "medium"); err != nil {
+		t.Fatal(err)
+	}
 	fixTimes(t, server, github)
 	addTurnUsage(t, server)
 	addSkillUses(t, server)
@@ -882,7 +901,7 @@ func TestServer(t *testing.T) {
 // chat sends the Owner message text to the chat of key, and waits for the reply of author and the end of the session.
 func chat(ctx context.Context, t *testing.T, server *testserver.Server, key engine.ChatKey, text, author string) {
 	t.Helper()
-	if err := server.Engine.SendChat(ctx, key, "", text, nil, nil); err != nil {
+	if err := server.Engine.SendChat(ctx, key, "", text, nil, nil, false); err != nil {
 		t.Fatal(err)
 	}
 	waitForChat(t, server, key, author)

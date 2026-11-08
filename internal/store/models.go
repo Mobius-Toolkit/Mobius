@@ -28,6 +28,7 @@ type ChatMessage struct {
 	InboxItems   string
 	FailedAt     sql.NullString
 	CancelledAt  sql.NullString
+	Voice        int64
 }
 
 type CheckTimeout struct {

@@ -37,6 +37,10 @@ async function logIn(page: Page) {
 
 test.beforeEach(({ page }) => logIn(page));
 
+test.afterEach(async ({ page }) => {
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+});
+
 // The session cookie is Secure. The browser sends it to 127.0.0.1 over HTTP, but the API requests of Playwright do
 // not.
 async function get<T>(page: Page, path: string) {
@@ -1446,7 +1450,11 @@ test("Resume gives a needs-human task with no blocker a button that waits for th
   const rows = page.getByRole("listitem");
   const resume = page.getByRole("button", { name: /^Resume #/ });
   await expect(rows.filter({ hasText: "#73 Rake the bark" })).toBeVisible();
-  await expect(rows.filter({ hasText: "#73 Rake the bark" }).getByRole("button")).toHaveCount(0);
+  await expect(
+    rows
+      .filter({ hasText: "#73 Rake the bark" })
+      .getByRole("button", { name: /^(Start|Resume|Stop) / }),
+  ).toHaveCount(0);
   await expect(resume).toHaveCount(1);
   await expect(resume).toHaveAccessibleName("Resume #72");
   await expect(resume).toHaveAttribute("title", "Resume #72");
@@ -2084,7 +2092,10 @@ test("the stop button takes no tap in the first 500 ms after it shows", async ({
     stops++;
     return route.fulfill({ status: 204 });
   });
-  await page.route("**/api/chat/messages", () => {});
+  const held: Route[] = [];
+  await page.route("**/api/chat/messages", (route) => {
+    held.push(route);
+  });
   await page.route("**/api/events", (route) =>
     route.fulfill({ contentType: "text/event-stream", body: "" }),
   );
@@ -2103,6 +2114,7 @@ test("the stop button takes no tap in the first 500 ms after it shows", async ({
 
   await stop.click();
   await expect.poll(() => stops).toBe(1);
+  await Promise.all(held.map((route) => route.abort()));
 });
 
 test("the status line tells that a message of the Owner waits for the agent", async ({ page }) => {
@@ -3056,4 +3068,87 @@ test.describe("the records of the actions of the Owner", () => {
     await expect(main.locator("[data-message]", { hasText: record.text })).toHaveText(recordTime);
     expect(seen).toBe(before);
   });
+});
+
+const voiceCard = (scope: Locator) => scope.getByRole("img", { name: "Voice" });
+
+test("a message that the server stores with the voice mark shows the voice card in its bubble", async ({
+  page,
+}) => {
+  await page.goto(shop);
+  await expect(page.locator("[data-message]").first()).toBeVisible();
+  const send = (text: string, voice: boolean) =>
+    page.evaluate(`(() => {
+      const form = new FormData()
+      form.append('organization', 'owner')
+      form.append('repository', 'owner/shop')
+      form.append('workstream', '12')
+      form.append('id', crypto.randomUUID())
+      form.append('text', ${JSON.stringify(text)})
+      form.append('voice', '${voice}')
+      return fetch('/api/chat/messages', { method: 'POST', body: form })
+    })()`);
+  await send("Spoken words for the voice card", true);
+  await send("Typed words for the voice card", false);
+  const spoken = page.locator("[data-message]", { hasText: "Spoken words for the voice card" });
+  const typed = page.locator("[data-message]", { hasText: "Typed words for the voice card" });
+  await expect(voiceCard(spoken)).toBeVisible();
+  await expect(typed).toBeVisible();
+  await expect(voiceCard(typed)).toHaveCount(0);
+
+  await page.reload();
+  await expect(voiceCard(spoken)).toBeVisible();
+  await expect(voiceCard(typed)).toHaveCount(0);
+});
+
+test("a queued message with the voice mark shows the voice card before the server stores it", async ({
+  page,
+}) => {
+  await page.goto(shop);
+  await expect(page.locator("[data-message]").first()).toBeVisible();
+  const held: Route[] = [];
+  await page.route("**/api/chat/messages", (route) => {
+    held.push(route);
+  });
+  await page.route("**/api/events", (route) =>
+    route.fulfill({ contentType: "text/event-stream", body: "" }),
+  );
+  const id = "voice-queued";
+  await page.evaluate(`new Promise((resolve, reject) => {
+    const open = indexedDB.open("mobius");
+    open.onerror = () => reject(open.error);
+    open.onsuccess = () => {
+      const add = open.result.transaction("outbox", "readwrite").objectStore("outbox").add({
+        id: '${id}',
+        organization: 'owner',
+        repository: 'owner/shop',
+        workstream: 12,
+        text: 'Queued spoken words',
+        images: [],
+        inboxItems: [],
+        voice: true,
+        time: new Date().toISOString(),
+        chat: ['owner', 'owner/shop', 12],
+      });
+      add.onsuccess = () => resolve(undefined);
+      add.onerror = () => reject(add.error);
+    };
+  })`);
+  try {
+    await page.reload();
+    await expect(queued(page)).toHaveCount(1);
+    await expect(queued(page).getByText("Queued spoken words")).toBeVisible();
+    await expect(voiceCard(queued(page))).toBeVisible();
+  } finally {
+    await Promise.all(held.map((route) => route.abort()));
+    await page.evaluate(`new Promise((resolve, reject) => {
+      const open = indexedDB.open("mobius");
+      open.onerror = () => reject(open.error);
+      open.onsuccess = () => {
+        const remove = open.result.transaction("outbox", "readwrite").objectStore("outbox").delete('${id}');
+        remove.onsuccess = () => resolve(undefined);
+        remove.onerror = () => reject(remove.error);
+      };
+    })`);
+  }
 });

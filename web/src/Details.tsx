@@ -1,11 +1,19 @@
 import { use, useCallback, useEffect, useId, useState } from "react";
 import {
+  clearWorkstreamImplementer,
+  clearWorkstreamLead,
   closeWorkstream,
   getWorkstreamDetails,
+  listRoles,
   setEvergreen,
+  setWorkstreamImplementer,
+  setWorkstreamLead,
   workstreamClosure,
   type ClosureItem,
+  type IssueSetting,
   type LiveEvents,
+  type NextSetting,
+  type Role,
   type WorkstreamDetails,
 } from "@/api/api.gen";
 import { Badge } from "@/components/ui/badge";
@@ -22,11 +30,43 @@ import {
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { onEvent } from "@/lib/events";
+import { bindingText } from "@/lib/harness";
 import { LoginContext } from "@/lib/login";
 import { showNotice } from "@/lib/notice";
 import { dayLong } from "@/lib/time";
+import { SettingSheet } from "./SettingSheet";
 
 type Workstream = { owner: string; name: string; number: number };
+
+type Session = "lead" | "implementer";
+
+const sessionTitle: Record<Session, string> = {
+  lead: "Lead",
+  implementer: "Implementer of the Workstream",
+};
+
+function BindingLine({
+  term,
+  setting,
+  onChange,
+}: {
+  term: string;
+  setting: NextSetting;
+  onChange: () => void;
+}) {
+  return (
+    <>
+      <dt className="text-muted-foreground">{term}</dt>
+      <dd className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+        <span className="wrap-anywhere">{bindingText(setting)}</span>
+        <span className="text-sm text-muted-foreground">{setting.own ? "Workstream" : "role"}</span>
+        <Button variant="outline" size="sm" aria-label={`Change ${term}`} onClick={onChange}>
+          Change
+        </Button>
+      </dd>
+    </>
+  );
+}
 
 function Confirmation({ owner, name, number }: Workstream) {
   const showLogin = use(LoginContext);
@@ -124,6 +164,8 @@ export function Details({
   const [error, setError] = useState<string>();
   const [confirming, setConfirming] = useState(false);
   const [evergreenBusy, setEvergreenBusy] = useState(false);
+  const [roles, setRoles] = useState<Role[]>();
+  const [editing, setEditing] = useState<Session>();
   const evergreenId = useId();
 
   const load = useCallback(() => {
@@ -135,6 +177,13 @@ export function Details({
           setDetails(res.data.data);
         } else {
           setError(res.data.error);
+        }
+      })
+      .catch((err: unknown) => setError(String(err)));
+    listRoles()
+      .then((res) => {
+        if (res.status === 200) {
+          setRoles(res.data.data);
         }
       })
       .catch((err: unknown) => setError(String(err)));
@@ -174,6 +223,13 @@ export function Details({
   };
 
   const managed = details?.maintenance || details?.skills;
+  const role = roles?.find((other) => other.role === editing);
+
+  const changeSetting = (session: Session, setting: IssueSetting | null) => {
+    const next = setting ? { ...setting, own: true } : role && { ...role, own: false };
+    setDetails((current) => current && next && { ...current, [session]: next });
+    setEditing(undefined);
+  };
 
   return (
     <div className="grid gap-4 px-2">
@@ -186,7 +242,38 @@ export function Details({
           <dd>{details.completedTasks}</dd>
           <dt className="text-muted-foreground">Open tasks</dt>
           <dd>{details.openTasks}</dd>
+          <BindingLine term="Lead" setting={details.lead} onChange={() => setEditing("lead")} />
+          <BindingLine
+            term="Implementer"
+            setting={details.implementer}
+            onChange={() => setEditing("implementer")}
+          />
         </dl>
+      )}
+      {details && editing && role && (
+        <SettingSheet
+          target={{
+            title: sessionTitle[editing],
+            own: details[editing].own ? details[editing] : null,
+            fallback: role,
+            fallbackSource: "role",
+            save: (setting) =>
+              (editing === "lead" ? setWorkstreamLead : setWorkstreamImplementer)(
+                owner,
+                name,
+                number,
+                setting,
+              ),
+            clear: () =>
+              (editing === "lead" ? clearWorkstreamLead : clearWorkstreamImplementer)(
+                owner,
+                name,
+                number,
+              ),
+          }}
+          onChange={(setting) => changeSetting(editing, setting)}
+          onClose={() => setEditing(undefined)}
+        />
       )}
       <div className="grid gap-1">
         <div className="flex items-center gap-2">
