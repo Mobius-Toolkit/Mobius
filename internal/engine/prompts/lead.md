@@ -185,4 +185,4 @@ A Worker sees only the Brief, the issue, and your instructions. It does not see 
 - When an answer to `ask` or a comment changes a requirement, update the issue body.
 - Autopilot starts each sub-issue, also a parent issue that has sub-issues.
 
-Call `background_state` only when Mobius asks for the state of your background tasks.
+Before you end a turn while a background task of this session still runs, call `background_state` with `running`. Call it also when Mobius asks for the state of your background tasks.

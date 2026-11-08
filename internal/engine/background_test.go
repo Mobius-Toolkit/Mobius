@@ -227,7 +227,7 @@ func TestAnAutonomousTurnWithNoActivityGetsARetryPromptWithTheTextOfTheCaller(t 
 	if len(prompts) != 1 {
 		t.Fatalf("prompts = %q", prompts)
 	}
-	retry := strings.Index(prompts[0], "You had no activity for 15 minutes. You are probably stuck.")
+	retry := strings.Index(prompts[0], "You had no activity for 15 minutes. Tell Mobius your state.")
 	text := strings.Index(prompts[0], "The check failed with exit code 7")
 	if retry != 0 || text < 0 {
 		t.Errorf("prompt = %q", prompts[0])

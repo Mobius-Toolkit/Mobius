@@ -105,6 +105,12 @@ type Agent struct {
 	// that it ended. subagentCalls are the ids of the tool calls of subagents.
 	background    bool
 	subagentCalls map[string]struct{}
+	// openCalls are the ids of the tool calls of the current turn that no update has ended.
+	openCalls map[string]struct{}
+	// firstCheck is the time of the first check of the current hour of the current turn, and lastCheck is the time
+	// of the last check. Both are zero until the first check of the turn.
+	firstCheck time.Time
+	lastCheck  time.Time
 	// autonomous tells that a turn runs that no prompt of Mobius started.
 	autonomous bool
 	// autonomousEnd is the time of the end of an autonomous turn while a prompt runs, until the next work update.
@@ -114,7 +120,7 @@ type Agent struct {
 	ended chan struct{}
 	// stopRequested tells that a stop came while no turn ran. Prompt takes it before it sends its text.
 	stopRequested bool
-	// retries is the number of retry prompts that Prompt sent in the session.
+	// retries is the number of retry prompts that Prompt sent since the last normal end of a turn.
 	retries int
 	// details are the new details from the Owner that the next prompt of the Implementer or the Researcher carries.
 	details []string
@@ -586,6 +592,9 @@ func (a *Agent) Prompt(ctx context.Context, text string, images []Image) error {
 		a.turn = true
 		a.turnUsage = turnUsage{started: now()}
 		a.subagent = false
+		a.openCalls = nil
+		a.firstCheck = time.Time{}
+		a.lastCheck = time.Time{}
 		a.autonomousEnd = time.Time{}
 		a.activity = time.Now()
 		a.mu.Unlock()
@@ -600,6 +609,9 @@ func (a *Agent) Prompt(ctx context.Context, text string, images []Image) error {
 		<-resent
 		// While a retry runs, turn stays true, so a late update of the hung turn is no autonomous turn.
 		retrying = errors.Is(err, errHung) && a.retries < maxRetries
+		if err == nil {
+			a.retries = 0
+		}
 		a.mu.Lock()
 		wasLimited := a.limited && a.binding.Harness == config.Antigravity
 		limitText := a.limitText
