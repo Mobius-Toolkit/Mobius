@@ -1827,11 +1827,15 @@ func (e *Engine) editBrief(ctx context.Context, c caller, repository github.Repo
 	return fmt.Sprintf("Changed the Brief of %s.", name), nil
 }
 
-// recurringTimes gives the next 3 times of the cron expression in the local time zone, with the zone name.
+// recurringTimes gives the next 3 times of the cron expression in the local time zone, with the zone name. It refuses
+// an expression that has no next time.
 func (e *Engine) recurringTimes(expression string) (string, error) {
 	times, err := e.NextTimes(expression, 3)
 	if err != nil {
 		return "", err
+	}
+	if len(times) == 0 {
+		return "", refuse("the cron expression %q has no next time.", expression)
 	}
 	texts := make([]string, len(times))
 	for i, t := range times {

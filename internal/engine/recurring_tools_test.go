@@ -11,7 +11,10 @@ import (
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 )
 
-const weekdays = "0 8 * * 1-5"
+const (
+	weekdays = "0 8 * * 1-5"
+	never    = "0 0 30 2 *"
+)
 
 func callRecurring(when, tool, arguments string) string {
 	return fmt.Sprintf("[[prompts]]\nwhen = %q\ncall = { tool = %q, arguments = %s }\n\n", when, tool, arguments)
@@ -117,13 +120,19 @@ func TestTheLeadChangesAndDeletesARecurringTaskAfterTheOwnerApproves(t *testing.
 func TestACreateRecurringTaskCallWithAWrongCronExpressionOrNoTextAddsNoPendingAction(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, callCreateRecurring("Add 1.", "every day", planCheck)+callCreateRecurring("Add 2.", hourly, " ")+callUpdateRecurring("Change it.", 1, "61 * * * *", planCheck)+seenScript)
+	server, _ := connect(t, fake, callCreateRecurring("Add 1.", "every day", planCheck)+callCreateRecurring("Add 2.", hourly, " ")+callUpdateRecurring("Change it.", 1, "61 * * * *", planCheck)+
+		callCreateRecurring("Add 3.", never, planCheck)+callUpdateRecurring("Change 2.", 1, never, planCheck)+seenScript)
 
-	session := run(t, server, leadSpec(t), "Add 1.", "Add 2.", "Change it.")
+	session := run(t, server, leadSpec(t), "Add 1.", "Add 2.", "Change it.", "Add 3.", "Change 2.")
 
 	calls := mcpCalls(t, server, session)
-	if len(calls) != 3 {
+	if len(calls) != 5 {
 		t.Fatalf("calls = %v", calls)
+	}
+	for _, i := range []int{3, 4} {
+		if want := fmt.Sprintf("the cron expression %q has no next time.", never); calls[i]["error"] != want {
+			t.Errorf("error of call %d = %v, want %q", i, calls[i]["error"], want)
+		}
 	}
 	for i, expression := range map[int]string{0: "every day", 2: "61 * * * *"} {
 		if got, _ := calls[i]["error"].(string); !strings.HasPrefix(got, fmt.Sprintf("the cron expression %q is wrong: ", expression)) {
