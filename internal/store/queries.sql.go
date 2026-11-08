@@ -415,18 +415,19 @@ func (q *Queries) AddCuratorRequest(ctx context.Context, arg AddCuratorRequestPa
 }
 
 const addDeploymentNeed = `-- name: AddDeploymentNeed :exec
-INSERT INTO deployment_needs (task, head, kind, name, path, line, reason, mandatory) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO deployment_needs (task, head, kind, name, path, line, reason, mandatory, after_merge) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type AddDeploymentNeedParams struct {
-	Task      int64
-	Head      string
-	Kind      string
-	Name      string
-	Path      string
-	Line      int64
-	Reason    string
-	Mandatory int64
+	Task       int64
+	Head       string
+	Kind       string
+	Name       string
+	Path       string
+	Line       int64
+	Reason     string
+	Mandatory  int64
+	AfterMerge int64
 }
 
 func (q *Queries) AddDeploymentNeed(ctx context.Context, arg AddDeploymentNeedParams) error {
@@ -439,23 +440,25 @@ func (q *Queries) AddDeploymentNeed(ctx context.Context, arg AddDeploymentNeedPa
 		arg.Line,
 		arg.Reason,
 		arg.Mandatory,
+		arg.AfterMerge,
 	)
 	return err
 }
 
 const addDeploymentTodo = `-- name: AddDeploymentTodo :exec
-INSERT INTO deployment_todos (task, inbox_item, kind, name, path, line, reason, mandatory) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO deployment_todos (task, inbox_item, kind, name, path, line, reason, mandatory, after_merge) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type AddDeploymentTodoParams struct {
-	Task      int64
-	InboxItem int64
-	Kind      string
-	Name      string
-	Path      string
-	Line      int64
-	Reason    string
-	Mandatory int64
+	Task       int64
+	InboxItem  int64
+	Kind       string
+	Name       string
+	Path       string
+	Line       int64
+	Reason     string
+	Mandatory  int64
+	AfterMerge int64
 }
 
 func (q *Queries) AddDeploymentTodo(ctx context.Context, arg AddDeploymentTodoParams) error {
@@ -468,6 +471,7 @@ func (q *Queries) AddDeploymentTodo(ctx context.Context, arg AddDeploymentTodoPa
 		arg.Line,
 		arg.Reason,
 		arg.Mandatory,
+		arg.AfterMerge,
 	)
 	return err
 }
@@ -2416,7 +2420,7 @@ func (q *Queries) GetCopiedWorkstream(ctx context.Context, arg GetCopiedWorkstre
 }
 
 const getDeploymentTodoOfItem = `-- name: GetDeploymentTodoOfItem :one
-SELECT id, task, inbox_item, kind, name, path, line, reason, mandatory, note, done_at, dismissed_at FROM deployment_todos WHERE inbox_item = ?
+SELECT id, task, inbox_item, kind, name, path, line, reason, mandatory, note, done_at, dismissed_at, after_merge FROM deployment_todos WHERE inbox_item = ?
 `
 
 func (q *Queries) GetDeploymentTodoOfItem(ctx context.Context, inboxItem int64) (DeploymentTodo, error) {
@@ -2435,6 +2439,7 @@ func (q *Queries) GetDeploymentTodoOfItem(ctx context.Context, inboxItem int64) 
 		&i.Note,
 		&i.DoneAt,
 		&i.DismissedAt,
+		&i.AfterMerge,
 	)
 	return i, err
 }
@@ -5000,7 +5005,7 @@ func (q *Queries) ListCuratorRequests(ctx context.Context, repository string) ([
 }
 
 const listDeploymentNeeds = `-- name: ListDeploymentNeeds :many
-SELECT id, task, head, kind, name, path, line, reason, mandatory FROM deployment_needs WHERE task = ? ORDER BY id
+SELECT id, task, head, kind, name, path, line, reason, mandatory, after_merge FROM deployment_needs WHERE task = ? ORDER BY id
 `
 
 func (q *Queries) ListDeploymentNeeds(ctx context.Context, task int64) ([]DeploymentNeed, error) {
@@ -5022,6 +5027,7 @@ func (q *Queries) ListDeploymentNeeds(ctx context.Context, task int64) ([]Deploy
 			&i.Line,
 			&i.Reason,
 			&i.Mandatory,
+			&i.AfterMerge,
 		); err != nil {
 			return nil, err
 		}
@@ -5037,7 +5043,7 @@ func (q *Queries) ListDeploymentNeeds(ctx context.Context, task int64) ([]Deploy
 }
 
 const listDeploymentTodos = `-- name: ListDeploymentTodos :many
-SELECT id, task, inbox_item, kind, name, path, line, reason, mandatory, note, done_at, dismissed_at FROM deployment_todos WHERE task = ? ORDER BY id
+SELECT id, task, inbox_item, kind, name, path, line, reason, mandatory, note, done_at, dismissed_at, after_merge FROM deployment_todos WHERE task = ? ORDER BY id
 `
 
 func (q *Queries) ListDeploymentTodos(ctx context.Context, task int64) ([]DeploymentTodo, error) {
@@ -5062,6 +5068,7 @@ func (q *Queries) ListDeploymentTodos(ctx context.Context, task int64) ([]Deploy
 			&i.Note,
 			&i.DoneAt,
 			&i.DismissedAt,
+			&i.AfterMerge,
 		); err != nil {
 			return nil, err
 		}

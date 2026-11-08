@@ -335,9 +335,13 @@ func (e *Engine) reportDeploymentNeeds(ctx context.Context, c caller, _ github.R
 			if need.Mandatory {
 				mandatory = 1
 			}
+			afterMerge := int64(0)
+			if need.AfterMerge {
+				afterMerge = 1
+			}
 			err := q.AddDeploymentNeed(ctx, store.AddDeploymentNeedParams{
 				Task: c.agent.spec.Task, Head: c.agent.head, Kind: need.Kind, Name: need.Name, Path: need.Path,
-				Line: need.Line, Reason: need.Reason, Mandatory: mandatory,
+				Line: need.Line, Reason: need.Reason, Mandatory: mandatory, AfterMerge: afterMerge,
 			})
 			if err != nil {
 				return err

@@ -1,0 +1,2 @@
+ALTER TABLE deployment_needs ADD COLUMN after_merge INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE deployment_todos ADD COLUMN after_merge INTEGER NOT NULL DEFAULT 0;

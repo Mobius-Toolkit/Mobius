@@ -633,8 +633,8 @@ const (
 	needsRequest = "Call `report_deployment_needs` one time with the deployment needs of the full diff. Give an empty list when the diff adds no need."
 	// twoNeeds is a Reviewer that reports one mandatory env var and one optional config value, with no other call.
 	twoNeeds = "[[prompts]]\nwhen = \"You are the Reviewer\"\ncall = { tool = \"report_deployment_needs\", arguments = { needs = [" +
-		"{ kind = \"env_var\", name = \"PLAN_API_KEY\", path = \"plan.txt\", line = 1, reason = \"The code reads it at start.\", mandatory = true }, " +
-		"{ kind = \"config\", name = \"plan.currency\", path = \"plan.txt\", line = 2, reason = \"The code has a default.\", mandatory = false }] } }\n\n"
+		"{ kind = \"env_var\", name = \"PLAN_API_KEY\", path = \"plan.txt\", line = 1, reason = \"The code reads it at start.\", mandatory = true, after_merge = false }, " +
+		"{ kind = \"config\", name = \"plan.currency\", path = \"plan.txt\", line = 2, reason = \"The code has a default.\", mandatory = false, after_merge = false }] } }\n\n"
 	// emptyNeedsAfterAsk answers the second prompt of a Reviewer with an empty list.
 	emptyNeedsAfterAsk = "[[prompts]]\nwhen = \"Call `report_deployment_needs` one time\"\ncall = { tool = \"report_deployment_needs\", arguments = { needs = [] } }\n\n"
 )
@@ -682,8 +682,8 @@ func TestTheReviewerStoresTheDeploymentNeedsOfTheTaskWithTheReviewedHead(t *test
 func TestTheDeploymentNeedsOfASecondReviewReplaceTheEarlierNeeds(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	secondReview := "[[prompts]]\nwhen = \"Thread 2, plan.txt line 1:\"\ncall = { tool = \"report_deployment_needs\", arguments = { needs = [{ kind = \"secret\", name = \"PLAN_TOKEN\", path = \"plan.txt\", line = 3, reason = \"The plan service needs it.\", mandatory = true }] } }\n\n"
-	firstNeed := "[[prompts]]\nwhen = \"Call `report_deployment_needs` one time\"\ncall = { tool = \"report_deployment_needs\", arguments = { needs = [{ kind = \"manual_step\", name = \"Run the plan import\", path = \"plan.txt\", line = 1, reason = \"A person runs it once.\", mandatory = false }] } }\n\n"
+	secondReview := "[[prompts]]\nwhen = \"Thread 2, plan.txt line 1:\"\ncall = { tool = \"report_deployment_needs\", arguments = { needs = [{ kind = \"secret\", name = \"PLAN_TOKEN\", path = \"plan.txt\", line = 3, reason = \"The plan service needs it.\", mandatory = true, after_merge = false }] } }\n\n"
+	firstNeed := "[[prompts]]\nwhen = \"Call `report_deployment_needs` one time\"\ncall = { tool = \"report_deployment_needs\", arguments = { needs = [{ kind = \"manual_step\", name = \"Run the plan import\", path = \"plan.txt\", line = 1, reason = \"A person runs it once.\", mandatory = false, after_merge = false }] } }\n\n"
 	server, _ := connectTask(t, fake, secondReview+firstNeed+finding+leadStarts, fixReplies+commits, noChange)
 
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
@@ -771,8 +771,8 @@ func TestAReviewerThatCallsSubmitReviewAgainAfterTheWaitPromptPostsOneReview(t *
 func TestAReviewerThatGivesNoValidDeploymentNeedsFailsTheRunAndStoresNothing(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	badKind := "[[prompts]]\nwhen = \"You are the Reviewer\"\ncall = { tool = \"report_deployment_needs\", arguments = { needs = [{ kind = \"password\", name = \"PLAN_KEY\", path = \"plan.txt\", line = 1, reason = \"The code reads it.\", mandatory = true }] } }\n\n"
-	badLine := "[[prompts]]\nwhen = \"Call `report_deployment_needs` one time\"\ncall = { tool = \"report_deployment_needs\", arguments = { needs = [{ kind = \"env_var\", name = \"PLAN_KEY\", path = \"plan.txt\", line = 0, reason = \"The code reads it.\", mandatory = true }] } }\n\n"
+	badKind := "[[prompts]]\nwhen = \"You are the Reviewer\"\ncall = { tool = \"report_deployment_needs\", arguments = { needs = [{ kind = \"password\", name = \"PLAN_KEY\", path = \"plan.txt\", line = 1, reason = \"The code reads it.\", mandatory = true, after_merge = false }] } }\n\n"
+	badLine := "[[prompts]]\nwhen = \"Call `report_deployment_needs` one time\"\ncall = { tool = \"report_deployment_needs\", arguments = { needs = [{ kind = \"env_var\", name = \"PLAN_KEY\", path = \"plan.txt\", line = 0, reason = \"The code reads it.\", mandatory = true, after_merge = false }] } }\n\n"
 	server, _ := connectTask(t, fake, badKind+badLine+leadStarts, commits, noChange)
 
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")

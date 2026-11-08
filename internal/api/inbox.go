@@ -89,6 +89,8 @@ type Todo struct {
 	Note string `gork:"note"`
 	// Dismissable is true when the Owner can dismiss the todo: it is open and its need is optional
 	Dismissable bool `gork:"dismissable"`
+	// AfterMerge is true when a person can do the step only after the merge, so the todo does not block the merge
+	AfterMerge bool `gork:"afterMerge"`
 }
 
 // Question is a question of the Lead with its options.
@@ -355,11 +357,11 @@ func (h *handlers) inboxItemOf(ctx context.Context, item store.InboxItem) (Inbox
 		if err != nil {
 			return InboxItem{}, err
 		}
-		mandatory, err := h.engine.TodoMandatory(ctx, todo)
+		mandatory, afterMerge, err := h.engine.TodoMarks(ctx, todo)
 		if err != nil {
 			return InboxItem{}, err
 		}
-		found.Todo = &Todo{Kind: todo.Kind, Name: todo.Name, Path: todo.Path, Line: todo.Line, Reason: todo.Reason, Mandatory: todo.Mandatory != 0, Note: todo.Note, Dismissable: !item.DismissedAt.Valid && !mandatory}
+		found.Todo = &Todo{Kind: todo.Kind, Name: todo.Name, Path: todo.Path, Line: todo.Line, Reason: todo.Reason, Mandatory: todo.Mandatory != 0, Note: todo.Note, Dismissable: !item.DismissedAt.Valid && !mandatory, AfterMerge: afterMerge}
 	}
 	return found, nil
 }
