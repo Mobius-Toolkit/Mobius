@@ -3611,45 +3611,6 @@ func (q *Queries) LinkPendingAction(ctx context.Context, arg LinkPendingActionPa
 	return i, err
 }
 
-const listActiveTasks = `-- name: ListActiveTasks :many
-SELECT repository, issue, state, state_at FROM tasks WHERE state IN ('dispatched', 'queued', 'working') ORDER BY id
-`
-
-type ListActiveTasksRow struct {
-	Repository string
-	Issue      int64
-	State      string
-	StateAt    string
-}
-
-func (q *Queries) ListActiveTasks(ctx context.Context) ([]ListActiveTasksRow, error) {
-	rows, err := q.db.QueryContext(ctx, listActiveTasks)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListActiveTasksRow
-	for rows.Next() {
-		var i ListActiveTasksRow
-		if err := rows.Scan(
-			&i.Repository,
-			&i.Issue,
-			&i.State,
-			&i.StateAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listAllOpenHardCIBreaks = `-- name: ListAllOpenHardCIBreaks :many
 SELECT id, repository, workflow_id, workflow_name, run_id, run_url, run_attempt, rerun_at, result, ended_run_id, ended_at, issue, started_at FROM ci_breaks WHERE ended_at = '' AND result = 'hard' AND issue != 0 ORDER BY repository, id
 `

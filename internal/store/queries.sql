@@ -636,9 +636,6 @@ SELECT EXISTS (SELECT 1 FROM tasks WHERE repository = ? AND issue = ?);
 -- name: CountActiveTasks :one
 SELECT count(*) FROM tasks WHERE state IN ('dispatched', 'queued', 'working');
 
--- name: ListActiveTasks :many
-SELECT repository, issue, state, state_at FROM tasks WHERE state IN ('dispatched', 'queued', 'working') ORDER BY id;
-
 -- name: ResetTaskCounters :exec
 UPDATE tasks SET fix_rounds = 0, review_rounds = 0, worker_restarts = 0, check_head = NULL WHERE id = ?;
 
