@@ -845,6 +845,13 @@ func TestServer(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	testkit.WaitFor(t, func() bool {
+		_, _, err := server.Engine.NextBinding(ctx, "implementer", "owner/shop", 38)
+		return err == nil
+	})
+	if err := server.Engine.SetIssueBinding(ctx, "implementer", "owner/shop", 38, config.ClaudeCode, "sonnet", "medium"); err != nil {
+		t.Fatal(err)
+	}
 	fixTimes(t, server, github)
 	addTurnUsage(t, server)
 	addSkillUses(t, server)
