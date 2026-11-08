@@ -206,11 +206,12 @@ func (e *Engine) ResetRole(ctx context.Context, role string) error {
 }
 
 // applyRoles makes merged the Roles of the engine and wakes the sessions that wait for a slot, because a max can
-// change. It also moves each waiting session whose Harness is not the new Harness of its Role. The caller holds the
-// write lock of rolesMu.
+// change. It also moves each waiting session whose Harness is not the new Harness of its Role, and closes each kept
+// Implementer session that follows the Role and has another binding. The caller holds the write lock of rolesMu.
 func (e *Engine) applyRoles(merged config.Roles) {
 	e.roles = merged
 	e.moveWaiters(&merged)
+	e.closeStaleKept(merged.Implementer)
 	e.publish(Change{Pauses: true})
 	e.workers.changed.notify()
 }

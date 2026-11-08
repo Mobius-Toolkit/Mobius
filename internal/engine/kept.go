@@ -22,6 +22,8 @@ type keptSession struct {
 	key     string
 	// binding is the Role binding of the Harness process. A round with another binding starts a new process.
 	binding config.RoleBinding
+	// level is the level of binding: LevelTask, LevelWorkstream or LevelRole.
+	level string
 	// keptAt is the time of the keep, from e.timeNow.
 	keptAt    time.Time
 	costTotal float64
@@ -82,6 +84,22 @@ func (e *Engine) takeKeptSession(task int64, binding config.RoleBinding) *keptSe
 		return nil
 	}
 	return k
+}
+
+// closeStaleKept closes and removes each kept session that follows the Role and whose binding is not binding.
+func (e *Engine) closeStaleKept(binding config.RoleBinding) {
+	e.keptMu.Lock()
+	var stale []*keptSession
+	for task, k := range e.kept {
+		if k.level == LevelRole && k.binding != binding {
+			stale = append(stale, k)
+			delete(e.kept, task)
+		}
+	}
+	e.keptMu.Unlock()
+	for _, k := range stale {
+		e.closeKeptSession(k)
+	}
 }
 
 // closeKeptSessions closes each kept session. The Engine calls it at its stop, and the drain before the restart.
