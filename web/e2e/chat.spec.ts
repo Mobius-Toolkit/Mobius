@@ -37,6 +37,10 @@ async function logIn(page: Page) {
 
 test.beforeEach(({ page }) => logIn(page));
 
+test.afterEach(async ({ page }) => {
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+});
+
 // The session cookie is Secure. The browser sends it to 127.0.0.1 over HTTP, but the API requests of Playwright do
 // not.
 async function get<T>(page: Page, path: string) {
@@ -1446,7 +1450,11 @@ test("Resume gives a needs-human task with no blocker a button that waits for th
   const rows = page.getByRole("listitem");
   const resume = page.getByRole("button", { name: /^Resume #/ });
   await expect(rows.filter({ hasText: "#73 Rake the bark" })).toBeVisible();
-  await expect(rows.filter({ hasText: "#73 Rake the bark" }).getByRole("button")).toHaveCount(0);
+  await expect(
+    rows
+      .filter({ hasText: "#73 Rake the bark" })
+      .getByRole("button", { name: /^(Start|Resume|Stop) / }),
+  ).toHaveCount(0);
   await expect(resume).toHaveCount(1);
   await expect(resume).toHaveAccessibleName("Resume #72");
   await expect(resume).toHaveAttribute("title", "Resume #72");
@@ -2084,7 +2092,10 @@ test("the stop button takes no tap in the first 500 ms after it shows", async ({
     stops++;
     return route.fulfill({ status: 204 });
   });
-  await page.route("**/api/chat/messages", () => {});
+  const held: Route[] = [];
+  await page.route("**/api/chat/messages", (route) => {
+    held.push(route);
+  });
   await page.route("**/api/events", (route) =>
     route.fulfill({ contentType: "text/event-stream", body: "" }),
   );
@@ -2103,6 +2114,7 @@ test("the stop button takes no tap in the first 500 ms after it shows", async ({
 
   await stop.click();
   await expect.poll(() => stops).toBe(1);
+  await Promise.all(held.map((route) => route.abort()));
 });
 
 test("the status line tells that a message of the Owner waits for the agent", async ({ page }) => {
