@@ -64,8 +64,7 @@ func (h *handlers) SetTaskImplementer(ctx context.Context, req SetTaskImplemente
 	return h.set(ctx, "implementer", req.Path, req.Body)
 }
 
-// ClearTaskImplementer removes the Implementer setting of a task. It returns 422 with the reason when the issue is in
-// no Workstream.
+// ClearTaskImplementer removes the Implementer setting of a task. It returns 204 also when the task has no setting.
 func (h *handlers) ClearTaskImplementer(ctx context.Context, req ClearTaskImplementerRequest) error {
 	return h.clear(ctx, "implementer", req.Path)
 }

@@ -181,6 +181,24 @@ func TestTheTaskImplementerEndpointRefusesAnInvalidSettingWith422AndStoresNoRow(
 	}
 }
 
+func TestTheTaskImplementerClearGives204ForATaskThatIsInNoWorkstream(t *testing.T) {
+	server := startWithSettings(t)
+	if _, err := server.DB.Exec("INSERT INTO issue_bindings (repository, issue, role, harness, model, effort, updated_at) VALUES (?, 99, 'implementer', 'devin', 'opus', 'low', ?)", shop, "2026-11-08T00:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+
+	if reply := call(t, server.Client, http.MethodDelete, server.URL+"/api/repositories/owner/shop/issues/99/implementer", "", nil); reply.StatusCode != http.StatusNoContent {
+		t.Fatalf("DELETE: status %d, want 204", reply.StatusCode)
+	}
+
+	if rows := bindingRows(t, server); rows != 0 {
+		t.Errorf("issue_bindings has %d rows, want 0", rows)
+	}
+	if got := records(t, server); len(got) != 0 {
+		t.Errorf("records = %q, want none", got)
+	}
+}
+
 func TestTheWorkstreamEndpointsSetAndClearTheLeadSettingAndTheImplementerSetting(t *testing.T) {
 	server := startWithSettings(t)
 	lead, implementer := details(t, server)

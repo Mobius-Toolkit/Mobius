@@ -56,7 +56,7 @@ func Routes(mux *http.ServeMux, queries *store.Queries, a *auth.Auth, gh *github
 	r.Post("/api/repositories/{owner}/{name}/issues/{number}/start", h.StartIssue, append(loggedIn("tasks"), api.WithErrorResponses(http.StatusConflict))...)
 	r.Post("/api/repositories/{owner}/{name}/issues/{number}/stop", h.StopIssue, append(loggedIn("tasks"), api.WithErrorResponses(http.StatusConflict))...)
 	r.Put("/api/repositories/{owner}/{name}/issues/{number}/implementer", h.SetTaskImplementer, append(loggedIn("tasks"), api.WithErrorResponses(http.StatusUnprocessableEntity))...)
-	r.Delete("/api/repositories/{owner}/{name}/issues/{number}/implementer", h.ClearTaskImplementer, append(loggedIn("tasks"), api.WithErrorResponses(http.StatusUnprocessableEntity))...)
+	r.Delete("/api/repositories/{owner}/{name}/issues/{number}/implementer", h.ClearTaskImplementer, loggedIn("tasks")...)
 	r.Get("/api/chat", h.GetChat, loggedIn("chat")...)
 	r.Post("/api/chat/messages", h.SendChat, append(loggedIn("chat"), api.WithErrorResponses(http.StatusConflict))...)
 	r.Get("/api/chat/messages/{id}/images/{position}", h.GetChatImage, append(loggedIn("chat"), api.WithResponseContentTypes(imageTypes...), api.WithErrorResponses(http.StatusNotFound))...)

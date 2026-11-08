@@ -5479,7 +5479,7 @@ export const getClearTaskImplementerUrl = (owner: string,
 }
 
 /**
- * ClearTaskImplementer removes the Implementer setting of a task. It returns 422 with the reason when the issue is in no Workstream.
+ * ClearTaskImplementer removes the Implementer setting of a task. It returns 204 also when the task has no setting.
  */
 export const clearTaskImplementer = async (owner: string,
     name: string,
