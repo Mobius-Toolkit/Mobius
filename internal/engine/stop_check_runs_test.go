@@ -20,7 +20,7 @@ func wantStopCheck(t *testing.T, fake *testkit.FakeGitHub, sha, title string) {
 func TestAHungSessionCompletesTheMobiusCheckRunAsFailure(t *testing.T) {
 	shortHang(t)
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectTask(t, fake, leadStarts, "[[prompts]]\nwhen = \"Action: fix\"\nhang = true\n\n[[prompts]]\nwhen = \"You are probably stuck\"\nhang = true\n\n"+commits, noChange)
+	server, _ := connectTask(t, fake, leadStarts, "[[prompts]]\nwhen = \"Action: fix\"\nhang = true\n\n[[prompts]]\nwhen = \"Tell Mobius your state\"\nhang = true\n\n"+commits, noChange)
 	sha := approvalHead(t, server, fake)
 
 	fake.AddCheckRun(shop, checkRun("sentinel", sha, "completed", "failure"))
