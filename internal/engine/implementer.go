@@ -293,7 +293,7 @@ func (e *Engine) startKeptRound(ctx context.Context, repository github.Repositor
 // the Owner. Before the check, it posts the report of the Lead as a comment on the pull request. With a merge level, it
 // then approves the pull request for the Owner (autoApprove), and a failure of that does not fail the approval. It also adds
 // a todo for each new deployment need of the task. Before the check of the new head passes, it ends an approval of Mobius
-// from an earlier head, so the poll cannot merge the new head while a mandatory todo is open.
+// from an earlier head, so the poll cannot merge the new head while a todo blocks.
 func (e *Engine) approvePullRequest(ctx context.Context, c caller, repository github.Repository, input approveInput) (string, error) {
 	if input.N < 1 {
 		return "", refuse("n must be 1 or more.")
@@ -381,6 +381,13 @@ func (e *Engine) finishApproval(ctx context.Context, repository github.Repositor
 		return text + fmt.Sprintf("The Owner got it for review. Mobius did not add all deployment todos: %v", err), nil
 	}
 	if !mergesPullRequests(level) {
+		draft, err := e.blockedByTodos(ctx, task)
+		if err != nil {
+			return text + fmt.Sprintf("The Owner got it for review. Mobius did not read the todos: %v", err), nil
+		}
+		if draft {
+			return text + "The Owner got it for review. The pull request stays a draft until the Owner closes the open todos.", nil
+		}
 		return text + "The Owner got it for review.", nil
 	}
 	blocked, err := e.autoApprove(ctx, repository, task, pullRequest)
@@ -388,8 +395,8 @@ func (e *Engine) finishApproval(ctx context.Context, repository github.Repositor
 		return text + fmt.Sprintf("The Owner got it for review. Mobius did not start the merge: %v", err), nil
 	}
 	switch blocked {
-	case mandatoryTodosReason:
-		return text + "Mobius merges it after the Owner marks the mandatory todos as done.", nil
+	case openTodosReason:
+		return text + "Mobius merges it after the Owner closes the open todos.", nil
 	case mergePausedReason:
 		return text + "Mobius merges it after the Owner turns the Merge switch on.", nil
 	case mergeRetryReason:
@@ -480,8 +487,10 @@ func approvalAgainComment(branch, head, approved, reportHead, report string) str
 }
 
 // approve posts comment on the pull request, sets the Mobius check of the head to success, stores leadReport in the
-// task, makes a draft pull request ready for review, replaces mobius:working with mobius:review, and adds the Inbox
-// item for the Owner. It stores the approved head last, so a retry after a failed write still sees the earlier approval.
+// task, makes a draft pull request ready for review, or a ready pull request a draft while a deployment need blocks
+// (blockedByTodos), replaces mobius:working with mobius:review, and adds the Inbox
+// item for the Owner. While a todo blocks, the item is not merging, even when the task has an approval, and it gets
+// the reason openTodosReason. It stores the approved head last, so a retry after a failed write still sees the earlier approval.
 // It completes the check after each GitHub write that can be refused, so a refused write leaves the check open and a
 // task in approval stays there instead of calling onChecks again at each poll.
 // mark is the role mark of the Lead for the question text, or "" when Mobius writes the comment. A leadReport of ""
@@ -525,7 +534,15 @@ func (e *Engine) approve(ctx context.Context, repository github.Repository, task
 			return err
 		}
 	}
-	if pullRequest.GetDraft() {
+	blocked, err := e.blockedByTodos(ctx, task)
+	if err != nil {
+		return err
+	}
+	if blocked {
+		if err := makeDraft(ctx, repository, pullRequest); err != nil {
+			return err
+		}
+	} else if pullRequest.GetDraft() {
 		if err := repository.MarkReadyForReview(ctx, pullRequest.GetNodeID()); err != nil {
 			return err
 		}
@@ -541,7 +558,7 @@ func (e *Engine) approve(ctx context.Context, repository github.Repository, task
 	}
 	title := issue.GetTitle()
 	var merging int64
-	if awaitsMerge(task) {
+	if awaitsMerge(task) && !blocked {
 		merging = 1
 	}
 	if err := e.addInboxItem(ctx, store.AddInboxItemParams{
@@ -560,6 +577,11 @@ func (e *Engine) approve(ctx context.Context, repository github.Repository, task
 		Merging:              merging,
 	}); err != nil {
 		return err
+	}
+	if blocked && awaitsMerge(task) {
+		if err := e.refuseMergeItem(ctx, task, openTodosReason); err != nil {
+			return err
+		}
 	}
 	return e.queries.SetTaskApprovedHead(ctx, store.SetTaskApprovedHeadParams{ApprovedHead: sql.NullString{String: head, Valid: true}, ID: task.ID})
 }
