@@ -570,7 +570,15 @@ reply = ["second"]
 	}
 }
 
-func TestACancelEndsNoTurnWhoseRequestCameAfterItInTheInput(t *testing.T) {
+// rawAgent serves a script with two hanging prompts, "first" and "second", to a client that writes the input lines
+// itself. The responses to its requests come in responses.
+type rawAgent struct {
+	input     io.Writer
+	responses chan map[string]any
+}
+
+func startRawAgent(t *testing.T) *rawAgent {
+	t.Helper()
 	path := filepath.Join(t.TempDir(), "claude-agent-acp.toml")
 	script := `
 [[prompts]]
@@ -588,7 +596,7 @@ hang = true
 	output, agentOut := io.Pipe()
 	go func() { _ = Serve(path, agentIn, agentOut) }()
 	t.Cleanup(func() { _ = input.Close() })
-	responses := make(chan map[string]any, 2)
+	a := &rawAgent{input: input, responses: make(chan map[string]any, 2)}
 	go func() {
 		decoder := json.NewDecoder(output)
 		for {
@@ -597,49 +605,80 @@ hang = true
 				return
 			}
 			if _, ok := message["id"]; ok && message["method"] == nil {
-				responses <- message
+				a.responses <- message
 			}
 		}
 	}()
-	prompt := func(id int, text string) string {
-		return fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"session/prompt","params":{"sessionId":"fake-session","prompt":[{"type":"text","text":%q}]}}`+"\n", id, text)
-	}
-	cancel := `{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"fake-session"}}` + "\n"
-	cancelRequest := `{"jsonrpc":"2.0","method":"$/cancel_request","params":{"requestId":1}}` + "\n"
-	stopReason := func(response map[string]any) string {
-		return response["result"].(map[string]any)["stopReason"].(string)
-	}
+	return a
+}
 
-	if _, err := io.WriteString(input, prompt(1, "first")); err != nil {
+func (a *rawAgent) write(t *testing.T, lines ...string) {
+	t.Helper()
+	if _, err := io.WriteString(a.input, strings.Join(lines, "")); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(100 * time.Millisecond)
-	if _, err := io.WriteString(input, cancel+cancelRequest+prompt(2, "second")); err != nil {
-		t.Fatal(err)
-	}
+}
 
+func rawPrompt(id int, text string) string {
+	return fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"session/prompt","params":{"sessionId":"fake-session","prompt":[{"type":"text","text":%q}]}}`+"\n", id, text)
+}
+
+const (
+	rawCancel        = `{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"fake-session"}}` + "\n"
+	rawCancelRequest = `{"jsonrpc":"2.0","method":"$/cancel_request","params":{"requestId":1}}` + "\n"
+)
+
+// response waits for the next response and requires its id and stop reason. An empty stopReason accepts an error response.
+func (a *rawAgent) response(t *testing.T, id int, stopReason string) {
+	t.Helper()
 	select {
-	case response := <-responses:
-		if response["id"] != float64(1) {
-			t.Fatalf("first response = %+v", response)
+	case response := <-a.responses:
+		if response["id"] != float64(id) {
+			t.Fatalf("response = %+v, want id %d", response, id)
+		}
+		if stopReason == "" {
+			return
+		}
+		result, _ := response["result"].(map[string]any)
+		if result["stopReason"] != stopReason {
+			t.Fatalf("response = %+v, want stop reason %s", response, stopReason)
 		}
 	case <-time.After(time.Minute):
-		t.Fatal("the first turn did not end")
+		t.Fatalf("no response with id %d", id)
 	}
+}
+
+func (a *rawAgent) requireNoResponse(t *testing.T) {
+	t.Helper()
 	select {
-	case response := <-responses:
-		t.Fatalf("the cancel before the second prompt ended the second turn: %+v", response)
+	case response := <-a.responses:
+		t.Fatalf("unexpected response: %+v", response)
 	case <-time.After(300 * time.Millisecond):
 	}
-	if _, err := io.WriteString(input, cancel); err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case response := <-responses:
-		if response["id"] != float64(2) || stopReason(response) != "cancelled" {
-			t.Errorf("second response = %+v", response)
-		}
-	case <-time.After(time.Minute):
-		t.Fatal("the second turn did not end")
-	}
+}
+
+func TestACancelEndsNoTurnWhoseRequestCameAfterItInTheInput(t *testing.T) {
+	a := startRawAgent(t)
+	a.write(t, rawPrompt(1, "first"))
+	time.Sleep(100 * time.Millisecond)
+	a.write(t, rawCancel+rawCancelRequest+rawPrompt(2, "second"))
+
+	a.response(t, 1, "")
+	a.requireNoResponse(t)
+	a.write(t, rawCancel)
+
+	a.response(t, 2, "cancelled")
+}
+
+func TestACancelEndsTheTurnThatRunsWhenItsRequestCameBeforeTheCancelInTheSameRead(t *testing.T) {
+	a := startRawAgent(t)
+	a.write(t, rawPrompt(1, "first"))
+	time.Sleep(100 * time.Millisecond)
+	a.write(t, rawCancel+rawPrompt(2, "second"))
+
+	a.response(t, 1, "cancelled")
+	a.requireNoResponse(t)
+	a.write(t, rawCancel)
+
+	a.response(t, 2, "cancelled")
 }

@@ -196,10 +196,9 @@ type agent struct {
 	order *inputOrder
 	// promptsStarted counts the session/prompt requests that the agent started to handle.
 	promptsStarted int
-	// cancel closes at a session/cancel. It is nil when no turn runs.
-	cancel chan struct{}
-	// cancelPrompt is the number of the session/prompt of the turn that cancel ends.
-	cancelPrompt int
+	// cancels has the channel of each running turn, by the number of its session/prompt. The channel closes at a
+	// session/cancel that the agent read after that session/prompt.
+	cancels map[int]chan struct{}
 	// steered closes when a steering request with the outcome injected finished its prompt. It is nil when no turn runs.
 	steered chan struct{}
 	// absorbed is the later with absorb that waits for the next session/prompt, or nil.
@@ -253,6 +252,7 @@ func serve(path string, r io.Reader, w io.Writer, record func() error) error {
 		a.options = append(a.options, option{Type: "select", ID: id, Name: id, Category: id, CurrentValue: values[0], Options: choices})
 	}
 	a.order = &inputOrder{r: r}
+	a.cancels = map[int]chan struct{}{}
 	a.mu.Lock()
 	a.conn = acp.NewConnection(a.handle, w, a.order)
 	a.mu.Unlock()
@@ -300,9 +300,11 @@ func (a *agent) handle(ctx context.Context, method string, params json.RawMessag
 		promptsRead := a.order.takeCancel()
 		a.mu.Lock()
 		defer a.mu.Unlock()
-		if a.cancel != nil && a.cancelPrompt <= promptsRead {
-			close(a.cancel)
-			a.cancel = nil
+		for number, cancel := range a.cancels {
+			if number <= promptsRead {
+				close(cancel)
+				delete(a.cancels, number)
+			}
 		}
 		return nil, nil
 	}
@@ -565,10 +567,10 @@ func (a *agent) setEfforts(efforts []string) {
 func (a *agent) next(text string, number int) (prompt, string, chan struct{}, chan struct{}) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.cancel = make(chan struct{})
-	a.cancelPrompt = number
+	cancel := make(chan struct{})
+	a.cancels[number] = cancel
 	a.steered = make(chan struct{})
-	return a.choose(text), a.mcpURL, a.cancel, a.steered
+	return a.choose(text), a.mcpURL, cancel, a.steered
 }
 
 // choose gives the script prompt for text. The caller holds a.mu.
@@ -637,7 +639,7 @@ func (a *agent) steer(ctx context.Context, params json.RawMessage) (any, *acp.Re
 		a.mu.Unlock()
 		return map[string]any{"outcome": "promptRequired", "reason": "noRunningTurn"}, nil
 	}
-	turn, mcpURL, cancel := a.choose(text.String()), a.mcpURL, a.cancel
+	turn, mcpURL, cancel := a.choose(text.String()), a.mcpURL, a.cancels[a.promptsStarted]
 	a.mu.Unlock()
 	played := context.WithoutCancel(ctx)
 	go func() {
@@ -685,6 +687,7 @@ func (a *agent) prompt(ctx context.Context, params json.RawMessage) (any, *acp.R
 				return nil, acp.NewInternalError(err.Error())
 			}
 		}
+		defer a.endTurn(number)
 		select {
 		case <-cancel:
 			return acp.PromptResponse{StopReason: acp.StopReasonCancelled}, nil
@@ -696,9 +699,7 @@ func (a *agent) prompt(ctx context.Context, params json.RawMessage) (any, *acp.R
 	turn.Reply = append(slices.Clone(turn.Reply), images...)
 	stopReason, err := a.play(ctx, request.SessionID, turn, mcpURL, cancel, steered)
 	a.mu.Lock()
-	if a.cancel == cancel {
-		a.cancel = nil
-	}
+	delete(a.cancels, number)
 	if a.steered == steered {
 		a.steered = nil
 	}
@@ -721,6 +722,13 @@ func (a *agent) prompt(ctx context.Context, params json.RawMessage) (any, *acp.R
 	return result, nil
 }
 
+// endTurn removes the cancel channel of the session/prompt number.
+func (a *agent) endTurn(number int) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	delete(a.cancels, number)
+}
+
 // startPrompt gives the number of the session/prompt that the agent starts to handle.
 func (a *agent) startPrompt() int {
 	a.mu.Lock()
@@ -739,9 +747,9 @@ func (a *agent) absorb(number int) (chan struct{}, *later) {
 		return nil, nil
 	}
 	a.absorbed = nil
-	a.cancel = make(chan struct{})
-	a.cancelPrompt = number
-	return a.cancel, absorbed
+	cancel := make(chan struct{})
+	a.cancels[number] = cancel
+	return cancel, absorbed
 }
 
 // startLater sends the updates of l in the background after the response of the prompt, or holds a later with
