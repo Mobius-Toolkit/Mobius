@@ -22,9 +22,10 @@ import {
 import { fitImage, maxImages } from "@/lib/images";
 import { useDraft } from "@/lib/storeHooks";
 import { cn } from "@/lib/utils";
-import { useVoice } from "@/lib/voice";
+import { insertVoiceText, resend, useVoice } from "@/lib/voice";
 import { FileImage } from "./FileImage";
 import { AttachedInboxItem } from "./InboxItemCard";
+import { VoiceDraftCard } from "./VoiceDraftCard";
 
 const stopDelay = 500;
 const tooManyImages = `A message has at most ${maxImages} images.`;
@@ -61,18 +62,18 @@ function Thumbnail({
   );
 }
 
-// The text field with the voice button and the Send button. The draft store keeps the text, the images and the Inbox
-// items under draftKey, and the field is read-only until the store gives them. When onStop is set and the draft is
-// empty, the Send button stops the reply. selection is true when the panel has a choice that the Send button sends
-// with the text. error is the text of a failure that the parent shows
+// The text field with the voice button and the Send button. The draft store keeps the text, the images, the Inbox
+// items and the voice card under draftKey, and the field is read-only until the store gives them. When onStop is set
+// and the draft is empty, the Send button stops the reply. selection is true when the panel has a choice that the Send
+// button sends with the text. error is the text of a failure that the parent shows
 // under the field. The input gives its own failures to onError. When onSend gives a promise, the draft gets its text,
-// images and Inbox items back if the promise gives false. With onDecide, the field has no Send button and Enter sends nothing. The field has
+// images, Inbox items and voice card back if the promise gives false. onSend gets voice true when the card has the
+// state ready. With onDecide, the field has no Send button and Enter sends nothing. The field has
 // a Reject button and an Approve button, and each one gives the text, empty or not, to onDecide. Both buttons stay
-// disabled while the promise runs. The field clears if the promise gives true. With autoFocus, the field gets the focus
-// when it mounts, on a device with a fine pointer. When the Send button comes while the field shows the live text of a
-// voice run, the field stays read-only until the run gives its final text. Then the message has the final text in place
-// of the live text, and the field stays empty. Else the Send button stops the voice run, and the final text of the run
-// goes into the empty field.
+// disabled while the promise runs and while the voice card converts or has failed. The field and the card clear if the
+// promise gives true. With autoFocus, the field gets the focus
+// when it mounts, on a device with a fine pointer. The Send button, and Enter, stop a voice run and send nothing. While
+// the voice card converts or has failed, the voice button and the Send button stay disabled.
 export function MessageInput({
   draftKey,
   label,
@@ -97,17 +98,21 @@ export function MessageInput({
   stopping: boolean;
   autoFocus?: boolean;
   onStop?: () => void;
-  onSend?: (text: string, images: File[], inboxItems: DraftInboxItem[]) => void | Promise<boolean>;
+  onSend?: (
+    text: string,
+    images: File[],
+    inboxItems: DraftInboxItem[],
+    voice: boolean,
+  ) => void | Promise<boolean>;
   onDecide?: (decision: Decision, text: string) => Promise<boolean>;
 }) {
   const stored = useDraft(draftKey);
-  const { text, images, inboxItems } = stored ?? emptyDraft;
+  const { text, images, inboxItems, voice: voiceCard } = stored ?? emptyDraft;
   const setText = (value: string) => void saveDraftText(draftKey, value);
   // Two taps on Send in one turn of the page both come before the next render. Thus only the ref stops a second
   // message. The next render has the empty input and clears the ref.
   const justSent = useRef(false);
   const [deciding, setDeciding] = useState(false);
-  const [waiting, setWaiting] = useState(false);
   useEffect(() => {
     justSent.current = false;
   });
@@ -118,66 +123,27 @@ export function MessageInput({
     }
   }, [autoFocus]);
   const picker = useRef<HTMLInputElement>(null);
-  // The text around the voice text of the run, and the value of the field after the last voice text.
-  const voiceRegion = useRef<{ lead: string; trail: string; value: string }>(undefined);
-  const placeVoice = (
-    field: HTMLTextAreaElement,
-    voiceText: string,
-    lead: string,
-    trail: string,
-  ) => {
-    const value = lead + voiceText + trail;
-    const cursor = lead.length + voiceText.length;
+  const voice = useVoice(draftKey, (voiceText) => {
+    const field = input.current;
+    if (!field) {
+      return;
+    }
+    const focused = document.activeElement === field;
+    const start = focused ? field.selectionStart : field.value.length;
+    const end = focused ? field.selectionEnd : field.value.length;
+    const { text: value, cursor } = insertVoiceText(field.value, voiceText, start, end);
     flushSync(() => setText(value));
     // The height of the text up to the end of the voice text gives the scroll position. setSelectionRange does not
     // scroll a field without the focus, and WebKit on iOS does not scroll it reliably.
-    field.value = lead + voiceText;
+    field.value = value.slice(0, cursor);
     const top = field.scrollHeight - field.clientHeight;
     field.value = value;
     field.setSelectionRange(cursor, cursor);
     field.scrollTop = top;
-    voiceRegion.current = { lead, trail, value: field.value };
-  };
-  const placeAtCursor = (field: HTMLTextAreaElement, voiceText: string) => {
-    const focused = document.activeElement === field;
-    const start = focused ? field.selectionStart : field.value.length;
-    const end = focused ? field.selectionEnd : field.value.length;
-    const before = field.value.slice(0, start);
-    const after = field.value.slice(end);
-    const lead = before === "" || /\s$/.test(before) ? before : `${before} `;
-    const trail = after === "" || /^\s/.test(after) ? after : ` ${after}`;
-    placeVoice(field, voiceText, lead, trail);
-  };
-  const voice = useVoice(
-    (voiceText, live) => {
-      const field = input.current;
-      const region = voiceRegion.current;
-      if (!field) {
-        return;
-      }
-      if (live && region && field.value === region.value) {
-        placeVoice(field, voiceText, region.lead, region.trail);
-      } else if (voiceText) {
-        placeAtCursor(field, voiceText);
-      }
-    },
-    (voiceText, first) => {
-      const field = input.current;
-      const region = voiceRegion.current;
-      if (!field) {
-        return false;
-      }
-      if (first) {
-        placeAtCursor(field, voiceText);
-        return true;
-      }
-      if (!region || field.value !== region.value) {
-        return false;
-      }
-      placeVoice(field, voiceText, region.lead, region.trail);
-      return true;
-    },
-  );
+  });
+  const voiceBusy = voiceCard?.state === "converting" || voiceCard?.state === "failed";
+
+  const removeVoice = () => void updateDraft(draftKey, (draft) => ({ ...draft, voice: null }));
 
   const removeImage = (index: number) =>
     void updateDraft(draftKey, (draft) => ({
@@ -212,7 +178,8 @@ export function MessageInput({
 
   const empty = !text.trim() && images.length === 0 && inboxItems.length === 0 && !selection;
   const showStop = empty && !!onStop;
-  const buttonPending = (showStop && stopping) || waiting;
+  const buttonPending = showStop && stopping;
+  const cannotSend = empty || voiceBusy;
   // A tap on Send can land on the Stop button that replaces it. Thus Stop takes no tap in its first moments.
   const [stopReady, setStopReady] = useState(false);
   useEffect(() => {
@@ -226,52 +193,32 @@ export function MessageInput({
     };
   }, [showStop]);
 
-  const voiceLabel = voice.converting
-    ? "Converting the voice input"
-    : voice.recording
-      ? "Stop voice input"
-      : "Start voice input";
+  const voiceLabel = voice.recording ? "Stop voice input" : "Start voice input";
 
   const send = async () => {
-    if (!onSend || empty || justSent.current || waiting) {
+    if (voice.recording) {
+      voice.stop();
+      return;
+    }
+    if (!onSend || cannotSend || justSent.current) {
       return;
     }
     justSent.current = true;
-    let message = text;
-    let sentImages = images;
-    let sentInboxItems = inboxItems;
-    const shown = voiceRegion.current;
-    if (voice.showsLive() && shown && shown.value === input.current?.value) {
-      setWaiting(true);
-      const final = await voice.finishForSend();
-      const draft = await loadDraft(draftKey);
-      sentImages = draft.images;
-      sentInboxItems = draft.inboxItems;
-      const region = voiceRegion.current;
-      if (region) {
-        message = final === undefined ? region.value : region.lead + final + region.trail;
-      }
-    } else {
-      voice.stop();
-    }
     void updateDraft(draftKey, () => emptyDraft);
-    setWaiting(false);
     onError("");
-    const result = onSend(message, sentImages, sentInboxItems);
+    const result = onSend(text, images, inboxItems, voiceCard?.state === "ready");
     if (result instanceof Promise) {
       void result.then((done) => {
         if (!done) {
           // The Chat button of an Inbox row can add an item while the message goes out.
           void updateDraft(draftKey, (draft) => ({
-            text:
-              draft.text === message ? message : [message, draft.text].filter(Boolean).join(" "),
-            images: sentImages,
+            text: draft.text === text ? text : [text, draft.text].filter(Boolean).join(" "),
+            images,
             inboxItems: [
-              ...sentInboxItems,
-              ...draft.inboxItems.filter(
-                (item) => !sentInboxItems.some(({ id }) => id === item.id),
-              ),
+              ...inboxItems,
+              ...draft.inboxItems.filter((item) => !inboxItems.some(({ id }) => id === item.id)),
             ],
+            voice: draft.voice ?? voiceCard,
           }));
         }
       });
@@ -289,7 +236,9 @@ export function MessageInput({
     const done = await onDecide(decision, text);
     setDeciding(false);
     if (done) {
-      void updateDraft(draftKey, (draft) => (draft.text === text ? { ...draft, text: "" } : draft));
+      void updateDraft(draftKey, (draft) =>
+        draft.text === text ? { ...draft, text: "", voice: null } : draft,
+      );
     }
   };
 
@@ -315,8 +264,18 @@ export function MessageInput({
         />
       )}
       <div className="grid gap-1 rounded-2xl border border-input bg-background p-2 transition-colors has-[textarea:focus-visible]:border-ring dark:bg-input/30">
-        {(images.length > 0 || inboxItems.length > 0) && (
+        {(images.length > 0 || inboxItems.length > 0 || voice.mine || voiceCard) && (
           <div className="flex flex-wrap gap-2 pb-1">
+            {(voice.mine || voiceCard) && (
+              <VoiceDraftCard
+                recording={
+                  voice.mine ? { startedAt: voice.startedAt, live: voice.live } : undefined
+                }
+                voice={voiceCard}
+                resend={() => void resend(draftKey)}
+                remove={removeVoice}
+              />
+            )}
             {inboxItems.map((item) => (
               <AttachedInboxItem
                 key={item.id}
@@ -340,7 +299,7 @@ export function MessageInput({
           aria-label={label}
           placeholder={placeholder}
           value={text}
-          readOnly={!stored || waiting}
+          readOnly={!stored}
           onChange={(event) => setText(event.target.value)}
           // Safari on iOS scrolls the page when the keyboard opens, and it can keep that offset after the keyboard closes.
           onBlur={() => window.scrollTo(0, 0)}
@@ -398,17 +357,16 @@ export function MessageInput({
                 aria-label={voiceLabel}
                 title={voiceLabel}
                 aria-pressed={voice.recording}
-                pending={voice.converting}
+                disabled={voiceBusy && !voice.recording}
                 className={cn(
                   "rounded-full text-muted-foreground max-md:size-11",
                   voice.recording &&
                     "bg-destructive/10 text-destructive hover:bg-destructive/20 hover:text-destructive motion-safe:animate-pulse",
-                  voice.converting && "disabled:pointer-events-auto disabled:opacity-100",
                 )}
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={voice.toggle}
               >
-                {voice.converting ? null : voice.recording ? <SquareIcon /> : <MicIcon />}
+                {voice.recording ? <SquareIcon /> : <MicIcon />}
               </Button>
             )}
             {onDecide ? (
@@ -419,7 +377,7 @@ export function MessageInput({
                   size="icon"
                   aria-label="Reject"
                   title="Reject"
-                  disabled={deciding}
+                  disabled={deciding || voiceBusy}
                   className="rounded-full text-muted-foreground max-md:size-11"
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => void decide("reject")}
@@ -428,7 +386,7 @@ export function MessageInput({
                 </Button>
                 <Button
                   type="button"
-                  disabled={deciding}
+                  disabled={deciding || voiceBusy}
                   className="rounded-full max-md:h-11 max-md:px-4"
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => void decide("approve")}
@@ -444,14 +402,14 @@ export function MessageInput({
                 aria-label={showStop ? "Stop the reply" : "Send"}
                 title={showStop ? "Stop the reply" : "Send"}
                 pending={buttonPending}
-                disabled={showStop ? !stopReady : empty}
+                disabled={showStop ? !stopReady : cannotSend}
                 className={cn(
                   "rounded-full max-md:size-11",
                   showStop &&
                     !stopReady &&
                     !buttonPending &&
                     "disabled:pointer-events-auto disabled:opacity-100",
-                  empty &&
+                  cannotSend &&
                     !showStop &&
                     "bg-muted text-muted-foreground hover:bg-muted disabled:opacity-100",
                 )}
@@ -468,34 +426,10 @@ export function MessageInput({
           </div>
         </div>
       </div>
-      {voice.error && (
-        <div className="flex flex-wrap items-center gap-2">
-          <p role="alert" className="text-sm text-destructive">
-            {voice.error}
-          </p>
-          {voice.canResend && (
-            <>
-              <Button
-                type="button"
-                variant="outline"
-                size="xs"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => void voice.resend()}
-              >
-                Send again
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="xs"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={voice.discard}
-              >
-                Discard
-              </Button>
-            </>
-          )}
-        </div>
+      {voice.notice && (
+        <p role="alert" className="text-sm text-destructive">
+          {voice.notice}
+        </p>
       )}
       {error && (
         <p role="alert" className="text-sm text-destructive">

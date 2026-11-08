@@ -12,7 +12,13 @@ import {
   type sendChunkResponse200,
   type transcribeResponse200,
 } from "@/api/api.gen";
-import { run as inDatabase } from "./database";
+import {
+  convertingDraftKeys,
+  currentDraft,
+  loadDraft,
+  updateDraft,
+  type DraftVoice,
+} from "./draft";
 import workletUrl from "./recorder-worklet.ts?worker&url";
 
 const sampleRate = 16000;
@@ -28,15 +34,11 @@ const unreachableMessage =
   "The recording did not reach the server. Check the connection and try again.";
 const unconvertedMessage = "The server did not convert the recording.";
 const emptyMessage = "The recording has no text.";
-const lostMessage = "The last recording was not converted.";
 
 type Result = { text: string; error: string };
 
-type Phase = "idle" | "recording" | "converting";
-
 // The live text of a recording. The server keeps the samples that the chunks carry. failed is true after a request
-// fails. Then the run shows no more live text, and the stop sends the full recording as one file. hidden is true after
-// the input refuses a live text.
+// fails. Then the run shows no more live text, and the stop sends the full recording as one file.
 type Live = {
   id: string;
   sequence: number;
@@ -44,12 +46,11 @@ type Live = {
   pending: Promise<void>;
   busy: boolean;
   failed: boolean;
-  shown: boolean;
-  hidden: boolean;
   timer?: ReturnType<typeof setInterval>;
 };
 
 type Recording = {
+  key: string;
   stream: MediaStream;
   context: AudioContext;
   chunks: Int16Array<ArrayBuffer>[];
@@ -57,38 +58,30 @@ type Recording = {
   live: Live;
 };
 
-// The run belongs to the page, not to a mount of useVoice. A switch of the Workstream remounts the input and does
-// not stop the run.
-let snapshot = { phase: "idle" as Phase, error: "", canResend: false };
+// The run belongs to the page, not to a mount of useVoice. key is the draft key of the input where the run started, and
+// live is its live text. notice is the message of a start that failed or of a stop that the user did not ask for. It
+// belongs to the draft key of its run.
+let snapshot = {
+  recording: false,
+  key: "",
+  startedAt: 0,
+  live: "",
+  notice: { key: "", text: "" },
+};
 const listeners = new Set<() => void>();
 let current: Recording | undefined;
+// True from the stop of a recording until its card is in the draft.
+let stopping = false;
 // Each start and each cancel of a start changes run. A start of an older run does nothing.
 let run = 0;
-// The mounted inputs. The newest one gets the text. insertLive shows the live text in the input. It gives false when
-// the input does not show it, because the user changed the field.
-const inputs: {
-  insert: (text: string, live: boolean) => void;
-  insertLive: (text: string, first: boolean) => boolean;
-}[] = [];
+// The mounted inputs. insert puts the text of a conversion at the cursor of the field.
+const inputs: { key: string; insert: (text: string) => void }[] = [];
 let screenLock: WakeLockSentinel | undefined;
-// The WAV file of the last recording that the server did not convert to text, and whether its live text showed. The
-// device also keeps the file in the store voice, so a reload does not lose it. A new recording, a discard and a
-// conversion that gives text remove it.
-let kept: { audio: Blob; shown: boolean } | undefined;
-// The live text of the run that records or converts, and the call that waits for the text of that run. The text of a run
-// with such a call goes to the call and not to the input.
-let activeLive: Pick<Live, "shown" | "hidden"> | undefined;
-let taker: ((text: string | undefined) => void) | undefined;
+// The draft keys that have a call that converts their card.
+const converting = new Set<string>();
 
-// The conversion works with no stored audio.
-const storeAudio = (audio: Blob) =>
-  inDatabase("voice", "readwrite", (store) => store.put({ key: "last", audio })).catch(() => {});
-
-const removeAudio = () =>
-  inDatabase("voice", "readwrite", (store) => store.delete("last")).catch(() => {});
-
-const publish = (phase: Phase, error: string) => {
-  snapshot = { phase, error, canResend: kept !== undefined };
+const publish = (patch: Partial<typeof snapshot>) => {
+  snapshot = { ...snapshot, ...patch };
   listeners.forEach((listener) => listener());
 };
 
@@ -104,7 +97,7 @@ const subscribe = (listener: () => void) => {
 const holdScreen = () => {
   navigator.wakeLock?.request("screen").then(
     (lock) => {
-      if (snapshot.phase !== "recording") {
+      if (!snapshot.recording) {
         void lock.release();
         return;
       }
@@ -190,10 +183,13 @@ const failure = (answer: Answer<unknown>) =>
 
 const pause = (time: number) => new Promise((resolve) => setTimeout(resolve, time));
 
+const setVoice = (key: string, change: (voice: DraftVoice) => DraftVoice) =>
+  updateDraft(key, (draft) => (draft.voice ? { ...draft, voice: change(draft.voice) } : draft));
+
 // awaitConversion asks for the conversion each conversionInterval until it ends. A request that fails does not end
 // the conversion, but a 4xx answer other than 404 does. A conversion that the server lost starts again with the audio.
 // The wait ends with the last failure after waitLimit.
-const awaitConversion = async (id: string, audio: Blob): Promise<Result> => {
+const awaitConversion = async (key: string, id: string, audio: Blob): Promise<Result> => {
   const end = Date.now() + waitLimit;
   let last = unreachableMessage;
   while (Date.now() < end) {
@@ -203,7 +199,7 @@ const awaitConversion = async (id: string, audio: Blob): Promise<Result> => {
       quickLimit,
     ).catch(() => undefined);
     if (answer?.status === 404) {
-      return convert(audio);
+      return convert(key, audio);
     }
     if (answer && answer.status >= 400 && answer.status < 500) {
       return { text: "", error: failure(answer) };
@@ -224,14 +220,16 @@ const awaitConversion = async (id: string, audio: Blob): Promise<Result> => {
   return { text: "", error: last };
 };
 
-const convert = async (audio: Blob): Promise<Result> => {
+const convert = async (key: string, audio: Blob): Promise<Result> => {
   try {
     const answer = await post<transcribeResponse200["data"]>(getTranscribeUrl(), uploadLimit, {
       headers: { "Content-Type": "audio/wav" },
       body: audio,
     });
     if (answer.status === 200 && answer.data) {
-      return await awaitConversion(answer.data.data.id, audio);
+      const { id } = answer.data.data;
+      await setVoice(key, (voice) => ({ ...voice, conversion: id }));
+      return await awaitConversion(key, id, audio);
     }
     return { text: "", error: failure(answer) };
   } catch {
@@ -258,16 +256,9 @@ const openLive = async (live: Live) => {
   }
 };
 
-const showLive = (live: Live, data: LiveText) => {
-  const text = [data.committed, data.draft].filter(Boolean).join(" ");
-  const input = inputs.at(-1);
-  if (!input || live.hidden || (!text && !live.shown)) {
-    return;
-  }
-  if (input.insertLive(text, !live.shown)) {
-    live.shown = true;
-  } else {
-    live.hidden = true;
+const showLive = (recording: Recording, data: LiveText) => {
+  if (current === recording) {
+    publish({ live: [data.committed, data.draft].filter(Boolean).join(" ") });
   }
 };
 
@@ -286,7 +277,7 @@ const sendNew = async (recording: Recording) => {
   if (response?.status !== 200 || !response.data) {
     live.failed = true;
   } else {
-    showLive(live, response.data.data);
+    showLive(recording, response.data.data);
   }
 };
 
@@ -296,9 +287,9 @@ const tick = (recording: Recording) => {
   }
 };
 
-// convertLive sends the last samples and gets the text of the full recording. It gives nothing when the live text
-// failed or the request failed, and then the caller sends the full recording as one file.
-const convertLive = async (recording: Recording, audio: Blob) => {
+// finishLive sends the last samples and gives the id of the conversion of the full recording. It gives nothing when
+// the live text failed or the request failed, and then the conversion of the card sends the full recording as one file.
+const finishLive = async (recording: Recording) => {
   const live = recording.live;
   await live.pending;
   if (!live.failed) {
@@ -314,78 +305,114 @@ const convertLive = async (recording: Recording, audio: Blob) => {
   if (answer?.status !== 200 || !answer.data) {
     return undefined;
   }
-  return awaitConversion(answer.data.data.id, audio);
+  return answer.data.data.id;
 };
 
-const settle = (result: Result, saved: NonNullable<typeof kept>, message: string) => {
+// Gives the text with voiceText at the selection from start to end, and the cursor after voiceText. A space separates
+// voiceText from a word next to it.
+export const insertVoiceText = (
+  text: string,
+  voiceText: string,
+  start = text.length,
+  end = start,
+) => {
+  const before = text.slice(0, start);
+  const after = text.slice(end);
+  const lead = before === "" || /\s$/.test(before) ? before : `${before} `;
+  const trail = after === "" || /^\s/.test(after) ? after : ` ${after}`;
+  return { text: lead + voiceText + trail, cursor: lead.length + voiceText.length };
+};
+
+const settle = async (key: string, result: Result) => {
+  if (currentDraft(key)?.voice?.state !== "converting") {
+    return;
+  }
   const error = result.error || (result.text ? "" : emptyMessage);
-  kept = error ? saved : undefined;
-  activeLive = undefined;
-  const take = taker;
-  taker = undefined;
-  publish("idle", error || message);
-  take?.(error ? undefined : result.text);
-  if (!error) {
-    void removeAudio();
-    if (!take) {
-      inputs.at(-1)?.insert(result.text, saved.shown);
-    }
+  if (error) {
+    await setVoice(key, (voice) => ({ ...voice, state: "failed", conversion: "", error }));
+    return;
+  }
+  const ready: DraftVoice = { state: "ready", audio: null, conversion: "", error: "" };
+  const input = inputs.findLast((other) => other.key === key);
+  if (input) {
+    input.insert(result.text);
+    await setVoice(key, () => ready);
+  } else {
+    await updateDraft(key, (draft) => ({
+      ...draft,
+      text: insertVoiceText(draft.text, result.text).text,
+      voice: ready,
+    }));
   }
 };
 
-const finish = async (message: string) => {
+// convertCard converts the card of the draft when it is in the state converting. With no conversion on the server, it
+// sends the audio.
+const convertCard = async (key: string) => {
+  if (converting.has(key)) {
+    return;
+  }
+  converting.add(key);
+  const { voice } = await loadDraft(key);
+  const result =
+    voice?.state === "converting" && voice.audio
+      ? await (voice.conversion
+          ? awaitConversion(key, voice.conversion, voice.audio)
+          : convert(key, voice.audio))
+      : undefined;
+  converting.delete(key);
+  if (result) {
+    await settle(key, result);
+  }
+};
+
+const finish = async (notice: string) => {
   const recording = current;
   if (!recording) {
     return;
   }
+  const { key } = recording;
   current = undefined;
-  publish("converting", message);
+  stopping = true;
   clearTimeout(recording.timer);
   clearInterval(recording.live.timer);
   releaseScreen();
-  await stopMedia(recording.stream, recording.context);
+  await Promise.all([stopMedia(recording.stream, recording.context), loadDraft(key)]);
   const audio = wav(recording.chunks);
-  await storeAudio(audio);
-  const result = (await convertLive(recording, audio)) ?? (await convert(audio));
-  settle(result, { audio, shown: recording.live.shown }, message);
-};
-
-const resend = async () => {
-  const saved = kept;
-  if (!saved || snapshot.phase !== "idle") {
-    return;
+  const stored = updateDraft(key, (draft) => ({
+    ...draft,
+    voice: { state: "converting", audio, conversion: "", error: "" },
+  }));
+  stopping = false;
+  publish({ recording: false, live: "", notice: notice ? { key, text: notice } : snapshot.notice });
+  await stored;
+  const conversion = await finishLive(recording);
+  if (conversion) {
+    await setVoice(key, (voice) => ({ ...voice, conversion }));
   }
-  activeLive = { shown: saved.shown, hidden: false };
-  publish("converting", "");
-  settle(await convert(saved.audio), saved, "");
+  void convertCard(key);
 };
 
-const discard = () => {
-  if (!kept || snapshot.phase !== "idle") {
-    return;
-  }
-  kept = undefined;
-  void removeAudio();
-  publish("idle", "");
+export const resend = async (key: string) => {
+  await setVoice(key, (voice) =>
+    voice.state === "failed" ? { ...voice, state: "converting", conversion: "", error: "" } : voice,
+  );
+  void convertCard(key);
 };
 
-inDatabase<{ audio: Blob } | undefined>("voice", "readonly", (store) => store.get("last")).then(
-  (record) => {
-    if (record && !kept && snapshot.phase === "idle" && run === 0) {
-      kept = { audio: record.audio, shown: false };
-      publish("idle", lostMessage);
-    }
-  },
-  () => {},
-);
+void convertingDraftKeys().then((keys) => keys.forEach((key) => void convertCard(key)));
 
-const start = async () => {
+const start = async (key: string) => {
   const token = ++run;
-  kept = undefined;
-  void removeAudio();
   const context = new AudioContext();
   void context.resume();
-  publish("recording", "");
+  publish({
+    recording: true,
+    key,
+    startedAt: Date.now(),
+    live: "",
+    notice: { key: "", text: "" },
+  });
   holdScreen();
   let stream: MediaStream | undefined;
   const chunks: Int16Array<ArrayBuffer>[] = [];
@@ -402,7 +429,7 @@ const start = async () => {
     void stopMedia(stream, context);
     if (token === run) {
       releaseScreen();
-      publish("idle", startError(err));
+      publish({ recording: false, notice: { key, text: startError(err) } });
     }
     return;
   }
@@ -411,6 +438,7 @@ const start = async () => {
     return;
   }
   const recording: Recording = {
+    key,
     stream,
     context,
     chunks,
@@ -422,12 +450,9 @@ const start = async () => {
       pending: Promise.resolve(),
       busy: false,
       failed: false,
-      shown: false,
-      hidden: false,
     },
   };
   current = recording;
-  activeLive = recording.live;
   runLive(recording.live, openLive(recording.live));
   recording.live.timer = setInterval(() => tick(recording), chunkInterval);
   const track = stream.getAudioTracks()[0];
@@ -454,87 +479,68 @@ document.addEventListener("visibilitychange", () => {
 const cancelStart = () => {
   run++;
   releaseScreen();
-  publish("idle", "");
+  publish({ recording: false });
 };
 
-// A tap on the converting button does nothing. A tap while the microphone starts cancels the start.
-const toggleVoice = () => {
-  if (snapshot.phase === "idle") {
-    void start();
-  } else if (snapshot.phase === "recording") {
-    if (current) {
-      void finish("");
-    } else {
-      cancelStart();
-    }
-  }
-};
-
+// A stop while the microphone starts cancels the start.
 const stopVoice = () => {
-  if (snapshot.phase === "recording") {
-    toggleVoice();
+  if (current) {
+    void finish("");
+  } else if (snapshot.recording && !stopping) {
+    cancelStart();
   }
 };
 
-const showsLive = () =>
-  snapshot.phase !== "idle" && activeLive !== undefined && activeLive.shown && !activeLive.hidden;
-
-const finishForSend = () =>
-  new Promise<string | undefined>((resolve) => {
-    taker = resolve;
+const toggleVoice = (key: string) => {
+  if (snapshot.recording) {
     stopVoice();
-  });
+  } else {
+    void start(key);
+  }
+};
+
+// The recording stops when no mounted input has its draft key.
+const stopWithoutInput = () => {
+  if (snapshot.recording && !inputs.some((input) => input.key === snapshot.key)) {
+    stopVoice();
+  }
+};
 
 export const voiceSupported =
   Boolean(navigator.mediaDevices?.getUserMedia) && typeof AudioWorkletNode !== "undefined";
 
-// useVoice records the voice when toggle starts it. During the recording, the server gives the live text about each 2
-// seconds, and it goes to onLive. onLive has first true for the first text of the run, and it gives false when it does
-// not show the text. The second toggle stops the recording, and the server converts it to text. The text goes to onText
-// of the input that is mounted when the answer comes. Its live is true when the run showed live text, and the text
-// replaces it. The recording stays on until toggle or stop stops it, the recording reaches 10 minutes, or the
-// microphone stops. A stop while the microphone starts cancels the start. Each request has a time limit, and a
-// conversion with a failure or with an empty text gives an error. error is the failure of the last run, or '' when a
-// run starts. The audio stays on the device from the stop until a conversion gives text, a run starts or discard
-// removes it. After a failed conversion, or after a reload that finds the audio, canResend is true, and resend sends
-// the audio again. When showsLive is true, the live text of the running run is in the input. Then finishForSend stops
-// the recording or joins the conversion, and it gives the final text, or undefined when the conversion fails or the
-// text is empty. The text of that run does not go to onText.
-export function useVoice(
-  onText: (text: string, live: boolean) => void,
-  onLive: (text: string, first: boolean) => boolean,
-) {
-  const { phase, error } = useSyncExternalStore(subscribe, () => snapshot);
+// useVoice gives the voice run of the page to the input with the draft key. toggle starts a recording that belongs to
+// that key, or stops the recording. During the recording, the server gives the live text about each 2 seconds, and live
+// has it for the input of the run. The stop puts the audio in the draft of the key as a card, and the card converts to
+// text in the background. The text goes to onText when an input with the key is mounted. The recording stays on until
+// toggle or stop stops it, the recording reaches 10 minutes, the microphone stops, or no mounted input has the key. A
+// stop while the microphone starts cancels the start. notice is the message of the last start or stop of the key.
+export function useVoice(key: string, onText: (text: string) => void) {
+  const state = useSyncExternalStore(subscribe, () => snapshot);
   const latestOnText = useRef(onText);
-  const latestOnLive = useRef(onLive);
 
   useEffect(() => {
     latestOnText.current = onText;
-    latestOnLive.current = onLive;
   });
 
   useEffect(() => {
-    const input = {
-      insert: (text: string, live: boolean) => latestOnText.current(text, live),
-      insertLive: (text: string, first: boolean) => latestOnLive.current(text, first),
-    };
+    const input = { key, insert: (text: string) => latestOnText.current(text) };
     inputs.push(input);
     return () => {
       inputs.splice(inputs.indexOf(input), 1);
+      queueMicrotask(stopWithoutInput);
     };
-  }, []);
+  }, [key]);
 
+  const mine = state.recording && state.key === key;
   return {
     supported: voiceSupported,
-    recording: phase === "recording",
-    converting: phase === "converting",
-    error,
-    canResend: snapshot.canResend,
-    resend,
-    discard,
-    toggle: toggleVoice,
+    recording: state.recording,
+    mine,
+    startedAt: state.startedAt,
+    live: mine ? state.live : "",
+    notice: state.notice.key === key ? state.notice.text : "",
+    toggle: () => toggleVoice(key),
     stop: stopVoice,
-    showsLive,
-    finishForSend,
   };
 }

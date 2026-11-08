@@ -1,5 +1,6 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
 import { countSamples, fakeMicrophone, fakeWakeLock } from "./microphone.js";
+import { coordinatorQuestion, routeInboxItems } from "./stops.js";
 
 const shop = "/workstreams/owner/shop/12";
 const seasonal = "/workstreams/owner/shop/14";
@@ -57,6 +58,13 @@ const start = (page: Page) =>
   page.getByRole("main").getByRole("button", { name: "Start voice input", exact: true });
 const stop = (page: Page) =>
   page.getByRole("main").getByRole("button", { name: "Stop voice input", exact: true });
+const send = (page: Page) =>
+  page.getByRole("main").getByRole("button", { name: "Send", exact: true });
+const again = (page: Page) => page.getByRole("button", { name: "Send again" });
+const discard = (page: Page) => page.getByRole("button", { name: "Discard" });
+const voiceCard = (page: Page) =>
+  page.getByRole("main").getByRole("group", { name: "Voice recording" });
+const removeVoice = (page: Page) => page.getByRole("button", { name: "Remove voice" });
 
 // The first sample shows that the recorder runs and that the stop events have listeners.
 const begin = async (page: Page) => {
@@ -76,6 +84,25 @@ const open = (page: Page, path: string) =>
     `history.pushState({}, '', '${path}'); dispatchEvent(new PopStateEvent('popstate'))`,
   );
 
+// The tests have no DOM types, so the script reads the drafts in the browser.
+const storedDrafts = `new Promise((resolve) => {
+  const open = indexedDB.open("mobius");
+  open.onsuccess = () => {
+    const all = open.result.transaction("drafts").objectStore("drafts").getAll();
+    all.onsuccess = () =>
+      resolve(
+        all.result.map((draft) => ({
+          text: draft.text,
+          voice: draft.voice?.state ?? null,
+          audio: Boolean(draft.voice?.audio),
+          conversion: draft.voice?.conversion ?? "",
+        })),
+      );
+  };
+})`;
+
+const drafts = (page: Page) => page.evaluate(storedDrafts);
+
 test("a recording adds the text of the answer to the message", async ({ page }) => {
   await answer(page, " red roses ");
   await page.goto("/chat");
@@ -84,7 +111,8 @@ test("a recording adds the text of the answer to the message", async ({ page }) 
   await begin(page);
   await stop(page).click();
   await expect(input).toHaveValue("Plant red roses");
-  await expect(start(page)).toBeVisible();
+  await expect(removeVoice(page)).toBeVisible();
+  await expect(start(page)).toBeEnabled();
   expect(await trackState(page)).toEqual(["ended"]);
   await expect(page.getByRole("alert")).toHaveCount(0);
 });
@@ -150,7 +178,9 @@ test("the field scrolls to the last words of the voice text", async ({ page }) =
   ).toBe(true);
 });
 
-test("the converting state shows until the answer comes", async ({ page }) => {
+test("the converting card shows until the answer comes, and it blocks the voice button and Send", async ({
+  page,
+}) => {
   let requests = 0;
   const release = await holdConversions(page);
   await page.route("**/api/voice/transcriptions", (route) => {
@@ -161,16 +191,16 @@ test("the converting state shows until the answer comes", async ({ page }) => {
   const input = page.getByLabel("Message to the Coordinator");
   await begin(page);
   await stop(page).click();
-  const converting = page.getByRole("button", { name: "Converting the voice input" });
-  await expect(converting).toBeDisabled();
-  await expect(converting.locator("[data-slot=spinner]")).toBeVisible();
-  await expect(start(page)).toHaveCount(0);
-  await expect(stop(page)).toHaveCount(0);
-  await converting.dispatchEvent("click");
-  await expect(input).toHaveValue("");
+  await expect(voiceCard(page).getByText("Converting", { exact: true })).toBeVisible();
+  await input.fill("Plant");
+  await expect(start(page)).toBeDisabled();
+  await expect(page.getByRole("main").getByRole("button", { name: "Send" })).toBeDisabled();
+  await expect(input).toHaveValue("Plant");
   release();
-  await expect(input).toHaveValue("red roses");
-  await expect(start(page)).toBeVisible();
+  await expect(input).toHaveValue("Plant red roses");
+  await expect(voiceCard(page).getByText("Converting")).toHaveCount(0);
+  await expect(start(page)).toBeEnabled();
+  await expect(page.getByRole("main").getByRole("button", { name: "Send" })).toBeEnabled();
   expect(requests).toBe(1);
 });
 
@@ -221,16 +251,24 @@ const liveServer = async (page: Page, answers: (Live | number)[], finish: Result
 // The clock stands still, so a tick of the live text comes only after tick.
 const tick = (page: Page) => page.clock.runFor(2000);
 
-// The page asks for a conversion each 2 seconds, so the tests with a clock run it until the voice button is back.
-const settled = (page: Page) =>
+// The page asks for a conversion each 2 seconds, so the tests with a clock run it until the card does not record or
+// convert any more.
+const settled = (page: Page, timeout?: number) =>
   expect
-    .poll(async () => {
-      await tick(page);
-      return start(page).isVisible();
-    })
-    .toBe(true);
+    .poll(
+      async () => {
+        await tick(page);
+        return voiceCard(page)
+          .getByText(/^(Recording|Converting)/)
+          .count();
+      },
+      timeout ? { timeout, intervals: [10] } : {},
+    )
+    .toBe(0);
 
-test("the live text shows during the recording and the final text replaces it", async ({
+const live = (page: Page, text: string) => voiceCard(page).getByText(text, { exact: true });
+
+test("the live text shows in the card during the recording, and the field keeps the text of the Owner", async ({
   page,
 }) => {
   await page.clock.install();
@@ -246,14 +284,19 @@ test("the live text shows during the recording and the final text replaces it", 
   const input = page.getByLabel("Message to the Coordinator");
   await input.fill("Please");
   await begin(page);
+  await expect(voiceCard(page)).toContainText("Recording 0:00");
   await tick(page);
-  await expect(input).toHaveValue("Please red");
+  await expect(live(page, "red")).toBeVisible();
+  await expect(input).toHaveValue("Please");
   await tick(page);
-  await expect(input).toHaveValue("Please red roses");
+  await expect(live(page, "red roses")).toBeVisible();
+  await expect(input).toHaveValue("Please");
+  await expect(voiceCard(page)).toContainText("Recording 0:04");
   await stop(page).click();
   await settled(page);
   await expect(input).toHaveValue("Please Red roses, please.");
-  await expect(start(page)).toBeVisible();
+  await expect(live(page, "red roses")).toHaveCount(0);
+  await expect(removeVoice(page)).toBeVisible();
   await expect(page.getByRole("alert")).toHaveCount(0);
   expect(seen.sequences.map(Number)).toEqual(seen.sequences.map((_, i) => i));
   expect(seen.sequences.length).toBeGreaterThanOrEqual(2);
@@ -261,7 +304,7 @@ test("the live text shows during the recording and the final text replaces it", 
   expect(seen.finishes).toBe(1);
 });
 
-test("text after the voice text stays when the live text changes", async ({ page }) => {
+test("the final text goes in at the cursor, and the text around it stays", async ({ page }) => {
   await page.clock.install();
   await liveServer(
     page,
@@ -278,37 +321,12 @@ test("text after the voice text stays when the live text changes", async ({ page
   await input.evaluate((field: HTMLTextAreaElement) => field.setSelectionRange(5, 5));
   await begin(page);
   await tick(page);
-  await expect(input).toHaveValue("Plant red now");
   await tick(page);
-  await expect(input).toHaveValue("Plant red roses now");
+  await expect(live(page, "red roses")).toBeVisible();
+  await expect(input).toHaveValue("Plant now");
   await stop(page).click();
   await settled(page);
   await expect(input).toHaveValue("Plant Red roses now");
-});
-
-test("a change of the field during the recording stops the live text", async ({ page }) => {
-  await page.clock.install();
-  const seen = await liveServer(
-    page,
-    [
-      { committed: "", draft: "red" },
-      { committed: "red", draft: "roses" },
-    ],
-    { text: "Red roses" },
-  );
-  await page.goto("/chat");
-  const input = page.getByLabel("Message to the Coordinator");
-  await begin(page);
-  await tick(page);
-  await expect(input).toHaveValue("red");
-  await input.fill("red!");
-  await tick(page);
-  await expect.poll(() => seen.sequences.length).toBe(2);
-  await expect(input).toHaveValue("red!");
-  await stop(page).click();
-  await settled(page);
-  await expect(input).toHaveValue("red! Red roses");
-  await expect(start(page)).toBeVisible();
 });
 
 test("a failed chunk keeps the recording and the stop sends the file for the text", async ({
@@ -325,7 +343,7 @@ test("a failed chunk keeps the recording and the stop sends the file for the tex
   const input = page.getByLabel("Message to the Coordinator");
   await begin(page);
   await tick(page);
-  await expect(input).toHaveValue("red");
+  await expect(live(page, "red")).toBeVisible();
   await tick(page);
   await expect.poll(() => seen.sequences.length).toBe(2);
   await tick(page);
@@ -353,28 +371,28 @@ test("a failed conversion keeps the audio and Send again sends it", async ({ pag
   });
   await page.goto("/chat");
   const input = page.getByLabel("Message to the Coordinator");
-  const again = page.getByRole("button", { name: "Send again" });
   await begin(page);
   await tick(page);
-  await expect(input).toHaveValue("red");
+  await expect(live(page, "red")).toBeVisible();
   await stop(page).click();
   await settled(page);
-  await expect(page.getByRole("alert")).toHaveText("The speech model is still starting");
-  await expect(again).toBeVisible();
+  await expect(voiceCard(page).getByRole("alert")).toHaveText("The speech model is still starting");
+  await expect(again(page)).toBeVisible();
+  await expect(input).toHaveValue("");
   expect(files.length).toBe(0);
   expect(seen.finishes).toBe(1);
 
-  await again.click();
+  await again(page).click();
   await settled(page);
-  await expect(page.getByRole("alert")).toHaveText("The converter returned an error");
-  await expect(again).toBeVisible();
-  await expect(input).toHaveValue("red");
+  await expect(voiceCard(page).getByRole("alert")).toHaveText("The converter returned an error");
+  await expect(again(page)).toBeVisible();
+  await expect(input).toHaveValue("");
 
-  await again.click();
+  await again(page).click();
   await settled(page);
   await expect(input).toHaveValue("red roses");
   await expect(page.getByRole("alert")).toHaveCount(0);
-  await expect(again).toHaveCount(0);
+  await expect(again(page)).toHaveCount(0);
   expect(files.length).toBe(2);
   expect(files[0].subarray(0, 4).toString()).toBe("RIFF");
   expect(files[0].length).toBeGreaterThan(44);
@@ -419,11 +437,11 @@ for (const message of [
     const input = page.getByLabel("Message to the Coordinator");
     await begin(page);
     await tick(page);
-    await expect(input).toHaveValue("red");
+    await expect(live(page, "red")).toBeVisible();
     await stop(page).click();
     await settled(page);
     await expect(page.getByRole("alert")).toHaveText(message);
-    await expect(input).toHaveValue("red");
+    await expect(input).toHaveValue("");
     expect(files).toBe(0);
   });
 }
@@ -503,7 +521,6 @@ for (const message of [
     await stop(page).click();
     await expect(page.getByRole("alert")).toHaveText(message);
     await expect(page.getByLabel("Message to the Coordinator")).toHaveValue("");
-    await expect(start(page)).toBeVisible();
   });
 }
 
@@ -515,7 +532,6 @@ test("a failed request shows a network error", async ({ page }) => {
   await expect(page.getByRole("alert")).toHaveText(
     "The recording did not reach the server. Check the connection and try again.",
   );
-  await expect(start(page)).toBeVisible();
 });
 
 for (const [name, message] of [
@@ -547,9 +563,6 @@ test("a new recording removes the error of the last run", async ({ page }) => {
 });
 
 const unreachable = "The recording did not reach the server. Check the connection and try again.";
-const again = (page: Page) => page.getByRole("button", { name: "Send again" });
-const send = (page: Page) =>
-  page.getByRole("main").getByRole("button", { name: "Send", exact: true });
 
 const pending = (id: string) => ({
   json: { data: { id, state: "converting", text: "", error: "" } },
@@ -646,15 +659,7 @@ test("a 500 for each request for a conversion ends the wait after 16 minutes", a
   await page.goto("/chat");
   await begin(page);
   await stop(page).click();
-  await expect
-    .poll(
-      async () => {
-        await tick(page);
-        return start(page).isVisible();
-      },
-      { timeout: 120_000, intervals: [10] },
-    )
-    .toBe(true);
+  await settled(page, 120_000);
   await expect(page.getByRole("alert")).toHaveText("The server answered 500.");
   await expect(again(page)).toBeVisible();
   expect(requests).toBeGreaterThanOrEqual(470);
@@ -672,15 +677,7 @@ test("a conversion that does not end is a failure after 16 minutes", async ({ pa
   await page.goto("/chat");
   await begin(page);
   await stop(page).click();
-  await expect
-    .poll(
-      async () => {
-        await tick(page);
-        return start(page).isVisible();
-      },
-      { timeout: 120_000, intervals: [10] },
-    )
-    .toBe(true);
+  await settled(page, 120_000);
   await expect(page.getByRole("alert")).toHaveText("The server did not convert the recording.");
   await expect(again(page)).toBeVisible();
   expect(requests).toBeGreaterThanOrEqual(470);
@@ -695,7 +692,6 @@ test("a non-JSON answer with the status 524 shows the status", async ({ page }) 
   await stop(page).click();
   await expect(page.getByRole("alert")).toHaveText("The server answered 524.");
   await expect(again(page)).toBeVisible();
-  await expect(start(page)).toBeVisible();
 });
 
 // Answers the first request of the route never, and each later request with the result.
@@ -720,7 +716,7 @@ test("a hung upload ends after 6 minutes, and Send again gives the text", async 
   await stop(page).click();
   await expect.poll(() => seen.requests).toBe(1);
   await page.clock.runFor(6 * 60 * 1000 - 1000);
-  await expect(page.getByRole("button", { name: "Converting the voice input" })).toBeVisible();
+  await expect(voiceCard(page).getByText("Converting", { exact: true })).toBeVisible();
   await page.clock.runFor(1000);
   await expect(page.getByRole("alert")).toHaveText(unreachable);
   await expect(again(page)).toBeVisible();
@@ -791,8 +787,50 @@ test("a stopped network shows the error and Send again", async ({ page }) => {
   await expect(again(page)).toBeVisible();
 });
 
+test("Send again works after the network comes back", async ({ page }) => {
+  const files: Buffer[] = [];
+  await page.route("**/api/voice/**", (route) => route.abort());
+  await page.goto("/chat");
+  const input = page.getByLabel("Message to the Coordinator");
+  await begin(page);
+  await stop(page).click();
+  await expect(page.getByRole("alert")).toHaveText(unreachable);
+  await page.unroute("**/api/voice/**");
+  await page.route("**/api/voice/transcriptions", (route) => {
+    files.push(route.request().postDataBuffer() ?? Buffer.alloc(0));
+    return route.fulfill(upload({ text: "red roses" }));
+  });
+  await again(page).click();
+  await expect(input).toHaveValue("red roses");
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(again(page)).toHaveCount(0);
+  expect(files.length).toBe(1);
+  expect(files[0].subarray(0, 4).toString()).toBe("RIFF");
+});
+
+test("a new recording shows no text of an earlier recording", async ({ page }) => {
+  await page.clock.install();
+  await liveServer(page, [{ committed: "", draft: "red" }], {
+    error: "The speech model is still starting",
+  });
+  await page.goto("/chat");
+  const input = page.getByLabel("Message to the Coordinator");
+  await begin(page);
+  await tick(page);
+  await expect(live(page, "red")).toBeVisible();
+  await stop(page).click();
+  await settled(page);
+  await expect(again(page)).toBeVisible();
+  await discard(page).click();
+  await expect(voiceCard(page)).toHaveCount(0);
+  await start(page).click();
+  await expect(voiceCard(page)).toContainText("Recording");
+  await expect(voiceCard(page)).not.toContainText("red");
+  await expect(input).toHaveValue("");
+});
+
 test("an empty result shows an error and keeps the audio", async ({ page }) => {
-  let texts = ["  ", "red roses"];
+  const texts = ["  ", "red roses"];
   await page.route("**/api/voice/transcriptions", (route) =>
     route.fulfill(upload({ text: texts.shift() })),
   );
@@ -810,49 +848,6 @@ test("an empty result shows an error and keeps the audio", async ({ page }) => {
   await expect(again(page)).toHaveCount(0);
 });
 
-test("Send during a recording stops it, and the text goes into the empty field", async ({
-  page,
-}) => {
-  let files = 0;
-  await page.route("**/api/voice/transcriptions", (route) => {
-    files++;
-    return route.fulfill(upload({ text: "red roses" }));
-  });
-  await page.route("**/api/chat/messages", () => {});
-  await page.goto(shop);
-  const input = page.getByLabel("Message to the Lead");
-  await begin(page);
-  await input.fill("Add a plan");
-  const sent = page.waitForRequest("**/api/chat/messages");
-  await send(page).click();
-  await sent;
-  await expect(input).toHaveValue("red roses");
-  await expect(start(page)).toBeVisible();
-  expect(await trackState(page)).toEqual(["ended"]);
-  expect(files).toBe(1);
-});
-
-test("Send during a conversion keeps it, and the text goes into the empty field", async ({
-  page,
-}) => {
-  const release = await holdConversions(page);
-  await answer(page, "red roses");
-  await page.route("**/api/chat/messages", () => {});
-  await page.goto(shop);
-  const input = page.getByLabel("Message to the Lead");
-  await begin(page);
-  await stop(page).click();
-  await expect(page.getByRole("button", { name: "Converting the voice input" })).toBeVisible();
-  await input.fill("Add a plan");
-  const sent = page.waitForRequest("**/api/chat/messages");
-  await send(page).click();
-  await sent;
-  await expect(input).toHaveValue("");
-  release();
-  await expect(input).toHaveValue("red roses");
-  await expect(start(page)).toBeVisible();
-});
-
 // Gives the body of each message request.
 const messages = async (page: Page) => {
   const bodies: string[] = [];
@@ -863,263 +858,241 @@ const messages = async (page: Page) => {
   return bodies;
 };
 
-// Holds the answer of the end of the recording until release runs.
-const holdFinish = async (page: Page, reply: Result | string) => {
-  let release!: () => void;
-  const held = new Promise<void>((resolve) => (release = resolve));
-  await page.route("**/api/voice/recordings/r1/finish", async (route) => {
-    await held;
-    await route.fulfill(upload(typeof reply === "string" ? { text: reply } : reply));
+test("Send during a recording stops it and sends nothing, and the second Send sends the edited text", async ({
+  page,
+}) => {
+  let files = 0;
+  await page.route("**/api/voice/transcriptions", (route) => {
+    files++;
+    return route.fulfill(upload({ text: "red roses" }));
   });
-  return release;
-};
-
-const liveAnswers = [
-  { committed: "", draft: "red" },
-  { committed: "red", draft: "roses" },
-];
-
-// The field has "Plant now" with the cursor after "Plant", and the live text "red roses" between.
-const liveField = async (page: Page) => {
+  // The request stays open, so the message stays in the queue and shows as a bubble.
+  const bodies: string[] = [];
+  await page.route("**/api/chat/messages", (route) => {
+    bodies.push(route.request().postData() ?? "");
+  });
   await page.goto(shop);
   const input = page.getByLabel("Message to the Lead");
-  await input.fill("Plant now");
-  await input.focus();
-  await input.evaluate((field: HTMLTextAreaElement) => field.setSelectionRange(5, 5));
   await begin(page);
-  await tick(page);
-  await expect(input).toHaveValue("Plant red now");
-  await tick(page);
-  await expect(input).toHaveValue("Plant red roses now");
-  return input;
-};
-
-const converting = (page: Page) => page.getByRole("button", { name: "Converting the voice input" });
-
-test("Send during a recording with live text sends the final text", async ({ page }) => {
-  await page.clock.install();
-  await liveServer(page, liveAnswers);
-  const release = await holdFinish(page, "Red roses");
-  const bodies = await messages(page);
-  const input = await liveField(page);
+  await input.fill("Add a plan");
   await send(page).click();
-  await expect(converting(page)).toBeVisible();
+  await expect(start(page)).toBeVisible();
+  expect(await trackState(page)).toEqual(["ended"]);
+  await expect(removeVoice(page)).toBeVisible();
+  await expect(input).toHaveValue("Add a plan red roses");
   expect(bodies).toEqual([]);
-  release();
-  await settled(page);
+  expect(files).toBe(1);
+
+  await input.fill("Add a red plan");
+  await send(page).click();
   await expect.poll(() => bodies.length).toBe(1);
-  expect(bodies[0]).toContain("Plant Red roses now");
+  expect(bodies[0]).toContain("Add a red plan");
+  expect(bodies[0]).not.toContain("roses");
+  expect(bodies[0]).toMatch(/name="voice"\r\n\r\ntrue/);
   await expect(input).toHaveValue("");
-  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(voiceCard(page)).toHaveCount(0);
+  const bubble = page.getByRole("main").locator("[data-queued]");
+  await expect(bubble.getByText("Add a red plan")).toBeVisible();
+  await expect(bubble.getByRole("img", { name: "Voice" })).toBeVisible();
+  await expect.poll(() => drafts(page)).toEqual([]);
   expect(bodies.length).toBe(1);
 });
 
-test("Send during a conversion with live text sends the final text", async ({ page }) => {
-  await page.clock.install();
-  await liveServer(page, liveAnswers);
-  const release = await holdFinish(page, "Red roses");
+test("a message with no voice card has the voice mark false", async ({ page }) => {
   const bodies = await messages(page);
-  const input = await liveField(page);
+  await page.goto(shop);
+  await page.getByLabel("Message to the Lead").fill("Add a plan");
+  await send(page).click();
+  await expect.poll(() => bodies.length).toBe(1);
+  expect(bodies[0]).toMatch(/name="voice"\r\n\r\nfalse/);
+});
+
+test("the Owner removes a ready card and the text stays", async ({ page }) => {
+  await answer(page, "red roses");
+  const bodies = await messages(page);
+  await page.goto(shop);
+  const input = page.getByLabel("Message to the Lead");
+  await begin(page);
   await stop(page).click();
-  await expect(converting(page)).toBeVisible();
+  await expect(input).toHaveValue("red roses");
+  await removeVoice(page).click();
+  await expect(voiceCard(page)).toHaveCount(0);
+  await expect(input).toHaveValue("red roses");
   await send(page).click();
-  await expect(send(page)).toBeDisabled();
-  expect(bodies).toEqual([]);
-  release();
-  await settled(page);
   await expect.poll(() => bodies.length).toBe(1);
-  expect(bodies[0]).toContain("Plant Red roses now");
-  await expect(input).toHaveValue("");
-  expect(bodies.length).toBe(1);
+  expect(bodies[0]).toMatch(/name="voice"\r\n\r\nfalse/);
 });
 
-test("the field keeps the live text and Send waits until the final text comes", async ({
+test("a new recording adds its text at the cursor, and the card stays one card", async ({
   page,
 }) => {
-  await page.clock.install();
-  await liveServer(page, liveAnswers);
-  const release = await holdFinish(page, "Red roses");
-  const bodies = await messages(page);
-  const input = await liveField(page);
-  await send(page).click();
-  await expect(converting(page)).toBeDisabled();
-  await expect(send(page)).toBeDisabled();
-  await expect(send(page).locator("[data-slot=spinner]")).toBeVisible();
-  await expect(input).not.toBeEditable();
-  await expect(input).toHaveValue("Plant red roses now");
-  await input.press("Enter");
-  expect(bodies).toEqual([]);
-  release();
-  await settled(page);
-  await expect.poll(() => bodies.length).toBe(1);
-  expect(bodies.length).toBe(1);
-});
-
-test("an image that the Owner attaches while Send waits goes out with the message", async ({
-  page,
-}) => {
-  await page.clock.install();
-  await liveServer(page, liveAnswers);
-  const release = await holdFinish(page, "Red roses");
-  const bodies = await messages(page);
-  await liveField(page);
-  await send(page).click();
-  await expect(send(page)).toBeDisabled();
-  await page
-    .getByRole("main")
-    .locator("input[type=file]")
-    .setInputFiles({
-      name: "photo.png",
-      mimeType: "image/png",
-      buffer: Buffer.from(
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
-        "base64",
-      ),
-    });
-  await expect(page.getByRole("img", { name: "Image 1" })).toBeVisible();
-  release();
-  await settled(page);
-  await expect.poll(() => bodies.length).toBe(1);
-  expect(bodies[0]).toContain("Plant Red roses now");
-  expect(bodies[0]).toContain("image/png");
-  await expect(page.getByRole("img", { name: "Image 1" })).toBeHidden();
-});
-
-for (const [name, reply, alert] of [
-  ["a failed", { error: "The converter returned an error" }, "The converter returned an error"],
-  ["an empty", { text: "" }, "The recording has no text."],
-] as const) {
-  test(`Send during a recording with live text and ${name} final conversion sends the live text`, async ({
-    page,
-  }) => {
-    await page.clock.install();
-    await liveServer(page, liveAnswers);
-    const release = await holdFinish(page, reply);
-    const bodies = await messages(page);
-    let files = 0;
-    await page.route("**/api/voice/transcriptions", (route) => {
-      files++;
-      return route.fulfill(upload({ text: "red roses" }));
-    });
-    const input = await liveField(page);
-    await send(page).click();
-    await expect(input).not.toBeEditable();
-    expect(bodies).toEqual([]);
-    release();
-    await settled(page);
-    await expect.poll(() => bodies.length).toBe(1);
-    expect(bodies[0]).toContain("Plant red roses now");
-    await expect(page.getByRole("alert")).toHaveText(alert);
-    await expect(again(page)).toBeVisible();
-    await expect(input).toHaveValue("");
-    expect(files).toBe(0);
-  });
-}
-
-test("Send after the user changed the field during the recording sends at once", async ({
-  page,
-}) => {
-  await page.clock.install();
-  const seen = await liveServer(page, liveAnswers);
-  const release = await holdFinish(page, "Red roses");
-  const bodies = await messages(page);
+  const texts = ["red", "roses"];
+  await page.route("**/api/voice/transcriptions", (route) =>
+    route.fulfill(upload({ text: texts.shift() })),
+  );
   await page.goto(shop);
   const input = page.getByLabel("Message to the Lead");
   await begin(page);
-  await tick(page);
+  await stop(page).click();
   await expect(input).toHaveValue("red");
-  await input.fill("red!");
-  await tick(page);
-  await expect.poll(() => seen.sequences.length).toBe(2);
-  await send(page).click();
-  await expect.poll(() => bodies.length).toBe(1);
-  expect(bodies[0]).toContain("red!");
-  await expect(input).toHaveValue("");
-  release();
-  await settled(page);
-  await expect(input).toHaveValue("Red roses");
+  await expect(removeVoice(page)).toBeVisible();
+  await begin(page);
+  await expect(voiceCard(page)).toHaveCount(1);
+  await expect(voiceCard(page)).toContainText("Recording");
+  await stop(page).click();
+  await expect(input).toHaveValue("red roses");
+  await expect(voiceCard(page)).toHaveCount(1);
+  await expect(removeVoice(page)).toBeVisible();
 });
 
-test("a refused Send keeps the text of a conversion that answers while the message goes out", async ({
+test("Send and the voice button stay off while the card has failed, and Discard keeps the text", async ({
   page,
 }) => {
+  await page.route("**/api/voice/transcriptions", (route) =>
+    route.fulfill(upload({ error: "The speech model is still starting" })),
+  );
+  await page.goto(shop);
+  const input = page.getByLabel("Message to the Lead");
+  await input.fill("Add a plan");
+  await begin(page);
+  await stop(page).click();
+  await expect(again(page)).toBeVisible();
+  await expect(start(page)).toBeDisabled();
+  await expect(send(page)).toBeDisabled();
+  await input.press("Enter");
+  await expect(again(page)).toBeVisible();
+  await discard(page).click();
+  await expect(voiceCard(page)).toHaveCount(0);
+  await expect(input).toHaveValue("Add a plan");
+  await expect(start(page)).toBeEnabled();
+  await expect(send(page)).toBeEnabled();
+  await expect
+    .poll(() => drafts(page))
+    .toEqual([{ text: "Add a plan", voice: null, audio: false, conversion: "" }]);
+});
+
+test("a refused Send brings the voice card back", async ({ page }) => {
+  await answer(page, "red roses");
   await page.addInitScript(`
-    window.refuseSend = false;
     const add = IDBObjectStore.prototype.add;
     IDBObjectStore.prototype.add = function (value) {
-      if (!window.refuseSend) {
-        return add.call(this, value);
+      if (window.refuseSend && this.name === "outbox") {
+        throw new DOMException("The store refuses the message.", "DataError");
       }
-      // The transaction stays open until the test lets the add fail with a duplicate key.
-      const store = this;
-      const wait = () => {
-        const request = store.count();
-        request.onsuccess = () => {
-          if (window.refuseSend === "now") {
-            add.call(store, value);
-            add.call(store, value);
-          } else {
-            wait();
-          }
-        };
-        return request;
-      };
-      return wait();
+      return add.call(this, value);
     };
   `);
+  await page.goto(shop);
+  const input = page.getByLabel("Message to the Lead");
+  await begin(page);
+  await stop(page).click();
+  await expect(input).toHaveValue("red roses");
+  await expect(removeVoice(page)).toBeVisible();
+  await page.evaluate("window.refuseSend = true");
+  await send(page).click();
+  await expect(page.getByRole("alert")).toBeVisible();
+  await expect(input).toHaveValue("red roses");
+  await expect(removeVoice(page)).toBeVisible();
+});
+
+test("the error of a recording shows only in its own chat", async ({ page }) => {
+  await page.route("**/api/voice/transcriptions", (route) =>
+    route.fulfill(upload({ error: "The converter returned an error" })),
+  );
+  await page.goto(shop);
+  await begin(page);
+  await stop(page).click();
+  await expect(page.getByRole("alert")).toHaveText("The converter returned an error");
+  await open(page, seasonal);
+  await expect(page.getByLabel("Message to the Lead")).toBeEditable();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(again(page)).toHaveCount(0);
+  await expect(voiceCard(page)).toHaveCount(0);
+  await expect(start(page)).toBeEnabled();
+  await open(page, shop);
+  await expect(page.getByRole("alert")).toHaveText("The converter returned an error");
+  await expect(again(page)).toBeVisible();
+});
+
+test("a switch to another chat during a recording stops it, and the text goes only to the chat of the start", async ({
+  page,
+}) => {
+  await answer(page, "red roses");
+  await page.goto(shop);
+  await begin(page);
+  await open(page, seasonal);
+  await expect(start(page)).toBeVisible();
+  expect(await trackState(page)).toEqual(["ended"]);
+  const input = page.getByLabel("Message to the Lead");
+  await expect(input).toBeEditable();
+  await expect(input).toHaveValue("");
+  await expect(voiceCard(page)).toHaveCount(0);
+  await expect
+    .poll(() => drafts(page))
+    .toEqual([{ text: "red roses", voice: "ready", audio: false, conversion: expect.any(String) }]);
+  await expect(input).toHaveValue("");
+  await open(page, shop);
+  await expect(input).toHaveValue("red roses");
+  await expect(removeVoice(page)).toBeVisible();
+  expect(await page.evaluate("microphones.length")).toBe(1);
+});
+
+test("a conversion that ends while the page shows another chat puts its text into the draft of the chat of the recording", async ({
+  page,
+}) => {
   const release = await holdConversions(page);
   await answer(page, "red roses");
   await page.goto(shop);
   const input = page.getByLabel("Message to the Lead");
   await begin(page);
   await stop(page).click();
-  await expect(page.getByRole("button", { name: "Converting the voice input" })).toBeVisible();
-  await input.fill("Add a plan");
-  await page.evaluate("window.refuseSend = true");
-  await send(page).click();
-  await expect(input).toHaveValue("");
+  await expect(voiceCard(page).getByText("Converting", { exact: true })).toBeVisible();
+  await open(page, seasonal);
+  await expect(input).toBeEditable();
+  await expect(voiceCard(page)).toHaveCount(0);
+  await expect(start(page)).toBeEnabled();
   release();
-  await expect(input).toHaveValue("red roses");
-  await page.evaluate("window.refuseSend = 'now'");
-  await expect(input).toHaveValue("Add a plan red roses");
-});
-
-test("Send after a failed conversion keeps the error and Send again", async ({ page }) => {
-  let files = 0;
-  await page.route("**/api/voice/transcriptions", (route) =>
-    ++files === 1
-      ? route.fulfill(upload({ error: "The speech model is still starting" }))
-      : route.fulfill(upload({ text: "red roses" })),
-  );
-  await page.route("**/api/chat/messages", () => {});
-  await page.goto(shop);
-  const input = page.getByLabel("Message to the Lead");
-  await begin(page);
-  await stop(page).click();
-  await expect(again(page)).toBeVisible();
-  await input.fill("Add a plan");
-  const sent = page.waitForRequest("**/api/chat/messages");
-  await send(page).click();
-  await sent;
+  await expect
+    .poll(() => drafts(page))
+    .toEqual([{ text: "red roses", voice: "ready", audio: false, conversion: "" }]);
   await expect(input).toHaveValue("");
-  await expect(page.getByRole("alert")).toHaveText("The speech model is still starting");
-  await expect(again(page)).toBeVisible();
-  await again(page).click();
+  await expect(voiceCard(page)).toHaveCount(0);
+  await open(page, shop);
   await expect(input).toHaveValue("red roses");
-  await expect(again(page)).toHaveCount(0);
+  await expect(removeVoice(page)).toBeVisible();
 });
 
-const lost = "The last recording was not converted.";
-const discard = (page: Page) => page.getByRole("button", { name: "Discard" });
-
-// The tests have no DOM types, so the script reads the voice store in the browser.
-const storedAudio = `new Promise((resolve) => {
-  const open = indexedDB.open("mobius");
-  open.onsuccess = () => {
-    const count = open.result.transaction("voice").objectStore("voice").count();
-    count.onsuccess = () => resolve(count.result);
-  };
-})`;
+test("a send in an Answer panel input removes the card and sends no voice mark", async ({
+  page,
+}) => {
+  await routeInboxItems(page, [coordinatorQuestion]);
+  await answer(page, "red roses");
+  const bodies: string[] = [];
+  await page.route("**/api/inbox/211/answer", (route) => {
+    bodies.push(route.request().postData() ?? "");
+    return route.fulfill({ json: { data: { url: "" } } });
+  });
+  await page.goto("/inbox");
+  await page
+    .getByRole("main")
+    .getByRole("listitem")
+    .filter({ hasText: "Pick the shop currency" })
+    .getByRole("button", { name: "Answer" })
+    .click();
+  const panel = page.getByRole("dialog");
+  const note = panel.getByRole("textbox", { name: "Your answer" });
+  await expect(note).toBeEditable();
+  await panel.getByRole("button", { name: "Start voice input" }).click();
+  await expect.poll(() => page.evaluate("samples")).toBeGreaterThan(0);
+  await expect(panel.getByRole("group", { name: "Voice recording" })).toContainText("Recording");
+  await panel.getByRole("button", { name: "Stop voice input" }).click();
+  await expect(note).toHaveValue("red roses");
+  await expect(panel.getByRole("button", { name: "Remove voice" })).toBeVisible();
+  await panel.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(panel).toBeHidden();
+  expect(bodies.map((body) => JSON.parse(body))).toEqual([{ text: "red roses" }]);
+  await expect.poll(() => drafts(page)).toEqual([]);
+});
 
 // The script makes the database at version 2 with one record in each older store. The app opens it after a reload.
 const versionTwo = `new Promise((resolve, reject) => {
@@ -1162,7 +1135,9 @@ const upgraded = `new Promise((resolve) => {
   };
 })`;
 
-test("a reload during a conversion keeps the audio, and Send again sends it", async ({ page }) => {
+test("a reload during a conversion keeps the card with its audio, and the card converts after the reload", async ({
+  page,
+}) => {
   await page.route("**/api/voice/recordings", (route) =>
     route.fulfill({ status: 500, json: { error: "failed" } }),
   );
@@ -1176,25 +1151,73 @@ test("a reload during a conversion keeps the audio, and Send again sends it", as
   await begin(page);
   await stop(page).click();
   await expect.poll(() => files.length).toBe(1);
+  await expect
+    .poll(() => drafts(page))
+    .toEqual([{ text: "", voice: "converting", audio: true, conversion: "" }]);
   await page.reload();
-  await expect(page.getByRole("alert")).toHaveText(lost);
-  await expect(again(page)).toBeVisible();
-  await expect(discard(page)).toBeVisible();
-  await expect(input).toBeEditable();
-  await again(page).click();
   await expect(input).toHaveValue("red roses");
+  await expect(removeVoice(page)).toBeVisible();
   await expect(page.getByRole("alert")).toHaveCount(0);
   expect(files.length).toBe(2);
   expect(files[0].subarray(0, 4).toString()).toBe("RIFF");
   expect(files[0].length).toBeGreaterThan(44);
   expect(files[1].equals(files[0])).toBe(true);
-  await page.reload();
-  await expect(start(page)).toBeVisible();
-  await expect(page.getByRole("alert")).toHaveCount(0);
-  expect(await page.evaluate(storedAudio)).toBe(0);
+  await expect
+    .poll(() => drafts(page))
+    .toEqual([{ text: "red roses", voice: "ready", audio: false, conversion: "" }]);
 });
 
-test("a failed conversion and a reload keep the audio", async ({ page }) => {
+test("a reload keeps the conversion, and the card asks the server for its result", async ({
+  page,
+}) => {
+  let uploads = 0;
+  const release = await holdConversions(page);
+  await page.route("**/api/voice/transcriptions", (route) => {
+    uploads++;
+    return route.fulfill(upload({ text: "red roses" }));
+  });
+  await page.goto("/chat");
+  await begin(page);
+  await stop(page).click();
+  await expect
+    .poll(async () => (await drafts(page)) as { conversion: string }[])
+    .toEqual([expect.objectContaining({ voice: "converting", conversion: expect.any(String) })]);
+  await expect
+    .poll(async () => ((await drafts(page)) as { conversion: string }[])[0].conversion)
+    .not.toBe("");
+  await page.reload();
+  release();
+  await expect(page.getByLabel("Message to the Coordinator")).toHaveValue("red roses");
+  expect(uploads).toBe(1);
+});
+
+test("a card that converts after a reload puts its text into its own chat while the page shows another chat", async ({
+  page,
+}) => {
+  await page.route("**/api/voice/recordings", (route) =>
+    route.fulfill({ status: 500, json: { error: "failed" } }),
+  );
+  let files = 0;
+  await page.route("**/api/voice/transcriptions", (route) =>
+    ++files === 1 ? undefined : route.fulfill(upload({ text: "red roses" })),
+  );
+  await page.goto(shop);
+  await begin(page);
+  await stop(page).click();
+  await expect.poll(() => files).toBe(1);
+  await page.goto(seasonal);
+  await expect(page.getByLabel("Message to the Lead")).toBeEditable();
+  await expect
+    .poll(() => drafts(page))
+    .toEqual([{ text: "red roses", voice: "ready", audio: false, conversion: "" }]);
+  await expect(page.getByLabel("Message to the Lead")).toHaveValue("");
+  await page.goto(shop);
+  await expect(page.getByLabel("Message to the Lead")).toHaveValue("red roses");
+});
+
+test("a failed conversion and a reload keep the card with the error and the audio", async ({
+  page,
+}) => {
   const files: Buffer[] = [];
   await page.route("**/api/voice/transcriptions", (route) => {
     files.push(route.request().postDataBuffer() ?? Buffer.alloc(0));
@@ -1206,19 +1229,18 @@ test("a failed conversion and a reload keep the audio", async ({ page }) => {
   await begin(page);
   await stop(page).click();
   await expect(page.getByRole("alert")).toHaveText("The converter returned an error");
-  await expect(again(page)).toBeVisible();
-  await expect(discard(page)).toBeVisible();
   await page.reload();
-  await expect(page.getByRole("alert")).toHaveText(lost);
+  await expect(page.getByRole("alert")).toHaveText("The converter returned an error");
   await expect(again(page)).toBeVisible();
   await expect(discard(page)).toBeVisible();
+  expect(await drafts(page)).toEqual([{ text: "", voice: "failed", audio: true, conversion: "" }]);
   await again(page).click();
   await expect(page.getByLabel("Message to the Coordinator")).toHaveValue("red roses");
   expect(files.length).toBe(2);
   expect(files[1].equals(files[0])).toBe(true);
 });
 
-test("Discard removes the error and the audio", async ({ page }) => {
+test("Discard removes the card and the audio", async ({ page }) => {
   await page.route("**/api/voice/transcriptions", (route) =>
     route.fulfill(upload({ error: "The converter returned an error" })),
   );
@@ -1230,50 +1252,10 @@ test("Discard removes the error and the audio", async ({ page }) => {
   await expect(page.getByRole("alert")).toHaveCount(0);
   await expect(again(page)).toHaveCount(0);
   await expect(discard(page)).toHaveCount(0);
-  await expect.poll(() => page.evaluate(storedAudio)).toBe(0);
+  await expect.poll(() => drafts(page)).toEqual([]);
   await page.reload();
   await expect(start(page)).toBeVisible();
-  await expect(page.getByRole("alert")).toHaveCount(0);
-});
-
-test("a new recording removes the stored audio", async ({ page }) => {
-  let files = 0;
-  await page.route("**/api/voice/transcriptions", (route) =>
-    ++files === 1
-      ? route.fulfill(upload({ error: "The converter returned an error" }))
-      : route.fulfill(upload({ text: "red roses" })),
-  );
-  await page.goto("/chat");
-  await begin(page);
-  await stop(page).click();
-  await expect(again(page)).toBeVisible();
-  await page.reload();
-  await expect(again(page)).toBeVisible();
-  await begin(page);
-  await stop(page).click();
-  await expect(page.getByLabel("Message to the Coordinator")).toHaveValue("red roses");
-  await page.reload();
-  await expect(start(page)).toBeVisible();
-  await expect(page.getByRole("alert")).toHaveCount(0);
-  expect(await page.evaluate(storedAudio)).toBe(0);
-});
-
-test("Send after a failed conversion keeps the stored audio", async ({ page }) => {
-  await page.route("**/api/voice/transcriptions", (route) =>
-    route.fulfill(upload({ error: "The speech model is still starting" })),
-  );
-  await page.route("**/api/chat/messages", () => {});
-  await page.goto(shop);
-  await begin(page);
-  await stop(page).click();
-  await expect(again(page)).toBeVisible();
-  await page.getByLabel("Message to the Lead").fill("Add a plan");
-  const sent = page.waitForRequest("**/api/chat/messages");
-  await send(page).click();
-  await sent;
-  await page.reload();
-  await expect(page.getByRole("alert")).toHaveText(lost);
-  await expect(again(page)).toBeVisible();
+  await expect(voiceCard(page)).toHaveCount(0);
 });
 
 test("a database at version 2 opens at version 3 and keeps its records", async ({ page }) => {
@@ -1288,38 +1270,6 @@ test("a database at version 2 opens at version 3 and keeps its records", async (
     outbox: ["old message"],
     drafts: ["old draft"],
   });
-});
-
-test("a switch during a recording keeps it and the text goes to the new field", async ({
-  page,
-}) => {
-  await answer(page, "red roses");
-  await page.goto(shop);
-  const input = page.getByLabel("Message to the Lead");
-  await begin(page);
-  await open(page, seasonal);
-  await expect(stop(page)).toBeVisible();
-  expect(await trackState(page)).toEqual(["live"]);
-  await stop(page).click();
-  await expect(input).toHaveValue("red roses");
-  await expect(start(page)).toBeVisible();
-  expect(await page.evaluate("microphones.length")).toBe(1);
-});
-
-test("a switch during the conversion keeps it and the text goes to the new field", async ({
-  page,
-}) => {
-  const release = await holdConversions(page);
-  await answer(page, "red roses");
-  await page.goto(shop);
-  const input = page.getByLabel("Message to the Lead");
-  await begin(page);
-  await stop(page).click();
-  await expect(page.getByRole("button", { name: "Converting the voice input" })).toBeVisible();
-  await open(page, seasonal);
-  await expect(page.getByRole("button", { name: "Converting the voice input" })).toBeVisible();
-  release();
-  await expect(input).toHaveValue("red roses");
 });
 
 test.describe("without a microphone API", () => {
@@ -1364,12 +1314,11 @@ wakeLockTest("the stop releases the screen wake lock", async (page) => {
   await expect.poll(() => heldLocks(page)).toEqual([]);
 });
 
-wakeLockTest("Send releases the screen wake lock", async (page) => {
-  await page.route("**/api/chat/messages", () => {});
+wakeLockTest("Send stops the recording and releases the screen wake lock", async (page) => {
   await start(page).click();
   await expect.poll(() => heldLocks(page)).toEqual(["screen"]);
   await page.getByLabel("Message to the Lead").fill("Add a plan");
-  await page.getByRole("main").getByRole("button", { name: "Send", exact: true }).click();
+  await send(page).click();
   await expect.poll(() => heldLocks(page)).toEqual([]);
 });
 

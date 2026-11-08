@@ -3,9 +3,23 @@ import { run } from "./database";
 
 export type DraftInboxItem = ChatInboxItem & { id: number };
 
-export type Draft = { text: string; images: File[]; inboxItems: DraftInboxItem[] };
+// The audio stays in the draft until the server gives the text. conversion is the id of the server conversion, or ""
+// before the upload ends. error has the text of the failure in the state failed.
+export type DraftVoice = {
+  state: "converting" | "failed" | "ready";
+  audio: Blob | null;
+  conversion: string;
+  error: string;
+};
 
-export const emptyDraft: Draft = { text: "", images: [], inboxItems: [] };
+export type Draft = {
+  text: string;
+  images: File[];
+  inboxItems: DraftInboxItem[];
+  voice: DraftVoice | null;
+};
+
+export const emptyDraft: Draft = { text: "", images: [], inboxItems: [], voice: null };
 
 export function chatDraftKey(organization: string, repository: string, workstream: number) {
   return `chatDraft:${organization}/${repository}/${workstream}`;
@@ -38,6 +52,7 @@ function load(key: string) {
         text: record?.text ?? "",
         images: record?.images ?? [],
         inboxItems: record?.inboxItems ?? [],
+        voice: record?.voice ?? null,
       }))
       // The input works with no kept draft.
       .catch(() => emptyDraft)
@@ -68,13 +83,22 @@ export async function updateDraft(key: string, update: (draft: Draft) => Draft) 
   const next = update(current);
   drafts.set(key, next);
   listeners.forEach((listener) => listener());
-  const empty = !next.text && next.images.length === 0 && next.inboxItems.length === 0;
+  const empty =
+    !next.text && next.images.length === 0 && next.inboxItems.length === 0 && !next.voice;
   // The input works with no kept draft.
   await (
     empty
       ? run("drafts", "readwrite", (store) => store.delete(key))
       : run("drafts", "readwrite", (store) => store.put({ key, ...next }))
   ).catch(() => {});
+}
+
+// The keys of the stored drafts that have a recording in the state converting.
+export async function convertingDraftKeys() {
+  const records = await run<({ key: string } & Draft)[]>("drafts", "readonly", (store) =>
+    store.getAll(),
+  ).catch(() => []);
+  return records.filter((record) => record.voice?.state === "converting").map(({ key }) => key);
 }
 
 export function saveDraftText(key: string, text: string) {
