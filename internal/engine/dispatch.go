@@ -1165,6 +1165,9 @@ func (e *Engine) resume(ctx context.Context, repository github.Repository, issue
 	if err != nil || !moved {
 		return err
 	}
+	if err := e.dismissIssueItems(ctx, task.Repository, task.Issue, stoppedKind); err != nil {
+		return err
+	}
 	if err := repository.RemoveLabel(ctx, int64(issue.GetNumber()), readyLabel); err != nil {
 		return err
 	}

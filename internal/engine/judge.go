@@ -525,8 +525,11 @@ func (e *Engine) route(ctx context.Context, j judgeJob, verdicts []itemVerdicts)
 			if err := e.queries.ResetTaskCounters(ctx, j.task.ID); err != nil {
 				return err
 			}
-			_, err := e.continueTask(ctx, repository, j.title, j.task, j.pullRequest, "working")
-			return err
+			moved, err := e.continueTask(ctx, repository, j.title, j.task, j.pullRequest, "working")
+			if err != nil || !moved {
+				return err
+			}
+			return e.dismissIssueItems(ctx, j.task.Repository, j.task.Issue, stoppedKind)
 		}
 		head := j.pullRequest.GetHead().GetSHA()
 		switch j.from {
@@ -562,6 +565,11 @@ func (e *Engine) route(ctx context.Context, j judgeJob, verdicts []itemVerdicts)
 	}
 	if err := e.fixRound(ctx, repository, round{task: j.task, title: j.title, pullRequest: j.pullRequest, counts: counts, items: roundText(j.items, routes.round), parent: parent, cause: judgeCause}); err != nil {
 		return err
+	}
+	if j.from == "needs_human" {
+		if err := e.dismissIssueItems(ctx, j.task.Repository, j.task.Issue, stoppedKind); err != nil {
+			return err
+		}
 	}
 	return e.dismissReadyForReview(ctx, j.task, j.from)
 }
