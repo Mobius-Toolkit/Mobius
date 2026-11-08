@@ -69,6 +69,8 @@ type InboxItem struct {
 	Action *PendingAction `gork:"action"`
 	// Todo is the deployment need of a todo item, or null for another item
 	Todo *Todo `gork:"todo"`
+	// BlockingTodos are the IDs of the open todo Inbox items whose todo blocks the merge of the pull request of a ready for review item, oldest first. It is an empty list for another item
+	BlockingTodos []int64 `gork:"blockingTodos"`
 }
 
 // Todo is the deployment need of a todo Inbox item.
@@ -324,6 +326,11 @@ func (h *handlers) inboxItemOf(ctx context.Context, item store.InboxItem) (Inbox
 		Withdrawn:            item.Withdrawn != 0,
 		Questions:            []Question{},
 	}
+	blocking, err := h.engine.BlockingTodos(ctx, item)
+	if err != nil {
+		return InboxItem{}, err
+	}
+	found.BlockingTodos = append([]int64{}, blocking...)
 	if item.Questions != "" {
 		var questions []engine.Question
 		if err := json.Unmarshal([]byte(item.Questions), &questions); err != nil {
