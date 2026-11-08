@@ -1,12 +1,6 @@
 import { Outlet, useLocation, useMatch, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import {
-  listGitHubApps,
-  listOrganizations,
-  type Activity as ActivityRow,
-  type GitHubApp,
-  type LiveEvents,
-} from "@/api/api.gen";
+import { listGitHubApps, listOrganizations, type GitHubApp, type LiveEvents } from "@/api/api.gen";
 import { Badge } from "@/components/ui/badge";
 import { useCIStops } from "@/lib/ciStops";
 import { onEvent, retryDelay } from "@/lib/events";
@@ -68,7 +62,6 @@ function App() {
   const [source, setSource] = useState<EventSource>();
   const [link, setLink] = useState<Link>("starting");
   const online = useSyncExternalStore(subscribeOnline, () => navigator.onLine);
-  const [activities, setActivities] = useState<ActivityRow[]>([]);
   const live = !loginShown && apps !== undefined && apps.length > 0;
   const showLogin = useCallback(() => setLoginShown(true), []);
   const listed = useWorkstreams();
@@ -164,13 +157,6 @@ function App() {
         }
       });
       onEvent<LiveEvents, "ping">(next, "ping", connected);
-      // The server sends the latest activities when the connection opens, before the pages can listen. When the
-      // browser connects again, the server sends only the activities after the last event id.
-      onEvent<LiveEvents, "activity">(next, "activity", (activity) =>
-        setActivities((list) =>
-          list.some((other) => other.id === activity.id) ? list : [...list, activity],
-        ),
-      );
       return next;
     };
     events = connect();
@@ -327,7 +313,6 @@ function App() {
             inboxFailure,
             clearInboxFailure,
             updateAction,
-            activities,
             pauses,
             switches,
             switchErrors,

@@ -17,16 +17,7 @@ test("back and forward move between the pages", async ({ page }) => {
   await link("/inbox").click();
   await expect(page).toHaveURL("/inbox");
   await expect(main.getByText("Inbox", { exact: true })).toBeVisible();
-  await link("/inbox/activity").click();
-  await expect(page).toHaveURL("/inbox/activity");
-  await expect(main.getByRole("tab", { name: "Activity" })).toHaveAttribute(
-    "aria-selected",
-    "true",
-  );
 
-  await page.goBack();
-  await expect(page).toHaveURL("/inbox");
-  await expect(main.getByText("Inbox", { exact: true })).toBeVisible();
   await page.goBack();
   await expect(page).toHaveURL("/workstreams");
   await expect(main.getByText("Integrate loyalty plans")).toBeVisible();
@@ -51,6 +42,7 @@ test("the start page and an unknown path open the Coordinator chat", async ({ pa
     "/",
     "/nowhere",
     "/activity",
+    "/inbox/activity",
     "/workstreams/new",
     "/workstreams/owner/shop/abc",
     "/workstreams/owner",
@@ -107,33 +99,6 @@ test("the sidebar of a desktop shows Chat, Inbox, Tasks, the evergreen Workstrea
   await page.addInitScript("localStorage.setItem('organization', 'plants')");
   await page.goto("/workstreams");
   await expect(links.nth(0)).toHaveText(/^Chat\s*1$/);
-});
-
-test("the Inbox page has a tab for each address, and a reload keeps the tab", async ({ page }) => {
-  const main = page.getByRole("main");
-  const todo = main.getByRole("tab", { name: /^To do/ });
-  const activity = main.getByRole("tab", { name: "Activity" });
-
-  await page.goto("/inbox");
-  await expect(todo).toHaveText(/^To do\s*1$/);
-  await expect(todo).toHaveAttribute("aria-selected", "true");
-  await expect(main.getByText("The Lead asks a question")).toBeVisible();
-
-  await activity.click();
-  await expect(page).toHaveURL("/inbox/activity");
-  await expect(activity).toHaveAttribute("aria-selected", "true");
-  await expect(main.getByRole("button", { name: "Integrate loyalty plans" })).toBeVisible();
-  await expect(main.getByText("The Lead asks a question")).toHaveCount(0);
-
-  await page.reload();
-  await expect(page).toHaveURL("/inbox/activity");
-  await expect(activity).toHaveAttribute("aria-selected", "true");
-  await expect(main.getByRole("button", { name: "Integrate loyalty plans" })).toBeVisible();
-
-  await page.goBack();
-  await expect(page).toHaveURL("/inbox");
-  await expect(todo).toHaveAttribute("aria-selected", "true");
-  await expect(main.getByText("The Lead asks a question")).toBeVisible();
 });
 
 test("a click on a link of the app opens its page with no page load", async ({ page }) => {
@@ -412,7 +377,7 @@ test.describe("the back button of a phone", () => {
   });
 
   test("is not on a tab page", async ({ page }) => {
-    for (const path of ["/chat", "/workstreams", "/inbox", "/inbox/activity", "/settings"]) {
+    for (const path of ["/chat", "/workstreams", "/inbox", "/settings"]) {
       await page.goto(path);
       await expect(page.getByRole("navigation").last()).toBeVisible();
       await expect(back(page)).toHaveCount(0);

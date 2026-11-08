@@ -1,13 +1,5 @@
 import { createContext, useContext } from "react";
-import type {
-  Activity,
-  GitHubApp,
-  InboxItem,
-  Pause,
-  PendingAction,
-  Switches,
-  Unread,
-} from "@/api/api.gen";
+import type { GitHubApp, InboxItem, Pause, PendingAction, Switches, Unread } from "@/api/api.gen";
 import type { ChangeSwitch, SwitchKind } from "./switches";
 import type { Workstreams } from "./workstreams";
 
@@ -26,7 +18,6 @@ type Shell = {
   inboxFailure?: { id: number; error: string };
   clearInboxFailure: () => void;
   updateAction: (action: PendingAction) => void;
-  activities: Activity[];
   pauses: Pause[];
   switches?: Switches;
   switchErrors: Partial<Record<SwitchKind, string>>;

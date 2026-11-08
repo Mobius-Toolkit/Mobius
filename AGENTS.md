@@ -41,7 +41,7 @@ orval does not read `contentSchema` and `itemSchema` of OpenAPI 3.2. Thus `web/o
 - It replaces each schema that has `contentMediaType: application/json` with its `contentSchema`. Thus the generated event types have the decoded data type.
 - It removes each operation that has only `text/event-stream` success responses, because the generated function waits for the full body. The components stay, so the event types stay.
 
-To listen to a server-sent event, use `onEvent` from `web/src/lib/events.ts` with the generated event type, for example `onEvent<LiveEvents, 'activity'>(source, 'activity', listener)`. A wrong event name or a wrong data field gives a type error.
+To listen to a server-sent event, use `onEvent` from `web/src/lib/events.ts` with the generated event type, for example `onEvent<LiveEvents, 'message'>(source, 'message', listener)`. A wrong event name or a wrong data field gives a type error.
 
 ## Migrations
 
