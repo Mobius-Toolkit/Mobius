@@ -654,9 +654,10 @@ func (q *Queries) AddInboxItem(ctx context.Context, arg AddInboxItemParams) (Inb
 	return i, err
 }
 
-const addLeadEvent = `-- name: AddLeadEvent :exec
+const addLeadEvent = `-- name: AddLeadEvent :one
 INSERT INTO lead_events (repository, workstream, issue_repository, issue, kind, payload, time, chat_message, comment, review)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id
 `
 
 type AddLeadEventParams struct {
@@ -672,8 +673,8 @@ type AddLeadEventParams struct {
 	Review          sql.NullBool
 }
 
-func (q *Queries) AddLeadEvent(ctx context.Context, arg AddLeadEventParams) error {
-	_, err := q.db.ExecContext(ctx, addLeadEvent,
+func (q *Queries) AddLeadEvent(ctx context.Context, arg AddLeadEventParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, addLeadEvent,
 		arg.Repository,
 		arg.Workstream,
 		arg.IssueRepository,
@@ -685,7 +686,9 @@ func (q *Queries) AddLeadEvent(ctx context.Context, arg AddLeadEventParams) erro
 		arg.Comment,
 		arg.Review,
 	)
-	return err
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const addLeadWrite = `-- name: AddLeadWrite :exec
@@ -805,6 +808,63 @@ func (q *Queries) AddPendingAction(ctx context.Context, arg AddPendingActionPara
 		&i.OldBrief,
 	)
 	return i, err
+}
+
+const addRecurringTask = `-- name: AddRecurringTask :one
+INSERT INTO recurring_tasks (repository, workstream, cron, text, checked_at)
+VALUES (?, ?, ?, ?, ?)
+RETURNING id, repository, workstream, cron, text, paused, checked_at, event
+`
+
+type AddRecurringTaskParams struct {
+	Repository string
+	Workstream int64
+	Cron       string
+	Text       string
+	CheckedAt  string
+}
+
+func (q *Queries) AddRecurringTask(ctx context.Context, arg AddRecurringTaskParams) (RecurringTask, error) {
+	row := q.db.QueryRowContext(ctx, addRecurringTask,
+		arg.Repository,
+		arg.Workstream,
+		arg.Cron,
+		arg.Text,
+		arg.CheckedAt,
+	)
+	var i RecurringTask
+	err := row.Scan(
+		&i.ID,
+		&i.Repository,
+		&i.Workstream,
+		&i.Cron,
+		&i.Text,
+		&i.Paused,
+		&i.CheckedAt,
+		&i.Event,
+	)
+	return i, err
+}
+
+const addRecurringTaskRun = `-- name: AddRecurringTaskRun :exec
+INSERT INTO recurring_task_runs (recurring_task, time, result, reason) VALUES (?, ?, ?, ?)
+`
+
+type AddRecurringTaskRunParams struct {
+	RecurringTask int64
+	Time          string
+	Result        string
+	Reason        string
+}
+
+func (q *Queries) AddRecurringTaskRun(ctx context.Context, arg AddRecurringTaskRunParams) error {
+	_, err := q.db.ExecContext(ctx, addRecurringTaskRun,
+		arg.RecurringTask,
+		arg.Time,
+		arg.Result,
+		arg.Reason,
+	)
+	return err
 }
 
 const addReviewRound = `-- name: AddReviewRound :exec
@@ -1244,6 +1304,22 @@ func (q *Queries) AddWorkstreamBucket(ctx context.Context, arg AddWorkstreamBuck
 		arg.Issue,
 		arg.Closed,
 	)
+	return err
+}
+
+const advanceRecurringTask = `-- name: AdvanceRecurringTask :exec
+UPDATE recurring_tasks SET checked_at = ?1, event = coalesce(?2, event)
+WHERE id = ?3
+`
+
+type AdvanceRecurringTaskParams struct {
+	CheckedAt string
+	Event     sql.NullInt64
+	ID        int64
+}
+
+func (q *Queries) AdvanceRecurringTask(ctx context.Context, arg AdvanceRecurringTaskParams) error {
+	_, err := q.db.ExecContext(ctx, advanceRecurringTask, arg.CheckedAt, arg.Event, arg.ID)
 	return err
 }
 
@@ -1742,6 +1818,33 @@ func (q *Queries) DeleteOtherPasswordLogins(ctx context.Context, passwordFingerp
 	return err
 }
 
+const deleteRecurringTask = `-- name: DeleteRecurringTask :execrows
+DELETE FROM recurring_tasks WHERE id = ? AND repository = ? AND workstream = ?
+`
+
+type DeleteRecurringTaskParams struct {
+	ID         int64
+	Repository string
+	Workstream int64
+}
+
+func (q *Queries) DeleteRecurringTask(ctx context.Context, arg DeleteRecurringTaskParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteRecurringTask, arg.ID, arg.Repository, arg.Workstream)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const deleteRecurringTaskRuns = `-- name: DeleteRecurringTaskRuns :exec
+DELETE FROM recurring_task_runs WHERE recurring_task = ?
+`
+
+func (q *Queries) DeleteRecurringTaskRuns(ctx context.Context, recurringTask int64) error {
+	_, err := q.db.ExecContext(ctx, deleteRecurringTaskRuns, recurringTask)
+	return err
+}
+
 const deleteRoleSetting = `-- name: DeleteRoleSetting :exec
 DELETE FROM role_settings WHERE role = ?
 `
@@ -1780,6 +1883,35 @@ type DeleteWorkstreamBucketParams struct {
 
 func (q *Queries) DeleteWorkstreamBucket(ctx context.Context, arg DeleteWorkstreamBucketParams) error {
 	_, err := q.db.ExecContext(ctx, deleteWorkstreamBucket, arg.Repository, arg.Issue)
+	return err
+}
+
+const deleteWorkstreamRecurringTaskRuns = `-- name: DeleteWorkstreamRecurringTaskRuns :exec
+DELETE FROM recurring_task_runs
+WHERE recurring_task IN (SELECT id FROM recurring_tasks WHERE repository = ? AND workstream = ?)
+`
+
+type DeleteWorkstreamRecurringTaskRunsParams struct {
+	Repository string
+	Workstream int64
+}
+
+func (q *Queries) DeleteWorkstreamRecurringTaskRuns(ctx context.Context, arg DeleteWorkstreamRecurringTaskRunsParams) error {
+	_, err := q.db.ExecContext(ctx, deleteWorkstreamRecurringTaskRuns, arg.Repository, arg.Workstream)
+	return err
+}
+
+const deleteWorkstreamRecurringTasks = `-- name: DeleteWorkstreamRecurringTasks :exec
+DELETE FROM recurring_tasks WHERE repository = ? AND workstream = ?
+`
+
+type DeleteWorkstreamRecurringTasksParams struct {
+	Repository string
+	Workstream int64
+}
+
+func (q *Queries) DeleteWorkstreamRecurringTasks(ctx context.Context, arg DeleteWorkstreamRecurringTasksParams) error {
+	_, err := q.db.ExecContext(ctx, deleteWorkstreamRecurringTasks, arg.Repository, arg.Workstream)
 	return err
 }
 
@@ -3487,6 +3619,17 @@ func (q *Queries) HasTask(ctx context.Context, arg HasTaskParams) (bool, error) 
 	return exists, err
 }
 
+const hasUndeliveredLeadEvent = `-- name: HasUndeliveredLeadEvent :one
+SELECT EXISTS (SELECT 1 FROM lead_events WHERE id = ? AND delivered_at IS NULL)
+`
+
+func (q *Queries) HasUndeliveredLeadEvent(ctx context.Context, id int64) (bool, error) {
+	row := q.db.QueryRowContext(ctx, hasUndeliveredLeadEvent, id)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const holdLeadEvent = `-- name: HoldLeadEvent :exec
 UPDATE lead_events SET held = 1, held_at = ? WHERE id = ?
 `
@@ -3638,6 +3781,44 @@ func (q *Queries) ListAllOpenHardCIBreaks(ctx context.Context) ([]CiBreak, error
 			&i.EndedAt,
 			&i.Issue,
 			&i.StartedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAllRecurringTasks = `-- name: ListAllRecurringTasks :many
+SELECT id, repository, workstream, cron, text, paused, checked_at, event FROM recurring_tasks
+WHERE paused = 0
+ORDER BY id
+`
+
+func (q *Queries) ListAllRecurringTasks(ctx context.Context) ([]RecurringTask, error) {
+	rows, err := q.db.QueryContext(ctx, listAllRecurringTasks)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []RecurringTask
+	for rows.Next() {
+		var i RecurringTask
+		if err := rows.Scan(
+			&i.ID,
+			&i.Repository,
+			&i.Workstream,
+			&i.Cron,
+			&i.Text,
+			&i.Paused,
+			&i.CheckedAt,
+			&i.Event,
 		); err != nil {
 			return nil, err
 		}
@@ -6979,6 +7160,84 @@ func (q *Queries) ListRecentMemoryVersions(ctx context.Context, repository strin
 	return items, nil
 }
 
+const listRecurringTaskRuns = `-- name: ListRecurringTaskRuns :many
+SELECT id, recurring_task, time, result, reason FROM recurring_task_runs
+WHERE recurring_task = ?
+ORDER BY id DESC
+`
+
+func (q *Queries) ListRecurringTaskRuns(ctx context.Context, recurringTask int64) ([]RecurringTaskRun, error) {
+	rows, err := q.db.QueryContext(ctx, listRecurringTaskRuns, recurringTask)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []RecurringTaskRun
+	for rows.Next() {
+		var i RecurringTaskRun
+		if err := rows.Scan(
+			&i.ID,
+			&i.RecurringTask,
+			&i.Time,
+			&i.Result,
+			&i.Reason,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRecurringTasks = `-- name: ListRecurringTasks :many
+SELECT id, repository, workstream, cron, text, paused, checked_at, event FROM recurring_tasks
+WHERE repository = ? AND workstream = ?
+ORDER BY id
+`
+
+type ListRecurringTasksParams struct {
+	Repository string
+	Workstream int64
+}
+
+func (q *Queries) ListRecurringTasks(ctx context.Context, arg ListRecurringTasksParams) ([]RecurringTask, error) {
+	rows, err := q.db.QueryContext(ctx, listRecurringTasks, arg.Repository, arg.Workstream)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []RecurringTask
+	for rows.Next() {
+		var i RecurringTask
+		if err := rows.Scan(
+			&i.ID,
+			&i.Repository,
+			&i.Workstream,
+			&i.Cron,
+			&i.Text,
+			&i.Paused,
+			&i.CheckedAt,
+			&i.Event,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listReplaceablePendingActions = `-- name: ListReplaceablePendingActions :many
 SELECT id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, created_issue, old_brief FROM pending_actions
 WHERE organization = ? AND repository = ? AND workstream = ? AND issue = ? AND role = ? AND tool = ?
@@ -8998,6 +9257,44 @@ func (q *Queries) SetQueueReason(ctx context.Context, arg SetQueueReasonParams) 
 	return i, err
 }
 
+const setRecurringTaskPaused = `-- name: SetRecurringTaskPaused :one
+UPDATE recurring_tasks
+SET paused = CAST(?1 AS BOOLEAN), checked_at = ?2
+WHERE id = ?3 AND repository = ?4 AND workstream = ?5
+RETURNING id, repository, workstream, cron, text, paused, checked_at, event
+`
+
+type SetRecurringTaskPausedParams struct {
+	Paused     bool
+	CheckedAt  string
+	ID         int64
+	Repository string
+	Workstream int64
+}
+
+// A resume gives no event for the times of the pause.
+func (q *Queries) SetRecurringTaskPaused(ctx context.Context, arg SetRecurringTaskPausedParams) (RecurringTask, error) {
+	row := q.db.QueryRowContext(ctx, setRecurringTaskPaused,
+		arg.Paused,
+		arg.CheckedAt,
+		arg.ID,
+		arg.Repository,
+		arg.Workstream,
+	)
+	var i RecurringTask
+	err := row.Scan(
+		&i.ID,
+		&i.Repository,
+		&i.Workstream,
+		&i.Cron,
+		&i.Text,
+		&i.Paused,
+		&i.CheckedAt,
+		&i.Event,
+	)
+	return i, err
+}
+
 const setReviewComment = `-- name: SetReviewComment :exec
 UPDATE tasks SET review_comment = ? WHERE id = ?
 `
@@ -9537,6 +9834,17 @@ func (q *Queries) StopTask(ctx context.Context, id int64) (int64, error) {
 	return result.RowsAffected()
 }
 
+const trimRecurringTaskRuns = `-- name: TrimRecurringTaskRuns :exec
+DELETE FROM recurring_task_runs
+WHERE recurring_task_runs.recurring_task = ?1
+  AND recurring_task_runs.id NOT IN (SELECT newest.id FROM recurring_task_runs AS newest WHERE newest.recurring_task = ?1 ORDER BY newest.id DESC LIMIT 20)
+`
+
+func (q *Queries) TrimRecurringTaskRuns(ctx context.Context, task int64) error {
+	_, err := q.db.ExecContext(ctx, trimRecurringTaskRuns, task)
+	return err
+}
+
 const undeliverChatMessage = `-- name: UndeliverChatMessage :one
 UPDATE chat_messages SET delivered_at = NULL WHERE id = ? AND delivered_at IS NOT NULL
 RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice
@@ -9681,6 +9989,47 @@ func (q *Queries) UpdateCopiedWorkstream(ctx context.Context, arg UpdateCopiedWo
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const updateRecurringTask = `-- name: UpdateRecurringTask :one
+UPDATE recurring_tasks
+SET checked_at = CASE WHEN cron != ?1 THEN ?2 ELSE checked_at END,
+    cron = ?1, text = ?3
+WHERE id = ?4 AND repository = ?5 AND workstream = ?6
+RETURNING id, repository, workstream, cron, text, paused, checked_at, event
+`
+
+type UpdateRecurringTaskParams struct {
+	Cron       string
+	CheckedAt  string
+	Text       string
+	ID         int64
+	Repository string
+	Workstream int64
+}
+
+// A new cron expression gives no event for a time before the change.
+func (q *Queries) UpdateRecurringTask(ctx context.Context, arg UpdateRecurringTaskParams) (RecurringTask, error) {
+	row := q.db.QueryRowContext(ctx, updateRecurringTask,
+		arg.Cron,
+		arg.CheckedAt,
+		arg.Text,
+		arg.ID,
+		arg.Repository,
+		arg.Workstream,
+	)
+	var i RecurringTask
+	err := row.Scan(
+		&i.ID,
+		&i.Repository,
+		&i.Workstream,
+		&i.Cron,
+		&i.Text,
+		&i.Paused,
+		&i.CheckedAt,
+		&i.Event,
+	)
+	return i, err
 }
 
 const upsertIssueBinding = `-- name: UpsertIssueBinding :exec

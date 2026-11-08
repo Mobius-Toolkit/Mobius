@@ -389,6 +389,7 @@ func (e *Engine) Run(ctx context.Context) {
 	wg.Go(func() { every(ctx, e.config.PollInterval, nil, e.checkAccess) })
 	wg.Go(func() { every(ctx, e.config.PollInterval, nil, e.autoUpgradeTools) })
 	wg.Go(func() { every(ctx, e.config.PollInterval, nil, e.endDuePauses) })
+	wg.Go(func() { every(ctx, e.config.PollInterval, nil, e.runRecurringTasks) })
 	every(ctx, e.config.PollInterval, e.pollWake, e.poll)
 	wg.Wait()
 	e.stopWorkers()
