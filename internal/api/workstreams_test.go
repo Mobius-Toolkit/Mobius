@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
-	"github.com/Mobius-Toolkit/Mobius/internal/voice"
 )
 
 func TestListWorkstreams(t *testing.T) {
@@ -59,7 +58,7 @@ func TestListWorkstreams(t *testing.T) {
 }
 
 func TestListWorkstreamsGivesTheBriefWithNoChatLink(t *testing.T) {
-	mux, db := testMuxConfig(t, voice.NewRecordings(voice.New(t.TempDir(), ""), voice.NewDraft(t.TempDir(), "")), &config.Config{UIURL: "https://mobius.example.com"})
+	mux, db := testMuxConfig(t, newRecordings(t), &config.Config{UIURL: "https://mobius.example.com"})
 	exec(t, db, `
 		INSERT INTO copied_workstreams (repository, number, title, body, autopilot, evergreen) VALUES
 			('o/a', 1, 'Loyalty plans', 'Ship the plans.

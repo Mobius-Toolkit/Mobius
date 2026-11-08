@@ -10,15 +10,38 @@ import (
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
+	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 	"github.com/Mobius-Toolkit/Mobius/internal/voice"
 )
 
 const password = "correct horse"
 
+// newWhisper gives a final converter that listens on a free address, not on the address of the running Mobius.
+func newWhisper(t *testing.T) *voice.Whisper {
+	t.Helper()
+	w := voice.New(t.TempDir(), "")
+	w.Address = testkit.FreeAddress(t)
+	return w
+}
+
+// newDraftWhisper gives a draft converter that listens on a free address, not on the address of the running Mobius.
+func newDraftWhisper(t *testing.T) *voice.Whisper {
+	t.Helper()
+	w := voice.NewDraft(t.TempDir(), "")
+	w.Address = testkit.FreeAddress(t)
+	return w
+}
+
+// newRecordings gives the voice recordings with a final and a draft converter on free addresses.
+func newRecordings(t *testing.T) *voice.Recordings {
+	t.Helper()
+	return voice.NewRecordings(newWhisper(t), newDraftWhisper(t))
+}
+
 // newMux gives the API with a new database and the access password "correct horse".
 func newMux(t *testing.T) (*http.ServeMux, *sql.DB, *auth.Auth) {
 	t.Helper()
-	return newMuxWith(t, voice.NewRecordings(voice.New(t.TempDir(), ""), voice.NewDraft(t.TempDir(), "")))
+	return newMuxWith(t, newRecordings(t))
 }
 
 // newMuxWith gives the API with the voice recordings, a new database and the access password "correct horse".
@@ -48,7 +71,7 @@ func newMuxConfig(t *testing.T, recordings *voice.Recordings, cfg *config.Config
 // testMux gives the API with a handler that adds the cookie of a device login to each request.
 func testMux(t *testing.T) (http.Handler, *sql.DB) {
 	t.Helper()
-	return testMuxWith(t, voice.NewRecordings(voice.New(t.TempDir(), ""), voice.NewDraft(t.TempDir(), "")))
+	return testMuxWith(t, newRecordings(t))
 }
 
 // testMuxWith gives testMux with the voice recordings.
