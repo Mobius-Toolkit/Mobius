@@ -20,6 +20,8 @@ export const retryDelays = [2000, 5000, 10_000, 30_000];
 
 export type { Failure, Waiting } from "./schemas";
 
+// A read that the server made between the chat message of a question and its Inbox item has no question, and it can
+// come after the live message that has it.
 export function upsert(list: readonly ChatMessage[], message: ChatMessage): readonly ChatMessage[] {
   const known = list.find((other) => other.id === message.id);
   if (
@@ -29,6 +31,7 @@ export function upsert(list: readonly ChatMessage[], message: ChatMessage): read
         !message.deliveredAt &&
         !(message.failedAt && new Date(message.failedAt) > new Date(known.deliveredAt))) ||
       (known.stoppedAt && !message.stoppedAt) ||
+      (known.question && !message.question) ||
       (known.question?.dismissedAt && !message.question?.dismissedAt))
   ) {
     return list;

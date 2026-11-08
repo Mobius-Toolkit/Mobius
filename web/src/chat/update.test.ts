@@ -627,6 +627,34 @@ describe("chat update story tests", () => {
       );
     });
 
+    it("keeps the question of a message when an older read of the page has none", () => {
+      const asked = { ...createChatMessage(10, "Which store?"), author: "Question" as const };
+      const withQuestion = { ...asked, question: createInboxItem({ id: 52 }) };
+      const base = createTestModel({ messages: [withQuestion] });
+
+      story(
+        update,
+        given(base),
+        message(
+          Message.PageLoaded({
+            page: {
+              harness: "claude-code",
+              messages: [asked],
+              older: false,
+              writing: false,
+              stoppable: false,
+              pausedUntil: null,
+            },
+            isInitial: false,
+          }),
+        ),
+        model((m) => {
+          expect(m.messages.map((x) => x.question?.id)).toEqual([52]);
+        }),
+        StoryCommand.expectNone(),
+      );
+    });
+
     it("updates existing message if new text is longer (live streaming progress)", () => {
       const initial = createChatMessage(10, "Thinking");
       const longer = createChatMessage(10, "Thinking about the task...");
