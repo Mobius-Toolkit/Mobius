@@ -569,3 +569,145 @@ reply = ["second"]
 		t.Errorf("reply after the cancel = %q", reply)
 	}
 }
+
+// rawAgent serves a script with two hanging prompts, "first" and "second", to a client that writes the input lines
+// itself. The responses to its requests come in responses.
+type rawAgent struct {
+	input     io.Writer
+	responses chan map[string]any
+	updates   chan struct{}
+}
+
+func startRawAgent(t *testing.T) *rawAgent {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "claude-agent-acp.toml")
+	script := `
+[[prompts]]
+when = "first"
+reply = ["running"]
+hang = true
+
+[[prompts]]
+when = "second"
+reply = ["running"]
+hang = true
+`
+	if err := os.WriteFile(path, []byte(script), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	agentIn, input := io.Pipe()
+	output, agentOut := io.Pipe()
+	go func() { _ = Serve(path, agentIn, agentOut) }()
+	t.Cleanup(func() { _ = input.Close() })
+	a := &rawAgent{input: input, responses: make(chan map[string]any, 2), updates: make(chan struct{}, 2)}
+	go func() {
+		decoder := json.NewDecoder(output)
+		for {
+			var message map[string]any
+			if decoder.Decode(&message) != nil {
+				return
+			}
+			if message["method"] == "session/update" {
+				a.updates <- struct{}{}
+			} else if _, ok := message["id"]; ok && message["method"] == nil {
+				a.responses <- message
+			}
+		}
+	}()
+	return a
+}
+
+func (a *rawAgent) write(t *testing.T, lines ...string) {
+	t.Helper()
+	if _, err := io.WriteString(a.input, strings.Join(lines, "")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func rawPrompt(id int, text string) string {
+	return fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"session/prompt","params":{"sessionId":"fake-session","prompt":[{"type":"text","text":%q}]}}`+"\n", id, text)
+}
+
+const (
+	rawCancel        = `{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"fake-session"}}` + "\n"
+	rawCancelRequest = `{"jsonrpc":"2.0","method":"$/cancel_request","params":{"requestId":1}}` + "\n"
+)
+
+// response waits for the next response and requires its id and stop reason. An empty stopReason accepts an error response.
+func (a *rawAgent) response(t *testing.T, id int, stopReason string) {
+	t.Helper()
+	select {
+	case response := <-a.responses:
+		if response["id"] != float64(id) {
+			t.Fatalf("response = %+v, want id %d", response, id)
+		}
+		if stopReason == "" {
+			return
+		}
+		result, _ := response["result"].(map[string]any)
+		if result["stopReason"] != stopReason {
+			t.Fatalf("response = %+v, want stop reason %s", response, stopReason)
+		}
+	case <-time.After(time.Minute):
+		t.Fatalf("no response with id %d", id)
+	}
+}
+
+// running waits until a turn sends its update.
+func (a *rawAgent) running(t *testing.T) {
+	t.Helper()
+	select {
+	case <-a.updates:
+	case <-time.After(time.Minute):
+		t.Fatal("no turn runs")
+	}
+}
+
+func (a *rawAgent) requireNoResponse(t *testing.T) {
+	t.Helper()
+	select {
+	case response := <-a.responses:
+		t.Fatalf("unexpected response: %+v", response)
+	case <-time.After(300 * time.Millisecond):
+	}
+}
+
+func TestACancelEndsNoTurnWhoseRequestCameAfterItInTheInput(t *testing.T) {
+	a := startRawAgent(t)
+	a.write(t, rawPrompt(1, "first"))
+	a.running(t)
+	a.write(t, rawCancel+rawCancelRequest+rawPrompt(2, "second"))
+
+	a.response(t, 1, "")
+	a.requireNoResponse(t)
+	a.write(t, rawCancel)
+
+	a.response(t, 2, "cancelled")
+}
+
+func TestACancelEndsTheTurnThatRunsWhenItsRequestCameBeforeTheCancelInTheSameRead(t *testing.T) {
+	a := startRawAgent(t)
+	a.write(t, rawPrompt(1, "first"))
+	a.running(t)
+	a.write(t, rawCancel+rawPrompt(2, "second"))
+
+	a.response(t, 1, "cancelled")
+	a.requireNoResponse(t)
+	a.write(t, rawCancel)
+
+	a.response(t, 2, "cancelled")
+}
+
+func TestACancelEndsTheTurnOfARequestThatCameBeforeItInTheSameReadAlsoWhenTheCancelRunsFirst(t *testing.T) {
+	a := startRawAgent(t)
+	a.write(t, rawPrompt(1, "first")+rawCancel)
+
+	a.response(t, 1, "cancelled")
+	a.running(t)
+	a.write(t, rawPrompt(2, "second"))
+	a.running(t)
+	a.requireNoResponse(t)
+	a.write(t, rawCancel)
+
+	a.response(t, 2, "cancelled")
+}
