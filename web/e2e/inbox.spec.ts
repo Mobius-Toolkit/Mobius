@@ -23,6 +23,7 @@ const base = {
   pullRequest: 0,
   pullRequestUrl: "",
   reportUrl: "",
+  blockingTodos: [],
 };
 
 const items = [
@@ -752,4 +753,119 @@ test("Details of a todo opens the same panel with no note field", async ({ page 
   await expect(panel.getByText("File: internal/config/config.go:42")).toBeVisible();
   await expect(panel.getByText("This todo blocks the merge until you complete it.")).toBeVisible();
   await expect(panel.getByRole("textbox")).toHaveCount(0);
+});
+
+const optionalTodo = {
+  ...todo,
+  id: 101,
+  title: "MOBIUS_SMTP_TIMEOUT",
+  reason: "optional · Deployment needs",
+  todo: { ...todo.todo, mandatory: false, dismissable: true },
+};
+
+const fillers = Array.from({ length: 20 }, (_, n) => ({
+  ...base,
+  id: 10 + n,
+  issue: 50 + n,
+  kind: "lost",
+  title: `Add plan model ${n}`,
+  reason: "Mobius lost the task",
+  text: "Mobius lost the task.",
+  link: `${link}/issues/${50 + n}`,
+}));
+
+// The ready row comes first, and the two todo rows come after the fillers, below the fold.
+const blockedList = (blockingTodos: number[], todos: object[]) => [
+  { ...readyItem, blockingTodos },
+  ...fillers,
+  ...todos,
+];
+
+const blockingTodoRows = [
+  { ...todo, id: 100 },
+  { ...optionalTodo, pullRequest: 44, pullRequestUrl: `${link}/pull/44` },
+];
+
+test("a blocked ready for review row shows the count in place of Merge, and a tap marks the first blocking todo row", async ({
+  page,
+  context,
+}) => {
+  let current = blockedList([100, 101], blockingTodoRows);
+  await page.route("**/api/inbox", (route) => route.fulfill({ json: { data: current } }));
+  await page.clock.install();
+  await page.goto("/inbox");
+  const main = page.getByRole("main");
+  const ready = main.getByRole("listitem").filter({ hasText: "Name the plan tiers" });
+  const first = main.getByRole("listitem").filter({ hasText: "MOBIUS_SMTP_HOST" });
+
+  await expect(ready.getByRole("button")).toHaveText(["2 open todos", "Chat", "Details"]);
+  await expect(ready.getByRole("button", { name: "Merge" })).toHaveCount(0);
+  await expect(first).not.toBeInViewport();
+
+  await ready.getByRole("button", { name: "2 open todos" }).click();
+
+  await expect(first).toBeInViewport();
+  await expect(first).toHaveAttribute("data-marked", "");
+  await page.clock.fastForward(2000);
+  await expect(first).not.toHaveAttribute("data-marked");
+
+  current = blockedList([101], [blockingTodoRows[1]]);
+  await reconnect(page, context);
+  await expect(ready.getByRole("button", { name: "1 open todo", exact: true })).toBeVisible();
+
+  current = blockedList([], []);
+  await reconnect(page, context);
+  await expect(ready.getByRole("button", { name: "Merge" })).toBeVisible();
+  await expect(ready.getByRole("button", { name: /open todo/ })).toHaveCount(0);
+});
+
+test("a second tap marks the row for 2 seconds after the second tap", async ({ page }) => {
+  await routeInbox(page, blockedList([100, 101], blockingTodoRows));
+  await page.clock.install();
+  await page.goto("/inbox");
+  const main = page.getByRole("main");
+  const ready = main.getByRole("listitem").filter({ hasText: "Name the plan tiers" });
+  const first = main.getByRole("listitem").filter({ hasText: "MOBIUS_SMTP_HOST" });
+
+  await ready.getByRole("button", { name: "2 open todos" }).click();
+  await expect(first).toHaveAttribute("data-marked", "");
+  await page.clock.fastForward(1500);
+  await ready.getByRole("button", { name: "2 open todos" }).click();
+  await page.clock.fastForward(1000);
+
+  await expect(first).toHaveAttribute("data-marked", "");
+  await page.clock.fastForward(1000);
+  await expect(first).not.toHaveAttribute("data-marked");
+});
+
+test("a tap on the count does nothing when the list has no row of the first blocking todo", async ({
+  page,
+}) => {
+  await routeInbox(page, blockedList([100, 101], []));
+  await page.goto("/inbox");
+  const ready = page
+    .getByRole("main")
+    .getByRole("listitem")
+    .filter({ hasText: "Name the plan tiers" });
+
+  await ready.getByRole("button", { name: "2 open todos" }).click();
+
+  await expect(ready.getByRole("button", { name: "2 open todos" })).toBeVisible();
+  await expect(page.locator("[data-marked]")).toHaveCount(0);
+});
+
+test("the same tap works in the chat tray of a Workstream", async ({ page }) => {
+  await routeInbox(page, blockedList([100, 101], blockingTodoRows));
+  await page.goto("/workstreams/owner/shop/12");
+  const list = page.getByRole("main").getByRole("list", { name: "Pending actions" });
+  const ready = list.getByRole("listitem").filter({ hasText: "Name the plan tiers" });
+  const first = list.getByRole("listitem").filter({ hasText: "MOBIUS_SMTP_HOST" });
+
+  await expect(ready.getByRole("button", { name: "2 open todos" })).toBeVisible();
+  await expect(first).not.toBeInViewport();
+
+  await ready.getByRole("button", { name: "2 open todos" }).click();
+
+  await expect(first).toBeInViewport();
+  await expect(first).toHaveAttribute("data-marked", "");
 });

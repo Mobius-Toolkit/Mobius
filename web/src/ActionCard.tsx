@@ -128,6 +128,7 @@ export function Outcome({ label, text }: { label: string; text: string }) {
 const detailsItem = (message: ChatMessage, action: PendingAction): InboxItem => ({
   action,
   answer: "",
+  blockingTodos: [],
   dismissedAt: null,
   id: 0,
   issue: 0,

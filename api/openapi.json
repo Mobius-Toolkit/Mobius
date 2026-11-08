@@ -7284,6 +7284,14 @@
             "type": "string",
             "description": "Answer is the answer of the Owner to a question item, or empty"
           },
+          "blockingTodos": {
+            "type": "array",
+            "title": "[]int64",
+            "description": "BlockingTodos are the IDs of the open todo Inbox items whose todo blocks the merge of the pull request of a ready for review item, oldest first. It is an empty list for another item",
+            "items": {
+              "type": "integer"
+            }
+          },
           "dismissedAt": {
             "type": [
               "string",
@@ -7420,7 +7428,8 @@
           "answer",
           "withdrawn",
           "action",
-          "todo"
+          "todo",
+          "blockingTodos"
         ],
         "description": "InboxItem is an item of the Inbox of the Owner."
       },

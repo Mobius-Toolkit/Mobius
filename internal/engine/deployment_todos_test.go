@@ -637,6 +637,7 @@ func TestAnApprovalWithAnOpenTodoKeepsThePullRequestADraftAndTheTaskIsReadyForRe
 
 			waitForItem(t, server, "ready for review")
 			testkit.WaitFor(t, func() bool { return taskState(t, server) == "ready_for_review" && draft(fake) })
+			waitForItem(t, server, "todo")
 			if len(itemsOf(t, server, "todo")) != 1 {
 				t.Errorf("todo items = %+v", itemsOf(t, server, "todo"))
 			}
