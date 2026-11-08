@@ -68,7 +68,7 @@ func (e *Engine) startResearcher(ctx context.Context, c caller, repository githu
 			delete(e.researchers, a.id)
 			e.detailsMu.Unlock()
 		}()
-		if err := e.research(ctx, c, repository, a, input.Question); err != nil {
+		if err := e.research(ctx, c, repository, a, a.id, input.Question); err != nil {
 			log.Printf("Researcher %d of %s#%d: %v", a.id, c.repository, c.workstream, err)
 		}
 	})
@@ -148,9 +148,10 @@ func (e *Engine) stopResearchers(repository string, workstream int64) {
 	}
 }
 
-// research runs the session a of the Researcher on the question in a worktree that is detached at the default branch.
-// A failed Researcher reports its error.
-func (e *Engine) research(ctx context.Context, c caller, repository github.Repository, a *Agent, question string) error {
+// research runs the session a of the Researcher id on the question in a worktree that is detached at the default
+// branch. A failed Researcher reports its error. When the Harness of the Role changes while a waits for a pause, a ends
+// with the reason "moved", and a new session with the same question and details runs under the same id.
+func (e *Engine) research(ctx context.Context, c caller, repository github.Repository, a *Agent, id int64, question string) error {
 	if err := a.waitForSlot(ctx); err != nil {
 		if ctx.Err() != nil {
 			return nil
@@ -158,24 +159,58 @@ func (e *Engine) research(ctx context.Context, c caller, repository github.Repos
 		return err
 	}
 	a.spec.Dir = runner.ResearchDir(e.config.DataDir, repository.FullName, a.id)
-	report, err := e.researchTurn(ctx, a, question)
+	report, err := e.researchTurn(ctx, a, id, question)
 	a.closeHarness()
-	stopped := e.leave(ctx, a.id)
 	ended := context.WithoutCancel(ctx)
+	if errors.Is(err, errMoved) && ctx.Err() == nil {
+		if err := errors.Join(e.removeCopy(ended, repository.FullName, a.spec.Dir), a.End(ended, "moved")); err != nil {
+			log.Printf("Researcher %d: end the moved session %d: %v", id, a.id, err)
+		}
+		next, err := e.moveResearcher(ctx, id, a)
+		if err != nil || next == nil {
+			return err
+		}
+		return e.research(ctx, c, repository, next, id, question)
+	}
+	stopped := e.leave(ctx, id)
 	err = errors.Join(err, e.removeCopy(ended, repository.FullName, a.spec.Dir))
 	switch {
 	case stopped:
 		return a.End(ended, "stopped")
 	case errors.Is(err, errHung):
-		return errors.Join(a.endHung(ended), e.deliverReport(ended, c, repository, a.id, question, "The Researcher failed: "+err.Error()))
+		return errors.Join(a.endHung(ended), e.deliverReport(ended, c, repository, id, question, "The Researcher failed: "+err.Error()))
 	case err != nil:
 		failure := a.Fail(ended, err)
-		return errors.Join(failure, e.deliverReport(ended, c, repository, a.id, question, "The Researcher failed: "+err.Error()))
+		return errors.Join(failure, e.deliverReport(ended, c, repository, id, question, "The Researcher failed: "+err.Error()))
 	}
 	if err := a.End(ended, "done"); err != nil {
 		return err
 	}
-	return e.deliverReport(ended, c, repository, a.id, question, report)
+	return e.deliverReport(ended, c, repository, id, question, report)
+}
+
+// moveResearcher adds a new session for the Researcher id after the session old ended with the reason "moved". The new
+// session gets the details that wait for old, and replaces old in e.researchers. It gives nil when a stop came before.
+func (e *Engine) moveResearcher(ctx context.Context, id int64, old *Agent) (*Agent, error) {
+	next, err := e.newAgent(ctx, old.spec)
+	if err != nil {
+		e.leave(ctx, id)
+		return nil, err
+	}
+	e.detailsMu.Lock()
+	defer e.detailsMu.Unlock()
+	if ctx.Err() != nil {
+		return nil, next.End(context.WithoutCancel(ctx), "stopped")
+	}
+	old.mu.Lock()
+	details := old.details
+	old.details = nil
+	old.mu.Unlock()
+	next.mu.Lock()
+	next.details = details
+	next.mu.Unlock()
+	e.researchers[id] = next
+	return next, nil
 }
 
 // leave removes the Researcher id from e.researchers. It tells if a stop came before, as ctx shows.
@@ -188,7 +223,7 @@ func (e *Engine) leave(ctx context.Context, id int64) bool {
 
 // researchTurn makes the worktree of the Researcher a and runs its turn. It gives the report: the reply text after the
 // last tool call.
-func (e *Engine) researchTurn(ctx context.Context, a *Agent, question string) (string, error) {
+func (e *Engine) researchTurn(ctx context.Context, a *Agent, id int64, question string) (string, error) {
 	repository, err := e.repository(a.spec.Repository)
 	if err != nil {
 		return "", err
@@ -221,7 +256,10 @@ func (e *Engine) researchTurn(ctx context.Context, a *Agent, question string) (s
 		if err == nil {
 			err = a.waitBackground(ctx, backgroundPrompt)
 		}
-		if details := e.takeDetails(e.researchers, a.id, a, true); details != "" && ctx.Err() == nil {
+		if errors.Is(err, errMoved) {
+			return "", err
+		}
+		if details := e.takeDetails(e.researchers, id, a, true); details != "" && ctx.Err() == nil {
 			prompt = detailsPrompt("question", details)
 			continue
 		}
