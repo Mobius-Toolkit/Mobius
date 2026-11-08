@@ -17,6 +17,7 @@ var (
 	RestartDelays           = &restartDelays
 	RateLimitGrace          = &rateLimitGrace
 	HangTimeout             = &hangTimeout
+	AfterHangRead           = &afterHangRead
 	ErrHung                 = errHung
 	AbsorbTimeout           = &absorbTimeout
 	BackgroundTimeout       = &backgroundTimeout

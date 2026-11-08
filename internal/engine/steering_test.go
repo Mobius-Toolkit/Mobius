@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -273,6 +274,36 @@ func TestAnUpdateOfAnAgentWithNoSteeringAndAnOpenToolCallGivesANewTimeWithNoActi
 		if strings.Contains(note, "retry") {
 			t.Errorf("note = %q", note)
 		}
+	}
+	if err := agent.End(t.Context(), "done"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Serial: the test changes hangTimeout, backgroundTimeout and the hook afterHangRead.
+func TestAnUpdateJustAfterAReadOfTheIdleTimeGivesANewNoteAtTheNextRead(t *testing.T) {
+	shortHang(t)
+	shortBackgroundTimeout(t, 10*time.Second)
+	fake := testkit.NewFakeGitHub(t)
+	gate := filepath.Join(t.TempDir(), "gate")
+	server, _ := connect(t, fake, "[[prompts]]\nupdates = ['"+openCall+"']\nshell = \"while [ ! -e '"+gate+"' ]; do sleep 0.05; done\"\n")
+	agent := start(t, server, leadSpec(t))
+	var reads atomic.Int32
+	*engine.AfterHangRead = func() {
+		if reads.Add(1) == 2 {
+			agent.Update(fmt.Appendf(nil, agentUpdate, workUpdate))
+		}
+	}
+	t.Cleanup(func() { *engine.AfterHangRead = nil })
+	done := make(chan error, 1)
+	go func() { done <- agent.Prompt(t.Context(), "One", nil) }()
+
+	// The update comes after the second read, so the idle time is no less than hangTimeout at the third read.
+	testkit.WaitFor(t, func() bool { return countNotes(t, server, agent.ID(), openNote) == 2 })
+	touch(t, gate)
+
+	if err := <-done; err != nil {
+		t.Fatal(err)
 	}
 	if err := agent.End(t.Context(), "done"); err != nil {
 		t.Fatal(err)
