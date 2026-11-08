@@ -1579,9 +1579,17 @@ WHERE recurring_task IN (SELECT id FROM recurring_tasks WHERE repository = ? AND
 -- name: DeleteWorkstreamRecurringTasks :exec
 DELETE FROM recurring_tasks WHERE repository = ? AND workstream = ?;
 
--- name: AdvanceRecurringTask :exec
+-- The row changes only when the task still has the cron expression and the check time that the step read, and is not
+-- paused. Else a person changed the task during the step.
+-- name: AdvanceRecurringTask :execrows
 UPDATE recurring_tasks SET checked_at = sqlc.arg(checked_at), event = coalesce(sqlc.narg(event), event)
-WHERE id = sqlc.arg(id);
+WHERE id = sqlc.arg(id) AND cron = sqlc.arg(cron) AND checked_at = sqlc.arg(read_checked_at) AND paused = 0;
+
+-- name: HasUnchangedRecurringTask :one
+SELECT EXISTS (
+    SELECT 1 FROM recurring_tasks
+    WHERE id = ? AND cron = ? AND checked_at = ? AND paused = 0
+);
 
 -- name: AddRecurringTaskRun :exec
 INSERT INTO recurring_task_runs (recurring_task, time, result, reason) VALUES (?, ?, ?, ?);

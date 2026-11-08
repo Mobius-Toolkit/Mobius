@@ -423,3 +423,48 @@ func TestSetRecurringTaskPausedRefusesTheIdOfAnotherWorkstream(t *testing.T) {
 		t.Errorf("tasks = %+v", got)
 	}
 }
+
+func TestAChangeOfARecurringTaskDuringTheStepGivesNoEventAndNoRun(t *testing.T) {
+	t.Parallel()
+	for name, change := range map[string]func(*testing.T, *testserver.Server, int64){
+		"a new cron expression": func(t *testing.T, server *testserver.Server, id int64) {
+			if _, err := server.Engine.UpdateRecurringTask(t.Context(), shop, 12, id, "30 * * * *", planCheck); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"a pause": func(t *testing.T, server *testserver.Server, id int64) {
+			if _, err := server.Engine.SetRecurringTaskPaused(t.Context(), shop, 12, id, true); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"a delete": func(t *testing.T, server *testserver.Server, id int64) {
+			if err := server.Engine.DeleteRecurringTask(t.Context(), shop, 12, id); err != nil {
+				t.Fatal(err)
+			}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			fake := testkit.NewFakeGitHub(t)
+			server, _ := connect(t, fake, "")
+			setNow(server, friday)
+			task := addRecurringTask(t, server, hourly, planCheck)
+
+			err := server.Engine.RunStaleRecurringTasks(t.Context(), func() {
+				setNow(server, friday.Add(time.Hour))
+				change(t, server, task.ID)
+			})
+
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := recurringEvents(t, server); len(got) != 0 {
+				t.Errorf("events = %d, want 0", len(got))
+			}
+			var runs int
+			if err := server.DB.QueryRow("SELECT count(*) FROM recurring_task_runs").Scan(&runs); err != nil || runs != 0 {
+				t.Errorf("stored runs = %d, %v", runs, err)
+			}
+		})
+	}
+}

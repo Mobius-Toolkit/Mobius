@@ -1307,20 +1307,33 @@ func (q *Queries) AddWorkstreamBucket(ctx context.Context, arg AddWorkstreamBuck
 	return err
 }
 
-const advanceRecurringTask = `-- name: AdvanceRecurringTask :exec
+const advanceRecurringTask = `-- name: AdvanceRecurringTask :execrows
 UPDATE recurring_tasks SET checked_at = ?1, event = coalesce(?2, event)
-WHERE id = ?3
+WHERE id = ?3 AND cron = ?4 AND checked_at = ?5 AND paused = 0
 `
 
 type AdvanceRecurringTaskParams struct {
-	CheckedAt string
-	Event     sql.NullInt64
-	ID        int64
+	CheckedAt     string
+	Event         sql.NullInt64
+	ID            int64
+	Cron          string
+	ReadCheckedAt string
 }
 
-func (q *Queries) AdvanceRecurringTask(ctx context.Context, arg AdvanceRecurringTaskParams) error {
-	_, err := q.db.ExecContext(ctx, advanceRecurringTask, arg.CheckedAt, arg.Event, arg.ID)
-	return err
+// The row changes only when the task still has the cron expression and the check time that the step read, and is not
+// paused. Else a person changed the task during the step.
+func (q *Queries) AdvanceRecurringTask(ctx context.Context, arg AdvanceRecurringTaskParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, advanceRecurringTask,
+		arg.CheckedAt,
+		arg.Event,
+		arg.ID,
+		arg.Cron,
+		arg.ReadCheckedAt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const appendChatMessage = `-- name: AppendChatMessage :one
@@ -3614,6 +3627,26 @@ type HasTaskParams struct {
 // An ended task counts too.
 func (q *Queries) HasTask(ctx context.Context, arg HasTaskParams) (bool, error) {
 	row := q.db.QueryRowContext(ctx, hasTask, arg.Repository, arg.Issue)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const hasUnchangedRecurringTask = `-- name: HasUnchangedRecurringTask :one
+SELECT EXISTS (
+    SELECT 1 FROM recurring_tasks
+    WHERE id = ? AND cron = ? AND checked_at = ? AND paused = 0
+)
+`
+
+type HasUnchangedRecurringTaskParams struct {
+	ID        int64
+	Cron      string
+	CheckedAt string
+}
+
+func (q *Queries) HasUnchangedRecurringTask(ctx context.Context, arg HasUnchangedRecurringTaskParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, hasUnchangedRecurringTask, arg.ID, arg.Cron, arg.CheckedAt)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err

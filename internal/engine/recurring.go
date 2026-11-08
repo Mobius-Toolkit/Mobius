@@ -281,11 +281,15 @@ func (e *Engine) runRecurringTask(ctx context.Context, task store.RecurringTask)
 		}
 	}
 	run := store.AddRecurringTaskRunParams{RecurringTask: task.ID, Time: at, Result: recurringEvent}
-	advance := store.AdvanceRecurringTaskParams{ID: task.ID, CheckedAt: at}
+	advance := store.AdvanceRecurringTaskParams{ID: task.ID, Cron: task.Cron, ReadCheckedAt: task.CheckedAt, CheckedAt: at}
 	if pending {
 		run.Result = recurringSkipped
 		run.Reason = overlapReason
 	} else {
+		unchanged, err := e.queries.HasUnchangedRecurringTask(ctx, store.HasUnchangedRecurringTaskParams{ID: task.ID, Cron: task.Cron, CheckedAt: task.CheckedAt})
+		if err != nil || !unchanged {
+			return err
+		}
 		text := fmt.Sprintf("%s recurring task %d `%s`:\n\n%s", t.UTC().Format(timeFormat), task.ID, task.Cron, quote(task.Text))
 		id, err := e.addLeadEventAt(ctx, task.Repository, task.Workstream, "", sql.NullInt64{}, recurringKind, text, at, commentRef{})
 		if id == 0 {
@@ -297,12 +301,13 @@ func (e *Engine) runRecurringTask(ctx context.Context, task store.RecurringTask)
 		advance.Event = sql.NullInt64{Int64: id, Valid: true}
 	}
 	return e.inTx(ctx, func(q *store.Queries) error {
+		advanced, err := q.AdvanceRecurringTask(ctx, advance)
+		if err != nil || advanced == 0 {
+			return err
+		}
 		if err := q.AddRecurringTaskRun(ctx, run); err != nil {
 			return err
 		}
-		if err := q.TrimRecurringTaskRuns(ctx, task.ID); err != nil {
-			return err
-		}
-		return q.AdvanceRecurringTask(ctx, advance)
+		return q.TrimRecurringTaskRuns(ctx, task.ID)
 	})
 }
