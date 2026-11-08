@@ -28,14 +28,21 @@ import { beginMarkdownRender, renderMarkdown, shieldEquals } from "@/ui/markdown
 import { renderComposer, renderFileImage, renderPanelComposer } from "./composer";
 import { ChatList } from "./scroll";
 import { Message } from "./message";
-import { countsAsUnread, type Failure, type Model, type Waiting } from "./model";
-import type { ChatMessage, DraftInboxItem, InboxItem, PendingAction } from "./schemas";
+import {
+  countsAsUnread,
+  draftInboxItem,
+  type Failure,
+  itemReference,
+  type Model,
+  type Waiting,
+} from "./model";
+import type { ChatMessage, InboxItem, PendingAction } from "./schemas";
 
 type ActionArgument = PendingAction["arguments"][number];
 type ActionLabel = ActionArgument["labels"][number];
 type QuestionType = InboxItem["questions"][number];
 
-type H = HtmlBuilder<Message>;
+export type H = HtmlBuilder<Message>;
 
 function renderOwnerStatus(h: H, message: ChatMessage): Html {
   if (message.stoppedAt) {
@@ -653,7 +660,7 @@ function trayButton(
   );
 }
 
-function renderTrayButtons(h: H, item: InboxItem, model: Model): Html[] {
+function renderTrayButtons(h: H, item: InboxItem, model: Model, chat: Message): Html[] {
   const running = model.trayRunning[item.id];
   const merging = model.trayMerging[item.id] ?? item.merging;
   const buttons: Html[] = [];
@@ -764,26 +771,9 @@ function renderTrayButtons(h: H, item: InboxItem, model: Model): Html[] {
       ),
     );
   }
-  const reference = !item.issue
-    ? ""
-    : isPullRequest || isTodo
-      ? `PR #${item.pullRequest}`
-      : `#${item.issue}`;
-  const referenceLink = isPullRequest || isTodo ? item.pullRequestUrl : item.link;
-  const draftItem: DraftInboxItem = {
-    id: item.id,
-    reference,
-    title: item.title,
-    reason: item.reason,
-    link: referenceLink,
-  };
   buttons.push(
     h.button(
-      [
-        h.Type("button"),
-        h.Class(buttonClass({ variant: "outline", size: "sm" })),
-        h.OnClick(Message.DraftInboxItemAdded({ item: draftItem })),
-      ],
+      [h.Type("button"), h.Class(buttonClass({ variant: "outline", size: "sm" })), h.OnClick(chat)],
       ["Chat"],
     ),
   );
@@ -830,10 +820,119 @@ function refusalText(model: Model, item: InboxItem) {
   );
 }
 
-function trayRows(model: Model) {
+export function trayRows(model: Model) {
   return model.trayItems
     .filter((item) => !item.action || item.action.state === "pending")
     .toSorted((a, b) => a.id - b.id);
+}
+
+// chat is the Message of the Chat button.
+export function renderItemRow(h: H, item: InboxItem, model: Model, chat: Message): Html {
+  const { reference, link: referenceLink } = itemReference(item);
+  const refNode = reference
+    ? referenceLink
+      ? h.a(
+          [
+            h.Attribute("href", referenceLink),
+            h.Attribute("target", "_blank"),
+            h.Attribute("rel", "noreferrer"),
+            h.Class(cn("shrink-0", link)),
+          ],
+          [reference],
+        )
+      : h.span([h.Class("shrink-0")], [reference])
+    : h.empty;
+  const todoBadge = item.todo
+    ? h.span(
+        [
+          h.DataAttribute("slot", "badge"),
+          h.Class(badgeClass(item.todo.mandatory ? "default" : "outline")),
+        ],
+        [
+          "Todo · ",
+          item.todo.mandatory ? "mandatory" : "optional",
+          item.todo.afterMerge ? " · after merge" : "",
+        ],
+      )
+    : h.empty;
+  return h.li(
+    [
+      h.DataAttribute("inbox-item", String(item.id)),
+      h.Class(
+        "flex min-h-11 items-center gap-4 px-4 py-2 md:px-2 flex-wrap gap-y-2 py-2 data-marked:bg-muted data-marked:ring-2 data-marked:ring-primary data-marked:ring-inset motion-safe:transition-shadow",
+      ),
+    ],
+    [
+      h.div(
+        [
+          h.Class(
+            "flex min-w-0 grow basis-full flex-wrap items-center gap-x-2 gap-y-2 sm:flex-nowrap",
+          ),
+        ],
+        [
+          h.span(
+            [
+              h.Class(
+                "flex min-w-0 grow basis-full flex-wrap items-baseline gap-x-2 sm:basis-0 sm:flex-nowrap",
+              ),
+            ],
+            [
+              todoBadge,
+              refNode,
+              h.span(
+                [h.Class("contents sm:flex sm:min-w-0 sm:items-baseline sm:gap-x-2")],
+                [
+                  h.span(
+                    [
+                      h.Class(
+                        cn(
+                          "grow basis-0 truncate sm:max-w-full sm:grow-0 sm:basis-auto",
+                          item.kind === InboxItemKind.Lead_failed ? "sm:shrink" : "sm:shrink-0",
+                        ),
+                      ),
+                    ],
+                    [item.title],
+                  ),
+                  item.reason
+                    ? h.span(
+                        [
+                          h.Class(
+                            cn(
+                              "basis-full truncate text-sm text-muted-foreground sm:basis-auto",
+                              item.kind === InboxItemKind.Lead_failed && "sm:shrink-0",
+                            ),
+                          ),
+                        ],
+                        [item.reason],
+                      )
+                    : h.empty,
+                ],
+              ),
+            ],
+          ),
+          h.div(
+            [h.Class("flex basis-full items-center gap-2 sm:basis-auto sm:shrink-0 sm:gap-4")],
+            [
+              h.div(
+                [h.Class("flex flex-wrap items-center gap-2 empty:hidden")],
+                renderTrayButtons(h, item, model, chat),
+              ),
+              h.div(
+                [h.Class("ml-auto flex items-center gap-2")],
+                renderTraySideButtons(h, item, model),
+              ),
+            ],
+          ),
+        ],
+      ),
+      refusalText(model, item)
+        ? h.p(
+            [h.Role("alert"), h.Class("basis-full text-sm text-destructive wrap-anywhere")],
+            [refusalText(model, item)],
+          )
+        : h.empty,
+    ],
+  );
 }
 
 function renderActionTray(h: H, model: Model): Html {
@@ -895,130 +994,14 @@ function renderActionTray(h: H, model: Model): Html {
               h.AriaLabel("Pending actions"),
               h.Class("max-h-[35svh] divide-y overflow-y-auto md:-mx-2"),
             ],
-            rows.map((item) => {
-              const reference = !item.issue
-                ? ""
-                : item.kind === InboxItemKind.ready_for_review || item.kind === InboxItemKind.todo
-                  ? `PR #${item.pullRequest}`
-                  : `#${item.issue}`;
-              const referenceLink =
-                item.kind === InboxItemKind.ready_for_review || item.kind === InboxItemKind.todo
-                  ? item.pullRequestUrl
-                  : item.link;
-              const refNode = reference
-                ? referenceLink
-                  ? h.a(
-                      [
-                        h.Attribute("href", referenceLink),
-                        h.Attribute("target", "_blank"),
-                        h.Attribute("rel", "noreferrer"),
-                        h.Class(cn("shrink-0", link)),
-                      ],
-                      [reference],
-                    )
-                  : h.span([h.Class("shrink-0")], [reference])
-                : h.empty;
-              const todoBadge = item.todo
-                ? h.span(
-                    [
-                      h.DataAttribute("slot", "badge"),
-                      h.Class(badgeClass(item.todo.mandatory ? "default" : "outline")),
-                    ],
-                    [
-                      "Todo · ",
-                      item.todo.mandatory ? "mandatory" : "optional",
-                      item.todo.afterMerge ? " · after merge" : "",
-                    ],
-                  )
-                : h.empty;
-              return h.li(
-                [
-                  h.DataAttribute("inbox-item", String(item.id)),
-                  h.Class(
-                    "flex min-h-11 items-center gap-4 px-4 py-2 md:px-2 flex-wrap gap-y-2 py-2 data-marked:bg-muted data-marked:ring-2 data-marked:ring-primary data-marked:ring-inset motion-safe:transition-shadow",
-                  ),
-                ],
-                [
-                  h.div(
-                    [
-                      h.Class(
-                        "flex min-w-0 grow basis-full flex-wrap items-center gap-x-2 gap-y-2 sm:flex-nowrap",
-                      ),
-                    ],
-                    [
-                      h.span(
-                        [
-                          h.Class(
-                            "flex min-w-0 grow basis-full flex-wrap items-baseline gap-x-2 sm:basis-0 sm:flex-nowrap",
-                          ),
-                        ],
-                        [
-                          todoBadge,
-                          refNode,
-                          h.span(
-                            [h.Class("contents sm:flex sm:min-w-0 sm:items-baseline sm:gap-x-2")],
-                            [
-                              h.span(
-                                [
-                                  h.Class(
-                                    cn(
-                                      "grow basis-0 truncate sm:max-w-full sm:grow-0 sm:basis-auto",
-                                      item.kind === InboxItemKind.Lead_failed
-                                        ? "sm:shrink"
-                                        : "sm:shrink-0",
-                                    ),
-                                  ),
-                                ],
-                                [item.title],
-                              ),
-                              item.reason
-                                ? h.span(
-                                    [
-                                      h.Class(
-                                        cn(
-                                          "basis-full truncate text-sm text-muted-foreground sm:basis-auto",
-                                          item.kind === InboxItemKind.Lead_failed && "sm:shrink-0",
-                                        ),
-                                      ),
-                                    ],
-                                    [item.reason],
-                                  )
-                                : h.empty,
-                            ],
-                          ),
-                        ],
-                      ),
-                      h.div(
-                        [
-                          h.Class(
-                            "flex basis-full items-center gap-2 sm:basis-auto sm:shrink-0 sm:gap-4",
-                          ),
-                        ],
-                        [
-                          h.div(
-                            [h.Class("flex flex-wrap items-center gap-2 empty:hidden")],
-                            renderTrayButtons(h, item, model),
-                          ),
-                          h.div(
-                            [h.Class("ml-auto flex items-center gap-2")],
-                            renderTraySideButtons(h, item, model),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                  refusalText(model, item)
-                    ? h.p(
-                        [
-                          h.Role("alert"),
-                          h.Class("basis-full text-sm text-destructive wrap-anywhere"),
-                        ],
-                        [refusalText(model, item)],
-                      )
-                    : h.empty,
-                ],
-              );
-            }),
+            rows.map((item) =>
+              renderItemRow(
+                h,
+                item,
+                model,
+                Message.DraftInboxItemAdded({ item: draftInboxItem(item) }),
+              ),
+            ),
           ),
         ],
       ),
@@ -1233,7 +1216,7 @@ function workstreamName(model: Model, item: InboxItem) {
   );
 }
 
-function renderAnswerDialog(h: H, model: Model): Html {
+export function renderAnswerDialog(h: H, model: Model): Html {
   const panel = model.activePanel;
   if (!panel) return h.empty;
 

@@ -119,6 +119,9 @@ export const Message = defineMessageUnion({
   BlockingTodoClicked: { id: Schema.Number },
   CompletedShowBlockingTodo: {},
 
+  ChatWithItemClicked: { item: InboxItem },
+  CompletedOpenChat: {},
+
   NavigateTo: { path: Schema.String },
   CompletedNavigate: {},
   CompletedSeeChat: {},

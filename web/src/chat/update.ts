@@ -11,6 +11,7 @@ import {
   FetchPage,
   FitImages,
   Navigate,
+  OpenChatWithItem,
   PostQueued,
   RejectAction,
   RemoveQueued,
@@ -900,7 +901,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
             id: item.id,
             repository: item.repository || model.repository,
             issue: item.issue,
-            workstreamRepository: model.repository,
+            workstreamRepository: item.workstreamRepository,
           }),
         ],
       };
@@ -1122,6 +1123,11 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
 
     BlockingTodoClicked: ({ id }) => ({ model, commands: [ShowBlockingTodo({ id })] }),
 
+    ChatWithItemClicked: ({ item }) => ({
+      model,
+      commands: [OpenChatWithItem({ item, organization: model.organization })],
+    }),
+
     NavigateTo: ({ path }) => ({
       model: { ...model, activePanel: null },
       commands: [Navigate({ path })],
@@ -1135,6 +1141,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
     CompletedRemoveVoice: () => ({ model }),
     CompletedScrollLive: () => ({ model }),
     CompletedShowBlockingTodo: () => ({ model }),
+    CompletedOpenChat: () => ({ model }),
     CompletedSeeChat: () => ({ model }),
     CompletedRequestLogin: () => ({ model }),
   });

@@ -66,16 +66,7 @@ function App() {
   const showLogin = useCallback(() => setLoginShown(true), []);
   const listed = useWorkstreams();
   const unread = useUnread();
-  const {
-    items: inbox,
-    needsHuman,
-    leave: leaveInbox,
-    updateAction,
-    hide: hideInbox,
-    fail: failInbox,
-    failure: inboxFailure,
-    clearFailure: clearInboxFailure,
-  } = useInbox(source, listed.needsHuman);
+  const { items: inbox, needsHuman } = useInbox(source, listed.needsHuman);
   const workstreams = { ...listed, needsHuman };
   const pauses = usePauses(source);
   const ciStops = useCIStops(source);
@@ -307,12 +298,6 @@ function App() {
             workstreams,
             unread,
             inbox,
-            leaveInbox,
-            hideInbox,
-            failInbox,
-            inboxFailure,
-            clearInboxFailure,
-            updateAction,
             pauses,
             switches,
             switchErrors,

@@ -8,6 +8,8 @@ import { cn } from "@/lib/utils";
 // The lists go from edge to edge on the phone, so all other content of a page needs this inset.
 export const inset = "px-4 md:px-0";
 
+export const linkClass = "text-primary underline-offset-4 hover:underline";
+
 export const rowClass = "flex min-h-11 items-center gap-4 px-4 py-2 md:px-2";
 
 // The phone shows the title and the controls of a page in the top bar.

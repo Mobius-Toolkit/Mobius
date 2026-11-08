@@ -11,7 +11,6 @@ import {
   CheckupWorkstreamsPage,
   GitHubPage,
   InboxPage,
-  InboxLayoutPage,
   MemoryFilePage,
   MemoryPage,
   MemoryRepositoriesPage,
@@ -78,12 +77,6 @@ const chatRoute = createRoute({
 const inboxRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/inbox",
-  component: InboxLayoutPage,
-});
-
-const inboxTodoRoute = createRoute({
-  getParentRoute: () => inboxRoute,
-  path: "/",
   component: InboxPage,
 });
 
@@ -191,7 +184,7 @@ const routeTree = rootRoute.addChildren([
   workstreamsRoute,
   tasksRoute,
   chatRoute,
-  inboxRoute.addChildren([inboxTodoRoute]),
+  inboxRoute,
   agentsRoute,
   usageRoute,
   settingsRoute,

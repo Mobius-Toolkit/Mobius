@@ -6,13 +6,12 @@ import {
   type BoardTaskState,
   type LiveEvents,
 } from "@/api/api.gen";
-import { ErrorBadge, PageHeader } from "@/components/page";
+import { ErrorBadge, linkClass, PageHeader } from "@/components/page";
 import { Badge } from "@/components/ui/badge";
 import { onEvent } from "@/lib/events";
 import { LoginContext } from "@/lib/login";
 import { elapsed } from "@/lib/time";
 import { chatParams } from "@/lib/workstreams";
-import { link } from "./Inbox";
 import { TopBar } from "./TopBar";
 
 const columns: { title: string; has: (task: BoardTask) => boolean }[] = [
@@ -52,7 +51,7 @@ function TaskCard({ task, now }: { task: BoardTask; now: number }) {
             href={task.pullRequestUrl}
             target="_blank"
             rel="noreferrer"
-            className={`relative z-10 whitespace-nowrap ${link}`}
+            className={`relative z-10 whitespace-nowrap ${linkClass}`}
           >
             PR #{task.pullRequest}
           </a>
