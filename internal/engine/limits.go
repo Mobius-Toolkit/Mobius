@@ -291,7 +291,7 @@ func (e *Engine) pause(ctx context.Context, a *Agent, until time.Time) error {
 // addLimitMessage adds text to the chat of the Workstream of a.
 func (e *Engine) addLimitMessage(ctx context.Context, a *Agent, text string) error {
 	spec := a.spec
-	_, err := e.addChatMessage(ctx, ChatKey{spec.Organization, spec.WorkstreamRepository, spec.Workstream}, mobiusAuthor, text, "", "", nil)
+	_, err := e.addChatMessage(ctx, ChatKey{spec.Organization, spec.WorkstreamRepository, spec.Workstream}, mobiusAuthor, text, "", "", nil, false)
 	return err
 }
 

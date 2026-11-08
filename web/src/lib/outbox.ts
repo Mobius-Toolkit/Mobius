@@ -10,6 +10,7 @@ export type Queued = {
   text: string;
   images: File[];
   inboxItems: ChatInboxItem[];
+  voice: boolean;
   time: string;
 };
 
@@ -32,7 +33,10 @@ const chatKey = (item: Pick<Queued, "organization" | "repository" | "workstream"
 export async function listQueued(chat: Pick<Queued, "organization" | "repository" | "workstream">) {
   const items = await run("readonly", (store) => store.index("chat").getAll(chatKey(chat)));
   return (items as Partial<Queued>[])
-    .map((item) => ({ ...item, inboxItems: item.inboxItems ?? [] }) as Queued)
+    .map(
+      (item) =>
+        ({ ...item, inboxItems: item.inboxItems ?? [], voice: item.voice ?? false }) as Queued,
+    )
     .toSorted((a, b) => a.time.localeCompare(b.time));
 }
 
@@ -49,6 +53,7 @@ export function addCoordinatorMessage(organization: string, text: string) {
     text,
     images: [],
     inboxItems: [],
+    voice: false,
     time: new Date().toISOString(),
   });
 }
@@ -66,6 +71,7 @@ export async function postQueued(item: Queued, signal: AbortSignal) {
   form.append("repository", item.repository);
   form.append("workstream", String(item.workstream));
   form.append("text", item.text);
+  form.append("voice", String(item.voice));
   for (const image of item.images) {
     form.append("images", image);
   }

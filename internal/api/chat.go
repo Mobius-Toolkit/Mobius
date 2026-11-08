@@ -41,6 +41,8 @@ type ChatMessage struct {
 	Images int64 `gork:"images"`
 	// InboxItems are the Inbox items that the Owner sent with the message, in the order of the request
 	InboxItems []ChatInboxItem `gork:"inboxItems"`
+	// Voice is true when the message came from a voice recording
+	Voice bool `gork:"voice"`
 	// BrowserID is the id that the browser gave to the message of the Owner. It is empty for another message
 	BrowserID string `gork:"browserId"`
 	// DeliveredAt is the time of the first thought or tool call of the agent for the message of the Owner, or of the
@@ -144,6 +146,8 @@ type SendChatRequest struct {
 		// InboxItems are the Inbox items of the message. The request has one part inboxItems for each item, in order,
 		// and each part is one JSON object
 		InboxItems []ChatInboxItem `gork:"inboxItems"`
+		// Voice is true when the message came from a voice recording
+		Voice bool `gork:"voice"`
 	}
 }
 
@@ -173,7 +177,7 @@ func (h *handlers) SendChat(ctx context.Context, req SendChatRequest) error {
 	for _, item := range body.InboxItems {
 		inboxItems = append(inboxItems, engine.ChatInboxItem(item))
 	}
-	err := h.engine.SendChat(ctx, engine.ChatKey{Organization: body.Organization, Repository: body.Repository, Workstream: body.Workstream}, body.ID, text, images, inboxItems)
+	err := h.engine.SendChat(ctx, engine.ChatKey{Organization: body.Organization, Repository: body.Repository, Workstream: body.Workstream}, body.ID, text, images, inboxItems, body.Voice)
 	if engine.Refused(err) {
 		return api.NewHTTPError(http.StatusConflict, err.Error())
 	}
@@ -306,6 +310,7 @@ func (h *handlers) chatMessageOf(ctx context.Context, message store.ChatMessage)
 		Text:         message.Text,
 		Images:       int64(images),
 		InboxItems:   inboxItems,
+		Voice:        message.Voice != 0,
 		BrowserID:    message.BrowserID.String,
 	}
 	if message.DeliveredAt.Valid {

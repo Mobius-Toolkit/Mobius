@@ -547,6 +547,8 @@ export interface ChatMessage {
   text: string;
   /** Time is the time of the message */
   time: string;
+  /** Voice is true when the message came from a voice recording */
+  voice: boolean;
   /** Workstream is the number of the Workstream issue. It is 0 for the Coordinator chat */
   workstream: number;
 }
@@ -2154,6 +2156,8 @@ export interface SendChatBody {
   repository?: string;
   /** Text is the message of the Owner. It is required when the message has no image and no Inbox item */
   text: string;
+  /** Voice is true when the message came from a voice recording */
+  voice?: boolean;
   /** Workstream is the number of the Workstream issue. It is 0 for the Coordinator chat */
   workstream?: number;
 }
@@ -3099,6 +3103,9 @@ if(sendChatBody.repository !== undefined) {
  formData.append(`repository`, sendChatBody.repository);
  }
 formData.append(`text`, sendChatBody.text);
+if(sendChatBody.voice !== undefined) {
+ formData.append(`voice`, sendChatBody.voice.toString())
+ }
 if(sendChatBody.workstream !== undefined) {
  formData.append(`workstream`, sendChatBody.workstream.toString())
  }
