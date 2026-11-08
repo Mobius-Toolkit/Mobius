@@ -16,6 +16,8 @@ const (
 	reportEnd        = "<!-- /report -->"
 	screenshotsStart = "<!-- screenshots -->"
 	screenshotsEnd   = "<!-- /screenshots -->"
+	todosStart       = "<!-- todos -->"
+	todosEnd         = "<!-- /todos -->"
 	// maxReport is the longest report in characters. GitHub refuses a description of more than 65,535 characters.
 	maxReport = 20_000
 )
@@ -33,7 +35,7 @@ func (e *Engine) submitReport(ctx context.Context, c caller, repository github.R
 	if utf8.RuneCountInString(input.Report) > maxReport {
 		return "", refuse("The report has %d characters. The limit is %d. Shorten the report and call `submit_report` again.", utf8.RuneCountInString(input.Report), maxReport)
 	}
-	for _, marker := range []string{reportStart, reportEnd, screenshotsStart, screenshotsEnd} {
+	for _, marker := range []string{reportStart, reportEnd, screenshotsStart, screenshotsEnd, todosStart, todosEnd} {
 		if strings.Contains(input.Report, marker) {
 			return "", refuse("The report contains the marker `%s`. Mobius uses this marker in the description. Remove it and call `submit_report` again.", marker)
 		}
@@ -68,30 +70,47 @@ func (e *Engine) reportSection(ctx context.Context, repository github.Repository
 	return reportStart + "\n### Report\n\n" + report + "\n" + reportEnd, nil
 }
 
-// withReport gives body with section in place of the report section of body. Without a report section, it puts section
-// before the screenshots section, or at the end of body. It gives body with no change when section is empty.
-func withReport(body, section string) string {
-	if section == "" {
-		return body
+// sectionBounds gives the position of the start marker and the position after the end marker of the section of body, or
+// false when body has no such section.
+func sectionBounds(body, startMarker, endMarker string) (start, end int, found bool) {
+	end = strings.Index(body, endMarker)
+	if end < 0 {
+		return 0, 0, false
 	}
-	end := strings.Index(body, reportEnd)
-	if end >= 0 {
-		if start := strings.LastIndex(body[:end], reportStart); start >= 0 {
-			return body[:start] + section + body[end+len(reportEnd):]
-		}
+	start = strings.LastIndex(body[:end], startMarker)
+	return start, end + len(endMarker), start >= 0
+}
+
+// withSection gives body with section in place of the section of body between the markers. Without such a section, it
+// puts section before the first of the markers in before that body has, or at the end of body.
+func withSection(body, startMarker, endMarker, section string, before ...string) string {
+	if start, end, found := sectionBounds(body, startMarker, endMarker); found {
+		return body[:start] + section + body[end:]
 	}
-	if start := strings.Index(body, screenshotsStart); start >= 0 {
-		before := strings.TrimRight(body[:start], "\n")
-		if before != "" {
-			before += "\n\n"
+	for _, marker := range before {
+		if start := strings.Index(body, marker); start >= 0 {
+			head := strings.TrimRight(body[:start], "\n")
+			if head != "" {
+				head += "\n\n"
+			}
+			return head + section + "\n\n" + body[start:]
 		}
-		return before + section + "\n\n" + body[start:]
 	}
 	body = strings.TrimRight(body, "\n")
 	if body == "" {
 		return section
 	}
 	return body + "\n\n" + section
+}
+
+// withReport gives body with section in place of the report section of body. Without a report section, it puts section
+// before the todos section or the screenshots section, or at the end of body. It gives body with no change when section
+// is empty.
+func withReport(body, section string) string {
+	if section == "" {
+		return body
+	}
+	return withSection(body, reportStart, reportEnd, section, todosStart, screenshotsStart)
 }
 
 // writeReport writes section in the description of the pull request number, when the description has no such section.
