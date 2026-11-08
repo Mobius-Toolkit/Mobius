@@ -824,6 +824,7 @@ test("screenshots", async ({ page }) => {
       question: null,
       repository: "owner/shop",
       stoppedAt: null,
+      voice: false,
       workstream: 12,
     };
     body.data.messages.push(

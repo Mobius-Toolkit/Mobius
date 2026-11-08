@@ -183,6 +183,7 @@ test("the bubble of a sent message shows the card of the Inbox item with its lin
         question: null,
         repository: "owner/shop",
         stoppedAt: null,
+        voice: false,
         text,
         time: "2026-10-15T12:00:00Z",
         workstream: 12,

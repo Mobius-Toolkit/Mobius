@@ -14,6 +14,7 @@ const base = {
   dismissedAt: null,
   action: null,
   answer: "",
+  blockingTodos: [],
   mergeRefusal: "",
   merging: false,
   todo: null,

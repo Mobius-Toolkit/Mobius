@@ -628,6 +628,7 @@ test.describe("the bars of a phone", () => {
       dismissedAt: null,
       action: null,
       answer: "",
+      blockingTodos: [],
       mergeRefusal: "",
       merging: false,
       todo: null,

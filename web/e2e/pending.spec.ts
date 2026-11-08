@@ -152,6 +152,7 @@ test("a tap on Dismiss disables the button of the row", async ({ page }) => {
             dismissedAt: null,
             action: null,
             answer: "",
+            blockingTodos: [],
             mergeRefusal: "",
             merging: false,
             todo: null,

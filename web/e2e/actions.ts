@@ -189,6 +189,7 @@ const triagerAction = {
 export const triagerItem = {
   dismissedAt: null,
   answer: "",
+  blockingTodos: [],
   mergeRefusal: "",
   merging: false,
   todo: null,

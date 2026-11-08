@@ -42,7 +42,19 @@ orval does not read `contentSchema` and `itemSchema` of OpenAPI 3.2. Thus `web/o
 - It replaces each schema that has `contentMediaType: application/json` with its `contentSchema`. Thus the generated event types have the decoded data type.
 - It removes each operation that has only `text/event-stream` success responses, because the generated function waits for the full body. The components stay, so the event types stay.
 
-To listen to a server-sent event, use `onEvent` from `web/src/lib/events.ts` with the generated event type, for example `onEvent<LiveEvents, 'activity'>(source, 'activity', listener)`. A wrong event name or a wrong data field gives a type error.
+## Foldkit screens
+
+A Foldkit screen runs inside its React host (for example `web/src/Conversation.tsx` for `web/src/chat/`) until the shell moves to Foldkit.
+
+- Foldkit renders in the next animation frame. A Playwright step that comes right after another step can see the old view. Use a web-first assertion (`expect(...).toHaveText`) before the next action.
+- The program reads the plain stores of `web/src/lib` (unread counts, Workstream list, drafts, voice) in a Subscription, with `storeValues` of `web/src/live/stores.ts`. Do not send them through a Port. The program changes a draft only through the draft store, with a Command that calls `updateDraft`, and the Subscription gives the new draft back to the Model.
+- A Port holds only data that a Schema can encode. The host sends the data that only React has (for example the Brief and the Inbox items of a tray) through an inbound Port, and the program asks the host for the login and for a route through an outbound Port.
+- A Mount runs when its element enters the DOM. A Mount does not run again when its arguments change, so give the element a new `h.Key` to run it again.
+- A change of the dependencies of a Subscription stops the old stream and starts the new one. A stream that registers a voice input must not restart when an unrelated part of the Model changes, because the recording stops when no input has its draft key.
+- To listen to `/api/events`, use `liveEvents` and `liveListener` of `web/src/live/events.ts` with a Schema for the data of each event. Do not open an `EventSource` in a screen.
+- Write each new Foldkit screen with the rules of the Brief of the move: real Schemas from `web/src/api/schemas.gen.ts`, no type cast, no `unknown` and no `any`, `Effect.tryPromise` with a `Schema.TaggedError` for each Promise that can fail (`web/src/lib/effects.ts`).
+
+To listen to a server-sent event in a React screen, use `onEvent` from `web/src/lib/events.ts` with the generated event type, for example `onEvent<LiveEvents, 'activity'>(source, 'activity', listener)`. A wrong event name or a wrong data field gives a type error.
 
 ## Migrations
 
@@ -117,8 +129,11 @@ internal/testkit/fakeagent/  the fake ACP agent that plays a TOML script (the fo
 internal/testkit/fakedf/     the program df of the tests, with the free space of SetFreeSpace
 internal/testkit/testserver/ starts the Mobius server for a test
 api/openapi.json       the generated OpenAPI spec
-web/                   the React frontend (Vite, TypeScript, Tailwind CSS, shadcn/ui)
+web/                   the web client (Vite, TypeScript, Tailwind CSS): React screens that move to Foldkit one by one
 web/src/api/           the generated API client and types
+web/src/chat/          the chat screen as a Foldkit program: model, messages, update, commands, subscriptions, view and composer
+web/src/ui/            the Foldkit parts that many screens use: the buttons, the badges, the dialog, the icons and the Markdown view
+web/src/live/          the Subscription of /api/events with the reconnect rules of the shell, and the Subscription of a plain store
 web/src/components/ui/ the shadcn/ui components
 web/src/lib/events.ts  the typed listener of server-sent events (onEvent)
 web/public/            the files of the PWA: the web app manifest, the service worker and the icons
@@ -136,6 +151,7 @@ docs/install.md        the install guide
 - `make dev-api` starts the Go server. Caution: with no `MOBIUS_CONFIG`, the server uses `~/.mobius`. For development, set `MOBIUS_CONFIG` to a config file with another `data_dir`.
 - `make dev-web` starts the Vite dev server. Vite sends `/api` to the Go server.
 - `pnpm format` in `web` formats the frontend files with oxfmt. `pnpm format:check` fails on an unformatted file.
+- `pnpm test` in `web` runs the Vitest tests of the Foldkit code: the Story tests of each `update` and the tests of the Markdown view.
 - `make generate` writes the sqlc code, the spec and the TypeScript client.
 - `make fmt` formats the Go code with golangci-lint and the frontend files with oxfmt.
 - `make build` builds the UI and then `bin/mobius`.

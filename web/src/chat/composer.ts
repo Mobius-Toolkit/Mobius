@@ -144,6 +144,7 @@ export const ComposerBehavior = Mount.defineStream("ComposerBehavior", {
             target instanceof HTMLTextAreaElement &&
             target === field() &&
             submit &&
+            !submit.hasAttribute("data-voice-busy") &&
             target.value.trim()
           ) {
             submit.disabled = false;
@@ -528,6 +529,7 @@ export function renderComposer(h: H, model: Model): Html {
           h.Attribute("title", sendLabel),
           h.DataAttribute("keep-focus", ""),
           h.Disabled(sendDisabled),
+          ...(voiceBusy(model.draftVoice) ? [h.DataAttribute("voice-busy", "")] : []),
           h.Class(
             cn(
               buttonClass({ size: "icon", className: "rounded-full max-md:size-11" }),
@@ -626,6 +628,7 @@ export function renderPanelComposer(h: H, model: Model, item: InboxItem): Html {
               h.Attribute("title", "Send"),
               h.DataAttribute("keep-focus", ""),
               h.Disabled(busy || cannotSend),
+              ...(holdsVoice ? [h.DataAttribute("voice-busy", "")] : []),
               h.Class(
                 cn(
                   buttonClass({ size: "icon", className: "rounded-full max-md:size-11" }),
