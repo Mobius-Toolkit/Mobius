@@ -37,10 +37,8 @@ export function restoreInboxItem(id: number) {
 export function useInbox(source: EventSource | undefined, needsHuman: NeedsHuman[]) {
   const [items, setItems] = useState<InboxItem[]>([]);
   const [answered, setAnswered] = useState<Answered[]>([]);
-  const [failure, setFailure] = useState<{ id: number; error: string }>();
 
   const hide = useCallback((item: { id: number; repository: string; issue: number }) => {
-    setFailure(undefined);
     setAnswered((list) => [
       ...list.filter((other) => other.id !== item.id),
       {
@@ -61,11 +59,6 @@ export function useInbox(source: EventSource | undefined, needsHuman: NeedsHuman
     };
   }, [hide]);
 
-  const fail = useCallback((id: number, error: string) => {
-    setAnswered((list) => list.filter((other) => other.id !== id));
-    setFailure({ id, error });
-  }, []);
-
   const restore = useCallback(
     (id: number) => setAnswered((list) => list.filter((other) => other.id !== id)),
     [],
@@ -77,8 +70,6 @@ export function useInbox(source: EventSource | undefined, needsHuman: NeedsHuman
       restoreListeners.delete(restore);
     };
   }, [restore]);
-
-  const clearFailure = useCallback(() => setFailure(undefined), []);
 
   const updateAction = useCallback(
     (action: PendingAction) =>
@@ -175,18 +166,7 @@ export function useInbox(source: EventSource | undefined, needsHuman: NeedsHuman
     [needsHuman, answered],
   );
 
-  const leave = (id: number) => setItems((list) => list.filter((item) => item.id !== id));
-
-  return {
-    items: open,
-    needsHuman: marked,
-    leave,
-    updateAction,
-    hide,
-    fail,
-    failure,
-    clearFailure,
-  };
+  return { items: open, needsHuman: marked };
 }
 
 function isIssueOf(answered: Answered, row: NeedsHuman) {

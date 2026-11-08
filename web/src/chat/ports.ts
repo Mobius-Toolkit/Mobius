@@ -14,3 +14,6 @@ export const ports = {
 } as const;
 
 export type ChatPorts = typeof ports;
+
+// The Inbox program has this Port. The chat program has no use for it.
+export const organizationRequested = Port.outbound(Schema.String);

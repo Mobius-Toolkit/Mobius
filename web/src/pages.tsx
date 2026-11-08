@@ -1,4 +1,4 @@
-import { Outlet, useNavigate, useParams, useSearch } from "@tanstack/react-router";
+import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { PageHeader } from "@/components/page";
 import { useShell } from "@/lib/shell";
 import { Agents } from "./Agents";
@@ -56,19 +56,15 @@ export function ChatPage() {
   );
 }
 
-export function InboxLayoutPage() {
+export function InboxPage() {
+  const { organization, inbox, selectOrganization } = useShell();
   return (
     <>
       <TopBar title="Inbox" />
       <PageHeader title="Inbox" />
-      <Outlet />
+      <Inbox organization={organization} items={inbox} selectOrganization={selectOrganization} />
     </>
   );
-}
-
-export function InboxPage() {
-  const { organization, inbox, workstreams } = useShell();
-  return <Inbox organization={organization} items={inbox} workstreams={workstreams.list} />;
 }
 
 export function AgentsPage() {

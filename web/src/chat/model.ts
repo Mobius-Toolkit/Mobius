@@ -1,8 +1,10 @@
 import { Result, Schema } from "effect";
+import { InboxItemKind } from "@/api/api.gen";
 import { StoreFailed } from "@/lib/effects";
 import type { Flags } from "./flags";
 import {
   ChatMessage,
+  type DraftInboxItem,
   DraftInboxItems,
   DraftVoice,
   Failure,
@@ -17,6 +19,21 @@ import {
 } from "./schemas";
 
 export const retryDelays = [2000, 5000, 10_000, 30_000];
+
+// A pull request and a todo show the pull request. Each other item shows its issue.
+export function itemReference(item: InboxItem) {
+  const ofPullRequest =
+    item.kind === InboxItemKind.ready_for_review || item.kind === InboxItemKind.todo;
+  return {
+    reference: !item.issue ? "" : ofPullRequest ? `PR #${item.pullRequest}` : `#${item.issue}`,
+    link: ofPullRequest ? item.pullRequestUrl : item.link,
+  };
+}
+
+export function draftInboxItem(item: InboxItem): DraftInboxItem {
+  const { reference, link } = itemReference(item);
+  return { id: item.id, reference, title: item.title, reason: item.reason, link };
+}
 
 export type { Failure, Waiting } from "./schemas";
 

@@ -133,6 +133,7 @@ test("a failed auto-upgrade shows its npm error and the Owner dismisses it", asy
     kind: "tool upgrade",
     title: "Auto-upgrade of dsh failed",
     reason: "npm ERR! network down",
+    text: "",
   };
   await routeInbox(page, [failed]);
   await page.route("**/api/inbox/9/dismiss", (route) => route.fulfill({ status: 204 }));
@@ -366,6 +367,7 @@ test("Resume and Start again resume the issue", async ({ page }) => {
   const main = page.getByRole("main");
 
   await main.getByRole("button", { name: "Resume" }).click();
+  await expect(main.getByRole("button", { name: "Resume" })).toBeHidden();
   await main.getByRole("button", { name: "Start again" }).click();
 
   await expect

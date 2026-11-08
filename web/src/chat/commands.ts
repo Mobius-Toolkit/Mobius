@@ -16,7 +16,9 @@ import {
   stopChat,
 } from "@/api/api.gen";
 import {
+  addDraftInboxItem,
   answerDraftKey,
+  chatDraftKey,
   type Draft as StoredDraft,
   type DraftInboxItem,
   type DraftVoice,
@@ -29,7 +31,8 @@ import { issueRef, showNotice } from "@/lib/notice";
 import { addQueued, listQueued, newMessageId, postQueued, removeQueued } from "@/lib/outbox";
 import { resend, stopVoice, toggleVoice } from "@/lib/voice";
 import { Message } from "./message";
-import { ports } from "./ports";
+import { draftInboxItem } from "./model";
+import { organizationRequested, ports } from "./ports";
 import { DraftInboxItems, Images, InboxItem, PendingAction, Queued } from "./schemas";
 
 type Outcome = { message: Message; status?: number | undefined };
@@ -361,6 +364,40 @@ export const Navigate = Command.define("Navigate", {
   execute: ({ path }) =>
     Port.emit(ports.outbound.navigationRequested, path).pipe(
       Effect.as(Message.CompletedNavigate()),
+    ),
+});
+
+// The Chat button of an Inbox row puts the item in the draft of the chat of its Workstream, or of the Coordinator chat of
+// its organization, and opens that chat.
+export const OpenChatWithItem = Command.define("OpenChatWithItem", {
+  args: { item: InboxItem, organization: Schema.String },
+  messages: [Message.CompletedOpenChat],
+  execute: ({ item, organization }) =>
+    Effect.gen(function* () {
+      const inWorkstream = item.workstream !== 0;
+      const key = inWorkstream
+        ? chatDraftKey(
+            item.workstreamRepository.split("/")[0],
+            item.workstreamRepository,
+            item.workstream,
+          )
+        : chatDraftKey(item.organization, "", 0);
+      yield* store(() => addDraftInboxItem(key, draftInboxItem(item)));
+      if (inWorkstream) {
+        yield* Port.emit(
+          ports.outbound.navigationRequested,
+          `/workstreams/${item.workstreamRepository}/${item.workstream}`,
+        );
+        return;
+      }
+      if (item.organization !== organization) {
+        yield* Port.emit(organizationRequested, item.organization);
+      }
+      yield* Port.emit(ports.outbound.navigationRequested, "/chat");
+    }).pipe(
+      // A draft that the store refused leaves the Owner in the Inbox.
+      Effect.ignore,
+      Effect.as(Message.CompletedOpenChat()),
     ),
 });
 
@@ -712,15 +749,13 @@ export const RemoveVoice = Command.define("RemoveVoice", {
 const markDuration = 2000;
 const markTimers = new WeakMap<Element, ReturnType<typeof setTimeout>>();
 
-// Scrolls to the tray row of a blocking todo and marks it for a short time.
+// Scrolls to the row of a blocking todo and marks it for a short time.
 export const ShowBlockingTodo = Command.define("ShowBlockingTodo", {
   args: { id: Schema.Number },
   messages: [Message.CompletedShowBlockingTodo],
   execute: ({ id }) =>
     Effect.sync(() => {
-      const row = document.querySelector(
-        `ul[aria-label="Pending actions"] [data-inbox-item="${id}"]`,
-      );
+      const row = document.querySelector(`[data-inbox-item="${id}"]`);
       if (row) {
         row.scrollIntoView({ block: "center" });
         row.setAttribute("data-marked", "");

@@ -44,7 +44,7 @@ orval does not read `contentSchema` and `itemSchema` of OpenAPI 3.2. Thus `web/o
 
 ## Foldkit screens
 
-A Foldkit screen runs inside its React host (for example `web/src/Conversation.tsx` for `web/src/chat/`) until the shell moves to Foldkit.
+A Foldkit screen runs inside its React host (for example `web/src/Conversation.tsx` for `web/src/chat/` and `web/src/Inbox.tsx` for `web/src/inbox/`) until the shell moves to Foldkit.
 
 - Foldkit renders in the next animation frame. A Playwright step that comes right after another step can see the old view. Use a web-first assertion (`expect(...).toHaveText`) before the next action.
 - The program reads the plain stores of `web/src/lib` (unread counts, Workstream list, drafts, voice) in a Subscription, with `storeValues` of `web/src/live/stores.ts`. Do not send them through a Port. The program changes a draft only through the draft store, with a Command that calls `updateDraft`, and the Subscription gives the new draft back to the Model.
@@ -131,7 +131,8 @@ internal/testkit/testserver/ starts the Mobius server for a test
 api/openapi.json       the generated OpenAPI spec
 web/                   the web client (Vite, TypeScript, Tailwind CSS): React screens that move to Foldkit one by one
 web/src/api/           the generated API client and types
-web/src/chat/          the chat screen as a Foldkit program: model, messages, update, commands, subscriptions, view and composer
+web/src/chat/          the chat screen as a Foldkit program: model, messages, update, commands, subscriptions, view and composer. It also holds the rows of Inbox items and the answer panel
+web/src/inbox/         the Inbox screen as a Foldkit program: it uses the model, the messages, the update and the item Subscriptions of web/src/chat/, with its own flags, Ports, view and tests
 web/src/ui/            the Foldkit parts that many screens use: the buttons, the badges, the dialog, the icons and the Markdown view
 web/src/live/          the Subscription of /api/events with the reconnect rules of the shell, and the Subscription of a plain store
 web/src/components/ui/ the shadcn/ui components
