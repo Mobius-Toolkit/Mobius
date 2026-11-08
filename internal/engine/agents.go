@@ -545,6 +545,7 @@ func (a *Agent) Prompt(ctx context.Context, text string, images []Image) error {
 		images = nil
 	}
 	retrying := false
+	lead := ""
 	for {
 		if !retrying {
 			err := a.waitQuiet(ctx)
@@ -558,13 +559,14 @@ func (a *Agent) Prompt(ctx context.Context, text string, images []Image) error {
 			if errors.Is(err, errHung) {
 				var retry string
 				retry, err = a.retryHang(ctx)
-				text = retry + "\n\n" + text
+				text = retry + "\n\n" + lead + text
+				lead = ""
 			}
 			if err != nil {
 				return err
 			}
 		}
-		row, err := compact(promptRow(text, images))
+		row, err := compact(promptRow(lead+text, images))
 		if err != nil {
 			return err
 		}
@@ -605,15 +607,19 @@ func (a *Agent) Prompt(ctx context.Context, text string, images []Image) error {
 			defer close(resent)
 			a.resendCancel(resendCtx)
 		}()
-		err = a.sendPrompt(ctx, text, images)
+		err = a.sendPrompt(ctx, lead+text, images)
 		stopResend()
 		<-resent
 		// While a retry runs, turn stays true, so a late update of the hung turn is no autonomous turn.
 		retrying = errors.Is(err, errHung) && a.retries < maxRetries
+		a.mu.Lock()
+		var incomplete *errIncomplete
+		if errors.As(err, &incomplete) && a.limited {
+			err = nil
+		}
 		if err == nil {
 			a.retries = 0
 		}
-		a.mu.Lock()
 		wasLimited := a.limited && a.binding.Harness == config.Antigravity
 		limitText := a.limitText
 		if !retrying {
@@ -636,6 +642,18 @@ func (a *Agent) Prompt(ctx context.Context, text string, images []Image) error {
 				return err
 			}
 			images = nil
+			lead = ""
+			continue
+		}
+		if incomplete != nil {
+			if a.retries >= maxRetries {
+				return errors.Join(fmt.Errorf("the turn ended with the stop reason %s after %d retries", incomplete.reason, maxRetries), a.addNote(ctx, fmt.Sprintf("The turn ended with the stop reason %s after %d retries. Mobius sends no more retries.", incomplete.reason, maxRetries)))
+			}
+			a.retries++
+			if err := a.addNote(ctx, fmt.Sprintf("The turn ended with the stop reason %s before the work was complete. Mobius sends retry %d of %d.", incomplete.reason, a.retries, maxRetries)); err != nil {
+				return err
+			}
+			lead = fmt.Sprintf(incompletePrompt, incomplete.reason) + "\n\n"
 			continue
 		}
 		limited, waitErr := a.waitOutLimit(ctx, err)
