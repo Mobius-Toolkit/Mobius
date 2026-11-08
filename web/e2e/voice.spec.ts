@@ -1093,7 +1093,9 @@ test("a send in an Answer panel input removes the card and sends no voice mark",
   await panel.getByRole("button", { name: "Stop voice input" }).click();
   await expect(note).toHaveValue("red roses");
   await expect(panel.getByRole("button", { name: "Remove voice" })).toBeVisible();
+  const response = page.waitForResponse("**/api/inbox/211/answer");
   await panel.getByRole("button", { name: "Send", exact: true }).click();
+  await response;
   await expect(panel).toBeHidden();
   expect(bodies.map((body) => JSON.parse(body))).toEqual([{ text: "red roses" }]);
   await expect.poll(() => drafts(page)).toEqual([]);
