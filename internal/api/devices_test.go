@@ -155,7 +155,7 @@ func TestLogoutEndsTheDeviceLogin(t *testing.T) {
 	}
 }
 
-func TestEachAPIRouteButLoginNeedsTheSessionCookie(t *testing.T) {
+func TestEachAPIRouteButLoginAndTheClientDocumentNeedsTheSessionCookie(t *testing.T) {
 	mux, _, _ := newMux(t)
 	router := Routes(http.NewServeMux(), nil, nil, nil, nil, nil)
 	routes := router.GetRegistry().GetRoutes()
@@ -164,7 +164,7 @@ func TestEachAPIRouteButLoginNeedsTheSessionCookie(t *testing.T) {
 	}
 
 	for _, route := range routes {
-		if route.Method == http.MethodPost && route.Path == "/api/login" {
+		if route.Method == http.MethodPost && route.Path == "/api/login" || route.Method == http.MethodGet && route.Path == "/api/mcp-oauth/client" {
 			continue
 		}
 		path := strings.ReplaceAll(route.Path, "{id}", "1")
@@ -180,7 +180,7 @@ func TestEachAPIRouteButLoginNeedsTheSessionCookie(t *testing.T) {
 	}
 }
 
-func TestSpecGivesTheSessionCookieAnd401ToEachRouteButLogin(t *testing.T) {
+func TestSpecGivesTheSessionCookieAnd401ToEachRouteButLoginAndTheClientDocument(t *testing.T) {
 	router := Routes(http.NewServeMux(), nil, nil, nil, nil, nil)
 	spec := api.GenerateOpenAPI(router.GetRegistry())
 
@@ -189,6 +189,9 @@ func TestSpecGivesTheSessionCookieAnd401ToEachRouteButLogin(t *testing.T) {
 		t.Errorf("security scheme = %+v, want %+v", got, want)
 	}
 	for _, route := range router.GetRegistry().GetRoutes() {
+		if route.Method == http.MethodGet && route.Path == "/api/mcp-oauth/client" {
+			continue
+		}
 		item := spec.Paths[route.Path]
 		operation := map[string]*api.Operation{http.MethodGet: item.Get, http.MethodPost: item.Post, http.MethodPut: item.Put, http.MethodDelete: item.Delete}[route.Method]
 		unauthorized := operation.Responses["401"]

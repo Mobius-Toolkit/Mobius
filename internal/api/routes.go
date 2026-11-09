@@ -19,7 +19,7 @@ import (
 const maxSendChatBody = 4*5*1024*1024 + 1024*1024
 
 // Routes registers the API routes below /api/ on mux.
-// Each route but POST /api/login needs the cookie of a device login.
+// Each route but POST /api/login and GET /api/mcp-oauth/client needs the cookie of a device login.
 func Routes(mux *http.ServeMux, queries *store.Queries, a *auth.Auth, gh *github.GitHub, e *engine.Engine, recordings *voice.Recordings) *stdlib.Router {
 	h := &handlers{queries: queries, auth: a, github: gh, engine: e, recordings: recordings}
 	routes := http.NewServeMux()
@@ -99,6 +99,8 @@ func Routes(mux *http.ServeMux, queries *store.Queries, a *auth.Auth, gh *github
 	r.Post("/api/organizations/{organization}/mcp-servers", h.AddMcpServer, append(loggedIn("mcp-servers"), api.WithStatus(http.StatusCreated), api.WithErrorResponses(http.StatusConflict, http.StatusUnprocessableEntity))...)
 	r.Put("/api/organizations/{organization}/mcp-servers/{id}", h.ChangeMcpServer, append(loggedIn("mcp-servers"), api.WithErrorResponses(http.StatusNotFound, http.StatusConflict, http.StatusUnprocessableEntity))...)
 	r.Delete("/api/organizations/{organization}/mcp-servers/{id}", h.DeleteMcpServer, append(loggedIn("mcp-servers"), api.WithErrorResponses(http.StatusNotFound))...)
+	r.Post("/api/organizations/{organization}/mcp-servers/{id}/oauth", h.StartMcpOAuth, append(loggedIn("mcp-servers"), api.WithErrorResponses(http.StatusNotFound, http.StatusUnprocessableEntity))...)
+	r.Delete("/api/organizations/{organization}/mcp-servers/{id}/oauth", h.DisconnectMcpOAuth, append(loggedIn("mcp-servers"), api.WithErrorResponses(http.StatusNotFound))...)
 	r.Put("/api/workstreams/{owner}/{name}/{number}/mcp-servers", h.SetWorkstreamMcpServers, append(loggedIn("workstreams"), api.WithErrorResponses(http.StatusNotFound, http.StatusUnprocessableEntity))...)
 	r.Get("/api/checkup", h.GetCheckup, loggedIn("checkup")...)
 	r.Get("/api/checkup/tools", h.GetCheckupTools, loggedIn("checkup")...)
@@ -116,6 +118,8 @@ func Routes(mux *http.ServeMux, queries *store.Queries, a *auth.Auth, gh *github
 	r.Post("/api/voice/recordings/{id}/chunks", h.SendChunk, append(loggedIn("voice"), api.WithRequestContentTypes("application/octet-stream"), api.WithErrorResponses(http.StatusNotFound, http.StatusConflict, http.StatusBadGateway, http.StatusServiceUnavailable))...)
 	r.Post("/api/voice/recordings/{id}/finish", h.FinishRecording, append(loggedIn("voice"), api.WithErrorResponses(http.StatusNotFound))...)
 	r.Get("/api/voice/conversions/{id}", h.GetConversion, append(loggedIn("voice"), api.WithErrorResponses(http.StatusNotFound))...)
+	r.Get("/api/mcp-oauth/callback", h.McpOAuthCallback, redirect("mcp-servers")...)
+	r.Get("/api/mcp-oauth/client", h.McpOAuthClient, api.WithTags("mcp-servers"), api.WithErrorResponses(http.StatusNotFound))
 	r.Get("/api/github/manifest-callback", h.ManifestCallback, redirect("github")...)
 	r.Get("/api/github/user-callback", h.UserCallback, redirect("github")...)
 	mux.Handle("/api/", h.guard(limitBodies(routes)))

@@ -1641,3 +1641,39 @@ INSERT INTO workstream_mcp_servers (repository, workstream, server) VALUES (?, ?
 
 -- name: DeleteWorkstreamMcpServers :exec
 DELETE FROM workstream_mcp_servers WHERE repository = ? AND workstream = ?;
+
+-- name: GetMcpServerOAuth :one
+SELECT * FROM mcp_server_oauth WHERE server = ?;
+
+-- name: ListMcpServerOAuth :many
+SELECT o.* FROM mcp_server_oauth o
+JOIN mcp_servers s ON s.id = o.server
+WHERE s.organization = ?;
+
+-- name: GetMcpServerOAuthByState :one
+SELECT * FROM mcp_server_oauth WHERE state = ? AND state <> '';
+
+-- name: StartMcpServerOAuth :exec
+INSERT INTO mcp_server_oauth (
+    server, client_id, client_secret, issuer, token_endpoint, resource, scope, state, code_verifier, flow_started_at,
+    access_token, refresh_token, expires_at, failure, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', '', NULL, '', ?)
+ON CONFLICT (server) DO UPDATE SET
+    client_id = excluded.client_id, client_secret = excluded.client_secret, issuer = excluded.issuer,
+    token_endpoint = excluded.token_endpoint, resource = excluded.resource, scope = excluded.scope,
+    state = excluded.state, code_verifier = excluded.code_verifier, flow_started_at = excluded.flow_started_at,
+    access_token = '', refresh_token = '', expires_at = NULL, failure = '', updated_at = excluded.updated_at;
+
+-- name: StoreMcpServerOAuthTokens :exec
+UPDATE mcp_server_oauth
+SET access_token = ?, refresh_token = ?, expires_at = ?, state = '', code_verifier = '', flow_started_at = NULL,
+    failure = '', updated_at = ?
+WHERE server = ? AND state = ?;
+
+-- name: FailMcpServerOAuth :exec
+UPDATE mcp_server_oauth
+SET state = '', code_verifier = '', flow_started_at = NULL, failure = ?, updated_at = ?
+WHERE server = ? AND state = ?;
+
+-- name: DeleteMcpServerOAuth :exec
+DELETE FROM mcp_server_oauth WHERE server = ?;

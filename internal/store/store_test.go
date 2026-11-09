@@ -897,3 +897,45 @@ func TestTheMcpServersMigrationAddsTheTablesAndADeleteOfAServerDeletesItsSelecti
 		t.Error("a second server with the same name in the same organization was added")
 	}
 }
+
+func TestTheMcpServerOAuthMigrationAddsTheTableAndADeleteOfAServerDeletesItsRow(t *testing.T) {
+	db, err := Open(t.Context(), filepath.Join(t.TempDir(), "mobius.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	for _, statement := range []string{
+		`INSERT INTO mcp_servers (id, organization, name, kind, url, headers, command, args, env, updated_at) VALUES
+			(1, 'o', 'makeadir', 'http', 'https://example.com/mcp', '[]', '', '[]', '[]', '2026-11-09T10:00:00Z'),
+			(2, 'o', 'docs', 'http', 'https://docs.example.com/mcp', '[]', '', '[]', '[]', '2026-11-09T10:00:00Z')`,
+		`INSERT INTO mcp_server_oauth (server, client_id, client_secret, issuer, token_endpoint, resource, scope, state, code_verifier,
+			flow_started_at, access_token, refresh_token, expires_at, failure, updated_at) VALUES
+			(1, 'c', '', 'https://auth.example.com', 'https://auth.example.com/token', 'https://example.com/mcp', 'read', '', '', NULL, 'a', 'r', NULL, '', '2026-11-09T10:00:00Z'),
+			(2, 'c', '', 'https://auth.example.com', 'https://auth.example.com/token', 'https://docs.example.com/mcp', 'read', '', '', NULL, 'a', 'r', NULL, '', '2026-11-09T10:00:00Z')`,
+		`DELETE FROM mcp_servers WHERE id = 1`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var servers []int64
+	rows, err := db.Query("SELECT server FROM mcp_server_oauth")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var server int64
+		if err := rows.Scan(&server); err != nil {
+			t.Fatal(err)
+		}
+		servers = append(servers, server)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if want := []int64{2}; !slices.Equal(servers, want) {
+		t.Errorf("servers with OAuth = %v, want %v", servers, want)
+	}
+}

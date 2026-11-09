@@ -1891,6 +1891,15 @@ func (q *Queries) DeleteMcpServer(ctx context.Context, arg DeleteMcpServerParams
 	return result.RowsAffected()
 }
 
+const deleteMcpServerOAuth = `-- name: DeleteMcpServerOAuth :exec
+DELETE FROM mcp_server_oauth WHERE server = ?
+`
+
+func (q *Queries) DeleteMcpServerOAuth(ctx context.Context, server int64) error {
+	_, err := q.db.ExecContext(ctx, deleteMcpServerOAuth, server)
+	return err
+}
+
 const deleteOldSkillUse = `-- name: DeleteOldSkillUse :exec
 DELETE FROM old_skill_uses WHERE id = ?
 `
@@ -2290,6 +2299,29 @@ func (q *Queries) FailChatMessage(ctx context.Context, arg FailChatMessageParams
 		&i.Voice,
 	)
 	return i, err
+}
+
+const failMcpServerOAuth = `-- name: FailMcpServerOAuth :exec
+UPDATE mcp_server_oauth
+SET state = '', code_verifier = '', flow_started_at = NULL, failure = ?, updated_at = ?
+WHERE server = ? AND state = ?
+`
+
+type FailMcpServerOAuthParams struct {
+	Failure   string
+	UpdatedAt string
+	Server    int64
+	State     string
+}
+
+func (q *Queries) FailMcpServerOAuth(ctx context.Context, arg FailMcpServerOAuthParams) error {
+	_, err := q.db.ExecContext(ctx, failMcpServerOAuth,
+		arg.Failure,
+		arg.UpdatedAt,
+		arg.Server,
+		arg.State,
+	)
+	return err
 }
 
 const failPendingAction = `-- name: FailPendingAction :one
@@ -3107,6 +3139,60 @@ func (q *Queries) GetMcpServer(ctx context.Context, arg GetMcpServerParams) (Mcp
 		&i.Command,
 		&i.Args,
 		&i.Env,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getMcpServerOAuth = `-- name: GetMcpServerOAuth :one
+SELECT server, client_id, client_secret, issuer, token_endpoint, resource, scope, state, code_verifier, flow_started_at, access_token, refresh_token, expires_at, failure, updated_at FROM mcp_server_oauth WHERE server = ?
+`
+
+func (q *Queries) GetMcpServerOAuth(ctx context.Context, server int64) (McpServerOauth, error) {
+	row := q.db.QueryRowContext(ctx, getMcpServerOAuth, server)
+	var i McpServerOauth
+	err := row.Scan(
+		&i.Server,
+		&i.ClientID,
+		&i.ClientSecret,
+		&i.Issuer,
+		&i.TokenEndpoint,
+		&i.Resource,
+		&i.Scope,
+		&i.State,
+		&i.CodeVerifier,
+		&i.FlowStartedAt,
+		&i.AccessToken,
+		&i.RefreshToken,
+		&i.ExpiresAt,
+		&i.Failure,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getMcpServerOAuthByState = `-- name: GetMcpServerOAuthByState :one
+SELECT server, client_id, client_secret, issuer, token_endpoint, resource, scope, state, code_verifier, flow_started_at, access_token, refresh_token, expires_at, failure, updated_at FROM mcp_server_oauth WHERE state = ? AND state <> ''
+`
+
+func (q *Queries) GetMcpServerOAuthByState(ctx context.Context, state string) (McpServerOauth, error) {
+	row := q.db.QueryRowContext(ctx, getMcpServerOAuthByState, state)
+	var i McpServerOauth
+	err := row.Scan(
+		&i.Server,
+		&i.ClientID,
+		&i.ClientSecret,
+		&i.Issuer,
+		&i.TokenEndpoint,
+		&i.Resource,
+		&i.Scope,
+		&i.State,
+		&i.CodeVerifier,
+		&i.FlowStartedAt,
+		&i.AccessToken,
+		&i.RefreshToken,
+		&i.ExpiresAt,
+		&i.Failure,
 		&i.UpdatedAt,
 	)
 	return i, err
@@ -6473,6 +6559,51 @@ func (q *Queries) ListLiveTasks(ctx context.Context, repository string) ([]Task,
 			&i.ApprovedAgainHead,
 			&i.ApprovedAgainComment,
 			&i.ApprovedReportHead,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listMcpServerOAuth = `-- name: ListMcpServerOAuth :many
+SELECT o.server, o.client_id, o.client_secret, o.issuer, o.token_endpoint, o.resource, o.scope, o.state, o.code_verifier, o.flow_started_at, o.access_token, o.refresh_token, o.expires_at, o.failure, o.updated_at FROM mcp_server_oauth o
+JOIN mcp_servers s ON s.id = o.server
+WHERE s.organization = ?
+`
+
+func (q *Queries) ListMcpServerOAuth(ctx context.Context, organization string) ([]McpServerOauth, error) {
+	rows, err := q.db.QueryContext(ctx, listMcpServerOAuth, organization)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []McpServerOauth
+	for rows.Next() {
+		var i McpServerOauth
+		if err := rows.Scan(
+			&i.Server,
+			&i.ClientID,
+			&i.ClientSecret,
+			&i.Issuer,
+			&i.TokenEndpoint,
+			&i.Resource,
+			&i.Scope,
+			&i.State,
+			&i.CodeVerifier,
+			&i.FlowStartedAt,
+			&i.AccessToken,
+			&i.RefreshToken,
+			&i.ExpiresAt,
+			&i.Failure,
+			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -9995,6 +10126,49 @@ func (q *Queries) SetUserTokens(ctx context.Context, arg SetUserTokensParams) er
 	return err
 }
 
+const startMcpServerOAuth = `-- name: StartMcpServerOAuth :exec
+INSERT INTO mcp_server_oauth (
+    server, client_id, client_secret, issuer, token_endpoint, resource, scope, state, code_verifier, flow_started_at,
+    access_token, refresh_token, expires_at, failure, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', '', NULL, '', ?)
+ON CONFLICT (server) DO UPDATE SET
+    client_id = excluded.client_id, client_secret = excluded.client_secret, issuer = excluded.issuer,
+    token_endpoint = excluded.token_endpoint, resource = excluded.resource, scope = excluded.scope,
+    state = excluded.state, code_verifier = excluded.code_verifier, flow_started_at = excluded.flow_started_at,
+    access_token = '', refresh_token = '', expires_at = NULL, failure = '', updated_at = excluded.updated_at
+`
+
+type StartMcpServerOAuthParams struct {
+	Server        int64
+	ClientID      string
+	ClientSecret  string
+	Issuer        string
+	TokenEndpoint string
+	Resource      string
+	Scope         string
+	State         string
+	CodeVerifier  string
+	FlowStartedAt sql.NullString
+	UpdatedAt     string
+}
+
+func (q *Queries) StartMcpServerOAuth(ctx context.Context, arg StartMcpServerOAuthParams) error {
+	_, err := q.db.ExecContext(ctx, startMcpServerOAuth,
+		arg.Server,
+		arg.ClientID,
+		arg.ClientSecret,
+		arg.Issuer,
+		arg.TokenEndpoint,
+		arg.Resource,
+		arg.Scope,
+		arg.State,
+		arg.CodeVerifier,
+		arg.FlowStartedAt,
+		arg.UpdatedAt,
+	)
+	return err
+}
+
 const startSession = `-- name: StartSession :one
 UPDATE sessions SET started_at = ?, queue_reason = NULL WHERE id = ?
 RETURNING id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent, effort, workstream_repository, continued, context_used, context_size
@@ -10099,6 +10273,34 @@ func (q *Queries) StopTask(ctx context.Context, id int64) (int64, error) {
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const storeMcpServerOAuthTokens = `-- name: StoreMcpServerOAuthTokens :exec
+UPDATE mcp_server_oauth
+SET access_token = ?, refresh_token = ?, expires_at = ?, state = '', code_verifier = '', flow_started_at = NULL,
+    failure = '', updated_at = ?
+WHERE server = ? AND state = ?
+`
+
+type StoreMcpServerOAuthTokensParams struct {
+	AccessToken  string
+	RefreshToken string
+	ExpiresAt    sql.NullString
+	UpdatedAt    string
+	Server       int64
+	State        string
+}
+
+func (q *Queries) StoreMcpServerOAuthTokens(ctx context.Context, arg StoreMcpServerOAuthTokensParams) error {
+	_, err := q.db.ExecContext(ctx, storeMcpServerOAuthTokens,
+		arg.AccessToken,
+		arg.RefreshToken,
+		arg.ExpiresAt,
+		arg.UpdatedAt,
+		arg.Server,
+		arg.State,
+	)
+	return err
 }
 
 const trimRecurringTaskRuns = `-- name: TrimRecurringTaskRuns :exec
