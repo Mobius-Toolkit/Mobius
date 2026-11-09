@@ -7,14 +7,23 @@ import { currentWorkstreams, subscribeWorkstreams } from "@/lib/workstreams";
 import { Agent } from "@/transcript/schemas";
 import { subscriptions as agentsSubscriptions } from "./agents/subscriptions";
 import { subscriptions as detailsSubscriptions } from "./details/subscriptions";
-import { Message, toGotAgentsMessage, toGotDetailsMessage, toGotTasksMessage } from "./message";
+import {
+  Message,
+  toGotAgentsMessage,
+  toGotDetailsMessage,
+  toGotRecurringMessage,
+  toGotTasksMessage,
+} from "./message";
 import type { Model } from "./model";
 import { ports } from "./ports";
+import { subscriptions as recurringSubscriptions } from "./recurring/subscriptions";
 import { subscriptions as tasksSubscriptions } from "./tasks/subscriptions";
 
 // The generated type of the data of the event workstreams is an object with no known fields, and the panel does not use
 // the data.
 const WorkstreamsEventData = Schema.Record(Schema.String, Schema.Json);
+
+const RecurringEventData = Schema.Struct({ repository: Schema.String, number: Schema.Number });
 
 const panel = Subscription.make<Model, Message>()((entry) => ({
   tabPort: Port.subscriptionEntry(ports.inbound.tab, (tab) => Message.ReceivedTab({ tab })),
@@ -29,6 +38,9 @@ const panel = Subscription.make<Model, Message>()((entry) => ({
           listeners: [
             liveListener("workstreams", WorkstreamsEventData, () => Message.WorkstreamsChanged()),
             liveListener("agent", Agent, (agent) => Message.AgentChanged({ agent })),
+            liveListener("recurring_tasks", RecurringEventData, ({ repository, number }) =>
+              Message.RecurringChanged({ repository, number }),
+            ),
           ],
         }),
     },
@@ -69,4 +81,10 @@ const details = Subscription.lift(detailsSubscriptions)<Model, Message>({
   when: (model) => model.tab === "details",
 });
 
-export const subscriptions = Subscription.aggregate(panel, tasks, agents, details);
+const recurring = Subscription.lift(recurringSubscriptions)<Model, Message>({
+  read: (model) => Option.some(model.recurring),
+  toParentMessage: toGotRecurringMessage,
+  when: (model) => model.tab === "recurring",
+});
+
+export const subscriptions = Subscription.aggregate(panel, tasks, agents, details, recurring);

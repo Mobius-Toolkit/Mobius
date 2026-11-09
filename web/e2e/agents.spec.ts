@@ -300,7 +300,9 @@ for (const { name: device, size } of devices) {
 }
 
 for (const { name: place, path, open } of places) {
-  test(`the agent log in ${place} shows Connecting… until its stream opens`, async ({ page }) => {
+  test(`the agent log in ${place} shows its lines at once, and Connecting… until its stream opens`, async ({
+    page,
+  }) => {
     await page.setViewportSize({ width: 1280, height: 720 });
     await mockLog(page);
     let stream: Route | undefined;
@@ -311,6 +313,7 @@ for (const { name: place, path, open } of places) {
     await open(page);
     const badge = page.getByText("Connecting…").filter({ visible: true });
     await expect(badge).toBeVisible();
+    await expect(page.getByText("Entry 29 ")).toBeVisible();
     const list = page
       .getByText("Read only. The Owner talks only to the Lead.")
       .filter({ visible: true })
@@ -319,9 +322,8 @@ for (const { name: place, path, open } of places) {
 
     await page.unroute("**/api/agents/*/transcript/events");
     await stream!.continue();
-    await expect(page.getByText("Entry 29 ")).toBeVisible();
     await expect(badge).toBeHidden();
-    // The list is empty while the stream is down, so only its top and its width stay.
+    await expect(page.getByText("Entry 29 ")).toBeVisible();
     expect(await list.boundingBox()).toMatchObject({
       x: placeOfList!.x,
       y: placeOfList!.y,
@@ -574,7 +576,7 @@ test("the agent log of a long session shows the newest rows and loads the older 
   await expect(page.getByText("Entry 250 ")).toBeVisible();
   await expect(page.getByText("Entry 151 ")).toHaveCount(1);
   await expect(page.getByText("Entry 150 ")).toHaveCount(0);
-  expect(requests).toEqual([undefined]);
+  await expect.poll(() => requests).toEqual([undefined, undefined]);
 
   await page.evaluate(
     `new Promise((resolve) => {
@@ -587,7 +589,7 @@ test("the agent log of a long session shows the newest rows and loads the older 
   const listTop = (await page.locator("li[data-line]").first().locator("xpath=..").boundingBox())!
     .y;
   await expect(page.getByText("Entry 150 ")).toHaveCount(1);
-  expect(requests).toEqual([undefined, 151]);
+  expect(requests).toEqual([undefined, undefined, 151]);
   expect(Math.abs((await first.boundingBox())!.y - listTop)).toBeLessThan(20);
   expect(await lineIds(page)).toHaveLength(200);
 });
@@ -601,12 +603,13 @@ test("the agent log loads pages after a reconnect until it has the newest known 
   await mockPages(page, total, requests);
   await openAgentLog(page);
   await expect(page.getByText("Entry 250 ")).toBeVisible();
+  await expect.poll(() => requests).toEqual([undefined, undefined]);
 
   total.rows = 350;
   await page.evaluate(`window.sources.at(-1).dispatchEvent(new Event('open'))`);
 
   await expect(page.getByText("Entry 350 ")).toBeVisible();
-  expect(requests).toEqual([undefined, undefined, 251]);
+  expect(requests).toEqual([undefined, undefined, undefined, 251]);
   const ids = await lineIds(page);
   expect(ids).toHaveLength(200);
   expect(new Set(ids).size).toBe(200);

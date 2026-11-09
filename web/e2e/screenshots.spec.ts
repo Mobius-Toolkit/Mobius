@@ -179,7 +179,7 @@ const queueReasons = [
   "no free Implementer slot (2/2)",
 ];
 
-// A log that waits for its stream shows Connecting…, and the stream is open when the log has its first entries.
+// The log shows its entries before its stream opens, so the screenshot waits for the end of Connecting….
 const logConnected = async (page: Page) => {
   await expect(
     page.getByText("The plan prices are in cents now.").filter({ visible: true }),
@@ -1591,6 +1591,76 @@ test("screenshots", async ({ page }) => {
     },
   );
   await page.unroute(blockedReadyRoute);
+  const recurringFrame = (device: string, number: number) =>
+    device === "desktop"
+      ? [
+          drain,
+          page.getByLabel("Work in another organization"),
+          page.locator(`nav a[href="/workstreams/plants/garden/${number}"]`),
+        ]
+      : [page.getByLabel("Upgrade available")];
+  const openRecurring = async (device: string) => {
+    if (device === "phone") {
+      await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
+    }
+    await page.getByRole("tab", { name: "Recurring" }).filter({ visible: true }).click();
+  };
+  const recurringPanel = page.getByRole("tabpanel", { name: "Recurring" });
+  const checkRow = recurringPanel.getByRole("listitem").filter({ hasText: "Check the open pull" });
+  await screenshot(
+    page,
+    "chat-recurring",
+    "/workstreams/plants/garden/50",
+    (device) => [
+      ...recurringFrame(device, 50),
+      checkRow.getByText("0 8 * * 1-5 · Next Sep 29, 08:00 AM"),
+      checkRow.getByText("Last: Sep 28, 08:00 AM event"),
+      recurringPanel.getByText("Paused", { exact: true }),
+      recurringPanel.getByRole("button", { name: "Resume" }),
+    ],
+    openRecurring,
+  );
+  await screenshot(
+    page,
+    "chat-recurring-history",
+    "/workstreams/plants/garden/50",
+    (device) => [
+      ...recurringFrame(device, 50),
+      checkRow.getByRole("heading", { name: "History" }),
+      checkRow.getByText("skipped: the earlier event is not delivered yet"),
+      checkRow.getByText("Sep 24, 08:00 AM"),
+    ],
+    async (device) => {
+      await openRecurring(device);
+      await checkRow.getByRole("button", { name: /Check the open pull requests/ }).click();
+    },
+  );
+  const recurringDialog = page.getByRole("dialog", { name: "Delete the recurring task" });
+  await screenshot(
+    page,
+    "chat-recurring-delete",
+    "/workstreams/plants/garden/50",
+    (device) => [
+      ...recurringFrame(device, 50),
+      recurringDialog.getByText("Check the open pull requests and tell me which ones wait"),
+      recurringDialog.getByRole("button", { name: "Delete", exact: true }),
+    ],
+    async (device) => {
+      await openRecurring(device);
+      await checkRow.getByRole("button", { name: "Delete" }).click();
+    },
+    () => page.keyboard.press("Escape"),
+  );
+  await screenshot(
+    page,
+    "chat-recurring-empty",
+    "/workstreams/plants/garden/55",
+    (device) => [
+      ...recurringFrame(device, 55),
+      recurringPanel.getByText("No recurring task. Ask the Lead in the chat to add one."),
+    ],
+    openRecurring,
+  );
   const otherRepositoryRoute = "**/api/workstreams/plants/garden/19/tasks";
   await page.route(otherRepositoryRoute, async (route) => {
     const response = await route.fetch();
