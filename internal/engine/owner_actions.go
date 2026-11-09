@@ -124,6 +124,7 @@ func (e *Engine) doneOwnerAction(ctx context.Context, item store.InboxItem, note
 	if err := e.setReviewStep(ctx, repository, head, task, false); err != nil {
 		return store.InboxItem{}, err
 	}
+	defer e.holdWorker(task.ID)()
 	queued, err := e.queueTask(ctx, store.QueueTaskParams{QueuedAt: sql.NullString{String: now(), Valid: true}, ID: task.ID, FromState: "owner_action"})
 	if err != nil {
 		return store.InboxItem{}, err
