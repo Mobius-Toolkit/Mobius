@@ -3,8 +3,10 @@ import { Command } from "foldkit";
 import {
   closeWorkstream,
   getWorkstreamDetails,
+  listMcpServers,
   listRoles,
   setEvergreen,
+  setWorkstreamMcpServers,
   workstreamClosure,
 } from "@/api/api.gen";
 import { answer, request } from "@/lib/effects";
@@ -45,6 +47,40 @@ export const FetchRoles = Command.define("FetchRoles", {
       Effect.succeed(Message.LoadFailed({ error: error.message })),
     ),
   ),
+});
+
+export const FetchMcpServers = Command.define("FetchMcpServers", {
+  args: { organization: Schema.String },
+  messages: [Message.McpServersLoaded, Message.LoginRequired, Message.LoadFailed],
+  execute: ({ organization }) =>
+    request(() => listMcpServers(organization)).pipe(
+      Effect.map((res) => {
+        if (res.status === 401) {
+          return Message.LoginRequired();
+        }
+        if (res.status !== 200) {
+          return Message.LoadFailed({ error: res.data.error });
+        }
+        return Message.McpServersLoaded({ servers: res.data.data });
+      }),
+      Effect.catchTag("RequestFailed", (error) =>
+        Effect.succeed(Message.LoadFailed({ error: error.message })),
+      ),
+    ),
+});
+
+export const SetMcpServers = Command.define("SetMcpServers", {
+  args: { ...Workstream, ids: Schema.Array(Schema.Number) },
+  messages: [Message.McpServersSaved, Message.LoginRequired, Message.McpServersFailed],
+  execute: ({ owner, name, number, ids }) =>
+    answer(() => setWorkstreamMcpServers(owner, name, number, { ids: [...ids] }), {
+      done: () => {
+        showNotice(`Changed the MCP servers of #${number}`);
+        return Message.McpServersSaved({ ids });
+      },
+      login: Message.LoginRequired,
+      failed: (error) => Message.McpServersFailed({ error }),
+    }),
 });
 
 export const SetEvergreen = Command.define("SetEvergreen", {

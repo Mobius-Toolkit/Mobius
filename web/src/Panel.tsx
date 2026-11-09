@@ -1,3 +1,4 @@
+import { useNavigate } from "@tanstack/react-router";
 import { Effect } from "effect";
 import * as Runtime from "foldkit/runtime";
 import { use, useEffect, useEffectEvent, useRef } from "react";
@@ -6,7 +7,7 @@ import type { PanelPorts } from "./panel/ports";
 import { createPanelProgram } from "./panel/program";
 import type { Tab } from "./panel/schemas";
 
-// The panel of a Workstream: the tabs Tasks, Agents, Details and Brief. The open tab stays in the page, because the
+// The panel of a Workstream: the tabs Tasks, Agents, Details, Brief and Recurring. The open tab stays in the page, because the
 // Brief button of the chat selects the Brief tab. instance names the place of the panel, because the page can hold
 // two panels at the same time.
 export function Panel({
@@ -27,6 +28,7 @@ export function Panel({
   onTaskAttached?: () => void;
 }) {
   const showLogin = use(LoginContext);
+  const navigate = useNavigate();
   const containerRef = useRef<HTMLDivElement>(null);
   const handleRef = useRef<Runtime.EmbedHandle<PanelPorts>>(null);
   const currentTab = useEffectEvent(() => tab);
@@ -49,17 +51,21 @@ export function Panel({
     const unsubLogin = handle.ports.loginRequested.subscribe(() => {
       showLogin();
     });
+    const unsubNav = handle.ports.navigationRequested.subscribe((path) => {
+      void navigate({ to: path });
+    });
     const unsubTab = handle.ports.tabChanged.subscribe(changeTab);
     const unsubAttached = handle.ports.taskAttached.subscribe(attachedTask);
 
     return () => {
       unsubLogin();
+      unsubNav();
       unsubTab();
       unsubAttached();
       handle.dispose();
       handleRef.current = null;
     };
-  }, [owner, name, number, instance, showLogin]);
+  }, [owner, name, number, instance, showLogin, navigate]);
 
   useEffect(() => {
     handleRef.current?.ports.tab.send(tab);

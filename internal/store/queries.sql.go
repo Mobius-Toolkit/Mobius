@@ -9776,6 +9776,30 @@ func (q *Queries) SetQueueReason(ctx context.Context, arg SetQueueReasonParams) 
 	return i, err
 }
 
+const setRecurringTaskEvent = `-- name: SetRecurringTaskEvent :execrows
+UPDATE recurring_tasks SET event = ? WHERE id = ? AND repository = ? AND workstream = ?
+`
+
+type SetRecurringTaskEventParams struct {
+	Event      sql.NullInt64
+	ID         int64
+	Repository string
+	Workstream int64
+}
+
+func (q *Queries) SetRecurringTaskEvent(ctx context.Context, arg SetRecurringTaskEventParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setRecurringTaskEvent,
+		arg.Event,
+		arg.ID,
+		arg.Repository,
+		arg.Workstream,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const setRecurringTaskPaused = `-- name: SetRecurringTaskPaused :one
 UPDATE recurring_tasks
 SET paused = CAST(?1 AS BOOLEAN), checked_at = ?2
