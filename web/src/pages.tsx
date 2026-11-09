@@ -3,13 +3,7 @@ import { PageHeader } from "@/components/page";
 import { useShell } from "@/lib/shell";
 import { Agents } from "./Agents";
 import { Chat } from "./Chat";
-import {
-  Checkup,
-  CheckupLabels,
-  CheckupPermissions,
-  CheckupTools,
-  CheckupWorkstreams,
-} from "./Checkup";
+import { CheckupHost } from "./CheckupHost";
 import { GitHub } from "./GitHub";
 import { Inbox } from "./Inbox";
 import { Memory, MemoryFiles, MemoryRepositories } from "./Memory";
@@ -79,28 +73,50 @@ export function AgentsPage() {
 }
 
 export function CheckupPage() {
-  const { organizations } = useShell();
-  return <Checkup organizations={organizations} />;
+  return <CheckupHost page="overview" title="Checkup" back="/settings" />;
 }
 
 export function CheckupToolsPage() {
-  const { pauses } = useShell();
-  return <CheckupTools pauses={pauses} />;
+  return <CheckupHost page="tools" title="Tools" back="/settings/checkup" />;
 }
 
 export function CheckupPermissionsPage() {
   const { organization } = useParams({ from: "/settings/checkup/$organization/permissions" });
-  return <CheckupPermissions key={organization} organization={organization} />;
+  return (
+    <CheckupHost
+      key={organization}
+      page="permissions"
+      organization={organization}
+      title="App permissions"
+      back="/settings/checkup"
+    />
+  );
 }
 
 export function CheckupLabelsPage() {
   const { organization } = useParams({ from: "/settings/checkup/$organization/labels" });
-  return <CheckupLabels key={organization} organization={organization} />;
+  return (
+    <CheckupHost
+      key={organization}
+      page="labels"
+      organization={organization}
+      title="Labels"
+      back="/settings/checkup"
+    />
+  );
 }
 
 export function CheckupWorkstreamsPage() {
   const { organization } = useParams({ from: "/settings/checkup/$organization/workstreams" });
-  return <CheckupWorkstreams key={organization} organization={organization} />;
+  return (
+    <CheckupHost
+      key={organization}
+      page="workstreams"
+      organization={organization}
+      title="Workstreams"
+      back="/settings/checkup"
+    />
+  );
 }
 
 export function GitHubPage() {
