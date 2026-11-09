@@ -18,6 +18,7 @@ import {
   circleAlertIcon,
   circleXIcon,
   clockIcon,
+  messageSquareIcon,
   micIcon,
   spinnerIcon,
   trash2Icon,
@@ -746,10 +747,18 @@ function renderTrayButtons(h: H, item: InboxItem, model: Model, chat: Message): 
       ),
     );
   }
+  const { reference } = itemReference(item);
+  const chatLabel = reference ? `Chat about ${reference}` : "Chat";
   buttons.push(
     h.button(
-      [h.Type("button"), h.Class(buttonClass({ variant: "outline", size: "sm" })), h.OnClick(chat)],
-      ["Chat"],
+      [
+        h.Type("button"),
+        h.AriaLabel(chatLabel),
+        h.Title(chatLabel),
+        h.Class(buttonClass({ variant: "outline", size: "icon-sm" })),
+        h.OnClick(chat),
+      ],
+      [messageSquareIcon(h)],
     ),
   );
   return buttons;
