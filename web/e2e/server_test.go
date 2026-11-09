@@ -486,6 +486,17 @@ func TestServer(t *testing.T) {
 		}
 	})
 
+	server.Mux.HandleFunc("POST /e2e/recurring-tasks/{owner}/{name}/{number}", func(w http.ResponseWriter, r *http.Request) {
+		number, err := strconv.ParseInt(r.PathValue("number"), 10, 64)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		query := r.URL.Query()
+		if _, err := server.Engine.AddRecurringTask(r.Context(), r.PathValue("owner")+"/"+r.PathValue("name"), number, query.Get("cron"), query.Get("text")); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	})
 	server.Mux.HandleFunc("DELETE /e2e/dispatches/{owner}/{name}/{issue}", func(w http.ResponseWriter, r *http.Request) {
 		repository := r.PathValue("owner") + "/" + r.PathValue("name")
 		issue, err := strconv.ParseInt(r.PathValue("issue"), 10, 64)
@@ -803,6 +814,7 @@ func TestServer(t *testing.T) {
 		}) && slices.Contains(github.Labels("owner/shop", 41), "mobius:needs-human")
 	})
 	server.Engine.SetClock(func() time.Time { return time.Date(2026, 9, 28, 9, 30, 0, 0, time.UTC) })
+	addRecurringTasks(ctx, t, server)
 	if err := queries.SetHarnessPause(ctx, store.SetHarnessPauseParams{Harness: "antigravity", PausedUntil: "2026-09-28T12:00:00Z"}); err != nil {
 		t.Fatal(err)
 	}
@@ -895,6 +907,34 @@ func TestServer(t *testing.T) {
 	})
 	<-ctx.Done()
 	_ = srv.Close()
+}
+
+// addRecurringTasks gives plants/garden#50 an active and a paused recurring task with fixed times. It runs after
+// SetClock, so the next times and the times of the checks do not change. The Workstream plants/garden#55 has no task.
+func addRecurringTasks(ctx context.Context, t *testing.T, server *testserver.Server) {
+	t.Helper()
+	const repository = "plants/garden"
+	active, err := server.Engine.AddRecurringTask(ctx, repository, 50, "0 8 * * 1-5", "Check the open pull requests and tell me which ones wait for a review.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	paused, err := server.Engine.AddRecurringTask(ctx, repository, 50, "0 9 * * 1", "Weekly cost report")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := server.Engine.SetRecurringTaskPaused(ctx, repository, 50, paused.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	for _, run := range []struct{ time, result, reason string }{
+		{"2026-09-24T08:00:00Z", "event", ""},
+		{"2026-09-25T08:00:00Z", "skipped", "the earlier event is not delivered yet"},
+		{"2026-09-28T08:00:00Z", "event", ""},
+	} {
+		if _, err := server.DB.Exec("INSERT INTO recurring_task_runs (recurring_task, time, result, reason) VALUES (?, ?, ?, ?)",
+			active.ID, run.time, run.result, run.reason); err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 // chat sends the Owner message text to the chat of key, and waits for the reply of author and the end of the session.
