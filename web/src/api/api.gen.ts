@@ -1577,7 +1577,7 @@ export interface EnvelopeRecording {
 }
 
 /**
- * Result is event when the Lead got an event, or skipped
+ * Result is event when the Lead got an event, manual when the Owner ran the task now, or skipped
  */
 export type RecurringTaskRunResult = typeof RecurringTaskRunResult[keyof typeof RecurringTaskRunResult];
 
@@ -1585,6 +1585,7 @@ export type RecurringTaskRunResult = typeof RecurringTaskRunResult[keyof typeof 
 export const RecurringTaskRunResult = {
   event: 'event',
   skipped: 'skipped',
+  manual: 'manual',
 } as const;
 
 /**
@@ -1593,7 +1594,7 @@ export const RecurringTaskRunResult = {
 export interface RecurringTaskRun {
   /** Reason is the reason of a skipped time, or empty */
   reason: string;
-  /** Result is event when the Lead got an event, or skipped */
+  /** Result is event when the Lead got an event, manual when the Owner ran the task now, or skipped */
   result: RecurringTaskRunResult;
   /** Time is the time of the run */
   time: string;
@@ -9554,6 +9555,87 @@ export const setRecurringTaskPaused = async (owner: string,
 
   const data: setRecurringTaskPausedResponse['data'] = body ? JSON.parse(body) : {}
   return { data, status: res.status, headers: res.headers } as setRecurringTaskPausedResponse
+}
+
+
+
+export type runRecurringTaskResponse200 = {
+  data: EnvelopeRecurringTask
+  status: 200
+}
+
+export type runRecurringTaskResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type runRecurringTaskResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type runRecurringTaskResponse404 = {
+  data: ErrorResponse
+  status: 404
+}
+
+export type runRecurringTaskResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
+export type runRecurringTaskResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type runRecurringTaskResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type runRecurringTaskResponseSuccess = (runRecurringTaskResponse200) & {
+  headers: Headers;
+};
+export type runRecurringTaskResponseError = (runRecurringTaskResponse400 | runRecurringTaskResponse401 | runRecurringTaskResponse404 | runRecurringTaskResponse409 | runRecurringTaskResponse422 | runRecurringTaskResponse500) & {
+  headers: Headers;
+};
+
+export type runRecurringTaskResponse = (runRecurringTaskResponseSuccess | runRecurringTaskResponseError)
+
+export const getRunRecurringTaskUrl = (owner: string,
+    name: string,
+    number: number,
+    id: number,) => {
+
+
+
+
+  return `/api/workstreams/${owner}/${name}/${number}/recurring-tasks/${id}/runs`
+}
+
+/**
+ * RunRecurringTask gives the Lead the event of a recurring task now, as a scheduled time does, and tells the Lead that the Owner started the run by hand. It works also for a paused task, which stays paused, and it does not change the next scheduled time. It returns 404 for an id that is not a task of the Workstream, and 409 when the earlier event of the task is not delivered yet.
+ */
+export const runRecurringTask = async (owner: string,
+    name: string,
+    number: number,
+    id: number, ): Promise<runRecurringTaskResponse> => {
+
+  const res = await fetch(getRunRecurringTaskUrl(owner,name,number,id),
+  {
+
+    method: 'POST'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: runRecurringTaskResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as runRecurringTaskResponse
 }
 
 
