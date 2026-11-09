@@ -2396,6 +2396,10 @@ export type TranscriptEvents = {
   data: TranscriptLine;
   event: 'transcript';
   id?: string;
+} | {
+  data: { [key: string]: unknown };
+  event: 'ping';
+  id?: string;
 };
 
 export interface UpgradeCheckupToolBody {

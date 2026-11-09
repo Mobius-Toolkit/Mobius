@@ -424,7 +424,7 @@
     },
     "/api/agents/{id}/transcript/events": {
       "get": {
-        "description": "StreamTranscript sends each new or changed row of the Transcript of a session. It sends no row that exists when the stream opens. When the client does not read the rows fast enough, the stream ends.",
+        "description": "StreamTranscript sends a ping at once, and then each new or changed row of the Transcript of a session. It sends no row that exists when the stream opens. When the client does not read the rows fast enough, the stream ends.",
         "operationId": "StreamTranscript",
         "parameters": [
           {
@@ -10980,6 +10980,29 @@
               "event": {
                 "type": "string",
                 "const": "transcript"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "event",
+              "data"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "string",
+                "contentMediaType": "application/json",
+                "contentSchema": {
+                  "type": "object"
+                }
+              },
+              "event": {
+                "type": "string",
+                "const": "ping"
               },
               "id": {
                 "type": "string"
