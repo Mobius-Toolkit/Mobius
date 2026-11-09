@@ -113,7 +113,7 @@ func (e *Engine) UpdateMcpServer(ctx context.Context, organization string, id in
 			return err
 		}
 		row, err := q.UpdateMcpServer(ctx, store.UpdateMcpServerParams{
-			Name: params.Name, Kind: params.Kind, Url: params.Url, Headers: params.Headers, Command: params.Command,
+			Name: params.Name, Kind: params.Kind, Url: params.Url, HeaderList: params.HeaderList, Command: params.Command,
 			Args: params.Args, Env: params.Env, UpdatedAt: params.UpdatedAt, ID: id, Organization: organization,
 		})
 		if err != nil {
@@ -297,7 +297,7 @@ func (e *Engine) addMcpServerParams(organization string, server McpServer) (stor
 		env = server.Env
 	}
 	var err error
-	if params.Headers, err = encodeJSON(headers); err != nil {
+	if params.HeaderList, err = encodeJSON(headers); err != nil {
 		return store.AddMcpServerParams{}, err
 	}
 	if params.Args, err = encodeJSON(args); err != nil {
@@ -328,7 +328,7 @@ func mcpServersOf(rows []store.McpServer) ([]McpServer, error) {
 
 func mcpServerOf(row store.McpServer) (McpServer, error) {
 	server := McpServer{ID: row.ID, Name: row.Name, Kind: row.Kind, URL: row.Url, Command: row.Command}
-	if err := json.Unmarshal([]byte(row.Headers), &server.Headers); err != nil {
+	if err := json.Unmarshal([]byte(row.HeaderList), &server.Headers); err != nil {
 		return McpServer{}, err
 	}
 	if err := json.Unmarshal([]byte(row.Args), &server.Args); err != nil {

@@ -729,7 +729,7 @@ type AddMcpServerParams struct {
 	Name         string
 	Kind         string
 	Url          string
-	Headers      string
+	HeaderList   string
 	Command      string
 	Args         string
 	Env          string
@@ -742,7 +742,7 @@ func (q *Queries) AddMcpServer(ctx context.Context, arg AddMcpServerParams) (Mcp
 		arg.Name,
 		arg.Kind,
 		arg.Url,
-		arg.Headers,
+		arg.HeaderList,
 		arg.Command,
 		arg.Args,
 		arg.Env,
@@ -755,7 +755,7 @@ func (q *Queries) AddMcpServer(ctx context.Context, arg AddMcpServerParams) (Mcp
 		&i.Name,
 		&i.Kind,
 		&i.Url,
-		&i.Headers,
+		&i.HeaderList,
 		&i.Command,
 		&i.Args,
 		&i.Env,
@@ -3103,7 +3103,7 @@ func (q *Queries) GetMcpServer(ctx context.Context, arg GetMcpServerParams) (Mcp
 		&i.Name,
 		&i.Kind,
 		&i.Url,
-		&i.Headers,
+		&i.HeaderList,
 		&i.Command,
 		&i.Args,
 		&i.Env,
@@ -6508,7 +6508,7 @@ func (q *Queries) ListMcpServers(ctx context.Context, organization string) ([]Mc
 			&i.Name,
 			&i.Kind,
 			&i.Url,
-			&i.Headers,
+			&i.HeaderList,
 			&i.Command,
 			&i.Args,
 			&i.Env,
@@ -8701,7 +8701,7 @@ func (q *Queries) ListWorkstreamMcpServers(ctx context.Context, arg ListWorkstre
 			&i.Name,
 			&i.Kind,
 			&i.Url,
-			&i.Headers,
+			&i.HeaderList,
 			&i.Command,
 			&i.Args,
 			&i.Env,
@@ -10269,7 +10269,7 @@ type UpdateMcpServerParams struct {
 	Name         string
 	Kind         string
 	Url          string
-	Headers      string
+	HeaderList   string
 	Command      string
 	Args         string
 	Env          string
@@ -10283,7 +10283,7 @@ func (q *Queries) UpdateMcpServer(ctx context.Context, arg UpdateMcpServerParams
 		arg.Name,
 		arg.Kind,
 		arg.Url,
-		arg.Headers,
+		arg.HeaderList,
 		arg.Command,
 		arg.Args,
 		arg.Env,
@@ -10298,7 +10298,7 @@ func (q *Queries) UpdateMcpServer(ctx context.Context, arg UpdateMcpServerParams
 		&i.Name,
 		&i.Kind,
 		&i.Url,
-		&i.Headers,
+		&i.HeaderList,
 		&i.Command,
 		&i.Args,
 		&i.Env,

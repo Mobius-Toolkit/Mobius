@@ -222,7 +222,7 @@ type McpServer struct {
 	Name         string
 	Kind         string
 	Url          string
-	Headers      string
+	HeaderList   string
 	Command      string
 	Args         string
 	Env          string
