@@ -139,6 +139,19 @@ func TestAnOperatorMessageStaysOutOfTheChatAndTheReplyTextOfItsTurnGoesOnlyToThe
 	}
 }
 
+func TestAChatIsNotStoppableDuringTheTurnForAnOperatorMessage(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectOperator(t, fake, "[[prompts]]\nwhen = \"# Operator message\"\nhang = true\n"+operatorLead+operatorWork)
+	sendChat(t, server, leadChat, "Start the operator.")
+	session := endedOperators(t, server, 1)[0]
+	waitForLeadPrompt(t, server, fmt.Sprintf("# Operator message\n\nReport of the Operator %d:", session.ID))
+
+	if view := chatView(t, server, leadChat); !view.Writing || view.Stoppable {
+		t.Errorf("writing = %v, stoppable = %v", view.Writing, view.Stoppable)
+	}
+}
+
 func TestAFailedOperatorGivesTheFailureAsItsReport(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
