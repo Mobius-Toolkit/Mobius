@@ -853,3 +853,47 @@ func TestTheOldSkillUsesMigrationReadsTheSkillUsesOfTheTranscript(t *testing.T) 
 		t.Errorf("old skill uses = %+v, want %+v", got, want)
 	}
 }
+
+func TestTheMcpServersMigrationAddsTheTablesAndADeleteOfAServerDeletesItsSelections(t *testing.T) {
+	db, err := Open(t.Context(), filepath.Join(t.TempDir(), "mobius.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	for _, statement := range []string{
+		`INSERT INTO mcp_servers (id, organization, name, kind, url, headers, command, args, env, updated_at) VALUES
+			(1, 'o', 'makeadir', 'http', 'https://example.com/mcp', '[]', '', '[]', '[]', '2026-11-09T10:00:00Z'),
+			(2, 'o', 'files', 'stdio', '', '[]', 'files-server', '[]', '[]', '2026-11-09T10:00:00Z')`,
+		`INSERT INTO workstream_mcp_servers (repository, workstream, server) VALUES ('o/a', 1, 1), ('o/a', 1, 2), ('o/b', 2, 1)`,
+		`DELETE FROM mcp_servers WHERE id = 1`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	rows, err := db.Query("SELECT repository, workstream, server FROM workstream_mcp_servers")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+	var got []string
+	for rows.Next() {
+		var repository string
+		var workstream, server int64
+		if err := rows.Scan(&repository, &workstream, &server); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, fmt.Sprintf("%s#%d:%d", repository, workstream, server))
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"o/a#1:2"}; !slices.Equal(got, want) {
+		t.Errorf("selections = %v, want %v", got, want)
+	}
+	if _, err := db.Exec(`INSERT INTO mcp_servers (organization, name, kind, url, headers, command, args, env, updated_at) VALUES
+		('O', 'files', 'stdio', '', '[]', 'x', '[]', '[]', '')`); err == nil {
+		t.Error("a second server with the same name in the same organization was added")
+	}
+}
