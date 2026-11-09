@@ -145,6 +145,11 @@ describe("Chat about a task", () => {
         expect(rowOf(m, key).error).toBe("storage is full");
       }),
       expectNoOutMessage(),
+      message(Message.ClickedChat({ key, line: task })),
+      model((m) => {
+        expect(rowOf(m, key).error).toBe("");
+      }),
+      StoryCommand.resolve(AttachTask, Message.AttachedTask()),
     );
   });
 });

@@ -106,7 +106,10 @@ function attach(model: Model, key: string, line: TaskLine): UpdateReturn {
     reason: line.state,
     link: line.url,
   };
-  return { model, commands: [AttachTask({ key, draftKey, item })] };
+  return {
+    model: withRow(model, key, { error: "" }),
+    commands: [AttachTask({ key, draftKey, item })],
+  };
 }
 
 function openSheet(model: Model, line: TaskLine): UpdateReturn {
