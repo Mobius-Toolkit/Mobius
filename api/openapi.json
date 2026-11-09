@@ -6869,6 +6869,109 @@
         ]
       }
     },
+    "/api/workstreams/{owner}/{name}/{number}/recurring-tasks/{id}/runs": {
+      "post": {
+        "description": "RunRecurringTask gives the Lead the event of a recurring task now, as a scheduled time does, and tells the Lead that the Owner started the run by hand. It works also for a paused task, which stays paused, and it does not change the next scheduled time. It returns 404 for an id that is not a task of the Workstream, and 409 when the earlier event of the task is not delivered yet.",
+        "operationId": "RunRecurringTask",
+        "parameters": [
+          {
+            "description": "Owner is the owner of the repository",
+            "in": "path",
+            "name": "owner",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Name is the name of the repository",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Number is the number of the Workstream issue",
+            "in": "path",
+            "name": "number",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "ID is the id of the recurring task",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_RecurringTask"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "workstreams"
+        ]
+      }
+    },
     "/api/workstreams/{owner}/{name}/{number}/tasks": {
       "get": {
         "description": "ListTasks returns the open and closed tasks of trusted authors in the tree of a Workstream, from the local copy of GitHub. A nested task follows its parent. The copy can be one poll interval old.",
@@ -10540,10 +10643,11 @@
           },
           "result": {
             "type": "string",
-            "description": "Result is event when the Lead got an event, or skipped",
+            "description": "Result is event when the Lead got an event, manual when the Owner ran the task now, or skipped",
             "enum": [
               "event",
-              "skipped"
+              "skipped",
+              "manual"
             ]
           },
           "time": {

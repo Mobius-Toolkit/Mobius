@@ -1590,6 +1590,9 @@ DELETE FROM recurring_tasks WHERE repository = ? AND workstream = ?;
 UPDATE recurring_tasks SET checked_at = sqlc.arg(checked_at), event = coalesce(sqlc.narg(event), event)
 WHERE id = sqlc.arg(id) AND cron = sqlc.arg(cron) AND checked_at = sqlc.arg(read_checked_at) AND paused = 0;
 
+-- name: SetRecurringTaskEvent :execrows
+UPDATE recurring_tasks SET event = ? WHERE id = ? AND repository = ? AND workstream = ?;
+
 -- name: HasUnchangedRecurringTask :one
 SELECT EXISTS (
     SELECT 1 FROM recurring_tasks
