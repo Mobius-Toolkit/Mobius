@@ -36,7 +36,11 @@
         "src/ui/**/*.{ts,tsx}",
         "src/live/**/*.{ts,tsx}",
         "src/workstreams/**/*.{ts,tsx}",
-        "src/tasks/**/*.{ts,tsx}"
+        "src/tasks/**/*.{ts,tsx}",
+        "src/transcript/**/*.{ts,tsx}",
+        "src/setting/**/*.{ts,tsx}",
+        "src/panel/**/*.{ts,tsx}",
+        "src/agents/**/*.{ts,tsx}"
       ],
       "rules": {
         "foldkit/acquire-release-constructs-in-acquire-body": "error",

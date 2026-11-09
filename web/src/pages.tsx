@@ -50,7 +50,7 @@ export function ChatPage() {
   const { owner, name, number } = useParams({
     from: "/workstreams/$owner/$name/$number",
   });
-  const { workstreams, inbox, source } = useShell();
+  const { workstreams, inbox } = useShell();
   return (
     <Chat
       key={`${owner}/${name}#${number}`}
@@ -59,7 +59,6 @@ export function ChatPage() {
       number={Number(number)}
       workstreams={workstreams}
       inbox={inbox}
-      source={source}
     />
   );
 }
@@ -76,8 +75,7 @@ export function InboxPage() {
 }
 
 export function AgentsPage() {
-  const { source } = useShell();
-  return <Agents source={source} />;
+  return <Agents />;
 }
 
 export function CheckupPage() {

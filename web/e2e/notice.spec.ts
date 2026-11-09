@@ -170,6 +170,7 @@ test("a Stop in the Tasks tab shows its notice, and a refused Stop shows its err
             state: "working",
             depth: 0,
             repository: "owner/shop",
+            implementer: null,
             otherRepository: false,
             url: `${link}/issues/84`,
             blockedBy: [],
