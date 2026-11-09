@@ -15,8 +15,8 @@ import (
 type RecurringTaskRun struct {
 	// Time is the time of the run
 	Time time.Time `gork:"time"`
-	// Result is event when the Lead got an event, or skipped
-	Result string `gork:"result" validate:"oneof=event skipped"`
+	// Result is event when the Lead got an event, manual when the Owner ran the task now, or skipped
+	Result string `gork:"result" validate:"oneof=event skipped manual"`
 	// Reason is the reason of a skipped time, or empty
 	Reason string `gork:"reason"`
 }
@@ -144,4 +144,41 @@ func (h *handlers) DeleteRecurringTask(ctx context.Context, req DeleteRecurringT
 		return api.NewHTTPError(http.StatusNotFound, "The Workstream has no such recurring task.")
 	}
 	return err
+}
+
+// RunRecurringTaskRequest is the request of RunRecurringTask.
+type RunRecurringTaskRequest struct {
+	Path struct {
+		// Owner is the owner of the repository
+		Owner string `gork:"owner"`
+		// Name is the name of the repository
+		Name string `gork:"name"`
+		// Number is the number of the Workstream issue
+		Number int64 `gork:"number"`
+		// ID is the id of the recurring task
+		ID int64 `gork:"id"`
+	}
+}
+
+// RunRecurringTaskResponse is the response of RunRecurringTask.
+type RunRecurringTaskResponse struct {
+	Body Envelope[RecurringTask]
+}
+
+// RunRecurringTask gives the Lead the event of a recurring task now, as a scheduled time does, and tells the Lead that
+// the Owner started the run by hand. It works also for a paused task, which stays paused, and it does not change the
+// next scheduled time. It returns 404 for an id that is not a task of the Workstream, and 409 when the earlier event
+// of the task is not delivered yet.
+func (h *handlers) RunRecurringTask(ctx context.Context, req RunRecurringTaskRequest) (*RunRecurringTaskResponse, error) {
+	task, err := h.engine.OwnerRunRecurringTask(ctx, req.Path.Owner+"/"+req.Path.Name, req.Path.Number, req.Path.ID)
+	if errors.Is(err, engine.ErrNoRecurringTask) {
+		return nil, api.NewHTTPError(http.StatusNotFound, "The Workstream has no such recurring task.")
+	}
+	if errors.Is(err, engine.ErrRecurringEventPending) {
+		return nil, api.NewHTTPError(http.StatusConflict, "The earlier event of this recurring task is not delivered yet.")
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &RunRecurringTaskResponse{Body: Envelope[RecurringTask]{Data: recurringTaskOf(task)}}, nil
 }
