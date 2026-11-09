@@ -142,7 +142,7 @@ web/src/workstreams/   the Workstreams screen as a Foldkit program, with its own
 web/src/tasks/         the Tasks screen as a Foldkit program: the board, the read on each live event of Workstreams and of the Inbox, and its tests. Its host is web/src/Tasks.tsx
 web/src/agents/        the Agents screen as a Foldkit program: the list of the open agents and the Transcript of one agent. Its host is web/src/Agents.tsx
 web/src/checkup/       the Checkup screens as one Foldkit program with one view for each route: the overview, the tools with the upgrade dialog, the permissions, the labels and the Workstreams. Its host is web/src/CheckupHost.tsx, which keeps the top bar with the fix button of the labels
-web/src/panel/         the panel of a Workstream as a Foldkit program, with the tabs Tasks, Agents, Details and Brief, each with its own model, update and view. Its host is web/src/Panel.tsx, which Chat.tsx embeds in the side panel and in the phone sheet
+web/src/panel/         the panel of a Workstream as a Foldkit program, with the tabs Tasks, Agents, Details, Brief and Recurring, each with its own model, update and view. Its host is web/src/Panel.tsx, which Chat.tsx embeds in the side panel and in the phone sheet
 web/src/transcript/    the Transcript of one agent as a Foldkit Submodel: the lines, the stream, the older pages and the start of a check. The Agents screen and the Agents tab use it
 web/src/setting/       the sheet of the Harness, the model and the effort as a Foldkit Submodel. The Tasks tab and the Details tab use it
 web/src/ui/            the Foldkit parts that many screens use: the buttons, the badges, the dialog, the icons, the page header, the router link and the Markdown view
