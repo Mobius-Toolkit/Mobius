@@ -468,3 +468,26 @@ func TestTheDeleteOfTheOAuthRemovesTheTokensAndTheServerGivesNone(t *testing.T) 
 		t.Errorf("DELETE oauth for an unknown id: status %d, want 404: %s", status, text)
 	}
 }
+
+func TestANewStartKeepsTheTokensUntilTheNewFlowStoresNewTokens(t *testing.T) {
+	fake := newFakeOAuth(t, false, true, true)
+	server := startForOAuth(t, oauthUIURL)
+	added := addOAuthServer(t, server, fake)
+	first := startOAuthFlow(t, server, added.ID, `{}`)
+	if status, location := callback(t, server.Client, server, answer(fake, first)); status != http.StatusSeeOther || !strings.Contains(location, "oauth=connected") {
+		t.Fatalf("callback: status %d, Location %q", status, location)
+	}
+
+	second := startOAuthFlow(t, server, added.ID, `{}`)
+
+	row, _ := storedOAuth(t, server, added.ID)
+	if row.AccessToken != "access-1" || row.RefreshToken != "refresh-1" || row.State != second.Get("state") || row.State == first.Get("state") {
+		t.Errorf("stored row after the second start = %+v, want the old tokens and the new state", row)
+	}
+	if state, _ := listedOAuth(t, server); state.OAuth != "connected" {
+		t.Errorf("oauth while the second flow waits = %q, want connected", state.OAuth)
+	}
+	if status, location := callback(t, server.Client, server, answer(fake, first)); status != http.StatusSeeOther || !strings.Contains(location, "oauth=failed") {
+		t.Errorf("callback of the replaced flow: status %d, Location %q, want oauth=failed", status, location)
+	}
+}

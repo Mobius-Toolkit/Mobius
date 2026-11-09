@@ -53,7 +53,7 @@ func (e *Engine) McpOAuthClientDocument() (McpClientDocument, bool) {
 
 // StartMcpOAuth finds the authorization server of the http MCP server, gets a client ID, stores the flow and gives the
 // authorization URL for the browser of the Owner. A client ID in clientID is used as it is, with the secret in
-// clientSecret. A new start for the same server replaces its flow and its tokens. It gives ErrNoMcpServer for an id
+// clientSecret. A new start for the same server replaces its flow and keeps its tokens until the new flow stores new tokens. It gives ErrNoMcpServer for an id
 // that is not a server of the organization, and a refusal with the reason when the flow cannot start.
 func (e *Engine) StartMcpOAuth(ctx context.Context, organization string, id int64, clientID, clientSecret string) (string, error) {
 	row, err := e.queries.GetMcpServer(ctx, store.GetMcpServerParams{ID: id, Organization: organization})

@@ -1662,7 +1662,7 @@ ON CONFLICT (server) DO UPDATE SET
     client_id = excluded.client_id, client_secret = excluded.client_secret, issuer = excluded.issuer,
     token_endpoint = excluded.token_endpoint, resource = excluded.resource, scope = excluded.scope,
     state = excluded.state, code_verifier = excluded.code_verifier, flow_started_at = excluded.flow_started_at,
-    access_token = '', refresh_token = '', expires_at = NULL, failure = '', updated_at = excluded.updated_at;
+    updated_at = excluded.updated_at;
 
 -- name: StoreMcpServerOAuthTokens :exec
 UPDATE mcp_server_oauth
