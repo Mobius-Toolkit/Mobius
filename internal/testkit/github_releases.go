@@ -10,6 +10,7 @@ import (
 )
 
 type assetJSON struct {
+	ID   int64  `json:"id"`
 	Name string `json:"name"`
 }
 
@@ -19,14 +20,15 @@ type releaseJSON struct {
 }
 
 // SetLatestRelease makes tag with the files assets the latest release of Mobius-Toolkit/Mobius. Each file is a
-// tar.gz archive with the program mobius, and the program is the text "<tag>/<file name>". With no SetLatestRelease,
-// Mobius-Toolkit/Mobius has no release.
+// tar.gz archive with the program mobius, and the program is the text "<tag>/<file name>". Each file has its own ID.
+// With no SetLatestRelease, Mobius-Toolkit/Mobius has no release.
 func (g *FakeGitHub) SetLatestRelease(tag string, assets ...string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.latestRelease = &releaseJSON{TagName: tag, Assets: []assetJSON{}}
 	for _, asset := range assets {
-		g.latestRelease.Assets = append(g.latestRelease.Assets, assetJSON{asset})
+		g.lastAssetID++
+		g.latestRelease.Assets = append(g.latestRelease.Assets, assetJSON{g.lastAssetID, asset})
 	}
 }
 
@@ -44,23 +46,62 @@ func (g *FakeGitHub) getLatestRelease(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, g.latestRelease)
 }
 
-// downloadReleaseFile needs no token, as on GitHub for a public repository.
-func (g *FakeGitHub) downloadReleaseFile(w http.ResponseWriter, r *http.Request) {
+// FailReleaseAssets makes each request to the asset route of the latest release give the status. The status 0 makes the
+// asset route work.
+func (g *FakeGitHub) FailReleaseAssets(status int) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	tag, name := r.PathValue("tag"), r.PathValue("name")
-	if repository(r) != "Mobius-Toolkit/Mobius" || g.latestRelease == nil || g.latestRelease.TagName != tag ||
-		!slices.Contains(g.latestRelease.Assets, assetJSON{name}) {
+	g.releaseAssetFailure = status
+}
+
+// releaseAsset needs no token, as on GitHub for a public repository. With the media type application/octet-stream it
+// redirects to the storage route, as GitHub does.
+func (g *FakeGitHub) releaseAsset(w http.ResponseWriter, r *http.Request) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.releaseAssetFailure != 0 {
+		message(w, g.releaseAssetFailure, "Release asset failure")
+		return
+	}
+	if _, ok := g.findAsset(r); !ok || repository(r) != "Mobius-Toolkit/Mobius" || r.Header.Get("Accept") != "application/octet-stream" {
 		notFound(w)
 		return
 	}
-	program := []byte(tag + "/" + name)
+	http.Redirect(w, r, g.URL+"/release-storage/"+r.PathValue("id"), http.StatusFound)
+}
+
+// releaseStorage gives the archive of the asset, as the storage host of GitHub does. It gets no token.
+func (g *FakeGitHub) releaseStorage(w http.ResponseWriter, r *http.Request) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if r.Header.Get("Authorization") != "" {
+		g.t.Errorf("the storage route got a token")
+	}
+	asset, ok := g.findAsset(r)
+	if !ok {
+		notFound(w)
+		return
+	}
+	program := []byte(g.latestRelease.TagName + "/" + asset.Name)
 	zipped := gzip.NewWriter(w)
 	archive := tar.NewWriter(zipped)
 	_ = archive.WriteHeader(&tar.Header{Name: "mobius", Mode: 0o755, Size: int64(len(program))})
 	_, _ = archive.Write(program)
 	_ = archive.Close()
 	_ = zipped.Close()
+}
+
+// findAsset gives the asset of the latest release that the ID in the path of r names. The caller must hold the lock.
+func (g *FakeGitHub) findAsset(r *http.Request) (assetJSON, bool) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil || g.latestRelease == nil {
+		return assetJSON{}, false
+	}
+	index := slices.IndexFunc(g.latestRelease.Assets, func(asset assetJSON) bool { return asset.ID == id })
+	if index < 0 {
+		return assetJSON{}, false
+	}
+	return g.latestRelease.Assets[index], true
 }
 
 type commitJSON struct {

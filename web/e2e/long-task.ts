@@ -12,6 +12,7 @@ export async function routeLongTask(page: Page) {
     body.data.push({
       blockedBy: [],
       depth: 0,
+      implementer: null,
       number: 1044,
       otherRepository: false,
       repository: "owner/shop",
