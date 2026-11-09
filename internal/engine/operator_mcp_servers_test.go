@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	headerSecret = "Bearer header-secret-7f3a"
-	envSecret    = "env-secret-91bc"
+	headerValue = "Bearer header-secret-7f3a"
+	envValue    = "env-secret-91bc"
 )
 
 // sentServer is a server of the mcpServers of a session/new request.
@@ -58,14 +58,14 @@ func selectServers(t *testing.T, server *testserver.Server) {
 	ctx := t.Context()
 	files, err := server.Engine.AddMcpServer(ctx, "owner", engine.McpServer{
 		Name: "files", Kind: "stdio", Command: "files-server", Args: []string{"--root", "/data"},
-		Env: []engine.McpPair{{Name: "KEY", Value: envSecret}},
+		Env: []engine.McpPair{{Name: "KEY", Value: envValue}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	site, err := server.Engine.AddMcpServer(ctx, "owner", engine.McpServer{
 		Name: "makeadir", Kind: "http", URL: "https://makeadir.example.com/mcp",
-		Headers: []engine.McpPair{{Name: "Authorization", Value: headerSecret}},
+		Headers: []engine.McpPair{{Name: "Authorization", Value: headerValue}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -89,10 +89,10 @@ func TestAnOperatorGetsTheSelectedMcpServersAfterMobiusWithTheHttpServerFirst(t 
 		t.Fatalf("servers = %+v, want %v", servers, want)
 	}
 	site, files := servers[1], servers[2]
-	if site.Type != "http" || site.URL != "https://makeadir.example.com/mcp" || !slices.Equal(site.Headers, []engine.McpPair{{Name: "Authorization", Value: headerSecret}}) {
+	if site.Type != "http" || site.URL != "https://makeadir.example.com/mcp" || !slices.Equal(site.Headers, []engine.McpPair{{Name: "Authorization", Value: headerValue}}) {
 		t.Errorf("makeadir = %+v", site)
 	}
-	if files.Command != "files-server" || !slices.Equal(files.Args, []string{"--root", "/data"}) || !slices.Equal(files.Env, []engine.McpPair{{Name: "KEY", Value: envSecret}}) {
+	if files.Command != "files-server" || !slices.Equal(files.Args, []string{"--root", "/data"}) || !slices.Equal(files.Env, []engine.McpPair{{Name: "KEY", Value: envValue}}) {
 		t.Errorf("files = %+v", files)
 	}
 }
@@ -188,7 +188,7 @@ func TestTheTranscriptAndTheReportOfAnOperatorHaveNoHeaderValueAndNoEnvValue(t *
 	}
 	texts = append(texts, leadPrompts(t, server)...)
 	for _, text := range texts {
-		for _, secret := range []string{headerSecret, envSecret} {
+		for _, secret := range []string{headerValue, envValue} {
 			if strings.Contains(text, secret) {
 				t.Errorf("%s is in %s", secret, text)
 			}
