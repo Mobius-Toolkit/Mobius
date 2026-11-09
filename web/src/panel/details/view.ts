@@ -9,14 +9,26 @@ import type { NextSetting } from "@/setting/schemas";
 import { renderBadge } from "@/ui/badge";
 import { buttonClass } from "@/ui/button";
 import { spinnerIcon, xIcon } from "@/ui/icons";
-import { defineInPlaceMount } from "@/ui/sheet";
+import { defineRouterLink } from "@/ui/link";
+import { defineInPlaceMount, renderSheet } from "@/ui/sheet";
 import { renderSwitch } from "@/ui/switch";
 import { Message } from "./message";
-import { managed, type Closure, type Model } from "./model";
+import {
+  managed,
+  selectedNames,
+  type Closure,
+  type McpServer,
+  type McpSheet,
+  type Model,
+} from "./model";
 
 type H = HtmlBuilder<Message>;
 
 const ClosureOpened = defineInPlaceMount(Message.CompletedFocusClosure);
+const McpSheetOpened = defineInPlaceMount(Message.CompletedFocusMcpSheet);
+const RouterLink = defineRouterLink(Message.NavigateTo);
+
+const mcpServersPath = "/settings/mcp-servers";
 
 function renderBindingLine(h: H, term: string, setting: NextSetting, change: Message): Html[] {
   return [
@@ -38,6 +50,108 @@ function renderBindingLine(h: H, term: string, setting: NextSetting, change: Mes
       ],
     ),
   ];
+}
+
+function renderMcpLine(h: H, names: readonly string[]): Html[] {
+  return [
+    h.dt([h.Class("text-muted-foreground")], ["MCP servers"]),
+    h.dd(
+      [h.Class("flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1")],
+      [
+        h.span([h.Class("wrap-anywhere")], [names.length > 0 ? names.join(", ") : "None"]),
+        h.button(
+          [
+            h.Type("button"),
+            h.AriaLabel("Change MCP servers"),
+            h.Class(buttonClass({ variant: "outline", size: "sm" })),
+            h.OnClick(Message.ClickedChangeMcpServers()),
+          ],
+          ["Change"],
+        ),
+      ],
+    ),
+  ];
+}
+
+function renderMcpServer(h: H, server: McpServer, sheet: McpSheet): Html {
+  return h.keyed("li")(
+    String(server.id),
+    [],
+    [
+      h.label(
+        [h.Class("flex min-w-0 items-center gap-2 py-1")],
+        [
+          h.input([
+            h.Type("checkbox"),
+            h.Checked(sheet.selected.includes(server.id)),
+            h.Disabled(sheet.saving),
+            h.Class("size-4 shrink-0 accent-primary"),
+            h.OnClick(Message.ToggledMcpServer({ id: server.id })),
+          ]),
+          h.span([h.Class("min-w-0 wrap-anywhere")], [server.name]),
+          renderBadge(h, "secondary", server.kind === "http" ? "HTTP" : "stdio", "shrink-0"),
+        ],
+      ),
+    ],
+  );
+}
+
+function renderMcpSheet(h: H, model: Model, servers: readonly McpServer[], sheet: McpSheet): Html {
+  return renderSheet(h, {
+    mount: h.OnMount(McpSheetOpened()),
+    titleId: "mcp-servers-title",
+    descriptionId: "mcp-servers-description",
+    title: `MCP servers of #${model.number}`,
+    description: "The Operator of the Workstream uses the selected servers.",
+    close: Message.ClosedMcpServers(),
+    className: "gap-3 p-4 pt-3 md:mx-auto md:max-w-md md:rounded-t-xl",
+    children: [
+      sheet.error
+        ? renderBadge(h, "destructive", sheet.error, "h-auto whitespace-normal")
+        : h.empty,
+      servers.length > 0
+        ? h.ul(
+            [h.Class("grid max-h-[50dvh] overflow-y-auto")],
+            servers.map((server) => renderMcpServer(h, server, sheet)),
+          )
+        : h.div(
+            [h.Class("grid gap-1")],
+            [
+              h.p([h.Class("text-muted-foreground")], ["No MCP servers."]),
+              h.a(
+                [
+                  h.Attribute("href", mcpServersPath),
+                  h.OnMount(RouterLink({ path: mcpServersPath })),
+                  h.Class("w-fit text-primary underline underline-offset-4"),
+                ],
+                ["Add a server"],
+              ),
+            ],
+          ),
+      h.div(
+        [h.Class("flex items-center justify-end gap-2")],
+        [
+          h.button(
+            [
+              h.Type("button"),
+              h.Class(buttonClass({ variant: "outline" })),
+              h.OnClick(Message.ClosedMcpServers()),
+            ],
+            ["Cancel"],
+          ),
+          h.button(
+            [
+              h.Type("button"),
+              h.Disabled(sheet.saving),
+              h.Class(buttonClass({})),
+              h.OnClick(Message.ClickedSaveMcpServers()),
+            ],
+            [sheet.saving ? spinnerIcon(h) : h.empty, "Save"],
+          ),
+        ],
+      ),
+    ],
+  });
 }
 
 function renderConfirmation(h: H, model: Model, closure: Closure): Html {
@@ -180,6 +294,7 @@ function renderConfirmation(h: H, model: Model, closure: Closure): Html {
 export const view = defineView<Model, Message>((model, h) => {
   const evergreenId = `${model.instance}-evergreen`;
   const details = Option.getOrUndefined(model.details);
+  const servers = Option.getOrUndefined(model.mcpServers);
   const locked = details === undefined || managed(details) || model.evergreenBusy;
   return h.div(
     [h.Class("grid gap-4 px-2")],
@@ -213,9 +328,14 @@ export const view = defineView<Model, Message>((model, h) => {
                 details.operator,
                 Message.ClickedChange({ session: "operator" }),
               ),
+              ...(servers ? renderMcpLine(h, selectedNames(servers, details.mcpServers)) : []),
             ],
           )
         : h.empty,
+      Option.match(Option.all({ servers: model.mcpServers, sheet: model.mcpSheet }), {
+        onNone: () => h.empty,
+        onSome: (open) => renderMcpSheet(h, model, open.servers, open.sheet),
+      }),
       Option.match(model.sheet, {
         onNone: () => h.empty,
         onSome: ({ setting }) =>

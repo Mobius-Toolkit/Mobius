@@ -14,7 +14,9 @@ const closure = Subscription.make<Model, Message>()((entry) => ({
   closureEscape: entry(
     { open: Schema.Boolean },
     {
-      modelToDependencies: (model) => ({ open: Option.isSome(model.closure) }),
+      modelToDependencies: (model) => ({
+        open: Option.isSome(model.closure) || Option.isSome(model.mcpSheet),
+      }),
       dependenciesToStream: ({ open }) =>
         open ? escapeKey(Message.PressedEscape()) : Stream.empty,
     },
