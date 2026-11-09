@@ -16,8 +16,21 @@ import {
   reload as reloadDetails,
   update as updateDetails,
 } from "./details/update";
-import { Message, toGotAgentsMessage, toGotDetailsMessage, toGotTasksMessage } from "./message";
+import {
+  Message,
+  toGotAgentsMessage,
+  toGotDetailsMessage,
+  toGotRecurringMessage,
+  toGotTasksMessage,
+} from "./message";
 import type { Model } from "./model";
+import { OutMessage as RecurringOutMessage } from "./recurring/message";
+import * as RecurringModel from "./recurring/model";
+import {
+  refresh as refreshRecurring,
+  reload as reloadRecurring,
+  update as updateRecurring,
+} from "./recurring/update";
 import type { Tab } from "./schemas";
 import { OutMessage as TasksOutMessage } from "./tasks/message";
 import * as TasksModel from "./tasks/model";
@@ -71,6 +84,17 @@ const foldDetails = Update.foldChild({
     }),
 });
 
+const foldRecurring = Update.foldChild({
+  update: updateRecurring,
+  read: (model: Model) => Option.some(model.recurring),
+  write: (model, recurring) => ({ ...model, recurring }),
+  toParentMessage: toGotRecurringMessage,
+  foldOutMessage: (outMessage) =>
+    RecurringOutMessage.match<Update.Step<Model, Message>>(outMessage, {
+      LoginRequired: () => requestLogin,
+    }),
+});
+
 const refreshTasksStep = Update.foldChildStep({
   update: refreshTasks,
   read: (model: Model) => Option.some(model.tasks),
@@ -92,7 +116,14 @@ const refreshDetailsStep = Update.foldChildStep({
   toParentMessage: toGotDetailsMessage,
 });
 
-// The Tasks tab, the Agents tab and the Details tab read their data each time they open.
+const refreshRecurringStep = Update.foldChildStep({
+  update: refreshRecurring,
+  read: (model: Model) => Option.some(model.recurring),
+  write: (model, recurring) => ({ ...model, recurring }),
+  toParentMessage: toGotRecurringMessage,
+});
+
+// The Tasks tab, the Agents tab, the Details tab and the Recurring tab read their data each time they open.
 export function commandsFor(model: Model) {
   switch (model.tab) {
     case "tasks":
@@ -101,6 +132,8 @@ export function commandsFor(model: Model) {
       return Command.mapMessages([reloadAgents(model.agents)], toGotAgentsMessage);
     case "details":
       return Command.mapMessages(reloadDetails(model.details), toGotDetailsMessage);
+    case "recurring":
+      return Command.mapMessages(reloadRecurring(model.recurring), toGotRecurringMessage);
     case "brief":
       return [];
   }
@@ -122,6 +155,7 @@ function enter(model: Model, tab: Tab): UpdateReturn {
     tasks: tab === "tasks" ? TasksModel.initialModel(workstream) : model.tasks,
     agents: tab === "agents" ? AgentsModel.initialModel(workstream) : model.agents,
     details: tab === "details" ? DetailsModel.initialModel(workstream) : model.details,
+    recurring: tab === "recurring" ? RecurringModel.initialModel(workstream) : model.recurring,
   };
   return { model: next, commands: commandsFor(next) };
 }
@@ -138,6 +172,8 @@ function reloadTab(model: Model, only: readonly Tab[]): UpdateReturn {
       return refreshAgentsStep(model);
     case "details":
       return refreshDetailsStep(model);
+    case "recurring":
+      return refreshRecurringStep(model);
     case "brief":
       return { model };
   }
@@ -145,13 +181,17 @@ function reloadTab(model: Model, only: readonly Tab[]): UpdateReturn {
 
 export function update(model: Model, message: Message): UpdateReturn {
   return Message.match<UpdateReturn>(message, {
-    ConnectionOpened: () => reloadTab(model, ["tasks", "agents", "details"]),
+    ConnectionOpened: () => reloadTab(model, ["tasks", "agents", "details", "recurring"]),
     LoginRequired: () => requestLogin(model),
     WorkstreamsChanged: () => reloadTab(model, ["tasks", "details"]),
     AgentChanged: ({ agent }) =>
       agent.workstreamRepository === `${model.owner}/${model.name}` &&
       agent.workstream === model.number
         ? reloadTab(model, ["agents"])
+        : { model },
+    RecurringChanged: ({ repository, number }) =>
+      repository === `${model.owner}/${model.name}` && number === model.number
+        ? reloadTab(model, ["recurring"])
         : { model },
     ReceivedBrief: ({ brief }) => ({ model: { ...model, brief } }),
     SelectedTab: ({ tab }) => {
@@ -162,6 +202,7 @@ export function update(model: Model, message: Message): UpdateReturn {
     GotTasksMessage: ({ message: child }) => foldTasks(model, child),
     GotAgentsMessage: ({ message: child }) => foldAgents(model, child),
     GotDetailsMessage: ({ message: child }) => foldDetails(model, child),
+    GotRecurringMessage: ({ message: child }) => foldRecurring(model, child),
     CompletedRequestLogin: () => ({ model }),
     CompletedNavigate: () => ({ model }),
     CompletedReportTab: () => ({ model }),
