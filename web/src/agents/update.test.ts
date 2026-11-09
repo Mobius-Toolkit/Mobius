@@ -4,6 +4,7 @@ import { Command as StoryCommand, given, message, model, story } from "foldkit/s
 import { lowLoadReason } from "@/lib/agents";
 import * as TranscriptFixture from "@/transcript/fixtures";
 import type { Agent } from "@/transcript/schemas";
+import { FetchLog } from "@/transcript/commands";
 import { FetchAgents, ReportTitle, RequestLogin } from "./commands";
 import { Message, toGotTranscriptMessage } from "./message";
 import { initialModel, type Model } from "./model";
@@ -114,8 +115,13 @@ describe("the list of the agents", () => {
   });
 });
 
+const resolveOpened = StoryCommand.resolveAll(
+  [ReportTitle, Message.CompletedReportTitle()],
+  [FetchLog, TranscriptFixture.loaded],
+);
+
 describe("the Transcript of an agent", () => {
-  it("opens the Transcript, and tells the host the title", () => {
+  it("opens the Transcript, tells the host the title, and reads the log before the stream opens", () => {
     story(
       update,
       given(createModel()),
@@ -123,8 +129,11 @@ describe("the Transcript of an agent", () => {
       model((m) => {
         expect(Option.getOrThrow(m.transcript).agent.id).toBe(7);
       }),
-      StoryCommand.expectExact(ReportTitle({ title: "Implementer Task 39" })),
-      StoryCommand.resolve(ReportTitle, Message.CompletedReportTitle()),
+      StoryCommand.expectExact(
+        ReportTitle({ title: "Implementer Task 39" }),
+        FetchLog({ id: 7, known: Option.none() }),
+      ),
+      resolveOpened,
     );
   });
 
@@ -133,7 +142,7 @@ describe("the Transcript of an agent", () => {
       update,
       given(createModel()),
       message(Message.OpenedAgent({ agent: agent() })),
-      StoryCommand.resolve(ReportTitle, Message.CompletedReportTitle()),
+      resolveOpened,
       message(Message.ClickedBack()),
       model((m) => {
         expect(Option.isNone(m.transcript)).toBe(true);
@@ -141,7 +150,7 @@ describe("the Transcript of an agent", () => {
       StoryCommand.expectExact(ReportTitle({ title: "" })),
       StoryCommand.resolve(ReportTitle, Message.CompletedReportTitle()),
       message(Message.OpenedAgent({ agent: agent() })),
-      StoryCommand.resolve(ReportTitle, Message.CompletedReportTitle()),
+      resolveOpened,
       message(Message.BackRequested()),
       model((m) => {
         expect(Option.isNone(m.transcript)).toBe(true);
@@ -156,7 +165,7 @@ describe("the Transcript of an agent", () => {
       update,
       given(createModel()),
       message(Message.OpenedAgent({ agent: agent() })),
-      StoryCommand.resolve(ReportTitle, Message.CompletedReportTitle()),
+      resolveOpened,
       message(toGotTranscriptMessage(TranscriptFixture.closed)),
       model((m) => {
         expect(Option.isNone(m.transcript)).toBe(true);
@@ -171,7 +180,7 @@ describe("the Transcript of an agent", () => {
       update,
       given(createModel()),
       message(Message.OpenedAgent({ agent: agent() })),
-      StoryCommand.resolve(ReportTitle, Message.CompletedReportTitle()),
+      resolveOpened,
       message(toGotTranscriptMessage(TranscriptFixture.loginRequired)),
       StoryCommand.expectExact(RequestLogin()),
       StoryCommand.resolve(RequestLogin, Message.CompletedRequestLogin()),
@@ -185,7 +194,7 @@ describe("the Transcript of an agent", () => {
       update,
       given(createModel({ request: 1 })),
       message(Message.OpenedAgent({ agent: agent() })),
-      StoryCommand.resolve(ReportTitle, Message.CompletedReportTitle()),
+      resolveOpened,
       message(Message.AgentsLoaded({ request: 1, agents: listOf(waiting) })),
       model((m) => {
         expect(Option.getOrThrow(m.transcript).startable).toBe(true);
