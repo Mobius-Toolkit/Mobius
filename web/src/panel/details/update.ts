@@ -73,6 +73,12 @@ function changed(
   };
 }
 
+const sessionTarget = {
+  lead: "Lead",
+  implementer: "WorkstreamImplementer",
+  operator: "Operator",
+} as const satisfies Record<Session, string>;
+
 function openSheet(model: Model, session: Session): UpdateReturn {
   const role = Option.flatMapNullishOr(model.roles, (roles) =>
     roles.find((other) => other.role === session),
@@ -83,7 +89,7 @@ function openSheet(model: Model, session: Session): UpdateReturn {
   const current = model.details.value[session];
   const { model: setting, commands } = initSetting({
     title: sessionTitle[session],
-    target: { _tag: session === "lead" ? "Lead" : "WorkstreamImplementer", ...workstream(model) },
+    target: { _tag: sessionTarget[session], ...workstream(model) },
     own: current.own
       ? Option.some({ harness: current.harness, model: current.model, effort: current.effort })
       : Option.none(),

@@ -9,13 +9,14 @@ export const ClosureItem = WorkstreamClosureResponse.fields.data.value;
 export type WorkstreamDetails = typeof WorkstreamDetails.Type;
 export type ClosureItem = typeof ClosureItem.Type;
 
-export const Session = Schema.Literals(["lead", "implementer"]);
+export const Session = Schema.Literals(["lead", "implementer", "operator"]);
 
 export type Session = typeof Session.Type;
 
 export const sessionTitle: Record<Session, string> = {
   lead: "Lead",
   implementer: "Implementer of the Workstream",
+  operator: "Operator",
 };
 
 // The confirmation before the close of the Workstream as "won't do".
