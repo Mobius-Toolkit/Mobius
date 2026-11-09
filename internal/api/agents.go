@@ -223,6 +223,8 @@ func (h *handlers) GetTranscript(ctx context.Context, req GetTranscriptRequest) 
 type TranscriptEvents struct {
 	// Transcript is a new row of the Transcript, or a row that got more text
 	Transcript *TranscriptLine `gork:"transcript"`
+	// Ping has no data. The server sends it once, when the stream starts
+	Ping *struct{} `gork:"ping"`
 }
 
 // StreamTranscriptRequest is the request of StreamTranscript.
@@ -233,11 +235,14 @@ type StreamTranscriptRequest struct {
 	}
 }
 
-// StreamTranscript sends each new or changed row of the Transcript of a session.
+// StreamTranscript sends a ping at once, and then each new or changed row of the Transcript of a session.
 // It sends no row that exists when the stream opens. When the client does not read the rows fast enough, the stream ends.
 func (h *handlers) StreamTranscript(ctx context.Context, req StreamTranscriptRequest, stream *api.Stream[TranscriptEvents]) error {
 	changes, stop := h.engine.Listen()
 	defer stop()
+	if err := stream.Send(TranscriptEvents{Ping: &struct{}{}}); err != nil {
+		return err
+	}
 	for {
 		select {
 		case <-ctx.Done():

@@ -316,6 +316,9 @@ func TestTheTranscriptStreamGivesTheNewAndTheChangedRowsOfItsSessionOnly(t *test
 	var bodies []string
 	for len(bodies) < 2 || bodies[len(bodies)-1] != "Hello" {
 		name, data := readEvent(t, events)
+		if name == "ping" {
+			continue
+		}
 		if name != "transcript" {
 			t.Fatalf("event = %s %s", name, data)
 		}
