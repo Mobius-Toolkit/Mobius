@@ -163,6 +163,7 @@ test("the chat screen receives a live message after the live connection closes",
   await other.goto("/github");
   await other.getByLabel("Access password").fill("correct horse");
   await other.getByRole("button", { name: "Log in" }).click();
+  await expect(other.getByLabel("Access password")).toBeHidden();
   await other.goto("/workstreams/plants/garden/12");
   const send = async (text: string) => {
     await other.getByLabel("Message to the Lead").fill(text);
