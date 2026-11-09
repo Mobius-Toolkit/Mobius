@@ -91,6 +91,14 @@ export const refusedTask = task(
   },
 );
 
+export const ownerActionTask = task(
+  63,
+  "owner_action",
+  "2026-10-15T11:15:00Z",
+  "Deploy the plan page",
+  pull(53, { reviewRounds: 1 }),
+);
+
 export const tasksRoute = "/api/tasks";
 
 export async function routeTasks(page: Page, tasks: unknown[]) {

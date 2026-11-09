@@ -1209,12 +1209,16 @@ test("Resume takes the issue off the list, and the hint goes away", async ({ pag
       .getByText("needs you");
     await expect(hint).toBeAttached();
 
+    const dialog = page.getByRole("dialog");
+    const confirm = dialog.getByRole("button", { name: "Resume", exact: true });
     await resume.first().click();
+    await confirm.click();
     await expect(main.locator("li:not(aside *)").filter({ hasText: issues[0] })).toBeHidden();
     await expect(main.locator("li:not(aside *)").filter({ hasText: issues[1] })).toBeVisible();
     await expect(hint).toBeAttached();
     await expect.poll(() => live(numbers[0])).toBe(true);
     await resume.click();
+    await confirm.click();
     await expect(main.locator("li:not(aside *)").filter({ hasText: issues[1] })).toBeHidden();
     await expect(hint).not.toBeAttached();
     await expect.poll(() => live(numbers[1])).toBe(true);
@@ -1222,13 +1226,13 @@ test("Resume takes the issue off the list, and the hint goes away", async ({ pag
   }
 });
 
-test("Answer of a row in the chat opens a panel with the rendered text", async ({ page }) => {
+test("Resume of a row in the chat opens a panel with the rendered text", async ({ page }) => {
   await page.setViewportSize(phone);
   await routeInboxItems(page, stoppedItems);
   await page.goto(shop);
   const main = page.getByRole("main");
   const row = main.getByRole("listitem").filter({ hasText: "Add plan model" });
-  await expect(row.getByRole("button", { name: "Resume" })).toBeVisible();
+  await expect(row.getByRole("button", { name: "Resume", exact: true })).toBeVisible();
   const box = async (selector: string) =>
     (await page.locator(selector).last().boundingBox()) ?? { y: 0, height: 0 };
   const message = await box("[data-message]");
@@ -1236,7 +1240,8 @@ test("Answer of a row in the chat opens a panel with the rendered text", async (
   expect(message.y + message.height).toBeLessThanOrEqual(input.y);
   expect(message.height).toBeGreaterThan(0);
 
-  await row.getByRole("button", { name: "Answer" }).click();
+  await expect(row.getByRole("button", { name: "Answer" })).toHaveCount(0);
+  await row.getByRole("button", { name: "Resume", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Add plan model" });
   await expect(
     dialog.getByText("Each plan needs a limit of seats and a price in cents."),
@@ -1278,11 +1283,11 @@ test("a question shows the same row, with the same buttons, in the Inbox and in 
   ]);
 });
 
-test("a stopped task shows Resume, Answer and Open GitHub in the chat", async ({ page }) => {
+test("a stopped task shows Resume and Open GitHub in the chat", async ({ page }) => {
   await routeInboxItems(page, stoppedItems);
   const chat = await actionsOf(page, shop, "Let customers change plans");
 
-  expect(chat.buttons).toEqual(["Resume", "Answer", "Chat"]);
+  expect(chat.buttons).toEqual(["Resume", "Chat"]);
   expect(chat.links).toContain("Open GitHub:https://github.com/owner/shop/issues/42");
 });
 

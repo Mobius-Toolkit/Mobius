@@ -3,6 +3,7 @@ import {
   boardTasks,
   inboxItem,
   mergingTask,
+  ownerActionTask,
   refusedTask,
   routeTasks,
   tasksRoute,
@@ -42,6 +43,16 @@ test("each state goes to its column, and each header shows the count", async ({ 
     }
   }
   await expect(page.getByText("Water the lilies")).toHaveCount(0);
+});
+
+test("a task in owner_action is in Needs you with its state as the badge", async ({ page }) => {
+  await routeTasks(page, [...boardTasks, ownerActionTask]);
+  await page.goto("/tasks");
+
+  const column = page.getByRole("region", { name: "Needs you" });
+  await expect(column.getByRole("heading")).toHaveText("Needs you4");
+  const card = column.getByRole("listitem").filter({ hasText: "Deploy the plan page" });
+  await expect(card.getByText("owner_action", { exact: true })).toBeVisible();
 });
 
 test("an empty column stays with the count 0", async ({ page }) => {
