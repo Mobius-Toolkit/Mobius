@@ -274,10 +274,6 @@ func TestParseRefusesAWrongRoleOrPassword(t *testing.T) {
 			"roles.researcher.effort: is not allowed for antigravity"},
 		{strings.Replace(valid, `harness = "antigravity", model = "gemini-3-pro"`, `harness = "dsh", model = "deepseek-v4-pro"`, 1),
 			"roles.researcher.effort: is required for dsh"},
-		{strings.Replace(valid,
-			`reviewer    = { harness = "claude-code", model = "opus",    effort = "high" }`,
-			`reviewer    = { harness = "devin", model = "swe-1.5", effort = "low" }`, 1),
-			"roles.reviewer: must not have the same harness and model as roles.implementer"},
 	}
 	for _, c := range checks {
 		if got := parseError(t, c.text); got != c.want {

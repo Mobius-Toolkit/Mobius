@@ -1,9 +1,15 @@
 package engine
 
 import (
+	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
+	"time"
+
+	gh "github.com/google/go-github/v92/github"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
@@ -88,20 +94,49 @@ func TestAFailedSwapRestoresTheOldProgram(t *testing.T) {
 	}
 }
 
-func TestTheDownloadAndTheSwapInstallTheReleaseFileOfMobiusGo(t *testing.T) {
-	t.Parallel()
+// fakeRelease gives a GitHub of the fake with the release v0.3.0, and the asset of that release.
+func fakeRelease(t *testing.T) (*testkit.FakeGitHub, *github.GitHub, *gh.ReleaseAsset) {
+	t.Helper()
 	fake := testkit.NewFakeGitHub(t)
 	fake.SetLatestRelease("v0.3.0", "mobius-x86_64-unknown-linux-gnu.tar.gz")
-	gh, err := github.New(nil, fake.URL, fake.URL, nil)
+	source, err := github.New(nil, fake.URL, fake.URL, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
+	release, err := source.LatestRelease(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fake, source, release.Assets[0]
+}
+
+// program gives the program "old" in a new directory.
+func program(t *testing.T) string {
+	t.Helper()
 	exe := filepath.Join(t.TempDir(), "mobius")
 	if err := os.WriteFile(exe, []byte("old"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	return exe
+}
 
-	staging, err := download(t.Context(), gh.ReleaseURL("v0.3.0", "mobius-x86_64-unknown-linux-gnu.tar.gz"), exe)
+func requireNoStaging(t *testing.T, exe string) {
+	t.Helper()
+	entries, err := os.ReadDir(filepath.Dir(exe))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Errorf("the directory of the program has %d entries, want 1", len(entries))
+	}
+}
+
+func TestTheDownloadAndTheSwapInstallTheReleaseFileOfMobiusGo(t *testing.T) {
+	t.Parallel()
+	fake, source, asset := fakeRelease(t)
+	exe := program(t)
+
+	staging, err := download(t.Context(), source, "v0.3.0", asset, exe)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,4 +147,47 @@ func TestTheDownloadAndTheSwapInstallTheReleaseFileOfMobiusGo(t *testing.T) {
 	if got := content(t, exe); got != "v0.3.0/mobius-x86_64-unknown-linux-gnu.tar.gz" {
 		t.Errorf("program = %q", got)
 	}
+	var paths []string
+	for _, request := range fake.Requests() {
+		paths = append(paths, request.Path)
+	}
+	want := []string{"/repos/Mobius-Toolkit/Mobius/releases/latest", "/repos/Mobius-Toolkit/Mobius/releases/assets/1", "/release-storage/1"}
+	if !slices.Equal(paths, want) {
+		t.Errorf("requests = %q, want %q", paths, want)
+	}
+}
+
+func TestADownloadThatGetsAnErrorStatusFailsWithTheTagAndTheAssetAndLeavesNoStagingDirectory(t *testing.T) {
+	t.Parallel()
+	fake, source, asset := fakeRelease(t)
+	fake.FailReleaseAssets(http.StatusBadGateway)
+	exe := program(t)
+
+	_, err := download(t.Context(), source, "v0.3.0", asset, exe)
+
+	if err == nil || !strings.Contains(err.Error(), "v0.3.0") || !strings.Contains(err.Error(), "mobius-x86_64-unknown-linux-gnu.tar.gz") {
+		t.Errorf("error = %v", err)
+	}
+	requireNoStaging(t, exe)
+}
+
+// Serial: the test sets the stall limit, which is a package variable.
+func TestADownloadThatGetsNoByteWithinTheStallLimitFails(t *testing.T) {
+	fake, source, asset := fakeRelease(t)
+	github.DownloadStallLimit = 100 * time.Millisecond
+	t.Cleanup(func() { github.DownloadStallLimit = time.Minute })
+	hung := fake.HangNext("GET /release-storage/{id}")
+	exe := program(t)
+
+	_, err := download(t.Context(), source, "v0.3.0", asset, exe)
+
+	select {
+	case <-hung:
+	default:
+		t.Error("the download did not reach the storage route")
+	}
+	if err == nil || !strings.Contains(err.Error(), "no byte") {
+		t.Errorf("error = %v", err)
+	}
+	requireNoStaging(t, exe)
 }

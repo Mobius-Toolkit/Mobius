@@ -214,8 +214,8 @@ mobius init
 
 1. It asks for the access password two times. The password must have 8 characters or more.
 2. It asks for the GitHub logins of the trusted users.
-3. It starts each Harness on `PATH`, and reads its models and efforts. When Antigravity is not logged in, it starts the Antigravity login of step 3 first. It writes one line for each Harness that is not on `PATH` or that fails, and skips that Harness. All Harnesses together must give 2 models or more.
-4. For each Role, it asks for the Harness, the model, and the effort. Enter selects the value in brackets. The Reviewer must have a different Harness or a different model than the Implementer.
+3. It starts each Harness on `PATH`, and reads its models and efforts. When Antigravity is not logged in, it starts the Antigravity login of step 3 first. It writes one line for each Harness that is not on `PATH` or that fails, and skips that Harness. All Harnesses together must give 1 model or more.
+4. For each Role, it asks for the Harness, the model, and the effort. Enter selects the value in brackets.
 5. It writes `~/.mobius/config.toml`. When you set `MOBIUS_CONFIG`, it writes to that path.
 
 Use an access password that you use nowhere else.
@@ -282,7 +282,7 @@ Caution: "Workers run in full auto as your OS user and can read all your files."
 
 Do not run Mobius as the root user. The Claude Code adapter refuses the full auto mode for root.
 
-Mobius does not start when a Harness of your config, `gh`, `curl`, or `tar` is not on `PATH`.
+Mobius does not start when a Harness of your config, `gh`, or `tar` is not on `PATH`.
 
 If necessary, set these variables in the shell before you start Mobius:
 

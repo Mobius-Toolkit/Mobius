@@ -117,8 +117,8 @@ func Run(ctx context.Context, in io.Reader, out io.Writer, configPath, path stri
 	for _, o := range offers {
 		models += len(o.models.Values)
 	}
-	if models < 2 {
-		return errors.New("the Harnesses gave less than 2 models, but the Reviewer needs another Harness or another model than the Implementer")
+	if models == 0 {
+		return errors.New("the Harnesses gave no model")
 	}
 	roles := []struct {
 		title   string
@@ -135,19 +135,11 @@ func Run(ctx context.Context, in io.Reader, out io.Writer, configPath, path stri
 		{"Diagnoser", &file.Roles.Diagnoser},
 	}
 	for _, role := range roles {
-		for {
-			b, err := t.choose(offers, role.title)
-			if err != nil {
-				return err
-			}
-			implementer := file.Roles.Implementer
-			if role.title == "Reviewer" && b.Harness == implementer.Harness && b.Model == implementer.Model {
-				t.say("The Reviewer needs another Harness or another model than the Implementer.\n")
-				continue
-			}
-			*role.binding = b
-			break
+		b, err := t.choose(offers, role.title)
+		if err != nil {
+			return err
 		}
+		*role.binding = b
 	}
 	text, err := toml.Marshal(file)
 	if err != nil {

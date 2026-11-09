@@ -152,14 +152,16 @@ type FakeGitHub struct {
 	// bodyWrites counts the body writes through the API, for each issue and pull request.
 	bodyWrites map[issueKey]int
 	// failedCheckUpdates counts the updates of a check run that failCheckUpdates made fail.
-	failedCheckUpdates int
-	latestRelease      *releaseJSON
-	comparedCommits    []string
-	holds              map[issueKey]*hold
-	threadHolds        map[issueKey][]*hold
-	mergeHolds         map[issueKey][]*hold
-	issueHolds         map[issueKey]*hold
-	pullHolds          map[issueKey]*hold
+	failedCheckUpdates  int
+	latestRelease       *releaseJSON
+	lastAssetID         int64
+	releaseAssetFailure int
+	comparedCommits     []string
+	holds               map[issueKey]*hold
+	threadHolds         map[issueKey][]*hold
+	mergeHolds          map[issueKey][]*hold
+	issueHolds          map[issueKey]*hold
+	pullHolds           map[issueKey]*hold
 	// anonymousRateLimited tells if each request of the releases and of the comparisons with no token gets the
 	// rate-limit answer.
 	anonymousRateLimited bool
@@ -386,7 +388,8 @@ func (g *FakeGitHub) routes() *http.ServeMux {
 	mux.HandleFunc("GET /job-logs/{id}", g.jobLog)
 	mux.HandleFunc("GET /repos/{owner}/{repo}/releases/latest", g.getLatestRelease)
 	mux.HandleFunc("GET /repos/{owner}/{repo}/compare/{basehead}", g.compare)
-	mux.HandleFunc("GET /{owner}/{repo}/releases/download/{tag}/{name}", g.downloadReleaseFile)
+	mux.HandleFunc("GET /repos/{owner}/{repo}/releases/assets/{id}", g.releaseAsset)
+	mux.HandleFunc("GET /release-storage/{id}", g.releaseStorage)
 	return mux
 }
 
