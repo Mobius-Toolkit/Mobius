@@ -19,7 +19,8 @@ export const ChatState = Schema.Struct({
   writing: Schema.Boolean,
 });
 
-export const DraftInboxItem = Schema.Struct({ ...ChatInboxItem.fields, id: Schema.Number });
+export const DraftInboxItemId = Schema.Union([Schema.Number, Schema.String]);
+export const DraftInboxItem = Schema.Struct({ ...ChatInboxItem.fields, id: DraftInboxItemId });
 export const DraftInboxItems = Schema.mutable(Schema.Array(DraftInboxItem));
 export const Images = Schema.mutable(Schema.Array(Schema.instanceOf(File)));
 export const DraftVoice = Schema.Struct({
