@@ -12,7 +12,12 @@ const task = "/api/repositories/owner/shop/issues/39/implementer";
 
 // The API request of the page carries the device login, but the request context of Playwright does not.
 test.afterEach(async ({ page }) => {
-  for (const path of [task, `${workstream}/lead`, `${workstream}/implementer`]) {
+  for (const path of [
+    task,
+    `${workstream}/lead`,
+    `${workstream}/implementer`,
+    `${workstream}/operator`,
+  ]) {
     const status = await page.evaluate(
       (url) => fetch(url, { method: "DELETE" }).then((response) => response.status),
       path,
@@ -32,7 +37,7 @@ const taskRow = (page: Page) =>
 
 const gear = (page: Page) => taskRow(page).getByRole("button", { name: "Implementer of #39" });
 
-const line = (page: Page, term: "Lead" | "Implementer") =>
+const line = (page: Page, term: "Lead" | "Implementer" | "Operator") =>
   page
     .getByRole("tabpanel", { name: "Details" })
     .locator("dd")
@@ -130,6 +135,36 @@ test("a Save of the Lead shows Workstream on the Details tab, and Use the defaul
   await useDefault(page, sheet, `${workstream}/lead`);
   await expect(line(page, "Lead")).toContainText("claude-code · opus · high");
   await expect(line(page, "Lead")).toContainText("role");
+});
+
+test("a Save of the Operator shows Workstream on the Details tab, and Use the default shows role", async ({
+  page,
+}) => {
+  await openTab(page, "Details");
+  await expect(line(page, "Operator")).toContainText("role");
+  const roleBinding = (await line(page, "Operator").locator("span").first().textContent()) ?? "";
+  expect(roleBinding).not.toBe("");
+
+  await line(page, "Operator").getByRole("button", { name: "Change Operator" }).click();
+  const sheet = page.getByRole("dialog", { name: "Operator" });
+  await expect(sheet).toContainText(`Default: ${roleBinding} (role)`);
+  await pick(page, sheet, "Model", "sonnet");
+  await pick(page, sheet, "Effort", "low");
+  await save(page, sheet, `${workstream}/operator`);
+  await expect(line(page, "Operator")).toContainText("claude-code · sonnet · low");
+  await expect(line(page, "Operator")).toContainText("Workstream");
+  await expect(line(page, "Lead")).toContainText("role");
+  await expect(line(page, "Implementer")).toContainText("role");
+
+  await page.reload();
+  await page.getByRole("tab", { name: "Details" }).filter({ visible: true }).click();
+  await expect(line(page, "Operator")).toContainText("claude-code · sonnet · low");
+  await expect(line(page, "Operator")).toContainText("Workstream");
+
+  await line(page, "Operator").getByRole("button", { name: "Change Operator" }).click();
+  await useDefault(page, sheet, `${workstream}/operator`);
+  await expect(line(page, "Operator")).toContainText(roleBinding);
+  await expect(line(page, "Operator")).toContainText("role");
 });
 
 test("the Implementer setting of the Workstream is the default in the sheet of a task, and Use the default clears it", async ({

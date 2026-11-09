@@ -207,6 +207,12 @@ export const view = defineView<Model, Message>((model, h) => {
                 details.implementer,
                 Message.ClickedChange({ session: "implementer" }),
               ),
+              ...renderBindingLine(
+                h,
+                "Operator",
+                details.operator,
+                Message.ClickedChange({ session: "operator" }),
+              ),
             ],
           )
         : h.empty,
