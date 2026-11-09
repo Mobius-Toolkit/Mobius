@@ -7,6 +7,7 @@ export const ports = {
   outbound: {
     loginRequested: Port.outbound(Schema.Void),
     tabChanged: Port.outbound(Tab),
+    taskAttached: Port.outbound(Schema.Void),
   },
 } as const;
 

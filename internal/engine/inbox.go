@@ -455,7 +455,7 @@ func (e *Engine) dismiss(ctx context.Context, id int64) (store.InboxItem, error)
 
 // DismissByOwner removes the Inbox item id at the request of the Owner, and adds a record to the chat of the item. For a
 // todo item, it also marks the todo as dismissed, and it returns a refusal when the item is not open or the todo is
-// mandatory.
+// mandatory. It returns a refusal for an open owner action item, because the task waits for the action.
 func (e *Engine) DismissByOwner(ctx context.Context, id int64) error {
 	found, err := e.queries.GetInboxItem(ctx, id)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -463,6 +463,9 @@ func (e *Engine) DismissByOwner(ctx context.Context, id int64) error {
 	}
 	if err == nil && found.Kind == todoKind {
 		return e.dismissTodo(ctx, found)
+	}
+	if err == nil && found.Kind == ownerActionKind && !found.DismissedAt.Valid {
+		return refuse("Mark the action as done. The task waits for it.")
 	}
 	item, err := e.dismiss(ctx, id)
 	if err != nil {

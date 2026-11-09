@@ -309,6 +309,23 @@ list_tools = true
 	}
 }
 
+func TestAThenCallRunsAfterTheCallOfTheSameTurn(t *testing.T) {
+	c := start(t, `
+[[prompts]]
+call = { tool = "echo", arguments = { text = "First." } }
+then = { tool = "echo", arguments = { text = "Second." } }
+`)
+	if err := c.newSession(t, mcpServer(t)); err != nil {
+		t.Fatal(err)
+	}
+
+	reply, _ := c.prompt(t, "Go.")
+
+	if reply != "First.|Second." {
+		t.Errorf("reply = %q", reply)
+	}
+}
+
 func TestAnArgumentThatIsOnlyTheShellOutputIsANumberWhenTheOutputIsANumber(t *testing.T) {
 	c := start(t, `
 [[prompts]]
