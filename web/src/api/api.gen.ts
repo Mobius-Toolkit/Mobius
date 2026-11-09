@@ -143,7 +143,7 @@ export interface AgentGroup {
  * ActiveAgents are the open sessions of all organizations.
  */
 export interface ActiveAgents {
-  /** Groups has one group for each Role, in the order Lead, Coordinator, Triager, Implementer, Researcher, Reviewer, Judge, Curator, Diagnoser */
+  /** Groups has one group for each Role, in the order Lead, Coordinator, Triager, Implementer, Researcher, Reviewer, Judge, Curator, Diagnoser, Operator */
   groups: AgentGroup[];
 }
 
@@ -202,6 +202,7 @@ export const BoardTaskState = {
   approval: 'approval',
   asked: 'asked',
   answered: 'answered',
+  owner_action: 'owner_action',
 } as const;
 
 /**
@@ -372,6 +373,7 @@ export const InboxItemKind = {
   todo: 'todo',
   access_check: 'access check',
   tool_upgrade: 'tool upgrade',
+  owner_action: 'owner action',
 } as const;
 
 /**
@@ -1122,7 +1124,7 @@ export interface TaskLine {
   otherRepository: boolean;
   /** Repository is the full name of the repository of the task issue */
   repository: string;
-  /** State is the Mobius label of the issue with no "mobius:", or open, or closed for a closed issue. A task that waits for a slot shows "queued". A task that waits for CI shows "waits for CI". A task that waits for the Lead shows "waits for Lead". A task whose Lead event is held until the Owner answers shows "waits for Owner". A task that waits for start_implementer shows "waits for start_implementer". */
+  /** State is the Mobius label of the issue with no "mobius:", or open, or closed for a closed issue. A task that waits for a slot shows "queued". A task that waits for CI shows "waits for CI". A task that waits for the Lead shows "waits for Lead". A task whose Lead event is held until the Owner answers shows "waits for Owner". A task that waits for start_implementer shows "waits for start_implementer". A task that waits for an action of the Owner shows "waits for Owner action". */
   state: string;
   /** Title is the title of the task issue */
   title: string;
@@ -2107,6 +2109,8 @@ export interface WorkstreamDetails {
   mcpServers: number[];
   /** OpenTasks is the number of open tasks */
   openTasks: number;
+  /** Operator is the binding of the next Operator session of the Workstream */
+  operator: NextSetting;
   /** Skills is true when the Workstream issue has mobius:skills */
   skills: boolean;
 }
@@ -4819,7 +4823,7 @@ export const getDoneInboxItemUrl = (id: number,) => {
 }
 
 /**
- * DoneInboxItem marks the todo of an open todo Inbox item as done, with the note, and removes the item from the Inbox. When the todo was the last blocking todo of a task, Mobius makes the pull request ready for review, and with a merge level of Autopilot it approves the pull request for the merge. It returns the changed item. It returns 404 for an unknown item and 409 for an item that is not an open todo.
+ * DoneInboxItem marks the todo of an open todo Inbox item as done, with the note, and removes the item from the Inbox. When the todo was the last blocking todo of a task, Mobius makes the pull request ready for review, and with a merge level of Autopilot it approves the pull request for the merge. For an open owner action item, it marks the action of the Owner as done, and Mobius reviews the head of the pull request of the task again. It returns the changed item. It returns 404 for an unknown item and 409 for an item that is not an open todo or an open owner action item, and for an owner action item whose task does not wait for the action.
  */
 export const doneInboxItem = async (id: number,
     doneInboxItemBody: DoneInboxItemBody, ): Promise<doneInboxItemResponse> => {
@@ -6504,7 +6508,7 @@ export type setRoleResponseError = (setRoleResponse400 | setRoleResponse401 | se
 
 export type setRoleResponse = (setRoleResponseSuccess | setRoleResponseError)
 
-export const getSetRoleUrl = (role: 'lead' | 'coordinator' | 'triager' | 'implementer' | 'researcher' | 'reviewer' | 'judge' | 'curator' | 'diagnoser',) => {
+export const getSetRoleUrl = (role: 'lead' | 'coordinator' | 'triager' | 'implementer' | 'researcher' | 'reviewer' | 'judge' | 'curator' | 'diagnoser' | 'operator',) => {
 
 
 
@@ -6515,7 +6519,7 @@ export const getSetRoleUrl = (role: 'lead' | 'coordinator' | 'triager' | 'implem
 /**
  * SetRole sets the values of a Role. The next session of the Role uses them. It returns 422 with the reason when the values fail a check.
  */
-export const setRole = async (role: 'lead' | 'coordinator' | 'triager' | 'implementer' | 'researcher' | 'reviewer' | 'judge' | 'curator' | 'diagnoser',
+export const setRole = async (role: 'lead' | 'coordinator' | 'triager' | 'implementer' | 'researcher' | 'reviewer' | 'judge' | 'curator' | 'diagnoser' | 'operator',
     setRoleBody: SetRoleBody, ): Promise<setRoleResponse> => {
 
   const res = await fetch(getSetRoleUrl(role),
@@ -6570,7 +6574,7 @@ export type resetRoleResponseError = (resetRoleResponse400 | resetRoleResponse40
 
 export type resetRoleResponse = (resetRoleResponseSuccess | resetRoleResponseError)
 
-export const getResetRoleUrl = (role: 'lead' | 'coordinator' | 'triager' | 'implementer' | 'researcher' | 'reviewer' | 'judge' | 'curator' | 'diagnoser',) => {
+export const getResetRoleUrl = (role: 'lead' | 'coordinator' | 'triager' | 'implementer' | 'researcher' | 'reviewer' | 'judge' | 'curator' | 'diagnoser' | 'operator',) => {
 
 
 
@@ -6581,7 +6585,7 @@ export const getResetRoleUrl = (role: 'lead' | 'coordinator' | 'triager' | 'impl
 /**
  * ResetRole removes the UI values of a Role, so it uses config.toml again. It returns 422 with the reason when the values of config.toml fail a check with the UI values of the other Roles.
  */
-export const resetRole = async (role: 'lead' | 'coordinator' | 'triager' | 'implementer' | 'researcher' | 'reviewer' | 'judge' | 'curator' | 'diagnoser', ): Promise<resetRoleResponse> => {
+export const resetRole = async (role: 'lead' | 'coordinator' | 'triager' | 'implementer' | 'researcher' | 'reviewer' | 'judge' | 'curator' | 'diagnoser' | 'operator', ): Promise<resetRoleResponse> => {
 
   const res = await fetch(getResetRoleUrl(role),
   {
@@ -8826,6 +8830,155 @@ export const setWorkstreamMcpServers = async (owner: string,
 
   const data: setWorkstreamMcpServersResponse['data'] = body ? JSON.parse(body) : undefined
   return { data, status: res.status, headers: res.headers } as setWorkstreamMcpServersResponse
+}
+
+
+
+export type setWorkstreamOperatorResponse204 = {
+  data: void
+  status: 204
+}
+
+export type setWorkstreamOperatorResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type setWorkstreamOperatorResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type setWorkstreamOperatorResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
+export type setWorkstreamOperatorResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type setWorkstreamOperatorResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type setWorkstreamOperatorResponseSuccess = (setWorkstreamOperatorResponse204) & {
+  headers: Headers;
+};
+export type setWorkstreamOperatorResponseError = (setWorkstreamOperatorResponse400 | setWorkstreamOperatorResponse401 | setWorkstreamOperatorResponse409 | setWorkstreamOperatorResponse422 | setWorkstreamOperatorResponse500) & {
+  headers: Headers;
+};
+
+export type setWorkstreamOperatorResponse = (setWorkstreamOperatorResponseSuccess | setWorkstreamOperatorResponseError)
+
+export const getSetWorkstreamOperatorUrl = (owner: string,
+    name: string,
+    number: number,) => {
+
+
+
+
+  return `/api/workstreams/${owner}/${name}/${number}/operator`
+}
+
+/**
+ * SetWorkstreamOperator sets the Harness, the model and the effort of the Operator of a Workstream. The next Operator session uses them. It returns 409 when the issue is not an open Workstream, and 422 with the reason when the values fail a check.
+ */
+export const setWorkstreamOperator = async (owner: string,
+    name: string,
+    number: number,
+    issueSettingBody: IssueSettingBody, ): Promise<setWorkstreamOperatorResponse> => {
+
+  const res = await fetch(getSetWorkstreamOperatorUrl(owner,name,number),
+  {
+
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(issueSettingBody)
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: setWorkstreamOperatorResponse['data'] = body ? JSON.parse(body) : undefined
+  return { data, status: res.status, headers: res.headers } as setWorkstreamOperatorResponse
+}
+
+
+
+export type clearWorkstreamOperatorResponse204 = {
+  data: void
+  status: 204
+}
+
+export type clearWorkstreamOperatorResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type clearWorkstreamOperatorResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type clearWorkstreamOperatorResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
+export type clearWorkstreamOperatorResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type clearWorkstreamOperatorResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type clearWorkstreamOperatorResponseSuccess = (clearWorkstreamOperatorResponse204) & {
+  headers: Headers;
+};
+export type clearWorkstreamOperatorResponseError = (clearWorkstreamOperatorResponse400 | clearWorkstreamOperatorResponse401 | clearWorkstreamOperatorResponse409 | clearWorkstreamOperatorResponse422 | clearWorkstreamOperatorResponse500) & {
+  headers: Headers;
+};
+
+export type clearWorkstreamOperatorResponse = (clearWorkstreamOperatorResponseSuccess | clearWorkstreamOperatorResponseError)
+
+export const getClearWorkstreamOperatorUrl = (owner: string,
+    name: string,
+    number: number,) => {
+
+
+
+
+  return `/api/workstreams/${owner}/${name}/${number}/operator`
+}
+
+/**
+ * ClearWorkstreamOperator removes the Operator setting of a Workstream. It returns 409 when the issue is not an open Workstream.
+ */
+export const clearWorkstreamOperator = async (owner: string,
+    name: string,
+    number: number, ): Promise<clearWorkstreamOperatorResponse> => {
+
+  const res = await fetch(getClearWorkstreamOperatorUrl(owner,name,number),
+  {
+
+    method: 'DELETE'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: clearWorkstreamOperatorResponse['data'] = body ? JSON.parse(body) : undefined
+  return { data, status: res.status, headers: res.headers } as clearWorkstreamOperatorResponse
 }
 
 

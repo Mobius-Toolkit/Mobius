@@ -67,6 +67,8 @@ type WorkstreamDetails struct {
 	Skills         bool
 	// Lead is the binding of the next Lead session of the Workstream.
 	Lead NextSetting
+	// Operator is the binding of the next Operator session of the Workstream.
+	Operator NextSetting
 	// Implementer is the binding of the next Implementer session of a task with no setting of its own.
 	Implementer NextSetting
 	// McpServers are the ids of the MCP servers that the Owner selected for the Workstream, in name order of the servers.
@@ -171,6 +173,9 @@ func (e *Engine) WorkstreamDetails(ctx context.Context, repositoryName string, n
 	}
 	details := WorkstreamDetails{CreatedAt: createdAt, Evergreen: copied.Evergreen, Maintenance: copied.Maintenance, Skills: copied.Skills}
 	if details.Lead, err = e.nextSetting(ctx, "lead", repository.FullName, number); err != nil {
+		return WorkstreamDetails{}, err
+	}
+	if details.Operator, err = e.nextSetting(ctx, "operator", repository.FullName, number); err != nil {
 		return WorkstreamDetails{}, err
 	}
 	if details.Implementer, err = e.nextSetting(ctx, "implementer", repository.FullName, number); err != nil {

@@ -87,16 +87,23 @@ type errorBody struct {
 
 func details(t *testing.T, server *testserver.Server) (lead, implementer nextSetting) {
 	t.Helper()
+	lead, _, implementer = detailsWithOperator(t, server)
+	return lead, implementer
+}
+
+func detailsWithOperator(t *testing.T, server *testserver.Server) (lead, operator, implementer nextSetting) {
+	t.Helper()
 	var body struct {
 		Data struct {
 			Lead        nextSetting `json:"lead"`
+			Operator    nextSetting `json:"operator"`
 			Implementer nextSetting `json:"implementer"`
 		} `json:"data"`
 	}
 	if reply := call(t, server.Client, http.MethodGet, server.URL+"/api/workstreams/owner/shop/12/details", "", &body); reply.StatusCode != http.StatusOK {
 		t.Fatalf("details: status %d", reply.StatusCode)
 	}
-	return body.Data.Lead, body.Data.Implementer
+	return body.Data.Lead, body.Data.Operator, body.Data.Implementer
 }
 
 func records(t *testing.T, server *testserver.Server) []string {
@@ -255,10 +262,50 @@ func TestTheWorkstreamEndpointsSetAndClearTheLeadSettingAndTheImplementerSetting
 	}
 }
 
+func TestTheWorkstreamEndpointsSetAndClearTheOperatorSetting(t *testing.T) {
+	server := startWithSettings(t)
+	lead, operator, implementer := detailsWithOperator(t, server)
+	if want := (nextSetting{"claude-code", "sonnet", "medium", false}); operator != want {
+		t.Errorf("operator = %+v, want %+v", operator, want)
+	}
+
+	if reply := call(t, server.Client, http.MethodPut, server.URL+"/api/workstreams/owner/shop/12/operator", `{"harness":"claude-code","model":"haiku","effort":"low"}`, nil); reply.StatusCode != http.StatusNoContent {
+		t.Fatalf("PUT operator: status %d", reply.StatusCode)
+	}
+
+	gotLead, operator, gotImplementer := detailsWithOperator(t, server)
+	if want := (nextSetting{"claude-code", "haiku", "low", true}); operator != want {
+		t.Errorf("operator = %+v, want %+v", operator, want)
+	}
+	if gotLead != lead || gotImplementer != implementer {
+		t.Errorf("lead = %+v, implementer = %+v, want %+v and %+v: the Operator setting changes no other Role", gotLead, gotImplementer, lead, implementer)
+	}
+	wantRecords := []string{"The Owner set the Operator to claude-code · haiku · low."}
+	if got := records(t, server); !slices.Equal(got, wantRecords) {
+		t.Errorf("records = %q, want %q", got, wantRecords)
+	}
+
+	if reply := call(t, server.Client, http.MethodDelete, server.URL+"/api/workstreams/owner/shop/12/operator", "", nil); reply.StatusCode != http.StatusNoContent {
+		t.Fatalf("DELETE operator: status %d", reply.StatusCode)
+	}
+
+	_, operator, _ = detailsWithOperator(t, server)
+	if want := (nextSetting{"claude-code", "sonnet", "medium", false}); operator != want {
+		t.Errorf("operator = %+v, want %+v", operator, want)
+	}
+	if rows := bindingRows(t, server); rows != 0 {
+		t.Errorf("issue_bindings has %d rows, want 0", rows)
+	}
+	wantRecords = append(wantRecords, "The Owner cleared the setting of the Operator.")
+	if got := records(t, server); !slices.Equal(got, wantRecords) {
+		t.Errorf("records = %q, want %q", got, wantRecords)
+	}
+}
+
 func TestAWorkstreamEndpointRefusesAnInvalidSettingWith422AndAnIssueThatIsNoWorkstreamWith409(t *testing.T) {
 	server := startWithSettings(t)
 
-	for _, path := range []string{"lead", "implementer"} {
+	for _, path := range []string{"lead", "operator", "implementer"} {
 		var refusal errorBody
 		reply := call(t, server.Client, http.MethodPut, server.URL+"/api/workstreams/owner/shop/12/"+path, `{"harness":"gemini","model":"opus","effort":"high"}`, &refusal)
 		if reply.StatusCode != http.StatusUnprocessableEntity || refusal.Error == "" {

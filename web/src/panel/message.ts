@@ -22,6 +22,7 @@ export const Message = defineMessageUnion({
   GotRecurringMessage: { message: Recurring.Message },
   CompletedRequestLogin: {},
   CompletedReportTab: {},
+  CompletedReportTaskAttached: {},
 });
 
 export type Message = typeof Message.Type;

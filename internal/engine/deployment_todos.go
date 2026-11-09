@@ -198,7 +198,8 @@ func (e *Engine) clearBlockReason(ctx context.Context, task store.Task) error {
 // DoneInboxItem stores the note and the time on the todo of the open todo Inbox item id, and dismisses the item. It
 // gives the changed item. Before it dismisses the item, it runs closeTodoStep and sends the open ready for review Inbox
 // items of the task to the listeners again. Thus the Owner can mark the todo as done
-// again after an error. It returns a refusal when the item is not an open todo.
+// again after an error. For an open owner action item it runs doneOwnerAction: the next step of the action starts.
+// It returns a refusal when the item is not an open todo or an open owner action item.
 func (e *Engine) DoneInboxItem(ctx context.Context, id int64, note string) (store.InboxItem, error) {
 	item, err := e.queries.GetInboxItem(ctx, id)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -207,8 +208,11 @@ func (e *Engine) DoneInboxItem(ctx context.Context, id int64, note string) (stor
 	if err != nil {
 		return store.InboxItem{}, err
 	}
-	if item.Kind != todoKind || item.DismissedAt.Valid {
-		return store.InboxItem{}, refuse("This item is not an open todo.")
+	if item.Kind != todoKind && item.Kind != ownerActionKind || item.DismissedAt.Valid {
+		return store.InboxItem{}, refuse("This item is not an open todo or an open action of the Owner.")
+	}
+	if item.Kind == ownerActionKind {
+		return e.doneOwnerAction(ctx, item, note)
 	}
 	todo, err := e.queries.GetDeploymentTodoOfItem(ctx, id)
 	if err != nil {

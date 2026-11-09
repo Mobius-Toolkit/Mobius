@@ -8,7 +8,7 @@ import {
   reload as reloadAgents,
   update as updateAgents,
 } from "./agents/update";
-import { RequestLogin, ReportTab } from "./commands";
+import { RequestLogin, ReportTab, ReportTaskAttached } from "./commands";
 import { OutMessage as DetailsOutMessage } from "./details/message";
 import * as DetailsModel from "./details/model";
 import {
@@ -55,6 +55,7 @@ const foldTasks = Update.foldChild({
   foldOutMessage: (outMessage) =>
     TasksOutMessage.match<Update.Step<Model, Message>>(outMessage, {
       LoginRequired: () => requestLogin,
+      TaskAttached: () => (model) => ({ model, commands: [ReportTaskAttached()] }),
     }),
 });
 
@@ -201,5 +202,6 @@ export function update(model: Model, message: Message): UpdateReturn {
     GotRecurringMessage: ({ message: child }) => foldRecurring(model, child),
     CompletedRequestLogin: () => ({ model }),
     CompletedReportTab: () => ({ model }),
+    CompletedReportTaskAttached: () => ({ model }),
   });
 }

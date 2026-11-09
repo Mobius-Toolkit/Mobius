@@ -74,7 +74,7 @@ func role(setting engine.RoleSetting) Role {
 type SetRoleRequest struct {
 	Path struct {
 		// Role is the name of the Role
-		Role string `gork:"role" validate:"oneof=lead coordinator triager implementer researcher reviewer judge curator diagnoser"`
+		Role string `gork:"role" validate:"oneof=lead coordinator triager implementer researcher reviewer judge curator diagnoser operator"`
 	}
 	Body struct {
 		// Harness is the agent program of the Role
@@ -94,7 +94,7 @@ type SetRoleRequest struct {
 type ResetRoleRequest struct {
 	Path struct {
 		// Role is the name of the Role
-		Role string `gork:"role" validate:"oneof=lead coordinator triager implementer researcher reviewer judge curator diagnoser"`
+		Role string `gork:"role" validate:"oneof=lead coordinator triager implementer researcher reviewer judge curator diagnoser operator"`
 	}
 }
 

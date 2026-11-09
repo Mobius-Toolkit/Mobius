@@ -16,6 +16,7 @@ export function Panel({
   instance,
   tab,
   onTabChange,
+  onTaskAttached,
 }: {
   owner: string;
   name: string;
@@ -23,12 +24,14 @@ export function Panel({
   instance: string;
   tab: Tab;
   onTabChange: (tab: Tab) => void;
+  onTaskAttached?: () => void;
 }) {
   const showLogin = use(LoginContext);
   const containerRef = useRef<HTMLDivElement>(null);
   const handleRef = useRef<Runtime.EmbedHandle<PanelPorts>>(null);
   const currentTab = useEffectEvent(() => tab);
   const changeTab = useEffectEvent(onTabChange);
+  const attachedTask = useEffectEvent(() => onTaskAttached?.());
 
   // A change of a Flag disposes the program and embeds it again.
   useEffect(() => {
@@ -47,10 +50,12 @@ export function Panel({
       showLogin();
     });
     const unsubTab = handle.ports.tabChanged.subscribe(changeTab);
+    const unsubAttached = handle.ports.taskAttached.subscribe(attachedTask);
 
     return () => {
       unsubLogin();
       unsubTab();
+      unsubAttached();
       handle.dispose();
       handleRef.current = null;
     };

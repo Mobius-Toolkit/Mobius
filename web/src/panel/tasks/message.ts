@@ -14,6 +14,9 @@ export const Message = defineMessageUnion({
   ClickedStop: { key: Schema.String, line: TaskLine },
   ChangedIssue: { key: Schema.String },
   ChangeFailed: { key: Schema.String, error: Schema.String },
+  ClickedChat: { key: Schema.String, line: TaskLine },
+  AttachedTask: {},
+  AttachFailed: { key: Schema.String, error: Schema.String },
   ClickedSetting: { line: TaskLine },
   GotSettingMessage: { message: Setting.Message },
 });
@@ -22,6 +25,7 @@ export type Message = typeof Message.Type;
 
 export const OutMessage = defineMessageUnion({
   LoginRequired: {},
+  TaskAttached: {},
 });
 
 export type OutMessage = typeof OutMessage.Type;
