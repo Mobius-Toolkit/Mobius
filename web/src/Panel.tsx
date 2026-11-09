@@ -6,7 +6,7 @@ import type { PanelPorts } from "./panel/ports";
 import { createPanelProgram } from "./panel/program";
 import type { Tab } from "./panel/schemas";
 
-// The panel of a Workstream: the tabs Tasks, Agents, Details and Brief. The open tab stays in the page, because the
+// The panel of a Workstream: the tabs Tasks, Agents, Details, Brief and Recurring. The open tab stays in the page, because the
 // Brief button of the chat selects the Brief tab. instance names the place of the panel, because the page can hold
 // two panels at the same time.
 export function Panel({
