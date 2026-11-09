@@ -718,6 +718,52 @@ func (q *Queries) AddLeadWrite(ctx context.Context, arg AddLeadWriteParams) erro
 	return err
 }
 
+const addMcpServer = `-- name: AddMcpServer :one
+INSERT INTO mcp_servers (organization, name, kind, url, headers, command, args, env, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, organization, name, kind, url, headers, command, args, env, updated_at
+`
+
+type AddMcpServerParams struct {
+	Organization string
+	Name         string
+	Kind         string
+	Url          string
+	HeaderList   string
+	Command      string
+	Args         string
+	Env          string
+	UpdatedAt    string
+}
+
+func (q *Queries) AddMcpServer(ctx context.Context, arg AddMcpServerParams) (McpServer, error) {
+	row := q.db.QueryRowContext(ctx, addMcpServer,
+		arg.Organization,
+		arg.Name,
+		arg.Kind,
+		arg.Url,
+		arg.HeaderList,
+		arg.Command,
+		arg.Args,
+		arg.Env,
+		arg.UpdatedAt,
+	)
+	var i McpServer
+	err := row.Scan(
+		&i.ID,
+		&i.Organization,
+		&i.Name,
+		&i.Kind,
+		&i.Url,
+		&i.HeaderList,
+		&i.Command,
+		&i.Args,
+		&i.Env,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const addMemoryVersion = `-- name: AddMemoryVersion :exec
 INSERT INTO memory_versions (repository, file, time, author, reason, text) VALUES (?, ?, ?, ?, ?, ?)
 `
@@ -1332,6 +1378,21 @@ func (q *Queries) AddWorkstreamBucket(ctx context.Context, arg AddWorkstreamBuck
 	return err
 }
 
+const addWorkstreamMcpServer = `-- name: AddWorkstreamMcpServer :exec
+INSERT INTO workstream_mcp_servers (repository, workstream, server) VALUES (?, ?, ?)
+`
+
+type AddWorkstreamMcpServerParams struct {
+	Repository string
+	Workstream int64
+	Server     int64
+}
+
+func (q *Queries) AddWorkstreamMcpServer(ctx context.Context, arg AddWorkstreamMcpServerParams) error {
+	_, err := q.db.ExecContext(ctx, addWorkstreamMcpServer, arg.Repository, arg.Workstream, arg.Server)
+	return err
+}
+
 const advanceRecurringTask = `-- name: AdvanceRecurringTask :execrows
 UPDATE recurring_tasks SET checked_at = ?1, event = coalesce(?2, event)
 WHERE id = ?3 AND cron = ?4 AND checked_at = ?5 AND paused = 0
@@ -1838,6 +1899,23 @@ func (q *Queries) DeleteIssueBinding(ctx context.Context, arg DeleteIssueBinding
 	return err
 }
 
+const deleteMcpServer = `-- name: DeleteMcpServer :execrows
+DELETE FROM mcp_servers WHERE id = ? AND organization = ?
+`
+
+type DeleteMcpServerParams struct {
+	ID           int64
+	Organization string
+}
+
+func (q *Queries) DeleteMcpServer(ctx context.Context, arg DeleteMcpServerParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteMcpServer, arg.ID, arg.Organization)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const deleteOldSkillUse = `-- name: DeleteOldSkillUse :exec
 DELETE FROM old_skill_uses WHERE id = ?
 `
@@ -1921,6 +1999,20 @@ type DeleteWorkstreamBucketParams struct {
 
 func (q *Queries) DeleteWorkstreamBucket(ctx context.Context, arg DeleteWorkstreamBucketParams) error {
 	_, err := q.db.ExecContext(ctx, deleteWorkstreamBucket, arg.Repository, arg.Issue)
+	return err
+}
+
+const deleteWorkstreamMcpServers = `-- name: DeleteWorkstreamMcpServers :exec
+DELETE FROM workstream_mcp_servers WHERE repository = ? AND workstream = ?
+`
+
+type DeleteWorkstreamMcpServersParams struct {
+	Repository string
+	Workstream int64
+}
+
+func (q *Queries) DeleteWorkstreamMcpServers(ctx context.Context, arg DeleteWorkstreamMcpServersParams) error {
+	_, err := q.db.ExecContext(ctx, deleteWorkstreamMcpServers, arg.Repository, arg.Workstream)
 	return err
 }
 
@@ -3013,6 +3105,34 @@ func (q *Queries) GetLiveTaskByPullRequest(ctx context.Context, arg GetLiveTaskB
 		&i.ApprovedAgainHead,
 		&i.ApprovedAgainComment,
 		&i.ApprovedReportHead,
+	)
+	return i, err
+}
+
+const getMcpServer = `-- name: GetMcpServer :one
+SELECT id, organization, name, kind, url, headers, command, args, env, updated_at FROM mcp_servers
+WHERE id = ? AND organization = ?
+`
+
+type GetMcpServerParams struct {
+	ID           int64
+	Organization string
+}
+
+func (q *Queries) GetMcpServer(ctx context.Context, arg GetMcpServerParams) (McpServer, error) {
+	row := q.db.QueryRowContext(ctx, getMcpServer, arg.ID, arg.Organization)
+	var i McpServer
+	err := row.Scan(
+		&i.ID,
+		&i.Organization,
+		&i.Name,
+		&i.Kind,
+		&i.Url,
+		&i.HeaderList,
+		&i.Command,
+		&i.Args,
+		&i.Env,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
@@ -6412,6 +6532,46 @@ func (q *Queries) ListLiveTasks(ctx context.Context, repository string) ([]Task,
 	return items, nil
 }
 
+const listMcpServers = `-- name: ListMcpServers :many
+SELECT id, organization, name, kind, url, headers, command, args, env, updated_at FROM mcp_servers
+WHERE organization = ?
+ORDER BY name
+`
+
+func (q *Queries) ListMcpServers(ctx context.Context, organization string) ([]McpServer, error) {
+	rows, err := q.db.QueryContext(ctx, listMcpServers, organization)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []McpServer
+	for rows.Next() {
+		var i McpServer
+		if err := rows.Scan(
+			&i.ID,
+			&i.Organization,
+			&i.Name,
+			&i.Kind,
+			&i.Url,
+			&i.HeaderList,
+			&i.Command,
+			&i.Args,
+			&i.Env,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listMemoryVersionsPage = `-- name: ListMemoryVersionsPage :many
 SELECT id, time, author, reason, text FROM memory_versions WHERE repository = ? AND file = ? AND id < ? ORDER BY id DESC LIMIT ?
 `
@@ -8595,6 +8755,52 @@ func (q *Queries) ListWorkstreamLiveTasks(ctx context.Context, arg ListWorkstrea
 	return items, nil
 }
 
+const listWorkstreamMcpServers = `-- name: ListWorkstreamMcpServers :many
+SELECT s.id, s.organization, s.name, s.kind, s.url, s.headers, s.command, s.args, s.env, s.updated_at FROM mcp_servers s
+JOIN workstream_mcp_servers w ON w.server = s.id
+WHERE w.repository = ? AND w.workstream = ?
+ORDER BY s.name
+`
+
+type ListWorkstreamMcpServersParams struct {
+	Repository string
+	Workstream int64
+}
+
+func (q *Queries) ListWorkstreamMcpServers(ctx context.Context, arg ListWorkstreamMcpServersParams) ([]McpServer, error) {
+	rows, err := q.db.QueryContext(ctx, listWorkstreamMcpServers, arg.Repository, arg.Workstream)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []McpServer
+	for rows.Next() {
+		var i McpServer
+		if err := rows.Scan(
+			&i.ID,
+			&i.Organization,
+			&i.Name,
+			&i.Kind,
+			&i.Url,
+			&i.HeaderList,
+			&i.Command,
+			&i.Args,
+			&i.Env,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listWorkstreamsNeedingBuckets = `-- name: ListWorkstreamsNeedingBuckets :many
 SELECT w.number FROM copied_workstreams w
 WHERE w.repository = ?1
@@ -10145,6 +10351,55 @@ func (q *Queries) UpdateCopiedWorkstream(ctx context.Context, arg UpdateCopiedWo
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const updateMcpServer = `-- name: UpdateMcpServer :one
+UPDATE mcp_servers
+SET name = ?, kind = ?, url = ?, headers = ?, command = ?, args = ?, env = ?, updated_at = ?
+WHERE id = ? AND organization = ?
+RETURNING id, organization, name, kind, url, headers, command, args, env, updated_at
+`
+
+type UpdateMcpServerParams struct {
+	Name         string
+	Kind         string
+	Url          string
+	HeaderList   string
+	Command      string
+	Args         string
+	Env          string
+	UpdatedAt    string
+	ID           int64
+	Organization string
+}
+
+func (q *Queries) UpdateMcpServer(ctx context.Context, arg UpdateMcpServerParams) (McpServer, error) {
+	row := q.db.QueryRowContext(ctx, updateMcpServer,
+		arg.Name,
+		arg.Kind,
+		arg.Url,
+		arg.HeaderList,
+		arg.Command,
+		arg.Args,
+		arg.Env,
+		arg.UpdatedAt,
+		arg.ID,
+		arg.Organization,
+	)
+	var i McpServer
+	err := row.Scan(
+		&i.ID,
+		&i.Organization,
+		&i.Name,
+		&i.Kind,
+		&i.Url,
+		&i.HeaderList,
+		&i.Command,
+		&i.Args,
+		&i.Env,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const updateRecurringTask = `-- name: UpdateRecurringTask :one

@@ -1618,3 +1618,38 @@ UPDATE owner_actions SET done_at = ? WHERE id = ?;
 
 -- name: ListOpenOwnerActionsOfTask :many
 SELECT * FROM owner_actions WHERE task = ? AND done_at IS NULL ORDER BY id;
+
+-- name: AddMcpServer :one
+INSERT INTO mcp_servers (organization, name, kind, url, headers, command, args, env, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING *;
+
+-- name: ListMcpServers :many
+SELECT * FROM mcp_servers
+WHERE organization = ?
+ORDER BY name;
+
+-- name: GetMcpServer :one
+SELECT * FROM mcp_servers
+WHERE id = ? AND organization = ?;
+
+-- name: UpdateMcpServer :one
+UPDATE mcp_servers
+SET name = ?, kind = ?, url = ?, headers = ?, command = ?, args = ?, env = ?, updated_at = ?
+WHERE id = ? AND organization = ?
+RETURNING *;
+
+-- name: DeleteMcpServer :execrows
+DELETE FROM mcp_servers WHERE id = ? AND organization = ?;
+
+-- name: ListWorkstreamMcpServers :many
+SELECT s.* FROM mcp_servers s
+JOIN workstream_mcp_servers w ON w.server = s.id
+WHERE w.repository = ? AND w.workstream = ?
+ORDER BY s.name;
+
+-- name: AddWorkstreamMcpServer :exec
+INSERT INTO workstream_mcp_servers (repository, workstream, server) VALUES (?, ?, ?);
+
+-- name: DeleteWorkstreamMcpServers :exec
+DELETE FROM workstream_mcp_servers WHERE repository = ? AND workstream = ?;

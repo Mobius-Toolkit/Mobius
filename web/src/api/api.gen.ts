@@ -909,6 +909,55 @@ export interface EnvelopeArrayInboxItem {
 }
 
 /**
+ * McpPairName is the name of a header or of an environment variable of an MCP server. The API never gives its value.
+ */
+export interface McpPairName {
+  /** Name is the name of the header or of the environment variable */
+  name: string;
+}
+
+/**
+ * Kind is http or stdio
+ */
+export type McpServerKind = typeof McpServerKind[keyof typeof McpServerKind];
+
+
+export const McpServerKind = {
+  http: 'http',
+  stdio: 'stdio',
+} as const;
+
+/**
+ * McpServer is an MCP server of an organization.
+ */
+export interface McpServer {
+  /** Args are the arguments of the command of a stdio server */
+  args: string[];
+  /** Command is the command of a stdio server, and empty for an http server */
+  command: string;
+  /** Env are the environment variables of a stdio server */
+  env: McpPairName[];
+  /** Headers are the headers of an http server */
+  headers: McpPairName[];
+  /** ID is the id of the server */
+  id: number;
+  /** Kind is http or stdio */
+  kind: McpServerKind;
+  /** Name is the name of the server, unique in the organization */
+  name: string;
+  /** URL is the address of an http server, and empty for a stdio server */
+  url: string;
+}
+
+/**
+ * Envelope is the body of each success response.
+ */
+export interface EnvelopeArrayMcpServer {
+  /** Data is the payload of the response */
+  data: McpServer[];
+}
+
+/**
  * File is the name of the memory file: shared, or the name of a role
  */
 export type MemoryFileFile = typeof MemoryFileFile[keyof typeof MemoryFileFile];
@@ -1306,6 +1355,14 @@ export interface ManifestForm {
 export interface EnvelopeManifestForm {
   /** Data is the payload of the response */
   data: ManifestForm;
+}
+
+/**
+ * Envelope is the body of each success response.
+ */
+export interface EnvelopeMcpServer {
+  /** Data is the payload of the response */
+  data: McpServer;
 }
 
 /**
@@ -2048,6 +2105,8 @@ export interface WorkstreamDetails {
   lead: NextSetting;
   /** Maintenance is true when the Workstream issue has mobius:maintenance */
   maintenance: boolean;
+  /** McpServers are the ids of the MCP servers that the Owner selected for the Workstream, in name order of the servers */
+  mcpServers: number[];
   /** OpenTasks is the number of open tasks */
   openTasks: number;
   /** Skills is true when the Workstream issue has mobius:skills */
@@ -2184,6 +2243,36 @@ export interface LoginBody {
   password: string;
 }
 
+/**
+ * McpPair is a header or an environment variable that the Owner sends. An empty value keeps the stored value of the same name when the Owner changes a server.
+ */
+export interface McpPair {
+  /** Name is the name of the header or of the environment variable */
+  name?: string;
+  /** Value is the secret value */
+  value?: string;
+}
+
+/**
+ * McpServerBody is the body of a request that adds or changes an MCP server.
+ */
+export interface McpServerBodyBody {
+  /** Args are the arguments of the command. An http server ignores them. */
+  args?: string[];
+  /** Command is the command of a stdio server. An http server ignores it. */
+  command?: string;
+  /** Env are the environment variables of a stdio server. An http server ignores them. */
+  env?: McpPair[];
+  /** Headers are the headers of an http server. A stdio server ignores them. */
+  headers?: McpPair[];
+  /** Kind is http or stdio */
+  kind?: string;
+  /** Name has only letters, digits, - and _, and is not mobius */
+  name?: string;
+  /** URL is the absolute http or https address of an http server. A stdio server ignores it. */
+  url?: string;
+}
+
 export interface RejectActionBody {
   /** Message is the message of the Owner for the agent. It can be empty */
   message?: string;
@@ -2282,6 +2371,11 @@ export interface SetToolAutoUpgradeBody {
 export interface SetVoiceLanguageBody {
   /** Language is the code of the language, one of the codes that GetVoiceLanguage gives */
   language?: string;
+}
+
+export interface SetWorkstreamMcpServersBody {
+  /** IDs are the ids of the selected servers */
+  ids?: number[];
 }
 
 export interface StopChatBody {
@@ -5081,6 +5175,292 @@ export const listOrganizations = async ( ): Promise<listOrganizationsResponse> =
 
   const data: listOrganizationsResponse['data'] = body ? JSON.parse(body) : {}
   return { data, status: res.status, headers: res.headers } as listOrganizationsResponse
+}
+
+
+
+export type listMcpServersResponse200 = {
+  data: EnvelopeArrayMcpServer
+  status: 200
+}
+
+export type listMcpServersResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type listMcpServersResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type listMcpServersResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type listMcpServersResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type listMcpServersResponseSuccess = (listMcpServersResponse200) & {
+  headers: Headers;
+};
+export type listMcpServersResponseError = (listMcpServersResponse400 | listMcpServersResponse401 | listMcpServersResponse422 | listMcpServersResponse500) & {
+  headers: Headers;
+};
+
+export type listMcpServersResponse = (listMcpServersResponseSuccess | listMcpServersResponseError)
+
+export const getListMcpServersUrl = (organization: string,) => {
+
+
+
+
+  return `/api/organizations/${organization}/mcp-servers`
+}
+
+/**
+ * ListMcpServers returns the MCP servers of the organization in name order, with the names of the headers and of the environment variables and with no secret value.
+ */
+export const listMcpServers = async (organization: string, ): Promise<listMcpServersResponse> => {
+
+  const res = await fetch(getListMcpServersUrl(organization),
+  {
+
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: listMcpServersResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as listMcpServersResponse
+}
+
+
+
+export type addMcpServerResponse201 = {
+  data: EnvelopeMcpServer
+  status: 201
+}
+
+export type addMcpServerResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type addMcpServerResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type addMcpServerResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
+export type addMcpServerResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type addMcpServerResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type addMcpServerResponseSuccess = (addMcpServerResponse201) & {
+  headers: Headers;
+};
+export type addMcpServerResponseError = (addMcpServerResponse400 | addMcpServerResponse401 | addMcpServerResponse409 | addMcpServerResponse422 | addMcpServerResponse500) & {
+  headers: Headers;
+};
+
+export type addMcpServerResponse = (addMcpServerResponseSuccess | addMcpServerResponseError)
+
+export const getAddMcpServerUrl = (organization: string,) => {
+
+
+
+
+  return `/api/organizations/${organization}/mcp-servers`
+}
+
+/**
+ * AddMcpServer adds an MCP server to the organization. It returns 422 with the reason when a field fails a check, and 409 when another server of the organization has the name.
+ */
+export const addMcpServer = async (organization: string,
+    mcpServerBodyBody: McpServerBodyBody, ): Promise<addMcpServerResponse> => {
+
+  const res = await fetch(getAddMcpServerUrl(organization),
+  {
+
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(mcpServerBodyBody)
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: addMcpServerResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as addMcpServerResponse
+}
+
+
+
+export type changeMcpServerResponse200 = {
+  data: EnvelopeMcpServer
+  status: 200
+}
+
+export type changeMcpServerResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type changeMcpServerResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type changeMcpServerResponse404 = {
+  data: ErrorResponse
+  status: 404
+}
+
+export type changeMcpServerResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
+export type changeMcpServerResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type changeMcpServerResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type changeMcpServerResponseSuccess = (changeMcpServerResponse200) & {
+  headers: Headers;
+};
+export type changeMcpServerResponseError = (changeMcpServerResponse400 | changeMcpServerResponse401 | changeMcpServerResponse404 | changeMcpServerResponse409 | changeMcpServerResponse422 | changeMcpServerResponse500) & {
+  headers: Headers;
+};
+
+export type changeMcpServerResponse = (changeMcpServerResponseSuccess | changeMcpServerResponseError)
+
+export const getChangeMcpServerUrl = (organization: string,
+    id: number,) => {
+
+
+
+
+  return `/api/organizations/${organization}/mcp-servers/${id}`
+}
+
+/**
+ * ChangeMcpServer replaces an MCP server of the organization. A header or an environment variable with an empty value keeps the stored value of the same name. It returns 404 for an id that is not a server of the organization, 422 with the reason when a field fails a check, and 409 when another server of the organization has the name.
+ */
+export const changeMcpServer = async (organization: string,
+    id: number,
+    mcpServerBodyBody: McpServerBodyBody, ): Promise<changeMcpServerResponse> => {
+
+  const res = await fetch(getChangeMcpServerUrl(organization,id),
+  {
+
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(mcpServerBodyBody)
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: changeMcpServerResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as changeMcpServerResponse
+}
+
+
+
+export type deleteMcpServerResponse204 = {
+  data: void
+  status: 204
+}
+
+export type deleteMcpServerResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type deleteMcpServerResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type deleteMcpServerResponse404 = {
+  data: ErrorResponse
+  status: 404
+}
+
+export type deleteMcpServerResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type deleteMcpServerResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type deleteMcpServerResponseSuccess = (deleteMcpServerResponse204) & {
+  headers: Headers;
+};
+export type deleteMcpServerResponseError = (deleteMcpServerResponse400 | deleteMcpServerResponse401 | deleteMcpServerResponse404 | deleteMcpServerResponse422 | deleteMcpServerResponse500) & {
+  headers: Headers;
+};
+
+export type deleteMcpServerResponse = (deleteMcpServerResponseSuccess | deleteMcpServerResponseError)
+
+export const getDeleteMcpServerUrl = (organization: string,
+    id: number,) => {
+
+
+
+
+  return `/api/organizations/${organization}/mcp-servers/${id}`
+}
+
+/**
+ * DeleteMcpServer deletes an MCP server of the organization and removes it from the selection of each Workstream. It returns 404 for an id that is not a server of the organization.
+ */
+export const deleteMcpServer = async (organization: string,
+    id: number, ): Promise<deleteMcpServerResponse> => {
+
+  const res = await fetch(getDeleteMcpServerUrl(organization,id),
+  {
+
+    method: 'DELETE'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: deleteMcpServerResponse['data'] = body ? JSON.parse(body) : undefined
+  return { data, status: res.status, headers: res.headers } as deleteMcpServerResponse
 }
 
 
@@ -8373,6 +8753,81 @@ export const clearWorkstreamLead = async (owner: string,
 
   const data: clearWorkstreamLeadResponse['data'] = body ? JSON.parse(body) : undefined
   return { data, status: res.status, headers: res.headers } as clearWorkstreamLeadResponse
+}
+
+
+
+export type setWorkstreamMcpServersResponse204 = {
+  data: void
+  status: 204
+}
+
+export type setWorkstreamMcpServersResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type setWorkstreamMcpServersResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type setWorkstreamMcpServersResponse404 = {
+  data: ErrorResponse
+  status: 404
+}
+
+export type setWorkstreamMcpServersResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type setWorkstreamMcpServersResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type setWorkstreamMcpServersResponseSuccess = (setWorkstreamMcpServersResponse204) & {
+  headers: Headers;
+};
+export type setWorkstreamMcpServersResponseError = (setWorkstreamMcpServersResponse400 | setWorkstreamMcpServersResponse401 | setWorkstreamMcpServersResponse404 | setWorkstreamMcpServersResponse422 | setWorkstreamMcpServersResponse500) & {
+  headers: Headers;
+};
+
+export type setWorkstreamMcpServersResponse = (setWorkstreamMcpServersResponseSuccess | setWorkstreamMcpServersResponseError)
+
+export const getSetWorkstreamMcpServersUrl = (owner: string,
+    name: string,
+    number: number,) => {
+
+
+
+
+  return `/api/workstreams/${owner}/${name}/${number}/mcp-servers`
+}
+
+/**
+ * SetWorkstreamMcpServers replaces the MCP servers that the Owner selected for the Workstream. It returns 404 when the issue is not an open Workstream of the local copy, and 422 for an id of a server of another organization.
+ */
+export const setWorkstreamMcpServers = async (owner: string,
+    name: string,
+    number: number,
+    setWorkstreamMcpServersBody: SetWorkstreamMcpServersBody, ): Promise<setWorkstreamMcpServersResponse> => {
+
+  const res = await fetch(getSetWorkstreamMcpServersUrl(owner,name,number),
+  {
+
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(setWorkstreamMcpServersBody)
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: setWorkstreamMcpServersResponse['data'] = body ? JSON.parse(body) : undefined
+  return { data, status: res.status, headers: res.headers } as setWorkstreamMcpServersResponse
 }
 
 

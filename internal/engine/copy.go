@@ -471,6 +471,9 @@ func (e *Engine) removeCopiedWorkstream(ctx context.Context, repository string, 
 		if err := deleteWorkstreamRecurringTasks(ctx, q, repository, number); err != nil {
 			return err
 		}
+		if err := q.DeleteWorkstreamMcpServers(ctx, store.DeleteWorkstreamMcpServersParams{Repository: repository, Workstream: number}); err != nil {
+			return err
+		}
 		return removeTree(ctx, q, repository, number)
 	})
 }
