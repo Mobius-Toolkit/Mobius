@@ -1606,3 +1606,15 @@ WHERE recurring_task_runs.recurring_task = sqlc.arg(task)
 
 -- name: HasUndeliveredLeadEvent :one
 SELECT EXISTS (SELECT 1 FROM lead_events WHERE id = ? AND delivered_at IS NULL);
+
+-- name: AddOwnerAction :exec
+INSERT INTO owner_actions (task, inbox_item, role, action, next, created_at) VALUES (?, ?, ?, ?, ?, ?);
+
+-- name: GetOwnerActionOfItem :one
+SELECT * FROM owner_actions WHERE inbox_item = ?;
+
+-- name: SetOwnerActionDone :exec
+UPDATE owner_actions SET done_at = ? WHERE id = ?;
+
+-- name: ListOpenOwnerActionsOfTask :many
+SELECT * FROM owner_actions WHERE task = ? AND done_at IS NULL ORDER BY id;

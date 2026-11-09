@@ -227,6 +227,17 @@ type OldSkillUse struct {
 	UsedAt       string
 }
 
+type OwnerAction struct {
+	ID        int64
+	Task      int64
+	InboxItem int64
+	Role      string
+	Action    string
+	Next      string
+	CreatedAt string
+	DoneAt    sql.NullString
+}
+
 type PendingAction struct {
 	ID           int64
 	Organization string
