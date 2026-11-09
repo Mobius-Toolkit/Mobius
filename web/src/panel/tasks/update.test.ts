@@ -11,7 +11,7 @@ import {
 } from "foldkit/story";
 import { FetchHarnesses } from "@/setting/commands";
 import * as SettingFixture from "@/setting/fixtures";
-import { ChangeIssue, FetchFallback, FetchTasks } from "./commands";
+import { AttachTask, ChangeIssue, FetchFallback, FetchTasks } from "./commands";
 import { Message, OutMessage } from "./message";
 import { initialModel, rowKey, rowOf, withoutClosed, type Model, type TaskLine } from "./model";
 import { update } from "./update";
@@ -74,6 +74,75 @@ describe("the Tasks tab", () => {
       message(Message.LoadFailed({ error: "database is locked" })),
       model((m) => {
         expect(m.error).toBe("database is locked");
+      }),
+      expectNoOutMessage(),
+    );
+  });
+});
+
+describe("Chat about a task", () => {
+  it("attaches the task to the draft of the Lead chat, and tells the host after the write", () => {
+    const task = line(39, { state: "triage" });
+    const key = rowKey(task);
+
+    story(
+      update,
+      given(createModel({ lines: Option.some([task]) })),
+      message(Message.ClickedChat({ key, line: task })),
+      StoryCommand.expectExact(
+        AttachTask({
+          key,
+          draftKey: "chatDraft:owner/owner/shop/12",
+          item: {
+            id: task.url,
+            reference: "#39",
+            title: "Task 39",
+            reason: "triage",
+            link: task.url,
+          },
+        }),
+      ),
+      StoryCommand.resolve(AttachTask, Message.AttachedTask()),
+      expectOutMessage(OutMessage.TaskAttached()),
+    );
+  });
+
+  it("names the repository of a task in another repository", () => {
+    const task = line(7, { repository: "plants/orchard", otherRepository: true });
+    const key = rowKey(task);
+
+    story(
+      update,
+      given(createModel({ lines: Option.some([task]) })),
+      message(Message.ClickedChat({ key, line: task })),
+      StoryCommand.expectExact(
+        AttachTask({
+          key,
+          draftKey: "chatDraft:owner/owner/shop/12",
+          item: {
+            id: task.url,
+            reference: "plants/orchard#7",
+            title: "Task 7",
+            reason: "open",
+            link: task.url,
+          },
+        }),
+      ),
+      StoryCommand.resolve(AttachTask, Message.AttachedTask()),
+    );
+  });
+
+  it("shows a failed write on the row and keeps the panel", () => {
+    const task = line(39);
+    const key = rowKey(task);
+
+    story(
+      update,
+      given(createModel({ lines: Option.some([task]) })),
+      message(Message.ClickedChat({ key, line: task })),
+      StoryCommand.resolve(AttachTask, Message.AttachFailed({ key, error: "storage is full" })),
+      model((m) => {
+        expect(rowOf(m, key).error).toBe("storage is full");
       }),
       expectNoOutMessage(),
     );
