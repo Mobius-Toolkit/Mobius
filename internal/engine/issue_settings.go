@@ -21,7 +21,7 @@ func BindingText(harness, model, effort string) string {
 }
 
 // recordSetting adds a record to the Lead chat of the Workstream of the issue, in the form "The Owner <action> the
-// <session>". The session is the Lead, the Implementer of the Workstream or the Implementer of a task. A task that is
+// <session>". The session is the Lead, the Operator, the Implementer of the Workstream or the Implementer of a task. A task that is
 // in no Workstream has no Lead chat, so it gets no record.
 func (e *Engine) recordSetting(ctx context.Context, role, repository string, issue int64, action func(subject string) string) error {
 	workstream, err := e.queries.HasCopiedWorkstreamAnyCase(ctx, store.HasCopiedWorkstreamAnyCaseParams{Repository: repository, Number: issue})
@@ -30,8 +30,11 @@ func (e *Engine) recordSetting(ctx context.Context, role, repository string, iss
 	}
 	if workstream {
 		subject := "Implementer of the Workstream"
-		if role == "lead" {
+		switch role {
+		case "lead":
 			subject = "Lead"
+		case "operator":
+			subject = "Operator"
 		}
 		e.addRecord(ctx, leadChat(repository, issue), action(subject))
 		return nil
