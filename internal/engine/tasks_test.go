@@ -524,10 +524,9 @@ func TestAStopAfterThePageReadOfAPollDoesNotLetThePollEndTheStoppedTaskAndDispat
 	waitForPolls(t, fake)
 	authorize(t, server)
 	changedReached, releaseChanged := fake.HoldIssueEvents(shop, 41)
-	fake.SetTitle(shop, 41, "Add the plan model")
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 	<-changedReached
 	dispatchReached, releaseDispatch := fake.HoldIssueEvents(shop, 41)
-	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 	releaseChanged()
 	<-dispatchReached
 

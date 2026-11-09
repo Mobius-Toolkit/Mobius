@@ -853,8 +853,8 @@ func TestStopTaskRemovesMobiusReadyAndTheNextPollsDoNotDispatchTheIssueAgain(t *
 		return taskState(t, server) == "working" && !slices.Contains(fake.Labels(shop, 41), "mobius:ready")
 	})
 	waitForPolls(t, fake)
-	reached, release := fake.HoldIssueEvents(shop, 41)
-	fake.SetTitle(shop, 41, "Add the plan model")
+	reached, release := fake.HoldIssueEvents(shop, 12)
+	fake.SetTitle(shop, 12, "Plan the shop")
 	<-reached
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 
