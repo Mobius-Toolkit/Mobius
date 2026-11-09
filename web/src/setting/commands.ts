@@ -4,10 +4,12 @@ import {
   clearTaskImplementer,
   clearWorkstreamImplementer,
   clearWorkstreamLead,
+  clearWorkstreamOperator,
   listHarnesses,
   setTaskImplementer,
   setWorkstreamImplementer,
   setWorkstreamLead,
+  setWorkstreamOperator,
 } from "@/api/api.gen";
 import { answer, request } from "@/lib/effects";
 import { bindingText } from "@/lib/harness";
@@ -49,6 +51,9 @@ export const SaveSetting = Command.define("SaveSetting", {
           Match.tag("WorkstreamImplementer", ({ owner, name, number }) =>
             setWorkstreamImplementer(owner, name, number, setting),
           ),
+          Match.tag("Operator", ({ owner, name, number }) =>
+            setWorkstreamOperator(owner, name, number, setting),
+          ),
           Match.exhaustive,
         ),
       {
@@ -73,6 +78,9 @@ export const ClearSetting = Command.define("ClearSetting", {
           Match.tag("Lead", ({ owner, name, number }) => clearWorkstreamLead(owner, name, number)),
           Match.tag("WorkstreamImplementer", ({ owner, name, number }) =>
             clearWorkstreamImplementer(owner, name, number),
+          ),
+          Match.tag("Operator", ({ owner, name, number }) =>
+            clearWorkstreamOperator(owner, name, number),
           ),
           Match.exhaustive,
         ),
