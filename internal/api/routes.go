@@ -43,6 +43,7 @@ func Routes(mux *http.ServeMux, queries *store.Queries, a *auth.Auth, gh *github
 	r.Delete("/api/workstreams/{owner}/{name}/{number}/implementer", h.ClearWorkstreamImplementer, append(loggedIn("workstreams"), api.WithErrorResponses(http.StatusConflict))...)
 	r.Get("/api/workstreams/{owner}/{name}/{number}/recurring-tasks", h.ListRecurringTasks, loggedIn("workstreams")...)
 	r.Put("/api/workstreams/{owner}/{name}/{number}/recurring-tasks/{id}/paused", h.SetRecurringTaskPaused, append(loggedIn("workstreams"), api.WithErrorResponses(http.StatusNotFound))...)
+	r.Post("/api/workstreams/{owner}/{name}/{number}/recurring-tasks/{id}/runs", h.RunRecurringTask, append(loggedIn("workstreams"), api.WithErrorResponses(http.StatusNotFound, http.StatusConflict))...)
 	r.Delete("/api/workstreams/{owner}/{name}/{number}/recurring-tasks/{id}", h.DeleteRecurringTask, append(loggedIn("workstreams"), api.WithErrorResponses(http.StatusNotFound))...)
 	r.Get("/api/repositories/{owner}/{name}/memory", h.ListMemoryFiles, append(loggedIn("memory"), api.WithErrorResponses(http.StatusNotFound))...)
 	r.Get("/api/repositories/{owner}/{name}/memory/{file}", h.ListMemoryVersions, append(loggedIn("memory"), api.WithErrorResponses(http.StatusNotFound))...)
