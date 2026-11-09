@@ -126,6 +126,8 @@ type Engine struct {
 	// triages holds the Triager of each issue.
 	triagesMu sync.Mutex
 	triages   map[triageKey]triage
+	// triagerStartMu makes the stop and the start of a Triager one step, so no two runs of an issue start together.
+	triagerStartMu sync.Mutex
 	// memoryMu makes the read and the write of the memory files, and the checks before a write, run one after the other.
 	memoryMu sync.Mutex
 	// gitMu makes the git commands of the bare clones run one after the other. Two git commands that write the refs of
