@@ -26,6 +26,7 @@ import {
   withdrawDraft,
 } from "./actions.js";
 import { waitForEvergreen } from "./evergreen.js";
+import { addMcpServer, deleteMcpServers, selectMcpServers } from "./mcp-servers.js";
 import { png } from "./images.js";
 import { longTaskTitle, routeLongTask, tasksUrl } from "./long-task.js";
 import { countSamples, fakeMicrophone } from "./microphone.js";
@@ -1192,6 +1193,8 @@ test("screenshots", async ({ page }) => {
       chatEnd,
       created,
       page.getByText("Completed tasks").filter({ visible: true }),
+      page.getByText("MCP servers", { exact: true }).filter({ visible: true }),
+      page.getByRole("button", { name: "Change MCP servers" }).filter({ visible: true }),
       closeButton,
       evergreenSwitch,
     ],
@@ -1372,6 +1375,69 @@ test("screenshots", async ({ page }) => {
     },
     () => page.keyboard.press("Escape"),
   );
+  // The organization plants has no MCP server until the next step adds two. plants/garden#19 shows no other Details tab.
+  const mcpWorkstream = "/workstreams/plants/garden/19";
+  const mcpSheet = settingSheet("MCP servers of #19");
+  const openMcpSheet = async (device: string) => {
+    await openDetails(device);
+    await detailsPanel.getByRole("button", { name: "Change MCP servers" }).click();
+  };
+  // The Inbox of the organization plants has no item, so the frame has no Inbox count.
+  const mcpFrame = (device: string) =>
+    device === "desktop"
+      ? [
+          drain,
+          page.getByLabel("Work in another organization"),
+          page.locator('nav a[href="/workstreams/plants/garden/19"]'),
+        ]
+      : [page.getByLabel("Upgrade available")];
+  await screenshot(
+    page,
+    "chat-details-mcp-none-sheet",
+    mcpWorkstream,
+    (device) => [
+      ...mcpFrame(device),
+      mcpSheet.getByText("No MCP servers."),
+      mcpSheet.getByRole("link", { name: "Add a server" }),
+    ],
+    openMcpSheet,
+    () => page.keyboard.press("Escape"),
+  );
+  const mcpServerIds = [
+    await addMcpServer(page, "plants", {
+      name: "makeadir",
+      kind: "http",
+      url: "https://mcp.example.com/mcp",
+    }),
+    await addMcpServer(page, "plants", { name: "search", kind: "stdio", command: "search-mcp" }),
+  ];
+  await selectMcpServers(page, "plants/garden/19", [mcpServerIds[0]]);
+  await screenshot(
+    page,
+    "chat-details-mcp",
+    mcpWorkstream,
+    (device) => [
+      ...mcpFrame(device),
+      detailsPanel.getByText("MCP servers", { exact: true }),
+      detailsPanel.getByText("makeadir", { exact: true }),
+      detailsPanel.getByRole("button", { name: "Change MCP servers" }),
+    ],
+    openDetails,
+  );
+  await screenshot(
+    page,
+    "chat-details-mcp-sheet",
+    mcpWorkstream,
+    (device) => [
+      ...mcpFrame(device),
+      () => expect(mcpSheet.getByRole("checkbox", { name: /^makeadir/ })).toBeChecked(),
+      mcpSheet.getByRole("checkbox", { name: /^search/ }),
+      mcpSheet.getByRole("button", { name: "Save" }),
+    ],
+    openMcpSheet,
+    () => page.keyboard.press("Escape"),
+  );
+  await deleteMcpServers(page, "plants", mcpServerIds);
   await setWorkstreamImplementer();
   await screenshot(
     page,
