@@ -6,7 +6,7 @@ import { bindingText } from "@/lib/harness";
 import * as Setting from "@/setting/view";
 import { renderBadge } from "@/ui/badge";
 import { buttonClass } from "@/ui/button";
-import { playIcon, settingsIcon, spinnerIcon, squareIcon } from "@/ui/icons";
+import { messageSquareIcon, playIcon, settingsIcon, spinnerIcon, squareIcon } from "@/ui/icons";
 import { renderSwitch } from "@/ui/switch";
 import { Message } from "./message";
 import {
@@ -51,6 +51,7 @@ function renderEntry(h: H, model: Model, line: TaskLine): Html {
   const row = rowOf(model, key);
   const label = startLabel(line);
   const stopLabel = `Stop ${reference(line)}`;
+  const chatLabel = `Chat about ${reference(line)}`;
   const settingLabel = `Implementer of ${reference(line)}`;
   const fallback = Option.isSome(model.fallback);
   return h.keyed("li")(
@@ -102,6 +103,13 @@ function renderEntry(h: H, model: Model, line: TaskLine): Html {
               renderBadge(h, line.state === "open" ? "outline" : "secondary", line.state),
             ],
           ),
+          renderIconButton(h, {
+            label: chatLabel,
+            disabled: false,
+            busy: false,
+            icon: messageSquareIcon(h),
+            click: Message.ClickedChat({ key, line }),
+          }),
           line.state !== "closed" && fallback
             ? renderIconButton(h, {
                 label: settingLabel,
