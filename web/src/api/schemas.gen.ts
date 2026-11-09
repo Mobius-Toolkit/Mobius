@@ -2049,7 +2049,7 @@ export const ListRecurringTasksResponse = S.Struct({
   "paused": S.Boolean.annotate({ description: 'Paused is true when the task gives no event' }),
   "runs": S.Array(S.Struct({
   "reason": S.String.annotate({ description: 'Reason is the reason of a skipped time, or empty' }),
-  "result": S.Literals(['event', 'skipped']).annotate({ description: 'Result is event when the Lead got an event, or skipped' }),
+  "result": S.Literals(['event', 'skipped', 'manual']).annotate({ description: 'Result is event when the Lead got an event, manual when the Owner ran the task now, or skipped' }),
   "time": S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/)).annotate({ description: 'Time is the time of the run' })
 }).annotate({ description: 'RecurringTaskRun is a time of a recurring task that gave an event or was skipped.' })).annotate({ description: 'Runs are the last 20 times of the task, newest first' }),
   "text": S.String.annotate({ description: 'Text is the text that the Lead gets at each time' })
@@ -2091,7 +2091,33 @@ export const SetRecurringTaskPausedResponse = S.Struct({
   "paused": S.Boolean.annotate({ description: 'Paused is true when the task gives no event' }),
   "runs": S.Array(S.Struct({
   "reason": S.String.annotate({ description: 'Reason is the reason of a skipped time, or empty' }),
-  "result": S.Literals(['event', 'skipped']).annotate({ description: 'Result is event when the Lead got an event, or skipped' }),
+  "result": S.Literals(['event', 'skipped', 'manual']).annotate({ description: 'Result is event when the Lead got an event, manual when the Owner ran the task now, or skipped' }),
+  "time": S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/)).annotate({ description: 'Time is the time of the run' })
+}).annotate({ description: 'RecurringTaskRun is a time of a recurring task that gave an event or was skipped.' })).annotate({ description: 'Runs are the last 20 times of the task, newest first' }),
+  "text": S.String.annotate({ description: 'Text is the text that the Lead gets at each time' })
+}).annotate({ description: 'Data is the payload of the response' })
+}).annotate({ description: 'Envelope is the body of each success response.' })
+
+
+/**
+ * RunRecurringTask gives the Lead the event of a recurring task now, as a scheduled time does, and tells the Lead that the Owner started the run by hand. It works also for a paused task, which stays paused, and it does not change the next scheduled time. It returns 404 for an id that is not a task of the Workstream, and 409 when the earlier event of the task is not delivered yet.
+ */
+export const RunRecurringTaskParams = S.Struct({
+  "owner": S.String.annotate({ description: 'Owner is the owner of the repository' }),
+  "name": S.String.annotate({ description: 'Name is the name of the repository' }),
+  "number": S.Number.annotate({ description: 'Number is the number of the Workstream issue' }),
+  "id": S.Number.annotate({ description: 'ID is the id of the recurring task' })
+})
+
+export const RunRecurringTaskResponse = S.Struct({
+  "data": S.Struct({
+  "cron": S.String.annotate({ description: 'Cron is the cron expression with five fields, in the local time zone of the Mobius server' }),
+  "id": S.Number.annotate({ description: 'ID is the id of the recurring task' }),
+  "next": S.NullOr(S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/))).annotate({ description: 'Next is the next time of the task, or null for a paused task' }),
+  "paused": S.Boolean.annotate({ description: 'Paused is true when the task gives no event' }),
+  "runs": S.Array(S.Struct({
+  "reason": S.String.annotate({ description: 'Reason is the reason of a skipped time, or empty' }),
+  "result": S.Literals(['event', 'skipped', 'manual']).annotate({ description: 'Result is event when the Lead got an event, manual when the Owner ran the task now, or skipped' }),
   "time": S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/)).annotate({ description: 'Time is the time of the run' })
 }).annotate({ description: 'RecurringTaskRun is a time of a recurring task that gave an event or was skipped.' })).annotate({ description: 'Runs are the last 20 times of the task, newest first' }),
   "text": S.String.annotate({ description: 'Text is the text that the Lead gets at each time' })

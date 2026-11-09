@@ -22,6 +22,7 @@ const (
 const (
 	recurringEvent   = "event"
 	recurringSkipped = "skipped"
+	recurringManual  = "manual"
 )
 
 const overlapReason = "the earlier event is not delivered yet"
@@ -30,6 +31,9 @@ var cronParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month 
 
 // ErrNoRecurringTask is the error of a recurring task id that is not a task of the Workstream.
 var ErrNoRecurringTask = errors.New("the Workstream has no such recurring task")
+
+// ErrRecurringEventPending is the error of a run now of a recurring task whose earlier event is not delivered yet.
+var ErrRecurringEventPending = errors.New("the earlier event of the recurring task is not delivered yet")
 
 // ErrNoRecurringWorkstream is the error of a Workstream that is not an open Workstream of the local copy.
 var ErrNoRecurringWorkstream = errors.New("the Workstream is not an open Workstream")
@@ -285,6 +289,61 @@ func (e *Engine) OwnerDeleteRecurringTask(ctx context.Context, repository string
 		return err
 	}
 	return e.addRecurringChange(ctx, row, "deleted")
+}
+
+// OwnerRunRecurringTask gives the Lead the event of a recurring task now, also for a paused task. The next scheduled
+// time and the pause do not change. It returns ErrRecurringEventPending, and adds no event and no history row, when
+// the earlier event of the task is not delivered yet.
+func (e *Engine) OwnerRunRecurringTask(ctx context.Context, repository string, workstream, id int64) (RecurringTask, error) {
+	row, err := e.queries.GetRecurringTask(ctx, store.GetRecurringTaskParams{ID: id, Repository: repository, Workstream: workstream})
+	if errors.Is(err, sql.ErrNoRows) {
+		return RecurringTask{}, ErrNoRecurringTask
+	}
+	if err != nil {
+		return RecurringTask{}, err
+	}
+	if row.Event.Valid {
+		pending, err := e.queries.HasUndeliveredLeadEvent(ctx, row.Event.Int64)
+		if err != nil {
+			return RecurringTask{}, err
+		}
+		if pending {
+			return RecurringTask{}, ErrRecurringEventPending
+		}
+	}
+	t := e.timeNow()
+	at := t.UTC().Format(time.RFC3339Nano)
+	text := fmt.Sprintf("%s the Owner started the recurring task %d `%s` by hand:\n\n%s", t.UTC().Format(timeFormat), row.ID, row.Cron, quote(row.Text))
+	eventID, err := e.addLeadEventAt(ctx, repository, workstream, "", sql.NullInt64{}, recurringKind, text, at, commentRef{})
+	if eventID == 0 {
+		return RecurringTask{}, err
+	}
+	if err != nil {
+		log.Printf("give the manual event of recurring task %d to the Lead: %v", row.ID, err)
+	}
+	err = e.inTx(ctx, func(q *store.Queries) error {
+		set, err := q.SetRecurringTaskEvent(ctx, store.SetRecurringTaskEventParams{
+			Event:      sql.NullInt64{Int64: eventID, Valid: true},
+			ID:         id,
+			Repository: repository,
+			Workstream: workstream,
+		})
+		if err != nil {
+			return err
+		}
+		if set == 0 {
+			return ErrNoRecurringTask
+		}
+		if err := q.AddRecurringTaskRun(ctx, store.AddRecurringTaskRunParams{RecurringTask: id, Time: at, Result: recurringManual}); err != nil {
+			return err
+		}
+		return q.TrimRecurringTaskRuns(ctx, id)
+	})
+	if err != nil {
+		return RecurringTask{}, err
+	}
+	e.publishRecurring(repository, workstream)
+	return e.recurringTask(ctx, row)
 }
 
 func (e *Engine) addRecurringChange(ctx context.Context, task store.RecurringTask, verb string) error {
