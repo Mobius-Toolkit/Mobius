@@ -82,8 +82,7 @@ export const OpenTask = Command.define("OpenTask", {
     Effect.sync(() => Message.OpenedTask({ id, scroll: panelOf(instance)?.scrollTop ?? 0 })),
 });
 
-// Sets the scroll position of the panel after the view changes. The view changes in the next animation frame, and the
-// frame after it has the new height.
+// The view changes in the next animation frame, and the frame after it has the new height.
 export const RestoreScroll = Command.define("RestoreScroll", {
   args: { instance: Schema.String, scroll: Schema.Number },
   messages: [Message.CompletedRestoreScroll],
