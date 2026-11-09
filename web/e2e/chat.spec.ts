@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page, type Route } from "@playwright/test";
 import { waitForEvergreen } from "./evergreen.js";
+import { buttonNames } from "./buttons.js";
 import { pasteImage, png } from "./images.js";
 import { longTaskTitle, routeLongTask } from "./long-task.js";
 import { fakeMicrophone } from "./microphone.js";
@@ -1259,7 +1260,7 @@ async function actionsOf(page: Page, path: string, title: string) {
   const row = page.getByRole("main").locator("li:not(aside *)").filter({ hasText: title });
   await expect(row).toBeVisible();
   return {
-    buttons: await row.getByRole("button").allTextContents(),
+    buttons: await buttonNames(row),
     links: await row
       .getByRole("link")
       .evaluateAll((links) =>
@@ -1276,7 +1277,7 @@ test("a question shows the same row, with the same buttons, in the Inbox and in 
   const chat = await actionsOf(page, shop, longTitle);
 
   expect(chat).toEqual(inbox);
-  expect(chat.buttons).toEqual(["Answer", "Chat"]);
+  expect(chat.buttons).toEqual(["Answer", "Chat about #409"]);
   expect(chat.links).toEqual([
     "#409:https://github.com/owner/shop/issues/409",
     "Open GitHub:https://github.com/owner/shop/issues/409",
@@ -1287,7 +1288,7 @@ test("a stopped task shows Resume and Open GitHub in the chat", async ({ page })
   await routeInboxItems(page, stoppedItems);
   const chat = await actionsOf(page, shop, "Let customers change plans");
 
-  expect(chat.buttons).toEqual(["Resume", "Chat"]);
+  expect(chat.buttons).toEqual(["Resume", "Chat about #42"]);
   expect(chat.links).toContain("Open GitHub:https://github.com/owner/shop/issues/42");
 });
 
@@ -3000,8 +3001,8 @@ test("the chat of a Workstream shows a Lead question and a Lead action in one li
   const question = list.getByRole("listitem").filter({ hasText: longTitle });
   const action = list.getByRole("listitem").filter({ hasText: leadActionItem.title });
   await expect(list.getByRole("listitem")).toHaveCount(2);
-  await expect(question.getByRole("button")).toHaveText(["Answer", "Chat"]);
-  await expect(action.getByRole("button")).toHaveText(["Answer", "Chat"]);
+  await expect.poll(() => buttonNames(question)).toEqual(["Answer", "Chat about #409"]);
+  await expect.poll(() => buttonNames(action)).toEqual(["Answer", "Chat"]);
 });
 
 test("the Coordinator chat shows a Lead failed item in its tray, and a Lead chat does not", async ({
@@ -3020,7 +3021,7 @@ test("the Coordinator chat shows a Lead failed item in its tray, and a Lead chat
   await expect(main.getByRole("heading", { name: "Waits for you (1)" })).toBeVisible();
   await expect(row).toBeVisible();
   await expect(row.getByText(coordinatorFailedItem.reason)).toBeVisible();
-  await expect(row.getByRole("button")).toHaveText(["Send again", "Chat", "Details", "Dismiss"]);
+  await expect.poll(() => buttonNames(row)).toEqual(["Send again", "Chat", "Details", "Dismiss"]);
   await row.getByRole("button", { name: "Details" }).click();
   await expect(page.getByRole("dialog").getByText(coordinatorFailedItem.text)).toBeVisible();
 
