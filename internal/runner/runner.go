@@ -430,21 +430,26 @@ func withoutSecrets(err error, servers []MCPServer) error {
 	return fmt.Errorf("%s (MCP servers: %s)", text, strings.Join(names, ", "))
 }
 
-// escapedForms gives value and its forms after one to escapeDepth JSON escapes, with and with no escape of <, > and &.
+// escapedForms gives value and its forms after one to escapeDepth JSON escapes. Each escape can be with or with no
+// escape of <, > and &, because the agent and describe can be of different languages.
 func escapedForms(value string) []string {
 	forms := []string{value}
-	for _, html := range []bool{true, false} {
-		form := value
-		for range escapeDepth {
-			var encoded strings.Builder
-			encoder := json.NewEncoder(&encoded)
-			encoder.SetEscapeHTML(html)
-			// A string always encodes.
-			_ = encoder.Encode(form)
-			form = strings.TrimSuffix(encoded.String(), "\n")
-			form = form[1 : len(form)-1]
-			forms = append(forms, form)
+	level := []string{value}
+	for range escapeDepth {
+		var next []string
+		for _, form := range level {
+			for _, html := range []bool{true, false} {
+				var encoded strings.Builder
+				encoder := json.NewEncoder(&encoded)
+				encoder.SetEscapeHTML(html)
+				// A string always encodes.
+				_ = encoder.Encode(form)
+				escaped := strings.TrimSuffix(encoded.String(), "\n")
+				next = append(next, escaped[1:len(escaped)-1])
+			}
 		}
+		forms = append(forms, next...)
+		level = next
 	}
 	return forms
 }

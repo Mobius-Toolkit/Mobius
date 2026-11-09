@@ -623,6 +623,19 @@ func (a *fakeAgent) NewSession(_ context.Context, request acp.NewSessionRequest)
 	if os.Getenv("MOBIUS_FAKE_REFUSE") == "1" {
 		return acp.NewSessionResponse{}, fmt.Errorf("refused %s", servers)
 	}
+	if os.Getenv("MOBIUS_FAKE_REFUSE") == "plain" {
+		var generic any
+		if err := json.Unmarshal(servers, &generic); err != nil {
+			return acp.NewSessionResponse{}, err
+		}
+		var quoted strings.Builder
+		encoder := json.NewEncoder(&quoted)
+		encoder.SetEscapeHTML(false)
+		if err := encoder.Encode(generic); err != nil {
+			return acp.NewSessionResponse{}, err
+		}
+		return acp.NewSessionResponse{}, fmt.Errorf("refused %s", strings.TrimSuffix(quoted.String(), "\n"))
+	}
 	if err := os.WriteFile("servers.json", servers, 0o600); err != nil {
 		return acp.NewSessionResponse{}, err
 	}
@@ -743,24 +756,28 @@ func TestSessionGivesTheMCPServersOfTheListAfterTheMobiusServerInTheirOrder(t *t
 }
 
 func TestARefusedSessionNewNamesTheMCPServersAndHidesTheirSecrets(t *testing.T) {
-	dir := fakeAgentDir(t)
-	t.Setenv("MOBIUS_FAKE_REFUSE", "1")
-	servers := []MCPServer{
-		{Name: "makeadir", URL: "https://makeadir.example.com/mcp", Headers: []Pair{{Name: "Authorization", Value: "Bearer a-token"}}},
-		{Name: "files", Command: "files-server", Env: []Pair{{Name: "KEY", Value: `p&Zq"w<x>`}}},
-	}
+	for _, mode := range []string{"1", "plain"} {
+		t.Run(mode, func(t *testing.T) {
+			dir := fakeAgentDir(t)
+			t.Setenv("MOBIUS_FAKE_REFUSE", mode)
+			servers := []MCPServer{
+				{Name: "makeadir", URL: "https://makeadir.example.com/mcp", Headers: []Pair{{Name: "Authorization", Value: "Bearer a-token"}}},
+				{Name: "files", Command: "files-server", Env: []Pair{{Name: "KEY", Value: `p&Zq"w<x>`}, {Name: "OTHER", Value: `a"Yk<c`}}},
+			}
 
-	_, err := Start(context.Background(), config.ClaudeCode, 0, false, false, dir, dir, dir, "", servers, "", "", "", func(json.RawMessage, bool) {})
+			_, err := Start(context.Background(), config.ClaudeCode, 0, false, false, dir, dir, dir, "", servers, "", "", "", func(json.RawMessage, bool) {})
 
-	if err == nil {
-		t.Fatal("no error")
-	}
-	for _, secret := range []string{"a-token", "Zq"} {
-		if strings.Contains(err.Error(), secret) {
-			t.Errorf("%s is in the error: %v", secret, err)
-		}
-	}
-	if !strings.HasSuffix(err.Error(), "(MCP servers: makeadir, files)") {
-		t.Errorf("error = %v", err)
+			if err == nil {
+				t.Fatal("no error")
+			}
+			for _, secret := range []string{"a-token", "Zq", "Yk"} {
+				if strings.Contains(err.Error(), secret) {
+					t.Errorf("%s is in the error: %v", secret, err)
+				}
+			}
+			if !strings.HasSuffix(err.Error(), "(MCP servers: makeadir, files)") {
+				t.Errorf("error = %v", err)
+			}
+		})
 	}
 }
