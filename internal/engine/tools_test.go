@@ -82,7 +82,7 @@ func TestTheLeadGetsTheMobiusURLAndOnlyTheLeadTools(t *testing.T) {
 	_, text := leadReply(t, server)
 
 	// The MCP SDK gives the tools in name order.
-	want := []string{"approve_pull_request", "ask", "background_state", "close_question", "close_task", "comment_pull_request", "create_issue", "create_recurring_task", "create_workstream", "decline", "delete_recurring_task", "edit_brief", "hold_event", "list_tasks", "mark_ready", "message_lead", "move_task", "propose_skill", "read_issue", "reject_skill_proposal", "reply_thread", "rerun_failed_jobs", "send_details", "send_researcher_details", "set_implementer_binding", "start_fix_round", "start_implementer", "start_researcher", "stop_researcher", "stop_task", "tell_owner", "update_blockers", "update_branch", "update_recurring_task", "withdraw"}
+	want := []string{"approve_pull_request", "ask", "background_state", "close_question", "close_task", "comment_pull_request", "create_issue", "create_recurring_task", "create_workstream", "decline", "delete_recurring_task", "edit_brief", "hold_event", "list_tasks", "mark_ready", "message_lead", "move_task", "propose_skill", "read_issue", "reject_skill_proposal", "reply_thread", "rerun_failed_jobs", "send_details", "send_researcher_details", "set_implementer_binding", "start_fix_round", "start_implementer", "start_operator", "start_researcher", "stop_researcher", "stop_task", "tell_owner", "update_blockers", "update_branch", "update_recurring_task", "withdraw"}
 	if got := toolNames(t, text); !reflect.DeepEqual(got, want) {
 		t.Errorf("tools = %q", got)
 	}
@@ -111,6 +111,8 @@ func TestEachRoleGetsOnlyItsOwnTools(t *testing.T) {
 	curator.Role = engine.CuratorRole
 	diagnoser := leadSpec(t)
 	diagnoser.Role = engine.DiagnoserRole
+	operator := leadSpec(t)
+	operator.Role = engine.OperatorRole
 
 	for _, c := range []struct {
 		spec engine.Spec
@@ -118,12 +120,13 @@ func TestEachRoleGetsOnlyItsOwnTools(t *testing.T) {
 	}{
 		{coordinator, []string{"ask", "background_state", "create_workstream", "message_lead", "move_issue", "propose_skill", "start_researcher", "tell_curator", "withdraw"}},
 		{triager, []string{"background_state", "create_workstream", "message_lead", "propose_skill", "start_researcher"}},
-		{reviewer, []string{"background_state", "propose_skill", "report_deployment_needs", "submit_review"}},
+		{reviewer, []string{"background_state", "propose_skill", "report_deployment_needs", "report_owner_action", "submit_review"}},
 		{implementer, []string{"background_state", "cannot_do", "propose_skill", "reply_thread", "submit_report"}},
 		{researcher, []string{"background_state", "propose_skill"}},
 		{judge, []string{"background_state", "propose_skill", "submit_verdicts"}},
 		{curator, []string{"background_state", "edit_memory", "propose_skill", "report_gap"}},
 		{diagnoser, []string{"background_state", "propose_skill", "report_failure"}},
+		{operator, []string{"background_state", "propose_skill"}},
 	} {
 		session := run(t, server, c.spec, "List the tools")
 		if got := toolNames(t, reply(t, server, session)); !reflect.DeepEqual(got, c.want) {

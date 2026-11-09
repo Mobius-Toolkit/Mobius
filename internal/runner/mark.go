@@ -8,7 +8,7 @@ import (
 )
 
 // markLine matches a mark line: the em dash, the name of a Role of Mobius, and the optional reference.
-var markLine = regexp.MustCompile(`^— (?:Lead|Coordinator|Triager|Implementer|Researcher|Reviewer|Judge|Curator|Diagnoser)(?: of .*)?$`)
+var markLine = regexp.MustCompile(`^— (?:Lead|Coordinator|Triager|Implementer|Researcher|Reviewer|Judge|Curator|Diagnoser|Operator)(?: of .*)?$`)
 
 // WithoutMark gives body with no mark line and no white space at the end.
 func WithoutMark(body string) string {

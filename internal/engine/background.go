@@ -36,7 +36,7 @@ const chatBackgroundPrompt = "Check each background task that you started. If a 
 
 // backgroundRoles are the Roles that wait for the background tasks of their session before the work of the session
 // ends. They get the tool background_state.
-var backgroundRoles = []string{ResearcherRole, JudgeRole, DiagnoserRole, CuratorRole, TriagerRole, ReviewerRole, ImplementerRole, LeadRole, CoordinatorRole}
+var backgroundRoles = []string{OperatorRole, ResearcherRole, JudgeRole, DiagnoserRole, CuratorRole, TriagerRole, ReviewerRole, ImplementerRole, LeadRole, CoordinatorRole}
 
 // errStopped is the error of waitQuiet when a stop ends the wait.
 var errStopped = errors.New("a stop ended the wait for an autonomous turn")

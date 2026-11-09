@@ -290,7 +290,10 @@ func (e *Engine) reviewRound(ctx context.Context, a *Agent, j *reviewJob, task s
 	if err != nil {
 		return err
 	}
-	return e.endReview(ctx, repository, j, comment, a.id)
+	a.mu.Lock()
+	action := a.ownerAction
+	a.mu.Unlock()
+	return e.endReview(ctx, repository, j, comment, a.id, action)
 }
 
 // requireDeploymentNeeds sends the Reviewer one more prompt when its turn made no valid report_deployment_needs
@@ -368,8 +371,9 @@ func (e *Engine) reportDeploymentNeeds(ctx context.Context, c caller, _ github.R
 // endReview acts on the open review threads after the turn of the Reviewer session. It first sends the follow-up
 // threads to the Lead and resolves them. With no other open thread, the task waits for the CI of the head, or gets a
 // fix round with the findings that the Lead kept. The findings of the Reviewer go to a fix round, or at max_fix_rounds
-// the task goes to a human. Each other open thread has a reply of a trusted user or bot, so the Judge takes it.
-func (e *Engine) endReview(ctx context.Context, repository github.Repository, j *reviewJob, comment, session int64) error {
+// the task goes to a human. Each other open thread has a reply of a trusted user or bot, so the Judge takes it. An
+// action of the Owner that the Reviewer reported (ownerAction is not empty) pauses the task instead of all this.
+func (e *Engine) endReview(ctx context.Context, repository github.Repository, j *reviewJob, comment, session int64, ownerAction string) error {
 	// A comment of a trusted user during the turn resets the counters of the task.
 	task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: j.task.Repository, Issue: j.task.Issue})
 	if errors.Is(err, sql.ErrNoRows) {
@@ -389,6 +393,9 @@ func (e *Engine) endReview(ctx context.Context, repository github.Repository, j 
 		return err
 	}
 	open := slices.DeleteFunc(reviewThreads, func(thread github.ReviewThread) bool { return !openThread(thread, trusted, app) })
+	if ownerAction != "" {
+		return e.pauseForOwnerAction(ctx, repository, j, task, comment, open, ownerAction)
+	}
 	limit := int64(e.config.MaxFixRounds)
 	if len(open) == 0 {
 		if err := setCIWaitStep(ctx, repository, j.head); err != nil {

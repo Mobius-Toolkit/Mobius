@@ -732,7 +732,7 @@ func TestAPollMovesATaskInApprovalBackToChecksWhenAHumanPushesANewHeadAndSendsTh
 
 func TestTheTasksTabAndListTasksShowTheWaitForCIAndTheWaitForTheLeadAndTheWaitForStartImplementer(t *testing.T) {
 	t.Parallel()
-	for state, want := range map[string]string{"checks": "waits for CI", "approval": "waits for Lead", "dispatched": "waits for start_implementer"} {
+	for state, want := range map[string]string{"checks": "waits for CI", "approval": "waits for Lead", "dispatched": "waits for start_implementer", "owner_action": "waits for Owner action"} {
 		t.Run(state, func(t *testing.T) {
 			fake := testkit.NewFakeGitHub(t)
 			server, _ := seedWaitingWith(t, fake, state, "[[prompts]]\ncall = { tool = \"list_tasks\" }\n")

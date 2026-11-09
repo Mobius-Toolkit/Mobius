@@ -789,6 +789,31 @@ func (q *Queries) AddMemoryVersion(ctx context.Context, arg AddMemoryVersionPara
 	return err
 }
 
+const addOwnerAction = `-- name: AddOwnerAction :exec
+INSERT INTO owner_actions (task, inbox_item, role, action, next, created_at) VALUES (?, ?, ?, ?, ?, ?)
+`
+
+type AddOwnerActionParams struct {
+	Task      int64
+	InboxItem int64
+	Role      string
+	Action    string
+	Next      string
+	CreatedAt string
+}
+
+func (q *Queries) AddOwnerAction(ctx context.Context, arg AddOwnerActionParams) error {
+	_, err := q.db.ExecContext(ctx, addOwnerAction,
+		arg.Task,
+		arg.InboxItem,
+		arg.Role,
+		arg.Action,
+		arg.Next,
+		arg.CreatedAt,
+	)
+	return err
+}
+
 const addOwnerAnswer = `-- name: AddOwnerAnswer :exec
 INSERT OR IGNORE INTO owner_answers (repository, comment_id) VALUES (?, ?)
 `
@@ -1600,7 +1625,7 @@ func (q *Queries) CountSessionsEndedSinceCurator(ctx context.Context, repository
 const countUnread = `-- name: CountUnread :one
 SELECT count(*) FROM chat_messages m
 WHERE m.organization = ?1 AND m.repository = ?2 AND m.workstream = ?3
-  AND m.author NOT IN ('Owner', 'Researcher', 'Curator', 'Approval', 'Event', 'Record')
+  AND m.author NOT IN ('Owner', 'Researcher', 'Operator', 'Curator', 'Approval', 'Event', 'Record')
   AND m.id > coalesce((SELECT s.message FROM chat_seen s
                        WHERE s.organization = m.organization AND s.repository = m.repository AND s.workstream = m.workstream), 0)
 `
@@ -3330,6 +3355,26 @@ func (q *Queries) GetOpenFailedItemOfMessage(ctx context.Context, chatMessage sq
 	return i, err
 }
 
+const getOwnerActionOfItem = `-- name: GetOwnerActionOfItem :one
+SELECT id, task, inbox_item, role, "action", next, created_at, done_at FROM owner_actions WHERE inbox_item = ?
+`
+
+func (q *Queries) GetOwnerActionOfItem(ctx context.Context, inboxItem int64) (OwnerAction, error) {
+	row := q.db.QueryRowContext(ctx, getOwnerActionOfItem, inboxItem)
+	var i OwnerAction
+	err := row.Scan(
+		&i.ID,
+		&i.Task,
+		&i.InboxItem,
+		&i.Role,
+		&i.Action,
+		&i.Next,
+		&i.CreatedAt,
+		&i.DoneAt,
+	)
+	return i, err
+}
+
 const getPendingAction = `-- name: GetPendingAction :one
 SELECT id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, created_issue, old_brief FROM pending_actions WHERE id = ?
 `
@@ -4614,7 +4659,7 @@ func (q *Queries) ListChatMessagesBefore(ctx context.Context, arg ListChatMessag
 
 const listChatMessagesPage = `-- name: ListChatMessagesPage :many
 SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice FROM chat_messages
-WHERE organization = ? AND repository = ? AND workstream = ? AND author NOT IN ('Researcher', 'Curator', 'Approval') AND id < ?
+WHERE organization = ? AND repository = ? AND workstream = ? AND author NOT IN ('Researcher', 'Operator', 'Curator', 'Approval') AND id < ?
 ORDER BY id DESC LIMIT ?
 `
 
@@ -4626,7 +4671,7 @@ type ListChatMessagesPageParams struct {
 	Limit        int64
 }
 
-// The chat shows no Researcher message, no Curator message and no Approval message.
+// The chat shows no Researcher message, no Operator message, no Curator message and no Approval message.
 func (q *Queries) ListChatMessagesPage(ctx context.Context, arg ListChatMessagesPageParams) ([]ChatMessage, error) {
 	rows, err := q.db.QueryContext(ctx, listChatMessagesPage,
 		arg.Organization,
@@ -7059,6 +7104,42 @@ func (q *Queries) ListOpenLeadQuestions(ctx context.Context, arg ListOpenLeadQue
 	return items, nil
 }
 
+const listOpenOwnerActionsOfTask = `-- name: ListOpenOwnerActionsOfTask :many
+SELECT id, task, inbox_item, role, "action", next, created_at, done_at FROM owner_actions WHERE task = ? AND done_at IS NULL ORDER BY id
+`
+
+func (q *Queries) ListOpenOwnerActionsOfTask(ctx context.Context, task int64) ([]OwnerAction, error) {
+	rows, err := q.db.QueryContext(ctx, listOpenOwnerActionsOfTask, task)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []OwnerAction
+	for rows.Next() {
+		var i OwnerAction
+		if err := rows.Scan(
+			&i.ID,
+			&i.Task,
+			&i.InboxItem,
+			&i.Role,
+			&i.Action,
+			&i.Next,
+			&i.CreatedAt,
+			&i.DoneAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOpenSessionIDs = `-- name: ListOpenSessionIDs :many
 SELECT id FROM sessions WHERE ended_at IS NULL ORDER BY id
 `
@@ -8465,7 +8546,7 @@ const listUnread = `-- name: ListUnread :many
 SELECT m.organization, m.repository, m.workstream, count(*) AS count
 FROM chat_messages m
 LEFT JOIN chat_seen s ON s.organization = m.organization AND s.repository = m.repository AND s.workstream = m.workstream
-WHERE m.author NOT IN ('Owner', 'Researcher', 'Curator', 'Approval', 'Event', 'Record') AND m.id > coalesce(s.message, 0)
+WHERE m.author NOT IN ('Owner', 'Researcher', 'Operator', 'Curator', 'Approval', 'Event', 'Record') AND m.id > coalesce(s.message, 0)
 GROUP BY m.organization, m.repository, m.workstream
 ORDER BY m.organization, m.repository, m.workstream
 `
@@ -8477,7 +8558,7 @@ type ListUnreadRow struct {
 	Count        int64
 }
 
-// The messages of the Owner, of a Researcher, of a Curator, of an approval, of an event and of a record are never unread.
+// The messages of the Owner, of a Researcher, of an Operator, of a Curator, of an approval, of an event and of a record are never unread.
 func (q *Queries) ListUnread(ctx context.Context) ([]ListUnreadRow, error) {
 	rows, err := q.db.QueryContext(ctx, listUnread)
 	if err != nil {
@@ -9456,6 +9537,20 @@ type SetLeadWriteItemParams struct {
 
 func (q *Queries) SetLeadWriteItem(ctx context.Context, arg SetLeadWriteItemParams) error {
 	_, err := q.db.ExecContext(ctx, setLeadWriteItem, arg.Item, arg.ID)
+	return err
+}
+
+const setOwnerActionDone = `-- name: SetOwnerActionDone :exec
+UPDATE owner_actions SET done_at = ? WHERE id = ?
+`
+
+type SetOwnerActionDoneParams struct {
+	DoneAt sql.NullString
+	ID     int64
+}
+
+func (q *Queries) SetOwnerActionDone(ctx context.Context, arg SetOwnerActionDoneParams) error {
+	_, err := q.db.ExecContext(ctx, setOwnerActionDone, arg.DoneAt, arg.ID)
 	return err
 }
 
