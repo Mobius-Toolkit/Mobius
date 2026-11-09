@@ -23,7 +23,10 @@ export const columns: { title: string; has: (task: BoardTask) => boolean }[] = [
   { title: "Queued", has: (task) => inStates(task, ["dispatched", "queued", "answered"]) },
   { title: "Working", has: (task) => inStates(task, ["working", "reviewed"]) },
   { title: "Waiting", has: (task) => inStates(task, ["checks", "approval"]) },
-  { title: "Needs you", has: (task) => inStates(task, ["needs_human", "asked", "stopped"]) },
+  {
+    title: "Needs you",
+    has: (task) => inStates(task, ["needs_human", "asked", "stopped", "owner_action"]),
+  },
   { title: "Ready to merge", has: (task) => task.state === "ready_for_review" },
   { title: "Done", has: (task) => task.state === "ended" },
 ];
