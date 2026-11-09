@@ -369,10 +369,15 @@ func TestTheEventAfterAMergeWithAConflictThatTheBranchResolvedByHandNamesTheFile
 	sendChat(t, server, leadChat, "Approve #41")
 
 	testkit.WaitFor(t, func() bool { return fake.UpdateBranchCalls() == 1 })
-	fake.CommitFile(shop, "plan.txt", fmt.Sprintf(planLines, "top")+"dollars\n", "Append dollars")
 	work := t.TempDir()
 	testkit.Git(t, work, "clone", "--branch=mobius/41", fake.Remote(shop), ".")
-	merge := exec.Command("git", "-c", "user.name=owner", "-c", "user.email=owner@example.com", "merge", "--no-ff", "--no-edit", "origin/main")
+	testkit.Git(t, work, "switch", "--create", "next", "origin/main")
+	if err := os.WriteFile(filepath.Join(work, "plan.txt"), []byte(fmt.Sprintf(planLines, "top")+"dollars\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	testkit.Git(t, work, "commit", "--all", "-m", "Append dollars")
+	testkit.Git(t, work, "switch", "mobius/41")
+	merge := exec.Command("git", "-c", "user.name=owner", "-c", "user.email=owner@example.com", "merge", "--no-ff", "--no-edit", "next")
 	merge.Dir = work
 	if err := merge.Run(); err == nil {
 		t.Fatal("the merge of main has no conflict")
@@ -382,7 +387,7 @@ func TestTheEventAfterAMergeWithAConflictThatTheBranchResolvedByHandNamesTheFile
 	}
 	testkit.Git(t, work, "add", "plan.txt")
 	testkit.Git(t, work, "commit", "-m", "Merge main by hand")
-	testkit.Git(t, work, "push", "origin", "mobius/41")
+	testkit.Git(t, work, "push", "--atomic", "origin", "mobius/41", "next:main")
 	hand := testkit.Git(t, work, "rev-parse", "HEAD")
 	fake.ReleaseBranchUpdates()
 
