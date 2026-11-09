@@ -64,7 +64,10 @@ export function update(model: Model, message: Message): UpdateReturn {
       model,
       commands: [OpenTask({ instance: model.instance, id })],
     }),
-    OpenedTask: ({ id, scroll }) => ({ model: { ...model, opened: Option.some(id), scroll } }),
+    OpenedTask: ({ id, scroll }) => ({
+      model: { ...model, opened: Option.some(id), scroll },
+      commands: [RestoreScroll({ instance: model.instance, scroll: 0 })],
+    }),
     ClickedBack: () => leave(model),
     CompletedRestoreScroll: () => ({ model }),
     ClickedRun: ({ id }) => ({

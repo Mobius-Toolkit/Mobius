@@ -129,7 +129,9 @@ test("a tap on a row opens the task on a subpage, which pauses, resumes and goes
   await expect(rows).toHaveCount(2);
 });
 
-test("the list keeps its scroll position after the subpage", async ({ page }) => {
+test("the subpage starts at the top, and the list keeps its scroll position after it", async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 390, height: 360 });
   await page.goto("/workstreams/plants/garden/50");
   await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
@@ -137,14 +139,22 @@ test("the list keeps its scroll position after the subpage", async ({ page }) =>
   const panel = page.getByRole("tabpanel", { name: "Recurring" });
   const rows = panel.getByRole("listitem");
   await expect(rows).toHaveCount(2);
-  await panel.evaluate((el) => {
-    el.scrollTop = el.scrollHeight;
-  });
-  const top = await panel.evaluate((el) => el.scrollTop);
-  expect(top).toBeGreaterThan(0);
+  const top = 10;
+  await panel.evaluate((el, scrollTop) => {
+    el.scrollTop = scrollTop;
+  }, top);
+  expect(await panel.evaluate((el) => el.scrollTop)).toBe(top);
 
-  await rows.filter({ hasText: "Weekly cost report" }).getByRole("button").first().click();
+  await rows
+    .filter({ hasText: "Check the open pull requests" })
+    .getByRole("button")
+    .first()
+    .click();
   await expect(panel.getByRole("heading", { name: "Recurring task" })).toBeVisible();
+  // The subpage is taller than the offset, so the browser does not clamp it.
+  expect(await panel.evaluate((el) => el.scrollHeight - el.clientHeight)).toBeGreaterThan(top);
+  await expect.poll(() => panel.evaluate((el) => el.scrollTop)).toBe(0);
+  await expect(panel.getByRole("button", { name: "Back" })).toBeInViewport();
   await panel.getByRole("button", { name: "Back" }).click();
   await expect(rows).toHaveCount(2);
   await expect.poll(() => panel.evaluate((el) => el.scrollTop)).toBe(top);

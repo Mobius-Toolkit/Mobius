@@ -114,6 +114,8 @@ describe("the subpage", () => {
         expect(m.opened).toEqual(Option.some(2));
         expect(m.scroll).toBe(80);
       }),
+      StoryCommand.expectExact(RestoreScroll({ instance: "side", scroll: 0 })),
+      StoryCommand.resolve(RestoreScroll, Message.CompletedRestoreScroll()),
     );
   });
 
