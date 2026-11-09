@@ -9,9 +9,14 @@ test.beforeEach(async ({ page }) => {
 
 const tool = {
   name: "git",
+  harness: "",
   path: "/usr/bin/git",
   status: "",
   version: "git version 2.50.0",
+  newest: "",
+  outdated: false,
+  package: "",
+  autoUpgrade: false,
   required: true,
 };
 const permission = { name: "issues", level: "write", status: "present", url: "" } as const;
@@ -202,6 +207,7 @@ test("the Workstreams page explains the Workstreams, links them and sends the fu
 }) => {
   const main = page.getByRole("main");
   await routeCheckup(page, [tool], {
+    owner: healthy,
     plants: {
       ...healthy,
       issueRepository: "plants/garden",
@@ -508,7 +514,9 @@ test("the Tools page shows the usage limit badge for a Harness that no role uses
   };
   await routeCheckup(page, [{ ...tool, harness: "" }, dsh], { owner: healthy, plants: healthy });
   await page.route("**/api/pauses", (route) =>
-    route.fulfill({ json: { data: [{ harness: "dsh", pausedUntil: "2026-09-29T08:30:00Z" }] } }),
+    route.fulfill({
+      json: { data: [{ harness: "dsh", inUse: false, pausedUntil: "2026-09-29T08:30:00Z" }] },
+    }),
   );
   await page.route("**/api/events", (route) =>
     route.fulfill({ contentType: "text/event-stream", body: "" }),

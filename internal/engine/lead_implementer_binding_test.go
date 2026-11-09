@@ -128,6 +128,22 @@ func TestTheLeadCreatesAnIssueWithAnImplementerSetting(t *testing.T) {
 	requireBinding(t, taskSession(t, server, shop, 13), "devin", "opus", "low")
 }
 
+func TestTheLeadCreatesAnIssueWithAnEmptyImplementerSettingAsNoSetting(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, call("create_issue", `{ repository = "owner/shop", title = "Add plan model", body = "", parent = "owner/shop#12", blocked_by = [], implementer = { harness = "", model = "", effort = "" } }`))
+
+	session := run(t, server, leadSpec(t), "Plan it")
+
+	if got := reply(t, server, session); got != "Created owner/shop#13." {
+		t.Errorf("reply = %q", got)
+	}
+	if !fake.HasIssue(shop, 13) {
+		t.Error("owner/shop#13 does not exist")
+	}
+	requireNoBindingRows(t, server)
+}
+
 func TestTheLeadCreatesNoIssueWhenItsImplementerSettingIsRefused(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
