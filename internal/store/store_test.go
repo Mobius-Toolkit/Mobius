@@ -621,6 +621,51 @@ func TestTheTasksTableAcceptsTheAskedStatesAndKeepsTheStateTrigger(t *testing.T)
 	}
 }
 
+func TestTheOperatorMigrationKeepsTheRoleSettingsAndAcceptsTheOperator(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mobius.db")
+	db := openBefore(t, path, 20270302000000)
+	if _, err := db.Exec(`INSERT INTO role_settings (role, harness, model, effort, max, context, updated_at)
+		VALUES ('lead', 'claude-code', 'opus', 'high', 3, 200000, '2027-02-01T10:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO role_settings (role, updated_at) VALUES ('operator', '2027-02-01T10:00:00Z')`); err == nil {
+		t.Fatal("the old table accepts the role operator")
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := Open(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	rows, err := New(db).ListRoleSettings(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []RoleSetting{{
+		Role:      "lead",
+		Harness:   sql.NullString{String: "claude-code", Valid: true},
+		Model:     sql.NullString{String: "opus", Valid: true},
+		Effort:    sql.NullString{String: "high", Valid: true},
+		Max:       sql.NullInt64{Int64: 3, Valid: true},
+		Context:   sql.NullInt64{Int64: 200000, Valid: true},
+		UpdatedAt: "2027-02-01T10:00:00Z",
+	}}
+	if !slices.Equal(rows, want) {
+		t.Errorf("role_settings = %+v, want %+v", rows, want)
+	}
+	if _, err := db.Exec(`INSERT INTO role_settings (role, harness, model, effort, updated_at)
+		VALUES ('operator', 'claude-code', 'opus', 'medium', '2027-02-01T10:00:00Z')`); err != nil {
+		t.Errorf("insert the role operator: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO role_settings (role, updated_at) VALUES ('unknown', '2027-02-01T10:00:00Z')`); err == nil {
+		t.Error("the table accepts an unknown role")
+	}
+}
+
 func TestTheCoordinatorMigrationMovesTheChatSessionsAndTheChatMessages(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "mobius.db")
 	db := openBefore(t, path, 20261105000000)

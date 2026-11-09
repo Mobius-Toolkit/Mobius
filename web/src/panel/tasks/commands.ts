@@ -46,18 +46,20 @@ export const FetchFallback = Command.define("FetchFallback", {
     ),
 });
 
-const Action = Schema.Literals(["start", "resume", "stop"]);
+const Action = Schema.Literals(["start", "start-blocked", "resume", "stop"]);
 
 const run = {
   start: startIssue,
+  "start-blocked": startIssue,
   resume: resumeIssue,
   stop: stopIssue,
 };
 
 const doneText = {
-  start: "Started",
-  resume: "Resumed",
-  stop: "Stopped",
+  start: (reference: string) => `Started ${reference}`,
+  "start-blocked": (reference: string) => `${reference} starts when unblocked`,
+  resume: (reference: string) => `Resumed ${reference}`,
+  stop: (reference: string) => `Stopped ${reference}`,
 };
 
 export const ChangeIssue = Command.define("ChangeIssue", {
@@ -73,7 +75,7 @@ export const ChangeIssue = Command.define("ChangeIssue", {
   execute: ({ key, action, owner, name, number, reference }) =>
     answer(() => run[action](owner, name, number), {
       done: () => {
-        showNotice(`${doneText[action]} ${reference}`);
+        showNotice(doneText[action](reference));
         return Message.ChangedIssue({ key });
       },
       failed: (error) => Message.ChangeFailed({ key, error }),

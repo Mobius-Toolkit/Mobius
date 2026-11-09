@@ -54,7 +54,7 @@ export function update(model: Model, message: Message): UpdateReturn {
     LoadFailed: ({ error }) => ({ model: { ...model, error } }),
     LoginRequired: () => ({ model, outMessage: OutMessage.LoginRequired() }),
     ToggledClosed: () => ({ model: { ...model, showClosed: !model.showClosed } }),
-    ClickedStart: ({ key, line }) => change(model, key, line, resumes(line) ? "resume" : "start"),
+    ClickedStart: ({ key, line }) => change(model, key, line, startAction(line)),
     ClickedStop: ({ key, line }) => change(model, key, line, "stop"),
     ChangedIssue: ({ key }) => ({
       model: withRow(model, key, { starting: false, stopping: false, error: "" }),
@@ -67,11 +67,18 @@ export function update(model: Model, message: Message): UpdateReturn {
   });
 }
 
+const startAction = (line: TaskLine) => {
+  if (resumes(line)) {
+    return "resume";
+  }
+  return line.blockedBy.length > 0 ? "start-blocked" : "start";
+};
+
 function change(
   model: Model,
   key: string,
   line: TaskLine,
-  action: "start" | "resume" | "stop",
+  action: "start" | "start-blocked" | "resume" | "stop",
 ): UpdateReturn {
   const [owner, name] = line.repository.split("/");
   return {

@@ -254,6 +254,8 @@ const question = "What is the state of the plans? The full report is at " +
 // /e2e/agents/{issue}/queue-reason sets the queue reason of the live agent of an issue, with no event. DELETE
 // /e2e/dispatches/{owner}/{name}/{issue} waits for the dispatch of an issue, removes its task and its
 // Lead events, and takes mobius:working off the issue. The query label, if present, is added to the issue.
+// DELETE /e2e/ready/plants/garden/{issue} takes mobius:ready off an issue of the Workstream plants/garden#19 and waits
+// until the task list shows the issue as open.
 // PUT and DELETE /e2e/workstreams/owner/shop/12/implementer set the Implementer setting of that Workstream to
 // claude-code, sonnet and low, and clear it, with no record in the chat.
 func TestServer(t *testing.T) {
@@ -521,6 +523,29 @@ func TestServer(t *testing.T) {
 		github.RemoveLabel(repository, issue, "mobius:working", "owner")
 		if label := r.URL.Query().Get("label"); label != "" {
 			github.AddLabel(repository, issue, label, "owner")
+		}
+	})
+
+	server.Mux.HandleFunc("DELETE /e2e/ready/plants/garden/{issue}", func(w http.ResponseWriter, r *http.Request) {
+		issue, err := strconv.ParseInt(r.PathValue("issue"), 10, 64)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		github.RemoveLabel("plants/garden", issue, "mobius:ready", "owner")
+		for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+			lines, err := server.Engine.Tasks(r.Context(), "plants/garden", 19)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			if slices.ContainsFunc(lines, func(line engine.TaskLine) bool { return line.Number == issue && line.State == "open" }) {
+				return
+			}
+			if time.Now().After(deadline) {
+				http.Error(w, "the task list does not show the issue as open", http.StatusGatewayTimeout)
+				return
+			}
 		}
 	})
 

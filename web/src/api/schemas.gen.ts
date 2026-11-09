@@ -137,7 +137,7 @@ export const ListActiveAgentsResponse = S.Struct({
   "count": S.Number.annotate({ description: 'Count is the number of sessions of the Role that hold a slot. A queued session holds no slot' }),
   "max": S.Number.annotate({ description: 'Max is the max number of sessions of the Role' }),
   "name": S.String.annotate({ description: 'Name is the name of the Role, for example Implementer' })
-}).annotate({ description: 'AgentGroup is the open sessions of one Role.' })).annotate({ description: 'Groups has one group for each Role, in the order Lead, Coordinator, Triager, Implementer, Researcher, Reviewer, Judge, Curator, Diagnoser' })
+}).annotate({ description: 'AgentGroup is the open sessions of one Role.' })).annotate({ description: 'Groups has one group for each Role, in the order Lead, Coordinator, Triager, Implementer, Researcher, Reviewer, Judge, Curator, Diagnoser, Operator' })
 }).annotate({ description: 'Data is the payload of the response' })
 }).annotate({ description: 'Envelope is the body of each success response.' })
 
@@ -1262,7 +1262,7 @@ export const ListRolesResponse = S.Struct({
  * SetRole sets the values of a Role. The next session of the Role uses them. It returns 422 with the reason when the values fail a check.
  */
 export const SetRoleParams = S.Struct({
-  "role": S.Literals(['lead', 'coordinator', 'triager', 'implementer', 'researcher', 'reviewer', 'judge', 'curator', 'diagnoser']).annotate({ description: 'Role is the name of the Role' })
+  "role": S.Literals(['lead', 'coordinator', 'triager', 'implementer', 'researcher', 'reviewer', 'judge', 'curator', 'diagnoser', 'operator']).annotate({ description: 'Role is the name of the Role' })
 })
 
 export const SetRoleBody = S.Struct({
@@ -1296,7 +1296,7 @@ export const SetRoleResponse = S.Struct({
  * ResetRole removes the UI values of a Role, so it uses config.toml again. It returns 422 with the reason when the values of config.toml fail a check with the UI values of the other Roles.
  */
 export const ResetRoleParams = S.Struct({
-  "role": S.Literals(['lead', 'coordinator', 'triager', 'implementer', 'researcher', 'reviewer', 'judge', 'curator', 'diagnoser']).annotate({ description: 'Role is the name of the Role' })
+  "role": S.Literals(['lead', 'coordinator', 'triager', 'implementer', 'researcher', 'reviewer', 'judge', 'curator', 'diagnoser', 'operator']).annotate({ description: 'Role is the name of the Role' })
 })
 
 export const ResetRoleResponse = S.Struct({

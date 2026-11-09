@@ -71,6 +71,7 @@ const (
 	leadAuthor        = "Lead"
 	tellOwnerAuthor   = "tell_owner"
 	researcherAuthor  = "Researcher"
+	operatorAuthor    = "Operator"
 	curatorAuthor     = "Curator"
 	coordinatorAuthor = "Coordinator"
 	mobiusAuthor      = "Mobius"
@@ -194,10 +195,10 @@ func (c *chat) notify() {
 	}
 }
 
-// addChatMessage adds a chat message and sends it to the listeners. A message of the Researcher, of the Curator and
-// of an approval stays hidden. The card of an action goes to the listeners with its action (holdAction), and the card of a
+// addChatMessage adds a chat message and sends it to the listeners. A message of the Researcher, of the Operator, of the
+// Curator and of an approval stays hidden. The card of an action goes to the listeners with its action (holdAction), and the card of a
 // question goes to them with its Inbox item (addQuestion). A message
-// that is not of the Owner, of a Researcher, of an event or of a record also changes the unread count of the chat. When
+// that is not of the Owner, of a Researcher, of an Operator, of an event or of a record also changes the unread count of the chat. When
 // images is not empty, it is the directory of saveImages. The message gets the images before the listeners see it, and
 // Mobius does not add it when the move fails. When browserID is not empty and a message has it, Mobius adds nothing and
 // the error is sql.ErrNoRows. voice tells that the message came from a voice recording.
@@ -232,7 +233,7 @@ func (e *Engine) addChatMessage(ctx context.Context, key ChatKey, author, text, 
 			return message, errors.Join(err, e.queries.DeleteChatMessage(ctx, message.ID))
 		}
 	}
-	if author == researcherAuthor || author == curatorAuthor || author == approvalAuthor || author == actionAuthor || author == questionAuthor {
+	if author == researcherAuthor || author == operatorAuthor || author == curatorAuthor || author == approvalAuthor || author == actionAuthor || author == questionAuthor {
 		return message, nil
 	}
 	e.publish(Change{Message: &message})
@@ -668,9 +669,10 @@ func (e *Engine) stopMessage(ctx context.Context, message *store.ChatMessage) er
 	return nil
 }
 
-// stopLead ends the Lead chat of the Workstream and its Researchers at once.
+// stopLead ends the Lead chat of the Workstream, its Researchers and its Operators at once.
 func (e *Engine) stopLead(repository string, workstream int64) {
 	e.stopResearchers(repository, workstream)
+	e.stopOperators(repository, workstream)
 	key := leadChat(repository, workstream)
 	e.chatsMu.Lock()
 	defer e.chatsMu.Unlock()
@@ -1268,10 +1270,10 @@ func quietEventsText(events []store.LeadEvent) string {
 	return quietEventsHeading + "\n\n" + strings.Join(payloads, "\n\n") + "\n\n"
 }
 
-// itemTurn runs the turn of the item, and then ends the turn. The reply text of a turn for an event goes only to the
-// Transcript, and a stop does not cancel that turn: the Owner cannot see it. The Lead uses tell_owner to write to the
-// Owner. After a tell_owner call, the reply text of a turn for a message goes only to the Transcript. quiet holds the
-// quiet events of the prompt.
+// itemTurn runs the turn of the item, and then ends the turn. The reply text of a turn for an event or for an Operator
+// message goes only to the Transcript, and a stop does not cancel that turn: the Owner cannot see it. The Lead uses
+// tell_owner to write to the Owner. After a tell_owner call, the reply text of a turn for a message goes only to the
+// Transcript. quiet holds the quiet events of the prompt.
 func (e *Engine) itemTurn(c *chat, a *Agent, current item, prompt string, images []Image, quiet []store.LeadEvent) error {
 	if current.message != nil {
 		cancelled, err := e.messageCancelled(c.ctx, current.message.ID)
@@ -1286,7 +1288,7 @@ func (e *Engine) itemTurn(c *chat, a *Agent, current item, prompt string, images
 	c.current = &current
 	e.chatsMu.Unlock()
 	author := ""
-	if current.message != nil {
+	if current.message != nil && current.message.Author != operatorAuthor {
 		author = leadAuthor
 		if c.key.Workstream == 0 {
 			author = coordinatorAuthor
@@ -1300,7 +1302,7 @@ func (e *Engine) itemTurn(c *chat, a *Agent, current item, prompt string, images
 	if current.message != nil && (current.message.Author == ownerAuthor || current.message.Author == approvalAuthor) {
 		a.setDelivery(current.message.ID)
 	}
-	turnErr := e.turn(c, a, prompt, images, current.message != nil)
+	turnErr := e.turn(c, a, prompt, images, author != "")
 	if turnErr != nil {
 		if current.message != nil && (current.message.Author == ownerAuthor || current.message.Author == approvalAuthor) {
 			turnErr = errors.Join(turnErr, e.undeliverMessage(c.ctx, current.message.ID))

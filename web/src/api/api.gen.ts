@@ -143,7 +143,7 @@ export interface AgentGroup {
  * ActiveAgents are the open sessions of all organizations.
  */
 export interface ActiveAgents {
-  /** Groups has one group for each Role, in the order Lead, Coordinator, Triager, Implementer, Researcher, Reviewer, Judge, Curator, Diagnoser */
+  /** Groups has one group for each Role, in the order Lead, Coordinator, Triager, Implementer, Researcher, Reviewer, Judge, Curator, Diagnoser, Operator */
   groups: AgentGroup[];
 }
 
@@ -6857,7 +6857,7 @@ export type setRoleResponseError = (setRoleResponse400 | setRoleResponse401 | se
 
 export type setRoleResponse = (setRoleResponseSuccess | setRoleResponseError)
 
-export const getSetRoleUrl = (role: 'lead' | 'coordinator' | 'triager' | 'implementer' | 'researcher' | 'reviewer' | 'judge' | 'curator' | 'diagnoser',) => {
+export const getSetRoleUrl = (role: 'lead' | 'coordinator' | 'triager' | 'implementer' | 'researcher' | 'reviewer' | 'judge' | 'curator' | 'diagnoser' | 'operator',) => {
 
 
 
@@ -6868,7 +6868,7 @@ export const getSetRoleUrl = (role: 'lead' | 'coordinator' | 'triager' | 'implem
 /**
  * SetRole sets the values of a Role. The next session of the Role uses them. It returns 422 with the reason when the values fail a check.
  */
-export const setRole = async (role: 'lead' | 'coordinator' | 'triager' | 'implementer' | 'researcher' | 'reviewer' | 'judge' | 'curator' | 'diagnoser',
+export const setRole = async (role: 'lead' | 'coordinator' | 'triager' | 'implementer' | 'researcher' | 'reviewer' | 'judge' | 'curator' | 'diagnoser' | 'operator',
     setRoleBody: SetRoleBody, ): Promise<setRoleResponse> => {
 
   const res = await fetch(getSetRoleUrl(role),
@@ -6923,7 +6923,7 @@ export type resetRoleResponseError = (resetRoleResponse400 | resetRoleResponse40
 
 export type resetRoleResponse = (resetRoleResponseSuccess | resetRoleResponseError)
 
-export const getResetRoleUrl = (role: 'lead' | 'coordinator' | 'triager' | 'implementer' | 'researcher' | 'reviewer' | 'judge' | 'curator' | 'diagnoser',) => {
+export const getResetRoleUrl = (role: 'lead' | 'coordinator' | 'triager' | 'implementer' | 'researcher' | 'reviewer' | 'judge' | 'curator' | 'diagnoser' | 'operator',) => {
 
 
 
@@ -6934,7 +6934,7 @@ export const getResetRoleUrl = (role: 'lead' | 'coordinator' | 'triager' | 'impl
 /**
  * ResetRole removes the UI values of a Role, so it uses config.toml again. It returns 422 with the reason when the values of config.toml fail a check with the UI values of the other Roles.
  */
-export const resetRole = async (role: 'lead' | 'coordinator' | 'triager' | 'implementer' | 'researcher' | 'reviewer' | 'judge' | 'curator' | 'diagnoser', ): Promise<resetRoleResponse> => {
+export const resetRole = async (role: 'lead' | 'coordinator' | 'triager' | 'implementer' | 'researcher' | 'reviewer' | 'judge' | 'curator' | 'diagnoser' | 'operator', ): Promise<resetRoleResponse> => {
 
   const res = await fetch(getResetRoleUrl(role),
   {
