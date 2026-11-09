@@ -25,6 +25,7 @@ reviewer    = { harness = "claude-code", model = "opus",    effort = "high" }
 judge       = { harness = "claude-code", model = "haiku",   effort = "low" }
 curator     = { harness = "claude-code", model = "sonnet",  effort = "medium" }
 diagnoser   = { harness = "claude-code", model = "sonnet",  effort = "low" }
+operator    = { harness = "claude-code", model = "sonnet",  effort = "medium" }
 `))
 	if err != nil {
 		t.Fatal(err)
