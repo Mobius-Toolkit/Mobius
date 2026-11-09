@@ -424,12 +424,12 @@ export const AnswerInboxItem = Command.define("AnswerInboxItem", {
     id: Schema.Number,
     repository: Schema.String,
     issue: Schema.Number,
-    workstream: Schema.Number,
     answer: Schema.String,
+    notice: Schema.String,
     voice: Schema.Boolean,
   },
   messages: [Message.AnswerCompleted],
-  execute: ({ id, repository, issue, workstream, answer, voice }) =>
+  execute: ({ id, repository, issue, answer, notice, voice }) =>
     withLogin(
       Effect.gen(function* () {
         yield* Effect.sync(() => hideInboxItem({ id, repository, issue }));
@@ -439,11 +439,7 @@ export const AnswerInboxItem = Command.define("AnswerInboxItem", {
           Effect.catchTag("RequestFailed", unreachable),
         );
         if (refusal === null) {
-          yield* showNoticeOf(
-            workstream === 0
-              ? "Sent the answer to the Coordinator"
-              : `Sent the answer to the Lead of #${workstream}`,
-          );
+          yield* showNoticeOf(notice);
           return { message: Message.AnswerCompleted({ id, error: "" }) };
         }
         yield* restoreDraft(answerDraftKey(id), {
@@ -466,12 +462,12 @@ export const DoneInboxItem = Command.define("DoneInboxItem", {
     id: Schema.Number,
     repository: Schema.String,
     issue: Schema.Number,
-    name: Schema.String,
+    notice: Schema.String,
     note: Schema.String,
     voice: Schema.Boolean,
   },
   messages: [Message.AnswerCompleted],
-  execute: ({ id, repository, issue, name, note, voice }) =>
+  execute: ({ id, repository, issue, notice, note, voice }) =>
     withLogin(
       Effect.gen(function* () {
         yield* Effect.sync(() => hideInboxItem({ id, repository, issue }));
@@ -481,10 +477,42 @@ export const DoneInboxItem = Command.define("DoneInboxItem", {
           Effect.catchTag("RequestFailed", unreachable),
         );
         if (refusal === null) {
-          yield* showNoticeOf(`Marked the todo ${name} as done`);
+          yield* showNoticeOf(notice);
           return { message: Message.AnswerCompleted({ id, error: "" }) };
         }
         yield* restoreDraft(answerDraftKey(id), { text: note, images: [], inboxItems: [], voice });
+        yield* Effect.sync(() => restoreInboxItem(id));
+        return {
+          message: Message.AnswerCompleted({ id, error: refusal.error }),
+          status: refusal.status,
+        };
+      }),
+    ),
+});
+
+// A Resume with no note has no comment to send, so it calls the resume of the issue.
+export const ResumeStoppedItem = Command.define("ResumeStoppedItem", {
+  args: {
+    id: Schema.Number,
+    repository: Schema.String,
+    issue: Schema.Number,
+    notice: Schema.String,
+  },
+  messages: [Message.AnswerCompleted],
+  execute: ({ id, repository, issue, notice }) =>
+    withLogin(
+      Effect.gen(function* () {
+        const [owner, name] = repository.split("/");
+        yield* Effect.sync(() => hideInboxItem({ id, repository, issue }));
+        yield* clearDraft(answerDraftKey(id));
+        const refusal = yield* request(() => resumeIssue(owner, name, issue)).pipe(
+          Effect.map((res) => (res.status === 204 ? null : refusalOf(res))),
+          Effect.catchTag("RequestFailed", unreachable),
+        );
+        if (refusal === null) {
+          yield* showNoticeOf(notice);
+          return { message: Message.AnswerCompleted({ id, error: "" }) };
+        }
         yield* Effect.sync(() => restoreInboxItem(id));
         return {
           message: Message.AnswerCompleted({ id, error: refusal.error }),

@@ -6,6 +6,7 @@ import {
   FetchActionBrief,
   FetchPage,
   DoneInboxItem,
+  ResumeStoppedItem,
   EnqueueMessage,
   PostQueued,
   RemoveQueued,
@@ -1057,12 +1058,102 @@ describe("chat update story tests", () => {
             id: 9,
             repository: "test-repo",
             issue: 5,
-            name: "plan",
+            notice: "Marked the todo plan as done",
             note: "",
             voice: false,
           }),
         ),
         StoryCommand.resolve(DoneInboxItem, Message.AnswerCompleted({ id: 9, error: "" })),
+        StoryCommand.expectNone(),
+      );
+    });
+
+    it("sends an owner action with a note", () => {
+      const ownerAction = createInboxItem({
+        id: 12,
+        kind: "owner action",
+        issue: 5,
+        pullRequest: 8,
+        pullRequestUrl: "https://github.com/test-repo/pull/8",
+      });
+      const base = createTestModel({
+        activePanel: { type: "answer", item: ownerAction },
+        answerLoaded: true,
+        answerText: "Logged in.",
+      });
+
+      story(
+        update,
+        given(base),
+        message(Message.AnswerSubmitted()),
+        StoryCommand.expectExact(
+          DoneInboxItem({
+            id: 12,
+            repository: "test-repo",
+            issue: 5,
+            notice: "Marked the action as done",
+            note: "Logged in.",
+            voice: false,
+          }),
+        ),
+        StoryCommand.resolve(DoneInboxItem, Message.AnswerCompleted({ id: 12, error: "" })),
+        model((m) => {
+          expect(m.activePanel).toBeNull();
+        }),
+        StoryCommand.expectNone(),
+      );
+    });
+
+    it("resumes a stopped item with an empty note and does not answer", () => {
+      const stopped = createInboxItem({ id: 13, kind: "stopped", issue: 6 });
+      const base = createTestModel({
+        activePanel: { type: "answer", item: stopped },
+        answerLoaded: true,
+      });
+
+      story(
+        update,
+        given(base),
+        message(Message.AnswerSubmitted()),
+        StoryCommand.expectExact(
+          ResumeStoppedItem({
+            id: 13,
+            repository: "test-repo",
+            issue: 6,
+            notice: "Resumed #6",
+          }),
+        ),
+        StoryCommand.resolve(ResumeStoppedItem, Message.AnswerCompleted({ id: 13, error: "" })),
+        model((m) => {
+          expect(m.activePanel).toBeNull();
+        }),
+        StoryCommand.expectNone(),
+      );
+    });
+
+    it("answers a stopped item with a note and does not resume", () => {
+      const stopped = createInboxItem({ id: 13, kind: "stopped", issue: 6 });
+      const base = createTestModel({
+        activePanel: { type: "answer", item: stopped },
+        answerLoaded: true,
+        answerText: "Try again.",
+      });
+
+      story(
+        update,
+        given(base),
+        message(Message.AnswerSubmitted()),
+        StoryCommand.expectExact(
+          AnswerInboxItem({
+            id: 13,
+            repository: "test-repo",
+            issue: 6,
+            answer: "Try again.",
+            notice: "Resumed #6",
+            voice: false,
+          }),
+        ),
+        StoryCommand.resolve(AnswerInboxItem, Message.AnswerCompleted({ id: 13, error: "" })),
         StoryCommand.expectNone(),
       );
     });
@@ -1393,8 +1484,8 @@ describe("chat update story tests", () => {
             id: 11,
             repository: "test-repo",
             issue: 0,
-            workstream: 1428,
             answer: "Eleven.",
+            notice: "Sent the answer to the Lead of #1428",
             voice: false,
           }),
         ),
@@ -1582,8 +1673,8 @@ describe("chat update story tests", () => {
             id: 7,
             repository: "test-repo",
             issue: 0,
-            workstream: 1428,
             answer: "Ten seats.",
+            notice: "Sent the answer to the Lead of #1428",
             voice: true,
           }),
         ]),
