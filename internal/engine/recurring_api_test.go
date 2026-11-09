@@ -292,3 +292,159 @@ func TestTheListOfAWorkstreamWithNoTaskIsAnEmptyArray(t *testing.T) {
 		t.Errorf("status %d, %v: %s", status, err, text)
 	}
 }
+
+func postRun(t *testing.T, server *testserver.Server, id int64) (int, string) {
+	t.Helper()
+	return send(t, server, http.MethodPost, tasksPath+"/"+itoa(id)+"/runs", "")
+}
+
+func TestARunNowThroughTheAPIGivesOneLeadEventThatStartsATurnAndAManualHistoryRow(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"Noted.\"]\n")
+	setNow(server, friday)
+	task := addRecurringTask(t, server, weekdays, weekdaysText)
+
+	status, text := postRun(t, server, task.ID)
+
+	if status != http.StatusOK {
+		t.Fatalf("status = %d: %s", status, text)
+	}
+	var body struct {
+		Data apiRecurringTask `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(text), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Data.Runs) != 1 || body.Data.Runs[0].Result != "manual" || body.Data.Runs[0].Reason != "" || !body.Data.Runs[0].Time.Equal(friday) {
+		t.Errorf("runs in the response = %+v", body.Data.Runs)
+	}
+	want := friday.UTC().Format("2006-01-02 15:04 UTC") + " the Owner started the recurring task 1 `0 8 * * 1-5` by hand:\n\n" + weekdaysQuote
+	events := recurringEvents(t, server)
+	if len(events) != 1 || events[0].Payload != want {
+		t.Fatalf("recurring events = %+v, want one with %q", events, want)
+	}
+	waitForLeadPrompts(t, server, 1)
+	if prompt := leadPrompts(t, server)[0]; !strings.Contains(prompt, want) {
+		t.Errorf("the prompt has no manual event: %s", prompt)
+	}
+	got := recurringTasks(t, server)[0]
+	if len(got.Runs) != 1 || got.Runs[0].Result != "manual" || got.Runs[0].Reason != "" {
+		t.Errorf("runs = %+v", got.Runs)
+	}
+}
+
+func TestARunNowOfAPausedTaskGivesTheEventAndTheTaskStaysPaused(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, "")
+	setNow(server, friday)
+	task := addRecurringTask(t, server, hourly, planCheck)
+	if status, text := putPaused(t, server, task.ID, true); status != http.StatusOK {
+		t.Fatalf("pause status = %d: %s", status, text)
+	}
+
+	status, text := postRun(t, server, task.ID)
+
+	if status != http.StatusOK {
+		t.Fatalf("status = %d: %s", status, text)
+	}
+	if !strings.Contains(text, `"paused":true`) || !strings.Contains(text, `"next":null`) {
+		t.Errorf("body = %s", text)
+	}
+	if got := recurringEvents(t, server); len(got) != 1 || !strings.Contains(got[0].Payload, "started the recurring task 1") {
+		t.Errorf("recurring events = %+v", got)
+	}
+	got := recurringTasks(t, server)[0]
+	if !got.Paused || !got.Next.IsZero() || len(got.Runs) != 1 || got.Runs[0].Result != "manual" {
+		t.Errorf("task = %+v", got)
+	}
+}
+
+func TestARunNowDoesNotChangeTheNextScheduledTime(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, "")
+	setNow(server, friday)
+	task := addRecurringTask(t, server, hourly, planCheck)
+	setNow(server, friday.Add(30*time.Minute))
+
+	if status, text := postRun(t, server, task.ID); status != http.StatusOK {
+		t.Fatalf("status = %d: %s", status, text)
+	}
+
+	if got := recurringTasks(t, server)[0]; !got.Next.Equal(friday.Add(time.Hour)) {
+		t.Errorf("next = %v, want %v", got.Next, friday.Add(time.Hour))
+	}
+	testkit.WaitFor(t, func() bool { return recurringEvents(t, server)[0].Delivered })
+	setNow(server, friday.Add(time.Hour))
+
+	got := waitForRuns(t, server, 2)
+	if got.Runs[0].Result != "event" || !got.Runs[0].Time.Equal(friday.Add(time.Hour)) || got.Runs[1].Result != "manual" {
+		t.Errorf("runs = %+v", got.Runs)
+	}
+	events := recurringEvents(t, server)
+	if len(events) != 2 || strings.Contains(events[1].Payload, "by hand") {
+		t.Errorf("recurring events = %+v", events)
+	}
+}
+
+func TestARunNowWithAnUndeliveredEarlierEventGivesConflictAndNoEventAndNoRow(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, holdThenOk)
+	setNow(server, friday)
+	task := addRecurringTask(t, server, hourly, planCheck)
+	if status, text := postRun(t, server, task.ID); status != http.StatusOK {
+		t.Fatalf("first status = %d: %s", status, text)
+	}
+	testkit.WaitFor(t, func() bool { return held(t, server, 1) })
+
+	status, text := postRun(t, server, task.ID)
+
+	if status != http.StatusConflict || !strings.Contains(text, "The earlier event of this recurring task is not delivered yet.") {
+		t.Errorf("status = %d: %s", status, text)
+	}
+	if got := recurringEvents(t, server); len(got) != 1 {
+		t.Errorf("recurring events = %+v, want one", got)
+	}
+	if got := recurringTasks(t, server)[0]; len(got.Runs) != 1 {
+		t.Errorf("runs = %+v, want one", got.Runs)
+	}
+}
+
+func TestARunNowPublishesTheRecurringTasksChange(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, "")
+	task := addRecurringTask(t, server, weekdays, weekdaysText)
+	changes, stop := server.Engine.Listen()
+	defer stop()
+
+	postRun(t, server, task.ID)
+
+	change := waitForChange(t, changes, func(change engine.Change) bool { return change.RecurringTasks != nil }).RecurringTasks
+	if change.Repository != shop || change.Number != 12 {
+		t.Errorf("change = %+v", change)
+	}
+}
+
+func TestARunNowOfAnUnknownTaskGivesNotFoundAndNoEvent(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, "")
+	task := addRecurringTask(t, server, weekdays, weekdaysText)
+
+	status, _ := postRun(t, server, task.ID+1)
+	otherStatus, _ := send(t, server, http.MethodPost, "/api/workstreams/owner/shop/13/recurring-tasks/"+itoa(task.ID)+"/runs", "")
+
+	if status != http.StatusNotFound || otherStatus != http.StatusNotFound {
+		t.Errorf("statuses = %d and %d, want %d", status, otherStatus, http.StatusNotFound)
+	}
+	if got := recurringEvents(t, server); len(got) != 0 {
+		t.Errorf("recurring events = %+v", got)
+	}
+	if got := recurringTasks(t, server)[0]; len(got.Runs) != 0 {
+		t.Errorf("runs = %+v", got.Runs)
+	}
+}
