@@ -100,7 +100,7 @@ func serve(configPath string) error {
 	}
 
 	path := os.Getenv("PATH")
-	programs := []string{"curl", "tar"}
+	programs := []string{"tar"}
 	for _, b := range cfg.Roles.Bindings() {
 		programs = append(programs, runner.Program(b.Binding.Harness))
 	}
