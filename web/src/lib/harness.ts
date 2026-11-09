@@ -6,4 +6,4 @@ export const bindingText = (setting: { harness: string; model: string; effort: s
 
 export type Reply =
   | { status: 204 }
-  | { status: 400 | 401 | 409 | 422 | 500; data: { error: string } };
+  | { status: 400 | 401 | 404 | 409 | 422 | 500; data: { error: string } };
