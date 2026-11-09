@@ -578,6 +578,17 @@ test("Back on the file page and then on the file list returns to the repository 
   await expect(page).toHaveURL("/settings/memory");
 });
 
+test("Back on a file page that has no history before it opens the file list of its repository", async ({
+  page,
+}) => {
+  const back = page.getByRole("button", { name: "Back" }).filter({ visible: true });
+  await page.goto("/settings/memory/owner/shop/shared");
+  await expect(page.getByRole("main").getByRole("heading", { name: "History" })).toBeVisible();
+
+  await back.click();
+  await expect(page).toHaveURL("/settings/memory/owner/shop");
+});
+
 test("an edit of a role file saves and the shared file does not change", async ({ page }) => {
   const main = page.getByRole("main");
   const dialog = page.getByRole("dialog", {
