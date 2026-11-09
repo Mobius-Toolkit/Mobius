@@ -3,6 +3,7 @@ import { defineMessageUnion } from "foldkit/message";
 import { Agent } from "@/transcript/schemas";
 import * as Agents from "./agents/message";
 import * as Details from "./details/message";
+import * as Recurring from "./recurring/message";
 import { Tab } from "./schemas";
 import * as Tasks from "./tasks/message";
 
@@ -10,6 +11,7 @@ export const Message = defineMessageUnion({
   ConnectionOpened: {},
   LoginRequired: {},
   WorkstreamsChanged: {},
+  RecurringChanged: { repository: Schema.String, number: Schema.Number },
   AgentChanged: { agent: Agent },
   ReceivedBrief: { brief: Schema.String },
   SelectedTab: { tab: Tab },
@@ -17,6 +19,7 @@ export const Message = defineMessageUnion({
   GotTasksMessage: { message: Tasks.Message },
   GotAgentsMessage: { message: Agents.Message },
   GotDetailsMessage: { message: Details.Message },
+  GotRecurringMessage: { message: Recurring.Message },
   CompletedRequestLogin: {},
   CompletedNavigate: {},
   CompletedReportTab: {},
@@ -30,3 +33,5 @@ export const toGotAgentsMessage = (message: Agents.Message) =>
   Message.GotAgentsMessage({ message });
 export const toGotDetailsMessage = (message: Details.Message) =>
   Message.GotDetailsMessage({ message });
+export const toGotRecurringMessage = (message: Recurring.Message) =>
+  Message.GotRecurringMessage({ message });
