@@ -491,3 +491,52 @@ func TestANewStartKeepsTheTokensUntilTheNewFlowStoresNewTokens(t *testing.T) {
 		t.Errorf("callback of the replaced flow: status %d, Location %q, want oauth=failed", status, location)
 	}
 }
+
+func TestAChangeOfTheURLOrANewAuthorizationHeaderRemovesTheOAuthConnection(t *testing.T) {
+	for _, test := range []struct{ name, body string }{
+		{"a new URL", `{"name":"files","kind":"http","url":"https://other.example.com/mcp"}`},
+		{"a header Authorization", `{"name":"files","kind":"http","url":"%s/mcp","headers":[{"name":"authorization","value":"Bearer x"}]}`},
+		{"a stdio kind", `{"name":"files","kind":"stdio","command":"files-server"}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fake := newFakeOAuth(t, false, true, true)
+			server := startForOAuth(t, oauthUIURL)
+			added := addOAuthServer(t, server, fake)
+			authorization := startOAuthFlow(t, server, added.ID, `{}`)
+			if status, location := callback(t, server.Client, server, answer(fake, authorization)); status != http.StatusSeeOther || !strings.Contains(location, "oauth=connected") {
+				t.Fatalf("callback: status %d, Location %q", status, location)
+			}
+
+			status, text := mcpRequest(t, server, http.MethodPut, mcpServersPath+"/"+itoa(added.ID), strings.ReplaceAll(test.body, "%s", fake.URL))
+
+			if status != http.StatusOK || decodeMcp[mcpServer](t, text).OAuth != "none" {
+				t.Errorf("PUT: status %d, body %s, want oauth none", status, text)
+			}
+			if _, found := storedOAuth(t, server, added.ID); found {
+				t.Error("the row of the tokens stays after the change")
+			}
+			if state, _ := listedOAuth(t, server); state.OAuth != "none" {
+				t.Errorf("oauth after the change = %q, want none", state.OAuth)
+			}
+		})
+	}
+}
+
+func TestAChangeThatKeepsTheURLKeepsTheOAuthConnection(t *testing.T) {
+	fake := newFakeOAuth(t, false, true, true)
+	server := startForOAuth(t, oauthUIURL)
+	added := addOAuthServer(t, server, fake)
+	authorization := startOAuthFlow(t, server, added.ID, `{}`)
+	if status, location := callback(t, server.Client, server, answer(fake, authorization)); status != http.StatusSeeOther || !strings.Contains(location, "oauth=connected") {
+		t.Fatalf("callback: status %d, Location %q", status, location)
+	}
+
+	status, text := mcpRequest(t, server, http.MethodPut, mcpServersPath+"/"+itoa(added.ID), `{"name":"renamed","kind":"http","url":"`+fake.URL+`/mcp","headers":[{"name":"X-Site","value":"site"}]}`)
+
+	if status != http.StatusOK || decodeMcp[mcpServer](t, text).OAuth != "connected" {
+		t.Errorf("PUT: status %d, body %s, want oauth connected", status, text)
+	}
+	if row, found := storedOAuth(t, server, added.ID); !found || row.AccessToken != "access-1" {
+		t.Errorf("stored row = %+v, found %v, want the tokens", row, found)
+	}
+}

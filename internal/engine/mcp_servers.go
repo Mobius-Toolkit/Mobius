@@ -99,8 +99,9 @@ func (e *Engine) AddMcpServer(ctx context.Context, organization string, server M
 }
 
 // UpdateMcpServer replaces the server with the id. A header or an environment variable with an empty value keeps the
-// stored value of the same name, and is refused when the server has no such name. It gives ErrNoMcpServer for an id that
-// is not a server of the organization.
+// stored value of the same name, and is refused when the server has no such name. A change of the URL, or a header
+// Authorization, removes the OAuth connection of the server. It gives ErrNoMcpServer for an id that is not a server of
+// the organization.
 func (e *Engine) UpdateMcpServer(ctx context.Context, organization string, id int64, server McpServer) (McpServer, error) {
 	var updated McpServer
 	err := e.inTx(ctx, func(q *store.Queries) error {
@@ -140,6 +141,9 @@ func (e *Engine) UpdateMcpServer(ctx context.Context, organization string, id in
 		updated, err = mcpServerOf(row)
 		if err != nil {
 			return err
+		}
+		if updated.URL != old.URL || hasAuthorizationHeader(updated.Headers) {
+			return q.DeleteMcpServerOAuth(ctx, id)
 		}
 		state, err := q.GetMcpServerOAuth(ctx, id)
 		if errors.Is(err, sql.ErrNoRows) {

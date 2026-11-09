@@ -74,7 +74,7 @@ func (e *Engine) StartMcpOAuth(ctx context.Context, organization string, id int6
 		return "", refuse("OAuth needs ui_url in the config of Mobius.")
 	case !strings.HasPrefix(e.config.UIURL, "https://"):
 		return "", refuse("OAuth needs a ui_url that starts with https://.")
-	case slices.ContainsFunc(server.Headers, func(pair McpPair) bool { return strings.EqualFold(pair.Name, "Authorization") }):
+	case hasAuthorizationHeader(server.Headers):
 		return "", refuse("The server has a header Authorization. Remove it to use OAuth.")
 	}
 	document, _ := e.McpOAuthClientDocument()
@@ -320,4 +320,8 @@ func authServerMetadata(ctx context.Context, issuer string) (*oauthex.AuthServer
 		return nil, refuse("The authorization server %s gives no metadata.", issuer)
 	}
 	return metadata, nil
+}
+
+func hasAuthorizationHeader(headers []McpPair) bool {
+	return slices.ContainsFunc(headers, func(pair McpPair) bool { return strings.EqualFold(pair.Name, "Authorization") })
 }
