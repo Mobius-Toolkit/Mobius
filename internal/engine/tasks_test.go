@@ -7,7 +7,9 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
@@ -508,6 +510,53 @@ func TestStopOfARunningTaskWithMobiusReadyRemovesMobiusReadyAsTheOwnerAndTheNext
 	waitForPolls(t, fake)
 	if state := taskState(t, server); state != "stopped" {
 		t.Errorf("task state = %s", state)
+	}
+}
+
+func TestAStopAfterThePageReadOfAPollDoesNotLetThePollEndTheStoppedTaskAndDispatchTheIssueAgain(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddUserCode(testkit.AppID, "user-code", "owner")
+	server, _ := connectTask(t, fake, leadStarts, "[[prompts]]\nwhen = \"Plans have a price.\"\nhang = true\n", noChange)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "working" })
+	fake.KeepLabelFromBot(shop, 41, "mobius:ready")
+	waitForPolls(t, fake)
+	authorize(t, server)
+	changedReached, releaseChanged := fake.HoldIssueEvents(shop, 41)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	<-changedReached
+	dispatchReached, releaseDispatch := fake.HoldIssueEvents(shop, 41)
+	releaseChanged()
+	<-dispatchReached
+
+	stopped := make(chan int)
+	go func() {
+		status, _ := send(t, server, http.MethodPost, "/api/repositories/owner/shop/issues/41/stop", "")
+		stopped <- status
+	}()
+	status := 0
+	select {
+	case status = <-stopped:
+	case <-time.After(time.Second):
+	}
+	releaseDispatch()
+	if status == 0 {
+		status = <-stopped
+	}
+
+	if status != http.StatusNoContent {
+		t.Fatalf("status = %d", status)
+	}
+	waitForPolls(t, fake)
+	if state := taskState(t, server); state != "stopped" {
+		t.Errorf("task state = %s", state)
+	}
+	if labels := fake.Labels(shop, 41); len(labels) != 0 {
+		t.Errorf("labels = %v", labels)
+	}
+	if got := len(roleSessions(t, server, engine.ImplementerRole)); got != 1 {
+		t.Errorf("Implementer sessions = %d", got)
 	}
 }
 

@@ -79,6 +79,9 @@ type Engine struct {
 	// mergeMu makes MergeInboxItem, and the write of a merge refusal on an Inbox item, take turns. Else a refusal that
 	// the poll writes between the approval and the mark of the item can leave the item in the merging state.
 	mergeMu sync.Mutex
+	// stopMu makes StopIssue and dispatchReady take turns. Else a poll that read its issue page before a Stop can read
+	// the stopped task after the Stop, end it and dispatch the issue again from the old page.
+	stopMu sync.Mutex
 	// pollWake makes the poll start before the end of poll_interval. It holds at most one value.
 	pollWake chan struct{}
 	// closingMu guards closing.
