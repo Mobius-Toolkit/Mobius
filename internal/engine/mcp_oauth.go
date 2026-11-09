@@ -116,9 +116,9 @@ func (e *Engine) StartMcpOAuth(ctx context.Context, organization string, id int6
 	sameClient := hasTokens && stored.Issuer == issuer.Issuer && (clientID == "" || clientID == stored.ClientID)
 
 	switch {
+	case clientID != "":
 	case sameClient:
 		clientID, clientSecret = stored.ClientID, stored.ClientSecret
-	case clientID != "":
 	case issuer.ClientIDMetadataDocumentSupported:
 		clientID = document.ClientID
 	case issuer.RegistrationEndpoint != "":
@@ -162,8 +162,9 @@ func (e *Engine) StartMcpOAuth(ctx context.Context, organization string, id int6
 
 // FinishMcpOAuth ends the flow with the state that the authorization server sent back to the browser of the Owner: it
 // checks the flow, gets the tokens for the code and stores them. It gives the id of the server of the flow, or 0 when
-// no flow has the state. A refusal has the reason for the Owner. A flow that fails after its state matches stores the
-// reason, so the server shows reconnect.
+// no flow has the state. A refusal has the reason for the Owner. A flow that fails after its state matches ends. When
+// the server has no token, the flow stores the reason, so the server shows reconnect. A server with a token stays
+// connected.
 func (e *Engine) FinishMcpOAuth(ctx context.Context, code, state, iss, authorizationError string) (int64, error) {
 	row, err := e.queries.GetMcpServerOAuthByState(ctx, state)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -173,9 +174,13 @@ func (e *Engine) FinishMcpOAuth(ctx context.Context, code, state, iss, authoriza
 		return 0, err
 	}
 	fail := func(reason string) (int64, error) {
-		err := e.queries.FailMcpServerOAuth(ctx, store.FailMcpServerOAuthParams{
-			Failure: reason, UpdatedAt: e.timeNow().UTC().Format(time.RFC3339Nano), Server: row.Server, State: state,
-		})
+		now := e.timeNow().UTC().Format(time.RFC3339Nano)
+		var err error
+		if row.AccessToken != "" {
+			err = e.queries.EndMcpServerOAuthFlow(ctx, store.EndMcpServerOAuthFlowParams{UpdatedAt: now, Server: row.Server, State: state})
+		} else {
+			err = e.queries.FailMcpServerOAuth(ctx, store.FailMcpServerOAuthParams{Failure: reason, UpdatedAt: now, Server: row.Server, State: state})
+		}
 		if err != nil {
 			return row.Server, err
 		}

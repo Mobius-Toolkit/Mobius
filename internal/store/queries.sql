@@ -1678,5 +1678,10 @@ UPDATE mcp_server_oauth
 SET state = '', code_verifier = '', flow_started_at = NULL, failure = ?, updated_at = ?
 WHERE server = ? AND state = ?;
 
+-- name: EndMcpServerOAuthFlow :exec
+UPDATE mcp_server_oauth
+SET state = '', code_verifier = '', flow_started_at = NULL, updated_at = ?
+WHERE server = ? AND state = ?;
+
 -- name: DeleteMcpServerOAuth :exec
 DELETE FROM mcp_server_oauth WHERE server = ?;

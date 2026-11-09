@@ -2216,6 +2216,23 @@ func (q *Queries) EndCheckTimeout(ctx context.Context, arg EndCheckTimeoutParams
 	return err
 }
 
+const endMcpServerOAuthFlow = `-- name: EndMcpServerOAuthFlow :exec
+UPDATE mcp_server_oauth
+SET state = '', code_verifier = '', flow_started_at = NULL, updated_at = ?
+WHERE server = ? AND state = ?
+`
+
+type EndMcpServerOAuthFlowParams struct {
+	UpdatedAt string
+	Server    int64
+	State     string
+}
+
+func (q *Queries) EndMcpServerOAuthFlow(ctx context.Context, arg EndMcpServerOAuthFlowParams) error {
+	_, err := q.db.ExecContext(ctx, endMcpServerOAuthFlow, arg.UpdatedAt, arg.Server, arg.State)
+	return err
+}
+
 const endSession = `-- name: EndSession :one
 UPDATE sessions SET ended_at = ?, end_reason = ?, queue_reason = NULL WHERE id = ?
 RETURNING id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent, effort, workstream_repository, continued, context_used, context_size

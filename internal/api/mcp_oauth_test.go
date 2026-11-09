@@ -610,3 +610,50 @@ func TestANewStartUsesTheClientOfTheStoredTokensAndAnotherClientRemovesThem(t *t
 		t.Errorf("oauth after the start with another client = %q, want none", state.OAuth)
 	}
 }
+
+func TestAFailedNewFlowKeepsAConnectedServerConnected(t *testing.T) {
+	fake := newFakeOAuth(t, false, true, true)
+	server := startForOAuth(t, oauthUIURL)
+	added := addOAuthServer(t, server, fake)
+	first := startOAuthFlow(t, server, added.ID, `{}`)
+	if status, location := callback(t, server.Client, server, answer(fake, first)); status != http.StatusSeeOther || !strings.Contains(location, "oauth=connected") {
+		t.Fatalf("callback: status %d, Location %q", status, location)
+	}
+	second := startOAuthFlow(t, server, added.ID, `{}`)
+
+	status, location := callback(t, server.Client, server, url.Values{"state": {second.Get("state")}, "error": {"access_denied"}})
+
+	if status != http.StatusSeeOther || !strings.Contains(location, "oauth=failed") || !strings.Contains(location, "server="+itoa(added.ID)) {
+		t.Errorf("callback: status %d, Location %q, want oauth=failed", status, location)
+	}
+	if state, _ := listedOAuth(t, server); state.OAuth != "connected" || state.OAuthReason != "" {
+		t.Errorf("listed = %+v, want connected", state)
+	}
+	row, _ := storedOAuth(t, server, added.ID)
+	if row.AccessToken != "access-1" || row.RefreshToken != "refresh-1" || row.State != "" || row.CodeVerifier != "" || row.Failure != "" {
+		t.Errorf("stored row = %+v, want the tokens, no flow and no failure", row)
+	}
+}
+
+func TestAStartWithTheStoredClientIDAndANewSecretUsesTheNewSecretAndKeepsTheTokens(t *testing.T) {
+	fake := newFakeOAuth(t, false, true, true)
+	server := startForOAuth(t, oauthUIURL)
+	added := addOAuthServer(t, server, fake)
+	first := startOAuthFlow(t, server, added.ID, `{"clientId":"owner-client","clientSecret":"old"}`)
+	if status, location := callback(t, server.Client, server, answer(fake, first)); status != http.StatusSeeOther || !strings.Contains(location, "oauth=connected") {
+		t.Fatalf("callback: status %d, Location %q", status, location)
+	}
+
+	second := startOAuthFlow(t, server, added.ID, `{"clientId":"owner-client","clientSecret":"new"}`)
+
+	if row, _ := storedOAuth(t, server, added.ID); row.AccessToken != "access-1" || row.State != second.Get("state") {
+		t.Errorf("stored row = %+v, want the tokens and the new flow", row)
+	}
+	if status, location := callback(t, server.Client, server, answer(fake, second)); status != http.StatusSeeOther || !strings.Contains(location, "oauth=connected") {
+		t.Fatalf("callback: status %d, Location %q", status, location)
+	}
+	form, _, password := fake.token()
+	if form.Get("client_secret") != "new" && password != "new" {
+		t.Errorf("token request has no new secret: form %v", form)
+	}
+}
