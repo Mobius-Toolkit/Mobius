@@ -615,7 +615,14 @@ test("screenshots", async ({ page }) => {
           page.getByLabel("Work in another organization").filter({ visible: true }),
           page.getByText(/^antigravity paused until Sep 28, 12:00\sPM$/),
         ]
-      : [page.getByRole("banner").getByRole("heading", { name: "Prune the roses" })],
+      : [
+          page.getByRole("banner").getByRole("heading", { name: "Prune the roses" }),
+          briefBubble,
+          main.getByText("No messages. Write to start a chat session."),
+          chatCount,
+          page.getByLabel("Upgrade available"),
+          page.getByText(/^antigravity paused until Sep 28, 12:00\sPM$/),
+        ],
   );
   // The open menu and the open sheet hide the other elements from the accessibility tree, so the open step waits for them.
   await screenshot(
