@@ -25,6 +25,8 @@ func issueBindingRole(role string) string {
 		return "implementer"
 	case LeadRole:
 		return "lead"
+	case OperatorRole:
+		return "operator"
 	}
 	return ""
 }
@@ -83,6 +85,8 @@ func (e *Engine) issueSpec(ctx context.Context, role, repository string, issue i
 		sessionRole = ImplementerRole
 	case "lead":
 		sessionRole = LeadRole
+	case "operator":
+		sessionRole = OperatorRole
 	default:
 		return Spec{}, refuse("The Role %s has no setting for an issue.", role)
 	}
@@ -93,7 +97,7 @@ func (e *Engine) issueSpec(ctx context.Context, role, repository string, issue i
 	if workstream {
 		return Spec{Role: sessionRole, Repository: repository, WorkstreamRepository: repository, Workstream: issue}, nil
 	}
-	if sessionRole == LeadRole {
+	if sessionRole != ImplementerRole {
 		return Spec{}, refuse("%s#%d is not a Workstream issue.", repository, issue)
 	}
 	tree, err := e.queries.GetCopiedIssueTree(ctx, store.GetCopiedIssueTreeParams{Number: issue, Repository: repository})
@@ -113,7 +117,7 @@ func (e *Engine) issueSpec(ctx context.Context, role, repository string, issue i
 }
 
 // IssueBinding gives the setting of role for the task issue or the Workstream issue, and tells if it exists.
-// role is implementer or lead.
+// role is implementer, lead or operator.
 func (e *Engine) IssueBinding(ctx context.Context, role, repository string, issue int64) (store.IssueBinding, bool, error) {
 	row, err := e.queries.GetIssueBinding(ctx, store.GetIssueBindingParams{Repository: repository, Issue: issue, Role: role})
 	if errors.Is(err, sql.ErrNoRows) {
@@ -134,7 +138,7 @@ func (e *Engine) NextBinding(ctx context.Context, role, repository string, issue
 }
 
 // SetIssueBinding sets the Harness, the model and the effort of role for the task issue or the Workstream issue. role
-// is implementer or lead, and only a Workstream issue has a lead setting. The next session uses it, and a session that
+// is implementer, lead or operator, and only a Workstream issue has a lead or operator setting. The next session uses it, and a session that
 // runs keeps its binding. It refuses a binding that the Roles page would refuse, and a binding whose access check
 // fails.
 func (e *Engine) SetIssueBinding(ctx context.Context, role, repository string, issue int64, harness config.Harness, model, effort string) error {
@@ -190,7 +194,7 @@ func (e *Engine) putIssueBinding(ctx context.Context, role, repository string, i
 // ClearIssueBinding removes the setting of role for the task issue or the Workstream issue. The next session uses the
 // next level again.
 func (e *Engine) ClearIssueBinding(ctx context.Context, role, repository string, issue int64) error {
-	if role != "implementer" && role != "lead" {
+	if role != "implementer" && role != "lead" && role != "operator" {
 		return refuse("The Role %s has no setting for an issue.", role)
 	}
 	if err := e.queries.DeleteIssueBinding(ctx, store.DeleteIssueBindingParams{Repository: repository, Issue: issue, Role: role}); err != nil {
