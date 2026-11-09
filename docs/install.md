@@ -230,7 +230,7 @@ The config file is a TOML file. Mobius reads it one time when it starts, so you 
 
 - `access_password`: the password of the web UI.
 - `trusted_users`: the GitHub logins of the users that the agents act for.
-- `roles`: the `harness`, the `model` and the `effort` of each Role (`lead`, `coordinator`, `triager`, `implementer`, `researcher`, `reviewer`, `judge`, `curator` and `diagnoser`). A Devin, dsh or Claude Code Role must have an effort. An Antigravity Role must not have an effort.
+- `roles`: the `harness`, the `model` and the `effort` of each Role (`lead`, `coordinator`, `triager`, `implementer`, `researcher`, `reviewer`, `judge`, `curator` and `diagnoser`). A Devin, dsh or Claude Code Role must have an effort. An Antigravity Role must not have an effort. `mobius init` does not ask for the Role `operator`. See the key `roles.operator` below.
 
 You can add these keys:
 
@@ -260,6 +260,8 @@ issue_repository = "Mobius-Toolkit/Mobius"
 A duration is a text with a number and a unit for each part: `s`, `m` or `h`. For example, `"90s"`, `"1h30m"` or `"168h"`. Mobius does not accept a day unit or a space.
 
 The Diagnoser reads the full log of each failed CI job of a pull request before the fix round. It gives the reason of the failure to the fix round. It has the same keys as each other Role.
+
+The Operator does work outside code for one Workstream, for example in an external system, when the Lead starts it. The key `roles.operator` is optional. With no `harness`, no `model` and no `effort`, the Operator uses `claude-code`, the model `opus` and the effort `medium`. When you give one of these keys, give the keys that its Harness needs, as for each other Role. An old `config.toml` with no `roles.operator` loads with no change.
 
 Each Role can also have these keys:
 
