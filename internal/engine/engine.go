@@ -150,8 +150,8 @@ type Engine struct {
 	// stopsMu guards stops, live and closed.
 	stopsMu sync.Mutex
 	// stops holds the context of the Workers of each task, by the id of the task, of each Researcher, by its
-	// researcherKey, and of each Curator, by its curatorKey. A stop of the task, the Researcher or the Curator ends
-	// the context.
+	// researcherKey, of each Operator, by its operatorKey, and of each Curator, by its curatorKey. A stop of the task,
+	// the Researcher, the Operator or the Curator ends the context.
 	stops map[any]stopper
 	// live counts the goroutines of the Workers of each key that run now, and the holds of the key. A goroutine counts
 	// from its start to its return, also after a stop of its key.
@@ -161,7 +161,7 @@ type Engine struct {
 	// running counts the Workers that run.
 	running sync.WaitGroup
 
-	// detailsMu guards implementers, researchers, and the pending details of their sessions.
+	// detailsMu guards implementers, researchers, operators, and the pending details of their sessions.
 	detailsMu sync.Mutex
 	// implementers holds the open Implementer session of each task, by the id of the task.
 	implementers map[int64]*Agent
@@ -171,6 +171,8 @@ type Engine struct {
 	kept map[int64]*keptSession
 	// researchers holds the session of each Researcher that runs, by the id of its session.
 	researchers map[int64]*Agent
+	// operators holds the session of each Operator that runs, by the id of its session.
+	operators map[int64]*Agent
 
 	// curatorsMu guards curators.
 	curatorsMu sync.Mutex
@@ -245,6 +247,7 @@ func New(db *sql.DB, gh *github.GitHub, cfg *config.Config, agents Agents) *Engi
 		kept:            map[int64]*keptSession{},
 		loadWaits:       map[int64]chan struct{}{},
 		researchers:     map[int64]*Agent{},
+		operators:       map[int64]*Agent{},
 		curators:        map[string]bool{},
 		diagnosers:      map[string]bool{},
 		listeners:       map[chan Change]bool{},
