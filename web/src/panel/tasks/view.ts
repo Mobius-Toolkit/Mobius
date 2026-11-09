@@ -39,10 +39,17 @@ function renderIconButton(
   );
 }
 
+function startLabel(line: TaskLine) {
+  if (resumes(line)) {
+    return `Resume ${reference(line)}`;
+  }
+  return `Start ${reference(line)}${line.blockedBy.length > 0 ? " when unblocked" : ""}`;
+}
+
 function renderEntry(h: H, model: Model, line: TaskLine): Html {
   const key = rowKey(line);
   const row = rowOf(model, key);
-  const label = `${resumes(line) ? "Resume" : "Start"} ${reference(line)}`;
+  const label = startLabel(line);
   const stopLabel = `Stop ${reference(line)}`;
   const settingLabel = `Implementer of ${reference(line)}`;
   const fallback = Option.isSome(model.fallback);
@@ -107,8 +114,9 @@ function renderEntry(h: H, model: Model, line: TaskLine): Html {
           h.div(
             [h.Class(cn("flex shrink-0 justify-end", line.state !== "closed" && "size-8"))],
             [
-              (line.state === "open" || line.state === "triage" || resumes(line)) &&
-              line.blockedBy.length === 0
+              line.state === "open" ||
+              line.state === "triage" ||
+              (resumes(line) && line.blockedBy.length === 0)
                 ? renderIconButton(h, {
                     label,
                     disabled: row.starting,
