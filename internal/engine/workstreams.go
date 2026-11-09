@@ -69,6 +69,8 @@ type WorkstreamDetails struct {
 	Lead NextSetting
 	// Implementer is the binding of the next Implementer session of a task with no setting of its own.
 	Implementer NextSetting
+	// McpServers are the ids of the MCP servers that the Owner selected for the Workstream, in name order of the servers.
+	McpServers []int64
 }
 
 // walkTasks calls visit for each task below the issue parent of repository, depth first in the order of the sub-issues,
@@ -172,6 +174,9 @@ func (e *Engine) WorkstreamDetails(ctx context.Context, repositoryName string, n
 		return WorkstreamDetails{}, err
 	}
 	if details.Implementer, err = e.nextSetting(ctx, "implementer", repository.FullName, number); err != nil {
+		return WorkstreamDetails{}, err
+	}
+	if details.McpServers, err = e.workstreamMcpServerIDs(ctx, repository.FullName, number); err != nil {
 		return WorkstreamDetails{}, err
 	}
 	for _, task := range tasks {

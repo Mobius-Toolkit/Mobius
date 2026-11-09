@@ -216,6 +216,19 @@ type LeadWrite struct {
 	Item       sql.NullInt64
 }
 
+type McpServer struct {
+	ID           int64
+	Organization string
+	Name         string
+	Kind         string
+	Url          string
+	Headers      string
+	Command      string
+	Args         string
+	Env          string
+	UpdatedAt    string
+}
+
 type OldSkillUse struct {
 	ID           int64
 	Session      int64
