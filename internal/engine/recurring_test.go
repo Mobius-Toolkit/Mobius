@@ -369,11 +369,21 @@ func TestAddRecurringTaskRefusesAnEmptyTextAndAWorkstreamThatIsNotOpen(t *testin
 	if _, err := server.Engine.AddRecurringTask(t.Context(), shop, 99, hourly, planCheck); !errors.Is(err, engine.ErrNoRecurringWorkstream) {
 		t.Errorf("error of an unknown Workstream = %v", err)
 	}
+	copied := func() int {
+		var count int
+		if err := server.DB.QueryRow("SELECT count(*) FROM copied_workstreams WHERE repository = ? AND number = 12", shop).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		return count
+	}
+	testkit.WaitFor(t, func() bool { return copied() == 1 })
+
 	fake.CloseIssue(shop, 12)
-	testkit.WaitFor(t, func() bool {
-		_, err := server.Engine.AddRecurringTask(t.Context(), shop, 12, hourly, planCheck)
-		return errors.Is(err, engine.ErrNoRecurringWorkstream)
-	})
+
+	testkit.WaitFor(t, func() bool { return copied() == 0 })
+	if _, err := server.Engine.AddRecurringTask(t.Context(), shop, 12, hourly, planCheck); !errors.Is(err, engine.ErrNoRecurringWorkstream) {
+		t.Errorf("error of a closed Workstream = %v", err)
+	}
 	if tasks := recurringTasks(t, server); len(tasks) != 0 {
 		t.Errorf("tasks = %+v", tasks)
 	}
