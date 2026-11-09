@@ -387,7 +387,8 @@ func TestTheEventAfterAMergeWithAConflictThatTheBranchResolvedByHandNamesTheFile
 	}
 	testkit.Git(t, work, "add", "plan.txt")
 	testkit.Git(t, work, "commit", "-m", "Merge main by hand")
-	testkit.Git(t, work, "push", "--atomic", "origin", "mobius/41", "next:main")
+	testkit.Git(t, work, "push", "origin", "mobius/41")
+	testkit.Git(t, work, "push", "origin", "next:main")
 	hand := testkit.Git(t, work, "rev-parse", "HEAD")
 	fake.ReleaseBranchUpdates()
 
