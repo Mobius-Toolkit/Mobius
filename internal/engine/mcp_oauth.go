@@ -116,7 +116,7 @@ func (e *Engine) StartMcpOAuth(ctx context.Context, organization string, id int6
 			ResponseTypes: []string{"code"}, TokenEndpointAuthMethod: "none",
 		}, mcpOAuthClient)
 		if err != nil {
-			return "", refuse("The registration of Mobius at the authorization server failed: %v", err)
+			return "", refuse("The registration of Mobius at the authorization server failed.")
 		}
 		clientID, clientSecret = registered.ClientID, registered.ClientSecret
 	default:

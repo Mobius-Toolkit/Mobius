@@ -30,6 +30,8 @@ type fakeOAuth struct {
 	documents bool
 	register  bool
 	issuer    bool
+	// badRegistration makes the registration endpoint answer with a body that does not decode.
+	badRegistration bool
 
 	mu            sync.Mutex
 	registrations []string
@@ -68,6 +70,10 @@ func newFakeOAuth(t *testing.T, documents, register, issuer bool) *fakeOAuth {
 		fake.mu.Lock()
 		fake.registrations = append(fake.registrations, string(body))
 		fake.mu.Unlock()
+		if fake.badRegistration {
+			fake.json(w, http.StatusCreated, map[string]any{"client_id": "c", "client_secret": "s3cret", "client_id_issued_at": "2026-11-09"})
+			return
+		}
 		fake.json(w, http.StatusCreated, map[string]any{"client_id": "registered-client", "client_secret": "registered-secret"})
 	})
 	mux.HandleFunc("POST /token", func(w http.ResponseWriter, r *http.Request) {
@@ -538,5 +544,24 @@ func TestAChangeThatKeepsTheURLKeepsTheOAuthConnection(t *testing.T) {
 	}
 	if row, found := storedOAuth(t, server, added.ID); !found || row.AccessToken != "access-1" {
 		t.Errorf("stored row = %+v, found %v, want the tokens", row, found)
+	}
+}
+
+func TestARegistrationThatDoesNotDecodeGives422WithNoSecret(t *testing.T) {
+	fake := newFakeOAuth(t, false, true, true)
+	fake.badRegistration = true
+	server := startForOAuth(t, oauthUIURL)
+	added := addOAuthServer(t, server, fake)
+
+	status, text := mcpRequest(t, server, http.MethodPost, oauthPath(added.ID), `{}`)
+
+	if status != http.StatusUnprocessableEntity || !strings.Contains(text, "registration") {
+		t.Errorf("start: status %d, body %s, want 422 with the reason", status, text)
+	}
+	if strings.Contains(text, "s3cret") {
+		t.Errorf("the 422 text shows the client secret: %s", text)
+	}
+	if _, found := storedOAuth(t, server, added.ID); found {
+		t.Error("a row was stored for a flow that did not start")
 	}
 }
