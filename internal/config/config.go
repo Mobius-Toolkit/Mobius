@@ -95,6 +95,7 @@ type Roles struct {
 	Judge       RoleBinding `toml:"judge"`
 	Curator     RoleBinding `toml:"curator"`
 	Diagnoser   RoleBinding `toml:"diagnoser"`
+	Operator    RoleBinding `toml:"operator"`
 }
 
 // RoleBinding is the Harness, the model and the limits of a Role.
@@ -155,6 +156,7 @@ func Parse(text []byte) (*Config, error) {
 				Judge:       RoleBinding{Max: 2},
 				Curator:     RoleBinding{Max: 2},
 				Diagnoser:   RoleBinding{Max: 2},
+				Operator:    RoleBinding{Max: 2},
 			},
 		},
 		CheckTimeout:        "15m",
@@ -170,6 +172,9 @@ func Parse(text []byte) (*Config, error) {
 		return nil, describe(err)
 	}
 	config := f.Config
+	if op := &config.Roles.Operator; op.Harness == "" && op.Model == "" && op.Effort == "" {
+		op.Harness, op.Model, op.Effort = ClaudeCode, "opus", "medium"
+	}
 	config.UIURL = strings.TrimSuffix(config.UIURL, "/")
 	durations := []struct {
 		key   string
@@ -231,6 +236,7 @@ func (r *Roles) Bindings() []NamedBinding {
 		{"judge", &r.Judge},
 		{"curator", &r.Curator},
 		{"diagnoser", &r.Diagnoser},
+		{"operator", &r.Operator},
 	}
 }
 

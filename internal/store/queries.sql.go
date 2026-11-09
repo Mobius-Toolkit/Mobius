@@ -1539,7 +1539,7 @@ func (q *Queries) CountSessionsEndedSinceCurator(ctx context.Context, repository
 const countUnread = `-- name: CountUnread :one
 SELECT count(*) FROM chat_messages m
 WHERE m.organization = ?1 AND m.repository = ?2 AND m.workstream = ?3
-  AND m.author NOT IN ('Owner', 'Researcher', 'Curator', 'Approval', 'Event', 'Record')
+  AND m.author NOT IN ('Owner', 'Researcher', 'Operator', 'Curator', 'Approval', 'Event', 'Record')
   AND m.id > coalesce((SELECT s.message FROM chat_seen s
                        WHERE s.organization = m.organization AND s.repository = m.repository AND s.workstream = m.workstream), 0)
 `
@@ -4494,7 +4494,7 @@ func (q *Queries) ListChatMessagesBefore(ctx context.Context, arg ListChatMessag
 
 const listChatMessagesPage = `-- name: ListChatMessagesPage :many
 SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice FROM chat_messages
-WHERE organization = ? AND repository = ? AND workstream = ? AND author NOT IN ('Researcher', 'Curator', 'Approval') AND id < ?
+WHERE organization = ? AND repository = ? AND workstream = ? AND author NOT IN ('Researcher', 'Operator', 'Curator', 'Approval') AND id < ?
 ORDER BY id DESC LIMIT ?
 `
 
@@ -4506,7 +4506,7 @@ type ListChatMessagesPageParams struct {
 	Limit        int64
 }
 
-// The chat shows no Researcher message, no Curator message and no Approval message.
+// The chat shows no Researcher message, no Operator message, no Curator message and no Approval message.
 func (q *Queries) ListChatMessagesPage(ctx context.Context, arg ListChatMessagesPageParams) ([]ChatMessage, error) {
 	rows, err := q.db.QueryContext(ctx, listChatMessagesPage,
 		arg.Organization,
@@ -8305,7 +8305,7 @@ const listUnread = `-- name: ListUnread :many
 SELECT m.organization, m.repository, m.workstream, count(*) AS count
 FROM chat_messages m
 LEFT JOIN chat_seen s ON s.organization = m.organization AND s.repository = m.repository AND s.workstream = m.workstream
-WHERE m.author NOT IN ('Owner', 'Researcher', 'Curator', 'Approval', 'Event', 'Record') AND m.id > coalesce(s.message, 0)
+WHERE m.author NOT IN ('Owner', 'Researcher', 'Operator', 'Curator', 'Approval', 'Event', 'Record') AND m.id > coalesce(s.message, 0)
 GROUP BY m.organization, m.repository, m.workstream
 ORDER BY m.organization, m.repository, m.workstream
 `
@@ -8317,7 +8317,7 @@ type ListUnreadRow struct {
 	Count        int64
 }
 
-// The messages of the Owner, of a Researcher, of a Curator, of an approval, of an event and of a record are never unread.
+// The messages of the Owner, of a Researcher, of an Operator, of a Curator, of an approval, of an event and of a record are never unread.
 func (q *Queries) ListUnread(ctx context.Context) ([]ListUnreadRow, error) {
 	rows, err := q.db.QueryContext(ctx, listUnread)
 	if err != nil {

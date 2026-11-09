@@ -30,6 +30,7 @@ const (
 	JudgeRole       = "judge"
 	CuratorRole     = "curator"
 	DiagnoserRole   = "diagnoser"
+	OperatorRole    = "operator"
 )
 
 // group is a Role with its name in the queue reasons and its title on the agents page.
@@ -48,6 +49,7 @@ var groups = []group{
 	{JudgeRole, "judge", "Judge"},
 	{CuratorRole, "curator", "Curator"},
 	{DiagnoserRole, "diagnoser", "Diagnoser"},
+	{OperatorRole, "operator", "Operator"},
 }
 
 // roleTitle gives the title of role in groups.
@@ -56,7 +58,7 @@ func roleTitle(role string) string {
 }
 
 // workerRoles are the Worker Roles. A pause of its Harness and a drain hold a Worker in the queue.
-var workerRoles = map[string]bool{ImplementerRole: true, ResearcherRole: true, ReviewerRole: true, CuratorRole: true, DiagnoserRole: true}
+var workerRoles = map[string]bool{ImplementerRole: true, ResearcherRole: true, ReviewerRole: true, CuratorRole: true, DiagnoserRole: true, OperatorRole: true}
 
 // ErrLeftQueue tells that the task of a session left the queue before the session got a slot, for example after a decline.
 var ErrLeftQueue = errors.New("the task left the queue")
@@ -82,6 +84,8 @@ func roleBinding(roles *config.Roles, role string) (config.RoleBinding, bool) {
 		return roles.Curator, true
 	case DiagnoserRole:
 		return roles.Diagnoser, true
+	case OperatorRole:
+		return roles.Operator, true
 	}
 	return config.RoleBinding{}, false
 }

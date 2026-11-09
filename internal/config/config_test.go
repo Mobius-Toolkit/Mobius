@@ -196,6 +196,42 @@ func TestParseRefusesAConfigWithoutAFullDiagnoser(t *testing.T) {
 	}
 }
 
+func TestParseGivesTheOperatorADefaultBinding(t *testing.T) {
+	config := parse(t, valid)
+
+	want := RoleBinding{Harness: ClaudeCode, Model: "opus", Effort: "medium", Max: 2}
+	if config.Roles.Operator != want {
+		t.Errorf("roles.operator = %+v, want %+v", config.Roles.Operator, want)
+	}
+}
+
+func TestParseReadsTheOperatorRole(t *testing.T) {
+	config := parse(t, valid+`operator    = { harness = "devin", model = "swe-1.5", effort = "high", max = 1 }`+"\n")
+
+	want := RoleBinding{Harness: Devin, Model: "swe-1.5", Effort: "high", Max: 1}
+	if config.Roles.Operator != want {
+		t.Errorf("roles.operator = %+v, want %+v", config.Roles.Operator, want)
+	}
+}
+
+func TestParseRefusesAWrongOperatorBinding(t *testing.T) {
+	checks := []struct{ line, want string }{
+		{`operator = { model = "opus", effort = "medium" }`,
+			"roles.operator.harness: must be claude-code, antigravity, devin or dsh"},
+		{`operator = { harness = "claude-code", effort = "medium" }`,
+			"roles.operator.model: must not be empty"},
+		{`operator = { harness = "claude-code", model = "opus" }`,
+			"roles.operator.effort: is required for claude-code"},
+		{`operator = { harness = "antigravity", model = "gemini-3-pro", effort = "low" }`,
+			"roles.operator.effort: is not allowed for antigravity"},
+	}
+	for _, c := range checks {
+		if got := parseError(t, valid+c.line+"\n"); got != c.want {
+			t.Errorf("error = %q, want %q", got, c.want)
+		}
+	}
+}
+
 func TestParseRefusesAWrongValue(t *testing.T) {
 	got := parseError(t, "max_checks = \"one\"\n"+valid)
 	if !strings.HasPrefix(got, "line 1: toml: cannot decode TOML string into struct field") {
