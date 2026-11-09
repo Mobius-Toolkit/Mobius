@@ -114,9 +114,7 @@ func TestTheLeadMarksAnActionOnADispatchedTaskAndTheDoneGivesTheLeadADispatchEve
 	if state := taskState(t, server); state != "dispatched" {
 		t.Errorf("state = %s", state)
 	}
-	if labels := fake.Labels(shop, 41); !slices.Contains(labels, "mobius:working") {
-		t.Errorf("labels = %q", labels)
-	}
+	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Labels(shop, 41), "mobius:working") })
 	var dispatches []string
 	for _, event := range leadEvents(t, server) {
 		if event.Kind == "dispatch" && strings.Contains(event.Payload, "action of the Owner done of") {
