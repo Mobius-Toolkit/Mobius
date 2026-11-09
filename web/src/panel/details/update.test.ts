@@ -428,6 +428,8 @@ const server = (id: number, name: string, kind: McpServer["kind"]): McpServer =>
   id,
   kind,
   name,
+  oauth: "none",
+  oauthReason: "",
   url: "",
 });
 
