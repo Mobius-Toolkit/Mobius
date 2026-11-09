@@ -219,6 +219,40 @@ shell = "printf 'The sitemap is /sitemap.xml.\\n' > MEMORY.md"
 	}
 }
 
+// The end of a session frees the drain count, and the chat refuses a message after the seal. Thus the report of a
+// done, failed or hung Operator must be in the chat before its session ends.
+func TestTheReportOfAnOperatorIsInTheChatBeforeItsSessionEnds(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct{ name, operator string }{
+		{"done", operatorWork},
+		{"failed", "\n[[prompts]]\nwhen = \"You are an Operator\"\nerror = { code = -32000, message = \"The external system is down.\" }\n"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			fake := testkit.NewFakeGitHub(t)
+			server, _ := connectOperator(t, fake, operatorLead+c.operator)
+			sendChat(t, server, leadChat, "Start the operator.")
+			session := endedOperators(t, server, 1)[0]
+
+			var posted string
+			if err := server.DB.QueryRow("SELECT time FROM chat_messages WHERE author = 'Operator'").Scan(&posted); err != nil {
+				t.Fatal(err)
+			}
+			postedAt, err := time.Parse(time.RFC3339Nano, posted)
+			if err != nil {
+				t.Fatal(err)
+			}
+			endedAt, err := time.Parse(time.RFC3339Nano, session.EndedAt.String)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !postedAt.Before(endedAt) {
+				t.Errorf("the report came at %s, the session ended at %s", posted, session.EndedAt.String)
+			}
+		})
+	}
+}
+
 func TestTheDrainRefusesANewOperator(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

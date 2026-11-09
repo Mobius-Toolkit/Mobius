@@ -64,7 +64,8 @@ func (e *Engine) startOperator(ctx context.Context, c caller, repository github.
 }
 
 // operate runs the session a of the Operator on the text. A failed Operator reports its error. A stop ends the session
-// with no report.
+// with no report. The report goes to the chat before the session ends, because the end frees the drain count, and
+// the chat refuses a message after the seal of an upgrade.
 func (e *Engine) operate(ctx context.Context, c caller, repository github.Repository, a *Agent, text string) error {
 	if err := a.waitForSlot(ctx); err != nil {
 		if ctx.Err() != nil {
@@ -79,15 +80,14 @@ func (e *Engine) operate(ctx context.Context, c caller, repository github.Reposi
 	case ctx.Err() != nil:
 		return a.End(ended, "stopped")
 	case errors.Is(err, errHung):
-		return errors.Join(a.endHung(ended), e.deliverOperatorReport(ended, c, a.id, fmt.Sprintf("The Operator %d failed: %s", a.id, err)))
+		delivery := e.deliverOperatorReport(ended, c, a.id, fmt.Sprintf("The Operator %d failed: %s", a.id, err))
+		return errors.Join(delivery, a.endHung(ended))
 	case err != nil:
-		failure := a.Fail(ended, err)
-		return errors.Join(failure, e.deliverOperatorReport(ended, c, a.id, fmt.Sprintf("The Operator %d failed: %s", a.id, err)))
+		delivery := e.deliverOperatorReport(ended, c, a.id, fmt.Sprintf("The Operator %d failed: %s", a.id, err))
+		return errors.Join(delivery, a.Fail(ended, err))
 	}
-	if err := a.End(ended, "done"); err != nil {
-		return err
-	}
-	return e.deliverOperatorReport(ended, c, a.id, report)
+	delivery := e.deliverOperatorReport(ended, c, a.id, report)
+	return errors.Join(delivery, a.End(ended, "done"))
 }
 
 // operateTurn makes the directory of the Operator a and runs its turn. It gives the report: the reply text after the
