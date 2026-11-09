@@ -94,6 +94,22 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 					"findings":   map[string]any{"type": "string", "minLength": 1, "description": "Your findings on the pull request: what to change and why."},
 				},
 				e.startFixRound),
+			taskTool(e, c, "mark_owner_action",
+				"Pause a task that waits for an action of the Owner outside the code, for example a login of a CLI on the Mobius server. Use it in place of ask when the next round needs such an action. Mobius adds an Inbox item with the action and a \"Done\" button, frees the Autopilot slot of the task, and starts no round. After the Owner marks the action as done, or after clear_owner_action, Mobius starts the step next. It refuses a task in working, reviewed, queued, answered, stopped, asked or owner_action.",
+				map[string]any{
+					"repository": repositoryProperty,
+					"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
+					"action":     map[string]any{"type": "string", "minLength": 1, "description": "The action of the Owner, as an instruction, for example \"Run `wrangler login` on the Mobius server\"."},
+					"next":       map[string]any{"type": "string", "enum": []string{"review", "fix_round", "implementer"}, "description": "The step after the action. review: a Reviewer reviews the current head again, for a task with a pull request in checks, approval, ready_for_review or needs_human. fix_round: Mobius continues the task as for a Resume, for the same states. implementer: the task is dispatched again, and you get a dispatch event with \"action of the Owner done of\", for a task in dispatched."},
+				},
+				e.markOwnerAction),
+			taskTool(e, c, "clear_owner_action",
+				"Clear an action of the Owner that you marked with mark_owner_action, when the action is not needed any more. Mobius starts the step that you named, dismisses the Inbox item and adds a record to the chat. It refuses a task with no open action that you marked.",
+				map[string]any{
+					"repository": repositoryProperty,
+					"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
+				},
+				e.clearOwnerAction),
 			taskTool(e, c, "approve_pull_request",
 				"Approve the pull request of a task that waits for the Lead approval. Mobius posts the report as a comment on the pull request, sets the Mobius check to success, and adds the \"ready for review\" Inbox item for the Owner. The item links to the comment. It removes the draft status, but the pull request stays a draft while a blocking deployment todo is open.",
 				map[string]any{
@@ -871,6 +887,13 @@ type reasonInput struct {
 type reviewInput struct {
 	Body     string                 `json:"body"`
 	Comments []github.InlineComment `json:"comments"`
+}
+
+type markOwnerActionInput struct {
+	repositoryInput
+	N      int64  `json:"n"`
+	Action string `json:"action"`
+	Next   string `json:"next"`
 }
 
 type ownerActionInput struct {
