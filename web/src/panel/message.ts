@@ -21,6 +21,7 @@ export const Message = defineMessageUnion({
   GotDetailsMessage: { message: Details.Message },
   GotRecurringMessage: { message: Recurring.Message },
   CompletedRequestLogin: {},
+  CompletedNavigate: {},
   CompletedReportTab: {},
   CompletedReportTaskAttached: {},
 });

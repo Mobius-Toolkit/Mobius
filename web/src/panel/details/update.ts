@@ -3,7 +3,15 @@ import { Command } from "foldkit";
 import * as Update from "foldkit/update";
 import { OutMessage as SettingOutMessage } from "@/setting/message";
 import { init as initSetting, update as updateSetting } from "@/setting/update";
-import { CloseWorkstream, FetchClosure, FetchDetails, FetchRoles, SetEvergreen } from "./commands";
+import {
+  CloseWorkstream,
+  FetchClosure,
+  FetchDetails,
+  FetchMcpServers,
+  FetchRoles,
+  SetEvergreen,
+  SetMcpServers,
+} from "./commands";
 import { Message, OutMessage, toGotSettingMessage } from "./message";
 import { sessionTitle, type Model, type Session } from "./model";
 
@@ -15,7 +23,11 @@ const workstream = (model: Model) => ({
   number: model.number,
 });
 
-export const reload = (model: Model) => [FetchDetails(workstream(model)), FetchRoles()];
+export const reload = (model: Model) => [
+  FetchDetails(workstream(model)),
+  FetchRoles(),
+  FetchMcpServers({ organization: model.owner }),
+];
 
 export const refresh = (model: Model): Update.Return<Model, Message> => ({
   model,
@@ -106,14 +118,70 @@ function openSheet(model: Model, session: Session): UpdateReturn {
   };
 }
 
+function openMcpSheet(model: Model): UpdateReturn {
+  if (Option.isNone(model.details) || Option.isNone(model.mcpServers)) {
+    return { model };
+  }
+  return {
+    model: {
+      ...model,
+      mcpSheet: Option.some({ selected: model.details.value.mcpServers, error: "", saving: false }),
+    },
+  };
+}
+
 export function update(model: Model, message: Message): UpdateReturn {
   return Message.match<UpdateReturn>(message, {
     DetailsLoaded: ({ details }) => ({ model: { ...model, details: Option.some(details) } }),
     RolesLoaded: ({ roles }) => ({ model: { ...model, roles: Option.some(roles) } }),
+    McpServersLoaded: ({ servers }) => ({ model: { ...model, mcpServers: Option.some(servers) } }),
     LoadFailed: ({ error }) => ({ model: { ...model, error } }),
     LoginRequired: () => ({
-      model: { ...model, evergreenBusy: false },
+      model: {
+        ...model,
+        evergreenBusy: false,
+        mcpSheet: Option.map(model.mcpSheet, (sheet) => ({ ...sheet, saving: false })),
+      },
       outMessage: OutMessage.LoginRequired(),
+    }),
+    ClickedChangeMcpServers: () => openMcpSheet(model),
+    ToggledMcpServer: ({ id }) => ({
+      model: {
+        ...model,
+        mcpSheet: Option.map(model.mcpSheet, (sheet) => ({
+          ...sheet,
+          selected: sheet.selected.includes(id)
+            ? sheet.selected.filter((other) => other !== id)
+            : [...sheet.selected, id],
+        })),
+      },
+    }),
+    ClickedSaveMcpServers: () =>
+      Option.match(model.mcpSheet, {
+        onNone: () => ({ model }),
+        onSome: (sheet) => ({
+          model: { ...model, mcpSheet: Option.some({ ...sheet, saving: true, error: "" }) },
+          commands: [SetMcpServers({ ...workstream(model), ids: sheet.selected })],
+        }),
+      }),
+    McpServersSaved: ({ ids }) => ({
+      model: {
+        ...model,
+        mcpSheet: Option.none(),
+        details: Option.map(model.details, (details) => ({ ...details, mcpServers: [...ids] })),
+      },
+    }),
+    McpServersFailed: ({ error }) => ({
+      model: {
+        ...model,
+        mcpSheet: Option.map(model.mcpSheet, (sheet) => ({ ...sheet, saving: false, error })),
+      },
+    }),
+    ClosedMcpServers: () => ({ model: { ...model, mcpSheet: Option.none() } }),
+    CompletedFocusMcpSheet: () => ({ model }),
+    NavigateTo: ({ path }) => ({
+      model: { ...model, mcpSheet: Option.none() },
+      outMessage: OutMessage.NavigationRequested({ path }),
     }),
     SwitchedEvergreen: ({ on }) => ({
       model: { ...model, evergreenBusy: true, error: "" },
@@ -159,7 +227,9 @@ export function update(model: Model, message: Message): UpdateReturn {
       },
     }),
     DismissedClosure: () => ({ model: { ...model, closure: Option.none() } }),
-    PressedEscape: () => ({ model: { ...model, closure: Option.none() } }),
+    PressedEscape: () => ({
+      model: { ...model, closure: Option.none(), mcpSheet: Option.none() },
+    }),
     CompletedFocusClosure: () => ({ model }),
     GotSettingMessage: ({ message: child }) => foldSetting(model, child),
   });

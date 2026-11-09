@@ -8,7 +8,7 @@ import {
   reload as reloadAgents,
   update as updateAgents,
 } from "./agents/update";
-import { RequestLogin, ReportTab, ReportTaskAttached } from "./commands";
+import { Navigate, RequestLogin, ReportTab, ReportTaskAttached } from "./commands";
 import { OutMessage as DetailsOutMessage } from "./details/message";
 import * as DetailsModel from "./details/model";
 import {
@@ -78,6 +78,9 @@ const foldDetails = Update.foldChild({
   foldOutMessage: (outMessage) =>
     DetailsOutMessage.match<Update.Step<Model, Message>>(outMessage, {
       LoginRequired: () => requestLogin,
+      NavigationRequested:
+        ({ path }) =>
+        (model) => ({ model, commands: [Navigate({ path })] }),
     }),
 });
 
@@ -201,6 +204,7 @@ export function update(model: Model, message: Message): UpdateReturn {
     GotDetailsMessage: ({ message: child }) => foldDetails(model, child),
     GotRecurringMessage: ({ message: child }) => foldRecurring(model, child),
     CompletedRequestLogin: () => ({ model }),
+    CompletedNavigate: () => ({ model }),
     CompletedReportTab: () => ({ model }),
     CompletedReportTaskAttached: () => ({ model }),
   });
