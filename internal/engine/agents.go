@@ -506,7 +506,15 @@ func (a *Agent) startHarness(ctx context.Context) error {
 			return err
 		}
 	}
-	session, err := runner.Start(ctx, a.binding.Harness, a.binding.Context, shortCacheRole(spec.Role), chromeRole(spec.Role, a.binding.Harness), spec.Dir, e.config.DataDir, e.agents.Path, mcp.URL(e.agents.Addr, a.key), ghTokenURL, ghWritesURL, ghMark, a.update)
+	var servers []runner.MCPServer
+	if spec.Role == OperatorRole {
+		selected, err := e.WorkstreamMcpServers(ctx, spec.Repository, spec.Workstream)
+		if err != nil {
+			return err
+		}
+		servers = runnerMcpServers(selected)
+	}
+	session, err := runner.Start(ctx, a.binding.Harness, a.binding.Context, shortCacheRole(spec.Role), chromeRole(spec.Role, a.binding.Harness), spec.Dir, e.config.DataDir, e.agents.Path, mcp.URL(e.agents.Addr, a.key), servers, ghTokenURL, ghWritesURL, ghMark, a.update)
 	if err != nil {
 		return err
 	}

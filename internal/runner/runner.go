@@ -242,14 +242,32 @@ func connect(cmd *exec.Cmd, updates func(json.RawMessage, bool)) (*acp.Connectio
 	return acp.NewConnection(handler(updates, w), w.stdin(stdin), w), nil
 }
 
-// Start starts the agent of harness in cwd with the Mobius MCP server at mcpURL, and opens a session.
-// With an empty mcpURL, the session has no MCP server.
+// Pair is a header or an environment variable of an MCP server. Its value is a secret.
+type Pair struct {
+	Name  string
+	Value string
+}
+
+// MCPServer is an MCP server that a session gets after the Mobius MCP server. A server with a Command is a stdio server
+// with Args and Env. Any other server is an http server with URL and Headers.
+type MCPServer struct {
+	Name    string
+	URL     string
+	Headers []Pair
+	Command string
+	Args    []string
+	Env     []Pair
+}
+
+// Start starts the agent of harness in cwd with the Mobius MCP server at mcpURL, and then the MCP servers of servers in
+// their order, and opens a session.
+// With an empty mcpURL, the session has no Mobius MCP server.
 // It gives the params of each session/update notification to updates, as the agent sent them. The second argument is
 // true when the agent wrote the notification after the response to the last prompt.
 // With chrome true, the session starts Claude Code with the flag --chrome.
 // The gh of the agent gets its token from ghTokenURL, and sends its writes to ghWritesURL. With an empty ghTokenURL, the gh of
 // the agent refuses to run. With an empty ghWritesURL, it sends no write.
-func Start(ctx context.Context, harness config.Harness, contextLimit int, shortCache, chrome bool, cwd, dataDir, path, mcpURL, ghTokenURL, ghWritesURL, ghMark string, updates func(json.RawMessage, bool)) (*Session, error) {
+func Start(ctx context.Context, harness config.Harness, contextLimit int, shortCache, chrome bool, cwd, dataDir, path, mcpURL string, servers []MCPServer, ghTokenURL, ghWritesURL, ghMark string, updates func(json.RawMessage, bool)) (*Session, error) {
 	program := Program(harness)
 	processCtx, stop := context.WithCancel(context.Background())
 	cmd, err := harnessCommand(processCtx, harness, contextLimit, shortCache, cwd, dataDir, path, ghTokenURL, ghWritesURL, ghMark)
@@ -264,12 +282,12 @@ func Start(ctx context.Context, harness config.Harness, contextLimit int, shortC
 		return nil, fmt.Errorf("%s: %w", program, err)
 	}
 	session.conn = conn
-	if err := session.limited(ctx, func(ctx context.Context) error { return session.open(ctx, cwd, mcpURL, chrome) }); err != nil {
+	if err := session.limited(ctx, func(ctx context.Context) error { return session.open(ctx, cwd, mcpURL, servers, chrome) }); err != nil {
 		session.Close()
 		if errors.Is(err, errStartTimeout) {
 			return nil, err
 		}
-		return nil, fmt.Errorf("%s: %w", program, describe(err))
+		return nil, fmt.Errorf("%s: %w", program, withoutSecrets(describe(err), servers))
 	}
 	return session, nil
 }
@@ -336,7 +354,7 @@ func describe(err error) error {
 	return fmt.Errorf("%s %s", requestErr.Message, data)
 }
 
-func (s *Session) open(ctx context.Context, cwd, mcpURL string, chrome bool) error {
+func (s *Session) open(ctx context.Context, cwd, mcpURL string, more []MCPServer, chrome bool) error {
 	initialized, err := acp.SendRequest[acp.InitializeResponse](s.conn, ctx, acp.AgentMethodInitialize, acp.InitializeRequest{ProtocolVersion: acp.ProtocolVersionNumber})
 	if err != nil {
 		return err
@@ -352,6 +370,9 @@ func (s *Session) open(ctx context.Context, cwd, mcpURL string, chrome bool) err
 			Headers: []acp.HttpHeader{},
 		}})
 	}
+	for _, server := range more {
+		servers = append(servers, acpServer(server))
+	}
 	request := acp.NewSessionRequest{Cwd: cwd, McpServers: servers}
 	if chrome {
 		// The adapter gives extraArgs to the SDK, which turns a null value into a flag with no value.
@@ -364,6 +385,40 @@ func (s *Session) open(ctx context.Context, cwd, mcpURL string, chrome bool) err
 	s.id = response.SessionId
 	s.options = response.ConfigOptions
 	return nil
+}
+
+func acpServer(server MCPServer) acp.McpServer {
+	if server.Command != "" {
+		env := []acp.EnvVariable{}
+		for _, pair := range server.Env {
+			env = append(env, acp.EnvVariable{Name: pair.Name, Value: pair.Value})
+		}
+		return acp.McpServer{Stdio: &acp.McpServerStdio{Name: server.Name, Command: server.Command, Args: server.Args, Env: env}}
+	}
+	headers := []acp.HttpHeader{}
+	for _, pair := range server.Headers {
+		headers = append(headers, acp.HttpHeader{Name: pair.Name, Value: pair.Value})
+	}
+	return acp.McpServer{Http: &acp.McpServerHttpInline{Name: server.Name, Url: server.URL, Headers: headers}}
+}
+
+// withoutSecrets gives an error with the text of err, with each header value and each environment value of servers
+// removed. With servers, the text names them by their names.
+func withoutSecrets(err error, servers []MCPServer) error {
+	if len(servers) == 0 {
+		return err
+	}
+	text := err.Error()
+	names := make([]string, 0, len(servers))
+	for _, server := range servers {
+		names = append(names, server.Name)
+		for _, pair := range slices.Concat(server.Headers, server.Env) {
+			if pair.Value != "" {
+				text = strings.ReplaceAll(text, pair.Value, "***")
+			}
+		}
+	}
+	return fmt.Errorf("%s (MCP servers: %s)", text, strings.Join(names, ", "))
 }
 
 // ID gives the ACP session id.
