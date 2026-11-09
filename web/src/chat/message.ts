@@ -6,6 +6,7 @@ import {
   ChatState,
   Draft,
   DraftInboxItem,
+  DraftInboxItemId,
   Images,
   InboxItem,
   PendingAction,
@@ -58,7 +59,7 @@ export const Message = defineMessageUnion({
   CompletedClickAttach: {},
   DraftImageRemoved: { position: Schema.Number },
   DraftInboxItemAdded: { item: DraftInboxItem },
-  DraftInboxItemRemoved: { id: Schema.Number },
+  DraftInboxItemRemoved: { id: DraftInboxItemId },
   SendSubmitted: {},
   CompletedSaveDraft: {},
 

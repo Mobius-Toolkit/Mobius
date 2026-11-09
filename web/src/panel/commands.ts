@@ -12,6 +12,13 @@ export const RequestLogin = Command.define("RequestLogin", {
   ),
 });
 
+export const ReportTaskAttached = Command.define("ReportTaskAttached", {
+  messages: [Message.CompletedReportTaskAttached],
+  execute: Port.emit(ports.outbound.taskAttached, undefined).pipe(
+    Effect.as(Message.CompletedReportTaskAttached()),
+  ),
+});
+
 export const ReportTab = Command.define("ReportTab", {
   args: { tab: Tab },
   messages: [Message.CompletedReportTab],

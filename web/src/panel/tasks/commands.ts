@@ -1,7 +1,9 @@
 import { Effect, Schema } from "effect";
 import { Command } from "foldkit";
 import { getWorkstreamDetails, listTasks, resumeIssue, startIssue, stopIssue } from "@/api/api.gen";
-import { answer, request } from "@/lib/effects";
+import { DraftInboxItem } from "@/chat/schemas";
+import { addDraftInboxItem } from "@/lib/draft";
+import { answer, request, store } from "@/lib/effects";
 import { showNotice } from "@/lib/notice";
 import { Message } from "./message";
 
@@ -80,4 +82,16 @@ export const ChangeIssue = Command.define("ChangeIssue", {
       },
       failed: (error) => Message.ChangeFailed({ key, error }),
     }),
+});
+
+export const AttachTask = Command.define("AttachTask", {
+  args: { key: Schema.String, draftKey: Schema.String, item: DraftInboxItem },
+  messages: [Message.AttachedTask, Message.AttachFailed],
+  execute: ({ key, draftKey, item }) =>
+    store(() => addDraftInboxItem(draftKey, item)).pipe(
+      Effect.as(Message.AttachedTask()),
+      Effect.catchTag("StoreFailed", (error) =>
+        Effect.succeed(Message.AttachFailed({ key, error: error.message })),
+      ),
+    ),
 });
