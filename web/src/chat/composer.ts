@@ -2,6 +2,7 @@ import { Effect, Queue, Schema, Stream } from "effect";
 import type { Attribute, Html, HtmlBuilder } from "foldkit/html";
 import { Mount } from "foldkit";
 import { cn } from "cn";
+import { InboxItemKind } from "@/api/api.gen";
 import { roleName } from "@/lib/actions";
 import { answerDraftKey, chatDraftKey } from "@/lib/draft";
 import { voiceSupported } from "@/lib/voice";
@@ -18,7 +19,7 @@ import {
 } from "@/ui/icons";
 import { textareaClass } from "@/ui/textarea";
 import { Message } from "./message";
-import { type Model, voiceBusy } from "./model";
+import { hasNote, type Model, voiceBusy } from "./model";
 import type { DraftInboxItem, DraftVoice, InboxItem } from "./schemas";
 
 type H = HtmlBuilder<Message>;
@@ -556,18 +557,19 @@ export function renderComposer(h: H, model: Model): Html {
 // Send button.
 export function renderPanelComposer(h: H, model: Model, item: InboxItem): Html {
   const action = item.action;
-  const todo = item.todo;
+  const note = hasNote(item);
   const selected = Object.values(model.selectedOptions).some((options) => options.length > 0);
   const decide = Boolean(action);
   const busy = model.requesting.includes(item.id);
   const holdsVoice = voiceBusy(model.answerVoice);
-  const empty = !model.answerText.trim() && !(todo ? true : !action && selected);
+  const empty = !model.answerText.trim() && !(note ? true : !action && selected);
   const cannotSend = empty || holdsVoice;
   const role = action ? (roleName[action.role] ?? action.role) : "";
-  const label = action ? `Note for the ${role}` : todo ? "Note" : "Your answer";
+  const label = action ? `Note for the ${role}` : note ? "Note" : "Your answer";
+  const sendLabel = item.kind === InboxItemKind.stopped ? "Resume" : "Send";
   const placeholder = action
     ? `Add a note for the ${role} (optional)`
-    : todo
+    : note
       ? "Note (optional)"
       : item.questions.length > 0
         ? "Add a note (optional)"
@@ -624,8 +626,8 @@ export function renderPanelComposer(h: H, model: Model, item: InboxItem): Html {
           h.button(
             [
               h.Type("submit"),
-              h.AriaLabel("Send"),
-              h.Attribute("title", "Send"),
+              h.AriaLabel(sendLabel),
+              h.Attribute("title", sendLabel),
               h.DataAttribute("keep-focus", ""),
               h.Disabled(busy || cannotSend),
               ...(holdsVoice ? [h.DataAttribute("voice-busy", "")] : []),

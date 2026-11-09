@@ -20,6 +20,7 @@ import {
   ResendVoice,
   RunTrayAction,
   ResumeIssue,
+  ResumeStoppedItem,
   SaveDraftImages,
   SaveDraftInboxItems,
   SaveDraftText,
@@ -31,11 +32,21 @@ import {
   ToggleVoice,
   WaitToRetry,
 } from "./commands";
+import { InboxItemKind } from "@/api/api.gen";
 import { answerDraftKey, chatDraftKey } from "@/lib/draft";
+import { issueRef } from "@/lib/notice";
 import { maxImages, tooManyImages } from "@/lib/images";
 import { Message } from "./message";
 type Running = "action" | "dismiss" | "merge";
-import { countsAsUnread, retryDelays, upsert, voiceBusy, type Model, type Waiting } from "./model";
+import {
+  countsAsUnread,
+  hasNote,
+  retryDelays,
+  upsert,
+  voiceBusy,
+  type Model,
+  type Waiting,
+} from "./model";
 import { InboxItem } from "./schemas";
 
 const chatKey = (model: Model) =>
@@ -84,21 +95,42 @@ function answerCommands(
     issue: item.issue,
     voice: model.answerVoice?.state === "ready",
   };
-  return item.todo
-    ? [
-        DoneInboxItem({
-          ...target,
-          name: item.todo.name || item.title,
-          note: text,
-        }),
-      ]
-    : [
-        AnswerInboxItem({
-          ...target,
-          workstream: item.workstream || model.workstream,
-          answer: selectionText(selected, item, text),
-        }),
-      ];
+  if (item.todo) {
+    return [
+      DoneInboxItem({
+        ...target,
+        notice: `Marked the todo ${item.todo.name || item.title} as done`,
+        note: text,
+      }),
+    ];
+  }
+  if (item.kind === InboxItemKind.owner_action) {
+    return [DoneInboxItem({ ...target, notice: "Marked the action as done", note: text })];
+  }
+  if (item.kind === InboxItemKind.stopped) {
+    const notice = `Resumed ${issueRef(target.repository, item.issue, item.workstreamRepository)}`;
+    return [
+      text.trim()
+        ? AnswerInboxItem({ ...target, answer: text, notice })
+        : ResumeStoppedItem({
+            id: target.id,
+            repository: target.repository,
+            issue: target.issue,
+            notice,
+          }),
+    ];
+  }
+  const workstream = item.workstream || model.workstream;
+  return [
+    AnswerInboxItem({
+      ...target,
+      answer: selectionText(selected, item, text),
+      notice:
+        workstream === 0
+          ? "Sent the answer to the Coordinator"
+          : `Sent the answer to the Lead of #${workstream}`,
+    }),
+  ];
 }
 
 function clearedDraft(model: Model): Model {
@@ -1006,7 +1038,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
       if (model.voice.recording) {
         return { model, commands: [StopVoice()] };
       }
-      const empty = !model.answerText.trim() && !hasSelection(model) && !panel.item.todo;
+      const empty = !model.answerText.trim() && !hasSelection(model) && !hasNote(panel.item);
       if (empty || panel.item.action || voiceBusy(model.answerVoice)) {
         return { model };
       }

@@ -928,6 +928,18 @@ export const McpServerKind = {
 } as const;
 
 /**
+ * OAuth is none (no token), connected (a token) or reconnect (the server needs a new connect)
+ */
+export type McpServerOauth = typeof McpServerOauth[keyof typeof McpServerOauth];
+
+
+export const McpServerOauth = {
+  none: 'none',
+  connected: 'connected',
+  reconnect: 'reconnect',
+} as const;
+
+/**
  * McpServer is an MCP server of an organization.
  */
 export interface McpServer {
@@ -945,6 +957,10 @@ export interface McpServer {
   kind: McpServerKind;
   /** Name is the name of the server, unique in the organization */
   name: string;
+  /** OAuth is none (no token), connected (a token) or reconnect (the server needs a new connect) */
+  oauth: McpServerOauth;
+  /** OAuthReason is the reason that the server needs a new connect, and empty when OAuth is not reconnect */
+  oauthReason: string;
   /** URL is the address of an http server, and empty for a stdio server */
   url: string;
 }
@@ -1355,6 +1371,22 @@ export interface ManifestForm {
 export interface EnvelopeManifestForm {
   /** Data is the payload of the response */
   data: ManifestForm;
+}
+
+/**
+ * McpOAuthStart is the start of the OAuth flow of an MCP server.
+ */
+export interface McpOAuthStart {
+  /** URL is the authorization page that the browser of the Owner opens */
+  url: string;
+}
+
+/**
+ * Envelope is the body of each success response.
+ */
+export interface EnvelopeMcpOAuthStart {
+  /** Data is the payload of the response */
+  data: McpOAuthStart;
 }
 
 /**
@@ -2246,6 +2278,24 @@ export interface LoginBody {
 }
 
 /**
+ * McpOAuthClientDocument is the Client ID Metadata Document of Mobius.
+ */
+export interface McpOAuthClientDocument {
+  /** ClientID is the URL of this document */
+  client_id: string;
+  /** ClientName is the name that the authorization page shows */
+  client_name: string;
+  /** GrantTypes are the grant types of Mobius */
+  grant_types: string[];
+  /** RedirectURIs are the callback URLs of Mobius */
+  redirect_uris: string[];
+  /** ResponseTypes are the response types of Mobius */
+  response_types: string[];
+  /** TokenEndpointAuthMethod is none, because Mobius is a public client */
+  token_endpoint_auth_method: string;
+}
+
+/**
  * McpPair is a header or an environment variable that the Owner sends. An empty value keeps the stored value of the same name when the Owner changes a server.
  */
 export interface McpPair {
@@ -2380,6 +2430,13 @@ export interface SetWorkstreamMcpServersBody {
   ids?: number[];
 }
 
+export interface StartMcpOAuthBody {
+  /** ClientID is the client ID that the Owner got from the authorization server, or empty */
+  clientId?: string;
+  /** ClientSecret is the secret of that client, or empty for a public client */
+  clientSecret?: string;
+}
+
 export interface StopChatBody {
   /** Organization is the owner of the repository, or the organization of the Coordinator chat */
   organization?: string;
@@ -2468,6 +2525,17 @@ export type ManifestCallbackParams = {
 export type UserCallbackParams = {
   /** Code is the code that GitHub exchanges for a user token */
   code: string;
+};
+
+export type McpOAuthCallbackParams = {
+  /** Code is the authorization code */
+  code?: string;
+  /** State is the state of the flow */
+  state?: string;
+  /** Iss is the issuer of the authorization server */
+  iss?: string;
+  /** Error is the error code that the authorization server sends when the Owner does not allow the connection */
+  error?: string;
 };
 
 export type ListMemoryVersionsParams = {
@@ -5055,6 +5123,146 @@ export const login = async (loginBody: LoginBody, ): Promise<loginResponse> => {
 
 
 
+export type mcpOAuthCallbackResponse303 = {
+  data: void
+  status: 303
+}
+
+export type mcpOAuthCallbackResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type mcpOAuthCallbackResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type mcpOAuthCallbackResponse403 = {
+  data: ErrorResponse
+  status: 403
+}
+
+export type mcpOAuthCallbackResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type mcpOAuthCallbackResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+;
+export type mcpOAuthCallbackResponseError = (mcpOAuthCallbackResponse303 | mcpOAuthCallbackResponse400 | mcpOAuthCallbackResponse401 | mcpOAuthCallbackResponse403 | mcpOAuthCallbackResponse422 | mcpOAuthCallbackResponse500) & {
+  headers: Headers;
+};
+
+export type mcpOAuthCallbackResponse = (mcpOAuthCallbackResponseError)
+
+export const getMcpOAuthCallbackUrl = (params?: McpOAuthCallbackParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/mcp-oauth/callback?${stringifiedParams}` : `/api/mcp-oauth/callback`
+}
+
+/**
+ * McpOAuthCallback is the page where an authorization server sends the browser after the Owner allows or refuses the connection of an MCP server. It sends the browser to the page of the MCP servers with the result.
+ */
+export const mcpOAuthCallback = async (params?: McpOAuthCallbackParams, ): Promise<mcpOAuthCallbackResponse> => {
+
+  const res = await fetch(getMcpOAuthCallbackUrl(params),
+  {
+
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: mcpOAuthCallbackResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as mcpOAuthCallbackResponse
+}
+
+
+
+export type mcpOAuthClientResponse200 = {
+  data: McpOAuthClientDocument
+  status: 200
+}
+
+export type mcpOAuthClientResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type mcpOAuthClientResponse404 = {
+  data: ErrorResponse
+  status: 404
+}
+
+export type mcpOAuthClientResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type mcpOAuthClientResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type mcpOAuthClientResponseSuccess = (mcpOAuthClientResponse200) & {
+  headers: Headers;
+};
+export type mcpOAuthClientResponseError = (mcpOAuthClientResponse400 | mcpOAuthClientResponse404 | mcpOAuthClientResponse422 | mcpOAuthClientResponse500) & {
+  headers: Headers;
+};
+
+export type mcpOAuthClientResponse = (mcpOAuthClientResponseSuccess | mcpOAuthClientResponseError)
+
+export const getMcpOAuthClientUrl = () => {
+
+
+
+
+  return `/api/mcp-oauth/client`
+}
+
+/**
+ * McpOAuthClient returns the Client ID Metadata Document of Mobius. It needs no device login, because an authorization server reads it. It returns 404 when the config has no ui_url.
+ */
+export const mcpOAuthClient = async ( ): Promise<mcpOAuthClientResponse> => {
+
+  const res = await fetch(getMcpOAuthClientUrl(),
+  {
+
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: mcpOAuthClientResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as mcpOAuthClientResponse
+}
+
+
+
 export type listNeedsHumanResponse200 = {
   data: EnvelopeArrayNeedsHuman
   status: 200
@@ -5467,6 +5675,151 @@ export const deleteMcpServer = async (organization: string,
 
   const data: deleteMcpServerResponse['data'] = body ? JSON.parse(body) : undefined
   return { data, status: res.status, headers: res.headers } as deleteMcpServerResponse
+}
+
+
+
+export type startMcpOAuthResponse200 = {
+  data: EnvelopeMcpOAuthStart
+  status: 200
+}
+
+export type startMcpOAuthResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type startMcpOAuthResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type startMcpOAuthResponse404 = {
+  data: ErrorResponse
+  status: 404
+}
+
+export type startMcpOAuthResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type startMcpOAuthResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type startMcpOAuthResponseSuccess = (startMcpOAuthResponse200) & {
+  headers: Headers;
+};
+export type startMcpOAuthResponseError = (startMcpOAuthResponse400 | startMcpOAuthResponse401 | startMcpOAuthResponse404 | startMcpOAuthResponse422 | startMcpOAuthResponse500) & {
+  headers: Headers;
+};
+
+export type startMcpOAuthResponse = (startMcpOAuthResponseSuccess | startMcpOAuthResponseError)
+
+export const getStartMcpOAuthUrl = (organization: string,
+    id: number,) => {
+
+
+
+
+  return `/api/organizations/${organization}/mcp-servers/${id}/oauth`
+}
+
+/**
+ * StartMcpOAuth starts the OAuth flow of an http MCP server and returns the authorization URL. It returns 404 for an id that is not a server of the organization, and 422 with the reason when the flow cannot start.
+ */
+export const startMcpOAuth = async (organization: string,
+    id: number,
+    startMcpOAuthBody: StartMcpOAuthBody, ): Promise<startMcpOAuthResponse> => {
+
+  const res = await fetch(getStartMcpOAuthUrl(organization,id),
+  {
+
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(startMcpOAuthBody)
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: startMcpOAuthResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as startMcpOAuthResponse
+}
+
+
+
+export type disconnectMcpOAuthResponse204 = {
+  data: void
+  status: 204
+}
+
+export type disconnectMcpOAuthResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type disconnectMcpOAuthResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type disconnectMcpOAuthResponse404 = {
+  data: ErrorResponse
+  status: 404
+}
+
+export type disconnectMcpOAuthResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type disconnectMcpOAuthResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type disconnectMcpOAuthResponseSuccess = (disconnectMcpOAuthResponse204) & {
+  headers: Headers;
+};
+export type disconnectMcpOAuthResponseError = (disconnectMcpOAuthResponse400 | disconnectMcpOAuthResponse401 | disconnectMcpOAuthResponse404 | disconnectMcpOAuthResponse422 | disconnectMcpOAuthResponse500) & {
+  headers: Headers;
+};
+
+export type disconnectMcpOAuthResponse = (disconnectMcpOAuthResponseSuccess | disconnectMcpOAuthResponseError)
+
+export const getDisconnectMcpOAuthUrl = (organization: string,
+    id: number,) => {
+
+
+
+
+  return `/api/organizations/${organization}/mcp-servers/${id}/oauth`
+}
+
+/**
+ * DisconnectMcpOAuth removes the OAuth flow and the tokens of an MCP server. It returns 404 for an id that is not a server of the organization.
+ */
+export const disconnectMcpOAuth = async (organization: string,
+    id: number, ): Promise<disconnectMcpOAuthResponse> => {
+
+  const res = await fetch(getDisconnectMcpOAuthUrl(organization,id),
+  {
+
+    method: 'DELETE'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: disconnectMcpOAuthResponse['data'] = body ? JSON.parse(body) : undefined
+  return { data, status: res.status, headers: res.headers } as disconnectMcpOAuthResponse
 }
 
 
