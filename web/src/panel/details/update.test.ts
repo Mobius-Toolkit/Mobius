@@ -28,6 +28,7 @@ const details: WorkstreamDetails = {
   maintenance: false,
   mcpServers: [],
   openTasks: 2,
+  operator: { harness: "claude-code", model: "opus", effort: "medium", own: false },
   skills: false,
 };
 
