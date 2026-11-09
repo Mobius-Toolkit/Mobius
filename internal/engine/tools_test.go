@@ -854,8 +854,9 @@ func TestStopTaskRemovesMobiusReadyAndTheNextPollsDoNotDispatchTheIssueAgain(t *
 	})
 	waitForPolls(t, fake)
 	reached, release := fake.HoldIssueEvents(shop, 41)
-	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	fake.SetTitle(shop, 41, "Add the plan model")
 	<-reached
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 
 	sendChat(t, server, leadChat, "Stop #41.")
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "stopped" })
