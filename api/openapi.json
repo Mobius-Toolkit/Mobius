@@ -2189,6 +2189,140 @@
         ]
       }
     },
+    "/api/mcp-oauth/callback": {
+      "get": {
+        "description": "McpOAuthCallback is the page where an authorization server sends the browser after the Owner allows or refuses the connection of an MCP server. It sends the browser to the page of the MCP servers with the result.",
+        "operationId": "McpOAuthCallback",
+        "parameters": [
+          {
+            "description": "Code is the authorization code",
+            "in": "query",
+            "name": "code",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "State is the state of the flow",
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Iss is the issuer of the authorization server",
+            "in": "query",
+            "name": "iss",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Error is the error code that the authorization server sends when the Owner does not allow the connection",
+            "in": "query",
+            "name": "error",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "303": {
+            "description": "See Other",
+            "headers": {
+              "Location": {
+                "description": "Location is the page that the browser opens next",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "mcp-servers"
+        ]
+      }
+    },
+    "/api/mcp-oauth/client": {
+      "get": {
+        "description": "McpOAuthClient returns the Client ID Metadata Document of Mobius. It needs no device login, because an authorization server reads it. It returns 404 when the config has no ui_url.",
+        "operationId": "McpOAuthClient",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/McpOAuthClientDocument"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "tags": [
+          "mcp-servers"
+        ]
+      }
+    },
     "/api/needs-human": {
       "get": {
         "description": "ListNeedsHuman returns the open issues of trusted authors with mobius:needs-human or mobius:question in the trees of all Workstreams, from the local copy of GitHub, by repository, Workstream and number.",
@@ -2506,6 +2640,157 @@
       "delete": {
         "description": "DeleteMcpServer deletes an MCP server of the organization and removes it from the selection of each Workstream. It returns 404 for an id that is not a server of the organization.",
         "operationId": "DeleteMcpServer",
+        "parameters": [
+          {
+            "description": "Organization is the owner of the repositories",
+            "in": "path",
+            "name": "organization",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "ID is the id of the server",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "mcp-servers"
+        ]
+      }
+    },
+    "/api/organizations/{organization}/mcp-servers/{id}/oauth": {
+      "post": {
+        "description": "StartMcpOAuth starts the OAuth flow of an http MCP server and returns the authorization URL. It returns 404 for an id that is not a server of the organization, and 422 with the reason when the flow cannot start.",
+        "operationId": "StartMcpOAuth",
+        "parameters": [
+          {
+            "description": "Organization is the owner of the repositories",
+            "in": "path",
+            "name": "organization",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "ID is the id of the server",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartMcpOAuthBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_McpOAuthStart"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "mcp-servers"
+        ]
+      },
+      "delete": {
+        "description": "DisconnectMcpOAuth removes the OAuth flow and the tokens of an MCP server. It returns 404 for an id that is not a server of the organization.",
+        "operationId": "DisconnectMcpOAuth",
         "parameters": [
           {
             "description": "Organization is the owner of the repositories",
@@ -8186,6 +8471,20 @@
         ],
         "description": "Envelope is the body of each success response."
       },
+      "Envelope_McpOAuthStart": {
+        "type": "object",
+        "title": "Envelope_McpOAuthStart",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/McpOAuthStart",
+            "description": "Data is the payload of the response"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "description": "Envelope is the body of each success response."
+      },
       "Envelope_McpServer": {
         "type": "object",
         "title": "Envelope_McpServer",
@@ -9306,6 +9605,71 @@
         ],
         "description": "ManifestForm is the form that the browser posts to GitHub to create a Mobius App."
       },
+      "McpOAuthClientDocument": {
+        "type": "object",
+        "title": "McpOAuthClientDocument",
+        "properties": {
+          "client_id": {
+            "type": "string",
+            "description": "ClientID is the URL of this document"
+          },
+          "client_name": {
+            "type": "string",
+            "description": "ClientName is the name that the authorization page shows"
+          },
+          "grant_types": {
+            "type": "array",
+            "title": "[]string",
+            "description": "GrantTypes are the grant types of Mobius",
+            "items": {
+              "type": "string"
+            }
+          },
+          "redirect_uris": {
+            "type": "array",
+            "title": "[]string",
+            "description": "RedirectURIs are the callback URLs of Mobius",
+            "items": {
+              "type": "string"
+            }
+          },
+          "response_types": {
+            "type": "array",
+            "title": "[]string",
+            "description": "ResponseTypes are the response types of Mobius",
+            "items": {
+              "type": "string"
+            }
+          },
+          "token_endpoint_auth_method": {
+            "type": "string",
+            "description": "TokenEndpointAuthMethod is none, because Mobius is a public client"
+          }
+        },
+        "required": [
+          "client_id",
+          "client_name",
+          "redirect_uris",
+          "grant_types",
+          "response_types",
+          "token_endpoint_auth_method"
+        ],
+        "description": "McpOAuthClientDocument is the Client ID Metadata Document of Mobius."
+      },
+      "McpOAuthStart": {
+        "type": "object",
+        "title": "McpOAuthStart",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "URL is the authorization page that the browser of the Owner opens"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "description": "McpOAuthStart is the start of the OAuth flow of an MCP server."
+      },
       "McpPair": {
         "type": "object",
         "title": "McpPair",
@@ -9383,6 +9747,19 @@
             "type": "string",
             "description": "Name is the name of the server, unique in the organization"
           },
+          "oauth": {
+            "type": "string",
+            "description": "OAuth is none (no token), connected (a token) or reconnect (the server needs a new connect)",
+            "enum": [
+              "none",
+              "connected",
+              "reconnect"
+            ]
+          },
+          "oauthReason": {
+            "type": "string",
+            "description": "OAuthReason is the reason that the server needs a new connect, and empty when OAuth is not reconnect"
+          },
           "url": {
             "type": "string",
             "description": "URL is the address of an http server, and empty for a stdio server"
@@ -9396,7 +9773,9 @@
           "headers",
           "command",
           "args",
-          "env"
+          "env",
+          "oauth",
+          "oauthReason"
         ],
         "description": "McpServer is an MCP server of an organization."
       },
@@ -10668,6 +11047,20 @@
           "used"
         ],
         "description": "SkillUsageRow is the count of one skill of one source in one group."
+      },
+      "StartMcpOAuthBody": {
+        "type": "object",
+        "title": "StartMcpOAuthBody",
+        "properties": {
+          "clientId": {
+            "type": "string",
+            "description": "ClientID is the client ID that the Owner got from the authorization server, or empty"
+          },
+          "clientSecret": {
+            "type": "string",
+            "description": "ClientSecret is the secret of that client, or empty for a public client"
+          }
+        }
       },
       "StopChatBody": {
         "type": "object",
