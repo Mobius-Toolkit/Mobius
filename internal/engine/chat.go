@@ -36,8 +36,6 @@ var (
 )
 
 const (
-	// savePrompt is the last prompt of a Lead session.
-	savePrompt = "Save in the Workstream memory what the next session needs."
 	// historySize is the number of chat messages in the history of a first prompt.
 	historySize = 20
 	// maxCrashes is the number of new sessions that a chat starts after crashes. After that, the item of the crash
@@ -934,7 +932,7 @@ func (e *Engine) runChat(c *chat) {
 
 // moveChat prepares the next session of the chat after the session ended with the reason "moved". The item of the
 // turn that ran, or else the first queued item, is the first item of the next session, and moveChat gives true. The
-// turn of a moved session with no item, the memory save turn or the wait turn for a background task, is lost: with no
+// turn of a moved session with no item, the wait turn for a background task, is lost: with no
 // queued item the chat closes as at an idle end, and moveChat gives false.
 func (e *Engine) moveChat(c *chat) bool {
 	e.chatsMu.Lock()
@@ -990,7 +988,7 @@ func (e *Engine) finishChat(c *chat, failure string) {
 
 // failChat keeps each message of the chat that the agent did not get after the last failed try, adds one Inbox item
 // for each, and ends the chat. It sets no stop time: the message waits for the next try. A failed event of a turn
-// counts as delivered. A failure with no item of a turn, for example the save turn of an idle close, takes no event:
+// counts as delivered. A failure with no item of a turn, for example the wait turn for a background task, takes no event:
 // the ready events of the Workstream wait for a new session.
 func (e *Engine) failChat(c *chat, failure string, failedEvent bool) {
 	ctx := context.Background()
@@ -1164,12 +1162,6 @@ func (e *Engine) chat(c *chat, a *Agent, first item) error {
 		e.chatsMu.Lock()
 		c.closing = true
 		e.chatsMu.Unlock()
-		if c.key.Workstream != 0 {
-			a.setAuthor("")
-			if err := e.turn(c, a, savePrompt, nil, false); err != nil {
-				return err
-			}
-		}
 		e.chatsMu.Lock()
 		closed := len(c.queue) == 0
 		if closed && e.chats[c.key] == c {

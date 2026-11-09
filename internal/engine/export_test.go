@@ -175,14 +175,6 @@ func (e *Engine) Poll(ctx context.Context) {
 	e.poll(ctx)
 }
 
-// Closing tells if the idle timeout started the close of the chat session.
-func (e *Engine) Closing(key ChatKey) bool {
-	e.chatsMu.Lock()
-	defer e.chatsMu.Unlock()
-	c, ok := e.chats[key]
-	return ok && c.closing
-}
-
 // BackgroundTurnRuns tells if the wait turn for the background tasks of the chat key runs.
 func (e *Engine) BackgroundTurnRuns(key ChatKey) bool {
 	e.chatsMu.Lock()

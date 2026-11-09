@@ -124,7 +124,7 @@ func TestAQuietEventWithNoLeadSessionWaitsForTheFirstPromptOfTheNextSession(t *t
 	waitForNoUndeliveredEvents(t, server)
 }
 
-func TestTheSavePromptOfAnIdleCloseTakesNoQuietEvent(t *testing.T) {
+func TestTheIdleCloseOfALeadTakesNoQuietEvent(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectWith(t, fake, "[[prompts]]\nwhen = \"Plan the next step\"\nreply = [\"Next answer\"]\n\n[[prompts]]\nreply = [\"Seen\"]\n", func(cfg *config.Config) {
 		cfg.LeadIdleTimeout = 3 * time.Second
@@ -139,14 +139,11 @@ func TestTheSavePromptOfAnIdleCloseTakesNoQuietEvent(t *testing.T) {
 
 	ended := endedChatSession(t, server, 0)
 	prompts := promptTexts(t, server, ended.ID)
-	if got := prompts[len(prompts)-1]; got != "Save in the Workstream memory what the next session needs." {
-		t.Errorf("the last prompt is not the save prompt: %q", got)
-	}
-	if len(prompts) != 2 {
+	if len(prompts) != 1 {
 		t.Errorf("prompts = %q", prompts)
 	}
 	if ready := undelivered(t, server); len(ready) != 1 || ready[0].Kind != "autopilot" {
-		t.Fatalf("the save prompt took the quiet event: %+v", ready)
+		t.Fatalf("the idle close took the quiet event: %+v", ready)
 	}
 
 	sendChat(t, server, leadChat, "Plan the next step")

@@ -344,7 +344,7 @@ func TestTheTranscriptFoldsTheFirstPromptAndKeepsTheOthersOpen(t *testing.T) {
 	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"Hello\"]\n")
 	first := "You are the Lead of one Workstream. The Owner talks to you in this chat.\n\n# Owner message\n\nRead the work"
 
-	session := run(t, server, leadSpec(t), first, "Save in the Workstream memory what the next session needs.")
+	session := run(t, server, leadSpec(t), first, "Name the next step.")
 
 	var prompts []engine.Line
 	var message engine.Line
@@ -362,7 +362,7 @@ func TestTheTranscriptFoldsTheFirstPromptAndKeepsTheOthersOpen(t *testing.T) {
 	if prompts[0].Text != "You are the Lead of one Workstream. The Owner talks to you in this chat.…" || !prompts[0].Folded || prompts[0].Body != first {
 		t.Errorf("first prompt = %+v", prompts[0])
 	}
-	if prompts[1].Text != "Save in the Workstream memory what the next session needs." || prompts[1].Folded || prompts[1].Body != "" {
+	if prompts[1].Text != "Name the next step." || prompts[1].Folded || prompts[1].Body != "" {
 		t.Errorf("second prompt = %+v", prompts[1])
 	}
 	if message.Kind != "update" || message.Body != "Hello" {

@@ -191,9 +191,6 @@ reply = ["A proposal."]
 		t.Fatalf("end = %s", end)
 	}
 
-	if !slices.Contains(leadPrompts(t, server), "Save in the Workstream memory what the next session needs.") {
-		t.Errorf("prompts = %q", leadPrompts(t, server))
-	}
 	sessions := chatSessions(t, server, leadChat, engine.LeadRole)
 	if len(sessions) != 1 || !sessions[0].EndedAt.Valid {
 		t.Fatalf("sessions = %+v", sessions)

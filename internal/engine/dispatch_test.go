@@ -124,7 +124,7 @@ func TestTheFirstPromptHasTheContextAndEachLaterTurnHasOneEvent(t *testing.T) {
 		t.Errorf("end reason = %s", session.EndReason.String)
 	}
 	prompts := promptTexts(t, server, session.ID)
-	if len(prompts) != 3 {
+	if len(prompts) != 2 {
 		t.Fatalf("prompts = %q", prompts)
 	}
 	inOrder(t, prompts[0],
@@ -140,9 +140,6 @@ func TestTheFirstPromptHasTheContextAndEachLaterTurnHasOneEvent(t *testing.T) {
 	}
 	if !strings.HasPrefix(prompts[1], "# Event\n\n") || !strings.Contains(prompts[1], ` comment on #41 "Add plan model" by @owner:`+"\n\n> Round down.\n\nThe state of the task of #41 is dispatched.") || strings.Contains(prompts[1], "# Brief") {
 		t.Errorf("second prompt = %s", prompts[1])
-	}
-	if prompts[2] != "Save in the Workstream memory what the next session needs." {
-		t.Errorf("last prompt = %s", prompts[2])
 	}
 }
 
