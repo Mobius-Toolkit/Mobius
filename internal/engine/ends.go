@@ -298,11 +298,11 @@ func removalActor(events []*gh.IssueEvent, since time.Time) string {
 }
 
 // neededLabel gives the Mobius state label that the issue of the live task needs: mobius:needs-human for needs_human,
-// mobius:review for ready_for_review and for a Judge that runs from it, none for asked, answered and stopped, and
+// mobius:review for ready_for_review and for a Judge that runs from it, none for asked, answered, owner_action and stopped, and
 // mobius:working else. A Judge that runs from needs_human needs none.
 func neededLabel(task store.Task) string {
 	switch {
-	case judgesHuman(task), slices.Contains([]string{"stopped", "asked", "answered"}, task.State):
+	case judgesHuman(task), slices.Contains([]string{"stopped", "asked", "answered", "owner_action"}, task.State):
 		return ""
 	case task.State == "needs_human":
 		return needsHumanLabel
@@ -540,7 +540,7 @@ func (e *Engine) stopTask(ctx context.Context, repository github.Repository, tas
 	if task.State == "working" && task.Worker.String == JudgeRole {
 		from = task.WorkerInput.String
 	}
-	return errors.Join(e.dismissReadyForReview(ctx, task, from), e.finishStop(ctx, repository, task, summary))
+	return errors.Join(e.dismissReadyForReview(ctx, task, from), e.closeOwnerActions(ctx, task), e.finishStop(ctx, repository, task, summary))
 }
 
 func (e *Engine) finishStop(ctx context.Context, repository github.Repository, task store.Task, summary string) error {
@@ -606,6 +606,9 @@ func (e *Engine) endTask(ctx context.Context, repository github.Repository, task
 	e.closeKept(task.ID)
 	e.publish(Change{Workstreams: true})
 	if err := e.dismissIssueItems(ctx, task.Repository, task.Issue, readyForReviewKind); err != nil {
+		return err
+	}
+	if err := e.closeOwnerActions(ctx, task); err != nil {
 		return err
 	}
 	if err := e.stopWorkersOf(ctx, task); err != nil {

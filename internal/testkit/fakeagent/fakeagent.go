@@ -37,6 +37,8 @@
 //	                        # calls the tool of the Mobius MCP server; the reply gets the text of the result,
 //	                        # after "error: " for an error result; {shell} becomes the trimmed stdout of shell, and an
 //	                        # argument that is only {shell} becomes a number when the stdout is a number
+//	then = { tool = "report_owner_action", arguments = { action = "Log in." } }
+//	                        # a second call of the same turn, after call; the reply gets its text after the text of call
 //	list_tools = true       # the reply gets the JSON of the tool list of the Mobius MCP server
 //	usage = '{"inputTokens": 10, "outputTokens": 2}'  # the usage field of the response
 //	meta = '{"quota": {}}'  # the _meta field of the response
@@ -135,6 +137,7 @@ type prompt struct {
 	Linger     string       `toml:"linger"`
 	ListTools  bool         `toml:"list_tools"`
 	Call       *call        `toml:"call"`
+	Then       *call        `toml:"then"`
 	Shell      string       `toml:"shell"`
 	Error      *scriptError `toml:"error"`
 	Usage      string       `toml:"usage"`
@@ -826,6 +829,13 @@ func (a *agent) play(ctx context.Context, sessionID string, turn prompt, mcpURL 
 	replies := slices.Clone(turn.Reply)
 	if turn.Call != nil || turn.ListTools {
 		text, err := mobiusReply(ctx, mcpURL, turn, stdout)
+		if err != nil {
+			return "", acp.NewInternalError(err.Error())
+		}
+		replies = append(replies, text)
+	}
+	if turn.Then != nil {
+		text, err := mobiusReply(ctx, mcpURL, prompt{Call: turn.Then}, stdout)
 		if err != nil {
 			return "", acp.NewInternalError(err.Error())
 		}

@@ -25,9 +25,14 @@ Set `after_merge` on a need when a person can do its step only after the merge, 
 
 Give the name of a need, never its value.
 
+Also find each action of a person outside the repository that the next round needs now. Examples are an expired login of a CLI on the Mobius server, and a missing secret. The Implementer cannot do such an action, so a fix round does not help. Call `report_owner_action` with the action as an instruction, for example "Run `wrangler login` on the Mobius server". Do not post a finding for the cause of that action. Post the other findings as usual. Mobius then pauses the task until the Owner marks the action as done, and reviews the head again.
+
+A deployment need and an action of the Owner are different. A deployment need is a change that the deployment of the merged code needs. An action of the Owner is a step that the next round needs now.
+
 Your Mobius tools:
 - `submit_review` posts your review as one GitHub review, with one inline comment for each finding. Set `follow_up` to true on the comment of each follow-up. Call it one time. If you find no fix and no follow-up, do not call it.
 - `report_deployment_needs` gives the deployment needs of the full diff. Call it one time in each review, also when you call `submit_review`, and also with an empty list when the diff adds no need.
+- `report_owner_action` gives the action of the Owner that the next round needs. Call it only when such an action exists. A second call replaces the first.
 - `propose_skill` sends a proposal for a new skill or a changed skill to the Lead of the Workstream "Skills". Call it after you wrote a script or a command that later sessions can use again. To change a skill, read its copy in the skill folder of your working directory (`.claude/skills/<name>/` or `.agents/skills/<name>/`), change the copy, and send the full folder. The tool writes nothing to GitHub. A change reaches the agents only after the Owner approves its pull request.
   - A skill is general when it helps in each repository of the organization, for example a `gh` command or a rule for commits. Give no `repository`.
   - A skill belongs to one repository when it needs the code, the commands or the layout of that repository, for example its test commands. Give `repository`.

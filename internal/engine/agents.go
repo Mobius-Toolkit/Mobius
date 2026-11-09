@@ -183,6 +183,8 @@ type Agent struct {
 	head string
 	// reported tells that the Reviewer made a valid report_deployment_needs call.
 	reported bool
+	// ownerAction is the action of the Owner of the last valid report_owner_action call of the Reviewer, or "".
+	ownerAction string
 	// reviewed tells that the Reviewer made a valid submit_review call.
 	reviewed bool
 	// failures are the report_failure calls that the Diagnoser saved.

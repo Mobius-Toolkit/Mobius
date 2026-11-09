@@ -26,7 +26,7 @@ type InboxItem struct {
 	// for the approval of the Owner, and todo for a deployment need of a pull request, and access check for a Harness that
 	// has no access to the model of a Role, and tool upgrade for an automatic upgrade of an npm package of a Harness that
 	// failed
-	Kind string `gork:"kind" validate:"oneof=question 'Lead failed' 'ready for review' stopped lost 'full disk' approval todo 'access check' 'tool upgrade'"`
+	Kind string `gork:"kind" validate:"oneof=question 'Lead failed' 'ready for review' stopped lost 'full disk' approval todo 'access check' 'tool upgrade' 'owner action'"`
 	// Organization is the owner of the repository
 	Organization string `gork:"organization"`
 	// Repository is the repository as "owner/name"
@@ -280,8 +280,10 @@ type DoneInboxItemResponse struct {
 
 // DoneInboxItem marks the todo of an open todo Inbox item as done, with the note, and removes the item from the Inbox.
 // When the todo was the last blocking todo of a task, Mobius makes the pull request ready for review, and with a merge
-// level of Autopilot it approves the pull request for the merge. It returns the changed item. It returns 404 for an unknown item and 409 for an item that is
-// not an open todo.
+// level of Autopilot it approves the pull request for the merge. For an open owner action item, it marks the action of
+// the Owner as done, and Mobius reviews the head of the pull request of the task again. It returns the changed item. It
+// returns 404 for an unknown item and 409 for an item that is not an open todo or an open owner action item, and for an
+// owner action item whose task does not wait for the action.
 func (h *handlers) DoneInboxItem(ctx context.Context, req DoneInboxItemRequest) (*DoneInboxItemResponse, error) {
 	item, err := h.engine.DoneInboxItem(ctx, req.Path.ID, req.Body.Note)
 	if errors.Is(err, engine.ErrNoInboxItem) {
