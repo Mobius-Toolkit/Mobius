@@ -132,8 +132,7 @@ test("with no server in the organization, the sheet shows No MCP servers. and th
   await expect(sheet(page).getByRole("checkbox")).toHaveCount(0);
   const link = sheet(page).getByRole("link", { name: "Add a server" });
   await expect(link).toHaveAttribute("href", "/settings/mcp-servers");
-  // The route of the page of the servers does not exist yet, so the router leaves the Workstream for another page. The
-  // marker proves that the host router opened it with no reload of the page.
+  // The marker stays only when the host router opens the page with no reload.
   await page.evaluate(() => Object.assign(window, { navigationMarker: true }));
   await link.click();
   await expect(sheet(page)).toBeHidden();

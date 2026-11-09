@@ -39,7 +39,6 @@ export const Sheet = Schema.Struct({ session: Session, setting: Setting.Model })
 
 export type Sheet = typeof Sheet.Type;
 
-// The sheet of the MCP servers of the Workstream. selected has the ids that the boxes check.
 export const McpSheet = Schema.Struct({
   selected: Schema.Array(Schema.Number),
   error: Schema.String,
