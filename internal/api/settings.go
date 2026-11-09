@@ -115,6 +115,30 @@ func (h *handlers) ClearWorkstreamLead(ctx context.Context, req ClearWorkstreamL
 	return h.clearWorkstream(ctx, "lead", req.Path)
 }
 
+// SetWorkstreamOperatorRequest is the request of SetWorkstreamOperator.
+type SetWorkstreamOperatorRequest struct {
+	Path IssuePath
+	Body IssueSetting
+}
+
+// ClearWorkstreamOperatorRequest is the request of ClearWorkstreamOperator.
+type ClearWorkstreamOperatorRequest struct {
+	Path IssuePath
+}
+
+// SetWorkstreamOperator sets the Harness, the model and the effort of the Operator of a Workstream. The next Operator
+// session uses them. It returns 409 when the issue is not an open Workstream, and 422 with the reason when the values
+// fail a check.
+func (h *handlers) SetWorkstreamOperator(ctx context.Context, req SetWorkstreamOperatorRequest) error {
+	return h.setWorkstream(ctx, "operator", req.Path, req.Body)
+}
+
+// ClearWorkstreamOperator removes the Operator setting of a Workstream. It returns 409 when the issue is not an open
+// Workstream.
+func (h *handlers) ClearWorkstreamOperator(ctx context.Context, req ClearWorkstreamOperatorRequest) error {
+	return h.clearWorkstream(ctx, "operator", req.Path)
+}
+
 func (h *handlers) set(ctx context.Context, role string, path IssuePath, setting IssueSetting) error {
 	err := h.engine.SetSetting(ctx, role, path.Owner+"/"+path.Name, path.Number, config.Harness(setting.Harness), setting.Model, setting.Effort)
 	return roleError(err)
