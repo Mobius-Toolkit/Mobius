@@ -964,6 +964,9 @@ func (e *Engine) createIssue(ctx context.Context, c caller, repository github.Re
 		}
 	}
 	setting := input.Implementer
+	if setting != nil && *setting == (implementerSettingInput{}) {
+		setting = nil
+	}
 	if setting != nil {
 		spec := Spec{Role: ImplementerRole, Repository: repository.FullName, WorkstreamRepository: workstream.FullName, Workstream: c.workstream}
 		if err := e.checkNewTaskBinding(ctx, spec, *setting); err != nil {
