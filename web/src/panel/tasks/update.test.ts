@@ -109,6 +109,30 @@ describe("Start, Resume and Stop of a task", () => {
     );
   });
 
+  it("starts a task with open blockers as a start when unblocked", () => {
+    const blocked = line(71, {
+      blockedBy: [{ number: 70, repository: null, workstreamTitle: null }],
+    });
+    const blockedKey = rowKey(blocked);
+
+    story(
+      update,
+      given(createModel({ lines: Option.some([blocked]) })),
+      message(Message.ClickedStart({ key: blockedKey, line: blocked })),
+      StoryCommand.expectExact(
+        ChangeIssue({
+          key: blockedKey,
+          action: "start-blocked",
+          owner: "owner",
+          name: "shop",
+          number: 71,
+          reference: "#71",
+        }),
+      ),
+      StoryCommand.resolve(ChangeIssue, Message.ChangedIssue({ key: blockedKey })),
+    );
+  });
+
   it("resumes a task that needs a human, and names the repository of a task in another repository", () => {
     const resumed = line(7, {
       state: "needs-human",
