@@ -67,6 +67,14 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
         upgradeError: Option.isSome(model.openTool) ? error : "",
       },
     }),
+    FixLoginRequired: () => ({
+      model: { ...model, fixing: false },
+      commands: [RequestLogin(), FetchCheckup({ organization: model.organization })],
+    }),
+    UpgradeLoginRequired: () => ({
+      model: { ...model, upgrading: false, togglingAuto: false },
+      commands: [RequestLogin()],
+    }),
     ClickedFix: () =>
       model.fixing
         ? { model }

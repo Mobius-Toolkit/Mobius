@@ -55,12 +55,12 @@ export const FetchCheckup = Command.define("FetchCheckup", {
 
 export const UpgradeTool = Command.define("UpgradeTool", {
   args: { tool: ToolCheck },
-  messages: [Message.ToolsUpgraded, Message.LoginRequired, Message.UpgradeFailed],
+  messages: [Message.ToolsUpgraded, Message.UpgradeLoginRequired, Message.UpgradeFailed],
   execute: ({ tool }) =>
     request(() => upgradeCheckupTool({ package: tool.package })).pipe(
       Effect.map((res) => {
         if (res.status === 401) {
-          return Message.LoginRequired();
+          return Message.UpgradeLoginRequired();
         }
         if (res.status !== 200) {
           return Message.UpgradeFailed({ error: res.data.error });
@@ -76,12 +76,12 @@ export const UpgradeTool = Command.define("UpgradeTool", {
 
 export const SetAutoUpgrade = Command.define("SetAutoUpgrade", {
   args: { tool: ToolCheck, on: Schema.Boolean },
-  messages: [Message.ToolsUpgraded, Message.LoginRequired, Message.UpgradeFailed],
+  messages: [Message.ToolsUpgraded, Message.UpgradeLoginRequired, Message.UpgradeFailed],
   execute: ({ tool, on }) =>
     request(() => setToolAutoUpgrade({ package: tool.package, on })).pipe(
       Effect.map((res) => {
         if (res.status === 401) {
-          return Message.LoginRequired();
+          return Message.UpgradeLoginRequired();
         }
         if (res.status !== 200) {
           return Message.UpgradeFailed({ error: res.data.error });
@@ -97,11 +97,11 @@ export const SetAutoUpgrade = Command.define("SetAutoUpgrade", {
 
 export const FixLabels = Command.define("FixLabels", {
   args: { organization: Schema.String },
-  messages: [Message.LabelsFixed, Message.LoginRequired, Message.LabelFixFailed],
+  messages: [Message.LabelsFixed, Message.FixLoginRequired, Message.LabelFixFailed],
   execute: ({ organization }) =>
     answer(() => fixLabels({ organization }), {
       done: Message.LabelsFixed,
-      login: Message.LoginRequired,
+      login: Message.FixLoginRequired,
       failed: (error) => Message.LabelFixFailed({ error }),
     }),
 });

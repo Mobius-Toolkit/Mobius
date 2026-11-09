@@ -217,12 +217,31 @@ describe("the tools", () => {
     );
   });
 
-  it("asks for the login when an upgrade gets a 401", () => {
+  it("asks for the login when an upgrade gets a 401, and stops the pending state", () => {
     story(
       update,
-      given(createModel({ tools: Option.some([tool()]) })),
+      given(createModel({ tools: Option.some([tool()]), openTool: Option.some("dsh") })),
       message(Message.ClickedUpgrade({ tool: tool() })),
-      StoryCommand.resolve(UpgradeTool, Message.LoginRequired()),
+      StoryCommand.resolve(UpgradeTool, Message.UpgradeLoginRequired()),
+      model((m) => {
+        expect(m.upgrading).toBe(false);
+        expect(m.togglingAuto).toBe(false);
+      }),
+      StoryCommand.expectExact(RequestLogin()),
+      StoryCommand.resolve(RequestLogin, Message.CompletedRequestLogin()),
+    );
+  });
+
+  it("asks for the login when an Auto-upgrade change gets a 401, and stops the pending state", () => {
+    story(
+      update,
+      given(createModel({ tools: Option.some([tool()]), openTool: Option.some("dsh") })),
+      message(Message.ClickedAutoUpgrade({ tool: tool(), on: true })),
+      StoryCommand.resolve(SetAutoUpgrade, Message.UpgradeLoginRequired()),
+      model((m) => {
+        expect(m.upgrading).toBe(false);
+        expect(m.togglingAuto).toBe(false);
+      }),
       StoryCommand.expectExact(RequestLogin()),
       StoryCommand.resolve(RequestLogin, Message.CompletedRequestLogin()),
     );
@@ -271,6 +290,31 @@ describe("the labels", () => {
         Message.CheckupLoaded({ organization: "plants", checkup: checkup() }),
       ),
       StoryCommand.expectExact(ReportFixButton({ button: null })),
+      reportFixButton,
+    );
+  });
+
+  it("asks for the login when the fix gets a 401, stops the pending state, and reads the status again", () => {
+    story(
+      update,
+      given(labelsModel()),
+      message(Message.ClickedFix()),
+      reportFixButton,
+      StoryCommand.resolve(FixLabels, Message.FixLoginRequired()),
+      model((m) => {
+        expect(m.fixing).toBe(false);
+        expect(fixButtonOf(m)).toEqual({ text: "Fix labels", pending: false });
+      }),
+      StoryCommand.expectExact(
+        RequestLogin(),
+        FetchCheckup({ organization: "plants" }),
+        ReportFixButton({ button: { text: "Fix labels", pending: false } }),
+      ),
+      StoryCommand.resolve(RequestLogin, Message.CompletedRequestLogin()),
+      StoryCommand.resolve(
+        FetchCheckup,
+        Message.CheckupLoaded({ organization: "plants", checkup: checkup({ labelFix: "fix" }) }),
+      ),
       reportFixButton,
     );
   });
