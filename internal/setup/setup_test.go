@@ -94,7 +94,7 @@ func runInit(t *testing.T, answers, configPath, path string) (string, error) {
 	return out.String(), err
 }
 
-// Lead, Coordinator, Triager, Implementer, Researcher, a refused Reviewer, the Reviewer, the Judge, the Curator, and the Diagnoser: each has a Harness, a model, and an effort.
+// Lead, Coordinator, Triager, Implementer, Researcher, the Reviewer, the Judge, the Curator, and the Diagnoser: each has a Harness, a model, and an effort.
 const answers = `short
 short
 correct horse
@@ -119,9 +119,6 @@ owner teammate
 
 
 1
-2
-3
-1
 1
 1
 
@@ -145,7 +142,6 @@ func TestRunWritesAConfigFileThatLoads(t *testing.T) {
 		"The password has less than 8 characters.",
 		"Antigravity: Internal error \"Onboarding failed: Timed out waiting for the authentication flow to complete.\"\n",
 		"  1) claude-code\n  2) devin\nHarness [1]: ",
-		"The Reviewer needs another Harness or another model than the Implementer.",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output has no %q:\n%s", want, out)
@@ -167,7 +163,7 @@ coordinator = {harness = 'claude-code', model = 'sonnet', effort = 'medium'}
 triager = {harness = 'claude-code', model = 'sonnet', effort = 'medium'}
 implementer = {harness = 'devin', model = 'swe-1.5', effort = 'high'}
 researcher = {harness = 'claude-code', model = 'sonnet', effort = 'low'}
-reviewer = {harness = 'claude-code', model = 'opus', effort = 'high'}
+reviewer = {harness = 'devin', model = 'swe-1.5', effort = 'high'}
 judge = {harness = 'claude-code', model = 'sonnet', effort = 'low'}
 curator = {harness = 'claude-code', model = 'sonnet', effort = 'low'}
 diagnoser = {harness = 'claude-code', model = 'sonnet', effort = 'low'}

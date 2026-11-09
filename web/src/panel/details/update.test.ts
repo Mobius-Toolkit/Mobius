@@ -26,6 +26,7 @@ const details: WorkstreamDetails = {
   implementer: { harness: "devin", model: "swe-1.5", effort: "high", own: false },
   lead: { harness: "claude-code", model: "opus", effort: "medium", own: true },
   maintenance: false,
+  mcpServers: [],
   openTasks: 2,
   skills: false,
 };

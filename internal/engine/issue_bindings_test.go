@@ -2,6 +2,7 @@ package engine_test
 
 import (
 	"database/sql"
+	"net/http"
 	"slices"
 	"strings"
 	"testing"
@@ -128,6 +129,38 @@ func TestATaskWithASettingStartsItsImplementerWithTheSettingAndItsReviewerWithTh
 		t.Fatalf("reviewers = %+v", reviewers)
 	}
 	requireBinding(t, reviewers[0], "claude-code", "opus", "high")
+}
+
+func TestATaskSettingWithTheHarnessAndTheModelOfTheReviewerRoleIsAcceptedAndTheReviewerKeepsItsRoleBinding(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := keptServer(t, fake, noFinding+commits, func(cfg *config.Config) {
+		cfg.Roles.Reviewer.Harness, cfg.Roles.Reviewer.Model, cfg.Roles.Reviewer.Effort = config.Devin, "opus", "high"
+	})
+	waitForCopy(t, server, shop, 41)
+	url := server.URL + "/api/repositories/owner/shop/issues/41/implementer"
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodPut, url, strings.NewReader(`{"harness":"devin","model":"opus","effort":"low"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	response, err := server.Client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusNoContent {
+		t.Fatalf("PUT: status %d, want 204", response.StatusCode)
+	}
+
+	implementer := firstRound(t, server, fake)
+
+	requireBinding(t, implementer, "devin", "opus", "low")
+	reviewers := roleSessions(t, server, engine.ReviewerRole)
+	if len(reviewers) != 1 {
+		t.Fatalf("reviewers = %+v", reviewers)
+	}
+	requireBinding(t, reviewers[0], "devin", "opus", "high")
 }
 
 func TestALeadOfAWorkstreamWithNoSettingAndWithASettingGetsEachBinding(t *testing.T) {
@@ -404,7 +437,6 @@ func TestASettingThatTheRolesPageWouldRefuseIsRefusedAndStoresNoRow(t *testing.T
 		{"an empty model", config.Devin, "", "high"},
 		{"no effort for a Harness with effort levels", config.Devin, "swe-1.5", ""},
 		{"an effort for a Harness with no effort levels", config.Antigravity, "gemini-3-pro", "high"},
-		{"the Harness and the model of the Reviewer", config.ClaudeCode, "opus", "high"},
 	}
 	for _, c := range cases {
 		err := server.Engine.SetIssueBinding(t.Context(), "implementer", shop, 41, c.harness, c.model, c.effort)

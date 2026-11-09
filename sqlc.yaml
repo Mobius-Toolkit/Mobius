@@ -8,3 +8,5 @@ sql:
         package: store
         out: internal/store
         omit_unused_structs: true
+        rename:
+          headers: HeaderList

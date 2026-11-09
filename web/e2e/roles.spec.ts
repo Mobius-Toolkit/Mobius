@@ -138,14 +138,13 @@ test("a refused Save shows the reason in the open sheet and keeps the old values
 }) => {
   const sheet = await openRole(page, "Reviewer");
 
-  await pick(page, sheet, "Harness", "devin");
-  await pick(page, sheet, "Model", "swe-1.5");
+  await pick(page, sheet, "Harness", "dsh");
   const refused = written(page, "reviewer", "PUT");
   await sheet.getByRole("button", { name: "Save" }).click();
   expect((await refused).status()).toBe(422);
 
-  await expect(sheet.getByText("must not have the same harness and model")).toBeVisible();
-  await expect(sheet.getByLabel("Harness", { exact: true })).toHaveText("devin");
+  await expect(sheet.getByText("roles.reviewer.model: must not be empty")).toBeVisible();
+  await expect(sheet.getByLabel("Harness", { exact: true })).toHaveText("dsh");
   await expect(roleRow(page, "Reviewer")).toContainText("claude-code");
   await expect(roleRow(page, "Reviewer")).toContainText("opus");
   await expect(roleRow(page, "Reviewer")).toContainText("high");
