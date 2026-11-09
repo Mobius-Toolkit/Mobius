@@ -666,6 +666,56 @@ func TestTheOperatorMigrationKeepsTheRoleSettingsAndAcceptsTheOperator(t *testin
 	}
 }
 
+func TestTheOperatorBindingMigrationKeepsTheIssueBindingsAndAcceptsTheOperator(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mobius.db")
+	db := openBefore(t, path, 20270306000000)
+	for _, role := range []string{"implementer", "lead"} {
+		if _, err := db.Exec(`INSERT INTO issue_bindings (repository, issue, role, harness, model, effort, updated_at)
+			VALUES ('Owner/Shop', 12, ?, 'claude-code', 'opus', 'high', '2027-03-01T10:00:00Z')`, role); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec(`INSERT INTO issue_bindings (repository, issue, role, harness, model, effort, updated_at)
+		VALUES ('owner/shop', 12, 'operator', 'claude-code', 'opus', 'high', '2027-03-01T10:00:00Z')`); err == nil {
+		t.Fatal("the old table accepts the role operator")
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := Open(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	queries := New(db)
+	rows, err := queries.ListIssueBindings(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []IssueBinding{
+		{Repository: "Owner/Shop", Issue: 12, Role: "implementer", Harness: "claude-code", Model: "opus", Effort: "high", UpdatedAt: "2027-03-01T10:00:00Z"},
+		{Repository: "Owner/Shop", Issue: 12, Role: "lead", Harness: "claude-code", Model: "opus", Effort: "high", UpdatedAt: "2027-03-01T10:00:00Z"},
+	}
+	if !slices.Equal(rows, want) {
+		t.Errorf("issue_bindings = %+v, want %+v", rows, want)
+	}
+	err = queries.UpsertIssueBinding(t.Context(), UpsertIssueBindingParams{
+		Repository: "owner/shop", Issue: 12, Role: "operator", Harness: "claude-code", Model: "sonnet", Effort: "low", UpdatedAt: "2027-03-02T10:00:00Z",
+	})
+	if err != nil {
+		t.Errorf("insert the role operator: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO issue_bindings (repository, issue, role, harness, model, effort, updated_at)
+		VALUES ('owner/shop', 12, 'unknown', 'claude-code', 'opus', 'high', '2027-03-01T10:00:00Z')`); err == nil {
+		t.Error("the table accepts an unknown role")
+	}
+	if _, err := queries.GetIssueBinding(t.Context(), GetIssueBindingParams{Repository: "OWNER/SHOP", Issue: 12, Role: "operator"}); err != nil {
+		t.Errorf("read the operator row by a repository name in another case: %v", err)
+	}
+}
+
 func TestTheCoordinatorMigrationMovesTheChatSessionsAndTheChatMessages(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "mobius.db")
 	db := openBefore(t, path, 20261105000000)
