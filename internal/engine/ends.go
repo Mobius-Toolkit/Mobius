@@ -124,8 +124,8 @@ func (e *Engine) countCheckErrors(ctx context.Context, task store.Task, checkErr
 //   - A task in needs_human continues with no Resume when its pull request has a merge conflict, or when the CI of the
 //     task passes on its head, also on a new head (continueNeedsHuman).
 //   - A pull request of a task in checks, approval or ready_for_review with a merge conflict gets a conflict round. A
-//     pull request that is only behind its base gets no conflict round and no update. A failed check run of another
-//     App on its head gets a fix round.
+//     pull request that is only behind its base gets no conflict round. A failed check run of another App on its head
+//     gets a fix round.
 //   - A task whose head failed its CI while the default branch has an open break of its CI waits, with no fix round and no
 //     stop (waitsForBreak). When the break ends, the branch of the pull request updates (endBreakWait). The task of the
 //     issue of the break does not wait.
