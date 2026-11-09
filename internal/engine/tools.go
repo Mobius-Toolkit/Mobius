@@ -1340,6 +1340,8 @@ func (e *Engine) stopTaskTool(ctx context.Context, c caller, repository github.R
 	if input.N < 1 {
 		return "", refuse("n must be 1 or more.")
 	}
+	e.stopMu.Lock()
+	defer e.stopMu.Unlock()
 	task, err := e.workstreamTask(ctx, repository, c.repository, c.workstream, input.N)
 	if err != nil {
 		return "", err
@@ -1347,8 +1349,15 @@ func (e *Engine) stopTaskTool(ctx context.Context, c caller, repository github.R
 	if task.State != "queued" && task.State != "working" {
 		return "", refuse("The task of #%d is %s, so it has no work to stop.", input.N, task.State)
 	}
-	if _, err := existingIssue(ctx, repository, input.N); err != nil {
+	issue, err := existingIssue(ctx, repository, input.N)
+	if err != nil {
 		return "", err
+	}
+	if hasLabel(issue, readyLabel) {
+		// The dispatch continues a stopped task that has mobius:ready, so the label must go before the task stops.
+		if err := repository.RemoveLabel(ctx, input.N, readyLabel); err != nil {
+			return "", err
+		}
 	}
 	if err := e.stopTask(ctx, repository, task, "Stopped by the Owner."); err != nil {
 		return "", err

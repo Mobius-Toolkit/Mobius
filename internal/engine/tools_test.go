@@ -843,6 +843,36 @@ func TestStopTaskStopsTheImplementerAsAStopOfTheOwnerDoes(t *testing.T) {
 	}
 }
 
+func TestStopTaskRemovesMobiusReadyAndTheNextPollsDoNotDispatchTheIssueAgain(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	lead := "[[prompts]]\nwhen = \"Stop #41.\"\ncall = { tool = \"stop_task\", arguments = { repository = \"owner/shop\", n = 41 } }\n\n" + leadStarts
+	server, _ := connectTask(t, fake, lead, "[[prompts]]\nwhen = \"Plans have a price.\"\nhang = true\n", noChange)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	testkit.WaitFor(t, func() bool {
+		return taskState(t, server) == "working" && !slices.Contains(fake.Labels(shop, 41), "mobius:ready")
+	})
+	waitForPolls(t, fake)
+	reached, release := fake.HoldIssueEvents(shop, 41)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	<-reached
+
+	sendChat(t, server, leadChat, "Stop #41.")
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "stopped" })
+	release()
+
+	waitForPolls(t, fake)
+	if state := taskState(t, server); state != "stopped" {
+		t.Errorf("task state = %s", state)
+	}
+	if labels := fake.Labels(shop, 41); len(labels) != 0 {
+		t.Errorf("labels = %v", labels)
+	}
+	if got := len(roleSessions(t, server, engine.ImplementerRole)); got != 1 {
+		t.Errorf("Implementer sessions = %d", got)
+	}
+}
+
 func TestStopTaskRefusesATaskOfAnotherWorkstreamAndATaskWithNoWork(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
