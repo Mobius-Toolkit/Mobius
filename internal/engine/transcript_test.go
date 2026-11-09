@@ -171,6 +171,9 @@ func TestTheTranscriptStreamLinesHaveNoImageDataInRaw(t *testing.T) {
 
 	for {
 		name, data := readEvent(t, events)
+		if name == "ping" {
+			continue
+		}
 		if name != "transcript" {
 			t.Fatalf("event = %s %s", name, data)
 		}
