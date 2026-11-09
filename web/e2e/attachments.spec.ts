@@ -80,7 +80,7 @@ test("Chat on an Inbox item of a Workstream opens its chat with the item in the 
     .getByRole("main")
     .getByRole("listitem")
     .filter({ hasText: stopped.title })
-    .getByRole("button", { name: "Chat" })
+    .getByRole("button", { name: "Chat", exact: true })
     .click();
 
   await expect(page).toHaveURL(shop);
@@ -104,7 +104,7 @@ test("Chat on an Inbox item with no Workstream opens the Coordinator chat with t
     .getByRole("main")
     .getByRole("listitem")
     .filter({ hasText: diskItem.title })
-    .getByRole("button", { name: "Chat" })
+    .getByRole("button", { name: "Chat", exact: true })
     .click();
 
   await expect(page).toHaveURL("/chat");
@@ -146,7 +146,7 @@ test("the draft keeps its text and image after a reload, and Chat adds the item 
   await expect(image).toHaveJSProperty("naturalWidth", 200);
   await expect(composer.getByRole("button", { name: /^Remove #/ })).toHaveCount(0);
 
-  await row.getByRole("button", { name: "Chat" }).click();
+  await row.getByRole("button", { name: "Chat", exact: true }).click();
   for (const card of attached(page, stoppedCard)) {
     await expect(card).toBeVisible();
   }
@@ -203,7 +203,7 @@ test("the bubble of a sent message shows the card of the Inbox item with its lin
   await main
     .getByRole("listitem")
     .filter({ hasText: stopped.title })
-    .getByRole("button", { name: "Chat" })
+    .getByRole("button", { name: "Chat", exact: true })
     .click();
   await page.getByLabel("Message to the Lead").fill(text);
   await main.getByRole("button", { name: "Send", exact: true }).click();

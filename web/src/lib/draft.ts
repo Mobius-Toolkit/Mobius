@@ -1,7 +1,7 @@
 import type { ChatInboxItem } from "@/api/api.gen";
 import { run } from "./database";
 
-export type DraftInboxItem = ChatInboxItem & { id: number };
+export type DraftInboxItem = ChatInboxItem & { id: number | string };
 
 // The audio stays in the draft until the server gives the text. conversion is the id of the server conversion, or ""
 // before the upload ends. error has the text of the failure in the state failed.

@@ -50,6 +50,7 @@ export function Chat({
   );
   const [chosen, setChosen] = useState<{ from: WorkstreamAutopilot; to: WorkstreamAutopilot }>();
   const [tab, setTab] = useState<Tab>("tasks");
+  const [sheetOpen, setSheetOpen] = useState(false);
   const wide = useSyncExternalStore(subscribeWide, currentWide);
   const [autopilotBusy, setAutopilotBusy] = useState(false);
   const [autopilotError, setAutopilotError] = useState("");
@@ -107,7 +108,7 @@ export function Chat({
       });
   };
 
-  const panel = (instance: string) => (
+  const panel = (instance: string, onTaskAttached?: () => void) => (
     <Panel
       owner={owner}
       name={name}
@@ -115,6 +116,7 @@ export function Chat({
       instance={instance}
       tab={tab}
       onTabChange={setTab}
+      onTaskAttached={onTaskAttached}
     />
   );
   return (
@@ -126,7 +128,7 @@ export function Chat({
           disabled={!workstream || autopilotBusy}
           onSelect={selectAutopilot}
         />
-        <Sheet>
+        <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
           <SheetTrigger asChild>
             <Button variant="outline" size="sm" className="shrink-0">
               Tasks
@@ -138,7 +140,7 @@ export function Chat({
             className="pt-2 data-[side=bottom]:h-[80svh]"
           >
             <SheetTitle className="sr-only">Tasks</SheetTitle>
-            {panel("sheet")}
+            {panel("sheet", () => setSheetOpen(false))}
           </SheetContent>
         </Sheet>
       </TopBar>
