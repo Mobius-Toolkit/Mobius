@@ -107,6 +107,46 @@ func TestAReportOfTheResearcherGoesToTheLeadChat(t *testing.T) {
 	}
 }
 
+// The end of a session frees the drain count, and the chat refuses a message after the seal. Thus the report of a
+// done or failed Researcher must be in the chat before its session ends.
+func TestTheReportOfAResearcherIsInTheChatBeforeItsSessionEnds(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct{ name, researcher string }{
+		{"done", quickResearcher},
+		{"failed", "\n[[prompts]]\nwhen = \"You are a Researcher\"\nerror = { code = -32000, message = \"The model is down.\" }\n"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			fake := testkit.NewFakeGitHub(t)
+			server, _ := connectResearcher(t, fake, researchLead, c.researcher)
+			sendChat(t, server, leadChat, "Plan the price model.")
+			session := testkit.WaitForValue(t, func() (store.Session, bool) {
+				sessions := roleSessions(t, server, engine.ResearcherRole)
+				if len(sessions) == 0 {
+					return store.Session{}, false
+				}
+				return sessions[0], sessions[0].EndedAt.Valid
+			})
+
+			var posted string
+			if err := server.DB.QueryRow("SELECT time FROM chat_messages WHERE author = 'Researcher'").Scan(&posted); err != nil {
+				t.Fatal(err)
+			}
+			postedAt, err := time.Parse(time.RFC3339Nano, posted)
+			if err != nil {
+				t.Fatal(err)
+			}
+			endedAt, err := time.Parse(time.RFC3339Nano, session.EndedAt.String)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !postedAt.Before(endedAt) {
+				t.Errorf("the report came at %s, the session ended at %s", posted, session.EndedAt.String)
+			}
+		})
+	}
+}
+
 func TestTheDrainRefusesANewResearcher(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
