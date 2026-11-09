@@ -23,7 +23,7 @@ type deviceKey struct{}
 
 func (h *handlers) guard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPost && r.URL.Path == "/api/login" {
+		if (r.Method == http.MethodPost && r.URL.Path == "/api/login") || (r.Method == http.MethodGet && r.URL.Path == "/api/mcp-oauth/client") {
 			next.ServeHTTP(w, r)
 			return
 		}

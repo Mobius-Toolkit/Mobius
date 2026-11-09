@@ -1332,6 +1332,7 @@ test("screenshots", async ({ page }) => {
       detailsPanel.getByText("devin · swe-1.5 · high"),
       detailsPanel.getByRole("button", { name: "Change Lead" }),
       detailsPanel.getByRole("button", { name: "Change Implementer" }),
+      detailsPanel.getByRole("button", { name: "Change Operator" }),
     ],
     openDetails,
   );
@@ -1350,6 +1351,24 @@ test("screenshots", async ({ page }) => {
       await openDetails(device);
       await detailsPanel.getByRole("button", { name: "Change Lead" }).click();
       await settingSheetReady(workstreamLeadSheet);
+    },
+    () => page.keyboard.press("Escape"),
+  );
+  const workstreamOperatorSheet = settingSheet("Operator");
+  await screenshot(
+    page,
+    "chat-details-operator-sheet",
+    "/workstreams/owner/shop/12",
+    (device) => [
+      ...frame(device, drain),
+      chatEnd,
+      workstreamOperatorSheet.getByText(/^Default: .* \(role\)$/),
+      workstreamOperatorSheet.getByRole("button", { name: "Save" }),
+    ],
+    async (device) => {
+      await openDetails(device);
+      await detailsPanel.getByRole("button", { name: "Change Operator" }).click();
+      await settingSheetReady(workstreamOperatorSheet);
     },
     () => page.keyboard.press("Escape"),
   );

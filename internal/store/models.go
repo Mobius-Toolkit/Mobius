@@ -229,6 +229,24 @@ type McpServer struct {
 	UpdatedAt    string
 }
 
+type McpServerOauth struct {
+	Server        int64
+	ClientID      string
+	ClientSecret  string
+	Issuer        string
+	TokenEndpoint string
+	Resource      string
+	Scope         string
+	State         string
+	CodeVerifier  string
+	FlowStartedAt sql.NullString
+	AccessToken   string
+	RefreshToken  string
+	ExpiresAt     sql.NullString
+	Failure       string
+	UpdatedAt     string
+}
+
 type OldSkillUse struct {
 	ID           int64
 	Session      int64

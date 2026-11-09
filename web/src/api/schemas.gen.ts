@@ -887,6 +887,30 @@ export const LoginBody = S.Struct({
 
 
 /**
+ * McpOAuthCallback is the page where an authorization server sends the browser after the Owner allows or refuses the connection of an MCP server. It sends the browser to the page of the MCP servers with the result.
+ */
+export const McpOAuthCallbackQueryParams = S.Struct({
+  "code": S.optional(S.String).annotate({ description: 'Code is the authorization code' }),
+  "state": S.optional(S.String).annotate({ description: 'State is the state of the flow' }),
+  "iss": S.optional(S.String).annotate({ description: 'Iss is the issuer of the authorization server' }),
+  "error": S.optional(S.String).annotate({ description: 'Error is the error code that the authorization server sends when the Owner does not allow the connection' })
+})
+
+
+/**
+ * McpOAuthClient returns the Client ID Metadata Document of Mobius. It needs no device login, because an authorization server reads it. It returns 404 when the config has no ui_url.
+ */
+export const McpOAuthClientResponse = S.Struct({
+  "client_id": S.String.annotate({ description: 'ClientID is the URL of this document' }),
+  "client_name": S.String.annotate({ description: 'ClientName is the name that the authorization page shows' }),
+  "grant_types": S.Array(S.String).annotate({ description: 'GrantTypes are the grant types of Mobius' }),
+  "redirect_uris": S.Array(S.String).annotate({ description: 'RedirectURIs are the callback URLs of Mobius' }),
+  "response_types": S.Array(S.String).annotate({ description: 'ResponseTypes are the response types of Mobius' }),
+  "token_endpoint_auth_method": S.String.annotate({ description: 'TokenEndpointAuthMethod is none, because Mobius is a public client' })
+}).annotate({ description: 'McpOAuthClientDocument is the Client ID Metadata Document of Mobius.' })
+
+
+/**
  * ListNeedsHuman returns the open issues of trusted authors with mobius:needs-human or mobius:question in the trees of all Workstreams, from the local copy of GitHub, by repository, Workstream and number.
  */
 export const ListNeedsHumanResponse = S.Struct({
@@ -933,6 +957,8 @@ export const ListMcpServersResponse = S.Struct({
   "id": S.Number.annotate({ description: 'ID is the id of the server' }),
   "kind": S.Literals(['http', 'stdio']).annotate({ description: 'Kind is http or stdio' }),
   "name": S.String.annotate({ description: 'Name is the name of the server, unique in the organization' }),
+  "oauth": S.Literals(['none', 'connected', 'reconnect']).annotate({ description: 'OAuth is none (no token), connected (a token) or reconnect (the server needs a new connect)' }),
+  "oauthReason": S.String.annotate({ description: 'OAuthReason is the reason that the server needs a new connect, and empty when OAuth is not reconnect' }),
   "url": S.String.annotate({ description: 'URL is the address of an http server, and empty for a stdio server' })
 }).annotate({ description: 'McpServer is an MCP server of an organization.' })).annotate({ description: 'Data is the payload of the response' })
 }).annotate({ description: 'Envelope is the body of each success response.' })
@@ -999,6 +1025,8 @@ export const ChangeMcpServerResponse = S.Struct({
   "id": S.Number.annotate({ description: 'ID is the id of the server' }),
   "kind": S.Literals(['http', 'stdio']).annotate({ description: 'Kind is http or stdio' }),
   "name": S.String.annotate({ description: 'Name is the name of the server, unique in the organization' }),
+  "oauth": S.Literals(['none', 'connected', 'reconnect']).annotate({ description: 'OAuth is none (no token), connected (a token) or reconnect (the server needs a new connect)' }),
+  "oauthReason": S.String.annotate({ description: 'OAuthReason is the reason that the server needs a new connect, and empty when OAuth is not reconnect' }),
   "url": S.String.annotate({ description: 'URL is the address of an http server, and empty for a stdio server' })
 }).annotate({ description: 'Data is the payload of the response' })
 }).annotate({ description: 'Envelope is the body of each success response.' })
@@ -1008,6 +1036,35 @@ export const ChangeMcpServerResponse = S.Struct({
  * DeleteMcpServer deletes an MCP server of the organization and removes it from the selection of each Workstream. It returns 404 for an id that is not a server of the organization.
  */
 export const DeleteMcpServerParams = S.Struct({
+  "organization": S.String.annotate({ description: 'Organization is the owner of the repositories' }),
+  "id": S.Number.annotate({ description: 'ID is the id of the server' })
+})
+
+
+/**
+ * StartMcpOAuth starts the OAuth flow of an http MCP server and returns the authorization URL. It returns 404 for an id that is not a server of the organization, and 422 with the reason when the flow cannot start.
+ */
+export const StartMcpOAuthParams = S.Struct({
+  "organization": S.String.annotate({ description: 'Organization is the owner of the repositories' }),
+  "id": S.Number.annotate({ description: 'ID is the id of the server' })
+})
+
+export const StartMcpOAuthBody = S.Struct({
+  "clientId": S.optional(S.String).annotate({ description: 'ClientID is the client ID that the Owner got from the authorization server, or empty' }),
+  "clientSecret": S.optional(S.String).annotate({ description: 'ClientSecret is the secret of that client, or empty for a public client' })
+})
+
+export const StartMcpOAuthResponse = S.Struct({
+  "data": S.Struct({
+  "url": S.String.annotate({ description: 'URL is the authorization page that the browser of the Owner opens' })
+}).annotate({ description: 'Data is the payload of the response' })
+}).annotate({ description: 'Envelope is the body of each success response.' })
+
+
+/**
+ * DisconnectMcpOAuth removes the OAuth flow and the tokens of an MCP server. It returns 404 for an id that is not a server of the organization.
+ */
+export const DisconnectMcpOAuthParams = S.Struct({
   "organization": S.String.annotate({ description: 'Organization is the owner of the repositories' }),
   "id": S.Number.annotate({ description: 'ID is the id of the server' })
 })
