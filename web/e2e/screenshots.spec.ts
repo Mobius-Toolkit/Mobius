@@ -967,7 +967,7 @@ test("screenshots", async ({ page }) => {
       composer.getByRole("img", { name: "Image 1" }),
     ],
     async () => {
-      await stoppedRow.getByRole("button", { name: "Chat" }).click();
+      await stoppedRow.getByRole("button", { name: "Chat", exact: true }).click();
       await composer.getByRole("button", { name: "Remove #41" }).waitFor();
       await composer.locator("input[type=file]").setInputFiles(photos[0]);
       await expect(composer.getByRole("img", { name: "Image 1" })).toHaveJSProperty(
@@ -1148,6 +1148,7 @@ test("screenshots", async ({ page }) => {
       page.getByText("#45 Pick the plan limits").filter({ visible: true }),
       page.getByText("waits for CI").filter({ visible: true }),
       page.getByText("waits for Lead").filter({ visible: true }),
+      page.getByRole("button", { name: "Chat about #45" }).filter({ visible: true }),
     ],
     async (device) => {
       if (device === "phone") {
@@ -1426,12 +1427,41 @@ test("screenshots", async ({ page }) => {
         : [page.getByLabel("Upgrade available")]),
       page.getByRole("button", { name: "Start #70" }).filter({ visible: true }),
       page.getByRole("button", { name: "Start #71 when unblocked" }).filter({ visible: true }),
+      page.getByRole("button", { name: "Chat about #70" }).filter({ visible: true }),
+      page.getByRole("button", { name: "Chat about #71" }).filter({ visible: true }),
     ],
     async (device) => {
       if (device === "phone") {
         await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
       }
       await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
+    },
+  );
+  await screenshot(
+    page,
+    "chat-task-attached",
+    "/workstreams/plants/garden/19",
+    (device) => [
+      ...(device === "desktop"
+        ? [
+            drain,
+            page.getByLabel("Work in another organization"),
+            page.locator('nav a[href="/workstreams/plants/garden/19"]'),
+          ]
+        : [page.getByLabel("Upgrade available")]),
+      main.locator("form").getByRole("button", { name: "Remove #70" }),
+      main.locator("form").getByText("Order the bark"),
+    ],
+    async (device) => {
+      if (device === "phone") {
+        await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
+      }
+      await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
+      await page.getByRole("button", { name: "Chat about #70" }).filter({ visible: true }).click();
+    },
+    async () => {
+      await main.locator("form").getByRole("button", { name: "Remove #70" }).click();
+      await expect.poll(() => page.evaluate(storedDrafts)).toBe(0);
     },
   );
   const blockedReadyRoute = "**/api/workstreams/plants/garden/19/tasks";

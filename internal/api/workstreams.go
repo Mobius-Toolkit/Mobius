@@ -245,6 +245,8 @@ type WorkstreamDetails struct {
 	Skills bool `gork:"skills"`
 	// Lead is the binding of the next Lead session of the Workstream
 	Lead NextSetting `gork:"lead"`
+	// Operator is the binding of the next Operator session of the Workstream
+	Operator NextSetting `gork:"operator"`
 	// Implementer is the binding of the next Implementer session of a task with no setting of its own
 	Implementer NextSetting `gork:"implementer"`
 	// McpServers are the ids of the MCP servers that the Owner selected for the Workstream, in name order of the servers
@@ -275,6 +277,7 @@ func (h *handlers) GetWorkstreamDetails(ctx context.Context, req WorkstreamDetai
 		Maintenance:    details.Maintenance,
 		Skills:         details.Skills,
 		Lead:           nextSetting(details.Lead),
+		Operator:       nextSetting(details.Operator),
 		Implementer:    nextSetting(details.Implementer),
 		McpServers:     details.McpServers,
 	}}}, nil

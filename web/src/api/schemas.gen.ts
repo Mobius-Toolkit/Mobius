@@ -1857,6 +1857,12 @@ export const GetWorkstreamDetailsResponse = S.Struct({
   "maintenance": S.Boolean.annotate({ description: 'Maintenance is true when the Workstream issue has mobius:maintenance' }),
   "mcpServers": S.Array(S.Number).annotate({ description: 'McpServers are the ids of the MCP servers that the Owner selected for the Workstream, in name order of the servers' }),
   "openTasks": S.Number.annotate({ description: 'OpenTasks is the number of open tasks' }),
+  "operator": S.Struct({
+  "effort": S.String.annotate({ description: 'Effort is the effort level, or empty for a Harness with no effort levels' }),
+  "harness": S.String.annotate({ description: 'Harness is the agent program' }),
+  "model": S.String.annotate({ description: 'Model is the model' }),
+  "own": S.Boolean.annotate({ description: 'Own is true when the Workstream has its own setting, and false when the binding comes from the Role' })
+}).annotate({ description: 'Operator is the binding of the next Operator session of the Workstream' }),
   "skills": S.Boolean.annotate({ description: 'Skills is true when the Workstream issue has mobius:skills' })
 }).annotate({ description: 'Data is the payload of the response' })
 }).annotate({ description: 'Envelope is the body of each success response.' })
@@ -1939,6 +1945,32 @@ export const SetWorkstreamMcpServersParams = S.Struct({
 
 export const SetWorkstreamMcpServersBody = S.Struct({
   "ids": S.optional(S.Array(S.Number)).annotate({ description: 'IDs are the ids of the selected servers' })
+})
+
+
+/**
+ * SetWorkstreamOperator sets the Harness, the model and the effort of the Operator of a Workstream. The next Operator session uses them. It returns 409 when the issue is not an open Workstream, and 422 with the reason when the values fail a check.
+ */
+export const SetWorkstreamOperatorParams = S.Struct({
+  "owner": S.String.annotate({ description: 'Owner is the owner of the repository' }),
+  "name": S.String.annotate({ description: 'Name is the name of the repository' }),
+  "number": S.Number.annotate({ description: 'Number is the number of the issue' })
+})
+
+export const SetWorkstreamOperatorBody = S.Struct({
+  "effort": S.optional(S.String).annotate({ description: 'Effort is the effort level. It is empty for a Harness with no effort levels.' }),
+  "harness": S.optional(S.String).annotate({ description: 'Harness is the agent program' }),
+  "model": S.optional(S.String).annotate({ description: 'Model is the model' })
+}).annotate({ description: 'IssueSetting is the Harness, the model and the effort that the Owner sets for the sessions of a Role in a task or a Workstream.' })
+
+
+/**
+ * ClearWorkstreamOperator removes the Operator setting of a Workstream. It returns 409 when the issue is not an open Workstream.
+ */
+export const ClearWorkstreamOperatorParams = S.Struct({
+  "owner": S.String.annotate({ description: 'Owner is the owner of the repository' }),
+  "name": S.String.annotate({ description: 'Name is the name of the repository' }),
+  "number": S.Number.annotate({ description: 'Number is the number of the issue' })
 })
 
 

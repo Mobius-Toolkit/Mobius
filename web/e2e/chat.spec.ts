@@ -1682,7 +1682,7 @@ test("Stop sends the stop request for its issue, and a 409 answer shows its erro
   await expect(row.getByText("The Owner must authorize the Mobius App.")).toBeHidden();
 });
 
-test("the Tasks tab shows the closed tasks muted, with no Start button, when the switch is on", async ({
+test("the Tasks tab shows the closed tasks muted, with only the Chat button, when the switch is on", async ({
   page,
 }) => {
   await page.goto("/workstreams/owner/shop/12");
@@ -1697,7 +1697,8 @@ test("the Tasks tab shows the closed tasks muted, with no Start button, when the
   await expect(closed.getByText("#37 Remove the old plan page")).toHaveClass(
     /text-muted-foreground/,
   );
-  await expect(closed.getByRole("button")).toHaveCount(0);
+  await expect(closed.getByRole("button")).toHaveCount(1);
+  await expect(closed.getByRole("button", { name: "Chat about #37" })).toBeVisible();
   await expect(rows.filter({ hasText: "#36 Rename the plan table" })).toBeVisible();
 
   await page.getByLabel("Show closed tasks").filter({ visible: true }).click();
@@ -3274,4 +3275,121 @@ test("a queued message with the voice mark shows the voice card before the serve
       };
     })`);
   }
+});
+
+// The tests have no DOM types, so the checks of the draft store are scripts.
+const storedDrafts = `new Promise((resolve) => {
+  const open = indexedDB.open("mobius");
+  open.onsuccess = () => {
+    const count = open.result.transaction("drafts").objectStore("drafts").count();
+    count.onsuccess = () => resolve(count.result);
+  };
+})`;
+
+const clearDrafts = `new Promise((resolve) => {
+  const open = indexedDB.open("mobius");
+  open.onsuccess = () => {
+    const transaction = open.result.transaction("drafts", "readwrite");
+    transaction.objectStore("drafts").clear();
+    transaction.oncomplete = () => resolve(undefined);
+  };
+})`;
+
+test.describe("the Chat button of a task row", () => {
+  const issue = "https://github.com/plants/garden/issues/70";
+
+  test.afterEach(async ({ page }) => {
+    await page.evaluate(clearDrafts);
+    await expect.poll(() => page.evaluate(storedDrafts)).toBe(0);
+  });
+
+  test("attaches the task once, and the sent message carries the task", async ({ page }) => {
+    const tasks = await get<{ number: number; state: string }[]>(
+      page,
+      "/api/workstreams/plants/garden/19/tasks",
+    );
+    const state = tasks.find((task) => task.number === 70)?.state ?? "";
+    expect(state).not.toBe("");
+    const text = "Please look at this task.";
+    let posted: { reference: string; title: string; reason: string; link: string }[] | undefined;
+    await page.route("**/api/chat?*", async (route) => {
+      const response = await route.fetch();
+      const body = (await response.json()) as {
+        data: { messages: { id: number; time: string }[] };
+      };
+      if (posted) {
+        body.data.messages.push({
+          id: 1_000_000,
+          action: null,
+          author: "Owner",
+          browserId: "",
+          cancelledAt: null,
+          deliveredAt: null,
+          failedAt: null,
+          images: 0,
+          inboxItems: posted,
+          organization: "plants",
+          question: null,
+          repository: "plants/garden",
+          stoppedAt: null,
+          voice: false,
+          text,
+          time: "2026-10-15T12:00:00Z",
+          workstream: 19,
+        } as (typeof body.data.messages)[number]);
+      }
+      await route.fulfill({ response, json: body });
+    });
+    await page.route("**/api/chat/messages", (route) => {
+      const parts = route.request().postData() ?? "";
+      posted = [...parts.matchAll(/name="inboxItems"\r\n\r\n(.*?)\r\n--/g)].map(
+        (part) => JSON.parse(part[1]) as NonNullable<typeof posted>[number],
+      );
+      return route.fulfill({ status: 204 });
+    });
+
+    await page.goto("/workstreams/plants/garden/19");
+    await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
+    const main = page.getByRole("main");
+    const composer = main.locator("form");
+    const chat = page.getByRole("button", { name: "Chat about #70" });
+    await expect(chat).toHaveAttribute("title", "Chat about #70");
+    await expect(page.getByRole("button", { name: /^Chat about #/ })).toHaveCount(3);
+    await chat.click();
+    const card = composer.getByRole("button", { name: "Remove #70" });
+    await expect(card).toHaveCount(1);
+    await expect(composer.getByText("Order the bark")).toBeVisible();
+    await expect(composer.getByText(state, { exact: true })).toBeVisible();
+    await chat.click();
+    await expect(composer.getByText("Order the bark")).toHaveCount(1);
+    await expect(page.getByRole("tab", { name: "Tasks" }).filter({ visible: true })).toBeVisible();
+
+    const input = page.getByLabel("Message to the Lead");
+    await expect(input).toBeEditable();
+    await input.fill(text);
+    await main.getByRole("button", { name: "Send", exact: true }).click();
+
+    await expect
+      .poll(() => posted)
+      .toEqual([{ reference: "#70", title: "Order the bark", reason: state, link: issue }]);
+    const bubble = main.locator("[data-message]", { hasText: text });
+    await expect(bubble).toHaveCount(1);
+    await expect(main.locator("[data-queued]")).toHaveCount(0);
+    const link = bubble.getByRole("link", { name: /Order the bark/ });
+    await expect(link).toHaveAttribute("href", issue);
+    await expect(link).toContainText("#70");
+    await expect(link).toContainText(state);
+  });
+
+  test("closes the Tasks sheet of a phone and shows the card in the composer", async ({ page }) => {
+    await page.setViewportSize(phone);
+    await page.goto("/workstreams/plants/garden/19");
+    await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
+    const sheet = page.getByRole("dialog", { name: "Tasks" });
+    await sheet.getByRole("button", { name: "Chat about #70" }).click();
+    await expect(sheet).toBeHidden();
+    const composer = page.getByRole("main").locator("form");
+    await expect(composer.getByRole("button", { name: "Remove #70" })).toBeVisible();
+    await expect(composer.getByText("Order the bark")).toBeVisible();
+  });
 });

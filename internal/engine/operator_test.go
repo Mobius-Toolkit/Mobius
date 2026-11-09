@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
@@ -305,5 +306,50 @@ func TestTheDrainRefusesANewOperator(t *testing.T) {
 	}
 	if sessions := roleSessions(t, server, engine.OperatorRole); len(sessions) != 0 {
 		t.Errorf("Operators = %+v", sessions)
+	}
+}
+
+func TestAnOperatorSettingOfAWorkstreamGivesItsOperatorTheSettingAndTheRoleBindingOtherwise(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectOperator(t, fake, operatorLead+operatorWork)
+
+	sendChat(t, server, leadChat, "Start the operator.")
+	first := endedOperators(t, server, 1)[0]
+	setBinding(t, server, "operator", 12, config.ClaudeCode, "haiku", "low")
+	sendChat(t, server, leadChat, "Start the operator again.")
+
+	second := endedOperators(t, server, 2)[1]
+	requireBinding(t, first, "claude-code", "sonnet", "medium")
+	requireBinding(t, second, "claude-code", "haiku", "low")
+	requireNext(t, server, "operator", shop, 12, engine.LevelWorkstream, "claude-code", "haiku", "low")
+}
+
+func TestAnOperatorSettingChangesNoOtherWorkstreamAndNoOtherRoleOfItsWorkstream(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddIssue(shop, 13, "Improve the checkout")
+	fake.AddLabel(shop, 13, "mobius:workstream", "owner")
+	server, _ := connectOperator(t, fake, operatorLead+operatorWork)
+	waitForCopy(t, server, shop, 13)
+
+	setBinding(t, server, "operator", 12, config.ClaudeCode, "haiku", "low")
+
+	requireNext(t, server, "operator", shop, 12, engine.LevelWorkstream, "claude-code", "haiku", "low")
+	requireNext(t, server, "operator", shop, 13, engine.LevelRole, "claude-code", "sonnet", "medium")
+	requireNext(t, server, "lead", shop, 12, engine.LevelRole, "claude-code", "opus", "high")
+	requireNext(t, server, "implementer", shop, 12, engine.LevelRole, "devin", "swe-1.5", "high")
+}
+
+func TestAnOperatorSettingIsRefusedForATaskIssue(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectOperator(t, fake, operatorLead+operatorWork)
+	addCopiedTask(t, server, fake, 41)
+
+	err := server.Engine.SetIssueBinding(t.Context(), "operator", shop, 41, config.ClaudeCode, "haiku", "low")
+
+	if !engine.Refused(err) || !strings.Contains(err.Error(), "is not a Workstream issue.") {
+		t.Errorf("err = %v, want a refusal that the issue is not a Workstream issue", err)
 	}
 }
