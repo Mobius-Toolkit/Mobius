@@ -39,6 +39,7 @@ import {
   waitText,
   withdrawDraft,
 } from "./actions.js";
+import { buttonNames } from "./buttons.js";
 import { countSamples, fakeMicrophone } from "./microphone.js";
 import { routeInboxItems, longWordQuestionItem, longWordTitle } from "./stops.js";
 
@@ -101,12 +102,12 @@ test("the Owner approves an action with a note", async ({ page }) => {
   await expect(card.getByText(keepText)).toHaveCount(0);
   await expect(card.getByText("message", { exact: true })).toHaveCount(0);
   await expect(card.getByRole("button")).toHaveText(["Answer"]);
-  await expect(row(page, leadTitle).getByRole("button")).toHaveText(["Answer", "Chat"]);
+  await expect.poll(() => buttonNames(row(page, leadTitle))).toEqual(["Answer", "Chat"]);
   await expect(main.getByRole("button", { name: "Approve" })).toHaveCount(0);
   await expect(main.getByRole("button", { name: "Reject" })).toHaveCount(0);
 
   await link(page, "/inbox").click();
-  await expect(row(page, leadTitle).getByRole("button")).toHaveText(["Answer", "Chat"]);
+  await expect.poll(() => buttonNames(row(page, leadTitle))).toEqual(["Answer", "Chat"]);
   await link(page, "/chat").click();
   await expect(waiting(page, 1)).toBeVisible(agentTimeout);
 
@@ -403,7 +404,7 @@ test("the Inbox approves an item in the panel", async ({ page }) => {
   await link(page, "/inbox").click();
   await expect(row(page, leadTitle)).toBeVisible();
   await expect(row(page, leadTitle)).not.toContainText("message_lead");
-  await expect(row(page, leadTitle).getByRole("button")).toHaveText(["Answer", "Chat"]);
+  await expect.poll(() => buttonNames(row(page, leadTitle))).toEqual(["Answer", "Chat"]);
 
   await answer(page, leadTitle);
   const answered = approved(page);
@@ -479,7 +480,7 @@ test("the Owner answers a question with options", async ({ page }) => {
 
   await ask(page, askStore);
   await expect(waiting(page, 1)).toBeVisible(agentTimeout);
-  await expect(row(page, storeQuestion).getByRole("button")).toHaveText(["Answer", "Chat"]);
+  await expect.poll(() => buttonNames(row(page, storeQuestion))).toEqual(["Answer", "Chat"]);
   await answer(page, storeQuestion);
 
   const store = panel(page).getByRole("group", { name: storeQuestion });
