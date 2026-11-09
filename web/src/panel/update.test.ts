@@ -3,7 +3,7 @@ import { Command as StoryCommand, given, message, model, story } from "foldkit/s
 import type { Agent } from "@/transcript/schemas";
 import * as AgentsFixture from "./agents/fixtures";
 import { FetchAgents } from "./agents/commands";
-import { RequestLogin, ReportTab } from "./commands";
+import { RequestLogin, ReportTab, ReportTaskAttached } from "./commands";
 import { FetchDetails, FetchRoles } from "./details/commands";
 import * as DetailsFixture from "./details/fixtures";
 import { Message } from "./message";
@@ -225,6 +225,18 @@ describe("the reads after a live change", () => {
       StoryCommand.expectNone(),
       message(Message.WorkstreamsChanged()),
       StoryCommand.expectNone(),
+    );
+  });
+});
+
+describe("an attached task", () => {
+  it("tells the host after the task reaches the draft", () => {
+    story(
+      update,
+      given(createModel("tasks")),
+      message(Message.GotTasksMessage({ message: TasksFixture.attached })),
+      StoryCommand.expectExact(ReportTaskAttached()),
+      StoryCommand.resolve(ReportTaskAttached, Message.CompletedReportTaskAttached()),
     );
   });
 });
