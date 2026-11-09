@@ -51,6 +51,9 @@ export default defineConfig({
     { name: "inbox", testMatch: "inbox.spec.ts", dependencies: ["agents"] },
     // The notice tests give their own data with page.route, and they need the Apps of the screenshots test.
     { name: "notice", testMatch: "notice.spec.ts", dependencies: ["agents"] },
+    // The recurring tests pause and resume a task of plants/garden#50 and delete a task that they add to plants/garden#55.
+    // They need the recurring tasks and the Apps of the screenshots test.
+    { name: "recurring", testMatch: "recurring.spec.ts", dependencies: ["screenshots"] },
     // The Tasks tests give their own data with page.route, and they need the Apps of the screenshots test.
     { name: "tasks", testMatch: "tasks.spec.ts", dependencies: ["agents"] },
     // The answered tests give their own data with page.route, and they need the Apps of the screenshots test.
@@ -71,6 +74,9 @@ export default defineConfig({
     // The setting tests set and clear the Harness settings of owner/shop#12 and #39. Each setting adds a record to the
     // chat of owner/shop#12, so they run after the tests that read that chat.
     { name: "issue-settings", testMatch: "issue-settings.spec.ts", dependencies: ["live"] },
+    // The selection tests add MCP servers to the organization plants and delete them again. They select the servers of
+    // plants/garden#18, which no spec of the parallel projects reads.
+    { name: "mcp-selection", testMatch: "mcp-selection.spec.ts", dependencies: ["agents"] },
     // The attachment tests give their own data with page.route, and they open chats, which marks their messages as seen.
     // Thus they run last.
     { name: "attachments", testMatch: "attachments.spec.ts", dependencies: ["live"] },
@@ -91,7 +97,8 @@ export default defineConfig({
     // A cached test result ends at once and serves nothing, so -count=1 runs the server each time.
     command: "go test -count=1 -timeout=0 -run=^TestServer$ ./e2e",
     url: `http://${addr}`,
-    env: { MOBIUS_E2E_ADDR: addr },
+    // The cron expressions of the recurring tasks use the time zone of the server.
+    env: { MOBIUS_E2E_ADDR: addr, TZ: "UTC" },
     gracefulShutdown: { signal: "SIGTERM", timeout: 10_000 },
     timeout: 120_000,
   },

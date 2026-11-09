@@ -26,6 +26,7 @@ import {
   withdrawDraft,
 } from "./actions.js";
 import { waitForEvergreen } from "./evergreen.js";
+import { addMcpServer, deleteMcpServers, selectMcpServers } from "./mcp-servers.js";
 import { png } from "./images.js";
 import { longTaskTitle, routeLongTask, tasksUrl } from "./long-task.js";
 import { countSamples, fakeMicrophone } from "./microphone.js";
@@ -1228,6 +1229,8 @@ test("screenshots", async ({ page }) => {
       chatEnd,
       created,
       page.getByText("Completed tasks").filter({ visible: true }),
+      page.getByText("MCP servers", { exact: true }).filter({ visible: true }),
+      page.getByRole("button", { name: "Change MCP servers" }).filter({ visible: true }),
       closeButton,
       evergreenSwitch,
     ],
@@ -1408,6 +1411,69 @@ test("screenshots", async ({ page }) => {
     },
     () => page.keyboard.press("Escape"),
   );
+  // The organization plants has no MCP server until the next step adds two. plants/garden#19 shows no other Details tab.
+  const mcpWorkstream = "/workstreams/plants/garden/19";
+  const mcpSheet = settingSheet("MCP servers of #19");
+  const openMcpSheet = async (device: string) => {
+    await openDetails(device);
+    await detailsPanel.getByRole("button", { name: "Change MCP servers" }).click();
+  };
+  // The Inbox of the organization plants has no item, so the frame has no Inbox count.
+  const mcpFrame = (device: string) =>
+    device === "desktop"
+      ? [
+          drain,
+          page.getByLabel("Work in another organization"),
+          page.locator('nav a[href="/workstreams/plants/garden/19"]'),
+        ]
+      : [page.getByLabel("Upgrade available")];
+  await screenshot(
+    page,
+    "chat-details-mcp-none-sheet",
+    mcpWorkstream,
+    (device) => [
+      ...mcpFrame(device),
+      mcpSheet.getByText("No MCP servers."),
+      mcpSheet.getByRole("link", { name: "Add a server" }),
+    ],
+    openMcpSheet,
+    () => page.keyboard.press("Escape"),
+  );
+  const mcpServerIds = [
+    await addMcpServer(page, "plants", {
+      name: "makeadir",
+      kind: "http",
+      url: "https://mcp.example.com/mcp",
+    }),
+    await addMcpServer(page, "plants", { name: "search", kind: "stdio", command: "search-mcp" }),
+  ];
+  await selectMcpServers(page, "plants/garden/19", [mcpServerIds[0]]);
+  await screenshot(
+    page,
+    "chat-details-mcp",
+    mcpWorkstream,
+    (device) => [
+      ...mcpFrame(device),
+      detailsPanel.getByText("MCP servers", { exact: true }),
+      detailsPanel.getByText("makeadir", { exact: true }),
+      detailsPanel.getByRole("button", { name: "Change MCP servers" }),
+    ],
+    openDetails,
+  );
+  await screenshot(
+    page,
+    "chat-details-mcp-sheet",
+    mcpWorkstream,
+    (device) => [
+      ...mcpFrame(device),
+      () => expect(mcpSheet.getByRole("checkbox", { name: /^makeadir/ })).toBeChecked(),
+      mcpSheet.getByRole("checkbox", { name: /^search/ }),
+      mcpSheet.getByRole("button", { name: "Save" }),
+    ],
+    openMcpSheet,
+    () => page.keyboard.press("Escape"),
+  );
+  await deleteMcpServers(page, "plants", mcpServerIds);
   await setWorkstreamImplementer();
   await screenshot(
     page,
@@ -1528,6 +1594,76 @@ test("screenshots", async ({ page }) => {
     },
   );
   await page.unroute(blockedReadyRoute);
+  const recurringFrame = (device: string, number: number) =>
+    device === "desktop"
+      ? [
+          drain,
+          page.getByLabel("Work in another organization"),
+          page.locator(`nav a[href="/workstreams/plants/garden/${number}"]`),
+        ]
+      : [page.getByLabel("Upgrade available")];
+  const openRecurring = async (device: string) => {
+    if (device === "phone") {
+      await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
+    }
+    await page.getByRole("tab", { name: "Recurring" }).filter({ visible: true }).click();
+  };
+  const recurringPanel = page.getByRole("tabpanel", { name: "Recurring" });
+  const checkRow = recurringPanel.getByRole("listitem").filter({ hasText: "Check the open pull" });
+  await screenshot(
+    page,
+    "chat-recurring",
+    "/workstreams/plants/garden/50",
+    (device) => [
+      ...recurringFrame(device, 50),
+      checkRow.getByText("0 8 * * 1-5 · Next Sep 29, 08:00 AM"),
+      checkRow.getByText("Last: Sep 28, 08:00 AM event"),
+      recurringPanel.getByText("Paused", { exact: true }),
+      recurringPanel.getByRole("button", { name: "Resume" }),
+    ],
+    openRecurring,
+  );
+  await screenshot(
+    page,
+    "chat-recurring-history",
+    "/workstreams/plants/garden/50",
+    (device) => [
+      ...recurringFrame(device, 50),
+      checkRow.getByRole("heading", { name: "History" }),
+      checkRow.getByText("skipped: the earlier event is not delivered yet"),
+      checkRow.getByText("Sep 24, 08:00 AM"),
+    ],
+    async (device) => {
+      await openRecurring(device);
+      await checkRow.getByRole("button", { name: /Check the open pull requests/ }).click();
+    },
+  );
+  const recurringDialog = page.getByRole("dialog", { name: "Delete the recurring task" });
+  await screenshot(
+    page,
+    "chat-recurring-delete",
+    "/workstreams/plants/garden/50",
+    (device) => [
+      ...recurringFrame(device, 50),
+      recurringDialog.getByText("Check the open pull requests and tell me which ones wait"),
+      recurringDialog.getByRole("button", { name: "Delete", exact: true }),
+    ],
+    async (device) => {
+      await openRecurring(device);
+      await checkRow.getByRole("button", { name: "Delete" }).click();
+    },
+    () => page.keyboard.press("Escape"),
+  );
+  await screenshot(
+    page,
+    "chat-recurring-empty",
+    "/workstreams/plants/garden/55",
+    (device) => [
+      ...recurringFrame(device, 55),
+      recurringPanel.getByText("No recurring task. Ask the Lead in the chat to add one."),
+    ],
+    openRecurring,
+  );
   const otherRepositoryRoute = "**/api/workstreams/plants/garden/19/tasks";
   await page.route(otherRepositoryRoute, async (route) => {
     const response = await route.fetch();
