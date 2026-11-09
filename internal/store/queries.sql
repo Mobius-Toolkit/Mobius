@@ -1670,6 +1670,9 @@ SET access_token = ?, refresh_token = ?, expires_at = ?, state = '', code_verifi
     failure = '', updated_at = ?
 WHERE server = ? AND state = ?;
 
+-- name: ClearMcpServerOAuthTokens :exec
+UPDATE mcp_server_oauth SET access_token = '', refresh_token = '', expires_at = NULL WHERE server = ?;
+
 -- name: FailMcpServerOAuth :exec
 UPDATE mcp_server_oauth
 SET state = '', code_verifier = '', flow_started_at = NULL, failure = ?, updated_at = ?

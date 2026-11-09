@@ -53,8 +53,10 @@ func (e *Engine) McpOAuthClientDocument() (McpClientDocument, bool) {
 
 // StartMcpOAuth finds the authorization server of the http MCP server, gets a client ID, stores the flow and gives the
 // authorization URL for the browser of the Owner. A client ID in clientID is used as it is, with the secret in
-// clientSecret. A new start for the same server replaces its flow and keeps its tokens until the new flow stores new tokens. It gives ErrNoMcpServer for an id
-// that is not a server of the organization, and a refusal with the reason when the flow cannot start.
+// clientSecret. A new start for the same server replaces its flow and keeps its tokens until the new flow stores new tokens. A refresh
+// token belongs to its client, so the new flow uses the stored client when the server has tokens from the same authorization
+// server and the request names no other client. Else the start removes the tokens. It gives ErrNoMcpServer for an id that is
+// not a server of the organization, and a refusal with the reason when the flow cannot start.
 func (e *Engine) StartMcpOAuth(ctx context.Context, organization string, id int64, clientID, clientSecret string) (string, error) {
 	row, err := e.queries.GetMcpServer(ctx, store.GetMcpServerParams{ID: id, Organization: organization})
 	if errors.Is(err, sql.ErrNoRows) {
@@ -106,7 +108,16 @@ func (e *Engine) StartMcpOAuth(ctx context.Context, organization string, id int6
 		scopes = append(slices.Clone(scopes), "offline_access")
 	}
 
+	stored, err := e.queries.GetMcpServerOAuth(ctx, id)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return "", err
+	}
+	hasTokens := err == nil && stored.AccessToken != ""
+	sameClient := hasTokens && stored.Issuer == issuer.Issuer && (clientID == "" || clientID == stored.ClientID)
+
 	switch {
+	case sameClient:
+		clientID, clientSecret = stored.ClientID, stored.ClientSecret
 	case clientID != "":
 	case issuer.ClientIDMetadataDocumentSupported:
 		clientID = document.ClientID
@@ -131,10 +142,16 @@ func (e *Engine) StartMcpOAuth(ctx context.Context, organization string, id int6
 	}
 	authorizationURL := config.AuthCodeURL(state, oauth2.S256ChallengeOption(verifier), oauth2.SetAuthURLParam("resource", metadata.Resource))
 	now := e.timeNow().UTC().Format(time.RFC3339Nano)
-	err = e.queries.StartMcpServerOAuth(ctx, store.StartMcpServerOAuthParams{
-		Server: id, ClientID: clientID, ClientSecret: clientSecret, Issuer: issuer.Issuer, TokenEndpoint: issuer.TokenEndpoint,
-		Resource: metadata.Resource, Scope: strings.Join(scopes, " "), State: state, CodeVerifier: verifier,
-		FlowStartedAt: sql.NullString{String: now, Valid: true}, UpdatedAt: now,
+	err = e.inTx(ctx, func(q *store.Queries) error {
+		err := q.StartMcpServerOAuth(ctx, store.StartMcpServerOAuthParams{
+			Server: id, ClientID: clientID, ClientSecret: clientSecret, Issuer: issuer.Issuer, TokenEndpoint: issuer.TokenEndpoint,
+			Resource: metadata.Resource, Scope: strings.Join(scopes, " "), State: state, CodeVerifier: verifier,
+			FlowStartedAt: sql.NullString{String: now, Valid: true}, UpdatedAt: now,
+		})
+		if err != nil || !hasTokens || sameClient {
+			return err
+		}
+		return q.ClearMcpServerOAuthTokens(ctx, id)
 	})
 	if err != nil {
 		return "", err

@@ -1503,6 +1503,15 @@ func (q *Queries) ClearChatMessageFailure(ctx context.Context, id int64) error {
 	return err
 }
 
+const clearMcpServerOAuthTokens = `-- name: ClearMcpServerOAuthTokens :exec
+UPDATE mcp_server_oauth SET access_token = '', refresh_token = '', expires_at = NULL WHERE server = ?
+`
+
+func (q *Queries) ClearMcpServerOAuthTokens(ctx context.Context, server int64) error {
+	_, err := q.db.ExecContext(ctx, clearMcpServerOAuthTokens, server)
+	return err
+}
+
 const clearQueueReason = `-- name: ClearQueueReason :one
 UPDATE sessions SET queue_reason = NULL WHERE id = ?
 RETURNING id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent, effort, workstream_repository, continued, context_used, context_size

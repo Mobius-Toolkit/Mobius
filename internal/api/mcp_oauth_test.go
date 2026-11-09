@@ -30,6 +30,8 @@ type fakeOAuth struct {
 	documents bool
 	register  bool
 	issuer    bool
+	// newClients makes each registration give a new client ID.
+	newClients bool
 	// badRegistration makes the registration endpoint answer with a body that does not decode.
 	badRegistration bool
 
@@ -74,7 +76,11 @@ func newFakeOAuth(t *testing.T, documents, register, issuer bool) *fakeOAuth {
 			fake.json(w, http.StatusCreated, map[string]any{"client_id": "c", "client_secret": "s3cret", "client_id_issued_at": "2026-11-09"})
 			return
 		}
-		fake.json(w, http.StatusCreated, map[string]any{"client_id": "registered-client", "client_secret": "registered-secret"})
+		clientID := "registered-client"
+		if fake.newClients {
+			clientID = fmt.Sprintf("client-%d", len(fake.registered()))
+		}
+		fake.json(w, http.StatusCreated, map[string]any{"client_id": clientID, "client_secret": "registered-secret"})
 	})
 	mux.HandleFunc("POST /token", func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseForm(); err != nil {
@@ -563,5 +569,44 @@ func TestARegistrationThatDoesNotDecodeGives422WithNoSecret(t *testing.T) {
 	}
 	if _, found := storedOAuth(t, server, added.ID); found {
 		t.Error("a row was stored for a flow that did not start")
+	}
+}
+
+func TestANewStartUsesTheClientOfTheStoredTokensAndAnotherClientRemovesThem(t *testing.T) {
+	fake := newFakeOAuth(t, false, true, true)
+	fake.newClients = true
+	server := startForOAuth(t, oauthUIURL)
+	added := addOAuthServer(t, server, fake)
+	first := startOAuthFlow(t, server, added.ID, `{}`)
+	if status, location := callback(t, server.Client, server, answer(fake, first)); status != http.StatusSeeOther || !strings.Contains(location, "oauth=connected") {
+		t.Fatalf("callback: status %d, Location %q", status, location)
+	}
+
+	second := startOAuthFlow(t, server, added.ID, `{}`)
+
+	if first.Get("client_id") != "client-1" || second.Get("client_id") != "client-1" {
+		t.Errorf("client_id of the first and the second start = %q, %q, want client-1 twice", first.Get("client_id"), second.Get("client_id"))
+	}
+	if registered := fake.registered(); len(registered) != 1 {
+		t.Errorf("registrations = %d, want 1", len(registered))
+	}
+	var clientID string
+	if err := server.DB.QueryRow("SELECT client_id FROM mcp_server_oauth WHERE server = ?", added.ID).Scan(&clientID); err != nil || clientID != "client-1" {
+		t.Errorf("stored client_id = %q (%v), want client-1", clientID, err)
+	}
+	if row, _ := storedOAuth(t, server, added.ID); row.AccessToken != "access-1" {
+		t.Errorf("stored row = %+v, want the old tokens", row)
+	}
+
+	third := startOAuthFlow(t, server, added.ID, `{"clientId":"owner-client"}`)
+
+	if third.Get("client_id") != "owner-client" {
+		t.Errorf("client_id = %q, want owner-client", third.Get("client_id"))
+	}
+	if row, _ := storedOAuth(t, server, added.ID); row.AccessToken != "" || row.RefreshToken != "" || row.State != third.Get("state") {
+		t.Errorf("stored row = %+v, want no token and the new flow", row)
+	}
+	if state, _ := listedOAuth(t, server); state.OAuth != "none" {
+		t.Errorf("oauth after the start with another client = %q, want none", state.OAuth)
 	}
 }
