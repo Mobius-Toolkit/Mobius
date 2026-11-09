@@ -9,12 +9,15 @@ import { xIcon } from "./icons";
 const focusable =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
+const portalSelector = '[data-slot="dialog-portal"]';
+
 // The Mount of a dialog. done is the Message that the Mount gives when the dialog has opened or has no content. The
 // dialog lives outside the section of the screen, so a focused field in the dialog does not hide the other parts of
 // the screen. The element moves to the body before the focus goes into the dialog, because a move takes the focus
-// away. Tab stays in the dialog, the page does not scroll, the keyboard of a phone moves the dialog up, and the focus
-// goes back to the opener when the dialog closes. The focus starts in the element with data-autofocus, or in the
-// dialog. A dialog on top of another dialog takes the Tab key while the focus is in it.
+// away. Tab stays in the dialog, the page does not scroll while a dialog is open, the keyboard of a phone moves the
+// dialog up, and the focus goes back to the opener when the dialog closes. The focus starts in the element with
+// data-autofocus, or in the dialog. A dialog on top of another dialog takes the Tab key while the focus is in it. The
+// page overflow comes back when the last dialog closes, in any order of the closes.
 export function defineDialogMount<Done extends Schema.Top & (() => Schema.Schema.Type<Done>)>(
   done: Done,
 ) {
@@ -30,7 +33,6 @@ export function defineDialogMount<Done extends Schema.Top & (() => Schema.Schema
           Effect.sync(() => {
             const opener = document.activeElement;
             document.body.appendChild(element);
-            const overflow = document.body.style.overflow;
             const trap = (event: KeyboardEvent) => {
               if (event.key !== "Tab") {
                 return;
@@ -54,15 +56,19 @@ export function defineDialogMount<Done extends Schema.Top & (() => Schema.Schema
               }
             };
             (element.querySelector<HTMLElement>("[data-autofocus]") ?? dialog).focus();
+            document.body.dataset.pageOverflow ??= document.body.style.overflow;
             document.body.style.overflow = "hidden";
             document.addEventListener("keydown", trap);
-            return { opener, overflow, trap, stopKeyboard: trackKeyboardHeight() };
+            return { opener, trap, stopKeyboard: trackKeyboardHeight() };
           }),
-          ({ opener, overflow, trap, stopKeyboard }) =>
+          ({ opener, trap, stopKeyboard }) =>
             Effect.sync(() => {
               element.remove();
               document.removeEventListener("keydown", trap);
-              document.body.style.overflow = overflow;
+              if (document.querySelector(portalSelector) === null) {
+                document.body.style.overflow = document.body.dataset.pageOverflow ?? "";
+                delete document.body.dataset.pageOverflow;
+              }
               stopKeyboard();
               if (opener instanceof HTMLElement) {
                 opener.focus();

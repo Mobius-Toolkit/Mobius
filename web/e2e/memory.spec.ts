@@ -70,6 +70,7 @@ test("the Owner edits the memory file in a dialog, sees the 200-line error, and 
   await discard.getByRole("button", { name: "Discard" }).click();
   await expect(dialog).toBeHidden();
   await expect(discard).toBeHidden();
+  await expect.poll(() => page.evaluate(() => document.body.style.overflow)).toBe("");
   await expect(main.getByText("Water the roses in the morning.").first()).toBeVisible();
 
   await main.getByRole("button", { name: "Edit" }).click();
