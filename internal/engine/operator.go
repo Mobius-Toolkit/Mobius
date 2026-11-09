@@ -51,16 +51,42 @@ func (e *Engine) startOperator(ctx context.Context, c caller, repository github.
 		return "", err
 	}
 	key := operatorKey(a.id)
+	e.detailsMu.Lock()
+	e.operators[a.id] = a
+	e.detailsMu.Unlock()
 	started := e.startWorker(key, func(ctx context.Context) {
 		defer e.stop(key)
+		defer e.forgetOperator(a.id)
 		if err := e.operate(ctx, c, repository, a, input.Text); err != nil {
 			log.Printf("Operator %d of %s#%d: %v", a.id, c.repository, c.workstream, err)
 		}
 	})
 	if !started {
+		e.forgetOperator(a.id)
 		return "", errors.Join(refuse("Mobius stops, so no Operator starts now."), a.End(context.WithoutCancel(ctx), "declined"))
 	}
 	return fmt.Sprintf("Started the Operator %d. The report arrives later as an Operator message.", a.id), nil
+}
+
+func (e *Engine) forgetOperator(id int64) {
+	e.detailsMu.Lock()
+	defer e.detailsMu.Unlock()
+	delete(e.operators, id)
+}
+
+// stopOperators stops each Operator of the Workstream with no report.
+func (e *Engine) stopOperators(repository string, workstream int64) {
+	e.detailsMu.Lock()
+	var ids []int64
+	for id, a := range e.operators {
+		if a.spec.WorkstreamRepository == repository && a.spec.Workstream == workstream {
+			ids = append(ids, id)
+		}
+	}
+	e.detailsMu.Unlock()
+	for _, id := range ids {
+		e.stop(operatorKey(id))
+	}
 }
 
 // operate runs the session a of the Operator on the text. A failed Operator reports its error. A stop ends the session

@@ -253,6 +253,35 @@ func TestTheReportOfAnOperatorIsInTheChatBeforeItsSessionEnds(t *testing.T) {
 	}
 }
 
+func TestTheCloseOfAWorkstreamStopsARunningOperatorWithNoReport(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectOperator(t, fake, operatorLead+`
+[[prompts]]
+when = "You are an Operator"
+reply = ["Looking."]
+hang = true
+`)
+	sendChat(t, server, leadChat, "Start the operator.")
+	testkit.WaitFor(t, func() bool {
+		sessions := roleSessions(t, server, engine.OperatorRole)
+		return len(sessions) == 1 && len(promptTexts(t, server, sessions[0].ID)) == 1
+	})
+
+	if err := server.Engine.CloseWorkstreamWontDo(t.Context(), shop, 12); err != nil {
+		t.Fatal(err)
+	}
+
+	session := endedOperators(t, server, 1)[0]
+	if session.EndReason.String != "stopped" {
+		t.Errorf("session = %+v", session)
+	}
+	var count int
+	if err := server.DB.QueryRow("SELECT count(*) FROM chat_messages WHERE author = 'Operator'").Scan(&count); err != nil || count != 0 {
+		t.Errorf("Operator messages = %d, %v", count, err)
+	}
+}
+
 func TestTheDrainRefusesANewOperator(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

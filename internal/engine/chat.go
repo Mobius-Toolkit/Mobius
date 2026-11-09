@@ -669,9 +669,10 @@ func (e *Engine) stopMessage(ctx context.Context, message *store.ChatMessage) er
 	return nil
 }
 
-// stopLead ends the Lead chat of the Workstream and its Researchers at once.
+// stopLead ends the Lead chat of the Workstream, its Researchers and its Operators at once.
 func (e *Engine) stopLead(repository string, workstream int64) {
 	e.stopResearchers(repository, workstream)
+	e.stopOperators(repository, workstream)
 	key := leadChat(repository, workstream)
 	e.chatsMu.Lock()
 	defer e.chatsMu.Unlock()
