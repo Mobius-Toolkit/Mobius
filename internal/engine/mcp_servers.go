@@ -106,8 +106,11 @@ func (e *Engine) UpdateMcpServer(ctx context.Context, organization string, id in
 		if err := checkMcpServerName(ctx, q, organization, id, server.Name); err != nil {
 			return err
 		}
-		server.Headers = keepSecrets(server.Headers, old.Headers)
-		server.Env = keepSecrets(server.Env, old.Env)
+		if server.Kind == mcpHTTP {
+			server.Headers = keepSecrets(server.Headers, old.Headers)
+		} else {
+			server.Env = keepSecrets(server.Env, old.Env)
+		}
 		params, err := e.addMcpServerParams(organization, server)
 		if err != nil {
 			return err
@@ -290,11 +293,11 @@ func (e *Engine) addMcpServerParams(organization string, server McpServer) (stor
 	headers, args, env := []McpPair{}, []string{}, []McpPair{}
 	if server.Kind == mcpHTTP {
 		params.Url = server.URL
-		headers = server.Headers
+		headers = append(headers, server.Headers...)
 	} else {
 		params.Command = server.Command
-		args = server.Args
-		env = server.Env
+		args = append(args, server.Args...)
+		env = append(env, server.Env...)
 	}
 	var err error
 	if params.HeaderList, err = encodeJSON(headers); err != nil {

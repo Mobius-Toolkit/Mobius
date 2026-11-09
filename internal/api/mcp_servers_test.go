@@ -286,3 +286,27 @@ func TestWorkstreamMcpServersGivesTheHttpServersBeforeTheStdioServersWithTheSecr
 		t.Errorf("b-files = %+v", servers[3])
 	}
 }
+
+func TestAPairOfTheOtherKindIsIgnoredAndAServerWithNoArgsGivesEmptyLists(t *testing.T) {
+	server := startWithSettings(t)
+	stdio := addMcpServer(t, server, "owner", `{"name":"files","kind":"stdio","command":"files-server"}`)
+	remote := addMcpServer(t, server, "owner", `{"name":"makeadir","kind":"http","url":"https://makeadir.example.com/mcp"}`)
+
+	status, text := mcpRequest(t, server, http.MethodPut, mcpServersPath+"/"+itoa(stdio.ID),
+		`{"name":"files","kind":"stdio","command":"files-server","headers":[{"name":"X","value":""}]}`)
+	if status != http.StatusOK {
+		t.Fatalf("PUT stdio with a header with no value: status %d: %s", status, text)
+	}
+	if !strings.Contains(text, `"args":[]`) || !strings.Contains(text, `"headers":[]`) || !strings.Contains(text, `"env":[]`) {
+		t.Errorf("stdio server with no args = %s, want empty lists", text)
+	}
+	status, text = mcpRequest(t, server, http.MethodPut, mcpServersPath+"/"+itoa(remote.ID),
+		`{"name":"makeadir","kind":"http","url":"https://makeadir.example.com/mcp","env":[{"name":"X","value":""}]}`)
+	if status != http.StatusOK {
+		t.Fatalf("PUT http with an env variable with no value: status %d: %s", status, text)
+	}
+	status, text = mcpRequest(t, server, http.MethodGet, mcpServersPath, "")
+	if status != http.StatusOK || strings.Contains(text, "null") {
+		t.Errorf("GET: status %d, body %s, want no null", status, text)
+	}
+}
