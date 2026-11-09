@@ -19,6 +19,7 @@ export const Message = defineMessageUnion({
   GotDetailsMessage: { message: Details.Message },
   CompletedRequestLogin: {},
   CompletedReportTab: {},
+  CompletedReportTaskAttached: {},
 });
 
 export type Message = typeof Message.Type;
