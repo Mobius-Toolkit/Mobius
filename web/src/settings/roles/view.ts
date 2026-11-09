@@ -91,6 +91,7 @@ function renderChoice(
     values: options.values,
     loading: Option.isNone(model.harnesses),
     open: Option.exists(sheet.openChoice, (choice) => choice === options.choice),
+    side: "below",
     toggle: Message.ToggledChoice({ choice: options.choice }),
     close: Message.ClosedChoice(),
     pick: options.pick,

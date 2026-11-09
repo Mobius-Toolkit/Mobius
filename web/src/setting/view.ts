@@ -32,6 +32,7 @@ function renderChoice(
     values: options.values,
     loading: Option.isNone(model.harnesses),
     open: Option.exists(model.openChoice, (choice) => choice === options.choice),
+    side: "above",
     toggle: Message.ToggledChoice({ choice: options.choice }),
     close: Message.ClosedChoice(),
     pick: options.pick,

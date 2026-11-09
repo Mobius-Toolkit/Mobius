@@ -5,7 +5,7 @@ import { checkIcon, chevronDownIcon, spinnerIcon } from "./icons";
 const itemClass =
   "relative flex w-full cursor-default items-center gap-1.5 rounded-md py-1 pr-8 pl-1.5 text-left text-sm outline-hidden select-none hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0";
 
-// A button that opens a menu of values above it. toggle is the Message of the button, and close is the Message of the
+// A button that opens a menu of values on one side of it. toggle is the Message of the button, and close is the Message of the
 // layer behind the menu. The menu shows a spinner while loading is true.
 export function renderChoice<M>(
   h: HtmlBuilder<M>,
@@ -15,6 +15,7 @@ export function renderChoice<M>(
     values: readonly string[];
     loading: boolean;
     open: boolean;
+    side: "above" | "below";
     toggle: M;
     close: M;
     pick: (value: string) => M;
@@ -42,7 +43,7 @@ export function renderChoice<M>(
               h.Role("menu"),
               h.DataAttribute("slot", "dropdown-menu-content"),
               h.Class(
-                "absolute bottom-full left-0 z-50 mb-1 max-h-60 w-full min-w-32 overflow-x-hidden overflow-y-auto rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10",
+                `absolute left-0 z-50 max-h-60 w-full min-w-32 overflow-x-hidden overflow-y-auto rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10 ${options.side === "above" ? "bottom-full mb-1" : "top-full mt-1"}`,
               ),
             ],
             options.loading
