@@ -2,6 +2,7 @@ import { Schema } from "effect";
 import * as Agents from "./agents/model";
 import type { Flags } from "./flags";
 import * as Details from "./details/model";
+import * as Recurring from "./recurring/model";
 import { Tab } from "./schemas";
 import * as Tasks from "./tasks/model";
 
@@ -15,6 +16,7 @@ export const Model = Schema.Struct({
   tasks: Tasks.Model,
   agents: Agents.Model,
   details: Details.Model,
+  recurring: Recurring.Model,
 });
 
 export type Model = Schema.Schema.Type<typeof Model>;
@@ -33,5 +35,6 @@ export function initialModel(flags: Flags): Model {
     tasks: Tasks.initialModel(workstream),
     agents: Agents.initialModel(workstream),
     details: Details.initialModel(workstream),
+    recurring: Recurring.initialModel(workstream),
   };
 }
