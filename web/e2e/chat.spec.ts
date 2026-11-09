@@ -1443,7 +1443,7 @@ test("a row in the chat shares the line with its link on a phone, and shows its 
   expect(await noHorizontalScroll()).toBe(true);
 });
 
-test("Start gives only an open task with no blocker a button, and the row shows ready", async ({
+test("Start gives an open task a button, also with a blocker, and the row shows ready", async ({
   page,
 }) => {
   await page.goto("/api/github/user-callback?code=user-code");
@@ -1454,20 +1454,56 @@ test("Start gives only an open task with no blocker a button, and the row shows 
   await expect(rows.filter({ hasText: "#70 Order the bark" })).toBeVisible();
   await expect(rows.filter({ hasText: "blocked by #70" })).toBeVisible();
   await expect(rows.filter({ hasText: "needs-human" })).toBeVisible();
-  await expect(start).toHaveCount(1);
-  await expect(start).toHaveAccessibleName("Start #70");
+  await expect(start).toHaveCount(2);
+  await expect(start.first()).toHaveAccessibleName("Start #70");
+  await expect(start.last()).toHaveAccessibleName("Start #71 when unblocked");
+  await expect(
+    rows.filter({ hasText: "#72 Water the bark" }).getByRole("button", { name: /^Start / }),
+  ).toHaveCount(0);
 
-  await start.click();
+  await start.first().click();
   // The next poll dispatches the issue, so the badge can already show a later state.
   await expect(rows.filter({ hasText: "#70 Order the bark" }).getByText(started)).toBeVisible();
-  await expect(start).toHaveCount(0);
+  await expect(start).toHaveCount(1);
 
   await page.reload();
   await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
   await expect(rows.filter({ hasText: "#70 Order the bark" }).getByText(started)).toBeVisible();
-  await expect(start).toHaveCount(0);
+  await expect(start).toHaveCount(1);
 
   await undoDispatch(page, 70);
+});
+
+test("Start of a task with a blocker sends the start request, and the row shows ready and the blocker", async ({
+  page,
+}) => {
+  await page.goto("/api/github/user-callback?code=user-code");
+  await page.goto("/workstreams/plants/garden/19");
+  await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
+  const row = page.getByRole("listitem").filter({ hasText: "#71 Spread the bark" });
+  const start = row.getByRole("button", { name: "Start #71 when unblocked" });
+  await expect(start).toHaveAttribute("title", "Start #71 when unblocked");
+
+  const request = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/repositories/plants/garden/issues/71/start") &&
+      response.request().method() === "POST",
+  );
+  await start.click();
+  expect((await request).status()).toBe(204);
+  await expect(page.getByText("#71 starts when unblocked")).toBeVisible();
+  await expect(row.getByText("ready", { exact: true })).toBeVisible();
+  await expect(row.getByText("blocked by #70")).toBeVisible();
+  await expect(start).toHaveCount(0);
+
+  await page.reload();
+  await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
+  await expect(row.getByText("ready", { exact: true })).toBeVisible();
+  await expect(row.getByText("blocked by #70")).toBeVisible();
+  await expect(start).toHaveCount(0);
+
+  const reset = await page.request.delete("/e2e/ready/plants/garden/71");
+  expect(reset.ok()).toBe(true);
 });
 
 test("Resume gives a needs-human task with no blocker a button that waits for the request, and the line leaves needs-human", async ({

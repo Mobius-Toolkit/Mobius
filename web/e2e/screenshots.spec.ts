@@ -1399,6 +1399,7 @@ test("screenshots", async ({ page }) => {
           ]
         : [page.getByLabel("Upgrade available")]),
       page.getByRole("button", { name: "Start #70" }).filter({ visible: true }),
+      page.getByRole("button", { name: "Start #71 when unblocked" }).filter({ visible: true }),
     ],
     async (device) => {
       if (device === "phone") {
@@ -1407,6 +1408,41 @@ test("screenshots", async ({ page }) => {
       await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
     },
   );
+  const blockedReadyRoute = "**/api/workstreams/plants/garden/19/tasks";
+  await page.route(blockedReadyRoute, async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as { data: { number: number; state: string }[] };
+    for (const line of body.data) {
+      if (line.number === 71) {
+        line.state = "ready";
+      }
+    }
+    await route.fulfill({ response, json: body });
+  });
+  await screenshot(
+    page,
+    "chat-tasks-blocked-ready",
+    "/workstreams/plants/garden/19",
+    (device) => [
+      ...(device === "desktop"
+        ? [
+            drain,
+            page.getByLabel("Work in another organization"),
+            page.locator('nav a[href="/workstreams/plants/garden/19"]'),
+          ]
+        : [page.getByLabel("Upgrade available")]),
+      page.getByText("#71 Spread the bark").filter({ visible: true }),
+      page.getByText("ready", { exact: true }).filter({ visible: true }),
+      page.getByText("blocked by #70").filter({ visible: true }),
+    ],
+    async (device) => {
+      if (device === "phone") {
+        await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
+      }
+      await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
+    },
+  );
+  await page.unroute(blockedReadyRoute);
   const recurringFrame = (device: string, number: number) =>
     device === "desktop"
       ? [
