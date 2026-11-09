@@ -34,6 +34,10 @@ type McpServer struct {
 	Args []string `gork:"args"`
 	// Env are the environment variables of a stdio server
 	Env []McpPairName `gork:"env"`
+	// OAuth is none (no token), connected (a token) or reconnect (the server needs a new connect)
+	OAuth string `gork:"oauth" validate:"oneof=none connected reconnect"`
+	// OAuthReason is the reason that the server needs a new connect, and empty when OAuth is not reconnect
+	OAuthReason string `gork:"oauthReason"`
 }
 
 // McpPair is a header or an environment variable that the Owner sends. An empty value keeps the stored value of the
@@ -66,7 +70,7 @@ type McpServerBody struct {
 func mcpServerOf(server engine.McpServer) McpServer {
 	return McpServer{
 		ID: server.ID, Name: server.Name, Kind: server.Kind, URL: server.URL, Headers: mcpPairNames(server.Headers),
-		Command: server.Command, Args: server.Args, Env: mcpPairNames(server.Env),
+		Command: server.Command, Args: server.Args, Env: mcpPairNames(server.Env), OAuth: server.OAuth, OAuthReason: server.OAuthReason,
 	}
 }
 
