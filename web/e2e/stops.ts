@@ -250,6 +250,20 @@ export const todoItems = [
   },
 ];
 
+// An owner action of the pull request of owner/shop#12.
+export const ownerActionItem = {
+  ...base,
+  id: 215,
+  issue: 40,
+  kind: "owner action",
+  title: "Run wrangler login on the Mobius server",
+  reason: "Integrate loyalty plans",
+  text: "Run wrangler login on the Mobius server.",
+  link: `${link}/issues/40`,
+  pullRequest: 1110,
+  pullRequestUrl: `${link}/pull/1110`,
+};
+
 export const inboxRoute = "**/api/inbox";
 
 // Adds the items to the Inbox that the server gives.
