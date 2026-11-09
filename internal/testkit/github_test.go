@@ -704,7 +704,7 @@ func TestTheLatestReleaseOfMobiusNeedsNoToken(t *testing.T) {
 	var release releaseJSON
 	got := send(t, http.MethodGet, url, "", "", &release)
 
-	want := releaseJSON{TagName: "v0.3.0", Assets: []assetJSON{{"mobius-x86_64-unknown-linux-gnu.tar.gz"}}}
+	want := releaseJSON{TagName: "v0.3.0", Assets: []assetJSON{{1, "mobius-x86_64-unknown-linux-gnu.tar.gz"}}}
 	if got.StatusCode != http.StatusOK || !reflect.DeepEqual(release, want) {
 		t.Errorf("release = %d %+v", got.StatusCode, release)
 	}

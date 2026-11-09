@@ -280,7 +280,7 @@ Caution: "Workers run in full auto as your OS user and can read all your files."
 
 Do not run Mobius as the root user. The Claude Code adapter refuses the full auto mode for root.
 
-Mobius does not start when a Harness of your config, `gh`, `curl`, or `tar` is not on `PATH`.
+Mobius does not start when a Harness of your config, `gh`, or `tar` is not on `PATH`.
 
 If necessary, set these variables in the shell before you start Mobius:
 
