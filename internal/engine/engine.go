@@ -126,8 +126,9 @@ type Engine struct {
 	// triages holds the Triager of each issue.
 	triagesMu sync.Mutex
 	triages   map[triageKey]triage
-	// triagerStartMu makes the stop and the start of a Triager one step, so no two runs of an issue start together.
-	triagerStartMu sync.Mutex
+	// triagerStarts holds, for each issue, the lock that makes the stop and the start of its Triager one step, so no two
+	// runs of an issue start together. triagesMu guards the map.
+	triagerStarts map[triageKey]*sync.Mutex
 	// memoryMu makes the read and the write of the memory files, and the checks before a write, run one after the other.
 	memoryMu sync.Mutex
 	// gitMu makes the git commands of the bare clones run one after the other. Two git commands that write the refs of
@@ -242,6 +243,7 @@ func New(db *sql.DB, gh *github.GitHub, cfg *config.Config, agents Agents) *Engi
 		chats:           map[ChatKey]*chat{},
 		pauseWaiters:    map[*Agent]chan struct{}{},
 		triages:         map[triageKey]triage{},
+		triagerStarts:   map[triageKey]*sync.Mutex{},
 		checks:          make(chan struct{}, cfg.MaxChecks),
 		stops:           map[any]stopper{},
 		live:            map[any]int{},
