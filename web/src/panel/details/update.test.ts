@@ -12,9 +12,9 @@ import {
 import { FetchHarnesses } from "@/setting/commands";
 import * as SettingFixture from "@/setting/fixtures";
 import type { Role } from "@/setting/schemas";
-import { CloseWorkstream, FetchClosure, SetEvergreen } from "./commands";
+import { CloseWorkstream, FetchClosure, SetEvergreen, SetMcpServers } from "./commands";
 import { Message, OutMessage } from "./message";
-import { initialModel, type Model, type WorkstreamDetails } from "./model";
+import { initialModel, type McpServer, type Model, type WorkstreamDetails } from "./model";
 import { update } from "./update";
 
 const workstream = { owner: "owner", name: "shop", number: 12 };
@@ -416,6 +416,192 @@ describe("the close of the Workstream as won't do", () => {
       model((m) => {
         expect(Option.isNone(m.closure)).toBe(true);
       }),
+    );
+  });
+});
+
+const server = (id: number, name: string, kind: McpServer["kind"]): McpServer => ({
+  args: [],
+  command: "",
+  env: [],
+  headers: [],
+  id,
+  kind,
+  name,
+  oauth: "none",
+  oauthReason: "",
+  url: "",
+});
+
+const selected = (m: Model) => Option.getOrThrow(m.mcpSheet).selected;
+
+describe("the MCP servers of the Workstream", () => {
+  const servers = [server(1, "makeadir", "http"), server(2, "search", "stdio")];
+  const loaded = createModel({ mcpServers: Option.some(servers) });
+
+  it("reads the servers of the organization with the details", () => {
+    story(
+      update,
+      given(createModel()),
+      message(Message.McpServersLoaded({ servers })),
+      model((m) => {
+        expect(m.mcpServers).toEqual(Option.some(servers));
+      }),
+    );
+  });
+
+  it("opens the sheet with the selection of the Workstream", () => {
+    story(
+      update,
+      given(
+        createModel({
+          mcpServers: Option.some(servers),
+          details: Option.some({ ...details, mcpServers: [2] }),
+        }),
+      ),
+      message(Message.ClickedChangeMcpServers()),
+      model((m) => {
+        expect(Option.getOrThrow(m.mcpSheet)).toEqual({ selected: [2], error: "", saving: false });
+      }),
+      StoryCommand.expectNone(),
+    );
+  });
+
+  it("opens no sheet before the servers are known", () => {
+    story(
+      update,
+      given(createModel()),
+      message(Message.ClickedChangeMcpServers()),
+      model((m) => {
+        expect(Option.isNone(m.mcpSheet)).toBe(true);
+      }),
+    );
+  });
+
+  it("checks and unchecks a server", () => {
+    story(
+      update,
+      given(loaded),
+      message(Message.ClickedChangeMcpServers()),
+      message(Message.ToggledMcpServer({ id: 1 })),
+      model((m) => {
+        expect(selected(m)).toEqual([1]);
+      }),
+      message(Message.ToggledMcpServer({ id: 2 })),
+      model((m) => {
+        expect(selected(m)).toEqual([1, 2]);
+      }),
+      message(Message.ToggledMcpServer({ id: 1 })),
+      model((m) => {
+        expect(selected(m)).toEqual([2]);
+      }),
+    );
+  });
+
+  it("saves the ids, waits, and shows the new selection after the 204", () => {
+    story(
+      update,
+      given(loaded),
+      message(Message.ClickedChangeMcpServers()),
+      message(Message.ToggledMcpServer({ id: 2 })),
+      message(Message.ClickedSaveMcpServers()),
+      model((m) => {
+        expect(Option.getOrThrow(m.mcpSheet).saving).toBe(true);
+      }),
+      StoryCommand.expectExact(SetMcpServers({ ...workstream, ids: [2] })),
+      StoryCommand.resolve(SetMcpServers, Message.McpServersSaved({ ids: [2] })),
+      model((m) => {
+        expect(Option.isNone(m.mcpSheet)).toBe(true);
+        expect(Option.getOrThrow(m.details).mcpServers).toEqual([2]);
+      }),
+    );
+  });
+
+  it("saves an empty selection after the Owner removes each check", () => {
+    story(
+      update,
+      given(
+        createModel({
+          mcpServers: Option.some(servers),
+          details: Option.some({ ...details, mcpServers: [1] }),
+        }),
+      ),
+      message(Message.ClickedChangeMcpServers()),
+      message(Message.ToggledMcpServer({ id: 1 })),
+      message(Message.ClickedSaveMcpServers()),
+      StoryCommand.expectExact(SetMcpServers({ ...workstream, ids: [] })),
+      StoryCommand.resolve(SetMcpServers, Message.McpServersSaved({ ids: [] })),
+      model((m) => {
+        expect(Option.getOrThrow(m.details).mcpServers).toEqual([]);
+      }),
+    );
+  });
+
+  it("keeps the sheet and the old selection, and shows the reason when the save fails", () => {
+    story(
+      update,
+      given(loaded),
+      message(Message.ClickedChangeMcpServers()),
+      message(Message.ToggledMcpServer({ id: 1 })),
+      message(Message.ClickedSaveMcpServers()),
+      StoryCommand.resolve(
+        SetMcpServers,
+        Message.McpServersFailed({ error: "The Workstream is not open." }),
+      ),
+      model((m) => {
+        expect(Option.getOrThrow(m.mcpSheet)).toEqual({
+          selected: [1],
+          error: "The Workstream is not open.",
+          saving: false,
+        });
+        expect(Option.getOrThrow(m.details).mcpServers).toEqual([]);
+      }),
+    );
+  });
+
+  it("asks the host for the login when the save gets a 401, and ends the wait", () => {
+    story(
+      update,
+      given(loaded),
+      message(Message.ClickedChangeMcpServers()),
+      message(Message.ClickedSaveMcpServers()),
+      StoryCommand.resolve(SetMcpServers, Message.LoginRequired()),
+      model((m) => {
+        expect(Option.getOrThrow(m.mcpSheet).saving).toBe(false);
+      }),
+      expectOutMessage(OutMessage.LoginRequired()),
+    );
+  });
+
+  it("closes the sheet with Cancel and with Escape, and keeps the selection", () => {
+    story(
+      update,
+      given(loaded),
+      message(Message.ClickedChangeMcpServers()),
+      message(Message.ToggledMcpServer({ id: 1 })),
+      message(Message.ClosedMcpServers()),
+      model((m) => {
+        expect(Option.isNone(m.mcpSheet)).toBe(true);
+        expect(Option.getOrThrow(m.details).mcpServers).toEqual([]);
+      }),
+      message(Message.ClickedChangeMcpServers()),
+      message(Message.PressedEscape()),
+      model((m) => {
+        expect(Option.isNone(m.mcpSheet)).toBe(true);
+      }),
+    );
+  });
+
+  it("closes the sheet and asks the host to open the page of the servers", () => {
+    story(
+      update,
+      given(createModel({ mcpServers: Option.some([]) })),
+      message(Message.ClickedChangeMcpServers()),
+      message(Message.NavigateTo({ path: "/settings/mcp-servers" })),
+      model((m) => {
+        expect(Option.isNone(m.mcpSheet)).toBe(true);
+      }),
+      expectOutMessage(OutMessage.NavigationRequested({ path: "/settings/mcp-servers" })),
     );
   });
 });
