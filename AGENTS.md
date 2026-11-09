@@ -44,7 +44,7 @@ orval does not read `contentSchema` and `itemSchema` of OpenAPI 3.2. Thus `web/o
 
 ## Foldkit screens
 
-A Foldkit screen runs inside its React host (for example `web/src/Conversation.tsx` for `web/src/chat/`, `web/src/Inbox.tsx` for `web/src/inbox/`, `web/src/Workstreams.tsx` for `web/src/workstreams/`, `web/src/Tasks.tsx` for `web/src/tasks/`, `web/src/Agents.tsx` for `web/src/agents/` and `web/src/Panel.tsx` for `web/src/panel/`) until the shell moves to Foldkit.
+A Foldkit screen runs inside its React host (for example `web/src/Conversation.tsx` for `web/src/chat/`, `web/src/Inbox.tsx` for `web/src/inbox/`, `web/src/Workstreams.tsx` for `web/src/workstreams/`, `web/src/Tasks.tsx` for `web/src/tasks/`, `web/src/Agents.tsx` for `web/src/agents/`, `web/src/CheckupHost.tsx` for `web/src/checkup/` and `web/src/Panel.tsx` for `web/src/panel/`) until the shell moves to Foldkit.
 
 - Foldkit renders in the next animation frame. A Playwright step that comes right after another step can see the old view. Use a web-first assertion (`expect(...).toHaveText`) before the next action.
 - The program reads the plain stores of `web/src/lib` (unread counts, Workstream list, drafts, voice) in a Subscription, with `storeValues` of `web/src/live/stores.ts`. Do not send them through a Port. The program changes a draft only through the draft store, with a Command that calls `updateDraft`, and the Subscription gives the new draft back to the Model.
@@ -138,6 +138,7 @@ web/src/inbox/         the Inbox screen as a Foldkit program: it uses the model,
 web/src/workstreams/   the Workstreams screen as a Foldkit program, with its own Ports and view. Its host is web/src/Workstreams.tsx
 web/src/tasks/         the Tasks screen as a Foldkit program: the board, the read on each live event of Workstreams and of the Inbox, and its tests. Its host is web/src/Tasks.tsx
 web/src/agents/        the Agents screen as a Foldkit program: the list of the open agents and the Transcript of one agent. Its host is web/src/Agents.tsx
+web/src/checkup/       the Checkup screens as one Foldkit program with one view for each route: the overview, the tools with the upgrade dialog, the permissions, the labels and the Workstreams. Its host is web/src/CheckupHost.tsx, which keeps the top bar with the fix button of the labels
 web/src/panel/         the panel of a Workstream as a Foldkit program, with the tabs Tasks, Agents, Details, Brief and Recurring, each with its own model, update and view. Its host is web/src/Panel.tsx, which Chat.tsx embeds in the side panel and in the phone sheet
 web/src/transcript/    the Transcript of one agent as a Foldkit Submodel: the lines, the stream, the older pages and the start of a check. The Agents screen and the Agents tab use it
 web/src/setting/       the sheet of the Harness, the model and the effort as a Foldkit Submodel. The Tasks tab and the Details tab use it

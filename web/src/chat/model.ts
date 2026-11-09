@@ -20,15 +20,24 @@ import {
 
 export const retryDelays = [2000, 5000, 10_000, 30_000];
 
-// A pull request and a todo show the pull request. Each other item shows its issue.
+// A pull request, a todo and an owner action with a pull request show the pull request. Each other item shows its
+// issue.
 export function itemReference(item: InboxItem) {
   const ofPullRequest =
-    item.kind === InboxItemKind.ready_for_review || item.kind === InboxItemKind.todo;
+    item.kind === InboxItemKind.ready_for_review ||
+    item.kind === InboxItemKind.todo ||
+    (item.kind === InboxItemKind.owner_action && item.pullRequestUrl !== "");
   return {
     reference: !item.issue ? "" : ofPullRequest ? `PR #${item.pullRequest}` : `#${item.issue}`,
     link: ofPullRequest ? item.pullRequestUrl : item.link,
   };
 }
+
+// The panel of these items has an optional note, and the Send button needs no text.
+export const hasNote = (item: InboxItem) =>
+  item.todo !== null ||
+  item.kind === InboxItemKind.owner_action ||
+  item.kind === InboxItemKind.stopped;
 
 export function draftInboxItem(item: InboxItem): DraftInboxItem {
   const { reference, link } = itemReference(item);

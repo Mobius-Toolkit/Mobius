@@ -30,7 +30,14 @@ import { png } from "./images.js";
 import { longTaskTitle, routeLongTask, tasksUrl } from "./long-task.js";
 import { countSamples, fakeMicrophone } from "./microphone.js";
 import { lines, turnAllOn, turnOff } from "./switches.js";
-import { boardTasks, mergingTask, refusedTask, routeTasks, tasksRoute } from "./tasks.js";
+import {
+  boardTasks,
+  mergingTask,
+  ownerActionTask,
+  refusedTask,
+  routeTasks,
+  tasksRoute,
+} from "./tasks.js";
 import {
   inboxRoute,
   coordinatorActionItem,
@@ -42,6 +49,7 @@ import {
   longWordQuestionItem,
   longWordTitle,
   routeInboxItems,
+  ownerActionItem,
   stoppedItems,
   todoItems,
 } from "./stops.js";
@@ -368,6 +376,24 @@ test("screenshots", async ({ page }) => {
     main.getByRole("region", { name: "Working" }),
   ]);
   await page.unroute(tasksRoute);
+  await routeTasks(page, [...boardTasks, ownerActionTask]);
+  await screenshot(
+    page,
+    "tasks-owner-action",
+    "/tasks",
+    (device) => [
+      chatCount,
+      ...frame(device, drain, { organizations: true }),
+      main.getByRole("region", { name: "Needs you" }).getByText("Deploy the plan page"),
+      main.getByRole("region", { name: "Needs you" }).getByText("owner_action", { exact: true }),
+    ],
+    async () => {
+      const needsYou = main.getByRole("region", { name: "Needs you" });
+      await expect(needsYou.getByText("owner_action", { exact: true })).toBeAttached();
+      await needsYou.evaluate((el) => el.scrollIntoView({ block: "nearest", inline: "start" }));
+    },
+  );
+  await page.unroute(tasksRoute);
   await routeTasks(page, [...boardTasks, mergingTask, refusedTask]);
   await screenshot(
     page,
@@ -444,7 +470,7 @@ test("screenshots", async ({ page }) => {
       json: { data: { url: "https://github.com/owner/shop/issues/41#issuecomment-1" } },
     }),
   );
-  const answered = noticeOf(page, "Sent the answer to the Lead of #12");
+  const answered = noticeOf(page, "Resumed #41");
   await screenshot(
     page,
     "notice-answer",
@@ -459,12 +485,12 @@ test("screenshots", async ({ page }) => {
       for (const locator of chatReady(device)) {
         await expect(locator).toBeVisible();
       }
-      await trayRow.getByRole("button", { name: "Answer" }).click();
+      await trayRow.getByRole("button", { name: "Resume", exact: true }).click();
       await page
         .getByRole("dialog")
-        .getByRole("textbox", { name: "Your answer" })
+        .getByRole("textbox", { name: "Note" })
         .fill("Add the model first.");
-      await page.getByRole("dialog").getByRole("button", { name: "Send" }).click();
+      await page.getByRole("dialog").getByRole("button", { name: "Resume" }).click();
       await expect(page.getByRole("dialog")).toBeHidden();
       await holdNotice(page, answered);
     },
@@ -897,14 +923,14 @@ test("screenshots", async ({ page }) => {
   };
   await screenshot(page, "chat-stop-reason", "/workstreams/owner/shop/12", (device) => [
     ...chatReady(device),
-    stoppedRow.getByRole("button", { name: "Answer" }),
+    stoppedRow.getByRole("button", { name: "Resume", exact: true }),
   ]);
   await screenshot(
     page,
     "chat-stop-details",
     "/workstreams/owner/shop/12",
     () => page.getByRole("dialog", { name: "Add plan model" }),
-    () => stoppedRow.getByRole("button", { name: "Answer" }).click(),
+    () => stoppedRow.getByRole("button", { name: "Resume", exact: true }).click(),
     () => page.keyboard.press("Escape"),
   );
   const photos = [
@@ -1642,6 +1668,46 @@ test("screenshots", async ({ page }) => {
     },
   );
   await page.unroute(stopRoute);
+  const ownerActionRoute = "**/api/workstreams/plants/garden/19/tasks";
+  await page.route(ownerActionRoute, async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as { data: object[] };
+    body.data.push({
+      number: 75,
+      title: "Deploy the hedge",
+      state: "waits for Owner action",
+      depth: 0,
+      repository: "plants/garden",
+      implementer: null,
+      otherRepository: false,
+      url: "https://github.com/plants/garden/issues/75",
+      blockedBy: [],
+    });
+    await route.fulfill({ response, json: body });
+  });
+  await screenshot(
+    page,
+    "chat-owner-action",
+    "/workstreams/plants/garden/19",
+    (device) => [
+      ...(device === "desktop"
+        ? [
+            drain,
+            page.getByLabel("Work in another organization"),
+            page.locator('nav a[href="/workstreams/plants/garden/19"]'),
+          ]
+        : [page.getByLabel("Upgrade available")]),
+      page.getByText("#75 Deploy the hedge").filter({ visible: true }),
+      page.getByText("waits for Owner action").filter({ visible: true }),
+    ],
+    async (device) => {
+      if (device === "phone") {
+        await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
+      }
+      await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
+    },
+  );
+  await page.unroute(ownerActionRoute);
   await screenshot(page, "chat-all-tasks-closed", "/workstreams/owner/shop/13", (device) => [
     ...frame(device, drain),
     main.getByText("All tasks are closed."),
@@ -1857,6 +1923,35 @@ test("screenshots", async ({ page }) => {
     async () => {
       await expect(afterMergeRow.getByRole("button", { name: "Complete" })).toBeVisible();
       await afterMergeRow.getByRole("button", { name: "Complete" }).click();
+    },
+  );
+  await page.unroute(inboxRoute);
+  await page.route(inboxRoute, (route) => route.fulfill({ json: { data: [ownerActionItem] } }));
+  const ownerActionRow = main.getByRole("listitem").filter({ hasText: "wrangler login" });
+  await screenshot(page, "inbox-owner-action", "/inbox", (device) => [
+    ...frame(device, drain, { organizations: true }),
+    ownerActionRow.getByText("Owner action", { exact: true }),
+    ownerActionRow.getByRole("link", { name: "PR #1110" }),
+    ownerActionRow.getByRole("button", { name: "Done" }),
+    ownerActionRow.getByRole("link", { name: "Open PR" }),
+  ]);
+  await screenshot(
+    page,
+    "owner-action-done",
+    "/inbox",
+    () => [
+      page
+        .getByRole("dialog")
+        .getByRole("heading", { name: "Run wrangler login on the Mobius server" }),
+      page.getByRole("dialog").getByRole("link", { name: "PR #1110 ↗" }),
+      page
+        .getByRole("dialog")
+        .getByText("Mobius starts the next round after you mark the action as done."),
+      page.getByRole("dialog").getByRole("textbox", { name: "Note" }),
+    ],
+    async () => {
+      await expect(ownerActionRow.getByRole("button", { name: "Done" })).toBeVisible();
+      await ownerActionRow.getByRole("button", { name: "Done" }).click();
     },
   );
   await page.unroute(inboxRoute);

@@ -149,8 +149,10 @@ func (e *Engine) stopResearchers(repository string, workstream int64) {
 }
 
 // research runs the session a of the Researcher id on the question in a worktree that is detached at the default
-// branch. A failed Researcher reports its error. When the Harness of the Role changes while a waits for a pause, a ends
-// with the reason "moved", and a new session with the same question and details runs under the same id.
+// branch. A failed Researcher reports its error. The report goes to the chat before the session ends, because the end
+// frees the drain count, and the chat refuses a message after the seal of an upgrade. When the Harness of the Role
+// changes while a waits for a pause, a ends with the reason "moved", and a new session with the same question and
+// details runs under the same id.
 func (e *Engine) research(ctx context.Context, c caller, repository github.Repository, a *Agent, id int64, question string) error {
 	if err := a.waitForSlot(ctx); err != nil {
 		if ctx.Err() != nil {
@@ -178,15 +180,14 @@ func (e *Engine) research(ctx context.Context, c caller, repository github.Repos
 	case stopped:
 		return a.End(ended, "stopped")
 	case errors.Is(err, errHung):
-		return errors.Join(a.endHung(ended), e.deliverReport(ended, c, repository, id, question, "The Researcher failed: "+err.Error()))
+		delivery := e.deliverReport(ended, c, repository, id, question, "The Researcher failed: "+err.Error())
+		return errors.Join(delivery, a.endHung(ended))
 	case err != nil:
-		failure := a.Fail(ended, err)
-		return errors.Join(failure, e.deliverReport(ended, c, repository, id, question, "The Researcher failed: "+err.Error()))
+		delivery := e.deliverReport(ended, c, repository, id, question, "The Researcher failed: "+err.Error())
+		return errors.Join(delivery, a.Fail(ended, err))
 	}
-	if err := a.End(ended, "done"); err != nil {
-		return err
-	}
-	return e.deliverReport(ended, c, repository, id, question, report)
+	delivery := e.deliverReport(ended, c, repository, id, question, report)
+	return errors.Join(delivery, a.End(ended, "done"))
 }
 
 // moveResearcher adds a new session for the Researcher id after the session old ended with the reason "moved". The new
