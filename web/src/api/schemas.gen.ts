@@ -914,6 +914,106 @@ export const ListOrganizationsResponse = S.Struct({
 
 
 /**
+ * ListMcpServers returns the MCP servers of the organization in name order, with the names of the headers and of the environment variables and with no secret value.
+ */
+export const ListMcpServersParams = S.Struct({
+  "organization": S.String.annotate({ description: 'Organization is the owner of the repositories' })
+})
+
+export const ListMcpServersResponse = S.Struct({
+  "data": S.Array(S.Struct({
+  "args": S.Array(S.String).annotate({ description: 'Args are the arguments of the command of a stdio server' }),
+  "command": S.String.annotate({ description: 'Command is the command of a stdio server, and empty for an http server' }),
+  "env": S.Array(S.Struct({
+  "name": S.String.annotate({ description: 'Name is the name of the header or of the environment variable' })
+}).annotate({ description: 'McpPairName is the name of a header or of an environment variable of an MCP server. The API never gives its value.' })).annotate({ description: 'Env are the environment variables of a stdio server' }),
+  "headers": S.Array(S.Struct({
+  "name": S.String.annotate({ description: 'Name is the name of the header or of the environment variable' })
+}).annotate({ description: 'McpPairName is the name of a header or of an environment variable of an MCP server. The API never gives its value.' })).annotate({ description: 'Headers are the headers of an http server' }),
+  "id": S.Number.annotate({ description: 'ID is the id of the server' }),
+  "kind": S.Literals(['http', 'stdio']).annotate({ description: 'Kind is http or stdio' }),
+  "name": S.String.annotate({ description: 'Name is the name of the server, unique in the organization' }),
+  "url": S.String.annotate({ description: 'URL is the address of an http server, and empty for a stdio server' })
+}).annotate({ description: 'McpServer is an MCP server of an organization.' })).annotate({ description: 'Data is the payload of the response' })
+}).annotate({ description: 'Envelope is the body of each success response.' })
+
+
+/**
+ * AddMcpServer adds an MCP server to the organization. It returns 422 with the reason when a field fails a check, and 409 when another server of the organization has the name.
+ */
+export const AddMcpServerParams = S.Struct({
+  "organization": S.String.annotate({ description: 'Organization is the owner of the repositories' })
+})
+
+export const AddMcpServerBody = S.Struct({
+  "args": S.optional(S.Array(S.String)).annotate({ description: 'Args are the arguments of the command. An http server ignores them.' }),
+  "command": S.optional(S.String).annotate({ description: 'Command is the command of a stdio server. An http server ignores it.' }),
+  "env": S.optional(S.Array(S.Struct({
+  "name": S.optional(S.String).annotate({ description: 'Name is the name of the header or of the environment variable' }),
+  "value": S.optional(S.String).annotate({ description: 'Value is the secret value' })
+}).annotate({ description: 'McpPair is a header or an environment variable that the Owner sends. An empty value keeps the stored value of the same name when the Owner changes a server.' }))).annotate({ description: 'Env are the environment variables of a stdio server. An http server ignores them.' }),
+  "headers": S.optional(S.Array(S.Struct({
+  "name": S.optional(S.String).annotate({ description: 'Name is the name of the header or of the environment variable' }),
+  "value": S.optional(S.String).annotate({ description: 'Value is the secret value' })
+}).annotate({ description: 'McpPair is a header or an environment variable that the Owner sends. An empty value keeps the stored value of the same name when the Owner changes a server.' }))).annotate({ description: 'Headers are the headers of an http server. A stdio server ignores them.' }),
+  "kind": S.optional(S.String).annotate({ description: 'Kind is http or stdio' }),
+  "name": S.optional(S.String).annotate({ description: 'Name has only letters, digits, - and _, and is not mobius' }),
+  "url": S.optional(S.String).annotate({ description: 'URL is the absolute http or https address of an http server. A stdio server ignores it.' })
+}).annotate({ description: 'McpServerBody is the body of a request that adds or changes an MCP server.' })
+
+
+/**
+ * ChangeMcpServer replaces an MCP server of the organization. A header or an environment variable with an empty value keeps the stored value of the same name. It returns 404 for an id that is not a server of the organization, 422 with the reason when a field fails a check, and 409 when another server of the organization has the name.
+ */
+export const ChangeMcpServerParams = S.Struct({
+  "organization": S.String.annotate({ description: 'Organization is the owner of the repositories' }),
+  "id": S.Number.annotate({ description: 'ID is the id of the server' })
+})
+
+export const ChangeMcpServerBody = S.Struct({
+  "args": S.optional(S.Array(S.String)).annotate({ description: 'Args are the arguments of the command. An http server ignores them.' }),
+  "command": S.optional(S.String).annotate({ description: 'Command is the command of a stdio server. An http server ignores it.' }),
+  "env": S.optional(S.Array(S.Struct({
+  "name": S.optional(S.String).annotate({ description: 'Name is the name of the header or of the environment variable' }),
+  "value": S.optional(S.String).annotate({ description: 'Value is the secret value' })
+}).annotate({ description: 'McpPair is a header or an environment variable that the Owner sends. An empty value keeps the stored value of the same name when the Owner changes a server.' }))).annotate({ description: 'Env are the environment variables of a stdio server. An http server ignores them.' }),
+  "headers": S.optional(S.Array(S.Struct({
+  "name": S.optional(S.String).annotate({ description: 'Name is the name of the header or of the environment variable' }),
+  "value": S.optional(S.String).annotate({ description: 'Value is the secret value' })
+}).annotate({ description: 'McpPair is a header or an environment variable that the Owner sends. An empty value keeps the stored value of the same name when the Owner changes a server.' }))).annotate({ description: 'Headers are the headers of an http server. A stdio server ignores them.' }),
+  "kind": S.optional(S.String).annotate({ description: 'Kind is http or stdio' }),
+  "name": S.optional(S.String).annotate({ description: 'Name has only letters, digits, - and _, and is not mobius' }),
+  "url": S.optional(S.String).annotate({ description: 'URL is the absolute http or https address of an http server. A stdio server ignores it.' })
+}).annotate({ description: 'McpServerBody is the body of a request that adds or changes an MCP server.' })
+
+export const ChangeMcpServerResponse = S.Struct({
+  "data": S.Struct({
+  "args": S.Array(S.String).annotate({ description: 'Args are the arguments of the command of a stdio server' }),
+  "command": S.String.annotate({ description: 'Command is the command of a stdio server, and empty for an http server' }),
+  "env": S.Array(S.Struct({
+  "name": S.String.annotate({ description: 'Name is the name of the header or of the environment variable' })
+}).annotate({ description: 'McpPairName is the name of a header or of an environment variable of an MCP server. The API never gives its value.' })).annotate({ description: 'Env are the environment variables of a stdio server' }),
+  "headers": S.Array(S.Struct({
+  "name": S.String.annotate({ description: 'Name is the name of the header or of the environment variable' })
+}).annotate({ description: 'McpPairName is the name of a header or of an environment variable of an MCP server. The API never gives its value.' })).annotate({ description: 'Headers are the headers of an http server' }),
+  "id": S.Number.annotate({ description: 'ID is the id of the server' }),
+  "kind": S.Literals(['http', 'stdio']).annotate({ description: 'Kind is http or stdio' }),
+  "name": S.String.annotate({ description: 'Name is the name of the server, unique in the organization' }),
+  "url": S.String.annotate({ description: 'URL is the address of an http server, and empty for a stdio server' })
+}).annotate({ description: 'Data is the payload of the response' })
+}).annotate({ description: 'Envelope is the body of each success response.' })
+
+
+/**
+ * DeleteMcpServer deletes an MCP server of the organization and removes it from the selection of each Workstream. It returns 404 for an id that is not a server of the organization.
+ */
+export const DeleteMcpServerParams = S.Struct({
+  "organization": S.String.annotate({ description: 'Organization is the owner of the repositories' }),
+  "id": S.Number.annotate({ description: 'ID is the id of the server' })
+})
+
+
+/**
  * ListPauses returns the pause of each Harness that has one.
  */
 export const ListPausesResponse = S.Struct({
@@ -1755,6 +1855,7 @@ export const GetWorkstreamDetailsResponse = S.Struct({
   "own": S.Boolean.annotate({ description: 'Own is true when the Workstream has its own setting, and false when the binding comes from the Role' })
 }).annotate({ description: 'Lead is the binding of the next Lead session of the Workstream' }),
   "maintenance": S.Boolean.annotate({ description: 'Maintenance is true when the Workstream issue has mobius:maintenance' }),
+  "mcpServers": S.Array(S.Number).annotate({ description: 'McpServers are the ids of the MCP servers that the Owner selected for the Workstream, in name order of the servers' }),
   "openTasks": S.Number.annotate({ description: 'OpenTasks is the number of open tasks' }),
   "skills": S.Boolean.annotate({ description: 'Skills is true when the Workstream issue has mobius:skills' })
 }).annotate({ description: 'Data is the payload of the response' })
@@ -1824,6 +1925,20 @@ export const ClearWorkstreamLeadParams = S.Struct({
   "owner": S.String.annotate({ description: 'Owner is the owner of the repository' }),
   "name": S.String.annotate({ description: 'Name is the name of the repository' }),
   "number": S.Number.annotate({ description: 'Number is the number of the issue' })
+})
+
+
+/**
+ * SetWorkstreamMcpServers replaces the MCP servers that the Owner selected for the Workstream. It returns 404 when the issue is not an open Workstream of the local copy, and 422 for an id of a server of another organization.
+ */
+export const SetWorkstreamMcpServersParams = S.Struct({
+  "owner": S.String.annotate({ description: 'Owner is the owner of the repository' }),
+  "name": S.String.annotate({ description: 'Name is the name of the repository' }),
+  "number": S.Number.annotate({ description: 'Number is the number of the issue' })
+})
+
+export const SetWorkstreamMcpServersBody = S.Struct({
+  "ids": S.optional(S.Array(S.Number)).annotate({ description: 'IDs are the ids of the selected servers' })
 })
 
 

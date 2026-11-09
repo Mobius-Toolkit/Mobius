@@ -2279,6 +2279,297 @@
         ]
       }
     },
+    "/api/organizations/{organization}/mcp-servers": {
+      "get": {
+        "description": "ListMcpServers returns the MCP servers of the organization in name order, with the names of the headers and of the environment variables and with no secret value.",
+        "operationId": "ListMcpServers",
+        "parameters": [
+          {
+            "description": "Organization is the owner of the repositories",
+            "in": "path",
+            "name": "organization",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_Array_McpServer"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "mcp-servers"
+        ]
+      },
+      "post": {
+        "description": "AddMcpServer adds an MCP server to the organization. It returns 422 with the reason when a field fails a check, and 409 when another server of the organization has the name.",
+        "operationId": "AddMcpServer",
+        "parameters": [
+          {
+            "description": "Organization is the owner of the repositories",
+            "in": "path",
+            "name": "organization",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/McpServerBodyBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_McpServer"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "mcp-servers"
+        ]
+      }
+    },
+    "/api/organizations/{organization}/mcp-servers/{id}": {
+      "put": {
+        "description": "ChangeMcpServer replaces an MCP server of the organization. A header or an environment variable with an empty value keeps the stored value of the same name. It returns 404 for an id that is not a server of the organization, 422 with the reason when a field fails a check, and 409 when another server of the organization has the name.",
+        "operationId": "ChangeMcpServer",
+        "parameters": [
+          {
+            "description": "Organization is the owner of the repositories",
+            "in": "path",
+            "name": "organization",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "ID is the id of the server",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/McpServerBodyBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_McpServer"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "mcp-servers"
+        ]
+      },
+      "delete": {
+        "description": "DeleteMcpServer deletes an MCP server of the organization and removes it from the selection of each Workstream. It returns 404 for an id that is not a server of the organization.",
+        "operationId": "DeleteMcpServer",
+        "parameters": [
+          {
+            "description": "Organization is the owner of the repositories",
+            "in": "path",
+            "name": "organization",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "ID is the id of the server",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "mcp-servers"
+        ]
+      }
+    },
     "/api/pauses": {
       "get": {
         "description": "ListPauses returns the pause of each Harness that has one.",
@@ -5781,6 +6072,93 @@
         ]
       }
     },
+    "/api/workstreams/{owner}/{name}/{number}/mcp-servers": {
+      "put": {
+        "description": "SetWorkstreamMcpServers replaces the MCP servers that the Owner selected for the Workstream. It returns 404 when the issue is not an open Workstream of the local copy, and 422 for an id of a server of another organization.",
+        "operationId": "SetWorkstreamMcpServers",
+        "parameters": [
+          {
+            "description": "Owner is the owner of the repository",
+            "in": "path",
+            "name": "owner",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Name is the name of the repository",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Number is the number of the issue",
+            "in": "path",
+            "name": "number",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetWorkstreamMcpServersBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "workstreams"
+        ]
+      }
+    },
     "/api/workstreams/{owner}/{name}/{number}/recurring-tasks": {
       "get": {
         "description": "ListRecurringTasks returns the recurring tasks of the Workstream with their last 20 times, in id order.",
@@ -7325,6 +7703,24 @@
         ],
         "description": "Envelope is the body of each success response."
       },
+      "Envelope_Array_McpServer": {
+        "type": "object",
+        "title": "Envelope_Array_McpServer",
+        "properties": {
+          "data": {
+            "type": "array",
+            "title": "[]McpServer",
+            "description": "Data is the payload of the response",
+            "items": {
+              "$ref": "#/components/schemas/McpServer"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "description": "Envelope is the body of each success response."
+      },
       "Envelope_Array_MemoryFile": {
         "type": "object",
         "title": "Envelope_Array_MemoryFile",
@@ -7619,6 +8015,20 @@
         "properties": {
           "data": {
             "$ref": "#/components/schemas/ManifestForm",
+            "description": "Data is the payload of the response"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "description": "Envelope is the body of each success response."
+      },
+      "Envelope_McpServer": {
+        "type": "object",
+        "title": "Envelope_McpServer",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/McpServer",
             "description": "Data is the payload of the response"
           }
         },
@@ -8732,6 +9142,147 @@
         ],
         "description": "ManifestForm is the form that the browser posts to GitHub to create a Mobius App."
       },
+      "McpPair": {
+        "type": "object",
+        "title": "McpPair",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name is the name of the header or of the environment variable"
+          },
+          "value": {
+            "type": "string",
+            "description": "Value is the secret value"
+          }
+        },
+        "description": "McpPair is a header or an environment variable that the Owner sends. An empty value keeps the stored value of the same name when the Owner changes a server."
+      },
+      "McpPairName": {
+        "type": "object",
+        "title": "McpPairName",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name is the name of the header or of the environment variable"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "description": "McpPairName is the name of a header or of an environment variable of an MCP server. The API never gives its value."
+      },
+      "McpServer": {
+        "type": "object",
+        "title": "McpServer",
+        "properties": {
+          "args": {
+            "type": "array",
+            "title": "[]string",
+            "description": "Args are the arguments of the command of a stdio server",
+            "items": {
+              "type": "string"
+            }
+          },
+          "command": {
+            "type": "string",
+            "description": "Command is the command of a stdio server, and empty for an http server"
+          },
+          "env": {
+            "type": "array",
+            "title": "[]McpPairName",
+            "description": "Env are the environment variables of a stdio server",
+            "items": {
+              "$ref": "#/components/schemas/McpPairName"
+            }
+          },
+          "headers": {
+            "type": "array",
+            "title": "[]McpPairName",
+            "description": "Headers are the headers of an http server",
+            "items": {
+              "$ref": "#/components/schemas/McpPairName"
+            }
+          },
+          "id": {
+            "type": "integer",
+            "description": "ID is the id of the server"
+          },
+          "kind": {
+            "type": "string",
+            "description": "Kind is http or stdio",
+            "enum": [
+              "http",
+              "stdio"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "description": "Name is the name of the server, unique in the organization"
+          },
+          "url": {
+            "type": "string",
+            "description": "URL is the address of an http server, and empty for a stdio server"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "url",
+          "headers",
+          "command",
+          "args",
+          "env"
+        ],
+        "description": "McpServer is an MCP server of an organization."
+      },
+      "McpServerBodyBody": {
+        "type": "object",
+        "title": "McpServerBodyBody",
+        "properties": {
+          "args": {
+            "type": "array",
+            "title": "[]string",
+            "description": "Args are the arguments of the command. An http server ignores them.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "command": {
+            "type": "string",
+            "description": "Command is the command of a stdio server. An http server ignores it."
+          },
+          "env": {
+            "type": "array",
+            "title": "[]McpPair",
+            "description": "Env are the environment variables of a stdio server. An http server ignores them.",
+            "items": {
+              "$ref": "#/components/schemas/McpPair"
+            }
+          },
+          "headers": {
+            "type": "array",
+            "title": "[]McpPair",
+            "description": "Headers are the headers of an http server. A stdio server ignores them.",
+            "items": {
+              "$ref": "#/components/schemas/McpPair"
+            }
+          },
+          "kind": {
+            "type": "string",
+            "description": "Kind is http or stdio"
+          },
+          "name": {
+            "type": "string",
+            "description": "Name has only letters, digits, - and _, and is not mobius"
+          },
+          "url": {
+            "type": "string",
+            "description": "URL is the absolute http or https address of an http server. A stdio server ignores it."
+          }
+        },
+        "description": "McpServerBody is the body of a request that adds or changes an MCP server."
+      },
       "MemoryFile": {
         "type": "object",
         "title": "MemoryFile",
@@ -9794,6 +10345,20 @@
           "language": {
             "type": "string",
             "description": "Language is the code of the language, one of the codes that GetVoiceLanguage gives"
+          }
+        }
+      },
+      "SetWorkstreamMcpServersBody": {
+        "type": "object",
+        "title": "SetWorkstreamMcpServersBody",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "title": "[]int64",
+            "description": "IDs are the ids of the selected servers",
+            "items": {
+              "type": "integer"
+            }
           }
         }
       },
@@ -10901,6 +11466,14 @@
             "type": "boolean",
             "description": "Maintenance is true when the Workstream issue has mobius:maintenance"
           },
+          "mcpServers": {
+            "type": "array",
+            "title": "[]int64",
+            "description": "McpServers are the ids of the MCP servers that the Owner selected for the Workstream, in name order of the servers",
+            "items": {
+              "type": "integer"
+            }
+          },
           "openTasks": {
             "type": "integer",
             "description": "OpenTasks is the number of open tasks"
@@ -10918,7 +11491,8 @@
           "maintenance",
           "skills",
           "lead",
-          "implementer"
+          "implementer",
+          "mcpServers"
         ],
         "description": "WorkstreamDetails is the details of a Workstream."
       },
