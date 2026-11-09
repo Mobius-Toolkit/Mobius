@@ -35,16 +35,18 @@ type McpPair struct {
 }
 
 // McpServer is an MCP server of an organization. An http server has URL and Headers. A stdio server has Command, Args
-// and Env.
+// and Env. OAuth is none, connected or reconnect, and OAuthReason is the reason of a reconnect.
 type McpServer struct {
-	ID      int64
-	Name    string
-	Kind    string
-	URL     string
-	Headers []McpPair
-	Command string
-	Args    []string
-	Env     []McpPair
+	ID          int64
+	Name        string
+	Kind        string
+	URL         string
+	Headers     []McpPair
+	Command     string
+	Args        []string
+	Env         []McpPair
+	OAuth       string
+	OAuthReason string
 }
 
 // McpServers gives the MCP servers of the organization in name order.
@@ -53,7 +55,20 @@ func (e *Engine) McpServers(ctx context.Context, organization string) ([]McpServ
 	if err != nil {
 		return nil, err
 	}
-	return mcpServersOf(rows)
+	servers, err := mcpServersOf(rows)
+	if err != nil {
+		return nil, err
+	}
+	states, err := e.queries.ListMcpServerOAuth(ctx, organization)
+	if err != nil {
+		return nil, err
+	}
+	for i, server := range servers {
+		if j := slices.IndexFunc(states, func(state store.McpServerOauth) bool { return state.Server == server.ID }); j >= 0 {
+			servers[i].OAuth, servers[i].OAuthReason = mcpOAuthState(states[j])
+		}
+	}
+	return servers, nil
 }
 
 // AddMcpServer adds the server to the organization and gives it with its id. It refuses a server that fails a check,
@@ -85,8 +100,9 @@ func (e *Engine) AddMcpServer(ctx context.Context, organization string, server M
 }
 
 // UpdateMcpServer replaces the server with the id. A header or an environment variable with an empty value keeps the
-// stored value of the same name, and is refused when the server has no such name. It gives ErrNoMcpServer for an id that
-// is not a server of the organization.
+// stored value of the same name, and is refused when the server has no such name. A change of the URL, or a header
+// Authorization, removes the OAuth connection of the server. It gives ErrNoMcpServer for an id that is not a server of
+// the organization.
 func (e *Engine) UpdateMcpServer(ctx context.Context, organization string, id int64, server McpServer) (McpServer, error) {
 	var updated McpServer
 	err := e.inTx(ctx, func(q *store.Queries) error {
@@ -124,6 +140,17 @@ func (e *Engine) UpdateMcpServer(ctx context.Context, organization string, id in
 			return err
 		}
 		updated, err = mcpServerOf(row)
+		if err != nil {
+			return err
+		}
+		if updated.URL != old.URL || hasAuthorizationHeader(updated.Headers) {
+			return q.DeleteMcpServerOAuth(ctx, id)
+		}
+		state, err := q.GetMcpServerOAuth(ctx, id)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		updated.OAuth, updated.OAuthReason = mcpOAuthState(state)
 		return err
 	})
 	if err == nil {
@@ -331,7 +358,7 @@ func mcpServersOf(rows []store.McpServer) ([]McpServer, error) {
 }
 
 func mcpServerOf(row store.McpServer) (McpServer, error) {
-	server := McpServer{ID: row.ID, Name: row.Name, Kind: row.Kind, URL: row.Url, Command: row.Command}
+	server := McpServer{ID: row.ID, Name: row.Name, Kind: row.Kind, URL: row.Url, Command: row.Command, OAuth: mcpOAuthNone}
 	if err := json.Unmarshal([]byte(row.HeaderList), &server.Headers); err != nil {
 		return McpServer{}, err
 	}
