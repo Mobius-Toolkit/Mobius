@@ -17,12 +17,13 @@ export const IssueSetting = Schema.Struct({
 
 const Workstream = { owner: Schema.String, name: Schema.String, number: Schema.Number };
 
-// The place that a setting belongs to: the Implementer of a task, the Lead of a Workstream, or the Implementer of a
+// The place that a setting belongs to: the Implementer of a task, or the Lead, the Implementer or the Operator of a
 // Workstream.
 export const Target = Schema.Union([
   Schema.TaggedStruct("Task", Workstream),
   Schema.TaggedStruct("Lead", Workstream),
   Schema.TaggedStruct("WorkstreamImplementer", Workstream),
+  Schema.TaggedStruct("Operator", Workstream),
 ]);
 
 export const Choice = Schema.Literals(["harness", "model", "effort"]);
