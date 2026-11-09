@@ -41,7 +41,9 @@ async function checkPending(button: Locator, held: Awaited<ReturnType<typeof hol
   await expect(spinner(button)).toHaveCount(0);
 }
 
-test("Resume in the Lead chat shows the spinner while the request runs", async ({ page }) => {
+test("Resume in the Lead chat sends one request, and a failed request shows the error in the dialog", async ({
+  page,
+}) => {
   await page.goto("/api/github/user-callback?code=user-code");
   const ids = await addStoppedItems(page, 20, [
     [21, "Dig the tulip beds"],
@@ -53,9 +55,15 @@ test("Resume in the Lead chat shows the spinner while the request runs", async (
   const resume = main.getByRole("button", { name: "Resume", exact: true });
   await expect(resume).toHaveCount(2);
 
-  await checkPending(resume.first(), held);
-  await expect(resume.nth(1)).toBeEnabled();
-  await expect(main.getByText("The server failed.")).toBeVisible();
+  await resume.first().click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("button", { name: "Resume", exact: true }).click();
+  await expect.poll(() => held.requests()).toBe(1);
+  held.release();
+  await expect(dialog.getByRole("alert")).toHaveText("The server failed.");
+  expect(held.requests()).toBe(1);
+  await page.keyboard.press("Escape");
+  await expect(resume).toHaveCount(2);
   await removeItems(page, ids);
 });
 

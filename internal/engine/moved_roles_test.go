@@ -127,9 +127,9 @@ func TestACuratorThatWaitsForAPauseMovesToTheNewHarnessAndKeepsItsRequests(t *te
 			t.Errorf("the Coordinator got an answer of the moved Curator: %s", prompt)
 		}
 	}
-	if n := rowCount(t, server, "SELECT count(*) FROM curator_requests"); n != 0 {
-		t.Errorf("requests = %d", n)
-	}
+	testkit.WaitFor(t, func() bool {
+		return rowCount(t, server, "SELECT count(*) FROM curator_requests") == 0
+	})
 }
 
 func TestADiagnoserThatWaitsForAPauseMovesToTheNewHarnessAndTheRowEndsWithItsReasons(t *testing.T) {
