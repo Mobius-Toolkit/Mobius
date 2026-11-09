@@ -33,6 +33,7 @@ type mcpServer struct {
 	Command string    `json:"command"`
 	Args    []string  `json:"args"`
 	Env     []mcpName `json:"env"`
+	OAuth   string    `json:"oauth"`
 }
 
 func itoa(number int64) string {
