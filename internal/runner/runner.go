@@ -402,30 +402,51 @@ func acpServer(server MCPServer) acp.McpServer {
 	return acp.McpServer{Http: &acp.McpServerHttpInline{Name: server.Name, Url: server.URL, Headers: headers}}
 }
 
+// escapeDepth is the number of JSON escapes that withoutSecrets removes from a value. An agent that quotes the request
+// in its error escapes the value once, and describe escapes it again.
+const escapeDepth = 3
+
 // withoutSecrets gives an error with the text of err, with each header value and each environment value of servers
-// removed. With servers, the text names them by their names.
+// removed, also in the JSON-escaped forms. With servers, the text names them by their names.
 func withoutSecrets(err error, servers []MCPServer) error {
 	if len(servers) == 0 {
 		return err
 	}
-	text := err.Error()
+	var secrets []string
 	names := make([]string, 0, len(servers))
 	for _, server := range servers {
 		names = append(names, server.Name)
 		for _, pair := range slices.Concat(server.Headers, server.Env) {
-			if pair.Value == "" {
-				continue
+			if pair.Value != "" {
+				secrets = append(secrets, escapedForms(pair.Value)...)
 			}
-			text = strings.ReplaceAll(text, pair.Value, "***")
-			// describe writes the data of the error as JSON, which escapes the characters of the value.
-			encoded, marshalErr := json.Marshal(pair.Value)
-			if marshalErr != nil {
-				return marshalErr
-			}
-			text = strings.ReplaceAll(text, string(encoded[1:len(encoded)-1]), "***")
 		}
 	}
+	slices.SortFunc(secrets, func(a, b string) int { return len(b) - len(a) })
+	text := err.Error()
+	for _, secret := range secrets {
+		text = strings.ReplaceAll(text, secret, "***")
+	}
 	return fmt.Errorf("%s (MCP servers: %s)", text, strings.Join(names, ", "))
+}
+
+// escapedForms gives value and its forms after one to escapeDepth JSON escapes, with and with no escape of <, > and &.
+func escapedForms(value string) []string {
+	forms := []string{value}
+	for _, html := range []bool{true, false} {
+		form := value
+		for range escapeDepth {
+			var encoded strings.Builder
+			encoder := json.NewEncoder(&encoded)
+			encoder.SetEscapeHTML(html)
+			// A string always encodes.
+			_ = encoder.Encode(form)
+			form = strings.TrimSuffix(encoded.String(), "\n")
+			form = form[1 : len(form)-1]
+			forms = append(forms, form)
+		}
+	}
+	return forms
 }
 
 // ID gives the ACP session id.

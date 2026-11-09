@@ -747,7 +747,7 @@ func TestARefusedSessionNewNamesTheMCPServersAndHidesTheirSecrets(t *testing.T) 
 	t.Setenv("MOBIUS_FAKE_REFUSE", "1")
 	servers := []MCPServer{
 		{Name: "makeadir", URL: "https://makeadir.example.com/mcp", Headers: []Pair{{Name: "Authorization", Value: "Bearer a-token"}}},
-		{Name: "files", Command: "files-server", Env: []Pair{{Name: "KEY", Value: `p&ss"w<x>`}}},
+		{Name: "files", Command: "files-server", Env: []Pair{{Name: "KEY", Value: `p&Zq"w<x>`}}},
 	}
 
 	_, err := Start(context.Background(), config.ClaudeCode, 0, false, false, dir, dir, dir, "", servers, "", "", "", func(json.RawMessage, bool) {})
@@ -755,7 +755,7 @@ func TestARefusedSessionNewNamesTheMCPServersAndHidesTheirSecrets(t *testing.T) 
 	if err == nil {
 		t.Fatal("no error")
 	}
-	for _, secret := range []string{"Bearer a-token", `p&ss"w<x>`, `p\u0026ss\"w\u003cx\u003e`} {
+	for _, secret := range []string{"a-token", "Zq"} {
 		if strings.Contains(err.Error(), secret) {
 			t.Errorf("%s is in the error: %v", secret, err)
 		}
