@@ -4,10 +4,12 @@ import type { Agent } from "@/transcript/schemas";
 import * as AgentsFixture from "./agents/fixtures";
 import { FetchAgents } from "./agents/commands";
 import { RequestLogin, ReportTab, ReportTaskAttached } from "./commands";
-import { FetchDetails, FetchRoles } from "./details/commands";
+import { FetchDetails, FetchMcpServers, FetchRoles } from "./details/commands";
 import * as DetailsFixture from "./details/fixtures";
 import { Message } from "./message";
 import { initialModel, type Model } from "./model";
+import { FetchTasks as FetchRecurring } from "./recurring/commands";
+import * as RecurringFixture from "./recurring/fixtures";
 import type { Tab } from "./schemas";
 import { FetchFallback, FetchTasks } from "./tasks/commands";
 import * as TasksFixture from "./tasks/fixtures";
@@ -53,7 +55,10 @@ const resolveAgents = StoryCommand.resolve(FetchAgents, AgentsFixture.loaded);
 const resolveDetails = [
   StoryCommand.resolve(FetchDetails, DetailsFixture.failed),
   StoryCommand.resolve(FetchRoles, DetailsFixture.rolesLoaded),
+  StoryCommand.resolve(FetchMcpServers, DetailsFixture.mcpServersLoaded),
 ] as const;
+
+const resolveRecurring = StoryCommand.resolve(FetchRecurring, RecurringFixture.loaded);
 
 describe("the tabs of the panel", () => {
   it("reads the data of a tab when the Owner opens it, and tells the host the tab", () => {
@@ -91,7 +96,23 @@ describe("the tabs of the panel", () => {
       message(Message.SelectedTab({ tab: "details" })),
       StoryCommand.expectHas(FetchDetails),
       StoryCommand.expectHas(FetchRoles),
+      StoryCommand.expectHas(FetchMcpServers),
       ...resolveDetails,
+      StoryCommand.resolve(ReportTab, Message.CompletedReportTab()),
+    );
+  });
+
+  it("reads the recurring tasks when the Owner opens the Recurring tab", () => {
+    story(
+      update,
+      given(createModel("tasks")),
+      message(Message.SelectedTab({ tab: "recurring" })),
+      model((m) => {
+        expect(m.tab).toBe("recurring");
+      }),
+      StoryCommand.expectHas(FetchRecurring),
+      StoryCommand.expectHas(ReportTab),
+      resolveRecurring,
       StoryCommand.resolve(ReportTab, Message.CompletedReportTab()),
     );
   });
@@ -217,6 +238,48 @@ describe("the reads after a live change", () => {
     );
   });
 
+  it("reads the Recurring tab again after the connection opens and after a change of its Workstream", () => {
+    story(
+      update,
+      given(createModel("recurring")),
+      message(Message.ConnectionOpened()),
+      StoryCommand.expectHas(FetchRecurring),
+      resolveRecurring,
+      message(Message.RecurringChanged({ repository: "owner/shop", number: 12 })),
+      StoryCommand.expectHas(FetchRecurring),
+      resolveRecurring,
+    );
+  });
+
+  it("ignores a change of the recurring tasks of another Workstream or of another repository", () => {
+    story(
+      update,
+      given(createModel("recurring")),
+      message(Message.RecurringChanged({ repository: "owner/shop", number: 13 })),
+      StoryCommand.expectNone(),
+      message(Message.RecurringChanged({ repository: "plants/shop", number: 12 })),
+      StoryCommand.expectNone(),
+    );
+  });
+
+  it("does not read the Recurring tab again after a change of the Workstreams", () => {
+    story(
+      update,
+      given(createModel("recurring")),
+      message(Message.WorkstreamsChanged()),
+      StoryCommand.expectNone(),
+    );
+  });
+
+  it("does not read the Tasks tab again after a change of the recurring tasks", () => {
+    story(
+      update,
+      given(createModel("tasks")),
+      message(Message.RecurringChanged({ repository: "owner/shop", number: 12 })),
+      StoryCommand.expectNone(),
+    );
+  });
+
   it("does not read the Brief tab again", () => {
     story(
       update,
@@ -253,6 +316,9 @@ describe("the login", () => {
       StoryCommand.expectExact(RequestLogin()),
       StoryCommand.resolve(RequestLogin, Message.CompletedRequestLogin()),
       message(Message.GotDetailsMessage({ message: DetailsFixture.loginRequired })),
+      StoryCommand.expectExact(RequestLogin()),
+      StoryCommand.resolve(RequestLogin, Message.CompletedRequestLogin()),
+      message(Message.GotRecurringMessage({ message: RecurringFixture.loginRequired })),
       StoryCommand.expectExact(RequestLogin()),
       StoryCommand.resolve(RequestLogin, Message.CompletedRequestLogin()),
     );
