@@ -111,7 +111,7 @@ test("each item shows on one line with the action of its kind, oldest first", as
   const action = (row: number, name: string) => rows.nth(row).getByRole("link", { name });
   await expect(rows.nth(0).getByRole("button")).toHaveText(["Answer", "Chat"]);
   await expect(action(0, "Open GitHub")).toHaveAttribute("href", `${link}/issues/45`);
-  await expect(rows.nth(1).getByRole("button")).toHaveText(["Resume", "Answer", "Chat"]);
+  await expect(rows.nth(1).getByRole("button")).toHaveText(["Resume", "Chat"]);
   await expect(action(1, "Open GitHub")).toHaveAttribute("href", `${link}/issues/42`);
   await expect(rows.nth(2).getByRole("button")).toHaveText(["Start again", "Chat", "Details"]);
   await expect(action(3, "Open PR")).toHaveAttribute("href", `${link}/pull/44`);
@@ -300,8 +300,8 @@ test("each item keeps its own draft of the answer", async ({ page }) => {
   await rows.nth(0).getByRole("button", { name: "Answer" }).click();
   await input.fill("Ten seats.");
   await page.keyboard.press("Escape");
-  await rows.nth(1).getByRole("button", { name: "Answer" }).click();
-  await expect(input).toHaveValue("");
+  await rows.nth(1).getByRole("button", { name: "Resume" }).click();
+  await expect(panel.getByRole("textbox", { name: "Note" })).toHaveValue("");
   await page.keyboard.press("Escape");
   await rows.nth(0).getByRole("button", { name: "Answer" }).click();
   await expect(input).toHaveValue("Ten seats.");
@@ -367,6 +367,7 @@ test("Resume and Start again resume the issue", async ({ page }) => {
   const main = page.getByRole("main");
 
   await main.getByRole("button", { name: "Resume" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Resume" }).click();
   await expect(main.getByRole("button", { name: "Resume" })).toBeHidden();
   await main.getByRole("button", { name: "Start again" }).click();
 
@@ -376,6 +377,168 @@ test("Resume and Start again resume the issue", async ({ page }) => {
       "/api/repositories/owner/shop/issues/42/resume",
       "/api/repositories/owner/shop/issues/41/resume",
     ]);
+});
+
+test("Resume opens a panel with the stop reason, and a send with a note answers and does not resume", async ({
+  page,
+}) => {
+  const resumed: string[] = [];
+  const answers: unknown[] = [];
+  await routeInbox(page, items);
+  await page.route("**/api/repositories/*/*/issues/*/resume", (route) => {
+    resumed.push(new URL(route.request().url()).pathname);
+    return route.fulfill({ status: 204 });
+  });
+  await page.route("**/api/inbox/2/answer", (route) => {
+    answers.push(route.request().postDataJSON());
+    return route.fulfill({ json: { data: { url: `${link}/issues/42#issuecomment-1` } } });
+  });
+  await page.goto("/inbox");
+  const main = page.getByRole("main");
+  const panel = page.getByRole("dialog");
+  const row = main.getByRole("listitem").filter({ hasText: "Let customers change plans" });
+
+  await expect(row.getByRole("button", { name: "Answer" })).toHaveCount(0);
+  await row.getByRole("button", { name: "Resume" }).click();
+  await expect(panel.getByText(/^Mobius stopped the session at /)).toBeVisible();
+  await expect(panel.getByRole("textbox", { name: "Note" })).toHaveAttribute(
+    "placeholder",
+    "Note (optional)",
+  );
+  await panel.getByRole("textbox", { name: "Note" }).fill("Use the new limits.");
+  const response = page.waitForResponse("**/api/inbox/2/answer");
+  await panel.getByRole("button", { name: "Resume" }).click();
+  await response;
+
+  expect(answers).toEqual([{ text: "Use the new limits." }]);
+  await expect(panel).toHaveCount(0);
+  await expect(row).toHaveCount(0);
+  expect(resumed).toEqual([]);
+});
+
+test("a failed Resume keeps the panel and the note, and shows the error", async ({ page }) => {
+  await routeInbox(page, items);
+  await page.route("**/api/inbox/2/answer", (route) =>
+    route.fulfill({ status: 409, json: { error: "The task does not wait." } }),
+  );
+  await page.goto("/inbox");
+  const panel = page.getByRole("dialog");
+
+  await page.getByRole("main").getByRole("button", { name: "Resume" }).click();
+  await panel.getByRole("textbox", { name: "Note" }).fill("Use the new limits.");
+  await panel.getByRole("button", { name: "Resume" }).click();
+
+  await expect(panel.getByRole("alert")).toHaveText("The task does not wait.");
+  await expect(panel.getByRole("textbox", { name: "Note" })).toHaveValue("Use the new limits.");
+});
+
+const ownerAction = {
+  ...base,
+  id: 8,
+  issue: 40,
+  kind: "owner action",
+  title: "Run `wrangler login` on the Mobius server",
+  reason: "Integrate loyalty plans",
+  text: "Run `wrangler login` on the Mobius server.",
+  link: `${link}/issues/40`,
+  pullRequest: 1110,
+  pullRequestUrl: `${link}/pull/1110`,
+};
+
+async function openOwnerAction(page: Page, item: object = ownerAction) {
+  await routeInbox(page, [item]);
+  await page.goto("/inbox");
+  const row = page.getByRole("main").getByRole("listitem");
+  await row.getByRole("button", { name: "Done" }).click();
+  return { row, panel: page.getByRole("dialog") };
+}
+
+test("an owner action row has the badge, the pull request and the buttons Done, Open PR and Chat", async ({
+  page,
+}) => {
+  await routeInbox(page, [ownerAction]);
+  await page.goto("/inbox");
+  const row = page.getByRole("main").getByRole("listitem");
+
+  await expect(row.locator("[data-slot=badge]")).toHaveText("Owner action");
+  await expect(row).toContainText("PR #1110");
+  await expect(row.getByRole("link", { name: "PR #1110" })).toHaveAttribute(
+    "href",
+    `${link}/pull/1110`,
+  );
+  await expect(row.getByRole("button")).toHaveText(["Done", "Chat", "Details"]);
+  await expect(row.getByRole("link", { name: "Open PR" })).toHaveAttribute(
+    "href",
+    `${link}/pull/1110`,
+  );
+  await expect(row.getByRole("button", { name: "Dismiss" })).toHaveCount(0);
+});
+
+test("an owner action with no pull request shows the issue and no Open PR", async ({ page }) => {
+  const { row, panel } = await openOwnerAction(page, {
+    ...ownerAction,
+    pullRequest: 0,
+    pullRequestUrl: "",
+  });
+
+  await expect(row.getByRole("link", { name: "#40", exact: true })).toHaveAttribute(
+    "href",
+    `${link}/issues/40`,
+  );
+  await expect(row.getByRole("link", { name: "Open PR" })).toHaveCount(0);
+  await expect(panel.getByText("Pull request:")).toHaveCount(0);
+  await expect(
+    panel.getByText("Mobius starts the next round after you mark the action as done."),
+  ).toBeVisible();
+});
+
+test("Done opens a panel with the action, and the note marks the action as done", async ({
+  page,
+}) => {
+  const bodies: unknown[] = [];
+  await page.route("**/api/inbox/8/done", (route) => {
+    bodies.push(route.request().postDataJSON());
+    return route.fulfill({
+      json: { data: { ...ownerAction, dismissedAt: "2026-09-28T09:40:00Z" } },
+    });
+  });
+  const { row, panel } = await openOwnerAction(page);
+
+  await expect(
+    panel.getByRole("heading", { name: "Run `wrangler login` on the Mobius server" }),
+  ).toBeVisible();
+  await expect(panel.getByRole("link", { name: "PR #1110 ↗" })).toHaveAttribute(
+    "href",
+    `${link}/pull/1110`,
+  );
+  await expect(
+    panel.getByText("Mobius starts the next round after you mark the action as done."),
+  ).toBeVisible();
+  await expect(panel.getByRole("textbox", { name: "Note" })).toHaveAttribute(
+    "placeholder",
+    "Note (optional)",
+  );
+  await panel.getByRole("textbox", { name: "Note" }).fill("Logged in.");
+  const response = page.waitForResponse("**/api/inbox/8/done");
+  await panel.getByRole("button", { name: "Send" }).click();
+  await response;
+
+  expect(bodies).toEqual([{ note: "Logged in." }]);
+  await expect(panel).toHaveCount(0);
+  await expect(row).toHaveCount(0);
+});
+
+test("a failed done of an owner action keeps the panel and the note", async ({ page }) => {
+  await page.route("**/api/inbox/8/done", (route) =>
+    route.fulfill({ status: 409, json: { error: "The task does not wait for the action." } }),
+  );
+  const { panel } = await openOwnerAction(page);
+
+  await panel.getByRole("textbox", { name: "Note" }).fill("Logged in.");
+  await panel.getByRole("button", { name: "Send" }).click();
+
+  await expect(panel.getByRole("alert")).toHaveText("The task does not wait for the action.");
+  await expect(panel.getByRole("textbox", { name: "Note" })).toHaveValue("Logged in.");
 });
 
 test("Send again sends the message of the Lead failed item again", async ({ page }) => {

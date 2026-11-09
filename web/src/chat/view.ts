@@ -650,26 +650,26 @@ function renderTrayButtons(h: H, item: InboxItem, model: Model, chat: Message): 
       ),
     );
   }
-  if (item.kind === InboxItemKind.stopped || item.kind === InboxItemKind.lost) {
-    buttons.push(
-      trayButton(h, {
-        label: item.kind === InboxItemKind.stopped ? "Resume" : "Start again",
-        disabled: running !== undefined,
-        pending: running === "action",
-        message: Message.ResumeClicked({ item }),
-      }),
-    );
-  }
   if (item.kind === InboxItemKind.stopped) {
     buttons.push(
       h.button(
         [
           h.Type("button"),
-          h.Class(buttonClass({ variant: "outline", size: "sm" })),
+          h.Class(buttonClass({ size: "sm" })),
           h.OnClick(Message.OpenAnswerPanel({ item })),
         ],
-        ["Answer"],
+        ["Resume"],
       ),
+    );
+  }
+  if (item.kind === InboxItemKind.lost) {
+    buttons.push(
+      trayButton(h, {
+        label: "Start again",
+        disabled: running !== undefined,
+        pending: running === "action",
+        message: Message.ResumeClicked({ item }),
+      }),
     );
   }
   if ((item.kind === InboxItemKind.question || item.kind === InboxItemKind.stopped) && item.link) {
@@ -697,7 +697,8 @@ function renderTrayButtons(h: H, item: InboxItem, model: Model, chat: Message): 
   }
   const isPullRequest = item.kind === InboxItemKind.ready_for_review;
   const isTodo = item.kind === InboxItemKind.todo;
-  if (isTodo) {
+  const isOwnerAction = item.kind === InboxItemKind.owner_action;
+  if (isTodo || isOwnerAction) {
     buttons.push(
       h.button(
         [
@@ -705,7 +706,7 @@ function renderTrayButtons(h: H, item: InboxItem, model: Model, chat: Message): 
           h.Class(buttonClass({ size: "sm" })),
           h.OnClick(Message.OpenAnswerPanel({ item })),
         ],
-        ["Complete"],
+        [isTodo ? "Complete" : "Done"],
       ),
     );
   }
@@ -732,7 +733,7 @@ function renderTrayButtons(h: H, item: InboxItem, model: Model, chat: Message): 
       }),
     );
   }
-  if ((isPullRequest || isTodo) && item.pullRequestUrl) {
+  if ((isPullRequest || isTodo || isOwnerAction) && item.pullRequestUrl) {
     buttons.push(
       h.a(
         [
@@ -829,6 +830,10 @@ export function renderItemRow(h: H, item: InboxItem, model: Model, chat: Message
         ],
       )
     : h.empty;
+  const ownerActionBadge =
+    item.kind === InboxItemKind.owner_action
+      ? h.span([h.DataAttribute("slot", "badge"), h.Class(badgeClass("outline"))], ["Owner action"])
+      : h.empty;
   return h.li(
     [
       h.DataAttribute("inbox-item", String(item.id)),
@@ -852,6 +857,7 @@ export function renderItemRow(h: H, item: InboxItem, model: Model, chat: Message
             ],
             [
               todoBadge,
+              ownerActionBadge,
               refNode,
               h.span(
                 [h.Class("contents sm:flex sm:min-w-0 sm:items-baseline sm:gap-x-2")],
@@ -1190,6 +1196,24 @@ function workstreamName(model: Model, item: InboxItem) {
   );
 }
 
+function renderPullRequestLine(h: H, item: InboxItem): Html {
+  return h.p(
+    [],
+    [
+      "Pull request: ",
+      h.a(
+        [
+          h.Attribute("href", item.pullRequestUrl),
+          h.Attribute("target", "_blank"),
+          h.Attribute("rel", "noreferrer"),
+          h.Class(link),
+        ],
+        [`PR #${item.pullRequest} ↗`],
+      ),
+    ],
+  );
+}
+
 export function renderAnswerDialog(h: H, model: Model): Html {
   const panel = model.activePanel;
   if (!panel) return h.empty;
@@ -1226,74 +1250,69 @@ export function renderAnswerDialog(h: H, model: Model): Html {
             : []),
         ],
       )
-    : todo
+    : item.kind === InboxItemKind.owner_action
       ? h.div(
           [h.Class("grid min-w-0 content-start gap-2 overflow-y-auto px-4 pb-4 wrap-anywhere")],
           [
-            h.span(
-              [h.Class("text-muted-foreground")],
-              [`${todo.mandatory ? "Mandatory" : "Optional"} ${todo.kind.replace("_", " ")}`],
-            ),
-            h.p([], [`Reason: ${todo.reason}`]),
-            h.p([], [`File: ${todo.path}:${todo.line}`]),
-            h.p(
-              [],
-              [
-                "Pull request: ",
-                h.a(
-                  [
-                    h.Attribute("href", item.pullRequestUrl),
-                    h.Attribute("target", "_blank"),
-                    h.Attribute("rel", "noreferrer"),
-                    h.Class(link),
-                  ],
-                  [`PR #${item.pullRequest} ↗`],
-                ),
-              ],
-            ),
-            h.p(
-              [],
-              [
-                todo.afterMerge
-                  ? "Do this step after the merge. This todo does not block the merge."
-                  : todo.mandatory
-                    ? "This todo blocks the merge until you complete it."
-                    : "This todo blocks the merge until you complete or dismiss it.",
-              ],
-            ),
+            item.pullRequestUrl ? renderPullRequestLine(h, item) : h.empty,
+            h.p([], ["Mobius starts the next round after you mark the action as done."]),
           ],
         )
-      : h.div(
-          [h.Class("grid content-start gap-2 overflow-y-auto px-4 pb-4")],
-          [
-            h.span(
-              [h.Class("text-muted-foreground")],
-              [`${workstreamName(model, item)} · ${dayClock(item.time)}`],
-            ),
-            renderMarkdown(h, item.text),
-            ...item.questions.map((question, index) =>
-              renderOptions(h, model, question, index, input),
-            ),
-            !input && item.answer ? renderOutcome(h, "Your answer", item.answer) : h.empty,
-            item.reportUrl
-              ? h.a(
-                  [
-                    h.Attribute("href", item.reportUrl),
-                    h.Attribute("target", "_blank"),
-                    h.Attribute("rel", "noreferrer"),
-                    h.Class(link),
-                  ],
-                  ["Approval report"],
-                )
-              : h.empty,
-          ],
-        );
+      : todo
+        ? h.div(
+            [h.Class("grid min-w-0 content-start gap-2 overflow-y-auto px-4 pb-4 wrap-anywhere")],
+            [
+              h.span(
+                [h.Class("text-muted-foreground")],
+                [`${todo.mandatory ? "Mandatory" : "Optional"} ${todo.kind.replace("_", " ")}`],
+              ),
+              h.p([], [`Reason: ${todo.reason}`]),
+              h.p([], [`File: ${todo.path}:${todo.line}`]),
+              renderPullRequestLine(h, item),
+              h.p(
+                [],
+                [
+                  todo.afterMerge
+                    ? "Do this step after the merge. This todo does not block the merge."
+                    : todo.mandatory
+                      ? "This todo blocks the merge until you complete it."
+                      : "This todo blocks the merge until you complete or dismiss it.",
+                ],
+              ),
+            ],
+          )
+        : h.div(
+            [h.Class("grid content-start gap-2 overflow-y-auto px-4 pb-4")],
+            [
+              h.span(
+                [h.Class("text-muted-foreground")],
+                [`${workstreamName(model, item)} · ${dayClock(item.time)}`],
+              ),
+              renderMarkdown(h, item.text),
+              ...item.questions.map((question, index) =>
+                renderOptions(h, model, question, index, input),
+              ),
+              !input && item.answer ? renderOutcome(h, "Your answer", item.answer) : h.empty,
+              item.reportUrl
+                ? h.a(
+                    [
+                      h.Attribute("href", item.reportUrl),
+                      h.Attribute("target", "_blank"),
+                      h.Attribute("rel", "noreferrer"),
+                      h.Class(link),
+                    ],
+                    ["Approval report"],
+                  )
+                : h.empty,
+            ],
+          );
 
   return renderDialog(h, {
     mount: h.OnMount(PanelOpened()),
     titleId: "answer-title",
     title,
-    description: item.title && !action && !todo ? item.reason : "",
+    description:
+      item.title && !action && !todo && item.kind !== InboxItemKind.owner_action ? item.reason : "",
     close: Message.ClosePanel(),
     body,
     footer: input ? renderPanelComposer(h, model, item) : h.empty,
