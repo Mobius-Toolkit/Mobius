@@ -151,7 +151,7 @@ func TestAFixRoundTakesTheFreeSlotBeforeANewTicketWithNoPollBetween(t *testing.T
 
 func TestAConflictRoundTakesTheFreeSlotBeforeANewTicketWithNoPollBetween(t *testing.T) {
 	t.Parallel()
-	testARoundTakesTheFreeSlotBeforeANewTicket(t, false, func(fake *testkit.FakeGitHub, _ string, pullRequest int64) {
+	testARoundTakesTheFreeSlotBeforeANewTicket(t, false, func(fake *testkit.FakeGitHub, _ string, _ int64) {
 		fake.CommitFile(shop, "plan.txt", "dollars\n", "Use dollars")
 	})
 }
