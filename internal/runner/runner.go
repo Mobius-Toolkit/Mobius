@@ -413,9 +413,16 @@ func withoutSecrets(err error, servers []MCPServer) error {
 	for _, server := range servers {
 		names = append(names, server.Name)
 		for _, pair := range slices.Concat(server.Headers, server.Env) {
-			if pair.Value != "" {
-				text = strings.ReplaceAll(text, pair.Value, "***")
+			if pair.Value == "" {
+				continue
 			}
+			text = strings.ReplaceAll(text, pair.Value, "***")
+			// describe writes the data of the error as JSON, which escapes the characters of the value.
+			encoded, marshalErr := json.Marshal(pair.Value)
+			if marshalErr != nil {
+				return marshalErr
+			}
+			text = strings.ReplaceAll(text, string(encoded[1:len(encoded)-1]), "***")
 		}
 	}
 	return fmt.Errorf("%s (MCP servers: %s)", text, strings.Join(names, ", "))

@@ -32,7 +32,12 @@ type sentServer struct {
 // sentServers gives the mcpServers of the last session/new request that a fake agent of dataDir got.
 func sentServers(t *testing.T, dataDir string) []sentServer {
 	t.Helper()
-	text, err := os.ReadFile(filepath.Clean(filepath.Join(dataDir, "harnesses", "mcp_servers")))
+	return readSentServers(t, filepath.Join(dataDir, "harnesses", "mcp_servers"))
+}
+
+func readSentServers(t *testing.T, file string) []sentServer {
+	t.Helper()
+	text, err := os.ReadFile(filepath.Clean(file))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,21 +156,23 @@ reply = ["Pong"]
 	selectServers(t, server)
 
 	sendChat(t, server, leadChat, "Ping")
-	testkit.WaitFor(t, func() bool {
-		sessions := chatSessions(t, server, leadChat, engine.LeadRole)
-		return len(sessions) == 1 && strings.Contains(reply(t, server, sessions[0].ID), "Pong")
-	})
-	if names := serverNames(sentServers(t, dataDir)); !slices.Equal(names, []string{"mobius"}) {
-		t.Errorf("Lead servers = %v", names)
-	}
-
 	sendChat(t, server, leadChat, "Start the researcher.")
 	testkit.WaitFor(t, func() bool {
 		sessions := roleSessions(t, server, engine.ResearcherRole)
-		return len(sessions) == 1 && sessions[0].EndReason.Valid
+		return len(sessions) == 1 && sessions[0].EndReason.Valid && len(chatSessions(t, server, leadChat, engine.LeadRole)) > 0
 	})
-	if names := serverNames(sentServers(t, dataDir)); !slices.Equal(names, []string{"mobius"}) {
-		t.Errorf("Researcher servers = %v", names)
+
+	files, err := filepath.Glob(filepath.Join(dataDir, "harnesses", "mcp_servers.*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) < 2 {
+		t.Fatalf("files = %v, want one for the Lead and one for the Researcher", files)
+	}
+	for _, file := range files {
+		if names := serverNames(readSentServers(t, file)); !slices.Equal(names, []string{"mobius"}) {
+			t.Errorf("%s: servers = %v", filepath.Base(file), names)
+		}
 	}
 }
 

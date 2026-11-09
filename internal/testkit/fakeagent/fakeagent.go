@@ -66,7 +66,9 @@
 //
 // The agent writes the files env, pwd, mcp_url, session_meta and mcp_servers only for a session with the Mobius MCP
 // server, so an access check leaves them as they are. session_meta holds the raw _meta of session/new, and is empty with
-// no _meta. mcp_servers holds the raw mcpServers of session/new.
+// no _meta. mcp_servers holds the raw mcpServers of session/new. The agent also writes them to the file
+// mcp_servers.<key>, where key is the last path segment of the URL of the Mobius MCP server, so that each session keeps
+// its own file.
 //
 // The reply has the texts of reply, then one text "image <MIME type> <base64 data>" for each image block of the
 // prompt, then the text of call or list_tools, then the text of shell.
@@ -85,6 +87,7 @@ import (
 	"maps"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -417,8 +420,10 @@ func (a *agent) newSession(ctx context.Context, params json.RawMessage) (any, *a
 		if err := os.WriteFile(filepath.Join(filepath.Dir(a.path), "session_meta"), request.Meta, 0o600); err != nil {
 			return nil, acp.NewInternalError(err.Error())
 		}
-		if err := os.WriteFile(filepath.Join(filepath.Dir(a.path), "mcp_servers"), request.McpServers, 0o600); err != nil {
-			return nil, acp.NewInternalError(err.Error())
+		for _, name := range []string{"mcp_servers", "mcp_servers." + path.Base(a.mcpURL)} {
+			if err := os.WriteFile(filepath.Join(filepath.Dir(a.path), name), request.McpServers, 0o600); err != nil {
+				return nil, acp.NewInternalError(err.Error())
+			}
 		}
 		if a.record != nil {
 			if err := a.record(); err != nil {
