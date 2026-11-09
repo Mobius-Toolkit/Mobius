@@ -1,4 +1,4 @@
-export const keepEffort = (effort: string, efforts: string[]) =>
+export const keepEffort = (effort: string, efforts: readonly string[]) =>
   efforts.includes(effort) ? effort : (efforts[0] ?? "");
 
 export const bindingText = (setting: { harness: string; model: string; effort: string }) =>

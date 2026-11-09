@@ -1476,9 +1476,10 @@ test("Resume gives a needs-human task with no blocker a button that waits for th
       state: "needs-human",
       depth: 0,
       repository: "plants/garden",
+      implementer: null,
       otherRepository: false,
       url: "https://github.com/plants/garden/issues/73",
-      blockedBy: [{ number: 70, workstreamTitle: "" }],
+      blockedBy: [{ number: 70, repository: null, workstreamTitle: "" }],
     });
     await route.fulfill({ response, json: body });
   });
@@ -1527,6 +1528,7 @@ test("the Tasks tab shows owner/name#N and the Start button for a task of anothe
       state: "open",
       depth: 0,
       repository: "plants/orchard",
+      implementer: null,
       otherRepository: true,
       url: "https://github.com/plants/orchard/issues/5",
       blockedBy: [],
@@ -1575,9 +1577,10 @@ async function routeStopTasks(page: Page) {
           state,
           depth: 0,
           repository: "plants/garden",
+          implementer: null,
           otherRepository: false,
           url: `https://github.com/plants/garden/issues/${80 + index}`,
-          blockedBy: index === 5 ? [{ number: 70, workstreamTitle: "" }] : [],
+          blockedBy: index === 5 ? [{ number: 70, repository: null, workstreamTitle: "" }] : [],
         })),
       },
     }),
@@ -2757,7 +2760,8 @@ test.describe("the state of an Owner message", () => {
     const message = main.locator("[data-message]", { hasText: "Delivered by a load" });
     const deliveredIcon = message.getByRole("img", { name: /^Delivered to the agent at / });
     // A reconnect of the event stream makes the chat read the list again.
-    const reload = () => page.evaluate("window.sources.at(-1).dispatchEvent(new Event('open'))");
+    const reload = () =>
+      page.evaluate("window.sources.forEach((source) => source.dispatchEvent(new Event('open')))");
 
     await expect(input).toBeEditable();
     await input.fill("Delivered by a load");
@@ -2851,7 +2855,7 @@ test.describe("the state of an Owner message", () => {
       question: null,
     };
     await page.evaluate(
-      `window.sources.at(-1).dispatchEvent(new MessageEvent('message', { data: ${JSON.stringify(JSON.stringify(failed))} }))`,
+      `window.sources.forEach((source) => source.dispatchEvent(new MessageEvent('message', { data: ${JSON.stringify(JSON.stringify(failed))} })))`,
     );
     await expect(
       message.getByRole("img", { name: "Not delivered, the agent failed, at 08:45 AM" }),

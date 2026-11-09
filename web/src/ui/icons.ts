@@ -107,6 +107,37 @@ const paperclip: readonly Shape[] = [
 
 const spinner: readonly Shape[] = [["path", { d: "M21 12a9 9 0 1 1-6.219-8.56" }]];
 
+const arrowLeft: readonly Shape[] = [
+  ["path", { d: "m12 19-7-7 7-7" }],
+  ["path", { d: "M19 12H5" }],
+];
+
+const arrowDown: readonly Shape[] = [
+  ["path", { d: "M12 5v14" }],
+  ["path", { d: "m19 12-7 7-7-7" }],
+];
+
+const chevronDown: readonly Shape[] = [["path", { d: "m6 9 6 6 6-6" }]];
+
+const play: readonly Shape[] = [
+  [
+    "path",
+    {
+      d: "M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z",
+    },
+  ],
+];
+
+const settings: readonly Shape[] = [
+  [
+    "path",
+    {
+      d: "M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915",
+    },
+  ],
+  ["circle", { cx: "12", cy: "12", r: "3" }],
+];
+
 export function banIcon<M>(h: HtmlBuilder<M>, className = "size-3.5"): Html {
   return icon(h, ban, className);
 }
@@ -153,6 +184,26 @@ export function arrowUpIcon<M>(h: HtmlBuilder<M>, className = "size-4"): Html {
 
 export function squareIcon<M>(h: HtmlBuilder<M>, className = "size-4"): Html {
   return icon(h, square, className);
+}
+
+export function arrowLeftIcon<M>(h: HtmlBuilder<M>, className = "size-4"): Html {
+  return icon(h, arrowLeft, className);
+}
+
+export function arrowDownIcon<M>(h: HtmlBuilder<M>, className = "size-4"): Html {
+  return icon(h, arrowDown, className);
+}
+
+export function chevronDownIcon<M>(h: HtmlBuilder<M>, className = "size-4"): Html {
+  return icon(h, chevronDown, className);
+}
+
+export function playIcon<M>(h: HtmlBuilder<M>, className = "size-4"): Html {
+  return icon(h, play, className);
+}
+
+export function settingsIcon<M>(h: HtmlBuilder<M>, className = "size-4"): Html {
+  return icon(h, settings, className);
 }
 
 export function micIcon<M>(h: HtmlBuilder<M>, className = "size-4"): Html {
