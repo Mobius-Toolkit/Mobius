@@ -45,6 +45,7 @@ const role = (name: string, harness: string, modelName: string, effort: string):
 const roles = [
   role("lead", "claude-code", "sonnet", "low"),
   role("implementer", "devin", "swe-1.5", "low"),
+  role("operator", "claude-code", "haiku", "medium"),
 ];
 
 const createModel = (overrides: Partial<Model> = {}): Model => ({
@@ -137,7 +138,7 @@ describe("the Evergreen switch", () => {
   });
 });
 
-describe("the setting of the Lead and of the Implementer", () => {
+describe("the setting of the Lead, of the Implementer and of the Operator", () => {
   it("opens the sheet for the Lead with its own setting, and the binding of the Role as default", () => {
     story(
       update,
@@ -178,6 +179,28 @@ describe("the setting of the Lead and of the Implementer", () => {
     );
   });
 
+  it("opens the sheet for the Operator with no own setting, and the binding of the Role as default", () => {
+    story(
+      update,
+      given(createModel()),
+      message(Message.ClickedChange({ session: "operator" })),
+      model((m) => {
+        const sheet = Option.getOrThrow(m.sheet);
+        expect(sheet.session).toBe("operator");
+        expect(sheet.setting.title).toBe("Operator");
+        expect(sheet.setting.target).toEqual({ _tag: "Operator", ...workstream });
+        expect(Option.isNone(sheet.setting.own)).toBe(true);
+        expect(sheet.setting.fallback).toEqual({
+          harness: "claude-code",
+          model: "haiku",
+          effort: "medium",
+        });
+      }),
+      StoryCommand.expectHas(FetchHarnesses),
+      resolveHarnesses,
+    );
+  });
+
   it("opens no sheet before the details and the Roles are known", () => {
     story(
       update,
@@ -203,6 +226,49 @@ describe("the setting of the Lead and of the Implementer", () => {
         expect(Option.isNone(m.sheet)).toBe(true);
         expect(Option.getOrThrow(m.details).implementer).toEqual({ ...setting, own: true });
         expect(Option.getOrThrow(m.details).lead.model).toBe("opus");
+      }),
+    );
+  });
+
+  it("marks the Operator as own after a saved setting, and keeps the other sessions", () => {
+    const setting = { harness: "devin", model: "swe-1.5", effort: "low" };
+
+    story(
+      update,
+      given(createModel()),
+      message(Message.ClickedChange({ session: "operator" })),
+      resolveHarnesses,
+      message(Message.GotSettingMessage({ message: SettingFixture.saved(setting) })),
+      model((m) => {
+        expect(Option.isNone(m.sheet)).toBe(true);
+        expect(Option.getOrThrow(m.details).operator).toEqual({ ...setting, own: true });
+        expect(Option.getOrThrow(m.details).implementer.own).toBe(false);
+        expect(Option.getOrThrow(m.details).lead.model).toBe("opus");
+      }),
+    );
+  });
+
+  it("gives the binding of the Role of the Operator back after Use the default", () => {
+    story(
+      update,
+      given(
+        createModel({
+          details: Option.some({
+            ...details,
+            operator: { harness: "devin", model: "swe-1.5", effort: "low", own: true },
+          }),
+        }),
+      ),
+      message(Message.ClickedChange({ session: "operator" })),
+      resolveHarnesses,
+      message(Message.GotSettingMessage({ message: SettingFixture.cleared })),
+      model((m) => {
+        expect(Option.getOrThrow(m.details).operator).toEqual({
+          harness: "claude-code",
+          model: "haiku",
+          effort: "medium",
+          own: false,
+        });
       }),
     );
   });
