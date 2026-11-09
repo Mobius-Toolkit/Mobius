@@ -17,6 +17,8 @@ import (
 
 	gh "github.com/google/go-github/v92/github"
 	"golang.org/x/sys/unix"
+
+	"github.com/Mobius-Toolkit/Mobius/internal/github"
 )
 
 // Release is the release tag of this program, for example v0.2.0. The release workflow sets it with
@@ -124,7 +126,8 @@ func (e *Engine) upgrade(ctx context.Context) (DrainEnd, error) {
 		return "", err
 	}
 	asset := "mobius-" + target + ".tar.gz"
-	if !slices.ContainsFunc(release.Assets, func(found *gh.ReleaseAsset) bool { return found.GetName() == asset }) {
+	index := slices.IndexFunc(release.Assets, func(found *gh.ReleaseAsset) bool { return found.GetName() == asset })
+	if index < 0 {
 		return "", refuse("Release %s has no %s.", tag, asset)
 	}
 	// After the swap, os.Executable can name the old file, so the path is fixed here.
@@ -135,7 +138,7 @@ func (e *Engine) upgrade(ctx context.Context) (DrainEnd, error) {
 	if exe, err = filepath.EvalSymlinks(exe); err != nil {
 		return "", err
 	}
-	staging, err := download(ctx, e.github.ReleaseURL(tag, asset), exe)
+	staging, err := download(ctx, e.github, tag, release.Assets[index], exe)
 	if err != nil {
 		return "", err
 	}
@@ -204,26 +207,25 @@ func releaseTarget(goos, goarch string) (string, error) {
 	return "", refuse("Mobius has no release for %s %s.", goarch, goos)
 }
 
-// download gets the release archive at url and extracts it into a new directory next to the program exe. The
+// download gets the release archive of asset and extracts it into a new directory next to the program exe. The
 // directory is on the file system of the program, so the renames of the swap stay on one file system.
-func download(ctx context.Context, url, exe string) (string, error) {
+func download(ctx context.Context, source *github.GitHub, tag string, asset *gh.ReleaseAsset, exe string) (string, error) {
 	staging, err := os.MkdirTemp(filepath.Dir(exe), ".mobius-upgrade-")
 	if err != nil {
 		return "", err
 	}
 	archive := filepath.Join(staging, "mobius.tar.gz")
-	curl := exec.CommandContext(ctx, "curl")
-	curl.Args = append(curl.Args, "-fsSL", url, "-o", archive)
+	if err := source.DownloadReleaseAsset(ctx, asset.GetID(), archive); err != nil {
+		return "", errors.Join(fmt.Errorf("download of %s of release %s failed: %w", asset.GetName(), tag, err), os.RemoveAll(staging))
+	}
 	tar := exec.CommandContext(ctx, "tar")
 	tar.Args = append(tar.Args, "-xzf", archive)
 	tar.Dir = staging
-	for _, cmd := range []*exec.Cmd{curl, tar} {
-		if err := run(cmd); err != nil {
-			return "", errors.Join(err, os.RemoveAll(staging))
-		}
+	if err := run(tar); err != nil {
+		return "", errors.Join(err, os.RemoveAll(staging))
 	}
 	if info, err := os.Stat(filepath.Join(staging, "mobius")); err != nil || !info.Mode().IsRegular() {
-		return "", errors.Join(refuse("The archive at %s has no mobius program.", url), os.RemoveAll(staging))
+		return "", errors.Join(refuse("The archive %s of release %s has no mobius program.", asset.GetName(), tag), os.RemoveAll(staging))
 	}
 	return staging, nil
 }

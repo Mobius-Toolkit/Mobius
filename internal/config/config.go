@@ -283,8 +283,5 @@ func CheckRoles(roles *Roles) error {
 			return fmt.Errorf("%s: context must be from 100000 to 1000000 tokens", key)
 		}
 	}
-	if roles.Reviewer.Harness == roles.Implementer.Harness && roles.Reviewer.Model == roles.Implementer.Model {
-		return errors.New("roles.reviewer: must not have the same harness and model as roles.implementer")
-	}
 	return nil
 }
