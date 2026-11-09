@@ -16,6 +16,8 @@
 - Run `make fmt` before each commit. CI only checks the format. It never writes it.
 - Put the body of each success response in `Envelope[T]` (`{"data": …}`). Error responses keep the Gork format. Server-sent events have no envelope.
 - A new Harness records the tokens, the cost and the reported model of each turn when the Harness gives them, in `internal/engine/usage.go`, with a Go test of the read.
+- Give each `exec.CommandContext` command that reads its output a `cmd.WaitDelay`, as `git` in `internal/runner/git.go` does. A context cancel kills only the started process, and a child of that process can keep the pipe open for all time.
+- A Go timer (`time.AfterFunc`, `time.After`, `time.NewTimer`) stops while the Mac of the server sleeps. For a wait that must end at a wall-clock time, store the end time and compare it with `e.timeNow()` at each poll.
 
 ## Gork
 
@@ -98,6 +100,7 @@ To listen to a server-sent event in a React screen, use `onEvent` from `web/src/
 - `web/screenshots` is not in the repository (`.gitignore`). The job `e2e` of `ci.yml` uploads it as the artifact `screenshots`. The workflow `screenshots` puts the files on the branch `screenshots` and shows them in a section of the pull request description, with the image of `main` next to the new image. No workflow pushes to the branch of a pull request.
 - When the job `e2e` fails, CI uploads `web/test-results` as the artifact `test-results`. It has a `trace.zip` file for each failed test. To open the file, run `pnpm exec playwright show-trace <file>`.
 - Each run must give the same screenshots, so a pull request with no UI change shows no changed screen. `TestServer` gives a fixed time to each time that the UI shows (`fixTimes`). Before each screenshot, `web/e2e/screenshots.spec.ts` waits for the data that the page loads (`frame` and `ready`). When the UI shows a new time or new data, add it there.
+- `TestServer` of `web/e2e` has fixtures with fixed past dates, so a new step that compares a stored time with `e.timeNow()` also acts on them. Fix the time with `SetClock`, as `web/e2e/server_test.go` does.
 
 ## Before a push
 
