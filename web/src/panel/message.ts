@@ -18,6 +18,7 @@ export const Message = defineMessageUnion({
   GotAgentsMessage: { message: Agents.Message },
   GotDetailsMessage: { message: Details.Message },
   CompletedRequestLogin: {},
+  CompletedNavigate: {},
   CompletedReportTab: {},
   CompletedReportTaskAttached: {},
 });
