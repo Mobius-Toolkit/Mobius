@@ -2141,6 +2141,8 @@ export interface WorkstreamDetails {
   mcpServers: number[];
   /** OpenTasks is the number of open tasks */
   openTasks: number;
+  /** Operator is the binding of the next Operator session of the Workstream */
+  operator: NextSetting;
   /** Skills is true when the Workstream issue has mobius:skills */
   skills: boolean;
 }
@@ -9181,6 +9183,155 @@ export const setWorkstreamMcpServers = async (owner: string,
 
   const data: setWorkstreamMcpServersResponse['data'] = body ? JSON.parse(body) : undefined
   return { data, status: res.status, headers: res.headers } as setWorkstreamMcpServersResponse
+}
+
+
+
+export type setWorkstreamOperatorResponse204 = {
+  data: void
+  status: 204
+}
+
+export type setWorkstreamOperatorResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type setWorkstreamOperatorResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type setWorkstreamOperatorResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
+export type setWorkstreamOperatorResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type setWorkstreamOperatorResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type setWorkstreamOperatorResponseSuccess = (setWorkstreamOperatorResponse204) & {
+  headers: Headers;
+};
+export type setWorkstreamOperatorResponseError = (setWorkstreamOperatorResponse400 | setWorkstreamOperatorResponse401 | setWorkstreamOperatorResponse409 | setWorkstreamOperatorResponse422 | setWorkstreamOperatorResponse500) & {
+  headers: Headers;
+};
+
+export type setWorkstreamOperatorResponse = (setWorkstreamOperatorResponseSuccess | setWorkstreamOperatorResponseError)
+
+export const getSetWorkstreamOperatorUrl = (owner: string,
+    name: string,
+    number: number,) => {
+
+
+
+
+  return `/api/workstreams/${owner}/${name}/${number}/operator`
+}
+
+/**
+ * SetWorkstreamOperator sets the Harness, the model and the effort of the Operator of a Workstream. The next Operator session uses them. It returns 409 when the issue is not an open Workstream, and 422 with the reason when the values fail a check.
+ */
+export const setWorkstreamOperator = async (owner: string,
+    name: string,
+    number: number,
+    issueSettingBody: IssueSettingBody, ): Promise<setWorkstreamOperatorResponse> => {
+
+  const res = await fetch(getSetWorkstreamOperatorUrl(owner,name,number),
+  {
+
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(issueSettingBody)
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: setWorkstreamOperatorResponse['data'] = body ? JSON.parse(body) : undefined
+  return { data, status: res.status, headers: res.headers } as setWorkstreamOperatorResponse
+}
+
+
+
+export type clearWorkstreamOperatorResponse204 = {
+  data: void
+  status: 204
+}
+
+export type clearWorkstreamOperatorResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type clearWorkstreamOperatorResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type clearWorkstreamOperatorResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
+export type clearWorkstreamOperatorResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type clearWorkstreamOperatorResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type clearWorkstreamOperatorResponseSuccess = (clearWorkstreamOperatorResponse204) & {
+  headers: Headers;
+};
+export type clearWorkstreamOperatorResponseError = (clearWorkstreamOperatorResponse400 | clearWorkstreamOperatorResponse401 | clearWorkstreamOperatorResponse409 | clearWorkstreamOperatorResponse422 | clearWorkstreamOperatorResponse500) & {
+  headers: Headers;
+};
+
+export type clearWorkstreamOperatorResponse = (clearWorkstreamOperatorResponseSuccess | clearWorkstreamOperatorResponseError)
+
+export const getClearWorkstreamOperatorUrl = (owner: string,
+    name: string,
+    number: number,) => {
+
+
+
+
+  return `/api/workstreams/${owner}/${name}/${number}/operator`
+}
+
+/**
+ * ClearWorkstreamOperator removes the Operator setting of a Workstream. It returns 409 when the issue is not an open Workstream.
+ */
+export const clearWorkstreamOperator = async (owner: string,
+    name: string,
+    number: number, ): Promise<clearWorkstreamOperatorResponse> => {
+
+  const res = await fetch(getClearWorkstreamOperatorUrl(owner,name,number),
+  {
+
+    method: 'DELETE'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: clearWorkstreamOperatorResponse['data'] = body ? JSON.parse(body) : undefined
+  return { data, status: res.status, headers: res.headers } as clearWorkstreamOperatorResponse
 }
 
 

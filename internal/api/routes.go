@@ -37,6 +37,8 @@ func Routes(mux *http.ServeMux, queries *store.Queries, a *auth.Auth, gh *github
 	r.Post("/api/workstreams/{owner}/{name}/{number}/close", h.CloseWorkstream, append(loggedIn("workstreams"), api.WithErrorResponses(http.StatusConflict))...)
 	r.Put("/api/workstreams/{owner}/{name}/{number}/lead", h.SetWorkstreamLead, append(loggedIn("workstreams"), api.WithErrorResponses(http.StatusConflict, http.StatusUnprocessableEntity))...)
 	r.Delete("/api/workstreams/{owner}/{name}/{number}/lead", h.ClearWorkstreamLead, append(loggedIn("workstreams"), api.WithErrorResponses(http.StatusConflict))...)
+	r.Put("/api/workstreams/{owner}/{name}/{number}/operator", h.SetWorkstreamOperator, append(loggedIn("workstreams"), api.WithErrorResponses(http.StatusConflict, http.StatusUnprocessableEntity))...)
+	r.Delete("/api/workstreams/{owner}/{name}/{number}/operator", h.ClearWorkstreamOperator, append(loggedIn("workstreams"), api.WithErrorResponses(http.StatusConflict))...)
 	r.Put("/api/workstreams/{owner}/{name}/{number}/implementer", h.SetWorkstreamImplementer, append(loggedIn("workstreams"), api.WithErrorResponses(http.StatusConflict, http.StatusUnprocessableEntity))...)
 	r.Delete("/api/workstreams/{owner}/{name}/{number}/implementer", h.ClearWorkstreamImplementer, append(loggedIn("workstreams"), api.WithErrorResponses(http.StatusConflict))...)
 	r.Get("/api/workstreams/{owner}/{name}/{number}/recurring-tasks", h.ListRecurringTasks, loggedIn("workstreams")...)
