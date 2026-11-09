@@ -854,13 +854,21 @@ test("the Coordinator chat shows no Brief", async ({ page }) => {
   await expect(briefBubble(page)).toHaveCount(0);
 });
 
-test("the Tasks sheet shows the tabs Tasks, Agents, Details and Brief", async ({ page }) => {
+test("the Tasks sheet shows the tabs Tasks, Agents, Details, Brief and Recurring", async ({
+  page,
+}) => {
   await page.setViewportSize(phone);
   await page.goto("/workstreams/plants/garden/19");
   await expect(page.getByRole("button", { name: "Brief" })).toHaveCount(0);
   await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
   const panel = page.getByRole("dialog");
-  await expect(panel.getByRole("tab")).toHaveText(["Tasks", "Agents", "Details", "Brief"]);
+  await expect(panel.getByRole("tab")).toHaveText([
+    "Tasks",
+    "Agents",
+    "Details",
+    "Brief",
+    "Recurring",
+  ]);
   await expect(panel.getByRole("tab", { name: "Tasks" })).toHaveAttribute("aria-selected", "true");
   await expect(panel.getByRole("tabpanel", { name: "Tasks" })).toBeVisible();
   await panel.getByRole("tab", { name: "Brief" }).click();
@@ -2929,12 +2937,18 @@ test.describe("on a desktop", () => {
     await expect(input).toBeFocused();
   });
 
-  test("the side panel shows the tabs Tasks, Agents, Details and Brief, and opens Tasks", async ({
+  test("the side panel shows the tabs Tasks, Agents, Details, Brief and Recurring, and opens Tasks", async ({
     page,
   }) => {
     await page.goto(shop);
     const panel = page.getByRole("complementary");
-    await expect(panel.getByRole("tab")).toHaveText(["Tasks", "Agents", "Details", "Brief"]);
+    await expect(panel.getByRole("tab")).toHaveText([
+      "Tasks",
+      "Agents",
+      "Details",
+      "Brief",
+      "Recurring",
+    ]);
     const tasks = panel.getByRole("tab", { name: "Tasks" });
     await expect(tasks).toHaveAttribute("aria-selected", "true");
     await expect(panel.getByRole("tabpanel", { name: "Tasks" })).toBeVisible();
