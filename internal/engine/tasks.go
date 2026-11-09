@@ -53,7 +53,7 @@ func taskText(workstreamRepository string, lines []TaskLine) string {
 type TaskLine struct {
 	Number int64
 	Title  string
-	// State is the Mobius label with no "mobius:", or open, or closed for a closed issue. A task that waits for a slot shows "queued". A task that waits for CI shows "waits for CI". A task that waits for the Lead shows "waits for Lead". A task that waits for start_implementer shows "waits for start_implementer".
+	// State is the Mobius label with no "mobius:", or open, or closed for a closed issue. A task that waits for a slot shows "queued". A task that waits for CI shows "waits for CI". A task that waits for the Lead shows "waits for Lead". A task that waits for start_implementer shows "waits for start_implementer". A task that waits for an action of the Owner shows "waits for Owner action".
 	State string
 	URL   string
 	// Repository is the full name of the repository of the issue.
@@ -145,14 +145,17 @@ func (e *Engine) Tasks(ctx context.Context, repositoryName string, workstream in
 					if err != nil && !errors.Is(err, sql.ErrNoRows) {
 						return nil, err
 					}
-					if line.State == "working" {
+					switch {
+					case line.State == "working":
 						heldEvent, err := e.queries.HasHeldLeadEvent(ctx, store.HasHeldLeadEventParams{WorkstreamRepository: repositoryName, Repository: issueRepositoryName, Issue: sql.NullInt64{Int64: row.Number, Valid: true}})
 						if err != nil {
 							return nil, err
 						}
 						line.State = waitState(task.State, line.State, heldEvent)
-					} else if task.State == "needs_human" {
+					case task.State == "needs_human":
 						line.State = "ready"
+					case task.State == "owner_action":
+						line.State = waitState(task.State, line.State, false)
 					}
 				}
 			}
@@ -166,7 +169,7 @@ func (e *Engine) Tasks(ctx context.Context, repositoryName string, workstream in
 	return lines, nil
 }
 
-// waitState gives the line state of a task that waits for a slot, for CI, for the Lead, for the Owner or for start_implementer. Any other task keeps the Mobius label.
+// waitState gives the line state of a task that waits for a slot, for CI, for the Lead, for the Owner, for an action of the Owner or for start_implementer. Any other task keeps the Mobius label.
 func waitState(task, label string, heldEvent bool) string {
 	switch task {
 	case "queued":
@@ -180,6 +183,8 @@ func waitState(task, label string, heldEvent bool) string {
 		return "waits for Lead"
 	case "dispatched":
 		return "waits for start_implementer"
+	case "owner_action":
+		return "waits for Owner action"
 	}
 	return label
 }

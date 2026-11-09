@@ -343,6 +343,12 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 					},
 				},
 				e.reportDeploymentNeeds),
+			tool(e, c, "report_owner_action",
+				"Give the action that a person must do outside the code before the next round can pass, for example to run a login of a CLI on the Mobius server. Mobius pauses the task after the review and adds an Inbox item for the Owner. Call it only when such an action exists. A later call replaces an earlier one. It writes nothing to GitHub.",
+				map[string]any{
+					"action": map[string]any{"type": "string", "minLength": 1, "description": "The action of the Owner, as an instruction."},
+				},
+				e.reportOwnerAction),
 		}
 	case JudgeRole:
 		return []mcp.Tool{
@@ -865,6 +871,10 @@ type reasonInput struct {
 type reviewInput struct {
 	Body     string                 `json:"body"`
 	Comments []github.InlineComment `json:"comments"`
+}
+
+type ownerActionInput struct {
+	Action string `json:"action"`
 }
 
 type deploymentNeedsInput struct {

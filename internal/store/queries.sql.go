@@ -789,6 +789,31 @@ func (q *Queries) AddMemoryVersion(ctx context.Context, arg AddMemoryVersionPara
 	return err
 }
 
+const addOwnerAction = `-- name: AddOwnerAction :exec
+INSERT INTO owner_actions (task, inbox_item, role, action, next, created_at) VALUES (?, ?, ?, ?, ?, ?)
+`
+
+type AddOwnerActionParams struct {
+	Task      int64
+	InboxItem int64
+	Role      string
+	Action    string
+	Next      string
+	CreatedAt string
+}
+
+func (q *Queries) AddOwnerAction(ctx context.Context, arg AddOwnerActionParams) error {
+	_, err := q.db.ExecContext(ctx, addOwnerAction,
+		arg.Task,
+		arg.InboxItem,
+		arg.Role,
+		arg.Action,
+		arg.Next,
+		arg.CreatedAt,
+	)
+	return err
+}
+
 const addOwnerAnswer = `-- name: AddOwnerAnswer :exec
 INSERT OR IGNORE INTO owner_answers (repository, comment_id) VALUES (?, ?)
 `
@@ -3438,6 +3463,26 @@ func (q *Queries) GetOpenFailedItemOfMessage(ctx context.Context, chatMessage sq
 		&i.Questions,
 		&i.Answer,
 		&i.Withdrawn,
+	)
+	return i, err
+}
+
+const getOwnerActionOfItem = `-- name: GetOwnerActionOfItem :one
+SELECT id, task, inbox_item, role, "action", next, created_at, done_at FROM owner_actions WHERE inbox_item = ?
+`
+
+func (q *Queries) GetOwnerActionOfItem(ctx context.Context, inboxItem int64) (OwnerAction, error) {
+	row := q.db.QueryRowContext(ctx, getOwnerActionOfItem, inboxItem)
+	var i OwnerAction
+	err := row.Scan(
+		&i.ID,
+		&i.Task,
+		&i.InboxItem,
+		&i.Role,
+		&i.Action,
+		&i.Next,
+		&i.CreatedAt,
+		&i.DoneAt,
 	)
 	return i, err
 }
@@ -7216,6 +7261,42 @@ func (q *Queries) ListOpenLeadQuestions(ctx context.Context, arg ListOpenLeadQue
 	return items, nil
 }
 
+const listOpenOwnerActionsOfTask = `-- name: ListOpenOwnerActionsOfTask :many
+SELECT id, task, inbox_item, role, "action", next, created_at, done_at FROM owner_actions WHERE task = ? AND done_at IS NULL ORDER BY id
+`
+
+func (q *Queries) ListOpenOwnerActionsOfTask(ctx context.Context, task int64) ([]OwnerAction, error) {
+	rows, err := q.db.QueryContext(ctx, listOpenOwnerActionsOfTask, task)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []OwnerAction
+	for rows.Next() {
+		var i OwnerAction
+		if err := rows.Scan(
+			&i.ID,
+			&i.Task,
+			&i.InboxItem,
+			&i.Role,
+			&i.Action,
+			&i.Next,
+			&i.CreatedAt,
+			&i.DoneAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOpenSessionIDs = `-- name: ListOpenSessionIDs :many
 SELECT id FROM sessions WHERE ended_at IS NULL ORDER BY id
 `
@@ -9613,6 +9694,20 @@ type SetLeadWriteItemParams struct {
 
 func (q *Queries) SetLeadWriteItem(ctx context.Context, arg SetLeadWriteItemParams) error {
 	_, err := q.db.ExecContext(ctx, setLeadWriteItem, arg.Item, arg.ID)
+	return err
+}
+
+const setOwnerActionDone = `-- name: SetOwnerActionDone :exec
+UPDATE owner_actions SET done_at = ? WHERE id = ?
+`
+
+type SetOwnerActionDoneParams struct {
+	DoneAt sql.NullString
+	ID     int64
+}
+
+func (q *Queries) SetOwnerActionDone(ctx context.Context, arg SetOwnerActionDoneParams) error {
+	_, err := q.db.ExecContext(ctx, setOwnerActionDone, arg.DoneAt, arg.ID)
 	return err
 }
 
