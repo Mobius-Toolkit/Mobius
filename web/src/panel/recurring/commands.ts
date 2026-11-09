@@ -1,9 +1,16 @@
 import { Effect, Schema } from "effect";
 import { Command } from "foldkit";
-import { deleteRecurringTask, listRecurringTasks, setRecurringTaskPaused } from "@/api/api.gen";
+import {
+  deleteRecurringTask,
+  listRecurringTasks,
+  runRecurringTask,
+  setRecurringTaskPaused,
+} from "@/api/api.gen";
 import { answer, request } from "@/lib/effects";
 import { showNotice } from "@/lib/notice";
 import { Message } from "./message";
+
+const panelOf = (instance: string) => document.getElementById(`${instance}-panel-recurring`);
 
 const Workstream = { owner: Schema.String, name: Schema.String, number: Schema.Number };
 
@@ -65,5 +72,68 @@ export const DeleteTask = Command.define("DeleteTask", {
         showNotice(`The recurring task did not delete: ${error}`);
         return Message.DeleteFailed();
       },
+    }),
+});
+
+export const OpenTask = Command.define("OpenTask", {
+  args: { instance: Schema.String, id: Schema.Number },
+  messages: [Message.OpenedTask],
+  execute: ({ instance, id }) =>
+    Effect.sync(() => Message.OpenedTask({ id, scroll: panelOf(instance)?.scrollTop ?? 0 })),
+});
+
+// The list shows again in the next animation frame, and the frame after it has its height.
+export const RestoreScroll = Command.define("RestoreScroll", {
+  args: { instance: Schema.String, scroll: Schema.Number },
+  messages: [Message.CompletedRestoreScroll],
+  execute: ({ instance, scroll }) =>
+    Effect.promise(
+      () =>
+        new Promise<void>((resolve) => {
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() => {
+              const panel = panelOf(instance);
+              if (panel) {
+                panel.scrollTop = scroll;
+              }
+              resolve();
+            }),
+          );
+        }),
+    ).pipe(Effect.as(Message.CompletedRestoreScroll())),
+});
+
+export const RunTask = Command.define("RunTask", {
+  args: { ...Workstream, id: Schema.Number },
+  messages: [Message.RunStarted, Message.LoginRequired, Message.RunRefused],
+  execute: ({ owner, name, number, id }) => {
+    const refused = (reason: string) => Message.RunRefused({ id, reason });
+    return request(() => runRecurringTask(owner, name, number, id)).pipe(
+      Effect.map((res) => {
+        if (res.status === 401) {
+          return Message.LoginRequired();
+        }
+        if (res.status === 409) {
+          return refused(res.data.error);
+        }
+        if (res.status !== 200) {
+          return refused(`The recurring task did not run: ${res.data.error}`);
+        }
+        return Message.RunStarted({ task: res.data.data });
+      }),
+      Effect.catchTag("RequestFailed", (error) =>
+        Effect.succeed(refused(`The recurring task did not run: ${error.message}`)),
+      ),
+    );
+  },
+});
+
+export const ShowNotice = Command.define("ShowNotice", {
+  args: { text: Schema.String },
+  messages: [Message.CompletedShowNotice],
+  execute: ({ text }) =>
+    Effect.sync(() => {
+      showNotice(text);
+      return Message.CompletedShowNotice();
     }),
 });

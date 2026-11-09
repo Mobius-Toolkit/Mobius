@@ -7,6 +7,23 @@ export function buttonClass(options: NonNullable<Parameters<typeof buttonVariant
   return cn(buttonVariants(options));
 }
 
+export function renderIconButton<M>(
+  h: HtmlBuilder<M>,
+  options: { label: string; disabled: boolean; busy: boolean; icon: Html; click: M },
+): Html {
+  return h.button(
+    [
+      h.Type("button"),
+      h.AriaLabel(options.label),
+      h.Title(options.label),
+      h.Disabled(options.disabled),
+      h.Class(buttonClass({ variant: "ghost", size: "icon", className: "shrink-0" })),
+      h.OnClick(options.click),
+    ],
+    [options.busy ? spinnerIcon(h) : options.icon],
+  );
+}
+
 export function renderButton<M>(
   h: HtmlBuilder<M>,
   options: NonNullable<Parameters<typeof buttonVariants>[0]> & {

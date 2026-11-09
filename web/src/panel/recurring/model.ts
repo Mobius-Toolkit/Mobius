@@ -20,7 +20,9 @@ export const Model = Schema.Struct({
   tasks: Schema.Option(Schema.Array(RecurringTask)),
   error: Schema.String,
   opened: Schema.Option(Schema.Number),
+  scroll: Schema.Number,
   busy: Schema.Array(Schema.Number),
+  running: Schema.Array(Schema.Number),
   deletion: Schema.Option(Deletion),
 });
 
@@ -37,7 +39,9 @@ export function initialModel(options: {
     tasks: Option.none(),
     error: "",
     opened: Option.none(),
+    scroll: 0,
     busy: [],
+    running: [],
     deletion: Option.none(),
   };
 }

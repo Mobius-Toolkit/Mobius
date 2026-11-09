@@ -9,7 +9,7 @@ import {
   model,
   story,
 } from "foldkit/story";
-import { DeleteTask, SetPaused } from "./commands";
+import { DeleteTask, OpenTask, RestoreScroll, RunTask, SetPaused, ShowNotice } from "./commands";
 import { Message, OutMessage } from "./message";
 import { initialModel, type Model, type RecurringTask } from "./model";
 import { update } from "./update";
@@ -56,24 +56,45 @@ describe("the list", () => {
     );
   });
 
-  it("closes the history of a task that the new read does not have", () => {
+  it("shows the list again when the new read does not have the opened task", () => {
     story(
       update,
-      given(createModel({ opened: Option.some(2) })),
+      given(createModel({ opened: Option.some(2), scroll: 120 })),
       message(Message.TasksLoaded({ tasks: [first] })),
       model((m) => {
         expect(m.opened).toEqual(Option.none());
       }),
+      StoryCommand.expectExact(RestoreScroll({ instance: "side", scroll: 120 })),
+      StoryCommand.resolve(RestoreScroll, Message.CompletedRestoreScroll()),
+    );
+  });
+
+  it("keeps the opened task when the new read has it", () => {
+    story(
+      update,
+      given(createModel({ opened: Option.some(1) })),
+      message(Message.TasksLoaded({ tasks: [first] })),
+      model((m) => {
+        expect(m.opened).toEqual(Option.some(1));
+      }),
+      StoryCommand.expectNone(),
     );
   });
 
   it("asks the host for the login on a 401", () => {
     story(
       update,
-      given(createModel({ busy: [1], deletion: Option.some({ id: 1, text: "x", busy: true }) })),
+      given(
+        createModel({
+          busy: [1],
+          running: [1],
+          deletion: Option.some({ id: 1, text: "x", busy: true }),
+        }),
+      ),
       message(Message.LoginRequired()),
       model((m) => {
         expect(m.busy).toEqual([]);
+        expect(m.running).toEqual([]);
         expect(m.deletion).toEqual(Option.some({ id: 1, text: "x", busy: false }));
       }),
       expectOutMessage(OutMessage.LoginRequired()),
@@ -81,23 +102,83 @@ describe("the list", () => {
   });
 });
 
-describe("the history", () => {
-  it("opens the history of a task with a tap, and closes it with a second tap", () => {
+describe("the subpage", () => {
+  it("reads the scroll position of the list, and opens the task with a tap on its row", () => {
     story(
       update,
       given(createModel()),
-      message(Message.ClickedRow({ id: 1 })),
-      model((m) => {
-        expect(m.opened).toEqual(Option.some(1));
-      }),
       message(Message.ClickedRow({ id: 2 })),
+      StoryCommand.expectExact(OpenTask({ instance: "side", id: 2 })),
+      StoryCommand.resolve(OpenTask, Message.OpenedTask({ id: 2, scroll: 80 })),
       model((m) => {
         expect(m.opened).toEqual(Option.some(2));
+        expect(m.scroll).toBe(80);
       }),
-      message(Message.ClickedRow({ id: 2 })),
+    );
+  });
+
+  it("shows the list again at the saved scroll position with the back message", () => {
+    story(
+      update,
+      given(createModel({ opened: Option.some(2), scroll: 80 })),
+      message(Message.ClickedBack()),
       model((m) => {
         expect(m.opened).toEqual(Option.none());
       }),
+      StoryCommand.expectExact(RestoreScroll({ instance: "side", scroll: 80 })),
+      StoryCommand.resolve(RestoreScroll, Message.CompletedRestoreScroll()),
+      StoryCommand.expectNone(),
+    );
+  });
+});
+
+describe("the run", () => {
+  it("waits, shows the task that the answer gives, and tells that the Lead got the event", () => {
+    const ran = task({ runs: [{ time: "2026-09-28T08:00:00Z", result: "manual", reason: "" }] });
+    story(
+      update,
+      given(createModel()),
+      message(Message.ClickedRun({ id: 1 })),
+      model((m) => {
+        expect(m.running).toEqual([1]);
+      }),
+      StoryCommand.expectExact(RunTask({ ...workstream, id: 1 })),
+      StoryCommand.resolve(RunTask, Message.RunStarted({ task: ran })),
+      model((m) => {
+        expect(m.running).toEqual([]);
+        expect(m.tasks).toEqual(Option.some([ran, second]));
+      }),
+      StoryCommand.expectExact(ShowNotice({ text: "The Lead got the event." })),
+      StoryCommand.resolve(ShowNotice, Message.CompletedShowNotice()),
+    );
+  });
+
+  it("shows the reason of a refused run in a notice and keeps the task", () => {
+    const reason = "The earlier event of the recurring task is not delivered yet";
+    story(
+      update,
+      given(createModel({ running: [2] })),
+      message(Message.ClickedRun({ id: 1 })),
+      StoryCommand.resolve(RunTask, Message.RunRefused({ id: 1, reason })),
+      model((m) => {
+        expect(m.running).toEqual([2]);
+        expect(m.tasks).toEqual(Option.some([first, second]));
+      }),
+      StoryCommand.expectExact(ShowNotice({ text: reason })),
+      StoryCommand.resolve(ShowNotice, Message.CompletedShowNotice()),
+    );
+  });
+
+  it("asks the host for the login when the request gets a 401", () => {
+    story(
+      update,
+      given(createModel()),
+      message(Message.ClickedRun({ id: 1 })),
+      StoryCommand.resolve(RunTask, Message.LoginRequired()),
+      model((m) => {
+        expect(m.running).toEqual([]);
+      }),
+      expectOutMessage(OutMessage.LoginRequired()),
     );
   });
 });
@@ -203,14 +284,29 @@ describe("the delete", () => {
     );
   });
 
-  it("closes the history of the deleted task", () => {
+  it("shows the list when the opened task is deleted", () => {
     story(
       update,
-      given(createModel({ opened: Option.some(1) })),
+      given(createModel({ opened: Option.some(1), scroll: 40 })),
       message(Message.TaskDeleted({ id: 1 })),
       model((m) => {
         expect(m.opened).toEqual(Option.none());
+        expect(m.tasks).toEqual(Option.some([second]));
       }),
+      StoryCommand.expectExact(RestoreScroll({ instance: "side", scroll: 40 })),
+      StoryCommand.resolve(RestoreScroll, Message.CompletedRestoreScroll()),
+    );
+  });
+
+  it("keeps the opened task when another task is deleted", () => {
+    story(
+      update,
+      given(createModel({ opened: Option.some(1) })),
+      message(Message.TaskDeleted({ id: 2 })),
+      model((m) => {
+        expect(m.opened).toEqual(Option.some(1));
+      }),
+      StoryCommand.expectNone(),
     );
   });
 });

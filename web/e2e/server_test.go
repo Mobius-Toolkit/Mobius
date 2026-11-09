@@ -39,8 +39,8 @@ func TestMain(m *testing.M) {
 // the rules of briefCalls, ownerAnswers and ownerCalls between them. The options have the models and the efforts of the Role bindings of
 // testserver.Config. The first rule whose text is in the prompt answers the prompt, so a rule of a chat message comes
 // before the rule of each earlier event or message that the first prompt of a new session also holds. The Implementer
-// of #41 works until the server stops. The Lead turn of each move_task does not end, so its session runs until the
-// close of its Workstream.
+// of #41 works until the server stops. The Lead turn of each move_task and of each manual run of a recurring task
+// does not end, so its session runs until the close of its Workstream.
 const scriptOptions = `
 [options]
 model = ["sonnet", "opus", "haiku", "swe-1.5", "gemini-3-pro"]
@@ -65,6 +65,10 @@ reply = ["The Lead has the message."]
 `
 
 const scriptBody = `[[prompts]]
+when = "the Owner started the recurring task"
+hang = true
+
+[[prompts]]
 when = "Which lilies sell best?"
 reply = ["Pink lilies sell best."]
 busy = "3s"
@@ -954,6 +958,7 @@ func addRecurringTasks(ctx context.Context, t *testing.T, server *testserver.Ser
 		{"2026-09-24T08:00:00Z", "event", ""},
 		{"2026-09-25T08:00:00Z", "skipped", "the earlier event is not delivered yet"},
 		{"2026-09-28T08:00:00Z", "event", ""},
+		{"2026-09-28T12:00:00Z", "manual", ""},
 	} {
 		if _, err := server.DB.Exec("INSERT INTO recurring_task_runs (recurring_task, time, result, reason) VALUES (?, ?, ?, ?)",
 			active.ID, run.time, run.result, run.reason); err != nil {

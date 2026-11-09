@@ -5,8 +5,8 @@ import { defineView } from "foldkit/submodel";
 import { bindingText } from "@/lib/harness";
 import * as Setting from "@/setting/view";
 import { renderBadge } from "@/ui/badge";
-import { buttonClass } from "@/ui/button";
-import { messageSquareIcon, playIcon, settingsIcon, spinnerIcon, squareIcon } from "@/ui/icons";
+import { renderIconButton } from "@/ui/button";
+import { messageSquareIcon, playIcon, settingsIcon, squareIcon } from "@/ui/icons";
 import { renderSwitch } from "@/ui/switch";
 import { Message } from "./message";
 import {
@@ -21,23 +21,6 @@ import {
 } from "./model";
 
 type H = HtmlBuilder<Message>;
-
-function renderIconButton(
-  h: H,
-  options: { label: string; disabled: boolean; busy: boolean; icon: Html; click: Message },
-): Html {
-  return h.button(
-    [
-      h.Type("button"),
-      h.AriaLabel(options.label),
-      h.Title(options.label),
-      h.Disabled(options.disabled),
-      h.Class(buttonClass({ variant: "ghost", size: "icon", className: "shrink-0" })),
-      h.OnClick(options.click),
-    ],
-    [options.busy ? spinnerIcon(h) : options.icon],
-  );
-}
 
 function startLabel(line: TaskLine) {
   if (resumes(line)) {
