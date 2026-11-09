@@ -1,6 +1,8 @@
 import { Option } from "effect";
+import { Command } from "foldkit";
 import * as Update from "foldkit/update";
 import { lowLoadReason } from "@/lib/agents";
+import { FetchLog } from "@/transcript/commands";
 import { OutMessage as TranscriptOutMessage } from "@/transcript/message";
 import { initialModel as initialTranscript } from "@/transcript/model";
 import { reflectStartable, update as updateTranscript } from "@/transcript/update";
@@ -53,6 +55,10 @@ export function update(model: Model, message: Message): UpdateReturn {
     ToggledStopped: () => ({ model: { ...model, showStopped: !model.showStopped } }),
     OpenedAgent: ({ agent }) => ({
       model: { ...model, transcript: Option.some(initialTranscript(agent)) },
+      commands: Command.mapMessages(
+        [FetchLog({ id: agent.id, known: Option.none() })],
+        toGotTranscriptMessage,
+      ),
     }),
     GotTranscriptMessage: ({ message: child }) => foldTranscript(model, child),
   });
