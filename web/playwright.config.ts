@@ -77,6 +77,9 @@ export default defineConfig({
     // The selection tests add MCP servers to the organization plants and delete them again. They select the servers of
     // plants/garden#18, which no spec of the parallel projects reads.
     { name: "mcp-selection", testMatch: "mcp-selection.spec.ts", dependencies: ["agents"] },
+    // The server tests add MCP servers to the organization owner and delete them again. The selection tests use the
+    // organization plants.
+    { name: "mcp-servers", testMatch: "mcp-servers.spec.ts", dependencies: ["agents"] },
     // The attachment tests give their own data with page.route, and they open chats, which marks their messages as seen.
     // Thus they run last.
     { name: "attachments", testMatch: "attachments.spec.ts", dependencies: ["live"] },

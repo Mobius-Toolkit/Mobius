@@ -4,7 +4,13 @@ import { expect, type Page } from "@playwright/test";
 export const addMcpServer = (
   page: Page,
   organization: string,
-  body: { name: string; kind: "http" | "stdio"; url?: string; command?: string },
+  body: {
+    name: string;
+    kind: "http" | "stdio";
+    url?: string;
+    command?: string;
+    headers?: { name: string; value: string }[];
+  },
 ) =>
   page.evaluate(
     async (call) => {

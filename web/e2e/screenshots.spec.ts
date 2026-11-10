@@ -1229,7 +1229,10 @@ test("screenshots", async ({ page }) => {
       chatEnd,
       created,
       page.getByText("Completed tasks").filter({ visible: true }),
-      page.getByText("MCP servers", { exact: true }).filter({ visible: true }),
+      page
+        .getByRole("tabpanel", { name: "Details" })
+        .getByText("MCP servers", { exact: true })
+        .filter({ visible: true }),
       page.getByRole("button", { name: "Change MCP servers" }).filter({ visible: true }),
       closeButton,
       evergreenSwitch,
@@ -2336,6 +2339,7 @@ test("screenshots", async ({ page }) => {
   await screenshot(page, "settings", "/settings", (device) => [
     ...frame(device, release, { upgrade: true }),
     main.getByRole("link", { name: "Devices" }),
+    main.getByRole("link", { name: "MCP servers" }),
     main.getByText("All on", { exact: true }),
     main.getByText("v0.1.0", { exact: true }),
     main.getByText("v0.1.3", { exact: true }),
@@ -2584,6 +2588,84 @@ test("screenshots", async ({ page }) => {
       await expect(implementerSheet.getByLabel("Context", { exact: true })).toBeDisabled();
     },
   );
+  // The organization has no MCP server until the next step routes the list.
+  await screenshot(page, "mcp-servers-none", "/settings/mcp-servers", (device) => [
+    ...frame(device, release),
+    main.getByText("No MCP servers."),
+    main.getByRole("button", { name: "Add a server" }),
+  ]);
+  await page.route("**/api/organizations/*/mcp-servers", (route) =>
+    route.request().method() === "GET"
+      ? route.fulfill({
+          json: {
+            data: [
+              {
+                id: 1,
+                name: "makeadir",
+                kind: "http",
+                url: "https://mcp.makeadir.com",
+                headers: [{ name: "Authorization" }],
+                command: "",
+                args: [],
+                env: [],
+                oauth: "reconnect",
+                oauthReason: "The refresh token expired.",
+              },
+              {
+                id: 2,
+                name: "search",
+                kind: "stdio",
+                url: "",
+                headers: [],
+                command: "npx",
+                args: ["-y", "@acme/search-mcp"],
+                env: [{ name: "API_KEY" }],
+                oauth: "none",
+                oauthReason: "",
+              },
+            ],
+          },
+        })
+      : route.fallback(),
+  );
+  const mcpRow = (name: string) =>
+    main
+      .getByRole("listitem")
+      .filter({ has: page.getByRole("button", { name: "Edit" }), hasText: name });
+  const mcpDialog = (title: string) => page.getByRole("dialog", { name: title });
+  await screenshot(page, "mcp-servers", "/settings/mcp-servers", (device) => [
+    ...frame(device, release),
+    mcpRow("makeadir").getByText("Reconnect", { exact: true }),
+    mcpRow("makeadir").getByText("Authorization ••••••"),
+    mcpRow("search").getByText("npx -y @acme/search-mcp"),
+    mcpRow("search").getByText("API_KEY ••••••"),
+    main.getByRole("button", { name: "Add a server" }),
+  ]);
+  await screenshot(
+    page,
+    "mcp-servers-http-sheet",
+    "/settings/mcp-servers",
+    (device) => [
+      ...frame(device, release),
+      mcpDialog("Edit makeadir").getByText("Needs a new Connect: The refresh token expired."),
+      mcpDialog("Edit makeadir").getByRole("button", { name: "Disconnect" }),
+      mcpDialog("Edit makeadir").getByRole("button", { name: "Save" }),
+    ],
+    () => mcpRow("makeadir").getByRole("button", { name: "Edit" }).click(),
+  );
+  await screenshot(
+    page,
+    "mcp-servers-stdio-sheet",
+    "/settings/mcp-servers",
+    (device) => [
+      ...frame(device, release),
+      mcpDialog("Edit search").getByLabel("Arguments"),
+      mcpDialog("Edit search").getByLabel("Value of variable 1"),
+      mcpDialog("Edit search").getByRole("button", { name: "Save" }),
+    ],
+    () => mcpRow("search").getByRole("button", { name: "Edit" }).click(),
+  );
+  await page.unroute("**/api/organizations/*/mcp-servers");
   const voiceSection = (title: string) =>
     main.locator("section").filter({ has: page.getByRole("heading", { name: title }) });
   const voiceSearch = page.getByLabel("Search languages");

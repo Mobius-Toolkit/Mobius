@@ -1,4 +1,5 @@
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
+import { useState } from "react";
 import { PageHeader } from "@/components/page";
 import { useShell } from "@/lib/shell";
 import { Agents } from "./Agents";
@@ -6,6 +7,8 @@ import { Chat } from "./Chat";
 import { CheckupHost } from "./CheckupHost";
 import { GitHub } from "./GitHub";
 import { Inbox } from "./Inbox";
+import { McpServers } from "./McpServers";
+import type { Callback } from "./settings/mcp-servers/schemas";
 import { Memory, MemoryFiles, MemoryRepositories } from "./Memory";
 import { Tasks } from "./Tasks";
 import { TopBar } from "./TopBar";
@@ -147,4 +150,16 @@ export function UsagePage() {
       onSearch={(patch) => navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true })}
     />
   );
+}
+
+export function McpServersPage() {
+  const { organization } = useShell();
+  const search = useSearch({ from: "/settings/mcp-servers" });
+  // The Owner opens the page with the result of an OAuth flow once. The program removes the query from the URL.
+  const [callback] = useState<Callback>({
+    oauth: search.oauth ?? "",
+    server: search.server ?? 0,
+    reason: search.reason ?? "",
+  });
+  return <McpServers organization={organization} callback={callback} />;
 }

@@ -1,0 +1,48 @@
+import { Schema } from "effect";
+import { defineMessageUnion } from "foldkit/message";
+import { Kind, McpServer } from "./schemas";
+
+export const Message = defineMessageUnion({
+  ServersLoaded: { servers: Schema.Array(McpServer) },
+  ServersFailed: { error: Schema.String },
+  LoginRequired: {},
+  ClickedAdd: {},
+  ClickedEdit: { id: Schema.Number },
+  ClosedSheet: {},
+  PressedEscape: {},
+  ChangedName: { text: Schema.String },
+  PickedKind: { kind: Kind },
+  ChangedUrl: { text: Schema.String },
+  ChangedCommand: { text: Schema.String },
+  ChangedArgs: { text: Schema.String },
+  ChangedPairName: { index: Schema.Number, text: Schema.String },
+  ChangedPairValue: { index: Schema.Number, text: Schema.String },
+  ClickedAddPair: {},
+  ClickedRemovePair: { index: Schema.Number },
+  ChangedClientId: { text: Schema.String },
+  ChangedClientSecret: { text: Schema.String },
+  ClickedSave: {},
+  ServerSaved: { server: McpServer },
+  SaveFailed: { error: Schema.String },
+  SaveLoginRequired: {},
+  ClickedDelete: {},
+  DismissedDelete: {},
+  ClickedConfirmDelete: {},
+  ServerDeleted: { id: Schema.Number },
+  DeleteFailed: { error: Schema.String },
+  ClickedConnect: {},
+  OAuthStarted: { url: Schema.String },
+  OAuthFailed: { error: Schema.String },
+  ClickedDisconnect: {},
+  OAuthDisconnected: { id: Schema.Number },
+  ClickedBack: {},
+  CompletedRequestLogin: {},
+  CompletedGoBack: {},
+  CompletedNavigate: {},
+  CompletedShowNotice: {},
+  CompletedRedirect: {},
+  CompletedFocusSheet: {},
+  CompletedFocusDialog: {},
+});
+
+export type Message = typeof Message.Type;

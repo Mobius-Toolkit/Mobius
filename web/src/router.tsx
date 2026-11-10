@@ -11,6 +11,7 @@ import {
   CheckupWorkstreamsPage,
   GitHubPage,
   InboxPage,
+  McpServersPage,
   MemoryFilePage,
   MemoryPage,
   MemoryRepositoriesPage,
@@ -19,6 +20,7 @@ import {
   UsagePage,
   WorkstreamsPage,
 } from "./pages";
+import { validateMcpServersSearch } from "./lib/mcpServers";
 import { validateUsageSearch } from "./lib/usage";
 import { Roles } from "./Roles";
 import { Settings } from "./Settings";
@@ -153,6 +155,13 @@ const rolesRoute = createRoute({
   component: Roles,
 });
 
+const mcpServersRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/settings/mcp-servers",
+  validateSearch: validateMcpServersSearch,
+  component: McpServersPage,
+});
+
 const switchSettingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/settings/switches",
@@ -197,6 +206,7 @@ const routeTree = rootRoute.addChildren([
   memoryRoute,
   memoryFileRoute,
   rolesRoute,
+  mcpServersRoute,
   switchSettingsRoute,
   voiceRoute,
   devicesRoute,
