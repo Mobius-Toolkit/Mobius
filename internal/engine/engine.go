@@ -178,6 +178,10 @@ type Engine struct {
 	curatorsMu sync.Mutex
 	// curators holds each repository with a Curator that runs. The value tells that one more Curator waits.
 	curators map[string]bool
+	// mcpRefreshesMu guards mcpRefreshes.
+	mcpRefreshesMu sync.Mutex
+	// mcpRefreshes holds the refresh state of each OAuth MCP server, by the id of the server.
+	mcpRefreshes map[int64]*mcpRefresh
 	// diagnosersMu guards diagnosers.
 	diagnosersMu sync.Mutex
 	// diagnosers holds each repository with a Diagnoser worker that runs.
@@ -249,6 +253,7 @@ func New(db *sql.DB, gh *github.GitHub, cfg *config.Config, agents Agents) *Engi
 		researchers:     map[int64]*Agent{},
 		operators:       map[int64]*Agent{},
 		curators:        map[string]bool{},
+		mcpRefreshes:    map[int64]*mcpRefresh{},
 		diagnosers:      map[string]bool{},
 		listeners:       map[chan Change]bool{},
 	}

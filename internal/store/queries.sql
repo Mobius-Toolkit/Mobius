@@ -1685,6 +1685,14 @@ SET access_token = ?, refresh_token = ?, expires_at = ?, state = '', code_verifi
     failure = '', updated_at = ?
 WHERE server = ? AND state = ?;
 
+-- name: StoreMcpServerOAuthRefresh :exec
+UPDATE mcp_server_oauth
+SET access_token = ?, refresh_token = ?, expires_at = ?, updated_at = ?
+WHERE server = ?;
+
+-- name: FailMcpServerOAuthToken :exec
+UPDATE mcp_server_oauth SET failure = ?, updated_at = ? WHERE server = ? AND access_token = ?;
+
 -- name: ClearMcpServerOAuthTokens :exec
 UPDATE mcp_server_oauth SET access_token = '', refresh_token = '', expires_at = NULL WHERE server = ?;
 
