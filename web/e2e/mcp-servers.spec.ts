@@ -240,6 +240,38 @@ test("the result of the OAuth flow shows a notice, and the page removes the quer
   await expect(row(page, "e2e-http")).toBeVisible();
 });
 
+test("the result of the OAuth flow shows no second time after the Owner changes the organization", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await openPage(page);
+  const id = await addMcpServer(page, organization, {
+    name: "e2e-http",
+    kind: "http",
+    url: "https://mcp.example.com/mcp",
+  });
+
+  await page.goto(`/settings/mcp-servers?oauth=connected&server=${id}`);
+  await expect(notice(page, "Connected e2e-http")).toBeVisible();
+  await expect(page).toHaveURL("/settings/mcp-servers");
+  await expect(notice(page, "Connected e2e-http")).toBeHidden({ timeout: 10_000 });
+
+  const loaded = page.waitForResponse(
+    (res) =>
+      res.url().endsWith("/api/organizations/plants/mcp-servers") &&
+      res.request().method() === "GET",
+  );
+  await page.getByLabel("Work in another organization").click();
+  await page.getByRole("menuitemradio", { name: "plants" }).click();
+  await loaded;
+  // Foldkit renders in the next animation frame.
+  await page.evaluate(
+    () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+  );
+  await expect(row(page, "e2e-http")).toHaveCount(0);
+  await expect(notice(page, "Connected")).toHaveCount(0);
+});
+
 test("the Settings page links the page of the MCP servers", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/settings");

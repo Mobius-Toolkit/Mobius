@@ -1,5 +1,5 @@
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
-import { useState } from "react";
+import { useMemo } from "react";
 import { PageHeader } from "@/components/page";
 import { useShell } from "@/lib/shell";
 import { Agents } from "./Agents";
@@ -155,11 +155,8 @@ export function UsagePage() {
 export function McpServersPage() {
   const { organization } = useShell();
   const search = useSearch({ from: "/settings/mcp-servers" });
-  // The Owner opens the page with the result of an OAuth flow once. The program removes the query from the URL.
-  const [callback] = useState<Callback>({
-    oauth: search.oauth ?? "",
-    server: search.server ?? 0,
-    reason: search.reason ?? "",
-  });
+  const { oauth = "", server = 0, reason = "" } = search;
+  // The program removes the query from the URL after it shows the result, so a later embed gets no result.
+  const callback = useMemo<Callback>(() => ({ oauth, server, reason }), [oauth, server, reason]);
   return <McpServers organization={organization} callback={callback} />;
 }
