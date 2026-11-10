@@ -715,7 +715,7 @@ func (e *Engine) hasLead(repository string, workstream int64) bool {
 	return ok
 }
 
-// closeChats asks each chat to close when its work ends. A Lead saves its memory before the close.
+// closeChats asks each chat to close when its work ends.
 func (e *Engine) closeChats() {
 	e.chatsMu.Lock()
 	defer e.chatsMu.Unlock()
@@ -1090,7 +1090,7 @@ func (e *Engine) leadFailed(ctx context.Context, failed item) error {
 }
 
 // chat runs the turns of the session a: first the item first, and then each queued item. When the chat is idle for
-// lead_idle_timeout or the drain asks it to close, the Lead saves its memory and the session ends.
+// lead_idle_timeout or the drain asks it to close, the session ends.
 func (e *Engine) chat(c *chat, a *Agent, first item) error {
 	ctx := c.ctx
 	quiet, err := e.quietEvents(ctx, c.key)
