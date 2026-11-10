@@ -280,12 +280,14 @@ function renderSheetOf(h: H, model: Model, sheet: Sheet): Html {
   return renderSheet(h, {
     mount: h.OnMount(SheetOpened()),
     titleId: "mcp-title",
-    descriptionId: "mcp-description",
     title: Option.match(saved, {
       onNone: () => "Add a server",
       onSome: (server) => `Edit ${server.name}`,
     }),
-    description: `An MCP server of ${model.organization}`,
+    description: {
+      id: "mcp-description",
+      text: `An MCP server of ${model.organization}`,
+    },
     close: Message.ClosedSheet(),
     className:
       "max-h-[90dvh] gap-3 overflow-y-auto p-4 pt-3 md:mx-auto md:max-w-md md:rounded-t-xl",

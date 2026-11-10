@@ -47,9 +47,11 @@ export const view = defineView<Model, Message>((model, h) => {
   return renderSheet(h, {
     mount: h.OnMount(SheetOpened()),
     titleId: "setting-title",
-    descriptionId: "setting-description",
     title: model.title,
-    description: `Default: ${bindingText(model.fallback)} (${model.fallbackSource})`,
+    description: {
+      id: "setting-description",
+      text: `Default: ${bindingText(model.fallback)} (${model.fallbackSource})`,
+    },
     close: Message.ClickedClose(),
     className: "gap-3 p-4 pt-3 md:mx-auto md:max-w-md md:rounded-t-xl",
     children: [

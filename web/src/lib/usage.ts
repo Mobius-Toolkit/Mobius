@@ -1,4 +1,4 @@
-import type { QualityValues, TimeStat, UsageValues } from "@/api/api.gen";
+import type { QualityValues, TimeStat, UsageValues } from "@/usage/schemas";
 
 export const periods = [
   { value: "7d", title: "Last 7 days" },
@@ -79,10 +79,10 @@ export type UsageSearch = {
   period?: Period;
   from?: string;
   to?: string;
-  group?: Group[];
+  group?: readonly Group[];
   stat?: string;
   value?: QualityValue;
-} & { [key in Dimension | SkillDimension]?: string[] };
+} & { [key in Dimension | SkillDimension]?: readonly string[] };
 
 // The color of a group follows its position, and the position follows the sort order of the API.
 export const palette = [
@@ -239,8 +239,11 @@ export function formatQuality(key: QualityValue, value: number | null) {
 }
 
 // The count values show one decimal. The axis uses a step that one decimal shows,
-// so each label agrees with its grid line. Recharts puts its ticks at quarter steps.
-export function qualityAxisTicks(value: QualityValue, rows: Record<string, number | string>[]) {
+// so each label agrees with its grid line. The default ticks of the chart are at quarter steps.
+export function qualityAxisTicks(
+  value: QualityValue,
+  rows: ReadonlyArray<{ values: ReadonlyArray<number | null> }>,
+) {
   if (
     value !== "reviewRounds" &&
     value !== "fixRounds" &&
@@ -251,8 +254,8 @@ export function qualityAxisTicks(value: QualityValue, rows: Record<string, numbe
   }
   let max = 0;
   for (const row of rows) {
-    for (const [key, item] of Object.entries(row)) {
-      if (key !== "day" && typeof item === "number" && item > max) {
+    for (const item of row.values) {
+      if (item !== null && item > max) {
         max = item;
       }
     }
@@ -277,33 +280,32 @@ export function mergedShare(values: QualityValues) {
   return values.tasks === 0 ? "—" : `${Math.round((values.merged / values.tasks) * 100)}%`;
 }
 
-export const groupKey = (index: number) => `group${index}`;
-
-const sameGroup = (a: string[], b: string[]) =>
+const sameGroup = (a: readonly string[], b: readonly string[]) =>
   a.length === b.length && a.every((value, index) => value === b[index]);
 
-// A row has one value for each group key. A day with no value for a group has no key.
-export function chartRows<D extends { day: string; group: string[] }>(
-  days: D[],
-  groups: { group: string[] }[],
+// A row is one day of the range. It has one value for each group, in the order of the groups. A day with no value for a
+// group has null.
+export function chartRows<D extends { day: string; group: readonly string[] }>(
+  days: readonly D[],
+  groups: readonly { group: readonly string[] }[],
   range: { from: Date; to: Date },
   metric: (item: D) => number | null,
 ) {
-  const rows = new Map<string, Record<string, number | string>>();
+  const rows = new Map<string, { key: string; title: string; values: (number | null)[] }>();
   for (
     let date = range.from;
     date < range.to;
     date = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1)
   ) {
     const key = formatDay(date);
-    rows.set(key, { day: key });
+    rows.set(key, { key, title: dayTitle(key), values: groups.map(() => null) });
   }
   for (const item of days) {
     const value = metric(item);
     const index = groups.findIndex((group) => sameGroup(group.group, item.group));
     const row = rows.get(item.day);
     if (row && value !== null) {
-      row[groupKey(index)] = value;
+      row.values[index] = value;
     }
   }
   return [...rows.values()];
@@ -314,7 +316,7 @@ export const statValue = (stat: TimeStat) => `${stat.kind}:${stat.name}`;
 export const statTitle = (stat: TimeStat) =>
   `${stat.kind === "step" ? "Step" : "State"}: ${stat.name.replaceAll("_", " ")}`;
 
-export const findStat = (stats: TimeStat[], value?: string) =>
+export const findStat = (stats: readonly TimeStat[], value?: string) =>
   stats.find((stat) => statValue(stat) === value) ?? stats[0];
 
 // A duration shows its two largest units, for example "42s", "5m 12s", "3h 05m" and "2d 4h".
