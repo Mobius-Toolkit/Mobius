@@ -111,16 +111,28 @@ type copiedTask struct {
 	bucket     bool
 }
 
+// afterCopiedTasksTree is a hook of the tests. copiedTasks calls it after ListCopiedTree.
+var afterCopiedTasksTree func()
+
 // copiedTasks gives the tasks of the copied tree of the Workstream number of repository, in the order of the tree. It
 // leaves out the same issues as walkTasks: a nested Workstream, and an issue in a repository that the App cannot read.
 // It keeps a bucket, because closeWorkstream closes it.
 func (e *Engine) copiedTasks(ctx context.Context, repository github.Repository, number int64) ([]copiedTask, error) {
 	params := store.ListCopiedTreeParams{Repository: repository.FullName, Workstream: number}
-	rows, err := e.queries.ListCopiedTree(ctx, params)
-	if err != nil {
-		return nil, err
-	}
-	labels, err := e.queries.ListCopiedTreeLabels(ctx, store.ListCopiedTreeLabelsParams(params))
+	var rows []store.ListCopiedTreeRow
+	var labels []store.ListCopiedTreeLabelsRow
+	err := e.readTx(ctx, func(q *store.Queries) error {
+		var err error
+		rows, err = q.ListCopiedTree(ctx, params)
+		if err != nil {
+			return err
+		}
+		if afterCopiedTasksTree != nil {
+			afterCopiedTasksTree()
+		}
+		labels, err = q.ListCopiedTreeLabels(ctx, store.ListCopiedTreeLabelsParams(params))
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}

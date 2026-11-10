@@ -19,6 +19,8 @@ var (
 	HangTimeout             = &hangTimeout
 	AfterHangRead           = &afterHangRead
 	AfterTriagerStop        = &afterTriagerStop
+	AfterCopiedTasksTree    = &afterCopiedTasksTree
+	BeforeRecopyTrees       = &beforeRecopyTrees
 	ErrHung                 = errHung
 	AbsorbTimeout           = &absorbTimeout
 	BackgroundTimeout       = &backgroundTimeout
