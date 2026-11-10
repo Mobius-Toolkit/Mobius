@@ -66,8 +66,11 @@
 // ordered prompt. A when that is a part of the access check prompt, for example "OK", answers it too, so use a longer
 // text. A prompt with a when text that the access check prompt contains and an error makes the check fail.
 //
-// The agent writes the files env, pwd, mcp_url and session_meta only for a session with the Mobius MCP server, so an
-// access check leaves them as they are. session_meta holds the raw _meta of session/new, and is empty with no _meta.
+// The agent writes the files env, pwd, mcp_url, session_meta and mcp_servers only for a session with the Mobius MCP
+// server, so an access check leaves them as they are. session_meta holds the raw _meta of session/new, and is empty with
+// no _meta. mcp_servers holds the raw mcpServers of session/new. The agent also writes them to the file
+// mcp_servers.<key>, where key is the last path segment of the URL of the Mobius MCP server, so that each session keeps
+// its own file.
 //
 // The reply has the texts of reply, then one text "image <MIME type> <base64 data>" for each image block of the
 // prompt, then the text of call or list_tools, then the text of shell.
@@ -86,6 +89,7 @@ import (
 	"maps"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -378,18 +382,22 @@ func (a *agent) authenticate() (any, *acp.RequestError) {
 	return acp.AuthenticateResponse{}, nil
 }
 
-// newSession writes the URL of the Mobius MCP server to the file "mcp_url" and the _meta of the request to the file
-// "session_meta" next to the script.
+// newSession writes the URL of the Mobius MCP server to the file "mcp_url", the _meta of the request to the file
+// "session_meta" and the mcpServers of the request to the file "mcp_servers" next to the script.
 func (a *agent) newSession(ctx context.Context, params json.RawMessage) (any, *acp.RequestError) {
 	var request struct {
-		McpServers []struct {
-			Type string `json:"type"`
-			Name string `json:"name"`
-			URL  string `json:"url"`
-		} `json:"mcpServers"`
-		Meta json.RawMessage `json:"_meta"`
+		McpServers json.RawMessage `json:"mcpServers"`
+		Meta       json.RawMessage `json:"_meta"`
 	}
 	if err := json.Unmarshal(params, &request); err != nil {
+		return nil, acp.NewInvalidParams(err.Error())
+	}
+	var servers []struct {
+		Type string `json:"type"`
+		Name string `json:"name"`
+		URL  string `json:"url"`
+	}
+	if err := json.Unmarshal(request.McpServers, &servers); err != nil {
 		return nil, acp.NewInvalidParams(err.Error())
 	}
 	if a.script.SessionNewHold {
@@ -403,7 +411,7 @@ func (a *agent) newSession(ctx context.Context, params json.RawMessage) (any, *a
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.mcpURL = ""
-	for _, server := range request.McpServers {
+	for _, server := range servers {
 		if server.Type == "http" && server.Name == "mobius" {
 			a.mcpURL = server.URL
 		}
@@ -414,6 +422,11 @@ func (a *agent) newSession(ctx context.Context, params json.RawMessage) (any, *a
 		}
 		if err := os.WriteFile(filepath.Join(filepath.Dir(a.path), "session_meta"), request.Meta, 0o600); err != nil {
 			return nil, acp.NewInternalError(err.Error())
+		}
+		for _, name := range []string{"mcp_servers", "mcp_servers." + path.Base(a.mcpURL)} {
+			if err := os.WriteFile(filepath.Join(filepath.Dir(a.path), name), request.McpServers, 0o600); err != nil {
+				return nil, acp.NewInternalError(err.Error())
+			}
 		}
 		if a.record != nil {
 			if err := a.record(); err != nil {

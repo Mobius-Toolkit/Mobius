@@ -926,6 +926,53 @@ func TestAnApprovedMessageOfTheTriagerThatFailsAtTheCloseOfTheIssueSendsTheLeadO
 	}
 }
 
+// Serial: the test sets the hook afterTriagerStop.
+func TestAPollThatReadsTheHeldTurnWhileAnApprovalRestartsTheTriagerStartsNoSecondRun(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	lingers := "[[prompts]]\nwhen = \"Send it to the Lead.\"\ncall = { tool = \"message_lead\", arguments = { workstream = 12, text = \"Add refunds to the loyalty plans.\" } }\nlinger = \"1m\"\n\n"
+	server, _ := connect(t, fake, lingers+triager)
+	fake.SetBody(shop, 12, "Ship loyalty plans to all shops.")
+	waitForPoll(t, server, fake)
+	fake.CreateIssue(shop, 72, "Add refunds", "Refund each order.", "owner")
+	proposal := triagerComment(72, "Proposal: a message to the Lead of #12.")
+	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 72), proposal) })
+	fake.AddComment(shop, 72, "owner", "Send it to the Lead.")
+	action := waitForActions(t, server, 1)[0]
+	fake.FailClose(shop, 72)
+	reached := make(chan struct{})
+	release := make(chan struct{})
+	*engine.AfterTriagerStop = func() {
+		close(reached)
+		<-release
+	}
+	t.Cleanup(func() { *engine.AfterTriagerStop = nil })
+	approved := make(chan error, 1)
+	go func() {
+		_, err := server.Engine.ApproveAction(context.WithoutCancel(t.Context()), action.ID, "")
+		approved <- err
+	}()
+	select {
+	case <-reached:
+	case <-time.After(time.Minute):
+		t.Fatal("the approval did not stop the Triager after one minute")
+	}
+
+	waitForPolls(t, fake)
+	close(release)
+
+	if err := <-approved; err != nil {
+		t.Fatal(err)
+	}
+	testkit.WaitFor(t, func() bool {
+		sessions := chatSessions(t, server, issueTriagers, engine.TriagerRole)
+		return len(sessions) >= 3 && sessions[len(sessions)-1].EndedAt.Valid
+	})
+	waitForPolls(t, fake)
+	if sessions := chatSessions(t, server, issueTriagers, engine.TriagerRole); len(sessions) != 3 {
+		t.Errorf("sessions = %d", len(sessions))
+	}
+}
+
 func TestTheReportOfAResearcherOfTheTriagerIsACommentThatStartsTheNextTurn(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

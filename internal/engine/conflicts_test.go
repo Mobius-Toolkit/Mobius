@@ -388,46 +388,86 @@ func TestAConflictRoundThatDoesNotMergeTheBaseBranchStopsTheTask(t *testing.T) {
 	}
 }
 
-func TestAPullRequestBehindItsBaseStartsOneConflictRoundThatMergesTheBaseBranch(t *testing.T) {
+// conflictRounds gives the number of Implementer prompts that ask to merge the base branch.
+func conflictRounds(t *testing.T, server *testserver.Server) int {
+	t.Helper()
+	count := 0
+	for _, session := range roleSessions(t, server, engine.ImplementerRole) {
+		for _, prompt := range promptTexts(t, server, session.ID) {
+			if strings.Contains(prompt, "# Base branch") {
+				count++
+			}
+		}
+	}
+	return count
+}
+
+func TestAPullRequestThatIsOnlyBehindItsBaseGetsNoConflictRoundAndNoUpdate(t *testing.T) {
 	t.Parallel()
-	fake := testkit.NewFakeGitHub(t)
-	server, first := startReady(t, fake, "", commits+"\n"+conflictWhen+"shell = \"git merge -q --no-edit origin/main\"\n")
-	fake.SetBehind(shop, 42)
-
-	fake.CommitFile(shop, "price.txt", "dollars\n", "Add price")
-
-	waitForReadyEvents(t, fake, server, 2)
-	merged := head(t, fake, "mobius/41")
-	isAncestor(t, fake, first, merged)
-	isAncestor(t, fake, "main", merged)
-	if price := testkit.Git(t, fake.Remote(shop), "show", "mobius/41:price.txt"); price != "dollars" {
-		t.Errorf("price.txt = %s", price)
+	starts := map[string]func(t *testing.T, fake *testkit.FakeGitHub) *testserver.Server{
+		"checks": func(t *testing.T, fake *testkit.FakeGitHub) *testserver.Server {
+			server, _ := connectTask(t, fake, leadStarts, commits, longGrace)
+			checksHead(t, server, fake)
+			return server
+		},
+		"approval": func(t *testing.T, fake *testkit.FakeGitHub) *testserver.Server {
+			server, _ := connectTask(t, fake, leadStarts, commits, noChange)
+			approvalHead(t, server, fake)
+			return server
+		},
+		"ready_for_review": func(t *testing.T, fake *testkit.FakeGitHub) *testserver.Server {
+			server := approvable(t, fake, "off", true)
+			sendChat(t, server, leadChat, "Approve #41")
+			testkit.WaitFor(t, func() bool { return taskState(t, server) == "ready_for_review" && !fake.PullRequests(shop)[0].Draft })
+			return server
+		},
 	}
-	waitForPolls(t, fake)
-	if count := implementers(t, server); count != 2 {
-		t.Errorf("Implementers = %d", count)
-	}
-	if task := liveTask(t, server, 41); task.FixRounds != 0 {
-		t.Errorf("fix rounds = %d", task.FixRounds)
+	for state, start := range starts {
+		t.Run(state, func(t *testing.T) {
+			t.Parallel()
+			fake := testkit.NewFakeGitHub(t)
+			server := start(t, fake)
+			draft := fake.PullRequests(shop)[0].Draft
+			fake.SetBehind(shop, 42)
+
+			fake.CommitFile(shop, "price.txt", "dollars\n", "Add price")
+
+			waitForPolls(t, fake)
+			waitForPolls(t, fake)
+			if got := taskState(t, server); got != state {
+				t.Errorf("state = %s", got)
+			}
+			if got := fake.PullRequests(shop)[0].Draft; got != draft {
+				t.Errorf("draft = %v", got)
+			}
+			if count := implementers(t, server); count != 1 {
+				t.Errorf("Implementers = %d", count)
+			}
+			if calls := fake.UpdateBranchCalls(); calls != 0 {
+				t.Errorf("update calls = %d", calls)
+			}
+		})
 	}
 }
 
-func TestAStalePullRequestBehindItsBaseGoesToAHumanWithTheBehindReason(t *testing.T) {
+func TestAResumeOfATaskInNeedsHumanWithAPullRequestThatIsOnlyBehindItsBaseStartsNoConflictRound(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := startReady(t, fake, "", commits)
-	fake.SetCreatedAt(shop, 42, 0)
+	fake.AddUserCode(testkit.AppID, "user-code", "owner")
+	server, _ := stoppedOnFailedCI(t, fake, noChange)
+	authorize(t, server)
 	fake.SetBehind(shop, 42)
-
 	fake.CommitFile(shop, "price.txt", "dollars\n", "Add price")
+	waitForPolls(t, fake)
 
-	waitForItem(t, server, "stopped")
-	wantStopNotice(t, server, fake, "PR #42 is behind its base branch", "Pull request #42 of #41 \"Add plan model\" is behind its base branch and is older than 7 days.",
-		"Close the pull request, or Resume for a conflict round.")
-	if state := taskState(t, server); state != "needs_human" {
-		t.Errorf("state = %s", state)
+	resume(t, server)
+
+	testkit.WaitFor(t, func() bool { return len(roleSessions(t, server, engine.ImplementerRole)) == 3 })
+	waitForPolls(t, fake)
+	if count := conflictRounds(t, server); count != 0 {
+		t.Errorf("conflict rounds = %d", count)
 	}
-	if count := implementers(t, server); count != 1 {
-		t.Errorf("Implementers = %d", count)
+	if calls := fake.UpdateBranchCalls(); calls != 0 {
+		t.Errorf("update calls = %d", calls)
 	}
 }
