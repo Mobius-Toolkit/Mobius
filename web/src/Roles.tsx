@@ -1,313 +1,50 @@
-import { ChevronRightIcon } from "lucide-react";
-import { Fragment, use, useEffect, useState } from "react";
-import {
-  listHarnesses,
-  listRoles,
-  resetRole,
-  setRole,
-  type HarnessChoices,
-  type Role,
-  type resetRoleResponse,
-  type setRoleResponse,
-} from "@/api/api.gen";
-import { ErrorBadge, List, PageHeader, rowClass } from "@/components/page";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
-import { Spinner } from "@/components/ui/spinner";
-import { keepEffort } from "@/lib/harness";
+import { Effect } from "effect";
+import * as Runtime from "foldkit/runtime";
+import { use, useEffect, useRef } from "react";
+import { useGoBack } from "@/lib/goBack";
 import { LoginContext } from "@/lib/login";
-import { cn } from "@/lib/utils";
-import { Choice, Field, UiBadge } from "./Choice";
+import type { RolesPorts } from "./settings/roles/ports";
+import { createRolesProgram } from "./settings/roles/program";
 import { TopBar } from "./TopBar";
-
-const roleName = (role: Role) => role.role.charAt(0).toUpperCase() + role.role.slice(1);
-
-const roleDescription: Record<string, string> = {
-  lead: "Plans the tasks of one Workstream, talks with you in its chat, and approves the pull requests.",
-  coordinator: "Talks with you in the Coordinator chat and puts your requests into Workstreams.",
-  triager:
-    "Discusses each issue with no Workstream with you, and proposes a Workstream or a message to a Lead.",
-  implementer:
-    "Writes the code of a task, and does the fix rounds, CI fix rounds and conflict rounds of its pull request.",
-  researcher: "Answers a question about the code of a repository, and changes nothing.",
-  reviewer: "Reviews each new head of a pull request and gives its findings.",
-  judge: "Sorts the new comments on a pull request into fixes, questions, follow-ups and rejects.",
-  curator:
-    "Keeps the memory file of each repository up to date from the notes of the Leads and the sessions.",
-  diagnoser: "Reads the job logs of a failed CI run and finds the cause.",
-};
-
-const hasContextLimit = (harness: string) => harness === "claude-code";
-
-const formatContext = (tokens: number) =>
-  tokens >= 1000 && tokens % 1000 === 0 ? `${tokens / 1000}k` : String(tokens);
-
-function RoleRow({ role, onOpen }: { role: Role; onOpen: () => void }) {
-  const values = [
-    { text: role.harness, ui: role.ui.harness },
-    { text: role.model, ui: role.ui.model },
-    ...(role.effort ? [{ text: role.effort, ui: role.ui.effort }] : []),
-    ...(role.context > 0 ? [{ text: formatContext(role.context), ui: role.ui.context }] : []),
-    { text: `max ${role.max}`, ui: role.ui.max },
-  ];
-  return (
-    <li>
-      <button
-        type="button"
-        className={cn(rowClass, "w-full text-left hover:bg-muted")}
-        onClick={onOpen}
-      >
-        <span className="grid min-w-0 grow gap-0.5">
-          <span>{roleName(role)}</span>
-          <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm text-muted-foreground">
-            {values.map((value, index) => (
-              <Fragment key={value.text}>
-                {index > 0 && <span aria-hidden>·</span>}
-                <span className="break-all">{value.text}</span>
-                {value.ui && <UiBadge />}
-              </Fragment>
-            ))}
-          </span>
-        </span>
-        <ChevronRightIcon className="size-4 shrink-0" />
-      </button>
-    </li>
-  );
-}
-
-function RoleSheet({
-  role,
-  harnesses,
-  onChange,
-  onClose,
-}: {
-  role: Role;
-  harnesses: HarnessChoices[] | undefined;
-  onChange: (role: Role) => void;
-  onClose: () => void;
-}) {
-  const showLogin = use(LoginContext);
-  const [harness, setHarness] = useState(role.harness);
-  const [model, setModel] = useState(role.model);
-  const [effort, setEffort] = useState(role.effort);
-  const [context, setContext] = useState(role.context > 0 ? String(role.context) : "");
-  const [max, setMax] = useState(String(role.max));
-  const [error, setError] = useState("");
-  const [saving, setSaving] = useState(false);
-
-  const choices = harnesses?.find((other) => other.harness === harness);
-  const models = choices?.models ?? [];
-  const chosen = models.find((other) => other.model === model);
-  const efforts = chosen ? chosen.efforts : effort ? [effort] : [];
-  const supportsContext = hasContextLimit(harness);
-  const changed = Object.values(role.ui).some(Boolean);
-
-  const pickHarness = (value: string) => {
-    if (value === harness) return;
-    const first = harnesses?.find((other) => other.harness === value)?.models[0];
-    setHarness(value);
-    setModel(first?.model ?? "");
-    setEffort(keepEffort(effort, first?.efforts ?? []));
-    if (!hasContextLimit(value)) setContext("");
-  };
-
-  const pickModel = (value: string) => {
-    setModel(value);
-    setEffort(keepEffort(effort, models.find((other) => other.model === value)?.efforts ?? []));
-  };
-
-  const submit = async (send: () => Promise<setRoleResponse | resetRoleResponse>) => {
-    setSaving(true);
-    setError("");
-    try {
-      const res = await send();
-      if (res.status === 200) {
-        onChange(res.data.data);
-        return;
-      }
-      if (res.status === 401) {
-        showLogin();
-      } else {
-        setError(res.data.error);
-      }
-    } catch (err) {
-      setError(String(err));
-    }
-    setSaving(false);
-  };
-
-  const name = role.role as Parameters<typeof setRole>[0];
-
-  return (
-    <Sheet open onOpenChange={(open) => !open && onClose()}>
-      <SheetContent side="bottom" className="gap-3 p-4 pt-3 md:mx-auto md:max-w-md md:rounded-t-xl">
-        <SheetTitle>{roleName(role)}</SheetTitle>
-        <SheetDescription>{roleDescription[role.role]}</SheetDescription>
-        <Field label="Harness" htmlFor="role-harness" ui={role.ui.harness}>
-          <Choice
-            id="role-harness"
-            value={harness}
-            values={harnesses?.map((other) => other.harness) ?? []}
-            loading={!harnesses}
-            onSelect={pickHarness}
-          />
-        </Field>
-        <Field label="Model" htmlFor="role-model" ui={role.ui.model}>
-          <Choice
-            id="role-model"
-            value={model}
-            values={models.map((other) => other.model)}
-            loading={!harnesses}
-            onSelect={pickModel}
-          />
-        </Field>
-        {efforts.length > 0 && (
-          <Field label="Effort" htmlFor="role-effort" ui={role.ui.effort}>
-            <Choice
-              id="role-effort"
-              value={effort}
-              values={efforts}
-              loading={!harnesses}
-              onSelect={setEffort}
-            />
-          </Field>
-        )}
-        <Field label="Max" htmlFor="role-max" ui={role.ui.max}>
-          <Input
-            id="role-max"
-            type="number"
-            min={1}
-            value={max}
-            onChange={(event) => setMax(event.target.value)}
-          />
-        </Field>
-        <Field label="Context" htmlFor="role-context" ui={role.ui.context}>
-          <Input
-            id="role-context"
-            type="number"
-            min={100000}
-            max={1000000}
-            step={1000}
-            placeholder="No limit"
-            value={context}
-            disabled={!supportsContext}
-            onChange={(event) => setContext(event.target.value)}
-            className="min-w-0 grow"
-          />
-          <span className="shrink-0 text-sm text-muted-foreground">tokens</span>
-        </Field>
-        {!supportsContext && (
-          <p className="text-sm text-muted-foreground">This Harness has no context limit.</p>
-        )}
-        {choices?.error && (
-          <Badge variant="destructive" className="h-auto whitespace-normal">
-            {choices.error}
-          </Badge>
-        )}
-        {error && (
-          <Badge variant="destructive" className="h-auto whitespace-normal">
-            {error}
-          </Badge>
-        )}
-        <div className="flex items-center justify-between gap-2">
-          {changed ? (
-            <Button
-              variant="outline"
-              disabled={saving}
-              onClick={() => void submit(() => resetRole(name))}
-            >
-              Reset
-            </Button>
-          ) : (
-            <span />
-          )}
-          <Button
-            disabled={!harnesses || saving}
-            onClick={() =>
-              void submit(() =>
-                setRole(name, {
-                  harness,
-                  model,
-                  effort: efforts.length > 0 ? effort : "",
-                  context: supportsContext ? Number(context) : 0,
-                  max: Number(max),
-                }),
-              )
-            }
-          >
-            {saving && <Spinner />}
-            Save
-          </Button>
-        </div>
-      </SheetContent>
-    </Sheet>
-  );
-}
 
 export function Roles() {
   const showLogin = use(LoginContext);
-  const [roles, setRoles] = useState<Role[]>();
-  const [harnesses, setHarnesses] = useState<HarnessChoices[]>();
-  const [error, setError] = useState("");
-  const [selected, setSelected] = useState("");
+  const goBack = useGoBack("/settings");
+  const containerRef = useRef<HTMLDivElement>(null);
 
+  // A change of a Flag disposes the program and embeds it again.
   useEffect(() => {
-    listRoles()
-      .then((res) => {
-        if (res.status === 401) {
-          showLogin();
-        } else if (res.status === 200) {
-          setRoles(res.data.data);
-        } else {
-          setError(res.data.error);
-        }
-      })
-      .catch((err: unknown) => setError(String(err)));
-    listHarnesses()
-      .then((res) => {
-        if (res.status === 401) {
-          showLogin();
-        } else if (res.status === 200) {
-          setHarnesses(res.data.data);
-        } else {
-          setHarnesses([]);
-          setError(res.data.error);
-        }
-      })
-      .catch((err: unknown) => {
-        setHarnesses([]);
-        setError(String(err));
-      });
-  }, [showLogin]);
+    const container = containerRef.current;
+    if (!container) {
+      return;
+    }
 
-  const role = roles?.find((other) => other.role === selected);
+    const flags = {};
+    const handle: Runtime.EmbedHandle<RolesPorts> = Runtime.embed(
+      createRolesProgram(container, flags),
+      { flags: Effect.succeed(flags) },
+    );
 
+    const unsubLogin = handle.ports.loginRequested.subscribe(() => {
+      showLogin();
+    });
+    const unsubBack = handle.ports.backRequested.subscribe(goBack);
+
+    return () => {
+      unsubLogin();
+      unsubBack();
+      handle.dispose();
+    };
+  }, [showLogin, goBack]);
+
+  // Foldkit replaces the container element with its own root. Thus the wrapper keeps the container as its only child,
+  // and React never moves the container.
   return (
     <>
       <TopBar title="Roles" back="/settings" />
-      <PageHeader title="Roles" back="/settings" />
-      {error && <ErrorBadge>{error}</ErrorBadge>}
-      <List>
-        {roles?.map((other) => (
-          <RoleRow key={other.role} role={other} onOpen={() => setSelected(other.role)} />
-        ))}
-      </List>
-      {role && (
-        <RoleSheet
-          key={role.role}
-          role={role}
-          harnesses={harnesses}
-          onChange={(updated) => {
-            setRoles((current) =>
-              current?.map((other) => (other.role === updated.role ? updated : other)),
-            );
-            setSelected((current) => (current === updated.role ? "" : current));
-          }}
-          onClose={() => setSelected("")}
-        />
-      )}
+      <div id="roles-app-wrapper">
+        <div id="roles-app" ref={containerRef} />
+      </div>
     </>
   );
 }
