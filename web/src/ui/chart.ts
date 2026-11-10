@@ -14,6 +14,8 @@ const xAxisHeight = 30;
 const tickCount = 5;
 const barGap = 0.1;
 const linePadding = 12;
+// The label of the top tick moves down by half of its height, so that it stays inside the chart.
+const topLabelShift = 4;
 
 // The Mount of the box of a chart. resized gives the size of the box, hovered gives the position of the pointer in the
 // box, and left gives no value when a mouse leaves the box. A touch keeps its last position.
@@ -140,7 +142,7 @@ function renderGrid<M>({ h, plot, ticks, axisFormat, y }: Layout<M>): Html {
               h.Class("fill-muted-foreground"),
               h.Attribute("text-anchor", "end"),
               attribute(h, "x", plot.left - 8),
-              attribute(h, "y", y(tick)),
+              attribute(h, "y", y(tick) + (tick === ticks[ticks.length - 1] ? topLabelShift : 0)),
             ],
             [
               h.tspan(
