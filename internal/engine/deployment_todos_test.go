@@ -491,6 +491,7 @@ func TestTheOwnerDismissesAnItemOfAnotherKindWithTheRecordOfTheTitle(t *testing.
 	server := approvableWith(t, fake, "off", true, optionalNeed)
 	sendChat(t, server, leadChat, "Approve #41")
 	ready := waitForItem(t, server, "ready for review")
+	waitForItem(t, server, "todo")
 
 	if status, body := dismissItem(t, server, ready.ID); status != http.StatusNoContent {
 		t.Fatalf("status = %d: %s", status, body)
