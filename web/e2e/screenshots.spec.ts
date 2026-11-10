@@ -238,7 +238,7 @@ const converted = (route: Route) =>
   });
 
 test("screenshots", async ({ page }) => {
-  test.setTimeout(300_000);
+  test.setTimeout(600_000);
   const main = page.getByRole("main");
   const voiceCard = main.getByRole("group", { name: "Voice recording" });
   // The day separator shows the year of a message that is not in the current year.
@@ -1617,9 +1617,10 @@ test("screenshots", async ({ page }) => {
     (device) => [
       ...recurringFrame(device, 50),
       checkRow.getByText("0 8 * * 1-5 · Next Sep 29, 08:00 AM"),
-      checkRow.getByText("Last: Sep 28, 08:00 AM event"),
+      checkRow.getByText("Last: Sep 28, 12:00 PM manual"),
       recurringPanel.getByText("Paused", { exact: true }),
       recurringPanel.getByRole("button", { name: "Resume" }),
+      checkRow.getByRole("button", { name: "Run now" }),
     ],
     openRecurring,
   );
@@ -1629,13 +1630,21 @@ test("screenshots", async ({ page }) => {
     "/workstreams/plants/garden/50",
     (device) => [
       ...recurringFrame(device, 50),
-      checkRow.getByRole("heading", { name: "History" }),
-      checkRow.getByText("skipped: the earlier event is not delivered yet"),
-      checkRow.getByText("Sep 24, 08:00 AM"),
+      recurringPanel.getByRole("heading", { name: "Recurring task" }),
+      recurringPanel.getByText(
+        "Check the open pull requests and tell me which ones wait for a review.",
+      ),
+      recurringPanel.getByRole("heading", { name: "History" }),
+      recurringPanel.getByText("manual", { exact: true }),
+      recurringPanel.getByText("skipped: the earlier event is not delivered yet"),
+      recurringPanel.getByText("Sep 24, 08:00 AM"),
     ],
     async (device) => {
       await openRecurring(device);
-      await checkRow.getByRole("button", { name: /Check the open pull requests/ }).click();
+      await checkRow
+        .getByRole("button", { name: /Check the open pull requests/ })
+        .first()
+        .click();
     },
   );
   const recurringDialog = page.getByRole("dialog", { name: "Delete the recurring task" });

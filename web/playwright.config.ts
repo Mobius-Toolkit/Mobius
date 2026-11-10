@@ -20,8 +20,9 @@ export default defineConfig({
     { name: "screenshots", testMatch: "screenshots.spec.ts" },
     // The pending tests need the Apps of the screenshots test. They use the data that the chat tests change.
     { name: "pending", testMatch: "pending.spec.ts", dependencies: ["screenshots"] },
-    // The chat tests need the Apps of the screenshots test, and they change the data of the screenshots.
-    { name: "chat", testMatch: "chat.spec.ts", dependencies: ["pending"] },
+    // The chat tests need the Apps of the screenshots test, and they change the data of the screenshots. They close
+    // plants/garden#30, so they come after the recurring tests that add tasks to it.
+    { name: "chat", testMatch: "chat.spec.ts", dependencies: ["pending", "recurring"] },
     // The navigation tests open the chats of the chat tests, and the page marks the messages of an open chat as seen.
     {
       name: "navigation",
@@ -51,8 +52,8 @@ export default defineConfig({
     { name: "inbox", testMatch: "inbox.spec.ts", dependencies: ["agents"] },
     // The notice tests give their own data with page.route, and they need the Apps of the screenshots test.
     { name: "notice", testMatch: "notice.spec.ts", dependencies: ["agents"] },
-    // The recurring tests pause and resume a task of plants/garden#50 and delete a task that they add to plants/garden#55.
-    // They need the recurring tasks and the Apps of the screenshots test.
+    // The recurring tests pause and resume a task of plants/garden#50, delete a task that they add to plants/garden#55, and
+    // run the tasks that they add to plants/garden#30. They need the recurring tasks and the Apps of the screenshots test.
     { name: "recurring", testMatch: "recurring.spec.ts", dependencies: ["screenshots"] },
     // The Tasks tests give their own data with page.route, and they need the Apps of the screenshots test.
     { name: "tasks", testMatch: "tasks.spec.ts", dependencies: ["agents"] },
