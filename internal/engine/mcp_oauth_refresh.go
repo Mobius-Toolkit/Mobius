@@ -50,7 +50,7 @@ func (e *Engine) withMcpTokens(ctx context.Context, servers []McpServer) error {
 		if server.Kind != mcpHTTP {
 			continue
 		}
-		token, err := e.mcpAccessToken(ctx, server)
+		token, err := e.mcpAccessToken(ctx, server.ID, server.Name)
 		if err != nil {
 			return err
 		}
@@ -65,11 +65,11 @@ func (e *Engine) withMcpTokens(ctx context.Context, servers []McpServer) error {
 // token, unless an earlier start refreshed it in mcpTokenReuse. A refresh token that the token endpoint refuses, and a
 // token that expired with no refresh token, set the failure of the server. A failure of the endpoint, or of the
 // network, sets no failure.
-func (e *Engine) mcpAccessToken(ctx context.Context, server McpServer) (string, error) {
-	refresh := e.mcpRefreshOf(server.ID)
+func (e *Engine) mcpAccessToken(ctx context.Context, id int64, name string) (string, error) {
+	refresh := e.mcpRefreshOf(id)
 	refresh.mu.Lock()
 	defer refresh.mu.Unlock()
-	row, err := e.queries.GetMcpServerOAuth(ctx, server.ID)
+	row, err := e.queries.GetMcpServerOAuth(ctx, id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
@@ -77,7 +77,7 @@ func (e *Engine) mcpAccessToken(ctx context.Context, server McpServer) (string, 
 		return "", err
 	}
 	if row.Failure != "" {
-		return "", mcpNeedsConnect(server.Name, row.Failure)
+		return "", mcpNeedsConnect(name, row.Failure)
 	}
 	if row.AccessToken == "" {
 		return "", nil
@@ -94,14 +94,14 @@ func (e *Engine) mcpAccessToken(ctx context.Context, server McpServer) (string, 
 	case valid && (row.RefreshToken == "" || e.timeNow().Sub(refresh.at) < mcpTokenReuse):
 		return row.AccessToken, nil
 	case row.RefreshToken == "":
-		return "", e.failMcpToken(ctx, server, row, mcpExpiredReason)
+		return "", e.failMcpToken(ctx, name, row, mcpExpiredReason)
 	}
 	answer, err := refreshMcpToken(ctx, row)
 	if errors.Is(err, errMcpRefused) {
-		return "", e.failMcpToken(ctx, server, row, mcpRefusedReason)
+		return "", e.failMcpToken(ctx, name, row, mcpRefusedReason)
 	}
 	if err != nil {
-		return "", fmt.Errorf("the MCP server %s gave no access token: %w", server.Name, err)
+		return "", fmt.Errorf("the MCP server %s gave no access token: %w", name, err)
 	}
 	now := e.timeNow()
 	expires := sql.NullString{}
@@ -110,7 +110,7 @@ func (e *Engine) mcpAccessToken(ctx context.Context, server McpServer) (string, 
 	}
 	err = e.queries.StoreMcpServerOAuthRefresh(ctx, store.StoreMcpServerOAuthRefreshParams{
 		AccessToken: answer.AccessToken, RefreshToken: cmp.Or(answer.RefreshToken, row.RefreshToken), ExpiresAt: expires,
-		UpdatedAt: now.UTC().Format(time.RFC3339Nano), Server: server.ID,
+		UpdatedAt: now.UTC().Format(time.RFC3339Nano), Server: id,
 	})
 	if err != nil {
 		return "", err
@@ -120,15 +120,15 @@ func (e *Engine) mcpAccessToken(ctx context.Context, server McpServer) (string, 
 }
 
 // failMcpToken sets the failure of the server for the token of row, and gives the error of the start.
-func (e *Engine) failMcpToken(ctx context.Context, server McpServer, row store.McpServerOauth, reason string) error {
+func (e *Engine) failMcpToken(ctx context.Context, name string, row store.McpServerOauth, reason string) error {
 	err := e.queries.FailMcpServerOAuthToken(ctx, store.FailMcpServerOAuthTokenParams{
-		Failure: reason, UpdatedAt: e.timeNow().UTC().Format(time.RFC3339Nano), Server: server.ID, AccessToken: row.AccessToken,
+		Failure: reason, UpdatedAt: e.timeNow().UTC().Format(time.RFC3339Nano), Server: row.Server, AccessToken: row.AccessToken,
 	})
 	if err != nil {
 		return err
 	}
 	e.publish(Change{Workstreams: true})
-	return mcpNeedsConnect(server.Name, reason)
+	return mcpNeedsConnect(name, reason)
 }
 
 func mcpNeedsConnect(name, reason string) error {
