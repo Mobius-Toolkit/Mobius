@@ -155,7 +155,7 @@ func TestAPassedCIOnTheHeadOfAStopOnFailedCIMovesTheTaskToApprovalWithNoNeedsHum
 	}
 }
 
-func TestAPassedCIOnTheHeadOfAStopOnFailedCIDismissesTheStoppedItemBeforeTheNextIssueRead(t *testing.T) {
+func TestAPassedCIOnTheHeadOfAStopOnFailedCIDismissesTheStoppedItemBeforeTheNextPoll(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, id := stoppedOnFailedCI(t, fake, noChange)
@@ -181,9 +181,9 @@ func TestAPassedCIOnTheHeadOfAStopOnFailedCIDismissesTheStoppedItemBeforeTheNext
 		if request.Method == "DELETE" && request.Path == "/repos/owner/shop/issues/41/labels/mobius:needs-human" {
 			removed = true
 		}
-		if removed && request.Method == "GET" && request.Path == "/repos/owner/shop/issues/41" {
+		if removed && request.Method == "GET" && request.Path == "/installation/repositories" {
 			if request.Time.Before(dismissed) {
-				t.Errorf("the issue was read at %s, the item was dismissed at %s", request.Time.UTC().Format(time.RFC3339Nano), dismissedAt)
+				t.Errorf("the next poll started at %s, the item was dismissed at %s", request.Time.UTC().Format(time.RFC3339Nano), dismissedAt)
 			}
 			break
 		}
