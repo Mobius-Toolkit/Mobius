@@ -137,6 +137,31 @@ export const rangeOf = (model: Model): Range => {
   return { from: range.from.getTime(), to: range.to.getTime() };
 };
 
+const sameArray = (a?: readonly string[], b?: readonly string[]) => {
+  const aEmpty = !a || a.length === 0;
+  const bEmpty = !b || b.length === 0;
+  if (aEmpty && bEmpty) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  return a.every((val, i) => val === b[i]);
+};
+
+// sameSearch compares two search values.
+export const sameSearch = (a: Search, b: Search): boolean =>
+  a.tab === b.tab &&
+  a.period === b.period &&
+  a.from === b.from &&
+  a.to === b.to &&
+  a.stat === b.stat &&
+  a.value === b.value &&
+  sameArray(a.group, b.group) &&
+  sameArray(a.harness, b.harness) &&
+  sameArray(a.model, b.model) &&
+  sameArray(a.modelVersion, b.modelVersion) &&
+  sameArray(a.effort, b.effort) &&
+  sameArray(a.role, b.role) &&
+  sameArray(a.repository, b.repository) &&
+  sameArray(a.source, b.source);
+
 type FilterOptions = { readonly [key in FilterOptionName]?: ReadonlyArray<string> };
 
 export type FilterOptionName =

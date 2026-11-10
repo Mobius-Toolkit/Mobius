@@ -245,3 +245,33 @@ describe("the hover of a chart", () => {
     );
   });
 });
+
+describe("the search from the route", () => {
+  it("keeps the model when the route search matches the current search", () => {
+    const current = start({ tab: "tokens" });
+    const result = update(current, Message.ReceivedSearch({ search: { tab: "tokens" } }));
+    expect(result.model).toBe(current);
+    expect(result.commands).toBeUndefined();
+  });
+
+  it("loads the new data when the route search differs", () => {
+    story(
+      update,
+      given(start({ tab: "tokens" })),
+      message(Message.ReceivedSearch({ search: {} })),
+      model((m) => {
+        expect(m.search).toEqual({});
+        expect(m.request).toBe(1);
+      }),
+      StoryCommand.expectExact(
+        FetchUsage({
+          request: 1,
+          search: {},
+          range: rangeOf(start()),
+          timeZone: "UTC",
+        }),
+      ),
+      StoryCommand.resolve(FetchUsage, Message.LoadFailed({ request: 1, error: "nope" })),
+    );
+  });
+});

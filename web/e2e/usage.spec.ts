@@ -241,3 +241,21 @@ test("the Quality tab filters by the task fields and not by Role", async ({ page
   await expect(main.getByRole("button", { name: /^Model version/ })).toHaveCount(0);
   await expect(main.getByRole("button", { name: "Group by: None" })).toBeVisible();
 });
+
+test("the side link resets the search to the default Cost tab", async ({ page }) => {
+  const main = page.getByRole("main");
+  await page.goto("/usage?tab=tokens&group=%5B%22model%22%5D");
+  await expect(main.getByRole("tab", { name: "Tokens", selected: true })).toBeVisible();
+  await expect(main.getByRole("button", { name: "Group by: Model" })).toBeVisible();
+
+  await page.getByRole("link", { name: "Usage" }).click();
+
+  await expect(page).toHaveURL("/usage");
+  await expect(main.getByRole("tab", { name: "Cost", selected: true })).toBeVisible();
+  await expect(main.getByRole("button", { name: "Group by: None" })).toBeVisible();
+
+  await page.goBack();
+  await expect(page).toHaveURL(/tab=tokens/);
+  await expect(main.getByRole("tab", { name: "Tokens", selected: true })).toBeVisible();
+  await expect(main.getByRole("button", { name: "Group by: Model" })).toBeVisible();
+});

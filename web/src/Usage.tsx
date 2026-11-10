@@ -13,6 +13,7 @@ export function Usage({ search }: { search: UsageSearch }) {
   const showLogin = use(LoginContext);
   const navigate = useNavigate({ from: "/usage" });
   const containerRef = useRef<HTMLDivElement>(null);
+  const handleRef = useRef<Runtime.EmbedHandle<UsagePorts>>(null);
   const [flags] = useState(() => ({
     search,
     now: Date.now(),
@@ -29,6 +30,7 @@ export function Usage({ search }: { search: UsageSearch }) {
       createUsageProgram(container, flags),
       { flags: Effect.succeed(flags) },
     );
+    handleRef.current = handle;
 
     const unsubLogin = handle.ports.loginRequested.subscribe(() => {
       showLogin();
@@ -41,8 +43,13 @@ export function Usage({ search }: { search: UsageSearch }) {
       unsubLogin();
       unsubSearch();
       handle.dispose();
+      handleRef.current = null;
     };
   }, [flags, showLogin, navigate]);
+
+  useEffect(() => {
+    handleRef.current?.ports.search.send(search);
+  }, [search]);
 
   // Foldkit replaces the container element with its own root. Thus the wrapper keeps the container as its only child,
   // and React never moves the container.

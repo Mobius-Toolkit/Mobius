@@ -10,7 +10,7 @@ import {
   RequestLogin,
 } from "./commands";
 import { Message } from "./message";
-import { groupOf, groupsOf, rangeOf, tabOf, type Model, type Search } from "./model";
+import { groupOf, groupsOf, rangeOf, sameSearch, tabOf, type Model, type Search } from "./model";
 
 export function load(model: Model) {
   const args = {
@@ -84,6 +84,20 @@ export function update(model: Model, message: Message): UpdateReturn<Model, Mess
       answered(model, request, (current) => ({ ...current, error })),
     LoadLoginRequired: ({ request }) =>
       request === model.request ? { model, commands: [RequestLogin()] } : { model },
+    ReceivedSearch: ({ search: nextSearch }) => {
+      if (sameSearch(model.search, nextSearch)) {
+        return { model };
+      }
+      const next: Model = {
+        ...model,
+        search: nextSearch,
+        request: model.request + 1,
+        openMenu: Option.none(),
+        groupSheetOpen: false,
+        hover: Option.none(),
+      };
+      return { model: next, commands: [load(next)] };
+    },
     SelectedTab: ({ tab }) =>
       changed(model, { ...search, tab: tab === "cost" ? undefined : tab }, true),
     SelectedPeriod: ({ period }) =>

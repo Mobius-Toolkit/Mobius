@@ -1,4 +1,5 @@
 import { Effect, Option, Schema, Stream } from "effect";
+import * as Port from "foldkit/port";
 import * as Runtime from "foldkit/runtime";
 import * as Subscription from "foldkit/subscription";
 import { escapeKey } from "@/ui/escape";
@@ -9,6 +10,9 @@ import { load, update } from "./update";
 import { view } from "./view";
 
 const subscriptions = Subscription.make<Model, Message>()((entry) => ({
+  searchPort: Port.subscriptionEntry(ports.inbound.search, (search) =>
+    Message.ReceivedSearch({ search }),
+  ),
   escape: entry(
     { open: Schema.Boolean },
     {
