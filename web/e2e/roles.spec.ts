@@ -159,6 +159,15 @@ test("the sheet of the Implementer shows its sentence as the accessible descript
   );
 });
 
+test("the sheet of the Operator shows its sentence as the accessible description", async ({
+  page,
+}) => {
+  const sheet = await openRole(page, "Operator");
+  await expect(sheet).toHaveAccessibleDescription(
+    "Does work outside code for one Workstream, through the MCP servers of the Workstream, and reports to the Lead.",
+  );
+});
+
 test("Reset does not show for a role with no UI value", async ({ page }) => {
   const sheet = await openRole(page, "Lead");
   await expect(sheet.getByRole("button", { name: "Save" })).toBeVisible();

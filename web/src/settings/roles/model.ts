@@ -50,6 +50,8 @@ export const roleDescriptions: Partial<Record<RoleName, string>> = {
   curator:
     "Keeps the memory file of each repository up to date from the notes of the Leads and the sessions.",
   diagnoser: "Reads the job logs of a failed CI run and finds the cause.",
+  operator:
+    "Does work outside code for one Workstream, through the MCP servers of the Workstream, and reports to the Lead.",
 };
 
 export const hasContextLimit = (harness: string) => harness === "claude-code";
