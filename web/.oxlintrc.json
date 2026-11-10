@@ -40,7 +40,8 @@
         "src/transcript/**/*.{ts,tsx}",
         "src/setting/**/*.{ts,tsx}",
         "src/panel/**/*.{ts,tsx}",
-        "src/agents/**/*.{ts,tsx}"
+        "src/agents/**/*.{ts,tsx}",
+        "src/usage/**/*.{ts,tsx}"
       ],
       "rules": {
         "foldkit/acquire-release-constructs-in-acquire-body": "error",
