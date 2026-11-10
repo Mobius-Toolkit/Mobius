@@ -303,7 +303,7 @@ func startFakeAgent(t *testing.T, updates func(json.RawMessage, bool)) *Session 
 
 func startFakeAgentAt(t *testing.T, mcpURL string, updates func(json.RawMessage, bool)) *Session {
 	dir := fakeAgentDir(t)
-	session, err := Start(context.Background(), config.ClaudeCode, 0, false, false, dir, dir, dir, mcpURL, "", "", "", updates)
+	session, err := Start(context.Background(), config.ClaudeCode, 0, false, false, dir, dir, dir, mcpURL, nil, "", "", "", updates)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -384,7 +384,7 @@ func startDSH(t *testing.T, updates func(json.RawMessage, bool)) *Session {
 	if err := os.Symlink(exe, filepath.Join(dir, "dsh")); err != nil {
 		t.Fatal(err)
 	}
-	session, err := Start(context.Background(), config.DSH, 0, false, false, dir, dir, dir, "http://127.0.0.1:1/mcp/key", "", "", "", updates)
+	session, err := Start(context.Background(), config.DSH, 0, false, false, dir, dir, dir, "http://127.0.0.1:1/mcp/key", nil, "", "", "", updates)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -462,7 +462,7 @@ func TestAStartThatDoesNotAnswerFailsAfterStartTimeoutAndKillsTheAgent(t *testin
 	defer func(limit time.Duration) { StartTimeout = limit }(StartTimeout)
 	StartTimeout = 200 * time.Millisecond
 
-	_, err := Start(context.Background(), config.ClaudeCode, 0, false, false, dir, dir, dir, "http://127.0.0.1:1/mcp/key", "", "", "", func(json.RawMessage, bool) {})
+	_, err := Start(context.Background(), config.ClaudeCode, 0, false, false, dir, dir, dir, "http://127.0.0.1:1/mcp/key", nil, "", "", "", func(json.RawMessage, bool) {})
 
 	if want := "claude-agent-acp: the start took longer than 200ms"; err == nil || err.Error() != want {
 		t.Errorf("error = %v, want %s", err, want)
@@ -480,7 +480,7 @@ func TestAStartThatDoesNotAnswerFailsAfterStartTimeoutAndKillsTheAgent(t *testin
 func startSteeringAgent(t *testing.T, outcome string) (*Session, string) {
 	dir := fakeAgentDir(t)
 	t.Setenv("MOBIUS_FAKE_STEERING", outcome)
-	session, err := Start(context.Background(), config.ClaudeCode, 0, false, false, dir, dir, dir, "", "", "", "", func(json.RawMessage, bool) {})
+	session, err := Start(context.Background(), config.ClaudeCode, 0, false, false, dir, dir, dir, "", nil, "", "", "", func(json.RawMessage, bool) {})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -620,6 +620,22 @@ func (a *fakeAgent) NewSession(_ context.Context, request acp.NewSessionRequest)
 	if err != nil {
 		return acp.NewSessionResponse{}, err
 	}
+	if os.Getenv("MOBIUS_FAKE_REFUSE") == "1" {
+		return acp.NewSessionResponse{}, fmt.Errorf("refused %s", servers)
+	}
+	if os.Getenv("MOBIUS_FAKE_REFUSE") == "plain" {
+		var generic any
+		if err := json.Unmarshal(servers, &generic); err != nil {
+			return acp.NewSessionResponse{}, err
+		}
+		var quoted strings.Builder
+		encoder := json.NewEncoder(&quoted)
+		encoder.SetEscapeHTML(false)
+		if err := encoder.Encode(generic); err != nil {
+			return acp.NewSessionResponse{}, err
+		}
+		return acp.NewSessionResponse{}, fmt.Errorf("refused %s", strings.TrimSuffix(quoted.String(), "\n"))
+	}
 	if err := os.WriteFile("servers.json", servers, 0o600); err != nil {
 		return acp.NewSessionResponse{}, err
 	}
@@ -712,4 +728,56 @@ func (a *fakeAgent) ResumeSession(context.Context, acp.ResumeSessionRequest) (ac
 
 func (a *fakeAgent) SetSessionMode(context.Context, acp.SetSessionModeRequest) (acp.SetSessionModeResponse, error) {
 	return acp.SetSessionModeResponse{}, errFake
+}
+
+func TestSessionGivesTheMCPServersOfTheListAfterTheMobiusServerInTheirOrder(t *testing.T) {
+	dir := fakeAgentDir(t)
+	servers := []MCPServer{
+		{Name: "makeadir", URL: "https://makeadir.example.com/mcp", Headers: []Pair{{Name: "Authorization", Value: "Bearer a-token"}}},
+		{Name: "files", Command: "files-server", Args: []string{"--root", "/data"}, Env: []Pair{{Name: "KEY", Value: "env-value"}}},
+	}
+
+	session, err := Start(context.Background(), config.ClaudeCode, 0, false, false, dir, dir, dir, "http://127.0.0.1:1/mcp/key", servers, "", "", "", func(json.RawMessage, bool) {})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(session.Close)
+	text, err := os.ReadFile(filepath.Clean(filepath.Join(dir, "servers.json")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `[{"headers":[],"name":"mobius","type":"http","url":"http://127.0.0.1:1/mcp/key"},` +
+		`{"headers":[{"name":"Authorization","value":"Bearer a-token"}],"name":"makeadir","type":"http","url":"https://makeadir.example.com/mcp"},` +
+		`{"args":["--root","/data"],"command":"files-server","env":[{"name":"KEY","value":"env-value"}],"name":"files"}]`
+	if string(text) != want {
+		t.Errorf("servers = %s, want %s", text, want)
+	}
+}
+
+func TestARefusedSessionNewNamesTheMCPServersAndHidesTheirSecrets(t *testing.T) {
+	for _, mode := range []string{"1", "plain"} {
+		t.Run(mode, func(t *testing.T) {
+			dir := fakeAgentDir(t)
+			t.Setenv("MOBIUS_FAKE_REFUSE", mode)
+			servers := []MCPServer{
+				{Name: "makeadir", URL: "https://makeadir.example.com/mcp", Headers: []Pair{{Name: "Authorization", Value: "Bearer a-token"}}},
+				{Name: "files", Command: "files-server", Env: []Pair{{Name: "KEY", Value: `p&Zq"w<x>`}, {Name: "OTHER", Value: `a"Yk<c`}}},
+			}
+
+			_, err := Start(context.Background(), config.ClaudeCode, 0, false, false, dir, dir, dir, "", servers, "", "", "", func(json.RawMessage, bool) {})
+
+			if err == nil {
+				t.Fatal("no error")
+			}
+			for _, secret := range []string{"a-token", "Zq", "Yk"} {
+				if strings.Contains(err.Error(), secret) {
+					t.Errorf("%s is in the error: %v", secret, err)
+				}
+			}
+			if !strings.HasSuffix(err.Error(), "(MCP servers: makeadir, files)") {
+				t.Errorf("error = %v", err)
+			}
+		})
+	}
 }
