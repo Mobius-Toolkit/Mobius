@@ -68,9 +68,8 @@ export function renderSheet<M>(
   options: {
     mount: ReturnType<HtmlBuilder<M>["OnMount"]>;
     titleId: string;
-    descriptionId: string;
+    description?: { id: string; text: string };
     title: string;
-    description: string;
     close: M;
     className: string;
     children: ReadonlyArray<Html>;
@@ -91,7 +90,7 @@ export function renderSheet<M>(
           h.Role("dialog"),
           h.Tabindex(-1),
           h.AriaLabelledBy(options.titleId),
-          h.AriaDescribedBy(options.descriptionId),
+          ...(options.description ? [h.AriaDescribedBy(options.description.id)] : []),
           h.DataAttribute("slot", "sheet-content"),
           h.DataAttribute("side", "bottom"),
           h.Class(
@@ -110,14 +109,16 @@ export function renderSheet<M>(
             ],
             [options.title],
           ),
-          h.p(
-            [
-              h.Id(options.descriptionId),
-              h.DataAttribute("slot", "sheet-description"),
-              h.Class("text-sm text-muted-foreground"),
-            ],
-            [options.description],
-          ),
+          options.description
+            ? h.p(
+                [
+                  h.Id(options.description.id),
+                  h.DataAttribute("slot", "sheet-description"),
+                  h.Class("text-sm text-muted-foreground"),
+                ],
+                [options.description.text],
+              )
+            : h.empty,
           ...options.children,
           h.button(
             [
