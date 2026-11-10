@@ -70,6 +70,7 @@ test("the Owner edits the memory file in a dialog, sees the 200-line error, and 
   await discard.getByRole("button", { name: "Discard" }).click();
   await expect(dialog).toBeHidden();
   await expect(discard).toBeHidden();
+  await expect.poll(() => page.evaluate(() => document.body.style.overflow)).toBe("");
   await expect(main.getByText("Water the roses in the morning.").first()).toBeVisible();
 
   await main.getByRole("button", { name: "Edit" }).click();
@@ -576,6 +577,17 @@ test("Back on the file page and then on the file list returns to the repository 
   await expect(page).toHaveURL("/settings/memory/owner/shop");
   await back.click();
   await expect(page).toHaveURL("/settings/memory");
+});
+
+test("Back on a file page that has no history before it opens the file list of its repository", async ({
+  page,
+}) => {
+  const back = page.getByRole("button", { name: "Back" }).filter({ visible: true });
+  await page.goto("/settings/memory/owner/shop/shared");
+  await expect(page.getByRole("main").getByRole("heading", { name: "History" })).toBeVisible();
+
+  await back.click();
+  await expect(page).toHaveURL("/settings/memory/owner/shop");
 });
 
 test("an edit of a role file saves and the shared file does not change", async ({ page }) => {
