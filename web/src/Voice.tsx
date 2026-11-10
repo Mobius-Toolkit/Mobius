@@ -1,96 +1,50 @@
-import { CheckIcon } from "lucide-react";
-import { useState } from "react";
-import type { VoiceLanguageItem } from "@/api/api.gen";
-import { ErrorBadge, inset, List, PageHeader, rowClass, Section } from "@/components/page";
-import { Input } from "@/components/ui/input";
-import { useVoiceLanguage } from "@/lib/voiceLanguage";
-import { cn } from "@/lib/utils";
+import { Effect } from "effect";
+import * as Runtime from "foldkit/runtime";
+import { use, useEffect, useRef } from "react";
+import { useGoBack } from "@/lib/goBack";
+import { LoginContext } from "@/lib/login";
+import type { VoicePorts } from "./settings/voice/ports";
+import { createVoiceProgram } from "./settings/voice/program";
 import { TopBar } from "./TopBar";
 
-function LanguageRow({
-  item,
-  selected,
-  onSelect,
-}: {
-  item: VoiceLanguageItem;
-  selected: boolean;
-  onSelect: () => void;
-}) {
-  return (
-    <li>
-      <button
-        type="button"
-        aria-current={selected}
-        className={cn(rowClass, "w-full text-left hover:bg-muted")}
-        onClick={onSelect}
-      >
-        <span className="min-w-0 grow break-words">{item.name}</span>
-        {selected && <CheckIcon className="size-4 shrink-0" />}
-      </button>
-    </li>
-  );
-}
-
 export function Voice() {
-  const { voice, error, select } = useVoiceLanguage();
-  const [search, setSearch] = useState("");
+  const showLogin = use(LoginContext);
+  const goBack = useGoBack("/settings");
+  const containerRef = useRef<HTMLDivElement>(null);
 
-  const languages = voice?.languages ?? [];
-  const text = search.trim().toLowerCase();
+  // A change of a Flag disposes the program and embeds it again.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) {
+      return;
+    }
 
-  const rows = (items: VoiceLanguageItem[]) => (
-    <List>
-      {items.map((item) => (
-        <LanguageRow
-          key={item.code}
-          item={item}
-          selected={item.code === voice?.language}
-          onSelect={() => {
-            if (item.code !== voice?.language) {
-              void select(item.code);
-            }
-          }}
-        />
-      ))}
-    </List>
-  );
+    const flags = {};
+    const handle: Runtime.EmbedHandle<VoicePorts> = Runtime.embed(
+      createVoiceProgram(container, flags),
+      { flags: Effect.succeed(flags) },
+    );
 
-  const matches = languages.filter(
-    (item) => item.name.toLowerCase().includes(text) || item.code.toLowerCase().includes(text),
-  );
-  const suggested = [...new Set([voice?.language, "en", "auto"])].flatMap((code) =>
-    languages.filter((item) => item.code === code),
-  );
+    const unsubLogin = handle.ports.loginRequested.subscribe(() => {
+      showLogin();
+    });
+    const unsubBack = handle.ports.backRequested.subscribe(goBack);
 
+    return () => {
+      unsubLogin();
+      unsubBack();
+      handle.dispose();
+    };
+  }, [showLogin, goBack]);
+
+  // Foldkit replaces the container element with its own root. Thus the wrapper keeps the container as its only child,
+  // and React never moves the container.
   return (
     <>
       <TopBar title="Voice" back="/settings" />
-      <PageHeader title="Voice" back="/settings" />
-      <p className={cn("text-muted-foreground", inset)}>
-        The language that you speak. The next recording uses it.
-      </p>
-      {error && <ErrorBadge>{error}</ErrorBadge>}
-      <div className={inset}>
-        <Input
-          type="search"
-          aria-label="Search languages"
-          placeholder="Search languages"
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-        />
+      <div id="voice-app-wrapper">
+        <div id="voice-app" ref={containerRef} />
       </div>
-      {voice && text === "" && (
-        <>
-          <Section title="Suggested">{rows(suggested)}</Section>
-          <Section title="All languages">
-            {rows(languages.filter((item) => item.code !== "auto"))}
-          </Section>
-        </>
-      )}
-      {voice && text !== "" && matches.length > 0 && rows(matches)}
-      {voice && text !== "" && matches.length === 0 && (
-        <p className={cn("text-muted-foreground", inset)}>No language has this name.</p>
-      )}
     </>
   );
 }
