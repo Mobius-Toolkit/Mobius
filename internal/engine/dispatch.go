@@ -43,6 +43,8 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
+	e.stopMu.Lock()
+	defer e.stopMu.Unlock()
 	page, changed, err := repository.OpenIssuesWithLabelPage(ctx, readyLabel, cursor.Etag.String)
 	if err != nil || !changed {
 		return err
