@@ -1,118 +1,54 @@
-import { use, useState, type FormEvent } from "react";
-import { createManifestForm, type GitHubApp, type ManifestForm } from "@/api/api.gen";
-import { inset, List, PageHeader, Row } from "@/components/page";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
+import { Effect } from "effect";
+import * as Runtime from "foldkit/runtime";
+import { use, useEffect, useRef } from "react";
+import type { GitHubApp } from "@/api/api.gen";
 import { LoginContext } from "@/lib/login";
-import { cn } from "@/lib/utils";
+import type { GitHubPorts } from "./settings/github/ports";
+import { createGitHubProgram } from "./settings/github/program";
 import { TopBar } from "./TopBar";
 
-function postToGitHub(form: ManifestForm) {
-  const element = document.createElement("form");
-  element.method = "post";
-  element.action = form.url;
-  const field = document.createElement("input");
-  field.type = "hidden";
-  field.name = "manifest";
-  field.value = form.manifest;
-  element.append(field);
-  document.body.append(element);
-  element.submit();
-}
-
+// With no back, the component is the first screen of a server that has no App.
 export function GitHub({ apps, back }: { apps: GitHubApp[]; back?: boolean }) {
   const showLogin = use(LoginContext);
-  const [account, setAccount] = useState("");
-  const [typedName, setTypedName] = useState<string>();
-  const [error, setError] = useState<string>();
-  const [busy, setBusy] = useState(false);
-  const name = typedName ?? `Mobius ${account}`.slice(0, 34).trimEnd();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const handleRef = useRef<Runtime.EmbedHandle<GitHubPorts>>(null);
 
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    setBusy(true);
-    createManifestForm({ account, name, origin: window.location.origin })
-      .then((res) => {
-        if (res.status === 401) {
-          showLogin();
-        } else if (res.status === 200) {
-          postToGitHub(res.data.data);
-        } else {
-          setError(res.data.error);
-        }
-      })
-      .catch((err: unknown) => setError(String(err)))
-      .finally(() => setBusy(false));
-  };
+  // A change of a Flag disposes the program and embeds it again.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) {
+      return;
+    }
 
-  const form = (
-    <form onSubmit={submit}>
-      <FieldGroup>
-        {apps.length > 0 && <h3 className="font-medium">Add an organization</h3>}
-        <Field>
-          <FieldLabel htmlFor="account">Account or organization</FieldLabel>
-          <Input
-            id="account"
-            required
-            value={account}
-            onChange={(e) => setAccount(e.target.value)}
-          />
-        </Field>
-        <Field data-invalid={error !== undefined}>
-          <FieldLabel htmlFor="name">App name</FieldLabel>
-          <Input
-            id="name"
-            value={name}
-            onChange={(e) => setTypedName(e.target.value)}
-            aria-invalid={error !== undefined}
-          />
-          <FieldDescription>
-            GitHub App names are unique on all of GitHub. Use a name that no other App has, for
-            example with your account name.
-          </FieldDescription>
-          <FieldError>{error}</FieldError>
-        </Field>
-        <Button type="submit" pending={busy}>
-          Create the App
-        </Button>
-      </FieldGroup>
-    </form>
-  );
+    const flags = { setup: !back };
+    const handle = Runtime.embed(createGitHubProgram(container, flags), {
+      flags: Effect.succeed(flags),
+    });
+    handleRef.current = handle;
 
-  if (!back) {
-    return (
-      <Card className="w-full max-w-lg">
-        <CardHeader>
-          <CardTitle>Connect GitHub</CardTitle>
-        </CardHeader>
-        <CardContent>{form}</CardContent>
-      </Card>
-    );
-  }
+    const unsubLogin = handle.ports.loginRequested.subscribe(() => {
+      showLogin();
+    });
+
+    return () => {
+      unsubLogin();
+      handle.dispose();
+      handleRef.current = null;
+    };
+  }, [back, showLogin]);
+
+  useEffect(() => {
+    handleRef.current?.ports.apps.send(apps);
+  }, [apps]);
+
+  // Foldkit replaces the container element with its own root. Thus the wrapper keeps the container as its only child,
+  // and React never moves the container.
   return (
     <>
-      <TopBar title="Connect GitHub" back="/settings" />
-      <PageHeader title="Connect GitHub" />
-      {apps.length > 0 && (
-        <p className={cn("text-sm text-muted-foreground", inset)}>
-          Install each App on the repositories of its organization.
-        </p>
-      )}
-      <List>
-        {apps.map((app) => (
-          <Row key={app.slug} className="grid gap-1 py-3">
-            <a href={app.installUrl} className="font-medium hover:underline">
-              Install {app.slug} on your repositories
-            </a>
-            <span className="text-muted-foreground">
-              {app.repositories.length === 0 ? "No repositories" : app.repositories.join(", ")}
-            </span>
-          </Row>
-        ))}
-      </List>
-      <div className={cn("max-w-lg", inset)}>{form}</div>
+      {back && <TopBar title="Connect GitHub" back="/settings" />}
+      <div id="github-app-wrapper" className={back ? undefined : "w-full max-w-lg"}>
+        <div id="github-app" ref={containerRef} />
+      </div>
     </>
   );
 }
