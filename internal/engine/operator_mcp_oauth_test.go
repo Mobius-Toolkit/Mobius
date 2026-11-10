@@ -356,6 +356,36 @@ func TestTwoOperatorsOfTwoWorkstreamsRefreshTheSameTokenOneTimeAndGetTheSameToke
 	}
 }
 
+func TestAnOperatorRefreshDoesNotOverwriteTokensWhenAClientChangeClearedThemDuringTheRequest(t *testing.T) {
+	t.Parallel()
+	fake := newFakeOAuth(t, false)
+	fake.gate = make(chan struct{})
+	server, dataDir := connectOperatorWith(t, testkit.NewFakeGitHub(t), operatorLead+operatorWork, withOAuthUIURL)
+	id := connectOAuthServer(t, server, fake, 12)
+
+	sendChat(t, server, leadChat, "Start the operator.")
+	testkit.WaitFor(t, func() bool {
+		return len(fake.refreshed()) == 1
+	})
+	if _, err := server.Engine.StartMcpOAuth(t.Context(), "owner", id, "new-client", "new-secret"); err != nil {
+		t.Fatal(err)
+	}
+	close(fake.gate)
+
+	endedOperators(t, server, 1)
+	row := storedTokens(t, server, id)
+	if row.access != "" || row.refresh != "" {
+		t.Errorf("row = %+v, want empty tokens", row)
+	}
+	if state, _ := listedOAuth(t, server); state != "none" {
+		t.Errorf("oauth = %q, want none", state)
+	}
+	servers := sentServers(t, dataDir)
+	if want := []engine.McpPair{{Name: siteHeader, Value: siteTeam}, {Name: "Authorization", Value: "Bearer access-2"}}; !slices.Equal(servers[1].Headers, want) {
+		t.Errorf("headers = %+v, want %+v", servers[1].Headers, want)
+	}
+}
+
 func TestAnOperatorDoesNotStartWhenTheTokenEndpointRefusesTheRefreshTokenAndTheServerAsksForANewConnect(t *testing.T) {
 	t.Parallel()
 	fake := newFakeOAuth(t, false)

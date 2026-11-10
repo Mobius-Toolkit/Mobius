@@ -1687,8 +1687,8 @@ WHERE server = ? AND state = ?;
 
 -- name: StoreMcpServerOAuthRefresh :exec
 UPDATE mcp_server_oauth
-SET access_token = ?, refresh_token = ?, expires_at = ?, updated_at = ?
-WHERE server = ?;
+SET access_token = sqlc.arg(access_token), refresh_token = sqlc.arg(refresh_token), expires_at = sqlc.arg(expires_at), updated_at = sqlc.arg(updated_at)
+WHERE server = sqlc.arg(server) AND access_token = sqlc.arg(current_access_token) AND refresh_token = sqlc.arg(current_refresh_token);
 
 -- name: FailMcpServerOAuthToken :exec
 UPDATE mcp_server_oauth SET failure = ?, updated_at = ? WHERE server = ? AND access_token = ?;

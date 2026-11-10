@@ -111,6 +111,7 @@ func (e *Engine) mcpAccessToken(ctx context.Context, id int64, name string) (str
 	err = e.queries.StoreMcpServerOAuthRefresh(ctx, store.StoreMcpServerOAuthRefreshParams{
 		AccessToken: answer.AccessToken, RefreshToken: cmp.Or(answer.RefreshToken, row.RefreshToken), ExpiresAt: expires,
 		UpdatedAt: now.UTC().Format(time.RFC3339Nano), Server: id,
+		CurrentAccessToken: row.AccessToken, CurrentRefreshToken: row.RefreshToken,
 	})
 	if err != nil {
 		return "", err

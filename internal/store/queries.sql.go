@@ -10443,16 +10443,18 @@ func (q *Queries) StopTask(ctx context.Context, id int64) (int64, error) {
 
 const storeMcpServerOAuthRefresh = `-- name: StoreMcpServerOAuthRefresh :exec
 UPDATE mcp_server_oauth
-SET access_token = ?, refresh_token = ?, expires_at = ?, updated_at = ?
-WHERE server = ?
+SET access_token = ?1, refresh_token = ?2, expires_at = ?3, updated_at = ?4
+WHERE server = ?5 AND access_token = ?6 AND refresh_token = ?7
 `
 
 type StoreMcpServerOAuthRefreshParams struct {
-	AccessToken  string
-	RefreshToken string
-	ExpiresAt    sql.NullString
-	UpdatedAt    string
-	Server       int64
+	AccessToken         string
+	RefreshToken        string
+	ExpiresAt           sql.NullString
+	UpdatedAt           string
+	Server              int64
+	CurrentAccessToken  string
+	CurrentRefreshToken string
 }
 
 func (q *Queries) StoreMcpServerOAuthRefresh(ctx context.Context, arg StoreMcpServerOAuthRefreshParams) error {
@@ -10462,6 +10464,8 @@ func (q *Queries) StoreMcpServerOAuthRefresh(ctx context.Context, arg StoreMcpSe
 		arg.ExpiresAt,
 		arg.UpdatedAt,
 		arg.Server,
+		arg.CurrentAccessToken,
+		arg.CurrentRefreshToken,
 	)
 	return err
 }
