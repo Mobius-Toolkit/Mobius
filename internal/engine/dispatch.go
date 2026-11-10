@@ -1132,7 +1132,7 @@ func (e *Engine) continueTask(ctx context.Context, repository github.Repository,
 	if err := e.unstop(ctx, repository, task); err != nil {
 		return false, err
 	}
-	conflict := pullRequest.Mergeable != nil && !pullRequest.GetMergeable() || behind(pullRequest)
+	conflict := pullRequest.Mergeable != nil && !pullRequest.GetMergeable()
 	to := "working"
 	if conflict {
 		to = "checks"

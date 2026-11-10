@@ -66,11 +66,10 @@ func TestAStalePullRequestCompletesTheMobiusCheckRunAsFailure(t *testing.T) {
 	server, _ := connectTask(t, fake, leadStarts, commits, noChange)
 	sha := approvalHead(t, server, fake)
 	fake.SetCreatedAt(shop, 42, 0)
-	fake.SetBehind(shop, 42)
 
-	fake.CommitFile(shop, "price.txt", "dollars\n", "Add price")
+	fake.CommitFile(shop, "plan.txt", "dollars\n", "Use dollars")
 
-	waitForLeadPrompt(t, server, " stale pull request #42 of #41 \"Add plan model\": it is behind its base branch")
+	waitForLeadPrompt(t, server, " stale pull request #42 of #41 \"Add plan model\": it has a merge conflict")
 	wantStopCheck(t, fake, sha, "Stale pull request")
 }
 
@@ -114,11 +113,10 @@ func TestAStalePullRequestKeepsTheCompleteMobiusCheckRun(t *testing.T) {
 	sha := approvalHead(t, server, fake)
 	completeMobiusCheck(t, fake)
 	fake.SetCreatedAt(shop, 42, 0)
-	fake.SetBehind(shop, 42)
 
-	fake.CommitFile(shop, "price.txt", "dollars\n", "Add price")
+	fake.CommitFile(shop, "plan.txt", "dollars\n", "Use dollars")
 
-	waitForLeadPrompt(t, server, " stale pull request #42 of #41 \"Add plan model\": it is behind its base branch")
+	waitForLeadPrompt(t, server, " stale pull request #42 of #41 \"Add plan model\": it has a merge conflict")
 	wantApprovedCheck(t, fake, sha)
 }
 
