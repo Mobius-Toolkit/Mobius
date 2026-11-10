@@ -80,7 +80,7 @@ func readyPullRequest(t *testing.T, server *testserver.Server, fake *testkit.Fak
 }
 
 // fixesAndMerges is an Implementer that fixes the check in a fix round and merges the base branch in a conflict round.
-const fixesAndMerges = fixes + "\n" + conflictWhen + "shell = \"git merge -q origin/main\"\n"
+const fixesAndMerges = fixes + "\n" + conflictWhen + "shell = \"git merge -q origin/main; echo cents > plan.txt && git add plan.txt && git commit -q --no-edit\"\n"
 
 // waitForHeld waits until the poll reaches a held request.
 func waitForHeld(t *testing.T, reached <-chan struct{}) {
@@ -151,9 +151,8 @@ func TestAFixRoundTakesTheFreeSlotBeforeANewTicketWithNoPollBetween(t *testing.T
 
 func TestAConflictRoundTakesTheFreeSlotBeforeANewTicketWithNoPollBetween(t *testing.T) {
 	t.Parallel()
-	testARoundTakesTheFreeSlotBeforeANewTicket(t, false, func(fake *testkit.FakeGitHub, _ string, pullRequest int64) {
-		fake.SetBehind(shop, pullRequest)
-		fake.CommitFile(shop, "price.txt", "dollars\n", "Add price")
+	testARoundTakesTheFreeSlotBeforeANewTicket(t, false, func(fake *testkit.FakeGitHub, _ string, _ int64) {
+		fake.CommitFile(shop, "plan.txt", "dollars\n", "Use dollars")
 	})
 }
 
@@ -274,8 +273,7 @@ func TestAPullRequestInNeedsHumanDoesNotStopANewTicket(t *testing.T) {
 	server, _ := connectThree(t, fake, fixes)
 	_, pullRequest := readyPullRequest(t, server, fake)
 	fake.SetCreatedAt(shop, pullRequest, 0)
-	fake.SetBehind(shop, pullRequest)
-	fake.CommitFile(shop, "price.txt", "dollars\n", "Add price")
+	fake.CommitFile(shop, "plan.txt", "dollars\n", "Use dollars")
 	waitForState(t, server, 41, "needs_human")
 
 	fake.AddLabel(shop, 43, "mobius:ready", "owner")
@@ -319,8 +317,7 @@ func TestAReviewedPullRequestWithAnOpenThreadDoesNotStopANewTicket(t *testing.T)
 	} else if rows, _ := result.RowsAffected(); rows != 1 {
 		t.Fatalf("the task of #41 is %s", taskState(t, server))
 	}
-	fake.SetBehind(shop, pullRequest)
-	fake.CommitFile(shop, "price.txt", "dollars\n", "Add price")
+	fake.CommitFile(shop, "plan.txt", "dollars\n", "Use dollars")
 	waitForPolls(t, fake)
 
 	fake.AddLabel(shop, 43, "mobius:ready", "owner")
