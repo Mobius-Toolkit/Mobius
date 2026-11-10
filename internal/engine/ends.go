@@ -123,11 +123,12 @@ func (e *Engine) countCheckErrors(ctx context.Context, task store.Task, checkErr
 //   - A task in dispatched for more than 2 hours, with no open question, gives the Lead a reminder (remindDispatch).
 //   - A task in needs_human continues with no Resume when its pull request has a merge conflict, or when the CI of the
 //     task passes on its head, also on a new head (continueNeedsHuman).
-//   - A pull request of a task in checks, approval or ready_for_review with a merge conflict, or behind its base, gets a
-//     conflict round. A failed check run of another App on its head gets a fix round.
+//   - A pull request of a task in checks, approval or ready_for_review with a merge conflict gets a conflict round. A
+//     pull request that is only behind its base gets no conflict round. A failed check run of another App on its head
+//     gets a fix round.
 //   - A task whose head failed its CI while the default branch has an open break of its CI waits, with no fix round and no
-//     stop, and a pull request that is only behind its base gets no conflict round (waitsForBreak). When the break
-//     ends, the branch of the pull request updates (endBreakWait). The task of the issue of the break does not wait.
+//     stop (waitsForBreak). When the break ends, the branch of the pull request updates (endBreakWait). The task of the
+//     issue of the break does not wait.
 //   - Else a task in checks, approval or ready_for_review with kept findings of the Lead gets a fix round with them
 //     (startKeptRound).
 //   - Else a task in checks moves to approval when the CI of the head passed (onChecks).
@@ -193,7 +194,7 @@ func (e *Engine) checkTask(ctx context.Context, repository github.Repository, ta
 		return Work{}, false, err
 	}
 	work := pullRequestWork(repository, pullRequest)
-	conflict := pullRequest.Mergeable != nil && !pullRequest.GetMergeable() || behind(pullRequest) && !breakWaits
+	conflict := pullRequest.Mergeable != nil && !pullRequest.GetMergeable()
 	if task.State == "needs_human" {
 		var round bool
 		if task, round, err = e.continueNeedsHuman(ctx, repository, task, pullRequest, conflict); err != nil || round {
@@ -435,7 +436,7 @@ func (e *Engine) clearEndedTaskLabels(ctx context.Context, repository github.Rep
 
 // continueNeedsHuman continues the task in needs_human with no Resume, and gives the task in its new state, and true
 // when a conflict round started. Counters stay as they are.
-//   - A pull request with a merge conflict, or behind its base, gets a conflict round. A head gets one automatic round
+//   - A pull request with a merge conflict gets a conflict round. A head gets one automatic round
 //     (conflict_head), so a round that fails does not start again on each poll. A pull request older than stale_pr_age
 //     gets no round, and no new event or Inbox item.
 //   - A pull request with no conflict, whose CI stopped the task (ci_failed_head) and passes now on its head, which can

@@ -394,6 +394,8 @@ func (e *Engine) issueWorkstream(ctx context.Context, repository github.Reposito
 // The label changes of a ready issue use the user token of the Owner, because the poll trusts a label change only
 // from a trusted user.
 func (e *Engine) StopIssue(ctx context.Context, repositoryName string, number int64) error {
+	e.stopMu.Lock()
+	defer e.stopMu.Unlock()
 	repository, err := e.repository(repositoryName)
 	if err != nil {
 		return err

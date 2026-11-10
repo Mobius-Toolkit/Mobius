@@ -43,6 +43,8 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
+	e.stopMu.Lock()
+	defer e.stopMu.Unlock()
 	page, changed, err := repository.OpenIssuesWithLabelPage(ctx, readyLabel, cursor.Etag.String)
 	if err != nil || !changed {
 		return err
@@ -1132,7 +1134,7 @@ func (e *Engine) continueTask(ctx context.Context, repository github.Repository,
 	if err := e.unstop(ctx, repository, task); err != nil {
 		return false, err
 	}
-	conflict := pullRequest.Mergeable != nil && !pullRequest.GetMergeable() || behind(pullRequest)
+	conflict := pullRequest.Mergeable != nil && !pullRequest.GetMergeable()
 	to := "working"
 	if conflict {
 		to = "checks"
