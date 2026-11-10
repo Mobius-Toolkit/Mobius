@@ -219,6 +219,11 @@ func (e *Engine) approveWaitingTask(ctx context.Context, task store.Task) error 
 // endAutoMerge ends the automatic merge of the task, because its Workstream has no merge level any more. The Inbox
 // items get the reason, so the "Merge" button shows again, and the approval of Mobius counts as refused.
 func (e *Engine) endAutoMerge(ctx context.Context, task store.Task) error {
+	if task.MergeQueuedAt.Valid {
+		if err := e.queries.ClearTaskMergeQueuedAt(ctx, task.ID); err != nil {
+			return err
+		}
+	}
 	if err := e.refuseMergeItem(ctx, task, mergeOffReason); err != nil {
 		return err
 	}
@@ -228,16 +233,22 @@ func (e *Engine) endAutoMerge(ctx context.Context, task store.Task) error {
 // pauseAutoMerge ends the automatic merge of the task, because the Merge switch is off. It works as endAutoMerge, with
 // the reason mergePausedReason, and the issue goes to the held work of the switch.
 func (e *Engine) pauseAutoMerge(ctx context.Context, task store.Task) error {
+	if task.MergeQueuedAt.Valid {
+		if err := e.queries.ClearTaskMergeQueuedAt(ctx, task.ID); err != nil {
+			return err
+		}
+	}
 	if err := e.holdMerge(ctx, task); err != nil {
 		return err
 	}
 	return e.queries.SetTaskRefusedReview(ctx, store.SetTaskRefusedReviewParams{RefusedReview: task.ApprovedReview, ID: task.ID})
 }
 
-// updateForMerge tells if the merge of the pull request of a task with auto_merge must wait, because the head does not
-// contain the default branch. Then it updates the branch of the pull request. GitHub adds the merge commit after it answers, so the wait goes on until the head changes or branchUpdateWait
-// has passed. A 4xx answer of the update waits too, and the next poll tries again after branchUpdateWait. A 5xx answer
-// or another error returns, and the next poll tries again.
+// updateForMerge tells if the merge of the pull request at the head of the merge queue must wait, because the head does
+// not contain the default branch. Then it updates the branch of the pull request. GitHub adds the merge commit after it
+// answers, so the wait goes on until the head changes or branchUpdateWait has passed. A 4xx answer of the update waits
+// too, and the next poll tries again after branchUpdateWait. A 5xx answer or another error returns, and the next poll
+// tries again.
 func (e *Engine) updateForMerge(ctx context.Context, repository github.Repository, pullRequest *gh.PullRequest) (bool, error) {
 	number := int64(pullRequest.GetNumber())
 	head := pullRequest.GetHead().GetSHA()
@@ -263,11 +274,14 @@ func (e *Engine) updateForMerge(ctx context.Context, repository github.Repositor
 }
 
 // returnForApproval sends the task in ready_for_review back to checks, because its head has no Mobius check run, so the
-// Lead did not approve it. This is the case after the update of the branch. The old approval ends, and the head goes
-// through the CI and the approval of the Lead again.
+// Lead did not approve it. This is the case after the update of the branch in the merge queue. For a task with
+// auto_merge, the old approval ends. The head goes through the CI and the approval of the Lead again, and keeps its
+// place in the queue.
 func (e *Engine) returnForApproval(ctx context.Context, task store.Task) error {
-	if err := e.queries.SetTaskRefusedReview(ctx, store.SetTaskRefusedReviewParams{RefusedReview: task.ApprovedReview, ID: task.ID}); err != nil {
-		return err
+	if task.AutoMerge == 1 {
+		if err := e.queries.SetTaskRefusedReview(ctx, store.SetTaskRefusedReviewParams{RefusedReview: task.ApprovedReview, ID: task.ID}); err != nil {
+			return err
+		}
 	}
 	if err := e.dismissReadyForReview(ctx, task, task.State); err != nil {
 		return err

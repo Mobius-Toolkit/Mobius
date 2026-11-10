@@ -133,8 +133,8 @@ func (e *Engine) countCheckErrors(ctx context.Context, task store.Task, checkErr
 //     (startKeptRound).
 //   - Else a task in checks moves to approval when the CI of the head passed (onChecks).
 //   - Else a task in approval for more than 2 hours gives the Lead a reminder (remindApproval).
-//   - Else a pull request with the approval of a trusted user gets a squash merge when its head agrees with the
-//     conditions (mergeApproved), and the next poll ends the task.
+//   - Else an approved pull request enters the merge queue of its repository, and merges at its turn (mergeApproved),
+//     and the next poll ends the task.
 //   - Else the new comments of the pull request of a task in checks, approval, ready_for_review, reviewed or needs_human
 //     go to the Judge.
 func (e *Engine) checkTask(ctx context.Context, repository github.Repository, task store.Task, baseHead string) (Work, bool, error) {
@@ -195,6 +195,12 @@ func (e *Engine) checkTask(ctx context.Context, repository github.Repository, ta
 	}
 	work := pullRequestWork(repository, pullRequest)
 	conflict := pullRequest.Mergeable != nil && !pullRequest.GetMergeable()
+	if task.MergeQueuedAt.Valid && conflict {
+		if err := e.queries.ClearTaskMergeQueuedAt(ctx, task.ID); err != nil {
+			return Work{}, false, err
+		}
+		task.MergeQueuedAt = sql.NullString{}
+	}
 	if task.State == "needs_human" {
 		var round bool
 		if task, round, err = e.continueNeedsHuman(ctx, repository, task, pullRequest, conflict); err != nil || round {
@@ -213,6 +219,12 @@ func (e *Engine) checkTask(ctx context.Context, repository github.Repository, ta
 		round, err := e.startKeptRound(ctx, repository, round{task: task, title: issue.GetTitle(), pullRequest: pullRequest})
 		return work, round, err
 	case afterReview(task.State) && !breakWaits:
+		if task.MergeQueuedAt.Valid && (state.failedCheck || state.failedWorkflow) {
+			if err := e.queries.ClearTaskMergeQueuedAt(ctx, task.ID); err != nil {
+				return Work{}, false, err
+			}
+			task.MergeQueuedAt = sql.NullString{}
+		}
 		round, err := e.onFailure(ctx, repository, task, pullRequest, state)
 		if err != nil || round {
 			return work, round, err
