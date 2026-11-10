@@ -24,7 +24,7 @@ export const Message = defineMessageUnion({
   ClickedSave: {},
   ServerSaved: { server: McpServer },
   SaveFailed: { error: Schema.String },
-  SaveLoginRequired: {},
+  SheetLoginRequired: {},
   ClickedDelete: {},
   DismissedDelete: {},
   ClickedConfirmDelete: {},

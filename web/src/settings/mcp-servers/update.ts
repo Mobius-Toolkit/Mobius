@@ -174,7 +174,7 @@ export function update(model: Model, message: Message): UpdateReturn<Model, Mess
       },
     }),
     SaveFailed: ({ error }) => ({ model: withSheet(model, (sheet) => failed(sheet, error)) }),
-    SaveLoginRequired: () => ({
+    SheetLoginRequired: () => ({
       model: withSheet(model, (sheet) => ({ ...sheet, pending: "none" })),
       commands: [RequestLogin()],
     }),

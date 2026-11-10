@@ -44,12 +44,12 @@ export const FetchServers = Command.define("FetchServers", {
 
 export const AddServer = Command.define("AddServer", {
   args: { organization: Schema.String, body: Body },
-  messages: [Message.ServerSaved, Message.SaveLoginRequired, Message.SaveFailed],
+  messages: [Message.ServerSaved, Message.SheetLoginRequired, Message.SaveFailed],
   execute: ({ organization, body }) =>
     request(() => addMcpServer(organization, bodyOf(body))).pipe(
       Effect.map((res) => {
         if (res.status === 401) {
-          return Message.SaveLoginRequired();
+          return Message.SheetLoginRequired();
         }
         if (res.status !== 201) {
           return Message.SaveFailed({ error: res.data.error });
@@ -65,12 +65,12 @@ export const AddServer = Command.define("AddServer", {
 
 export const ChangeServer = Command.define("ChangeServer", {
   args: { organization: Schema.String, id: Schema.Number, body: Body },
-  messages: [Message.ServerSaved, Message.SaveLoginRequired, Message.SaveFailed],
+  messages: [Message.ServerSaved, Message.SheetLoginRequired, Message.SaveFailed],
   execute: ({ organization, id, body }) =>
     request(() => changeMcpServer(organization, id, bodyOf(body))).pipe(
       Effect.map((res) => {
         if (res.status === 401) {
-          return Message.SaveLoginRequired();
+          return Message.SheetLoginRequired();
         }
         if (res.status !== 200) {
           return Message.SaveFailed({ error: res.data.error });
@@ -86,14 +86,14 @@ export const ChangeServer = Command.define("ChangeServer", {
 
 export const DeleteServer = Command.define("DeleteServer", {
   args: { organization: Schema.String, id: Schema.Number, name: Schema.String },
-  messages: [Message.ServerDeleted, Message.LoginRequired, Message.DeleteFailed],
+  messages: [Message.ServerDeleted, Message.SheetLoginRequired, Message.DeleteFailed],
   execute: ({ organization, id, name }) =>
     answer(() => deleteMcpServer(organization, id), {
       done: () => {
         showNotice(`Deleted ${name}`);
         return Message.ServerDeleted({ id });
       },
-      login: Message.LoginRequired,
+      login: Message.SheetLoginRequired,
       failed: (error) => Message.DeleteFailed({ error }),
     }),
 });
@@ -105,12 +105,12 @@ export const StartOAuth = Command.define("StartOAuth", {
     clientId: Schema.String,
     clientSecret: Schema.String,
   },
-  messages: [Message.OAuthStarted, Message.LoginRequired, Message.OAuthFailed],
+  messages: [Message.OAuthStarted, Message.SheetLoginRequired, Message.OAuthFailed],
   execute: ({ organization, id, clientId, clientSecret }) =>
     request(() => startMcpOAuth(organization, id, { clientId, clientSecret })).pipe(
       Effect.map((res) => {
         if (res.status === 401) {
-          return Message.LoginRequired();
+          return Message.SheetLoginRequired();
         }
         if (res.status !== 200) {
           return Message.OAuthFailed({ error: res.data.error });
@@ -125,14 +125,14 @@ export const StartOAuth = Command.define("StartOAuth", {
 
 export const DisconnectOAuth = Command.define("DisconnectOAuth", {
   args: { organization: Schema.String, id: Schema.Number, name: Schema.String },
-  messages: [Message.OAuthDisconnected, Message.LoginRequired, Message.OAuthFailed],
+  messages: [Message.OAuthDisconnected, Message.SheetLoginRequired, Message.OAuthFailed],
   execute: ({ organization, id, name }) =>
     answer(() => disconnectMcpOAuth(organization, id), {
       done: () => {
         showNotice(`Disconnected ${name}`);
         return Message.OAuthDisconnected({ id });
       },
-      login: Message.LoginRequired,
+      login: Message.SheetLoginRequired,
       failed: (error) => Message.OAuthFailed({ error }),
     }),
 });

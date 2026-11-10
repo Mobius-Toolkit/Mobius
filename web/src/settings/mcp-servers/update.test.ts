@@ -3,9 +3,11 @@ import { describe, expect, it } from "vitest";
 import { Command as StoryCommand, given, message, model, story } from "foldkit/story";
 import {
   ChangeServer,
+  DeleteServer,
   DisconnectOAuth,
   Navigate,
   Redirect,
+  RequestLogin,
   ShowNotice,
   StartOAuth,
 } from "./commands";
@@ -198,6 +200,37 @@ describe("the OAuth of a server", () => {
       StoryCommand.resolve(StartOAuth, Message.OAuthFailed({ error: "no ui_url" })),
       model((m) => {
         expect(sheet(m)).toMatchObject({ pending: "none", error: "no ui_url" });
+      }),
+    );
+  });
+
+  it("frees the buttons of the sheet when Connect gets a login answer", () => {
+    story(
+      update,
+      given(loaded()),
+      message(Message.ClickedEdit({ id: 3 })),
+      message(Message.ClickedConnect()),
+      StoryCommand.resolve(StartOAuth, Message.SheetLoginRequired()),
+      StoryCommand.expectExact(RequestLogin()),
+      StoryCommand.resolve(RequestLogin, Message.CompletedRequestLogin()),
+      model((m) => {
+        expect(sheet(m).pending).toBe("none");
+      }),
+    );
+  });
+
+  it("frees the buttons of the sheet when Delete gets a login answer", () => {
+    story(
+      update,
+      given(loaded()),
+      message(Message.ClickedEdit({ id: 3 })),
+      message(Message.ClickedDelete()),
+      message(Message.ClickedConfirmDelete()),
+      StoryCommand.resolve(DeleteServer, Message.SheetLoginRequired()),
+      StoryCommand.expectExact(RequestLogin()),
+      StoryCommand.resolve(RequestLogin, Message.CompletedRequestLogin()),
+      model((m) => {
+        expect(sheet(m).pending).toBe("none");
       }),
     );
   });
