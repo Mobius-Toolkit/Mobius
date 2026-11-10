@@ -261,7 +261,7 @@ test("the result of the OAuth flow shows no second time after the Owner changes 
       res.url().endsWith("/api/organizations/plants/mcp-servers") &&
       res.request().method() === "GET",
   );
-  await page.getByLabel("Work in another organization").click();
+  await page.getByRole("button", { name: organization }).filter({ visible: true }).click();
   await page.getByRole("menuitemradio", { name: "plants" }).click();
   await loaded;
   // Foldkit renders in the next animation frame.
