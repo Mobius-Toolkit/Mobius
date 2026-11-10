@@ -159,6 +159,19 @@ describe("the sheet of a server", () => {
     );
   });
 
+  it("gives the saved name of the server to DeleteServer when the Owner typed another name", () => {
+    story(
+      update,
+      given(loaded()),
+      message(Message.ClickedEdit({ id: 3 })),
+      message(Message.ChangedName({ text: "foo" })),
+      message(Message.ClickedDelete()),
+      message(Message.ClickedConfirmDelete()),
+      StoryCommand.expectExact(DeleteServer({ organization: "plants", id: 3, name: "makeadir" })),
+      StoryCommand.resolve(DeleteServer, Message.ServerDeleted({ id: 3 })),
+    );
+  });
+
   it("removes a deleted server from the list", () => {
     story(
       update,
@@ -285,6 +298,21 @@ describe("the OAuth of a server", () => {
         expect(Option.getOrThrow(m.servers)[0].oauth).toBe("none");
         expect(sheet(m).pending).toBe("none");
       }),
+    );
+  });
+
+  it("gives the saved name of the server to DisconnectOAuth when the Owner typed another name", () => {
+    const connected: McpServer = { ...http, oauth: "connected" };
+    story(
+      update,
+      given({ ...loaded(), servers: Option.some([connected, stdio]) }),
+      message(Message.ClickedEdit({ id: 3 })),
+      message(Message.ChangedName({ text: "foo" })),
+      message(Message.ClickedDisconnect()),
+      StoryCommand.expectExact(
+        DisconnectOAuth({ organization: "plants", id: 3, name: "makeadir" }),
+      ),
+      StoryCommand.resolve(DisconnectOAuth, Message.OAuthDisconnected({ id: 3 })),
     );
   });
 });

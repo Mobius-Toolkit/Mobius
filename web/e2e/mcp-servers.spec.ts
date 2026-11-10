@@ -174,6 +174,7 @@ test("the Owner deletes a server after the confirmation, and the list no longer 
   await expect(confirmation).toBeHidden();
   await expect(sheet(page, "Edit e2e-http")).toBeVisible();
 
+  await sheet(page, "Edit e2e-http").getByLabel("Name").fill("changed-name");
   await sheet(page, "Edit e2e-http").getByRole("button", { name: "Delete" }).click();
   const deleted = page.waitForResponse(
     (res) => res.url().includes(listPath) && res.request().method() === "DELETE",

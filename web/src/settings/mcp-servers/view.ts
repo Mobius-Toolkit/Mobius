@@ -336,11 +336,15 @@ function renderSheetOf(h: H, model: Model, sheet: Sheet): Html {
   });
 }
 
-function renderConfirmation(h: H, sheet: Sheet): Html {
+function renderConfirmation(h: H, model: Model, sheet: Sheet): Html {
+  const name = Option.match(sheet.id, {
+    onNone: () => sheet.name,
+    onSome: (id) => serverNamed(model, id)?.name ?? sheet.name,
+  });
   return renderDialog(h, {
     mount: h.OnMount(DialogOpened()),
     titleId: "mcp-delete-title",
-    title: `Delete ${sheet.name}`,
+    title: `Delete ${name}`,
     description: "Each Workstream that selects the server stops using it.",
     close: Message.DismissedDelete(),
     layout: "center",
@@ -395,7 +399,7 @@ export function view(model: Model, h: H): Html {
             [h.Class("contents")],
             [
               renderSheetOf(h, model, sheet),
-              sheet.confirmingDelete ? renderConfirmation(h, sheet) : h.empty,
+              sheet.confirmingDelete ? renderConfirmation(h, model, sheet) : h.empty,
             ],
           ),
       }),

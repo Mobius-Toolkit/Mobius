@@ -192,7 +192,13 @@ export function update(model: Model, message: Message): UpdateReturn<Model, Mess
             onNone: () => ({ model }),
             onSome: (id) => ({
               model: withSheet(model, (current) => pending(current, "delete")),
-              commands: [DeleteServer({ organization: model.organization, id, name: sheet.name })],
+              commands: [
+                DeleteServer({
+                  organization: model.organization,
+                  id,
+                  name: serverNamed(model, id)?.name ?? sheet.name,
+                }),
+              ],
             }),
           }),
       }),
@@ -235,7 +241,11 @@ export function update(model: Model, message: Message): UpdateReturn<Model, Mess
             onSome: (id) => ({
               model: withSheet(model, (current) => pending(current, "disconnect")),
               commands: [
-                DisconnectOAuth({ organization: model.organization, id, name: sheet.name }),
+                DisconnectOAuth({
+                  organization: model.organization,
+                  id,
+                  name: serverNamed(model, id)?.name ?? sheet.name,
+                }),
               ],
             }),
           }),
