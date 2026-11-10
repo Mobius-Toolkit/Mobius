@@ -179,7 +179,7 @@ const queueReasons = [
   "no free Implementer slot (2/2)",
 ];
 
-// A log that waits for its stream shows Connecting…, and the stream is open when the log has its first entries.
+// The log shows its entries before its stream opens, so the screenshot waits for the end of Connecting….
 const logConnected = async (page: Page) => {
   await expect(
     page.getByText("The plan prices are in cents now.").filter({ visible: true }),
@@ -975,7 +975,10 @@ test("screenshots", async ({ page }) => {
       composer.getByRole("img", { name: "Image 1" }),
     ],
     async () => {
-      await stoppedRow.getByRole("button", { name: "Chat", exact: true }).click();
+      await stoppedRow
+        .filter({ hasText: "The agent asked a question" })
+        .getByRole("button", { name: "Chat about #41", exact: true })
+        .click();
       await composer.getByRole("button", { name: "Remove #41" }).waitFor();
       await composer.locator("input[type=file]").setInputFiles(photos[0]);
       await expect(composer.getByRole("img", { name: "Image 1" })).toHaveJSProperty(
