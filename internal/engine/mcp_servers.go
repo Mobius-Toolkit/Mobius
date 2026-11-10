@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Mobius-Toolkit/Mobius/internal/runner"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
@@ -368,4 +369,23 @@ func mcpServerOf(row store.McpServer) (McpServer, error) {
 		return McpServer{}, err
 	}
 	return server, nil
+}
+
+func runnerMcpServers(servers []McpServer) []runner.MCPServer {
+	converted := make([]runner.MCPServer, 0, len(servers))
+	for _, server := range servers {
+		converted = append(converted, runner.MCPServer{
+			Name: server.Name, URL: server.URL, Headers: runnerPairs(server.Headers),
+			Command: server.Command, Args: server.Args, Env: runnerPairs(server.Env),
+		})
+	}
+	return converted
+}
+
+func runnerPairs(pairs []McpPair) []runner.Pair {
+	converted := make([]runner.Pair, 0, len(pairs))
+	for _, pair := range pairs {
+		converted = append(converted, runner.Pair{Name: pair.Name, Value: pair.Value})
+	}
+	return converted
 }

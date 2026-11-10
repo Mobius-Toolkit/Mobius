@@ -9,6 +9,7 @@ import (
 	"log"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	gh "github.com/google/go-github/v92/github"
@@ -112,10 +113,32 @@ func (e *Engine) retriage(ctx context.Context, repository github.Repository, iss
 	return e.restartTriager(ctx, repository, int64(issue.GetNumber()))
 }
 
+// afterTriagerStop is a hook of the tests. restartTriager calls it after a stopped Triager ended, with the start lock of
+// its issue held.
+var afterTriagerStop func()
+
+// triagerStart gives the start lock of the issue key.
+func (e *Engine) triagerStart(key triageKey) *sync.Mutex {
+	e.triagesMu.Lock()
+	defer e.triagesMu.Unlock()
+	if e.triagerStarts[key] == nil {
+		e.triagerStarts[key] = &sync.Mutex{}
+	}
+	return e.triagerStarts[key]
+}
+
 // restartTriager starts the Triager of the issue number again. A running Triager stops first, so the new run reads the
 // comments again. The database keeps the issue until the turn ends, so startHeldTriagers starts the turn again when the
 // drain or a restart of Mobius stops it.
 func (e *Engine) restartTriager(ctx context.Context, repository github.Repository, number int64) error {
+	start := e.triagerStart(triageKey{repository.FullName, number})
+	start.Lock()
+	defer start.Unlock()
+	return e.restartTriagerLocked(ctx, repository, number)
+}
+
+// restartTriagerLocked is restartTriager for a caller that holds the start lock of the issue.
+func (e *Engine) restartTriagerLocked(ctx context.Context, repository github.Repository, number int64) error {
 	turn := store.AddTriagerTurnParams{Repository: repository.FullName, Issue: number}
 	if !e.tryTrack() {
 		return e.queries.AddTriagerTurn(ctx, turn)
@@ -131,6 +154,9 @@ func (e *Engine) restartTriager(ctx context.Context, repository github.Repositor
 			e.untrack()
 			return ctx.Err()
 		}
+		if afterTriagerStop != nil {
+			afterTriagerStop()
+		}
 	}
 	if err := e.queries.AddTriagerTurn(ctx, turn); err != nil {
 		e.untrack()
@@ -138,6 +164,29 @@ func (e *Engine) restartTriager(ctx context.Context, repository github.Repositor
 	}
 	e.startTriager(repository, number)
 	return nil
+}
+
+// restartHeldTriager starts the Triager of the held turn number. It starts none while another restart of the same issue
+// runs, because that restart starts the Triager, and none when the Triager runs or its turn ended while the caller read
+// GitHub.
+func (e *Engine) restartHeldTriager(ctx context.Context, repository github.Repository, number int64) error {
+	key := triageKey{repository.FullName, number}
+	start := e.triagerStart(key)
+	if !start.TryLock() {
+		return nil
+	}
+	defer start.Unlock()
+	e.triagesMu.Lock()
+	_, running := e.triages[key]
+	e.triagesMu.Unlock()
+	if running {
+		return nil
+	}
+	held, err := e.queries.ListTriagerTurns(ctx, repository.FullName)
+	if err != nil || !slices.Contains(held, number) {
+		return err
+	}
+	return e.restartTriagerLocked(ctx, repository, number)
 }
 
 // startHeldTriagers starts the turns that did not end and do not run, when the issue is still open, has mobius:triage
@@ -179,7 +228,7 @@ func (e *Engine) startHeldTriagers(ctx context.Context, repository github.Reposi
 			}
 			continue
 		}
-		if err := e.restartTriager(ctx, repository, number); err != nil {
+		if err := e.restartHeldTriager(ctx, repository, number); err != nil {
 			return err
 		}
 	}

@@ -2588,6 +2588,24 @@ test("screenshots", async ({ page }) => {
       await expect(implementerSheet.getByLabel("Context", { exact: true })).toBeDisabled();
     },
   );
+  const operatorSheet = page.getByRole("dialog", { name: "Operator" });
+  await screenshot(
+    page,
+    "roles-operator-sheet",
+    "/settings/roles",
+    (device) => [
+      ...frame(device, release),
+      operatorSheet.getByText(
+        "Does work outside code for one Workstream, through the MCP servers of the Workstream, and reports to the Lead.",
+      ),
+    ],
+    async () => {
+      await roleRow("Operator").click();
+      await expect(operatorSheet).toHaveAccessibleDescription(
+        "Does work outside code for one Workstream, through the MCP servers of the Workstream, and reports to the Lead.",
+      );
+    },
+  );
   // The organization has no MCP server until the next step routes the list.
   await screenshot(page, "mcp-servers-none", "/settings/mcp-servers", (device) => [
     ...frame(device, release),

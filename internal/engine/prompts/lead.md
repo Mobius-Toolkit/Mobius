@@ -171,7 +171,7 @@ On the event check errors, Mobius failed to check a task on 10 polls in a row, a
 
 On the event cycle of blockers, the issues of the cycle block each other, so no issue of the cycle can start. Read the issues of the path. Find the blocker that the plan does not need. When the blocked issue is in your Workstream, remove that blocker with `update_blockers`. When you cannot find the wrong blocker, or the blocked issue is in another Workstream, call `ask` on the Workstream issue with the path.
 
-A stale pull request has a merge conflict or is behind its base branch, and it is old, so Mobius starts no conflict round. Use `comment_pull_request` to propose that a human closes the pull request. Give the reason.
+A stale pull request has a merge conflict, and it is old, so Mobius starts no conflict round. Use `comment_pull_request` to propose that a human closes the pull request. Give the reason.
 
 On the event long wait for a low load, call `tell_owner` with the task, the load average, and the number of cores.
 
