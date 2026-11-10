@@ -1380,11 +1380,6 @@ WHERE repository = ? AND state <> 'ended' AND merge_queued_at IS NOT NULL
 ORDER BY julianday(merge_queued_at), id
 LIMIT 1;
 
--- name: ListMergeQueue :many
-SELECT * FROM tasks
-WHERE repository = ? AND state <> 'ended' AND merge_queued_at IS NOT NULL
-ORDER BY julianday(merge_queued_at), id;
-
 -- name: AddDeploymentNeed :exec
 INSERT INTO deployment_needs (task, head, kind, name, path, line, reason, mandatory, after_merge) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
 

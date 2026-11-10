@@ -3,6 +3,8 @@ package engine_test
 import (
 	"fmt"
 	"net/http"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -78,24 +80,57 @@ func TestMergeQueueOrderAndOneAtATime(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := queueTasks(t, fake, "merge", []int{41, 43, 45})
 
+	pr41 := liveTask(t, server, 41).PullRequest.Int64
+	pr43 := liveTask(t, server, 43).PullRequest.Int64
+
+	head43 := head(t, fake, "mobius/43")
+	head45 := head(t, fake, "mobius/45")
+
 	fake.CommitFile(shop, "price.txt", "cents\n", "Add price")
+
+	// Hold the merge of the first task so we can check that PR 44 and PR 46 do not update before it merges.
+	reached41, release41 := fake.HoldMerge(shop, pr41)
 
 	sendChat(t, server, leadChat, "Approve #41")
 	sendChat(t, server, leadChat, "Approve #43")
 	sendChat(t, server, leadChat, "Approve #45")
 
-	// Only the first task (PR 42) gets an update while PR 44 and PR 46 wait.
+	// Only the first task gets an update while the other tasks wait.
 	testkit.WaitFor(t, func() bool { return fake.UpdateBranchCalls() >= 1 })
-	if calls := fake.UpdateBranchCalls(); calls != 1 {
-		t.Fatalf("update branch calls = %d, want 1", calls)
-	}
 
-	// PR 42 merges.
+	// Wait for the first task to attempt merging.
+	<-reached41
+	if calls := fake.UpdateBranchCalls(); calls != 1 {
+		t.Errorf("update calls before first merge = %d, want 1", calls)
+	}
+	if head(t, fake, "mobius/43") != head43 {
+		t.Errorf("PR 44 updated before PR 42 merged")
+	}
+	if head(t, fake, "mobius/45") != head45 {
+		t.Errorf("PR 46 updated before PR 42 merged")
+	}
+	release41()
+
+	// The first task merges.
 	testkit.WaitFor(t, func() bool { return fake.MergeCalls() == 1 })
 	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, 41) == "" })
 
-	// After PR 42 merged, PR 44 gets its update.
+	// Hold the merge of the second task to check that PR 46 does not update before it merges.
+	reached43, release43 := fake.HoldMerge(shop, pr43)
+
+	// After the first task merged, the second task gets its update.
 	testkit.WaitFor(t, func() bool { return fake.UpdateBranchCalls() >= 2 })
+
+	// Wait for the second task to attempt merging.
+	<-reached43
+	if calls := fake.UpdateBranchCalls(); calls != 2 {
+		t.Errorf("update calls before second merge = %d, want 2", calls)
+	}
+	if head(t, fake, "mobius/45") != head45 {
+		t.Errorf("PR 46 updated before PR 44 merged")
+	}
+	release43()
+
 	testkit.WaitFor(t, func() bool { return fake.MergeCalls() == 2 })
 	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, 43) == "" })
 
@@ -103,6 +138,10 @@ func TestMergeQueueOrderAndOneAtATime(t *testing.T) {
 	testkit.WaitFor(t, func() bool { return fake.UpdateBranchCalls() >= 3 })
 	testkit.WaitFor(t, func() bool { return fake.MergeCalls() == 3 })
 	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, 45) == "" })
+
+	if calls := fake.UpdateBranchCalls(); calls != 3 {
+		t.Errorf("final update calls = %d, want 3", calls)
+	}
 }
 
 // TestMergeQueueUpdateAndMerge verifies that the head of the queue gets one update, its new head
@@ -289,30 +328,102 @@ func TestMergeQueueRestartKeepsQueueOrderAndHead(t *testing.T) {
 func TestMergeQueueManualApproval(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := queueTasks(t, fake, "off", []int{41})
-	old := head(t, fake, "mobius/41")
+	server, _ := queueTasks(t, fake, "off", []int{41, 43})
+	old43 := head(t, fake, "mobius/43")
 
 	sendChat(t, server, leadChat, "Approve #41")
-	item := waitForItem(t, server, "ready for review")
+	item41 := testkit.WaitForValue(t, func() (inboxItem, bool) {
+		for _, item := range itemsOf(t, server, "ready for review") {
+			if item.Issue == 41 {
+				return item, true
+			}
+		}
+		return inboxItem{}, false
+	})
 	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, 41) == "ready_for_review" })
+
+	sendChat(t, server, leadChat, "Approve #43")
+	item43 := testkit.WaitForValue(t, func() (inboxItem, bool) {
+		for _, item := range itemsOf(t, server, "ready for review") {
+			if item.Issue == 43 {
+				return item, true
+			}
+		}
+		return inboxItem{}, false
+	})
+	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, 43) == "ready_for_review" })
 
 	fake.CommitFile(shop, "price.txt", "cents\n", "Add price")
 
-	// Owner approves with "Merge".
-	if status, body := merge(t, server, item.ID); status != http.StatusOK {
+	// Owner approves task 41 with "Merge". It enters the queue first.
+	if status, body := merge(t, server, item41.ID); status != http.StatusOK {
 		t.Fatalf("merge status = %d: %s", status, body)
 	}
+	testkit.WaitFor(t, func() bool {
+		var q string
+		_ = server.DB.QueryRow("SELECT coalesce(max(merge_queued_at), '') FROM tasks WHERE issue = 41").Scan(&q)
+		return q != ""
+	})
 
-	// It enters queue, gets update, and merges with no second "Merge" action.
+	// Owner approves task 43 with "Merge". It enters the queue second, behind task 41.
+	if status, body := merge(t, server, item43.ID); status != http.StatusOK {
+		t.Fatalf("merge status = %d: %s", status, body)
+	}
+	testkit.WaitFor(t, func() bool {
+		var q string
+		_ = server.DB.QueryRow("SELECT coalesce(max(merge_queued_at), '') FROM tasks WHERE issue = 43").Scan(&q)
+		return q != ""
+	})
+
+	// Hold first task's merge so we can check that task 43 gets no update until task 41 merged.
+	pr41 := liveTask(t, server, 41).PullRequest.Int64
+	pr43 := liveTask(t, server, 43).PullRequest.Int64
+	reached41, release41 := fake.HoldMerge(shop, pr41)
+
+	<-reached41
+	if calls := fake.UpdateBranchCalls(); calls != 1 {
+		t.Errorf("update calls before task 41 merge = %d, want 1", calls)
+	}
+	if head(t, fake, "mobius/43") != old43 {
+		t.Fatal("task 43 updated before its turn")
+	}
+	release41()
+
+	// Task 41 merges.
 	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, 41) == "" })
-	if calls, updates := fake.MergeCalls(), fake.UpdateBranchCalls(); calls != 1 || updates != 1 {
+
+	// Task 43 waits for its turn, gets update, and merges after approval again with no new "Merge".
+	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, 43) == "" })
+	if calls, updates := fake.MergeCalls(), fake.UpdateBranchCalls(); calls != 2 || updates != 2 {
 		t.Errorf("merge calls = %d, update calls = %d", calls, updates)
 	}
-	newHead := head(t, fake, "mobius/41")
-	if newHead == old {
-		t.Fatal("the head did not change")
+	newHead43 := head(t, fake, "mobius/43")
+	if newHead43 == old43 {
+		t.Fatal("the head of task 43 did not change")
 	}
-	checkApprovalAgain(t, fake, server, old, newHead, "The Owner got it for review.")
+
+	comments := fake.Comments(shop, pr43)
+	index := slices.IndexFunc(comments, func(comment testkit.Comment) bool {
+		return strings.HasPrefix(comment.Body, "Mobius approved the head ")
+	})
+	if index < 0 {
+		t.Fatalf("no comment of the approval again: %+v", comments)
+	}
+	want := fmt.Sprintf("Mobius approved the head %.8s again. Only clean merges of main came after the head %.8s, and they change no file of the pull request. The report of the Lead for %.8s:\n\nChecked the diff. Verified the tests.", newHead43, old43, old43)
+	if got := comments[index].Body; got != want {
+		t.Errorf("comment = %q, want %q", got, want)
+	}
+	if !slices.ContainsFunc(fake.CheckRuns(shop), func(run testkit.CheckRun) bool {
+		return run.Name == "Mobius" && run.HeadSHA == newHead43 && run.Conclusion == "success" &&
+			run.Output != nil && run.Output.Summary == "Mobius approved the head again: only clean merges of the default branch came after the approval of the Lead."
+	}) {
+		t.Errorf("no Mobius check run of the approval again with success on %s: %+v", newHead43, fake.CheckRuns(shop))
+	}
+	testkit.WaitFor(t, func() bool {
+		return slices.ContainsFunc(leadEvents(t, server), func(event leadEvent) bool {
+			return event.Kind == "approved_again" && strings.Contains(event.Payload, newHead43[:8])
+		})
+	})
 }
 
 // TestMergeQueueReEntryGoesToEnd verifies that a task that left the queue and becomes ready again goes to the end.

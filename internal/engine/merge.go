@@ -78,15 +78,22 @@ func awaitsMerge(task store.Task) bool {
 // of the pull request goes to GitHub, and the poll ends the task.
 func (e *Engine) mergeApproved(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) (bool, error) {
 	number := int64(pullRequest.GetNumber())
-	if !awaitsMerge(task) || task.State == "queued" || task.State == "working" || pullRequest.GetDraft() || !pullRequest.GetMergeable() || hasOpenThread(e.pull(repository, number)) {
-		if task.MergeQueuedAt.Valid && (!awaitsMerge(task) || pullRequest.GetDraft() || !pullRequest.GetMergeable() || hasOpenThread(e.pull(repository, number))) {
-			_ = e.queries.ClearTaskMergeQueuedAt(ctx, task.ID)
+	conflict := pullRequest.Mergeable != nil && !pullRequest.GetMergeable()
+	if pullRequest.GetDraft() || hasOpenThread(e.pull(repository, number)) || conflict {
+		if task.MergeQueuedAt.Valid {
+			if err := e.queries.ClearTaskMergeQueuedAt(ctx, task.ID); err != nil {
+				return false, err
+			}
+			task.MergeQueuedAt = sql.NullString{}
 		}
 		return false, nil
 	}
 	if blocked, err := e.blockedByTodos(ctx, task); err != nil || blocked {
 		if blocked && task.MergeQueuedAt.Valid {
-			_ = e.queries.ClearTaskMergeQueuedAt(ctx, task.ID)
+			if err := e.queries.ClearTaskMergeQueuedAt(ctx, task.ID); err != nil {
+				return false, err
+			}
+			task.MergeQueuedAt = sql.NullString{}
 		}
 		return false, err
 	}
@@ -96,9 +103,6 @@ func (e *Engine) mergeApproved(ctx context.Context, repository github.Repository
 			return false, err
 		}
 		if !mergesPullRequests(level) {
-			if task.MergeQueuedAt.Valid {
-				_ = e.queries.ClearTaskMergeQueuedAt(ctx, task.ID)
-			}
 			return false, e.endAutoMerge(ctx, task)
 		}
 		off, err := e.mergeOff(ctx)
@@ -106,9 +110,6 @@ func (e *Engine) mergeApproved(ctx context.Context, repository github.Repository
 			return false, err
 		}
 		if off {
-			if task.MergeQueuedAt.Valid {
-				_ = e.queries.ClearTaskMergeQueuedAt(ctx, task.ID)
-			}
 			return false, e.pauseAutoMerge(ctx, task)
 		}
 	}
@@ -117,19 +118,25 @@ func (e *Engine) mergeApproved(ctx context.Context, repository github.Repository
 	if err != nil {
 		return false, err
 	}
-	approvedByLead := slices.ContainsFunc(runs, func(run *gh.CheckRun) bool { return run.GetName() == checkRunName })
-	if task.State == "ready_for_review" && !approvedByLead {
-		return false, e.returnForApproval(ctx, task)
-	}
-	if !approvedByLead || slices.ContainsFunc(runs, func(run *gh.CheckRun) bool { return !passed(run) }) {
-		if task.MergeQueuedAt.Valid && slices.ContainsFunc(runs, func(run *gh.CheckRun) bool {
-			return run.GetStatus() == "completed" && failedConclusion(run.GetConclusion())
-		}) {
-			_ = e.queries.ClearTaskMergeQueuedAt(ctx, task.ID)
+	if slices.ContainsFunc(runs, func(run *gh.CheckRun) bool {
+		return run.GetStatus() == "completed" && failedConclusion(run.GetConclusion())
+	}) {
+		if task.MergeQueuedAt.Valid {
+			if err := e.queries.ClearTaskMergeQueuedAt(ctx, task.ID); err != nil {
+				return false, err
+			}
+			task.MergeQueuedAt = sql.NullString{}
 		}
 		return false, nil
 	}
 	if !task.MergeQueuedAt.Valid {
+		if !awaitsMerge(task) || task.State == "queued" || task.State == "working" || pullRequest.Mergeable == nil {
+			return false, nil
+		}
+		approvedByLead := slices.ContainsFunc(runs, func(run *gh.CheckRun) bool { return run.GetName() == checkRunName })
+		if !approvedByLead || slices.ContainsFunc(runs, func(run *gh.CheckRun) bool { return !passed(run) }) {
+			return false, nil
+		}
 		now := e.timeNow().UTC().Format(time.RFC3339Nano)
 		if err := e.queries.SetTaskMergeQueuedAt(ctx, store.SetTaskMergeQueuedAtParams{
 			MergeQueuedAt: sql.NullString{String: now, Valid: true},
@@ -146,6 +153,13 @@ func (e *Engine) mergeApproved(ctx context.Context, repository github.Repository
 	if queueHead.ID != task.ID {
 		return false, nil
 	}
+	approvedByLead := slices.ContainsFunc(runs, func(run *gh.CheckRun) bool { return run.GetName() == checkRunName })
+	if task.State == "ready_for_review" && !approvedByLead {
+		return false, e.returnForApproval(ctx, task)
+	}
+	if !approvedByLead || !awaitsMerge(task) || slices.ContainsFunc(runs, func(run *gh.CheckRun) bool { return !passed(run) }) {
+		return false, nil
+	}
 	if waits, err := e.updateForMerge(ctx, repository, pullRequest); err != nil || waits {
 		return false, err
 	}
@@ -153,8 +167,10 @@ func (e *Engine) mergeApproved(ctx context.Context, repository github.Repository
 		return false, err
 	}
 	if task, err = e.keepApproval(ctx, repository, task); err != nil || !awaitsMerge(task) || hasOpenThread(e.pull(repository, number)) {
-		if !awaitsMerge(task) || hasOpenThread(e.pull(repository, number)) {
-			_ = e.queries.ClearTaskMergeQueuedAt(ctx, task.ID)
+		if hasOpenThread(e.pull(repository, number)) {
+			if clearErr := e.queries.ClearTaskMergeQueuedAt(ctx, task.ID); clearErr != nil {
+				return false, errors.Join(err, clearErr)
+			}
 		}
 		return false, err
 	}
@@ -163,9 +179,6 @@ func (e *Engine) mergeApproved(ctx context.Context, repository github.Repository
 		return false, nil
 	}
 	if err != nil || !awaitsMerge(task) {
-		if !awaitsMerge(task) {
-			_ = e.queries.ClearTaskMergeQueuedAt(ctx, task.ID)
-		}
 		return false, err
 	}
 	merged, reason, err := repository.MergePullRequest(ctx, number, head)
@@ -186,7 +199,9 @@ func (e *Engine) mergeApproved(ctx context.Context, repository github.Repository
 		return false, err
 	}
 	if current.GetMerged() {
-		_ = e.queries.ClearTaskMergeQueuedAt(ctx, task.ID)
+		if err := e.queries.ClearTaskMergeQueuedAt(ctx, task.ID); err != nil {
+			return false, err
+		}
 		e.pull(repository, number).changed = true
 		return false, nil
 	}
@@ -196,7 +211,9 @@ func (e *Engine) mergeApproved(ctx context.Context, repository github.Repository
 	if err := e.queries.SetTaskRefusedReview(ctx, store.SetTaskRefusedReviewParams{RefusedReview: task.ApprovedReview, ID: task.ID}); err != nil {
 		return false, err
 	}
-	_ = e.queries.ClearTaskMergeQueuedAt(ctx, task.ID)
+	if err := e.queries.ClearTaskMergeQueuedAt(ctx, task.ID); err != nil {
+		return false, err
+	}
 	issue, err := existingIssue(ctx, repository, task.Issue)
 	if err != nil {
 		return false, err

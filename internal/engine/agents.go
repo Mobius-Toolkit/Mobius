@@ -1201,7 +1201,9 @@ func (e *Engine) setTaskState(ctx context.Context, params store.SetTaskStatePara
 	moved, err := e.queries.SetTaskState(ctx, params)
 	if err == nil && moved > 0 {
 		if !afterReview(params.State) {
-			_ = e.queries.ClearTaskMergeQueuedAt(ctx, params.ID)
+			if clearErr := e.queries.ClearTaskMergeQueuedAt(ctx, params.ID); clearErr != nil {
+				return 0, clearErr
+			}
 		}
 		e.publish(Change{Workstreams: true})
 	}
