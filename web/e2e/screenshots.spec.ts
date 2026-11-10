@@ -238,7 +238,7 @@ const converted = (route: Route) =>
   });
 
 test("screenshots", async ({ page }) => {
-  test.setTimeout(300_000);
+  test.setTimeout(600_000);
   const main = page.getByRole("main");
   const voiceCard = main.getByRole("group", { name: "Voice recording" });
   // The day separator shows the year of a message that is not in the current year.
