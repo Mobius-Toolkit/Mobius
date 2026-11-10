@@ -1,4 +1,5 @@
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
+import { buttonNames } from "./buttons.js";
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/github");
@@ -109,19 +110,18 @@ test("each item shows on one line with the action of its kind, oldest first", as
   await expect(rows.nth(5)).toContainText("#46");
 
   const action = (row: number, name: string) => rows.nth(row).getByRole("link", { name });
-  await expect(rows.nth(0).getByRole("button")).toHaveText(["Answer", "Chat"]);
+  await expect.poll(() => buttonNames(rows.nth(0))).toEqual(["Answer", "Chat about #45"]);
   await expect(action(0, "Open GitHub")).toHaveAttribute("href", `${link}/issues/45`);
-  await expect(rows.nth(1).getByRole("button")).toHaveText(["Resume", "Chat"]);
+  await expect.poll(() => buttonNames(rows.nth(1))).toEqual(["Resume", "Chat about #42"]);
   await expect(action(1, "Open GitHub")).toHaveAttribute("href", `${link}/issues/42`);
-  await expect(rows.nth(2).getByRole("button")).toHaveText(["Start again", "Chat", "Details"]);
+  await expect
+    .poll(() => buttonNames(rows.nth(2)))
+    .toEqual(["Start again", "Chat about #41", "Details"]);
   await expect(action(3, "Open PR")).toHaveAttribute("href", `${link}/pull/44`);
-  await expect(rows.nth(4).getByRole("button")).toHaveText([
-    "Send again",
-    "Chat",
-    "Details",
-    "Dismiss",
-  ]);
-  await expect(rows.nth(5).getByRole("button")).toHaveText(["Chat", "Details"]);
+  await expect
+    .poll(() => buttonNames(rows.nth(4)))
+    .toEqual(["Send again", "Chat about #12", "Details", "Dismiss"]);
+  await expect.poll(() => buttonNames(rows.nth(5))).toEqual(["Chat about #46", "Details"]);
   await expect(rows.getByRole("button", { name: "Dismiss" })).toHaveCount(1);
 });
 
@@ -466,7 +466,7 @@ test("an owner action row has the badge, the pull request and the buttons Done, 
     "href",
     `${link}/pull/1110`,
   );
-  await expect(row.getByRole("button")).toHaveText(["Done", "Chat", "Details"]);
+  await expect.poll(() => buttonNames(row)).toEqual(["Done", "Chat about PR #1110", "Details"]);
   await expect(row.getByRole("link", { name: "Open PR" })).toHaveAttribute(
     "href",
     `${link}/pull/1110`,
@@ -569,7 +569,7 @@ test("Merge is the primary button of a ready for review item and shows Merging a
   await page.goto("/inbox");
   const row = page.getByRole("main").getByRole("listitem");
 
-  await expect(row.getByRole("button")).toHaveText(["Merge", "Chat", "Details"]);
+  await expect.poll(() => buttonNames(row)).toEqual(["Merge", "Chat about PR #44", "Details"]);
   await expect(row.getByRole("link", { name: "Open PR" })).toHaveAttribute(
     "href",
     `${link}/pull/44`,
@@ -689,7 +689,7 @@ async function openTodo(page: Page) {
   await routeInbox(page, [todo]);
   await page.goto("/inbox");
   const row = page.getByRole("main").getByRole("listitem");
-  await expect(row.getByRole("button")).toHaveText(["Complete", "Chat", "Details"]);
+  await expect.poll(() => buttonNames(row)).toEqual(["Complete", "Chat about PR #1110", "Details"]);
   await expect(row.getByRole("link", { name: "Open PR" })).toHaveAttribute(
     "href",
     `${link}/pull/1110`,
@@ -718,12 +718,9 @@ test("a todo row shows a badge that tells if the todo is mandatory or optional",
   await expect(
     rows.filter({ hasText: "MOBIUS_SMTP_TIMEOUT" }).locator("[data-slot=badge]"),
   ).toHaveText("Todo · optional");
-  await expect(rows.filter({ hasText: "MOBIUS_SMTP_TIMEOUT" }).getByRole("button")).toHaveText([
-    "Complete",
-    "Chat",
-    "Details",
-    "Dismiss",
-  ]);
+  await expect
+    .poll(() => buttonNames(rows.filter({ hasText: "MOBIUS_SMTP_TIMEOUT" })))
+    .toEqual(["Complete", "Chat about PR #1110", "Details", "Dismiss"]);
 });
 
 test("an optional todo shows Dismiss, and the item leaves the Inbox after a tap", async ({
@@ -805,11 +802,9 @@ test("an after-merge todo shows its badge and says that it does not block the me
   await expect(
     rows.filter({ hasText: "MOBIUS_SMTP_TIMEOUT" }).locator("[data-slot=badge]"),
   ).toHaveText("Todo · optional · after merge");
-  await expect(rows.filter({ hasText: "MOBIUS_SMTP_HOST" }).getByRole("button")).toHaveText([
-    "Complete",
-    "Chat",
-    "Details",
-  ]);
+  await expect
+    .poll(() => buttonNames(rows.filter({ hasText: "MOBIUS_SMTP_HOST" })))
+    .toEqual(["Complete", "Chat about PR #1110", "Details"]);
 
   await rows
     .filter({ hasText: "MOBIUS_SMTP_HOST" })
@@ -965,7 +960,9 @@ test("a blocked ready for review row shows the count in place of Merge, and a ta
   const ready = main.getByRole("listitem").filter({ hasText: "Name the plan tiers" });
   const first = main.getByRole("listitem").filter({ hasText: "MOBIUS_SMTP_HOST" });
 
-  await expect(ready.getByRole("button")).toHaveText(["2 open todos", "Chat", "Details"]);
+  await expect
+    .poll(() => buttonNames(ready))
+    .toEqual(["2 open todos", "Chat about PR #44", "Details"]);
   await expect(ready.getByRole("button", { name: "Merge" })).toHaveCount(0);
   await expect(first).not.toBeInViewport();
 

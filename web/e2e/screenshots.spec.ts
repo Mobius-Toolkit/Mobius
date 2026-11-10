@@ -975,7 +975,10 @@ test("screenshots", async ({ page }) => {
       composer.getByRole("img", { name: "Image 1" }),
     ],
     async () => {
-      await stoppedRow.getByRole("button", { name: "Chat", exact: true }).click();
+      await stoppedRow
+        .filter({ hasText: "The agent asked a question" })
+        .getByRole("button", { name: "Chat about #41", exact: true })
+        .click();
       await composer.getByRole("button", { name: "Remove #41" }).waitFor();
       await composer.locator("input[type=file]").setInputFiles(photos[0]);
       await expect(composer.getByRole("img", { name: "Image 1" })).toHaveJSProperty(
