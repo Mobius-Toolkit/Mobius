@@ -18,6 +18,7 @@ var (
 	RateLimitGrace          = &rateLimitGrace
 	HangTimeout             = &hangTimeout
 	AfterHangRead           = &afterHangRead
+	AfterTriagerStop        = &afterTriagerStop
 	ErrHung                 = errHung
 	AbsorbTimeout           = &absorbTimeout
 	BackgroundTimeout       = &backgroundTimeout
