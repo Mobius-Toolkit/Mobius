@@ -29,7 +29,9 @@ test("the desktop group menu selects several fields in the field order", async (
   await expect(page).toHaveURL(/group=%5B%22harness%22%2C%22role%22%5D/);
   await expect(main.getByRole("button", { name: "Group by: Harness · Role" })).toBeVisible();
   await expect(
-    main.locator(".recharts-legend-wrapper").getByText("claude-code · lead_chat", { exact: true }),
+    main
+      .locator('[data-slot="chart-legend"]')
+      .getByText("claude-code · lead_chat", { exact: true }),
   ).toBeVisible();
 
   await main.getByRole("button", { name: "Group by: Harness · Role" }).click();
@@ -183,19 +185,49 @@ test("the value menu puts the fix rounds on the chart", async ({ page }) => {
 
   await expect(page).toHaveURL(/value=fixRounds/);
   await expect(main.getByRole("button", { name: "Chart: Fix rounds" })).toBeVisible();
-  await expect(main.locator(".recharts-yAxis-tick-labels")).toContainText("3.0");
+  await expect(main.locator('[data-slot="chart-y-axis"]')).toContainText("3.0");
 });
 
 test("the group Model shows one line and one row for each model", async ({ page }) => {
   const main = page.getByRole("main");
   await page.goto("/usage?tab=quality&group=%5B%22model%22%5D");
 
-  const legend = main.locator(".recharts-legend-wrapper");
+  const legend = main.locator('[data-slot="chart-legend"]');
   await expect(legend.getByText("sonnet", { exact: true })).toBeVisible();
   await expect(legend.getByText("swe-1.5", { exact: true })).toBeVisible();
   const table = main.getByRole("table");
   await expect(table.getByRole("columnheader", { name: "Model" })).toBeVisible();
   await expect(table.getByRole("rowheader")).toHaveText(["sonnet", "swe-1.5"]);
+});
+
+test("a tab writes its name in the address, and the tab Cost writes none", async ({ page }) => {
+  const main = page.getByRole("main");
+  await page.goto("/usage");
+
+  await main.getByRole("tab", { name: "Tokens" }).click();
+  await expect(page).toHaveURL(/tab=tokens/);
+  await expect(main.getByRole("tab", { name: "Tokens", selected: true })).toBeVisible();
+  await expect(main.getByRole("columnheader", { name: "Largest context" })).toBeVisible();
+
+  await main.getByRole("tab", { name: "Cost" }).click();
+  await expect(page).not.toHaveURL(/tab=/);
+  await expect(main.getByRole("tab", { name: "Cost", selected: true })).toBeVisible();
+  await expect(main.getByRole("columnheader", { name: "Largest context" })).toHaveCount(0);
+});
+
+test("a bar chart shows the values of a day in a tooltip while the mouse is on it", async ({
+  page,
+}) => {
+  const main = page.getByRole("main");
+  await page.goto("/usage?group=%5B%22model%22%5D");
+  const tooltip = main.locator('[data-slot="chart-tooltip"]');
+
+  await main.locator('[data-slot="chart-bar"]').last().hover();
+  await expect(tooltip).toContainText(/Oct \d+/);
+  await expect(tooltip).toContainText(/\$\d/);
+
+  await page.mouse.move(0, 0);
+  await expect(tooltip).toBeHidden();
 });
 
 test("the Quality tab filters by the task fields and not by Role", async ({ page }) => {

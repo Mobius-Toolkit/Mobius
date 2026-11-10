@@ -100,9 +100,11 @@ function renderMcpSheet(h: H, model: Model, servers: readonly McpServer[], sheet
   return renderSheet(h, {
     mount: h.OnMount(McpSheetOpened()),
     titleId: "mcp-servers-title",
-    descriptionId: "mcp-servers-description",
     title: `MCP servers of #${model.number}`,
-    description: "The Operator of the Workstream uses the selected servers.",
+    description: {
+      id: "mcp-servers-description",
+      text: "The Operator of the Workstream uses the selected servers.",
+    },
     close: Message.ClosedMcpServers(),
     className: "gap-3 p-4 pt-3 md:mx-auto md:max-w-md md:rounded-t-xl",
     children: [

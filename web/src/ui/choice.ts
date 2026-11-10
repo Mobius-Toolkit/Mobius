@@ -1,9 +1,7 @@
 import type { Html, HtmlBuilder } from "foldkit/html";
 import { buttonClass } from "./button";
 import { checkIcon, chevronDownIcon, spinnerIcon } from "./icons";
-
-const itemClass =
-  "relative flex w-full cursor-default items-center gap-1.5 rounded-md py-1 pr-8 pl-1.5 text-left text-sm outline-hidden select-none hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0";
+import { menuItemClass } from "./menu";
 
 // A button that opens a menu of values on one side of it. toggle is the Message of the button, and close is the Message of the
 // layer behind the menu. The menu shows a spinner while loading is true.
@@ -55,7 +53,7 @@ export function renderChoice<M>(
                       h.Type("button"),
                       h.Role("menuitemradio"),
                       h.AriaChecked(value === options.value),
-                      h.Class(itemClass),
+                      h.Class(menuItemClass),
                       h.OnClick(options.pick(value)),
                     ],
                     [

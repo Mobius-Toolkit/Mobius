@@ -128,9 +128,8 @@ function renderSheetOf(h: H, model: Model, sheet: Sheet): Html {
   return renderSheet(h, {
     mount: h.OnMount(SheetOpened()),
     titleId: "role-title",
-    descriptionId: "role-description",
     title: roleName(role),
-    description: roleDescriptions[role.role] ?? "",
+    description: { id: "role-description", text: roleDescriptions[role.role] ?? "" },
     close: Message.ClosedSheet(),
     className: "gap-3 p-4 pt-3 md:mx-auto md:max-w-md md:rounded-t-xl",
     children: [

@@ -1,4 +1,4 @@
-import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
+import { useParams, useSearch } from "@tanstack/react-router";
 import { PageHeader } from "@/components/page";
 import { useShell } from "@/lib/shell";
 import { Agents } from "./Agents";
@@ -139,12 +139,5 @@ export function MemoryFilePage() {
 }
 
 export function UsagePage() {
-  const search = useSearch({ from: "/usage" });
-  const navigate = useNavigate({ from: "/usage" });
-  return (
-    <Usage
-      search={search}
-      onSearch={(patch) => navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true })}
-    />
-  );
+  return <Usage search={useSearch({ from: "/usage" })} />;
 }
