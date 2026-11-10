@@ -24,16 +24,25 @@ export function renderIconButton<M>(
   );
 }
 
+// autofocus marks the button for the focus of a dialog (defineDialogMount).
 export function renderButton<M>(
   h: HtmlBuilder<M>,
   options: NonNullable<Parameters<typeof buttonVariants>[0]> & {
     label: string;
     pending?: boolean;
     disabled?: boolean;
+    autofocus?: boolean;
     onClick: M;
   },
 ): Html {
-  const { label, pending = false, disabled = false, onClick, ...style } = options;
+  const {
+    label,
+    pending = false,
+    disabled = false,
+    autofocus = false,
+    onClick,
+    ...style
+  } = options;
   return h.button(
     [
       h.Type("button"),
@@ -41,6 +50,7 @@ export function renderButton<M>(
       h.Disabled(disabled || pending),
       h.Class(buttonClass(style)),
       h.OnClick(onClick),
+      ...(autofocus ? [h.DataAttribute("autofocus", "")] : []),
     ],
     [pending ? spinnerIcon(h) : h.empty, label],
   );

@@ -1,81 +1,46 @@
-import { use, useCallback, useEffect, useState } from "react";
-import { listDevices, logout, type Devices as DeviceList } from "@/api/api.gen";
-import { Badge } from "@/components/ui/badge";
-import { ErrorBadge, List, PageHeader, Row } from "@/components/page";
-import { Button } from "@/components/ui/button";
+import { Effect } from "effect";
+import * as Runtime from "foldkit/runtime";
+import { use, useEffect, useRef } from "react";
 import { LoginContext } from "@/lib/login";
+import type { DevicesPorts } from "./settings/devices/ports";
+import { createDevicesProgram } from "./settings/devices/program";
 import { TopBar } from "./TopBar";
 
 export function Devices() {
   const showLogin = use(LoginContext);
-  const [devices, setDevices] = useState<DeviceList>();
-  const [error, setError] = useState<string>();
-  const [loggingOut, setLoggingOut] = useState<number[]>([]);
+  const containerRef = useRef<HTMLDivElement>(null);
 
-  const load = useCallback(() => {
-    listDevices()
-      .then((res) => {
-        if (res.status === 401) {
-          showLogin();
-        } else if (res.status === 200) {
-          setDevices(res.data.data);
-        } else {
-          setError(res.data.error);
-        }
-      })
-      .catch((err: unknown) => setError(String(err)));
+  // A change of a Flag disposes the program and embeds it again.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) {
+      return;
+    }
+
+    const flags = {};
+    const handle: Runtime.EmbedHandle<DevicesPorts> = Runtime.embed(
+      createDevicesProgram(container, flags),
+      { flags: Effect.succeed(flags) },
+    );
+
+    const unsubLogin = handle.ports.loginRequested.subscribe(() => {
+      showLogin();
+    });
+
+    return () => {
+      unsubLogin();
+      handle.dispose();
+    };
   }, [showLogin]);
 
-  useEffect(load, [load]);
-
-  const logOut = (id: number) => {
-    setLoggingOut((ids) => [...ids, id]);
-    logout(id)
-      .then((res) => {
-        if (res.status === 204) {
-          load();
-          return;
-        }
-        if (res.status === 401) {
-          showLogin();
-        } else {
-          setError(res.data.error);
-        }
-        setLoggingOut((ids) => ids.filter((other) => other !== id));
-      })
-      .catch((err: unknown) => {
-        setError(String(err));
-        setLoggingOut((ids) => ids.filter((other) => other !== id));
-      });
-  };
-
+  // Foldkit replaces the container element with its own root. Thus the wrapper keeps the container as its only child,
+  // and React never moves the container.
   return (
     <>
       <TopBar title="Devices" back="/settings" />
-      <PageHeader title="Devices" />
-      {error && <ErrorBadge>{error}</ErrorBadge>}
-      <List>
-        {devices?.logins.map((login) => (
-          <Row key={login.id} className="justify-between">
-            <span className="grid gap-1">
-              <span>{login.userAgent}</span>
-              <span className="text-muted-foreground">
-                Logged in {new Date(login.createdAt).toLocaleString()}
-              </span>
-            </span>
-            <span className="flex items-center gap-2">
-              {login.id === devices.thisDevice && <Badge variant="secondary">This device</Badge>}
-              <Button
-                variant="outline"
-                pending={loggingOut.includes(login.id)}
-                onClick={() => logOut(login.id)}
-              >
-                Log out
-              </Button>
-            </span>
-          </Row>
-        ))}
-      </List>
+      <div id="devices-app-wrapper">
+        <div id="devices-app" ref={containerRef} />
+      </div>
     </>
   );
 }
