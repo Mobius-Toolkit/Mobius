@@ -68,6 +68,20 @@ const clock: readonly Shape[] = [
   ["path", { d: "M12 6v6l4 2" }],
 ];
 
+const pause: readonly Shape[] = [
+  ["rect", { x: "14", y: "3", width: "5", height: "18", rx: "1" }],
+  ["rect", { x: "5", y: "3", width: "5", height: "18", rx: "1" }],
+];
+
+const zap: readonly Shape[] = [
+  [
+    "path",
+    {
+      d: "M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z",
+    },
+  ],
+];
+
 const messageSquare: readonly Shape[] = [
   [
     "path",
@@ -209,6 +223,14 @@ export function chevronDownIcon<M>(h: HtmlBuilder<M>, className = "size-4"): Htm
 
 export function playIcon<M>(h: HtmlBuilder<M>, className = "size-4"): Html {
   return icon(h, play, className);
+}
+
+export function pauseIcon<M>(h: HtmlBuilder<M>, className = "size-4"): Html {
+  return icon(h, pause, className);
+}
+
+export function zapIcon<M>(h: HtmlBuilder<M>, className = "size-4"): Html {
+  return icon(h, zap, className);
 }
 
 export function messageSquareIcon<M>(h: HtmlBuilder<M>, className = "size-4"): Html {
