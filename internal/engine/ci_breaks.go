@@ -325,10 +325,13 @@ func (e *Engine) advanceCIBreak(ctx context.Context, repository github.Repositor
 		return e.endCIBreak(ctx, ciBreak, store.EndCIBreakParams{Result: ciBreak.Result, EndedRunID: newest.GetID(), EndedAt: now(), ID: ciBreak.ID})
 	}
 	if ciBreak.Result == "hard" && ciBreak.Issue > 0 {
-		if closed, err := e.ciBreakIssueClosed(ctx, repository, ciBreak.Issue); err != nil || !closed {
+		closed, err := e.ciBreakIssueClosed(ctx, repository, ciBreak.Issue)
+		if err != nil {
 			return err
 		}
-		return e.endCIBreak(ctx, ciBreak, store.EndCIBreakParams{Result: ciBreak.Result, EndedAt: now(), ID: ciBreak.ID})
+		if closed {
+			return e.endCIBreak(ctx, ciBreak, store.EndCIBreakParams{Result: ciBreak.Result, EndedAt: now(), ID: ciBreak.ID})
+		}
 	}
 	hasNewer := newest != nil && newest.GetID() > ciBreak.RunID || newerRunRuns(byID, ciBreak)
 	if !hasNewer {
