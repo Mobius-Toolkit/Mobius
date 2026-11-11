@@ -7,23 +7,6 @@ import (
 	"strings"
 )
 
-// listCommits gives the commits of the branch sha of the git repository of the repository, the newest first.
-func (g *FakeGitHub) listCommits(w http.ResponseWriter, r *http.Request) {
-	args := []string{"log", "--format=%H%x00%cI%x00%s", r.URL.Query().Get("sha")}
-	out, err := gitCommand(g.Remote(repository(r)), args...).Output()
-	if err != nil {
-		notFound(w)
-		return
-	}
-	commits := []map[string]any{}
-	for line := range strings.Lines(strings.TrimSpace(string(out))) {
-		sha, rest, _ := strings.Cut(strings.TrimSpace(line), "\x00")
-		date, subject, _ := strings.Cut(rest, "\x00")
-		commits = append(commits, map[string]any{"sha": sha, "commit": map[string]any{"message": subject, "committer": map[string]string{"date": date}}})
-	}
-	writeJSON(w, http.StatusOK, page(w, r, commits))
-}
-
 // getCommit gives the files that the commit sha changes.
 func (g *FakeGitHub) getCommit(w http.ResponseWriter, r *http.Request) {
 	out, err := gitCommand(g.Remote(repository(r)), "show", "--name-only", "--format=", r.PathValue("sha")).Output()
