@@ -148,6 +148,19 @@ func (r Repository) BranchWorkflowRuns(ctx context.Context, branch string) ([]*g
 	return runs.WorkflowRuns, nil
 }
 
+// WorkflowState gives the state of the workflow id (for example "active", "disabled_manually"), or "" when GitHub
+// answers 404 Not Found or 410 Gone.
+func (r Repository) WorkflowState(ctx context.Context, id int64) (string, error) {
+	workflow, _, err := r.Client.Actions.GetWorkflowByID(ctx, r.Owner(), r.Name(), id)
+	if NotFound(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return workflow.GetState(), nil
+}
+
 // RerunFailedJobs runs the failed jobs of the workflow run id again. It needs the permission actions: write.
 func (r Repository) RerunFailedJobs(ctx context.Context, id int64) error {
 	_, err := r.Client.Actions.RerunFailedJobsByID(ctx, r.Owner(), r.Name(), id)

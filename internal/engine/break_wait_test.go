@@ -1,10 +1,13 @@
 package engine_test
 
 import (
+	"fmt"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/Mobius-Toolkit/Mobius/internal/store"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
@@ -346,4 +349,86 @@ func TestARestartKeepsTheWaitOfATaskAndTheEndOfTheBreakUpdatesItsBranch(t *testi
 	testkit.WaitFor(t, func() bool { return fake.UpdateBranchCalls() == 1 })
 	isAncestor(t, fake, "main", head(t, fake, "mobius/41"))
 	testkit.WaitFor(t, func() bool { return breakWaitHead(t, server) == "" })
+}
+
+func TestAFailedWorkflowDispatchRunStartsNoBreakAndTaskWithFailedCIGetsFixRound(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	dispatchRun := failedMainRun(7)
+	dispatchRun.Event = "workflow_dispatch"
+	fake.AddWorkflowRun(shop, dispatchRun)
+
+	server, _ := connectTask(t, fake, leadStarts, fixes, longGrace)
+	logStateOnFailure(t, server, fake)
+	sha := checksHead(t, server, fake)
+
+	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
+
+	if round := roundPrompt(t, server); !strings.Contains(round, "Check run \"build\"") {
+		t.Errorf("round = %s", round)
+	}
+	if got := breakWaitHead(t, server); got != "" {
+		t.Errorf("break_wait_head = %s, want empty", got)
+	}
+}
+
+func TestAnOpenHardBreakEndsWhenWorkflowIsNotFoundAndTaskLeavesWait(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _, _ := waitingTask(t, fake)
+
+	fake.SetWorkflowNotFound(shop, 7)
+
+	testkit.WaitFor(t, func() bool {
+		open, err := store.New(server.DB).ListOpenCIBreaks(t.Context(), shop)
+		return err == nil && len(open) == 0
+	})
+	testkit.WaitFor(t, func() bool { return breakWaitHead(t, server) == "" })
+	if round := roundPrompt(t, server); !strings.Contains(round, "Check run \"build\"") {
+		t.Errorf("round = %s", round)
+	}
+}
+
+func TestACurrentBreakHoldsTaskAndReadsNoWorkflowWhileNewerRunIsInPage(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, sha, _ := waitingTask(t, fake)
+
+	waitForWorkflowRead(t, fake, 7)
+	fake.AddWorkflowRun(shop, failedMainRun(7))
+	waitForPolls(t, fake)
+	reads := workflowReads(fake, 7)
+
+	waitForPolls(t, fake)
+	wantWaiting(t, server, fake)
+	if got := breakWaitHead(t, server); got != sha {
+		t.Errorf("break_wait_head = %s, want %s", got, sha)
+	}
+	if got := workflowReads(fake, 7); got != reads {
+		t.Errorf("workflow reads = %d, want %d", got, reads)
+	}
+}
+
+func waitForWorkflowRead(t *testing.T, fake *testkit.FakeGitHub, workflowID int64) {
+	t.Helper()
+	path := fmt.Sprintf("/repos/owner/shop/actions/workflows/%d", workflowID)
+	testkit.WaitFor(t, func() bool {
+		for _, request := range fake.Requests() {
+			if request.Method == http.MethodGet && request.Path == path {
+				return true
+			}
+		}
+		return false
+	})
+}
+
+func workflowReads(fake *testkit.FakeGitHub, workflowID int64) int {
+	path := fmt.Sprintf("/repos/owner/shop/actions/workflows/%d", workflowID)
+	n := 0
+	for _, request := range fake.Requests() {
+		if request.Method == http.MethodGet && request.Path == path {
+			n++
+		}
+	}
+	return n
 }

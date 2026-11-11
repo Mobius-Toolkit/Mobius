@@ -491,7 +491,7 @@ func TestAChangeOfARecurringTaskDuringTheStepGivesNoEventAndNoRun(t *testing.T) 
 	t.Parallel()
 	for name, change := range map[string]func(*testing.T, *testserver.Server, int64){
 		"a new cron expression": func(t *testing.T, server *testserver.Server, id int64) {
-			if _, err := server.Engine.UpdateRecurringTask(t.Context(), shop, 12, id, "30 * * * *", planCheck); err != nil {
+			if _, err := server.Engine.UpdateRecurringTask(t.Context(), shop, 12, id, "30 10 * * *", planCheck); err != nil {
 				t.Fatal(err)
 			}
 		},
@@ -514,8 +514,8 @@ func TestAChangeOfARecurringTaskDuringTheStepGivesNoEventAndNoRun(t *testing.T) 
 			task := addRecurringTask(t, server, hourly, planCheck)
 
 			err := server.Engine.RunStaleRecurringTasks(t.Context(), func() {
-				setNow(server, friday.Add(time.Hour))
 				change(t, server, task.ID)
+				setNow(server, friday.Add(time.Hour))
 			})
 
 			if err != nil {
