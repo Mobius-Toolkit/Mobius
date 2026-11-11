@@ -254,9 +254,9 @@ func TestARefusedCommentOfTheApprovalAgainGivesTheLeadReadyForApproval(t *testin
 	if !strings.Contains(event, "The change of the pull request is the same as at the approved head") {
 		t.Errorf("event = %q", event)
 	}
-	if !strings.Contains(event, "\nNo commit of main after the start of the CI of the head") &&
-		!strings.Contains(event, "\nThe head has no CI run, so Mobius lists no commit of main.") {
-		t.Errorf("event without the newer commits text: %q", event)
+	if strings.Contains(event, "after the start of the CI of the head") ||
+		strings.Contains(event, "lists no commit of main") {
+		t.Errorf("event has newer commits text: %q", event)
 	}
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" })
 	waitForPolls(t, fake)

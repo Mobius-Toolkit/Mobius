@@ -203,7 +203,6 @@ func (e *Engine) onChecks(ctx context.Context, repository github.Repository, tas
 	if err != nil {
 		return err
 	}
-	var newerCommits string
 	var level string
 	var checkRun int64
 	if again {
@@ -216,11 +215,6 @@ func (e *Engine) onChecks(ctx context.Context, repository github.Repository, tas
 		}
 		if checkRun == 0 {
 			return fmt.Errorf("the head %s of pull request #%d has no open Mobius check run", head, pullRequest.GetNumber())
-		}
-	} else {
-		newerCommits, err = e.newerCommitsText(ctx, repository, task, pullRequest, state.started)
-		if err != nil {
-			return err
 		}
 	}
 	moved, err := e.setTaskState(ctx, store.SetTaskStateParams{State: "approval", ID: task.ID, FromState: "checks"})
@@ -238,22 +232,18 @@ func (e *Engine) onChecks(ctx context.Context, repository github.Repository, tas
 		}
 		var refused *gh.ErrorResponse
 		if errors.As(err, &refused) && refused.Response.StatusCode < 500 {
-			newerCommits, textErr := e.newerCommitsText(ctx, repository, task, pullRequest, state.started)
-			if textErr == nil {
-				return e.addReadyForApproval(ctx, task, issue, pullRequest, approvedHead, newerCommits)
-			}
-			err = textErr
+			return e.addReadyForApproval(ctx, task, issue, pullRequest, approvedHead)
 		}
 		_, stateErr := e.setTaskState(ctx, store.SetTaskStateParams{State: "checks", ID: task.ID, FromState: "approval"})
 		return errors.Join(err, stateErr)
 	}
-	return e.addReadyForApproval(ctx, task, issue, pullRequest, approvedHead, newerCommits)
+	return e.addReadyForApproval(ctx, task, issue, pullRequest, approvedHead)
 }
 
-// addReadyForApproval gives the Lead the event ready_for_approval for the head of the pull request. approvedHead and
-// newerCommits are the lines that follow its first line.
-func (e *Engine) addReadyForApproval(ctx context.Context, task store.Task, issue *gh.Issue, pullRequest *gh.PullRequest, approvedHead, newerCommits string) error {
-	text := fmt.Sprintf("%s ready for Lead approval of %s \"%s\": pull request %s %s.", time.Now().UTC().Format(timeFormat), taskEventRef(task, task.Issue), issue.GetTitle(), taskEventRef(task, int64(pullRequest.GetNumber())), pullRequest.GetHTMLURL()) + approvedHead + newerCommits
+// addReadyForApproval gives the Lead the event ready_for_approval for the head of the pull request. approvedHead is the
+// text that follows its first line when the Lead approved an earlier head.
+func (e *Engine) addReadyForApproval(ctx context.Context, task store.Task, issue *gh.Issue, pullRequest *gh.PullRequest, approvedHead string) error {
+	text := fmt.Sprintf("%s ready for Lead approval of %s \"%s\": pull request %s %s.", time.Now().UTC().Format(timeFormat), taskEventRef(task, task.Issue), issue.GetTitle(), taskEventRef(task, int64(pullRequest.GetNumber())), pullRequest.GetHTMLURL()) + approvedHead
 	return e.addLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, task.Repository, sql.NullInt64{Int64: task.Issue, Valid: true}, "ready_for_approval", text)
 }
 
@@ -433,10 +423,6 @@ type ci struct {
 	// absent is true for a head with no check run of another App and no workflow run: its CI has not started, or the
 	// repository has no CI.
 	absent bool
-	// started is the start of the CI: the earliest creation of a workflow run, or with no workflow run, the earliest
-	// start of a check run of another App. A re-run keeps the creation time of its run and tests the same merge commit.
-	// It is zero when absent.
-	started time.Time
 }
 
 // ciOf reads the CI of the head. A workflow run can exist before its jobs have check runs.
@@ -450,7 +436,6 @@ func ciOf(ctx context.Context, repository github.Repository, head string) (ci, e
 		return ci{}, err
 	}
 	var state ci
-	var checkStarted time.Time
 	others := 0
 	for _, run := range runs {
 		if run.GetName() == checkRunName {
@@ -458,7 +443,6 @@ func ciOf(ctx context.Context, repository github.Repository, head string) (ci, e
 			continue
 		}
 		others++
-		checkStarted = earlier(checkStarted, run.GetStartedAt().Time)
 		switch {
 		case run.GetStatus() != "completed":
 			state.running = true
@@ -468,7 +452,6 @@ func ciOf(ctx context.Context, repository github.Repository, head string) (ci, e
 		}
 	}
 	for _, workflow := range newestWorkflowRuns(workflows) {
-		state.started = earlier(state.started, workflow.GetCreatedAt().Time)
 		switch {
 		case workflow.GetStatus() != "completed":
 			state.running = true
@@ -480,19 +463,8 @@ func ciOf(ctx context.Context, repository github.Repository, head string) (ci, e
 			}
 		}
 	}
-	if len(workflows) == 0 {
-		state.started = checkStarted
-	}
 	state.absent = others+len(workflows) == 0
 	return state, nil
-}
-
-// earlier gives the earlier of two times. A zero time means no time.
-func earlier(a, b time.Time) time.Time {
-	if a.IsZero() || !b.IsZero() && b.Before(a) {
-		return b
-	}
-	return a
 }
 
 // failedWorkflowRun tells if the workflow run completed with a failure.
