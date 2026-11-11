@@ -6,14 +6,14 @@ import { chevronDownIcon } from "@/ui/icons";
 import { Message } from "./message";
 import type { Model } from "./model";
 
-export function renderOrganizationSwitch(h: HtmlBuilder<Message>, model: Model): Html {
+export function renderOrganizationSwitch(h: HtmlBuilder<Message>, model: Model, id: string): Html {
   if (model.organizations.length <= 1) {
     return h.empty;
   }
 
   const organizations = model.organizations;
   const currentOrg = model.organization;
-  const isOpen = Option.isSome(model.openMenu) && model.openMenu.value === "organization";
+  const isOpen = Option.isSome(model.openMenu) && model.openMenu.value === id;
 
   // Calculate counts for each org
   const counts = new Map<string, number>();
@@ -29,7 +29,7 @@ export function renderOrganizationSwitch(h: HtmlBuilder<Message>, model: Model):
   );
 
   return h.div(
-    [h.Class("relative flex")],
+    [h.Class("relative grid")],
     [
       h.button(
         [
@@ -43,7 +43,7 @@ export function renderOrganizationSwitch(h: HtmlBuilder<Message>, model: Model):
               className: "md:w-full md:justify-start",
             }),
           ),
-          h.OnClick(Message.ToggleMenu({ id: "organization" })),
+          h.OnClick(Message.ToggleMenu({ id })),
         ],
         [
           currentOrg,

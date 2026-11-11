@@ -283,7 +283,7 @@ export function renderFrame(h: HtmlBuilder<Message>, model: Model, content: Html
         [h.Class("px-2 py-1")],
         [
           model.organizations.length > 1
-            ? renderOrganizationSwitch(h, model)
+            ? renderOrganizationSwitch(h, model, "organization-side")
             : h.span([h.Class("text-base font-semibold")], ["Mobius"]),
         ],
       ),
@@ -460,7 +460,9 @@ export function renderFrame(h: HtmlBuilder<Message>, model: Model, content: Html
               h.div(
                 [h.Class("grid gap-2 px-4 pt-4 empty:hidden md:hidden")],
                 [
-                  showMobileOrgSwitch ? renderOrganizationSwitch(h, model) : h.empty,
+                  showMobileOrgSwitch
+                    ? renderOrganizationSwitch(h, model, "organization-content")
+                    : h.empty,
                   currentPath === "/settings" ? renderUpgradeControls(h, model) : h.empty,
                 ],
               ),
