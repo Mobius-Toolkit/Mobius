@@ -1204,8 +1204,18 @@ func (e *Engine) setTaskState(ctx context.Context, params store.SetTaskStatePara
 	moved, err := e.queries.SetTaskState(ctx, params)
 	if err == nil && moved > 0 {
 		if !afterReview(params.State) {
-			if clearErr := e.queries.ClearTaskMergeQueuedAt(ctx, params.ID); clearErr != nil {
-				return 0, clearErr
+			cleared, clearErr := e.queries.ClearTaskMergeQueuedAt(ctx, params.ID)
+			if clearErr != nil {
+				return moved, clearErr
+			}
+			if cleared > 0 {
+				task, getErr := e.queries.GetTask(ctx, params.ID)
+				if getErr != nil {
+					return moved, getErr
+				}
+				if pubErr := e.publishMergeQueue(ctx, task.Repository, task); pubErr != nil {
+					return moved, pubErr
+				}
 			}
 		}
 		e.publish(Change{Workstreams: true})
@@ -1233,8 +1243,17 @@ func (e *Engine) requeueTask(ctx context.Context, id int64) (int64, error) {
 
 // startTaskWorker moves the task like StartTaskWorker. It publishes a Workstream change when the task moved.
 func (e *Engine) startTaskWorker(ctx context.Context, params store.StartTaskWorkerParams) (int64, error) {
+	task, err := e.queries.GetTask(ctx, params.ID)
+	if err != nil {
+		return 0, err
+	}
 	moved, err := e.queries.StartTaskWorker(ctx, params)
 	if err == nil && moved > 0 {
+		if task.MergeQueuedAt.Valid {
+			if pubErr := e.publishMergeQueue(ctx, task.Repository, task); pubErr != nil {
+				return moved, pubErr
+			}
+		}
 		e.publish(Change{Workstreams: true})
 	}
 	return moved, err

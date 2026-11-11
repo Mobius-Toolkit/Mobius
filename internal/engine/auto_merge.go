@@ -61,10 +61,8 @@ func (e *Engine) autoApprove(ctx context.Context, repository github.Repository, 
 // holdMerge records the issue of the task in the held work of the Merge switch, and gives the open ready for review
 // Inbox items of the issue the reason mergePausedReason.
 func (e *Engine) holdMerge(ctx context.Context, task store.Task) error {
-	if task.MergeQueuedAt.Valid {
-		if err := e.queries.ClearTaskMergeQueuedAt(ctx, task.ID); err != nil {
-			return err
-		}
+	if err := e.clearMergeQueue(ctx, &task); err != nil {
+		return err
 	}
 	if err := e.holdWork(ctx, "merge", task.Repository, task.Issue); err != nil {
 		return err
@@ -224,10 +222,8 @@ func (e *Engine) approveWaitingTask(ctx context.Context, task store.Task) error 
 // endAutoMerge ends the automatic merge of the task, because its Workstream has no merge level any more. The Inbox
 // items get the reason, so the "Merge" button shows again, and the approval of Mobius counts as refused.
 func (e *Engine) endAutoMerge(ctx context.Context, task store.Task) error {
-	if task.MergeQueuedAt.Valid {
-		if err := e.queries.ClearTaskMergeQueuedAt(ctx, task.ID); err != nil {
-			return err
-		}
+	if err := e.clearMergeQueue(ctx, &task); err != nil {
+		return err
 	}
 	if err := e.refuseMergeItem(ctx, task, mergeOffReason); err != nil {
 		return err
@@ -238,10 +234,8 @@ func (e *Engine) endAutoMerge(ctx context.Context, task store.Task) error {
 // pauseAutoMerge ends the automatic merge of the task, because the Merge switch is off. It works as endAutoMerge, with
 // the reason mergePausedReason, and the issue goes to the held work of the switch.
 func (e *Engine) pauseAutoMerge(ctx context.Context, task store.Task) error {
-	if task.MergeQueuedAt.Valid {
-		if err := e.queries.ClearTaskMergeQueuedAt(ctx, task.ID); err != nil {
-			return err
-		}
+	if err := e.clearMergeQueue(ctx, &task); err != nil {
+		return err
 	}
 	if err := e.holdMerge(ctx, task); err != nil {
 		return err

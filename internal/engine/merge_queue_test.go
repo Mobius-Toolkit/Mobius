@@ -15,6 +15,10 @@ import (
 
 const queueLead = `
 [[prompts]]
+when = "Approve #47"
+call = { tool = "approve_pull_request", arguments = { repository = "owner/shop", n = 47, report = "Checked the diff. Verified the tests." } }
+
+[[prompts]]
 when = "Approve #45"
 call = { tool = "approve_pull_request", arguments = { repository = "owner/shop", n = 45, report = "Checked the diff. Verified the tests." } }
 
@@ -25,6 +29,10 @@ call = { tool = "approve_pull_request", arguments = { repository = "owner/shop",
 [[prompts]]
 when = "Approve #41"
 call = { tool = "approve_pull_request", arguments = { repository = "owner/shop", n = 41, report = "Checked the diff. Verified the tests." } }
+
+[[prompts]]
+when = "dispatch of #47"
+call = { tool = "start_implementer", arguments = { repository = "owner/shop", n = 47, instructions = "Task 47" } }
 
 [[prompts]]
 when = "dispatch of #45"
@@ -53,7 +61,7 @@ func queueTasks(t *testing.T, fake *testkit.FakeGitHub, level string, numbers []
 	t.Helper()
 	fake.AddUserCode(testkit.AppID, "user-code", "owner")
 	server, dataDir := connectTask(t, fake, queueLead, queueImplementer, func(cfg *config.Config) {
-		cfg.Roles.Implementer.Max = 3
+		cfg.Roles.Implementer.Max = 4
 		cfg.ReviewQuietPeriod = 50 * time.Millisecond
 	})
 	authorize(t, server)
@@ -693,4 +701,196 @@ func TestMergeQueueMergeSwitchOffWhileUpdatedHeadWaitsForApprovalAgainLeavesQueu
 	if mainLog := testkit.Git(t, fake.Remote(shop), "log", "--format=%s", "main"); strings.Contains(mainLog, "mobius/41") || strings.Contains(mainLog, "Task 41") {
 		t.Error("PR 41 merged")
 	}
+}
+
+// TestMergeQueuePlacesOnBoardTasksAndInboxItems verifies that three tasks in the merge queue have places 1, 2, 3
+// of 3 on board tasks and ready_for_review Inbox items, an unqueued task has null and 0, and after the first
+// task merges the remaining tasks have places 1 and 2 of 2.
+func TestMergeQueuePlacesOnBoardTasksAndInboxItems(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := queueTasks(t, fake, "off", []int{41, 43, 45, 47})
+
+	pr41 := liveTask(t, server, 41).PullRequest.Int64
+	pr43 := liveTask(t, server, 43).PullRequest.Int64
+
+	sendChat(t, server, leadChat, "Approve #41")
+	item41 := testkit.WaitForValue(t, func() (inboxItem, bool) {
+		for _, item := range itemsOf(t, server, "ready for review") {
+			if item.Issue == 41 {
+				return item, true
+			}
+		}
+		return inboxItem{}, false
+	})
+	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, 41) == "ready_for_review" })
+
+	sendChat(t, server, leadChat, "Approve #43")
+	item43 := testkit.WaitForValue(t, func() (inboxItem, bool) {
+		for _, item := range itemsOf(t, server, "ready for review") {
+			if item.Issue == 43 {
+				return item, true
+			}
+		}
+		return inboxItem{}, false
+	})
+	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, 43) == "ready_for_review" })
+
+	sendChat(t, server, leadChat, "Approve #45")
+	item45 := testkit.WaitForValue(t, func() (inboxItem, bool) {
+		for _, item := range itemsOf(t, server, "ready for review") {
+			if item.Issue == 45 {
+				return item, true
+			}
+		}
+		return inboxItem{}, false
+	})
+	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, 45) == "ready_for_review" })
+
+	sendChat(t, server, leadChat, "Approve #47")
+	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, 47) == "ready_for_review" })
+	testkit.WaitFor(t, func() bool {
+		for _, item := range itemsOf(t, server, "ready for review") {
+			if item.Issue == 47 {
+				return true
+			}
+		}
+		return false
+	})
+
+	fake.CommitFile(shop, "price.txt", "cents\n", "Add price")
+
+	// Hold merges so tasks remain in the queue while we inspect API data.
+	reached41, release41 := fake.HoldMerge(shop, pr41)
+
+	// Owner approves tasks 41, 43, 45 with "Merge".
+	if status, body := merge(t, server, item41.ID); status != http.StatusOK {
+		t.Fatalf("merge 41 status = %d: %s", status, body)
+	}
+	testkit.WaitFor(t, func() bool {
+		return liveTask(t, server, 41).MergeQueuedAt.Valid
+	})
+
+	if status, body := merge(t, server, item43.ID); status != http.StatusOK {
+		t.Fatalf("merge 43 status = %d: %s", status, body)
+	}
+	testkit.WaitFor(t, func() bool {
+		return liveTask(t, server, 43).MergeQueuedAt.Valid
+	})
+
+	if status, body := merge(t, server, item45.ID); status != http.StatusOK {
+		t.Fatalf("merge 45 status = %d: %s", status, body)
+	}
+	testkit.WaitFor(t, func() bool {
+		return liveTask(t, server, 45).MergeQueuedAt.Valid
+	})
+
+	<-reached41
+
+	type apiBoardTask struct {
+		Number          int64  `json:"number"`
+		MergeQueuePlace *int64 `json:"mergeQueuePlace"`
+		MergeQueueSize  int64  `json:"mergeQueueSize"`
+	}
+
+	// Verify places 1, 2, 3 of 3 on board tasks, and null/0 for task 47.
+	testkit.WaitFor(t, func() bool {
+		board := apiData[[]apiBoardTask](t, server, "/api/tasks")
+		var p41, p43, p45, p47 *int64
+		var s41, s43, s45, s47 int64
+		for _, b := range board {
+			switch b.Number {
+			case 41:
+				p41, s41 = b.MergeQueuePlace, b.MergeQueueSize
+			case 43:
+				p43, s43 = b.MergeQueuePlace, b.MergeQueueSize
+			case 45:
+				p45, s45 = b.MergeQueuePlace, b.MergeQueueSize
+			case 47:
+				p47, s47 = b.MergeQueuePlace, b.MergeQueueSize
+			}
+		}
+		return p41 != nil && *p41 == 1 && s41 == 3 &&
+			p43 != nil && *p43 == 2 && s43 == 3 &&
+			p45 != nil && *p45 == 3 && s45 == 3 &&
+			p47 == nil && s47 == 0
+	})
+
+	// Verify places 1, 2, 3 of 3 on ready_for_review Inbox items, and null/0 for task 47.
+	testkit.WaitFor(t, func() bool {
+		inboxItems := apiData[[]inboxItem](t, server, "/api/inbox")
+		var p41, p43, p45, p47 *int64
+		var s41, s43, s45, s47 int64
+		for _, item := range inboxItems {
+			if item.Kind != "ready for review" {
+				continue
+			}
+			switch item.Issue {
+			case 41:
+				p41, s41 = item.MergeQueuePlace, item.MergeQueueSize
+			case 43:
+				p43, s43 = item.MergeQueuePlace, item.MergeQueueSize
+			case 45:
+				p45, s45 = item.MergeQueuePlace, item.MergeQueueSize
+			case 47:
+				p47, s47 = item.MergeQueuePlace, item.MergeQueueSize
+			}
+		}
+		return p41 != nil && *p41 == 1 && s41 == 3 &&
+			p43 != nil && *p43 == 2 && s43 == 3 &&
+			p45 != nil && *p45 == 3 && s45 == 3 &&
+			p47 == nil && s47 == 0
+	})
+
+	reached43, release43 := fake.HoldMerge(shop, pr43)
+	defer release43()
+
+	release41()
+
+	// Wait for task 41 to finish merging.
+	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, 41) == "" })
+
+	<-reached43
+
+	// After task 41 merged, remaining tasks 43 and 45 have 1 and 2 of 2. Task 47 has null and 0.
+	testkit.WaitFor(t, func() bool {
+		board := apiData[[]apiBoardTask](t, server, "/api/tasks")
+		var p43, p45, p47 *int64
+		var s43, s45, s47 int64
+		for _, b := range board {
+			switch b.Number {
+			case 43:
+				p43, s43 = b.MergeQueuePlace, b.MergeQueueSize
+			case 45:
+				p45, s45 = b.MergeQueuePlace, b.MergeQueueSize
+			case 47:
+				p47, s47 = b.MergeQueuePlace, b.MergeQueueSize
+			}
+		}
+		return p43 != nil && *p43 == 1 && s43 == 2 &&
+			p45 != nil && *p45 == 2 && s45 == 2 &&
+			p47 == nil && s47 == 0
+	})
+
+	testkit.WaitFor(t, func() bool {
+		inboxItems := apiData[[]inboxItem](t, server, "/api/inbox")
+		var p43, p45, p47 *int64
+		var s43, s45, s47 int64
+		for _, item := range inboxItems {
+			if item.Kind != "ready for review" {
+				continue
+			}
+			switch item.Issue {
+			case 43:
+				p43, s43 = item.MergeQueuePlace, item.MergeQueueSize
+			case 45:
+				p45, s45 = item.MergeQueuePlace, item.MergeQueueSize
+			case 47:
+				p47, s47 = item.MergeQueuePlace, item.MergeQueueSize
+			}
+		}
+		return p43 != nil && *p43 == 1 && s43 == 2 &&
+			p45 != nil && *p45 == 2 && s45 == 2 &&
+			p47 == nil && s47 == 0
+	})
 }

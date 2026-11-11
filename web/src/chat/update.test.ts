@@ -138,6 +138,8 @@ function createInboxItem(overrides: Partial<InboxItem> = {}): InboxItem {
     withdrawn: false,
     workstream: 1428,
     workstreamRepository: "test-repo",
+    mergeQueuePlace: null,
+    mergeQueueSize: 0,
     ...overrides,
   };
 }
