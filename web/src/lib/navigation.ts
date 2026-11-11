@@ -93,6 +93,8 @@ export const pushUrl = (path: string) =>
     const index = placeOfEntry();
     savePosition(index);
     sessionStorage.removeItem(positionKey(index + 1));
+    content()?.scrollTo(0, 0);
+    window.scrollTo(0, 0);
     shownIndex = index;
     pushed = true;
     window.history.pushState({ index: index + 1 }, "", path);

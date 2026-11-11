@@ -5,6 +5,7 @@ import { view as agentsView } from "@/agents/view";
 import { Message as AgentsMessage } from "@/agents/message";
 import type { Model as AgentsModel } from "@/agents/model";
 import { view as chatView } from "@/chat/view";
+import { view as inboxView } from "@/inbox/view";
 import { Message as ChatMessage } from "@/chat/message";
 import type { Model as ChatModel } from "@/chat/model";
 import { view as panelView } from "@/panel/view";
@@ -74,7 +75,7 @@ const tasksSubmodelView = defineView<TasksModel, TasksMessage>(
   (m: TasksModel, h: HtmlBuilder<TasksMessage>) => tasksView(m, h),
 );
 const inboxSubmodelView = defineView<ChatModel, ChatMessage>(
-  (m: ChatModel, h: HtmlBuilder<ChatMessage>) => chatView(m, h),
+  (m: ChatModel, h: HtmlBuilder<ChatMessage>) => inboxView(m, h),
 );
 const agentsSubmodelView = defineView<AgentsModel, AgentsMessage>(
   (m: AgentsModel, h: HtmlBuilder<AgentsMessage>) => agentsView(m, h),
