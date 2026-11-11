@@ -13,6 +13,7 @@ import {
   Pause,
   Switches,
   Unread,
+  Upgrade,
   Workstream,
   WorkstreamAutopilot,
 } from "./model";
@@ -108,23 +109,25 @@ export const Message = defineMessageUnion({
 
   // Upgrade
   DrainChanged: { drain: Drain },
-  UpgradeFailureChanged: { failure: Schema.String },
+  UpgradeChanged: { upgrade: Upgrade },
+  UpgradeTicked: { now: Schema.Number },
   // A check that failed gives null, and the last good value stays.
   UpgradeInfoLoaded: {
     version: Schema.NullOr(Schema.String),
     drain: Schema.NullOr(Drain),
-    failure: Schema.NullOr(Schema.String),
+    upgrade: Schema.NullOr(Upgrade),
   },
   ShowUpgradeChanges: {},
   HideUpgradeChanges: {},
   ReleaseChangesLoaded: { changes: Schema.Array(Schema.String) },
   ReleaseChangesFailed: { error: Schema.String },
   StartUpgradeRequested: {},
-  StartUpgradeSucceeded: {},
+  StartUpgradeSucceeded: { upgrade: Upgrade },
   StartUpgradeFailed: { error: Schema.String },
   CancelUpgradeRequested: {},
   CancelUpgradeSucceeded: {},
   CancelUpgradeFailed: { error: Schema.String },
+  CompletedReloadOnNewBuild: {},
 
   // Menu & UI actions
   ToggleMenu: { id: Schema.String },

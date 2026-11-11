@@ -14,12 +14,13 @@ import {
   LoadApp,
   LoadExternal,
   Navigate,
+  ReloadOnNewBuild,
   ReplaceUrl,
   SettleScroll,
   SubmitLogin,
 } from "./commands";
 import { Message } from "./message";
-import { initialModel, type Model } from "./model";
+import { initialModel, type Model, type Upgrade } from "./model";
 import { AppRoute, parseRoute } from "./route";
 import { update } from "./update";
 
@@ -170,7 +171,7 @@ describe("router update logic", () => {
       ),
       StoryCommand.resolve(
         CheckUpgrade,
-        Message.UpgradeInfoLoaded({ version: null, drain: null, failure: null }),
+        Message.UpgradeInfoLoaded({ version: null, drain: null, upgrade: null }),
       ),
       StoryCommand.resolve(FetchPauses, Message.PausesChanged({ pauses: [] })),
       StoryCommand.resolve(FetchCIStops, Message.CIStopsChanged({ stops: [] })),
@@ -431,6 +432,93 @@ describe("organization switch update logic", () => {
       message(Message.SelectOrganization({ organization: "owner" })),
       model((m) => {
         expect(m.organization).toBe("owner");
+      }),
+    );
+  });
+});
+
+const upgradeOf = (overrides: Partial<Upgrade>): Upgrade => ({
+  step: "idle",
+  tries: 0,
+  failure: "",
+  nextTry: null,
+  ...overrides,
+});
+
+describe("upgrade update logic", () => {
+  it("keeps the step, the tries, the failure and the next try of the state", () => {
+    story(
+      update,
+      given(createModel("/settings")),
+      message(
+        Message.UpgradeChanged({
+          upgrade: upgradeOf({
+            step: "retry",
+            tries: 3,
+            failure: "download failed",
+            nextTry: "2026-11-08T10:00:40Z",
+          }),
+        }),
+      ),
+      model((m) => {
+        expect(m.upgrade.step).toBe("retry");
+        expect(m.upgrade.tries).toBe(3);
+        expect(m.upgrade.failure).toBe("download failed");
+        expect(m.upgrade.nextTry).toEqual(Option.some(Date.parse("2026-11-08T10:00:40Z")));
+      }),
+    );
+  });
+
+  it("clears the next try when the step is not retry", () => {
+    story(
+      update,
+      given(
+        createModel("/settings", {
+          upgrade: {
+            ...initialModel(parseRoute(urlOf("/settings"))).upgrade,
+            step: "retry",
+            nextTry: Option.some(1),
+          },
+        }),
+      ),
+      message(Message.UpgradeChanged({ upgrade: upgradeOf({ step: "release", tries: 1 }) })),
+      model((m) => {
+        expect(m.upgrade.nextTry).toEqual(Option.none());
+      }),
+    );
+  });
+
+  it("starts the wait for the new build when the step becomes restart", () => {
+    story(
+      update,
+      given(createModel("/settings")),
+      message(Message.UpgradeChanged({ upgrade: upgradeOf({ step: "restart" }) })),
+      StoryCommand.expectHas(ReloadOnNewBuild),
+      StoryCommand.resolve(ReloadOnNewBuild, Message.CompletedReloadOnNewBuild()),
+      message(Message.UpgradeChanged({ upgrade: upgradeOf({ step: "restart" }) })),
+      StoryCommand.expectNone(),
+    );
+  });
+
+  it("ignores the response of the start when a live state came first", () => {
+    story(
+      update,
+      given(createModel("/settings")),
+      message(Message.UpgradeChanged({ upgrade: upgradeOf({ step: "drain" }) })),
+      message(Message.StartUpgradeSucceeded({ upgrade: upgradeOf({ step: "release" }) })),
+      model((m) => {
+        expect(m.upgrade.step).toBe("drain");
+      }),
+    );
+  });
+
+  it("shows the text of a refused start", () => {
+    story(
+      update,
+      given(createModel("/settings")),
+      message(Message.StartUpgradeFailed({ error: "An upgrade runs now." })),
+      model((m) => {
+        expect(m.upgrade.failure).toBe("An upgrade runs now.");
       }),
     );
   });

@@ -26,14 +26,13 @@ import { Agent } from "@/transcript/schemas";
 import { subscriptions as usageSubscriptions } from "@/usage/subscriptions";
 import { subscriptions as workstreamsSubscriptions } from "@/workstreams/subscriptions";
 import { Message } from "./message";
-import { CIStop, Drain, Pause, Switches, wideQuery, type Model } from "./model";
+import { CIStop, Drain, Pause, Switches, Upgrade, wideQuery, type Model } from "./model";
 
 const AnyRecord = Schema.Record(Schema.String, Schema.Json);
 const RecurringTaskEvent = Schema.Struct({
   repository: Schema.String,
   number: Schema.Number,
 });
-const UpgradeEvent = Schema.Struct({ failure: Schema.String });
 
 const onlineStream = Stream.callback<Message>((queue) => {
   const onOnline = () => Queue.offerUnsafe(queue, Message.OnlineChanged({ online: true }));
@@ -57,6 +56,19 @@ const wideStream = Stream.callback<Message>((queue) => {
     query.addEventListener("change", onChange);
     yield* Effect.addFinalizer(() =>
       Effect.sync(() => query.removeEventListener("change", onChange)),
+    );
+  });
+});
+
+const upgradeClock = Stream.callback<Message>((queue) => {
+  const tick = () => Queue.offerUnsafe(queue, Message.UpgradeTicked({ now: Date.now() }));
+  return Effect.gen(function* () {
+    tick();
+    const timer = setInterval(tick, 1000);
+    yield* Effect.addFinalizer(() =>
+      Effect.sync(() => {
+        clearInterval(timer);
+      }),
     );
   });
 });
@@ -117,9 +129,7 @@ export const appSubscriptions = Subscription.make<Model, Message>()((entry) => (
                   Message.SwitchesChanged({ switches }),
                 ),
                 liveListener("drain", Drain, (drain) => Message.DrainChanged({ drain })),
-                liveListener("upgrade", UpgradeEvent, (u) =>
-                  Message.UpgradeFailureChanged({ failure: u.failure }),
-                ),
+                liveListener("upgrade", Upgrade, (upgrade) => Message.UpgradeChanged({ upgrade })),
                 liveListener("workstreams", AnyRecord, () => Message.ForwardWorkstreamsEvent()),
                 liveListener("agent", Agent, (agent) => Message.ForwardAgentEvent({ agent })),
                 liveListener("recurring_tasks", RecurringTaskEvent, ({ repository, number }) =>
@@ -203,6 +213,14 @@ export const appSubscriptions = Subscription.make<Model, Message>()((entry) => (
         storeValues(subscribeNewBuild, currentNewBuild, (newBuild) =>
           Message.NewBuildStoreChanged({ newBuild }),
         ),
+    },
+  ),
+
+  upgradeClock: entry(
+    { waiting: Schema.Boolean },
+    {
+      modelToDependencies: (model) => ({ waiting: model.upgrade.step === "retry" }),
+      dependenciesToStream: ({ waiting }) => (waiting ? upgradeClock : Stream.empty),
     },
   ),
 

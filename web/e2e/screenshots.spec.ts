@@ -28,6 +28,7 @@ import {
 import { waitForEvergreen } from "./evergreen.js";
 import { addMcpServer, deleteMcpServers, selectMcpServers } from "./mcp-servers.js";
 import { png } from "./images.js";
+import { retryFailure, retryUpgrade, routeUpgrade, upgradeRoute } from "./upgrade.js";
 import { longTaskTitle, routeLongTask, tasksUrl } from "./long-task.js";
 import { countSamples, fakeMicrophone } from "./microphone.js";
 import { lines, turnAllOn, turnOff } from "./switches.js";
@@ -2387,6 +2388,13 @@ test("screenshots", async ({ page }) => {
     shown("New version"),
   ]);
   await page.unroute("/ui-version");
+  await routeUpgrade(page, retryUpgrade);
+  await screenshot(page, "upgrade-retry", "/settings", (device) => [
+    ...frame(device, shown("Cancel upgrade"), { upgrade: true }),
+    page.getByText("Try 3 failed. Upgrade tries again in 40 s").filter({ visible: true }),
+    page.getByText(retryFailure).filter({ visible: true }),
+  ]);
+  await page.unroute(upgradeRoute);
 
   await screenshot(page, "settings", "/settings", (device) => [
     ...frame(device, release, { upgrade: true }),

@@ -25,36 +25,179 @@ import (
 // -ldflags "-X github.com/Mobius-Toolkit/Mobius/internal/engine.Release=<tag>". A local build has no release tag.
 var Release string
 
+// executable gives the path of this program.
+var executable = os.Executable
+
 // execDelay gives the web UI the response of the upgrade call before the new program replaces this process.
 const execDelay = time.Second
 
-// Upgrade downloads the newest release, drains the agents, replaces the program and runs the new program in this
-// process. It gives Drained when the new program starts, and Cancelled when the Owner cancels the drain.
-// The drain has no time limit, so the upgrade goes on after the end of ctx, and UpgradeFailure gives its error.
-func (e *Engine) Upgrade(ctx context.Context) (DrainEnd, error) {
-	if !e.upgrading.CompareAndSwap(false, true) {
-		return "", refuse("An upgrade runs now.")
+// UpgradeStep is the step of an upgrade.
+type UpgradeStep string
+
+const (
+	// UpgradeIdle tells that no upgrade runs.
+	UpgradeIdle UpgradeStep = "idle"
+	// UpgradeRelease is the read and the check of the newest release.
+	UpgradeRelease UpgradeStep = "release"
+	// UpgradeDownload is the download of the archive of the release.
+	UpgradeDownload UpgradeStep = "download"
+	// UpgradeRetry is the wait before the next try.
+	UpgradeRetry UpgradeStep = "retry"
+	// UpgradeDrain is the drain of the agents.
+	UpgradeDrain UpgradeStep = "drain"
+	// UpgradeRestart is the seal, the swap and the start of the new program.
+	UpgradeRestart UpgradeStep = "restart"
+)
+
+const (
+	// upgradeFirstWait is the wait after the first failed try. The wait doubles after each failed try.
+	upgradeFirstWait = 10 * time.Second
+	// upgradeMaxWait is the longest wait before a try.
+	upgradeMaxWait = 5 * time.Minute
+	// upgradeWaitPoll is the time between two reads of the clock in the wait before a try.
+	upgradeWaitPoll = 100 * time.Millisecond
+)
+
+// UpgradeState is the state of the upgrade.
+type UpgradeState struct {
+	Step UpgradeStep
+	// Tries is the number of failed tries since the start of the upgrade.
+	Tries int
+	// Failure is the text of the last error, or "".
+	Failure string
+	// NextTry is the time of the next try in the step UpgradeRetry, else the zero time.
+	NextTry time.Time
+}
+
+// retryable marks an error that can pass, so the upgrade tries again after a wait.
+type retryable struct{ error }
+
+func (r retryable) Unwrap() error { return r.error }
+
+// Upgrade starts an upgrade in the background and gives its state. The upgrade reads the newest release, downloads it,
+// drains the agents, replaces the program and runs the new program in this process. It tries again after an error that
+// can pass, until the upgrade is done or CancelUpgrade ends it. UpgradeStatus gives the state of the upgrade.
+func (e *Engine) Upgrade() (UpgradeState, error) {
+	e.upgradeMu.Lock()
+	defer e.upgradeMu.Unlock()
+	if e.upgradeState.Step != UpgradeIdle {
+		return UpgradeState{}, refuse("An upgrade runs now.")
 	}
-	e.setUpgradeFailure("")
-	type result struct {
-		end DrainEnd
-		err error
+	ctx, cancel := context.WithCancel(context.Background())
+	e.upgradeCancel = cancel
+	e.upgradeDone = make(chan struct{})
+	e.upgradeState = UpgradeState{Step: UpgradeRelease}
+	state := e.upgradeState
+	e.publish(Change{Upgrade: &state})
+	go e.runUpgrade(ctx, e.upgradeDone)
+	return state, nil
+}
+
+// CancelUpgrade ends the upgrade and the drain, and waits until the upgrade has ended. With no upgrade, it ends only
+// the drain. It does nothing while the upgrade replaces the program.
+func (e *Engine) CancelUpgrade() {
+	e.upgradeMu.Lock()
+	step := e.upgradeState.Step
+	if step == UpgradeRestart {
+		e.upgradeMu.Unlock()
+		return
 	}
-	done := make(chan result, 1)
-	go func() {
-		end, err := e.upgrade(context.WithoutCancel(ctx))
-		if err != nil {
-			e.setUpgradeFailure(err.Error())
+	var done chan struct{}
+	if step != UpgradeIdle {
+		e.upgradeCancel()
+		done = e.upgradeDone
+	}
+	e.upgradeMu.Unlock()
+	e.CancelDrain()
+	if done != nil {
+		<-done
+	}
+}
+
+// UpgradeStatus gives the state of the upgrade.
+func (e *Engine) UpgradeStatus() UpgradeState {
+	e.upgradeMu.Lock()
+	defer e.upgradeMu.Unlock()
+	return e.upgradeState
+}
+
+// changeUpgrade changes the state of the upgrade with change, and publishes the new state.
+func (e *Engine) changeUpgrade(change func(*UpgradeState)) {
+	e.upgradeMu.Lock()
+	defer e.upgradeMu.Unlock()
+	change(&e.upgradeState)
+	state := e.upgradeState
+	e.publish(Change{Upgrade: &state})
+}
+
+func (e *Engine) setUpgradeStep(step UpgradeStep) {
+	e.changeUpgrade(func(state *UpgradeState) { state.Step, state.NextTry = step, time.Time{} })
+}
+
+// finishUpgrade moves the upgrade to the step UpgradeIdle with the last error failure.
+func (e *Engine) finishUpgrade(failure string) {
+	e.changeUpgrade(func(state *UpgradeState) {
+		state.Step, state.Failure, state.NextTry = UpgradeIdle, failure, time.Time{}
+	})
+}
+
+// beginRestart moves the upgrade to the step UpgradeRestart, where CancelUpgrade does nothing. It gives false when
+// CancelUpgrade ended ctx.
+func (e *Engine) beginRestart(ctx context.Context) bool {
+	e.upgradeMu.Lock()
+	defer e.upgradeMu.Unlock()
+	if ctx.Err() != nil {
+		return false
+	}
+	e.upgradeState.Step = UpgradeRestart
+	state := e.upgradeState
+	e.publish(Change{Upgrade: &state})
+	return true
+}
+
+// runUpgrade runs the upgrade of ctx until it is done, it fails with no retry, or CancelUpgrade ends ctx.
+func (e *Engine) runUpgrade(ctx context.Context, done chan struct{}) {
+	defer close(done)
+	wait, tries := upgradeFirstWait, 0
+	for {
+		end, err := e.upgrade(ctx)
+		var again retryable
+		switch {
+		case err == nil && end == Drained:
+			return
+		case ctx.Err() != nil || err == nil:
+			e.finishUpgrade("")
+			return
+		case !errors.As(err, &again):
+			e.finishUpgrade(err.Error())
+			return
 		}
-		e.upgrading.Store(false)
-		done <- result{end, err}
-	}()
-	select {
-	case <-ctx.Done():
-		return "", ctx.Err()
-	case r := <-done:
-		return r.end, r.err
+		tries++
+		next := e.timeNow().Add(wait)
+		e.changeUpgrade(func(state *UpgradeState) {
+			state.Step, state.Tries, state.Failure, state.NextTry = UpgradeRetry, tries, err.Error(), next
+		})
+		if !e.waitUntil(ctx, next) {
+			e.finishUpgrade("")
+			return
+		}
+		wait = min(2*wait, upgradeMaxWait)
+		e.setUpgradeStep(UpgradeRelease)
 	}
+}
+
+// waitUntil waits until e.timeNow reaches at. It gives false when ctx ends first.
+func (e *Engine) waitUntil(ctx context.Context, at time.Time) bool {
+	poll := time.NewTicker(upgradeWaitPoll)
+	defer poll.Stop()
+	for e.timeNow().Before(at) {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-poll.C:
+		}
+	}
+	return true
 }
 
 // NewRelease gives the tag of the newest release of Mobius when it is newer than this program. It gives "" when no
@@ -95,27 +238,13 @@ func (e *Engine) ReleaseChanges(ctx context.Context) ([]string, error) {
 	return changes, nil
 }
 
-// UpgradeFailure gives the error of the last upgrade, or "" when the last upgrade has no error.
-func (e *Engine) UpgradeFailure() string {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	return e.upgradeFailure
-}
-
-func (e *Engine) setUpgradeFailure(failure string) {
-	e.mu.Lock()
-	e.upgradeFailure = failure
-	e.mu.Unlock()
-	e.publish(Change{Upgrade: &failure})
-}
-
 func (e *Engine) upgrade(ctx context.Context) (DrainEnd, error) {
 	if Release == "" {
 		return "", refuse("This Mobius build is not a release.")
 	}
 	release, err := e.github.LatestRelease(ctx)
 	if err != nil {
-		return "", err
+		return "", retryable{err}
 	}
 	tag := release.GetTagName()
 	if !newerRelease(Release, tag) {
@@ -128,32 +257,39 @@ func (e *Engine) upgrade(ctx context.Context) (DrainEnd, error) {
 	asset := "mobius-" + target + ".tar.gz"
 	index := slices.IndexFunc(release.Assets, func(found *gh.ReleaseAsset) bool { return found.GetName() == asset })
 	if index < 0 {
-		return "", refuse("Release %s has no %s.", tag, asset)
+		return "", retryable{refuse("Release %s has no %s.", tag, asset)}
 	}
 	// After the swap, os.Executable can name the old file, so the path is fixed here.
-	exe, err := os.Executable()
+	exe, err := executable()
 	if err != nil {
 		return "", err
 	}
 	if exe, err = filepath.EvalSymlinks(exe); err != nil {
 		return "", err
 	}
+	e.setUpgradeStep(UpgradeDownload)
 	staging, err := download(ctx, e.github, tag, release.Assets[index], exe)
 	if err != nil {
-		return "", err
+		return "", retryable{err}
 	}
 	defer func() { _ = os.RemoveAll(staging) }()
+	e.setUpgradeStep(UpgradeDrain)
 	// A session can start between the end of the drain and the seal, so the drain repeats.
 	for sealed := false; !sealed; {
 		end, err := e.Drain(ctx)
 		if err != nil || end == Cancelled {
 			return end, err
 		}
+		if !e.beginRestart(ctx) {
+			return Cancelled, nil
+		}
 		switch e.seal() {
 		case Drained:
 			sealed = true
 		case Cancelled:
 			return Cancelled, nil
+		default:
+			e.setUpgradeStep(UpgradeDrain)
 		}
 	}
 	if err := swap(staging, exe); err != nil {

@@ -1,6 +1,7 @@
 import { Option, Schema } from "effect";
 import {
   GetDrainResponse,
+  GetUpgradeResponse,
   GetSwitchesResponse,
   ListCIStopsResponse,
   ListGitHubAppsResponse,
@@ -45,6 +46,9 @@ export type HeldWork = typeof HeldWork.Type;
 export const Drain = GetDrainResponse.fields.data;
 export type Drain = typeof Drain.Type;
 
+export const Upgrade = GetUpgradeResponse.fields.data;
+export type Upgrade = typeof Upgrade.Type;
+
 export const Unread = ListUnreadResponse.fields.data.value;
 export type Unread = typeof Unread.Type;
 
@@ -73,7 +77,11 @@ export type Answered = typeof Answered.Type;
 export const UpgradeState = Schema.Struct({
   version: Schema.String,
   drain: Schema.Option(Drain),
+  step: Upgrade.fields.step,
+  tries: Schema.Number,
   failure: Schema.String,
+  nextTry: Schema.Option(Schema.Number),
+  now: Schema.Number,
   upgrading: Schema.Boolean,
   cancelling: Schema.Boolean,
   changesShown: Schema.Boolean,
@@ -192,7 +200,11 @@ export function saveOrganization(organization: string): void {
 export const initialUpgradeState: UpgradeState = {
   version: "",
   drain: Option.none(),
+  step: "idle",
+  tries: 0,
   failure: "",
+  nextTry: Option.none(),
+  now: 0,
   upgrading: false,
   cancelling: false,
   changesShown: false,

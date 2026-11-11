@@ -1872,11 +1872,35 @@ export interface EnvelopeTranscriptPage {
 }
 
 /**
- * Upgrade is the state of the last upgrade.
+ * Step is idle when no upgrade runs, and else the step of the upgrade: release, download, retry (the wait before the next try), drain or restart
+ */
+export type UpgradeStep = typeof UpgradeStep[keyof typeof UpgradeStep];
+
+
+export const UpgradeStep = {
+  idle: 'idle',
+  release: 'release',
+  download: 'download',
+  retry: 'retry',
+  drain: 'drain',
+  restart: 'restart',
+} as const;
+
+/**
+ * Upgrade is the state of the upgrade.
  */
 export interface Upgrade {
-  /** Failure is the error of the last upgrade. It is empty when the last upgrade has no error */
+  /** Failure is the text of the last error. It is empty when the upgrade has no error */
   failure: string;
+  /**
+     * NextTry is the time of the next try in the step retry, or null
+     * @nullable
+     */
+  nextTry: string | null;
+  /** Step is idle when no upgrade runs, and else the step of the upgrade: release, download, retry (the wait before the next try), drain or restart */
+  step: UpgradeStep;
+  /** Tries is the number of failed tries since the start of the upgrade */
+  tries: number;
 }
 
 /**
@@ -7281,7 +7305,7 @@ export const getGetUpgradeUrl = () => {
 }
 
 /**
- * GetUpgrade returns the error of the last upgrade.
+ * GetUpgrade returns the state of the upgrade.
  */
 export const getUpgrade = async ( ): Promise<getUpgradeResponse> => {
 
@@ -7304,7 +7328,7 @@ export const getUpgrade = async ( ): Promise<getUpgradeResponse> => {
 
 
 export type startUpgradeResponse200 = {
-  data: EnvelopeDrainEnd
+  data: EnvelopeUpgrade
   status: 200
 }
 
@@ -7351,7 +7375,7 @@ export const getStartUpgradeUrl = () => {
 }
 
 /**
- * StartUpgrade downloads the newest release, drains the agents, and restarts Mobius with the new release. It returns drained when the new release starts, and cancelled when the Owner cancels the drain. The upgrade goes on when the client closes the request.
+ * StartUpgrade starts the upgrade in the background and returns its state. The upgrade reads the newest release, downloads it, drains the agents, and restarts Mobius with the new release. It tries again after an error that can pass, until it is done or the Owner cancels it.
  */
 export const startUpgrade = async ( ): Promise<startUpgradeResponse> => {
 
@@ -7369,6 +7393,71 @@ export const startUpgrade = async ( ): Promise<startUpgradeResponse> => {
 
   const data: startUpgradeResponse['data'] = body ? JSON.parse(body) : {}
   return { data, status: res.status, headers: res.headers } as startUpgradeResponse
+}
+
+
+
+export type cancelUpgradeResponse204 = {
+  data: void
+  status: 204
+}
+
+export type cancelUpgradeResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type cancelUpgradeResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type cancelUpgradeResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type cancelUpgradeResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type cancelUpgradeResponseSuccess = (cancelUpgradeResponse204) & {
+  headers: Headers;
+};
+export type cancelUpgradeResponseError = (cancelUpgradeResponse400 | cancelUpgradeResponse401 | cancelUpgradeResponse422 | cancelUpgradeResponse500) & {
+  headers: Headers;
+};
+
+export type cancelUpgradeResponse = (cancelUpgradeResponseSuccess | cancelUpgradeResponseError)
+
+export const getCancelUpgradeUrl = () => {
+
+
+
+
+  return `/api/upgrade`
+}
+
+/**
+ * CancelUpgrade ends the upgrade and the drain. It does nothing while the upgrade replaces the program. With no upgrade, it ends only the drain.
+ */
+export const cancelUpgrade = async ( ): Promise<cancelUpgradeResponse> => {
+
+  const res = await fetch(getCancelUpgradeUrl(),
+  {
+
+    method: 'DELETE'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: cancelUpgradeResponse['data'] = body ? JSON.parse(body) : undefined
+  return { data, status: res.status, headers: res.headers } as cancelUpgradeResponse
 }
 
 

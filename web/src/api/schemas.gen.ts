@@ -1400,21 +1400,27 @@ export const ListUnreadResponse = S.Struct({
 
 
 /**
- * GetUpgrade returns the error of the last upgrade.
+ * GetUpgrade returns the state of the upgrade.
  */
 export const GetUpgradeResponse = S.Struct({
   "data": S.Struct({
-  "failure": S.String.annotate({ description: 'Failure is the error of the last upgrade. It is empty when the last upgrade has no error' })
+  "failure": S.String.annotate({ description: 'Failure is the text of the last error. It is empty when the upgrade has no error' }),
+  "nextTry": S.NullOr(S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/))).annotate({ description: 'NextTry is the time of the next try in the step retry, or null' }),
+  "step": S.Literals(['idle', 'release', 'download', 'retry', 'drain', 'restart']).annotate({ description: 'Step is idle when no upgrade runs, and else the step of the upgrade: release, download, retry (the wait before the next try), drain or restart' }),
+  "tries": S.Number.annotate({ description: 'Tries is the number of failed tries since the start of the upgrade' })
 }).annotate({ description: 'Data is the payload of the response' })
 }).annotate({ description: 'Envelope is the body of each success response.' })
 
 
 /**
- * StartUpgrade downloads the newest release, drains the agents, and restarts Mobius with the new release. It returns drained when the new release starts, and cancelled when the Owner cancels the drain. The upgrade goes on when the client closes the request.
+ * StartUpgrade starts the upgrade in the background and returns its state. The upgrade reads the newest release, downloads it, drains the agents, and restarts Mobius with the new release. It tries again after an error that can pass, until it is done or the Owner cancels it.
  */
 export const StartUpgradeResponse = S.Struct({
   "data": S.Struct({
-  "end": S.Literals(['drained', 'cancelled']).annotate({ description: 'End is drained when no agent and no npm upgrade of Mobius runs, and cancelled when the Owner cancelled the drain' })
+  "failure": S.String.annotate({ description: 'Failure is the text of the last error. It is empty when the upgrade has no error' }),
+  "nextTry": S.NullOr(S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/))).annotate({ description: 'NextTry is the time of the next try in the step retry, or null' }),
+  "step": S.Literals(['idle', 'release', 'download', 'retry', 'drain', 'restart']).annotate({ description: 'Step is idle when no upgrade runs, and else the step of the upgrade: release, download, retry (the wait before the next try), drain or restart' }),
+  "tries": S.Number.annotate({ description: 'Tries is the number of failed tries since the start of the upgrade' })
 }).annotate({ description: 'Data is the payload of the response' })
 }).annotate({ description: 'Envelope is the body of each success response.' })
 
