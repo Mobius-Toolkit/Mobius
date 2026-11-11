@@ -91,17 +91,14 @@ func checkChangedScreenshots(t *testing.T, text string) {
 	fake.SetBody(shop, 42, screenshotsSectionOf(text))
 	passCI(fake, sha)
 
-	ready := testkit.WaitForValue(t, func() ([]leadEvent, bool) {
-		ready := readyForApprovalEvents(t, server)
-		return ready, len(ready) > 0
-	})
+	testkit.WaitFor(t, func() bool { return len(readyForApprovalEvents(t, server)) > 0 })
 	waitForPolls(t, fake)
 
-	if ready = readyForApprovalEvents(t, server); len(ready) != 1 {
+	if ready := readyForApprovalEvents(t, server); len(ready) != 1 {
 		t.Fatalf("ready_for_approval events: %+v", ready)
 	}
-	if !strings.Contains(ready[0].Payload, "\n"+changedSentence) {
-		t.Errorf("event = %q, want the sentence %q", ready[0].Payload, changedSentence)
+	if payload := readyForApprovalEvents(t, server)[0].Payload; !strings.Contains(payload, "\n"+changedSentence) {
+		t.Errorf("event = %q, want the sentence %q", payload, changedSentence)
 	}
 	if state := taskState(t, server); state != "approval" {
 		t.Errorf("state = %s, want approval", state)
