@@ -1225,16 +1225,13 @@ export function update(model: Model, message: Message): UpdateReturn {
 
     case "ToggleSwitchFailed": {
       const current = Option.getOrUndefined(model.switches);
-      const reverted = current
-        ? {
-            ...current,
-            [message.kind]: !current[message.kind],
-          }
-        : current;
+      // A read can come between the request and its failure, so the value before the request is the opposite of the
+      // requested value.
+      const reverted = current ? { ...current, [message.kind]: !message.on } : current;
       const withErrors = withSwitchErrors(
         model,
         { ...model.switchErrors, [message.kind]: message.error },
-        { ...model.switchFailures, [message.kind]: reverted?.[message.kind] ?? false },
+        { ...model.switchFailures, [message.kind]: !message.on },
       );
       return {
         model: {

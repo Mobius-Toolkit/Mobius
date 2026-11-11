@@ -105,7 +105,7 @@ export const Message = defineMessageUnion({
   SwitchesChanged: { switches: Switches },
   ToggleSwitchRequested: { kind: SwitchKind, on: Schema.Boolean },
   ToggleSwitchSucceeded: { kind: SwitchKind, on: Schema.Boolean },
-  ToggleSwitchFailed: { kind: SwitchKind, error: Schema.String },
+  ToggleSwitchFailed: { kind: SwitchKind, on: Schema.Boolean, error: Schema.String },
   OpenHeldSheet: { title: Schema.String, held: Schema.Array(HeldWork) },
   CloseHeldSheet: {},
 

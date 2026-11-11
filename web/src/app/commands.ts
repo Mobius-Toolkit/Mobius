@@ -190,10 +190,10 @@ export const ToggleSwitch = Command.define("ToggleSwitch", {
         if (res.status === 401) {
           return Message.ShowLogin();
         }
-        return Message.ToggleSwitchFailed({ kind, error: res.data.error });
+        return Message.ToggleSwitchFailed({ kind, on, error: res.data.error });
       }),
       Effect.catchTag("RequestFailed", (error) =>
-        Effect.succeed(Message.ToggleSwitchFailed({ kind, error: error.message })),
+        Effect.succeed(Message.ToggleSwitchFailed({ kind, on, error: error.message })),
       ),
     ),
 });

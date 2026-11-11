@@ -278,17 +278,17 @@ describe("organization switch update logic", () => {
     const switches = { start: true, merge: true, repairs: true, held: [] };
     const failed = update(
       createModel("/settings/switches", { switches: Option.some(switches) }),
-      Message.ToggleSwitchFailed({ kind: "start", error: "The switch did not change." }),
+      Message.ToggleSwitchFailed({ kind: "start", on: false, error: "The switch did not change." }),
     ).model;
     expect(failed.switchErrors).toEqual({ start: "The switch did not change." });
 
-    const same = update(
+    const same = update(failed, Message.SwitchesChanged({ switches })).model;
+    expect(same.switchErrors).toEqual({ start: "The switch did not change." });
+
+    const other = update(
       failed,
       Message.SwitchesChanged({ switches: { ...switches, start: false } }),
     ).model;
-    expect(same.switchErrors).toEqual({ start: "The switch did not change." });
-
-    const other = update(failed, Message.SwitchesChanged({ switches })).model;
     expect(other.switchErrors).toEqual({});
   });
 
