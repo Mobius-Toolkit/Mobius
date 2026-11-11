@@ -197,6 +197,16 @@ describe("router update logic", () => {
   });
 });
 
+describe("organization menu update logic", () => {
+  it.each(["other-org", "owner"])("closes the open menu when %s is selected", (organization) => {
+    const { model: next } = update(
+      createModel("/chat", { organization: "owner", openMenu: Option.some("organization-side") }),
+      Message.SelectOrganization({ organization }),
+    );
+    expect(next.openMenu).toEqual(Option.none());
+  });
+});
+
 describe("organization switch update logic", () => {
   it("switches current organization and opens its Coordinator chat", () => {
     const { model: next, commands } = update(
