@@ -97,8 +97,12 @@ func TestALocalBuildKeepsNoTagAndSendsNoChangelog(t *testing.T) {
 	server := startRelease(t, fake, t.TempDir(), "")
 
 	waitForPolls(t, fake)
-	if tag := lastRelease(t, server); tag != "" {
-		t.Errorf("last release = %q", tag)
+	var rows int
+	if err := server.DB.QueryRow("SELECT COUNT(*) FROM last_release").Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
+	if rows != 0 {
+		t.Errorf("rows of last_release = %d", rows)
 	}
 	if texts := changelogs(t, server); len(texts) != 0 {
 		t.Errorf("changelogs = %q", texts)
