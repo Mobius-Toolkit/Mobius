@@ -1,6 +1,6 @@
 import { Effect, Schema } from "effect";
 import { Command } from "foldkit";
-import { back, pushUrl } from "foldkit/navigation";
+import { pushUrl } from "foldkit/navigation";
 import { listMemoryFiles, listMemoryVersions, revertMemory, saveMemory } from "@/api/api.gen";
 import { answer, request } from "@/lib/effects";
 import { Message } from "./message";
@@ -106,9 +106,4 @@ export const Navigate = Command.define("Navigate", {
   args: { path: Schema.String },
   messages: [Message.CompletedNavigate],
   execute: ({ path }) => pushUrl(path).pipe(Effect.as(Message.CompletedNavigate())),
-});
-
-export const GoBack = Command.define("GoBack", {
-  messages: [Message.CompletedGoBack],
-  execute: back().pipe(Effect.as(Message.CompletedGoBack())),
 });

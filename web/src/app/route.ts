@@ -62,65 +62,42 @@ export const AppRoute = defineRouteUnion({
 
 export type AppRoute = typeof AppRoute.Type;
 
-function searchToRecord(search: Option.Option<string>): Record<string, unknown> {
-  if (Option.isNone(search) || !search.value) {
-    return {};
+const jsonValue = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Json));
+const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Json));
+
+// A value of the search that parses as JSON (a list, a number) is JSON, as in the addresses of earlier releases.
+function searchToRecord(search: Option.Option<string>) {
+  const result: Record<string, typeof Schema.Json.Type> = {};
+  if (Option.isNone(search)) {
+    return result;
   }
-  const raw = search.value.startsWith("?") ? search.value.slice(1) : search.value;
-  const params = new URLSearchParams(raw);
-  const result: Record<string, unknown> = {};
-  for (const [key, value] of params.entries()) {
-    const existing = result[key];
-    if (existing !== undefined) {
-      if (Array.isArray(existing)) {
-        existing.push(value);
-      } else {
-        result[key] = [existing, value];
-      }
-    } else {
-      result[key] = value;
-    }
+  for (const [key, value] of new URLSearchParams(search.value)) {
+    result[key] = Option.getOrElse(jsonValue(value), () => value);
   }
   return result;
 }
 
-export function usageSearchToQuery(search: UsageSearch): string {
+function searchQuery(search: Record<string, typeof Schema.Json.Type | undefined>): string {
   const params = new URLSearchParams();
-  if (search.tab) params.set("tab", search.tab);
-  if (search.period) params.set("period", search.period);
-  if (search.from) params.set("from", search.from);
-  if (search.to) params.set("to", search.to);
-  if (search.stat) params.set("stat", search.stat);
-  if (search.value) params.set("value", search.value);
-  if (search.group) {
-    for (const g of search.group) params.append("group", g);
-  }
-  const arrayKeys = [
-    "harness",
-    "model",
-    "modelVersion",
-    "effort",
-    "role",
-    "repository",
-    "source",
-  ] as const;
-  for (const key of arrayKeys) {
-    const val = search[key];
-    if (val) {
-      for (const item of val) params.append(key, item);
+  for (const [key, value] of Object.entries(search)) {
+    if (value === undefined) {
+      continue;
     }
+    params.set(
+      key,
+      typeof value === "string" && Option.isNone(jsonValue(value)) ? value : encodeJson(value),
+    );
   }
-  const str = params.toString();
-  return str ? `?${str}` : "";
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}
+
+export function usageSearchToQuery(search: UsageSearch): string {
+  return searchQuery(search);
 }
 
 export function mcpSearchToQuery(search: McpSearch): string {
-  const params = new URLSearchParams();
-  if (search.oauth) params.set("oauth", search.oauth);
-  if (search.server !== undefined) params.set("server", String(search.server));
-  if (search.reason) params.set("reason", search.reason);
-  const str = params.toString();
-  return str ? `?${str}` : "";
+  return searchQuery(search);
 }
 
 export function parseRoute(url: Url): AppRoute {
@@ -205,7 +182,7 @@ export function parseRoute(url: Url): AppRoute {
             return AppRoute.Memory({ owner: third, name: fourth });
           }
           if (segments.length >= 5) {
-            const file = [fourth, ...rest].join("/");
+            const file = rest.join("/");
             return AppRoute.MemoryFile({ owner: third, name: fourth, file });
           }
           return AppRoute.NotFound();
@@ -291,5 +268,33 @@ export function isFillRoute(route: AppRoute): boolean {
     Voice: () => false,
     Devices: () => false,
     GitHub: () => false,
+  });
+}
+
+export function parentPath(route: AppRoute): string | undefined {
+  return AppRoute.match(route, {
+    NotFound: () => undefined,
+    CoordinatorChat: () => undefined,
+    Workstreams: () => undefined,
+    Tasks: () => undefined,
+    Inbox: () => undefined,
+    Settings: () => undefined,
+    WorkstreamChat: () => "/workstreams",
+    Agents: () => "/settings",
+    Usage: () => "/settings",
+    CheckupTools: () => "/settings/checkup",
+    CheckupPermissions: () => "/settings/checkup",
+    CheckupLabels: () => "/settings/checkup",
+    CheckupWorkstreams: () => "/settings/checkup",
+    Checkup: () => "/settings",
+    MemoryFile: ({ owner, name }) => `/settings/memory/${owner}/${name}`,
+    Memory: () => "/settings/memory",
+    MemoryRepositories: () => "/settings",
+    Roles: () => "/settings",
+    McpServers: () => "/settings",
+    SwitchSettings: () => "/settings",
+    Voice: () => "/settings",
+    Devices: () => "/settings",
+    GitHub: () => "/settings",
   });
 }

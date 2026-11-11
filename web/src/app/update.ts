@@ -40,6 +40,7 @@ import { initialModel as initialUsageModel } from "@/usage/model";
 import { load as usageLoad, update as updateUsage } from "@/usage/update";
 import { initialModel as initialWorkstreamsModel } from "@/workstreams/model";
 import { update as updateWorkstreams } from "@/workstreams/update";
+import { sameChat } from "@/lib/unread";
 import {
   CancelUpgrade,
   CheckUpgrade,
@@ -61,7 +62,8 @@ import {
 } from "./commands";
 import { Message } from "./message";
 import { initialModel, Model, savedOrganization, saveOrganization } from "./model";
-import { parseRoute, type AppRoute } from "./route";
+import { coordinatorTrayItems, workstreamTrayItems } from "./tray";
+import { parentPath, parseRoute, type AppRoute } from "./route";
 
 type UpdateReturn = Update.Return<Model, Message>;
 
@@ -198,7 +200,7 @@ function initScreenForRoute(
         workstream: 0,
         agent: "Coordinator",
       });
-      const trayItems = model.inbox.filter((item) => item.organization === organization);
+      const trayItems = coordinatorTrayItems(model.inbox, organization);
       model = {
         ...model,
         chat: Option.some({ ...chatModel, trayItems }),
@@ -239,9 +241,7 @@ function initScreenForRoute(
         instance: "side",
         tab: "tasks",
       });
-      const inWorkstream = model.inbox
-        .filter((item) => item.workstreamRepository === repository && item.workstream === number)
-        .toSorted((a, b) => a.id - b.id);
+      const inWorkstream = workstreamTrayItems(model.inbox, repository, number);
       const workstream = model.workstreams.find(
         (other) => other.repository === repository && other.number === number,
       );
@@ -352,9 +352,21 @@ function initScreenForRoute(
     }
 
     case "Settings": {
+      let settingsModel = initialOverviewModel;
+      if (Option.isSome(model.switches)) {
+        settingsModel = { ...settingsModel, switches: model.switches };
+      }
+      settingsModel = {
+        ...settingsModel,
+        errors: {
+          start: model.switchErrors.start ?? "",
+          merge: model.switchErrors.merge ?? "",
+          repairs: model.switchErrors.repairs ?? "",
+        },
+      };
       model = {
         ...model,
-        settingsProgram: Option.some(initialOverviewModel),
+        settingsProgram: Option.some(settingsModel),
       };
       commands.push(
         Command.mapMessage(FetchVersion(), (message) => Message.GotSettingsMessage({ message })),
@@ -365,12 +377,40 @@ function initScreenForRoute(
       break;
     }
 
-    case "Checkup":
+    case "Checkup": {
+      const checkupModel = initialCheckupModel({
+        page: "overview",
+        organization: model.organization,
+      });
+      model = {
+        ...model,
+        checkupProgram: Option.some({
+          ...checkupModel,
+          pauses: model.pauses,
+        }),
+      };
+      commands.push(
+        Command.mapMessage(FetchTools(), (message) => Message.GotCheckupMessage({ message })),
+      );
+      if (model.organizations.length > 0) {
+        const { model: nextModel, commands: subCommands } = foldCheckup(model, {
+          _tag: "ReceivedOrganizations",
+          organizations: model.organizations,
+        });
+        model = nextModel;
+        commands.push(...(subCommands ?? []));
+      }
+      break;
+    }
+
     case "CheckupTools": {
       const checkupModel = initialCheckupModel({ page: "tools", organization: model.organization });
       model = {
         ...model,
-        checkupProgram: Option.some(checkupModel),
+        checkupProgram: Option.some({
+          ...checkupModel,
+          pauses: model.pauses,
+        }),
       };
       commands.push(
         Command.mapMessage(FetchTools(), (message) => Message.GotCheckupMessage({ message })),
@@ -390,7 +430,10 @@ function initScreenForRoute(
       const checkupModel = initialCheckupModel({ page, organization: route.organization });
       model = {
         ...model,
-        checkupProgram: Option.some(checkupModel),
+        checkupProgram: Option.some({
+          ...checkupModel,
+          pauses: model.pauses,
+        }),
       };
       commands.push(
         Command.mapMessage(FetchCheckup({ organization: route.organization }), (message) =>
@@ -413,21 +456,37 @@ function initScreenForRoute(
     }
 
     case "MemoryRepositories": {
+      const memoryModel = initialMemoryModel({
+        page: "repositories",
+        owner: "",
+        name: "",
+        file: "",
+      });
       model = {
         ...model,
-        memoryProgram: Option.some(
-          initialMemoryModel({ page: "repositories", owner: "", name: "", file: "" }),
-        ),
+        memoryProgram: Option.some({
+          ...memoryModel,
+          apps: Option.isSome(model.apps) ? model.apps.value : [],
+          organizations: model.organizations,
+        }),
       };
       break;
     }
 
     case "Memory": {
+      const memoryModel = initialMemoryModel({
+        page: "files",
+        owner: route.owner,
+        name: route.name,
+        file: "",
+      });
       model = {
         ...model,
-        memoryProgram: Option.some(
-          initialMemoryModel({ page: "files", owner: route.owner, name: route.name, file: "" }),
-        ),
+        memoryProgram: Option.some({
+          ...memoryModel,
+          apps: Option.isSome(model.apps) ? model.apps.value : [],
+          organizations: model.organizations,
+        }),
       };
       commands.push(
         Command.mapMessage(FetchFiles({ owner: route.owner, name: route.name }), (message) =>
@@ -438,16 +497,19 @@ function initScreenForRoute(
     }
 
     case "MemoryFile": {
+      const memoryModel = initialMemoryModel({
+        page: "file",
+        owner: route.owner,
+        name: route.name,
+        file: route.file,
+      });
       model = {
         ...model,
-        memoryProgram: Option.some(
-          initialMemoryModel({
-            page: "file",
-            owner: route.owner,
-            name: route.name,
-            file: route.file,
-          }),
-        ),
+        memoryProgram: Option.some({
+          ...memoryModel,
+          apps: Option.isSome(model.apps) ? model.apps.value : [],
+          organizations: model.organizations,
+        }),
       };
       commands.push(
         Command.mapMessage(
@@ -535,6 +597,35 @@ function initScreenForRoute(
   return { model, commands };
 }
 
+function enterOrganization(
+  model: Model,
+  organization: string,
+): { model: Model; commands: Cmd<Message>[] } {
+  const next: Model = { ...model, organization };
+  const route = model.route;
+  if (
+    route._tag === "CoordinatorChat" &&
+    model.organizations.includes(organization) &&
+    !Option.exists(model.chat, (chat) => chat.organization === organization)
+  ) {
+    return initScreenForRoute(next, route);
+  }
+  if (Option.isSome(model.inboxProgram) && model.inboxProgram.value.organization !== organization) {
+    return {
+      model: {
+        ...next,
+        inboxProgram: Option.some({
+          ...model.inboxProgram.value,
+          organization,
+          trayItems: model.inbox.filter((item) => item.organization === organization),
+        }),
+      },
+      commands: [],
+    };
+  }
+  return { model: next, commands: [] };
+}
+
 export function init(url: Url): UpdateReturn {
   const route = parseRoute(url);
   if (route._tag === "WorkstreamChat") {
@@ -560,12 +651,15 @@ export function init(url: Url): UpdateReturn {
   return { model, commands };
 }
 
+const backRequested = (model: Model) =>
+  Message.BackRequested({ parent: parentPath(model.route) ?? "/chat" });
+
 export function update(model: Model, message: Message): UpdateReturn {
   switch (message._tag) {
     case "UrlRequested": {
       if (message.request._tag === "Internal") {
         return {
-          model,
+          model: { ...model, historyDepth: model.historyDepth + 1 },
           commands: [Navigate({ path: urlToString(message.request.url) })],
         };
       }
@@ -590,9 +684,31 @@ export function update(model: Model, message: Message): UpdateReturn {
         saveOrganization(org);
       }
 
-      const nextDepth = model.historyDepth + 1;
+      if (
+        model.route._tag === "Usage" &&
+        nextRoute._tag === "Usage" &&
+        Option.isSome(model.usageProgram)
+      ) {
+        const { model: nextModel, commands } = foldUsage(
+          { ...model, route: nextRoute, organization: org },
+          { _tag: "ReceivedSearch", search: nextRoute.search },
+        );
+        return { model: nextModel, commands };
+      }
+
+      if (
+        model.route._tag === "McpServers" &&
+        nextRoute._tag === "McpServers" &&
+        Option.isSome(model.mcpServersProgram)
+      ) {
+        return {
+          model: { ...model, route: nextRoute, organization: org },
+          commands: [],
+        };
+      }
+
       const screenInit = initScreenForRoute(
-        { ...model, route: nextRoute, historyDepth: nextDepth, organization: org },
+        { ...model, route: nextRoute, organization: org },
         nextRoute,
       );
 
@@ -603,11 +719,17 @@ export function update(model: Model, message: Message): UpdateReturn {
     }
 
     case "NavigateRequested":
-      return { model, commands: [Navigate({ path: message.path })] };
+      return {
+        model: { ...model, historyDepth: model.historyDepth + 1 },
+        commands: [Navigate({ path: message.path })],
+      };
 
     case "BackRequested":
       return {
-        model,
+        model: {
+          ...model,
+          historyDepth: model.historyDepth > 0 ? model.historyDepth - 1 : 0,
+        },
         commands: [model.historyDepth > 0 ? GoBack() : ReplaceUrl({ path: message.parent })],
       };
 
@@ -689,18 +811,43 @@ export function update(model: Model, message: Message): UpdateReturn {
         });
       }
 
-      const updatedModel: Model = {
-        ...model,
-        apps: Option.some(apps),
-        organizations,
-        organization: org,
-        githubProgram,
-        workstreamsProgram,
-        tasksProgram,
-        appError: Option.none(),
-      };
+      const entered = enterOrganization(
+        {
+          ...model,
+          apps: Option.some(apps),
+          organizations,
+          githubProgram,
+          workstreamsProgram,
+          tasksProgram,
+          appError: Option.none(),
+        },
+        org,
+      );
+      let updatedModel: Model = entered.model;
+      const commands: Cmd<Message>[] = [...entered.commands];
 
-      return { model: updatedModel, commands: [] };
+      if (Option.isSome(updatedModel.checkupProgram)) {
+        const { model: m, commands: c } = foldCheckup(updatedModel, {
+          _tag: "ReceivedOrganizations",
+          organizations,
+        });
+        updatedModel = m;
+        commands.push(...(c ?? []));
+      }
+
+      if (Option.isSome(updatedModel.memoryProgram)) {
+        const { model: m1 } = foldMemory(updatedModel, {
+          _tag: "ReceivedApps",
+          apps,
+        });
+        const { model: m2 } = foldMemory(m1, {
+          _tag: "ReceivedOrganizations",
+          organizations,
+        });
+        updatedModel = m2;
+      }
+
+      return { model: updatedModel, commands };
     }
 
     case "LoadAppFailed":
@@ -730,10 +877,8 @@ export function update(model: Model, message: Message): UpdateReturn {
           organization: org,
         });
       }
-      return {
-        model: { ...model, organization: org, workstreamsProgram, tasksProgram },
-        commands,
-      };
+      const entered = enterOrganization({ ...model, workstreamsProgram, tasksProgram }, org);
+      return { model: entered.model, commands: [...commands, ...entered.commands] };
     }
 
     case "ConnectionChanged":
@@ -742,12 +887,47 @@ export function update(model: Model, message: Message): UpdateReturn {
     case "OnlineChanged":
       return { model: { ...model, online: message.online }, commands: [] };
 
+    case "WideChanged":
+      return { model: { ...model, wide: message.wide }, commands: [] };
+
     case "LiveOpened":
-    case "LiveConnected":
-      return {
-        model: { ...model, link: "connected" },
-        commands: [CheckUpgrade(), FetchPauses(), FetchCIStops(), FetchSwitches()],
-      };
+    case "LiveConnected": {
+      const commands: Cmd<Message>[] = [
+        LoadApp(),
+        CheckUpgrade(),
+        FetchPauses(),
+        FetchCIStops(),
+        FetchSwitches(),
+      ];
+      let currentModel: Model = { ...model, link: "connected" };
+
+      const route = model.route._tag;
+      if (
+        (route === "CoordinatorChat" || route === "WorkstreamChat") &&
+        Option.isSome(currentModel.chat)
+      ) {
+        const { model: m, commands: c } = foldChat(currentModel, { _tag: "ConnectionOpened" });
+        currentModel = m;
+        commands.push(...(c ?? []));
+      }
+      if (route === "WorkstreamChat" && Option.isSome(currentModel.panel)) {
+        const { model: m, commands: c } = foldPanel(currentModel, { _tag: "ConnectionOpened" });
+        currentModel = m;
+        commands.push(...(c ?? []));
+      }
+      if (route === "Tasks" && Option.isSome(currentModel.tasksProgram)) {
+        const { model: m, commands: c } = foldTasks(currentModel, { _tag: "ConnectionOpened" });
+        currentModel = m;
+        commands.push(...(c ?? []));
+      }
+      if (route === "Agents" && Option.isSome(currentModel.agentsProgram)) {
+        const { model: m, commands: c } = foldAgents(currentModel, { _tag: "ConnectionOpened" });
+        currentModel = m;
+        commands.push(...(c ?? []));
+      }
+
+      return { model: currentModel, commands };
+    }
 
     case "LiveConnecting":
       return { model: { ...model, link: "connecting" }, commands: [] };
@@ -772,13 +952,17 @@ export function update(model: Model, message: Message): UpdateReturn {
     case "WorkstreamsStoreChanged": {
       const { workstreams, needsHuman, working } = message;
       const commands: Cmd<Message>[] = [];
+      let chosenAutopilot = model.chosenAutopilot;
       if (model.route._tag === "WorkstreamChat") {
-        const key = `${model.route.owner}/${model.route.name}`;
-        const num = model.route.number;
-        const exists = workstreams.some((w) => w.repository === key && w.number === num);
-        if (workstreams.length > 0 && !exists) {
+        const { owner, name, number } = model.route;
+        const current = workstreams.find(
+          (w) => w.repository === `${owner}/${name}` && w.number === number,
+        );
+        if (workstreams.length > 0 && !current) {
           commands.push(ReplaceUrl({ path: "/workstreams" }));
         }
+        const serverLevel = current?.autopilot ?? "off";
+        chosenAutopilot = Option.filter(chosenAutopilot, (chosen) => chosen.from === serverLevel);
       }
       let workstreamsProgram = model.workstreamsProgram;
       if (Option.isSome(workstreamsProgram)) {
@@ -808,6 +992,7 @@ export function update(model: Model, message: Message): UpdateReturn {
           workstreamsWorking: working,
           workstreamsProgram,
           chat,
+          chosenAutopilot,
         },
         commands,
       };
@@ -821,10 +1006,8 @@ export function update(model: Model, message: Message): UpdateReturn {
         const activeRepo = chat.value.repository;
         const activeWorkstream = chat.value.workstream;
         const trayItems = activeRepo
-          ? items.filter(
-              (it) => it.workstreamRepository === activeRepo && it.workstream === activeWorkstream,
-            )
-          : items.filter((it) => it.organization === activeOrg);
+          ? workstreamTrayItems(items, activeRepo, activeWorkstream)
+          : coordinatorTrayItems(items, activeOrg);
         chat = Option.some({ ...chat.value, trayItems });
       }
 
@@ -849,8 +1032,17 @@ export function update(model: Model, message: Message): UpdateReturn {
     case "CIStopsChanged":
       return { model: { ...model, ciStops: message.stops }, commands: [] };
 
-    case "PausesChanged":
-      return { model: { ...model, pauses: message.pauses }, commands: [] };
+    case "PausesChanged": {
+      let currentModel: Model = { ...model, pauses: message.pauses };
+      if (Option.isSome(currentModel.checkupProgram)) {
+        const { model: nextModel } = foldCheckup(currentModel, {
+          _tag: "ReceivedPauses",
+          pauses: message.pauses,
+        });
+        currentModel = nextModel;
+      }
+      return { model: currentModel, commands: [] };
+    }
 
     case "ResumePauseRequested":
       return {
@@ -882,11 +1074,19 @@ export function update(model: Model, message: Message): UpdateReturn {
           switches: Option.some(message.switches),
         });
       }
+      let settingsProgram = model.settingsProgram;
+      if (Option.isSome(settingsProgram)) {
+        settingsProgram = Option.some({
+          ...settingsProgram.value,
+          switches: Option.some(message.switches),
+        });
+      }
       return {
         model: {
           ...model,
           switches: Option.some(message.switches),
           switchesProgram,
+          settingsProgram,
         },
         commands: [],
       };
@@ -930,12 +1130,24 @@ export function update(model: Model, message: Message): UpdateReturn {
           },
         });
       }
+      let settingsProgram = model.settingsProgram;
+      if (Option.isSome(settingsProgram)) {
+        settingsProgram = Option.some({
+          ...settingsProgram.value,
+          errors: {
+            start: errors.start ?? "",
+            merge: errors.merge ?? "",
+            repairs: errors.repairs ?? "",
+          },
+        });
+      }
       return {
         model: {
           ...model,
           switchBusy: Option.none(),
           switchErrors: errors,
           switchesProgram,
+          settingsProgram,
         },
         commands: [],
       };
@@ -946,7 +1158,7 @@ export function update(model: Model, message: Message): UpdateReturn {
       const reverted = current
         ? {
             ...current,
-            [message.kind]: !current[message.kind as "start" | "merge" | "repairs"],
+            [message.kind]: !current[message.kind],
           }
         : current;
       const nextErrors = {
@@ -965,6 +1177,18 @@ export function update(model: Model, message: Message): UpdateReturn {
           },
         });
       }
+      let settingsProgram = model.settingsProgram;
+      if (Option.isSome(settingsProgram)) {
+        settingsProgram = Option.some({
+          ...settingsProgram.value,
+          switches: Option.fromNullishOr(reverted),
+          errors: {
+            start: nextErrors.start ?? "",
+            merge: nextErrors.merge ?? "",
+            repairs: nextErrors.repairs ?? "",
+          },
+        });
+      }
       return {
         model: {
           ...model,
@@ -972,6 +1196,7 @@ export function update(model: Model, message: Message): UpdateReturn {
           switchBusy: Option.none(),
           switchErrors: nextErrors,
           switchesProgram,
+          settingsProgram,
         },
         commands: [],
       };
@@ -1148,7 +1373,7 @@ export function update(model: Model, message: Message): UpdateReturn {
         );
         const from = workstream?.autopilot ?? "off";
         return {
-          model: { ...model, autopilotBusy: true, autopilotError: "" },
+          model: { ...model, autopilotBusy: true, autopilotError: "", openMenu: Option.none() },
           commands: [SelectAutopilot({ owner, name, number, from, to: message.level })],
         };
       }
@@ -1208,6 +1433,24 @@ export function update(model: Model, message: Message): UpdateReturn {
       };
     }
 
+    case "PressedEscape":
+      if (Option.isSome(model.openMenu)) {
+        return update(model, Message.CloseMenu());
+      }
+      if (model.upgrade.changesShown) {
+        return update(model, Message.HideUpgradeChanges());
+      }
+      if (Option.isSome(model.heldSheet)) {
+        return update(model, Message.CloseHeldSheet());
+      }
+      if (model.loginShown) {
+        return update(model, Message.HideLogin());
+      }
+      if (model.mobileTasksOpen) {
+        return update(model, Message.SetMobileTasksOpen({ open: false }));
+      }
+      return { model, commands: [] };
+
     case "CloseMenu":
       return { model: { ...model, openMenu: Option.none() }, commands: [] };
 
@@ -1236,7 +1479,7 @@ export function update(model: Model, message: Message): UpdateReturn {
         m = res.model;
         if (res.commands) cmds.push(...res.commands);
       }
-      if (Option.isSome(m.panel) && message.agent) {
+      if (Option.isSome(m.panel)) {
         const res = foldPanel(m, { _tag: "AgentChanged", agent: message.agent });
         m = res.model;
         if (res.commands) cmds.push(...res.commands);
@@ -1263,14 +1506,14 @@ export function update(model: Model, message: Message): UpdateReturn {
     }
 
     case "ForwardLiveMessage": {
-      if (Option.isSome(model.chat)) {
+      if (Option.isSome(model.chat) && sameChat(message.message, model.chat.value)) {
         return foldChat(model, { _tag: "ReceivedLiveMessage", message: message.message });
       }
       return { model, commands: [] };
     }
 
     case "ForwardLiveChatState": {
-      if (Option.isSome(model.chat)) {
+      if (Option.isSome(model.chat) && sameChat(message.state, model.chat.value)) {
         return foldChat(model, { _tag: "ReceivedLiveChatState", state: message.state });
       }
       return { model, commands: [] };
@@ -1294,8 +1537,13 @@ export function update(model: Model, message: Message): UpdateReturn {
     case "GotChatMessage":
       return foldChat(model, message.message);
 
-    case "GotPanelMessage":
-      return foldPanel(model, message.message);
+    case "GotPanelMessage": {
+      const panelMessage = message.message;
+      if (panelMessage._tag === "GotTasksMessage" && panelMessage.message._tag === "AttachedTask") {
+        return foldPanel({ ...model, mobileTasksOpen: false }, panelMessage);
+      }
+      return foldPanel(model, panelMessage);
+    }
 
     case "GotInboxMessage":
       return foldInbox(model, message.message);
@@ -1309,8 +1557,24 @@ export function update(model: Model, message: Message): UpdateReturn {
     case "GotAgentsMessage":
       return foldAgents(model, message.message);
 
-    case "GotCheckupMessage":
+    case "GotCheckupMessage": {
+      if (message.message._tag === "WorkstreamRequested") {
+        const org = message.message.organization;
+        const { model: m1, commands: c1 } = foldCheckup(model, message.message);
+        const { model: m2, commands: c2 } = update(
+          m1,
+          Message.SelectOrganization({ organization: org }),
+        );
+        return {
+          model: m2,
+          commands: [...(c1 ?? []), ...(c2 ?? []), Navigate({ path: "/chat" })],
+        };
+      }
+      if (message.message._tag === "ClickedBack") {
+        return update(model, backRequested(model));
+      }
       return foldCheckup(model, message.message);
+    }
 
     case "GotUsageMessage":
       return foldUsage(model, message.message);
@@ -1318,20 +1582,49 @@ export function update(model: Model, message: Message): UpdateReturn {
     case "GotSettingsMessage":
       return foldSettings(model, message.message);
 
-    case "GotRolesMessage":
+    case "GotRolesMessage": {
+      if (message.message._tag === "ClickedBack") {
+        return update(model, backRequested(model));
+      }
       return foldRoles(model, message.message);
+    }
 
-    case "GotMemoryMessage":
+    case "GotMemoryMessage": {
+      if (message.message._tag === "ClickedBack") {
+        return update(model, backRequested(model));
+      }
       return foldMemory(model, message.message);
+    }
 
-    case "GotMcpServersMessage":
+    case "GotMcpServersMessage": {
+      if (message.message._tag === "ClickedBack") {
+        return update(model, backRequested(model));
+      }
       return foldMcpServers(model, message.message);
+    }
 
-    case "GotSwitchesMessage":
+    case "GotSwitchesMessage": {
+      if (message.message._tag === "ClickedSwitch") {
+        return update(
+          model,
+          Message.ToggleSwitchRequested({
+            kind: message.message.kind,
+            on: message.message.on,
+          }),
+        );
+      }
+      if (message.message._tag === "ClickedBack") {
+        return update(model, backRequested(model));
+      }
       return foldSwitches(model, message.message);
+    }
 
-    case "GotVoiceMessage":
+    case "GotVoiceMessage": {
+      if (message.message._tag === "ClickedBack") {
+        return update(model, backRequested(model));
+      }
       return foldVoice(model, message.message);
+    }
 
     case "GotDevicesMessage":
       return foldDevices(model, message.message);

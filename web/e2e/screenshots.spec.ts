@@ -1243,7 +1243,7 @@ test("screenshots", async ({ page }) => {
   const workstreamsLink = sidebar.getByRole("link", { name: "Workstreams" });
   const evergreenLink = sidebar.getByRole("link", { name: /^Integrate loyalty plans/ });
   const sidebarShowsEvergreen = (on: boolean) => async () => {
-    if (await workstreamsLink.isVisible()) {
+    if (page.viewportSize()?.width === viewports.desktop.width) {
       await expect
         .poll(
           async () =>

@@ -7,7 +7,7 @@ import { Message } from "./message";
 import type { Model } from "./model";
 
 export const subscriptions = Subscription.make<Model, Message>()((entry) => ({
-  needsHuman: entry(
+  wsNeedsHuman: entry(
     {},
     {
       modelToDependencies: () => ({}),
@@ -17,7 +17,7 @@ export const subscriptions = Subscription.make<Model, Message>()((entry) => ({
         ),
     },
   ),
-  workstreams: entry(
+  wsWorkstreams: entry(
     {},
     {
       modelToDependencies: () => ({}),
@@ -31,7 +31,7 @@ export const subscriptions = Subscription.make<Model, Message>()((entry) => ({
         ),
     },
   ),
-  unread: entry(
+  wsUnread: entry(
     {},
     {
       modelToDependencies: () => ({}),

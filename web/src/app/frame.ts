@@ -4,6 +4,10 @@ import type { Html, HtmlBuilder } from "foldkit/html";
 import type { Workstream } from "@/api/api.gen";
 import { settingsPages } from "@/lib/settings";
 import { unreadCount } from "@/lib/unread";
+import { Message as AgentsMessage } from "@/agents/message";
+import { titleOf as agentTitle } from "@/agents/model";
+import { Message as CheckupMsg } from "@/checkup/message";
+import { fixButtonOf } from "@/checkup/model";
 import {
   chatParams,
   organizationWorkstreams,
@@ -22,13 +26,14 @@ import {
   messageCircleIcon,
   settingsIcon,
 } from "@/ui/icons";
+import { pageTitle } from "@/settings/memory/model";
 import { renderAutopilotSheet } from "./autopilot";
 import { renderCIStops } from "./ciStops";
 import { Message } from "./message";
 import type { Model } from "./model";
 import { renderOrganizationSwitch } from "./organizationSwitch";
 import { renderPauses } from "./pauses";
-import { isFillRoute, routeToPath, AppRoute } from "./route";
+import { isFillRoute, parentPath, routeToPath, AppRoute } from "./route";
 import { renderSwitchLines } from "./switchLines";
 import { renderUpgradeControls, renderUpgradeDialog } from "./upgrade";
 import { renderWorkstreamBadges } from "./workstreamBadges";
@@ -102,32 +107,59 @@ function renderPhoneTopBar(
   const route = model.route;
   const extra: Html[] = [];
 
-  const topBarConfig = AppRoute.match(route, {
-    CoordinatorChat: () => ({ title: "Chat", back: undefined }),
-    NotFound: () => ({ title: "Chat", back: undefined }),
-    Workstreams: () => ({ title: "Workstreams", back: undefined }),
-    Tasks: () => ({ title: "Tasks", back: undefined }),
-    Inbox: () => ({ title: "Inbox", back: undefined }),
-    Settings: () => ({ title: "Settings", back: undefined }),
-    Roles: () => ({ title: "Roles", back: "/settings" }),
-    Memory: ({ owner, name }) => ({ title: `${owner}/${name}`, back: "/settings/memory" }),
-    MemoryFile: ({ owner, name, file }) => ({
-      title: file,
-      back: `/settings/memory/${owner}/${name}`,
+  const topBarConfig: { title: string; onBack?: Message } = AppRoute.match(route, {
+    CoordinatorChat: () => ({ title: "Chat" }),
+    NotFound: () => ({ title: "Chat" }),
+    Workstreams: () => ({ title: "Workstreams" }),
+    Tasks: () => ({ title: "Tasks" }),
+    Inbox: () => ({ title: "Inbox" }),
+    Settings: () => ({ title: "Settings" }),
+    Roles: () => ({ title: "Roles" }),
+    Memory: ({ owner, name }) => ({
+      title: pageTitle({ page: "files", owner, name, file: "" }),
     }),
-    MemoryRepositories: () => ({ title: "Memory", back: "/settings" }),
-    SwitchSettings: () => ({ title: "Switches", back: "/settings" }),
-    Voice: () => ({ title: "Voice", back: "/settings" }),
-    Devices: () => ({ title: "Devices", back: "/settings" }),
-    GitHub: () => ({ title: "GitHub", back: "/settings" }),
-    McpServers: () => ({ title: "MCP servers", back: "/settings" }),
-    Checkup: () => ({ title: "Checkup", back: "/settings" }),
-    CheckupTools: () => ({ title: "Tools", back: "/settings/checkup" }),
-    CheckupPermissions: () => ({ title: "App permissions", back: "/settings/checkup" }),
-    CheckupLabels: () => ({ title: "Labels", back: "/settings/checkup" }),
-    CheckupWorkstreams: () => ({ title: "Workstreams", back: "/settings/checkup" }),
-    Agents: () => ({ title: "Agents", back: "/settings" }),
-    Usage: () => ({ title: "Usage", back: "/settings" }),
+    MemoryFile: ({ owner, name, file }) => ({
+      title: pageTitle({ page: "file", owner, name, file }),
+    }),
+    MemoryRepositories: () => ({ title: "Memory" }),
+    SwitchSettings: () => ({ title: "Switches" }),
+    Voice: () => ({ title: "Voice" }),
+    Devices: () => ({ title: "Devices" }),
+    GitHub: () => ({ title: "Connect GitHub" }),
+    McpServers: () => ({ title: "MCP servers" }),
+    Checkup: () => ({ title: "Checkup" }),
+    CheckupTools: () => ({ title: "Tools" }),
+    CheckupPermissions: () => ({ title: "App permissions" }),
+    CheckupLabels: () => {
+      if (Option.isSome(model.checkupProgram)) {
+        const fix = fixButtonOf(model.checkupProgram.value);
+        if (fix) {
+          extra.push(
+            renderButton(h, {
+              label: fix.text,
+              variant: "default",
+              size: "sm",
+              className: "mr-2 ml-auto",
+              pending: fix.pending,
+              onClick: Message.GotCheckupMessage({ message: CheckupMsg.ClickedFix() }),
+            }),
+          );
+        }
+      }
+      return { title: "Labels" };
+    },
+    CheckupWorkstreams: () => ({ title: "Workstreams" }),
+    Agents: () => {
+      const transcript = Option.flatMap(model.agentsProgram, (agents) => agents.transcript);
+      if (Option.isNone(transcript)) {
+        return { title: "Agents" };
+      }
+      return {
+        title: agentTitle(transcript.value),
+        onBack: Message.GotAgentsMessage({ message: AgentsMessage.BackRequested() }),
+      };
+    },
+    Usage: () => ({ title: "Usage" }),
     WorkstreamChat: ({ number }) => {
       const serverLevel = activeWorkstream?.autopilot ?? "off";
       const level =
@@ -153,14 +185,12 @@ function renderPhoneTopBar(
           onClick: Message.SetMobileTasksOpen({ open: true }),
         }),
       );
-      return {
-        title: activeWorkstream?.title ?? "",
-        back: "/workstreams",
-      };
+      return { title: activeWorkstream?.title ?? "" };
     },
   });
 
-  const { title, back } = topBarConfig;
+  const { title, onBack } = topBarConfig;
+  const back = parentPath(route);
 
   return h.header(
     [h.Class("shrink-0 border-b pt-[env(safe-area-inset-top)] md:hidden")],
@@ -169,11 +199,12 @@ function renderPhoneTopBar(
         [h.Class("flex min-h-14 items-center gap-2 px-2")],
         [
           back
-            ? h.a(
+            ? h.button(
                 [
-                  h.Attribute("href", back),
+                  h.Type("button"),
                   h.AriaLabel("Back"),
                   h.Class(buttonClass({ variant: "ghost", size: "icon" })),
+                  h.OnClick(onBack ?? Message.BackRequested({ parent: back })),
                 ],
                 [arrowLeftIcon(h)],
               )

@@ -7,8 +7,6 @@ export const Message = defineMessageUnion({
   ReceivedErrors: { errors: SwitchErrors },
   ClickedSwitch: { kind: SwitchKind, on: Schema.Boolean },
   ClickedBack: {},
-  CompletedRequestSwitch: {},
-  CompletedGoBack: {},
 });
 
 export type Message = typeof Message.Type;

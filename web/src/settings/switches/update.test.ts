@@ -1,7 +1,6 @@
 import { Option } from "effect";
 import { describe, expect, it } from "vitest";
 import { Command as StoryCommand, given, message, model, story } from "foldkit/story";
-import { GoBack, RequestSwitch } from "./commands";
 import { Message } from "./message";
 import { initialModel, isOn, shownError } from "./model";
 import { update } from "./update";
@@ -39,19 +38,12 @@ describe("the switches", () => {
       model((m) => {
         expect(isOn(m, "start")).toBe(true);
       }),
-      StoryCommand.expectExact(RequestSwitch({ kind: "start", on: false })),
-      StoryCommand.resolve(RequestSwitch, Message.CompletedRequestSwitch()),
+      StoryCommand.expectNone(),
     );
   });
 
   it("goes back with the back button", () => {
-    story(
-      update,
-      given(initialModel),
-      message(Message.ClickedBack()),
-      StoryCommand.expectExact(GoBack()),
-      StoryCommand.resolve(GoBack, Message.CompletedGoBack()),
-    );
+    story(update, given(initialModel), message(Message.ClickedBack()), StoryCommand.expectNone());
   });
 });
 

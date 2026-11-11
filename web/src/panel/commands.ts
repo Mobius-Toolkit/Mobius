@@ -17,11 +17,6 @@ export const Navigate = Command.define("Navigate", {
   execute: ({ path }) => pushUrl(path).pipe(Effect.as(Message.CompletedNavigate())),
 });
 
-export const ReportTaskAttached = Command.define("ReportTaskAttached", {
-  messages: [Message.CompletedReportTaskAttached],
-  execute: Effect.succeed(Message.CompletedReportTaskAttached()),
-});
-
 export const ReportTab = Command.define("ReportTab", {
   args: { tab: Tab },
   messages: [Message.CompletedReportTab],

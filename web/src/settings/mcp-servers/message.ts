@@ -37,7 +37,6 @@ export const Message = defineMessageUnion({
   OAuthDisconnected: { id: Schema.Number },
   ClickedBack: {},
   CompletedRequestLogin: {},
-  CompletedGoBack: {},
   CompletedNavigate: {},
   CompletedShowNotice: {},
   CompletedRedirect: {},

@@ -17,6 +17,14 @@ import {
   WorkstreamAutopilot,
 } from "./model";
 import { Message as ChatMessage } from "@/chat/message";
+import {
+  ChatMessage as LiveChatMessage,
+  ChatState as LiveChatState,
+  InboxItem as LiveInboxItem,
+  PendingAction,
+} from "@/chat/schemas";
+import { Agent } from "@/transcript/schemas";
+import { SwitchKind } from "@/settings/schemas";
 import { Message as PanelMessage } from "@/panel/message";
 import { Message as WorkstreamsMessage } from "@/workstreams/message";
 import { Message as TasksMessage } from "@/tasks/message";
@@ -64,6 +72,7 @@ export const Message = defineMessageUnion({
   // Connection & Live events
   ConnectionChanged: { link: Schema.Literals(["connected", "connecting", "offline"]) },
   OnlineChanged: { online: Schema.Boolean },
+  WideChanged: { wide: Schema.Boolean },
   LiveOpened: {},
   LiveConnecting: {},
   LiveConnected: {},
@@ -92,9 +101,9 @@ export const Message = defineMessageUnion({
   ResumePauseFailed: { harness: Schema.String, error: Schema.String },
 
   SwitchesChanged: { switches: Switches },
-  ToggleSwitchRequested: { kind: Schema.String, on: Schema.Boolean },
-  ToggleSwitchSucceeded: { kind: Schema.String, on: Schema.Boolean },
-  ToggleSwitchFailed: { kind: Schema.String, error: Schema.String },
+  ToggleSwitchRequested: { kind: SwitchKind, on: Schema.Boolean },
+  ToggleSwitchSucceeded: { kind: SwitchKind, on: Schema.Boolean },
+  ToggleSwitchFailed: { kind: SwitchKind, error: Schema.String },
   OpenHeldSheet: { title: Schema.String, held: Schema.Array(HeldWork) },
   CloseHeldSheet: {},
 
@@ -122,6 +131,7 @@ export const Message = defineMessageUnion({
   // Menu & UI actions
   ToggleMenu: { id: Schema.String },
   CloseMenu: {},
+  PressedEscape: {},
 
   // Autopilot & Workstream actions
   SelectAutopilotRequested: { level: WorkstreamAutopilot },
@@ -138,13 +148,13 @@ export const Message = defineMessageUnion({
 
   // Forwarded live events to active screens
   ForwardWorkstreamsEvent: {},
-  ForwardAgentEvent: { agent: Schema.optional(Schema.Any) },
+  ForwardAgentEvent: { agent: Agent },
   ForwardRecurringEvent: { repository: Schema.String, number: Schema.Number },
   ForwardInboxEvent: {},
-  ForwardLiveMessage: { message: Schema.Any },
-  ForwardLiveChatState: { state: Schema.Any },
-  ForwardLiveAction: { action: Schema.Any },
-  ForwardLiveQuestion: { question: Schema.Any },
+  ForwardLiveMessage: { message: LiveChatMessage },
+  ForwardLiveChatState: { state: LiveChatState },
+  ForwardLiveAction: { action: PendingAction },
+  ForwardLiveQuestion: { question: LiveInboxItem },
 
   // Submodel messages
   GotChatMessage: { message: ChatMessage },

@@ -1,6 +1,6 @@
 import { Effect, Schema } from "effect";
 import { Command } from "foldkit";
-import { back, pushUrl } from "foldkit/navigation";
+import { pushUrl } from "foldkit/navigation";
 import {
   addMcpServer,
   changeMcpServer,
@@ -167,9 +167,4 @@ export const RequestLogin = Command.define("RequestLogin", {
   execute: Effect.sync(() => {
     window.dispatchEvent(new CustomEvent("mobius:login"));
   }).pipe(Effect.as(Message.CompletedRequestLogin())),
-});
-
-export const GoBack = Command.define("GoBack", {
-  messages: [Message.CompletedGoBack],
-  execute: back().pipe(Effect.as(Message.CompletedGoBack())),
 });

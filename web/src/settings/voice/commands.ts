@@ -1,6 +1,5 @@
 import { Effect, Schema } from "effect";
 import { Command } from "foldkit";
-import { back } from "foldkit/navigation";
 import { getVoiceLanguage, setVoiceLanguage } from "@/api/api.gen";
 import { request } from "@/lib/effects";
 import { Message } from "./message";
@@ -48,9 +47,4 @@ export const RequestLogin = Command.define("RequestLogin", {
   execute: Effect.sync(() => {
     window.dispatchEvent(new CustomEvent("mobius:login"));
   }).pipe(Effect.as(Message.CompletedRequestLogin())),
-});
-
-export const GoBack = Command.define("GoBack", {
-  messages: [Message.CompletedGoBack],
-  execute: back().pipe(Effect.as(Message.CompletedGoBack())),
 });

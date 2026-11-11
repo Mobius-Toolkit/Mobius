@@ -143,7 +143,8 @@ function renderPage(h: HtmlBuilder<Message>, model: Model): Html {
           [h.Class("hidden min-h-14 items-center gap-2 border-b px-4 py-2 md:flex")],
           [h.h2([h.Class("text-base font-semibold")], ["Chat"])],
         ),
-        h.div(
+        h.keyed("div")(
+          `chat-${currentOrg}`,
           [h.Id("chat-app-wrapper"), h.Class("flex min-h-0 min-w-0 grow flex-col")],
           [
             h.submodel({
@@ -262,7 +263,8 @@ function renderPage(h: HtmlBuilder<Message>, model: Model): Html {
                     ],
                   )
                 : h.empty,
-              h.div(
+              h.keyed("div")(
+                `chat-${wsRoute.owner}-${wsRoute.name}-${wsRoute.number}`,
                 [h.Id("chat-app-wrapper"), h.Class("flex min-h-0 min-w-0 grow flex-col")],
                 [
                   h.submodel({
@@ -278,15 +280,17 @@ function renderPage(h: HtmlBuilder<Message>, model: Model): Html {
           h.aside(
             [h.Class("hidden w-80 shrink-0 flex-col border-l pt-2 md:flex")],
             [
-              h.submodel({
-                slotId: `panel-side-${wsRoute.owner}-${wsRoute.name}-${wsRoute.number}`,
-                model: model.panel.value,
-                view: panelSubmodelView,
-                toParentMessage: (m) => Message.GotPanelMessage({ message: m }),
-              }),
+              model.wide
+                ? h.submodel({
+                    slotId: `panel-side-${wsRoute.owner}-${wsRoute.name}-${wsRoute.number}`,
+                    model: model.panel.value,
+                    view: panelSubmodelView,
+                    toParentMessage: (m) => Message.GotPanelMessage({ message: m }),
+                  })
+                : h.empty,
             ],
           ),
-          model.mobileTasksOpen
+          !model.wide && model.mobileTasksOpen
             ? renderSheet(h, {
                 mount: h.OnMount(inPlaceMount()),
                 titleId: "tasks-sheet-title",

@@ -143,6 +143,7 @@ export const Model = Schema.Struct({
   // Screen UI state
   openMenu: Schema.Option(Schema.String),
   mobileTasksOpen: Schema.Boolean,
+  wide: Schema.Boolean,
   autopilotBusy: Schema.Boolean,
   autopilotError: Schema.String,
   closeBusy: Schema.Boolean,
@@ -197,6 +198,8 @@ export const initialUpgradeState: UpgradeState = {
   changesError: "",
 };
 
+export const wideQuery = "(min-width: 768px)";
+
 export const initialModel = (route: AppRoute): Model => {
   let organization = savedOrganization();
   if (route._tag === "WorkstreamChat") {
@@ -234,6 +237,7 @@ export const initialModel = (route: AppRoute): Model => {
     upgrade: initialUpgradeState,
     openMenu: Option.none(),
     mobileTasksOpen: false,
+    wide: typeof window !== "undefined" ? window.matchMedia(wideQuery).matches : true,
     autopilotBusy: false,
     autopilotError: "",
     closeBusy: false,

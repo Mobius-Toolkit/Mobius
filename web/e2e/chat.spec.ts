@@ -1843,6 +1843,7 @@ test("the Details tab closes the Workstream with its open issues", async ({ page
   await closeButton.click();
   await dialog.getByRole("button", { name: "Close as won't do" }).click();
   await expect(page).toHaveURL("/workstreams");
+  await expect(main.getByRole("heading", { name: "Workstreams" })).toBeVisible();
   await expect(main.getByText("Plant lilies")).not.toBeAttached();
   await expect.poll(() => detailsStatus(page)).toBe(409);
 });
@@ -1913,10 +1914,10 @@ test("the Autopilot menu of the chat head sets the level and the Workstream list
 });
 
 const autopilotItemIcons = [
-  { name: /^Off/, icon: "lucide-power-off" },
-  { name: /^Start tasks/, icon: "lucide-plane-takeoff" },
-  { name: /^Merge only/, icon: "lucide-plane-landing" },
-  { name: /^Start and merge/, icon: "lucide-plane" },
+  { name: /^Off/, level: "off" },
+  { name: /^Start tasks/, level: "start" },
+  { name: /^Merge only/, level: "merge" },
+  { name: /^Start and merge/, level: "start_and_merge" },
 ];
 
 test("each item of the Autopilot menu shows the icon of its level", async ({ page }) => {
@@ -1924,8 +1925,10 @@ test("each item of the Autopilot menu shows the icon of its level", async ({ pag
   await page.goto(shop);
 
   await page.getByRole("button", { name: "Autopilot: Off" }).click();
-  for (const { name, icon } of autopilotItemIcons) {
-    await expect(page.getByRole("menuitemradio", { name }).locator(`svg.${icon}`)).toHaveCount(1);
+  for (const { name, level } of autopilotItemIcons) {
+    await expect(
+      page.getByRole("menuitemradio", { name }).locator(`svg[data-level="${level}"]`),
+    ).toHaveCount(1);
   }
   await page.keyboard.press("Escape");
   await expect(page.getByRole("menu")).toBeHidden();
@@ -1937,8 +1940,10 @@ test("each item of the Autopilot sheet shows the icon of its level", async ({ pa
 
   await page.getByRole("button", { name: "Autopilot: Off" }).click();
   const sheet = page.getByRole("dialog", { name: "Autopilot" });
-  for (const { name, icon } of autopilotItemIcons) {
-    await expect(sheet.getByRole("radio", { name }).locator(`svg.${icon}`)).toHaveCount(1);
+  for (const { name, level } of autopilotItemIcons) {
+    await expect(
+      sheet.getByRole("radio", { name }).locator(`svg[data-level="${level}"]`),
+    ).toHaveCount(1);
   }
   await page.keyboard.press("Escape");
   await expect(sheet).toBeHidden();

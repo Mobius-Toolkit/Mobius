@@ -5,9 +5,7 @@ import {
   CreateWorkstream,
   FetchCheckup,
   FixLabels,
-  GoBack,
   Navigate,
-  OpenChat,
   ReportFixButton,
   RequestLogin,
   SetAutoUpgrade,
@@ -396,8 +394,7 @@ describe("the Workstreams", () => {
         CreateWorkstream,
         Message.WorkstreamRequested({ organization: "plants" }),
       ),
-      StoryCommand.expectExact(OpenChat({ organization: "plants" })),
-      StoryCommand.resolve(OpenChat, Message.CompletedOpenChat()),
+      StoryCommand.expectNone(),
       model((m) => {
         expect(m.creating).toEqual(Option.some("maintenance"));
       }),
@@ -419,7 +416,6 @@ describe("the Workstreams", () => {
         CreateWorkstream,
         Message.WorkstreamRequested({ organization: "plants" }),
       ),
-      StoryCommand.resolve(OpenChat, Message.CompletedOpenChat()),
     );
   });
 
@@ -455,8 +451,7 @@ describe("the host", () => {
       StoryCommand.expectExact(Navigate({ path: "/settings/checkup/tools" })),
       StoryCommand.resolve(Navigate, Message.CompletedNavigate()),
       message(Message.ClickedBack()),
-      StoryCommand.expectExact(GoBack()),
-      StoryCommand.resolve(GoBack, Message.CompletedGoBack()),
+      StoryCommand.expectNone(),
     );
   });
 });

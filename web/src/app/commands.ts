@@ -18,12 +18,15 @@ import {
   setAutopilot,
   setSwitch,
   startUpgrade,
-  type WorkstreamAutopilot,
 } from "@/api/api.gen";
+import { levelName } from "@/lib/autopilot";
 import { reloadOnNewBuild } from "@/lib/build";
 import { request } from "@/lib/effects";
 import { showNotice } from "@/lib/notice";
+import { loadWorkstreams } from "@/lib/workstreams";
+import { SwitchKind } from "@/settings/schemas";
 import { Message } from "./message";
+import { WorkstreamAutopilot } from "./model";
 
 export const Navigate = Command.define("Navigate", {
   args: { path: Schema.String },
@@ -160,10 +163,10 @@ export const ResumePause = Command.define("ResumePause", {
 });
 
 export const ToggleSwitch = Command.define("ToggleSwitch", {
-  args: { kind: Schema.String, on: Schema.Boolean },
+  args: { kind: SwitchKind, on: Schema.Boolean },
   messages: [Message.ToggleSwitchSucceeded, Message.ToggleSwitchFailed, Message.ShowLogin],
   execute: ({ kind, on }) =>
-    request(() => setSwitch(kind as "start" | "merge" | "repairs", { on })).pipe(
+    request(() => setSwitch(kind, { on })).pipe(
       Effect.map((res) => {
         if (res.status === 204) {
           showNotice(
@@ -187,17 +190,18 @@ export const SelectAutopilot = Command.define("SelectAutopilot", {
     owner: Schema.String,
     name: Schema.String,
     number: Schema.Number,
-    from: Schema.String,
-    to: Schema.String,
+    from: WorkstreamAutopilot,
+    to: WorkstreamAutopilot,
   },
   messages: [Message.SelectAutopilotSucceeded, Message.SelectAutopilotFailed],
   execute: ({ owner, name, number, from, to }) =>
-    request(() => setAutopilot(owner, name, number, { level: to as WorkstreamAutopilot })).pipe(
+    request(() => setAutopilot(owner, name, number, { level: to })).pipe(
       Effect.map((res) => {
         if (res.status === 204) {
+          showNotice(`Autopilot of #${number}: ${levelName(to)}`);
           return Message.SelectAutopilotSucceeded({
-            from: from as WorkstreamAutopilot,
-            to: to as WorkstreamAutopilot,
+            from,
+            to,
             number,
           });
         }
@@ -205,6 +209,11 @@ export const SelectAutopilot = Command.define("SelectAutopilot", {
       }),
       Effect.catchTag("RequestFailed", (error) =>
         Effect.succeed(Message.SelectAutopilotFailed({ error: error.message })),
+      ),
+      Effect.tap(() =>
+        Effect.sync(() => {
+          void loadWorkstreams();
+        }),
       ),
     ),
 });

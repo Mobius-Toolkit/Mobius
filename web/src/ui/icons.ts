@@ -308,7 +308,9 @@ const autopilotShapes: Record<WorkstreamAutopilot, readonly Shape[]> = {
 };
 
 export function autopilotIcon<M>(h: HtmlBuilder<M>, level: WorkstreamAutopilot): Html {
-  return icon(h, autopilotShapes[level], "size-3.5 text-muted-foreground");
+  return icon(h, autopilotShapes[level], "size-3.5 text-muted-foreground", [
+    h.Attribute("data-level", level),
+  ]);
 }
 
 export function gitPullRequestArrowIcon<M>(h: HtmlBuilder<M>, className = "size-3.5"): Html {

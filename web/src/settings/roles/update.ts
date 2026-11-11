@@ -1,7 +1,7 @@
 import { Option } from "effect";
 import type { Return as UpdateReturn } from "foldkit/update";
 import { keepEffort } from "@/lib/harness";
-import { GoBack, RequestLogin, ResetRole, SaveRole } from "./commands";
+import { RequestLogin, ResetRole, SaveRole } from "./commands";
 import { Message } from "./message";
 import { effortsOf, hasContextLimit, modelsOf, type Model, type Sheet } from "./model";
 
@@ -132,9 +132,8 @@ export function update(model: Model, message: Message): UpdateReturn<Model, Mess
       model: withSheet(model, (sheet) => ({ ...sheet, saving: false })),
       commands: [RequestLogin()],
     }),
-    ClickedBack: () => ({ model, commands: [GoBack()] }),
+    ClickedBack: () => ({ model }),
     CompletedRequestLogin: () => ({ model }),
-    CompletedGoBack: () => ({ model }),
     CompletedFocusSheet: () => ({ model }),
   });
 }

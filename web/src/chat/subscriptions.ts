@@ -122,7 +122,7 @@ const chatDependencies = {
 // The Subscriptions of the rows of Inbox items and of their answer panel. The chat program and the Inbox program both
 // have them.
 export const itemSubscriptions = Subscription.make<Model, Message>()((entry) => ({
-  workstreams: entry(
+  chatItemWorkstreams: entry(
     {},
     {
       modelToDependencies: () => ({}),
@@ -132,7 +132,7 @@ export const itemSubscriptions = Subscription.make<Model, Message>()((entry) => 
         ),
     },
   ),
-  answerDraft: entry(
+  chatItemAnswerDraft: entry(
     { id: Schema.NullOr(Schema.Number) },
     {
       modelToDependencies: (model) => ({
@@ -144,7 +144,7 @@ export const itemSubscriptions = Subscription.make<Model, Message>()((entry) => 
           : draftValues(answerDraftKey(id), (draft) => Message.ReceivedAnswerDraft({ id, draft })),
     },
   ),
-  voice: entry(
+  chatItemVoice: entry(
     {},
     {
       modelToDependencies: () => ({}),
@@ -152,14 +152,14 @@ export const itemSubscriptions = Subscription.make<Model, Message>()((entry) => 
         storeValues(subscribeVoice, voiceSnapshot, (voice) => Message.VoiceChanged({ voice })),
     },
   ),
-  voiceClock: entry(
+  chatItemVoiceClock: entry(
     { recording: Schema.Boolean },
     {
       modelToDependencies: (model) => ({ recording: model.voice.recording }),
       dependenciesToStream: ({ recording }) => (recording ? voiceClock : Stream.empty),
     },
   ),
-  answerVoiceInput: entry(
+  chatItemAnswerVoiceInput: entry(
     { id: Schema.NullOr(Schema.Number) },
     {
       modelToDependencies: (model) => ({
@@ -169,7 +169,65 @@ export const itemSubscriptions = Subscription.make<Model, Message>()((entry) => 
         id === null ? Stream.empty : voiceInput(answerDraftKey(id), answerInputId),
     },
   ),
-  escapeKey: entry(
+  chatItemEscapeKey: entry(
+    { hasActivePanel: Schema.Boolean },
+    {
+      modelToDependencies: (model) => ({ hasActivePanel: model.activePanel !== null }),
+      dependenciesToStream: ({ hasActivePanel }) =>
+        hasActivePanel ? createEscapeKeyStream() : Stream.empty,
+    },
+  ),
+}));
+
+export const inboxItemSubscriptions = Subscription.make<Model, Message>()((entry) => ({
+  inboxItemWorkstreams: entry(
+    {},
+    {
+      modelToDependencies: () => ({}),
+      dependenciesToStream: () =>
+        storeValues(subscribeWorkstreams, currentWorkstreams, (state) =>
+          Message.ReceivedWorkstreams({ workstreams: state.list ?? null }),
+        ),
+    },
+  ),
+  inboxItemAnswerDraft: entry(
+    { id: Schema.NullOr(Schema.Number) },
+    {
+      modelToDependencies: (model) => ({
+        id: model.activePanel?.type === "answer" ? model.activePanel.item.id : null,
+      }),
+      dependenciesToStream: ({ id }) =>
+        id === null
+          ? Stream.empty
+          : draftValues(answerDraftKey(id), (draft) => Message.ReceivedAnswerDraft({ id, draft })),
+    },
+  ),
+  inboxItemVoice: entry(
+    {},
+    {
+      modelToDependencies: () => ({}),
+      dependenciesToStream: () =>
+        storeValues(subscribeVoice, voiceSnapshot, (voice) => Message.VoiceChanged({ voice })),
+    },
+  ),
+  inboxItemVoiceClock: entry(
+    { recording: Schema.Boolean },
+    {
+      modelToDependencies: (model) => ({ recording: model.voice.recording }),
+      dependenciesToStream: ({ recording }) => (recording ? voiceClock : Stream.empty),
+    },
+  ),
+  inboxItemAnswerVoiceInput: entry(
+    { id: Schema.NullOr(Schema.Number) },
+    {
+      modelToDependencies: (model) => ({
+        id: model.activePanel?.type === "answer" ? model.activePanel.item.id : null,
+      }),
+      dependenciesToStream: ({ id }) =>
+        id === null ? Stream.empty : voiceInput(answerDraftKey(id), answerInputId),
+    },
+  ),
+  inboxItemEscapeKey: entry(
     { hasActivePanel: Schema.Boolean },
     {
       modelToDependencies: (model) => ({ hasActivePanel: model.activePanel !== null }),
@@ -180,7 +238,7 @@ export const itemSubscriptions = Subscription.make<Model, Message>()((entry) => 
 }));
 
 const chatSubscriptions = Subscription.make<Model, Message>()((entry) => ({
-  unread: entry(chatDependencies, {
+  chatUnread: entry(chatDependencies, {
     modelToDependencies: ({ organization, repository, workstream }) => ({
       organization,
       repository,
@@ -210,7 +268,7 @@ const chatSubscriptions = Subscription.make<Model, Message>()((entry) => ({
       dependenciesToStream: ({ key }) => voiceInput(key, inputId),
     },
   ),
-  stopReady: entry(
+  chatStopReady: entry(
     { showStop: Schema.Boolean },
     {
       modelToDependencies: (model) => ({

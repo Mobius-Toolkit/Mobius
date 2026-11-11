@@ -3,7 +3,6 @@ import type { Return as UpdateReturn } from "foldkit/update";
 import {
   FetchOlder,
   FetchVersions,
-  GoBack,
   Navigate,
   RequestLogin,
   RevertMemory,
@@ -134,10 +133,9 @@ export function update(model: Model, message: Message): UpdateReturn<Model, Mess
       commands: [RequestLogin()],
     }),
     NavigateTo: ({ path }) => ({ model, commands: [Navigate({ path })] }),
-    ClickedBack: () => ({ model, commands: [GoBack()] }),
+    ClickedBack: () => ({ model }),
     CompletedRequestLogin: () => ({ model }),
     CompletedNavigate: () => ({ model }),
-    CompletedGoBack: () => ({ model }),
     CompletedFocusDialog: () => ({ model }),
   });
 }

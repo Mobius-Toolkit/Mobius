@@ -2,6 +2,9 @@ import { Option } from "effect";
 import { describe, expect, it } from "vitest";
 import { Command as StoryCommand, given, message, model, story } from "foldkit/story";
 import { fromString } from "foldkit/url";
+import { Message as SwitchesMessage } from "@/settings/switches/message";
+import { Message as PanelMessage } from "@/panel/message";
+import { Message as TasksMessage } from "@/panel/tasks/message";
 import {
   CheckUpgrade,
   FetchCIStops,
@@ -204,15 +207,14 @@ describe("login update logic", () => {
 });
 
 describe("organization switch update logic", () => {
-  it("switches current organization", () => {
-    story(
-      update,
-      given(createModel("/chat", { organization: "owner" })),
-      message(Message.SelectOrganization({ organization: "other-org" })),
-      model((m) => {
-        expect(m.organization).toBe("other-org");
-      }),
+  it("switches current organization and opens its Coordinator chat", () => {
+    const { model: next, commands } = update(
+      createModel("/chat", { organization: "owner" }),
+      Message.SelectOrganization({ organization: "other-org" }),
     );
+    expect(next.organization).toBe("other-org");
+    expect(Option.map(next.chat, (chat) => chat.organization)).toEqual(Option.some("other-org"));
+    expect(commands).toHaveLength(2);
   });
 
   it("navigates to /workstreams when switching org away from current workstream", () => {
@@ -226,6 +228,89 @@ describe("organization switch update logic", () => {
       }),
       StoryCommand.expectHas(Navigate),
       StoryCommand.resolve(Navigate, Message.CompletedNavigate()),
+    );
+  });
+
+  it("opens the overview page on the Checkup route", () => {
+    const { model: next } = update(
+      createModel("/chat"),
+      Message.UrlChanged({ url: urlOf("/settings/checkup") }),
+    );
+    expect(next.route._tag).toBe("Checkup");
+    expect(Option.map(next.checkupProgram, (checkup) => checkup.page)).toEqual(
+      Option.some("overview"),
+    );
+  });
+
+  it("keeps the Usage Submodel when the URL repeats its search", () => {
+    const opened = update(createModel("/chat"), Message.UrlChanged({ url: urlOf("/usage") }));
+    const marked: Model = {
+      ...opened.model,
+      usageProgram: Option.map(opened.model.usageProgram, (usage) => ({
+        ...usage,
+        groupSheetOpen: true,
+      })),
+    };
+    const changed = update(marked, Message.UrlChanged({ url: urlOf("/usage") }));
+    expect(changed.commands).toEqual([]);
+    expect(Option.map(changed.model.usageProgram, (usage) => usage.groupSheetOpen)).toEqual(
+      Option.some(true),
+    );
+  });
+
+  it("closes the Tasks sheet after a task reaches the draft", () => {
+    story(
+      update,
+      given(createModel("/workstreams/owner/repo/1", { mobileTasksOpen: true })),
+      message(
+        Message.GotPanelMessage({
+          message: PanelMessage.GotTasksMessage({ message: TasksMessage.AttachedTask() }),
+        }),
+      ),
+      model((m) => {
+        expect(m.mobileTasksOpen).toBe(false);
+      }),
+    );
+  });
+
+  it("gives the switch errors to the Settings overview", () => {
+    const { model: next } = update(
+      createModel("/settings/switches", { switchErrors: { start: "The switch did not change." } }),
+      Message.UrlChanged({ url: urlOf("/settings") }),
+    );
+    expect(Option.map(next.settingsProgram, (settings) => settings.errors.start)).toEqual(
+      Option.some("The switch did not change."),
+    );
+  });
+
+  it("replaces the URL with the parent when a settings screen goes back with no history", () => {
+    story(
+      update,
+      given(createModel("/settings/switches")),
+      message(Message.GotSwitchesMessage({ message: SwitchesMessage.ClickedBack() })),
+      StoryCommand.expectExact(ReplaceUrl({ path: "/settings" })),
+      StoryCommand.resolve(ReplaceUrl, Message.CompletedReplaceUrl()),
+    );
+  });
+
+  it("opens a memory file from the fifth segment of the path", () => {
+    const { model: next } = update(
+      createModel("/chat"),
+      Message.UrlChanged({ url: urlOf("/settings/memory/owner/shop/shared") }),
+    );
+    expect(next.route).toEqual(
+      AppRoute.MemoryFile({ owner: "owner", name: "shop", file: "shared" }),
+    );
+  });
+
+  it("stores the width of the screen", () => {
+    story(
+      update,
+      given(createModel("/chat")),
+      message(Message.WideChanged({ wide: false })),
+      model((m) => {
+        expect(m.wide).toBe(false);
+      }),
     );
   });
 

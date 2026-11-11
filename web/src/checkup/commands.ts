@@ -1,6 +1,6 @@
 import { Effect, Schema } from "effect";
 import { Command } from "foldkit";
-import { back, pushUrl } from "foldkit/navigation";
+import { pushUrl } from "foldkit/navigation";
 import {
   fixLabels,
   getCheckup,
@@ -117,26 +117,10 @@ export const CreateWorkstream = Command.define("CreateWorkstream", {
     ),
 });
 
-export const OpenChat = Command.define("OpenChat", {
-  args: { organization: Schema.String },
-  messages: [Message.CompletedOpenChat],
-  execute: ({ organization }) =>
-    Effect.sync(() => {
-      try {
-        localStorage.setItem("organization", organization);
-      } catch {}
-    }).pipe(Effect.andThen(pushUrl("/chat")), Effect.as(Message.CompletedOpenChat())),
-});
-
 export const Navigate = Command.define("Navigate", {
   args: { path: Schema.String },
   messages: [Message.CompletedNavigate],
   execute: ({ path }) => pushUrl(path).pipe(Effect.as(Message.CompletedNavigate())),
-});
-
-export const GoBack = Command.define("GoBack", {
-  messages: [Message.CompletedGoBack],
-  execute: back().pipe(Effect.as(Message.CompletedGoBack())),
 });
 
 export const RequestLogin = Command.define("RequestLogin", {
