@@ -1,4 +1,5 @@
 import { useParams, useSearch } from "@tanstack/react-router";
+import { useMemo } from "react";
 import { PageHeader } from "@/components/page";
 import { useShell } from "@/lib/shell";
 import { Agents } from "./Agents";
@@ -6,6 +7,8 @@ import { Chat } from "./Chat";
 import { CheckupHost } from "./CheckupHost";
 import { GitHub } from "./GitHub";
 import { Inbox } from "./Inbox";
+import { McpServers } from "./McpServers";
+import type { Callback } from "./settings/mcp-servers/schemas";
 import { Memory, MemoryFiles, MemoryRepositories } from "./Memory";
 import { Tasks } from "./Tasks";
 import { TopBar } from "./TopBar";
@@ -140,4 +143,13 @@ export function MemoryFilePage() {
 
 export function UsagePage() {
   return <Usage search={useSearch({ from: "/usage" })} />;
+}
+
+export function McpServersPage() {
+  const { organization } = useShell();
+  const search = useSearch({ from: "/settings/mcp-servers" });
+  const { oauth = "", server = 0, reason = "" } = search;
+  // The program removes the query from the URL after it shows the result, so a later embed gets no result.
+  const callback = useMemo<Callback>(() => ({ oauth, server, reason }), [oauth, server, reason]);
+  return <McpServers organization={organization} callback={callback} />;
 }
