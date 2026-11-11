@@ -1,10 +1,8 @@
 import { Effect, Schema } from "effect";
 import { Command } from "foldkit";
-import * as Port from "foldkit/port";
 import { getVoiceLanguage, setVoiceLanguage } from "@/api/api.gen";
 import { request } from "@/lib/effects";
 import { Message } from "./message";
-import { ports } from "./ports";
 
 export const FetchVoice = Command.define("FetchVoice", {
   messages: [Message.VoiceLoaded, Message.LoginRequired, Message.LoadFailed],
@@ -46,14 +44,7 @@ export const SaveLanguage = Command.define("SaveLanguage", {
 
 export const RequestLogin = Command.define("RequestLogin", {
   messages: [Message.CompletedRequestLogin],
-  execute: Port.emit(ports.outbound.loginRequested, undefined).pipe(
-    Effect.as(Message.CompletedRequestLogin()),
-  ),
-});
-
-export const GoBack = Command.define("GoBack", {
-  messages: [Message.CompletedGoBack],
-  execute: Port.emit(ports.outbound.backRequested, undefined).pipe(
-    Effect.as(Message.CompletedGoBack()),
-  ),
+  execute: Effect.sync(() => {
+    window.dispatchEvent(new CustomEvent("mobius:login"));
+  }).pipe(Effect.as(Message.CompletedRequestLogin())),
 });

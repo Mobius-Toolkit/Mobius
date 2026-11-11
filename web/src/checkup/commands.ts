@@ -1,6 +1,6 @@
 import { Effect, Schema } from "effect";
 import { Command } from "foldkit";
-import * as Port from "foldkit/port";
+import { pushUrl } from "@/lib/navigation";
 import {
   fixLabels,
   getCheckup,
@@ -12,7 +12,6 @@ import { answer, request, store } from "@/lib/effects";
 import { showNotice } from "@/lib/notice";
 import { addCoordinatorMessage } from "@/lib/outbox";
 import { Message } from "./message";
-import { ports } from "./ports";
 import { FixButton, ToolCheck } from "./schemas";
 
 export const FetchTools = Command.define("FetchTools", {
@@ -118,43 +117,21 @@ export const CreateWorkstream = Command.define("CreateWorkstream", {
     ),
 });
 
-export const OpenChat = Command.define("OpenChat", {
-  args: { organization: Schema.String },
-  messages: [Message.CompletedOpenChat],
-  execute: ({ organization }) =>
-    Port.emit(ports.outbound.chatRequested, organization).pipe(
-      Effect.as(Message.CompletedOpenChat()),
-    ),
-});
-
 export const Navigate = Command.define("Navigate", {
   args: { path: Schema.String },
   messages: [Message.CompletedNavigate],
-  execute: ({ path }) =>
-    Port.emit(ports.outbound.navigationRequested, path).pipe(
-      Effect.as(Message.CompletedNavigate()),
-    ),
-});
-
-export const GoBack = Command.define("GoBack", {
-  messages: [Message.CompletedGoBack],
-  execute: Port.emit(ports.outbound.backRequested, undefined).pipe(
-    Effect.as(Message.CompletedGoBack()),
-  ),
+  execute: ({ path }) => pushUrl(path).pipe(Effect.as(Message.CompletedNavigate())),
 });
 
 export const RequestLogin = Command.define("RequestLogin", {
   messages: [Message.CompletedRequestLogin],
-  execute: Port.emit(ports.outbound.loginRequested, undefined).pipe(
-    Effect.as(Message.CompletedRequestLogin()),
-  ),
+  execute: Effect.sync(() => {
+    window.dispatchEvent(new CustomEvent("mobius:login"));
+  }).pipe(Effect.as(Message.CompletedRequestLogin())),
 });
 
 export const ReportFixButton = Command.define("ReportFixButton", {
   args: { button: Schema.NullOr(FixButton) },
   messages: [Message.CompletedReportFixButton],
-  execute: ({ button }) =>
-    Port.emit(ports.outbound.fixButtonChanged, button).pipe(
-      Effect.as(Message.CompletedReportFixButton()),
-    ),
+  execute: () => Effect.succeed(Message.CompletedReportFixButton()),
 });

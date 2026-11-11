@@ -31,7 +31,6 @@ export const Message = defineMessageUnion({
   ClickedBack: {},
   CompletedRequestLogin: {},
   CompletedNavigate: {},
-  CompletedGoBack: {},
   CompletedFocusDialog: {},
 });
 

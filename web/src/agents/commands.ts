@@ -1,10 +1,8 @@
 import { Effect, Schema } from "effect";
 import { Command } from "foldkit";
-import * as Port from "foldkit/port";
 import { listActiveAgents } from "@/api/api.gen";
 import { request as send } from "@/lib/effects";
 import { Message } from "./message";
-import { ports } from "./ports";
 
 export const FetchAgents = Command.define("FetchAgents", {
   args: { request: Schema.Number },
@@ -28,14 +26,13 @@ export const FetchAgents = Command.define("FetchAgents", {
 
 export const RequestLogin = Command.define("RequestLogin", {
   messages: [Message.CompletedRequestLogin],
-  execute: Port.emit(ports.outbound.loginRequested, undefined).pipe(
-    Effect.as(Message.CompletedRequestLogin()),
-  ),
+  execute: Effect.sync(() => {
+    window.dispatchEvent(new CustomEvent("mobius:login"));
+  }).pipe(Effect.as(Message.CompletedRequestLogin())),
 });
 
 export const ReportTitle = Command.define("ReportTitle", {
   args: { title: Schema.String },
   messages: [Message.CompletedReportTitle],
-  execute: ({ title }) =>
-    Port.emit(ports.outbound.titleChanged, title).pipe(Effect.as(Message.CompletedReportTitle())),
+  execute: () => Effect.succeed(Message.CompletedReportTitle()),
 });

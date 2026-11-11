@@ -1,10 +1,8 @@
 import { Effect, Schema } from "effect";
 import { Command } from "foldkit";
-import * as Port from "foldkit/port";
 import { listDevices, logout } from "@/api/api.gen";
 import { answer, request } from "@/lib/effects";
 import { Message } from "./message";
-import { ports } from "./ports";
 
 export const FetchDevices = Command.define("FetchDevices", {
   messages: [Message.DevicesLoaded, Message.LoginRequired, Message.LoadFailed],
@@ -37,7 +35,7 @@ export const LogOut = Command.define("LogOut", {
 
 export const RequestLogin = Command.define("RequestLogin", {
   messages: [Message.CompletedRequestLogin],
-  execute: Port.emit(ports.outbound.loginRequested, undefined).pipe(
-    Effect.as(Message.CompletedRequestLogin()),
-  ),
+  execute: Effect.sync(() => {
+    window.dispatchEvent(new CustomEvent("mobius:login"));
+  }).pipe(Effect.as(Message.CompletedRequestLogin())),
 });

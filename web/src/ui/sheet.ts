@@ -70,6 +70,7 @@ export function renderSheet<M>(
     titleId: string;
     description?: { id: string; text: string };
     title: string;
+    hideTitle?: boolean;
     close: M;
     className: string;
     children: ReadonlyArray<Html>;
@@ -105,7 +106,12 @@ export function renderSheet<M>(
             [
               h.Id(options.titleId),
               h.DataAttribute("slot", "sheet-title"),
-              h.Class("font-heading text-base font-medium text-foreground"),
+              h.Class(
+                cn(
+                  "font-heading text-base font-medium text-foreground",
+                  options.hideTitle && "sr-only",
+                ),
+              ),
             ],
             [options.title],
           ),

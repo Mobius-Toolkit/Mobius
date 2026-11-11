@@ -257,21 +257,18 @@ export function update(model: Model, message: Message): UpdateReturn<Model, Mess
   const result = step(model, message);
   const next = result.model;
   const seen = lastAgentMessage(next);
-  if (
-    !seesChat(next) ||
-    (seesChat(model) && lastAgentMessage(model) === seen && model.unread === next.unread)
-  ) {
+  if (!seesChat(next) || seen === undefined || seen <= next.seenMessage) {
     return result;
   }
   return {
-    model: next,
+    model: { ...next, seenMessage: seen },
     commands: [
       ...(result.commands ?? []),
       SeeChat({
         organization: next.organization,
         repository: next.repository,
         workstream: next.workstream,
-        message: seen ?? 0,
+        message: seen,
       }),
     ],
   };

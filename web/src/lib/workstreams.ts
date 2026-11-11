@@ -7,10 +7,11 @@ import {
   type Workstream,
 } from "@/api/api.gen";
 import { onEvent } from "./events";
+import { dropMarks } from "./inbox";
 
 export type WorkstreamState = {
-  list?: Workstream[];
-  needsHuman: NeedsHuman[];
+  list?: readonly Workstream[];
+  needsHuman: readonly NeedsHuman[];
   working: Set<string>;
   error?: string;
 };
@@ -44,7 +45,7 @@ export function chatParams(workstream: { repository: string; number: number }) {
   return { owner, name, number: String(workstream.number) };
 }
 
-export function organizationWorkstreams(workstreams: Workstreams, organization: string) {
+export function organizationWorkstreams(workstreams: WorkstreamState, organization: string) {
   return workstreams.list?.filter((workstream) =>
     workstream.repository.startsWith(`${organization}/`),
   );
@@ -88,6 +89,7 @@ export function loadWorkstreams() {
     .then((res) => {
       if (res.status === 200) {
         setState({ needsHuman: res.data.data });
+        dropMarks(res.data.data);
       }
     })
     .catch(() => {});

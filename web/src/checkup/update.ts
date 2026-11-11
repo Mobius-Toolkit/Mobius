@@ -4,9 +4,7 @@ import {
   CreateWorkstream,
   FetchCheckup,
   FixLabels,
-  GoBack,
   Navigate,
-  OpenChat,
   ReportFixButton,
   RequestLogin,
   SetAutoUpgrade,
@@ -105,16 +103,14 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
         commands: [CreateWorkstream({ organization: model.organization, request })],
       };
     },
-    WorkstreamRequested: ({ organization }) => ({ model, commands: [OpenChat({ organization })] }),
+    WorkstreamRequested: () => ({ model }),
     CreateFailed: ({ error }) => ({
       model: { ...model, createError: error, creating: Option.none() },
     }),
     NavigateTo: ({ path }) => ({ model, commands: [Navigate({ path })] }),
-    ClickedBack: () => ({ model, commands: [GoBack()] }),
+    ClickedBack: () => ({ model }),
     CompletedRequestLogin: () => ({ model }),
     CompletedNavigate: () => ({ model }),
-    CompletedGoBack: () => ({ model }),
-    CompletedOpenChat: () => ({ model }),
     CompletedReportFixButton: () => ({ model }),
     CompletedFocusDialog: () => ({ model }),
   });

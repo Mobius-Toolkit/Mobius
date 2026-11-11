@@ -1,4 +1,5 @@
 import { Option } from "effect";
+import type { Command } from "foldkit/command";
 import type { Return as UpdateReturn } from "foldkit/update";
 import { formatDay, usageRange } from "@/lib/usage";
 import {
@@ -12,7 +13,7 @@ import {
 import { Message } from "./message";
 import { groupOf, groupsOf, rangeOf, sameSearch, tabOf, type Model, type Search } from "./model";
 
-export function load(model: Model) {
+export function load(model: Model): Command<Message> {
   const args = {
     request: model.request,
     search: model.search,
