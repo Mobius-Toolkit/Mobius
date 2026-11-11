@@ -397,8 +397,7 @@ func TestAConflictRoundStartsANewImplementerSession(t *testing.T) {
 	first := firstRound(t, server, fake)
 	waitForKept(t, server, 41)
 
-	fake.CommitFile(shop, "price.txt", "cents\n", "Add price")
-	fake.SetBehind(shop, 42)
+	fake.CommitFile(shop, "plan.txt", "dollars\n", "Use dollars")
 
 	sessions := testkit.WaitForValue(t, func() ([]store.Session, bool) {
 		sessions := roleSessions(t, server, engine.ImplementerRole)

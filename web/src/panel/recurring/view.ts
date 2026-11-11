@@ -1,12 +1,19 @@
-import { cn } from "cn";
 import { Option } from "effect";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import { defineView } from "foldkit/submodel";
 import { dayClock } from "@/lib/time";
 import { renderBadge } from "@/ui/badge";
-import { buttonClass } from "@/ui/button";
+import { buttonClass, renderIconButton } from "@/ui/button";
 import { defineDialogMount, renderDialog } from "@/ui/dialog";
-import { spinnerIcon } from "@/ui/icons";
+import {
+  chevronRightIcon,
+  pauseIcon,
+  playIcon,
+  spinnerIcon,
+  trash2Icon,
+  zapIcon,
+} from "@/ui/icons";
+import { renderBackButton } from "@/ui/page";
 import { Message } from "./message";
 import type { Deletion, Model, RecurringTask } from "./model";
 
@@ -16,7 +23,11 @@ type Run = RecurringTask["runs"][number];
 const DialogOpened = defineDialogMount(Message.CompletedFocusDialog);
 
 const resultText = (run: Run) =>
-  run.result === "event" ? "event" : run.reason ? `skipped: ${run.reason}` : "skipped";
+  run.result === "event" || run.result === "manual"
+    ? run.result
+    : run.reason
+      ? `skipped: ${run.reason}`
+      : "skipped";
 
 function renderHistory(h: H, task: RecurringTask): Html {
   return h.div(
@@ -42,9 +53,41 @@ function renderHistory(h: H, task: RecurringTask): Html {
   );
 }
 
+function renderControls(h: H, model: Model, task: RecurringTask): Html {
+  const pausing = model.busy.includes(task.id);
+  const running = model.running.includes(task.id);
+  return h.div(
+    [h.Class("flex justify-end gap-2 px-2")],
+    [
+      renderIconButton(h, {
+        label: task.paused ? "Resume" : "Pause",
+        disabled: pausing,
+        busy: pausing,
+        icon: task.paused ? playIcon(h) : pauseIcon(h),
+        click: Message.ClickedPause({ id: task.id, paused: !task.paused }),
+      }),
+      renderIconButton(h, {
+        label: "Run now",
+        disabled: running,
+        busy: running,
+        icon: zapIcon(h),
+        click: Message.ClickedRun({ id: task.id }),
+      }),
+      renderIconButton(h, {
+        label: "Delete",
+        disabled: false,
+        busy: false,
+        icon: trash2Icon(h),
+        click: Message.ClickedDelete({ id: task.id, text: task.text }),
+      }),
+    ],
+  );
+}
+
+const scheduleText = (task: RecurringTask) =>
+  task.next === null ? task.cron : `${task.cron} · Next ${dayClock(task.next)}`;
+
 function renderTask(h: H, model: Model, task: RecurringTask): Html {
-  const open = Option.exists(model.opened, (id) => id === task.id);
-  const busy = model.busy.includes(task.id);
   const last = task.runs[0];
   return h.keyed("li")(
     String(task.id),
@@ -53,7 +96,6 @@ function renderTask(h: H, model: Model, task: RecurringTask): Html {
       h.button(
         [
           h.Type("button"),
-          h.AriaExpanded(open),
           h.Class("grid min-w-0 gap-1 rounded-lg px-2 py-1 text-left hover:bg-muted"),
           h.OnClick(Message.ClickedRow({ id: task.id })),
         ],
@@ -61,14 +103,12 @@ function renderTask(h: H, model: Model, task: RecurringTask): Html {
           h.span(
             [h.Class("flex items-start justify-between gap-2")],
             [
-              h.span([h.Class(cn("min-w-0 wrap-anywhere", !open && "line-clamp-2"))], [task.text]),
+              h.span([h.Class("line-clamp-2 min-w-0 grow wrap-anywhere")], [task.text]),
               task.paused ? renderBadge(h, "secondary", "Paused", "shrink-0") : h.empty,
+              chevronRightIcon(h, "mt-0.5 size-4 shrink-0 text-muted-foreground"),
             ],
           ),
-          h.span(
-            [h.Class("text-sm text-muted-foreground wrap-anywhere")],
-            [task.next === null ? task.cron : `${task.cron} · Next ${dayClock(task.next)}`],
-          ),
+          h.span([h.Class("text-sm text-muted-foreground wrap-anywhere")], [scheduleText(task)]),
           last
             ? h.span(
                 [h.Class("text-sm text-muted-foreground wrap-anywhere")],
@@ -77,29 +117,32 @@ function renderTask(h: H, model: Model, task: RecurringTask): Html {
             : h.empty,
         ],
       ),
+      renderControls(h, model, task),
+    ],
+  );
+}
+
+function renderSubpage(h: H, model: Model, task: RecurringTask): Html {
+  return h.div(
+    [h.Class("grid gap-3")],
+    [
       h.div(
-        [h.Class("flex justify-end gap-2 px-2")],
+        [h.Class("flex items-center gap-2")],
         [
-          h.button(
-            [
-              h.Type("button"),
-              h.Disabled(busy),
-              h.Class(buttonClass({ variant: "outline", size: "sm" })),
-              h.OnClick(Message.ClickedPause({ id: task.id, paused: !task.paused })),
-            ],
-            [busy ? spinnerIcon(h) : h.empty, task.paused ? "Resume" : "Pause"],
-          ),
-          h.button(
-            [
-              h.Type("button"),
-              h.Class(buttonClass({ variant: "outline", size: "sm" })),
-              h.OnClick(Message.ClickedDelete({ id: task.id, text: task.text })),
-            ],
-            ["Delete"],
-          ),
+          renderBackButton(h, Message.ClickedBack()),
+          h.h2([h.Class("text-base font-medium")], ["Recurring task"]),
         ],
       ),
-      open ? renderHistory(h, task) : h.empty,
+      h.div(
+        [h.Class("flex items-start justify-between gap-2 px-2")],
+        [
+          h.p([h.Class("min-w-0 grow wrap-anywhere")], [task.text]),
+          task.paused ? renderBadge(h, "secondary", "Paused", "shrink-0") : h.empty,
+        ],
+      ),
+      h.p([h.Class("px-2 text-sm text-muted-foreground wrap-anywhere")], [scheduleText(task)]),
+      renderControls(h, model, task),
+      renderHistory(h, task),
     ],
   );
 }
@@ -144,22 +187,30 @@ function renderConfirmation(h: H, deletion: Deletion): Html {
 
 export const view = defineView<Model, Message>((model, h) => {
   const tasks = Option.getOrUndefined(model.tasks);
+  const opened = tasks?.find((task) => Option.exists(model.opened, (id) => id === task.id));
   return h.div(
     [h.Class("grid gap-2")],
     [
       model.error ? renderBadge(h, "destructive", model.error) : h.empty,
-      tasks && tasks.length === 0
-        ? h.p(
-            [h.Class("px-2 text-muted-foreground")],
-            ["No recurring task. Ask the Lead in the chat to add one."],
-          )
-        : h.empty,
-      tasks
-        ? h.ul(
-            [h.Class("grid divide-y")],
-            tasks.map((task) => renderTask(h, model, task)),
-          )
-        : h.empty,
+      opened
+        ? renderSubpage(h, model, opened)
+        : h.div(
+            [h.Class("grid gap-2")],
+            [
+              tasks && tasks.length === 0
+                ? h.p(
+                    [h.Class("px-2 text-muted-foreground")],
+                    ["No recurring task. Ask the Lead in the chat to add one."],
+                  )
+                : h.empty,
+              tasks
+                ? h.ul(
+                    [h.Class("grid divide-y")],
+                    tasks.map((task) => renderTask(h, model, task)),
+                  )
+                : h.empty,
+            ],
+          ),
       Option.match(model.deletion, {
         onNone: () => h.empty,
         onSome: (deletion) => renderConfirmation(h, deletion),

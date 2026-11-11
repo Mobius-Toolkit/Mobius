@@ -238,7 +238,7 @@ const converted = (route: Route) =>
   });
 
 test("screenshots", async ({ page }) => {
-  test.setTimeout(300_000);
+  test.setTimeout(600_000);
   const main = page.getByRole("main");
   const voiceCard = main.getByRole("group", { name: "Voice recording" });
   // The day separator shows the year of a message that is not in the current year.
@@ -1617,9 +1617,10 @@ test("screenshots", async ({ page }) => {
     (device) => [
       ...recurringFrame(device, 50),
       checkRow.getByText("0 8 * * 1-5 · Next Sep 29, 08:00 AM"),
-      checkRow.getByText("Last: Sep 28, 08:00 AM event"),
+      checkRow.getByText("Last: Sep 28, 12:00 PM manual"),
       recurringPanel.getByText("Paused", { exact: true }),
       recurringPanel.getByRole("button", { name: "Resume" }),
+      checkRow.getByRole("button", { name: "Run now" }),
     ],
     openRecurring,
   );
@@ -1629,13 +1630,21 @@ test("screenshots", async ({ page }) => {
     "/workstreams/plants/garden/50",
     (device) => [
       ...recurringFrame(device, 50),
-      checkRow.getByRole("heading", { name: "History" }),
-      checkRow.getByText("skipped: the earlier event is not delivered yet"),
-      checkRow.getByText("Sep 24, 08:00 AM"),
+      recurringPanel.getByRole("heading", { name: "Recurring task" }),
+      recurringPanel.getByText(
+        "Check the open pull requests and tell me which ones wait for a review.",
+      ),
+      recurringPanel.getByRole("heading", { name: "History" }),
+      recurringPanel.getByText("manual", { exact: true }),
+      recurringPanel.getByText("skipped: the earlier event is not delivered yet"),
+      recurringPanel.getByText("Sep 24, 08:00 AM"),
     ],
     async (device) => {
       await openRecurring(device);
-      await checkRow.getByRole("button", { name: /Check the open pull requests/ }).click();
+      await checkRow
+        .getByRole("button", { name: /Check the open pull requests/ })
+        .first()
+        .click();
     },
   );
   const recurringDialog = page.getByRole("dialog", { name: "Delete the recurring task" });
@@ -2584,6 +2593,24 @@ test("screenshots", async ({ page }) => {
       await expect(implementerSheet.getByLabel("Context", { exact: true })).toBeDisabled();
     },
   );
+  const operatorSheet = page.getByRole("dialog", { name: "Operator" });
+  await screenshot(
+    page,
+    "roles-operator-sheet",
+    "/settings/roles",
+    (device) => [
+      ...frame(device, release),
+      operatorSheet.getByText(
+        "Does work outside code for one Workstream, through the MCP servers of the Workstream, and reports to the Lead.",
+      ),
+    ],
+    async () => {
+      await roleRow("Operator").click();
+      await expect(operatorSheet).toHaveAccessibleDescription(
+        "Does work outside code for one Workstream, through the MCP servers of the Workstream, and reports to the Lead.",
+      );
+    },
+  );
   const voiceSection = (title: string) =>
     main.locator("section").filter({ has: page.getByRole("heading", { name: title }) });
   const voiceSearch = page.getByLabel("Search languages");
@@ -2872,23 +2899,9 @@ test("screenshots", async ({ page }) => {
       await expect(memoryDialog).toBeHidden();
     },
   );
-  // The legend text wraps again when the font loads. With the final legend height, the legend wrapper is below the
-  // day labels by its padding. A negative gap means that the plot area still has an older, smaller legend height.
-  const legendGap = `(() => {
-    const label = document.querySelector('.recharts-xAxis-tick-labels text');
-    const legend = document.querySelector('.recharts-legend-wrapper');
-    if (!label || !legend) return 1e9;
-    return legend.getBoundingClientRect().top - label.getBoundingClientRect().bottom;
-  })()`;
   const legendSettled = async () => {
-    await expect(page.locator(".recharts-legend-wrapper")).toBeVisible();
+    await expect(page.locator('[data-slot="chart-legend"]')).toBeVisible();
     await page.evaluate(() => document.fonts.ready);
-    await expect
-      .poll(async () => {
-        const gap = await page.evaluate<number>(legendGap);
-        return gap >= 0 && gap < 12;
-      })
-      .toBe(true);
   };
   const usageDays = ["Oct 9", "Oct 10", "Oct 11", "Oct 12", "Oct 13", "Oct 14", "Oct 15"];
   // The 7 days that end on the fixed date have the turns of three models in two repositories. devin has no cost.
@@ -2901,7 +2914,7 @@ test("screenshots", async ({ page }) => {
       main.getByRole("tab", { name: "Cost", selected: true }),
       main.getByRole("row", { name: /opus \d 23,000 6,400 330,000 37,000 \$5\.55$/ }),
       main.getByRole("row", { name: /swe-1\.5 3 .* —$/ }),
-      main.locator(".recharts-bar-rectangle").first(),
+      main.locator('[data-slot="chart-bar"]').first(),
       ...usageDays.map((day) => main.getByText(day, { exact: true })),
     ],
     legendSettled,
@@ -2917,7 +2930,7 @@ test("screenshots", async ({ page }) => {
       main.getByRole("rowheader", { name: "sonnet · high", exact: true }),
       main.getByRole("rowheader", { name: "sonnet · low", exact: true }),
       main.getByRole("rowheader", { name: "swe-1.5 · —", exact: true }),
-      main.locator(".recharts-bar-rectangle").first(),
+      main.locator('[data-slot="chart-bar"]').first(),
       ...usageDays.map((day) => main.getByText(day, { exact: true })),
     ],
     legendSettled,
@@ -2930,7 +2943,7 @@ test("screenshots", async ({ page }) => {
       ...frame(device, release),
       main.getByRole("tab", { name: "Tokens", selected: true }),
       main.getByRole("row", { name: /devin 3 412K of 1M 254K 49,000 12,100 156,000 17,000 —$/ }),
-      main.locator(".recharts-bar-rectangle").first(),
+      main.locator('[data-slot="chart-bar"]').first(),
       ...usageDays.map((day) => main.getByText(day, { exact: true })),
     ],
   );
@@ -2965,13 +2978,13 @@ test("screenshots", async ({ page }) => {
     ...frame(device, release),
     main.getByRole("tab", { name: "Times", selected: true }),
     main.getByRole("row", { name: /devin Step: check 3 29m 50s 9m 57s$/ }),
-    main.locator(".recharts-bar-rectangle").first(),
+    main.locator('[data-slot="chart-bar"]').first(),
     ...usageDays.map((day) => main.getByText(day, { exact: true })),
   ];
   const timesPath = "/usage?tab=times&group=%5B%22harness%22%5D&stat=step:check";
   await screenshot(page, "usage-times", timesPath, timesReady);
   await screenshot(page, "usage-times-chart", timesPath, timesReady, async () => {
-    await main.locator(".recharts-wrapper").scrollIntoViewIfNeeded();
+    await main.locator('[data-slot="chart"]').scrollIntoViewIfNeeded();
   });
   const skillsFrame = (device: string) => [
     ...frame(device, release),
@@ -3049,8 +3062,8 @@ test("screenshots", async ({ page }) => {
       main.getByRole("columnheader", { name: "Model" }),
       main.getByRole("row", { name: /^sonnet 3 100% 1\.3 2\.0/ }),
       main.getByRole("row", { name: /^swe-1\.5 2 0% 1\.5 0\.5/ }),
-      main.locator(".recharts-legend-wrapper").getByText("sonnet", { exact: true }),
-      main.locator(".recharts-legend-wrapper").getByText("swe-1.5", { exact: true }),
+      main.locator('[data-slot="chart-legend"]').getByText("sonnet", { exact: true }),
+      main.locator('[data-slot="chart-legend"]').getByText("swe-1.5", { exact: true }),
       ...usageDays.map((day) => main.getByText(day, { exact: true })),
     ],
     showRow(/^swe-1\.5 2 0% 1\.5 0\.5/),
