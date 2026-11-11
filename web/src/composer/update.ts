@@ -1,4 +1,5 @@
 import type * as Update from "foldkit/update";
+import type { DraftInboxItem } from "@/chat/schemas";
 import { maxImages, tooManyImages } from "@/lib/images";
 import {
   ClickAttach,
@@ -90,15 +91,7 @@ export function update(model: Model, message: Message): UpdateReturn {
       };
     },
 
-    DraftInboxItemAdded: ({ item }) => {
-      const nextItems = model.draftInboxItems.some((other) => other.id === item.id)
-        ? model.draftInboxItems
-        : [...model.draftInboxItems, item];
-      return {
-        model: { ...model, draftInboxItems: nextItems },
-        commands: [SaveDraftInboxItems({ key: model.draftKey, inboxItems: nextItems })],
-      };
-    },
+    DraftInboxItemAdded: ({ item }) => addDraftInboxItem(model, item),
 
     DraftInboxItemRemoved: ({ id }) => {
       const nextItems = model.draftInboxItems.filter((item) => item.id !== id);
@@ -177,4 +170,17 @@ export function update(model: Model, message: Message): UpdateReturn {
     CompletedScrollLive: () => ({ model }),
     CompletedShowFile: () => ({ model }),
   });
+}
+
+export function addDraftInboxItem(
+  model: Model,
+  item: DraftInboxItem,
+): Update.Return<Model, Message> {
+  const nextItems = model.draftInboxItems.some((other) => other.id === item.id)
+    ? model.draftInboxItems
+    : [...model.draftInboxItems, item];
+  return {
+    model: { ...model, draftInboxItems: nextItems },
+    commands: [SaveDraftInboxItems({ key: model.draftKey, inboxItems: nextItems })],
+  };
 }

@@ -91,6 +91,13 @@ const foldComposer = Update.foldChild({
     }),
 });
 
+const foldAddInboxItem = Update.foldChild({
+  update: Composer.addDraftInboxItem,
+  read: (model: Model) => Option.some(model.composer),
+  write: (model, composer) => ({ ...model, composer }),
+  toParentMessage: toGotComposerMessage,
+});
+
 // The draft key of the field that a voice Message names: the field of the chat, or the field of the open answer panel.
 function voiceKey(model: Model, target: "chat" | "answer") {
   if (target === "chat") {
@@ -728,8 +735,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
 
     GotComposerMessage: ({ message: composerMsg }) => foldComposer(model, composerMsg),
 
-    DraftInboxItemAdded: ({ item }) =>
-      foldComposer(model, Composer.Message.DraftInboxItemAdded({ item })),
+    DraftInboxItemAdded: ({ item }) => foldAddInboxItem(model, item),
 
     OutboxChanged: () => ({
       model,
