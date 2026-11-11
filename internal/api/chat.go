@@ -78,22 +78,22 @@ type ChatInboxItem struct {
 // ChatSelection is a text selection that the Owner sends with a chat message.
 type ChatSelection struct {
 	// Source is the place of the selection
-	Source string `gork:"source" json:"source" validate:"oneof=task message brief"`
+	Source string `gork:"source" validate:"oneof=task message brief"`
 	// Text is the selected text
-	Text string `gork:"text" json:"text" validate:"required"`
+	Text string `gork:"text" validate:"required"`
 	// Context is the full paragraph or list item of the selection, or the full blocks when the selection spans more than one block
-	Context string `gork:"context" json:"context"`
+	Context string `gork:"context"`
 	// Reference is the reference of the task (#N, or owner/name#N for a task in another repository) for task,
 	// the reference of the Workstream (#N) for brief, or empty for message
-	Reference string `gork:"reference" json:"reference"`
+	Reference string `gork:"reference"`
 	// Link is the GitHub URL of the task issue for task, the GitHub URL of the Workstream issue for brief, or empty for message
-	Link string `gork:"link" json:"link"`
+	Link string `gork:"link"`
 	// Part is the part of the view for task, the heading of the Brief section of the selection (or empty above the first heading) for brief, or empty for message
-	Part string `gork:"part" json:"part"`
+	Part string `gork:"part"`
 	// MessageID is the id of the quoted chat message for message, or 0 for the other sources
-	MessageID int64 `gork:"messageId" json:"messageId"`
+	MessageID int64 `gork:"messageId"`
 	// MessageAuthor is the author of the quoted chat message for message, or empty for the other sources
-	MessageAuthor string `gork:"messageAuthor" json:"messageAuthor"`
+	MessageAuthor string `gork:"messageAuthor"`
 }
 
 // Chat is a page of the messages of a Lead chat or of the Coordinator chat.
@@ -171,7 +171,7 @@ type SendChatRequest struct {
 		InboxItems []ChatInboxItem `gork:"inboxItems"`
 		// Selections are the text selections of the message. The request has one part selections for each selection, in order,
 		// and each part is one JSON object
-		Selections []ChatSelection `gork:"selections"`
+		Selections []ChatSelection `gork:"selections" validate:"dive"`
 		// Voice is true when the message came from a voice recording
 		Voice bool `gork:"voice"`
 	}
@@ -331,13 +331,8 @@ func (h *handlers) chatMessageOf(ctx context.Context, message store.ChatMessage)
 		return ChatMessage{}, err
 	}
 	var selections []ChatSelection
-	if message.Selections != "" {
-		if err := json.Unmarshal([]byte(message.Selections), &selections); err != nil {
-			return ChatMessage{}, err
-		}
-	}
-	if selections == nil {
-		selections = []ChatSelection{}
+	if err := json.Unmarshal([]byte(message.Selections), &selections); err != nil {
+		return ChatMessage{}, err
 	}
 	found := ChatMessage{
 		ID:           message.ID,

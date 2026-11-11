@@ -2228,8 +2228,6 @@ func selectionBlock(s ChatSelection) string {
 		firstLine = fmt.Sprintf("Selection from chat message %d of %s", s.MessageID, s.MessageAuthor)
 	case "brief":
 		firstLine = "Selection from the Brief of " + s.Reference
-	default:
-		firstLine = "Selection"
 	}
 	if s.Part != "" {
 		firstLine += " (" + s.Part + ")"
@@ -2260,9 +2258,6 @@ func inboxItemsOf(message store.ChatMessage) ([]ChatInboxItem, error) {
 }
 
 func selectionsOf(message store.ChatMessage) ([]ChatSelection, error) {
-	if message.Selections == "" {
-		return nil, nil
-	}
 	var selections []ChatSelection
 	err := json.Unmarshal([]byte(message.Selections), &selections)
 	return selections, err

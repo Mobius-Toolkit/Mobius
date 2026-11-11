@@ -185,6 +185,28 @@ func TestAMessageWithNoTextNoImageNoInboxItemAndNoSelectionGets400(t *testing.T)
 	}
 }
 
+func TestAMessageWithUnknownSelectionSourceGets400(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"Seen\"]\n")
+
+	invalidSourceItem := `{"source":"x","text":"the selected text"}`
+	if status, body := sendSelectionMessage(t, server, shop, "12", "", invalidSourceItem); status != http.StatusBadRequest {
+		t.Errorf("status = %d: %s, want %d", status, body, http.StatusBadRequest)
+	}
+}
+
+func TestAMessageWithEmptySelectedTextGets400(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"Seen\"]\n")
+
+	emptyTextItem := `{"source":"task","text":""}`
+	if status, body := sendSelectionMessage(t, server, shop, "12", "", emptyTextItem); status != http.StatusBadRequest {
+		t.Errorf("status = %d: %s, want %d", status, body, http.StatusBadRequest)
+	}
+}
+
 func TestSendChatRefusesMessageWithNoContent(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
