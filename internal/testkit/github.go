@@ -160,6 +160,7 @@ type FakeGitHub struct {
 	releaseAssetFailure int
 	comparedCommits     []string
 	closingIssues       map[int][]int
+	notPullRequests     map[int]bool
 	holds               map[issueKey]*hold
 	threadHolds         map[issueKey][]*hold
 	mergeHolds          map[issueKey][]*hold

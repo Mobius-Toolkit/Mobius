@@ -144,6 +144,25 @@ func TestANewReleaseSendsTheChangelogToTheCoordinatorChatOfEachOrganization(t *t
 	})
 }
 
+func TestASubjectWithTheNumberOfAnIssueKeepsTheOtherLinesOfTheChangelog(t *testing.T) {
+	// Serial: the test sets the package variable Release.
+	fake := testkit.NewFakeGitHub(t)
+	dataDir := t.TempDir()
+	first := startRelease(t, fake, dataDir, "v0.1.4")
+	testkit.WaitFor(t, func() bool { return lastRelease(t, first) == "v0.1.4" })
+	fake.SetComparedCommits("Show the usage (#10)", "Fix the flag (#99)")
+	fake.SetClosingIssues(10, 7)
+	fake.SetNotPullRequest(99)
+
+	server := restartRelease(t, fake, first, dataDir, "v0.1.6")
+
+	testkit.WaitFor(t, func() bool { return lastRelease(t, server) == "v0.1.6" })
+	texts := changelogs(t, server)["owner"]
+	if len(texts) != 1 || !strings.Contains(texts[0], "\n- #10 Show the usage (closes #7)\n- #99 Fix the flag\n") {
+		t.Errorf("changelog of owner = %q", texts)
+	}
+}
+
 func TestOneChangelogCoversManyReleasesAndMoreThanOnePageOfTheComparison(t *testing.T) {
 	// Serial: the test sets the package variable Release.
 	fake := testkit.NewFakeGitHub(t)

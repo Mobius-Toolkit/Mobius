@@ -265,7 +265,7 @@ func (g *GitHub) CommitMessages(ctx context.Context, base, head string) ([]strin
 }
 
 // ClosingIssues gives the numbers of the issues that each pull request of Mobius in numbers closes, with one GraphQL
-// call. The call uses publicClient.
+// call. A number that is not a pull request has no closed issue. The call uses publicClient.
 func (g *GitHub) ClosingIssues(ctx context.Context, numbers []int) (map[int][]int, error) {
 	var query strings.Builder
 	query.WriteString(`query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) {`)
@@ -283,8 +283,14 @@ func (g *GitHub) ClosingIssues(ctx context.Context, numbers []int) (map[int][]in
 		} `json:"repository"`
 	}
 	client := Repository{Client: g.publicClient()}
-	if err := client.graphql(ctx, query.String(), map[string]any{"owner": "Mobius-Toolkit", "name": "Mobius"}, &data); err != nil {
+	errs, err := client.graphqlErrors(ctx, query.String(), map[string]any{"owner": "Mobius-Toolkit", "name": "Mobius"}, &data)
+	if err != nil {
 		return nil, err
+	}
+	for _, failure := range errs {
+		if failure.Type != "NOT_FOUND" {
+			return nil, errors.New(failure.Message)
+		}
 	}
 	closing := map[int][]int{}
 	for _, number := range numbers {
