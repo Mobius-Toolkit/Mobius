@@ -833,9 +833,6 @@ export function update(model: Model, message: Message): UpdateReturn {
         commands: [],
       };
 
-    case "LoadAppRequested":
-      return { model, commands: [LoadApp()] };
-
     case "AppsAndOrganizationsLoaded": {
       const { apps, organizations } = message;
       let org = model.organization;
@@ -948,17 +945,13 @@ export function update(model: Model, message: Message): UpdateReturn {
       return { model: entered.model, commands: [...commands, ...entered.commands] };
     }
 
-    case "ConnectionChanged":
-      return { model: { ...model, link: message.link }, commands: [] };
-
     case "OnlineChanged":
       return { model: { ...model, online: message.online }, commands: [] };
 
     case "WideChanged":
       return { model: { ...model, wide: message.wide }, commands: [] };
 
-    case "LiveOpened":
-    case "LiveConnected": {
+    case "LiveOpened": {
       const commands: Cmd<Message>[] = [
         LoadApp(),
         CheckUpgrade(),
@@ -1279,18 +1272,6 @@ export function update(model: Model, message: Message): UpdateReturn {
         model: {
           ...model,
           upgrade: { ...model.upgrade, failure: message.failure },
-        },
-        commands: [],
-      };
-
-    case "CheckUpgradeRequested":
-      return { model, commands: [CheckUpgrade()] };
-
-    case "ReleaseVersionChecked":
-      return {
-        model: {
-          ...model,
-          upgrade: { ...model.upgrade, version: message.version },
         },
         commands: [],
       };

@@ -63,7 +63,6 @@ export const Message = defineMessageUnion({
   LoginFailed: { error: Schema.String },
 
   // Initial & App loading
-  LoadAppRequested: {},
   AppsAndOrganizationsLoaded: {
     apps: Schema.Array(GitHubApp),
     organizations: Schema.Array(Schema.String),
@@ -72,12 +71,10 @@ export const Message = defineMessageUnion({
   SelectOrganization: { organization: Schema.String },
 
   // Connection & Live events
-  ConnectionChanged: { link: Schema.Literals(["connected", "connecting", "offline"]) },
   OnlineChanged: { online: Schema.Boolean },
   WideChanged: { wide: Schema.Boolean },
   LiveOpened: {},
   LiveConnecting: {},
-  LiveConnected: {},
   LiveLoginRequired: {},
   RepositoriesChanged: {},
 
@@ -112,8 +109,6 @@ export const Message = defineMessageUnion({
   // Upgrade
   DrainChanged: { drain: Drain },
   UpgradeFailureChanged: { failure: Schema.String },
-  CheckUpgradeRequested: {},
-  ReleaseVersionChecked: { version: Schema.String },
   // A check that failed gives null, and the last good value stays.
   UpgradeInfoLoaded: {
     version: Schema.NullOr(Schema.String),
