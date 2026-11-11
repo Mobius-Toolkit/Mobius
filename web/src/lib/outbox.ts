@@ -1,6 +1,7 @@
 import { Effect, Option, Schema } from "effect";
 import { getSendChatUrl, type ChatInboxItem } from "@/api/api.gen";
 import { run as runIn } from "./database";
+import { request } from "./effects";
 
 // A message of the Owner that the server has not stored. The id is the browser id of the message.
 export type Queued = {
@@ -86,7 +87,7 @@ export async function postQueued(item: Queued, signal: AbortSignal) {
     return { status: res.status };
   }
   const body = await Effect.runPromise(
-    Effect.tryPromise(() => res.json()).pipe(Effect.flatMap(decodeErrorBody), Effect.option),
+    request(() => res.json()).pipe(Effect.flatMap(decodeErrorBody), Effect.option),
   );
   return {
     status: res.status,
