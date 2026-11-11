@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"maps"
 	"slices"
 	"strconv"
@@ -18,6 +19,9 @@ import (
 )
 
 const (
+	// queuedRunLimit is the time that a queued run can wait. A run that waits for a free runner already has its jobs,
+	// so a run with no job after this time is a run that GitHub lost.
+	queuedRunLimit = 30 * time.Minute
 	// githubActions is the slug of the App of GitHub Actions.
 	githubActions = "github-actions"
 	// jobLogLines is the number of lines of the end of a job log of GitHub Actions in a fix round.
@@ -214,7 +218,11 @@ func (e *Engine) onChecks(ctx context.Context, repository github.Repository, tas
 		}
 		return e.ciFailed(ctx, repository, task, pullRequest)
 	case state.running:
-		return e.onLongCIWait(ctx, repository, task, pullRequest, state.incomplete)
+		incomplete, err := e.handleStuckRuns(ctx, repository, pullRequest, state)
+		if err != nil {
+			return err
+		}
+		return e.onLongCIWait(ctx, repository, task, pullRequest, incomplete)
 	case state.absent && !e.quietPeriodEnded(task.ID, head):
 		return nil
 	case screenshots == screenshotsPending:
@@ -474,6 +482,74 @@ func rerunWaiting(task store.Task, state ci) []string {
 	return names
 }
 
+// handleStuckRuns cancels and runs again each newest workflow run of the head that is queued with no job for more than
+// queuedRunLimit. When GitHub refuses the cancel or the rerun with a 4xx, it updates the branch of the pull request if
+// the head is behind its base branch. It gives the incomplete runs for the Lead, with each stuck run named as
+// "<workflow> (queued with no job)".
+func (e *Engine) handleStuckRuns(ctx context.Context, repository github.Repository, pullRequest *gh.PullRequest, state ci) ([]string, error) {
+	head := pullRequest.GetHead().GetSHA()
+	var updatedBranch bool
+	stuckNames := map[string]bool{}
+	for _, run := range state.newestWorkflows {
+		if e.refusedRuns[run.GetID()] {
+			stuckNames[run.GetName()] = true
+			continue
+		}
+		if run.GetStatus() != "queued" || run.GetRunAttempt() != 1 {
+			continue
+		}
+		createdAt := run.GetCreatedAt().Time
+		if createdAt.IsZero() || e.timeNow().Sub(createdAt) < queuedRunLimit {
+			continue
+		}
+		jobs, err := repository.WorkflowJobs(ctx, run.GetID())
+		if err != nil {
+			return nil, err
+		}
+		if len(jobs) > 0 {
+			continue
+		}
+		stuckNames[run.GetName()] = true
+		err = repository.CancelWorkflowRun(ctx, run.GetID())
+		if err == nil {
+			err = repository.RerunWorkflowRun(ctx, run.GetID())
+		}
+		if err == nil {
+			delete(stuckNames, run.GetName())
+			continue
+		}
+		var refused *gh.ErrorResponse
+		if !errors.As(err, &refused) || refused.Response.StatusCode >= 500 {
+			return nil, err
+		}
+		refusal := err
+		e.refusedRuns[run.GetID()] = true
+		behind, err := repository.CommitsBehind(ctx, repository.DefaultBranch, head)
+		if err != nil {
+			return nil, err
+		}
+		if behind > 0 && !updatedBranch {
+			if err := repository.UpdatePullRequestBranch(ctx, int64(pullRequest.GetNumber()), head); err != nil {
+				var refusedUpdate *gh.ErrorResponse
+				if !errors.As(err, &refusedUpdate) || refusedUpdate.Response.StatusCode >= 500 {
+					return nil, err
+				}
+				log.Printf("update the branch of pull request %d of %s: %v", pullRequest.GetNumber(), repository.FullName, err)
+			}
+			updatedBranch = true
+		} else {
+			log.Printf("stuck workflow run %d: %v", run.GetID(), refusal)
+		}
+	}
+	incomplete := slices.Clone(state.incomplete)
+	for i, name := range incomplete {
+		if stuckNames[name] {
+			incomplete[i] = fmt.Sprintf("%s (queued with no job)", name)
+		}
+	}
+	return incomplete, nil
+}
+
 // ciFailed hands the task in checks to a human, with a failed Mobius check and a stop event for the Lead. The task
 // keeps the head in ci_failed_head, so that continueNeedsHuman can tell this stop from another stop.
 func (e *Engine) ciFailed(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) error {
@@ -507,6 +583,7 @@ func (e *Engine) ciFailed(ctx context.Context, repository github.Repository, tas
 // ci is what the check runs of other Apps and the workflow runs of GitHub Actions on a head show.
 type ci struct {
 	checkRuns                            []*gh.CheckRun
+	newestWorkflows                      []*gh.WorkflowRun
 	failedCheck, failedWorkflow, running bool
 	// openCheckRun is true when the head has a Mobius check run that is not complete.
 	openCheckRun bool
@@ -529,7 +606,8 @@ func ciOf(ctx context.Context, repository github.Repository, head string) (ci, e
 	if err != nil {
 		return ci{}, err
 	}
-	state := ci{checkRuns: runs}
+	newest := newestWorkflowRuns(workflows)
+	state := ci{checkRuns: runs, newestWorkflows: newest}
 	others := 0
 	for _, run := range runs {
 		if run.GetName() == checkRunName {
@@ -545,7 +623,7 @@ func ciOf(ctx context.Context, repository github.Repository, head string) (ci, e
 			state.failedCheck = true
 		}
 	}
-	for _, workflow := range newestWorkflowRuns(workflows) {
+	for _, workflow := range newest {
 		switch {
 		case workflow.GetStatus() != "completed":
 			state.running = true

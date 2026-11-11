@@ -91,6 +91,9 @@ type Engine struct {
 	// ciWait holds the head of each task in checks that has no CI, with the time of its first poll, by the id of the task.
 	// Only the poll uses it.
 	ciWait map[int64]ciWait
+	// refusedRuns holds the ids of the workflow runs whose cancel or rerun GitHub refused with a 4xx. Only the poll
+	// uses it.
+	refusedRuns map[int64]bool
 	// clock gives the time of the long waits. A nil clock is time.Now.
 	clock atomic.Pointer[func() time.Time]
 	// newestMu guards newest.
@@ -242,6 +245,7 @@ func New(db *sql.DB, gh *github.GitHub, cfg *config.Config, agents Agents) *Engi
 		pollWake:        make(chan struct{}, 1),
 		closing:         map[pullKey]bool{},
 		ciWait:          map[int64]ciWait{},
+		refusedRuns:     map[int64]bool{},
 		newest:          map[string]newestVersion{},
 		upgrades:        map[string]bool{},
 		harnessReads:    map[config.Harness]*harnessRead{},
