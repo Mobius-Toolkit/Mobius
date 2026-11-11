@@ -50,6 +50,7 @@ type Live = {
 
 type Recording = {
   key: string;
+  fieldId: string;
   stream: MediaStream;
   context: AudioContext;
   chunks: Int16Array<ArrayBuffer>[];
@@ -74,7 +75,7 @@ let stopping = false;
 // Each start and each cancel of a start changes run. A start of an older run does nothing.
 let run = 0;
 // The mounted inputs. insert puts the text of a conversion at the cursor of the field.
-const inputs: { key: string; insert: (text: string) => void }[] = [];
+const inputs: { key: string; fieldId: string; insert: (text: string) => void }[] = [];
 let screenLock: WakeLockSentinel | undefined;
 // The draft keys that have a call that converts their card.
 const converting = new Set<string>();
@@ -324,7 +325,7 @@ export const insertVoiceText = (
   return { text: lead + voiceText + trail, cursor: lead.length + voiceText.length };
 };
 
-const settle = async (key: string, result: Result) => {
+export const settle = async (key: string, result: Result, fieldId?: string) => {
   if (currentDraft(key)?.voice?.state !== "converting") {
     return;
   }
@@ -334,7 +335,15 @@ const settle = async (key: string, result: Result) => {
     return;
   }
   const ready: DraftVoice = { state: "ready", audio: null, conversion: "", error: "" };
-  const input = inputs.findLast((other) => other.key === key);
+  const inDom = fieldId
+    ? typeof document !== "undefined"
+      ? Boolean(document.getElementById(fieldId))
+      : true
+    : false;
+  const startedInput = inDom
+    ? inputs.find((other) => other.key === key && other.fieldId === fieldId)
+    : undefined;
+  const input = startedInput ?? inputs.findLast((other) => other.key === key);
   if (input) {
     input.insert(result.text);
     await setVoice(key, () => ready);
@@ -349,7 +358,7 @@ const settle = async (key: string, result: Result) => {
 
 // convertCard converts the card of the draft when it is in the state converting. With no conversion on the server, it
 // sends the audio.
-const convertCard = async (key: string) => {
+export const convertCard = async (key: string, fieldId?: string) => {
   if (converting.has(key)) {
     return;
   }
@@ -363,7 +372,7 @@ const convertCard = async (key: string) => {
       : undefined;
   converting.delete(key);
   if (result) {
-    await settle(key, result);
+    await settle(key, result, fieldId);
   }
 };
 
@@ -372,7 +381,7 @@ const finish = async (notice: string) => {
   if (!recording) {
     return;
   }
-  const { key } = recording;
+  const { key, fieldId } = recording;
   current = undefined;
   stopping = true;
   clearTimeout(recording.timer);
@@ -391,7 +400,7 @@ const finish = async (notice: string) => {
   if (conversion) {
     await setVoice(key, (voice) => ({ ...voice, conversion }));
   }
-  void convertCard(key);
+  void convertCard(key, fieldId);
 };
 
 export const resend = async (key: string) => {
@@ -403,7 +412,7 @@ export const resend = async (key: string) => {
 
 void convertingDraftKeys().then((keys) => keys.forEach((key) => void convertCard(key)));
 
-const start = async (key: string) => {
+const start = async (key: string, fieldId = "") => {
   const token = ++run;
   const context = new AudioContext();
   void context.resume();
@@ -440,6 +449,7 @@ const start = async (key: string) => {
   }
   const recording: Recording = {
     key,
+    fieldId,
     stream,
     context,
     chunks,
@@ -494,11 +504,11 @@ export const stopVoice = () => {
   }
 };
 
-export const toggleVoice = (key: string) => {
+export const toggleVoice = (key: string, fieldId = "") => {
   if (snapshot.recording) {
     stopVoice();
   } else {
-    void start(key);
+    void start(key, fieldId);
   }
 };
 
@@ -514,8 +524,12 @@ export const voiceSupported =
 
 // Mounts an input for the draft key. insert puts the text of a conversion at the cursor of the field. The call that
 // this function gives unmounts the input.
-export const registerVoiceInput = (key: string, insert: (text: string) => void) => {
-  const input = { key, insert };
+export const registerVoiceInput = (
+  key: string,
+  fieldId: string,
+  insert: (text: string) => void,
+) => {
+  const input = { key, fieldId, insert };
   inputs.push(input);
   return () => {
     inputs.splice(inputs.indexOf(input), 1);

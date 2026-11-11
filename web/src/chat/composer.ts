@@ -4,33 +4,17 @@ import { Mount } from "foldkit";
 import { cn } from "cn";
 import { InboxItemKind } from "@/api/api.gen";
 import { roleName } from "@/lib/actions";
-import { answerDraftKey, chatDraftKey } from "@/lib/draft";
+import { answerDraftKey } from "@/lib/draft";
 import { voiceSupported } from "@/lib/voice";
 import { buttonClass } from "@/ui/button";
-import {
-  arrowUpIcon,
-  banIcon,
-  checkIcon,
-  micIcon,
-  paperclipIcon,
-  spinnerIcon,
-  squareIcon,
-  xIcon,
-} from "@/ui/icons";
+import { arrowUpIcon, banIcon, checkIcon, micIcon, squareIcon, xIcon } from "@/ui/icons";
 import { textareaClass } from "@/ui/textarea";
 import { Message } from "./message";
 import { hasNote, type Model, voiceBusy } from "./model";
-import type { DraftInboxItem, DraftVoice, InboxItem } from "./schemas";
+import type { DraftVoice, InboxItem } from "./schemas";
 
 type H = HtmlBuilder<Message>;
-type ComposerMessage = ReturnType<
-  typeof Message.SendSubmitted | typeof Message.AnswerSubmitted | typeof Message.ImagesChosen
->;
 
-export const inputId = "chat-input";
-export const answerInputId = "answer-input";
-const pickerId = "chat-attach";
-// The Mount of an image reads its file only at insert, so each file of a list needs its own key.
 function fileKey(files: File[], index: number) {
   const file = files[index];
   const same = files
@@ -76,6 +60,9 @@ export function renderFileImage(
   ]);
 }
 
+export const inputId = "chat-input";
+export const answerInputId = "answer-input";
+
 // A button that takes the focus closes the keyboard of a phone, and the button moves before the click.
 function keepFocus(event: Event) {
   if (event.target instanceof Element && event.target.closest("[data-keep-focus]")) {
@@ -83,25 +70,23 @@ function keepFocus(event: Event) {
   }
 }
 
-// One Mount owns the behavior that needs the DOM event: Enter, a paste with a picture, a blur on iOS, the focus at
+// One Mount owns the behavior that needs the DOM event: Enter for answer, a blur on iOS, the focus at
 // the start, and a mouse down on a button that must not take the focus from the field.
 export const ComposerBehavior = Mount.defineStream("ComposerBehavior", {
   args: {
     autoFocus: Schema.Boolean,
-    enter: Schema.Literals(["send", "answer", "none"]),
+    enter: Schema.Literals(["answer", "none"]),
     field: Schema.String,
   },
-  messages: [Message.SendSubmitted, Message.AnswerSubmitted, Message.ImagesChosen],
+  messages: [Message.AnswerSubmitted],
   execute: ({ element, autoFocus, enter, field: fieldId }) =>
-    Stream.callback<ComposerMessage>((queue) =>
+    Stream.callback<ReturnType<typeof Message.AnswerSubmitted>>((queue) =>
       Effect.gen(function* () {
         const field = () => element.querySelector<HTMLTextAreaElement>(`#${fieldId}`);
         const keydown = (key: Event) => {
           if (!(key instanceof KeyboardEvent)) {
             return;
           }
-          // On a touch screen, Enter adds a line and only the Send button sends. Safari gives the Enter that ends
-          // an IME composition with isComposing false and keyCode 229.
           if (
             key.target === field() &&
             key.key === "Enter" &&
@@ -111,33 +96,16 @@ export const ComposerBehavior = Mount.defineStream("ComposerBehavior", {
             !window.matchMedia("(pointer: coarse)").matches
           ) {
             key.preventDefault();
-            if (enter === "send") {
-              Queue.offerUnsafe(queue, Message.SendSubmitted());
-            } else if (enter === "answer") {
+            if (enter === "answer") {
               Queue.offerUnsafe(queue, Message.AnswerSubmitted());
             }
           }
         };
-        const paste = (event: Event) => {
-          const data = event instanceof ClipboardEvent ? event.clipboardData : null;
-          if (!data || event.target !== field() || !element.querySelector(`#${pickerId}`)) {
-            return;
-          }
-          const pasted = [...data.files].filter((file) => file.type.startsWith("image/"));
-          // Spreadsheet and word processor apps put the text and a picture of the selection on the clipboard.
-          if (pasted.length > 0 && !data.getData("text/plain")) {
-            event.preventDefault();
-            Queue.offerUnsafe(queue, Message.ImagesChosen({ files: pasted }));
-          }
-        };
-        // Safari on iOS scrolls the page when the keyboard opens, and it can keep that offset after the keyboard closes.
         const blur = (event: Event) => {
           if (event.target === field()) {
             window.scrollTo(0, 0);
           }
         };
-        // Foldkit renders in the next frame, so a tap right after a key sees the Send button of the empty draft.
-        // The button is enabled at once.
         const typed = (event: Event) => {
           const target = event.target;
           const submit = element.querySelector<HTMLButtonElement>("button[type=submit]");
@@ -153,7 +121,6 @@ export const ComposerBehavior = Mount.defineStream("ComposerBehavior", {
         };
         element.addEventListener("input", typed);
         element.addEventListener("keydown", keydown);
-        element.addEventListener("paste", paste);
         element.addEventListener("focusout", blur);
         element.addEventListener("mousedown", keepFocus);
         if (autoFocus && window.matchMedia("(pointer: fine)").matches) {
@@ -163,7 +130,6 @@ export const ComposerBehavior = Mount.defineStream("ComposerBehavior", {
           Effect.sync(() => {
             element.removeEventListener("input", typed);
             element.removeEventListener("keydown", keydown);
-            element.removeEventListener("paste", paste);
             element.removeEventListener("focusout", blur);
             element.removeEventListener("mousedown", keepFocus);
           }),
@@ -171,71 +137,6 @@ export const ComposerBehavior = Mount.defineStream("ComposerBehavior", {
       }),
     ),
 });
-
-function attachedInboxItem(h: H, item: DraftInboxItem): Html {
-  const name = item.reference || item.title;
-  return h.div(
-    [
-      h.Key(`inbox-${item.id}`),
-      h.Class(
-        "grid min-w-0 gap-0.5 rounded-lg border bg-card px-2 py-1.5 text-sm relative w-56 max-w-full pr-9",
-      ),
-    ],
-    [
-      item.reference
-        ? h.span([h.Class("truncate text-xs text-muted-foreground")], [item.reference])
-        : h.empty,
-      h.span([h.Class("truncate font-medium")], [item.title]),
-      h.span([h.Class("truncate text-xs text-muted-foreground")], [item.reason ?? ""]),
-      h.button(
-        [
-          h.Type("button"),
-          h.AriaLabel(`Remove ${name}`),
-          h.Attribute("title", `Remove ${name}`),
-          h.DataAttribute("keep-focus", ""),
-          h.Class(
-            buttonClass({
-              variant: "secondary",
-              size: "icon-sm",
-              className: "absolute top-0.5 right-0.5 rounded-full max-md:size-8",
-            }),
-          ),
-          h.OnClick(Message.DraftInboxItemRemoved({ id: item.id })),
-        ],
-        [xIcon(h)],
-      ),
-    ],
-  );
-}
-
-function thumbnail(h: H, files: File[], index: number): Html {
-  return h.div(
-    [h.Key(`thumb-${fileKey(files, index)}`), h.Class("relative")],
-    [
-      renderFileImage(h, files, index, [
-        h.Alt(`Image ${index + 1}`),
-        h.Class("size-16 rounded-lg border object-cover"),
-      ]),
-      h.button(
-        [
-          h.Type("button"),
-          h.AriaLabel(`Remove image ${index + 1}`),
-          h.Attribute("title", `Remove image ${index + 1}`),
-          h.DataAttribute("keep-focus", ""),
-          h.Class(
-            buttonClass({
-              variant: "secondary",
-              size: "icon-sm",
-              className: "absolute top-0.5 right-0.5 rounded-full max-md:size-8",
-            }),
-          ),
-          h.OnClick(Message.DraftImageRemoved({ position: index })),
-        ],
-        [xIcon(h)],
-      ),
-    ],
-  );
-}
 
 type Box = {
   field: string;
@@ -248,10 +149,8 @@ type Box = {
   readOnly: boolean;
   onInput: (text: string) => Message;
   submit: Message | null;
-  enter: "send" | "answer" | "none";
+  enter: "answer" | "none";
   autoFocus: boolean;
-  images: File[] | null;
-  inboxItems: DraftInboxItem[];
   actions: Html[];
   error: string;
 };
@@ -403,7 +302,6 @@ function voiceNotice(h: H, model: Model, box: Box): Html {
 }
 
 function composerBox(h: H, model: Model, box: Box): Html {
-  const images = box.images ?? [];
   return h.form(
     [
       h.Class("grid gap-1 border-t p-2"),
@@ -411,16 +309,6 @@ function composerBox(h: H, model: Model, box: Box): Html {
       h.OnMount(ComposerBehavior({ autoFocus: box.autoFocus, enter: box.enter, field: box.field })),
     ],
     [
-      box.images
-        ? h.input([
-            h.Id(pickerId),
-            h.Type("file"),
-            h.Accept("image/*"),
-            h.Multiple(true),
-            h.Hidden(true),
-            h.OnFileChange((files) => Message.ImagesChosen({ files: [...files] })),
-          ])
-        : h.empty,
       h.div(
         [
           h.Class(
@@ -428,18 +316,8 @@ function composerBox(h: H, model: Model, box: Box): Html {
           ),
         ],
         [
-          images.length > 0 ||
-          box.inboxItems.length > 0 ||
-          box.voiceCard ||
-          (model.voice.recording && model.voice.key === box.key)
-            ? h.div(
-                [h.Class("flex flex-wrap gap-2 pb-1")],
-                [
-                  voiceCard(h, model, box),
-                  ...box.inboxItems.map((item) => attachedInboxItem(h, item)),
-                  ...images.map((_, index) => thumbnail(h, images, index)),
-                ],
-              )
+          box.voiceCard || (model.voice.recording && model.voice.key === box.key)
+            ? h.div([h.Class("flex flex-wrap gap-2 pb-1")], [voiceCard(h, model, box)])
             : h.empty,
           h.textarea([
             h.Id(box.field),
@@ -459,25 +337,6 @@ function composerBox(h: H, model: Model, box: Box): Html {
           h.div(
             [h.Class("flex items-center justify-between gap-2")],
             [
-              box.images
-                ? h.button(
-                    [
-                      h.Type("button"),
-                      h.AriaLabel("Attach images"),
-                      h.Attribute("title", "Attach images"),
-                      h.DataAttribute("keep-focus", ""),
-                      h.Class(
-                        buttonClass({
-                          variant: "ghost",
-                          size: "icon",
-                          className: "rounded-full text-muted-foreground max-md:size-11",
-                        }),
-                      ),
-                      h.OnClick(Message.AttachClicked()),
-                    ],
-                    [paperclipIcon(h)],
-                  )
-                : h.empty,
               h.div(
                 [h.Class("ml-auto flex items-center gap-1")],
                 [voiceButton(h, model, box), ...box.actions],
@@ -492,65 +351,6 @@ function composerBox(h: H, model: Model, box: Box): Html {
         : h.empty,
     ],
   );
-}
-
-export function renderComposer(h: H, model: Model): Html {
-  const images = model.draftImages;
-  const inboxItems = model.draftInboxItems;
-  const empty = !model.draftText.trim() && images.length === 0 && inboxItems.length === 0;
-  const showStop = empty && model.stoppable;
-  const buttonPending = showStop && model.stopping;
-  const cannotSend = empty || voiceBusy(model.draftVoice);
-  const sendLabel = showStop ? "Stop the reply" : "Send";
-  const sendDisabled = buttonPending || (showStop ? !model.stopReady : cannotSend);
-
-  return composerBox(h, model, {
-    field: inputId,
-    target: "chat",
-    key: chatDraftKey(model.organization, model.repository, model.workstream),
-    voiceCard: model.draftVoice,
-    label: `Message to the ${model.agent}`,
-    placeholder: `Write to the ${model.agent}`,
-    text: model.draftText,
-    readOnly: !model.draftLoaded,
-    onInput: (text) => Message.DraftTextChanged({ text }),
-    submit: Message.SendSubmitted(),
-    enter: "send",
-    autoFocus: true,
-    images,
-    inboxItems,
-    error: model.sendError,
-    actions: [
-      h.button(
-        [
-          // Foldkit renders in the next frame, so a tap right after the input can still see the old button.
-          // A Stop button of type submit sends nothing, because the draft is empty then.
-          h.Type("submit"),
-          h.AriaLabel(sendLabel),
-          h.Attribute("title", sendLabel),
-          h.DataAttribute("keep-focus", ""),
-          h.Disabled(sendDisabled),
-          ...(voiceBusy(model.draftVoice) ? [h.DataAttribute("voice-busy", "")] : []),
-          h.Class(
-            cn(
-              buttonClass({ size: "icon", className: "rounded-full max-md:size-11" }),
-              showStop &&
-                !model.stopReady &&
-                !buttonPending &&
-                "disabled:pointer-events-auto disabled:opacity-100",
-              cannotSend &&
-                !showStop &&
-                "bg-muted text-muted-foreground hover:bg-muted disabled:opacity-100",
-            ),
-          ),
-          ...(showStop ? [h.OnClick(Message.StopChatClicked())] : []),
-        ],
-        buttonPending
-          ? [spinnerIcon(h)]
-          : [showStop ? squareIcon(h, "size-3 fill-current") : arrowUpIcon(h)],
-      ),
-    ],
-  });
 }
 
 // The field of the answer panel. A pending action has the buttons Reject and Approve, and each other item has the
@@ -588,9 +388,6 @@ export function renderPanelComposer(h: H, model: Model, item: InboxItem): Html {
     submit: decide ? null : Message.AnswerSubmitted(),
     enter: decide ? "none" : "answer",
     autoFocus: false,
-    images: null,
-    inboxItems: [],
-    error: model.answerErrorId === item.id ? model.answerError : "",
     actions: decide
       ? [
           h.button(
@@ -642,5 +439,6 @@ export function renderPanelComposer(h: H, model: Model, item: InboxItem): Html {
             [arrowUpIcon(h)],
           ),
         ],
+    error: model.answerErrorId === item.id ? model.answerError : "",
   });
 }

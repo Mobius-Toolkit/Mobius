@@ -1,14 +1,14 @@
 import { Result, Schema } from "effect";
 import { InboxItemKind } from "@/api/api.gen";
+import * as Composer from "@/composer";
+import { chatDraftKey } from "@/lib/draft";
 import { StoreFailed } from "@/lib/effects";
 import type { Flags } from "./flags";
 import {
   ChatMessage,
   type DraftInboxItem,
-  DraftInboxItems,
   DraftVoice,
   Failure,
-  Images,
   InboxItem,
   Panel,
   Selection,
@@ -112,11 +112,7 @@ const ChatModelSchema = Schema.Struct({
   trayRunning: Schema.Record(Schema.Number, TrayRunning),
   trayMerging: Schema.Record(Schema.Number, Schema.Boolean),
   trayRefusals: Schema.Record(Schema.Number, Schema.String),
-  draftText: Schema.String,
-  draftImages: Images,
-  draftInboxItems: DraftInboxItems,
-  draftVoice: Schema.NullOr(DraftVoice),
-  draftLoaded: Schema.Boolean,
+  composer: Composer.Model,
   voice: VoiceState,
   now: Schema.Number,
   stopReady: Schema.Boolean,
@@ -180,11 +176,12 @@ export function initialModel(flags: Flags): Model {
     trayRunning: {},
     trayMerging: {},
     trayRefusals: {},
-    draftText: "",
-    draftImages: [],
-    draftInboxItems: [],
-    draftVoice: null,
-    draftLoaded: false,
+    composer: Composer.initialModel({
+      draftKey: chatDraftKey(flags.organization, flags.repository, flags.workstream),
+      instance: "chat",
+      label: `Message to the ${flags.agent}`,
+      placeholder: `Write to the ${flags.agent}`,
+    }),
     voice: { recording: false, key: "", startedAt: 0, live: "", notice: { key: "", text: "" } },
     now: 0,
     stopReady: false,

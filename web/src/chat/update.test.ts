@@ -6,16 +6,13 @@ import {
   FetchActionBrief,
   FetchPage,
   DoneInboxItem,
+  ListQueued,
   ResumeStoppedItem,
-  EnqueueMessage,
   PostQueued,
   RemoveQueued,
   RemoveVoice,
   ResendVoice,
   RunTrayAction,
-  SaveDraftImages,
-  SaveDraftInboxItems,
-  SaveDraftText,
   SaveTrayState,
   ShowBlockingTodo,
   StopChat,
@@ -1529,116 +1526,51 @@ describe("chat update story tests", () => {
       );
     });
 
-    it("takes the draft of the chat from the store", () => {
-      const image = new File(["x"], "a.png", { type: "image/png" });
-      const draft = createDraft("Hello", {
-        images: [image],
-        voice: { state: "ready", audio: null, conversion: "", error: "" },
-      });
-
-      const result = update(createTestModel(), Message.ReceivedDraft({ draft }));
-      expect(result.model.draftLoaded).toBe(true);
-      expect(result.model.draftText).toBe("Hello");
-      expect(result.model.draftImages).toEqual([image]);
-      expect(result.model.draftVoice?.state).toBe("ready");
-    });
-
-    it("writes each change of the draft of the chat to the store under the key of the chat", () => {
-      const key = "chatDraft:test-org/test-repo/1428";
-      const image = new File(["x"], "a.png", { type: "image/png" });
-      const base = createTestModel({
-        draftImages: [image],
-        draftInboxItems: [{ id: 7, reference: "#7", title: "Question", reason: "", link: "" }],
-      });
-
-      const text = update(base, Message.DraftTextChanged({ text: "Hi" }));
-      expect(text.model.draftText).toBe("Hi");
-      expect(described(text.commands)).toEqual(described([SaveDraftText({ key, text: "Hi" })]));
-      const images = update(base, Message.DraftImageRemoved({ position: 0 }));
-      expect(described(images.commands)).toEqual(described([SaveDraftImages({ key, images: [] })]));
-      const items = update(base, Message.DraftInboxItemRemoved({ id: 7 }));
-      expect(described(items.commands)).toEqual(
-        described([SaveDraftInboxItems({ key, inboxItems: [] })]),
-      );
-    });
-
-    it("sends the draft of the chat with the voice mark when the card is ready, and clears the draft", () => {
-      const base = createTestModel({
-        draftText: "Show the prices.",
-        draftVoice: { state: "ready", audio: null, conversion: "", error: "" },
-        sendError: "Old error.",
-      });
+    it("adds one queue entry and sends PostQueued on outbox change with a new queued message, and adds no second entry on second change with the same id", () => {
+      const item = createQueuedItem("q1", "Queued from elsewhere.");
+      const base = createTestModel();
 
       story(
         update,
         given(base),
-        message(Message.SendSubmitted()),
-        model((m) => {
-          expect(m.draftText).toBe("");
-          expect(m.draftVoice).toBeNull();
-          expect(m.sendError).toBe("");
-        }),
+        message(Message.OutboxChanged()),
         StoryCommand.expectExact(
-          EnqueueMessage({
+          ListQueued({
             organization: "test-org",
             repository: "test-repo",
             workstream: 1428,
-            key: "chatDraft:test-org/test-repo/1428",
-            text: "Show the prices.",
-            images: [],
-            inboxItems: [],
-            voice: true,
           }),
         ),
+        StoryCommand.resolve(ListQueued, Message.QueueLoaded({ items: [item] })),
+        model((m) => {
+          expect(m.queue.length).toBe(1);
+          expect(m.queue[0].id).toBe("q1");
+        }),
+        StoryCommand.expectExact(PostQueued({ item, delay: retryDelays[0] })),
         StoryCommand.resolve(
-          EnqueueMessage,
-          Message.MessageQueued({ item: createQueuedItem("q1", "Show the prices.") }),
+          PostQueued,
+          Message.SendAttemptFailed({ id: "q1", error: "Network error", retryAt: 9999999 }),
         ),
+        StoryCommand.expectExact(WaitToRetry({ id: "q1", delay: retryDelays[0], sequence: 0 })),
+        StoryCommand.resolve(WaitToRetry, Message.RetryDue({ id: "q1", sequence: 999 })),
+        message(Message.OutboxChanged()),
         StoryCommand.expectExact(
-          PostQueued({ item: createQueuedItem("q1", "Show the prices."), delay: retryDelays[0] }),
-        ),
-        StoryCommand.resolve(PostQueued, Message.SendAttemptSucceeded({ id: "q1" })),
-        StoryCommand.resolve(
-          FetchPage,
-          Message.PageLoaded({
-            page: {
-              harness: "",
-              messages: [],
-              older: false,
-              stoppable: false,
-              writing: false,
-              pausedUntil: null,
-            },
-            isInitial: false,
-            sent: "q1",
+          ListQueued({
+            organization: "test-org",
+            repository: "test-repo",
+            workstream: 1428,
           }),
         ),
+        StoryCommand.resolve(ListQueued, Message.QueueLoaded({ items: [item] })),
+        model((m) => {
+          expect(m.queue.length).toBe(1);
+          expect(m.queue[0].id).toBe("q1");
+        }),
         StoryCommand.expectNone(),
       );
     });
 
-    it("sends a second tap on Send in the chat one time, because the first tap clears the draft", () => {
-      const base = createTestModel({ draftText: "Once." });
-
-      const first = update(base, Message.SendSubmitted());
-      expect(first.commands?.map((command) => command.name)).toEqual(["EnqueueMessage"]);
-      const second = update(first.model, Message.SendSubmitted());
-      expect(second.commands ?? []).toEqual([]);
-    });
-
-    it("sends nothing from the chat while the voice card converts or has failed", () => {
-      for (const state of ["converting", "failed"] as const) {
-        const base = createTestModel({
-          draftText: "Text.",
-          draftVoice: { state, audio: null, conversion: "", error: "" },
-        });
-        const result = update(base, Message.SendSubmitted());
-        expect(result.model).toBe(base);
-        expect(result.commands ?? []).toEqual([]);
-      }
-    });
-
-    it("stops the recording and sends nothing when Send is tapped during a recording", () => {
+    it("stops the recording and sends nothing when the answer panel is submitted during a recording", () => {
       const voice = {
         recording: true,
         key: "x",
@@ -1646,11 +1578,6 @@ describe("chat update story tests", () => {
         live: "",
         notice: { key: "", text: "" },
       };
-      const chat = createTestModel({ draftText: "Text.", voice });
-      const chatResult = update(chat, Message.SendSubmitted());
-      expect(chatResult.model).toBe(chat);
-      expect(described(chatResult.commands)).toEqual(described([StopVoice()]));
-
       const answer = createTestModel({
         activePanel: { type: "answer", item: question },
         answerText: "Ten seats.",

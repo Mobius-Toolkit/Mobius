@@ -27,9 +27,10 @@ import {
 import { defineDialogMount, renderDialog } from "@/ui/dialog";
 import { defineRouterLink } from "@/ui/link";
 import { beginMarkdownRender, renderMarkdown, shieldEquals } from "@/ui/markdown";
-import { renderComposer, renderFileImage, renderPanelComposer } from "./composer";
+import * as Composer from "@/composer";
+import { renderFileImage, renderPanelComposer } from "./composer";
 import { ChatList } from "./scroll";
-import { Message } from "./message";
+import { Message, toGotComposerMessage } from "./message";
 import {
   countsAsUnread,
   draftInboxItem,
@@ -1454,7 +1455,18 @@ export function view(model: Model, h: H): Html {
         ],
       ),
       renderActionTray(h, model),
-      renderComposer(h, model),
+      h.submodel({
+        slotId: "chat-composer",
+        model: model.composer,
+        view: Composer.view,
+        viewInputs: {
+          stoppable: model.stoppable,
+          stopping: model.stopping,
+          stopReady: model.stopReady,
+          error: model.sendError,
+        },
+        toParentMessage: toGotComposerMessage,
+      }),
       renderAnswerDialog(h, model),
     ],
   );

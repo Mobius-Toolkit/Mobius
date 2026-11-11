@@ -1,13 +1,12 @@
 import { Schema } from "effect";
 import { defineMessageUnion } from "foldkit/message";
+import * as Composer from "@/composer";
 import {
   ChatMessage,
   ChatPage,
   ChatState,
   Draft,
   DraftInboxItem,
-  DraftInboxItemId,
-  Images,
   InboxItem,
   PendingAction,
   Queued,
@@ -47,20 +46,13 @@ export const Message = defineMessageUnion({
   RetryNowClicked: {},
   DiscardQueuedClicked: { id: Schema.String },
   CompletedRemoveQueued: { id: Schema.String },
+  OutboxChanged: {},
 
   StopChatClicked: {},
   StopChatCompleted: { error: Schema.NullOr(Schema.String) },
 
-  ReceivedDraft: { draft: Draft },
-  DraftTextChanged: { text: Schema.String },
-  ImagesChosen: { files: Images },
-  ImagesFitted: { images: Images, problem: Schema.String },
-  AttachClicked: {},
-  CompletedClickAttach: {},
-  DraftImageRemoved: { position: Schema.Number },
+  GotComposerMessage: { message: Composer.Message },
   DraftInboxItemAdded: { item: DraftInboxItem },
-  DraftInboxItemRemoved: { id: DraftInboxItemId },
-  SendSubmitted: {},
   CompletedSaveDraft: {},
 
   BriefToggled: {},
@@ -130,3 +122,6 @@ export const Message = defineMessageUnion({
 });
 
 export type Message = typeof Message.Type;
+
+export const toGotComposerMessage = (message: Composer.Message): Message =>
+  Message.GotComposerMessage({ message });
