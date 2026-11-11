@@ -56,6 +56,7 @@ import {
   ReplaceUrl,
   ResumePause,
   SelectAutopilot,
+  SettleScroll,
   StartUpgrade,
   SubmitLogin,
   ToggleSwitch,
@@ -659,7 +660,7 @@ export function update(model: Model, message: Message): UpdateReturn {
     case "UrlRequested": {
       if (message.request._tag === "Internal") {
         return {
-          model: { ...model, historyDepth: model.historyDepth + 1 },
+          model,
           commands: [Navigate({ path: urlToString(message.request.url) })],
         };
       }
@@ -693,7 +694,7 @@ export function update(model: Model, message: Message): UpdateReturn {
           { ...model, route: nextRoute, organization: org },
           { _tag: "ReceivedSearch", search: nextRoute.search },
         );
-        return { model: nextModel, commands };
+        return { model: nextModel, commands: [...(commands ?? []), SettleScroll()] };
       }
 
       if (
@@ -703,7 +704,7 @@ export function update(model: Model, message: Message): UpdateReturn {
       ) {
         return {
           model: { ...model, route: nextRoute, organization: org },
-          commands: [],
+          commands: [SettleScroll()],
         };
       }
 
@@ -714,26 +715,18 @@ export function update(model: Model, message: Message): UpdateReturn {
 
       return {
         model: screenInit.model,
-        commands: screenInit.commands,
+        commands: [...screenInit.commands, SettleScroll()],
       };
     }
 
     case "NavigateRequested":
-      return {
-        model: { ...model, historyDepth: model.historyDepth + 1 },
-        commands: [Navigate({ path: message.path })],
-      };
+      return { model, commands: [Navigate({ path: message.path })] };
 
     case "BackRequested":
-      return {
-        model: {
-          ...model,
-          historyDepth: model.historyDepth > 0 ? model.historyDepth - 1 : 0,
-        },
-        commands: [model.historyDepth > 0 ? GoBack() : ReplaceUrl({ path: message.parent })],
-      };
+      return { model, commands: [GoBack({ parent: message.parent })] };
 
     case "CompletedNavigate":
+    case "CompletedSettleScroll":
     case "CompletedReplaceUrl":
     case "CompletedGoBack":
     case "CompletedLoadExternal":
@@ -1252,9 +1245,9 @@ export function update(model: Model, message: Message): UpdateReturn {
           ...model,
           upgrade: {
             ...model.upgrade,
-            version: version || model.upgrade.version,
+            version: version ?? model.upgrade.version,
             drain: drain ? Option.some(drain) : model.upgrade.drain,
-            failure: failure || model.upgrade.failure,
+            failure: failure ?? model.upgrade.failure,
             cancelling: drain && !drain.on ? false : model.upgrade.cancelling,
           },
         },

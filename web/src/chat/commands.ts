@@ -26,7 +26,7 @@ import {
 import { StoreFailed, fitted, request, store } from "@/lib/effects";
 import { fitImage, tooManyImages } from "@/lib/images";
 import { restoreInboxItem, hideInboxItem } from "@/lib/inbox";
-import { pushUrl } from "foldkit/navigation";
+import { pushUrl } from "@/lib/navigation";
 import { issueRef, showNotice } from "@/lib/notice";
 import { addQueued, listQueued, newMessageId, postQueued, removeQueued } from "@/lib/outbox";
 import { resend, stopVoice, toggleVoice } from "@/lib/voice";

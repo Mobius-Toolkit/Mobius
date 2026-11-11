@@ -1,6 +1,7 @@
 import { Effect, Schema } from "effect";
 import { Command } from "foldkit";
 import * as Navigation from "foldkit/navigation";
+import { goBackOr, pushUrl, replaceUrl, settleScroll } from "@/lib/navigation";
 import {
   cancelDrain,
   completeWorkstream,
@@ -31,18 +32,24 @@ import { WorkstreamAutopilot } from "./model";
 export const Navigate = Command.define("Navigate", {
   args: { path: Schema.String },
   messages: [Message.CompletedNavigate],
-  execute: ({ path }) => Navigation.pushUrl(path).pipe(Effect.as(Message.CompletedNavigate())),
+  execute: ({ path }) => pushUrl(path).pipe(Effect.as(Message.CompletedNavigate())),
+});
+
+export const SettleScroll = Command.define("SettleScroll", {
+  messages: [Message.CompletedSettleScroll],
+  execute: settleScroll.pipe(Effect.as(Message.CompletedSettleScroll())),
 });
 
 export const ReplaceUrl = Command.define("ReplaceUrl", {
   args: { path: Schema.String },
   messages: [Message.CompletedReplaceUrl],
-  execute: ({ path }) => Navigation.replaceUrl(path).pipe(Effect.as(Message.CompletedReplaceUrl())),
+  execute: ({ path }) => replaceUrl(path).pipe(Effect.as(Message.CompletedReplaceUrl())),
 });
 
 export const GoBack = Command.define("GoBack", {
+  args: { parent: Schema.String },
   messages: [Message.CompletedGoBack],
-  execute: Navigation.back().pipe(Effect.as(Message.CompletedGoBack())),
+  execute: ({ parent }) => goBackOr(parent).pipe(Effect.as(Message.CompletedGoBack())),
 });
 
 export const LoadExternal = Command.define("LoadExternal", {
@@ -240,18 +247,18 @@ export const CheckUpgrade = Command.define("CheckUpgrade", {
   messages: [Message.UpgradeInfoLoaded],
   execute: Effect.gen(function* () {
     const releaseRes = yield* request(() => getRelease());
-    const version = releaseRes.status === 200 ? releaseRes.data.data.version : "";
+    const version = releaseRes.status === 200 ? releaseRes.data.data.version : null;
 
     const drainRes = yield* request(() => getDrain());
     const drain = drainRes.status === 200 ? drainRes.data.data : null;
 
     const upgradeRes = yield* request(() => getUpgrade());
-    const failure = upgradeRes.status === 200 ? upgradeRes.data.data.failure : "";
+    const failure = upgradeRes.status === 200 ? upgradeRes.data.data.failure : null;
 
     return Message.UpgradeInfoLoaded({ version, drain, failure });
   }).pipe(
     Effect.catchTag("RequestFailed", () =>
-      Effect.succeed(Message.UpgradeInfoLoaded({ version: "", drain: null, failure: "" })),
+      Effect.succeed(Message.UpgradeInfoLoaded({ version: null, drain: null, failure: null })),
     ),
   ),
 });

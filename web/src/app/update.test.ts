@@ -15,6 +15,7 @@ import {
   LoadExternal,
   Navigate,
   ReplaceUrl,
+  SettleScroll,
   SubmitLogin,
 } from "./commands";
 import { Message } from "./message";
@@ -57,6 +58,8 @@ describe("router update logic", () => {
         expect(m.route._tag).toBe("Workstreams");
         expect(Option.isSome(m.workstreamsProgram)).toBe(true);
       }),
+      StoryCommand.expectHas(SettleScroll),
+      StoryCommand.resolve(SettleScroll, Message.CompletedSettleScroll()),
     );
   });
 
@@ -102,28 +105,16 @@ describe("router update logic", () => {
     );
   });
 
-  it("goes back in browser history when historyDepth > 0", () => {
+  it("goes back to the page before, or to the parent page when there is none", () => {
     story(
       update,
-      given(createModel("/workstreams", { historyDepth: 2 })),
-      message(Message.BackRequested({ parent: "/workstreams" })),
-      StoryCommand.expectHas(GoBack),
+      given(createModel("/workstreams")),
+      message(Message.BackRequested({ parent: "/settings" })),
+      StoryCommand.expectExact(GoBack({ parent: "/settings" })),
       StoryCommand.resolve(GoBack, Message.CompletedGoBack()),
     );
   });
 
-  it("replaces URL with parent when historyDepth is 0", () => {
-    story(
-      update,
-      given(createModel("/workstreams", { historyDepth: 0 })),
-      message(Message.BackRequested({ parent: "/workstreams" })),
-      StoryCommand.expectHas(ReplaceUrl),
-      StoryCommand.resolve(ReplaceUrl, Message.CompletedReplaceUrl()),
-    );
-  });
-});
-
-describe("login update logic", () => {
   it("opens login sheet on ShowLogin", () => {
     story(
       update,
@@ -179,7 +170,7 @@ describe("login update logic", () => {
       ),
       StoryCommand.resolve(
         CheckUpgrade,
-        Message.UpgradeInfoLoaded({ version: "", drain: null, failure: "" }),
+        Message.UpgradeInfoLoaded({ version: null, drain: null, failure: null }),
       ),
       StoryCommand.resolve(FetchPauses, Message.PausesChanged({ pauses: [] })),
       StoryCommand.resolve(FetchCIStops, Message.CIStopsChanged({ stops: [] })),
@@ -252,7 +243,7 @@ describe("organization switch update logic", () => {
       })),
     };
     const changed = update(marked, Message.UrlChanged({ url: urlOf("/usage") }));
-    expect(changed.commands).toEqual([]);
+    expect(changed.commands).toHaveLength(1);
     expect(Option.map(changed.model.usageProgram, (usage) => usage.groupSheetOpen)).toEqual(
       Option.some(true),
     );
@@ -283,13 +274,13 @@ describe("organization switch update logic", () => {
     );
   });
 
-  it("replaces the URL with the parent when a settings screen goes back with no history", () => {
+  it("goes back to the parent page of a settings screen", () => {
     story(
       update,
       given(createModel("/settings/switches")),
       message(Message.GotSwitchesMessage({ message: SwitchesMessage.ClickedBack() })),
-      StoryCommand.expectExact(ReplaceUrl({ path: "/settings" })),
-      StoryCommand.resolve(ReplaceUrl, Message.CompletedReplaceUrl()),
+      StoryCommand.expectExact(GoBack({ parent: "/settings" })),
+      StoryCommand.resolve(GoBack, Message.CompletedGoBack()),
     );
   });
 

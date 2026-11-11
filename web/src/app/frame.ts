@@ -88,6 +88,7 @@ function renderSideLink(
   return h.a(
     [
       h.Attribute("href", options.path),
+      ...(isActive ? [h.AriaCurrent("page")] : []),
       h.Class(
         buttonClass({
           variant: isActive ? "secondary" : "ghost",

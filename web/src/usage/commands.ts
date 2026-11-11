@@ -1,6 +1,6 @@
 import { Effect, Schema } from "effect";
 import { Command } from "foldkit";
-import { replaceUrl } from "foldkit/navigation";
+import { replaceUrl } from "@/lib/navigation";
 import { getUsage, getUsageQuality, getUsageSkills, getUsageTimes } from "@/api/api.gen";
 import { usageSearchToQuery } from "@/app/route";
 import { request as send } from "@/lib/effects";

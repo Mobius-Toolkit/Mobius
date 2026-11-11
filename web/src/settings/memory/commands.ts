@@ -1,6 +1,6 @@
 import { Effect, Schema } from "effect";
 import { Command } from "foldkit";
-import { pushUrl } from "foldkit/navigation";
+import { pushUrl } from "@/lib/navigation";
 import { listMemoryFiles, listMemoryVersions, revertMemory, saveMemory } from "@/api/api.gen";
 import { answer, request } from "@/lib/effects";
 import { Message } from "./message";

@@ -99,7 +99,6 @@ export type Connection = typeof Connection.Type;
 
 export const Model = Schema.Struct({
   route: AppRoute,
-  historyDepth: Schema.Number,
 
   // Login
   loginShown: Schema.Boolean,
@@ -207,7 +206,6 @@ export const initialModel = (route: AppRoute): Model => {
   }
   return {
     route,
-    historyDepth: 0,
     loginShown: false,
     passwordInput: "",
     loginBusy: false,

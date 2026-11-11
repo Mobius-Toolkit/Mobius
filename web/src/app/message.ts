@@ -47,6 +47,7 @@ export const Message = defineMessageUnion({
   NavigateRequested: { path: Schema.String },
   BackRequested: { parent: Schema.String },
   CompletedNavigate: {},
+  CompletedSettleScroll: {},
   CompletedReplaceUrl: {},
   CompletedGoBack: {},
   CompletedLoadExternal: {},
@@ -112,10 +113,11 @@ export const Message = defineMessageUnion({
   UpgradeFailureChanged: { failure: Schema.String },
   CheckUpgradeRequested: {},
   ReleaseVersionChecked: { version: Schema.String },
+  // A check that failed gives null, and the last good value stays.
   UpgradeInfoLoaded: {
-    version: Schema.String,
+    version: Schema.NullOr(Schema.String),
     drain: Schema.NullOr(Drain),
-    failure: Schema.String,
+    failure: Schema.NullOr(Schema.String),
   },
   ShowUpgradeChanges: {},
   HideUpgradeChanges: {},

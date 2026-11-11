@@ -1,6 +1,6 @@
 import { Effect, Schema } from "effect";
 import { Command } from "foldkit";
-import { pushUrl } from "foldkit/navigation";
+import { pushUrl } from "@/lib/navigation";
 import {
   addMcpServer,
   changeMcpServer,

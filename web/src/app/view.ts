@@ -330,12 +330,18 @@ function renderPage(h: HtmlBuilder<Message>, model: Model): Html {
     },
     Inbox: () => {
       if (Option.isNone(model.inboxProgram)) return h.empty;
-      return h.submodel({
-        slotId: "inbox",
-        model: model.inboxProgram.value,
-        view: inboxSubmodelView,
-        toParentMessage: (m) => Message.GotInboxMessage({ message: m }),
-      });
+      return h.div(
+        [h.Class("contents")],
+        [
+          renderPageHeader(h, "Inbox"),
+          h.submodel({
+            slotId: "inbox",
+            model: model.inboxProgram.value,
+            view: inboxSubmodelView,
+            toParentMessage: (m) => Message.GotInboxMessage({ message: m }),
+          }),
+        ],
+      );
     },
     Agents: () => {
       if (Option.isNone(model.agentsProgram)) return h.empty;
