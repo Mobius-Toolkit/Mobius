@@ -1993,20 +1993,13 @@ for (const [device, size] of [
     await page.goto(first);
     try {
       // The Workstream list gives the new level after the Owner has opened the second Workstream.
-      let holding = true;
-      let release: (() => Promise<void>) | undefined;
-      await page.route("**/api/workstreams", async (route) => {
-        if (!holding) {
-          await route.fallback();
-          return;
-        }
-        holding = false;
-        const response = await route.fetch();
-        release = () => route.fulfill({ response });
+      const held: Route[] = [];
+      await page.route("**/api/workstreams", (route) => {
+        held.push(route);
       });
       await page.getByRole("button", { name: "Autopilot: Off" }).click();
       await item(/^Merge only/).click();
-      await expect.poll(() => release).toBeDefined();
+      await expect.poll(() => held.length).toBeGreaterThan(0);
       await expect(page.getByRole("button", { name: "Autopilot: Merge only" })).toBeVisible();
 
       if (device === "phone") {
@@ -2017,7 +2010,8 @@ for (const [device, size] of [
       }
       await page.locator(`a[href="${shop}"]`).filter({ visible: true }).click();
       await expect(page).toHaveURL(shop);
-      await release?.();
+      await page.unroute("**/api/workstreams");
+      await Promise.all(held.map((route) => route.continue()));
       await expect(page.getByRole("button", { name: "Autopilot: Off" })).toBeVisible();
       await page.getByRole("button", { name: "Autopilot: Off" }).click();
       await expect(item(/^Off/)).toBeChecked();
