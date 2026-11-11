@@ -28,7 +28,8 @@ func TestASkillCopyIntoAWorktreeWaitsForTheGitLockBeforeItConfiguresTheWorktree(
 	binding, _ := e.roleBinding(ResearcherRole)
 	e.setAccess(keyOf(binding), nil)
 	dir := t.TempDir()
-	initialize := exec.CommandContext(t.Context(), "git", "init", "-q", dir)
+	initialize := exec.CommandContext(t.Context(), "git", "init", "-q")
+	initialize.Dir = dir
 	initialize.WaitDelay = 5 * time.Second
 	if out, err := initialize.CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v: %s", err, out)
