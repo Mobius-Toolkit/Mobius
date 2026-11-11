@@ -1,5 +1,6 @@
 import { Option } from "effect";
 import { Command } from "foldkit";
+import type { Command as Cmd } from "foldkit/command";
 import * as Update from "foldkit/update";
 import { OutMessage as AgentsOutMessage } from "./agents/message";
 import * as AgentsModel from "./agents/model";
@@ -8,7 +9,7 @@ import {
   reload as reloadAgents,
   update as updateAgents,
 } from "./agents/update";
-import { Navigate, RequestLogin, ReportTab, ReportTaskAttached } from "./commands";
+import { Navigate, RequestLogin, ReportTab } from "./commands";
 import { OutMessage as DetailsOutMessage } from "./details/message";
 import * as DetailsModel from "./details/model";
 import {
@@ -55,7 +56,7 @@ const foldTasks = Update.foldChild({
   foldOutMessage: (outMessage) =>
     TasksOutMessage.match<Update.Step<Model, Message>>(outMessage, {
       LoginRequired: () => requestLogin,
-      TaskAttached: () => (model) => ({ model, commands: [ReportTaskAttached()] }),
+      TaskAttached: () => (model) => ({ model }),
     }),
 });
 
@@ -124,7 +125,7 @@ const refreshRecurringStep = Update.foldChildStep({
 });
 
 // The Tasks tab, the Agents tab, the Details tab and the Recurring tab read their data each time they open.
-export function commandsFor(model: Model) {
+export function commandsFor(model: Model): ReadonlyArray<Cmd<Message>> {
   switch (model.tab) {
     case "tasks":
       return Command.mapMessages(reloadTasks(model.tasks), toGotTasksMessage);
@@ -206,6 +207,5 @@ export function update(model: Model, message: Message): UpdateReturn {
     CompletedRequestLogin: () => ({ model }),
     CompletedNavigate: () => ({ model }),
     CompletedReportTab: () => ({ model }),
-    CompletedReportTaskAttached: () => ({ model }),
   });
 }

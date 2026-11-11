@@ -12,7 +12,6 @@ export const Message = defineMessageUnion({
   SaveFailed: { error: Schema.String },
   ClickedBack: {},
   CompletedRequestLogin: {},
-  CompletedGoBack: {},
 });
 
 export type Message = typeof Message.Type;

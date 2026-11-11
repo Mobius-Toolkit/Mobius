@@ -1,4 +1,5 @@
 export const retryDelay = 3000;
+export const startLimit = 3000;
 
 type ServerEvent = { event: string; data: unknown };
 

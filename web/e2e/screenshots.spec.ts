@@ -1261,7 +1261,7 @@ test("screenshots", async ({ page }) => {
   const workstreamsLink = sidebar.getByRole("link", { name: "Workstreams" });
   const evergreenLink = sidebar.getByRole("link", { name: /^Integrate loyalty plans/ });
   const sidebarShowsEvergreen = (on: boolean) => async () => {
-    if (await workstreamsLink.isVisible()) {
+    if (page.viewportSize()?.width === viewports.desktop.width) {
       await expect
         .poll(
           async () =>
@@ -3747,6 +3747,7 @@ test("screenshots", async ({ page }) => {
   await page.goto("/workstreams/owner/shop/13");
   await main.getByRole("button", { name: "Close Workstream" }).click();
   await expect(page).toHaveURL("/workstreams");
+  await expect(main.getByRole("heading", { name: "Evergreen" })).toBeVisible();
   await expect(main.getByText("Seasonal prices")).toBeHidden();
 
   // Opening a chat of plants saves plants as the organization, so this screenshot comes last.

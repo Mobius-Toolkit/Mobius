@@ -59,12 +59,16 @@ export function liveEvents<Message>(options: {
   opened: Message;
   loginRequired: Message;
   listeners: ReadonlyArray<LiveListener<Message>>;
+  connecting?: Message;
+  connected?: Message;
+  onSource?: (source: EventSource) => () => void;
 }) {
   return Stream.callback<Message>(
     (queue) =>
       Effect.gen(function* () {
         let source: EventSource | undefined;
         let timer: ReturnType<typeof setTimeout> | undefined;
+        let cleanupSource: (() => void) | undefined;
         let stopped = false;
 
         const schedule = (action: () => void, delay: number) => {
@@ -77,7 +81,13 @@ export function liveEvents<Message>(options: {
           connect();
         };
 
-        const watch = () => schedule(reconnect, silenceLimit);
+        const watch = () =>
+          schedule(() => {
+            if (options.connecting) {
+              Queue.offerUnsafe(queue, options.connecting);
+            }
+            reconnect();
+          }, silenceLimit);
 
         const reconnectUnlessStopped = Effect.sync(() => {
           if (!stopped) {
@@ -99,19 +109,32 @@ export function liveEvents<Message>(options: {
         };
 
         const connect = () => {
+          cleanupSource?.();
           const next = new EventSource("/api/events");
           source = next;
+          cleanupSource = options.onSource?.(next);
           watch();
           next.addEventListener("open", () => {
             watch();
             Queue.offerUnsafe(queue, options.opened);
+            if (options.connected) {
+              Queue.offerUnsafe(queue, options.connected);
+            }
           });
           next.addEventListener("error", () => {
+            if (options.connecting) {
+              Queue.offerUnsafe(queue, options.connecting);
+            }
             if (next.readyState === EventSource.CLOSED) {
               schedule(retry, retryDelay);
             }
           });
-          next.addEventListener("ping", watch);
+          next.addEventListener("ping", () => {
+            watch();
+            if (options.connected) {
+              Queue.offerUnsafe(queue, options.connected);
+            }
+          });
           options.listeners.forEach((listener) => listen(queue, next, listener));
         };
 
@@ -140,6 +163,7 @@ export function liveEvents<Message>(options: {
             window.removeEventListener("online", wake);
             window.removeEventListener("pageshow", restore);
             document.removeEventListener("visibilitychange", wake);
+            cleanupSource?.();
             source?.close();
           }),
         );

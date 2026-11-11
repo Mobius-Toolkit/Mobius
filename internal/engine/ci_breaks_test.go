@@ -1,7 +1,9 @@
 package engine_test
 
 import (
+	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -630,4 +632,135 @@ func TestAnOpenBreakEndsWhenItsWorkflowHasTheStateDisabledManually(t *testing.T)
 		open, err := store.New(server.DB).ListOpenCIBreaks(t.Context(), shop)
 		return err == nil && len(open) == 0
 	})
+}
+
+// pushRunOutOfThePage adds 100 passed runs of another workflow on main, so the page of the newest 100 runs has no
+// older run.
+func pushRunOutOfThePage(fake *testkit.FakeGitHub) {
+	for range 100 {
+		fake.AddWorkflowRun(shop, testkit.WorkflowRun{Name: "docs", WorkflowID: 8, Branch: "main", Status: "completed", Conclusion: "success"})
+	}
+}
+
+// forgetRunEvents empties the run event of each break, as a break that started before the column run_event has it.
+func forgetRunEvents(t *testing.T, server *testserver.Server) {
+	t.Helper()
+	if _, err := server.DB.Exec("UPDATE ci_breaks SET run_event = ''"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func runEvents(t *testing.T, server *testserver.Server) []string {
+	t.Helper()
+	rows, err := server.DB.Query("SELECT run_event FROM ci_breaks ORDER BY id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+	var events []string
+	for rows.Next() {
+		var event string
+		if err := rows.Scan(&event); err != nil {
+			t.Fatal(err)
+		}
+		events = append(events, event)
+	}
+	return events
+}
+
+func runReads(fake *testkit.FakeGitHub, run int64) int {
+	path := fmt.Sprintf("/repos/owner/shop/actions/runs/%d", run)
+	n := 0
+	for _, request := range fake.Requests() {
+		if request.Method == http.MethodGet && request.Path == path {
+			n++
+		}
+	}
+	return n
+}
+
+func TestANewBreakStoresTheEventOfItsRun(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	scheduled := failedMainRun(7)
+	scheduled.Event = "schedule"
+	run := fake.AddWorkflowRun(shop, scheduled)
+	server := startServer(t, fake, t.TempDir(), "")
+
+	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true})
+	if events := runEvents(t, server); !slices.Equal(events, []string{"schedule"}) {
+		t.Errorf("run events = %v", events)
+	}
+}
+
+func TestAnOpenBreakOfAnOldWorkflowDispatchRunOutsideThePageEndsAfterOneReadOfTheRun(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	run := fake.AddWorkflowRun(shop, failedMainRun(7))
+	server := startServer(t, fake, t.TempDir(), "")
+	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true})
+	pushRunOutOfThePage(fake)
+	fake.SetWorkflowRunEvent(run, "workflow_dispatch")
+	waitForPolls(t, fake)
+
+	forgetRunEvents(t, server)
+
+	testkit.WaitFor(t, func() bool {
+		open, err := store.New(server.DB).ListOpenCIBreaks(t.Context(), shop)
+		return err == nil && len(open) == 0
+	})
+	if breaks := ciBreaks(t, server); len(breaks) != 1 || breaks[0].endedRunID != 0 {
+		t.Errorf("breaks = %+v", breaks)
+	}
+	if reads := runReads(fake, run); reads != 1 {
+		t.Errorf("run reads = %d", reads)
+	}
+	if events := runEvents(t, server); !slices.Equal(events, []string{"workflow_dispatch"}) {
+		t.Errorf("run events = %v", events)
+	}
+}
+
+func TestAnOpenBreakOfAnOldPushRunOutsideThePageStaysOpenAndReadsTheRunOnce(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	run := fake.AddWorkflowRun(shop, failedMainRun(7))
+	server := startServer(t, fake, t.TempDir(), "")
+	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true})
+	pushRunOutOfThePage(fake)
+	waitForPolls(t, fake)
+
+	forgetRunEvents(t, server)
+
+	testkit.WaitFor(t, func() bool { return slices.Equal(runEvents(t, server), []string{"push"}) })
+	waitForPolls(t, fake)
+	if reads := runReads(fake, run); reads != 1 {
+		t.Errorf("run reads = %d", reads)
+	}
+	if breaks := ciBreaks(t, server); len(breaks) != 1 || breaks[0].endedRunID != 0 {
+		t.Errorf("breaks = %+v", breaks)
+	}
+	if open, err := store.New(server.DB).ListOpenCIBreaks(t.Context(), shop); err != nil || len(open) != 1 {
+		t.Errorf("open breaks = %d, err = %v", len(open), err)
+	}
+}
+
+func TestAnOpenBreakWhoseRunReadGives404Ends(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	run := fake.AddWorkflowRun(shop, failedMainRun(7))
+	server := startServer(t, fake, t.TempDir(), "")
+	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true})
+	pushRunOutOfThePage(fake)
+	fake.SetWorkflowRunNotFound(run)
+	waitForPolls(t, fake)
+
+	forgetRunEvents(t, server)
+
+	testkit.WaitFor(t, func() bool {
+		open, err := store.New(server.DB).ListOpenCIBreaks(t.Context(), shop)
+		return err == nil && len(open) == 0
+	})
+	if breaks := ciBreaks(t, server); len(breaks) != 1 || breaks[0].endedRunID != 0 {
+		t.Errorf("breaks = %+v", breaks)
+	}
 }

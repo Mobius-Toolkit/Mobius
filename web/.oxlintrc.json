@@ -21,6 +21,12 @@
       {
         "allow": ["**/*.css"]
       }
+    ],
+    "no-underscore-dangle": [
+      "warn",
+      {
+        "allow": ["_tag"]
+      }
     ]
   },
   "jsPlugins": [

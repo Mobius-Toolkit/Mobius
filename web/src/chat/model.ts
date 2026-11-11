@@ -85,6 +85,8 @@ const ChatModelSchema = Schema.Struct({
   trayItems: Schema.Array(InboxItem),
   workstreams: Schema.NullOr(Schema.Array(Workstream)),
   openUnread: Schema.NullOr(Schema.Number),
+  // The newest message of the agent that the page marked as seen. A message is marked one time.
+  seenMessage: Schema.Number,
   messages: Schema.Array(ChatMessage),
   loaded: Schema.Boolean,
   older: Schema.Boolean,
@@ -152,6 +154,7 @@ export function initialModel(flags: Flags): Model {
     trayItems: [],
     workstreams: null,
     openUnread: null,
+    seenMessage: 0,
     messages: [],
     loaded: false,
     older: false,

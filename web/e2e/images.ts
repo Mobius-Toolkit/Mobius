@@ -16,7 +16,8 @@ export async function png(page: Page, width: number, height: number, color: stri
 }
 
 // Resolves to false when the page cancels the paste.
-export function pasteImage(page: Page, image: Buffer, text = "") {
+export async function pasteImage(page: Page, image: Buffer, text = "") {
+  await page.locator("main form textarea").waitFor();
   return page.evaluate<boolean>(`(() => {
     const bytes = Uint8Array.from(atob(${JSON.stringify(image.toString("base64"))}), (char) => char.charCodeAt(0))
     const data = new DataTransfer()

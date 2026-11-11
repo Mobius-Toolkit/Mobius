@@ -1,10 +1,7 @@
 import { Option, Schema } from "effect";
-import * as Port from "foldkit/port";
 import * as Subscription from "foldkit/subscription";
-import { liveEvents, liveListener } from "@/live/events";
 import { storeValues } from "@/live/stores";
 import { currentWorkstreams, subscribeWorkstreams } from "@/lib/workstreams";
-import { Agent } from "@/transcript/schemas";
 import { subscriptions as agentsSubscriptions } from "./agents/subscriptions";
 import { subscriptions as detailsSubscriptions } from "./details/subscriptions";
 import {
@@ -15,36 +12,10 @@ import {
   toGotTasksMessage,
 } from "./message";
 import type { Model } from "./model";
-import { ports } from "./ports";
 import { subscriptions as recurringSubscriptions } from "./recurring/subscriptions";
 import { subscriptions as tasksSubscriptions } from "./tasks/subscriptions";
 
-// The generated type of the data of the event workstreams is an object with no known fields, and the panel does not use
-// the data.
-const WorkstreamsEventData = Schema.Record(Schema.String, Schema.Json);
-
-const RecurringEventData = Schema.Struct({ repository: Schema.String, number: Schema.Number });
-
 const panel = Subscription.make<Model, Message>()((entry) => ({
-  tabPort: Port.subscriptionEntry(ports.inbound.tab, (tab) => Message.ReceivedTab({ tab })),
-  liveEvents: entry(
-    {},
-    {
-      modelToDependencies: () => ({}),
-      dependenciesToStream: () =>
-        liveEvents<Message>({
-          opened: Message.ConnectionOpened(),
-          loginRequired: Message.LoginRequired(),
-          listeners: [
-            liveListener("workstreams", WorkstreamsEventData, () => Message.WorkstreamsChanged()),
-            liveListener("agent", Agent, (agent) => Message.AgentChanged({ agent })),
-            liveListener("recurring_tasks", RecurringEventData, ({ repository, number }) =>
-              Message.RecurringChanged({ repository, number }),
-            ),
-          ],
-        }),
-    },
-  ),
   brief: entry(
     { owner: Schema.String, name: Schema.String, number: Schema.Number },
     {

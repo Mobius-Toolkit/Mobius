@@ -1,6 +1,6 @@
 import { Option } from "effect";
 import type { Return as UpdateReturn } from "foldkit/update";
-import { GoBack, RequestLogin, SaveLanguage } from "./commands";
+import { RequestLogin, SaveLanguage } from "./commands";
 import { Message } from "./message";
 import type { Model } from "./model";
 
@@ -23,8 +23,7 @@ export function update(model: Model, message: Message): UpdateReturn<Model, Mess
     SaveFailed: ({ error }) => ({
       model: { ...model, error: `Mobius could not save the language: ${error}.` },
     }),
-    ClickedBack: () => ({ model, commands: [GoBack()] }),
+    ClickedBack: () => ({ model }),
     CompletedRequestLogin: () => ({ model }),
-    CompletedGoBack: () => ({ model }),
   });
 }

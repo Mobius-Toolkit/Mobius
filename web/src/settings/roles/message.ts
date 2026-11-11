@@ -26,7 +26,6 @@ export const Message = defineMessageUnion({
   SaveLoginRequired: {},
   ClickedBack: {},
   CompletedRequestLogin: {},
-  CompletedGoBack: {},
   CompletedFocusSheet: {},
 });
 
