@@ -195,11 +195,10 @@ func (e *Engine) checkTask(ctx context.Context, repository github.Repository, ta
 	}
 	work := pullRequestWork(repository, pullRequest)
 	conflict := pullRequest.Mergeable != nil && !pullRequest.GetMergeable()
-	if task.MergeQueuedAt.Valid && conflict {
-		if err := e.queries.ClearTaskMergeQueuedAt(ctx, task.ID); err != nil {
+	if conflict {
+		if err := e.clearMergeQueue(ctx, &task); err != nil {
 			return Work{}, false, err
 		}
-		task.MergeQueuedAt = sql.NullString{}
 	}
 	if task.State == "needs_human" {
 		var round bool
@@ -219,11 +218,10 @@ func (e *Engine) checkTask(ctx context.Context, repository github.Repository, ta
 		round, err := e.startKeptRound(ctx, repository, round{task: task, title: issue.GetTitle(), pullRequest: pullRequest})
 		return work, round, err
 	case afterReview(task.State) && !breakWaits:
-		if task.MergeQueuedAt.Valid && (state.failedCheck || state.failedWorkflow) {
-			if err := e.queries.ClearTaskMergeQueuedAt(ctx, task.ID); err != nil {
+		if state.failedCheck || state.failedWorkflow {
+			if err := e.clearMergeQueue(ctx, &task); err != nil {
 				return Work{}, false, err
 			}
-			task.MergeQueuedAt = sql.NullString{}
 		}
 		round, err := e.onFailure(ctx, repository, task, pullRequest, state)
 		if err != nil || round {
@@ -547,13 +545,17 @@ func (e *Engine) stopTask(ctx context.Context, repository github.Repository, tas
 	if err != nil || stopped == 0 {
 		return err
 	}
+	var pubErr error
+	if task.MergeQueuedAt.Valid {
+		pubErr = e.publishMergeQueue(ctx, task.Repository, task)
+	}
 	e.closeKept(task.ID)
 	e.publish(Change{Workstreams: true})
 	from := task.State
 	if task.State == "working" && task.Worker.String == JudgeRole {
 		from = task.WorkerInput.String
 	}
-	return errors.Join(e.dismissReadyForReview(ctx, task, from), e.closeOwnerActions(ctx, task), e.finishStop(ctx, repository, task, summary))
+	return errors.Join(pubErr, e.dismissReadyForReview(ctx, task, from), e.closeOwnerActions(ctx, task), e.finishStop(ctx, repository, task, summary))
 }
 
 func (e *Engine) finishStop(ctx context.Context, repository github.Repository, task store.Task, summary string) error {
@@ -616,27 +618,31 @@ func (e *Engine) endTask(ctx context.Context, repository github.Repository, task
 	if err := e.queries.EndTask(ctx, task.ID); err != nil {
 		return err
 	}
+	var pubErr error
+	if task.MergeQueuedAt.Valid {
+		pubErr = e.publishMergeQueue(ctx, task.Repository, task)
+	}
 	e.closeKept(task.ID)
 	e.publish(Change{Workstreams: true})
 	if err := e.dismissIssueItems(ctx, task.Repository, task.Issue, readyForReviewKind); err != nil {
-		return err
+		return errors.Join(pubErr, err)
 	}
 	if err := e.closeOwnerActions(ctx, task); err != nil {
-		return err
+		return errors.Join(pubErr, err)
 	}
 	if err := e.stopWorkersOf(ctx, task); err != nil {
-		return err
+		return errors.Join(pubErr, err)
 	}
 	if err := repository.RemoveLabel(ctx, task.Issue, workingLabel); err != nil {
-		return err
+		return errors.Join(pubErr, err)
 	}
 	if err := removeNeedsHuman(ctx, repository, task); err != nil {
-		return err
+		return errors.Join(pubErr, err)
 	}
 	if err := repository.RemoveLabel(ctx, task.Issue, questionLabel); err != nil {
-		return err
+		return errors.Join(pubErr, err)
 	}
-	return repository.RemoveLabel(ctx, task.Issue, reviewLabel)
+	return errors.Join(pubErr, repository.RemoveLabel(ctx, task.Issue, reviewLabel))
 }
 
 // stopWorkersOf stops the Worker of the task, wakes the queue, and removes the worktree of the task.

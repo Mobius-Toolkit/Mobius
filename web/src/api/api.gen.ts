@@ -211,6 +211,13 @@ export const BoardTaskState = {
 export interface BoardTask {
   /** FixRounds is the number of fix rounds of the task */
   fixRounds: number;
+  /**
+     * MergeQueuePlace is the place of the task in the merge queue of its repository, from 1, or null when the task is not in the queue
+     * @nullable
+     */
+  mergeQueuePlace: number | null;
+  /** MergeQueueSize is the number of tasks in the merge queue of that repository, or 0 when mergeQueuePlace is null */
+  mergeQueueSize: number;
   /** MergeRefusal is the reason that GitHub gave for the refused merge when the task is in ready_for_review, or an empty string */
   mergeRefusal: string;
   /** Merging is true when the task is in ready_for_review and the Owner started its merge */
@@ -445,6 +452,13 @@ export interface InboxItem {
   kind: InboxItemKind;
   /** Link is the GitHub URL of the issue, or empty */
   link: string;
+  /**
+     * MergeQueuePlace is the place of the task in the merge queue of its repository, from 1, or null when the task is not in the queue. It is null for each kind other than ready for review
+     * @nullable
+     */
+  mergeQueuePlace: number | null;
+  /** MergeQueueSize is the number of tasks in the merge queue of that repository, or 0 when mergeQueuePlace is null */
+  mergeQueueSize: number;
   /** MergeRefusal is the reason of the last refusal of GitHub to merge the pull request, or empty */
   mergeRefusal: string;
   /** Merging is true after the Owner sent the approval of the pull request, until GitHub refuses the merge */

@@ -8,7 +8,7 @@ import { briefMarkdown } from "@/lib/briefDiff";
 import { diffLines } from "@/lib/diff";
 import { getGetChatImageUrl } from "@/api/api.gen";
 import { clock, clockSeconds, dayClock, dayLabel, localTimes } from "@/lib/time";
-import { badgeClass } from "@/ui/badge";
+import { badgeClass, renderBadge } from "@/ui/badge";
 import { buttonClass } from "@/ui/button";
 import {
   banIcon,
@@ -233,6 +233,8 @@ function renderActionCard(
                         link: "",
                         mergeRefusal: "",
                         merging: false,
+                        mergeQueuePlace: null,
+                        mergeQueueSize: 0,
                         organization: "",
                         pullRequest: 0,
                         pullRequestUrl: "",
@@ -843,6 +845,10 @@ export function renderItemRow(h: H, item: InboxItem, model: Model, chat: Message
     item.kind === InboxItemKind.owner_action
       ? h.span([h.DataAttribute("slot", "badge"), h.Class(badgeClass("outline"))], ["Owner action"])
       : h.empty;
+  const mergeQueueBadge =
+    item.mergeQueuePlace !== null
+      ? renderBadge(h, "outline", `Merge queue · ${item.mergeQueuePlace} of ${item.mergeQueueSize}`)
+      : h.empty;
   return h.li(
     [
       h.DataAttribute("inbox-item", String(item.id)),
@@ -868,6 +874,7 @@ export function renderItemRow(h: H, item: InboxItem, model: Model, chat: Message
               todoBadge,
               ownerActionBadge,
               refNode,
+              mergeQueueBadge,
               h.span(
                 [h.Class("contents sm:flex sm:min-w-0 sm:items-baseline sm:gap-x-2")],
                 [
