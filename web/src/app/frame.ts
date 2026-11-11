@@ -2,6 +2,7 @@ import { cn } from "cn";
 import { Option } from "effect";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import type { Workstream } from "@/api/api.gen";
+import { filterNeedsHuman } from "@/lib/inbox";
 import { settingsPages } from "@/lib/settings";
 import { unreadCount } from "@/lib/unread";
 import { Message as AgentsMessage } from "@/agents/message";
@@ -225,7 +226,7 @@ export function renderFrame(h: HtmlBuilder<Message>, model: Model, content: Html
 
   const workstreamLists: WorkstreamLists = {
     list: model.workstreams,
-    needsHuman: model.needsHuman,
+    needsHuman: filterNeedsHuman(model.needsHuman, model.inboxAnswered),
     working: new Set(model.workstreamsWorking),
   };
 

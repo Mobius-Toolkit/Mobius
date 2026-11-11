@@ -40,6 +40,7 @@ import { initialModel as initialUsageModel } from "@/usage/model";
 import { load as usageLoad, update as updateUsage } from "@/usage/update";
 import { initialModel as initialWorkstreamsModel } from "@/workstreams/model";
 import { update as updateWorkstreams } from "@/workstreams/update";
+import { filterNeedsHuman } from "@/lib/inbox";
 import { sameChat } from "@/lib/unread";
 import {
   CancelUpgrade,
@@ -301,7 +302,7 @@ function initScreenForRoute(
           ...initialWorkstreamsModel({ organization: model.organization }),
           workstreams:
             model.workstreams.length > 0 ? Option.some(model.workstreams) : Option.none(),
-          needsHuman: model.needsHuman,
+          needsHuman: filterNeedsHuman(model.needsHuman, model.inboxAnswered),
           working: model.workstreamsWorking,
           unread: model.unread,
         }),
@@ -598,6 +599,31 @@ function initScreenForRoute(
   return { model, commands };
 }
 
+function withSwitchErrors(
+  model: Model,
+  errors: Record<string, string>,
+  failures: Record<string, boolean>,
+): Model {
+  const shown = {
+    start: errors.start ?? "",
+    merge: errors.merge ?? "",
+    repairs: errors.repairs ?? "",
+  };
+  return {
+    ...model,
+    switchErrors: errors,
+    switchFailures: failures,
+    switchesProgram: Option.map(model.switchesProgram, (program) => ({
+      ...program,
+      errors: shown,
+    })),
+    settingsProgram: Option.map(model.settingsProgram, (program) => ({
+      ...program,
+      errors: shown,
+    })),
+  };
+}
+
 function enterOrganization(
   model: Model,
   organization: string,
@@ -608,6 +634,12 @@ function enterOrganization(
     route._tag === "CoordinatorChat" &&
     model.organizations.includes(organization) &&
     !Option.exists(model.chat, (chat) => chat.organization === organization)
+  ) {
+    return initScreenForRoute(next, route);
+  }
+  if (
+    route._tag === "McpServers" &&
+    Option.exists(model.mcpServersProgram, (servers) => servers.organization !== organization)
   ) {
     return initScreenForRoute(next, route);
   }
@@ -845,7 +877,9 @@ export function update(model: Model, message: Message): UpdateReturn {
 
     case "LoadAppFailed":
       return {
-        model: { ...model, appError: Option.some(message.error) },
+        model: Option.isSome(model.apps)
+          ? model
+          : { ...model, appError: Option.some(message.error) },
         commands: [],
       };
 
@@ -962,7 +996,7 @@ export function update(model: Model, message: Message): UpdateReturn {
         workstreamsProgram = Option.some({
           ...workstreamsProgram.value,
           workstreams: Option.some(workstreams),
-          needsHuman,
+          needsHuman: filterNeedsHuman(needsHuman, model.inboxAnswered),
           working,
         });
       }
@@ -993,27 +1027,40 @@ export function update(model: Model, message: Message): UpdateReturn {
 
     case "InboxStoreChanged": {
       const { items, answered } = message;
-      let chat = model.chat;
-      if (Option.isSome(chat)) {
-        const activeOrg = chat.value.organization;
-        const activeRepo = chat.value.repository;
-        const activeWorkstream = chat.value.workstream;
-        const trayItems = activeRepo
-          ? workstreamTrayItems(items, activeRepo, activeWorkstream)
-          : coordinatorTrayItems(items, activeOrg);
-        chat = Option.some({ ...chat.value, trayItems });
-      }
-
-      let inboxProgram = model.inboxProgram;
-      if (Option.isSome(inboxProgram)) {
-        const trayItems = items.filter((it) => it.organization === model.organization);
-        inboxProgram = Option.some({ ...inboxProgram.value, trayItems });
-      }
-
-      return {
-        model: { ...model, inbox: items, inboxAnswered: answered, chat, inboxProgram },
-        commands: [],
+      let currentModel: Model = {
+        ...model,
+        inbox: items,
+        inboxAnswered: answered,
+        workstreamsProgram: Option.map(model.workstreamsProgram, (program) => ({
+          ...program,
+          needsHuman: filterNeedsHuman(model.needsHuman, answered),
+        })),
       };
+      const commands: Cmd<Message>[] = [];
+
+      if (Option.isSome(currentModel.chat)) {
+        const { organization, repository, workstream } = currentModel.chat.value;
+        const trayItems = repository
+          ? workstreamTrayItems(items, repository, workstream)
+          : coordinatorTrayItems(items, organization);
+        const { model: m, commands: c } = foldChat(currentModel, {
+          _tag: "ReceivedTrayItems",
+          items: trayItems,
+        });
+        currentModel = m;
+        commands.push(...(c ?? []));
+      }
+
+      if (Option.isSome(currentModel.inboxProgram)) {
+        const { model: m, commands: c } = foldInbox(currentModel, {
+          _tag: "ReceivedTrayItems",
+          items: items.filter((item) => item.organization === currentModel.organization),
+        });
+        currentModel = m;
+        commands.push(...(c ?? []));
+      }
+
+      return { model: currentModel, commands };
     }
 
     case "NoticeStoreChanged":
@@ -1074,13 +1121,23 @@ export function update(model: Model, message: Message): UpdateReturn {
           switches: Option.some(message.switches),
         });
       }
+      const server: Record<string, boolean> = {
+        start: message.switches.start,
+        merge: message.switches.merge,
+        repairs: message.switches.repairs,
+      };
+      const keeps = ([kind]: [string, unknown]) => model.switchFailures[kind] === server[kind];
       return {
-        model: {
-          ...model,
-          switches: Option.some(message.switches),
-          switchesProgram,
-          settingsProgram,
-        },
+        model: withSwitchErrors(
+          {
+            ...model,
+            switches: Option.some(message.switches),
+            switchesProgram,
+            settingsProgram,
+          },
+          Object.fromEntries(Object.entries(model.switchErrors).filter(keeps)),
+          Object.fromEntries(Object.entries(model.switchFailures).filter(keeps)),
+        ),
         commands: [],
       };
     }
@@ -1089,19 +1146,22 @@ export function update(model: Model, message: Message): UpdateReturn {
       const current = Option.getOrUndefined(model.switches);
       if (current) {
         const optimistic = { ...current, [message.kind]: message.on };
-        let switchesProgram = model.switchesProgram;
-        if (Option.isSome(switchesProgram)) {
-          switchesProgram = Option.some({
-            ...switchesProgram.value,
-            switches: Option.some(optimistic),
-          });
-        }
+        const withoutKind = <A>(record: Record<string, A>) =>
+          Object.fromEntries(Object.entries(record).filter(([kind]) => kind !== message.kind));
+        const cleared = withSwitchErrors(
+          model,
+          withoutKind(model.switchErrors),
+          withoutKind(model.switchFailures),
+        );
         return {
           model: {
-            ...model,
+            ...cleared,
             switches: Option.some(optimistic),
             switchBusy: Option.some(message.kind),
-            switchesProgram,
+            switchesProgram: Option.map(cleared.switchesProgram, (program) => ({
+              ...program,
+              switches: Option.some(optimistic),
+            })),
           },
           commands: [ToggleSwitch({ kind: message.kind, on: message.on })],
         };
@@ -1109,42 +1169,11 @@ export function update(model: Model, message: Message): UpdateReturn {
       return { model, commands: [] };
     }
 
-    case "ToggleSwitchSucceeded": {
-      const errors = { ...model.switchErrors };
-      delete errors[message.kind];
-      let switchesProgram = model.switchesProgram;
-      if (Option.isSome(switchesProgram)) {
-        switchesProgram = Option.some({
-          ...switchesProgram.value,
-          errors: {
-            start: errors.start ?? "",
-            merge: errors.merge ?? "",
-            repairs: errors.repairs ?? "",
-          },
-        });
-      }
-      let settingsProgram = model.settingsProgram;
-      if (Option.isSome(settingsProgram)) {
-        settingsProgram = Option.some({
-          ...settingsProgram.value,
-          errors: {
-            start: errors.start ?? "",
-            merge: errors.merge ?? "",
-            repairs: errors.repairs ?? "",
-          },
-        });
-      }
+    case "ToggleSwitchSucceeded":
       return {
-        model: {
-          ...model,
-          switchBusy: Option.none(),
-          switchErrors: errors,
-          switchesProgram,
-          settingsProgram,
-        },
+        model: { ...model, switchBusy: Option.none() },
         commands: [],
       };
-    }
 
     case "ToggleSwitchFailed": {
       const current = Option.getOrUndefined(model.switches);
@@ -1154,44 +1183,26 @@ export function update(model: Model, message: Message): UpdateReturn {
             [message.kind]: !current[message.kind],
           }
         : current;
-      const nextErrors = {
-        ...model.switchErrors,
-        [message.kind]: message.error,
-      };
-      let switchesProgram = model.switchesProgram;
-      if (Option.isSome(switchesProgram)) {
-        switchesProgram = Option.some({
-          ...switchesProgram.value,
-          switches: Option.fromNullishOr(reverted),
-          errors: {
-            start: nextErrors.start ?? "",
-            merge: nextErrors.merge ?? "",
-            repairs: nextErrors.repairs ?? "",
-          },
-        });
-      }
-      let settingsProgram = model.settingsProgram;
-      if (Option.isSome(settingsProgram)) {
-        settingsProgram = Option.some({
-          ...settingsProgram.value,
-          switches: Option.fromNullishOr(reverted),
-          errors: {
-            start: nextErrors.start ?? "",
-            merge: nextErrors.merge ?? "",
-            repairs: nextErrors.repairs ?? "",
-          },
-        });
-      }
+      const withErrors = withSwitchErrors(
+        model,
+        { ...model.switchErrors, [message.kind]: message.error },
+        { ...model.switchFailures, [message.kind]: reverted?.[message.kind] ?? false },
+      );
       return {
         model: {
-          ...model,
+          ...withErrors,
           switches: Option.fromNullishOr(reverted),
           switchBusy: Option.none(),
-          switchErrors: nextErrors,
-          switchesProgram,
-          settingsProgram,
+          switchesProgram: Option.map(withErrors.switchesProgram, (program) => ({
+            ...program,
+            switches: Option.fromNullishOr(reverted),
+          })),
+          settingsProgram: Option.map(withErrors.settingsProgram, (program) => ({
+            ...program,
+            switches: Option.fromNullishOr(reverted),
+          })),
         },
-        commands: [],
+        commands: [FetchSwitches()],
       };
     }
 

@@ -274,6 +274,90 @@ describe("organization switch update logic", () => {
     );
   });
 
+  it("keeps a switch error until the server gives another value", () => {
+    const switches = { start: true, merge: true, repairs: true, held: [] };
+    const failed = update(
+      createModel("/settings/switches", { switches: Option.some(switches) }),
+      Message.ToggleSwitchFailed({ kind: "start", error: "The switch did not change." }),
+    ).model;
+    expect(failed.switchErrors).toEqual({ start: "The switch did not change." });
+
+    const same = update(
+      failed,
+      Message.SwitchesChanged({ switches: { ...switches, start: false } }),
+    ).model;
+    expect(same.switchErrors).toEqual({ start: "The switch did not change." });
+
+    const other = update(failed, Message.SwitchesChanged({ switches })).model;
+    expect(other.switchErrors).toEqual({});
+  });
+
+  it("clears the error of a switch when the Owner changes it again", () => {
+    const switches = { start: true, merge: true, repairs: true, held: [] };
+    const next = update(
+      createModel("/settings/switches", {
+        switches: Option.some(switches),
+        switchErrors: { start: "The switch did not change." },
+        switchFailures: { start: false },
+      }),
+      Message.ToggleSwitchRequested({ kind: "start", on: false }),
+    ).model;
+    expect(next.switchErrors).toEqual({});
+  });
+
+  it("opens the MCP servers of the organization that the page loads after it starts", () => {
+    const opened = update(
+      createModel("/chat", { organization: "", organizations: [], apps: Option.none() }),
+      Message.UrlChanged({ url: urlOf("/settings/mcp-servers") }),
+    ).model;
+    expect(Option.map(opened.mcpServersProgram, (servers) => servers.organization)).toEqual(
+      Option.some(""),
+    );
+
+    const loaded = update(
+      opened,
+      Message.AppsAndOrganizationsLoaded({ apps: [], organizations: ["owner"] }),
+    );
+    expect(Option.map(loaded.model.mcpServersProgram, (servers) => servers.organization)).toEqual(
+      Option.some("owner"),
+    );
+  });
+
+  it("hides the mark of a Workstream whose issue the Owner answered", () => {
+    const row = {
+      number: 45,
+      pullRequest: null,
+      pullRequestUrl: null,
+      question: true,
+      reason: "",
+      repository: "owner/shop",
+      stopped: false,
+      title: "",
+      url: "",
+      workstream: 12,
+    };
+    const next = update(
+      createModel("/workstreams", { needsHuman: [row] }),
+      Message.UrlChanged({ url: urlOf("/workstreams") }),
+    ).model;
+    expect(Option.map(next.workstreamsProgram, (list) => list.needsHuman)).toEqual(
+      Option.some([row]),
+    );
+
+    const answered = update(
+      next,
+      Message.InboxStoreChanged({
+        items: [],
+        answered: [
+          { id: 301, repository: "owner/shop", issue: 45, time: 0, item: true, mark: true },
+        ],
+      }),
+    ).model;
+    expect(Option.map(answered.workstreamsProgram, (list) => list.needsHuman)).toEqual(
+      Option.some([]),
+    );
+  });
+
   it("goes back to the parent page of a settings screen", () => {
     story(
       update,

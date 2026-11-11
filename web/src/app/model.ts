@@ -134,6 +134,8 @@ export const Model = Schema.Struct({
 
   switches: Schema.Option(Switches),
   switchErrors: Schema.Record(Schema.String, Schema.String),
+  // The value of each switch on the server at the time of its failure. The first other value clears the error.
+  switchFailures: Schema.Record(Schema.String, Schema.Boolean),
   switchBusy: Schema.Option(Schema.String),
   heldSheet: Schema.Option(HeldSheet),
 
@@ -230,6 +232,7 @@ export const initialModel = (route: AppRoute): Model => {
     pauseError: Option.none(),
     switches: Option.none(),
     switchErrors: {},
+    switchFailures: {},
     switchBusy: Option.none(),
     heldSheet: Option.none(),
     upgrade: initialUpgradeState,
