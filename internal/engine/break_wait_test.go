@@ -395,9 +395,9 @@ func TestACurrentBreakHoldsTaskAndReadsNoWorkflowWhileNewerRunIsInPage(t *testin
 	server, sha, _ := waitingTask(t, fake)
 
 	waitForWorkflowRead(t, fake, 7)
-	reads := workflowReads(fake, 7)
-
 	fake.AddWorkflowRun(shop, failedMainRun(7))
+	waitForPolls(t, fake)
+	reads := workflowReads(fake, 7)
 
 	waitForPolls(t, fake)
 	wantWaiting(t, server, fake)

@@ -52,7 +52,7 @@ type WorkflowRun struct {
 	Status  string
 	// Conclusion is "" while the workflow run runs.
 	Conclusion string
-	// CreatedAt is the creation of the workflow run. The zero time gives no created_at.
+	// CreatedAt is the creation of the workflow run. The zero time gives the clock of the fake GitHub.
 	CreatedAt time.Time
 	// Event is the event of the workflow run, for example "push", "workflow_dispatch". "" defaults to "push".
 	Event string
@@ -328,10 +328,10 @@ func (g *FakeGitHub) RerunWorkflowRun(id int64, conclusion string) {
 }
 
 // SetWorkflowNotFound sets whether the workflow id of repository gives 404 Not Found.
-func (g *FakeGitHub) SetWorkflowNotFound(repository string, id int64, notFound ...bool) {
+func (g *FakeGitHub) SetWorkflowNotFound(repository string, id int64) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	g.workflowNotFound[workflowKey{repository, id}] = len(notFound) == 0 || notFound[0]
+	g.workflowNotFound[workflowKey{repository, id}] = true
 }
 
 // SetWorkflowState sets the state of the workflow id of repository (for example "active", "disabled_manually").
@@ -346,13 +346,6 @@ func (g *FakeGitHub) SetWorkflowRunEvent(id int64, event string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.workflowRuns[id-1].Event = event
-}
-
-// SetWorkflowRunCreatedAt sets the creation time of the workflow run id.
-func (g *FakeGitHub) SetWorkflowRunCreatedAt(id int64, at time.Time) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.workflowRuns[id-1].CreatedAt = at
 }
 
 // RefuseRerun makes the re-run of the failed jobs of a workflow run give the status.

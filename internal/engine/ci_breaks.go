@@ -73,7 +73,7 @@ func (e *Engine) readDefaultBranchCI(ctx context.Context, repository github.Repo
 		if open[workflow] || !failedRunConclusion(run.GetConclusion()) {
 			continue
 		}
-		if ignoredBreakEvent(run.GetEvent()) || !run.GetCreatedAt().IsZero() && e.timeNow().Sub(run.GetCreatedAt().Time) > maxBreakRunAge {
+		if ignoredBreakEvent(run.GetEvent()) || e.timeNow().Sub(run.GetCreatedAt().Time) > maxBreakRunAge {
 			continue
 		}
 		newestRun, err := e.queries.NewestCIBreakRun(ctx, store.NewestCIBreakRunParams{Repository: repository.FullName, WorkflowID: workflow})
