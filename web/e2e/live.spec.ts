@@ -27,6 +27,8 @@ test("the page connects again after the live events answer is not an event strea
 });
 
 test("the page does not connect again in a loop after a 401", async ({ page }) => {
+  // The page of the login still sends requests. A route would count them as requests of the page under test.
+  await page.goto("about:blank");
   await page.clock.install();
   let events = 0;
   let apps = 0;
@@ -40,7 +42,7 @@ test("the page does not connect again in a loop after a 401", async ({ page }) =
       ? route.fallback()
       : route.fulfill({ status: 401, json: { error: "login needed" } });
   });
-  await page.reload();
+  await page.goto("/github");
 
   await expect(page.getByLabel("Access password")).toBeVisible({ timeout: 10_000 });
   expect(apps).toBe(2);
