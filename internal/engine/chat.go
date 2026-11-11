@@ -37,7 +37,7 @@ var (
 
 const (
 	// savePrompt is the last prompt of a Lead session.
-	savePrompt = "Save in the Workstream memory what the next session needs."
+	savePrompt = "Save in the Workstream memory only the facts of this session that a later session needs and that MEMORY.md does not have. Read no code, issue or pull request, and run no command for more data. When no fact is new, reply \"nothing\" with no tool call."
 	// historySize is the number of chat messages in the history of a first prompt.
 	historySize = 20
 	// maxCrashes is the number of new sessions that a chat starts after crashes. After that, the item of the crash

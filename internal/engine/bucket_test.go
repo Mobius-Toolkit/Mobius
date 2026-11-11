@@ -55,8 +55,8 @@ func TestAutopilotDispatchesTheIssueBelowAnOpenBucketAndListTasksLeavesTheBucket
 	}
 }
 
+// Serial: the test sets the hooks beforeRecopyTrees and afterCopiedTasksTree.
 func TestTheDetailsOfAWorkstreamCountTheIssuesBelowABucketAndNotTheBucketAndTheClosureKeepsTheBucket(t *testing.T) {
-	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
@@ -71,7 +71,27 @@ func TestTheDetailsOfAWorkstreamCountTheIssuesBelowABucketAndNotTheBucketAndTheC
 	fake.AddIssue(shop, 52, "Other open task")
 	fake.AddSubIssue(shop, 12, 52)
 
+	holdRecopy := make(chan struct{})
+	*engine.BeforeRecopyTrees = func() {
+		*engine.BeforeRecopyTrees = nil
+		<-holdRecopy
+	}
+	t.Cleanup(func() {
+		*engine.BeforeRecopyTrees = nil
+		*engine.AfterCopiedTasksTree = nil
+	})
+
 	server := startCopied(t, fake)
+
+	*engine.AfterCopiedTasksTree = func() {
+		*engine.AfterCopiedTasksTree = nil
+		close(holdRecopy)
+		testkit.WaitFor(t, func() bool {
+			var count int
+			_ = server.DB.QueryRow("SELECT count(*) FROM copied_issues WHERE repository = ? AND workstream = 12", shop).Scan(&count)
+			return count == 5
+		})
+	}
 
 	if status, got := details(t, server, 12); status != 200 || got.OpenTasks != 2 || got.CompletedTasks != 1 {
 		t.Errorf("details = %d, %+v", status, got)

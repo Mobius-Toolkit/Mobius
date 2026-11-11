@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Mobius-Toolkit/Mobius/internal/store"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 )
 
@@ -375,6 +376,32 @@ func TestARefusedCloseKeepsTheBreakOpenUntilTheCloseWorks(t *testing.T) {
 	}
 	if comments := runLinkComments(fake, number); len(comments) != 1 {
 		t.Errorf("comments = %v", comments)
+	}
+}
+
+func TestAHardBreakWithATaskIssueEndsWhenItsWorkflowAnswers404AndTheIssueStaysOpen(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	run := failedRunWithJob(fake)
+	addMaintenanceWorkstream(fake, maintenance)
+	server := startServerWithHarness(t, fake, t.TempDir())
+	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true})
+	fake.SetWorkflowRunStatus(run, "completed", "failure")
+	number := ciBreakIssue(t, fake)
+	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true, result: "hard"})
+
+	fake.SetWorkflowNotFound(shop, 7)
+
+	testkit.WaitFor(t, func() bool {
+		open, err := store.New(server.DB).ListOpenCIBreaks(t.Context(), shop)
+		return err == nil && len(open) == 0
+	})
+	if breaks := ciBreaks(t, server); len(breaks) != 1 || breaks[0].endedRunID != 0 {
+		t.Errorf("breaks = %+v", breaks)
+	}
+	waitForPolls(t, fake)
+	if state, _ := fake.State(shop, number); state != "open" {
+		t.Errorf("state = %s, want open", state)
 	}
 }
 

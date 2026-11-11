@@ -2385,6 +2385,27 @@ func (q *Queries) FailMcpServerOAuth(ctx context.Context, arg FailMcpServerOAuth
 	return err
 }
 
+const failMcpServerOAuthToken = `-- name: FailMcpServerOAuthToken :exec
+UPDATE mcp_server_oauth SET failure = ?, updated_at = ? WHERE server = ? AND access_token = ?
+`
+
+type FailMcpServerOAuthTokenParams struct {
+	Failure     string
+	UpdatedAt   string
+	Server      int64
+	AccessToken string
+}
+
+func (q *Queries) FailMcpServerOAuthToken(ctx context.Context, arg FailMcpServerOAuthTokenParams) error {
+	_, err := q.db.ExecContext(ctx, failMcpServerOAuthToken,
+		arg.Failure,
+		arg.UpdatedAt,
+		arg.Server,
+		arg.AccessToken,
+	)
+	return err
+}
+
 const failPendingAction = `-- name: FailPendingAction :one
 UPDATE pending_actions SET running = 0, error = ? WHERE id = ?
 RETURNING id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, created_issue, old_brief
@@ -10504,6 +10525,35 @@ func (q *Queries) StopTask(ctx context.Context, id int64) (int64, error) {
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const storeMcpServerOAuthRefresh = `-- name: StoreMcpServerOAuthRefresh :exec
+UPDATE mcp_server_oauth
+SET access_token = ?1, refresh_token = ?2, expires_at = ?3, updated_at = ?4
+WHERE server = ?5 AND access_token = ?6 AND refresh_token = ?7
+`
+
+type StoreMcpServerOAuthRefreshParams struct {
+	AccessToken         string
+	RefreshToken        string
+	ExpiresAt           sql.NullString
+	UpdatedAt           string
+	Server              int64
+	CurrentAccessToken  string
+	CurrentRefreshToken string
+}
+
+func (q *Queries) StoreMcpServerOAuthRefresh(ctx context.Context, arg StoreMcpServerOAuthRefreshParams) error {
+	_, err := q.db.ExecContext(ctx, storeMcpServerOAuthRefresh,
+		arg.AccessToken,
+		arg.RefreshToken,
+		arg.ExpiresAt,
+		arg.UpdatedAt,
+		arg.Server,
+		arg.CurrentAccessToken,
+		arg.CurrentRefreshToken,
+	)
+	return err
 }
 
 const storeMcpServerOAuthTokens = `-- name: StoreMcpServerOAuthTokens :exec

@@ -52,8 +52,15 @@ type WorkflowRun struct {
 	Status  string
 	// Conclusion is "" while the workflow run runs.
 	Conclusion string
-	// CreatedAt is the creation of the workflow run. The zero time gives no created_at.
+	// CreatedAt is the creation of the workflow run. The zero time gives the clock of the fake GitHub.
 	CreatedAt time.Time
+	// Event is the event of the workflow run, for example "push", "workflow_dispatch". "" defaults to "push".
+	Event string
+}
+
+type workflowKey struct {
+	repository string
+	id         int64
 }
 
 type workflowRun struct {
@@ -318,6 +325,27 @@ func (g *FakeGitHub) RerunWorkflowRun(id int64, conclusion string) {
 	run.Attempt = max(run.Attempt, 1) + 1
 	run.Status = "completed"
 	run.Conclusion = conclusion
+}
+
+// SetWorkflowNotFound sets whether the workflow id of repository gives 404 Not Found.
+func (g *FakeGitHub) SetWorkflowNotFound(repository string, id int64) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.workflowNotFound[workflowKey{repository, id}] = true
+}
+
+// SetWorkflowState sets the state of the workflow id of repository (for example "active", "disabled_manually").
+func (g *FakeGitHub) SetWorkflowState(repository string, id int64, state string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.workflowStates[workflowKey{repository, id}] = state
+}
+
+// SetWorkflowRunEvent sets the event of the workflow run id.
+func (g *FakeGitHub) SetWorkflowRunEvent(id int64, event string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.workflowRuns[id-1].Event = event
 }
 
 // RefuseRerun makes the re-run of the failed jobs of a workflow run give the status.
@@ -872,16 +900,36 @@ func (g *FakeGitHub) listWorkflowRuns(w http.ResponseWriter, r *http.Request) {
 			"id": index + 1, "name": run.Name, "workflow_id": run.WorkflowID, "head_sha": run.HeadSHA, "head_branch": run.Branch,
 			"head_repository": map[string]any{"full_name": head}, "run_attempt": max(run.Attempt, 1), "status": run.Status,
 			"html_url": fmt.Sprintf("%s/%s/actions/runs/%d", g.URL, run.repository, index+1),
+			"event":    cmp.Or(run.Event, "push"),
 		}
 		if run.Conclusion != "" {
 			body["conclusion"] = run.Conclusion
 		}
-		if !run.CreatedAt.IsZero() {
-			body["created_at"] = run.CreatedAt.UTC().Format(time.RFC3339)
+		createdAt := run.CreatedAt
+		if createdAt.IsZero() {
+			createdAt = time.Unix(g.clock, 0)
 		}
+		body["created_at"] = createdAt.UTC().Format(time.RFC3339)
 		runs = append(runs, body)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"total_count": len(runs), "workflow_runs": page(w, r, runs)})
+}
+
+func (g *FakeGitHub) getWorkflow(w http.ResponseWriter, r *http.Request) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	repo := repository(r)
+	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	key := workflowKey{repo, id}
+	if g.workflowNotFound[key] {
+		notFound(w)
+		return
+	}
+	state := cmp.Or(g.workflowStates[key], "active")
+	writeJSON(w, http.StatusOK, map[string]any{
+		"id":    id,
+		"state": state,
+	})
 }
 
 func (g *FakeGitHub) listWorkflowJobsAttempt(w http.ResponseWriter, r *http.Request) {

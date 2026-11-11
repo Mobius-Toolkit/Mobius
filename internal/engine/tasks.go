@@ -86,21 +86,29 @@ func (e *Engine) Tasks(ctx context.Context, repositoryName string, workstream in
 	if err != nil {
 		return nil, err
 	}
-	tree, err := e.queries.ListCopiedTree(ctx, store.ListCopiedTreeParams{Repository: repositoryName, Workstream: workstream})
-	if err != nil {
-		return nil, err
-	}
-	labelRows, err := e.queries.ListCopiedTreeLabels(ctx, store.ListCopiedTreeLabelsParams{Repository: repositoryName, Workstream: workstream})
+	var tree []store.ListCopiedTreeRow
+	var labelRows []store.ListCopiedTreeLabelsRow
+	var blockerRows []store.ListCopiedTreeBlockersRow
+	params := store.ListCopiedTreeParams{Repository: repositoryName, Workstream: workstream}
+	err = e.readTx(ctx, func(q *store.Queries) error {
+		var err error
+		tree, err = q.ListCopiedTree(ctx, params)
+		if err != nil {
+			return err
+		}
+		labelRows, err = q.ListCopiedTreeLabels(ctx, store.ListCopiedTreeLabelsParams(params))
+		if err != nil {
+			return err
+		}
+		blockerRows, err = q.ListCopiedTreeBlockers(ctx, store.ListCopiedTreeBlockersParams(params))
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
 	labels := map[int64][]string{}
 	for _, row := range labelRows {
 		labels[row.Position] = append(labels[row.Position], row.Name)
-	}
-	blockerRows, err := e.queries.ListCopiedTreeBlockers(ctx, store.ListCopiedTreeBlockersParams{Repository: repositoryName, Workstream: workstream})
-	if err != nil {
-		return nil, err
 	}
 	blockers := map[int64][]Blocker{}
 	for _, row := range blockerRows {
@@ -394,6 +402,8 @@ func (e *Engine) issueWorkstream(ctx context.Context, repository github.Reposito
 // The label changes of a ready issue use the user token of the Owner, because the poll trusts a label change only
 // from a trusted user.
 func (e *Engine) StopIssue(ctx context.Context, repositoryName string, number int64) error {
+	e.stopMu.Lock()
+	defer e.stopMu.Unlock()
 	repository, err := e.repository(repositoryName)
 	if err != nil {
 		return err

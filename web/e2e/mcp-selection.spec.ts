@@ -136,6 +136,7 @@ test("with no server in the organization, the sheet shows No MCP servers. and th
   await page.evaluate(() => Object.assign(window, { navigationMarker: true }));
   await link.click();
   await expect(sheet(page)).toBeHidden();
-  await expect(page).not.toHaveURL(new RegExp(`${workstream}$`));
+  await expect(page).toHaveURL("/settings/mcp-servers");
+  await expect(page.getByText("No MCP servers.")).toBeVisible();
   expect(await page.evaluate(() => "navigationMarker" in window)).toBe(true);
 });

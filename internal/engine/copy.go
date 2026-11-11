@@ -267,8 +267,14 @@ func (e *Engine) copyTreeOf(ctx context.Context, workstream issueRef) error {
 	return e.copyTree(ctx, repository, workstream.number)
 }
 
+// beforeRecopyTrees is a hook of the tests. recopyTrees calls it before copyTree.
+var beforeRecopyTrees func()
+
 // recopyTrees copies again the tree of each Workstream that the copy has, and sends the change of the list.
 func (e *Engine) recopyTrees(ctx context.Context, repository github.Repository, workstreams ...int64) error {
+	if beforeRecopyTrees != nil {
+		beforeRecopyTrees()
+	}
 	for _, workstream := range workstreams {
 		stored, err := e.queries.HasCopiedWorkstream(ctx, store.HasCopiedWorkstreamParams{Repository: repository.FullName, Number: workstream})
 		if err != nil {
@@ -335,11 +341,17 @@ type subIssue struct {
 // as in readTree.
 func (e *Engine) treeDiffers(ctx context.Context, repository github.Repository, workstream int64) (bool, error) {
 	params := store.ListCopiedTreeParams{Repository: repository.FullName, Workstream: workstream}
-	rows, err := e.queries.ListCopiedTree(ctx, params)
-	if err != nil {
-		return false, err
-	}
-	blockerRows, err := e.queries.ListCopiedTreeBlockers(ctx, store.ListCopiedTreeBlockersParams(params))
+	var rows []store.ListCopiedTreeRow
+	var blockerRows []store.ListCopiedTreeBlockersRow
+	err := e.readTx(ctx, func(q *store.Queries) error {
+		var err error
+		rows, err = q.ListCopiedTree(ctx, params)
+		if err != nil {
+			return err
+		}
+		blockerRows, err = q.ListCopiedTreeBlockers(ctx, store.ListCopiedTreeBlockersParams(params))
+		return err
+	})
 	if err != nil {
 		return false, err
 	}

@@ -79,6 +79,9 @@ type Engine struct {
 	// mergeMu makes MergeInboxItem, and the write of a merge refusal on an Inbox item, take turns. Else a refusal that
 	// the poll writes between the approval and the mark of the item can leave the item in the merging state.
 	mergeMu sync.Mutex
+	// stopMu makes StopIssue, stopTaskTool and dispatchReady take turns. Else a poll that read its issue page
+	// before a Stop can read the stopped task after the Stop, end it and dispatch the issue again from the old page.
+	stopMu sync.Mutex
 	// pollWake makes the poll start before the end of poll_interval. It holds at most one value.
 	pollWake chan struct{}
 	// closingMu guards closing.
@@ -181,6 +184,10 @@ type Engine struct {
 	curatorsMu sync.Mutex
 	// curators holds each repository with a Curator that runs. The value tells that one more Curator waits.
 	curators map[string]bool
+	// mcpRefreshesMu guards mcpRefreshes.
+	mcpRefreshesMu sync.Mutex
+	// mcpRefreshes holds the refresh state of each OAuth MCP server, by the id of the server.
+	mcpRefreshes map[int64]*mcpRefresh
 	// diagnosersMu guards diagnosers.
 	diagnosersMu sync.Mutex
 	// diagnosers holds each repository with a Diagnoser worker that runs.
@@ -253,6 +260,7 @@ func New(db *sql.DB, gh *github.GitHub, cfg *config.Config, agents Agents) *Engi
 		researchers:     map[int64]*Agent{},
 		operators:       map[int64]*Agent{},
 		curators:        map[string]bool{},
+		mcpRefreshes:    map[int64]*mcpRefresh{},
 		diagnosers:      map[string]bool{},
 		listeners:       map[chan Change]bool{},
 	}
@@ -414,6 +422,16 @@ func (e *Engine) inTx(ctx context.Context, work func(*store.Queries) error) erro
 		return err
 	}
 	return tx.Commit()
+}
+
+// readTx runs work in one read transaction.
+func (e *Engine) readTx(ctx context.Context, work func(*store.Queries) error) error {
+	tx, err := e.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	return work(e.queries.WithTx(tx))
 }
 
 // every runs work now and then after each interval or after a value on wake, until ctx ends. A nil wake never fires.
