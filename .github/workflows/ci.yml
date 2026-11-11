@@ -69,8 +69,40 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - run: pnpm exec playwright install --with-deps chromium
+      - id: playwright
+        run: echo "key=playwright-$RUNNER_OS-$ImageOS-$ImageVersion-$(pnpm exec playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+
+      - id: playwright-cache
+        uses: actions/cache/restore@v6
+        with:
+          key: ${{ steps.playwright.outputs.key }}
+          path: |
+            ~/.cache/ms-playwright
+            ~/.cache/playwright-debs
+
+      - if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: sudo dpkg -i "$HOME"/.cache/playwright-debs/*.deb
+
+      - if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: |
+          sudo mkdir -p "$HOME/.cache/playwright-debs/partial"
+          printf 'Dir::Cache::Archives "%s/.cache/playwright-debs";\nAPT::Keep-Downloaded-Packages "true";\n' "$HOME" | sudo tee /etc/apt/apt.conf.d/99playwright-debs
+
+      - if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: pnpm exec playwright install --with-deps chromium
         timeout-minutes: 12
+
+      # apt creates the lock file in the archive directory with no read access for other users.
+      - if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: sudo chmod -R a+rX "$HOME/.cache/playwright-debs"
+
+      - if: steps.playwright-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          key: ${{ steps.playwright.outputs.key }}
+          path: |
+            ~/.cache/ms-playwright
+            ~/.cache/playwright-debs
 
       - run: pnpm e2e
         env:
