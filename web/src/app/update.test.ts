@@ -474,7 +474,7 @@ describe("autopilot level update logic", () => {
       succeeded(1, "start_and_merge", "off"),
     );
     const { model: moved } = update(
-      { ...chosen, route: AppRoute.WorkstreamChat({ owner: "owner", name: "repo", number: 2 }) },
+      { ...chosen, route: parseRoute(urlOf("/workstreams")) },
       storeChanged([workstream(1, "start"), workstream(2, "merge")]),
     );
 
