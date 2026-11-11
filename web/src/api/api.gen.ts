@@ -68,6 +68,11 @@ export interface Agent {
      * @nullable
      */
   issue: number | null;
+  /**
+     * KeptUntil is the time when Mobius closes the kept Harness process of this ended session, or null when Mobius keeps no process of this session
+     * @nullable
+     */
+  keptUntil: string | null;
   /** Model is the model of the session */
   model: string;
   /** Name is the name of the Role, for example Lead */
