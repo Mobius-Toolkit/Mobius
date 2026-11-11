@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	gh "github.com/google/go-github/v92/github"
@@ -50,12 +52,43 @@ func (e *Engine) waitsForBreak(ctx context.Context, repository github.Repository
 		if waiting {
 			return true, nil
 		}
-		return true, e.queries.SetTaskBreakWaitHead(ctx, store.SetTaskBreakWaitHeadParams{BreakWaitHead: sql.NullString{String: head, Valid: true}, ID: task.ID})
+		text, err := e.breakWaitText(ctx, repository.FullName, task, pullRequest)
+		if err != nil {
+			return false, err
+		}
+		err = e.addLeadEventWith(ctx, task.WorkstreamRepository, task.Workstream, task.Repository, sql.NullInt64{Int64: task.Issue, Valid: true}, "break_wait", text, func(q *store.Queries) error {
+			return q.SetTaskBreakWaitHead(ctx, store.SetTaskBreakWaitHeadParams{BreakWaitHead: sql.NullString{String: head, Valid: true}, ID: task.ID})
+		})
+		return err == nil, err
 	}
 	if waiting {
 		return false, e.queries.SetTaskBreakWaitHead(ctx, store.SetTaskBreakWaitHeadParams{ID: task.ID})
 	}
 	return false, nil
+}
+
+// breakWaitText gives the text of the Lead event of a head that starts to wait: the task, the pull request, the head and
+// each open break of the repository.
+func (e *Engine) breakWaitText(ctx context.Context, repository string, task store.Task, pullRequest *gh.PullRequest) (string, error) {
+	breaks, err := e.queries.ListOpenCIBreaks(ctx, repository)
+	if err != nil {
+		return "", err
+	}
+	var text strings.Builder
+	fmt.Fprintf(&text, "%s wait of %s with the pull request %s for the end of a break of the CI of the default branch. The CI of the head %s failed. Open breaks of %s:",
+		e.timeNow().UTC().Format(timeFormat), taskEventRef(task, task.Issue), taskEventRef(task, int64(pullRequest.GetNumber())), pullRequest.GetHead().GetSHA(), repository)
+	for _, ciBreak := range breaks {
+		issue := "no task issue"
+		if ciBreak.Issue != 0 {
+			issue = "task issue " + eventRef(task.WorkstreamRepository, ciBreak.Repository, max(ciBreak.Issue, -ciBreak.Issue))
+		}
+		started, err := time.Parse(time.RFC3339Nano, ciBreak.StartedAt)
+		if err != nil {
+			return "", err
+		}
+		fmt.Fprintf(&text, "\n- workflow %s, run %s, started %s, %s", ciBreak.WorkflowName, ciBreak.RunUrl, started.UTC().Format(timeFormat), issue)
+	}
+	return text.String(), nil
 }
 
 // endBreakWait ends the wait of the task when the repository has no open break. It updates the branch of the pull
