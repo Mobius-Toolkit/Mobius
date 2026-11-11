@@ -1992,20 +1992,22 @@ for (const [device, size] of [
     await page.setViewportSize(size);
     await page.goto(first);
     try {
-      // The Workstream list gives the new level before the reply of the request arrives.
-      let reply: (() => Promise<void>) | undefined;
-      await page.route("**/api/workstreams/owner/shop/47/autopilot", async (route) => {
+      // The Workstream list gives the new level after the Owner has opened the second Workstream.
+      let holding = true;
+      let release: (() => Promise<void>) | undefined;
+      await page.route("**/api/workstreams", async (route) => {
+        if (!holding) {
+          await route.fallback();
+          return;
+        }
+        holding = false;
         const response = await route.fetch();
-        reply = () => route.fulfill({ response });
+        release = () => route.fulfill({ response });
       });
       await page.getByRole("button", { name: "Autopilot: Off" }).click();
       await item(/^Merge only/).click();
-      await expect.poll(() => reply).toBeDefined();
+      await expect.poll(() => release).toBeDefined();
       await expect(page.getByRole("button", { name: "Autopilot: Merge only" })).toBeVisible();
-      await reply?.();
-      await expect(
-        page.getByRole("status").filter({ hasText: "Autopilot of #47: Merge only" }),
-      ).toBeVisible();
 
       if (device === "phone") {
         await page
@@ -2015,12 +2017,13 @@ for (const [device, size] of [
       }
       await page.locator(`a[href="${shop}"]`).filter({ visible: true }).click();
       await expect(page).toHaveURL(shop);
+      await release?.();
       await expect(page.getByRole("button", { name: "Autopilot: Off" })).toBeVisible();
       await page.getByRole("button", { name: "Autopilot: Off" }).click();
       await expect(item(/^Off/)).toBeChecked();
       await expect(item(/^Merge only/)).not.toBeChecked();
     } finally {
-      await page.unroute("**/api/workstreams/owner/shop/47/autopilot");
+      await page.unroute("**/api/workstreams");
       const status = await page.evaluate(async () => {
         const response = await fetch("/api/workstreams/owner/shop/47/autopilot", {
           method: "PUT",
