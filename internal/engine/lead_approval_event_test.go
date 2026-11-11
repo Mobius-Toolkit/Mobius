@@ -97,12 +97,26 @@ func TestAFailedFetchRunsTheTurnWithNoFetchLineInItsPrompt(t *testing.T) {
 	server, dataDir := connectTask(t, fake, leadStarts, commits, longGrace)
 	sha := checksHead(t, server, fake)
 
-	testkit.Git(t, filepath.Join(dataDir, "repos", shop+".git"), "remote", "set-url", "origin", t.TempDir()+"/missing")
+	repoDir := filepath.Join(dataDir, "repos", shop+".git")
+	testkit.Git(t, repoDir, "remote", "set-url", "origin", t.TempDir()+"/missing")
 
 	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "success"))
 
 	prompt := waitForLeadPrompt(t, server, " ready for Lead approval of #41 \"Add plan model\"")
 	if strings.Contains(prompt, "Mobius fetched the bare clone of") {
 		t.Errorf("prompt contains fetch line despite failed fetch: %s", prompt)
+	}
+
+	testkit.Git(t, repoDir, "remote", "set-url", "origin", fake.Remote(shop))
+	dispatchTask(fake, 43, "Add checkout flow")
+
+	nextPrompt := waitForLeadPrompt(t, server, "dispatch of #43 \"Add checkout flow\"")
+	wantPrefix := fmt.Sprintf("Mobius fetched the bare clone of %s at ", shop)
+	if !strings.Contains(nextPrompt, wantPrefix) {
+		t.Errorf("prompt missing fetch prefix %q: %s", wantPrefix, nextPrompt)
+	}
+	wantCommit := fmt.Sprintf("origin/main is at %.8s.", head(t, fake, "main"))
+	if !strings.Contains(nextPrompt, wantCommit) {
+		t.Errorf("prompt missing commit line %q: %s", wantCommit, nextPrompt)
 	}
 }
