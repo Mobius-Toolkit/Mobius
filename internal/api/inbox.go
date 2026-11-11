@@ -71,6 +71,10 @@ type InboxItem struct {
 	Todo *Todo `gork:"todo"`
 	// BlockingTodos are the IDs of the open todo Inbox items whose todo blocks the merge of the pull request of a ready for review item, oldest first. It is an empty list for another item
 	BlockingTodos []int64 `gork:"blockingTodos"`
+	// MergeQueuePlace is the place of the task in the merge queue of its repository, from 1, or null when the task is not in the queue. It is null for each kind other than ready for review
+	MergeQueuePlace *int64 `gork:"mergeQueuePlace"`
+	// MergeQueueSize is the number of tasks in the merge queue of that repository, or 0 when mergeQueuePlace is null
+	MergeQueueSize int64 `gork:"mergeQueueSize"`
 }
 
 // Todo is the deployment need of a todo Inbox item.
@@ -333,6 +337,14 @@ func (h *handlers) inboxItemOf(ctx context.Context, item store.InboxItem) (Inbox
 		return InboxItem{}, err
 	}
 	found.BlockingTodos = append([]int64{}, blocking...)
+	if item.Kind == "ready for review" {
+		place, size, err := h.engine.MergeQueuePlaceOfItem(ctx, item)
+		if err != nil {
+			return InboxItem{}, err
+		}
+		found.MergeQueuePlace = place
+		found.MergeQueueSize = size
+	}
 	if item.Questions != "" {
 		var questions []engine.Question
 		if err := json.Unmarshal([]byte(item.Questions), &questions); err != nil {

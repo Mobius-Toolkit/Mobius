@@ -193,6 +193,60 @@ test("on a phone the columns scroll horizontally and the page does not", async (
   expect(next?.x).toBeLessThan(390);
 });
 
+test("the Tasks card and the Inbox card show 'Merge queue · 2 of 4' for a task at place 2 of 4, and no badge for a task that is not in the queue", async ({
+  page,
+}) => {
+  const queuedTask = {
+    ...boardTasks[0],
+    title: "Merge queue task",
+    number: 91,
+    mergeQueuePlace: 2,
+    mergeQueueSize: 4,
+  };
+  const unqueuedTask = {
+    ...boardTasks[1],
+    title: "Unqueued task",
+    number: 92,
+    mergeQueuePlace: null,
+    mergeQueueSize: 0,
+  };
+  await routeTasks(page, [queuedTask, unqueuedTask]);
+  await page.goto("/tasks");
+
+  const queuedCard = page.getByRole("listitem").filter({ hasText: "Merge queue task" });
+  await expect(queuedCard.getByText("Merge queue · 2 of 4")).toBeVisible();
+
+  const unqueuedCard = page.getByRole("listitem").filter({ hasText: "Unqueued task" });
+  await expect(unqueuedCard.getByText("Merge queue")).toHaveCount(0);
+
+  const queuedInboxItem = {
+    ...inboxItem,
+    id: 11,
+    kind: "ready for review",
+    title: "Merge queue task",
+    mergeQueuePlace: 2,
+    mergeQueueSize: 4,
+  };
+  const unqueuedInboxItem = {
+    ...inboxItem,
+    id: 12,
+    kind: "ready for review",
+    title: "Unqueued task",
+    mergeQueuePlace: null,
+    mergeQueueSize: 0,
+  };
+  await page.route("/api/inbox", (route) =>
+    route.fulfill({ json: { data: [queuedInboxItem, unqueuedInboxItem] } }),
+  );
+  await page.goto("/inbox");
+
+  const queuedInboxRow = page.getByRole("listitem").filter({ hasText: "Merge queue task" });
+  await expect(queuedInboxRow.getByText("Merge queue · 2 of 4")).toBeVisible();
+
+  const unqueuedInboxRow = page.getByRole("listitem").filter({ hasText: "Unqueued task" });
+  await expect(unqueuedInboxRow.getByText("Merge queue")).toHaveCount(0);
+});
+
 test("on a desktop the six columns fit the page", async ({ page }) => {
   await routeTasks(page, boardTasks);
   await page.setViewportSize({ width: 1280, height: 800 });

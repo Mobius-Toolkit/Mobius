@@ -33,6 +33,8 @@ const base = {
   pullRequestUrl: "",
   reportUrl: "",
   blockingTodos: [],
+  mergeQueuePlace: null,
+  mergeQueueSize: 0,
 };
 
 // The stopped issue #41 has the long text, and the stopped issue #42 a short text.

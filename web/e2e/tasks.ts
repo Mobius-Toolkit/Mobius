@@ -25,6 +25,8 @@ function task(
     reviewRounds: 0,
     merging: false,
     mergeRefusal: "",
+    mergeQueuePlace: null,
+    mergeQueueSize: 0,
     ...extra,
   };
 }
@@ -99,6 +101,18 @@ export const ownerActionTask = task(
   pull(53, { reviewRounds: 1 }),
 );
 
+export const mergeQueueTask = task(
+  64,
+  "ready_for_review",
+  "2026-10-15T11:20:00Z",
+  "Show the plan limit on the invoice",
+  {
+    ...pull(54),
+    mergeQueuePlace: 2,
+    mergeQueueSize: 4,
+  },
+);
+
 export const tasksRoute = "/api/tasks";
 
 export async function routeTasks(page: Page, tasks: unknown[]) {
@@ -131,4 +145,6 @@ export const inboxItem = {
   withdrawn: false,
   workstream: 12,
   workstreamRepository: "owner/shop",
+  mergeQueuePlace: null,
+  mergeQueueSize: 0,
 };

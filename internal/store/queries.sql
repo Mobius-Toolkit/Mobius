@@ -273,8 +273,8 @@ LEFT JOIN copied_issues i
 WHERE sessions.ended_at IS NULL ORDER BY sessions.id;
 
 -- name: ListBoardTasks :many
-SELECT tasks.repository, tasks.issue, tasks.workstream_repository, tasks.workstream, tasks.state, tasks.state_at,
-       tasks.pull_request, tasks.fix_rounds, tasks.review_rounds,
+SELECT tasks.id, tasks.repository, tasks.issue, tasks.workstream_repository, tasks.workstream, tasks.state, tasks.state_at,
+       tasks.pull_request, tasks.fix_rounds, tasks.review_rounds, tasks.merge_queued_at,
        i.title AS issue_title, i.html_url AS issue_url, w.title AS workstream_title,
        coalesce(m.merging, 0) AS merging, coalesce(m.merge_refusal, '') AS merge_refusal
 FROM tasks
@@ -1379,6 +1379,19 @@ SELECT * FROM tasks
 WHERE repository = ? AND state <> 'ended' AND merge_queued_at IS NOT NULL
 ORDER BY julianday(merge_queued_at), id
 LIMIT 1;
+
+-- name: ListMergeQueueTasks :many
+SELECT * FROM tasks
+WHERE repository = ? AND state <> 'ended' AND merge_queued_at IS NOT NULL
+ORDER BY julianday(merge_queued_at), id;
+
+-- name: ListAllMergeQueueTasks :many
+SELECT id, repository FROM tasks
+WHERE state <> 'ended' AND merge_queued_at IS NOT NULL
+ORDER BY julianday(merge_queued_at), id;
+
+-- name: GetTask :one
+SELECT * FROM tasks WHERE id = ?;
 
 -- name: AddDeploymentNeed :exec
 INSERT INTO deployment_needs (task, head, kind, name, path, line, reason, mandatory, after_merge) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);

@@ -167,6 +167,9 @@ func (e *Engine) handFromStates(ctx context.Context, states []string, task store
 	if err != nil || from == "" {
 		return false, err
 	}
+	if task.MergeQueuedAt.Valid {
+		_ = e.publishMergeQueue(ctx, task.Repository, task)
+	}
 	e.closeKept(task.ID)
 	e.publish(Change{Workstreams: true})
 	dismissErr := e.dismissReadyForReview(ctx, task, from)

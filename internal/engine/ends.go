@@ -195,11 +195,10 @@ func (e *Engine) checkTask(ctx context.Context, repository github.Repository, ta
 	}
 	work := pullRequestWork(repository, pullRequest)
 	conflict := pullRequest.Mergeable != nil && !pullRequest.GetMergeable()
-	if task.MergeQueuedAt.Valid && conflict {
-		if err := e.queries.ClearTaskMergeQueuedAt(ctx, task.ID); err != nil {
+	if conflict {
+		if err := e.clearMergeQueue(ctx, &task); err != nil {
 			return Work{}, false, err
 		}
-		task.MergeQueuedAt = sql.NullString{}
 	}
 	if task.State == "needs_human" {
 		var round bool
@@ -219,11 +218,10 @@ func (e *Engine) checkTask(ctx context.Context, repository github.Repository, ta
 		round, err := e.startKeptRound(ctx, repository, round{task: task, title: issue.GetTitle(), pullRequest: pullRequest})
 		return work, round, err
 	case afterReview(task.State) && !breakWaits:
-		if task.MergeQueuedAt.Valid && (state.failedCheck || state.failedWorkflow) {
-			if err := e.queries.ClearTaskMergeQueuedAt(ctx, task.ID); err != nil {
+		if state.failedCheck || state.failedWorkflow {
+			if err := e.clearMergeQueue(ctx, &task); err != nil {
 				return Work{}, false, err
 			}
-			task.MergeQueuedAt = sql.NullString{}
 		}
 		round, err := e.onFailure(ctx, repository, task, pullRequest, state)
 		if err != nil || round {
@@ -547,6 +545,9 @@ func (e *Engine) stopTask(ctx context.Context, repository github.Repository, tas
 	if err != nil || stopped == 0 {
 		return err
 	}
+	if task.MergeQueuedAt.Valid {
+		_ = e.publishMergeQueue(ctx, task.Repository, task)
+	}
 	e.closeKept(task.ID)
 	e.publish(Change{Workstreams: true})
 	from := task.State
@@ -615,6 +616,9 @@ func (e *Engine) lostAccess(ctx context.Context, repositories []github.Repositor
 func (e *Engine) endTask(ctx context.Context, repository github.Repository, task store.Task) error {
 	if err := e.queries.EndTask(ctx, task.ID); err != nil {
 		return err
+	}
+	if task.MergeQueuedAt.Valid {
+		_ = e.publishMergeQueue(ctx, task.Repository, task)
 	}
 	e.closeKept(task.ID)
 	e.publish(Change{Workstreams: true})

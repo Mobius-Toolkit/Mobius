@@ -192,6 +192,8 @@ export const triagerItem = {
   blockingTodos: [],
   mergeRefusal: "",
   merging: false,
+  mergeQueuePlace: null,
+  mergeQueueSize: 0,
   todo: null,
   withdrawn: false,
   questions: [],

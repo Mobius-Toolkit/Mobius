@@ -24,6 +24,8 @@ function createTask(number: number, overrides: Partial<BoardTask> = {}): BoardTa
     reviewRounds: 0,
     merging: false,
     mergeRefusal: "",
+    mergeQueuePlace: null,
+    mergeQueueSize: 0,
     ...overrides,
   };
 }

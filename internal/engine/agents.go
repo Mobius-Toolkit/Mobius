@@ -1201,11 +1201,15 @@ func (e *Engine) publish(change Change) {
 // setTaskState moves the task like SetTaskState. It publishes a Workstream change when the task moved, because the
 // Workstream list and the Tasks board show the state of the task.
 func (e *Engine) setTaskState(ctx context.Context, params store.SetTaskStateParams) (int64, error) {
+	task, _ := e.queries.GetTask(ctx, params.ID)
 	moved, err := e.queries.SetTaskState(ctx, params)
 	if err == nil && moved > 0 {
 		if !afterReview(params.State) {
 			if clearErr := e.queries.ClearTaskMergeQueuedAt(ctx, params.ID); clearErr != nil {
 				return 0, clearErr
+			}
+			if task.MergeQueuedAt.Valid {
+				_ = e.publishMergeQueue(ctx, task.Repository, task)
 			}
 		}
 		e.publish(Change{Workstreams: true})
@@ -1233,8 +1237,12 @@ func (e *Engine) requeueTask(ctx context.Context, id int64) (int64, error) {
 
 // startTaskWorker moves the task like StartTaskWorker. It publishes a Workstream change when the task moved.
 func (e *Engine) startTaskWorker(ctx context.Context, params store.StartTaskWorkerParams) (int64, error) {
+	task, _ := e.queries.GetTask(ctx, params.ID)
 	moved, err := e.queries.StartTaskWorker(ctx, params)
 	if err == nil && moved > 0 {
+		if task.MergeQueuedAt.Valid {
+			_ = e.publishMergeQueue(ctx, task.Repository, task)
+		}
 		e.publish(Change{Workstreams: true})
 	}
 	return moved, err
