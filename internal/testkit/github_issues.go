@@ -413,6 +413,13 @@ func (g *FakeGitHub) RefuseAddComment(repository string, number int64, status in
 	g.refusedComments[issueKey{repository, number}] = status
 }
 
+// RefusedCommentCalls gives the number of new comments that RefuseAddComment refused.
+func (g *FakeGitHub) RefusedCommentCalls() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.refusedCommentCalls
+}
+
 // FailUpdateComment makes each update of a comment of the issue fail, or work again when fail is false.
 func (g *FakeGitHub) FailUpdateComment(repository string, number int64, fail bool) {
 	g.mu.Lock()
@@ -1247,6 +1254,7 @@ func (g *FakeGitHub) addComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if status := g.refusedComments[key]; status != 0 {
+		g.refusedCommentCalls++
 		message(w, status, "Resource not accessible by integration")
 		return
 	}

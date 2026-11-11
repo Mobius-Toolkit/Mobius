@@ -178,6 +178,9 @@ func TestARefusedApprovalOfAReviewedHeadGivesTheLeadReadyForApproval(t *testing.
 	waitForLeadPrompt(t, server, readyForApprovalMarker)
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" })
 	waitForPolls(t, fake)
+	if got := fake.RefusedCommentCalls(); got != 1 {
+		t.Errorf("refused approval comments = %d, want 1", got)
+	}
 
 	ready := 0
 	for _, event := range leadEvents(t, server) {

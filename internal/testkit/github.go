@@ -152,7 +152,9 @@ type FakeGitHub struct {
 	// bodyWrites counts the body writes through the API, for each issue and pull request.
 	bodyWrites map[issueKey]int
 	// failedCheckUpdates counts the updates of a check run that failCheckUpdates made fail.
-	failedCheckUpdates  int
+	failedCheckUpdates int
+	// refusedCommentCalls counts the new comments that refusedComments refused.
+	refusedCommentCalls int
 	latestRelease       *releaseJSON
 	lastAssetID         int64
 	releaseAssetFailure int
