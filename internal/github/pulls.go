@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"time"
 
 	gh "github.com/google/go-github/v92/github"
 )
@@ -189,13 +188,6 @@ func (r Repository) Compare(ctx context.Context, base, head string) (*gh.Commits
 		response = nextResponse
 	}
 	return comparison, nil
-}
-
-// CommitsSince gives the newest commits of the branch with a commit date at or after since. It reads one page, because
-// the commits of a branch are many.
-func (r Repository) CommitsSince(ctx context.Context, branch string, since time.Time) ([]*gh.RepositoryCommit, error) {
-	commits, _, err := r.Client.Repositories.ListCommits(ctx, r.Owner(), r.Name(), &gh.CommitsListOptions{SHA: branch, Since: since, ListOptions: gh.ListOptions{PerPage: 100}})
-	return commits, err
 }
 
 // CommitFiles gives the names of the files that the commit sha changes. It reads one page.
