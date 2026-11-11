@@ -203,6 +203,10 @@ func (e *Engine) onChecks(ctx context.Context, repository github.Repository, tas
 	if err != nil {
 		return err
 	}
+	readyText, err := readyForApprovalText(ctx, repository, task, issue, pullRequest, approvedHead, state.checkRuns)
+	if err != nil {
+		return err
+	}
 	var level string
 	var checkRun int64
 	if again {
@@ -232,25 +236,17 @@ func (e *Engine) onChecks(ctx context.Context, repository github.Repository, tas
 		}
 		var refused *gh.ErrorResponse
 		if errors.As(err, &refused) && refused.Response.StatusCode < 500 {
-			return e.addReadyForApproval(ctx, repository, task, issue, pullRequest, approvedHead, state.checkRuns)
+			return e.addReadyForApproval(ctx, task, readyText)
 		}
 		_, stateErr := e.setTaskState(ctx, store.SetTaskStateParams{State: "checks", ID: task.ID, FromState: "approval"})
 		return errors.Join(err, stateErr)
 	}
-	return e.addReadyForApproval(ctx, repository, task, issue, pullRequest, approvedHead, state.checkRuns)
+	return e.addReadyForApproval(ctx, task, readyText)
 }
 
-// addReadyForApproval gives the Lead the event ready_for_approval for the head of the pull request. approvedHead is the
-// text that follows its first line when the Lead approved an earlier head.
-func (e *Engine) addReadyForApproval(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue, pullRequest *gh.PullRequest, approvedHead string, runs []*gh.CheckRun) error {
+// readyForApprovalText gives the text of the event ready_for_approval for the head of the pull request.
+func readyForApprovalText(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue, pullRequest *gh.PullRequest, approvedHead string, runs []*gh.CheckRun) (string, error) {
 	head := pullRequest.GetHead().GetSHA()
-	if runs == nil {
-		var err error
-		runs, err = repository.CheckRuns(ctx, head)
-		if err != nil {
-			return err
-		}
-	}
 	var ciParts []string
 	for _, run := range runs {
 		if run.GetName() != checkRunName && run.GetStatus() == "completed" {
@@ -263,7 +259,7 @@ func (e *Engine) addReadyForApproval(ctx context.Context, repository github.Repo
 	}
 	files, err := repository.PullRequestFiles(ctx, int64(pullRequest.GetNumber()))
 	if err != nil {
-		return err
+		return "", err
 	}
 	var filesLine string
 	switch {
@@ -276,6 +272,11 @@ func (e *Engine) addReadyForApproval(ctx context.Context, repository github.Repo
 	}
 	text := fmt.Sprintf("%s ready for Lead approval of %s \"%s\": pull request %s %s.", time.Now().UTC().Format(timeFormat), taskEventRef(task, task.Issue), issue.GetTitle(), taskEventRef(task, int64(pullRequest.GetNumber())), pullRequest.GetHTMLURL()) + approvedHead
 	text += fmt.Sprintf("\n%s\n%s", ciLine, filesLine)
+	return text, nil
+}
+
+// addReadyForApproval gives the Lead the event ready_for_approval for the head of the pull request with text.
+func (e *Engine) addReadyForApproval(ctx context.Context, task store.Task, text string) error {
 	return e.addLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, task.Repository, sql.NullInt64{Int64: task.Issue, Valid: true}, "ready_for_approval", text)
 }
 
