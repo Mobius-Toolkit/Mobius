@@ -65,6 +65,7 @@ type workflowKey struct {
 
 type workflowRun struct {
 	repository string
+	notFound   bool
 	WorkflowRun
 }
 
@@ -274,7 +275,7 @@ func (g *FakeGitHub) SetCheckRunStatus(id int64, status, conclusion string) {
 func (g *FakeGitHub) AddWorkflowRun(repository string, run WorkflowRun) int64 {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	g.workflowRuns = append(g.workflowRuns, workflowRun{repository, run})
+	g.workflowRuns = append(g.workflowRuns, workflowRun{repository: repository, WorkflowRun: run})
 	return int64(len(g.workflowRuns))
 }
 
@@ -346,6 +347,13 @@ func (g *FakeGitHub) SetWorkflowRunEvent(id int64, event string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.workflowRuns[id-1].Event = event
+}
+
+// SetWorkflowRunNotFound makes the read of the workflow run id give 404 Not Found.
+func (g *FakeGitHub) SetWorkflowRunNotFound(id int64) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.workflowRuns[id-1].notFound = true
 }
 
 // RefuseRerun makes the re-run of the failed jobs of a workflow run give the status.
@@ -892,27 +900,43 @@ func (g *FakeGitHub) listWorkflowRuns(w http.ResponseWriter, r *http.Request) {
 		if run.repository != repository(r) || sha != "" && run.HeadSHA != sha || branch != "" && run.Branch != branch {
 			continue
 		}
-		head := run.HeadRepository
-		if head == "" {
-			head = run.repository
-		}
-		body := map[string]any{
-			"id": index + 1, "name": run.Name, "workflow_id": run.WorkflowID, "head_sha": run.HeadSHA, "head_branch": run.Branch,
-			"head_repository": map[string]any{"full_name": head}, "run_attempt": max(run.Attempt, 1), "status": run.Status,
-			"html_url": fmt.Sprintf("%s/%s/actions/runs/%d", g.URL, run.repository, index+1),
-			"event":    cmp.Or(run.Event, "push"),
-		}
-		if run.Conclusion != "" {
-			body["conclusion"] = run.Conclusion
-		}
-		createdAt := run.CreatedAt
-		if createdAt.IsZero() {
-			createdAt = time.Unix(g.clock, 0)
-		}
-		body["created_at"] = createdAt.UTC().Format(time.RFC3339)
-		runs = append(runs, body)
+		runs = append(runs, g.workflowRunBody(index, run))
 	}
+	slices.Reverse(runs)
 	writeJSON(w, http.StatusOK, map[string]any{"total_count": len(runs), "workflow_runs": page(w, r, runs)})
+}
+
+func (g *FakeGitHub) getWorkflowRun(w http.ResponseWriter, r *http.Request) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if id < 1 || id > int64(len(g.workflowRuns)) || g.workflowRuns[id-1].repository != repository(r) || g.workflowRuns[id-1].notFound {
+		notFound(w)
+		return
+	}
+	writeJSON(w, http.StatusOK, g.workflowRunBody(int(id-1), g.workflowRuns[id-1]))
+}
+
+func (g *FakeGitHub) workflowRunBody(index int, run workflowRun) map[string]any {
+	head := run.HeadRepository
+	if head == "" {
+		head = run.repository
+	}
+	body := map[string]any{
+		"id": index + 1, "name": run.Name, "workflow_id": run.WorkflowID, "head_sha": run.HeadSHA, "head_branch": run.Branch,
+		"head_repository": map[string]any{"full_name": head}, "run_attempt": max(run.Attempt, 1), "status": run.Status,
+		"html_url": fmt.Sprintf("%s/%s/actions/runs/%d", g.URL, run.repository, index+1),
+		"event":    cmp.Or(run.Event, "push"),
+	}
+	if run.Conclusion != "" {
+		body["conclusion"] = run.Conclusion
+	}
+	createdAt := run.CreatedAt
+	if createdAt.IsZero() {
+		createdAt = time.Unix(g.clock, 0)
+	}
+	body["created_at"] = createdAt.UTC().Format(time.RFC3339)
+	return body
 }
 
 func (g *FakeGitHub) getWorkflow(w http.ResponseWriter, r *http.Request) {
