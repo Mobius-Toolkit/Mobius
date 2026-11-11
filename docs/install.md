@@ -268,6 +268,15 @@ Each Role can also have these keys:
 - `max`: the maximum number of agents of the Role that run at the same time. The default is 8 for the Lead, 4 for the Coordinator, 12 for the Triager, and 2 for each other Role.
 - `context`: the largest context of a session of the Role, in tokens, from 100000 to 1000000. The Harness compacts the context before it reaches this value. Only `claude-code` has a context limit. No value means the default of the Harness.
 
+### Scripts of a repository
+
+A repository can have two executable files in the folder `.mobius`. Mobius runs a file in the worktree of the task, in the agent environment with the Harness commands on the `PATH`. A file has the time limit `check_timeout`. A script passes when it ends with the exit code 0.
+
+- `.mobius/check` is the local check. Mobius runs it after each turn of an Implementer, and it sends a failed check back to the Implementer. With no file, the check passes.
+- `.mobius/init` is the setup of a new worktree, for example `pnpm install`. Mobius runs it one time, after it makes a worktree for an Implementer and before the first prompt. It runs for a new branch, and for an existing branch whose worktree Mobius makes again. The other Roles do not run it. With no file, Mobius does nothing.
+
+If `.mobius/init` fails or does not end in `check_timeout`, the Implementer still starts. The first prompt starts with the section "Setup failed" and the last lines of the output. The Implementer then does the setup itself. The Transcript shows the result of the script.
+
 ## 6. Start
 
 Run `mobius` in a terminal, as your own OS user:

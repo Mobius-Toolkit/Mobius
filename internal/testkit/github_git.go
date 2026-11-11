@@ -171,17 +171,26 @@ func (g *FakeGitHub) touchPushedPullRequests(repository string) {
 
 // SetCheck commits script as an executable .mobius/check on main of the repository fullName.
 func (g *FakeGitHub) SetCheck(fullName, script string) {
+	g.setScript(fullName, "check", script)
+}
+
+// SetInit commits script as an executable .mobius/init on main of the repository fullName.
+func (g *FakeGitHub) SetInit(fullName, script string) {
+	g.setScript(fullName, "init", script)
+}
+
+func (g *FakeGitHub) setScript(fullName, name, script string) {
 	work := g.t.TempDir()
 	g.git(work, "clone", "--branch=main", g.Remote(fullName), ".")
-	check := filepath.Join(work, ".mobius", "check")
-	if err := os.MkdirAll(filepath.Dir(check), 0o750); err != nil {
+	file := filepath.Join(work, ".mobius", name)
+	if err := os.MkdirAll(filepath.Dir(file), 0o750); err != nil {
 		g.t.Fatal(err)
 	}
-	if err := os.WriteFile(check, []byte("#!/bin/sh\n"+script+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(file, []byte("#!/bin/sh\n"+script+"\n"), 0o600); err != nil {
 		g.t.Fatal(err)
 	}
-	g.git(work, "add", "--chmod=+x", ".mobius/check")
-	g.git(work, "commit", "-m", "Add the local check")
+	g.git(work, "add", "--chmod=+x", ".mobius/"+name)
+	g.git(work, "commit", "-m", "Add .mobius/"+name)
 	g.git(work, "push", "origin", "HEAD:refs/heads/main")
 }
 
