@@ -526,7 +526,7 @@ func TestAnIdleLeadSavesItsMemoryAndTheNextMessageStartsANewSession(t *testing.T
 	if first.EndReason.String != "idle" {
 		t.Errorf("end reason = %s", first.EndReason.String)
 	}
-	if got := promptTexts(t, server, first.ID); got[len(got)-1] != "Save in the Workstream memory what the next session needs." {
+	if got := promptTexts(t, server, first.ID); got[len(got)-1] != "Save in the Workstream memory only the facts of this session that a later session needs and that MEMORY.md does not have. Read no code, issue or pull request, and run no command for more data. When no fact is new, reply \"nothing\" with no tool call." {
 		t.Errorf("prompts = %q", got)
 	}
 

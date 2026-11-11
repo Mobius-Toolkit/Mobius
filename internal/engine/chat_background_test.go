@@ -15,7 +15,7 @@ import (
 
 const (
 	chatWaitPrompt = "Check each background task that you started."
-	savePrompt     = "Save in the Workstream memory what the next session needs."
+	savePrompt     = "Save in the Workstream memory only the facts of this session that a later session needs and that MEMORY.md does not have. Read no code, issue or pull request, and run no command for more data. When no fact is new, reply \"nothing\" with no tool call."
 )
 
 // leadMessages gives the text of each Lead message of the Lead chat.
