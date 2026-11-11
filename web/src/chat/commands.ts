@@ -1,6 +1,5 @@
 import { Effect, Schema } from "effect";
 import * as Command from "foldkit/command";
-import * as Port from "foldkit/port";
 import {
   answerInboxItem,
   approveAction,
@@ -27,12 +26,12 @@ import {
 import { StoreFailed, fitted, request, store } from "@/lib/effects";
 import { fitImage, tooManyImages } from "@/lib/images";
 import { restoreInboxItem, hideInboxItem } from "@/lib/inbox";
+import { pushUrl } from "foldkit/navigation";
 import { issueRef, showNotice } from "@/lib/notice";
 import { addQueued, listQueued, newMessageId, postQueued, removeQueued } from "@/lib/outbox";
 import { resend, stopVoice, toggleVoice } from "@/lib/voice";
 import { Message } from "./message";
 import { draftInboxItem } from "./model";
-import { organizationRequested, ports } from "./ports";
 import { DraftInboxItems, Images, InboxItem, PendingAction, Queued } from "./schemas";
 
 type Outcome = { message: Message; status?: number | undefined };
@@ -43,7 +42,9 @@ function withLogin<A extends Outcome>(
 ): Effect.Effect<NoInfer<A>["message"]> {
   return outcome.pipe(
     Effect.tap(({ status }) =>
-      status === 401 ? Port.emit(ports.outbound.loginRequested, undefined) : Effect.void,
+      status === 401
+        ? Effect.sync(() => window.dispatchEvent(new CustomEvent("mobius:login")))
+        : Effect.void,
     ),
     Effect.map(({ message }) => message),
   );
@@ -361,10 +362,7 @@ export const Navigate = Command.define("Navigate", {
     path: Schema.String,
   },
   messages: [Message.CompletedNavigate],
-  execute: ({ path }) =>
-    Port.emit(ports.outbound.navigationRequested, path).pipe(
-      Effect.as(Message.CompletedNavigate()),
-    ),
+  execute: ({ path }) => pushUrl(path).pipe(Effect.as(Message.CompletedNavigate())),
 });
 
 // The Chat button of an Inbox row puts the item in the draft of the chat of its Workstream, or of the Coordinator chat of
@@ -384,16 +382,17 @@ export const OpenChatWithItem = Command.define("OpenChatWithItem", {
         : chatDraftKey(item.organization, "", 0);
       yield* store(() => addDraftInboxItem(key, draftInboxItem(item)));
       if (inWorkstream) {
-        yield* Port.emit(
-          ports.outbound.navigationRequested,
-          `/workstreams/${item.workstreamRepository}/${item.workstream}`,
-        );
+        const path = `/workstreams/${item.workstreamRepository}/${item.workstream}`;
+        yield* pushUrl(path);
         return;
       }
       if (item.organization !== organization) {
-        yield* Port.emit(organizationRequested, item.organization);
+        try {
+          localStorage.setItem("organization", item.organization);
+        } catch {}
       }
-      yield* Port.emit(ports.outbound.navigationRequested, "/chat");
+      const chatPath = "/chat";
+      yield* pushUrl(chatPath);
     }).pipe(
       // A draft that the store refused leaves the Owner in the Inbox.
       Effect.ignore,
@@ -403,9 +402,9 @@ export const OpenChatWithItem = Command.define("OpenChatWithItem", {
 
 export const RequestLogin = Command.define("RequestLogin", {
   messages: [Message.CompletedRequestLogin],
-  execute: Port.emit(ports.outbound.loginRequested, undefined).pipe(
-    Effect.as(Message.CompletedRequestLogin()),
-  ),
+  execute: Effect.sync(() => {
+    window.dispatchEvent(new CustomEvent("mobius:login"));
+  }).pipe(Effect.as(Message.CompletedRequestLogin())),
 });
 
 type Refusal = { error: string; status?: number };

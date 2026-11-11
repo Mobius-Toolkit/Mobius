@@ -9,8 +9,8 @@ import {
 import { onEvent } from "./events";
 
 export type WorkstreamState = {
-  list?: Workstream[];
-  needsHuman: NeedsHuman[];
+  list?: readonly Workstream[];
+  needsHuman: readonly NeedsHuman[];
   working: Set<string>;
   error?: string;
 };
@@ -44,7 +44,7 @@ export function chatParams(workstream: { repository: string; number: number }) {
   return { owner, name, number: String(workstream.number) };
 }
 
-export function organizationWorkstreams(workstreams: Workstreams, organization: string) {
+export function organizationWorkstreams(workstreams: WorkstreamState, organization: string) {
   return workstreams.list?.filter((workstream) =>
     workstream.repository.startsWith(`${organization}/`),
   );

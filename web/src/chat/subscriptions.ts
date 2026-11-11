@@ -1,5 +1,4 @@
 import { Effect, Queue, Schema, Stream } from "effect";
-import * as Port from "foldkit/port";
 import * as Subscription from "foldkit/subscription";
 import {
   answerDraftKey,
@@ -12,21 +11,18 @@ import {
 } from "@/lib/draft";
 import { store } from "@/lib/effects";
 import { currentUnread, subscribeUnread, unreadCount } from "@/lib/unread";
-import { sameChat } from "@/lib/unread";
 import { insertVoiceText, registerVoiceInput, subscribeVoice, voiceSnapshot } from "@/lib/voice";
 import { currentWorkstreams, subscribeWorkstreams } from "@/lib/workstreams";
-import { liveEvents, liveListener } from "@/live/events";
 import { storeValues } from "@/live/stores";
 import { answerInputId, inputId } from "./composer";
 import { Message } from "./message";
 import type { Model } from "./model";
-import { ports } from "./ports";
-import { ChatMessage, ChatState, type Draft, InboxItem, PendingAction } from "./schemas";
+import type { Draft } from "./schemas";
 
 const stopDelay = 500;
 
 // Gives the draft of the key to the program: first the draft that the browser store holds, then each change.
-function draftValues(key: string, toMessage: (draft: Draft) => Message) {
+export function draftValues(key: string, toMessage: (draft: Draft) => Message) {
   return Stream.callback<Message>((queue) =>
     Effect.gen(function* () {
       let last: StoredDraft | undefined;
@@ -73,7 +69,7 @@ function insertAtCursor(key: string, fieldId: string) {
 
 // The recording stops when no mounted input has its draft key, so each field has its own Subscription: a change of the
 // answer panel must not unmount the input of the chat.
-function voiceInput(key: string, fieldId: string) {
+export function voiceInput(key: string, fieldId: string) {
   return Stream.callback<Message>(() =>
     Effect.gen(function* () {
       const unregister = registerVoiceInput(key, insertAtCursor(key, fieldId));
@@ -86,7 +82,7 @@ function voiceInput(key: string, fieldId: string) {
   );
 }
 
-const voiceClock = Stream.callback<Message>((queue) => {
+export const voiceClock = Stream.callback<Message>((queue) => {
   const tick = () => Queue.offerUnsafe(queue, Message.VoiceTicked({ now: Date.now() }));
   return Effect.gen(function* () {
     tick();
@@ -126,9 +122,6 @@ const chatDependencies = {
 // The Subscriptions of the rows of Inbox items and of their answer panel. The chat program and the Inbox program both
 // have them.
 export const itemSubscriptions = Subscription.make<Model, Message>()((entry) => ({
-  trayItemsPort: Port.subscriptionEntry(ports.inbound.trayItems, (items) =>
-    Message.ReceivedTrayItems({ items }),
-  ),
   workstreams: entry(
     {},
     {
@@ -187,9 +180,6 @@ export const itemSubscriptions = Subscription.make<Model, Message>()((entry) => 
 }));
 
 const chatSubscriptions = Subscription.make<Model, Message>()((entry) => ({
-  briefPort: Port.subscriptionEntry(ports.inbound.brief, (brief) =>
-    Message.ReceivedBrief({ brief }),
-  ),
   unread: entry(chatDependencies, {
     modelToDependencies: ({ organization, repository, workstream }) => ({
       organization,
@@ -211,30 +201,6 @@ const chatSubscriptions = Subscription.make<Model, Message>()((entry) => ({
         draftValues(key, (draft) => Message.ReceivedDraft({ draft })),
     },
   ),
-  liveEvents: entry(chatDependencies, {
-    modelToDependencies: ({ organization, repository, workstream }) => ({
-      organization,
-      repository,
-      workstream,
-    }),
-    dependenciesToStream: (chat) =>
-      liveEvents<Message>({
-        opened: Message.ConnectionOpened(),
-        loginRequired: Message.PageFailed({ error: "login required" }),
-        listeners: [
-          liveListener("message", ChatMessage, (message) =>
-            sameChat(message, chat) ? Message.ReceivedLiveMessage({ message }) : null,
-          ),
-          liveListener("chat", ChatState, (state) =>
-            sameChat(state, chat) ? Message.ReceivedLiveChatState({ state }) : null,
-          ),
-          liveListener("action", PendingAction, (action) => Message.ReceivedLiveAction({ action })),
-          liveListener("question", InboxItem, (question) =>
-            Message.ReceivedLiveQuestion({ question }),
-          ),
-        ],
-      }),
-  }),
   chatVoiceInput: entry(
     { key: Schema.String },
     {

@@ -1,10 +1,9 @@
 import { Effect, Schema } from "effect";
 import { Command } from "foldkit";
-import * as Port from "foldkit/port";
+import { back, pushUrl } from "foldkit/navigation";
 import { listMemoryFiles, listMemoryVersions, revertMemory, saveMemory } from "@/api/api.gen";
 import { answer, request } from "@/lib/effects";
 import { Message } from "./message";
-import { ports } from "./ports";
 
 const place = { owner: Schema.String, name: Schema.String, file: Schema.String };
 
@@ -98,23 +97,18 @@ export const RevertMemory = Command.define("RevertMemory", {
 
 export const RequestLogin = Command.define("RequestLogin", {
   messages: [Message.CompletedRequestLogin],
-  execute: Port.emit(ports.outbound.loginRequested, undefined).pipe(
-    Effect.as(Message.CompletedRequestLogin()),
-  ),
+  execute: Effect.sync(() => {
+    window.dispatchEvent(new CustomEvent("mobius:login"));
+  }).pipe(Effect.as(Message.CompletedRequestLogin())),
 });
 
 export const Navigate = Command.define("Navigate", {
   args: { path: Schema.String },
   messages: [Message.CompletedNavigate],
-  execute: ({ path }) =>
-    Port.emit(ports.outbound.navigationRequested, path).pipe(
-      Effect.as(Message.CompletedNavigate()),
-    ),
+  execute: ({ path }) => pushUrl(path).pipe(Effect.as(Message.CompletedNavigate())),
 });
 
 export const GoBack = Command.define("GoBack", {
   messages: [Message.CompletedGoBack],
-  execute: Port.emit(ports.outbound.backRequested, undefined).pipe(
-    Effect.as(Message.CompletedGoBack()),
-  ),
+  execute: back().pipe(Effect.as(Message.CompletedGoBack())),
 });

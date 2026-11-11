@@ -1,5 +1,3 @@
-import { useSyncExternalStore } from "react";
-
 const duration = 4000;
 const listeners = new Set<() => void>();
 let text = "";
@@ -16,15 +14,15 @@ export function showNotice(next: string) {
   timer = setTimeout(() => change(""), duration);
 }
 
-function subscribe(listener: () => void) {
+export function currentNotice(): string {
+  return text;
+}
+
+export function subscribeNotice(listener: () => void): () => void {
   listeners.add(listener);
   return () => {
     listeners.delete(listener);
   };
-}
-
-export function useNotice() {
-  return useSyncExternalStore(subscribe, () => text);
 }
 
 // A repository other than the home repository is part of the reference.

@@ -1,12 +1,12 @@
 import { Effect, Schema } from "effect";
 import { Command } from "foldkit";
-import * as Port from "foldkit/port";
+import { replaceUrl } from "foldkit/navigation";
 import { getUsage, getUsageQuality, getUsageSkills, getUsageTimes } from "@/api/api.gen";
+import { usageSearchToQuery } from "@/app/route";
 import { request as send } from "@/lib/effects";
 import { groupOptions, qualityGroups, skillGroups } from "@/lib/usage";
 import { Message } from "./message";
 import { groupFieldsOf, Range, Search } from "./model";
-import { ports } from "./ports";
 
 const copy = (values: readonly string[] | undefined) =>
   values === undefined ? undefined : [...values];
@@ -144,15 +144,15 @@ export const FetchQuality = Command.define("FetchQuality", {
 export const ChangeSearch = Command.define("ChangeSearch", {
   args: { search: Search },
   messages: [Message.CompletedChangeSearch],
-  execute: ({ search }) =>
-    Port.emit(ports.outbound.searchChanged, search).pipe(
-      Effect.as(Message.CompletedChangeSearch()),
-    ),
+  execute: ({ search }) => {
+    const url = `/usage${usageSearchToQuery(search)}`;
+    return replaceUrl(url).pipe(Effect.as(Message.CompletedChangeSearch()));
+  },
 });
 
 export const RequestLogin = Command.define("RequestLogin", {
   messages: [Message.CompletedRequestLogin],
-  execute: Port.emit(ports.outbound.loginRequested, undefined).pipe(
-    Effect.as(Message.CompletedRequestLogin()),
-  ),
+  execute: Effect.sync(() => {
+    window.dispatchEvent(new CustomEvent("mobius:login"));
+  }).pipe(Effect.as(Message.CompletedRequestLogin())),
 });

@@ -188,3 +188,17 @@ test("the chat screen receives a live message after the live connection closes",
   expect(loads).toHaveLength(0);
   await other.context().close();
 });
+
+test("an open screen opens exactly one connection to /api/events", async ({ page }) => {
+  let eventsConnections = 0;
+  await page.route("/api/events", (route) => {
+    eventsConnections++;
+    return route.fallback();
+  });
+  const opened = page.waitForResponse("/api/events");
+  await page.goto("/workstreams/owner/shop/12");
+  await opened;
+  await expect(page.getByLabel("Message to the Lead")).toBeEditable();
+  await page.waitForTimeout(1_000);
+  expect(eventsConnections).toBe(1);
+});

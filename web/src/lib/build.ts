@@ -1,9 +1,7 @@
-import { useEffect, useState } from "react";
-
 declare const UI_BUILD: string;
 declare const UI_RELEASE: string;
 
-export const uiRelease = UI_RELEASE;
+export const uiRelease = typeof UI_RELEASE !== "undefined" ? UI_RELEASE : "";
 
 async function newBuild() {
   // The Vite dev server has no ui-version.
@@ -12,34 +10,52 @@ async function newBuild() {
   }
   try {
     const response = await fetch("/ui-version", { cache: "no-store" });
-    return response.ok && (await response.text()) !== UI_BUILD;
+    const build = typeof UI_BUILD !== "undefined" ? UI_BUILD : "";
+    return response.ok && (await response.text()) !== build;
   } catch {
     return false;
   }
 }
 
-export function useNewBuild() {
-  const [found, setFound] = useState(false);
-  useEffect(() => {
-    const check = () => {
-      void newBuild().then((differs) => setFound((shown) => shown || differs));
-    };
-    const shown = () => {
-      if (!document.hidden) {
-        check();
-      }
-    };
+let foundNewBuild = false;
+const listeners = new Set<() => void>();
+let started = false;
+
+function notify() {
+  listeners.forEach((listener) => listener());
+}
+
+function check() {
+  void newBuild().then((differs) => {
+    if (differs && !foundNewBuild) {
+      foundNewBuild = true;
+      notify();
+    }
+  });
+}
+
+function shown() {
+  if (!document.hidden) {
+    check();
+  }
+}
+
+export function currentNewBuild(): boolean {
+  return foundNewBuild;
+}
+
+export function subscribeNewBuild(listener: () => void): () => void {
+  listeners.add(listener);
+  if (!started) {
+    started = true;
     check();
     window.addEventListener("focus", check);
     document.addEventListener("visibilitychange", shown);
-    const timer = setInterval(check, 5 * 60 * 1000);
-    return () => {
-      window.removeEventListener("focus", check);
-      document.removeEventListener("visibilitychange", shown);
-      clearInterval(timer);
-    };
-  }, []);
-  return found;
+    setInterval(check, 5 * 60 * 1000);
+  }
+  return () => {
+    listeners.delete(listener);
+  };
 }
 
 // The old server answers until it restarts, so only a new build ends the wait.

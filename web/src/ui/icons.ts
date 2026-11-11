@@ -314,3 +314,74 @@ export function autopilotIcon<M>(h: HtmlBuilder<M>, level: WorkstreamAutopilot):
 export function gitPullRequestArrowIcon<M>(h: HtmlBuilder<M>, className = "size-3.5"): Html {
   return icon(h, gitPullRequestArrow, className);
 }
+
+const wifiOff: readonly Shape[] = [
+  ["line", { x1: "2", y1: "2", x2: "22", y2: "22" }],
+  ["path", { d: "M12 20h.01" }],
+  ["path", { d: "M8.5 16.5a5 5 0 0 1 7 0" }],
+  ["path", { d: "M5 12.5a10 10 0 0 1 5.17-2.69" }],
+  ["path", { d: "M19 12.5a10 10 0 0 0-2.17-1.69" }],
+  ["path", { d: "M1.42 9a15 15 0 0 1 3.23-2.69" }],
+  ["path", { d: "M22.58 9a15 15 0 0 0-5.11-3.41" }],
+];
+
+const messageCircle: readonly Shape[] = [["path", { d: "M7.9 20A9 9 0 1 0 4 16.1L2 22Z" }]];
+
+const layers: readonly Shape[] = [
+  [
+    "path",
+    {
+      d: "m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z",
+    },
+  ],
+  ["path", { d: "m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65" }],
+  ["path", { d: "m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65" }],
+];
+
+const kanban: readonly Shape[] = [
+  ["path", { d: "M6 5v11" }],
+  ["path", { d: "M12 5v6" }],
+  ["path", { d: "M18 5v14" }],
+];
+
+const inbox: readonly Shape[] = [
+  ["polyline", { points: "22 12 16 12 14 15 10 15 8 12 2 12" }],
+  [
+    "path",
+    {
+      d: "M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z",
+    },
+  ],
+];
+
+const fileText: readonly Shape[] = [
+  ["path", { d: "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" }],
+  ["path", { d: "M14 2v4a2 2 0 0 0 2 2h4" }],
+  ["path", { d: "M10 9H8" }],
+  ["path", { d: "M16 13H8" }],
+  ["path", { d: "M16 17H8" }],
+];
+
+export function wifiOffIcon<M>(h: HtmlBuilder<M>, className = "size-3.5"): Html {
+  return icon(h, wifiOff, className);
+}
+
+export function messageCircleIcon<M>(h: HtmlBuilder<M>, className = "size-5"): Html {
+  return icon(h, messageCircle, className);
+}
+
+export function layersIcon<M>(h: HtmlBuilder<M>, className = "size-5"): Html {
+  return icon(h, layers, className);
+}
+
+export function kanbanIcon<M>(h: HtmlBuilder<M>, className = "size-5"): Html {
+  return icon(h, kanban, className);
+}
+
+export function inboxIcon<M>(h: HtmlBuilder<M>, className = "size-5"): Html {
+  return icon(h, inbox, className);
+}
+
+export function fileTextIcon<M>(h: HtmlBuilder<M>, className = "size-4"): Html {
+  return icon(h, fileText, className);
+}

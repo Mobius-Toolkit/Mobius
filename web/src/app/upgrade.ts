@@ -1,0 +1,111 @@
+import { Option } from "effect";
+import type { Html, HtmlBuilder } from "foldkit/html";
+import { renderBadge } from "@/ui/badge";
+import { renderButton } from "@/ui/button";
+import { defineDialogMount, renderDialog } from "@/ui/dialog";
+import { Message } from "./message";
+import type { Model } from "./model";
+
+const dialogMount = defineDialogMount(Message.CompletedFocusSheet);
+
+function drainText(waiting: number): string {
+  if (waiting === 0) {
+    return "Upgrade is ready to restart";
+  }
+  return `Upgrade waits for ${waiting} ${waiting === 1 ? "agent or upgrade" : "agents or upgrades"}`;
+}
+
+export function renderUpgradeControls(h: HtmlBuilder<Message>, model: Model): Html {
+  const items: Html[] = [];
+  const upgrade = model.upgrade;
+  const drain = Option.getOrNull(upgrade.drain);
+
+  if (drain?.on) {
+    items.push(
+      h.p(
+        [h.Class("flex items-center gap-2 px-2 text-sm text-muted-foreground")],
+        [
+          h.span([h.Class("size-2 shrink-0 rounded-full bg-amber-500")], []),
+          drainText(drain.waiting),
+        ],
+      ),
+    );
+  }
+
+  if (drain?.on) {
+    items.push(
+      renderButton(h, {
+        variant: "secondary",
+        pending: upgrade.cancelling,
+        label: "Cancel upgrade",
+        onClick: Message.CancelUpgradeRequested(),
+      }),
+    );
+  } else if (upgrade.version) {
+    items.push(
+      renderButton(h, {
+        variant: "secondary",
+        pending: upgrade.upgrading,
+        label: `Upgrade ${upgrade.version}`,
+        onClick: Message.ShowUpgradeChanges(),
+      }),
+    );
+  }
+
+  if (upgrade.failure) {
+    items.push(renderBadge(h, "destructive", upgrade.failure, "h-auto w-full whitespace-normal"));
+  }
+
+  if (model.newBuild) {
+    items.push(
+      renderButton(h, {
+        variant: "secondary",
+        label: "New version",
+        onClick: Message.NavigateRequested({ path: window.location.pathname }),
+      }),
+    );
+  }
+
+  return h.div([h.Class("contents")], items);
+}
+
+function renderReleaseChanges(h: HtmlBuilder<Message>, model: Model): Html {
+  const upgrade = model.upgrade;
+  if (upgrade.changesError) {
+    return renderBadge(h, "destructive", upgrade.changesError);
+  }
+  if (Option.isNone(upgrade.changes)) {
+    return h.p([h.Class("text-muted-foreground")], ["Mobius reads the changes."]);
+  }
+  return h.ul(
+    [h.Class("grid list-disc gap-1 pl-5 wrap-anywhere")],
+    upgrade.changes.value.map((title, index) => h.li([h.Key(String(index))], [title])),
+  );
+}
+
+export function renderUpgradeDialog(h: HtmlBuilder<Message>, model: Model): Html {
+  const upgrade = model.upgrade;
+  if (!upgrade.changesShown || !upgrade.version) {
+    return h.empty;
+  }
+
+  return renderDialog(h, {
+    mount: h.OnMount(dialogMount()),
+    titleId: "upgrade-dialog-title",
+    title: `Upgrade to ${upgrade.version}`,
+    description: "Mobius waits until no agent runs, and then starts the new release.",
+    close: Message.HideUpgradeChanges(),
+    body: h.div([h.Class("min-h-0 overflow-y-auto px-4")], [renderReleaseChanges(h, model)]),
+    footer: h.div(
+      [h.Class("flex justify-end p-4 pt-2")],
+      [
+        renderButton(h, {
+          pending: upgrade.upgrading,
+          label: "Upgrade",
+          onClick: Message.StartUpgradeRequested(),
+        }),
+      ],
+    ),
+    className: "flex max-h-[calc(100svh-2rem)] flex-col sm:max-w-lg",
+  });
+}

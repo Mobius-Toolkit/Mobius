@@ -1,10 +1,9 @@
 import { Effect, Schema } from "effect";
 import { Command } from "foldkit";
-import * as Port from "foldkit/port";
+import { pushUrl } from "foldkit/navigation";
 import { listBoardTasks } from "@/api/api.gen";
 import { request } from "@/lib/effects";
 import { Message } from "./message";
-import { ports } from "./ports";
 
 export const FetchBoard = Command.define("FetchBoard", {
   messages: [Message.BoardLoaded, Message.LoginRequired, Message.BoardFailed],
@@ -27,15 +26,12 @@ export const FetchBoard = Command.define("FetchBoard", {
 export const Navigate = Command.define("Navigate", {
   args: { path: Schema.String },
   messages: [Message.CompletedNavigate],
-  execute: ({ path }) =>
-    Port.emit(ports.outbound.navigationRequested, path).pipe(
-      Effect.as(Message.CompletedNavigate()),
-    ),
+  execute: ({ path }) => pushUrl(path).pipe(Effect.as(Message.CompletedNavigate())),
 });
 
 export const RequestLogin = Command.define("RequestLogin", {
   messages: [Message.CompletedRequestLogin],
-  execute: Port.emit(ports.outbound.loginRequested, undefined).pipe(
-    Effect.as(Message.CompletedRequestLogin()),
-  ),
+  execute: Effect.sync(() => {
+    window.dispatchEvent(new CustomEvent("mobius:login"));
+  }).pipe(Effect.as(Message.CompletedRequestLogin())),
 });

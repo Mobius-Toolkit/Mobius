@@ -1,5 +1,6 @@
 import { Option } from "effect";
 import { Command } from "foldkit";
+import type { Command as Cmd } from "foldkit/command";
 import * as Update from "foldkit/update";
 import { OutMessage as AgentsOutMessage } from "./agents/message";
 import * as AgentsModel from "./agents/model";
@@ -124,7 +125,7 @@ const refreshRecurringStep = Update.foldChildStep({
 });
 
 // The Tasks tab, the Agents tab, the Details tab and the Recurring tab read their data each time they open.
-export function commandsFor(model: Model) {
+export function commandsFor(model: Model): ReadonlyArray<Cmd<Message>> {
   switch (model.tab) {
     case "tasks":
       return Command.mapMessages(reloadTasks(model.tasks), toGotTasksMessage);
