@@ -404,15 +404,16 @@ func (e *Engine) endReview(ctx context.Context, repository github.Repository, j 
 		if err := e.endRound(ctx, repository, j, task, comment, "No open findings. Mobius waits for CI.", open); err != nil {
 			return err
 		}
+		// The poll reads the task in checks at once, so reviewed_head is set before the move.
+		err := e.queries.SetTaskReviewedHead(ctx, store.SetTaskReviewedHeadParams{ReviewedHead: sql.NullString{String: j.head, Valid: true}, ID: task.ID})
+		if err != nil {
+			return err
+		}
 		moved, err := e.setTaskState(ctx, store.SetTaskStateParams{State: "checks", ID: task.ID, FromState: "working"})
 		if err != nil || moved == 0 {
 			return err
 		}
 		task.State = "checks"
-		err = e.queries.SetTaskReviewedHead(ctx, store.SetTaskReviewedHeadParams{ReviewedHead: sql.NullString{String: j.head, Valid: true}, ID: task.ID})
-		if err != nil {
-			return err
-		}
 		_, err = e.startKeptRound(ctx, repository, j.round(task, "", sql.NullInt64{}))
 		return err
 	}
