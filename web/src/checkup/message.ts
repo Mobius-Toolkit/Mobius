@@ -28,8 +28,6 @@ export const Message = defineMessageUnion({
   ClickedBack: {},
   CompletedRequestLogin: {},
   CompletedNavigate: {},
-  CompletedGoBack: {},
-  CompletedOpenChat: {},
   CompletedReportFixButton: {},
   CompletedFocusDialog: {},
 });

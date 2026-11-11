@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Option, Schema } from "effect";
 import * as Agents from "./agents/model";
 import type { Flags } from "./flags";
 import * as Details from "./details/model";
@@ -37,4 +37,15 @@ export function initialModel(flags: Flags): Model {
     details: Details.initialModel(workstream),
     recurring: Recurring.initialModel(workstream),
   };
+}
+
+// A sheet or a dialog of the panel takes the first Escape.
+export function hasOpenOverlay(model: Model): boolean {
+  return (
+    Option.isSome(model.tasks.sheet) ||
+    Option.isSome(model.details.sheet) ||
+    Option.isSome(model.details.closure) ||
+    Option.isSome(model.details.mcpSheet) ||
+    Option.isSome(model.recurring.deletion)
+  );
 }

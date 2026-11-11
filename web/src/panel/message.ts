@@ -23,7 +23,6 @@ export const Message = defineMessageUnion({
   CompletedRequestLogin: {},
   CompletedNavigate: {},
   CompletedReportTab: {},
-  CompletedReportTaskAttached: {},
 });
 
 export type Message = typeof Message.Type;

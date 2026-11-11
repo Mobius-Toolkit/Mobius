@@ -37,9 +37,17 @@ function setUnread(next: Unread[]) {
   listeners.forEach((listener) => listener());
 }
 
+// A read that an event overtakes has old counts, so the read starts again.
+let changes = 0;
+
 function loadUnread() {
+  const started = changes;
   listUnread()
     .then((res) => {
+      if (changes !== started) {
+        loadUnread();
+        return;
+      }
       if (res.status === 200) {
         setUnread(res.data.data);
       }
@@ -51,9 +59,10 @@ export function startUnread(source: EventSource) {
   // The server sends an unread event only at a change, so each connection reads the counts.
   loadUnread();
   source.addEventListener("open", loadUnread);
-  const remove = onEvent<LiveEvents, "unread">(source, "unread", (count) =>
-    setUnread([...(unread ?? []).filter((other) => !sameChat(other, count)), count]),
-  );
+  const remove = onEvent<LiveEvents, "unread">(source, "unread", (count) => {
+    changes++;
+    setUnread([...(unread ?? []).filter((other) => !sameChat(other, count)), count]);
+  });
   return () => {
     source.removeEventListener("open", loadUnread);
     remove();

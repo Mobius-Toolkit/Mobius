@@ -308,9 +308,94 @@ const autopilotShapes: Record<WorkstreamAutopilot, readonly Shape[]> = {
 };
 
 export function autopilotIcon<M>(h: HtmlBuilder<M>, level: WorkstreamAutopilot): Html {
-  return icon(h, autopilotShapes[level], "size-3.5 text-muted-foreground");
+  return icon(h, autopilotShapes[level], "size-3.5 text-muted-foreground", [
+    h.Attribute("data-level", level),
+  ]);
 }
 
 export function gitPullRequestArrowIcon<M>(h: HtmlBuilder<M>, className = "size-3.5"): Html {
   return icon(h, gitPullRequestArrow, className);
+}
+
+const wifiOff: readonly Shape[] = [
+  ["path", { d: "M12 20h.01" }],
+  ["path", { d: "M8.5 16.429a5 5 0 0 1 7 0" }],
+  ["path", { d: "M5 12.859a10 10 0 0 1 5.17-2.69" }],
+  ["path", { d: "M19 12.859a10 10 0 0 0-2.007-1.523" }],
+  ["path", { d: "M2 8.82a15 15 0 0 1 4.177-2.643" }],
+  ["path", { d: "M22 8.82a15 15 0 0 0-11.288-3.764" }],
+  ["path", { d: "m2 2 20 20" }],
+];
+
+const messageCircle: readonly Shape[] = [
+  [
+    "path",
+    {
+      d: "M2.992 16.342a2 2 0 0 1 .094 1.167l-1.065 3.29a1 1 0 0 0 1.236 1.168l3.413-.998a2 2 0 0 1 1.099.092 10 10 0 1 0-4.777-4.719",
+    },
+  ],
+];
+
+const layers: readonly Shape[] = [
+  [
+    "path",
+    {
+      d: "M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z",
+    },
+  ],
+  ["path", { d: "M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12" }],
+  ["path", { d: "M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17" }],
+];
+
+const kanban: readonly Shape[] = [
+  ["path", { d: "M5 3v14" }],
+  ["path", { d: "M12 3v8" }],
+  ["path", { d: "M19 3v18" }],
+];
+
+const inbox: readonly Shape[] = [
+  ["polyline", { points: "22 12 16 12 14 15 10 15 8 12 2 12" }],
+  [
+    "path",
+    {
+      d: "M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z",
+    },
+  ],
+];
+
+const fileText: readonly Shape[] = [
+  [
+    "path",
+    {
+      d: "M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z",
+    },
+  ],
+  ["path", { d: "M14 2v5a1 1 0 0 0 1 1h5" }],
+  ["path", { d: "M10 9H8" }],
+  ["path", { d: "M16 13H8" }],
+  ["path", { d: "M16 17H8" }],
+];
+
+export function wifiOffIcon<M>(h: HtmlBuilder<M>, className = "size-3.5"): Html {
+  return icon(h, wifiOff, className);
+}
+
+export function messageCircleIcon<M>(h: HtmlBuilder<M>, className = "size-5"): Html {
+  return icon(h, messageCircle, className);
+}
+
+export function layersIcon<M>(h: HtmlBuilder<M>, className = "size-5"): Html {
+  return icon(h, layers, className);
+}
+
+export function kanbanIcon<M>(h: HtmlBuilder<M>, className = "size-5"): Html {
+  return icon(h, kanban, className);
+}
+
+export function inboxIcon<M>(h: HtmlBuilder<M>, className = "size-5"): Html {
+  return icon(h, inbox, className);
+}
+
+export function fileTextIcon<M>(h: HtmlBuilder<M>, className = "size-4"): Html {
+  return icon(h, fileText, className);
 }

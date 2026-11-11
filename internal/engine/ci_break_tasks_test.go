@@ -19,8 +19,8 @@ const ciIssue = 30
 
 // hardBreakSQL is a hard break of the workflow 7 in the run 1 whose task issue is the number issue.
 func hardBreakSQL(issue int64) string {
-	return fmt.Sprintf(`INSERT INTO ci_breaks (repository, workflow_id, workflow_name, run_id, run_url, run_attempt, rerun_at, result, issue, started_at)
-		VALUES ('owner/shop', 7, 'ci', 1, '', 1, '2026-10-04T10:00:00Z', 'hard', %d, '2026-10-04T10:00:00Z')`, issue)
+	return fmt.Sprintf(`INSERT INTO ci_breaks (repository, workflow_id, workflow_name, run_id, run_url, run_attempt, run_event, rerun_at, result, issue, started_at)
+		VALUES ('owner/shop', 7, 'ci', 1, '', 1, 'push', '2026-10-04T10:00:00Z', 'hard', %d, '2026-10-04T10:00:00Z')`, issue)
 }
 
 // prepareCIIssue adds the maintenance Workstream #20 with autopilot or not, and the open issue #30 below it.

@@ -1,4 +1,3 @@
-import { useEffect, useRef, useSyncExternalStore } from "react";
 import {
   getCreateRecordingUrl,
   getFinishRecordingUrl,
@@ -472,11 +471,13 @@ const start = async (key: string) => {
   }
 };
 
-document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "hidden") {
-    void finish(backgroundMessage);
-  }
-});
+if (typeof document !== "undefined") {
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") {
+      void finish(backgroundMessage);
+    }
+  });
+}
 
 const cancelStart = () => {
   run++;
@@ -521,32 +522,3 @@ export const registerVoiceInput = (key: string, insert: (text: string) => void) 
     queueMicrotask(stopWithoutInput);
   };
 };
-
-// useVoice gives the voice run of the page to the input with the draft key. toggle starts a recording that belongs to
-// that key, or stops the recording. During the recording, the server gives the live text about each 2 seconds, and live
-// has it for the input of the run. The stop puts the audio in the draft of the key as a card, and the card converts to
-// text in the background. The text goes to onText when an input with the key is mounted. The recording stays on until
-// toggle or stop stops it, the recording reaches 10 minutes, the microphone stops, or no mounted input has the key. A
-// stop while the microphone starts cancels the start. notice is the message of the last start or stop of the key.
-export function useVoice(key: string, onText: (text: string) => void) {
-  const state = useSyncExternalStore(subscribeVoice, voiceSnapshot);
-  const latestOnText = useRef(onText);
-
-  useEffect(() => {
-    latestOnText.current = onText;
-  });
-
-  useEffect(() => registerVoiceInput(key, (text: string) => latestOnText.current(text)), [key]);
-
-  const mine = state.recording && state.key === key;
-  return {
-    supported: voiceSupported,
-    recording: state.recording,
-    mine,
-    startedAt: state.startedAt,
-    live: mine ? state.live : "",
-    notice: state.notice.key === key ? state.notice.text : "",
-    toggle: () => toggleVoice(key),
-    stop: stopVoice,
-  };
-}

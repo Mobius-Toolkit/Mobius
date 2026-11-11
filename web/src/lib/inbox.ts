@@ -1,4 +1,3 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   listInbox,
   type InboxItem,
@@ -12,7 +11,7 @@ const answeredLimit = 2 * 60 * 1000;
 
 // An item that the Owner answered or decided. The server closes it at the next poll, so until a read without the
 // item (item) or without its issue (mark), or until the limit, the UI hides the item and the mark of its issue.
-type Answered = {
+export type Answered = {
   id: number;
   repository: string;
   issue: number;
@@ -21,154 +20,153 @@ type Answered = {
   mark: boolean;
 };
 
-const hideListeners = new Set<(item: { id: number; repository: string; issue: number }) => void>();
+export type InboxState = {
+  items: InboxItem[];
+  answered: Answered[];
+};
 
-export function hideInboxItem(item: { id: number; repository: string; issue: number }) {
-  hideListeners.forEach((listener) => listener(item));
+let state: InboxState = { items: [], answered: [] };
+const listeners = new Set<() => void>();
+const answeredTimers = new Map<number, ReturnType<typeof setTimeout>>();
+
+function notify() {
+  listeners.forEach((listener) => listener());
 }
 
-const restoreListeners = new Set<(id: number) => void>();
+function setAnswered(update: (list: Answered[]) => Answered[]) {
+  const next = update(state.answered);
+  state = { ...state, answered: next };
+  for (const item of next) {
+    if (!answeredTimers.has(item.id)) {
+      const remaining = Math.max(0, item.time + answeredLimit - Date.now());
+      answeredTimers.set(
+        item.id,
+        setTimeout(() => {
+          answeredTimers.delete(item.id);
+          setAnswered((list) => list.filter((one) => one.id !== item.id));
+        }, remaining),
+      );
+    }
+  }
+  notify();
+}
+
+export function hideInboxItem(item: { id: number; repository: string; issue: number }) {
+  setAnswered((list) => [
+    ...list.filter((other) => other.id !== item.id),
+    {
+      id: item.id,
+      repository: item.repository,
+      issue: item.issue,
+      time: Date.now(),
+      item: true,
+      mark: true,
+    },
+  ]);
+}
 
 // Brings the item back after a failed request. The caller shows the error itself, so the shell keeps no failure.
 export function restoreInboxItem(id: number) {
-  restoreListeners.forEach((listener) => listener(id));
-}
-
-export function useInbox(source: EventSource | undefined, needsHuman: NeedsHuman[]) {
-  const [items, setItems] = useState<InboxItem[]>([]);
-  const [answered, setAnswered] = useState<Answered[]>([]);
-
-  const hide = useCallback((item: { id: number; repository: string; issue: number }) => {
-    setAnswered((list) => [
-      ...list.filter((other) => other.id !== item.id),
-      {
-        id: item.id,
-        repository: item.repository,
-        issue: item.issue,
-        time: Date.now(),
-        item: true,
-        mark: true,
-      },
-    ]);
-  }, []);
-
-  useEffect(() => {
-    hideListeners.add(hide);
-    return () => {
-      hideListeners.delete(hide);
-    };
-  }, [hide]);
-
-  const restore = useCallback(
-    (id: number) => setAnswered((list) => list.filter((other) => other.id !== id)),
-    [],
-  );
-
-  useEffect(() => {
-    restoreListeners.add(restore);
-    return () => {
-      restoreListeners.delete(restore);
-    };
-  }, [restore]);
-
-  const updateAction = useCallback(
-    (action: PendingAction) =>
-      setItems((list) =>
-        list.map((item) => (item.action?.id === action.id ? { ...item, action } : item)),
-      ),
-    [],
-  );
-
-  useEffect(() => {
-    if (!source) {
-      return;
-    }
-    // An Inbox event that comes while the connection is down is lost, so each connection reads the items.
-    // A read that started before an event can have an older state than the event, so it is read again.
-    let changes = 0;
-    const load = () => {
-      const started = changes;
-      listInbox()
-        .then((res) => {
-          if (changes !== started) {
-            load();
-          } else if (res.status === 200) {
-            const read = res.data.data;
-            setItems(read);
-            setAnswered((list) =>
-              list
-                .map((other) => ({
-                  ...other,
-                  item: other.item && read.some((item) => item.id === other.id),
-                }))
-                .filter((other) => other.item || other.mark),
-            );
-          }
-        })
-        .catch(() => {});
-    };
-    load();
-    source.addEventListener("open", load);
-    const remove = onEvent<LiveEvents, "inbox">(source, "inbox", (item) => {
-      changes++;
-      setAnswered((list) => list.filter((other) => other.id !== item.id));
-      setItems((list) => {
-        const others = list.filter((other) => other.id !== item.id);
-        return item.dismissedAt ? others : [...others, item];
-      });
-    });
-    const removeAction = onEvent<LiveEvents, "action">(source, "action", (action) => {
-      changes++;
-      updateAction(action);
-    });
-    return () => {
-      source.removeEventListener("open", load);
-      remove();
-      removeAction();
-    };
-  }, [source, updateAction]);
-
-  const [readNeedsHuman, setReadNeedsHuman] = useState(needsHuman);
-  if (readNeedsHuman !== needsHuman) {
-    setReadNeedsHuman(needsHuman);
-    setAnswered((list) =>
-      list
-        .map((other) => ({
-          ...other,
-          mark: other.mark && needsHuman.some((row) => isIssueOf(other, row)),
-        }))
-        .filter((other) => other.item || other.mark),
-    );
+  const timer = answeredTimers.get(id);
+  if (timer) {
+    clearTimeout(timer);
+    answeredTimers.delete(id);
   }
-
-  useEffect(() => {
-    const timers = answered.map((other) =>
-      setTimeout(
-        () => setAnswered((list) => list.filter((one) => one.id !== other.id)),
-        Math.max(0, other.time + answeredLimit - Date.now()),
-      ),
-    );
-    return () => timers.forEach(clearTimeout);
-  }, [answered]);
-
-  // A merging item waits for the answer of GitHub. It comes back with its reason when GitHub refuses the merge.
-  const open = useMemo(
-    () =>
-      items.filter(
-        (item) => !item.merging && !answered.some((other) => other.item && other.id === item.id),
-      ),
-    [items, answered],
-  );
-
-  const marked = useMemo(
-    () =>
-      needsHuman.filter((row) => !answered.some((other) => other.mark && isIssueOf(other, row))),
-    [needsHuman, answered],
-  );
-
-  return { items: open, needsHuman: marked };
+  setAnswered((list) => list.filter((other) => other.id !== id));
 }
 
-function isIssueOf(answered: Answered, row: NeedsHuman) {
+export function currentInbox(): InboxState {
+  return state;
+}
+
+export function subscribeInbox(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+export function openInboxItems(inbox: InboxState): InboxItem[] {
+  return inbox.items.filter(
+    (item) => !item.merging && !inbox.answered.some((other) => other.item && other.id === item.id),
+  );
+}
+
+// A new list ends the mark of an issue that the list no longer holds, and an entry with no item and no mark goes away.
+export function dropMarks(needsHuman: readonly NeedsHuman[]) {
+  setAnswered((list) =>
+    list
+      .map((other) => ({
+        ...other,
+        mark: other.mark && needsHuman.some((row) => isIssueOf(other, row)),
+      }))
+      .filter((other) => other.item || other.mark),
+  );
+}
+
+export function filterNeedsHuman(
+  needsHuman: readonly NeedsHuman[],
+  answered: readonly Answered[],
+): NeedsHuman[] {
+  return needsHuman.filter((row) => !answered.some((other) => other.mark && isIssueOf(other, row)));
+}
+
+export function isIssueOf(answered: Answered, row: NeedsHuman) {
   return row.repository === answered.repository && row.number === answered.issue;
+}
+
+let changes = 0;
+
+export function loadInbox(): Promise<void> {
+  const started = changes;
+  return listInbox()
+    .then((res): Promise<void> | void => {
+      if (changes !== started) {
+        return loadInbox();
+      }
+      if (res.status === 200) {
+        const read = res.data.data;
+        const nextAnswered = state.answered
+          .map((other) => ({
+            ...other,
+            item: other.item && read.some((item) => item.id === other.id),
+          }))
+          .filter((other) => other.item || other.mark);
+        state = { items: read, answered: nextAnswered };
+        notify();
+      }
+    })
+    .catch(() => {});
+}
+
+export function updateInboxAction(action: PendingAction) {
+  state = {
+    ...state,
+    items: state.items.map((item) => (item.action?.id === action.id ? { ...item, action } : item)),
+  };
+  notify();
+}
+
+export function startInbox(source: EventSource) {
+  void loadInbox();
+  source.addEventListener("open", loadInbox);
+  const remove = onEvent<LiveEvents, "inbox">(source, "inbox", (item) => {
+    changes++;
+    setAnswered((list) => list.filter((other) => other.id !== item.id));
+    const others = state.items.filter((other) => other.id !== item.id);
+    state = {
+      ...state,
+      items: item.dismissedAt ? others : [...others, item],
+    };
+    notify();
+  });
+  const removeAction = onEvent<LiveEvents, "action">(source, "action", (action) => {
+    changes++;
+    updateInboxAction(action);
+  });
+  return () => {
+    source.removeEventListener("open", loadInbox);
+    remove();
+    removeAction();
+  };
 }

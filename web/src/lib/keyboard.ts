@@ -1,5 +1,3 @@
-import { useEffect } from "react";
-
 // The keyboard of a phone covers the bottom of the layout viewport and does not resize it. --keyboard is the height
 // of the covered part. The function gives the call that stops the tracking.
 export function trackKeyboardHeight() {
@@ -20,8 +18,4 @@ export function trackKeyboardHeight() {
     viewport.removeEventListener("scroll", update);
     document.documentElement.style.removeProperty("--keyboard");
   };
-}
-
-export function useKeyboardHeight() {
-  useEffect(trackKeyboardHeight, []);
 }

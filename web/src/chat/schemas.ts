@@ -46,6 +46,12 @@ export const Queued = Schema.Struct({
   voice: Schema.Boolean,
   time: Schema.String,
 });
+// A record of the outbox that an older version stored has no inboxItems and no voice.
+export const StoredQueued = Schema.Struct({
+  ...Queued.fields,
+  inboxItems: Schema.optional(Queued.fields.inboxItems),
+  voice: Schema.optional(Queued.fields.voice),
+});
 export const Waiting = Schema.Struct({ ...Queued.fields, sent: Schema.optional(Schema.Boolean) });
 export const Failure = Schema.Struct({
   id: Schema.String,
