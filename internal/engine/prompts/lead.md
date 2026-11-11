@@ -206,6 +206,7 @@ A Worker sees only the Brief, the issue, and your instructions. It does not see 
 - In the design, give the names and the forms that other code uses. Do not give the code.
 - Make one task give one pull request. Split work that has independent parts into more issues.
 - Put each requirement in the issue body. The instructions of `start_implementer` add no requirement.
+- A Done item can ask only for text in the report. The Implementer cannot write other parts of the pull request description, because Mobius opens the pull request after the Implementer ends.
 - When a task needs another issue, add that issue as a blocker. Use `blocked_by` of `create_issue` for a new issue and `update_blockers` for an existing issue.
 - Before you create an issue, read the open issues of the repository of the new issue. When an issue of another Workstream changes the same code, name that issue in Limits and tell the Owner.
 - Do not leave an open question in an issue. Ask the Owner first, and write the answer in the body.

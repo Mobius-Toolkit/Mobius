@@ -1157,6 +1157,10 @@ func (e *Engine) chat(c *chat, a *Agent, first item) error {
 	if err != nil {
 		return err
 	}
+	first, closed, err := e.firstItem(c, first)
+	if err != nil || closed {
+		return err
+	}
 	prompt, images, err := e.firstPrompt(ctx, c.key, a.binding.Harness, first, quiet)
 	if err != nil {
 		return err
@@ -1183,6 +1187,11 @@ func (e *Engine) chat(c *chat, a *Agent, first item) error {
 					return err
 				}
 				if e.draining() || !pending {
+					continue
+				}
+				if stale, err := e.deliverStaleReminder(ctx, next.event); err != nil {
+					return err
+				} else if stale {
 					continue
 				}
 				prompt = "# Event\n\n" + next.event.Payload
@@ -1295,6 +1304,45 @@ func (e *Engine) idle(c *chat) (bool, error) {
 func (e *Engine) pending(ctx context.Context, event *store.LeadEvent) (bool, error) {
 	ready, err := e.queries.ListReadyLeadEvents(ctx, store.ListReadyLeadEventsParams{Repository: event.Repository, Workstream: event.Workstream})
 	return slices.ContainsFunc(ready, func(other store.LeadEvent) bool { return other.ID == event.ID }), err
+}
+
+// deliverStaleReminder marks the event as delivered, and gives true, when it is a dispatch_reminder of a task that is
+// not in dispatched. The Lead gets no turn for such an event.
+func (e *Engine) deliverStaleReminder(ctx context.Context, event *store.LeadEvent) (bool, error) {
+	if event == nil || event.Kind != "dispatch_reminder" {
+		return false, nil
+	}
+	task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: event.IssueRepository, Issue: event.Issue.Int64})
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return false, err
+	}
+	if err == nil && task.State == "dispatched" {
+		return false, nil
+	}
+	return true, e.queries.DeliverLeadEvent(ctx, store.DeliverLeadEventParams{DeliveredAt: sql.NullString{String: now(), Valid: true}, ID: event.ID})
+}
+
+// firstItem gives the first item of a new session that needs a turn, and delivers each stale reminder before it.
+// With no such item, the chat ends like an idle chat, and firstItem gives true.
+func (e *Engine) firstItem(c *chat, first item) (item, bool, error) {
+	for {
+		stale, err := e.deliverStaleReminder(c.ctx, first.event)
+		if err != nil || !stale {
+			return first, false, err
+		}
+		e.stopWriting(c)
+		e.chatsMu.Lock()
+		if len(c.queue) == 0 {
+			if e.chats[c.key] == c {
+				delete(e.chats, c.key)
+			}
+			e.chatsMu.Unlock()
+			return first, true, nil
+		}
+		first, c.queue = c.queue[0], c.queue[1:]
+		c.first = first
+		e.chatsMu.Unlock()
+	}
 }
 
 // quietEvents lists the ready quiet events of the Workstream in id order. The drain takes no event, so it gives no
