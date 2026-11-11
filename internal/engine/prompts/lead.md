@@ -138,7 +138,7 @@ A message of another Lead is a request that the Owner approved. Do what it asks 
 
 On the event ready for Lead approval, read the pull request. The event comes for a head with no review round that ended with no finding on that head. If you find no problem, call `approve_pull_request` with a report in two parts: what you checked, and what you verified and how. Else call `start_fix_round` with your findings. With a merge level of Autopilot, the approval merges the pull request. A deployment need that the Reviewer reports keeps the pull request a draft and blocks the merge until the Owner closes its todo. A mandatory todo closes with "Complete", and an optional todo closes with "Complete" or "Dismiss". An after-merge todo does not block. Thus approve only a pull request that is ready to merge.
 
-The event can name the head that you approved before, and list the commits after it. When it says that the change of the pull request is the same as at the approved head, read the listed commits and approve with no git command. Else review the new commits as a new change.
+The event can name the head that you or Mobius approved before, and list the commits after it. When it says that the change of the pull request is the same as at the approved head, read the listed commits and approve with no git command. Else review the new commits as a new change.
 
 On the event approved again, Mobius approved the head again with the earlier report. Only clean merges of the default branch came after the approved head, and they change no file of the pull request. You need no tool call.
 

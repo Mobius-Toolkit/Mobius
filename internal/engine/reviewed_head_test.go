@@ -3,6 +3,8 @@ package engine_test
 import (
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -263,4 +265,41 @@ func TestAFailedLabelWriteOfAnApprovalOfMobiusGivesOneComment(t *testing.T) {
 		t.Errorf("approval comments = %d, want 1", got)
 	}
 	checkNoLeadTurnForTheHead(t, server)
+}
+
+// TestALaterHeadAfterAnApprovalOfMobiusNamesMobiusInTheEvent checks that the event ready_for_approval for a head with
+// a hand resolution says that Mobius or the Lead approved the earlier head.
+func TestALaterHeadAfterAnApprovalOfMobiusNamesMobiusInTheEvent(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := reviewedHeadServer(t, fake, leadStarts, 3*time.Second)
+	authorize(t, server)
+	setWorkstreamAutopilot(t, server, "merge")
+	testkit.WaitFor(t, func() bool { return workstreams(t, server)[0].Autopilot == "merge" })
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "checks" && reviewedHead(t, server) != "" })
+	approved := head(t, fake, "mobius/41")
+	fake.CommitFile(shop, "price.txt", "cents\n", "Add price")
+	fake.HoldBranchUpdates()
+
+	testkit.WaitFor(t, func() bool { return fake.UpdateBranchCalls() == 1 })
+	work := t.TempDir()
+	testkit.Git(t, work, "clone", "--branch=mobius/41", fake.Remote(shop), ".")
+	testkit.Git(t, work, "merge", "--no-ff", "--no-commit", "origin/main")
+	if err := os.WriteFile(filepath.Join(work, "plan.txt"), []byte("cents\nHAND\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	testkit.Git(t, work, "add", "plan.txt")
+	testkit.Git(t, work, "commit", "-m", "Merge main by hand")
+	testkit.Git(t, work, "push", "origin", "mobius/41")
+	fake.ReleaseBranchUpdates()
+
+	prompt := waitForLeadPrompt(t, server, fmt.Sprintf("Mobius or the Lead approved the head %.8s before.", approved))
+	event := prompt[strings.LastIndex(prompt, "# Event\n\n"):]
+	if !strings.Contains(event, readyForApprovalMarker) {
+		t.Errorf("event = %q", event)
+	}
+	if strings.Contains(event, "The Lead approved the head") {
+		t.Errorf("event = %q", event)
+	}
 }

@@ -47,7 +47,7 @@ func pushCommit(t *testing.T, fake *testkit.FakeGitHub, branch, path, content, m
 // eventAfterApproval waits for the event ready for Lead approval that names the approved head, and gives its text.
 func eventAfterApproval(t *testing.T, server *testserver.Server, approved string) string {
 	t.Helper()
-	prompt := waitForLeadPrompt(t, server, fmt.Sprintf("The Lead approved the head %.8s before.", approved))
+	prompt := waitForLeadPrompt(t, server, fmt.Sprintf("Mobius or the Lead approved the head %.8s before.", approved))
 	parts := strings.Split(prompt, "# Event\n\n")
 	return parts[len(parts)-1]
 }
@@ -268,7 +268,7 @@ func TestARefusedCommentOfTheApprovalAgainGivesTheLeadReadyForApproval(t *testin
 		switch {
 		case event.Kind == "approved_again":
 			t.Errorf("approved_again event after a refused comment: %q", event.Payload)
-		case event.Kind == "ready_for_approval" && strings.Contains(event.Payload, fmt.Sprintf("The Lead approved the head %.8s before.", approved)):
+		case event.Kind == "ready_for_approval" && strings.Contains(event.Payload, fmt.Sprintf("Mobius or the Lead approved the head %.8s before.", approved)):
 			ready++
 		}
 	}
@@ -315,7 +315,7 @@ func TestARefusedLabelOfTheApprovalAgainGivesOneReadyEvent(t *testing.T) {
 		case "approved_again":
 			t.Errorf("approved_again event after a refused label write: %q", event.Payload)
 		case "ready_for_approval":
-			if strings.Contains(event.Payload, fmt.Sprintf("The Lead approved the head %.8s before.", approved)) {
+			if strings.Contains(event.Payload, fmt.Sprintf("Mobius or the Lead approved the head %.8s before.", approved)) {
 				ready++
 			}
 		}
@@ -513,7 +513,7 @@ func TestTheEventOfTheFirstApprovalHasNoApprovalLine(t *testing.T) {
 
 	prompt := waitForLeadPrompt(t, server, " ready for Lead approval of #41 \"Add plan model\"")
 
-	if strings.Contains(prompt, "The Lead approved the head") {
+	if strings.Contains(prompt, "approved the head") {
 		t.Errorf("prompt = %q", prompt)
 	}
 	if got := approvedHead(t, server); got != "" {
