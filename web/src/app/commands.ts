@@ -223,15 +223,26 @@ export const SelectAutopilot = Command.define("SelectAutopilot", {
         if (res.status === 204) {
           showNotice(`Autopilot of #${number}: ${levelName(to)}`);
           return Message.SelectAutopilotSucceeded({
+            repository: `${owner}/${name}`,
             from,
             to,
             number,
           });
         }
-        return Message.SelectAutopilotFailed({ error: res.data.error });
+        return Message.SelectAutopilotFailed({
+          repository: `${owner}/${name}`,
+          number,
+          error: res.data.error,
+        });
       }),
       Effect.catchTag("RequestFailed", (error) =>
-        Effect.succeed(Message.SelectAutopilotFailed({ error: error.message })),
+        Effect.succeed(
+          Message.SelectAutopilotFailed({
+            repository: `${owner}/${name}`,
+            number,
+            error: error.message,
+          }),
+        ),
       ),
       Effect.tap(() =>
         Effect.sync(() => {
@@ -249,12 +260,22 @@ export const CloseWorkstream = Command.define("CloseWorkstream", {
       Effect.map((res) => {
         if (res.status === 204) {
           showNotice(`Closed the Workstream #${number}`);
-          return Message.CloseWorkstreamSucceeded({ number });
+          return Message.CloseWorkstreamSucceeded({ repository: `${owner}/${name}`, number });
         }
-        return Message.CloseWorkstreamFailed({ error: res.data.error });
+        return Message.CloseWorkstreamFailed({
+          repository: `${owner}/${name}`,
+          number,
+          error: res.data.error,
+        });
       }),
       Effect.catchTag("RequestFailed", (error) =>
-        Effect.succeed(Message.CloseWorkstreamFailed({ error: error.message })),
+        Effect.succeed(
+          Message.CloseWorkstreamFailed({
+            repository: `${owner}/${name}`,
+            number,
+            error: error.message,
+          }),
+        ),
       ),
     ),
 });

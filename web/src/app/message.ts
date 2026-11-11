@@ -134,14 +134,15 @@ export const Message = defineMessageUnion({
   // Autopilot & Workstream actions
   SelectAutopilotRequested: { level: WorkstreamAutopilot },
   SelectAutopilotSucceeded: {
+    repository: Schema.String,
     from: WorkstreamAutopilot,
     to: WorkstreamAutopilot,
     number: Schema.Number,
   },
-  SelectAutopilotFailed: { error: Schema.String },
+  SelectAutopilotFailed: { repository: Schema.String, number: Schema.Number, error: Schema.String },
   CloseWorkstreamRequested: {},
-  CloseWorkstreamSucceeded: { number: Schema.Number },
-  CloseWorkstreamFailed: { error: Schema.String },
+  CloseWorkstreamSucceeded: { repository: Schema.String, number: Schema.Number },
+  CloseWorkstreamFailed: { repository: Schema.String, number: Schema.Number, error: Schema.String },
   SetMobileTasksOpen: { open: Schema.Boolean },
 
   // Forwarded live events to active screens

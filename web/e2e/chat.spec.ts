@@ -1975,6 +1975,61 @@ test("the Autopilot trigger shows a level that the server gives after the select
   await expect(level("Off")).toBeVisible();
 });
 
+test("the Autopilot switch shows the level of the open Workstream after a choice in another Workstream", async ({
+  page,
+}) => {
+  const second = "/workstreams/owner/shop/13";
+  try {
+    for (const size of [{ width: 1280, height: 800 }, phone]) {
+      await page.setViewportSize(size);
+      const desktop = size.width > phone.width;
+      await page.goto(shop);
+      await page.getByRole("button", { name: "Autopilot: Off" }).click();
+      const answered = page.waitForResponse("**/api/workstreams/owner/shop/12/autopilot");
+      await (
+        desktop
+          ? page.getByRole("menuitemradio", { name: /^Merge only/ })
+          : page.getByRole("radio", { name: /^Merge only/ })
+      ).click();
+      await answered;
+      await expect(page.getByRole("button", { name: "Autopilot: Merge only" })).toBeVisible();
+
+      if (!desktop) {
+        await page
+          .getByRole("link", { name: "Workstreams", exact: true })
+          .filter({ visible: true })
+          .click();
+      }
+      await page.locator(`a[href="${second}"]`).filter({ visible: true }).click();
+      await expect(page).toHaveURL(second);
+      await expect(page.getByRole("button", { name: "Autopilot: Off" })).toBeVisible();
+      await page.getByRole("button", { name: "Autopilot: Off" }).click();
+      await expect(
+        desktop
+          ? page.getByRole("menuitemradio", { name: /^Off/ })
+          : page.getByRole("radio", { name: /^Off/ }),
+      ).toBeChecked();
+      await page.keyboard.press("Escape");
+
+      await page.evaluate(async () => {
+        await fetch("/api/workstreams/owner/shop/12/autopilot", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ level: "off" }),
+        });
+      });
+    }
+  } finally {
+    await page.evaluate(async () => {
+      await fetch("/api/workstreams/owner/shop/12/autopilot", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ level: "off" }),
+      });
+    });
+  }
+});
+
 test("the Autopilot sheet of the phone top bar sets the level", async ({ page }) => {
   const sheet = page.getByRole("dialog", { name: "Autopilot" });
   await page.setViewportSize(phone);

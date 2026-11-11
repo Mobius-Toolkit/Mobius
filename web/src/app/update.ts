@@ -63,6 +63,7 @@ import {
   ToggleSwitch,
   WaitForStart,
 } from "./commands";
+import { serverAutopilot } from "./autopilot";
 import { Message } from "./message";
 import { initialModel, Model, savedOrganization, saveOrganization } from "./model";
 import { coordinatorTrayItems, workstreamTrayItems } from "./tray";
@@ -226,11 +227,30 @@ const noScreens: Pick<
   githubProgram: Option.none(),
 };
 
+const noWorkstreamChatState: Pick<
+  Model,
+  "autopilotBusy" | "autopilotError" | "closeBusy" | "closeError" | "mobileTasksOpen"
+> = {
+  autopilotBusy: false,
+  autopilotError: "",
+  closeBusy: false,
+  closeError: "",
+  mobileTasksOpen: false,
+};
+
+function isOpenWorkstream(model: Model, repository: string, number: number): boolean {
+  return (
+    model.route._tag === "WorkstreamChat" &&
+    `${model.route.owner}/${model.route.name}` === repository &&
+    model.route.number === number
+  );
+}
+
 function initScreenForRoute(
   initialScreenModel: Model,
   route: AppRoute,
 ): { model: Model; commands: Cmd<Message>[] } {
-  let model: Model = { ...initialScreenModel, ...noScreens };
+  let model: Model = { ...initialScreenModel, ...noScreens, ...noWorkstreamChatState };
   const commands: Cmd<Message>[] = [];
 
   switch (route._tag) {
@@ -1021,7 +1041,6 @@ export function update(model: Model, message: Message): UpdateReturn {
     case "WorkstreamsStoreChanged": {
       const { workstreams, needsHuman, working } = message;
       const commands: Cmd<Message>[] = [];
-      let chosenAutopilot = model.chosenAutopilot;
       if (model.route._tag === "WorkstreamChat") {
         const { owner, name, number } = model.route;
         const current = workstreams.find(
@@ -1030,9 +1049,11 @@ export function update(model: Model, message: Message): UpdateReturn {
         if (workstreams.length > 0 && !current) {
           commands.push(ReplaceUrl({ path: "/workstreams" }));
         }
-        const serverLevel = current?.autopilot ?? "off";
-        chosenAutopilot = Option.filter(chosenAutopilot, (chosen) => chosen.from === serverLevel);
       }
+      const chosenAutopilot = Option.filter(
+        model.chosenAutopilot,
+        (chosen) => chosen.from === serverAutopilot(workstreams, chosen.repository, chosen.number),
+      );
       let workstreamsProgram = model.workstreamsProgram;
       if (Option.isSome(workstreamsProgram)) {
         workstreamsProgram = Option.some({
@@ -1411,17 +1432,31 @@ export function update(model: Model, message: Message): UpdateReturn {
       return { model, commands: [] };
     }
 
-    case "SelectAutopilotSucceeded":
+    case "SelectAutopilotSucceeded": {
+      const storeLevel = serverAutopilot(model.workstreams, message.repository, message.number);
+      const isOpen = isOpenWorkstream(model, message.repository, message.number);
       return {
         model: {
           ...model,
-          autopilotBusy: false,
-          chosenAutopilot: Option.some({ from: message.from, to: message.to }),
+          autopilotBusy: isOpen ? false : model.autopilotBusy,
+          chosenAutopilot:
+            storeLevel === message.from
+              ? Option.some({
+                  repository: message.repository,
+                  number: message.number,
+                  from: message.from,
+                  to: message.to,
+                })
+              : model.chosenAutopilot,
         },
         commands: [],
       };
+    }
 
     case "SelectAutopilotFailed":
+      if (!isOpenWorkstream(model, message.repository, message.number)) {
+        return { model, commands: [] };
+      }
       return {
         model: { ...model, autopilotBusy: false, autopilotError: message.error },
         commands: [],
@@ -1439,12 +1474,18 @@ export function update(model: Model, message: Message): UpdateReturn {
     }
 
     case "CloseWorkstreamSucceeded":
+      if (!isOpenWorkstream(model, message.repository, message.number)) {
+        return { model, commands: [] };
+      }
       return {
         model: { ...model, closeBusy: false },
         commands: [],
       };
 
     case "CloseWorkstreamFailed":
+      if (!isOpenWorkstream(model, message.repository, message.number)) {
+        return { model, commands: [] };
+      }
       return {
         model: { ...model, closeBusy: false, closeError: message.error },
         commands: [],
