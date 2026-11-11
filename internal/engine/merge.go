@@ -189,6 +189,14 @@ func (e *Engine) mergeApproved(ctx context.Context, repository github.Repository
 		return false, nil
 	}
 	if !awaitsMerge(task) || slices.ContainsFunc(runs, func(run *gh.CheckRun) bool { return !passed(run) }) {
+		if !awaitsMerge(task) && task.State != "checks" && task.State != "approval" {
+			if task.MergeQueuedAt.Valid {
+				if err := e.queries.ClearTaskMergeQueuedAt(ctx, task.ID); err != nil {
+					return false, err
+				}
+				task.MergeQueuedAt = sql.NullString{}
+			}
+		}
 		return false, nil
 	}
 	if waits, err := e.updateForMerge(ctx, repository, pullRequest); err != nil || waits {
@@ -198,10 +206,11 @@ func (e *Engine) mergeApproved(ctx context.Context, repository github.Repository
 		return false, err
 	}
 	if task, err = e.keepApproval(ctx, repository, task); err != nil || !awaitsMerge(task) || hasOpenThread(e.pull(repository, number)) {
-		if hasOpenThread(e.pull(repository, number)) {
+		if (hasOpenThread(e.pull(repository, number)) || !awaitsMerge(task)) && task.MergeQueuedAt.Valid {
 			if clearErr := e.queries.ClearTaskMergeQueuedAt(ctx, task.ID); clearErr != nil {
 				return false, errors.Join(err, clearErr)
 			}
+			task.MergeQueuedAt = sql.NullString{}
 		}
 		return false, err
 	}
@@ -210,6 +219,12 @@ func (e *Engine) mergeApproved(ctx context.Context, repository github.Repository
 		return false, nil
 	}
 	if err != nil || !awaitsMerge(task) {
+		if !awaitsMerge(task) && task.MergeQueuedAt.Valid {
+			if clearErr := e.queries.ClearTaskMergeQueuedAt(ctx, task.ID); clearErr != nil {
+				return false, errors.Join(err, clearErr)
+			}
+			task.MergeQueuedAt = sql.NullString{}
+		}
 		return false, err
 	}
 	merged, reason, err := repository.MergePullRequest(ctx, number, head)

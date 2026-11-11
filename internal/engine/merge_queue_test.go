@@ -614,3 +614,73 @@ func TestMergeQueueManualApprovalRestartAfterBranchUpdate(t *testing.T) {
 		t.Errorf("merge calls = %d, want 1", calls)
 	}
 }
+
+// TestMergeQueueMergeSwitchOffWhileUpdatedHeadWaitsForApprovalAgainLeavesQueueAndNextTaskMerges
+// verifies that when the Merge switch is turned off while the updated head waits for approval again,
+// the task leaves the queue and the next task (approved with "Merge") merges.
+func TestMergeQueueMergeSwitchOffWhileUpdatedHeadWaitsForApprovalAgainLeavesQueueAndNextTaskMerges(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := queueTasks(t, fake, "merge", []int{41, 43})
+
+	// Move default branch to make task 41 behind.
+	fake.CommitFile(shop, "price.txt", "cents\n", "Add price")
+
+	// Hold branch update answer of task 41 to add an in-progress CI check run before checks read.
+	reached, release := fake.HoldBranchUpdateAnswer()
+
+	// Lead approves task 41, which enters the merge queue with auto_merge.
+	sendChat(t, server, leadChat, "Approve #41")
+
+	<-reached
+	newHead41 := head(t, fake, "mobius/41")
+	ci41 := fake.AddCheckRun(shop, checkRun("test", newHead41, "in_progress", ""))
+	release()
+
+	// Task 41 returns to checks.
+	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, 41) == "checks" })
+
+	// The Merge switch goes off while the updated head waits for the approval again.
+	turnMerge(t, server, false)
+
+	// Lead approves task 43. Since Merge switch is off, it pauses without auto-merge approval.
+	sendChat(t, server, leadChat, "Approve #43")
+	item43 := testkit.WaitForValue(t, func() (inboxItem, bool) {
+		for _, item := range itemsOf(t, server, "ready for review") {
+			if item.Issue == 43 {
+				return item, true
+			}
+		}
+		return inboxItem{}, false
+	})
+
+	// Owner approves task 43 with "Merge".
+	if status, body := merge(t, server, item43.ID); status != http.StatusOK {
+		t.Fatalf("merge status = %d: %s", status, body)
+	}
+	testkit.WaitFor(t, func() bool {
+		return liveTask(t, server, 43).MergeQueuedAt.Valid
+	})
+
+	// CI of task 41 completes and passes.
+	fake.SetCheckRunStatus(ci41, "completed", "success")
+
+	// Task 41 leaves the queue because its auto-merge paused when the switch was turned off.
+	testkit.WaitFor(t, func() bool {
+		return !liveTask(t, server, 41).MergeQueuedAt.Valid
+	})
+
+	// Task 43 (approved with "Merge") becomes the queue head, updates, and merges.
+	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, 43) == "" })
+
+	// Task 41 did not merge and is in ready_for_review.
+	if state := liveTaskState(t, server, 41); state != "ready_for_review" {
+		t.Errorf("task 41 state = %s, want ready_for_review", state)
+	}
+	if calls := fake.MergeCalls(); calls != 1 {
+		t.Errorf("merge calls = %d, want 1", calls)
+	}
+	if mainLog := testkit.Git(t, fake.Remote(shop), "log", "--format=%s", "main"); strings.Contains(mainLog, "mobius/41") || strings.Contains(mainLog, "Task 41") {
+		t.Error("PR 41 merged")
+	}
+}

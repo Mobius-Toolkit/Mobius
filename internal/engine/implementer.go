@@ -384,6 +384,11 @@ func (e *Engine) finishApproval(ctx context.Context, repository github.Repositor
 		return text + fmt.Sprintf("The Owner got it for review. Mobius did not add all deployment todos: %v", err), nil
 	}
 	if !mergesPullRequests(level) {
+		if task.MergeQueuedAt.Valid {
+			if err := e.queries.ClearTaskMergeQueuedAt(ctx, task.ID); err != nil {
+				return "", err
+			}
+		}
 		draft, err := e.blockedByTodos(ctx, task)
 		if err != nil {
 			return text + fmt.Sprintf("The Owner got it for review. Mobius did not read the todos: %v", err), nil

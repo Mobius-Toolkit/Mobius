@@ -61,6 +61,11 @@ func (e *Engine) autoApprove(ctx context.Context, repository github.Repository, 
 // holdMerge records the issue of the task in the held work of the Merge switch, and gives the open ready for review
 // Inbox items of the issue the reason mergePausedReason.
 func (e *Engine) holdMerge(ctx context.Context, task store.Task) error {
+	if task.MergeQueuedAt.Valid {
+		if err := e.queries.ClearTaskMergeQueuedAt(ctx, task.ID); err != nil {
+			return err
+		}
+	}
 	if err := e.holdWork(ctx, "merge", task.Repository, task.Issue); err != nil {
 		return err
 	}
