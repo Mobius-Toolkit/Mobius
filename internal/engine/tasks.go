@@ -284,6 +284,10 @@ type BoardTask struct {
 	Merging bool
 	// MergeRefusal is the reason that GitHub gave for the refused merge of a task in ready_for_review, or "".
 	MergeRefusal string
+	// MergeQueuePlace is the place of the task in the merge queue of its repository, from 1, or nil.
+	MergeQueuePlace *int64
+	// MergeQueueSize is the number of tasks in the merge queue of that repository, or 0 when MergeQueuePlace is nil.
+	MergeQueueSize int64
 }
 
 // BoardTasks gives the tasks that the Tasks board shows, newest state change first: each task that has not ended, and
@@ -292,6 +296,14 @@ func (e *Engine) BoardTasks(ctx context.Context) ([]BoardTask, error) {
 	rows, err := e.queries.ListBoardTasks(ctx)
 	if err != nil {
 		return nil, err
+	}
+	queued, err := e.queries.ListAllMergeQueueTasks(ctx)
+	if err != nil {
+		return nil, err
+	}
+	repoQueue := make(map[string][]int64)
+	for _, q := range queued {
+		repoQueue[q.Repository] = append(repoQueue[q.Repository], q.ID)
 	}
 	since := e.timeNow().Add(-24 * time.Hour)
 	tasks := []BoardTask{}
@@ -304,6 +316,15 @@ func (e *Engine) BoardTasks(ctx context.Context) ([]BoardTask, error) {
 			continue
 		}
 		task := BoardTask{Repository: row.Repository, Number: row.Issue, Title: row.IssueTitle, URL: row.IssueUrl, WorkstreamRepository: row.WorkstreamRepository, Workstream: row.Workstream, WorkstreamTitle: row.WorkstreamTitle, State: row.State, StateAt: stateAt, FixRounds: row.FixRounds, ReviewRounds: row.ReviewRounds}
+		if row.MergeQueuedAt.Valid {
+			queue := repoQueue[row.Repository]
+			idx := slices.Index(queue, row.ID)
+			if idx >= 0 {
+				place := int64(idx + 1)
+				task.MergeQueuePlace = &place
+				task.MergeQueueSize = int64(len(queue))
+			}
+		}
 		if row.State == "ready_for_review" {
 			task.Merging = row.Merging != 0
 			if !task.Merging {

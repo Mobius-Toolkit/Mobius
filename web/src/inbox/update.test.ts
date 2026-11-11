@@ -40,6 +40,8 @@ const createItem = (overrides: Partial<InboxItem> = {}): InboxItem => ({
   withdrawn: false,
   workstream: 12,
   workstreamRepository: "owner/shop",
+  mergeQueuePlace: null,
+  mergeQueueSize: 0,
   ...overrides,
 });
 

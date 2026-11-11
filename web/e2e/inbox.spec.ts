@@ -31,6 +31,8 @@ const base = {
   pullRequestUrl: "",
   reportUrl: "",
   blockingTodos: [],
+  mergeQueuePlace: null,
+  mergeQueueSize: 0,
 };
 
 const items = [
