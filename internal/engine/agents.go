@@ -1203,6 +1203,11 @@ func (e *Engine) publish(change Change) {
 func (e *Engine) setTaskState(ctx context.Context, params store.SetTaskStateParams) (int64, error) {
 	moved, err := e.queries.SetTaskState(ctx, params)
 	if err == nil && moved > 0 {
+		if !afterReview(params.State) {
+			if clearErr := e.queries.ClearTaskMergeQueuedAt(ctx, params.ID); clearErr != nil {
+				return 0, clearErr
+			}
+		}
 		e.publish(Change{Workstreams: true})
 	}
 	return moved, err

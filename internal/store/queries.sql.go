@@ -1171,7 +1171,7 @@ func (q *Queries) AddStopNotice(ctx context.Context, arg AddStopNoticeParams) er
 const addTask = `-- name: AddTask :one
 INSERT INTO tasks (repository, issue, workstream_repository, workstream, state, dispatched_at, state_at)
 VALUES (?, ?, ?, ?, 'dispatched', ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-RETURNING id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head, state_at, long_wait_at, check_errors, lead_findings, recoveries, break_wait_head, rerun_head, rerun_runs, workstream_repository, branch_checked, auto_merge, approved_head, report, approved_report, approved_again_head, approved_again_comment, approved_report_head
+RETURNING id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head, state_at, long_wait_at, check_errors, lead_findings, recoveries, break_wait_head, rerun_head, rerun_runs, workstream_repository, branch_checked, auto_merge, approved_head, report, approved_report, approved_again_head, approved_again_comment, approved_report_head, merge_queued_at
 `
 
 type AddTaskParams struct {
@@ -1231,6 +1231,7 @@ func (q *Queries) AddTask(ctx context.Context, arg AddTaskParams) (Task, error) 
 		&i.ApprovedAgainHead,
 		&i.ApprovedAgainComment,
 		&i.ApprovedReportHead,
+		&i.MergeQueuedAt,
 	)
 	return i, err
 }
@@ -1567,6 +1568,15 @@ func (q *Queries) ClearQueueReason(ctx context.Context, id int64) (Session, erro
 		&i.ContextSize,
 	)
 	return i, err
+}
+
+const clearTaskMergeQueuedAt = `-- name: ClearTaskMergeQueuedAt :exec
+UPDATE tasks SET merge_queued_at = NULL WHERE id = ?
+`
+
+func (q *Queries) ClearTaskMergeQueuedAt(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, clearTaskMergeQueuedAt, id)
+	return err
 }
 
 const continueEndedTask = `-- name: ContinueEndedTask :execrows
@@ -2297,7 +2307,7 @@ func (q *Queries) EndSession(ctx context.Context, arg EndSessionParams) (Session
 }
 
 const endTask = `-- name: EndTask :exec
-UPDATE tasks SET state = 'ended', lead_findings = '', state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL WHERE id = ?
+UPDATE tasks SET state = 'ended', lead_findings = '', merge_queued_at = NULL, state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL WHERE id = ?
 `
 
 func (q *Queries) EndTask(ctx context.Context, id int64) error {
@@ -2796,7 +2806,7 @@ func (q *Queries) GetDeploymentTodoOfItem(ctx context.Context, inboxItem int64) 
 }
 
 const getEndedTaskWithPullRequest = `-- name: GetEndedTaskWithPullRequest :one
-SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head, state_at, long_wait_at, check_errors, lead_findings, recoveries, break_wait_head, rerun_head, rerun_runs, workstream_repository, branch_checked, auto_merge, approved_head, report, approved_report, approved_again_head, approved_again_comment, approved_report_head FROM tasks
+SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head, state_at, long_wait_at, check_errors, lead_findings, recoveries, break_wait_head, rerun_head, rerun_runs, workstream_repository, branch_checked, auto_merge, approved_head, report, approved_report, approved_again_head, approved_again_comment, approved_report_head, merge_queued_at FROM tasks
 WHERE repository = ? AND issue = ? AND state = 'ended' AND branch IS NOT NULL AND pull_request IS NOT NULL
 ORDER BY id DESC LIMIT 1
 `
@@ -2849,6 +2859,7 @@ func (q *Queries) GetEndedTaskWithPullRequest(ctx context.Context, arg GetEndedT
 		&i.ApprovedAgainHead,
 		&i.ApprovedAgainComment,
 		&i.ApprovedReportHead,
+		&i.MergeQueuedAt,
 	)
 	return i, err
 }
@@ -3077,7 +3088,7 @@ func (q *Queries) GetLeadFindings(ctx context.Context, id int64) (string, error)
 }
 
 const getLiveTask = `-- name: GetLiveTask :one
-SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head, state_at, long_wait_at, check_errors, lead_findings, recoveries, break_wait_head, rerun_head, rerun_runs, workstream_repository, branch_checked, auto_merge, approved_head, report, approved_report, approved_again_head, approved_again_comment, approved_report_head FROM tasks WHERE repository = ? AND issue = ? AND state <> 'ended'
+SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head, state_at, long_wait_at, check_errors, lead_findings, recoveries, break_wait_head, rerun_head, rerun_runs, workstream_repository, branch_checked, auto_merge, approved_head, report, approved_report, approved_again_head, approved_again_comment, approved_report_head, merge_queued_at FROM tasks WHERE repository = ? AND issue = ? AND state <> 'ended'
 `
 
 type GetLiveTaskParams struct {
@@ -3128,12 +3139,13 @@ func (q *Queries) GetLiveTask(ctx context.Context, arg GetLiveTaskParams) (Task,
 		&i.ApprovedAgainHead,
 		&i.ApprovedAgainComment,
 		&i.ApprovedReportHead,
+		&i.MergeQueuedAt,
 	)
 	return i, err
 }
 
 const getLiveTaskByPullRequest = `-- name: GetLiveTaskByPullRequest :one
-SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head, state_at, long_wait_at, check_errors, lead_findings, recoveries, break_wait_head, rerun_head, rerun_runs, workstream_repository, branch_checked, auto_merge, approved_head, report, approved_report, approved_again_head, approved_again_comment, approved_report_head FROM tasks WHERE repository = ? AND pull_request = ? AND state <> 'ended'
+SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head, state_at, long_wait_at, check_errors, lead_findings, recoveries, break_wait_head, rerun_head, rerun_runs, workstream_repository, branch_checked, auto_merge, approved_head, report, approved_report, approved_again_head, approved_again_comment, approved_report_head, merge_queued_at FROM tasks WHERE repository = ? AND pull_request = ? AND state <> 'ended'
 `
 
 type GetLiveTaskByPullRequestParams struct {
@@ -3184,6 +3196,7 @@ func (q *Queries) GetLiveTaskByPullRequest(ctx context.Context, arg GetLiveTaskB
 		&i.ApprovedAgainHead,
 		&i.ApprovedAgainComment,
 		&i.ApprovedReportHead,
+		&i.MergeQueuedAt,
 	)
 	return i, err
 }
@@ -3312,6 +3325,61 @@ func (q *Queries) GetMemoryVersionBefore(ctx context.Context, arg GetMemoryVersi
 	var text string
 	err := row.Scan(&text)
 	return text, err
+}
+
+const getMergeQueueHead = `-- name: GetMergeQueueHead :one
+SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head, state_at, long_wait_at, check_errors, lead_findings, recoveries, break_wait_head, rerun_head, rerun_runs, workstream_repository, branch_checked, auto_merge, approved_head, report, approved_report, approved_again_head, approved_again_comment, approved_report_head, merge_queued_at FROM tasks
+WHERE repository = ? AND state <> 'ended' AND merge_queued_at IS NOT NULL
+ORDER BY julianday(merge_queued_at), id
+LIMIT 1
+`
+
+func (q *Queries) GetMergeQueueHead(ctx context.Context, repository string) (Task, error) {
+	row := q.db.QueryRowContext(ctx, getMergeQueueHead, repository)
+	var i Task
+	err := row.Scan(
+		&i.ID,
+		&i.Repository,
+		&i.Issue,
+		&i.Workstream,
+		&i.State,
+		&i.DispatchedAt,
+		&i.Branch,
+		&i.QueuedAt,
+		&i.FixRounds,
+		&i.PullRequest,
+		&i.JudgedAt,
+		&i.WorkerRestarts,
+		&i.Worker,
+		&i.WorkerInput,
+		&i.ReviewRounds,
+		&i.ReviewComment,
+		&i.CheckHead,
+		&i.ApprovedReview,
+		&i.RefusedReview,
+		&i.NeedsHumanAt,
+		&i.ConflictHead,
+		&i.CiFailedHead,
+		&i.StateAt,
+		&i.LongWaitAt,
+		&i.CheckErrors,
+		&i.LeadFindings,
+		&i.Recoveries,
+		&i.BreakWaitHead,
+		&i.RerunHead,
+		&i.RerunRuns,
+		&i.WorkstreamRepository,
+		&i.BranchChecked,
+		&i.AutoMerge,
+		&i.ApprovedHead,
+		&i.Report,
+		&i.ApprovedReport,
+		&i.ApprovedAgainHead,
+		&i.ApprovedAgainComment,
+		&i.ApprovedReportHead,
+		&i.MergeQueuedAt,
+	)
+	return i, err
 }
 
 const getNewestInboxItem = `-- name: GetNewestInboxItem :one
@@ -3783,7 +3851,7 @@ func (q *Queries) GetVoiceLanguage(ctx context.Context) (VoiceLanguage, error) {
 }
 
 const handTaskToHuman = `-- name: HandTaskToHuman :execrows
-UPDATE tasks SET state = 'needs_human', needs_human_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL
+UPDATE tasks SET state = 'needs_human', merge_queued_at = NULL, needs_human_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL
 WHERE id = ?1 AND state = ?2
 `
 
@@ -4364,7 +4432,7 @@ func (q *Queries) ListBoardTasks(ctx context.Context) ([]ListBoardTasksRow, erro
 }
 
 const listBranchesToCheck = `-- name: ListBranchesToCheck :many
-SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head, state_at, long_wait_at, check_errors, lead_findings, recoveries, break_wait_head, rerun_head, rerun_runs, workstream_repository, branch_checked, auto_merge, approved_head, report, approved_report, approved_again_head, approved_again_comment, approved_report_head FROM tasks
+SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head, state_at, long_wait_at, check_errors, lead_findings, recoveries, break_wait_head, rerun_head, rerun_runs, workstream_repository, branch_checked, auto_merge, approved_head, report, approved_report, approved_again_head, approved_again_comment, approved_report_head, merge_queued_at FROM tasks
 WHERE state = 'ended' AND branch IS NOT NULL AND pull_request IS NOT NULL AND branch_checked = 0
 ORDER BY id
 `
@@ -4418,6 +4486,7 @@ func (q *Queries) ListBranchesToCheck(ctx context.Context) ([]Task, error) {
 			&i.ApprovedAgainHead,
 			&i.ApprovedAgainComment,
 			&i.ApprovedReportHead,
+			&i.MergeQueuedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -6599,7 +6668,7 @@ func (q *Queries) ListLiveTaskRepositories(ctx context.Context) ([]string, error
 }
 
 const listLiveTasks = `-- name: ListLiveTasks :many
-SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head, state_at, long_wait_at, check_errors, lead_findings, recoveries, break_wait_head, rerun_head, rerun_runs, workstream_repository, branch_checked, auto_merge, approved_head, report, approved_report, approved_again_head, approved_again_comment, approved_report_head FROM tasks WHERE repository = ? AND state <> 'ended' ORDER BY id
+SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head, state_at, long_wait_at, check_errors, lead_findings, recoveries, break_wait_head, rerun_head, rerun_runs, workstream_repository, branch_checked, auto_merge, approved_head, report, approved_report, approved_again_head, approved_again_comment, approved_report_head, merge_queued_at FROM tasks WHERE repository = ? AND state <> 'ended' ORDER BY id
 `
 
 func (q *Queries) ListLiveTasks(ctx context.Context, repository string) ([]Task, error) {
@@ -6651,6 +6720,7 @@ func (q *Queries) ListLiveTasks(ctx context.Context, repository string) ([]Task,
 			&i.ApprovedAgainHead,
 			&i.ApprovedAgainComment,
 			&i.ApprovedReportHead,
+			&i.MergeQueuedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -8196,7 +8266,7 @@ func (q *Queries) ListStopEvents(ctx context.Context, arg ListStopEventsParams) 
 }
 
 const listStopNotices = `-- name: ListStopNotices :many
-SELECT stop_notices.id, stop_notices.task, stop_notices.title, stop_notices.reason, stop_notices.text, stop_notices.output, stop_notices.next, stop_notices.lead_text, stop_notices.check_title, stop_notices.check_summary, stop_notices.check_create, stop_notices.created_at, stop_notices.lead_kind, tasks.id, tasks.repository, tasks.issue, tasks.workstream, tasks.state, tasks.dispatched_at, tasks.branch, tasks.queued_at, tasks.fix_rounds, tasks.pull_request, tasks.judged_at, tasks.worker_restarts, tasks.worker, tasks.worker_input, tasks.review_rounds, tasks.review_comment, tasks.check_head, tasks.approved_review, tasks.refused_review, tasks.needs_human_at, tasks.conflict_head, tasks.ci_failed_head, tasks.state_at, tasks.long_wait_at, tasks.check_errors, tasks.lead_findings, tasks.recoveries, tasks.break_wait_head, tasks.rerun_head, tasks.rerun_runs, tasks.workstream_repository, tasks.branch_checked, tasks.auto_merge, tasks.approved_head, tasks.report, tasks.approved_report, tasks.approved_again_head, tasks.approved_again_comment, tasks.approved_report_head FROM stop_notices
+SELECT stop_notices.id, stop_notices.task, stop_notices.title, stop_notices.reason, stop_notices.text, stop_notices.output, stop_notices.next, stop_notices.lead_text, stop_notices.check_title, stop_notices.check_summary, stop_notices.check_create, stop_notices.created_at, stop_notices.lead_kind, tasks.id, tasks.repository, tasks.issue, tasks.workstream, tasks.state, tasks.dispatched_at, tasks.branch, tasks.queued_at, tasks.fix_rounds, tasks.pull_request, tasks.judged_at, tasks.worker_restarts, tasks.worker, tasks.worker_input, tasks.review_rounds, tasks.review_comment, tasks.check_head, tasks.approved_review, tasks.refused_review, tasks.needs_human_at, tasks.conflict_head, tasks.ci_failed_head, tasks.state_at, tasks.long_wait_at, tasks.check_errors, tasks.lead_findings, tasks.recoveries, tasks.break_wait_head, tasks.rerun_head, tasks.rerun_runs, tasks.workstream_repository, tasks.branch_checked, tasks.auto_merge, tasks.approved_head, tasks.report, tasks.approved_report, tasks.approved_again_head, tasks.approved_again_comment, tasks.approved_report_head, tasks.merge_queued_at FROM stop_notices
 JOIN tasks ON tasks.id = stop_notices.task
 WHERE tasks.repository = ?
 ORDER BY stop_notices.id
@@ -8269,6 +8339,7 @@ func (q *Queries) ListStopNotices(ctx context.Context, repository string) ([]Lis
 			&i.Task.ApprovedAgainHead,
 			&i.Task.ApprovedAgainComment,
 			&i.Task.ApprovedReportHead,
+			&i.Task.MergeQueuedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -8862,7 +8933,7 @@ func (q *Queries) ListWorkstreamBuckets(ctx context.Context, repository string) 
 }
 
 const listWorkstreamLiveTasks = `-- name: ListWorkstreamLiveTasks :many
-SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head, state_at, long_wait_at, check_errors, lead_findings, recoveries, break_wait_head, rerun_head, rerun_runs, workstream_repository, branch_checked, auto_merge, approved_head, report, approved_report, approved_again_head, approved_again_comment, approved_report_head FROM tasks WHERE workstream_repository = ? AND workstream = ? AND state <> 'ended' ORDER BY id
+SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head, state_at, long_wait_at, check_errors, lead_findings, recoveries, break_wait_head, rerun_head, rerun_runs, workstream_repository, branch_checked, auto_merge, approved_head, report, approved_report, approved_again_head, approved_again_comment, approved_report_head, merge_queued_at FROM tasks WHERE workstream_repository = ? AND workstream = ? AND state <> 'ended' ORDER BY id
 `
 
 type ListWorkstreamLiveTasksParams struct {
@@ -8919,6 +8990,7 @@ func (q *Queries) ListWorkstreamLiveTasks(ctx context.Context, arg ListWorkstrea
 			&i.ApprovedAgainHead,
 			&i.ApprovedAgainComment,
 			&i.ApprovedReportHead,
+			&i.MergeQueuedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -10142,6 +10214,20 @@ func (q *Queries) SetTaskLongWaitAt(ctx context.Context, arg SetTaskLongWaitAtPa
 	return err
 }
 
+const setTaskMergeQueuedAt = `-- name: SetTaskMergeQueuedAt :exec
+UPDATE tasks SET merge_queued_at = ? WHERE id = ?
+`
+
+type SetTaskMergeQueuedAtParams struct {
+	MergeQueuedAt sql.NullString
+	ID            int64
+}
+
+func (q *Queries) SetTaskMergeQueuedAt(ctx context.Context, arg SetTaskMergeQueuedAtParams) error {
+	_, err := q.db.ExecContext(ctx, setTaskMergeQueuedAt, arg.MergeQueuedAt, arg.ID)
+	return err
+}
+
 const setTaskPullRequest = `-- name: SetTaskPullRequest :exec
 UPDATE tasks SET pull_request = ? WHERE id = ?
 `
@@ -10373,7 +10459,7 @@ func (q *Queries) StartSession(ctx context.Context, arg StartSessionParams) (Ses
 }
 
 const startTaskWorker = `-- name: StartTaskWorker :execrows
-UPDATE tasks SET state = 'working', worker = ?1, worker_input = ?2, state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL
+UPDATE tasks SET state = 'working', merge_queued_at = NULL, worker = ?1, worker_input = ?2, state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL
 WHERE id = ?3 AND state = ?4
 `
 
@@ -10430,7 +10516,7 @@ func (q *Queries) StopChatMessage(ctx context.Context, arg StopChatMessageParams
 }
 
 const stopTask = `-- name: StopTask :execrows
-UPDATE tasks SET state = 'stopped', state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL WHERE id = ? AND state NOT IN ('stopped', 'ended')
+UPDATE tasks SET state = 'stopped', merge_queued_at = NULL, state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL WHERE id = ? AND state NOT IN ('stopped', 'ended')
 `
 
 func (q *Queries) StopTask(ctx context.Context, id int64) (int64, error) {

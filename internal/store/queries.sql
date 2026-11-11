@@ -299,7 +299,7 @@ UPDATE tasks SET state = sqlc.arg(state), state_at = strftime('%Y-%m-%dT%H:%M:%f
 WHERE id = sqlc.arg(id) AND state = sqlc.arg(from_state);
 
 -- name: HandTaskToHuman :execrows
-UPDATE tasks SET state = 'needs_human', needs_human_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL
+UPDATE tasks SET state = 'needs_human', merge_queued_at = NULL, needs_human_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL
 WHERE id = sqlc.arg(id) AND state = sqlc.arg(from_state);
 
 -- name: AddWorkerRestart :one
@@ -641,7 +641,7 @@ SELECT count(*) FROM tasks WHERE state IN ('dispatched', 'queued', 'working');
 UPDATE tasks SET fix_rounds = 0, review_rounds = 0, worker_restarts = 0, check_head = NULL WHERE id = ?;
 
 -- name: EndTask :exec
-UPDATE tasks SET state = 'ended', lead_findings = '', state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL WHERE id = ?;
+UPDATE tasks SET state = 'ended', lead_findings = '', merge_queued_at = NULL, state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL WHERE id = ?;
 
 -- name: GetEndedTaskWithPullRequest :one
 SELECT * FROM tasks
@@ -680,7 +680,7 @@ UPDATE tasks SET state = 'queued', state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'no
 UPDATE tasks SET worker = ?, worker_input = ? WHERE id = ?;
 
 -- name: StartTaskWorker :execrows
-UPDATE tasks SET state = 'working', worker = sqlc.arg(worker), worker_input = sqlc.arg(worker_input), state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL
+UPDATE tasks SET state = 'working', merge_queued_at = NULL, worker = sqlc.arg(worker), worker_input = sqlc.arg(worker_input), state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL
 WHERE id = sqlc.arg(id) AND state = sqlc.arg(from_state);
 
 -- name: SetTaskBranch :exec
@@ -761,7 +761,7 @@ WHERE repository = sqlc.arg(workstream_repository) AND issue_repository = sqlc.a
 UPDATE tasks SET judged_at = ? WHERE id = ?;
 
 -- name: StopTask :execrows
-UPDATE tasks SET state = 'stopped', state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL WHERE id = ? AND state NOT IN ('stopped', 'ended');
+UPDATE tasks SET state = 'stopped', merge_queued_at = NULL, state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL WHERE id = ? AND state NOT IN ('stopped', 'ended');
 
 -- name: ListLiveTaskRepositories :many
 SELECT DISTINCT repository FROM tasks WHERE state <> 'ended' ORDER BY repository;
@@ -1367,6 +1367,18 @@ UPDATE lead_writes SET item = ? WHERE id = ? AND item IS NULL;
 
 -- name: DeleteDeploymentNeeds :exec
 DELETE FROM deployment_needs WHERE task = ?;
+
+-- name: SetTaskMergeQueuedAt :exec
+UPDATE tasks SET merge_queued_at = ? WHERE id = ?;
+
+-- name: ClearTaskMergeQueuedAt :exec
+UPDATE tasks SET merge_queued_at = NULL WHERE id = ?;
+
+-- name: GetMergeQueueHead :one
+SELECT * FROM tasks
+WHERE repository = ? AND state <> 'ended' AND merge_queued_at IS NOT NULL
+ORDER BY julianday(merge_queued_at), id
+LIMIT 1;
 
 -- name: AddDeploymentNeed :exec
 INSERT INTO deployment_needs (task, head, kind, name, path, line, reason, mandatory, after_merge) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
