@@ -1975,60 +1975,54 @@ test("the Autopilot trigger shows a level that the server gives after the select
   await expect(level("Off")).toBeVisible();
 });
 
-test("the Autopilot switch shows the level of the open Workstream after a choice in another Workstream", async ({
-  page,
-}) => {
-  const second = "/workstreams/owner/shop/13";
-  try {
-    for (const size of [{ width: 1280, height: 800 }, phone]) {
-      await page.setViewportSize(size);
-      const desktop = size.width > phone.width;
-      await page.goto(shop);
+// The tests that create the Workstreams owner/shop#46 and #47 come before. Each change of a level adds records to the
+// chat of its Workstream, and the later tests read the chat of owner/shop#12, so the first Workstream here is #47.
+for (const [device, size] of [
+  ["desktop", { width: 1280, height: 800 }],
+  ["phone", phone],
+] as const) {
+  test(`the Autopilot switch of a Workstream shows its own level after a choice in another Workstream on a ${device}`, async ({
+    page,
+  }) => {
+    const first = "/workstreams/owner/shop/47";
+    const item = (name: RegExp) =>
+      device === "desktop"
+        ? page.getByRole("menuitemradio", { name })
+        : page.getByRole("radio", { name });
+    await page.setViewportSize(size);
+    await page.goto(first);
+    try {
       await page.getByRole("button", { name: "Autopilot: Off" }).click();
-      const answered = page.waitForResponse("**/api/workstreams/owner/shop/12/autopilot");
-      await (
-        desktop
-          ? page.getByRole("menuitemradio", { name: /^Merge only/ })
-          : page.getByRole("radio", { name: /^Merge only/ })
-      ).click();
+      const answered = page.waitForResponse("**/api/workstreams/owner/shop/47/autopilot");
+      await item(/^Merge only/).click();
       await answered;
       await expect(page.getByRole("button", { name: "Autopilot: Merge only" })).toBeVisible();
 
-      if (!desktop) {
+      if (device === "phone") {
         await page
           .getByRole("link", { name: "Workstreams", exact: true })
           .filter({ visible: true })
           .click();
       }
-      await page.locator(`a[href="${second}"]`).filter({ visible: true }).click();
-      await expect(page).toHaveURL(second);
+      await page.locator(`a[href="${shop}"]`).filter({ visible: true }).click();
+      await expect(page).toHaveURL(shop);
       await expect(page.getByRole("button", { name: "Autopilot: Off" })).toBeVisible();
       await page.getByRole("button", { name: "Autopilot: Off" }).click();
-      await expect(
-        desktop
-          ? page.getByRole("menuitemradio", { name: /^Off/ })
-          : page.getByRole("radio", { name: /^Off/ }),
-      ).toBeChecked();
-      await page.keyboard.press("Escape");
-
-      await page.evaluate(async () => {
-        await fetch("/api/workstreams/owner/shop/12/autopilot", {
+      await expect(item(/^Off/)).toBeChecked();
+      await expect(item(/^Merge only/)).not.toBeChecked();
+    } finally {
+      const status = await page.evaluate(async () => {
+        const response = await fetch("/api/workstreams/owner/shop/47/autopilot", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ level: "off" }),
         });
+        return response.status;
       });
+      expect(status).toBe(204);
     }
-  } finally {
-    await page.evaluate(async () => {
-      await fetch("/api/workstreams/owner/shop/12/autopilot", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ level: "off" }),
-      });
-    });
-  }
-});
+  });
+}
 
 test("the Autopilot sheet of the phone top bar sets the level", async ({ page }) => {
   const sheet = page.getByRole("dialog", { name: "Autopilot" });
