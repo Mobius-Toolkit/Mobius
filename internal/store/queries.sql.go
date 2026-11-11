@@ -4144,6 +4144,26 @@ func (q *Queries) HasUndeliveredLeadEvent(ctx context.Context, id int64) (bool, 
 	return exists, err
 }
 
+const hasUndeliveredLeadEventOfIssue = `-- name: HasUndeliveredLeadEventOfIssue :one
+SELECT EXISTS (
+    SELECT 1 FROM lead_events
+    WHERE repository = ?1 AND issue_repository = ?2 AND issue = ?3 AND delivered_at IS NULL
+)
+`
+
+type HasUndeliveredLeadEventOfIssueParams struct {
+	WorkstreamRepository string
+	Repository           string
+	Issue                sql.NullInt64
+}
+
+func (q *Queries) HasUndeliveredLeadEventOfIssue(ctx context.Context, arg HasUndeliveredLeadEventOfIssueParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, hasUndeliveredLeadEventOfIssue, arg.WorkstreamRepository, arg.Repository, arg.Issue)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const holdLeadEvent = `-- name: HoldLeadEvent :exec
 UPDATE lead_events SET held = 1, held_at = ? WHERE id = ?
 `
