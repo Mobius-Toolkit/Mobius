@@ -404,7 +404,7 @@ func (e *Engine) endReview(ctx context.Context, repository github.Repository, j 
 		if err := e.endRound(ctx, repository, j, task, comment, "No open findings. Mobius waits for CI.", open); err != nil {
 			return err
 		}
-		followedUp, err := e.sentFollowUp(ctx, task, session)
+		followedUp, err := e.sentFollowUp(ctx, task, j.parent, session)
 		if err != nil {
 			return err
 		}
@@ -543,10 +543,16 @@ func followUpBody(thread github.ReviewThread, app string, trusted func(string) b
 	return body, found && strings.EqualFold(first.Author, app) && !replied
 }
 
-// sentFollowUp tells if the Reviewer session sent a follow-up of the task to the Lead since it started. The Lead
-// decides on a follow-up, so Mobius does not approve the head of that round.
-func (e *Engine) sentFollowUp(ctx context.Context, task store.Task, session int64) (bool, error) {
-	started, err := e.queries.GetSession(ctx, session)
+// sentFollowUp tells if a Reviewer sent a follow-up of the task to the Lead in the round of the head. The Lead decides
+// on a follow-up, so Mobius does not approve the head of that round. The round starts with the session that pushed the
+// head (parent), which a Reviewer session that replaces a failed one also has as its parent. Without a parent, the round
+// starts with the session.
+func (e *Engine) sentFollowUp(ctx context.Context, task store.Task, parent sql.NullInt64, session int64) (bool, error) {
+	start := session
+	if parent.Valid {
+		start = parent.Int64
+	}
+	started, err := e.queries.GetSession(ctx, start)
 	if err != nil {
 		return false, err
 	}

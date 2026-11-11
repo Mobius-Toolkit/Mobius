@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
+	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
@@ -366,5 +367,49 @@ func TestAQuestionOnTheTaskIssueGivesTheLeadReadyForApproval(t *testing.T) {
 	}
 	if got := approvedReport(t, server); got != "" {
 		t.Errorf("approved_report = %q", got)
+	}
+}
+
+// TestAFollowUpOfAFailedReviewerSessionGivesTheLeadReadyForApproval checks that a Reviewer session that replaces a
+// failed one, after the failed one sent a follow-up, does not set the reviewed head: the Lead has not decided on the
+// follow-up.
+func TestAFollowUpOfAFailedReviewerSessionGivesTheLeadReadyForApproval(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	gate := filepath.Join(t.TempDir(), "gate")
+	reviewer := fmt.Sprintf("[[prompts]]\nwhen = \"You are the Reviewer\"\nshell = \"while [ ! -e '%s' ]; do sleep 0.05; done\"\n\n", gate)
+	server := reviewedHeadServer(t, fake, reviewer+leadStarts, 100*time.Millisecond)
+	authorize(t, server)
+	setWorkstreamAutopilot(t, server, "merge")
+	testkit.WaitFor(t, func() bool { return workstreams(t, server)[0].Autopilot == "merge" })
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	testkit.WaitFor(t, func() bool {
+		return len(fake.PullRequests(shop)) == 1 &&
+			slices.ContainsFunc(fake.Comments(shop, 42), func(comment testkit.Comment) bool { return strings.HasPrefix(comment.Body, "Review started") })
+	})
+	fake.AddReviewComment(shop, 42, 0, testkit.AppSlug+"[bot]", "Name the unit.\n\n<!-- mobius:follow-up -->")
+	fake.FailUpdateCheckRuns(true)
+
+	if err := os.WriteFile(gate, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	testkit.WaitFor(t, func() bool { return fake.FailedCheckUpdates() > 0 })
+	fake.FailUpdateCheckRuns(false)
+
+	waitForLeadPrompt(t, server, readyForApprovalMarker)
+	waitForPolls(t, fake)
+	if got := reviewedHead(t, server); got != "" {
+		t.Errorf("reviewed_head = %q", got)
+	}
+	if calls := fake.MergeCalls(); calls != 0 {
+		t.Errorf("merge calls = %d", calls)
+	}
+	if got := len(roleSessions(t, server, engine.ReviewerRole)); got < 2 {
+		t.Errorf("Reviewer sessions = %d, want 2 or more", got)
+	}
+	for _, event := range leadEvents(t, server) {
+		if event.Kind == "auto_approved" {
+			t.Errorf("auto_approved event after a follow-up: %q", event.Payload)
+		}
 	}
 }
