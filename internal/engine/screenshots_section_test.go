@@ -30,6 +30,16 @@ func reviewedHeadWithCI(t *testing.T) (*testkit.FakeGitHub, *testserver.Server, 
 	return fake, server, head(t, fake, "mobius/41")
 }
 
+// passCIWithSection sets the screenshots section and waits for the polls that read it, and then passes the CI. A poll
+// reads the pull request before its check runs, so a CI that passes before the poll read the section can approve the
+// head with no section.
+func passCIWithSection(t *testing.T, fake *testkit.FakeGitHub, sha, text string) {
+	t.Helper()
+	fake.SetBody(shop, 42, screenshotsSectionOf(text))
+	waitForPolls(t, fake)
+	passCI(fake, sha)
+}
+
 func readyForApprovalEvents(t *testing.T, server *testserver.Server) []leadEvent {
 	t.Helper()
 	var ready []leadEvent
@@ -61,8 +71,7 @@ func checkNoApproval(t *testing.T, fake *testkit.FakeGitHub, server *testserver.
 func TestAHeadWithPendingScreenshotsStaysInChecksUntilTheSectionSaysNoScreenChanged(t *testing.T) {
 	t.Parallel()
 	fake, server, sha := reviewedHeadWithCI(t)
-	fake.SetBody(shop, 42, screenshotsSectionOf(pendingScreenshots))
-	passCI(fake, sha)
+	passCIWithSection(t, fake, sha, pendingScreenshots)
 
 	waitForPolls(t, fake)
 
@@ -88,8 +97,7 @@ func TestAHeadWithPendingScreenshotsStaysInChecksUntilTheSectionSaysNoScreenChan
 func checkChangedScreenshots(t *testing.T, text string) {
 	t.Helper()
 	fake, server, sha := reviewedHeadWithCI(t)
-	fake.SetBody(shop, 42, screenshotsSectionOf(text))
-	passCI(fake, sha)
+	passCIWithSection(t, fake, sha, text)
 
 	testkit.WaitFor(t, func() bool { return len(readyForApprovalEvents(t, server)) > 0 })
 	waitForPolls(t, fake)
@@ -124,8 +132,7 @@ func TestAHeadWithFailedScreenshotsGivesTheLeadReadyForApprovalAndNoApproval(t *
 func TestAHeadWithPendingScreenshotsForMoreThanTwoHoursGivesTheLeadALongCIEventForTheScreenshots(t *testing.T) {
 	t.Parallel()
 	fake, server, sha := reviewedHeadWithCI(t)
-	fake.SetBody(shop, 42, screenshotsSectionOf(pendingScreenshots))
-	passCI(fake, sha)
+	passCIWithSection(t, fake, sha, pendingScreenshots)
 	start := time.Now()
 
 	server.Engine.SetClock(func() time.Time { return start.Add(time.Hour + 59*time.Minute) })
