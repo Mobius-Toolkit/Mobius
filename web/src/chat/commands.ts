@@ -32,7 +32,7 @@ import { addQueued, listQueued, newMessageId, postQueued, removeQueued } from "@
 import { resend, stopVoice, toggleVoice } from "@/lib/voice";
 import { Message } from "./message";
 import { draftInboxItem } from "./model";
-import { DraftInboxItems, Images, InboxItem, PendingAction, Queued } from "./schemas";
+import { DraftInboxItems, Images, InboxItem, PendingAction, Queued, StoredQueued } from "./schemas";
 
 type Outcome = { message: Message; status?: number | undefined };
 
@@ -181,8 +181,18 @@ export const ListQueued = Command.define("ListQueued", {
   messages: [Message.QueueLoaded, Message.QueueFailed],
   execute: ({ organization, repository, workstream }) =>
     store(() => listQueued({ organization, repository, workstream })).pipe(
-      Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(Queued))),
-      Effect.map((items) => Message.QueueLoaded({ items })),
+      Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(StoredQueued))),
+      Effect.map((records) =>
+        Message.QueueLoaded({
+          items: records
+            .map((record) => ({
+              ...record,
+              inboxItems: record.inboxItems ?? [],
+              voice: record.voice ?? false,
+            }))
+            .toSorted((a, b) => a.time.localeCompare(b.time)),
+        }),
+      ),
       Effect.catch((error) => Effect.succeed(Message.QueueFailed({ error: error.message }))),
     ),
 });

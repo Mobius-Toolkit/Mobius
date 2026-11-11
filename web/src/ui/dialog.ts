@@ -87,8 +87,8 @@ const sheetClass =
   "grid max-h-[calc(100dvh-var(--keyboard,0px)-2rem)] grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 p-0 max-sm:top-auto max-sm:bottom-(--keyboard,0px) max-sm:left-0 max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-b-none sm:max-h-[85dvh] sm:max-w-lg";
 
 // A dialog that slides up from the bottom on a phone. mount is the OnMount attribute of the Mount of
-// defineDialogMount, and close is the Message of the overlay and of the close button. The layout "center" is a small
-// dialog in the middle of the screen with no body. className goes after the classes of the layout.
+// defineDialogMount, and close is the Message of the overlay and of the close button. The layout "center" is a dialog
+// in the middle of the screen, also on a phone. className goes after the classes of the layout.
 export function renderDialog<M>(
   h: HtmlBuilder<M>,
   options: {

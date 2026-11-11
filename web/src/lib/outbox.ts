@@ -1,3 +1,4 @@
+import { Option, Schema } from "effect";
 import { getSendChatUrl, type ChatInboxItem } from "@/api/api.gen";
 import { run as runIn } from "./database";
 
@@ -16,6 +17,10 @@ export type Queued = {
 
 const requestLimit = 60_000;
 
+const decodeErrorBody = Schema.decodeUnknownOption(
+  Schema.Struct({ error: Schema.optional(Schema.String) }),
+);
+
 export function newMessageId() {
   const bytes = crypto.getRandomValues(new Uint8Array(16));
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -30,14 +35,8 @@ const chatKey = (item: Pick<Queued, "organization" | "repository" | "workstream"
   item.workstream,
 ];
 
-export async function listQueued(chat: Pick<Queued, "organization" | "repository" | "workstream">) {
-  const items = await run("readonly", (store) => store.index("chat").getAll(chatKey(chat)));
-  return (items as Partial<Queued>[])
-    .map(
-      (item) =>
-        ({ ...item, inboxItems: item.inboxItems ?? [], voice: item.voice ?? false }) as Queued,
-    )
-    .toSorted((a, b) => a.time.localeCompare(b.time));
+export function listQueued(chat: Pick<Queued, "organization" | "repository" | "workstream">) {
+  return run("readonly", (store) => store.index("chat").getAll(chatKey(chat)));
 }
 
 export function addQueued(item: Queued) {
@@ -86,6 +85,14 @@ export async function postQueued(item: Queued, signal: AbortSignal) {
   if (res.status === 204) {
     return { status: res.status };
   }
-  const body = (await res.json().catch(() => undefined)) as { error?: string } | undefined;
-  return { status: res.status, error: body?.error ?? `The server answered ${res.status}.` };
+  const body = await res.json().then(
+    (json) => decodeErrorBody(json),
+    () => Option.none(),
+  );
+  return {
+    status: res.status,
+    error: Option.flatMapNullishOr(body, (found) => found.error).pipe(
+      Option.getOrElse(() => `The server answered ${res.status}.`),
+    ),
+  };
 }
