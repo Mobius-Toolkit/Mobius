@@ -404,10 +404,16 @@ func (e *Engine) endReview(ctx context.Context, repository github.Repository, j 
 		if err := e.endRound(ctx, repository, j, task, comment, "No open findings. Mobius waits for CI.", open); err != nil {
 			return err
 		}
-		// The poll reads the task in checks at once, so reviewed_head is set before the move.
-		err := e.queries.SetTaskReviewedHead(ctx, store.SetTaskReviewedHeadParams{ReviewedHead: sql.NullString{String: j.head, Valid: true}, ID: task.ID})
+		followedUp, err := e.sentFollowUp(ctx, task, session)
 		if err != nil {
 			return err
+		}
+		// The poll reads the task in checks at once, so reviewed_head is set before the move.
+		if !followedUp {
+			err = e.queries.SetTaskReviewedHead(ctx, store.SetTaskReviewedHeadParams{ReviewedHead: sql.NullString{String: j.head, Valid: true}, ID: task.ID})
+			if err != nil {
+				return err
+			}
 		}
 		moved, err := e.setTaskState(ctx, store.SetTaskStateParams{State: "checks", ID: task.ID, FromState: "working"})
 		if err != nil || moved == 0 {
@@ -535,6 +541,16 @@ func followUpBody(thread github.ReviewThread, app string, trusted func(string) b
 		return trusted(comment.Author) && !strings.EqualFold(comment.Author, app)
 	})
 	return body, found && strings.EqualFold(first.Author, app) && !replied
+}
+
+// sentFollowUp tells if the Reviewer session sent a follow-up of the task to the Lead since it started. The Lead
+// decides on a follow-up, so Mobius does not approve the head of that round.
+func (e *Engine) sentFollowUp(ctx context.Context, task store.Task, session int64) (bool, error) {
+	started, err := e.queries.GetSession(ctx, session)
+	if err != nil {
+		return false, err
+	}
+	return e.queries.HasFollowUpEventSince(ctx, store.HasFollowUpEventSinceParams{WorkstreamRepository: task.WorkstreamRepository, Repository: task.Repository, Issue: sql.NullInt64{Int64: task.Issue, Valid: true}, Since: started.StartedAt})
 }
 
 // sendFollowUps sends each open follow-up thread of reviewThreads of the pull request number to the Lead, and then

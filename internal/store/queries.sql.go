@@ -4004,6 +4004,33 @@ func (q *Queries) HasFollowUpEvent(ctx context.Context, arg HasFollowUpEventPara
 	return exists, err
 }
 
+const hasFollowUpEventSince = `-- name: HasFollowUpEventSince :one
+SELECT EXISTS (
+    SELECT 1 FROM lead_events
+    WHERE repository = ?1 AND issue_repository = ?2 AND issue = ?3 AND kind = 'follow_up'
+      AND julianday(time) >= julianday(?4)
+)
+`
+
+type HasFollowUpEventSinceParams struct {
+	WorkstreamRepository string
+	Repository           string
+	Issue                sql.NullInt64
+	Since                interface{}
+}
+
+func (q *Queries) HasFollowUpEventSince(ctx context.Context, arg HasFollowUpEventSinceParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, hasFollowUpEventSince,
+		arg.WorkstreamRepository,
+		arg.Repository,
+		arg.Issue,
+		arg.Since,
+	)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const hasHeldLeadEvent = `-- name: HasHeldLeadEvent :one
 SELECT EXISTS (
     SELECT 1 FROM lead_events

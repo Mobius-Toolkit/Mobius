@@ -306,3 +306,65 @@ func TestALaterHeadAfterAnApprovalOfMobiusNamesMobiusInTheEvent(t *testing.T) {
 		t.Errorf("event = %q", event)
 	}
 }
+
+// TestAFollowUpOfTheReviewGivesTheLeadReadyForApprovalAndNoMerge checks that a clean review round that sends a
+// follow-up to the Lead leaves the approval to the Lead, so the pull request does not merge before the Lead decides.
+func TestAFollowUpOfTheReviewGivesTheLeadReadyForApprovalAndNoMerge(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	gate := filepath.Join(t.TempDir(), "gate")
+	reviewer := fmt.Sprintf("[[prompts]]\nwhen = \"You are the Reviewer\"\nshell = \"while [ ! -e '%s' ]; do sleep 0.05; done\"\n\n", gate)
+	server := reviewedHeadServer(t, fake, reviewer+leadStarts, 100*time.Millisecond)
+	authorize(t, server)
+	setWorkstreamAutopilot(t, server, "merge")
+	testkit.WaitFor(t, func() bool { return workstreams(t, server)[0].Autopilot == "merge" })
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	testkit.WaitFor(t, func() bool {
+		return len(fake.PullRequests(shop)) == 1 &&
+			slices.ContainsFunc(fake.Comments(shop, 42), func(comment testkit.Comment) bool { return strings.HasPrefix(comment.Body, "Review started") })
+	})
+	thread := fake.AddReviewComment(shop, 42, 0, testkit.AppSlug+"[bot]", "Name the unit.\n\n<!-- mobius:follow-up -->")
+
+	if err := os.WriteFile(gate, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	waitForLeadPrompt(t, server, readyForApprovalMarker)
+	waitForLeadPrompt(t, server, " follow-up on pull request #42 of #41 \"Add plan model\", item "+itoa(thread))
+	waitForPolls(t, fake)
+	if got := reviewedHead(t, server); got != "" {
+		t.Errorf("reviewed_head = %q", got)
+	}
+	if calls := fake.MergeCalls(); calls != 0 {
+		t.Errorf("merge calls = %d", calls)
+	}
+	for _, event := range leadEvents(t, server) {
+		if event.Kind == "auto_approved" {
+			t.Errorf("auto_approved event after a follow-up: %q", event.Payload)
+		}
+	}
+}
+
+// TestAQuestionOnTheTaskIssueGivesTheLeadReadyForApproval checks that a clean review round and a passed CI give the
+// event ready_for_approval while the task issue has mobius:question.
+func TestAQuestionOnTheTaskIssueGivesTheLeadReadyForApproval(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := reviewedHeadServer(t, fake, leadStarts, 5*time.Second)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "checks" && reviewedHead(t, server) != "" })
+	fake.AddLabel(shop, 41, "mobius:question", testkit.AppSlug+"[bot]")
+
+	testkit.WaitFor(t, func() bool {
+		return slices.ContainsFunc(leadEvents(t, server), func(event leadEvent) bool { return event.Kind == "ready_for_approval" })
+	})
+	waitForPolls(t, fake)
+	for _, event := range leadEvents(t, server) {
+		if event.Kind == "auto_approved" {
+			t.Errorf("auto_approved event with an open question: %q", event.Payload)
+		}
+	}
+	if got := approvedReport(t, server); got != "" {
+		t.Errorf("approved_report = %q", got)
+	}
+}
