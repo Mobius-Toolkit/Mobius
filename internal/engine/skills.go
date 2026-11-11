@@ -55,6 +55,9 @@ func (a *Agent) copySkills(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// git config --worktree reads the list of the worktrees, so it fails when another worktree goes away at the same time.
+	e.gitMu.Lock()
+	defer e.gitMu.Unlock()
 	return runner.ExcludeFromStatus(ctx, e.config.DataDir, a.spec.Dir, excluded)
 }
 
