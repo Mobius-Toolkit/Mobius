@@ -266,6 +266,27 @@ const settled = (page: Page, timeout?: number) =>
     )
     .toBe(0);
 
+const fakeNow = (page: Page) => page.evaluate(() => Date.now());
+
+// A tick that runs while a request is open starts no request, so a test counts the fake time, not the requests.
+const waitsUntilLimit = async (page: Page) => {
+  const stoppedAt = await fakeNow(page);
+  const elapsed = async () => (await fakeNow(page)) - stoppedAt;
+  await expect
+    .poll(
+      async () => {
+        await tick(page);
+        return elapsed();
+      },
+      { timeout: 120_000, intervals: [10] },
+    )
+    .toBeGreaterThanOrEqual(15 * 60_000 + 50_000);
+  await expect(voiceCard(page).getByText(/^Converting/)).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await settled(page, 120_000);
+  expect(await elapsed()).toBeGreaterThanOrEqual(16 * 60_000);
+};
+
 const live = (page: Page, text: string) => voiceCard(page).getByText(text, { exact: true });
 
 test("the live text shows in the card during the recording, and the field keeps the text of the Owner", async ({
@@ -659,10 +680,10 @@ test("a 500 for each request for a conversion ends the wait after 16 minutes", a
   await page.goto("/chat");
   await begin(page);
   await stop(page).click();
-  await settled(page, 120_000);
+  await waitsUntilLimit(page);
   await expect(page.getByRole("alert")).toHaveText("The server answered 500.");
   await expect(again(page)).toBeVisible();
-  expect(requests).toBeGreaterThanOrEqual(470);
+  expect(requests).toBeGreaterThan(1);
 });
 
 test("a conversion that does not end is a failure after 16 minutes", async ({ page }) => {
@@ -677,10 +698,10 @@ test("a conversion that does not end is a failure after 16 minutes", async ({ pa
   await page.goto("/chat");
   await begin(page);
   await stop(page).click();
-  await settled(page, 120_000);
+  await waitsUntilLimit(page);
   await expect(page.getByRole("alert")).toHaveText("The server did not convert the recording.");
   await expect(again(page)).toBeVisible();
-  expect(requests).toBeGreaterThanOrEqual(470);
+  expect(requests).toBeGreaterThan(1);
 });
 
 test("a non-JSON answer with the status 524 shows the status", async ({ page }) => {

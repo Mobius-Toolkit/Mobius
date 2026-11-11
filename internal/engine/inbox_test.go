@@ -36,6 +36,8 @@ type inboxItem struct {
 	DismissedAt          *string     `json:"dismissedAt"`
 	Merging              bool        `json:"merging"`
 	MergeRefusal         string      `json:"mergeRefusal"`
+	MergeQueuePlace      *int64      `json:"mergeQueuePlace"`
+	MergeQueueSize       int64       `json:"mergeQueueSize"`
 	Action               *actionJSON `json:"action"`
 	Todo                 *struct {
 		Kind      string `json:"kind"`

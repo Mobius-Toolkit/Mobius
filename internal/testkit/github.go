@@ -152,7 +152,9 @@ type FakeGitHub struct {
 	// bodyWrites counts the body writes through the API, for each issue and pull request.
 	bodyWrites map[issueKey]int
 	// failedCheckUpdates counts the updates of a check run that failCheckUpdates made fail.
-	failedCheckUpdates  int
+	failedCheckUpdates int
+	// refusedCommentCalls counts the new comments that refusedComments refused.
+	refusedCommentCalls int
 	latestRelease       *releaseJSON
 	lastAssetID         int64
 	releaseAssetFailure int
@@ -197,6 +199,7 @@ type FakeGitHub struct {
 	// holdBranchUpdates tells that an update of a branch gives status 202 and waits in heldBranchUpdates for the merge.
 	holdBranchUpdates bool
 	heldBranchUpdates []issueKey
+	updateAnswerHold  *hold
 	// afterCheckRunRead runs once at the end of the first request for the check runs of a commit after a GraphQL answer
 	// gave a review of a pull request. reviewRead tells if such an answer was given.
 	afterCheckRunRead func()
@@ -211,8 +214,10 @@ type FakeGitHub struct {
 	checkRunApps map[int64]string
 	jobLogs      map[int64]string
 	// The id of a workflow run is its index plus 1.
-	workflowRuns []workflowRun
-	workflowJobs []workflowJob
+	workflowRuns     []workflowRun
+	workflowJobs     []workflowJob
+	workflowStates   map[workflowKey]string
+	workflowNotFound map[workflowKey]bool
 	// rerunRefusal is the status that the re-run of the failed jobs gives, or 0 when it works.
 	rerunRefusal int
 	// rerunRequests is the number of the requests to run the failed jobs again.
@@ -314,6 +319,8 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		cloneURLs:               map[string]string{},
 		checkRunApps:            map[int64]string{},
 		jobLogs:                 map[int64]string{},
+		workflowStates:          map[workflowKey]string{},
+		workflowNotFound:        map[workflowKey]bool{},
 		afterIssueListReads:     map[string]func(){},
 	}
 	server := httptest.NewServer(g.logging(g.hanging(g.routes())))
@@ -377,11 +384,11 @@ func (g *FakeGitHub) routes() *http.ServeMux {
 	mux.HandleFunc("POST /repos/{owner}/{repo}/check-runs", g.withToken(g.createCheckRun))
 	mux.HandleFunc("PATCH /repos/{owner}/{repo}/check-runs/{id}", g.withToken(g.updateCheckRun))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/check-runs/{id}/annotations", g.withToken(g.checkRunAnnotations))
-	mux.HandleFunc("GET /repos/{owner}/{repo}/commits", g.withToken(g.listCommits))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/commits/{sha}", g.withToken(g.getCommit))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/pulls/{number}/files", g.withToken(g.pullRequestFiles))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/commits/{sha}/check-runs", g.withToken(g.commitCheckRuns))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/runs", g.withToken(g.listWorkflowRuns))
+	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/workflows/{id}", g.withToken(g.getWorkflow))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/runs/{id}/attempts/{attempt}/jobs", g.withToken(g.listWorkflowJobsAttempt))
 	mux.HandleFunc("POST /repos/{owner}/{repo}/actions/runs/{id}/rerun-failed-jobs", g.withToken(g.rerunFailedJobs))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/jobs/{id}/logs", g.withToken(g.jobLogLink))

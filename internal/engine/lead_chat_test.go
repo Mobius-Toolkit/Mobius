@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -127,8 +128,11 @@ func endedChatSession(t *testing.T, server *testserver.Server, index int) store.
 	})
 }
 
-// promptTexts gives the text of each prompt of the session.
-func promptTexts(t *testing.T, server *testserver.Server, session int64) []string {
+// fetchLine is the line that Mobius puts before the item of a turn of a Workstream chat after a fetch of the bare clone.
+var fetchLine = regexp.MustCompile(`Mobius fetched the bare clone of [^\n]*\n\n`)
+
+// rawPromptTexts gives the text of each prompt of the session.
+func rawPromptTexts(t *testing.T, server *testserver.Server, session int64) []string {
 	t.Helper()
 	var texts []string
 	for _, row := range rows(t, server, session, "prompt") {
@@ -137,7 +141,27 @@ func promptTexts(t *testing.T, server *testserver.Server, session int64) []strin
 	return texts
 }
 
-// leadPrompts gives the prompts of the Lead sessions of the Workstream #12, the oldest first.
+// promptTexts gives the text of each prompt of the session, with no fetch line.
+func promptTexts(t *testing.T, server *testserver.Server, session int64) []string {
+	t.Helper()
+	texts := rawPromptTexts(t, server, session)
+	for i, text := range texts {
+		texts[i] = fetchLine.ReplaceAllString(text, "")
+	}
+	return texts
+}
+
+// rawLeadPrompts gives the prompts of the Lead sessions of the Workstream #12, the oldest first.
+func rawLeadPrompts(t *testing.T, server *testserver.Server) []string {
+	t.Helper()
+	var texts []string
+	for _, session := range chatSessions(t, server, leadChat, engine.LeadRole) {
+		texts = append(texts, rawPromptTexts(t, server, session.ID)...)
+	}
+	return texts
+}
+
+// leadPrompts gives the prompts of the Lead sessions of the Workstream #12, the oldest first, with no fetch line.
 func leadPrompts(t *testing.T, server *testserver.Server) []string {
 	t.Helper()
 	var texts []string
@@ -526,7 +550,7 @@ func TestAnIdleLeadSavesItsMemoryAndTheNextMessageStartsANewSession(t *testing.T
 	if first.EndReason.String != "idle" {
 		t.Errorf("end reason = %s", first.EndReason.String)
 	}
-	if got := promptTexts(t, server, first.ID); got[len(got)-1] != "Save in the Workstream memory what the next session needs." {
+	if got := promptTexts(t, server, first.ID); got[len(got)-1] != "Save in the Workstream memory only the facts of this session that a later session needs and that MEMORY.md does not have. Read no code, issue or pull request, and run no command for more data. When no fact is new, reply \"nothing\" with no tool call." {
 		t.Errorf("prompts = %q", got)
 	}
 

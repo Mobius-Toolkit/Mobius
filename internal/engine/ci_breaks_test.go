@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
@@ -582,4 +583,51 @@ func TestANewerRunThatFailsMakesTheBreakHardWithNoRerun(t *testing.T) {
 	if attempt := fake.WorkflowRunAttempt(run); attempt != 1 {
 		t.Errorf("attempt = %d", attempt)
 	}
+}
+
+func TestAnOpenBreakOfAWorkflowDispatchRunEndsAtTheNextRead(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	run := fake.AddWorkflowRun(shop, failedMainRun(7))
+	server := startServer(t, fake, t.TempDir(), "")
+	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true})
+
+	fake.SetWorkflowRunEvent(run, "workflow_dispatch")
+
+	testkit.WaitFor(t, func() bool {
+		open, err := store.New(server.DB).ListOpenCIBreaks(t.Context(), shop)
+		return err == nil && len(open) == 0
+	})
+	if breaks := ciBreaks(t, server); len(breaks) != 1 || breaks[0].endedRunID != 0 {
+		t.Errorf("breaks = %+v", breaks)
+	}
+}
+
+func TestAFailedPushRunCreatedMoreThan24HoursBeforeTheReadStartsNoBreak(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	oldRun := failedMainRun(7)
+	oldRun.CreatedAt = time.Now().Add(-25 * time.Hour)
+	fake.AddWorkflowRun(shop, oldRun)
+	server := startServer(t, fake, t.TempDir(), "")
+
+	waitForPolls(t, fake)
+	if breaks := ciBreaks(t, server); len(breaks) != 0 {
+		t.Errorf("breaks = %+v", breaks)
+	}
+}
+
+func TestAnOpenBreakEndsWhenItsWorkflowHasTheStateDisabledManually(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	run := fake.AddWorkflowRun(shop, failedMainRun(7))
+	server := startServer(t, fake, t.TempDir(), "")
+	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true})
+
+	fake.SetWorkflowState(shop, 7, "disabled_manually")
+
+	testkit.WaitFor(t, func() bool {
+		open, err := store.New(server.DB).ListOpenCIBreaks(t.Context(), shop)
+		return err == nil && len(open) == 0
+	})
 }

@@ -25,11 +25,13 @@ func serverSection() string {
 // repositorySections gives the server section, the facts file, the instruction file of role and the memory files as
 // prompt sections. The facts file and the instruction file come from the default branch, so a pull request cannot change
 // them for its own agents. The memory files come from the data directory.
-func (e *Engine) repositorySections(ctx context.Context, repository github.Repository, role string) (string, error) {
+func (e *Engine) repositorySections(ctx context.Context, repository github.Repository, role string) (string, bool, error) {
+	fetched := true
 	if err := e.fetchRepository(ctx, repository); err != nil {
 		if role != "lead" {
-			return "", err
+			return "", false, err
 		}
+		fetched = false
 		log.Printf("fetch of %s for the Lead failed, use the last fetch: %v", repository.FullName, err)
 	}
 	dataDir := e.config.DataDir
@@ -42,7 +44,7 @@ func (e *Engine) repositorySections(ctx context.Context, repository github.Repos
 	} {
 		text, ok, err := runner.Show(ctx, dataDir, repository.FullName, repository.DefaultBranch, file.path)
 		if err != nil {
-			return "", err
+			return "", false, err
 		}
 		if ok {
 			sections += fmt.Sprintf("# %s\n\n%s\n\n", file.heading, text)
@@ -50,9 +52,9 @@ func (e *Engine) repositorySections(ctx context.Context, repository github.Repos
 	}
 	memory, err := e.memorySections(repository.FullName, role)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
-	return sections + memory, nil
+	return sections + memory, fetched, nil
 }
 
 // memorySections gives the shared memory file and the memory files of the role as prompt sections. The Curator gets each

@@ -139,7 +139,7 @@ func TestTheSavePromptOfAnIdleCloseTakesNoQuietEvent(t *testing.T) {
 
 	ended := endedChatSession(t, server, 0)
 	prompts := promptTexts(t, server, ended.ID)
-	if got := prompts[len(prompts)-1]; got != "Save in the Workstream memory what the next session needs." {
+	if got := prompts[len(prompts)-1]; got != "Save in the Workstream memory only the facts of this session that a later session needs and that MEMORY.md does not have. Read no code, issue or pull request, and run no command for more data. When no fact is new, reply \"nothing\" with no tool call." {
 		t.Errorf("the last prompt is not the save prompt: %q", got)
 	}
 	if len(prompts) != 2 {

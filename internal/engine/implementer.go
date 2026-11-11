@@ -144,7 +144,7 @@ func (e *Engine) startImplementer(ctx context.Context, repository github.Reposit
 	if err != nil {
 		return "", err
 	}
-	sections, err := e.repositorySections(ctx, repository, ImplementerRole)
+	sections, _, err := e.repositorySections(ctx, repository, ImplementerRole)
 	if err != nil {
 		return "", err
 	}
@@ -483,9 +483,9 @@ func replaceCheckRun(ctx context.Context, repository github.Repository, head str
 }
 
 // approvalAgainComment gives the comment of the approval again. Mobius writes it, so it has no role mark. reportHead
-// is the head that the Lead approved with report. The comment keeps the end of a report that is too long for GitHub.
+// is the head whose approval has report. The comment keeps the end of a report that is too long for GitHub.
 func approvalAgainComment(branch, head, approved, reportHead, report string) string {
-	header := fmt.Sprintf("Mobius approved the head %.8s again. Only clean merges of %s came after the head %.8s, and they change no file of the pull request. The report of the Lead for %.8s:\n\n", head, branch, approved, reportHead)
+	header := fmt.Sprintf("Mobius approved the head %.8s again. Only clean merges of %s came after the head %.8s, and they change no file of the pull request. The report of the approval of %.8s:\n\n", head, branch, approved, reportHead)
 	return header + tail(report, commentLimit-utf8.RuneCountInString(header))
 }
 
@@ -497,8 +497,8 @@ func approvalAgainComment(branch, head, approved, reportHead, report string) str
 // It completes the check after each GitHub write that can be refused, so a refused write leaves the check open and a
 // task in approval stays there instead of calling onChecks again at each poll.
 // mark is the role mark of the Lead for the question text, or "" when Mobius writes the comment. A leadReport of ""
-// keeps the stored report of the approval. again tells that Mobius approves the head again for the Lead: it keeps the
-// stored comment of the same head, so a retry does not post it a second time.
+// keeps the stored report of the approval. again tells that Mobius approves the head again. When mark is "", the
+// stored comment of the same head stays, so a retry does not post it a second time.
 func (e *Engine) approve(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue, pullRequest *gh.PullRequest, checkRun int64, comment, mark, leadReport string, again bool) error {
 	head := pullRequest.GetHead().GetSHA()
 	if mark != "" && hasLabel(issue, questionLabel) {
@@ -507,18 +507,23 @@ func (e *Engine) approve(ctx context.Context, repository github.Repository, task
 		}
 	}
 	summary := "The Lead approved the pull request."
+	switch {
+	case again:
+		summary = "Mobius approved the head again: only clean merges of the default branch came after the approved head."
+	case mark == "":
+		summary = "Mobius approved the pull request: the Reviewer found no open finding on this head, and each check of the head passed."
+	}
 	posted := ""
-	if again {
-		summary = "Mobius approved the head again: only clean merges of the default branch came after the approval of the Lead."
+	if mark == "" {
 		posted = task.ApprovedAgainComment.String
 	}
-	if !again || task.ApprovedAgainHead.String != head || task.ApprovedAgainComment.String == "" {
+	if mark != "" || task.ApprovedAgainHead.String != head || task.ApprovedAgainComment.String == "" {
 		added, err := repository.AddComment(ctx, int64(pullRequest.GetNumber()), comment)
 		if err != nil {
 			return err
 		}
 		posted = added.GetHTMLURL()
-		if again {
+		if mark == "" {
 			if err := e.queries.SetTaskApprovedAgainComment(ctx, store.SetTaskApprovedAgainCommentParams{
 				ApprovedAgainHead:    sql.NullString{String: head, Valid: true},
 				ApprovedAgainComment: sql.NullString{String: posted, Valid: true},
@@ -678,7 +683,7 @@ func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r r
 	if err != nil {
 		return err
 	}
-	sections, err := e.repositorySections(ctx, repository, ImplementerRole)
+	sections, _, err := e.repositorySections(ctx, repository, ImplementerRole)
 	if err != nil {
 		return err
 	}
@@ -787,7 +792,7 @@ func (e *Engine) conflictRound(ctx context.Context, repository github.Repository
 	if err != nil {
 		return err
 	}
-	sections, err := e.repositorySections(ctx, repository, ImplementerRole)
+	sections, _, err := e.repositorySections(ctx, repository, ImplementerRole)
 	if err != nil {
 		return err
 	}

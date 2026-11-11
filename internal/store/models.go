@@ -440,6 +440,8 @@ type Task struct {
 	ApprovedAgainHead    sql.NullString
 	ApprovedAgainComment sql.NullString
 	ApprovedReportHead   sql.NullString
+	MergeQueuedAt        sql.NullString
+	ReviewedHead         sql.NullString
 }
 
 type TaskState struct {

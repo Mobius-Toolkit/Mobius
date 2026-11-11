@@ -273,8 +273,8 @@ LEFT JOIN copied_issues i
 WHERE sessions.ended_at IS NULL ORDER BY sessions.id;
 
 -- name: ListBoardTasks :many
-SELECT tasks.repository, tasks.issue, tasks.workstream_repository, tasks.workstream, tasks.state, tasks.state_at,
-       tasks.pull_request, tasks.fix_rounds, tasks.review_rounds,
+SELECT tasks.id, tasks.repository, tasks.issue, tasks.workstream_repository, tasks.workstream, tasks.state, tasks.state_at,
+       tasks.pull_request, tasks.fix_rounds, tasks.review_rounds, tasks.merge_queued_at,
        i.title AS issue_title, i.html_url AS issue_url, w.title AS workstream_title,
        coalesce(m.merging, 0) AS merging, coalesce(m.merge_refusal, '') AS merge_refusal
 FROM tasks
@@ -299,7 +299,7 @@ UPDATE tasks SET state = sqlc.arg(state), state_at = strftime('%Y-%m-%dT%H:%M:%f
 WHERE id = sqlc.arg(id) AND state = sqlc.arg(from_state);
 
 -- name: HandTaskToHuman :execrows
-UPDATE tasks SET state = 'needs_human', needs_human_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL
+UPDATE tasks SET state = 'needs_human', merge_queued_at = NULL, needs_human_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL
 WHERE id = sqlc.arg(id) AND state = sqlc.arg(from_state);
 
 -- name: AddWorkerRestart :one
@@ -534,6 +534,13 @@ SELECT EXISTS (
       AND instr(payload, ', item ' || CAST(sqlc.arg(item) AS INTEGER) || ', ') > 0
 );
 
+-- name: HasFollowUpEventSince :one
+SELECT EXISTS (
+    SELECT 1 FROM lead_events
+    WHERE repository = sqlc.arg(workstream_repository) AND issue_repository = sqlc.arg(repository) AND issue = sqlc.arg(issue) AND kind = 'follow_up'
+      AND julianday(time) >= julianday(sqlc.arg(since))
+);
+
 -- name: DeliverLeadEvents :exec
 UPDATE lead_events SET delivered_at = ? WHERE repository = ? AND workstream = ? AND delivered_at IS NULL;
 
@@ -608,6 +615,12 @@ SELECT EXISTS (
     WHERE repository = sqlc.arg(workstream_repository) AND issue_repository = sqlc.arg(repository) AND issue = sqlc.arg(issue) AND held = 1 AND delivered_at IS NULL
 );
 
+-- name: HasUndeliveredLeadEventOfIssue :one
+SELECT EXISTS (
+    SELECT 1 FROM lead_events
+    WHERE repository = sqlc.arg(workstream_repository) AND issue_repository = sqlc.arg(repository) AND issue = sqlc.arg(issue) AND delivered_at IS NULL
+);
+
 -- name: FreeLeadEvents :many
 UPDATE lead_events SET held = 0, held_at = NULL WHERE repository = ? AND workstream = ? AND held = 1
 RETURNING *;
@@ -641,7 +654,7 @@ SELECT count(*) FROM tasks WHERE state IN ('dispatched', 'queued', 'working');
 UPDATE tasks SET fix_rounds = 0, review_rounds = 0, worker_restarts = 0, check_head = NULL WHERE id = ?;
 
 -- name: EndTask :exec
-UPDATE tasks SET state = 'ended', lead_findings = '', state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL WHERE id = ?;
+UPDATE tasks SET state = 'ended', lead_findings = '', merge_queued_at = NULL, state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL WHERE id = ?;
 
 -- name: GetEndedTaskWithPullRequest :one
 SELECT * FROM tasks
@@ -680,7 +693,7 @@ UPDATE tasks SET state = 'queued', state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'no
 UPDATE tasks SET worker = ?, worker_input = ? WHERE id = ?;
 
 -- name: StartTaskWorker :execrows
-UPDATE tasks SET state = 'working', worker = sqlc.arg(worker), worker_input = sqlc.arg(worker_input), state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL
+UPDATE tasks SET state = 'working', merge_queued_at = NULL, worker = sqlc.arg(worker), worker_input = sqlc.arg(worker_input), state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL
 WHERE id = sqlc.arg(id) AND state = sqlc.arg(from_state);
 
 -- name: SetTaskBranch :exec
@@ -707,6 +720,9 @@ WHERE id = sqlc.arg(id) AND substr(lead_findings, 1, length(sqlc.arg(taken))) = 
 
 -- name: SetTaskCheckHead :exec
 UPDATE tasks SET check_head = ? WHERE id = ?;
+
+-- name: SetTaskReviewedHead :exec
+UPDATE tasks SET reviewed_head = ? WHERE id = ?;
 
 -- name: SetTaskApprovedHead :exec
 UPDATE tasks SET approved_head = ? WHERE id = ?;
@@ -761,7 +777,7 @@ WHERE repository = sqlc.arg(workstream_repository) AND issue_repository = sqlc.a
 UPDATE tasks SET judged_at = ? WHERE id = ?;
 
 -- name: StopTask :execrows
-UPDATE tasks SET state = 'stopped', state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL WHERE id = ? AND state NOT IN ('stopped', 'ended');
+UPDATE tasks SET state = 'stopped', merge_queued_at = NULL, state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL WHERE id = ? AND state NOT IN ('stopped', 'ended');
 
 -- name: ListLiveTaskRepositories :many
 SELECT DISTINCT repository FROM tasks WHERE state <> 'ended' ORDER BY repository;
@@ -1368,6 +1384,31 @@ UPDATE lead_writes SET item = ? WHERE id = ? AND item IS NULL;
 -- name: DeleteDeploymentNeeds :exec
 DELETE FROM deployment_needs WHERE task = ?;
 
+-- name: SetTaskMergeQueuedAt :exec
+UPDATE tasks SET merge_queued_at = ? WHERE id = ?;
+
+-- name: ClearTaskMergeQueuedAt :execrows
+UPDATE tasks SET merge_queued_at = NULL WHERE id = ? AND merge_queued_at IS NOT NULL;
+
+-- name: GetMergeQueueHead :one
+SELECT * FROM tasks
+WHERE repository = ? AND state <> 'ended' AND merge_queued_at IS NOT NULL
+ORDER BY julianday(merge_queued_at), id
+LIMIT 1;
+
+-- name: ListMergeQueueTasks :many
+SELECT * FROM tasks
+WHERE repository = ? AND state <> 'ended' AND merge_queued_at IS NOT NULL
+ORDER BY julianday(merge_queued_at), id;
+
+-- name: ListAllMergeQueueTasks :many
+SELECT id, repository FROM tasks
+WHERE state <> 'ended' AND merge_queued_at IS NOT NULL
+ORDER BY julianday(merge_queued_at), id;
+
+-- name: GetTask :one
+SELECT * FROM tasks WHERE id = ?;
+
 -- name: AddDeploymentNeed :exec
 INSERT INTO deployment_needs (task, head, kind, name, path, line, reason, mandatory, after_merge) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
 
@@ -1684,6 +1725,14 @@ UPDATE mcp_server_oauth
 SET access_token = ?, refresh_token = ?, expires_at = ?, state = '', code_verifier = '', flow_started_at = NULL,
     failure = '', updated_at = ?
 WHERE server = ? AND state = ?;
+
+-- name: StoreMcpServerOAuthRefresh :exec
+UPDATE mcp_server_oauth
+SET access_token = sqlc.arg(access_token), refresh_token = sqlc.arg(refresh_token), expires_at = sqlc.arg(expires_at), updated_at = sqlc.arg(updated_at)
+WHERE server = sqlc.arg(server) AND access_token = sqlc.arg(current_access_token) AND refresh_token = sqlc.arg(current_refresh_token);
+
+-- name: FailMcpServerOAuthToken :exec
+UPDATE mcp_server_oauth SET failure = ?, updated_at = ? WHERE server = ? AND access_token = ?;
 
 -- name: ClearMcpServerOAuthTokens :exec
 UPDATE mcp_server_oauth SET access_token = '', refresh_token = '', expires_at = NULL WHERE server = ?;

@@ -611,3 +611,31 @@ func TestTheSkillRepositoryIsARepositoryAndSkillRepositoryGivesIt(t *testing.T) 
 		t.Error("the organization other has no skill repository")
 	}
 }
+
+func TestWorkflowStateGivesTheStateOfTheWorkflowOrEmptyFor404(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddWorkflowRun("owner/shop", testkit.WorkflowRun{WorkflowID: 7, Branch: "main", Status: "completed"})
+	fake.SetWorkflowState("owner/shop", 8, "disabled_manually")
+	fake.SetWorkflowNotFound("owner/shop", 9)
+	gh := connect(t, fake)
+
+	repository, ok := gh.Repository("owner/shop")
+	if !ok {
+		t.Fatal("missing repository")
+	}
+
+	state, err := repository.WorkflowState(t.Context(), 7)
+	if err != nil || state != "active" {
+		t.Errorf("state = %q, err = %v", state, err)
+	}
+
+	state, err = repository.WorkflowState(t.Context(), 8)
+	if err != nil || state != "disabled_manually" {
+		t.Errorf("state = %q, err = %v", state, err)
+	}
+
+	state, err = repository.WorkflowState(t.Context(), 9)
+	if err != nil || state != "" {
+		t.Errorf("state = %q, err = %v", state, err)
+	}
+}

@@ -33,6 +33,7 @@ import { countSamples, fakeMicrophone } from "./microphone.js";
 import { lines, turnAllOn, turnOff } from "./switches.js";
 import {
   boardTasks,
+  mergeQueueTask,
   mergingTask,
   ownerActionTask,
   refusedTask,
@@ -410,6 +411,23 @@ test("screenshots", async ({ page }) => {
       const ready = main.getByRole("region", { name: "Ready to merge" });
       await expect(ready.getByText("approved", { exact: true })).toBeAttached();
       await expect(main.getByText("Required status check is expected.")).toBeAttached();
+      await ready.evaluate((el) => el.scrollIntoView({ block: "nearest", inline: "start" }));
+    },
+  );
+  await page.unroute(tasksRoute);
+  await routeTasks(page, [...boardTasks, mergeQueueTask]);
+  await screenshot(
+    page,
+    "tasks-merge-queue",
+    "/tasks",
+    (device) => [
+      chatCount,
+      ...frame(device, drain, { organizations: true }),
+      main.getByRole("region", { name: "Ready to merge" }).getByText("Merge queue · 2 of 4"),
+    ],
+    async () => {
+      const ready = main.getByRole("region", { name: "Ready to merge" });
+      await expect(ready.getByText("Merge queue · 2 of 4")).toBeAttached();
       await ready.evaluate((el) => el.scrollIntoView({ block: "nearest", inline: "start" }));
     },
   );
@@ -1807,7 +1825,12 @@ test("screenshots", async ({ page }) => {
     main.getByText("Sell gift cards in the shop."),
   ]);
   // The Inbox of the server has one item. The route adds one item of each other kind.
-  let mergeState = { merging: false, mergeRefusal: "" };
+  let mergeState: {
+    merging: boolean;
+    mergeRefusal: string;
+    mergeQueuePlace: number | null;
+    mergeQueueSize: number;
+  } = { merging: false, mergeRefusal: "", mergeQueuePlace: null, mergeQueueSize: 0 };
   // While the todos block, they belong to the pull request of the ready for review item.
   let blocked = false;
   const todoPullRequest = () => {
@@ -1842,6 +1865,8 @@ test("screenshots", async ({ page }) => {
       pullRequestUrl: "",
       reportUrl: "",
       blockingTodos: [],
+      mergeQueuePlace: null,
+      mergeQueueSize: 0,
     };
     await route.fulfill({
       json: {
@@ -2132,13 +2157,31 @@ test("screenshots", async ({ page }) => {
   mergeState = {
     merging: false,
     mergeRefusal: "Pull request #44 is not mergeable: the check run Build failed.",
+    mergeQueuePlace: null,
+    mergeQueueSize: 0,
   };
   await screenshot(page, "inbox-merge-refusal", "/inbox", (device) => [
     ...inboxReady(device),
     readyRow.getByText(mergeState.mergeRefusal),
     readyRow.getByRole("button", { name: "Merge" }),
   ]);
-  mergeState = { merging: false, mergeRefusal: "" };
+  mergeState = {
+    merging: false,
+    mergeRefusal: "",
+    mergeQueuePlace: 2,
+    mergeQueueSize: 4,
+  };
+  await screenshot(
+    page,
+    "inbox-merge-queue",
+    "/inbox",
+    (device) => [...inboxReady(device), readyRow.getByText("Merge queue · 2 of 4")],
+    async () => {
+      await expect(readyRow.getByText("Merge queue · 2 of 4")).toBeAttached();
+      await readyRow.evaluate((el) => el.scrollIntoView({ block: "nearest", inline: "start" }));
+    },
+  );
+  mergeState = { merging: false, mergeRefusal: "", mergeQueuePlace: null, mergeQueueSize: 0 };
   blocked = true;
   const blockedCount = readyRow.getByRole("button", { name: "2 open todos" });
   await screenshot(
@@ -2969,6 +3012,15 @@ test("screenshots", async ({ page }) => {
       ...frame(device, release),
       memoryDiscard.getByRole("button", { name: "Keep editing" }),
       memoryDiscard.getByRole("button", { name: "Discard" }),
+      // The pointer stays on Cancel. The browser removes the hover state after the overlay covers the button.
+      () =>
+        expect
+          .poll(() =>
+            memoryDialog
+              .getByRole("button", { name: "Cancel", includeHidden: true })
+              .evaluate((button) => button.matches(":hover")),
+          )
+          .toBe(false),
     ],
     async () => {
       await openMemoryEdit();

@@ -184,6 +184,10 @@ type Engine struct {
 	curatorsMu sync.Mutex
 	// curators holds each repository with a Curator that runs. The value tells that one more Curator waits.
 	curators map[string]bool
+	// mcpRefreshesMu guards mcpRefreshes.
+	mcpRefreshesMu sync.Mutex
+	// mcpRefreshes holds the refresh state of each OAuth MCP server, by the id of the server.
+	mcpRefreshes map[int64]*mcpRefresh
 	// diagnosersMu guards diagnosers.
 	diagnosersMu sync.Mutex
 	// diagnosers holds each repository with a Diagnoser worker that runs.
@@ -256,6 +260,7 @@ func New(db *sql.DB, gh *github.GitHub, cfg *config.Config, agents Agents) *Engi
 		researchers:     map[int64]*Agent{},
 		operators:       map[int64]*Agent{},
 		curators:        map[string]bool{},
+		mcpRefreshes:    map[int64]*mcpRefresh{},
 		diagnosers:      map[string]bool{},
 		listeners:       map[chan Change]bool{},
 	}
@@ -417,6 +422,16 @@ func (e *Engine) inTx(ctx context.Context, work func(*store.Queries) error) erro
 		return err
 	}
 	return tx.Commit()
+}
+
+// readTx runs work in one read transaction.
+func (e *Engine) readTx(ctx context.Context, work func(*store.Queries) error) error {
+	tx, err := e.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	return work(e.queries.WithTx(tx))
 }
 
 // every runs work now and then after each interval or after a value on wake, until ctx ends. A nil wake never fires.

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"time"
 
 	gh "github.com/google/go-github/v92/github"
 )
@@ -148,6 +147,19 @@ func (r Repository) BranchWorkflowRuns(ctx context.Context, branch string) ([]*g
 	return runs.WorkflowRuns, nil
 }
 
+// WorkflowState gives the state of the workflow id (for example "active", "disabled_manually"), or "" when GitHub
+// answers 404 Not Found or 410 Gone.
+func (r Repository) WorkflowState(ctx context.Context, id int64) (string, error) {
+	workflow, _, err := r.Client.Actions.GetWorkflowByID(ctx, r.Owner(), r.Name(), id)
+	if NotFound(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return workflow.GetState(), nil
+}
+
 // RerunFailedJobs runs the failed jobs of the workflow run id again. It needs the permission actions: write.
 func (r Repository) RerunFailedJobs(ctx context.Context, id int64) error {
 	_, err := r.Client.Actions.RerunFailedJobsByID(ctx, r.Owner(), r.Name(), id)
@@ -176,13 +188,6 @@ func (r Repository) Compare(ctx context.Context, base, head string) (*gh.Commits
 		response = nextResponse
 	}
 	return comparison, nil
-}
-
-// CommitsSince gives the newest commits of the branch with a commit date at or after since. It reads one page, because
-// the commits of a branch are many.
-func (r Repository) CommitsSince(ctx context.Context, branch string, since time.Time) ([]*gh.RepositoryCommit, error) {
-	commits, _, err := r.Client.Repositories.ListCommits(ctx, r.Owner(), r.Name(), &gh.CommitsListOptions{SHA: branch, Since: since, ListOptions: gh.ListOptions{PerPage: 100}})
-	return commits, err
 }
 
 // CommitFiles gives the names of the files that the commit sha changes. It reads one page.

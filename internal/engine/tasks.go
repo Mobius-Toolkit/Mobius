@@ -86,21 +86,29 @@ func (e *Engine) Tasks(ctx context.Context, repositoryName string, workstream in
 	if err != nil {
 		return nil, err
 	}
-	tree, err := e.queries.ListCopiedTree(ctx, store.ListCopiedTreeParams{Repository: repositoryName, Workstream: workstream})
-	if err != nil {
-		return nil, err
-	}
-	labelRows, err := e.queries.ListCopiedTreeLabels(ctx, store.ListCopiedTreeLabelsParams{Repository: repositoryName, Workstream: workstream})
+	var tree []store.ListCopiedTreeRow
+	var labelRows []store.ListCopiedTreeLabelsRow
+	var blockerRows []store.ListCopiedTreeBlockersRow
+	params := store.ListCopiedTreeParams{Repository: repositoryName, Workstream: workstream}
+	err = e.readTx(ctx, func(q *store.Queries) error {
+		var err error
+		tree, err = q.ListCopiedTree(ctx, params)
+		if err != nil {
+			return err
+		}
+		labelRows, err = q.ListCopiedTreeLabels(ctx, store.ListCopiedTreeLabelsParams(params))
+		if err != nil {
+			return err
+		}
+		blockerRows, err = q.ListCopiedTreeBlockers(ctx, store.ListCopiedTreeBlockersParams(params))
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
 	labels := map[int64][]string{}
 	for _, row := range labelRows {
 		labels[row.Position] = append(labels[row.Position], row.Name)
-	}
-	blockerRows, err := e.queries.ListCopiedTreeBlockers(ctx, store.ListCopiedTreeBlockersParams{Repository: repositoryName, Workstream: workstream})
-	if err != nil {
-		return nil, err
 	}
 	blockers := map[int64][]Blocker{}
 	for _, row := range blockerRows {
@@ -276,6 +284,10 @@ type BoardTask struct {
 	Merging bool
 	// MergeRefusal is the reason that GitHub gave for the refused merge of a task in ready_for_review, or "".
 	MergeRefusal string
+	// MergeQueuePlace is the place of the task in the merge queue of its repository, from 1, or nil.
+	MergeQueuePlace *int64
+	// MergeQueueSize is the number of tasks in the merge queue of that repository, or 0 when MergeQueuePlace is nil.
+	MergeQueueSize int64
 }
 
 // BoardTasks gives the tasks that the Tasks board shows, newest state change first: each task that has not ended, and
@@ -284,6 +296,14 @@ func (e *Engine) BoardTasks(ctx context.Context) ([]BoardTask, error) {
 	rows, err := e.queries.ListBoardTasks(ctx)
 	if err != nil {
 		return nil, err
+	}
+	queued, err := e.queries.ListAllMergeQueueTasks(ctx)
+	if err != nil {
+		return nil, err
+	}
+	repoQueue := make(map[string][]int64)
+	for _, q := range queued {
+		repoQueue[q.Repository] = append(repoQueue[q.Repository], q.ID)
 	}
 	since := e.timeNow().Add(-24 * time.Hour)
 	tasks := []BoardTask{}
@@ -296,6 +316,15 @@ func (e *Engine) BoardTasks(ctx context.Context) ([]BoardTask, error) {
 			continue
 		}
 		task := BoardTask{Repository: row.Repository, Number: row.Issue, Title: row.IssueTitle, URL: row.IssueUrl, WorkstreamRepository: row.WorkstreamRepository, Workstream: row.Workstream, WorkstreamTitle: row.WorkstreamTitle, State: row.State, StateAt: stateAt, FixRounds: row.FixRounds, ReviewRounds: row.ReviewRounds}
+		if row.MergeQueuedAt.Valid {
+			queue := repoQueue[row.Repository]
+			idx := slices.Index(queue, row.ID)
+			if idx >= 0 {
+				place := int64(idx + 1)
+				task.MergeQueuePlace = &place
+				task.MergeQueueSize = int64(len(queue))
+			}
+		}
 		if row.State == "ready_for_review" {
 			task.Merging = row.Merging != 0
 			if !task.Merging {

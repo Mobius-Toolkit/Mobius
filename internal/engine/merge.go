@@ -44,6 +44,9 @@ func (e *Engine) keepApproval(ctx context.Context, repository github.Repository,
 		if err := e.refuseMergeItem(ctx, task, reason); err != nil {
 			return task, err
 		}
+		if err := e.clearMergeQueue(ctx, &task); err != nil {
+			return task, err
+		}
 		task.RefusedReview = approved
 		return task, e.queries.SetTaskRefusedReview(ctx, store.SetTaskRefusedReviewParams{RefusedReview: approved, ID: task.ID})
 	}
@@ -55,22 +58,36 @@ func awaitsMerge(task store.Task) bool {
 	return task.ApprovedReview.Valid && task.ApprovedReview != task.RefusedReview
 }
 
-// mergeApproved squash merges the pull request of the task with an approval, when no Worker works on the task and its
-// head commit passes these conditions: the pull request is not a draft and has no merge conflict, it has no open review
+// mergeApproved places an approved task in the merge queue of its repository when no Worker works on the task and its
+// head commit passes these conditions: the pull request is not a draft and has no merge conflict, has no open review
 // thread, and each check run of the head completed and passed, with the Mobius check among them. It reads the check
 // runs only when the other conditions are true, and it reads the review threads and the task again before the merge. A task with
-// auto_merge needs a Workstream with a merge level, else its automatic merge ends (endAutoMerge). While the Merge switch is off, its automatic merge ends too (pauseAutoMerge). It also needs a head
-// that contains the default branch (updateForMerge). Its head with no Mobius check run, for example after the update of
-// the branch, sends the task in ready_for_review back to checks (returnForApproval). It gives true when GitHub merged the pull request, and then it dismisses the open ready for review Inbox items of the issue. When
-// GitHub refuses the merge, the open ready for review Inbox item of the issue gets the reason and the Lead gets an
-// event, and the poll does not try again until a new APPROVED review. A refusal for a pull request that a person merged in the meantime is no refusal: the next read of the pull request goes to
-// GitHub, and the poll ends the task.
+// auto_merge also needs a Workstream with a merge level, else its automatic merge ends (endAutoMerge), and the Merge
+// switch on, else its automatic merge pauses (pauseAutoMerge).
+//
+// Only the head of the merge queue updates its branch and merges: when its head does not contain the default branch, it
+// updates the branch (updateForMerge). Its head with no Mobius check run, for example after the update of the branch,
+// sends the task in ready_for_review back to checks (returnForApproval). When the head contains the default branch, it
+// squash merges the pull request. It gives true when GitHub merged the pull request, and then it dismisses the open
+// ready for review Inbox items of the issue and leaves the queue. When GitHub refuses the merge, the open ready for
+// review Inbox item of the issue gets the reason and the Lead gets an event, and the poll does not try again until a
+// new APPROVED review. A refusal for a pull request that a person merged in the meantime is no refusal: the next read
+// of the pull request goes to GitHub, and the poll ends the task.
 func (e *Engine) mergeApproved(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) (bool, error) {
 	number := int64(pullRequest.GetNumber())
-	if !awaitsMerge(task) || task.State == "queued" || task.State == "working" || pullRequest.GetDraft() || !pullRequest.GetMergeable() || hasOpenThread(e.pull(repository, number)) {
+	conflict := pullRequest.Mergeable != nil && !pullRequest.GetMergeable()
+	if pullRequest.GetDraft() || hasOpenThread(e.pull(repository, number)) || conflict {
+		if err := e.clearMergeQueue(ctx, &task); err != nil {
+			return false, err
+		}
 		return false, nil
 	}
 	if blocked, err := e.blockedByTodos(ctx, task); err != nil || blocked {
+		if blocked {
+			if err := e.clearMergeQueue(ctx, &task); err != nil {
+				return false, err
+			}
+		}
 		return false, err
 	}
 	if task.AutoMerge == 1 {
@@ -89,27 +106,95 @@ func (e *Engine) mergeApproved(ctx context.Context, repository github.Repository
 			return false, e.pauseAutoMerge(ctx, task)
 		}
 	}
+	if task.State == "queued" || task.State == "working" {
+		if err := e.clearMergeQueue(ctx, &task); err != nil {
+			return false, err
+		}
+		return false, nil
+	}
+	if !task.MergeQueuedAt.Valid && (!awaitsMerge(task) || pullRequest.Mergeable == nil) {
+		return false, nil
+	}
 	head := pullRequest.GetHead().GetSHA()
 	runs, err := repository.CheckRuns(ctx, head)
 	if err != nil {
 		return false, err
 	}
-	approvedByLead := slices.ContainsFunc(runs, func(run *gh.CheckRun) bool { return run.GetName() == checkRunName })
-	if task.AutoMerge == 1 && task.State == "ready_for_review" && !approvedByLead {
-		return false, e.returnForApproval(ctx, task)
-	}
-	if !approvedByLead || slices.ContainsFunc(runs, func(run *gh.CheckRun) bool { return !passed(run) }) {
-		return false, nil
-	}
-	if task.AutoMerge == 1 {
-		if waits, err := e.updateForMerge(ctx, repository, pullRequest); err != nil || waits {
+	if slices.ContainsFunc(runs, func(run *gh.CheckRun) bool {
+		return run.GetStatus() == "completed" && failedConclusion(run.GetConclusion())
+	}) {
+		if err := e.clearMergeQueue(ctx, &task); err != nil {
 			return false, err
 		}
+		return false, nil
+	}
+	if !task.MergeQueuedAt.Valid {
+		approvedByLead := slices.ContainsFunc(runs, func(run *gh.CheckRun) bool { return run.GetName() == checkRunName })
+		if !approvedByLead || slices.ContainsFunc(runs, func(run *gh.CheckRun) bool { return !passed(run) }) {
+			return false, nil
+		}
+		now := e.timeNow().UTC().Format(time.RFC3339Nano)
+		if err := e.queries.SetTaskMergeQueuedAt(ctx, store.SetTaskMergeQueuedAtParams{
+			MergeQueuedAt: sql.NullString{String: now, Valid: true},
+			ID:            task.ID,
+		}); err != nil {
+			return false, err
+		}
+		task.MergeQueuedAt = sql.NullString{String: now, Valid: true}
+		if err := e.publishMergeQueue(ctx, task.Repository); err != nil {
+			return false, err
+		}
+	}
+	queueHead, err := e.queries.GetMergeQueueHead(ctx, task.Repository)
+	if err != nil {
+		return false, err
+	}
+	if queueHead.ID != task.ID {
+		return false, nil
+	}
+	approvedByLead := slices.ContainsFunc(runs, func(run *gh.CheckRun) bool { return run.GetName() == checkRunName })
+	if !approvedByLead {
+		if task.State == "ready_for_review" {
+			canApproveAgain := false
+			if task.AutoMerge == 0 {
+				_, again, err := e.approvedHeadText(ctx, repository, task, pullRequest)
+				if err != nil {
+					return false, err
+				}
+				canApproveAgain = again
+			}
+			if task.AutoMerge == 1 || canApproveAgain {
+				return false, e.returnForApproval(ctx, task)
+			}
+		}
+		if task.State == "checks" || task.State == "approval" {
+			return false, nil
+		}
+		if err := e.clearMergeQueue(ctx, &task); err != nil {
+			return false, err
+		}
+		return false, nil
+	}
+	if !awaitsMerge(task) || slices.ContainsFunc(runs, func(run *gh.CheckRun) bool { return !passed(run) }) {
+		if !awaitsMerge(task) && task.State != "checks" && task.State != "approval" {
+			if err := e.clearMergeQueue(ctx, &task); err != nil {
+				return false, err
+			}
+		}
+		return false, nil
+	}
+	if waits, err := e.updateForMerge(ctx, repository, pullRequest); err != nil || waits {
+		return false, err
 	}
 	if err := e.readPullRequests(ctx, repository, []int64{number}); err != nil {
 		return false, err
 	}
 	if task, err = e.keepApproval(ctx, repository, task); err != nil || !awaitsMerge(task) || hasOpenThread(e.pull(repository, number)) {
+		if hasOpenThread(e.pull(repository, number)) || !awaitsMerge(task) {
+			if clearErr := e.clearMergeQueue(ctx, &task); clearErr != nil {
+				return false, errors.Join(err, clearErr)
+			}
+		}
 		return false, err
 	}
 	task, err = e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: task.Repository, Issue: task.Issue})
@@ -117,6 +202,11 @@ func (e *Engine) mergeApproved(ctx context.Context, repository github.Repository
 		return false, nil
 	}
 	if err != nil || !awaitsMerge(task) {
+		if !awaitsMerge(task) {
+			if clearErr := e.clearMergeQueue(ctx, &task); clearErr != nil {
+				return false, errors.Join(err, clearErr)
+			}
+		}
 		return false, err
 	}
 	merged, reason, err := repository.MergePullRequest(ctx, number, head)
@@ -124,6 +214,9 @@ func (e *Engine) mergeApproved(ctx context.Context, repository github.Repository
 		return false, err
 	}
 	if merged {
+		if err := e.clearMergeQueue(ctx, &task); err != nil {
+			return false, err
+		}
 		return true, e.dismissIssueItems(ctx, task.Repository, task.Issue, readyForReviewKind)
 	}
 	if reason == "" {
@@ -134,6 +227,9 @@ func (e *Engine) mergeApproved(ctx context.Context, repository github.Repository
 		return false, err
 	}
 	if current.GetMerged() {
+		if err := e.clearMergeQueue(ctx, &task); err != nil {
+			return false, err
+		}
 		e.pull(repository, number).changed = true
 		return false, nil
 	}
@@ -141,6 +237,9 @@ func (e *Engine) mergeApproved(ctx context.Context, repository github.Repository
 		return false, err
 	}
 	if err := e.queries.SetTaskRefusedReview(ctx, store.SetTaskRefusedReviewParams{RefusedReview: task.ApprovedReview, ID: task.ID}); err != nil {
+		return false, err
+	}
+	if err := e.clearMergeQueue(ctx, &task); err != nil {
 		return false, err
 	}
 	issue, err := existingIssue(ctx, repository, task.Issue)
@@ -160,4 +259,79 @@ func hasOpenThread(state *pullState) bool {
 // passed tells if the check run completed with the conclusion success, neutral or skipped.
 func passed(run *gh.CheckRun) bool {
 	return run.GetStatus() == "completed" && slices.Contains([]string{"success", "neutral", "skipped"}, run.GetConclusion())
+}
+
+// publishMergeQueue publishes a Workstream change and publishes again the open ready for review Inbox items of each
+// task in the merge queue of repository, with their new place and size. It also publishes the open ready for review
+// Inbox items of extraTasks.
+func (e *Engine) publishMergeQueue(ctx context.Context, repository string, extraTasks ...store.Task) error {
+	e.publish(Change{Workstreams: true})
+	tasks, err := e.queries.ListMergeQueueTasks(ctx, repository)
+	if err != nil {
+		return err
+	}
+	all := append([]store.Task{}, tasks...)
+	for _, extra := range extraTasks {
+		if !slices.ContainsFunc(all, func(t store.Task) bool { return t.ID == extra.ID }) {
+			all = append(all, extra)
+		}
+	}
+	for _, task := range all {
+		items, err := e.openReadyItems(ctx, task)
+		if err != nil {
+			return err
+		}
+		for _, item := range items {
+			e.publish(Change{Inbox: &item})
+		}
+	}
+	return nil
+}
+
+// clearMergeQueue removes the task from the merge queue of its repository. It publishes a Workstream change and
+// publishes again the open ready for review Inbox items of the tasks of the queue and of the task when the task was in
+// the queue.
+func (e *Engine) clearMergeQueue(ctx context.Context, task *store.Task) error {
+	if !task.MergeQueuedAt.Valid {
+		return nil
+	}
+	if _, err := e.queries.ClearTaskMergeQueuedAt(ctx, task.ID); err != nil {
+		return err
+	}
+	task.MergeQueuedAt = sql.NullString{}
+	return e.publishMergeQueue(ctx, task.Repository, *task)
+}
+
+// MergeQueuePlace gives the place and size of the task in the merge queue of its repository. It gives nil, 0 when the
+// task is not in the queue.
+func (e *Engine) MergeQueuePlace(ctx context.Context, task store.Task) (*int64, int64, error) {
+	if !task.MergeQueuedAt.Valid {
+		return nil, 0, nil
+	}
+	tasks, err := e.queries.ListMergeQueueTasks(ctx, task.Repository)
+	if err != nil {
+		return nil, 0, err
+	}
+	idx := slices.IndexFunc(tasks, func(t store.Task) bool { return t.ID == task.ID })
+	if idx < 0 {
+		return nil, 0, nil
+	}
+	place := int64(idx + 1)
+	return &place, int64(len(tasks)), nil
+}
+
+// MergeQueuePlaceOfItem gives the place and size of the task of the ready for review Inbox item in the merge queue of
+// its repository. It gives nil, 0 when the task is not in the queue or the item is dismissed.
+func (e *Engine) MergeQueuePlaceOfItem(ctx context.Context, item store.InboxItem) (*int64, int64, error) {
+	if item.Kind != readyForReviewKind || item.DismissedAt.Valid {
+		return nil, 0, nil
+	}
+	task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: item.Repository, Issue: item.Issue})
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && task.PullRequest.Int64 != item.PullRequest) {
+		return nil, 0, nil
+	}
+	if err != nil {
+		return nil, 0, err
+	}
+	return e.MergeQueuePlace(ctx, task)
 }

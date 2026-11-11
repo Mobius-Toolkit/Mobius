@@ -19,6 +19,7 @@ import (
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
+	"github.com/Mobius-Toolkit/Mobius/internal/runner"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
@@ -37,7 +38,7 @@ var (
 
 const (
 	// savePrompt is the last prompt of a Lead session.
-	savePrompt = "Save in the Workstream memory what the next session needs."
+	savePrompt = "Save in the Workstream memory only the facts of this session that a later session needs and that MEMORY.md does not have. Read no code, issue or pull request, and run no command for more data. When no fact is new, reply \"nothing\" with no tool call."
 	// historySize is the number of chat messages in the history of a first prompt.
 	historySize = 20
 	// maxCrashes is the number of new sessions that a chat starts after crashes. After that, the item of the crash
@@ -58,7 +59,7 @@ const (
 
 // quietEventKinds are the kinds of Lead events that need no decision. Such an event starts no turn and no session, and
 // the next prompt of the Lead holds it in the section quietEventsHeading.
-var quietEventKinds = []string{"autopilot", "approval_reminder", "approved_again", recurringChangeKind, "owner_action"}
+var quietEventKinds = []string{"autopilot", "approval_reminder", "approved_again", "auto_approved", recurringChangeKind, "owner_action"}
 
 // isQuietEvent tells if the event needs no decision of the Lead.
 func isQuietEvent(event store.LeadEvent) bool {
@@ -203,6 +204,15 @@ func (c *chat) notify() {
 // Mobius does not add it when the move fails. When browserID is not empty and a message has it, Mobius adds nothing and
 // the error is sql.ErrNoRows. voice tells that the message came from a voice recording.
 func (e *Engine) addChatMessage(ctx context.Context, key ChatKey, author, text, images, browserID string, inboxItems []ChatInboxItem, voice bool) (store.ChatMessage, error) {
+	message, err := e.storeChatMessage(ctx, e.queries, key, author, text, images, browserID, inboxItems, voice)
+	if err != nil {
+		return message, err
+	}
+	return message, e.announceChatMessage(ctx, key, author, message)
+}
+
+// storeChatMessage writes the chat message of addChatMessage with q, and sends it to no listener.
+func (e *Engine) storeChatMessage(ctx context.Context, q *store.Queries, key ChatKey, author, text, images, browserID string, inboxItems []ChatInboxItem, voice bool) (store.ChatMessage, error) {
 	if inboxItems == nil {
 		inboxItems = []ChatInboxItem{}
 	}
@@ -214,7 +224,7 @@ func (e *Engine) addChatMessage(ctx context.Context, key ChatKey, author, text, 
 	if voice {
 		marked = 1
 	}
-	message, err := e.queries.AddChatMessage(ctx, store.AddChatMessageParams{
+	message, err := q.AddChatMessage(ctx, store.AddChatMessageParams{
 		Organization: key.Organization,
 		Repository:   key.Repository,
 		Workstream:   key.Workstream,
@@ -230,17 +240,22 @@ func (e *Engine) addChatMessage(ctx context.Context, key ChatKey, author, text, 
 	}
 	if images != "" {
 		if err := e.moveImages(images, message.ID); err != nil {
-			return message, errors.Join(err, e.queries.DeleteChatMessage(ctx, message.ID))
+			return message, errors.Join(err, q.DeleteChatMessage(ctx, message.ID))
 		}
 	}
+	return message, nil
+}
+
+// announceChatMessage sends the stored message to the listeners, and its unread count when the author changes it.
+func (e *Engine) announceChatMessage(ctx context.Context, key ChatKey, author string, message store.ChatMessage) error {
 	if author == researcherAuthor || author == operatorAuthor || author == curatorAuthor || author == approvalAuthor || author == actionAuthor || author == questionAuthor {
-		return message, nil
+		return nil
 	}
 	e.publish(Change{Message: &message})
 	if author == ownerAuthor || author == eventAuthor || author == recordAuthor {
-		return message, nil
+		return nil
 	}
-	return message, e.publishUnread(ctx, key)
+	return e.publishUnread(ctx, key)
 }
 
 // addRecord adds a record line about an action of the Owner to the chat. No agent gets the record. A failed write only
@@ -434,11 +449,47 @@ func (e *Engine) addCommentLeadEvent(ctx context.Context, repository string, wor
 func (e *Engine) addLeadEventAt(ctx context.Context, repository string, workstream int64, issueRepository string, issue sql.NullInt64, kind, text, at string, comment commentRef) (int64, error) {
 	e.chatOrder.Lock()
 	defer e.chatOrder.Unlock()
-	message, err := e.addChatMessage(ctx, leadChat(repository, workstream), eventAuthor, text, "", "", nil, false)
+	message, id, err := e.storeLeadEvent(ctx, e.queries, repository, workstream, issueRepository, issue, kind, text, at, comment)
 	if err != nil {
-		return 0, err
+		return id, err
 	}
-	id, err := e.queries.AddLeadEvent(ctx, store.AddLeadEventParams{
+	if err := e.announceChatMessage(ctx, leadChat(repository, workstream), eventAuthor, message); err != nil {
+		return id, err
+	}
+	return id, e.sendEvents(ctx, repository, workstream)
+}
+
+// addLeadEventWith adds an event like addLeadEvent, and runs write in the same transaction. When write or a write of
+// the event fails, Mobius keeps no write. The listeners and the Lead get the event after the commit.
+func (e *Engine) addLeadEventWith(ctx context.Context, repository string, workstream int64, issueRepository string, issue sql.NullInt64, kind, text string, write func(*store.Queries) error) error {
+	e.chatOrder.Lock()
+	defer e.chatOrder.Unlock()
+	var message store.ChatMessage
+	err := e.inTx(ctx, func(q *store.Queries) error {
+		if err := write(q); err != nil {
+			return err
+		}
+		var err error
+		message, _, err = e.storeLeadEvent(ctx, q, repository, workstream, issueRepository, issue, kind, text, now(), commentRef{})
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	if err := e.announceChatMessage(ctx, leadChat(repository, workstream), eventAuthor, message); err != nil {
+		return err
+	}
+	return e.sendEvents(ctx, repository, workstream)
+}
+
+// storeLeadEvent writes the chat message and the row of a Lead event with q, and gives them. The caller holds
+// e.chatOrder.
+func (e *Engine) storeLeadEvent(ctx context.Context, q *store.Queries, repository string, workstream int64, issueRepository string, issue sql.NullInt64, kind, text, at string, comment commentRef) (store.ChatMessage, int64, error) {
+	message, err := e.storeChatMessage(ctx, q, leadChat(repository, workstream), eventAuthor, text, "", "", nil, false)
+	if err != nil {
+		return message, 0, err
+	}
+	id, err := q.AddLeadEvent(ctx, store.AddLeadEventParams{
 		Repository:      repository,
 		Workstream:      workstream,
 		IssueRepository: issueRepository,
@@ -450,10 +501,7 @@ func (e *Engine) addLeadEventAt(ctx context.Context, repository string, workstre
 		Comment:         sql.NullInt64{Int64: comment.id, Valid: comment.id != 0},
 		Review:          sql.NullBool{Bool: comment.review, Valid: comment.id != 0},
 	})
-	if err != nil {
-		return 0, err
-	}
-	return id, e.sendEvents(ctx, repository, workstream)
+	return message, id, err
 }
 
 // wakeEvents gives the ready events of the Workstream to its Lead.
@@ -1109,6 +1157,10 @@ func (e *Engine) chat(c *chat, a *Agent, first item) error {
 	if err != nil {
 		return err
 	}
+	first, closed, err := e.firstItem(c, first)
+	if err != nil || closed {
+		return err
+	}
 	prompt, images, err := e.firstPrompt(ctx, c.key, a.binding.Harness, first, quiet)
 	if err != nil {
 		return err
@@ -1137,12 +1189,21 @@ func (e *Engine) chat(c *chat, a *Agent, first item) error {
 				if e.draining() || !pending {
 					continue
 				}
+				if stale, err := e.deliverStaleReminder(ctx, next.event); err != nil {
+					return err
+				} else if stale {
+					continue
+				}
 				prompt = "# Event\n\n" + next.event.Payload
 			}
 			if quiet, err = e.quietEvents(ctx, c.key); err != nil {
 				return err
 			}
-			prompt = quietEventsText(quiet) + prompt
+			fetchLine := e.fetchLeadTurn(ctx, c.key, next)
+			if fetchLine != "" {
+				fetchLine += "\n\n"
+			}
+			prompt = quietEventsText(quiet) + fetchLine + prompt
 			if err := e.itemTurn(c, a, next, prompt, images, quiet); err != nil {
 				return err
 			}
@@ -1243,6 +1304,45 @@ func (e *Engine) idle(c *chat) (bool, error) {
 func (e *Engine) pending(ctx context.Context, event *store.LeadEvent) (bool, error) {
 	ready, err := e.queries.ListReadyLeadEvents(ctx, store.ListReadyLeadEventsParams{Repository: event.Repository, Workstream: event.Workstream})
 	return slices.ContainsFunc(ready, func(other store.LeadEvent) bool { return other.ID == event.ID }), err
+}
+
+// deliverStaleReminder marks the event as delivered, and gives true, when it is a dispatch_reminder of a task that is
+// not in dispatched. The Lead gets no turn for such an event.
+func (e *Engine) deliverStaleReminder(ctx context.Context, event *store.LeadEvent) (bool, error) {
+	if event == nil || event.Kind != "dispatch_reminder" {
+		return false, nil
+	}
+	task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: event.IssueRepository, Issue: event.Issue.Int64})
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return false, err
+	}
+	if err == nil && task.State == "dispatched" {
+		return false, nil
+	}
+	return true, e.queries.DeliverLeadEvent(ctx, store.DeliverLeadEventParams{DeliveredAt: sql.NullString{String: now(), Valid: true}, ID: event.ID})
+}
+
+// firstItem gives the first item of a new session that needs a turn, and delivers each stale reminder before it.
+// With no such item, the chat ends like an idle chat, and firstItem gives true.
+func (e *Engine) firstItem(c *chat, first item) (item, bool, error) {
+	for {
+		stale, err := e.deliverStaleReminder(c.ctx, first.event)
+		if err != nil || !stale {
+			return first, false, err
+		}
+		e.stopWriting(c)
+		e.chatsMu.Lock()
+		if len(c.queue) == 0 {
+			if e.chats[c.key] == c {
+				delete(e.chats, c.key)
+			}
+			e.chatsMu.Unlock()
+			return first, true, nil
+		}
+		first, c.queue = c.queue[0], c.queue[1:]
+		c.first = first
+		e.chatsMu.Unlock()
+	}
 }
 
 // quietEvents lists the ready quiet events of the Workstream in id order. The drain takes no event, so it gives no
@@ -1799,7 +1899,7 @@ func (e *Engine) firstPrompt(ctx context.Context, key ChatKey, harness config.Ha
 	if err != nil {
 		return "", nil, err
 	}
-	sections, err := e.repositorySections(ctx, repository, "lead")
+	sections, fetched, err := e.repositorySections(ctx, repository, "lead")
 	if err != nil {
 		return "", nil, err
 	}
@@ -1836,7 +1936,44 @@ func (e *Engine) firstPrompt(ctx context.Context, key ChatKey, harness config.Ha
 	if maintenance {
 		rules += leadMaintenancePrompt + "\n"
 	}
-	return fmt.Sprintf("%s\n%s%s%s%s%s%s# %s\n\n%s", leadPrompt, rules, sections, lead, requests, history, quietEventsText(quiet), heading, text), images, nil
+	var fetchLine string
+	if fetched && (first.event != nil || (first.message != nil && first.message.Author == ownerAuthor)) {
+		fetchLine = e.leadFetchLine(ctx, repository)
+		if fetchLine != "" {
+			fetchLine += "\n\n"
+		}
+	}
+	return fmt.Sprintf("%s\n%s%s%s%s%s%s%s# %s\n\n%s", leadPrompt, rules, sections, lead, requests, history, quietEventsText(quiet), fetchLine, heading, text), images, nil
+}
+
+// leadFetchLine gives the prompt line that names the commit of origin/defaultBranch of repository.
+func (e *Engine) leadFetchLine(ctx context.Context, repository github.Repository) string {
+	e.gitMu.Lock()
+	defer e.gitMu.Unlock()
+	commit, err := runner.BareRevParse(ctx, e.config.DataDir, repository.FullName, "origin/"+repository.DefaultBranch)
+	if err != nil {
+		log.Printf("rev-parse of %s for the Lead failed: %v", repository.FullName, err)
+		return ""
+	}
+	return fmt.Sprintf("Mobius fetched the bare clone of %s at %s: origin/%s is at %.8s.", repository.FullName, e.timeNow().UTC().Format(timeFormat), repository.DefaultBranch, commit)
+}
+
+// fetchLeadTurn fetches the bare clone of the repository of key before a turn of a Workstream chat for an event or an
+// Owner message, and gives the prompt line. A failed fetch logs the error and gives "".
+func (e *Engine) fetchLeadTurn(ctx context.Context, key ChatKey, it item) string {
+	if key.Workstream == 0 || (it.event == nil && (it.message == nil || it.message.Author != ownerAuthor)) {
+		return ""
+	}
+	repository, err := e.repository(key.Repository)
+	if err != nil {
+		log.Printf("fetch of %s for the Lead failed: %v", key.Repository, err)
+		return ""
+	}
+	if err := e.fetchRepository(ctx, repository); err != nil {
+		log.Printf("fetch of %s for the Lead failed: %v", repository.FullName, err)
+		return ""
+	}
+	return e.leadFetchLine(ctx, repository)
 }
 
 // leadContext gives the Brief, the memory and the task list of the Workstream, and tells if the Workstream is a

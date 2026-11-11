@@ -120,7 +120,7 @@ func approvalCheckRuns(t *testing.T, server *testserver.Server, fake *testkit.Fa
 func waitForLeadPrompt(t *testing.T, server *testserver.Server, text string) string {
 	t.Helper()
 	return testkit.WaitForValue(t, func() (string, bool) {
-		prompts := leadPrompts(t, server)
+		prompts := rawLeadPrompts(t, server)
 		index := slices.IndexFunc(prompts, func(prompt string) bool { return strings.Contains(prompt, text) })
 		if index < 0 {
 			return "", false

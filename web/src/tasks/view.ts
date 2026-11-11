@@ -42,6 +42,13 @@ function renderCard(h: H, task: BoardTask, now: number): Html {
         [h.Class("flex flex-wrap items-center gap-x-2 gap-y-1")],
         [
           renderBadge(h, "secondary", task.merging ? "approved" : task.state),
+          task.mergeQueuePlace !== null
+            ? renderBadge(
+                h,
+                "outline",
+                `Merge queue · ${task.mergeQueuePlace} of ${task.mergeQueueSize}`,
+              )
+            : h.empty,
           task.pullRequest !== null && task.pullRequestUrl !== null
             ? h.a(
                 [

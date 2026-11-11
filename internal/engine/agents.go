@@ -514,6 +514,9 @@ func (a *Agent) startHarness(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		if err := e.withMcpTokens(ctx, selected); err != nil {
+			return err
+		}
 		servers = runnerMcpServers(selected)
 	}
 	session, err := runner.Start(ctx, a.binding.Harness, a.binding.Context, shortCacheRole(spec.Role), chromeRole(spec.Role, a.binding.Harness), spec.Dir, e.config.DataDir, e.agents.Path, mcp.URL(e.agents.Addr, a.key), servers, ghTokenURL, ghWritesURL, ghMark, a.update)
@@ -1200,6 +1203,21 @@ func (e *Engine) publish(change Change) {
 func (e *Engine) setTaskState(ctx context.Context, params store.SetTaskStateParams) (int64, error) {
 	moved, err := e.queries.SetTaskState(ctx, params)
 	if err == nil && moved > 0 {
+		if !afterReview(params.State) {
+			cleared, clearErr := e.queries.ClearTaskMergeQueuedAt(ctx, params.ID)
+			if clearErr != nil {
+				return moved, clearErr
+			}
+			if cleared > 0 {
+				task, getErr := e.queries.GetTask(ctx, params.ID)
+				if getErr != nil {
+					return moved, getErr
+				}
+				if pubErr := e.publishMergeQueue(ctx, task.Repository, task); pubErr != nil {
+					return moved, pubErr
+				}
+			}
+		}
 		e.publish(Change{Workstreams: true})
 	}
 	return moved, err
@@ -1225,8 +1243,17 @@ func (e *Engine) requeueTask(ctx context.Context, id int64) (int64, error) {
 
 // startTaskWorker moves the task like StartTaskWorker. It publishes a Workstream change when the task moved.
 func (e *Engine) startTaskWorker(ctx context.Context, params store.StartTaskWorkerParams) (int64, error) {
+	task, err := e.queries.GetTask(ctx, params.ID)
+	if err != nil {
+		return 0, err
+	}
 	moved, err := e.queries.StartTaskWorker(ctx, params)
 	if err == nil && moved > 0 {
+		if task.MergeQueuedAt.Valid {
+			if pubErr := e.publishMergeQueue(ctx, task.Repository, task); pubErr != nil {
+				return moved, pubErr
+			}
+		}
 		e.publish(Change{Workstreams: true})
 	}
 	return moved, err
