@@ -96,6 +96,13 @@ func TestMobiusApprovesAHeadThatTheReviewerApprovedWithNoLeadTurn(t *testing.T) 
 	if got := approvedHead(t, server); got != approved {
 		t.Errorf("approved_head = %q, want %q", got, approved)
 	}
+	wantSummary := "Mobius approved the pull request: the Reviewer found no open finding on this head, and each check of the head passed."
+	if !slices.ContainsFunc(fake.CheckRuns(shop), func(run testkit.CheckRun) bool {
+		return run.Name == "Mobius" && run.HeadSHA == approved && run.Conclusion == "success" &&
+			run.Output != nil && run.Output.Summary == wantSummary
+	}) {
+		t.Errorf("no Mobius check run of %s with the summary %q: %+v", approved, wantSummary, fake.CheckRuns(shop))
+	}
 	checkNoLeadTurnForTheHead(t, server)
 	for _, prompt := range leadPrompts(t, server) {
 		if strings.Contains(prompt, "# Event\n\n"+event.Payload) {
@@ -209,16 +216,51 @@ func TestAnApprovalAgainAfterAnApprovalOfMobiusUsesTheReportOfMobius(t *testing.
 	if updated == reviewed {
 		t.Fatalf("the head did not change: %s", updated)
 	}
-	want := fmt.Sprintf("Mobius approved the head %.8s again. Only clean merges of main came after the head %.8s, and they change no file of the pull request. The report of the Lead for %.8s:\n\n%s", updated, reviewed, reviewed, autoApprovedReport(reviewed))
+	want := fmt.Sprintf("Mobius approved the head %.8s again. Only clean merges of main came after the head %.8s, and they change no file of the pull request. The report of the approval of %.8s:\n\n%s", updated, reviewed, reviewed, autoApprovedReport(reviewed))
 	comments := fake.Comments(shop, 42)
 	if !slices.ContainsFunc(comments, func(comment testkit.Comment) bool { return comment.Body == want }) {
 		t.Errorf("no comment %q in %+v", want, comments)
+	}
+	wantSummary := "Mobius approved the head again: only clean merges of the default branch came after the approved head."
+	if !slices.ContainsFunc(fake.CheckRuns(shop), func(run testkit.CheckRun) bool {
+		return run.Name == "Mobius" && run.HeadSHA == updated && run.Conclusion == "success" &&
+			run.Output != nil && run.Output.Summary == wantSummary
+	}) {
+		t.Errorf("no Mobius check run of %s with the summary %q: %+v", updated, wantSummary, fake.CheckRuns(shop))
 	}
 	if got := approvedReport(t, server); got != autoApprovedReport(reviewed) {
 		t.Errorf("approved_report = %q", got)
 	}
 	if got := approvedReportHead(t, server); got != reviewed {
 		t.Errorf("approved_report_head = %q, want %q", got, reviewed)
+	}
+	checkNoLeadTurnForTheHead(t, server)
+}
+
+// TestAFailedLabelWriteOfAnApprovalOfMobiusGivesOneComment checks that a 5xx answer after the comment of an approval
+// of Mobius returns, and that the next poll does the missing writes with no second comment.
+func TestAFailedLabelWriteOfAnApprovalOfMobiusGivesOneComment(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := reviewedHeadServer(t, fake, leadStarts, 5*time.Second)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "checks" && reviewedHead(t, server) != "" })
+	approved := head(t, fake, "mobius/41")
+	fake.FailAddLabels(shop, 41, true)
+
+	approvalComments := func() int {
+		return len(slices.DeleteFunc(fake.Comments(shop, 42), func(comment testkit.Comment) bool {
+			return comment.Body != autoApprovedReport(approved)
+		}))
+	}
+	testkit.WaitFor(t, func() bool { return approvalComments() == 1 && taskState(t, server) == "checks" })
+	fake.FailAddLabels(shop, 41, false)
+
+	autoApprovedEvent(t, server)
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "ready_for_review" })
+	waitForPolls(t, fake)
+	if got := approvalComments(); got != 1 {
+		t.Errorf("approval comments = %d, want 1", got)
 	}
 	checkNoLeadTurnForTheHead(t, server)
 }

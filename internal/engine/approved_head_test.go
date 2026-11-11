@@ -124,13 +124,13 @@ func checkApprovalAgain(t *testing.T, fake *testkit.FakeGitHub, server *testserv
 	if index < 0 {
 		t.Fatalf("no comment of the approval again: %+v", comments)
 	}
-	want := fmt.Sprintf("Mobius approved the head %.8s again. Only clean merges of main came after the head %.8s, and they change no file of the pull request. The report of the Lead for %.8s:\n\nChecked the diff. Verified the tests.", head, approved, approved)
+	want := fmt.Sprintf("Mobius approved the head %.8s again. Only clean merges of main came after the head %.8s, and they change no file of the pull request. The report of the approval of %.8s:\n\nChecked the diff. Verified the tests.", head, approved, approved)
 	if got := comments[index].Body; got != want {
 		t.Errorf("comment = %q, want %q", got, want)
 	}
 	if !slices.ContainsFunc(fake.CheckRuns(shop), func(run testkit.CheckRun) bool {
 		return run.Name == "Mobius" && run.HeadSHA == head && run.Conclusion == "success" &&
-			run.Output != nil && run.Output.Summary == "Mobius approved the head again: only clean merges of the default branch came after the approval of the Lead."
+			run.Output != nil && run.Output.Summary == "Mobius approved the head again: only clean merges of the default branch came after the approved head."
 	}) {
 		t.Errorf("no Mobius check run of the approval again with success on %s: %+v", head, fake.CheckRuns(shop))
 	}
@@ -349,7 +349,7 @@ func TestTwoUpdateHeadsAfterOneLeadApprovalNameTheLeadHeadInTheSecondComment(t *
 			comments = append(comments, comment.Body)
 		}
 	}
-	want := fmt.Sprintf("Mobius approved the head %.8s again. Only clean merges of main came after the head %.8s, and they change no file of the pull request. The report of the Lead for %.8s:\n\nChecked the diff. Verified the tests.", second, first, approved)
+	want := fmt.Sprintf("Mobius approved the head %.8s again. Only clean merges of main came after the head %.8s, and they change no file of the pull request. The report of the approval of %.8s:\n\nChecked the diff. Verified the tests.", second, first, approved)
 	if !slices.Contains(comments, want) {
 		t.Errorf("comments = %q, want %q", comments, want)
 	}

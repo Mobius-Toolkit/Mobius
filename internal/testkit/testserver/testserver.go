@@ -50,8 +50,7 @@ type Server struct {
 	stop func()
 }
 
-// reviewedHeadTrigger keeps reviewed_head of each task NULL, so the Lead approves each head, as it did before Mobius
-// approved a reviewed head itself.
+// reviewedHeadTrigger keeps reviewed_head of each task NULL, so each task gets the approval of the Lead.
 const reviewedHeadTrigger = "keep_reviewed_head_null"
 
 // ApproveReviewedHeads lets Mobius approve a head that the Reviewer approved, with no Lead turn.
