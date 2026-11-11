@@ -424,6 +424,16 @@ func (e *Engine) inTx(ctx context.Context, work func(*store.Queries) error) erro
 	return tx.Commit()
 }
 
+// readTx runs work in one read transaction.
+func (e *Engine) readTx(ctx context.Context, work func(*store.Queries) error) error {
+	tx, err := e.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	return work(e.queries.WithTx(tx))
+}
+
 // every runs work now and then after each interval or after a value on wake, until ctx ends. A nil wake never fires.
 func every(ctx context.Context, interval time.Duration, wake <-chan struct{}, work func(context.Context)) {
 	for {
