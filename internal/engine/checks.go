@@ -207,9 +207,10 @@ func (e *Engine) onChecks(ctx context.Context, repository github.Repository, tas
 	if err != nil {
 		return err
 	}
+	reviewed := !again && task.ReviewedHead.String == head
 	var level string
 	var checkRun int64
-	if again {
+	if again || reviewed {
 		level, err = e.workstreamLevel(ctx, task.WorkstreamRepository, task.Workstream)
 		if err != nil {
 			return err
@@ -229,8 +230,12 @@ func (e *Engine) onChecks(ctx context.Context, repository github.Repository, tas
 		e.addCIStep(ctx, task, implementer, "success")
 	}
 	delete(e.ciWait, task.ID)
-	if again {
-		err := e.approveAgain(ctx, repository, task, issue, pullRequest, level, checkRun)
+	if again || reviewed {
+		approve := e.approveAgain
+		if reviewed {
+			approve = e.approveReviewed
+		}
+		err := approve(ctx, repository, task, issue, pullRequest, level, checkRun)
 		if err == nil {
 			return nil
 		}
@@ -292,6 +297,21 @@ func (e *Engine) approveAgain(ctx context.Context, repository github.Repository,
 	text := fmt.Sprintf("%s Mobius approved again %s \"%s\": pull request %s %s, head %.8s. Only clean merges of %s came after the approved head %.8s. %s",
 		time.Now().UTC().Format(timeFormat), taskEventRef(task, task.Issue), issue.GetTitle(), taskEventRef(task, int64(pullRequest.GetNumber())), pullRequest.GetHTMLURL(), head, repository.DefaultBranch, approved, result)
 	return e.addLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, task.Repository, sql.NullInt64{Int64: task.Issue, Valid: true}, "approved_again", text)
+}
+
+// approveReviewed approves the head that the last review round of the Reviewer ended with no open finding, after
+// onChecks moved the task to approval. It approves the task with the same steps as approvePullRequest, stores the text of
+// the approval as the report, and adds the quiet Lead event auto_approved.
+func (e *Engine) approveReviewed(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue, pullRequest *gh.PullRequest, level string, checkRun int64) error {
+	head := pullRequest.GetHead().GetSHA()
+	report := fmt.Sprintf("Mobius approved head %.8s: the Reviewer found no open finding on this head, and each check of the head passed.", head)
+	result, err := e.finishApproval(ctx, repository, task, issue, pullRequest, level, checkRun, report, "", report, false)
+	if err != nil {
+		return err
+	}
+	text := fmt.Sprintf("%s Mobius approved %s \"%s\": pull request %s %s, head %.8s. The Reviewer found no open finding on this head. %s",
+		time.Now().UTC().Format(timeFormat), taskEventRef(task, task.Issue), issue.GetTitle(), taskEventRef(task, int64(pullRequest.GetNumber())), pullRequest.GetHTMLURL(), head, result)
+	return e.addLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, task.Repository, sql.NullInt64{Int64: task.Issue, Valid: true}, "auto_approved", text)
 }
 
 // onLongCIWait gives the Lead the event long_ci_wait when longCIWait passed since the task entered checks, or since the

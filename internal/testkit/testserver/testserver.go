@@ -50,6 +50,18 @@ type Server struct {
 	stop func()
 }
 
+// reviewedHeadTrigger keeps reviewed_head of each task NULL, so the Lead approves each head, as it did before Mobius
+// approved a reviewed head itself.
+const reviewedHeadTrigger = "keep_reviewed_head_null"
+
+// ApproveReviewedHeads lets Mobius approve a head that the Reviewer approved, with no Lead turn.
+func (s *Server) ApproveReviewedHeads(t testing.TB) {
+	t.Helper()
+	if _, err := s.DB.Exec("DROP TRIGGER " + reviewedHeadTrigger); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // Stop stops the engine of the server and waits for its end. The database stays open.
 func (s *Server) Stop() {
 	s.stop()
@@ -110,6 +122,9 @@ func StartWith(t testing.TB, cfg *config.Config, githubURL string) *Server {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
+	if _, err := db.Exec("CREATE TRIGGER IF NOT EXISTS " + reviewedHeadTrigger + " AFTER UPDATE OF reviewed_head ON tasks BEGIN UPDATE tasks SET reviewed_head = NULL WHERE id = NEW.id; END"); err != nil {
+		t.Fatal(err)
+	}
 	queries := store.New(db)
 	a, err := auth.Start(t.Context(), queries, Password)
 	if err != nil {

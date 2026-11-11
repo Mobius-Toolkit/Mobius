@@ -409,6 +409,10 @@ func (e *Engine) endReview(ctx context.Context, repository github.Repository, j 
 			return err
 		}
 		task.State = "checks"
+		err = e.queries.SetTaskReviewedHead(ctx, store.SetTaskReviewedHeadParams{ReviewedHead: sql.NullString{String: j.head, Valid: true}, ID: task.ID})
+		if err != nil {
+			return err
+		}
 		_, err = e.startKeptRound(ctx, repository, j.round(task, "", sql.NullInt64{}))
 		return err
 	}
