@@ -339,8 +339,13 @@ func (e *Engine) remindApproval(ctx context.Context, repository github.Repositor
 }
 
 // remindDispatch gives the Lead the event dispatch_reminder when dispatchReminder passed since the task entered
-// dispatched, or since the last event of this kind. It does not change the task.
+// dispatched, or since the last event of this kind. It gives no event while an earlier Lead event of the issue is not
+// delivered. It does not change the task.
 func (e *Engine) remindDispatch(ctx context.Context, task store.Task, issue *gh.Issue) error {
+	waiting, err := e.queries.HasUndeliveredLeadEventOfIssue(ctx, store.HasUndeliveredLeadEventOfIssueParams{WorkstreamRepository: task.WorkstreamRepository, Repository: task.Repository, Issue: sql.NullInt64{Int64: task.Issue, Valid: true}})
+	if err != nil || waiting {
+		return err
+	}
 	return e.remindLead(ctx, task, dispatchReminder, "dispatch_reminder", func(now time.Time, waited time.Duration) (string, error) {
 		return fmt.Sprintf("%s %s \"%s\" waits for an Implementer for %s and holds an Autopilot slot.", now.UTC().Format(timeFormat), taskEventRef(task, task.Issue), issue.GetTitle(), waited.Round(time.Minute)), nil
 	})

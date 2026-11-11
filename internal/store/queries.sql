@@ -615,6 +615,12 @@ SELECT EXISTS (
     WHERE repository = sqlc.arg(workstream_repository) AND issue_repository = sqlc.arg(repository) AND issue = sqlc.arg(issue) AND held = 1 AND delivered_at IS NULL
 );
 
+-- name: HasUndeliveredLeadEventOfIssue :one
+SELECT EXISTS (
+    SELECT 1 FROM lead_events
+    WHERE repository = sqlc.arg(workstream_repository) AND issue_repository = sqlc.arg(repository) AND issue = sqlc.arg(issue) AND delivered_at IS NULL
+);
+
 -- name: FreeLeadEvents :many
 UPDATE lead_events SET held = 0, held_at = NULL WHERE repository = ? AND workstream = ? AND held = 1
 RETURNING *;
