@@ -405,6 +405,7 @@ func (e *Engine) Run(ctx context.Context) {
 	wg.Go(func() { every(ctx, e.config.PollInterval, nil, e.autoUpgradeTools) })
 	wg.Go(func() { every(ctx, e.config.PollInterval, nil, e.endDuePauses) })
 	wg.Go(func() { every(ctx, e.config.PollInterval, nil, e.runRecurringTasks) })
+	wg.Go(func() { every(ctx, e.config.PollInterval, nil, e.sendChangelog) })
 	every(ctx, e.config.PollInterval, e.pollWake, e.poll)
 	wg.Wait()
 	e.stopWorkers()

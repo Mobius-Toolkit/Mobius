@@ -135,7 +135,32 @@ func (g *FakeGitHub) compare(w http.ResponseWriter, r *http.Request) {
 	for i, message := range g.comparedCommits {
 		commits[i].Commit.Message = message
 	}
-	writeJSON(w, http.StatusOK, map[string][]commitJSON{"commits": commits})
+	writeJSON(w, http.StatusOK, map[string][]commitJSON{"commits": page(w, r, commits)})
+}
+
+// SetClosingIssues makes the pull request number of Mobius-Toolkit/Mobius close the issues with the numbers closed.
+func (g *FakeGitHub) SetClosingIssues(number int, closed ...int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.closingIssues == nil {
+		g.closingIssues = map[int][]int{}
+	}
+	g.closingIssues[number] = closed
+}
+
+// closingIssuesNodes answers the query of the closing issues of the pull requests of Mobius-Toolkit/Mobius. The caller
+// must hold the lock.
+func (g *FakeGitHub) closingIssuesNodes(w http.ResponseWriter, aliases [][]string) {
+	pulls := map[string]any{}
+	for _, alias := range aliases {
+		number, _ := strconv.Atoi(alias[2])
+		nodes := []map[string]int{}
+		for _, closed := range g.closingIssues[number] {
+			nodes = append(nodes, map[string]int{"number": closed})
+		}
+		pulls["pr"+alias[1]] = map[string]any{"closingIssuesReferences": map[string]any{"nodes": nodes}}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"repository": pulls}})
 }
 
 // compareGit gives the comparison in the path of r, read from the git repository of the repository. The caller must
