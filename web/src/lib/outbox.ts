@@ -1,4 +1,4 @@
-import { Option, Schema } from "effect";
+import { Effect, Option, Schema } from "effect";
 import { getSendChatUrl, type ChatInboxItem } from "@/api/api.gen";
 import { run as runIn } from "./database";
 
@@ -17,7 +17,7 @@ export type Queued = {
 
 const requestLimit = 60_000;
 
-const decodeErrorBody = Schema.decodeUnknownOption(
+const decodeErrorBody = Schema.decodeUnknownEffect(
   Schema.Struct({ error: Schema.optional(Schema.String) }),
 );
 
@@ -85,9 +85,8 @@ export async function postQueued(item: Queued, signal: AbortSignal) {
   if (res.status === 204) {
     return { status: res.status };
   }
-  const body = await res.json().then(
-    (json) => decodeErrorBody(json),
-    () => Option.none(),
+  const body = await Effect.runPromise(
+    Effect.tryPromise(() => res.json()).pipe(Effect.flatMap(decodeErrorBody), Effect.option),
   );
   return {
     status: res.status,
