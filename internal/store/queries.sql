@@ -534,6 +534,13 @@ SELECT EXISTS (
       AND instr(payload, ', item ' || CAST(sqlc.arg(item) AS INTEGER) || ', ') > 0
 );
 
+-- name: HasFollowUpEventSince :one
+SELECT EXISTS (
+    SELECT 1 FROM lead_events
+    WHERE repository = sqlc.arg(workstream_repository) AND issue_repository = sqlc.arg(repository) AND issue = sqlc.arg(issue) AND kind = 'follow_up'
+      AND julianday(time) >= julianday(sqlc.arg(since))
+);
+
 -- name: DeliverLeadEvents :exec
 UPDATE lead_events SET delivered_at = ? WHERE repository = ? AND workstream = ? AND delivered_at IS NULL;
 
@@ -707,6 +714,9 @@ WHERE id = sqlc.arg(id) AND substr(lead_findings, 1, length(sqlc.arg(taken))) = 
 
 -- name: SetTaskCheckHead :exec
 UPDATE tasks SET check_head = ? WHERE id = ?;
+
+-- name: SetTaskReviewedHead :exec
+UPDATE tasks SET reviewed_head = ? WHERE id = ?;
 
 -- name: SetTaskApprovedHead :exec
 UPDATE tasks SET approved_head = ? WHERE id = ?;

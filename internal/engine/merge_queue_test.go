@@ -427,13 +427,13 @@ func TestMergeQueueManualApproval(t *testing.T) {
 	if index < 0 {
 		t.Fatalf("no comment of the approval again: %+v", comments)
 	}
-	want := fmt.Sprintf("Mobius approved the head %.8s again. Only clean merges of main came after the head %.8s, and they change no file of the pull request. The report of the Lead for %.8s:\n\nChecked the diff. Verified the tests.", newHead43, old43, old43)
+	want := fmt.Sprintf("Mobius approved the head %.8s again. Only clean merges of main came after the head %.8s, and they change no file of the pull request. The report of the approval of %.8s:\n\nChecked the diff. Verified the tests.", newHead43, old43, old43)
 	if got := comments[index].Body; got != want {
 		t.Errorf("comment = %q, want %q", got, want)
 	}
 	if !slices.ContainsFunc(fake.CheckRuns(shop), func(run testkit.CheckRun) bool {
 		return run.Name == "Mobius" && run.HeadSHA == newHead43 && run.Conclusion == "success" &&
-			run.Output != nil && run.Output.Summary == "Mobius approved the head again: only clean merges of the default branch came after the approval of the Lead."
+			run.Output != nil && run.Output.Summary == "Mobius approved the head again: only clean merges of the default branch came after the approved head."
 	}) {
 		t.Errorf("no Mobius check run of the approval again with success on %s: %+v", newHead43, fake.CheckRuns(shop))
 	}

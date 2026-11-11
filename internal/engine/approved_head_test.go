@@ -47,7 +47,7 @@ func pushCommit(t *testing.T, fake *testkit.FakeGitHub, branch, path, content, m
 // eventAfterApproval waits for the event ready for Lead approval that names the approved head, and gives its text.
 func eventAfterApproval(t *testing.T, server *testserver.Server, approved string) string {
 	t.Helper()
-	prompt := waitForLeadPrompt(t, server, fmt.Sprintf("The Lead approved the head %.8s before.", approved))
+	prompt := waitForLeadPrompt(t, server, fmt.Sprintf("Mobius or the Lead approved the head %.8s before.", approved))
 	parts := strings.Split(prompt, "# Event\n\n")
 	return parts[len(parts)-1]
 }
@@ -124,13 +124,13 @@ func checkApprovalAgain(t *testing.T, fake *testkit.FakeGitHub, server *testserv
 	if index < 0 {
 		t.Fatalf("no comment of the approval again: %+v", comments)
 	}
-	want := fmt.Sprintf("Mobius approved the head %.8s again. Only clean merges of main came after the head %.8s, and they change no file of the pull request. The report of the Lead for %.8s:\n\nChecked the diff. Verified the tests.", head, approved, approved)
+	want := fmt.Sprintf("Mobius approved the head %.8s again. Only clean merges of main came after the head %.8s, and they change no file of the pull request. The report of the approval of %.8s:\n\nChecked the diff. Verified the tests.", head, approved, approved)
 	if got := comments[index].Body; got != want {
 		t.Errorf("comment = %q, want %q", got, want)
 	}
 	if !slices.ContainsFunc(fake.CheckRuns(shop), func(run testkit.CheckRun) bool {
 		return run.Name == "Mobius" && run.HeadSHA == head && run.Conclusion == "success" &&
-			run.Output != nil && run.Output.Summary == "Mobius approved the head again: only clean merges of the default branch came after the approval of the Lead."
+			run.Output != nil && run.Output.Summary == "Mobius approved the head again: only clean merges of the default branch came after the approved head."
 	}) {
 		t.Errorf("no Mobius check run of the approval again with success on %s: %+v", head, fake.CheckRuns(shop))
 	}
@@ -268,7 +268,7 @@ func TestARefusedCommentOfTheApprovalAgainGivesTheLeadReadyForApproval(t *testin
 		switch {
 		case event.Kind == "approved_again":
 			t.Errorf("approved_again event after a refused comment: %q", event.Payload)
-		case event.Kind == "ready_for_approval" && strings.Contains(event.Payload, fmt.Sprintf("The Lead approved the head %.8s before.", approved)):
+		case event.Kind == "ready_for_approval" && strings.Contains(event.Payload, fmt.Sprintf("Mobius or the Lead approved the head %.8s before.", approved)):
 			ready++
 		}
 	}
@@ -315,7 +315,7 @@ func TestARefusedLabelOfTheApprovalAgainGivesOneReadyEvent(t *testing.T) {
 		case "approved_again":
 			t.Errorf("approved_again event after a refused label write: %q", event.Payload)
 		case "ready_for_approval":
-			if strings.Contains(event.Payload, fmt.Sprintf("The Lead approved the head %.8s before.", approved)) {
+			if strings.Contains(event.Payload, fmt.Sprintf("Mobius or the Lead approved the head %.8s before.", approved)) {
 				ready++
 			}
 		}
@@ -349,7 +349,7 @@ func TestTwoUpdateHeadsAfterOneLeadApprovalNameTheLeadHeadInTheSecondComment(t *
 			comments = append(comments, comment.Body)
 		}
 	}
-	want := fmt.Sprintf("Mobius approved the head %.8s again. Only clean merges of main came after the head %.8s, and they change no file of the pull request. The report of the Lead for %.8s:\n\nChecked the diff. Verified the tests.", second, first, approved)
+	want := fmt.Sprintf("Mobius approved the head %.8s again. Only clean merges of main came after the head %.8s, and they change no file of the pull request. The report of the approval of %.8s:\n\nChecked the diff. Verified the tests.", second, first, approved)
 	if !slices.Contains(comments, want) {
 		t.Errorf("comments = %q, want %q", comments, want)
 	}
@@ -513,7 +513,7 @@ func TestTheEventOfTheFirstApprovalHasNoApprovalLine(t *testing.T) {
 
 	prompt := waitForLeadPrompt(t, server, " ready for Lead approval of #41 \"Add plan model\"")
 
-	if strings.Contains(prompt, "The Lead approved the head") {
+	if strings.Contains(prompt, "approved the head") {
 		t.Errorf("prompt = %q", prompt)
 	}
 	if got := approvedHead(t, server); got != "" {

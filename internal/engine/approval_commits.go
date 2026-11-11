@@ -55,7 +55,7 @@ func (e *Engine) changesAfterApproval(ctx context.Context, repository github.Rep
 	if err != nil {
 		return "", false, err
 	}
-	notInHistory := fmt.Sprintf("\nThe Lead approved the head %.8s before. It is not in the history of the head, so the change can differ.", approved)
+	notInHistory := fmt.Sprintf("\nMobius or the Lead approved the head %.8s before. It is not in the history of the head, so the change can differ.", approved)
 	if comparison.GetStatus() != "ahead" {
 		return notInHistory, false, nil
 	}
@@ -105,7 +105,7 @@ func (e *Engine) changesAfterApproval(ctx context.Context, repository github.Rep
 		}
 	}
 	var text strings.Builder
-	fmt.Fprintf(&text, "\nThe Lead approved the head %.8s before. Commits after it:", approved)
+	fmt.Fprintf(&text, "\nMobius or the Lead approved the head %.8s before. Commits after it:", approved)
 	for _, link := range chain {
 		mark := ""
 		if link.merge {

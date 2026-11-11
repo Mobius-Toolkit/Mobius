@@ -59,7 +59,7 @@ const (
 
 // quietEventKinds are the kinds of Lead events that need no decision. Such an event starts no turn and no session, and
 // the next prompt of the Lead holds it in the section quietEventsHeading.
-var quietEventKinds = []string{"autopilot", "approval_reminder", "approved_again", recurringChangeKind, "owner_action"}
+var quietEventKinds = []string{"autopilot", "approval_reminder", "approved_again", "auto_approved", recurringChangeKind, "owner_action"}
 
 // isQuietEvent tells if the event needs no decision of the Lead.
 func isQuietEvent(event store.LeadEvent) bool {
