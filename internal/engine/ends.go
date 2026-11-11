@@ -545,8 +545,9 @@ func (e *Engine) stopTask(ctx context.Context, repository github.Repository, tas
 	if err != nil || stopped == 0 {
 		return err
 	}
+	var pubErr error
 	if task.MergeQueuedAt.Valid {
-		_ = e.publishMergeQueue(ctx, task.Repository, task)
+		pubErr = e.publishMergeQueue(ctx, task.Repository, task)
 	}
 	e.closeKept(task.ID)
 	e.publish(Change{Workstreams: true})
@@ -554,7 +555,7 @@ func (e *Engine) stopTask(ctx context.Context, repository github.Repository, tas
 	if task.State == "working" && task.Worker.String == JudgeRole {
 		from = task.WorkerInput.String
 	}
-	return errors.Join(e.dismissReadyForReview(ctx, task, from), e.closeOwnerActions(ctx, task), e.finishStop(ctx, repository, task, summary))
+	return errors.Join(pubErr, e.dismissReadyForReview(ctx, task, from), e.closeOwnerActions(ctx, task), e.finishStop(ctx, repository, task, summary))
 }
 
 func (e *Engine) finishStop(ctx context.Context, repository github.Repository, task store.Task, summary string) error {
@@ -617,30 +618,31 @@ func (e *Engine) endTask(ctx context.Context, repository github.Repository, task
 	if err := e.queries.EndTask(ctx, task.ID); err != nil {
 		return err
 	}
+	var pubErr error
 	if task.MergeQueuedAt.Valid {
-		_ = e.publishMergeQueue(ctx, task.Repository, task)
+		pubErr = e.publishMergeQueue(ctx, task.Repository, task)
 	}
 	e.closeKept(task.ID)
 	e.publish(Change{Workstreams: true})
 	if err := e.dismissIssueItems(ctx, task.Repository, task.Issue, readyForReviewKind); err != nil {
-		return err
+		return errors.Join(pubErr, err)
 	}
 	if err := e.closeOwnerActions(ctx, task); err != nil {
-		return err
+		return errors.Join(pubErr, err)
 	}
 	if err := e.stopWorkersOf(ctx, task); err != nil {
-		return err
+		return errors.Join(pubErr, err)
 	}
 	if err := repository.RemoveLabel(ctx, task.Issue, workingLabel); err != nil {
-		return err
+		return errors.Join(pubErr, err)
 	}
 	if err := removeNeedsHuman(ctx, repository, task); err != nil {
-		return err
+		return errors.Join(pubErr, err)
 	}
 	if err := repository.RemoveLabel(ctx, task.Issue, questionLabel); err != nil {
-		return err
+		return errors.Join(pubErr, err)
 	}
-	return repository.RemoveLabel(ctx, task.Issue, reviewLabel)
+	return errors.Join(pubErr, repository.RemoveLabel(ctx, task.Issue, reviewLabel))
 }
 
 // stopWorkersOf stops the Worker of the task, wakes the queue, and removes the worktree of the task.

@@ -1570,13 +1570,16 @@ func (q *Queries) ClearQueueReason(ctx context.Context, id int64) (Session, erro
 	return i, err
 }
 
-const clearTaskMergeQueuedAt = `-- name: ClearTaskMergeQueuedAt :exec
-UPDATE tasks SET merge_queued_at = NULL WHERE id = ?
+const clearTaskMergeQueuedAt = `-- name: ClearTaskMergeQueuedAt :execrows
+UPDATE tasks SET merge_queued_at = NULL WHERE id = ? AND merge_queued_at IS NOT NULL
 `
 
-func (q *Queries) ClearTaskMergeQueuedAt(ctx context.Context, id int64) error {
-	_, err := q.db.ExecContext(ctx, clearTaskMergeQueuedAt, id)
-	return err
+func (q *Queries) ClearTaskMergeQueuedAt(ctx context.Context, id int64) (int64, error) {
+	result, err := q.db.ExecContext(ctx, clearTaskMergeQueuedAt, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const continueEndedTask = `-- name: ContinueEndedTask :execrows

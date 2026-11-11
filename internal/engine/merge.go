@@ -295,7 +295,7 @@ func (e *Engine) clearMergeQueue(ctx context.Context, task *store.Task) error {
 	if !task.MergeQueuedAt.Valid {
 		return nil
 	}
-	if err := e.queries.ClearTaskMergeQueuedAt(ctx, task.ID); err != nil {
+	if _, err := e.queries.ClearTaskMergeQueuedAt(ctx, task.ID); err != nil {
 		return err
 	}
 	task.MergeQueuedAt = sql.NullString{}

@@ -1371,8 +1371,8 @@ DELETE FROM deployment_needs WHERE task = ?;
 -- name: SetTaskMergeQueuedAt :exec
 UPDATE tasks SET merge_queued_at = ? WHERE id = ?;
 
--- name: ClearTaskMergeQueuedAt :exec
-UPDATE tasks SET merge_queued_at = NULL WHERE id = ?;
+-- name: ClearTaskMergeQueuedAt :execrows
+UPDATE tasks SET merge_queued_at = NULL WHERE id = ? AND merge_queued_at IS NOT NULL;
 
 -- name: GetMergeQueueHead :one
 SELECT * FROM tasks

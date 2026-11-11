@@ -167,21 +167,22 @@ func (e *Engine) handFromStates(ctx context.Context, states []string, task store
 	if err != nil || from == "" {
 		return false, err
 	}
+	var pubErr error
 	if task.MergeQueuedAt.Valid {
-		_ = e.publishMergeQueue(ctx, task.Repository, task)
+		pubErr = e.publishMergeQueue(ctx, task.Repository, task)
 	}
 	e.closeKept(task.ID)
 	e.publish(Change{Workstreams: true})
 	dismissErr := e.dismissReadyForReview(ctx, task, from)
 	repository, err := e.repository(task.Repository)
 	if err != nil {
-		return false, errors.Join(err, dismissErr)
+		return false, errors.Join(err, dismissErr, pubErr)
 	}
 	current, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: task.Repository, Issue: task.Issue})
 	if err != nil {
-		return false, errors.Join(err, dismissErr)
+		return false, errors.Join(err, dismissErr, pubErr)
 	}
-	return true, errors.Join(setStopLabels(ctx, repository, current), dismissErr)
+	return true, errors.Join(setStopLabels(ctx, repository, current), dismissErr, pubErr)
 }
 
 // setStopLabels moves the issue of the task from mobius:working or mobius:review to mobius:needs-human, with the pull
