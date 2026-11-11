@@ -1992,11 +1992,20 @@ for (const [device, size] of [
     await page.setViewportSize(size);
     await page.goto(first);
     try {
+      // The Workstream list gives the new level before the reply of the request arrives.
+      let reply: (() => Promise<void>) | undefined;
+      await page.route("**/api/workstreams/owner/shop/47/autopilot", async (route) => {
+        const response = await route.fetch();
+        reply = () => route.fulfill({ response });
+      });
       await page.getByRole("button", { name: "Autopilot: Off" }).click();
-      const answered = page.waitForResponse("**/api/workstreams/owner/shop/47/autopilot");
       await item(/^Merge only/).click();
-      await answered;
+      await expect.poll(() => reply).toBeDefined();
       await expect(page.getByRole("button", { name: "Autopilot: Merge only" })).toBeVisible();
+      await reply?.();
+      await expect(
+        page.getByRole("status").filter({ hasText: "Autopilot of #47: Merge only" }),
+      ).toBeVisible();
 
       if (device === "phone") {
         await page
@@ -2011,6 +2020,7 @@ for (const [device, size] of [
       await expect(item(/^Off/)).toBeChecked();
       await expect(item(/^Merge only/)).not.toBeChecked();
     } finally {
+      await page.unroute("**/api/workstreams/owner/shop/47/autopilot");
       const status = await page.evaluate(async () => {
         const response = await fetch("/api/workstreams/owner/shop/47/autopilot", {
           method: "PUT",
