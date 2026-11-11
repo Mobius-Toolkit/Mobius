@@ -1369,7 +1369,7 @@ func (e *Engine) initWorktree(ctx context.Context, a *Agent) (string, error) {
 	if _, err := os.Stat(filepath.Join(a.spec.Dir, ".mobius", "init")); errors.Is(err, fs.ErrNotExist) {
 		return "", nil
 	}
-	if err := a.checkPhase(ctx, checkRunsReason, ".mobius/init started."); err != nil {
+	if err := a.checkPhase(ctx, initRunsReason, ".mobius/init started."); err != nil {
 		return "", err
 	}
 	started := time.Now()

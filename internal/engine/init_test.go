@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
+	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 	"github.com/Mobius-Toolkit/Mobius/internal/runner"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 )
@@ -173,4 +174,21 @@ func TestAnInitScriptThatDoesNotEndInTheTimeLimitGivesTheSectionToTheFirstPrompt
 		"# Setup failed\n\nThe setup script `.mobius/init` of the new worktree did not end in 300ms.",
 		"pnpm install is slow\n",
 		"You are the Implementer of one task.")
+}
+
+func TestASessionThatRunsTheInitScriptShowsItsOwnQueueReasonAsWorking(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, commits, noChange)
+	fake.SetInit(shop, "sleep 30")
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	testkit.WaitFor(t, func() bool {
+		sessions := roleSessions(t, server, engine.ImplementerRole)
+		return len(sessions) == 1 && sessions[0].QueueReason.String == "runs .mobius/init"
+	})
+	if !isWorking(t, server, roleSessions(t, server, engine.ImplementerRole)[0].ID) {
+		t.Error("the session is not working")
+	}
 }

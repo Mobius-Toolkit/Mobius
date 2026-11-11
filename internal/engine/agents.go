@@ -254,7 +254,10 @@ type Created struct {
 	Number     int64
 }
 
-const checkRunsReason = "runs .mobius/check"
+const (
+	checkRunsReason = "runs .mobius/check"
+	initRunsReason  = "runs .mobius/init"
+)
 
 func now() string {
 	return time.Now().UTC().Format(time.RFC3339Nano)
@@ -1101,7 +1104,7 @@ func (e *Engine) working(n Node) bool {
 		c, ok := e.chats[ChatKey{session.Organization, session.WorkstreamRepository, session.Workstream}]
 		return ok && c.writing && session.QueueReason.String == ""
 	}
-	return session.QueueReason.String == "" || session.QueueReason.String == checkRunsReason
+	return slices.Contains([]string{"", checkRunsReason, initRunsReason}, session.QueueReason.String)
 }
 
 // Tree gives the sessions of the Workstream of repository, the oldest first.
