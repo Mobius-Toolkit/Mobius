@@ -57,6 +57,7 @@ type CiBreak struct {
 	EndedAt      string
 	Issue        int64
 	StartedAt    string
+	RunEvent     string
 }
 
 type CiDiagnosis struct {

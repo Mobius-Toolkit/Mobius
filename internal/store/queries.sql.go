@@ -26,8 +26,8 @@ func (q *Queries) AddBlockerCycle(ctx context.Context, arg AddBlockerCycleParams
 }
 
 const addCIBreak = `-- name: AddCIBreak :exec
-INSERT INTO ci_breaks (repository, workflow_id, workflow_name, run_id, run_url, run_attempt, rerun_at, result, started_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO ci_breaks (repository, workflow_id, workflow_name, run_id, run_url, run_attempt, run_event, rerun_at, result, started_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type AddCIBreakParams struct {
@@ -37,6 +37,7 @@ type AddCIBreakParams struct {
 	RunID        int64
 	RunUrl       string
 	RunAttempt   int64
+	RunEvent     string
 	RerunAt      string
 	Result       string
 	StartedAt    string
@@ -50,6 +51,7 @@ func (q *Queries) AddCIBreak(ctx context.Context, arg AddCIBreakParams) error {
 		arg.RunID,
 		arg.RunUrl,
 		arg.RunAttempt,
+		arg.RunEvent,
 		arg.RerunAt,
 		arg.Result,
 		arg.StartedAt,
@@ -2587,7 +2589,7 @@ func (q *Queries) FreeLeadEvents(ctx context.Context, arg FreeLeadEventsParams) 
 }
 
 const getCIBreak = `-- name: GetCIBreak :one
-SELECT id, repository, workflow_id, workflow_name, run_id, run_url, run_attempt, rerun_at, result, ended_run_id, ended_at, issue, started_at FROM ci_breaks WHERE id = ?
+SELECT id, repository, workflow_id, workflow_name, run_id, run_url, run_attempt, rerun_at, result, ended_run_id, ended_at, issue, started_at, run_event FROM ci_breaks WHERE id = ?
 `
 
 func (q *Queries) GetCIBreak(ctx context.Context, id int64) (CiBreak, error) {
@@ -2607,6 +2609,7 @@ func (q *Queries) GetCIBreak(ctx context.Context, id int64) (CiBreak, error) {
 		&i.EndedAt,
 		&i.Issue,
 		&i.StartedAt,
+		&i.RunEvent,
 	)
 	return i, err
 }
@@ -4323,7 +4326,7 @@ func (q *Queries) ListAllMergeQueueTasks(ctx context.Context) ([]ListAllMergeQue
 }
 
 const listAllOpenHardCIBreaks = `-- name: ListAllOpenHardCIBreaks :many
-SELECT id, repository, workflow_id, workflow_name, run_id, run_url, run_attempt, rerun_at, result, ended_run_id, ended_at, issue, started_at FROM ci_breaks WHERE ended_at = '' AND result = 'hard' AND issue != 0 ORDER BY repository, id
+SELECT id, repository, workflow_id, workflow_name, run_id, run_url, run_attempt, rerun_at, result, ended_run_id, ended_at, issue, started_at, run_event FROM ci_breaks WHERE ended_at = '' AND result = 'hard' AND issue != 0 ORDER BY repository, id
 `
 
 func (q *Queries) ListAllOpenHardCIBreaks(ctx context.Context) ([]CiBreak, error) {
@@ -4349,6 +4352,7 @@ func (q *Queries) ListAllOpenHardCIBreaks(ctx context.Context) ([]CiBreak, error
 			&i.EndedAt,
 			&i.Issue,
 			&i.StartedAt,
+			&i.RunEvent,
 		); err != nil {
 			return nil, err
 		}
@@ -4649,7 +4653,7 @@ func (q *Queries) ListBranchesToCheck(ctx context.Context) ([]Task, error) {
 }
 
 const listCIBreaksNotBelowWorkstream = `-- name: ListCIBreaksNotBelowWorkstream :many
-SELECT id, repository, workflow_id, workflow_name, run_id, run_url, run_attempt, rerun_at, result, ended_run_id, ended_at, issue, started_at FROM ci_breaks WHERE repository = ? AND issue < 0 ORDER BY id
+SELECT id, repository, workflow_id, workflow_name, run_id, run_url, run_attempt, rerun_at, result, ended_run_id, ended_at, issue, started_at, run_event FROM ci_breaks WHERE repository = ? AND issue < 0 ORDER BY id
 `
 
 func (q *Queries) ListCIBreaksNotBelowWorkstream(ctx context.Context, repository string) ([]CiBreak, error) {
@@ -4675,6 +4679,7 @@ func (q *Queries) ListCIBreaksNotBelowWorkstream(ctx context.Context, repository
 			&i.EndedAt,
 			&i.Issue,
 			&i.StartedAt,
+			&i.RunEvent,
 		); err != nil {
 			return nil, err
 		}
@@ -4690,7 +4695,7 @@ func (q *Queries) ListCIBreaksNotBelowWorkstream(ctx context.Context, repository
 }
 
 const listCIBreaksToDiagnose = `-- name: ListCIBreaksToDiagnose :many
-SELECT id, repository, workflow_id, workflow_name, run_id, run_url, run_attempt, rerun_at, result, ended_run_id, ended_at, issue, started_at FROM ci_breaks
+SELECT id, repository, workflow_id, workflow_name, run_id, run_url, run_attempt, rerun_at, result, ended_run_id, ended_at, issue, started_at, run_event FROM ci_breaks
 WHERE ci_breaks.repository = ? AND issue = 0 AND (result = 'flaky' OR result = 'hard' AND ended_at = '')
   AND NOT EXISTS (SELECT 1 FROM ci_diagnoses WHERE ci_diagnoses.ci_break = ci_breaks.id)
 ORDER BY id
@@ -4719,6 +4724,7 @@ func (q *Queries) ListCIBreaksToDiagnose(ctx context.Context, repository string)
 			&i.EndedAt,
 			&i.Issue,
 			&i.StartedAt,
+			&i.RunEvent,
 		); err != nil {
 			return nil, err
 		}
@@ -4734,7 +4740,7 @@ func (q *Queries) ListCIBreaksToDiagnose(ctx context.Context, repository string)
 }
 
 const listCIBreaksWithoutIssue = `-- name: ListCIBreaksWithoutIssue :many
-SELECT id, repository, workflow_id, workflow_name, run_id, run_url, run_attempt, rerun_at, result, ended_run_id, ended_at, issue, started_at FROM ci_breaks
+SELECT id, repository, workflow_id, workflow_name, run_id, run_url, run_attempt, rerun_at, result, ended_run_id, ended_at, issue, started_at, run_event FROM ci_breaks
 WHERE ci_breaks.repository = ? AND issue = 0 AND (result = 'flaky' OR result = 'hard' AND ended_at = '')
   AND NOT EXISTS (SELECT 1 FROM ci_diagnoses WHERE ci_diagnoses.ci_break = ci_breaks.id AND ci_diagnoses.ended_at = '')
 ORDER BY id
@@ -4763,6 +4769,7 @@ func (q *Queries) ListCIBreaksWithoutIssue(ctx context.Context, repository strin
 			&i.EndedAt,
 			&i.Issue,
 			&i.StartedAt,
+			&i.RunEvent,
 		); err != nil {
 			return nil, err
 		}
@@ -7240,7 +7247,7 @@ func (q *Queries) ListOpenActionRequests(ctx context.Context, arg ListOpenAction
 }
 
 const listOpenCIBreaks = `-- name: ListOpenCIBreaks :many
-SELECT id, repository, workflow_id, workflow_name, run_id, run_url, run_attempt, rerun_at, result, ended_run_id, ended_at, issue, started_at FROM ci_breaks WHERE repository = ? AND ended_at = '' ORDER BY id
+SELECT id, repository, workflow_id, workflow_name, run_id, run_url, run_attempt, rerun_at, result, ended_run_id, ended_at, issue, started_at, run_event FROM ci_breaks WHERE repository = ? AND ended_at = '' ORDER BY id
 `
 
 func (q *Queries) ListOpenCIBreaks(ctx context.Context, repository string) ([]CiBreak, error) {
@@ -7266,6 +7273,7 @@ func (q *Queries) ListOpenCIBreaks(ctx context.Context, repository string) ([]Ci
 			&i.EndedAt,
 			&i.Issue,
 			&i.StartedAt,
+			&i.RunEvent,
 		); err != nil {
 			return nil, err
 		}
@@ -7426,7 +7434,7 @@ func (q *Queries) ListOpenFailedItemsOfMessage(ctx context.Context, chatMessage 
 }
 
 const listOpenHardCIBreaks = `-- name: ListOpenHardCIBreaks :many
-SELECT id, repository, workflow_id, workflow_name, run_id, run_url, run_attempt, rerun_at, result, ended_run_id, ended_at, issue, started_at FROM ci_breaks WHERE repository = ? AND ended_at = '' AND result = 'hard' ORDER BY id
+SELECT id, repository, workflow_id, workflow_name, run_id, run_url, run_attempt, rerun_at, result, ended_run_id, ended_at, issue, started_at, run_event FROM ci_breaks WHERE repository = ? AND ended_at = '' AND result = 'hard' ORDER BY id
 `
 
 func (q *Queries) ListOpenHardCIBreaks(ctx context.Context, repository string) ([]CiBreak, error) {
@@ -7452,6 +7460,7 @@ func (q *Queries) ListOpenHardCIBreaks(ctx context.Context, repository string) (
 			&i.EndedAt,
 			&i.Issue,
 			&i.StartedAt,
+			&i.RunEvent,
 		); err != nil {
 			return nil, err
 		}
@@ -9675,6 +9684,20 @@ type SetCIBreakResultParams struct {
 
 func (q *Queries) SetCIBreakResult(ctx context.Context, arg SetCIBreakResultParams) error {
 	_, err := q.db.ExecContext(ctx, setCIBreakResult, arg.Result, arg.ID)
+	return err
+}
+
+const setCIBreakRunEvent = `-- name: SetCIBreakRunEvent :exec
+UPDATE ci_breaks SET run_event = ? WHERE id = ?
+`
+
+type SetCIBreakRunEventParams struct {
+	RunEvent string
+	ID       int64
+}
+
+func (q *Queries) SetCIBreakRunEvent(ctx context.Context, arg SetCIBreakRunEventParams) error {
+	_, err := q.db.ExecContext(ctx, setCIBreakRunEvent, arg.RunEvent, arg.ID)
 	return err
 }
 

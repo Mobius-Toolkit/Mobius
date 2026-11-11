@@ -160,6 +160,18 @@ func (r Repository) WorkflowState(ctx context.Context, id int64) (string, error)
 	return workflow.GetState(), nil
 }
 
+// WorkflowRun gives the workflow run id, or nil when GitHub answers 404 Not Found or 410 Gone.
+func (r Repository) WorkflowRun(ctx context.Context, id int64) (*gh.WorkflowRun, error) {
+	run, _, err := r.Client.Actions.GetWorkflowRunByID(ctx, r.Owner(), r.Name(), id)
+	if NotFound(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return run, nil
+}
+
 // RerunFailedJobs runs the failed jobs of the workflow run id again. It needs the permission actions: write.
 func (r Repository) RerunFailedJobs(ctx context.Context, id int64) error {
 	_, err := r.Client.Actions.RerunFailedJobsByID(ctx, r.Owner(), r.Name(), id)
