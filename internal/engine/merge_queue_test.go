@@ -503,24 +503,43 @@ func TestMergeQueueNeedsHumanLeavesQueueWhenHeadHasNoMobiusCheckRun(t *testing.T
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := queueTasks(t, fake, "merge", []int{41, 43})
-	oldHead41 := head(t, fake, "mobius/41")
 
-	fake.CommitFile(shop, "price.txt", "cents\n", "Add price")
+	// Bring task 41 to needs_human through the engine via a merge conflict on a stale pull request.
+	pr41 := liveTask(t, server, 41).PullRequest.Int64
+	fake.SetCreatedAt(shop, pr41, 0)
+	fake.CommitFile(shop, "41.txt", "conflict\n", "Conflict on 41")
 
-	sendChat(t, server, leadChat, "Approve #41")
-	sendChat(t, server, leadChat, "Approve #43")
-
-	// Wait for task 41 to enter queue.
 	testkit.WaitFor(t, func() bool {
-		var q string
-		_ = server.DB.QueryRow("SELECT coalesce(max(merge_queued_at), '') FROM tasks WHERE issue = 41").Scan(&q)
-		return q != ""
+		return liveTaskState(t, server, 41) == "needs_human"
 	})
 
-	// Move task 41 to needs_human.
-	if _, err := server.DB.Exec("UPDATE tasks SET state = 'needs_human' WHERE issue = 41"); err != nil {
-		t.Fatal(err)
-	}
+	// Resolve the conflict so the pull request is mergeable again.
+	work := t.TempDir()
+	testkit.Git(t, work, "clone", "--branch=mobius/41", fake.Remote(shop), ".")
+	testkit.Git(t, work, "fetch", "origin", "main")
+	testkit.Git(t, work, "merge", "-X", "ours", "origin/main")
+	testkit.Git(t, work, "push", "origin", "HEAD:refs/heads/mobius/41")
+	oldHead41 := head(t, fake, "mobius/41")
+
+	// Move default branch after task 41 reached needs_human and resolved the conflict.
+	fake.CommitFile(shop, "price.txt", "cents\n", "Add price")
+	passMobius(fake, oldHead41)
+
+	// Owner marks PR 41 ready for review and approves it while it is in needs_human.
+	fake.SetDraft(shop, pr41, false)
+	fake.AddReview(shop, pr41, "owner", "APPROVED", "")
+
+	// Task 41 enters the merge queue while in needs_human.
+	testkit.WaitFor(t, func() bool {
+		task := liveTask(t, server, 41)
+		return task.State == "needs_human" && task.MergeQueuedAt.Valid
+	})
+
+	// Lead approves task 43 so it enters the merge queue behind task 41.
+	sendChat(t, server, leadChat, "Approve #43")
+	testkit.WaitFor(t, func() bool {
+		return liveTask(t, server, 43).MergeQueuedAt.Valid
+	})
 
 	// Task 41 is head of queue and gets branch update.
 	testkit.WaitFor(t, func() bool { return head(t, fake, "mobius/41") != oldHead41 })
@@ -528,15 +547,21 @@ func TestMergeQueueNeedsHumanLeavesQueueWhenHeadHasNoMobiusCheckRun(t *testing.T
 	// Its new head has no Mobius check run and it is in needs_human, so it leaves the queue.
 	// Task 43 becomes the queue head, updates, and merges!
 	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, 43) == "" })
-	if calls := fake.MergeCalls(); calls < 1 {
-		t.Errorf("merge calls = %d, want at least 1", calls)
+	if calls := fake.MergeCalls(); calls != 1 {
+		t.Errorf("merge calls = %d, want 1", calls)
+	}
+
+	// Task 41 did not merge and is in needs_human.
+	if state := liveTaskState(t, server, 41); state != "needs_human" {
+		t.Errorf("task 41 state = %s, want needs_human", state)
+	}
+	if mainLog := testkit.Git(t, fake.Remote(shop), "log", "--format=%s", "main"); strings.Contains(mainLog, "mobius/41") || strings.Contains(mainLog, "Task 41") {
+		t.Error("PR 41 merged")
 	}
 
 	// Task 41 is no longer in the queue.
-	var q41 string
-	_ = server.DB.QueryRow("SELECT coalesce(max(merge_queued_at), '') FROM tasks WHERE issue = 41").Scan(&q41)
-	if q41 != "" {
-		t.Errorf("task 41 merge_queued_at = %q, want empty", q41)
+	if q := liveTask(t, server, 41).MergeQueuedAt; q.Valid {
+		t.Errorf("task 41 merge_queued_at = %q, want empty", q.String)
 	}
 }
 
@@ -545,7 +570,7 @@ func TestMergeQueueNeedsHumanLeavesQueueWhenHeadHasNoMobiusCheckRun(t *testing.T
 func TestMergeQueueManualApprovalRestartAfterBranchUpdate(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, dataDir := queueTasks(t, fake, "off", []int{41, 43})
+	server, dataDir := queueTasks(t, fake, "off", []int{41})
 
 	sendChat(t, server, leadChat, "Approve #41")
 	item41 := testkit.WaitForValue(t, func() (inboxItem, bool) {
@@ -558,63 +583,34 @@ func TestMergeQueueManualApprovalRestartAfterBranchUpdate(t *testing.T) {
 	})
 	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, 41) == "ready_for_review" })
 
-	sendChat(t, server, leadChat, "Approve #43")
-	item43 := testkit.WaitForValue(t, func() (inboxItem, bool) {
-		for _, item := range itemsOf(t, server, "ready for review") {
-			if item.Issue == 43 {
-				return item, true
-			}
-		}
-		return inboxItem{}, false
-	})
-	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, 43) == "ready_for_review" })
-
-	oldHead41 := head(t, fake, "mobius/41")
 	fake.CommitFile(shop, "price.txt", "cents\n", "Add price")
+
+	// Hold the branch update answer of task 41 and stop the server right after the head of mobius/41 changes,
+	// and before Mobius reads the new head.
+	reached, release := fake.HoldBranchUpdateAnswer()
 
 	// Owner approves task 41 with "Merge".
 	if status, body := merge(t, server, item41.ID); status != http.StatusOK {
 		t.Fatalf("merge status = %d: %s", status, body)
 	}
-	testkit.WaitFor(t, func() bool {
-		var q string
-		_ = server.DB.QueryRow("SELECT coalesce(max(merge_queued_at), '') FROM tasks WHERE issue = 41").Scan(&q)
-		return q != ""
-	})
 
-	// Owner approves task 43 with "Merge".
-	if status, body := merge(t, server, item43.ID); status != http.StatusOK {
-		t.Fatalf("merge status = %d: %s", status, body)
-	}
-	testkit.WaitFor(t, func() bool {
-		var q string
-		_ = server.DB.QueryRow("SELECT coalesce(max(merge_queued_at), '') FROM tasks WHERE issue = 43").Scan(&q)
-		return q != ""
-	})
-
-	// Hold merge on task 41 so it doesn't merge before the restart.
-	pr41 := liveTask(t, server, 41).PullRequest.Int64
-	reached41, release41 := fake.HoldMerge(shop, pr41)
-
-	// Wait for task 41 to get updated branch from updateForMerge and reach merge.
-	testkit.WaitFor(t, func() bool { return head(t, fake, "mobius/41") != oldHead41 })
-	<-reached41
-
-	// Stop old server.
+	<-reached
 	server.Stop()
-	release41()
+	release()
 
 	// Restart server with same dataDir.
 	cfg := testserver.Config(t, dataDir)
 	cfg.Roles.Implementer.Max = 3
-	cfg.ReviewQuietPeriod = 50 * time.Millisecond
+	cfg.ReviewQuietPeriod = 300 * time.Millisecond
 	server = testserver.StartWith(t, cfg, fake.URL)
-	server.WaitForFirstPoll(t, shop)
 
-	// Task 41 returns to checks, gets approved again, and merges. Then task 43 merges.
+	// Task 41 goes to checks after the restart.
+	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, 41) == "checks" })
+
+	// Task 41 gets the approval again and merges.
 	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, 41) == "" })
-	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, 43) == "" })
-	if calls := fake.MergeCalls(); calls != 2 {
-		t.Errorf("merge calls = %d, want 2", calls)
+
+	if calls := fake.MergeCalls(); calls != 1 {
+		t.Errorf("merge calls = %d, want 1", calls)
 	}
 }

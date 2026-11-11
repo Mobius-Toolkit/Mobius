@@ -614,6 +614,13 @@ func (g *FakeGitHub) updatePullRequestBranch(w http.ResponseWriter, r *http.Requ
 	} else {
 		g.mergeBase(key)
 	}
+	if h := g.updateAnswerHold; h != nil {
+		g.updateAnswerHold = nil
+		g.mu.Unlock()
+		close(h.reached)
+		<-h.release
+		g.mu.Lock()
+	}
 	message(w, http.StatusAccepted, "Updating pull request branch.")
 }
 
@@ -651,6 +658,16 @@ func (g *FakeGitHub) ReleaseBranchUpdates() {
 		g.mergeBase(key)
 	}
 	g.heldBranchUpdates = nil
+}
+
+// HoldBranchUpdateAnswer makes the next request to update the branch add the merge commit, but hold the 202 answer
+// until release is called. The channel closes when the head branch was updated.
+func (g *FakeGitHub) HoldBranchUpdateAnswer() (<-chan struct{}, func()) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	h := &hold{reached: make(chan struct{}), release: make(chan struct{})}
+	g.updateAnswerHold = h
+	return h.reached, func() { close(h.release) }
 }
 
 // markReadyForReview answers the GraphQL mutation markPullRequestReadyForReview. The caller must hold the lock.

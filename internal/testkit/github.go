@@ -197,6 +197,7 @@ type FakeGitHub struct {
 	// holdBranchUpdates tells that an update of a branch gives status 202 and waits in heldBranchUpdates for the merge.
 	holdBranchUpdates bool
 	heldBranchUpdates []issueKey
+	updateAnswerHold  *hold
 	// afterCheckRunRead runs once at the end of the first request for the check runs of a commit after a GraphQL answer
 	// gave a review of a pull request. reviewRead tells if such an answer was given.
 	afterCheckRunRead func()
