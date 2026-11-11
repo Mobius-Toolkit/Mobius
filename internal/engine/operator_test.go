@@ -45,6 +45,12 @@ shell = "pwd"
 // Operator. It gives the data directory.
 func connectOperator(t *testing.T, fake *testkit.FakeGitHub, script string) (*testserver.Server, string) {
 	t.Helper()
+	return connectOperatorWith(t, fake, script, func(*config.Config) {})
+}
+
+// connectOperatorWith is connectOperator with the config changed by adjust.
+func connectOperatorWith(t *testing.T, fake *testkit.FakeGitHub, script string, adjust func(*config.Config)) (*testserver.Server, string) {
+	t.Helper()
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
 	fake.SetBody(shop, 12, "Ship loyalty plans to all shops.")
@@ -52,6 +58,7 @@ func connectOperator(t *testing.T, fake *testkit.FakeGitHub, script string) (*te
 	testkit.InstallFakeHarness(t, dataDir, "claude-agent-acp", options+script)
 	cfg := testserver.Config(t, dataDir)
 	cfg.LeadIdleTimeout = 30 * time.Second
+	adjust(cfg)
 	server := startServerWith(t, fake, cfg, "")
 	server.WaitForFirstPoll(t, shop)
 	return server, dataDir
