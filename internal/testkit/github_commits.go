@@ -7,13 +7,9 @@ import (
 	"strings"
 )
 
-// listCommits gives the commits of the branch sha of the git repository of the repository, the newest first, with a
-// commit date at or after since.
+// listCommits gives the commits of the branch sha of the git repository of the repository, the newest first.
 func (g *FakeGitHub) listCommits(w http.ResponseWriter, r *http.Request) {
 	args := []string{"log", "--format=%H%x00%cI%x00%s", r.URL.Query().Get("sha")}
-	if since := r.URL.Query().Get("since"); since != "" {
-		args = append(args, "--since="+since)
-	}
 	out, err := gitCommand(g.Remote(repository(r)), args...).Output()
 	if err != nil {
 		notFound(w)
