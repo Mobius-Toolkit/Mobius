@@ -370,6 +370,16 @@ describe("organization switch update logic", () => {
     expect(Option.isSome(chat.chat)).toBe(true);
   });
 
+  it("shows the error of a failed load only while the browser is online", () => {
+    const failed = Message.LoadAppFailed({ error: "apps failed" });
+    expect(update(createModel("/chat", { online: true }), failed).model.appError).toEqual(
+      Option.some("apps failed"),
+    );
+    expect(update(createModel("/chat", { online: false }), failed).model.appError).toEqual(
+      Option.none(),
+    );
+  });
+
   it("shows no connecting badge until the start limit ends", () => {
     const starting = createModel("/chat");
     expect(starting.link).toBe("starting");

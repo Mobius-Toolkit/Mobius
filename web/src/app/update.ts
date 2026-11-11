@@ -918,7 +918,8 @@ export function update(model: Model, message: Message): UpdateReturn {
 
     case "LoadAppFailed":
       return {
-        model: { ...model, appError: Option.some(message.error) },
+        // The Offline badge says why a load fails while the browser is offline.
+        model: model.online ? { ...model, appError: Option.some(message.error) } : model,
         commands: [],
       };
 
