@@ -41,6 +41,8 @@ type ChatMessage struct {
 	Images int64 `gork:"images"`
 	// InboxItems are the Inbox items that the Owner sent with the message, in the order of the request
 	InboxItems []ChatInboxItem `gork:"inboxItems"`
+	// Selections are the text selections that the Owner sent with the message, in the order of the request
+	Selections []ChatSelection `gork:"selections"`
 	// Voice is true when the message came from a voice recording
 	Voice bool `gork:"voice"`
 	// BrowserID is the id that the browser gave to the message of the Owner. It is empty for another message
@@ -71,6 +73,27 @@ type ChatInboxItem struct {
 	Reason string `gork:"reason"`
 	// Link is the GitHub URL of the issue or the pull request, or empty
 	Link string `gork:"link"`
+}
+
+// ChatSelection is a text selection that the Owner sends with a chat message.
+type ChatSelection struct {
+	// Source is the place of the selection
+	Source string `gork:"source" json:"source" validate:"oneof=task message brief"`
+	// Text is the selected text
+	Text string `gork:"text" json:"text" validate:"required"`
+	// Context is the full paragraph or list item of the selection, or the full blocks when the selection spans more than one block
+	Context string `gork:"context" json:"context"`
+	// Reference is the reference of the task (#N, or owner/name#N for a task in another repository) for task,
+	// the reference of the Workstream (#N) for brief, or empty for message
+	Reference string `gork:"reference" json:"reference"`
+	// Link is the GitHub URL of the task issue for task, the GitHub URL of the Workstream issue for brief, or empty for message
+	Link string `gork:"link" json:"link"`
+	// Part is the part of the view for task, the heading of the Brief section of the selection (or empty above the first heading) for brief, or empty for message
+	Part string `gork:"part" json:"part"`
+	// MessageID is the id of the quoted chat message for message, or 0 for the other sources
+	MessageID int64 `gork:"messageId" json:"messageId"`
+	// MessageAuthor is the author of the quoted chat message for message, or empty for the other sources
+	MessageAuthor string `gork:"messageAuthor" json:"messageAuthor"`
 }
 
 // Chat is a page of the messages of a Lead chat or of the Coordinator chat.
@@ -139,13 +162,16 @@ type SendChatRequest struct {
 		// ID is the id that the browser gives to the message. A message with an id that another message has is not
 		// stored again, and the response is the same
 		ID string `gork:"id" validate:"required"`
-		// Text is the message of the Owner. It is required when the message has no image and no Inbox item
-		Text string `gork:"text" validate:"required_without_all=Images InboxItems"`
+		// Text is the message of the Owner. It is required when the message has no image, no Inbox item and no selection
+		Text string `gork:"text" validate:"required_without_all=Images InboxItems Selections"`
 		// Images are the images of the message, PNG, JPEG, GIF or WebP, each at most 5 MB
 		Images []api.File `gork:"images" validate:"max=4,dive,max=5242880"`
 		// InboxItems are the Inbox items of the message. The request has one part inboxItems for each item, in order,
 		// and each part is one JSON object
 		InboxItems []ChatInboxItem `gork:"inboxItems"`
+		// Selections are the text selections of the message. The request has one part selections for each selection, in order,
+		// and each part is one JSON object
+		Selections []ChatSelection `gork:"selections"`
 		// Voice is true when the message came from a voice recording
 		Voice bool `gork:"voice"`
 	}
@@ -177,7 +203,11 @@ func (h *handlers) SendChat(ctx context.Context, req SendChatRequest) error {
 	for _, item := range body.InboxItems {
 		inboxItems = append(inboxItems, engine.ChatInboxItem(item))
 	}
-	err := h.engine.SendChat(ctx, engine.ChatKey{Organization: body.Organization, Repository: body.Repository, Workstream: body.Workstream}, body.ID, text, images, inboxItems, body.Voice)
+	selections := make([]engine.ChatSelection, 0, len(body.Selections))
+	for _, selection := range body.Selections {
+		selections = append(selections, engine.ChatSelection(selection))
+	}
+	err := h.engine.SendChat(ctx, engine.ChatKey{Organization: body.Organization, Repository: body.Repository, Workstream: body.Workstream}, body.ID, text, images, inboxItems, selections, body.Voice)
 	if engine.Refused(err) {
 		return api.NewHTTPError(http.StatusConflict, err.Error())
 	}
@@ -300,6 +330,15 @@ func (h *handlers) chatMessageOf(ctx context.Context, message store.ChatMessage)
 	if err := json.Unmarshal([]byte(message.InboxItems), &inboxItems); err != nil {
 		return ChatMessage{}, err
 	}
+	var selections []ChatSelection
+	if message.Selections != "" {
+		if err := json.Unmarshal([]byte(message.Selections), &selections); err != nil {
+			return ChatMessage{}, err
+		}
+	}
+	if selections == nil {
+		selections = []ChatSelection{}
+	}
 	found := ChatMessage{
 		ID:           message.ID,
 		Organization: message.Organization,
@@ -310,6 +349,7 @@ func (h *handlers) chatMessageOf(ctx context.Context, message store.ChatMessage)
 		Text:         message.Text,
 		Images:       int64(images),
 		InboxItems:   inboxItems,
+		Selections:   selections,
 		Voice:        message.Voice != 0,
 		BrowserID:    message.BrowserID.String,
 	}

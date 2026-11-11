@@ -970,7 +970,7 @@ func addRecurringTasks(ctx context.Context, t *testing.T, server *testserver.Ser
 // chat sends the Owner message text to the chat of key, and waits for the reply of author and the end of the session.
 func chat(ctx context.Context, t *testing.T, server *testserver.Server, key engine.ChatKey, text, author string) {
 	t.Helper()
-	if err := server.Engine.SendChat(ctx, key, "", text, nil, nil, false); err != nil {
+	if err := server.Engine.SendChat(ctx, key, "", text, nil, nil, nil, false); err != nil {
 		t.Fatal(err)
 	}
 	waitForChat(t, server, key, author)

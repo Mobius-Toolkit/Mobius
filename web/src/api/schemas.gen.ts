@@ -303,6 +303,16 @@ export const GetChatResponse = S.Struct({
   "workstreamRepository": S.String.annotate({ description: 'WorkstreamRepository is the repository of the Workstream issue as \"owner\/name\". It differs from Repository for a task whose Workstream is in another repository' })
 }).annotate({ description: 'InboxItem is an item of the Inbox of the Owner.' }), S.Null]).annotate({ description: 'Question is the question item of a card, or null for another message' }),
   "repository": S.String.annotate({ description: 'Repository is the repository of the Workstream as \"owner\/name\". It is empty for the Coordinator chat' }),
+  "selections": S.Array(S.Struct({
+  "context": S.String.annotate({ description: 'Context is the full paragraph or list item of the selection, or the full blocks when the selection spans more than one block' }),
+  "link": S.String.annotate({ description: 'Link is the GitHub URL of the task issue for task, the GitHub URL of the Workstream issue for brief, or empty for message' }),
+  "messageAuthor": S.String.annotate({ description: 'MessageAuthor is the author of the quoted chat message for message, or empty for the other sources' }),
+  "messageId": S.Number.annotate({ description: 'MessageID is the id of the quoted chat message for message, or 0 for the other sources' }),
+  "part": S.String.annotate({ description: 'Part is the part of the view for task, the heading of the Brief section of the selection (or empty above the first heading) for brief, or empty for message' }),
+  "reference": S.String.annotate({ description: 'Reference is the reference of the task (#N, or owner\/name#N for a task in another repository) for task, the reference of the Workstream (#N) for brief, or empty for message' }),
+  "source": S.Literals(['task', 'message', 'brief']).annotate({ description: 'Source is the place of the selection' }),
+  "text": S.String.annotate({ description: 'Text is the selected text' })
+}).annotate({ description: 'ChatSelection is a text selection that the Owner sends with a chat message.' })).annotate({ description: 'Selections are the text selections that the Owner sent with the message, in the order of the request' }),
   "stoppedAt": S.NullOr(S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/))).annotate({ description: 'StoppedAt is the time when a stop of the Owner dropped the message of the Owner before the turn of the agent started, or null for a message that no stop dropped and for another message' }),
   "text": S.String.annotate({ description: 'Text is the text of the message' }),
   "time": S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/)).annotate({ description: 'Time is the time of the message' }),
@@ -331,7 +341,17 @@ export const SendChatBody = S.Struct({
 }).annotate({ description: 'ChatInboxItem is an Inbox item that the Owner sends with a chat message.' }))).annotate({ description: 'InboxItems are the Inbox items of the message. The request has one part inboxItems for each item, in order, and each part is one JSON object' }),
   "organization": S.optional(S.String).annotate({ description: 'Organization is the owner of the repository, or the organization of the Coordinator chat' }),
   "repository": S.optional(S.String).annotate({ description: 'Repository is the repository of the Workstream as \"owner\/name\". It is empty for the Coordinator chat' }),
-  "text": S.String.annotate({ description: 'Text is the message of the Owner. It is required when the message has no image and no Inbox item' }),
+  "selections": S.optional(S.Array(S.Struct({
+  "context": S.String.annotate({ description: 'Context is the full paragraph or list item of the selection, or the full blocks when the selection spans more than one block' }),
+  "link": S.String.annotate({ description: 'Link is the GitHub URL of the task issue for task, the GitHub URL of the Workstream issue for brief, or empty for message' }),
+  "messageAuthor": S.String.annotate({ description: 'MessageAuthor is the author of the quoted chat message for message, or empty for the other sources' }),
+  "messageId": S.Number.annotate({ description: 'MessageID is the id of the quoted chat message for message, or 0 for the other sources' }),
+  "part": S.String.annotate({ description: 'Part is the part of the view for task, the heading of the Brief section of the selection (or empty above the first heading) for brief, or empty for message' }),
+  "reference": S.String.annotate({ description: 'Reference is the reference of the task (#N, or owner\/name#N for a task in another repository) for task, the reference of the Workstream (#N) for brief, or empty for message' }),
+  "source": S.Literals(['task', 'message', 'brief']).annotate({ description: 'Source is the place of the selection' }),
+  "text": S.String.annotate({ description: 'Text is the selected text' })
+}).annotate({ description: 'ChatSelection is a text selection that the Owner sends with a chat message.' }))).annotate({ description: 'Selections are the text selections of the message. The request has one part selections for each selection, in order, and each part is one JSON object' }),
+  "text": S.String.annotate({ description: 'Text is the message of the Owner. It is required when the message has no image, no Inbox item and no selection' }),
   "voice": S.optional(S.Boolean).annotate({ description: 'Voice is true when the message came from a voice recording' }),
   "workstream": S.optional(S.Number).annotate({ description: 'Workstream is the number of the Workstream issue. It is 0 for the Coordinator chat' })
 })

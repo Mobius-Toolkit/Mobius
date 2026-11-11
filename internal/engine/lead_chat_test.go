@@ -40,7 +40,7 @@ func sendChat(t *testing.T, server *testserver.Server, key engine.ChatKey, text 
 
 func sendChatImages(t *testing.T, server *testserver.Server, key engine.ChatKey, text string, images []engine.Image) {
 	t.Helper()
-	if err := server.Engine.SendChat(t.Context(), key, "", text, images, nil, false); err != nil {
+	if err := server.Engine.SendChat(t.Context(), key, "", text, images, nil, nil, false); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -1603,7 +1603,7 @@ func TestAnOwnerMessageWithAnUnknownImageTypeIsNotAdded(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"Seen\"]\n")
 
-	err := server.Engine.SendChat(t.Context(), leadChat, "", "Read this", []engine.Image{{MIMEType: "application/pdf", Data: []byte("%PDF")}}, nil, false)
+	err := server.Engine.SendChat(t.Context(), leadChat, "", "Read this", []engine.Image{{MIMEType: "application/pdf", Data: []byte("%PDF")}}, nil, nil, false)
 
 	if !engine.Refused(err) {
 		t.Errorf("error = %v", err)
@@ -1633,7 +1633,7 @@ func TestAnOwnerMessageWithNoTextAndNoImageIsNotAdded(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"Seen\"]\n")
 
-	err := server.Engine.SendChat(t.Context(), leadChat, "", "", nil, nil, false)
+	err := server.Engine.SendChat(t.Context(), leadChat, "", "", nil, nil, nil, false)
 
 	if !engine.Refused(err) {
 		t.Errorf("error = %v", err)

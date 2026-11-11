@@ -100,6 +100,19 @@ type ChatInboxItem struct {
 	Link      string `json:"link"`
 }
 
+// ChatSelection is a text selection that the Owner sends with a message. The keys of its JSON form are the keys of
+// chat_messages.selections.
+type ChatSelection struct {
+	Source        string `json:"source"`
+	Text          string `json:"text"`
+	Context       string `json:"context"`
+	Reference     string `json:"reference"`
+	Link          string `json:"link"`
+	Part          string `json:"part"`
+	MessageID     int64  `json:"messageId"`
+	MessageAuthor string `json:"messageAuthor"`
+}
+
 func leadChat(repository string, workstream int64) ChatKey {
 	organization, _, _ := strings.Cut(repository, "/")
 	return ChatKey{organization, repository, workstream}
@@ -203,8 +216,8 @@ func (c *chat) notify() {
 // images is not empty, it is the directory of saveImages. The message gets the images before the listeners see it, and
 // Mobius does not add it when the move fails. When browserID is not empty and a message has it, Mobius adds nothing and
 // the error is sql.ErrNoRows. voice tells that the message came from a voice recording.
-func (e *Engine) addChatMessage(ctx context.Context, key ChatKey, author, text, images, browserID string, inboxItems []ChatInboxItem, voice bool) (store.ChatMessage, error) {
-	message, err := e.storeChatMessage(ctx, e.queries, key, author, text, images, browserID, inboxItems, voice)
+func (e *Engine) addChatMessage(ctx context.Context, key ChatKey, author, text, images, browserID string, inboxItems []ChatInboxItem, selections []ChatSelection, voice bool) (store.ChatMessage, error) {
+	message, err := e.storeChatMessage(ctx, e.queries, key, author, text, images, browserID, inboxItems, selections, voice)
 	if err != nil {
 		return message, err
 	}
@@ -212,11 +225,18 @@ func (e *Engine) addChatMessage(ctx context.Context, key ChatKey, author, text, 
 }
 
 // storeChatMessage writes the chat message of addChatMessage with q, and sends it to no listener.
-func (e *Engine) storeChatMessage(ctx context.Context, q *store.Queries, key ChatKey, author, text, images, browserID string, inboxItems []ChatInboxItem, voice bool) (store.ChatMessage, error) {
+func (e *Engine) storeChatMessage(ctx context.Context, q *store.Queries, key ChatKey, author, text, images, browserID string, inboxItems []ChatInboxItem, selections []ChatSelection, voice bool) (store.ChatMessage, error) {
 	if inboxItems == nil {
 		inboxItems = []ChatInboxItem{}
 	}
 	items, err := json.Marshal(inboxItems)
+	if err != nil {
+		return store.ChatMessage{}, err
+	}
+	if selections == nil {
+		selections = []ChatSelection{}
+	}
+	storedSelections, err := json.Marshal(selections)
 	if err != nil {
 		return store.ChatMessage{}, err
 	}
@@ -234,6 +254,7 @@ func (e *Engine) storeChatMessage(ctx context.Context, q *store.Queries, key Cha
 		BrowserID:    sql.NullString{String: browserID, Valid: browserID != ""},
 		InboxItems:   string(items),
 		Voice:        marked,
+		Selections:   string(storedSelections),
 	})
 	if err != nil {
 		return message, err
@@ -261,7 +282,7 @@ func (e *Engine) announceChatMessage(ctx context.Context, key ChatKey, author st
 // addRecord adds a record line about an action of the Owner to the chat. No agent gets the record. A failed write only
 // goes to the log, because the action has succeeded.
 func (e *Engine) addRecord(ctx context.Context, key ChatKey, text string) {
-	if _, err := e.addChatMessage(ctx, key, recordAuthor, text, "", "", nil, false); err != nil {
+	if _, err := e.addChatMessage(ctx, key, recordAuthor, text, "", "", nil, nil, false); err != nil {
 		log.Printf("add a record to the chat of %s #%d: %v", key.Repository, key.Workstream, err)
 	}
 }
@@ -275,36 +296,36 @@ func (e *Engine) publishUnread(ctx context.Context, key ChatKey) error {
 	return nil
 }
 
-// SendChat adds the message text of the Owner with its images and Inbox items to the chat, and gives it to the agent of the chat. It
-// starts the agent when none runs. The text can be empty when the message has an image or an Inbox item. When a message has the
+// SendChat adds the message text of the Owner with its images, Inbox items and selections to the chat, and gives it to the agent of the chat. It
+// starts the agent when none runs. The text can be empty when the message has an image, an Inbox item or a selection. When a message has the
 // browserID already, it does nothing. voice tells that the message came from a voice recording.
-func (e *Engine) SendChat(ctx context.Context, key ChatKey, browserID, text string, images []Image, inboxItems []ChatInboxItem, voice bool) error {
+func (e *Engine) SendChat(ctx context.Context, key ChatKey, browserID, text string, images []Image, inboxItems []ChatInboxItem, selections []ChatSelection, voice bool) error {
 	if !slices.Contains(e.github.Organizations(), key.Organization) {
 		return refuse("Mobius has no repository in the organization \"%s\".", key.Organization)
 	}
-	if text == "" && len(images) == 0 && len(inboxItems) == 0 {
+	if text == "" && len(images) == 0 && len(inboxItems) == 0 && len(selections) == 0 {
 		return refuse("A message must have text, an image or an Inbox item.")
 	}
-	return e.postChat(ctx, key, ownerAuthor, browserID, text, images, inboxItems, voice)
+	return e.postChat(ctx, key, ownerAuthor, browserID, text, images, inboxItems, selections, voice)
 }
 
 // postChat adds the message text of author with its images to the chat, and gives it to the agent of the chat. It
 // starts the agent when none runs. A message that has images is not added when Mobius cannot keep them. A message
 // with a browserID that another message has is not added, and its images are removed.
-func (e *Engine) postChat(ctx context.Context, key ChatKey, author, browserID, text string, images []Image, inboxItems []ChatInboxItem, voice bool) error {
+func (e *Engine) postChat(ctx context.Context, key ChatKey, author, browserID, text string, images []Image, inboxItems []ChatInboxItem, selections []ChatSelection, voice bool) error {
 	if e.sealed() {
 		return refuse("Mobius restarts for an upgrade. Send the message after the restart.")
 	}
-	return e.storeChat(ctx, key, author, browserID, text, images, inboxItems, voice)
+	return e.storeChat(ctx, key, author, browserID, text, images, inboxItems, selections, voice)
 }
 
 // postApproval adds the message text of the Approval author to the chat. While Mobius is sealed, it only stores the
 // message, and the restart gives it to the agent.
 func (e *Engine) postApproval(ctx context.Context, key ChatKey, text string) error {
-	return e.storeChat(ctx, key, approvalAuthor, "", text, nil, nil, false)
+	return e.storeChat(ctx, key, approvalAuthor, "", text, nil, nil, nil, false)
 }
 
-func (e *Engine) storeChat(ctx context.Context, key ChatKey, author, browserID, text string, images []Image, inboxItems []ChatInboxItem, voice bool) error {
+func (e *Engine) storeChat(ctx context.Context, key ChatKey, author, browserID, text string, images []Image, inboxItems []ChatInboxItem, selections []ChatSelection, voice bool) error {
 	var saved string
 	if len(images) > 0 {
 		var err error
@@ -317,7 +338,7 @@ func (e *Engine) storeChat(ctx context.Context, key ChatKey, author, browserID, 
 	earlier, err := e.earlierMessages(ctx, key.Organization, key.Repository, key)
 	var message store.ChatMessage
 	if err == nil {
-		message, err = e.addChatMessage(ctx, key, author, text, saved, browserID, inboxItems, voice)
+		message, err = e.addChatMessage(ctx, key, author, text, saved, browserID, inboxItems, selections, voice)
 	}
 	if err != nil {
 		if saved != "" {
@@ -485,7 +506,7 @@ func (e *Engine) addLeadEventWith(ctx context.Context, repository string, workst
 // storeLeadEvent writes the chat message and the row of a Lead event with q, and gives them. The caller holds
 // e.chatOrder.
 func (e *Engine) storeLeadEvent(ctx context.Context, q *store.Queries, repository string, workstream int64, issueRepository string, issue sql.NullInt64, kind, text, at string, comment commentRef) (store.ChatMessage, int64, error) {
-	message, err := e.storeChatMessage(ctx, q, leadChat(repository, workstream), eventAuthor, text, "", "", nil, false)
+	message, err := e.storeChatMessage(ctx, q, leadChat(repository, workstream), eventAuthor, text, "", "", nil, nil, false)
 	if err != nil {
 		return message, 0, err
 	}
@@ -1850,7 +1871,7 @@ func (e *Engine) tellOwner(ctx context.Context, c caller, _ github.Repository, i
 	if empty(input.Text) {
 		return "", refuse("text must not be empty.")
 	}
-	if _, err := e.addChatMessage(ctx, ChatKey{c.organization, c.repository, c.workstream}, tellOwnerAuthor, input.Text, "", "", nil, false); err != nil {
+	if _, err := e.addChatMessage(ctx, ChatKey{c.organization, c.repository, c.workstream}, tellOwnerAuthor, input.Text, "", "", nil, nil, false); err != nil {
 		return "", err
 	}
 	c.agent.setAuthor("")
@@ -2164,7 +2185,7 @@ func (e *Engine) messagePrompt(message store.ChatMessage) (string, []Image, erro
 }
 
 // promptText gives the text of a message for the agent. A message of the Owner has the block of each of its Inbox items
-// before its text.
+// and selections before its text.
 func promptText(message store.ChatMessage) (string, error) {
 	if message.Author != ownerAuthor {
 		return message.Text, nil
@@ -2173,7 +2194,11 @@ func promptText(message store.ChatMessage) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	blocks := make([]string, 0, len(items)+1)
+	selections, err := selectionsOf(message)
+	if err != nil {
+		return "", err
+	}
+	blocks := make([]string, 0, len(items)+len(selections)+1)
 	for _, item := range items {
 		title := item.Title
 		if item.Reference != "" {
@@ -2185,14 +2210,60 @@ func promptText(message store.ChatMessage) (string, error) {
 		}
 		blocks = append(blocks, block)
 	}
+	for _, selection := range selections {
+		blocks = append(blocks, selectionBlock(selection))
+	}
 	if message.Text != "" {
 		blocks = append(blocks, message.Text)
 	}
 	return strings.Join(blocks, "\n\n"), nil
 }
 
+func selectionBlock(s ChatSelection) string {
+	var firstLine string
+	switch s.Source {
+	case "task":
+		firstLine = "Selection from task " + s.Reference
+	case "message":
+		firstLine = fmt.Sprintf("Selection from chat message %d of %s", s.MessageID, s.MessageAuthor)
+	case "brief":
+		firstLine = "Selection from the Brief of " + s.Reference
+	default:
+		firstLine = "Selection"
+	}
+	if s.Part != "" {
+		firstLine += " (" + s.Part + ")"
+	}
+	lines := []string{firstLine}
+	if s.Link != "" {
+		lines = append(lines, "Link: "+s.Link)
+	}
+	lines = append(lines, "Selected text:", quoteLines(s.Text))
+	if s.Context != "" {
+		lines = append(lines, "Context:", quoteLines(s.Context))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func quoteLines(text string) string {
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		lines[i] = "> " + line
+	}
+	return strings.Join(lines, "\n")
+}
+
 func inboxItemsOf(message store.ChatMessage) ([]ChatInboxItem, error) {
 	var items []ChatInboxItem
 	err := json.Unmarshal([]byte(message.InboxItems), &items)
 	return items, err
+}
+
+func selectionsOf(message store.ChatMessage) ([]ChatSelection, error) {
+	if message.Selections == "" {
+		return nil, nil
+	}
+	var selections []ChatSelection
+	err := json.Unmarshal([]byte(message.Selections), &selections)
+	return selections, err
 }
