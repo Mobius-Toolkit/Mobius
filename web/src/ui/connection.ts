@@ -4,9 +4,6 @@ import { spinnerIcon, wifiOffIcon } from "./icons";
 export type Connection = "connected" | "connecting" | "offline";
 
 export function renderConnectionBadge<M>(h: HtmlBuilder<M>, connection: Connection): Html {
-  if (connection === "connected") {
-    return h.empty;
-  }
   return h.div(
     [h.Role("status"), h.Class("pointer-events-none flex justify-center pt-2")],
     [

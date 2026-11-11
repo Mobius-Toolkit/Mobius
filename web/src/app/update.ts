@@ -877,9 +877,7 @@ export function update(model: Model, message: Message): UpdateReturn {
 
     case "LoadAppFailed":
       return {
-        model: Option.isSome(model.apps)
-          ? model
-          : { ...model, appError: Option.some(message.error) },
+        model: { ...model, appError: Option.some(message.error) },
         commands: [],
       };
 
