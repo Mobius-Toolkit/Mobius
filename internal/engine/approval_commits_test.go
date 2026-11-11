@@ -37,30 +37,28 @@ func readyAfterMainCommit(t *testing.T, path, content string) (event, commit str
 	return waitForLeadPrompt(t, server, " ready for Lead approval of #41 \"Add plan model\""), commit
 }
 
-func TestTheApprovalEventListsTheCommitsOfMainAfterTheStartOfTheCIThatChangeAFileOfThePullRequest(t *testing.T) {
+func TestTheApprovalEventForAHeadWhoseCIStartedBeforeACommitOfTheDefaultBranchThatChangesAFileHasNoLineAboutThatCommit(t *testing.T) {
 	t.Parallel()
 
 	event, commit := readyAfterMainCommit(t, "plan.txt", fmt.Sprintf(planLines, "TOP"))
 
-	want := fmt.Sprintf("Commits of main after the start of the CI of the head (2026-10-22 23:59 UTC) that change a file of the pull request:\n- %.8s 2026-10-23 06:04 UTC Change the plan heading. Shared files: plan.txt.\nFix rounds: ", commit)
-	if !strings.Contains(event, want) {
-		t.Errorf("event = %q, want %q", event, want)
+	if strings.Contains(event, commit[:8]) || strings.Contains(event, "Change the plan heading") {
+		t.Errorf("event mentions commit %s: %q", commit, event)
 	}
-	if !strings.Contains(event, " of 10.") {
-		t.Errorf("event = %q", event)
+	if strings.Contains(event, "after the start of the CI") {
+		t.Errorf("event mentions CI commits: %q", event)
 	}
 }
 
-func TestTheApprovalEventSaysThatNoCommitOfMainAfterTheStartOfTheCIChangesAFileOfThePullRequest(t *testing.T) {
+func TestTheApprovalEventForAHeadWhoseCIStartedBeforeACommitOfMainThatChangesNoFileOfThePullRequestHasNoLineAboutIt(t *testing.T) {
 	t.Parallel()
 
-	event, _ := readyAfterMainCommit(t, "other.txt", "other\n")
+	event, commit := readyAfterMainCommit(t, "other.txt", "other\n")
 
-	want := "No commit of main after the start of the CI of the head (2026-10-22 23:59 UTC) changes a file of the pull request."
-	if !strings.Contains(event, want) {
-		t.Errorf("event = %q, want %q", event, want)
+	if strings.Contains(event, commit[:8]) || strings.Contains(event, "Change the plan heading") {
+		t.Errorf("event mentions commit %s: %q", commit, event)
 	}
-	if strings.Contains(event, "Change the plan heading") {
-		t.Errorf("event = %q", event)
+	if strings.Contains(event, "after the start of the CI") {
+		t.Errorf("event mentions CI commits: %q", event)
 	}
 }

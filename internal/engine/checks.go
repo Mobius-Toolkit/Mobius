@@ -203,7 +203,6 @@ func (e *Engine) onChecks(ctx context.Context, repository github.Repository, tas
 	if err != nil {
 		return err
 	}
-	var newerCommits string
 	var level string
 	var checkRun int64
 	if again {
@@ -216,11 +215,6 @@ func (e *Engine) onChecks(ctx context.Context, repository github.Repository, tas
 		}
 		if checkRun == 0 {
 			return fmt.Errorf("the head %s of pull request #%d has no open Mobius check run", head, pullRequest.GetNumber())
-		}
-	} else {
-		newerCommits, err = e.newerCommitsText(ctx, repository, task, pullRequest, state.started)
-		if err != nil {
-			return err
 		}
 	}
 	moved, err := e.setTaskState(ctx, store.SetTaskStateParams{State: "approval", ID: task.ID, FromState: "checks"})
@@ -238,22 +232,18 @@ func (e *Engine) onChecks(ctx context.Context, repository github.Repository, tas
 		}
 		var refused *gh.ErrorResponse
 		if errors.As(err, &refused) && refused.Response.StatusCode < 500 {
-			newerCommits, textErr := e.newerCommitsText(ctx, repository, task, pullRequest, state.started)
-			if textErr == nil {
-				return e.addReadyForApproval(ctx, task, issue, pullRequest, approvedHead, newerCommits)
-			}
-			err = textErr
+			return e.addReadyForApproval(ctx, task, issue, pullRequest, approvedHead)
 		}
 		_, stateErr := e.setTaskState(ctx, store.SetTaskStateParams{State: "checks", ID: task.ID, FromState: "approval"})
 		return errors.Join(err, stateErr)
 	}
-	return e.addReadyForApproval(ctx, task, issue, pullRequest, approvedHead, newerCommits)
+	return e.addReadyForApproval(ctx, task, issue, pullRequest, approvedHead)
 }
 
-// addReadyForApproval gives the Lead the event ready_for_approval for the head of the pull request. approvedHead and
-// newerCommits are the lines that follow its first line.
-func (e *Engine) addReadyForApproval(ctx context.Context, task store.Task, issue *gh.Issue, pullRequest *gh.PullRequest, approvedHead, newerCommits string) error {
-	text := fmt.Sprintf("%s ready for Lead approval of %s \"%s\": pull request %s %s.", time.Now().UTC().Format(timeFormat), taskEventRef(task, task.Issue), issue.GetTitle(), taskEventRef(task, int64(pullRequest.GetNumber())), pullRequest.GetHTMLURL()) + approvedHead + newerCommits
+// addReadyForApproval gives the Lead the event ready_for_approval for the head of the pull request. approvedHead is the
+// text that follows its first line when the Lead approved an earlier head.
+func (e *Engine) addReadyForApproval(ctx context.Context, task store.Task, issue *gh.Issue, pullRequest *gh.PullRequest, approvedHead string) error {
+	text := fmt.Sprintf("%s ready for Lead approval of %s \"%s\": pull request %s %s.", time.Now().UTC().Format(timeFormat), taskEventRef(task, task.Issue), issue.GetTitle(), taskEventRef(task, int64(pullRequest.GetNumber())), pullRequest.GetHTMLURL()) + approvedHead
 	return e.addLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, task.Repository, sql.NullInt64{Int64: task.Issue, Valid: true}, "ready_for_approval", text)
 }
 
