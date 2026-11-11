@@ -358,6 +358,30 @@ describe("organization switch update logic", () => {
     );
   });
 
+  it("drops the Submodel of a screen that the Owner leaves", () => {
+    const tasks = update(createModel("/chat"), Message.UrlChanged({ url: urlOf("/tasks") })).model;
+    expect(Option.isSome(tasks.tasksProgram)).toBe(true);
+
+    const chat = update(
+      tasks,
+      Message.UrlChanged({ url: urlOf("/workstreams/owner/shop/12") }),
+    ).model;
+    expect(Option.isNone(chat.tasksProgram)).toBe(true);
+    expect(Option.isSome(chat.chat)).toBe(true);
+  });
+
+  it("shows no connecting badge until the start limit ends", () => {
+    const starting = createModel("/chat");
+    expect(starting.link).toBe("starting");
+    expect(update(starting, Message.LiveConnecting()).model.link).toBe("starting");
+    expect(update(starting, Message.StartLimitReached()).model.link).toBe("connecting");
+
+    const connected = update(starting, Message.LiveOpened()).model;
+    expect(connected.link).toBe("connected");
+    expect(update(connected, Message.StartLimitReached()).model.link).toBe("connected");
+    expect(update(connected, Message.LiveConnecting()).model.link).toBe("connecting");
+  });
+
   it("goes back to the parent page of a settings screen", () => {
     story(
       update,

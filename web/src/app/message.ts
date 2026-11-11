@@ -48,6 +48,7 @@ export const Message = defineMessageUnion({
   BackRequested: { parent: Schema.String },
   CompletedNavigate: {},
   CompletedSettleScroll: {},
+  StartLimitReached: {},
   CompletedReplaceUrl: {},
   CompletedGoBack: {},
   CompletedLoadExternal: {},

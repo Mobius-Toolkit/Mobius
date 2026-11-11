@@ -81,7 +81,13 @@ export function liveEvents<Message>(options: {
           connect();
         };
 
-        const watch = () => schedule(reconnect, silenceLimit);
+        const watch = () =>
+          schedule(() => {
+            if (options.connecting) {
+              Queue.offerUnsafe(queue, options.connecting);
+            }
+            reconnect();
+          }, silenceLimit);
 
         const reconnectUnlessStopped = Effect.sync(() => {
           if (!stopped) {

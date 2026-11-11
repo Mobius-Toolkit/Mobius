@@ -7,6 +7,7 @@ import {
   type Workstream,
 } from "@/api/api.gen";
 import { onEvent } from "./events";
+import { dropMarks } from "./inbox";
 
 export type WorkstreamState = {
   list?: readonly Workstream[];
@@ -88,6 +89,7 @@ export function loadWorkstreams() {
     .then((res) => {
       if (res.status === 200) {
         setState({ needsHuman: res.data.data });
+        dropMarks(res.data.data);
       }
     })
     .catch(() => {});

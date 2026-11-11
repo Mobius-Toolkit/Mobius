@@ -61,6 +61,7 @@ import {
   StartUpgrade,
   SubmitLogin,
   ToggleSwitch,
+  WaitForStart,
 } from "./commands";
 import { Message } from "./message";
 import { initialModel, Model, savedOrganization, saveOrganization } from "./model";
@@ -187,10 +188,49 @@ const foldGitHub = Update.foldChild({
   toParentMessage: (message) => Message.GotGitHubMessage({ message }),
 });
 
+// A screen that the Owner left has no Submodel, so no live event reaches it.
+const noScreens: Pick<
+  Model,
+  | "chat"
+  | "panel"
+  | "inboxProgram"
+  | "workstreamsProgram"
+  | "tasksProgram"
+  | "agentsProgram"
+  | "checkupProgram"
+  | "usageProgram"
+  | "settingsProgram"
+  | "rolesProgram"
+  | "memoryProgram"
+  | "mcpServersProgram"
+  | "switchesProgram"
+  | "voiceProgram"
+  | "devicesProgram"
+  | "githubProgram"
+> = {
+  chat: Option.none(),
+  panel: Option.none(),
+  inboxProgram: Option.none(),
+  workstreamsProgram: Option.none(),
+  tasksProgram: Option.none(),
+  agentsProgram: Option.none(),
+  checkupProgram: Option.none(),
+  usageProgram: Option.none(),
+  settingsProgram: Option.none(),
+  rolesProgram: Option.none(),
+  memoryProgram: Option.none(),
+  mcpServersProgram: Option.none(),
+  switchesProgram: Option.none(),
+  voiceProgram: Option.none(),
+  devicesProgram: Option.none(),
+  githubProgram: Option.none(),
+};
+
 function initScreenForRoute(
-  model: Model,
+  initialScreenModel: Model,
   route: AppRoute,
 ): { model: Model; commands: Cmd<Message>[] } {
+  let model: Model = { ...initialScreenModel, ...noScreens };
   const commands: Cmd<Message>[] = [];
 
   switch (route._tag) {
@@ -671,6 +711,7 @@ export function init(url: Url): UpdateReturn {
     FetchPauses(),
     FetchCIStops(),
     FetchSwitches(),
+    WaitForStart(),
   ];
 
   if (route._tag === "NotFound") {
@@ -955,7 +996,16 @@ export function update(model: Model, message: Message): UpdateReturn {
     }
 
     case "LiveConnecting":
-      return { model: { ...model, link: "connecting" }, commands: [] };
+      return {
+        model: { ...model, link: model.link === "starting" ? "starting" : "connecting" },
+        commands: [],
+      };
+
+    case "StartLimitReached":
+      return {
+        model: { ...model, link: model.link === "starting" ? "connecting" : model.link },
+        commands: [],
+      };
 
     case "LiveLoginRequired":
       return { model: { ...model, loginShown: true }, commands: [] };

@@ -92,6 +92,18 @@ export function openInboxItems(inbox: InboxState): InboxItem[] {
   );
 }
 
+// A new list ends the mark of an issue that the list no longer holds, and an entry with no item and no mark goes away.
+export function dropMarks(needsHuman: readonly NeedsHuman[]) {
+  setAnswered((list) =>
+    list
+      .map((other) => ({
+        ...other,
+        mark: other.mark && needsHuman.some((row) => isIssueOf(other, row)),
+      }))
+      .filter((other) => other.item || other.mark),
+  );
+}
+
 export function filterNeedsHuman(
   needsHuman: readonly NeedsHuman[],
   answered: readonly Answered[],

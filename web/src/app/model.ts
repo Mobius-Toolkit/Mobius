@@ -94,7 +94,8 @@ export const HeldSheet = Schema.Struct({
 });
 export type HeldSheet = typeof HeldSheet.Type;
 
-export const Connection = Schema.Literals(["connected", "connecting", "offline"]);
+// A page shows no badge while it starts, until the start limit ends.
+export const Connection = Schema.Literals(["starting", "connected", "connecting", "offline"]);
 export type Connection = typeof Connection.Type;
 
 export const Model = Schema.Struct({
@@ -216,7 +217,7 @@ export const initialModel = (route: AppRoute): Model => {
     organizations: [],
     organization,
     appError: Option.none(),
-    link: "connecting",
+    link: "starting",
     online: typeof navigator !== "undefined" ? navigator.onLine : true,
     unread: [],
     workstreams: [],

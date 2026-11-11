@@ -22,6 +22,7 @@ import {
 } from "@/api/api.gen";
 import { levelName } from "@/lib/autopilot";
 import { reloadOnNewBuild } from "@/lib/build";
+import { startLimit } from "@/lib/events";
 import { request } from "@/lib/effects";
 import { showNotice } from "@/lib/notice";
 import { loadWorkstreams } from "@/lib/workstreams";
@@ -38,6 +39,11 @@ export const Navigate = Command.define("Navigate", {
 export const SettleScroll = Command.define("SettleScroll", {
   messages: [Message.CompletedSettleScroll],
   execute: settleScroll.pipe(Effect.as(Message.CompletedSettleScroll())),
+});
+
+export const WaitForStart = Command.define("WaitForStart", {
+  messages: [Message.StartLimitReached],
+  execute: Effect.sleep(startLimit).pipe(Effect.as(Message.StartLimitReached())),
 });
 
 export const ReplaceUrl = Command.define("ReplaceUrl", {
