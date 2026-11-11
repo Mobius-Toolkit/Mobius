@@ -270,8 +270,8 @@ const fakeNow = (page: Page) => page.evaluate(() => Date.now());
 
 // A tick that runs while a request is open starts no request, so a test counts the fake time, not the requests.
 const waitsUntilLimit = async (page: Page) => {
-  const start = await fakeNow(page);
-  const elapsed = async () => (await fakeNow(page)) - start;
+  const stoppedAt = await fakeNow(page);
+  const elapsed = async () => (await fakeNow(page)) - stoppedAt;
   await expect
     .poll(
       async () => {
