@@ -55,7 +55,6 @@ import {
   LoadReleaseChanges,
   Navigate,
   ReplaceUrl,
-  ReloadOnNewBuild,
   ResumePause,
   SelectAutopilot,
   SettleScroll,
@@ -89,11 +88,7 @@ function applyUpgrade(state: UpgradeState, upgrade: Upgrade): UpgradeState {
 }
 
 function upgradeChanged(model: Model, upgrade: Upgrade): UpdateReturn {
-  return {
-    model: { ...model, upgrade: applyUpgrade(model.upgrade, upgrade) },
-    commands:
-      upgrade.step === "restart" && model.upgrade.step !== "restart" ? [ReloadOnNewBuild()] : [],
-  };
+  return { model: { ...model, upgrade: applyUpgrade(model.upgrade, upgrade) }, commands: [] };
 }
 
 const foldChat = Update.foldChild({
@@ -828,7 +823,6 @@ export function update(model: Model, message: Message): UpdateReturn {
     case "CompletedSettleScroll":
     case "CompletedReplaceUrl":
     case "CompletedGoBack":
-    case "CompletedReloadOnNewBuild":
     case "CompletedLoadExternal":
     case "CompletedFocusSheet":
       return { model, commands: [] };

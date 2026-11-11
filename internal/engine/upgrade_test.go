@@ -2,6 +2,7 @@ package engine_test
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -346,6 +347,25 @@ func TestACancelOfTheDrainEndsTheUpgrade(t *testing.T) {
 	waitForUpgrade(t, server, func(state upgradeState) bool { return state.Step == "drain" })
 
 	cancelDrain(t, server)
+
+	requireIdle(t, server, "")
+}
+
+// Serial: the test sets the hook AfterDownload.
+func TestACancelBetweenTheDownloadAndTheDrainLeavesTheDrainOff(t *testing.T) {
+	fake, server, _, lead, _ := upgradeSetup(t)
+	defer end(t, lead, "idle")
+	fake.SetLatestRelease("v0.3.0", releaseAssets...)
+	reached := make(chan struct{})
+	*engine.AfterDownload = func(ctx context.Context) {
+		close(reached)
+		<-ctx.Done()
+	}
+	t.Cleanup(func() { *engine.AfterDownload = nil })
+	startUpgrade(t, server)
+	<-reached
+
+	cancelUpgrade(t, server)
 
 	requireIdle(t, server, "")
 }

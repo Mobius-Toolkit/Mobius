@@ -14,7 +14,6 @@ import {
   LoadApp,
   LoadExternal,
   Navigate,
-  ReloadOnNewBuild,
   ReplaceUrl,
   SettleScroll,
   SubmitLogin,
@@ -485,18 +484,6 @@ describe("upgrade update logic", () => {
       model((m) => {
         expect(m.upgrade.nextTry).toEqual(Option.none());
       }),
-    );
-  });
-
-  it("starts the wait for the new build when the step becomes restart", () => {
-    story(
-      update,
-      given(createModel("/settings")),
-      message(Message.UpgradeChanged({ upgrade: upgradeOf({ step: "restart" }) })),
-      StoryCommand.expectHas(ReloadOnNewBuild),
-      StoryCommand.resolve(ReloadOnNewBuild, Message.CompletedReloadOnNewBuild()),
-      message(Message.UpgradeChanged({ upgrade: upgradeOf({ step: "restart" }) })),
-      StoryCommand.expectNone(),
     );
   });
 

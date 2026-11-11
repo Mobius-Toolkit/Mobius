@@ -21,7 +21,6 @@ import {
   startUpgrade,
 } from "@/api/api.gen";
 import { levelName } from "@/lib/autopilot";
-import { reloadOnNewBuild } from "@/lib/build";
 import { startLimit } from "@/lib/events";
 import { request } from "@/lib/effects";
 import { showNotice } from "@/lib/notice";
@@ -324,12 +323,5 @@ export const CancelUpgrade = Command.define("CancelUpgrade", {
     Effect.catchTag("RequestFailed", (error) =>
       Effect.succeed(Message.CancelUpgradeFailed({ error: error.message })),
     ),
-  ),
-});
-
-export const ReloadOnNewBuild = Command.define("ReloadOnNewBuild", {
-  messages: [Message.CompletedReloadOnNewBuild],
-  execute: Effect.promise(() => reloadOnNewBuild()).pipe(
-    Effect.as(Message.CompletedReloadOnNewBuild()),
   ),
 });

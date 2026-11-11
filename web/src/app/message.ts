@@ -127,7 +127,6 @@ export const Message = defineMessageUnion({
   CancelUpgradeRequested: {},
   CancelUpgradeSucceeded: {},
   CancelUpgradeFailed: { error: Schema.String },
-  CompletedReloadOnNewBuild: {},
 
   // Menu & UI actions
   ToggleMenu: { id: Schema.String },

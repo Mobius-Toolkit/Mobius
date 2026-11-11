@@ -25,6 +25,9 @@ import (
 // -ldflags "-X github.com/Mobius-Toolkit/Mobius/internal/engine.Release=<tag>". A local build has no release tag.
 var Release string
 
+// afterDownload is a hook of the tests. upgrade calls it after a download that passed, before the drain.
+var afterDownload func(ctx context.Context)
+
 // executable gives the path of this program.
 var executable = os.Executable
 
@@ -108,10 +111,11 @@ func (e *Engine) CancelUpgrade() {
 		done = e.upgradeDone
 	}
 	e.upgradeMu.Unlock()
-	e.CancelDrain()
 	if done != nil {
+		// The drain of the upgrade can start after the cancel, so the drain ends after the upgrade has ended.
 		<-done
 	}
+	e.CancelDrain()
 }
 
 // UpgradeStatus gives the state of the upgrade.
@@ -141,18 +145,21 @@ func (e *Engine) finishUpgrade(failure string) {
 	})
 }
 
-// beginRestart moves the upgrade to the step UpgradeRestart, where CancelUpgrade does nothing. It gives false when
-// CancelUpgrade ended ctx.
-func (e *Engine) beginRestart(ctx context.Context) bool {
+// sealUpgrade seals the drain for the restart and moves the upgrade to the step UpgradeRestart, where CancelUpgrade
+// does nothing. It gives Cancelled when CancelUpgrade ended ctx, and "" while a session or an npm upgrade runs.
+func (e *Engine) sealUpgrade(ctx context.Context) DrainEnd {
 	e.upgradeMu.Lock()
 	defer e.upgradeMu.Unlock()
 	if ctx.Err() != nil {
-		return false
+		return Cancelled
 	}
-	e.upgradeState.Step = UpgradeRestart
-	state := e.upgradeState
-	e.publish(Change{Upgrade: &state})
-	return true
+	end := e.seal()
+	if end == Drained {
+		e.upgradeState.Step = UpgradeRestart
+		state := e.upgradeState
+		e.publish(Change{Upgrade: &state})
+	}
+	return end
 }
 
 // runUpgrade runs the upgrade of ctx until it is done, it fails with no retry, or CancelUpgrade ends ctx.
@@ -273,6 +280,9 @@ func (e *Engine) upgrade(ctx context.Context) (DrainEnd, error) {
 		return "", retryable{err}
 	}
 	defer func() { _ = os.RemoveAll(staging) }()
+	if afterDownload != nil {
+		afterDownload(ctx)
+	}
 	e.setUpgradeStep(UpgradeDrain)
 	// A session can start between the end of the drain and the seal, so the drain repeats.
 	for sealed := false; !sealed; {
@@ -280,16 +290,11 @@ func (e *Engine) upgrade(ctx context.Context) (DrainEnd, error) {
 		if err != nil || end == Cancelled {
 			return end, err
 		}
-		if !e.beginRestart(ctx) {
-			return Cancelled, nil
-		}
-		switch e.seal() {
+		switch e.sealUpgrade(ctx) {
 		case Drained:
 			sealed = true
 		case Cancelled:
 			return Cancelled, nil
-		default:
-			e.setUpgradeStep(UpgradeDrain)
 		}
 	}
 	if err := swap(staging, exe); err != nil {

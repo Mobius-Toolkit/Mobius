@@ -27,6 +27,7 @@ var (
 	RateLimitGrace          = &rateLimitGrace
 	HangTimeout             = &hangTimeout
 	AfterHangRead           = &afterHangRead
+	AfterDownload           = &afterDownload
 	AfterTriagerStop        = &afterTriagerStop
 	AfterCopiedTasksTree    = &afterCopiedTasksTree
 	BeforeRecopyTrees       = &beforeRecopyTrees

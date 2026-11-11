@@ -8,7 +8,7 @@ import {
   PendingAction,
 } from "@/chat/schemas";
 import { inboxItemSubscriptions, subscriptions as chatSubscriptions } from "@/chat/subscriptions";
-import { currentNewBuild, subscribeNewBuild } from "@/lib/build";
+import { currentNewBuild, reloadOnNewBuild, subscribeNewBuild } from "@/lib/build";
 import { currentInbox, openInboxItems, startInbox, subscribeInbox } from "@/lib/inbox";
 import { currentNotice, subscribeNotice } from "@/lib/notice";
 import { currentUnread, startUnread, subscribeUnread } from "@/lib/unread";
@@ -71,6 +71,13 @@ const upgradeClock = Stream.callback<Message>((queue) => {
       }),
     );
   });
+});
+
+// The old server answers until it restarts, so the page reloads when the new build comes.
+const reloadStream = Stream.callback<Message>(() => {
+  const controller = new AbortController();
+  void reloadOnNewBuild(controller.signal);
+  return Effect.addFinalizer(() => Effect.sync(() => controller.abort()));
 });
 
 const loginStream = Stream.callback<Message>((queue) => {
@@ -221,6 +228,14 @@ export const appSubscriptions = Subscription.make<Model, Message>()((entry) => (
     {
       modelToDependencies: (model) => ({ waiting: model.upgrade.step === "retry" }),
       dependenciesToStream: ({ waiting }) => (waiting ? upgradeClock : Stream.empty),
+    },
+  ),
+
+  reloadOnNewBuild: entry(
+    { restarting: Schema.Boolean },
+    {
+      modelToDependencies: (model) => ({ restarting: model.upgrade.step === "restart" }),
+      dependenciesToStream: ({ restarting }) => (restarting ? reloadStream : Stream.empty),
     },
   ),
 
