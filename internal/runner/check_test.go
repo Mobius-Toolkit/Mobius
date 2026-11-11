@@ -2,12 +2,15 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/coder/acp-go-sdk"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
@@ -96,6 +99,10 @@ error = { code = -32603, message = "turn failed: no API key for provider route",
 	want := `devin: turn failed: no API key for provider route "store DEEPSEEK_API_KEY"`
 	if err == nil || err.Error() != want {
 		t.Errorf("error = %v, want %s", err, want)
+	}
+	var requestErr *acp.RequestError
+	if !errors.As(err, &requestErr) || requestErr.Code != -32603 {
+		t.Errorf("requestErr = %v", requestErr)
 	}
 }
 
