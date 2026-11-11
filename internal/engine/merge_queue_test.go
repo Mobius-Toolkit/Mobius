@@ -359,26 +359,27 @@ func TestMergeQueueManualApproval(t *testing.T) {
 	if status, body := merge(t, server, item41.ID); status != http.StatusOK {
 		t.Fatalf("merge status = %d: %s", status, body)
 	}
+	var q41 string
 	testkit.WaitFor(t, func() bool {
-		var q string
-		_ = server.DB.QueryRow("SELECT coalesce(max(merge_queued_at), '') FROM tasks WHERE issue = 41").Scan(&q)
-		return q != ""
+		_ = server.DB.QueryRow("SELECT coalesce(max(merge_queued_at), '') FROM tasks WHERE issue = 41").Scan(&q41)
+		return q41 != ""
 	})
 
 	// Owner approves task 43 with "Merge". It enters the queue second, behind task 41.
 	if status, body := merge(t, server, item43.ID); status != http.StatusOK {
 		t.Fatalf("merge status = %d: %s", status, body)
 	}
+	var q43 string
 	testkit.WaitFor(t, func() bool {
-		var q string
-		_ = server.DB.QueryRow("SELECT coalesce(max(merge_queued_at), '') FROM tasks WHERE issue = 43").Scan(&q)
-		return q != ""
+		_ = server.DB.QueryRow("SELECT coalesce(max(merge_queued_at), '') FROM tasks WHERE issue = 43").Scan(&q43)
+		return q43 != ""
 	})
 
 	// Hold first task's merge so we can check that task 43 gets no update until task 41 merged.
 	pr41 := liveTask(t, server, 41).PullRequest.Int64
 	pr43 := liveTask(t, server, 43).PullRequest.Int64
 	reached41, release41 := fake.HoldMerge(shop, pr41)
+	reached43, release43 := fake.HoldMerge(shop, pr43)
 
 	<-reached41
 	if calls := fake.UpdateBranchCalls(); calls != 1 {
@@ -387,12 +388,21 @@ func TestMergeQueueManualApproval(t *testing.T) {
 	if head(t, fake, "mobius/43") != old43 {
 		t.Fatal("task 43 updated before its turn")
 	}
+	if q := liveTask(t, server, 41).MergeQueuedAt; !q.Valid || q.String != q41 {
+		t.Errorf("task 41 merge_queued_at = %v, want %s", q, q41)
+	}
 	release41()
 
 	// Task 41 merges.
 	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, 41) == "" })
 
 	// Task 43 waits for its turn, gets update, and merges after approval again with no new "Merge".
+	<-reached43
+	if q := liveTask(t, server, 43).MergeQueuedAt; !q.Valid || q.String != q43 {
+		t.Errorf("task 43 merge_queued_at = %v, want %s", q, q43)
+	}
+	release43()
+
 	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, 43) == "" })
 	if calls, updates := fake.MergeCalls(), fake.UpdateBranchCalls(); calls != 2 || updates != 2 {
 		t.Errorf("merge calls = %d, update calls = %d", calls, updates)
