@@ -1,5 +1,6 @@
 import type { Html, HtmlBuilder } from "foldkit/html";
 import { renderButton } from "@/ui/button";
+import { inputClass } from "@/ui/input";
 import { Message } from "./message";
 import type { Model } from "./model";
 
@@ -12,16 +13,24 @@ export function renderLogin(h: HtmlBuilder<Message>, model: Model): Html {
       h.div(
         [
           h.DataAttribute("slot", "card"),
-          h.Class("w-full max-w-sm rounded-xl border bg-card text-card-foreground shadow-sm"),
+          h.DataAttribute("size", "default"),
+          h.Class(
+            "group/card flex w-full max-w-sm flex-col gap-(--card-spacing) overflow-hidden rounded-xl bg-card py-(--card-spacing) text-sm text-card-foreground ring-1 ring-foreground/10 [--card-spacing:--spacing(4)]",
+          ),
         ],
         [
           h.div(
-            [h.DataAttribute("slot", "card-header"), h.Class("flex flex-col gap-1.5 p-6")],
+            [
+              h.DataAttribute("slot", "card-header"),
+              h.Class(
+                "group/card-header @container/card-header grid auto-rows-min items-start gap-1 rounded-t-xl px-(--card-spacing) has-data-[slot=card-description]:grid-rows-[auto_auto]",
+              ),
+            ],
             [
               h.div(
                 [
                   h.DataAttribute("slot", "card-title"),
-                  h.Class("leading-none font-semibold tracking-tight"),
+                  h.Class("font-heading text-base leading-snug font-medium"),
                 ],
                 ["Mobius"],
               ),
@@ -35,26 +44,36 @@ export function renderLogin(h: HtmlBuilder<Message>, model: Model): Html {
             ],
           ),
           h.div(
-            [h.DataAttribute("slot", "card-content"), h.Class("p-6 pt-0")],
+            [h.DataAttribute("slot", "card-content"), h.Class("px-(--card-spacing)")],
             [
               h.form(
                 [h.OnSubmit(Message.SubmitLoginRequested())],
                 [
                   h.div(
-                    [h.DataAttribute("slot", "field-group"), h.Class("grid gap-4")],
+                    [
+                      h.DataAttribute("slot", "field-group"),
+                      h.Class(
+                        "group/field-group @container/field-group flex w-full flex-col gap-5",
+                      ),
+                    ],
                     [
                       h.div(
                         [
+                          h.Role("group"),
                           h.DataAttribute("slot", "field"),
-                          ...(hasError ? [h.DataAttribute("invalid", "")] : []),
-                          h.Class("grid gap-2"),
+                          h.DataAttribute("orientation", "vertical"),
+                          h.DataAttribute("invalid", String(hasError)),
+                          h.Class(
+                            "group/field flex w-full flex-col gap-2 data-[invalid=true]:text-destructive *:w-full [&>.sr-only]:w-auto",
+                          ),
                         ],
                         [
                           h.label(
                             [
                               h.Attribute("for", "password"),
+                              h.DataAttribute("slot", "field-label"),
                               h.Class(
-                                "text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70",
+                                "group/field-label peer/field-label flex w-fit items-center gap-2 text-sm leading-snug font-medium select-none",
                               ),
                             ],
                             ["Access password"],
@@ -62,21 +81,21 @@ export function renderLogin(h: HtmlBuilder<Message>, model: Model): Html {
                           h.input([
                             h.Id("password"),
                             h.Type("password"),
+                            h.DataAttribute("slot", "input"),
                             h.Attribute("autocomplete", "current-password"),
                             h.Attribute("autofocus", ""),
                             h.Attribute("required", ""),
                             h.Value(model.passwordInput),
                             h.OnInput((val) => Message.PasswordInputChanged({ password: val })),
-                            ...(hasError ? [h.AriaInvalid(true)] : []),
-                            h.Class(
-                              "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
-                            ),
+                            h.AriaInvalid(hasError),
+                            h.Class(inputClass()),
                           ]),
                           hasError
-                            ? h.p(
+                            ? h.div(
                                 [
+                                  h.Role("alert"),
                                   h.DataAttribute("slot", "field-error"),
-                                  h.Class("text-xs text-destructive font-medium"),
+                                  h.Class("text-sm font-normal text-destructive"),
                                 ],
                                 [model.loginError],
                               )

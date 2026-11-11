@@ -2,7 +2,7 @@ import { Option } from "effect";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import { renderBadge } from "@/ui/badge";
 import { buttonClass } from "@/ui/button";
-import { chevronDownIcon } from "@/ui/icons";
+import { checkIcon, chevronDownIcon } from "@/ui/icons";
 import { Message } from "./message";
 import type { Model } from "./model";
 
@@ -62,42 +62,53 @@ export function renderOrganizationSwitch(h: HtmlBuilder<Message>, model: Model, 
       isOpen ? h.div([h.Class("fixed inset-0 z-40"), h.OnClick(Message.CloseMenu())]) : h.empty,
       isOpen
         ? h.div(
-            [
-              h.Role("menu"),
-              h.DataAttribute("slot", "dropdown-menu-content"),
-              h.Class(
-                "absolute top-full left-0 z-50 mt-1 max-h-60 w-full min-w-32 overflow-x-hidden overflow-y-auto rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10 md:w-auto md:min-w-56",
-              ),
-            ],
+            [h.Class("h-0")],
             [
               h.div(
                 [
+                  h.Role("menu"),
+                  h.DataAttribute("slot", "dropdown-menu-content"),
                   h.Class(
-                    "px-2 py-1.5 text-xs font-semibold tracking-wide text-muted-foreground uppercase",
+                    "absolute top-full left-0 z-50 mt-1 max-h-60 w-full min-w-32 overflow-x-hidden overflow-y-auto rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10 md:fixed md:top-auto md:left-auto md:w-auto md:min-w-56",
                   ),
                 ],
-                ["Organizations"],
+                [
+                  h.div(
+                    [h.Class("px-1.5 py-1 text-xs font-medium text-muted-foreground")],
+                    ["Organizations"],
+                  ),
+                  ...organizations.map((name) => {
+                    const count = counts.get(name) ?? 0;
+                    const showBadge = name !== currentOrg && count > 0;
+                    return h.keyed("button")(
+                      name,
+                      [
+                        h.Type("button"),
+                        h.Role("menuitemradio"),
+                        h.AriaChecked(name === currentOrg),
+                        h.Class(
+                          "relative flex w-full cursor-default items-center gap-1.5 rounded-md py-1 pr-8 pl-1.5 text-left text-sm outline-hidden select-none hover:bg-accent hover:text-accent-foreground",
+                        ),
+                        h.OnClick(Message.SelectOrganization({ organization: name })),
+                      ],
+                      [
+                        h.span([h.Class("grow")], [name]),
+                        showBadge ? renderBadge(h, "default", String(count)) : h.empty,
+                        name === currentOrg
+                          ? h.span(
+                              [
+                                h.Class(
+                                  "pointer-events-none absolute right-2 flex items-center justify-center",
+                                ),
+                              ],
+                              [checkIcon(h, "size-4")],
+                            )
+                          : h.empty,
+                      ],
+                    );
+                  }),
+                ],
               ),
-              ...organizations.map((name) => {
-                const count = counts.get(name) ?? 0;
-                const showBadge = name !== currentOrg && count > 0;
-                return h.keyed("button")(
-                  name,
-                  [
-                    h.Type("button"),
-                    h.Role("menuitemradio"),
-                    h.AriaChecked(name === currentOrg),
-                    h.Class(
-                      "relative flex w-full cursor-default items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-sm outline-hidden select-none hover:bg-accent hover:text-accent-foreground",
-                    ),
-                    h.OnClick(Message.SelectOrganization({ organization: name })),
-                  ],
-                  [
-                    h.span([h.Class("grow")], [name]),
-                    showBadge ? renderBadge(h, "default", String(count)) : h.empty,
-                  ],
-                );
-              }),
             ],
           )
         : h.empty,

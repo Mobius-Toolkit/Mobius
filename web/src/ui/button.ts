@@ -61,14 +61,16 @@ export function renderIconButton<M>(
   );
 }
 
-// autofocus marks the button for the focus of a dialog (defineDialogMount).
+// autofocus marks the button for the focus of a dialog (defineDialogMount). expanded is set on a button that opens a
+// sheet, and it is true while the sheet is open.
 export function renderButton<M>(
   h: HtmlBuilder<M>,
   options: NonNullable<Parameters<typeof buttonVariants>[0]> & {
-    label: string;
+    label: string | ReadonlyArray<string | Html>;
     pending?: boolean;
     disabled?: boolean;
     autofocus?: boolean;
+    expanded?: boolean;
     onClick: M;
   },
 ): Html {
@@ -77,6 +79,7 @@ export function renderButton<M>(
     pending = false,
     disabled = false,
     autofocus = false,
+    expanded,
     onClick,
     ...style
   } = options;
@@ -87,8 +90,9 @@ export function renderButton<M>(
       h.Disabled(disabled || pending),
       h.Class(buttonClass(style)),
       h.OnClick(onClick),
+      ...(expanded === undefined ? [] : [h.AriaExpanded(expanded)]),
       ...(autofocus ? [h.DataAttribute("autofocus", "")] : []),
     ],
-    [pending ? spinnerIcon(h) : h.empty, label],
+    [pending ? spinnerIcon(h) : h.empty, ...(typeof label === "string" ? [label] : label)],
   );
 }

@@ -3,7 +3,7 @@ import type { Html, HtmlBuilder } from "foldkit/html";
 import type { WorkstreamAutopilot } from "@/api/api.gen";
 import { levelName, levels } from "@/lib/autopilot";
 import { buttonClass } from "@/ui/button";
-import { autopilotIcon, chevronDownIcon } from "@/ui/icons";
+import { autopilotIcon, checkIcon, chevronDownIcon } from "@/ui/icons";
 import { defineInPlaceMount, renderSheet } from "@/ui/sheet";
 import { Message } from "./message";
 
@@ -55,7 +55,7 @@ export function renderAutopilotMenu(
           ),
           h.OnClick(Message.ToggleMenu({ id: "autopilot" })),
         ],
-        [autopilotIcon(h, level), levelName(level), chevronDownIcon(h, "size-4")],
+        [autopilotIcon(h, level), levelName(level), chevronDownIcon(h, "size-3.5")],
       ),
       open ? h.div([h.Class("fixed inset-0 z-40"), h.OnClick(Message.CloseMenu())]) : h.empty,
       open
@@ -75,14 +75,23 @@ export function renderAutopilotMenu(
                   h.Role("menuitemradio"),
                   h.AriaChecked(other.value === level),
                   h.Class(
-                    cn(
-                      "relative flex w-full cursor-default items-start gap-2 rounded-md px-2 py-1.5 text-sm outline-hidden select-none hover:bg-accent hover:text-accent-foreground",
-                      other.value === level && "bg-accent text-accent-foreground",
-                    ),
+                    "relative flex w-full cursor-default items-start gap-1.5 rounded-md py-1 pr-8 pl-1.5 text-sm outline-hidden select-none hover:bg-accent hover:text-accent-foreground",
                   ),
                   h.OnClick(Message.SelectAutopilotRequested({ level: other.value })),
                 ],
-                [renderLevel(h, other.value, other.name, other.text)],
+                [
+                  renderLevel(h, other.value, other.name, other.text),
+                  other.value === level
+                    ? h.span(
+                        [
+                          h.Class(
+                            "pointer-events-none absolute right-2 flex items-center justify-center",
+                          ),
+                        ],
+                        [checkIcon(h, "size-4")],
+                      )
+                    : h.empty,
+                ],
               ),
             ),
           )
@@ -108,6 +117,7 @@ export function renderAutopilotSheet(
           h.Disabled(disabled),
           h.AriaLabel(name),
           h.Title(name),
+          h.AriaExpanded(open),
           h.DataAttribute("slot", "sheet-trigger"),
           h.Class(
             buttonClass({
@@ -118,7 +128,7 @@ export function renderAutopilotSheet(
           ),
           h.OnClick(Message.ToggleMenu({ id: "autopilot-sheet" })),
         ],
-        [autopilotIcon(h, level), chevronDownIcon(h, "size-4")],
+        [autopilotIcon(h, level), chevronDownIcon(h, "size-3.5")],
       ),
       open
         ? renderSheet(h, {

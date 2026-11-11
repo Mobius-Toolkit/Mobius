@@ -211,7 +211,7 @@ function renderPage(h: HtmlBuilder<Message>, model: Model): Html {
                     [h.Class("min-w-0 truncate text-base font-semibold")],
                     [activeWorkstream?.title ?? ""],
                   ),
-                  h.span([h.Class("text-sm text-muted-foreground")], [`#${wsRoute.number}`]),
+                  h.span([h.Class("text-sm text-muted-foreground")], ["#", String(wsRoute.number)]),
                   h.div(
                     [h.Class("ml-auto flex shrink-0 items-center gap-2")],
                     [
@@ -229,7 +229,10 @@ function renderPage(h: HtmlBuilder<Message>, model: Model): Html {
                             }),
                           ),
                         ],
-                        [fileTextIcon(h), h.span([h.Class("hidden lg:inline")], ["Brief"])],
+                        [
+                          fileTextIcon(h, "size-3.5"),
+                          h.span([h.Class("hidden lg:inline")], ["Brief"]),
+                        ],
                       ),
                       renderAutopilotMenu(
                         h,
@@ -296,6 +299,7 @@ function renderPage(h: HtmlBuilder<Message>, model: Model): Html {
                 mount: h.OnMount(inPlaceMount()),
                 titleId: "tasks-sheet-title",
                 title: "Tasks",
+                hideTitle: true,
                 close: Message.SetMobileTasksOpen({ open: false }),
                 className: "pt-2 data-[side=bottom]:h-[80svh]",
                 children: [

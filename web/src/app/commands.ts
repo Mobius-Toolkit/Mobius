@@ -65,7 +65,12 @@ export const LoadExternal = Command.define("LoadExternal", {
 });
 
 export const LoadApp = Command.define("LoadApp", {
-  messages: [Message.AppsAndOrganizationsLoaded, Message.ShowLogin, Message.LoadAppFailed],
+  messages: [
+    Message.AppsAndOrganizationsLoaded,
+    Message.ShowLogin,
+    Message.LoadAppFailed,
+    Message.OnlineChanged,
+  ],
   execute: Effect.gen(function* () {
     const appsRes = yield* request(() => listGitHubApps());
     if (appsRes.status === 401) {
@@ -85,8 +90,13 @@ export const LoadApp = Command.define("LoadApp", {
       organizations: orgsRes.data.data,
     });
   }).pipe(
+    // The offline event can arrive after the failed request, so the Command reads the state of the browser itself.
     Effect.catchTag("RequestFailed", (error) =>
-      Effect.succeed(Message.LoadAppFailed({ error: error.message })),
+      Effect.sync(() =>
+        navigator.onLine
+          ? Message.LoadAppFailed({ error: error.message })
+          : Message.OnlineChanged({ online: false }),
+      ),
     ),
   ),
 });

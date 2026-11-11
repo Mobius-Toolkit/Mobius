@@ -12,8 +12,8 @@ export function renderCIStops(h: HtmlBuilder<Message>, stops: readonly CIStop[])
         ),
       ],
       [
-        h.span([h.Class("font-medium")], [`Dispatch stopped: CI fails on ${stop.branch}`]),
-        h.span([], [`${stop.repository}: the workflow "${stop.workflow}" fails.`]),
+        h.span([h.Class("font-medium")], ["Dispatch stopped: CI fails on ", stop.branch]),
+        h.span([], [stop.repository, ': the workflow "', stop.workflow, '" fails.']),
         h.span(
           [],
           [
@@ -25,7 +25,7 @@ export function renderCIStops(h: HtmlBuilder<Message>, stops: readonly CIStop[])
                 h.Attribute("rel", "noreferrer"),
                 h.Class("underline"),
               ],
-              [`#${stop.issue}`],
+              ["#", String(stop.issue)],
             ),
           ],
         ),

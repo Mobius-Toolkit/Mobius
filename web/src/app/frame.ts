@@ -14,7 +14,7 @@ import {
   organizationWorkstreams,
   type WorkstreamState as WorkstreamLists,
 } from "@/lib/workstreams";
-import { renderBadge } from "@/ui/badge";
+import { badgeClass, renderBadge } from "@/ui/badge";
 import { buttonClass, renderButton } from "@/ui/button";
 import { renderConnectionBadge } from "@/ui/connection";
 import {
@@ -137,14 +137,16 @@ function renderPhoneTopBar(
         const fix = fixButtonOf(model.checkupProgram.value);
         if (fix) {
           extra.push(
-            renderButton(h, {
-              label: fix.text,
-              variant: "default",
-              size: "sm",
-              className: "mr-2 ml-auto",
-              pending: fix.pending,
-              onClick: Message.GotCheckupMessage({ message: CheckupMsg.ClickedFix() }),
-            }),
+            h.div(
+              [h.Class("mr-2 ml-auto")],
+              [
+                renderButton(h, {
+                  label: fix.text,
+                  pending: fix.pending,
+                  onClick: Message.GotCheckupMessage({ message: CheckupMsg.ClickedFix() }),
+                }),
+              ],
+            ),
           );
         }
       }
@@ -169,7 +171,9 @@ function renderPhoneTopBar(
           ? model.chosenAutopilot.value.to
           : serverLevel;
 
-      extra.push(h.span([h.Class("shrink-0 text-sm text-muted-foreground")], [`#${number}`]));
+      extra.push(
+        h.span([h.Class("shrink-0 text-sm text-muted-foreground")], ["#", String(number)]),
+      );
       extra.push(
         renderAutopilotSheet(
           h,
@@ -184,6 +188,7 @@ function renderPhoneTopBar(
           variant: "outline",
           size: "sm",
           className: "shrink-0",
+          expanded: model.mobileTasksOpen,
           onClick: Message.SetMobileTasksOpen({ open: true }),
         }),
       );
@@ -220,7 +225,7 @@ function renderPhoneTopBar(
 }
 
 export function renderFrame(h: HtmlBuilder<Message>, model: Model, content: Html): Html {
-  const currentPath = routeToPath(model.route);
+  const [currentPath] = routeToPath(model.route).split("?");
   const currentOrg = model.organization;
   const fill = isFillRoute(model.route);
 
@@ -276,7 +281,10 @@ export function renderFrame(h: HtmlBuilder<Message>, model: Model, content: Html
   const sideNav = h.nav(
     [
       h.Class(
-        "sticky top-0 hidden h-svh w-52 shrink-0 flex-col gap-1 overflow-y-auto border-r bg-sidebar p-2 text-sidebar-foreground md:flex",
+        cn(
+          "sticky top-0 hidden h-svh w-52 shrink-0 flex-col gap-1 overflow-y-auto border-r bg-sidebar p-2 text-sidebar-foreground md:flex",
+          Option.isSome(model.openMenu) && model.openMenu.value === "organization-side" && "z-20",
+        ),
       ),
     ],
     [
@@ -370,12 +378,12 @@ export function renderFrame(h: HtmlBuilder<Message>, model: Model, content: Html
       } else if (tabPath === "/settings" && upgradeAvailable) {
         badge = h.span(
           [
-            h.Class(
-              "flex size-4 items-center justify-center rounded-full bg-primary text-primary-foreground",
-            ),
+            h.DataAttribute("slot", "badge"),
+            h.DataAttribute("variant", "default"),
+            h.Class(badgeClass("default")),
             h.AriaLabel("Upgrade available"),
           ],
-          [arrowUpIcon(h, "size-3.5")],
+          [arrowUpIcon(h, "size-3")],
         );
       }
 
@@ -419,10 +427,7 @@ export function renderFrame(h: HtmlBuilder<Message>, model: Model, content: Html
           h.div(
             [h.Class("sticky top-0 z-10 h-0 shrink-0")],
             [
-              h.div(
-                [h.Class("pointer-events-none flex justify-center pt-2")],
-                [renderConnectionBadge(h, connectionStatus)],
-              ),
+              renderConnectionBadge(h, connectionStatus),
               model.notice
                 ? h.div(
                     [h.Class("pointer-events-none flex justify-center px-4 pt-2")],

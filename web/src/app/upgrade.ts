@@ -46,7 +46,7 @@ export function renderUpgradeControls(h: HtmlBuilder<Message>, model: Model): Ht
       renderButton(h, {
         variant: "secondary",
         pending: upgrade.upgrading,
-        label: `Upgrade ${upgrade.version}`,
+        label: ["Upgrade ", h.span([h.Class("text-muted-foreground")], [upgrade.version])],
         onClick: Message.ShowUpgradeChanges(),
       }),
     );
@@ -95,9 +95,15 @@ export function renderUpgradeDialog(h: HtmlBuilder<Message>, model: Model): Html
     title: `Upgrade to ${upgrade.version}`,
     description: "Mobius waits until no agent runs, and then starts the new release.",
     close: Message.HideUpgradeChanges(),
-    body: h.div([h.Class("min-h-0 overflow-y-auto px-4")], [renderReleaseChanges(h, model)]),
+    layout: "center",
+    body: h.div([h.Class("min-h-0 overflow-y-auto")], [renderReleaseChanges(h, model)]),
     footer: h.div(
-      [h.Class("flex justify-end p-4 pt-2")],
+      [
+        h.DataAttribute("slot", "dialog-footer"),
+        h.Class(
+          "-mx-4 -mb-4 flex flex-col-reverse gap-2 rounded-b-xl border-t bg-muted/50 p-4 sm:flex-row sm:justify-end",
+        ),
+      ],
       [
         renderButton(h, {
           pending: upgrade.upgrading,

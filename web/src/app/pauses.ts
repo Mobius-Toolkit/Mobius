@@ -24,7 +24,7 @@ export function renderPauses(h: HtmlBuilder<Message>, model: Model): Html[] {
               ),
             ],
             [
-              h.span([], [`${pause.harness} paused until ${dayClock(pause.pausedUntil)}`]),
+              h.span([], [pause.harness, " paused until ", dayClock(pause.pausedUntil)]),
               renderButton(h, {
                 label: "Resume now",
                 size: "sm",

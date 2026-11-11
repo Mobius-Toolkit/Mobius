@@ -86,9 +86,10 @@ export function renderSwitchLines(h: HtmlBuilder<Message>, model: Model): Html {
               [h.Class("flex items-center gap-2")],
               [
                 renderButton(h, {
-                  label: `${held.length} held`,
+                  label: [String(held.length), " held"],
                   size: "sm",
                   variant: "outline",
+                  expanded: Option.isSome(model.heldSheet) && model.heldSheet.value.title === line,
                   onClick: Message.OpenHeldSheet({ title: line, held }),
                 }),
                 renderButton(h, {

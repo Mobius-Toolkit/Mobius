@@ -61,7 +61,7 @@ export function renderWorkstreamBadges<M>(
     );
   }
 
-  items.push(h.span([h.Class("text-muted-foreground")], [`#${workstream.number}`]));
+  items.push(h.span([h.Class("text-muted-foreground")], ["#", String(workstream.number)]));
 
   if (workstream.allTasksClosed && !workstream.evergreen) {
     items.push(renderBadge(h, "secondary", "done"));
