@@ -568,3 +568,30 @@ func workflowReads(fake *testkit.FakeGitHub, workflowID int64) int {
 	}
 	return n
 }
+
+func TestATaskThatWaitsForABreakOfAnOldWorkflowDispatchRunOutsideThePageUpdatesItsBranchAtTheEnd(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, sha, run := waitingTask(t, fake)
+	fake.CommitFile(shop, "price.txt", "cents\n", "Add price")
+	fake.SetBehind(shop, 42)
+	pushRunOutOfThePage(fake)
+	fake.SetWorkflowRunEvent(run, "workflow_dispatch")
+	wantWaiting(t, server, fake)
+
+	forgetRunEvents(t, server)
+
+	testkit.WaitFor(t, func() bool { return breakWaitHead(t, server) == "" })
+	merged := head(t, fake, "mobius/41")
+	isAncestor(t, fake, sha, merged)
+	isAncestor(t, fake, "main", merged)
+	if merged == sha {
+		t.Errorf("head = %s", merged)
+	}
+	if calls := fake.UpdateBranchCalls(); calls != 1 {
+		t.Errorf("update calls = %d", calls)
+	}
+	if reads := runReads(fake, run); reads != 1 {
+		t.Errorf("run reads = %d", reads)
+	}
+}

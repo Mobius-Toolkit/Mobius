@@ -1,0 +1,1 @@
+ALTER TABLE ci_breaks ADD COLUMN run_event TEXT NOT NULL DEFAULT '';

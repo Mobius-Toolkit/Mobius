@@ -216,6 +216,7 @@ func (e *Engine) startCIBreak(ctx context.Context, repository github.Repository,
 		RunID:        run.GetID(),
 		RunUrl:       run.GetHTMLURL(),
 		RunAttempt:   int64(run.GetRunAttempt()),
+		RunEvent:     run.GetEvent(),
 		StartedAt:    now(),
 	}
 	if run.GetRunAttempt() > 1 {
@@ -239,7 +240,8 @@ func newerRunRuns(byID map[int64]*gh.WorkflowRun, ciBreak store.CiBreak) bool {
 // and no newer run of the workflow is queued or in progress (the break then waits with no result). A newer failed run
 // makes the break hard with no re-run. It stores the result of the new attempt, and ends the break when a newer run of the workflow passed. A hard break also
 // ends when a later attempt of the failed run passed: the list of runs gives the newest attempt of each run. An open
-// break of a run with the event workflow_dispatch or repository_dispatch ends with no ended run. An open break whose
+// break of a run with the event workflow_dispatch or repository_dispatch ends with no ended run, also when the run is not
+// in the page of runs (see breakRunEvent). An open break whose
 // workflow is no longer active on the default branch (GitHub answers 404, or the workflow state is not active) ends
 // with no ended run when the workflow has no completed run newer than the failed run in the page of runs. A new
 // attempt that completes with a conclusion other than success, cancelled and skipped, and a newer failed run, make the
@@ -254,7 +256,11 @@ func newerRunRuns(byID map[int64]*gh.WorkflowRun, ciBreak store.CiBreak) bool {
 // ended run.
 func (e *Engine) advanceCIBreak(ctx context.Context, repository github.Repository, ciBreak store.CiBreak, byID map[int64]*gh.WorkflowRun, newest *gh.WorkflowRun) error {
 	run := byID[ciBreak.RunID]
-	if run != nil && ignoredBreakEvent(run.GetEvent()) {
+	event, handled, err := e.breakRunEvent(ctx, repository, ciBreak, run)
+	if err != nil || handled {
+		return err
+	}
+	if ignoredBreakEvent(event) {
 		return e.endCIBreak(ctx, ciBreak, store.EndCIBreakParams{Result: ciBreak.Result, EndedAt: now(), ID: ciBreak.ID})
 	}
 	passedAgain := newest != nil && newest.GetID() > ciBreak.RunID && newest.GetConclusion() == "success"
@@ -344,6 +350,35 @@ func (e *Engine) advanceCIBreak(ctx context.Context, repository github.Repositor
 		}
 	}
 	return nil
+}
+
+// breakRunEvent gives the event of the failed run of ciBreak: the event of run when the page of runs has it, else the
+// stored event. A break with no stored event reads the run from GitHub one time and stores its event. handled is true
+// when the break ended because GitHub answers 404 for the run, or when GitHub refuses the read with another 4xx status
+// (the next poll tries again).
+func (e *Engine) breakRunEvent(ctx context.Context, repository github.Repository, ciBreak store.CiBreak, run *gh.WorkflowRun) (event string, handled bool, err error) {
+	if run != nil {
+		event = run.GetEvent()
+	} else {
+		event = ciBreak.RunEvent
+	}
+	if event == "" {
+		run, err = repository.WorkflowRun(ctx, ciBreak.RunID)
+		if refusedByGitHub(err) {
+			return "", true, nil
+		}
+		if err != nil {
+			return "", false, err
+		}
+		if run == nil {
+			return "", true, e.endCIBreak(ctx, ciBreak, store.EndCIBreakParams{Result: ciBreak.Result, EndedAt: now(), ID: ciBreak.ID})
+		}
+		event = run.GetEvent()
+	}
+	if ciBreak.RunEvent == "" {
+		err = e.queries.SetCIBreakRunEvent(ctx, store.SetCIBreakRunEventParams{RunEvent: event, ID: ciBreak.ID})
+	}
+	return event, false, err
 }
 
 // endCIBreak ends ciBreak. The end of a hard break with a task issue ends the stop of its repository.
