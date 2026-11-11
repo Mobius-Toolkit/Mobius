@@ -19,6 +19,7 @@ import (
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
+	"github.com/Mobius-Toolkit/Mobius/internal/runner"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
@@ -1142,7 +1143,11 @@ func (e *Engine) chat(c *chat, a *Agent, first item) error {
 			if quiet, err = e.quietEvents(ctx, c.key); err != nil {
 				return err
 			}
-			prompt = quietEventsText(quiet) + prompt
+			fetchLine := e.fetchLeadTurn(ctx, c.key, next)
+			if fetchLine != "" {
+				fetchLine += "\n\n"
+			}
+			prompt = quietEventsText(quiet) + fetchLine + prompt
 			if err := e.itemTurn(c, a, next, prompt, images, quiet); err != nil {
 				return err
 			}
@@ -1836,7 +1841,36 @@ func (e *Engine) firstPrompt(ctx context.Context, key ChatKey, harness config.Ha
 	if maintenance {
 		rules += leadMaintenancePrompt + "\n"
 	}
-	return fmt.Sprintf("%s\n%s%s%s%s%s%s# %s\n\n%s", leadPrompt, rules, sections, lead, requests, history, quietEventsText(quiet), heading, text), images, nil
+	fetchLine := e.fetchLeadTurn(ctx, key, first)
+	if fetchLine != "" {
+		fetchLine += "\n\n"
+	}
+	return fmt.Sprintf("%s\n%s%s%s%s%s%s%s# %s\n\n%s", leadPrompt, rules, sections, lead, requests, history, quietEventsText(quiet), fetchLine, heading, text), images, nil
+}
+
+// fetchLeadTurn fetches the bare clone of the repository of key before a turn of a Workstream chat for an event or an
+// Owner message, and gives the prompt line. A failed fetch logs the error and gives "".
+func (e *Engine) fetchLeadTurn(ctx context.Context, key ChatKey, it item) string {
+	if key.Workstream == 0 || (it.event == nil && (it.message == nil || it.message.Author != ownerAuthor)) {
+		return ""
+	}
+	repository, err := e.repository(key.Repository)
+	if err != nil {
+		log.Printf("fetch of %s for the Lead failed: %v", key.Repository, err)
+		return ""
+	}
+	if err := e.fetchRepository(ctx, repository); err != nil {
+		log.Printf("fetch of %s for the Lead failed: %v", repository.FullName, err)
+		return ""
+	}
+	e.gitMu.Lock()
+	defer e.gitMu.Unlock()
+	commit, err := runner.BareRevParse(ctx, e.config.DataDir, repository.FullName, "origin/"+repository.DefaultBranch)
+	if err != nil {
+		log.Printf("rev-parse of %s for the Lead failed: %v", repository.FullName, err)
+		return ""
+	}
+	return fmt.Sprintf("Mobius fetched the bare clone of %s at %s: origin/%s is at %.8s.", repository.FullName, e.timeNow().UTC().Format(timeFormat), repository.DefaultBranch, commit)
 }
 
 // leadContext gives the Brief, the memory and the task list of the Workstream, and tells if the Workstream is a

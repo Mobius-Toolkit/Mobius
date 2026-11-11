@@ -575,6 +575,11 @@ func RevParse(ctx context.Context, dataDir, worktree, name string) (string, erro
 	return run(git(ctx, dataDir, worktree, "", "rev-parse", name))
 }
 
+// BareRevParse gives the commit of name in the bare clone of repository below dataDir.
+func BareRevParse(ctx context.Context, dataDir, repository, name string) (string, error) {
+	return run(git(ctx, dataDir, bareDir(dataDir, repository), "", "rev-parse", name))
+}
+
 // HeadContains tells if HEAD of the worktree contains commit.
 func HeadContains(ctx context.Context, dataDir, worktree, commit string) (bool, error) {
 	return succeeds(git(ctx, dataDir, worktree, "", "merge-base", "--is-ancestor", commit, "HEAD"))
