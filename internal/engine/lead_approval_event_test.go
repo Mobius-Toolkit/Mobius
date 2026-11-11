@@ -40,15 +40,16 @@ func TestAPullRequestWith101ChangedFilesGives100PathsAndAnd1More(t *testing.T) {
 	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "success"))
 
 	prompt := waitForLeadPrompt(t, server, " ready for Lead approval of #41 \"Add plan model\"")
-	if !strings.Contains(prompt, "Changed files (101): ") {
+	idx := strings.Index(prompt, "Changed files (101): ")
+	if idx < 0 {
 		t.Fatalf("prompt missing 'Changed files (101): ': %s", prompt)
 	}
 	if !strings.Contains(prompt, ", and 1 more") {
 		t.Fatalf("prompt missing ', and 1 more': %s", prompt)
 	}
-	line := prompt[strings.Index(prompt, "Changed files (101): "):]
-	if idx := strings.Index(line, "\n"); idx >= 0 {
-		line = line[:idx]
+	line := prompt[idx:]
+	if newline := strings.Index(line, "\n"); newline >= 0 {
+		line = line[:newline]
 	}
 	rest := strings.TrimPrefix(line, "Changed files (101): ")
 	beforeMore, found := strings.CutSuffix(rest, ", and 1 more")

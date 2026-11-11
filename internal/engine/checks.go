@@ -266,11 +266,12 @@ func (e *Engine) addReadyForApproval(ctx context.Context, repository github.Repo
 		return err
 	}
 	var filesLine string
-	if len(files) == 0 {
+	switch {
+	case len(files) == 0:
 		filesLine = "Changed files (0):"
-	} else if len(files) <= 100 {
+	case len(files) <= 100:
 		filesLine = fmt.Sprintf("Changed files (%d): %s", len(files), strings.Join(files, ", "))
-	} else {
+	default:
 		filesLine = fmt.Sprintf("Changed files (%d): %s, and %d more", len(files), strings.Join(files[:100], ", "), len(files)-100)
 	}
 	text := fmt.Sprintf("%s ready for Lead approval of %s \"%s\": pull request %s %s.", time.Now().UTC().Format(timeFormat), taskEventRef(task, task.Issue), issue.GetTitle(), taskEventRef(task, int64(pullRequest.GetNumber())), pullRequest.GetHTMLURL()) + approvedHead
