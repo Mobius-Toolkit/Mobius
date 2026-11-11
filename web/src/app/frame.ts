@@ -228,6 +228,11 @@ export function renderFrame(h: HtmlBuilder<Message>, model: Model, content: Html
   const [currentPath] = routeToPath(model.route).split("?");
   const currentOrg = model.organization;
   const fill = isFillRoute(model.route);
+  const showMobileOrgSwitch =
+    currentPath === "/chat" ||
+    currentPath === "/workstreams" ||
+    currentPath === "/tasks" ||
+    currentPath.startsWith("/inbox");
 
   const workstreamLists: WorkstreamLists = {
     list: model.workstreams,
@@ -404,11 +409,16 @@ export function renderFrame(h: HtmlBuilder<Message>, model: Model, content: Html
     }),
   );
 
-  const showMobileOrgSwitch =
-    currentPath === "/chat" ||
-    currentPath === "/workstreams" ||
-    currentPath === "/tasks" ||
-    currentPath.startsWith("/inbox");
+  const stopsOrganization =
+    model.route._tag === "WorkstreamChat"
+      ? model.route.owner
+      : showMobileOrgSwitch
+        ? currentOrg
+        : undefined;
+  const shownCIStops = model.ciStops.filter(
+    (stop) =>
+      stopsOrganization === undefined || stop.repository.split("/")[0] === stopsOrganization,
+  );
 
   const connectionStatus = !model.online
     ? "offline"
@@ -449,6 +459,14 @@ export function renderFrame(h: HtmlBuilder<Message>, model: Model, content: Html
             ],
             [
               h.div(
+                [h.Class("grid gap-2 px-4 pt-4 empty:hidden md:hidden")],
+                [
+                  showMobileOrgSwitch
+                    ? renderOrganizationSwitch(h, model, "organization-content")
+                    : h.empty,
+                ],
+              ),
+              h.div(
                 [
                   h.Class(
                     cn(
@@ -458,19 +476,14 @@ export function renderFrame(h: HtmlBuilder<Message>, model: Model, content: Html
                   ),
                 ],
                 [
-                  ...renderCIStops(h, model.ciStops),
+                  ...renderCIStops(h, shownCIStops),
                   ...renderPauses(h, model),
                   renderSwitchLines(h, model),
                 ],
               ),
               h.div(
                 [h.Class("grid gap-2 px-4 pt-4 empty:hidden md:hidden")],
-                [
-                  showMobileOrgSwitch
-                    ? renderOrganizationSwitch(h, model, "organization-content")
-                    : h.empty,
-                  currentPath === "/settings" ? renderUpgradeControls(h, model) : h.empty,
-                ],
+                [currentPath === "/settings" ? renderUpgradeControls(h, model) : h.empty],
               ),
               h.main(
                 [
