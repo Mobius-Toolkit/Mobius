@@ -16,6 +16,7 @@ import { currentWorkstreams, startWorkstreams, subscribeWorkstreams } from "@/li
 import { liveEvents, liveListener } from "@/live/events";
 import { storeValues } from "@/live/stores";
 import { escapeKey } from "@/ui/escape";
+import { hasOpenOverlay } from "@/panel/model";
 import { subscriptions as panelSubscriptions } from "@/panel/subscriptions";
 import { subscriptions as mcpServersSubscriptions } from "@/settings/mcp-servers/subscriptions";
 import { subscriptions as memorySubscriptions } from "@/settings/memory/subscriptions";
@@ -222,7 +223,7 @@ export const appSubscriptions = Subscription.make<Model, Message>()((entry) => (
           model.upgrade.changesShown ||
           Option.isSome(model.heldSheet) ||
           model.loginShown ||
-          model.mobileTasksOpen,
+          (model.mobileTasksOpen && !Option.exists(model.panel, hasOpenOverlay)),
       }),
       dependenciesToStream: ({ open }) =>
         open ? escapeKey(Message.PressedEscape()) : Stream.empty,
