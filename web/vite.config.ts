@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import tailwindcss from "@tailwindcss/vite";
-import react from "@vitejs/plugin-react";
 import { foldkit } from "@foldkit/vite-plugin";
 import { defineConfig } from "vite";
 
@@ -16,7 +15,6 @@ export default defineConfig({
   },
   plugins: [
     ...foldkit({ devToolsMcpPort: false }),
-    react(),
     tailwindcss(),
     {
       name: "ui-version",
