@@ -73,6 +73,7 @@ func TestUpdateBranchReportsARefusalOfGitHub(t *testing.T) {
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 	waitForReadyEvents(t, fake, server, 1)
 
+	fake.SetMergeableUnknown(shop, 42, true)
 	fake.CommitFile(shop, "plan.txt", "euros\n", "Add price in euros")
 
 	sendChat(t, server, leadChat, "Update #41")
