@@ -2983,6 +2983,17 @@ func (q *Queries) GetIssueBinding(ctx context.Context, arg GetIssueBindingParams
 	return i, err
 }
 
+const getIssueRepositoryChoice = `-- name: GetIssueRepositoryChoice :one
+SELECT repository FROM issue_repositories WHERE organization = ?
+`
+
+func (q *Queries) GetIssueRepositoryChoice(ctx context.Context, organization string) (string, error) {
+	row := q.db.QueryRowContext(ctx, getIssueRepositoryChoice, organization)
+	var repository string
+	err := row.Scan(&repository)
+	return repository, err
+}
+
 const getLastChatMessageOf = `-- name: GetLastChatMessageOf :one
 SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice FROM chat_messages
 WHERE organization = ? AND repository = ? AND workstream = ? AND author = ?
@@ -10003,6 +10014,20 @@ UPDATE inbox_items SET withdrawn = 1 WHERE id = ?
 
 func (q *Queries) SetInboxItemWithdrawn(ctx context.Context, id int64) error {
 	_, err := q.db.ExecContext(ctx, setInboxItemWithdrawn, id)
+	return err
+}
+
+const setIssueRepositoryChoice = `-- name: SetIssueRepositoryChoice :exec
+INSERT OR REPLACE INTO issue_repositories (organization, repository) VALUES (?, ?)
+`
+
+type SetIssueRepositoryChoiceParams struct {
+	Organization string
+	Repository   string
+}
+
+func (q *Queries) SetIssueRepositoryChoice(ctx context.Context, arg SetIssueRepositoryChoiceParams) error {
+	_, err := q.db.ExecContext(ctx, setIssueRepositoryChoice, arg.Organization, arg.Repository)
 	return err
 }
 

@@ -35,7 +35,7 @@ type ActionArgument struct {
 
 // approvedTool is tool for a tool whose call waits for the approval of the Owner. A call checks its arguments, stores a
 // pending action with the title of its subject, and returns at once. The check refuses the arguments that the run would refuse without a read of GitHub. The run of the tool starts when the Owner approves.
-func approvedTool[In any](e *Engine, c caller, resolve func(caller) (github.Repository, error), name, description string, properties map[string]any, title func(context.Context, github.Repository, In) (string, error), check func(caller, In) error, run func(context.Context, caller, github.Repository, In) (string, error)) mcp.Tool {
+func approvedTool[In any](e *Engine, c caller, resolve func(context.Context, caller) (github.Repository, error), name, description string, properties map[string]any, title func(context.Context, github.Repository, In) (string, error), check func(caller, In) error, run func(context.Context, caller, github.Repository, In) (string, error)) mcp.Tool {
 	return mcp.Tool{
 		Name:        name,
 		Description: description,
@@ -46,7 +46,7 @@ func approvedTool[In any](e *Engine, c caller, resolve func(caller) (github.Repo
 			}
 			c.agent.touch()
 			var text string
-			repository, err := resolve(c)
+			repository, err := resolve(ctx, c)
 			if err == nil {
 				var input In
 				input, err = decode[In](name, arguments)
@@ -578,7 +578,7 @@ func (e *Engine) ActionBrief(ctx context.Context, id int64) (string, error) {
 	if action.Tool != "edit_brief" {
 		return "", refuse("This action does not change a Brief.")
 	}
-	repository, err := e.callerRepository(actionCaller(action))
+	repository, err := e.callerRepository(ctx, actionCaller(action))
 	if err != nil {
 		return "", err
 	}

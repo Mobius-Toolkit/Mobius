@@ -918,6 +918,71 @@
         ]
       }
     },
+    "/api/checkup/issue-repository": {
+      "put": {
+        "description": "SetIssueRepository stores the choice of the issue repository of the organization. A new choice replaces the earlier choice. It returns 409 when config.toml sets the issue repository of the organization, and 422 when the repository is not a repository of the organization that the App sees.",
+        "operationId": "SetIssueRepository",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetIssueRepositoryBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_IssueRepositoryChoice"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "checkup"
+        ]
+      }
+    },
     "/api/checkup/tools": {
       "get": {
         "description": "GetCheckupTools returns the path and the version of each program that Mobius runs for its agents and its work.",
@@ -7850,6 +7915,16 @@
             "type": "string",
             "description": "IssueRepositoryError tells why Mobius cannot find the issue repository, or is empty"
           },
+          "issueRepositorySource": {
+            "type": "string",
+            "description": "IssueRepositorySource tells where the issue repository comes from: config for organizations.\u003corganization\u003e.issue_repository of config.toml, choice for the choice of the Owner, default for the one repository of the organization that the App sees or that holds all its open Workstreams, and none when IssueRepositoryError is not empty",
+            "enum": [
+              "config",
+              "choice",
+              "default",
+              "none"
+            ]
+          },
           "labelFix": {
             "type": "string",
             "description": "LabelFix is create when all Mobius labels are missing, fix when another label is missing or has a different color, and none when the fix has nothing to change",
@@ -7902,6 +7977,7 @@
           "permissionsError",
           "issueRepository",
           "issueRepositoryError",
+          "issueRepositorySource",
           "maintenanceWorkstream",
           "skillRepository",
           "skillsWorkstreamRepository",
@@ -8559,6 +8635,20 @@
         ],
         "description": "Envelope is the body of each success response."
       },
+      "Envelope_IssueRepositoryChoice": {
+        "type": "object",
+        "title": "Envelope_IssueRepositoryChoice",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/IssueRepositoryChoice",
+            "description": "Data is the payload of the response"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "description": "Envelope is the body of each success response."
+      },
       "Envelope_LiveText": {
         "type": "object",
         "title": "Envelope_LiveText",
@@ -9197,6 +9287,25 @@
           "mergeQueueSize"
         ],
         "description": "InboxItem is an item of the Inbox of the Owner."
+      },
+      "IssueRepositoryChoice": {
+        "type": "object",
+        "title": "IssueRepositoryChoice",
+        "properties": {
+          "organization": {
+            "type": "string",
+            "description": "Organization is the owner of the repositories"
+          },
+          "repository": {
+            "type": "string",
+            "description": "Repository is the issue repository as \"owner/name\""
+          }
+        },
+        "required": [
+          "organization",
+          "repository"
+        ],
+        "description": "IssueRepositoryChoice is the choice of the issue repository of an organization."
       },
       "IssueSetting": {
         "type": "object",
@@ -10946,6 +11055,24 @@
             "description": "On adds mobius:evergreen when true, and removes it when false"
           }
         }
+      },
+      "SetIssueRepositoryBody": {
+        "type": "object",
+        "title": "SetIssueRepositoryBody",
+        "properties": {
+          "organization": {
+            "type": "string",
+            "description": "Organization is the owner of the repositories"
+          },
+          "repository": {
+            "type": "string",
+            "description": "Repository is the issue repository as \"owner/name\""
+          }
+        },
+        "required": [
+          "organization",
+          "repository"
+        ]
       },
       "SetRecurringTaskPausedBody": {
         "type": "object",

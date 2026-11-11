@@ -378,6 +378,7 @@ export const GetCheckupResponse = S.Struct({
   "data": S.Struct({
   "issueRepository": S.String.annotate({ description: 'IssueRepository is the repository of the Workstream issues of the organization as \"owner\/name\", or empty when IssueRepositoryError is not empty' }),
   "issueRepositoryError": S.String.annotate({ description: 'IssueRepositoryError tells why Mobius cannot find the issue repository, or is empty' }),
+  "issueRepositorySource": S.Literals(['config', 'choice', 'default', 'none']).annotate({ description: 'IssueRepositorySource tells where the issue repository comes from: config for organizations.<organization>.issue_repository of config.toml, choice for the choice of the Owner, default for the one repository of the organization that the App sees or that holds all its open Workstreams, and none when IssueRepositoryError is not empty' }),
   "labelFix": S.Literals(['create', 'fix', 'none']).annotate({ description: 'LabelFix is create when all Mobius labels are missing, fix when another label is missing or has a different color, and none when the fix has nothing to change' }),
   "maintenanceWorkstream": S.Number.annotate({ description: 'MaintenanceWorkstream is the number of the open Workstream with mobius:maintenance and the lowest number in the issue repository, or 0 when it has none or IssueRepositoryError is not empty' }),
   "permissions": S.Array(S.Struct({
@@ -409,6 +410,22 @@ export const GetCheckupResponse = S.Struct({
 export const FixLabelsBody = S.Struct({
   "organization": S.String.annotate({ description: 'Organization is the owner of the repositories' })
 })
+
+
+/**
+ * SetIssueRepository stores the choice of the issue repository of the organization. A new choice replaces the earlier choice. It returns 409 when config.toml sets the issue repository of the organization, and 422 when the repository is not a repository of the organization that the App sees.
+ */
+export const SetIssueRepositoryBody = S.Struct({
+  "organization": S.String.annotate({ description: 'Organization is the owner of the repositories' }),
+  "repository": S.String.annotate({ description: 'Repository is the issue repository as \"owner\/name\"' })
+})
+
+export const SetIssueRepositoryResponse = S.Struct({
+  "data": S.Struct({
+  "organization": S.String.annotate({ description: 'Organization is the owner of the repositories' }),
+  "repository": S.String.annotate({ description: 'Repository is the issue repository as \"owner\/name\"' })
+}).annotate({ description: 'Data is the payload of the response' })
+}).annotate({ description: 'Envelope is the body of each success response.' })
 
 
 /**

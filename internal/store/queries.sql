@@ -1752,3 +1752,9 @@ WHERE server = ? AND state = ?;
 
 -- name: DeleteMcpServerOAuth :exec
 DELETE FROM mcp_server_oauth WHERE server = ?;
+
+-- name: GetIssueRepositoryChoice :one
+SELECT repository FROM issue_repositories WHERE organization = ?;
+
+-- name: SetIssueRepositoryChoice :exec
+INSERT OR REPLACE INTO issue_repositories (organization, repository) VALUES (?, ?);

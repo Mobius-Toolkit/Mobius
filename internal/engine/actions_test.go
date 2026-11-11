@@ -422,12 +422,14 @@ func TestACallWithNoSingleRepositoryInTheOrganizationStoresNoAction(t *testing.T
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddRepository("owner/other")
+	addOpenWorkstream(fake, "owner/other")
 	server, _ := connect(t, fake, callMessageLead("Send.", 12, "Create the task issues.")+seenScript)
+	waitForCopiedWorkstream(t, server, "owner/other")
 
 	session := run(t, server, coordinatorSpec(t), "Send.")
 
 	calls := mcpCalls(t, server, session)
-	if len(calls) != 1 || calls[0]["error"] != "Mobius needs the issue repository of owner. Set organizations.owner.issue_repository in config.toml." {
+	if len(calls) != 1 || calls[0]["error"] != refusedIssueRepository {
 		t.Errorf("calls = %v", calls)
 	}
 	if got := actionRows(t, server); len(got) != 0 {
