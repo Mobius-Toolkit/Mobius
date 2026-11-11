@@ -5,8 +5,17 @@ import { defineView } from "foldkit/submodel";
 import { bindingText } from "@/lib/harness";
 import * as Setting from "@/setting/view";
 import { renderBadge } from "@/ui/badge";
-import { renderIconButton } from "@/ui/button";
-import { messageSquareIcon, playIcon, settingsIcon, squareIcon } from "@/ui/icons";
+import { buttonClass, renderIconButton } from "@/ui/button";
+import {
+  arrowLeftIcon,
+  messageSquareIcon,
+  playIcon,
+  settingsIcon,
+  spinnerIcon,
+  squareIcon,
+} from "@/ui/icons";
+import { renderMarkdown } from "@/ui/markdown";
+import { linkClass } from "@/ui/page";
 import { renderSwitch } from "@/ui/switch";
 import { Message } from "./message";
 import {
@@ -44,14 +53,13 @@ function renderEntry(h: H, model: Model, line: TaskLine): Html {
       h.div(
         [h.Class("flex items-center gap-1")],
         [
-          h.a(
+          h.button(
             [
-              h.Href(line.url),
-              h.Attribute("target", "_blank"),
-              h.Attribute("rel", "noreferrer"),
+              h.Type("button"),
+              h.OnClick(Message.ClickedTask({ line })),
               h.Style({ paddingLeft: `${0.5 + line.depth * 1.25}rem` }),
               h.Class(
-                "flex min-w-0 grow flex-wrap items-center gap-x-2 gap-y-1 rounded-lg py-2 pr-2 hover:bg-muted",
+                "flex min-w-0 grow flex-wrap items-center gap-x-2 gap-y-1 rounded-lg py-2 pr-2 text-left hover:bg-muted",
               ),
             ],
             [
@@ -136,7 +144,129 @@ function renderEntry(h: H, model: Model, line: TaskLine): Html {
   );
 }
 
+function renderDetail(h: H, model: Model, line: TaskLine): Html {
+  const key = rowKey(line);
+  return h.div(
+    [h.Class("grid gap-3")],
+    [
+      h.div(
+        [h.Class("flex items-center gap-2")],
+        [
+          h.button(
+            [
+              h.Type("button"),
+              h.AriaLabel("Back to the tasks"),
+              h.DataAttribute("slot", "button"),
+              h.Class(buttonClass({ variant: "ghost", size: "sm", className: "gap-1 -ml-2" })),
+              h.OnClick(Message.ClickedBack()),
+            ],
+            [arrowLeftIcon(h), "Tasks"],
+          ),
+        ],
+      ),
+      h.h2(
+        [h.Class("text-base font-semibold wrap-anywhere")],
+        [`${reference(line)} ${line.title}`],
+      ),
+      h.div(
+        [h.Class("flex flex-wrap items-center gap-x-2 gap-y-1")],
+        [
+          renderBadge(h, line.state === "open" ? "outline" : "secondary", line.state),
+          ...line.blockedBy.map((blocker) =>
+            h.keyed("span")(
+              `${blocker.repository ?? ""}#${blocker.number}`,
+              [h.Class("text-sm text-muted-foreground wrap-anywhere")],
+              [
+                `blocked by ${blocker.repository ?? ""}#${blocker.number}${
+                  blocker.workstreamTitle ? ` (Workstream "${blocker.workstreamTitle}")` : ""
+                }`,
+              ],
+            ),
+          ),
+        ],
+      ),
+      Option.match(model.detail, {
+        onNone: () => h.empty,
+        onSome: (detail) =>
+          detail.pullRequest !== null && detail.pullRequestUrl !== null
+            ? h.div(
+                [h.Class("text-sm")],
+                [
+                  h.a(
+                    [
+                      h.Href(detail.pullRequestUrl),
+                      h.Attribute("target", "_blank"),
+                      h.Attribute("rel", "noreferrer"),
+                      h.Class(linkClass),
+                    ],
+                    [`PR #${detail.pullRequest}`],
+                  ),
+                ],
+              )
+            : h.empty,
+      }),
+      h.div(
+        [h.Class("flex flex-wrap items-center gap-2")],
+        [
+          h.a(
+            [
+              h.Href(line.url),
+              h.Attribute("target", "_blank"),
+              h.Attribute("rel", "noreferrer"),
+              h.Class(buttonClass({ variant: "outline", size: "sm" })),
+            ],
+            ["Open on GitHub"],
+          ),
+          h.button(
+            [
+              h.Type("button"),
+              h.Class(buttonClass({ variant: "outline", size: "sm", className: "gap-1.5" })),
+              h.OnClick(Message.ClickedChat({ key, line })),
+            ],
+            [messageSquareIcon(h), "Chat"],
+          ),
+        ],
+      ),
+      model.detailLoading ? h.div([h.Class("flex justify-center p-4")], [spinnerIcon(h)]) : h.empty,
+      model.detailError
+        ? renderBadge(
+            h,
+            "destructive",
+            model.detailError,
+            "h-auto w-full justify-start whitespace-normal",
+          )
+        : h.empty,
+      Option.match(model.detail, {
+        onNone: () => h.empty,
+        onSome: (detail) => h.div([h.Class("border-t pt-3")], [renderMarkdown(h, detail.body)]),
+      }),
+      Option.match(model.sheet, {
+        onNone: () => h.empty,
+        onSome: (sheet) =>
+          h.submodel({
+            slotId: "setting",
+            model: sheet,
+            view: Setting.view,
+            toParentMessage: (message) => Message.GotSettingMessage({ message }),
+          }),
+      }),
+    ],
+  );
+}
+
 export const view = defineView<Model, Message>((model, h) => {
+  if (Option.isSome(model.opened)) {
+    const opened = model.opened.value;
+    const openedTask = Option.flatMap(model.lines, (lines) =>
+      Option.fromNullishOr(
+        lines.find((l) => l.repository === opened.repository && l.number === opened.number),
+      ),
+    );
+    if (Option.isSome(openedTask)) {
+      return renderDetail(h, model, openedTask.value);
+    }
+  }
+
   const shown = Option.map(model.lines, (lines) =>
     model.showClosed ? lines : withoutClosed(lines),
   );

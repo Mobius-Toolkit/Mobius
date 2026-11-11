@@ -1615,6 +1615,51 @@ test("screenshots", async ({ page }) => {
     },
   );
   await page.unroute(blockedReadyRoute);
+  const taskDetailRoute = "**/api/workstreams/plants/garden/19/tasks/plants/garden/71";
+  await page.route(taskDetailRoute, (route) =>
+    route.fulfill({
+      json: {
+        data: {
+          body: "### Instructions\n- Wear protective gloves.\n- Spread 5 cm of bark evenly over each bed.\n- Keep bark away from rose stems.",
+          pullRequest: 85,
+          pullRequestUrl: "https://github.com/plants/garden/pull/85",
+        },
+      },
+    }),
+  );
+  await screenshot(
+    page,
+    "chat-task-detail",
+    "/workstreams/plants/garden/19",
+    (device) => [
+      ...(device === "desktop"
+        ? [
+            drain,
+            page.getByLabel("Work in another organization"),
+            page.locator('nav a[href="/workstreams/plants/garden/19"]'),
+          ]
+        : [page.getByLabel("Upgrade available")]),
+      page.getByRole("button", { name: "Back to the tasks" }).filter({ visible: true }),
+      page.getByRole("heading", { name: "#71 Spread the bark" }).filter({ visible: true }),
+      page.getByText("blocked by #70").filter({ visible: true }),
+      page.getByRole("link", { name: "PR #85" }).filter({ visible: true }),
+      page.getByRole("link", { name: "Open on GitHub" }).filter({ visible: true }),
+      page.getByRole("button", { name: "Chat", exact: true }).filter({ visible: true }),
+      page.getByRole("heading", { name: "Instructions" }).filter({ visible: true }),
+      page.getByText("Wear protective gloves.").filter({ visible: true }),
+    ],
+    async (device) => {
+      if (device === "phone") {
+        await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
+      }
+      await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
+      await page
+        .getByRole("button", { name: /#71 Spread the bark/ })
+        .filter({ visible: true })
+        .click();
+    },
+  );
+  await page.unroute(taskDetailRoute);
   const recurringFrame = (device: string, number: number) =>
     device === "desktop"
       ? [

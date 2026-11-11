@@ -11,7 +11,15 @@ import {
 } from "foldkit/story";
 import { FetchHarnesses } from "@/setting/commands";
 import * as SettingFixture from "@/setting/fixtures";
-import { AttachTask, ChangeIssue, FetchFallback, FetchTasks } from "./commands";
+import {
+  AttachTask,
+  ChangeIssue,
+  FetchFallback,
+  FetchTaskDetail,
+  FetchTasks,
+  OpenTask,
+  RestoreScroll,
+} from "./commands";
 import { Message, OutMessage } from "./message";
 import { initialModel, rowKey, rowOf, withoutClosed, type Model, type TaskLine } from "./model";
 import { update } from "./update";
@@ -434,5 +442,106 @@ describe("the list of the tasks", () => {
     );
     expect(FetchTasks(workstream).name).toBe("FetchTasks");
     expect(FetchFallback(workstream).name).toBe("FetchFallback");
+  });
+});
+
+describe("the detail view of a task", () => {
+  const task = line(41);
+  const detail = {
+    body: "Issue body",
+    pullRequest: 44,
+    pullRequestUrl: "https://github.com/owner/shop/pull/44",
+  };
+
+  it("opens the detail view, reads the task detail, and resets scroll to 0", () => {
+    story(
+      update,
+      given(createModel({ lines: Option.some([task]) })),
+      message(Message.ClickedTask({ line: task })),
+      StoryCommand.expectExact(OpenTask({ instance: "side", line: task })),
+      StoryCommand.resolve(OpenTask, Message.OpenedTask({ line: task, scroll: 150 })),
+      model((m) => {
+        expect(m.opened).toEqual(Option.some({ repository: "owner/shop", number: 41 }));
+        expect(m.scroll).toBe(150);
+        expect(m.detailLoading).toBe(true);
+      }),
+      StoryCommand.expectExact(
+        RestoreScroll({ instance: "side", scroll: 0 }),
+        FetchTaskDetail({
+          owner: "owner",
+          name: "shop",
+          number: 12,
+          taskOwner: "owner",
+          taskName: "shop",
+          issue: 41,
+        }),
+      ),
+      StoryCommand.resolve(RestoreScroll, Message.CompletedRestoreScroll()),
+      StoryCommand.resolve(FetchTaskDetail, Message.TaskDetailLoaded({ detail })),
+      model((m) => {
+        expect(m.detail).toEqual(Option.some(detail));
+        expect(m.detailLoading).toBe(false);
+        expect(m.detailError).toBe("");
+      }),
+    );
+  });
+
+  it("shows an error when reading the task detail fails", () => {
+    story(
+      update,
+      given(
+        createModel({
+          lines: Option.some([task]),
+          opened: Option.some({ repository: "owner/shop", number: 41 }),
+          detailLoading: true,
+        }),
+      ),
+      message(Message.TaskDetailFailed({ error: "Not found" })),
+      model((m) => {
+        expect(m.detailLoading).toBe(false);
+        expect(m.detailError).toBe("Not found");
+      }),
+    );
+  });
+
+  it("returns to the task list and restores scroll position on back click", () => {
+    story(
+      update,
+      given(
+        createModel({
+          lines: Option.some([task]),
+          opened: Option.some({ repository: "owner/shop", number: 41 }),
+          scroll: 150,
+          detail: Option.some(detail),
+        }),
+      ),
+      message(Message.ClickedBack()),
+      model((m) => {
+        expect(Option.isNone(m.opened)).toBe(true);
+        expect(Option.isNone(m.detail)).toBe(true);
+      }),
+      StoryCommand.expectExact(RestoreScroll({ instance: "side", scroll: 150 })),
+      StoryCommand.resolve(RestoreScroll, Message.CompletedRestoreScroll()),
+    );
+  });
+
+  it("returns to the list when the opened task is no longer in the list", () => {
+    const otherTask = line(42);
+    story(
+      update,
+      given(
+        createModel({
+          lines: Option.some([task]),
+          opened: Option.some({ repository: "owner/shop", number: 41 }),
+          scroll: 150,
+        }),
+      ),
+      message(Message.TasksLoaded({ lines: [otherTask] })),
+      model((m) => {
+        expect(Option.isNone(m.opened)).toBe(true);
+      }),
+      StoryCommand.expectExact(RestoreScroll({ instance: "side", scroll: 150 })),
+      StoryCommand.resolve(RestoreScroll, Message.CompletedRestoreScroll()),
+    );
   });
 });

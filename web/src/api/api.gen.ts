@@ -1814,6 +1814,32 @@ export interface EnvelopeSwitches {
 }
 
 /**
+ * TaskDetail is the detail of a task of a Workstream.
+ */
+export interface TaskDetail {
+  /** Body is the issue body from the local copy */
+  body: string;
+  /**
+     * PullRequest is the number of the pull request of the live task, or null
+     * @nullable
+     */
+  pullRequest: number | null;
+  /**
+     * PullRequestURL is the GitHub URL of that pull request, or null
+     * @nullable
+     */
+  pullRequestUrl: string | null;
+}
+
+/**
+ * Envelope is the body of each success response.
+ */
+export interface EnvelopeTaskDetail {
+  /** Data is the payload of the response */
+  data: TaskDetail;
+}
+
+/**
  * Kind is prompt, update, mcp_call, error, or check for a phase of the local check of an Implementer or a hang of the agent
  */
 export type TranscriptLineKind = typeof TranscriptLineKind[keyof typeof TranscriptLineKind];
@@ -9728,4 +9754,84 @@ export const listTasks = async (owner: string,
 
   const data: listTasksResponse['data'] = body ? JSON.parse(body) : {}
   return { data, status: res.status, headers: res.headers } as listTasksResponse
+}
+
+
+
+export type getTaskResponse200 = {
+  data: EnvelopeTaskDetail
+  status: 200
+}
+
+export type getTaskResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type getTaskResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type getTaskResponse404 = {
+  data: ErrorResponse
+  status: 404
+}
+
+export type getTaskResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type getTaskResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type getTaskResponseSuccess = (getTaskResponse200) & {
+  headers: Headers;
+};
+export type getTaskResponseError = (getTaskResponse400 | getTaskResponse401 | getTaskResponse404 | getTaskResponse422 | getTaskResponse500) & {
+  headers: Headers;
+};
+
+export type getTaskResponse = (getTaskResponseSuccess | getTaskResponseError)
+
+export const getGetTaskUrl = (owner: string,
+    name: string,
+    number: number,
+    taskOwner: string,
+    taskName: string,
+    issue: number,) => {
+
+
+
+
+  return `/api/workstreams/${owner}/${name}/${number}/tasks/${taskOwner}/${taskName}/${issue}`
+}
+
+/**
+ * GetTask returns the body and the pull request of one task of a Workstream, from the local copy of GitHub.
+ */
+export const getTask = async (owner: string,
+    name: string,
+    number: number,
+    taskOwner: string,
+    taskName: string,
+    issue: number, ): Promise<getTaskResponse> => {
+
+  const res = await fetch(getGetTaskUrl(owner,name,number,taskOwner,taskName,issue),
+  {
+
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: getTaskResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as getTaskResponse
 }

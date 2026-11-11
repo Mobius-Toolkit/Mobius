@@ -286,7 +286,7 @@ test.describe("images", () => {
     await input.fill("with image");
     await pasteImage(page, await png(page, 40, 30, "red"));
     await expect(main.getByRole("img", { name: "Image 1" })).toBeVisible();
-    await main.getByRole("button", { name: "Send" }).click();
+    await main.getByRole("button", { name: "Send", exact: true }).click();
     await expect.poll(() => sentImages(page)).toContain("with image:1");
     await expect(main.getByRole("img", { name: "Image 1" })).toBeHidden();
 
@@ -296,7 +296,7 @@ test.describe("images", () => {
       { name: "two.png", mimeType: "image/png", buffer: image },
     ]);
     await expect(main.getByRole("img", { name: "Image 2" })).toBeVisible();
-    await main.getByRole("button", { name: "Send" }).click();
+    await main.getByRole("button", { name: "Send", exact: true }).click();
     await expect.poll(() => sentImages(page)).toContain(":2");
     await expect(main.getByRole("img", { name: "Image 1" })).toBeHidden();
   });
@@ -336,7 +336,7 @@ test.describe("images", () => {
     await pasteImage(page, await png(page, 40, 30, "red"));
     await pasteImage(page, await png(page, 40, 30, "green"));
     await expect(main.getByRole("img", { name: "Image 2" })).toBeVisible();
-    await main.getByRole("button", { name: "Send" }).click();
+    await main.getByRole("button", { name: "Send", exact: true }).click();
     const message = main.locator("[data-message]", { hasText: "Live images" });
     const pictures = message.getByRole("img", { name: picture });
     await expect(pictures).toHaveCount(2);
@@ -353,7 +353,7 @@ test.describe("images", () => {
       route.fulfill({ status: 400, json: { error: "The image is too large." } }),
     );
     await pasteImage(page, await png(page, 40, 30, "red"));
-    await main.getByRole("button", { name: "Send" }).click();
+    await main.getByRole("button", { name: "Send", exact: true }).click();
     const queued = main.locator("[data-queued]");
     await expect(queued.getByText("The image is too large.")).toBeVisible();
     await expect(queued.getByRole("img", { name: "Picture 1 of an unsent message" })).toBeVisible();
@@ -1706,8 +1706,9 @@ test("the Tasks tab shows the closed tasks muted, with only the Chat button, whe
   await expect(closed.getByText("#37 Remove the old plan page")).toHaveClass(
     /text-muted-foreground/,
   );
-  await expect(closed.getByRole("button")).toHaveCount(1);
+  await expect(closed.getByRole("button")).toHaveCount(2);
   await expect(closed.getByRole("button", { name: "Chat about #37" })).toBeVisible();
+  await expect(closed.getByRole("button", { name: "Start #37" })).toHaveCount(0);
   await expect(rows.filter({ hasText: "#36 Rename the plan table" })).toBeVisible();
 
   await page.getByLabel("Show closed tasks").filter({ visible: true }).click();
@@ -3411,5 +3412,143 @@ test.describe("the Chat button of a task row", () => {
     const composer = page.getByRole("main").locator("form");
     await expect(composer.getByRole("button", { name: "Remove #70" })).toBeVisible();
     await expect(composer.getByText("Order the bark")).toBeVisible();
+  });
+});
+
+test.describe("the detail view of a task", () => {
+  test.afterEach(async ({ page }) => {
+    await page.evaluate(clearDrafts);
+    await expect.poll(() => page.evaluate(storedDrafts)).toBe(0);
+  });
+
+  test("opens from the row text on desktop and phone, shows the detail with pull request, blockers, and body, Open on GitHub, and Chat", async ({
+    page,
+  }) => {
+    await page.route("**/api/workstreams/plants/garden/19/tasks/plants/garden/71", (route) =>
+      route.fulfill({
+        json: {
+          data: {
+            body: "### Instructions\n- Wear protective gloves.\n- Spread 5 cm of bark.",
+            pullRequest: 85,
+            pullRequestUrl: "https://github.com/plants/garden/pull/85",
+          },
+        },
+      }),
+    );
+
+    // Desktop:
+    await page.goto("/workstreams/plants/garden/19");
+    await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
+    const panel = page.getByRole("tabpanel", { name: "Tasks" }).filter({ visible: true });
+    const rowButton = panel.getByRole("button", { name: /#71 Spread the bark/ });
+    await expect(rowButton).toBeVisible();
+    await rowButton.click();
+
+    // Check detail view elements on desktop:
+    const back = panel.getByRole("button", { name: "Back to the tasks" });
+    await expect(back).toBeVisible();
+    await expect(panel.getByRole("heading", { name: "#71 Spread the bark" })).toBeVisible();
+    await expect(panel.getByText("open", { exact: true })).toBeVisible();
+    await expect(panel.getByText("blocked by #70")).toBeVisible();
+    const prLink = panel.getByRole("link", { name: "PR #85" });
+    await expect(prLink).toBeVisible();
+    await expect(prLink).toHaveAttribute("href", "https://github.com/plants/garden/pull/85");
+    await expect(prLink).toHaveAttribute("target", "_blank");
+
+    const githubLink = panel.getByRole("link", { name: "Open on GitHub" });
+    await expect(githubLink).toBeVisible();
+    await expect(githubLink).toHaveAttribute("href", "https://github.com/plants/garden/issues/71");
+    await expect(githubLink).toHaveAttribute("target", "_blank");
+
+    await expect(panel.getByRole("heading", { name: "Instructions" })).toBeVisible();
+    await expect(panel.getByText("Wear protective gloves.")).toBeVisible();
+
+    // "Chat" button adds task to composer
+    const chatBtn = panel.getByRole("button", { name: "Chat", exact: true });
+    await expect(chatBtn).toBeVisible();
+    await chatBtn.click();
+    const composer = page.getByRole("main").locator("form");
+    await expect(composer.getByRole("button", { name: "Remove #71" })).toBeVisible();
+    await expect(composer.getByText("Spread the bark")).toBeVisible();
+
+    // Back button returns to task list:
+    await back.click();
+    await expect(panel.getByRole("button", { name: /#71 Spread the bark/ })).toBeVisible();
+    await expect(panel.getByRole("button", { name: "Back to the tasks" })).toHaveCount(0);
+
+    // Phone:
+    await page.setViewportSize(phone);
+    await page.goto("/workstreams/plants/garden/19");
+    await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
+    const sheet = page.getByRole("dialog", { name: "Tasks" });
+    await sheet.getByRole("button", { name: /#71 Spread the bark/ }).click();
+    const sheetBack = sheet.getByRole("button", { name: "Back to the tasks" });
+    await expect(sheetBack).toBeVisible();
+    await expect(sheet.getByRole("heading", { name: "#71 Spread the bark" })).toBeVisible();
+    await expect(sheet.getByRole("link", { name: "PR #85" })).toBeVisible();
+    await expect(sheet.getByText("Wear protective gloves.")).toBeVisible();
+    await sheetBack.click();
+    await expect(sheet.getByRole("button", { name: /#71 Spread the bark/ })).toBeVisible();
+  });
+
+  test("the back button returns to the list at the same scroll position", async ({ page }) => {
+    // Generate many tasks so the list scrolls
+    const dummyTasks = Array.from({ length: 30 }, (_, i) => ({
+      number: 100 + i,
+      title: `Task ${100 + i}`,
+      state: "open",
+      url: `https://github.com/plants/garden/issues/${100 + i}`,
+      repository: "plants/garden",
+      depth: 0,
+      otherRepository: false,
+      blockedBy: [],
+      implementer: null,
+    }));
+
+    await page.route("**/api/workstreams/plants/garden/19/tasks", async (route) => {
+      const response = await route.fetch();
+      const body = (await response.json()) as { data: typeof dummyTasks };
+      body.data.push(...dummyTasks);
+      await route.fulfill({ response, json: body });
+    });
+
+    await page.route("**/api/workstreams/plants/garden/19/tasks/plants/garden/*", (route) =>
+      route.fulfill({
+        json: {
+          data: {
+            body: "Dummy task body",
+            pullRequest: null,
+            pullRequestUrl: null,
+          },
+        },
+      }),
+    );
+
+    await page.goto("/workstreams/plants/garden/19");
+    await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
+    const panel = page.getByRole("tabpanel", { name: "Tasks" }).filter({ visible: true });
+
+    // Wait for the tasks to load
+    await expect(panel.getByRole("button", { name: /Task 120/ })).toBeVisible();
+
+    // Scroll the list down
+    await panel.evaluate((el) => {
+      el.scrollTop = 200;
+    });
+    await expect.poll(() => panel.evaluate((el) => el.scrollTop)).toBe(200);
+
+    // Open a task visible at this scroll position
+    const target = panel.getByRole("button", { name: /Task 105/ });
+    await expect(target).toBeInViewport();
+    await target.click();
+    const back = panel.getByRole("button", { name: "Back to the tasks" });
+    await expect(back).toBeVisible();
+
+    // Return to the list
+    await back.click();
+    await expect(target).toBeVisible();
+
+    // Check scrollTop of the list
+    await expect.poll(() => panel.evaluate((el) => el.scrollTop)).toBe(200);
   });
 });

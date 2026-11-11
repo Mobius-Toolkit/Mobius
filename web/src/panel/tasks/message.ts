@@ -2,7 +2,7 @@ import { Schema } from "effect";
 import { defineMessageUnion } from "foldkit/message";
 import * as Setting from "@/setting/message";
 import { NextSetting } from "@/setting/schemas";
-import { TaskLine } from "./model";
+import { TaskDetail, TaskLine } from "./model";
 
 export const Message = defineMessageUnion({
   TasksLoaded: { lines: Schema.Array(TaskLine) },
@@ -19,6 +19,12 @@ export const Message = defineMessageUnion({
   AttachFailed: { key: Schema.String, error: Schema.String },
   ClickedSetting: { line: TaskLine },
   GotSettingMessage: { message: Setting.Message },
+  ClickedTask: { line: TaskLine },
+  OpenedTask: { line: TaskLine, scroll: Schema.Number },
+  ClickedBack: {},
+  CompletedRestoreScroll: {},
+  TaskDetailLoaded: { detail: TaskDetail },
+  TaskDetailFailed: { error: Schema.String },
 });
 
 export type Message = typeof Message.Type;

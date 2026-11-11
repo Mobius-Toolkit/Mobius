@@ -5,7 +5,15 @@ import { OutMessage as SettingOutMessage } from "@/setting/message";
 import type { Target } from "@/setting/schemas";
 import { init as initSetting, update as updateSetting } from "@/setting/update";
 import { chatDraftKey } from "@/lib/draft";
-import { AttachTask, ChangeIssue, FetchFallback, FetchTasks } from "./commands";
+import {
+  AttachTask,
+  ChangeIssue,
+  FetchFallback,
+  FetchTaskDetail,
+  FetchTasks,
+  OpenTask,
+  RestoreScroll,
+} from "./commands";
 import { Message, OutMessage, toGotSettingMessage } from "./message";
 import { reference, resumes, withRow, type Model, type TaskLine } from "./model";
 
@@ -19,6 +27,17 @@ export const reload = (model: Model) => [
 export const refresh = (model: Model): Update.Return<Model, Message> => ({
   model,
   commands: reload(model),
+});
+
+const leave = (model: Model): UpdateReturn => ({
+  model: {
+    ...model,
+    opened: Option.none(),
+    detail: Option.none(),
+    detailLoading: false,
+    detailError: "",
+  },
+  commands: [RestoreScroll({ instance: model.instance, scroll: model.scroll })],
 });
 
 const foldSetting = Update.foldChild({
@@ -50,7 +69,17 @@ const foldSetting = Update.foldChild({
 
 export function update(model: Model, message: Message): UpdateReturn {
   return Message.match<UpdateReturn>(message, {
-    TasksLoaded: ({ lines }) => ({ model: { ...model, lines: Option.some(lines) } }),
+    TasksLoaded: ({ lines }) => {
+      const loaded = { ...model, lines: Option.some(lines) };
+      const stillInList = Option.match(model.opened, {
+        onNone: () => true,
+        onSome: (target) =>
+          lines.some(
+            (line) => line.repository === target.repository && line.number === target.number,
+          ),
+      });
+      return stillInList ? { model: loaded } : leave(loaded);
+    },
     FallbackLoaded: ({ fallback }) => ({ model: { ...model, fallback: Option.some(fallback) } }),
     LoadFailed: ({ error }) => ({ model: { ...model, error } }),
     LoginRequired: () => ({ model, outMessage: OutMessage.LoginRequired() }),
@@ -68,6 +97,51 @@ export function update(model: Model, message: Message): UpdateReturn {
     AttachFailed: ({ key, error }) => ({ model: withRow(model, key, { error }) }),
     ClickedSetting: ({ line }) => openSheet(model, line),
     GotSettingMessage: ({ message: child }) => foldSetting(model, child),
+    ClickedTask: ({ line }) => ({
+      model,
+      commands: [OpenTask({ instance: model.instance, line })],
+    }),
+    OpenedTask: ({ line, scroll }) => {
+      const [taskOwner, taskName] = line.repository.split("/");
+      return {
+        model: {
+          ...model,
+          opened: Option.some({ repository: line.repository, number: line.number }),
+          scroll,
+          detail: Option.none(),
+          detailLoading: true,
+          detailError: "",
+        },
+        commands: [
+          RestoreScroll({ instance: model.instance, scroll: 0 }),
+          FetchTaskDetail({
+            owner: model.owner,
+            name: model.name,
+            number: model.number,
+            taskOwner,
+            taskName,
+            issue: line.number,
+          }),
+        ],
+      };
+    },
+    ClickedBack: () => leave(model),
+    CompletedRestoreScroll: () => ({ model }),
+    TaskDetailLoaded: ({ detail }) => ({
+      model: {
+        ...model,
+        detail: Option.some(detail),
+        detailLoading: false,
+        detailError: "",
+      },
+    }),
+    TaskDetailFailed: ({ error }) => ({
+      model: {
+        ...model,
+        detailLoading: false,
+        detailError: error,
+      },
+    }),
   });
 }
 

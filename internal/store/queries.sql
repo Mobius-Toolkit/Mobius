@@ -949,6 +949,9 @@ WHERE repository = ? AND workstream = ? ORDER BY position;
 -- name: ListCopiedIssuesByNumber :many
 SELECT title, html_url, repository_url FROM copied_issues WHERE repository = ? AND workstream = ? AND number = ?;
 
+-- name: GetCopiedIssueBody :one
+SELECT body FROM copied_issues WHERE repository = ? AND workstream = ? AND position = ?;
+
 -- name: ListCopiedTreeLabels :many
 SELECT position, name FROM copied_issue_labels WHERE repository = ? AND workstream = ? ORDER BY position, name;
 
