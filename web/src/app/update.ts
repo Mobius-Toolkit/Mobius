@@ -1175,7 +1175,7 @@ export function update(model: Model, message: Message): UpdateReturn {
         merge: message.switches.merge,
         repairs: message.switches.repairs,
       };
-      const keeps = ([kind]: [string, unknown]) => model.switchFailures[kind] === server[kind];
+      const keeps = (kind: string) => model.switchFailures[kind] === server[kind];
       return {
         model: withSwitchErrors(
           {
@@ -1184,8 +1184,8 @@ export function update(model: Model, message: Message): UpdateReturn {
             switchesProgram,
             settingsProgram,
           },
-          Object.fromEntries(Object.entries(model.switchErrors).filter(keeps)),
-          Object.fromEntries(Object.entries(model.switchFailures).filter(keeps)),
+          Object.fromEntries(Object.entries(model.switchErrors).filter(([kind]) => keeps(kind))),
+          Object.fromEntries(Object.entries(model.switchFailures).filter(([kind]) => keeps(kind))),
         ),
         commands: [],
       };
