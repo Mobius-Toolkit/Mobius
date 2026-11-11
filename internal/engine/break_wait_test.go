@@ -103,13 +103,149 @@ func logStateOnFailure(t *testing.T, server *testserver.Server, fake *testkit.Fa
 // gives the head.
 func waitingTask(t *testing.T, fake *testkit.FakeGitHub) (*testserver.Server, string, int64) {
 	t.Helper()
-	server, _ := connectTask(t, fake, leadStarts, fixes, longGrace)
+	server, sha, run, _ := waitingTaskIn(t, fake)
+	return server, sha, run
+}
+
+// waitingTaskIn is waitingTask with the data directory of the server.
+func waitingTaskIn(t *testing.T, fake *testkit.FakeGitHub) (*testserver.Server, string, int64, string) {
+	t.Helper()
+	server, dataDir := connectTask(t, fake, leadStarts, fixes, longGrace)
 	logStateOnFailure(t, server, fake)
 	sha := checksHead(t, server, fake)
 	run := hardBreak(t, server, fake)
 	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
 	testkit.WaitFor(t, func() bool { return breakWaitHead(t, server) == sha })
-	return server, sha, run
+	return server, sha, run, dataDir
+}
+
+// breakWaitEvents gives the texts of the Lead events of the kind break_wait, the oldest first.
+func breakWaitEvents(t *testing.T, server *testserver.Server) []string {
+	t.Helper()
+	rows, err := server.DB.Query("SELECT payload FROM lead_events WHERE kind = 'break_wait' ORDER BY id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+	var texts []string
+	for rows.Next() {
+		var text string
+		if err := rows.Scan(&text); err != nil {
+			t.Fatal(err)
+		}
+		texts = append(texts, text)
+	}
+	return texts
+}
+
+func TestATaskThatStartsToWaitForABreakGivesItsLeadOneEventWithTheBreak(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, sha, run := waitingTask(t, fake)
+
+	events := testkit.WaitForValue(t, func() ([]string, bool) {
+		texts := breakWaitEvents(t, server)
+		return texts, len(texts) == 1
+	})
+	waitForPolls(t, fake)
+
+	if got := breakWaitEvents(t, server); len(got) != 1 {
+		t.Errorf("events = %q", got)
+	}
+	runURL := fmt.Sprintf("%s/%s/actions/runs/%d", fake.URL, shop, run)
+	for _, want := range []string{"#41", "pull request #42", sha, "workflow ci", "run " + runURL, "started 20", " UTC, no task issue"} {
+		if !strings.Contains(events[0], want) {
+			t.Errorf("the event has no %q: %s", want, events[0])
+		}
+	}
+	var issue int64
+	if err := server.DB.QueryRow("SELECT issue FROM lead_events WHERE kind = 'break_wait'").Scan(&issue); err != nil || issue != 41 {
+		t.Errorf("issue = %d, error = %v", issue, err)
+	}
+}
+
+func TestARestartWithTheSameWaitingHeadGivesNoSecondBreakWaitEvent(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, sha, _, dataDir := waitingTaskIn(t, fake)
+	testkit.WaitFor(t, func() bool { return len(breakWaitEvents(t, server)) == 1 })
+
+	server.Stop()
+	restarted := testserver.Start(t, dataDir, fake.URL)
+	waitForPolls(t, fake)
+
+	if got := breakWaitHead(t, restarted); got != sha {
+		t.Errorf("break_wait_head = %s", got)
+	}
+	if got := breakWaitEvents(t, restarted); len(got) != 1 {
+		t.Errorf("events = %q", got)
+	}
+}
+
+func TestANewFailedHeadOfATaskWhileTheBreakIsOpenGivesOneNewBreakWaitEvent(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, sha, _ := waitingTask(t, fake)
+	testkit.WaitFor(t, func() bool { return len(breakWaitEvents(t, server)) == 1 })
+
+	work := t.TempDir()
+	testkit.Git(t, work, "clone", "--branch=mobius/41", fake.Remote(shop), ".")
+	testkit.Git(t, work, "commit", "--allow-empty", "-m", "Change the plan")
+	testkit.Git(t, work, "push", "origin", "HEAD:refs/heads/mobius/41")
+	next := head(t, fake, "mobius/41")
+	fake.AddCheckRun(shop, checkRun("build", next, "completed", "failure"))
+
+	testkit.WaitFor(t, func() bool { return breakWaitHead(t, server) == next })
+	events := testkit.WaitForValue(t, func() ([]string, bool) {
+		texts := breakWaitEvents(t, server)
+		return texts, len(texts) == 2
+	})
+	waitForPolls(t, fake)
+
+	if got := breakWaitEvents(t, server); len(got) != 2 {
+		t.Errorf("events = %q", got)
+	}
+	if !strings.Contains(events[0], sha) || !strings.Contains(events[1], next) || next == sha {
+		t.Errorf("events = %q", events)
+	}
+}
+
+func TestATaskOfAnotherRepositoryGivesItsBreakWaitEventToTheWorkstreamWithFullReferences(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addGardenTask(fake)
+	fake.AddLabel(garden, 7, "mobius:working", testkit.AppSlug+"[bot]")
+	fake.CommitFileOnBranch(garden, "mobius/7", "water.txt", "daily\n", "Water the plants")
+	number := fake.OpenPullRequest(garden, "Water the plants", "mobius/7")
+	sha := testkit.Git(t, fake.Remote(garden), "rev-parse", "mobius/7")
+	server := startServer(t, fake, t.TempDir(), fmt.Sprintf(`INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at, state_at, branch, pull_request)
+		VALUES ('owner/garden', 'owner/shop', 7, 12, 'checks', '2026-10-04T10:00:00Z', strftime('%%Y-%%m-%%dT%%H:%%M:%%fZ', 'now'), 'mobius/7', %d)`, number))
+	server.WaitForFirstPoll(t, shop)
+	server.WaitForFirstPoll(t, garden)
+	run := fake.AddWorkflowRun(garden, failedMainRun(7))
+	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true})
+	fake.SetWorkflowRunStatus(run, "completed", "failure")
+	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true, result: "hard"})
+
+	fake.AddCheckRun(garden, checkRun("build", sha, "completed", "failure"))
+
+	events := testkit.WaitForValue(t, func() ([]string, bool) {
+		texts := breakWaitEvents(t, server)
+		return texts, len(texts) == 1
+	})
+	var repository string
+	var workstream int64
+	if err := server.DB.QueryRow("SELECT repository, workstream FROM lead_events WHERE kind = 'break_wait'").Scan(&repository, &workstream); err != nil || repository != shop || workstream != 12 {
+		t.Errorf("repository = %s, workstream = %d, error = %v", repository, workstream, err)
+	}
+	for _, want := range []string{"owner/garden#7", fmt.Sprintf("owner/garden#%d", number), "Open breaks of owner/garden", fmt.Sprintf("%s/owner/garden/actions/runs/%d", fake.URL, run)} {
+		if !strings.Contains(events[0], want) {
+			t.Errorf("the event has no %q: %s", want, events[0])
+		}
+	}
+	if strings.Contains(strings.ReplaceAll(events[0], "owner/garden#", ""), "#7") {
+		t.Errorf("the event names #7 with no repository: %s", events[0])
+	}
 }
 
 // wantWaiting checks that the task in checks has no fix round, no Implementer round and no stop.

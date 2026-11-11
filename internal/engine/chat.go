@@ -204,6 +204,15 @@ func (c *chat) notify() {
 // Mobius does not add it when the move fails. When browserID is not empty and a message has it, Mobius adds nothing and
 // the error is sql.ErrNoRows. voice tells that the message came from a voice recording.
 func (e *Engine) addChatMessage(ctx context.Context, key ChatKey, author, text, images, browserID string, inboxItems []ChatInboxItem, voice bool) (store.ChatMessage, error) {
+	message, err := e.storeChatMessage(ctx, e.queries, key, author, text, images, browserID, inboxItems, voice)
+	if err != nil {
+		return message, err
+	}
+	return message, e.announceChatMessage(ctx, key, author, message)
+}
+
+// storeChatMessage writes the chat message of addChatMessage with q, and sends it to no listener.
+func (e *Engine) storeChatMessage(ctx context.Context, q *store.Queries, key ChatKey, author, text, images, browserID string, inboxItems []ChatInboxItem, voice bool) (store.ChatMessage, error) {
 	if inboxItems == nil {
 		inboxItems = []ChatInboxItem{}
 	}
@@ -215,7 +224,7 @@ func (e *Engine) addChatMessage(ctx context.Context, key ChatKey, author, text, 
 	if voice {
 		marked = 1
 	}
-	message, err := e.queries.AddChatMessage(ctx, store.AddChatMessageParams{
+	message, err := q.AddChatMessage(ctx, store.AddChatMessageParams{
 		Organization: key.Organization,
 		Repository:   key.Repository,
 		Workstream:   key.Workstream,
@@ -231,17 +240,22 @@ func (e *Engine) addChatMessage(ctx context.Context, key ChatKey, author, text, 
 	}
 	if images != "" {
 		if err := e.moveImages(images, message.ID); err != nil {
-			return message, errors.Join(err, e.queries.DeleteChatMessage(ctx, message.ID))
+			return message, errors.Join(err, q.DeleteChatMessage(ctx, message.ID))
 		}
 	}
+	return message, nil
+}
+
+// announceChatMessage sends the stored message to the listeners, and its unread count when the author changes it.
+func (e *Engine) announceChatMessage(ctx context.Context, key ChatKey, author string, message store.ChatMessage) error {
 	if author == researcherAuthor || author == operatorAuthor || author == curatorAuthor || author == approvalAuthor || author == actionAuthor || author == questionAuthor {
-		return message, nil
+		return nil
 	}
 	e.publish(Change{Message: &message})
 	if author == ownerAuthor || author == eventAuthor || author == recordAuthor {
-		return message, nil
+		return nil
 	}
-	return message, e.publishUnread(ctx, key)
+	return e.publishUnread(ctx, key)
 }
 
 // addRecord adds a record line about an action of the Owner to the chat. No agent gets the record. A failed write only
@@ -435,11 +449,47 @@ func (e *Engine) addCommentLeadEvent(ctx context.Context, repository string, wor
 func (e *Engine) addLeadEventAt(ctx context.Context, repository string, workstream int64, issueRepository string, issue sql.NullInt64, kind, text, at string, comment commentRef) (int64, error) {
 	e.chatOrder.Lock()
 	defer e.chatOrder.Unlock()
-	message, err := e.addChatMessage(ctx, leadChat(repository, workstream), eventAuthor, text, "", "", nil, false)
+	message, id, err := e.storeLeadEvent(ctx, e.queries, repository, workstream, issueRepository, issue, kind, text, at, comment)
 	if err != nil {
-		return 0, err
+		return id, err
 	}
-	id, err := e.queries.AddLeadEvent(ctx, store.AddLeadEventParams{
+	if err := e.announceChatMessage(ctx, leadChat(repository, workstream), eventAuthor, message); err != nil {
+		return id, err
+	}
+	return id, e.sendEvents(ctx, repository, workstream)
+}
+
+// addLeadEventWith adds an event like addLeadEvent, and runs write in the same transaction. When write or a write of
+// the event fails, Mobius keeps no write. The listeners and the Lead get the event after the commit.
+func (e *Engine) addLeadEventWith(ctx context.Context, repository string, workstream int64, issueRepository string, issue sql.NullInt64, kind, text string, write func(*store.Queries) error) error {
+	e.chatOrder.Lock()
+	defer e.chatOrder.Unlock()
+	var message store.ChatMessage
+	err := e.inTx(ctx, func(q *store.Queries) error {
+		if err := write(q); err != nil {
+			return err
+		}
+		var err error
+		message, _, err = e.storeLeadEvent(ctx, q, repository, workstream, issueRepository, issue, kind, text, now(), commentRef{})
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	if err := e.announceChatMessage(ctx, leadChat(repository, workstream), eventAuthor, message); err != nil {
+		return err
+	}
+	return e.sendEvents(ctx, repository, workstream)
+}
+
+// storeLeadEvent writes the chat message and the row of a Lead event with q, and gives them. The caller holds
+// e.chatOrder.
+func (e *Engine) storeLeadEvent(ctx context.Context, q *store.Queries, repository string, workstream int64, issueRepository string, issue sql.NullInt64, kind, text, at string, comment commentRef) (store.ChatMessage, int64, error) {
+	message, err := e.storeChatMessage(ctx, q, leadChat(repository, workstream), eventAuthor, text, "", "", nil, false)
+	if err != nil {
+		return message, 0, err
+	}
+	id, err := q.AddLeadEvent(ctx, store.AddLeadEventParams{
 		Repository:      repository,
 		Workstream:      workstream,
 		IssueRepository: issueRepository,
@@ -451,10 +501,7 @@ func (e *Engine) addLeadEventAt(ctx context.Context, repository string, workstre
 		Comment:         sql.NullInt64{Int64: comment.id, Valid: comment.id != 0},
 		Review:          sql.NullBool{Bool: comment.review, Valid: comment.id != 0},
 	})
-	if err != nil {
-		return 0, err
-	}
-	return id, e.sendEvents(ctx, repository, workstream)
+	return message, id, err
 }
 
 // wakeEvents gives the ready events of the Workstream to its Lead.
