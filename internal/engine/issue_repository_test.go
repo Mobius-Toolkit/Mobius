@@ -132,15 +132,18 @@ func waitForCopiedWorkstream(t *testing.T, server *testserver.Server, repository
 	})
 }
 
-// startOrganization starts a server for the organization owner with the repositories owner/shop and owner/garden, and
-// the fake agent. Each repository has an issue that gives it a first poll. Each repository of workstreams has an open
-// Workstream that Mobius copied before the function returns.
-func startOrganization(t *testing.T, fake *testkit.FakeGitHub, adjust func(*config.Config), workstreams ...string) *testserver.Server {
+// startOrganization starts a server for the organization owner with repositories (default owner/shop and owner/garden),
+// and the fake agent. Each repository has an issue that gives it a first poll. Each repository of workstreams has an
+// open Workstream that Mobius copied before the function returns.
+func startOrganization(t *testing.T, fake *testkit.FakeGitHub, adjust func(*config.Config), repositories []string, workstreams ...string) *testserver.Server {
 	t.Helper()
-	fake.AddRepository(shop)
-	fake.AddRepository(garden)
-	fake.AddIssue(shop, 7, "Fix the footer")
-	fake.AddIssue(garden, 7, "Water the plants")
+	if len(repositories) == 0 {
+		repositories = []string{shop, garden}
+	}
+	for _, repository := range repositories {
+		fake.AddRepository(repository)
+		fake.AddIssue(repository, 7, "Fix the footer")
+	}
 	for _, repository := range workstreams {
 		addOpenWorkstream(fake, repository)
 	}
@@ -150,8 +153,9 @@ func startOrganization(t *testing.T, fake *testkit.FakeGitHub, adjust func(*conf
 	adjust(cfg)
 	server := startServerOnAddedRepository(t, fake, cfg, "")
 	testkit.WaitFor(t, server.Engine.AccessChecked)
-	server.WaitForFirstPoll(t, shop)
-	server.WaitForFirstPoll(t, garden)
+	for _, repository := range repositories {
+		server.WaitForFirstPoll(t, repository)
+	}
 	for _, repository := range workstreams {
 		waitForCopiedWorkstream(t, server, repository)
 	}
@@ -163,13 +167,14 @@ const refusedIssueRepository = "Mobius needs the issue repository of owner. Sele
 func TestTheIssueRepositoryOfAnOrganizationFollowsTheOrderOfTheSources(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
-		name        string
-		workstreams []string
-		before      func(t *testing.T, server *testserver.Server)
-		config      func(*config.Config)
-		repository  string
-		source      string
-		refusal     string
+		name         string
+		repositories []string
+		workstreams  []string
+		before       func(t *testing.T, server *testserver.Server)
+		config       func(*config.Config)
+		repository   string
+		source       string
+		refusal      string
 	}{
 		{
 			name:        "the config key wins over a stored choice",
@@ -186,6 +191,17 @@ func TestTheIssueRepositoryOfAnOrganizationFollowsTheOrderOfTheSources(t *testin
 			source:     "config",
 		},
 		{
+			name:         "a stored choice wins over the one repository that the App sees",
+			repositories: []string{shop},
+			before: func(t *testing.T, server *testserver.Server) {
+				if _, err := server.Engine.SetIssueRepository(t.Context(), "owner", shop); err != nil {
+					t.Fatal(err)
+				}
+			},
+			repository: shop,
+			source:     "choice",
+		},
+		{
 			name:        "a stored choice wins over the repository of the Workstreams",
 			workstreams: []string{shop},
 			before: func(t *testing.T, server *testserver.Server) {
@@ -197,7 +213,8 @@ func TestTheIssueRepositoryOfAnOrganizationFollowsTheOrderOfTheSources(t *testin
 			source:     "choice",
 		},
 		{
-			name: "a stored choice that the App does not see gives a refusal",
+			name:         "a stored choice that the App does not see gives a refusal",
+			repositories: []string{shop},
 			before: func(t *testing.T, server *testserver.Server) {
 				if _, err := server.DB.Exec("INSERT INTO issue_repositories (organization, repository) VALUES ('owner', 'owner/gone')"); err != nil {
 					t.Fatal(err)
@@ -228,7 +245,7 @@ func TestTheIssueRepositoryOfAnOrganizationFollowsTheOrderOfTheSources(t *testin
 			if adjust == nil {
 				adjust = func(*config.Config) {}
 			}
-			server := startOrganization(t, fake, adjust, test.workstreams...)
+			server := startOrganization(t, fake, adjust, test.repositories, test.workstreams...)
 			if test.before != nil {
 				test.before(t, server)
 			}
