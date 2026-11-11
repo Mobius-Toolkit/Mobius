@@ -163,12 +163,32 @@ func (e *Engine) mergeApproved(ctx context.Context, repository github.Repository
 		return false, nil
 	}
 	approvedByLead := slices.ContainsFunc(runs, func(run *gh.CheckRun) bool { return run.GetName() == checkRunName })
-	pull := e.pull(repository, number)
-	if (task.AutoMerge == 1 || pull.updatedHead != "") && task.State == "ready_for_review" && !approvedByLead {
-		pull.updatedHead = ""
-		return false, e.returnForApproval(ctx, task)
+	if !approvedByLead {
+		if task.State == "ready_for_review" {
+			canApproveAgain := false
+			if task.AutoMerge == 0 {
+				_, again, err := e.approvedHeadText(ctx, repository, task, pullRequest)
+				if err != nil {
+					return false, err
+				}
+				canApproveAgain = again
+			}
+			if task.AutoMerge == 1 || canApproveAgain {
+				return false, e.returnForApproval(ctx, task)
+			}
+		}
+		if task.State == "checks" || task.State == "approval" {
+			return false, nil
+		}
+		if task.MergeQueuedAt.Valid {
+			if err := e.queries.ClearTaskMergeQueuedAt(ctx, task.ID); err != nil {
+				return false, err
+			}
+			task.MergeQueuedAt = sql.NullString{}
+		}
+		return false, nil
 	}
-	if !approvedByLead || !awaitsMerge(task) || slices.ContainsFunc(runs, func(run *gh.CheckRun) bool { return !passed(run) }) {
+	if !awaitsMerge(task) || slices.ContainsFunc(runs, func(run *gh.CheckRun) bool { return !passed(run) }) {
 		return false, nil
 	}
 	if waits, err := e.updateForMerge(ctx, repository, pullRequest); err != nil || waits {
