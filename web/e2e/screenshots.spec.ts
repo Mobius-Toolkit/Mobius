@@ -3012,6 +3012,15 @@ test("screenshots", async ({ page }) => {
       ...frame(device, release),
       memoryDiscard.getByRole("button", { name: "Keep editing" }),
       memoryDiscard.getByRole("button", { name: "Discard" }),
+      // The pointer stays on Cancel. The browser removes the hover state after the overlay covers the button.
+      () =>
+        expect
+          .poll(() =>
+            memoryDialog
+              .getByRole("button", { name: "Cancel", includeHidden: true })
+              .evaluate((button) => button.matches(":hover")),
+          )
+          .toBe(false),
     ],
     async () => {
       await openMemoryEdit();
