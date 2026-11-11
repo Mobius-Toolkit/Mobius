@@ -2010,8 +2010,8 @@ for (const [device, size] of [
       }
       await page.locator(`a[href="${shop}"]`).filter({ visible: true }).click();
       await expect(page).toHaveURL(shop);
+      // The removal of the route sends each held request to the server.
       await page.unroute("**/api/workstreams");
-      await Promise.all(held.map((route) => route.continue()));
       await expect(page.getByRole("button", { name: "Autopilot: Off" })).toBeVisible();
       await page.getByRole("button", { name: "Autopilot: Off" }).click();
       await expect(item(/^Off/)).toBeChecked();
