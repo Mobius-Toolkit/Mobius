@@ -144,7 +144,7 @@ func (e *Engine) startImplementer(ctx context.Context, repository github.Reposit
 	if err != nil {
 		return "", err
 	}
-	sections, err := e.repositorySections(ctx, repository, ImplementerRole)
+	sections, _, err := e.repositorySections(ctx, repository, ImplementerRole)
 	if err != nil {
 		return "", err
 	}
@@ -678,7 +678,7 @@ func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r r
 	if err != nil {
 		return err
 	}
-	sections, err := e.repositorySections(ctx, repository, ImplementerRole)
+	sections, _, err := e.repositorySections(ctx, repository, ImplementerRole)
 	if err != nil {
 		return err
 	}
@@ -787,7 +787,7 @@ func (e *Engine) conflictRound(ctx context.Context, repository github.Repository
 	if err != nil {
 		return err
 	}
-	sections, err := e.repositorySections(ctx, repository, ImplementerRole)
+	sections, _, err := e.repositorySections(ctx, repository, ImplementerRole)
 	if err != nil {
 		return err
 	}

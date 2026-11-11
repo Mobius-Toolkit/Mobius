@@ -1804,7 +1804,7 @@ func (e *Engine) firstPrompt(ctx context.Context, key ChatKey, harness config.Ha
 	if err != nil {
 		return "", nil, err
 	}
-	sections, err := e.repositorySections(ctx, repository, "lead")
+	sections, fetched, err := e.repositorySections(ctx, repository, "lead")
 	if err != nil {
 		return "", nil, err
 	}
@@ -1841,11 +1841,26 @@ func (e *Engine) firstPrompt(ctx context.Context, key ChatKey, harness config.Ha
 	if maintenance {
 		rules += leadMaintenancePrompt + "\n"
 	}
-	fetchLine := e.fetchLeadTurn(ctx, key, first)
-	if fetchLine != "" {
-		fetchLine += "\n\n"
+	var fetchLine string
+	if fetched && (first.event != nil || (first.message != nil && first.message.Author == ownerAuthor)) {
+		fetchLine = e.leadFetchLine(ctx, repository)
+		if fetchLine != "" {
+			fetchLine += "\n\n"
+		}
 	}
 	return fmt.Sprintf("%s\n%s%s%s%s%s%s%s# %s\n\n%s", leadPrompt, rules, sections, lead, requests, history, quietEventsText(quiet), fetchLine, heading, text), images, nil
+}
+
+// leadFetchLine gives the prompt line that names the commit of origin/defaultBranch of repository.
+func (e *Engine) leadFetchLine(ctx context.Context, repository github.Repository) string {
+	e.gitMu.Lock()
+	defer e.gitMu.Unlock()
+	commit, err := runner.BareRevParse(ctx, e.config.DataDir, repository.FullName, "origin/"+repository.DefaultBranch)
+	if err != nil {
+		log.Printf("rev-parse of %s for the Lead failed: %v", repository.FullName, err)
+		return ""
+	}
+	return fmt.Sprintf("Mobius fetched the bare clone of %s at %s: origin/%s is at %.8s.", repository.FullName, e.timeNow().UTC().Format(timeFormat), repository.DefaultBranch, commit)
 }
 
 // fetchLeadTurn fetches the bare clone of the repository of key before a turn of a Workstream chat for an event or an
@@ -1863,14 +1878,7 @@ func (e *Engine) fetchLeadTurn(ctx context.Context, key ChatKey, it item) string
 		log.Printf("fetch of %s for the Lead failed: %v", repository.FullName, err)
 		return ""
 	}
-	e.gitMu.Lock()
-	defer e.gitMu.Unlock()
-	commit, err := runner.BareRevParse(ctx, e.config.DataDir, repository.FullName, "origin/"+repository.DefaultBranch)
-	if err != nil {
-		log.Printf("rev-parse of %s for the Lead failed: %v", repository.FullName, err)
-		return ""
-	}
-	return fmt.Sprintf("Mobius fetched the bare clone of %s at %s: origin/%s is at %.8s.", repository.FullName, e.timeNow().UTC().Format(timeFormat), repository.DefaultBranch, commit)
+	return e.leadFetchLine(ctx, repository)
 }
 
 // leadContext gives the Brief, the memory and the task list of the Workstream, and tells if the Workstream is a
