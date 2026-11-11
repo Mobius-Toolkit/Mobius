@@ -456,7 +456,7 @@ func (e *Engine) judgeTurn(ctx context.Context, a *Agent, j judgeJob) error {
 			return err
 		}
 	}
-	sections, err := e.repositorySections(ctx, repository, JudgeRole)
+	sections, _, err := e.repositorySections(ctx, repository, JudgeRole)
 	if err != nil {
 		return err
 	}

@@ -34,7 +34,9 @@ func readyAfterMainCommit(t *testing.T, path, content string) (event, commit str
 
 	fake.AddWorkflowRun(shop, testkit.WorkflowRun{HeadSHA: sha, Status: "completed", Conclusion: "success", CreatedAt: ciStarted})
 
-	return waitForLeadPrompt(t, server, " ready for Lead approval of #41 \"Add plan model\""), commit
+	prompt := waitForLeadPrompt(t, server, " ready for Lead approval of #41 \"Add plan model\"")
+	parts := strings.Split(prompt, "# Event\n\n")
+	return parts[len(parts)-1], commit
 }
 
 func TestTheApprovalEventForAHeadWhoseCIStartedBeforeACommitOfTheDefaultBranchThatChangesAFileHasNoLineAboutThatCommit(t *testing.T) {

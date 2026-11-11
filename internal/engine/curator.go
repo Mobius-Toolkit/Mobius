@@ -282,7 +282,7 @@ func (e *Engine) curateTurn(ctx context.Context, a *Agent, requests []store.List
 	if err := e.addCopy(ctx, repository, a.spec.Dir); err != nil {
 		return err
 	}
-	sections, err := e.repositorySections(ctx, repository, CuratorRole)
+	sections, _, err := e.repositorySections(ctx, repository, CuratorRole)
 	if err != nil {
 		return err
 	}

@@ -219,7 +219,7 @@ func (e *Engine) diagnoseTurn(ctx context.Context, a *Agent, row store.CiDiagnos
 	if err != nil {
 		return err
 	}
-	sections, err := e.repositorySections(ctx, repository, DiagnoserRole)
+	sections, _, err := e.repositorySections(ctx, repository, DiagnoserRole)
 	if err != nil {
 		return err
 	}

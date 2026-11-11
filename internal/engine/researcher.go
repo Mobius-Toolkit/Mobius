@@ -247,7 +247,7 @@ func (e *Engine) researchTurn(ctx context.Context, a *Agent, id int64, question 
 		}
 		briefSection = "# Brief\n\n" + brief + "\n\n"
 	}
-	sections, err := e.repositorySections(ctx, repository, ResearcherRole)
+	sections, _, err := e.repositorySections(ctx, repository, ResearcherRole)
 	if err != nil {
 		return "", err
 	}

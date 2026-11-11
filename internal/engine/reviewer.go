@@ -252,7 +252,7 @@ func (e *Engine) reviewRound(ctx context.Context, a *Agent, j *reviewJob, task s
 	if err != nil {
 		return err
 	}
-	sections, err := e.repositorySections(ctx, repository, ReviewerRole)
+	sections, _, err := e.repositorySections(ctx, repository, ReviewerRole)
 	if err != nil {
 		return err
 	}
