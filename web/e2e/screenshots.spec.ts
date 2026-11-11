@@ -2230,7 +2230,7 @@ test("screenshots", async ({ page }) => {
   );
   await screenshot(page, "ci-stop", "/workstreams", (device) => [
     ...frame(device, drain, { organizations: true }),
-    page.getByText("Dispatch stopped: CI fails on main"),
+    page.getByText("Dispatch stopped in owner/shop: CI fails on main"),
     page.getByRole("link", { name: "#30" }),
   ]);
   expect(await page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")).toBe(

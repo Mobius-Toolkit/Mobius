@@ -136,8 +136,8 @@ test("the status line shows each CI stop with its task issue, and drops it when 
   let stops = [stop];
   await page.route("**/api/ci-stops", (route) => route.fulfill({ json: { data: stops } }));
   await page.goto("/workstreams");
-  const banner = page.getByText("Dispatch stopped: CI fails on main").locator("..");
-  await expect(banner.getByText('owner/shop: the workflow "ci" fails.')).toBeVisible();
+  const banner = page.getByText("Dispatch stopped in owner/shop: CI fails on main").locator("..");
+  await expect(banner.getByText('The workflow "ci" fails.')).toBeVisible();
   await expect(banner.getByRole("link", { name: "#30" })).toHaveAttribute(
     "href",
     "https://github.com/owner/shop/issues/30",
@@ -146,7 +146,46 @@ test("the status line shows each CI stop with its task issue, and drops it when 
   stops = [];
   await page.reload();
 
-  await expect(page.getByText("Dispatch stopped: CI fails on main")).toBeHidden();
+  await expect(page.getByText("Dispatch stopped in owner/shop: CI fails on main")).toBeHidden();
+});
+
+test("the status line of a phone shows a CI stop below the organization switch, and only in the organization of the stop", async ({
+  page,
+}) => {
+  const stop = {
+    repository: "plants/garden",
+    branch: "main",
+    workflow: "ci",
+    runUrl: "https://github.com/plants/garden/actions/runs/1",
+    issue: 31,
+    issueUrl: "https://github.com/plants/garden/issues/31",
+  };
+  const banner = page.getByText("Dispatch stopped in plants/garden: CI fails on main");
+  const organization = (name: string) =>
+    page.getByRole("button", { name }).filter({ visible: true });
+  await page.route("**/api/ci-stops", (route) => route.fulfill({ json: { data: [stop] } }));
+  await page.setViewportSize({ width: 390, height: 844 });
+
+  const stopsRead = page.waitForResponse("**/api/ci-stops");
+  await page.goto("/workstreams");
+  await stopsRead;
+  await expect(organization("owner")).toBeVisible();
+  await expect(banner).toBeHidden();
+
+  await organization("owner").click();
+  await page.getByRole("menuitemradio", { name: "plants" }).click();
+  await expect(banner).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("menu")).toBeHidden();
+  const switchBox = await organization("plants").boundingBox();
+  const bannerBox = await banner.boundingBox();
+  expect(bannerBox?.y ?? 0).toBeGreaterThanOrEqual(
+    (switchBox?.y ?? 999) + (switchBox?.height ?? 999),
+  );
+
+  await organization("plants").click();
+  await page.getByRole("menuitemradio", { name: "owner" }).click();
+  await expect(banner).toBeHidden();
 });
 
 test("a tap on Dismiss disables the button of the row", async ({ page }) => {
