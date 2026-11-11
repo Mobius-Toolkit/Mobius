@@ -36,6 +36,8 @@ var (
 )
 
 const (
+	// savePrompt is the last prompt of a Lead session.
+	savePrompt = "Save in the Workstream memory only the facts of this session that a later session needs and that MEMORY.md does not have. Read no code, issue or pull request, and run no command for more data. When no fact is new, reply \"nothing\" with no tool call."
 	// historySize is the number of chat messages in the history of a first prompt.
 	historySize = 20
 	// maxCrashes is the number of new sessions that a chat starts after crashes. After that, the item of the crash
@@ -171,6 +173,9 @@ type chat struct {
 	held bool
 	// stoppable tells that the turn that runs answers a message of the Owner, so a stop cancels the turn.
 	stoppable bool
+	// closing tells that the idle timeout or the drain started the close of the session, so no turn for an Owner
+	// message runs until the close ends.
+	closing bool
 	// backgroundTurn tells that the wait turn of waitChatBackground runs.
 	backgroundTurn bool
 	writing        bool
@@ -616,11 +621,18 @@ func (e *Engine) StopChat(ctx context.Context, key ChatKey) error {
 	default:
 		err = c.agent.stop(ctx)
 	}
+	stoppedWriting := c.writing && c.closing && len(c.queue) == 0
+	if stoppedWriting {
+		c.writing = false
+	}
 	state := c.state()
 	ended := e.chats[key] != c
 	e.chatsMu.Unlock()
 	if !ended {
 		e.publish(Change{Chat: &state})
+	}
+	if stoppedWriting {
+		e.publishSession(c.agent)
 	}
 	return err
 }
@@ -715,7 +727,7 @@ func (e *Engine) hasLead(repository string, workstream int64) bool {
 	return ok
 }
 
-// closeChats asks each chat to close when its work ends.
+// closeChats asks each chat to close when its work ends. A Lead saves its memory before the close.
 func (e *Engine) closeChats() {
 	e.chatsMu.Lock()
 	defer e.chatsMu.Unlock()
@@ -922,13 +934,13 @@ func (e *Engine) runChat(c *chat) {
 
 // moveChat prepares the next session of the chat after the session ended with the reason "moved". The item of the
 // turn that ran, or else the first queued item, is the first item of the next session, and moveChat gives true. The
-// turn of a moved session with no item, the wait turn for a background task, is lost: with no
+// turn of a moved session with no item, the memory save turn or the wait turn for a background task, is lost: with no
 // queued item the chat closes as at an idle end, and moveChat gives false.
 func (e *Engine) moveChat(c *chat) bool {
 	e.chatsMu.Lock()
 	defer e.chatsMu.Unlock()
 	current := c.current
-	c.current, c.held = nil, false
+	c.current, c.held, c.closing = nil, false, false
 	switch {
 	case current != nil:
 		c.first = *current
@@ -978,7 +990,7 @@ func (e *Engine) finishChat(c *chat, failure string) {
 
 // failChat keeps each message of the chat that the agent did not get after the last failed try, adds one Inbox item
 // for each, and ends the chat. It sets no stop time: the message waits for the next try. A failed event of a turn
-// counts as delivered. A failure with no item of a turn, for example the wait turn for a background task, takes no event:
+// counts as delivered. A failure with no item of a turn, for example the save turn of an idle close, takes no event:
 // the ready events of the Workstream wait for a new session.
 func (e *Engine) failChat(c *chat, failure string, failedEvent bool) {
 	ctx := context.Background()
@@ -1090,7 +1102,7 @@ func (e *Engine) leadFailed(ctx context.Context, failed item) error {
 }
 
 // chat runs the turns of the session a: first the item first, and then each queued item. When the chat is idle for
-// lead_idle_timeout or the drain asks it to close, the session ends.
+// lead_idle_timeout or the drain asks it to close, the Lead saves its memory and the session ends.
 func (e *Engine) chat(c *chat, a *Agent, first item) error {
 	ctx := c.ctx
 	quiet, err := e.quietEvents(ctx, c.key)
@@ -1150,10 +1162,20 @@ func (e *Engine) chat(c *chat, a *Agent, first item) error {
 			continue
 		}
 		e.chatsMu.Lock()
+		c.closing = true
+		e.chatsMu.Unlock()
+		if c.key.Workstream != 0 {
+			a.setAuthor("")
+			if err := e.turn(c, a, savePrompt, nil, false); err != nil {
+				return err
+			}
+		}
+		e.chatsMu.Lock()
 		closed := len(c.queue) == 0
 		if closed && e.chats[c.key] == c {
 			delete(e.chats, c.key)
 		}
+		c.closing = false
 		e.chatsMu.Unlock()
 		if closed {
 			return nil

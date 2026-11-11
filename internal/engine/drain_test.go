@@ -191,6 +191,9 @@ reply = ["A proposal."]
 		t.Fatalf("end = %s", end)
 	}
 
+	if !slices.Contains(leadPrompts(t, server), "Save in the Workstream memory only the facts of this session that a later session needs and that MEMORY.md does not have. Read no code, issue or pull request, and run no command for more data. When no fact is new, reply \"nothing\" with no tool call.") {
+		t.Errorf("prompts = %q", leadPrompts(t, server))
+	}
 	sessions := chatSessions(t, server, leadChat, engine.LeadRole)
 	if len(sessions) != 1 || !sessions[0].EndedAt.Valid {
 		t.Fatalf("sessions = %+v", sessions)

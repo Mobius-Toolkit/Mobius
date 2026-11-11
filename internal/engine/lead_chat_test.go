@@ -515,7 +515,7 @@ func TestANewOwnerMessageWaitsForTheTurnAndAStopEndsTheTurn(t *testing.T) {
 	}
 }
 
-func TestAnIdleLeadSessionEndsWithNoPromptAfterTheLastMessageAndTheNextMessageStartsANewSession(t *testing.T) {
+func TestAnIdleLeadSavesItsMemoryAndTheNextMessageStartsANewSession(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"First answer\"]\n")
@@ -526,7 +526,7 @@ func TestAnIdleLeadSessionEndsWithNoPromptAfterTheLastMessageAndTheNextMessageSt
 	if first.EndReason.String != "idle" {
 		t.Errorf("end reason = %s", first.EndReason.String)
 	}
-	if got := promptTexts(t, server, first.ID); len(got) != 1 {
+	if got := promptTexts(t, server, first.ID); got[len(got)-1] != "Save in the Workstream memory only the facts of this session that a later session needs and that MEMORY.md does not have. Read no code, issue or pull request, and run no command for more data. When no fact is new, reply \"nothing\" with no tool call." {
 		t.Errorf("prompts = %q", got)
 	}
 
@@ -544,27 +544,21 @@ func TestAnIdleLeadSessionEndsWithNoPromptAfterTheLastMessageAndTheNextMessageSt
 	}
 }
 
-func TestAnEventAfterTheIdleEndOfTheLeadStartsANewSessionWithTheFirstPrompt(t *testing.T) {
+func TestTheReplyOfTheMemorySaveTurnGoesOnlyToTheTranscript(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"Seen\"]\n")
-	dispatchTask(fake, 41, "Add plan model")
-	first := endedChatSession(t, server, 0)
-	if got := promptTexts(t, server, first.ID); len(got) != 1 || !strings.Contains(got[0], "dispatch of #41") {
-		t.Fatalf("prompts = %q", got)
-	}
+	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"First answer\"]\n\n[[prompts]]\nreply = [\"Memory saved\"]\n")
+	sendChat(t, server, leadChat, "Plan the loyalty API")
 
-	dispatchTask(fake, 42, "Add plan route")
+	session := endedChatSession(t, server, 0)
 
-	prompts := promptTexts(t, server, endedChatSession(t, server, 1).ID)
-	if len(prompts) != 1 {
-		t.Fatalf("prompts = %q", prompts)
+	want := []chatLine{{"Owner", "Plan the loyalty API"}, {"Lead", "First answer"}}
+	if got := chatLines(t, server, leadChat); !slices.Equal(got, want) {
+		t.Errorf("chat = %+v", got)
 	}
-	inOrder(t, prompts[0],
-		"You are the Lead of one Workstream. The Owner talks to you in this chat.",
-		"# Chat history",
-		"dispatch of #42",
-	)
+	if got := reply(t, server, session.ID); got != "First answerMemory saved" {
+		t.Errorf("reply = %q", got)
+	}
 }
 
 func TestALeadReplyIsUnreadUntilTheOwnerSeesIt(t *testing.T) {
@@ -960,6 +954,20 @@ func TestAChatIsStoppableDuringATurnForAnEventOnlyWhileAnOwnerMessageWaits(t *te
 		t.Error("the chat is not stoppable")
 	}
 	waitForChange(t, changes, func(change engine.Change) bool { return change.Chat != nil && change.Chat.Stoppable })
+}
+
+func TestAChatIsNotStoppableDuringTheMemorySaveTurn(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"First answer\"]\n\n[[prompts]]\nhang = true\n")
+	sendChat(t, server, leadChat, "Plan the loyalty API")
+	waitForChatSession(t, server, leadChat, engine.LeadRole, func(session store.Session) bool {
+		return len(promptTexts(t, server, session.ID)) == 2
+	})
+
+	if view := chatView(t, server, leadChat); view.Stoppable {
+		t.Error("the chat is stoppable")
+	}
 }
 
 func TestTheCloseOfAWorkstreamStopsTheQueuedOwnerMessages(t *testing.T) {
