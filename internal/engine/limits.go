@@ -288,10 +288,33 @@ func (e *Engine) pause(ctx context.Context, a *Agent, until time.Time) error {
 	return nil
 }
 
+// pauseQuiet pauses harness until until when it has no pause. It adds no chat message.
+func (e *Engine) pauseQuiet(ctx context.Context, harness config.Harness, until time.Time) (time.Time, error) {
+	e.pausing.Lock()
+	defer e.pausing.Unlock()
+	current, err := e.queries.GetHarnessPause(ctx, string(harness))
+	if err == nil {
+		end, err := pauseEnd(current)
+		if err != nil {
+			return until, err
+		}
+		return *end, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return until, err
+	}
+	pause := store.HarnessPause{Harness: string(harness), PausedUntil: until.UTC().Format(time.RFC3339Nano)}
+	if err := e.queries.SetHarnessPause(ctx, store.SetHarnessPauseParams(pause)); err != nil {
+		return until, err
+	}
+	e.publish(Change{Pauses: true})
+	return until, nil
+}
+
 // addLimitMessage adds text to the chat of the Workstream of a.
 func (e *Engine) addLimitMessage(ctx context.Context, a *Agent, text string) error {
 	spec := a.spec
-	_, err := e.addChatMessage(ctx, ChatKey{spec.Organization, spec.WorkstreamRepository, spec.Workstream}, mobiusAuthor, text, "", "", nil, false)
+	_, err := e.addChatMessage(ctx, ChatKey{spec.Organization, spec.WorkstreamRepository, spec.Workstream}, mobiusAuthor, text, "", "", nil, nil, false)
 	return err
 }
 
