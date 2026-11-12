@@ -8,7 +8,7 @@ import { answerDraftKey } from "@/lib/draft";
 import { buttonClass } from "@/ui/button";
 import { arrowUpIcon, banIcon, checkIcon } from "@/ui/icons";
 import { Message } from "./message";
-import { hasNote, type Model, voiceBusy } from "./model";
+import { hasNote, type Model } from "./model";
 import type { InboxItem } from "./schemas";
 
 type H = HtmlBuilder<Message>;
@@ -31,7 +31,7 @@ export function renderPanelComposer(h: H, model: Model, item: InboxItem): Html {
   const selected = Object.values(model.selectedOptions).some((options) => options.length > 0);
   const decide = Boolean(action);
   const busy = model.requesting.includes(item.id);
-  const holdsVoice = voiceBusy(model.answerVoice);
+  const holdsVoice = Composer.voiceBusy(model.answerVoice);
   const empty = !model.answerText.trim() && !(note ? true : !action && selected);
   const cannotSend = empty || holdsVoice;
   const role = action ? (roleName[action.role] ?? action.role) : "";

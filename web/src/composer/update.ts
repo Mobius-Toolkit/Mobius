@@ -101,6 +101,7 @@ export function update(model: Model, message: Message): UpdateReturn {
       };
     },
 
+    // The Send button and Enter stop a voice run and send nothing.
     SendSubmitted: () => {
       if (model.voice.recording) {
         return { model, commands: [StopVoice()] };

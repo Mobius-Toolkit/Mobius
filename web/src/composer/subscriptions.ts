@@ -14,6 +14,7 @@ import { Message } from "./message";
 import { inputId, type Model } from "./model";
 import type { Draft } from "@/chat/schemas";
 
+// Gives the draft of the key to the program: first the draft that the browser store holds, then each change.
 export function draftValues<Msg>(key: string, toMessage: (draft: Draft) => Msg) {
   return Stream.callback<Msg>((queue) =>
     Effect.gen(function* () {
@@ -37,6 +38,9 @@ export function draftValues<Msg>(key: string, toMessage: (draft: Draft) => Msg) 
   );
 }
 
+// The text of a conversion goes to the cursor of the field. The height of the text up to the end of the voice text
+// gives the scroll position, because setSelectionRange does not scroll a field without the focus and WebKit on iOS does
+// not scroll it reliably.
 function insertAtCursor(key: string, fieldId: string) {
   return (voiceText: string) => {
     const field = document.getElementById(fieldId);
@@ -56,6 +60,8 @@ function insertAtCursor(key: string, fieldId: string) {
   };
 }
 
+// The recording stops when no mounted input has its draft key, so each field has its own Subscription: a change of the
+// answer panel must not unmount the input of the chat.
 export function voiceInput(key: string, fieldId: string) {
   return Stream.callback<never>(() =>
     Effect.gen(function* () {
@@ -69,18 +75,19 @@ export function voiceInput(key: string, fieldId: string) {
   );
 }
 
-export const voiceClock = Stream.callback<Message>((queue) => {
-  const tick = () => Queue.offerUnsafe(queue, Message.VoiceTicked({ now: Date.now() }));
-  return Effect.gen(function* () {
-    tick();
-    const timer = setInterval(tick, 1000);
-    yield* Effect.addFinalizer(() =>
-      Effect.sync(() => {
-        clearInterval(timer);
-      }),
-    );
+export const voiceClock = <Msg>(toMessage: (now: number) => Msg) =>
+  Stream.callback<Msg>((queue) => {
+    const tick = () => Queue.offerUnsafe(queue, toMessage(Date.now()));
+    return Effect.gen(function* () {
+      tick();
+      const timer = setInterval(tick, 1000);
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => {
+          clearInterval(timer);
+        }),
+      );
+    });
   });
-});
 
 export const subscriptions = Subscription.make<Model, Message>()((entry) => ({
   draft: entry(
@@ -103,7 +110,8 @@ export const subscriptions = Subscription.make<Model, Message>()((entry) => ({
     { recording: Schema.Boolean },
     {
       modelToDependencies: (model) => ({ recording: model.voice.recording }),
-      dependenciesToStream: ({ recording }) => (recording ? voiceClock : Stream.empty),
+      dependenciesToStream: ({ recording }) =>
+        recording ? voiceClock((now) => Message.VoiceTicked({ now })) : Stream.empty,
     },
   ),
   voiceInput: entry(

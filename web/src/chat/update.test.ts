@@ -23,7 +23,7 @@ import {
 import { Message } from "./message";
 import { initialModel, retryDelays, type Model, type Waiting } from "./model";
 import type { ChatMessage, Draft, InboxItem, PendingAction, Queued } from "./schemas";
-import { enqueue, update } from "./update";
+import { enqueue, stopChat, update } from "./update";
 
 // The voice library reads the document of the browser when it loads.
 vi.mock("@/lib/voice", () => ({ resend: vi.fn(), stopVoice: vi.fn(), toggleVoice: vi.fn() }));
@@ -1133,22 +1133,17 @@ describe("chat update story tests", () => {
     });
 
     it("ignores a second tap on Stop while the first request runs", () => {
-      const base = createTestModel({ stoppable: true });
-
-      story(
-        update,
-        given(base),
-        message(Message.StopChatClicked()),
-        StoryCommand.expectExact(
+      const first = stopChat(createTestModel({ stoppable: true }));
+      expect(described(first.commands)).toEqual(
+        described([
           StopChat({ organization: "test-org", repository: "test-repo", workstream: 1428 }),
-        ),
-        StoryCommand.resolve(StopChat, Message.StopChatCompleted({ error: null })),
-        message(Message.StopChatClicked()),
-        model((m) => {
-          expect(m.stopping).toBe(true);
-        }),
-        StoryCommand.expectNone(),
+        ]),
       );
+      expect(first.model.stopping).toBe(true);
+
+      const second = stopChat(first.model);
+      expect(second.model).toBe(first.model);
+      expect(second.commands ?? []).toEqual([]);
     });
 
     it("keeps the pending Stop button after a successful request", () => {

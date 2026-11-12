@@ -68,10 +68,6 @@ export function upsert(list: readonly ChatMessage[], message: ChatMessage): read
   );
 }
 
-// A card that converts or has failed blocks each send.
-export const voiceBusy = (voice: DraftVoice | null) =>
-  voice?.state === "converting" || voice?.state === "failed";
-
 export const countsAsUnread = (message: ChatMessage) =>
   message.author !== "Owner" && message.author !== "Event" && message.author !== "Record";
 

@@ -37,15 +37,7 @@ import { issueRef } from "@/lib/notice";
 import { answerInputId } from "./composer";
 import { Message, toGotComposerMessage } from "./message";
 type Running = "action" | "dismiss" | "merge";
-import {
-  countsAsUnread,
-  hasNote,
-  retryDelays,
-  upsert,
-  voiceBusy,
-  type Model,
-  type Waiting,
-} from "./model";
+import { countsAsUnread, hasNote, retryDelays, upsert, type Model, type Waiting } from "./model";
 import { InboxItem, type Queued } from "./schemas";
 
 export function enqueue(model: Model, item: Queued): UpdateReturn<Model, Message> {
@@ -62,6 +54,22 @@ export function enqueue(model: Model, item: Queued): UpdateReturn<Model, Message
   return { model: { ...model, queue }, commands };
 }
 
+export function stopChat(model: Model): UpdateReturn<Model, Message> {
+  if (model.stopping) {
+    return { model };
+  }
+  return {
+    model: { ...model, stopping: true },
+    commands: [
+      StopChat({
+        organization: model.organization,
+        repository: model.repository,
+        workstream: model.workstream,
+      }),
+    ],
+  };
+}
+
 const foldComposer = Update.foldChild({
   update: Composer.update,
   read: (model: Model) => Option.some(model.composer),
@@ -69,22 +77,7 @@ const foldComposer = Update.foldChild({
   toParentMessage: toGotComposerMessage,
   foldOutMessage: (outMessage) =>
     ComposerOutMessage.match<Update.Step<Model, Message>>(outMessage, {
-      StopClicked: () => (model) =>
-        model.stopping
-          ? { model }
-          : {
-              model: {
-                ...model,
-                stopping: true,
-              },
-              commands: [
-                StopChat({
-                  organization: model.organization,
-                  repository: model.repository,
-                  workstream: model.workstream,
-                }),
-              ],
-            },
+      StopClicked: () => stopChat,
       MessageEnqueued:
         ({ item }) =>
         (model) =>
@@ -704,23 +697,6 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
 
     CompletedRemoveQueued: () => ({ model }),
 
-    StopChatClicked: () =>
-      model.stopping
-        ? { model }
-        : {
-            model: {
-              ...model,
-              stopping: true,
-            },
-            commands: [
-              StopChat({
-                organization: model.organization,
-                repository: model.repository,
-                workstream: model.workstream,
-              }),
-            ],
-          },
-
     // After a success the button stays pending until the server says that the chat is not stoppable.
     StopChatCompleted: ({ error }) =>
       error === null ? { model } : foldSendError({ ...model, stopping: false }, error),
@@ -974,7 +950,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
         return { model, commands: [StopVoice()] };
       }
       const empty = !model.answerText.trim() && !hasSelection(model) && !hasNote(panel.item);
-      if (empty || panel.item.action || voiceBusy(model.answerVoice)) {
+      if (empty || panel.item.action || Composer.voiceBusy(model.answerVoice)) {
         return { model };
       }
       return {
@@ -997,7 +973,11 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
 
     ActionDecided: ({ decision }) => {
       const panel = model.activePanel;
-      if (!panel || requestingOf(model).includes(panel.item.id) || voiceBusy(model.answerVoice)) {
+      if (
+        !panel ||
+        requestingOf(model).includes(panel.item.id) ||
+        Composer.voiceBusy(model.answerVoice)
+      ) {
         return { model };
       }
       const text = model.answerText;

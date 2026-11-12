@@ -3,6 +3,7 @@ import * as Subscription from "foldkit/subscription";
 import {
   draftValues,
   subscriptions as composerSubscriptions,
+  voiceClock,
   voiceInput,
 } from "@/composer/subscriptions";
 import { answerDraftKey } from "@/lib/draft";
@@ -16,19 +17,6 @@ import { Message, toGotComposerMessage } from "./message";
 import type { Model } from "./model";
 
 const stopDelay = 500;
-
-export const voiceClock = Stream.callback<Message>((queue) => {
-  const tick = () => Queue.offerUnsafe(queue, Message.VoiceTicked({ now: Date.now() }));
-  return Effect.gen(function* () {
-    tick();
-    const timer = setInterval(tick, 1000);
-    yield* Effect.addFinalizer(() =>
-      Effect.sync(() => {
-        clearInterval(timer);
-      }),
-    );
-  });
-});
 
 function createEscapeKeyStream() {
   return Stream.callback<Message>((queue) => {
@@ -91,7 +79,8 @@ export const itemSubscriptions = Subscription.make<Model, Message>()((entry) => 
     { recording: Schema.Boolean },
     {
       modelToDependencies: (model) => ({ recording: model.voice.recording }),
-      dependenciesToStream: ({ recording }) => (recording ? voiceClock : Stream.empty),
+      dependenciesToStream: ({ recording }) =>
+        recording ? voiceClock((now) => Message.VoiceTicked({ now })) : Stream.empty,
     },
   ),
   chatItemAnswerVoiceInput: entry(
@@ -149,7 +138,8 @@ export const inboxItemSubscriptions = Subscription.make<Model, Message>()((entry
     { recording: Schema.Boolean },
     {
       modelToDependencies: (model) => ({ recording: model.voice.recording }),
-      dependenciesToStream: ({ recording }) => (recording ? voiceClock : Stream.empty),
+      dependenciesToStream: ({ recording }) =>
+        recording ? voiceClock((now) => Message.VoiceTicked({ now })) : Stream.empty,
     },
   ),
   inboxItemAnswerVoiceInput: entry(

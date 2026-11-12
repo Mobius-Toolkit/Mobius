@@ -46,7 +46,6 @@ export const Message = defineMessageUnion({
   CompletedRemoveQueued: { id: Schema.String },
   OutboxChanged: {},
 
-  StopChatClicked: {},
   StopChatCompleted: { error: Schema.NullOr(Schema.String) },
 
   GotComposerMessage: { message: Composer.Message },

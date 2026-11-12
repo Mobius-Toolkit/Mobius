@@ -11,6 +11,7 @@ import { textareaClass } from "@/ui/textarea";
 import { Message } from "./message";
 import { inputId, type Model, pickerId, voiceBusy } from "./model";
 
+// The Mount of an image reads its file only at insert, so each file of a list needs its own key.
 export function fileKey(files: File[], index: number) {
   const file = files[index];
   const same = files
@@ -57,6 +58,7 @@ export function renderFileImage<Msg>(
   ]);
 }
 
+// A button that takes the focus closes the keyboard of a phone, and the button moves before the click.
 export function keepFocus(event: Event) {
   if (event.target instanceof Element && event.target.closest("[data-keep-focus]")) {
     event.preventDefault();
@@ -67,6 +69,8 @@ type ComposerMessage =
   | ReturnType<typeof Message.SendSubmitted>
   | ReturnType<typeof Message.ImagesChosen>;
 
+// One Mount owns the behavior that needs the DOM event: Enter, a paste with a picture, a blur on iOS, the focus at
+// the start, and a mouse down on a button that must not take the focus from the field.
 export const ComposerBehavior = Mount.defineStream("ComposerBehavior", {
   args: {
     autoFocus: Schema.Boolean,
@@ -83,6 +87,8 @@ export const ComposerBehavior = Mount.defineStream("ComposerBehavior", {
           if (!(key instanceof KeyboardEvent)) {
             return;
           }
+          // On a touch screen, Enter adds a line and only the Send button sends. Safari gives the Enter that ends
+          // an IME composition with isComposing false and keyCode 229.
           if (
             key.target === field() &&
             key.key === "Enter" &&
@@ -103,16 +109,20 @@ export const ComposerBehavior = Mount.defineStream("ComposerBehavior", {
             return;
           }
           const pasted = [...data.files].filter((file) => file.type.startsWith("image/"));
+          // Spreadsheet and word processor apps put the text and a picture of the selection on the clipboard.
           if (pasted.length > 0 && !data.getData("text/plain")) {
             event.preventDefault();
             Queue.offerUnsafe(queue, Message.ImagesChosen({ files: pasted }));
           }
         };
+        // Safari on iOS scrolls the page when the keyboard opens, and it can keep that offset after the keyboard closes.
         const blur = (event: Event) => {
           if (event.target === field()) {
             window.scrollTo(0, 0);
           }
         };
+        // Foldkit renders in the next frame, so a tap right after a key sees the Send button of the empty draft.
+        // The button is enabled at once.
         const typed = (event: Event) => {
           const target = event.target;
           const submit = element.querySelector<HTMLButtonElement>("button[type=submit]");
@@ -265,6 +275,8 @@ function elapsed(voiceState: { startedAt: number }, now: number) {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
+// The card of the voice in the draft of a field: the recording with its live text, the conversion, the failure, or the
+// converted voice.
 function voiceCard<Msg>(
   h: HtmlBuilder<Msg>,
   voiceState: { recording: boolean; key: string; startedAt: number; live: string },
@@ -582,6 +594,8 @@ export const view = defineView<Model, Message, ViewInputs>((model, viewInputs, h
       actions: [
         h.button(
           [
+            // Foldkit renders in the next frame, so a tap right after the input can still see the old button.
+            // A Stop button of type submit sends nothing, because the draft is empty then.
             h.Type("submit"),
             h.AriaLabel(sendLabel),
             h.Attribute("title", sendLabel),

@@ -18,6 +18,7 @@ export const isEmptyDraft = (model: {
 }) =>
   !model.draftText.trim() && model.draftImages.length === 0 && model.draftInboxItems.length === 0;
 
+// A card that converts or has failed blocks each send.
 export const voiceBusy = (voice: DraftVoice | null) =>
   voice?.state === "converting" || voice?.state === "failed";
 
