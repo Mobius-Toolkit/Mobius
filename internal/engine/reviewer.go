@@ -505,8 +505,8 @@ func (e *Engine) endRound(ctx context.Context, repository github.Repository, j *
 }
 
 // abandonRound writes the reason into the comment of the review run of the task that did not end, as an outgoing
-// change. A task with no comment of a run needs no update. The comment of a run that has a pending post or a pending
-// edit has its change already.
+// change. A task with no comment of a run needs no update. The newest comment already has its change when a pending
+// edit comes after each pending post. An edit before the newest pending post belongs to an earlier run.
 func (e *Engine) abandonRound(ctx context.Context, repository github.Repository, task store.Task, reason string) error {
 	comment, err := e.queries.GetReviewComment(ctx, task.ID)
 	if err != nil {
@@ -516,16 +516,16 @@ func (e *Engine) abandonRound(ctx context.Context, repository github.Repository,
 	if err != nil {
 		return err
 	}
-	open := comment.Valid
+	var newestPost, newestEdit int64
 	for _, change := range pending {
 		switch change.Field {
 		case reviewCommentField:
-			open = true
+			newestPost = change.ID
 		case reviewCommentEditField:
-			return nil
+			newestEdit = change.ID
 		}
 	}
-	if !open {
+	if newestEdit > newestPost || !comment.Valid && newestPost == 0 {
 		return nil
 	}
 	change, err := e.addOutgoingChange(ctx, e.queries, repository.FullName, task.PullRequest.Int64, 0, reviewCommentEditField, fmt.Sprintf("Review stopped%s\n\n%s", e.reviewRoundText(task), reason))

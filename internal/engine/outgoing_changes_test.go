@@ -1,7 +1,6 @@
 package engine_test
 
 import (
-	"fmt"
 	"net/http"
 	"slices"
 	"strings"
@@ -167,16 +166,12 @@ func TestAPendingEditOfAnEarlierReviewRunStillChangesItsCommentWhenANewRunStarts
 	if number := fake.OpenPullRequest(shop, "Add plan model", "mobius/41"); number != 42 {
 		t.Fatalf("pull request = %d", number)
 	}
-	testkit.WaitFor(t, func() bool { return len(roleSessions(t, server, engine.ReviewerRole)) == 1 })
-	comment := fake.AddComment(shop, 42, app, "Review started, round 1 of 10")
-	trigger := fmt.Sprintf("CREATE TRIGGER open_review_comment AFTER UPDATE OF worker_restarts ON tasks BEGIN UPDATE tasks SET review_comment = %d WHERE id = NEW.id; END", comment)
-	if _, err := server.DB.Exec(trigger); err != nil {
-		t.Fatal(err)
-	}
+	testkit.WaitFor(t, func() bool { return len(roundComments(fake)) == 1 })
 	fake.FailUpdateComment(shop, 42, true)
 
 	server.Engine.StopWorker(1)
 
+	// The edit of the first run and the post of the second run wait for the update that GitHub fails.
 	testkit.WaitFor(t, func() bool {
 		return len(roleSessions(t, server, engine.ReviewerRole)) == 2 && commentWrites(t, server) == 2
 	})
@@ -184,11 +179,40 @@ func TestAPendingEditOfAnEarlierReviewRunStillChangesItsCommentWhenANewRunStarts
 
 	testkit.WaitFor(t, func() bool { return commentWrites(t, server) == 0 })
 	comments := roundComments(fake)
-	// The first run posted its own comment, the test added the comment that the edit changes, and the new run posted the last.
-	if len(comments) != 3 || !strings.HasPrefix(comments[1], "Review stopped, round 1 of 10") || comments[2] != "Review started, round 1 of 10" {
+	if len(comments) != 2 || !strings.HasPrefix(comments[0], "Review stopped, round 1 of 10") || comments[1] != "Review started, round 1 of 10" {
 		t.Errorf("comments = %q", comments)
 	}
 	if got := outgoingChanges(t, server, "refused"); got != 0 {
 		t.Errorf("refused outgoing changes = %d", got)
+	}
+}
+
+func TestAnAbandonedReviewRunGetsItsStopEditWhileAnEditOfAnEarlierRunIsPending(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := seedReviewerWith(t, fake, hangs)
+	if number := fake.OpenPullRequest(shop, "Add plan model", "mobius/41"); number != 42 {
+		t.Fatalf("pull request = %d", number)
+	}
+	testkit.WaitFor(t, func() bool { return len(roundComments(fake)) == 1 })
+	fake.FailUpdateComment(shop, 42, true)
+	server.Engine.StopWorker(1)
+	// The edit of the first run and the post of the second run wait for the update that GitHub fails.
+	testkit.WaitFor(t, func() bool {
+		return len(roleSessions(t, server, engine.ReviewerRole)) == 2 && commentWrites(t, server) == 2
+	})
+
+	server.Engine.StopWorker(1)
+
+	testkit.WaitFor(t, func() bool {
+		return len(roleSessions(t, server, engine.ReviewerRole)) == 3 && commentWrites(t, server) == 4
+	})
+	fake.FailUpdateComment(shop, 42, false)
+
+	testkit.WaitFor(t, func() bool { return commentWrites(t, server) == 0 })
+	comments := roundComments(fake)
+	started, stopped := "Review started, round 1 of 10", "Review stopped, round 1 of 10"
+	if len(comments) != 3 || !strings.HasPrefix(comments[0], stopped) || !strings.HasPrefix(comments[1], stopped) || comments[2] != started {
+		t.Errorf("comments = %q", comments)
 	}
 }
