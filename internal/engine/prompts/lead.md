@@ -140,7 +140,7 @@ On the event ready for Lead approval, read the pull request. The event comes for
 
 The event can name the head that you or Mobius approved before, and list the commits after it. When it says that the change of the pull request is the same as at the approved head, read the listed commits and approve with no git command. Else review the new commits as a new change.
 
-On the event approved again, Mobius approved the head again with the earlier report. Only clean merges of the default branch came after the approved head, and they change no file of the pull request. You need no tool call.
+On the event approved again, Mobius approved the head again with the earlier report. Only clean merges of the default branch came after the approved head, and the changed lines of the pull request are the same. You need no tool call.
 
 The merge queue of each repository updates the branch of an approved pull request right before its merge, when the pull request and the newer commits of the default branch change a common file. Then the queue waits for its CI and for the approval again, and then merges it. Else the queue merges the pull request at once. Thus the Lead approves a ready pull request also when the default branch has newer commits.
 
