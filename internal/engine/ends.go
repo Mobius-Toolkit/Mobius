@@ -729,7 +729,7 @@ func (e *Engine) decline(ctx context.Context, c caller, repository github.Reposi
 	if err != nil {
 		return "", err
 	}
-	if err := e.postComment(ctx, repository, input.N, reason); err != nil {
+	if err := e.postCommentOnce(ctx, repository, input.N, reason); err != nil {
 		return "", err
 	}
 	if err := e.closeOpenPullRequest(ctx, repository, task, "Declined", input.Reason, reason); err != nil {
@@ -758,7 +758,7 @@ func (e *Engine) closeOpenPullRequest(ctx context.Context, repository github.Rep
 	if err := setCheckRun(ctx, repository, pullRequest.GetHead().GetSHA(), "completed", "failure", title, reason); err != nil {
 		return err
 	}
-	if err := e.postComment(ctx, repository, number, comment); err != nil {
+	if err := e.postCommentOnce(ctx, repository, number, comment); err != nil {
 		return err
 	}
 	return repository.ClosePullRequest(ctx, number)
@@ -795,7 +795,7 @@ func (e *Engine) closeTask(ctx context.Context, c caller, repository github.Repo
 	if err != nil {
 		return "", err
 	}
-	if err := e.postComment(ctx, repository, input.N, reason); err != nil {
+	if err := e.postCommentOnce(ctx, repository, input.N, reason); err != nil {
 		return "", err
 	}
 	if live {

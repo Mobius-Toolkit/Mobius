@@ -759,9 +759,6 @@ func (e *Engine) ask(ctx context.Context, c caller, repository github.Repository
 	if issue == nil {
 		return "", refuse("#%d does not exist.", input.N)
 	}
-	if err := repository.AddLabel(ctx, input.N, questionLabel); err != nil {
-		return "", err
-	}
 	replaced, err := e.openIssueItems(ctx, repository.FullName, input.N, questionKind)
 	if err != nil {
 		return "", err
@@ -774,6 +771,7 @@ func (e *Engine) ask(ctx context.Context, c caller, repository github.Repository
 	var asked store.InboxItem
 	var message store.ChatMessage
 	var change int64
+	e.questionMu.Lock()
 	err = e.inTx(ctx, func(q *store.Queries) error {
 		var err error
 		if change, err = e.addOutgoingChange(ctx, q, repository.FullName, input.N, 0, commentField, comment); err != nil {
@@ -794,6 +792,10 @@ func (e *Engine) ask(ctx context.Context, c caller, repository github.Repository
 		})
 		return err
 	})
+	if err == nil {
+		err = repository.AddLabel(ctx, input.N, questionLabel)
+	}
+	e.questionMu.Unlock()
 	if err != nil {
 		return "", err
 	}

@@ -87,6 +87,8 @@ func (e *Engine) Inbox(ctx context.Context) ([]store.InboxItem, error) {
 //
 // When a question is done and the task of its issue is still stopped, the newest stopped item of the stop opens again.
 func (e *Engine) closeInboxItems(ctx context.Context, repository github.Repository) error {
+	e.questionMu.Lock()
+	defer e.questionMu.Unlock()
 	items, err := e.Inbox(ctx)
 	if err != nil {
 		return err
