@@ -2,6 +2,8 @@ import { Option } from "effect";
 import { describe, expect, it } from "vitest";
 import { Command as StoryCommand, given, message, model, story } from "foldkit/story";
 import { fromString } from "foldkit/url";
+import { FetchAgents } from "@/agents/commands";
+import { Message as AgentsMessage } from "@/agents/message";
 import { Message as SwitchesMessage } from "@/settings/switches/message";
 import { Message as PanelMessage } from "@/panel/message";
 import { Message as TasksMessage } from "@/panel/tasks/message";
@@ -230,6 +232,24 @@ describe("organization switch update logic", () => {
     expect(next.route._tag).toBe("Checkup");
     expect(Option.map(next.checkupProgram, (checkup) => checkup.page)).toEqual(
       Option.some("overview"),
+    );
+  });
+
+  it("loads the agent list when the route changes to Agents", () => {
+    story(
+      update,
+      given(createModel("/settings")),
+      message(Message.UrlChanged({ url: urlOf("/agents") })),
+      model((m) => {
+        expect(m.route._tag).toBe("Agents");
+        expect(Option.map(m.agentsProgram, (agents) => agents.request)).toEqual(Option.some(1));
+      }),
+      StoryCommand.expectHas(FetchAgents({ request: 1 })),
+      StoryCommand.resolve(
+        FetchAgents,
+        AgentsMessage.AgentsLoaded({ request: 1, agents: { groups: [] } }),
+      ),
+      StoryCommand.resolve(SettleScroll, Message.CompletedSettleScroll()),
     );
   });
 
