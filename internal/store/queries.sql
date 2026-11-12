@@ -748,14 +748,28 @@ SELECT review_comment FROM tasks WHERE id = ?;
 -- name: SetReviewComment :exec
 UPDATE tasks SET review_comment = ? WHERE id = ?;
 
--- name: AddCommentWrite :exec
-INSERT INTO comment_writes (repository, number, comment, reply_to, body) VALUES (?, ?, ?, ?, ?);
+-- name: AddOutgoingChange :one
+INSERT INTO outgoing_changes (integration, repository, number, reply_to, field, text, status, created_at) VALUES ('github', ?, ?, ?, ?, ?, 'pending', ?)
+RETURNING id;
 
--- name: ListCommentWrites :many
-SELECT * FROM comment_writes WHERE repository = ? ORDER BY id;
+-- name: GetOutgoingChange :one
+SELECT * FROM outgoing_changes WHERE id = ?;
 
--- name: DeleteCommentWrite :exec
-DELETE FROM comment_writes WHERE id = ?;
+-- name: ListPendingOutgoingChanges :many
+SELECT * FROM outgoing_changes WHERE repository = ? AND status = 'pending' ORDER BY id;
+
+-- name: SetOutgoingChangeStatus :exec
+UPDATE outgoing_changes SET status = ? WHERE id = ?;
+
+-- name: DeleteFinishedOutgoingChanges :exec
+DELETE FROM outgoing_changes WHERE status <> 'pending' AND julianday(created_at) < julianday(?);
+
+-- name: GetNewestTaskOfPullRequest :one
+SELECT * FROM tasks WHERE repository = ? AND pull_request = ? ORDER BY id DESC LIMIT 1;
+
+-- name: SetReviewCommentOfPullRequest :exec
+UPDATE tasks SET review_comment = ?
+WHERE id = (SELECT t.id FROM tasks t WHERE t.repository = ? AND t.pull_request = ? ORDER BY t.id DESC LIMIT 1);
 
 -- name: AddStopNotice :exec
 INSERT INTO stop_notices (task, title, reason, text, output, next, lead_kind, lead_text, check_title, check_summary, check_create, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
