@@ -8,7 +8,7 @@ import {
   PendingAction,
 } from "@/chat/schemas";
 import { inboxItemSubscriptions, subscriptions as chatSubscriptions } from "@/chat/subscriptions";
-import { currentNewBuild, subscribeNewBuild } from "@/lib/build";
+import { currentNewBuild, reloadOnNewBuild, subscribeNewBuild } from "@/lib/build";
 import { currentInbox, openInboxItems, startInbox, subscribeInbox } from "@/lib/inbox";
 import { currentNotice, subscribeNotice } from "@/lib/notice";
 import { currentUnread, startUnread, subscribeUnread } from "@/lib/unread";
@@ -26,14 +26,13 @@ import { Agent } from "@/transcript/schemas";
 import { subscriptions as usageSubscriptions } from "@/usage/subscriptions";
 import { subscriptions as workstreamsSubscriptions } from "@/workstreams/subscriptions";
 import { Message } from "./message";
-import { CIStop, Drain, Pause, Switches, wideQuery, type Model } from "./model";
+import { CIStop, Drain, Pause, Switches, Upgrade, wideQuery, type Model } from "./model";
 
 const AnyRecord = Schema.Record(Schema.String, Schema.Json);
 const RecurringTaskEvent = Schema.Struct({
   repository: Schema.String,
   number: Schema.Number,
 });
-const UpgradeEvent = Schema.Struct({ failure: Schema.String });
 
 const onlineStream = Stream.callback<Message>((queue) => {
   const onOnline = () => Queue.offerUnsafe(queue, Message.OnlineChanged({ online: true }));
@@ -59,6 +58,26 @@ const wideStream = Stream.callback<Message>((queue) => {
       Effect.sync(() => query.removeEventListener("change", onChange)),
     );
   });
+});
+
+const upgradeClock = Stream.callback<Message>((queue) => {
+  const tick = () => Queue.offerUnsafe(queue, Message.UpgradeTicked({ now: Date.now() }));
+  return Effect.gen(function* () {
+    tick();
+    const timer = setInterval(tick, 1000);
+    yield* Effect.addFinalizer(() =>
+      Effect.sync(() => {
+        clearInterval(timer);
+      }),
+    );
+  });
+});
+
+// The old server answers until it restarts, so the page reloads when the new build comes.
+const reloadStream = Stream.callback<Message>(() => {
+  const controller = new AbortController();
+  void reloadOnNewBuild(controller.signal);
+  return Effect.addFinalizer(() => Effect.sync(() => controller.abort()));
 });
 
 const loginStream = Stream.callback<Message>((queue) => {
@@ -117,9 +136,7 @@ export const appSubscriptions = Subscription.make<Model, Message>()((entry) => (
                   Message.SwitchesChanged({ switches }),
                 ),
                 liveListener("drain", Drain, (drain) => Message.DrainChanged({ drain })),
-                liveListener("upgrade", UpgradeEvent, (u) =>
-                  Message.UpgradeFailureChanged({ failure: u.failure }),
-                ),
+                liveListener("upgrade", Upgrade, (upgrade) => Message.UpgradeChanged({ upgrade })),
                 liveListener("workstreams", AnyRecord, () => Message.ForwardWorkstreamsEvent()),
                 liveListener("agent", Agent, (agent) => Message.ForwardAgentEvent({ agent })),
                 liveListener("recurring_tasks", RecurringTaskEvent, ({ repository, number }) =>
@@ -203,6 +220,22 @@ export const appSubscriptions = Subscription.make<Model, Message>()((entry) => (
         storeValues(subscribeNewBuild, currentNewBuild, (newBuild) =>
           Message.NewBuildStoreChanged({ newBuild }),
         ),
+    },
+  ),
+
+  upgradeClock: entry(
+    { waiting: Schema.Boolean },
+    {
+      modelToDependencies: (model) => ({ waiting: model.upgrade.step === "retry" }),
+      dependenciesToStream: ({ waiting }) => (waiting ? upgradeClock : Stream.empty),
+    },
+  ),
+
+  reloadOnNewBuild: entry(
+    { restarting: Schema.Boolean },
+    {
+      modelToDependencies: (model) => ({ restarting: model.upgrade.step === "restart" }),
+      dependenciesToStream: ({ restarting }) => (restarting ? reloadStream : Stream.empty),
     },
   ),
 
