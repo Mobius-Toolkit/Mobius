@@ -39,11 +39,12 @@ function restoreEquals(text: string) {
 // The parser of @foldkit/markdown reads ":name" as a text directive and throws on a task list item. Outside code, a
 // colon before a letter or a digit gets a backslash, and the "[ ]" or "[x]" of a task list item becomes a private-use
 // character that the Text view shows as a checkbox. A URL keeps its colons, because a backslash breaks a link that has
-// no brackets. The groups of the pattern are a code fence, a code span and the letter of a task list item.
+// no brackets. The groups of the pattern are a code fence, a code span and the letter of a task list item. An indented code block
+// is a block of lines with four spaces or a tab, after a blank line or at the start.
 const checkedBox = "";
 const uncheckedBox = "";
 const outsideCode =
-  /^[ \t>-]*(`{3,}(?![^\n]*`)|~{3,})[^\n]*(?:\n[\s\S]*?)?(?:\n[ \t>-]*\1[`~]*[ \t]*(?=\n|$)|(?![\s\S]))|(?<!`)(`+)(?!`)[\s\S]*?(?<!`)\2(?!`)|^[ \t>]*(?:[-*+]|\d+[.)])[ \t]+\[([ xX])\](?=[ \t])|\b(?:(?:https?|ftp):\/\/|www\.|mailto:)[^\s<]*|(?<!\\):(?=[A-Za-z0-9])/gim;
+  /^[ \t>-]*(`{3,}(?![^\n]*`)|~{3,})[^\n]*(?:\n[\s\S]*?)?(?:\n[ \t>-]*\1[`~]*[ \t]*(?=\n|$)|(?![\s\S]))|(?<!`)(`+)(?!`)[\s\S]*?(?<!`)\2(?!`)|(?:(?<![\s\S])|(?<=\n[ \t]*\n))(?: {4}|\t)[^\n]*(?:\n(?:[ \t]*(?=\n)|(?: {4}|\t)[^\n]*))*|^[ \t>]*(?:[-*+]|\d+[.)])[ \t]+\[([ xX])\](?=[ \t])|\b(?:(?:https?|ftp):\/\/|www\.|mailto:)[^\s<]*|(?<!\\):(?=[A-Za-z0-9])/gim;
 
 function prepare(text: string) {
   return text.replace(

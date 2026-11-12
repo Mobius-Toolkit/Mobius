@@ -106,6 +106,24 @@ describe("renderMarkdown", () => {
     expect(result).not.toContain("\\\\");
   });
 
+  it("keeps a colon and a [x] in an indented code block as they are", () => {
+    const result = render(
+      "Run:\n\n    label mobius:ready\n\n    - [x] a\n\tkey:value\n\nafter:this and **bold** 09:30",
+    );
+    expect(result).not.toContain(plainClass);
+    expect(result).toContain('"text":"label mobius:ready\\n\\n- [x] a\\nkey:value"');
+    expect(result).toContain("after:this and ");
+    expect(result).toContain('"sel":"strong"');
+    expect(result).not.toContain("\\\\");
+    expect(result).not.toContain('"sel":"input"');
+  });
+
+  it("keeps a colon in an indented code block at the start of a text", () => {
+    const result = render("    mobius:ready");
+    expect(result).toContain('"text":"mobius:ready"');
+    expect(result).not.toContain("\\\\");
+  });
+
   it("keeps a colon in a code block that has no closing fence, and the text before it", () => {
     const result = render("a:b\n\n```\nx:y");
     expect(result).not.toContain(plainClass);
