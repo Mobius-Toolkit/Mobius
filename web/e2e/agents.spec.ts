@@ -63,7 +63,7 @@ test("the Agents tab of a Workstream shows the state of each agent with a queue 
   await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
   const tree = page.getByRole("complementary");
   for (const { reason, badge, dot } of states) {
-    const entry = tree.getByRole("button").filter({ hasText: reason }).first();
+    const entry = tree.getByRole("listitem").filter({ hasText: reason }).first();
     await expect(entry.getByText(badge, { exact: true })).toBeVisible();
     await expect(entry.locator("span.rounded-full")).toHaveClass(dot);
   }
@@ -80,7 +80,7 @@ test("the Agents tab of a Workstream shows a kept session with a countdown, and 
   await page.goto("/workstreams/plants/garden/11");
   await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
   const tree = page.getByRole("complementary");
-  const kept = tree.getByRole("button", { name: /closes in/ });
+  const kept = tree.getByRole("listitem").filter({ hasText: "closes in" });
   await expect(kept).toHaveCount(1);
   await expect(kept).toContainText("closes in 50 min");
   await expect(kept.getByText("kept", { exact: true })).toBeVisible();
@@ -96,7 +96,7 @@ test("the Agents tab of a Workstream shows a kept session with a countdown, and 
   expect((await stopped).ok()).toBe(true);
   await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
   await expect(kept).toHaveCount(0);
-  const implementer = tree.getByRole("button", { name: /^implementer devin/ });
+  const implementer = tree.getByRole("listitem").filter({ hasText: /^Implementer.*devin/ });
   await expect(implementer).toHaveCount(0);
   await tree.getByRole("switch", { name: "Show stopped agents" }).click();
   await expect(implementer).toHaveCount(1);
@@ -145,12 +145,64 @@ test("the Agents tab of a Workstream shows the state of a session that waits for
     await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
     const entry = page
       .getByRole("complementary")
-      .getByRole("button")
+      .getByRole("listitem")
       .filter({ hasText: "waits for a low load" });
     await expect(entry).toHaveCount(1);
     await expect(entry.getByText("waits for load", { exact: true })).toBeVisible();
     await expect(entry.locator("span.rounded-full")).toHaveClass(/bg-amber-500/);
   });
+});
+
+test("the Agents tab of a Workstream names the issue of an agent with a link, and a tap on the row opens the Transcript", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto("/workstreams/owner/shop/12");
+  await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
+  const panel = page.getByRole("complementary");
+  const entry = panel.getByRole("listitem").filter({ hasText: /^Implementer #41 Add plan model/ });
+  await expect(entry.getByText("Implementer #41 Add plan model")).toBeVisible();
+  const link = entry.getByRole("link", { name: "#41" });
+  await expect(link).toHaveAttribute("href", "https://github.com/owner/shop/issues/41");
+  await expect(link).toHaveAttribute("target", "_blank");
+  await link.click({ trial: true });
+
+  await entry.getByRole("button").click({ position: { x: 4, y: 4 } });
+  await expect(panel.getByRole("button", { name: "Back" })).toBeVisible();
+});
+
+test("the Agents tab of a Workstream keeps a long issue title on one line on a phone", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const title = "Read the pull request of a task in checks again at each poll ".repeat(4).trim();
+  await page.route("**/api/workstreams/owner/shop/12/agents", async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    for (const agent of body.data) {
+      if (agent.issue === 41) {
+        agent.issueTitle = title;
+      }
+    }
+    await route.fulfill({ response, json: body });
+  });
+  await page.goto("/workstreams/owner/shop/12");
+  await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
+  await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
+  const entry = page
+    .getByRole("listitem")
+    .filter({ hasText: /^Implementer #41 Read the pull request/ })
+    .filter({ visible: true });
+  const issueTitle = entry.getByText(title, { exact: true });
+  await expect(issueTitle).toBeVisible();
+  const link = entry.getByRole("link", { name: "#41" });
+  const [titleBox, linkBox] = [await boxOf(issueTitle), await boxOf(link)];
+  expect(titleBox.height).toBeLessThan(linkBox.height * 1.5);
+  expect(Math.abs(titleBox.y - linkBox.y)).toBeLessThan(linkBox.height);
+  expect(await entry.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  expect(await issueTitle.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(
+    true,
+  );
 });
 
 test.describe("the transcript of an agent on a phone", () => {
@@ -261,7 +313,9 @@ const places = [
       }
       await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
       await page
-        .getByRole("button", { name: /^implementer devin · swe-1.5 · high · Sep \d+,/ })
+        .getByRole("button", {
+          name: /^Implementer #41 Add plan model devin · swe-1.5 · high · Sep \d+,/,
+        })
         .filter({ visible: true })
         .click();
     },
@@ -487,7 +541,7 @@ test("the Transcript of a session that does not wait for a low load has no start
 
 async function openPanelTranscript(
   page: Page,
-  name = /^implementer devin · swe-1.5 · high · Sep \d+,/,
+  name = /^Implementer #41 Add plan model devin · swe-1.5 · high · Sep \d+,/,
 ) {
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto("/workstreams/owner/shop/12");
@@ -520,7 +574,9 @@ test.describe("the back button on a desktop", () => {
     await expectLeftOf(back, title);
     await back.click();
     await expect(
-      panel.getByRole("button", { name: /^implementer devin · swe-1.5 · high · Sep \d+,/ }),
+      panel.getByRole("button", {
+        name: /^Implementer #41 Add plan model devin · swe-1.5 · high · Sep \d+,/,
+      }),
     ).toBeVisible();
     await expect(back).toBeHidden();
   });

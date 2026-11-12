@@ -1157,6 +1157,7 @@ test("screenshots", async ({ page }) => {
         .getByText(/Sep \d+, \d\d:\d\d [AP]M · Mobius prepares an upgrade/)
         .filter({ visible: true }),
       ...queueReasons.map((reason) => page.getByText(reason).filter({ visible: true })),
+      page.getByText("Implementer #41 Add plan model").filter({ visible: true }),
       page
         .getByText(/^devin · swe-1\.5 · high · Sep \d+, \d\d:\d\d [AP]M/)
         .filter({ visible: true })
@@ -1179,6 +1180,7 @@ test("screenshots", async ({ page }) => {
       ...(device === "desktop"
         ? [drain, page.getByLabel("Work in another organization")]
         : [page.getByLabel("Upgrade available")]),
+      page.getByText("Implementer #85 Water the new beds").filter({ visible: true }),
       page.getByText(/closes in 42 min/).filter({ visible: true }),
       page.getByText("kept", { exact: true }).filter({ visible: true }),
     ],
@@ -2302,7 +2304,7 @@ test("screenshots", async ({ page }) => {
       await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
       await page
         .getByRole("button", {
-          name: /^implementer devin · swe-1.5 · high · Sep \d+, \d\d:\d\d [AP]M$/,
+          name: /^Implementer #41 Add plan model devin · swe-1.5 · high · Sep \d+, \d\d:\d\d [AP]M$/,
         })
         .filter({ visible: true })
         .click();
@@ -2325,7 +2327,7 @@ test("screenshots", async ({ page }) => {
       await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
       await page
         .getByRole("button", {
-          name: /^implementer devin · swe-1.5 · high · Sep \d+, \d\d:\d\d [AP]M · waits for a low load/,
+          name: /^Implementer #41 Add plan model devin · swe-1.5 · high · Sep \d+, \d\d:\d\d [AP]M · waits for a low load/,
         })
         .filter({ visible: true })
         .click();
