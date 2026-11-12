@@ -124,8 +124,14 @@ func TestAFailedInitScriptWithoutAMaintenanceWorkstreamGivesNoIssueAndTheRecordE
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 
 	endedImplementers(t, server, 1)
-	waitForSteps(t, server, "init", 1)
-	testkit.WaitFor(t, func() bool { return openInitFailures(t, server) == 0 })
+	testkit.WaitFor(t, func() bool {
+		var count int
+		err := server.DB.QueryRow("SELECT count(*) FROM init_failures WHERE repository = 'owner/shop' AND issue = 0 AND ended_at != ''").Scan(&count)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return count == 1
+	})
 	waitForPolls(t, fake)
 	if created := createdIssues(fake); created != 0 {
 		t.Errorf("created issues = %d", created)
