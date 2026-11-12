@@ -1,7 +1,10 @@
 package engine_test
 
 import (
+	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -95,6 +98,52 @@ func TestRolesWithTheSameHarnessModelAndEffortShareOneCheckAndOneInboxItem(t *te
 	}
 	if !strings.Contains(items[0].Text, "implementer") {
 		t.Errorf("text = %q", items[0].Text)
+	}
+}
+
+func TestAnAccessCheckUsageLimitPausesTheHarnessAndTheQueuedSessionStartsWhenThePauseEnds(t *testing.T) {
+	t.Parallel()
+	dataDir := t.TempDir()
+	cleanPath := filepath.Join(dataDir, "clean.toml")
+	if err := os.WriteFile(cleanPath, []byte(options), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	claudePath := filepath.Join(dataDir, "harnesses", "claude-agent-acp.toml")
+	limitScript := fmt.Sprintf(`%s
+[[prompts]]
+when = "the word OK"
+shell = "cp '%s' '%s'"
+error = { code = -32603, message = "You've hit your session limit · resets 8:30pm (Europe/Warsaw)", data = { errorKind = "rate_limit" } }
+`, options, cleanPath, claudePath)
+	testkit.InstallFakeAgent(t, dataDir, options)
+	testkit.InstallFakeHarness(t, dataDir, "claude-agent-acp", limitScript)
+	fake := testkit.NewFakeGitHub(t)
+	server := startServerWith(t, fake, testserver.Config(t, dataDir), "")
+
+	held := startLater(t.Context(), server, leadSpec(t))
+
+	testkit.WaitFor(t, func() bool {
+		var until string
+		return server.DB.QueryRow("SELECT paused_until FROM harness_pauses WHERE harness = 'claude-code'").Scan(&until) == nil
+	})
+
+	waiting := queued(t, server, engine.LeadRole)
+	if !strings.HasPrefix(waiting.QueueReason.String, "waits for the access check of claude-code ") {
+		t.Errorf("queue reason = %q", waiting.QueueReason.String)
+	}
+	if items := accessItems(t, server); len(items) != 0 {
+		t.Errorf("access items = %+v", items)
+	}
+
+	if err := server.Engine.Resume(t.Context(), "claude-code"); err != nil {
+		t.Fatal(err)
+	}
+
+	agent := await(t, held)
+	defer end(t, agent, "idle")
+
+	if items := accessItems(t, server); len(items) != 0 {
+		t.Errorf("access items = %+v", items)
 	}
 }
 

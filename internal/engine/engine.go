@@ -19,6 +19,24 @@ import (
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
+// refusedRun is what Mobius did to a workflow run that stays queued with no job.
+type refusedRun struct {
+	// cancelled is true when GitHub accepted the cancel of the run.
+	cancelled bool
+	step      refusedRunStep
+}
+
+type refusedRunStep int
+
+const (
+	// refusedRunRerunPending: the rerun is still to do.
+	refusedRunRerunPending refusedRunStep = iota + 1
+	refusedRunRerunDone
+	// refusedRunBranchPending: GitHub refused the cancel or the rerun, and the branch step is still to do.
+	refusedRunBranchPending
+	refusedRunBranchDone
+)
+
 // Engine polls the repositories of the Mobius Apps and runs the agent sessions.
 type Engine struct {
 	db      *sql.DB
@@ -91,6 +109,9 @@ type Engine struct {
 	// ciWait holds the head of each task in checks that has no CI, with the time of its first poll, by the id of the task.
 	// Only the poll uses it.
 	ciWait map[int64]ciWait
+	// refusedRuns holds what Mobius did to the workflow runs that stay queued with no job, by the id of the run. Only the
+	// poll uses it.
+	refusedRuns map[int64]refusedRun
 	// clock gives the time of the long waits. A nil clock is time.Now.
 	clock atomic.Pointer[func() time.Time]
 	// newestMu guards newest.
@@ -115,7 +136,6 @@ type Engine struct {
 	pausing sync.Mutex
 	// pausesChanged wakes the sessions that wait for the end of a pause.
 	pausesChanged signal
-	upgrading     atomic.Bool
 	// pauseWaitersMu guards pauseWaiters.
 	pauseWaitersMu sync.Mutex
 	// pauseWaiters holds the agents that wait in waitForPause. Each has a channel that closes to move it.
@@ -195,8 +215,12 @@ type Engine struct {
 
 	mu        sync.Mutex
 	listeners map[chan Change]bool
-	// upgradeFailure is the error of the last upgrade, or "".
-	upgradeFailure string
+	// upgradeMu guards upgradeState, upgradeCancel and upgradeDone.
+	upgradeMu    sync.Mutex
+	upgradeState UpgradeState
+	// upgradeCancel ends the context of the running upgrade, and upgradeDone closes when that upgrade has ended.
+	upgradeCancel context.CancelFunc
+	upgradeDone   chan struct{}
 }
 
 // Agents is the setup of the agent sessions.
@@ -224,6 +248,7 @@ func (e *Engine) SetClock(clock func() time.Time) {
 func New(db *sql.DB, gh *github.GitHub, cfg *config.Config, agents Agents) *Engine {
 	return &Engine{
 		db:              db,
+		upgradeState:    UpgradeState{Step: UpgradeIdle},
 		queries:         store.New(db),
 		github:          gh,
 		config:          cfg,
@@ -242,6 +267,7 @@ func New(db *sql.DB, gh *github.GitHub, cfg *config.Config, agents Agents) *Engi
 		pollWake:        make(chan struct{}, 1),
 		closing:         map[pullKey]bool{},
 		ciWait:          map[int64]ciWait{},
+		refusedRuns:     map[int64]refusedRun{},
 		newest:          map[string]newestVersion{},
 		upgrades:        map[string]bool{},
 		harnessReads:    map[config.Harness]*harnessRead{},

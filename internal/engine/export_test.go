@@ -5,11 +5,20 @@ import (
 	"database/sql"
 	"encoding/json"
 	"path/filepath"
+	"testing"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/runner"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
+
+// UseProgram makes the upgrade replace the program at path, until the end of the test.
+func UseProgram(t *testing.T, path string) {
+	t.Helper()
+	previous := executable
+	executable = func() (string, error) { return path, nil }
+	t.Cleanup(func() { executable = previous })
+}
 
 // The tests make these waits short.
 var (
@@ -18,6 +27,7 @@ var (
 	RateLimitGrace          = &rateLimitGrace
 	HangTimeout             = &hangTimeout
 	AfterHangRead           = &afterHangRead
+	AfterDownload           = &afterDownload
 	AfterTriagerStop        = &afterTriagerStop
 	AfterCopiedTasksTree    = &afterCopiedTasksTree
 	BeforeRecopyTrees       = &beforeRecopyTrees
@@ -42,9 +52,20 @@ var MemoryRoleFiles = memoryRoleFiles
 // AccessChecked tells if the access check of each Role binding has a result.
 func (e *Engine) AccessChecked() bool {
 	roles := e.mergedRoles()
+	pauses, err := e.queries.ListHarnessPauses(context.Background())
+	if err != nil {
+		return false
+	}
+	paused := make(map[string]bool, len(pauses))
+	for _, pause := range pauses {
+		paused[pause.Harness] = true
+	}
 	e.accessMu.Lock()
 	defer e.accessMu.Unlock()
 	for _, named := range roles.Bindings() {
+		if paused[string(named.Binding.Harness)] {
+			continue
+		}
 		if _, checked := e.access[keyOf(*named.Binding)]; !checked {
 			return false
 		}

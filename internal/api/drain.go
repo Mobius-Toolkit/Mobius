@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/gork-labs/gork/pkg/api"
 
@@ -23,10 +24,17 @@ type DrainEnd struct {
 	End string `gork:"end" validate:"oneof=drained cancelled"`
 }
 
-// Upgrade is the state of the last upgrade.
+// Upgrade is the state of the upgrade.
 type Upgrade struct {
-	// Failure is the error of the last upgrade. It is empty when the last upgrade has no error
+	// Step is idle when no upgrade runs, and else the step of the upgrade: release, download, retry (the wait before the
+	// next try), drain or restart
+	Step string `gork:"step" validate:"oneof=idle release download retry drain restart"`
+	// Tries is the number of failed tries since the start of the upgrade
+	Tries int64 `gork:"tries"`
+	// Failure is the text of the last error. It is empty when the upgrade has no error
 	Failure string `gork:"failure"`
+	// NextTry is the time of the next try in the step retry, or null
+	NextTry *time.Time `gork:"nextTry"`
 }
 
 // GetDrainRequest is the request of GetDrain.
@@ -45,7 +53,7 @@ func (h *handlers) GetDrain(_ context.Context, _ GetDrainRequest) (*GetDrainResp
 // StartDrainRequest is the request of StartDrain.
 type StartDrainRequest struct{}
 
-// DrainEndResponse is the response of StartDrain and of StartUpgrade.
+// DrainEndResponse is the response of StartDrain.
 type DrainEndResponse struct {
 	Body Envelope[DrainEnd]
 }
@@ -71,31 +79,49 @@ func (h *handlers) CancelDrain(_ context.Context, _ CancelDrainRequest) error {
 // StartUpgradeRequest is the request of StartUpgrade.
 type StartUpgradeRequest struct{}
 
-// StartUpgrade downloads the newest release, drains the agents, and restarts Mobius with the new release. It returns
-// drained when the new release starts, and cancelled when the Owner cancels the drain. The upgrade goes on when the
-// client closes the request.
-func (h *handlers) StartUpgrade(ctx context.Context, _ StartUpgradeRequest) (*DrainEndResponse, error) {
-	end, err := h.engine.Upgrade(ctx)
+// UpgradeResponse is the response of StartUpgrade and of GetUpgrade.
+type UpgradeResponse struct {
+	Body Envelope[Upgrade]
+}
+
+// StartUpgrade starts the upgrade in the background and returns its state. The upgrade reads the newest release,
+// downloads it, drains the agents, and restarts Mobius with the new release. It tries again after an error that can
+// pass, until it is done or the Owner cancels it.
+func (h *handlers) StartUpgrade(_ context.Context, _ StartUpgradeRequest) (*UpgradeResponse, error) {
+	state, err := h.engine.Upgrade()
 	if engine.Refused(err) {
 		return nil, api.NewHTTPError(http.StatusConflict, err.Error())
 	}
 	if err != nil {
 		return nil, err
 	}
-	return &DrainEndResponse{Body: Envelope[DrainEnd]{Data: DrainEnd{End: string(end)}}}, nil
+	return &UpgradeResponse{Body: Envelope[Upgrade]{Data: upgradeOf(state)}}, nil
+}
+
+// CancelUpgradeRequest is the request of CancelUpgrade.
+type CancelUpgradeRequest struct{}
+
+// CancelUpgrade ends the upgrade and the drain. It does nothing while the upgrade replaces the program. With no upgrade,
+// it ends only the drain.
+func (h *handlers) CancelUpgrade(_ context.Context, _ CancelUpgradeRequest) error {
+	h.engine.CancelUpgrade()
+	return nil
 }
 
 // GetUpgradeRequest is the request of GetUpgrade.
 type GetUpgradeRequest struct{}
 
-// GetUpgradeResponse is the response of GetUpgrade.
-type GetUpgradeResponse struct {
-	Body Envelope[Upgrade]
+// GetUpgrade returns the state of the upgrade.
+func (h *handlers) GetUpgrade(_ context.Context, _ GetUpgradeRequest) (*UpgradeResponse, error) {
+	return &UpgradeResponse{Body: Envelope[Upgrade]{Data: upgradeOf(h.engine.UpgradeStatus())}}, nil
 }
 
-// GetUpgrade returns the error of the last upgrade.
-func (h *handlers) GetUpgrade(_ context.Context, _ GetUpgradeRequest) (*GetUpgradeResponse, error) {
-	return &GetUpgradeResponse{Body: Envelope[Upgrade]{Data: Upgrade{Failure: h.engine.UpgradeFailure()}}}, nil
+func upgradeOf(state engine.UpgradeState) Upgrade {
+	upgrade := Upgrade{Step: string(state.Step), Tries: int64(state.Tries), Failure: state.Failure}
+	if !state.NextTry.IsZero() {
+		upgrade.NextTry = &state.NextTry
+	}
+	return upgrade
 }
 
 func drainOf(state engine.DrainState) Drain {
