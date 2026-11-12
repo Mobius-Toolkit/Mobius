@@ -114,7 +114,7 @@ func (e *Engine) sendChangelogTo(ctx context.Context, organization, last string,
 	if paths := e.memoryPaths(organization); len(paths) > 0 {
 		text.WriteString("\nMemory files:\n- " + strings.Join(paths, "\n- ") + "\n")
 	}
-	if err := e.postChat(ctx, ChatKey{Organization: organization}, mobiusAuthor, "", text.String(), nil, nil, false); err != nil {
+	if err := e.postChat(ctx, ChatKey{Organization: organization}, mobiusAuthor, "", text.String(), nil, nil, nil, false); err != nil {
 		log.Printf("changelog: post to %s: %v", organization, err)
 		return false
 	}
