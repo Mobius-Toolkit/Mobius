@@ -890,6 +890,7 @@ test("screenshots", async ({ page }) => {
       failedAt: null,
       images: 0,
       inboxItems: [],
+      selections: [],
       organization: "owner",
       question: null,
       repository: "owner/shop",
