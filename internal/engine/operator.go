@@ -148,5 +148,5 @@ func (e *Engine) operateTurn(ctx context.Context, repository github.Repository, 
 // deliverOperatorReport gives the report of the Operator id to the Lead chat as an Operator message.
 func (e *Engine) deliverOperatorReport(ctx context.Context, c caller, id int64, report string) error {
 	text := fmt.Sprintf("Report of the Operator %d:\n\n%s", id, report)
-	return e.postChat(ctx, leadChat(c.repository, c.workstream), operatorAuthor, "", text, nil, nil, false)
+	return e.postChat(ctx, leadChat(c.repository, c.workstream), operatorAuthor, "", text, nil, nil, nil, false)
 }

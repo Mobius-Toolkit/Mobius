@@ -85,6 +85,7 @@ function createChatMessage(id: number, text: string, browserId = ""): ChatMessag
     failedAt: null,
     images: 0,
     inboxItems: [],
+    selections: [],
     question: null,
     stoppedAt: null,
     voice: false,
