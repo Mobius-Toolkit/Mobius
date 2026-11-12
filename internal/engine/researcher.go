@@ -285,34 +285,37 @@ const commentLimit = 65_535
 // the Triager c, it is a comment on the issue of the Triager, and it starts the next turn of the Triager, because a
 // comment of the Mobius App starts no turn. The comment keeps the end of a report that is too long for GitHub. When the
 // triage has ended, the report goes nowhere. When a read of the issue fails, the report goes out, because runTriager
-// reads the issue again. When GitHub refuses the comment, the comment stays in comment_writes and the turn stays held
-// until the poll sends the comment.
+// reads the issue again. The comment is an outgoing change. While it is pending, the turn stays held until the poll
+// sends the comment.
 func (e *Engine) deliverReport(ctx context.Context, c caller, repository github.Repository, id int64, question, report string) error {
 	header := fmt.Sprintf("Report of the Researcher %d on \"%s\":\n\n", id, question)
 	text := header + report
 	if c.role == TriagerRole {
-		text = header + tail(report, commentLimit-utf8.RuneCountInString(header))
+		text = header + tail(report, commentLimit-markerReserve-utf8.RuneCountInString(header))
 		return e.commentToTriager(ctx, repository, c.agent.spec.Issue.Int64, text)
 	}
 	return e.postChat(ctx, ChatKey{c.organization, c.repository, c.workstream}, researcherAuthor, "", text, nil, nil, nil, false)
 }
 
-// commentToTriager adds the text as a comment on the issue number of the Triager, and starts the next turn of the
-// Triager. When the triage has ended, the text goes nowhere. When GitHub refuses the comment, the comment stays in
-// comment_writes and the turn stays held until the poll sends it.
+// commentToTriager adds the text as a comment on the issue number of the Triager, as an outgoing change, and starts
+// the next turn of the Triager. When the triage has ended, the text goes nowhere. While the change is pending, the turn
+// stays held until the poll sends it.
 func (e *Engine) commentToTriager(ctx context.Context, repository github.Repository, number int64, text string) error {
 	if !e.triagingOrUnknown(ctx, repository, number) {
 		return nil
 	}
-	if _, err := repository.AddComment(ctx, number, text); err != nil {
-		log.Printf("add a comment to %s#%d: %v", repository.FullName, number, err)
-		if err := e.queries.AddCommentWrite(ctx, store.AddCommentWriteParams{
-			Repository: repository.FullName,
-			Number:     sql.NullInt64{Int64: number, Valid: true},
-			Body:       text,
-		}); err != nil {
-			return err
-		}
+	id, err := e.addOutgoingChange(ctx, e.queries, repository.FullName, number, 0, commentField, text)
+	if err != nil {
+		return err
+	}
+	if err := e.sendNow(ctx, repository, id); err != nil {
+		return err
+	}
+	change, err := e.queries.GetOutgoingChange(ctx, id)
+	if err != nil {
+		return err
+	}
+	if change.Status == "pending" {
 		return e.queries.AddTriagerTurn(ctx, store.AddTriagerTurnParams{Repository: repository.FullName, Issue: number})
 	}
 	return e.restartTriager(ctx, repository, number)

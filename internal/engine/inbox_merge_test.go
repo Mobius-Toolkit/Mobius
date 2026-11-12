@@ -261,7 +261,7 @@ func TestTheMergeOfMobiusDismissesTheItemBeforeThePollEndsTheTask(t *testing.T) 
 		t.Fatalf("status = %d: %s", status, body)
 	}
 	<-reached
-	fake.FailIssueReads(shop, 41, 1000)
+	fake.FailClose(shop, 41)
 	release()
 
 	testkit.WaitFor(t, func() bool { return len(itemsOf(t, server, "ready for review")) == 0 })
