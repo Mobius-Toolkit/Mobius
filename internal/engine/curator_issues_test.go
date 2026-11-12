@@ -19,12 +19,15 @@ func addMaintenanceWorkstream(fake *testkit.FakeGitHub, number int64) {
 	fake.AddLabel(shop, number, "mobius:maintenance", "owner")
 }
 
-// waitForMaintenanceCopy waits until the copy has the Workstreams numbers, because the Curator reads the maintenance
-// Workstream from the copy.
+// waitForMaintenanceCopy waits until the copy has the maintenance setting of each Workstream in numbers, because the
+// Curator reads the maintenance Workstream from the copy.
 func waitForMaintenanceCopy(t *testing.T, server *testserver.Server, numbers ...int64) {
 	t.Helper()
 	testkit.WaitFor(t, func() bool {
-		return !slices.ContainsFunc(numbers, func(number int64) bool { return len(settingsOf(t, server, number)) == 0 })
+		return !slices.ContainsFunc(numbers, func(number int64) bool {
+			rows := settingsOf(t, server, number)
+			return len(rows) != 1 || !rows[0].Maintenance
+		})
 	})
 }
 
