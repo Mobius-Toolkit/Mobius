@@ -52,6 +52,18 @@ func eventAfterApproval(t *testing.T, server *testserver.Server, approved string
 	return parts[len(parts)-1]
 }
 
+// mergeMainAtMerge holds the next merge request of the pull request #42. The function that it gives waits for that
+// request, merges main into the branch as a person does, and lets the request go. GitHub refuses the request, because
+// the head changed, and the next poll reads the new head.
+func mergeMainAtMerge(fake *testkit.FakeGitHub) func() {
+	reached, release := fake.HoldMerge(shop, 42)
+	return func() {
+		<-reached
+		fake.MergeBaseIntoHead(shop, 42)
+		release()
+	}
+}
+
 // approvalAgain approves the head of #41 at a merge level, adds a commit to main, and waits until the update of the
 // branch moved the task back to checks. It gives the server, the approved head, and the new head. The quiet period is
 // long, so a test can change the level while the task is in checks.
@@ -79,8 +91,10 @@ func approvalAgainWith(t *testing.T, fake *testkit.FakeGitHub, adjust func(*conf
 	waitForReadyEvents(t, fake, server, 1)
 	approved := head(t, fake, "mobius/41")
 	fake.CommitFile(shop, "price.txt", "cents\n", "Add price")
+	update := mergeMainAtMerge(fake)
 
 	sendChat(t, server, leadChat, "Approve #41")
+	update()
 
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "checks" && head(t, fake, "mobius/41") != approved })
 	return server, approved, head(t, fake, "mobius/41")
@@ -186,8 +200,8 @@ func TestTheApprovalAgainAddsTheInboxItemAndWaitsForTheOwner(t *testing.T) {
 	if got := approvedReport(t, server); got != "Checked the diff. Verified the tests." {
 		t.Errorf("approved_report = %q", got)
 	}
-	if calls := fake.MergeCalls(); calls != 0 {
-		t.Errorf("merge calls = %d", calls)
+	if calls := fake.MergeCalls(); calls != 1 {
+		t.Errorf("merge calls = %d, want 1 with the old head", calls)
 	}
 	checkApprovalAgain(t, fake, server, approved, head, "The Owner got it for review.")
 }
@@ -335,11 +349,12 @@ func TestTwoUpdateHeadsAfterOneLeadApprovalNameTheLeadHeadInTheSecondComment(t *
 		cfg.LeadIdleTimeout = time.Hour
 	})
 	fake.CommitFile(shop, "other.txt", "other\n", "Add other")
+	update := mergeMainAtMerge(fake)
 
-	testkit.WaitFor(t, func() bool { return fake.UpdateBranchCalls() == 2 })
+	update()
 	second := head(t, fake, "mobius/41")
 	if second == first {
-		t.Fatalf("the second update did not change the head: %s", first)
+		t.Fatalf("the second merge of main did not change the head: %s", first)
 	}
 	testkit.WaitFor(t, func() bool { return approvalAgainComments(fake) == 2 })
 
@@ -364,11 +379,11 @@ func TestTheEventAfterAMergeWithAConflictThatTheBranchResolvedByHandNamesTheFile
 	server := approvablePlan(t, fake)
 	approved := head(t, fake, "mobius/41")
 	fake.CommitFile(shop, "other.txt", "other\n", "Add other")
-	fake.HoldBranchUpdates()
+	reached, release := fake.HoldMerge(shop, 42)
 
 	sendChat(t, server, leadChat, "Approve #41")
 
-	testkit.WaitFor(t, func() bool { return fake.UpdateBranchCalls() == 1 })
+	<-reached
 	work := t.TempDir()
 	testkit.Git(t, work, "clone", "--branch=mobius/41", fake.Remote(shop), ".")
 	testkit.Git(t, work, "switch", "--create", "next", "origin/main")
@@ -390,7 +405,7 @@ func TestTheEventAfterAMergeWithAConflictThatTheBranchResolvedByHandNamesTheFile
 	testkit.Git(t, work, "push", "origin", "mobius/41")
 	testkit.Git(t, work, "push", "origin", "next:main")
 	hand := testkit.Git(t, work, "rev-parse", "HEAD")
-	fake.ReleaseBranchUpdates()
+	release()
 
 	event := eventAfterApproval(t, server, approved)
 	want := fmt.Sprintf("\n- %.8s holds a hand resolution in plan.txt", hand)
@@ -408,13 +423,13 @@ func TestTheEventAfterANewCommitOfTheBranchListsItWithNoMergeMarkAndSaysThatTheC
 	server := approvable(t, fake, "merge", true)
 	approved := head(t, fake, "mobius/41")
 	fake.CommitFile(shop, "price.txt", "cents\n", "Add price")
-	fake.HoldBranchUpdates()
+	reached, release := fake.HoldMerge(shop, 42)
 
 	sendChat(t, server, leadChat, "Approve #41")
 
-	testkit.WaitFor(t, func() bool { return fake.UpdateBranchCalls() == 1 })
+	<-reached
 	pushed := pushCommit(t, fake, "mobius/41", "extra.txt", "extra\n", "Add extra")
-	fake.ReleaseBranchUpdates()
+	release()
 
 	event := eventAfterApproval(t, server, approved)
 	for _, want := range []string{
@@ -437,11 +452,11 @@ func TestTheEventAfterAMergeWithAHandChangeAndNoSharedBroughtInCommitGetsReadyFo
 	server := approvable(t, fake, "merge", true)
 	approved := head(t, fake, "mobius/41")
 	fake.CommitFile(shop, "other.txt", "other\n", "Add other")
-	fake.HoldBranchUpdates()
+	reached, release := fake.HoldMerge(shop, 42)
 
 	sendChat(t, server, leadChat, "Approve #41")
 
-	testkit.WaitFor(t, func() bool { return fake.UpdateBranchCalls() == 1 })
+	<-reached
 	work := t.TempDir()
 	testkit.Git(t, work, "clone", "--branch=mobius/41", fake.Remote(shop), ".")
 	testkit.Git(t, work, "merge", "--no-ff", "--no-commit", "origin/main")
@@ -452,7 +467,7 @@ func TestTheEventAfterAMergeWithAHandChangeAndNoSharedBroughtInCommitGetsReadyFo
 	testkit.Git(t, work, "commit", "-m", "Merge main by hand")
 	testkit.Git(t, work, "push", "origin", "mobius/41")
 	hand := testkit.Git(t, work, "rev-parse", "HEAD")
-	fake.ReleaseBranchUpdates()
+	release()
 
 	event := eventAfterApproval(t, server, approved)
 	if !strings.Contains(event, " ready for Lead approval of #41 ") {

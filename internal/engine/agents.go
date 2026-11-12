@@ -215,6 +215,9 @@ type Node struct {
 	// Working is true while an open session works: a chat session has a turn that runs, and another session does not
 	// wait for a slot or a pause.
 	Working bool
+	// KeptUntil is the time when Mobius closes the kept Harness process of this ended session. It is the zero time
+	// when Mobius keeps no process of this session.
+	KeptUntil time.Time
 }
 
 // Change is a change for the live event stream: a new, changed or ended session, a new or changed Transcript line,
@@ -253,7 +256,10 @@ type Created struct {
 	Number     int64
 }
 
-const checkRunsReason = "runs .mobius/check"
+const (
+	checkRunsReason = "runs .mobius/check"
+	initRunsReason  = "runs .mobius/init"
+)
 
 func now() string {
 	return time.Now().UTC().Format(time.RFC3339Nano)
@@ -1086,6 +1092,7 @@ func (e *Engine) node(session store.Session) Node {
 		n = Node{Session: session, Name: session.Role}
 	}
 	n.Working = e.working(n)
+	n.KeptUntil = e.keptUntil(session.ID)
 	return n
 }
 
@@ -1100,7 +1107,7 @@ func (e *Engine) working(n Node) bool {
 		c, ok := e.chats[ChatKey{session.Organization, session.WorkstreamRepository, session.Workstream}]
 		return ok && c.writing && session.QueueReason.String == ""
 	}
-	return session.QueueReason.String == "" || session.QueueReason.String == checkRunsReason
+	return slices.Contains([]string{"", checkRunsReason, initRunsReason}, session.QueueReason.String)
 }
 
 // Tree gives the sessions of the Workstream of repository, the oldest first.
