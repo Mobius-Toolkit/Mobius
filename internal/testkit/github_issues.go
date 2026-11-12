@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -405,6 +406,29 @@ func (g *FakeGitHub) FailAddComment(repository string, number int64, fail bool) 
 	g.failedComments[issueKey{repository, number}] = fail
 }
 
+// LoseCommentAnswers makes each new comment that Mobius writes on the issue work, but gives the answer 500, or works
+// again when lose is false.
+func (g *FakeGitHub) LoseCommentAnswers(repository string, number int64, lose bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.lostCommentAnswers[issueKey{repository, number}] = lose
+}
+
+// RefuseNextComment makes the next new comment that Mobius writes on the issue give the status. The later comments
+// work.
+func (g *FakeGitHub) RefuseNextComment(repository string, number int64, status int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.refusedNextComments[issueKey{repository, number}] = status
+}
+
+// RefuseNextCommentList makes the next read of the comments of the issue give the status. The later reads work.
+func (g *FakeGitHub) RefuseNextCommentList(repository string, number int64, status int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.refusedNextCommentLists[issueKey{repository, number}] = status
+}
+
 // RefuseAddComment makes each new comment that Mobius writes on the issue give the status. The status 0 makes the
 // comment work.
 func (g *FakeGitHub) RefuseAddComment(repository string, number int64, status int) {
@@ -500,8 +524,20 @@ func (g *FakeGitHub) BlockerNumbers(repository string, number int64) []int64 {
 	return numbers
 }
 
-// Comments gives the comments of the issue.
+// writeMarker is the hidden marker that Mobius adds at the end of a comment that an outgoing change sends.
+var writeMarker = regexp.MustCompile(`\n\n<!-- mobius:write \d+ -->$`)
+
+// Comments gives the comments of the issue, without the hidden write marker of Mobius at the end of a body.
 func (g *FakeGitHub) Comments(repository string, number int64) []Comment {
+	comments := g.CommentsWithMarkers(repository, number)
+	for i := range comments {
+		comments[i].Body = writeMarker.ReplaceAllString(comments[i].Body, "")
+	}
+	return comments
+}
+
+// CommentsWithMarkers gives the comments of the issue with their full body.
+func (g *FakeGitHub) CommentsWithMarkers(repository string, number int64) []Comment {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	var comments []Comment
@@ -819,6 +855,9 @@ func (g *FakeGitHub) listIssues(w http.ResponseWriter, r *http.Request) {
 	sum := sha256.Sum256(body)
 	etag := fmt.Sprintf(`"%x"`, sum[:8])
 	sinceList := query.Has("since") && !query.Has("labels")
+	if sinceList {
+		g.polls++
+	}
 	if (!sinceList || g.afterIssueListReads[repository(r)] == nil) && r.Header.Get("If-None-Match") == etag {
 		g.notModified++
 		w.WriteHeader(http.StatusNotModified)
@@ -945,8 +984,24 @@ func (g *FakeGitHub) closeIssue(w http.ResponseWriter, r *http.Request) {
 		message(w, http.StatusInternalServerError, "Server Error")
 		return
 	}
+	g.recordEvent("close", key)
 	g.setState(key, "closed", request.StateReason, caller.login)
 	writeJSON(w, http.StatusOK, g.issueJSON(key))
+}
+
+// recordEvent keeps the number of the poll of the write of kind to the issue or pull request key. The caller must hold
+// the lock.
+func (g *FakeGitHub) recordEvent(kind string, key issueKey) {
+	g.eventPolls[fmt.Sprintf("%s #%d", kind, key.number)] = g.polls
+}
+
+// PollOf gives the number of the poll of Mobius that made the last write of kind to the issue or pull request number,
+// or 0 when there was none. The kinds are "approve" (an APPROVED review), "update-branch", "merge" and "close" (a close
+// of an issue). Two writes of one poll have the same number, because the poll starts with one issue list request.
+func (g *FakeGitHub) PollOf(kind string, number int64) int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.eventPolls[fmt.Sprintf("%s #%d", kind, number)]
 }
 
 // HoldIssue makes the next request for the issue number wait until a call of release. The channel closes when the
@@ -1189,6 +1244,11 @@ func (g *FakeGitHub) issueComments(w http.ResponseWriter, r *http.Request) {
 	defer g.mu.Unlock()
 	g.singleCommentReads++
 	if key, ok := g.issue(w, r); ok {
+		if status := g.refusedNextCommentLists[key]; status != 0 {
+			delete(g.refusedNextCommentLists, key)
+			message(w, status, "Not Found")
+			return
+		}
 		writeJSON(w, http.StatusOK, page(w, r, g.issues[key].comments))
 	}
 }
@@ -1253,6 +1313,11 @@ func (g *FakeGitHub) addComment(w http.ResponseWriter, r *http.Request) {
 		message(w, http.StatusInternalServerError, "Server Error")
 		return
 	}
+	if status := g.refusedNextComments[key]; status != 0 {
+		delete(g.refusedNextComments, key)
+		message(w, status, "Not Found")
+		return
+	}
 	if status := g.refusedComments[key]; status != 0 {
 		g.refusedCommentCalls++
 		message(w, status, "Resource not accessible by integration")
@@ -1267,6 +1332,10 @@ func (g *FakeGitHub) addComment(w http.ResponseWriter, r *http.Request) {
 		comments := g.issues[key].comments
 		comments[len(comments)-1].PerformedViaGitHubApp = &slugJSON{apps[caller.app].slug}
 		created = comments[len(comments)-1]
+	}
+	if g.lostCommentAnswers[key] {
+		message(w, http.StatusInternalServerError, "Server Error")
+		return
 	}
 	writeJSON(w, http.StatusCreated, created)
 }

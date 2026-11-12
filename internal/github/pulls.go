@@ -178,6 +178,26 @@ func (r Repository) RerunFailedJobs(ctx context.Context, id int64) error {
 	return err
 }
 
+// CancelWorkflowRun cancels the workflow run id.
+func (r Repository) CancelWorkflowRun(ctx context.Context, id int64) error {
+	_, err := r.Client.Actions.CancelWorkflowRunByID(ctx, r.Owner(), r.Name(), id)
+	var accepted *gh.AcceptedError
+	if errors.As(err, &accepted) {
+		return nil
+	}
+	return err
+}
+
+// RerunWorkflowRun runs the workflow run id again.
+func (r Repository) RerunWorkflowRun(ctx context.Context, id int64) error {
+	_, err := r.Client.Actions.RerunWorkflowByID(ctx, r.Owner(), r.Name(), id)
+	var accepted *gh.AcceptedError
+	if errors.As(err, &accepted) {
+		return nil
+	}
+	return err
+}
+
 // CommitsBehind gives the number of commits of base that the commit head does not contain.
 func (r Repository) CommitsBehind(ctx context.Context, base, head string) (int, error) {
 	comparison, _, err := r.Client.Repositories.CompareCommits(ctx, r.Owner(), r.Name(), base, head, &gh.ListOptions{PerPage: 1})
@@ -226,6 +246,15 @@ func (r Repository) PullRequestFiles(ctx context.Context, number int64) ([]strin
 		names = append(names, file.GetFilename())
 	}
 	return names, nil
+}
+
+// WorkflowJobs gives the jobs of the workflow run id. It reads one page, because a run has few jobs.
+func (r Repository) WorkflowJobs(ctx context.Context, id int64) ([]*gh.WorkflowJob, error) {
+	jobs, _, err := r.Client.Actions.ListWorkflowJobs(ctx, r.Owner(), r.Name(), id, &gh.ListWorkflowJobsOptions{ListOptions: gh.ListOptions{PerPage: 100}})
+	if err != nil {
+		return nil, err
+	}
+	return jobs.Jobs, nil
 }
 
 // RunAttemptJobs gives the jobs of the attempt of the workflow run id. It reads one page, because a run has few jobs.

@@ -115,9 +115,15 @@ type FakeGitHub struct {
 	// graphqlPageSize is the most nodes in a page of a GraphQL connection, or 0 for no limit.
 	graphqlPageSize  int
 	pullRequestReads int
+	singlePullReads  map[issueKey]int
+	pullBodies       map[issueKey]string
 	repositoryLabels map[labelKey]Label
 	labelPatches     []labelKey
 	notModified      int
+	// polls is the number of issue list requests that a poll of Mobius makes, and eventPolls gives the value of polls at
+	// the last write of each kind (see PollOf).
+	polls      int
+	eventPolls map[string]int
 	// The numbers of reads of a comment list of one issue or pull request, and of a comment list of a repository.
 	singleCommentReads, repositoryCommentReads int
 	failedCloses                               map[issueKey]bool
@@ -131,6 +137,9 @@ type FakeGitHub struct {
 	refusedSubIssueAdds                        map[issueKey]bool
 	refuseOpenBucketAdds                       bool
 	failedComments                             map[issueKey]bool
+	lostCommentAnswers                         map[issueKey]bool
+	refusedNextComments                        map[issueKey]int
+	refusedNextCommentLists                    map[issueKey]int
 	refusedComments                            map[issueKey]int
 	failedCommentUpdates                       map[issueKey]bool
 	failedLabels                               map[issueKey]bool
@@ -158,6 +167,7 @@ type FakeGitHub struct {
 	latestRelease       *releaseJSON
 	lastAssetID         int64
 	releaseAssetFailure int
+	releaseHasNoProgram bool
 	comparedCommits     []string
 	holds               map[issueKey]*hold
 	threadHolds         map[issueKey][]*hold
@@ -200,6 +210,8 @@ type FakeGitHub struct {
 	holdBranchUpdates bool
 	heldBranchUpdates []issueKey
 	updateAnswerHold  *hold
+	// branchUpdateRefusal is the status that the next update of the branch of a pull request gives, or 0 when it works.
+	branchUpdateRefusal int
 	// afterCheckRunRead runs once at the end of the first request for the check runs of a commit after a GraphQL answer
 	// gave a review of a pull request. reviewRead tells if such an answer was given.
 	afterCheckRunRead func()
@@ -220,8 +232,14 @@ type FakeGitHub struct {
 	workflowNotFound map[workflowKey]bool
 	// rerunRefusal is the status that the re-run of the failed jobs gives, or 0 when it works.
 	rerunRefusal int
+	// rerunRefusalOnce is the status that the next re-run of a workflow run gives, or 0 when it works.
+	rerunRefusalOnce int
 	// rerunRequests is the number of the requests to run the failed jobs again.
 	rerunRequests int
+	// cancelRefusal is the status that the cancel of a workflow run gives, or 0 when it works.
+	cancelRefusal int
+	// cancelRequests is the number of the requests to cancel a workflow run.
+	cancelRequests int
 	// runListRefusal is the status that the list of workflow runs gives, or 0 when it works.
 	runListRefusal int
 	// jobListRefusal is the status that the list of the jobs of a run attempt gives, or 0 when it works.
@@ -283,6 +301,7 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		failedReactions:         map[string]bool{},
 		resolvedThreads:         map[int64]bool{},
 		failedCloses:            map[issueKey]bool{},
+		eventPolls:              map[string]int{},
 		failedIssueReads:        map[issueKey]int{},
 		goneIssues:              map[issueKey]bool{},
 		forbiddenIssues:         map[issueKey]bool{},
@@ -292,6 +311,9 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		failedSubIssueAdds:      map[issueKey]bool{},
 		refusedSubIssueAdds:     map[issueKey]bool{},
 		failedComments:          map[issueKey]bool{},
+		lostCommentAnswers:      map[issueKey]bool{},
+		refusedNextComments:     map[issueKey]int{},
+		refusedNextCommentLists: map[issueKey]int{},
 		refusedComments:         map[issueKey]int{},
 		failedCommentUpdates:    map[issueKey]bool{},
 		failedLabels:            map[issueKey]bool{},
@@ -315,6 +337,8 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		branchDeletionRefusals:  map[branchKey]string{},
 		mergedHeads:             map[issueKey]string{},
 		unknownMergeable:        map[issueKey]bool{},
+		singlePullReads:         map[issueKey]int{},
+		pullBodies:              map[issueKey]string{},
 		annotations:             map[int64][]annotationJSON{},
 		cloneURLs:               map[string]string{},
 		checkRunApps:            map[int64]string{},
@@ -390,7 +414,10 @@ func (g *FakeGitHub) routes() *http.ServeMux {
 	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/runs", g.withToken(g.listWorkflowRuns))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/runs/{id}", g.withToken(g.getWorkflowRun))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/workflows/{id}", g.withToken(g.getWorkflow))
+	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/runs/{id}/jobs", g.withToken(g.listWorkflowJobs))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/runs/{id}/attempts/{attempt}/jobs", g.withToken(g.listWorkflowJobsAttempt))
+	mux.HandleFunc("POST /repos/{owner}/{repo}/actions/runs/{id}/cancel", g.withToken(g.cancelWorkflow))
+	mux.HandleFunc("POST /repos/{owner}/{repo}/actions/runs/{id}/rerun", g.withToken(g.rerunWorkflow))
 	mux.HandleFunc("POST /repos/{owner}/{repo}/actions/runs/{id}/rerun-failed-jobs", g.withToken(g.rerunFailedJobs))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/jobs/{id}/logs", g.withToken(g.jobLogLink))
 	mux.HandleFunc("GET /job-logs/{id}", g.jobLog)

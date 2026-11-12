@@ -2,12 +2,15 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/coder/acp-go-sdk"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
@@ -97,6 +100,10 @@ error = { code = -32603, message = "turn failed: no API key for provider route",
 	if err == nil || err.Error() != want {
 		t.Errorf("error = %v, want %s", err, want)
 	}
+	var requestErr *acp.RequestError
+	if !errors.As(err, &requestErr) || requestErr.Code != -32603 {
+		t.Errorf("requestErr = %v", requestErr)
+	}
 }
 
 func TestCheckAccessFailsWhenTheProgramIsNotOnThePath(t *testing.T) {
@@ -106,5 +113,61 @@ func TestCheckAccessFailsWhenTheProgramIsNotOnThePath(t *testing.T) {
 
 	if err == nil || err.Error() != "dsh is not on PATH" {
 		t.Errorf("error = %v", err)
+	}
+}
+
+const scriptMode = 0o700
+
+func writeInit(t *testing.T, script string) string {
+	t.Helper()
+	worktree := t.TempDir()
+	if err := os.Mkdir(filepath.Join(worktree, ".mobius"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(worktree, ".mobius", "init")
+	if err := os.WriteFile(file, []byte("#!/bin/sh\n"+script+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(file, scriptMode); err != nil {
+		t.Fatal(err)
+	}
+	return worktree
+}
+
+func TestInitGivesTheOutputAndPassesForAScriptThatEndsWithZero(t *testing.T) {
+	worktree := writeInit(t, "echo installed; echo warning >&2")
+
+	got, passed, err := Init(context.Background(), t.TempDir(), worktree, os.Getenv("PATH"), time.Minute)
+
+	if err != nil || !passed || got != "installed\nwarning\n" {
+		t.Errorf("Init = %q, %v, %v", got, passed, err)
+	}
+}
+
+func TestInitGivesTheOutputAndFailsForAScriptThatEndsWithAnError(t *testing.T) {
+	worktree := writeInit(t, "echo boom; exit 3")
+
+	got, passed, err := Init(context.Background(), t.TempDir(), worktree, os.Getenv("PATH"), time.Minute)
+
+	if err != nil || passed || got != "boom\n" {
+		t.Errorf("Init = %q, %v, %v", got, passed, err)
+	}
+}
+
+func TestInitFailsWithALineAboutTheTimeoutForAScriptThatDoesNotEndInTime(t *testing.T) {
+	worktree := writeInit(t, "echo slow; sleep 30")
+
+	got, passed, err := Init(context.Background(), t.TempDir(), worktree, os.Getenv("PATH"), 200*time.Millisecond)
+
+	if err != nil || passed || got != "slow\n\n.mobius/init did not end in 200ms.\n" {
+		t.Errorf("Init = %q, %v, %v", got, passed, err)
+	}
+}
+
+func TestInitPassesWithNoOutputForAWorktreeWithNoScript(t *testing.T) {
+	got, passed, err := Init(context.Background(), t.TempDir(), t.TempDir(), os.Getenv("PATH"), time.Minute)
+
+	if err != nil || !passed || got != "" {
+		t.Errorf("Init = %q, %v, %v", got, passed, err)
 	}
 }
