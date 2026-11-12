@@ -116,16 +116,42 @@ func waitForChatSession(t *testing.T, server *testserver.Server, key engine.Chat
 	})
 }
 
-// endedChatSession waits for the end of the Lead session index of the Workstream #12.
+// endedChatSession waits for the end of the Lead session index of the Workstream #12. When the wait fails, it logs
+// the Lead sessions with their times and the kinds of the Transcript lines of the last session.
 func endedChatSession(t *testing.T, server *testserver.Server, index int) store.Session {
 	t.Helper()
-	return testkit.WaitForValue(t, func() (store.Session, bool) {
+	waited := false
+	defer func() {
+		if !waited {
+			logChatSessions(t, server)
+		}
+	}()
+	session := testkit.WaitForValue(t, func() (store.Session, bool) {
 		sessions := chatSessions(t, server, leadChat, engine.LeadRole)
 		if len(sessions) <= index {
 			return store.Session{}, false
 		}
 		return sessions[index], sessions[index].EndedAt.Valid
 	})
+	waited = true
+	return session
+}
+
+func logChatSessions(t *testing.T, server *testserver.Server) {
+	t.Helper()
+	sessions := chatSessions(t, server, leadChat, engine.LeadRole)
+	t.Logf("the Lead sessions at %s: %d", time.Now().UTC().Format(time.RFC3339Nano), len(sessions))
+	for _, session := range sessions {
+		t.Logf("session %d: started %s, ended %s, reason %q, queue reason %q", session.ID, session.StartedAt, session.EndedAt.String, session.EndReason.String, session.QueueReason.String)
+	}
+	if len(sessions) == 0 {
+		return
+	}
+	var kinds []string
+	for _, line := range transcript(t, server, sessions[len(sessions)-1].ID) {
+		kinds = append(kinds, line.Kind)
+	}
+	t.Logf("the Transcript kinds of the last session: %s", strings.Join(kinds, " "))
 }
 
 // fetchLine is the line that Mobius puts before the item of a turn of a Workstream chat after a fetch of the bare clone.
