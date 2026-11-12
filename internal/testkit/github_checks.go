@@ -476,6 +476,10 @@ func (g *FakeGitHub) pullRequestJSON(repository string, number int64) map[string
 		state = "behind"
 	}
 	found := g.issues[key]
+	body := found.body
+	if override, ok := g.pullBodies[key]; ok {
+		body = override
+	}
 	var mergeableValue any = mergeable
 	if g.unknownMergeable[key] {
 		mergeableValue = nil
@@ -488,7 +492,7 @@ func (g *FakeGitHub) pullRequestJSON(repository string, number int64) map[string
 		"merged":          found.merged,
 		"head":            map[string]string{"sha": g.headOf(repository, number), "ref": pull.Head},
 		"draft":           pull.Draft,
-		"body":            found.body,
+		"body":            body,
 		"mergeable":       mergeableValue,
 		"mergeable_state": state,
 		"created_at":      timestamp(g.createdAt[key]),
@@ -544,7 +548,23 @@ func (g *FakeGitHub) getPullRequest(w http.ResponseWriter, r *http.Request) {
 		notFound(w)
 		return
 	}
+	g.singlePullReads[issueKey{repository(r), number}]++
 	writeJSON(w, http.StatusOK, g.pullRequestJSON(repository(r), number))
+}
+
+// SetPullRequestBody sets the body that the single read of the pull request gives, as GitHub gives a newer copy of a
+// pull request than the one of an issue list. It changes neither the issue list nor the update time.
+func (g *FakeGitHub) SetPullRequestBody(repository string, number int64, body string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.pullBodies[issueKey{repository, number}] = body
+}
+
+// SinglePullRequestReads gives the number of reads of the pull request number through the single pull request route.
+func (g *FakeGitHub) SinglePullRequestReads(repository string, number int64) int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.singlePullReads[issueKey{repository, number}]
 }
 
 // mergePullRequest squash merges the pull request into its base branch: it adds one commit with the merge tree of the

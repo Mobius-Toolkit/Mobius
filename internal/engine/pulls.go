@@ -48,16 +48,18 @@ func (e *Engine) pull(repository github.Repository, number int64) *pullState {
 	return e.pulls[key]
 }
 
-// pullRequest gives the pull request number. It reads the pull request from GitHub when the poll has no earlier read, the
-// issue list showed a change, a Worker pushed to the pull request or approve_pull_request found a new head since the
-// earlier read, the default branch moved since the earlier read, or GitHub had not yet calculated mergeable. Else it gives the pull request of the earlier read. A push to the default branch changes mergeable and
-// mergeable_state with no change of the update time of the pull request.
-func (e *Engine) pullRequest(ctx context.Context, repository github.Repository, number int64, baseHead string) (*gh.PullRequest, error) {
+// pullRequest gives the pull request number. It reads the pull request from GitHub when inChecks is true, the poll has no
+// earlier read, the issue list showed a change, a Worker pushed to the pull request or approve_pull_request found a new
+// head since the earlier read, the default branch moved since the earlier read, or GitHub had not yet calculated
+// mergeable. Else it gives the pull request of the earlier read. A push to the default branch changes mergeable and
+// mergeable_state with no change of the update time of the pull request. A read after the issue list can give an older
+// copy of a pull request, and the issue list shows the change one time, so a task in checks reads it at each poll.
+func (e *Engine) pullRequest(ctx context.Context, repository github.Repository, number int64, baseHead string, inChecks bool) (*gh.PullRequest, error) {
 	state := e.pull(repository, number)
 	if e.takePushed(repository, number) {
 		state.changed = true
 	}
-	if state.pullRequest != nil && !state.changed && state.baseHead == baseHead && state.pullRequest.Mergeable != nil {
+	if state.pullRequest != nil && !inChecks && !state.changed && state.baseHead == baseHead && state.pullRequest.Mergeable != nil {
 		return state.pullRequest, nil
 	}
 	pullRequest, err := repository.PullRequest(ctx, number)
