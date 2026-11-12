@@ -2303,6 +2303,22 @@ test("screenshots", async ({ page }) => {
         .filter({ visible: true })
         .click();
       await logConnected(page);
+      const last = page.getByText("The plan prices are in cents now.").filter({ visible: true });
+      await expect
+        .poll(() =>
+          last.evaluate((el) => {
+            const list = el.closest("ul[data-version]");
+            if (
+              !list ||
+              !list.lastElementChild?.textContent?.includes("The plan prices are in cents now.")
+            ) {
+              return false;
+            }
+            list.scrollTop = list.scrollHeight;
+            return list.scrollHeight - list.scrollTop - list.clientHeight < 1;
+          }),
+        )
+        .toBe(true);
     },
   );
   await screenshot(page, "agents", "/agents", (device) => [
