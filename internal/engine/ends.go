@@ -242,7 +242,7 @@ func (e *Engine) checkTask(ctx context.Context, repository github.Repository, ta
 			}
 		}
 	}
-	if merged, err := e.mergeApproved(ctx, repository, task, pullRequest); err != nil || merged {
+	if merged, err := e.mergeApprovedAfterApproval(ctx, repository, task, pullRequest); err != nil || merged {
 		return Work{}, false, err
 	}
 	waiting := false

@@ -165,6 +165,7 @@ type FakeGitHub struct {
 	threadHolds         map[issueKey][]*hold
 	mergeHolds          map[issueKey][]*hold
 	issueHolds          map[issueKey]*hold
+	commentHolds        map[issueKey]*hold
 	pullHolds           map[issueKey]*hold
 	// anonymousRateLimited tells if each request of the releases and of the comparisons with no token gets the
 	// rate-limit answer.
@@ -314,6 +315,7 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		threadHolds:             map[issueKey][]*hold{},
 		mergeHolds:              map[issueKey][]*hold{},
 		issueHolds:              map[issueKey]*hold{},
+		commentHolds:            map[issueKey]*hold{},
 		pullHolds:               map[issueKey]*hold{},
 		hangs:                   map[string]chan struct{}{},
 		routeHolds:              map[string]chan struct{}{},
