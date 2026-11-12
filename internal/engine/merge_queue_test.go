@@ -125,7 +125,8 @@ func queueTasksWith(t *testing.T, fake *testkit.FakeGitHub, lead, level string, 
 }
 
 // TestMergeQueueOrderAndOneAtATime verifies that three approved tasks with auto_merge of one repository are behind the
-// default branch with a common file. Only the first task that entered the queue gets a branch update while it waits.
+// default branch with a common file. They queue in the order of their approval, and only the first task gets a branch
+// update. No task merges while the first task waits for its update and for its approval again.
 func TestMergeQueueOrderAndOneAtATime(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
@@ -139,19 +140,36 @@ func TestMergeQueueOrderAndOneAtATime(t *testing.T) {
 	fake.HoldBranchUpdates()
 
 	sendChat(t, server, leadChat, "Approve #41")
+	testkit.WaitFor(t, func() bool { return liveTask(t, server, 41).MergeQueuedAt.Valid })
 	sendChat(t, server, leadChat, "Approve #43")
+	testkit.WaitFor(t, func() bool { return liveTask(t, server, 43).MergeQueuedAt.Valid })
 	sendChat(t, server, leadChat, "Approve #45")
-
+	testkit.WaitFor(t, func() bool { return liveTask(t, server, 45).MergeQueuedAt.Valid })
 	testkit.WaitFor(t, func() bool { return fake.UpdateBranchCalls() >= 1 })
-	for _, number := range []int64{43, 45} {
-		testkit.WaitFor(t, func() bool { return liveTask(t, server, number).MergeQueuedAt.Valid })
-	}
 	waitForPolls(t, fake)
 
-	if calls := fake.UpdateBranchCalls(); calls != 1 {
-		t.Errorf("update calls = %d, want 1", calls)
+	queue := query(t, server, func(rows *sql.Rows, issue *int64) error { return rows.Scan(issue) },
+		"SELECT issue FROM tasks WHERE repository = ? AND state <> 'ended' AND merge_queued_at IS NOT NULL ORDER BY julianday(merge_queued_at), id", shop)
+	if !slices.Equal(queue, []int64{41, 43, 45}) {
+		t.Errorf("queue = %v, want [41 43 45]", queue)
+	}
+	if calls, updates := fake.MergeCalls(), fake.UpdateBranchCalls(); calls != 0 || updates != 1 {
+		t.Errorf("merge calls = %d, update calls = %d, want 0 and 1", calls, updates)
 	}
 	for ref, want := range map[string]string{"mobius/41": head41, "mobius/43": head43, "mobius/45": head45} {
+		if got := head(t, fake, ref); got != want {
+			t.Errorf("head of %s = %s, want %s", ref, got, want)
+		}
+	}
+
+	fake.ReleaseBranchUpdates()
+
+	// The held update was for the first task. It is in checks and has no approval again, so no task merges.
+	testkit.WaitFor(t, func() bool { return head(t, fake, "mobius/41") != head41 })
+	if calls, updates := fake.MergeCalls(), fake.UpdateBranchCalls(); calls != 0 || updates != 1 {
+		t.Errorf("merge calls = %d, update calls = %d after the update, want 0 and 1", calls, updates)
+	}
+	for ref, want := range map[string]string{"mobius/43": head43, "mobius/45": head45} {
 		if got := head(t, fake, ref); got != want {
 			t.Errorf("head of %s = %s, want %s", ref, got, want)
 		}

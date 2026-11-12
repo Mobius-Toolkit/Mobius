@@ -94,15 +94,19 @@ func TestWithoutAMergeLevelTheApprovalOfTheLeadAddsNoReviewAndTheItemKeepsTheMer
 	}
 }
 
-func TestAHeadThatDoesNotContainTheDefaultBranchGetsAnUpdateAndMobiusApprovesItAgain(t *testing.T) {
+// TestAHeadThatChangesToAMergeOfTheDefaultBranchAfterTheApprovalGetsTheApprovalAgainAndMerges checks that a head that
+// changes to a clean merge of the default branch while the merge waits gets the approval of Mobius again, and merges.
+// The merge request with the old head counts as a merge call.
+func TestAHeadThatChangesToAMergeOfTheDefaultBranchAfterTheApprovalGetsTheApprovalAgainAndMerges(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := approvable(t, fake, "merge", true)
 	old := head(t, fake, "mobius/41")
 	fake.CommitFile(shop, "price.txt", "cents\n", "Add price")
-	fake.UpdateBranchAtNextMerge(shop, 42)
+	update := mergeMainAtMerge(fake)
 
 	sendChat(t, server, leadChat, "Approve #41")
+	update()
 
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "" })
 	head := head(t, fake, "mobius/41")
@@ -115,7 +119,7 @@ func TestAHeadThatDoesNotContainTheDefaultBranchGetsAnUpdateAndMobiusApprovesItA
 	if got := approvedReport(t, server); got != "Checked the diff. Verified the tests." {
 		t.Errorf("approved_report = %q", got)
 	}
-	if calls, updates, count := fake.MergeCalls(), fake.UpdateBranchCalls(), approvals(fake); calls != 1 || updates != 1 || count != 2 {
+	if calls, updates, count := fake.MergeCalls(), fake.UpdateBranchCalls(), approvals(fake); calls != 2 || updates != 0 || count != 2 {
 		t.Errorf("merge calls = %d, update calls = %d, approvals = %d", calls, updates, count)
 	}
 	if got := testkit.Git(t, fake.Remote(shop), "show", "main:price.txt"); got != "cents" {

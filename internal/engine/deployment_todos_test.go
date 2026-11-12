@@ -230,16 +230,17 @@ func TestWithAMergeLevelAndNoNeedThereIsNoTodoAndMobiusMerges(t *testing.T) {
 	}
 }
 
-// TestASecondApprovalOfTheSameTaskAddsNoSecondTodoForTheSameNeed checks that the approval again after the update of the
-// branch adds no second todo for the same need, and that the task still merges.
+// TestASecondApprovalOfTheSameTaskAddsNoSecondTodoForTheSameNeed checks that the approval again after a merge of the
+// default branch into the head adds no second todo for the same need, and that the task still merges.
 func TestASecondApprovalOfTheSameTaskAddsNoSecondTodoForTheSameNeed(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := approvableWith(t, fake, "merge", true, afterMergeNeed)
 	old := head(t, fake, "mobius/41")
 	fake.CommitFile(shop, "price.txt", "cents\n", "Add price")
-	fake.UpdateBranchAtNextMerge(shop, 42)
+	update := mergeMainAtMerge(fake)
 	sendChat(t, server, leadChat, "Approve #41")
+	update()
 
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "" })
 	if head(t, fake, "mobius/41") == old {
