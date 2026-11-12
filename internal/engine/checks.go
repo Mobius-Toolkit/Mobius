@@ -197,6 +197,9 @@ func (e *Engine) onChecks(ctx context.Context, repository github.Repository, tas
 		return nil
 	}
 	head := pullRequest.GetHead().GetSHA()
+	if err := e.retryCancelledRuns(ctx, repository, pullRequest, &state); err != nil {
+		return err
+	}
 	screenshots := screenshotsOf(pullRequest.GetBody())
 	switch {
 	case task.RerunHead.String == head && (state.running || len(rerunWaiting(task, state)) > 0):
@@ -482,21 +485,98 @@ func rerunWaiting(task store.Task, state ci) []string {
 	return names
 }
 
+// retryCancelledRuns runs again each newest workflow run of the head that Mobius cancelled and whose rerun is still to
+// do, when the run completed. GitHub cancels a run after it answers the cancel, so the first rerun can come too early.
+// A run that GitHub refuses again goes to updateBranchOfRun. A cancelled run that Mobius acted on does not count as a
+// failed workflow, because the read of the poll can still show the cancel after the rerun.
+func (e *Engine) retryCancelledRuns(ctx context.Context, repository github.Repository, pullRequest *gh.PullRequest, state *ci) error {
+	var updatedBranch bool
+	for _, run := range state.newestWorkflows {
+		runState := e.refusedRuns[run.GetID()]
+		if !cancelledRun(run) || (runState != refusedRunPendingRerun && runState != refusedRunPendingBranch) {
+			continue
+		}
+		var refusal error
+		if runState == refusedRunPendingRerun {
+			err := repository.RerunWorkflowRun(ctx, run.GetID())
+			if err == nil {
+				e.refusedRuns[run.GetID()] = refusedRunRerunSucceeded
+				continue
+			}
+			var refused *gh.ErrorResponse
+			if !errors.As(err, &refused) || refused.Response.StatusCode >= 500 {
+				return err
+			}
+			refusal = err
+			e.refusedRuns[run.GetID()] = refusedRunPendingBranch
+		}
+		if err := e.updateBranchOfRun(ctx, repository, pullRequest, run.GetID(), refusal, &updatedBranch); err != nil {
+			return err
+		}
+	}
+	state.failedWorkflow = false
+	for _, run := range state.newestWorkflows {
+		switch {
+		case !failedWorkflowRun(run):
+		case cancelledRun(run) && e.refusedRuns[run.GetID()] != 0:
+			state.running = true
+			if !slices.Contains(state.incomplete, run.GetName()) {
+				state.incomplete = append(state.incomplete, run.GetName())
+			}
+		default:
+			state.failedWorkflow = true
+		}
+	}
+	return nil
+}
+
+func cancelledRun(run *gh.WorkflowRun) bool {
+	return run.GetStatus() == "completed" && run.GetConclusion() == "cancelled"
+}
+
+// updateBranchOfRun updates the branch of the pull request one time in a poll step, when the head is behind its base
+// branch, because a new head gets new workflow runs. Else it logs the refusal. Then it records the refusal of the run
+// as done. A temporary error keeps the run in refusedRunPendingBranch, so the next poll tries again.
+func (e *Engine) updateBranchOfRun(ctx context.Context, repository github.Repository, pullRequest *gh.PullRequest, runID int64, refusal error, updatedBranch *bool) error {
+	behind, err := repository.CommitsBehind(ctx, repository.DefaultBranch, pullRequest.GetHead().GetSHA())
+	if err != nil {
+		return err
+	}
+	switch {
+	case behind > 0 && !*updatedBranch:
+		if err := repository.UpdatePullRequestBranch(ctx, int64(pullRequest.GetNumber()), pullRequest.GetHead().GetSHA()); err != nil {
+			var refusedUpdate *gh.ErrorResponse
+			if !errors.As(err, &refusedUpdate) || refusedUpdate.Response.StatusCode >= 500 {
+				return err
+			}
+			log.Printf("update the branch of pull request %d of %s: %v", pullRequest.GetNumber(), repository.FullName, err)
+		}
+		*updatedBranch = true
+	case refusal != nil:
+		log.Printf("stuck workflow run %d: %v", runID, refusal)
+	default:
+		log.Printf("stuck workflow run %d was refused", runID)
+	}
+	e.refusedRuns[runID] = refusedRunDone
+	return nil
+}
+
 // handleStuckRuns cancels and runs again each newest workflow run of the head that is queued with no job for more than
 // queuedRunLimit. When GitHub refuses the cancel or the rerun with a 4xx, it updates the branch of the pull request if
 // the head is behind its base branch. It gives the incomplete runs for the Lead, with each stuck run named as
 // "<workflow> (queued with no job)".
 func (e *Engine) handleStuckRuns(ctx context.Context, repository github.Repository, pullRequest *gh.PullRequest, state ci) ([]string, error) {
-	head := pullRequest.GetHead().GetSHA()
 	var updatedBranch bool
 	stuckNames := map[string]bool{}
 	for _, run := range state.newestWorkflows {
-		if run.GetStatus() != "queued" {
+		runState := e.refusedRuns[run.GetID()]
+		if runState == refusedRunDone || runState == refusedRunPendingRerun {
+			if run.GetStatus() == "queued" || cancelledRun(run) {
+				stuckNames[run.GetName()] = true
+			}
 			continue
 		}
-		runState := e.refusedRuns[run.GetID()]
-		if runState == refusedRunDone {
-			stuckNames[run.GetName()] = true
+		if runState == refusedRunRerunSucceeded || run.GetStatus() != "queued" {
 			continue
 		}
 		var refusal error
@@ -521,42 +601,31 @@ func (e *Engine) handleStuckRuns(ctx context.Context, repository github.Reposito
 			}
 			stuckNames[run.GetName()] = true
 			err = repository.CancelWorkflowRun(ctx, run.GetID())
-			if err == nil {
+			cancelled := err == nil
+			if cancelled {
+				e.refusedRuns[run.GetID()] = refusedRunPendingRerun
 				err = repository.RerunWorkflowRun(ctx, run.GetID())
-			}
-			if err == nil {
-				delete(stuckNames, run.GetName())
-				continue
+				if err == nil {
+					e.refusedRuns[run.GetID()] = refusedRunRerunSucceeded
+					delete(stuckNames, run.GetName())
+					continue
+				}
 			}
 			var refused *gh.ErrorResponse
 			if !errors.As(err, &refused) || refused.Response.StatusCode >= 500 {
 				return nil, err
 			}
+			if cancelled {
+				continue
+			}
 			refusal = err
-			e.refusedRuns[run.GetID()] = refusedRunPendingBranch
 		} else {
 			stuckNames[run.GetName()] = true
 		}
-		behind, err := repository.CommitsBehind(ctx, repository.DefaultBranch, head)
-		if err != nil {
+		e.refusedRuns[run.GetID()] = refusedRunPendingBranch
+		if err := e.updateBranchOfRun(ctx, repository, pullRequest, run.GetID(), refusal, &updatedBranch); err != nil {
 			return nil, err
 		}
-		switch {
-		case behind > 0 && !updatedBranch:
-			if err := repository.UpdatePullRequestBranch(ctx, int64(pullRequest.GetNumber()), head); err != nil {
-				var refusedUpdate *gh.ErrorResponse
-				if !errors.As(err, &refusedUpdate) || refusedUpdate.Response.StatusCode >= 500 {
-					return nil, err
-				}
-				log.Printf("update the branch of pull request %d of %s: %v", pullRequest.GetNumber(), repository.FullName, err)
-			}
-			updatedBranch = true
-		case refusal != nil:
-			log.Printf("stuck workflow run %d: %v", run.GetID(), refusal)
-		default:
-			log.Printf("stuck workflow run %d was refused", run.GetID())
-		}
-		e.refusedRuns[run.GetID()] = refusedRunDone
 	}
 	incomplete := slices.Clone(state.incomplete)
 	for i, name := range incomplete {

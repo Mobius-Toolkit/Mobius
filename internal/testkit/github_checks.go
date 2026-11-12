@@ -376,6 +376,13 @@ func (g *FakeGitHub) RefuseRerun(status int) {
 	g.rerunRefusal = status
 }
 
+// RefuseRerunOnce makes the next re-run of a workflow run give the status. Later re-runs work.
+func (g *FakeGitHub) RefuseRerunOnce(status int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.rerunRefusalOnce = status
+}
+
 // RefuseCancel makes the cancel of a workflow run give the status.
 func (g *FakeGitHub) RefuseCancel(status int) {
 	g.mu.Lock()
@@ -1105,6 +1112,12 @@ func (g *FakeGitHub) rerunWorkflow(w http.ResponseWriter, r *http.Request) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.rerunRequests++
+	if g.rerunRefusalOnce != 0 {
+		code := g.rerunRefusalOnce
+		g.rerunRefusalOnce = 0
+		message(w, code, "This workflow is already running")
+		return
+	}
 	if g.rerunRefusal != 0 {
 		message(w, g.rerunRefusal, "Resource not accessible by integration")
 		return

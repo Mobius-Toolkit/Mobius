@@ -222,6 +222,8 @@ type FakeGitHub struct {
 	workflowNotFound map[workflowKey]bool
 	// rerunRefusal is the status that the re-run of the failed jobs gives, or 0 when it works.
 	rerunRefusal int
+	// rerunRefusalOnce is the status that the next re-run of a workflow run gives, or 0 when it works.
+	rerunRefusalOnce int
 	// rerunRequests is the number of the requests to run the failed jobs again.
 	rerunRequests int
 	// cancelRefusal is the status that the cancel of a workflow run gives, or 0 when it works.

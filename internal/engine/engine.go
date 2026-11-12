@@ -22,7 +22,12 @@ import (
 type refusedRunState int
 
 const (
+	// refusedRunPendingBranch: GitHub refused the cancel or the rerun, and the branch step is still to do.
 	refusedRunPendingBranch refusedRunState = iota + 1
+	// refusedRunPendingRerun: GitHub cancelled the run, and the rerun is still to do.
+	refusedRunPendingRerun
+	refusedRunRerunSucceeded
+	// refusedRunDone: the branch step ended.
 	refusedRunDone
 )
 
@@ -98,8 +103,8 @@ type Engine struct {
 	// ciWait holds the head of each task in checks that has no CI, with the time of its first poll, by the id of the task.
 	// Only the poll uses it.
 	ciWait map[int64]ciWait
-	// refusedRuns holds the state of the workflow runs whose cancel or rerun GitHub refused with a 4xx. Only the poll
-	// uses it.
+	// refusedRuns holds the state of the workflow runs that Mobius cancelled or tried to cancel, by the id of the run.
+	// Only the poll uses it.
 	refusedRuns map[int64]refusedRunState
 	// clock gives the time of the long waits. A nil clock is time.Now.
 	clock atomic.Pointer[func() time.Time]

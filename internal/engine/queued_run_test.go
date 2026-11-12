@@ -61,11 +61,7 @@ func TestQueuedRunNoJobsRefusedBehindMainUpdatesBranchOnce(t *testing.T) {
 			fake.CommitFile(shop, "price.txt", "dollars\n", "Add price")
 
 			server.Engine.SetClock(func() time.Time { return start.Add(31 * time.Minute) })
-			waitForPolls(t, fake)
-
-			if calls := fake.UpdateBranchCalls(); calls != 1 {
-				t.Errorf("update branch calls = %d, want 1", calls)
-			}
+			testkit.WaitFor(t, func() bool { return fake.UpdateBranchCalls() == 1 })
 
 			waitForPolls(t, fake)
 			if calls := fake.UpdateBranchCalls(); calls != 1 {
@@ -194,17 +190,77 @@ func TestQueuedRunWorkflowJobsRefusalDoesNotFailPoll(t *testing.T) {
 	fake.AddWorkflowRun(shop, testkit.WorkflowRun{Name: "ci", HeadSHA: sha, Status: "queued", CreatedAt: start})
 	fake.RefuseWorkflowJobs(http.StatusForbidden)
 
-	server.Engine.SetClock(func() time.Time { return start.Add(31 * time.Minute) })
-	waitForPolls(t, fake)
-
+	server.Engine.SetClock(func() time.Time { return start.Add(2*time.Hour + time.Minute) })
+	prompt := waitForLeadPrompt(t, server, " the CI of #41 \"Add plan model\" runs for more than 2h0m0s")
+	if !strings.Contains(prompt, "did not complete: ci.") {
+		t.Errorf("prompt = %s, want did not complete: ci.", prompt)
+	}
 	if calls := fake.CancelRequests(); calls != 0 {
 		t.Errorf("cancel calls = %d, want 0", calls)
 	}
-	if calls := fake.RerunRequests(); calls != 0 {
-		t.Errorf("rerun calls = %d, want 0", calls)
+
+	fake.RefuseWorkflowJobs(0)
+	testkit.WaitFor(t, func() bool { return fake.CancelRequests() == 1 })
+	waitForPolls(t, fake)
+	if calls := fake.CancelRequests(); calls != 1 {
+		t.Errorf("cancel calls = %d, want 1", calls)
+	}
+}
+
+func TestQueuedRunRerunRefusedOnceAfterCancelRunsAgainAndTaskStaysInChecks(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, commits, longGrace)
+	sha := checksHead(t, server, fake)
+	start := time.Now()
+	runID := fake.AddWorkflowRun(shop, testkit.WorkflowRun{Name: "ci", HeadSHA: sha, Status: "queued", CreatedAt: start})
+	fake.RefuseRerunOnce(http.StatusUnprocessableEntity)
+
+	server.Engine.SetClock(func() time.Time { return start.Add(31 * time.Minute) })
+	testkit.WaitFor(t, func() bool { return fake.RerunRequests() == 2 })
+	waitForPolls(t, fake)
+
+	if calls := fake.CancelRequests(); calls != 1 {
+		t.Errorf("cancel calls = %d, want 1", calls)
+	}
+	if calls := fake.RerunRequests(); calls != 2 {
+		t.Errorf("rerun calls = %d, want 2", calls)
+	}
+	if attempt := fake.WorkflowRunAttempt(runID); attempt != 2 {
+		t.Errorf("attempt = %d, want 2", attempt)
+	}
+	if state := taskState(t, server); state != "checks" {
+		t.Errorf("state = %s, want checks", state)
+	}
+}
+
+func TestQueuedRunRerunRefusedAfterCancelNotBehindKeepsTaskInChecksAndNamesRun(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, commits, longGrace)
+	sha := checksHead(t, server, fake)
+	start := time.Now()
+	fake.AddWorkflowRun(shop, testkit.WorkflowRun{Name: "build", HeadSHA: sha, Status: "queued", CreatedAt: start})
+	fake.RefuseRerun(http.StatusUnprocessableEntity)
+
+	server.Engine.SetClock(func() time.Time { return start.Add(31 * time.Minute) })
+	testkit.WaitFor(t, func() bool { return fake.RerunRequests() == 2 })
+	waitForPolls(t, fake)
+
+	if state := taskState(t, server); state != "checks" {
+		t.Errorf("state = %s, want checks", state)
 	}
 	if calls := fake.UpdateBranchCalls(); calls != 0 {
 		t.Errorf("update branch calls = %d, want 0", calls)
+	}
+
+	server.Engine.SetClock(func() time.Time { return start.Add(2*time.Hour + time.Minute) })
+	prompt := waitForLeadPrompt(t, server, " the CI of #41 \"Add plan model\" runs for more than 2h0m0s")
+	if !strings.Contains(prompt, "build (queued with no job)") {
+		t.Errorf("prompt = %s, want build (queued with no job)", prompt)
+	}
+	if calls := fake.RerunRequests(); calls != 2 {
+		t.Errorf("rerun calls = %d, want 2", calls)
 	}
 }
 
