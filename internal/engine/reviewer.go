@@ -148,7 +148,7 @@ func (e *Engine) reviewer(ctx context.Context, j *reviewJob) error {
 		if err := e.stopAtLimit(ctx, j.round(task, "", j.parent), "review"); err != nil {
 			return err
 		}
-		return e.addOrKeepComment(ctx, repository, number, fmt.Sprintf("Review not started. Limit reached (%d of %d). Mobius added mobius:needs-human. Add a comment on this pull request to continue.", limit, limit))
+		return e.postComment(ctx, repository, number, fmt.Sprintf("Review not started. Limit reached (%d of %d). Mobius added mobius:needs-human. Add a comment on this pull request to continue.", limit, limit))
 	}
 	a, err := e.addAgent(ctx, Spec{
 		Role:                 ReviewerRole,
@@ -221,13 +221,21 @@ func (e *Engine) reviewRound(ctx context.Context, a *Agent, j *reviewJob, task s
 		return err
 	}
 	number := int64(j.pullRequest.GetNumber())
-	// Each run gets a new comment, also a restart with the same round number.
-	started, err := repository.AddComment(ctx, number, "Review started"+e.reviewRoundText(task))
+	// Each run gets a new comment, also a restart with the same round number. The task has no review comment until
+	// the send stores it, so an edit never changes the comment of an earlier run.
+	var started int64
+	err = e.inTx(ctx, func(q *store.Queries) error {
+		if err := q.SetReviewComment(ctx, store.SetReviewCommentParams{ID: task.ID}); err != nil {
+			return err
+		}
+		var err error
+		started, err = e.addOutgoingChange(ctx, q, repository.FullName, number, 0, reviewCommentField, "Review started"+e.reviewRoundText(task))
+		return err
+	})
 	if err != nil {
 		return err
 	}
-	comment := started.GetID()
-	if err := e.queries.SetReviewComment(ctx, store.SetReviewCommentParams{ReviewComment: sql.NullInt64{Int64: comment, Valid: true}, ID: task.ID}); err != nil {
+	if err := e.sendNow(ctx, repository, started); err != nil {
 		return err
 	}
 	token, err := repository.Token(ctx)
@@ -293,7 +301,7 @@ func (e *Engine) reviewRound(ctx context.Context, a *Agent, j *reviewJob, task s
 	a.mu.Lock()
 	action := a.ownerAction
 	a.mu.Unlock()
-	return e.endReview(ctx, repository, j, comment, a.id, action)
+	return e.endReview(ctx, repository, j, a.id, action)
 }
 
 // requireDeploymentNeeds sends the Reviewer one more prompt when its turn made no valid report_deployment_needs
@@ -373,7 +381,7 @@ func (e *Engine) reportDeploymentNeeds(ctx context.Context, c caller, _ github.R
 // fix round with the findings that the Lead kept. The findings of the Reviewer go to a fix round, or at max_fix_rounds
 // the task goes to a human. Each other open thread has a reply of a trusted user or bot, so the Judge takes it. An
 // action of the Owner that the Reviewer reported (ownerAction is not empty) pauses the task instead of all this.
-func (e *Engine) endReview(ctx context.Context, repository github.Repository, j *reviewJob, comment, session int64, ownerAction string) error {
+func (e *Engine) endReview(ctx context.Context, repository github.Repository, j *reviewJob, session int64, ownerAction string) error {
 	// A comment of a trusted user during the turn resets the counters of the task.
 	task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: j.task.Repository, Issue: j.task.Issue})
 	if errors.Is(err, sql.ErrNoRows) {
@@ -394,14 +402,14 @@ func (e *Engine) endReview(ctx context.Context, repository github.Repository, j 
 	}
 	open := slices.DeleteFunc(reviewThreads, func(thread github.ReviewThread) bool { return !openThread(thread, trusted, app) })
 	if ownerAction != "" {
-		return e.pauseForOwnerAction(ctx, repository, j, task, comment, open, ownerAction)
+		return e.pauseForOwnerAction(ctx, repository, j, task, open, ownerAction)
 	}
 	limit := int64(e.config.MaxFixRounds)
 	if len(open) == 0 {
 		if err := setCIWaitStep(ctx, repository, j.head); err != nil {
 			return err
 		}
-		if err := e.endRound(ctx, repository, j, task, comment, "No open findings. Mobius waits for CI.", open); err != nil {
+		if err := e.endRound(ctx, repository, j, task, "No open findings. Mobius waits for CI.", open); err != nil {
 			return err
 		}
 		followedUp, err := e.sentFollowUp(ctx, task, j.parent, session)
@@ -431,7 +439,7 @@ func (e *Engine) endReview(ctx context.Context, repository github.Repository, j 
 		}
 	}
 	if len(findings) == 0 {
-		if err := e.endRound(ctx, repository, j, task, comment, "The Judge takes the open threads.", open); err != nil {
+		if err := e.endRound(ctx, repository, j, task, "The Judge takes the open threads.", open); err != nil {
 			return err
 		}
 		_, err := e.setTaskState(ctx, store.SetTaskStateParams{State: "reviewed", ID: task.ID, FromState: "working"})
@@ -451,7 +459,7 @@ func (e *Engine) endReview(ctx context.Context, repository github.Repository, j 
 			return err
 		}
 	}
-	if err := e.endRound(ctx, repository, j, task, comment, result, open); err != nil {
+	if err := e.endRound(ctx, repository, j, task, result, open); err != nil {
 		return err
 	}
 	r := j.round(task, items, sql.NullInt64{Int64: session, Valid: true})
@@ -465,34 +473,58 @@ func (e *Engine) endReview(ctx context.Context, repository github.Repository, j 
 }
 
 // endRound writes the result of the review round of the task with the links of the open threads into the comment of
-// the round, and counts the round. A failed update stays in comment_writes. A review after a conflict round is not counted.
-func (e *Engine) endRound(ctx context.Context, repository github.Repository, j *reviewJob, task store.Task, comment int64, result string, open []github.ReviewThread) error {
+// the round, as an outgoing change. The same transaction counts the round. A review after a conflict round is not
+// counted.
+func (e *Engine) endRound(ctx context.Context, repository github.Repository, j *reviewJob, task store.Task, result string, open []github.ReviewThread) error {
 	var links strings.Builder
 	for _, thread := range open {
 		fmt.Fprintf(&links, "- %s#discussion_r%d\n", j.pullRequest.GetHTMLURL(), thread.Comment)
 	}
 	body := fmt.Sprintf("Review ended%s\n\nResult: %s\nOpen findings: %d\n\n%s", e.reviewRoundText(task), result, len(open), links.String())
-	if err := e.updateOrKeepComment(ctx, repository, comment, strings.TrimRight(body, "\n")); err != nil {
+	var change int64
+	err := e.inTx(ctx, func(q *store.Queries) error {
+		var err error
+		change, err = e.addOutgoingChange(ctx, q, repository.FullName, int64(j.pullRequest.GetNumber()), 0, reviewCommentEditField, strings.TrimRight(body, "\n"))
+		if err != nil || afterConflictRound(task) {
+			return err
+		}
+		return q.AddReviewRound(ctx, task.ID)
+	})
+	if err != nil {
 		return err
 	}
-	if err := e.queries.SetReviewComment(ctx, store.SetReviewCommentParams{ID: task.ID}); err != nil {
-		return err
-	}
-	if afterConflictRound(task) {
-		return nil
-	}
-	return e.queries.AddReviewRound(ctx, task.ID)
+	return e.sendNow(ctx, repository, change)
 }
 
-// abandonRound writes the reason into the comment of the review run of the task that did not end. A task with no
-// comment of a run needs no update. A failed update stays in comment_writes.
+// abandonRound writes the reason into the comment of the review run of the task that did not end, as an outgoing
+// change. A task with no comment of a run needs no update. The comment of a run that has a pending post or a pending
+// edit has its change already.
 func (e *Engine) abandonRound(ctx context.Context, repository github.Repository, task store.Task, reason string) error {
 	comment, err := e.queries.GetReviewComment(ctx, task.ID)
-	if err != nil || !comment.Valid {
+	if err != nil {
 		return err
 	}
-	updateErr := e.updateOrKeepComment(ctx, repository, comment.Int64, fmt.Sprintf("Review stopped%s\n\n%s", e.reviewRoundText(task), reason))
-	return errors.Join(e.queries.SetReviewComment(ctx, store.SetReviewCommentParams{ID: task.ID}), updateErr)
+	pending, err := e.pendingChanges(ctx, repository.FullName, task.PullRequest.Int64)
+	if err != nil {
+		return err
+	}
+	open := comment.Valid
+	for _, change := range pending {
+		switch change.Field {
+		case reviewCommentField:
+			open = true
+		case reviewCommentEditField:
+			return nil
+		}
+	}
+	if !open {
+		return nil
+	}
+	change, err := e.addOutgoingChange(ctx, e.queries, repository.FullName, task.PullRequest.Int64, 0, reviewCommentEditField, fmt.Sprintf("Review stopped%s\n\n%s", e.reviewRoundText(task), reason))
+	if err != nil {
+		return err
+	}
+	return e.sendNow(ctx, repository, change)
 }
 
 // followUpMarker ends the body of a follow-up comment on GitHub. It is an HTML comment, so GitHub does not show it.

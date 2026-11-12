@@ -95,15 +95,6 @@ type CiFailurePlace struct {
 	BranchUpdatedAt string
 }
 
-type CommentWrite struct {
-	ID         int64
-	Repository string
-	Number     sql.NullInt64
-	Comment    sql.NullInt64
-	Body       string
-	ReplyTo    sql.NullInt64
-}
-
 type DeploymentNeed struct {
 	ID         int64
 	Task       int64
@@ -257,6 +248,18 @@ type OldSkillUse struct {
 	Harness      string
 	Skill        string
 	UsedAt       string
+}
+
+type OutgoingChange struct {
+	ID          int64
+	Integration string
+	Repository  string
+	Number      int64
+	ReplyTo     sql.NullInt64
+	Field       string
+	Text        sql.NullString
+	Status      string
+	CreatedAt   string
 }
 
 type OwnerAction struct {

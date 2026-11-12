@@ -193,7 +193,7 @@ func (e *Engine) pollRepository(ctx context.Context, repository github.Repositor
 	if err := e.startIdleLeads(ctx, repository.FullName); err != nil {
 		return err
 	}
-	if err := e.sendCommentWrites(ctx, repository); err != nil {
+	if err := e.sendOutgoingChanges(ctx, repository); err != nil {
 		return err
 	}
 	if err := e.checkTasks(ctx, repository, work); err != nil {
