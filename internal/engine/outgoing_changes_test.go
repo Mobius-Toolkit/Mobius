@@ -185,18 +185,19 @@ func TestACommentOfAnOutgoingChangeThatComesAfterTheAnswerOfAPersonIsNoQuestion(
 func TestAPendingEditOfAnEarlierReviewRunStillChangesItsCommentWhenANewRunStarts(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server := seedReviewerWith(t, fake, hangs)
+	server := seedReviewerAs(t, fake, options+hangs, func(cfg *config.Config) { cfg.MaxWorkerRestarts = 100 })
 	if number := fake.OpenPullRequest(shop, "Add plan model", "mobius/41"); number != 42 {
 		t.Fatalf("pull request = %d", number)
 	}
 	testkit.WaitFor(t, func() bool { return len(roundComments(fake)) == 1 })
+	first := len(roleSessions(t, server, engine.ReviewerRole))
 	fake.FailUpdateComment(shop, 42, true)
 
 	server.Engine.StopWorker(1)
 
 	// The edit of the first run and the post of the second run wait for the update that GitHub fails.
 	testkit.WaitFor(t, func() bool {
-		return len(roleSessions(t, server, engine.ReviewerRole)) == 2 && commentWrites(t, server) == 2
+		return len(roleSessions(t, server, engine.ReviewerRole)) == first+1 && commentWrites(t, server) == 2
 	})
 	fake.FailUpdateComment(shop, 42, false)
 
@@ -213,22 +214,23 @@ func TestAPendingEditOfAnEarlierReviewRunStillChangesItsCommentWhenANewRunStarts
 func TestAnAbandonedReviewRunGetsItsStopEditWhileAnEditOfAnEarlierRunIsPending(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server := seedReviewerWith(t, fake, hangs)
+	server := seedReviewerAs(t, fake, options+hangs, func(cfg *config.Config) { cfg.MaxWorkerRestarts = 100 })
 	if number := fake.OpenPullRequest(shop, "Add plan model", "mobius/41"); number != 42 {
 		t.Fatalf("pull request = %d", number)
 	}
 	testkit.WaitFor(t, func() bool { return len(roundComments(fake)) == 1 })
+	first := len(roleSessions(t, server, engine.ReviewerRole))
 	fake.FailUpdateComment(shop, 42, true)
 	server.Engine.StopWorker(1)
 	// The edit of the first run and the post of the second run wait for the update that GitHub fails.
 	testkit.WaitFor(t, func() bool {
-		return len(roleSessions(t, server, engine.ReviewerRole)) == 2 && commentWrites(t, server) == 2
+		return len(roleSessions(t, server, engine.ReviewerRole)) == first+1 && commentWrites(t, server) == 2
 	})
 
 	server.Engine.StopWorker(1)
 
 	testkit.WaitFor(t, func() bool {
-		return len(roleSessions(t, server, engine.ReviewerRole)) == 3 && commentWrites(t, server) == 4
+		return len(roleSessions(t, server, engine.ReviewerRole)) == first+2 && commentWrites(t, server) == 4
 	})
 	fake.FailUpdateComment(shop, 42, false)
 
