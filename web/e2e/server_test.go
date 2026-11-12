@@ -262,8 +262,9 @@ const question = "What is the state of the plans? The full report is at " +
 // Workstream plants/garden#19 has an open task, an open task that the first blocks, and a task that needs a human.
 // The Workstream owner/shop#12 has two closed tasks and a task with a question of the Lead. It also has four Implementer sessions with the queue reasons of a
 // check that runs, a check that waits for a slot, a pause, and a full Role.
-// The Workstream plants/garden#18 has the task #85. Its Implementer round ran after the engine clock was set, and the
-// engine keeps its Harness session until 10:30 UTC.
+// The Workstream plants/garden#11 has the task #85. Its Implementer round ran after the engine clock was set, and the
+// engine keeps its Harness session until 10:30 UTC. Its number is the lowest of the Workstreams of plants, so the side
+// bar lists it last, below the first screen of each screenshot. Only the kept-session tests open it.
 // The Workstream plants/garden#60 has a Lead chat of 50 messages, and the Owner saw the first 15. POST
 // /e2e/seed-notes/{count} adds count Lead messages to that chat, with no event.
 // POST /e2e/approvals/times/fix gives the fixed time to each chat message, Inbox item and action that has a real time.
@@ -299,6 +300,7 @@ func TestServer(t *testing.T) {
 		{"owner/shop", 12, "Integrate loyalty plans"},
 		{"owner/shop", 13, "Seasonal prices"},
 		{"owner/shop", 14, "Early renewals"},
+		{"plants/garden", 11, "Sow the herbs"},
 		{"plants/garden", 12, "Plant roses"},
 		{"plants/garden", 14, "Water the roses"},
 		{"plants/garden", 15, "Feed the roses"},
@@ -327,7 +329,7 @@ func TestServer(t *testing.T) {
 	github.CloseIssue("owner/shop", 43)
 	github.OpenPullRequest("owner/shop", "Add plan model", "mobius/41")
 	github.AddSubIssueOf("owner/shop", 12, 45, "Pick the plan limits")
-	github.AddSubIssueOf("plants/garden", 18, 85, "Water the new beds")
+	github.AddSubIssueOf("plants/garden", 11, 85, "Water the new beds")
 	github.SetBody("owner/shop", 45, "Each plan has a limit of seats.")
 	github.AddSubIssueOf("owner/shop", 41, 36, "Rename the plan table")
 	github.AddSubIssueOf("owner/shop", 12, 37, "Remove the old plan page")
@@ -862,7 +864,7 @@ func TestServer(t *testing.T) {
 		}) && slices.Contains(github.Labels("owner/shop", 41), "mobius:needs-human")
 	})
 	server.Engine.SetClock(func() time.Time { return time.Date(2026, 9, 28, 9, 30, 0, 0, time.UTC) })
-	keepImplementer(t, server, github, "plants/garden", 18, 85)
+	keepImplementer(t, server, github, "plants/garden", 11, 85)
 	addRecurringTasks(ctx, t, server)
 	if err := queries.SetHarnessPause(ctx, store.SetHarnessPauseParams{Harness: "antigravity", PausedUntil: "2026-09-28T12:00:00Z"}); err != nil {
 		t.Fatal(err)

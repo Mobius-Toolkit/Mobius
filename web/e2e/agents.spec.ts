@@ -58,7 +58,7 @@ test("the Agents tab of a Workstream shows a kept session with a countdown, and 
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.clock.install({ time: new Date("2026-09-28T09:40:00Z") });
   await page.goto("/api/github/user-callback?code=user-code");
-  await page.goto("/workstreams/plants/garden/18");
+  await page.goto("/workstreams/plants/garden/11");
   await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
   const tree = page.getByRole("complementary");
   const kept = tree.getByRole("button", { name: /closes in/ });

@@ -1172,9 +1172,11 @@ test("screenshots", async ({ page }) => {
   await screenshot(
     page,
     "chat-agents-kept",
-    "/workstreams/plants/garden/18",
+    "/workstreams/plants/garden/11",
     (device) => [
-      ...briefFrame(device, 18),
+      ...(device === "desktop"
+        ? [drain, page.getByLabel("Work in another organization")]
+        : [page.getByLabel("Upgrade available")]),
       page.getByText(/closes in 42 min/).filter({ visible: true }),
       page.getByText("kept", { exact: true }).filter({ visible: true }),
     ],
