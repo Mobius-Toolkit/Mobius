@@ -243,11 +243,18 @@ func (e *Engine) pauseAutoMerge(ctx context.Context, task store.Task) error {
 	return e.queries.SetTaskRefusedReview(ctx, store.SetTaskRefusedReviewParams{RefusedReview: task.ApprovedReview, ID: task.ID})
 }
 
+// comparisonFileLimit is the number of files at which a GitHub comparison can be incomplete.
+const comparisonFileLimit = 300
+
 // updateForMerge tells if the merge of the pull request at the head of the merge queue must wait, because the head does
-// not contain the default branch. Then it updates the branch of the pull request. GitHub adds the merge commit after it
-// answers, so the wait goes on until the head changes or branchUpdateWait has passed. A 4xx answer of the update waits
-// too, and the next poll tries again after branchUpdateWait. A 5xx answer or another error returns, and the next poll
-// tries again.
+// not contain the default branch, and the pull request and the new commits of the default branch change a common file.
+// Then it updates the branch of the pull request. GitHub adds the merge commit after it answers, so the wait goes on
+// until the head changes or branchUpdateWait has passed. A 4xx answer of the update waits too, and the next poll tries
+// again after branchUpdateWait. A 5xx answer or another error returns, and the next poll tries again.
+//
+// A head that is behind the default branch with no common file does not wait and keeps its approval, because GitHub
+// merges it with no text conflict. A comparison of comparisonFileLimit files or more can be incomplete, so it counts as
+// a common file.
 func (e *Engine) updateForMerge(ctx context.Context, repository github.Repository, pullRequest *gh.PullRequest) (bool, error) {
 	number := int64(pullRequest.GetNumber())
 	head := pullRequest.GetHead().GetSHA()
@@ -260,6 +267,9 @@ func (e *Engine) updateForMerge(ctx context.Context, repository github.Repositor
 	if err != nil || behind == 0 {
 		return false, err
 	}
+	if overlaps, err := e.overlapsDefaultBranch(ctx, repository, number, head); err != nil || !overlaps {
+		return false, err
+	}
 	err = repository.UpdatePullRequestBranch(ctx, number, head)
 	var refused *gh.ErrorResponse
 	if err != nil && (!errors.As(err, &refused) || refused.Response.StatusCode >= 500) {
@@ -270,6 +280,25 @@ func (e *Engine) updateForMerge(ctx context.Context, repository github.Repositor
 	}
 	state.updatedHead, state.updatedAt, state.changed = head, e.timeNow(), true
 	return true, nil
+}
+
+// overlapsDefaultBranch tells if the pull request number and the commits of the default branch since the merge base
+// with head change a common file.
+func (e *Engine) overlapsDefaultBranch(ctx context.Context, repository github.Repository, number int64, head string) (bool, error) {
+	pullFiles, err := repository.PullRequestFiles(ctx, number)
+	if err != nil {
+		return false, err
+	}
+	comparison, err := repository.Compare(ctx, head, repository.DefaultBranch)
+	if err != nil {
+		return false, err
+	}
+	if len(comparison.Files) >= comparisonFileLimit {
+		return true, nil
+	}
+	return slices.ContainsFunc(comparison.Files, func(file *gh.CommitFile) bool {
+		return slices.Contains(pullFiles, file.GetFilename())
+	}), nil
 }
 
 // returnForApproval sends the task in ready_for_review back to checks, because its head has no Mobius check run, so the
