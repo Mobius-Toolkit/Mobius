@@ -461,6 +461,8 @@ shell = "branch=$(git branch --show-current); echo $branch > ${branch##*/}.txt &
 	server, _ := connectTask(t, fake, queueLead, fixImplementer, func(cfg *config.Config) {
 		cfg.Roles.Implementer.Max = 3
 		cfg.ReviewQuietPeriod = 50 * time.Millisecond
+		// A new Lead session gets the chat history in its first prompt, and the script matches "Approve #43" first.
+		cfg.LeadIdleTimeout = 30 * time.Second
 	})
 	authorize(t, server)
 	setWorkstreamAutopilot(t, server, "merge")
