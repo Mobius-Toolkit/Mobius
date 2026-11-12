@@ -201,7 +201,7 @@ jobs:
             set_label on
             complete_check neutral "Screens changed"
           fi
-      - if: failure()
+      - if: failure() || cancelled()
         run: |
           source "$RUNNER_TEMP/complete_check.sh"
           if [ "$(gh api "repos/$REPO/pulls/$PR" --jq .head.sha)" != "$SHA" ]; then
