@@ -2,6 +2,7 @@ package engine_test
 
 import (
 	"net/http"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -269,5 +270,59 @@ func TestAnAbandonedReviewRunGetsItsStopEditWhileAnEditOfAnEarlierRunIsPending(t
 	started, stopped := "Review started, round 1 of 10", "Review stopped, round 1 of 10"
 	if len(comments) != 3 || !strings.HasPrefix(comments[0], stopped) || !strings.HasPrefix(comments[1], stopped) || comments[2] != started {
 		t.Errorf("comments = %q", comments)
+	}
+}
+
+func TestAReplyThatGitHubCreatedBeforeAFiveHundredIsNotPostedAgainAndItsThreadGetsResolved(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddPullRequest(shop, 45, "Add plan model")
+	root := fake.AddReviewComment(shop, 45, 0, "owner", "Use cents.")
+	fake.LoseReviewReplyAnswers(true)
+	server, _ := connect(t, fake, call("reply_thread", "{ repository = \"owner/shop\", thread = "+itoa(root)+`, text = "Fixed in abc123." }`))
+	addTask(t, server, fake, 41, 12, 45)
+
+	session := run(t, server, leadSpec(t), "1. ")
+
+	if got, want := reply(t, server, session), "Mobius posts the reply to "+itoa(root)+" later."; got != want {
+		t.Errorf("reply = %q, want %q", got, want)
+	}
+	if thread := fake.ReviewThread(shop, 45, root); thread.Resolved || len(thread.Comments) != 2 {
+		t.Errorf("thread = %+v", thread)
+	}
+	fake.LoseReviewReplyAnswers(false)
+
+	testkit.WaitFor(t, func() bool {
+		return fake.ReviewThread(shop, 45, root).Resolved && outgoingChanges(t, server, "sent") == 1
+	})
+	waitForPolls(t, fake)
+	thread := fake.ReviewThreadWithMarkers(shop, 45, root)
+	if len(thread.Comments) != 2 || !strings.HasSuffix(thread.Comments[1].Body, "\n\n<!-- mobius:write 1 -->") {
+		t.Errorf("thread = %+v", thread)
+	}
+}
+
+func TestCommentPullRequestGivesALaterTextWhenTheSendAtOnceFailsAndALaterPollPostsTheComment(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddPullRequest(shop, 45, "Add plan model")
+	fake.FailAddComment(shop, 45, true)
+	server, _ := connect(t, fake, call("comment_pull_request", `{ repository = "owner/shop", n = 45, text = "Close this stale pull request." }`))
+	addTask(t, server, fake, 41, 12, 45)
+
+	session := run(t, server, leadSpec(t), "1. ")
+
+	if got := reply(t, server, session); got != "Mobius posts the comment on #45 later." {
+		t.Errorf("reply = %q", got)
+	}
+	if got := fake.Comments(shop, 45); len(got) != 0 {
+		t.Errorf("comments = %v", got)
+	}
+	fake.FailAddComment(shop, 45, false)
+
+	testkit.WaitFor(t, func() bool { return outgoingChanges(t, server, "sent") == 1 })
+	want := []testkit.Comment{{Author: testkit.AppSlug + "[bot]", Body: marked("Close this stale pull request.", leadMark)}}
+	if got := fake.Comments(shop, 45); !reflect.DeepEqual(got, want) {
+		t.Errorf("comments = %v, want %v", got, want)
 	}
 }

@@ -1576,12 +1576,12 @@ func (e *Engine) replyThread(ctx context.Context, c caller, repository github.Re
 		if task.WorkstreamRepository != c.repository || task.Workstream != c.workstream || !task.PullRequest.Valid {
 			continue
 		}
-		replied, err := reply(ctx, repository, task.PullRequest.Int64, input.Thread, text)
+		change, replied, err := e.reply(ctx, repository, task.PullRequest.Int64, input.Thread, text)
 		if err != nil {
 			return "", err
 		}
 		if replied {
-			return fmt.Sprintf("Replied to %d.", input.Thread), nil
+			return e.sentOrLater(ctx, change, fmt.Sprintf("Replied to %d.", input.Thread), fmt.Sprintf("Mobius posts the reply to %d later.", input.Thread))
 		}
 	}
 	return "", refuse("%d is not a review thread or a comment of a pull request of a live task in this Workstream.", input.Thread)
@@ -1608,10 +1608,14 @@ func (e *Engine) commentPullRequest(ctx context.Context, c caller, repository gi
 	if err != nil {
 		return "", err
 	}
-	if _, _, err := repository.Client.Issues.CreateComment(ctx, repository.Owner(), repository.Name(), int(input.N), gh.IssueCommentRequest{Body: text}); err != nil {
+	id, err := e.addOutgoingChange(ctx, e.queries, repository.FullName, input.N, 0, commentField, text)
+	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("Commented on #%d.", input.N), nil
+	if err := e.sendNow(ctx, repository, id); err != nil {
+		return "", err
+	}
+	return e.sentOrLater(ctx, id, fmt.Sprintf("Commented on #%d.", input.N), fmt.Sprintf("Mobius posts the comment on #%d later.", input.N))
 }
 
 func checkWorkstream(c caller, input workstreamInput) error {

@@ -10099,6 +10099,45 @@ func (q *Queries) SetInboxItemReason(ctx context.Context, arg SetInboxItemReason
 	return i, err
 }
 
+const setInboxItemReportLink = `-- name: SetInboxItemReportLink :one
+UPDATE inbox_items SET report_link = ? WHERE id = ?
+RETURNING id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal, workstream_repository, questions, answer, withdrawn
+`
+
+type SetInboxItemReportLinkParams struct {
+	ReportLink string
+	ID         int64
+}
+
+func (q *Queries) SetInboxItemReportLink(ctx context.Context, arg SetInboxItemReportLinkParams) (InboxItem, error) {
+	row := q.db.QueryRowContext(ctx, setInboxItemReportLink, arg.ReportLink, arg.ID)
+	var i InboxItem
+	err := row.Scan(
+		&i.ID,
+		&i.Kind,
+		&i.Repository,
+		&i.Workstream,
+		&i.Issue,
+		&i.Text,
+		&i.Link,
+		&i.Time,
+		&i.DismissedAt,
+		&i.Organization,
+		&i.Title,
+		&i.Reason,
+		&i.PullRequest,
+		&i.ReportLink,
+		&i.ChatMessage,
+		&i.Merging,
+		&i.MergeRefusal,
+		&i.WorkstreamRepository,
+		&i.Questions,
+		&i.Answer,
+		&i.Withdrawn,
+	)
+	return i, err
+}
+
 const setInboxItemWithdrawn = `-- name: SetInboxItemWithdrawn :exec
 UPDATE inbox_items SET withdrawn = 1 WHERE id = ?
 `
@@ -10412,17 +10451,30 @@ func (q *Queries) SetSyncCursor(ctx context.Context, arg SetSyncCursorParams) er
 }
 
 const setTaskApprovedAgainComment = `-- name: SetTaskApprovedAgainComment :exec
-UPDATE tasks SET approved_again_head = ?, approved_again_comment = ? WHERE id = ?
+UPDATE tasks SET approved_again_comment = ? WHERE id = ? AND approved_again_head IS NOT NULL AND approved_again_comment IS NULL
 `
 
 type SetTaskApprovedAgainCommentParams struct {
-	ApprovedAgainHead    sql.NullString
 	ApprovedAgainComment sql.NullString
 	ID                   int64
 }
 
 func (q *Queries) SetTaskApprovedAgainComment(ctx context.Context, arg SetTaskApprovedAgainCommentParams) error {
-	_, err := q.db.ExecContext(ctx, setTaskApprovedAgainComment, arg.ApprovedAgainHead, arg.ApprovedAgainComment, arg.ID)
+	_, err := q.db.ExecContext(ctx, setTaskApprovedAgainComment, arg.ApprovedAgainComment, arg.ID)
+	return err
+}
+
+const setTaskApprovedAgainHead = `-- name: SetTaskApprovedAgainHead :exec
+UPDATE tasks SET approved_again_head = ?, approved_again_comment = NULL WHERE id = ?
+`
+
+type SetTaskApprovedAgainHeadParams struct {
+	ApprovedAgainHead sql.NullString
+	ID                int64
+}
+
+func (q *Queries) SetTaskApprovedAgainHead(ctx context.Context, arg SetTaskApprovedAgainHeadParams) error {
+	_, err := q.db.ExecContext(ctx, setTaskApprovedAgainHead, arg.ApprovedAgainHead, arg.ID)
 	return err
 }
 

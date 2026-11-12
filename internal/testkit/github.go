@@ -250,6 +250,8 @@ type FakeGitHub struct {
 	closeRefusal int
 	// replyRefusal is the status that a reply in a review thread gives, or 0 when it works.
 	replyRefusal int
+	// lostReplyAnswers is true when a reply in a review thread works but gives the status 500.
+	lostReplyAnswers bool
 	// reviewFailure is the status that the next reviewFailures review writes give.
 	reviewFailure, reviewFailures int
 }

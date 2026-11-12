@@ -228,13 +228,13 @@ func TestAnImplementerReplyWithAnAnswerAndNoCommitResolvesTheThread(t *testing.T
 func TestAnImplementerReplyWithNoCommitAndAFailedResolveResolvesTheThreadLaterAndIsOnTheThreadOnlyOnce(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server := connectJudge(t, fake, question2, answers, func(cfg *config.Config) { cfg.MaxWorkerRestarts = 20 })
+	connectJudge(t, fake, question2, answers, noChange)
 	fake.FailResolveThreads(true)
 
 	question := fake.AddReviewComment(shop, 42, 0, "owner", "Why cents?")
 
 	testkit.WaitFor(t, func() bool { return len(fake.ReviewThread(shop, 42, question).Comments) == 2 })
-	testkit.WaitFor(t, func() bool { return liveTask(t, server, 41).WorkerRestarts >= 1 })
+	waitForPolls(t, fake)
 	if thread := fake.ReviewThread(shop, 42, question); thread.Resolved || len(thread.Comments) != 2 {
 		t.Errorf("thread = %+v", thread)
 	}
