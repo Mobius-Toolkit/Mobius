@@ -395,10 +395,10 @@ func (e *Engine) slotReason(a *Agent, place waiter, queue []queuedTask, worker b
 		reason = drainReason
 	case startOff:
 		reason = startOffReason
-	case noAccess != "":
-		reason = noAccess
 	case paused != "":
 		reason = paused
+	case noAccess != "":
+		reason = noAccess
 	default:
 		merged := e.mergedRoles()
 		reason = limitReason(&merged, w.running, roles, role)

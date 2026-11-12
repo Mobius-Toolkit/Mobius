@@ -37,7 +37,7 @@ Do not edit these files by hand:
 - `web/src/api/schemas.gen.ts` comes from `api/openapi.json`. orval writes the Effect Schemas of the requests and the responses with the second output of `web/orval.config.ts`.
 - `internal/store/*.sql.go`, `internal/store/db.go` and `internal/store/models.go` come from `sqlc.yaml`, the migrations and `internal/store/queries.sql`.
 
-After a change to the API or to the queries, run `make generate` and commit the result.
+After a change to the API or to the queries, run `make generate` and commit the result. Also run it after a merge of `origin/main` that touches the migrations, `internal/store/queries.sql` or `internal/api`. A clean text merge can still leave a stale generated file.
 
 orval does not read `contentSchema` and `itemSchema` of OpenAPI 3.2. Thus `web/orval.config.ts` changes the input of orval before it generates the client. `api/openapi.json` does not change.
 
@@ -80,6 +80,14 @@ The web client is one Foldkit application (`Runtime.makeApplication` in `web/src
 
   The command of the tool list tests: `go test ./internal/engine -run 'TestTheLeadGetsTheMobiusURLAndOnlyTheLeadTools|TestEachRoleGetsOnlyItsOwnTools'`
 
+  Follow these steps for the row "A new test":
+
+  1. Commit the fix and the new tests first.
+  2. Take as `<base>` the commit before the fix: `$(git merge-base HEAD origin/main)` in the first round, and `origin/$(git branch --show-current)` in a fix round. In a fix round, the branch base also removes the changes of the earlier rounds, and the test can then fail for another cause.
+  3. Run `git diff <base> HEAD -- <files> | git apply -R`, where `<files>` are the source files of the fix with no `_test.go` file. Then run only the new tests with `-run`. Then restore with `git checkout HEAD -- <files>`, and check that `git status --short` shows no file of `<files>`.
+  4. Do not use `git checkout <base> -- <files>` for this step, because it keeps each new file of the fix. Do not use `git stash`, because all worktrees share one stash.
+  5. A compile error of the new test on the base also counts as a failure.
+
 - For a small package, `go test ./<package>` is also correct. Do not run `go test ./...` on the machine of Mobius. Do not run a measurement run (for example `go test -json ./internal/engine`). Do not write a loop that waits for a low load and then starts such a run. Take measurements from the CI logs.
 - Run the tests of a change one time. Run them again only after a code change. The tests use the CPU of the machine of the Owner, so each extra run makes the local checks of other tasks slow or gives them a timeout.
 - Do not run a test or a command in a loop to check a behavior. If one run does not prove the behavior, write a test that proves it, or write the doubt in the result.
@@ -97,6 +105,9 @@ The web client is one Foldkit application (`Runtime.makeApplication` in `web/src
 - When the job `e2e` fails, CI uploads `web/test-results` as the artifact `test-results`. It has a `trace.zip` file for each failed test. To open the file, run `pnpm exec playwright show-trace <file>`.
 - Each run must give the same screenshots, so a pull request with no UI change shows no changed screen. `TestServer` gives a fixed time to each time that the UI shows (`fixTimes`). Before each screenshot, `web/e2e/screenshots.spec.ts` waits for the data that the page loads (`frame` and `ready`). When the UI shows a new time or new data, add it there.
 - `TestServer` of `web/e2e` has fixtures with fixed past dates, so a new step that compares a stored time with `e.timeNow()` also acts on them. Fix the time with `SetClock`, as `web/e2e/server_test.go` does.
+- A fake program of a test (for example the `gh` of the agent environment) is a shell script that runs the system program by its full path, as `stubGH` in `internal/engine/lead_writes_test.go` does. Do not make it a link to the system program. The coreutils of the CI runner are multi-call binaries that refuse to run under another name. To change a fake program, write a new file and move it with `mv`, because a write in place can fail with `ETXTBSY`.
+- A test does not read the real network or a port of the running Mobius (whisper-server on `6365` and `6366`). When a change adds a call to an external service, give each test that reaches the call a fake server or an address of `testkit.FreeAddress`. This includes the existing tests of the package and `TestServer` of `web/e2e`.
+- Before an e2e test types into the chat composer, wait for `toBeEditable()`. The composer (`web/src/chat/composer.ts`) is read-only until it loads the draft (`draftLoaded`).
 
 ## Before a push
 
@@ -108,7 +119,9 @@ curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(go env GOPATH)/b
 
 - Mobius takes the end of a turn as the end of the work. Before the local check, Mobius waits for the background tasks of the session. Then it pushes only the commits.
 - Commit all work before the turn ends. Wait for the result of each test run in the same turn.
+- Mobius runs `.mobius/init` one time in a new worktree of an Implementer, before the first prompt. It runs the file in the same way as `.mobius/check`, with the time limit `check_timeout`. The other roles do not run it. When it fails, the first prompt starts with the section "Setup failed". Then do the setup yourself before you run tests or lint.
 - Give each long command (`pnpm e2e`, a Go test of `internal/engine`) the Bash `timeout` 600000. With the default limit, the Bash tool moves the command to the background.
+- Mobius runs git with `core.hooksPath=/dev/null` (`internal/runner/git.go`), so a git hook never runs for agent work. Do not put a check or a format step in a git hook.
 
 Only CI runs all Go tests. Mobius starts a CI fix round when a Go test fails in CI.
 
@@ -122,7 +135,7 @@ internal/config/       reads config.toml
 internal/engine/       the poll of the repositories, the Mobius labels, the checkup, the trust rules, the Workstreams with their local copy, the Autopilot switch and the close, the dispatch, the Lead chat with the Lead events, the Coordinator, the Triager, the Inbox, the Tasks tab, the Implementer with the local check and the pull request, the Reviewer with the review rounds, the Judge, the fix rounds and the conflict rounds, the end of a task, the Researcher, the Curator with the memory file of each repository, the agent sessions with their Mobius tools and Transcripts, the Worker slots and the queue, the usage-limit pauses, the Worker restarts, the Housekeeper, the recovery after a restart, the drain and the upgrade
 internal/github/       the GitHub Apps: the App setup, the user tokens, the installation tokens and the repositories
 internal/mcp/          the Mobius MCP server and the gh token of each session key
-internal/runner/       starts an agent session of a Harness through ACP, holds the gh of the agent environment, fetches the bare clones of the repositories with their worktrees, and runs the local check
+internal/runner/       starts an agent session of a Harness through ACP, holds the gh of the agent environment, fetches the bare clones of the repositories with their worktrees, and runs the local check and the setup script of a worktree
 internal/setup/        mobius init: asks for the values of a new config.toml and writes it
 internal/store/        the SQLite database: goose migrations and sqlc queries
 internal/testkit/      the fake GitHub with a git repository for each repository, the fake agent as a Harness command, the fake df, and the waits of the tests
