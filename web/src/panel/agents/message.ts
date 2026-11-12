@@ -8,6 +8,7 @@ export const Message = defineMessageUnion({
   LoadFailed: { error: Schema.String },
   LoginRequired: {},
   ToggledStopped: {},
+  Ticked: { now: Schema.Number },
   OpenedAgent: { agent: Agent },
   GotTranscriptMessage: { message: Transcript.Message },
 });
