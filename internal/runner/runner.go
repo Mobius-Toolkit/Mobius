@@ -338,6 +338,19 @@ func LogInAntigravity(ctx context.Context, cwd, dataDir, path string) (bool, err
 	return true, nil
 }
 
+type acpError struct {
+	err  *acp.RequestError
+	text string
+}
+
+func (e *acpError) Error() string {
+	return e.text
+}
+
+func (e *acpError) Unwrap() error {
+	return e.err
+}
+
 // describe gives the message and the data of an ACP error.
 func describe(err error) error {
 	var requestErr *acp.RequestError
@@ -345,13 +358,13 @@ func describe(err error) error {
 		return err
 	}
 	if requestErr.Data == nil {
-		return errors.New(requestErr.Message)
+		return &acpError{err: requestErr, text: requestErr.Message}
 	}
 	data, marshalErr := json.Marshal(requestErr.Data)
 	if marshalErr != nil {
 		return err
 	}
-	return fmt.Errorf("%s %s", requestErr.Message, data)
+	return &acpError{err: requestErr, text: fmt.Sprintf("%s %s", requestErr.Message, data)}
 }
 
 func (s *Session) open(ctx context.Context, cwd, mcpURL string, more []MCPServer, chrome bool) error {

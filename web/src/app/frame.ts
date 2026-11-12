@@ -49,6 +49,7 @@ const tabs = [
 
 function hasUpgradeControls(model: Model): boolean {
   return Boolean(
+    model.upgrade.step !== "idle" ||
     (Option.isSome(model.upgrade.drain) && model.upgrade.drain.value.on) ||
     model.upgrade.version ||
     model.upgrade.failure ||

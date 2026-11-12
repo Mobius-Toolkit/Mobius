@@ -19,7 +19,7 @@ func TestQueuedRunNoJobsOlderThanThirtyMinutesIsCancelledAndRerunOnce(t *testing
 	fake.SetQueuedRunNoJobs(runID)
 
 	server.Engine.SetClock(func() time.Time { return start.Add(31 * time.Minute) })
-	waitForPolls(t, fake)
+	testkit.WaitFor(t, func() bool { return fake.WorkflowRunAttempt(runID) == 2 })
 
 	if calls := fake.CancelRequests(); calls != 1 {
 		t.Errorf("cancel calls = %d, want 1", calls)
@@ -109,7 +109,7 @@ func TestQueuedRunNoJobsAfterRefusalLaterPollsDoNotCallCancelRerunOrUpdateBranch
 	fake.CommitFile(shop, "price.txt", "dollars\n", "Add price")
 
 	server.Engine.SetClock(func() time.Time { return start.Add(31 * time.Minute) })
-	waitForPolls(t, fake)
+	testkit.WaitFor(t, func() bool { return fake.CancelRequests() == 1 && fake.UpdateBranchCalls() == 1 })
 
 	if calls := fake.CancelRequests(); calls != 1 {
 		t.Fatalf("cancel calls = %d, want 1", calls)
@@ -171,7 +171,7 @@ func TestQueuedRunUnderThirtyMinutesOrWithJobDoesNotCancelRerunOrUpdateBranch(t 
 
 	// Positive control: more than 30 minutes and no jobs cancels and runs again.
 	fake.SetQueuedRunNoJobs(runID)
-	waitForPolls(t, fake)
+	testkit.WaitFor(t, func() bool { return fake.RerunRequests() == 1 })
 
 	if calls := fake.CancelRequests(); calls != 1 {
 		t.Errorf("cancel calls = %d, want 1", calls)
@@ -338,6 +338,7 @@ func TestQueuedRunRefusedRunStartedLaterIsNotNamedQueuedNoJob(t *testing.T) {
 	fake.RefuseCancel(http.StatusConflict)
 
 	server.Engine.SetClock(func() time.Time { return start.Add(31 * time.Minute) })
+	testkit.WaitFor(t, func() bool { return fake.CancelRequests() == 1 })
 	waitForPolls(t, fake)
 
 	if calls := fake.CancelRequests(); calls != 1 {
@@ -371,7 +372,7 @@ func TestQueuedRunTemporaryErrorRetriesBranchStepWithoutRepeatingCancel(t *testi
 	fake.RefuseBranchUpdateOnce(http.StatusInternalServerError)
 
 	server.Engine.SetClock(func() time.Time { return start.Add(31 * time.Minute) })
-	waitForPolls(t, fake)
+	testkit.WaitFor(t, func() bool { return fake.UpdateBranchCalls() == 2 })
 
 	// First attempt hit 500 error and retried: cancel called once, branch update called twice.
 	if calls := fake.CancelRequests(); calls != 1 {

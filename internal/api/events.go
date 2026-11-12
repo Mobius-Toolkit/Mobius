@@ -21,7 +21,7 @@ type LiveEvents struct {
 	Agent *Agent `gork:"agent"`
 	// Drain is the state of the drain at each change
 	Drain *Drain `gork:"drain"`
-	// Upgrade is the state of the last upgrade at its start and at its failure
+	// Upgrade is the state of the upgrade at each change
 	Upgrade *Upgrade `gork:"upgrade"`
 	// Workstreams is a change of the Workstream list or of the tasks of a Workstream. It has no data, so the client
 	// reads the lists again
@@ -122,7 +122,7 @@ func (h *handlers) sendChange(ctx context.Context, stream *api.Stream[LiveEvents
 	case change.Drain != nil:
 		return stream.Send(LiveEvents{Drain: new(drainOf(*change.Drain))})
 	case change.Upgrade != nil:
-		return stream.Send(LiveEvents{Upgrade: &Upgrade{Failure: *change.Upgrade}})
+		return stream.Send(LiveEvents{Upgrade: new(upgradeOf(*change.Upgrade))})
 	case change.Workstreams:
 		return stream.Send(LiveEvents{Workstreams: &struct{}{}})
 	case change.Repositories:
