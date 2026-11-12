@@ -208,12 +208,26 @@ func TestMergeQueueUpdateAndMerge(t *testing.T) {
 	}
 }
 
-// TestMergeQueueHeadKeepsItsPlaceWhileItsApprovalAgainRuns verifies that the head of the queue stays the head while the
-// approval of its updated head runs. The fake GitHub holds the comment of that approval, and the polls of the hold
-// see the task in ready_for_review. The task does not leave the queue, the next task does not get an update, and after
-// the release the head merges first.
-func TestMergeQueueHeadKeepsItsPlaceWhileItsApprovalAgainRuns(t *testing.T) {
+// TestMergeQueueHeadKeepsItsPlaceWhileTheCommentOfItsApprovalAgainRuns verifies that the head of the queue stays the head
+// while the approval of its updated head runs. The fake GitHub holds the comment of that approval, and the polls of the
+// hold see the task in ready_for_review. The task does not leave the queue, the next task does not get an update, and
+// after the release the head merges first.
+func TestMergeQueueHeadKeepsItsPlaceWhileTheCommentOfItsApprovalAgainRuns(t *testing.T) {
 	t.Parallel()
+	headKeepsItsPlaceWhileApprovalRuns(t, (*testkit.FakeGitHub).HoldComment)
+}
+
+// TestMergeQueueHeadKeepsItsPlaceWhileTheReviewOfItsApprovalAgainRuns is the same test with a hold of the approval of the
+// Owner (the review that autoApprove writes), which is the last write of the approval.
+func TestMergeQueueHeadKeepsItsPlaceWhileTheReviewOfItsApprovalAgainRuns(t *testing.T) {
+	t.Parallel()
+	headKeepsItsPlaceWhileApprovalRuns(t, (*testkit.FakeGitHub).HoldReview)
+}
+
+// headKeepsItsPlaceWhileApprovalRuns runs the test of the two functions above. hold holds the next write of its kind on the
+// pull request of task 41.
+func headKeepsItsPlaceWhileApprovalRuns(t *testing.T, hold func(*testkit.FakeGitHub, string, int64) (<-chan struct{}, func())) {
+	t.Helper()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := queueTasksWith(t, fake, approveAgain([]int{41, 43}, 41, 43)+queueLead, "merge", []int{41, 43})
 	head43 := head(t, fake, "mobius/43")
@@ -223,8 +237,8 @@ func TestMergeQueueHeadKeepsItsPlaceWhileItsApprovalAgainRuns(t *testing.T) {
 
 	sendChat(t, server, leadChat, "Approve #41")
 	testkit.WaitFor(t, func() bool { return liveTask(t, server, 41).MergeQueuedAt.Valid })
-	// The next comment on the pull request is the one of the approval again, after the update of the branch.
-	reached, release := fake.HoldComment(shop, pr41)
+	// The next write on the pull request is the one of the approval again, after the update of the branch.
+	reached, release := hold(fake, shop, pr41)
 	sendChat(t, server, leadChat, "Approve #43")
 	testkit.WaitFor(t, func() bool { return liveTask(t, server, 43).MergeQueuedAt.Valid })
 	<-reached
