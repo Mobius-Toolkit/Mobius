@@ -292,6 +292,29 @@ func (e *Engine) onChecks(ctx context.Context, repository github.Repository, tas
 	return e.addReadyForApproval(ctx, task, readyText)
 }
 
+// approvedByPoll tells if onChecks approved the task, and gives the task with the new approval of the Owner and the new
+// pull request. The task of the approval moved to ready_for_review, so checkTask can merge it in the same poll. It reads
+// the pull request and its reviews again, because the approval made the pull request ready for review and added a
+// review after the read of the poll.
+func (e *Engine) approvedByPoll(ctx context.Context, repository github.Repository, task store.Task, baseHead string) (store.Task, *gh.PullRequest, bool, error) {
+	current, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: task.Repository, Issue: task.Issue})
+	if errors.Is(err, sql.ErrNoRows) || err == nil && current.State != "ready_for_review" {
+		return task, nil, false, nil
+	}
+	if err != nil {
+		return task, nil, false, err
+	}
+	pullRequest, err := e.pullRequest(ctx, repository, task.PullRequest.Int64, baseHead, true)
+	if err != nil {
+		return task, nil, false, err
+	}
+	if err := e.readPullRequests(ctx, repository, []int64{task.PullRequest.Int64}); err != nil {
+		return task, nil, false, err
+	}
+	current, err = e.keepApproval(ctx, repository, current)
+	return current, pullRequest, err == nil, err
+}
+
 // readyForApprovalText gives the text of the event ready_for_approval for the head of the pull request.
 func readyForApprovalText(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue, pullRequest *gh.PullRequest, approvedHead string, runs []*gh.CheckRun, screensChanged bool) (string, error) {
 	head := pullRequest.GetHead().GetSHA()

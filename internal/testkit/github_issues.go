@@ -819,6 +819,9 @@ func (g *FakeGitHub) listIssues(w http.ResponseWriter, r *http.Request) {
 	sum := sha256.Sum256(body)
 	etag := fmt.Sprintf(`"%x"`, sum[:8])
 	sinceList := query.Has("since") && !query.Has("labels")
+	if sinceList {
+		g.polls++
+	}
 	if (!sinceList || g.afterIssueListReads[repository(r)] == nil) && r.Header.Get("If-None-Match") == etag {
 		g.notModified++
 		w.WriteHeader(http.StatusNotModified)
@@ -945,8 +948,24 @@ func (g *FakeGitHub) closeIssue(w http.ResponseWriter, r *http.Request) {
 		message(w, http.StatusInternalServerError, "Server Error")
 		return
 	}
+	g.recordEvent("close", key)
 	g.setState(key, "closed", request.StateReason, caller.login)
 	writeJSON(w, http.StatusOK, g.issueJSON(key))
+}
+
+// recordEvent keeps the number of the poll of the write of kind to the issue or pull request key. The caller must hold
+// the lock.
+func (g *FakeGitHub) recordEvent(kind string, key issueKey) {
+	g.eventPolls[fmt.Sprintf("%s #%d", kind, key.number)] = g.polls
+}
+
+// PollOf gives the number of the poll of Mobius that made the last write of kind to the issue or pull request number,
+// or 0 when there was none. The kinds are "approve" (an APPROVED review), "update-branch", "merge" and "close" (a close
+// of an issue). Two writes of one poll have the same number, because the poll starts with one issue list request.
+func (g *FakeGitHub) PollOf(kind string, number int64) int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.eventPolls[fmt.Sprintf("%s #%d", kind, number)]
 }
 
 // HoldIssue makes the next request for the issue number wait until a call of release. The channel closes when the
