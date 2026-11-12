@@ -116,6 +116,7 @@ curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(go env GOPATH)/b
 
 - Mobius takes the end of a turn as the end of the work. Before the local check, Mobius waits for the background tasks of the session. Then it pushes only the commits.
 - Commit all work before the turn ends. Wait for the result of each test run in the same turn.
+- Mobius runs `.mobius/init` one time in a new worktree of an Implementer, before the first prompt. It runs the file in the same way as `.mobius/check`, with the time limit `check_timeout`. The other roles do not run it. When it fails, the first prompt starts with the section "Setup failed". Then do the setup yourself before you run tests or lint.
 - Give each long command (`pnpm e2e`, a Go test of `internal/engine`) the Bash `timeout` 600000. With the default limit, the Bash tool moves the command to the background.
 
 Only CI runs all Go tests. Mobius starts a CI fix round when a Go test fails in CI.
@@ -130,7 +131,7 @@ internal/config/       reads config.toml
 internal/engine/       the poll of the repositories, the Mobius labels, the checkup, the trust rules, the Workstreams with their local copy, the Autopilot switch and the close, the dispatch, the Lead chat with the Lead events, the Coordinator, the Triager, the Inbox, the Tasks tab, the Implementer with the local check and the pull request, the Reviewer with the review rounds, the Judge, the fix rounds and the conflict rounds, the end of a task, the Researcher, the Curator with the memory file of each repository, the agent sessions with their Mobius tools and Transcripts, the Worker slots and the queue, the usage-limit pauses, the Worker restarts, the Housekeeper, the recovery after a restart, the drain and the upgrade
 internal/github/       the GitHub Apps: the App setup, the user tokens, the installation tokens and the repositories
 internal/mcp/          the Mobius MCP server and the gh token of each session key
-internal/runner/       starts an agent session of a Harness through ACP, holds the gh of the agent environment, fetches the bare clones of the repositories with their worktrees, and runs the local check
+internal/runner/       starts an agent session of a Harness through ACP, holds the gh of the agent environment, fetches the bare clones of the repositories with their worktrees, and runs the local check and the setup script of a worktree
 internal/setup/        mobius init: asks for the values of a new config.toml and writes it
 internal/store/        the SQLite database: goose migrations and sqlc queries
 internal/testkit/      the fake GitHub with a git repository for each repository, the fake agent as a Harness command, the fake df, and the waits of the tests
