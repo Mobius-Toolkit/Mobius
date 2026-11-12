@@ -219,3 +219,30 @@ func TestAnOrganizationThatGotTheChangelogGetsNoSecondOne(t *testing.T) {
 		t.Errorf("changelogs = %q", texts)
 	}
 }
+
+func TestAFailedReadOfOneAppSendsNoChangelogUntilTheReadSucceeds(t *testing.T) {
+	// Serial: the test sets the package variable Release.
+	fake := testkit.NewFakeGitHub(t)
+	fake.SetComparedCommits("Show the usage (#10)")
+	fake.InstallSecondApp("other")
+	fake.FailInstallations(testkit.SecondAppID, true)
+
+	server := startRelease(t, fake, t.TempDir(), "v0.1.6",
+		"INSERT INTO last_release (id, tag) VALUES (1, 'v0.1.4')",
+		fmt.Sprintf("INSERT INTO github_apps (app_id, slug, private_key, client_id, client_secret) VALUES (%d, '%s', '%s', 'Iv23second', 'second-client-secret')",
+			testkit.SecondAppID, testkit.SecondAppSlug, testkit.AppPrivateKey))
+
+	refused := fake.InstallationReads()
+	testkit.WaitFor(t, func() bool { return fake.InstallationReads() >= refused+6 })
+	if texts := changelogs(t, server); len(texts) != 0 || lastRelease(t, server) != "v0.1.4" {
+		t.Errorf("changelogs = %q, last release = %s", texts, lastRelease(t, server))
+	}
+
+	fake.FailInstallations(testkit.SecondAppID, false)
+
+	testkit.WaitFor(t, func() bool { return lastRelease(t, server) == "v0.1.6" })
+	texts := changelogs(t, server)
+	if len(texts["owner"]) != 1 || len(texts["other"]) != 1 {
+		t.Errorf("changelogs = %q", texts)
+	}
+}

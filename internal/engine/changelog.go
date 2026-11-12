@@ -20,7 +20,8 @@ var pullRequestSuffix = regexp.MustCompile(` \(#(\d+)\)$`)
 
 // sendChangelog gives the Coordinator chat of each organization the changelog from the release that ran before to this
 // release, one time for each organization and release. A local build and the first start with a kept release send
-// nothing.
+// nothing. The poll calls it only after a read of the repositories of all Apps, because an App whose read failed at the
+// start gives no organization.
 func (e *Engine) sendChangelog(ctx context.Context) {
 	if Release == "" || len(e.github.Organizations()) == 0 {
 		return

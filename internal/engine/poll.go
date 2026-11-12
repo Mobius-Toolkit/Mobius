@@ -21,7 +21,7 @@ import (
 const issuesEndpoint = "issues"
 
 // poll reads the repositories of the Apps. When it read all Apps, it ends the tasks of each repository that no App
-// gives, and it removes the copy of each repository that it did not find. Then, for each repository, it fixes the labels
+// gives, it removes the copy of each repository that it did not find, and it sends the changelog of a new release. Then, for each repository, it fixes the labels
 // at the first sight in this run of the server, copies the open Workstreams until that step works one time, hands
 // the lost tasks to a human and starts the Workers of the earlier run again until that step works one time, reads the
 // changed issues, reads the CI of the default branch, dispatches the ready issues, starts the tasks of the Workstreams
@@ -58,6 +58,7 @@ func (e *Engine) poll(ctx context.Context) {
 		if err := e.forgetCopies(ctx, repositories); err != nil {
 			log.Printf("remove the copies of the repositories with no access: %v", err)
 		}
+		e.sendChangelog(ctx)
 	}
 	work := map[int64]Work{}
 	for _, repository := range repositories {
