@@ -778,6 +778,14 @@ func (g *FakeGitHub) HoldBranchUpdates() {
 	g.holdBranchUpdates = true
 }
 
+// MergeBaseIntoHead merges the base branch into the head branch of the pull request, as a person does with the button
+// "Update branch". UpdateBranchCalls does not count it.
+func (g *FakeGitHub) MergeBaseIntoHead(repository string, number int64) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.mergeBase(issueKey{repository, number})
+}
+
 // ReleaseBranchUpdates adds the merge commits of the held updates of branches.
 func (g *FakeGitHub) ReleaseBranchUpdates() {
 	g.mu.Lock()
