@@ -42,9 +42,20 @@ var MemoryRoleFiles = memoryRoleFiles
 // AccessChecked tells if the access check of each Role binding has a result.
 func (e *Engine) AccessChecked() bool {
 	roles := e.mergedRoles()
+	pauses, err := e.queries.ListHarnessPauses(context.Background())
+	if err != nil {
+		return false
+	}
+	paused := make(map[string]bool, len(pauses))
+	for _, pause := range pauses {
+		paused[pause.Harness] = true
+	}
 	e.accessMu.Lock()
 	defer e.accessMu.Unlock()
 	for _, named := range roles.Bindings() {
+		if paused[string(named.Binding.Harness)] {
+			continue
+		}
 		if _, checked := e.access[keyOf(*named.Binding)]; !checked {
 			return false
 		}
