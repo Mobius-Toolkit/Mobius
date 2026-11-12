@@ -45,12 +45,13 @@ func isWriteComment(body string) bool {
 	return strings.Contains(body, writeMarkerPrefix)
 }
 
-// permanentRefusal tells whether err is a 4xx answer of GitHub that is not a rate limit, or a GraphQL error. A call that
-// got such an answer fails again.
+// permanentRefusal tells whether err is a 4xx answer of GitHub that is not a rate limit, or a GraphQL error of the type
+// FORBIDDEN or NOT_FOUND. A call that got such an answer fails again. A GraphQL rate limit, a timeout and an error with
+// no type can pass, so they are no permanent refusal.
 func permanentRefusal(err error) bool {
 	var graphQL *github.GraphQLError
 	if errors.As(err, &graphQL) {
-		return true
+		return graphQL.Type == "FORBIDDEN" || graphQL.Type == "NOT_FOUND"
 	}
 	var refused *gh.ErrorResponse
 	return errors.As(err, &refused) && refused.Response.StatusCode < http.StatusInternalServerError && refused.Response.StatusCode != http.StatusTooManyRequests

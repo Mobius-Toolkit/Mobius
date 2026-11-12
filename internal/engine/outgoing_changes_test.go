@@ -353,3 +353,31 @@ func TestAReplyWhoseResolveGitHubRefusesDoesNotHoldTheLaterCommentOfThePullReque
 		t.Errorf("sent changes = %d, want 2", got)
 	}
 }
+
+func TestAReplyWhoseResolveGetsARateLimitErrorIsSentAgainAndALaterPollResolvesTheThread(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddPullRequest(shop, 45, "Add plan model")
+	root := fake.AddReviewComment(shop, 45, 0, "owner", "Use cents.")
+	fake.RateLimitResolveThreads(true)
+	server, _ := connect(t, fake, call("reply_thread", "{ repository = \"owner/shop\", thread = "+itoa(root)+`, text = "Fixed in abc123." }`))
+	addTask(t, server, fake, 41, 12, 45)
+
+	session := run(t, server, leadSpec(t), "1. ")
+
+	if got, want := reply(t, server, session), "Mobius posts the reply to "+itoa(root)+" later."; got != want {
+		t.Errorf("reply = %q, want %q", got, want)
+	}
+	waitForPolls(t, fake)
+	if thread := fake.ReviewThread(shop, 45, root); thread.Resolved || len(thread.Comments) != 2 {
+		t.Errorf("thread = %+v", thread)
+	}
+	fake.RateLimitResolveThreads(false)
+
+	testkit.WaitFor(t, func() bool {
+		return fake.ReviewThread(shop, 45, root).Resolved && outgoingChanges(t, server, "sent") == 1
+	})
+	if thread := fake.ReviewThread(shop, 45, root); len(thread.Comments) != 2 {
+		t.Errorf("thread = %+v", thread)
+	}
+}

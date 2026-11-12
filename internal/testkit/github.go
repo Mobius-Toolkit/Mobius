@@ -152,8 +152,10 @@ type FakeGitHub struct {
 	nextReactionID                             int64
 	failedReactions                            map[string]bool
 	// The ids of the first comments of the resolved review threads.
-	resolvedThreads  map[int64]bool
-	failResolves     bool
+	resolvedThreads map[int64]bool
+	failResolves    bool
+	// limitedResolves is true when a resolve of a review thread gives the GraphQL error RATE_LIMITED.
+	limitedResolves  bool
 	failPullReads    bool
 	failMarkReady    bool
 	failCheckUpdates bool

@@ -56,12 +56,14 @@ func (r Repository) Parent(ctx context.Context, number int64) (*gh.Issue, error)
 }
 
 type graphqlError struct {
+	Type    string `json:"type"`
 	Message string `json:"message"`
 }
 
-// GraphQLError is the first error of a GraphQL answer. GitHub gives the answer with the status 200, and gives the same
-// error again for the same query.
+// GraphQLError is the first error of a GraphQL answer. GitHub gives the answer with the status 200. Type is the type
+// of the error, for example FORBIDDEN or RATE_LIMITED, and is empty when GitHub gives none.
 type GraphQLError struct {
+	Type    string
 	Message string
 }
 
@@ -84,7 +86,7 @@ func (r Repository) graphql(ctx context.Context, query string, variables map[str
 		return err
 	}
 	if len(response.Errors) > 0 {
-		return &GraphQLError{Message: response.Errors[0].Message}
+		return &GraphQLError{Type: response.Errors[0].Type, Message: response.Errors[0].Message}
 	}
 	return nil
 }

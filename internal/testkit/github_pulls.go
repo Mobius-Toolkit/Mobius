@@ -129,6 +129,14 @@ func (g *FakeGitHub) FailResolveThreads(fail bool) {
 	g.failResolves = fail
 }
 
+// RateLimitResolveThreads makes each resolve of a review thread through the API give the GraphQL error RATE_LIMITED
+// with the status 200, or work again when limit is false.
+func (g *FakeGitHub) RateLimitResolveThreads(limit bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.limitedResolves = limit
+}
+
 // FailPullRequestReads makes each read of a single pull request fail, or work again when fail is false.
 func (g *FakeGitHub) FailPullRequestReads(fail bool) {
 	g.mu.Lock()
@@ -445,7 +453,11 @@ func (g *FakeGitHub) graphql(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if g.failResolves {
-			writeJSON(w, http.StatusOK, map[string]any{"data": nil, "errors": []map[string]string{{"message": "Resolve failed"}}})
+			writeJSON(w, http.StatusOK, map[string]any{"data": nil, "errors": []map[string]string{{"type": "FORBIDDEN", "message": "Resolve failed"}}})
+			return
+		}
+		if g.limitedResolves {
+			writeJSON(w, http.StatusOK, map[string]any{"data": nil, "errors": []map[string]string{{"type": "RATE_LIMITED", "message": "API rate limit exceeded"}}})
 			return
 		}
 		g.resolvedThreads[root] = true
