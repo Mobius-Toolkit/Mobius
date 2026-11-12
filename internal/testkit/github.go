@@ -200,6 +200,8 @@ type FakeGitHub struct {
 	holdBranchUpdates bool
 	heldBranchUpdates []issueKey
 	updateAnswerHold  *hold
+	// branchUpdateRefusal is the status that the next update of the branch of a pull request gives, or 0 when it works.
+	branchUpdateRefusal int
 	// afterCheckRunRead runs once at the end of the first request for the check runs of a commit after a GraphQL answer
 	// gave a review of a pull request. reviewRead tells if such an answer was given.
 	afterCheckRunRead func()

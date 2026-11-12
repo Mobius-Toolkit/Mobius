@@ -330,11 +330,6 @@ func (g *FakeGitHub) SetQueuedRunNoJobs(id int64) {
 	})
 }
 
-// SetWorkflowRunQueuedNoJobs sets the workflow run id to status queued with attempt 1, conclusion "", and removes its jobs.
-func (g *FakeGitHub) SetWorkflowRunQueuedNoJobs(id int64) {
-	g.SetQueuedRunNoJobs(id)
-}
-
 // RerunWorkflowRun adds a new attempt to the workflow run id, as a user does by hand. The attempt is completed with
 // the conclusion.
 func (g *FakeGitHub) RerunWorkflowRun(id int64, conclusion string) {
@@ -428,6 +423,13 @@ func (g *FakeGitHub) CancelRequests() int {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return g.cancelRequests
+}
+
+// RefuseBranchUpdateOnce makes the next request to update the branch of a pull request give status. Later requests work.
+func (g *FakeGitHub) RefuseBranchUpdateOnce(status int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.branchUpdateRefusal = status
 }
 
 // AddAnnotation adds an annotation on line of path with message to the check run id.
@@ -658,6 +660,12 @@ func (g *FakeGitHub) updatePullRequestBranch(w http.ResponseWriter, r *http.Requ
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.updateBranchCalls++
+	if g.branchUpdateRefusal != 0 {
+		code := g.branchUpdateRefusal
+		g.branchUpdateRefusal = 0
+		message(w, code, "temporary error")
+		return
+	}
 	key, ok := g.issue(w, r)
 	if !ok {
 		return

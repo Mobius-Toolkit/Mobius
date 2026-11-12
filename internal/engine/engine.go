@@ -19,6 +19,13 @@ import (
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
+type refusedRunState int
+
+const (
+	refusedRunPendingBranch refusedRunState = iota + 1
+	refusedRunDone
+)
+
 // Engine polls the repositories of the Mobius Apps and runs the agent sessions.
 type Engine struct {
 	db      *sql.DB
@@ -91,9 +98,9 @@ type Engine struct {
 	// ciWait holds the head of each task in checks that has no CI, with the time of its first poll, by the id of the task.
 	// Only the poll uses it.
 	ciWait map[int64]ciWait
-	// refusedRuns holds the ids of the workflow runs whose cancel or rerun GitHub refused with a 4xx. Only the poll
+	// refusedRuns holds the state of the workflow runs whose cancel or rerun GitHub refused with a 4xx. Only the poll
 	// uses it.
-	refusedRuns map[int64]bool
+	refusedRuns map[int64]refusedRunState
 	// clock gives the time of the long waits. A nil clock is time.Now.
 	clock atomic.Pointer[func() time.Time]
 	// newestMu guards newest.
@@ -245,7 +252,7 @@ func New(db *sql.DB, gh *github.GitHub, cfg *config.Config, agents Agents) *Engi
 		pollWake:        make(chan struct{}, 1),
 		closing:         map[pullKey]bool{},
 		ciWait:          map[int64]ciWait{},
-		refusedRuns:     map[int64]bool{},
+		refusedRuns:     map[int64]refusedRunState{},
 		newest:          map[string]newestVersion{},
 		upgrades:        map[string]bool{},
 		harnessReads:    map[config.Harness]*harnessRead{},

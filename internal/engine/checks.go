@@ -491,44 +491,58 @@ func (e *Engine) handleStuckRuns(ctx context.Context, repository github.Reposito
 	var updatedBranch bool
 	stuckNames := map[string]bool{}
 	for _, run := range state.newestWorkflows {
-		if e.refusedRuns[run.GetID()] {
+		if run.GetStatus() != "queued" {
+			continue
+		}
+		runState := e.refusedRuns[run.GetID()]
+		if runState == refusedRunDone {
 			stuckNames[run.GetName()] = true
 			continue
 		}
-		if run.GetStatus() != "queued" || run.GetRunAttempt() != 1 {
-			continue
+		var refusal error
+		if runState == 0 {
+			if run.GetRunAttempt() != 1 {
+				continue
+			}
+			createdAt := run.GetCreatedAt().Time
+			if createdAt.IsZero() || e.timeNow().Sub(createdAt) < queuedRunLimit {
+				continue
+			}
+			jobs, err := repository.WorkflowJobs(ctx, run.GetID())
+			var refusedJobs *gh.ErrorResponse
+			if errors.As(err, &refusedJobs) && refusedJobs.Response.StatusCode < 500 {
+				log.Printf("workflow jobs of run %d: %v", run.GetID(), err)
+				continue
+			} else if err != nil {
+				return nil, err
+			}
+			if len(jobs) > 0 {
+				continue
+			}
+			stuckNames[run.GetName()] = true
+			err = repository.CancelWorkflowRun(ctx, run.GetID())
+			if err == nil {
+				err = repository.RerunWorkflowRun(ctx, run.GetID())
+			}
+			if err == nil {
+				delete(stuckNames, run.GetName())
+				continue
+			}
+			var refused *gh.ErrorResponse
+			if !errors.As(err, &refused) || refused.Response.StatusCode >= 500 {
+				return nil, err
+			}
+			refusal = err
+			e.refusedRuns[run.GetID()] = refusedRunPendingBranch
+		} else {
+			stuckNames[run.GetName()] = true
 		}
-		createdAt := run.GetCreatedAt().Time
-		if createdAt.IsZero() || e.timeNow().Sub(createdAt) < queuedRunLimit {
-			continue
-		}
-		jobs, err := repository.WorkflowJobs(ctx, run.GetID())
-		if err != nil {
-			return nil, err
-		}
-		if len(jobs) > 0 {
-			continue
-		}
-		stuckNames[run.GetName()] = true
-		err = repository.CancelWorkflowRun(ctx, run.GetID())
-		if err == nil {
-			err = repository.RerunWorkflowRun(ctx, run.GetID())
-		}
-		if err == nil {
-			delete(stuckNames, run.GetName())
-			continue
-		}
-		var refused *gh.ErrorResponse
-		if !errors.As(err, &refused) || refused.Response.StatusCode >= 500 {
-			return nil, err
-		}
-		refusal := err
-		e.refusedRuns[run.GetID()] = true
 		behind, err := repository.CommitsBehind(ctx, repository.DefaultBranch, head)
 		if err != nil {
 			return nil, err
 		}
-		if behind > 0 && !updatedBranch {
+		switch {
+		case behind > 0 && !updatedBranch:
 			if err := repository.UpdatePullRequestBranch(ctx, int64(pullRequest.GetNumber()), head); err != nil {
 				var refusedUpdate *gh.ErrorResponse
 				if !errors.As(err, &refusedUpdate) || refusedUpdate.Response.StatusCode >= 500 {
@@ -537,9 +551,12 @@ func (e *Engine) handleStuckRuns(ctx context.Context, repository github.Reposito
 				log.Printf("update the branch of pull request %d of %s: %v", pullRequest.GetNumber(), repository.FullName, err)
 			}
 			updatedBranch = true
-		} else {
+		case refusal != nil:
 			log.Printf("stuck workflow run %d: %v", run.GetID(), refusal)
+		default:
+			log.Printf("stuck workflow run %d was refused", run.GetID())
 		}
+		e.refusedRuns[run.GetID()] = refusedRunDone
 	}
 	incomplete := slices.Clone(state.incomplete)
 	for i, name := range incomplete {
