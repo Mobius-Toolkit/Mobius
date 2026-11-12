@@ -146,7 +146,6 @@ web/src/usage/         the Usage screen as a Foldkit Submodel: the tabs Cost, To
 web/src/setting/       the sheet of the Harness, the model and the effort as a Foldkit Submodel. The Tasks tab and the Details tab use it
 web/src/ui/            the Foldkit parts that many screens use: the buttons, the badges, the dialog, the icons, the page header, the menus, the tabs, the SVG bar chart and line chart, the router link and the Markdown view
 web/src/live/          the Subscription of /api/events with the reconnect rules of the shell, and the Subscription of a plain store
-web/src/components/ui/ the shadcn/ui components
 web/src/lib/events.ts  the typed listener of server-sent events (onEvent)
 web/public/            the files of the PWA: the web app manifest, the service worker and the icons
 web/e2e/               the Playwright tests of the UI, and TestServer, the server that they test
