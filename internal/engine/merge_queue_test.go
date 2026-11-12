@@ -896,3 +896,135 @@ func TestMergeQueuePlacesOnBoardTasksAndInboxItems(t *testing.T) {
 			p47 == nil && s47 == 0
 	})
 }
+
+// heldQueueHead approves the tasks of numbers with a merge level, so that the task of #41 is the head of the merge
+// queue. The default branch moves, so the head updates its branch. The CI of the new head does not complete, so the head
+// goes back to checks. It gives the server, the new head of #41, the id of its CI run and the time that the held clock
+// of the tests starts from.
+func heldQueueHead(t *testing.T, fake *testkit.FakeGitHub, numbers []int) (*testserver.Server, string, int64, time.Time) {
+	t.Helper()
+	server, _ := queueTasks(t, fake, "merge", numbers)
+	fake.CommitFile(shop, "price.txt", "cents\n", "Add price")
+	reached, release := fake.HoldBranchUpdateAnswer()
+	for _, number := range numbers {
+		sendChat(t, server, leadChat, fmt.Sprintf("Approve #%d", number))
+	}
+	<-reached
+	newHead := head(t, fake, "mobius/41")
+	ci := fake.AddCheckRun(shop, checkRun("test", newHead, "in_progress", ""))
+	release()
+	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, 41) == "checks" })
+	for _, number := range numbers {
+		testkit.WaitFor(t, func() bool { return liveTask(t, server, int64(number)).MergeQueuedAt.Valid })
+	}
+	return server, newHead, ci, time.Now()
+}
+
+func queueHeldEvents(t *testing.T, server *testserver.Server) []leadEvent {
+	t.Helper()
+	return slices.DeleteFunc(leadEvents(t, server), func(event leadEvent) bool { return event.Kind != "merge_queue_held" })
+}
+
+// TestMergeQueueRemovesAHeldHeadAfterTwoHours verifies that the head of the queue that stays in checks for more than
+// two hours leaves the queue with one Lead event, and the next task becomes the head and updates its branch.
+func TestMergeQueueRemovesAHeldHeadAfterTwoHours(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, newHead, _, start := heldQueueHead(t, fake, []int{41, 43})
+	pr41 := liveTask(t, server, 41).PullRequest.Int64
+	updates := fake.UpdateBranchCalls()
+
+	at := start.Add(2*time.Hour + time.Minute)
+	server.Engine.SetClock(func() time.Time { return at })
+
+	events := testkit.WaitForValue(t, func() ([]leadEvent, bool) {
+		events := queueHeldEvents(t, server)
+		return events, len(events) == 1
+	})
+	want := fmt.Sprintf("%s #41 \"Add plan model\" held the head of the merge queue in checks for more than 2h0m0s: pull request #%d https://github.com/owner/shop/pull/%d, head %s. Mobius removed it from the queue, so the next task can merge. 1 other tasks wait in the queue. The task enters the queue again at the end after each check of its head passes and its head has the Mobius check.",
+		at.UTC().Format("2006-01-02 15:04 UTC"), pr41, pr41, newHead)
+	if events[0].Payload != want {
+		t.Errorf("event = %s, want %s", events[0].Payload, want)
+	}
+	if liveTask(t, server, 41).MergeQueuedAt.Valid {
+		t.Error("task 41 stays in the queue")
+	}
+	testkit.WaitFor(t, func() bool { return fake.UpdateBranchCalls() > updates })
+	waitForPolls(t, fake)
+	if events := queueHeldEvents(t, server); len(events) != 1 {
+		t.Errorf("events = %+v, want 1", events)
+	}
+	if state := liveTaskState(t, server, 41); state != "checks" {
+		t.Errorf("task 41 state = %s, want checks", state)
+	}
+}
+
+// TestMergeQueueKeepsAHeadThatWaitsLessThanTwoHours verifies that the head of the queue stays in the queue before two
+// hours pass.
+func TestMergeQueueKeepsAHeadThatWaitsLessThanTwoHours(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _, _, start := heldQueueHead(t, fake, []int{41, 43})
+
+	server.Engine.SetClock(func() time.Time { return start.Add(time.Hour + 59*time.Minute) })
+	waitForPolls(t, fake)
+
+	if !liveTask(t, server, 41).MergeQueuedAt.Valid {
+		t.Error("task 41 left the queue")
+	}
+	if events := queueHeldEvents(t, server); len(events) != 0 {
+		t.Errorf("events = %+v", events)
+	}
+}
+
+// TestMergeQueueKeepsAHeldHeadThatHasNoOtherTaskInTheQueue verifies that a head that waits for more than two hours
+// stays in the queue when no other task waits in the queue.
+func TestMergeQueueKeepsAHeldHeadThatHasNoOtherTaskInTheQueue(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _, _, start := heldQueueHead(t, fake, []int{41})
+
+	server.Engine.SetClock(func() time.Time { return start.Add(2*time.Hour + time.Minute) })
+	waitForPolls(t, fake)
+
+	if !liveTask(t, server, 41).MergeQueuedAt.Valid {
+		t.Error("task 41 left the queue")
+	}
+	if events := queueHeldEvents(t, server); len(events) != 0 {
+		t.Errorf("events = %+v", events)
+	}
+}
+
+// TestMergeQueueReEntryOfARemovedHeadGoesAfterTheNextTask verifies that a head that Mobius removed from the queue
+// enters the queue again behind the next task after its CI passes and its head has the Mobius check.
+func TestMergeQueueReEntryOfARemovedHeadGoesAfterTheNextTask(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _, ci41, start := heldQueueHead(t, fake, []int{41, 43})
+	// The update of the branch of #43 stays open, so #43 stays the head in ready_for_review.
+	fake.HoldBranchUpdates()
+
+	server.Engine.SetClock(func() time.Time { return start.Add(2*time.Hour + time.Minute) })
+	testkit.WaitFor(t, func() bool { return !liveTask(t, server, 41).MergeQueuedAt.Valid })
+	testkit.WaitFor(t, func() bool { return fake.UpdateBranchCalls() >= 2 })
+
+	fake.SetCheckRunStatus(ci41, "completed", "success")
+
+	testkit.WaitFor(t, func() bool { return liveTask(t, server, 41).MergeQueuedAt.Valid })
+	var issues []int64
+	rows, err := server.DB.Query("SELECT issue FROM tasks WHERE repository = ? AND state <> 'ended' AND merge_queued_at IS NOT NULL ORDER BY julianday(merge_queued_at), id", shop)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var issue int64
+		if err := rows.Scan(&issue); err != nil {
+			t.Fatal(err)
+		}
+		issues = append(issues, issue)
+	}
+	if !slices.Equal(issues, []int64{43, 41}) {
+		t.Errorf("queue = %v, want [43 41]", issues)
+	}
+}
