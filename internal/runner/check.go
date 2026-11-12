@@ -51,30 +51,40 @@ func CheckAccess(ctx context.Context, harness config.Harness, model, effort, dir
 // .mobius/check passes. A check that does not end in timeout fails, and its output ends with a line about the timeout.
 // When ctx ends, Check stops the check and gives the error of ctx.
 func Check(ctx context.Context, dataDir, worktree, path string, timeout time.Duration) (string, bool, error) {
-	if _, err := os.Stat(filepath.Join(worktree, ".mobius", "check")); errors.Is(err, fs.ErrNotExist) {
+	return runScript(ctx, "check", dataDir, worktree, path, timeout)
+}
+
+// Init runs .mobius/init of the worktree in the same way as Check. A worktree with no .mobius/init passes.
+func Init(ctx context.Context, dataDir, worktree, path string, timeout time.Duration) (string, bool, error) {
+	return runScript(ctx, "init", dataDir, worktree, path, timeout)
+}
+
+func runScript(ctx context.Context, name, dataDir, worktree, path string, timeout time.Duration) (string, bool, error) {
+	script := ".mobius/" + name
+	if _, err := os.Stat(filepath.Join(worktree, script)); errors.Is(err, fs.ErrNotExist) {
 		return "", true, nil
 	}
 	cmd := command(context.Background(), "/bin/sh", worktree, dataDir, path, "", "", "")
-	cmd.Args = append(cmd.Args, "-c", "exec nice -n 10 ./.mobius/check 2>&1")
+	cmd.Args = append(cmd.Args, "-c", "exec nice -n 10 ./"+script+" 2>&1")
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return "", false, err
 	}
 	if err := cmd.Start(); err != nil {
-		return "", false, fmt.Errorf(".mobius/check: %w", err)
+		return "", false, fmt.Errorf("%s: %w", script, err)
 	}
 	var output []byte
 	read := make(chan error, 1)
 	go func() {
 		var err error
 		output, err = io.ReadAll(stdout)
-		// Check does not call cmd.Wait, so the pipe needs its own close.
+		// runScript does not call cmd.Wait, so the pipe needs its own close.
 		read <- errors.Join(err, stdout.Close())
 	}()
 	exited := make(chan *os.ProcessState, 1)
 	go func() {
-		// A failed wait leaves no exit status, and the check then fails.
+		// A failed wait leaves no exit status, and the script then fails.
 		state, _ := cmd.Process.Wait()
 		exited <- state
 	}()
@@ -86,14 +96,14 @@ func Check(ctx context.Context, dataDir, worktree, path string, timeout time.Dur
 	case <-timer.C:
 	case <-ctx.Done():
 	}
-	// The check leads its own process group, so the kill also ends each process that it started. Until then, such a
+	// The script leads its own process group, so the kill also ends each process that it started. Until then, such a
 	// process can hold the pipe open.
 	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	if state == nil {
 		<-exited
 	}
 	if err := <-read; err != nil {
-		return "", false, fmt.Errorf(".mobius/check: %w", err)
+		return "", false, fmt.Errorf("%s: %w", script, err)
 	}
 	if err := ctx.Err(); err != nil {
 		return "", false, err
@@ -101,7 +111,7 @@ func Check(ctx context.Context, dataDir, worktree, path string, timeout time.Dur
 	log := string(output)
 	switch {
 	case state == nil:
-		log += fmt.Sprintf("\n.mobius/check did not end in %s.\n", timeout)
+		log += fmt.Sprintf("\n%s did not end in %s.\n", script, timeout)
 	case state.Success():
 		return log, true, nil
 	}
