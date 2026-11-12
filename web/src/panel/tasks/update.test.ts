@@ -1,5 +1,5 @@
 import { Option } from "effect";
-import { inertHtml } from "foldkit/html";
+import * as Scene from "foldkit/scene";
 import { describe, expect, it } from "vitest";
 import {
   Command as StoryCommand,
@@ -615,22 +615,20 @@ describe("the detail view of a task", () => {
   });
 
   it("shows an error when attaching a task from the detail view fails", () => {
-    const key = rowKey(task);
-    story(
-      update,
-      given(
+    Scene.scene(
+      { update, view },
+      Scene.given(
         createModel({
           lines: Option.some([task]),
           opened: Option.some({ repository: "owner/shop", number: 41 }),
         }),
       ),
-      message(Message.ClickedChat({ key, line: task })),
-      StoryCommand.resolve(AttachTask, Message.AttachFailed({ key, error: "storage is full" })),
-      model((m) => {
-        expect(rowOf(m, key).error).toBe("storage is full");
-        const rendered = JSON.stringify(view(m, inertHtml));
-        expect(rendered).toContain("storage is full");
-      }),
+      Scene.click(Scene.role("button", { name: "Chat" })),
+      Scene.Command.resolve(
+        AttachTask,
+        Message.AttachFailed({ key: rowKey(task), error: "storage is full" }),
+      ),
+      Scene.expect(Scene.text("storage is full")).toExist(),
     );
   });
 });
