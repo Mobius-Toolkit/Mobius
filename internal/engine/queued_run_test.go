@@ -283,6 +283,26 @@ func TestQueuedRunSecondAttemptCancelledByAPersonIsAFailedWorkflow(t *testing.T)
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" })
 }
 
+func TestQueuedRunCancelRefusedThenCancelledByAPersonIsAFailedWorkflow(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, commits, longGrace)
+	sha := checksHead(t, server, fake)
+	start := time.Now()
+	runID := fake.AddWorkflowRun(shop, testkit.WorkflowRun{Name: "ci", HeadSHA: sha, Status: "queued", CreatedAt: start})
+	fake.RefuseCancel(http.StatusConflict)
+
+	server.Engine.SetClock(func() time.Time { return start.Add(31 * time.Minute) })
+	testkit.WaitFor(t, func() bool { return fake.CancelRequests() == 1 })
+	waitForPolls(t, fake)
+	if state := taskState(t, server); state != "checks" {
+		t.Fatalf("state = %s, want checks", state)
+	}
+
+	fake.SetWorkflowRunStatus(runID, "completed", "cancelled")
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" })
+}
+
 func TestQueuedRunRefusedRunStartedLaterIsNotNamedQueuedNoJob(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

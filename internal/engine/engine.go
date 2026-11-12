@@ -19,16 +19,22 @@ import (
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
-type refusedRunState int
+// refusedRun is what Mobius did to a workflow run that stays queued with no job.
+type refusedRun struct {
+	// cancelled is true when GitHub accepted the cancel of the run.
+	cancelled bool
+	step      refusedRunStep
+}
+
+type refusedRunStep int
 
 const (
-	// refusedRunPendingBranch: GitHub refused the cancel or the rerun, and the branch step is still to do.
-	refusedRunPendingBranch refusedRunState = iota + 1
-	// refusedRunPendingRerun: GitHub cancelled the run, and the rerun is still to do.
-	refusedRunPendingRerun
-	refusedRunRerunSucceeded
-	// refusedRunDone: the branch step ended.
-	refusedRunDone
+	// refusedRunRerunPending: the rerun is still to do.
+	refusedRunRerunPending refusedRunStep = iota + 1
+	refusedRunRerunDone
+	// refusedRunBranchPending: GitHub refused the cancel or the rerun, and the branch step is still to do.
+	refusedRunBranchPending
+	refusedRunBranchDone
 )
 
 // Engine polls the repositories of the Mobius Apps and runs the agent sessions.
@@ -103,9 +109,9 @@ type Engine struct {
 	// ciWait holds the head of each task in checks that has no CI, with the time of its first poll, by the id of the task.
 	// Only the poll uses it.
 	ciWait map[int64]ciWait
-	// refusedRuns holds the state of the workflow runs that Mobius cancelled or tried to cancel, by the id of the run.
-	// Only the poll uses it.
-	refusedRuns map[int64]refusedRunState
+	// refusedRuns holds what Mobius did to the workflow runs that stay queued with no job, by the id of the run. Only the
+	// poll uses it.
+	refusedRuns map[int64]refusedRun
 	// clock gives the time of the long waits. A nil clock is time.Now.
 	clock atomic.Pointer[func() time.Time]
 	// newestMu guards newest.
@@ -257,7 +263,7 @@ func New(db *sql.DB, gh *github.GitHub, cfg *config.Config, agents Agents) *Engi
 		pollWake:        make(chan struct{}, 1),
 		closing:         map[pullKey]bool{},
 		ciWait:          map[int64]ciWait{},
-		refusedRuns:     map[int64]refusedRunState{},
+		refusedRuns:     map[int64]refusedRun{},
 		newest:          map[string]newestVersion{},
 		upgrades:        map[string]bool{},
 		harnessReads:    map[config.Harness]*harnessRead{},
