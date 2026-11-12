@@ -319,6 +319,16 @@ for (const { name: place, path, open } of places) {
         await expect(page.getByText("Entry 0 ")).toBeInViewport();
       });
 
+      test("follows a new entry after the box of the log becomes lower", async ({ page }) => {
+        const send = await openLog(page, path, open);
+        await page.setViewportSize({ width: size.width, height: size.height - 200 });
+        await expect.poll(() => page.evaluate(gap)).toBeGreaterThan(100);
+        await send(30);
+        await expect(page.getByText("Entry 30 ")).toBeVisible();
+        await expect.poll(() => page.evaluate(gap)).toBeLessThan(5);
+        await expect(button(page)).toBeHidden();
+      });
+
       test("moves to the end and removes the button when the Owner clicks it", async ({ page }) => {
         const send = await openLog(page, path, open);
         await scrollTo(page, "top");

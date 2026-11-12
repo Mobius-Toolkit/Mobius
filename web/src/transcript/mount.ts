@@ -26,7 +26,7 @@ export const TranscriptLog = Mount.defineStream("TranscriptLog", {
         let version = list.dataset.version;
         let jumps = list.dataset.jumps;
         let place: Place | undefined;
-        let height = list.scrollHeight;
+        let scrolled = list.scrollTop;
 
         const firstId = () => list.querySelector("[data-line]")?.getAttribute("data-line") ?? "";
 
@@ -63,7 +63,7 @@ export const TranscriptLog = Mount.defineStream("TranscriptLog", {
         const onScroll = () => {
           const wasPinned = pinned;
           pinned = atEnd(list);
-          height = list.scrollHeight;
+          scrolled = list.scrollTop;
           keepPlace();
           if (pinned && !wasPinned) {
             Queue.offerUnsafe(queue, Message.ReachedEnd());
@@ -82,7 +82,7 @@ export const TranscriptLog = Mount.defineStream("TranscriptLog", {
             const nextFirst = firstId();
             const prepended = first !== "" && nextFirst !== "" && Number(nextFirst) < Number(first);
             first = nextFirst;
-            pinned = pinned && height - list.scrollTop - list.clientHeight < 40;
+            pinned = pinned && list.scrollTop >= scrolled;
             if (prepended) {
               restorePlace();
             } else if (pinned) {
@@ -93,7 +93,7 @@ export const TranscriptLog = Mount.defineStream("TranscriptLog", {
             keepPlace();
             nearTop();
           }
-          height = list.scrollHeight;
+          scrolled = list.scrollTop;
         };
 
         list.addEventListener("scroll", onScroll);
