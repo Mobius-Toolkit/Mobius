@@ -46,7 +46,7 @@ func (e *Engine) addInboxItem(ctx context.Context, params store.AddInboxItemPara
 // to the message, and sends both to the listeners.
 func (e *Engine) addQuestion(ctx context.Context, params store.AddInboxItemParams) (store.InboxItem, error) {
 	key := ChatKey{params.Organization, params.WorkstreamRepository, params.Workstream}
-	message, err := e.addChatMessage(ctx, key, questionAuthor, params.Text, "", "", nil, false)
+	message, err := e.addChatMessage(ctx, key, questionAuthor, params.Text, "", "", nil, nil, false)
 	if err != nil {
 		return store.InboxItem{}, err
 	}
@@ -243,6 +243,10 @@ func (e *Engine) SendAgain(ctx context.Context, id int64) error {
 	if err != nil {
 		return err
 	}
+	selections, err := selectionsOf(message)
+	if err != nil {
+		return err
+	}
 	cancelled, err := e.queries.CancelChatMessage(ctx, store.CancelChatMessageParams{CancelledAt: sql.NullString{String: now(), Valid: true}, ID: message.ID})
 	if errors.Is(err, sql.ErrNoRows) {
 		return e.Dismiss(ctx, id)
@@ -254,7 +258,7 @@ func (e *Engine) SendAgain(ctx context.Context, id int64) error {
 		e.publish(Change{Message: &cancelled})
 	}
 	key := ChatKey{Organization: message.Organization, Repository: message.Repository, Workstream: message.Workstream}
-	if err := e.storeChat(ctx, key, ownerAuthor, rand.Text(), message.Text, images, inboxItems, message.Voice != 0); err != nil {
+	if err := e.storeChat(ctx, key, ownerAuthor, rand.Text(), message.Text, images, inboxItems, selections, message.Voice != 0); err != nil {
 		restored, undoErr := e.queries.UndoCancelChatMessage(context.WithoutCancel(ctx), message.ID)
 		if undoErr == nil && restored.Author != approvalAuthor {
 			e.publish(Change{Message: &restored})
@@ -288,7 +292,7 @@ func (e *Engine) AnswerInboxItem(ctx context.Context, id int64, text string) (st
 			return "", refuse("The Coordinator withdrew this question, or the Owner answered it.")
 		}
 		key := ChatKey{Organization: item.Organization}
-		if err := e.SendChat(ctx, key, rand.Text(), text, nil, nil, false); err != nil {
+		if err := e.SendChat(ctx, key, rand.Text(), text, nil, nil, nil, false); err != nil {
 			return "", err
 		}
 		if err := e.queries.SetInboxItemAnswer(ctx, store.SetInboxItemAnswerParams{Answer: text, ID: id}); err != nil {
