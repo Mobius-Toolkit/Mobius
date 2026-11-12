@@ -303,8 +303,9 @@ func (e *Engine) overlapsDefaultBranch(ctx context.Context, repository github.Re
 
 // returnForApproval sends the task in ready_for_review back to checks, because its head has no Mobius check run, so the
 // Lead did not approve it. This is the case after the update of the branch in the merge queue. For a task with
-// auto_merge, the old approval ends. The head goes through the CI and the approval of the Lead again, and keeps its
-// place in the queue.
+// auto_merge, the old approval ends. A task with no auto_merge keeps the review of the Owner, so Mobius merges it after
+// the new approval of the Lead with no new "Merge" tap. The head goes through the CI and the approval of the Lead
+// again, and keeps its place in the queue.
 func (e *Engine) returnForApproval(ctx context.Context, task store.Task) error {
 	if task.AutoMerge == 1 {
 		if err := e.queries.SetTaskRefusedReview(ctx, store.SetTaskRefusedReviewParams{RefusedReview: task.ApprovedReview, ID: task.ID}); err != nil {
