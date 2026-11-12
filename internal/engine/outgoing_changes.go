@@ -131,8 +131,7 @@ func (e *Engine) send(ctx context.Context, repository github.Repository, change 
 	if read {
 		comment, err := findWrittenComment(ctx, repository, change)
 		if err != nil {
-			log.Printf("read the comments of %s#%d: %v", repository.FullName, change.Number, err)
-			return true, nil
+			return e.failed(ctx, repository, change, err)
 		}
 		if comment != 0 {
 			return false, e.finish(ctx, change, comment)
@@ -198,10 +197,10 @@ func (e *Engine) finish(ctx context.Context, change store.OutgoingChange, commen
 	})
 }
 
-// failed handles the error err of the send of the change. A permanent refusal marks the change refused. Any other
-// error leaves it pending for the next poll.
+// failed handles the error err of the read or the send of the change. A permanent refusal marks the change refused.
+// Any other error leaves it pending for the next poll.
 func (e *Engine) failed(ctx context.Context, repository github.Repository, change store.OutgoingChange, err error) (bool, error) {
-	log.Printf("send the %s of %s#%d: %v", change.Field, repository.FullName, change.Number, err)
+	log.Printf("the %s of %s#%d failed: %v", change.Field, repository.FullName, change.Number, err)
 	if !permanentRefusal(err) {
 		return true, nil
 	}

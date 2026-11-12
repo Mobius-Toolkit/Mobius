@@ -91,6 +91,29 @@ func TestARefusedOutgoingChangeGetsRefusedAndTheNextChangeOfTheItemGoesOut(t *te
 	}
 }
 
+func TestAnOutgoingChangeWhoseCommentsGitHubRefusesToReadGetsRefusedAndTheNextChangeOfTheItemGoesOut(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := connectSeen(t, fake)
+	fake.AddIssue(shop, 60, "Fix the footer")
+	waitForPolls(t, fake)
+	fake.FailAddComment(shop, 60, true)
+	declineOne(fake, "Use a smaller font.")
+	testkit.WaitFor(t, func() bool { return commentWrites(t, server) == 1 })
+	declineOne(fake, "Use a bigger font.")
+	testkit.WaitFor(t, func() bool { return commentWrites(t, server) == 2 })
+
+	fake.RefuseNextCommentList(shop, 60, http.StatusNotFound)
+	fake.FailAddComment(shop, 60, false)
+
+	testkit.WaitFor(t, func() bool {
+		return outgoingChanges(t, server, "refused") == 1 && outgoingChanges(t, server, "sent") == 1
+	})
+	if got := appComments(fake, 60); len(got) != 1 || !strings.HasSuffix(got[0], "\n\n<!-- mobius:write 2 -->") {
+		t.Errorf("comments = %q", got)
+	}
+}
+
 func TestAReviewCommentEditWaitsForThePendingPostAndThenChangesTheNewComment(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
