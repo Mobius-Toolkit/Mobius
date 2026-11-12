@@ -182,6 +182,7 @@ test("the bubble of a sent message shows the card of the Inbox item with its lin
         failedAt: null,
         images: 0,
         inboxItems: posted,
+        selections: [],
         organization: "owner",
         question: null,
         repository: "owner/shop",
