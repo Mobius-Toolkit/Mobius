@@ -330,6 +330,19 @@ func (g *FakeGitHub) SetWorkflowRunAttempt(id int64, attempt int, status, conclu
 	run.Conclusion = conclusion
 }
 
+// SetQueuedRunNoJobs sets the workflow run id to status queued with attempt 1, conclusion "", and removes its jobs.
+func (g *FakeGitHub) SetQueuedRunNoJobs(id int64) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	run := &g.workflowRuns[id-1]
+	run.Status = "queued"
+	run.Attempt = 1
+	run.Conclusion = ""
+	g.workflowJobs = slices.DeleteFunc(g.workflowJobs, func(job workflowJob) bool {
+		return job.repository == run.repository && job.run == id
+	})
+}
+
 // RerunWorkflowRun adds a new attempt to the workflow run id, as a user does by hand. The attempt is completed with
 // the conclusion.
 func (g *FakeGitHub) RerunWorkflowRun(id int64, conclusion string) {
@@ -376,6 +389,20 @@ func (g *FakeGitHub) RefuseRerun(status int) {
 	g.rerunRefusal = status
 }
 
+// RefuseRerunOnce makes the next re-run of a workflow run give the status. Later re-runs work.
+func (g *FakeGitHub) RefuseRerunOnce(status int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.rerunRefusalOnce = status
+}
+
+// RefuseCancel makes the cancel of a workflow run give the status.
+func (g *FakeGitHub) RefuseCancel(status int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.cancelRefusal = status
+}
+
 // RefuseWorkflowRuns makes the list of workflow runs give the status.
 func (g *FakeGitHub) RefuseWorkflowRuns(status int) {
 	g.mu.Lock()
@@ -409,6 +436,20 @@ func (g *FakeGitHub) RerunRequests() int {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return g.rerunRequests
+}
+
+// CancelRequests gives the number of the requests to cancel a workflow run.
+func (g *FakeGitHub) CancelRequests() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.cancelRequests
+}
+
+// RefuseBranchUpdateOnce makes the next request to update the branch of a pull request give status. Later requests work.
+func (g *FakeGitHub) RefuseBranchUpdateOnce(status int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.branchUpdateRefusal = status
 }
 
 // AddAnnotation adds an annotation on line of path with message to the check run id.
@@ -489,6 +530,10 @@ func (g *FakeGitHub) pullRequestJSON(repository string, number int64) map[string
 		state = "behind"
 	}
 	found := g.issues[key]
+	body := found.body
+	if override, ok := g.pullBodies[key]; ok {
+		body = override
+	}
 	var mergeableValue any = mergeable
 	if g.unknownMergeable[key] {
 		mergeableValue = nil
@@ -501,7 +546,7 @@ func (g *FakeGitHub) pullRequestJSON(repository string, number int64) map[string
 		"merged":          found.merged,
 		"head":            map[string]string{"sha": g.headOf(repository, number), "ref": pull.Head},
 		"draft":           pull.Draft,
-		"body":            found.body,
+		"body":            body,
 		"mergeable":       mergeableValue,
 		"mergeable_state": state,
 		"created_at":      timestamp(g.createdAt[key]),
@@ -557,7 +602,23 @@ func (g *FakeGitHub) getPullRequest(w http.ResponseWriter, r *http.Request) {
 		notFound(w)
 		return
 	}
+	g.singlePullReads[issueKey{repository(r), number}]++
 	writeJSON(w, http.StatusOK, g.pullRequestJSON(repository(r), number))
+}
+
+// SetPullRequestBody sets the body that the single read of the pull request gives, as GitHub gives a newer copy of a
+// pull request than the one of an issue list. It changes neither the issue list nor the update time.
+func (g *FakeGitHub) SetPullRequestBody(repository string, number int64, body string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.pullBodies[issueKey{repository, number}] = body
+}
+
+// SinglePullRequestReads gives the number of reads of the pull request number through the single pull request route.
+func (g *FakeGitHub) SinglePullRequestReads(repository string, number int64) int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.singlePullReads[issueKey{repository, number}]
 }
 
 // mergePullRequest squash merges the pull request into its base branch: it adds one commit with the merge tree of the
@@ -639,6 +700,12 @@ func (g *FakeGitHub) updatePullRequestBranch(w http.ResponseWriter, r *http.Requ
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.updateBranchCalls++
+	if g.branchUpdateRefusal != 0 {
+		code := g.branchUpdateRefusal
+		g.branchUpdateRefusal = 0
+		message(w, code, "temporary error")
+		return
+	}
 	key, ok := g.issue(w, r)
 	if !ok {
 		return
@@ -696,6 +763,14 @@ func (g *FakeGitHub) HoldBranchUpdates() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.holdBranchUpdates = true
+}
+
+// MergeBaseIntoHead merges the base branch into the head branch of the pull request, as a person does with the button
+// "Update branch". UpdateBranchCalls does not count it.
+func (g *FakeGitHub) MergeBaseIntoHead(repository string, number int64) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.mergeBase(issueKey{repository, number})
 }
 
 // ReleaseBranchUpdates adds the merge commits of the held updates of branches.
@@ -976,6 +1051,40 @@ func (g *FakeGitHub) getWorkflow(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (g *FakeGitHub) listWorkflowJobs(w http.ResponseWriter, r *http.Request) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if g.jobListRefusal != 0 {
+		message(w, g.jobListRefusal, "Resource not accessible by integration")
+		return
+	}
+	if id < 1 || id > int64(len(g.workflowRuns)) || g.workflowRuns[id-1].repository != repository(r) {
+		notFound(w)
+		return
+	}
+	attempt := max(g.workflowRuns[id-1].Attempt, 1)
+	filter := r.URL.Query().Get("filter")
+	jobs := []map[string]any{}
+	for _, job := range g.workflowJobs {
+		if job.repository != repository(r) || job.run != id {
+			continue
+		}
+		if filter != "all" && job.attempt != attempt {
+			continue
+		}
+		steps := []map[string]any{}
+		for _, step := range job.Steps {
+			steps = append(steps, map[string]any{"name": step.Name, "conclusion": step.Conclusion})
+		}
+		jobs = append(jobs, map[string]any{
+			"id": job.ID, "name": job.Name, "status": cmp.Or(job.Status, "completed"), "conclusion": job.Conclusion, "steps": steps,
+			"html_url": fmt.Sprintf("%s/%s/actions/runs/%d/job/%d", g.URL, job.repository, id, job.ID),
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"total_count": len(jobs), "jobs": page(w, r, jobs)})
+}
+
 func (g *FakeGitHub) listWorkflowJobsAttempt(w http.ResponseWriter, r *http.Request) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -1020,6 +1129,51 @@ func (g *FakeGitHub) rerunFailedJobs(w http.ResponseWriter, r *http.Request) {
 			message(w, http.StatusUnprocessableEntity, "Workflow run cannot be retried: a job is still running")
 			return
 		}
+	}
+	run := &g.workflowRuns[id-1]
+	run.Attempt = max(run.Attempt, 1) + 1
+	run.Status = "queued"
+	run.Conclusion = ""
+	w.WriteHeader(http.StatusCreated)
+}
+
+func (g *FakeGitHub) cancelWorkflow(w http.ResponseWriter, r *http.Request) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.cancelRequests++
+	if g.cancelRefusal != 0 {
+		message(w, g.cancelRefusal, "Cannot cancel workflow run")
+		return
+	}
+	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if id < 1 || id > int64(len(g.workflowRuns)) || g.workflowRuns[id-1].repository != repository(r) {
+		notFound(w)
+		return
+	}
+	run := &g.workflowRuns[id-1]
+	run.Status = "completed"
+	run.Conclusion = "cancelled"
+	w.WriteHeader(http.StatusAccepted)
+}
+
+func (g *FakeGitHub) rerunWorkflow(w http.ResponseWriter, r *http.Request) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.rerunRequests++
+	if g.rerunRefusalOnce != 0 {
+		code := g.rerunRefusalOnce
+		g.rerunRefusalOnce = 0
+		message(w, code, "This workflow is already running")
+		return
+	}
+	if g.rerunRefusal != 0 {
+		message(w, g.rerunRefusal, "Resource not accessible by integration")
+		return
+	}
+	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if id < 1 || id > int64(len(g.workflowRuns)) || g.workflowRuns[id-1].repository != repository(r) {
+		notFound(w)
+		return
 	}
 	run := &g.workflowRuns[id-1]
 	run.Attempt = max(run.Attempt, 1) + 1
