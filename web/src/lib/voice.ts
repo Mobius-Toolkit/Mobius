@@ -353,7 +353,7 @@ export const settle = async (key: string, result: Result, fieldId: string) => {
 
 // convertCard converts the card of the draft when it is in the state converting. With no conversion on the server, it
 // sends the audio.
-export const convertCard = async (key: string, fieldId: string) => {
+const convertCard = async (key: string, fieldId: string) => {
   if (converting.has(key)) {
     return;
   }
