@@ -2,12 +2,15 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/coder/acp-go-sdk"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/runner"
@@ -71,8 +74,18 @@ func (e *Engine) setAccess(key accessKey, err error) {
 	e.workers.changed.notify()
 }
 
-// accessDue tells if key has no check, or failed an hour ago or earlier.
-func (e *Engine) accessDue(key accessKey) bool {
+func (e *Engine) removeAccess(key accessKey) {
+	e.accessMu.Lock()
+	delete(e.access, key)
+	e.accessMu.Unlock()
+	e.workers.changed.notify()
+}
+
+// accessDue tells if key has no check, or failed an hour ago or earlier. A key whose Harness has a pause has no check due.
+func (e *Engine) accessDue(ctx context.Context, key accessKey) bool {
+	if _, err := e.queries.GetHarnessPause(ctx, string(key.harness)); err == nil {
+		return false
+	}
 	e.accessMu.Lock()
 	defer e.accessMu.Unlock()
 	state, checked := e.access[key]
@@ -132,12 +145,26 @@ func (e *Engine) checkAccess(ctx context.Context) {
 		return
 	}
 	for _, key := range keys {
-		if !e.accessDue(key) {
+		if !e.accessDue(ctx, key) {
 			continue
 		}
 		err := e.runAccess(ctx, key)
 		if ctx.Err() != nil {
 			return
+		}
+		var requestErr *acp.RequestError
+		if errors.As(err, &requestErr) {
+			now := e.timeNow()
+			if until, ok := detect(key.harness, requestErr, time.Time{}, now); ok {
+				e.removeAccess(key)
+				end, pauseErr := e.pauseQuiet(ctx, key.harness, until)
+				if pauseErr != nil {
+					log.Printf("pause %s: %v", key.harness, pauseErr)
+					return
+				}
+				log.Printf("usage limit of %s in access check: pause until %s", key.harness, end.UTC().Format(timeFormat))
+				continue
+			}
 		}
 		e.setAccess(key, err)
 	}
