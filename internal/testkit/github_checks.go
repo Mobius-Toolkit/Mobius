@@ -667,6 +667,7 @@ func (g *FakeGitHub) mergePullRequest(w http.ResponseWriter, r *http.Request) {
 	sha := strings.TrimSpace(string(squash))
 	g.git(remote, "update-ref", "refs/heads/"+pull.Base, sha)
 	g.mergedHeads[key] = g.headOf(key.repository, key.number)
+	g.recordEvent("merge", key)
 	found.state = "closed"
 	found.merged = true
 	found.updatedAt = g.tick()
@@ -712,6 +713,7 @@ func (g *FakeGitHub) updatePullRequestBranch(w http.ResponseWriter, r *http.Requ
 		message(w, http.StatusUnprocessableEntity, "merge conflict between base and head")
 		return
 	}
+	g.recordEvent("update-branch", key)
 	if g.holdBranchUpdates {
 		g.heldBranchUpdates = append(g.heldBranchUpdates, key)
 	} else {
@@ -750,6 +752,14 @@ func (g *FakeGitHub) HoldBranchUpdates() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.holdBranchUpdates = true
+}
+
+// MergeBaseIntoHead merges the base branch into the head branch of the pull request, as a person does with the button
+// "Update branch". UpdateBranchCalls does not count it.
+func (g *FakeGitHub) MergeBaseIntoHead(repository string, number int64) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.mergeBase(issueKey{repository, number})
 }
 
 // ReleaseBranchUpdates adds the merge commits of the held updates of branches.

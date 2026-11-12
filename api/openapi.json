@@ -571,6 +571,9 @@
               "encoding": {
                 "inboxItems": {
                   "contentType": "application/json"
+                },
+                "selections": {
+                  "contentType": "application/json"
                 }
               },
               "schema": {
@@ -4366,7 +4369,7 @@
     },
     "/api/upgrade": {
       "get": {
-        "description": "GetUpgrade returns the error of the last upgrade.",
+        "description": "GetUpgrade returns the state of the upgrade.",
         "operationId": "GetUpgrade",
         "responses": {
           "200": {
@@ -4409,14 +4412,14 @@
         ]
       },
       "post": {
-        "description": "StartUpgrade downloads the newest release, drains the agents, and restarts Mobius with the new release. It returns drained when the new release starts, and cancelled when the Owner cancels the drain. The upgrade goes on when the client closes the request.",
+        "description": "StartUpgrade starts the upgrade in the background and returns its state. The upgrade reads the newest release, downloads it, drains the agents, and restarts Mobius with the new release. It tries again after an error that can pass, until it is done or the Owner cancels it.",
         "operationId": "StartUpgrade",
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Envelope_DrainEnd"
+                  "$ref": "#/components/schemas/Envelope_Upgrade"
                 }
               }
             },
@@ -4444,6 +4447,42 @@
               }
             },
             "description": "Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "upgrade"
+        ]
+      },
+      "delete": {
+        "description": "CancelUpgrade ends the upgrade and the drain. It does nothing while the upgrade replaces the program. With no upgrade, it ends only the drain.",
+        "operationId": "CancelUpgrade",
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
           },
           "422": {
             "$ref": "#/components/responses/UnprocessableEntity"
@@ -7974,6 +8013,14 @@
             "type": "string",
             "description": "Repository is the repository of the Workstream as \"owner/name\". It is empty for the Coordinator chat"
           },
+          "selections": {
+            "type": "array",
+            "title": "[]ChatSelection",
+            "description": "Selections are the text selections that the Owner sent with the message, in the order of the request",
+            "items": {
+              "$ref": "#/components/schemas/ChatSelection"
+            }
+          },
           "stoppedAt": {
             "type": [
               "string",
@@ -8010,6 +8057,7 @@
           "text",
           "images",
           "inboxItems",
+          "selections",
           "voice",
           "browserId",
           "deliveredAt",
@@ -8020,6 +8068,60 @@
           "question"
         ],
         "description": "ChatMessage is a message of a Lead chat or of the Coordinator chat."
+      },
+      "ChatSelection": {
+        "type": "object",
+        "title": "ChatSelection",
+        "properties": {
+          "context": {
+            "type": "string",
+            "description": "Context is the full paragraph or list item of the selection, or the full blocks when the selection spans more than one block"
+          },
+          "link": {
+            "type": "string",
+            "description": "Link is the GitHub URL of the task issue for task, the GitHub URL of the Workstream issue for brief, or empty for message"
+          },
+          "messageAuthor": {
+            "type": "string",
+            "description": "MessageAuthor is the author of the quoted chat message for message, or empty for the other sources"
+          },
+          "messageId": {
+            "type": "integer",
+            "description": "MessageID is the id of the quoted chat message for message, or 0 for the other sources"
+          },
+          "part": {
+            "type": "string",
+            "description": "Part is the part of the view for task, the heading of the Brief section of the selection (or empty above the first heading) for brief, or empty for message"
+          },
+          "reference": {
+            "type": "string",
+            "description": "Reference is the reference of the task (#N, or owner/name#N for a task in another repository) for task, the reference of the Workstream (#N) for brief, or empty for message"
+          },
+          "source": {
+            "type": "string",
+            "description": "Source is the place of the selection",
+            "enum": [
+              "task",
+              "message",
+              "brief"
+            ]
+          },
+          "text": {
+            "type": "string",
+            "description": "Text is the selected text"
+          }
+        },
+        "required": [
+          "text",
+          "source",
+          "context",
+          "reference",
+          "link",
+          "part",
+          "messageId",
+          "messageAuthor"
+        ],
+        "description": "ChatSelection is a text selection that the Owner sends with a chat message."
       },
       "ChatState": {
         "type": "object",
@@ -11179,9 +11281,17 @@
             "type": "string",
             "description": "Repository is the repository of the Workstream as \"owner/name\". It is empty for the Coordinator chat"
           },
+          "selections": {
+            "type": "array",
+            "title": "[]ChatSelection",
+            "description": "Selections are the text selections of the message. The request has one part selections for each selection, in order, and each part is one JSON object",
+            "items": {
+              "$ref": "#/components/schemas/ChatSelection"
+            }
+          },
           "text": {
             "type": "string",
-            "description": "Text is the message of the Owner. It is required when the message has no image and no Inbox item"
+            "description": "Text is the message of the Owner. It is required when the message has no image, no Inbox item and no selection"
           },
           "voice": {
             "type": "boolean",
@@ -11943,13 +12053,40 @@
         "properties": {
           "failure": {
             "type": "string",
-            "description": "Failure is the error of the last upgrade. It is empty when the last upgrade has no error"
+            "description": "Failure is the text of the last error. It is empty when the upgrade has no error"
+          },
+          "nextTry": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "NextTry is the time of the next try in the step retry, or null",
+            "format": "date-time"
+          },
+          "step": {
+            "type": "string",
+            "description": "Step is idle when no upgrade runs, and else the step of the upgrade: release, download, retry (the wait before the next try), drain or restart",
+            "enum": [
+              "idle",
+              "release",
+              "download",
+              "retry",
+              "drain",
+              "restart"
+            ]
+          },
+          "tries": {
+            "type": "integer",
+            "description": "Tries is the number of failed tries since the start of the upgrade"
           }
         },
         "required": [
-          "failure"
+          "step",
+          "tries",
+          "failure",
+          "nextTry"
         ],
-        "description": "Upgrade is the state of the last upgrade."
+        "description": "Upgrade is the state of the upgrade."
       },
       "UpgradeCheckupToolBody": {
         "type": "object",

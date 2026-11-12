@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
+	"github.com/Mobius-Toolkit/Mobius/internal/engine"
+	"github.com/Mobius-Toolkit/Mobius/internal/store"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
@@ -15,6 +17,22 @@ func judgePromptHas(t *testing.T, server *testserver.Server, texts ...string) bo
 	t.Helper()
 	return slices.ContainsFunc(judgePrompts(t, server), func(prompt string) bool {
 		return !slices.ContainsFunc(texts, func(text string) bool { return !strings.Contains(prompt, text) })
+	})
+}
+
+// waitForLeadIdle waits until the Lead event ready_for_approval of the Workstream #12 exists, each Lead event of the
+// Workstream has a delivery time, and each Lead session has ended. A Lead event that comes in an open session does not
+// start a new session, so the wait counts no session.
+func waitForLeadIdle(t *testing.T, server *testserver.Server) {
+	t.Helper()
+	testkit.WaitFor(t, func() bool {
+		var ready, undelivered int
+		err := server.DB.QueryRow("SELECT coalesce(sum(kind = 'ready_for_approval'), 0), coalesce(sum(delivered_at IS NULL), 0) FROM lead_events WHERE repository = ? AND workstream = 12", shop).Scan(&ready, &undelivered)
+		if err != nil {
+			t.Fatal(err)
+		}
+		open := slices.ContainsFunc(chatSessions(t, server, leadChat, engine.LeadRole), func(session store.Session) bool { return !session.EndedAt.Valid })
+		return ready > 0 && undelivered == 0 && !open
 	})
 }
 
@@ -52,7 +70,7 @@ func TestAPollReadsTheReviewsAndThreadsOfManyChangedPullRequestsWithOneCall(t *t
 func TestAPollMakesNoJudgeCallForAPullRequestThatDidNotChange(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server := connectJudge(t, fake, "shell = \"true\"\n", "", noChange)
-	endedChatSession(t, server, 1)
+	waitForLeadIdle(t, server)
 	waitForPolls(t, fake)
 	waitForPolls(t, fake)
 	single, repositories := fake.CommentReads()

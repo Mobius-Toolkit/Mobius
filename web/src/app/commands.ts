@@ -3,7 +3,7 @@ import { Command } from "foldkit";
 import * as Navigation from "foldkit/navigation";
 import { goBackOr, pushUrl, replaceUrl, settleScroll } from "@/lib/navigation";
 import {
-  cancelDrain,
+  cancelUpgrade,
   completeWorkstream,
   getDrain,
   getRelease,
@@ -21,7 +21,6 @@ import {
   startUpgrade,
 } from "@/api/api.gen";
 import { levelName } from "@/lib/autopilot";
-import { reloadOnNewBuild } from "@/lib/build";
 import { startLimit } from "@/lib/events";
 import { request } from "@/lib/effects";
 import { showNotice } from "@/lib/notice";
@@ -269,12 +268,12 @@ export const CheckUpgrade = Command.define("CheckUpgrade", {
     const drain = drainRes.status === 200 ? drainRes.data.data : null;
 
     const upgradeRes = yield* request(() => getUpgrade());
-    const failure = upgradeRes.status === 200 ? upgradeRes.data.data.failure : null;
+    const upgrade = upgradeRes.status === 200 ? upgradeRes.data.data : null;
 
-    return Message.UpgradeInfoLoaded({ version, drain, failure });
+    return Message.UpgradeInfoLoaded({ version, drain, upgrade });
   }).pipe(
     Effect.catchTag("RequestFailed", () =>
-      Effect.succeed(Message.UpgradeInfoLoaded({ version: null, drain: null, failure: null })),
+      Effect.succeed(Message.UpgradeInfoLoaded({ version: null, drain: null, upgrade: null })),
     ),
   ),
 });
@@ -301,14 +300,10 @@ export const StartUpgrade = Command.define("StartUpgrade", {
   messages: [Message.StartUpgradeSucceeded, Message.StartUpgradeFailed],
   execute: request(() => startUpgrade()).pipe(
     Effect.map((res) => {
-      if (res.status === 200 && res.data.data.end === "drained") {
-        void reloadOnNewBuild();
-        return Message.StartUpgradeSucceeded();
-      }
       if (res.status !== 200) {
         return Message.StartUpgradeFailed({ error: res.data.error });
       }
-      return Message.StartUpgradeSucceeded();
+      return Message.StartUpgradeSucceeded({ upgrade: res.data.data });
     }),
     Effect.catchTag("RequestFailed", (error) =>
       Effect.succeed(Message.StartUpgradeFailed({ error: error.message })),
@@ -318,7 +313,7 @@ export const StartUpgrade = Command.define("StartUpgrade", {
 
 export const CancelUpgrade = Command.define("CancelUpgrade", {
   messages: [Message.CancelUpgradeSucceeded, Message.CancelUpgradeFailed],
-  execute: request(() => cancelDrain()).pipe(
+  execute: request(() => cancelUpgrade()).pipe(
     Effect.map((res) => {
       if (res.status === 204) {
         return Message.CancelUpgradeSucceeded();

@@ -86,6 +86,9 @@ type Engine struct {
 	// ownerAnswerMu makes AnswerInboxItem, which posts a comment and then stores its id, and the poll read of the new
 	// comments take turns. Else the poll can read the comment before its id is stored and ignore it.
 	ownerAnswerMu sync.Mutex
+	// outgoingMu makes each send of an outgoing change take turns, so a send of the poll and an immediate send cannot
+	// both post the same comment.
+	outgoingMu sync.Mutex
 	// quiet holds the newest item of the Judge of each task in its quiet period, by the id of the task. Only the poll
 	// uses it.
 	quiet map[int64]quietItem
@@ -138,7 +141,6 @@ type Engine struct {
 	pausing sync.Mutex
 	// pausesChanged wakes the sessions that wait for the end of a pause.
 	pausesChanged signal
-	upgrading     atomic.Bool
 	// pauseWaitersMu guards pauseWaiters.
 	pauseWaitersMu sync.Mutex
 	// pauseWaiters holds the agents that wait in waitForPause. Each has a channel that closes to move it.
@@ -218,8 +220,12 @@ type Engine struct {
 
 	mu        sync.Mutex
 	listeners map[chan Change]bool
-	// upgradeFailure is the error of the last upgrade, or "".
-	upgradeFailure string
+	// upgradeMu guards upgradeState, upgradeCancel and upgradeDone.
+	upgradeMu    sync.Mutex
+	upgradeState UpgradeState
+	// upgradeCancel ends the context of the running upgrade, and upgradeDone closes when that upgrade has ended.
+	upgradeCancel context.CancelFunc
+	upgradeDone   chan struct{}
 }
 
 // Agents is the setup of the agent sessions.
@@ -247,6 +253,7 @@ func (e *Engine) SetClock(clock func() time.Time) {
 func New(db *sql.DB, gh *github.GitHub, cfg *config.Config, agents Agents) *Engine {
 	return &Engine{
 		db:              db,
+		upgradeState:    UpgradeState{Step: UpgradeIdle},
 		queries:         store.New(db),
 		github:          gh,
 		config:          cfg,
