@@ -7235,6 +7235,14 @@
             ],
             "description": "Issue is the one issue that the session works on, or null"
           },
+          "keptUntil": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "KeptUntil is the time when Mobius closes the kept Harness process of this ended session, or null when Mobius keeps no process of this session",
+            "format": "date-time"
+          },
           "model": {
             "type": "string",
             "description": "Model is the model of the session"
@@ -7315,7 +7323,8 @@
           "endReason",
           "queueReason",
           "pausedUntil",
-          "working"
+          "working",
+          "keptUntil"
         ],
         "description": "Agent is the session of an agent."
       },

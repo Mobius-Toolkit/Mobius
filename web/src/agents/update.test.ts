@@ -18,6 +18,7 @@ const agent = (overrides: Partial<Agent> = {}): Agent => ({
   harness: "devin",
   id: 7,
   issue: 39,
+  keptUntil: null,
   model: "swe-1.5",
   name: "Implementer",
   organization: "owner",
