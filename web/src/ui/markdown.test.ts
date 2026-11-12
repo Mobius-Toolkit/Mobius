@@ -213,6 +213,16 @@ describe("renderMarkdown", () => {
     expect(render("a ~~b~~ c")).not.toContain("bg-red-500/40");
   });
 
+  it("keeps the == of a Brief diff that shows as plain text", () => {
+    const before = "Check x == 1 first<br>\nKeep this";
+    const after = "Check x == 1 first<br>\nKeep this now";
+    const marked = briefMarkdown(diffLines(shieldEquals(before), shieldEquals(after)));
+    const result = render(marked, true);
+    expect(result).toContain(plainClass);
+    expect(result).toContain("Check x == 1 first<br>");
+    expect(result).not.toContain("");
+  });
+
   it("marks the added text of a Brief diff, and keeps the == of an unchanged line", () => {
     const before = "Check x == 1 first\nKeep this";
     const after = "Check x == 1 first\nKeep this now";

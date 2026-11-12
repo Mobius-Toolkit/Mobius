@@ -162,6 +162,7 @@ export function renderMarkdown<M>(h: HtmlBuilder<M>, text: string, diff = false)
   return Result.match(parseMarkdown(source), {
     onSuccess: (document) =>
       h.div([h.Class(markdownClass)], viewBlocks(document, { views: markdownViews(h, diff) })),
-    onFailure: () => h.div([h.Class("whitespace-pre-line break-words")], [source]),
+    onFailure: () =>
+      h.div([h.Class("whitespace-pre-line break-words")], [diff ? restoreEquals(source) : source]),
   });
 }
