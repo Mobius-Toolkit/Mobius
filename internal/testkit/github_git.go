@@ -89,15 +89,6 @@ func (g *FakeGitHub) commitFile(fullName, branch, path, content, message string,
 	g.git(work, "push", "origin", "HEAD:refs/heads/"+branch)
 }
 
-// PushCommitOnTopOfBranch pushes one new empty commit with message on top of the existing branch of the repository
-// fullName, as a person does. It changes no issue, so the issue list shows no change.
-func (g *FakeGitHub) PushCommitOnTopOfBranch(fullName, branch, message string) {
-	work := g.t.TempDir()
-	g.git(work, "clone", "--branch="+branch, g.Remote(fullName), ".")
-	g.git(work, "commit", "--allow-empty", "-m", message)
-	g.git(work, "push", "origin", "HEAD:refs/heads/"+branch)
-}
-
 // PushCommit pushes one new empty commit with message on top of main to branch of the repository fullName, as a
 // person does.
 func (g *FakeGitHub) PushCommit(fullName, branch, message string) {

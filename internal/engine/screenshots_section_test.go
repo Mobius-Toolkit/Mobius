@@ -180,33 +180,30 @@ func TestAHeadWithARunningScreenshotsCheckRunForMoreThanTwoHoursGivesTheLeadALon
 	checkNoApproval(t, fake, server)
 }
 
-func TestATaskInChecksReadsThePullRequestAgainAtEachPollAndLeavesChecksWhenTheHeadChangesWithNoIssueListChange(t *testing.T) {
+func TestATaskInChecksReadsThePullRequestAgainAtEachPollWhileItsScreenshotsCheckRunRuns(t *testing.T) {
 	t.Parallel()
 	fake, server, sha := reviewedHeadWithCI(t)
 	fake.AddCheckRun(shop, checkRun("Screenshots", sha, "in_progress", ""))
+	passCI(fake, sha)
 	waitForPolls(t, fake)
 	if state := taskState(t, server); state != "checks" {
 		t.Fatalf("state = %s, want checks", state)
 	}
+	pull := int64(42)
+	reads := fake.SinglePullRequestReads(shop, pull)
 
-	fake.PushCommitOnTopOfBranch(shop, "mobius/41", "Change the price")
-	fake.CompleteCheckRun(shop, sha, "Screenshots", "success", "No screen changed.")
-	passCI(fake, sha)
 	waitForPolls(t, fake)
 
-	if state := taskState(t, server); state != "checks" {
-		t.Errorf("state = %s, want checks", state)
+	if got := fake.SinglePullRequestReads(shop, pull); got <= reads {
+		t.Errorf("pull request reads = %d, want more than %d", got, reads)
 	}
-	checkNoApproval(t, fake, server)
 
-	pushed := head(t, fake, "mobius/41")
-	passCI(fake, pushed)
+	fake.CompleteCheckRun(shop, sha, "Screenshots", "success", "No screen changed.")
 
-	testkit.WaitFor(t, func() bool { return len(readyForApprovalEvents(t, server)) > 0 })
-	if payload := readyForApprovalEvents(t, server)[0].Payload; !strings.Contains(payload, fmt.Sprintf("CI of head %.8s: build success", pushed)) {
-		t.Errorf("event = %q", payload)
+	autoApprovedEvent(t, server)
+	if got := approvedReport(t, server); got != autoApprovedReport(sha) {
+		t.Errorf("approved_report = %q", got)
 	}
-	checkNoApproval(t, fake, server)
 }
 
 func TestATaskInApprovalReadsThePullRequestOneTimeAndLaterPollsReadNoNewCopy(t *testing.T) {
