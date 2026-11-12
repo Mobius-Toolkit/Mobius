@@ -37,7 +37,7 @@ Do not edit these files by hand:
 - `web/src/api/schemas.gen.ts` comes from `api/openapi.json`. orval writes the Effect Schemas of the requests and the responses with the second output of `web/orval.config.ts`.
 - `internal/store/*.sql.go`, `internal/store/db.go` and `internal/store/models.go` come from `sqlc.yaml`, the migrations and `internal/store/queries.sql`.
 
-After a change to the API or to the queries, run `make generate` and commit the result.
+After a change to the API or to the queries, run `make generate` and commit the result. Also run it after a merge of `origin/main` that touches the migrations, `internal/store/queries.sql` or `internal/api`. A clean text merge can still leave a stale generated file.
 
 orval does not read `contentSchema` and `itemSchema` of OpenAPI 3.2. Thus `web/orval.config.ts` changes the input of orval before it generates the client. `api/openapi.json` does not change.
 
@@ -118,6 +118,7 @@ curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(go env GOPATH)/b
 - Commit all work before the turn ends. Wait for the result of each test run in the same turn.
 - Mobius runs `.mobius/init` one time in a new worktree of an Implementer, before the first prompt. It runs the file in the same way as `.mobius/check`, with the time limit `check_timeout`. The other roles do not run it. When it fails, the first prompt starts with the section "Setup failed". Then do the setup yourself before you run tests or lint.
 - Give each long command (`pnpm e2e`, a Go test of `internal/engine`) the Bash `timeout` 600000. With the default limit, the Bash tool moves the command to the background.
+- Mobius runs git with `core.hooksPath=/dev/null` (`internal/runner/git.go`), so a git hook never runs for agent work. Do not put a check or a format step in a git hook.
 
 Only CI runs all Go tests. Mobius starts a CI fix round when a Go test fails in CI.
 
