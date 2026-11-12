@@ -16,6 +16,7 @@ import {
   Navigate,
   ReplaceUrl,
   SettleScroll,
+  StartUpgrade,
   SubmitLogin,
 } from "./commands";
 import { Message } from "./message";
@@ -487,14 +488,60 @@ describe("upgrade update logic", () => {
     );
   });
 
-  it("ignores the response of the start when a live state came first", () => {
+  it("applies the response of the start when no live state came first", () => {
     story(
       update,
       given(createModel("/settings")),
+      message(Message.StartUpgradeRequested()),
+      StoryCommand.resolve(
+        StartUpgrade,
+        Message.StartUpgradeSucceeded({ upgrade: upgradeOf({ step: "release" }) }),
+      ),
+      model((m) => {
+        expect(m.upgrade.step).toBe("release");
+      }),
+    );
+  });
+
+  it("ignores the response of the start when a live state came first", () => {
+    story(
+      update,
+      given(
+        createModel("/settings", {
+          upgrade: {
+            ...initialModel(parseRoute(urlOf("/settings"))).upgrade,
+            awaitingStart: true,
+          },
+        }),
+      ),
       message(Message.UpgradeChanged({ upgrade: upgradeOf({ step: "drain" }) })),
       message(Message.StartUpgradeSucceeded({ upgrade: upgradeOf({ step: "release" }) })),
       model((m) => {
         expect(m.upgrade.step).toBe("drain");
+      }),
+    );
+  });
+
+  it("ignores the response of the start when a live idle state came first", () => {
+    story(
+      update,
+      given(
+        createModel("/settings", {
+          upgrade: {
+            ...initialModel(parseRoute(urlOf("/settings"))).upgrade,
+            awaitingStart: true,
+          },
+        }),
+      ),
+      message(
+        Message.UpgradeChanged({
+          upgrade: upgradeOf({ step: "idle", failure: "v0.2.0 is the newest release." }),
+        }),
+      ),
+      message(Message.StartUpgradeSucceeded({ upgrade: upgradeOf({ step: "release" }) })),
+      model((m) => {
+        expect(m.upgrade.step).toBe("idle");
+        expect(m.upgrade.failure).toBe("v0.2.0 is the newest release.");
       }),
     );
   });

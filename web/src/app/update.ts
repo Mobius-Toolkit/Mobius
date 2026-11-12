@@ -84,6 +84,7 @@ function applyUpgrade(state: UpgradeState, upgrade: Upgrade): UpgradeState {
     tries: upgrade.tries,
     failure: upgrade.failure,
     nextTry: Option.fromNullishOr(upgrade.nextTry).pipe(Option.map(Date.parse)),
+    awaitingStart: false,
   };
 }
 
@@ -1355,6 +1356,7 @@ export function update(model: Model, message: Message): UpdateReturn {
             ...model.upgrade,
             changesShown: false,
             upgrading: true,
+            awaitingStart: true,
             failure: "",
           },
         },
@@ -1362,8 +1364,11 @@ export function update(model: Model, message: Message): UpdateReturn {
       };
 
     case "StartUpgradeSucceeded": {
-      const started = { ...model, upgrade: { ...model.upgrade, upgrading: false } };
-      return model.upgrade.step === "idle"
+      const started = {
+        ...model,
+        upgrade: { ...model.upgrade, upgrading: false, awaitingStart: false },
+      };
+      return model.upgrade.awaitingStart
         ? upgradeChanged(started, message.upgrade)
         : { model: started, commands: [] };
     }
@@ -1375,6 +1380,7 @@ export function update(model: Model, message: Message): UpdateReturn {
           upgrade: {
             ...model.upgrade,
             upgrading: false,
+            awaitingStart: false,
             failure: message.error,
           },
         },
@@ -1385,7 +1391,7 @@ export function update(model: Model, message: Message): UpdateReturn {
       return {
         model: {
           ...model,
-          upgrade: { ...model.upgrade, cancelling: true },
+          upgrade: { ...model.upgrade, cancelling: true, awaitingStart: false },
         },
         commands: [CancelUpgrade()],
       };

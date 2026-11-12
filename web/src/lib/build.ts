@@ -60,10 +60,21 @@ export function subscribeNewBuild(listener: () => void): () => void {
 
 // The old server answers until it restarts, so only a new build ends the wait.
 export async function reloadOnNewBuild(signal: AbortSignal) {
-  while (!signal.aborted && !(await newBuild())) {
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+  let differs = false;
+  while (!signal.aborted && !(differs = await newBuild())) {
+    await new Promise((resolve) => {
+      const timer = setTimeout(resolve, 1000);
+      signal.addEventListener(
+        "abort",
+        () => {
+          clearTimeout(timer);
+          resolve(undefined);
+        },
+        { once: true },
+      );
+    });
   }
-  if (!signal.aborted) {
+  if (differs || (await newBuild())) {
     window.location.reload();
   }
 }
