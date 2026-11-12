@@ -740,6 +740,26 @@ func TestAMergeAddsOneSquashCommitToTheBaseAndRefusesAWrongHeadAndAClosedPullReq
 	}
 }
 
+func TestMergeBaseIntoHeadAddsAMergeCommitWithNoUpdateRequest(t *testing.T) {
+	github := NewFakeGitHub(t)
+	github.AddRepository("owner/shop")
+	github.PushCommit("owner/shop", "feature", "Add plans")
+	number := github.OpenPullRequest("owner/shop", "Add plans", "feature")
+	remote := github.Remote("owner/shop")
+	head := Git(t, remote, "rev-parse", "feature")
+	github.CommitFile("owner/shop", "price.txt", "cents\n", "Add price")
+
+	github.MergeBaseIntoHead("owner/shop", number)
+
+	merged := Git(t, remote, "rev-parse", "feature")
+	if parents := Git(t, remote, "rev-list", "--parents", "-n", "1", merged); parents != merged+" "+head+" "+Git(t, remote, "rev-parse", "main") {
+		t.Errorf("parents = %s", parents)
+	}
+	if got := github.UpdateBranchCalls(); got != 0 {
+		t.Errorf("update calls = %d, want 0", got)
+	}
+}
+
 func TestAnUpdateOfTheBranchMergesTheBaseIntoTheHeadAndRefusesAWrongHeadAndAConflict(t *testing.T) {
 	github := NewFakeGitHub(t)
 	github.AddRepository("owner/shop")
