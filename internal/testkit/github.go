@@ -116,6 +116,7 @@ type FakeGitHub struct {
 	graphqlPageSize  int
 	pullRequestReads int
 	singlePullReads  map[issueKey]int
+	pullBodies       map[issueKey]string
 	repositoryLabels map[labelKey]Label
 	labelPatches     []labelKey
 	notModified      int
@@ -316,6 +317,8 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		branchDeletionRefusals:  map[branchKey]string{},
 		mergedHeads:             map[issueKey]string{},
 		unknownMergeable:        map[issueKey]bool{},
+		singlePullReads:         map[issueKey]int{},
+		pullBodies:              map[issueKey]string{},
 		annotations:             map[int64][]annotationJSON{},
 		cloneURLs:               map[string]string{},
 		checkRunApps:            map[int64]string{},

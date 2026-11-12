@@ -170,7 +170,7 @@ func TestATaskInChecksReadsThePullRequestAgainAtEachPollAndLeavesChecksWhenTheBo
 		t.Fatalf("state = %s, want checks", state)
 	}
 
-	fake.SetBodyKeepingUpdateTime(shop, 42, screenshotsSectionOf("No screen changed."))
+	fake.SetPullRequestBody(shop, 42, screenshotsSectionOf("No screen changed."))
 
 	autoApprovedEvent(t, server)
 	if got := approvedReport(t, server); got != autoApprovedReport(sha) {
@@ -218,7 +218,7 @@ func TestTheHeadOfTheMergeQueueLeavesChecksAfterTheBranchUpdateWhenTheBodyChange
 		t.Fatalf("state = %s, want checks", state)
 	}
 
-	fake.SetBodyKeepingUpdateTime(shop, pull, screenshotsSectionOf("No screen changed."))
+	fake.SetPullRequestBody(shop, pull, screenshotsSectionOf("No screen changed."))
 
 	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, 41) == "" })
 	if calls := fake.MergeCalls(); calls != 1 {
