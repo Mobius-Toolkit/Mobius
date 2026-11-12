@@ -371,9 +371,9 @@ func TestQueuedRunTemporaryErrorRetriesBranchStepWithoutRepeatingCancel(t *testi
 	fake.RefuseBranchUpdateOnce(http.StatusInternalServerError)
 
 	server.Engine.SetClock(func() time.Time { return start.Add(31 * time.Minute) })
-	testkit.WaitFor(t, func() bool { return fake.UpdateBranchCalls() >= 2 })
 	waitForPolls(t, fake)
 
+	// First attempt hit 500 error and retried: cancel called once, branch update called twice.
 	if calls := fake.CancelRequests(); calls != 1 {
 		t.Errorf("cancel calls = %d, want 1", calls)
 	}
@@ -381,6 +381,7 @@ func TestQueuedRunTemporaryErrorRetriesBranchStepWithoutRepeatingCancel(t *testi
 		t.Errorf("update branch calls = %d, want 2", calls)
 	}
 
+	// Subsequent poll: branch step is already done.
 	waitForPolls(t, fake)
 
 	if calls := fake.CancelRequests(); calls != 1 {
