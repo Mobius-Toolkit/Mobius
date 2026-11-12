@@ -31,8 +31,8 @@ type recurringTask struct {
 func addRecurringRows(t *testing.T, db *sql.DB) {
 	t.Helper()
 	exec(t, db, `
-		INSERT INTO copied_workstreams (repository, number, title, body, autopilot, evergreen) VALUES
-			('o/a', 1, 'Loyalty plans', '', 0, 0);
+		INSERT INTO copied_workstreams (repository, number, title, body) VALUES ('o/a', 1, 'Loyalty plans', '');
+		INSERT INTO workstreams (repository, number) VALUES ('o/a', 1);
 		INSERT INTO recurring_tasks (id, repository, workstream, cron, text, paused, checked_at) VALUES
 			(1, 'o/a', 1, '0 8 * * 1-5', 'Check the plans.', 0, '2026-11-09T07:00:00Z'),
 			(2, 'o/a', 1, '0 * * * *', 'Read the news.', 1, '2026-11-09T07:00:00Z'),

@@ -59,16 +59,13 @@ type editMemoryInput struct {
 }
 
 // maintenanceWorkstream gives the number of the maintenance Workstream of repository: the open Workstream with
-// mobius:maintenance and the lowest number. It gives 0 when repository has none.
-func maintenanceWorkstream(ctx context.Context, repository github.Repository) (int64, error) {
-	issues, err := repository.OpenIssuesWithLabel(ctx, maintenanceLabel)
-	var found int64
-	for _, issue := range issues {
-		if number := int64(issue.GetNumber()); hasLabel(issue, workstreamLabel) && (found == 0 || number < found) {
-			found = number
-		}
+// the maintenance setting and the lowest number. It gives 0 when repository has none.
+func (e *Engine) maintenanceWorkstream(ctx context.Context, repository github.Repository) (int64, error) {
+	number, err := e.queries.GetMaintenanceWorkstream(ctx, repository.FullName)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
 	}
-	return found, err
+	return number, err
 }
 
 // organizationMaintenance gives the maintenance Workstream of the organization: the issue repository, and the number of
@@ -79,7 +76,7 @@ func (e *Engine) organizationMaintenance(ctx context.Context, organization strin
 	if err != nil {
 		return issueAt{}, err
 	}
-	number, err := maintenanceWorkstream(ctx, repository)
+	number, err := e.maintenanceWorkstream(ctx, repository)
 	return issueAt{repository, number}, err
 }
 

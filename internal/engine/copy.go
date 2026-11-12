@@ -496,19 +496,19 @@ func (e *Engine) updateCopiedWorkstream(ctx context.Context, repository string, 
 	changed := false
 	return changed, e.inTx(ctx, func(q *store.Queries) error {
 		updated, err := q.UpdateCopiedWorkstream(ctx, store.UpdateCopiedWorkstreamParams{
-			Title:       issue.GetTitle(),
-			Body:        issue.GetBody(),
-			Autopilot:   autopilot,
-			AutoMerge:   autoMerge,
-			Evergreen:   hasLabel(issue, evergreenLabel),
-			Skills:      hasLabel(issue, skillsLabel),
-			Maintenance: hasLabel(issue, maintenanceLabel),
-			Repository:  repository,
-			Number:      int64(issue.GetNumber()),
+			Title:      issue.GetTitle(),
+			Body:       issue.GetBody(),
+			Repository: repository,
+			Number:     int64(issue.GetNumber()),
 		})
 		if err != nil {
 			return err
 		}
+		settingsUpdated, err := upsertWorkstream(ctx, q, repository, issue, autopilot, autoMerge)
+		if err != nil {
+			return err
+		}
+		updated += settingsUpdated
 		titled, err := q.UpdateCopiedBlockerTitles(ctx, store.UpdateCopiedBlockerTitlesParams{
 			Title:      sql.NullString{String: issue.GetTitle(), Valid: true},
 			Repository: repository,
@@ -801,21 +801,32 @@ func labelNames(issue *gh.Issue) []string {
 func addWorkstream(ctx context.Context, q *store.Queries, repository string, workstream copiedWorkstream) error {
 	issue := workstream.issue
 	err := q.AddCopiedWorkstream(ctx, store.AddCopiedWorkstreamParams{
-		Repository:  repository,
-		Number:      int64(issue.GetNumber()),
-		Title:       issue.GetTitle(),
-		Body:        issue.GetBody(),
-		Autopilot:   workstream.autopilot,
-		AutoMerge:   workstream.autoMerge,
-		Evergreen:   hasLabel(issue, evergreenLabel),
-		Skills:      hasLabel(issue, skillsLabel),
-		Maintenance: hasLabel(issue, maintenanceLabel),
-		CreatedAt:   issue.GetCreatedAt().UTC().Format(time.RFC3339Nano),
+		Repository: repository,
+		Number:     int64(issue.GetNumber()),
+		Title:      issue.GetTitle(),
+		Body:       issue.GetBody(),
+		CreatedAt:  issue.GetCreatedAt().UTC().Format(time.RFC3339Nano),
 	})
 	if err != nil {
 		return err
 	}
+	if _, err := upsertWorkstream(ctx, q, repository, issue, workstream.autopilot, workstream.autoMerge); err != nil {
+		return err
+	}
 	return addTree(ctx, q, repository, int64(issue.GetNumber()), workstream.tree)
+}
+
+// upsertWorkstream writes the settings of the Workstream issue from its labels. It gives 1 when it added or changed the row.
+func upsertWorkstream(ctx context.Context, q *store.Queries, repository string, issue *gh.Issue, autopilot, autoMerge bool) (int64, error) {
+	return q.UpsertWorkstream(ctx, store.UpsertWorkstreamParams{
+		Repository:  repository,
+		Number:      int64(issue.GetNumber()),
+		Autopilot:   autopilot,
+		AutoMerge:   autoMerge,
+		Evergreen:   hasLabel(issue, evergreenLabel),
+		Maintenance: hasLabel(issue, maintenanceLabel),
+		Skills:      hasLabel(issue, skillsLabel),
+	})
 }
 
 func removeTree(ctx context.Context, q *store.Queries, repository string, workstream int64) error {
