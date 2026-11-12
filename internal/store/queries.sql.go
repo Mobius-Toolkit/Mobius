@@ -4285,6 +4285,8 @@ SELECT EXISTS (
   UNION ALL
   SELECT 1 FROM check_timeouts WHERE check_timeouts.repository = ?1 AND ABS(check_timeouts.issue) = ?2
   UNION ALL
+  SELECT 1 FROM init_failures WHERE init_failures.repository = ?1 AND ABS(init_failures.issue) = ?2
+  UNION ALL
   SELECT 1 FROM ci_failures WHERE ci_failures.repository = ?1 AND ABS(ci_failures.issue) = ?2
 )
 `

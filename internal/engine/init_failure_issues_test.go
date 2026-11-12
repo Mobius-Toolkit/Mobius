@@ -192,3 +192,27 @@ func TestAnInitFailureAfterTheIssueClosesGivesANewIssue(t *testing.T) {
 		t.Errorf("created issues = %d", created)
 	}
 }
+
+func TestRepairsOffHoldsTheIssueOfAnInitFailureAndRepairsOnDispatchesIt(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addMaintenanceWorkstream(fake, maintenance)
+	server, _ := connectTask(t, fake, leadStarts, commits, noChange)
+	fake.SetInit(shop, failingInit)
+	turnRepairsOff(t, server)
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	number := ciBreakIssue(t, fake)
+	waitForHeldWork(t, server, "repairs", number)
+	waitForPolls(t, fake)
+	if count := tasksOf(t, server, number); count != 0 {
+		t.Errorf("tasks = %d", count)
+	}
+
+	turnRepairsOn(t, server)
+
+	if task := liveTaskOf(t, server, number); task.Workstream != maintenance {
+		t.Errorf("task = %+v", task)
+	}
+}
