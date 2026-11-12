@@ -1167,6 +1167,29 @@ test("screenshots", async ({ page }) => {
       await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
     },
   );
+  // The engine closes the kept session of plants/garden#85 at 10:30 UTC, 42 minutes after this time.
+  await page.clock.setFixedTime("2026-09-28T09:48:00Z");
+  await screenshot(
+    page,
+    "chat-agents-kept",
+    "/workstreams/plants/garden/18",
+    (device) => [
+      ...briefFrame(device, 18),
+      page.getByText(/closes in 42 min/).filter({ visible: true }),
+      page.getByText("kept", { exact: true }).filter({ visible: true }),
+    ],
+    async (device) => {
+      if (device === "phone") {
+        await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
+      }
+      await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
+      await page
+        .getByText(/closes in 42 min/)
+        .filter({ visible: true })
+        .scrollIntoViewIfNeeded();
+    },
+  );
+  await page.clock.setFixedTime(fixedTime);
   await screenshot(
     page,
     "chat-tasks",
