@@ -201,6 +201,7 @@ async function openLog(page: Page, path: string, open: (page: Page) => Promise<v
   await open(page);
   await expect(page.getByText("Entry 29 ")).toBeVisible();
   expect(await page.evaluate(scrolls)).toBe(true);
+  await expect.poll(() => page.evaluate(gap)).toBeLessThan(5);
   return send;
 }
 
@@ -269,6 +270,21 @@ for (const { name: place, path, open } of places) {
         await scrollTo(page, "top");
         await expect.poll(() => page.evaluate(gap)).toBeGreaterThan(100);
         await send(30);
+        await expect(button(page)).toBeVisible();
+        expect(await page.evaluate(`${log}.scrollTop`)).toBe(0);
+        await expect(page.getByText("Entry 0 ")).toBeInViewport();
+      });
+
+      test("stays in place when the lines change before the scroll event of the Owner", async ({
+        page,
+      }) => {
+        await openLog(page, path, open);
+        await page.evaluate(`new Promise((resolve) => {
+          const list = ${log}
+          list.scrollTop = 0
+          list.dataset.version = String(Number(list.dataset.version) + 1)
+          requestAnimationFrame(() => requestAnimationFrame(resolve))
+        })`);
         await expect(button(page)).toBeVisible();
         expect(await page.evaluate(`${log}.scrollTop`)).toBe(0);
         await expect(page.getByText("Entry 0 ")).toBeInViewport();
