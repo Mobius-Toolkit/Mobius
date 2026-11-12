@@ -120,6 +120,10 @@ type FakeGitHub struct {
 	repositoryLabels map[labelKey]Label
 	labelPatches     []labelKey
 	notModified      int
+	// polls is the number of issue list requests that a poll of Mobius makes, and eventPolls gives the value of polls at
+	// the last write of each kind (see PollOf).
+	polls      int
+	eventPolls map[string]int
 	// The numbers of reads of a comment list of one issue or pull request, and of a comment list of a repository.
 	singleCommentReads, repositoryCommentReads int
 	failedCloses                               map[issueKey]bool
@@ -160,6 +164,7 @@ type FakeGitHub struct {
 	latestRelease       *releaseJSON
 	lastAssetID         int64
 	releaseAssetFailure int
+	releaseHasNoProgram bool
 	comparedCommits     []string
 	holds               map[issueKey]*hold
 	threadHolds         map[issueKey][]*hold
@@ -295,6 +300,7 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		failedReactions:         map[string]bool{},
 		resolvedThreads:         map[int64]bool{},
 		failedCloses:            map[issueKey]bool{},
+		eventPolls:              map[string]int{},
 		failedIssueReads:        map[issueKey]int{},
 		goneIssues:              map[issueKey]bool{},
 		forbiddenIssues:         map[issueKey]bool{},

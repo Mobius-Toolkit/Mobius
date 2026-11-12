@@ -31,6 +31,10 @@ const checkErrorPolls = 10
 // approval needs the open threads and the dismissals. It reads the pull request of each ready for review Inbox item in
 // the merging state, also a dismissed one, in the same call, because the approval of the item is new. When a task has a
 // pull request, it reads the head of the default branch one time, for checkTask.
+//
+// When checkTask merges a pull request, the task ends in the same call. Then checkTasks reads the head of the default
+// branch again for the later tasks. It also checks the new head of the merge queue one more time, when the loop
+// checked that task before the merge. It does this one time in each call.
 func (e *Engine) checkTasks(ctx context.Context, repository github.Repository, work map[int64]Work) error {
 	tasks, err := e.queries.ListLiveTasks(ctx, repository.FullName)
 	if err != nil {
@@ -57,21 +61,46 @@ func (e *Engine) checkTasks(ctx context.Context, repository github.Repository, w
 			return err
 		}
 	}
-	for _, task := range tasks {
-		found, ok, err := e.checkTask(ctx, repository, task, baseHead)
-		if err != nil {
-			log.Printf("check the task of %s#%d: %v", repository.FullName, task.Issue, err)
-			found, ok = e.currentWork()[task.ID]
-		}
-		if countErr := e.countCheckErrors(ctx, task, err); countErr != nil {
-			log.Printf("count the check errors of %s#%d: %v", repository.FullName, task.Issue, countErr)
-		}
-		if ok {
-			work[task.ID] = found
+	rechecked := false
+	for i, task := range tasks {
+		merged := e.checkAndCount(ctx, repository, task, baseHead, work)
+		for merged {
+			if baseHead, err = repository.BranchHead(ctx, repository.DefaultBranch); err != nil {
+				return err
+			}
+			queueHead, err := e.queries.GetMergeQueueHead(ctx, repository.FullName)
+			if errors.Is(err, sql.ErrNoRows) {
+				break
+			}
+			if err != nil {
+				return err
+			}
+			if rechecked || !slices.ContainsFunc(tasks[:i], func(checked store.Task) bool { return checked.ID == queueHead.ID }) {
+				break
+			}
+			rechecked = true
+			merged = e.checkAndCount(ctx, repository, queueHead, baseHead, work)
 		}
 	}
 	e.forgetPulls(repository, tasks)
 	return nil
+}
+
+// checkAndCount gives the task to checkTask, keeps its work, and counts its check errors. It tells if checkTask merged
+// the pull request of the task.
+func (e *Engine) checkAndCount(ctx context.Context, repository github.Repository, task store.Task, baseHead string, work map[int64]Work) bool {
+	found, ok, merged, err := e.checkTask(ctx, repository, task, baseHead)
+	if err != nil {
+		log.Printf("check the task of %s#%d: %v", repository.FullName, task.Issue, err)
+		found, ok = e.currentWork()[task.ID]
+	}
+	if countErr := e.countCheckErrors(ctx, task, err); countErr != nil {
+		log.Printf("count the check errors of %s#%d: %v", repository.FullName, task.Issue, countErr)
+	}
+	if ok {
+		work[task.ID] = found
+	}
+	return merged
 }
 
 // countCheckErrors adds 1 to the count of polls in a row with an error of checkTask for the task, or sets the count to
@@ -131,130 +160,142 @@ func (e *Engine) countCheckErrors(ctx context.Context, task store.Task, checkErr
 //     issue of the break does not wait.
 //   - Else a task in checks, approval or ready_for_review with kept findings of the Lead gets a fix round with them
 //     (startKeptRound).
-//   - Else a task in checks moves to approval when the CI of the head passed (onChecks).
+//   - Else a task in checks moves to approval when the CI of the head passed (onChecks). When onChecks approved the
+//     head with the approval of the Owner (approvedByPoll), the task goes on with that approval to mergeApproved in the
+//     same call.
 //   - Else a task in approval for more than 2 hours gives the Lead a reminder (remindApproval).
-//   - Else an approved pull request enters the merge queue of its repository, and merges at its turn (mergeApproved),
-//     and the next poll ends the task.
+//   - Else an approved pull request enters the merge queue of its repository, and merges at its turn (mergeApproved).
+//     After a merge, the task ends in the same call from a new read of the pull request (endMergedTask). It tells the
+//     caller about the merge.
 //   - Else the new comments of the pull request of a task in checks, approval, ready_for_review, reviewed or needs_human
 //     go to the Judge.
-func (e *Engine) checkTask(ctx context.Context, repository github.Repository, task store.Task, baseHead string) (Work, bool, error) {
+func (e *Engine) checkTask(ctx context.Context, repository github.Repository, task store.Task, baseHead string) (Work, bool, bool, error) {
 	issue, err := repository.Issue(ctx, task.Issue)
 	if err != nil {
-		return Work{}, false, err
+		return Work{}, false, false, err
 	}
 	if issue == nil || inOtherRepository(issue, repository.FullName) {
-		return Work{}, false, e.endTask(ctx, repository, task)
+		return Work{}, false, false, e.endTask(ctx, repository, task)
 	}
 	var pullRequest *gh.PullRequest
 	if task.PullRequest.Valid {
 		if pullRequest, err = e.pullRequest(ctx, repository, task.PullRequest.Int64, baseHead, task.State == "checks"); err != nil {
-			return Work{}, false, err
+			return Work{}, false, false, err
 		}
 	}
 	if pullRequest != nil && pullRequest.GetState() == "closed" {
-		return Work{}, false, e.endPullRequest(ctx, repository, task, issue, pullRequest)
+		return Work{}, false, false, e.endPullRequest(ctx, repository, task, issue, pullRequest)
 	}
 	if pullRequest == nil && issue.GetState() == "closed" {
-		return Work{}, false, e.endTask(ctx, repository, task)
+		return Work{}, false, false, e.endTask(ctx, repository, task)
 	}
 	needed := neededLabel(task)
 	if slices.Contains([]string{workingLabel, reviewLabel}, needed) && !hasLabel(issue, needed) {
 		if stopped, err := e.labelRemoved(ctx, repository, task, needed); err != nil || stopped {
-			return Work{}, false, err
+			return Work{}, false, false, err
 		}
 	}
 	if continued, err := e.continueByRemoval(ctx, repository, task, issue, pullRequest); err != nil || continued {
-		return Work{}, false, err
+		return Work{}, false, false, err
 	}
 	if err := e.setStateLabels(ctx, repository, task, issue, pullRequest); err != nil {
-		return Work{}, false, err
+		return Work{}, false, false, err
 	}
 	if task.State == "dispatched" && !hasLabel(issue, questionLabel) {
 		if err := e.remindDispatch(ctx, task, issue); err != nil {
-			return Work{}, false, err
+			return Work{}, false, false, err
 		}
 	}
 	if pullRequest == nil {
-		return Work{}, false, nil
+		return Work{}, false, false, nil
 	}
 	if task, err = e.keepApproval(ctx, repository, task); err != nil {
-		return Work{}, false, err
+		return Work{}, false, false, err
 	}
 	if updated, err := e.endBreakWait(ctx, repository, task, pullRequest); err != nil || updated {
-		return Work{}, false, err
+		return Work{}, false, false, err
 	}
 	var state ci
 	if afterReview(task.State) {
 		if state, err = e.readCI(ctx, repository, pullRequest.GetHead().GetSHA()); err != nil {
-			return Work{}, false, err
+			return Work{}, false, false, err
 		}
 	}
 	breakWaits, err := e.waitsForBreak(ctx, repository, task, pullRequest, state)
 	if err != nil {
-		return Work{}, false, err
+		return Work{}, false, false, err
 	}
 	work := pullRequestWork(repository, pullRequest)
 	conflict := pullRequest.Mergeable != nil && !pullRequest.GetMergeable()
 	if conflict {
 		if err := e.clearMergeQueue(ctx, &task); err != nil {
-			return Work{}, false, err
+			return Work{}, false, false, err
 		}
 	}
 	if task.State == "needs_human" {
 		var round bool
 		if task, round, err = e.continueNeedsHuman(ctx, repository, task, pullRequest, conflict); err != nil || round {
-			return work, round, err
+			return work, round, false, err
 		}
 	}
 	switch {
 	case task.State == "queued" || task.State == "working":
-		return work, slices.Contains([]string{checkRoundWorker, conflictRoundWorker}, task.Worker.String), nil
+		return work, slices.Contains([]string{checkRoundWorker, conflictRoundWorker}, task.Worker.String), false, nil
 	case !slices.Contains([]string{"checks", "approval", "ready_for_review", "reviewed", "needs_human"}, task.State):
-		return Work{}, false, nil
+		return Work{}, false, false, nil
 	case afterReview(task.State) && conflict:
 		round, err := e.onConflict(ctx, repository, task, pullRequest)
-		return work, round, err
+		return work, round, false, err
 	case afterReview(task.State) && task.LeadFindings != "":
 		round, err := e.startKeptRound(ctx, repository, round{task: task, title: issue.GetTitle(), pullRequest: pullRequest})
-		return work, round, err
+		return work, round, false, err
 	case afterReview(task.State) && !breakWaits:
 		if state.failedCheck || state.failedWorkflow {
 			if err := e.clearMergeQueue(ctx, &task); err != nil {
-				return Work{}, false, err
+				return Work{}, false, false, err
 			}
 		}
 		round, err := e.onFailure(ctx, repository, task, pullRequest, state)
 		if err != nil || round {
-			return work, round, err
+			return work, round, false, err
 		}
 		if task.State == "checks" {
 			if err := e.onChecks(ctx, repository, task, pullRequest, state); err != nil {
-				return Work{}, false, err
+				return Work{}, false, false, err
+			}
+			if approved, current, ok, err := e.approvedByPoll(ctx, repository, task, baseHead); err != nil {
+				return Work{}, false, false, err
+			} else if ok {
+				task, pullRequest = approved, current
 			}
 		}
 		if task.State == "approval" && !state.openCheckRun {
 			if _, err := e.setTaskState(ctx, store.SetTaskStateParams{State: "checks", ID: task.ID, FromState: "approval"}); err != nil {
-				return Work{}, false, err
+				return Work{}, false, false, err
 			}
 		} else if task.State == "approval" {
 			if err := e.remindApproval(ctx, repository, task, pullRequest); err != nil {
-				return Work{}, false, err
+				return Work{}, false, false, err
 			}
 		}
 	}
-	if merged, err := e.mergeApprovedAfterApproval(ctx, repository, task, pullRequest); err != nil || merged {
-		return Work{}, false, err
+	merged, err := e.mergeApprovedAfterApproval(ctx, repository, task, pullRequest)
+	if merged && err == nil {
+		err = e.endMergedTask(ctx, repository, task, issue)
+	}
+	if err != nil || merged {
+		return Work{}, false, merged, err
 	}
 	waiting := false
 	if task.State == "reviewed" {
 		failed, err := e.unhandledFailure(ctx, repository, task, pullRequest)
 		if err != nil {
-			return Work{}, false, err
+			return Work{}, false, false, err
 		}
 		waiting = conflict || failed
 	}
 	judged, err := e.judge(ctx, repository, task, pullRequest, waiting)
-	return work, judged, err
+	return work, judged, false, err
 }
 
 // continueByRemoval resumes the task in needs_human when an actor removed mobius:needs-human from its issue or from its
@@ -516,6 +557,16 @@ func (e *Engine) endPullRequest(ctx context.Context, repository github.Repositor
 		return err
 	}
 	return e.endTask(ctx, repository, task)
+}
+
+// endMergedTask ends the task of the pull request that mergeApproved merged, from a new read of the pull request. When
+// that read does not show the merge yet, the task stays, and the next poll ends it.
+func (e *Engine) endMergedTask(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue) error {
+	pullRequest, err := repository.PullRequest(ctx, task.PullRequest.Int64)
+	if err != nil || pullRequest.GetState() != "closed" {
+		return err
+	}
+	return e.endPullRequest(ctx, repository, task, issue, pullRequest)
 }
 
 // labelRemoved stops the task when a person removed label from its issue, and tells if it did. The pull request and
