@@ -986,7 +986,7 @@ func (e *Engine) createIssue(ctx context.Context, c caller, repository github.Re
 		return fmt.Sprintf("Created %s#%d.", repository.FullName, issue.number), nil
 	}
 	number, err := e.addIssueAt(ctx, repository, issueAt{workstream, c.workstream}, newIssue{title: input.Title, body: input.Body, mark: mark, parent: parent, blockers: blockers}, nil)
-	c.agent.finishLeadIssue(key, issue, number, err)
+	c.agent.finishLeadIssue(key, issue, number)
 	if err != nil {
 		return "", err
 	}
@@ -1057,10 +1057,11 @@ func (a *Agent) claimLeadIssue(ctx context.Context, key leadIssueKey) (*leadIssu
 	}
 }
 
-// finishLeadIssue ends the call that created issue. It keeps the issue when err is nil, and forgets it otherwise.
-func (a *Agent) finishLeadIssue(key leadIssueKey, issue *leadIssue, number int, err error) {
+// finishLeadIssue ends the call that created issue. It keeps the issue when the call created it, also when a later write
+// of the call failed, and forgets it when number is 0.
+func (a *Agent) finishLeadIssue(key leadIssueKey, issue *leadIssue, number int) {
 	a.issuesMu.Lock()
-	if err == nil {
+	if number != 0 {
 		issue.number = number
 	} else {
 		delete(a.leadIssues, key)
