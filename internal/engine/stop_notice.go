@@ -179,7 +179,7 @@ func (e *Engine) deliverStopNotice(ctx context.Context, record store.StopNotice,
 	if checkErr != nil || record.Text == "" {
 		return checkErr
 	}
-	return e.addOrKeepComment(ctx, repository, task.Issue, notice.comment())
+	return e.postComment(ctx, repository, task.Issue, notice.comment())
 }
 
 // failStoppedCheck completes the open Mobius check of the head as failure. The head is the failed head of a CI stop, or

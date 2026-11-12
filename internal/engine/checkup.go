@@ -87,7 +87,7 @@ func (e *Engine) Checkup(ctx context.Context, organization string) (Checkup, err
 		return Checkup{}, err
 	default:
 		checkup.IssueRepository, checkup.IssueRepositorySource = issueRepository.FullName, source
-		if checkup.MaintenanceWorkstream, err = maintenanceWorkstream(ctx, issueRepository); err != nil {
+		if checkup.MaintenanceWorkstream, err = e.maintenanceWorkstream(ctx, issueRepository); err != nil {
 			return Checkup{}, err
 		}
 	}

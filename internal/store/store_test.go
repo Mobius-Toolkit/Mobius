@@ -243,12 +243,18 @@ func TestListCopiedWorkstreams(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 	_, err = db.Exec(`
-		INSERT INTO copied_workstreams (repository, number, title, body, autopilot) VALUES
-			('o/a', 1, 'No task', '', 0),
-			('o/a', 2, 'Open task', 'Brief', 1),
-			('o/a', 3, 'Closed tasks', '', 0),
-			('o/a', 4, 'Task of the same number in another repository', '', 0),
-			('o/b', 1, 'Other repository', '', 0);
+		INSERT INTO copied_workstreams (repository, number, title, body) VALUES
+			('o/a', 1, 'No task', ''),
+			('o/a', 2, 'Open task', 'Brief'),
+			('o/a', 3, 'Closed tasks', ''),
+			('o/a', 4, 'Task of the same number in another repository', ''),
+			('o/b', 1, 'Other repository', '');
+		INSERT INTO workstreams (repository, number, autopilot) VALUES
+			('o/a', 1, 0),
+			('o/a', 2, 1),
+			('o/a', 3, 0),
+			('o/a', 4, 0),
+			('o/b', 1, 0);
 		INSERT INTO copied_issues (repository, workstream, position, number, parent, parent_repository, title, body, state, author, html_url, repository_url) VALUES
 			('o/a', 2, 0, 20, 2, 'o/a', 'Task', '', 'closed', 'owner', '', ''),
 			('o/a', 2, 1, 21, 2, 'o/a', 'Task', '', 'open', 'owner', '', ''),
@@ -713,6 +719,68 @@ func TestTheOperatorBindingMigrationKeepsTheIssueBindingsAndAcceptsTheOperator(t
 	}
 	if _, err := queries.GetIssueBinding(t.Context(), GetIssueBindingParams{Repository: "OWNER/SHOP", Issue: 12, Role: "operator"}); err != nil {
 		t.Errorf("read the operator row by a repository name in another case: %v", err)
+	}
+}
+
+func TestTheWorkstreamsMigrationCopiesTheSettingsAndDropsTheColumns(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mobius.db")
+	db := openBefore(t, path, 20270318000000)
+	if _, err := db.Exec(`INSERT INTO copied_workstreams (repository, number, title, body, autopilot, auto_merge, evergreen, maintenance, skills, created_at) VALUES
+		('o/a', 1, 'Plans', 'Brief', 1, 1, 0, 0, 0, '2027-03-01T10:00:00Z'),
+		('o/a', 2, 'Upkeep', '', 0, 0, 1, 1, 0, '2027-03-01T10:00:00Z'),
+		('o/b', 1, 'Skills', '', 0, 1, 0, 0, 1, '2027-03-01T10:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := Open(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	rows, err := db.Query("SELECT repository, number, autopilot, auto_merge, evergreen, maintenance, skills FROM workstreams ORDER BY repository, number")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+	type settings struct {
+		Repository                                           string
+		Number                                               int64
+		Autopilot, AutoMerge, Evergreen, Maintenance, Skills bool
+	}
+	var got []settings
+	for rows.Next() {
+		var s settings
+		if err := rows.Scan(&s.Repository, &s.Number, &s.Autopilot, &s.AutoMerge, &s.Evergreen, &s.Maintenance, &s.Skills); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, s)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	want := []settings{
+		{"o/a", 1, true, true, false, false, false},
+		{"o/a", 2, false, false, true, true, false},
+		{"o/b", 1, false, true, false, false, true},
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("workstreams = %+v, want %+v", got, want)
+	}
+	var columns int
+	err = db.QueryRow(`SELECT count(*) FROM pragma_table_info('copied_workstreams')
+		WHERE name IN ('autopilot', 'auto_merge', 'evergreen', 'maintenance', 'skills')`).Scan(&columns)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if columns != 0 {
+		t.Errorf("setting columns of copied_workstreams = %d", columns)
+	}
+	if _, err := db.Exec("INSERT INTO workstreams (repository, number) VALUES ('o/a', 1)"); err == nil {
+		t.Error("the table accepts a second row for the same Workstream")
 	}
 }
 

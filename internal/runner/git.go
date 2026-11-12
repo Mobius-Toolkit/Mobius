@@ -570,6 +570,41 @@ func DiffFiles(ctx context.Context, dataDir, repository, from, to string) ([]str
 	return strings.Fields(out), err
 }
 
+// ChangedLine is a line that a diff adds or removes. Text keeps the first character, + or -.
+type ChangedLine struct {
+	File string
+	Text string
+}
+
+// ChangedLines gives the lines of git diff base...head in the bare clone of repository that start with + or -, with
+// the file of each line, in the order of the diff. A rename counts as a removed and an added file.
+func ChangedLines(ctx context.Context, dataDir, repository, base, head string) ([]ChangedLine, error) {
+	out, err := run(git(ctx, dataDir, bareDir(dataDir, repository), "", "diff", "--no-color", "--no-ext-diff", "--no-renames", "--no-prefix", "-U0", base+"..."+head))
+	if err != nil {
+		return nil, err
+	}
+	var lines []ChangedLine
+	var file string
+	inHeader := false
+	for line := range strings.SplitSeq(out, "\n") {
+		switch {
+		case strings.HasPrefix(line, "diff --git "):
+			inHeader = true
+		case strings.HasPrefix(line, "@@"):
+			inHeader = false
+		case inHeader && strings.HasPrefix(line, "--- "):
+			file = strings.TrimPrefix(line, "--- ")
+		case inHeader && strings.HasPrefix(line, "+++ "):
+			if name := strings.TrimPrefix(line, "+++ "); name != "/dev/null" {
+				file = name
+			}
+		case !inHeader && (strings.HasPrefix(line, "+") || strings.HasPrefix(line, "-")):
+			lines = append(lines, ChangedLine{File: file, Text: line})
+		}
+	}
+	return lines, nil
+}
+
 // RevParse gives the commit of name in the worktree.
 func RevParse(ctx context.Context, dataDir, worktree, name string) (string, error) {
 	return run(git(ctx, dataDir, worktree, "", "rev-parse", name))
