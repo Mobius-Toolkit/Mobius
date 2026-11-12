@@ -1,6 +1,8 @@
 package engine
 
 import (
+	"context"
+	"log"
 	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
@@ -20,6 +22,8 @@ var beforeKeep = func(int64, *runner.Session) {}
 type keptSession struct {
 	session *runner.Session
 	key     string
+	// row is the id of the sessions row of the round whose process this is.
+	row int64
 	// binding is the Role binding of the Harness process. A round with another binding starts a new process.
 	binding config.RoleBinding
 	// level is the level of binding: LevelTask, LevelWorkstream or LevelRole.
@@ -47,15 +51,39 @@ func (e *Engine) keepSession(task int64, k *keptSession) {
 	old := e.kept[task]
 	e.kept[task] = k
 	e.keptMu.Unlock()
+	e.publishKept(k)
 	if old != nil {
 		e.closeKeptSession(old)
 	}
 }
 
-// closeKeptSession closes a kept session and its MCP key.
+// closeKeptSession closes a kept session that is not in e.kept, and its MCP key.
 func (e *Engine) closeKeptSession(k *keptSession) {
 	k.session.Close()
 	e.agents.MCP.Close(k.key)
+	e.publishKept(k)
+}
+
+// publishKept publishes the row of k, so that a client sees the row with the current state of e.kept.
+func (e *Engine) publishKept(k *keptSession) {
+	session, err := e.queries.GetSession(context.Background(), k.row)
+	if err != nil {
+		log.Printf("read the session %d of a kept session: %v", k.row, err)
+		return
+	}
+	e.publish(Change{Node: new(e.node(session))})
+}
+
+// keptUntil gives the time when Mobius closes the kept session of the row, or the zero time when it keeps none.
+func (e *Engine) keptUntil(row int64) time.Time {
+	e.keptMu.Lock()
+	defer e.keptMu.Unlock()
+	for _, k := range e.kept {
+		if k.row == row {
+			return k.keptAt.Add(keepTime)
+		}
+	}
+	return time.Time{}
 }
 
 // closeKept closes and removes the kept session of the task, when it has one.
@@ -83,6 +111,7 @@ func (e *Engine) takeKeptSession(task int64, binding config.RoleBinding) *keptSe
 		e.closeKeptSession(k)
 		return nil
 	}
+	e.publishKept(k)
 	return k
 }
 

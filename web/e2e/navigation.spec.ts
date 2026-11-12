@@ -1,5 +1,6 @@
 import { expect, type Page, test } from "@playwright/test";
 import { waitForEvergreen } from "./evergreen.js";
+import { retryFailure, retryUpgrade, routeUpgrade, upgradeRoute } from "./upgrade.js";
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/github");
@@ -261,6 +262,67 @@ test("the upgrade dialog shows the newest release when it opens", async ({ page 
   await expect(
     page.getByRole("button", { name: "Upgrade v0.1.5" }).filter({ visible: true }),
   ).toBeVisible();
+});
+
+test("the Upgrade control shows the step retry with its error, and Cancel upgrade ends the upgrade", async ({
+  page,
+}) => {
+  await page.clock.setFixedTime("2026-10-15T12:00:00Z");
+  await routeUpgrade(page, retryUpgrade);
+  await page.goto("/settings");
+
+  const line = page
+    .getByText("Try 3 failed. Upgrade tries again in 40 s")
+    .filter({ visible: true });
+  await expect(line).toBeVisible();
+  const failure = page.getByText(retryFailure).filter({ visible: true });
+  await expect(failure).toBeVisible();
+  expect(await failure.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(
+    true,
+  );
+  await expect(page.getByRole("button", { name: /^Upgrade v/ })).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Cancel upgrade" }).filter({ visible: true }).click();
+
+  await expect(line).toHaveCount(0);
+  await expect(page.getByText(retryFailure)).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Cancel upgrade" })).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Upgrade v0.1.4" }).filter({ visible: true }),
+  ).toBeVisible();
+});
+
+test("the countdown of the step retry goes down each second", async ({ page }) => {
+  await page.clock.install({ time: new Date("2026-10-15T12:00:00Z") });
+  await routeUpgrade(page, retryUpgrade);
+  await page.goto("/settings");
+  const line = page
+    .getByText(/^Try 3 failed\. Upgrade tries again in \d+ s$/)
+    .filter({ visible: true });
+  await expect(line).toBeVisible();
+  const seconds = async () => Number((await line.textContent())?.match(/in (\d+) s$/)?.[1]);
+  const first = await seconds();
+  expect([39, 40]).toContain(first);
+
+  await page.clock.runFor(1000);
+  await expect(line).toHaveText(`Try 3 failed. Upgrade tries again in ${first - 1} s`);
+  await page.clock.runFor(1000);
+  await expect(line).toHaveText(`Try 3 failed. Upgrade tries again in ${first - 2} s`);
+});
+
+test("a refused start of the upgrade shows its text in the Upgrade control", async ({ page }) => {
+  await page.route(upgradeRoute, (route) =>
+    route.request().method() === "POST"
+      ? route.fulfill({ status: 409, json: { error: "An upgrade runs now." } })
+      : route.fallback(),
+  );
+  await page.goto("/settings");
+  await page.getByRole("button", { name: "Upgrade v0.1.4" }).filter({ visible: true }).click();
+
+  await page.getByRole("dialog").getByRole("button", { name: "Upgrade", exact: true }).click();
+
+  await expect(page.getByText("An upgrade runs now.").filter({ visible: true })).toBeVisible();
+  await expect(page.getByText("Internal Server Error")).toHaveCount(0);
 });
 
 test("a reconnect of the live events reads the release again", async ({ page, context }) => {

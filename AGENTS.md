@@ -80,6 +80,14 @@ The web client is one Foldkit application (`Runtime.makeApplication` in `web/src
 
   The command of the tool list tests: `go test ./internal/engine -run 'TestTheLeadGetsTheMobiusURLAndOnlyTheLeadTools|TestEachRoleGetsOnlyItsOwnTools'`
 
+  Follow these steps for the row "A new test":
+
+  1. Commit the fix and the new tests first.
+  2. Take as `<base>` the commit before the fix: `$(git merge-base HEAD origin/main)` in the first round, and `origin/$(git branch --show-current)` in a fix round. In a fix round, the branch base also removes the changes of the earlier rounds, and the test can then fail for another cause.
+  3. Run `git diff <base> HEAD -- <files> | git apply -R`, where `<files>` are the source files of the fix with no `_test.go` file. Then run only the new tests with `-run`. Then restore with `git checkout HEAD -- <files>`, and check that `git status --short` shows no file of `<files>`.
+  4. Do not use `git checkout <base> -- <files>` for this step, because it keeps each new file of the fix. Do not use `git stash`, because all worktrees share one stash.
+  5. A compile error of the new test on the base also counts as a failure.
+
 - For a small package, `go test ./<package>` is also correct. Do not run `go test ./...` on the machine of Mobius. Do not run a measurement run (for example `go test -json ./internal/engine`). Do not write a loop that waits for a low load and then starts such a run. Take measurements from the CI logs.
 - Run the tests of a change one time. Run them again only after a code change. The tests use the CPU of the machine of the Owner, so each extra run makes the local checks of other tasks slow or gives them a timeout.
 - Do not run a test or a command in a loop to check a behavior. If one run does not prove the behavior, write a test that proves it, or write the doubt in the result.
@@ -108,6 +116,7 @@ curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(go env GOPATH)/b
 
 - Mobius takes the end of a turn as the end of the work. Before the local check, Mobius waits for the background tasks of the session. Then it pushes only the commits.
 - Commit all work before the turn ends. Wait for the result of each test run in the same turn.
+- Mobius runs `.mobius/init` one time in a new worktree of an Implementer, before the first prompt. It runs the file in the same way as `.mobius/check`, with the time limit `check_timeout`. The other roles do not run it. When it fails, the first prompt starts with the section "Setup failed". Then do the setup yourself before you run tests or lint.
 - Give each long command (`pnpm e2e`, a Go test of `internal/engine`) the Bash `timeout` 600000. With the default limit, the Bash tool moves the command to the background.
 
 Only CI runs all Go tests. Mobius starts a CI fix round when a Go test fails in CI.
@@ -122,7 +131,7 @@ internal/config/       reads config.toml
 internal/engine/       the poll of the repositories, the Mobius labels, the checkup, the trust rules, the Workstreams with their local copy, the Autopilot switch and the close, the dispatch, the Lead chat with the Lead events, the Coordinator, the Triager, the Inbox, the Tasks tab, the Implementer with the local check and the pull request, the Reviewer with the review rounds, the Judge, the fix rounds and the conflict rounds, the end of a task, the Researcher, the Curator with the memory file of each repository, the agent sessions with their Mobius tools and Transcripts, the Worker slots and the queue, the usage-limit pauses, the Worker restarts, the Housekeeper, the recovery after a restart, the drain and the upgrade
 internal/github/       the GitHub Apps: the App setup, the user tokens, the installation tokens and the repositories
 internal/mcp/          the Mobius MCP server and the gh token of each session key
-internal/runner/       starts an agent session of a Harness through ACP, holds the gh of the agent environment, fetches the bare clones of the repositories with their worktrees, and runs the local check
+internal/runner/       starts an agent session of a Harness through ACP, holds the gh of the agent environment, fetches the bare clones of the repositories with their worktrees, and runs the local check and the setup script of a worktree
 internal/setup/        mobius init: asks for the values of a new config.toml and writes it
 internal/store/        the SQLite database: goose migrations and sqlc queries
 internal/testkit/      the fake GitHub with a git repository for each repository, the fake agent as a Harness command, the fake df, and the waits of the tests
@@ -146,7 +155,6 @@ web/src/usage/         the Usage screen as a Foldkit Submodel: the tabs Cost, To
 web/src/setting/       the sheet of the Harness, the model and the effort as a Foldkit Submodel. The Tasks tab and the Details tab use it
 web/src/ui/            the Foldkit parts that many screens use: the buttons, the badges, the dialog, the icons, the page header, the menus, the tabs, the SVG bar chart and line chart, the router link and the Markdown view
 web/src/live/          the Subscription of /api/events with the reconnect rules of the shell, and the Subscription of a plain store
-web/src/components/ui/ the shadcn/ui components
 web/src/lib/events.ts  the typed listener of server-sent events (onEvent)
 web/public/            the files of the PWA: the web app manifest, the service worker and the icons
 web/e2e/               the Playwright tests of the UI, and TestServer, the server that they test

@@ -36,6 +36,25 @@ test("the Agents page shows the count of each Role and no global count", async (
   await expect(page.getByRole("main").getByText(/^\d+ \/ \d+$/)).toBeHidden();
 });
 
+test("the Agents page shows the agents after a move inside the app with an open live connection", async ({
+  page,
+}) => {
+  const opened = page.waitForResponse("/api/events");
+  await page.goto("/settings");
+  await opened;
+  await expect(page.getByRole("main").getByRole("link", { name: "MCP servers" })).toBeVisible();
+  await expect(page.getByRole("status")).toBeEmpty();
+
+  await page.getByRole("navigation").getByRole("link", { name: "Agents" }).click();
+  await expect(page).toHaveURL("/agents");
+  const entry = page
+    .getByRole("main")
+    .getByRole("button")
+    .filter({ hasText: "no free Implementer slot (2/2)" })
+    .first();
+  await expect(entry.getByText("queued", { exact: true })).toBeVisible();
+});
+
 test("the Agents tab of a Workstream shows the state of each agent with a queue reason", async ({
   page,
 }) => {
@@ -51,10 +70,10 @@ test("the Agents tab of a Workstream shows the state of each agent with a queue 
 });
 
 // Changes the live Implementer session of #41, and sets the old reason again at the end.
-async function withLowLoad(page: Page, run: () => Promise<void>) {
-  const put = (reason: string) =>
-    page.request.put(`/e2e/agents/41/queue-reason?reason=${encodeURIComponent(reason)}`);
-  expect((await put("waits for a low load")).ok()).toBe(true);
+async function withQueueReason(page: Page, reason: string, run: () => Promise<void>) {
+  const put = (value: string) =>
+    page.request.put(`/e2e/agents/41/queue-reason?reason=${encodeURIComponent(value)}`);
+  expect((await put(reason)).ok()).toBe(true);
   try {
     await run();
   } finally {
@@ -63,7 +82,7 @@ async function withLowLoad(page: Page, run: () => Promise<void>) {
 }
 
 test("the Agents page shows the state of a session that waits for a low load", async ({ page }) => {
-  await withLowLoad(page, async () => {
+  await withQueueReason(page, "waits for a low load", async () => {
     await page.goto("/agents");
     const entry = page.getByRole("main").getByRole("button", { name: /Ticket #41/ });
     await expect(entry.getByText("waits for a low load")).toBeVisible();
@@ -72,11 +91,21 @@ test("the Agents page shows the state of a session that waits for a low load", a
   });
 });
 
+test("the Agents page shows the state of a session that runs .mobius/init", async ({ page }) => {
+  await withQueueReason(page, "runs .mobius/init", async () => {
+    await page.goto("/agents");
+    const entry = page.getByRole("main").getByRole("button", { name: /Ticket #41/ });
+    await expect(entry.getByText("runs .mobius/init")).toBeVisible();
+    await expect(entry.getByText("setup", { exact: true })).toBeVisible();
+    await expect(entry.locator("span.rounded-full")).toHaveClass(/bg-green-600/);
+  });
+});
+
 test("the Agents tab of a Workstream shows the state of a session that waits for a low load", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
-  await withLowLoad(page, async () => {
+  await withQueueReason(page, "waits for a low load", async () => {
     await page.goto("/workstreams/owner/shop/12");
     await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
     const entry = page
@@ -390,7 +419,7 @@ test("the Transcript of a session that waits for a low load has a button that st
     requests.push(`${route.request().method()} ${new URL(route.request().url()).pathname}`);
     return route.fulfill(answer);
   });
-  await withLowLoad(page, async () => {
+  await withQueueReason(page, "waits for a low load", async () => {
     await page.goto("/agents");
     await main.getByRole("button", { name: /Ticket #41 Add plan model/ }).click();
     const start = main.getByRole("button", { name: "Start the check now" });
@@ -522,7 +551,7 @@ test.describe("the back button on a desktop", () => {
   test("of the transcript in the side panel shows the start button under the title row and a long title", async ({
     page,
   }) => {
-    await withLowLoad(page, async () => {
+    await withQueueReason(page, "waits for a low load", async () => {
       const panel = await openPanelTranscript(page, /waits for a low load/);
       const title = panel.locator(".line-clamp-2");
       await expect(title).toContainText("implementer");
