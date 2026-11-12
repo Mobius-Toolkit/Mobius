@@ -40,6 +40,74 @@ jobs:
 
       - run: .mobius/check
 
+      - run: go list ./... | grep -v '/internal/engine$' | xargs go test -timeout 30m
+        shell: bash
+
+  engine:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.27'
+          # Each job hashes a different set of files, so each job saves its own Go cache.
+          cache-dependency-path: |
+            go.mod
+            go.sum
+
+      - shell: bash
+        run: |
+          go test -list '.*' ./internal/engine \
+            | grep -E '^(Test|Example|Fuzz)' \
+            | LC_ALL=C sort \
+            | awk -v shard="${{ matrix.shard }}" '(NR - 1) % 4 == shard' \
+            | paste -sd '|' - > names.txt
+          test -s names.txt
+
+      - shell: bash
+        run: |
+          go test -json -timeout 30m -run "^($(cat names.txt))\$" ./internal/engine \
+            | tee engine-${{ matrix.shard }}.json \
+            | jq -rj 'select(.Action == "output") | .Output'
+
+      - if: failure()
+        shell: bash
+        run: |
+          jq -rs '
+            . as $events
+            | ([$events[] | select(.Action == "fail" and .Test != null) | .Test] | unique) as $failed
+            | ($failed[] as $name
+              | "FAIL \($name)",
+                ($events[]
+                  | select(.Action == "output" and .Test == $name and (.Output | test("_test\\.go:|panic:")))
+                  | "    " + (.Output | rtrimstr("\n")))),
+              ($events[]
+                | select(.Action == "output" and .Test == null and (.Output | test("panic:")))
+                | "PANIC " + (.Output | rtrimstr("\n")))
+          ' engine-${{ matrix.shard }}.json
+
+      - shell: bash
+        run: |
+          jq -rs '
+            [.[] | select(.Action == "pass" and .Test != null)]
+            | sort_by(-.Elapsed)
+            | .[:20][]
+            | "\(.Elapsed)s \(.Test)"
+          ' engine-${{ matrix.shard }}.json
+
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: engine-tests-${{ matrix.shard }}
+          path: engine-${{ matrix.shard }}.json
+          if-no-files-found: ignore
+
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -119,3 +187,18 @@ jobs:
         with:
           name: test-results
           path: web/test-results
+
+  passed:
+    if: always()
+    needs: [check, engine, e2e]
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          for result in $RESULTS; do
+            if [ "$result" != success ]; then
+              echo "A needed job ended with $result: $RESULTS"
+              exit 1
+            fi
+          done
