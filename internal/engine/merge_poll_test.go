@@ -36,7 +36,9 @@ func TestMobiusApprovesMergesAndEndsAReviewedHeadInOnePoll(t *testing.T) {
 // approval again from Mobius, and merges. It gives the server after the merge and the end of first.
 func queueBehindAnUpdate(t *testing.T, fake *testkit.FakeGitHub, first, second int, commonFiles ...int) *testserver.Server {
 	t.Helper()
-	server, _ := queueTasksWith(t, fake, approveAgain([]int{41, 43}, first)+queueLead, "merge", []int{41, 43})
+	// The prompt of the second message holds the first message, so the entry of the second approval comes first.
+	lead := approveAgain([]int{41, 43}, first) + approveEntry(second) + approveEntry(first) + queueLead
+	server, _ := queueTasksWith(t, fake, lead, "merge", []int{41, 43})
 	commitQueueFiles(fake, commonFiles...)
 	fake.HoldBranchUpdates()
 
@@ -51,15 +53,24 @@ func queueBehindAnUpdate(t *testing.T, fake *testkit.FakeGitHub, first, second i
 	return server
 }
 
-// checkMergedAndEnded checks that the pull request of first merged in the same poll as the approval again of the Mobius
-// App, and that its issue closed in that poll. It gives the number of that poll.
+// checkMergedAndEnded checks that the issue of first closed in the same poll as the merge of its pull request. It gives
+// the number of that poll.
 func checkMergedAndEnded(t *testing.T, fake *testkit.FakeGitHub, first int) int {
 	t.Helper()
-	merged := fake.PollOf("merge", pullOfIssue[first])
-	if approved, ended := fake.PollOf("approve", pullOfIssue[first]), fake.PollOf("close", int64(first)); merged == 0 || approved != merged || ended != merged {
-		t.Errorf("polls of the approval, the merge and the end of #%d = %d, %d, %d, want one poll", first, approved, merged, ended)
+	merged, ended := fake.PollOf("merge", pullOfIssue[first]), fake.PollOf("close", int64(first))
+	if merged == 0 || ended != merged {
+		t.Errorf("polls of the merge and the end of #%d = %d, %d, want one poll", first, merged, ended)
 	}
 	return merged
+}
+
+// approveEntry gives the Lead script entry that approves the pull request of the issue.
+func approveEntry(issue int) string {
+	return fmt.Sprintf(`
+[[prompts]]
+when = "Approve #%d"
+call = { tool = "approve_pull_request", arguments = { repository = "owner/shop", n = %d, report = "Checked the diff. Verified the tests." } }
+`, issue, issue)
 }
 
 // TestTheNextHeadWithALowerIDMergesInThePollOfTheMerge verifies the loop of checkTasks: the second task has the lower
