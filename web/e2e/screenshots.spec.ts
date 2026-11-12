@@ -2875,10 +2875,29 @@ test("screenshots", async ({ page }) => {
       page.getByRole("dialog").getByText("npm ERR! code EACCES"),
       page.getByRole("dialog").getByRole("button", { name: "Upgrade" }),
       page.getByRole("switch", { name: "Auto-upgrade" }),
+      () =>
+        expect
+          .poll(() =>
+            page
+              .getByRole("dialog")
+              .getByRole("button", { name: "Upgrade" })
+              .evaluate((button) => button.matches(":hover")),
+          )
+          .toBe(false),
+      () =>
+        expect
+          .poll(() =>
+            page
+              .getByRole("dialog")
+              .getByRole("button", { name: "Upgrade" })
+              .evaluate((button) => getComputedStyle(button).backgroundColor),
+          )
+          .toBe("oklch(0.205 0 0)"),
     ],
     async () => {
       await main.getByRole("button", { name: /dsh/ }).click();
       await page.getByRole("dialog").getByRole("button", { name: "Upgrade" }).click();
+      await page.mouse.move(0, 0);
     },
   );
   await page.unroute("**/api/checkup/tools");

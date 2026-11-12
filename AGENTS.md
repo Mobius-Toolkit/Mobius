@@ -80,6 +80,14 @@ The web client is one Foldkit application (`Runtime.makeApplication` in `web/src
 
   The command of the tool list tests: `go test ./internal/engine -run 'TestTheLeadGetsTheMobiusURLAndOnlyTheLeadTools|TestEachRoleGetsOnlyItsOwnTools'`
 
+  Follow these steps for the row "A new test":
+
+  1. Commit the fix and the new tests first.
+  2. Take as `<base>` the commit before the fix: `$(git merge-base HEAD origin/main)` in the first round, and `origin/$(git branch --show-current)` in a fix round. In a fix round, the branch base also removes the changes of the earlier rounds, and the test can then fail for another cause.
+  3. Run `git diff <base> HEAD -- <files> | git apply -R`, where `<files>` are the source files of the fix with no `_test.go` file. Then run only the new tests with `-run`. Then restore with `git checkout HEAD -- <files>`, and check that `git status --short` shows no file of `<files>`.
+  4. Do not use `git checkout <base> -- <files>` for this step, because it keeps each new file of the fix. Do not use `git stash`, because all worktrees share one stash.
+  5. A compile error of the new test on the base also counts as a failure.
+
 - For a small package, `go test ./<package>` is also correct. Do not run `go test ./...` on the machine of Mobius. Do not run a measurement run (for example `go test -json ./internal/engine`). Do not write a loop that waits for a low load and then starts such a run. Take measurements from the CI logs.
 - Run the tests of a change one time. Run them again only after a code change. The tests use the CPU of the machine of the Owner, so each extra run makes the local checks of other tasks slow or gives them a timeout.
 - Do not run a test or a command in a loop to check a behavior. If one run does not prove the behavior, write a test that proves it, or write the doubt in the result.
@@ -146,7 +154,6 @@ web/src/usage/         the Usage screen as a Foldkit Submodel: the tabs Cost, To
 web/src/setting/       the sheet of the Harness, the model and the effort as a Foldkit Submodel. The Tasks tab and the Details tab use it
 web/src/ui/            the Foldkit parts that many screens use: the buttons, the badges, the dialog, the icons, the page header, the menus, the tabs, the SVG bar chart and line chart, the router link and the Markdown view
 web/src/live/          the Subscription of /api/events with the reconnect rules of the shell, and the Subscription of a plain store
-web/src/components/ui/ the shadcn/ui components
 web/src/lib/events.ts  the typed listener of server-sent events (onEvent)
 web/public/            the files of the PWA: the web app manifest, the service worker and the icons
 web/e2e/               the Playwright tests of the UI, and TestServer, the server that they test
