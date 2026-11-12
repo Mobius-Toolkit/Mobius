@@ -28,6 +28,7 @@ import {
 import { waitForEvergreen } from "./evergreen.js";
 import { addMcpServer, deleteMcpServers, selectMcpServers } from "./mcp-servers.js";
 import { png } from "./images.js";
+import { retryFailure, retryUpgrade, routeUpgrade, upgradeRoute } from "./upgrade.js";
 import { longTaskTitle, routeLongTask, tasksUrl } from "./long-task.js";
 import { countSamples, fakeMicrophone } from "./microphone.js";
 import { lines, turnAllOn, turnOff } from "./switches.js";
@@ -890,6 +891,7 @@ test("screenshots", async ({ page }) => {
       failedAt: null,
       images: 0,
       inboxItems: [],
+      selections: [],
       organization: "owner",
       question: null,
       repository: "owner/shop",
@@ -2328,6 +2330,22 @@ test("screenshots", async ({ page }) => {
         .filter({ visible: true })
         .click();
       await logConnected(page);
+      const last = page.getByText("The plan prices are in cents now.").filter({ visible: true });
+      await expect
+        .poll(() =>
+          last.evaluate((el) => {
+            const list = el.closest("ul[data-version]");
+            if (
+              !list ||
+              !list.lastElementChild?.textContent?.includes("The plan prices are in cents now.")
+            ) {
+              return false;
+            }
+            list.scrollTop = list.scrollHeight;
+            return list.scrollHeight - list.scrollTop - list.clientHeight < 1;
+          }),
+        )
+        .toBe(true);
     },
   );
   await screenshot(page, "agents", "/agents", (device) => [
@@ -2412,6 +2430,13 @@ test("screenshots", async ({ page }) => {
     shown("New version"),
   ]);
   await page.unroute("/ui-version");
+  await routeUpgrade(page, retryUpgrade);
+  await screenshot(page, "upgrade-retry", "/settings", (device) => [
+    ...frame(device, shown("Cancel upgrade"), { upgrade: true }),
+    page.getByText("Try 3 failed. Upgrade tries again in 40 s").filter({ visible: true }),
+    page.getByText(retryFailure).filter({ visible: true }),
+  ]);
+  await page.unroute(upgradeRoute);
 
   await screenshot(page, "settings", "/settings", (device) => [
     ...frame(device, release, { upgrade: true }),
@@ -2900,10 +2925,29 @@ test("screenshots", async ({ page }) => {
       page.getByRole("dialog").getByText("npm ERR! code EACCES"),
       page.getByRole("dialog").getByRole("button", { name: "Upgrade" }),
       page.getByRole("switch", { name: "Auto-upgrade" }),
+      () =>
+        expect
+          .poll(() =>
+            page
+              .getByRole("dialog")
+              .getByRole("button", { name: "Upgrade" })
+              .evaluate((button) => button.matches(":hover")),
+          )
+          .toBe(false),
+      () =>
+        expect
+          .poll(() =>
+            page
+              .getByRole("dialog")
+              .getByRole("button", { name: "Upgrade" })
+              .evaluate((button) => getComputedStyle(button).backgroundColor),
+          )
+          .toBe("oklch(0.205 0 0)"),
     ],
     async () => {
       await main.getByRole("button", { name: /dsh/ }).click();
       await page.getByRole("dialog").getByRole("button", { name: "Upgrade" }).click();
+      await page.mouse.move(0, 0);
     },
   );
   await page.unroute("**/api/checkup/tools");
@@ -3381,11 +3425,15 @@ test("screenshots", async ({ page }) => {
       panel.getByRole("alert").getByText(/#9999 is not an open Workstream/),
       cardOf(page, unknownTitle).getByText("Failed", { exact: true }),
       cardOf(page, unknownTitle).getByText(/#9999 is not an open Workstream/),
+      // A tray read that comes before the failure closes the panel, and the panel opens again with the focus on the
+      // dialog. A read after the failure keeps the panel, and the note keeps the focus.
+      () => expect.poll(() => note.evaluate((field) => field.matches(":focus"))).toBe(false),
     ],
     async () => {
       await answer(unknownTitle, "Go ahead.")();
       await panel.getByRole("button", { name: "Approve" }).click();
       await expect(panel.getByRole("alert")).toBeVisible();
+      await note.blur();
       await page.mouse.move(0, 0);
       await idle(page);
       await showEnd(unknownTitle)();

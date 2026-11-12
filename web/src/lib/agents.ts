@@ -16,6 +16,9 @@ export function queueState(queueReason: string) {
   if (queueReason === "runs .mobius/check") {
     return { badge: "checks", dot: "bg-green-600" };
   }
+  if (queueReason === "runs .mobius/init") {
+    return { badge: "setup", dot: "bg-green-600" };
+  }
   if (queueReason === "waits for a check slot") {
     return { badge: "waits for check", dot: "bg-amber-500" };
   }

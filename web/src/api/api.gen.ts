@@ -499,6 +499,40 @@ export interface InboxItem {
 }
 
 /**
+ * Source is the place of the selection
+ */
+export type ChatSelectionSource = typeof ChatSelectionSource[keyof typeof ChatSelectionSource];
+
+
+export const ChatSelectionSource = {
+  task: 'task',
+  message: 'message',
+  brief: 'brief',
+} as const;
+
+/**
+ * ChatSelection is a text selection that the Owner sends with a chat message.
+ */
+export interface ChatSelection {
+  /** Context is the full paragraph or list item of the selection, or the full blocks when the selection spans more than one block */
+  context: string;
+  /** Link is the GitHub URL of the task issue for task, the GitHub URL of the Workstream issue for brief, or empty for message */
+  link: string;
+  /** MessageAuthor is the author of the quoted chat message for message, or empty for the other sources */
+  messageAuthor: string;
+  /** MessageID is the id of the quoted chat message for message, or 0 for the other sources */
+  messageId: number;
+  /** Part is the part of the view for task, the heading of the Brief section of the selection (or empty above the first heading) for brief, or empty for message */
+  part: string;
+  /** Reference is the reference of the task (#N, or owner/name#N for a task in another repository) for task, the reference of the Workstream (#N) for brief, or empty for message */
+  reference: string;
+  /** Source is the place of the selection */
+  source: ChatSelectionSource;
+  /** Text is the selected text */
+  text: string;
+}
+
+/**
  * ChatMessage is a message of a Lead chat or of the Coordinator chat.
  */
 export interface ChatMessage {
@@ -535,6 +569,8 @@ export interface ChatMessage {
   question: InboxItem | null;
   /** Repository is the repository of the Workstream as "owner/name". It is empty for the Coordinator chat */
   repository: string;
+  /** Selections are the text selections that the Owner sent with the message, in the order of the request */
+  selections: ChatSelection[];
   /**
      * StoppedAt is the time when a stop of the Owner dropped the message of the Owner before the turn of the agent started, or null for a message that no stop dropped and for another message
      * @nullable
@@ -1877,11 +1913,35 @@ export interface EnvelopeTranscriptPage {
 }
 
 /**
- * Upgrade is the state of the last upgrade.
+ * Step is idle when no upgrade runs, and else the step of the upgrade: release, download, retry (the wait before the next try), drain or restart
+ */
+export type UpgradeStep = typeof UpgradeStep[keyof typeof UpgradeStep];
+
+
+export const UpgradeStep = {
+  idle: 'idle',
+  release: 'release',
+  download: 'download',
+  retry: 'retry',
+  drain: 'drain',
+  restart: 'restart',
+} as const;
+
+/**
+ * Upgrade is the state of the upgrade.
  */
 export interface Upgrade {
-  /** Failure is the error of the last upgrade. It is empty when the last upgrade has no error */
+  /** Failure is the text of the last error. It is empty when the upgrade has no error */
   failure: string;
+  /**
+     * NextTry is the time of the next try in the step retry, or null
+     * @nullable
+     */
+  nextTry: string | null;
+  /** Step is idle when no upgrade runs, and else the step of the upgrade: release, download, retry (the wait before the next try), drain or restart */
+  step: UpgradeStep;
+  /** Tries is the number of failed tries since the start of the upgrade */
+  tries: number;
 }
 
 /**
@@ -2379,7 +2439,9 @@ export interface SendChatBody {
   organization?: string;
   /** Repository is the repository of the Workstream as "owner/name". It is empty for the Coordinator chat */
   repository?: string;
-  /** Text is the message of the Owner. It is required when the message has no image and no Inbox item */
+  /** Selections are the text selections of the message. The request has one part selections for each selection, in order, and each part is one JSON object */
+  selections?: ChatSelection[];
+  /** Text is the message of the Owner. It is required when the message has no image, no Inbox item and no selection */
   text: string;
   /** Voice is true when the message came from a voice recording */
   voice?: boolean;
@@ -3266,6 +3328,9 @@ if(sendChatBody.organization !== undefined) {
  }
 if(sendChatBody.repository !== undefined) {
  formData.append(`repository`, sendChatBody.repository);
+ }
+if(sendChatBody.selections !== undefined) {
+ sendChatBody.selections.forEach(value => formData.append(`selections`, JSON.stringify(value)));
  }
 formData.append(`text`, sendChatBody.text);
 if(sendChatBody.voice !== undefined) {
@@ -7286,7 +7351,7 @@ export const getGetUpgradeUrl = () => {
 }
 
 /**
- * GetUpgrade returns the error of the last upgrade.
+ * GetUpgrade returns the state of the upgrade.
  */
 export const getUpgrade = async ( ): Promise<getUpgradeResponse> => {
 
@@ -7309,7 +7374,7 @@ export const getUpgrade = async ( ): Promise<getUpgradeResponse> => {
 
 
 export type startUpgradeResponse200 = {
-  data: EnvelopeDrainEnd
+  data: EnvelopeUpgrade
   status: 200
 }
 
@@ -7356,7 +7421,7 @@ export const getStartUpgradeUrl = () => {
 }
 
 /**
- * StartUpgrade downloads the newest release, drains the agents, and restarts Mobius with the new release. It returns drained when the new release starts, and cancelled when the Owner cancels the drain. The upgrade goes on when the client closes the request.
+ * StartUpgrade starts the upgrade in the background and returns its state. The upgrade reads the newest release, downloads it, drains the agents, and restarts Mobius with the new release. It tries again after an error that can pass, until it is done or the Owner cancels it.
  */
 export const startUpgrade = async ( ): Promise<startUpgradeResponse> => {
 
@@ -7374,6 +7439,71 @@ export const startUpgrade = async ( ): Promise<startUpgradeResponse> => {
 
   const data: startUpgradeResponse['data'] = body ? JSON.parse(body) : {}
   return { data, status: res.status, headers: res.headers } as startUpgradeResponse
+}
+
+
+
+export type cancelUpgradeResponse204 = {
+  data: void
+  status: 204
+}
+
+export type cancelUpgradeResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type cancelUpgradeResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type cancelUpgradeResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type cancelUpgradeResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type cancelUpgradeResponseSuccess = (cancelUpgradeResponse204) & {
+  headers: Headers;
+};
+export type cancelUpgradeResponseError = (cancelUpgradeResponse400 | cancelUpgradeResponse401 | cancelUpgradeResponse422 | cancelUpgradeResponse500) & {
+  headers: Headers;
+};
+
+export type cancelUpgradeResponse = (cancelUpgradeResponseSuccess | cancelUpgradeResponseError)
+
+export const getCancelUpgradeUrl = () => {
+
+
+
+
+  return `/api/upgrade`
+}
+
+/**
+ * CancelUpgrade ends the upgrade and the drain. It does nothing while the upgrade replaces the program. With no upgrade, it ends only the drain.
+ */
+export const cancelUpgrade = async ( ): Promise<cancelUpgradeResponse> => {
+
+  const res = await fetch(getCancelUpgradeUrl(),
+  {
+
+    method: 'DELETE'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: cancelUpgradeResponse['data'] = body ? JSON.parse(body) : undefined
+  return { data, status: res.status, headers: res.headers } as cancelUpgradeResponse
 }
 
 

@@ -654,6 +654,7 @@ func TestServer(t *testing.T) {
 			Workstream:   record.key.Workstream,
 			Author:       "Record",
 			InboxItems:   "[]",
+			Selections:   "[]",
 			Time:         time.Now().UTC().Format(time.RFC3339Nano),
 			Text:         record.text,
 		})
@@ -672,6 +673,7 @@ func TestServer(t *testing.T) {
 				Workstream:   key.Workstream,
 				Author:       "Lead",
 				InboxItems:   "[]",
+				Selections:   "[]",
 				Time:         time.Now().UTC().Format(time.RFC3339Nano),
 				Text:         fmt.Sprintf("Note %d of #%d. %s", n, number, strings.Repeat("word ", 100)),
 			})
@@ -702,6 +704,7 @@ func TestServer(t *testing.T) {
 			Workstream:   fixture.key.Workstream,
 			Author:       "Owner",
 			InboxItems:   "[]",
+			Selections:   "[]",
 			Time:         fixtureTime,
 			Text:         fixture.text,
 		})
@@ -729,6 +732,7 @@ func TestServer(t *testing.T) {
 			Workstream:   fixture.key.Workstream,
 			Author:       "Owner",
 			InboxItems:   "[]",
+			Selections:   "[]",
 			Time:         fixtureTime,
 			Text:         fixture.text,
 		}); err != nil {
@@ -743,6 +747,7 @@ func TestServer(t *testing.T) {
 			Workstream:   seeds.Workstream,
 			Author:       "Lead",
 			InboxItems:   "[]",
+			Selections:   "[]",
 			Time:         time.Now().UTC().Format(time.RFC3339Nano),
 			Text:         text + " " + strings.Repeat("word ", 100),
 		})
@@ -782,6 +787,7 @@ func TestServer(t *testing.T) {
 			Workstream:   25,
 			Author:       "Event",
 			InboxItems:   "[]",
+			Selections:   "[]",
 			Time:         time.Now().UTC().Format(time.RFC3339Nano),
 			Text:         text,
 		})
@@ -803,6 +809,7 @@ func TestServer(t *testing.T) {
 			Workstream:   25,
 			Author:       "Owner",
 			InboxItems:   message.inboxItems,
+			Selections:   "[]",
 			Time:         time.Now().UTC().Format(time.RFC3339Nano),
 			Text:         message.text,
 		})
@@ -992,7 +999,7 @@ func addRecurringTasks(ctx context.Context, t *testing.T, server *testserver.Ser
 // chat sends the Owner message text to the chat of key, and waits for the reply of author and the end of the session.
 func chat(ctx context.Context, t *testing.T, server *testserver.Server, key engine.ChatKey, text, author string) {
 	t.Helper()
-	if err := server.Engine.SendChat(ctx, key, "", text, nil, nil, false); err != nil {
+	if err := server.Engine.SendChat(ctx, key, "", text, nil, nil, nil, false); err != nil {
 		t.Fatal(err)
 	}
 	waitForChat(t, server, key, author)
