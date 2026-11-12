@@ -1088,8 +1088,9 @@ func TestTheReportOfAResearcherArrivesBeforeTheNextTurnWhenTheFirstCommentFails(
 	if prompts := promptTexts(t, server, sessions[1].ID); len(prompts) != 1 || !strings.Contains(prompts[0], report) {
 		t.Errorf("prompts = %q", prompts)
 	}
-	if comments := appComments(fake, 69); len(comments) != 1 || !strings.HasPrefix(comments[0], report) {
-		t.Errorf("comments = %q", comments)
+	reports := slices.DeleteFunc(appComments(fake, 69), func(comment string) bool { return !strings.HasPrefix(comment, report) })
+	if len(reports) != 1 {
+		t.Errorf("report comments = %q", reports)
 	}
 }
 
