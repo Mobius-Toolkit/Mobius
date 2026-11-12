@@ -215,6 +215,9 @@ type Node struct {
 	// Working is true while an open session works: a chat session has a turn that runs, and another session does not
 	// wait for a slot or a pause.
 	Working bool
+	// KeptUntil is the time when Mobius closes the kept Harness process of this ended session. It is the zero time
+	// when Mobius keeps no process of this session.
+	KeptUntil time.Time
 }
 
 // Change is a change for the live event stream: a new, changed or ended session, a new or changed Transcript line,
@@ -1087,6 +1090,7 @@ func (e *Engine) node(session store.Session) Node {
 		n = Node{Session: session, Name: session.Role}
 	}
 	n.Working = e.working(n)
+	n.KeptUntil = e.keptUntil(session.ID)
 	return n
 }
 
