@@ -30,3 +30,25 @@ export const columns: { title: string; has: (task: BoardTask) => boolean }[] = [
   { title: "Ready to merge", has: (task) => task.state === "ready_for_review" },
   { title: "Done", has: (task) => task.state === "ended" },
 ];
+
+const byStateAt = (a: BoardTask, b: BoardTask) => Date.parse(a.stateAt) - Date.parse(b.stateAt);
+
+const byQueue = (a: BoardTask, b: BoardTask) => {
+  if (a.mergeQueuePlace === null || b.mergeQueuePlace === null) {
+    return Number(a.mergeQueuePlace === null) - Number(b.mergeQueuePlace === null);
+  }
+  if (a.mergeQueuePlace !== b.mergeQueuePlace) {
+    return a.mergeQueuePlace - b.mergeQueuePlace;
+  }
+  return a.repository < b.repository ? -1 : a.repository > b.repository ? 1 : 0;
+};
+
+export function sortColumn(title: string, tasks: readonly BoardTask[]): BoardTask[] {
+  if (title === "Done") {
+    return tasks.toSorted((a, b) => byStateAt(b, a));
+  }
+  if (title === "Waiting" || title === "Ready to merge") {
+    return tasks.toSorted((a, b) => byQueue(a, b) || byStateAt(a, b));
+  }
+  return tasks.toSorted(byStateAt);
+}
