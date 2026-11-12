@@ -72,6 +72,7 @@ func TestAnImplementerWorksUnlessItWaitsForASlotOrAPause(t *testing.T) {
 
 	for reason, want := range map[string]bool{
 		"runs .mobius/check":                true,
+		"runs .mobius/init":                 true,
 		"waits for a check slot":            false,
 		"waits for a low load":              false,
 		"paused until 2026-10-04 10:00 UTC": false,
