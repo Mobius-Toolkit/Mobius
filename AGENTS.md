@@ -105,6 +105,9 @@ The web client is one Foldkit application (`Runtime.makeApplication` in `web/src
 - When the job `e2e` fails, CI uploads `web/test-results` as the artifact `test-results`. It has a `trace.zip` file for each failed test. To open the file, run `pnpm exec playwright show-trace <file>`.
 - Each run must give the same screenshots, so a pull request with no UI change shows no changed screen. `TestServer` gives a fixed time to each time that the UI shows (`fixTimes`). Before each screenshot, `web/e2e/screenshots.spec.ts` waits for the data that the page loads (`frame` and `ready`). When the UI shows a new time or new data, add it there.
 - `TestServer` of `web/e2e` has fixtures with fixed past dates, so a new step that compares a stored time with `e.timeNow()` also acts on them. Fix the time with `SetClock`, as `web/e2e/server_test.go` does.
+- A fake program of a test (for example the `gh` of the agent environment) is a shell script that runs the system program by its full path, as `stubGH` in `internal/engine/lead_writes_test.go` does. Do not make it a link to the system program. The coreutils of the CI runner are multi-call binaries that refuse to run under another name. To change a fake program, write a new file and move it with `mv`, because a write in place can fail with `ETXTBSY`.
+- A test does not read the real network or a port of the running Mobius (whisper-server on `6365` and `6366`). When a change adds a call to an external service, give each test that reaches the call a fake server or an address of `testkit.FreeAddress`. This includes the existing tests of the package and `TestServer` of `web/e2e`.
+- Before an e2e test types into the chat composer, wait for `toBeEditable()`. The composer (`web/src/chat/composer.ts`) is read-only until it loads the draft (`draftLoaded`).
 
 ## Before a push
 
