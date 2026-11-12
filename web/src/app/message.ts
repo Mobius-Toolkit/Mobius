@@ -45,6 +45,7 @@ export const Message = defineMessageUnion({
   UrlRequested: { request: UrlRequest },
   UrlChanged: { url: Url },
   NavigateRequested: { path: Schema.String },
+  ReloadRequested: {},
   BackRequested: { parent: Schema.String },
   CompletedNavigate: {},
   CompletedSettleScroll: {},
@@ -52,6 +53,7 @@ export const Message = defineMessageUnion({
   CompletedReplaceUrl: {},
   CompletedGoBack: {},
   CompletedLoadExternal: {},
+  CompletedReload: {},
   CompletedFocusSheet: {},
 
   // Authentication

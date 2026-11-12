@@ -64,6 +64,11 @@ export const LoadExternal = Command.define("LoadExternal", {
   execute: ({ href }) => Navigation.load(href).pipe(Effect.as(Message.CompletedLoadExternal())),
 });
 
+export const Reload = Command.define("Reload", {
+  messages: [Message.CompletedReload],
+  execute: Effect.sync(() => window.location.reload()).pipe(Effect.as(Message.CompletedReload())),
+});
+
 export const LoadApp = Command.define("LoadApp", {
   messages: [
     Message.AppsAndOrganizationsLoaded,
