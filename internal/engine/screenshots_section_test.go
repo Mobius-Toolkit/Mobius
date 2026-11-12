@@ -223,7 +223,7 @@ func TestTheHeadOfTheMergeQueueLeavesChecksAfterAMergeOfTheDefaultBranchWhenTheB
 	fake.SetPullRequestBody(shop, pull, screenshotsSectionOf("No screen changed."))
 
 	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, 41) == "" })
-	if calls := fake.MergeCalls(); calls != 1 {
-		t.Errorf("merge calls = %d, want 1", calls)
+	if calls := fake.MergeCalls(); calls != 2 {
+		t.Errorf("merge calls = %d, want 2 with the request with the old head", calls)
 	}
 }
