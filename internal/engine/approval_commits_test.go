@@ -13,6 +13,9 @@ const (
 	planLines = "%s\n1\n2\n3\n4\n5\nbottom\n"
 	// appendCents changes plan.txt below the first line, so a change of the first line on main merges cleanly.
 	appendCents = "shell = '''echo cents >> plan.txt && git add plan.txt && git commit -q -m \"Add plan model $(basename $PWD)\"'''\n"
+	// changeTwoLines changes the lines "1" and "5" of plan.txt, so the same change of the line "1" on main merges
+	// cleanly and takes that line out of the change of the pull request.
+	changeTwoLines = "shell = '''printf 'top\\none\\n2\\n3\\n4\\nfive\\nbottom\\n' > plan.txt && git add plan.txt && git commit -q -m \"Add plan model $(basename $PWD)\"'''\n"
 )
 
 var (
