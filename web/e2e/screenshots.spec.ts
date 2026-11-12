@@ -28,6 +28,7 @@ import {
 import { waitForEvergreen } from "./evergreen.js";
 import { addMcpServer, deleteMcpServers, selectMcpServers } from "./mcp-servers.js";
 import { png } from "./images.js";
+import { retryFailure, retryUpgrade, routeUpgrade, upgradeRoute } from "./upgrade.js";
 import { longTaskTitle, routeLongTask, tasksUrl } from "./long-task.js";
 import { countSamples, fakeMicrophone } from "./microphone.js";
 import { lines, turnAllOn, turnOff } from "./switches.js";
@@ -890,6 +891,7 @@ test("screenshots", async ({ page }) => {
       failedAt: null,
       images: 0,
       inboxItems: [],
+      selections: [],
       organization: "owner",
       question: null,
       repository: "owner/shop",
@@ -2387,6 +2389,13 @@ test("screenshots", async ({ page }) => {
     shown("New version"),
   ]);
   await page.unroute("/ui-version");
+  await routeUpgrade(page, retryUpgrade);
+  await screenshot(page, "upgrade-retry", "/settings", (device) => [
+    ...frame(device, shown("Cancel upgrade"), { upgrade: true }),
+    page.getByText("Try 3 failed. Upgrade tries again in 40 s").filter({ visible: true }),
+    page.getByText(retryFailure).filter({ visible: true }),
+  ]);
+  await page.unroute(upgradeRoute);
 
   await screenshot(page, "settings", "/settings", (device) => [
     ...frame(device, release, { upgrade: true }),
@@ -2875,10 +2884,29 @@ test("screenshots", async ({ page }) => {
       page.getByRole("dialog").getByText("npm ERR! code EACCES"),
       page.getByRole("dialog").getByRole("button", { name: "Upgrade" }),
       page.getByRole("switch", { name: "Auto-upgrade" }),
+      () =>
+        expect
+          .poll(() =>
+            page
+              .getByRole("dialog")
+              .getByRole("button", { name: "Upgrade" })
+              .evaluate((button) => button.matches(":hover")),
+          )
+          .toBe(false),
+      () =>
+        expect
+          .poll(() =>
+            page
+              .getByRole("dialog")
+              .getByRole("button", { name: "Upgrade" })
+              .evaluate((button) => getComputedStyle(button).backgroundColor),
+          )
+          .toBe("oklch(0.205 0 0)"),
     ],
     async () => {
       await main.getByRole("button", { name: /dsh/ }).click();
       await page.getByRole("dialog").getByRole("button", { name: "Upgrade" }).click();
+      await page.mouse.move(0, 0);
     },
   );
   await page.unroute("**/api/checkup/tools");
