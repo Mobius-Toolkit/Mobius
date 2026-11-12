@@ -482,3 +482,66 @@ func TestStartBranchReturnsTheErrorOfAPushThatLeavesNoBranch(t *testing.T) {
 		t.Error("StartBranch to a remote that refuses the push succeeded")
 	}
 }
+
+func TestChangedLinesGivesTheLinesOfThePullRequestAcrossACleanMergeOfAChangeOfAnotherLine(t *testing.T) {
+	dataDir := t.TempDir()
+	source := filepath.Join(dataDir, "source")
+	if err := os.Mkdir(source, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	write := func(content string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(source, "a.txt"), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gitIn(t, source, "init", "--initial-branch=main")
+	write("1\n2\n3\n4\n5\n6\n7\n8\n9\n")
+	gitIn(t, source, "add", ".")
+	gitIn(t, source, "commit", "-m", "first")
+	oldMain := gitOutput(t, source, "rev-parse", "HEAD")
+	gitIn(t, source, "switch", "--create", "feature")
+	write("one\n2\n3\n4\n5\n6\n7\n8\nnine\n")
+	gitIn(t, source, "commit", "--all", "-m", "change two lines")
+	oldHead := gitOutput(t, source, "rev-parse", "HEAD")
+	gitIn(t, source, "switch", "main")
+	write("1\n2\n3\n4\nfive\n6\n7\n8\n9\n")
+	gitIn(t, source, "commit", "--all", "-m", "change another line")
+	middleMain := gitOutput(t, source, "rev-parse", "HEAD")
+	gitIn(t, source, "switch", "feature")
+	gitIn(t, source, "merge", "--no-edit", "main")
+	middleHead := gitOutput(t, source, "rev-parse", "HEAD")
+	gitIn(t, source, "switch", "main")
+	write("one\n2\n3\n4\nfive\n6\n7\n8\n9\n")
+	gitIn(t, source, "commit", "--all", "-m", "change a line of the pull request")
+	newMain := gitOutput(t, source, "rev-parse", "HEAD")
+	gitIn(t, source, "switch", "feature")
+	gitIn(t, source, "merge", "--no-edit", "main")
+	newHead := gitOutput(t, source, "rev-parse", "HEAD")
+	gitIn(t, dataDir, "clone", "--bare", source, bareDir(dataDir, "acme/shop"))
+	ctx := context.Background()
+
+	old, err := ChangedLines(ctx, dataDir, "acme/shop", oldMain, oldHead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	middle, err := ChangedLines(ctx, dataDir, "acme/shop", middleMain, middleHead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := ChangedLines(ctx, dataDir, "acme/shop", newMain, newHead)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []ChangedLine{{"a.txt", "-1"}, {"a.txt", "+one"}, {"a.txt", "-9"}, {"a.txt", "+nine"}}
+	if !slices.Equal(old, want) {
+		t.Errorf("lines of the first head = %v, want %v", old, want)
+	}
+	if !slices.Equal(middle, want) {
+		t.Errorf("lines after the merge of another line = %v, want %v", middle, want)
+	}
+	if wantUpdated := []ChangedLine{{"a.txt", "-9"}, {"a.txt", "+nine"}}; !slices.Equal(updated, wantUpdated) {
+		t.Errorf("lines after the merge of a line of the pull request = %v, want %v", updated, wantUpdated)
+	}
+}

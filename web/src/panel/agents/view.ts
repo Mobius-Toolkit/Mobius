@@ -4,7 +4,7 @@ import type { Html, HtmlBuilder } from "foldkit/html";
 import { defineView } from "foldkit/submodel";
 import { queueState, queueText } from "@/lib/agents";
 import { bindingText } from "@/lib/harness";
-import { clock, dayClock } from "@/lib/time";
+import { clock, dayClock, minutesUntil } from "@/lib/time";
 import * as Transcript from "@/transcript/view";
 import { renderBadge } from "@/ui/badge";
 import { renderSwitch } from "@/ui/switch";
@@ -14,10 +14,13 @@ import type { Agent } from "@/transcript/schemas";
 
 type H = HtmlBuilder<Message>;
 
-function renderEntry(h: H, agent: Agent): Html {
+function renderEntry(h: H, agent: Agent, now: number): Html {
   const state = queueState(agent.queueReason);
   const started = `${dayClock(agent.startedAt)}${agent.endedAt ? `–${clock(agent.endedAt)}` : ""}`;
-  const detail = agent.queueReason ? `${started} · ${queueText(agent)}` : started;
+  const queued = agent.queueReason ? `${started} · ${queueText(agent)}` : started;
+  const detail = agent.keptUntil
+    ? `${queued} · closes in ${minutesUntil(agent.keptUntil, now)} min`
+    : queued;
   return h.keyed("li")(
     String(agent.id),
     [],
@@ -50,7 +53,9 @@ function renderEntry(h: H, agent: Agent): Html {
               ),
             ],
           ),
-          agent.endedAt ? renderBadge(h, "secondary", "stopped") : h.empty,
+          agent.endedAt
+            ? renderBadge(h, "secondary", agent.keptUntil ? "kept" : "stopped")
+            : h.empty,
           state.badge ? renderBadge(h, "outline", state.badge) : h.empty,
         ],
       ),
@@ -93,7 +98,9 @@ export const view = defineView<Model, Message>((model, h) => {
       ),
       h.ul(
         [],
-        shownAgents(model.agents, model.showStopped).map((agent) => renderEntry(h, agent)),
+        shownAgents(model.agents, model.showStopped).map((agent) =>
+          renderEntry(h, agent, model.now),
+        ),
       ),
     ],
   );

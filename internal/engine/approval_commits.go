@@ -18,7 +18,8 @@ const maxBroughtInLines = 30
 
 // approvedHeadText gives the lines that follow the first line of the event ready_for_approval when the Lead approved
 // an earlier head of the pull request. again tells that Mobius can approve the head again: only clean merges of the
-// default branch came after the approved head, and the task has the report of the Lead. A 4xx answer of GitHub gives a
+// default branch came after the approved head, the changed lines of the pull request are the same, and the task has
+// the report of the Lead. A 4xx answer of GitHub gives a
 // line about it, and any other error returns.
 func (e *Engine) approvedHeadText(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) (text string, again bool, err error) {
 	approved := task.ApprovedHead.String
@@ -48,7 +49,8 @@ type commitAfterApproval struct {
 }
 
 // changesAfterApproval lists the commits after the approved head and tells if the change of the pull request is the
-// same as at the approved head. again tells that only clean merges of the default branch came after the approved head.
+// same as at the approved head. again tells that only clean merges of the default branch came after the approved head,
+// and that the changed lines of the pull request stay the same.
 func (e *Engine) changesAfterApproval(ctx context.Context, repository github.Repository, pullRequest *gh.PullRequest, approved string) (string, bool, error) {
 	branch := repository.DefaultBranch
 	comparison, err := repository.Compare(ctx, approved, pullRequest.GetHead().GetSHA())
@@ -137,20 +139,27 @@ func (e *Engine) changesAfterApproval(ctx context.Context, repository github.Rep
 		fmt.Fprintf(&text, "\nThe change of the pull request is the same as at the approved head: only merges of %s came after it.", branch)
 		return text.String(), again, nil
 	}
-	text.WriteString("\nThe change of the pull request can differ from the approved head:")
+	if again {
+		text.WriteString("\nThe change of the pull request is the same as at the approved head:")
+	} else {
+		text.WriteString("\nThe change of the pull request can differ from the approved head:")
+	}
 	for _, reason := range reasons {
 		fmt.Fprintf(&text, "\n- %s", reason)
 	}
 	return text.String(), again, nil
 }
 
-// differences gives the reasons why the change of the pull request can differ from the change at the approved head.
-// again tells that there is no reason and that each merge of the chain has no hand change. The bare clone of the
-// repository must have the commits of the chain.
+// differences gives the reasons why the change of the pull request can differ from the change at the approved head,
+// and a line for each clean merge that brought in a change of a file of the pull request. again tells that each commit
+// of the chain is a merge of the default branch with no hand change, that the changed files are the same, and that
+// the changed lines of the pull request are the same. The bare clone of the repository must have the commits of the
+// chain and the default branch.
 func (e *Engine) differences(ctx context.Context, repository github.Repository, pullRequest *gh.PullRequest, approved string, chain []commitAfterApproval) ([]string, bool, error) {
 	branch := repository.DefaultBranch
 	var reasons []string
 	again := true
+	linesChecked, linesSame := false, false
 	for _, link := range chain {
 		if !link.merge {
 			reasons = append(reasons, fmt.Sprintf("%.8s is not a merge of %s", link.commit.GetSHA(), branch))
@@ -206,13 +215,27 @@ func (e *Engine) differences(ctx context.Context, repository github.Repository, 
 		if len(shared) == 0 && len(resolved) == 0 {
 			continue
 		}
-		if len(shared) > 0 {
-			again = false
-		}
-		if len(resolved) == 0 {
-			reasons = append(reasons, fmt.Sprintf("%.8s is a clean merge", sha))
-		} else {
+		if len(resolved) > 0 {
 			reasons = append(reasons, fmt.Sprintf("%.8s holds a hand resolution in %s", sha, strings.Join(resolved, ", ")))
+			continue
+		}
+		if !linesChecked {
+			head := pullRequest.GetHead().GetSHA()
+			oldLines, err := runner.ChangedLines(ctx, dataDir, name, "origin/"+branch, approved)
+			if err != nil {
+				return nil, false, err
+			}
+			lines, err := runner.ChangedLines(ctx, dataDir, name, "origin/"+branch, head)
+			if err != nil {
+				return nil, false, err
+			}
+			linesSame, linesChecked = slices.Equal(oldLines, lines), true
+		}
+		if linesSame {
+			reasons = append(reasons, fmt.Sprintf("%.8s is a clean merge, and the changed lines of the pull request are the same", sha))
+		} else {
+			again = false
+			reasons = append(reasons, fmt.Sprintf("%.8s is a clean merge, and the changed lines of the pull request differ", sha))
 		}
 	}
 	return reasons, again, nil
