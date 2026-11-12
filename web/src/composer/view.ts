@@ -11,8 +11,6 @@ import { textareaClass } from "@/ui/textarea";
 import { Message } from "./message";
 import { inputId, type Model, pickerId, voiceBusy } from "./model";
 
-type H = HtmlBuilder<Message>;
-
 export function fileKey(files: File[], index: number) {
   const file = files[index];
   const same = files
@@ -45,15 +43,16 @@ export const ShowFile = Mount.define("ShowFile", {
     }),
 });
 
-export function renderFileImage(
-  h: H,
+export function renderFileImage<Msg>(
+  h: HtmlBuilder<Msg>,
   files: File[],
   index: number,
-  attributes: ReadonlyArray<Attribute<Message>>,
+  attributes: ReadonlyArray<Attribute<Msg>>,
+  toParent: (message: Message) => Msg,
 ): Html {
   return h.img([
     h.Key(fileKey(files, index)),
-    h.OnMount(ShowFile({ file: files[index] })),
+    h.OnMount(Mount.mapMessage(ShowFile({ file: files[index] }), toParent)),
     ...attributes,
   ]);
 }
@@ -71,7 +70,7 @@ type ComposerMessage =
 export const ComposerBehavior = Mount.defineStream("ComposerBehavior", {
   args: {
     autoFocus: Schema.Boolean,
-    enter: Schema.Literals(["send", "answer", "none"]),
+    enter: Schema.Literals(["send", "none"]),
     field: Schema.String,
     picker: Schema.String,
   },
@@ -148,10 +147,10 @@ export const ComposerBehavior = Mount.defineStream("ComposerBehavior", {
     ),
 });
 
-function attachedInboxItem(
-  h: H,
+function attachedInboxItem<Msg>(
+  h: HtmlBuilder<Msg>,
   item: DraftInboxItem,
-  onRemove?: (id: number | string) => Message,
+  onRemove?: (id: number | string) => Msg,
 ): Html {
   const name = item.reference || item.title;
   return h.div(
@@ -188,19 +187,23 @@ function attachedInboxItem(
   );
 }
 
-function thumbnail(
-  h: H,
+function thumbnail<Msg>(
+  h: HtmlBuilder<Msg>,
   files: File[],
   index: number,
-  onRemove?: (position: number) => Message,
+  toParent: (message: Message) => Msg,
+  onRemove?: (position: number) => Msg,
 ): Html {
   return h.div(
     [h.Key(`thumb-${fileKey(files, index)}`), h.Class("relative")],
     [
-      renderFileImage(h, files, index, [
-        h.Alt(`Image ${index + 1}`),
-        h.Class("size-16 rounded-lg border object-cover"),
-      ]),
+      renderFileImage(
+        h,
+        files,
+        index,
+        [h.Alt(`Image ${index + 1}`), h.Class("size-16 rounded-lg border object-cover")],
+        toParent,
+      ),
       h.button(
         [
           h.Type("button"),
@@ -222,31 +225,30 @@ function thumbnail(
   );
 }
 
-export type Box = {
+export type Box<Msg> = {
   field: string;
-  picker?: string;
-  target: "chat" | "answer";
+  picker: string;
   key: string;
   voiceCard: DraftVoice | null;
   label: string;
   placeholder: string;
   text: string;
   readOnly: boolean;
-  onInput: (text: string) => Message;
-  submit: Message | null;
-  enter: "send" | "answer" | "none";
+  onInput: (text: string) => Msg;
+  submit: Msg | null;
+  enter: "send" | "none";
   autoFocus: boolean;
   images: File[] | null;
   inboxItems: DraftInboxItem[];
   actions: Html[];
   error: string;
-  onAttachClick?: Message;
-  onVoiceButtonClick?: Message;
-  onVoiceResendClick?: Message;
-  onVoiceRemoveClick?: Message;
-  onImageRemoveClick?: (index: number) => Message;
-  onInboxItemRemoveClick?: (id: number | string) => Message;
-  onImagesChosen?: (files: File[]) => Message;
+  onAttachClick?: Msg;
+  onVoiceButtonClick: Msg;
+  onVoiceResendClick: Msg;
+  onVoiceRemoveClick: Msg;
+  onImageRemoveClick?: (index: number) => Msg;
+  onInboxItemRemoveClick?: (id: number | string) => Msg;
+  onImagesChosen?: (files: File[]) => Msg;
 };
 
 export const ScrollToEnd = Mount.define("ScrollToEnd", {
@@ -263,24 +265,25 @@ function elapsed(voiceState: { startedAt: number }, now: number) {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
-function voiceCard(
-  h: H,
+function voiceCard<Msg>(
+  h: HtmlBuilder<Msg>,
   voiceState: { recording: boolean; key: string; startedAt: number; live: string },
   now: number,
-  box: Box,
+  box: Box<Msg>,
+  toParent: (message: Message) => Msg,
 ): Html {
   const recording = voiceState.recording && voiceState.key === box.key;
   const card = box.voiceCard;
   if (!recording && !card) {
     return h.empty;
   }
-  const small = (label: string, msg?: Message) =>
+  const small = (label: string, msg: Msg) =>
     h.button(
       [
         h.Type("button"),
         h.DataAttribute("keep-focus", ""),
         h.Class(buttonClass({ variant: "outline", size: "xs" })),
-        ...(msg ? [h.OnClick(msg)] : []),
+        h.OnClick(msg),
       ],
       [label],
     );
@@ -308,7 +311,7 @@ function voiceCard(
               h.p(
                 [
                   h.Key(`live-${voiceState.live}`),
-                  h.OnMount(ScrollToEnd()),
+                  h.OnMount(Mount.mapMessage(ScrollToEnd(), toParent)),
                   h.Class(
                     "max-h-10 min-h-10 overflow-hidden text-xs/5 wrap-anywhere text-muted-foreground",
                   ),
@@ -352,7 +355,7 @@ function voiceCard(
                             className: "-my-0.5 -mr-1 rounded-full max-md:size-8",
                           }),
                         ),
-                        ...(box.onVoiceRemoveClick ? [h.OnClick(box.onVoiceRemoveClick)] : []),
+                        h.OnClick(box.onVoiceRemoveClick),
                       ],
                       [xIcon(h)],
                     )
@@ -363,7 +366,11 @@ function voiceCard(
   );
 }
 
-function voiceButton(h: H, voiceState: { recording: boolean }, box: Box): Html {
+function voiceButton<Msg>(
+  h: HtmlBuilder<Msg>,
+  voiceState: { recording: boolean },
+  box: Box<Msg>,
+): Html {
   if (!voiceSupported) {
     return h.empty;
   }
@@ -388,21 +395,25 @@ function voiceButton(h: H, voiceState: { recording: boolean }, box: Box): Html {
             "bg-destructive/10 text-destructive hover:bg-destructive/20 hover:text-destructive motion-safe:animate-pulse",
         ),
       ),
-      ...(box.onVoiceButtonClick ? [h.OnClick(box.onVoiceButtonClick)] : []),
+      h.OnClick(box.onVoiceButtonClick),
     ],
     [recording ? squareIcon(h) : micIcon(h)],
   );
 }
 
-function voiceNotice(h: H, voiceState: { notice: { key: string; text: string } }, box: Box): Html {
+function voiceNotice<Msg>(
+  h: HtmlBuilder<Msg>,
+  voiceState: { notice: { key: string; text: string } },
+  box: Box<Msg>,
+): Html {
   const notice = voiceState.notice;
   return notice.key === box.key && notice.text
     ? h.p([h.Attribute("role", "alert"), h.Class("text-sm text-destructive")], [notice.text])
     : h.empty;
 }
 
-export function composerBox(
-  h: H,
+export function composerBox<Msg>(
+  h: HtmlBuilder<Msg>,
   voiceState: {
     recording: boolean;
     key: string;
@@ -411,16 +422,25 @@ export function composerBox(
     notice: { key: string; text: string };
   },
   now: number,
-  box: Box,
+  box: Box<Msg>,
+  toParent: (message: Message) => Msg,
 ): Html {
   const images = box.images ?? [];
-  const picker = box.picker ?? pickerId("chat");
+  const picker = box.picker;
   return h.form(
     [
       h.Class("grid gap-1 border-t p-2"),
       ...(box.submit ? [h.OnSubmit(box.submit)] : []),
       h.OnMount(
-        ComposerBehavior({ autoFocus: box.autoFocus, enter: box.enter, field: box.field, picker }),
+        Mount.mapMessage(
+          ComposerBehavior({
+            autoFocus: box.autoFocus,
+            enter: box.enter,
+            field: box.field,
+            picker,
+          }),
+          toParent,
+        ),
       ),
     ],
     [
@@ -450,11 +470,13 @@ export function composerBox(
             ? h.div(
                 [h.Class("flex flex-wrap gap-2 pb-1")],
                 [
-                  voiceCard(h, voiceState, now, box),
+                  voiceCard(h, voiceState, now, box, toParent),
                   ...box.inboxItems.map((item) =>
                     attachedInboxItem(h, item, box.onInboxItemRemoveClick),
                   ),
-                  ...images.map((_, index) => thumbnail(h, images, index, box.onImageRemoveClick)),
+                  ...images.map((_, index) =>
+                    thumbnail(h, images, index, toParent, box.onImageRemoveClick),
+                  ),
                 ],
               )
             : h.empty,
@@ -515,7 +537,6 @@ export type ViewInputs = {
   stoppable?: boolean;
   stopping?: boolean;
   stopReady?: boolean;
-  error?: string;
 };
 
 export const view = defineView<Model, Message, ViewInputs>((model, viewInputs, h) => {
@@ -531,59 +552,62 @@ export const view = defineView<Model, Message, ViewInputs>((model, viewInputs, h
   const sendLabel = showStop ? "Stop the reply" : "Send";
   const sendDisabled = buttonPending || (showStop ? !stopReady : cannotSend);
 
-  return composerBox(h, model.voice, model.now, {
-    field: inputId(model.instance),
-    picker: pickerId(model.instance),
-    target: "chat",
-    key: model.draftKey,
-    voiceCard: model.draftVoice,
-    label: model.label,
-    placeholder: model.placeholder,
-    text: model.draftText,
-    readOnly: !model.draftLoaded,
-    onInput: (text) => Message.DraftTextChanged({ text }),
-    submit: Message.SendSubmitted(),
-    enter: "send",
-    autoFocus: true,
-    images,
-    inboxItems,
-    error: viewInputs?.error || model.sendError,
-    onAttachClick: Message.AttachClicked(),
-    onVoiceButtonClick: Message.VoiceButtonClicked(),
-    onVoiceResendClick: Message.VoiceResendClicked(),
-    onVoiceRemoveClick: Message.VoiceRemoveClicked(),
-    onImageRemoveClick: (position) => Message.DraftImageRemoved({ position }),
-    onInboxItemRemoveClick: (id) => Message.DraftInboxItemRemoved({ id }),
-    onImagesChosen: (files) => Message.ImagesChosen({ files }),
-    actions: [
-      h.button(
-        [
-          h.Type("submit"),
-          h.AriaLabel(sendLabel),
-          h.Attribute("title", sendLabel),
-          h.DataAttribute("keep-focus", ""),
-          h.Disabled(sendDisabled),
-          ...(voiceBusy(model.draftVoice) ? [h.DataAttribute("voice-busy", "")] : []),
-          h.Class(
-            cn(
-              buttonClass({ size: "icon", className: "rounded-full max-md:size-11" }),
-              showStop &&
-                !stopReady &&
-                !buttonPending &&
-                "disabled:pointer-events-auto disabled:opacity-100",
-              cannotSend &&
-                !showStop &&
-                "bg-muted text-muted-foreground hover:bg-muted disabled:opacity-100",
+  return composerBox(
+    h,
+    model.voice,
+    model.now,
+    {
+      field: inputId(model.instance),
+      picker: pickerId(model.instance),
+      key: model.draftKey,
+      voiceCard: model.draftVoice,
+      label: model.label,
+      placeholder: model.placeholder,
+      text: model.draftText,
+      readOnly: !model.draftLoaded,
+      onInput: (text) => Message.DraftTextChanged({ text }),
+      submit: Message.SendSubmitted(),
+      enter: "send",
+      autoFocus: true,
+      images,
+      inboxItems,
+      error: model.sendError,
+      onAttachClick: Message.AttachClicked(),
+      onVoiceButtonClick: Message.VoiceButtonClicked(),
+      onVoiceResendClick: Message.VoiceResendClicked(),
+      onVoiceRemoveClick: Message.VoiceRemoveClicked(),
+      onImageRemoveClick: (position) => Message.DraftImageRemoved({ position }),
+      onInboxItemRemoveClick: (id) => Message.DraftInboxItemRemoved({ id }),
+      onImagesChosen: (files) => Message.ImagesChosen({ files }),
+      actions: [
+        h.button(
+          [
+            h.Type("submit"),
+            h.AriaLabel(sendLabel),
+            h.Attribute("title", sendLabel),
+            h.DataAttribute("keep-focus", ""),
+            h.Disabled(sendDisabled),
+            ...(voiceBusy(model.draftVoice) ? [h.DataAttribute("voice-busy", "")] : []),
+            h.Class(
+              cn(
+                buttonClass({ size: "icon", className: "rounded-full max-md:size-11" }),
+                showStop &&
+                  !stopReady &&
+                  !buttonPending &&
+                  "disabled:pointer-events-auto disabled:opacity-100",
+                cannotSend &&
+                  !showStop &&
+                  "bg-muted text-muted-foreground hover:bg-muted disabled:opacity-100",
+              ),
             ),
-          ),
-          ...(showStop ? [h.OnClick(Message.StopClicked())] : []),
-        ],
-        buttonPending
-          ? [spinnerIcon(h)]
-          : [showStop ? squareIcon(h, "size-3 fill-current") : arrowUpIcon(h)],
-      ),
-    ],
-  });
+            ...(showStop ? [h.OnClick(Message.StopClicked())] : []),
+          ],
+          buttonPending
+            ? [spinnerIcon(h)]
+            : [showStop ? squareIcon(h, "size-3 fill-current") : arrowUpIcon(h)],
+        ),
+      ],
+    },
+    (message) => message,
+  );
 });
-
-export const renderComposer = view;

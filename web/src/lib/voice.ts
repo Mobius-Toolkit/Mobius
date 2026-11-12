@@ -325,7 +325,7 @@ export const insertVoiceText = (
   return { text: lead + voiceText + trail, cursor: lead.length + voiceText.length };
 };
 
-export const settle = async (key: string, result: Result, fieldId?: string) => {
+export const settle = async (key: string, result: Result, fieldId: string) => {
   if (currentDraft(key)?.voice?.state !== "converting") {
     return;
   }
@@ -335,15 +335,10 @@ export const settle = async (key: string, result: Result, fieldId?: string) => {
     return;
   }
   const ready: DraftVoice = { state: "ready", audio: null, conversion: "", error: "" };
-  const inDom = fieldId
-    ? typeof document !== "undefined"
-      ? Boolean(document.getElementById(fieldId))
-      : true
-    : false;
-  const startedInput = inDom
-    ? inputs.find((other) => other.key === key && other.fieldId === fieldId)
-    : undefined;
-  const input = startedInput ?? inputs.findLast((other) => other.key === key);
+  const input =
+    inputs.find(
+      (other) => other.key === key && other.fieldId === fieldId && document.getElementById(fieldId),
+    ) ?? inputs.findLast((other) => other.key === key);
   if (input) {
     input.insert(result.text);
     await setVoice(key, () => ready);
@@ -358,7 +353,7 @@ export const settle = async (key: string, result: Result, fieldId?: string) => {
 
 // convertCard converts the card of the draft when it is in the state converting. With no conversion on the server, it
 // sends the audio.
-export const convertCard = async (key: string, fieldId?: string) => {
+export const convertCard = async (key: string, fieldId: string) => {
   if (converting.has(key)) {
     return;
   }
@@ -403,16 +398,16 @@ const finish = async (notice: string) => {
   void convertCard(key, fieldId);
 };
 
-export const resend = async (key: string) => {
+export const resend = async (key: string, fieldId: string) => {
   await setVoice(key, (voice) =>
     voice.state === "failed" ? { ...voice, state: "converting", conversion: "", error: "" } : voice,
   );
-  void convertCard(key);
+  void convertCard(key, fieldId);
 };
 
-void convertingDraftKeys().then((keys) => keys.forEach((key) => void convertCard(key)));
+void convertingDraftKeys().then((keys) => keys.forEach((key) => void convertCard(key, "")));
 
-const start = async (key: string, fieldId = "") => {
+const start = async (key: string, fieldId: string) => {
   const token = ++run;
   const context = new AudioContext();
   void context.resume();
@@ -504,7 +499,7 @@ export const stopVoice = () => {
   }
 };
 
-export const toggleVoice = (key: string, fieldId = "") => {
+export const toggleVoice = (key: string, fieldId: string) => {
   if (snapshot.recording) {
     stopVoice();
   } else {

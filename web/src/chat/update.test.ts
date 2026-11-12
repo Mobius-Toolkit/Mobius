@@ -23,7 +23,7 @@ import {
 import { Message } from "./message";
 import { initialModel, retryDelays, type Model, type Waiting } from "./model";
 import type { ChatMessage, Draft, InboxItem, PendingAction, Queued } from "./schemas";
-import { update } from "./update";
+import { enqueue, update } from "./update";
 
 // The voice library reads the document of the browser when it loads.
 vi.mock("@/lib/voice", () => ({ resend: vi.fn(), stopVoice: vi.fn(), toggleVoice: vi.fn() }));
@@ -145,38 +145,11 @@ describe("chat update story tests", () => {
   describe("send queue logic", () => {
     it("queues an outgoing message and dispatches PostQueued if idle", () => {
       const item = createQueuedItem("q1", "First message");
-      const base = createTestModel();
 
-      story(
-        update,
-        given(base),
-        message(Message.MessageQueued({ item })),
-        model((m) => {
-          expect(m.queue.length).toBe(1);
-          expect(m.queue[0].id).toBe("q1");
-        }),
-        StoryCommand.expectExact(
-          PostQueued({
-            item,
-            delay: retryDelays[0],
-          }),
-        ),
-        StoryCommand.resolve(PostQueued, Message.SendAttemptSucceeded({ id: "q1" })),
-        StoryCommand.resolve(
-          FetchPage,
-          Message.PageLoaded({
-            page: {
-              harness: "claude-code",
-              messages: [],
-              older: false,
-              writing: false,
-              stoppable: false,
-              pausedUntil: null,
-            },
-            isInitial: false,
-          }),
-        ),
-        StoryCommand.expectNone(),
+      const result = enqueue(createTestModel(), item);
+      expect(result.model.queue.map((other) => other.id)).toEqual(["q1"]);
+      expect(described(result.commands)).toEqual(
+        described([PostQueued({ item, delay: retryDelays[0] })]),
       );
     });
 
@@ -188,16 +161,18 @@ describe("chat update story tests", () => {
         attempt: { id: "q1", error: "network error", retryAt: 1700000005000 },
       });
 
-      story(
-        update,
-        given(base),
-        message(Message.MessageQueued({ item: second })),
-        model((m) => {
-          expect(m.queue.length).toBe(2);
-          expect(m.queue[1].id).toBe("q2");
-        }),
-        StoryCommand.expectNone(),
-      );
+      const result = enqueue(base, second);
+      expect(result.model.queue.map((other) => other.id)).toEqual(["q1", "q2"]);
+      expect(result.commands ?? []).toEqual([]);
+    });
+
+    it("keeps one queue entry for a message that the outbox read already added", () => {
+      const item = createQueuedItem("q1", "First message");
+      const base = createTestModel({ queue: [item] });
+
+      const result = enqueue(base, item);
+      expect(result.model).toBe(base);
+      expect(result.commands ?? []).toEqual([]);
     });
 
     it("marks sent item on SendAttemptSucceeded and triggers PostQueued for next item", () => {
@@ -1199,7 +1174,7 @@ describe("chat update story tests", () => {
         message(Message.StopChatCompleted({ error: "Stop failed" })),
         model((m) => {
           expect(m.stopping).toBe(false);
-          expect(m.sendError).toBe("Stop failed");
+          expect(m.composer.sendError).toBe("Stop failed");
         }),
         StoryCommand.expectNone(),
       );
@@ -1633,10 +1608,14 @@ describe("chat update story tests", () => {
 
       expect(
         described(update(base, Message.VoiceButtonClicked({ target: "chat" })).commands),
-      ).toEqual(described([ToggleVoice({ key: "chatDraft:test-org/test-repo/1428" })]));
+      ).toEqual(
+        described([
+          ToggleVoice({ key: "chatDraft:test-org/test-repo/1428", fieldId: "chat-input" }),
+        ]),
+      );
       expect(
         described(update(base, Message.VoiceButtonClicked({ target: "answer" })).commands),
-      ).toEqual(described([ToggleVoice({ key: "answerDraft:7" })]));
+      ).toEqual(described([ToggleVoice({ key: "answerDraft:7", fieldId: "answer-input" })]));
       expect(
         update(createTestModel(), Message.VoiceButtonClicked({ target: "answer" })).commands ?? [],
       ).toEqual([]);
@@ -1647,7 +1626,7 @@ describe("chat update story tests", () => {
 
       expect(
         described(update(base, Message.VoiceResendClicked({ target: "answer" })).commands),
-      ).toEqual(described([ResendVoice({ key: "answerDraft:7" })]));
+      ).toEqual(described([ResendVoice({ key: "answerDraft:7", fieldId: "answer-input" })]));
       expect(
         described(update(base, Message.VoiceRemoveClicked({ target: "chat" })).commands),
       ).toEqual(described([RemoveVoice({ key: "chatDraft:test-org/test-repo/1428" })]));
@@ -1691,11 +1670,6 @@ describe("chat update story tests", () => {
       const result = update(base, Message.OpenAnswerPanel({ item: question }));
       expect(result.model.answerText).toBe("Typed.");
       expect(result.model.answerLoaded).toBe(true);
-    });
-
-    it("shows the error of a refused message", () => {
-      const result = update(createTestModel(), Message.MessageRefused({ error: "No room." }));
-      expect(result.model.sendError).toBe("No room.");
     });
 
     it("scrolls to the first blocking todo of a pull request", () => {

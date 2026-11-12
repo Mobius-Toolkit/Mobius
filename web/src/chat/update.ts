@@ -34,6 +34,7 @@ import {
 import { InboxItemKind } from "@/api/api.gen";
 import { answerDraftKey } from "@/lib/draft";
 import { issueRef } from "@/lib/notice";
+import { answerInputId } from "./composer";
 import { Message, toGotComposerMessage } from "./message";
 type Running = "action" | "dismiss" | "merge";
 import {
@@ -45,7 +46,21 @@ import {
   type Model,
   type Waiting,
 } from "./model";
-import { InboxItem } from "./schemas";
+import { InboxItem, type Queued } from "./schemas";
+
+export function enqueue(model: Model, item: Queued): UpdateReturn<Model, Message> {
+  if (model.queue.some((other) => other.id === item.id)) {
+    return { model };
+  }
+  const queue: Waiting[] = [...model.queue, item];
+  const next = queue.find((i) => !i.sent);
+  const commands = [];
+  if (next && !model.attempt && next.id === item.id) {
+    const delay = retryDelays[0];
+    commands.push(PostQueued({ item: next, delay }));
+  }
+  return { model: { ...model, queue }, commands };
+}
 
 const foldComposer = Update.foldChild({
   update: Composer.update,
@@ -72,23 +87,16 @@ const foldComposer = Update.foldChild({
             },
       MessageEnqueued:
         ({ item }) =>
-        (model) => {
-          const queue: Waiting[] = [...model.queue, item];
-          const next = queue.find((i) => !i.sent);
-          const commands = [];
-          if (next && !model.attempt && next.id === item.id) {
-            const delay = retryDelays[0];
-            commands.push(PostQueued({ item: next, delay }));
-          }
-          return {
-            model: {
-              ...model,
-              queue,
-            },
-            commands,
-          };
-        },
+        (model) =>
+          enqueue(model, item),
     }),
+});
+
+const foldSendError = Update.foldChild({
+  update: (composer: Composer.Model, error: string) => Composer.setSendError(composer, error),
+  read: (model: Model) => Option.some(model.composer),
+  write: (model, composer) => ({ ...model, composer }),
+  toParentMessage: toGotComposerMessage,
 });
 
 const foldAddInboxItem = Update.foldChild({
@@ -98,12 +106,15 @@ const foldAddInboxItem = Update.foldChild({
   toParentMessage: toGotComposerMessage,
 });
 
-// The draft key of the field that a voice Message names: the field of the chat, or the field of the open answer panel.
-function voiceKey(model: Model, target: "chat" | "answer") {
+// The draft key and the element id of the field that a voice Message names: the field of the chat, or the field of
+// the open answer panel.
+function voiceField(model: Model, target: "chat" | "answer") {
   if (target === "chat") {
-    return model.composer.draftKey;
+    return { key: model.composer.draftKey, fieldId: Composer.inputId(model.composer.instance) };
   }
-  return model.activePanel ? answerDraftKey(model.activePanel.item.id) : null;
+  return model.activePanel
+    ? { key: answerDraftKey(model.activePanel.item.id), fieldId: answerInputId }
+    : null;
 }
 
 function hasSelection(model: Model) {
@@ -593,25 +604,6 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
       },
     }),
 
-    MessageRefused: ({ error }) => ({ model: { ...model, sendError: error } }),
-
-    MessageQueued: ({ item }) => {
-      const queue: Waiting[] = [...model.queue, item];
-      const next = queue.find((i) => !i.sent);
-      const commands = [];
-      if (next && !model.attempt && next.id === item.id) {
-        const delay = retryDelays[0];
-        commands.push(PostQueued({ item: next, delay }));
-      }
-      return {
-        model: {
-          ...model,
-          queue,
-        },
-        commands,
-      };
-    },
-
     SendAttemptSucceeded: ({ id }) => {
       const queue = model.queue.map((item) => (item.id === id ? { ...item, sent: true } : item));
       const next = queue.find((item) => !item.sent);
@@ -731,7 +723,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
 
     // After a success the button stays pending until the server says that the chat is not stoppable.
     StopChatCompleted: ({ error }) =>
-      error === null ? { model } : { model: { ...model, stopping: false, sendError: error } },
+      error === null ? { model } : foldSendError({ ...model, stopping: false }, error),
 
     GotComposerMessage: ({ message: composerMsg }) => foldComposer(model, composerMsg),
 
@@ -1078,18 +1070,22 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
     },
 
     VoiceButtonClicked: ({ target }) => {
-      const key = voiceKey(model, target);
-      return key === null ? { model } : { model, commands: [ToggleVoice({ key })] };
+      const field = voiceField(model, target);
+      return field === null
+        ? { model }
+        : { model, commands: [ToggleVoice({ key: field.key, fieldId: field.fieldId })] };
     },
 
     VoiceResendClicked: ({ target }) => {
-      const key = voiceKey(model, target);
-      return key === null ? { model } : { model, commands: [ResendVoice({ key })] };
+      const field = voiceField(model, target);
+      return field === null
+        ? { model }
+        : { model, commands: [ResendVoice({ key: field.key, fieldId: field.fieldId })] };
     },
 
     VoiceRemoveClicked: ({ target }) => {
-      const key = voiceKey(model, target);
-      return key === null ? { model } : { model, commands: [RemoveVoice({ key })] };
+      const field = voiceField(model, target);
+      return field === null ? { model } : { model, commands: [RemoveVoice({ key: field.key })] };
     },
 
     VoiceChanged: ({ voice }) => ({ model: { ...model, voice } }),

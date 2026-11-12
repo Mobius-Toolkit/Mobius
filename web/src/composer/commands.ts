@@ -121,10 +121,13 @@ export const StopVoice = Command.define("StopVoice", {
 });
 
 export const ResendVoice = Command.define("ResendVoice", {
-  args: { key: Schema.String },
+  args: { key: Schema.String, fieldId: Schema.String },
   messages: [Message.CompletedResendVoice],
-  execute: ({ key }) =>
-    store(() => resend(key)).pipe(Effect.ignore, Effect.as(Message.CompletedResendVoice())),
+  execute: ({ key, fieldId }) =>
+    store(() => resend(key, fieldId)).pipe(
+      Effect.ignore,
+      Effect.as(Message.CompletedResendVoice()),
+    ),
 });
 
 export const RemoveVoice = Command.define("RemoveVoice", {

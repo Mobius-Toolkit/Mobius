@@ -37,6 +37,9 @@ function createTestModel(overrides: Partial<Model> = {}): Model {
     instance: "chat",
     label: "Message to the Lead",
     placeholder: "Write to the Lead",
+    organization: "test-org",
+    repository: "test-repo",
+    workstream: 1428,
   });
   return {
     ...base,
@@ -175,7 +178,7 @@ describe("composer update story tests", () => {
     const base = createTestModel();
 
     expect(described(update(base, Message.VoiceResendClicked()).commands)).toEqual(
-      described([ResendVoice({ key: "chatDraft:test-org/test-repo/1428" })]),
+      described([ResendVoice({ key: "chatDraft:test-org/test-repo/1428", fieldId: "chat-input" })]),
     );
     expect(described(update(base, Message.VoiceRemoveClicked()).commands)).toEqual(
       described([RemoveVoice({ key: "chatDraft:test-org/test-repo/1428" })]),

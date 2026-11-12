@@ -146,7 +146,7 @@ export function update(model: Model, message: Message): UpdateReturn {
 
     VoiceResendClicked: () => ({
       model,
-      commands: [ResendVoice({ key: model.draftKey })],
+      commands: [ResendVoice({ key: model.draftKey, fieldId: inputId(model.instance) })],
     }),
 
     VoiceRemoveClicked: () => ({
@@ -183,4 +183,8 @@ export function addDraftInboxItem(
     model: { ...model, draftInboxItems: nextItems },
     commands: [SaveDraftInboxItems({ key: model.draftKey, inboxItems: nextItems })],
   };
+}
+
+export function setSendError(model: Model, error: string): Update.Return<Model, Message> {
+  return { model: { ...model, sendError: error }, commands: [] };
 }

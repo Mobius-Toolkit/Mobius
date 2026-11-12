@@ -38,8 +38,6 @@ export const Message = defineMessageUnion({
 
   QueueLoaded: { items: Schema.Array(Queued) },
   QueueFailed: { error: Schema.String },
-  MessageRefused: { error: Schema.String },
-  MessageQueued: { item: Queued },
   SendAttemptSucceeded: { id: Schema.String },
   SendAttemptFailed: { id: Schema.String, error: Schema.String, retryAt: Schema.Number },
   RetryDue: { id: Schema.String, sequence: Schema.Number },

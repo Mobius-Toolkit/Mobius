@@ -11,22 +11,6 @@ import {
 export const inputId = (instance: string) => `${instance}-input`;
 export const pickerId = (instance: string) => `${instance}-attach`;
 
-export function parseChatDraftKey(key: string) {
-  if (!key.startsWith("chatDraft:")) {
-    return { organization: "", repository: "", workstream: 0 };
-  }
-  const raw = key.slice("chatDraft:".length);
-  const firstSlash = raw.indexOf("/");
-  const lastSlash = raw.lastIndexOf("/");
-  if (firstSlash === -1 || lastSlash === -1) {
-    return { organization: "", repository: "", workstream: 0 };
-  }
-  const organization = raw.slice(0, firstSlash);
-  const repository = raw.slice(firstSlash + 1, lastSlash);
-  const workstream = Number(raw.slice(lastSlash + 1)) || 0;
-  return { organization, repository, workstream };
-}
-
 export const isEmptyDraft = (model: {
   draftText: string;
   draftImages: readonly File[];
@@ -62,29 +46,12 @@ export function initialModel(options: {
   instance: string;
   label: string;
   placeholder: string;
-  organization?: string;
-  repository?: string;
-  workstream?: number;
+  organization: string;
+  repository: string;
+  workstream: number;
 }): Model {
-  const chat =
-    options.organization !== undefined &&
-    options.repository !== undefined &&
-    options.workstream !== undefined
-      ? {
-          organization: options.organization,
-          repository: options.repository,
-          workstream: options.workstream,
-        }
-      : parseChatDraftKey(options.draftKey);
-
   return {
-    draftKey: options.draftKey,
-    instance: options.instance,
-    label: options.label,
-    placeholder: options.placeholder,
-    organization: chat.organization,
-    repository: chat.repository,
-    workstream: chat.workstream,
+    ...options,
     draftText: "",
     draftImages: [],
     draftInboxItems: [],

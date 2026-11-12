@@ -661,11 +661,11 @@ export const RunTrayAction = Command.define("RunTrayAction", {
 });
 
 export const ToggleVoice = Command.define("ToggleVoice", {
-  args: { key: Schema.String },
+  args: { key: Schema.String, fieldId: Schema.String },
   messages: [Message.CompletedToggleVoice],
-  execute: ({ key }) =>
+  execute: ({ key, fieldId }) =>
     Effect.sync(() => {
-      toggleVoice(key);
+      toggleVoice(key, fieldId);
       return Message.CompletedToggleVoice();
     }),
 });
@@ -679,10 +679,13 @@ export const StopVoice = Command.define("StopVoice", {
 });
 
 export const ResendVoice = Command.define("ResendVoice", {
-  args: { key: Schema.String },
+  args: { key: Schema.String, fieldId: Schema.String },
   messages: [Message.CompletedResendVoice],
-  execute: ({ key }) =>
-    store(() => resend(key)).pipe(Effect.ignore, Effect.as(Message.CompletedResendVoice())),
+  execute: ({ key, fieldId }) =>
+    store(() => resend(key, fieldId)).pipe(
+      Effect.ignore,
+      Effect.as(Message.CompletedResendVoice()),
+    ),
 });
 
 export const RemoveVoice = Command.define("RemoveVoice", {

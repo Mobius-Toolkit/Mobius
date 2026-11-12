@@ -14,7 +14,7 @@ import { Message } from "./message";
 import { inputId, type Model } from "./model";
 import type { Draft } from "@/chat/schemas";
 
-export function draftValues<Msg = Message>(key: string, toMessage: (draft: Draft) => Msg) {
+export function draftValues<Msg>(key: string, toMessage: (draft: Draft) => Msg) {
   return Stream.callback<Msg>((queue) =>
     Effect.gen(function* () {
       let last: StoredDraft | undefined;
@@ -56,8 +56,8 @@ function insertAtCursor(key: string, fieldId: string) {
   };
 }
 
-export function voiceInput<Msg = Message>(key: string, fieldId: string) {
-  return Stream.callback<Msg>(() =>
+export function voiceInput(key: string, fieldId: string) {
+  return Stream.callback<never>(() =>
     Effect.gen(function* () {
       const unregister = registerVoiceInput(key, fieldId, insertAtCursor(key, fieldId));
       yield* Effect.addFinalizer(() =>
