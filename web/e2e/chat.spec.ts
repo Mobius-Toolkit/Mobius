@@ -452,7 +452,7 @@ test.describe("on a touch screen", () => {
     await input.press("Enter");
     await input.pressSequentially("four");
     await expect(input).toHaveValue("three\nfour");
-    await page.getByRole("button", { name: "Send" }).tap();
+    await page.getByRole("button", { name: "Send", exact: true }).tap();
     await expect.poll(() => sent(page)).toContain("three\nfour");
     expect(await sent(page)).not.toContain("three");
   });
@@ -462,7 +462,7 @@ test.describe("on a touch screen", () => {
   }) => {
     await page.goto(shop);
     const input = page.getByLabel("Message to the Lead");
-    const send = page.getByRole("button", { name: "Send" });
+    const send = page.getByRole("button", { name: "Send", exact: true });
     await expect(input).toBeEditable();
     await input.pressSequentially("double");
     await expect(input).toHaveValue("double");
@@ -521,7 +521,7 @@ test.describe("on a touch screen", () => {
     await input.tap();
     await page.keyboard.type("one tap");
     await expect(input).toBeFocused();
-    await page.getByRole("button", { name: "Send" }).tap();
+    await page.getByRole("button", { name: "Send", exact: true }).tap();
     await expect.poll(() => sent(page)).toContain("one tap");
     expect((await sent(page)).filter((text) => text === "one tap")).toHaveLength(1);
     await expect(input).toBeFocused();
@@ -1075,7 +1075,7 @@ test("the messages that came while the connection was down show after the reconn
 
 test("the Coordinator chat stays open after its actions", async ({ page }) => {
   const input = page.getByLabel("Message to the Coordinator");
-  const send = page.getByRole("button", { name: "Send" });
+  const send = page.getByRole("button", { name: "Send", exact: true });
   for (const [size, create, move, title, issue] of [
     [undefined, "Create the desktop Workstream.", "Move #7 to the Workstream.", "Desktop plans", 7],
     [phone, "Create the phone Workstream.", "Move #8 to the Workstream.", "Phone plans", 8],
@@ -1120,7 +1120,7 @@ test("each chat keeps the text that the Owner did not send", async ({ page }) =>
   await page.reload();
   await expect(coordinator).toHaveValue("Plan the garden");
   await page.route("/api/chat/messages", (route) => route.fulfill({ status: 204 }));
-  await page.getByRole("button", { name: "Send" }).click();
+  await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect(coordinator).toHaveValue("");
   await page.reload();
   await expect(coordinator).toHaveValue("");
@@ -1163,7 +1163,7 @@ test("the open chat shows the messages that arrived while the live connection wa
   await logIn(other);
   await other.goto("/workstreams/plants/garden/12");
   await other.getByLabel("Message to the Lead").fill("Water the roses at night.");
-  await other.getByRole("button", { name: "Send" }).click();
+  await other.getByRole("button", { name: "Send", exact: true }).click();
   await expect(other.getByText("Water the roses at night.")).toBeVisible();
   await other.context().close();
   await expect(page.getByText("Water the roses at night.")).toBeHidden();
@@ -1331,7 +1331,7 @@ test("a sent answer closes the panel, and the chat stays open", async ({ page })
     await expect(panel.locator("strong", { hasText: "Question:" })).toBeVisible();
     await panel.getByRole("textbox", { name: "Your answer" }).fill("Ten seats.");
     const response = page.waitForResponse(`**/api/inbox/${id}/answer`);
-    await panel.getByRole("button", { name: "Send" }).click();
+    await panel.getByRole("button", { name: "Send", exact: true }).click();
 
     expect((await response).status()).toBe(200);
     await expect(panel).toHaveCount(0);
@@ -1741,7 +1741,7 @@ test("the note closes the Workstream when all tasks are closed", async ({ page }
 
     // The Lead moves the last open task to another Workstream, and its session still runs.
     await page.getByLabel("Message to the Lead").fill(`Move #${task} to the Workstream #20.`);
-    await page.getByRole("button", { name: "Send" }).click();
+    await page.getByRole("button", { name: "Send", exact: true }).click();
     await page
       .getByRole("main")
       .getByRole("listitem")
@@ -2610,7 +2610,7 @@ test.describe("on a phone with the keyboard", () => {
     const input = page.getByLabel("Message to the Lead");
     await input.tap();
     await page.keyboard.type("keyboard");
-    await page.getByRole("button", { name: "Send" }).tap();
+    await page.getByRole("button", { name: "Send", exact: true }).tap();
     await expect.poll(() => sent(page)).toContain("keyboard");
     await expect.poll(() => page.evaluate(shows("keyboard", "end"))).toBe(true);
     expect(await gap()).toBeCloseTo(0, 0);

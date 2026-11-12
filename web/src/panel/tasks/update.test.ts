@@ -470,14 +470,16 @@ describe("the detail view of a task", () => {
         FetchTaskDetail({
           owner: "owner",
           name: "shop",
-          number: 12,
-          taskOwner: "owner",
-          taskName: "shop",
-          issue: 41,
+          workstream: 12,
+          repository: "owner/shop",
+          number: 41,
         }),
       ),
       StoryCommand.resolve(RestoreScroll, Message.CompletedRestoreScroll()),
-      StoryCommand.resolve(FetchTaskDetail, Message.TaskDetailLoaded({ detail })),
+      StoryCommand.resolve(
+        FetchTaskDetail,
+        Message.TaskDetailLoaded({ repository: "owner/shop", number: 41, detail }),
+      ),
       model((m) => {
         expect(m.detail).toEqual(Option.some(detail));
         expect(m.detailLoading).toBe(false);
@@ -496,10 +498,75 @@ describe("the detail view of a task", () => {
           detailLoading: true,
         }),
       ),
-      message(Message.TaskDetailFailed({ error: "Not found" })),
+      message(
+        Message.TaskDetailFailed({ repository: "owner/shop", number: 41, error: "Not found" }),
+      ),
       model((m) => {
         expect(m.detailLoading).toBe(false);
         expect(m.detailError).toBe("Not found");
+      }),
+    );
+  });
+
+  it("ignores an answer for an earlier task when a different task is opened", () => {
+    const task71 = line(71);
+    const task72 = line(72);
+    const detail71 = {
+      body: "Detail 71",
+      pullRequest: 710,
+      pullRequestUrl: "https://github.com/owner/shop/pull/710",
+    };
+    const detail72 = {
+      body: "Detail 72",
+      pullRequest: 720,
+      pullRequestUrl: "https://github.com/owner/shop/pull/720",
+    };
+
+    story(
+      update,
+      given(
+        createModel({
+          lines: Option.some([task71, task72]),
+          opened: Option.some({ repository: "owner/shop", number: 72 }),
+          detailLoading: true,
+        }),
+      ),
+      message(Message.TaskDetailLoaded({ repository: "owner/shop", number: 71, detail: detail71 })),
+      model((m) => {
+        expect(Option.isNone(m.detail)).toBe(true);
+        expect(m.detailLoading).toBe(true);
+      }),
+      message(
+        Message.TaskDetailFailed({ repository: "owner/shop", number: 71, error: "Not found" }),
+      ),
+      model((m) => {
+        expect(Option.isNone(m.detail)).toBe(true);
+        expect(m.detailLoading).toBe(true);
+        expect(m.detailError).toBe("");
+      }),
+      message(Message.TaskDetailLoaded({ repository: "owner/shop", number: 72, detail: detail72 })),
+      model((m) => {
+        expect(m.detail).toEqual(Option.some(detail72));
+        expect(m.detailLoading).toBe(false);
+        expect(m.detailError).toBe("");
+      }),
+    );
+  });
+
+  it("ignores an answer when no task is opened", () => {
+    story(
+      update,
+      given(createModel()),
+      message(Message.TaskDetailLoaded({ repository: "owner/shop", number: 41, detail })),
+      model((m) => {
+        expect(Option.isNone(m.detail)).toBe(true);
+        expect(m.detailLoading).toBe(false);
+      }),
+      message(
+        Message.TaskDetailFailed({ repository: "owner/shop", number: 41, error: "Not found" }),
+      ),
+      model((m) => {
+        expect(m.detailError).toBe("");
       }),
     );
   });

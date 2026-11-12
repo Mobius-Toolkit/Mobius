@@ -41,7 +41,7 @@ export const unknownTitle = "Message to the Lead of #9999";
 
 export async function ask(page: Page, text: string) {
   await page.getByRole("textbox", { name: "Message to the Coordinator" }).fill(text);
-  await page.getByRole("button", { name: "Send" }).click();
+  await page.getByRole("button", { name: "Send", exact: true }).click();
 }
 
 // The newest card with this title. A card shows the title of its action and no argument.

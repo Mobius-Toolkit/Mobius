@@ -29,6 +29,11 @@ export const refresh = (model: Model): Update.Return<Model, Message> => ({
   commands: reload(model),
 });
 
+const isOpened = (model: Model, repository: string, number: number) =>
+  Option.isSome(model.opened) &&
+  model.opened.value.repository === repository &&
+  model.opened.value.number === number;
+
 const leave = (model: Model): UpdateReturn => ({
   model: {
     ...model,
@@ -101,47 +106,53 @@ export function update(model: Model, message: Message): UpdateReturn {
       model,
       commands: [OpenTask({ instance: model.instance, line })],
     }),
-    OpenedTask: ({ line, scroll }) => {
-      const [taskOwner, taskName] = line.repository.split("/");
+    OpenedTask: ({ line, scroll }) => ({
+      model: {
+        ...model,
+        opened: Option.some({ repository: line.repository, number: line.number }),
+        scroll,
+        detail: Option.none(),
+        detailLoading: true,
+        detailError: "",
+      },
+      commands: [
+        RestoreScroll({ instance: model.instance, scroll: 0 }),
+        FetchTaskDetail({
+          owner: model.owner,
+          name: model.name,
+          workstream: model.number,
+          repository: line.repository,
+          number: line.number,
+        }),
+      ],
+    }),
+    ClickedBack: () => leave(model),
+    CompletedRestoreScroll: () => ({ model }),
+    TaskDetailLoaded: ({ repository, number, detail }) => {
+      if (!isOpened(model, repository, number)) {
+        return { model };
+      }
       return {
         model: {
           ...model,
-          opened: Option.some({ repository: line.repository, number: line.number }),
-          scroll,
-          detail: Option.none(),
-          detailLoading: true,
+          detail: Option.some(detail),
+          detailLoading: false,
           detailError: "",
         },
-        commands: [
-          RestoreScroll({ instance: model.instance, scroll: 0 }),
-          FetchTaskDetail({
-            owner: model.owner,
-            name: model.name,
-            number: model.number,
-            taskOwner,
-            taskName,
-            issue: line.number,
-          }),
-        ],
       };
     },
-    ClickedBack: () => leave(model),
-    CompletedRestoreScroll: () => ({ model }),
-    TaskDetailLoaded: ({ detail }) => ({
-      model: {
-        ...model,
-        detail: Option.some(detail),
-        detailLoading: false,
-        detailError: "",
-      },
-    }),
-    TaskDetailFailed: ({ error }) => ({
-      model: {
-        ...model,
-        detailLoading: false,
-        detailError: error,
-      },
-    }),
+    TaskDetailFailed: ({ repository, number, error }) => {
+      if (!isOpened(model, repository, number)) {
+        return { model };
+      }
+      return {
+        model: {
+          ...model,
+          detailLoading: false,
+          detailError: error,
+        },
+      };
+    },
   });
 }
 

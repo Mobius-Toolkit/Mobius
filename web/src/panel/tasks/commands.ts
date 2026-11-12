@@ -49,27 +49,28 @@ export const FetchTaskDetail = Command.define("FetchTaskDetail", {
   args: {
     owner: Schema.String,
     name: Schema.String,
+    workstream: Schema.Number,
+    repository: Schema.String,
     number: Schema.Number,
-    taskOwner: Schema.String,
-    taskName: Schema.String,
-    issue: Schema.Number,
   },
   messages: [Message.TaskDetailLoaded, Message.LoginRequired, Message.TaskDetailFailed],
-  execute: ({ owner, name, number, taskOwner, taskName, issue }) =>
-    request(() => getTask(owner, name, number, taskOwner, taskName, issue)).pipe(
+  execute: ({ owner, name, workstream, repository, number }) => {
+    const [taskOwner, taskName] = repository.split("/");
+    return request(() => getTask(owner, name, workstream, taskOwner, taskName, number)).pipe(
       Effect.map((res) => {
         if (res.status === 401) {
           return Message.LoginRequired();
         }
         if (res.status !== 200) {
-          return Message.TaskDetailFailed({ error: res.data.error });
+          return Message.TaskDetailFailed({ repository, number, error: res.data.error });
         }
-        return Message.TaskDetailLoaded({ detail: res.data.data });
+        return Message.TaskDetailLoaded({ repository, number, detail: res.data.data });
       }),
       Effect.catchTag("RequestFailed", (error) =>
-        Effect.succeed(Message.TaskDetailFailed({ error: error.message })),
+        Effect.succeed(Message.TaskDetailFailed({ repository, number, error: error.message })),
       ),
-    ),
+    );
+  },
 });
 
 export const FetchTasks = Command.define("FetchTasks", {

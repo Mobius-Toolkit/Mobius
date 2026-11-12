@@ -23,8 +23,16 @@ export const Message = defineMessageUnion({
   OpenedTask: { line: TaskLine, scroll: Schema.Number },
   ClickedBack: {},
   CompletedRestoreScroll: {},
-  TaskDetailLoaded: { detail: TaskDetail },
-  TaskDetailFailed: { error: Schema.String },
+  TaskDetailLoaded: {
+    repository: Schema.String,
+    number: Schema.Number,
+    detail: TaskDetail,
+  },
+  TaskDetailFailed: {
+    repository: Schema.String,
+    number: Schema.Number,
+    error: Schema.String,
+  },
 });
 
 export type Message = typeof Message.Type;
