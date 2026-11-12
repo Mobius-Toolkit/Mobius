@@ -142,7 +142,7 @@ The event can name the head that you or Mobius approved before, and list the com
 
 On the event approved again, Mobius approved the head again with the earlier report. Only clean merges of the default branch came after the approved head, and they change no file of the pull request. You need no tool call.
 
-The merge queue of each repository updates the branch of an approved pull request right before its merge, waits for its CI and for the approval again, and then merges it. Thus the Lead approves a ready pull request also when the default branch has newer commits.
+The merge queue of each repository updates the branch of an approved pull request right before its merge, when the pull request and the newer commits of the default branch change a common file. Then the queue waits for its CI and for the approval again, and then merges it. Else the queue merges the pull request at once. Thus the Lead approves a ready pull request also when the default branch has newer commits.
 
 On the event pull request that waits long for Lead approval, read the pull request again. Then call `approve_pull_request`, call `start_fix_round`, or use `ask` to tell the Owner what blocks it. Mobius sends the event again after the same time.
 
