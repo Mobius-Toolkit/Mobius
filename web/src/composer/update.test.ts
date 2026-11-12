@@ -185,6 +185,11 @@ describe("composer update story tests", () => {
     );
   });
 
+  it("shows the error of a refused message", () => {
+    const result = update(createTestModel(), Message.MessageRefused({ error: "No room." }));
+    expect(result.model.sendError).toBe("No room.");
+  });
+
   it("takes the voice state and the time from the Subscriptions", () => {
     const voice = {
       recording: true,
