@@ -487,8 +487,8 @@ func rerunWaiting(task store.Task, state ci) []string {
 
 // retryCancelledRuns runs again each newest workflow run of the head that Mobius cancelled and whose rerun is still to
 // do, when the run completed. GitHub cancels a run after it answers the cancel, so the first rerun can come too early.
-// A run that GitHub refuses again goes to updateBranchOfRun. A cancelled run that Mobius acted on does not count as a
-// failed workflow, because the read of the poll can still show the cancel after the rerun.
+// A run that GitHub refuses again goes to updateBranchOfRun. A cancelled first attempt that Mobius acted on does not
+// count as a failed workflow, because the read of the poll can still show the cancel after the rerun.
 func (e *Engine) retryCancelledRuns(ctx context.Context, repository github.Repository, pullRequest *gh.PullRequest, state *ci) error {
 	var updatedBranch bool
 	for _, run := range state.newestWorkflows {
@@ -518,7 +518,7 @@ func (e *Engine) retryCancelledRuns(ctx context.Context, repository github.Repos
 	for _, run := range state.newestWorkflows {
 		switch {
 		case !failedWorkflowRun(run):
-		case cancelledRun(run) && e.refusedRuns[run.GetID()] != 0:
+		case cancelledRun(run) && run.GetRunAttempt() == 1 && e.refusedRuns[run.GetID()] != 0:
 			state.running = true
 			if !slices.Contains(state.incomplete, run.GetName()) {
 				state.incomplete = append(state.incomplete, run.GetName())
