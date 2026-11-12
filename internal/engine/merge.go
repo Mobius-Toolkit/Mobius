@@ -69,11 +69,12 @@ func awaitsMerge(task store.Task) bool {
 // auto_merge also needs a Workstream with a merge level, else its automatic merge ends (endAutoMerge), and the Merge
 // switch on, else its automatic merge pauses (pauseAutoMerge).
 //
-// Only the head of the merge queue updates its branch and merges: when its head does not contain the default branch, it
-// updates the branch (updateForMerge). Its head with no Mobius check run, for example after the update of the branch,
-// sends the task in ready_for_review back to checks (returnForApproval). When the head contains the default branch, it
-// squash merges the pull request. It gives true when GitHub merged the pull request, and then it dismisses the open
-// ready for review Inbox items of the issue and leaves the queue. When GitHub refuses the merge, the open ready for
+// Only the head of the merge queue updates its branch and merges: when its head does not contain the default branch and
+// the pull request and the new commits of the default branch change a common file, it updates the branch
+// (updateForMerge). A head that is behind with no common file merges with its approval. A head with no Mobius check
+// run, for example after the update of the branch, sends the task in ready_for_review back to checks
+// (returnForApproval). When the head has no wait, it squash merges the pull request. It gives true when GitHub merged the pull request, and then it dismisses the open
+// ready for review Inbox items of the issue and leaves the queue. It does not end the task: checkTask does that. When GitHub refuses the merge, the open ready for
 // review Inbox item of the issue gets the reason and the Lead gets an event, and the poll does not try again until a
 // new APPROVED review. A refusal for a pull request that a person merged in the meantime is no refusal: the next read
 // of the pull request goes to GitHub, and the poll ends the task.

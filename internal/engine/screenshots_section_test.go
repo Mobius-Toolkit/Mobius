@@ -197,7 +197,7 @@ func TestATaskInApprovalReadsThePullRequestOneTimeAndLaterPollsReadNoNewCopy(t *
 	}
 }
 
-func TestTheHeadOfTheMergeQueueLeavesChecksAfterTheBranchUpdateWhenTheBodyChangesWithNoIssueListChange(t *testing.T) {
+func TestTheHeadOfTheMergeQueueLeavesChecksAfterAMergeOfTheDefaultBranchWhenTheBodyChangesWithNoIssueListChange(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := queueTasks(t, fake, "merge", []int{41})
@@ -206,10 +206,12 @@ func TestTheHeadOfTheMergeQueueLeavesChecksAfterTheBranchUpdateWhenTheBodyChange
 	waitForPolls(t, fake)
 	old := head(t, fake, "mobius/41")
 	fake.CommitFile(shop, "price.txt", "cents\n", "Add price")
+	update := mergeMainAtMerge(fake)
 
 	sendChat(t, server, leadChat, "Approve #41")
+	update()
 
-	testkit.WaitFor(t, func() bool { return fake.UpdateBranchCalls() == 1 && liveTaskState(t, server, 41) == "checks" })
+	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, 41) == "checks" })
 	if head(t, fake, "mobius/41") == old {
 		t.Fatal("the head did not change")
 	}
@@ -221,7 +223,7 @@ func TestTheHeadOfTheMergeQueueLeavesChecksAfterTheBranchUpdateWhenTheBodyChange
 	fake.SetPullRequestBody(shop, pull, screenshotsSectionOf("No screen changed."))
 
 	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, 41) == "" })
-	if calls := fake.MergeCalls(); calls != 1 {
-		t.Errorf("merge calls = %d, want 1", calls)
+	if calls := fake.MergeCalls(); calls != 2 {
+		t.Errorf("merge calls = %d, want 2 with the request with the old head", calls)
 	}
 }
