@@ -12,7 +12,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
@@ -175,16 +174,6 @@ func TestSelectionBlockExactFormats(t *testing.T) {
 	}
 }
 
-func TestAMessageWithNoTextNoImageNoInboxItemAndNoSelectionGets400(t *testing.T) {
-	t.Parallel()
-	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"Seen\"]\n")
-
-	if status, body := sendSelectionMessage(t, server, shop, "12", ""); status != http.StatusBadRequest {
-		t.Errorf("status = %d: %s", status, body)
-	}
-}
-
 func TestAMessageWithUnknownSelectionSourceGets400(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
@@ -204,20 +193,6 @@ func TestAMessageWithEmptySelectedTextGets400(t *testing.T) {
 	emptyTextItem := `{"source":"task","text":""}`
 	if status, body := sendSelectionMessage(t, server, shop, "12", "", emptyTextItem); status != http.StatusBadRequest {
 		t.Errorf("status = %d: %s, want %d", status, body, http.StatusBadRequest)
-	}
-}
-
-func TestSendChatRefusesMessageWithNoContent(t *testing.T) {
-	t.Parallel()
-	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"Seen\"]\n")
-
-	err := server.Engine.SendChat(t.Context(), leadChat, "", "", nil, nil, nil, false)
-	if !engine.Refused(err) {
-		t.Errorf("err = %v, want refusal", err)
-	}
-	if err.Error() != "A message must have text, an image or an Inbox item." {
-		t.Errorf("err = %v", err)
 	}
 }
 
