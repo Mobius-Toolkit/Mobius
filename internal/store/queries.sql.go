@@ -585,6 +585,33 @@ func (q *Queries) AddHeldWork(ctx context.Context, arg AddHeldWorkParams) (int64
 	return result.RowsAffected()
 }
 
+const addImplementerBinding = `-- name: AddImplementerBinding :one
+INSERT INTO implementer_bindings (harness, model, effort, context, max, updated_at) VALUES (?, ?, ?, ?, ?, ?) RETURNING id
+`
+
+type AddImplementerBindingParams struct {
+	Harness   string
+	Model     string
+	Effort    string
+	Context   int64
+	Max       int64
+	UpdatedAt string
+}
+
+func (q *Queries) AddImplementerBinding(ctx context.Context, arg AddImplementerBindingParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, addImplementerBinding,
+		arg.Harness,
+		arg.Model,
+		arg.Effort,
+		arg.Context,
+		arg.Max,
+		arg.UpdatedAt,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const addInboxItem = `-- name: AddInboxItem :one
 INSERT INTO inbox_items (kind, organization, repository, workstream_repository, workstream, issue, title, reason, text, link, pull_request, report_link, chat_message, merging, questions, time)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -1906,6 +1933,15 @@ DELETE FROM held_work WHERE kind = ?
 
 func (q *Queries) DeleteHeldWork(ctx context.Context, kind string) error {
 	_, err := q.db.ExecContext(ctx, deleteHeldWork, kind)
+	return err
+}
+
+const deleteImplementerBinding = `-- name: DeleteImplementerBinding :exec
+DELETE FROM implementer_bindings WHERE id = ?
+`
+
+func (q *Queries) DeleteImplementerBinding(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, deleteImplementerBinding, id)
 	return err
 }
 
@@ -6622,6 +6658,41 @@ func (q *Queries) ListHungSessionsSince(ctx context.Context, arg ListHungSession
 	return items, nil
 }
 
+const listImplementerBindings = `-- name: ListImplementerBindings :many
+SELECT id, harness, model, effort, context, max, updated_at FROM implementer_bindings ORDER BY id
+`
+
+func (q *Queries) ListImplementerBindings(ctx context.Context) ([]ImplementerBinding, error) {
+	rows, err := q.db.QueryContext(ctx, listImplementerBindings)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ImplementerBinding
+	for rows.Next() {
+		var i ImplementerBinding
+		if err := rows.Scan(
+			&i.ID,
+			&i.Harness,
+			&i.Model,
+			&i.Effort,
+			&i.Context,
+			&i.Max,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listIssueBindings = `-- name: ListIssueBindings :many
 SELECT repository, issue, role, harness, model, effort, updated_at FROM issue_bindings ORDER BY repository, issue, role
 `
@@ -10997,6 +11068,33 @@ func (q *Queries) UpdateCopiedWorkstream(ctx context.Context, arg UpdateCopiedWo
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const updateImplementerBinding = `-- name: UpdateImplementerBinding :exec
+UPDATE implementer_bindings SET harness = ?, model = ?, effort = ?, context = ?, max = ?, updated_at = ? WHERE id = ?
+`
+
+type UpdateImplementerBindingParams struct {
+	Harness   string
+	Model     string
+	Effort    string
+	Context   int64
+	Max       int64
+	UpdatedAt string
+	ID        int64
+}
+
+func (q *Queries) UpdateImplementerBinding(ctx context.Context, arg UpdateImplementerBindingParams) error {
+	_, err := q.db.ExecContext(ctx, updateImplementerBinding,
+		arg.Harness,
+		arg.Model,
+		arg.Effort,
+		arg.Context,
+		arg.Max,
+		arg.UpdatedAt,
+		arg.ID,
+	)
+	return err
 }
 
 const updateMcpServer = `-- name: UpdateMcpServer :one

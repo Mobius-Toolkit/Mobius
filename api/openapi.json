@@ -3826,6 +3826,201 @@
         ]
       }
     },
+    "/api/roles/implementer/bindings": {
+      "post": {
+        "description": "AddImplementerBinding adds an Implementer binding at the end of the list. It returns 422 with the reason when the values fail a check.",
+        "operationId": "AddImplementerBinding",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BindingBodyBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_Role"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "roles"
+        ]
+      }
+    },
+    "/api/roles/implementer/bindings/{id}": {
+      "put": {
+        "description": "SetImplementerBinding changes an Implementer binding after the first binding. It returns 404 for an unknown id and 422 with the reason when the values fail a check.",
+        "operationId": "SetImplementerBinding",
+        "parameters": [
+          {
+            "description": "ID is the id of the binding",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BindingBodyBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_Role"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "roles"
+        ]
+      },
+      "delete": {
+        "description": "RemoveImplementerBinding removes an Implementer binding. The id 0 is the first binding, which the second binding replaces. It returns 404 for an unknown id and 422 with the reason when the removal fails a check.",
+        "operationId": "RemoveImplementerBinding",
+        "parameters": [
+          {
+            "description": "ID is the id of the binding, or 0 for the first binding",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_Role"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "roles"
+        ]
+      }
+    },
     "/api/roles/{role}": {
       "put": {
         "description": "SetRole sets the values of a Role. The next session of the Role uses them. It returns 422 with the reason when the values fail a check.",
@@ -7395,6 +7590,33 @@
           }
         }
       },
+      "BindingBodyBody": {
+        "type": "object",
+        "title": "BindingBodyBody",
+        "properties": {
+          "context": {
+            "type": "integer",
+            "description": "Context is the largest context of a session in tokens, or 0 for no limit"
+          },
+          "effort": {
+            "type": "string",
+            "description": "Effort is the effort level of the binding. It is empty for a Harness with no effort levels."
+          },
+          "harness": {
+            "type": "string",
+            "description": "Harness is the agent program of the binding"
+          },
+          "max": {
+            "type": "integer",
+            "description": "Max is the number of sessions of the binding that run at the same time"
+          },
+          "model": {
+            "type": "string",
+            "description": "Model is the model of the binding"
+          }
+        },
+        "description": "BindingBody is the body of AddImplementerBinding and SetImplementerBinding."
+      },
       "Blocker": {
         "type": "object",
         "title": "Blocker",
@@ -10092,6 +10314,45 @@
         ],
         "description": "ModelChoice is a model of a Harness with its effort levels."
       },
+      "MoreBinding": {
+        "type": "object",
+        "title": "MoreBinding",
+        "properties": {
+          "context": {
+            "type": "integer",
+            "description": "Context is the largest context of a session in tokens, or 0 for no limit"
+          },
+          "effort": {
+            "type": "string",
+            "description": "Effort is the effort level of the binding, or empty for a Harness with no effort levels"
+          },
+          "harness": {
+            "type": "string",
+            "description": "Harness is the agent program of the binding"
+          },
+          "id": {
+            "type": "integer",
+            "description": "ID is the id of the binding"
+          },
+          "max": {
+            "type": "integer",
+            "description": "Max is the number of sessions of the binding that run at the same time"
+          },
+          "model": {
+            "type": "string",
+            "description": "Model is the model of the binding"
+          }
+        },
+        "required": [
+          "id",
+          "harness",
+          "model",
+          "effort",
+          "context",
+          "max"
+        ],
+        "description": "MoreBinding is an Implementer binding after the first binding."
+      },
       "NeedsHuman": {
         "type": "object",
         "title": "NeedsHuman",
@@ -10787,6 +11048,14 @@
             "type": "string",
             "description": "Model is the model of the Role"
           },
+          "moreBindings": {
+            "type": "array",
+            "title": "[]MoreBinding",
+            "description": "MoreBindings are the Implementer bindings after the first binding, in the order of the list. It is empty for each other Role.",
+            "items": {
+              "$ref": "#/components/schemas/MoreBinding"
+            }
+          },
           "role": {
             "type": "string",
             "description": "Role is the name of the Role"
@@ -10803,7 +11072,8 @@
           "effort",
           "context",
           "max",
-          "ui"
+          "ui",
+          "moreBindings"
         ],
         "description": "Role is the binding of a Role to a Harness, with the source of each value."
       },
