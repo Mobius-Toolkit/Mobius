@@ -180,7 +180,7 @@ func TestAMessageWithUnknownSelectionSourceGets400(t *testing.T) {
 	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"Seen\"]\n")
 
 	invalidSourceItem := `{"source":"x","text":"the selected text"}`
-	if status, body := sendSelectionMessage(t, server, shop, "12", "", invalidSourceItem); status != http.StatusBadRequest {
+	if status, body := sendSelectionMessage(t, server, shop, "12", "Look", invalidSourceItem); status != http.StatusBadRequest {
 		t.Errorf("status = %d: %s, want %d", status, body, http.StatusBadRequest)
 	}
 }
@@ -191,7 +191,7 @@ func TestAMessageWithEmptySelectedTextGets400(t *testing.T) {
 	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"Seen\"]\n")
 
 	emptyTextItem := `{"source":"task","text":""}`
-	if status, body := sendSelectionMessage(t, server, shop, "12", "", emptyTextItem); status != http.StatusBadRequest {
+	if status, body := sendSelectionMessage(t, server, shop, "12", "Look", emptyTextItem); status != http.StatusBadRequest {
 		t.Errorf("status = %d: %s, want %d", status, body, http.StatusBadRequest)
 	}
 }
