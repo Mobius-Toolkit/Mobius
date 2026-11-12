@@ -1273,7 +1273,7 @@ func (e *Engine) implement(ctx context.Context, a *Agent, j *job) (result, error
 		return result{}, err
 	}
 	if added {
-		failure, err := e.initWorktree(ctx, a)
+		failure, err := e.initWorktree(ctx, a, j)
 		if err != nil {
 			return result{}, err
 		}
@@ -1365,7 +1365,7 @@ func (e *Engine) prepareWorktree(ctx context.Context, j *job, worktree string) (
 
 // initWorktree runs .mobius/init of the new worktree of a. It gives the section that starts the first prompt when the
 // script fails or does not end in check_timeout, and an empty text in each other case.
-func (e *Engine) initWorktree(ctx context.Context, a *Agent) (string, error) {
+func (e *Engine) initWorktree(ctx context.Context, a *Agent, j *job) (string, error) {
 	if _, err := os.Stat(filepath.Join(a.spec.Dir, ".mobius", "init")); errors.Is(err, fs.ErrNotExist) {
 		return "", nil
 	}
@@ -1398,6 +1398,9 @@ func (e *Engine) initWorktree(ctx context.Context, a *Agent) (string, error) {
 	}
 	if passed {
 		return "", nil
+	}
+	if err := e.recordInitFailure(ctx, a, j, result, output); err != nil {
+		log.Printf("store the failure of the init script of the session %d: %v", a.id, err)
 	}
 	return fmt.Sprintf("# Setup failed\n\nThe setup script `.mobius/init` of the new worktree %s. Do the setup yourself before you run tests or lint. The output ends with these lines:\n\n```\n%s\n```\n\n", reason, tail(output, logTail)), nil
 }

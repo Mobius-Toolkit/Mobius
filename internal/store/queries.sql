@@ -1189,6 +1189,20 @@ UPDATE check_timeouts SET issue = ? WHERE id = ?;
 -- name: EndCheckTimeout :exec
 UPDATE check_timeouts SET ended_at = ? WHERE id = ?;
 
+-- name: AddInitFailure :exec
+INSERT INTO init_failures (repository, task_issue, session, commit_sha, result, output, created_at)
+SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7
+WHERE NOT EXISTS (SELECT 1 FROM init_failures WHERE repository = ?1 AND ended_at = '');
+
+-- name: GetOpenInitFailure :one
+SELECT * FROM init_failures WHERE repository = ? AND ended_at = '';
+
+-- name: SetInitFailureIssue :exec
+UPDATE init_failures SET issue = ? WHERE id = ?;
+
+-- name: EndInitFailure :exec
+UPDATE init_failures SET ended_at = ? WHERE id = ?;
+
 -- name: AddOwnerAnswer :exec
 INSERT OR IGNORE INTO owner_answers (repository, comment_id) VALUES (?, ?);
 
