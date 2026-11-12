@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"database/sql"
 	"fmt"
 	"net/http"
 	"slices"
@@ -1011,19 +1012,8 @@ func TestMergeQueueReEntryOfARemovedHeadGoesAfterTheNextTask(t *testing.T) {
 	fake.SetCheckRunStatus(ci41, "completed", "success")
 
 	testkit.WaitFor(t, func() bool { return liveTask(t, server, 41).MergeQueuedAt.Valid })
-	var issues []int64
-	rows, err := server.DB.Query("SELECT issue FROM tasks WHERE repository = ? AND state <> 'ended' AND merge_queued_at IS NOT NULL ORDER BY julianday(merge_queued_at), id", shop)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var issue int64
-		if err := rows.Scan(&issue); err != nil {
-			t.Fatal(err)
-		}
-		issues = append(issues, issue)
-	}
+	issues := query(t, server, func(rows *sql.Rows, issue *int64) error { return rows.Scan(issue) },
+		"SELECT issue FROM tasks WHERE repository = ? AND state <> 'ended' AND merge_queued_at IS NOT NULL ORDER BY julianday(merge_queued_at), id", shop)
 	if !slices.Equal(issues, []int64{43, 41}) {
 		t.Errorf("queue = %v, want [43 41]", issues)
 	}
