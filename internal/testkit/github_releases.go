@@ -55,6 +55,13 @@ func (g *FakeGitHub) FailReleaseAssets(status int) {
 	g.releaseAssetFailure = status
 }
 
+// SetReleaseHasNoProgram makes each archive of the storage route have no program mobius.
+func (g *FakeGitHub) SetReleaseHasNoProgram(on bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.releaseHasNoProgram = on
+}
+
 // releaseAsset needs no token, as on GitHub for a public repository. With the media type application/octet-stream it
 // redirects to the storage route, as GitHub does.
 func (g *FakeGitHub) releaseAsset(w http.ResponseWriter, r *http.Request) {
@@ -84,9 +91,13 @@ func (g *FakeGitHub) releaseStorage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	program := []byte(g.latestRelease.TagName + "/" + asset.Name)
+	name := "mobius"
+	if g.releaseHasNoProgram {
+		name = "README"
+	}
 	zipped := gzip.NewWriter(w)
 	archive := tar.NewWriter(zipped)
-	_ = archive.WriteHeader(&tar.Header{Name: "mobius", Mode: 0o755, Size: int64(len(program))})
+	_ = archive.WriteHeader(&tar.Header{Name: name, Mode: 0o755, Size: int64(len(program))})
 	_, _ = archive.Write(program)
 	_ = archive.Close()
 	_ = zipped.Close()

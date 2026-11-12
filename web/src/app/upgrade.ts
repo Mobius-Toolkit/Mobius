@@ -4,7 +4,7 @@ import { renderBadge } from "@/ui/badge";
 import { renderButton } from "@/ui/button";
 import { defineDialogMount, renderDialog } from "@/ui/dialog";
 import { Message } from "./message";
-import type { Model } from "./model";
+import type { Model, UpgradeState } from "./model";
 
 const dialogMount = defineDialogMount(Message.CompletedFocusSheet);
 
@@ -15,24 +15,57 @@ function drainText(waiting: number): string {
   return `Upgrade waits for ${waiting} ${waiting === 1 ? "agent or upgrade" : "agents or upgrades"}`;
 }
 
+function countdownText(milliseconds: number): string {
+  const total = Math.max(0, Math.ceil(milliseconds / 1000));
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  if (minutes === 0) {
+    return `${seconds} s`;
+  }
+  return seconds === 0 ? `${minutes} min` : `${minutes} min ${seconds} s`;
+}
+
+function stepText(upgrade: UpgradeState): string {
+  const waiting = Option.match(upgrade.drain, {
+    onNone: () => 0,
+    onSome: (drain) => drain.waiting,
+  });
+  switch (upgrade.step) {
+    case "release":
+      return "Upgrade reads the newest release";
+    case "download":
+      return "Upgrade downloads the new release";
+    case "retry":
+      return `Try ${upgrade.tries} failed. Upgrade tries again in ${countdownText(Option.getOrElse(upgrade.nextTry, () => upgrade.now) - upgrade.now)}`;
+    case "drain":
+      return drainText(waiting);
+    case "restart":
+      return "Upgrade restarts Mobius";
+    case "idle":
+      return Option.exists(upgrade.drain, (drain) => drain.on) ? drainText(waiting) : "";
+  }
+}
+
+const cancellable = new Set<UpgradeState["step"]>(["release", "download", "retry", "drain"]);
+
+function drainHeld(upgrade: UpgradeState): boolean {
+  return upgrade.step === "idle" && Option.exists(upgrade.drain, (drain) => drain.on);
+}
+
 export function renderUpgradeControls(h: HtmlBuilder<Message>, model: Model): Html {
   const items: Html[] = [];
   const upgrade = model.upgrade;
-  const drain = Option.getOrNull(upgrade.drain);
 
-  if (drain?.on) {
+  if (upgrade.step !== "idle" || drainHeld(upgrade)) {
     items.push(
       h.p(
         [h.Class("flex items-center gap-2 px-2 text-sm text-muted-foreground")],
-        [
-          h.span([h.Class("size-2 shrink-0 rounded-full bg-amber-500")], []),
-          drainText(drain.waiting),
-        ],
+        [h.span([h.Class("size-2 shrink-0 rounded-full bg-amber-500")], []), stepText(upgrade)],
       ),
     );
   }
 
-  if (drain?.on) {
+  if (cancellable.has(upgrade.step) || drainHeld(upgrade)) {
     items.push(
       renderButton(h, {
         variant: "secondary",
@@ -41,7 +74,7 @@ export function renderUpgradeControls(h: HtmlBuilder<Message>, model: Model): Ht
         onClick: Message.CancelUpgradeRequested(),
       }),
     );
-  } else if (upgrade.version) {
+  } else if (upgrade.step === "idle" && upgrade.version) {
     items.push(
       renderButton(h, {
         variant: "secondary",
@@ -53,7 +86,14 @@ export function renderUpgradeControls(h: HtmlBuilder<Message>, model: Model): Ht
   }
 
   if (upgrade.failure) {
-    items.push(renderBadge(h, "destructive", upgrade.failure, "h-auto w-full whitespace-normal"));
+    items.push(
+      renderBadge(
+        h,
+        "destructive",
+        upgrade.failure,
+        "h-auto w-full whitespace-normal wrap-anywhere",
+      ),
+    );
   }
 
   if (model.newBuild) {

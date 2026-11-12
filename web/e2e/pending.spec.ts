@@ -299,7 +299,7 @@ test("Cancel upgrade shows the spinner while the request runs", async ({ page })
       : route.fallback(),
   );
   await page.goto("/workstreams");
-  const held = await hold(page, "**/api/drain", "DELETE");
+  const held = await hold(page, "**/api/upgrade", "DELETE");
 
   await checkPending(
     page.getByRole("button", { name: "Cancel upgrade" }).filter({ visible: true }),

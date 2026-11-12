@@ -160,6 +160,7 @@ type FakeGitHub struct {
 	latestRelease       *releaseJSON
 	lastAssetID         int64
 	releaseAssetFailure int
+	releaseHasNoProgram bool
 	comparedCommits     []string
 	closingIssues       map[int][]int
 	notPullRequests     map[int]bool
