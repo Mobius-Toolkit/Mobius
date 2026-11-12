@@ -83,7 +83,7 @@ func (e *Engine) handLostTasksWith(ctx context.Context, repository github.Reposi
 		if err := repository.RemoveLabel(ctx, number, reviewLabel); err != nil {
 			return err
 		}
-		if _, err := repository.AddComment(ctx, number, lostText); err != nil {
+		if err := e.postComment(ctx, repository, number, lostText); err != nil {
 			return err
 		}
 	}

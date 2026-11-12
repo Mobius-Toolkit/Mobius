@@ -3407,6 +3407,32 @@ func (q *Queries) GetMergeQueueHead(ctx context.Context, repository string) (Tas
 	return i, err
 }
 
+const getNewestCommentChange = `-- name: GetNewestCommentChange :one
+SELECT id, integration, repository, number, reply_to, field, text, status, created_at FROM outgoing_changes WHERE repository = ? AND number = ? AND field = 'comment' ORDER BY id DESC LIMIT 1
+`
+
+type GetNewestCommentChangeParams struct {
+	Repository string
+	Number     int64
+}
+
+func (q *Queries) GetNewestCommentChange(ctx context.Context, arg GetNewestCommentChangeParams) (OutgoingChange, error) {
+	row := q.db.QueryRowContext(ctx, getNewestCommentChange, arg.Repository, arg.Number)
+	var i OutgoingChange
+	err := row.Scan(
+		&i.ID,
+		&i.Integration,
+		&i.Repository,
+		&i.Number,
+		&i.ReplyTo,
+		&i.Field,
+		&i.Text,
+		&i.Status,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getNewestInboxItem = `-- name: GetNewestInboxItem :one
 SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal, workstream_repository, questions, answer, withdrawn FROM inbox_items WHERE repository = ? AND issue = ? AND kind = ? ORDER BY id DESC LIMIT 1
 `

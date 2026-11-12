@@ -729,10 +729,10 @@ func (e *Engine) decline(ctx context.Context, c caller, repository github.Reposi
 	if err != nil {
 		return "", err
 	}
-	if _, err := repository.AddComment(ctx, input.N, reason); err != nil {
+	if err := e.postComment(ctx, repository, input.N, reason); err != nil {
 		return "", err
 	}
-	if err := closeOpenPullRequest(ctx, repository, task, "Declined", input.Reason, reason); err != nil {
+	if err := e.closeOpenPullRequest(ctx, repository, task, "Declined", input.Reason, reason); err != nil {
 		return "", err
 	}
 	if err := e.endTask(ctx, repository, task); err != nil {
@@ -743,7 +743,7 @@ func (e *Engine) decline(ctx context.Context, c caller, repository github.Reposi
 
 // closeOpenPullRequest sets a failed Mobius check with title and reason on the open pull request of the task, posts
 // comment on it, and closes it. It does nothing for a task with no open pull request.
-func closeOpenPullRequest(ctx context.Context, repository github.Repository, task store.Task, title, reason, comment string) error {
+func (e *Engine) closeOpenPullRequest(ctx context.Context, repository github.Repository, task store.Task, title, reason, comment string) error {
 	if !task.PullRequest.Valid {
 		return nil
 	}
@@ -758,7 +758,7 @@ func closeOpenPullRequest(ctx context.Context, repository github.Repository, tas
 	if err := setCheckRun(ctx, repository, pullRequest.GetHead().GetSHA(), "completed", "failure", title, reason); err != nil {
 		return err
 	}
-	if _, err := repository.AddComment(ctx, number, comment); err != nil {
+	if err := e.postComment(ctx, repository, number, comment); err != nil {
 		return err
 	}
 	return repository.ClosePullRequest(ctx, number)
@@ -795,11 +795,11 @@ func (e *Engine) closeTask(ctx context.Context, c caller, repository github.Repo
 	if err != nil {
 		return "", err
 	}
-	if _, err := repository.AddComment(ctx, input.N, reason); err != nil {
+	if err := e.postComment(ctx, repository, input.N, reason); err != nil {
 		return "", err
 	}
 	if live {
-		if err := closeOpenPullRequest(ctx, repository, task, "Closed", input.Reason, reason); err != nil {
+		if err := e.closeOpenPullRequest(ctx, repository, task, "Closed", input.Reason, reason); err != nil {
 			return "", err
 		}
 		if err := e.endTask(ctx, repository, task); err != nil {
