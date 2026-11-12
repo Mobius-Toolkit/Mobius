@@ -1,5 +1,5 @@
 CREATE TABLE outgoing_changes (
-    id INTEGER PRIMARY KEY,
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
     integration TEXT NOT NULL,
     repository TEXT NOT NULL,
     number INTEGER NOT NULL,

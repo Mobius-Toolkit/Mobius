@@ -114,6 +114,36 @@ func TestAnOutgoingChangeWhoseCommentsGitHubRefusesToReadGetsRefusedAndTheNextCh
 	}
 }
 
+func TestANewOutgoingChangeNeverGetsTheIdOfARowThatTheHousekeeperDeleted(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, seen, func(cfg *config.Config) {
+		cfg.LeadIdleTimeout = 5 * time.Second
+		cfg.HousekeeperInterval = 100 * time.Millisecond
+	})
+	fake.AddIssue(shop, 60, "Fix the footer")
+	waitForPolls(t, fake)
+	declineOne(fake, "Use a smaller font.")
+	testkit.WaitFor(t, func() bool { return outgoingChanges(t, server, "sent") == 1 })
+	old := time.Now().Add(-25 * time.Hour).UTC().Format(time.RFC3339Nano)
+	if _, err := server.DB.Exec("UPDATE outgoing_changes SET created_at = ?", old); err != nil {
+		t.Fatal(err)
+	}
+	testkit.WaitFor(t, func() bool { return outgoingChanges(t, server, "sent") == 0 })
+	fake.FailAddComment(shop, 60, true)
+
+	declineOne(fake, "Use a bigger font.")
+	testkit.WaitFor(t, func() bool { return commentWrites(t, server) == 1 })
+	waitForPolls(t, fake)
+	fake.FailAddComment(shop, 60, false)
+
+	testkit.WaitFor(t, func() bool { return outgoingChanges(t, server, "sent") == 1 })
+	got := appComments(fake, 60)
+	if len(got) != 2 || !strings.HasSuffix(got[0], "\n\n<!-- mobius:write 1 -->") || !strings.HasSuffix(got[1], "\n\n<!-- mobius:write 2 -->") {
+		t.Errorf("comments = %q", got)
+	}
+}
+
 func TestAReviewCommentEditWaitsForThePendingPostAndThenChangesTheNewComment(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
