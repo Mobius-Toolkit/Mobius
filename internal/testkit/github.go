@@ -115,6 +115,7 @@ type FakeGitHub struct {
 	// graphqlPageSize is the most nodes in a page of a GraphQL connection, or 0 for no limit.
 	graphqlPageSize  int
 	pullRequestReads int
+	singlePullReads  map[issueKey]int
 	repositoryLabels map[labelKey]Label
 	labelPatches     []labelKey
 	notModified      int

@@ -251,6 +251,14 @@ func (g *FakeGitHub) SetBody(repository string, number int64, body string) {
 	g.setBody(issueKey{repository, number}, body)
 }
 
+// SetBodyKeepingUpdateTime sets the body of the issue as SetBody does, but it keeps the update time, so the issue list
+// does not show the change.
+func (g *FakeGitHub) SetBodyKeepingUpdateTime(repository string, number int64, body string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.issues[issueKey{repository, number}].body = body
+}
+
 func (g *FakeGitHub) setBody(key issueKey, body string) {
 	found := g.issues[key]
 	if len(found.bodyEdits) == 0 {

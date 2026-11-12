@@ -160,3 +160,68 @@ func TestAHeadWithPendingScreenshotsForMoreThanTwoHoursGivesTheLeadALongCIEventF
 	}
 	checkNoApproval(t, fake, server)
 }
+
+func TestATaskInChecksReadsThePullRequestAgainAtEachPollAndLeavesChecksWhenTheBodyChangesWithNoIssueListChange(t *testing.T) {
+	t.Parallel()
+	fake, server, sha := reviewedHeadWithCI(t)
+	passCIWithSection(t, fake, sha, pendingScreenshots)
+	waitForPolls(t, fake)
+	if state := taskState(t, server); state != "checks" {
+		t.Fatalf("state = %s, want checks", state)
+	}
+
+	fake.SetBodyKeepingUpdateTime(shop, 42, screenshotsSectionOf("No screen changed."))
+
+	autoApprovedEvent(t, server)
+	if got := approvedReport(t, server); got != autoApprovedReport(sha) {
+		t.Errorf("approved_report = %q", got)
+	}
+}
+
+func TestATaskInApprovalReadsThePullRequestOneTimeAndLaterPollsReadNoNewCopy(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := queueTasks(t, fake, "off", []int{41})
+	pull := liveTask(t, server, 41).PullRequest.Int64
+	waitForPolls(t, fake)
+	waitForPolls(t, fake)
+	reads := fake.SinglePullRequestReads(shop, pull)
+
+	waitForPolls(t, fake)
+
+	if state := liveTaskState(t, server, 41); state != "approval" {
+		t.Errorf("state = %s, want approval", state)
+	}
+	if got := fake.SinglePullRequestReads(shop, pull); got != reads {
+		t.Errorf("pull request reads = %d, want %d", got, reads)
+	}
+}
+
+func TestTheHeadOfTheMergeQueueLeavesChecksAfterTheBranchUpdateWhenTheBodyChangesWithNoIssueListChange(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := queueTasks(t, fake, "merge", []int{41})
+	pull := liveTask(t, server, 41).PullRequest.Int64
+	fake.SetBody(shop, pull, screenshotsSectionOf(pendingScreenshots))
+	waitForPolls(t, fake)
+	old := head(t, fake, "mobius/41")
+	fake.CommitFile(shop, "price.txt", "cents\n", "Add price")
+
+	sendChat(t, server, leadChat, "Approve #41")
+
+	testkit.WaitFor(t, func() bool { return fake.UpdateBranchCalls() == 1 && liveTaskState(t, server, 41) == "checks" })
+	if head(t, fake, "mobius/41") == old {
+		t.Fatal("the head did not change")
+	}
+	waitForPolls(t, fake)
+	if state := liveTaskState(t, server, 41); state != "checks" {
+		t.Fatalf("state = %s, want checks", state)
+	}
+
+	fake.SetBodyKeepingUpdateTime(shop, pull, screenshotsSectionOf("No screen changed."))
+
+	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, 41) == "" })
+	if calls := fake.MergeCalls(); calls != 1 {
+		t.Errorf("merge calls = %d, want 1", calls)
+	}
+}

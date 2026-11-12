@@ -147,7 +147,7 @@ func (e *Engine) checkTask(ctx context.Context, repository github.Repository, ta
 	}
 	var pullRequest *gh.PullRequest
 	if task.PullRequest.Valid {
-		if pullRequest, err = e.pullRequest(ctx, repository, task.PullRequest.Int64, baseHead); err != nil {
+		if pullRequest, err = e.pullRequest(ctx, repository, task.PullRequest.Int64, baseHead, task.State == "checks"); err != nil {
 			return Work{}, false, err
 		}
 	}

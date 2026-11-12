@@ -544,7 +544,18 @@ func (g *FakeGitHub) getPullRequest(w http.ResponseWriter, r *http.Request) {
 		notFound(w)
 		return
 	}
+	if g.singlePullReads == nil {
+		g.singlePullReads = map[issueKey]int{}
+	}
+	g.singlePullReads[issueKey{repository(r), number}]++
 	writeJSON(w, http.StatusOK, g.pullRequestJSON(repository(r), number))
+}
+
+// SinglePullRequestReads gives the number of reads of the pull request number through the single pull request route.
+func (g *FakeGitHub) SinglePullRequestReads(repository string, number int64) int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.singlePullReads[issueKey{repository, number}]
 }
 
 // mergePullRequest squash merges the pull request into its base branch: it adds one commit with the merge tree of the
