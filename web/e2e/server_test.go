@@ -223,8 +223,9 @@ const question = "What is the state of the plans? The full report is at " +
 
 // TestServer serves the built UI and the API at the address in MOBIUS_E2E_ADDR until
 // SIGINT or SIGTERM. The server has a new database and a fake GitHub with the
-// accounts "owner" and "plants". The Playwright tests create the Apps on the GitHub page. The repositories come after
-// the second App, so the tests see the first App with no organization.
+// accounts "owner" and "plants". The test screenshots creates the Apps on the GitHub page. The repositories come after
+// the second App, so that test sees the first App with no organization. With MOBIUS_E2E_APPS=1, the server stores both
+// Apps itself. GET /e2e/ready answers 503 until the fixture is complete, and then 200.
 //
 // After the first poll of both repositories, a dispatch of #45 gives an Inbox item, and the Owner writes to the
 // Lead chats of owner/shop#12 and plants/garden#12 and to the Coordinator chats of owner and plants. Each chat session ends before
@@ -564,6 +565,13 @@ func TestServer(t *testing.T) {
 		}
 	})
 
+	var ready atomic.Bool
+	server.Mux.HandleFunc("GET /e2e/ready", func(w http.ResponseWriter, _ *http.Request) {
+		if !ready.Load() {
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}
+	})
+
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		t.Fatal(err)
@@ -571,6 +579,17 @@ func TestServer(t *testing.T) {
 	srv := &http.Server{Handler: server.Mux, ReadHeaderTimeout: 10 * time.Second}
 	go func() { _ = srv.Serve(listener) }()
 
+	if os.Getenv("MOBIUS_E2E_APPS") == "1" {
+		for _, app := range []store.AddGitHubAppParams{
+			{AppID: testkit.AppID, Slug: testkit.AppSlug, ClientID: testkit.AppClientID, ClientSecret: testkit.AppClientSecret},
+			{AppID: testkit.SecondAppID, Slug: testkit.SecondAppSlug, ClientID: testkit.SecondAppClientID, ClientSecret: testkit.SecondAppClientSecret},
+		} {
+			app.PrivateKey = testkit.AppPrivateKey
+			if err := store.New(server.DB).AddGitHubApp(ctx, app); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
 	testkit.WaitFor(t, func() bool {
 		var apps int
 		if err := server.DB.QueryRow("SELECT COUNT(*) FROM github_apps").Scan(&apps); err != nil {
@@ -941,6 +960,7 @@ func TestServer(t *testing.T) {
 		}
 		return changed > 0
 	})
+	ready.Store(true)
 	<-ctx.Done()
 	_ = srv.Close()
 }
