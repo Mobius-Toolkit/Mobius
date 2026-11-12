@@ -315,7 +315,7 @@ func TestAChatViewGivesPagesOf20MessagesWithoutResearcherAndCuratorMessages(t *t
 			author = "Curator"
 		}
 		message, err := store.New(server.DB).AddChatMessage(t.Context(), store.AddChatMessageParams{
-			Organization: "owner", Repository: shop, Workstream: 12, Author: author, Time: time.Now().UTC().Format(time.RFC3339Nano), Text: fmt.Sprintf("message %d", number), InboxItems: "[]",
+			Organization: "owner", Repository: shop, Workstream: 12, Author: author, Time: time.Now().UTC().Format(time.RFC3339Nano), Text: fmt.Sprintf("message %d", number), InboxItems: "[]", Selections: "[]",
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -479,7 +479,7 @@ func TestTheFirstPromptHasTheContextPartsInOrder(t *testing.T) {
 			author = "Lead"
 		}
 		_, err := store.New(server.DB).AddChatMessage(t.Context(), store.AddChatMessageParams{
-			Organization: "owner", Repository: shop, Workstream: 12, Author: author, Time: time.Now().UTC().Format(time.RFC3339Nano), Text: fmt.Sprintf("message %d", number), InboxItems: "[]",
+			Organization: "owner", Repository: shop, Workstream: 12, Author: author, Time: time.Now().UTC().Format(time.RFC3339Nano), Text: fmt.Sprintf("message %d", number), InboxItems: "[]", Selections: "[]",
 		})
 		if err != nil {
 			t.Fatal(err)
