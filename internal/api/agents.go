@@ -51,6 +51,8 @@ type Agent struct {
 	// Working is true while the session works. A chat session works while a turn runs. Another open session works
 	// while it does not wait for a slot, for a check slot or for the end of a usage limit
 	Working bool `gork:"working"`
+	// KeptUntil is the time when Mobius closes the kept Harness process of this ended session, or null when Mobius keeps no process of this session
+	KeptUntil *time.Time `gork:"keptUntil"`
 }
 
 // TranscriptLine is a row of the Transcript of a session.
@@ -284,6 +286,9 @@ func (h *handlers) agentOf(ctx context.Context, node engine.Node) (Agent, error)
 	}
 	if session.Parent.Valid {
 		agent.Parent = &session.Parent.Int64
+	}
+	if !node.KeptUntil.IsZero() {
+		agent.KeptUntil = &node.KeptUntil
 	}
 	var err error
 	if agent.PausedUntil, err = h.engine.PausedUntil(ctx, session); err != nil {

@@ -14,6 +14,10 @@ import (
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
+// mergeQueueHoldLimit is the time that the head of the merge queue can stay in checks or in approval before Mobius
+// removes it from the queue, when another task waits in the queue.
+const mergeQueueHoldLimit = 2 * time.Hour
+
 // keepApproval keeps the id of the newest APPROVED review of a trusted user that GitHub submitted after the kept
 // approval. The list of reviews is in the order of the start of each review, so the submit time decides which review is
 // newer. A dismissal of the kept approval cancels it: the task keeps the id and the approval counts as
@@ -152,6 +156,11 @@ func (e *Engine) mergeApproved(ctx context.Context, repository github.Repository
 	if queueHead.ID != task.ID {
 		return false, nil
 	}
+	if task.State == "checks" || task.State == "approval" {
+		if removed, err := e.removeHeldHead(ctx, repository, task, pullRequest); err != nil || removed {
+			return false, err
+		}
+	}
 	approvedByLead := slices.ContainsFunc(runs, func(run *gh.CheckRun) bool { return run.GetName() == checkRunName })
 	if !approvedByLead {
 		if task.State == "ready_for_review" {
@@ -249,6 +258,55 @@ func (e *Engine) mergeApproved(ctx context.Context, repository github.Repository
 	text := fmt.Sprintf("%s merge refused for %s \"%s\": GitHub refused to merge pull request %s. A trusted user approved the pull request. GitHub gave this reason: \"%s\". Mobius does not try again until a trusted user approves the pull request again.",
 		time.Now().UTC().Format(timeFormat), taskEventRef(task, task.Issue), issue.GetTitle(), taskEventRef(task, number), reason)
 	return false, e.addLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, task.Repository, sql.NullInt64{Int64: task.Issue, Valid: true}, "merge_refused", text)
+}
+
+// removeHeldHead removes the head of the merge queue from the queue when it stayed in its state for more than
+// mergeQueueHoldLimit since the later of the state time and the queue time, and another task waits in the queue. The
+// Lead gets the event merge_queue_held. The task keeps its state, and it enters the queue again at the end by the
+// rules of mergeApproved. It tells if it removed the task.
+func (e *Engine) removeHeldHead(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) (bool, error) {
+	enteredState, err := time.Parse(time.RFC3339Nano, task.StateAt)
+	if err != nil {
+		return false, err
+	}
+	queued, err := time.Parse(time.RFC3339Nano, task.MergeQueuedAt.String)
+	if err != nil {
+		return false, err
+	}
+	now := e.timeNow()
+	if now.Sub(laterTime(enteredState, queued)) <= mergeQueueHoldLimit {
+		return false, nil
+	}
+	tasks, err := e.queries.ListMergeQueueTasks(ctx, task.Repository)
+	if err != nil {
+		return false, err
+	}
+	if len(tasks) < 2 {
+		return false, nil
+	}
+	issue, err := existingIssue(ctx, repository, task.Issue)
+	if err != nil {
+		return false, err
+	}
+	text := fmt.Sprintf("%s %s \"%s\" held the head of the merge queue in %s for more than %s: pull request %s %s, head %s. Mobius removed it from the queue, so the next task can merge. %d other tasks wait in the queue. The task enters the queue again at the end after each check of its head passes and its head has the Mobius check.",
+		now.UTC().Format(timeFormat), taskEventRef(task, task.Issue), issue.GetTitle(), task.State, mergeQueueHoldLimit, taskEventRef(task, int64(pullRequest.GetNumber())), pullRequest.GetHTMLURL(), pullRequest.GetHead().GetSHA(), len(tasks)-1)
+	err = e.addLeadEventWith(ctx, task.WorkstreamRepository, task.Workstream, task.Repository, sql.NullInt64{Int64: task.Issue, Valid: true}, "merge_queue_held", text, func(q *store.Queries) error {
+		_, err := q.ClearTaskMergeQueuedAt(ctx, task.ID)
+		return err
+	})
+	if err != nil {
+		return false, err
+	}
+	task.MergeQueuedAt = sql.NullString{}
+	return true, e.publishMergeQueue(ctx, task.Repository, task)
+}
+
+// laterTime gives the later of two times.
+func laterTime(a, b time.Time) time.Time {
+	if a.After(b) {
+		return a
+	}
+	return b
 }
 
 // hasOpenThread tells if the pull request has a review thread that is not resolved.
