@@ -546,82 +546,81 @@ export function composerBox<Msg>(
 }
 
 export type ViewInputs = {
-  stoppable?: boolean;
-  stopping?: boolean;
-  stopReady?: boolean;
+  stoppable: boolean;
+  stopping: boolean;
+  stopReady: boolean;
 };
 
-export const view = defineView<Model, Message, ViewInputs>((model, viewInputs, h) => {
-  const images = model.draftImages;
-  const inboxItems = model.draftInboxItems;
-  const empty = !model.draftText.trim() && images.length === 0 && inboxItems.length === 0;
-  const stoppable = viewInputs?.stoppable ?? false;
-  const stopping = viewInputs?.stopping ?? false;
-  const stopReady = viewInputs?.stopReady ?? false;
-  const showStop = empty && stoppable;
-  const buttonPending = showStop && stopping;
-  const cannotSend = empty || voiceBusy(model.draftVoice);
-  const sendLabel = showStop ? "Stop the reply" : "Send";
-  const sendDisabled = buttonPending || (showStop ? !stopReady : cannotSend);
+export const view = defineView<Model, Message, ViewInputs>(
+  (model, { stoppable, stopping, stopReady }, h) => {
+    const images = model.draftImages;
+    const inboxItems = model.draftInboxItems;
+    const empty = !model.draftText.trim() && images.length === 0 && inboxItems.length === 0;
+    const showStop = empty && stoppable;
+    const buttonPending = showStop && stopping;
+    const cannotSend = empty || voiceBusy(model.draftVoice);
+    const sendLabel = showStop ? "Stop the reply" : "Send";
+    const sendDisabled = buttonPending || (showStop ? !stopReady : cannotSend);
 
-  return composerBox(
-    h,
-    model.voice,
-    model.now,
-    {
-      field: inputId(model.instance),
-      picker: pickerId(model.instance),
-      key: model.draftKey,
-      voiceCard: model.draftVoice,
-      label: model.label,
-      placeholder: model.placeholder,
-      text: model.draftText,
-      readOnly: !model.draftLoaded,
-      onInput: (text) => Message.DraftTextChanged({ text }),
-      submit: Message.SendSubmitted(),
-      enter: "send",
-      autoFocus: true,
-      images,
-      inboxItems,
-      error: model.sendError,
-      onAttachClick: Message.AttachClicked(),
-      onVoiceButtonClick: Message.VoiceButtonClicked(),
-      onVoiceResendClick: Message.VoiceResendClicked(),
-      onVoiceRemoveClick: Message.VoiceRemoveClicked(),
-      onImageRemoveClick: (position) => Message.DraftImageRemoved({ position }),
-      onInboxItemRemoveClick: (id) => Message.DraftInboxItemRemoved({ id }),
-      onImagesChosen: (files) => Message.ImagesChosen({ files }),
-      actions: [
-        h.button(
-          [
-            // Foldkit renders in the next frame, so a tap right after the input can still see the old button.
-            // A Stop button of type submit sends nothing, because the draft is empty then.
-            h.Type("submit"),
-            h.AriaLabel(sendLabel),
-            h.Attribute("title", sendLabel),
-            h.DataAttribute("keep-focus", ""),
-            h.Disabled(sendDisabled),
-            ...(voiceBusy(model.draftVoice) ? [h.DataAttribute("voice-busy", "")] : []),
-            h.Class(
-              cn(
-                buttonClass({ size: "icon", className: "rounded-full max-md:size-11" }),
-                showStop &&
-                  !stopReady &&
-                  !buttonPending &&
-                  "disabled:pointer-events-auto disabled:opacity-100",
-                cannotSend &&
-                  !showStop &&
-                  "bg-muted text-muted-foreground hover:bg-muted disabled:opacity-100",
+    return composerBox(
+      h,
+      model.voice,
+      model.now,
+      {
+        field: inputId(model.instance),
+        picker: pickerId(model.instance),
+        key: model.draftKey,
+        voiceCard: model.draftVoice,
+        label: model.label,
+        placeholder: model.placeholder,
+        text: model.draftText,
+        readOnly: !model.draftLoaded,
+        onInput: (text) => Message.DraftTextChanged({ text }),
+        submit: Message.SendSubmitted(),
+        enter: "send",
+        autoFocus: true,
+        images,
+        inboxItems,
+        error: model.sendError,
+        onAttachClick: Message.AttachClicked(),
+        onVoiceButtonClick: Message.VoiceButtonClicked(),
+        onVoiceResendClick: Message.VoiceResendClicked(),
+        onVoiceRemoveClick: Message.VoiceRemoveClicked(),
+        onImageRemoveClick: (position) => Message.DraftImageRemoved({ position }),
+        onInboxItemRemoveClick: (id) => Message.DraftInboxItemRemoved({ id }),
+        onImagesChosen: (files) => Message.ImagesChosen({ files }),
+        actions: [
+          h.button(
+            [
+              // Foldkit renders in the next frame, so a tap right after the input can still see the old button.
+              // A Stop button of type submit sends nothing, because the draft is empty then.
+              h.Type("submit"),
+              h.AriaLabel(sendLabel),
+              h.Attribute("title", sendLabel),
+              h.DataAttribute("keep-focus", ""),
+              h.Disabled(sendDisabled),
+              ...(voiceBusy(model.draftVoice) ? [h.DataAttribute("voice-busy", "")] : []),
+              h.Class(
+                cn(
+                  buttonClass({ size: "icon", className: "rounded-full max-md:size-11" }),
+                  showStop &&
+                    !stopReady &&
+                    !buttonPending &&
+                    "disabled:pointer-events-auto disabled:opacity-100",
+                  cannotSend &&
+                    !showStop &&
+                    "bg-muted text-muted-foreground hover:bg-muted disabled:opacity-100",
+                ),
               ),
-            ),
-            ...(showStop ? [h.OnClick(Message.StopClicked())] : []),
-          ],
-          buttonPending
-            ? [spinnerIcon(h)]
-            : [showStop ? squareIcon(h, "size-3 fill-current") : arrowUpIcon(h)],
-        ),
-      ],
-    },
-    (message) => message,
-  );
-});
+              ...(showStop ? [h.OnClick(Message.StopClicked())] : []),
+            ],
+            buttonPending
+              ? [spinnerIcon(h)]
+              : [showStop ? squareIcon(h, "size-3 fill-current") : arrowUpIcon(h)],
+          ),
+        ],
+      },
+      (message) => message,
+    );
+  },
+);

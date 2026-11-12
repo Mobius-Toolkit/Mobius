@@ -1598,33 +1598,24 @@ describe("chat update story tests", () => {
       }
     });
 
-    it("starts the voice of the field that the Message names", () => {
+    it("starts the voice of the field of the answer panel", () => {
       const base = createTestModel({ activePanel: { type: "answer", item: question } });
 
-      expect(
-        described(update(base, Message.VoiceButtonClicked({ target: "chat" })).commands),
-      ).toEqual(
-        described([
-          ToggleVoice({ key: "chatDraft:test-org/test-repo/1428", fieldId: "chat-input" }),
-        ]),
+      expect(described(update(base, Message.VoiceButtonClicked()).commands)).toEqual(
+        described([ToggleVoice({ key: "answerDraft:7", fieldId: "answer-input" })]),
       );
-      expect(
-        described(update(base, Message.VoiceButtonClicked({ target: "answer" })).commands),
-      ).toEqual(described([ToggleVoice({ key: "answerDraft:7", fieldId: "answer-input" })]));
-      expect(
-        update(createTestModel(), Message.VoiceButtonClicked({ target: "answer" })).commands ?? [],
-      ).toEqual([]);
+      expect(update(createTestModel(), Message.VoiceButtonClicked()).commands ?? []).toEqual([]);
     });
 
-    it("sends again and removes the voice card of the field that the Message names", () => {
+    it("sends again and removes the voice card of the answer panel", () => {
       const base = createTestModel({ activePanel: { type: "answer", item: question } });
 
-      expect(
-        described(update(base, Message.VoiceResendClicked({ target: "answer" })).commands),
-      ).toEqual(described([ResendVoice({ key: "answerDraft:7", fieldId: "answer-input" })]));
-      expect(
-        described(update(base, Message.VoiceRemoveClicked({ target: "chat" })).commands),
-      ).toEqual(described([RemoveVoice({ key: "chatDraft:test-org/test-repo/1428" })]));
+      expect(described(update(base, Message.VoiceResendClicked()).commands)).toEqual(
+        described([ResendVoice({ key: "answerDraft:7", fieldId: "answer-input" })]),
+      );
+      expect(described(update(base, Message.VoiceRemoveClicked()).commands)).toEqual(
+        described([RemoveVoice({ key: "answerDraft:7" })]),
+      );
     });
 
     it("takes the voice state and the time from the Subscriptions", () => {

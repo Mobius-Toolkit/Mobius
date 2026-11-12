@@ -64,9 +64,9 @@ export function renderPanelComposer(h: H, model: Model, item: InboxItem): Html {
       autoFocus: false,
       images: null,
       inboxItems: [],
-      onVoiceButtonClick: Message.VoiceButtonClicked({ target: "answer" }),
-      onVoiceResendClick: Message.VoiceResendClicked({ target: "answer" }),
-      onVoiceRemoveClick: Message.VoiceRemoveClicked({ target: "answer" }),
+      onVoiceButtonClick: Message.VoiceButtonClicked(),
+      onVoiceResendClick: Message.VoiceResendClicked(),
+      onVoiceRemoveClick: Message.VoiceRemoveClicked(),
       actions: decide
         ? [
             h.button(

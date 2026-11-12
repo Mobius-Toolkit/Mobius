@@ -99,12 +99,8 @@ const foldAddInboxItem = Update.foldChild({
   toParentMessage: toGotComposerMessage,
 });
 
-// The draft key and the element id of the field that a voice Message names: the field of the chat, or the field of
-// the open answer panel.
-function voiceField(model: Model, target: "chat" | "answer") {
-  if (target === "chat") {
-    return { key: model.composer.draftKey, fieldId: Composer.inputId(model.composer.instance) };
-  }
+// The draft key and the element id of the field of the open answer panel.
+function answerField(model: Model) {
   return model.activePanel
     ? { key: answerDraftKey(model.activePanel.item.id), fieldId: answerInputId }
     : null;
@@ -1049,22 +1045,22 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
       });
     },
 
-    VoiceButtonClicked: ({ target }) => {
-      const field = voiceField(model, target);
+    VoiceButtonClicked: () => {
+      const field = answerField(model);
       return field === null
         ? { model }
         : { model, commands: [ToggleVoice({ key: field.key, fieldId: field.fieldId })] };
     },
 
-    VoiceResendClicked: ({ target }) => {
-      const field = voiceField(model, target);
+    VoiceResendClicked: () => {
+      const field = answerField(model);
       return field === null
         ? { model }
         : { model, commands: [ResendVoice({ key: field.key, fieldId: field.fieldId })] };
     },
 
-    VoiceRemoveClicked: ({ target }) => {
-      const field = voiceField(model, target);
+    VoiceRemoveClicked: () => {
+      const field = answerField(model);
       return field === null ? { model } : { model, commands: [RemoveVoice({ key: field.key })] };
     },
 

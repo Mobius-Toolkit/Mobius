@@ -11,7 +11,6 @@ import {
   PendingAction,
   Queued,
   VoiceState,
-  VoiceTarget,
   Workstream,
 } from "./schemas";
 
@@ -94,9 +93,9 @@ export const Message = defineMessageUnion({
   ResumeClicked: { item: InboxItem },
   ResumeCompleted: { id: Schema.Number, error: Schema.optional(Schema.String) },
 
-  VoiceButtonClicked: { target: VoiceTarget },
-  VoiceResendClicked: { target: VoiceTarget },
-  VoiceRemoveClicked: { target: VoiceTarget },
+  VoiceButtonClicked: {},
+  VoiceResendClicked: {},
+  VoiceRemoveClicked: {},
   VoiceChanged: { voice: VoiceState },
   VoiceTicked: { now: Schema.Number },
   CompletedToggleVoice: {},
