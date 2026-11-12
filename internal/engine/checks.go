@@ -363,7 +363,7 @@ func (e *Engine) approveAgain(ctx context.Context, repository github.Repository,
 	if err != nil {
 		return err
 	}
-	text := fmt.Sprintf("%s Mobius approved again %s \"%s\": pull request %s %s, head %.8s. Only clean merges of %s came after the approved head %.8s. %s",
+	text := fmt.Sprintf("%s Mobius approved again %s \"%s\": pull request %s %s, head %.8s. Only clean merges of %s came after the approved head %.8s, and the changed lines of the pull request are the same. %s",
 		time.Now().UTC().Format(timeFormat), taskEventRef(task, task.Issue), issue.GetTitle(), taskEventRef(task, int64(pullRequest.GetNumber())), pullRequest.GetHTMLURL(), head, repository.DefaultBranch, approved, result)
 	return e.addLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, task.Repository, sql.NullInt64{Int64: task.Issue, Valid: true}, "approved_again", text)
 }
