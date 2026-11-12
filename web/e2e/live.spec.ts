@@ -15,12 +15,14 @@ test.beforeEach(async ({ page }) => {
 test("the page connects again after the live events answer is not an event stream", async ({
   page,
 }) => {
+  // The page of the login still sends requests. A route would count them as requests of the page under test.
+  await page.goto("about:blank");
   let requests = 0;
   await page.route("/api/events", (route) => {
     requests++;
     return requests === 1 ? route.fulfill({ status: 502 }) : route.fallback();
   });
-  await page.reload();
+  await page.goto("/github");
 
   await expect.poll(() => requests, { timeout: 10_000 }).toBe(2);
   await expect(page.getByLabel("Access password")).toBeHidden();
@@ -91,6 +93,8 @@ test("the error of one request of a load stays when the other request succeeds",
 });
 
 test("the page connects again when no ping comes", async ({ page }) => {
+  // The page of the login still sends requests. A route would count them as requests of the page under test.
+  await page.goto("about:blank");
   await page.clock.install();
   let requests = 0;
   await page.route("/api/events", (route) => {
@@ -98,7 +102,7 @@ test("the page connects again when no ping comes", async ({ page }) => {
     return route.fallback();
   });
   const opened = page.waitForResponse("/api/events");
-  await page.reload();
+  await page.goto("/github");
   await opened;
 
   await page.clock.fastForward(36_000);
@@ -192,6 +196,8 @@ test("the chat screen receives a live message after the live connection closes",
 });
 
 test("an open screen opens exactly one connection to /api/events", async ({ page }) => {
+  // The page of the login still sends requests. A route would count them as requests of the page under test.
+  await page.goto("about:blank");
   let eventsConnections = 0;
   await page.route("/api/events", (route) => {
     eventsConnections++;

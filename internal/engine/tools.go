@@ -1708,7 +1708,7 @@ func (e *Engine) endTriage(ctx context.Context, c caller, workstreamRepository g
 	if err != nil {
 		return err
 	}
-	if err := e.addOrKeepComment(ctx, repository, c.issue, text); err != nil {
+	if err := e.postComment(ctx, repository, c.issue, text); err != nil {
 		return err
 	}
 	_, err = repository.CloseIssue(ctx, c.issue, "completed")

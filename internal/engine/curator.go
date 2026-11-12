@@ -59,16 +59,13 @@ type editMemoryInput struct {
 }
 
 // maintenanceWorkstream gives the number of the maintenance Workstream of repository: the open Workstream with
-// mobius:maintenance and the lowest number. It gives 0 when repository has none.
-func maintenanceWorkstream(ctx context.Context, repository github.Repository) (int64, error) {
-	issues, err := repository.OpenIssuesWithLabel(ctx, maintenanceLabel)
-	var found int64
-	for _, issue := range issues {
-		if number := int64(issue.GetNumber()); hasLabel(issue, workstreamLabel) && (found == 0 || number < found) {
-			found = number
-		}
+// the maintenance setting and the lowest number. It gives 0 when repository has none.
+func (e *Engine) maintenanceWorkstream(ctx context.Context, repository github.Repository) (int64, error) {
+	number, err := e.queries.GetMaintenanceWorkstream(ctx, repository.FullName)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
 	}
-	return found, err
+	return number, err
 }
 
 // organizationMaintenance gives the maintenance Workstream of the organization: the issue repository, and the number of
@@ -79,7 +76,7 @@ func (e *Engine) organizationMaintenance(ctx context.Context, organization strin
 	if err != nil {
 		return issueAt{}, err
 	}
-	number, err := maintenanceWorkstream(ctx, repository)
+	number, err := e.maintenanceWorkstream(ctx, repository)
 	return issueAt{repository, number}, err
 }
 
@@ -270,7 +267,7 @@ func (e *Engine) deliverCuratorResult(ctx context.Context, a *Agent, requests []
 	if reply := strings.TrimSpace(a.replyText()); reply != "" {
 		fmt.Fprintf(&text, "\nReply of the Curator:\n\n%s", reply)
 	}
-	return e.postChat(ctx, ChatKey{Organization: a.spec.Organization}, curatorAuthor, "", text.String(), nil, nil, false)
+	return e.postChat(ctx, ChatKey{Organization: a.spec.Organization}, curatorAuthor, "", text.String(), nil, nil, nil, false)
 }
 
 // curateTurn makes the worktree of the Curator a and runs its turn.
@@ -561,7 +558,7 @@ func (e *Engine) reportGap(ctx context.Context, c caller, _ github.Repository, i
 		return "", refuse("Mobius already posted this gap report. Do not call report_gap again for it.")
 	}
 	message := fmt.Sprintf("Gap of Mobius from the Curator %d of %s:\n\n%s", c.session, c.repository, input.Text)
-	if err := e.postChat(ctx, ChatKey{Organization: c.organization}, curatorAuthor, "", message, nil, nil, false); err != nil {
+	if err := e.postChat(ctx, ChatKey{Organization: c.organization}, curatorAuthor, "", message, nil, nil, nil, false); err != nil {
 		return "", err
 	}
 	c.agent.reportedGaps = append(c.agent.reportedGaps, input.Text)

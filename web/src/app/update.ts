@@ -66,11 +66,33 @@ import {
   WaitForStart,
 } from "./commands";
 import { Message } from "./message";
-import { initialModel, Model, savedOrganization, saveOrganization } from "./model";
+import {
+  initialModel,
+  Model,
+  savedOrganization,
+  saveOrganization,
+  type Upgrade,
+  type UpgradeState,
+} from "./model";
 import { coordinatorTrayItems, workstreamTrayItems } from "./tray";
 import { parentPath, parseRoute, type AppRoute } from "./route";
 
 type UpdateReturn = Update.Return<Model, Message>;
+
+function applyUpgrade(state: UpgradeState, upgrade: Upgrade): UpgradeState {
+  return {
+    ...state,
+    step: upgrade.step,
+    tries: upgrade.tries,
+    failure: upgrade.failure,
+    nextTry: Option.fromNullishOr(upgrade.nextTry).pipe(Option.map(Date.parse)),
+    awaitingStart: false,
+  };
+}
+
+function upgradeChanged(model: Model, upgrade: Upgrade): UpdateReturn {
+  return { model: { ...model, upgrade: applyUpgrade(model.upgrade, upgrade) }, commands: [] };
+}
 
 const foldChat = Update.foldChild({
   update: updateChat,
@@ -1278,30 +1300,27 @@ export function update(model: Model, message: Message): UpdateReturn {
         commands: [],
       };
 
-    case "UpgradeFailureChanged":
+    case "UpgradeChanged":
+      return upgradeChanged(model, message.upgrade);
+
+    case "UpgradeTicked":
       return {
-        model: {
-          ...model,
-          upgrade: { ...model.upgrade, failure: message.failure },
-        },
+        model: { ...model, upgrade: { ...model.upgrade, now: message.now } },
         commands: [],
       };
 
     case "UpgradeInfoLoaded": {
-      const { version, drain, failure } = message;
-      return {
-        model: {
-          ...model,
-          upgrade: {
-            ...model.upgrade,
-            version: version ?? model.upgrade.version,
-            drain: drain ? Option.some(drain) : model.upgrade.drain,
-            failure: failure ?? model.upgrade.failure,
-            cancelling: drain && !drain.on ? false : model.upgrade.cancelling,
-          },
+      const { version, drain, upgrade } = message;
+      const loaded = {
+        ...model,
+        upgrade: {
+          ...model.upgrade,
+          version: version ?? model.upgrade.version,
+          drain: drain ? Option.some(drain) : model.upgrade.drain,
+          cancelling: drain && !drain.on ? false : model.upgrade.cancelling,
         },
-        commands: [],
       };
+      return upgrade ? upgradeChanged(loaded, upgrade) : { model: loaded, commands: [] };
     }
 
     case "ShowUpgradeChanges":
@@ -1348,20 +1367,22 @@ export function update(model: Model, message: Message): UpdateReturn {
             ...model.upgrade,
             changesShown: false,
             upgrading: true,
+            awaitingStart: true,
             failure: "",
           },
         },
         commands: [StartUpgrade()],
       };
 
-    case "StartUpgradeSucceeded":
-      return {
-        model: {
-          ...model,
-          upgrade: { ...model.upgrade, upgrading: false },
-        },
-        commands: [],
+    case "StartUpgradeSucceeded": {
+      const started = {
+        ...model,
+        upgrade: { ...model.upgrade, upgrading: false, awaitingStart: false },
       };
+      return model.upgrade.awaitingStart
+        ? upgradeChanged(started, message.upgrade)
+        : { model: started, commands: [] };
+    }
 
     case "StartUpgradeFailed":
       return {
@@ -1370,6 +1391,7 @@ export function update(model: Model, message: Message): UpdateReturn {
           upgrade: {
             ...model.upgrade,
             upgrading: false,
+            awaitingStart: false,
             failure: message.error,
           },
         },
@@ -1380,7 +1402,7 @@ export function update(model: Model, message: Message): UpdateReturn {
       return {
         model: {
           ...model,
-          upgrade: { ...model.upgrade, cancelling: true },
+          upgrade: { ...model.upgrade, cancelling: true, awaitingStart: false },
         },
         commands: [CancelUpgrade()],
       };
@@ -1391,7 +1413,7 @@ export function update(model: Model, message: Message): UpdateReturn {
           ...model,
           upgrade: { ...model.upgrade, cancelling: false },
         },
-        commands: [],
+        commands: [CheckUpgrade()],
       };
 
     case "CancelUpgradeFailed":

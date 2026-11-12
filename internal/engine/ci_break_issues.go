@@ -242,7 +242,7 @@ func (e *Engine) closeCIBreakIssue(ctx context.Context, repository github.Reposi
 	}
 	if err == nil {
 		text := fmt.Sprintf("The workflow \"%s\" passed again on %s in the run %s. Mobius closes this issue.", ciBreak.WorkflowName, repository.DefaultBranch, passed.GetHTMLURL())
-		return true, e.addOrKeepComment(ctx, repository, number, text)
+		return true, e.postComment(ctx, repository, number, text)
 	}
 	if github.NotFound(err) {
 		return true, nil
