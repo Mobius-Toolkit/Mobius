@@ -23,3 +23,5 @@ DROP TABLE outgoing_changes;
 ALTER TABLE outgoing_changes_new RENAME TO outgoing_changes;
 
 CREATE INDEX outgoing_changes_pending ON outgoing_changes (repository) WHERE status = 'pending';
+
+ALTER TABLE tasks ADD COLUMN approved_again_change INTEGER;

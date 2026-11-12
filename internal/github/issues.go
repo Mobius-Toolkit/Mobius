@@ -59,6 +59,16 @@ type graphqlError struct {
 	Message string `json:"message"`
 }
 
+// GraphQLError is the first error of a GraphQL answer. GitHub gives the answer with the status 200, and gives the same
+// error again for the same query.
+type GraphQLError struct {
+	Message string
+}
+
+func (e *GraphQLError) Error() string {
+	return e.Message
+}
+
 // graphql sends the GraphQL query with variables and decodes its data into data.
 func (r Repository) graphql(ctx context.Context, query string, variables map[string]any, data any) error {
 	request, err := r.Client.NewRequest(ctx, http.MethodPost, "graphql", map[string]any{"query": query, "variables": variables})
@@ -74,7 +84,7 @@ func (r Repository) graphql(ctx context.Context, query string, variables map[str
 		return err
 	}
 	if len(response.Errors) > 0 {
-		return errors.New(response.Errors[0].Message)
+		return &GraphQLError{Message: response.Errors[0].Message}
 	}
 	return nil
 }

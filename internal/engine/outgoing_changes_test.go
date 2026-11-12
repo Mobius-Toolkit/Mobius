@@ -326,3 +326,30 @@ func TestCommentPullRequestGivesALaterTextWhenTheSendAtOnceFailsAndALaterPollPos
 		t.Errorf("comments = %v, want %v", got, want)
 	}
 }
+
+func TestAReplyWhoseResolveGitHubRefusesDoesNotHoldTheLaterCommentOfThePullRequest(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddPullRequest(shop, 45, "Add plan model")
+	root := fake.AddReviewComment(shop, 45, 0, "owner", "Use cents.")
+	fake.FailResolveThreads(true)
+	server, _ := connect(t, fake, call("reply_thread", "{ repository = \"owner/shop\", thread = "+itoa(root)+`, text = "Fixed in abc123." }`)+
+		call("comment_pull_request", `{ repository = "owner/shop", n = 45, text = "Close this stale pull request." }`))
+	addTask(t, server, fake, 41, 12, 45)
+
+	session := run(t, server, leadSpec(t), "1. ", "2. ")
+
+	if got, want := reply(t, server, session), "Replied to "+itoa(root)+".Commented on #45."; got != want {
+		t.Errorf("reply = %q, want %q", got, want)
+	}
+	if thread := fake.ReviewThread(shop, 45, root); thread.Resolved || len(thread.Comments) != 2 {
+		t.Errorf("thread = %+v", thread)
+	}
+	want := []testkit.Comment{{Author: testkit.AppSlug + "[bot]", Body: marked("Close this stale pull request.", leadMark)}}
+	if got := fake.Comments(shop, 45); !reflect.DeepEqual(got, want) {
+		t.Errorf("comments = %v, want %v", got, want)
+	}
+	if got := outgoingChanges(t, server, "sent"); got != 2 {
+		t.Errorf("sent changes = %d, want 2", got)
+	}
+}

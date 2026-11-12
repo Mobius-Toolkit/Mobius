@@ -515,15 +515,12 @@ func (e *Engine) approve(ctx context.Context, repository github.Repository, task
 		summary = "Mobius approved the pull request: the Reviewer found no open finding on this head, and each check of the head passed."
 	}
 	newComment := mark != "" || task.ApprovedAgainHead.String != head
-	posted := ""
 	var change int64
 	if newComment {
 		var err error
 		if change, err = e.addApprovalComment(ctx, repository, task, head, int64(pullRequest.GetNumber()), comment, mark == ""); err != nil {
 			return err
 		}
-	} else {
-		posted = task.ApprovedAgainComment.String
 	}
 	if leadReport != "" {
 		if err := e.queries.SetTaskApprovedReport(ctx, store.SetTaskApprovedReportParams{
@@ -573,7 +570,6 @@ func (e *Engine) approve(ctx context.Context, repository github.Repository, task
 		Text:                 fmt.Sprintf("Pull request #%d of #%d \"%s\" is ready for review.", pullRequest.GetNumber(), task.Issue, title),
 		Link:                 issueLink(task.Repository, task.Issue),
 		PullRequest:          int64(pullRequest.GetNumber()),
-		ReportLink:           posted,
 		Merging:              merging,
 	}); err != nil {
 		return err
@@ -583,6 +579,9 @@ func (e *Engine) approve(ctx context.Context, repository github.Repository, task
 			return err
 		}
 	}
+	if err := e.linkSentApproval(ctx, task); err != nil {
+		return err
+	}
 	if blocked && awaitsMerge(task) {
 		if err := e.refuseMergeItem(ctx, task, openTodosReason); err != nil {
 			return err
@@ -591,15 +590,19 @@ func (e *Engine) approve(ctx context.Context, repository github.Repository, task
 	return e.queries.SetTaskApprovedHead(ctx, store.SetTaskApprovedHeadParams{ApprovedHead: sql.NullString{String: head, Valid: true}, ID: task.ID})
 }
 
-// addApprovalComment adds the approval comment on the pull request as an outgoing change, and gives its id. approve
-// sends it after it added the Inbox item, because the send stores the URL of the comment as the report link of that
-// item. When Mobius writes the comment (byMobius), the task stores head as the head of the comment in the same
-// transaction as the change, so a retry of approve for the same head adds no second change.
+// addApprovalComment adds the approval comment on the pull request as an outgoing change, and gives its id. In the same
+// transaction, the task stores the id as its newest approval change, and the send stores the URL of the comment there.
+// approve sends the change after it added the Inbox item, and linkSentApproval gives the item the URL of a comment that
+// a poll sent earlier. When Mobius writes the comment (byMobius), the task also stores head as the head of the comment,
+// so a retry of approve for the same head adds no second change.
 func (e *Engine) addApprovalComment(ctx context.Context, repository github.Repository, task store.Task, head string, pullRequest int64, comment string, byMobius bool) (int64, error) {
 	var id int64
 	err := e.inTx(ctx, func(q *store.Queries) error {
 		var err error
 		if id, err = e.addOutgoingChange(ctx, q, repository.FullName, pullRequest, 0, approvalCommentField, comment); err != nil {
+			return err
+		}
+		if err := q.SetTaskApprovalChange(ctx, store.SetTaskApprovalChangeParams{ApprovedAgainChange: sql.NullInt64{Int64: id, Valid: true}, ID: task.ID}); err != nil {
 			return err
 		}
 		if !byMobius {
@@ -608,6 +611,21 @@ func (e *Engine) addApprovalComment(ctx context.Context, repository github.Repos
 		return q.SetTaskApprovedAgainHead(ctx, store.SetTaskApprovedAgainHeadParams{ApprovedAgainHead: sql.NullString{String: head, Valid: true}, ID: task.ID})
 	})
 	return id, err
+}
+
+// linkSentApproval gives the newest ready_for_review Inbox item of the task the URL of the approval comment of the task,
+// when the comment is on GitHub. A poll can send the comment before approve adds the item, and then the send finds no
+// item of this approval.
+func (e *Engine) linkSentApproval(ctx context.Context, task store.Task) error {
+	current, err := e.queries.GetTask(ctx, task.ID)
+	if err != nil || !current.ApprovedAgainComment.Valid {
+		return err
+	}
+	item, err := linkReport(ctx, e.queries, current, current.ApprovedAgainComment.String, time.Time{})
+	if err == nil && item != nil {
+		e.publish(Change{Inbox: item})
+	}
+	return err
 }
 
 // cannotDo ends the turn of the Implementer with the reason for the Lead.

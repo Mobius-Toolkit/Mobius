@@ -45,9 +45,13 @@ func isWriteComment(body string) bool {
 	return strings.Contains(body, writeMarkerPrefix)
 }
 
-// permanentRefusal tells whether err is a 4xx answer of GitHub that is not a rate limit. A call that got such an answer
-// fails again.
+// permanentRefusal tells whether err is a 4xx answer of GitHub that is not a rate limit, or a GraphQL error. A call that
+// got such an answer fails again.
 func permanentRefusal(err error) bool {
+	var graphQL *github.GraphQLError
+	if errors.As(err, &graphQL) {
+		return true
+	}
 	var refused *gh.ErrorResponse
 	return errors.As(err, &refused) && refused.Response.StatusCode < http.StatusInternalServerError && refused.Response.StatusCode != http.StatusTooManyRequests
 }
@@ -179,11 +183,15 @@ func isReply(change store.OutgoingChange) bool {
 }
 
 // complete does the steps after the comment of the change is on GitHub, and marks the change sent. A reply_resolve
-// resolves its thread first. It tells if the change stays pending.
+// resolves its thread first. The reply is on GitHub, so a resolve that GitHub refuses for all time is only logged, and it
+// does not hold the later changes of the item. It tells if the change stays pending.
 func (e *Engine) complete(ctx context.Context, repository github.Repository, change store.OutgoingChange, comment int64, url string) (bool, error) {
 	if change.Field == replyResolveField {
 		if err := resolveThread(ctx, repository, change.Number, change.ReplyTo.Int64); err != nil {
-			return e.failed(ctx, repository, change, err)
+			if !permanentRefusal(err) {
+				return e.failed(ctx, repository, change, err)
+			}
+			log.Printf("the resolve of the thread of %s#%d failed: %v", repository.FullName, change.Number, err)
 		}
 	}
 	return false, e.finish(ctx, change, comment, url)
@@ -259,12 +267,12 @@ func (e *Engine) finish(ctx context.Context, change store.OutgoingChange, commen
 	return err
 }
 
-// linkApproval stores the URL of the approval comment of the change as the report link of the ready_for_review Inbox
-// item of the newest task of the pull request, and as the comment of an approval again that the task waits for. It
-// gives the changed item, or nil when the task or the item is gone.
+// linkApproval stores the URL of the approval comment of the change on the task that waits for it, and as the report
+// link of the ready_for_review Inbox item that approve added after it added the change. It gives the changed item, or
+// nil when the change is not the newest approval comment of the task, or when the item is gone.
 func linkApproval(ctx context.Context, q *store.Queries, change store.OutgoingChange, url string) (*store.InboxItem, error) {
 	task, err := q.GetNewestTaskOfPullRequest(ctx, store.GetNewestTaskOfPullRequestParams{Repository: change.Repository, PullRequest: sql.NullInt64{Int64: change.Number, Valid: true}})
-	if errors.Is(err, sql.ErrNoRows) {
+	if errors.Is(err, sql.ErrNoRows) || err == nil && task.ApprovedAgainChange.Int64 != change.ID {
 		return nil, nil
 	}
 	if err != nil {
@@ -274,12 +282,29 @@ func linkApproval(ctx context.Context, q *store.Queries, change store.OutgoingCh
 	if err != nil {
 		return nil, err
 	}
+	created, err := time.Parse(time.RFC3339Nano, change.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return linkReport(ctx, q, task, url, created)
+}
+
+// linkReport stores url as the report link of the newest ready_for_review Inbox item of the task, when the item is not
+// older than notBefore. It gives the changed item, or nil when the task has no such item or the item has the link.
+func linkReport(ctx context.Context, q *store.Queries, task store.Task, url string, notBefore time.Time) (*store.InboxItem, error) {
 	item, err := q.GetNewestInboxItem(ctx, store.GetNewestInboxItemParams{Repository: task.Repository, Issue: task.Issue, Kind: readyForReviewKind})
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
+	}
+	added, err := time.Parse(time.RFC3339Nano, item.Time)
+	if err != nil {
+		return nil, err
+	}
+	if added.Before(notBefore) || item.ReportLink == url {
+		return nil, nil
 	}
 	item, err = q.SetInboxItemReportLink(ctx, store.SetInboxItemReportLinkParams{ReportLink: url, ID: item.ID})
 	return &item, err

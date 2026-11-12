@@ -225,24 +225,18 @@ func TestAnImplementerReplyWithAnAnswerAndNoCommitResolvesTheThread(t *testing.T
 	}
 }
 
-func TestAnImplementerReplyWithNoCommitAndAFailedResolveResolvesTheThreadLaterAndIsOnTheThreadOnlyOnce(t *testing.T) {
+func TestAnImplementerReplyWithNoCommitAndARefusedResolveLeavesTheThreadOpenAndIsOnTheThreadOnlyOnce(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	connectJudge(t, fake, question2, answers, noChange)
+	server := connectJudge(t, fake, question2, answers, noChange)
 	fake.FailResolveThreads(true)
 
 	question := fake.AddReviewComment(shop, 42, 0, "owner", "Why cents?")
 
 	testkit.WaitFor(t, func() bool { return len(fake.ReviewThread(shop, 42, question).Comments) == 2 })
+	testkit.WaitFor(t, func() bool { return outgoingChanges(t, server, "pending") == 0 })
 	waitForPolls(t, fake)
 	if thread := fake.ReviewThread(shop, 42, question); thread.Resolved || len(thread.Comments) != 2 {
-		t.Errorf("thread = %+v", thread)
-	}
-
-	fake.FailResolveThreads(false)
-
-	testkit.WaitFor(t, func() bool { return fake.ReviewThread(shop, 42, question).Resolved })
-	if thread := fake.ReviewThread(shop, 42, question); len(thread.Comments) != 2 {
 		t.Errorf("thread = %+v", thread)
 	}
 }
