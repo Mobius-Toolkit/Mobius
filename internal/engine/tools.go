@@ -997,11 +997,14 @@ func (e *Engine) createIssue(ctx context.Context, c caller, repository github.Re
 		}
 		text += fmt.Sprintf(" Its Implementer setting is %s.", settingText(setting.Harness, setting.Model, setting.Effort))
 	}
-	go func() {
-		if err := e.recopyTrees(context.WithoutCancel(ctx), workstream, c.workstream); err != nil {
-			log.Printf("copy the tree of %s#%d: %v", workstream.FullName, c.workstream, err)
-		}
-	}()
+	if e.tryTrack() {
+		go func() {
+			defer e.untrack()
+			if err := e.recopyTrees(context.WithoutCancel(ctx), workstream, c.workstream); err != nil {
+				log.Printf("copy the tree of %s#%d: %v", workstream.FullName, c.workstream, err)
+			}
+		}()
+	}
 	return text, nil
 }
 
@@ -1020,6 +1023,9 @@ type leadIssue struct {
 	number int
 }
 
+// beforeLeadIssueWait is a hook of the tests. claimLeadIssue calls it before it waits for the call that creates the issue.
+var beforeLeadIssueWait func()
+
 // claimLeadIssue gives the issue of key that the session created. When no call creates it, the caller gets a leadIssue
 // with number 0, and it must call finishLeadIssue. When a call creates it, claimLeadIssue waits for that call. When
 // that call created no issue, the caller creates it.
@@ -1037,6 +1043,9 @@ func (a *Agent) claimLeadIssue(ctx context.Context, key leadIssueKey) (*leadIssu
 			return first, nil
 		}
 		a.issuesMu.Unlock()
+		if beforeLeadIssueWait != nil {
+			beforeLeadIssueWait()
+		}
 		select {
 		case <-first.done:
 		case <-ctx.Done():

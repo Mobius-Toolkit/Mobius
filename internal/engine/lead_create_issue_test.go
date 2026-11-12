@@ -66,8 +66,8 @@ func TestTwoCreateIssueCallsOfOneSessionWithTheSameParentAndTitleCreateOneIssue(
 	}
 }
 
+// Serial: the test sets the hook beforeLeadIssueWait.
 func TestACreateIssueCallWaitsForTheCallWithTheSameParentAndTitleThatRuns(t *testing.T) {
-	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, dataDir := connect(t, fake, "[[prompts]]\nreply = [\"Seen\"]\n")
 	start(t, server, leadSpec(t))
@@ -100,9 +100,14 @@ func TestACreateIssueCallWaitsForTheCallWithTheSameParentAndTitleThatRuns(t *tes
 		results <- result.Content[0].(*sdk.TextContent).Text
 	}
 
+	waiting := make(chan struct{})
+	*engine.BeforeLeadIssueWait = sync.OnceFunc(func() { close(waiting) })
+	t.Cleanup(func() { *engine.BeforeLeadIssueWait = nil })
+
 	go createIssue()
 	testkit.WaitFor(t, func() bool { return createdPlanModels() == 1 })
 	go createIssue()
+	<-waiting
 	release()
 
 	if first, second := <-results, <-results; first != "Created owner/shop#13." || second != first {
