@@ -221,15 +221,14 @@ type Node struct {
 }
 
 // Change is a change for the live event stream: a new, changed or ended session, a new or changed Transcript line,
-// a change of the drain, a change of the error of the last upgrade, a change of the Workstream list, a change of the
+// a change of the drain, a change of the state of the upgrade, a change of the Workstream list, a change of the
 // repositories of the Apps, a new or longer chat message, a new unread count of a chat, a new state of a chat, a new or
 // dismissed Inbox item, or a Workstream that the Coordinator chat created. It has one field that is not empty.
 type Change struct {
-	Node  *Node
-	Line  *Line
-	Drain *DrainState
-	// Upgrade is the error of the last upgrade, or "" when the last upgrade has no error.
-	Upgrade      *string
+	Node         *Node
+	Line         *Line
+	Drain        *DrainState
+	Upgrade      *UpgradeState
 	Workstreams  bool
 	Repositories bool
 	Message      *store.ChatMessage
@@ -1056,7 +1055,7 @@ func (a *Agent) addReply(ctx context.Context, kind, content string) error {
 		return nil
 	}
 	spec := a.spec
-	message, err := a.engine.addChatMessage(ctx, ChatKey{spec.Organization, spec.WorkstreamRepository, spec.Workstream}, a.author, content, "", "", nil, false)
+	message, err := a.engine.addChatMessage(ctx, ChatKey{spec.Organization, spec.WorkstreamRepository, spec.Workstream}, a.author, content, "", "", nil, nil, false)
 	a.message = message.ID
 	return err
 }
