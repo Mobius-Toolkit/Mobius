@@ -185,7 +185,7 @@ func (e *Engine) checkTask(ctx context.Context, repository github.Repository, ta
 	}
 	var state ci
 	if afterReview(task.State) {
-		if state, err = ciOf(ctx, repository, pullRequest.GetHead().GetSHA()); err != nil {
+		if state, err = e.readCI(ctx, repository, pullRequest.GetHead().GetSHA()); err != nil {
 			return Work{}, false, err
 		}
 	}
@@ -472,7 +472,7 @@ func (e *Engine) continueNeedsHuman(ctx context.Context, repository github.Repos
 	if !task.CiFailedHead.Valid || pullRequest.Mergeable == nil {
 		return task, false, nil
 	}
-	state, err := ciOf(ctx, repository, head)
+	state, err := e.readCI(ctx, repository, head)
 	if err != nil || state.failedCheck || state.failedWorkflow || state.running || state.absent {
 		return task, false, err
 	}

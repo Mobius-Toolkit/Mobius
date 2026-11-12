@@ -197,7 +197,7 @@ func (e *Engine) onChecks(ctx context.Context, repository github.Repository, tas
 		return nil
 	}
 	head := pullRequest.GetHead().GetSHA()
-	if err := e.retryCancelledRuns(ctx, repository, pullRequest, &state); err != nil {
+	if err := e.retryCancelledRuns(ctx, repository, pullRequest, state); err != nil {
 		return err
 	}
 	screenshots := screenshotsOf(pullRequest.GetBody())
@@ -487,9 +487,8 @@ func rerunWaiting(task store.Task, state ci) []string {
 
 // retryCancelledRuns runs again each newest workflow run of the head that Mobius cancelled and whose rerun or branch
 // step is still to do, when the run completed. GitHub cancels a run after it answers the cancel, so the first rerun can
-// come too early. A run that GitHub refuses again goes to updateBranchOfRun. A cancelled first attempt that Mobius
-// cancelled does not count as a failed workflow, because the read of the poll can still show the cancel after the rerun.
-func (e *Engine) retryCancelledRuns(ctx context.Context, repository github.Repository, pullRequest *gh.PullRequest, state *ci) error {
+// come too early. A run that GitHub refuses again goes to updateBranchOfRun.
+func (e *Engine) retryCancelledRuns(ctx context.Context, repository github.Repository, pullRequest *gh.PullRequest, state ci) error {
 	var updatedBranch bool
 	for _, run := range state.newestWorkflows {
 		refused := e.refusedRuns[run.GetID()]
@@ -514,6 +513,16 @@ func (e *Engine) retryCancelledRuns(ctx context.Context, repository github.Repos
 			return err
 		}
 	}
+	return nil
+}
+
+// readCI reads the CI of the head. A first attempt that Mobius cancelled does not count as a failed workflow, because the
+// read can still show the cancel after the rerun. It counts as a run that did not complete.
+func (e *Engine) readCI(ctx context.Context, repository github.Repository, head string) (ci, error) {
+	state, err := ciOf(ctx, repository, head)
+	if err != nil {
+		return ci{}, err
+	}
 	state.failedWorkflow = false
 	for _, run := range state.newestWorkflows {
 		switch {
@@ -527,7 +536,7 @@ func (e *Engine) retryCancelledRuns(ctx context.Context, repository github.Repos
 			state.failedWorkflow = true
 		}
 	}
-	return nil
+	return state, nil
 }
 
 func cancelledRun(run *gh.WorkflowRun) bool {
