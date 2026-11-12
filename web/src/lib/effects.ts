@@ -13,6 +13,10 @@ export class ImageFailed extends Schema.TaggedError<ImageFailed>()("ImageFailed"
   message: Schema.String,
 }) {}
 
+export class MarkdownFailed extends Schema.TaggedError<MarkdownFailed>()("MarkdownFailed", {
+  message: Schema.String,
+}) {}
+
 export const request = <A>(run: (signal: AbortSignal) => Promise<A>) =>
   Effect.tryPromise({ try: run, catch: (cause) => new RequestFailed({ message: String(cause) }) });
 

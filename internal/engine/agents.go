@@ -215,18 +215,20 @@ type Node struct {
 	// Working is true while an open session works: a chat session has a turn that runs, and another session does not
 	// wait for a slot or a pause.
 	Working bool
+	// KeptUntil is the time when Mobius closes the kept Harness process of this ended session. It is the zero time
+	// when Mobius keeps no process of this session.
+	KeptUntil time.Time
 }
 
 // Change is a change for the live event stream: a new, changed or ended session, a new or changed Transcript line,
-// a change of the drain, a change of the error of the last upgrade, a change of the Workstream list, a change of the
+// a change of the drain, a change of the state of the upgrade, a change of the Workstream list, a change of the
 // repositories of the Apps, a new or longer chat message, a new unread count of a chat, a new state of a chat, a new or
 // dismissed Inbox item, or a Workstream that the Coordinator chat created. It has one field that is not empty.
 type Change struct {
-	Node  *Node
-	Line  *Line
-	Drain *DrainState
-	// Upgrade is the error of the last upgrade, or "" when the last upgrade has no error.
-	Upgrade      *string
+	Node         *Node
+	Line         *Line
+	Drain        *DrainState
+	Upgrade      *UpgradeState
 	Workstreams  bool
 	Repositories bool
 	Message      *store.ChatMessage
@@ -254,7 +256,10 @@ type Created struct {
 	Number     int64
 }
 
-const checkRunsReason = "runs .mobius/check"
+const (
+	checkRunsReason = "runs .mobius/check"
+	initRunsReason  = "runs .mobius/init"
+)
 
 func now() string {
 	return time.Now().UTC().Format(time.RFC3339Nano)
@@ -1050,7 +1055,7 @@ func (a *Agent) addReply(ctx context.Context, kind, content string) error {
 		return nil
 	}
 	spec := a.spec
-	message, err := a.engine.addChatMessage(ctx, ChatKey{spec.Organization, spec.WorkstreamRepository, spec.Workstream}, a.author, content, "", "", nil, false)
+	message, err := a.engine.addChatMessage(ctx, ChatKey{spec.Organization, spec.WorkstreamRepository, spec.Workstream}, a.author, content, "", "", nil, nil, false)
 	a.message = message.ID
 	return err
 }
@@ -1087,6 +1092,7 @@ func (e *Engine) node(session store.Session) Node {
 		n = Node{Session: session, Name: session.Role}
 	}
 	n.Working = e.working(n)
+	n.KeptUntil = e.keptUntil(session.ID)
 	return n
 }
 
@@ -1101,7 +1107,7 @@ func (e *Engine) working(n Node) bool {
 		c, ok := e.chats[ChatKey{session.Organization, session.WorkstreamRepository, session.Workstream}]
 		return ok && c.writing && session.QueueReason.String == ""
 	}
-	return session.QueueReason.String == "" || session.QueueReason.String == checkRunsReason
+	return slices.Contains([]string{"", checkRunsReason, initRunsReason}, session.QueueReason.String)
 }
 
 // Tree gives the sessions of the Workstream of repository, the oldest first.

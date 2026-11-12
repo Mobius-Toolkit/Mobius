@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -485,7 +486,7 @@ func replaceCheckRun(ctx context.Context, repository github.Repository, head str
 // approvalAgainComment gives the comment of the approval again. Mobius writes it, so it has no role mark. reportHead
 // is the head whose approval has report. The comment keeps the end of a report that is too long for GitHub.
 func approvalAgainComment(branch, head, approved, reportHead, report string) string {
-	header := fmt.Sprintf("Mobius approved the head %.8s again. Only clean merges of %s came after the head %.8s, and they change no file of the pull request. The report of the approval of %.8s:\n\n", head, branch, approved, reportHead)
+	header := fmt.Sprintf("Mobius approved the head %.8s again. Only clean merges of %s came after the head %.8s, and the changed lines of the pull request are the same. The report of the approval of %.8s:\n\n", head, branch, approved, reportHead)
 	return header + tail(report, commentLimit-utf8.RuneCountInString(header))
 }
 
@@ -1144,7 +1145,7 @@ func shortPrompt(j job, kept *keptSession) string {
 // row ends as each other, so a kept session holds no slot. The keep runs before end frees the drain count, because a
 // drain that completes in between lets the restart leave the Harness process behind.
 func (e *Engine) keepImplementer(ctx context.Context, a *Agent, task store.Task, j *job) error {
-	k := &keptSession{binding: a.binding, level: a.level, keptAt: e.timeNow(), brief: j.brief, issue: j.issueBody, comments: j.comments}
+	k := &keptSession{row: a.id, binding: a.binding, level: a.level, keptAt: e.timeNow(), brief: j.brief, issue: j.issueBody, comments: j.comments}
 	err := a.end(ctx, string(done), func() {
 		a.mu.Lock()
 		k.costTotal, k.costBase = a.costTotal, a.costBase
@@ -1264,12 +1265,19 @@ func (e *Engine) implement(ctx context.Context, a *Agent, j *job) (result, error
 	dataDir := e.config.DataDir
 	worktree := a.spec.Dir
 	prepareStartedAt := now()
-	err := e.prepareWorktree(ctx, j, worktree)
+	added, err := e.prepareWorktree(ctx, j, worktree)
 	a.endStep(ctx, "prepare", prepareStartedAt, sql.NullInt64{}, err)
 	if errors.Is(err, runner.ErrMergeConflict) {
 		return result{outcome: mergeConflict, text: err.Error()}, nil
 	} else if err != nil {
 		return result{}, err
+	}
+	if added {
+		failure, err := e.initWorktree(ctx, a)
+		if err != nil {
+			return result{}, err
+		}
+		j.first = failure + j.first
 	}
 	repository, err := e.repository(j.task.Repository)
 	if err != nil {
@@ -1309,15 +1317,15 @@ func (e *Engine) implement(ctx context.Context, a *Agent, j *job) (result, error
 }
 
 // prepareWorktree makes the worktree of the task on a new branch, or on the branch of the task when the worktree is
-// gone, and merges the commits that others pushed to the branch.
-func (e *Engine) prepareWorktree(ctx context.Context, j *job, worktree string) error {
+// gone, and merges the commits that others pushed to the branch. It gives true when it added the worktree.
+func (e *Engine) prepareWorktree(ctx context.Context, j *job, worktree string) (bool, error) {
 	repository, err := e.repository(j.task.Repository)
 	if err != nil {
-		return err
+		return false, err
 	}
 	token, err := repository.Token(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	_, statErr := os.Stat(worktree)
 	missing := errors.Is(statErr, fs.ErrNotExist)
@@ -1326,7 +1334,7 @@ func (e *Engine) prepareWorktree(ctx context.Context, j *job, worktree string) e
 	if j.branch == "" || missing {
 		id, err := repository.UserID(ctx, login)
 		if err != nil {
-			return err
+			return false, err
 		}
 		email = fmt.Sprintf("%d+%s@users.noreply.github.com", id, login)
 	}
@@ -1334,25 +1342,64 @@ func (e *Engine) prepareWorktree(ctx context.Context, j *job, worktree string) e
 	e.gitMu.Lock()
 	defer e.gitMu.Unlock()
 	if err := e.fetch(ctx, repository, token); err != nil {
-		return err
+		return false, err
 	}
 	if j.branch == "" {
 		branch, err := runner.FreeBranch(ctx, dataDir, name, j.task.Issue)
 		if err != nil {
-			return err
+			return false, err
 		}
 		if err := runner.AddWorktree(ctx, dataDir, name, worktree, branch, "origin/"+repository.DefaultBranch, login, email); err != nil {
-			return err
+			return false, err
 		}
 		j.branch = branch
-		return e.queries.SetTaskBranch(ctx, store.SetTaskBranchParams{Branch: sql.NullString{String: branch, Valid: true}, ID: j.task.ID})
+		return true, e.queries.SetTaskBranch(ctx, store.SetTaskBranchParams{Branch: sql.NullString{String: branch, Valid: true}, ID: j.task.ID})
 	}
 	if missing {
 		if err := runner.AddWorktree(ctx, dataDir, name, worktree, j.branch, "origin/"+j.branch, login, email); err != nil {
-			return err
+			return false, err
 		}
 	}
-	return runner.Pull(ctx, dataDir, worktree, j.branch)
+	return missing, runner.Pull(ctx, dataDir, worktree, j.branch)
+}
+
+// initWorktree runs .mobius/init of the new worktree of a. It gives the section that starts the first prompt when the
+// script fails or does not end in check_timeout, and an empty text in each other case.
+func (e *Engine) initWorktree(ctx context.Context, a *Agent) (string, error) {
+	if _, err := os.Stat(filepath.Join(a.spec.Dir, ".mobius", "init")); errors.Is(err, fs.ErrNotExist) {
+		return "", nil
+	}
+	if err := a.checkPhase(ctx, initRunsReason, ".mobius/init started."); err != nil {
+		return "", err
+	}
+	started := time.Now()
+	startedAt := now()
+	output, passed, err := runner.Init(ctx, e.config.DataDir, a.spec.Dir, e.agents.Path, e.config.CheckTimeout)
+	if err != nil {
+		a.endStep(ctx, "init", startedAt, sql.NullInt64{}, err)
+		return "", err
+	}
+	endedAt := now()
+	elapsed := time.Since(started).Round(time.Millisecond)
+	timedOut := !passed && elapsed >= e.config.CheckTimeout
+	text, result, reason := fmt.Sprintf(".mobius/init failed in %s.", elapsed), "fail", "failed"
+	switch {
+	case passed:
+		text, result = fmt.Sprintf(".mobius/init passed in %s.", elapsed), "pass"
+	case timedOut:
+		reason = fmt.Sprintf("did not end in %s", e.config.CheckTimeout)
+		text, result = fmt.Sprintf(".mobius/init %s.", reason), "timeout"
+	}
+	if err := a.addStep(ctx, "init", startedAt, endedAt, sql.NullInt64{}, result); err != nil {
+		log.Printf("add the init step of the session %d: %v", a.id, err)
+	}
+	if err := a.checkPhase(ctx, "", text); err != nil {
+		return "", err
+	}
+	if passed {
+		return "", nil
+	}
+	return fmt.Sprintf("# Setup failed\n\nThe setup script `.mobius/init` of the new worktree %s. Do the setup yourself before you run tests or lint. The output ends with these lines:\n\n```\n%s\n```\n\n", reason, tail(output, logTail)), nil
 }
 
 // turnsAndChecks runs the turns of the agent until the local check passes. After each prompt, it waits for the

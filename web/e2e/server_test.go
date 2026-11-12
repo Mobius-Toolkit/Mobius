@@ -56,6 +56,22 @@ haiku = ["low"]
 `
 
 const scriptHead = `[[prompts]]
+when = "ready for Lead approval of #85"
+shell = "true"
+
+[[prompts]]
+when = "dispatch of #85"
+call = { tool = "start_implementer", arguments = { repository = "plants/garden", n = 85, instructions = "Water the new beds." } }
+
+[[prompts]]
+when = "Water the new beds."
+shell = '''echo water > beds.txt && /usr/bin/git add beds.txt && /usr/bin/git commit -q -m "Water the new beds $(basename $PWD)"'''
+
+[[prompts]]
+when = "You are the Reviewer"
+shell = "true"
+
+[[prompts]]
 when = "# Approval message"
 
 [[prompts]]
@@ -246,6 +262,9 @@ const question = "What is the state of the plans? The full report is at " +
 // Workstream plants/garden#19 has an open task, an open task that the first blocks, and a task that needs a human.
 // The Workstream owner/shop#12 has two closed tasks and a task with a question of the Lead. It also has four Implementer sessions with the queue reasons of a
 // check that runs, a check that waits for a slot, a pause, and a full Role.
+// The Workstream plants/garden#11 has the task #85. Its Implementer round ran after the engine clock was set, and the
+// engine keeps its Harness session until 10:30 UTC. Its number is the lowest of the Workstreams of plants, so the side
+// bar lists it last, below the first screen of each screenshot. Only the kept-session tests open it.
 // The Workstream plants/garden#60 has a Lead chat of 50 messages, and the Owner saw the first 15. POST
 // /e2e/seed-notes/{count} adds count Lead messages to that chat, with no event.
 // POST /e2e/approvals/times/fix gives the fixed time to each chat message, Inbox item and action that has a real time.
@@ -281,6 +300,7 @@ func TestServer(t *testing.T) {
 		{"owner/shop", 12, "Integrate loyalty plans"},
 		{"owner/shop", 13, "Seasonal prices"},
 		{"owner/shop", 14, "Early renewals"},
+		{"plants/garden", 11, "Sow the herbs"},
 		{"plants/garden", 12, "Plant roses"},
 		{"plants/garden", 14, "Water the roses"},
 		{"plants/garden", 15, "Feed the roses"},
@@ -309,6 +329,7 @@ func TestServer(t *testing.T) {
 	github.CloseIssue("owner/shop", 43)
 	github.OpenPullRequest("owner/shop", "Add plan model", "mobius/41")
 	github.AddSubIssueOf("owner/shop", 12, 45, "Pick the plan limits")
+	github.AddSubIssueOf("plants/garden", 11, 85, "Water the new beds")
 	github.SetBody("owner/shop", 45, "Each plan has a limit of seats.")
 	github.AddSubIssueOf("owner/shop", 41, 36, "Rename the plan table")
 	github.AddSubIssueOf("owner/shop", 12, 37, "Remove the old plan page")
@@ -633,6 +654,7 @@ func TestServer(t *testing.T) {
 			Workstream:   record.key.Workstream,
 			Author:       "Record",
 			InboxItems:   "[]",
+			Selections:   "[]",
 			Time:         time.Now().UTC().Format(time.RFC3339Nano),
 			Text:         record.text,
 		})
@@ -651,6 +673,7 @@ func TestServer(t *testing.T) {
 				Workstream:   key.Workstream,
 				Author:       "Lead",
 				InboxItems:   "[]",
+				Selections:   "[]",
 				Time:         time.Now().UTC().Format(time.RFC3339Nano),
 				Text:         fmt.Sprintf("Note %d of #%d. %s", n, number, strings.Repeat("word ", 100)),
 			})
@@ -681,6 +704,7 @@ func TestServer(t *testing.T) {
 			Workstream:   fixture.key.Workstream,
 			Author:       "Owner",
 			InboxItems:   "[]",
+			Selections:   "[]",
 			Time:         fixtureTime,
 			Text:         fixture.text,
 		})
@@ -708,6 +732,7 @@ func TestServer(t *testing.T) {
 			Workstream:   fixture.key.Workstream,
 			Author:       "Owner",
 			InboxItems:   "[]",
+			Selections:   "[]",
 			Time:         fixtureTime,
 			Text:         fixture.text,
 		}); err != nil {
@@ -722,6 +747,7 @@ func TestServer(t *testing.T) {
 			Workstream:   seeds.Workstream,
 			Author:       "Lead",
 			InboxItems:   "[]",
+			Selections:   "[]",
 			Time:         time.Now().UTC().Format(time.RFC3339Nano),
 			Text:         text + " " + strings.Repeat("word ", 100),
 		})
@@ -761,6 +787,7 @@ func TestServer(t *testing.T) {
 			Workstream:   25,
 			Author:       "Event",
 			InboxItems:   "[]",
+			Selections:   "[]",
 			Time:         time.Now().UTC().Format(time.RFC3339Nano),
 			Text:         text,
 		})
@@ -782,6 +809,7 @@ func TestServer(t *testing.T) {
 			Workstream:   25,
 			Author:       "Owner",
 			InboxItems:   message.inboxItems,
+			Selections:   "[]",
 			Time:         time.Now().UTC().Format(time.RFC3339Nano),
 			Text:         message.text,
 		})
@@ -843,6 +871,7 @@ func TestServer(t *testing.T) {
 		}) && slices.Contains(github.Labels("owner/shop", 41), "mobius:needs-human")
 	})
 	server.Engine.SetClock(func() time.Time { return time.Date(2026, 9, 28, 9, 30, 0, 0, time.UTC) })
+	keepImplementer(t, server, github, "plants/garden", 11, 85)
 	addRecurringTasks(ctx, t, server)
 	if err := queries.SetHarnessPause(ctx, store.SetHarnessPauseParams{Harness: "antigravity", PausedUntil: "2026-09-28T12:00:00Z"}); err != nil {
 		t.Fatal(err)
@@ -970,7 +999,7 @@ func addRecurringTasks(ctx context.Context, t *testing.T, server *testserver.Ser
 // chat sends the Owner message text to the chat of key, and waits for the reply of author and the end of the session.
 func chat(ctx context.Context, t *testing.T, server *testserver.Server, key engine.ChatKey, text, author string) {
 	t.Helper()
-	if err := server.Engine.SendChat(ctx, key, "", text, nil, nil, false); err != nil {
+	if err := server.Engine.SendChat(ctx, key, "", text, nil, nil, nil, false); err != nil {
 		t.Fatal(err)
 	}
 	waitForChat(t, server, key, author)
@@ -1445,6 +1474,49 @@ func fixTimes(t *testing.T, server *testserver.Server, github *testkit.FakeGitHu
 	}
 	if _, err := server.DB.Exec("UPDATE chat_messages SET text = '2026-09-28 09:30 UTC' || substr(text, 21) WHERE author = 'Event' AND text LIKE '____-__-__ __:__ UTC %'"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// keepImplementer starts the task of the issue with mobius:ready, and waits until the Implementer round of the task
+// ends, the engine keeps its Harness session, and the task waits for the Lead. StartCheckNow ends the wait of its check for a low load. The engine
+// clock fixes the time of the close of the kept session. The events of the dispatch leave the chat of the Workstream,
+// so the chat shows no message. The programs of the agents find the fake git first, so the script of the fake
+// Implementer runs /usr/bin/git.
+func keepImplementer(t *testing.T, server *testserver.Server, github *testkit.FakeGitHub, repository string, workstream, issue int64) {
+	t.Helper()
+	github.AddLabel(repository, issue, "mobius:ready", "owner")
+	testkit.WaitFor(t, func() bool {
+		nodes, err := server.Engine.Tree(t.Context(), repository, workstream)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, node := range nodes {
+			if node.Session.Issue.Int64 != issue {
+				continue
+			}
+			if !node.KeptUntil.IsZero() {
+				return true
+			}
+			if node.Session.QueueReason.String == "waits for a low load" {
+				_ = server.Engine.StartCheckNow(t.Context(), node.Session.ID)
+			}
+		}
+		return false
+	})
+	testkit.WaitFor(t, func() bool {
+		var state string
+		if err := server.DB.QueryRow("SELECT state FROM tasks WHERE repository = ? AND issue = ?", repository, issue).Scan(&state); err != nil {
+			t.Fatal(err)
+		}
+		return state == "approval"
+	})
+	for _, query := range []string{
+		"DELETE FROM chat_messages WHERE id IN (SELECT chat_message FROM lead_events WHERE repository = ?1 AND issue = ?2)",
+		"DELETE FROM lead_events WHERE repository = ?1 AND issue = ?2",
+	} {
+		if _, err := server.DB.Exec(query, repository, issue); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 

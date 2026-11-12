@@ -213,7 +213,9 @@ func TestAnApprovalAgainAfterAnApprovalOfMobiusUsesTheReportOfMobius(t *testing.
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "checks" && reviewedHead(t, server) != "" })
 	reviewed := head(t, fake, "mobius/41")
 	fake.CommitFile(shop, "price.txt", "cents\n", "Add price")
+	update := mergeMainAtMerge(fake)
 
+	update()
 	testkit.WaitFor(t, func() bool {
 		return slices.ContainsFunc(leadEvents(t, server), func(event leadEvent) bool { return event.Kind == "approved_again" })
 	})
@@ -222,7 +224,7 @@ func TestAnApprovalAgainAfterAnApprovalOfMobiusUsesTheReportOfMobius(t *testing.
 	if updated == reviewed {
 		t.Fatalf("the head did not change: %s", updated)
 	}
-	want := fmt.Sprintf("Mobius approved the head %.8s again. Only clean merges of main came after the head %.8s, and they change no file of the pull request. The report of the approval of %.8s:\n\n%s", updated, reviewed, reviewed, autoApprovedReport(reviewed))
+	want := fmt.Sprintf("Mobius approved the head %.8s again. Only clean merges of main came after the head %.8s, and the changed lines of the pull request are the same. The report of the approval of %.8s:\n\n%s", updated, reviewed, reviewed, autoApprovedReport(reviewed))
 	comments := fake.Comments(shop, 42)
 	if !slices.ContainsFunc(comments, func(comment testkit.Comment) bool { return comment.Body == want }) {
 		t.Errorf("no comment %q in %+v", want, comments)
@@ -284,9 +286,9 @@ func TestALaterHeadAfterAnApprovalOfMobiusNamesMobiusInTheEvent(t *testing.T) {
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "checks" && reviewedHead(t, server) != "" })
 	approved := head(t, fake, "mobius/41")
 	fake.CommitFile(shop, "price.txt", "cents\n", "Add price")
-	fake.HoldBranchUpdates()
+	reached, release := fake.HoldMerge(shop, 42)
 
-	testkit.WaitFor(t, func() bool { return fake.UpdateBranchCalls() == 1 })
+	<-reached
 	work := t.TempDir()
 	testkit.Git(t, work, "clone", "--branch=mobius/41", fake.Remote(shop), ".")
 	testkit.Git(t, work, "merge", "--no-ff", "--no-commit", "origin/main")
@@ -296,7 +298,7 @@ func TestALaterHeadAfterAnApprovalOfMobiusNamesMobiusInTheEvent(t *testing.T) {
 	testkit.Git(t, work, "add", "plan.txt")
 	testkit.Git(t, work, "commit", "-m", "Merge main by hand")
 	testkit.Git(t, work, "push", "origin", "mobius/41")
-	fake.ReleaseBranchUpdates()
+	release()
 
 	prompt := waitForLeadPrompt(t, server, fmt.Sprintf("Mobius or the Lead approved the head %.8s before.", approved))
 	event := prompt[strings.LastIndex(prompt, "# Event\n\n"):]
