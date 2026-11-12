@@ -5,7 +5,7 @@ import { Message } from "./message";
 
 type Place = { id: string; offset: number };
 
-// The log stays at its end while the Owner is at the end. New lines while the Owner is away from the end show the button
+// The log opens at its end and stays there while the Owner is at the end. New lines while the Owner is away from the end show the button
 // of the view. A line before the first line keeps the place of the line that the Owner sees. The view sets data-version
 // when the lines change, and data-jumps when the Owner asks for the end. The browser sends the scroll event of a scroll
 // one frame late, so a change of the lines reads the place of the log again and does not trust the last scroll event.
@@ -102,6 +102,7 @@ export const TranscriptLog = Mount.defineStream("TranscriptLog", {
           attributes: true,
           attributeFilter: ["data-version", "data-jumps"],
         });
+        list.scrollTop = list.scrollHeight;
         layout();
 
         yield* Effect.addFinalizer(() =>

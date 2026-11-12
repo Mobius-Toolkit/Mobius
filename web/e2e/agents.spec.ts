@@ -153,7 +153,13 @@ const entry = (id: number) => ({
   raw: "{}",
 });
 
-async function mockLog(page: Page) {
+function gate() {
+  const resolvers: Array<() => void> = [];
+  const wait = new Promise<void>((resolve) => resolvers.push(resolve));
+  return { wait, open: () => resolvers[0]() };
+}
+
+async function mockLog(page: Page, secondRead?: Promise<void>) {
   await page.addInitScript(`
     window.sources = [];
     const add = EventSource.prototype.addEventListener;
@@ -165,8 +171,13 @@ async function mockLog(page: Page) {
     };
   `);
   let session = 0;
-  await page.route(/\/api\/agents\/\d+\/transcript(\?.*)?$/, (route) => {
+  let reads = 0;
+  await page.route(/\/api\/agents\/\d+\/transcript(\?.*)?$/, async (route) => {
     session = Number(/agents\/(\d+)\//.exec(route.request().url())?.[1]);
+    reads += 1;
+    if (reads > 1) {
+      await secondRead;
+    }
     return route.fulfill({
       json: {
         data: {
@@ -195,8 +206,13 @@ const scrollTo = (page: Page, place: "top" | "end") =>
     list.scrollTop = ${place === "top" ? "0" : "list.scrollHeight"}
   })`);
 
-async function openLog(page: Page, path: string, open: (page: Page) => Promise<void>) {
-  const send = await mockLog(page);
+async function openLog(
+  page: Page,
+  path: string,
+  open: (page: Page) => Promise<void>,
+  secondRead?: Promise<void>,
+) {
+  const send = await mockLog(page, secondRead);
   await page.goto(path);
   await open(page);
   await expect(page.getByText("Entry 29 ")).toBeVisible();
@@ -255,6 +271,19 @@ for (const { name: place, path, open } of places) {
               : page.locator('[data-slot="tabs-content"]').getByRole("button", { name: "Back" }),
         ).toBeInViewport();
         await expect(button(page)).toBeHidden();
+      });
+
+      test("opens at the end before the second read of the lines arrives", async ({ page }) => {
+        const second = gate();
+        // A slow page runs the mount after the first lines are in the list.
+        const cdp = await page.context().newCDPSession(page);
+        await cdp.send("Emulation.setCPUThrottlingRate", { rate: 20 });
+        const version = `${log}.dataset.version`;
+        await openLog(page, path, open, second.wait);
+        const before = await page.evaluate(version);
+        second.open();
+        await expect.poll(() => page.evaluate(version)).not.toBe(before);
+        await expect.poll(() => page.evaluate(gap)).toBeLessThan(5);
       });
 
       test("follows a new entry while the Owner is at the end", async ({ page }) => {
