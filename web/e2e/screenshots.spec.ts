@@ -3356,11 +3356,15 @@ test("screenshots", async ({ page }) => {
       panel.getByRole("alert").getByText(/#9999 is not an open Workstream/),
       cardOf(page, unknownTitle).getByText("Failed", { exact: true }),
       cardOf(page, unknownTitle).getByText(/#9999 is not an open Workstream/),
+      // A tray read that comes before the failure closes the panel, and the panel opens again with the focus on the
+      // dialog. A read after the failure keeps the panel, and the note keeps the focus.
+      () => expect.poll(() => note.evaluate((field) => field.matches(":focus"))).toBe(false),
     ],
     async () => {
       await answer(unknownTitle, "Go ahead.")();
       await panel.getByRole("button", { name: "Approve" }).click();
       await expect(panel.getByRole("alert")).toBeVisible();
+      await note.blur();
       await page.mouse.move(0, 0);
       await idle(page);
       await showEnd(unknownTitle)();
