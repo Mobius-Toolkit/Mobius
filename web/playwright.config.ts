@@ -48,23 +48,21 @@ export default defineConfig({
     withApps({ name: "navigation", testMatch: "navigation.spec.ts", dependencies: ["chat"] }),
 
     // Group b.
-    // The installation tests add repositories and remove them again, so the tests that show the repositories of an
-    // organization come after them.
+    // The installation tests add repositories and remove them again. The memory tests list the repositories of each
+    // organization, and the Checkup tests give the page the data of only the organizations owner and plants, so they
+    // come after.
     withApps({ name: "installations", testMatch: "installations.spec.ts" }),
     withApps({ name: "memory", testMatch: "memory.spec.ts", dependencies: ["installations"] }),
-    withApps({ name: "agents", testMatch: "agents.spec.ts", dependencies: ["installations"] }),
-    withApps({ name: "checkup", testMatch: "checkup.spec.ts", dependencies: ["agents"] }),
-    withApps({ name: "inbox", testMatch: "inbox.spec.ts", dependencies: ["agents"] }),
-    // The action tests add actions and Inbox items, and each test decides its actions. They run after the tests that show
-    // the Inbox.
-    withApps({
-      name: "actions",
-      testMatch: "actions.spec.ts",
-      dependencies: ["agents", "checkup", "inbox", "memory"],
-    }),
+    withApps({ name: "agents", testMatch: "agents.spec.ts" }),
+    withApps({ name: "checkup", testMatch: "checkup.spec.ts", dependencies: ["installations"] }),
+    withApps({ name: "inbox", testMatch: "inbox.spec.ts" }),
+    // The action tests add actions and Inbox items, and each test decides its actions. They run after the inbox tests,
+    // which read the Inbox. They also start Lead and Coordinator sessions, so they run after the agents tests, which
+    // count the agents.
+    withApps({ name: "actions", testMatch: "actions.spec.ts", dependencies: ["agents", "inbox"] }),
     // The live tests add two Owner messages to the Lead chat of plants/garden#12, which no later spec reads. They come
     // after the action tests, which also use plants/garden#12.
-    withApps({ name: "live", testMatch: "live.spec.ts", dependencies: ["checkup", "actions"] }),
+    withApps({ name: "live", testMatch: "live.spec.ts", dependencies: ["actions"] }),
     // The setting tests set and clear the Harness settings of owner/shop#12 and #39. Each setting adds a record to the
     // chat of owner/shop#12, so they run after the tests that read that chat.
     withApps({
