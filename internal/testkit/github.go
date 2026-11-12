@@ -121,7 +121,7 @@ type FakeGitHub struct {
 	labelPatches     []labelKey
 	notModified      int
 	// polls is the number of issue list requests that a poll of Mobius makes, and eventPolls gives the value of polls at
-	// the first request of each kind of a write (see PollOf).
+	// the last write of each kind (see PollOf).
 	polls      int
 	eventPolls map[string]int
 	// The numbers of reads of a comment list of one issue or pull request, and of a comment list of a repository.
