@@ -3,6 +3,7 @@ import { Command } from "foldkit";
 import type { Command as Cmd } from "foldkit/command";
 import * as Update from "foldkit/update";
 import { toString as urlToString, type Url } from "foldkit/url";
+import { FetchAgents } from "@/agents/commands";
 import { update as updateAgents } from "@/agents/update";
 import { FetchPage, ListQueued } from "@/chat/commands";
 import { initialModel as initialChatModel } from "@/chat/model";
@@ -388,10 +389,15 @@ function initScreenForRoute(
         agentsProgram: Option.some({
           agents: Option.none(),
           transcript: Option.none(),
-          request: 0,
+          request: 1,
           error: "",
         }),
       };
+      commands.push(
+        Command.mapMessage(FetchAgents({ request: 1 }), (message) =>
+          Message.GotAgentsMessage({ message }),
+        ),
+      );
       break;
     }
 
