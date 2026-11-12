@@ -222,13 +222,21 @@ func (e *Engine) reviewRound(ctx context.Context, a *Agent, j *reviewJob, task s
 	}
 	number := int64(j.pullRequest.GetNumber())
 	// Each run gets a new comment, also a restart with the same round number. The task has no review comment until
-	// the send stores it, so an edit never changes the comment of an earlier run.
+	// the send stores it, so an edit never changes the comment of an earlier run. A pending edit of an earlier run
+	// still needs the comment of that run, and it clears the comment itself when it is sent.
 	var started int64
 	err = e.inTx(ctx, func(q *store.Queries) error {
-		if err := q.SetReviewComment(ctx, store.SetReviewCommentParams{ID: task.ID}); err != nil {
+		pending, err := q.ListPendingOutgoingChanges(ctx, repository.FullName)
+		if err != nil {
 			return err
 		}
-		var err error
+		if !slices.ContainsFunc(pending, func(change store.OutgoingChange) bool {
+			return change.Number == number && change.Field == reviewCommentEditField
+		}) {
+			if err := q.SetReviewComment(ctx, store.SetReviewCommentParams{ID: task.ID}); err != nil {
+				return err
+			}
+		}
 		started, err = e.addOutgoingChange(ctx, q, repository.FullName, number, 0, reviewCommentField, "Review started"+e.reviewRoundText(task))
 		return err
 	})

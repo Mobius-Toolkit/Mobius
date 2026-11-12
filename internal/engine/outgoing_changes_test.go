@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"fmt"
 	"net/http"
 	"slices"
 	"strings"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
+	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 )
 
@@ -156,4 +158,37 @@ func TestACommentOfAnOutgoingChangeThatComesAfterTheAnswerOfAPersonIsNoQuestion(
 
 	testkit.WaitFor(t, func() bool { return !slices.Contains(fake.Labels(shop, 41), "mobius:question") })
 	testkit.WaitFor(t, func() bool { return liveTaskOf(t, server, 41).State == "dispatched" })
+}
+
+func TestAPendingEditOfAnEarlierReviewRunStillChangesItsCommentWhenANewRunStarts(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := seedReviewerWith(t, fake, hangs)
+	if number := fake.OpenPullRequest(shop, "Add plan model", "mobius/41"); number != 42 {
+		t.Fatalf("pull request = %d", number)
+	}
+	testkit.WaitFor(t, func() bool { return len(roleSessions(t, server, engine.ReviewerRole)) == 1 })
+	comment := fake.AddComment(shop, 42, app, "Review started, round 1 of 10")
+	trigger := fmt.Sprintf("CREATE TRIGGER open_review_comment AFTER UPDATE OF worker_restarts ON tasks BEGIN UPDATE tasks SET review_comment = %d WHERE id = NEW.id; END", comment)
+	if _, err := server.DB.Exec(trigger); err != nil {
+		t.Fatal(err)
+	}
+	fake.FailUpdateComment(shop, 42, true)
+
+	server.Engine.StopWorker(1)
+
+	testkit.WaitFor(t, func() bool {
+		return len(roleSessions(t, server, engine.ReviewerRole)) == 2 && commentWrites(t, server) == 2
+	})
+	fake.FailUpdateComment(shop, 42, false)
+
+	testkit.WaitFor(t, func() bool { return commentWrites(t, server) == 0 })
+	comments := roundComments(fake)
+	// The first run posted its own comment, the test added the comment that the edit changes, and the new run posted the last.
+	if len(comments) != 3 || !strings.HasPrefix(comments[1], "Review stopped, round 1 of 10") || comments[2] != "Review started, round 1 of 10" {
+		t.Errorf("comments = %q", comments)
+	}
+	if got := outgoingChanges(t, server, "refused"); got != 0 {
+		t.Errorf("refused outgoing changes = %d", got)
+	}
 }
