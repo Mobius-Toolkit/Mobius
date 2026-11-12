@@ -79,6 +79,7 @@ func approvalAgainWith(t *testing.T, fake *testkit.FakeGitHub, adjust func(*conf
 	waitForReadyEvents(t, fake, server, 1)
 	approved := head(t, fake, "mobius/41")
 	fake.CommitFile(shop, "price.txt", "cents\n", "Add price")
+	fake.UpdateBranchAtNextMerge(shop, 42)
 
 	sendChat(t, server, leadChat, "Approve #41")
 
@@ -335,6 +336,7 @@ func TestTwoUpdateHeadsAfterOneLeadApprovalNameTheLeadHeadInTheSecondComment(t *
 		cfg.LeadIdleTimeout = time.Hour
 	})
 	fake.CommitFile(shop, "other.txt", "other\n", "Add other")
+	fake.UpdateBranchAtNextMerge(shop, 42)
 
 	testkit.WaitFor(t, func() bool { return fake.UpdateBranchCalls() == 2 })
 	second := head(t, fake, "mobius/41")
@@ -364,6 +366,7 @@ func TestTheEventAfterAMergeWithAConflictThatTheBranchResolvedByHandNamesTheFile
 	server := approvablePlan(t, fake)
 	approved := head(t, fake, "mobius/41")
 	fake.CommitFile(shop, "other.txt", "other\n", "Add other")
+	fake.UpdateBranchAtNextMerge(shop, 42)
 	fake.HoldBranchUpdates()
 
 	sendChat(t, server, leadChat, "Approve #41")
@@ -408,6 +411,7 @@ func TestTheEventAfterANewCommitOfTheBranchListsItWithNoMergeMarkAndSaysThatTheC
 	server := approvable(t, fake, "merge", true)
 	approved := head(t, fake, "mobius/41")
 	fake.CommitFile(shop, "price.txt", "cents\n", "Add price")
+	fake.UpdateBranchAtNextMerge(shop, 42)
 	fake.HoldBranchUpdates()
 
 	sendChat(t, server, leadChat, "Approve #41")
@@ -437,6 +441,7 @@ func TestTheEventAfterAMergeWithAHandChangeAndNoSharedBroughtInCommitGetsReadyFo
 	server := approvable(t, fake, "merge", true)
 	approved := head(t, fake, "mobius/41")
 	fake.CommitFile(shop, "other.txt", "other\n", "Add other")
+	fake.UpdateBranchAtNextMerge(shop, 42)
 	fake.HoldBranchUpdates()
 
 	sendChat(t, server, leadChat, "Approve #41")

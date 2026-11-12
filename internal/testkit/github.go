@@ -164,6 +164,7 @@ type FakeGitHub struct {
 	holds               map[issueKey]*hold
 	threadHolds         map[issueKey][]*hold
 	mergeHolds          map[issueKey][]*hold
+	updateAtMerge       map[issueKey]bool
 	issueHolds          map[issueKey]*hold
 	pullHolds           map[issueKey]*hold
 	// anonymousRateLimited tells if each request of the releases and of the comparisons with no token gets the
@@ -313,6 +314,7 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		holds:                   map[issueKey]*hold{},
 		threadHolds:             map[issueKey][]*hold{},
 		mergeHolds:              map[issueKey][]*hold{},
+		updateAtMerge:           map[issueKey]bool{},
 		issueHolds:              map[issueKey]*hold{},
 		pullHolds:               map[issueKey]*hold{},
 		hangs:                   map[string]chan struct{}{},

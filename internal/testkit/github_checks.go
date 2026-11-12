@@ -636,6 +636,18 @@ func (g *FakeGitHub) mergePullRequest(w http.ResponseWriter, r *http.Request) {
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if g.updateAtMerge[held] {
+		if !g.holdBranchUpdates {
+			delete(g.updateAtMerge, held)
+			g.updateBranchCalls++
+			g.mergeBase(held)
+		} else if !slices.Contains(g.heldBranchUpdates, held) {
+			g.updateBranchCalls++
+			g.heldBranchUpdates = append(g.heldBranchUpdates, held)
+		}
+		message(w, http.StatusConflict, "Head branch was modified. Review and try the merge again.")
+		return
+	}
 	g.mergeCalls++
 	key, ok := g.issue(w, r)
 	if !ok {
@@ -752,12 +764,23 @@ func (g *FakeGitHub) HoldBranchUpdates() {
 	g.holdBranchUpdates = true
 }
 
+// UpdateBranchAtNextMerge makes the next request to merge the pull request update its branch instead, as when the head
+// changes between the read of the head and the merge. The request counts as a request to update the branch, not as a
+// request to merge, and it gives status 409. While HoldBranchUpdates is on, each request of the pull request gives 409
+// and the update waits for ReleaseBranchUpdates.
+func (g *FakeGitHub) UpdateBranchAtNextMerge(repository string, number int64) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.updateAtMerge[issueKey{repository, number}] = true
+}
+
 // ReleaseBranchUpdates adds the merge commits of the held updates of branches.
 func (g *FakeGitHub) ReleaseBranchUpdates() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.holdBranchUpdates = false
 	for _, key := range g.heldBranchUpdates {
+		delete(g.updateAtMerge, key)
 		g.mergeBase(key)
 	}
 	g.heldBranchUpdates = nil

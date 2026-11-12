@@ -100,6 +100,7 @@ func TestAHeadThatDoesNotContainTheDefaultBranchGetsAnUpdateAndMobiusApprovesItA
 	server := approvable(t, fake, "merge", true)
 	old := head(t, fake, "mobius/41")
 	fake.CommitFile(shop, "price.txt", "cents\n", "Add price")
+	fake.UpdateBranchAtNextMerge(shop, 42)
 
 	sendChat(t, server, leadChat, "Approve #41")
 

@@ -740,6 +740,33 @@ func TestAMergeAddsOneSquashCommitToTheBaseAndRefusesAWrongHeadAndAClosedPullReq
 	}
 }
 
+func TestAMergeAfterUpdateBranchAtNextMergeUpdatesTheBranchInsteadAndGivesStatus409(t *testing.T) {
+	github := NewFakeGitHub(t)
+	github.AddRepository("owner/shop")
+	github.PushCommit("owner/shop", "feature", "Add plans")
+	number := github.OpenPullRequest("owner/shop", "Add plans", "feature")
+	remote := github.Remote("owner/shop")
+	head := Git(t, remote, "rev-parse", "feature")
+	installation := installationToken(t, github)
+	merge := fmt.Sprintf("%s/repos/owner/shop/pulls/%d/merge", github.URL, number)
+	github.CommitFile("owner/shop", "price.txt", "cents\n", "Add price")
+	github.UpdateBranchAtNextMerge("owner/shop", number)
+
+	if response := send(t, http.MethodPut, merge, installation, fmt.Sprintf(`{"merge_method": "squash", "sha": %q}`, head), nil); response.StatusCode != http.StatusConflict {
+		t.Errorf("status = %d", response.StatusCode)
+	}
+	updated := Git(t, remote, "rev-parse", "feature")
+	if updated == head {
+		t.Error("the head did not change")
+	}
+	if calls, updates := github.MergeCalls(), github.UpdateBranchCalls(); calls != 0 || updates != 1 {
+		t.Errorf("merge calls = %d, update calls = %d", calls, updates)
+	}
+	if response := send(t, http.MethodPut, merge, installation, fmt.Sprintf(`{"merge_method": "squash", "sha": %q}`, updated), nil); response.StatusCode != http.StatusOK {
+		t.Errorf("status with the new head = %d", response.StatusCode)
+	}
+}
+
 func TestAnUpdateOfTheBranchMergesTheBaseIntoTheHeadAndRefusesAWrongHeadAndAConflict(t *testing.T) {
 	github := NewFakeGitHub(t)
 	github.AddRepository("owner/shop")

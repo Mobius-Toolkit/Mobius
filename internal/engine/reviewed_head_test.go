@@ -213,6 +213,7 @@ func TestAnApprovalAgainAfterAnApprovalOfMobiusUsesTheReportOfMobius(t *testing.
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "checks" && reviewedHead(t, server) != "" })
 	reviewed := head(t, fake, "mobius/41")
 	fake.CommitFile(shop, "price.txt", "cents\n", "Add price")
+	fake.UpdateBranchAtNextMerge(shop, 42)
 
 	testkit.WaitFor(t, func() bool {
 		return slices.ContainsFunc(leadEvents(t, server), func(event leadEvent) bool { return event.Kind == "approved_again" })
@@ -284,6 +285,7 @@ func TestALaterHeadAfterAnApprovalOfMobiusNamesMobiusInTheEvent(t *testing.T) {
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "checks" && reviewedHead(t, server) != "" })
 	approved := head(t, fake, "mobius/41")
 	fake.CommitFile(shop, "price.txt", "cents\n", "Add price")
+	fake.UpdateBranchAtNextMerge(shop, 42)
 	fake.HoldBranchUpdates()
 
 	testkit.WaitFor(t, func() bool { return fake.UpdateBranchCalls() == 1 })
