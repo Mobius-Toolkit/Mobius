@@ -79,6 +79,20 @@ jobs:
     # This job has a write token and has no checkout. It uses only the PNG files of the artifact.
     steps:
       - run: |
+          cat > "$RUNNER_TEMP/complete_check.sh" <<'SH'
+          complete_check() {
+            local id
+            id=$(gh api "repos/$REPO/commits/$SHA/check-runs?check_name=Screenshots" --jq '[.check_runs[].id] | max // empty')
+            if [ -n "$id" ]; then
+              gh api --method PATCH "repos/$REPO/check-runs/$id" -f status=completed -f conclusion="$1" -f "output[title]=$2" \
+                -f "output[summary]=See [pull request #$PR](https://github.com/$REPO/pull/$PR)." --silent
+            else
+              gh api --method POST "repos/$REPO/check-runs" -f name=Screenshots -f head_sha="$SHA" -f status=completed -f conclusion="$1" -f "output[title]=$2" \
+                -f "output[summary]=See [pull request #$PR](https://github.com/$REPO/pull/$PR)." --silent
+            fi
+          }
+          SH
+      - run: |
           shopt -s nullglob
           set_section() {
             gh api "repos/$REPO/pulls/$PR" > pr.json
@@ -112,14 +126,7 @@ jobs:
             fi
           }
 
-          complete_check() {
-            local id
-            id=$(gh api "repos/$REPO/commits/$SHA/check-runs?check_name=Screenshots" --jq '[.check_runs[].id] | max // empty')
-            if [ -n "$id" ]; then
-              gh api --method PATCH "repos/$REPO/check-runs/$id" -f status=completed -f conclusion="$1" -f "output[title]=$2" \
-                -f "output[summary]=See [pull request #$PR](https://github.com/$REPO/pull/$PR)." --silent
-            fi
-          }
+          source "$RUNNER_TEMP/complete_check.sh"
 
           if [ "$(gh api "repos/$REPO/pulls/$PR" --jq .head.sha)" != "$SHA" ]; then
             exit 0
@@ -196,14 +203,11 @@ jobs:
           fi
       - if: failure()
         run: |
+          source "$RUNNER_TEMP/complete_check.sh"
           if [ "$(gh api "repos/$REPO/pulls/$PR" --jq .head.sha)" != "$SHA" ]; then
             exit 0
           fi
-          id=$(gh api "repos/$REPO/commits/$SHA/check-runs?check_name=Screenshots" --jq '[.check_runs[].id] | max // empty')
-          if [ -n "$id" ]; then
-            gh api --method PATCH "repos/$REPO/check-runs/$id" -f status=completed -f conclusion=neutral -f 'output[title]=The screenshots failed' \
-              -f "output[summary]=See [pull request #$PR](https://github.com/$REPO/pull/$PR)." --silent
-          fi
+          complete_check neutral "The screenshots failed"
 
   main:
     if: >-
