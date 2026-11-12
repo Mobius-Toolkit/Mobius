@@ -977,7 +977,16 @@ func (e *Engine) createIssue(ctx context.Context, c caller, repository github.Re
 	if err != nil {
 		return "", err
 	}
+	key := leadIssueKey{repository.FullName, parent.repository.FullName, parent.number, input.Title}
+	issue, err := c.agent.claimLeadIssue(ctx, key)
+	if err != nil {
+		return "", err
+	}
+	if issue.number != 0 {
+		return fmt.Sprintf("Created %s#%d.", repository.FullName, issue.number), nil
+	}
 	number, err := e.addIssueAt(ctx, repository, issueAt{workstream, c.workstream}, newIssue{title: input.Title, body: input.Body, mark: mark, parent: parent, blockers: blockers}, nil)
+	c.agent.finishLeadIssue(key, issue, number, err)
 	if err != nil {
 		return "", err
 	}
@@ -988,10 +997,67 @@ func (e *Engine) createIssue(ctx context.Context, c caller, repository github.Re
 		}
 		text += fmt.Sprintf(" Its Implementer setting is %s.", settingText(setting.Harness, setting.Model, setting.Effort))
 	}
-	if err := e.recopyTrees(ctx, workstream, c.workstream); err != nil {
-		log.Printf("copy the tree of %s#%d: %v", workstream.FullName, c.workstream, err)
-	}
+	go func() {
+		if err := e.recopyTrees(context.WithoutCancel(ctx), workstream, c.workstream); err != nil {
+			log.Printf("copy the tree of %s#%d: %v", workstream.FullName, c.workstream, err)
+		}
+	}()
 	return text, nil
+}
+
+// leadIssueKey identifies the issue that a create_issue call of a Lead session creates.
+type leadIssueKey struct {
+	repository       string
+	parentRepository string
+	parent           int64
+	title            string
+}
+
+// leadIssue is the issue that a call of create_issue creates. done closes when the call ends. number is 0 when the call
+// created no issue.
+type leadIssue struct {
+	done   chan struct{}
+	number int
+}
+
+// claimLeadIssue gives the issue of key that the session created. When no call creates it, the caller gets a leadIssue
+// with number 0, and it must call finishLeadIssue. When a call creates it, claimLeadIssue waits for that call. When
+// that call created no issue, the caller creates it.
+func (a *Agent) claimLeadIssue(ctx context.Context, key leadIssueKey) (*leadIssue, error) {
+	for {
+		a.issuesMu.Lock()
+		first, found := a.leadIssues[key]
+		if !found {
+			if a.leadIssues == nil {
+				a.leadIssues = map[leadIssueKey]*leadIssue{}
+			}
+			first = &leadIssue{done: make(chan struct{})}
+			a.leadIssues[key] = first
+			a.issuesMu.Unlock()
+			return first, nil
+		}
+		a.issuesMu.Unlock()
+		select {
+		case <-first.done:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+		if first.number != 0 {
+			return first, nil
+		}
+	}
+}
+
+// finishLeadIssue ends the call that created issue. It keeps the issue when err is nil, and forgets it otherwise.
+func (a *Agent) finishLeadIssue(key leadIssueKey, issue *leadIssue, number int, err error) {
+	a.issuesMu.Lock()
+	if err == nil {
+		issue.number = number
+	} else {
+		delete(a.leadIssues, key)
+	}
+	a.issuesMu.Unlock()
+	close(issue.done)
 }
 
 // checkNewTaskBinding checks the Implementer setting of a task that does not exist yet. spec is the spec of an Implementer
