@@ -478,7 +478,11 @@ func TestMergeQueueManualHeadMergesAfterTheNewApprovalWithNoSecondMergeTap(t *te
 		t.Fatalf("merge status = %d: %s", status, body)
 	}
 
-	<-reached
+	select {
+	case <-reached:
+	case <-time.After(time.Minute):
+		t.Fatal("Mobius did not merge task 41")
+	}
 	if got := head(t, fake, "mobius/41"); got == old {
 		t.Error("the head did not change")
 	}
