@@ -210,6 +210,8 @@ type FakeGitHub struct {
 	reviewRead        bool
 	// lateCheckRun is added at the end of the next request for the check runs of its commit.
 	lateCheckRun *checkRun
+	// checkRunAfterUpdate is added on the merge commit of the next update of a branch.
+	checkRunAfterUpdate *checkRun
 	// unknownMergeable holds the pull requests whose mergeable GitHub still calculates.
 	unknownMergeable map[issueKey]bool
 	// The id of a check run is its index plus 1.

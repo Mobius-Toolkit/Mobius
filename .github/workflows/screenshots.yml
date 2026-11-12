@@ -17,6 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
+      checks: write
       pull-requests: write
     concurrency:
       group: screenshots-pr-${{ github.event.pull_request.number }}
@@ -50,6 +51,9 @@ jobs:
           if [ -n "$(gh api "repos/$REPO/issues/$PR/labels" --jq '.[] | select(.name == "screenshots") | .name')" ]; then
             gh api --method DELETE "repos/$REPO/issues/$PR/labels/screenshots" --silent
           fi
+          gh api --method POST "repos/$REPO/check-runs" -f name=Screenshots -f head_sha="$SHA" -f status=in_progress \
+            -f 'output[title]=The screenshots are pending.' \
+            -f "output[summary]=See [pull request #$PR](https://github.com/$REPO/pull/$PR)." --silent
 
   publish:
     if: >-
@@ -62,6 +66,7 @@ jobs:
     timeout-minutes: 10
     permissions:
       actions: read
+      checks: write
       contents: write
       pull-requests: write
     concurrency:
@@ -107,12 +112,22 @@ jobs:
             fi
           }
 
+          complete_check() {
+            local id
+            id=$(gh api "repos/$REPO/commits/$SHA/check-runs?check_name=Screenshots" --jq '[.check_runs[].id] | max // empty')
+            if [ -n "$id" ]; then
+              gh api --method PATCH "repos/$REPO/check-runs/$id" -f status=completed -f conclusion="$1" -f "output[title]=$2" \
+                -f "output[summary]=See [pull request #$PR](https://github.com/$REPO/pull/$PR)." --silent
+            fi
+          }
+
           if [ "$(gh api "repos/$REPO/pulls/$PR" --jq .head.sha)" != "$SHA" ]; then
             exit 0
           fi
           if [ "$(gh api "repos/$REPO/actions/runs/$RUN_ID/artifacts" --jq '[.artifacts[] | select(.name == "screenshots")] | length')" -eq 0 ]; then
             set_section "The screenshots failed. See the [run]($RUN_URL)."
             set_label off
+            complete_check neutral "The screenshots failed"
             exit 0
           fi
           gh run download "$RUN_ID" --repo "$REPO" --name screenshots --dir shots
@@ -173,9 +188,21 @@ jobs:
           if [ -z "$rows" ]; then
             set_section "No screen changed."
             set_label off
+            complete_check success "No screen changed."
           else
             set_section $'| Screen | State | main | This pull request |\n|---|---|---|---|\n'"$rows"
             set_label on
+            complete_check neutral "Screens changed"
+          fi
+      - if: failure()
+        run: |
+          if [ "$(gh api "repos/$REPO/pulls/$PR" --jq .head.sha)" != "$SHA" ]; then
+            exit 0
+          fi
+          id=$(gh api "repos/$REPO/commits/$SHA/check-runs?check_name=Screenshots" --jq '[.check_runs[].id] | max // empty')
+          if [ -n "$id" ]; then
+            gh api --method PATCH "repos/$REPO/check-runs/$id" -f status=completed -f conclusion=neutral -f 'output[title]=The screenshots failed' \
+              -f "output[summary]=See [pull request #$PR](https://github.com/$REPO/pull/$PR)." --silent
           fi
 
   main:

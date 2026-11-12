@@ -271,6 +271,27 @@ func (g *FakeGitHub) SetCheckRunStatus(id int64, status, conclusion string) {
 	g.checkRuns[id-1].Conclusion = conclusion
 }
 
+// CompleteCheckRun completes the check run name of the commit sha in repository with the conclusion and the title of
+// its output.
+func (g *FakeGitHub) CompleteCheckRun(repository, sha, name, conclusion, title string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	index := slices.IndexFunc(g.checkRuns, func(run checkRun) bool {
+		return run.repository == repository && run.HeadSHA == sha && run.Name == name
+	})
+	g.checkRuns[index].Status = "completed"
+	g.checkRuns[index].Conclusion = conclusion
+	g.checkRuns[index].Output = &CheckRunOutput{Title: title}
+}
+
+// AddCheckRunAfterBranchUpdate adds the check run of another App to repository on the merge commit of the next update of
+// a branch, at the moment that the merge commit becomes the head. run.HeadSHA is ignored.
+func (g *FakeGitHub) AddCheckRunAfterBranchUpdate(repository string, run CheckRun) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.checkRunAfterUpdate = &checkRun{repository, run}
+}
+
 // AddWorkflowRun adds the workflow run of GitHub Actions to repository, and gives its id.
 func (g *FakeGitHub) AddWorkflowRun(repository string, run WorkflowRun) int64 {
 	g.mu.Lock()
@@ -741,6 +762,11 @@ func (g *FakeGitHub) mergeBase(key issueKey) {
 		g.t.Errorf("commit-tree: %v", err)
 	}
 	g.git(remote, "update-ref", "refs/heads/"+pull.Head, strings.TrimSpace(string(merge)))
+	if late := g.checkRunAfterUpdate; late != nil && late.repository == key.repository {
+		late.HeadSHA = strings.TrimSpace(string(merge))
+		g.checkRuns = append(g.checkRuns, *late)
+		g.checkRunAfterUpdate = nil
+	}
 	g.issues[key].updatedAt = g.tick()
 }
 
