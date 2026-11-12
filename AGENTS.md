@@ -127,7 +127,13 @@ curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(go env GOPATH)/b
 - Give each long command (`pnpm e2e`, a Go test of `internal/engine`) the Bash `timeout` 600000. With the default limit, the Bash tool moves the command to the background.
 - Mobius runs git with `core.hooksPath=/dev/null` (`internal/runner/git.go`), so a git hook never runs for agent work. Do not put a check or a format step in a git hook.
 
-Only CI runs all Go tests. Mobius starts a CI fix round when a Go test fails in CI.
+Only CI runs all Go tests. `.mobius/check` runs no Go test.
+
+- The job `check` runs the Go tests of each package except `internal/engine`.
+- The four jobs `engine (0)` to `engine (3)` run the tests of `internal/engine`. Each test is in exactly one shard.
+- Each `engine` job uploads the artifact `engine-tests-<shard>` with the time of each test. It prints the 20 slowest tests.
+- The job `passed` fails when the job `check`, `engine` or `e2e` does not end with `success`. It is the one status that tells "CI passed".
+- Mobius starts a CI fix round when a Go test fails in CI.
 
 ## Layout
 
@@ -169,7 +175,7 @@ web/e2e/               the Playwright tests of the UI, and TestServer, the serve
 web/screenshots/       the screenshots of the Playwright tests (not in the repository)
 web/embed.go           embeds web/dist into the binary and serves it
 docs/install.md        the install guide
-.github/workflows/     ci.yml checks each pull request. release.yml checks each push to main and releases it with the next patch tag. screenshots.yml shows the screenshots of each pull request in a section of its description
+.github/workflows/     ci.yml checks each pull request with the jobs check, engine, e2e and passed. release.yml checks each push to main and releases it with the next patch tag. screenshots.yml shows the screenshots of each pull request in a section of its description
 ```
 
 ## Commands
