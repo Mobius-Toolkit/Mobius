@@ -1,4 +1,5 @@
 import { Option } from "effect";
+import { inertHtml } from "foldkit/html";
 import { describe, expect, it } from "vitest";
 import {
   Command as StoryCommand,
@@ -23,6 +24,7 @@ import {
 import { Message, OutMessage } from "./message";
 import { initialModel, rowKey, rowOf, withoutClosed, type Model, type TaskLine } from "./model";
 import { update } from "./update";
+import { view } from "./view";
 
 const workstream = { owner: "owner", name: "shop", number: 12 };
 
@@ -609,6 +611,26 @@ describe("the detail view of a task", () => {
       }),
       StoryCommand.expectExact(RestoreScroll({ instance: "side", scroll: 150 })),
       StoryCommand.resolve(RestoreScroll, Message.CompletedRestoreScroll()),
+    );
+  });
+
+  it("shows an error when attaching a task from the detail view fails", () => {
+    const key = rowKey(task);
+    story(
+      update,
+      given(
+        createModel({
+          lines: Option.some([task]),
+          opened: Option.some({ repository: "owner/shop", number: 41 }),
+        }),
+      ),
+      message(Message.ClickedChat({ key, line: task })),
+      StoryCommand.resolve(AttachTask, Message.AttachFailed({ key, error: "storage is full" })),
+      model((m) => {
+        expect(rowOf(m, key).error).toBe("storage is full");
+        const rendered = JSON.stringify(view(m, inertHtml));
+        expect(rendered).toContain("storage is full");
+      }),
     );
   });
 });

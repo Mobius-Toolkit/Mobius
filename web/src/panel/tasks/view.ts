@@ -146,6 +146,7 @@ function renderEntry(h: H, model: Model, line: TaskLine): Html {
 
 function renderDetail(h: H, model: Model, line: TaskLine): Html {
   const key = rowKey(line);
+  const row = rowOf(model, key);
   return h.div(
     [h.Class("grid gap-3")],
     [
@@ -227,6 +228,9 @@ function renderDetail(h: H, model: Model, line: TaskLine): Html {
           ),
         ],
       ),
+      row.error
+        ? renderBadge(h, "destructive", row.error, "h-auto w-full justify-start whitespace-normal")
+        : h.empty,
       model.detailLoading ? h.div([h.Class("flex justify-center p-4")], [spinnerIcon(h)]) : h.empty,
       model.detailError
         ? renderBadge(
