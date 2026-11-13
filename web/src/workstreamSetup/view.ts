@@ -141,7 +141,8 @@ function renderRows(h: H, model: Model, checkup: Checkup, part: Part): Html[] {
   const maintenance =
     hasIssueRepository && part !== "skills" ? [renderMaintenance(h, model, checkup)] : [];
   const skills =
-    (hasIssueRepository || checkup.skillRepository === "") && part !== "maintenance"
+    (hasIssueRepository || checkup.skillRepository === "" || checkup.skillsWorkstream > 0) &&
+    part !== "maintenance"
       ? [renderSkills(h, model, checkup)]
       : [];
   return [

@@ -327,6 +327,34 @@ test("the Workstreams page shows the error of the issue repository with the pick
   await expect(main.getByRole("button", { name: "Create" })).toHaveCount(0);
 });
 
+test("the Workstreams page links an existing Skills Workstream while the organization has no issue repository", async ({
+  page,
+}) => {
+  const main = page.getByRole("main");
+  await routeCheckup(page, [tool], {
+    plants: {
+      ...healthy,
+      issueRepository: "",
+      issueRepositoryError:
+        'Mobius needs the issue repository of plants. Select it on the Checkup page "Workstreams", or set organizations.plants.issue_repository in config.toml.',
+      issueRepositorySource: "none",
+      maintenanceWorkstream: 0,
+      skillRepository: "plants/mobius-skills",
+      skillsWorkstreamRepository: "plants/garden",
+      skillsWorkstream: 9,
+    },
+  });
+
+  await page.goto("/settings/checkup/plants/workstreams");
+
+  const link = main.getByRole("link", { name: "Skills Workstream plants/garden#9" });
+  await expect(link).toHaveAttribute("href", "/workstreams/plants/garden/9");
+  await expect(
+    main.getByRole("button", { name: "Issue repository None", exact: true }),
+  ).toBeVisible();
+  await expect(main.getByRole("button", { name: "Create" })).toHaveCount(0);
+});
+
 test("the Workstreams page shows the issue repository of the config file with no picker", async ({
   page,
 }) => {
