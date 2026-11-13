@@ -242,9 +242,15 @@ func TestTheHeadOfTheMergeQueueLeavesChecksAfterAMergeOfTheDefaultBranchWhenItsS
 	if updated == old {
 		t.Fatal("the head did not change")
 	}
+	pull := liveTask(t, server, 41).PullRequest.Int64
+	waitForPolls(t, fake)
+	reads := fake.SinglePullRequestReads(shop, pull)
 	waitForPolls(t, fake)
 	if state := liveTaskState(t, server, 41); state != "checks" {
 		t.Fatalf("state = %s, want checks", state)
+	}
+	if got := fake.SinglePullRequestReads(shop, pull); got <= reads {
+		t.Errorf("pull request reads = %d, want more than %d", got, reads)
 	}
 
 	fake.CompleteCheckRun(shop, updated, "Screenshots", "success", "No screen changed.")
