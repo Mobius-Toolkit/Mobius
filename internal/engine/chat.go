@@ -425,11 +425,12 @@ func (e *Engine) give(key ChatKey, tracked bool, items ...item) {
 	var agent *Agent
 	if ok {
 		for _, queued := range items {
-			if isOwnerMessage(queued) {
+			switch {
+			case isOwnerMessage(queued):
 				c.queue = slices.Insert(c.queue, afterOwnerMessages(c.queue), queued)
-			} else if queued.ci {
+			case queued.ci:
 				c.queue = slices.Insert(c.queue, afterCIEvents(c.queue), queued)
-			} else {
+			default:
 				c.queue = append(c.queue, queued)
 			}
 		}
