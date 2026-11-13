@@ -77,7 +77,9 @@ func TestABreakGetsNoIssueWithoutAnIssueRepositoryAndTheLaterPollStepsStillRun(t
 	fake := testkit.NewFakeGitHub(t)
 	run := fake.AddWorkflowRun(garden, failedMainRun(7))
 	addMaintenanceWorkstream(fake, maintenance)
+	addOpenWorkstream(fake, garden)
 	server := foreignTask(t, fake)
+	waitForCopiedWorkstream(t, server, garden)
 	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true})
 
 	fake.SetWorkflowRunStatus(run, "completed", "success")

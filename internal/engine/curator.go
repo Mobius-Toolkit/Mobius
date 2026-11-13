@@ -69,10 +69,10 @@ func (e *Engine) maintenanceWorkstream(ctx context.Context, repository github.Re
 }
 
 // organizationMaintenance gives the maintenance Workstream of the organization: the issue repository, and the number of
-// its maintenance Workstream, or 0 when it has none. It gives a refusal when Mobius needs the issue repository in the
-// config.
+// its maintenance Workstream, or 0 when it has none. It gives a refusal when Mobius has no issue repository for the
+// organization.
 func (e *Engine) organizationMaintenance(ctx context.Context, organization string) (issueAt, error) {
-	repository, err := e.workstreamRepository(organization)
+	repository, err := e.workstreamRepository(ctx, organization)
 	if err != nil {
 		return issueAt{}, err
 	}
