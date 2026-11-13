@@ -288,7 +288,7 @@ func (e *Engine) takeSlot(ctx context.Context, a *Agent) error {
 			}
 		}
 		if role == ImplementerRole {
-			if slots, err = e.implementerSlots(ctx, a.spec.Task); err != nil {
+			if slots, err = e.implementerSlots(ctx, a.spec); err != nil {
 				return err
 			}
 		}
@@ -402,10 +402,14 @@ type implementerSlots struct {
 	kept *config.RoleBinding
 }
 
-// implementerSlots gives the bindings of the Implementer with their holds, for the session of task.
-func (e *Engine) implementerSlots(ctx context.Context, task int64) (*implementerSlots, error) {
+// implementerSlots gives the bindings of the Implementer with their holds, for the session of spec. A session that
+// cannot continue the kept session of its task has no kept binding.
+func (e *Engine) implementerSlots(ctx context.Context, spec Spec) (*implementerSlots, error) {
 	list := e.implementerList()
-	slots := &implementerSlots{choices: make([]slotChoice, 0, len(list)), kept: e.keptBinding(task)}
+	slots := &implementerSlots{choices: make([]slotChoice, 0, len(list))}
+	if spec.Continues {
+		slots.kept = e.keptBinding(spec.Task)
+	}
 	for _, b := range list {
 		hold, err := e.pausedHarness(ctx, b.Binding.Harness)
 		if err != nil {

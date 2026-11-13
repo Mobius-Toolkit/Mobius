@@ -290,3 +290,27 @@ func TestARoundWithAKeptSessionThatWaitsForItsFullBindingLeavesTheFreeBindingToA
 	requireSession(t, server, later, "devin swe-1.5")
 	end(t, filler, "done")
 }
+
+func TestAConflictRoundOfATaskWithAKeptSessionOnAFullBindingTakesTheFreeBinding(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	merges := "[[prompts]]\nwhen = \"Merge the base branch and remove the conflicts.\"\n" +
+		"shell = \"git merge -q origin/main; echo cents > plan.txt && git add plan.txt && git commit -q --no-edit\"\n\n"
+	server, _ := keptServer(t, fake, merges+commits, firstSlots(1))
+	holder, _ := keptOnTheSecondBinding(t, server, fake)
+	filler := start(t, server, implementerSpec(t, server, fake, 45))
+	defer end(t, filler, "done")
+	requireSession(t, server, filler, "devin opus")
+	end(t, holder, "done")
+
+	fake.CommitFile(shop, "plan.txt", "dollars\n", "Use dollars")
+
+	rounds := testkit.WaitForValue(t, func() ([]store.Session, bool) {
+		rounds := slices.DeleteFunc(roleSessions(t, server, engine.ImplementerRole), func(session store.Session) bool { return session.Issue.Int64 != 41 })
+		return rounds, len(rounds) == 2 && rounds[1].EndedAt.Valid
+	})
+	requireBinding(t, rounds[1], "devin", "swe-1.5", "high")
+	if rounds[1].Continued != 0 {
+		t.Errorf("conflict round = %+v, want a new process", rounds[1])
+	}
+}

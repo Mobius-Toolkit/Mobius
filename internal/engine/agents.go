@@ -54,6 +54,8 @@ type Spec struct {
 	// PullRequest is the pull request that the Implementer of a fix round or a conflict round, or the Reviewer, works
 	// on, or 0.
 	PullRequest int64
+	// Continues tells that the Implementer round can continue the kept session of its task.
+	Continues bool
 	// Tracked tells that the drain counts the session from a tryTrack of the caller.
 	Tracked bool
 	// Dir is the working directory of the agent. With an empty Dir, Start makes scratch/<session id> below the data

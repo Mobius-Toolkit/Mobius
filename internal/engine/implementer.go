@@ -1012,6 +1012,7 @@ func (e *Engine) implementer(ctx context.Context, j *job) error {
 		Issue:                sql.NullInt64{Int64: task.Issue, Valid: true},
 		Parent:               j.parent,
 		Task:                 task.ID,
+		Continues:            j.cont,
 		Dir:                  runner.TaskDir(e.config.DataDir, task.Repository, task.Issue),
 	}
 	if j.pullRequest != nil {
