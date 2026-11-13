@@ -116,3 +116,40 @@ func TestEarlierSessionsThatCanStartKeepTheirOrderBeforeALaterSession(t *testing
 		end(t, agent, "done")
 	}
 }
+
+func TestASessionThatFollowsTheRoleAndWaitsForAFullBindingKeepsItsPlaceWhileTheFirstBindingIsPaused(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, usageLimit, firstSlots(1))
+	addBinding(t, server, config.ClaudeCode, "sonnet", "high", 1)
+	limited := start(t, server, implementerSpec(t, server, fake, 41))
+	full := start(t, server, implementerSpec(t, server, fake, 43))
+	requireSession(t, server, limited, "devin swe-1.5")
+	requireSession(t, server, full, "claude-code sonnet")
+	go func() { _ = limited.Prompt(t.Context(), "Store plans in cents.", nil) }()
+	testkit.WaitFor(t, func() bool { _, found := devinPause(t, server); return found })
+	end(t, limited, "stopped")
+	earlier := startLater(t.Context(), server, implementerSpec(t, server, fake, 45))
+	queued(t, server, engine.ImplementerRole)
+	later := startLater(t.Context(), server, implementerSpec(t, server, fake, 47))
+	testkit.WaitFor(t, func() bool {
+		count := 0
+		for _, node := range tree(t, server) {
+			if node.Session.Role == engine.ImplementerRole && node.Session.QueueReason.Valid {
+				count++
+			}
+		}
+		return count == 2
+	})
+
+	end(t, full, "done")
+
+	agent := awaitWithin(t, earlier)
+	defer end(t, agent, "done")
+	requireSession(t, server, agent, "claude-code sonnet")
+	select {
+	case got := <-later:
+		t.Errorf("the later session started before the earlier session: %+v", got)
+	default:
+	}
+}

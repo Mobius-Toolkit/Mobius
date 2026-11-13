@@ -447,6 +447,15 @@ func (s *implementerSlots) waitsOn(kept *config.RoleBinding) slotChoice {
 	return s.choices[0]
 }
 
+// held tells if a session that follows the Role and that pick refuses can take no binding when a slot frees: its kept
+// binding has a hold, or each binding has a hold. A session that waits only for a full binding is not held.
+func (s *implementerSlots) held(kept *config.RoleBinding) bool {
+	if c := s.keptChoice(kept); c != nil {
+		return c.hold != ""
+	}
+	return !slices.ContainsFunc(s.choices, func(c slotChoice) bool { return c.hold == "" })
+}
+
 // pick gives the binding that the next session takes. A session with a kept session in the list takes only the binding
 // of the kept session, because the round continues it. Else it is a binding with no hold and a free slot, with the
 // fewest running sessions in counts, and then the first in the list.
@@ -539,6 +548,7 @@ func (e *Engine) slotReason(a *Agent, place waiter, queue []queuedTask, worker b
 	}
 	var counts map[int64]int
 	var chosen *slotChoice
+	waitsForSlot := false
 	if slots != nil {
 		counts = make(map[int64]int, len(w.bindings))
 		for id, count := range w.bindings {
@@ -565,6 +575,7 @@ func (e *Engine) slotReason(a *Agent, place waiter, queue []queuedTask, worker b
 				paused, noAccess = "", ""
 			} else {
 				paused, noAccess = slots.waitsOn(slots.kept).hold, ""
+				waitsForSlot = !slots.held(slots.kept)
 			}
 		}
 	}
@@ -576,7 +587,7 @@ func (e *Engine) slotReason(a *Agent, place waiter, queue []queuedTask, worker b
 	case startOff:
 		reason = startOffReason
 	case paused != "":
-		reason = paused
+		reason, held = paused, !waitsForSlot
 	case noAccess != "":
 		reason = noAccess
 	case chosen != nil:
