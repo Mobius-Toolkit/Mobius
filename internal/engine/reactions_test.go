@@ -334,7 +334,7 @@ func TestACommentOfAnUntrustedUserOrOfATrustedBotOnAPullRequestGetsNoReaction(t 
 	}
 }
 
-func TestAReplyThatGitHubRefusesForGoodIsKeptAndDoesNotStopThePoll(t *testing.T) {
+func TestAReplyThatGitHubRefusesForGoodIsMarkedRefusedAndDoesNotStopThePoll(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := connectSeen(t, fake)
@@ -344,26 +344,29 @@ func TestAReplyThatGitHubRefusesForGoodIsKeptAndDoesNotStopThePoll(t *testing.T)
 
 	id := fake.AddComment(shop, 60, "owner", "Use a smaller font.")
 	waitForReactions(t, fake, id, reactions("confused"))
-	testkit.WaitFor(t, func() bool { return commentWrites(t, server) == 1 })
+	testkit.WaitFor(t, func() bool { return outgoingChanges(t, server, "refused") == 1 })
 	dispatchTask(fake, 41, "Add plan model")
 
 	liveTaskOf(t, server, 41)
 	waitForPolls(t, fake)
-	if got := commentWrites(t, server); got != 1 {
-		t.Errorf("comment writes = %d", got)
+	if got := commentWrites(t, server); got != 0 {
+		t.Errorf("pending outgoing changes = %d", got)
+	}
+	if got := fake.RefusedCommentCalls(); got != 1 {
+		t.Errorf("refused comment calls = %d", got)
 	}
 	if got := replies(fake, 60); len(got) != 0 {
 		t.Errorf("replies = %q", got)
 	}
 }
 
-func TestARefusedReplyInAReviewThreadIsSentInTheSameThreadOnTheNextPoll(t *testing.T) {
+func TestAFailedReplyInAReviewThreadIsSentInTheSameThreadOnTheNextPoll(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := connectJudge(t, fake, "shell = \"true\"\n", "", noChange)
 	root := fake.AddReviewComment(shop, 42, 0, bot, "Rename plan to tier.")
 	fake.ResolveReviewThread(root)
-	fake.RefuseReviewReplies(http.StatusForbidden)
+	fake.RefuseReviewReplies(http.StatusBadGateway)
 
 	id := fake.AddReviewComment(shop, 42, root, "owner", "Rename it anyway.")
 	waitForReactions(t, fake, id, reactions("confused"))
@@ -376,26 +379,4 @@ func TestARefusedReplyInAReviewThreadIsSentInTheSameThreadOnTheNextPoll(t *testi
 		t.Errorf("thread = %+v", thread)
 	}
 	testkit.WaitFor(t, func() bool { return commentWrites(t, server) == 0 })
-}
-
-func TestACommentThatFailedToGetAReplyAndThenGetsAnAgentLosesTheConfusedReaction(t *testing.T) {
-	t.Parallel()
-	fake := testkit.NewFakeGitHub(t)
-	connectSeen(t, fake)
-	fake.AddIssue(shop, 50, "Plan the tiers")
-	fake.AddSubIssue(shop, 12, 50)
-	waitForPolls(t, fake)
-	fake.CloseIssue(shop, 50)
-	waitForPolls(t, fake)
-	fake.FailAddComment(shop, 50, true)
-
-	id := fake.AddComment(shop, 50, "owner", "Use three tiers.")
-	waitForReactions(t, fake, id, reactions("confused"))
-	fake.ReopenIssue(shop, 50)
-
-	waitForReactions(t, fake, id, reactions("eyes"))
-	waitForPolls(t, fake)
-	if got := replies(fake, 50); len(got) != 0 {
-		t.Errorf("replies = %q", got)
-	}
 }

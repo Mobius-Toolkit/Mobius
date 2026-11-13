@@ -453,11 +453,16 @@ func TestAFailedUpdateOfTheReviewCommentGoesToTheNextPoll(t *testing.T) {
 	})
 }
 
-// commentWrites gives the number of comment writes that wait for the next poll.
+// commentWrites gives the number of outgoing changes that wait for the next poll.
 func commentWrites(t *testing.T, server *testserver.Server) int {
+	return outgoingChanges(t, server, "pending")
+}
+
+// outgoingChanges gives the number of outgoing changes with the status.
+func outgoingChanges(t *testing.T, server *testserver.Server, status string) int {
 	t.Helper()
 	var count int
-	if err := server.DB.QueryRow("SELECT count(*) FROM comment_writes").Scan(&count); err != nil {
+	if err := server.DB.QueryRow("SELECT count(*) FROM outgoing_changes WHERE status = ?", status).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	return count
