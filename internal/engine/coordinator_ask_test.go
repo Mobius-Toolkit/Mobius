@@ -35,9 +35,7 @@ func coordinatorItems(t *testing.T, server *testserver.Server) []coordinatorItem
 	if err := json.Unmarshal([]byte(text), &body); err != nil {
 		t.Fatal(err)
 	}
-	return slices.DeleteFunc(body.Data, func(item coordinatorItem) bool {
-		return item.Kind == "missing maintenance" || item.Kind == "missing skills"
-	})
+	return body.Data
 }
 
 func TestTheOwnerAnswersAQuestionOfTheCoordinatorAndTheCoordinatorGetsTheAnswerAsAChatMessage(t *testing.T) {

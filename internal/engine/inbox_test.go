@@ -53,14 +53,11 @@ type inboxItem struct {
 	} `json:"todo"`
 }
 
-// inbox gives the Inbox through the API, without the access check items and the items of a missing Workstream. A server
-// whose Role bindings have no fake Harness has an access check item for each binding. A server whose organization has an
-// open Workstream but no Maintenance and no Skills Workstream has an item of each missing Workstream.
+// inbox gives the Inbox through the API, without the access check items. A server whose Role bindings have no fake
+// Harness has such an item for each binding.
 func inbox(t *testing.T, server *testserver.Server) []inboxItem {
 	t.Helper()
-	return slices.DeleteFunc(allInbox(t, server), func(item inboxItem) bool {
-		return item.Kind == "access check" || item.Kind == "missing maintenance" || item.Kind == "missing skills"
-	})
+	return slices.DeleteFunc(allInbox(t, server), func(item inboxItem) bool { return item.Kind == "access check" })
 }
 
 // allInbox gives the Inbox through the API.

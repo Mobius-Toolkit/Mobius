@@ -35,10 +35,25 @@ func startServerWith(t *testing.T, fake *testkit.FakeGitHub, cfg *config.Config,
 	return startServerOnAddedRepository(t, fake, cfg, before)
 }
 
-// startServerOnAddedRepository is startServerWith for a fake GitHub that already has owner/shop.
+// startServerOnAddedRepository is startServerWith for a fake GitHub that already has owner/shop. The Owner dismissed the
+// items of the missing Workstreams of owner, so they take no Inbox id. A test that hard-codes the id of an action or of a
+// question depends on this.
 func startServerOnAddedRepository(t *testing.T, fake *testkit.FakeGitHub, cfg *config.Config, before string) *testserver.Server {
 	t.Helper()
+	return startServerKeepingMissingItems(t, fake, cfg, before, true)
+}
+
+// startServerKeepingMissingItems is startServerOnAddedRepository, and with dismissed false the check adds the items of
+// the missing Workstreams of owner.
+func startServerKeepingMissingItems(t *testing.T, fake *testkit.FakeGitHub, cfg *config.Config, before string, dismissed bool) *testserver.Server {
+	t.Helper()
 	server := testserver.StartWith(t, cfg, fake.URL)
+	if dismissed {
+		_, err := server.DB.Exec("INSERT INTO missing_workstream_dismissals (organization, kind) VALUES ('owner', 'missing maintenance'), ('owner', 'missing skills')")
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 	if before != "" {
 		if _, err := server.DB.Exec(before); err != nil {
 			t.Fatal(err)
