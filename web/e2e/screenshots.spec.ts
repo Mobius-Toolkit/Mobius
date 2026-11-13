@@ -2559,6 +2559,34 @@ test("screenshots", async ({ page }) => {
     () => shown("Upgrade v0.1.4").click(),
   );
   await page.unroute("/api/release/changes");
+  await page.route("/api/release/changes", () => new Promise(() => {}));
+  await screenshot(
+    page,
+    "upgrade-changes-loading",
+    "/settings",
+    (device) => [
+      ...frame(device, release, { upgrade: true }),
+      page.getByRole("dialog").getByText("Mobius reads the changes."),
+    ],
+    () => shown("Upgrade v0.1.4").click(),
+  );
+  await page.unroute("/api/release/changes");
+  const changesError =
+    "TypeError: FetchEvent.respondWith received an error: TypeError: Failed to fetch while the connection of the phone was weak and the service worker could not read /api/release/changes";
+  await page.route("/api/release/changes", (route) =>
+    route.fulfill({ status: 500, json: { error: changesError } }),
+  );
+  await screenshot(
+    page,
+    "upgrade-changes-error",
+    "/settings",
+    (device) => [
+      ...frame(device, release, { upgrade: true }),
+      page.getByRole("dialog").getByText(changesError),
+    ],
+    () => shown("Upgrade v0.1.4").click(),
+  );
+  await page.unroute("/api/release/changes");
   await page.route("/ui-version", (route) => route.fulfill({ body: "a new build" }));
   await screenshot(page, "new-version", "/settings", (device) => [
     ...frame(device, release, { upgrade: true }),

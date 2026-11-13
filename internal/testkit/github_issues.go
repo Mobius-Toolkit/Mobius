@@ -1014,6 +1014,16 @@ func (g *FakeGitHub) HoldIssue(repository string, number int64) (<-chan struct{}
 	return h.reached, func() { close(h.release) }
 }
 
+// HoldComment makes the next request to add a comment to the issue or pull request number wait. The channel closes when
+// the request arrives, and the function lets the request go on.
+func (g *FakeGitHub) HoldComment(repository string, number int64) (<-chan struct{}, func()) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	h := &hold{reached: make(chan struct{}), release: make(chan struct{})}
+	g.commentHolds[issueKey{repository, number}] = h
+	return h.reached, func() { close(h.release) }
+}
+
 func (g *FakeGitHub) getIssue(w http.ResponseWriter, r *http.Request) {
 	g.mu.Lock()
 	number, _ := strconv.ParseInt(r.PathValue("number"), 10, 64)
@@ -1303,6 +1313,16 @@ func (g *FakeGitHub) addComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	caller, _ := g.validToken(r)
+	number, _ := strconv.ParseInt(r.PathValue("number"), 10, 64)
+	held := issueKey{repository(r), number}
+	g.mu.Lock()
+	h := g.commentHolds[held]
+	delete(g.commentHolds, held)
+	g.mu.Unlock()
+	if h != nil {
+		close(h.reached)
+		<-h.release
+	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	key, ok := g.issue(w, r)

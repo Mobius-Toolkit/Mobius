@@ -279,7 +279,7 @@ func (e *Engine) checkTask(ctx context.Context, repository github.Repository, ta
 			}
 		}
 	}
-	merged, err := e.mergeApproved(ctx, repository, task, pullRequest)
+	merged, err := e.mergeApprovedAfterApproval(ctx, repository, task, pullRequest)
 	if merged && err == nil {
 		err = e.endMergedTask(ctx, repository, task, issue)
 	}
