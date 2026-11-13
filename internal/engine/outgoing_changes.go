@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -104,9 +105,14 @@ func (e *Engine) postCommentOnce(ctx context.Context, repository github.Reposito
 // row exists. The row stays pending when an older pending row of the same item exists or when GitHub fails. The next
 // poll sends it then. Only a failed read or write of the database is an error.
 func (e *Engine) sendNow(ctx context.Context, repository github.Repository, id int64) error {
-	e.outgoingMu.Lock()
-	defer e.outgoingMu.Unlock()
 	change, err := e.queries.GetOutgoingChange(ctx, id)
+	if err != nil || change.Status != "pending" {
+		return err
+	}
+	mu := e.outgoingItem(repository.FullName, change.Number)
+	mu.Lock()
+	defer mu.Unlock()
+	change, err = e.queries.GetOutgoingChange(ctx, id)
 	if err != nil || change.Status != "pending" {
 		return err
 	}
@@ -143,12 +149,17 @@ func (e *Engine) pendingChanges(ctx context.Context, repository string, number i
 	return slices.DeleteFunc(changes, func(change store.OutgoingChange) bool { return change.Number != number }), err
 }
 
+// outgoingItem gives the mutex of the item number of the repository.
+func (e *Engine) outgoingItem(repository string, number int64) *sync.Mutex {
+	mu, _ := e.outgoingItems.LoadOrStore(fmt.Sprintf("%s#%d", repository, number), &sync.Mutex{})
+	return mu.(*sync.Mutex)
+}
+
 // sendOutgoingChanges sends each pending outgoing change of the repository in the order of the rows. Before a post, it
 // reads the comments of the item, because an earlier send can have made the comment and failed to tell. A change that
-// stays pending holds the later changes of its item. The changes of other items continue.
+// stays pending holds the later changes of its item. An item that another send holds waits for the next poll. The
+// changes of other items continue.
 func (e *Engine) sendOutgoingChanges(ctx context.Context, repository github.Repository) error {
-	e.outgoingMu.Lock()
-	defer e.outgoingMu.Unlock()
 	changes, err := e.queries.ListPendingOutgoingChanges(ctx, repository.FullName)
 	if err != nil {
 		return err
@@ -158,15 +169,29 @@ func (e *Engine) sendOutgoingChanges(ctx context.Context, repository github.Repo
 		if waiting[change.Number] {
 			continue
 		}
-		if waiting[change.Number], err = e.send(ctx, repository, change, true); err != nil {
+		if waiting[change.Number], err = e.sendLocked(ctx, repository, change); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
+// sendLocked is send for the poll. It tells that the change stays pending when another send holds the item.
+func (e *Engine) sendLocked(ctx context.Context, repository github.Repository, change store.OutgoingChange) (bool, error) {
+	mu := e.outgoingItem(repository.FullName, change.Number)
+	if !mu.TryLock() {
+		return true, nil
+	}
+	defer mu.Unlock()
+	current, err := e.queries.GetOutgoingChange(ctx, change.ID)
+	if err != nil || current.Status != "pending" {
+		return false, err
+	}
+	return e.send(ctx, repository, current, true)
+}
+
 // send sends the pending outgoing change, and marks it sent or refused. It tells if the change stays pending. Only a
-// failed read or write of the database is an error. The caller holds outgoingMu.
+// failed read or write of the database is an error. The caller holds the mutex of the item.
 func (e *Engine) send(ctx context.Context, repository github.Repository, change store.OutgoingChange, read bool) (bool, error) {
 	if change.Field == reviewCommentEditField {
 		return e.sendEdit(ctx, repository, change)
