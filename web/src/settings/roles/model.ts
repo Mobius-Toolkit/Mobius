@@ -4,9 +4,13 @@ import { Choice, Role } from "./schemas";
 
 export const Flags = Schema.Struct({});
 
-// The sheet of a role keeps the values of the form. context and max are the text of the two number fields.
+// The sheet of a role keeps the values of the form. context and max are the text of the two number fields. tab is "0"
+// for the first binding, the id of a stored binding as text, or "new" for the binding that the sheet adds. The form
+// shows the binding of the selected tab.
 export const Sheet = Schema.Struct({
   role: Role,
+  tab: Schema.String,
+  hasNew: Schema.Boolean,
   harness: Schema.String,
   model: Schema.String,
   effort: Schema.String,
@@ -76,3 +80,31 @@ export function effortsOf(model: Model, sheet: Sheet) {
 }
 
 export const sheetChanged = (sheet: Sheet) => Object.values(sheet.role.ui).some(Boolean);
+
+export type Binding = Pick<Role, "harness" | "model" | "effort" | "context" | "max">;
+
+export const isImplementer = (role: Role) => role.role === "implementer";
+
+// The first binding is the binding of the tab "0" and of the tab "new".
+export const bindingOf = (role: Role, tab: string): Binding =>
+  role.moreBindings.find((other) => String(other.id) === tab) ?? role;
+
+export const formOf = (binding: Binding) => ({
+  harness: binding.harness,
+  model: binding.model,
+  effort: binding.effort,
+  context: binding.context > 0 ? String(binding.context) : "",
+  max: String(binding.max),
+});
+
+export const bindingLabel = (binding: Pick<Binding, "harness" | "model">) =>
+  `${binding.harness} · ${binding.model}`;
+
+export function tabsOf(sheet: Sheet) {
+  const first = sheet.role;
+  return [
+    { key: "0", binding: first },
+    ...first.moreBindings.map((other) => ({ key: String(other.id), binding: other })),
+    ...(sheet.hasNew ? [{ key: "new", binding: sheet.tab === "new" ? sheet : first }] : []),
+  ];
+}
