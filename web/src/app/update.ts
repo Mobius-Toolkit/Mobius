@@ -9,6 +9,7 @@ import { FetchPage, ListQueued } from "@/chat/commands";
 import { initialModel as initialChatModel } from "@/chat/model";
 import { update as updateChat } from "@/chat/update";
 import { FetchCheckup, FetchTools } from "@/checkup/commands";
+import { Message as CheckupMessage } from "@/checkup/message";
 import { initialModel as initialCheckupModel } from "@/checkup/model";
 import { update as updateCheckup } from "@/checkup/update";
 import { initialModel as initialPanelModel } from "@/panel/model";
@@ -43,6 +44,7 @@ import { initialModel as initialUsageModel } from "@/usage/model";
 import { load as usageLoad, update as updateUsage } from "@/usage/update";
 import { initialModel as initialWorkstreamsModel } from "@/workstreams/model";
 import { update as updateWorkstreams } from "@/workstreams/update";
+import { init as initWorkstreamSetup } from "@/workstreamSetup/update";
 import { filterNeedsHuman } from "@/lib/inbox";
 import { sameChat } from "@/lib/unread";
 import {
@@ -517,15 +519,36 @@ function initScreenForRoute(
       break;
     }
 
-    case "CheckupPermissions":
-    case "CheckupLabels":
     case "CheckupWorkstreams": {
+      const checkupModel = initialCheckupModel({
+        page: "workstreams",
+        organization: route.organization,
+      });
+      const { model: workstreamSetup, commands: setupCommands } = initWorkstreamSetup(
+        route.organization,
+      );
+      model = {
+        ...model,
+        checkupProgram: Option.some({
+          ...checkupModel,
+          pauses: model.pauses,
+          workstreamSetup,
+        }),
+      };
+      commands.push(
+        ...Command.mapMessages(setupCommands ?? [], (message) =>
+          Message.GotCheckupMessage({
+            message: CheckupMessage.GotWorkstreamSetupMessage({ message }),
+          }),
+        ),
+      );
+      break;
+    }
+
+    case "CheckupPermissions":
+    case "CheckupLabels": {
       const page =
-        route._tag === "CheckupPermissions"
-          ? ("permissions" as const)
-          : route._tag === "CheckupLabels"
-            ? ("labels" as const)
-            : ("workstreams" as const);
+        route._tag === "CheckupPermissions" ? ("permissions" as const) : ("labels" as const);
       const checkupModel = initialCheckupModel({ page, organization: route.organization });
       model = {
         ...model,
@@ -1703,8 +1726,11 @@ export function update(model: Model, message: Message): UpdateReturn {
       return foldAgents(model, message.message);
 
     case "GotCheckupMessage": {
-      if (message.message._tag === "WorkstreamRequested") {
-        const org = message.message.organization;
+      if (
+        message.message._tag === "GotWorkstreamSetupMessage" &&
+        message.message.message._tag === "WorkstreamRequested"
+      ) {
+        const org = message.message.message.organization;
         const { model: m1, commands: c1 } = foldCheckup(model, message.message);
         const { model: m2, commands: c2 } = update(
           m1,

@@ -8,7 +8,7 @@ import type { Model } from "./model";
 
 export function renderPauses(h: HtmlBuilder<Message>, model: Model): Html[] {
   return model.pauses
-    .filter((pause) => pause.inUse)
+    .filter((pause) => pause.users.length > 0)
     .map((pause) => {
       const isBusy = Option.isSome(model.pauseBusy) && model.pauseBusy.value === pause.harness;
       const error = Option.getOrElse(model.pauseError, () => "");

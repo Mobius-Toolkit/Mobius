@@ -133,21 +133,41 @@ func seed(t *testing.T, dataDir string, statements ...string) {
 }
 
 type apiPause struct {
-	Harness     string    `json:"harness"`
-	PausedUntil time.Time `json:"pausedUntil"`
-	InUse       *bool     `json:"inUse"`
+	Harness     string         `json:"harness"`
+	PausedUntil time.Time      `json:"pausedUntil"`
+	Users       []apiPauseUser `json:"users"`
 }
 
-// devinInUse gives the inUse value of the pause of Devin, and fails when no pause has it.
-func devinInUse(t *testing.T, pauses []apiPause) bool {
+type apiPauseUser struct {
+	Kind                 string `json:"kind"`
+	Role                 string `json:"role"`
+	Binding              string `json:"binding"`
+	Repository           string `json:"repository"`
+	Number               int64  `json:"number"`
+	Title                string `json:"title"`
+	WorkstreamRepository string `json:"workstreamRepository"`
+	Workstream           int64  `json:"workstream"`
+	WorkstreamTitle      string `json:"workstreamTitle"`
+}
+
+// devinUsers gives the users of the pause of Devin, and fails when no pause has the list. An empty list is no null.
+func devinUsers(t *testing.T, pauses []apiPause) []apiPauseUser {
 	t.Helper()
 	for _, found := range pauses {
-		if found.Harness == "devin" && found.InUse != nil {
-			return *found.InUse
+		if found.Harness == "devin" && found.Users != nil {
+			return found.Users
 		}
 	}
-	t.Fatalf("no pause of devin with inUse in %+v", pauses)
-	return false
+	t.Fatalf("no pause of devin with users in %+v", pauses)
+	return nil
+}
+
+// requireDevinUsers fails when the users of the pause of Devin are not want.
+func requireDevinUsers(t *testing.T, server *testserver.Server, want ...apiPauseUser) {
+	t.Helper()
+	if got := devinUsers(t, apiPauses(t, server)); !reflect.DeepEqual(got, append([]apiPauseUser{}, want...)) {
+		t.Errorf("users of devin = %+v, want %+v", got, want)
+	}
 }
 
 // pausedDevinWithNoSession gives a pause of Devin that no open session waits for. The Implementer uses Devin.
@@ -235,14 +255,18 @@ func TestAUsageLimitPausesTheHarnessUntilResumeNowSendsThePromptAgain(t *testing
 	if started[0].Harness != "devin" || !started[0].PausedUntil.Equal(until) {
 		t.Errorf("pauses event = %+v, want devin until %v", started, until)
 	}
-	if got := apiPauses(t, server); !reflect.DeepEqual(got, started) {
-		t.Errorf("pauses = %+v, want %+v", got, started)
-	}
 	if got := inbox(t, server); len(got) != 0 {
 		t.Errorf("inbox = %+v", got)
 	}
 	reason := "paused until " + until.UTC().Format("2006-01-02 15:04 UTC")
 	testkit.WaitFor(t, func() bool { return session(t, server, agent.ID()).QueueReason.String == reason })
+	requireDevinUsers(t, server,
+		apiPauseUser{Kind: "role", Role: "implementer"},
+		apiPauseUser{
+			Kind: "session", Role: "implementer",
+			Repository: shop, Number: 41,
+			WorkstreamRepository: shop, Workstream: 12, WorkstreamTitle: "Integrate loyalty plans",
+		})
 	// The pause also holds a Worker of the paused Harness in the queue.
 	second := startLater(t.Context(), server, implementerSpec(t, server, fake, 43))
 	testkit.WaitFor(t, func() bool {
@@ -494,18 +518,27 @@ func TestARetryThatHitsTheUsageLimitAfterARestartThatFollowsTheEndOfThePauseAdds
 	}
 }
 
-func TestAPauseOfAHarnessThatARoleUsesIsInUse(t *testing.T) {
+func TestAPauseOfAHarnessThatARoleUsesHasARoleUser(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, usageLimit)
 	pausedDevinWithNoSession(t, server, fake)
 
-	if !devinInUse(t, apiPauses(t, server)) {
-		t.Error("the pause of devin is not in use, but the Implementer uses devin")
-	}
+	requireDevinUsers(t, server, apiPauseUser{Kind: "role", Role: "implementer"})
 }
 
-func TestAPauseOfAHarnessThatNoRoleUsesAndNoSessionWaitsForIsNotInUse(t *testing.T) {
+func TestAPauseOfAHarnessThatABindingOfTheImplementerUsesHasARoleUserWithTheBinding(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, usageLimit)
+	pausedDevinWithNoSession(t, server, fake)
+	moveImplementerToClaudeCode(t, server)
+	addBinding(t, server, config.Devin, "opus", "low", 1)
+
+	requireDevinUsers(t, server, apiPauseUser{Kind: "role", Role: "implementer", Binding: "devin · opus"})
+}
+
+func TestAPauseOfAHarnessThatNoRoleUsesAndNoSessionWaitsForHasNoUser(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, usageLimit)
@@ -513,18 +546,17 @@ func TestAPauseOfAHarnessThatNoRoleUsesAndNoSessionWaitsForIsNotInUse(t *testing
 
 	moveImplementerToClaudeCode(t, server)
 
-	if devinInUse(t, apiPauses(t, server)) {
-		t.Error("the pause of devin is in use, but no Role uses devin and no session waits")
-	}
+	requireDevinUsers(t, server)
 	if _, paused := devinPause(t, server); !paused {
 		t.Error("the pause of devin ended")
 	}
 }
 
-func TestAPauseOfAHarnessThatNoRoleUsesIsInUseWhileASessionWaitsForIt(t *testing.T) {
+func TestAPauseOfAHarnessThatNoRoleUsesHasASessionUserWhileASessionWaitsForIt(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, usageLimit)
+	addCopiedTask(t, server, fake, 41)
 	agent := start(t, server, implementerSpec(t, server, fake, 41))
 	defer end(t, agent, "done")
 	go func() { _ = agent.Prompt(t.Context(), "Store plans in cents.", nil) }()
@@ -534,12 +566,37 @@ func TestAPauseOfAHarnessThatNoRoleUsesIsInUseWhileASessionWaitsForIt(t *testing
 
 	moveImplementerToClaudeCode(t, server)
 
-	if !devinInUse(t, apiPauses(t, server)) {
-		t.Error("the pause of devin is not in use, but a session waits for it")
-	}
+	requireDevinUsers(t, server, apiPauseUser{
+		Kind: "session", Role: "implementer",
+		Repository: shop, Number: 41, Title: "Task",
+		WorkstreamRepository: shop, Workstream: 12, WorkstreamTitle: "Integrate loyalty plans",
+	})
 }
 
-func TestAChangeOfTheLastRoleOfAPausedHarnessSendsThePausesEventWithInUseFalse(t *testing.T) {
+func TestASessionUserThatWaitsForAPauseWithAnIssueAndNoWorkstreamHasNoIssueFields(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, usageLimit)
+	spec := roleSpec(t, engine.ImplementerRole)
+	spec.Workstream = 0
+	spec.Issue = sql.NullInt64{Int64: 41, Valid: true}
+	agent := start(t, server, spec)
+	defer end(t, agent, "done")
+	go func() { _ = agent.Prompt(t.Context(), "Store plans in cents.", nil) }()
+	testkit.WaitFor(t, func() bool {
+		var reason sql.NullString
+		if err := server.DB.QueryRow("SELECT queue_reason FROM sessions WHERE id = ?", agent.ID()).Scan(&reason); err != nil {
+			t.Fatal(err)
+		}
+		return strings.HasPrefix(reason.String, "paused until ")
+	})
+
+	moveImplementerToClaudeCode(t, server)
+
+	requireDevinUsers(t, server, apiPauseUser{Kind: "session", Role: "implementer"})
+}
+
+func TestAChangeOfTheLastRoleOfAPausedHarnessSendsThePausesEventWithNoUser(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, usageLimit)
@@ -549,7 +606,7 @@ func TestAChangeOfTheLastRoleOfAPausedHarnessSendsThePausesEventWithInUseFalse(t
 	moveImplementerToClaudeCode(t, server)
 
 	changed := nextEventData(t, events, func(pauses []apiPause) bool {
-		return len(pauses) == 1 && pauses[0].InUse != nil && !*pauses[0].InUse
+		return len(pauses) == 1 && pauses[0].Users != nil && len(pauses[0].Users) == 0
 	})
 	if changed[0].Harness != "devin" {
 		t.Errorf("pauses event = %+v", changed)

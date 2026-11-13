@@ -560,6 +560,7 @@ func (a *Agent) continueSession(ctx context.Context, k *keptSession) error {
 	a.dshRecords = k.dshRecords
 	a.antigravityIdx = k.antigravityIdx
 	a.report = k.report
+	a.addSessionSkills(ctx, k.copiedSkills)
 	a.session.SetUpdates(a.update)
 	a.engine.agents.MCP.SetCaller(a.key, a.mcpCaller())
 	if err := a.engine.queries.SetACPSessionID(ctx, store.SetACPSessionIDParams{AcpSessionID: sql.NullString{String: k.session.ID(), Valid: true}, ID: a.id}); err != nil {
