@@ -319,7 +319,6 @@ func TestServer(t *testing.T) {
 		github.AddIssue(workstream.repository, workstream.number, workstream.title)
 		github.AddLabel(workstream.repository, workstream.number, "mobius:workstream", "owner")
 	}
-	github.AddLabel("owner/shop", 14, "mobius:autopilot", "owner")
 	github.AddLabel("owner/shop", 14, "mobius:maintenance", "owner")
 	github.SetBody("owner/shop", 14, "**Goal**\nLet customers renew a plan one month early.\n\n**Scope**\n- Add a button to the renewal page.\n- Send a mail after the renewal.\n\n**Limits**\n- Do not change the price of a plan.")
 	github.AddSubIssueOf("owner/shop", 12, 41, "Add plan model")
@@ -399,10 +398,6 @@ func TestServer(t *testing.T) {
 	cfg := testserver.Config(t, dataDir)
 	cfg.Organizations = map[string]config.Organization{"plants": {IssueRepository: "plants/garden"}}
 	server := testserver.StartWith(t, cfg, github.URL)
-	// The poll gives a new Workstream the level Off, and takes no level from a label.
-	if _, err := server.DB.Exec("INSERT INTO workstreams (repository, number, autopilot, auto_merge, evergreen, maintenance, skills) VALUES ('owner/shop', 14, 1, 0, 0, 1, 0)"); err != nil {
-		t.Fatal(err)
-	}
 	dist, err := fs.Sub(web.Dist, "dist")
 	if err != nil {
 		t.Fatal(err)
@@ -634,6 +629,16 @@ func TestServer(t *testing.T) {
 	github.DeleteRepositoryLabel("owner/shop", "mobius:no-workstream")
 	github.AddRepositoryLabel("owner/shop", "mobius:working", "ededed", "A Mobius agent works on this task")
 	server.WaitForFirstPoll(t, "plants/garden")
+	testkit.WaitFor(t, func() bool {
+		var rows int
+		if err := server.DB.QueryRow("SELECT COUNT(*) FROM workstreams WHERE repository = 'owner/shop' AND number = 14").Scan(&rows); err != nil {
+			t.Fatal(err)
+		}
+		return rows == 1
+	})
+	if err := server.Engine.SetAutopilot(ctx, "owner/shop", 14, "start"); err != nil {
+		t.Fatal(err)
+	}
 
 	shop := engine.ChatKey{Organization: "owner", Repository: "owner/shop", Workstream: 12}
 	github.AddLabel("owner/shop", 45, "mobius:ready", "owner")
