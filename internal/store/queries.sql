@@ -351,6 +351,10 @@ SELECT * FROM chat_messages WHERE id = ?;
 UPDATE inbox_items SET dismissed_at = ? WHERE id = ?
 RETURNING *;
 
+-- name: SetInboxItemReportLink :one
+UPDATE inbox_items SET report_link = ? WHERE id = ?
+RETURNING *;
+
 -- name: SetInboxItemAnswer :exec
 UPDATE inbox_items SET answer = ? WHERE id = ?;
 
@@ -736,8 +740,14 @@ UPDATE tasks SET approved_head = ? WHERE id = ?;
 -- name: SetTaskApprovedReport :exec
 UPDATE tasks SET approved_report = ?, approved_report_head = ? WHERE id = ?;
 
+-- name: SetTaskApprovalChange :exec
+UPDATE tasks SET approved_again_change = ?, approved_again_comment = NULL WHERE id = ?;
+
+-- name: SetTaskApprovedAgainHead :exec
+UPDATE tasks SET approved_again_head = ? WHERE id = ?;
+
 -- name: SetTaskApprovedAgainComment :exec
-UPDATE tasks SET approved_again_head = ?, approved_again_comment = ? WHERE id = ?;
+UPDATE tasks SET approved_again_comment = ? WHERE id = ?;
 
 -- name: SetTaskConflictHead :exec
 UPDATE tasks SET conflict_head = ? WHERE id = ?;

@@ -751,3 +751,48 @@ func TestTheTasksTabAndListTasksShowTheWaitForCIAndTheWaitForTheLeadAndTheWaitFo
 		})
 	}
 }
+
+func TestTheInboxItemOfAnApprovalGetsTheUrlOfTheApprovalCommentAfterTheSend(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadApproves+leadStarts, commits, noChange)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	waitForReadyEvents(t, fake, server, 1)
+	fake.FailAddComment(shop, 42, true)
+
+	sendChat(t, server, leadChat, "Approve #41")
+
+	item := waitForItem(t, server, "ready for review")
+	if item.ReportURL != "" {
+		t.Errorf("report URL before the send = %q", item.ReportURL)
+	}
+	fake.FailAddComment(shop, 42, false)
+
+	testkit.WaitFor(t, func() bool {
+		items := itemsOf(t, server, "ready for review")
+		return len(items) == 1 && items[0].ReportURL == "https://github.com/owner/shop/pull/42#issuecomment-2"
+	})
+}
+
+func TestTheInboxItemOfAnApprovalGetsTheUrlOfACommentThatAPollSentBeforeTheItemExisted(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadApproves+leadStarts, commits, noChange)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	waitForReadyEvents(t, fake, server, 1)
+	release := fake.HoldNext("PATCH /repos/{owner}/{repo}/check-runs/{id}")
+
+	sendChat(t, server, leadChat, "Approve #41")
+
+	want := testkit.Comment{Author: testkit.AppSlug + "[bot]", Body: marked("Checked the diff. Verified the tests.", leadMark)}
+	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 42), want) })
+	if items := itemsOf(t, server, "ready for review"); len(items) != 0 {
+		t.Fatalf("Inbox items before the end of the approval = %+v", items)
+	}
+	release()
+
+	testkit.WaitFor(t, func() bool {
+		items := itemsOf(t, server, "ready for review")
+		return len(items) == 1 && items[0].ReportURL == "https://github.com/owner/shop/pull/42#issuecomment-2"
+	})
+}

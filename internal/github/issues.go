@@ -60,6 +60,17 @@ type graphqlError struct {
 	Message string `json:"message"`
 }
 
+// GraphQLError is the first error of a GraphQL answer. GitHub gives the answer with the status 200. Type is the type
+// of the error, for example FORBIDDEN or RATE_LIMITED, and is empty when GitHub gives none.
+type GraphQLError struct {
+	Type    string
+	Message string
+}
+
+func (e *GraphQLError) Error() string {
+	return e.Message
+}
+
 // graphql sends the GraphQL query with variables and decodes its data into data.
 func (r Repository) graphql(ctx context.Context, query string, variables map[string]any, data any) error {
 	errs, err := r.graphqlErrors(ctx, query, variables, data)
@@ -67,7 +78,7 @@ func (r Repository) graphql(ctx context.Context, query string, variables map[str
 		return err
 	}
 	if len(errs) > 0 {
-		return errors.New(errs[0].Message)
+		return &GraphQLError{Type: errs[0].Type, Message: errs[0].Message}
 	}
 	return nil
 }
