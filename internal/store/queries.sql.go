@@ -625,6 +625,35 @@ func (q *Queries) AddInboxItem(ctx context.Context, arg AddInboxItemParams) (Inb
 	return i, err
 }
 
+const addInitFailure = `-- name: AddInitFailure :exec
+INSERT INTO init_failures (repository, task_issue, session, commit_sha, result, output, created_at)
+SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7
+WHERE NOT EXISTS (SELECT 1 FROM init_failures WHERE repository = ?1 AND ended_at = '')
+`
+
+type AddInitFailureParams struct {
+	Repository string
+	TaskIssue  int64
+	Session    int64
+	CommitSha  string
+	Result     string
+	Output     string
+	CreatedAt  string
+}
+
+func (q *Queries) AddInitFailure(ctx context.Context, arg AddInitFailureParams) error {
+	_, err := q.db.ExecContext(ctx, addInitFailure,
+		arg.Repository,
+		arg.TaskIssue,
+		arg.Session,
+		arg.CommitSha,
+		arg.Result,
+		arg.Output,
+		arg.CreatedAt,
+	)
+	return err
+}
+
 const addLeadEvent = `-- name: AddLeadEvent :one
 INSERT INTO lead_events (repository, workstream, issue_repository, issue, kind, payload, time, chat_message, comment, review)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -2258,6 +2287,20 @@ func (q *Queries) EndCheckTimeout(ctx context.Context, arg EndCheckTimeoutParams
 	return err
 }
 
+const endInitFailure = `-- name: EndInitFailure :exec
+UPDATE init_failures SET ended_at = ? WHERE id = ?
+`
+
+type EndInitFailureParams struct {
+	EndedAt string
+	ID      int64
+}
+
+func (q *Queries) EndInitFailure(ctx context.Context, arg EndInitFailureParams) error {
+	_, err := q.db.ExecContext(ctx, endInitFailure, arg.EndedAt, arg.ID)
+	return err
+}
+
 const endMcpServerOAuthFlow = `-- name: EndMcpServerOAuthFlow :exec
 UPDATE mcp_server_oauth
 SET state = '', code_verifier = '', flow_started_at = NULL, updated_at = ?
@@ -3421,6 +3464,32 @@ func (q *Queries) GetMergeQueueHead(ctx context.Context, repository string) (Tas
 	return i, err
 }
 
+const getNewestCommentChange = `-- name: GetNewestCommentChange :one
+SELECT id, integration, repository, number, reply_to, field, text, status, created_at FROM outgoing_changes WHERE repository = ? AND number = ? AND field = 'comment' ORDER BY id DESC LIMIT 1
+`
+
+type GetNewestCommentChangeParams struct {
+	Repository string
+	Number     int64
+}
+
+func (q *Queries) GetNewestCommentChange(ctx context.Context, arg GetNewestCommentChangeParams) (OutgoingChange, error) {
+	row := q.db.QueryRowContext(ctx, getNewestCommentChange, arg.Repository, arg.Number)
+	var i OutgoingChange
+	err := row.Scan(
+		&i.ID,
+		&i.Integration,
+		&i.Repository,
+		&i.Number,
+		&i.ReplyTo,
+		&i.Field,
+		&i.Text,
+		&i.Status,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getNewestInboxItem = `-- name: GetNewestInboxItem :one
 SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal, workstream_repository, questions, answer, withdrawn FROM inbox_items WHERE repository = ? AND issue = ? AND kind = ? ORDER BY id DESC LIMIT 1
 `
@@ -3650,6 +3719,28 @@ func (q *Queries) GetOpenFailedItemOfMessage(ctx context.Context, chatMessage sq
 		&i.Questions,
 		&i.Answer,
 		&i.Withdrawn,
+	)
+	return i, err
+}
+
+const getOpenInitFailure = `-- name: GetOpenInitFailure :one
+SELECT id, repository, task_issue, session, commit_sha, result, output, issue, created_at, ended_at FROM init_failures WHERE repository = ? AND ended_at = ''
+`
+
+func (q *Queries) GetOpenInitFailure(ctx context.Context, repository string) (InitFailure, error) {
+	row := q.db.QueryRowContext(ctx, getOpenInitFailure, repository)
+	var i InitFailure
+	err := row.Scan(
+		&i.ID,
+		&i.Repository,
+		&i.TaskIssue,
+		&i.Session,
+		&i.CommitSha,
+		&i.Result,
+		&i.Output,
+		&i.Issue,
+		&i.CreatedAt,
+		&i.EndedAt,
 	)
 	return i, err
 }
@@ -4329,6 +4420,8 @@ SELECT EXISTS (
   SELECT 1 FROM ci_breaks WHERE ci_breaks.repository = ?1 AND ABS(ci_breaks.issue) = ?2
   UNION ALL
   SELECT 1 FROM check_timeouts WHERE check_timeouts.repository = ?1 AND ABS(check_timeouts.issue) = ?2
+  UNION ALL
+  SELECT 1 FROM init_failures WHERE init_failures.repository = ?1 AND ABS(init_failures.issue) = ?2
   UNION ALL
   SELECT 1 FROM ci_failures WHERE ci_failures.repository = ?1 AND ABS(ci_failures.issue) = ?2
 )
@@ -10170,6 +10263,20 @@ UPDATE inbox_items SET withdrawn = 1 WHERE id = ?
 
 func (q *Queries) SetInboxItemWithdrawn(ctx context.Context, id int64) error {
 	_, err := q.db.ExecContext(ctx, setInboxItemWithdrawn, id)
+	return err
+}
+
+const setInitFailureIssue = `-- name: SetInitFailureIssue :exec
+UPDATE init_failures SET issue = ? WHERE id = ?
+`
+
+type SetInitFailureIssueParams struct {
+	Issue int64
+	ID    int64
+}
+
+func (q *Queries) SetInitFailureIssue(ctx context.Context, arg SetInitFailureIssueParams) error {
+	_, err := q.db.ExecContext(ctx, setInitFailureIssue, arg.Issue, arg.ID)
 	return err
 }
 

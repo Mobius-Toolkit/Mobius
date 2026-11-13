@@ -88,7 +88,7 @@ func (e *Engine) startTriage(ctx context.Context, repository github.Repository, 
 	} else if err := repository.AddLabel(ctx, number, triageLabel); err != nil {
 		return false, err
 	}
-	replies, _, err := e.replies(ctx, repository, comments)
+	replies, _, err := e.replies(ctx, repository, number, comments)
 	if err != nil {
 		return false, err
 	}
