@@ -1,4 +1,4 @@
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page, type Route, test } from "@playwright/test";
 import { waitForEvergreen } from "./evergreen.js";
 import { retryFailure, retryUpgrade, routeUpgrade, upgradeRoute } from "./upgrade.js";
 
@@ -262,6 +262,36 @@ test("the upgrade dialog shows the newest release when it opens", async ({ page 
   await expect(
     page.getByRole("button", { name: "Upgrade v0.1.5" }).filter({ visible: true }),
   ).toBeVisible();
+});
+
+test("the upgrade dialog shows no old error when it opens again", async ({ page }) => {
+  let reads = 0;
+  let held: Route | undefined;
+  await page.route("/api/release/changes", async (route) => {
+    reads += 1;
+    if (reads === 1) {
+      await route.fulfill({ status: 500, json: { error: "The release read failed" } });
+      return;
+    }
+    held = route;
+  });
+  await page.goto("/settings");
+  const dialog = page.getByRole("dialog");
+
+  await page.getByRole("button", { name: "Upgrade v0.1.4" }).filter({ visible: true }).click();
+  await expect(dialog.getByText("The release read failed")).toBeVisible();
+  await dialog.getByRole("button", { name: "Close" }).click();
+  await expect(dialog).toBeHidden();
+
+  await page.getByRole("button", { name: "Upgrade v0.1.4" }).filter({ visible: true }).click();
+  await expect(dialog.getByText("Mobius reads the changes.")).toBeVisible();
+  await expect(dialog.getByText("The release read failed")).toHaveCount(0);
+
+  await expect.poll(() => held).toBeDefined();
+  await held?.fulfill({ json: { data: ["Fix the memory scroll"] } });
+  await expect(dialog.getByText("Fix the memory scroll")).toBeVisible();
+  await expect(dialog.getByText("Mobius reads the changes.")).toHaveCount(0);
+  await expect(dialog.getByText("The release read failed")).toHaveCount(0);
 });
 
 test("the Upgrade control shows the step retry with its error, and Cancel upgrade ends the upgrade", async ({

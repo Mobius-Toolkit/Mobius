@@ -1351,7 +1351,12 @@ export function update(model: Model, message: Message): UpdateReturn {
       return {
         model: {
           ...model,
-          upgrade: { ...model.upgrade, changesShown: true },
+          upgrade: {
+            ...model.upgrade,
+            changesShown: true,
+            changes: Option.none(),
+            changesError: "",
+          },
         },
         commands: [LoadReleaseChanges(), CheckUpgrade()],
       };
@@ -1369,7 +1374,11 @@ export function update(model: Model, message: Message): UpdateReturn {
       return {
         model: {
           ...model,
-          upgrade: { ...model.upgrade, changes: Option.some(message.changes) },
+          upgrade: {
+            ...model.upgrade,
+            changes: Option.some(message.changes),
+            changesError: "",
+          },
         },
         commands: [],
       };
