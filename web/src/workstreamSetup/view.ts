@@ -38,7 +38,7 @@ function renderCreate(h: H, model: Model, kind: WorkstreamKind): Html {
 
 function renderIssueRepository(h: H, checkup: Checkup): Html {
   const value = h.span(
-    [h.Class("min-w-0 text-muted-foreground wrap-anywhere")],
+    [h.Class("min-w-0 text-right text-muted-foreground wrap-anywhere")],
     [checkup.issueRepositorySource === "none" ? "None" : checkup.issueRepository],
   );
   if (checkup.issueRepositorySource === "config") {
@@ -57,7 +57,11 @@ function renderIssueRepository(h: H, checkup: Checkup): Html {
           h.Class(cn(rowClass, "w-full justify-between hover:bg-muted")),
           h.OnClick(Message.OpenedPicker()),
         ],
-        [label(h, "Issue repository"), value, chevronRightIcon(h, "size-4 shrink-0")],
+        [
+          h.span([h.Class("grow text-left whitespace-nowrap")], ["Issue repository"]),
+          value,
+          chevronRightIcon(h, "size-4 shrink-0"),
+        ],
       ),
     ],
   );
