@@ -218,16 +218,22 @@ func TestAnOwnerWithNoUserTokenGetsTheApprovalAndTheMergeButtonWithTheReason(t *
 
 const mergeRetry = "GitHub gave a server error. Mobius tries the approval again."
 
-// retryItem waits for the only ready for review item with the reason mergeRetry.
-func retryItem(t *testing.T, server *testserver.Server) inboxItem {
+// idleItem waits for the only ready for review item with one of the reasons and no merging state.
+func idleItem(t *testing.T, server *testserver.Server, reasons ...string) inboxItem {
 	t.Helper()
 	return testkit.WaitForValue(t, func() (inboxItem, bool) {
 		items := itemsOf(t, server, "ready for review")
 		if len(items) != 1 {
 			return inboxItem{}, false
 		}
-		return items[0], items[0].MergeRefusal == mergeRetry && !items[0].Merging
+		return items[0], slices.Contains(reasons, items[0].MergeRefusal) && !items[0].Merging
 	})
+}
+
+// retryItem waits for the only ready for review item with the reason mergeRetry.
+func retryItem(t *testing.T, server *testserver.Server) inboxItem {
+	t.Helper()
+	return idleItem(t, server, mergeRetry)
 }
 
 func TestAServerErrorOfTheApprovalGetsAnotherApprovalAndTheMergeFromALaterPoll(t *testing.T) {
@@ -273,7 +279,7 @@ func TestTheMergeButtonAfterAServerErrorOfTheApprovalGivesOneApproval(t *testing
 	retryItem(t, server)
 	turnMerge(t, server, false)
 	waitForPolls(t, fake)
-	item := retryItem(t, server)
+	item := idleItem(t, server, mergeRetry, mergePaused)
 	fake.FailReviews(0, 0)
 
 	if status, body := merge(t, server, item.ID); status != http.StatusOK {
@@ -285,6 +291,26 @@ func TestTheMergeButtonAfterAServerErrorOfTheApprovalGivesOneApproval(t *testing
 	waitForPolls(t, fake)
 	if calls, count := fake.MergeCalls(), approvals(fake); calls != 1 || count != 1 {
 		t.Errorf("merge calls = %d, approvals = %d", calls, count)
+	}
+}
+
+func TestAMergeSwitchTurnedOffDuringTheRetryOfTheApprovalGivesThePausedReason(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := approvable(t, fake, "merge", true)
+	fake.FailReviews(http.StatusInternalServerError, 1000)
+	sendChat(t, server, leadChat, "Approve #41")
+	retryItem(t, server)
+	reached, release := fake.HoldPullRequest(shop, 42)
+	<-reached
+	turnMerge(t, server, false)
+	release()
+
+	idleItem(t, server, mergePaused)
+	waitForPolls(t, fake)
+	idleItem(t, server, mergePaused)
+	if approvals(fake) != 0 || fake.MergeCalls() != 0 {
+		t.Errorf("approvals = %d, merge calls = %d", approvals(fake), fake.MergeCalls())
 	}
 }
 
