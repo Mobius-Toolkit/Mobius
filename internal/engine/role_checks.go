@@ -115,10 +115,15 @@ func (e *Engine) accessUses(ctx context.Context, roles *config.Roles) (map[acces
 		if _, listed := uses[key]; !listed {
 			keys = append(keys, key)
 		}
-		uses[key] = append(uses[key], user)
+		if !slices.Contains(uses[key], user) {
+			uses[key] = append(uses[key], user)
+		}
 	}
 	for _, named := range roles.Bindings() {
 		use(keyOf(*named.Binding), named.Role)
+	}
+	for _, b := range e.implementerBindings() {
+		use(keyOf(b.Binding), ImplementerRole)
 	}
 	for _, setting := range settings {
 		workstream, err := e.queries.HasCopiedWorkstreamAnyCase(ctx, store.HasCopiedWorkstreamAnyCaseParams{Repository: setting.Repository, Number: setting.Issue})

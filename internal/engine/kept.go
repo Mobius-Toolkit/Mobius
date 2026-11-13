@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"log"
+	"slices"
 	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
@@ -117,12 +118,30 @@ func (e *Engine) takeKeptSession(task int64, binding config.RoleBinding) *keptSe
 	return k
 }
 
-// closeStaleKept closes and removes each kept session that follows the Role and whose binding is not binding.
-func (e *Engine) closeStaleKept(binding config.RoleBinding) {
+// keptBinding gives the binding of the kept session of the task when it follows the Role, or nil.
+func (e *Engine) keptBinding(task int64) *config.RoleBinding {
+	e.keptMu.Lock()
+	defer e.keptMu.Unlock()
+	k := e.kept[task]
+	if k == nil || k.level != LevelRole {
+		return nil
+	}
+	binding := k.binding
+	return &binding
+}
+
+// hasBinding tells if a binding of list is equal to binding.
+func hasBinding(list []ImplementerBinding, binding config.RoleBinding) bool {
+	return slices.ContainsFunc(list, func(b ImplementerBinding) bool { return b.Binding == binding })
+}
+
+// closeStaleKept closes and removes each kept session that follows the Role and whose binding is no binding of the
+// Implementer bindings in list.
+func (e *Engine) closeStaleKept(list []ImplementerBinding) {
 	e.keptMu.Lock()
 	var stale []*keptSession
 	for task, k := range e.kept {
-		if k.level == LevelRole && k.binding != binding {
+		if k.level == LevelRole && !hasBinding(list, k.binding) {
 			stale = append(stale, k)
 			delete(e.kept, task)
 		}

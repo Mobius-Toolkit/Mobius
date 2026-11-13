@@ -244,12 +244,14 @@ func (e *Engine) ResetRole(ctx context.Context, role string) error {
 }
 
 // applyRoles makes merged the Roles of the engine and wakes the sessions that wait for a slot, because a max can
-// change. It also moves each waiting session whose Harness is not the new Harness of its Role, and closes each kept
-// Implementer session that follows the Role and has another binding. The caller holds the write lock of rolesMu.
+// change. It also moves each waiting session whose Harness is not the new Harness of its Role (for the Implementer, of
+// one of its bindings), and closes each kept Implementer session that follows the Role and has no binding of the list.
+// The caller holds the write lock of rolesMu.
 func (e *Engine) applyRoles(merged config.Roles) {
 	e.roles = merged
-	e.moveWaiters(&merged)
-	e.closeStaleKept(merged.Implementer)
+	list := bindingList(merged.Implementer, e.moreBindings)
+	e.moveWaiters(&merged, list)
+	e.closeStaleKept(list)
 	e.publish(Change{Pauses: true})
 	e.workers.changed.notify()
 }
@@ -284,6 +286,7 @@ func (e *Engine) AddImplementerBinding(ctx context.Context, binding config.RoleB
 	e.rolesMu.Lock()
 	defer e.rolesMu.Unlock()
 	e.moreBindings = append(slices.Clone(e.moreBindings), ImplementerBinding{ID: id, Binding: binding})
+	e.applyRoles(e.roles)
 	return id, nil
 }
 
@@ -311,6 +314,7 @@ func (e *Engine) SetImplementerBinding(ctx context.Context, id int64, binding co
 	e.rolesMu.Lock()
 	defer e.rolesMu.Unlock()
 	e.moreBindings = changed
+	e.applyRoles(e.roles)
 	return nil
 }
 
@@ -331,9 +335,13 @@ func (e *Engine) RemoveImplementerBinding(ctx context.Context, id int64) error {
 	if err := e.queries.DeleteImplementerBinding(ctx, id); err != nil {
 		return err
 	}
+	e.workers.mu.Lock()
+	defer e.workers.mu.Unlock()
 	e.rolesMu.Lock()
 	defer e.rolesMu.Unlock()
+	delete(e.workers.bindings, id)
 	e.moreBindings = slices.Delete(slices.Clone(more), index, index+1)
+	e.applyRoles(e.roles)
 	return nil
 }
 
@@ -347,6 +355,8 @@ func (e *Engine) removeFirstImplementerBinding(ctx context.Context, more []Imple
 		return err
 	}
 	merged.Implementer = second.Binding
+	e.workers.mu.Lock()
+	defer e.workers.mu.Unlock()
 	e.rolesMu.Lock()
 	defer e.rolesMu.Unlock()
 	err := e.inTx(ctx, func(q *store.Queries) error {
@@ -358,6 +368,14 @@ func (e *Engine) removeFirstImplementerBinding(ctx context.Context, more []Imple
 	if err != nil {
 		return err
 	}
+	// The running sessions of the second binding keep their count under the id 0. The sessions of the removed first
+	// binding keep their own counter, which no id reaches.
+	if count := e.workers.bindings[second.ID]; count != nil {
+		e.workers.bindings[0] = count
+	} else {
+		delete(e.workers.bindings, 0)
+	}
+	delete(e.workers.bindings, second.ID)
 	e.moreBindings = slices.Clone(more[1:])
 	e.applyRoles(merged)
 	return nil
@@ -367,4 +385,26 @@ func (e *Engine) implementerBindings() []ImplementerBinding {
 	e.rolesMu.RLock()
 	defer e.rolesMu.RUnlock()
 	return e.moreBindings
+}
+
+// bindingList gives first with the id 0, and then more.
+func bindingList(first config.RoleBinding, more []ImplementerBinding) []ImplementerBinding {
+	return append([]ImplementerBinding{{Binding: first}}, more...)
+}
+
+// implementerList gives the bindings of the Implementer in the order of the list: the first binding with the id 0, and
+// then the other bindings.
+func (e *Engine) implementerList() []ImplementerBinding {
+	e.rolesMu.RLock()
+	defer e.rolesMu.RUnlock()
+	return bindingList(e.roles.Implementer, e.moreBindings)
+}
+
+// implementerMax gives the sum of the max of the Implementer bindings.
+func (e *Engine) implementerMax() int {
+	total := 0
+	for _, b := range e.implementerList() {
+		total += b.Binding.Max
+	}
+	return total
 }

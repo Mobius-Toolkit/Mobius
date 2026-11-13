@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { Command as StoryCommand, given, message, model, story } from "foldkit/story";
 import type { Agent } from "@/transcript/schemas";
+import * as Selection from "@/ui/selection";
+import * as SelectionFixture from "@/ui/selection-fixtures";
 import * as AgentsFixture from "./agents/fixtures";
 import { FetchAgents } from "./agents/commands";
-import { RequestLogin, ReportTab } from "./commands";
+import { AddSelection, RequestLogin, ReportTab } from "./commands";
 import { FetchDetails, FetchMcpServers, FetchRoles } from "./details/commands";
 import * as DetailsFixture from "./details/fixtures";
 import { Message } from "./message";
@@ -182,6 +184,62 @@ describe("the tabs of the panel", () => {
       model((m) => {
         expect(m.brief).toBe("Build the shop.");
       }),
+    );
+  });
+});
+
+describe("the selection in the Brief tab", () => {
+  it("puts a selection of the Brief in the draft of the Lead chat of the Workstream", () => {
+    story(
+      update,
+      given(createModel("brief")),
+      message(Message.GotSelectionMessage({ message: SelectionFixture.selected })),
+      message(Message.GotSelectionMessage({ message: SelectionFixture.addClicked })),
+      model((m) => {
+        expect(m.selection).toBeNull();
+      }),
+      StoryCommand.expectExact(
+        AddSelection({
+          key: "chatDraft:owner/owner/shop/12",
+          selection: {
+            source: "brief",
+            text: "free plan",
+            context: "One free plan for staff",
+            reference: "#12",
+            link: "https://github.com/owner/shop/issues/12",
+            part: "Scope",
+            messageId: 0,
+            messageAuthor: "",
+          },
+        }),
+        Selection.ClearSelection(),
+      ),
+      StoryCommand.resolve(Selection.ClearSelection, SelectionFixture.clearedSelection),
+      StoryCommand.resolve(AddSelection, Message.AddedSelection()),
+    );
+  });
+
+  it("drops the selection when the Owner opens another tab", () => {
+    story(
+      update,
+      given(
+        createModel("brief", {
+          selection: {
+            owner: "brief",
+            text: "x",
+            context: "x",
+            part: "",
+            rect: SelectionFixture.rect,
+          },
+        }),
+      ),
+      message(Message.SelectedTab({ tab: "tasks" })),
+      model((m) => {
+        expect(m.selection).toBeNull();
+      }),
+      StoryCommand.expectHas(ReportTab),
+      ...resolveTasks,
+      StoryCommand.resolve(ReportTab, Message.CompletedReportTab()),
     );
   });
 });

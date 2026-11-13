@@ -28,7 +28,7 @@ import {
 import { waitForEvergreen } from "./evergreen.js";
 import { addMcpServer, deleteMcpServers, selectMcpServers } from "./mcp-servers.js";
 import { png } from "./images.js";
-import { selectText } from "./selection.js";
+import { openBriefTab, routeBrief, selectText } from "./selection.js";
 import { retryFailure, retryUpgrade, routeUpgrade, upgradeRoute } from "./upgrade.js";
 import { longTaskTitle, routeLongTask, tasksUrl } from "./long-task.js";
 import { countSamples, fakeMicrophone } from "./microphone.js";
@@ -1126,6 +1126,48 @@ test("screenshots", async ({ page }) => {
     },
     clearComposer,
   );
+  const briefText =
+    "Reward repeat customers.\n\n**Scope**\n- Points on every order\n- One **free** plan for staff";
+  await routeBrief(page, "owner/shop", 12, briefText);
+  const briefReady = (device: string) => [
+    ...frame(device, drain, {}, "3"),
+    main.getByText("#42 and #45 wait for your decision."),
+    quotePopover,
+  ];
+  await screenshot(
+    page,
+    "chat-brief-selection-popover",
+    "/workstreams/owner/shop/12",
+    (device) => [
+      ...briefReady(device),
+      page.getByRole("tabpanel", { name: "Brief" }).getByText("Points on every order"),
+    ],
+    async (device) => {
+      await expect(main.getByLabel("Message to the Lead")).toBeEditable();
+      const tab = await openBriefTab(page, device);
+      await selectText(tab, "Points on every order");
+    },
+    () => page.evaluate("getSelection().removeAllRanges()"),
+  );
+  await screenshot(
+    page,
+    "chat-brief-selection-composer",
+    "/workstreams/owner/shop/12",
+    (device) => [
+      ...frame(device, drain, {}, "3"),
+      main.getByText("#42 and #45 wait for your decision."),
+      composer.locator("[data-selection-card]"),
+    ],
+    async (device) => {
+      await expect(main.getByLabel("Message to the Lead")).toBeEditable();
+      const tab = await openBriefTab(page, device);
+      await selectText(tab, "Points on every order");
+      await quotePopover.click();
+      await expect(composer.locator("[data-selection-card]")).toHaveCount(1);
+    },
+    clearComposer,
+  );
+  await page.unroute("**/api/workstreams");
   quoteSent = true;
   await screenshot(
     page,

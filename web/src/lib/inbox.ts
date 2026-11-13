@@ -1,10 +1,7 @@
-import {
-  listInbox,
-  type InboxItem,
-  type LiveEvents,
-  type NeedsHuman,
-  type PendingAction,
-} from "@/api/api.gen";
+import { Effect } from "effect";
+import { listInbox, type NeedsHuman } from "@/api/api.gen";
+import { InboxItem, PendingAction } from "@/chat/schemas";
+import { request, type RequestFailed } from "./effects";
 import { onEvent } from "./events";
 
 const answeredLimit = 2 * 60 * 1000;
@@ -21,7 +18,7 @@ export type Answered = {
 };
 
 export type InboxState = {
-  items: InboxItem[];
+  items: (typeof InboxItem.Type)[];
   answered: Answered[];
 };
 
@@ -86,7 +83,7 @@ export function subscribeInbox(listener: () => void): () => void {
   };
 }
 
-export function openInboxItems(inbox: InboxState): InboxItem[] {
+export function openInboxItems(inbox: InboxState): (typeof InboxItem.Type)[] {
   return inbox.items.filter(
     (item) => !item.merging && !inbox.answered.some((other) => other.item && other.id === item.id),
   );
@@ -117,29 +114,30 @@ export function isIssueOf(answered: Answered, row: NeedsHuman) {
 
 let changes = 0;
 
-export function loadInbox(): Promise<void> {
+export const loadInbox = Effect.fnUntraced(function* (): Effect.fn.Return<void, RequestFailed> {
   const started = changes;
-  return listInbox()
-    .then((res): Promise<void> | void => {
-      if (changes !== started) {
-        return loadInbox();
-      }
-      if (res.status === 200) {
-        const read = res.data.data;
-        const nextAnswered = state.answered
-          .map((other) => ({
-            ...other,
-            item: other.item && read.some((item) => item.id === other.id),
-          }))
-          .filter((other) => other.item || other.mark);
-        state = { items: read, answered: nextAnswered };
-        notify();
-      }
-    })
-    .catch(() => {});
-}
+  const res = yield* request(() => listInbox());
+  if (changes !== started) {
+    return yield* loadInbox();
+  }
+  if (res.status === 200) {
+    const read = res.data.data;
+    const nextAnswered = state.answered
+      .map((other) => ({
+        ...other,
+        item: other.item && read.some((item) => item.id === other.id),
+      }))
+      .filter((other) => other.item || other.mark);
+    state = { items: read, answered: nextAnswered };
+    notify();
+  }
+}, Effect.ignore);
 
-export function updateInboxAction(action: PendingAction) {
+const reloadInbox = () => {
+  Effect.runFork(loadInbox());
+};
+
+export function updateInboxAction(action: typeof PendingAction.Type) {
   state = {
     ...state,
     items: state.items.map((item) => (item.action?.id === action.id ? { ...item, action } : item)),
@@ -148,9 +146,9 @@ export function updateInboxAction(action: PendingAction) {
 }
 
 export function startInbox(source: EventSource) {
-  void loadInbox();
-  source.addEventListener("open", loadInbox);
-  const remove = onEvent<LiveEvents, "inbox">(source, "inbox", (item) => {
+  reloadInbox();
+  source.addEventListener("open", reloadInbox);
+  const remove = onEvent(source, "inbox", InboxItem, (item) => {
     changes++;
     setAnswered((list) => list.filter((other) => other.id !== item.id));
     const others = state.items.filter((other) => other.id !== item.id);
@@ -160,12 +158,12 @@ export function startInbox(source: EventSource) {
     };
     notify();
   });
-  const removeAction = onEvent<LiveEvents, "action">(source, "action", (action) => {
+  const removeAction = onEvent(source, "action", PendingAction, (action) => {
     changes++;
     updateInboxAction(action);
   });
   return () => {
-    source.removeEventListener("open", loadInbox);
+    source.removeEventListener("open", reloadInbox);
     remove();
     removeAction();
   };

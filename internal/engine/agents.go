@@ -54,6 +54,8 @@ type Spec struct {
 	// PullRequest is the pull request that the Implementer of a fix round or a conflict round, or the Reviewer, works
 	// on, or 0.
 	PullRequest int64
+	// Continues tells that the Implementer round can continue the kept session of its task.
+	Continues bool
 	// Tracked tells that the drain counts the session from a tryTrack of the caller.
 	Tracked bool
 	// Dir is the working directory of the agent. With an empty Dir, Start makes scratch/<session id> below the data
@@ -76,6 +78,10 @@ type Agent struct {
 	queuedAt string
 	// slot is the Role of the slot that the session holds, or "".
 	slot string
+	// slotBinding is the id of the Implementer binding of the slot, or 0 for the first binding.
+	slotBinding int64
+	// slotCount is the counter of workers.bindings that the slot incremented, or nil.
+	slotCount *int
 	// tracked tells that the drain counts the session.
 	tracked bool
 	// uncounted tells that the session waits for the end of a pause and the drain does not count it. It and tracked
@@ -893,8 +899,8 @@ func (a *Agent) end(ctx context.Context, reason string, keep func()) error {
 // release frees the slot of the session and its count in the drain.
 func (a *Agent) release() {
 	if a.slot != "" {
-		a.engine.releaseSlot(a.slot)
-		a.slot = ""
+		a.engine.releaseSlot(a.slot, a.slotCount)
+		a.slot, a.slotCount = "", nil
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -1193,6 +1199,9 @@ func (e *Engine) ActiveAgents(ctx context.Context) (ActiveAgents, error) {
 	var active ActiveAgents
 	for _, g := range groups {
 		binding, _ := roleBinding(&roles, g.role)
+		if g.role == ImplementerRole {
+			binding.Max = e.implementerMax()
+		}
 		active.Groups = append(active.Groups, AgentGroup{Title: g.title, Count: running[g.role], Max: binding.Max, Agents: agents[g.role]})
 	}
 	return active, nil
