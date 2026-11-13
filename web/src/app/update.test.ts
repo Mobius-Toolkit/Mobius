@@ -308,6 +308,17 @@ describe("organization switch update logic", () => {
     );
   });
 
+  it("closes the Tasks sheet after a selection of the Brief reaches the draft", () => {
+    story(
+      update,
+      given(createModel("/workstreams/owner/repo/1", { mobileTasksOpen: true })),
+      message(Message.GotPanelMessage({ message: PanelMessage.AddedSelection() })),
+      model((m) => {
+        expect(m.mobileTasksOpen).toBe(false);
+      }),
+    );
+  });
+
   it("gives the switch errors to the Settings overview", () => {
     const { model: next } = update(
       createModel("/settings/switches", { switchErrors: { start: "The switch did not change." } }),

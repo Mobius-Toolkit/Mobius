@@ -153,8 +153,10 @@ type FakeGitHub struct {
 	nextReactionID                             int64
 	failedReactions                            map[string]bool
 	// The ids of the first comments of the resolved review threads.
-	resolvedThreads  map[int64]bool
-	failResolves     bool
+	resolvedThreads map[int64]bool
+	failResolves    bool
+	// limitedResolves is true when a resolve of a review thread gives the GraphQL error RATE_LIMITED.
+	limitedResolves  bool
 	failPullReads    bool
 	failMarkReady    bool
 	failCheckUpdates bool
@@ -262,6 +264,8 @@ type FakeGitHub struct {
 	closeRefusal int
 	// replyRefusal is the status that a reply in a review thread gives, or 0 when it works.
 	replyRefusal int
+	// lostReplyAnswers is true when a reply in a review thread works but gives the status 500.
+	lostReplyAnswers bool
 	// reviewFailure is the status that the next reviewFailures review writes give.
 	reviewFailure, reviewFailures int
 }

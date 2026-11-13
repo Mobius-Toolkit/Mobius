@@ -32,6 +32,7 @@
     "@foldkit/vite-plugin": "0.29.0",
     "@playwright/test": "^1.63.0",
     "@types/node": "^24.13.3",
+    "happy-dom": "^21.0.4",
     "orval": "8.47.0",
     "oxfmt": "^0.71.0",
     "oxlint": "^1.86.0",

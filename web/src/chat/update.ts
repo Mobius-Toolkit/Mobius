@@ -4,6 +4,7 @@ import type { Return as UpdateReturn } from "foldkit/update";
 import * as Composer from "@/composer";
 import { OutMessage as ComposerOutMessage } from "@/composer/message";
 import {
+  AddSelection,
   AnswerInboxItem,
   ApproveAction,
   DoneInboxItem,
@@ -35,7 +36,8 @@ import { InboxItemKind } from "@/api/api.gen";
 import { answerDraftKey } from "@/lib/draft";
 import { issueRef } from "@/lib/notice";
 import { answerInputId } from "./composer";
-import { Message, toGotComposerMessage } from "./message";
+import * as Selection from "@/ui/selection";
+import { Message, toGotComposerMessage, toGotSelectionMessage } from "./message";
 type Running = "action" | "dismiss" | "merge";
 import { countsAsUnread, hasNote, retryDelays, upsert, type Model, type Waiting } from "./model";
 import { InboxItem, type Queued } from "./schemas";
@@ -82,6 +84,45 @@ const foldComposer = Update.foldChild({
         ({ item }) =>
         (model) =>
           enqueue(model, item),
+    }),
+});
+
+function addSelection(model: Model, owner: string, text: string, context: string) {
+  const message = model.messages.find((other) => String(other.id) === owner);
+  if (!message) {
+    return { model };
+  }
+  return {
+    model,
+    commands: [
+      AddSelection({
+        key: model.composer.draftKey,
+        selection: {
+          source: "message",
+          text,
+          context,
+          reference: "",
+          link: "",
+          part: "",
+          messageId: message.id,
+          messageAuthor: message.author === "tell_owner" ? "Lead" : message.author,
+        },
+      }),
+    ],
+  };
+}
+
+const foldSelection = Update.foldChild({
+  update: Selection.update,
+  read: (model: Model) => Option.some(model.selection),
+  write: (model, selection) => ({ ...model, selection }),
+  toParentMessage: toGotSelectionMessage,
+  foldOutMessage: (outMessage) =>
+    Selection.OutMessage.match<Update.Step<Model, Message>>(outMessage, {
+      AddRequested:
+        ({ owner, text, context }) =>
+        (model) =>
+          addSelection(model, owner, text, context),
     }),
 });
 
@@ -715,6 +756,10 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
     CompletedStopVoice: () => ({ model }),
 
     CompletedSaveDraft: () => ({ model }),
+
+    GotSelectionMessage: ({ message: selectionMsg }) => foldSelection(model, selectionMsg),
+
+    CompletedAddSelection: () => ({ model }),
 
     StopReadyChanged: ({ ready }) => ({ model: { ...model, stopReady: ready } }),
 

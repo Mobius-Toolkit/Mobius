@@ -3,6 +3,7 @@ package engine_test
 import (
 	"database/sql"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
@@ -38,18 +39,48 @@ func startServerWith(t *testing.T, fake *testkit.FakeGitHub, cfg *config.Config,
 // startServerOnAddedRepository is startServerWith for a fake GitHub that already has owner/shop.
 func startServerOnAddedRepository(t *testing.T, fake *testkit.FakeGitHub, cfg *config.Config, before string) *testserver.Server {
 	t.Helper()
-	server := testserver.StartWith(t, cfg, fake.URL)
+	return startAddedRepository(t, fake, cfg, before, testserver.StartWith)
+}
+
+// startServerKeepingMissingItems is startServerOnAddedRepository, and the check adds the items of the missing
+// Workstreams of owner.
+func startServerKeepingMissingItems(t *testing.T, fake *testkit.FakeGitHub, cfg *config.Config, before string) *testserver.Server {
+	t.Helper()
+	return startAddedRepository(t, fake, cfg, before, testserver.StartKeepingMissingItems)
+}
+
+func startAddedRepository(t *testing.T, fake *testkit.FakeGitHub, cfg *config.Config, before string, start func(testing.TB, *config.Config, string) *testserver.Server) *testserver.Server {
+	t.Helper()
+	server := start(t, cfg, fake.URL)
 	if before != "" {
 		if _, err := server.DB.Exec(before); err != nil {
 			t.Fatal(err)
 		}
 	}
+	seedSettings(t, server, fake)
 	_, err := server.DB.Exec("INSERT INTO github_apps (app_id, slug, private_key, client_id, client_secret) VALUES (?, ?, ?, ?, ?)",
 		testkit.AppID, testkit.AppSlug, testkit.AppPrivateKey, testkit.AppClientID, testkit.AppClientSecret)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return server
+}
+
+// seedSettings gives each Workstream issue of owner/shop that has mobius:autopilot or mobius:auto-merge its row in
+// workstreams, as a database that Mobius kept from an earlier run. The poll gives a new Workstream the level Off, and
+// takes no level from a label.
+func seedSettings(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHub) {
+	t.Helper()
+	numbers := slices.Concat(fake.IssuesWithLabel(shop, "mobius:autopilot"), fake.IssuesWithLabel(shop, "mobius:auto-merge"))
+	for _, number := range slices.Compact(slices.Sorted(slices.Values(numbers))) {
+		labels := fake.Labels(shop, number)
+		_, err := server.DB.Exec("INSERT INTO workstreams (repository, number, autopilot, auto_merge, evergreen, maintenance, skills) VALUES (?, ?, ?, ?, ?, ?, ?)",
+			shop, number, slices.Contains(labels, "mobius:autopilot"), slices.Contains(labels, "mobius:auto-merge"),
+			slices.Contains(labels, "mobius:evergreen"), slices.Contains(labels, "mobius:maintenance"), slices.Contains(labels, "mobius:skills"))
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 func cursor(t *testing.T, server *testserver.Server) (since, etag sql.NullString) {

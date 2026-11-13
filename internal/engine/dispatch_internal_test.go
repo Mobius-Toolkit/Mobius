@@ -16,6 +16,14 @@ const app = "mobius-app[bot]"
 
 var appRepository = github.Repository{FullName: "owner/shop", AppSlug: "mobius-app"}
 
+func trustingEngine() *Engine {
+	return New(nil, nil, &config.Config{TrustedUsers: []string{"owner"}, TrustedBots: []string{"coderabbitai[bot]"}}, Agents{})
+}
+
+func labelEvent(event, label, actor string) *gh.IssueEvent {
+	return &gh.IssueEvent{Event: &event, Actor: &gh.User{Login: &actor}, Label: &gh.Label{Name: label}}
+}
+
 func storingEngine(t *testing.T) *Engine {
 	t.Helper()
 	db, err := store.Open(t.Context(), filepath.Join(t.TempDir(), "mobius.db"))

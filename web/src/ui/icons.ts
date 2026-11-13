@@ -91,6 +91,12 @@ const messageSquare: readonly Shape[] = [
   ],
 ];
 
+const messageSquareQuote: readonly Shape[] = [
+  ...messageSquare,
+  ["path", { d: "M14 14a2 2 0 0 0 2-2V8h-2" }],
+  ["path", { d: "M8 14a2 2 0 0 0 2-2V8H8" }],
+];
+
 const chevronRight: readonly Shape[] = [["path", { d: "m9 18 6-6-6-6" }]];
 
 const trash2: readonly Shape[] = [
@@ -235,6 +241,10 @@ export function zapIcon<M>(h: HtmlBuilder<M>, className = "size-4"): Html {
 
 export function messageSquareIcon<M>(h: HtmlBuilder<M>, className = "size-4"): Html {
   return icon(h, messageSquare, className);
+}
+
+export function messageSquareQuoteIcon<M>(h: HtmlBuilder<M>, className = "size-4"): Html {
+  return icon(h, messageSquareQuote, className);
 }
 
 export function settingsIcon<M>(h: HtmlBuilder<M>, className = "size-4"): Html {

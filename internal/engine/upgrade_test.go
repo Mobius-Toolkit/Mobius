@@ -429,6 +429,7 @@ func TestTheLiveEventUpgradeSendsEachChangeOfTheState(t *testing.T) {
 // upgradeEvents gives the data of each upgrade event of the live event stream.
 func upgradeEvents(t *testing.T, server *testserver.Server) <-chan upgradeState {
 	t.Helper()
+	listeners := server.Engine.Listeners()
 	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL+"/api/events", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -438,6 +439,8 @@ func upgradeEvents(t *testing.T, server *testserver.Server) <-chan upgradeState 
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = response.Body.Close() })
+	// The server sends the headers before the stream handler listens for changes.
+	testkit.WaitFor(t, func() bool { return server.Engine.Listeners() > listeners })
 	states := make(chan upgradeState, 100)
 	go func() {
 		events := bufio.NewReader(response.Body)

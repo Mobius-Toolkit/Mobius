@@ -211,7 +211,7 @@ describe("inbox update story tests", () => {
         message(
           Message.ReceivedAnswerDraft({
             id: 7,
-            draft: { text: "", images: [], inboxItems: [], voice: null },
+            draft: { text: "", images: [], inboxItems: [], selections: [], voice: null },
           }),
         ),
         message(Message.AnswerTextChanged({ text: "Yes" })),

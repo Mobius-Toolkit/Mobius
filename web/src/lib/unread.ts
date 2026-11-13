@@ -1,5 +1,10 @@
-import { listUnread, type LiveEvents, type Unread } from "@/api/api.gen";
+import { Effect } from "effect";
+import { listUnread, type Unread } from "@/api/api.gen";
+import { ListUnreadResponse } from "@/api/schemas.gen";
+import { request, type RequestFailed } from "./effects";
 import { onEvent } from "./events";
+
+const UnreadSchema = ListUnreadResponse.fields.data.value;
 
 export type ChatKey = {
   organization: string;
@@ -40,31 +45,31 @@ function setUnread(next: Unread[]) {
 // A read that an event overtakes has old counts, so the read starts again.
 let changes = 0;
 
-function loadUnread() {
+const loadUnread = Effect.fnUntraced(function* (): Effect.fn.Return<void, RequestFailed> {
   const started = changes;
-  listUnread()
-    .then((res) => {
-      if (changes !== started) {
-        loadUnread();
-        return;
-      }
-      if (res.status === 200) {
-        setUnread(res.data.data);
-      }
-    })
-    .catch(() => {});
-}
+  const res = yield* request(() => listUnread());
+  if (changes !== started) {
+    return yield* loadUnread();
+  }
+  if (res.status === 200) {
+    setUnread(res.data.data);
+  }
+}, Effect.ignore);
+
+const reloadUnread = () => {
+  Effect.runFork(loadUnread());
+};
 
 export function startUnread(source: EventSource) {
   // The server sends an unread event only at a change, so each connection reads the counts.
-  loadUnread();
-  source.addEventListener("open", loadUnread);
-  const remove = onEvent<LiveEvents, "unread">(source, "unread", (count) => {
+  reloadUnread();
+  source.addEventListener("open", reloadUnread);
+  const remove = onEvent(source, "unread", UnreadSchema, (count) => {
     changes++;
     setUnread([...(unread ?? []).filter((other) => !sameChat(other, count)), count]);
   });
   return () => {
-    source.removeEventListener("open", loadUnread);
+    source.removeEventListener("open", reloadUnread);
     remove();
   };
 }

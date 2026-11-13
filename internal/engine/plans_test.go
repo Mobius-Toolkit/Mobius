@@ -21,15 +21,6 @@ func startWithBilling(t *testing.T, fake *testkit.FakeGitHub) *testserver.Server
 	return startCopied(t, fake)
 }
 
-// authorizeOwner starts a server with startWithBilling, where the Owner authorized the Mobius App.
-func authorizeOwner(t *testing.T, fake *testkit.FakeGitHub) *testserver.Server {
-	t.Helper()
-	fake.AddUserCode(testkit.AppID, "user-code", "owner")
-	server := startWithBilling(t, fake)
-	authorize(t, server)
-	return server
-}
-
 func setAutopilot(t *testing.T, server *testserver.Server, level string) (int, string) {
 	t.Helper()
 	return send(t, server, http.MethodPut, "/api/workstreams/owner/shop/20/autopilot", `{"level":"`+level+`"}`)
@@ -40,53 +31,34 @@ func autopilotOfBilling(t *testing.T, server *testserver.Server) string {
 	return workstreams(t, server)[0].Autopilot
 }
 
-func TestSetAutopilotOnAddsTheLabelAsTheOwner(t *testing.T) {
+const appActor = testkit.AppSlug + "[bot]"
+
+func TestSetAutopilotChangesTheRowAndTheSendWritesTheLabelAsTheApp(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server := authorizeOwner(t, fake)
+	server := startWithBilling(t, fake)
 	changes := listen(t, server)
 
 	if status, body := setAutopilot(t, server, "start"); status != http.StatusNoContent {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 
-	if !slices.Contains(fake.Labels(shop, 20), "mobius:autopilot") {
+	if got := autopilotOfBilling(t, server); got != "start" {
+		t.Errorf("level = %s", got)
+	}
+	if !fake.LabelAddedBy(shop, 20, "mobius:autopilot", appActor) || slices.Contains(fake.Labels(shop, 20), "mobius:auto-merge") {
 		t.Errorf("labels = %v", fake.Labels(shop, 20))
 	}
-	if got := fake.LabelActor(shop, 20, "mobius:autopilot"); got != "owner" {
-		t.Errorf("actor = %s", got)
-	}
-	testkit.WaitFor(t, func() bool { return autopilotOfBilling(t, server) == "start" })
 	waitForWorkstreams(t, changes)
 }
 
-// GitHub records no labeled event when the issue has the label, so an add alone keeps the App bot as the last actor.
-// The switch removes first.
-func TestSetAutopilotOnReplacesALabelOfTheApp(t *testing.T) {
+func TestSetAutopilotOffRemovesTheLabelsAsTheApp(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server := authorizeOwner(t, fake)
-	fake.AddLabel(shop, 20, "mobius:autopilot", "mobius-test[bot]")
-
-	if status, body := setAutopilot(t, server, "start"); status != http.StatusNoContent {
-		t.Fatalf("status = %d: %s", status, body)
-	}
-
-	if got := fake.LabelActor(shop, 20, "mobius:autopilot"); got != "owner" {
-		t.Errorf("actor = %s", got)
-	}
-	testkit.WaitFor(t, func() bool { return autopilotOfBilling(t, server) == "start" })
-}
-
-func TestSetAutopilotOffRemovesTheLabel(t *testing.T) {
-	t.Parallel()
-	fake := testkit.NewFakeGitHub(t)
-	fake.AddUserCode(testkit.AppID, "user-code", "owner")
 	fake.AddIssue(shop, 20, "Billing")
 	fake.AddLabel(shop, 20, "mobius:workstream", "owner")
 	fake.AddLabel(shop, 20, "mobius:autopilot", "owner")
 	server := startCopied(t, fake)
-	authorize(t, server)
 	if autopilotOfBilling(t, server) != "start" {
 		t.Fatal("autopilot is off")
 	}
@@ -95,28 +67,27 @@ func TestSetAutopilotOffRemovesTheLabel(t *testing.T) {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 
-	if slices.Contains(fake.Labels(shop, 20), "mobius:autopilot") {
+	if slices.Contains(fake.Labels(shop, 20), "mobius:autopilot") || !fake.LabelRemovedBy(shop, 20, "mobius:autopilot", appActor) {
 		t.Errorf("labels = %v", fake.Labels(shop, 20))
 	}
-	testkit.WaitFor(t, func() bool { return autopilotOfBilling(t, server) == "off" })
+	if got := autopilotOfBilling(t, server); got != "off" {
+		t.Errorf("level = %s", got)
+	}
 }
 
-func TestSetAutopilotNeedsAnAuthorizedOwner(t *testing.T) {
+func TestSetAutopilotOfAnIssueThatIsNoOpenWorkstreamGivesAConflict(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithBilling(t, fake)
 
-	status, body := setAutopilot(t, server, "start")
+	status, body := send(t, server, http.MethodPut, "/api/workstreams/owner/shop/88/autopilot", `{"level":"start"}`)
 
-	if status != http.StatusConflict || !strings.Contains(body, "authorize the Mobius App") {
+	if status != http.StatusConflict || !strings.Contains(body, "not an open Workstream") {
 		t.Errorf("status = %d: %s", status, body)
-	}
-	if slices.Contains(fake.Labels(shop, 20), "mobius:autopilot") {
-		t.Errorf("labels = %v", fake.Labels(shop, 20))
 	}
 }
 
-func TestSetAutopilotWithEachLevelGivesTheLabelsAsTheOwnerAndTheLevel(t *testing.T) {
+func TestSetAutopilotWithEachLevelWritesTheLabelsAsTheAppAndGivesTheLevel(t *testing.T) {
 	t.Parallel()
 	levels := []struct {
 		level     string
@@ -132,7 +103,7 @@ func TestSetAutopilotWithEachLevelGivesTheLabelsAsTheOwnerAndTheLevel(t *testing
 		t.Run(want.level, func(t *testing.T) {
 			t.Parallel()
 			fake := testkit.NewFakeGitHub(t)
-			server := authorizeOwner(t, fake)
+			server := startWithBilling(t, fake)
 			fake.AddLabel(shop, 20, "mobius:autopilot", "mobius-test[bot]")
 			fake.AddLabel(shop, 20, "mobius:auto-merge", "mobius-test[bot]")
 
@@ -146,9 +117,6 @@ func TestSetAutopilotWithEachLevelGivesTheLabelsAsTheOwnerAndTheLevel(t *testing
 			for label, on := range map[string]bool{"mobius:autopilot": want.autopilot, "mobius:auto-merge": want.autoMerge} {
 				if got := slices.Contains(fake.Labels(shop, 20), label); got != on {
 					t.Errorf("%s = %t, labels = %v", label, got, fake.Labels(shop, 20))
-				}
-				if on && fake.LabelActor(shop, 20, label) != "owner" {
-					t.Errorf("actor of %s = %s", label, fake.LabelActor(shop, 20, label))
 				}
 			}
 		})
