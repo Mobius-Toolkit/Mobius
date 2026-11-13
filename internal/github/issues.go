@@ -73,9 +73,22 @@ func (e *GraphQLError) Error() string {
 
 // graphql sends the GraphQL query with variables and decodes its data into data.
 func (r Repository) graphql(ctx context.Context, query string, variables map[string]any, data any) error {
-	request, err := r.Client.NewRequest(ctx, http.MethodPost, "graphql", map[string]any{"query": query, "variables": variables})
+	errs, err := r.graphqlErrors(ctx, query, variables, data)
 	if err != nil {
 		return err
+	}
+	if len(errs) > 0 {
+		return &GraphQLError{Type: errs[0].Type, Message: errs[0].Message}
+	}
+	return nil
+}
+
+// graphqlErrors is graphql that gives the errors of the response, with the data that the response has, and does not
+// fail for them.
+func (r Repository) graphqlErrors(ctx context.Context, query string, variables map[string]any, data any) ([]graphqlError, error) {
+	request, err := r.Client.NewRequest(ctx, http.MethodPost, "graphql", map[string]any{"query": query, "variables": variables})
+	if err != nil {
+		return nil, err
 	}
 	var response struct {
 		Data   any            `json:"data"`
@@ -83,12 +96,9 @@ func (r Repository) graphql(ctx context.Context, query string, variables map[str
 	}
 	response.Data = data
 	if _, err := r.Client.Do(request, &response); err != nil {
-		return err
+		return nil, err
 	}
-	if len(response.Errors) > 0 {
-		return &GraphQLError{Type: response.Errors[0].Type, Message: response.Errors[0].Message}
-	}
-	return nil
+	return response.Errors, nil
 }
 
 // BodyEdit is an edit of the body of an issue. Diff is the full body after the edit.

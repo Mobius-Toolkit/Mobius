@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 )
 
@@ -116,5 +117,32 @@ func TestThePollStartsAFixRoundForKeptFindingsOnATaskInApproval(t *testing.T) {
 	testkit.WaitFor(t, func() bool { return liveTask(t, server, 41).LeadFindings == "" })
 	if task := liveTask(t, server, 41); task.FixRounds != 1 {
 		t.Errorf("task = %+v", task)
+	}
+}
+
+func TestStartFixRoundRefusesATaskThatLeftChecksDuringTheCall(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, noFinding+leadFindings+leadStarts, commits, longGrace)
+	sha := checksHead(t, server, fake)
+	id := fake.AddCheckRun(shop, checkRun("build", sha, "in_progress", ""))
+	waitForPolls(t, fake)
+	pollReached, releasePoll := fake.HoldPullRequest(shop, 42)
+	<-pollReached
+	toolReached, releaseTool := fake.HoldPullRequest(shop, 42)
+
+	sendChat(t, server, leadChat, "Send the findings to #41")
+	<-toolReached
+	fake.SetCheckRunStatus(id, "completed", "success")
+	releasePoll()
+	waitForTask(t, server, 41, "approval")
+	releaseTool()
+
+	waitForChat(t, server, leadChat, "Lead", "error: The task of #41 is not checks any more.")
+	if task := liveTask(t, server, 41); task.State != "approval" || task.LeadFindings != "" || task.FixRounds != 0 {
+		t.Errorf("task = %+v", task)
+	}
+	if sessions := roleSessions(t, server, engine.ImplementerRole); len(sessions) != 1 {
+		t.Errorf("sessions = %+v", sessions)
 	}
 }
