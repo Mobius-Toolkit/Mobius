@@ -87,7 +87,7 @@ export function renderOrganizationSwitch(h: HtmlBuilder<Message>, model: Model, 
                         h.Role("menuitemradio"),
                         h.AriaChecked(name === currentOrg),
                         h.Class(
-                          "relative flex w-full cursor-default items-center gap-1.5 rounded-md py-1 pr-8 pl-1.5 text-left text-sm outline-hidden select-none hover:bg-accent hover:text-accent-foreground",
+                          "relative flex min-h-11 w-full cursor-default items-center gap-1.5 rounded-md py-1 pr-8 pl-1.5 text-left text-sm outline-hidden select-none hover:bg-accent hover:text-accent-foreground md:min-h-0",
                         ),
                         h.OnClick(Message.SelectOrganization({ organization: name })),
                       ],

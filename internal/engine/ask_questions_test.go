@@ -80,6 +80,7 @@ reply = ["Seen"]
 		"2. **Pro**: Paid.\n" +
 		"3. **Team**"
 	wantComments := []testkit.Comment{{Author: testkit.AppSlug + "[bot]", Body: marked(body, leadMark)}}
+	testkit.WaitFor(t, func() bool { return len(fake.Comments(shop, 12)) > 0 })
 	if got := fake.Comments(shop, 12); !slices.Equal(got, wantComments) {
 		t.Errorf("comments = %q", got)
 	}
@@ -104,6 +105,7 @@ reply = ["Seen"]
 		t.Errorf("questions = %#v", got)
 	}
 	want := []testkit.Comment{{Author: testkit.AppSlug + "[bot]", Body: marked("Cents or dollars?", leadMark)}}
+	testkit.WaitFor(t, func() bool { return len(fake.Comments(shop, 12)) > 0 })
 	if got := fake.Comments(shop, 12); !slices.Equal(got, want) {
 		t.Errorf("comments = %v", got)
 	}

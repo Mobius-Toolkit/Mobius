@@ -55,6 +55,7 @@ import {
   LoadExternal,
   LoadReleaseChanges,
   Navigate,
+  Reload,
   ReplaceUrl,
   ResumePause,
   SelectAutopilot,
@@ -843,6 +844,9 @@ export function update(model: Model, message: Message): UpdateReturn {
     case "NavigateRequested":
       return { model, commands: [Navigate({ path: message.path })] };
 
+    case "ReloadRequested":
+      return { model, commands: [Reload()] };
+
     case "BackRequested":
       return { model, commands: [GoBack({ parent: message.parent })] };
 
@@ -851,6 +855,7 @@ export function update(model: Model, message: Message): UpdateReturn {
     case "CompletedReplaceUrl":
     case "CompletedGoBack":
     case "CompletedLoadExternal":
+    case "CompletedReload":
     case "CompletedFocusSheet":
       return { model, commands: [] };
 
@@ -989,7 +994,10 @@ export function update(model: Model, message: Message): UpdateReturn {
           organization: org,
         });
       }
-      const entered = enterOrganization({ ...model, workstreamsProgram, tasksProgram }, org);
+      const entered = enterOrganization(
+        { ...model, workstreamsProgram, tasksProgram, openMenu: Option.none() },
+        org,
+      );
       return { model: entered.model, commands: [...commands, ...entered.commands] };
     }
 
