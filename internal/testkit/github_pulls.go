@@ -129,6 +129,14 @@ func (g *FakeGitHub) FailResolveThreads(fail bool) {
 	g.failResolves = fail
 }
 
+// RateLimitResolveThreads makes each resolve of a review thread through the API give the GraphQL error RATE_LIMITED
+// with the status 200, or work again when limit is false.
+func (g *FakeGitHub) RateLimitResolveThreads(limit bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.limitedResolves = limit
+}
+
 // FailPullRequestReads makes each read of a single pull request fail, or work again when fail is false.
 func (g *FakeGitHub) FailPullRequestReads(fail bool) {
 	g.mu.Lock()
@@ -183,8 +191,19 @@ func (g *FakeGitHub) ReviewIDs(repository string, number int64) []int64 {
 	return ids
 }
 
-// ReviewThread gives the review thread of the pull request that starts with the comment root.
+// ReviewThread gives the review thread of the pull request that starts with the comment root, without the hidden write
+// marker of Mobius at the end of a body.
 func (g *FakeGitHub) ReviewThread(repository string, number, root int64) Thread {
+	thread := g.ReviewThreadWithMarkers(repository, number, root)
+	for i := range thread.Comments {
+		thread.Comments[i].Body = writeMarker.ReplaceAllString(thread.Comments[i].Body, "")
+	}
+	return thread
+}
+
+// ReviewThreadWithMarkers gives the review thread of the pull request that starts with the comment root, with the full
+// body of each comment.
+func (g *FakeGitHub) ReviewThreadWithMarkers(repository string, number, root int64) Thread {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	thread := Thread{Resolved: g.resolvedThreads[root]}
@@ -257,6 +276,14 @@ func (g *FakeGitHub) RefuseReviewReplies(status int) {
 	g.replyRefusal = status
 }
 
+// LoseReviewReplyAnswers makes each reply in a review thread work, but gives the answer 500, or works again when
+// lose is false.
+func (g *FakeGitHub) LoseReviewReplyAnswers(lose bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.lostReplyAnswers = lose
+}
+
 // replyToReviewComment adds a reply of the token owner to the thread that starts with the comment in_reply_to.
 func (g *FakeGitHub) replyToReviewComment(w http.ResponseWriter, r *http.Request) {
 	var request struct {
@@ -279,7 +306,12 @@ func (g *FakeGitHub) replyToReviewComment(w http.ResponseWriter, r *http.Request
 	}
 	for _, comment := range g.issues[key].reviewComments {
 		if comment.ID == request.InReplyTo && comment.InReplyToID == 0 {
-			writeJSON(w, http.StatusCreated, g.reviewComment(key, request.InReplyTo, caller.login, InlineComment{comment.Path, comment.Line, request.Body}))
+			created := g.reviewComment(key, request.InReplyTo, caller.login, InlineComment{comment.Path, comment.Line, request.Body})
+			if g.lostReplyAnswers {
+				message(w, http.StatusInternalServerError, "Server Error")
+				return
+			}
+			writeJSON(w, http.StatusCreated, created)
 			return
 		}
 	}
@@ -293,6 +325,16 @@ func (g *FakeGitHub) FailReviews(status, times int) {
 	g.reviewFailure, g.reviewFailures = status, times
 }
 
+// HoldReview makes the next request to submit a review of the pull request wait. The channel closes when the request
+// arrives, and the function lets the request go on.
+func (g *FakeGitHub) HoldReview(repository string, number int64) (<-chan struct{}, func()) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	h := &hold{reached: make(chan struct{}), release: make(chan struct{})}
+	g.reviewHolds[issueKey{repository, number}] = h
+	return h.reached, func() { close(h.release) }
+}
+
 // submitReview adds the review and its inline comments as the token owner.
 func (g *FakeGitHub) submitReview(w http.ResponseWriter, r *http.Request) {
 	var review SubmittedReview
@@ -300,6 +342,16 @@ func (g *FakeGitHub) submitReview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	caller, _ := g.validToken(r)
+	number, _ := strconv.ParseInt(r.PathValue("number"), 10, 64)
+	held := issueKey{repository(r), number}
+	g.mu.Lock()
+	h := g.reviewHolds[held]
+	delete(g.reviewHolds, held)
+	g.mu.Unlock()
+	if h != nil {
+		close(h.reached)
+		<-h.release
+	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	key, ok := g.issue(w, r)
@@ -421,11 +473,17 @@ func (g *FakeGitHub) graphql(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if g.failResolves {
-			writeJSON(w, http.StatusOK, map[string]any{"data": nil, "errors": []map[string]string{{"message": "Resolve failed"}}})
+			writeJSON(w, http.StatusOK, map[string]any{"data": nil, "errors": []map[string]string{{"type": "FORBIDDEN", "message": "Resolve failed"}}})
+			return
+		}
+		if g.limitedResolves {
+			writeJSON(w, http.StatusOK, map[string]any{"data": nil, "errors": []map[string]string{{"type": "RATE_LIMITED", "message": "API rate limit exceeded"}}})
 			return
 		}
 		g.resolvedThreads[root] = true
 		writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"resolveReviewThread": map[string]any{"clientMutationId": nil}}})
+	case strings.Contains(request.Query, "closingIssuesReferences"):
+		g.closingIssuesNodes(w, aliases)
 	case strings.Contains(request.Query, "userContentEdits"):
 		g.bodyEdits(w, issueKey{repository, variables.Number}, variables.After)
 	case strings.Contains(request.Query, "node(id:"):

@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"context"
 	"errors"
 	"io/fs"
 	"math"
@@ -633,6 +634,25 @@ func TestAShortPromptHasTheEarlierReportAfterAConflictRound(t *testing.T) {
 	merges := "[[prompts]]\nwhen = \"Merge the base branch and remove the conflicts.\"\n" +
 		"shell = \"git merge -q origin/main; echo cents > plan.txt && git add plan.txt && git commit -q --no-edit\"\n\n"
 	server, _ := keptServer(t, fake, merges+fixWithCost+commitsWithReport, noChange)
+	t.Cleanup(func() {
+		if !t.Failed() {
+			return
+		}
+		task, err := store.New(server.DB).GetLiveTask(context.Background(), store.GetLiveTaskParams{Repository: shop, Issue: 41})
+		if err != nil {
+			t.Logf("task: %v", err)
+		} else {
+			t.Logf("task: state = %s, review rounds = %d, fix rounds = %d, Lead findings = %q", task.State, task.ReviewRounds, task.FixRounds, task.LeadFindings)
+		}
+		view, err := server.Engine.ChatView(context.Background(), leadChat, 0)
+		if err != nil {
+			t.Logf("Lead chat: %v", err)
+			return
+		}
+		for _, message := range view.Messages {
+			t.Logf("Lead chat: %s: %s", message.Author, message.Text)
+		}
+	})
 	firstRound(t, server, fake)
 	waitForKept(t, server, 41)
 
@@ -652,10 +672,8 @@ func TestAShortPromptHasTheEarlierReportAfterAConflictRound(t *testing.T) {
 		kept := keptOf(t, server)
 		return kept != nil && kept.ID() == sessions[1].AcpSessionID.String
 	})
-	testkit.WaitFor(t, func() bool {
-		state := taskStateOf(t, server, 41)
-		return state == "checks" || state == "approval"
-	})
+	// The poll moves a task from checks to approval, so a Lead tool call that reads checks can refuse.
+	waitForTask(t, server, 41, "approval")
 
 	startFixRound(t, server)
 

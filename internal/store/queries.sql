@@ -351,6 +351,10 @@ SELECT * FROM chat_messages WHERE id = ?;
 UPDATE inbox_items SET dismissed_at = ? WHERE id = ?
 RETURNING *;
 
+-- name: SetInboxItemReportLink :one
+UPDATE inbox_items SET report_link = ? WHERE id = ?
+RETURNING *;
+
 -- name: SetInboxItemAnswer :exec
 UPDATE inbox_items SET answer = ? WHERE id = ?;
 
@@ -736,8 +740,14 @@ UPDATE tasks SET approved_head = ? WHERE id = ?;
 -- name: SetTaskApprovedReport :exec
 UPDATE tasks SET approved_report = ?, approved_report_head = ? WHERE id = ?;
 
+-- name: SetTaskApprovalChange :exec
+UPDATE tasks SET approved_again_change = ?, approved_again_comment = NULL WHERE id = ?;
+
+-- name: SetTaskApprovedAgainHead :exec
+UPDATE tasks SET approved_again_head = ? WHERE id = ?;
+
 -- name: SetTaskApprovedAgainComment :exec
-UPDATE tasks SET approved_again_head = ?, approved_again_comment = ? WHERE id = ?;
+UPDATE tasks SET approved_again_comment = ? WHERE id = ?;
 
 -- name: SetTaskConflictHead :exec
 UPDATE tasks SET conflict_head = ? WHERE id = ?;
@@ -1814,6 +1824,25 @@ WHERE server = ? AND state = ?;
 
 -- name: DeleteMcpServerOAuth :exec
 DELETE FROM mcp_server_oauth WHERE server = ?;
+
+-- name: GetIssueRepositoryChoice :one
+SELECT repository FROM issue_repositories WHERE organization = ?;
+
+-- name: SetIssueRepositoryChoice :exec
+INSERT OR REPLACE INTO issue_repositories (organization, repository) VALUES (?, ?);
+
+-- name: GetLastRelease :one
+SELECT tag FROM last_release WHERE id = 1;
+
+-- name: SetLastRelease :exec
+INSERT INTO last_release (id, tag) VALUES (1, ?)
+ON CONFLICT (id) DO UPDATE SET tag = excluded.tag;
+
+-- name: ReleaseChangelogSent :one
+SELECT EXISTS (SELECT 1 FROM release_changelogs WHERE organization = ? AND tag = ?);
+
+-- name: AddReleaseChangelog :exec
+INSERT INTO release_changelogs (organization, tag, sent_at) VALUES (?, ?, ?);
 
 -- name: ListImplementerBindings :many
 SELECT * FROM implementer_bindings ORDER BY id;

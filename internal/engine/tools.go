@@ -576,12 +576,12 @@ func taskTool[In interface{ repositoryName() string }](e *Engine, c caller, name
 
 // noRepository is the resolve of a tool that takes the repository as an input. The run of the tool gets the zero
 // Repository.
-func noRepository(caller) (github.Repository, error) {
+func noRepository(context.Context, caller) (github.Repository, error) {
 	return github.Repository{}, nil
 }
 
 // toolOf is tool for a tool whose run gets the repository that resolve gives.
-func toolOf[In any](e *Engine, c caller, resolve func(caller) (github.Repository, error), name, description string, properties map[string]any, run func(context.Context, caller, github.Repository, In) (string, error)) mcp.Tool {
+func toolOf[In any](e *Engine, c caller, resolve func(context.Context, caller) (github.Repository, error), name, description string, properties map[string]any, run func(context.Context, caller, github.Repository, In) (string, error)) mcp.Tool {
 	return mcp.Tool{
 		Name:        name,
 		Description: description,
@@ -597,8 +597,8 @@ func toolOf[In any](e *Engine, c caller, resolve func(caller) (github.Repository
 	}
 }
 
-func call[In any](ctx context.Context, c caller, resolve func(caller) (github.Repository, error), name string, arguments json.RawMessage, run func(context.Context, caller, github.Repository, In) (string, error)) (string, error) {
-	repository, err := resolve(c)
+func call[In any](ctx context.Context, c caller, resolve func(context.Context, caller) (github.Repository, error), name string, arguments json.RawMessage, run func(context.Context, caller, github.Repository, In) (string, error)) (string, error) {
+	repository, err := resolve(ctx, c)
 	if err != nil {
 		return "", err
 	}
@@ -663,11 +663,29 @@ func (e *Engine) organizationRepository(organization, name string) (github.Repos
 	return repository, nil
 }
 
-// workstreamRepository gives the repository of the Workstream issues of the organization: the issue_repository of the
-// config, or the one repository of the organization.
-func (e *Engine) workstreamRepository(organization string) (github.Repository, error) {
+// The sources of the issue repository of an organization.
+const (
+	issueRepositoryConfig  = "config"
+	issueRepositoryChoice  = "choice"
+	issueRepositoryDefault = "default"
+	issueRepositoryNone    = "none"
+)
+
+// findIssueRepository gives the repository of the Workstream issues of the organization and where it comes from. In this
+// order, it is the issue_repository of the config, the choice of the Owner, the one repository of the organization that
+// the Mobius App sees, and the one repository of the organization that holds all its open Workstreams.
+func (e *Engine) findIssueRepository(ctx context.Context, organization string) (github.Repository, string, error) {
 	if name := e.config.Organizations[organization].IssueRepository; name != "" {
-		return e.organizationRepository(organization, name)
+		repository, err := e.organizationRepository(organization, name)
+		return repository, issueRepositoryConfig, err
+	}
+	name, err := e.queries.GetIssueRepositoryChoice(ctx, organization)
+	if err == nil {
+		repository, err := e.organizationRepository(organization, name)
+		return repository, issueRepositoryChoice, err
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return github.Repository{}, "", err
 	}
 	var found []github.Repository
 	for _, repository := range e.github.Repositories() {
@@ -675,25 +693,58 @@ func (e *Engine) workstreamRepository(organization string) (github.Repository, e
 			found = append(found, repository)
 		}
 	}
-	if len(found) != 1 {
-		return github.Repository{}, refuse("Mobius needs the issue repository of %s. Set organizations.%s.issue_repository in config.toml.", organization, organization)
+	if len(found) == 1 {
+		return found[0], issueRepositoryDefault, nil
 	}
-	return found[0], nil
+	copied, err := e.queries.ListCopiedRepositories(ctx)
+	if err != nil {
+		return github.Repository{}, "", err
+	}
+	copied = slices.DeleteFunc(copied, func(name string) bool { return owner(name) != organization })
+	if len(copied) == 1 {
+		repository, err := e.organizationRepository(organization, copied[0])
+		return repository, issueRepositoryDefault, err
+	}
+	return github.Repository{}, "", refuse("Mobius needs the issue repository of %s. Select it on the Checkup page \"Workstreams\", or set organizations.%s.issue_repository in config.toml.", organization, organization)
+}
+
+// workstreamRepository gives the repository of the Workstream issues of the organization.
+func (e *Engine) workstreamRepository(ctx context.Context, organization string) (github.Repository, error) {
+	repository, _, err := e.findIssueRepository(ctx, organization)
+	return repository, err
 }
 
 // triagerWorkstreamRepository gives the repository of the Workstreams of the organization of the Triager c. The issue of
 // c stays in c.repository.
-func (e *Engine) triagerWorkstreamRepository(c caller) (github.Repository, error) {
-	return e.workstreamRepository(c.organization)
+func (e *Engine) triagerWorkstreamRepository(ctx context.Context, c caller) (github.Repository, error) {
+	return e.workstreamRepository(ctx, c.organization)
 }
 
 // callerRepository gives the repository of c. The Coordinator chat has no repository, so it uses the issue repository
 // of its organization.
-func (e *Engine) callerRepository(c caller) (github.Repository, error) {
+func (e *Engine) callerRepository(ctx context.Context, c caller) (github.Repository, error) {
 	if c.repository != "" {
 		return e.repository(c.repository)
 	}
-	return e.workstreamRepository(c.organization)
+	return e.workstreamRepository(ctx, c.organization)
+}
+
+// ErrIssueRepositoryInConfig is the error of a choice of the issue repository for an organization that has the
+// issue_repository key in the config.
+var ErrIssueRepositoryInConfig = errors.New("config.toml sets the issue repository of this organization")
+
+// SetIssueRepository stores the choice of the Owner for the issue repository of the organization. It gives
+// ErrIssueRepositoryInConfig when the config has the key, and a refusal when repository is not a repository of the
+// organization that the Mobius App sees.
+func (e *Engine) SetIssueRepository(ctx context.Context, organization, repository string) (string, error) {
+	if e.config.Organizations[organization].IssueRepository != "" {
+		return "", fmt.Errorf("%w with organizations.%s.issue_repository. Change the key in config.toml to change the issue repository", ErrIssueRepositoryInConfig, organization)
+	}
+	found, err := e.organizationRepository(organization, repository)
+	if err != nil {
+		return "", err
+	}
+	return found.FullName, e.queries.SetIssueRepositoryChoice(ctx, store.SetIssueRepositoryChoiceParams{Organization: organization, Repository: found.FullName})
 }
 
 type noInput struct{}
@@ -1652,12 +1703,12 @@ func (e *Engine) replyThread(ctx context.Context, c caller, repository github.Re
 		if task.WorkstreamRepository != c.repository || task.Workstream != c.workstream || !task.PullRequest.Valid {
 			continue
 		}
-		replied, err := reply(ctx, repository, task.PullRequest.Int64, input.Thread, text)
+		change, replied, err := e.reply(ctx, repository, task.PullRequest.Int64, input.Thread, text)
 		if err != nil {
 			return "", err
 		}
 		if replied {
-			return fmt.Sprintf("Replied to %d.", input.Thread), nil
+			return e.sentOrLater(ctx, change, fmt.Sprintf("Replied to %d.", input.Thread), fmt.Sprintf("Mobius posts the reply to %d later.", input.Thread))
 		}
 	}
 	return "", refuse("%d is not a review thread or a comment of a pull request of a live task in this Workstream.", input.Thread)
@@ -1684,10 +1735,14 @@ func (e *Engine) commentPullRequest(ctx context.Context, c caller, repository gi
 	if err != nil {
 		return "", err
 	}
-	if _, _, err := repository.Client.Issues.CreateComment(ctx, repository.Owner(), repository.Name(), int(input.N), gh.IssueCommentRequest{Body: text}); err != nil {
+	id, err := e.addOutgoingChange(ctx, e.queries, repository.FullName, input.N, 0, commentField, text)
+	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("Commented on #%d.", input.N), nil
+	if err := e.sendNow(ctx, repository, id); err != nil {
+		return "", err
+	}
+	return e.sentOrLater(ctx, id, fmt.Sprintf("Commented on #%d.", input.N), fmt.Sprintf("Mobius posts the comment on #%d later.", input.N))
 }
 
 func checkWorkstream(c caller, input workstreamInput) error {

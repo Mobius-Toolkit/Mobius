@@ -62,6 +62,35 @@ func awaitsMerge(task store.Task) bool {
 	return task.ApprovedReview.Valid && task.ApprovedReview != task.RefusedReview
 }
 
+// mergeApprovedAfterApproval calls mergeApproved with the task row read again under approvalMu. Thus the poll sees the
+// task before the approval of its head (finishApproval) or after it, never between its steps. It does nothing while an
+// approval runs, because the next poll sees the task after the approval. It also does nothing when the task row is gone.
+// The approval of the Owner that finishApproval wrote on GitHub is not in the task row until keepApproval reads it, and the
+// poll read the reviews before the approval. Thus a queued task with auto_merge in ready_for_review that has no approval
+// reads the reviews again.
+func (e *Engine) mergeApprovedAfterApproval(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) (bool, error) {
+	if !e.approvalMu.TryLock() {
+		return false, nil
+	}
+	defer e.approvalMu.Unlock()
+	task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: task.Repository, Issue: task.Issue})
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if task.State == "ready_for_review" && task.AutoMerge == 1 && task.MergeQueuedAt.Valid && !awaitsMerge(task) {
+		if err := e.readPullRequests(ctx, repository, []int64{task.PullRequest.Int64}); err != nil {
+			return false, err
+		}
+		if task, err = e.keepApproval(ctx, repository, task); err != nil {
+			return false, err
+		}
+	}
+	return e.mergeApproved(ctx, repository, task, pullRequest)
+}
+
 // mergeApproved places an approved task in the merge queue of its repository when no Worker works on the task and its
 // head commit passes these conditions: the pull request is not a draft and has no merge conflict, has no open review
 // thread, and each check run of the head completed and passed, with the Mobius check among them. It reads the check
@@ -77,7 +106,8 @@ func awaitsMerge(task store.Task) bool {
 // ready for review Inbox items of the issue and leaves the queue. It does not end the task: checkTask does that. When GitHub refuses the merge, the open ready for
 // review Inbox item of the issue gets the reason and the Lead gets an event, and the poll does not try again until a
 // new APPROVED review. A refusal for a pull request that a person merged in the meantime is no refusal: the next read
-// of the pull request goes to GitHub, and the poll ends the task.
+// of the pull request goes to GitHub, and the poll ends the task. The caller holds approvalMu, so no approval of the
+// head runs at the same time (mergeApprovedAfterApproval).
 func (e *Engine) mergeApproved(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) (bool, error) {
 	number := int64(pullRequest.GetNumber())
 	conflict := pullRequest.Mergeable != nil && !pullRequest.GetMergeable()

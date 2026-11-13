@@ -449,7 +449,7 @@ func (a *Agent) mcpCaller() mcp.Caller {
 	})}
 	mcpCaller.GHToken = func(ctx context.Context) (string, error) {
 		if spec.Role == CoordinatorRole {
-			repository, err := e.workstreamRepository(spec.Organization)
+			repository, err := e.workstreamRepository(ctx, spec.Organization)
 			if err != nil {
 				return "", err
 			}

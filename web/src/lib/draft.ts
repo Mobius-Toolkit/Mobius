@@ -1,7 +1,9 @@
-import type { ChatInboxItem } from "@/api/api.gen";
+import type { ChatInboxItem, ChatSelection } from "@/api/api.gen";
 import { run } from "./database";
 
 export type DraftInboxItem = ChatInboxItem & { id: number | string };
+
+export type DraftSelection = ChatSelection & { id: string };
 
 // The audio stays in the draft until the server gives the text. conversion is the id of the server conversion, or ""
 // before the upload ends. error has the text of the failure in the state failed.
@@ -16,10 +18,17 @@ export type Draft = {
   text: string;
   images: File[];
   inboxItems: DraftInboxItem[];
+  selections: DraftSelection[];
   voice: DraftVoice | null;
 };
 
-export const emptyDraft: Draft = { text: "", images: [], inboxItems: [], voice: null };
+export const emptyDraft: Draft = {
+  text: "",
+  images: [],
+  inboxItems: [],
+  selections: [],
+  voice: null,
+};
 
 export function chatDraftKey(organization: string, repository: string, workstream: number) {
   return `chatDraft:${organization}/${repository}/${workstream}`;
@@ -52,6 +61,7 @@ function load(key: string) {
         text: record?.text ?? "",
         images: record?.images ?? [],
         inboxItems: record?.inboxItems ?? [],
+        selections: record?.selections ?? [],
         voice: record?.voice ?? null,
       }))
       // The input works with no kept draft.
@@ -84,7 +94,11 @@ export async function updateDraft(key: string, update: (draft: Draft) => Draft) 
   drafts.set(key, next);
   listeners.forEach((listener) => listener());
   const empty =
-    !next.text && next.images.length === 0 && next.inboxItems.length === 0 && !next.voice;
+    !next.text &&
+    next.images.length === 0 &&
+    next.inboxItems.length === 0 &&
+    next.selections.length === 0 &&
+    !next.voice;
   // The input works with no kept draft.
   await (
     empty
@@ -103,6 +117,10 @@ export async function convertingDraftKeys() {
 
 export function saveDraftText(key: string, text: string) {
   return updateDraft(key, (draft) => ({ ...draft, text }));
+}
+
+export function addDraftSelection(key: string, selection: DraftSelection) {
+  return updateDraft(key, (draft) => ({ ...draft, selections: [...draft.selections, selection] }));
 }
 
 export function addDraftInboxItem(key: string, item: DraftInboxItem) {

@@ -89,9 +89,10 @@ type Engine struct {
 	// questionMu makes the store of a new question item with the add of mobius:question in ask, and closeInboxItems, take
 	// turns. Else closeInboxItems can dismiss the new item, because its issue has no mobius:question yet.
 	questionMu sync.Mutex
-	// outgoingMu makes each send of an outgoing change take turns, so a send of the poll and an immediate send cannot
-	// both post the same comment.
-	outgoingMu sync.Mutex
+	// outgoingItems holds one mutex for each item with outgoing changes, by "repository#number". It makes the sends of the
+	// item take turns, so a send of the poll and an immediate send cannot both post the same comment. The poll skips an
+	// item that another send holds, so one slow send does not stop the poll of the other items.
+	outgoingItems sync.Map
 	// quiet holds the newest item of the Judge of each task in its quiet period, by the id of the task. Only the poll
 	// uses it.
 	quiet map[int64]quietItem
@@ -105,6 +106,10 @@ type Engine struct {
 	// mergeMu makes MergeInboxItem, and the write of a merge refusal on an Inbox item, take turns. Else a refusal that
 	// the poll writes between the approval and the mark of the item can leave the item in the merging state.
 	mergeMu sync.Mutex
+	// approvalMu makes the approval of a task head (finishApproval), and the call of mergeApproved in a poll, take turns. Else
+	// a poll between the steps of the approval can remove the task from the merge queue. A poll does not wait for it. It
+	// is taken before mergeMu.
+	approvalMu sync.Mutex
 	// stopMu makes StopIssue, stopTaskTool and dispatchReady take turns. Else a poll that read its issue page
 	// before a Stop can read the stopped task after the Stop, end it and dispatch the issue again from the old page.
 	stopMu sync.Mutex

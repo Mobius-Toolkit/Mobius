@@ -2034,7 +2034,7 @@ func (e *Engine) leadContext(ctx context.Context, repository github.Repository, 
 			autopilotText += switchContexts[kind] + "\n\n"
 		}
 	}
-	return fmt.Sprintf("# Brief\n\n%s\n\n%s%s# MEMORY.md\n\n%s\n\n# Repositories\n\n%s\n\n# Task list\n\n%s\n\n# Recurring tasks\n\n%s\n\n", brief, evergreenText, autopilotText, memory, e.repositoriesText(repository.Owner()), taskText(repository.FullName, lines), recurringText(recurring)), maintenance, skills, nil
+	return fmt.Sprintf("# Brief\n\n%s\n\n%s%s# MEMORY.md\n\n%s\n\n# Repositories\n\n%s\n\n# Task list\n\n%s\n\n# Recurring tasks\n\n%s\n\n", brief, evergreenText, autopilotText, memory, e.repositoriesText(ctx, repository.Owner()), taskText(repository.FullName, lines), recurringText(recurring)), maintenance, skills, nil
 }
 
 func recurringText(tasks []RecurringTask) string {
@@ -2075,7 +2075,7 @@ var switchContexts = map[string]string{
 const mergeContext = "Mobius merges each pull request after your approval, when the branch contains the current default branch and the checks passed. A deployment need that the Reviewer reports keeps the pull request a draft and blocks the merge until the Owner closes its todo. A mandatory todo closes with \"Complete\", and an optional todo closes with \"Complete\" or \"Dismiss\". An after-merge todo does not block."
 
 // repositoriesText names the repositories of the organization, and its issue repository when the organization has one.
-func (e *Engine) repositoriesText(organization string) string {
+func (e *Engine) repositoriesText(ctx context.Context, organization string) string {
 	var names []string
 	for _, repository := range e.github.Repositories() {
 		if repository.Owner() == organization {
@@ -2084,7 +2084,7 @@ func (e *Engine) repositoriesText(organization string) string {
 	}
 	slices.Sort(names)
 	text := "The repositories of the organization:\n- " + strings.Join(names, "\n- ")
-	if issueRepository, err := e.workstreamRepository(organization); err == nil {
+	if issueRepository, err := e.workstreamRepository(ctx, organization); err == nil {
 		text += "\n\nThe issue repository of the organization: " + issueRepository.FullName
 	}
 	return text

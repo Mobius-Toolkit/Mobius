@@ -1,5 +1,5 @@
 import { Effect, Option, Schema } from "effect";
-import { getSendChatUrl, type ChatInboxItem } from "@/api/api.gen";
+import { getSendChatUrl, type ChatInboxItem, type ChatSelection } from "@/api/api.gen";
 import { run as runIn } from "./database";
 import { request } from "./effects";
 
@@ -12,6 +12,7 @@ export type Queued = {
   text: string;
   images: File[];
   inboxItems: ChatInboxItem[];
+  selections: ChatSelection[];
   voice: boolean;
   time: string;
 };
@@ -68,6 +69,7 @@ export function addCoordinatorMessage(organization: string, text: string) {
     text,
     images: [],
     inboxItems: [],
+    selections: [],
     voice: false,
     time: new Date().toISOString(),
   });
@@ -95,6 +97,9 @@ export async function postQueued(item: Queued, signal: AbortSignal) {
   }
   for (const inboxItem of item.inboxItems) {
     form.append("inboxItems", JSON.stringify(inboxItem));
+  }
+  for (const selection of item.selections) {
+    form.append("selections", JSON.stringify(selection));
   }
   const res = await fetch(getSendChatUrl(), {
     method: "POST",

@@ -284,6 +284,27 @@ func (g *FakeGitHub) SetCheckRunStatus(id int64, status, conclusion string) {
 	g.checkRuns[id-1].Conclusion = conclusion
 }
 
+// CompleteCheckRun completes the check run name of the commit sha in repository with the conclusion and the title of
+// its output.
+func (g *FakeGitHub) CompleteCheckRun(repository, sha, name, conclusion, title string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	index := slices.IndexFunc(g.checkRuns, func(run checkRun) bool {
+		return run.repository == repository && run.HeadSHA == sha && run.Name == name
+	})
+	g.checkRuns[index].Status = "completed"
+	g.checkRuns[index].Conclusion = conclusion
+	g.checkRuns[index].Output = &CheckRunOutput{Title: title}
+}
+
+// AddCheckRunAfterBranchUpdate adds the check run of another App to repository on the merge commit of the next update of
+// a branch, at the moment that the merge commit becomes the head. run.HeadSHA is ignored.
+func (g *FakeGitHub) AddCheckRunAfterBranchUpdate(repository string, run CheckRun) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.checkRunAfterUpdate = &checkRun{repository, run}
+}
+
 // AddWorkflowRun adds the workflow run of GitHub Actions to repository, and gives its id.
 func (g *FakeGitHub) AddWorkflowRun(repository string, run WorkflowRun) int64 {
 	g.mu.Lock()
@@ -431,6 +452,13 @@ func (g *FakeGitHub) WorkflowRunAttempt(id int64) int {
 	return max(g.workflowRuns[id-1].Attempt, 1)
 }
 
+// WorkflowRunListReads gives the number of the reads of the list of workflow runs.
+func (g *FakeGitHub) WorkflowRunListReads() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.runListReads
+}
+
 // RerunRequests gives the number of the requests to run the failed jobs of a workflow run again.
 func (g *FakeGitHub) RerunRequests() int {
 	g.mu.Lock()
@@ -530,10 +558,6 @@ func (g *FakeGitHub) pullRequestJSON(repository string, number int64) map[string
 		state = "behind"
 	}
 	found := g.issues[key]
-	body := found.body
-	if override, ok := g.pullBodies[key]; ok {
-		body = override
-	}
 	var mergeableValue any = mergeable
 	if g.unknownMergeable[key] {
 		mergeableValue = nil
@@ -546,7 +570,7 @@ func (g *FakeGitHub) pullRequestJSON(repository string, number int64) map[string
 		"merged":          found.merged,
 		"head":            map[string]string{"sha": g.headOf(repository, number), "ref": pull.Head},
 		"draft":           pull.Draft,
-		"body":            body,
+		"body":            found.body,
 		"mergeable":       mergeableValue,
 		"mergeable_state": state,
 		"created_at":      timestamp(g.createdAt[key]),
@@ -604,14 +628,6 @@ func (g *FakeGitHub) getPullRequest(w http.ResponseWriter, r *http.Request) {
 	}
 	g.singlePullReads[issueKey{repository(r), number}]++
 	writeJSON(w, http.StatusOK, g.pullRequestJSON(repository(r), number))
-}
-
-// SetPullRequestBody sets the body that the single read of the pull request gives, as GitHub gives a newer copy of a
-// pull request than the one of an issue list. It changes neither the issue list nor the update time.
-func (g *FakeGitHub) SetPullRequestBody(repository string, number int64, body string) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.pullBodies[issueKey{repository, number}] = body
 }
 
 // SinglePullRequestReads gives the number of reads of the pull request number through the single pull request route.
@@ -756,6 +772,11 @@ func (g *FakeGitHub) mergeBase(key issueKey) {
 		g.t.Errorf("commit-tree: %v", err)
 	}
 	g.git(remote, "update-ref", "refs/heads/"+pull.Head, strings.TrimSpace(string(merge)))
+	if late := g.checkRunAfterUpdate; late != nil && late.repository == key.repository {
+		late.HeadSHA = strings.TrimSpace(string(merge))
+		g.checkRuns = append(g.checkRuns, *late)
+		g.checkRunAfterUpdate = nil
+	}
 	g.issues[key].updatedAt = g.tick()
 }
 
@@ -987,6 +1008,7 @@ func (g *FakeGitHub) jobLog(w http.ResponseWriter, r *http.Request) {
 func (g *FakeGitHub) listWorkflowRuns(w http.ResponseWriter, r *http.Request) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	g.runListReads++
 	if g.runListRefusal != 0 {
 		message(w, g.runListRefusal, "Resource not accessible by integration")
 		return

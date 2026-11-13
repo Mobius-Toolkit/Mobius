@@ -118,7 +118,6 @@ type FakeGitHub struct {
 	graphqlPageSize  int
 	pullRequestReads int
 	singlePullReads  map[issueKey]int
-	pullBodies       map[issueKey]string
 	repositoryLabels map[labelKey]Label
 	labelPatches     []labelKey
 	notModified      int
@@ -154,8 +153,10 @@ type FakeGitHub struct {
 	nextReactionID                             int64
 	failedReactions                            map[string]bool
 	// The ids of the first comments of the resolved review threads.
-	resolvedThreads  map[int64]bool
-	failResolves     bool
+	resolvedThreads map[int64]bool
+	failResolves    bool
+	// limitedResolves is true when a resolve of a review thread gives the GraphQL error RATE_LIMITED.
+	limitedResolves  bool
 	failPullReads    bool
 	failMarkReady    bool
 	failCheckUpdates bool
@@ -171,10 +172,14 @@ type FakeGitHub struct {
 	releaseAssetFailure int
 	releaseHasNoProgram bool
 	comparedCommits     []string
+	closingIssues       map[int][]int
+	notPullRequests     map[int]bool
 	holds               map[issueKey]*hold
 	threadHolds         map[issueKey][]*hold
 	mergeHolds          map[issueKey][]*hold
 	issueHolds          map[issueKey]*hold
+	commentHolds        map[issueKey]*hold
+	reviewHolds         map[issueKey]*hold
 	pullHolds           map[issueKey]*hold
 	// anonymousRateLimited tells if each request of the releases and of the comparisons with no token gets the
 	// rate-limit answer.
@@ -220,6 +225,8 @@ type FakeGitHub struct {
 	reviewRead        bool
 	// lateCheckRun is added at the end of the next request for the check runs of its commit.
 	lateCheckRun *checkRun
+	// checkRunAfterUpdate is added on the merge commit of the next update of a branch.
+	checkRunAfterUpdate *checkRun
 	// lateFailure completes a check run and a workflow run with a failure at the end of the next request for the check
 	// runs of its commit.
 	lateFailure *lateFailure
@@ -247,6 +254,8 @@ type FakeGitHub struct {
 	cancelRequests int
 	// runListRefusal is the status that the list of workflow runs gives, or 0 when it works.
 	runListRefusal int
+	// runListReads is the number of the reads of the list of workflow runs.
+	runListReads int
 	// jobListRefusal is the status that the list of the jobs of a run attempt gives, or 0 when it works.
 	jobListRefusal int
 	// jobLogRefusal is the status that the link to a job log gives, or 0 when it works.
@@ -255,6 +264,8 @@ type FakeGitHub struct {
 	closeRefusal int
 	// replyRefusal is the status that a reply in a review thread gives, or 0 when it works.
 	replyRefusal int
+	// lostReplyAnswers is true when a reply in a review thread works but gives the status 500.
+	lostReplyAnswers bool
 	// reviewFailure is the status that the next reviewFailures review writes give.
 	reviewFailure, reviewFailures int
 }
@@ -331,6 +342,8 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		threadHolds:             map[issueKey][]*hold{},
 		mergeHolds:              map[issueKey][]*hold{},
 		issueHolds:              map[issueKey]*hold{},
+		commentHolds:            map[issueKey]*hold{},
+		reviewHolds:             map[issueKey]*hold{},
 		pullHolds:               map[issueKey]*hold{},
 		hangs:                   map[string]chan struct{}{},
 		routeHolds:              map[string]chan struct{}{},
@@ -343,7 +356,6 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		mergedHeads:             map[issueKey]string{},
 		unknownMergeable:        map[issueKey]bool{},
 		singlePullReads:         map[issueKey]int{},
-		pullBodies:              map[issueKey]string{},
 		annotations:             map[int64][]annotationJSON{},
 		cloneURLs:               map[string]string{},
 		checkRunApps:            map[int64]string{},

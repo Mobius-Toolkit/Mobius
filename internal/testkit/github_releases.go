@@ -3,6 +3,7 @@ package testkit
 import (
 	"archive/tar"
 	"compress/gzip"
+	"fmt"
 	"net/http"
 	"slices"
 	"strconv"
@@ -146,7 +147,53 @@ func (g *FakeGitHub) compare(w http.ResponseWriter, r *http.Request) {
 	for i, message := range g.comparedCommits {
 		commits[i].Commit.Message = message
 	}
-	writeJSON(w, http.StatusOK, map[string][]commitJSON{"commits": commits})
+	writeJSON(w, http.StatusOK, map[string][]commitJSON{"commits": page(w, r, commits)})
+}
+
+// SetClosingIssues makes the pull request number of Mobius-Toolkit/Mobius close the issues with the numbers closed.
+func (g *FakeGitHub) SetClosingIssues(number int, closed ...int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.closingIssues == nil {
+		g.closingIssues = map[int][]int{}
+	}
+	g.closingIssues[number] = closed
+}
+
+// SetNotPullRequest makes the number in Mobius-Toolkit/Mobius an issue: the query of its closing issues gives no node
+// and the error NOT_FOUND, as GitHub does.
+func (g *FakeGitHub) SetNotPullRequest(number int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.notPullRequests == nil {
+		g.notPullRequests = map[int]bool{}
+	}
+	g.notPullRequests[number] = true
+}
+
+// closingIssuesNodes answers the query of the closing issues of the pull requests of Mobius-Toolkit/Mobius. The caller
+// must hold the lock.
+func (g *FakeGitHub) closingIssuesNodes(w http.ResponseWriter, aliases [][]string) {
+	pulls := map[string]any{}
+	var failures []map[string]string
+	for _, alias := range aliases {
+		number, _ := strconv.Atoi(alias[2])
+		if g.notPullRequests[number] {
+			pulls["pr"+alias[1]] = nil
+			failures = append(failures, map[string]string{"type": "NOT_FOUND", "message": fmt.Sprintf("Could not resolve to a PullRequest with the number of %d.", number)})
+			continue
+		}
+		nodes := []map[string]int{}
+		for _, closed := range g.closingIssues[number] {
+			nodes = append(nodes, map[string]int{"number": closed})
+		}
+		pulls["pr"+alias[1]] = map[string]any{"closingIssuesReferences": map[string]any{"nodes": nodes}}
+	}
+	response := map[string]any{"data": map[string]any{"repository": pulls}}
+	if failures != nil {
+		response["errors"] = failures
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
 // compareGit gives the comparison in the path of r, read from the git repository of the repository. The caller must

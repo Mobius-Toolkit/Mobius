@@ -112,7 +112,12 @@ export function renderUpgradeControls(h: HtmlBuilder<Message>, model: Model): Ht
 function renderReleaseChanges(h: HtmlBuilder<Message>, model: Model): Html {
   const upgrade = model.upgrade;
   if (upgrade.changesError) {
-    return renderBadge(h, "destructive", upgrade.changesError);
+    return renderBadge(
+      h,
+      "destructive",
+      upgrade.changesError,
+      "h-auto w-full whitespace-normal wrap-anywhere",
+    );
   }
   if (Option.isNone(upgrade.changes)) {
     return h.p([h.Class("text-muted-foreground")], ["Mobius reads the changes."]);
