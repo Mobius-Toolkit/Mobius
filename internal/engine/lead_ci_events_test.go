@@ -166,7 +166,7 @@ func TestEventsWithNoCIFixTaskKeepTheirIdOrderBehindASlowTurn(t *testing.T) {
 func TestTheLeadSessionOfACIFixEventTakesTheLeadSlotBeforeAnEarlierLeadSession(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	for _, workstream := range []int64{50, 51} {
+	for _, workstream := range []int64{50, 51, 60} {
 		fake.AddIssue(shop, workstream, "Workstream")
 		fake.AddLabel(shop, workstream, "mobius:workstream", "owner")
 	}
@@ -233,11 +233,11 @@ func TestFreedHeldEventsGoAfterTheCIFixEventsOfTheQueueAndTheFreedCIFixEventGoes
 	}
 }
 
-// leadSlotServer starts a server with one Lead slot, the Workstreams #50 and #51, and a direct Lead session that
+// leadSlotServer starts a server with one Lead slot, the Workstreams #50, #51 and #60, and a direct Lead session that
 // holds the slot.
 func leadSlotServer(t *testing.T, fake *testkit.FakeGitHub, script string) (*testserver.Server, *engine.Agent) {
 	t.Helper()
-	for _, workstream := range []int64{50, 51} {
+	for _, workstream := range []int64{50, 51, 60} {
 		fake.AddIssue(shop, workstream, "Workstream")
 		fake.AddLabel(shop, workstream, "mobius:workstream", "owner")
 	}
@@ -285,15 +285,16 @@ func TestAWaitingLeadSessionThatGetsACIFixEventTakesTheLeadSlotBeforeAnEarlierLe
 	}
 }
 
-func TestANewSessionOfALeadChatWhoseFirstItemIsNoCIFixEventWaitsBehindAnEarlierLeadSession(t *testing.T) {
+func TestANewSessionOfALeadChatWhoseFirstItemIsNoCIFixEventWaitsBehindALaterCIFixSession(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	crash := "[[prompts]]\nwhen = \" dispatch of #54 \"\nerror = { code = -32000, message = \"The agent crashed\" }\n\n"
 	server, holder := leadSlotServer(t, fake, crash+strings.Repeat(noteScript+"\n", 3))
 	addRecord(t, server, openCIFailureSQL(52))
-	fix := engine.ChatKey{Organization: "owner", Repository: shop, Workstream: 50}
+	addRecord(t, server, openCIFailureSQL(61))
+	crashing := engine.ChatKey{Organization: "owner", Repository: shop, Workstream: 50}
+	later := engine.ChatKey{Organization: "owner", Repository: shop, Workstream: 60}
 	dispatchBelow(t, server, fake, 50, 52)
-	dispatchBelow(t, server, fake, 51, 53)
 	fake.AddIssue(shop, 54, "Task")
 	fake.AddSubIssue(shop, 50, 54)
 	fake.AddLabel(shop, 54, "mobius:ready", "owner")
@@ -301,18 +302,29 @@ func TestANewSessionOfALeadChatWhoseFirstItemIsNoCIFixEventWaitsBehindAnEarlierL
 		return countRows(t, server, "SELECT count(*) FROM lead_events WHERE workstream = 50") == 2
 	})
 	waitForPolls(t, fake)
+	// The session of a direct start takes the slot that the crashed session frees, so the new session of the chat
+	// queues while the slot is held.
+	taker := startLater(t.Context(), server, leadSpec(t))
+	testkit.WaitFor(t, func() bool {
+		return countRows(t, server, "SELECT count(*) FROM sessions WHERE workstream = 12 AND queue_reason IS NOT NULL") == 1
+	})
 
 	end(t, holder, "done")
 
-	earlier := waitForChatSession(t, server, engine.ChatKey{Organization: "owner", Repository: shop, Workstream: 51}, engine.LeadRole, func(session store.Session) bool {
+	_, takerAgent := nextToStart(t, []<-chan started{taker})
+	waitForChatSession(t, server, crashing, engine.LeadRole, func(session store.Session) bool {
+		return session.QueueReason.Valid && session.ID != chatSessions(t, server, crashing, engine.LeadRole)[0].ID
+	})
+	dispatchBelow(t, server, fake, 60, 61)
+
+	end(t, takerAgent, "done")
+
+	waitForChatSession(t, server, later, engine.LeadRole, func(session store.Session) bool {
 		return !session.QueueReason.Valid && len(promptTexts(t, server, session.ID)) > 0
 	})
-	for _, session := range chatSessions(t, server, fix, engine.LeadRole)[1:] {
-		if !session.QueueReason.Valid && parseTime(t, session.StartedAt).Before(parseTime(t, earlier.StartedAt)) {
-			t.Errorf("the session %+v started before the earlier session %+v", session, earlier)
+	for _, session := range chatSessions(t, server, crashing, engine.LeadRole)[1:] {
+		if !session.QueueReason.Valid {
+			t.Errorf("the session %+v started before the session of the CI fix event", session)
 		}
 	}
-	waitForChatSession(t, server, fix, engine.LeadRole, func(session store.Session) bool {
-		return session.ID != chatSessions(t, server, fix, engine.LeadRole)[0].ID && session.QueueReason.Valid
-	})
 }
