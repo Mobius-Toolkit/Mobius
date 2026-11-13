@@ -1,6 +1,7 @@
 import { Schema } from "effect";
 import { defineMessageUnion } from "foldkit/message";
-import { Checkup, Pause, ToolCheck, WorkstreamKind } from "./schemas";
+import * as WorkstreamSetup from "@/workstreamSetup/message";
+import { Checkup, Pause, ToolCheck } from "./schemas";
 
 export const Message = defineMessageUnion({
   ReceivedOrganizations: { organizations: Schema.Array(Schema.String) },
@@ -21,9 +22,7 @@ export const Message = defineMessageUnion({
   LabelsFixed: {},
   LabelFixFailed: { error: Schema.String },
   FixLoginRequired: {},
-  ClickedCreate: { kind: WorkstreamKind },
-  WorkstreamRequested: { organization: Schema.String },
-  CreateFailed: { error: Schema.String },
+  GotWorkstreamSetupMessage: { message: WorkstreamSetup.Message },
   NavigateTo: { path: Schema.String },
   ClickedBack: {},
   CompletedRequestLogin: {},

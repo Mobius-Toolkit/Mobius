@@ -816,6 +816,20 @@ func (q *Queries) AddMemoryVersion(ctx context.Context, arg AddMemoryVersionPara
 	return err
 }
 
+const addMissingWorkstreamDismissal = `-- name: AddMissingWorkstreamDismissal :exec
+INSERT OR IGNORE INTO missing_workstream_dismissals (organization, kind) VALUES (?, ?)
+`
+
+type AddMissingWorkstreamDismissalParams struct {
+	Organization string
+	Kind         string
+}
+
+func (q *Queries) AddMissingWorkstreamDismissal(ctx context.Context, arg AddMissingWorkstreamDismissalParams) error {
+	_, err := q.db.ExecContext(ctx, addMissingWorkstreamDismissal, arg.Organization, arg.Kind)
+	return err
+}
+
 const addOutgoingChange = `-- name: AddOutgoingChange :one
 INSERT INTO outgoing_changes (integration, repository, number, reply_to, field, text, status, created_at) VALUES ('github', ?, ?, ?, ?, ?, 'pending', ?)
 RETURNING id
@@ -7530,6 +7544,33 @@ func (q *Queries) ListMergingReadyItems(ctx context.Context, repository string) 
 	return items, nil
 }
 
+const listMissingWorkstreamDismissals = `-- name: ListMissingWorkstreamDismissals :many
+SELECT organization, kind FROM missing_workstream_dismissals
+`
+
+func (q *Queries) ListMissingWorkstreamDismissals(ctx context.Context) ([]MissingWorkstreamDismissal, error) {
+	rows, err := q.db.QueryContext(ctx, listMissingWorkstreamDismissals)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []MissingWorkstreamDismissal
+	for rows.Next() {
+		var i MissingWorkstreamDismissal
+		if err := rows.Scan(&i.Organization, &i.Kind); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOldSkillUses = `-- name: ListOldSkillUses :many
 SELECT id, session, organization, repository, role, harness, skill, used_at FROM old_skill_uses ORDER BY id
 `
@@ -8071,6 +8112,49 @@ func (q *Queries) ListOpenSessions(ctx context.Context) ([]ListOpenSessionsRow, 
 			&i.WorkstreamTitle,
 			&i.IssueTitle,
 			&i.PullRequest,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOpenWorkstreamsOfOrganization = `-- name: ListOpenWorkstreamsOfOrganization :many
+SELECT w.repository, w.number, CAST(s.maintenance AS BOOLEAN) AS maintenance, CAST(s.skills AS BOOLEAN) AS skills
+FROM copied_workstreams w
+JOIN workstreams s ON s.repository = w.repository AND s.number = w.number
+WHERE substr(w.repository, 1, length(?1) + 1) = ?1 || '/'
+ORDER BY w.repository, w.number
+`
+
+type ListOpenWorkstreamsOfOrganizationRow struct {
+	Repository  string
+	Number      int64
+	Maintenance bool
+	Skills      bool
+}
+
+func (q *Queries) ListOpenWorkstreamsOfOrganization(ctx context.Context, organization interface{}) ([]ListOpenWorkstreamsOfOrganizationRow, error) {
+	rows, err := q.db.QueryContext(ctx, listOpenWorkstreamsOfOrganization, organization)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListOpenWorkstreamsOfOrganizationRow
+	for rows.Next() {
+		var i ListOpenWorkstreamsOfOrganizationRow
+		if err := rows.Scan(
+			&i.Repository,
+			&i.Number,
+			&i.Maintenance,
+			&i.Skills,
 		); err != nil {
 			return nil, err
 		}

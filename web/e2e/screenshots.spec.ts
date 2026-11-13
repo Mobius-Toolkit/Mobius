@@ -118,6 +118,15 @@ const trayToggle = (page: Page, count: number, expanded: boolean) =>
 const setTray = (page: Page, choice: "collapsed" | "expanded") =>
   page.evaluate((value) => localStorage.setItem("tray", value), choice);
 
+const checkupOf = (overrides: Record<string, unknown>) => async (route: Route) => {
+  const response = await route.fetch();
+  const body = (await response.json()) as { data: Record<string, unknown> };
+  await route.fulfill({ response, json: { data: { ...body.data, ...overrides } } });
+};
+
+const isCheckup = (url: URL) =>
+  url.pathname === "/api/checkup" && url.searchParams.get("organization") === "plants";
+
 const fixedTime = new Date("2026-10-15T12:00:00Z");
 
 const noticeOf = (page: Page, text: string) => page.getByRole("status").filter({ hasText: text });
@@ -1353,6 +1362,7 @@ test("screenshots", async ({ page }) => {
       ...(device === "desktop"
         ? [drain, page.getByLabel("Work in another organization")]
         : [page.getByLabel("Upgrade available")]),
+      main.getByText("No messages. Write to start a chat session."),
       page.getByText("Implementer #85 Water the new beds").filter({ visible: true }),
       page.getByText(/closes in 42 min/).filter({ visible: true }),
       page.getByText("kept", { exact: true }).filter({ visible: true }),
@@ -3251,11 +3261,71 @@ test("screenshots", async ({ page }) => {
     "/settings/checkup/plants/workstreams",
     (device) => [
       ...frame(device, release),
-      main.getByRole("heading", { name: "plants/garden", exact: true }),
+      main.getByRole("heading", { name: "plants", exact: true }),
+      main.getByText("Issue repository", { exact: true }),
+      main.getByText("plants/garden", { exact: true }),
       main.getByText("Maintenance Workstream", { exact: true }),
       main.getByText("Skills Workstream", { exact: true }),
     ],
   );
+  const noIssueRepository = {
+    issueRepository: "",
+    issueRepositoryError:
+      'Mobius needs the issue repository of plants. Select it on the Checkup page "Workstreams", or set organizations.plants.issue_repository in config.toml.',
+    issueRepositorySource: "none",
+    maintenanceWorkstream: 0,
+    skillsWorkstream: 0,
+    skillsWorkstreamRepository: "",
+  };
+  await page.route(isCheckup, checkupOf(noIssueRepository));
+  await screenshot(
+    page,
+    "checkup-workstreams-none",
+    "/settings/checkup/plants/workstreams",
+    (device) => [
+      ...frame(device, release),
+      main.getByText("Mobius needs the issue repository of plants.", { exact: false }),
+      main.getByRole("button", { name: "Issue repository None", exact: true }),
+    ],
+  );
+  await screenshot(
+    page,
+    "checkup-workstreams-picker",
+    "/settings/checkup/plants/workstreams",
+    (device) => [
+      ...frame(device, release),
+      page.getByRole("dialog").getByRole("radio", { name: "plants/garden" }),
+      page.getByRole("dialog").getByRole("radio", { name: "plants/mobius-skills" }),
+      page.getByRole("dialog").getByRole("button", { name: "Save" }),
+    ],
+    async () => {
+      await main.getByRole("button", { name: "Issue repository None", exact: true }).click();
+      await page.getByRole("dialog").getByRole("radio", { name: "plants/garden" }).click();
+      await page.mouse.move(0, 0);
+    },
+  );
+  await page.unroute(isCheckup);
+  await page.route(
+    isCheckup,
+    checkupOf({
+      issueRepositorySource: "choice",
+      maintenanceWorkstream: 0,
+      skillRepository: "",
+      skillsWorkstream: 0,
+      skillsWorkstreamRepository: "",
+    }),
+  );
+  await screenshot(
+    page,
+    "checkup-workstreams-no-skill-repository",
+    "/settings/checkup/plants/workstreams",
+    (device) => [
+      ...frame(device, release),
+      main.getByText("Create plants/mobius-skills and give the Mobius App access to it."),
+      main.getByRole("link", { name: "Open GitHub" }),
+    ],
+  );
+  await page.unroute(isCheckup);
   await screenshot(page, "memory-repositories", "/settings/memory", (device) => [
     ...frame(device, release),
     main.getByRole("link", { name: "owner/shop" }),
