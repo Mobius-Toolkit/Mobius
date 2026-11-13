@@ -2314,6 +2314,7 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...frame(device, drain),
+      chatEnd,
       page.getByText("The plan prices are in cents now.").filter({ visible: true }),
     ],
     async (device) => {
@@ -2337,6 +2338,7 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...frame(device, drain),
+      chatEnd,
       page.getByRole("button", { name: "Start the check now" }).filter({ visible: true }),
     ],
     async (device) => {
