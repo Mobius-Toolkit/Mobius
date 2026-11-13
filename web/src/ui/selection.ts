@@ -178,7 +178,7 @@ export function renderSelectionPopover<Msg>(
       h.DataAttribute("selection-popover", ""),
       h.Class("fixed z-50 rounded-full border bg-popover p-0.5 shadow-md"),
       h.Style({
-        top: `min(${rect.bottom + popoverGap}px, calc(100dvh - 3.25rem))`,
+        top: `clamp(0.5rem, ${rect.bottom + popoverGap}px, calc(100dvh - 3.25rem))`,
         left: `clamp(0.5rem, calc(${(rect.left + rect.right) / 2}px - 1.25rem), calc(100vw - 3.25rem))`,
       }),
     ],

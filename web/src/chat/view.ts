@@ -360,6 +360,7 @@ function renderEventBody(h: H, id: number, summary: string, body: string, open: 
               h.DataAttribute("slot", "collapsible-content"),
               h.DataAttribute("state", state),
               h.Class("pt-2"),
+              h.OnMount(Mount.mapMessage(Watch({ owner: String(id) }), toGotSelectionMessage)),
             ],
             [renderMarkdown(h, body)],
           )

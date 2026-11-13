@@ -279,18 +279,16 @@ const addMessages = (page: Page, messages: () => object[]) =>
     await route.fulfill({ response, json: body });
   });
 
-type Posted = {
-  source: string;
-  text: string;
-  context: string;
-  messageId: number;
-  messageAuthor: string;
-}[];
-
-const postedSelections = (body: string): Posted =>
-  [...body.matchAll(/name="selections"\r\n\r\n(.*?)\r\n--/g)].map(
-    (part) => JSON.parse(part[1]) as Posted[number],
-  );
+// The messages that the server stores in the Lead chat of owner/shop#12. The session cookie is Secure, so the request
+// of Playwright has no login, and the page makes the request.
+async function storedMessages(page: Page) {
+  const body = (await page.evaluate(
+    `fetch("/api/chat?organization=owner&repository=owner/shop&workstream=12").then((response) => response.json())`,
+  )) as {
+    data: { messages: { id: number; author: string; text: string; selections: object[] }[] };
+  };
+  return body.data.messages;
+}
 
 for (const [device, viewport] of [
   ["desktop", desktop],
@@ -343,75 +341,85 @@ for (const [device, viewport] of [
       const main = page.getByRole("main");
       const composer = main.locator("form");
       const popover = page.getByRole("button", { name: "Add to chat" });
-      let posted: Posted | undefined;
-      await addMessages(page, () => [
-        chatMessage(1_000_001, "Lead", leadText, shopPlace),
-        ...(posted
-          ? [
-              chatMessage(1_000_002, "Owner", "Why in the morning?", shopPlace, {
-                selections: posted.map((selection) => ({
-                  ...selection,
-                  reference: "",
-                  link: "",
-                  part: "",
-                })),
-              }),
-            ]
-          : []),
-      ]);
-      await page.route("**/api/chat/messages", (route) => {
-        posted = postedSelections(route.request().postData() ?? "");
-        return route.fulfill({ status: 204 });
-      });
+      const question = `Why this one? (${device})`;
 
       await page.goto(shop);
-      const bubble = main.locator("[data-message='1000001']");
+      const lead = (await storedMessages(page)).find(
+        (stored) => stored.author === "Lead" && stored.text === "The plan prices are in cents now.",
+      );
+      if (!lead) {
+        throw new Error("The server has no Lead message to quote.");
+      }
+      const bubble = main.locator(`[data-message='${lead.id}']`);
       await expect(bubble).toBeVisible();
       await expect(page.getByLabel("Message to the Lead")).toBeEditable();
-      await selectText(bubble, "in the morning");
+      await bubble.scrollIntoViewIfNeeded();
+      await selectText(bubble, "plan prices");
       await popover.click();
       await expect(composer.locator("[data-selection-card]")).toHaveCount(1);
-      await selectText(bubble, "Sort the white roses");
+      await bubble.scrollIntoViewIfNeeded();
+      await selectText(bubble, "in cents now");
       await popover.click();
       await expect(composer.locator("[data-selection-card]")).toHaveCount(2);
 
-      await page.getByLabel("Message to the Lead").fill("Why in the morning?");
+      await page.getByLabel("Message to the Lead").fill(question);
+      const stored = page.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" && response.url().endsWith("/api/chat/messages"),
+      );
       await main.getByRole("button", { name: "Send", exact: true }).click();
+      expect((await stored).status()).toBe(204);
 
+      const quoted = (text: string) => ({
+        source: "message",
+        text,
+        context: lead.text,
+        reference: "",
+        link: "",
+        part: "",
+        messageId: lead.id,
+        messageAuthor: "Lead",
+      });
       await expect
-        .poll(() => posted)
-        .toEqual([
-          {
-            source: "message",
-            text: "in the morning",
-            context: "First, cut the red roses in the morning.",
-            reference: "",
-            link: "",
-            part: "",
-            messageId: 1_000_001,
-            messageAuthor: "Lead",
-          },
-          {
-            source: "message",
-            text: "Sort the white roses",
-            context: "Sort the white roses",
-            reference: "",
-            link: "",
-            part: "",
-            messageId: 1_000_001,
-            messageAuthor: "Lead",
-          },
-        ]);
-      const sent = main.locator("[data-message='1000002']");
+        .poll(async () => (await storedMessages(page)).find((other) => other.text === question))
+        .toMatchObject({
+          author: "Owner",
+          selections: [quoted("plan prices"), quoted("in cents now")],
+        });
+      const sentId = (await storedMessages(page)).find((other) => other.text === question)?.id;
+      const sent = main.locator(`[data-message='${sentId}']`);
       await expect(sent.locator("[data-selection-card]")).toHaveCount(2);
-      await expect(sent.locator("[data-selection-card]").first()).toContainText(
-        "Lead message · 12:00 PM",
-      );
-      await expect(sent.locator("[data-selection-card]").last()).toContainText(
-        "Sort the white roses",
-      );
+      await expect(sent.locator("[data-selection-card]").first()).toContainText("Lead message");
+      await expect(sent.locator("[data-selection-card]").first()).toContainText("plan prices");
+      await expect(sent.locator("[data-selection-card]").last()).toContainText("in cents now");
       await expect(sent.getByRole("button", { name: "Remove the selection" })).toHaveCount(0);
       await expect(composer.locator("[data-selection-card]")).toHaveCount(0);
+    });
+
+    test("adds a selection of the open body of an event to the draft", async ({ page }) => {
+      const main = page.getByRole("main");
+      const composer = main.locator("form");
+      await addMessages(page, () => [
+        chatMessage(
+          1_000_004,
+          "Event",
+          "Mobius closed #7\nThe Implementer finished the **plan** page.",
+          shopPlace,
+        ),
+      ]);
+
+      await page.goto(shop);
+      const event = main.locator("[data-message='1000004']");
+      await expect(event).toBeVisible();
+      await expect(page.getByLabel("Message to the Lead")).toBeEditable();
+      await event.getByRole("button", { name: /Mobius closed #7/ }).click();
+      await selectText(event, "finished the");
+      await page.getByRole("button", { name: "Add to chat" }).click();
+
+      const card = composer.locator("[data-selection-card]");
+      await expect(card).toHaveCount(1);
+      await expect(card).toContainText("Event message");
+      await expect(card).toContainText("finished the");
     });
 
     test("adds a selection of a Coordinator message to the draft of the Coordinator chat", async ({
