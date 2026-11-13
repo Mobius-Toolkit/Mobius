@@ -14,51 +14,84 @@ import type { Agent } from "@/transcript/schemas";
 
 type H = HtmlBuilder<Message>;
 
-function renderEntry(h: H, agent: Agent, now: number): Html {
+function renderEntry(h: H, model: Model, agent: Agent): Html {
   const state = queueState(agent.queueReason);
   const started = `${dayClock(agent.startedAt)}${agent.endedAt ? `–${clock(agent.endedAt)}` : ""}`;
   const queued = agent.queueReason ? `${started} · ${queueText(agent)}` : started;
   const detail = agent.keptUntil
-    ? `${queued} · closes in ${minutesUntil(agent.keptUntil, now)} min`
+    ? `${queued} · closes in ${minutesUntil(agent.keptUntil, model.now)} min`
     : queued;
+  const name = `${agent.name.charAt(0).toUpperCase()}${agent.name.slice(1)}`;
+  const issue = agent.issue;
+  const reference =
+    issue === null
+      ? ""
+      : `${agent.repository === `${model.owner}/${model.name}` ? "" : agent.repository}#${issue}`;
+  const label = [
+    name,
+    agent.title,
+    reference,
+    agent.issueTitle,
+    `${bindingText(agent)} · ${detail}`,
+  ]
+    .filter((part) => part)
+    .join(" ");
   return h.keyed("li")(
     String(agent.id),
-    [],
+    [h.Class("relative flex items-center gap-3 rounded-lg p-2 hover:bg-muted")],
     [
       h.button(
         [
           h.Type("button"),
-          h.Class("flex w-full items-center gap-3 rounded-lg p-2 text-left hover:bg-muted"),
+          h.AriaLabel(label),
+          h.Class("absolute inset-0 rounded-lg"),
           h.OnClick(Message.OpenedAgent({ agent })),
         ],
+        [],
+      ),
+      h.span(
+        [
+          h.Class(
+            cn(
+              "size-2 shrink-0 rounded-full",
+              agent.endedAt ? "border border-muted-foreground" : state.dot,
+            ),
+          ),
+        ],
+        [],
+      ),
+      h.span(
+        [h.Class("grid min-w-0 grow gap-0.5")],
         [
           h.span(
+            [h.Class("flex min-w-0 gap-1")],
             [
-              h.Class(
-                cn(
-                  "size-2 shrink-0 rounded-full",
-                  agent.endedAt ? "border border-muted-foreground" : state.dot,
-                ),
-              ),
+              h.span([h.Class("shrink-0 font-medium")], [name]),
+              ...(agent.title ? [" ", h.span([h.Class("shrink-0")], [agent.title])] : []),
+              ...(issue === null
+                ? []
+                : [
+                    " ",
+                    h.a(
+                      [
+                        h.Href(`https://github.com/${agent.repository}/issues/${issue}`),
+                        h.Attribute("target", "_blank"),
+                        h.Attribute("rel", "noreferrer"),
+                        h.Class("relative z-10 shrink-0 underline"),
+                      ],
+                      [reference],
+                    ),
+                  ]),
+              ...(agent.issueTitle === null
+                ? []
+                : [" ", h.span([h.Class("truncate")], [agent.issueTitle])]),
             ],
-            [],
           ),
-          h.span(
-            [h.Class("grid min-w-0 grow gap-0.5")],
-            [
-              h.span([], [h.span([h.Class("font-medium")], [agent.name]), ` ${agent.title}`]),
-              h.span(
-                [h.Class("text-sm text-muted-foreground")],
-                [`${bindingText(agent)} · ${detail}`],
-              ),
-            ],
-          ),
-          agent.endedAt
-            ? renderBadge(h, "secondary", agent.keptUntil ? "kept" : "stopped")
-            : h.empty,
-          state.badge ? renderBadge(h, "outline", state.badge) : h.empty,
+          h.span([h.Class("text-sm text-muted-foreground")], [`${bindingText(agent)} · ${detail}`]),
         ],
       ),
+      agent.endedAt ? renderBadge(h, "secondary", agent.keptUntil ? "kept" : "stopped") : h.empty,
+      state.badge ? renderBadge(h, "outline", state.badge) : h.empty,
     ],
   );
 }
@@ -98,9 +131,7 @@ export const view = defineView<Model, Message>((model, h) => {
       ),
       h.ul(
         [],
-        shownAgents(model.agents, model.showStopped).map((agent) =>
-          renderEntry(h, agent, model.now),
-        ),
+        shownAgents(model.agents, model.showStopped).map((agent) => renderEntry(h, model, agent)),
       ),
     ],
   );

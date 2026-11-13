@@ -22,3 +22,16 @@ test("the Settings page hides the server line when the server has no version", a
   await expect(versions.getByText("v0.1.3")).toBeVisible();
   await expect(versions.getByText("Server")).toBeHidden();
 });
+
+test("a tap on New version loads the page again", async ({ page }) => {
+  await page.route("/ui-version", (route) => route.fulfill({ body: "a new build" }));
+  await page.goto("/settings");
+  const button = page.getByRole("button", { name: "New version" });
+  await expect(button).toBeVisible();
+  await page.evaluate(() => Object.assign(window, { documentMarker: true }));
+  const url = page.url();
+  await Promise.all([page.waitForEvent("load"), button.click()]);
+  expect(await page.evaluate(() => "documentMarker" in window)).toBe(false);
+  expect(page.url()).toBe(url);
+  await page.unroute("/ui-version");
+});
