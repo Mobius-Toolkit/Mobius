@@ -401,7 +401,7 @@ func TestServer(t *testing.T) {
 	server := testserver.StartWith(t, cfg, github.URL)
 	// The Owner dismissed the items of the missing Workstreams, so the Inbox shows only the fixture items.
 	if _, err := server.DB.Exec(`INSERT INTO missing_workstream_dismissals (organization, kind)
-		VALUES ('owner', 'missing skills'), ('plants', 'missing maintenance'), ('plants', 'missing skills')`); err != nil {
+		VALUES ('plants', 'missing maintenance'), ('plants', 'missing skills')`); err != nil {
 		t.Fatal(err)
 	}
 	dist, err := fs.Sub(web.Dist, "dist")
