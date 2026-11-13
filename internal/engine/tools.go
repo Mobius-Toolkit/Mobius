@@ -744,7 +744,14 @@ func (e *Engine) SetIssueRepository(ctx context.Context, organization, repositor
 	if err != nil {
 		return "", err
 	}
-	return found.FullName, e.queries.SetIssueRepositoryChoice(ctx, store.SetIssueRepositoryChoiceParams{Organization: organization, Repository: found.FullName})
+	err = e.queries.SetIssueRepositoryChoice(ctx, store.SetIssueRepositoryChoiceParams{Organization: organization, Repository: found.FullName})
+	if err != nil {
+		return "", err
+	}
+	if err := e.syncMissingWorkstreams(ctx, false); err != nil {
+		log.Printf("check the missing Workstreams: %v", err)
+	}
+	return found.FullName, nil
 }
 
 type noInput struct{}
