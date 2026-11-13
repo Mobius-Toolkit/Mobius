@@ -200,3 +200,35 @@ func TestTheLeadSessionOfACIFixEventTakesTheLeadSlotBeforeAnEarlierLeadSession(t
 		t.Errorf("the session of the CI fix event started at %s, the earlier session at %s", fixSession.StartedAt, plainSession.StartedAt)
 	}
 }
+
+func TestFreedHeldEventsGoAfterTheCIFixEventsOfTheQueueAndTheFreedCIFixEventGoesFirst(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	release := filepath.Join(t.TempDir(), "release")
+	script := fmt.Sprintf("[[prompts]]\n%s\n\n[[prompts]]\n%s\n\n[[prompts]]\nwhen = \"Decision\"\nshell = 'until [ -e %s ]; do sleep 0.05; done'\n\n",
+		holdEvent, holdEvent, release) + strings.Repeat(noteScript+"\n", 4)
+	server, _ := connectWith(t, fake, script, keepSessionOpen)
+	addRecord(t, server, openCIFailureSQL(43))
+	addRecord(t, server, endedHardBreakSQL(44))
+	dispatchTask(fake, 41, "Add plan model")
+	testkit.WaitFor(t, func() bool { return held(t, server, 1) })
+	dispatchTask(fake, 44, "Fix the plan test")
+	testkit.WaitFor(t, func() bool { return held(t, server, 2) && len(onlySession(t, server)) == 2 })
+	sendChat(t, server, leadChat, "Decision")
+	testkit.WaitFor(t, func() bool { return len(onlySession(t, server)) == 3 })
+	dispatchTask(fake, 43, "Fix the plan check")
+	dispatchTask(fake, 42, "Add plan route")
+	testkit.WaitFor(t, func() bool { return len(undelivered(t, server)) == 4 })
+
+	releaseTurn(t, release)
+
+	prompts := testkit.WaitForValue(t, func() ([]string, bool) {
+		prompts := onlySession(t, server)
+		return prompts, len(prompts) == 7 && eventDelivered(t, server)
+	})
+	for index, number := range []string{"#43", "#44", "#41", "#42"} {
+		if !strings.Contains(prompts[3+index], " dispatch of "+number+" ") {
+			t.Fatalf("prompts = %q", prompts)
+		}
+	}
+}

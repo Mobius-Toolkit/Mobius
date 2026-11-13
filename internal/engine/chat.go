@@ -1623,13 +1623,23 @@ func (e *Engine) freeEvents(ctx context.Context, repository string, workstream i
 	}))
 }
 
-// queueEvents puts the events after the queued messages of the Owner and removes their queued copies. Each other
-// queued item keeps its place. The caller holds e.chatsMu.
+// queueEvents removes the queued copies of the events. It puts the CI fix events after the queued messages of the
+// Owner and the queued CI fix events, and then the other events after them. Each other queued item keeps its place.
+// The caller holds e.chatsMu.
 func (c *chat) queueEvents(events []item) {
 	c.queue = slices.DeleteFunc(c.queue, func(queued item) bool {
 		return queued.event != nil && slices.ContainsFunc(events, func(other item) bool { return other.event.ID == queued.event.ID })
 	})
-	c.queue = slices.Insert(c.queue, afterOwnerMessages(c.queue), events...)
+	var fixes, others []item
+	for _, event := range events {
+		if event.ci {
+			fixes = append(fixes, event)
+		} else {
+			others = append(others, event)
+		}
+	}
+	c.queue = slices.Insert(c.queue, afterCIEvents(c.queue), fixes...)
+	c.queue = slices.Insert(c.queue, afterCIEvents(c.queue), others...)
 }
 
 // releaseEvents frees the held events of the Workstream after the Owner answered a question on GitHub. A running Lead
