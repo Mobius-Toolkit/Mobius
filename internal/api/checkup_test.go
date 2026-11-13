@@ -3,6 +3,7 @@ package api_test
 import (
 	"net/http"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
@@ -37,6 +38,7 @@ type checkup struct {
 	LabelFix                   string            `json:"labelFix"`
 	IssueRepository            string            `json:"issueRepository"`
 	IssueRepositoryError       string            `json:"issueRepositoryError"`
+	IssueRepositorySource      string            `json:"issueRepositorySource"`
 	MaintenanceWorkstream      int64             `json:"maintenanceWorkstream"`
 	SkillRepository            string            `json:"skillRepository"`
 	SkillsWorkstreamRepository string            `json:"skillsWorkstreamRepository"`
@@ -218,8 +220,8 @@ func TestTheCheckupShowsTheIssueRepositoryAndNoMaintenanceWorkstreamOfAnotherRep
 		return found, found.MaintenanceWorkstream != 0
 	})
 
-	if found.IssueRepository != shop || found.IssueRepositoryError != "" || found.MaintenanceWorkstream != 7 {
-		t.Errorf("issue repository = %q, error = %q, maintenance Workstream = %d", found.IssueRepository, found.IssueRepositoryError, found.MaintenanceWorkstream)
+	if found.IssueRepository != shop || found.IssueRepositoryError != "" || found.IssueRepositorySource != "config" || found.MaintenanceWorkstream != 7 {
+		t.Errorf("issue repository = %q, error = %q, source = %q, maintenance Workstream = %d", found.IssueRepository, found.IssueRepositoryError, found.IssueRepositorySource, found.MaintenanceWorkstream)
 	}
 }
 
@@ -234,8 +236,79 @@ func TestTheCheckupShowsAnErrorInPlaceOfTheIssueRepositoryOfAnOrganizationWithMa
 
 	found := getCheckup(t, server, "owner")
 
-	if found.IssueRepository != "" || found.MaintenanceWorkstream != 0 || found.IssueRepositoryError != "Mobius needs the issue repository of owner. Set organizations.owner.issue_repository in config.toml." {
-		t.Errorf("issue repository = %q, error = %q, maintenance Workstream = %d", found.IssueRepository, found.IssueRepositoryError, found.MaintenanceWorkstream)
+	const refusal = "Mobius needs the issue repository of owner. Select it on the Checkup page \"Workstreams\", or set organizations.owner.issue_repository in config.toml."
+	if found.IssueRepository != "" || found.MaintenanceWorkstream != 0 || found.IssueRepositoryError != refusal || found.IssueRepositorySource != "none" {
+		t.Errorf("issue repository = %q, error = %q, source = %q, maintenance Workstream = %d", found.IssueRepository, found.IssueRepositoryError, found.IssueRepositorySource, found.MaintenanceWorkstream)
+	}
+}
+
+func TestTheCheckupShowsTheOneRepositoryOfTheAppAsTheDefaultIssueRepository(t *testing.T) {
+	github := testkit.NewFakeGitHub(t)
+	server := startWithApp(t, github, "User")
+
+	found := getCheckup(t, server, "owner")
+
+	if found.IssueRepository != shop || found.IssueRepositoryError != "" || found.IssueRepositorySource != "default" {
+		t.Errorf("issue repository = %q, error = %q, source = %q", found.IssueRepository, found.IssueRepositoryError, found.IssueRepositorySource)
+	}
+}
+
+func putIssueRepository(t *testing.T, server *testserver.Server, repository string) (int, string) {
+	t.Helper()
+	return mcpRequest(t, server, http.MethodPut, "/api/checkup/issue-repository", `{"organization": "owner", "repository": "`+repository+`"}`)
+}
+
+func TestTheOwnerChoosesTheIssueRepositoryAndAnotherChoiceReplacesIt(t *testing.T) {
+	github := testkit.NewFakeGitHub(t)
+	github.AddAccount("owner", "User")
+	github.AddRepository(shop)
+	github.AddRepository(skills)
+	server := testserver.Start(t, t.TempDir(), github.URL)
+	createApp(t, server, "owner")
+	testkit.WaitFor(t, func() bool { return len(github.RepositoryLabels(skills)) == len(engine.Labels) })
+
+	if status, text := putIssueRepository(t, server, skills); status != http.StatusOK || text != `{"data":{"organization":"owner","repository":"`+skills+`"}}` {
+		t.Fatalf("status = %d: %s", status, text)
+	}
+	if found := getCheckup(t, server, "owner"); found.IssueRepository != skills || found.IssueRepositoryError != "" || found.IssueRepositorySource != "choice" {
+		t.Errorf("issue repository = %q, error = %q, source = %q", found.IssueRepository, found.IssueRepositoryError, found.IssueRepositorySource)
+	}
+
+	if status, text := putIssueRepository(t, server, shop); status != http.StatusOK {
+		t.Fatalf("status = %d: %s", status, text)
+	}
+	if found := getCheckup(t, server, "owner"); found.IssueRepository != shop || found.IssueRepositorySource != "choice" {
+		t.Errorf("issue repository = %q, source = %q", found.IssueRepository, found.IssueRepositorySource)
+	}
+}
+
+func TestTheChoiceOfTheIssueRepositoryRefusesAnOrganizationWithTheConfigKey(t *testing.T) {
+	github := testkit.NewFakeGitHub(t)
+	server := startWithSkillRepository(t, github)
+
+	status, text := putIssueRepository(t, server, skills)
+
+	if status != http.StatusConflict || !strings.Contains(text, "organizations.owner.issue_repository") {
+		t.Errorf("status = %d: %s", status, text)
+	}
+	if found := getCheckup(t, server, "owner"); found.IssueRepository != shop || found.IssueRepositorySource != "config" {
+		t.Errorf("issue repository = %q, source = %q", found.IssueRepository, found.IssueRepositorySource)
+	}
+}
+
+func TestTheChoiceOfTheIssueRepositoryRefusesARepositoryOfAnotherOrganization(t *testing.T) {
+	github := testkit.NewFakeGitHub(t)
+	github.AddAccount("other", "User")
+	github.AddRepository("other/thing")
+	server := startWithApp(t, github, "User")
+
+	status, text := putIssueRepository(t, server, "other/thing")
+
+	if status != http.StatusUnprocessableEntity || !strings.Contains(text, "other/thing") {
+		t.Errorf("status = %d: %s", status, text)
+	}
+	if found := getCheckup(t, server, "owner"); found.IssueRepositorySource != "default" {
+		t.Errorf("source = %q", found.IssueRepositorySource)
 	}
 }
 

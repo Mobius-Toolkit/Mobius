@@ -993,6 +993,21 @@ func (q *Queries) AddRecurringTaskRun(ctx context.Context, arg AddRecurringTaskR
 	return err
 }
 
+const addReleaseChangelog = `-- name: AddReleaseChangelog :exec
+INSERT INTO release_changelogs (organization, tag, sent_at) VALUES (?, ?, ?)
+`
+
+type AddReleaseChangelogParams struct {
+	Organization string
+	Tag          string
+	SentAt       string
+}
+
+func (q *Queries) AddReleaseChangelog(ctx context.Context, arg AddReleaseChangelogParams) error {
+	_, err := q.db.ExecContext(ctx, addReleaseChangelog, arg.Organization, arg.Tag, arg.SentAt)
+	return err
+}
+
 const addReviewRound = `-- name: AddReviewRound :exec
 UPDATE tasks SET review_rounds = review_rounds + 1 WHERE id = ?
 `
@@ -3068,6 +3083,17 @@ func (q *Queries) GetIssueBinding(ctx context.Context, arg GetIssueBindingParams
 	return i, err
 }
 
+const getIssueRepositoryChoice = `-- name: GetIssueRepositoryChoice :one
+SELECT repository FROM issue_repositories WHERE organization = ?
+`
+
+func (q *Queries) GetIssueRepositoryChoice(ctx context.Context, organization string) (string, error) {
+	row := q.db.QueryRowContext(ctx, getIssueRepositoryChoice, organization)
+	var repository string
+	err := row.Scan(&repository)
+	return repository, err
+}
+
 const getLastChatMessageOf = `-- name: GetLastChatMessageOf :one
 SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections FROM chat_messages
 WHERE organization = ? AND repository = ? AND workstream = ? AND author = ?
@@ -3157,6 +3183,17 @@ func (q *Queries) GetLastLeadEventTime(ctx context.Context, arg GetLastLeadEvent
 	var time string
 	err := row.Scan(&time)
 	return time, err
+}
+
+const getLastRelease = `-- name: GetLastRelease :one
+SELECT tag FROM last_release WHERE id = 1
+`
+
+func (q *Queries) GetLastRelease(ctx context.Context) (string, error) {
+	row := q.db.QueryRowContext(ctx, getLastRelease)
+	var tag string
+	err := row.Scan(&tag)
+	return tag, err
 }
 
 const getLastTaskState = `-- name: GetLastTaskState :one
@@ -9812,6 +9849,22 @@ func (q *Queries) RejectPendingAction(ctx context.Context, arg RejectPendingActi
 	return i, err
 }
 
+const releaseChangelogSent = `-- name: ReleaseChangelogSent :one
+SELECT EXISTS (SELECT 1 FROM release_changelogs WHERE organization = ? AND tag = ?)
+`
+
+type ReleaseChangelogSentParams struct {
+	Organization string
+	Tag          string
+}
+
+func (q *Queries) ReleaseChangelogSent(ctx context.Context, arg ReleaseChangelogSentParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, releaseChangelogSent, arg.Organization, arg.Tag)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const reopenDeploymentTodo = `-- name: ReopenDeploymentTodo :exec
 UPDATE deployment_todos SET mandatory = ?, dismissed_at = NULL, inbox_item = ? WHERE id = ?
 `
@@ -10325,6 +10378,20 @@ func (q *Queries) SetInitFailureIssue(ctx context.Context, arg SetInitFailureIss
 	return err
 }
 
+const setIssueRepositoryChoice = `-- name: SetIssueRepositoryChoice :exec
+INSERT OR REPLACE INTO issue_repositories (organization, repository) VALUES (?, ?)
+`
+
+type SetIssueRepositoryChoiceParams struct {
+	Organization string
+	Repository   string
+}
+
+func (q *Queries) SetIssueRepositoryChoice(ctx context.Context, arg SetIssueRepositoryChoiceParams) error {
+	_, err := q.db.ExecContext(ctx, setIssueRepositoryChoice, arg.Organization, arg.Repository)
+	return err
+}
+
 const setJudgedAt = `-- name: SetJudgedAt :exec
 UPDATE tasks SET judged_at = ? WHERE id = ?
 `
@@ -10336,6 +10403,16 @@ type SetJudgedAtParams struct {
 
 func (q *Queries) SetJudgedAt(ctx context.Context, arg SetJudgedAtParams) error {
 	_, err := q.db.ExecContext(ctx, setJudgedAt, arg.JudgedAt, arg.ID)
+	return err
+}
+
+const setLastRelease = `-- name: SetLastRelease :exec
+INSERT INTO last_release (id, tag) VALUES (1, ?)
+ON CONFLICT (id) DO UPDATE SET tag = excluded.tag
+`
+
+func (q *Queries) SetLastRelease(ctx context.Context, tag string) error {
+	_, err := q.db.ExecContext(ctx, setLastRelease, tag)
 	return err
 }
 

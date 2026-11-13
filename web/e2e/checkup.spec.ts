@@ -28,6 +28,7 @@ const healthy = {
   repositories: [{ repository: "shop", labels: [label] }],
   issueRepository: "shop",
   issueRepositoryError: "",
+  issueRepositorySource: "config",
   maintenanceWorkstream: 7,
   skillRepository: "",
   skillsWorkstreamRepository: "",
@@ -311,6 +312,7 @@ test("the Workstreams page shows the error of the issue repository in place of t
       ...healthy,
       issueRepository: "",
       issueRepositoryError: error,
+      issueRepositorySource: "none",
       maintenanceWorkstream: 0,
     },
   });

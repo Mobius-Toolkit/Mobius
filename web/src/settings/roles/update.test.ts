@@ -2,7 +2,14 @@ import { Option } from "effect";
 import { describe, expect, it } from "vitest";
 import { Command as StoryCommand, given, message, model, story } from "foldkit/story";
 import type { HarnessChoices } from "../schemas";
-import { RequestLogin, ResetRole, SaveRole } from "./commands";
+import {
+  AddBinding,
+  RemoveBinding,
+  RequestLogin,
+  ResetRole,
+  SaveRole,
+  SetBinding,
+} from "./commands";
 import { Message } from "./message";
 import { initialModel, type Model, type Sheet } from "./model";
 import type { Role } from "./schemas";
@@ -308,5 +315,243 @@ describe("the lists", () => {
       StoryCommand.expectExact(RequestLogin()),
       StoryCommand.resolve(RequestLogin, Message.CompletedRequestLogin()),
     );
+  });
+});
+
+const second = { id: 3, harness: "antigravity", model: "sonnet", effort: "", context: 0, max: 5 };
+
+const implementer = (overrides: Partial<Role> = {}) =>
+  role({
+    role: "implementer",
+    harness: "claude-code",
+    model: "haiku",
+    effort: "low",
+    max: 2,
+    moreBindings: [second],
+    ...overrides,
+  });
+
+const openImplementer = (overrides: Partial<Role> = {}) =>
+  open("implementer", { roles: Option.some([implementer(overrides)]) });
+
+describe("the tabs of the Implementer", () => {
+  it("starts on the first tab with no new tab", () => {
+    expect(sheet(openImplementer())).toMatchObject({ tab: "0", hasNew: false, model: "haiku" });
+  });
+
+  it("adds a new tab with the values of the first binding, and selects the new tab again for a second tap", () => {
+    story(
+      update,
+      given(openImplementer()),
+      message(Message.SelectedTab({ key: "3" })),
+      message(Message.ClickedAddBinding()),
+      model((m) => {
+        expect(sheet(m)).toMatchObject({
+          tab: "new",
+          hasNew: true,
+          harness: "claude-code",
+          model: "haiku",
+          effort: "low",
+          max: "2",
+        });
+      }),
+      message(Message.PickedModel({ value: "opus" })),
+      message(Message.SelectedTab({ key: "3" })),
+      message(Message.ClickedAddBinding()),
+      model((m) => {
+        expect(sheet(m)).toMatchObject({ tab: "new", hasNew: true, model: "haiku" });
+      }),
+    );
+  });
+
+  it("drops the new tab when the sheet closes", () => {
+    story(
+      update,
+      given(openImplementer()),
+      message(Message.ClickedAddBinding()),
+      message(Message.ClosedSheet()),
+      message(Message.OpenedRole({ role: "implementer" })),
+      model((m) => {
+        expect(sheet(m)).toMatchObject({ tab: "0", hasNew: false });
+      }),
+    );
+  });
+
+  it("gives the fields of the binding of a selected tab, and drops the change of the left tab", () => {
+    story(
+      update,
+      given(openImplementer()),
+      message(Message.ChangedMax({ text: "9" })),
+      message(Message.SelectedTab({ key: "3" })),
+      model((m) => {
+        expect(sheet(m)).toMatchObject({
+          tab: "3",
+          harness: "antigravity",
+          model: "sonnet",
+          effort: "",
+          max: "5",
+        });
+      }),
+      message(Message.SelectedTab({ key: "0" })),
+      model((m) => {
+        expect(sheet(m)).toMatchObject({ tab: "0", harness: "claude-code", max: "2" });
+      }),
+    );
+  });
+
+  it("saves the first tab as the role, a stored tab by its id, and the new tab as an added binding", () => {
+    story(
+      update,
+      given(openImplementer()),
+      message(Message.ClickedSave()),
+      StoryCommand.expectExact(
+        SaveRole({
+          role: "implementer",
+          harness: "claude-code",
+          model: "haiku",
+          effort: "low",
+          context: 0,
+          max: 2,
+        }),
+      ),
+      StoryCommand.resolve(SaveRole, Message.SaveFailed({ error: "nope" })),
+      message(Message.SelectedTab({ key: "3" })),
+      message(Message.ChangedMax({ text: "6" })),
+      message(Message.ClickedSave()),
+      StoryCommand.expectExact(
+        SetBinding({
+          id: 3,
+          harness: "antigravity",
+          model: "sonnet",
+          effort: "",
+          context: 0,
+          max: 6,
+        }),
+      ),
+      StoryCommand.resolve(SetBinding, Message.SaveFailed({ error: "nope" })),
+      message(Message.ClickedAddBinding()),
+      message(Message.ClickedSave()),
+      StoryCommand.expectExact(
+        AddBinding({
+          harness: "claude-code",
+          model: "haiku",
+          effort: "low",
+          context: 0,
+          max: 2,
+        }),
+      ),
+      StoryCommand.resolve(AddBinding, Message.SaveFailed({ error: "nope" })),
+      model((m) => {
+        expect(sheet(m)).toMatchObject({ tab: "new", saving: false, error: "nope" });
+      }),
+    );
+  });
+
+  it("replaces the role with the response of an add, and selects the added tab", () => {
+    const added = { ...second, id: 4, max: 1 };
+    story(
+      update,
+      given(openImplementer()),
+      message(Message.ClickedAddBinding()),
+      message(Message.ClickedSave()),
+      StoryCommand.resolve(
+        AddBinding,
+        Message.BindingsChanged({
+          role: implementer({ moreBindings: [second, added] }),
+          tab: "4",
+        }),
+      ),
+      model((m) => {
+        expect(sheet(m)).toMatchObject({
+          tab: "4",
+          hasNew: false,
+          saving: false,
+          harness: "antigravity",
+          max: "1",
+        });
+        expect(Option.getOrThrow(m.roles)[0].moreBindings).toHaveLength(2);
+        expect(sheet(m).role.moreBindings).toHaveLength(2);
+      }),
+    );
+  });
+
+  it("replaces the role with the response of a change, and keeps the tab and the new tab", () => {
+    story(
+      update,
+      given(openImplementer()),
+      message(Message.ClickedAddBinding()),
+      message(Message.SelectedTab({ key: "3" })),
+      message(Message.ChangedMax({ text: "6" })),
+      message(Message.ClickedSave()),
+      StoryCommand.resolve(
+        SetBinding,
+        Message.BindingsChanged({
+          role: implementer({ moreBindings: [{ ...second, max: 6 }] }),
+          tab: "3",
+        }),
+      ),
+      model((m) => {
+        expect(sheet(m)).toMatchObject({ tab: "3", hasNew: true, saving: false, max: "6" });
+        expect(Option.getOrThrow(m.roles)[0].moreBindings[0].max).toBe(6);
+      }),
+    );
+  });
+
+  it("removes a stored tab with its id and the first tab with the id 0, and selects the first tab", () => {
+    story(
+      update,
+      given(openImplementer()),
+      message(Message.SelectedTab({ key: "3" })),
+      message(Message.ClickedRemove()),
+      model((m) => {
+        expect(sheet(m).saving).toBe(true);
+      }),
+      StoryCommand.expectExact(RemoveBinding({ id: 3 })),
+      StoryCommand.resolve(
+        RemoveBinding,
+        Message.BindingsChanged({ role: implementer({ moreBindings: [] }), tab: "0" }),
+      ),
+      model((m) => {
+        expect(sheet(m)).toMatchObject({ tab: "0", saving: false, harness: "claude-code" });
+        expect(sheet(m).role.moreBindings).toHaveLength(0);
+      }),
+    );
+    story(
+      update,
+      given(openImplementer()),
+      message(Message.ClickedRemove()),
+      StoryCommand.expectExact(RemoveBinding({ id: 0 })),
+      StoryCommand.resolve(
+        RemoveBinding,
+        Message.BindingsChanged({
+          role: implementer({ ...second, effort: "", moreBindings: [] }),
+          tab: "0",
+        }),
+      ),
+      model((m) => {
+        expect(sheet(m)).toMatchObject({ tab: "0", harness: "antigravity", max: "5" });
+        expect(Option.getOrThrow(m.roles)[0]).toMatchObject({ harness: "antigravity" });
+      }),
+    );
+  });
+
+  it("drops the new tab with no request, and selects the first tab", () => {
+    story(
+      update,
+      given(openImplementer()),
+      message(Message.ClickedAddBinding()),
+      message(Message.ClickedRemove()),
+      model((m) => {
+        expect(sheet(m)).toMatchObject({ tab: "0", hasNew: false, saving: false });
+      }),
+      StoryCommand.expectNone(),
+    );
+  });
+
+  it("ignores a tab tap while a request runs", () => {
+    const saving = update(openImplementer(), Message.ClickedSave()).model;
+    const tapped = update(saving, Message.SelectedTab({ key: "3" })).model;
+    const added = update(tapped, Message.ClickedAddBinding()).model;
+    expect(sheet(added)).toMatchObject({ tab: "0", hasNew: false, saving: true });
   });
 });

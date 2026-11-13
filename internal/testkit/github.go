@@ -170,6 +170,8 @@ type FakeGitHub struct {
 	releaseAssetFailure int
 	releaseHasNoProgram bool
 	comparedCommits     []string
+	closingIssues       map[int][]int
+	notPullRequests     map[int]bool
 	holds               map[issueKey]*hold
 	threadHolds         map[issueKey][]*hold
 	mergeHolds          map[issueKey][]*hold
@@ -250,6 +252,8 @@ type FakeGitHub struct {
 	cancelRequests int
 	// runListRefusal is the status that the list of workflow runs gives, or 0 when it works.
 	runListRefusal int
+	// runListReads is the number of the reads of the list of workflow runs.
+	runListReads int
 	// jobListRefusal is the status that the list of the jobs of a run attempt gives, or 0 when it works.
 	jobListRefusal int
 	// jobLogRefusal is the status that the link to a job log gives, or 0 when it works.

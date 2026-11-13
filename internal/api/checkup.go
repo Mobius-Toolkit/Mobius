@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"slices"
 
@@ -62,6 +63,8 @@ type Checkup struct {
 	IssueRepository string `gork:"issueRepository"`
 	// IssueRepositoryError tells why Mobius cannot find the issue repository, or is empty
 	IssueRepositoryError string `gork:"issueRepositoryError"`
+	// IssueRepositorySource tells where the issue repository comes from: config for organizations.<organization>.issue_repository of config.toml, choice for the choice of the Owner, default for the one repository of the organization that the App sees or that holds all its open Workstreams, and none when IssueRepositoryError is not empty
+	IssueRepositorySource string `gork:"issueRepositorySource" validate:"oneof=config choice default none"`
 	// MaintenanceWorkstream is the number of the open Workstream with mobius:maintenance and the lowest number in the issue repository, or 0 when it has none or IssueRepositoryError is not empty
 	MaintenanceWorkstream int64 `gork:"maintenanceWorkstream"`
 	// SkillRepository is the skill repository of the organization as "owner/name", or empty when the organization has none
@@ -92,6 +95,7 @@ func (h *handlers) GetCheckup(ctx context.Context, req GetCheckupRequest) (*GetC
 		LabelFix:                   labelFix(found.Repositories),
 		IssueRepository:            found.IssueRepository,
 		IssueRepositoryError:       found.IssueRepositoryError,
+		IssueRepositorySource:      found.IssueRepositorySource,
 		MaintenanceWorkstream:      found.MaintenanceWorkstream,
 		SkillRepository:            found.SkillRepository,
 		SkillsWorkstreamRepository: found.SkillsWorkstreamRepository,
@@ -108,6 +112,45 @@ func (h *handlers) GetCheckup(ctx context.Context, req GetCheckupRequest) (*GetC
 		checkup.Permissions = append(checkup.Permissions, PermissionCheck(permission))
 	}
 	return &GetCheckupResponse{Body: Envelope[Checkup]{Data: checkup}}, nil
+}
+
+// SetIssueRepositoryRequest is the request of SetIssueRepository.
+type SetIssueRepositoryRequest struct {
+	Body struct {
+		// Organization is the owner of the repositories
+		Organization string `gork:"organization" validate:"required"`
+		// Repository is the issue repository as "owner/name"
+		Repository string `gork:"repository" validate:"required"`
+	}
+}
+
+// IssueRepositoryChoice is the choice of the issue repository of an organization.
+type IssueRepositoryChoice struct {
+	// Organization is the owner of the repositories
+	Organization string `gork:"organization"`
+	// Repository is the issue repository as "owner/name"
+	Repository string `gork:"repository"`
+}
+
+// SetIssueRepositoryResponse is the response of SetIssueRepository.
+type SetIssueRepositoryResponse struct {
+	Body Envelope[IssueRepositoryChoice]
+}
+
+// SetIssueRepository stores the choice of the issue repository of the organization. A new choice replaces the earlier
+// choice. It returns 409 when config.toml sets the issue repository of the organization, and 422 when the repository is
+// not a repository of the organization that the App sees.
+func (h *handlers) SetIssueRepository(ctx context.Context, req SetIssueRepositoryRequest) (*SetIssueRepositoryResponse, error) {
+	repository, err := h.engine.SetIssueRepository(ctx, req.Body.Organization, req.Body.Repository)
+	switch {
+	case errors.Is(err, engine.ErrIssueRepositoryInConfig):
+		return nil, api.NewHTTPError(http.StatusConflict, err.Error())
+	case engine.Refused(err):
+		return nil, api.NewHTTPError(http.StatusUnprocessableEntity, err.Error())
+	case err != nil:
+		return nil, err
+	}
+	return &SetIssueRepositoryResponse{Body: Envelope[IssueRepositoryChoice]{Data: IssueRepositoryChoice{Organization: req.Body.Organization, Repository: repository}}}, nil
 }
 
 func labelFix(repositories []engine.RepositoryCheckup) string {

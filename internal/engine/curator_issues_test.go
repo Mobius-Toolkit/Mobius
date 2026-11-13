@@ -61,7 +61,8 @@ func TestTheCuratorCreatesATaskIssueWithTriageBelowTheMaintenanceWorkstream(t *t
 func TestTheCuratorCreatesTheIssueInTheOpenMaintenanceWorkstreamWithTheLowestNumber(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, call("create_issue", `{ title = "Fix the flaky test", body = "", blocked_by = [] }`))
+	create := "[[prompts]]\nwhen = \"Create the issue\"\ncall = { tool = \"create_issue\", arguments = { title = \"Fix the flaky test\", body = \"\", blocked_by = [] } }\n\n"
+	server, _ := connect(t, fake, create+seenScript)
 	addMaintenanceWorkstream(fake, 10)
 	fake.CloseIssue(shop, 10)
 	addMaintenanceWorkstream(fake, 30)
