@@ -146,6 +146,16 @@ type HarnessPause struct {
 	PausedUntil string
 }
 
+type ImplementerBinding struct {
+	ID        int64
+	Harness   string
+	Model     string
+	Effort    string
+	Context   int64
+	Max       int64
+	UpdatedAt string
+}
+
 type InboxItem struct {
 	ID                   int64
 	Kind                 string

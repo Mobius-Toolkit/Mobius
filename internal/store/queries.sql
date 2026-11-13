@@ -1824,3 +1824,15 @@ WHERE server = ? AND state = ?;
 
 -- name: DeleteMcpServerOAuth :exec
 DELETE FROM mcp_server_oauth WHERE server = ?;
+
+-- name: ListImplementerBindings :many
+SELECT * FROM implementer_bindings ORDER BY id;
+
+-- name: AddImplementerBinding :one
+INSERT INTO implementer_bindings (harness, model, effort, context, max, updated_at) VALUES (?, ?, ?, ?, ?, ?) RETURNING id;
+
+-- name: UpdateImplementerBinding :exec
+UPDATE implementer_bindings SET harness = ?, model = ?, effort = ?, context = ?, max = ?, updated_at = ? WHERE id = ?;
+
+-- name: DeleteImplementerBinding :exec
+DELETE FROM implementer_bindings WHERE id = ?;
