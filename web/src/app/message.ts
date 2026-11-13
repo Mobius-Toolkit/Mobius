@@ -46,6 +46,7 @@ export const Message = defineMessageUnion({
   UrlRequested: { request: UrlRequest },
   UrlChanged: { url: Url },
   NavigateRequested: { path: Schema.String },
+  ReloadRequested: {},
   BackRequested: { parent: Schema.String },
   CompletedNavigate: {},
   CompletedSettleScroll: {},
@@ -53,6 +54,7 @@ export const Message = defineMessageUnion({
   CompletedReplaceUrl: {},
   CompletedGoBack: {},
   CompletedLoadExternal: {},
+  CompletedReload: {},
   CompletedFocusSheet: {},
 
   // Authentication
@@ -136,14 +138,15 @@ export const Message = defineMessageUnion({
   // Autopilot & Workstream actions
   SelectAutopilotRequested: { level: WorkstreamAutopilot },
   SelectAutopilotSucceeded: {
+    repository: Schema.String,
     from: WorkstreamAutopilot,
     to: WorkstreamAutopilot,
     number: Schema.Number,
   },
-  SelectAutopilotFailed: { error: Schema.String },
+  SelectAutopilotFailed: { repository: Schema.String, number: Schema.Number, error: Schema.String },
   CloseWorkstreamRequested: {},
-  CloseWorkstreamSucceeded: { number: Schema.Number },
-  CloseWorkstreamFailed: { error: Schema.String },
+  CloseWorkstreamSucceeded: { repository: Schema.String, number: Schema.Number },
+  CloseWorkstreamFailed: { repository: Schema.String, number: Schema.Number, error: Schema.String },
   SetMobileTasksOpen: { open: Schema.Boolean },
 
   // Forwarded live events to active screens

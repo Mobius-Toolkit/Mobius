@@ -134,3 +134,46 @@ test("the organization switch of a phone keeps the width of its button and its m
   await expect(page.getByRole("menu")).toBeVisible();
   expect(await page.evaluate(`document.querySelector('[role="menu"]').offsetWidth`)).toBe(358);
 });
+
+for (const [device, viewport] of [
+  ["desktop", desktop],
+  ["phone", phone],
+] as const) {
+  test(`a tap on an organization closes the organization menu of a ${device}`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await login(page);
+    await page.goto("/chat");
+    const switcher = (name: string) =>
+      page.locator('button[aria-haspopup="menu"]').filter({ visible: true, hasText: name });
+    const menu = page.getByRole("menu");
+    const choose = async (current: string, chosen: string) => {
+      await switcher(current).click();
+      await page.getByRole("menuitemradio", { name: chosen }).click();
+      await expect(menu).toBeHidden();
+      await expect(switcher(chosen)).toBeVisible();
+    };
+    await expect(switcher("owner")).toBeVisible();
+
+    try {
+      await choose("owner", "plants");
+      await choose("plants", "plants");
+    } finally {
+      await choose("plants", "owner");
+    }
+  });
+}
+
+test("each row of the organization menu of a phone is at least 44 px high", async ({ page }) => {
+  await page.setViewportSize(phone);
+  await login(page);
+  await page.goto("/chat");
+  await page.locator("#content").getByRole("button", { name: "owner" }).click();
+  await expect(page.getByRole("menuitemradio", { name: "plants" })).toBeVisible();
+
+  const heights = (await page.evaluate(
+    `[...document.querySelectorAll('[role="menuitemradio"]')].map((item) => item.offsetHeight)`,
+  )) as number[];
+
+  expect(heights.length).toBeGreaterThanOrEqual(2);
+  expect(Math.min(...heights)).toBeGreaterThanOrEqual(44);
+});

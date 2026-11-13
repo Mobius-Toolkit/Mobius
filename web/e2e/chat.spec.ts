@@ -15,6 +15,7 @@ import {
   routeInboxItems,
   stoppedItems,
 } from "./stops.js";
+import { cancelDrain } from "./upgrade.js";
 
 const phone = { width: 390, height: 844 };
 const shop = "/workstreams/owner/shop/12";
@@ -34,6 +35,7 @@ async function logIn(page: Page) {
   await page.getByLabel("Access password").fill("correct horse");
   await page.getByRole("button", { name: "Log in" }).click();
   await expect(page.getByLabel("Access password")).toBeHidden();
+  await cancelDrain(page);
 }
 
 test.beforeEach(({ page }) => logIn(page));
@@ -1975,6 +1977,75 @@ test("the Autopilot trigger shows a level that the server gives after the select
   await expect(level("Off")).toBeVisible();
 });
 
+// The tests that create the Workstreams owner/shop#46 and #47 come before. Each change of a level adds records to the
+// chat of its Workstream, and the later tests read the chat of owner/shop#12, so the first Workstream here is #47.
+for (const [device, size] of [
+  ["desktop", { width: 1280, height: 800 }],
+  ["phone", phone],
+] as const) {
+  test(`the Autopilot switch of a Workstream shows its own level after a choice in another Workstream on a ${device}`, async ({
+    page,
+  }) => {
+    const first = "/workstreams/owner/shop/47";
+    const item = (name: RegExp) =>
+      device === "desktop"
+        ? page.getByRole("menuitemradio", { name })
+        : page.getByRole("radio", { name });
+    await page.setViewportSize(size);
+    await page.goto(first);
+    await expect(page.getByRole("button", { name: "Autopilot: Off" })).toBeEnabled();
+    const held: Route[] = [];
+    const release = async () => {
+      await Promise.all(held.splice(0).map((route) => route.continue()));
+      await page.unroute("**/api/workstreams");
+    };
+    try {
+      // The Workstream list gives the new level after the Owner has opened the second Workstream.
+      await page.route("**/api/workstreams", (route) => {
+        held.push(route);
+      });
+      await page.getByRole("button", { name: "Autopilot: Off" }).click();
+      await item(/^Merge only/).click();
+      await expect.poll(() => held.length).toBeGreaterThan(0);
+      await expect(page.getByRole("button", { name: "Autopilot: Merge only" })).toBeVisible();
+
+      if (device === "phone") {
+        await page
+          .getByRole("link", { name: "Workstreams", exact: true })
+          .filter({ visible: true })
+          .click();
+      }
+      await page.locator(`a[href="${shop}"]`).filter({ visible: true }).click();
+      await expect(page).toHaveURL(shop);
+      await expect(page.getByRole("button", { name: "Autopilot: Off" })).toBeVisible();
+      const listed = page.waitForResponse((response) =>
+        response.url().endsWith("/api/workstreams"),
+      );
+      await release();
+      await listed;
+      if (device === "desktop") {
+        await expect(
+          page.locator(`a[href="${first}"]`).getByRole("img", { name: "Autopilot: Merge only" }),
+        ).toBeVisible();
+      }
+      await page.getByRole("button", { name: "Autopilot: Off" }).click();
+      await expect(item(/^Off/)).toBeChecked();
+      await expect(item(/^Merge only/)).not.toBeChecked();
+    } finally {
+      await release();
+      const status = await page.evaluate(async () => {
+        const response = await fetch("/api/workstreams/owner/shop/47/autopilot", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ level: "off" }),
+        });
+        return response.status;
+      });
+      expect(status).toBe(204);
+    }
+  });
+}
+
 test("the Autopilot sheet of the phone top bar sets the level", async ({ page }) => {
   const sheet = page.getByRole("dialog", { name: "Autopilot" });
   await page.setViewportSize(phone);
@@ -2069,6 +2140,9 @@ test("an evergreen Workstream with all tasks closed shows no done badge and no C
     for (const workstream of body.data) {
       if (workstream.repository === "owner/shop" && workstream.number === 12) {
         workstream.allTasksClosed = true;
+      }
+      if (workstream.repository === "owner/shop" && workstream.number === 13) {
+        workstream.allTasksClosed = false;
       }
       if (workstream.repository === "owner/shop" && workstream.number === 14) {
         workstream.allTasksClosed = true;

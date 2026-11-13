@@ -2,6 +2,9 @@ import { expect, test } from "@playwright/test";
 import {
   boardTasks,
   inboxItem,
+  mergeQueueHeadTask,
+  mergeQueueTask,
+  mergeQueueThirdTask,
   mergingTask,
   ownerActionTask,
   refusedTask,
@@ -245,6 +248,32 @@ test("the Tasks card and the Inbox card show 'Merge queue · 2 of 4' for a task 
 
   const unqueuedInboxRow = page.getByRole("listitem").filter({ hasText: "Unqueued task" });
   await expect(unqueuedInboxRow.getByText("Merge queue")).toHaveCount(0);
+});
+
+test("Waiting and Ready to merge show the queued tasks first, in the order of the queue, and then the tasks with no place", async ({
+  page,
+}) => {
+  await routeTasks(page, [...boardTasks, mergeQueueHeadTask, mergeQueueThirdTask, mergeQueueTask]);
+  await page.goto("/tasks");
+
+  const waiting = page.getByRole("region", { name: "Waiting" }).getByRole("listitem");
+  await expect(waiting).toContainText([
+    "Show the plan limit on the invoice list",
+    "Replace the old plan table",
+    "Add the invoice export",
+  ]);
+  await expect(waiting.first().getByText("Merges next · 1 of 4")).toBeVisible();
+  await expect(waiting.getByText("Merge queue")).toHaveCount(0);
+
+  const ready = page.getByRole("region", { name: "Ready to merge" }).getByRole("listitem");
+  await expect(ready).toContainText([
+    "Show the plan limit on the invoice",
+    "Show the plan limit on the receipt",
+    "Remind the customer about the renewal",
+  ]);
+  await expect(ready.nth(0).getByText("Merge queue · 2 of 4")).toBeVisible();
+  await expect(ready.nth(1).getByText("Merge queue · 3 of 4")).toBeVisible();
+  await expect(ready.nth(2).getByText(/Merge/)).toHaveCount(0);
 });
 
 test("on a desktop the six columns fit the page", async ({ page }) => {
