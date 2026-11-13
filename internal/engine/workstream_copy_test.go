@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
+	"github.com/Mobius-Toolkit/Mobius/internal/store"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
@@ -62,7 +63,9 @@ func copiedWorkstreams(t *testing.T, server *testserver.Server) []copiedWorkstre
 	t.Helper()
 	return query(t, server, func(rows *sql.Rows, w *copiedWorkstream) error {
 		return rows.Scan(&w.Number, &w.Title, &w.Body, &w.Autopilot)
-	}, "SELECT number, title, body, autopilot FROM copied_workstreams WHERE repository = ? ORDER BY number", shop)
+	}, `SELECT c.number, c.title, c.body, s.autopilot FROM copied_workstreams c
+		JOIN workstreams s ON s.repository = c.repository AND s.number = c.number
+		WHERE c.repository = ? ORDER BY c.number`, shop)
 }
 
 func workstreamNumbers(t *testing.T, server *testserver.Server) []int64 {
@@ -376,7 +379,7 @@ func TestTheFullSyncForgetsTheRowsOfARepositoryThatIsNotPolled(t *testing.T) {
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
 
-	server := startServer(t, fake, t.TempDir(), `INSERT INTO copied_workstreams (repository, number, title, body, autopilot) VALUES ('owner/gone', 5, 'An old Workstream', '', 0)`)
+	server := startServer(t, fake, t.TempDir(), `INSERT INTO copied_workstreams (repository, number, title, body) VALUES ('owner/gone', 5, 'An old Workstream', '')`)
 	server.WaitForFirstPoll(t, shop)
 
 	var stale int
@@ -701,6 +704,77 @@ func TestARepositoryWithAFailedUpdateGetsAFullCopyThatSendsAWorkstreamsChange(t 
 	waitForWorkstreams(t, changes)
 	if got := issueNumbers(t, server); !slices.Equal(got, []int64{41, 50, 42}) {
 		t.Errorf("issues = %v", got)
+	}
+}
+
+type workstreamSettings struct {
+	ID          int64
+	Autopilot   bool
+	AutoMerge   bool
+	Evergreen   bool
+	Maintenance bool
+	Skills      bool
+}
+
+func settingsOf(t *testing.T, server *testserver.Server, number int64) []workstreamSettings {
+	t.Helper()
+	return query(t, server, func(rows *sql.Rows, s *workstreamSettings) error {
+		return rows.Scan(&s.ID, &s.Autopilot, &s.AutoMerge, &s.Evergreen, &s.Maintenance, &s.Skills)
+	}, "SELECT id, autopilot, auto_merge, evergreen, maintenance, skills FROM workstreams WHERE repository = ? AND number = ?", shop, number)
+}
+
+func TestAFullCopyAgainKeepsTheRowsOfWorkstreamsAndTheirSettings(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := startWithTasks(t, fake)
+	fake.AddLabel(shop, 12, "mobius:autopilot", "owner")
+	fake.AddLabel(shop, 12, "mobius:evergreen", "owner")
+	testkit.WaitFor(t, func() bool {
+		rows := settingsOf(t, server, 12)
+		return len(rows) == 1 && rows[0].Autopilot && rows[0].Evergreen
+	})
+	want := settingsOf(t, server, 12)
+	fake.FailSubIssues(shop, 12, true)
+	fake.AddSubIssueOf(shop, 12, 42, "Let customers change plans")
+	waitForPoll(t, server, fake)
+	changes := listen(t, server)
+
+	fake.FailSubIssues(shop, 12, false)
+
+	waitForWorkstreams(t, changes)
+	if got := issueNumbers(t, server); !slices.Equal(got, []int64{41, 50, 42}) {
+		t.Fatalf("issues = %v", got)
+	}
+	if got := settingsOf(t, server, 12); !slices.Equal(got, want) {
+		t.Errorf("settings of #12 = %+v, want %+v", got, want)
+	}
+}
+
+func TestTheCloseOfAWorkstreamKeepsItsRowOfWorkstreamsAndLeavesTheAutopilotList(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := startWithTasks(t, fake)
+	fake.AddLabel(shop, 12, "mobius:autopilot", "owner")
+	testkit.WaitFor(t, func() bool { return copiedWorkstreams(t, server)[0].Autopilot })
+	listed := func() []int64 {
+		numbers, err := store.New(server.DB).ListAutopilotWorkstreams(t.Context(), shop)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return numbers
+	}
+	if got := listed(); !slices.Equal(got, []int64{12}) {
+		t.Fatalf("Autopilot Workstreams = %v", got)
+	}
+
+	fake.CloseIssue(shop, 12)
+
+	testkit.WaitFor(t, func() bool { return len(workstreamNumbers(t, server)) == 0 })
+	if got := listed(); len(got) != 0 {
+		t.Errorf("Autopilot Workstreams = %v", got)
+	}
+	if got := settingsOf(t, server, 12); len(got) != 1 {
+		t.Errorf("rows of workstreams for #12 = %+v", got)
 	}
 }
 
