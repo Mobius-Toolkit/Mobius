@@ -39,11 +39,11 @@ func settingField(label string) (string, bool) {
 }
 
 // addOwnWrite stores that the send of change writes the label with the kind of change kind, so the poll finds no
-// incoming change in the event of that write.
-func addOwnWrite(ctx context.Context, q *store.Queries, change store.OutgoingChange, label, kind string) error {
+// incoming change in the event of that write. It gives the id of the row.
+func addOwnWrite(ctx context.Context, q *store.Queries, change store.OutgoingChange, label, kind string) (int64, error) {
 	metadata, err := json.Marshal(map[string]string{"label": label, "change": kind})
 	if err != nil {
-		return err
+		return 0, err
 	}
 	return q.AddOwnWrite(ctx, store.AddOwnWriteParams{
 		Repository: change.Repository,
@@ -98,8 +98,12 @@ func addSettingChanges(ctx context.Context, q *store.Queries, repository github.
 }
 
 // applyIncomingChanges applies each pending incoming change of the repository in the order of the rows, and marks it
-// done. A change that fails stays pending, and holds the later changes until the next poll.
+// done. A change that fails stays pending, and holds the later changes until the next poll. The changes wait while the
+// copy of the repository failed, because the copy adds the row of a new Workstream.
 func (e *Engine) applyIncomingChanges(ctx context.Context, repository github.Repository) error {
+	if !e.copied[repository.FullName] {
+		return nil
+	}
 	changes, err := e.queries.ListPendingIncomingChanges(ctx, repository.FullName)
 	if err != nil {
 		return err

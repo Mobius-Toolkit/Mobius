@@ -797,8 +797,12 @@ UPDATE incoming_changes SET status = 'done' WHERE id = ?;
 -- name: DeleteDoneIncomingChanges :exec
 DELETE FROM incoming_changes WHERE status = 'done' AND julianday(created_at) < julianday(?);
 
--- name: AddOwnWrite :exec
-INSERT INTO own_writes (integration, repository, number, field, metadata, created_at) VALUES ('github', ?, ?, ?, ?, ?);
+-- name: AddOwnWrite :one
+INSERT INTO own_writes (integration, repository, number, field, metadata, created_at) VALUES ('github', ?, ?, ?, ?, ?)
+RETURNING id;
+
+-- name: DeleteOwnWrite :exec
+DELETE FROM own_writes WHERE id = ?;
 
 -- name: DeleteOldestOwnWrite :execrows
 DELETE FROM own_writes

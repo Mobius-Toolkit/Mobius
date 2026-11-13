@@ -889,8 +889,9 @@ func (q *Queries) AddOutgoingChange(ctx context.Context, arg AddOutgoingChangePa
 	return id, err
 }
 
-const addOwnWrite = `-- name: AddOwnWrite :exec
+const addOwnWrite = `-- name: AddOwnWrite :one
 INSERT INTO own_writes (integration, repository, number, field, metadata, created_at) VALUES ('github', ?, ?, ?, ?, ?)
+RETURNING id
 `
 
 type AddOwnWriteParams struct {
@@ -901,15 +902,17 @@ type AddOwnWriteParams struct {
 	CreatedAt  string
 }
 
-func (q *Queries) AddOwnWrite(ctx context.Context, arg AddOwnWriteParams) error {
-	_, err := q.db.ExecContext(ctx, addOwnWrite,
+func (q *Queries) AddOwnWrite(ctx context.Context, arg AddOwnWriteParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, addOwnWrite,
 		arg.Repository,
 		arg.Number,
 		arg.Field,
 		arg.Metadata,
 		arg.CreatedAt,
 	)
-	return err
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const addOwnerAction = `-- name: AddOwnerAction :exec
@@ -2192,6 +2195,15 @@ DELETE FROM device_logins WHERE password_fingerprint != ?
 
 func (q *Queries) DeleteOtherPasswordLogins(ctx context.Context, passwordFingerprint []byte) error {
 	_, err := q.db.ExecContext(ctx, deleteOtherPasswordLogins, passwordFingerprint)
+	return err
+}
+
+const deleteOwnWrite = `-- name: DeleteOwnWrite :exec
+DELETE FROM own_writes WHERE id = ?
+`
+
+func (q *Queries) DeleteOwnWrite(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, deleteOwnWrite, id)
 	return err
 }
 

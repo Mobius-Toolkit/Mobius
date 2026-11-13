@@ -461,7 +461,8 @@ func (e *Engine) sendSetting(ctx context.Context, repository github.Repository, 
 		if on {
 			kind = labeledChange
 		}
-		if err := addOwnWrite(ctx, e.queries, change, label, kind); err != nil {
+		ownWrite, err := addOwnWrite(ctx, e.queries, change, label, kind)
+		if err != nil {
 			return false, err
 		}
 		if on {
@@ -470,6 +471,9 @@ func (e *Engine) sendSetting(ctx context.Context, repository github.Repository, 
 			err = repository.RemoveLabel(ctx, change.Number, label)
 		}
 		if err != nil {
+			if err := e.queries.DeleteOwnWrite(ctx, ownWrite); err != nil {
+				return false, err
+			}
 			return e.failed(ctx, repository, change, err)
 		}
 	}

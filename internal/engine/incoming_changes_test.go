@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"net/http"
 	"slices"
 	"strings"
 	"testing"
@@ -131,5 +132,69 @@ func TestTheHousekeeperDeletesADoneIncomingChangeAndAnOwnWriteOlderThan24HoursAn
 	testkit.WaitFor(t, func() bool { return incomingChanges(t, server, "done") == 0 && ownWrites(t, server) == 0 })
 	if got := incomingChanges(t, server, "pending"); got != 1 {
 		t.Errorf("pending incoming changes = %d", got)
+	}
+}
+
+func TestAFailedLabelWriteLeavesNoOwnWriteAndALaterWriteOfTheLeadIsWrittenBack(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	fake.AddLabel(shop, 12, evergreenLabel, "owner")
+	server := startCopiedWithLead(t, fake)
+	setEvergreenOf(t, server, false)
+	testkit.WaitFor(t, func() bool { return !slices.Contains(fake.Labels(shop, 12), evergreenLabel) })
+	testkit.WaitFor(t, func() bool { return ownWrites(t, server) == 0 })
+	fake.FailAddLabels(shop, 12, true)
+
+	setEvergreenOf(t, server, true)
+
+	waitForPolls(t, fake)
+	if got := ownWrites(t, server); got != 0 {
+		t.Errorf("own writes = %d", got)
+	}
+	fake.FailAddLabels(shop, 12, false)
+	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Labels(shop, 12), evergreenLabel) })
+	testkit.WaitFor(t, func() bool { return ownWrites(t, server) == 0 })
+	waitForPolls(t, fake)
+	if got := incomingChanges(t, server, "pending") + incomingChanges(t, server, "done"); got != 0 {
+		t.Errorf("incoming changes = %d", got)
+	}
+}
+
+func TestATrustedChangeWaitsForTheCopyOfTheRepositoryAndThenChangesTheNewWorkstream(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	server := startCopiedWithLead(t, fake)
+	fake.FailSubIssues(shop, 13, true)
+	fake.AddIssue(shop, 13, "Price rounding")
+	fake.AddLabel(shop, 13, "mobius:autopilot", "owner")
+	fake.AddLabel(shop, 13, "mobius:workstream", "owner")
+
+	testkit.WaitFor(t, func() bool { return incomingChanges(t, server, "pending") == 1 })
+	waitForPolls(t, fake)
+	if got := incomingChanges(t, server, "pending"); got != 1 {
+		t.Errorf("pending incoming changes = %d", got)
+	}
+	fake.FailSubIssues(shop, 13, false)
+
+	testkit.WaitFor(t, func() bool { return incomingChanges(t, server, "done") == 1 })
+	testkit.WaitFor(t, func() bool {
+		return slices.ContainsFunc(workstreams(t, server), func(w workstream) bool { return w.Number == 13 && w.Autopilot == "start" })
+	})
+	waitForPolls(t, fake)
+	if !slices.Contains(fake.Labels(shop, 13), "mobius:autopilot") {
+		t.Errorf("labels = %v", fake.Labels(shop, 13))
+	}
+}
+
+func setEvergreenOf(t *testing.T, server *testserver.Server, on bool) {
+	t.Helper()
+	body := `{"on":false}`
+	if on {
+		body = `{"on":true}`
+	}
+	if status, text := send(t, server, http.MethodPut, "/api/workstreams/owner/shop/12/evergreen", body); status != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", status, text)
 	}
 }
