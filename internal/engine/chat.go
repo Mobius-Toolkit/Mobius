@@ -156,6 +156,21 @@ type ChatView struct {
 type item struct {
 	message *store.ChatMessage
 	event   *store.LeadEvent
+	// ci tells that event is the event of a CI fix issue (the view ci_fix_issues).
+	ci bool
+}
+
+// eventItem makes the item of event.
+func (e *Engine) eventItem(ctx context.Context, event store.LeadEvent) (item, error) {
+	ci := false
+	if event.Issue.Valid {
+		var err error
+		ci, err = e.queries.IsCIFixIssue(ctx, store.IsCIFixIssueParams{Repository: event.IssueRepository, Issue: event.Issue.Int64})
+		if err != nil {
+			return item{}, err
+		}
+	}
+	return item{event: &event, ci: ci}, nil
 }
 
 // chat is a running Lead chat or Coordinator chat. One goroutine runs its sessions, one after the other.
@@ -372,8 +387,19 @@ func afterOwnerMessages(queue []item) int {
 	return 0
 }
 
+// afterCIEvents returns the index after the last message of the Owner or CI fix event in queue.
+func afterCIEvents(queue []item) int {
+	for index := len(queue); index > 0; index-- {
+		if isOwnerMessage(queue[index-1]) || queue[index-1].ci {
+			return index
+		}
+	}
+	return 0
+}
+
 // give gives the items to the chat of key, and starts the chat when none runs. A new chat gets the messages of the
-// chat that wait after a failure first. tracked tells that the drain counts the first session of a new chat from a
+// chat that wait after a failure first. A running chat puts a message of the Owner after its earlier messages of the
+// Owner, and a CI fix event after the messages of the Owner and the earlier CI fix events. tracked tells that the drain counts the first session of a new chat from a
 // tryTrack of the caller. The caller holds e.chatOrder.
 func (e *Engine) give(key ChatKey, tracked bool, items ...item) {
 	e.chatsMu.Lock()
@@ -393,6 +419,8 @@ func (e *Engine) give(key ChatKey, tracked bool, items ...item) {
 		for _, queued := range items {
 			if isOwnerMessage(queued) {
 				c.queue = slices.Insert(c.queue, afterOwnerMessages(c.queue), queued)
+			} else if queued.ci {
+				c.queue = slices.Insert(c.queue, afterCIEvents(c.queue), queued)
 			} else {
 				c.queue = append(c.queue, queued)
 			}
@@ -559,7 +587,11 @@ func (e *Engine) sendEvents(ctx context.Context, repository string, workstream i
 		if isQuietEvent(event) {
 			continue
 		}
-		items = append(items, item{event: &event})
+		queued, err := e.eventItem(ctx, event)
+		if err != nil {
+			return err
+		}
+		items = append(items, queued)
 	}
 	if len(items) == 0 {
 		return nil
@@ -901,6 +933,9 @@ func (e *Engine) runChat(c *chat) {
 	crashes := 0
 	spec, err := e.chatSpec(c.key)
 	spec.Tracked = c.tracked
+	e.chatsMu.Lock()
+	spec.CIFix = c.first.ci
+	e.chatsMu.Unlock()
 	if err != nil {
 		if c.tracked {
 			e.untrack()
@@ -1587,7 +1622,11 @@ func (e *Engine) freeEvents(ctx context.Context, repository string, workstream i
 		if slices.ContainsFunc(freed, func(other store.LeadEvent) bool {
 			return other.ID == event.ID || other.Issue.Valid && other.Issue == event.Issue
 		}) {
-			affected = append(affected, item{event: &event})
+			queued, err := e.eventItem(ctx, event)
+			if err != nil {
+				return nil, err
+			}
+			affected = append(affected, queued)
 		}
 	}
 	return affected, nil

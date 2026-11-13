@@ -144,7 +144,8 @@ type slotWait struct {
 	held bool
 }
 
-// waiter is a queued session with no task. ci tells that its issue is a CI fix issue.
+// waiter is a queued session with no task. ci tells that its issue is a CI fix issue, or that it is the Lead session
+// of a CI fix event (Spec.CIFix).
 type waiter struct {
 	since   time.Time
 	session int64
@@ -262,8 +263,8 @@ func (e *Engine) takeSlot(ctx context.Context, a *Agent) error {
 	w := &e.workers
 	role, task := a.spec.Role, a.spec.Task
 	worker := workerRoles[role]
-	place := waiter{since: time.Now(), session: a.id}
-	if task == 0 && a.spec.Issue.Valid {
+	place := waiter{since: time.Now(), session: a.id, ci: a.spec.CIFix}
+	if task == 0 && a.spec.Issue.Valid && !place.ci {
 		var err error
 		place.ci, err = e.queries.IsCIFixIssue(ctx, store.IsCIFixIssueParams{Repository: a.spec.Repository, Issue: a.spec.Issue.Int64})
 		if err != nil {

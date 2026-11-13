@@ -8531,7 +8531,8 @@ WHERE event.repository = ? AND event.workstream = ? AND event.delivered_at IS NU
         AND earlier.issue_repository = event.issue_repository
         AND earlier.id < event.id AND earlier.delivered_at IS NULL AND earlier.held = 1
   )
-ORDER BY event.id
+ORDER BY EXISTS (SELECT 1 FROM ci_fix_issues AS fix WHERE fix.repository = event.issue_repository AND fix.issue = event.issue) DESC,
+  event.id
 `
 
 type ListReadyLeadEventsParams struct {
@@ -8539,7 +8540,7 @@ type ListReadyLeadEventsParams struct {
 	Workstream int64
 }
 
-// A held event holds each later event of its task issue.
+// A held event holds each later event of its task issue. The events of CI fix issues come first.
 func (q *Queries) ListReadyLeadEvents(ctx context.Context, arg ListReadyLeadEventsParams) ([]LeadEvent, error) {
 	rows, err := q.db.QueryContext(ctx, listReadyLeadEvents, arg.Repository, arg.Workstream)
 	if err != nil {

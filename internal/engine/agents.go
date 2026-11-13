@@ -56,6 +56,9 @@ type Spec struct {
 	PullRequest int64
 	// Continues tells that the Implementer round can continue the kept session of its task.
 	Continues bool
+	// CIFix tells that the Lead session of a new Lead chat starts for the event of a CI fix issue, so it waits for its
+	// slot at the CI rank.
+	CIFix bool
 	// Tracked tells that the drain counts the session from a tryTrack of the caller.
 	Tracked bool
 	// Dir is the working directory of the agent. With an empty Dir, Start makes scratch/<session id> below the data
