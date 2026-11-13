@@ -73,15 +73,32 @@ func (e *Engine) declineComments(ctx context.Context, repository github.Reposito
 		if answered {
 			continue
 		}
-		_, err = repository.AddComment(ctx, number, reply)
-		if err := e.keepRefusedReply(ctx, repository, number, 0, reply, err); err != nil {
-			return err
-		}
-		if err := e.markCommentAnswered(ctx, repository, false, comment.GetID()); err != nil {
+		if err := e.replyToComment(ctx, repository, number, 0, reply, false, comment.GetID()); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// replyToComment adds the reply to the comment as an outgoing change, and marks the comment as answered in the same
+// transaction. It sends the reply at once. A reply to a review comment goes in the thread that starts with root.
+func (e *Engine) replyToComment(ctx context.Context, repository github.Repository, number, root int64, reply string, review bool, comment int64) error {
+	field := commentField
+	if review {
+		field = replyField
+	}
+	var id int64
+	err := e.inTx(ctx, func(q *store.Queries) error {
+		var err error
+		if id, err = e.addOutgoingChange(ctx, q, repository.FullName, number, root, field, reply); err != nil {
+			return err
+		}
+		return q.MarkCommentAnswered(ctx, store.MarkCommentAnsweredParams{Repository: repository.FullName, Review: review, Comment: comment})
+	})
+	if err != nil {
+		return err
+	}
+	return e.sendNow(ctx, repository, id)
 }
 
 // declineReviewComment adds the reaction of a refusal to the review comment, and replies with reply in its thread. The
@@ -101,19 +118,11 @@ func (e *Engine) declineReviewComment(ctx context.Context, repository github.Rep
 	if root == 0 {
 		root = comment.GetID()
 	}
-	err = repository.ReplyToReviewComment(ctx, number, root, reply)
-	if err := e.keepRefusedReply(ctx, repository, number, root, reply, err); err != nil {
-		return err
-	}
-	return e.markCommentAnswered(ctx, repository, true, comment.GetID())
+	return e.replyToComment(ctx, repository, number, root, reply, true, comment.GetID())
 }
 
 func (e *Engine) commentAnswered(ctx context.Context, repository github.Repository, review bool, id int64) (bool, error) {
 	return e.queries.IsCommentAnswered(ctx, store.IsCommentAnsweredParams{Repository: repository.FullName, Review: review, Comment: id})
-}
-
-func (e *Engine) markCommentAnswered(ctx context.Context, repository github.Repository, review bool, id int64) error {
-	return e.queries.MarkCommentAnswered(ctx, store.MarkCommentAnsweredParams{Repository: repository.FullName, Review: review, Comment: id})
 }
 
 // answerReviewComments declines each review comment of a trusted user that is not in an open thread, and gives the

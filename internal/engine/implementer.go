@@ -486,7 +486,7 @@ func replaceCheckRun(ctx context.Context, repository github.Repository, head str
 // approvalAgainComment gives the comment of the approval again. Mobius writes it, so it has no role mark. reportHead
 // is the head whose approval has report. The comment keeps the end of a report that is too long for GitHub.
 func approvalAgainComment(branch, head, approved, reportHead, report string) string {
-	header := fmt.Sprintf("Mobius approved the head %.8s again. Only clean merges of %s came after the head %.8s, and they change no file of the pull request. The report of the approval of %.8s:\n\n", head, branch, approved, reportHead)
+	header := fmt.Sprintf("Mobius approved the head %.8s again. Only clean merges of %s came after the head %.8s, and the changed lines of the pull request are the same. The report of the approval of %.8s:\n\n", head, branch, approved, reportHead)
 	return header + tail(report, commentLimit-utf8.RuneCountInString(header))
 }
 

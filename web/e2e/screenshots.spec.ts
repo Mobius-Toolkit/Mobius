@@ -1169,6 +1169,31 @@ test("screenshots", async ({ page }) => {
       await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
     },
   );
+  // The engine closes the kept session of plants/garden#85 at 10:30 UTC, 42 minutes after this time.
+  await page.clock.setFixedTime("2026-09-28T09:48:00Z");
+  await screenshot(
+    page,
+    "chat-agents-kept",
+    "/workstreams/plants/garden/11",
+    (device) => [
+      ...(device === "desktop"
+        ? [drain, page.getByLabel("Work in another organization")]
+        : [page.getByLabel("Upgrade available")]),
+      page.getByText(/closes in 42 min/).filter({ visible: true }),
+      page.getByText("kept", { exact: true }).filter({ visible: true }),
+    ],
+    async (device) => {
+      if (device === "phone") {
+        await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
+      }
+      await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
+      await page
+        .getByText(/closes in 42 min/)
+        .filter({ visible: true })
+        .scrollIntoViewIfNeeded();
+    },
+  );
+  await page.clock.setFixedTime(fixedTime);
   await screenshot(
     page,
     "chat-tasks",
@@ -2305,6 +2330,22 @@ test("screenshots", async ({ page }) => {
         .filter({ visible: true })
         .click();
       await logConnected(page);
+      const last = page.getByText("The plan prices are in cents now.").filter({ visible: true });
+      await expect
+        .poll(() =>
+          last.evaluate((el) => {
+            const list = el.closest("ul[data-version]");
+            if (
+              !list ||
+              !list.lastElementChild?.textContent?.includes("The plan prices are in cents now.")
+            ) {
+              return false;
+            }
+            list.scrollTop = list.scrollHeight;
+            return list.scrollHeight - list.scrollTop - list.clientHeight < 1;
+          }),
+        )
+        .toBe(true);
     },
   );
   await screenshot(page, "agents", "/agents", (device) => [
@@ -3384,11 +3425,15 @@ test("screenshots", async ({ page }) => {
       panel.getByRole("alert").getByText(/#9999 is not an open Workstream/),
       cardOf(page, unknownTitle).getByText("Failed", { exact: true }),
       cardOf(page, unknownTitle).getByText(/#9999 is not an open Workstream/),
+      // A tray read that comes before the failure closes the panel, and the panel opens again with the focus on the
+      // dialog. A read after the failure keeps the panel, and the note keeps the focus.
+      () => expect.poll(() => note.evaluate((field) => field.matches(":focus"))).toBe(false),
     ],
     async () => {
       await answer(unknownTitle, "Go ahead.")();
       await panel.getByRole("button", { name: "Approve" }).click();
       await expect(panel.getByRole("alert")).toBeVisible();
+      await note.blur();
       await page.mouse.move(0, 0);
       await idle(page);
       await showEnd(unknownTitle)();

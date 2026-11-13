@@ -224,7 +224,7 @@ func TestAnApprovalAgainAfterAnApprovalOfMobiusUsesTheReportOfMobius(t *testing.
 	if updated == reviewed {
 		t.Fatalf("the head did not change: %s", updated)
 	}
-	want := fmt.Sprintf("Mobius approved the head %.8s again. Only clean merges of main came after the head %.8s, and they change no file of the pull request. The report of the approval of %.8s:\n\n%s", updated, reviewed, reviewed, autoApprovedReport(reviewed))
+	want := fmt.Sprintf("Mobius approved the head %.8s again. Only clean merges of main came after the head %.8s, and the changed lines of the pull request are the same. The report of the approval of %.8s:\n\n%s", updated, reviewed, reviewed, autoApprovedReport(reviewed))
 	comments := fake.Comments(shop, 42)
 	if !slices.ContainsFunc(comments, func(comment testkit.Comment) bool { return comment.Body == want }) {
 		t.Errorf("no comment %q in %+v", want, comments)
