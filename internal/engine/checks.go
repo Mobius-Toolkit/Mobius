@@ -39,35 +39,6 @@ const (
 	dispatchReminder = 2 * time.Hour
 )
 
-// screenshotsState is the state of the screenshots section of the description of a pull request.
-type screenshotsState int
-
-const (
-	screenshotsNone screenshotsState = iota
-	screenshotsUnchanged
-	screenshotsPending
-	screenshotsChanged
-)
-
-// screenshotsOf gives the state of the screenshots section of body. The workflow .github/workflows/screenshots.yml
-// writes the text of the section: "The screenshots are pending." at each new head, then "No screen changed.", "The
-// screenshots failed." or a table of the changed screens. The engine compares these texts.
-func screenshotsOf(body string) screenshotsState {
-	start, end, found := sectionBounds(body, screenshotsStart, screenshotsEnd)
-	if !found {
-		return screenshotsNone
-	}
-	text := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(body[start:end], screenshotsStart), screenshotsEnd))
-	text = strings.TrimSpace(strings.TrimPrefix(text, "### UI screenshots"))
-	switch {
-	case text == "No screen changed.":
-		return screenshotsUnchanged
-	case strings.HasPrefix(text, "The screenshots are pending."):
-		return screenshotsPending
-	}
-	return screenshotsChanged
-}
-
 // ciWait is the head that the poll saw first at a time, for a task in checks.
 type ciWait struct {
 	head  string
@@ -128,6 +99,14 @@ func ciItems(ctx context.Context, repository github.Repository, head string) (st
 		items.WriteString("\nAction: fix\n")
 	}
 	return items.String(), nil
+}
+
+// neutralCheckRuns gives the completed check runs of other Apps with the conclusion neutral. Such a check run asks for
+// a person to look at the head.
+func neutralCheckRuns(runs []*gh.CheckRun) []*gh.CheckRun {
+	return slices.DeleteFunc(slices.Clone(runs), func(run *gh.CheckRun) bool {
+		return run.GetName() == checkRunName || run.GetStatus() != "completed" || run.GetConclusion() != "neutral"
+	})
 }
 
 // onFailure starts a fix round when check runs of other Apps failed on the head of the pull request of the task in
@@ -200,7 +179,6 @@ func (e *Engine) onChecks(ctx context.Context, repository github.Repository, tas
 	if err := e.retryCancelledRuns(ctx, repository, pullRequest, state); err != nil {
 		return err
 	}
-	screenshots := screenshotsOf(pullRequest.GetBody())
 	switch {
 	case task.RerunHead.String == head && (state.running || len(rerunWaiting(task, state)) > 0):
 		return e.onLongCIWait(ctx, repository, task, pullRequest, append(state.incomplete, rerunWaiting(task, state)...))
@@ -228,8 +206,6 @@ func (e *Engine) onChecks(ctx context.Context, repository github.Repository, tas
 		return e.onLongCIWait(ctx, repository, task, pullRequest, incomplete)
 	case state.absent && !e.quietPeriodEnded(task.ID, head):
 		return nil
-	case screenshots == screenshotsPending:
-		return e.onLongCIWait(ctx, repository, task, pullRequest, []string{"screenshots"})
 	}
 	issue, err := existingIssue(ctx, repository, task.Issue)
 	if err != nil {
@@ -246,11 +222,11 @@ func (e *Engine) onChecks(ctx context.Context, repository github.Repository, tas
 	if err != nil {
 		return err
 	}
-	readyText, err := readyForApprovalText(ctx, repository, task, issue, pullRequest, approvedHead, state.checkRuns, screenshots == screenshotsChanged)
+	readyText, err := readyForApprovalText(ctx, repository, task, issue, pullRequest, approvedHead, state.checkRuns)
 	if err != nil {
 		return err
 	}
-	reviewed := !again && task.ReviewedHead.String == head && !hasLabel(issue, questionLabel) && screenshots != screenshotsChanged
+	reviewed := !again && task.ReviewedHead.String == head && !hasLabel(issue, questionLabel) && len(neutralCheckRuns(state.checkRuns)) == 0
 	var level string
 	var checkRun int64
 	if again || reviewed {
@@ -316,7 +292,7 @@ func (e *Engine) approvedByPoll(ctx context.Context, repository github.Repositor
 }
 
 // readyForApprovalText gives the text of the event ready_for_approval for the head of the pull request.
-func readyForApprovalText(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue, pullRequest *gh.PullRequest, approvedHead string, runs []*gh.CheckRun, screensChanged bool) (string, error) {
+func readyForApprovalText(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue, pullRequest *gh.PullRequest, approvedHead string, runs []*gh.CheckRun) (string, error) {
 	head := pullRequest.GetHead().GetSHA()
 	var ciParts []string
 	for _, run := range runs {
@@ -343,8 +319,11 @@ func readyForApprovalText(ctx context.Context, repository github.Repository, tas
 	}
 	text := fmt.Sprintf("%s ready for Lead approval of %s \"%s\": pull request %s %s.", time.Now().UTC().Format(timeFormat), taskEventRef(task, task.Issue), issue.GetTitle(), taskEventRef(task, int64(pullRequest.GetNumber())), pullRequest.GetHTMLURL()) + approvedHead
 	text += fmt.Sprintf("\n%s\n%s", ciLine, filesLine)
-	if screensChanged {
-		text += "\nThe screenshots section of the pull request shows changed screens, or the screenshots failed. Compare each changed screen with the issue before the approval."
+	if neutral := neutralCheckRuns(runs); len(neutral) > 0 {
+		for _, run := range neutral {
+			text += fmt.Sprintf("\n%s: %s %s", run.GetName(), run.GetOutput().GetTitle(), run.GetHTMLURL())
+		}
+		text += "\nA person must look at these checks before the approval."
 	}
 	return text, nil
 }

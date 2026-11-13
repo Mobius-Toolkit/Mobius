@@ -118,7 +118,6 @@ type FakeGitHub struct {
 	graphqlPageSize  int
 	pullRequestReads int
 	singlePullReads  map[issueKey]int
-	pullBodies       map[issueKey]string
 	repositoryLabels map[labelKey]Label
 	labelPatches     []labelKey
 	notModified      int
@@ -222,6 +221,8 @@ type FakeGitHub struct {
 	reviewRead        bool
 	// lateCheckRun is added at the end of the next request for the check runs of its commit.
 	lateCheckRun *checkRun
+	// checkRunAfterUpdate is added on the merge commit of the next update of a branch.
+	checkRunAfterUpdate *checkRun
 	// lateFailure completes a check run and a workflow run with a failure at the end of the next request for the check
 	// runs of its commit.
 	lateFailure *lateFailure
@@ -347,7 +348,6 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		mergedHeads:             map[issueKey]string{},
 		unknownMergeable:        map[issueKey]bool{},
 		singlePullReads:         map[issueKey]int{},
-		pullBodies:              map[issueKey]string{},
 		annotations:             map[int64][]annotationJSON{},
 		cloneURLs:               map[string]string{},
 		checkRunApps:            map[int64]string{},
