@@ -24,12 +24,14 @@ import (
 
 // The Apps of the fake GitHub. Both Apps sign with AppPrivateKey.
 const (
-	AppID           int64 = 7
-	AppSlug               = "mobius-test"
-	AppClientID           = "Iv23test"
-	AppClientSecret       = "client-secret"
-	SecondAppID     int64 = 8
-	SecondAppSlug         = "mobius-second"
+	AppID                 int64 = 7
+	AppSlug                     = "mobius-test"
+	AppClientID                 = "Iv23test"
+	AppClientSecret             = "client-secret"
+	SecondAppID           int64 = 8
+	SecondAppSlug               = "mobius-second"
+	SecondAppClientID           = "Iv23second"
+	SecondAppClientSecret       = "second-client-secret"
 )
 
 // AppPrivateKey is a test key with no use outside the tests.
@@ -47,7 +49,7 @@ type githubApp struct {
 // The manifest conversions create the Apps in this order. The installation id of an App is its index plus 1.
 var apps = []githubApp{
 	{AppID, AppSlug, AppClientID, AppClientSecret},
-	{SecondAppID, SecondAppSlug, "Iv23second", "second-client-secret"},
+	{SecondAppID, SecondAppSlug, SecondAppClientID, SecondAppClientSecret},
 }
 
 const botUserID = 41898282

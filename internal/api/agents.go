@@ -36,6 +36,8 @@ type Agent struct {
 	Workstream int64 `gork:"workstream"`
 	// Issue is the one issue that the session works on, or null
 	Issue *int64 `gork:"issue"`
+	// IssueTitle is the title of the issue of the session, or null when the session has no issue or the store has no copy of the issue
+	IssueTitle *string `gork:"issueTitle"`
 	// Parent is the id of the session of the agent that started this session, or null
 	Parent *int64 `gork:"parent"`
 	// StartedAt is the start of the session
@@ -291,6 +293,9 @@ func (h *handlers) agentOf(ctx context.Context, node engine.Node) (Agent, error)
 		agent.KeptUntil = &node.KeptUntil
 	}
 	var err error
+	if agent.IssueTitle, err = h.engine.SessionIssueTitle(ctx, session); err != nil {
+		return Agent{}, err
+	}
 	if agent.PausedUntil, err = h.engine.PausedUntil(ctx, session); err != nil {
 		return Agent{}, err
 	}

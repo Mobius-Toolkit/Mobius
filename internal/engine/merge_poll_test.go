@@ -2,6 +2,7 @@ package engine_test
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -39,18 +40,47 @@ func queueBehindAnUpdate(t *testing.T, fake *testkit.FakeGitHub, first, second i
 	// The prompt of the second message holds the first message, so the entry of the second approval comes first.
 	lead := approveAgain([]int{41, 43}, first) + approveEntry(second) + approveEntry(first) + queueLead
 	server, _ := queueTasksWith(t, fake, lead, "merge", []int{41, 43})
+	step := "the start of the queue"
+	t.Cleanup(func() {
+		if t.Failed() && step != "" {
+			t.Logf("the wait for %s failed:\n%s", step, queueStates(t, server, fake))
+		}
+	})
 	commitQueueFiles(fake, commonFiles...)
 	fake.HoldBranchUpdates()
 
 	sendChat(t, server, leadChat, fmt.Sprintf("Approve #%d", first))
+	step = fmt.Sprintf("the queue place of #%d", first)
 	testkit.WaitFor(t, func() bool { return liveTask(t, server, int64(first)).MergeQueuedAt.Valid })
 	sendChat(t, server, leadChat, fmt.Sprintf("Approve #%d", second))
+	step = fmt.Sprintf("the queue place of #%d", second)
 	testkit.WaitFor(t, func() bool { return liveTask(t, server, int64(second)).MergeQueuedAt.Valid })
+	step = "the first branch update"
 	testkit.WaitFor(t, func() bool { return fake.UpdateBranchCalls() >= 1 })
 	fake.ReleaseBranchUpdates()
 
+	step = fmt.Sprintf("the end of #%d", first)
 	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, int64(first)) == "" })
+	step = ""
 	return server
+}
+
+// queueStates gives a line for each of the issues 41 and 43 with the state of its live task, its queue time, its
+// approved and refused review, and the head of its branch.
+func queueStates(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHub) string {
+	t.Helper()
+	var states strings.Builder
+	for _, issue := range []int{41, 43} {
+		var state, queuedAt, approved, refused string
+		err := server.DB.QueryRow("SELECT state, coalesce(merge_queued_at, ''), coalesce(approved_review, ''), coalesce(refused_review, '') FROM tasks WHERE issue = ? AND state <> 'ended'", issue).
+			Scan(&state, &queuedAt, &approved, &refused)
+		if err != nil {
+			state = err.Error()
+		}
+		fmt.Fprintf(&states, "#%d: state %q, MergeQueuedAt %q, approved review %q, refused review %q, head %s\n",
+			issue, state, queuedAt, approved, refused, head(t, fake, fmt.Sprintf("mobius/%d", issue)))
+	}
+	return states.String()
 }
 
 // checkMergedAndEnded checks that the issue of first closed in the same poll as the merge of its pull request. It gives

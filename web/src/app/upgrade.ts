@@ -101,7 +101,7 @@ export function renderUpgradeControls(h: HtmlBuilder<Message>, model: Model): Ht
       renderButton(h, {
         variant: "secondary",
         label: "New version",
-        onClick: Message.NavigateRequested({ path: window.location.pathname }),
+        onClick: Message.ReloadRequested(),
       }),
     );
   }

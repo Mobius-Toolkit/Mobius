@@ -45,20 +45,30 @@ func (e *Engine) addInboxItem(ctx context.Context, params store.AddInboxItemPara
 // addQuestion adds a chat message with the text of the question item to the chat of the item, then the item with a link
 // to the message, and sends both to the listeners.
 func (e *Engine) addQuestion(ctx context.Context, params store.AddInboxItemParams) (store.InboxItem, error) {
-	key := ChatKey{params.Organization, params.WorkstreamRepository, params.Workstream}
-	message, err := e.addChatMessage(ctx, key, questionAuthor, params.Text, "", "", nil, nil, false)
-	if err != nil {
-		return store.InboxItem{}, err
-	}
-	params.ChatMessage = sql.NullInt64{Int64: message.ID, Valid: true}
-	params.Time = now()
-	item, err := e.queries.AddInboxItem(ctx, params)
+	item, message, err := e.storeQuestion(ctx, e.queries, params)
 	if err != nil {
 		return item, err
 	}
+	return item, e.announceQuestion(ctx, item, message)
+}
+
+// storeQuestion writes the chat message and the item of addQuestion with q, and sends them to no listener.
+func (e *Engine) storeQuestion(ctx context.Context, q *store.Queries, params store.AddInboxItemParams) (store.InboxItem, store.ChatMessage, error) {
+	key := ChatKey{params.Organization, params.WorkstreamRepository, params.Workstream}
+	message, err := e.storeChatMessage(ctx, q, key, questionAuthor, params.Text, "", "", nil, nil, false)
+	if err != nil {
+		return store.InboxItem{}, message, err
+	}
+	params.ChatMessage = sql.NullInt64{Int64: message.ID, Valid: true}
+	params.Time = now()
+	item, err := q.AddInboxItem(ctx, params)
+	return item, message, err
+}
+
+func (e *Engine) announceQuestion(ctx context.Context, item store.InboxItem, message store.ChatMessage) error {
 	e.publish(Change{Inbox: &item})
 	e.publish(Change{Message: &message})
-	return item, e.publishUnread(ctx, key)
+	return e.publishUnread(ctx, ChatKey{item.Organization, item.WorkstreamRepository, item.Workstream})
 }
 
 // Inbox gives the Inbox items that the Owner did not dismiss, the oldest first.
@@ -77,6 +87,8 @@ func (e *Engine) Inbox(ctx context.Context) ([]store.InboxItem, error) {
 //
 // When a question is done and the task of its issue is still stopped, the newest stopped item of the stop opens again.
 func (e *Engine) closeInboxItems(ctx context.Context, repository github.Repository) error {
+	e.questionMu.Lock()
+	defer e.questionMu.Unlock()
 	items, err := e.Inbox(ctx)
 	if err != nil {
 		return err
