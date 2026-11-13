@@ -897,8 +897,14 @@ func TestMergeQueuePlacesOnBoardTasksAndInboxItems(t *testing.T) {
 
 	fake.ReleaseBranchUpdates()
 
-	// The Lead approves the new head of task 41 again, and task 41 leaves the queue.
-	testkit.WaitFor(t, func() bool { return !liveTask(t, server, 41).MergeQueuedAt.Valid })
+	// The Lead approves the new head of task 41 again, and task 41 leaves the queue. It can merge and end in the same poll.
+	testkit.WaitFor(t, func() bool {
+		var queued int
+		if err := server.DB.QueryRow("SELECT count(*) FROM tasks WHERE repository = ? AND issue = 41 AND state <> 'ended' AND merge_queued_at IS NOT NULL", shop).Scan(&queued); err != nil {
+			t.Fatal(err)
+		}
+		return queued == 0
+	})
 
 	<-reached43
 
