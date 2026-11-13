@@ -17,6 +17,7 @@ import {
   rowClass,
 } from "@/ui/page";
 import { renderSwitch } from "@/ui/switch";
+import * as WorkstreamSetup from "@/workstreamSetup/view";
 import { Message } from "./message";
 import {
   fixButtonOf,
@@ -319,69 +320,21 @@ function renderLabels(h: H, model: Model): Html {
   );
 }
 
-function renderCreate(h: H, model: Model, kind: "maintenance" | "skills"): Html {
-  return renderButton(h, {
-    label: "Create",
-    size: "sm",
-    variant: "outline",
-    pending: Option.exists(model.creating, (creating) => creating === kind),
-    onClick: Message.ClickedCreate({ kind }),
-  });
-}
-
 function renderWorkstreams(h: H, model: Model): Html {
-  const checkup = model.checkups[model.organization];
-  const error = model.checkupError !== "" ? model.checkupError : model.createError;
-  const label = (text: string) => h.span([h.Class("whitespace-nowrap")], [text]);
-  const rows = (found: Checkup) => [
-    found.maintenanceWorkstream > 0
-      ? renderPageLink(h, {
-          key: "maintenance",
-          path: `/workstreams/${found.issueRepository}/${found.maintenanceWorkstream}`,
-          title: label("Maintenance Workstream"),
-          children: [
-            h.span([h.Class("text-muted-foreground")], [`#${found.maintenanceWorkstream}`]),
-          ],
-        })
-      : renderRow(h, "maintenance", "justify-between", [
-          label("Maintenance Workstream"),
-          renderCreate(h, model, "maintenance"),
-        ]),
-    ...(found.skillRepository === ""
-      ? []
-      : [
-          found.skillsWorkstream > 0
-            ? renderPageLink(h, {
-                key: "skills",
-                path: `/workstreams/${found.skillsWorkstreamRepository}/${found.skillsWorkstream}`,
-                title: label("Skills Workstream"),
-                children: [
-                  h.span(
-                    [h.Class("text-muted-foreground")],
-                    [
-                      `${found.skillsWorkstreamRepository === found.issueRepository ? "" : found.skillsWorkstreamRepository}#${found.skillsWorkstream}`,
-                    ],
-                  ),
-                ],
-              })
-            : renderRow(h, "skills", "justify-between", [
-                label("Skills Workstream"),
-                renderCreate(h, model, "skills"),
-              ]),
-        ]),
-  ];
   return renderCard(h, "Workstreams", [
-    error ? renderErrorBadge(h, error) : h.empty,
     h.p(
       [h.Class(cn("text-muted-foreground", inset))],
       [
         "The maintenance Workstream gets each task issue that Mobius creates and the CI failures of the default branch of each repository of the organization. The Skills Workstream gets the skill proposals of the agents. Create opens the chat with a draft for your approval.",
       ],
     ),
-    checkup?.issueRepositoryError ? renderErrorBadge(h, checkup.issueRepositoryError) : h.empty,
-    checkup !== undefined && !checkup.issueRepositoryError
-      ? renderSection(h, checkup.issueRepository, [renderList(h, rows(checkup))])
-      : h.empty,
+    h.submodel({
+      slotId: "workstream-setup",
+      model: model.workstreamSetup,
+      view: WorkstreamSetup.view,
+      viewInputs: { part: "all" },
+      toParentMessage: (message) => Message.GotWorkstreamSetupMessage({ message }),
+    }),
   ]);
 }
 
