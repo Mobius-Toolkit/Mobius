@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { logIn } from "./login.js";
 import {
   boardTasks,
   inboxItem,
@@ -9,12 +10,7 @@ import {
   tasksRoute,
 } from "./tasks.js";
 
-test.beforeEach(async ({ page }) => {
-  await page.goto("/github");
-  await page.getByLabel("Access password").fill("correct horse");
-  await page.getByRole("button", { name: "Log in" }).click();
-  await expect(page.getByLabel("Access password")).toBeHidden();
-});
+test.beforeEach(({ page }) => logIn(page));
 
 const columns = [
   { title: "Queued", count: 3, states: ["dispatched", "queued", "answered"] },

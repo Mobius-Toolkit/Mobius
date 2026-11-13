@@ -1,14 +1,10 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { logIn } from "./login.js";
 
 const versionsOf = (main: Locator) =>
   main.getByRole("heading", { name: "History" }).locator("xpath=following-sibling::ul/li");
 
-test.beforeEach(async ({ page }) => {
-  await page.goto("/github");
-  await page.getByLabel("Access password").fill("correct horse");
-  await page.getByRole("button", { name: "Log in" }).click();
-  await expect(page.getByLabel("Access password")).toBeHidden();
-});
+test.beforeEach(({ page }) => logIn(page));
 
 test("the Owner sees the repositories of each organization in a section and opens one", async ({
   page,

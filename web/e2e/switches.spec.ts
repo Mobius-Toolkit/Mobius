@@ -1,12 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
+import { logIn } from "./login.js";
 import { getSwitches, lines, turnAllOn, turnOff, type Kind } from "./switches.js";
 
-test.beforeEach(async ({ page }) => {
-  await page.goto("/github");
-  await page.getByLabel("Access password").fill("correct horse");
-  await page.getByRole("button", { name: "Log in" }).click();
-  await expect(page.getByLabel("Access password")).toBeHidden();
-});
+test.beforeEach(({ page }) => logIn(page));
 
 test.afterEach(async ({ page }) => {
   await turnAllOn(page);

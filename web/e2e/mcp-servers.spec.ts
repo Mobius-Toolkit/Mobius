@@ -1,15 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
+import { logIn } from "./login.js";
 import { addMcpServer, deleteMcpServers } from "./mcp-servers.js";
 
 const organization = "owner";
 const listPath = `/api/organizations/${organization}/mcp-servers`;
 
-test.beforeEach(async ({ page }) => {
-  await page.goto("/github");
-  await page.getByLabel("Access password").fill("correct horse");
-  await page.getByRole("button", { name: "Log in" }).click();
-  await expect(page.getByLabel("Access password")).toBeHidden();
-});
+test.beforeEach(({ page }) => logIn(page));
 
 // The tests of this spec are the only users of the servers of the organization owner.
 test.afterEach(async ({ page }) => {

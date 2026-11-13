@@ -1,16 +1,12 @@
 import { expect, test, type Route } from "@playwright/test";
+import { logIn } from "./login.js";
 
 const viewports = {
   desktop: { width: 1280, height: 800 },
   phone: { width: 390, height: 844 },
 };
 
-test.beforeEach(async ({ page }) => {
-  await page.goto("/github");
-  await page.getByLabel("Access password").fill("correct horse");
-  await page.getByRole("button", { name: "Log in" }).click();
-  await expect(page.getByLabel("Access password")).toBeHidden();
-});
+test.beforeEach(({ page }) => logIn(page));
 
 test("the page connects again after the live events answer is not an event stream", async ({
   page,
@@ -166,10 +162,7 @@ test("the chat screen receives a live message after the live connection closes",
   await page.evaluate("window.dispatchEvent(new Event('online'))");
 
   const other = await browser.newPage();
-  await other.goto("/github");
-  await other.getByLabel("Access password").fill("correct horse");
-  await other.getByRole("button", { name: "Log in" }).click();
-  await expect(other.getByLabel("Access password")).toBeHidden();
+  await logIn(other);
   await other.goto("/workstreams/plants/garden/12");
   const send = async (text: string) => {
     await other.getByLabel("Message to the Lead").fill(text);

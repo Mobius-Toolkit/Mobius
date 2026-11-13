@@ -1,11 +1,9 @@
 import { expect, test } from "@playwright/test";
+import { logIn } from "./login.js";
 
 test.beforeEach(async ({ page }) => {
   await page.clock.setFixedTime("2026-10-15T12:00:00Z");
-  await page.goto("/github");
-  await page.getByLabel("Access password").fill("correct horse");
-  await page.getByRole("button", { name: "Log in" }).click();
-  await expect(page.getByLabel("Access password")).toBeHidden();
+  await logIn(page);
 });
 
 test("the desktop group menu selects several fields in the field order", async ({ page }) => {

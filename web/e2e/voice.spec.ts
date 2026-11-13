@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
+import { logIn } from "./login.js";
 import { countSamples, fakeMicrophone, fakeWakeLock } from "./microphone.js";
 import { coordinatorQuestion, routeInboxItems } from "./stops.js";
 
@@ -10,10 +11,7 @@ const background = "The recording stopped because the app went to the background
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(fakeMicrophone);
   await page.addInitScript(countSamples);
-  await page.goto("/github");
-  await page.getByLabel("Access password").fill("correct horse");
-  await page.getByRole("button", { name: "Log in" }).click();
-  await expect(page.getByLabel("Access password")).toBeHidden();
+  await logIn(page);
   await page.route("**/api/voice/conversions/*", conversionReply);
 });
 

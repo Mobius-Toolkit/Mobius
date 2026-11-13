@@ -1,20 +1,11 @@
-import { expect, type Page, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+import { logIn } from "./login.js";
 
 const desktop = { width: 1280, height: 800 };
 const phone = { width: 390, height: 844 };
 
-const login = async (page: Page) => {
-  await page.goto("/github");
-  await page.getByLabel("Access password").fill("correct horse");
-  await page.getByRole("button", { name: "Log in" }).click();
-  await expect(page.getByLabel("Access password")).toBeHidden();
-};
-
 test("a change of the installations shows with no reload", async ({ page }) => {
-  await page.goto("/github");
-  await page.getByLabel("Access password").fill("correct horse");
-  await page.getByRole("button", { name: "Log in" }).click();
-  await expect(page.getByLabel("Access password")).toBeHidden();
+  await logIn(page);
   const main = page.getByRole("main");
   const switcher = page.getByRole("button", { name: "owner" }).filter({ visible: true });
   const organization = page.getByRole("menuitemradio", { name: "acme" });
@@ -39,10 +30,7 @@ test("a change of the installations shows with no reload", async ({ page }) => {
 });
 
 test("the App name follows the account until the user edits it", async ({ page }) => {
-  await page.goto("/github");
-  await page.getByLabel("Access password").fill("correct horse");
-  await page.getByRole("button", { name: "Log in" }).click();
-  await expect(page.getByLabel("Access password")).toBeHidden();
+  await logIn(page);
   const account = page.getByLabel("Account or organization");
   const name = page.getByLabel("App name");
 
@@ -71,7 +59,7 @@ test("the organization switch of a desktop fills the side bar and has the arrow 
   page,
 }) => {
   await page.setViewportSize(desktop);
-  await login(page);
+  await logIn(page);
   await page.goto("/chat");
   await expect(page.locator("nav").first().getByRole("button", { name: "owner" })).toBeVisible();
   const button = switchButton("nav");
@@ -96,7 +84,7 @@ test("the menu of the organization switch of a desktop is wide and shows each na
   page,
 }) => {
   await page.setViewportSize(desktop);
-  await login(page);
+  await logIn(page);
   await page.goto("/chat");
   const button = page.locator("nav").first().getByRole("button", { name: "owner" });
   await expect(button).toBeVisible();
@@ -124,7 +112,7 @@ test("the organization switch of a phone keeps the width of its button and its m
   page,
 }) => {
   await page.setViewportSize(phone);
-  await login(page);
+  await logIn(page);
   await page.goto("/chat");
   const button = page.locator("#content").getByRole("button", { name: "owner" });
   await expect(button).toBeVisible();
@@ -141,7 +129,7 @@ for (const [device, viewport] of [
 ] as const) {
   test(`a tap on an organization closes the organization menu of a ${device}`, async ({ page }) => {
     await page.setViewportSize(viewport);
-    await login(page);
+    await logIn(page);
     await page.goto("/chat");
     const switcher = (name: string) =>
       page.locator('button[aria-haspopup="menu"]').filter({ visible: true, hasText: name });
@@ -165,7 +153,7 @@ for (const [device, viewport] of [
 
 test("each row of the organization menu of a phone is at least 44 px high", async ({ page }) => {
   await page.setViewportSize(phone);
-  await login(page);
+  await logIn(page);
   await page.goto("/chat");
   await page.locator("#content").getByRole("button", { name: "owner" }).click();
   await expect(page.getByRole("menuitemradio", { name: "plants" })).toBeVisible();
