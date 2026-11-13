@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -65,6 +66,46 @@ func TestLoginWithAWrongPasswordFailsAfterOneSecond(t *testing.T) {
 	}
 	if elapsed := time.Since(started); elapsed < time.Second {
 		t.Errorf("login took %s", elapsed)
+	}
+}
+
+func TestALoginThatWaitsForTheDatabaseLockDoesNotHoldBackAnotherLogin(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mobius.db")
+	a := start(t, path, "correct horse")
+	db, err := store.Open(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	correct := make(chan error, 1)
+	go func() {
+		_, ok, err := a.Login(context.Background(), "correct horse", "Firefox")
+		if err == nil && !ok {
+			err = errors.New("the access password is refused")
+		}
+		correct <- err
+	}()
+	time.Sleep(300 * time.Millisecond)
+	started := time.Now()
+
+	_, ok, err := a.Login(context.Background(), "battery staple", "Firefox")
+
+	if err != nil || ok {
+		t.Errorf("login = %v, %v", ok, err)
+	}
+	if elapsed := time.Since(started); elapsed > 3*time.Second {
+		t.Errorf("login took %s while another login waited for the database lock", elapsed)
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-correct; err != nil {
+		t.Errorf("login after the lock ends: %v", err)
 	}
 }
 

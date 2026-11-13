@@ -446,6 +446,8 @@ func (g *FakeGitHub) graphql(w http.ResponseWriter, r *http.Request) {
 		}
 		g.resolvedThreads[root] = true
 		writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"resolveReviewThread": map[string]any{"clientMutationId": nil}}})
+	case strings.Contains(request.Query, "closingIssuesReferences"):
+		g.closingIssuesNodes(w, aliases)
 	case strings.Contains(request.Query, "userContentEdits"):
 		g.bodyEdits(w, issueKey{repository, variables.Number}, variables.After)
 	case strings.Contains(request.Query, "node(id:"):
