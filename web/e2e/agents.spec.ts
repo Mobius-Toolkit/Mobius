@@ -768,6 +768,7 @@ test("the agent log of a long session shows the newest rows and loads the older 
   await expect(page.getByText("Entry 150 ")).toHaveCount(1);
   expect(requests).toEqual([undefined, undefined, 151]);
   expect(Math.abs((await first.boundingBox())!.y - listTop)).toBeLessThan(20);
+  await expect(page.locator("li[data-line]")).toHaveCount(200);
   expect(await lineIds(page)).toHaveLength(200);
 });
 
@@ -787,8 +788,8 @@ test("the agent log loads pages after a reconnect until it has the newest known 
 
   await expect(page.getByText("Entry 350 ")).toBeVisible();
   expect(requests).toEqual([undefined, undefined, undefined, 251]);
+  await expect(page.locator("li[data-line]")).toHaveCount(200);
   const ids = await lineIds(page);
-  expect(ids).toHaveLength(200);
   expect(new Set(ids).size).toBe(200);
   expect(ids.at(0)).toBe(151);
   expect(ids.at(-1)).toBe(350);

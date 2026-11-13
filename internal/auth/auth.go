@@ -36,12 +36,7 @@ func Start(ctx context.Context, queries *store.Queries, password string) (*Auth,
 // Login gives the token of a new device login when password is the access password.
 // A wrong password gives no token after one second.
 func (a *Auth) Login(ctx context.Context, password, userAgent string) (string, bool, error) {
-	a.login.Lock()
-	defer a.login.Unlock()
-	hash := sha256.Sum256([]byte(password))
-	if subtle.ConstantTimeCompare(hash[:], a.fingerprint[:]) != 1 {
-		// The sleep holds the lock, so all clients together get at most one wrong guess each second.
-		time.Sleep(time.Second)
+	if !a.accepts(password) {
 		return "", false, nil
 	}
 	secret := make([]byte, 32)
@@ -59,6 +54,20 @@ func (a *Auth) Login(ctx context.Context, password, userAgent string) (string, b
 		return "", false, err
 	}
 	return token, true, nil
+}
+
+// accepts tells if password is the access password. The lock covers only this check. The database write of a login
+// can wait up to 5 s for the write lock, and it must not hold back the other logins.
+func (a *Auth) accepts(password string) bool {
+	a.login.Lock()
+	defer a.login.Unlock()
+	hash := sha256.Sum256([]byte(password))
+	if subtle.ConstantTimeCompare(hash[:], a.fingerprint[:]) == 1 {
+		return true
+	}
+	// The sleep holds the lock, so all clients together get at most one wrong guess each second.
+	time.Sleep(time.Second)
+	return false
 }
 
 // Check gives the device login of token.

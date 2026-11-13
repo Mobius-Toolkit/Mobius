@@ -17,14 +17,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
+      checks: write
       pull-requests: write
     concurrency:
-      group: screenshots-pr-${{ github.event.pull_request.number }}
+      group: screenshots-comment-pr-${{ github.event.pull_request.number }}
     env:
       PR: ${{ github.event.pull_request.number }}
       SHA: ${{ github.event.pull_request.head.sha }}
     steps:
       - run: |
+          gh api --method POST "repos/$REPO/check-runs" -f name=Screenshots -f head_sha="$SHA" -f status=in_progress \
+            -f 'output[title]=The screenshots are pending.' \
+            -f "output[summary]=See [pull request #$PR](https://github.com/$REPO/pull/$PR)." --silent
           set_section() {
             gh api "repos/$REPO/pulls/$PR" > pr.json
             SECTION="$1" python3 -I - <<'PY' > payload.json
