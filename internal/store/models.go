@@ -490,6 +490,7 @@ type Task struct {
 	MergeQueuedAt        sql.NullString
 	ReviewedHead         sql.NullString
 	ApprovedAgainChange  sql.NullInt64
+	MergeHeadAt          sql.NullString
 }
 
 type TaskState struct {

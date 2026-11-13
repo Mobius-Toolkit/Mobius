@@ -3,6 +3,7 @@ package engine_test
 import (
 	"database/sql"
 	"fmt"
+	"maps"
 	"net/http"
 	"slices"
 	"strings"
@@ -1132,4 +1133,136 @@ func TestMergeQueueReEntryOfARemovedHeadGoesAfterTheNextTask(t *testing.T) {
 	if !slices.Equal(issues, []int64{43, 41}) {
 		t.Errorf("queue = %v, want [43 41]", issues)
 	}
+}
+
+// boardQueuePlaces gives the merge queue place of each task in the queue on the Tasks board, by issue.
+func boardQueuePlaces(t *testing.T, server *testserver.Server) map[int64]int64 {
+	t.Helper()
+	places := map[int64]int64{}
+	for _, row := range apiData[[]struct {
+		Number          int64  `json:"number"`
+		MergeQueuePlace *int64 `json:"mergeQueuePlace"`
+	}](t, server, "/api/tasks") {
+		if row.MergeQueuePlace != nil {
+			places[row.Number] = *row.MergeQueuePlace
+		}
+	}
+	return places
+}
+
+// inboxQueuePlaces gives the merge queue place of each open ready for review Inbox item in the queue, by issue.
+func inboxQueuePlaces(t *testing.T, server *testserver.Server) map[int64]int64 {
+	t.Helper()
+	places := map[int64]int64{}
+	for _, item := range itemsOf(t, server, "ready for review") {
+		if item.MergeQueuePlace != nil {
+			places[item.Issue] = *item.MergeQueuePlace
+		}
+	}
+	return places
+}
+
+// testMergeQueueOrderWithCIFixTasks adds records to the CI records, and approves the tasks of approved in this order.
+// The first task starts the update of its branch, and the update stays open. Thus the other tasks wait in the queue
+// behind it, with no start. The test checks the places of the queue on the Tasks board and in the Inbox, and the merge
+// order, which is want. The script of the Lead has the newest event first: it approves the tasks in the reverse of their
+// order in approved, and the new heads in the reverse of their merge order.
+func testMergeQueueOrderWithCIFixTasks(t *testing.T, records []string, approved, want []int64) {
+	fake := testkit.NewFakeGitHub(t)
+	numbers := []int{41, 43, 45, 47}[:len(approved)]
+	again := make([]int, len(want))
+	for i, number := range want {
+		again[i] = int(number)
+	}
+	var lead strings.Builder
+	for _, number := range slices.Backward(approved) {
+		fmt.Fprintf(&lead, `
+[[prompts]]
+when = "Approve #%d"
+call = { tool = "approve_pull_request", arguments = { repository = "owner/shop", n = %d, report = "Checked the diff. Verified the tests." } }
+`, number, number)
+	}
+	server, _ := queueTasksWith(t, fake, approveAgain(numbers, again...)+lead.String()+queueLead, "merge", numbers)
+	for _, record := range records {
+		addRecord(t, server, record)
+	}
+	commitQueueFiles(fake, numbers...)
+	fake.HoldBranchUpdates()
+
+	for _, number := range approved {
+		sendChat(t, server, leadChat, fmt.Sprintf("Approve #%d", number))
+		testkit.WaitFor(t, func() bool { return liveTask(t, server, number).MergeQueuedAt.Valid })
+	}
+	testkit.WaitFor(t, func() bool { return fake.UpdateBranchCalls() >= 1 })
+
+	places := map[int64]int64{}
+	for i, number := range want {
+		places[number] = int64(i + 1)
+	}
+	testkit.WaitFor(t, func() bool { return maps.Equal(boardQueuePlaces(t, server), places) })
+	testkit.WaitFor(t, func() bool { return maps.Equal(inboxQueuePlaces(t, server), places) })
+	if !liveTask(t, server, want[0]).MergeHeadAt.Valid {
+		t.Errorf("the head #%d has no merge_head_at", want[0])
+	}
+	for _, number := range want[1:] {
+		if liveTask(t, server, number).MergeHeadAt.Valid {
+			t.Errorf("#%d has merge_head_at before its turn", number)
+		}
+	}
+
+	fake.ReleaseBranchUpdates()
+
+	for _, number := range want {
+		testkit.WaitFor(t, func() bool { return liveTaskState(t, server, number) == "" })
+	}
+	titles := map[int64]string{41: "Add plan model", 43: "Task 43", 45: "Task 45", 47: "Task 47"}
+	wantLog := []string{}
+	for _, number := range slices.Backward(want) {
+		wantLog = append(wantLog, titles[number])
+	}
+	log := strings.Split(testkit.Git(t, fake.Remote(shop), "log", "--format=%s", "main"), "\n")
+	merged := slices.DeleteFunc(log, func(subject string) bool { return !slices.Contains(wantLog, subject) })
+	if !slices.Equal(merged, wantLog) {
+		t.Errorf("merge order, newest first = %v, want %v", merged, wantLog)
+	}
+}
+
+// TestMergeQueueATaskOfAnEndedHardBreakMergesBeforeAnEarlierTask verifies that the task of an issue of an ended hard
+// break enters the queue after the task #43 and merges before it.
+func TestMergeQueueATaskOfAnEndedHardBreakMergesBeforeAnEarlierTask(t *testing.T) {
+	t.Parallel()
+	testMergeQueueOrderWithCIFixTasks(t, []string{endedHardBreakSQL(45)}, []int64{41, 43, 45}, []int64{41, 45, 43})
+}
+
+// TestMergeQueueATaskOfAFlakyBreakMergesBeforeAnEarlierTask is the same test with the issue of a flaky break.
+func TestMergeQueueATaskOfAFlakyBreakMergesBeforeAnEarlierTask(t *testing.T) {
+	t.Parallel()
+	testMergeQueueOrderWithCIFixTasks(t, []string{flakyBreakSQL(45)}, []int64{41, 43, 45}, []int64{41, 45, 43})
+}
+
+// TestMergeQueueATaskOfACIFailureRecordMergesBeforeAnEarlierTask is the same test with the issue of a CI failure record.
+func TestMergeQueueATaskOfACIFailureRecordMergesBeforeAnEarlierTask(t *testing.T) {
+	t.Parallel()
+	testMergeQueueOrderWithCIFixTasks(t, []string{openCIFailureSQL(45)}, []int64{41, 43, 45}, []int64{41, 45, 43})
+}
+
+// TestMergeQueueTwoCIFixTasksMergeInTheOrderOfTheirTimeInTheQueue verifies that the task #47 enters the queue before
+// the task #45, and both are CI fix tasks, so they merge in this order before the task #43.
+func TestMergeQueueTwoCIFixTasksMergeInTheOrderOfTheirTimeInTheQueue(t *testing.T) {
+	t.Parallel()
+	testMergeQueueOrderWithCIFixTasks(t, []string{openCIFailureSQL(45), flakyBreakSQL(47)}, []int64{41, 43, 47, 45}, []int64{41, 47, 45, 43})
+}
+
+// TestMergeQueueAHeadThatStartedItsUpdateKeepsTheHeadForACIFixTask verifies that the head #41, which started the update
+// of its branch, stays the head when the task #43 of a CI fix issue enters the queue, and that it merges first.
+func TestMergeQueueAHeadThatStartedItsUpdateKeepsTheHeadForACIFixTask(t *testing.T) {
+	t.Parallel()
+	testMergeQueueOrderWithCIFixTasks(t, []string{flakyBreakSQL(43)}, []int64{41, 43}, []int64{41, 43})
+}
+
+// TestMergeQueueTasksWithNoCIFixIssueKeepTheOrderOfTheirTimeInTheQueue verifies that tasks with no CI fix issue merge in
+// the order of their time in the queue.
+func TestMergeQueueTasksWithNoCIFixIssueKeepTheOrderOfTheirTimeInTheQueue(t *testing.T) {
+	t.Parallel()
+	testMergeQueueOrderWithCIFixTasks(t, nil, []int64{41, 45, 43}, []int64{41, 45, 43})
 }
