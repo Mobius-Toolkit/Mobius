@@ -78,6 +78,8 @@ type Agent struct {
 	slot string
 	// slotBinding is the id of the Implementer binding of the slot, or 0 for the first binding.
 	slotBinding int64
+	// slotCount is the counter of workers.bindings that the slot incremented, or nil.
+	slotCount *int
 	// tracked tells that the drain counts the session.
 	tracked bool
 	// uncounted tells that the session waits for the end of a pause and the drain does not count it. It and tracked
@@ -894,8 +896,8 @@ func (a *Agent) end(ctx context.Context, reason string, keep func()) error {
 // release frees the slot of the session and its count in the drain.
 func (a *Agent) release() {
 	if a.slot != "" {
-		a.engine.releaseSlot(a.slot, a.slotBinding)
-		a.slot = ""
+		a.engine.releaseSlot(a.slot, a.slotCount)
+		a.slot, a.slotCount = "", nil
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()

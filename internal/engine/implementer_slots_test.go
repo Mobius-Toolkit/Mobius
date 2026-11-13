@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -214,4 +215,60 @@ func TestARemovalOfTheBindingOfAKeptSessionClosesTheKeptSession(t *testing.T) {
 	}
 
 	waitForClosedKept(t, server, task.ID, kept)
+}
+
+func TestARoundWithAKeptSessionWaitsForASlotOfTheKeptBindingAlsoWhenAnotherBindingIsFree(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, dataDir := keptServer(t, fake, commits, firstSlots(1))
+	holder, _ := keptOnTheSecondBinding(t, server, fake)
+	filler := start(t, server, implementerSpec(t, server, fake, 45))
+	requireSession(t, server, filler, "devin opus")
+	end(t, holder, "done")
+	before := harnessStarts(t, dataDir)
+
+	startFixRound(t, server)
+
+	waiting := queued(t, server, engine.ImplementerRole)
+	if waiting.QueueReason.String != "no free implementer slot (1/1)" {
+		t.Errorf("waiting session = %+v, want the reason of the full binding", waiting)
+	}
+	end(t, filler, "done")
+	rounds := slices.DeleteFunc(endedImplementers(t, server, 4), func(session store.Session) bool { return session.Issue.Int64 != 41 })
+	if len(rounds) != 2 {
+		t.Fatalf("rounds of #41 = %+v, want 2", rounds)
+	}
+	first, round := rounds[0], rounds[1]
+	requireBinding(t, round, "devin", "opus", "low")
+	if round.Continued != 1 || round.AcpSessionID.String != first.AcpSessionID.String {
+		t.Errorf("rounds = %+v, %+v, want the second round to continue the first", first, round)
+	}
+	if got := harnessStarts(t, dataDir); got != before {
+		t.Errorf("starts = %d, want %d", got, before)
+	}
+}
+
+func TestARemovalOfTheFirstBindingKeepsTheCountOfTheRunningSessionsOfTheMovedBinding(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, answersDone, firstSlots(1))
+	addBinding(t, server, config.ClaudeCode, "sonnet", "high", 1)
+	removed := start(t, server, implementerSpec(t, server, fake, 41))
+	moved := start(t, server, implementerSpec(t, server, fake, 43))
+	defer end(t, moved, "done")
+	end(t, removed, "done")
+
+	if err := server.Engine.RemoveImplementerBinding(t.Context(), 0); err != nil {
+		t.Fatal(err)
+	}
+	waiting := startLater(t.Context(), server, implementerSpec(t, server, fake, 45))
+
+	reason := queued(t, server, engine.ImplementerRole)
+	if reason.QueueReason.String != "no free implementer slot (1/1)" {
+		t.Errorf("waiting session = %+v, want the reason of the full binding", reason)
+	}
+	end(t, moved, "done")
+	agent := awaitWithin(t, waiting)
+	defer end(t, agent, "done")
+	requireSession(t, server, agent, "claude-code sonnet")
 }

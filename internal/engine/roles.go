@@ -335,8 +335,11 @@ func (e *Engine) RemoveImplementerBinding(ctx context.Context, id int64) error {
 	if err := e.queries.DeleteImplementerBinding(ctx, id); err != nil {
 		return err
 	}
+	e.workers.mu.Lock()
+	defer e.workers.mu.Unlock()
 	e.rolesMu.Lock()
 	defer e.rolesMu.Unlock()
+	delete(e.workers.bindings, id)
 	e.moreBindings = slices.Delete(slices.Clone(more), index, index+1)
 	e.applyRoles(e.roles)
 	return nil
@@ -352,6 +355,8 @@ func (e *Engine) removeFirstImplementerBinding(ctx context.Context, more []Imple
 		return err
 	}
 	merged.Implementer = second.Binding
+	e.workers.mu.Lock()
+	defer e.workers.mu.Unlock()
 	e.rolesMu.Lock()
 	defer e.rolesMu.Unlock()
 	err := e.inTx(ctx, func(q *store.Queries) error {
@@ -363,6 +368,14 @@ func (e *Engine) removeFirstImplementerBinding(ctx context.Context, more []Imple
 	if err != nil {
 		return err
 	}
+	// The running sessions of the second binding keep their count under the id 0. The sessions of the removed first
+	// binding keep their own counter, which no id reaches.
+	if count := e.workers.bindings[second.ID]; count != nil {
+		e.workers.bindings[0] = count
+	} else {
+		delete(e.workers.bindings, 0)
+	}
+	delete(e.workers.bindings, second.ID)
 	e.moreBindings = slices.Clone(more[1:])
 	e.applyRoles(merged)
 	return nil

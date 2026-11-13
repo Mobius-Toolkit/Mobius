@@ -106,7 +106,9 @@ type workers struct {
 	// running counts the sessions that hold a slot, by Role.
 	running map[string]int
 	// bindings counts the Implementer sessions that hold a slot, by the id of their binding. The first binding has the id 0.
-	bindings map[int64]int
+	// A session keeps the counter that it incremented, so the count stays with its binding when a removal changes the id
+	// of a binding.
+	bindings map[int64]*int
 	// queued holds the Role of the session of each queued task, by the id of the task.
 	queued map[int64]string
 	// waiting holds the Role of each queued session with no task.
@@ -124,7 +126,7 @@ type waiter struct {
 }
 
 func newWorkers() workers {
-	return workers{running: map[string]int{}, bindings: map[int64]int{}, queued: map[int64]string{}, waiting: map[waiter]string{}}
+	return workers{running: map[string]int{}, bindings: map[int64]*int{}, queued: map[int64]string{}, waiting: map[waiter]string{}}
 }
 
 // ReplaceWork replaces the pull requests with work for an agent, by the id of their task.
@@ -395,18 +397,39 @@ func (e *Engine) implementerSlots(ctx context.Context, task int64) (*implementer
 	return slots, nil
 }
 
-// pick gives the binding that the next session takes: a binding with no hold and a free slot, with the fewest running
-// sessions in counts, and then the first in the list. The binding of the kept session comes first when it can take the
-// session.
+// keptChoice gives the binding of the list that is equal to kept, or nil.
+func (s *implementerSlots) keptChoice(kept *config.RoleBinding) *slotChoice {
+	if kept == nil {
+		return nil
+	}
+	index := slices.IndexFunc(s.choices, func(c slotChoice) bool { return c.Binding == *kept })
+	if index < 0 {
+		return nil
+	}
+	return &s.choices[index]
+}
+
+// waitsOn gives the binding whose reason a session shows when no binding can take it: the binding of the kept session
+// when it is in the list, and else the first binding.
+func (s *implementerSlots) waitsOn(kept *config.RoleBinding) slotChoice {
+	if c := s.keptChoice(kept); c != nil {
+		return *c
+	}
+	return s.choices[0]
+}
+
+// pick gives the binding that the next session takes. A session with a kept session in the list takes only the binding
+// of the kept session, because the round continues it. Else it is a binding with no hold and a free slot, with the
+// fewest running sessions in counts, and then the first in the list.
 func (s *implementerSlots) pick(counts map[int64]int, kept *config.RoleBinding) (slotChoice, bool) {
+	if c := s.keptChoice(kept); c != nil {
+		return *c, c.hold == "" && counts[c.ID] < c.Binding.Max
+	}
 	var best *slotChoice
 	for i := range s.choices {
 		c := &s.choices[i]
 		if c.hold != "" || counts[c.ID] >= c.Binding.Max {
 			continue
-		}
-		if kept != nil && c.Binding == *kept {
-			return *c, true
 		}
 		if best == nil || counts[c.ID] < counts[best.ID] {
 			best = c
@@ -479,7 +502,10 @@ func (e *Engine) slotReason(a *Agent, place waiter, queue []queuedTask, worker b
 	var counts map[int64]int
 	var chosen *slotChoice
 	if slots != nil {
-		counts = maps.Clone(w.bindings)
+		counts = make(map[int64]int, len(w.bindings))
+		for id, count := range w.bindings {
+			counts[id] = *count
+		}
 		for _, other := range earlier {
 			if other.role != ImplementerRole {
 				continue
@@ -488,9 +514,13 @@ func (e *Engine) slotReason(a *Agent, place waiter, queue []queuedTask, worker b
 				counts[c.ID]++
 			}
 		}
-		if c, ok := slots.pick(counts, slots.kept); ok && a.level == LevelRole {
-			chosen = &c
-			paused, noAccess = "", ""
+		if a.level == LevelRole {
+			if c, ok := slots.pick(counts, slots.kept); ok {
+				chosen = &c
+				paused, noAccess = "", ""
+			} else {
+				paused, noAccess = slots.waitsOn(slots.kept).hold, ""
+			}
 		}
 	}
 	var reason string
@@ -505,8 +535,11 @@ func (e *Engine) slotReason(a *Agent, place waiter, queue []queuedTask, worker b
 		reason = noAccess
 	case chosen != nil:
 	case slots != nil:
-		merged := e.mergedRoles()
-		reason = fullReason(&merged, map[string]int{role: counts[0]}, role)
+		target := slots.choices[0]
+		if a.level == LevelRole {
+			target = slots.waitsOn(slots.kept)
+		}
+		reason = fullReason(&config.Roles{Implementer: target.Binding}, map[string]int{role: counts[target.ID]}, role)
 	default:
 		merged := e.mergedRoles()
 		reason = limitReason(&merged, w.running, roles, role)
@@ -524,20 +557,24 @@ func (e *Engine) slotReason(a *Agent, place waiter, queue []queuedTask, worker b
 		if chosen != nil {
 			a.slotBinding = chosen.ID
 		}
-		w.bindings[a.slotBinding]++
+		if w.bindings[a.slotBinding] == nil {
+			w.bindings[a.slotBinding] = new(int)
+		}
+		a.slotCount = w.bindings[a.slotBinding]
+		*a.slotCount++
 	}
 	delete(w.queued, task)
 	delete(w.waiting, place)
 	return "", true
 }
 
-// releaseSlot frees a slot of role. binding is the id of the Implementer binding of the slot.
-func (e *Engine) releaseSlot(role string, binding int64) {
+// releaseSlot frees a slot of role. count is the counter of the Implementer binding of the slot.
+func (e *Engine) releaseSlot(role string, count *int) {
 	w := &e.workers
 	w.mu.Lock()
 	w.running[role]--
-	if role == ImplementerRole {
-		w.bindings[binding]--
+	if count != nil {
+		*count--
 	}
 	w.mu.Unlock()
 	w.changed.notify()
