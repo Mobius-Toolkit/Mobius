@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"fmt"
 	"net/http"
 	"slices"
 	"strings"
@@ -15,23 +16,19 @@ const mergeSentence = "Mobius merges each pull request after your approval, when
 func TestTheFirstPromptTellsTheLeadTheAutopilotLevel(t *testing.T) {
 	t.Parallel()
 	levels := []struct {
-		level  string
-		labels []string
-		text   string
+		level string
+		text  string
 	}{
-		{"start", []string{"mobius:autopilot"}, "Autopilot is \"Start tasks\": Mobius starts each open sub-issue with no blocker and no earlier task at the next poll."},
-		{"merge", []string{"mobius:auto-merge"}, "Autopilot is \"Merge only\": a task starts only after `mark_ready` or a start of the Owner. " + mergeSentence},
-		{"start_and_merge", []string{"mobius:autopilot", "mobius:auto-merge"}, "Autopilot is \"Start and merge\": Mobius starts each open sub-issue with no blocker and no earlier task at the next poll. " + mergeSentence},
+		{"start", "Autopilot is \"Start tasks\": Mobius starts each open sub-issue with no blocker and no earlier task at the next poll."},
+		{"merge", "Autopilot is \"Merge only\": a task starts only after `mark_ready` or a start of the Owner. " + mergeSentence},
+		{"start_and_merge", "Autopilot is \"Start and merge\": Mobius starts each open sub-issue with no blocker and no earlier task at the next poll. " + mergeSentence},
 	}
 	for _, want := range levels {
 		t.Run(want.level, func(t *testing.T) {
 			t.Parallel()
 			fake := testkit.NewFakeGitHub(t)
 			server, _ := connect(t, fake, "")
-			for _, label := range want.labels {
-				fake.AddLabel(shop, 12, label, "owner")
-			}
-			waitForPoll(t, server, fake)
+			setWorkstreamAutopilot(t, server, want.level)
 			testkit.WaitFor(t, func() bool { return workstreams(t, server)[0].Autopilot == want.level })
 
 			sendChat(t, server, leadChat, "Plan the next step")
@@ -70,7 +67,14 @@ func autopilotEvents(t *testing.T, server *testserver.Server) []string {
 
 func setWorkstreamAutopilot(t *testing.T, server *testserver.Server, level string) {
 	t.Helper()
-	if status, body := send(t, server, http.MethodPut, "/api/workstreams/owner/shop/12/autopilot", `{"level":"`+level+`"}`); status != http.StatusNoContent {
+	setLevelOf(t, server, 12, level)
+}
+
+// setLevelOf sets the Autopilot level of the Workstream number through the API.
+func setLevelOf(t *testing.T, server *testserver.Server, number int, level string) {
+	t.Helper()
+	path := fmt.Sprintf("/api/workstreams/owner/shop/%d/autopilot", number)
+	if status, body := send(t, server, http.MethodPut, path, `{"level":"`+level+`"}`); status != http.StatusNoContent {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 }
@@ -78,17 +82,15 @@ func setWorkstreamAutopilot(t *testing.T, server *testserver.Server, level strin
 func TestAChangeOfAutopilotByTheOwnerAddsOneEventForTheLead(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	fake.AddUserCode(testkit.AppID, "user-code", "owner")
 	addWorkstream(fake)
 	server := startCopiedWithLead(t, fake)
-	authorize(t, server)
 
 	setWorkstreamAutopilot(t, server, "start_and_merge")
 
 	testkit.WaitFor(t, func() bool { return len(autopilotEvents(t, server)) == 1 })
 	waitForPolls(t, fake)
 	got := autopilotEvents(t, server)
-	if len(got) != 1 || !strings.HasSuffix(got[0], ` Autopilot of Workstream #12 "Integrate loyalty plans" is "Start and merge", by @owner.`) {
+	if len(got) != 1 || !strings.HasSuffix(got[0], ` Autopilot of Workstream #12 "Integrate loyalty plans" is "Start and merge", by the Owner.`) {
 		t.Fatalf("events = %q", got)
 	}
 
@@ -97,7 +99,7 @@ func TestAChangeOfAutopilotByTheOwnerAddsOneEventForTheLead(t *testing.T) {
 	testkit.WaitFor(t, func() bool { return len(autopilotEvents(t, server)) == 2 })
 	waitForPolls(t, fake)
 	got = autopilotEvents(t, server)
-	if len(got) != 2 || !strings.HasSuffix(got[1], ` Autopilot of Workstream #12 "Integrate loyalty plans" is "Off", by @owner.`) {
+	if len(got) != 2 || !strings.HasSuffix(got[1], ` Autopilot of Workstream #12 "Integrate loyalty plans" is "Off", by the Owner.`) {
 		t.Errorf("events = %q", got)
 	}
 }

@@ -106,7 +106,8 @@ func (e *Engine) matchLeadWrite(ctx context.Context, writes []store.LeadWrite, r
 }
 
 // issueEvents gives the events of the issue or the pull request number. A label event of the Mobius App that matches a
-// write of the Lead has the first trusted user as its actor, so each check treats it as the action of a person.
+// write of the Lead has the first trusted user as its actor, so each check treats it as the action of a person. A
+// setting label of a Workstream is no such label: Mobius writes it from workstreams.
 func (e *Engine) issueEvents(ctx context.Context, repository github.Repository, number int64) ([]*gh.IssueEvent, error) {
 	events, err := repository.IssueEvents(ctx, number)
 	if err != nil {
@@ -123,7 +124,7 @@ func (e *Engine) issueEvents(ctx context.Context, repository github.Repository, 
 	}
 	result := slices.Clone(events)
 	for i, event := range events {
-		if !isApp(event) || event.GetEvent() != "labeled" && event.GetEvent() != "unlabeled" {
+		if !isApp(event) || event.GetEvent() != "labeled" && event.GetEvent() != "unlabeled" || isSettingLabel(event.GetLabel().GetName()) {
 			continue
 		}
 		item := leadItem{kind: event.GetEvent(), id: event.GetID(), issue: number, label: event.GetLabel().GetName(), at: event.GetCreatedAt().Time}

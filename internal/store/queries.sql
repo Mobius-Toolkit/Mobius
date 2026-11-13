@@ -855,17 +855,17 @@ INSERT INTO copied_workstreams (repository, number, title, body, created_at)
 VALUES (?, ?, ?, ?, ?)
 ON CONFLICT (repository, number) DO NOTHING;
 
--- The row stays after the copy of its Workstream goes away. It gives true when it added or changed the row.
--- name: UpsertWorkstream :execrows
+-- The row stays after the copy of its Workstream goes away. It gives 1 when it added the row.
+-- name: AddWorkstream :execrows
 INSERT INTO workstreams (repository, number, autopilot, auto_merge, evergreen, maintenance, skills)
-VALUES (sqlc.arg(repository), sqlc.arg(number), CAST(sqlc.arg(autopilot) AS BOOLEAN), CAST(sqlc.arg(auto_merge) AS BOOLEAN),
-        CAST(sqlc.arg(evergreen) AS BOOLEAN), CAST(sqlc.arg(maintenance) AS BOOLEAN), CAST(sqlc.arg(skills) AS BOOLEAN))
-ON CONFLICT (repository, number) DO UPDATE SET
-    autopilot = excluded.autopilot, auto_merge = excluded.auto_merge, evergreen = excluded.evergreen,
-    maintenance = excluded.maintenance, skills = excluded.skills
-WHERE workstreams.autopilot != excluded.autopilot OR workstreams.auto_merge != excluded.auto_merge
-   OR workstreams.evergreen != excluded.evergreen OR workstreams.maintenance != excluded.maintenance
-   OR workstreams.skills != excluded.skills;
+VALUES (sqlc.arg(repository), sqlc.arg(number), 0, 0, CAST(sqlc.arg(evergreen) AS BOOLEAN), CAST(sqlc.arg(maintenance) AS BOOLEAN),
+        CAST(sqlc.arg(skills) AS BOOLEAN))
+ON CONFLICT (repository, number) DO NOTHING;
+
+-- name: GetWorkstreamSettings :one
+SELECT CAST(autopilot AS BOOLEAN) AS autopilot, CAST(auto_merge AS BOOLEAN) AS auto_merge, CAST(evergreen AS BOOLEAN) AS evergreen,
+       CAST(maintenance AS BOOLEAN) AS maintenance, CAST(skills AS BOOLEAN) AS skills
+FROM workstreams WHERE repository = ? AND number = ?;
 
 -- name: AddCopiedIssue :exec
 INSERT INTO copied_issues (repository, workstream, position, number, parent, parent_repository, title, body, state, author, html_url, repository_url)

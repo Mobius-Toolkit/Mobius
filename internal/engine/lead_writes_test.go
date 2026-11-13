@@ -135,41 +135,11 @@ func TestTheRemovalOfMobiusTriageThatTheLeadMadeStopsTheTriager(t *testing.T) {
 	}
 }
 
-func TestTheAddOfMobiusAutopilotThatTheLeadMadeTurnsAutopilotOnAndGivesTheLeadOneEvent(t *testing.T) {
-	t.Parallel()
-	for _, recorded := range []bool{true, false} {
-		t.Run(fmt.Sprintf("recorded=%t", recorded), func(t *testing.T) {
-			t.Parallel()
-			fake := testkit.NewFakeGitHub(t)
-			server := connectLeadWrites(t, fake, "gh issue edit 12 -R owner/shop --add-label mobius:autopilot")
-			if recorded {
-				leadWrites(t, server, 1)
-			}
-
-			fake.AddLabel(shop, 12, "mobius:autopilot", app)
-
-			if recorded {
-				testkit.WaitFor(t, func() bool {
-					return workstreams(t, server)[0].Autopilot == "start" && len(autopilotEvents(t, server)) == 1
-				})
-				return
-			}
-			waitForPolls(t, fake)
-			if level := workstreams(t, server)[0].Autopilot; level != "off" || len(autopilotEvents(t, server)) != 0 {
-				t.Errorf("level = %s, events = %q", level, autopilotEvents(t, server))
-			}
-		})
-	}
-}
-
-func TestAnEventOfTheAppMoreThanTenMinutesAfterAWriteOfTheLeadDoesNotMatchIt(t *testing.T) {
+func TestTheAddOfMobiusAutopilotThatTheLeadMadeHasNoEffect(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := connectLeadWrites(t, fake, "gh issue edit 12 -R owner/shop --add-label mobius:autopilot")
 	leadWrites(t, server, 1)
-	if _, err := server.DB.Exec("UPDATE lead_writes SET created_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-11 minutes')"); err != nil {
-		t.Fatal(err)
-	}
 
 	fake.AddLabel(shop, 12, "mobius:autopilot", app)
 
@@ -179,24 +149,21 @@ func TestAnEventOfTheAppMoreThanTenMinutesAfterAWriteOfTheLeadDoesNotMatchIt(t *
 	}
 }
 
-func TestASecondEventOfTheAppWithTheSameLabelDoesNotMatchAWriteOfTheLead(t *testing.T) {
+func TestAnEventOfTheAppMoreThanTenMinutesAfterAWriteOfTheLeadDoesNotMatchIt(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server := connectLeadWrites(t, fake, "gh issue edit 12 -R owner/shop --add-label mobius:autopilot")
+	server, dataDir := connectWith(t, fake, leadWriteScript("gh issue edit 41 -R owner/shop --add-label mobius:ready"), func(*config.Config) {})
+	stubGH(t, dataDir)
+	addStoppedTask(t, fake, server)
 	leadWrites(t, server, 1)
-	fake.AddLabel(shop, 12, "mobius:autopilot", app)
-	testkit.WaitFor(t, func() bool { return workstreams(t, server)[0].Autopilot == "start" })
-	fake.RemoveLabel(shop, 12, "mobius:autopilot", "owner")
-	testkit.WaitFor(t, func() bool {
-		return workstreams(t, server)[0].Autopilot == "off" && len(autopilotEvents(t, server)) == 2
-	})
-
-	fake.AddLabel(shop, 12, "mobius:autopilot", app)
-
-	waitForPolls(t, fake)
-	if level := workstreams(t, server)[0].Autopilot; level != "off" || len(autopilotEvents(t, server)) != 2 {
-		t.Errorf("level = %s, events = %q", level, autopilotEvents(t, server))
+	if _, err := server.DB.Exec("UPDATE lead_writes SET created_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-11 minutes')"); err != nil {
+		t.Fatal(err)
 	}
+
+	fake.AddLabel(shop, 41, "mobius:ready", app)
+
+	testkit.WaitFor(t, func() bool { return implementerRounds(t, server) == 1 })
+	testkit.WaitFor(t, func() bool { return liveTask(t, server, 41).FixRounds == 4 })
 }
 
 func TestANewIssueThatTheLeadCreatedGetsATriagerAndTheLabelThatTheLeadAdded(t *testing.T) {
@@ -450,13 +417,14 @@ func TestACommentOfTheLeadThatTheSamePollReadsWithAnAnswerOfTheOwnerDoesNotHideT
 func TestTheSecondLabelOfOneAddOfTheLeadHasTheEffectOfTheAddOfAPerson(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server := connectLeadWrites(t, fake, "gh issue edit 12 -R owner/shop --add-label bug,mobius:autopilot")
+	server, dataDir := connectWith(t, fake, leadWriteScript("gh issue edit 41 -R owner/shop --add-label bug,mobius:ready"), func(*config.Config) {})
+	stubGH(t, dataDir)
+	addStoppedTask(t, fake, server)
 	leadWrites(t, server, 1)
 
-	fake.AddLabel(shop, 12, "bug", app)
-	fake.AddLabel(shop, 12, "mobius:autopilot", app)
+	fake.AddLabel(shop, 41, "bug", app)
+	fake.AddLabel(shop, 41, "mobius:ready", app)
 
-	testkit.WaitFor(t, func() bool {
-		return workstreams(t, server)[0].Autopilot == "start" && len(autopilotEvents(t, server)) == 1
-	})
+	testkit.WaitFor(t, func() bool { return implementerRounds(t, server) == 1 })
+	testkit.WaitFor(t, func() bool { return liveTask(t, server, 41).FixRounds == 1 })
 }
