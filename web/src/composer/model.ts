@@ -3,6 +3,8 @@ import type { DraftVoice } from "@/lib/draft";
 import {
   type DraftInboxItem,
   DraftInboxItems,
+  type DraftSelection,
+  DraftSelections,
   DraftVoice as DraftVoiceSchema,
   Images,
   VoiceState,
@@ -15,8 +17,12 @@ export const isEmptyDraft = (model: {
   draftText: string;
   draftImages: readonly File[];
   draftInboxItems: readonly DraftInboxItem[];
+  draftSelections: readonly DraftSelection[];
 }) =>
-  !model.draftText.trim() && model.draftImages.length === 0 && model.draftInboxItems.length === 0;
+  !model.draftText.trim() &&
+  model.draftImages.length === 0 &&
+  model.draftInboxItems.length === 0 &&
+  model.draftSelections.length === 0;
 
 // A card that converts or has failed blocks each send.
 export const voiceBusy = (voice: DraftVoice | null) =>
@@ -33,6 +39,7 @@ export const Model = Schema.Struct({
   draftText: Schema.String,
   draftImages: Images,
   draftInboxItems: DraftInboxItems,
+  draftSelections: DraftSelections,
   draftVoice: Schema.NullOr(DraftVoiceSchema),
   draftLoaded: Schema.Boolean,
   voice: VoiceState,
@@ -56,6 +63,7 @@ export function initialModel(options: {
     draftText: "",
     draftImages: [],
     draftInboxItems: [],
+    draftSelections: [],
     draftVoice: null,
     draftLoaded: false,
     voice: { recording: false, key: "", startedAt: 0, live: "", notice: { key: "", text: "" } },

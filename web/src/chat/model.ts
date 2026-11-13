@@ -1,6 +1,7 @@
 import { Result, Schema } from "effect";
 import { InboxItemKind } from "@/api/api.gen";
 import * as Composer from "@/composer";
+import { Model as TextSelection } from "@/ui/selection";
 import { chatDraftKey } from "@/lib/draft";
 import { StoreFailed } from "@/lib/effects";
 import type { Flags } from "./flags";
@@ -108,6 +109,7 @@ const ChatModelSchema = Schema.Struct({
   trayMerging: Schema.Record(Schema.Number, Schema.Boolean),
   trayRefusals: Schema.Record(Schema.Number, Schema.String),
   composer: Composer.Model,
+  selection: TextSelection,
   voice: VoiceState,
   now: Schema.Number,
   stopReady: Schema.Boolean,
@@ -179,6 +181,7 @@ export function initialModel(flags: Flags): Model {
       repository: flags.repository,
       workstream: flags.workstream,
     }),
+    selection: null,
     voice: { recording: false, key: "", startedAt: 0, live: "", notice: { key: "", text: "" } },
     now: 0,
     stopReady: false,

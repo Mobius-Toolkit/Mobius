@@ -5,6 +5,7 @@ export const ChatPage = GetChatResponse.fields.data;
 
 export const ChatMessage = ChatPage.fields.messages.value;
 export const ChatInboxItem = ChatMessage.fields.inboxItems.value;
+export const ChatSelection = ChatMessage.fields.selections.value;
 export const InboxItem = ListInboxResponse.fields.data.value;
 export const PendingAction = InboxItem.fields.action.members[0];
 export const Workstream = ListWorkstreamsResponse.fields.data.value;
@@ -22,6 +23,8 @@ export const ChatState = Schema.Struct({
 export const DraftInboxItemId = Schema.Union([Schema.Number, Schema.String]);
 export const DraftInboxItem = Schema.Struct({ ...ChatInboxItem.fields, id: DraftInboxItemId });
 export const DraftInboxItems = Schema.mutable(Schema.Array(DraftInboxItem));
+export const DraftSelection = Schema.Struct({ ...ChatSelection.fields, id: Schema.String });
+export const DraftSelections = Schema.mutable(Schema.Array(DraftSelection));
 export const Images = Schema.mutable(Schema.Array(Schema.instanceOf(File)));
 export const DraftVoice = Schema.Struct({
   state: Schema.Literals(["converting", "failed", "ready"]),
@@ -33,6 +36,7 @@ export const Draft = Schema.Struct({
   text: Schema.String,
   images: Images,
   inboxItems: DraftInboxItems,
+  selections: DraftSelections,
   voice: Schema.NullOr(DraftVoice),
 });
 export const Queued = Schema.Struct({
@@ -43,13 +47,15 @@ export const Queued = Schema.Struct({
   text: Schema.String,
   images: Images,
   inboxItems: Schema.mutable(Schema.Array(ChatInboxItem)),
+  selections: Schema.mutable(Schema.Array(ChatSelection)),
   voice: Schema.Boolean,
   time: Schema.String,
 });
-// A record of the outbox that an older version stored has no inboxItems and no voice.
+// A record of the outbox that an older version stored has no inboxItems, no selections and no voice.
 export const StoredQueued = Schema.Struct({
   ...Queued.fields,
   inboxItems: Schema.optional(Queued.fields.inboxItems),
+  selections: Schema.optional(Queued.fields.selections),
   voice: Schema.optional(Queued.fields.voice),
 });
 export const Waiting = Schema.Struct({ ...Queued.fields, sent: Schema.optional(Schema.Boolean) });
@@ -83,6 +89,7 @@ export type PendingAction = typeof PendingAction.Type;
 export type Workstream = typeof Workstream.Type;
 export type ChatState = typeof ChatState.Type;
 export type DraftInboxItem = typeof DraftInboxItem.Type;
+export type DraftSelection = typeof DraftSelection.Type;
 export type Draft = typeof Draft.Type;
 export type DraftVoice = typeof DraftVoice.Type;
 export type Queued = typeof Queued.Type;
