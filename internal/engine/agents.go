@@ -76,6 +76,8 @@ type Agent struct {
 	queuedAt string
 	// slot is the Role of the slot that the session holds, or "".
 	slot string
+	// slotBinding is the id of the Implementer binding of the slot, or 0 for the first binding.
+	slotBinding int64
 	// tracked tells that the drain counts the session.
 	tracked bool
 	// uncounted tells that the session waits for the end of a pause and the drain does not count it. It and tracked
@@ -892,7 +894,7 @@ func (a *Agent) end(ctx context.Context, reason string, keep func()) error {
 // release frees the slot of the session and its count in the drain.
 func (a *Agent) release() {
 	if a.slot != "" {
-		a.engine.releaseSlot(a.slot)
+		a.engine.releaseSlot(a.slot, a.slotBinding)
 		a.slot = ""
 	}
 	a.mu.Lock()
@@ -1192,6 +1194,9 @@ func (e *Engine) ActiveAgents(ctx context.Context) (ActiveAgents, error) {
 	var active ActiveAgents
 	for _, g := range groups {
 		binding, _ := roleBinding(&roles, g.role)
+		if g.role == ImplementerRole {
+			binding.Max = e.implementerMax()
+		}
 		active.Groups = append(active.Groups, AgentGroup{Title: g.title, Count: running[g.role], Max: binding.Max, Agents: agents[g.role]})
 	}
 	return active, nil

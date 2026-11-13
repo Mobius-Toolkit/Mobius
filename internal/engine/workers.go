@@ -105,6 +105,8 @@ type workers struct {
 	mu sync.Mutex
 	// running counts the sessions that hold a slot, by Role.
 	running map[string]int
+	// bindings counts the Implementer sessions that hold a slot, by the id of their binding. The first binding has the id 0.
+	bindings map[int64]int
 	// queued holds the Role of the session of each queued task, by the id of the task.
 	queued map[int64]string
 	// waiting holds the Role of each queued session with no task.
@@ -122,7 +124,7 @@ type waiter struct {
 }
 
 func newWorkers() workers {
-	return workers{running: map[string]int{}, queued: map[int64]string{}, waiting: map[waiter]string{}}
+	return workers{running: map[string]int{}, bindings: map[int64]int{}, queued: map[int64]string{}, waiting: map[waiter]string{}}
 }
 
 // ReplaceWork replaces the pull requests with work for an agent, by the id of their task.
@@ -245,6 +247,7 @@ func (e *Engine) takeSlot(ctx context.Context, a *Agent) error {
 		w.changed.notify()
 	}()
 	shown := ""
+	var slots *implementerSlots
 	for {
 		changed := w.changed.wait()
 		queue, err := e.queuedTasks(ctx)
@@ -256,13 +259,12 @@ func (e *Engine) takeSlot(ctx context.Context, a *Agent) error {
 		}
 		paused := ""
 		if worker {
-			pause, err := e.queries.GetHarnessPause(ctx, string(a.binding.Harness))
-			switch {
-			case err == nil:
-				if paused, err = pausedReason(pause); err != nil {
-					return err
-				}
-			case !errors.Is(err, sql.ErrNoRows):
+			if paused, err = e.pausedHarness(ctx, a.binding.Harness); err != nil {
+				return err
+			}
+		}
+		if role == ImplementerRole {
+			if slots, err = e.implementerSlots(ctx, a.spec.Task); err != nil {
 				return err
 			}
 		}
@@ -280,7 +282,7 @@ func (e *Engine) takeSlot(ctx context.Context, a *Agent) error {
 				noAccess = drainReason
 			}
 		}
-		reason, ok := e.slotReason(a, place, queue, worker, paused, startOff, noAccess)
+		reason, ok := e.slotReason(a, place, queue, worker, paused, startOff, noAccess, slots)
 		if !ok {
 			return ErrLeftQueue
 		}
@@ -311,6 +313,11 @@ func (e *Engine) takeSlot(ctx context.Context, a *Agent) error {
 		case <-changed:
 		}
 	}
+	if slots != nil && a.level == LevelRole {
+		if err := e.useBinding(ctx, a, slots.binding(a.slotBinding)); err != nil {
+			return err
+		}
+	}
 	if task == 0 {
 		return nil
 	}
@@ -325,7 +332,9 @@ func (e *Engine) takeSlot(ctx context.Context, a *Agent) error {
 }
 
 // followBinding gives the session of a that waits for a slot the current binding of its task, Workstream or Role,
-// because the Owner can change a setting while the session waits. A session that runs keeps its binding.
+// because the Owner can change a setting while the session waits. A session that runs keeps its binding. For the
+// Implementer, the binding of the Role is the first binding. A session of the level LevelRole gets the binding of its
+// slot when it takes the slot.
 func (e *Engine) followBinding(ctx context.Context, a *Agent) error {
 	roles := e.mergedRoles()
 	binding, level, err := e.sessionBinding(ctx, &roles, a.spec)
@@ -333,6 +342,11 @@ func (e *Engine) followBinding(ctx context.Context, a *Agent) error {
 		return err
 	}
 	a.level = level
+	return e.useBinding(ctx, a, binding)
+}
+
+// useBinding gives the session of a the binding, and writes it to the row of the session.
+func (e *Engine) useBinding(ctx context.Context, a *Agent, binding config.RoleBinding) error {
 	if binding == a.binding {
 		return nil
 	}
@@ -351,11 +365,84 @@ func (e *Engine) followBinding(ctx context.Context, a *Agent) error {
 	return nil
 }
 
+// slotChoice is a binding of the Implementer with the reason of the pause or of the access check that holds a session on it, or "".
+type slotChoice struct {
+	ImplementerBinding
+	hold string
+}
+
+// implementerSlots are the bindings of the Implementer that a session can take a slot of.
+type implementerSlots struct {
+	choices []slotChoice
+	// kept is the binding of the kept session of the task of the session when it follows the Role, or nil.
+	kept *config.RoleBinding
+}
+
+// implementerSlots gives the bindings of the Implementer with their holds, for the session of task.
+func (e *Engine) implementerSlots(ctx context.Context, task int64) (*implementerSlots, error) {
+	list := e.implementerList()
+	slots := &implementerSlots{choices: make([]slotChoice, 0, len(list)), kept: e.keptBinding(task)}
+	for _, b := range list {
+		hold, err := e.pausedHarness(ctx, b.Binding.Harness)
+		if err != nil {
+			return nil, err
+		}
+		if hold == "" {
+			hold = e.accessHold(b.Binding)
+		}
+		slots.choices = append(slots.choices, slotChoice{b, hold})
+	}
+	return slots, nil
+}
+
+// pick gives the binding that the next session takes: a binding with no hold and a free slot, with the fewest running
+// sessions in counts, and then the first in the list. The binding of the kept session comes first when it can take the
+// session.
+func (s *implementerSlots) pick(counts map[int64]int, kept *config.RoleBinding) (slotChoice, bool) {
+	var best *slotChoice
+	for i := range s.choices {
+		c := &s.choices[i]
+		if c.hold != "" || counts[c.ID] >= c.Binding.Max {
+			continue
+		}
+		if kept != nil && c.Binding == *kept {
+			return *c, true
+		}
+		if best == nil || counts[c.ID] < counts[best.ID] {
+			best = c
+		}
+	}
+	if best == nil {
+		return slotChoice{}, false
+	}
+	return *best, true
+}
+
+// binding gives the binding with the id id.
+func (s *implementerSlots) binding(id int64) config.RoleBinding {
+	return s.choices[slices.IndexFunc(s.choices, func(c slotChoice) bool { return c.ID == id })].Binding
+}
+
+// pausedHarness gives the queue reason of the pause of harness, or "" when it has no pause.
+func (e *Engine) pausedHarness(ctx context.Context, harness config.Harness) (string, error) {
+	pause, err := e.queries.GetHarnessPause(ctx, string(harness))
+	switch {
+	case err == nil:
+		return pausedReason(pause)
+	case errors.Is(err, sql.ErrNoRows):
+		return "", nil
+	}
+	return "", err
+}
+
 // slotReason gives the reason why the session of a must wait, or "" when the session took a slot. A Worker that
 // takes a slot also counts in the drain. It gives false when the task of the session is not in queue. paused is
 // the reason of a pause of the Harness of a Worker, or "". startOff tells that the Start switch is off and the
 // session has a task. noAccess is the reason why the access check of the Role binding of the session holds it, or "".
-func (e *Engine) slotReason(a *Agent, place waiter, queue []queuedTask, worker bool, paused string, startOff bool, noAccess string) (string, bool) {
+// slots is nil for each Role but the Implementer. A session of the Implementer that follows the Role takes the binding
+// of slots with the fewest sessions, and a session with a setting takes a slot of the first binding. When no binding
+// can take a session that follows the Role, it shows the reason of the first binding, which is the binding of a.
+func (e *Engine) slotReason(a *Agent, place waiter, queue []queuedTask, worker bool, paused string, startOff bool, noAccess string, slots *implementerSlots) (string, bool) {
 	w := &e.workers
 	role, task := a.spec.Role, a.spec.Task
 	w.mu.Lock()
@@ -389,6 +476,23 @@ func (e *Engine) slotReason(a *Agent, place waiter, queue []queuedTask, worker b
 	for _, other := range earlier {
 		roles = append(roles, other.role)
 	}
+	var counts map[int64]int
+	var chosen *slotChoice
+	if slots != nil {
+		counts = maps.Clone(w.bindings)
+		for _, other := range earlier {
+			if other.role != ImplementerRole {
+				continue
+			}
+			if c, ok := slots.pick(counts, nil); ok {
+				counts[c.ID]++
+			}
+		}
+		if c, ok := slots.pick(counts, slots.kept); ok && a.level == LevelRole {
+			chosen = &c
+			paused, noAccess = "", ""
+		}
+	}
 	var reason string
 	switch {
 	case worker && e.draining():
@@ -399,6 +503,10 @@ func (e *Engine) slotReason(a *Agent, place waiter, queue []queuedTask, worker b
 		reason = paused
 	case noAccess != "":
 		reason = noAccess
+	case chosen != nil:
+	case slots != nil:
+		merged := e.mergedRoles()
+		reason = fullReason(&merged, map[string]int{role: counts[0]}, role)
 	default:
 		merged := e.mergedRoles()
 		reason = limitReason(&merged, w.running, roles, role)
@@ -411,16 +519,26 @@ func (e *Engine) slotReason(a *Agent, place waiter, queue []queuedTask, worker b
 		return reason, true
 	}
 	w.running[role]++
+	if slots != nil {
+		a.slotBinding = 0
+		if chosen != nil {
+			a.slotBinding = chosen.ID
+		}
+		w.bindings[a.slotBinding]++
+	}
 	delete(w.queued, task)
 	delete(w.waiting, place)
 	return "", true
 }
 
-// releaseSlot frees a slot of role.
-func (e *Engine) releaseSlot(role string) {
+// releaseSlot frees a slot of role. binding is the id of the Implementer binding of the slot.
+func (e *Engine) releaseSlot(role string, binding int64) {
 	w := &e.workers
 	w.mu.Lock()
 	w.running[role]--
+	if role == ImplementerRole {
+		w.bindings[binding]--
+	}
 	w.mu.Unlock()
 	w.changed.notify()
 }
