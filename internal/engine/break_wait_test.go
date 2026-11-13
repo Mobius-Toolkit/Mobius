@@ -459,8 +459,8 @@ func TestARestartKeepsTheWaitOfATaskAndTheEndOfTheBreakUpdatesItsBranch(t *testi
 	server, sha := seedWaiting(t, fake, "checks")
 	logStateOnFailure(t, server, fake)
 	for _, statement := range []string{
-		`INSERT INTO ci_breaks (repository, workflow_id, workflow_name, run_id, run_url, run_attempt, rerun_at, result, started_at)
-			VALUES ('owner/shop', 7, 'ci', 1, '', 1, '2026-10-04T10:00:00Z', 'hard', '2026-10-04T10:00:00Z')`,
+		`INSERT INTO ci_breaks (repository, workflow_id, workflow_name, run_id, run_url, run_attempt, run_event, rerun_at, result, started_at)
+			VALUES ('owner/shop', 7, 'ci', 1, '', 1, 'push', '2026-10-04T10:00:00Z', 'hard', '2026-10-04T10:00:00Z')`,
 		"UPDATE tasks SET break_wait_head = '" + sha + "'",
 	} {
 		if _, err := server.DB.Exec(statement); err != nil {

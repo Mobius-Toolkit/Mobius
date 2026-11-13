@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"maps"
 	"net/http"
 	"slices"
 	"strings"
@@ -25,8 +26,22 @@ const (
 	replyResolveField      = "reply_resolve"
 	reviewCommentField     = "review_comment"
 	reviewCommentEditField = "review_comment_edit"
+	autopilotField         = "autopilot"
+	autoMergeField         = "auto_merge"
+	evergreenField         = "evergreen"
+	maintenanceField       = "maintenance"
+	skillsField            = "skills"
 	approvalCommentField   = "approval_comment"
 )
+
+// settingLabels gives the label of each field of an outgoing change that writes a setting of a Workstream.
+var settingLabels = map[string]string{
+	autopilotField:   autopilotLabel,
+	autoMergeField:   autoMergeLabel,
+	evergreenField:   evergreenLabel,
+	maintenanceField: maintenanceLabel,
+	skillsField:      skillsLabel,
+}
 
 // writeMarkerPrefix starts the hidden marker that ends each comment of an outgoing change. The marker holds the id of
 // the row, so a send again finds a comment that GitHub already has.
@@ -77,6 +92,15 @@ func (e *Engine) addOutgoingChange(ctx context.Context, q *store.Queries, reposi
 		Text:       sql.NullString{String: text, Valid: true},
 		CreatedAt:  now(),
 	})
+}
+
+func isSettingLabel(name string) bool {
+	return slices.Contains(slices.Collect(maps.Values(settingLabels)), name)
+}
+
+// addSettingChange adds a pending outgoing change that writes the label of the setting field of the Workstream number.
+func addSettingChange(ctx context.Context, q *store.Queries, repository string, number int64, field string) (int64, error) {
+	return q.AddOutgoingChange(ctx, store.AddOutgoingChangeParams{Repository: repository, Number: number, Field: field, CreatedAt: now()})
 }
 
 // postComment adds a comment on the issue or the pull request number as an outgoing change, and sends it at once.
@@ -195,6 +219,9 @@ func (e *Engine) sendLocked(ctx context.Context, repository github.Repository, c
 func (e *Engine) send(ctx context.Context, repository github.Repository, change store.OutgoingChange, read bool) (bool, error) {
 	if change.Field == reviewCommentEditField {
 		return e.sendEdit(ctx, repository, change)
+	}
+	if _, setting := settingLabels[change.Field]; setting {
+		return e.sendSetting(ctx, repository, change)
 	}
 	if read {
 		comment, url, err := findWrittenComment(ctx, repository, change)
@@ -400,6 +427,46 @@ func (e *Engine) sendEdit(ctx context.Context, repository github.Repository, cha
 		}
 		return q.SetOutgoingChangeStatus(ctx, store.SetOutgoingChangeStatusParams{Status: "sent", ID: change.ID})
 	})
+}
+
+// sendSetting writes the label of the setting field to the Workstream issue when the issue differs from the row of
+// workstreams. GitHub records no event for a label that the issue already has, so the send reads the issue first. A
+// Workstream with no row or no issue has no setting to write, so the change is refused.
+func (e *Engine) sendSetting(ctx context.Context, repository github.Repository, change store.OutgoingChange) (bool, error) {
+	settings, err := e.queries.GetWorkstreamSettings(ctx, store.GetWorkstreamSettingsParams{Repository: change.Repository, Number: change.Number})
+	if errors.Is(err, sql.ErrNoRows) {
+		log.Printf("write the %s of %s#%d: the Workstream has no settings", change.Field, change.Repository, change.Number)
+		return false, e.refuse(ctx, change)
+	}
+	if err != nil {
+		return false, err
+	}
+	issue, err := repository.Issue(ctx, change.Number)
+	if err != nil {
+		return e.failed(ctx, repository, change, err)
+	}
+	if issue == nil {
+		return false, e.refuse(ctx, change)
+	}
+	on := map[string]bool{
+		autopilotField:   settings.Autopilot,
+		autoMergeField:   settings.AutoMerge,
+		evergreenField:   settings.Evergreen,
+		maintenanceField: settings.Maintenance,
+		skillsField:      settings.Skills,
+	}[change.Field]
+	label := settingLabels[change.Field]
+	if hasLabel(issue, label) != on {
+		if on {
+			err = repository.AddLabel(ctx, change.Number, label)
+		} else {
+			err = repository.RemoveLabel(ctx, change.Number, label)
+		}
+		if err != nil {
+			return e.failed(ctx, repository, change, err)
+		}
+	}
+	return false, e.queries.SetOutgoingChangeStatus(ctx, store.SetOutgoingChangeStatusParams{Status: "sent", ID: change.ID})
 }
 
 // deleteFinishedOutgoingChanges deletes each sent or refused outgoing change that is older than finishedChangeLife.

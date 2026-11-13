@@ -784,6 +784,46 @@ func TestTheWorkstreamsMigrationCopiesTheSettingsAndDropsTheColumns(t *testing.T
 	}
 }
 
+func TestTheSettingFieldsMigrationKeepsTheOutgoingChangesAndAcceptsTheSettingFields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mobius.db")
+	db := openBefore(t, path, 20270325000000)
+	if _, err := db.Exec(`INSERT INTO outgoing_changes (integration, repository, number, field, text, status, created_at) VALUES
+		('github', 'o/a', 1, 'comment', 'First', 'sent', '2027-03-01T10:00:00Z'),
+		('github', 'o/a', 2, 'reply', 'Second', 'pending', '2027-03-01T10:00:01Z')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := Open(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	var kept int
+	err = db.QueryRow("SELECT count(*) FROM outgoing_changes WHERE (id, field, status) IN ((1, 'comment', 'sent'), (2, 'reply', 'pending'))").Scan(&kept)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if kept != 2 {
+		t.Errorf("kept rows = %d", kept)
+	}
+	for i, field := range []string{"autopilot", "auto_merge", "evergreen", "maintenance", "skills"} {
+		var id int64
+		err := db.QueryRow(`INSERT INTO outgoing_changes (integration, repository, number, field, status, created_at)
+			VALUES ('github', 'o/a', 3, ?, 'pending', '2027-03-01T10:00:02Z') RETURNING id`, field).Scan(&id)
+		if err != nil || id != int64(3+i) {
+			t.Errorf("%s: id = %d, error = %v", field, id, err)
+		}
+	}
+	if _, err := db.Exec(`INSERT INTO outgoing_changes (integration, repository, number, field, status, created_at)
+		VALUES ('github', 'o/a', 3, 'unknown', 'pending', '2027-03-01T10:00:03Z')`); err == nil {
+		t.Error("the table accepts an unknown field")
+	}
+}
+
 func TestTheCoordinatorMigrationMovesTheChatSessionsAndTheChatMessages(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "mobius.db")
 	db := openBefore(t, path, 20261105000000)

@@ -22,10 +22,8 @@ import (
 
 // copiedWorkstream is an open Workstream with the issues of its tree in depth-first order.
 type copiedWorkstream struct {
-	issue     *gh.Issue
-	autopilot bool
-	autoMerge bool
-	tree      []copiedIssue
+	issue *gh.Issue
+	tree  []copiedIssue
 }
 
 type copiedIssue struct {
@@ -55,11 +53,7 @@ func (e *Engine) syncCopy(ctx context.Context, repository github.Repository) err
 	}
 	var workstreams []copiedWorkstream
 	for _, issue := range issues {
-		autopilot, autoMerge, err := e.issueLevelLabels(ctx, repository, issue)
-		if err != nil {
-			return err
-		}
-		workstream, err := e.copyWorkstream(ctx, repository, issue, autopilot, autoMerge)
+		workstream, err := e.copyWorkstream(ctx, repository, issue)
 		if err != nil {
 			return err
 		}
@@ -115,15 +109,14 @@ func replaceCopy(ctx context.Context, q *store.Queries, repository string, works
 	return nil
 }
 
-// updateCopy applies the change of one issue of repository to the copy, and tells if the copy changed. events are
-// all events of the issue. With findParent, updateCopy reads the parent of an issue that no copy has,
+// updateCopy applies the change of one issue of repository to the copy, and tells if the copy changed. With findParent, updateCopy reads the parent of an issue that no copy has,
 // because its new link to a Workstream or a task changes the walk order of that Workstream. changes is the
 // labelChangeCount of repository from before the read of issue.
 //
 // A task that gets or loses the Workstream label changes the walk order of its Workstream, and the Workstream of its
 // blockers in the other trees. A new Workstream changes the Workstream of the blockers in its tree, in the other trees.
 // The copy of another repository can hold the issue in its tree, so these changes go to the Workstreams of all copies.
-func (e *Engine) updateCopy(ctx context.Context, repository github.Repository, issue *gh.Issue, events []*gh.IssueEvent, findParent bool, changes int) (bool, error) {
+func (e *Engine) updateCopy(ctx context.Context, repository github.Repository, issue *gh.Issue, findParent bool, changes int) (bool, error) {
 	name := repository.FullName
 	number := int64(issue.GetNumber())
 	holding, err := e.copiedWorkstreamsHolding(ctx, number, issue.GetRepositoryURL())
@@ -155,7 +148,6 @@ func (e *Engine) updateCopy(ctx context.Context, repository github.Repository, i
 			wanted = hasLabel(issue, workstreamLabel) && issue.GetState() == "open"
 		}
 	}
-	autopilot, autoMerge := e.levelLabels(issue, events)
 	changed := false
 	var added []copiedIssue
 	switch {
@@ -163,11 +155,11 @@ func (e *Engine) updateCopy(ctx context.Context, repository github.Repository, i
 		changed = true
 		err = e.removeCopiedWorkstream(ctx, name, number)
 	case stored:
-		changed, err = e.updateCopiedWorkstream(ctx, name, issue, autopilot, autoMerge)
+		changed, err = e.updateCopiedWorkstream(ctx, name, issue)
 	case wanted:
 		var workstream copiedWorkstream
 		before := e.labelChangesNow()
-		workstream, err = e.copyWorkstream(ctx, repository, issue, autopilot, autoMerge)
+		workstream, err = e.copyWorkstream(ctx, repository, issue)
 		if err == nil {
 			changed, added = true, workstream.tree
 			err = e.writeRead(ctx, name, before, [][]copiedIssue{workstream.tree}, func(q *store.Queries) error { return addWorkstream(ctx, q, name, workstream) })
@@ -492,7 +484,7 @@ func (e *Engine) removeCopiedWorkstream(ctx context.Context, repository string, 
 
 // updateCopiedWorkstream changes the copied Workstream of the issue, and the title of each blocker in that Workstream.
 // It gives false when the copy has the same values.
-func (e *Engine) updateCopiedWorkstream(ctx context.Context, repository string, issue *gh.Issue, autopilot, autoMerge bool) (bool, error) {
+func (e *Engine) updateCopiedWorkstream(ctx context.Context, repository string, issue *gh.Issue) (bool, error) {
 	changed := false
 	return changed, e.inTx(ctx, func(q *store.Queries) error {
 		updated, err := q.UpdateCopiedWorkstream(ctx, store.UpdateCopiedWorkstreamParams{
@@ -504,7 +496,7 @@ func (e *Engine) updateCopiedWorkstream(ctx context.Context, repository string, 
 		if err != nil {
 			return err
 		}
-		settingsUpdated, err := upsertWorkstream(ctx, q, repository, issue, autopilot, autoMerge)
+		settingsUpdated, err := addWorkstreamSettings(ctx, q, repository, issue)
 		if err != nil {
 			return err
 		}
@@ -701,9 +693,9 @@ func (e *Engine) copyTree(ctx context.Context, repository github.Repository, wor
 	})
 }
 
-func (e *Engine) copyWorkstream(ctx context.Context, repository github.Repository, issue *gh.Issue, autopilot, autoMerge bool) (copiedWorkstream, error) {
+func (e *Engine) copyWorkstream(ctx context.Context, repository github.Repository, issue *gh.Issue) (copiedWorkstream, error) {
 	tree, err := e.readTree(ctx, repository, int64(issue.GetNumber()))
-	return copiedWorkstream{issue: issue, autopilot: autopilot, autoMerge: autoMerge, tree: tree}, err
+	return copiedWorkstream{issue: issue, tree: tree}, err
 }
 
 // readTree gives the issues below the Workstream, depth first, with the rules of list_tasks, but with each issue.
@@ -810,23 +802,46 @@ func addWorkstream(ctx context.Context, q *store.Queries, repository string, wor
 	if err != nil {
 		return err
 	}
-	if _, err := upsertWorkstream(ctx, q, repository, issue, workstream.autopilot, workstream.autoMerge); err != nil {
+	if _, err := addWorkstreamSettings(ctx, q, repository, issue); err != nil {
 		return err
 	}
 	return addTree(ctx, q, repository, int64(issue.GetNumber()), workstream.tree)
 }
 
-// upsertWorkstream writes the settings of the Workstream issue from its labels. It gives 1 when it added or changed the row.
-func upsertWorkstream(ctx context.Context, q *store.Queries, repository string, issue *gh.Issue, autopilot, autoMerge bool) (int64, error) {
-	return q.UpsertWorkstream(ctx, store.UpsertWorkstreamParams{
+// addWorkstreamSettings adds the settings row of the Workstream issue when it has none, with the Autopilot level Off and
+// the other settings from the labels. A maintenance Workstream is evergreen, because Mobius manages it. A row that
+// exists stays as it is. When it adds the row, it also adds an outgoing change for each level label that the issue has,
+// so the issue loses the label, and for the evergreen label that a maintenance Workstream lacks. It gives 1 when it
+// added the row.
+func addWorkstreamSettings(ctx context.Context, q *store.Queries, repository string, issue *gh.Issue) (int64, error) {
+	number := int64(issue.GetNumber())
+	maintenance := hasLabel(issue, maintenanceLabel)
+	added, err := q.AddWorkstream(ctx, store.AddWorkstreamParams{
 		Repository:  repository,
-		Number:      int64(issue.GetNumber()),
-		Autopilot:   autopilot,
-		AutoMerge:   autoMerge,
-		Evergreen:   hasLabel(issue, evergreenLabel),
-		Maintenance: hasLabel(issue, maintenanceLabel),
+		Number:      number,
+		Evergreen:   hasLabel(issue, evergreenLabel) || maintenance,
+		Maintenance: maintenance,
 		Skills:      hasLabel(issue, skillsLabel),
 	})
+	if err != nil || added == 0 {
+		return added, err
+	}
+	var fields []string
+	if hasLabel(issue, autopilotLabel) {
+		fields = append(fields, autopilotField)
+	}
+	if hasLabel(issue, autoMergeLabel) {
+		fields = append(fields, autoMergeField)
+	}
+	if maintenance && !hasLabel(issue, evergreenLabel) {
+		fields = append(fields, evergreenField)
+	}
+	for _, field := range fields {
+		if _, err := addSettingChange(ctx, q, repository, number, field); err != nil {
+			return 0, err
+		}
+	}
+	return added, nil
 }
 
 func removeTree(ctx context.Context, q *store.Queries, repository string, workstream int64) error {
