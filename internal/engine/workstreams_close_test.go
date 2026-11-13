@@ -113,6 +113,27 @@ func TestACloseEndsTheTasksAndClosesThePullRequestsAndIssuesBelow(t *testing.T) 
 	}
 }
 
+func TestACloseSetsTheLevelOffAndTheSendRemovesBothLabelsAsTheApp(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addLiveTask(fake)
+	fake.AddLabel(shop, 12, "mobius:autopilot", "owner")
+	fake.AddLabel(shop, 12, "mobius:auto-merge", "owner")
+	server := startWithLiveTask(t, fake)
+	if got := settingsOf(t, server, 12); len(got) != 1 || !got[0].Autopilot || !got[0].AutoMerge {
+		t.Fatalf("settings = %+v", got)
+	}
+
+	fake.CloseIssue(shop, 12)
+
+	testkit.WaitFor(t, func() bool {
+		return fake.LabelRemovedBy(shop, 12, "mobius:autopilot", appActor) && fake.LabelRemovedBy(shop, 12, "mobius:auto-merge", appActor)
+	})
+	if got := settingsOf(t, server, 12); len(got) != 1 || got[0].Autopilot || got[0].AutoMerge {
+		t.Errorf("settings = %+v", got)
+	}
+}
+
 func TestACompletionClosesTheWorkstreamAndEndsTheLiveTask(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

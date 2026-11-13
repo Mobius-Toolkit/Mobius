@@ -25,12 +25,11 @@ func approvableWith(t *testing.T, fake *testkit.FakeGitHub, level string, author
 	t.Helper()
 	fake.AddUserCode(testkit.AppID, "user-code", "owner")
 	server, _ := connectTask(t, fake, reviewer+leadApproves+leadStarts, commits, keepSessionOpen)
-	switch {
-	case authorized:
+	if authorized {
 		authorize(t, server)
+	}
+	if authorized || level != "off" {
 		setWorkstreamAutopilot(t, server, level)
-	case level != "off":
-		fake.AddLabel(shop, 12, "mobius:auto-merge", "owner")
 	}
 	testkit.WaitFor(t, func() bool { return workstreams(t, server)[0].Autopilot == level })
 	if !strings.HasPrefix(level, "start") {
@@ -158,6 +157,33 @@ func TestAChangeOfTheLevelToAMergeLevelApprovesTheTaskThatWaitsForTheMergeButton
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "" })
 	if calls, count := fake.MergeCalls(), approvals(fake); calls != 1 || count != 1 {
 		t.Errorf("merge calls = %d, approvals = %d", calls, count)
+	}
+}
+
+func TestAChangeOfTheLevelByTheOwnerActsBeforeTheNextPollAndTheSendWritesTheLabelsAsTheApp(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := approvable(t, fake, "off", true)
+	sendChat(t, server, leadChat, "Approve #41")
+	waitForItem(t, server, "ready for review")
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "ready_for_review" })
+	waitForPolls(t, fake)
+
+	setWorkstreamAutopilot(t, server, "start_and_merge")
+
+	if got := workstreams(t, server)[0].Autopilot; got != "start_and_merge" {
+		t.Errorf("level = %s", got)
+	}
+	if count := approvals(fake); count != 1 {
+		t.Errorf("approvals = %d", count)
+	}
+	if got := autopilotEvents(t, server); len(got) != 1 || !strings.HasSuffix(got[0], ` is "Start and merge", by the Owner.`) {
+		t.Errorf("events = %q", got)
+	}
+	for _, label := range []string{"mobius:autopilot", "mobius:auto-merge"} {
+		if !fake.LabelAddedBy(shop, 12, label, appActor) {
+			t.Errorf("%s was not added by the App, labels = %v", label, fake.Labels(shop, 12))
+		}
 	}
 }
 

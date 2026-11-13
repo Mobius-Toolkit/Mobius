@@ -5838,7 +5838,7 @@
     },
     "/api/workstreams/{owner}/{name}/{number}/autopilot": {
       "put": {
-        "description": "SetAutopilot sets the Autopilot level of the Workstream. Mobius changes mobius:autopilot and mobius:auto-merge with the user token of the Owner, so the Owner must authorize the Mobius App first. It returns 409 with the steps when the Owner did not.",
+        "description": "SetAutopilot sets the Autopilot level of the Workstream. Mobius changes the level and acts at once, and writes mobius:autopilot and mobius:auto-merge to the issue with the App token. It returns 409 when the issue is not an open Workstream.",
         "operationId": "SetAutopilot",
         "parameters": [
           {
@@ -11451,7 +11451,7 @@
         "properties": {
           "on": {
             "type": "boolean",
-            "description": "On adds mobius:evergreen when true, and removes it when false"
+            "description": "On makes the Workstream evergreen when true, and not evergreen when false"
           }
         }
       },
@@ -12655,7 +12655,7 @@
           },
           "autopilot": {
             "type": "string",
-            "description": "Autopilot is the Autopilot level: a trusted user added mobius:autopilot last for the start part, and mobius:auto-merge last for the merge part",
+            "description": "Autopilot is the Autopilot level: mobius:autopilot is the start part, and mobius:auto-merge is the merge part",
             "enum": [
               "off",
               "start",
@@ -12669,7 +12669,7 @@
           },
           "evergreen": {
             "type": "boolean",
-            "description": "Evergreen is true when the Workstream issue has mobius:evergreen"
+            "description": "Evergreen is true when the Workstream is evergreen"
           },
           "number": {
             "type": "integer",
@@ -12715,7 +12715,7 @@
           },
           "evergreen": {
             "type": "boolean",
-            "description": "Evergreen is true when the Workstream issue has mobius:evergreen"
+            "description": "Evergreen is true when the Workstream is evergreen"
           },
           "implementer": {
             "$ref": "#/components/schemas/NextSetting",

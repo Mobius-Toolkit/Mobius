@@ -9,6 +9,7 @@ import {
   ResendVoice,
   SaveDraftImages,
   SaveDraftInboxItems,
+  SaveDraftSelections,
   SaveDraftText,
   StopVoice,
   ToggleVoice,
@@ -31,6 +32,7 @@ function clearedDraft(model: Model): Model {
     draftText: "",
     draftImages: [],
     draftInboxItems: [],
+    draftSelections: [],
     draftVoice: null,
   };
 }
@@ -44,6 +46,7 @@ export function update(model: Model, message: Message): UpdateReturn {
         draftText: draft.text,
         draftImages: draft.images,
         draftInboxItems: draft.inboxItems,
+        draftSelections: draft.selections,
         draftVoice: draft.voice,
       },
     }),
@@ -101,6 +104,14 @@ export function update(model: Model, message: Message): UpdateReturn {
       };
     },
 
+    DraftSelectionRemoved: ({ id }) => {
+      const nextSelections = model.draftSelections.filter((selection) => selection.id !== id);
+      return {
+        model: { ...model, draftSelections: nextSelections },
+        commands: [SaveDraftSelections({ key: model.draftKey, selections: nextSelections })],
+      };
+    },
+
     // The Send button and Enter stop a voice run and send nothing.
     SendSubmitted: () => {
       if (model.voice.recording) {
@@ -120,6 +131,7 @@ export function update(model: Model, message: Message): UpdateReturn {
             text: model.draftText,
             images: model.draftImages,
             inboxItems: model.draftInboxItems,
+            selections: model.draftSelections,
             voice: model.draftVoice?.state === "ready",
           }),
         ],

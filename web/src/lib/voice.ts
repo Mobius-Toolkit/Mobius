@@ -1,3 +1,4 @@
+import { Effect, Option, Schema } from "effect";
 import {
   getCreateRecordingUrl,
   getFinishRecordingUrl,
@@ -18,6 +19,7 @@ import {
   updateDraft,
   type DraftVoice,
 } from "./draft";
+import { request as attempt } from "./effects";
 import workletUrl from "./recorder-worklet.ts?worker&url";
 
 const sampleRate = 16000;
@@ -127,8 +129,10 @@ const stopMedia = (stream: MediaStream | undefined, context: AudioContext) => {
   return context.close();
 };
 
-const startError = (err: unknown) => {
-  const name = err instanceof DOMException ? err.name : "";
+const asDomException = Schema.decodeUnknownOption(Schema.instanceOf(DOMException));
+
+const startError = (error: Option.Option<DOMException>) => {
+  const name = Option.match(error, { onNone: () => "", onSome: (exception) => exception.name });
   if (name === "NotAllowedError") {
     return "The browser blocks the microphone. Allow the microphone in the browser settings.";
   }
@@ -162,25 +166,30 @@ type Answer<T> = { status: number; data?: T & { error?: string } };
 
 // The request fails with a TimeoutError when it does not end within limit. data is undefined when the answer is not
 // JSON.
-const request = async <T>(
-  url: string,
-  limit: number,
-  init: RequestInit = {},
-): Promise<Answer<T>> => {
+const send = async <T>(url: string, limit: number, init: RequestInit = {}): Promise<Answer<T>> => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(new DOMException("", "TimeoutError")), limit);
   try {
     const res = await fetch(url, { ...init, signal: controller.signal });
-    return { status: res.status, data: await res.json().catch(() => undefined) };
+    const data = await Effect.runPromise(
+      attempt((): Promise<Answer<T>["data"]> => res.json()).pipe(
+        Effect.orElseSucceed(() => undefined),
+      ),
+    );
+    return { status: res.status, data };
   } finally {
     clearTimeout(timer);
   }
 };
 
 const post = <T>(url: string, limit: number, init: RequestInit = {}) =>
-  request<T>(url, limit, { ...init, method: "POST" });
+  send<T>(url, limit, { ...init, method: "POST" });
 
-const failure = (answer: Answer<unknown>) =>
+// Gives undefined when the request fails or does not end within the limit.
+const tryRequest = <T>(task: () => Promise<Answer<T>>) =>
+  Effect.runPromise(attempt(task).pipe(Effect.orElseSucceed(() => undefined)));
+
+const failure = (answer: { status: number; data?: { error?: string } }) =>
   answer.data?.error ?? `The server answered ${answer.status}.`;
 
 const pause = (time: number) => new Promise((resolve) => setTimeout(resolve, time));
@@ -196,10 +205,9 @@ const awaitConversion = async (key: string, id: string, audio: Blob): Promise<Re
   let last = unreachableMessage;
   while (Date.now() < end) {
     await pause(conversionInterval);
-    const answer = await request<getConversionResponse200["data"]>(
-      getGetConversionUrl(id),
-      quickLimit,
-    ).catch(() => undefined);
+    const answer = await tryRequest(() =>
+      send<getConversionResponse200["data"]>(getGetConversionUrl(id), quickLimit),
+    );
     if (answer?.status === 404) {
       return convert(key, audio);
     }
@@ -247,10 +255,9 @@ const runLive = (live: Live, task: Promise<void>) => {
 };
 
 const openLive = async (live: Live) => {
-  const response = await post<createRecordingResponse200["data"]>(
-    getCreateRecordingUrl(),
-    quickLimit,
-  ).catch(() => undefined);
+  const response = await tryRequest(() =>
+    post<createRecordingResponse200["data"]>(getCreateRecordingUrl(), quickLimit),
+  );
   if (response?.status === 200 && response.data) {
     live.id = response.data.data.id;
   } else {
@@ -271,11 +278,13 @@ const sendNew = async (recording: Recording) => {
     return;
   }
   live.sent = recording.chunks.length;
-  const response = await post<sendChunkResponse200["data"]>(
-    getSendChunkUrl(live.id, { sequence: live.sequence++ }),
-    quickLimit,
-    { headers: { "Content-Type": "application/octet-stream" }, body: new Blob(part) },
-  ).catch(() => undefined);
+  const response = await tryRequest(() =>
+    post<sendChunkResponse200["data"]>(
+      getSendChunkUrl(live.id, { sequence: live.sequence++ }),
+      quickLimit,
+      { headers: { "Content-Type": "application/octet-stream" }, body: new Blob(part) },
+    ),
+  );
   if (response?.status !== 200 || !response.data) {
     live.failed = true;
   } else {
@@ -300,10 +309,9 @@ const finishLive = async (recording: Recording) => {
   if (live.failed) {
     return undefined;
   }
-  const answer = await post<finishRecordingResponse200["data"]>(
-    getFinishRecordingUrl(live.id),
-    quickLimit,
-  ).catch(() => undefined);
+  const answer = await tryRequest(() =>
+    post<finishRecordingResponse200["data"]>(getFinishRecordingUrl(live.id), quickLimit),
+  );
   if (answer?.status !== 200 || !answer.data) {
     return undefined;
   }
@@ -434,7 +442,7 @@ const start = async (key: string, fieldId: string) => {
     void stopMedia(stream, context);
     if (token === run) {
       releaseScreen();
-      publish({ recording: false, notice: { key, text: startError(err) } });
+      publish({ recording: false, notice: { key, text: startError(asDomException(err)) } });
     }
     return;
   }

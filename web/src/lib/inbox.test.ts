@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
-import { currentInbox, dropMarks, hideInboxItem, restoreInboxItem } from "./inbox";
+import { Effect } from "effect";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { currentInbox, dropMarks, hideInboxItem, loadInbox, restoreInboxItem } from "./inbox";
 
 const row = {
   number: 5,
@@ -27,5 +28,42 @@ describe("the mark of an answered issue", () => {
 
     restoreInboxItem(301);
     expect(currentInbox().answered).toEqual([]);
+  });
+});
+
+describe("the read of the Inbox", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("gives the items that the server answers", async () => {
+    vi.stubGlobal("fetch", async () => new Response(JSON.stringify({ data: [{ id: 4 }] })));
+
+    await Effect.runPromise(loadInbox());
+
+    expect(currentInbox().items.map((item) => item.id)).toEqual([4]);
+  });
+
+  it("keeps the items when the request fails", async () => {
+    vi.stubGlobal("fetch", async () => new Response(JSON.stringify({ data: [{ id: 4 }] })));
+    await Effect.runPromise(loadInbox());
+    const before = currentInbox();
+    vi.stubGlobal("fetch", () => Promise.reject(new TypeError("offline")));
+
+    await Effect.runPromise(loadInbox());
+
+    expect(currentInbox()).toBe(before);
+  });
+
+  it("keeps the items when the server answers with an error", async () => {
+    const before = currentInbox();
+    vi.stubGlobal(
+      "fetch",
+      async () => new Response(JSON.stringify({ error: "boom" }), { status: 500 }),
+    );
+
+    await Effect.runPromise(loadInbox());
+
+    expect(currentInbox()).toBe(before);
   });
 });

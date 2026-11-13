@@ -166,9 +166,10 @@ func TestAHeadAfterTheReviewedHeadGivesTheLeadReadyForApproval(t *testing.T) {
 	}
 }
 
-// TestARefusedApprovalOfAReviewedHeadGivesTheLeadReadyForApproval checks that a 422 answer of GitHub ends the approval
-// of Mobius and gives the Lead the event that starts the manual approval.
-func TestARefusedApprovalOfAReviewedHeadGivesTheLeadReadyForApproval(t *testing.T) {
+// TestARefusedCommentOfTheApprovalOfAReviewedHeadDoesNotStopTheApproval checks that a 422 answer of GitHub marks the
+// outgoing change of the approval comment refused, and that Mobius still approves the head and stores its report. The
+// Lead gets no ready_for_approval event.
+func TestARefusedCommentOfTheApprovalOfAReviewedHeadDoesNotStopTheApproval(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := reviewedHeadServer(t, fake, leadStarts, 5*time.Second)
@@ -176,27 +177,21 @@ func TestARefusedApprovalOfAReviewedHeadGivesTheLeadReadyForApproval(t *testing.
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "checks" && reviewedHead(t, server) != "" })
 	fake.RefuseAddComment(shop, 42, http.StatusUnprocessableEntity)
 
-	waitForLeadPrompt(t, server, readyForApprovalMarker)
-	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" })
+	testkit.WaitFor(t, func() bool {
+		return slices.ContainsFunc(leadEvents(t, server), func(event leadEvent) bool { return event.Kind == "auto_approved" })
+	})
+	testkit.WaitFor(t, func() bool { return outgoingChanges(t, server, "refused") == 1 })
 	waitForPolls(t, fake)
 	if got := fake.RefusedCommentCalls(); got != 1 {
 		t.Errorf("refused approval comments = %d, want 1", got)
 	}
-
-	ready := 0
 	for _, event := range leadEvents(t, server) {
-		switch event.Kind {
-		case "auto_approved":
-			t.Errorf("auto_approved event after a refused comment: %q", event.Payload)
-		case "ready_for_approval":
-			ready++
+		if event.Kind == "ready_for_approval" {
+			t.Errorf("ready_for_approval event after a refused comment: %q", event.Payload)
 		}
 	}
-	if ready != 1 {
-		t.Errorf("ready_for_approval events = %d, want 1", ready)
-	}
-	if got := approvedReport(t, server); got != "" {
-		t.Errorf("approved_report = %q", got)
+	if got := approvedReport(t, server); got == "" {
+		t.Error("the task stores no approved report")
 	}
 }
 

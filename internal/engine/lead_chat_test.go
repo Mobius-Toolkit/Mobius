@@ -398,8 +398,9 @@ func TestTheFirstPromptTellsTheLeadOfAnEvergreenWorkstreamWhileGitHubRefusesEach
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "")
-	fake.AddLabel(shop, 12, "mobius:evergreen", "owner")
-	waitForPoll(t, server, fake)
+	if status, body := send(t, server, http.MethodPut, "/api/workstreams/owner/shop/12/evergreen", `{"on":true}`); status != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", status, body)
+	}
 	fake.SetRateLimited(true)
 
 	sendChat(t, server, leadChat, "Plan the next step")

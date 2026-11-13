@@ -15,12 +15,12 @@ import (
 )
 
 // needsHumanWithLabels seeds a task in needs_human with a pull request, and waits until the issue and the pull request
-// have mobius:needs-human. The Workstream has mobius:autopilot when autopilot is true.
+// have mobius:needs-human. The Workstream has the Autopilot level Start when autopilot is true.
 func needsHumanWithLabels(t *testing.T, fake *testkit.FakeGitHub, autopilot bool) *testserver.Server {
 	t.Helper()
 	server, _ := seedWaiting(t, fake, "needs_human")
 	if autopilot {
-		fake.AddLabel(shop, 12, "mobius:autopilot", "owner")
+		setWorkstreamAutopilot(t, server, "start")
 	}
 	testkit.WaitFor(t, func() bool { return hasLabel(fake, "mobius:needs-human") && pullRequestHasNeedsHuman(fake) })
 	waitForPolls(t, fake)
@@ -120,7 +120,7 @@ func TestARemovalOfNeedsHumanFromBeforeTheMoveToNeedsHumanHasNoEffect(t *testing
 	fake.AddLabel(shop, pullRequestNumber, "mobius:needs-human", app)
 	fake.RemoveLabel(shop, pullRequestNumber, "mobius:needs-human", app)
 	fake.AddLabel(shop, 41, "mobius:needs-human", app)
-	fake.AddLabel(shop, 12, "mobius:autopilot", "owner")
+	setWorkstreamAutopilot(t, server, "start")
 	waitForPolls(t, fake)
 
 	fake.FailAddLabels(shop, pullRequestNumber, false)
@@ -200,7 +200,7 @@ func TestMarkReadyContinuesATaskThatTheCIStoppedAndKeepsTheRoundCounters(t *test
 			fake := testkit.NewFakeGitHub(t)
 			server, sha := seedWaitingWith(t, fake, "checks", markReadyLead)
 			if autopilot {
-				fake.AddLabel(shop, 12, "mobius:autopilot", "owner")
+				setWorkstreamAutopilot(t, server, "start")
 			}
 			fake.AddWorkflowRun(shop, testkit.WorkflowRun{HeadSHA: sha, Status: "completed", Conclusion: "failure"})
 			testkit.WaitFor(t, func() bool {

@@ -351,6 +351,10 @@ SELECT * FROM chat_messages WHERE id = ?;
 UPDATE inbox_items SET dismissed_at = ? WHERE id = ?
 RETURNING *;
 
+-- name: SetInboxItemReportLink :one
+UPDATE inbox_items SET report_link = ? WHERE id = ?
+RETURNING *;
+
 -- name: SetInboxItemAnswer :exec
 UPDATE inbox_items SET answer = ? WHERE id = ?;
 
@@ -736,8 +740,14 @@ UPDATE tasks SET approved_head = ? WHERE id = ?;
 -- name: SetTaskApprovedReport :exec
 UPDATE tasks SET approved_report = ?, approved_report_head = ? WHERE id = ?;
 
+-- name: SetTaskApprovalChange :exec
+UPDATE tasks SET approved_again_change = ?, approved_again_comment = NULL WHERE id = ?;
+
+-- name: SetTaskApprovedAgainHead :exec
+UPDATE tasks SET approved_again_head = ? WHERE id = ?;
+
 -- name: SetTaskApprovedAgainComment :exec
-UPDATE tasks SET approved_again_head = ?, approved_again_comment = ? WHERE id = ?;
+UPDATE tasks SET approved_again_comment = ? WHERE id = ?;
 
 -- name: SetTaskConflictHead :exec
 UPDATE tasks SET conflict_head = ? WHERE id = ?;
@@ -845,17 +855,17 @@ INSERT INTO copied_workstreams (repository, number, title, body, created_at)
 VALUES (?, ?, ?, ?, ?)
 ON CONFLICT (repository, number) DO NOTHING;
 
--- The row stays after the copy of its Workstream goes away. It gives true when it added or changed the row.
--- name: UpsertWorkstream :execrows
+-- The row stays after the copy of its Workstream goes away. It gives 1 when it added the row.
+-- name: AddWorkstream :execrows
 INSERT INTO workstreams (repository, number, autopilot, auto_merge, evergreen, maintenance, skills)
-VALUES (sqlc.arg(repository), sqlc.arg(number), CAST(sqlc.arg(autopilot) AS BOOLEAN), CAST(sqlc.arg(auto_merge) AS BOOLEAN),
-        CAST(sqlc.arg(evergreen) AS BOOLEAN), CAST(sqlc.arg(maintenance) AS BOOLEAN), CAST(sqlc.arg(skills) AS BOOLEAN))
-ON CONFLICT (repository, number) DO UPDATE SET
-    autopilot = excluded.autopilot, auto_merge = excluded.auto_merge, evergreen = excluded.evergreen,
-    maintenance = excluded.maintenance, skills = excluded.skills
-WHERE workstreams.autopilot != excluded.autopilot OR workstreams.auto_merge != excluded.auto_merge
-   OR workstreams.evergreen != excluded.evergreen OR workstreams.maintenance != excluded.maintenance
-   OR workstreams.skills != excluded.skills;
+VALUES (sqlc.arg(repository), sqlc.arg(number), 0, 0, CAST(sqlc.arg(evergreen) AS BOOLEAN), CAST(sqlc.arg(maintenance) AS BOOLEAN),
+        CAST(sqlc.arg(skills) AS BOOLEAN))
+ON CONFLICT (repository, number) DO NOTHING;
+
+-- name: GetWorkstreamSettings :one
+SELECT CAST(autopilot AS BOOLEAN) AS autopilot, CAST(auto_merge AS BOOLEAN) AS auto_merge, CAST(evergreen AS BOOLEAN) AS evergreen,
+       CAST(maintenance AS BOOLEAN) AS maintenance, CAST(skills AS BOOLEAN) AS skills
+FROM workstreams WHERE repository = ? AND number = ?;
 
 -- name: AddCopiedIssue :exec
 INSERT INTO copied_issues (repository, workstream, position, number, parent, parent_repository, title, body, state, author, html_url, repository_url)

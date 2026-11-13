@@ -1,7 +1,11 @@
-import type { ChatInboxItem } from "@/api/api.gen";
+import { Effect } from "effect";
+import type { ChatInboxItem, ChatSelection } from "@/api/api.gen";
 import { run } from "./database";
+import { store } from "./effects";
 
 export type DraftInboxItem = ChatInboxItem & { id: number | string };
+
+export type DraftSelection = ChatSelection & { id: string };
 
 // The audio stays in the draft until the server gives the text. conversion is the id of the server conversion, or ""
 // before the upload ends. error has the text of the failure in the state failed.
@@ -16,10 +20,17 @@ export type Draft = {
   text: string;
   images: File[];
   inboxItems: DraftInboxItem[];
+  selections: DraftSelection[];
   voice: DraftVoice | null;
 };
 
-export const emptyDraft: Draft = { text: "", images: [], inboxItems: [], voice: null };
+export const emptyDraft: Draft = {
+  text: "",
+  images: [],
+  inboxItems: [],
+  selections: [],
+  voice: null,
+};
 
 export function chatDraftKey(organization: string, repository: string, workstream: number) {
   return `chatDraft:${organization}/${repository}/${workstream}`;
@@ -47,20 +58,26 @@ export function currentDraft(key: string) {
 function load(key: string) {
   let promise = loading.get(key);
   if (!promise) {
-    promise = run<{ key: string } & Draft>("drafts", "readonly", (store) => store.get(key))
-      .then((record) => ({
-        text: record?.text ?? "",
-        images: record?.images ?? [],
-        inboxItems: record?.inboxItems ?? [],
-        voice: record?.voice ?? null,
-      }))
-      // The input works with no kept draft.
-      .catch(() => emptyDraft)
-      .then((draft) => {
-        drafts.set(key, draft);
-        loading.delete(key);
-        listeners.forEach((listener) => listener());
-      });
+    promise = Effect.runPromise(
+      store(() =>
+        run<{ key: string } & Draft>("drafts", "readonly", (table) => table.get(key)),
+      ).pipe(
+        Effect.map((record): Draft => ({
+          text: record?.text ?? "",
+          images: record?.images ?? [],
+          inboxItems: record?.inboxItems ?? [],
+          selections: record?.selections ?? [],
+          voice: record?.voice ?? null,
+        })),
+        // The input works with no kept draft.
+        Effect.orElseSucceed(() => emptyDraft),
+        Effect.map((draft) => {
+          drafts.set(key, draft);
+          loading.delete(key);
+          listeners.forEach((listener) => listener());
+        }),
+      ),
+    );
     loading.set(key, promise);
   }
   return promise;
@@ -84,25 +101,37 @@ export async function updateDraft(key: string, update: (draft: Draft) => Draft) 
   drafts.set(key, next);
   listeners.forEach((listener) => listener());
   const empty =
-    !next.text && next.images.length === 0 && next.inboxItems.length === 0 && !next.voice;
+    !next.text &&
+    next.images.length === 0 &&
+    next.inboxItems.length === 0 &&
+    next.selections.length === 0 &&
+    !next.voice;
   // The input works with no kept draft.
-  await (
-    empty
-      ? run("drafts", "readwrite", (store) => store.delete(key))
-      : run("drafts", "readwrite", (store) => store.put({ key, ...next }))
-  ).catch(() => {});
+  await Effect.runPromise(
+    store(() =>
+      empty
+        ? run("drafts", "readwrite", (table) => table.delete(key))
+        : run("drafts", "readwrite", (table) => table.put({ key, ...next })),
+    ).pipe(Effect.ignore),
+  );
 }
 
 // The keys of the stored drafts that have a recording in the state converting.
 export async function convertingDraftKeys() {
-  const records = await run<({ key: string } & Draft)[]>("drafts", "readonly", (store) =>
-    store.getAll(),
-  ).catch(() => []);
+  const records = await Effect.runPromise(
+    store(() =>
+      run<({ key: string } & Draft)[]>("drafts", "readonly", (table) => table.getAll()),
+    ).pipe(Effect.orElseSucceed((): ({ key: string } & Draft)[] => [])),
+  );
   return records.filter((record) => record.voice?.state === "converting").map(({ key }) => key);
 }
 
 export function saveDraftText(key: string, text: string) {
   return updateDraft(key, (draft) => ({ ...draft, text }));
+}
+
+export function addDraftSelection(key: string, selection: DraftSelection) {
+  return updateDraft(key, (draft) => ({ ...draft, selections: [...draft.selections, selection] }));
 }
 
 export function addDraftInboxItem(key: string, item: DraftInboxItem) {

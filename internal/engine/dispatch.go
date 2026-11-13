@@ -1110,7 +1110,7 @@ func (e *Engine) autopilotTree(ctx context.Context, repository github.Repository
 		if err != nil {
 			return false, err
 		}
-		if active >= int64(e.mergedRoles().Implementer.Max) {
+		if active >= int64(e.implementerMax()) {
 			return true, nil
 		}
 		if answered {
