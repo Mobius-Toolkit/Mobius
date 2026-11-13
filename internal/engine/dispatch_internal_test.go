@@ -153,7 +153,7 @@ func TestAReplyAfterTheLastCommentOfTheMobiusAppAnswersIt(t *testing.T) {
 	t.Parallel()
 	comments := []*gh.IssueComment{comment("owner", "", 1), comment(app, "", 2), comment("owner", "", 3)}
 
-	replies, answered, err := storingEngine(t).replies(t.Context(), appRepository, comments)
+	replies, answered, err := storingEngine(t).replies(t.Context(), appRepository, 41, comments)
 
 	if err != nil {
 		t.Fatal(err)
@@ -167,7 +167,7 @@ func TestAReplyBeforeTheLastCommentOfTheMobiusAppDoesNotAnswerIt(t *testing.T) {
 	t.Parallel()
 	comments := []*gh.IssueComment{comment("owner", "", 1), comment(app, "", 2), comment("mallory", "", 3)}
 
-	replies, answered, err := storingEngine(t).replies(t.Context(), appRepository, comments)
+	replies, answered, err := storingEngine(t).replies(t.Context(), appRepository, 41, comments)
 
 	if err != nil {
 		t.Fatal(err)
@@ -185,7 +185,7 @@ func TestAReplyBeforeAStopCommentOfTheMobiusAppAnswersTheQuestion(t *testing.T) 
 	lost.Body = new(lostText)
 	comments := []*gh.IssueComment{comment(app, "", 1), comment("owner", "", 2), stop, lost}
 
-	replies, answered, err := storingEngine(t).replies(t.Context(), appRepository, comments)
+	replies, answered, err := storingEngine(t).replies(t.Context(), appRepository, 41, comments)
 
 	if err != nil {
 		t.Fatal(err)
