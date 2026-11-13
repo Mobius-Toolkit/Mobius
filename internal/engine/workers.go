@@ -135,10 +135,13 @@ func (p slotPin) keptBinding() *config.RoleBinding {
 	return &p.kept
 }
 
-// slotWait is the Role and the slot claim of a queued session.
+// slotWait is the Role and the slot claim of a queued session. held tells that the last slotReason of the session gave
+// the drain, the Start switch, the access hold or the pause as its reason, so the session cannot start now and a later
+// session does not wait for it.
 type slotWait struct {
 	role string
 	pin  slotPin
+	held bool
 }
 
 // waiter is a queued session with no task.
@@ -444,6 +447,15 @@ func (s *implementerSlots) waitsOn(kept *config.RoleBinding) slotChoice {
 	return s.choices[0]
 }
 
+// held tells if a session that follows the Role and that pick refuses can take no binding when a slot frees: its kept
+// binding has a hold, or each binding has a hold. A session that waits only for a full binding is not held.
+func (s *implementerSlots) held(kept *config.RoleBinding) bool {
+	if c := s.keptChoice(kept); c != nil {
+		return c.hold != ""
+	}
+	return !slices.ContainsFunc(s.choices, func(c slotChoice) bool { return c.hold == "" })
+}
+
 // pick gives the binding that the next session takes. A session with a kept session in the list takes only the binding
 // of the kept session, because the round continues it. Else it is a binding with no hold and a free slot, with the
 // fewest running sessions in counts, and then the first in the list.
@@ -520,12 +532,12 @@ func (e *Engine) slotReason(a *Agent, place waiter, queue []queuedTask, worker b
 	var earlier []ranked
 	for _, queued := range queue {
 		other, ok := w.queued[queued.id]
-		if r := taskRank(w.work, queued.id, queued.queuedAt, queued.ci); ok && r.compare(own) < 0 {
+		if r := taskRank(w.work, queued.id, queued.queuedAt, queued.ci); ok && !other.held && r.compare(own) < 0 {
 			earlier = append(earlier, ranked{r, other})
 		}
 	}
 	for other, otherWait := range w.waiting {
-		if r := waiterRank(other); r.compare(own) < 0 {
+		if r := waiterRank(other); !otherWait.held && r.compare(own) < 0 {
 			earlier = append(earlier, ranked{r, otherWait})
 		}
 	}
@@ -536,6 +548,7 @@ func (e *Engine) slotReason(a *Agent, place waiter, queue []queuedTask, worker b
 	}
 	var counts map[int64]int
 	var chosen *slotChoice
+	waitsForSlot := false
 	if slots != nil {
 		counts = make(map[int64]int, len(w.bindings))
 		for id, count := range w.bindings {
@@ -562,35 +575,43 @@ func (e *Engine) slotReason(a *Agent, place waiter, queue []queuedTask, worker b
 				paused, noAccess = "", ""
 			} else {
 				paused, noAccess = slots.waitsOn(slots.kept).hold, ""
+				waitsForSlot = !slots.held(slots.kept)
 			}
 		}
 	}
 	var reason string
+	held := true
 	switch {
 	case worker && e.draining():
 		reason = drainReason
 	case startOff:
 		reason = startOffReason
 	case paused != "":
-		reason = paused
+		reason, held = paused, !waitsForSlot
 	case noAccess != "":
 		reason = noAccess
 	case chosen != nil:
+		held = false
 	case slots != nil:
+		held = false
 		target := slots.choices[0]
 		if a.level == LevelRole {
 			target = slots.waitsOn(slots.kept)
 		}
 		reason = fullReason(&config.Roles{Implementer: target.Binding}, map[string]int{role: counts[target.ID]}, role)
 	default:
+		held = false
 		merged := e.mergedRoles()
 		reason = limitReason(&merged, w.running, roles, role)
 	}
 	// The drain can start after the check above.
 	if reason == "" && worker && !e.trackWorker() {
-		reason = drainReason
+		reason, held = drainReason, true
 	}
 	if reason != "" {
+		if w.setHeld(task, place, held) {
+			w.changed.notify()
+		}
 		return reason, true
 	}
 	w.running[role]++
@@ -615,12 +636,25 @@ func (e *Engine) slotReason(a *Agent, place waiter, queue []queuedTask, worker b
 func (w *workers) setPin(task int64, place waiter, pin slotPin) bool {
 	if task != 0 {
 		wait := w.queued[task]
-		w.queued[task] = slotWait{wait.role, pin}
+		w.queued[task] = slotWait{wait.role, pin, wait.held}
 		return wait.pin != pin
 	}
 	wait := w.waiting[place]
-	w.waiting[place] = slotWait{wait.role, pin}
+	w.waiting[place] = slotWait{wait.role, pin, wait.held}
 	return wait.pin != pin
+}
+
+// setHeld sets if the queued session of task, or of place with no task, is held. It tells if the value changed. The
+// caller holds mu.
+func (w *workers) setHeld(task int64, place waiter, held bool) bool {
+	if task != 0 {
+		wait := w.queued[task]
+		w.queued[task] = slotWait{wait.role, wait.pin, held}
+		return wait.held != held
+	}
+	wait := w.waiting[place]
+	w.waiting[place] = slotWait{wait.role, wait.pin, held}
+	return wait.held != held
 }
 
 // releaseSlot frees a slot of role. count is the counter of the Implementer binding of the slot.

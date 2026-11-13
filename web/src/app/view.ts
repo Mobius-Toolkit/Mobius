@@ -8,7 +8,7 @@ import { view as chatView } from "@/chat/view";
 import { view as inboxView } from "@/inbox/view";
 import { Message as ChatMessage } from "@/chat/message";
 import type { Model as ChatModel } from "@/chat/model";
-import { view as panelView } from "@/panel/view";
+import { briefView, sheetView as panelSheetView, view as panelView } from "@/panel/view";
 import { Message as PanelMessage } from "@/panel/message";
 import type { Model as PanelModel } from "@/panel/model";
 import { view as checkupView } from "@/checkup/view";
@@ -67,6 +67,12 @@ const chatSubmodelView = defineView<ChatModel, ChatMessage>(
 );
 const panelSubmodelView = defineView<PanelModel, PanelMessage>(
   (m: PanelModel, h: HtmlBuilder<PanelMessage>) => panelView(m, h),
+);
+const panelSheetSubmodelView = defineView<PanelModel, PanelMessage>(
+  (m: PanelModel, h: HtmlBuilder<PanelMessage>) => panelSheetView(m, h),
+);
+const briefSubmodelView = defineView<PanelModel, PanelMessage>(
+  (m: PanelModel, h: HtmlBuilder<PanelMessage>) => briefView(m, h),
 );
 const workstreamsSubmodelView = defineView<WorkstreamsModel, WorkstreamsMessage>(
   (m: WorkstreamsModel, h: HtmlBuilder<WorkstreamsMessage>) => workstreamsView(m, h),
@@ -302,7 +308,25 @@ function renderPage(h: HtmlBuilder<Message>, model: Model): Html {
                   h.submodel({
                     slotId: `panel-sheet-${wsRoute.owner}-${wsRoute.name}-${wsRoute.number}`,
                     model: model.panel.value,
-                    view: panelSubmodelView,
+                    view: panelSheetSubmodelView,
+                    toParentMessage: (m) => Message.GotPanelMessage({ message: m }),
+                  }),
+                ],
+              })
+            : h.empty,
+          !model.wide && model.mobileBriefOpen
+            ? renderSheet(h, {
+                mount: h.OnMount(inPlaceMount()),
+                titleId: "brief-sheet-title",
+                title: "Brief",
+                hideTitle: true,
+                close: Message.SetMobileBriefOpen({ open: false }),
+                className: "pt-2 data-[side=bottom]:h-[80svh]",
+                children: [
+                  h.submodel({
+                    slotId: `brief-sheet-${wsRoute.owner}-${wsRoute.name}-${wsRoute.number}`,
+                    model: model.panel.value,
+                    view: briefSubmodelView,
                     toParentMessage: (m) => Message.GotPanelMessage({ message: m }),
                   }),
                 ],

@@ -1123,8 +1123,18 @@ export const DisconnectMcpOAuthParams = S.Struct({
 export const ListPausesResponse = S.Struct({
   "data": S.Array(S.Struct({
   "harness": S.String.annotate({ description: 'Harness is the name of the paused Harness' }),
-  "inUse": S.Boolean.annotate({ description: 'InUse tells that a Role uses the Harness, or that an open session waits for the pause' }),
-  "pausedUntil": S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/)).annotate({ description: 'PausedUntil is the end of the pause' })
+  "pausedUntil": S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/)).annotate({ description: 'PausedUntil is the end of the pause' }),
+  "users": S.Array(S.Struct({
+  "binding": S.String.annotate({ description: 'Binding names the binding as \"<harness> · <model>\" for a Role with more than one binding, and is empty for the other users' }),
+  "kind": S.Literals(['role', 'workstream', 'task', 'session']).annotate({ description: 'Kind is role for a Role binding, workstream for a setting of a Workstream, task for a setting of a task, and session for an open session that waits for the pause' }),
+  "number": S.Number.annotate({ description: 'Number is the number of the issue of the user. It is 0 for a Role binding and for a session with no Workstream' }),
+  "repository": S.String.annotate({ description: 'Repository is the repository of the issue of the user: the Workstream or the task, or the Workstream of a session with no task. It is empty for a Role binding and for a session with no Workstream' }),
+  "role": S.String.annotate({ description: 'Role is the name of the Role, for example implementer' }),
+  "title": S.String.annotate({ description: 'Title is the title of the issue of the user' }),
+  "workstream": S.Number.annotate({ description: 'Workstream is the number of the Workstream issue of the user. It is 0 for a Role binding and for a session with no Workstream' }),
+  "workstreamRepository": S.String.annotate({ description: 'WorkstreamRepository is the repository of the Workstream of the user' }),
+  "workstreamTitle": S.String.annotate({ description: 'WorkstreamTitle is the title of the Workstream of the user' })
+}).annotate({ description: 'PauseUser is a user of a paused Harness.' })).annotate({ description: 'Users are the Role bindings, the settings and the open sessions that use the Harness. The list is empty when nothing uses the Harness' })
 }).annotate({ description: 'Pause is the usage-limit pause of a Harness.' })).annotate({ description: 'Data is the payload of the response' })
 }).annotate({ description: 'Envelope is the body of each success response.' })
 

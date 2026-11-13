@@ -322,9 +322,16 @@ SELECT * FROM harness_pauses ORDER BY harness;
 INSERT INTO harness_pauses (harness, paused_until) VALUES (?, ?)
 ON CONFLICT (harness) DO UPDATE SET paused_until = excluded.paused_until;
 
--- name: ListWaitingHarnesses :many
-SELECT DISTINCT harness FROM sessions WHERE ended_at IS NULL AND queue_reason LIKE CAST(sqlc.arg(prefix) AS TEXT) || '%'
-ORDER BY harness;
+-- name: ListWaitingSessions :many
+SELECT s.harness, s.role, s.repository, s.issue, s.workstream_repository, s.workstream,
+       w.title AS workstream_title, i.title AS issue_title
+FROM sessions s
+LEFT JOIN copied_workstreams w ON w.repository = s.workstream_repository AND w.number = s.workstream
+LEFT JOIN copied_issues i
+  ON i.repository = s.workstream_repository AND i.workstream = s.workstream AND i.number = s.issue
+  AND substr(lower(i.repository_url), -(length(s.repository) + 7)) = '/repos/' || lower(s.repository)
+WHERE s.ended_at IS NULL AND s.queue_reason LIKE CAST(sqlc.arg(prefix) AS TEXT) || '%'
+ORDER BY s.id;
 
 -- name: DeleteHarnessPause :exec
 DELETE FROM harness_pauses WHERE harness = ?;
@@ -1644,6 +1651,22 @@ WHERE EXISTS (SELECT 1 FROM copied_workstreams w WHERE b.repository = w.reposito
    OR EXISTS (SELECT 1 FROM copied_issues i WHERE i.number = b.issue AND i.state = 'open'
               AND substr(lower(i.repository_url), -(length(b.repository) + 7)) = '/repos/' || lower(b.repository))
 ORDER BY b.repository, b.issue, b.role;
+
+-- name: ListWorkstreamSettingUsers :many
+SELECT b.harness, b.role, w.repository, w.number, w.title
+FROM issue_bindings b
+JOIN copied_workstreams w ON b.repository = w.repository AND b.issue = w.number
+ORDER BY w.repository, w.number, b.role;
+
+-- The task can be in the trees of many Workstreams, so it can have many rows.
+-- name: ListTaskSettingUsers :many
+SELECT b.harness, b.role, b.repository, i.number, i.title,
+       i.repository AS workstream_repository, i.workstream, w.title AS workstream_title
+FROM issue_bindings b
+JOIN copied_issues i ON i.number = b.issue AND i.state = 'open'
+  AND substr(lower(i.repository_url), -(length(b.repository) + 7)) = '/repos/' || lower(b.repository)
+JOIN copied_workstreams w ON w.repository = i.repository AND w.number = i.workstream
+ORDER BY b.repository, b.issue, b.role, i.repository, i.workstream;
 
 -- name: UpsertIssueBinding :exec
 INSERT INTO issue_bindings (repository, issue, role, harness, model, effort, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)

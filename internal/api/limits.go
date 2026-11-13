@@ -11,8 +11,30 @@ type Pause struct {
 	Harness string `gork:"harness"`
 	// PausedUntil is the end of the pause
 	PausedUntil time.Time `gork:"pausedUntil"`
-	// InUse tells that a Role uses the Harness, or that an open session waits for the pause
-	InUse bool `gork:"inUse"`
+	// Users are the Role bindings, the settings and the open sessions that use the Harness. The list is empty when nothing uses the Harness
+	Users []PauseUser `gork:"users"`
+}
+
+// PauseUser is a user of a paused Harness.
+type PauseUser struct {
+	// Kind is role for a Role binding, workstream for a setting of a Workstream, task for a setting of a task, and session for an open session that waits for the pause
+	Kind string `gork:"kind" validate:"oneof=role workstream task session"`
+	// Role is the name of the Role, for example implementer
+	Role string `gork:"role"`
+	// Binding names the binding as "<harness> · <model>" for a Role with more than one binding, and is empty for the other users
+	Binding string `gork:"binding"`
+	// Repository is the repository of the issue of the user: the Workstream or the task, or the Workstream of a session with no task. It is empty for a Role binding and for a session with no Workstream
+	Repository string `gork:"repository"`
+	// Number is the number of the issue of the user. It is 0 for a Role binding and for a session with no Workstream
+	Number int64 `gork:"number"`
+	// Title is the title of the issue of the user
+	Title string `gork:"title"`
+	// WorkstreamRepository is the repository of the Workstream of the user
+	WorkstreamRepository string `gork:"workstreamRepository"`
+	// Workstream is the number of the Workstream issue of the user. It is 0 for a Role binding and for a session with no Workstream
+	Workstream int64 `gork:"workstream"`
+	// WorkstreamTitle is the title of the Workstream of the user
+	WorkstreamTitle string `gork:"workstreamTitle"`
 }
 
 // ListPausesRequest is the request of ListPauses.
@@ -43,7 +65,11 @@ func (h *handlers) pauses(ctx context.Context) ([]Pause, error) {
 		if err != nil {
 			return nil, err
 		}
-		pauses = append(pauses, Pause{Harness: row.Harness, PausedUntil: pausedUntil, InUse: row.InUse})
+		users := make([]PauseUser, 0, len(row.Users))
+		for _, user := range row.Users {
+			users = append(users, PauseUser(user))
+		}
+		pauses = append(pauses, Pause{Harness: row.Harness, PausedUntil: pausedUntil, Users: users})
 	}
 	return pauses, nil
 }

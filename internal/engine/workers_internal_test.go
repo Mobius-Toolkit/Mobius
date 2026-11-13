@@ -155,3 +155,29 @@ func TestAWaitingSessionWithNoTaskComesAfterEachTaskWithWork(t *testing.T) {
 		t.Error("the task with no work comes before the older session")
 	}
 }
+
+func TestALaterSessionTakesNoSlotOfAFreeingBindingBeforeAnEarlierSessionThatFollowsTheRoleAndWaitsForItWhileTheFirstBindingIsPaused(t *testing.T) {
+	t.Parallel()
+	e := &Engine{workers: newWorkers()}
+	slots := &implementerSlots{choices: []slotChoice{
+		{ImplementerBinding{0, config.RoleBinding{Harness: config.Devin, Max: 1}}, "paused until 2100-01-01 00:00 UTC"},
+		{ImplementerBinding{1, config.RoleBinding{Harness: config.ClaudeCode, Max: 1}}, ""},
+	}}
+	full := 1
+	e.workers.bindings[1] = &full
+	earlier, later := waiter{time.Unix(1, 0), 1}, waiter{time.Unix(2, 0), 2}
+	e.workers.waiting[earlier] = slotWait{role: ImplementerRole}
+	e.workers.waiting[later] = slotWait{role: ImplementerRole}
+	first := &Agent{spec: Spec{Role: ImplementerRole}, level: LevelRole}
+	second := &Agent{spec: Spec{Role: ImplementerRole}, level: LevelRole}
+	if reason, _ := e.slotReason(first, earlier, nil, true, "", false, "", slots); reason == "" {
+		t.Fatal("the earlier session took the full binding")
+	}
+	full = 0
+
+	reason, ok := e.slotReason(second, later, nil, true, "", false, "", slots)
+
+	if !ok || reason == "" {
+		t.Errorf("reason = %q, %v, want the later session to wait for the earlier session", reason, ok)
+	}
+}
