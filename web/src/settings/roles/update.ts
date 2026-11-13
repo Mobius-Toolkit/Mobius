@@ -1,9 +1,24 @@
 import { Option } from "effect";
 import type { Return as UpdateReturn } from "foldkit/update";
 import { keepEffort } from "@/lib/harness";
-import { RequestLogin, ResetRole, SaveRole } from "./commands";
+import {
+  AddBinding,
+  RemoveBinding,
+  RequestLogin,
+  ResetRole,
+  SaveRole,
+  SetBinding,
+} from "./commands";
 import { Message } from "./message";
-import { effortsOf, hasContextLimit, modelsOf, type Model, type Sheet } from "./model";
+import {
+  bindingOf,
+  effortsOf,
+  formOf,
+  hasContextLimit,
+  modelsOf,
+  type Model,
+  type Sheet,
+} from "./model";
 
 const withSheet = (model: Model, change: (sheet: Sheet) => Sheet): Model => ({
   ...model,
@@ -35,6 +50,14 @@ function pickModel(model: Model, sheet: Sheet, value: string): Sheet {
   };
 }
 
+const tabSelected = (sheet: Sheet, tab: string): Sheet => ({
+  ...sheet,
+  ...formOf(bindingOf(sheet.role, tab)),
+  tab,
+  openChoice: Option.none(),
+  error: "",
+});
+
 export function update(model: Model, message: Message): UpdateReturn<Model, Message> {
   return Message.match<UpdateReturn<Model, Message>>(message, {
     RolesLoaded: ({ roles }) => ({ model: { ...model, roles: Option.some(roles) } }),
@@ -54,11 +77,9 @@ export function update(model: Model, message: Message): UpdateReturn<Model, Mess
           ...model,
           sheet: Option.some({
             role,
-            harness: role.harness,
-            model: role.model,
-            effort: role.effort,
-            context: role.context > 0 ? String(role.context) : "",
-            max: String(role.max),
+            tab: "0",
+            hasNew: false,
+            ...formOf(role),
             openChoice: Option.none(),
             error: "",
             saving: false,
@@ -94,19 +115,25 @@ export function update(model: Model, message: Message): UpdateReturn<Model, Mess
     ClickedSave: () =>
       Option.match(model.sheet, {
         onNone: () => ({ model }),
-        onSome: (sheet) => ({
-          model: withSheet(model, (current) => ({ ...current, saving: true, error: "" })),
-          commands: [
-            SaveRole({
-              role: sheet.role.role,
-              harness: sheet.harness,
-              model: sheet.model,
-              effort: effortsOf(model, sheet).length > 0 ? sheet.effort : "",
-              context: hasContextLimit(sheet.harness) ? Number(sheet.context) : 0,
-              max: Number(sheet.max),
-            }),
-          ],
-        }),
+        onSome: (sheet) => {
+          const values = {
+            harness: sheet.harness,
+            model: sheet.model,
+            effort: effortsOf(model, sheet).length > 0 ? sheet.effort : "",
+            context: hasContextLimit(sheet.harness) ? Number(sheet.context) : 0,
+            max: Number(sheet.max),
+          };
+          return {
+            model: withSheet(model, (current) => ({ ...current, saving: true, error: "" })),
+            commands: [
+              sheet.tab === "0"
+                ? SaveRole({ role: sheet.role.role, ...values })
+                : sheet.tab === "new"
+                  ? AddBinding(values)
+                  : SetBinding({ id: Number(sheet.tab), ...values }),
+            ],
+          };
+        },
       }),
     ClickedReset: () =>
       Option.match(model.sheet, {
@@ -116,6 +143,29 @@ export function update(model: Model, message: Message): UpdateReturn<Model, Mess
           commands: [ResetRole({ role: sheet.role.role })],
         }),
       }),
+    SelectedTab: ({ key }) => ({
+      model: withSheet(model, (sheet) => (sheet.saving ? sheet : tabSelected(sheet, key))),
+    }),
+    ClickedAddBinding: () => ({
+      model: withSheet(model, (sheet) =>
+        sheet.saving ? sheet : tabSelected({ ...sheet, hasNew: true }, "new"),
+      ),
+    }),
+    ClickedRemove: () =>
+      Option.match(model.sheet, {
+        onNone: () => ({ model }),
+        onSome: (sheet) =>
+          sheet.tab === "new"
+            ? {
+                model: withSheet(model, (current) =>
+                  tabSelected({ ...current, hasNew: false }, "0"),
+                ),
+              }
+            : {
+                model: withSheet(model, (current) => ({ ...current, saving: true, error: "" })),
+                commands: [RemoveBinding({ id: Number(sheet.tab) })],
+              },
+      }),
     RoleChanged: ({ role }) => ({
       model: {
         ...model,
@@ -123,6 +173,18 @@ export function update(model: Model, message: Message): UpdateReturn<Model, Mess
           roles.map((other) => (other.role === role.role ? role : other)),
         ),
         sheet: Option.filter(model.sheet, (sheet) => sheet.role.role !== role.role),
+      },
+    }),
+    BindingsChanged: ({ role, tab }) => ({
+      model: {
+        ...model,
+        roles: Option.map(model.roles, (roles) =>
+          roles.map((other) => (other.role === role.role ? role : other)),
+        ),
+        sheet: Option.map(model.sheet, (sheet) => ({
+          ...tabSelected({ ...sheet, role, hasNew: sheet.hasNew && sheet.tab !== "new" }, tab),
+          saving: false,
+        })),
       },
     }),
     SaveFailed: ({ error }) => ({
