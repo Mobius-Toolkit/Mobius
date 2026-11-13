@@ -1,9 +1,11 @@
 import { cn } from "cn";
+import { Mount } from "foldkit";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import { renderMarkdown, beginMarkdownRender } from "@/ui/markdown";
+import { renderSelectionPopover, Watch } from "@/ui/selection";
 import * as Agents from "./agents/view";
 import * as Details from "./details/view";
-import { Message } from "./message";
+import { Message, toGotSelectionMessage } from "./message";
 import type { Model } from "./model";
 import type { Tab } from "./schemas";
 import * as Recurring from "./recurring/view";
@@ -122,9 +124,13 @@ export function view(model: Model, h: H): Html {
           h.DataAttribute("state", "active"),
           h.DataAttribute("orientation", "horizontal"),
           h.Class(cn("flex-1 text-sm outline-none", contentClass[model.tab])),
+          ...(model.tab === "brief"
+            ? [h.OnMount(Mount.mapMessage(Watch({ owner: "brief" }), toGotSelectionMessage))]
+            : []),
         ],
         [renderContent(h, model)],
       ),
+      renderSelectionPopover(h, model.selection, toGotSelectionMessage),
     ],
   );
 }
