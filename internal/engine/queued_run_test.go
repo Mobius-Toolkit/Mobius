@@ -348,7 +348,9 @@ func TestQueuedRunRefusedRunStartedLaterIsNotNamedQueuedNoJob(t *testing.T) {
 	// GitHub starts the run later:
 	fake.SetWorkflowRunStatus(runID, "in_progress", "")
 	fake.AddWorkflowJob(shop, runID, 1, testkit.WorkflowJob{ID: 900, Name: "build-job", Status: "in_progress"})
-	waitForPolls(t, fake)
+	// The polls of a repository run one after the other, so a read of the list after the change starts a new poll.
+	reads := fake.WorkflowRunListReads()
+	testkit.WaitFor(t, func() bool { return fake.WorkflowRunListReads() > reads })
 
 	server.Engine.SetClock(func() time.Time { return start.Add(2*time.Hour + time.Minute) })
 	prompt := waitForLeadPrompt(t, server, " the CI of #41 \"Add plan model\" runs for more than 2h0m0s")
