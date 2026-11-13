@@ -5,7 +5,7 @@ import { renderBadge } from "@/ui/badge";
 import { defineRouterLink } from "@/ui/link";
 import { linkClass, renderErrorBadge, renderPageHeader } from "@/ui/page";
 import { Message } from "./message";
-import { columns, type Model } from "./model";
+import { columns, sortColumn, type Model } from "./model";
 import type { BoardTask } from "./schemas";
 
 type H = HtmlBuilder<Message>;
@@ -46,7 +46,7 @@ function renderCard(h: H, task: BoardTask, now: number): Html {
             ? renderBadge(
                 h,
                 "outline",
-                `Merge queue · ${task.mergeQueuePlace} of ${task.mergeQueueSize}`,
+                `${task.mergeQueuePlace === 1 ? "Merges next" : "Merge queue"} · ${task.mergeQueuePlace} of ${task.mergeQueueSize}`,
               )
             : h.empty,
           task.pullRequest !== null && task.pullRequestUrl !== null
@@ -77,11 +77,7 @@ function renderCard(h: H, task: BoardTask, now: number): Html {
 }
 
 function renderColumn(h: H, title: string, tasks: readonly BoardTask[], now: number): Html {
-  const cards = tasks.toSorted((a, b) =>
-    title === "Done"
-      ? Date.parse(b.stateAt) - Date.parse(a.stateAt)
-      : Date.parse(a.stateAt) - Date.parse(b.stateAt),
-  );
+  const cards = sortColumn(title, tasks);
   return h.keyed("section")(
     title,
     [

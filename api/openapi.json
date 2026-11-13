@@ -7274,6 +7274,13 @@
             ],
             "description": "Issue is the one issue that the session works on, or null"
           },
+          "issueTitle": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "IssueTitle is the title of the issue of the session, or null when the session has no issue or the store has no copy of the issue"
+          },
           "keptUntil": {
             "type": [
               "string",
@@ -7356,6 +7363,7 @@
           "workstreamRepository",
           "workstream",
           "issue",
+          "issueTitle",
           "parent",
           "startedAt",
           "endedAt",
