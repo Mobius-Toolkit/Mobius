@@ -16,6 +16,7 @@ const role = (overrides: Partial<Role> = {}): Role => ({
   harness: "claude-code",
   max: 2,
   model: "opus",
+  moreBindings: [],
   role: "lead",
   ui: noUi,
   ...overrides,
