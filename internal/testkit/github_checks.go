@@ -431,6 +431,13 @@ func (g *FakeGitHub) WorkflowRunAttempt(id int64) int {
 	return max(g.workflowRuns[id-1].Attempt, 1)
 }
 
+// WorkflowRunListReads gives the number of the reads of the list of workflow runs.
+func (g *FakeGitHub) WorkflowRunListReads() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.runListReads
+}
+
 // RerunRequests gives the number of the requests to run the failed jobs of a workflow run again.
 func (g *FakeGitHub) RerunRequests() int {
 	g.mu.Lock()
@@ -987,6 +994,7 @@ func (g *FakeGitHub) jobLog(w http.ResponseWriter, r *http.Request) {
 func (g *FakeGitHub) listWorkflowRuns(w http.ResponseWriter, r *http.Request) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	g.runListReads++
 	if g.runListRefusal != 0 {
 		message(w, g.runListRefusal, "Resource not accessible by integration")
 		return
