@@ -294,7 +294,7 @@ func TestTheMergeButtonAfterAServerErrorOfTheApprovalGivesOneApproval(t *testing
 	}
 }
 
-func TestAMergeSwitchTurnedOffDuringTheRetryOfTheApprovalGivesThePausedReason(t *testing.T) {
+func TestAMergeSwitchTurnedOffDuringTheRetryOfTheApprovalGivesThePausedReasonAndTheMergeButtonGivesOneApproval(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := approvable(t, fake, "merge", true)
@@ -308,9 +308,21 @@ func TestAMergeSwitchTurnedOffDuringTheRetryOfTheApprovalGivesThePausedReason(t 
 
 	idleItem(t, server, mergePaused)
 	waitForPolls(t, fake)
-	idleItem(t, server, mergePaused)
+	item := idleItem(t, server, mergePaused)
 	if approvals(fake) != 0 || fake.MergeCalls() != 0 {
 		t.Errorf("approvals = %d, merge calls = %d", approvals(fake), fake.MergeCalls())
+	}
+	fake.FailReviews(0, 0)
+
+	if status, body := merge(t, server, item.ID); status != http.StatusOK {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+	turnMerge(t, server, true)
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "" })
+	waitForPolls(t, fake)
+	if calls, count := fake.MergeCalls(), approvals(fake); calls != 1 || count != 1 {
+		t.Errorf("merge calls = %d, approvals = %d", calls, count)
 	}
 }
 
