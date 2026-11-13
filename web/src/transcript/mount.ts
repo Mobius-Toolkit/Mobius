@@ -5,9 +5,10 @@ import { Message } from "./message";
 
 type Place = { id: string; offset: number };
 
-// The log stays at its end while the Owner is at the end. New lines while the Owner is away from the end show the button
+// The log opens at its end and stays there while the Owner is at the end. New lines while the Owner is away from the end show the button
 // of the view. A line before the first line keeps the place of the line that the Owner sees. The view sets data-version
-// when the lines change, and data-jumps when the Owner asks for the end.
+// when the lines change, and data-jumps when the Owner asks for the end. The browser sends the scroll event of a scroll
+// one frame late, so a change of the lines reads the place of the log again and does not trust the last scroll event.
 export const TranscriptLog = Mount.defineStream("TranscriptLog", {
   messages: [Message.NearTop, Message.ArrivedWhileAway, Message.ReachedEnd],
   execute: ({ element }) =>
@@ -25,6 +26,7 @@ export const TranscriptLog = Mount.defineStream("TranscriptLog", {
         let version = list.dataset.version;
         let jumps = list.dataset.jumps;
         let place: Place | undefined;
+        let scrolled = list.scrollTop;
 
         const firstId = () => list.querySelector("[data-line]")?.getAttribute("data-line") ?? "";
 
@@ -61,6 +63,7 @@ export const TranscriptLog = Mount.defineStream("TranscriptLog", {
         const onScroll = () => {
           const wasPinned = pinned;
           pinned = atEnd(list);
+          scrolled = list.scrollTop;
           keepPlace();
           if (pinned && !wasPinned) {
             Queue.offerUnsafe(queue, Message.ReachedEnd());
@@ -79,6 +82,7 @@ export const TranscriptLog = Mount.defineStream("TranscriptLog", {
             const nextFirst = firstId();
             const prepended = first !== "" && nextFirst !== "" && Number(nextFirst) < Number(first);
             first = nextFirst;
+            pinned = pinned && list.scrollTop >= scrolled;
             if (prepended) {
               restorePlace();
             } else if (pinned) {
@@ -89,6 +93,7 @@ export const TranscriptLog = Mount.defineStream("TranscriptLog", {
             keepPlace();
             nearTop();
           }
+          scrolled = list.scrollTop;
         };
 
         list.addEventListener("scroll", onScroll);
@@ -97,6 +102,7 @@ export const TranscriptLog = Mount.defineStream("TranscriptLog", {
           attributes: true,
           attributeFilter: ["data-version", "data-jumps"],
         });
+        list.scrollTop = list.scrollHeight;
         layout();
 
         yield* Effect.addFinalizer(() =>

@@ -101,7 +101,11 @@ func TestATurnThatSendsUpdatesGetsNoRetryPrompt(t *testing.T) {
 }
 
 func TestAnUpdateThatIsNoWorkDoesNotEndTheHang(t *testing.T) {
-	shortHang(t)
+	// The retry turn must send its first update before the hang time ends, also on a loaded runner. A shorter time
+	// can hang the retry turn and give a second retry prompt.
+	before := *engine.HangTimeout
+	*engine.HangTimeout = 2 * time.Second
+	t.Cleanup(func() { *engine.HangTimeout = before })
 	fake := testkit.NewFakeGitHub(t)
 	updates := `updates = ['{"sessionUpdate": "available_commands_update", "availableCommands": []}', '{"sessionUpdate": "usage_update", "used": 1, "size": 2}']`
 	server, _ := connect(t, fake, "[[prompts]]\n"+updates+"\nhang = true\n\n[[prompts]]\nreply = [\"Done\"]\n")
