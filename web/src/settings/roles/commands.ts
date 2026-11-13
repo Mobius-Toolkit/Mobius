@@ -1,6 +1,14 @@
 import { Effect, Schema } from "effect";
 import { Command } from "foldkit";
-import { listHarnesses, listRoles, resetRole, setRole } from "@/api/api.gen";
+import {
+  addImplementerBinding,
+  listHarnesses,
+  listRoles,
+  removeImplementerBinding,
+  resetRole,
+  setImplementerBinding,
+  setRole,
+} from "@/api/api.gen";
 import { request } from "@/lib/effects";
 import { RoleName } from "../schemas";
 import { Message } from "./message";
@@ -87,6 +95,84 @@ export const ResetRole = Command.define("ResetRole", {
           return Message.SaveFailed({ error: res.data.error });
         }
         return Message.RoleChanged({ role: { ...res.data.data, role } });
+      }),
+      Effect.catchTag("RequestFailed", (error) =>
+        Effect.succeed(Message.SaveFailed({ error: error.message })),
+      ),
+    ),
+});
+
+const bindingArgs = {
+  harness: Schema.String,
+  model: Schema.String,
+  effort: Schema.String,
+  context: Schema.Number,
+  max: Schema.Number,
+};
+
+export const AddBinding = Command.define("AddBinding", {
+  args: bindingArgs,
+  messages: [Message.BindingsChanged, Message.SaveLoginRequired, Message.SaveFailed],
+  execute: (body) =>
+    request(() => addImplementerBinding(body)).pipe(
+      Effect.map((res) => {
+        if (res.status === 401) {
+          return Message.SaveLoginRequired();
+        }
+        if (res.status !== 200) {
+          return Message.SaveFailed({ error: res.data.error });
+        }
+        const added = res.data.data.moreBindings.at(-1);
+        return Message.BindingsChanged({
+          role: { ...res.data.data, role: "implementer" },
+          tab: added === undefined ? "0" : String(added.id),
+        });
+      }),
+      Effect.catchTag("RequestFailed", (error) =>
+        Effect.succeed(Message.SaveFailed({ error: error.message })),
+      ),
+    ),
+});
+
+export const SetBinding = Command.define("SetBinding", {
+  args: { id: Schema.Number, ...bindingArgs },
+  messages: [Message.BindingsChanged, Message.SaveLoginRequired, Message.SaveFailed],
+  execute: ({ id, ...body }) =>
+    request(() => setImplementerBinding(id, body)).pipe(
+      Effect.map((res) => {
+        if (res.status === 401) {
+          return Message.SaveLoginRequired();
+        }
+        if (res.status !== 200) {
+          return Message.SaveFailed({ error: res.data.error });
+        }
+        return Message.BindingsChanged({
+          role: { ...res.data.data, role: "implementer" },
+          tab: String(id),
+        });
+      }),
+      Effect.catchTag("RequestFailed", (error) =>
+        Effect.succeed(Message.SaveFailed({ error: error.message })),
+      ),
+    ),
+});
+
+export const RemoveBinding = Command.define("RemoveBinding", {
+  args: { id: Schema.Number },
+  messages: [Message.BindingsChanged, Message.SaveLoginRequired, Message.SaveFailed],
+  execute: ({ id }) =>
+    request(() => removeImplementerBinding(id)).pipe(
+      Effect.map((res) => {
+        if (res.status === 401) {
+          return Message.SaveLoginRequired();
+        }
+        if (res.status !== 200) {
+          return Message.SaveFailed({ error: res.data.error });
+        }
+        return Message.BindingsChanged({
+          role: { ...res.data.data, role: "implementer" },
+          tab: "0",
+        });
       }),
       Effect.catchTag("RequestFailed", (error) =>
         Effect.succeed(Message.SaveFailed({ error: error.message })),

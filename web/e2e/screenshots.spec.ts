@@ -2759,6 +2759,65 @@ test("screenshots", async ({ page }) => {
       );
     },
   );
+  await screenshot(
+    page,
+    "roles-implementer",
+    "/settings/roles",
+    (device) => [
+      ...frame(device, release),
+      implementerSheet.getByRole("tab", { name: "Add binding" }),
+      implementerSheet.getByRole("button", { name: "Save" }),
+    ],
+    async () => {
+      await roleRow("Implementer").click();
+      await expect(implementerSheet.getByRole("tab")).toHaveCount(2);
+    },
+  );
+  const secondBinding = await page.evaluate(async () => {
+    const response = await fetch("/api/roles/implementer/bindings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        harness: "claude-code",
+        model: "sonnet",
+        effort: "high",
+        context: 0,
+        max: 2,
+      }),
+    });
+    const body = await response.json();
+    return { status: response.status, id: body.data.moreBindings.at(-1).id as number };
+  });
+  expect(secondBinding.status).toBe(200);
+  await screenshot(
+    page,
+    "roles-implementer-two",
+    "/settings/roles",
+    (device) => [
+      ...frame(device, release),
+      implementerSheet.getByRole("tab", { name: "claude-code · sonnet", selected: true }),
+      implementerSheet.getByRole("button", { name: "Remove" }),
+      implementerSheet.getByRole("button", { name: "Save" }),
+    ],
+    async () => {
+      await roleRow("Implementer").click();
+      await implementerSheet.getByRole("tab", { name: "claude-code · sonnet" }).click();
+      await expect(implementerSheet.getByLabel("Max", { exact: true })).toHaveValue("2");
+    },
+  );
+  await screenshot(page, "roles-two-bindings", "/settings/roles", (device) => [
+    ...frame(device, release),
+    roleRow("Implementer").getByText("claude-code", { exact: true }),
+    roleRow("Implementer").getByText("sonnet", { exact: true }),
+  ]);
+  const secondBindingRemoved = await page.evaluate(
+    (id) =>
+      fetch(`/api/roles/implementer/bindings/${id}`, { method: "DELETE" }).then(
+        (response) => response.status,
+      ),
+    secondBinding.id,
+  );
+  expect(secondBindingRemoved).toBe(200);
   // The organization has no MCP server until the next step routes the list.
   await screenshot(page, "mcp-servers-none", "/settings/mcp-servers", (device) => [
     ...frame(device, release),
