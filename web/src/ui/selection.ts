@@ -34,8 +34,12 @@ export function selectionContext(root: Element, range: Range) {
     (block) => block === first || block === last || !block.querySelector(blockSelector),
   );
   const from = blocks.indexOf(first);
-  // A selection that ends at the start of a block does not contain that block.
-  const to = Math.max(from, blocks.indexOf(last) - (range.endOffset === 0 ? 1 : 0));
+  const inLast = last.ownerDocument.createRange();
+  inLast.selectNodeContents(last);
+  inLast.setEnd(range.endContainer, range.endOffset);
+  // A selection that ends before the first text of a block does not contain that block.
+  const endsBeforeLast = inLast.toString().trim() === "";
+  const to = Math.max(from, blocks.indexOf(last) - (endsBeforeLast ? 1 : 0));
   return blocks
     .slice(from, to + 1)
     .map(blockText)

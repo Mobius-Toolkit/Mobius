@@ -64,4 +64,18 @@ describe("selectionContext", () => {
       "The first paragraph has a long text.\n\nOne list item\n\nAnother list item\n\nA quoted paragraph.",
     );
   });
+
+  it("keeps the block where the selection ends at the start of a text after an inline element", () => {
+    document.body.innerHTML = `<div id="root">
+      <p id="before">First paragraph.</p>
+      <p id="mixed">See <strong>this</strong><span id="rest"> rest.</span></p>
+    </div>`;
+    const mixed = document.getElementById("root");
+    if (!mixed) {
+      throw new Error("No root");
+    }
+    expect(selectionContext(mixed, rangeOf(textOf("#before"), 6, textOf("#rest"), 0))).toBe(
+      "First paragraph.\n\nSee this rest.",
+    );
+  });
 });
