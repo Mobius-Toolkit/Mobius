@@ -429,6 +429,82 @@ func TestMergeQueueManualApproval(t *testing.T) {
 	}
 }
 
+// TestMergeQueueManualHeadAfterBranchUpdateGoesBackForApprovalAndKeepsItsPlace verifies that a task with no
+// auto_merge, whose branch updates in the merge queue while the default branch changes a file of the pull request,
+// leaves ready_for_review, keeps its queue place, and gives the Lead the event ready_for_approval for the new head.
+func TestMergeQueueManualHeadAfterBranchUpdateGoesBackForApprovalAndKeepsItsPlace(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := queueTasks(t, fake, "off", []int{41})
+	sendChat(t, server, leadChat, "Approve #41")
+	item := readyItem(t, server, 41)
+	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, 41) == "ready_for_review" })
+	old := head(t, fake, "mobius/41")
+	commitQueueFiles(fake, 41)
+
+	if status, body := merge(t, server, item.ID); status != http.StatusOK {
+		t.Fatalf("merge status = %d: %s", status, body)
+	}
+
+	testkit.WaitFor(t, func() bool { return head(t, fake, "mobius/41") != old })
+	testkit.WaitFor(t, func() bool { return countLeadEvents(t, server, "ready_for_approval") == 2 })
+	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, 41) == "approval" })
+	if !liveTask(t, server, 41).MergeQueuedAt.Valid {
+		t.Error("task 41 left the merge queue")
+	}
+	if count := fake.MergeCalls(); count != 0 {
+		t.Errorf("merge calls = %d, want 0", count)
+	}
+	if refused := refusedReview(t, server); refused != "" {
+		t.Errorf("refused review = %q, want none", refused)
+	}
+}
+
+// TestMergeQueueManualHeadMergesAfterTheNewApprovalWithNoSecondMergeTap verifies that a task with no auto_merge
+// merges after the new approval of the Lead for the head that the branch update made, with the one "Merge" tap of the
+// Owner. Until the merge, its open ready for review Inbox item shows the merging state.
+func TestMergeQueueManualHeadMergesAfterTheNewApprovalWithNoSecondMergeTap(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := queueTasksWith(t, fake, approveAgain([]int{41}, 41)+queueLead, "off", []int{41})
+	sendChat(t, server, leadChat, "Approve #41")
+	item := readyItem(t, server, 41)
+	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, 41) == "ready_for_review" })
+	reached, release := fake.HoldMerge(shop, liveTask(t, server, 41).PullRequest.Int64)
+	old := head(t, fake, "mobius/41")
+	commitQueueFiles(fake, 41)
+
+	if status, body := merge(t, server, item.ID); status != http.StatusOK {
+		t.Fatalf("merge status = %d: %s", status, body)
+	}
+
+	select {
+	case <-reached:
+	case <-time.After(time.Minute):
+		t.Fatal("Mobius did not merge task 41")
+	}
+	if got := head(t, fake, "mobius/41"); got == old {
+		t.Error("the head did not change")
+	}
+	var open []inboxItem
+	for _, item := range itemsOf(t, server, "ready for review") {
+		if item.Issue == 41 {
+			open = append(open, item)
+		}
+	}
+	if len(open) != 1 || !open[0].Merging {
+		t.Errorf("open ready for review items of #41 = %+v, want one with the merging state", open)
+	}
+	release()
+	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, 41) == "" })
+	if calls, updates := fake.MergeCalls(), fake.UpdateBranchCalls(); calls != 1 || updates != 1 {
+		t.Errorf("merge calls = %d, update calls = %d, want 1 and 1", calls, updates)
+	}
+	if count := approvals(fake); count != 1 {
+		t.Errorf("approvals = %d, want 1", count)
+	}
+}
+
 // TestMergeQueueReEntryGoesToEnd verifies that a task that left the queue and becomes ready again goes to the end.
 func TestMergeQueueReEntryGoesToEnd(t *testing.T) {
 	t.Parallel()
