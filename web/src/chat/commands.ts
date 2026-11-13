@@ -23,16 +23,15 @@ import {
   type DraftVoice,
   updateDraft,
 } from "@/lib/draft";
-import { StoreFailed, fitted, request, store } from "@/lib/effects";
-import { fitImage, tooManyImages } from "@/lib/images";
+import { StoreFailed, request, store } from "@/lib/effects";
 import { restoreInboxItem, hideInboxItem } from "@/lib/inbox";
 import { pushUrl } from "@/lib/navigation";
 import { issueRef, showNotice } from "@/lib/notice";
-import { addQueued, listQueued, newMessageId, postQueued, removeQueued } from "@/lib/outbox";
+import { listQueued, postQueued, removeQueued } from "@/lib/outbox";
 import { resend, stopVoice, toggleVoice } from "@/lib/voice";
 import { Message } from "./message";
 import { draftInboxItem } from "./model";
-import { DraftInboxItems, Images, InboxItem, PendingAction, Queued, StoredQueued } from "./schemas";
+import { InboxItem, PendingAction, Queued, StoredQueued } from "./schemas";
 
 type Outcome = { message: Message; status?: number | undefined };
 
@@ -197,48 +196,6 @@ export const ListQueued = Command.define("ListQueued", {
     ),
 });
 
-export const EnqueueMessage = Command.define("EnqueueMessage", {
-  args: {
-    organization: Schema.String,
-    repository: Schema.String,
-    workstream: Schema.Number,
-    key: Schema.String,
-    text: Schema.String,
-    images: Images,
-    inboxItems: DraftInboxItems,
-    voice: Schema.Boolean,
-  },
-  messages: [Message.MessageQueued, Message.MessageRefused],
-  execute: ({ organization, repository, workstream, key, text, images, inboxItems, voice }) =>
-    Effect.gen(function* () {
-      const item: Queued = {
-        id: newMessageId(),
-        organization,
-        repository,
-        workstream,
-        text,
-        images,
-        inboxItems: inboxItems.map(({ reference, title, reason, link }) => ({
-          reference,
-          title,
-          reason,
-          link,
-        })),
-        voice,
-        time: new Date().toISOString(),
-      };
-      yield* clearDraft(key);
-      yield* store(() => addQueued(item));
-      return Message.MessageQueued({ item });
-    }).pipe(
-      Effect.catchTag("StoreFailed", (error) =>
-        restoreDraft(key, { text, images, inboxItems, voice }).pipe(
-          Effect.as(Message.MessageRefused({ error: error.message })),
-        ),
-      ),
-    ),
-});
-
 export const PostQueued = Command.define("PostQueued", {
   args: {
     item: Queued,
@@ -339,18 +296,6 @@ export const SaveDraftText = Command.define("SaveDraftText", {
   args: { key: Schema.String, text: Schema.String },
   messages: [Message.CompletedSaveDraft],
   execute: ({ key, text }) => savedDraft(key, (draft) => ({ ...draft, text })),
-});
-
-export const SaveDraftImages = Command.define("SaveDraftImages", {
-  args: { key: Schema.String, images: Images },
-  messages: [Message.CompletedSaveDraft],
-  execute: ({ key, images }) => savedDraft(key, (draft) => ({ ...draft, images })),
-});
-
-export const SaveDraftInboxItems = Command.define("SaveDraftInboxItems", {
-  args: { key: Schema.String, inboxItems: DraftInboxItems },
-  messages: [Message.CompletedSaveDraft],
-  execute: ({ key, inboxItems }) => savedDraft(key, (draft) => ({ ...draft, inboxItems })),
 });
 
 export const SaveTrayState = Command.define("SaveTrayState", {
@@ -715,46 +660,12 @@ export const RunTrayAction = Command.define("RunTrayAction", {
     ),
 });
 
-export const FitImages = Command.define("FitImages", {
-  args: { files: Images, room: Schema.Number },
-  messages: [Message.ImagesFitted],
-  execute: ({ files, room }) =>
-    Effect.gen(function* () {
-      let problem = "";
-      const added: File[] = [];
-      for (const file of files.slice(0, Math.max(0, room))) {
-        yield* fitted(() => fitImage(file)).pipe(
-          Effect.match({
-            onSuccess: (image) => {
-              added.push(image);
-            },
-            onFailure: (error) => {
-              problem = error.message;
-            },
-          }),
-        );
-      }
-      if (!problem && files.length > room) {
-        problem = tooManyImages;
-      }
-      return Message.ImagesFitted({ images: added, problem });
-    }),
-});
-
-export const ClickAttach = Command.define("ClickAttach", {
-  messages: [Message.CompletedClickAttach],
-  execute: Effect.sync(() => {
-    document.getElementById("chat-attach")?.click();
-    return Message.CompletedClickAttach();
-  }),
-});
-
 export const ToggleVoice = Command.define("ToggleVoice", {
-  args: { key: Schema.String },
+  args: { key: Schema.String, fieldId: Schema.String },
   messages: [Message.CompletedToggleVoice],
-  execute: ({ key }) =>
+  execute: ({ key, fieldId }) =>
     Effect.sync(() => {
-      toggleVoice(key);
+      toggleVoice(key, fieldId);
       return Message.CompletedToggleVoice();
     }),
 });
@@ -768,10 +679,13 @@ export const StopVoice = Command.define("StopVoice", {
 });
 
 export const ResendVoice = Command.define("ResendVoice", {
-  args: { key: Schema.String },
+  args: { key: Schema.String, fieldId: Schema.String },
   messages: [Message.CompletedResendVoice],
-  execute: ({ key }) =>
-    store(() => resend(key)).pipe(Effect.ignore, Effect.as(Message.CompletedResendVoice())),
+  execute: ({ key, fieldId }) =>
+    store(() => resend(key, fieldId)).pipe(
+      Effect.ignore,
+      Effect.as(Message.CompletedResendVoice()),
+    ),
 });
 
 export const RemoveVoice = Command.define("RemoveVoice", {
