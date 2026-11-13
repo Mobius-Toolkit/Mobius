@@ -92,6 +92,8 @@ export const UpgradeState = Schema.Struct({
 export type UpgradeState = typeof UpgradeState.Type;
 
 export const ChosenAutopilot = Schema.Struct({
+  repository: Schema.String,
+  number: Schema.Number,
   from: WorkstreamAutopilot,
   to: WorkstreamAutopilot,
 });

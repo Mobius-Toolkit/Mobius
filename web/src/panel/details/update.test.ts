@@ -38,6 +38,7 @@ const role = (name: string, harness: string, modelName: string, effort: string):
   harness,
   max: 1,
   model: modelName,
+  moreBindings: [],
   role: name,
   ui: { context: false, effort: true, harness: true, max: false, model: true },
 });
