@@ -443,9 +443,9 @@ func (e *Engine) Pauses(ctx context.Context) ([]PauseState, error) {
 			if row.Workstream != 0 {
 				user.Repository, user.Number, user.Title = row.WorkstreamRepository, row.Workstream, row.WorkstreamTitle.String
 				user.WorkstreamRepository, user.Workstream, user.WorkstreamTitle = row.WorkstreamRepository, row.Workstream, row.WorkstreamTitle.String
-			}
-			if row.Issue.Valid {
-				user.Repository, user.Number, user.Title = row.Repository, row.Issue.Int64, row.IssueTitle.String
+				if row.Issue.Valid {
+					user.Repository, user.Number, user.Title = row.Repository, row.Issue.Int64, row.IssueTitle.String
+				}
 			}
 			if !slices.Contains(users, user) {
 				users = append(users, user)

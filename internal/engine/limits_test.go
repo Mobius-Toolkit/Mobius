@@ -569,6 +569,29 @@ func TestAPauseOfAHarnessThatNoRoleUsesHasASessionUserWhileASessionWaitsForIt(t 
 	})
 }
 
+func TestASessionUserThatWaitsForAPauseWithAnIssueAndNoWorkstreamHasNoIssueFields(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, usageLimit)
+	spec := roleSpec(t, engine.ImplementerRole)
+	spec.Workstream = 0
+	spec.Issue = sql.NullInt64{Int64: 41, Valid: true}
+	agent := start(t, server, spec)
+	defer end(t, agent, "done")
+	go func() { _ = agent.Prompt(t.Context(), "Store plans in cents.", nil) }()
+	testkit.WaitFor(t, func() bool {
+		var reason sql.NullString
+		if err := server.DB.QueryRow("SELECT queue_reason FROM sessions WHERE id = ?", agent.ID()).Scan(&reason); err != nil {
+			t.Fatal(err)
+		}
+		return strings.HasPrefix(reason.String, "paused until ")
+	})
+
+	moveImplementerToClaudeCode(t, server)
+
+	requireDevinUsers(t, server, apiPauseUser{Kind: "session", Role: "implementer"})
+}
+
 func TestAChangeOfTheLastRoleOfAPausedHarnessSendsThePausesEventWithNoUser(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
