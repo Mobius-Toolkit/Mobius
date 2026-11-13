@@ -517,7 +517,7 @@ test("the Tools page shows the usage limit badge for a Harness that no role uses
   await routeCheckup(page, [{ ...tool, harness: "" }, dsh], { owner: healthy, plants: healthy });
   await page.route("**/api/pauses", (route) =>
     route.fulfill({
-      json: { data: [{ harness: "dsh", inUse: false, pausedUntil: "2026-09-29T08:30:00Z" }] },
+      json: { data: [{ harness: "dsh", users: [], pausedUntil: "2026-09-29T08:30:00Z" }] },
     }),
   );
   await page.route("**/api/events", (route) =>

@@ -9035,6 +9035,60 @@ func (q *Queries) ListTaskPullRequests(ctx context.Context, arg ListTaskPullRequ
 	return items, nil
 }
 
+const listTaskSettingUsers = `-- name: ListTaskSettingUsers :many
+SELECT b.harness, b.role, b.repository, i.number, i.title,
+       i.repository AS workstream_repository, i.workstream, w.title AS workstream_title
+FROM issue_bindings b
+JOIN copied_issues i ON i.number = b.issue AND i.state = 'open'
+  AND substr(lower(i.repository_url), -(length(b.repository) + 7)) = '/repos/' || lower(b.repository)
+JOIN copied_workstreams w ON w.repository = i.repository AND w.number = i.workstream
+ORDER BY b.repository, b.issue, b.role, i.repository, i.workstream
+`
+
+type ListTaskSettingUsersRow struct {
+	Harness              string
+	Role                 string
+	Repository           string
+	Number               int64
+	Title                string
+	WorkstreamRepository string
+	Workstream           int64
+	WorkstreamTitle      string
+}
+
+// The task can be in the trees of many Workstreams, so it can have many rows.
+func (q *Queries) ListTaskSettingUsers(ctx context.Context) ([]ListTaskSettingUsersRow, error) {
+	rows, err := q.db.QueryContext(ctx, listTaskSettingUsers)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListTaskSettingUsersRow
+	for rows.Next() {
+		var i ListTaskSettingUsersRow
+		if err := rows.Scan(
+			&i.Harness,
+			&i.Role,
+			&i.Repository,
+			&i.Number,
+			&i.Title,
+			&i.WorkstreamRepository,
+			&i.Workstream,
+			&i.WorkstreamTitle,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTaskStatesBetween = `-- name: ListTaskStatesBetween :many
 SELECT id, task, state, issue, workstream, organization, repository, session, role, harness, model, effort, started_at, ended_at FROM task_states WHERE started_at >= ?1 AND started_at < ?2
 `
@@ -9480,34 +9534,6 @@ func (q *Queries) ListUnread(ctx context.Context) ([]ListUnreadRow, error) {
 	return items, nil
 }
 
-const listWaitingHarnesses = `-- name: ListWaitingHarnesses :many
-SELECT DISTINCT harness FROM sessions WHERE ended_at IS NULL AND queue_reason LIKE CAST(?1 AS TEXT) || '%'
-ORDER BY harness
-`
-
-func (q *Queries) ListWaitingHarnesses(ctx context.Context, prefix string) ([]string, error) {
-	rows, err := q.db.QueryContext(ctx, listWaitingHarnesses, prefix)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []string
-	for rows.Next() {
-		var harness string
-		if err := rows.Scan(&harness); err != nil {
-			return nil, err
-		}
-		items = append(items, harness)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listWaitingLeadWorkstreams = `-- name: ListWaitingLeadWorkstreams :many
 SELECT DISTINCT repository, workstream FROM lead_events WHERE delivered_at IS NULL ORDER BY repository, workstream
 `
@@ -9527,6 +9553,61 @@ func (q *Queries) ListWaitingLeadWorkstreams(ctx context.Context) ([]ListWaiting
 	for rows.Next() {
 		var i ListWaitingLeadWorkstreamsRow
 		if err := rows.Scan(&i.Repository, &i.Workstream); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listWaitingSessions = `-- name: ListWaitingSessions :many
+SELECT s.harness, s.role, s.repository, s.issue, s.workstream_repository, s.workstream,
+       w.title AS workstream_title, i.title AS issue_title
+FROM sessions s
+LEFT JOIN copied_workstreams w ON w.repository = s.workstream_repository AND w.number = s.workstream
+LEFT JOIN copied_issues i
+  ON i.repository = s.workstream_repository AND i.workstream = s.workstream AND i.number = s.issue
+  AND substr(lower(i.repository_url), -(length(s.repository) + 7)) = '/repos/' || lower(s.repository)
+WHERE s.ended_at IS NULL AND s.queue_reason LIKE CAST(?1 AS TEXT) || '%'
+ORDER BY s.id
+`
+
+type ListWaitingSessionsRow struct {
+	Harness              string
+	Role                 string
+	Repository           string
+	Issue                sql.NullInt64
+	WorkstreamRepository string
+	Workstream           int64
+	WorkstreamTitle      sql.NullString
+	IssueTitle           sql.NullString
+}
+
+func (q *Queries) ListWaitingSessions(ctx context.Context, prefix string) ([]ListWaitingSessionsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listWaitingSessions, prefix)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListWaitingSessionsRow
+	for rows.Next() {
+		var i ListWaitingSessionsRow
+		if err := rows.Scan(
+			&i.Harness,
+			&i.Role,
+			&i.Repository,
+			&i.Issue,
+			&i.WorkstreamRepository,
+			&i.Workstream,
+			&i.WorkstreamTitle,
+			&i.IssueTitle,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -9683,6 +9764,50 @@ func (q *Queries) ListWorkstreamMcpServers(ctx context.Context, arg ListWorkstre
 			&i.Args,
 			&i.Env,
 			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listWorkstreamSettingUsers = `-- name: ListWorkstreamSettingUsers :many
+SELECT b.harness, b.role, w.repository, w.number, w.title
+FROM issue_bindings b
+JOIN copied_workstreams w ON b.repository = w.repository AND b.issue = w.number
+ORDER BY w.repository, w.number, b.role
+`
+
+type ListWorkstreamSettingUsersRow struct {
+	Harness    string
+	Role       string
+	Repository string
+	Number     int64
+	Title      string
+}
+
+func (q *Queries) ListWorkstreamSettingUsers(ctx context.Context) ([]ListWorkstreamSettingUsersRow, error) {
+	rows, err := q.db.QueryContext(ctx, listWorkstreamSettingUsers)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListWorkstreamSettingUsersRow
+	for rows.Next() {
+		var i ListWorkstreamSettingUsersRow
+		if err := rows.Scan(
+			&i.Harness,
+			&i.Role,
+			&i.Repository,
+			&i.Number,
+			&i.Title,
 		); err != nil {
 			return nil, err
 		}

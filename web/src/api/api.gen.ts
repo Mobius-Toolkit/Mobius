@@ -1140,15 +1140,52 @@ export interface EnvelopeArrayNeedsHuman {
 }
 
 /**
+ * Kind is role for a Role binding, workstream for a setting of a Workstream, task for a setting of a task, and session for an open session that waits for the pause
+ */
+export type PauseUserKind = typeof PauseUserKind[keyof typeof PauseUserKind];
+
+
+export const PauseUserKind = {
+  role: 'role',
+  workstream: 'workstream',
+  task: 'task',
+  session: 'session',
+} as const;
+
+/**
+ * PauseUser is a user of a paused Harness.
+ */
+export interface PauseUser {
+  /** Binding names the binding as "<harness> · <model>" for a Role with more than one binding, and is empty for the other users */
+  binding: string;
+  /** Kind is role for a Role binding, workstream for a setting of a Workstream, task for a setting of a task, and session for an open session that waits for the pause */
+  kind: PauseUserKind;
+  /** Number is the number of the issue of the user. It is 0 for a Role binding and for a session with no Workstream */
+  number: number;
+  /** Repository is the repository of the issue of the user: the Workstream or the task, or the Workstream of a session with no task. It is empty for a Role binding and for a session with no Workstream */
+  repository: string;
+  /** Role is the name of the Role, for example implementer */
+  role: string;
+  /** Title is the title of the issue of the user */
+  title: string;
+  /** Workstream is the number of the Workstream issue of the user. It is 0 for a Role binding and for a session with no Workstream */
+  workstream: number;
+  /** WorkstreamRepository is the repository of the Workstream of the user */
+  workstreamRepository: string;
+  /** WorkstreamTitle is the title of the Workstream of the user */
+  workstreamTitle: string;
+}
+
+/**
  * Pause is the usage-limit pause of a Harness.
  */
 export interface Pause {
   /** Harness is the name of the paused Harness */
   harness: string;
-  /** InUse tells that a Role uses the Harness, or that an open session waits for the pause */
-  inUse: boolean;
   /** PausedUntil is the end of the pause */
   pausedUntil: string;
+  /** Users are the Role bindings, the settings and the open sessions that use the Harness. The list is empty when nothing uses the Harness */
+  users: PauseUser[];
 }
 
 /**
