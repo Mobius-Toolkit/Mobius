@@ -1,7 +1,11 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { logIn } from "./login.js";
 
-test.beforeEach(({ page }) => logIn(page));
+test.beforeEach(async ({ page }) => {
+  await page.goto("/github");
+  await page.getByLabel("Access password").fill("correct horse");
+  await page.getByRole("button", { name: "Log in" }).click();
+  await expect(page.getByLabel("Access password")).toBeHidden();
+});
 
 const workstream = "/api/workstreams/owner/shop/12";
 const task = "/api/repositories/owner/shop/issues/39/implementer";

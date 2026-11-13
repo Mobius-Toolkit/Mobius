@@ -1,9 +1,13 @@
 import { expect, test, type Page } from "@playwright/test";
-import { logIn } from "./login.js";
 
 const phone = { width: 390, height: 844 };
 
-test.beforeEach(({ page }) => logIn(page));
+test.beforeEach(async ({ page }) => {
+  await page.goto("/github");
+  await page.getByLabel("Access password").fill("correct horse");
+  await page.getByRole("button", { name: "Log in" }).click();
+  await expect(page.getByLabel("Access password")).toBeHidden();
+});
 
 const api = "/api/workstreams/plants/garden";
 

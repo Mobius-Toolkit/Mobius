@@ -1,5 +1,4 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { logIn } from "./login.js";
 import {
   addHistory,
   addHistoryTable,
@@ -44,7 +43,12 @@ import { buttonNames } from "./buttons.js";
 import { countSamples, fakeMicrophone } from "./microphone.js";
 import { routeInboxItems, longWordQuestionItem, longWordTitle } from "./stops.js";
 
-test.beforeEach(({ page }) => logIn(page));
+test.beforeEach(async ({ page }) => {
+  await page.goto("/github");
+  await page.getByLabel("Access password").fill("correct horse");
+  await page.getByRole("button", { name: "Log in" }).click();
+  await expect(page.getByLabel("Access password")).toBeHidden();
+});
 
 test.afterEach(async ({ page }) => {
   await page.unrouteAll({ behavior: "ignoreErrors" });

@@ -1,6 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
 import { png } from "./images.js";
-import { logIn } from "./login.js";
 import { stoppedItems } from "./stops.js";
 
 const link = "https://github.com/owner/shop";
@@ -47,7 +46,10 @@ const clearDrafts = `new Promise((resolve) => {
 })`;
 
 test.beforeEach(async ({ page }) => {
-  await logIn(page);
+  await page.goto("/github");
+  await page.getByLabel("Access password").fill("correct horse");
+  await page.getByRole("button", { name: "Log in" }).click();
+  await expect(page.getByLabel("Access password")).toBeHidden();
   await page.route("**/api/inbox", (route) =>
     route.fulfill({ json: { data: [stopped, diskItem] } }),
   );

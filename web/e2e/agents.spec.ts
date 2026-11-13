@@ -1,7 +1,11 @@
 import { expect, test, type Locator, type Page, type Route } from "@playwright/test";
-import { logIn } from "./login.js";
 
-test.beforeEach(({ page }) => logIn(page));
+test.beforeEach(async ({ page }) => {
+  await page.goto("/github");
+  await page.getByLabel("Access password").fill("correct horse");
+  await page.getByRole("button", { name: "Log in" }).click();
+  await expect(page.getByLabel("Access password")).toBeHidden();
+});
 
 // The Curators of the repositories use the paused Harness too, so more than one entry shows the pause.
 const states = [

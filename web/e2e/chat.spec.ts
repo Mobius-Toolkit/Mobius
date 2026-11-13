@@ -2,7 +2,6 @@ import { expect, test, type Locator, type Page, type Route } from "@playwright/t
 import { waitForEvergreen } from "./evergreen.js";
 import { buttonNames } from "./buttons.js";
 import { pasteImage, png } from "./images.js";
-import { logIn } from "./login.js";
 import { longTaskTitle, routeLongTask } from "./long-task.js";
 import { fakeMicrophone } from "./microphone.js";
 import { addStoppedItems, removeItems } from "./stopped-items.js";
@@ -28,6 +27,13 @@ async function undoDispatch(page: Page, issue: number, label = "") {
     `/e2e/dispatches/plants/garden/${issue}?label=${label}`,
   );
   expect(response.ok()).toBe(true);
+}
+
+async function logIn(page: Page) {
+  await page.goto("/github");
+  await page.getByLabel("Access password").fill("correct horse");
+  await page.getByRole("button", { name: "Log in" }).click();
+  await expect(page.getByLabel("Access password")).toBeHidden();
 }
 
 test.beforeEach(({ page }) => logIn(page));

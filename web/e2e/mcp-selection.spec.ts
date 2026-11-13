@@ -1,12 +1,16 @@
 import { expect, test, type Page } from "@playwright/test";
-import { logIn } from "./login.js";
 import { addMcpServer, deleteMcpServers } from "./mcp-servers.js";
 
 const organization = "plants";
 const workstream = "/workstreams/plants/garden/18";
 const putPath = "/api/workstreams/plants/garden/18/mcp-servers";
 
-test.beforeEach(({ page }) => logIn(page));
+test.beforeEach(async ({ page }) => {
+  await page.goto("/github");
+  await page.getByLabel("Access password").fill("correct horse");
+  await page.getByRole("button", { name: "Log in" }).click();
+  await expect(page.getByLabel("Access password")).toBeHidden();
+});
 
 let ids: number[] = [];
 
