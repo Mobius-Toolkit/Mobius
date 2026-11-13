@@ -111,7 +111,7 @@ func (e *Engine) repairsOff(ctx context.Context) (bool, error) {
 	return slices.ContainsFunc(pauses, func(pause store.GlobalPause) bool { return pause.Kind == "repairs" }), nil
 }
 
-// repairIssue tells if the issue is the issue of a CI break, a check timeout or a CI failure of repository.
+// repairIssue tells if the issue is the issue of a CI break, a check timeout, an init failure or a CI failure of repository.
 func (e *Engine) repairIssue(ctx context.Context, repository string, issue int64) (bool, error) {
 	return e.queries.IsRepairIssue(ctx, store.IsRepairIssueParams{Repository: repository, Issue: issue})
 }

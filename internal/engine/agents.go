@@ -92,6 +92,8 @@ type Agent struct {
 	issuesMu sync.Mutex
 	// issueTitles are the titles of the task issues that the Curator created. issuesMu holds them.
 	issueTitles []string
+	// leadIssues are the issues that the Lead tool create_issue created or creates in the session. issuesMu holds them.
+	leadIssues map[leadIssueKey]*leadIssue
 
 	// scratch is the directory of the session below scratch/, or "".
 	scratch string

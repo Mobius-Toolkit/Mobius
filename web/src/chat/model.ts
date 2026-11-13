@@ -1,14 +1,14 @@
 import { Result, Schema } from "effect";
 import { InboxItemKind } from "@/api/api.gen";
+import * as Composer from "@/composer";
+import { chatDraftKey } from "@/lib/draft";
 import { StoreFailed } from "@/lib/effects";
 import type { Flags } from "./flags";
 import {
   ChatMessage,
   type DraftInboxItem,
-  DraftInboxItems,
   DraftVoice,
   Failure,
-  Images,
   InboxItem,
   Panel,
   Selection,
@@ -68,10 +68,6 @@ export function upsert(list: readonly ChatMessage[], message: ChatMessage): read
   );
 }
 
-// A card that converts or has failed blocks each send.
-export const voiceBusy = (voice: DraftVoice | null) =>
-  voice?.state === "converting" || voice?.state === "failed";
-
 export const countsAsUnread = (message: ChatMessage) =>
   message.author !== "Owner" && message.author !== "Event" && message.author !== "Record";
 
@@ -96,7 +92,6 @@ const ChatModelSchema = Schema.Struct({
   pausedUntil: Schema.NullOr(Schema.String),
   failure: Schema.String,
   error: Schema.NullOr(Schema.String),
-  sendError: Schema.String,
   stopping: Schema.Boolean,
   queue: Schema.Array(Waiting),
   queueLoaded: Schema.Boolean,
@@ -112,11 +107,7 @@ const ChatModelSchema = Schema.Struct({
   trayRunning: Schema.Record(Schema.Number, TrayRunning),
   trayMerging: Schema.Record(Schema.Number, Schema.Boolean),
   trayRefusals: Schema.Record(Schema.Number, Schema.String),
-  draftText: Schema.String,
-  draftImages: Images,
-  draftInboxItems: DraftInboxItems,
-  draftVoice: Schema.NullOr(DraftVoice),
-  draftLoaded: Schema.Boolean,
+  composer: Composer.Model,
   voice: VoiceState,
   now: Schema.Number,
   stopReady: Schema.Boolean,
@@ -164,7 +155,6 @@ export function initialModel(flags: Flags): Model {
     pausedUntil: null,
     failure: "",
     error: null,
-    sendError: "",
     stopping: false,
     queue: [],
     queueLoaded: false,
@@ -180,11 +170,15 @@ export function initialModel(flags: Flags): Model {
     trayRunning: {},
     trayMerging: {},
     trayRefusals: {},
-    draftText: "",
-    draftImages: [],
-    draftInboxItems: [],
-    draftVoice: null,
-    draftLoaded: false,
+    composer: Composer.initialModel({
+      draftKey: chatDraftKey(flags.organization, flags.repository, flags.workstream),
+      instance: "chat",
+      label: `Message to the ${flags.agent}`,
+      placeholder: `Write to the ${flags.agent}`,
+      organization: flags.organization,
+      repository: flags.repository,
+      workstream: flags.workstream,
+    }),
     voice: { recording: false, key: "", startedAt: 0, live: "", notice: { key: "", text: "" } },
     now: 0,
     stopReady: false,
