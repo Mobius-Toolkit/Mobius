@@ -1186,6 +1186,7 @@ func (e *Engine) keepImplementer(ctx context.Context, a *Agent, task store.Task,
 		k.costTotal, k.costBase = a.costTotal, a.costBase
 		k.dshRecords = a.dshRecords
 		k.antigravityIdx = a.antigravityIdx
+		k.copiedSkills = a.copiedSkills
 		k.report = a.report
 		a.mu.Unlock()
 		k.session, k.key = a.session, a.key

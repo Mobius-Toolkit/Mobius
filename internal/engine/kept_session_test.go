@@ -195,6 +195,30 @@ func TestARoundInKeepTimeContinuesTheKeptImplementerSession(t *testing.T) {
 	}
 }
 
+func TestAContinuedImplementerSessionCountsTheSkillsThatTheProcessGot(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddRepository(skills)
+	fake.CommitFile(skills, "probe/SKILL.md", "Probe the price in cents.", "Add probe")
+	readProbe := "[[prompts]]\nwhen = \"Remove the lines out of scope.\"\n" +
+		"updates = ['{\"sessionUpdate\":\"tool_call\",\"toolCallId\":\"call_1\",\"rawInput\":{\"file_path\":\".agents/skills/probe/SKILL.md\"},\"_meta\":{\"cognition.ai/inferenceToolName\":\"read\"}}']\n" +
+		"shell = \"true\"\n\n"
+	server, _ := keptServer(t, fake, readProbe+"[[prompts]]\n"+commitCents, noChange)
+	firstRound(t, server, fake)
+	waitForKept(t, server, 41)
+
+	startFixRound(t, server)
+
+	sessions := waitForImplementerSessions(t, server, 2)
+	if got, want := sessionSkills(t, server, sessions[1].ID), []string{"probe"}; !slices.Equal(got, want) {
+		t.Errorf("session skills of the continued row = %v, want %v", got, want)
+	}
+	want := []skillUse{{sessions[1].ID, "owner", shop, "implementer", "devin", "probe", "mobius"}}
+	if got := skillUses(t, server, sessions[1].ID); !slices.Equal(got, want) {
+		t.Errorf("skill uses = %+v, want %+v", got, want)
+	}
+}
+
 func TestARoundAfterKeepTimeStartsANewImplementerSession(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
