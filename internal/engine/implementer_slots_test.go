@@ -272,3 +272,21 @@ func TestARemovalOfTheFirstBindingKeepsTheCountOfTheRunningSessionsOfTheMovedBin
 	defer end(t, agent, "done")
 	requireSession(t, server, agent, "claude-code sonnet")
 }
+
+func TestARoundWithAKeptSessionThatWaitsForItsFullBindingLeavesTheFreeBindingToALaterSession(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := keptServer(t, fake, commits, firstSlots(1))
+	holder, _ := keptOnTheSecondBinding(t, server, fake)
+	filler := start(t, server, implementerSpec(t, server, fake, 45))
+	requireSession(t, server, filler, "devin opus")
+	end(t, holder, "done")
+	startFixRound(t, server)
+	queued(t, server, engine.ImplementerRole)
+
+	later := start(t, server, implementerSpec(t, server, fake, 47))
+	defer end(t, later, "done")
+
+	requireSession(t, server, later, "devin swe-1.5")
+	end(t, filler, "done")
+}

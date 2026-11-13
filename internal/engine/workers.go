@@ -109,14 +109,36 @@ type workers struct {
 	// A session keeps the counter that it incremented, so the count stays with its binding when a removal changes the id
 	// of a binding.
 	bindings map[int64]*int
-	// queued holds the Role of the session of each queued task, by the id of the task.
-	queued map[int64]string
-	// waiting holds the Role of each queued session with no task.
-	waiting map[waiter]string
+	// queued holds the Role and the slot claim of the session of each queued task, by the id of the task.
+	queued map[int64]slotWait
+	// waiting holds the Role and the slot claim of each queued session with no task.
+	waiting map[waiter]slotWait
 	// work holds the pull requests with work for an agent, by the id of their task.
 	work map[int64]Work
 	// changed wakes all queued sessions at each change of the counts, the queue or the work.
 	changed signal
+}
+
+// slotPin tells which binding of the Implementer a queued session can take: the first binding only (a session with a
+// setting of its task or Workstream), the kept binding only (a round with a kept session of the level Role), or each
+// binding.
+type slotPin struct {
+	first   bool
+	hasKept bool
+	kept    config.RoleBinding
+}
+
+func (p slotPin) keptBinding() *config.RoleBinding {
+	if !p.hasKept {
+		return nil
+	}
+	return &p.kept
+}
+
+// slotWait is the Role and the slot claim of a queued session.
+type slotWait struct {
+	role string
+	pin  slotPin
 }
 
 // waiter is a queued session with no task.
@@ -126,7 +148,7 @@ type waiter struct {
 }
 
 func newWorkers() workers {
-	return workers{running: map[string]int{}, bindings: map[int64]*int{}, queued: map[int64]string{}, waiting: map[waiter]string{}}
+	return workers{running: map[string]int{}, bindings: map[int64]*int{}, queued: map[int64]slotWait{}, waiting: map[waiter]slotWait{}}
 }
 
 // ReplaceWork replaces the pull requests with work for an agent, by the id of their task.
@@ -236,9 +258,9 @@ func (e *Engine) takeSlot(ctx context.Context, a *Agent) error {
 	place := waiter{time.Now(), a.id}
 	w.mu.Lock()
 	if task != 0 {
-		w.queued[task] = role
+		w.queued[task] = slotWait{role: role}
 	} else {
-		w.waiting[place] = role
+		w.waiting[place] = slotWait{role: role}
 	}
 	w.mu.Unlock()
 	defer func() {
@@ -441,6 +463,15 @@ func (s *implementerSlots) pick(counts map[int64]int, kept *config.RoleBinding) 
 	return *best, true
 }
 
+// take gives the binding that a queued session with pin takes, or false when it cannot take a slot.
+func (s *implementerSlots) take(counts map[int64]int, pin slotPin) (slotChoice, bool) {
+	if pin.first {
+		c := s.choices[0]
+		return c, counts[c.ID] < c.Binding.Max
+	}
+	return s.pick(counts, pin.keptBinding())
+}
+
 // binding gives the binding with the id id.
 func (s *implementerSlots) binding(id int64) config.RoleBinding {
 	return s.choices[slices.IndexFunc(s.choices, func(c slotChoice) bool { return c.ID == id })].Binding
@@ -480,7 +511,7 @@ func (e *Engine) slotReason(a *Agent, place waiter, queue []queuedTask, worker b
 	}
 	type ranked struct {
 		rank rank
-		role string
+		slotWait
 	}
 	var earlier []ranked
 	for _, queued := range queue {
@@ -489,9 +520,9 @@ func (e *Engine) slotReason(a *Agent, place waiter, queue []queuedTask, worker b
 			earlier = append(earlier, ranked{r, other})
 		}
 	}
-	for other, otherRole := range w.waiting {
+	for other, otherWait := range w.waiting {
 		if r := waiterRank(other); r.compare(own) < 0 {
-			earlier = append(earlier, ranked{r, otherRole})
+			earlier = append(earlier, ranked{r, otherWait})
 		}
 	}
 	slices.SortFunc(earlier, func(a, b ranked) int { return a.rank.compare(b.rank) })
@@ -506,11 +537,18 @@ func (e *Engine) slotReason(a *Agent, place waiter, queue []queuedTask, worker b
 		for id, count := range w.bindings {
 			counts[id] = *count
 		}
+		pin := slotPin{first: a.level != LevelRole}
+		if !pin.first && slots.kept != nil {
+			pin.hasKept, pin.kept = true, *slots.kept
+		}
+		if w.setPin(task, place, pin) {
+			w.changed.notify()
+		}
 		for _, other := range earlier {
 			if other.role != ImplementerRole {
 				continue
 			}
-			if c, ok := slots.pick(counts, nil); ok {
+			if c, ok := slots.take(counts, other.pin); ok {
 				counts[c.ID]++
 			}
 		}
@@ -566,6 +604,19 @@ func (e *Engine) slotReason(a *Agent, place waiter, queue []queuedTask, worker b
 	delete(w.queued, task)
 	delete(w.waiting, place)
 	return "", true
+}
+
+// setPin sets the slot claim of the queued session of task, or of place with no task. It tells if the claim changed. The
+// caller holds mu.
+func (w *workers) setPin(task int64, place waiter, pin slotPin) bool {
+	if task != 0 {
+		wait := w.queued[task]
+		w.queued[task] = slotWait{wait.role, pin}
+		return wait.pin != pin
+	}
+	wait := w.waiting[place]
+	w.waiting[place] = slotWait{wait.role, pin}
+	return wait.pin != pin
 }
 
 // releaseSlot frees a slot of role. count is the counter of the Implementer binding of the slot.
