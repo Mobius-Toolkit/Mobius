@@ -180,6 +180,19 @@ type InboxItem struct {
 	Withdrawn            int64
 }
 
+type InitFailure struct {
+	ID         int64
+	Repository string
+	TaskIssue  int64
+	Session    int64
+	CommitSha  string
+	Result     string
+	Output     string
+	Issue      int64
+	CreatedAt  string
+	EndedAt    string
+}
+
 type IssueBinding struct {
 	Repository string
 	Issue      int64

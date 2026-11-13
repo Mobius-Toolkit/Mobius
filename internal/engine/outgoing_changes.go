@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
+	"github.com/Mobius-Toolkit/Mobius/internal/runner"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 	gh "github.com/google/go-github/v92/github"
 )
@@ -43,6 +44,12 @@ func isWriteComment(body string) bool {
 	return strings.Contains(body, writeMarkerPrefix)
 }
 
+// withoutWriteMarker gives the body of a comment with no hidden marker of an outgoing change.
+func withoutWriteMarker(body string) string {
+	before, _, _ := strings.Cut(body, "\n\n"+writeMarkerPrefix)
+	return before
+}
+
 // permanentRefusal tells whether err is a 4xx answer of GitHub that is not a rate limit. A call that got such an answer
 // fails again.
 func permanentRefusal(err error) bool {
@@ -71,6 +78,19 @@ func (e *Engine) postComment(ctx context.Context, repository github.Repository, 
 		return err
 	}
 	return e.sendNow(ctx, repository, id)
+}
+
+// postCommentOnce is postComment, but it adds no row when the newest comment change of the item is pending or sent and
+// has the same text. A step that runs again after a failure thus makes no second comment.
+func (e *Engine) postCommentOnce(ctx context.Context, repository github.Repository, number int64, text string) error {
+	newest, err := e.queries.GetNewestCommentChange(ctx, store.GetNewestCommentChangeParams{Repository: repository.FullName, Number: number})
+	if err == nil && newest.Status != "refused" && runner.WithoutMark(newest.Text.String) == runner.WithoutMark(text) {
+		return nil
+	}
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	return e.postComment(ctx, repository, number, text)
 }
 
 // sendNow sends the outgoing change id after its caller added it. It reads no comments, because no earlier send of the

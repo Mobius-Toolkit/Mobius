@@ -86,6 +86,9 @@ type Engine struct {
 	// ownerAnswerMu makes AnswerInboxItem, which posts a comment and then stores its id, and the poll read of the new
 	// comments take turns. Else the poll can read the comment before its id is stored and ignore it.
 	ownerAnswerMu sync.Mutex
+	// questionMu makes the store of a new question item with the add of mobius:question in ask, and closeInboxItems, take
+	// turns. Else closeInboxItems can dismiss the new item, because its issue has no mobius:question yet.
+	questionMu sync.Mutex
 	// outgoingMu makes each send of an outgoing change take turns, so a send of the poll and an immediate send cannot
 	// both post the same comment.
 	outgoingMu sync.Mutex

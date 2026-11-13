@@ -721,13 +721,15 @@ type ci struct {
 	absent bool
 }
 
-// ciOf reads the CI of the head. A workflow run can exist before its jobs have check runs.
+// ciOf reads the CI of the head. A workflow run can exist before its jobs have check runs. A workflow run completes
+// after its check runs, so the read of the workflow runs comes first: a failed run then always comes with its failed
+// check runs.
 func ciOf(ctx context.Context, repository github.Repository, head string) (ci, error) {
-	runs, err := repository.CheckRuns(ctx, head)
+	workflows, err := repository.WorkflowRuns(ctx, head)
 	if err != nil {
 		return ci{}, err
 	}
-	workflows, err := repository.WorkflowRuns(ctx, head)
+	runs, err := repository.CheckRuns(ctx, head)
 	if err != nil {
 		return ci{}, err
 	}
