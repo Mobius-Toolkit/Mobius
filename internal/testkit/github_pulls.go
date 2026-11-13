@@ -293,6 +293,16 @@ func (g *FakeGitHub) FailReviews(status, times int) {
 	g.reviewFailure, g.reviewFailures = status, times
 }
 
+// HoldReview makes the next request to submit a review of the pull request wait. The channel closes when the request
+// arrives, and the function lets the request go on.
+func (g *FakeGitHub) HoldReview(repository string, number int64) (<-chan struct{}, func()) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	h := &hold{reached: make(chan struct{}), release: make(chan struct{})}
+	g.reviewHolds[issueKey{repository, number}] = h
+	return h.reached, func() { close(h.release) }
+}
+
 // submitReview adds the review and its inline comments as the token owner.
 func (g *FakeGitHub) submitReview(w http.ResponseWriter, r *http.Request) {
 	var review SubmittedReview
@@ -300,6 +310,16 @@ func (g *FakeGitHub) submitReview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	caller, _ := g.validToken(r)
+	number, _ := strconv.ParseInt(r.PathValue("number"), 10, 64)
+	held := issueKey{repository(r), number}
+	g.mu.Lock()
+	h := g.reviewHolds[held]
+	delete(g.reviewHolds, held)
+	g.mu.Unlock()
+	if h != nil {
+		close(h.reached)
+		<-h.release
+	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	key, ok := g.issue(w, r)

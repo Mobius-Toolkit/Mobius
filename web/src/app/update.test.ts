@@ -15,6 +15,7 @@ import {
   GoBack,
   LoadApp,
   LoadExternal,
+  LoadReleaseChanges,
   Navigate,
   Reload,
   ReplaceUrl,
@@ -744,6 +745,51 @@ describe("upgrade update logic", () => {
       message(Message.StartUpgradeFailed({ error: "An upgrade runs now." })),
       model((m) => {
         expect(m.upgrade.failure).toBe("An upgrade runs now.");
+      }),
+    );
+  });
+
+  it("shows no old error and no old changes when the dialog opens again", () => {
+    const info = Message.UpgradeInfoLoaded({ version: null, drain: null, upgrade: null });
+    story(
+      update,
+      given(createModel("/settings")),
+      message(Message.ShowUpgradeChanges()),
+      StoryCommand.resolve(
+        LoadReleaseChanges,
+        Message.ReleaseChangesFailed({ error: "TypeError: Failed to fetch" }),
+      ),
+      StoryCommand.resolve(CheckUpgrade, info),
+      model((m) => {
+        expect(m.upgrade.changesError).toBe("TypeError: Failed to fetch");
+      }),
+      message(Message.HideUpgradeChanges()),
+      message(Message.ShowUpgradeChanges()),
+      model((m) => {
+        expect(m.upgrade.changesError).toBe("");
+        expect(m.upgrade.changes).toEqual(Option.none());
+      }),
+      StoryCommand.resolve(
+        LoadReleaseChanges,
+        Message.ReleaseChangesLoaded({ changes: ["Fix the memory scroll"] }),
+      ),
+      StoryCommand.resolve(CheckUpgrade, info),
+      model((m) => {
+        expect(m.upgrade.changesError).toBe("");
+        expect(m.upgrade.changes).toEqual(Option.some(["Fix the memory scroll"]));
+      }),
+    );
+  });
+
+  it("clears the error of the changes when the read succeeds", () => {
+    story(
+      update,
+      given(createModel("/settings")),
+      message(Message.ReleaseChangesFailed({ error: "TypeError: Failed to fetch" })),
+      message(Message.ReleaseChangesLoaded({ changes: ["Fix the memory scroll"] })),
+      model((m) => {
+        expect(m.upgrade.changesError).toBe("");
+        expect(m.upgrade.changes).toEqual(Option.some(["Fix the memory scroll"]));
       }),
     );
   });
