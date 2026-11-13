@@ -251,10 +251,20 @@ test("Answer opens a panel with the rendered text, and a sent answer closes the 
   page,
 }) => {
   await page.goto("/api/github/user-callback?code=shop-code");
-  const created = await page.request.post("/e2e/inbox-items");
+  // The answer is a comment. A comment on an open task of a Workstream starts a turn of its Lead, and the fake Lead of
+  // owner/shop#14 does not end that turn. The issue #43 is closed, so Mobius gives its comment no Lead event.
+  const query = new URLSearchParams({
+    kind: "Lead failed",
+    repository: "owner/shop",
+    workstream: "12",
+    issue: "43",
+    title: "Add season table",
+    reason: "The Lead did not get your message",
+  });
+  const created = await page.request.post(`/e2e/inbox-items?${query}`);
   const id = Number(await created.text());
   try {
-    await routeInbox(page, [{ ...items[0], id, issue: 40, link: `${link}/issues/40` }]);
+    await routeInbox(page, [{ ...items[0], id, issue: 43, link: `${link}/issues/43` }]);
     await page.goto("/inbox");
     const main = page.getByRole("main");
     const panel = page.getByRole("dialog");
@@ -267,7 +277,7 @@ test("Answer opens a panel with the rendered text, and a sent answer closes the 
     await panel.getByRole("button", { name: "Send" }).click();
 
     const answered = (await (await response).json()) as { data: { url: string } };
-    expect(answered.data.url).toContain("/issues/40#issuecomment-");
+    expect(answered.data.url).toContain("/issues/43#issuecomment-");
     await expect(panel).toHaveCount(0);
     await expect(main.getByRole("listitem")).toHaveCount(0);
   } finally {
