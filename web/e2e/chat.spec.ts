@@ -15,6 +15,7 @@ import {
   routeInboxItems,
   stoppedItems,
 } from "./stops.js";
+import { cancelDrain } from "./upgrade.js";
 
 const phone = { width: 390, height: 844 };
 const shop = "/workstreams/owner/shop/12";
@@ -34,6 +35,7 @@ async function logIn(page: Page) {
   await page.getByLabel("Access password").fill("correct horse");
   await page.getByRole("button", { name: "Log in" }).click();
   await expect(page.getByLabel("Access password")).toBeHidden();
+  await cancelDrain(page);
 }
 
 test.beforeEach(({ page }) => logIn(page));
@@ -2070,6 +2072,9 @@ test("an evergreen Workstream with all tasks closed shows no done badge and no C
     for (const workstream of body.data) {
       if (workstream.repository === "owner/shop" && workstream.number === 12) {
         workstream.allTasksClosed = true;
+      }
+      if (workstream.repository === "owner/shop" && workstream.number === 13) {
+        workstream.allTasksClosed = false;
       }
       if (workstream.repository === "owner/shop" && workstream.number === 14) {
         workstream.allTasksClosed = true;

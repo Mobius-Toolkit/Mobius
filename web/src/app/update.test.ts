@@ -16,6 +16,7 @@ import {
   LoadApp,
   LoadExternal,
   Navigate,
+  Reload,
   ReplaceUrl,
   SettleScroll,
   StartUpgrade,
@@ -105,6 +106,16 @@ describe("router update logic", () => {
       ),
       StoryCommand.expectHas(LoadExternal),
       StoryCommand.resolve(LoadExternal, Message.CompletedLoadExternal()),
+    );
+  });
+
+  it("reloads the page on ReloadRequested", () => {
+    story(
+      update,
+      given(createModel("/settings")),
+      message(Message.ReloadRequested()),
+      StoryCommand.expectExact(Reload()),
+      StoryCommand.resolve(Reload, Message.CompletedReload()),
     );
   });
 

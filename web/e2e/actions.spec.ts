@@ -42,12 +42,14 @@ import {
 import { buttonNames } from "./buttons.js";
 import { countSamples, fakeMicrophone } from "./microphone.js";
 import { routeInboxItems, longWordQuestionItem, longWordTitle } from "./stops.js";
+import { cancelDrain } from "./upgrade.js";
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/github");
   await page.getByLabel("Access password").fill("correct horse");
   await page.getByRole("button", { name: "Log in" }).click();
   await expect(page.getByLabel("Access password")).toBeHidden();
+  await cancelDrain(page);
 });
 
 test.afterEach(async ({ page }) => {

@@ -113,6 +113,30 @@ export const mergeQueueTask = task(
   },
 );
 
+export const mergeQueueThirdTask = task(
+  65,
+  "ready_for_review",
+  "2026-10-15T11:30:00Z",
+  "Show the plan limit on the receipt",
+  {
+    ...pull(55),
+    mergeQueuePlace: 3,
+    mergeQueueSize: 4,
+  },
+);
+
+export const mergeQueueHeadTask = task(
+  66,
+  "checks",
+  "2026-10-15T11:52:00Z",
+  "Show the plan limit on the invoice list",
+  {
+    ...pull(56),
+    mergeQueuePlace: 1,
+    mergeQueueSize: 4,
+  },
+);
+
 export const tasksRoute = "/api/tasks";
 
 export async function routeTasks(page: Page, tasks: unknown[]) {
