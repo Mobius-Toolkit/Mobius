@@ -30,6 +30,7 @@ const agent = (overrides: Partial<Agent> = {}): Agent => ({
   id: 7,
   issue: 39,
   keptUntil: null,
+  issueTitle: null,
   model: "swe-1.5",
   name: "Implementer",
   organization: "owner",
