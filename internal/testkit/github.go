@@ -120,6 +120,10 @@ type FakeGitHub struct {
 	repositoryLabels map[labelKey]Label
 	labelPatches     []labelKey
 	notModified      int
+	// polls is the number of issue list requests that a poll of Mobius makes, and eventPolls gives the value of polls at
+	// the last write of each kind (see PollOf).
+	polls      int
+	eventPolls map[string]int
 	// The numbers of reads of a comment list of one issue or pull request, and of a comment list of a repository.
 	singleCommentReads, repositoryCommentReads int
 	failedCloses                               map[issueKey]bool
@@ -133,6 +137,9 @@ type FakeGitHub struct {
 	refusedSubIssueAdds                        map[issueKey]bool
 	refuseOpenBucketAdds                       bool
 	failedComments                             map[issueKey]bool
+	lostCommentAnswers                         map[issueKey]bool
+	refusedNextComments                        map[issueKey]int
+	refusedNextCommentLists                    map[issueKey]int
 	refusedComments                            map[issueKey]int
 	failedCommentUpdates                       map[issueKey]bool
 	failedLabels                               map[issueKey]bool
@@ -211,6 +218,9 @@ type FakeGitHub struct {
 	reviewRead        bool
 	// lateCheckRun is added at the end of the next request for the check runs of its commit.
 	lateCheckRun *checkRun
+	// lateFailure completes a check run and a workflow run with a failure at the end of the next request for the check
+	// runs of its commit.
+	lateFailure *lateFailure
 	// unknownMergeable holds the pull requests whose mergeable GitHub still calculates.
 	unknownMergeable map[issueKey]bool
 	// The id of a check run is its index plus 1.
@@ -294,6 +304,7 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		failedReactions:         map[string]bool{},
 		resolvedThreads:         map[int64]bool{},
 		failedCloses:            map[issueKey]bool{},
+		eventPolls:              map[string]int{},
 		failedIssueReads:        map[issueKey]int{},
 		goneIssues:              map[issueKey]bool{},
 		forbiddenIssues:         map[issueKey]bool{},
@@ -303,6 +314,9 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		failedSubIssueAdds:      map[issueKey]bool{},
 		refusedSubIssueAdds:     map[issueKey]bool{},
 		failedComments:          map[issueKey]bool{},
+		lostCommentAnswers:      map[issueKey]bool{},
+		refusedNextComments:     map[issueKey]int{},
+		refusedNextCommentLists: map[issueKey]int{},
 		refusedComments:         map[issueKey]int{},
 		failedCommentUpdates:    map[issueKey]bool{},
 		failedLabels:            map[issueKey]bool{},

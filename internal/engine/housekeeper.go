@@ -26,7 +26,8 @@ const minFreeDisk = 20 << 30
 const maxBranchChecks = 100
 
 // keepHouse removes the directories that nothing owns, lets the checks that wait for free disk space run again when the
-// disk has minFreeDisk of free space, and deletes the branches of the merged pull requests of the ended tasks.
+// disk has minFreeDisk of free space, deletes the branches of the merged pull requests of the ended tasks, and deletes
+// the old outgoing changes that ended.
 func (e *Engine) keepHouse(ctx context.Context) {
 	if err := e.clean(ctx); err != nil {
 		log.Printf("Housekeeper: %v", err)
@@ -35,6 +36,9 @@ func (e *Engine) keepHouse(ctx context.Context) {
 		log.Printf("Housekeeper: %v", err)
 	}
 	if err := e.deleteMergedBranches(ctx); err != nil {
+		log.Printf("Housekeeper: %v", err)
+	}
+	if err := e.deleteFinishedOutgoingChanges(ctx); err != nil {
 		log.Printf("Housekeeper: %v", err)
 	}
 }

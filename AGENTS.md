@@ -105,6 +105,9 @@ The web client is one Foldkit application (`Runtime.makeApplication` in `web/src
 - When the job `e2e` fails, CI uploads `web/test-results` as the artifact `test-results`. It has a `trace.zip` file for each failed test. To open the file, run `pnpm exec playwright show-trace <file>`.
 - Each run must give the same screenshots, so a pull request with no UI change shows no changed screen. `TestServer` gives a fixed time to each time that the UI shows (`fixTimes`). Before each screenshot, `web/e2e/screenshots.spec.ts` waits for the data that the page loads (`frame` and `ready`). When the UI shows a new time or new data, add it there.
 - `TestServer` of `web/e2e` has fixtures with fixed past dates, so a new step that compares a stored time with `e.timeNow()` also acts on them. Fix the time with `SetClock`, as `web/e2e/server_test.go` does.
+- A fake program of a test (for example the `gh` of the agent environment) is a shell script that runs the system program by its full path, as `stubGH` in `internal/engine/lead_writes_test.go` does. Do not make it a link to the system program. The coreutils of the CI runner are multi-call binaries that refuse to run under another name. To change a fake program, write a new file and move it with `mv`, because a write in place can fail with `ETXTBSY`.
+- A test does not read the real network or a port of the running Mobius (whisper-server on `6365` and `6366`). When a change adds a call to an external service, give each test that reaches the call a fake server or an address of `testkit.FreeAddress`. This includes the existing tests of the package and `TestServer` of `web/e2e`.
+- Before an e2e test types into the chat composer, wait for `toBeEditable()`. The composer (`web/src/chat/composer.ts`) is read-only until it loads the draft (`draftLoaded`).
 
 ## Before a push
 
@@ -120,7 +123,13 @@ curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(go env GOPATH)/b
 - Give each long command (`pnpm e2e`, a Go test of `internal/engine`) the Bash `timeout` 600000. With the default limit, the Bash tool moves the command to the background.
 - Mobius runs git with `core.hooksPath=/dev/null` (`internal/runner/git.go`), so a git hook never runs for agent work. Do not put a check or a format step in a git hook.
 
-Only CI runs all Go tests. Mobius starts a CI fix round when a Go test fails in CI.
+Only CI runs all Go tests. `.mobius/check` runs no Go test.
+
+- The job `check` runs the Go tests of each package except `internal/engine`.
+- The four jobs `engine (0)` to `engine (3)` run the tests of `internal/engine`. Each test is in exactly one shard.
+- Each `engine` job uploads the artifact `engine-tests-<shard>` with the time of each test. It prints the 20 slowest tests.
+- The job `passed` fails when the job `check`, `engine` or `e2e` does not end with `success`. It is the one status that tells "CI passed".
+- Mobius starts a CI fix round when a Go test fails in CI.
 
 ## Layout
 
@@ -162,7 +171,7 @@ web/e2e/               the Playwright tests of the UI, and TestServer, the serve
 web/screenshots/       the screenshots of the Playwright tests (not in the repository)
 web/embed.go           embeds web/dist into the binary and serves it
 docs/install.md        the install guide
-.github/workflows/     ci.yml checks each pull request. release.yml checks each push to main and releases it with the next patch tag. screenshots.yml shows the screenshots of each pull request in a section of its description
+.github/workflows/     ci.yml checks each pull request with the jobs check, engine, e2e and passed. release.yml checks each push to main and releases it with the next patch tag. screenshots.yml shows the screenshots of each pull request in a section of its description
 ```
 
 ## Commands
