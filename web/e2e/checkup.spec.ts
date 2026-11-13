@@ -400,7 +400,8 @@ test("the Owner selects the issue repository of an organization with two reposit
   page,
 }) => {
   const main = page.getByRole("main");
-  const organization = "greens";
+  // The name sorts after "plants", so the first organization of the other specs does not change while this test runs.
+  const organization = "weeds";
   await page.request.post(`/e2e/repositories/${organization}/bed`);
   await page.request.post(`/e2e/repositories/${organization}/shed`);
   try {
