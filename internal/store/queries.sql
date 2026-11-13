@@ -1815,6 +1815,19 @@ WHERE server = ? AND state = ?;
 -- name: DeleteMcpServerOAuth :exec
 DELETE FROM mcp_server_oauth WHERE server = ?;
 
+-- name: GetLastRelease :one
+SELECT tag FROM last_release WHERE id = 1;
+
+-- name: SetLastRelease :exec
+INSERT INTO last_release (id, tag) VALUES (1, ?)
+ON CONFLICT (id) DO UPDATE SET tag = excluded.tag;
+
+-- name: ReleaseChangelogSent :one
+SELECT EXISTS (SELECT 1 FROM release_changelogs WHERE organization = ? AND tag = ?);
+
+-- name: AddReleaseChangelog :exec
+INSERT INTO release_changelogs (organization, tag, sent_at) VALUES (?, ?, ?);
+
 -- name: ListImplementerBindings :many
 SELECT * FROM implementer_bindings ORDER BY id;
 
