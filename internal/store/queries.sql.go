@@ -652,6 +652,37 @@ func (q *Queries) AddInboxItem(ctx context.Context, arg AddInboxItemParams) (Inb
 	return i, err
 }
 
+const addIncomingChange = `-- name: AddIncomingChange :exec
+INSERT INTO incoming_changes (integration, external_id, repository, number, field, change, actor, metadata, status, created_at)
+VALUES ('github', ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+ON CONFLICT (integration, external_id) DO NOTHING
+`
+
+type AddIncomingChangeParams struct {
+	ExternalID string
+	Repository string
+	Number     int64
+	Field      string
+	Change     string
+	Actor      string
+	Metadata   string
+	CreatedAt  string
+}
+
+func (q *Queries) AddIncomingChange(ctx context.Context, arg AddIncomingChangeParams) error {
+	_, err := q.db.ExecContext(ctx, addIncomingChange,
+		arg.ExternalID,
+		arg.Repository,
+		arg.Number,
+		arg.Field,
+		arg.Change,
+		arg.Actor,
+		arg.Metadata,
+		arg.CreatedAt,
+	)
+	return err
+}
+
 const addInitFailure = `-- name: AddInitFailure :exec
 INSERT INTO init_failures (repository, task_issue, session, commit_sha, result, output, created_at)
 SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7
@@ -856,6 +887,29 @@ func (q *Queries) AddOutgoingChange(ctx context.Context, arg AddOutgoingChangePa
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const addOwnWrite = `-- name: AddOwnWrite :exec
+INSERT INTO own_writes (integration, repository, number, field, metadata, created_at) VALUES ('github', ?, ?, ?, ?, ?)
+`
+
+type AddOwnWriteParams struct {
+	Repository string
+	Number     int64
+	Field      string
+	Metadata   string
+	CreatedAt  string
+}
+
+func (q *Queries) AddOwnWrite(ctx context.Context, arg AddOwnWriteParams) error {
+	_, err := q.db.ExecContext(ctx, addOwnWrite,
+		arg.Repository,
+		arg.Number,
+		arg.Field,
+		arg.Metadata,
+		arg.CreatedAt,
+	)
+	return err
 }
 
 const addOwnerAction = `-- name: AddOwnerAction :exec
@@ -1988,6 +2042,15 @@ func (q *Queries) DeleteDeviceLogin(ctx context.Context, id int64) error {
 	return err
 }
 
+const deleteDoneIncomingChanges = `-- name: DeleteDoneIncomingChanges :exec
+DELETE FROM incoming_changes WHERE status = 'done' AND julianday(created_at) < julianday(?)
+`
+
+func (q *Queries) DeleteDoneIncomingChanges(ctx context.Context, julianday interface{}) error {
+	_, err := q.db.ExecContext(ctx, deleteDoneIncomingChanges, julianday)
+	return err
+}
+
 const deleteFinishedOutgoingChanges = `-- name: DeleteFinishedOutgoingChanges :exec
 DELETE FROM outgoing_changes WHERE status <> 'pending' AND julianday(created_at) < julianday(?)
 `
@@ -2074,6 +2137,15 @@ func (q *Queries) DeleteMcpServerOAuth(ctx context.Context, server int64) error 
 	return err
 }
 
+const deleteOldOwnWrites = `-- name: DeleteOldOwnWrites :exec
+DELETE FROM own_writes WHERE julianday(created_at) < julianday(?)
+`
+
+func (q *Queries) DeleteOldOwnWrites(ctx context.Context, julianday interface{}) error {
+	_, err := q.db.ExecContext(ctx, deleteOldOwnWrites, julianday)
+	return err
+}
+
 const deleteOldSkillUse = `-- name: DeleteOldSkillUse :exec
 DELETE FROM old_skill_uses WHERE id = ?
 `
@@ -2081,6 +2153,37 @@ DELETE FROM old_skill_uses WHERE id = ?
 func (q *Queries) DeleteOldSkillUse(ctx context.Context, id int64) error {
 	_, err := q.db.ExecContext(ctx, deleteOldSkillUse, id)
 	return err
+}
+
+const deleteOldestOwnWrite = `-- name: DeleteOldestOwnWrite :execrows
+DELETE FROM own_writes
+WHERE id = (
+    SELECT o.id FROM own_writes o
+    WHERE o.repository = ?1 AND o.number = ?2
+      AND json_extract(o.metadata, '$.label') = CAST(?3 AS TEXT)
+      AND json_extract(o.metadata, '$.change') = CAST(?4 AS TEXT)
+    ORDER BY o.id LIMIT 1
+)
+`
+
+type DeleteOldestOwnWriteParams struct {
+	Repository string
+	Number     int64
+	Label      string
+	Change     string
+}
+
+func (q *Queries) DeleteOldestOwnWrite(ctx context.Context, arg DeleteOldestOwnWriteParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteOldestOwnWrite,
+		arg.Repository,
+		arg.Number,
+		arg.Label,
+		arg.Change,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const deleteOtherPasswordLogins = `-- name: DeleteOtherPasswordLogins :exec
@@ -8267,6 +8370,45 @@ func (q *Queries) ListOwnerMessagesSince(ctx context.Context, arg ListOwnerMessa
 	return items, nil
 }
 
+const listPendingIncomingChanges = `-- name: ListPendingIncomingChanges :many
+SELECT id, integration, external_id, repository, number, field, change, actor, metadata, status, created_at FROM incoming_changes WHERE repository = ? AND status = 'pending' ORDER BY id
+`
+
+func (q *Queries) ListPendingIncomingChanges(ctx context.Context, repository string) ([]IncomingChange, error) {
+	rows, err := q.db.QueryContext(ctx, listPendingIncomingChanges, repository)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []IncomingChange
+	for rows.Next() {
+		var i IncomingChange
+		if err := rows.Scan(
+			&i.ID,
+			&i.Integration,
+			&i.ExternalID,
+			&i.Repository,
+			&i.Number,
+			&i.Field,
+			&i.Change,
+			&i.Actor,
+			&i.Metadata,
+			&i.Status,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPendingOutgoingChanges = `-- name: ListPendingOutgoingChanges :many
 SELECT id, integration, repository, number, reply_to, field, text, status, created_at FROM outgoing_changes WHERE repository = ? AND status = 'pending' ORDER BY id
 `
@@ -10347,6 +10489,38 @@ func (q *Queries) SetCopiedEvergreen(ctx context.Context, arg SetCopiedEvergreen
 	return err
 }
 
+const setCopiedMaintenance = `-- name: SetCopiedMaintenance :exec
+UPDATE workstreams SET maintenance = CAST(?1 AS BOOLEAN)
+WHERE repository = ?2 AND number = ?3
+`
+
+type SetCopiedMaintenanceParams struct {
+	Maintenance bool
+	Repository  string
+	Number      int64
+}
+
+func (q *Queries) SetCopiedMaintenance(ctx context.Context, arg SetCopiedMaintenanceParams) error {
+	_, err := q.db.ExecContext(ctx, setCopiedMaintenance, arg.Maintenance, arg.Repository, arg.Number)
+	return err
+}
+
+const setCopiedSkills = `-- name: SetCopiedSkills :exec
+UPDATE workstreams SET skills = CAST(?1 AS BOOLEAN)
+WHERE repository = ?2 AND number = ?3
+`
+
+type SetCopiedSkillsParams struct {
+	Skills     bool
+	Repository string
+	Number     int64
+}
+
+func (q *Queries) SetCopiedSkills(ctx context.Context, arg SetCopiedSkillsParams) error {
+	_, err := q.db.ExecContext(ctx, setCopiedSkills, arg.Skills, arg.Repository, arg.Number)
+	return err
+}
+
 const setDeploymentTodoDismissed = `-- name: SetDeploymentTodoDismissed :exec
 UPDATE deployment_todos SET dismissed_at = ? WHERE id = ?
 `
@@ -10558,6 +10732,15 @@ UPDATE inbox_items SET withdrawn = 1 WHERE id = ?
 
 func (q *Queries) SetInboxItemWithdrawn(ctx context.Context, id int64) error {
 	_, err := q.db.ExecContext(ctx, setInboxItemWithdrawn, id)
+	return err
+}
+
+const setIncomingChangeDone = `-- name: SetIncomingChangeDone :exec
+UPDATE incoming_changes SET status = 'done' WHERE id = ?
+`
+
+func (q *Queries) SetIncomingChangeDone(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, setIncomingChangeDone, id)
 	return err
 }
 

@@ -604,6 +604,61 @@ func (e *Engine) setEvergreen(ctx context.Context, repository github.Repository,
 	return e.sendNow(ctx, repository, id)
 }
 
+// setMaintenance is the handler of a change of the maintenance setting of the Workstream number of repository. It sets
+// the value in workstreams, adds the outgoing change that writes mobius:maintenance in the same transaction, and sends
+// it. A Maintenance Workstream is evergreen, so a value on with evergreen off also sets evergreen on and adds its
+// outgoing change.
+func (e *Engine) setMaintenance(ctx context.Context, repository github.Repository, number int64, on bool) error {
+	var ids []int64
+	err := e.inTx(ctx, func(q *store.Queries) error {
+		if err := q.SetCopiedMaintenance(ctx, store.SetCopiedMaintenanceParams{Maintenance: on, Repository: repository.FullName, Number: number}); err != nil {
+			return err
+		}
+		id, err := addSettingChange(ctx, q, repository.FullName, number, maintenanceField)
+		if err != nil {
+			return err
+		}
+		ids = append(ids, id)
+		settings, err := q.GetWorkstreamSettings(ctx, store.GetWorkstreamSettingsParams{Repository: repository.FullName, Number: number})
+		if err != nil || !on || settings.Evergreen {
+			return err
+		}
+		if err := q.SetCopiedEvergreen(ctx, store.SetCopiedEvergreenParams{Evergreen: true, Repository: repository.FullName, Number: number}); err != nil {
+			return err
+		}
+		id, err = addSettingChange(ctx, q, repository.FullName, number, evergreenField)
+		ids = append(ids, id)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if err := e.sendNow(ctx, repository, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// setSkills is the handler of a change of the skills setting of the Workstream number of repository. It sets the value
+// in workstreams, adds the outgoing change that writes mobius:skills in the same transaction, and sends it.
+func (e *Engine) setSkills(ctx context.Context, repository github.Repository, number int64, on bool) error {
+	var id int64
+	err := e.inTx(ctx, func(q *store.Queries) error {
+		if err := q.SetCopiedSkills(ctx, store.SetCopiedSkillsParams{Skills: on, Repository: repository.FullName, Number: number}); err != nil {
+			return err
+		}
+		var err error
+		id, err = addSettingChange(ctx, q, repository.FullName, number, skillsField)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	return e.sendNow(ctx, repository, id)
+}
+
 // The Autopilot levels. mobius:autopilot is the start part of a level, and mobius:auto-merge is the merge part.
 const (
 	levelOff           = "off"

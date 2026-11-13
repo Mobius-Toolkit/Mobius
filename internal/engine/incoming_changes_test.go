@@ -1,0 +1,135 @@
+package engine_test
+
+import (
+	"slices"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/Mobius-Toolkit/Mobius/internal/config"
+	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
+	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
+)
+
+const (
+	evergreenLabel   = "mobius:evergreen"
+	maintenanceLabel = "mobius:maintenance"
+)
+
+func incomingChanges(t *testing.T, server *testserver.Server, status string) int {
+	t.Helper()
+	return countRows(t, server, "SELECT count(*) FROM incoming_changes WHERE status = ?", status)
+}
+
+func ownWrites(t *testing.T, server *testserver.Server) int {
+	t.Helper()
+	return countRows(t, server, "SELECT count(*) FROM own_writes")
+}
+
+func TestAChangeOfAutopilotByATrustedUserChangesTheWorkstreamAndAddsAnEventForTheLead(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	server := startCopiedWithLead(t, fake)
+
+	fake.AddLabel(shop, 12, "mobius:autopilot", "owner")
+
+	testkit.WaitFor(t, func() bool { return workstreams(t, server)[0].Autopilot == "start" })
+	testkit.WaitFor(t, func() bool { return len(autopilotEvents(t, server)) == 1 })
+	testkit.WaitFor(t, func() bool { return incomingChanges(t, server, "done") == 1 })
+	waitForPolls(t, fake)
+	got := autopilotEvents(t, server)
+	if len(got) != 1 || !strings.HasSuffix(got[0], ` Autopilot of Workstream #12 "Integrate loyalty plans" is "Start tasks", by @owner.`) {
+		t.Errorf("events = %q", got)
+	}
+	if !slices.Contains(fake.Labels(shop, 12), "mobius:autopilot") {
+		t.Errorf("labels = %v", fake.Labels(shop, 12))
+	}
+}
+
+func TestAChangeOfEvergreenByAPersonWhoIsNotATrustedUserIsWrittenBack(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	server := startCopiedWithLead(t, fake)
+
+	fake.AddLabel(shop, 12, evergreenLabel, "mallory")
+
+	testkit.WaitFor(t, func() bool { return !slices.Contains(fake.Labels(shop, 12), evergreenLabel) })
+	testkit.WaitFor(t, func() bool { return incomingChanges(t, server, "done") == 1 })
+	waitForPolls(t, fake)
+	if workstreams(t, server)[0].Evergreen {
+		t.Error("the Workstream is evergreen")
+	}
+	if !fake.LabelRemovedBy(shop, 12, evergreenLabel, testkit.AppSlug+"[bot]") {
+		t.Error("the App did not remove the label")
+	}
+}
+
+func TestTheLabelWritesOfAChangeOfTheOwnerAddNoIncomingChangeAndTheirOwnWritesGoAway(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	server := startCopiedWithLead(t, fake)
+
+	setLevelOf(t, server, 12, "start_and_merge")
+
+	testkit.WaitFor(t, func() bool {
+		return slices.Contains(fake.Labels(shop, 12), "mobius:autopilot") && slices.Contains(fake.Labels(shop, 12), "mobius:auto-merge")
+	})
+	testkit.WaitFor(t, func() bool { return ownWrites(t, server) == 0 })
+	waitForPolls(t, fake)
+	if got := incomingChanges(t, server, "pending") + incomingChanges(t, server, "done"); got != 0 {
+		t.Errorf("incoming changes = %d", got)
+	}
+}
+
+func TestAChangeOfMaintenanceByATrustedUserMakesTheWorkstreamEvergreenAndWritesTheEvergreenLabel(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	server := startCopiedWithLead(t, fake)
+
+	fake.AddLabel(shop, 12, maintenanceLabel, "owner")
+
+	testkit.WaitFor(t, func() bool { return fake.LabelAddedBy(shop, 12, evergreenLabel, testkit.AppSlug+"[bot]") })
+	testkit.WaitFor(t, func() bool { return ownWrites(t, server) == 0 && incomingChanges(t, server, "done") == 1 })
+	waitForPolls(t, fake)
+	var maintenance, evergreen bool
+	if err := server.DB.QueryRow("SELECT maintenance, evergreen FROM workstreams WHERE repository = ? AND number = 12", shop).Scan(&maintenance, &evergreen); err != nil {
+		t.Fatal(err)
+	}
+	if !maintenance || !evergreen {
+		t.Errorf("maintenance = %t, evergreen = %t", maintenance, evergreen)
+	}
+	if got := fake.Labels(shop, 12); !slices.Contains(got, maintenanceLabel) || !slices.Contains(got, evergreenLabel) {
+		t.Errorf("labels = %v", got)
+	}
+}
+
+func TestTheHousekeeperDeletesADoneIncomingChangeAndAnOwnWriteOlderThan24HoursAndKeepsAPendingIncomingChange(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, seen, func(cfg *config.Config) {
+		cfg.HousekeeperInterval = 100 * time.Millisecond
+	})
+	old := time.Now().Add(-25 * time.Hour).UTC().Format(time.RFC3339Nano)
+	// The repository owner/gone has no App access, so no poll applies its pending change.
+	for _, change := range []struct{ externalID, repository, status string }{{"1", shop, "done"}, {"2", "owner/gone", "pending"}} {
+		_, err := server.DB.Exec(`INSERT INTO incoming_changes (integration, external_id, repository, number, field, change, actor, metadata, status, created_at)
+			VALUES ('github', ?, ?, 12, 'evergreen', 'labeled', 'owner', '{"label":"mobius:evergreen"}', ?, ?)`, change.externalID, change.repository, change.status, old)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, err := server.DB.Exec(`INSERT INTO own_writes (integration, repository, number, field, metadata, created_at)
+		VALUES ('github', ?, 12, 'evergreen', '{"label":"mobius:evergreen","change":"labeled"}', ?)`, shop, old)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	testkit.WaitFor(t, func() bool { return incomingChanges(t, server, "done") == 0 && ownWrites(t, server) == 0 })
+	if got := incomingChanges(t, server, "pending"); got != 1 {
+		t.Errorf("pending incoming changes = %d", got)
+	}
+}
