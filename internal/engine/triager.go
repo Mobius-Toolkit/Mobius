@@ -206,12 +206,12 @@ func (e *Engine) startHeldTriagers(ctx context.Context, repository github.Reposi
 	if err != nil {
 		return err
 	}
-	writes, err := e.queries.ListCommentWrites(ctx, repository.FullName)
+	changes, err := e.queries.ListPendingOutgoingChanges(ctx, repository.FullName)
 	if err != nil {
 		return err
 	}
 	for _, number := range numbers {
-		if slices.ContainsFunc(writes, func(write store.CommentWrite) bool { return write.Number.Int64 == number }) {
+		if slices.ContainsFunc(changes, func(change store.OutgoingChange) bool { return change.Number == number }) {
 			continue
 		}
 		issue, err := repository.Issue(ctx, number)
@@ -380,7 +380,7 @@ func (e *Engine) runTriager(ctx context.Context, repository github.Repository, n
 	if text, err = e.withMark(ctx, caller{role: TriagerRole, repository: repository.FullName, issue: number}, repository.FullName, text); err != nil {
 		return err
 	}
-	return e.addOrKeepComment(ctx, repository, number, text)
+	return e.postComment(ctx, repository, number, text)
 }
 
 // trustedComments gives the comments of trusted authors and of the Mobius App.

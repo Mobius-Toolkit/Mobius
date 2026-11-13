@@ -314,7 +314,7 @@ func (e *Engine) pauseQuiet(ctx context.Context, harness config.Harness, until t
 // addLimitMessage adds text to the chat of the Workstream of a.
 func (e *Engine) addLimitMessage(ctx context.Context, a *Agent, text string) error {
 	spec := a.spec
-	_, err := e.addChatMessage(ctx, ChatKey{spec.Organization, spec.WorkstreamRepository, spec.Workstream}, mobiusAuthor, text, "", "", nil, false)
+	_, err := e.addChatMessage(ctx, ChatKey{spec.Organization, spec.WorkstreamRepository, spec.Workstream}, mobiusAuthor, text, "", "", nil, nil, false)
 	return err
 }
 

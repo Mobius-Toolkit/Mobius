@@ -40,7 +40,7 @@ func sendChat(t *testing.T, server *testserver.Server, key engine.ChatKey, text 
 
 func sendChatImages(t *testing.T, server *testserver.Server, key engine.ChatKey, text string, images []engine.Image) {
 	t.Helper()
-	if err := server.Engine.SendChat(t.Context(), key, "", text, images, nil, false); err != nil {
+	if err := server.Engine.SendChat(t.Context(), key, "", text, images, nil, nil, false); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -116,16 +116,42 @@ func waitForChatSession(t *testing.T, server *testserver.Server, key engine.Chat
 	})
 }
 
-// endedChatSession waits for the end of the Lead session index of the Workstream #12.
+// endedChatSession waits for the end of the Lead session index of the Workstream #12. When the wait fails, it logs
+// the Lead sessions with their times and the kinds of the Transcript lines of the last session.
 func endedChatSession(t *testing.T, server *testserver.Server, index int) store.Session {
 	t.Helper()
-	return testkit.WaitForValue(t, func() (store.Session, bool) {
+	waited := false
+	defer func() {
+		if !waited {
+			logChatSessions(t, server)
+		}
+	}()
+	session := testkit.WaitForValue(t, func() (store.Session, bool) {
 		sessions := chatSessions(t, server, leadChat, engine.LeadRole)
 		if len(sessions) <= index {
 			return store.Session{}, false
 		}
 		return sessions[index], sessions[index].EndedAt.Valid
 	})
+	waited = true
+	return session
+}
+
+func logChatSessions(t *testing.T, server *testserver.Server) {
+	t.Helper()
+	sessions := chatSessions(t, server, leadChat, engine.LeadRole)
+	t.Logf("the Lead sessions at %s: %d", time.Now().UTC().Format(time.RFC3339Nano), len(sessions))
+	for _, session := range sessions {
+		t.Logf("session %d: started %s, ended %s, reason %q, queue reason %q", session.ID, session.StartedAt, session.EndedAt.String, session.EndReason.String, session.QueueReason.String)
+	}
+	if len(sessions) == 0 {
+		return
+	}
+	var kinds []string
+	for _, line := range transcript(t, server, sessions[len(sessions)-1].ID) {
+		kinds = append(kinds, line.Kind)
+	}
+	t.Logf("the Transcript kinds of the last session: %s", strings.Join(kinds, " "))
 }
 
 // fetchLine is the line that Mobius puts before the item of a turn of a Workstream chat after a fetch of the bare clone.
@@ -315,7 +341,7 @@ func TestAChatViewGivesPagesOf20MessagesWithoutResearcherAndCuratorMessages(t *t
 			author = "Curator"
 		}
 		message, err := store.New(server.DB).AddChatMessage(t.Context(), store.AddChatMessageParams{
-			Organization: "owner", Repository: shop, Workstream: 12, Author: author, Time: time.Now().UTC().Format(time.RFC3339Nano), Text: fmt.Sprintf("message %d", number), InboxItems: "[]",
+			Organization: "owner", Repository: shop, Workstream: 12, Author: author, Time: time.Now().UTC().Format(time.RFC3339Nano), Text: fmt.Sprintf("message %d", number), InboxItems: "[]", Selections: "[]",
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -479,7 +505,7 @@ func TestTheFirstPromptHasTheContextPartsInOrder(t *testing.T) {
 			author = "Lead"
 		}
 		_, err := store.New(server.DB).AddChatMessage(t.Context(), store.AddChatMessageParams{
-			Organization: "owner", Repository: shop, Workstream: 12, Author: author, Time: time.Now().UTC().Format(time.RFC3339Nano), Text: fmt.Sprintf("message %d", number), InboxItems: "[]",
+			Organization: "owner", Repository: shop, Workstream: 12, Author: author, Time: time.Now().UTC().Format(time.RFC3339Nano), Text: fmt.Sprintf("message %d", number), InboxItems: "[]", Selections: "[]",
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -1603,7 +1629,7 @@ func TestAnOwnerMessageWithAnUnknownImageTypeIsNotAdded(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"Seen\"]\n")
 
-	err := server.Engine.SendChat(t.Context(), leadChat, "", "Read this", []engine.Image{{MIMEType: "application/pdf", Data: []byte("%PDF")}}, nil, false)
+	err := server.Engine.SendChat(t.Context(), leadChat, "", "Read this", []engine.Image{{MIMEType: "application/pdf", Data: []byte("%PDF")}}, nil, nil, false)
 
 	if !engine.Refused(err) {
 		t.Errorf("error = %v", err)
@@ -1633,7 +1659,7 @@ func TestAnOwnerMessageWithNoTextAndNoImageIsNotAdded(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"Seen\"]\n")
 
-	err := server.Engine.SendChat(t.Context(), leadChat, "", "", nil, nil, false)
+	err := server.Engine.SendChat(t.Context(), leadChat, "", "", nil, nil, nil, false)
 
 	if !engine.Refused(err) {
 		t.Errorf("error = %v", err)

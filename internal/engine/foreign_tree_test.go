@@ -158,6 +158,7 @@ func TestSearchIssuesGivesAnIssueOfAnotherRepositoryWithItsRepositoryAndItsOwnCo
 		cfg.Organizations = map[string]config.Organization{"owner": {IssueRepository: shop}}
 	})
 	addMaintenanceWorkstream(fake, 20)
+	waitForMaintenanceCopy(t, server, 20)
 	fake.AddIssue(shop, 40, "Flaky CI of the shop")
 	fake.AddIssue(garden, 40, "Flaky CI of the garden")
 	fake.CloseIssueAs(garden, 40, "not_planned")

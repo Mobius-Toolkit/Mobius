@@ -53,6 +53,7 @@ export function update(model: Model, message: Message): UpdateReturn {
     LoadFailed: ({ error }) => ({ model: { ...model, error } }),
     LoginRequired: () => ({ model, outMessage: OutMessage.LoginRequired() }),
     ToggledStopped: () => ({ model: { ...model, showStopped: !model.showStopped } }),
+    Ticked: ({ now }) => ({ model: { ...model, now } }),
     OpenedAgent: ({ agent }) => ({
       model: { ...model, transcript: Option.some(initialTranscript(agent)) },
       commands: Command.mapMessages(

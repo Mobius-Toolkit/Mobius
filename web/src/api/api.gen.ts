@@ -499,6 +499,40 @@ export interface InboxItem {
 }
 
 /**
+ * Source is the place of the selection
+ */
+export type ChatSelectionSource = typeof ChatSelectionSource[keyof typeof ChatSelectionSource];
+
+
+export const ChatSelectionSource = {
+  task: 'task',
+  message: 'message',
+  brief: 'brief',
+} as const;
+
+/**
+ * ChatSelection is a text selection that the Owner sends with a chat message.
+ */
+export interface ChatSelection {
+  /** Context is the full paragraph or list item of the selection, or the full blocks when the selection spans more than one block */
+  context: string;
+  /** Link is the GitHub URL of the task issue for task, the GitHub URL of the Workstream issue for brief, or empty for message */
+  link: string;
+  /** MessageAuthor is the author of the quoted chat message for message, or empty for the other sources */
+  messageAuthor: string;
+  /** MessageID is the id of the quoted chat message for message, or 0 for the other sources */
+  messageId: number;
+  /** Part is the part of the view for task, the heading of the Brief section of the selection (or empty above the first heading) for brief, or empty for message */
+  part: string;
+  /** Reference is the reference of the task (#N, or owner/name#N for a task in another repository) for task, the reference of the Workstream (#N) for brief, or empty for message */
+  reference: string;
+  /** Source is the place of the selection */
+  source: ChatSelectionSource;
+  /** Text is the selected text */
+  text: string;
+}
+
+/**
  * ChatMessage is a message of a Lead chat or of the Coordinator chat.
  */
 export interface ChatMessage {
@@ -535,6 +569,8 @@ export interface ChatMessage {
   question: InboxItem | null;
   /** Repository is the repository of the Workstream as "owner/name". It is empty for the Coordinator chat */
   repository: string;
+  /** Selections are the text selections that the Owner sent with the message, in the order of the request */
+  selections: ChatSelection[];
   /**
      * StoppedAt is the time when a stop of the Owner dropped the message of the Owner before the turn of the agent started, or null for a message that no stop dropped and for another message
      * @nullable
@@ -2429,7 +2465,9 @@ export interface SendChatBody {
   organization?: string;
   /** Repository is the repository of the Workstream as "owner/name". It is empty for the Coordinator chat */
   repository?: string;
-  /** Text is the message of the Owner. It is required when the message has no image and no Inbox item */
+  /** Selections are the text selections of the message. The request has one part selections for each selection, in order, and each part is one JSON object */
+  selections?: ChatSelection[];
+  /** Text is the message of the Owner. It is required when the message has no image, no Inbox item and no selection */
   text: string;
   /** Voice is true when the message came from a voice recording */
   voice?: boolean;
@@ -3316,6 +3354,9 @@ if(sendChatBody.organization !== undefined) {
  }
 if(sendChatBody.repository !== undefined) {
  formData.append(`repository`, sendChatBody.repository);
+ }
+if(sendChatBody.selections !== undefined) {
+ sendChatBody.selections.forEach(value => formData.append(`selections`, JSON.stringify(value)));
  }
 formData.append(`text`, sendChatBody.text);
 if(sendChatBody.voice !== undefined) {
