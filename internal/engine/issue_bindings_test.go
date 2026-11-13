@@ -41,9 +41,9 @@ func setBinding(t *testing.T, server *testserver.Server, role string, issue int6
 	}
 }
 
-func clearBinding(t *testing.T, server *testserver.Server, role, repository string, issue int64) {
+func clearBinding(t *testing.T, server *testserver.Server, role string, issue int64) {
 	t.Helper()
-	if err := server.Engine.ClearIssueBinding(t.Context(), role, repository, issue); err != nil {
+	if err := server.Engine.ClearIssueBinding(t.Context(), role, shop, issue); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -230,13 +230,13 @@ func TestTheTaskSettingWinsOverTheWorkstreamSettingAndTheBindingOfTheRole(t *tes
 		t.Errorf("row = %+v, found = %v, err = %v", row, found, err)
 	}
 
-	clearBinding(t, server, "implementer", shop, 41)
+	clearBinding(t, server, "implementer", 41)
 	requireBinding(t, taskSession(t, server, shop, 41), "devin", "opus", "medium")
 	if _, found, err := server.Engine.IssueBinding(t.Context(), "implementer", shop, 41); err != nil || found {
 		t.Errorf("found = %v, err = %v after the clear", found, err)
 	}
 
-	clearBinding(t, server, "implementer", shop, 12)
+	clearBinding(t, server, "implementer", 12)
 	requireBinding(t, taskSession(t, server, shop, 41), "devin", "swe-1.5", "high")
 	requireNext(t, server, "implementer", shop, 12, engine.LevelRole, "devin", "swe-1.5", "high")
 }
@@ -262,7 +262,7 @@ func TestARoundAfterAClearOfTheTaskSettingUsesTheBindingOfTheRole(t *testing.T) 
 	first := firstRound(t, server, fake)
 	waitForKept(t, server, 41)
 
-	clearBinding(t, server, "implementer", shop, 41)
+	clearBinding(t, server, "implementer", 41)
 	startFixRound(t, server)
 
 	second := waitForImplementerSessions(t, server, 2)[1]
@@ -515,13 +515,13 @@ func TestAClearOfASettingRemovesItsUserFromThePause(t *testing.T) {
 		t.Fatalf("users of devin = %+v, want the user of the Workstream and of the task", got)
 	}
 
-	clearBinding(t, server, "implementer", shop, 43)
+	clearBinding(t, server, "implementer", 43)
 
 	users := devinUsers(t, apiPauses(t, server))
 	if len(users) != 1 || users[0].Kind != "workstream" {
 		t.Errorf("users of devin = %+v, want only the user of the Workstream", users)
 	}
-	clearBinding(t, server, "lead", shop, 12)
+	clearBinding(t, server, "lead", 12)
 	requireDevinUsers(t, server)
 }
 
