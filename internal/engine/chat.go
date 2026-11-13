@@ -181,6 +181,32 @@ func (e *Engine) eventItems(ctx context.Context, events []store.LeadEvent) ([]it
 	return append(fixes, others...), nil
 }
 
+// ciFix tells if the next turn of the chat is for a CI fix event: its first item, or else the first event of its queue.
+// The caller holds e.chatsMu.
+func (c *chat) ciFix() bool {
+	if c.first.ci {
+		return true
+	}
+	for _, queued := range c.queue {
+		if queued.event != nil {
+			return queued.ci
+		}
+	}
+	return false
+}
+
+// leadCIFix tells if the Lead chat of the Lead session with spec has a next turn for a CI fix event. It gives false
+// for a session with no chat.
+func (e *Engine) leadCIFix(spec Spec) (ci, ok bool) {
+	e.chatsMu.Lock()
+	defer e.chatsMu.Unlock()
+	c, ok := e.chats[leadChat(spec.Repository, spec.Workstream)]
+	if !ok {
+		return false, false
+	}
+	return c.ciFix(), true
+}
+
 // chat is a running Lead chat or Coordinator chat. One goroutine runs its sessions, one after the other.
 //
 // The fields after wake are guarded by e.chatsMu.
@@ -449,6 +475,9 @@ func (e *Engine) give(key ChatKey, tracked bool, items ...item) {
 	}
 	state := c.state()
 	e.chatsMu.Unlock()
+	if slices.ContainsFunc(items, func(queued item) bool { return queued.ci }) {
+		e.workers.changed.notify()
+	}
 	e.publish(Change{Chat: &state})
 	e.publishSession(agent)
 }
@@ -684,6 +713,7 @@ func (e *Engine) forgetChatMessage(key ChatKey, id int64) {
 	if c.stopWait != nil && c.first.message != nil && c.first.message.ID == id {
 		if len(c.queue) > 0 {
 			c.first, c.queue = c.queue[0], c.queue[1:]
+			e.workers.changed.notify()
 		} else {
 			delete(e.chats, key)
 			c.stopWait()
@@ -932,9 +962,6 @@ func (e *Engine) runChat(c *chat) {
 	crashes := 0
 	spec, err := e.chatSpec(c.key)
 	spec.Tracked = c.tracked
-	e.chatsMu.Lock()
-	spec.CIFix = c.first.ci
-	e.chatsMu.Unlock()
 	if err != nil {
 		if c.tracked {
 			e.untrack()
@@ -945,6 +972,7 @@ func (e *Engine) runChat(c *chat) {
 	for {
 		e.chatsMu.Lock()
 		wait := c.wait
+		spec.CIFix = c.first.ci
 		e.chatsMu.Unlock()
 		a, err := e.Start(wait, spec)
 		spec.Tracked = false
@@ -1887,6 +1915,9 @@ func (e *Engine) freeAndSend(ctx context.Context, repository string, workstream 
 	state := c.state()
 	agent := c.agent
 	e.chatsMu.Unlock()
+	if slices.ContainsFunc(affected, func(queued item) bool { return queued.ci }) {
+		e.workers.changed.notify()
+	}
 	e.publish(Change{Chat: &state})
 	e.publishSession(agent)
 	return nil

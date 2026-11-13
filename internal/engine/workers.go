@@ -289,6 +289,17 @@ func (e *Engine) takeSlot(ctx context.Context, a *Agent) error {
 	var slots *implementerSlots
 	for {
 		changed := w.changed.wait()
+		if role == LeadRole {
+			if ci, ok := e.leadCIFix(a.spec); ok && ci != place.ci {
+				w.mu.Lock()
+				wait := w.waiting[place]
+				delete(w.waiting, place)
+				place.ci = ci
+				w.waiting[place] = wait
+				w.mu.Unlock()
+				w.changed.notify()
+			}
+		}
 		queue, err := e.queuedTasks(ctx)
 		if err != nil {
 			return err
