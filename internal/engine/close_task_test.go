@@ -88,3 +88,32 @@ func TestClosingTheWorkstreamIssueOrAnIssueOfAnotherWorkstreamIsRefused(t *testi
 		}
 	}
 }
+
+func TestAClosingOfATaskThatFailsAfterItsCommentAndRunsAgainAddsNoSecondCommentRow(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, "[[prompts]]\nwhen = \"First close\"\ncall = { tool = \"close_task\", arguments = { repository = \"owner/shop\", n = 41, reason = \"Main has this work.\" } }\n\n[[prompts]]\nwhen = \"Second close\"\ncall = { tool = \"close_task\", arguments = { repository = \"owner/shop\", n = 41, reason = \"Main has this work.\" } }\n")
+	fake.AddIssue(shop, 41, "Add plan model")
+	fake.AddSubIssue(shop, 12, 41)
+	waitForTasks(t, server, []taskLine{line(41, "Add plan model", "open", 0)})
+	fake.FailClose(shop, 41)
+
+	session := run(t, server, leadSpec(t), "First close")
+
+	if calls := mcpCalls(t, server, session); len(calls) != 1 || calls[0]["error"] == nil {
+		t.Fatalf("calls = %+v", calls)
+	}
+	fake.AllowClose(shop, 41)
+
+	session = run(t, server, leadSpec(t), "Second close")
+
+	if calls := mcpCalls(t, server, session); len(calls) != 1 || calls[0]["result"] != "Closed #41." {
+		t.Errorf("calls = %+v", calls)
+	}
+	if got, want := fake.Comments(shop, 41), []testkit.Comment{{Author: "mobius-test[bot]", Body: marked("Main has this work.", leadMark)}}; !slices.Equal(got, want) {
+		t.Errorf("comments = %+v", got)
+	}
+	if got := commentRows(t, server, 41, marked("Main has this work.", leadMark)); got != 1 {
+		t.Errorf("rows = %d", got)
+	}
+}

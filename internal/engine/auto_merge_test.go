@@ -270,8 +270,10 @@ func TestTheMergeButtonAfterAServerErrorOfTheApprovalGivesOneApproval(t *testing
 	server := approvable(t, fake, "merge", true)
 	fake.FailReviews(http.StatusInternalServerError, 1000)
 	sendChat(t, server, leadChat, "Approve #41")
-	item := retryItem(t, server)
+	retryItem(t, server)
 	turnMerge(t, server, false)
+	waitForPolls(t, fake)
+	item := retryItem(t, server)
 	fake.FailReviews(0, 0)
 
 	if status, body := merge(t, server, item.ID); status != http.StatusOK {

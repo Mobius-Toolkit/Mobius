@@ -1,18 +1,16 @@
 import { Schema } from "effect";
 import { defineMessageUnion } from "foldkit/message";
+import * as Composer from "@/composer";
 import {
   ChatMessage,
   ChatPage,
   ChatState,
   Draft,
   DraftInboxItem,
-  DraftInboxItemId,
-  Images,
   InboxItem,
   PendingAction,
   Queued,
   VoiceState,
-  VoiceTarget,
   Workstream,
 } from "./schemas";
 
@@ -39,28 +37,18 @@ export const Message = defineMessageUnion({
 
   QueueLoaded: { items: Schema.Array(Queued) },
   QueueFailed: { error: Schema.String },
-  MessageRefused: { error: Schema.String },
-  MessageQueued: { item: Queued },
   SendAttemptSucceeded: { id: Schema.String },
   SendAttemptFailed: { id: Schema.String, error: Schema.String, retryAt: Schema.Number },
   RetryDue: { id: Schema.String, sequence: Schema.Number },
   RetryNowClicked: {},
   DiscardQueuedClicked: { id: Schema.String },
   CompletedRemoveQueued: { id: Schema.String },
+  OutboxChanged: {},
 
-  StopChatClicked: {},
   StopChatCompleted: { error: Schema.NullOr(Schema.String) },
 
-  ReceivedDraft: { draft: Draft },
-  DraftTextChanged: { text: Schema.String },
-  ImagesChosen: { files: Images },
-  ImagesFitted: { images: Images, problem: Schema.String },
-  AttachClicked: {},
-  CompletedClickAttach: {},
-  DraftImageRemoved: { position: Schema.Number },
+  GotComposerMessage: { message: Composer.Message },
   DraftInboxItemAdded: { item: DraftInboxItem },
-  DraftInboxItemRemoved: { id: DraftInboxItemId },
-  SendSubmitted: {},
   CompletedSaveDraft: {},
 
   BriefToggled: {},
@@ -105,9 +93,9 @@ export const Message = defineMessageUnion({
   ResumeClicked: { item: InboxItem },
   ResumeCompleted: { id: Schema.Number, error: Schema.optional(Schema.String) },
 
-  VoiceButtonClicked: { target: VoiceTarget },
-  VoiceResendClicked: { target: VoiceTarget },
-  VoiceRemoveClicked: { target: VoiceTarget },
+  VoiceButtonClicked: {},
+  VoiceResendClicked: {},
+  VoiceRemoveClicked: {},
   VoiceChanged: { voice: VoiceState },
   VoiceTicked: { now: Schema.Number },
   CompletedToggleVoice: {},
@@ -130,3 +118,6 @@ export const Message = defineMessageUnion({
 });
 
 export type Message = typeof Message.Type;
+
+export const toGotComposerMessage = (message: Composer.Message): Message =>
+  Message.GotComposerMessage({ message });

@@ -256,7 +256,7 @@ func (e *Engine) CloseWorkstreamWontDo(ctx context.Context, repositoryName strin
 		if item.Repository != repository.FullName {
 			workstream = fmt.Sprintf("%s#%d", repository.FullName, number)
 		}
-		if _, err := source.AddComment(ctx, item.Number, fmt.Sprintf("The Workstream %s closed as \"won't do\".", workstream)); err != nil {
+		if err := e.postCommentOnce(ctx, source, item.Number, fmt.Sprintf("The Workstream %s closed as \"won't do\".", workstream)); err != nil {
 			return err
 		}
 		if err := source.AddLabel(ctx, item.Number, wontDoLabel); err != nil {
@@ -409,7 +409,7 @@ func (e *Engine) closeWorkstream(ctx context.Context, repository github.Reposito
 		if pullRequest.GetState() != "open" {
 			continue
 		}
-		if _, err := source.AddComment(ctx, row.PullRequest, closedText); err != nil {
+		if err := e.postCommentOnce(ctx, source, row.PullRequest, closedText); err != nil {
 			return err
 		}
 		if err := source.ClosePullRequest(ctx, row.PullRequest); err != nil {
@@ -432,7 +432,7 @@ func (e *Engine) closeWorkstream(ctx context.Context, repository github.Reposito
 		if issue.GetState() != "open" {
 			return false, nil
 		}
-		if _, err := source.AddComment(ctx, number, closedText); err != nil {
+		if err := e.postCommentOnce(ctx, source, number, closedText); err != nil {
 			return false, err
 		}
 		_, err := source.CloseIssue(ctx, number, "not_planned")

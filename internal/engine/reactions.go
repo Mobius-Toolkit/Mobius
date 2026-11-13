@@ -207,7 +207,7 @@ func (e *Engine) launchEventComment(ctx context.Context, event *store.LeadEvent)
 			inEvent = append(inEvent, comment)
 		}
 	}
-	replies, _, err := e.answerReplies(ctx, repository, inEvent)
+	replies, _, err := e.answerReplies(ctx, repository, event.Issue.Int64, inEvent)
 	if err != nil {
 		log.Printf("read the replies on issue %d of %s: %v", event.Issue.Int64, event.Repository, err)
 		return

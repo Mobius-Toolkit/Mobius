@@ -36,12 +36,27 @@ const chatKey = (item: Pick<Queued, "organization" | "repository" | "workstream"
   item.workstream,
 ];
 
+let outboxVersion = 0;
+const listeners = new Set<() => void>();
+
+export function subscribeOutbox(listener: () => void) {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+export function currentOutboxVersion() {
+  return outboxVersion;
+}
+
 export function listQueued(chat: Pick<Queued, "organization" | "repository" | "workstream">) {
   return run("readonly", (store) => store.index("chat").getAll(chatKey(chat)));
 }
 
-export function addQueued(item: Queued) {
-  return run("readwrite", (store) => store.add({ ...item, chat: chatKey(item) }));
+export async function addQueued(item: Queued) {
+  const result = await run("readwrite", (store) => store.add({ ...item, chat: chatKey(item) }));
+  outboxVersion++;
+  listeners.forEach((listener) => listener());
+  return result;
 }
 
 export function addCoordinatorMessage(organization: string, text: string) {
@@ -58,8 +73,11 @@ export function addCoordinatorMessage(organization: string, text: string) {
   });
 }
 
-export function removeQueued(id: string) {
-  return run("readwrite", (store) => store.delete(id));
+export async function removeQueued(id: string) {
+  const result = await run("readwrite", (store) => store.delete(id));
+  outboxVersion++;
+  listeners.forEach((listener) => listener());
+  return result;
 }
 
 // Gives undefined when the server stored the message, or the text of the error. The request ends at the limit or

@@ -1,15 +1,16 @@
-import { Schema } from "effect";
+import { Option, Schema } from "effect";
+import * as Update from "foldkit/update";
 import type { Return as UpdateReturn } from "foldkit/update";
+import * as Composer from "@/composer";
+import { OutMessage as ComposerOutMessage } from "@/composer/message";
 import {
   AnswerInboxItem,
   ApproveAction,
-  ClickAttach,
   DoneInboxItem,
-  EnqueueMessage,
   FetchActionBrief,
   FetchOlder,
   FetchPage,
-  FitImages,
+  ListQueued,
   Navigate,
   OpenChatWithItem,
   PostQueued,
@@ -21,8 +22,6 @@ import {
   RunTrayAction,
   ResumeIssue,
   ResumeStoppedItem,
-  SaveDraftImages,
-  SaveDraftInboxItems,
   SaveDraftText,
   SaveTrayState,
   SeeChat,
@@ -33,37 +32,78 @@ import {
   WaitToRetry,
 } from "./commands";
 import { InboxItemKind } from "@/api/api.gen";
-import { answerDraftKey, chatDraftKey } from "@/lib/draft";
+import { answerDraftKey } from "@/lib/draft";
 import { issueRef } from "@/lib/notice";
-import { maxImages, tooManyImages } from "@/lib/images";
-import { Message } from "./message";
+import { answerInputId } from "./composer";
+import { Message, toGotComposerMessage } from "./message";
 type Running = "action" | "dismiss" | "merge";
-import {
-  countsAsUnread,
-  hasNote,
-  retryDelays,
-  upsert,
-  voiceBusy,
-  type Model,
-  type Waiting,
-} from "./model";
-import { InboxItem } from "./schemas";
+import { countsAsUnread, hasNote, retryDelays, upsert, type Model, type Waiting } from "./model";
+import { InboxItem, type Queued } from "./schemas";
 
-const chatKey = (model: Model) =>
-  chatDraftKey(model.organization, model.repository, model.workstream);
-
-function isEmptyDraft(model: Model) {
-  return (
-    !model.draftText.trim() && model.draftImages.length === 0 && model.draftInboxItems.length === 0
-  );
+export function enqueue(model: Model, item: Queued): UpdateReturn<Model, Message> {
+  if (model.queue.some((other) => other.id === item.id)) {
+    return { model };
+  }
+  const queue: Waiting[] = [...model.queue, item];
+  const next = queue.find((i) => !i.sent);
+  const commands = [];
+  if (next && !model.attempt && next.id === item.id) {
+    const delay = retryDelays[0];
+    commands.push(PostQueued({ item: next, delay }));
+  }
+  return { model: { ...model, queue }, commands };
 }
 
-// The draft key of the field that a voice Message names: the field of the chat, or the field of the open answer panel.
-function voiceKey(model: Model, target: "chat" | "answer") {
-  if (target === "chat") {
-    return chatKey(model);
+export function stopChat(model: Model): UpdateReturn<Model, Message> {
+  if (model.stopping) {
+    return { model };
   }
-  return model.activePanel ? answerDraftKey(model.activePanel.item.id) : null;
+  return {
+    model: { ...model, stopping: true },
+    commands: [
+      StopChat({
+        organization: model.organization,
+        repository: model.repository,
+        workstream: model.workstream,
+      }),
+    ],
+  };
+}
+
+const foldComposer = Update.foldChild({
+  update: Composer.update,
+  read: (model: Model) => Option.some(model.composer),
+  write: (model, composer) => ({ ...model, composer }),
+  toParentMessage: toGotComposerMessage,
+  foldOutMessage: (outMessage) =>
+    ComposerOutMessage.match<Update.Step<Model, Message>>(outMessage, {
+      StopClicked: () => stopChat,
+      MessageEnqueued:
+        ({ item }) =>
+        (model) =>
+          enqueue(model, item),
+    }),
+});
+
+const foldSendError = Update.foldChild({
+  update: (composer: Composer.Model, error: string) => Composer.setSendError(composer, error),
+  read: (model: Model) => Option.some(model.composer),
+  write: (model, composer) => ({ ...model, composer }),
+  toParentMessage: toGotComposerMessage,
+});
+
+const foldAddInboxItem = Update.foldChild({
+  update: Composer.addDraftInboxItem,
+  read: (model: Model) => Option.some(model.composer),
+  write: (model, composer) => ({ ...model, composer }),
+  toParentMessage: toGotComposerMessage,
+});
+
+// The draft key and the element id of the field of the open answer panel.
+function answerField(model: Model) {
+  return model.activePanel
+    ? { key: answerDraftKey(model.activePanel.item.id), fieldId: answerInputId }
+    : null;
 }
 
 function hasSelection(model: Model) {
@@ -129,31 +169,6 @@ function answerCommands(
         workstream === 0
           ? "Sent the answer to the Coordinator"
           : `Sent the answer to the Lead of #${workstream}`,
-    }),
-  ];
-}
-
-function clearedDraft(model: Model): Model {
-  return {
-    ...model,
-    draftText: "",
-    draftImages: [],
-    draftInboxItems: [],
-    draftVoice: null,
-  };
-}
-
-function sendCommands(model: Model) {
-  return [
-    EnqueueMessage({
-      organization: model.organization,
-      repository: model.repository,
-      workstream: model.workstream,
-      key: chatKey(model),
-      text: model.draftText,
-      images: model.draftImages,
-      inboxItems: model.draftInboxItems,
-      voice: model.draftVoice?.state === "ready",
     }),
   ];
 }
@@ -550,14 +565,13 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
 
     QueueLoaded: ({ items: stored }) => {
       const storedIds = new Set(model.messages.map((m) => m.browserId));
-      const queue = model.queue.concat(
-        stored.filter(
-          (item) => !storedIds.has(item.id) && !model.queue.some((other) => other.id === item.id),
-        ),
+      const added = stored.filter(
+        (item) => !storedIds.has(item.id) && !model.queue.some((other) => other.id === item.id),
       );
+      const queue = model.queue.concat(added);
       const next = queue.find((item) => !item.sent);
       const commands = [];
-      if (next && !model.attempt) {
+      if (next && !model.attempt && added.some((item) => item.id === next.id)) {
         const delay = retryDelays[0];
         commands.push(PostQueued({ item: next, delay }));
       }
@@ -578,25 +592,6 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
         error,
       },
     }),
-
-    MessageRefused: ({ error }) => ({ model: { ...model, sendError: error } }),
-
-    MessageQueued: ({ item }) => {
-      const queue: Waiting[] = [...model.queue, item];
-      const next = queue.find((i) => !i.sent);
-      const commands = [];
-      if (next && !model.attempt && next.id === item.id) {
-        const delay = retryDelays[0];
-        commands.push(PostQueued({ item: next, delay }));
-      }
-      return {
-        model: {
-          ...model,
-          queue,
-        },
-        commands,
-      };
-    },
 
     SendAttemptSucceeded: ({ id }) => {
       const queue = model.queue.map((item) => (item.id === id ? { ...item, sent: true } : item));
@@ -698,115 +693,30 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
 
     CompletedRemoveQueued: () => ({ model }),
 
-    StopChatClicked: () =>
-      model.stopping
-        ? { model }
-        : {
-            model: {
-              ...model,
-              stopping: true,
-            },
-            commands: [
-              StopChat({
-                organization: model.organization,
-                repository: model.repository,
-                workstream: model.workstream,
-              }),
-            ],
-          },
-
     // After a success the button stays pending until the server says that the chat is not stoppable.
     StopChatCompleted: ({ error }) =>
-      error === null ? { model } : { model: { ...model, stopping: false, sendError: error } },
+      error === null ? { model } : foldSendError({ ...model, stopping: false }, error),
 
-    ReceivedDraft: ({ draft }) => ({
-      model: {
-        ...model,
-        draftLoaded: true,
-        draftText: draft.text,
-        draftImages: draft.images,
-        draftInboxItems: draft.inboxItems,
-        draftVoice: draft.voice,
-      },
-    }),
+    GotComposerMessage: ({ message: composerMsg }) => foldComposer(model, composerMsg),
 
-    DraftTextChanged: ({ text }) => ({
-      model: { ...model, draftText: text },
-      commands: [SaveDraftText({ key: chatKey(model), text })],
-    }),
+    DraftInboxItemAdded: ({ item }) => foldAddInboxItem(model, item),
 
-    ImagesChosen: ({ files }) => ({
+    OutboxChanged: () => ({
       model,
       commands: [
-        FitImages({
-          files,
-          room: maxImages - model.draftImages.length,
+        ListQueued({
+          organization: model.organization,
+          repository: model.repository,
+          workstream: model.workstream,
         }),
       ],
     }),
 
-    ImagesFitted: ({ images, problem }) => {
-      const all = [...model.draftImages, ...images];
-      const nextImages = all.slice(0, maxImages);
-      return {
-        model: {
-          ...model,
-          draftImages: nextImages,
-          sendError: !problem && all.length > maxImages ? tooManyImages : problem,
-        },
-        commands: [SaveDraftImages({ key: chatKey(model), images: nextImages })],
-      };
-    },
-
-    AttachClicked: () => ({ model, commands: [ClickAttach()] }),
-
-    CompletedClickAttach: () => ({ model }),
-
-    DraftImageRemoved: ({ position }) => {
-      const nextImages = model.draftImages.filter((_, i) => i !== position);
-      return {
-        model: { ...model, draftImages: nextImages },
-        commands: [SaveDraftImages({ key: chatKey(model), images: nextImages })],
-      };
-    },
-
-    DraftInboxItemAdded: ({ item }) => {
-      const nextItems = model.draftInboxItems.some((other) => other.id === item.id)
-        ? model.draftInboxItems
-        : [...model.draftInboxItems, item];
-      return {
-        model: { ...model, draftInboxItems: nextItems },
-        commands: [SaveDraftInboxItems({ key: chatKey(model), inboxItems: nextItems })],
-      };
-    },
-
-    DraftInboxItemRemoved: ({ id }) => {
-      const nextItems = model.draftInboxItems.filter((item) => item.id !== id);
-      return {
-        model: { ...model, draftInboxItems: nextItems },
-        commands: [SaveDraftInboxItems({ key: chatKey(model), inboxItems: nextItems })],
-      };
-    },
-
-    // The Send button and Enter stop a voice run and send nothing.
-    SendSubmitted: () => {
-      if (model.voice.recording) {
-        return { model, commands: [StopVoice()] };
-      }
-      if (isEmptyDraft(model) || voiceBusy(model.draftVoice)) {
-        return { model };
-      }
-      return {
-        model: { ...clearedDraft(model), sendError: "" },
-        commands: sendCommands(model),
-      };
-    },
-
     CompletedStopVoice: () => ({ model }),
 
-    StopReadyChanged: ({ ready }) => ({ model: { ...model, stopReady: ready } }),
-
     CompletedSaveDraft: () => ({ model }),
+
+    StopReadyChanged: ({ ready }) => ({ model: { ...model, stopReady: ready } }),
 
     EventToggled: ({ id }) => ({
       model: {
@@ -1036,7 +946,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
         return { model, commands: [StopVoice()] };
       }
       const empty = !model.answerText.trim() && !hasSelection(model) && !hasNote(panel.item);
-      if (empty || panel.item.action || voiceBusy(model.answerVoice)) {
+      if (empty || panel.item.action || Composer.voiceBusy(model.answerVoice)) {
         return { model };
       }
       return {
@@ -1059,7 +969,11 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
 
     ActionDecided: ({ decision }) => {
       const panel = model.activePanel;
-      if (!panel || requestingOf(model).includes(panel.item.id) || voiceBusy(model.answerVoice)) {
+      if (
+        !panel ||
+        requestingOf(model).includes(panel.item.id) ||
+        Composer.voiceBusy(model.answerVoice)
+      ) {
         return { model };
       }
       const text = model.answerText;
@@ -1131,19 +1045,23 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
       });
     },
 
-    VoiceButtonClicked: ({ target }) => {
-      const key = voiceKey(model, target);
-      return key === null ? { model } : { model, commands: [ToggleVoice({ key })] };
+    VoiceButtonClicked: () => {
+      const field = answerField(model);
+      return field === null
+        ? { model }
+        : { model, commands: [ToggleVoice({ key: field.key, fieldId: field.fieldId })] };
     },
 
-    VoiceResendClicked: ({ target }) => {
-      const key = voiceKey(model, target);
-      return key === null ? { model } : { model, commands: [ResendVoice({ key })] };
+    VoiceResendClicked: () => {
+      const field = answerField(model);
+      return field === null
+        ? { model }
+        : { model, commands: [ResendVoice({ key: field.key, fieldId: field.fieldId })] };
     },
 
-    VoiceRemoveClicked: ({ target }) => {
-      const key = voiceKey(model, target);
-      return key === null ? { model } : { model, commands: [RemoveVoice({ key })] };
+    VoiceRemoveClicked: () => {
+      const field = answerField(model);
+      return field === null ? { model } : { model, commands: [RemoveVoice({ key: field.key })] };
     },
 
     VoiceChanged: ({ voice }) => ({ model: { ...model, voice } }),
