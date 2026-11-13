@@ -64,8 +64,8 @@ func TestAnActionGivesTheLabelsOfItsLabelsArgument(t *testing.T) {
 
 func TestAnActionOfALeadGivesItsWorkstreamAndAnActionOfTheCoordinatorGivesNone(t *testing.T) {
 	mux, db := testMux(t)
-	exec(t, db, `INSERT INTO copied_workstreams (repository, number, title, body, autopilot, evergreen) VALUES
-		('owner/shop', 12, 'Checkout', '', 0, 0)`)
+	exec(t, db, `INSERT INTO copied_workstreams (repository, number, title, body) VALUES ('owner/shop', 12, 'Checkout', '');
+		INSERT INTO workstreams (repository, number) VALUES ('owner/shop', 12)`)
 	exec(t, db, `INSERT INTO inbox_items (id, kind, organization, repository, workstream_repository, workstream, issue, text, link, time) VALUES
 		(1, 'approval', 'owner', 'owner/shop', 'owner/shop', 12, 0, '', '', '2026-10-04T10:00:00Z'),
 		(2, 'approval', 'owner', 'owner/shop', 'owner/shop', 12, 0, '', '', '2026-10-04T10:00:01Z'),
