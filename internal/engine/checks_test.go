@@ -393,9 +393,8 @@ func rerunHead(t *testing.T, server *testserver.Server) string {
 func failedFirstAttempt(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHub) (workflow, check int64) {
 	t.Helper()
 	sha := checksHead(t, server, fake)
-	// ciOf reads the check runs and then the workflow runs in two calls. A poll between the two adds of both runs can read
-	// only the workflow run, and onChecks then hands the task to a human. While only the check run exists, onChecks waits
-	// for the diagnosis. The workflow run is added after the diagnosis row exists.
+	// While only the check run exists, onChecks waits for the diagnosis. The workflow run is added after the diagnosis row
+	// exists.
 	check = fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
 	testkit.WaitFor(t, func() bool { return rowCount(t, server, "SELECT count(*) FROM ci_diagnoses") == 1 })
 	workflow = fake.AddWorkflowRun(shop, testkit.WorkflowRun{Name: "ci", HeadSHA: sha, WorkflowID: 5, Status: "completed", Conclusion: "failure"})
@@ -598,8 +597,8 @@ func TestARerunThatGitHubAnswersWithA5xxStatusIsTriedAgainAtTheNextPoll(t *testi
 	server, _ := connectTask(t, fake, leadStarts, fixesNothing, longGrace)
 	sha := checksHead(t, server, fake)
 	fake.RefuseRerun(500)
-	workflow := fake.AddWorkflowRun(shop, testkit.WorkflowRun{Name: "ci", HeadSHA: sha, WorkflowID: 5, Status: "completed", Conclusion: "failure"})
 	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
+	workflow := fake.AddWorkflowRun(shop, testkit.WorkflowRun{Name: "ci", HeadSHA: sha, WorkflowID: 5, Status: "completed", Conclusion: "failure"})
 	testkit.WaitFor(t, func() bool { return implementers(t, server) == 2 })
 	endedImplementers(t, server, 2)
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "checks" })
@@ -614,5 +613,23 @@ func TestARerunThatGitHubAnswersWithA5xxStatusIsTriedAgainAtTheNextPoll(t *testi
 	testkit.WaitFor(t, func() bool { return rerunHead(t, server) == sha })
 	if attempt := fake.WorkflowRunAttempt(workflow); attempt != 2 || hasLabel(fake, "mobius:needs-human") {
 		t.Errorf("attempt = %d", attempt)
+	}
+}
+
+func TestAFailureThatCompletesBetweenTheReadsOfTheCheckRunsAndTheWorkflowRunsStartsAFixRound(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, fixesNothing, longGrace)
+	logStateOnFailure(t, server, fake)
+	sha := checksHead(t, server, fake)
+	check := fake.AddCheckRun(shop, checkRun("build", sha, "in_progress", ""))
+	workflow := fake.AddWorkflowRun(shop, testkit.WorkflowRun{Name: "ci", HeadSHA: sha, WorkflowID: 5, Status: "in_progress"})
+	waitForPolls(t, fake)
+
+	fake.FailAfterNextCheckRunRead(sha, check, workflow)
+
+	testkit.WaitFor(t, func() bool { return implementers(t, server) == 2 || taskState(t, server) == "needs_human" })
+	if state, count := taskState(t, server), implementers(t, server); state == "needs_human" || count != 2 {
+		t.Errorf("state = %s, Implementers = %d", state, count)
 	}
 }

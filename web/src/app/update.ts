@@ -974,7 +974,10 @@ export function update(model: Model, message: Message): UpdateReturn {
           organization: org,
         });
       }
-      const entered = enterOrganization({ ...model, workstreamsProgram, tasksProgram }, org);
+      const entered = enterOrganization(
+        { ...model, workstreamsProgram, tasksProgram, openMenu: Option.none() },
+        org,
+      );
       return { model: entered.model, commands: [...commands, ...entered.commands] };
     }
 

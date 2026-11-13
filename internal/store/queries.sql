@@ -759,6 +759,9 @@ SELECT * FROM outgoing_changes WHERE id = ?;
 -- name: ListPendingOutgoingChanges :many
 SELECT * FROM outgoing_changes WHERE repository = ? AND status = 'pending' ORDER BY id;
 
+-- name: GetNewestCommentChange :one
+SELECT * FROM outgoing_changes WHERE repository = ? AND number = ? AND field = 'comment' ORDER BY id DESC LIMIT 1;
+
 -- name: SetOutgoingChangeStatus :exec
 UPDATE outgoing_changes SET status = ? WHERE id = ?;
 
@@ -1227,6 +1230,20 @@ UPDATE check_timeouts SET issue = ? WHERE id = ?;
 -- name: EndCheckTimeout :exec
 UPDATE check_timeouts SET ended_at = ? WHERE id = ?;
 
+-- name: AddInitFailure :exec
+INSERT INTO init_failures (repository, task_issue, session, commit_sha, result, output, created_at)
+SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7
+WHERE NOT EXISTS (SELECT 1 FROM init_failures WHERE repository = ?1 AND ended_at = '');
+
+-- name: GetOpenInitFailure :one
+SELECT * FROM init_failures WHERE repository = ? AND ended_at = '';
+
+-- name: SetInitFailureIssue :exec
+UPDATE init_failures SET issue = ? WHERE id = ?;
+
+-- name: EndInitFailure :exec
+UPDATE init_failures SET ended_at = ? WHERE id = ?;
+
 -- name: AddOwnerAnswer :exec
 INSERT OR IGNORE INTO owner_answers (repository, comment_id) VALUES (?, ?);
 
@@ -1397,6 +1414,8 @@ SELECT EXISTS (
   SELECT 1 FROM ci_breaks WHERE ci_breaks.repository = ?1 AND ABS(ci_breaks.issue) = ?2
   UNION ALL
   SELECT 1 FROM check_timeouts WHERE check_timeouts.repository = ?1 AND ABS(check_timeouts.issue) = ?2
+  UNION ALL
+  SELECT 1 FROM init_failures WHERE init_failures.repository = ?1 AND ABS(init_failures.issue) = ?2
   UNION ALL
   SELECT 1 FROM ci_failures WHERE ci_failures.repository = ?1 AND ABS(ci_failures.issue) = ?2
 );
