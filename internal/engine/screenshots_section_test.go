@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -10,10 +11,7 @@ import (
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
 
-const (
-	pendingScreenshots = "The screenshots are pending. See the [checks of the commit](https://github.com/owner/shop/commit/abc/checks)."
-	changedSentence    = "The screenshots section of the pull request shows changed screens, or the screenshots failed. Compare each changed screen with the issue before the approval."
-)
+const pendingScreenshots = "The screenshots are pending. See the [checks of the commit](https://github.com/owner/shop/commit/abc/checks)."
 
 func screenshotsSectionOf(text string) string {
 	return "<!-- screenshots -->\n### UI screenshots\n\n" + text + "\n<!-- /screenshots -->"
@@ -28,16 +26,6 @@ func reviewedHeadWithCI(t *testing.T) (*testkit.FakeGitHub, *testserver.Server, 
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "checks" && reviewedHead(t, server) != "" })
 	return fake, server, head(t, fake, "mobius/41")
-}
-
-// passCIWithSection sets the screenshots section and waits for the polls that read it, and then passes the CI. A poll
-// reads the pull request before its check runs, so a CI that passes before the poll read the section can approve the
-// head with no section.
-func passCIWithSection(t *testing.T, fake *testkit.FakeGitHub, sha, text string) {
-	t.Helper()
-	fake.SetBody(shop, 42, screenshotsSectionOf(text))
-	waitForPolls(t, fake)
-	passCI(fake, sha)
 }
 
 func readyForApprovalEvents(t *testing.T, server *testserver.Server) []leadEvent {
@@ -68,10 +56,21 @@ func checkNoApproval(t *testing.T, fake *testkit.FakeGitHub, server *testserver.
 	}
 }
 
-func TestAHeadWithPendingScreenshotsStaysInChecksUntilTheSectionSaysNoScreenChanged(t *testing.T) {
+// screenshotsCheckRunURL gives the link of the check run Screenshots of the commit sha.
+func screenshotsCheckRunURL(t *testing.T, fake *testkit.FakeGitHub, sha string) string {
+	t.Helper()
+	index := slices.IndexFunc(fake.CheckRuns(shop), func(run testkit.CheckRun) bool { return run.Name == "Screenshots" && run.HeadSHA == sha })
+	if index < 0 {
+		t.Fatalf("no check run Screenshots on %s", sha)
+	}
+	return fmt.Sprintf("https://github.com/%s/runs/%d", shop, index+1)
+}
+
+func TestAReviewedHeadWithARunningScreenshotsCheckRunStaysInChecks(t *testing.T) {
 	t.Parallel()
 	fake, server, sha := reviewedHeadWithCI(t)
-	passCIWithSection(t, fake, sha, pendingScreenshots)
+	fake.AddCheckRun(shop, checkRun("Screenshots", sha, "in_progress", ""))
+	passCI(fake, sha)
 
 	waitForPolls(t, fake)
 
@@ -82,8 +81,16 @@ func TestAHeadWithPendingScreenshotsStaysInChecksUntilTheSectionSaysNoScreenChan
 	if ready := readyForApprovalEvents(t, server); len(ready) != 0 {
 		t.Errorf("ready_for_approval events: %+v", ready)
 	}
+}
 
-	fake.SetBody(shop, 42, screenshotsSectionOf("No screen changed."))
+func TestAReviewedHeadWhoseScreenshotsCheckRunCompletesWithSuccessGetsTheApprovalOfMobius(t *testing.T) {
+	t.Parallel()
+	fake, server, sha := reviewedHeadWithCI(t)
+	fake.AddCheckRun(shop, checkRun("Screenshots", sha, "in_progress", ""))
+	passCI(fake, sha)
+	waitForPolls(t, fake)
+
+	fake.CompleteCheckRun(shop, sha, "Screenshots", "success", "No screen changed.")
 
 	event := autoApprovedEvent(t, server)
 	if !strings.Contains(event.Payload, "The Reviewer found no open finding on this head.") {
@@ -94,19 +101,25 @@ func TestAHeadWithPendingScreenshotsStaysInChecksUntilTheSectionSaysNoScreenChan
 	}
 }
 
-func checkChangedScreenshots(t *testing.T, text string) {
-	t.Helper()
+func TestAReviewedHeadWhoseScreenshotsCheckRunCompletesWithNeutralGivesTheLeadReadyForApprovalAndNoApproval(t *testing.T) {
+	t.Parallel()
 	fake, server, sha := reviewedHeadWithCI(t)
-	passCIWithSection(t, fake, sha, text)
+	fake.AddCheckRun(shop, checkRun("Screenshots", sha, "in_progress", ""))
+	passCI(fake, sha)
+	waitForPolls(t, fake)
+
+	fake.CompleteCheckRun(shop, sha, "Screenshots", "neutral", "Screens changed")
 
 	testkit.WaitFor(t, func() bool { return len(readyForApprovalEvents(t, server)) > 0 })
 	waitForPolls(t, fake)
 
-	if ready := readyForApprovalEvents(t, server); len(ready) != 1 {
+	ready := readyForApprovalEvents(t, server)
+	if len(ready) != 1 {
 		t.Fatalf("ready_for_approval events: %+v", ready)
 	}
-	if payload := readyForApprovalEvents(t, server)[0].Payload; !strings.Contains(payload, "\n"+changedSentence) {
-		t.Errorf("event = %q, want the sentence %q", payload, changedSentence)
+	want := "\nScreenshots: Screens changed " + screenshotsCheckRunURL(t, fake, sha) + "\nA person must look at these checks before the approval."
+	if !strings.Contains(ready[0].Payload, want) {
+		t.Errorf("event = %q, want %q", ready[0].Payload, want)
 	}
 	if state := taskState(t, server); state != "approval" {
 		t.Errorf("state = %s, want approval", state)
@@ -119,20 +132,26 @@ func checkChangedScreenshots(t *testing.T, text string) {
 	}
 }
 
-func TestAHeadWithChangedScreensGivesTheLeadReadyForApprovalAndNoApproval(t *testing.T) {
-	t.Parallel()
-	checkChangedScreenshots(t, "| Screen | State | main | This pull request |\n|---|---|---|---|\n| chat | desktop | ![](a.png) | ![](b.png) |")
-}
-
-func TestAHeadWithFailedScreenshotsGivesTheLeadReadyForApprovalAndNoApproval(t *testing.T) {
-	t.Parallel()
-	checkChangedScreenshots(t, "The screenshots failed. See the [run](https://github.com/owner/shop/actions/runs/1).")
-}
-
-func TestAHeadWithPendingScreenshotsForMoreThanTwoHoursGivesTheLeadALongCIEventForTheScreenshots(t *testing.T) {
+func TestAScreenshotsSectionInTheBodyHasNoEffectWhenTheHeadHasNoScreenshotsCheckRun(t *testing.T) {
 	t.Parallel()
 	fake, server, sha := reviewedHeadWithCI(t)
-	passCIWithSection(t, fake, sha, pendingScreenshots)
+	fake.SetBody(shop, 42, screenshotsSectionOf(pendingScreenshots))
+	waitForPolls(t, fake)
+
+	passCI(fake, sha)
+
+	autoApprovedEvent(t, server)
+	if got := approvedReport(t, server); got != autoApprovedReport(sha) {
+		t.Errorf("approved_report = %q", got)
+	}
+}
+
+func TestAHeadWithARunningScreenshotsCheckRunForMoreThanTwoHoursGivesTheLeadALongCIEventForTheScreenshots(t *testing.T) {
+	t.Parallel()
+	fake, server, sha := reviewedHeadWithCI(t)
+	fake.AddCheckRun(shop, checkRun("Screenshots", sha, "in_progress", ""))
+	passCI(fake, sha)
+	waitForPolls(t, fake)
 	start := time.Now()
 
 	server.Engine.SetClock(func() time.Time { return start.Add(time.Hour + 59*time.Minute) })
@@ -152,7 +171,7 @@ func TestAHeadWithPendingScreenshotsForMoreThanTwoHoursGivesTheLeadALongCIEventF
 		}
 		return events[index], true
 	})
-	if want := "head " + sha + ". These runs did not complete: screenshots."; !strings.Contains(event.Payload, want) {
+	if want := "head " + sha + ". These runs did not complete: Screenshots."; !strings.Contains(event.Payload, want) {
 		t.Errorf("event = %q, want %q", event.Payload, want)
 	}
 	if state := taskState(t, server); state != "checks" {
@@ -161,16 +180,25 @@ func TestAHeadWithPendingScreenshotsForMoreThanTwoHoursGivesTheLeadALongCIEventF
 	checkNoApproval(t, fake, server)
 }
 
-func TestATaskInChecksReadsThePullRequestAgainAtEachPollAndLeavesChecksWhenTheBodyChangesWithNoIssueListChange(t *testing.T) {
+func TestATaskInChecksReadsThePullRequestAgainAtEachPollWhileItsScreenshotsCheckRunRuns(t *testing.T) {
 	t.Parallel()
 	fake, server, sha := reviewedHeadWithCI(t)
-	passCIWithSection(t, fake, sha, pendingScreenshots)
+	fake.AddCheckRun(shop, checkRun("Screenshots", sha, "in_progress", ""))
+	passCI(fake, sha)
 	waitForPolls(t, fake)
 	if state := taskState(t, server); state != "checks" {
 		t.Fatalf("state = %s, want checks", state)
 	}
+	pull := int64(42)
+	reads := fake.SinglePullRequestReads(shop, pull)
 
-	fake.SetPullRequestBody(shop, 42, screenshotsSectionOf("No screen changed."))
+	waitForPolls(t, fake)
+
+	if got := fake.SinglePullRequestReads(shop, pull); got <= reads {
+		t.Errorf("pull request reads = %d, want more than %d", got, reads)
+	}
+
+	fake.CompleteCheckRun(shop, sha, "Screenshots", "success", "No screen changed.")
 
 	autoApprovedEvent(t, server)
 	if got := approvedReport(t, server); got != autoApprovedReport(sha) {
@@ -197,13 +225,11 @@ func TestATaskInApprovalReadsThePullRequestOneTimeAndLaterPollsReadNoNewCopy(t *
 	}
 }
 
-func TestTheHeadOfTheMergeQueueLeavesChecksAfterAMergeOfTheDefaultBranchWhenTheBodyChangesWithNoIssueListChange(t *testing.T) {
+func TestTheHeadOfTheMergeQueueLeavesChecksAfterAMergeOfTheDefaultBranchWhenItsScreenshotsCheckRunCompletesWithNoIssueListChange(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := queueTasks(t, fake, "merge", []int{41})
-	pull := liveTask(t, server, 41).PullRequest.Int64
-	fake.SetBody(shop, pull, screenshotsSectionOf(pendingScreenshots))
-	waitForPolls(t, fake)
+	fake.AddCheckRunAfterBranchUpdate(shop, checkRun("Screenshots", "", "in_progress", ""))
 	old := head(t, fake, "mobius/41")
 	fake.CommitFile(shop, "price.txt", "cents\n", "Add price")
 	update := mergeMainAtMerge(fake)
@@ -212,15 +238,22 @@ func TestTheHeadOfTheMergeQueueLeavesChecksAfterAMergeOfTheDefaultBranchWhenTheB
 	update()
 
 	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, 41) == "checks" })
-	if head(t, fake, "mobius/41") == old {
+	updated := head(t, fake, "mobius/41")
+	if updated == old {
 		t.Fatal("the head did not change")
 	}
+	pull := liveTask(t, server, 41).PullRequest.Int64
+	waitForPolls(t, fake)
+	reads := fake.SinglePullRequestReads(shop, pull)
 	waitForPolls(t, fake)
 	if state := liveTaskState(t, server, 41); state != "checks" {
 		t.Fatalf("state = %s, want checks", state)
 	}
+	if got := fake.SinglePullRequestReads(shop, pull); got <= reads {
+		t.Errorf("pull request reads = %d, want more than %d", got, reads)
+	}
 
-	fake.SetPullRequestBody(shop, pull, screenshotsSectionOf("No screen changed."))
+	fake.CompleteCheckRun(shop, updated, "Screenshots", "success", "No screen changed.")
 
 	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, 41) == "" })
 	if calls := fake.MergeCalls(); calls != 2 {
