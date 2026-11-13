@@ -1,3 +1,5 @@
+import { Predicate, Schema, SchemaGetter } from "effect";
+import { lenient, type SearchRecord } from "./search";
 import type { QualityValues, TimeStat, UsageValues } from "@/usage/schemas";
 
 export const periods = [
@@ -98,58 +100,51 @@ export const palette = [
 
 const parseDay = (value: string) => new Date(`${value}T00:00:00`);
 
-function day(value: unknown) {
-  return typeof value === "string" &&
-    /^\d{4}-\d{2}-\d{2}$/.test(value) &&
-    !Number.isNaN(parseDay(value).getTime())
-    ? value
-    : undefined;
-}
+const Day = Schema.String.check(
+  Schema.isPattern(/^\d{4}-\d{2}-\d{2}$/),
+  Schema.makeFilter((value) => !Number.isNaN(parseDay(value).getTime())),
+);
 
-function strings(value: unknown) {
-  const list = Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === "string")
-    : [];
-  return list.length > 0 ? list : undefined;
-}
+const GroupKey = Schema.Literals([...groupOptions, ...skillGroups].map((item) => item.key));
 
-function groupFields(value: unknown) {
-  const fields = (strings(value) ?? []).filter((key): key is Group =>
-    [...groupOptions, ...skillGroups].some((item) => item.key === key),
-  );
-  const unique = [...new Set(fields)];
-  return unique.length > 0 ? unique : undefined;
-}
+const Strings = Schema.Array(Schema.Json).pipe(
+  Schema.decodeTo(Schema.Array(Schema.String).check(Schema.isMinLength(1)), {
+    decode: SchemaGetter.transform((items) => items.filter(Predicate.isString)),
+    encode: SchemaGetter.transform((items) => items),
+  }),
+);
 
-export function validateUsageSearch(search: Record<string, unknown>): UsageSearch {
-  const from = day(search.from);
-  const to = day(search.to);
-  const period = periods.find((item) => item.value === search.period)?.value;
-  return {
-    tab:
-      search.tab === "tokens" ||
-      search.tab === "times" ||
-      search.tab === "skills" ||
-      search.tab === "quality"
-        ? search.tab
-        : undefined,
-    period: period === "custom" && !(from && to) ? undefined : period,
-    from,
-    to,
-    group: groupFields(search.group),
-    stat:
-      typeof search.stat === "string" && /^(step|state):.+/.test(search.stat)
-        ? search.stat
-        : undefined,
-    value: qualityValues.find((item) => item.key === search.value)?.key,
-    harness: strings(search.harness),
-    model: strings(search.model),
-    modelVersion: strings(search.modelVersion),
-    effort: strings(search.effort),
-    role: strings(search.role),
-    repository: strings(search.repository),
-    source: strings(search.source),
-  };
+const GroupKeys = Strings.pipe(
+  Schema.decodeTo(Schema.Array(GroupKey).check(Schema.isMinLength(1)), {
+    decode: SchemaGetter.transform((items) => [...new Set(items.filter(Schema.is(GroupKey)))]),
+    encode: SchemaGetter.transform((items) => items),
+  }),
+);
+
+const UsageSearchFields = Schema.Struct({
+  tab: lenient(Schema.Literals(["tokens", "times", "skills", "quality"])),
+  period: lenient(Schema.Literals(periods.map((item) => item.value))),
+  from: lenient(Day),
+  to: lenient(Day),
+  group: lenient(GroupKeys),
+  stat: lenient(Schema.String.check(Schema.isPattern(/^(step|state):.+/))),
+  value: lenient(Schema.Literals(qualityValues.map((item) => item.key))),
+  harness: lenient(Strings),
+  model: lenient(Strings),
+  modelVersion: lenient(Strings),
+  effort: lenient(Strings),
+  role: lenient(Strings),
+  repository: lenient(Strings),
+  source: lenient(Strings),
+});
+
+const decodeUsageSearch = Schema.decodeUnknownSync(UsageSearchFields);
+
+export function validateUsageSearch(search: SearchRecord): UsageSearch {
+  const decoded = decodeUsageSearch(search);
+  return decoded.period === "custom" && !(decoded.from && decoded.to)
+    ? { ...decoded, period: undefined }
+    : decoded;
 }
 
 export function formatDay(date: Date) {
