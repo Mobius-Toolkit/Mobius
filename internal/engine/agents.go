@@ -443,7 +443,7 @@ func (a *Agent) mcpCaller() mcp.Caller {
 	})}
 	mcpCaller.GHToken = func(ctx context.Context) (string, error) {
 		if spec.Role == CoordinatorRole {
-			repository, err := e.workstreamRepository(spec.Organization)
+			repository, err := e.workstreamRepository(ctx, spec.Organization)
 			if err != nil {
 				return "", err
 			}
@@ -1124,6 +1124,27 @@ func (e *Engine) Tree(ctx context.Context, repository string, workstream int64) 
 		nodes = append(nodes, e.node(session))
 	}
 	return nodes, nil
+}
+
+// SessionIssueTitle gives the title of the issue of session, or nil when the session has no issue or the store has no
+// copy of the issue.
+func (e *Engine) SessionIssueTitle(ctx context.Context, session store.Session) (*string, error) {
+	if !session.Issue.Valid {
+		return nil, nil
+	}
+	title, err := e.queries.GetSessionIssueTitle(ctx, store.GetSessionIssueTitleParams{
+		WorkstreamRepository: session.WorkstreamRepository,
+		Workstream:           session.Workstream,
+		Issue:                session.Issue.Int64,
+		Repository:           session.Repository,
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &title, nil
 }
 
 // ActiveAgent is an open session with what the store holds about its Workstream, its issue and its task.

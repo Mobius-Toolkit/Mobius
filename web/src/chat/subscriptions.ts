@@ -191,7 +191,8 @@ const chatSubscriptions = Subscription.make<Model, Message>()((entry) => ({
           model.stoppable &&
           !model.composer.draftText.trim() &&
           model.composer.draftImages.length === 0 &&
-          model.composer.draftInboxItems.length === 0,
+          model.composer.draftInboxItems.length === 0 &&
+          model.composer.draftSelections.length === 0,
       }),
       // A tap on Send can land on the Stop button that replaces it. Thus Stop takes no tap in its first moments.
       dependenciesToStream: ({ showStop }) =>

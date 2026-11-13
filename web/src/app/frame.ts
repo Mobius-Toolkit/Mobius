@@ -28,7 +28,7 @@ import {
   settingsIcon,
 } from "@/ui/icons";
 import { pageTitle } from "@/settings/memory/model";
-import { renderAutopilotSheet } from "./autopilot";
+import { renderAutopilotSheet, shownAutopilot } from "./autopilot";
 import { renderCIStops } from "./ciStops";
 import { Message } from "./message";
 import type { Model } from "./model";
@@ -165,12 +165,8 @@ function renderPhoneTopBar(
       };
     },
     Usage: () => ({ title: "Usage" }),
-    WorkstreamChat: ({ number }) => {
-      const serverLevel = activeWorkstream?.autopilot ?? "off";
-      const level =
-        Option.isSome(model.chosenAutopilot) && model.chosenAutopilot.value.from === serverLevel
-          ? model.chosenAutopilot.value.to
-          : serverLevel;
+    WorkstreamChat: ({ owner, name, number }) => {
+      const level = shownAutopilot(model, `${owner}/${name}`, number);
 
       extra.push(
         h.span([h.Class("shrink-0 text-sm text-muted-foreground")], ["#", String(number)]),

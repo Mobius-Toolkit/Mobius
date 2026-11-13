@@ -316,7 +316,7 @@ func (e *Engine) runTriager(ctx context.Context, repository github.Repository, n
 		}
 	}
 	var workstreams string
-	if found, err := e.workstreamRepository(repository.Owner()); err != nil {
+	if found, err := e.workstreamRepository(ctx, repository.Owner()); err != nil {
 		workstreams = fmt.Sprintf("# Open Workstreams\n\nThe tools that use a Workstream refuse: %s\n", err)
 	} else if workstreams, err = e.openWorkstreams(ctx, []github.Repository{found}); err != nil {
 		return fail(err)

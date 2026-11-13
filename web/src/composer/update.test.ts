@@ -6,6 +6,7 @@ import {
   ResendVoice,
   SaveDraftImages,
   SaveDraftInboxItems,
+  SaveDraftSelections,
   SaveDraftText,
   StopVoice,
   ToggleVoice,
@@ -27,8 +28,21 @@ const createDraft = (text = "", overrides: Partial<Draft> = {}): Draft => ({
   text,
   images: [],
   inboxItems: [],
+  selections: [],
   voice: null,
   ...overrides,
+});
+
+const createSelection = (id: string) => ({
+  id,
+  source: "message" as const,
+  text: "Part",
+  context: "A part of the message.",
+  reference: "",
+  link: "",
+  part: "",
+  messageId: 5,
+  messageAuthor: "Lead",
 });
 
 function createTestModel(overrides: Partial<Model> = {}): Model {
@@ -56,6 +70,7 @@ function createQueuedItem(id: string, text: string): Queued {
     text,
     images: [],
     inboxItems: [],
+    selections: [],
     voice: false,
     time: "2026-11-04T08:00:00Z",
   };
@@ -120,6 +135,7 @@ describe("composer update story tests", () => {
           text: "Show the prices.",
           images: [],
           inboxItems: [],
+          selections: [],
           voice: true,
         }),
       ),
@@ -129,6 +145,23 @@ describe("composer update story tests", () => {
       ),
       StoryCommand.expectNone(),
     );
+  });
+
+  it("removes a selection of the draft and sends a draft that has only selections", () => {
+    const key = "chatDraft:test-org/test-repo/1428";
+    const base = createTestModel({
+      draftSelections: [createSelection("a"), createSelection("b")],
+    });
+
+    const removed = update(base, Message.DraftSelectionRemoved({ id: "a" }));
+    expect(removed.model.draftSelections).toEqual([createSelection("b")]);
+    expect(described(removed.commands)).toEqual(
+      described([SaveDraftSelections({ key, selections: [createSelection("b")] })]),
+    );
+
+    const sent = update(base, Message.SendSubmitted());
+    expect(sent.model.draftSelections).toEqual([]);
+    expect(sent.commands?.map((command) => command.name)).toEqual(["EnqueueMessage"]);
   });
 
   it("sends a second tap on Send in the chat one time, because the first tap clears the draft", () => {

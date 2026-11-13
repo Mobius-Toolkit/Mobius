@@ -69,6 +69,11 @@ export interface Agent {
      */
   issue: number | null;
   /**
+     * IssueTitle is the title of the issue of the session, or null when the session has no issue or the store has no copy of the issue
+     * @nullable
+     */
+  issueTitle: string | null;
+  /**
      * KeptUntil is the time when Mobius closes the kept Harness process of this ended session, or null when Mobius keeps no process of this session
      * @nullable
      */
@@ -168,6 +173,22 @@ export interface AnsweredComment {
 export interface ApproveActionBody {
   /** Message is the message of the Owner for the agent. It can be empty */
   message?: string;
+}
+
+/**
+ * BindingBody is the body of AddImplementerBinding and SetImplementerBinding.
+ */
+export interface BindingBodyBody {
+  /** Context is the largest context of a session in tokens, or 0 for no limit */
+  context?: number;
+  /** Effort is the effort level of the binding. It is empty for a Harness with no effort levels. */
+  effort?: string;
+  /** Harness is the agent program of the binding */
+  harness?: string;
+  /** Max is the number of sessions of the binding that run at the same time */
+  max?: number;
+  /** Model is the model of the binding */
+  model?: string;
 }
 
 /**
@@ -631,6 +652,19 @@ export interface ChatState {
 }
 
 /**
+ * IssueRepositorySource tells where the issue repository comes from: config for organizations.<organization>.issue_repository of config.toml, choice for the choice of the Owner, default for the one repository of the organization that the App sees or that holds all its open Workstreams, and none when IssueRepositoryError is not empty
+ */
+export type CheckupIssueRepositorySource = typeof CheckupIssueRepositorySource[keyof typeof CheckupIssueRepositorySource];
+
+
+export const CheckupIssueRepositorySource = {
+  config: 'config',
+  choice: 'choice',
+  default: 'default',
+  none: 'none',
+} as const;
+
+/**
  * LabelFix is create when all Mobius labels are missing, fix when another label is missing or has a different color, and none when the fix has nothing to change
  */
 export type CheckupLabelFix = typeof CheckupLabelFix[keyof typeof CheckupLabelFix];
@@ -713,6 +747,8 @@ export interface Checkup {
   issueRepository: string;
   /** IssueRepositoryError tells why Mobius cannot find the issue repository, or is empty */
   issueRepositoryError: string;
+  /** IssueRepositorySource tells where the issue repository comes from: config for organizations.<organization>.issue_repository of config.toml, choice for the choice of the Owner, default for the one repository of the organization that the App sees or that holds all its open Workstreams, and none when IssueRepositoryError is not empty */
+  issueRepositorySource: CheckupIssueRepositorySource;
   /** LabelFix is create when all Mobius labels are missing, fix when another label is missing or has a different color, and none when the fix has nothing to change */
   labelFix: CheckupLabelFix;
   /** MaintenanceWorkstream is the number of the open Workstream with mobius:maintenance and the lowest number in the issue repository, or 0 when it has none or IssueRepositoryError is not empty */
@@ -1124,6 +1160,24 @@ export interface EnvelopeArrayPause {
 }
 
 /**
+ * MoreBinding is an Implementer binding after the first binding.
+ */
+export interface MoreBinding {
+  /** Context is the largest context of a session in tokens, or 0 for no limit */
+  context: number;
+  /** Effort is the effort level of the binding, or empty for a Harness with no effort levels */
+  effort: string;
+  /** Harness is the agent program of the binding */
+  harness: string;
+  /** ID is the id of the binding */
+  id: number;
+  /** Max is the number of sessions of the binding that run at the same time */
+  max: number;
+  /** Model is the model of the binding */
+  model: string;
+}
+
+/**
  * RoleFields tells for each field of a Role if the UI gives it. false means config.toml.
  */
 export interface RoleFields {
@@ -1153,6 +1207,8 @@ export interface Role {
   max: number;
   /** Model is the model of the Role */
   model: string;
+  /** MoreBindings are the Implementer bindings after the first binding, in the order of the list. It is empty for each other Role. */
+  moreBindings: MoreBinding[];
   /** Role is the name of the Role */
   role: string;
   /** UI tells which values come from the UI */
@@ -1390,6 +1446,24 @@ export interface EnvelopeHealth {
 export interface EnvelopeInboxItem {
   /** Data is the payload of the response */
   data: InboxItem;
+}
+
+/**
+ * IssueRepositoryChoice is the choice of the issue repository of an organization.
+ */
+export interface IssueRepositoryChoice {
+  /** Organization is the owner of the repositories */
+  organization: string;
+  /** Repository is the issue repository as "owner/name" */
+  repository: string;
+}
+
+/**
+ * Envelope is the body of each success response.
+ */
+export interface EnvelopeIssueRepositoryChoice {
+  /** Data is the payload of the response */
+  data: IssueRepositoryChoice;
 }
 
 /**
@@ -2496,6 +2570,13 @@ export interface SetAutopilotBody {
 export interface SetEvergreenBody {
   /** On adds mobius:evergreen when true, and removes it when false */
   on?: boolean;
+}
+
+export interface SetIssueRepositoryBody {
+  /** Organization is the owner of the repositories */
+  organization: string;
+  /** Repository is the issue repository as "owner/name" */
+  repository: string;
 }
 
 export interface SetRecurringTaskPausedBody {
@@ -3733,6 +3814,76 @@ export const fixLabels = async (fixLabelsBody: FixLabelsBody, ): Promise<fixLabe
 
   const data: fixLabelsResponse['data'] = body ? JSON.parse(body) : undefined
   return { data, status: res.status, headers: res.headers } as fixLabelsResponse
+}
+
+
+
+export type setIssueRepositoryResponse200 = {
+  data: EnvelopeIssueRepositoryChoice
+  status: 200
+}
+
+export type setIssueRepositoryResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type setIssueRepositoryResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type setIssueRepositoryResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
+export type setIssueRepositoryResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type setIssueRepositoryResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type setIssueRepositoryResponseSuccess = (setIssueRepositoryResponse200) & {
+  headers: Headers;
+};
+export type setIssueRepositoryResponseError = (setIssueRepositoryResponse400 | setIssueRepositoryResponse401 | setIssueRepositoryResponse409 | setIssueRepositoryResponse422 | setIssueRepositoryResponse500) & {
+  headers: Headers;
+};
+
+export type setIssueRepositoryResponse = (setIssueRepositoryResponseSuccess | setIssueRepositoryResponseError)
+
+export const getSetIssueRepositoryUrl = () => {
+
+
+
+
+  return `/api/checkup/issue-repository`
+}
+
+/**
+ * SetIssueRepository stores the choice of the issue repository of the organization. A new choice replaces the earlier choice. It returns 409 when config.toml sets the issue repository of the organization, and 422 when the repository is not a repository of the organization that the App sees.
+ */
+export const setIssueRepository = async (setIssueRepositoryBody: SetIssueRepositoryBody, ): Promise<setIssueRepositoryResponse> => {
+
+  const res = await fetch(getSetIssueRepositoryUrl(),
+  {
+
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(setIssueRepositoryBody)
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: setIssueRepositoryResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as setIssueRepositoryResponse
 }
 
 
@@ -6938,6 +7089,212 @@ export const listRoles = async ( ): Promise<listRolesResponse> => {
 
   const data: listRolesResponse['data'] = body ? JSON.parse(body) : {}
   return { data, status: res.status, headers: res.headers } as listRolesResponse
+}
+
+
+
+export type addImplementerBindingResponse200 = {
+  data: EnvelopeRole
+  status: 200
+}
+
+export type addImplementerBindingResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type addImplementerBindingResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type addImplementerBindingResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type addImplementerBindingResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type addImplementerBindingResponseSuccess = (addImplementerBindingResponse200) & {
+  headers: Headers;
+};
+export type addImplementerBindingResponseError = (addImplementerBindingResponse400 | addImplementerBindingResponse401 | addImplementerBindingResponse422 | addImplementerBindingResponse500) & {
+  headers: Headers;
+};
+
+export type addImplementerBindingResponse = (addImplementerBindingResponseSuccess | addImplementerBindingResponseError)
+
+export const getAddImplementerBindingUrl = () => {
+
+
+
+
+  return `/api/roles/implementer/bindings`
+}
+
+/**
+ * AddImplementerBinding adds an Implementer binding at the end of the list. It returns 422 with the reason when the values fail a check.
+ */
+export const addImplementerBinding = async (bindingBodyBody: BindingBodyBody, ): Promise<addImplementerBindingResponse> => {
+
+  const res = await fetch(getAddImplementerBindingUrl(),
+  {
+
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(bindingBodyBody)
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: addImplementerBindingResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as addImplementerBindingResponse
+}
+
+
+
+export type setImplementerBindingResponse200 = {
+  data: EnvelopeRole
+  status: 200
+}
+
+export type setImplementerBindingResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type setImplementerBindingResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type setImplementerBindingResponse404 = {
+  data: ErrorResponse
+  status: 404
+}
+
+export type setImplementerBindingResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type setImplementerBindingResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type setImplementerBindingResponseSuccess = (setImplementerBindingResponse200) & {
+  headers: Headers;
+};
+export type setImplementerBindingResponseError = (setImplementerBindingResponse400 | setImplementerBindingResponse401 | setImplementerBindingResponse404 | setImplementerBindingResponse422 | setImplementerBindingResponse500) & {
+  headers: Headers;
+};
+
+export type setImplementerBindingResponse = (setImplementerBindingResponseSuccess | setImplementerBindingResponseError)
+
+export const getSetImplementerBindingUrl = (id: number,) => {
+
+
+
+
+  return `/api/roles/implementer/bindings/${id}`
+}
+
+/**
+ * SetImplementerBinding changes an Implementer binding after the first binding. It returns 404 for an unknown id and 422 with the reason when the values fail a check.
+ */
+export const setImplementerBinding = async (id: number,
+    bindingBodyBody: BindingBodyBody, ): Promise<setImplementerBindingResponse> => {
+
+  const res = await fetch(getSetImplementerBindingUrl(id),
+  {
+
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(bindingBodyBody)
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: setImplementerBindingResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as setImplementerBindingResponse
+}
+
+
+
+export type removeImplementerBindingResponse200 = {
+  data: EnvelopeRole
+  status: 200
+}
+
+export type removeImplementerBindingResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type removeImplementerBindingResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type removeImplementerBindingResponse404 = {
+  data: ErrorResponse
+  status: 404
+}
+
+export type removeImplementerBindingResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type removeImplementerBindingResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type removeImplementerBindingResponseSuccess = (removeImplementerBindingResponse200) & {
+  headers: Headers;
+};
+export type removeImplementerBindingResponseError = (removeImplementerBindingResponse400 | removeImplementerBindingResponse401 | removeImplementerBindingResponse404 | removeImplementerBindingResponse422 | removeImplementerBindingResponse500) & {
+  headers: Headers;
+};
+
+export type removeImplementerBindingResponse = (removeImplementerBindingResponseSuccess | removeImplementerBindingResponseError)
+
+export const getRemoveImplementerBindingUrl = (id: number,) => {
+
+
+
+
+  return `/api/roles/implementer/bindings/${id}`
+}
+
+/**
+ * RemoveImplementerBinding removes an Implementer binding. The id 0 is the first binding, which the second binding replaces. It returns 404 for an unknown id and 422 with the reason when the removal fails a check.
+ */
+export const removeImplementerBinding = async (id: number, ): Promise<removeImplementerBindingResponse> => {
+
+  const res = await fetch(getRemoveImplementerBindingUrl(id),
+  {
+
+    method: 'DELETE'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: removeImplementerBindingResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as removeImplementerBindingResponse
 }
 
 

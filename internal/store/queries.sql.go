@@ -554,6 +554,33 @@ func (q *Queries) AddHeldWork(ctx context.Context, arg AddHeldWorkParams) (int64
 	return result.RowsAffected()
 }
 
+const addImplementerBinding = `-- name: AddImplementerBinding :one
+INSERT INTO implementer_bindings (harness, model, effort, context, max, updated_at) VALUES (?, ?, ?, ?, ?, ?) RETURNING id
+`
+
+type AddImplementerBindingParams struct {
+	Harness   string
+	Model     string
+	Effort    string
+	Context   int64
+	Max       int64
+	UpdatedAt string
+}
+
+func (q *Queries) AddImplementerBinding(ctx context.Context, arg AddImplementerBindingParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, addImplementerBinding,
+		arg.Harness,
+		arg.Model,
+		arg.Effort,
+		arg.Context,
+		arg.Max,
+		arg.UpdatedAt,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const addInboxItem = `-- name: AddInboxItem :one
 INSERT INTO inbox_items (kind, organization, repository, workstream_repository, workstream, issue, title, reason, text, link, pull_request, report_link, chat_message, merging, questions, time)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -963,6 +990,21 @@ func (q *Queries) AddRecurringTaskRun(ctx context.Context, arg AddRecurringTaskR
 		arg.Result,
 		arg.Reason,
 	)
+	return err
+}
+
+const addReleaseChangelog = `-- name: AddReleaseChangelog :exec
+INSERT INTO release_changelogs (organization, tag, sent_at) VALUES (?, ?, ?)
+`
+
+type AddReleaseChangelogParams struct {
+	Organization string
+	Tag          string
+	SentAt       string
+}
+
+func (q *Queries) AddReleaseChangelog(ctx context.Context, arg AddReleaseChangelogParams) error {
+	_, err := q.db.ExecContext(ctx, addReleaseChangelog, arg.Organization, arg.Tag, arg.SentAt)
 	return err
 }
 
@@ -1934,6 +1976,15 @@ DELETE FROM held_work WHERE kind = ?
 
 func (q *Queries) DeleteHeldWork(ctx context.Context, kind string) error {
 	_, err := q.db.ExecContext(ctx, deleteHeldWork, kind)
+	return err
+}
+
+const deleteImplementerBinding = `-- name: DeleteImplementerBinding :exec
+DELETE FROM implementer_bindings WHERE id = ?
+`
+
+func (q *Queries) DeleteImplementerBinding(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, deleteImplementerBinding, id)
 	return err
 }
 
@@ -3049,6 +3100,17 @@ func (q *Queries) GetIssueBinding(ctx context.Context, arg GetIssueBindingParams
 	return i, err
 }
 
+const getIssueRepositoryChoice = `-- name: GetIssueRepositoryChoice :one
+SELECT repository FROM issue_repositories WHERE organization = ?
+`
+
+func (q *Queries) GetIssueRepositoryChoice(ctx context.Context, organization string) (string, error) {
+	row := q.db.QueryRowContext(ctx, getIssueRepositoryChoice, organization)
+	var repository string
+	err := row.Scan(&repository)
+	return repository, err
+}
+
 const getLastChatMessageOf = `-- name: GetLastChatMessageOf :one
 SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections FROM chat_messages
 WHERE organization = ? AND repository = ? AND workstream = ? AND author = ?
@@ -3138,6 +3200,17 @@ func (q *Queries) GetLastLeadEventTime(ctx context.Context, arg GetLastLeadEvent
 	var time string
 	err := row.Scan(&time)
 	return time, err
+}
+
+const getLastRelease = `-- name: GetLastRelease :one
+SELECT tag FROM last_release WHERE id = 1
+`
+
+func (q *Queries) GetLastRelease(ctx context.Context) (string, error) {
+	row := q.db.QueryRowContext(ctx, getLastRelease)
+	var tag string
+	err := row.Scan(&tag)
+	return tag, err
 }
 
 const getLastTaskState = `-- name: GetLastTaskState :one
@@ -4017,6 +4090,31 @@ func (q *Queries) GetSession(ctx context.Context, id int64) (Session, error) {
 		&i.ContextSize,
 	)
 	return i, err
+}
+
+const getSessionIssueTitle = `-- name: GetSessionIssueTitle :one
+SELECT i.title FROM copied_issues i
+WHERE i.repository = ?1 AND i.workstream = ?2 AND i.number = ?3
+  AND substr(lower(i.repository_url), -(length(CAST(?4 AS TEXT)) + 7)) = '/repos/' || lower(CAST(?4 AS TEXT))
+`
+
+type GetSessionIssueTitleParams struct {
+	WorkstreamRepository string
+	Workstream           int64
+	Issue                int64
+	Repository           string
+}
+
+func (q *Queries) GetSessionIssueTitle(ctx context.Context, arg GetSessionIssueTitleParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, getSessionIssueTitle,
+		arg.WorkstreamRepository,
+		arg.Workstream,
+		arg.Issue,
+		arg.Repository,
+	)
+	var title string
+	err := row.Scan(&title)
+	return title, err
 }
 
 const getSkillsWorkstream = `-- name: GetSkillsWorkstream :one
@@ -6796,6 +6894,41 @@ func (q *Queries) ListHungSessionsSince(ctx context.Context, arg ListHungSession
 			&i.Role,
 			&i.Issue,
 			&i.EndedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listImplementerBindings = `-- name: ListImplementerBindings :many
+SELECT id, harness, model, effort, context, max, updated_at FROM implementer_bindings ORDER BY id
+`
+
+func (q *Queries) ListImplementerBindings(ctx context.Context) ([]ImplementerBinding, error) {
+	rows, err := q.db.QueryContext(ctx, listImplementerBindings)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ImplementerBinding
+	for rows.Next() {
+		var i ImplementerBinding
+		if err := rows.Scan(
+			&i.ID,
+			&i.Harness,
+			&i.Model,
+			&i.Effort,
+			&i.Context,
+			&i.Max,
+			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -9733,6 +9866,22 @@ func (q *Queries) RejectPendingAction(ctx context.Context, arg RejectPendingActi
 	return i, err
 }
 
+const releaseChangelogSent = `-- name: ReleaseChangelogSent :one
+SELECT EXISTS (SELECT 1 FROM release_changelogs WHERE organization = ? AND tag = ?)
+`
+
+type ReleaseChangelogSentParams struct {
+	Organization string
+	Tag          string
+}
+
+func (q *Queries) ReleaseChangelogSent(ctx context.Context, arg ReleaseChangelogSentParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, releaseChangelogSent, arg.Organization, arg.Tag)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const reopenDeploymentTodo = `-- name: ReopenDeploymentTodo :exec
 UPDATE deployment_todos SET mandatory = ?, dismissed_at = NULL, inbox_item = ? WHERE id = ?
 `
@@ -10246,6 +10395,20 @@ func (q *Queries) SetInitFailureIssue(ctx context.Context, arg SetInitFailureIss
 	return err
 }
 
+const setIssueRepositoryChoice = `-- name: SetIssueRepositoryChoice :exec
+INSERT OR REPLACE INTO issue_repositories (organization, repository) VALUES (?, ?)
+`
+
+type SetIssueRepositoryChoiceParams struct {
+	Organization string
+	Repository   string
+}
+
+func (q *Queries) SetIssueRepositoryChoice(ctx context.Context, arg SetIssueRepositoryChoiceParams) error {
+	_, err := q.db.ExecContext(ctx, setIssueRepositoryChoice, arg.Organization, arg.Repository)
+	return err
+}
+
 const setJudgedAt = `-- name: SetJudgedAt :exec
 UPDATE tasks SET judged_at = ? WHERE id = ?
 `
@@ -10257,6 +10420,16 @@ type SetJudgedAtParams struct {
 
 func (q *Queries) SetJudgedAt(ctx context.Context, arg SetJudgedAtParams) error {
 	_, err := q.db.ExecContext(ctx, setJudgedAt, arg.JudgedAt, arg.ID)
+	return err
+}
+
+const setLastRelease = `-- name: SetLastRelease :exec
+INSERT INTO last_release (id, tag) VALUES (1, ?)
+ON CONFLICT (id) DO UPDATE SET tag = excluded.tag
+`
+
+func (q *Queries) SetLastRelease(ctx context.Context, tag string) error {
+	_, err := q.db.ExecContext(ctx, setLastRelease, tag)
 	return err
 }
 
@@ -11256,6 +11429,33 @@ func (q *Queries) UpdateCopiedWorkstream(ctx context.Context, arg UpdateCopiedWo
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const updateImplementerBinding = `-- name: UpdateImplementerBinding :exec
+UPDATE implementer_bindings SET harness = ?, model = ?, effort = ?, context = ?, max = ?, updated_at = ? WHERE id = ?
+`
+
+type UpdateImplementerBindingParams struct {
+	Harness   string
+	Model     string
+	Effort    string
+	Context   int64
+	Max       int64
+	UpdatedAt string
+	ID        int64
+}
+
+func (q *Queries) UpdateImplementerBinding(ctx context.Context, arg UpdateImplementerBindingParams) error {
+	_, err := q.db.ExecContext(ctx, updateImplementerBinding,
+		arg.Harness,
+		arg.Model,
+		arg.Effort,
+		arg.Context,
+		arg.Max,
+		arg.UpdatedAt,
+		arg.ID,
+	)
+	return err
 }
 
 const updateMcpServer = `-- name: UpdateMcpServer :one

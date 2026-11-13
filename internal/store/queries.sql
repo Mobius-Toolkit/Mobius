@@ -273,6 +273,11 @@ LEFT JOIN copied_issues i
   AND substr(lower(i.repository_url), -(length(sessions.repository) + 7)) = '/repos/' || lower(sessions.repository)
 WHERE sessions.ended_at IS NULL ORDER BY sessions.id;
 
+-- name: GetSessionIssueTitle :one
+SELECT i.title FROM copied_issues i
+WHERE i.repository = sqlc.arg(workstream_repository) AND i.workstream = sqlc.arg(workstream) AND i.number = sqlc.arg(issue)
+  AND substr(lower(i.repository_url), -(length(CAST(sqlc.arg(repository) AS TEXT)) + 7)) = '/repos/' || lower(CAST(sqlc.arg(repository) AS TEXT));
+
 -- name: ListBoardTasks :many
 SELECT tasks.id, tasks.repository, tasks.issue, tasks.workstream_repository, tasks.workstream, tasks.state, tasks.state_at,
        tasks.pull_request, tasks.fix_rounds, tasks.review_rounds, tasks.merge_queued_at,
@@ -1812,3 +1817,34 @@ WHERE server = ? AND state = ?;
 
 -- name: DeleteMcpServerOAuth :exec
 DELETE FROM mcp_server_oauth WHERE server = ?;
+
+-- name: GetIssueRepositoryChoice :one
+SELECT repository FROM issue_repositories WHERE organization = ?;
+
+-- name: SetIssueRepositoryChoice :exec
+INSERT OR REPLACE INTO issue_repositories (organization, repository) VALUES (?, ?);
+
+-- name: GetLastRelease :one
+SELECT tag FROM last_release WHERE id = 1;
+
+-- name: SetLastRelease :exec
+INSERT INTO last_release (id, tag) VALUES (1, ?)
+ON CONFLICT (id) DO UPDATE SET tag = excluded.tag;
+
+-- name: ReleaseChangelogSent :one
+SELECT EXISTS (SELECT 1 FROM release_changelogs WHERE organization = ? AND tag = ?);
+
+-- name: AddReleaseChangelog :exec
+INSERT INTO release_changelogs (organization, tag, sent_at) VALUES (?, ?, ?);
+
+-- name: ListImplementerBindings :many
+SELECT * FROM implementer_bindings ORDER BY id;
+
+-- name: AddImplementerBinding :one
+INSERT INTO implementer_bindings (harness, model, effort, context, max, updated_at) VALUES (?, ?, ?, ?, ?, ?) RETURNING id;
+
+-- name: UpdateImplementerBinding :exec
+UPDATE implementer_bindings SET harness = ?, model = ?, effort = ?, context = ?, max = ?, updated_at = ? WHERE id = ?;
+
+-- name: DeleteImplementerBinding :exec
+DELETE FROM implementer_bindings WHERE id = ?;
