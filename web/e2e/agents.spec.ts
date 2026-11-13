@@ -65,7 +65,7 @@ test("the Agents tab of a Workstream shows the state of each agent with a queue 
   await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
   const tree = page.getByRole("complementary");
   for (const { reason, badge, dot } of states) {
-    const entry = tree.getByRole("button").filter({ hasText: reason }).first();
+    const entry = tree.getByRole("listitem").filter({ hasText: reason }).first();
     await expect(entry.getByText(badge, { exact: true })).toBeVisible();
     await expect(entry.locator("span.rounded-full")).toHaveClass(dot);
   }
@@ -82,7 +82,7 @@ test("the Agents tab of a Workstream shows a kept session with a countdown, and 
   await page.goto("/workstreams/plants/garden/11");
   await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
   const tree = page.getByRole("complementary");
-  const kept = tree.getByRole("button", { name: /closes in/ });
+  const kept = tree.getByRole("listitem").filter({ hasText: "closes in" });
   await expect(kept).toHaveCount(1);
   await expect(kept).toContainText("closes in 50 min");
   await expect(kept.getByText("kept", { exact: true })).toBeVisible();
@@ -98,7 +98,7 @@ test("the Agents tab of a Workstream shows a kept session with a countdown, and 
   expect((await stopped).ok()).toBe(true);
   await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
   await expect(kept).toHaveCount(0);
-  const implementer = tree.getByRole("button", { name: /^implementer devin/ });
+  const implementer = tree.getByRole("listitem").filter({ hasText: /^Implementer.*devin/ });
   await expect(implementer).toHaveCount(0);
   await tree.getByRole("switch", { name: "Show stopped agents" }).click();
   await expect(implementer).toHaveCount(1);
@@ -147,12 +147,64 @@ test("the Agents tab of a Workstream shows the state of a session that waits for
     await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
     const entry = page
       .getByRole("complementary")
-      .getByRole("button")
+      .getByRole("listitem")
       .filter({ hasText: "waits for a low load" });
     await expect(entry).toHaveCount(1);
     await expect(entry.getByText("waits for load", { exact: true })).toBeVisible();
     await expect(entry.locator("span.rounded-full")).toHaveClass(/bg-amber-500/);
   });
+});
+
+test("the Agents tab of a Workstream names the issue of an agent with a link, and a tap on the row opens the Transcript", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto("/workstreams/owner/shop/12");
+  await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
+  const panel = page.getByRole("complementary");
+  const entry = panel.getByRole("listitem").filter({ hasText: /^Implementer #41 Add plan model/ });
+  await expect(entry.getByText("Implementer #41 Add plan model")).toBeVisible();
+  const link = entry.getByRole("link", { name: "#41" });
+  await expect(link).toHaveAttribute("href", "https://github.com/owner/shop/issues/41");
+  await expect(link).toHaveAttribute("target", "_blank");
+  await link.click({ trial: true });
+
+  await entry.getByRole("button").click({ position: { x: 4, y: 4 } });
+  await expect(panel.getByRole("button", { name: "Back" })).toBeVisible();
+});
+
+test("the Agents tab of a Workstream keeps a long issue title on one line on a phone", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const title = "Read the pull request of a task in checks again at each poll ".repeat(4).trim();
+  await page.route("**/api/workstreams/owner/shop/12/agents", async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    for (const agent of body.data) {
+      if (agent.issue === 41) {
+        agent.issueTitle = title;
+      }
+    }
+    await route.fulfill({ response, json: body });
+  });
+  await page.goto("/workstreams/owner/shop/12");
+  await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
+  await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
+  const entry = page
+    .getByRole("listitem")
+    .filter({ hasText: /^Implementer #41 Read the pull request/ })
+    .filter({ visible: true });
+  const issueTitle = entry.getByText(title, { exact: true });
+  await expect(issueTitle).toBeVisible();
+  const link = entry.getByRole("link", { name: "#41" });
+  const [titleBox, linkBox] = [await boxOf(issueTitle), await boxOf(link)];
+  expect(titleBox.height).toBeLessThan(linkBox.height * 1.5);
+  expect(Math.abs(titleBox.y - linkBox.y)).toBeLessThan(linkBox.height);
+  expect(await entry.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  expect(await issueTitle.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(
+    true,
+  );
 });
 
 test.describe("the transcript of an agent on a phone", () => {
@@ -190,7 +242,13 @@ const entry = (id: number) => ({
   raw: "{}",
 });
 
-async function mockLog(page: Page) {
+function gate() {
+  const resolvers: Array<() => void> = [];
+  const wait = new Promise<void>((resolve) => resolvers.push(resolve));
+  return { wait, open: () => resolvers[0]() };
+}
+
+async function mockLog(page: Page, secondRead?: Promise<void>) {
   await page.addInitScript(`
     window.sources = [];
     const add = EventSource.prototype.addEventListener;
@@ -202,8 +260,13 @@ async function mockLog(page: Page) {
     };
   `);
   let session = 0;
-  await page.route(/\/api\/agents\/\d+\/transcript(\?.*)?$/, (route) => {
+  let reads = 0;
+  await page.route(/\/api\/agents\/\d+\/transcript(\?.*)?$/, async (route) => {
     session = Number(/agents\/(\d+)\//.exec(route.request().url())?.[1]);
+    reads += 1;
+    if (reads > 1) {
+      await secondRead;
+    }
     return route.fulfill({
       json: {
         data: {
@@ -232,12 +295,18 @@ const scrollTo = (page: Page, place: "top" | "end") =>
     list.scrollTop = ${place === "top" ? "0" : "list.scrollHeight"}
   })`);
 
-async function openLog(page: Page, path: string, open: (page: Page) => Promise<void>) {
-  const send = await mockLog(page);
+async function openLog(
+  page: Page,
+  path: string,
+  open: (page: Page) => Promise<void>,
+  secondRead?: Promise<void>,
+) {
+  const send = await mockLog(page, secondRead);
   await page.goto(path);
   await open(page);
   await expect(page.getByText("Entry 29 ")).toBeVisible();
   expect(await page.evaluate(scrolls)).toBe(true);
+  await expect.poll(() => page.evaluate(gap)).toBeLessThan(5);
   return send;
 }
 
@@ -263,7 +332,9 @@ const places = [
       }
       await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
       await page
-        .getByRole("button", { name: /^implementer devin · swe-1.5 · high · Sep \d+,/ })
+        .getByRole("button", {
+          name: /^Implementer #41 Add plan model devin · swe-1.5 · high · Sep \d+,/,
+        })
         .filter({ visible: true })
         .click();
     },
@@ -293,6 +364,19 @@ for (const { name: place, path, open } of places) {
         await expect(button(page)).toBeHidden();
       });
 
+      test("opens at the end before the second read of the lines arrives", async ({ page }) => {
+        const second = gate();
+        // A slow page runs the mount after the first lines are in the list.
+        const cdp = await page.context().newCDPSession(page);
+        await cdp.send("Emulation.setCPUThrottlingRate", { rate: 20 });
+        const version = `${log}.dataset.version`;
+        await openLog(page, path, open, second.wait);
+        const before = await page.evaluate(version);
+        second.open();
+        await expect.poll(() => page.evaluate(version)).not.toBe(before);
+        await expect.poll(() => page.evaluate(gap)).toBeLessThan(5);
+      });
+
       test("follows a new entry while the Owner is at the end", async ({ page }) => {
         const send = await openLog(page, path, open);
         await send(30);
@@ -309,6 +393,31 @@ for (const { name: place, path, open } of places) {
         await expect(button(page)).toBeVisible();
         expect(await page.evaluate(`${log}.scrollTop`)).toBe(0);
         await expect(page.getByText("Entry 0 ")).toBeInViewport();
+      });
+
+      test("stays in place when the lines change before the scroll event of the Owner", async ({
+        page,
+      }) => {
+        await openLog(page, path, open);
+        await page.evaluate(`new Promise((resolve) => {
+          const list = ${log}
+          list.scrollTop = 0
+          list.dataset.version = String(Number(list.dataset.version) + 1)
+          requestAnimationFrame(() => requestAnimationFrame(resolve))
+        })`);
+        await expect(button(page)).toBeVisible();
+        expect(await page.evaluate(`${log}.scrollTop`)).toBe(0);
+        await expect(page.getByText("Entry 0 ")).toBeInViewport();
+      });
+
+      test("follows a new entry after the box of the log becomes lower", async ({ page }) => {
+        const send = await openLog(page, path, open);
+        await page.setViewportSize({ width: size.width, height: size.height - 200 });
+        await expect.poll(() => page.evaluate(gap)).toBeGreaterThan(100);
+        await send(30);
+        await expect(page.getByText("Entry 30 ")).toBeVisible();
+        await expect.poll(() => page.evaluate(gap)).toBeLessThan(5);
+        await expect(button(page)).toBeHidden();
       });
 
       test("moves to the end and removes the button when the Owner clicks it", async ({ page }) => {
@@ -489,7 +598,7 @@ test("the Transcript of a session that does not wait for a low load has no start
 
 async function openPanelTranscript(
   page: Page,
-  name = /^implementer devin · swe-1.5 · high · Sep \d+,/,
+  name = /^Implementer #41 Add plan model devin · swe-1.5 · high · Sep \d+,/,
 ) {
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto("/workstreams/owner/shop/12");
@@ -522,7 +631,9 @@ test.describe("the back button on a desktop", () => {
     await expectLeftOf(back, title);
     await back.click();
     await expect(
-      panel.getByRole("button", { name: /^implementer devin · swe-1.5 · high · Sep \d+,/ }),
+      panel.getByRole("button", {
+        name: /^Implementer #41 Add plan model devin · swe-1.5 · high · Sep \d+,/,
+      }),
     ).toBeVisible();
     await expect(back).toBeHidden();
   });

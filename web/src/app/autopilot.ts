@@ -1,4 +1,5 @@
 import { cn } from "cn";
+import { Option } from "effect";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import type { WorkstreamAutopilot } from "@/api/api.gen";
 import { levelName, levels } from "@/lib/autopilot";
@@ -6,8 +7,34 @@ import { buttonClass } from "@/ui/button";
 import { autopilotIcon, checkIcon, chevronDownIcon } from "@/ui/icons";
 import { defineInPlaceMount, renderSheet } from "@/ui/sheet";
 import { Message } from "./message";
+import type { Model } from "./model";
 
 const inPlaceMount = defineInPlaceMount(Message.CompletedFocusSheet);
+
+export function serverAutopilot(
+  workstreams: Model["workstreams"],
+  repository: string,
+  number: number,
+): WorkstreamAutopilot {
+  return (
+    workstreams.find((w) => w.repository === repository && w.number === number)?.autopilot ?? "off"
+  );
+}
+
+export function shownAutopilot(
+  model: Model,
+  repository: string,
+  number: number,
+): WorkstreamAutopilot {
+  const serverLevel = serverAutopilot(model.workstreams, repository, number);
+  const chosen = model.chosenAutopilot;
+  return Option.isSome(chosen) &&
+    chosen.value.repository === repository &&
+    chosen.value.number === number &&
+    chosen.value.from === serverLevel
+    ? chosen.value.to
+    : serverLevel;
+}
 
 function renderLevel<M>(
   h: HtmlBuilder<M>,
