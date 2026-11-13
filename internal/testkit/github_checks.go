@@ -101,6 +101,11 @@ type checkRun struct {
 	CheckRun
 }
 
+type lateFailure struct {
+	sha                string
+	checkRun, workflow int64
+}
+
 type annotationJSON struct {
 	Path      string `json:"path"`
 	StartLine int64  `json:"start_line"`
@@ -214,6 +219,14 @@ func (g *FakeGitHub) AddCheckRunAfterNextRead(repository string, run CheckRun) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.lateCheckRun = &checkRun{repository, run}
+}
+
+// FailAfterNextCheckRunRead completes the check run and the workflow run with a failure at the end of the next request
+// for the check runs of the commit sha. The answer of that request does not have the failure.
+func (g *FakeGitHub) FailAfterNextCheckRunRead(sha string, checkRunID, workflowID int64) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.lateFailure = &lateFailure{sha, checkRunID, workflowID}
 }
 
 // SetCreatedAt sets the creation time of the issue or the pull request to seconds after the Unix epoch.
@@ -916,6 +929,13 @@ func (g *FakeGitHub) commitCheckRuns(w http.ResponseWriter, r *http.Request) {
 		if g.lateCheckRun != nil && g.lateCheckRun.repository == repository(r) && g.lateCheckRun.HeadSHA == r.PathValue("sha") {
 			g.checkRuns = append(g.checkRuns, *g.lateCheckRun)
 			g.lateCheckRun = nil
+		}
+		if g.lateFailure != nil && g.lateFailure.sha == r.PathValue("sha") {
+			g.checkRuns[g.lateFailure.checkRun-1].Status = "completed"
+			g.checkRuns[g.lateFailure.checkRun-1].Conclusion = "failure"
+			g.workflowRuns[g.lateFailure.workflow-1].Status = "completed"
+			g.workflowRuns[g.lateFailure.workflow-1].Conclusion = "failure"
+			g.lateFailure = nil
 		}
 		if g.afterCheckRunRead != nil && g.reviewRead {
 			g.afterCheckRunRead()
