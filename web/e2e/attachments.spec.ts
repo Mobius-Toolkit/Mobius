@@ -493,6 +493,9 @@ for (const [device, viewport] of [
       await expect(card).toContainText("Brief of #12 · Scope");
       await expect(card).toContainText("Points on every order");
       await expect(popover).toHaveCount(0);
+      if (device === "phone") {
+        await expect(page.getByRole("dialog", { name: "Brief" })).toHaveCount(0);
+      }
       expect(await selectionIsEmpty(page)).toBe(true);
     });
 

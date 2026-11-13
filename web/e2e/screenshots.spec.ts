@@ -28,7 +28,7 @@ import {
 import { waitForEvergreen } from "./evergreen.js";
 import { addMcpServer, deleteMcpServers, selectMcpServers } from "./mcp-servers.js";
 import { png } from "./images.js";
-import { openBriefTab, routeBrief, selectText } from "./selection.js";
+import { briefOf, openBriefTab, routeBrief, selectText } from "./selection.js";
 import { retryFailure, retryUpgrade, routeUpgrade, upgradeRoute } from "./upgrade.js";
 import { longTaskTitle, routeLongTask, tasksUrl } from "./long-task.js";
 import { countSamples, fakeMicrophone } from "./microphone.js";
@@ -627,21 +627,35 @@ test("screenshots", async ({ page }) => {
   );
   await screenshot(
     page,
-    "chat-brief-tab",
+    "chat-brief-sheet",
     "/workstreams/plants/garden/19",
     (device) => [
       ...briefFrame(device, 19),
-      page.getByRole("tab", { name: "Brief" }).filter({ visible: true }),
-      page
-        .getByRole("tabpanel", { name: "Brief" })
-        .filter({ visible: true })
-        .getByText("Put bark on the beds."),
+      ...(device === "desktop" ? [page.getByRole("tab", { name: "Brief" })] : []),
+      briefOf(page).getByText("Put bark on the beds."),
+    ],
+    (device) => openBriefTab(page, device).then(() => undefined),
+  );
+  await screenshot(page, "chat-phone-top-bar", "/workstreams/plants/garden/18", (device) => [
+    ...briefFrame(device, 18),
+    page.getByRole("button", { name: "Brief" }).filter({ visible: true }),
+    ...(device === "phone" ? [page.getByRole("button", { name: "Tasks", exact: true })] : []),
+  ]);
+  // The Brief of a phone has its own sheet, so the panel sheet has no tab Brief.
+  await screenshot(
+    page,
+    "chat-panel-sheet",
+    "/workstreams/plants/garden/19",
+    (device) => [
+      ...briefFrame(device, 19),
+      page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }),
+      page.getByRole("tab", { name: "Recurring" }).filter({ visible: true }),
     ],
     async (device) => {
       if (device === "phone") {
         await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
+        await expect(page.getByRole("tab", { name: "Brief" })).toHaveCount(0);
       }
-      await page.getByRole("tab", { name: "Brief" }).filter({ visible: true }).click();
     },
   );
   // The nav shows the Workstream rows before it reads the "needs you" list and the unread counts, the organization dot
@@ -1147,10 +1161,7 @@ test("screenshots", async ({ page }) => {
     page,
     "chat-brief-selection-popover",
     "/workstreams/owner/shop/12",
-    (device) => [
-      ...briefReady(device),
-      page.getByRole("tabpanel", { name: "Brief" }).getByText("Points on every order"),
-    ],
+    (device) => [...briefReady(device), briefOf(page).getByText("Points on every order")],
     async (device) => {
       await expect(main.getByLabel("Message to the Lead")).toBeEditable();
       const tab = await openBriefTab(page, device);
