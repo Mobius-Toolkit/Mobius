@@ -111,6 +111,10 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [screenshots, a, b, c]
     defaults:
       run:
         working-directory: web
@@ -174,9 +178,11 @@ jobs:
 
       - run: pnpm e2e
         env:
+          MOBIUS_E2E_GROUP: ${{ matrix.group }}
           MOBIUS_E2E_PORT: 6464
 
-      - uses: actions/upload-artifact@v7
+      - if: matrix.group == 'screenshots'
+        uses: actions/upload-artifact@v7
         with:
           name: screenshots
           path: web/screenshots
@@ -185,7 +191,7 @@ jobs:
       - if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: test-results
+          name: test-results-${{ matrix.group }}
           path: web/test-results
 
   passed:
