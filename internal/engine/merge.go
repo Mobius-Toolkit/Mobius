@@ -73,7 +73,7 @@ func awaitsMerge(task store.Task) bool {
 // the pull request and the new commits of the default branch change a common file, it updates the branch
 // (updateForMerge). A head that is behind with no common file merges with its approval. A head with no Mobius check
 // run, for example after the update of the branch, sends the task in ready_for_review back to checks
-// (returnForApproval). When the head has no wait, it squash merges the pull request. It gives true when GitHub merged the pull request, and then it dismisses the open
+// (returnForApproval), with or without auto_merge. When the head has no wait, it squash merges the pull request. It gives true when GitHub merged the pull request, and then it dismisses the open
 // ready for review Inbox items of the issue and leaves the queue. It does not end the task: checkTask does that. When GitHub refuses the merge, the open ready for
 // review Inbox item of the issue gets the reason and the Lead gets an event, and the poll does not try again until a
 // new APPROVED review. A refusal for a pull request that a person merged in the meantime is no refusal: the next read
@@ -165,17 +165,7 @@ func (e *Engine) mergeApproved(ctx context.Context, repository github.Repository
 	approvedByLead := slices.ContainsFunc(runs, func(run *gh.CheckRun) bool { return run.GetName() == checkRunName })
 	if !approvedByLead {
 		if task.State == "ready_for_review" {
-			canApproveAgain := false
-			if task.AutoMerge == 0 {
-				_, again, err := e.approvedHeadText(ctx, repository, task, pullRequest)
-				if err != nil {
-					return false, err
-				}
-				canApproveAgain = again
-			}
-			if task.AutoMerge == 1 || canApproveAgain {
-				return false, e.returnForApproval(ctx, task)
-			}
+			return false, e.returnForApproval(ctx, task)
 		}
 		if task.State == "checks" || task.State == "approval" {
 			return false, nil

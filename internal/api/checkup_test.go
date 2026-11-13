@@ -200,9 +200,7 @@ func TestTheCheckupShowsTheOpenMaintenanceWorkstreamWithTheLowestNumber(t *testi
 	}
 	github.CloseIssue(shop, 10)
 
-	if got := getCheckup(t, server, "owner").MaintenanceWorkstream; got != 20 {
-		t.Errorf("maintenance Workstream = %d, want 20", got)
-	}
+	testkit.WaitFor(t, func() bool { return getCheckup(t, server, "owner").MaintenanceWorkstream == 20 })
 }
 
 func TestTheCheckupShowsTheIssueRepositoryAndNoMaintenanceWorkstreamOfAnotherRepository(t *testing.T) {
@@ -211,10 +209,16 @@ func TestTheCheckupShowsTheIssueRepositoryAndNoMaintenanceWorkstreamOfAnotherRep
 	github.AddIssue(skills, 5, "Maintenance")
 	github.AddLabel(skills, 5, "mobius:workstream", "owner")
 	github.AddLabel(skills, 5, "mobius:maintenance", "owner")
+	github.AddIssue(shop, 7, "Maintenance")
+	github.AddLabel(shop, 7, "mobius:workstream", "owner")
+	github.AddLabel(shop, 7, "mobius:maintenance", "owner")
 
-	found := getCheckup(t, server, "owner")
+	found := testkit.WaitForValue(t, func() (checkup, bool) {
+		found := getCheckup(t, server, "owner")
+		return found, found.MaintenanceWorkstream != 0
+	})
 
-	if found.IssueRepository != shop || found.IssueRepositoryError != "" || found.MaintenanceWorkstream != 0 {
+	if found.IssueRepository != shop || found.IssueRepositoryError != "" || found.MaintenanceWorkstream != 7 {
 		t.Errorf("issue repository = %q, error = %q, maintenance Workstream = %d", found.IssueRepository, found.IssueRepositoryError, found.MaintenanceWorkstream)
 	}
 }

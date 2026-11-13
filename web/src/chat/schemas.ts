@@ -59,7 +59,6 @@ export const Failure = Schema.Struct({
   retryAt: Schema.Number,
 });
 
-export const VoiceTarget = Schema.Literals(["chat", "answer"]);
 export const VoiceState = Schema.Struct({
   recording: Schema.Boolean,
   key: Schema.String,

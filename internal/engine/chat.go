@@ -1568,7 +1568,7 @@ func (e *Engine) tellHold(ctx context.Context, key ChatKey, event store.LeadEven
 	if err != nil {
 		return err
 	}
-	return e.addOrKeepComment(ctx, repository, event.Issue.Int64, body)
+	return e.postComment(ctx, repository, event.Issue.Int64, body)
 }
 
 // freeEvents frees each held event of the Workstream. It returns the freed events and the ready events of their task

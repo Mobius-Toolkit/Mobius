@@ -534,7 +534,8 @@ func TestACommentOfATrustedUserStartsTheTriagerAgainWithTheCommentsOfTrustedAuth
 	inOrder(t, prompts[0],
 		"# Issue\n\nowner/shop#53 Add points",
 		"# Comments\n\n@mobius-test[bot], ",
-		":\nFirst proposal.\n\n— Triager of #53\n\n@owner, ",
+		":\nFirst proposal.\n\n— Triager of #53\n\n<!-- mobius:write ",
+		" -->\n\n@owner, ",
 		":\nPlease use points.\n",
 	)
 	if strings.Contains(prompts[0], "I want this too.") {
@@ -1087,6 +1088,10 @@ func TestTheReportOfAResearcherArrivesBeforeTheNextTurnWhenTheFirstCommentFails(
 	if prompts := promptTexts(t, server, sessions[1].ID); len(prompts) != 1 || !strings.Contains(prompts[0], report) {
 		t.Errorf("prompts = %q", prompts)
 	}
+	reports := slices.DeleteFunc(appComments(fake, 69), func(comment string) bool { return !strings.HasPrefix(comment, report) })
+	if len(reports) != 1 {
+		t.Errorf("report comments = %q", reports)
+	}
 }
 
 func TestTheReportOfAResearcherThatIsTooLongForACommentArrivesCutAndStartsTheNextTurn(t *testing.T) {
@@ -1101,15 +1106,15 @@ func TestTheReportOfAResearcherThatIsTooLongForACommentArrivesCutAndStartsTheNex
 	researcher := waitForChatSession(t, server, issueTriagers, engine.ResearcherRole, func(session store.Session) bool { return session.EndedAt.Valid })
 	header := fmt.Sprintf("Report of the Researcher %d on \"Where do refunds stop?\":\n\n", researcher.ID)
 	report := testkit.WaitForValue(t, func() (string, bool) {
-		for _, comment := range fake.Comments(shop, 70) {
+		for _, comment := range fake.CommentsWithMarkers(shop, 70) {
 			if strings.HasPrefix(comment.Body, header) {
 				return comment.Body, true
 			}
 		}
 		return "", false
 	})
-	if count := utf8.RuneCountInString(report); count != 65_535 || !strings.HasSuffix(report, "aaalast") || strings.Contains(report, "first") {
-		t.Errorf("report = %d characters, ends with %q", count, report[len(report)-7:])
+	if count := utf8.RuneCountInString(report); count > 65_535 || count < 65_535-100 || !strings.Contains(report, "aaalast\n\n<!-- mobius:write ") || strings.Contains(report, "first") {
+		t.Errorf("report = %d characters, ends with %q", count, report[len(report)-40:])
 	}
 	second := testkit.WaitForValue(t, func() (store.Session, bool) {
 		sessions := chatSessions(t, server, issueTriagers, engine.TriagerRole)

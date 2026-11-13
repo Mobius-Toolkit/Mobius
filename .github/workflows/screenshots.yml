@@ -62,6 +62,7 @@ jobs:
     timeout-minutes: 10
     permissions:
       actions: read
+      checks: write
       contents: write
       pull-requests: write
     concurrency:
@@ -73,6 +74,20 @@ jobs:
       RUN_URL: ${{ github.event.workflow_run.html_url }}
     # This job has a write token and has no checkout. It uses only the PNG files of the artifact.
     steps:
+      - run: |
+          cat > "$RUNNER_TEMP/complete_check.sh" <<'SH'
+          complete_check() {
+            local id
+            id=$(gh api "repos/$REPO/commits/$SHA/check-runs?check_name=Screenshots" --jq '[.check_runs[].id] | max // empty')
+            if [ -n "$id" ]; then
+              gh api --method PATCH "repos/$REPO/check-runs/$id" -f status=completed -f conclusion="$1" -f "output[title]=$2" \
+                -f "output[summary]=See [pull request #$PR](https://github.com/$REPO/pull/$PR)." --silent
+            else
+              gh api --method POST "repos/$REPO/check-runs" -f name=Screenshots -f head_sha="$SHA" -f status=completed -f conclusion="$1" -f "output[title]=$2" \
+                -f "output[summary]=See [pull request #$PR](https://github.com/$REPO/pull/$PR)." --silent
+            fi
+          }
+          SH
       - run: |
           shopt -s nullglob
           set_section() {
@@ -107,12 +122,15 @@ jobs:
             fi
           }
 
+          source "$RUNNER_TEMP/complete_check.sh"
+
           if [ "$(gh api "repos/$REPO/pulls/$PR" --jq .head.sha)" != "$SHA" ]; then
             exit 0
           fi
           if [ "$(gh api "repos/$REPO/actions/runs/$RUN_ID/artifacts" --jq '[.artifacts[] | select(.name == "screenshots")] | length')" -eq 0 ]; then
             set_section "The screenshots failed. See the [run]($RUN_URL)."
             set_label off
+            complete_check neutral "The screenshots failed"
             exit 0
           fi
           gh run download "$RUN_ID" --repo "$REPO" --name screenshots --dir shots
@@ -173,10 +191,19 @@ jobs:
           if [ -z "$rows" ]; then
             set_section "No screen changed."
             set_label off
+            complete_check success "No screen changed."
           else
             set_section $'| Screen | State | main | This pull request |\n|---|---|---|---|\n'"$rows"
             set_label on
+            complete_check neutral "Screens changed"
           fi
+      - if: failure() || cancelled()
+        run: |
+          source "$RUNNER_TEMP/complete_check.sh"
+          if [ "$(gh api "repos/$REPO/pulls/$PR" --jq .head.sha)" != "$SHA" ]; then
+            exit 0
+          fi
+          complete_check neutral "The screenshots failed"
 
   main:
     if: >-

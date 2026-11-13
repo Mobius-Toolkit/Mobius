@@ -31,6 +31,7 @@ var (
 	AfterTriagerStop        = &afterTriagerStop
 	AfterCopiedTasksTree    = &afterCopiedTasksTree
 	BeforeRecopyTrees       = &beforeRecopyTrees
+	BeforeLeadIssueWait     = &beforeLeadIssueWait
 	ErrHung                 = errHung
 	AbsorbTimeout           = &absorbTimeout
 	BackgroundTimeout       = &backgroundTimeout

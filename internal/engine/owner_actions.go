@@ -33,12 +33,12 @@ func (e *Engine) reportOwnerAction(_ context.Context, c caller, _ github.Reposit
 // reported, and moves the task to owner_action. The same transaction adds the Inbox item and the owner_actions row.
 // The open threads stay on the pull request, so the next review sees them. A task that left working during the review
 // gets no Inbox item.
-func (e *Engine) pauseForOwnerAction(ctx context.Context, repository github.Repository, j *reviewJob, task store.Task, comment int64, open []github.ReviewThread, action string) error {
+func (e *Engine) pauseForOwnerAction(ctx context.Context, repository github.Repository, j *reviewJob, task store.Task, open []github.ReviewThread, action string) error {
 	if err := setStep(ctx, repository, j.head, "Wait for the Owner", "Mobius waits for the Owner to mark an action as done."); err != nil {
 		return err
 	}
 	result := fmt.Sprintf("The task waits for an action of the Owner: %s. Mobius reviews the head again after the Owner marks the action as done.", action)
-	if err := e.endRound(ctx, repository, j, task, comment, result, open); err != nil {
+	if err := e.endRound(ctx, repository, j, task, result, open); err != nil {
 		return err
 	}
 	number := int64(j.pullRequest.GetNumber())

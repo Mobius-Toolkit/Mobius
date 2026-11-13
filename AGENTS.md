@@ -4,6 +4,7 @@
 
 - Write all prose in Simplified Technical English (ASD-STE100). This rule applies to docs, code comments, commit messages, pull requests, UI text and error messages.
 - Use Conventional Commits for the commit subject.
+- Write times in UTC. Mobius, its database and GitHub use UTC. The shell clock and the `ls` times of the machine of Mobius use Central European time (CET or CEST). Use `date -u` or the GitHub times.
 
 ## Code
 
@@ -58,7 +59,7 @@ The web client is one Foldkit application (`Runtime.makeApplication` in `web/src
 
 ## Migrations
 
-`internal/store/migrations/` holds the migrations. The files up to `20261003000000_workstream_copy.sql` are copies of the migration files of the Rust version (`crates/mobius-store/migrations` in Mobius-Toolkit/Mobius-rust, which is archived). Do not change a migration file after it merges. To change the schema, add a new file in the same format.
+`internal/store/migrations/` holds the migrations. The files up to `20261003000000_workstream_copy.sql` are copies of the migration files of the Rust version (`crates/mobius-store/migrations` in Mobius-Toolkit/Mobius-rust, which is archived). Do not change a migration file after it merges. To change the schema, add a new file in the same format. A migration file is plain SQL with only an up step. Its only goose annotation is an optional first line `-- +goose NO TRANSACTION`. Do not write a down step. A store test that needs the state before a migration opens the database with `openBefore` in `internal/store/store_test.go`.
 
 ## Tests
 
