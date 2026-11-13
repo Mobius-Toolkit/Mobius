@@ -213,13 +213,14 @@ func TestADismissedApprovalDoesNotMerge(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, sha := seedWaiting(t, fake, "ready_for_review")
+	mobius := fake.AddCheckRun(shop, checkRun("Mobius", sha, "in_progress", ""))
 	review := fake.AddReview(shop, 42, "owner", "APPROVED", "")
 	testkit.WaitFor(t, func() bool { return approvedReview(t, server) != "" })
 
 	fake.DismissReview(shop, 42, review)
 
 	testkit.WaitFor(t, func() bool { return dismissedApproval(t, server) })
-	passMobius(fake, sha)
+	fake.SetCheckRunStatus(mobius, "completed", "success")
 	waitForPolls(t, fake)
 
 	if state := taskState(t, server); state != "ready_for_review" {
@@ -234,6 +235,7 @@ func TestADismissalOfTheNewerApprovalDoesNotBringBackTheOlderApproval(t *testing
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, sha := seedWaiting(t, fake, "ready_for_review")
+	mobius := fake.AddCheckRun(shop, checkRun("Mobius", sha, "in_progress", ""))
 	fake.AddReview(shop, 42, "owner", "APPROVED", "")
 	testkit.WaitFor(t, func() bool { return approvedReview(t, server) != "" })
 	older := approvedReview(t, server)
@@ -243,7 +245,7 @@ func TestADismissalOfTheNewerApprovalDoesNotBringBackTheOlderApproval(t *testing
 	fake.DismissReview(shop, 42, newer)
 
 	testkit.WaitFor(t, func() bool { return dismissedApproval(t, server) })
-	passMobius(fake, sha)
+	fake.SetCheckRunStatus(mobius, "completed", "success")
 	waitForPolls(t, fake)
 
 	if state := taskState(t, server); state != "ready_for_review" {
