@@ -147,6 +147,24 @@ func TestAMaintenanceWorkstreamGetsEvergreenAndTheEvergreenLabel(t *testing.T) {
 	}
 }
 
+func TestTheFullSyncOfAMaintenanceWorkstreamThatIsNoChangedIssueGetsEvergreenAndTheEvergreenLabel(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddIssue(shop, 12, "Maintenance")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
+	fake.AddLabel(shop, 12, "mobius:maintenance", "owner")
+	server := startServer(t, fake, t.TempDir(), `INSERT INTO sync_cursors (repository, endpoint, since, etag) VALUES ('owner/shop', 'issues', '2999-01-01T00:00:00Z', '"old"')`)
+
+	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Labels(shop, 12), "mobius:evergreen") })
+
+	if got := settingsOf(t, server, 12); len(got) != 1 || !got[0].Evergreen || !got[0].Maintenance {
+		t.Errorf("settings of #12 = %+v", got)
+	}
+	if got := fake.LabelActor(shop, 12, "mobius:evergreen"); got != testkit.AppSlug+"[bot]" {
+		t.Errorf("actor = %s", got)
+	}
+}
+
 func TestAWorkstreamLabelFromAnUntrustedAuthorAddsNoCreationEvent(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

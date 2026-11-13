@@ -494,7 +494,7 @@ func approvalAgainComment(branch, head, approved, reportHead, report string) str
 	return header + tail(report, commentLimit-utf8.RuneCountInString(header))
 }
 
-// approve posts comment on the pull request, sets the Mobius check of the head to success, stores leadReport in the
+// approve adds comment as an outgoing change on the pull request, sets the Mobius check of the head to success, stores leadReport in the
 // task, makes a draft pull request ready for review, or a ready pull request a draft while a deployment need blocks
 // (blockedByTodos), replaces mobius:working with mobius:review, and adds the Inbox
 // item for the Owner. While a todo blocks, the item is not merging, even when the task has an approval, and it gets
@@ -503,7 +503,7 @@ func approvalAgainComment(branch, head, approved, reportHead, report string) str
 // task in approval stays there instead of calling onChecks again at each poll.
 // mark is the role mark of the Lead for the question text, or "" when Mobius writes the comment. A leadReport of ""
 // keeps the stored report of the approval. again tells that Mobius approves the head again. When mark is "", the
-// stored comment of the same head stays, so a retry does not post it a second time.
+// stored head of the comment stays, so a retry for the same head does not add the comment a second time.
 func (e *Engine) approve(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue, pullRequest *gh.PullRequest, checkRun int64, comment, mark, leadReport string, again bool) error {
 	head := pullRequest.GetHead().GetSHA()
 	if mark != "" && hasLabel(issue, questionLabel) {
@@ -518,24 +518,12 @@ func (e *Engine) approve(ctx context.Context, repository github.Repository, task
 	case mark == "":
 		summary = "Mobius approved the pull request: the Reviewer found no open finding on this head, and each check of the head passed."
 	}
-	posted := ""
-	if mark == "" {
-		posted = task.ApprovedAgainComment.String
-	}
-	if mark != "" || task.ApprovedAgainHead.String != head || task.ApprovedAgainComment.String == "" {
-		added, err := repository.AddComment(ctx, int64(pullRequest.GetNumber()), comment)
-		if err != nil {
+	newComment := mark != "" || task.ApprovedAgainHead.String != head
+	var change int64
+	if newComment {
+		var err error
+		if change, err = e.addApprovalComment(ctx, repository, task, head, int64(pullRequest.GetNumber()), comment, mark == ""); err != nil {
 			return err
-		}
-		posted = added.GetHTMLURL()
-		if mark == "" {
-			if err := e.queries.SetTaskApprovedAgainComment(ctx, store.SetTaskApprovedAgainCommentParams{
-				ApprovedAgainHead:    sql.NullString{String: head, Valid: true},
-				ApprovedAgainComment: sql.NullString{String: posted, Valid: true},
-				ID:                   task.ID,
-			}); err != nil {
-				return err
-			}
 		}
 	}
 	if leadReport != "" {
@@ -586,9 +574,16 @@ func (e *Engine) approve(ctx context.Context, repository github.Repository, task
 		Text:                 fmt.Sprintf("Pull request #%d of #%d \"%s\" is ready for review.", pullRequest.GetNumber(), task.Issue, title),
 		Link:                 issueLink(task.Repository, task.Issue),
 		PullRequest:          int64(pullRequest.GetNumber()),
-		ReportLink:           posted,
 		Merging:              merging,
 	}); err != nil {
+		return err
+	}
+	if newComment {
+		if err := e.sendNow(ctx, repository, change); err != nil {
+			return err
+		}
+	}
+	if err := e.linkSentApproval(ctx, task); err != nil {
 		return err
 	}
 	if blocked && awaitsMerge(task) {
@@ -597,6 +592,44 @@ func (e *Engine) approve(ctx context.Context, repository github.Repository, task
 		}
 	}
 	return e.queries.SetTaskApprovedHead(ctx, store.SetTaskApprovedHeadParams{ApprovedHead: sql.NullString{String: head, Valid: true}, ID: task.ID})
+}
+
+// addApprovalComment adds the approval comment on the pull request as an outgoing change, and gives its id. In the same
+// transaction, the task stores the id as its newest approval change, and the send stores the URL of the comment there.
+// approve sends the change after it added the Inbox item, and linkSentApproval gives the item the URL of a comment that
+// a poll sent earlier. When Mobius writes the comment (byMobius), the task also stores head as the head of the comment,
+// so a retry of approve for the same head adds no second change.
+func (e *Engine) addApprovalComment(ctx context.Context, repository github.Repository, task store.Task, head string, pullRequest int64, comment string, byMobius bool) (int64, error) {
+	var id int64
+	err := e.inTx(ctx, func(q *store.Queries) error {
+		var err error
+		if id, err = e.addOutgoingChange(ctx, q, repository.FullName, pullRequest, 0, approvalCommentField, comment); err != nil {
+			return err
+		}
+		if err := q.SetTaskApprovalChange(ctx, store.SetTaskApprovalChangeParams{ApprovedAgainChange: sql.NullInt64{Int64: id, Valid: true}, ID: task.ID}); err != nil {
+			return err
+		}
+		if !byMobius {
+			return nil
+		}
+		return q.SetTaskApprovedAgainHead(ctx, store.SetTaskApprovedAgainHeadParams{ApprovedAgainHead: sql.NullString{String: head, Valid: true}, ID: task.ID})
+	})
+	return id, err
+}
+
+// linkSentApproval gives the newest ready_for_review Inbox item of the task the URL of the approval comment of the task,
+// when the comment is on GitHub. A poll can send the comment before approve adds the item, and then the send finds no
+// item of this approval.
+func (e *Engine) linkSentApproval(ctx context.Context, task store.Task) error {
+	current, err := e.queries.GetTask(ctx, task.ID)
+	if err != nil || !current.ApprovedAgainComment.Valid {
+		return err
+	}
+	item, err := linkReport(ctx, e.queries, current, current.ApprovedAgainComment.String, time.Time{})
+	if err == nil && item != nil {
+		e.publish(Change{Inbox: item})
+	}
+	return err
 }
 
 // cannotDo ends the turn of the Implementer with the reason for the Lead.
@@ -651,15 +684,13 @@ func (e *Engine) holdReply(ctx context.Context, c caller, repository github.Repo
 	if err != nil {
 		return "", err
 	}
-	if !unpushed && target.reply(ctx, repository, pullRequest, text) == nil {
-		c.agent.setReplied()
-		if target.resolve(ctx, repository) != nil {
-			c.agent.mu.Lock()
-			c.agent.replies = append(c.agent.replies, heldReply{target: target, posted: true})
-			c.agent.mu.Unlock()
-			return "Mobius posted the reply, but it could not resolve the thread. Mobius resolves the thread later. Do not reply again.", nil
+	if !unpushed {
+		id, err := e.sendReply(ctx, repository, pullRequest, target, text)
+		if err != nil {
+			return "", err
 		}
-		return "Mobius posted the reply.", nil
+		c.agent.setReplied()
+		return e.sentOrLater(ctx, id, "Mobius posted the reply.", "Mobius posts the reply later. Do not reply again.")
 	}
 	c.agent.mu.Lock()
 	c.agent.replies = append(c.agent.replies, heldReply{target: target, text: text})
@@ -1768,7 +1799,7 @@ func (e *Engine) push(ctx context.Context, a *Agent, j *job, failedLog string, m
 			return result{}, err
 		}
 	}
-	if err := a.postReplies(ctx, repository, int64(j.pullRequest.GetNumber())); err != nil {
+	if err := e.postReplies(ctx, a, repository, int64(j.pullRequest.GetNumber())); err != nil {
 		return result{}, err
 	}
 	if j.conflictRound && (failedLog != "" || !merged) {
@@ -1802,23 +1833,16 @@ func (e *Engine) push(ctx context.Context, a *Agent, j *job, failedLog string, m
 	return pushedHead, e.setReviewStep(ctx, repository, head, task, j.conflictRound)
 }
 
-// postReplies posts the held replies of the Implementer on the pull request and resolves their threads. A finished reply
-// leaves the list, and a posted reply is never posted again, so a later try does only the missing work.
-func (a *Agent) postReplies(ctx context.Context, repository github.Repository, pullRequest int64) error {
+// postReplies sends the held replies of the Implementer on the pull request. A sent reply leaves the list.
+func (e *Engine) postReplies(ctx context.Context, a *Agent, repository github.Repository, pullRequest int64) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	for len(a.replies) > 0 {
-		held := &a.replies[0]
-		if !held.posted {
-			if err := held.target.reply(ctx, repository, pullRequest, held.text); err != nil {
-				return err
-			}
-			held.posted = true
-			a.job.replied = true
-		}
-		if err := held.target.resolve(ctx, repository); err != nil {
+		held := a.replies[0]
+		if _, err := e.sendReply(ctx, repository, pullRequest, held.target, held.text); err != nil {
 			return err
 		}
+		a.job.replied = true
 		a.replies = a.replies[1:]
 	}
 	return nil

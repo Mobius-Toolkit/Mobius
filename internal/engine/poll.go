@@ -319,13 +319,6 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 				delete(e.copied, repository.FullName)
 			}
 			listChanged = listChanged || copyChanged
-			if err == nil && labeled && issue.GetState() == "open" {
-				evergreenChanged, err := e.turnEvergreenOn(ctx, repository, int64(issue.GetNumber()))
-				if err != nil {
-					return err
-				}
-				listChanged = listChanged || evergreenChanged
-			}
 		}
 		for _, event := range events {
 			if event.Actor == nil || !event.GetCreatedAt().After(since) {

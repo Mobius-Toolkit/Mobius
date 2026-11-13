@@ -809,24 +809,34 @@ func addWorkstream(ctx context.Context, q *store.Queries, repository string, wor
 }
 
 // addWorkstreamSettings adds the settings row of the Workstream issue when it has none, with the Autopilot level Off and
-// the other settings from the labels. A row that exists stays as it is. When it adds the row, it also adds an outgoing
-// change for each level label that the issue has, so the issue loses the label. It gives 1 when it added the row.
+// the other settings from the labels. A maintenance Workstream is evergreen, because Mobius manages it. A row that
+// exists stays as it is. When it adds the row, it also adds an outgoing change for each level label that the issue has,
+// so the issue loses the label, and for the evergreen label that a maintenance Workstream lacks. It gives 1 when it
+// added the row.
 func addWorkstreamSettings(ctx context.Context, q *store.Queries, repository string, issue *gh.Issue) (int64, error) {
 	number := int64(issue.GetNumber())
+	maintenance := hasLabel(issue, maintenanceLabel)
 	added, err := q.AddWorkstream(ctx, store.AddWorkstreamParams{
 		Repository:  repository,
 		Number:      number,
-		Evergreen:   hasLabel(issue, evergreenLabel),
-		Maintenance: hasLabel(issue, maintenanceLabel),
+		Evergreen:   hasLabel(issue, evergreenLabel) || maintenance,
+		Maintenance: maintenance,
 		Skills:      hasLabel(issue, skillsLabel),
 	})
 	if err != nil || added == 0 {
 		return added, err
 	}
-	for _, field := range []string{autopilotField, autoMergeField} {
-		if !hasLabel(issue, settingLabels[field]) {
-			continue
-		}
+	var fields []string
+	if hasLabel(issue, autopilotLabel) {
+		fields = append(fields, autopilotField)
+	}
+	if hasLabel(issue, autoMergeLabel) {
+		fields = append(fields, autoMergeField)
+	}
+	if maintenance && !hasLabel(issue, evergreenLabel) {
+		fields = append(fields, evergreenField)
+	}
+	for _, field := range fields {
 		if _, err := addSettingChange(ctx, q, repository, number, field); err != nil {
 			return 0, err
 		}

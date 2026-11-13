@@ -604,22 +604,6 @@ func (e *Engine) setEvergreen(ctx context.Context, repository github.Repository,
 	return e.sendNow(ctx, repository, id)
 }
 
-// turnEvergreenOn turns Evergreen on for the open Workstream number of repository when it is a maintenance Workstream,
-// because Mobius manages it. It tells if it changed the setting.
-func (e *Engine) turnEvergreenOn(ctx context.Context, repository github.Repository, number int64) (bool, error) {
-	settings, err := e.queries.GetWorkstreamSettings(ctx, store.GetWorkstreamSettingsParams{Repository: repository.FullName, Number: number})
-	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	if !settings.Maintenance || settings.Evergreen {
-		return false, nil
-	}
-	return true, e.setEvergreen(ctx, repository, number, true)
-}
-
 // The Autopilot levels. mobius:autopilot is the start part of a level, and mobius:auto-merge is the merge part.
 const (
 	levelOff           = "off"

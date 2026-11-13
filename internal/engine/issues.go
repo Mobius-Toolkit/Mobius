@@ -258,31 +258,31 @@ func (e *Engine) inWorkstream(ctx context.Context, workstreamRepository string, 
 }
 
 // reply replies with text to the review thread that starts with the comment id, or to the conversation comment id,
-// of the pull request. It gives false when the pull request has no such thread and no such comment.
-func reply(ctx context.Context, repository github.Repository, pullRequest, id int64, text string) (bool, error) {
+// of the pull request, and sends the reply at once (sendReply). It gives the id of the outgoing change. It gives false
+// when the pull request has no such thread and no such comment.
+func (e *Engine) reply(ctx context.Context, repository github.Repository, pullRequest, id int64, text string) (int64, bool, error) {
 	target, found, err := findTarget(ctx, repository, pullRequest, id)
 	if err != nil || !found {
-		return false, err
+		return 0, false, err
 	}
-	return true, target.post(ctx, repository, pullRequest, text)
+	change, err := e.sendReply(ctx, repository, pullRequest, target, text)
+	return change, true, err
 }
 
 // replyTarget is a review thread or a conversation comment of a pull request.
 type replyTarget struct {
 	// id is the id of the first comment of the review thread, or of the conversation comment.
 	id int64
-	// thread is the GraphQL node id of the review thread, or "" for a conversation comment.
-	thread string
+	// review is true for a review thread, and false for a conversation comment.
+	review bool
 	// body is the text of the conversation comment.
 	body string
 }
 
-// heldReply is a reply of the Implementer that waits for the push of its commits. When posted is true, the reply is on
-// the pull request and only the resolve of its thread waits.
+// heldReply is a reply of the Implementer that waits for the push of its commits.
 type heldReply struct {
 	target replyTarget
 	text   string
-	posted bool
 }
 
 // findTarget gives the review thread that starts with the comment id, or the conversation comment id, of the pull
@@ -294,7 +294,7 @@ func findTarget(ctx context.Context, repository github.Repository, pullRequest, 
 	}
 	for _, thread := range threads {
 		if thread.Comment == id {
-			return replyTarget{id: id, thread: thread.ID}, true, nil
+			return replyTarget{id: id, review: true}, true, nil
 		}
 	}
 	comments, err := repository.Comments(ctx, pullRequest)
@@ -309,31 +309,21 @@ func findTarget(ctx context.Context, repository github.Repository, pullRequest, 
 	return replyTarget{}, false, nil
 }
 
-// post replies with text to the target on the pull request. A reply to a review thread resolves the thread.
-func (t replyTarget) post(ctx context.Context, repository github.Repository, pullRequest int64, text string) error {
-	if err := t.reply(ctx, repository, pullRequest, text); err != nil {
-		return err
+// sendReply adds the reply with text to the target on the pull request as an outgoing change, and sends it at once. It
+// gives the id of the change. A reply in a review thread resolves the thread. A conversation comment has no thread, so
+// the reply is a new comment that quotes it, and nobody can resolve it.
+func (e *Engine) sendReply(ctx context.Context, repository github.Repository, pullRequest int64, target replyTarget, text string) (int64, error) {
+	field, replyTo := commentField, int64(0)
+	if target.review {
+		field, replyTo = replyResolveField, target.id
+	} else {
+		text = quote(target.body) + "\n\n" + text
 	}
-	return t.resolve(ctx, repository)
-}
-
-// reply writes the reply to the target on the pull request.
-func (t replyTarget) reply(ctx context.Context, repository github.Repository, pullRequest int64, text string) error {
-	if t.thread != "" {
-		_, _, err := repository.Client.PullRequests.CreateCommentInReplyTo(ctx, repository.Owner(), repository.Name(), int(pullRequest), text, t.id)
-		return err
+	id, err := e.addOutgoingChange(ctx, e.queries, repository.FullName, pullRequest, replyTo, field, text)
+	if err != nil {
+		return 0, err
 	}
-	// A conversation comment has no thread, so the reply is a new comment that quotes it, and nobody can resolve it.
-	_, err := repository.AddComment(ctx, pullRequest, quote(t.body)+"\n\n"+text)
-	return err
-}
-
-// resolve resolves the review thread of the target. A conversation comment has no thread.
-func (t replyTarget) resolve(ctx context.Context, repository github.Repository) error {
-	if t.thread == "" {
-		return nil
-	}
-	return repository.ResolveReviewThread(ctx, t.thread)
+	return id, e.sendNow(ctx, repository, id)
 }
 
 // quote gives text with "> " before each line.
