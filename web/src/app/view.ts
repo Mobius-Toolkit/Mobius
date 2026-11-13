@@ -52,7 +52,7 @@ import { renderButton } from "@/ui/button";
 import { fileTextIcon } from "@/ui/icons";
 import { renderPageHeader } from "@/ui/page";
 import { defineInPlaceMount, renderSheet } from "@/ui/sheet";
-import { renderAutopilotMenu } from "./autopilot";
+import { renderAutopilotMenu, shownAutopilot } from "./autopilot";
 import { renderFrame } from "./frame";
 import { renderLogin } from "./login";
 import { Message } from "./message";
@@ -188,11 +188,7 @@ function renderPage(h: HtmlBuilder<Message>, model: Model): Html {
         (w) => w.repository === `${wsRoute.owner}/${wsRoute.name}` && w.number === wsRoute.number,
       );
 
-      const serverLevel = activeWorkstream?.autopilot ?? "off";
-      const level =
-        Option.isSome(model.chosenAutopilot) && model.chosenAutopilot.value.from === serverLevel
-          ? model.chosenAutopilot.value.to
-          : serverLevel;
+      const level = shownAutopilot(model, `${wsRoute.owner}/${wsRoute.name}`, wsRoute.number);
 
       if (Option.isNone(model.chat) || Option.isNone(model.panel)) {
         return h.empty;

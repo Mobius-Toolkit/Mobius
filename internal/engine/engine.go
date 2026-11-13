@@ -48,7 +48,9 @@ type Engine struct {
 	rolesMu sync.RWMutex
 	// roles are the Roles of config.toml with the rows of role_settings over them.
 	roles config.Roles
-	// roleWriteMu makes SetRole and ResetRole take turns. They check the access of a new binding before they take rolesMu.
+	// moreBindings are the rows of implementer_bindings in the order of their id. rolesMu guards it, and a writer replaces the slice and never changes it.
+	moreBindings []ImplementerBinding
+	// roleWriteMu makes SetRole, ResetRole and the writes of the Implementer bindings take turns. They check the access of a new binding before they take rolesMu.
 	roleWriteMu sync.Mutex
 	// accessMu guards access.
 	accessMu sync.Mutex
