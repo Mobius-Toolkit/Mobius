@@ -138,7 +138,7 @@ func TestACITaskComesBeforeATaskWithWork(t *testing.T) {
 	if taskRank(tasksWithWork, 2, at(900), true).compare(taskRank(nil, 3, at(10), false)) >= 0 {
 		t.Error("the CI task comes after the older task with no work")
 	}
-	if taskRank(tasksWithWork, 2, at(900), true).compare(waiterRank(waiter{at(5), 9})) >= 0 {
+	if taskRank(tasksWithWork, 2, at(900), true).compare(waiterRank(waiter{since: at(5), session: 9})) >= 0 {
 		t.Error("the CI task comes after the session")
 	}
 }
@@ -146,7 +146,7 @@ func TestACITaskComesBeforeATaskWithWork(t *testing.T) {
 func TestAWaitingSessionWithNoTaskComesAfterEachTaskWithWork(t *testing.T) {
 	t.Parallel()
 	tasksWithWork := map[int64]Work{2: work(7, 500)}
-	session := waiterRank(waiter{at(5), 9})
+	session := waiterRank(waiter{since: at(5), session: 9})
 
 	if taskRank(tasksWithWork, 2, at(20), false).compare(session) >= 0 {
 		t.Error("the task with work comes after the session")
@@ -165,7 +165,7 @@ func TestALaterSessionTakesNoSlotOfAFreeingBindingBeforeAnEarlierSessionThatFoll
 	}}
 	full := 1
 	e.workers.bindings[1] = &full
-	earlier, later := waiter{time.Unix(1, 0), 1}, waiter{time.Unix(2, 0), 2}
+	earlier, later := waiter{since: time.Unix(1, 0), session: 1}, waiter{since: time.Unix(2, 0), session: 2}
 	e.workers.waiting[earlier] = slotWait{role: ImplementerRole}
 	e.workers.waiting[later] = slotWait{role: ImplementerRole}
 	first := &Agent{spec: Spec{Role: ImplementerRole}, level: LevelRole}

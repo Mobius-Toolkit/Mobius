@@ -4684,6 +4684,22 @@ func (q *Queries) HoldLeadEvent(ctx context.Context, arg HoldLeadEventParams) er
 	return err
 }
 
+const isCIFixIssue = `-- name: IsCIFixIssue :one
+SELECT EXISTS (SELECT 1 FROM ci_fix_issues WHERE repository = ? AND issue = ?)
+`
+
+type IsCIFixIssueParams struct {
+	Repository string
+	Issue      int64
+}
+
+func (q *Queries) IsCIFixIssue(ctx context.Context, arg IsCIFixIssueParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, isCIFixIssue, arg.Repository, arg.Issue)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const isCommentAnswered = `-- name: IsCommentAnswered :one
 SELECT EXISTS (SELECT 1 FROM answered_comments WHERE repository = ? AND review = ? AND comment = ?)
 `
@@ -8473,8 +8489,7 @@ func (q *Queries) ListPendingOutgoingChanges(ctx context.Context, repository str
 
 const listQueuedTasks = `-- name: ListQueuedTasks :many
 SELECT id, queued_at, EXISTS (
-  SELECT 1 FROM ci_breaks WHERE ci_breaks.repository = tasks.repository AND ci_breaks.issue = tasks.issue
-    AND ci_breaks.result = 'hard' AND ci_breaks.ended_at = ''
+  SELECT 1 FROM ci_fix_issues WHERE ci_fix_issues.repository = tasks.repository AND ci_fix_issues.issue = tasks.issue
 ) AS ci FROM tasks WHERE state = 'queued' ORDER BY queued_at, id
 `
 

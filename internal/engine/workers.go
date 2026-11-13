@@ -144,10 +144,11 @@ type slotWait struct {
 	held bool
 }
 
-// waiter is a queued session with no task.
+// waiter is a queued session with no task. ci tells that its issue is a CI fix issue.
 type waiter struct {
 	since   time.Time
 	session int64
+	ci      bool
 }
 
 func newWorkers() workers {
@@ -194,12 +195,12 @@ func (e *Engine) WakeQueue() {
 	e.workers.changed.notify()
 }
 
-// rank is the place of a queued session: the lowest rank gets the next slot. A CI task (see queuedTask) comes first,
-// by its time in the queue. A task of a pull request with work (a fix round for a failed check run or a conflict
-// round) follows, by the creation time of the pull request. The others follow by their time in the queue, and at the
-// same time a task comes before a session with no task.
+// rank is the place of a queued session: the lowest rank gets the next slot. A CI task (see queuedTask) and a session
+// with no task for a CI fix issue (see waiter) come first, by their time in the queue. A task of a pull request with
+// work (a fix round for a failed check run or a conflict round) follows, by the creation time of the pull request. The
+// others follow by their time in the queue, and at the same time a task comes before a session with no task.
 type rank struct {
-	// class is 0 for a CI task, 1 for a task with work and 2 for the others.
+	// class is 0 for a CI task or a CI session, 1 for a task with work and 2 for the others.
 	class int
 	at    time.Time
 	// kind is 0 for a task and 1 for a session with no task.
@@ -223,11 +224,14 @@ func taskRank(work map[int64]Work, task int64, queuedAt time.Time, ci bool) rank
 }
 
 func waiterRank(w waiter) rank {
+	if w.ci {
+		return rank{0, w.since, 1, w.session}
+	}
 	return rank{2, w.since, 1, w.session}
 }
 
-// queuedTask is a task in the state queued with its time in the queue. ci tells that its issue is the task issue of an
-// open hard break of the CI of the default branch.
+// queuedTask is a task in the state queued with its time in the queue. ci tells that its issue is a CI fix issue (the
+// view ci_fix_issues).
 type queuedTask struct {
 	id       int64
 	queuedAt time.Time
@@ -258,7 +262,14 @@ func (e *Engine) takeSlot(ctx context.Context, a *Agent) error {
 	w := &e.workers
 	role, task := a.spec.Role, a.spec.Task
 	worker := workerRoles[role]
-	place := waiter{time.Now(), a.id}
+	place := waiter{since: time.Now(), session: a.id}
+	if task == 0 && a.spec.Issue.Valid {
+		var err error
+		place.ci, err = e.queries.IsCIFixIssue(ctx, store.IsCIFixIssueParams{Repository: a.spec.Repository, Issue: a.spec.Issue.Int64})
+		if err != nil {
+			return err
+		}
+	}
 	w.mu.Lock()
 	if task != 0 {
 		w.queued[task] = slotWait{role: role}
