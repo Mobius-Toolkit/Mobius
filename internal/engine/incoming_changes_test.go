@@ -135,7 +135,7 @@ func TestTheHousekeeperDeletesADoneIncomingChangeAndAnOwnWriteOlderThan24HoursAn
 	}
 }
 
-func TestAFailedLabelWriteLeavesNoOwnWriteAndALaterWriteOfTheLeadIsWrittenBack(t *testing.T) {
+func TestAFailedLabelWriteLeavesNoOwnWrite(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	addWorkstream(fake)
