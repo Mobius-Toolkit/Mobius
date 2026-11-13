@@ -19,6 +19,7 @@ export const Message = defineMessageUnion({
   DraftImageRemoved: { position: Schema.Number },
   DraftInboxItemAdded: { item: DraftInboxItem },
   DraftInboxItemRemoved: { id: DraftInboxItemId },
+  DraftSelectionRemoved: { id: Schema.String },
   SendSubmitted: {},
   StopClicked: {},
   CompletedSaveDraft: {},

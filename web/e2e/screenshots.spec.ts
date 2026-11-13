@@ -28,6 +28,7 @@ import {
 import { waitForEvergreen } from "./evergreen.js";
 import { addMcpServer, deleteMcpServers, selectMcpServers } from "./mcp-servers.js";
 import { png } from "./images.js";
+import { selectText } from "./selection.js";
 import { retryFailure, retryUpgrade, routeUpgrade, upgradeRoute } from "./upgrade.js";
 import { longTaskTitle, routeLongTask, tasksUrl } from "./long-task.js";
 import { countSamples, fakeMicrophone } from "./microphone.js";
@@ -1027,6 +1028,117 @@ test("screenshots", async ({ page }) => {
     },
     clearComposer,
   );
+  const quotedLead = main.locator("[data-message='1000100']");
+  const quotes = [
+    {
+      source: "message",
+      text: "in the morning",
+      context: "First, cut the red roses in the morning.",
+      reference: "",
+      link: "",
+      part: "",
+      messageId: 1_000_100,
+      messageAuthor: "Lead",
+    },
+    {
+      source: "message",
+      text: "Sort the white roses",
+      context: "Sort the white roses",
+      reference: "",
+      link: "",
+      part: "",
+      messageId: 1_000_100,
+      messageAuthor: "Lead",
+    },
+  ];
+  let quoteSent = false;
+  await page.route("**/api/chat?*", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as { data: { messages: Record<string, unknown>[] } };
+    const fields = {
+      action: null,
+      browserId: "",
+      cancelledAt: null,
+      deliveredAt: null,
+      failedAt: null,
+      images: 0,
+      inboxItems: [],
+      organization: "owner",
+      question: null,
+      repository: "owner/shop",
+      stoppedAt: null,
+      voice: false,
+      workstream: 12,
+      time: "2026-10-15T12:00:00Z",
+    };
+    body.data.messages.push(
+      {
+        ...fields,
+        id: 1_000_100,
+        author: "Lead",
+        selections: [],
+        text: "The plan has two steps.\n\nFirst, cut the red roses in the morning.\n\n- Wash the buckets\n- Sort the white roses",
+      },
+      ...(quoteSent
+        ? [
+            {
+              ...fields,
+              id: 1_000_101,
+              author: "Owner",
+              selections: quotes,
+              text: "Why in the morning?",
+            },
+          ]
+        : []),
+    );
+    await route.fulfill({ response, json: body });
+  });
+  const quotePopover = page.getByRole("button", { name: "Add to chat" });
+  const selectQuote = async (words: string) => {
+    await showChatEnd(page);
+    await selectText(quotedLead, words);
+  };
+  await screenshot(
+    page,
+    "chat-selection-popover",
+    "/workstreams/owner/shop/12",
+    (device) => [...chatReady(device), quotePopover],
+    () => selectQuote("in the morning"),
+    () => page.evaluate("getSelection().removeAllRanges()"),
+  );
+  await screenshot(
+    page,
+    "chat-selection-composer",
+    "/workstreams/owner/shop/12",
+    (device) => [
+      ...chatReady(device),
+      composer.locator("[data-selection-card]").first(),
+      composer.locator("[data-selection-card]").last(),
+    ],
+    async () => {
+      await expect(main.getByLabel("Message to the Lead")).toBeEditable();
+      await selectQuote("in the morning");
+      await quotePopover.click();
+      await expect(composer.locator("[data-selection-card]")).toHaveCount(1);
+      await selectQuote("Sort the white roses");
+      await quotePopover.click();
+      await expect(composer.locator("[data-selection-card]")).toHaveCount(2);
+    },
+    clearComposer,
+  );
+  quoteSent = true;
+  await screenshot(
+    page,
+    "chat-selection-sent",
+    "/workstreams/owner/shop/12",
+    (device) => [
+      ...chatReady(device),
+      main.locator("[data-message='1000101'] [data-selection-card]").first(),
+      main.locator("[data-message='1000101'] [data-selection-card]").last(),
+    ],
+    () => showChatEnd(page),
+  );
+  await page.unroute("**/api/chat?*");
   await page.unroute(inboxRoute);
   await routeInboxItems(page, [longTitleItem]);
   await screenshot(page, "chat-stop-long-title", "/workstreams/owner/shop/12", (device) => [
