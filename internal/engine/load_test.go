@@ -17,10 +17,12 @@ import (
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
 
-// fakeLoad is the load average of the machine in the tests, in hundredths, and the count of its reads.
+// fakeLoad is the load average of the machine in the tests, in hundredths, and the count of its reads. From the read
+// number lowFrom, the load is 0. With lowFrom 0, the load stays as set.
 type fakeLoad struct {
 	hundredths atomic.Int64
 	reads      atomic.Int64
+	lowFrom    atomic.Int64
 }
 
 func (f *fakeLoad) set(load float64) {
@@ -28,7 +30,10 @@ func (f *fakeLoad) set(load float64) {
 }
 
 func (f *fakeLoad) average() (float64, error) {
-	f.reads.Add(1)
+	read := f.reads.Add(1)
+	if from := f.lowFrom.Load(); from > 0 && read >= from {
+		return 0, nil
+	}
 	return float64(f.hundredths.Load()) / 100, nil
 }
 
