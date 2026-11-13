@@ -109,7 +109,25 @@ describe("the tools", () => {
       message(Message.ToolsLoaded({ tools: [tool()] })),
       message(
         Message.ReceivedPauses({
-          pauses: [{ harness: "dsh", inUse: true, pausedUntil: "2026-09-29T08:30:00Z" }],
+          pauses: [
+            {
+              harness: "dsh",
+              users: [
+                {
+                  kind: "role",
+                  role: "implementer",
+                  binding: "",
+                  repository: "",
+                  number: 0,
+                  title: "",
+                  workstreamRepository: "",
+                  workstream: 0,
+                  workstreamTitle: "",
+                },
+              ],
+              pausedUntil: "2026-09-29T08:30:00Z",
+            },
+          ],
         }),
       ),
       model((m) => {

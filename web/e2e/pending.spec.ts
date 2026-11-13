@@ -28,6 +28,18 @@ async function hold(page: Page, url: string, method: string) {
 
 const spinner = (button: Locator) => button.locator('[data-slot="spinner"]');
 
+const roleUser = {
+  kind: "role",
+  role: "implementer",
+  binding: "",
+  repository: "",
+  number: 0,
+  title: "",
+  workstreamRepository: "",
+  workstream: 0,
+  workstreamTitle: "",
+};
+
 // The button is disabled and shows the spinner while the request runs. A second tap sends no second request. After
 // the error, the button is active again.
 async function checkPending(button: Locator, held: Awaited<ReturnType<typeof hold>>) {
@@ -83,8 +95,8 @@ test("the status line shows each pause, and Resume now ends the pause of its Har
     route.fulfill({
       json: {
         data: [
-          { harness: "antigravity", pausedUntil: "2026-09-28T12:00:00Z", inUse: true },
-          { harness: "devin", pausedUntil: "2026-09-29T08:30:00Z", inUse: true },
+          { harness: "antigravity", pausedUntil: "2026-09-28T12:00:00Z", users: [roleUser] },
+          { harness: "devin", pausedUntil: "2026-09-29T08:30:00Z", users: [roleUser] },
         ],
       },
     }),
@@ -110,8 +122,8 @@ test("the status line shows only the pause that a Role or a session uses", async
     route.fulfill({
       json: {
         data: [
-          { harness: "antigravity", pausedUntil: "2026-09-28T12:00:00Z", inUse: true },
-          { harness: "devin", pausedUntil: "2026-09-29T08:30:00Z", inUse: false },
+          { harness: "antigravity", pausedUntil: "2026-09-28T12:00:00Z", users: [roleUser] },
+          { harness: "devin", pausedUntil: "2026-09-29T08:30:00Z", users: [] },
         ],
       },
     }),
