@@ -1,13 +1,18 @@
+import { Effect, Schema } from "effect";
 import {
   listActiveAgents,
   listNeedsHuman,
   listWorkstreams,
-  type LiveEvents,
   type NeedsHuman,
   type Workstream,
 } from "@/api/api.gen";
+import { Agent } from "@/transcript/schemas";
+import { request } from "./effects";
 import { onEvent } from "./events";
 import { dropMarks } from "./inbox";
+
+const AnyRecord = Schema.Record(Schema.String, Schema.Json);
+const WorkstreamRef = Schema.Struct({ repository: Schema.String, number: Schema.Number });
 
 export type WorkstreamState = {
   list?: readonly Workstream[];
@@ -15,8 +20,6 @@ export type WorkstreamState = {
   working: Set<string>;
   error?: string;
 };
-
-export type Workstreams = WorkstreamState & { load: () => Promise<unknown> };
 
 let state: WorkstreamState = { needsHuman: [], working: new Set() };
 let showLogin = () => {};
@@ -51,65 +54,71 @@ export function organizationWorkstreams(workstreams: WorkstreamState, organizati
   );
 }
 
-function loadWorking() {
-  return listActiveAgents()
-    .then((res) => {
-      if (res.status === 200) {
-        setState({
-          working: new Set(
-            res.data.data.groups
-              .flatMap((group) => group.agents)
-              .filter((row) => row.agent.working)
-              .map((row) =>
-                workstreamKey({
-                  repository: row.agent.workstreamRepository,
-                  number: row.agent.workstream,
-                }),
-              ),
+const loadWorking = Effect.fnUntraced(function* () {
+  const res = yield* request(() => listActiveAgents());
+  if (res.status === 200) {
+    setState({
+      working: new Set(
+        res.data.data.groups
+          .flatMap((group) => group.agents)
+          .filter((row) => row.agent.working)
+          .map((row) =>
+            workstreamKey({
+              repository: row.agent.workstreamRepository,
+              number: row.agent.workstream,
+            }),
           ),
-        });
-      }
-    })
-    .catch(() => {});
-}
+      ),
+    });
+  }
+}, Effect.ignore);
 
-export function loadWorkstreams() {
-  const lists = listWorkstreams()
-    .then((res) => {
-      if (res.status === 401) {
-        showLogin();
-      } else if (res.status === 200) {
-        setState({ list: res.data.data });
-      } else {
-        setState({ error: res.data.error });
-      }
-    })
-    .catch((err: unknown) => setState({ error: String(err) }));
-  const needsHumanList = listNeedsHuman()
-    .then((res) => {
-      if (res.status === 200) {
-        setState({ needsHuman: res.data.data });
-        dropMarks(res.data.data);
-      }
-    })
-    .catch(() => {});
-  return Promise.all([lists, needsHumanList, loadWorking()]);
-}
+const loadList = request(() => listWorkstreams()).pipe(
+  Effect.map((res) => {
+    if (res.status === 401) {
+      showLogin();
+    } else if (res.status === 200) {
+      setState({ list: res.data.data });
+    } else {
+      setState({ error: res.data.error });
+    }
+  }),
+  Effect.catchTag("RequestFailed", (error) =>
+    Effect.sync(() => setState({ error: error.message })),
+  ),
+);
+
+const loadNeedsHuman = Effect.fnUntraced(function* () {
+  const res = yield* request(() => listNeedsHuman());
+  if (res.status === 200) {
+    setState({ needsHuman: res.data.data });
+    dropMarks(res.data.data);
+  }
+}, Effect.ignore);
+
+export const loadWorkstreams = () =>
+  Effect.all([loadList, loadNeedsHuman(), loadWorking()], { concurrency: "unbounded" }).pipe(
+    Effect.asVoid,
+  );
+
+const reloadWorkstreams = () => {
+  Effect.runFork(loadWorkstreams());
+};
+
+const reloadWorking = () => {
+  Effect.runFork(loadWorking());
+};
 
 export function startWorkstreams(source: EventSource, onLogin: () => void) {
   showLogin = onLogin;
   // An event of the lists that comes while the connection is down is lost, so each connection reads the lists.
-  loadWorkstreams();
-  source.addEventListener("open", loadWorkstreams);
-  const removeChange = onEvent<LiveEvents, "workstreams">(source, "workstreams", loadWorkstreams);
-  const removeCreated = onEvent<LiveEvents, "workstreamCreated">(
-    source,
-    "workstreamCreated",
-    loadWorkstreams,
-  );
-  const removeAgent = onEvent<LiveEvents, "agent">(source, "agent", loadWorking);
+  reloadWorkstreams();
+  source.addEventListener("open", reloadWorkstreams);
+  const removeChange = onEvent(source, "workstreams", AnyRecord, reloadWorkstreams);
+  const removeCreated = onEvent(source, "workstreamCreated", WorkstreamRef, reloadWorkstreams);
+  const removeAgent = onEvent(source, "agent", Agent, reloadWorking);
   return () => {
-    source.removeEventListener("open", loadWorkstreams);
+    source.removeEventListener("open", reloadWorkstreams);
     removeChange();
     removeCreated();
     removeAgent();

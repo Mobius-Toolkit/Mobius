@@ -1855,3 +1855,16 @@ UPDATE implementer_bindings SET harness = ?, model = ?, effort = ?, context = ?,
 
 -- name: DeleteImplementerBinding :exec
 DELETE FROM implementer_bindings WHERE id = ?;
+
+-- name: ListOpenWorkstreamsOfOrganization :many
+SELECT w.repository, w.number, CAST(s.maintenance AS BOOLEAN) AS maintenance, CAST(s.skills AS BOOLEAN) AS skills
+FROM copied_workstreams w
+JOIN workstreams s ON s.repository = w.repository AND s.number = w.number
+WHERE substr(w.repository, 1, length(sqlc.arg(organization)) + 1) = sqlc.arg(organization) || '/'
+ORDER BY w.repository, w.number;
+
+-- name: ListMissingWorkstreamDismissals :many
+SELECT organization, kind FROM missing_workstream_dismissals;
+
+-- name: AddMissingWorkstreamDismissal :exec
+INSERT OR IGNORE INTO missing_workstream_dismissals (organization, kind) VALUES (?, ?);

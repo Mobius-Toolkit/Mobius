@@ -151,7 +151,7 @@ func startOrganization(t *testing.T, fake *testkit.FakeGitHub, adjust func(*conf
 	testkit.InstallFakeAgent(t, dataDir, options)
 	cfg := testserver.Config(t, dataDir)
 	adjust(cfg)
-	server := startServerOnAddedRepository(t, fake, cfg, "")
+	server := startServerKeepingMissingItems(t, fake, cfg, "")
 	testkit.WaitFor(t, server.Engine.AccessChecked)
 	for _, repository := range repositories {
 		server.WaitForFirstPoll(t, repository)

@@ -7,7 +7,7 @@ import {
   type DraftVoice,
   updateDraft,
 } from "@/lib/draft";
-import { fitted, store } from "@/lib/effects";
+import { store } from "@/lib/effects";
 import { fitImage, tooManyImages } from "@/lib/images";
 import { addQueued, newMessageId } from "@/lib/outbox";
 import { resend, stopVoice, toggleVoice } from "@/lib/voice";
@@ -95,7 +95,7 @@ export const FitImages = Command.define("FitImages", {
       let problem = "";
       const added: File[] = [];
       for (const file of files.slice(0, Math.max(0, room))) {
-        yield* fitted(() => fitImage(file)).pipe(
+        yield* fitImage(file).pipe(
           Effect.match({
             onSuccess: (image) => {
               added.push(image);

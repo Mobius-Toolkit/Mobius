@@ -1,7 +1,8 @@
 import { Option } from "effect";
+import * as Update from "foldkit/update";
 import type { Return as UpdateReturn } from "foldkit/update";
+import { update as updateWorkstreamSetup } from "@/workstreamSetup/update";
 import {
-  CreateWorkstream,
   FetchCheckup,
   FixLabels,
   Navigate,
@@ -12,7 +13,13 @@ import {
 } from "./commands";
 import { Message } from "./message";
 import { fixButtonOf, type Model } from "./model";
-import { maintenanceWorkstreamRequest, skillsWorkstreamRequest } from "./requests";
+
+const foldWorkstreamSetup = Update.foldChild({
+  update: updateWorkstreamSetup,
+  read: (model: Model) => Option.some(model.workstreamSetup),
+  write: (model, workstreamSetup) => ({ ...model, workstreamSetup }),
+  toParentMessage: (message) => Message.GotWorkstreamSetupMessage({ message }),
+});
 
 function step(model: Model, message: Message): UpdateReturn<Model, Message> {
   return Message.match<UpdateReturn<Model, Message>>(message, {
@@ -89,24 +96,7 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
       model: { ...model, fixing: false, checkupError: error },
       commands: [FetchCheckup({ organization: model.organization })],
     }),
-    ClickedCreate: ({ kind }) => {
-      const checkup = model.checkups[model.organization];
-      if (checkup === undefined) {
-        return { model };
-      }
-      const request =
-        kind === "maintenance"
-          ? maintenanceWorkstreamRequest(checkup.issueRepository)
-          : skillsWorkstreamRequest(checkup.issueRepository, checkup.skillRepository);
-      return {
-        model: { ...model, creating: Option.some(kind) },
-        commands: [CreateWorkstream({ organization: model.organization, request })],
-      };
-    },
-    WorkstreamRequested: () => ({ model }),
-    CreateFailed: ({ error }) => ({
-      model: { ...model, createError: error, creating: Option.none() },
-    }),
+    GotWorkstreamSetupMessage: ({ message: child }) => foldWorkstreamSetup(model, child),
     NavigateTo: ({ path }) => ({ model, commands: [Navigate({ path })] }),
     ClickedBack: () => ({ model }),
     CompletedRequestLogin: () => ({ model }),

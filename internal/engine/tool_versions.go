@@ -104,6 +104,9 @@ func (e *Engine) Tools(ctx context.Context) []ToolCheck {
 	for _, b := range roles.Bindings() {
 		used[b.Binding.Harness] = true
 	}
+	for _, b := range e.implementerBindings() {
+		used[b.Binding.Harness] = true
+	}
 	auto := e.autoUpgradePackages(ctx)
 	var checks []ToolCheck
 	for _, harness := range config.Harnesses {

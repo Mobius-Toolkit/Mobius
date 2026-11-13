@@ -248,11 +248,7 @@ export const SelectAutopilot = Command.define("SelectAutopilot", {
           }),
         ),
       ),
-      Effect.tap(() =>
-        Effect.sync(() => {
-          void loadWorkstreams();
-        }),
-      ),
+      Effect.tap(() => Effect.forkDetach(loadWorkstreams())),
     ),
 });
 
