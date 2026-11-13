@@ -369,7 +369,22 @@ func TestCreateIssueCreatesASubIssueWithABlockerInAnotherWorkstream(t *testing.T
 	fake.AddIssue(shop, 88, "Invoice totals")
 	fake.AddSubIssue(shop, 20, 88)
 
-	session := run(t, server, leadSpec(t), "Plan the work. ", "List the tasks. ")
+	agent := start(t, server, leadSpec(t))
+	if err := agent.Prompt(t.Context(), "Plan the work. ", nil); err != nil {
+		t.Fatal(err)
+	}
+	testkit.WaitFor(t, func() bool {
+		var count int
+		_ = server.DB.QueryRow("SELECT count(*) FROM copied_issues WHERE repository = ? AND number = 89", shop).Scan(&count)
+		return count == 1
+	})
+	if err := agent.Prompt(t.Context(), "List the tasks. ", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := agent.End(t.Context(), "done"); err != nil {
+		t.Fatal(err)
+	}
+	session := agent.ID()
 
 	if got := reply(t, server, session); got != "Created owner/shop#89.owner/shop#89 Add plan model: open, blocked by owner/shop#88 (Workstream \"Billing\")\n" {
 		t.Errorf("reply = %q", got)

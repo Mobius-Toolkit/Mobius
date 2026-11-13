@@ -374,37 +374,31 @@ func TestAPollWithNoApprovalMakesNoCheckRunCallAndNoMergeCallForATaskInNeedsHuma
 	}
 }
 
-func TestAPushAfterTheCheckRunReadGivesNoLeadEventAndTheNextPollMergesTheNewHead(t *testing.T) {
+func TestAPushAfterTheCheckRunReadGivesNoLeadEventAndTheNextPollSendsTheNewHeadBackForApproval(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, sha := seedWaiting(t, fake, "ready_for_review")
 	passMobius(fake, sha)
-	var next string
 	fake.AfterNextReviewedCheckRunRead(func() {
 		work := t.TempDir()
 		testkit.Git(t, work, "clone", "--branch=mobius/41", fake.Remote(shop), ".")
 		testkit.Git(t, work, "commit", "--allow-empty", "-m", "Second change")
 		testkit.Git(t, work, "push", "origin", "HEAD:refs/heads/mobius/41")
-		next = head(t, fake, "mobius/41")
 	})
 
 	fake.AddReview(shop, 42, "owner", "APPROVED", "")
 
 	testkit.WaitFor(t, func() bool { return fake.MergeCalls() == 1 })
-	waitForPolls(t, fake)
-	if state := taskState(t, server); state != "ready_for_review" {
-		t.Errorf("state = %s", state)
-	}
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "checks" })
 	for _, prompt := range leadPrompts(t, server) {
 		if strings.Contains(prompt, " merge refused for #41") {
 			t.Errorf("prompt = %s", prompt)
 		}
 	}
-
-	passMobius(fake, next)
-
-	testkit.WaitFor(t, func() bool { return taskState(t, server) == "" })
-	if got := head(t, fake, "main^{tree}"); got != head(t, fake, next+"^{tree}") {
-		t.Errorf("tree of main = %s", got)
+	if approvedReview(t, server) == "" {
+		t.Error("the approval of the Owner ended")
+	}
+	if got := fake.MergeCalls(); got != 1 {
+		t.Errorf("merge calls = %d, want 1", got)
 	}
 }
