@@ -569,7 +569,7 @@ UPDATE lead_events SET delivered_at = ? WHERE id = ?;
 -- name: ListUndeliveredLeadEvents :many
 SELECT * FROM lead_events WHERE repository = ? AND workstream = ? AND delivered_at IS NULL ORDER BY id;
 
--- A held event holds each later event of its task issue. The events of CI fix issues come first.
+-- A held event holds each later event of its task issue.
 -- name: ListReadyLeadEvents :many
 SELECT * FROM lead_events AS event
 WHERE event.repository = ? AND event.workstream = ? AND event.delivered_at IS NULL AND event.held = 0
@@ -579,8 +579,7 @@ WHERE event.repository = ? AND event.workstream = ? AND event.delivered_at IS NU
         AND earlier.issue_repository = event.issue_repository
         AND earlier.id < event.id AND earlier.delivered_at IS NULL AND earlier.held = 1
   )
-ORDER BY EXISTS (SELECT 1 FROM ci_fix_issues AS fix WHERE fix.repository = event.issue_repository AND fix.issue = event.issue) DESC,
-  event.id;
+ORDER BY event.id;
 
 -- name: GetLastLeadEventDelivery :one
 SELECT delivered_at FROM lead_events

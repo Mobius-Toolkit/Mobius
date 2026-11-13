@@ -160,17 +160,25 @@ type item struct {
 	ci bool
 }
 
-// eventItem makes the item of event.
-func (e *Engine) eventItem(ctx context.Context, event store.LeadEvent) (item, error) {
-	ci := false
-	if event.Issue.Valid {
-		var err error
-		ci, err = e.queries.IsCIFixIssue(ctx, store.IsCIFixIssueParams{Repository: event.IssueRepository, Issue: event.Issue.Int64})
-		if err != nil {
-			return item{}, err
+// eventItems makes the items of events, the events of CI fix issues first. Each group keeps the order of events.
+func (e *Engine) eventItems(ctx context.Context, events []store.LeadEvent) ([]item, error) {
+	var fixes, others []item
+	for _, event := range events {
+		ci := false
+		if event.Issue.Valid {
+			var err error
+			ci, err = e.queries.IsCIFixIssue(ctx, store.IsCIFixIssueParams{Repository: event.IssueRepository, Issue: event.Issue.Int64})
+			if err != nil {
+				return nil, err
+			}
+		}
+		if ci {
+			fixes = append(fixes, item{event: &event, ci: true})
+		} else {
+			others = append(others, item{event: &event})
 		}
 	}
-	return item{event: &event, ci: ci}, nil
+	return append(fixes, others...), nil
 }
 
 // chat is a running Lead chat or Coordinator chat. One goroutine runs its sessions, one after the other.
@@ -582,19 +590,9 @@ func (e *Engine) sendEvents(ctx context.Context, repository string, workstream i
 	if err != nil || len(events) == 0 {
 		return err
 	}
-	items := make([]item, 0, len(events))
-	for _, event := range events {
-		if isQuietEvent(event) {
-			continue
-		}
-		queued, err := e.eventItem(ctx, event)
-		if err != nil {
-			return err
-		}
-		items = append(items, queued)
-	}
-	if len(items) == 0 {
-		return nil
+	items, err := e.eventItems(ctx, slices.DeleteFunc(events, isQuietEvent))
+	if err != nil || len(items) == 0 {
+		return err
 	}
 	key := leadChat(repository, workstream)
 	e.chatsMu.Lock()
@@ -1607,7 +1605,7 @@ func (e *Engine) tellHold(ctx context.Context, key ChatKey, event store.LeadEven
 }
 
 // freeEvents frees each held event of the Workstream. It returns the freed events and the ready events of their task
-// issues, in id order.
+// issues, the events of CI fix issues first and each group in id order.
 func (e *Engine) freeEvents(ctx context.Context, repository string, workstream int64) ([]item, error) {
 	freed, err := e.queries.FreeLeadEvents(ctx, store.FreeLeadEventsParams{Repository: repository, Workstream: workstream})
 	if err != nil || len(freed) == 0 {
@@ -1617,19 +1615,11 @@ func (e *Engine) freeEvents(ctx context.Context, repository string, workstream i
 	if err != nil {
 		return nil, err
 	}
-	var affected []item
-	for _, event := range ready {
-		if slices.ContainsFunc(freed, func(other store.LeadEvent) bool {
+	return e.eventItems(ctx, slices.DeleteFunc(ready, func(event store.LeadEvent) bool {
+		return !slices.ContainsFunc(freed, func(other store.LeadEvent) bool {
 			return other.ID == event.ID || other.Issue.Valid && other.Issue == event.Issue
-		}) {
-			queued, err := e.eventItem(ctx, event)
-			if err != nil {
-				return nil, err
-			}
-			affected = append(affected, queued)
-		}
-	}
-	return affected, nil
+		})
+	}))
 }
 
 // queueEvents puts the events after the queued messages of the Owner and removes their queued copies. Each other
