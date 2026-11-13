@@ -1991,6 +1991,7 @@ for (const [device, size] of [
         : page.getByRole("radio", { name });
     await page.setViewportSize(size);
     await page.goto(first);
+    await expect(page.getByRole("button", { name: "Autopilot: Off" })).toBeEnabled();
     try {
       // The Workstream list gives the new level after the Owner has opened the second Workstream.
       const held: Route[] = [];
