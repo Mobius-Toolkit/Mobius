@@ -471,7 +471,8 @@ func (e *Engine) dismiss(ctx context.Context, id int64) (store.InboxItem, error)
 
 // DismissByOwner removes the Inbox item id at the request of the Owner, and adds a record to the chat of the item. For a
 // todo item, it also marks the todo as dismissed, and it returns a refusal when the item is not open or the todo is
-// mandatory. It returns a refusal for an open owner action item, because the task waits for the action.
+// mandatory. It returns a refusal for an open owner action item, because the task waits for the action. For an item of a
+// missing Workstream, it also stores that the Owner dismissed the kind for the organization, so the check adds no new item.
 func (e *Engine) DismissByOwner(ctx context.Context, id int64) error {
 	found, err := e.queries.GetInboxItem(ctx, id)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -482,6 +483,14 @@ func (e *Engine) DismissByOwner(ctx context.Context, id int64) error {
 	}
 	if err == nil && found.Kind == ownerActionKind && !found.DismissedAt.Valid {
 		return refuse("Mark the action as done. The task waits for it.")
+	}
+	if err == nil && missingWorkstreamKind(found.Kind) {
+		e.missingWorkstreamsMu.Lock()
+		defer e.missingWorkstreamsMu.Unlock()
+		err := e.queries.AddMissingWorkstreamDismissal(ctx, store.AddMissingWorkstreamDismissalParams{Organization: found.Organization, Kind: found.Kind})
+		if err != nil {
+			return err
+		}
 	}
 	item, err := e.dismiss(ctx, id)
 	if err != nil {

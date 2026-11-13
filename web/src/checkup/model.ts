@@ -1,6 +1,7 @@
 import { Option, Schema } from "effect";
 import { Page, type Flags } from "./flags";
-import { Checkup, Pause, ToolCheck, WorkstreamKind, type FixButton } from "./schemas";
+import * as WorkstreamSetup from "@/workstreamSetup/model";
+import { Checkup, Pause, ToolCheck, type FixButton } from "./schemas";
 
 export const Model = Schema.Struct({
   page: Page,
@@ -16,8 +17,7 @@ export const Model = Schema.Struct({
   togglingAuto: Schema.Boolean,
   upgradeError: Schema.String,
   fixing: Schema.Boolean,
-  creating: Schema.Option(WorkstreamKind),
-  createError: Schema.String,
+  workstreamSetup: WorkstreamSetup.Model,
 });
 
 export type Model = Schema.Schema.Type<typeof Model>;
@@ -37,8 +37,7 @@ export function initialModel(flags: Flags): Model {
     togglingAuto: false,
     upgradeError: "",
     fixing: false,
-    creating: Option.none(),
-    createError: "",
+    workstreamSetup: WorkstreamSetup.initialModel(flags.organization),
   };
 }
 

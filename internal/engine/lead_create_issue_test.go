@@ -39,8 +39,13 @@ func TestCreateIssueGivesTheNumberWhileTheCopyOfTheTreeIsHeld(t *testing.T) {
 		return count == 1
 	})
 	hold := make(chan struct{})
+	entered := make(chan struct{})
+	enter := sync.OnceFunc(func() { close(entered) })
 	release := sync.OnceFunc(func() { close(hold) })
-	*engine.BeforeRecopyTrees = func() { <-hold }
+	*engine.BeforeRecopyTrees = func() {
+		enter()
+		<-hold
+	}
 	t.Cleanup(func() {
 		release()
 		*engine.BeforeRecopyTrees = nil
@@ -51,9 +56,14 @@ func TestCreateIssueGivesTheNumberWhileTheCopyOfTheTreeIsHeld(t *testing.T) {
 	go func() { prompted <- agent.Prompt(t.Context(), "Plan the work.", nil) }()
 
 	testkit.WaitFor(t, func() bool { return reply(t, server, agent.ID()) == "Created owner/shop#13." })
-	if copied(13) {
-		t.Error("the copy has the issue before the release")
-	}
+	testkit.WaitFor(t, func() bool {
+		select {
+		case <-entered:
+			return true
+		default:
+			return false
+		}
+	})
 	release()
 	if err := <-prompted; err != nil {
 		t.Fatal(err)

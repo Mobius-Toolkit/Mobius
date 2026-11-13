@@ -39,7 +39,19 @@ func startServerWith(t *testing.T, fake *testkit.FakeGitHub, cfg *config.Config,
 // startServerOnAddedRepository is startServerWith for a fake GitHub that already has owner/shop.
 func startServerOnAddedRepository(t *testing.T, fake *testkit.FakeGitHub, cfg *config.Config, before string) *testserver.Server {
 	t.Helper()
-	server := testserver.StartWith(t, cfg, fake.URL)
+	return startAddedRepository(t, fake, cfg, before, testserver.StartWith)
+}
+
+// startServerKeepingMissingItems is startServerOnAddedRepository, and the check adds the items of the missing
+// Workstreams of owner.
+func startServerKeepingMissingItems(t *testing.T, fake *testkit.FakeGitHub, cfg *config.Config, before string) *testserver.Server {
+	t.Helper()
+	return startAddedRepository(t, fake, cfg, before, testserver.StartKeepingMissingItems)
+}
+
+func startAddedRepository(t *testing.T, fake *testkit.FakeGitHub, cfg *config.Config, before string, start func(testing.TB, *config.Config, string) *testserver.Server) *testserver.Server {
+	t.Helper()
+	server := start(t, cfg, fake.URL)
 	if before != "" {
 		if _, err := server.DB.Exec(before); err != nil {
 			t.Fatal(err)

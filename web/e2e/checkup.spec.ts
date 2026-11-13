@@ -301,12 +301,12 @@ test("the Workstreams page links the maintenance Workstream and sends the full r
   await expect(page).toHaveURL("/chat");
 });
 
-test("the Workstreams page shows the error of the issue repository in place of the maintenance Workstream", async ({
+test("the Workstreams page shows the error of the issue repository with the picker row and no Create button", async ({
   page,
 }) => {
   const main = page.getByRole("main");
   const error =
-    "Mobius needs the issue repository of plants. Set organizations.plants.issue_repository in config.toml.";
+    'Mobius needs the issue repository of plants. Select it on the Checkup page "Workstreams", or set organizations.plants.issue_repository in config.toml.';
   await routeCheckup(page, [tool], {
     plants: {
       ...healthy,
@@ -320,8 +320,169 @@ test("the Workstreams page shows the error of the issue repository in place of t
   await page.goto("/settings/checkup/plants/workstreams");
 
   await expect(main.getByText(error)).toBeVisible();
+  await expect(
+    main.getByRole("button", { name: "Issue repository None", exact: true }),
+  ).toBeVisible();
   await expect(main.getByText("Maintenance Workstream", { exact: true })).toBeHidden();
   await expect(main.getByRole("button", { name: "Create" })).toHaveCount(0);
+});
+
+test("the Workstreams page links an existing Skills Workstream while the organization has no issue repository", async ({
+  page,
+}) => {
+  const main = page.getByRole("main");
+  await routeCheckup(page, [tool], {
+    plants: {
+      ...healthy,
+      issueRepository: "",
+      issueRepositoryError:
+        'Mobius needs the issue repository of plants. Select it on the Checkup page "Workstreams", or set organizations.plants.issue_repository in config.toml.',
+      issueRepositorySource: "none",
+      maintenanceWorkstream: 0,
+      skillRepository: "plants/mobius-skills",
+      skillsWorkstreamRepository: "plants/garden",
+      skillsWorkstream: 9,
+    },
+  });
+
+  await page.goto("/settings/checkup/plants/workstreams");
+
+  const link = main.getByRole("link", { name: "Skills Workstream plants/garden#9" });
+  await expect(link).toHaveAttribute("href", "/workstreams/plants/garden/9");
+  await expect(
+    main.getByRole("button", { name: "Issue repository None", exact: true }),
+  ).toBeVisible();
+  await expect(main.getByRole("button", { name: "Create" })).toHaveCount(0);
+});
+
+test("the Workstreams page shows the issue repository of the config file with no picker", async ({
+  page,
+}) => {
+  const main = page.getByRole("main");
+
+  await page.goto("/settings/checkup/plants/workstreams");
+
+  const row = main.getByRole("listitem").filter({ hasText: "Issue repository" });
+  await expect(row).toContainText("plants/garden");
+  await expect(row.getByRole("button")).toHaveCount(0);
+  await expect(row.locator("svg")).toHaveCount(0);
+
+  await row.click();
+
+  await expect(page.getByRole("dialog")).toBeHidden();
+});
+
+test("the Workstreams page tells the Owner to create the skill repository and shows no Create button for the Skills Workstream", async ({
+  page,
+}) => {
+  const main = page.getByRole("main");
+  await routeCheckup(page, [tool], {
+    plants: { ...healthy, maintenanceWorkstream: 9, skillRepository: "" },
+  });
+
+  await page.goto("/settings/checkup/plants/workstreams");
+
+  const row = main.getByRole("listitem").filter({ hasText: "Skills Workstream" });
+  await expect(
+    row.getByText("Create plants/mobius-skills and give the Mobius App access to it."),
+  ).toBeVisible();
+  const link = row.getByRole("link", { name: "Open GitHub" });
+  await expect(link).toHaveAttribute(
+    "href",
+    "https://github.com/new?owner=plants&name=mobius-skills",
+  );
+  await expect(link).toHaveAttribute("target", "_blank");
+  await expect(link).toHaveAttribute("rel", "noreferrer");
+  await expect(row.getByRole("button")).toHaveCount(0);
+});
+
+test("the Owner selects the issue repository of an organization with two repositories and no config key, and then creates the Workstreams", async ({
+  page,
+}) => {
+  const main = page.getByRole("main");
+  // The name sorts after "plants", so the first organization of the other specs does not change while this test runs.
+  const organization = "weeds";
+  await page.request.post(`/e2e/repositories/${organization}/bed`);
+  await page.request.post(`/e2e/repositories/${organization}/shed`);
+  try {
+    await expect
+      .poll(
+        () =>
+          page.evaluate(async (name) => {
+            const res = await fetch(`/api/checkup?organization=${name}`);
+            const body = (await res.json()) as { data?: { repositories: unknown[] } };
+            return body.data?.repositories.length;
+          }, organization),
+        { timeout: 20_000 },
+      )
+      .toBe(2);
+
+    await page.goto(`/settings/checkup/${organization}/workstreams`);
+
+    const row = main.getByRole("button", { name: "Issue repository None", exact: true });
+    await expect(row).toBeVisible();
+    await expect(main.getByRole("button", { name: "Create" })).toHaveCount(0);
+
+    await row.click();
+
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByRole("radio")).toHaveCount(2);
+    await expect(dialog.getByRole("radio", { checked: true })).toHaveCount(0);
+
+    await dialog.getByRole("radio", { name: `${organization}/shed` }).click();
+
+    await expect(dialog.getByRole("radio", { name: `${organization}/shed` })).toBeChecked();
+
+    const saved = page.waitForResponse(
+      (res) =>
+        res.url().endsWith("/api/checkup/issue-repository") && res.request().method() === "PUT",
+    );
+    await dialog.getByRole("button", { name: "Save" }).click();
+
+    expect((await saved).status()).toBe(200);
+    await expect(dialog).toBeHidden();
+    await expect(
+      main.getByRole("button", { name: `Issue repository ${organization}/shed`, exact: true }),
+    ).toBeVisible();
+    await expect(main.getByRole("button", { name: "Create" })).toHaveCount(1);
+    await expect(
+      main.getByRole("listitem").filter({ hasText: "Maintenance Workstream" }),
+    ).toBeVisible();
+  } finally {
+    await page.request.delete(`/e2e/repositories/${organization}/bed`);
+    await page.request.delete(`/e2e/repositories/${organization}/shed`);
+  }
+});
+
+test("a refusal of the issue repository stays in the picker", async ({ page }) => {
+  const main = page.getByRole("main");
+  await routeCheckup(page, [tool], {
+    plants: {
+      ...healthy,
+      issueRepository: "plants/garden",
+      issueRepositorySource: "default",
+      repositories: [
+        { repository: "plants/garden", labels: [label] },
+        { repository: "plants/shed", labels: [label] },
+      ],
+    },
+  });
+  await page.route(
+    (url) => url.pathname === "/api/checkup/issue-repository",
+    (route) =>
+      route.fulfill({ status: 422, json: { error: "The Mobius App does not see plants/shed." } }),
+  );
+
+  await page.goto("/settings/checkup/plants/workstreams");
+  await main.getByRole("button", { name: "Issue repository plants/garden", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByRole("radio", { name: "plants/garden" })).toBeChecked();
+  await dialog.getByRole("radio", { name: "plants/shed" }).click();
+  await dialog.getByRole("button", { name: "Save" }).click();
+
+  await expect(dialog.getByText("The Mobius App does not see plants/shed.")).toBeVisible();
+  await expect(dialog.getByRole("radio", { name: "plants/shed" })).toBeChecked();
+  await expect(dialog.getByRole("button", { name: "Save" })).toBeEnabled();
 });
 
 test("the Checkup page shows no badge on a row with no problem", async ({ page }) => {

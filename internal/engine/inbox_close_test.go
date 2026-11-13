@@ -26,7 +26,7 @@ reply = ["Seen"]
 func itemsOf(t *testing.T, server *testserver.Server, kind string) []inboxItem {
 	t.Helper()
 	var found []inboxItem
-	for _, item := range inbox(t, server) {
+	for _, item := range allInbox(t, server) {
 		if item.Kind == kind {
 			found = append(found, item)
 		}

@@ -113,7 +113,21 @@ func Start(t testing.TB, dataDir, githubURL string) *Server {
 // The agents run with the Harness commands in the directory harnesses of the data directory and then on the PATH
 // of the test with no directory that has a Harness command, so a test never starts a real agent. The agents reach
 // the Mobius MCP server over plain HTTP.
+//
+// The Owner dismissed the items of the missing Workstreams of the organization owner, so they take no Inbox id.
 func StartWith(t testing.TB, cfg *config.Config, githubURL string) *Server {
+	t.Helper()
+	return start(t, cfg, githubURL, true)
+}
+
+// StartKeepingMissingItems is StartWith, and the check adds the items of the missing Workstreams of the organization
+// owner.
+func StartKeepingMissingItems(t testing.TB, cfg *config.Config, githubURL string) *Server {
+	t.Helper()
+	return start(t, cfg, githubURL, false)
+}
+
+func start(t testing.TB, cfg *config.Config, githubURL string, dismissMissing bool) *Server {
 	t.Helper()
 	dataDir := cfg.DataDir
 	db, err := store.Open(t.Context(), filepath.Join(dataDir, "mobius.db"))
@@ -123,6 +137,12 @@ func StartWith(t testing.TB, cfg *config.Config, githubURL string) *Server {
 	t.Cleanup(func() { _ = db.Close() })
 	if _, err := db.Exec("CREATE TRIGGER IF NOT EXISTS " + reviewedHeadTrigger + " AFTER UPDATE OF reviewed_head ON tasks BEGIN UPDATE tasks SET reviewed_head = NULL WHERE id = NEW.id; END"); err != nil {
 		t.Fatal(err)
+	}
+	if dismissMissing {
+		_, err := db.Exec("INSERT OR IGNORE INTO missing_workstream_dismissals (organization, kind) VALUES ('owner', 'missing maintenance'), ('owner', 'missing skills')")
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 	queries := store.New(db)
 	a, err := auth.Start(t.Context(), queries, Password)

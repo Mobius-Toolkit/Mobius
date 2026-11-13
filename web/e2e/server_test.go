@@ -398,6 +398,11 @@ func TestServer(t *testing.T) {
 	cfg := testserver.Config(t, dataDir)
 	cfg.Organizations = map[string]config.Organization{"plants": {IssueRepository: "plants/garden"}}
 	server := testserver.StartWith(t, cfg, github.URL)
+	// The Owner dismissed the items of the missing Workstreams, so the Inbox shows only the fixture items.
+	if _, err := server.DB.Exec(`INSERT INTO missing_workstream_dismissals (organization, kind)
+		VALUES ('plants', 'missing maintenance'), ('plants', 'missing skills')`); err != nil {
+		t.Fatal(err)
+	}
 	dist, err := fs.Sub(web.Dist, "dist")
 	if err != nil {
 		t.Fatal(err)
@@ -1509,7 +1514,7 @@ func fixTimes(t *testing.T, server *testserver.Server, github *testkit.FakeGitHu
 }
 
 // keepImplementer starts the task of the issue with mobius:ready, and waits until the Implementer round of the task
-// ends, the engine keeps its Harness session, and the task waits for the Lead. StartCheckNow ends the wait of its check for a low load. The engine
+// ends, the engine keeps its Harness session, the task waits for the Lead, and the event ready_for_approval exists. StartCheckNow ends the wait of its check for a low load. The engine
 // clock fixes the time of the close of the kept session. The events of the dispatch leave the chat of the Workstream,
 // so the chat shows no message. The programs of the agents find the fake git first, so the script of the fake
 // Implementer runs /usr/bin/git.
@@ -1540,6 +1545,13 @@ func keepImplementer(t *testing.T, server *testserver.Server, github *testkit.Fa
 			t.Fatal(err)
 		}
 		return state == "approval"
+	})
+	testkit.WaitFor(t, func() bool {
+		var events int
+		if err := server.DB.QueryRow("SELECT COUNT(*) FROM lead_events WHERE repository = ? AND issue = ? AND kind = 'ready_for_approval'", repository, issue).Scan(&events); err != nil {
+			t.Fatal(err)
+		}
+		return events > 0
 	})
 	for _, query := range []string{
 		"DELETE FROM chat_messages WHERE id IN (SELECT chat_message FROM lead_events WHERE repository = ?1 AND issue = ?2)",
