@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"github.com/gork-labs/gork/pkg/api"
@@ -24,6 +25,22 @@ type RoleFields struct {
 	Max bool `gork:"max"`
 }
 
+// MoreBinding is an Implementer binding after the first binding.
+type MoreBinding struct {
+	// ID is the id of the binding
+	ID int64 `gork:"id"`
+	// Harness is the agent program of the binding
+	Harness string `gork:"harness"`
+	// Model is the model of the binding
+	Model string `gork:"model"`
+	// Effort is the effort level of the binding, or empty for a Harness with no effort levels
+	Effort string `gork:"effort"`
+	// Context is the largest context of a session in tokens, or 0 for no limit
+	Context int `gork:"context"`
+	// Max is the number of sessions of the binding that run at the same time
+	Max int `gork:"max"`
+}
+
 // Role is the binding of a Role to a Harness, with the source of each value.
 type Role struct {
 	// Role is the name of the Role
@@ -40,6 +57,8 @@ type Role struct {
 	Max int `gork:"max"`
 	// UI tells which values come from the UI
 	UI RoleFields `gork:"ui"`
+	// MoreBindings are the Implementer bindings after the first binding, in the order of the list. It is empty for each other Role.
+	MoreBindings []MoreBinding `gork:"moreBindings"`
 }
 
 // ListRolesRequest is the request of ListRoles.
@@ -64,9 +83,15 @@ func (h *handlers) ListRoles(ctx context.Context, _ ListRolesRequest) (*ListRole
 }
 
 func role(setting engine.RoleSetting) Role {
+	more := make([]MoreBinding, 0, len(setting.More))
+	for _, b := range setting.More {
+		more = append(more, MoreBinding{
+			ID: b.ID, Harness: string(b.Binding.Harness), Model: b.Binding.Model, Effort: b.Binding.Effort, Context: b.Binding.Context, Max: b.Binding.Max,
+		})
+	}
 	return Role{
 		Role: setting.Role, Harness: string(setting.Binding.Harness), Model: setting.Binding.Model, Effort: setting.Binding.Effort,
-		Context: setting.Binding.Context, Max: setting.Binding.Max, UI: RoleFields(setting.UI),
+		Context: setting.Binding.Context, Max: setting.Binding.Max, UI: RoleFields(setting.UI), MoreBindings: more,
 	}
 }
 
@@ -122,6 +147,73 @@ func (h *handlers) ResetRole(ctx context.Context, req ResetRoleRequest) (*RoleRe
 	return h.role(ctx, req.Path.Role)
 }
 
+// BindingBody is the body of AddImplementerBinding and SetImplementerBinding.
+type BindingBody struct {
+	// Harness is the agent program of the binding
+	Harness string `gork:"harness"`
+	// Model is the model of the binding
+	Model string `gork:"model"`
+	// Effort is the effort level of the binding. It is empty for a Harness with no effort levels.
+	Effort string `gork:"effort"`
+	// Context is the largest context of a session in tokens, or 0 for no limit
+	Context int `gork:"context"`
+	// Max is the number of sessions of the binding that run at the same time
+	Max int `gork:"max"`
+}
+
+func (b BindingBody) binding() config.RoleBinding {
+	return config.RoleBinding{Harness: config.Harness(b.Harness), Model: b.Model, Effort: b.Effort, Context: b.Context, Max: b.Max}
+}
+
+// AddImplementerBindingRequest is the request of AddImplementerBinding.
+type AddImplementerBindingRequest struct {
+	Body BindingBody
+}
+
+// SetImplementerBindingRequest is the request of SetImplementerBinding.
+type SetImplementerBindingRequest struct {
+	Path struct {
+		// ID is the id of the binding
+		ID int64 `gork:"id"`
+	}
+	Body BindingBody
+}
+
+// RemoveImplementerBindingRequest is the request of RemoveImplementerBinding.
+type RemoveImplementerBindingRequest struct {
+	Path struct {
+		// ID is the id of the binding, or 0 for the first binding
+		ID int64 `gork:"id"`
+	}
+}
+
+// AddImplementerBinding adds an Implementer binding at the end of the list. It returns 422 with the reason when the
+// values fail a check.
+func (h *handlers) AddImplementerBinding(ctx context.Context, req AddImplementerBindingRequest) (*RoleResponse, error) {
+	if _, err := h.engine.AddImplementerBinding(ctx, req.Body.binding()); err != nil {
+		return nil, roleError(err)
+	}
+	return h.role(ctx, "implementer")
+}
+
+// SetImplementerBinding changes an Implementer binding after the first binding. It returns 404 for an unknown id and
+// 422 with the reason when the values fail a check.
+func (h *handlers) SetImplementerBinding(ctx context.Context, req SetImplementerBindingRequest) (*RoleResponse, error) {
+	if err := h.engine.SetImplementerBinding(ctx, req.Path.ID, req.Body.binding()); err != nil {
+		return nil, roleError(err)
+	}
+	return h.role(ctx, "implementer")
+}
+
+// RemoveImplementerBinding removes an Implementer binding. The id 0 is the first binding, which the second binding
+// replaces. It returns 404 for an unknown id and 422 with the reason when the removal fails a check.
+func (h *handlers) RemoveImplementerBinding(ctx context.Context, req RemoveImplementerBindingRequest) (*RoleResponse, error) {
+	if err := h.engine.RemoveImplementerBinding(ctx, req.Path.ID); err != nil {
+		return nil, roleError(err)
+	}
+	return h.role(ctx, "implementer")
+}
+
 func (h *handlers) role(ctx context.Context, name string) (*RoleResponse, error) {
 	settings, err := h.engine.Roles(ctx)
 	if err != nil {
@@ -136,6 +228,9 @@ func (h *handlers) role(ctx context.Context, name string) (*RoleResponse, error)
 }
 
 func roleError(err error) error {
+	if errors.Is(err, engine.ErrNoImplementerBinding) {
+		return api.NewHTTPError(http.StatusNotFound, "The Implementer has no such binding.")
+	}
 	if engine.Refused(err) {
 		return api.NewHTTPError(http.StatusUnprocessableEntity, err.Error())
 	}
