@@ -3116,7 +3116,7 @@ test("screenshots", async ({ page }) => {
   const noIssueRepository = {
     issueRepository: "",
     issueRepositoryError:
-      "Mobius needs the issue repository of plants. Select it in the Checkup page Workstreams.",
+      'Mobius needs the issue repository of plants. Select it on the Checkup page "Workstreams", or set organizations.plants.issue_repository in config.toml.',
     issueRepositorySource: "none",
     maintenanceWorkstream: 0,
     skillsWorkstream: 0,

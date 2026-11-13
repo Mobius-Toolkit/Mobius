@@ -306,7 +306,7 @@ test("the Workstreams page shows the error of the issue repository with the pick
 }) => {
   const main = page.getByRole("main");
   const error =
-    "Mobius needs the issue repository of plants. Set organizations.plants.issue_repository in config.toml.";
+    'Mobius needs the issue repository of plants. Select it on the Checkup page "Workstreams", or set organizations.plants.issue_repository in config.toml.';
   await routeCheckup(page, [tool], {
     plants: {
       ...healthy,
