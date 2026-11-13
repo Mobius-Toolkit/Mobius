@@ -16,13 +16,15 @@ import {
   LoadApp,
   LoadExternal,
   Navigate,
+  Reload,
   ReplaceUrl,
   SettleScroll,
   StartUpgrade,
   SubmitLogin,
 } from "./commands";
+import { shownAutopilot } from "./autopilot";
 import { Message } from "./message";
-import { initialModel, type Model, type Upgrade } from "./model";
+import { initialModel, type Model, type Upgrade, type Workstream } from "./model";
 import { AppRoute, parseRoute } from "./route";
 import { update } from "./update";
 
@@ -105,6 +107,16 @@ describe("router update logic", () => {
       ),
       StoryCommand.expectHas(LoadExternal),
       StoryCommand.resolve(LoadExternal, Message.CompletedLoadExternal()),
+    );
+  });
+
+  it("reloads the page on ReloadRequested", () => {
+    story(
+      update,
+      given(createModel("/settings")),
+      message(Message.ReloadRequested()),
+      StoryCommand.expectExact(Reload()),
+      StoryCommand.resolve(Reload, Message.CompletedReload()),
     );
   });
 
@@ -464,6 +476,155 @@ describe("organization switch update logic", () => {
         expect(m.organization).toBe("owner");
       }),
     );
+  });
+});
+
+const workstream = (number: number, autopilot: Workstream["autopilot"]): Workstream => ({
+  allTasksClosed: false,
+  autopilot,
+  brief: "",
+  evergreen: false,
+  number,
+  readyToMerge: false,
+  repository: "owner/repo",
+  title: `Workstream ${number}`,
+});
+
+const storeChanged = (workstreams: Workstream[]) =>
+  Message.WorkstreamsStoreChanged({ workstreams, needsHuman: [], working: [] });
+
+const succeeded = (number: number, from: Workstream["autopilot"], to: Workstream["autopilot"]) =>
+  Message.SelectAutopilotSucceeded({ repository: "owner/repo", number, from, to });
+
+const open = (number: number, workstreams: Workstream[]): Model => {
+  const route = AppRoute.WorkstreamChat({ owner: "owner", name: "repo", number });
+  return createModel(`/workstreams/owner/repo/${number}`, { route, workstreams });
+};
+
+describe("autopilot level update logic", () => {
+  it("does not show the choice of one Workstream in another Workstream", () => {
+    const workstreams = [workstream(1, "start_and_merge"), workstream(2, "start_and_merge")];
+    const { model: next } = update(open(1, workstreams), succeeded(1, "start_and_merge", "off"));
+
+    expect(shownAutopilot(next, "owner/repo", 1)).toBe("off");
+    expect(shownAutopilot(next, "owner/repo", 2)).toBe("start_and_merge");
+  });
+
+  it("drops the choice when the store gives a new level for the Workstream", () => {
+    const { model: chosen } = update(
+      open(1, [workstream(1, "start_and_merge"), workstream(2, "merge")]),
+      succeeded(1, "start_and_merge", "off"),
+    );
+    const { model: moved } = update(
+      { ...chosen, route: parseRoute(urlOf("/workstreams")) },
+      storeChanged([workstream(1, "start"), workstream(2, "merge")]),
+    );
+
+    expect(Option.isNone(moved.chosenAutopilot)).toBe(true);
+    expect(shownAutopilot(moved, "owner/repo", 1)).toBe("start");
+  });
+
+  it("stores no choice when the store gave the new level before the reply", () => {
+    const { model: next } = update(
+      open(1, [workstream(1, "off")]),
+      succeeded(1, "start_and_merge", "off"),
+    );
+
+    expect(Option.isNone(next.chosenAutopilot)).toBe(true);
+    expect(shownAutopilot(next, "owner/repo", 1)).toBe("off");
+  });
+});
+
+const moveTo = (from: Model, number: number): Model =>
+  update(from, Message.UrlChanged({ url: urlOf(`/workstreams/owner/repo/${number}`) })).model;
+
+describe("workstream chat state update logic", () => {
+  it("shows the Autopilot error in the Workstream of the request only", () => {
+    const requested = update(
+      open(1, [workstream(1, "off"), workstream(2, "off")]),
+      Message.SelectAutopilotRequested({ level: "merge" }),
+    ).model;
+    expect(requested.autopilotBusy).toBe(true);
+
+    const moved = moveTo(requested, 2);
+    expect(moved.autopilotBusy).toBe(false);
+
+    const failed = update(
+      moved,
+      Message.SelectAutopilotFailed({ repository: "owner/repo", number: 1, error: "refused" }),
+    ).model;
+    expect(failed.autopilotBusy).toBe(false);
+    expect(failed.autopilotError).toBe("");
+
+    const failedInOpen = update(
+      requested,
+      Message.SelectAutopilotFailed({ repository: "owner/repo", number: 1, error: "refused" }),
+    ).model;
+    expect(failedInOpen.autopilotBusy).toBe(false);
+    expect(failedInOpen.autopilotError).toBe("refused");
+  });
+
+  it("clears the Autopilot error and the pending state on a move to another Workstream", () => {
+    const failed = update(
+      open(1, [workstream(1, "off"), workstream(2, "off")]),
+      Message.SelectAutopilotFailed({ repository: "owner/repo", number: 1, error: "refused" }),
+    ).model;
+    expect(failed.autopilotError).toBe("refused");
+
+    const moved = moveTo({ ...failed, autopilotBusy: true }, 2);
+    expect(moved.autopilotError).toBe("");
+    expect(moved.autopilotBusy).toBe(false);
+  });
+
+  it("shows the close error in the Workstream of the request only", () => {
+    const requested = update(
+      open(1, [workstream(1, "off"), workstream(2, "off")]),
+      Message.CloseWorkstreamRequested(),
+    ).model;
+    expect(requested.closeBusy).toBe(true);
+
+    const moved = moveTo(requested, 2);
+    expect(moved.closeBusy).toBe(false);
+
+    const failed = update(
+      moved,
+      Message.CloseWorkstreamFailed({ repository: "owner/repo", number: 1, error: "refused" }),
+    ).model;
+    expect(failed.closeBusy).toBe(false);
+    expect(failed.closeError).toBe("");
+
+    const closed = update(
+      { ...moved, closeBusy: true },
+      Message.CloseWorkstreamSucceeded({ repository: "owner/repo", number: 1 }),
+    ).model;
+    expect(closed.closeBusy).toBe(true);
+
+    const failedInOpen = update(
+      requested,
+      Message.CloseWorkstreamFailed({ repository: "owner/repo", number: 1, error: "refused" }),
+    ).model;
+    expect(failedInOpen.closeBusy).toBe(false);
+    expect(failedInOpen.closeError).toBe("refused");
+  });
+
+  it("clears the close error on a move to another Workstream", () => {
+    const failed = update(
+      open(1, [workstream(1, "off"), workstream(2, "off")]),
+      Message.CloseWorkstreamFailed({ repository: "owner/repo", number: 1, error: "refused" }),
+    ).model;
+    expect(failed.closeError).toBe("refused");
+
+    expect(moveTo(failed, 2).closeError).toBe("");
+  });
+
+  it("closes the Tasks sheet of a phone on a move to another Workstream", () => {
+    const opened = update(
+      open(1, [workstream(1, "off"), workstream(2, "off")]),
+      Message.SetMobileTasksOpen({ open: true }),
+    ).model;
+    expect(opened.mobileTasksOpen).toBe(true);
+
+    expect(moveTo(opened, 2).mobileTasksOpen).toBe(false);
   });
 });
 
