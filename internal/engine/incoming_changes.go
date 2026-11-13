@@ -146,7 +146,15 @@ func (e *Engine) applyIncomingChange(ctx context.Context, repository github.Repo
 		} else {
 			autoMerge = on
 		}
-		return e.changeLevel(ctx, repository, change.Number, copied.Title, AutopilotLevel(autopilot, autoMerge), "@"+change.Actor)
+		level := AutopilotLevel(autopilot, autoMerge)
+		if err := e.changeLevel(ctx, repository, change.Number, copied.Title, level, "@"+change.Actor); err != nil {
+			return err
+		}
+		// The level is stored, so a failed read of GitHub must not hold the change or the poll.
+		if err := e.applyLevel(ctx, change.Repository, change.Number, level); err != nil {
+			log.Printf("act on the live tasks of %s#%d after the level %s: %v", change.Repository, change.Number, level, err)
+		}
+		return nil
 	case change.Field == evergreenField && (copied.Maintenance || copied.Skills):
 		return e.writeBack(ctx, repository, change)
 	}

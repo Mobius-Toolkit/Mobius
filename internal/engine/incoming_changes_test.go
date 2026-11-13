@@ -198,3 +198,29 @@ func setEvergreenOf(t *testing.T, server *testserver.Server, on bool) {
 		t.Fatalf("status = %d: %s", status, text)
 	}
 }
+
+func TestAFailedPullRequestReadAfterATrustedLevelChangeStillGivesTheLeadTheEventAndMarksTheChangeDone(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := approvable(t, fake, "off", true)
+	sendChat(t, server, leadChat, "Approve #41")
+	waitForItem(t, server, "ready for review")
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "ready_for_review" })
+	waitForPolls(t, fake)
+	fake.FailPullRequestReads(true)
+
+	fake.AddLabel(shop, 12, "mobius:auto-merge", "owner")
+
+	testkit.WaitFor(t, func() bool { return incomingChanges(t, server, "done") == 1 })
+	testkit.WaitFor(t, func() bool { return len(autopilotEvents(t, server)) == 1 })
+	got := autopilotEvents(t, server)
+	if len(got) != 1 || !strings.HasSuffix(got[0], ` is "Merge only", by @owner.`) {
+		t.Errorf("events = %q", got)
+	}
+	if got := workstreams(t, server)[0].Autopilot; got != "merge" {
+		t.Errorf("level = %s", got)
+	}
+	if got := incomingChanges(t, server, "pending"); got != 0 {
+		t.Errorf("pending incoming changes = %d", got)
+	}
+}

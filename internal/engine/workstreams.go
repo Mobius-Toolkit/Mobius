@@ -491,23 +491,24 @@ func (e *Engine) SetAutopilot(ctx context.Context, repositoryName string, number
 	if err := e.changeLevel(ctx, repository, number, copied.Title, level, "the Owner"); err != nil {
 		return err
 	}
+	if err := e.applyLevel(ctx, repository.FullName, number, level); err != nil {
+		return err
+	}
 	e.addRecord(ctx, leadChat(repository.FullName, number), fmt.Sprintf("You set the Autopilot level to %s.", levelNames[level]))
 	return nil
 }
 
 // changeLevel is the handler of a change of the Autopilot level of the Workstream number of repository to level. It
 // sets the level, makes the next poll read the ready list in full, because a mobius:ready of the Mobius App can dispatch
-// with Autopilot, and acts on the live tasks (applyLevel). A level that differs from the old level also adds an event
-// for the Lead. title is the title of the Workstream. actor names who changed the level.
+// with Autopilot, and publishes the change. A level that differs from the old level also adds an event for the Lead.
+// title is the title of the Workstream. actor names who changed the level. The caller acts on the live tasks
+// (applyLevel).
 func (e *Engine) changeLevel(ctx context.Context, repository github.Repository, number int64, title, level, actor string) error {
 	changed, err := e.setLevel(ctx, repository, number, level)
 	if err != nil {
 		return err
 	}
 	if err := e.queries.SetSyncCursor(ctx, store.SetSyncCursorParams{Repository: repository.FullName, Endpoint: readyEndpoint}); err != nil {
-		return err
-	}
-	if err := e.applyLevel(ctx, repository.FullName, number, level); err != nil {
 		return err
 	}
 	e.publish(Change{Workstreams: true})
