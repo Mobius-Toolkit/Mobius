@@ -129,9 +129,11 @@ func TestASessionThatFollowsTheRoleAndWaitsForAFullBindingKeepsItsPlaceWhileTheF
 	go func() { _ = limited.Prompt(t.Context(), "Store plans in cents.", nil) }()
 	testkit.WaitFor(t, func() bool { _, found := devinPause(t, server); return found })
 	end(t, limited, "stopped")
-	earlier := startLater(t.Context(), server, implementerSpec(t, server, fake, 45))
+	earlierSpec := implementerSpec(t, server, fake, 45)
+	laterSpec := implementerSpec(t, server, fake, 47)
+	later := startLater(t.Context(), server, laterSpec)
 	queued(t, server, engine.ImplementerRole)
-	later := startLater(t.Context(), server, implementerSpec(t, server, fake, 47))
+	earlier := startLater(t.Context(), server, earlierSpec)
 	testkit.WaitFor(t, func() bool {
 		count := 0
 		for _, node := range tree(t, server) {
