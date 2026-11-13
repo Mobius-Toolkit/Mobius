@@ -332,17 +332,14 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 			if event.Actor == nil || event.GetCreatedAt().Before(since) {
 				continue
 			}
-			after := event.GetCreatedAt().After(since)
-			if after {
+			if event.GetCreatedAt().After(since) {
 				if err := e.workstreamEvent(ctx, repository, issue, event, firstPoll); err != nil {
 					return err
 				}
 			}
-			// The cursor has a precision of one second, so a setting label event of a person in the second of the cursor can be
-			// new. The unique index of the incoming changes stops a second row for an event that the poll reads again. An
-			// event of the Mobius App in that second has an own write that the first read deleted, so a second read would
-			// add an incoming change for it. The poll skips it.
-			if labeled && !firstPoll && (after || !strings.EqualFold(event.GetActor().GetLogin(), appLogin(repository.AppSlug))) {
+			// The cursor has a precision of one second, so a setting label event in the second of the cursor can be new.
+			// An incoming change keeps the id of each event that the poll read, so a second read does nothing.
+			if labeled && !firstPoll {
 				settingEvents = append(settingEvents, settingEvent{number, event})
 			}
 		}

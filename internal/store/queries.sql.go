@@ -654,7 +654,7 @@ func (q *Queries) AddInboxItem(ctx context.Context, arg AddInboxItemParams) (Inb
 
 const addIncomingChange = `-- name: AddIncomingChange :exec
 INSERT INTO incoming_changes (integration, external_id, repository, number, field, change, actor, metadata, status, created_at)
-VALUES ('github', ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+VALUES ('github', ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (integration, external_id) DO NOTHING
 `
 
@@ -666,6 +666,7 @@ type AddIncomingChangeParams struct {
 	Change     string
 	Actor      string
 	Metadata   string
+	Status     string
 	CreatedAt  string
 }
 
@@ -678,6 +679,7 @@ func (q *Queries) AddIncomingChange(ctx context.Context, arg AddIncomingChangePa
 		arg.Change,
 		arg.Actor,
 		arg.Metadata,
+		arg.Status,
 		arg.CreatedAt,
 	)
 	return err
@@ -4539,6 +4541,17 @@ type HasHeldLeadEventParams struct {
 
 func (q *Queries) HasHeldLeadEvent(ctx context.Context, arg HasHeldLeadEventParams) (bool, error) {
 	row := q.db.QueryRowContext(ctx, hasHeldLeadEvent, arg.WorkstreamRepository, arg.Repository, arg.Issue)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const hasIncomingChange = `-- name: HasIncomingChange :one
+SELECT EXISTS (SELECT 1 FROM incoming_changes WHERE integration = 'github' AND external_id = ?)
+`
+
+func (q *Queries) HasIncomingChange(ctx context.Context, externalID string) (bool, error) {
+	row := q.db.QueryRowContext(ctx, hasIncomingChange, externalID)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err

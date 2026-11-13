@@ -785,8 +785,11 @@ DELETE FROM outgoing_changes WHERE status <> 'pending' AND julianday(created_at)
 
 -- name: AddIncomingChange :exec
 INSERT INTO incoming_changes (integration, external_id, repository, number, field, change, actor, metadata, status, created_at)
-VALUES ('github', ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+VALUES ('github', ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (integration, external_id) DO NOTHING;
+
+-- name: HasIncomingChange :one
+SELECT EXISTS (SELECT 1 FROM incoming_changes WHERE integration = 'github' AND external_id = ?);
 
 -- name: ListPendingIncomingChanges :many
 SELECT * FROM incoming_changes WHERE repository = ? AND status = 'pending' ORDER BY id;

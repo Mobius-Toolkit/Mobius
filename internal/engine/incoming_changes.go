@@ -54,9 +54,9 @@ func addOwnWrite(ctx context.Context, q *store.Queries, change store.OutgoingCha
 	})
 }
 
-// addSettingChanges adds an incoming change for each event of a setting label, except the event of an own write of the
-// Mobius App. An own write is deleted when its event matches. The unique index of the external id stops a second row
-// for an event that the poll reads again.
+// addSettingChanges adds an incoming change for each event of a setting label that the poll did not read before. The
+// row keeps the id of the event, so a second read of the event does nothing. An event of the Mobius App that matches an
+// own write deletes the oldest matching own write, and its row is done, so no handler applies it.
 func addSettingChanges(ctx context.Context, q *store.Queries, repository github.Repository, events []settingEvent) error {
 	app := appLogin(repository.AppSlug)
 	for _, item := range events {
@@ -66,14 +66,23 @@ func addSettingChanges(ctx context.Context, q *store.Queries, repository github.
 		if !setting || change != labeledChange && change != unlabeledChange {
 			continue
 		}
+		externalID := strconv.FormatInt(item.event.GetID(), 10)
+		known, err := q.HasIncomingChange(ctx, externalID)
+		if err != nil {
+			return err
+		}
+		if known {
+			continue
+		}
 		actor := item.event.GetActor().GetLogin()
+		status := "pending"
 		if strings.EqualFold(actor, app) {
 			own, err := q.DeleteOldestOwnWrite(ctx, store.DeleteOldestOwnWriteParams{Repository: repository.FullName, Number: item.number, Label: label, Change: change})
 			if err != nil {
 				return err
 			}
 			if own > 0 {
-				continue
+				status = "done"
 			}
 		}
 		metadata, err := json.Marshal(map[string]string{"label": label})
@@ -81,13 +90,14 @@ func addSettingChanges(ctx context.Context, q *store.Queries, repository github.
 			return err
 		}
 		err = q.AddIncomingChange(ctx, store.AddIncomingChangeParams{
-			ExternalID: strconv.FormatInt(item.event.GetID(), 10),
+			ExternalID: externalID,
 			Repository: repository.FullName,
 			Number:     item.number,
 			Field:      field,
 			Change:     change,
 			Actor:      actor,
 			Metadata:   string(metadata),
+			Status:     status,
 			CreatedAt:  now(),
 		})
 		if err != nil {
