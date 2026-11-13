@@ -568,6 +568,46 @@ func TestMergeQueueManualHeadMergesAfterTheNewApprovalWithNoSecondMergeTap(t *te
 	}
 }
 
+// TestMergeQueueTaskOutsideTheQueueWithNewHeadWithNoMobiusCheckRunGoesBackForApprovalAndMerges verifies that a task with
+// auto_merge leaves the queue when its head fails a check run during a break of the default branch, with no fix round.
+// When a branch update outside the queue then gives a head with no Mobius check run, the task goes back for approval,
+// enters the queue after the new approval of the Lead, and merges.
+func TestMergeQueueTaskOutsideTheQueueWithNewHeadWithNoMobiusCheckRunGoesBackForApprovalAndMerges(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := queueTasksWith(t, fake, approveAgain([]int{41}, 41)+queueLead, "merge", []int{41})
+	old := head(t, fake, "mobius/41")
+	commitQueueFiles(fake, 41)
+	fake.HoldBranchUpdates()
+	sendChat(t, server, leadChat, "Approve #41")
+	testkit.WaitFor(t, func() bool { return fake.UpdateBranchCalls() == 1 })
+	if task := liveTask(t, server, 41); task.State != "ready_for_review" || task.AutoMerge != 1 || !task.MergeQueuedAt.Valid {
+		t.Fatalf("task = %+v, want ready_for_review with auto_merge in the queue", task)
+	}
+	hardBreak(t, server, fake)
+
+	fake.AddCheckRun(shop, checkRun("build", old, "completed", "failure"))
+
+	testkit.WaitFor(t, func() bool { return !liveTask(t, server, 41).MergeQueuedAt.Valid })
+	testkit.WaitFor(t, func() bool { return breakWaitHead(t, server) == old })
+	if task := liveTask(t, server, 41); task.State != "ready_for_review" || task.FixRounds != 0 {
+		t.Fatalf("task = %+v, want ready_for_review with no fix round", task)
+	}
+
+	fake.ReleaseBranchUpdates()
+
+	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, 41) == "" })
+	if got := head(t, fake, "mobius/41"); got == old {
+		t.Error("the head did not change")
+	}
+	if calls, updates := fake.MergeCalls(), fake.UpdateBranchCalls(); calls != 1 || updates != 1 {
+		t.Errorf("merge calls = %d, update calls = %d, want 1 and 1", calls, updates)
+	}
+	if count := approvals(fake); count != 2 {
+		t.Errorf("approvals = %d, want 2", count)
+	}
+}
+
 // TestMergeQueueReEntryGoesToEnd verifies that a task that left the queue and becomes ready again goes to the end.
 func TestMergeQueueReEntryGoesToEnd(t *testing.T) {
 	t.Parallel()

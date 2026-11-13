@@ -107,7 +107,10 @@ func (e *Engine) mergeApprovedAfterApproval(ctx context.Context, repository gith
 // the pull request and the new commits of the default branch change a common file, it updates the branch
 // (updateForMerge). A head that is behind with no common file merges with its approval. A head with no Mobius check
 // run, for example after the update of the branch, sends the task in ready_for_review back to checks
-// (returnForApproval), with or without auto_merge. When the head has no wait, it squash merges the pull request. It gives true when GitHub merged the pull request, and then it dismisses the open
+// (returnForApproval), with or without auto_merge. A task in ready_for_review that is not in the queue goes back in the
+// same way when its head has no Mobius check run and each other check run of the head passed. Thus a head that
+// changed outside the queue, for example by the end of a wait for a break of the CI (endBreakWait), gets the approval
+// again and then enters the queue. When the head has no wait, it squash merges the pull request. It gives true when GitHub merged the pull request, and then it dismisses the open
 // ready for review Inbox items of the issue and leaves the queue. It does not end the task: checkTask does that. When GitHub refuses the merge, the open ready for
 // review Inbox item of the issue gets the reason and the Lead gets an event, and the poll does not try again until a
 // new APPROVED review. A refusal for a pull request that a person merged in the meantime is no refusal: the next read
@@ -170,7 +173,13 @@ func (e *Engine) mergeApproved(ctx context.Context, repository github.Repository
 	}
 	if !task.MergeQueuedAt.Valid {
 		approvedByLead := slices.ContainsFunc(runs, func(run *gh.CheckRun) bool { return run.GetName() == checkRunName })
-		if !approvedByLead || slices.ContainsFunc(runs, func(run *gh.CheckRun) bool { return !passed(run) }) {
+		if slices.ContainsFunc(runs, func(run *gh.CheckRun) bool { return !passed(run) }) {
+			return false, nil
+		}
+		if !approvedByLead {
+			if task.State == "ready_for_review" {
+				return false, e.returnForApproval(ctx, task)
+			}
 			return false, nil
 		}
 		now := e.timeNow().UTC().Format(time.RFC3339Nano)
