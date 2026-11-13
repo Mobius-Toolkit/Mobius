@@ -75,7 +75,10 @@ func (e *Engine) poll(ctx context.Context) {
 				e.copied[repository.FullName] = true
 			}
 		}
-		if err := e.pollRepository(ctx, repository, work); err != nil {
+		start := time.Now()
+		err := e.pollRepository(ctx, repository, work)
+		log.Printf("poll %s: %s", repository.FullName, time.Since(start).Round(time.Millisecond))
+		if err != nil {
 			log.Printf("poll %s: %v", repository.FullName, err)
 			// A failed poll keeps the old work of the repository, so that it does not let a new ticket pass.
 			for task, old := range e.currentWork() {
@@ -194,10 +197,13 @@ func (e *Engine) pollRepository(ctx context.Context, repository github.Repositor
 	if err := e.startIdleLeads(ctx, repository.FullName); err != nil {
 		return err
 	}
-	if err := e.sendCommentWrites(ctx, repository); err != nil {
+	if err := e.sendOutgoingChanges(ctx, repository); err != nil {
 		return err
 	}
-	if err := e.checkTasks(ctx, repository, work); err != nil {
+	start := time.Now()
+	err := e.checkTasks(ctx, repository, work)
+	log.Printf("check the tasks of %s: %s", repository.FullName, time.Since(start).Round(time.Millisecond))
+	if err != nil {
 		return err
 	}
 	if err := e.sendStopNotices(ctx, repository.FullName, 0); err != nil {

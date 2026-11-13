@@ -237,29 +237,6 @@ func (q *Queries) AddCheckTimeout(ctx context.Context, arg AddCheckTimeoutParams
 	return err
 }
 
-const addCommentWrite = `-- name: AddCommentWrite :exec
-INSERT INTO comment_writes (repository, number, comment, reply_to, body) VALUES (?, ?, ?, ?, ?)
-`
-
-type AddCommentWriteParams struct {
-	Repository string
-	Number     sql.NullInt64
-	Comment    sql.NullInt64
-	ReplyTo    sql.NullInt64
-	Body       string
-}
-
-func (q *Queries) AddCommentWrite(ctx context.Context, arg AddCommentWriteParams) error {
-	_, err := q.db.ExecContext(ctx, addCommentWrite,
-		arg.Repository,
-		arg.Number,
-		arg.Comment,
-		arg.ReplyTo,
-		arg.Body,
-	)
-	return err
-}
-
 const addCopiedBlocker = `-- name: AddCopiedBlocker :exec
 INSERT INTO copied_blockers (repository, workstream, position, blocker_repository, number, blocker_workstream, blocker_workstream_title)
 VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -370,23 +347,17 @@ func (q *Queries) AddCopiedIssueLabelIfMissing(ctx context.Context, arg AddCopie
 }
 
 const addCopiedWorkstream = `-- name: AddCopiedWorkstream :exec
-INSERT INTO copied_workstreams (repository, number, title, body, autopilot, auto_merge, evergreen, skills, maintenance, created_at)
-VALUES (?1, ?2, ?3, ?4, CAST(?5 AS BOOLEAN), CAST(?6 AS BOOLEAN),
-        CAST(?7 AS BOOLEAN), CAST(?8 AS BOOLEAN), CAST(?9 AS BOOLEAN), ?10)
+INSERT INTO copied_workstreams (repository, number, title, body, created_at)
+VALUES (?, ?, ?, ?, ?)
 ON CONFLICT (repository, number) DO NOTHING
 `
 
 type AddCopiedWorkstreamParams struct {
-	Repository  string
-	Number      int64
-	Title       string
-	Body        string
-	Autopilot   bool
-	AutoMerge   bool
-	Evergreen   bool
-	Skills      bool
-	Maintenance bool
-	CreatedAt   string
+	Repository string
+	Number     int64
+	Title      string
+	Body       string
+	CreatedAt  string
 }
 
 // The Lead tool create_workstream and the poll can both add a new Workstream.
@@ -396,11 +367,6 @@ func (q *Queries) AddCopiedWorkstream(ctx context.Context, arg AddCopiedWorkstre
 		arg.Number,
 		arg.Title,
 		arg.Body,
-		arg.Autopilot,
-		arg.AutoMerge,
-		arg.Evergreen,
-		arg.Skills,
-		arg.Maintenance,
 		arg.CreatedAt,
 	)
 	return err
@@ -792,6 +758,34 @@ func (q *Queries) AddMemoryVersion(ctx context.Context, arg AddMemoryVersionPara
 		arg.Text,
 	)
 	return err
+}
+
+const addOutgoingChange = `-- name: AddOutgoingChange :one
+INSERT INTO outgoing_changes (integration, repository, number, reply_to, field, text, status, created_at) VALUES ('github', ?, ?, ?, ?, ?, 'pending', ?)
+RETURNING id
+`
+
+type AddOutgoingChangeParams struct {
+	Repository string
+	Number     int64
+	ReplyTo    sql.NullInt64
+	Field      string
+	Text       sql.NullString
+	CreatedAt  string
+}
+
+func (q *Queries) AddOutgoingChange(ctx context.Context, arg AddOutgoingChangeParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, addOutgoingChange,
+		arg.Repository,
+		arg.Number,
+		arg.ReplyTo,
+		arg.Field,
+		arg.Text,
+		arg.CreatedAt,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const addOwnerAction = `-- name: AddOwnerAction :exec
@@ -1706,15 +1700,6 @@ func (q *Queries) DeleteChatMessage(ctx context.Context, id int64) error {
 	return err
 }
 
-const deleteCommentWrite = `-- name: DeleteCommentWrite :exec
-DELETE FROM comment_writes WHERE id = ?
-`
-
-func (q *Queries) DeleteCommentWrite(ctx context.Context, id int64) error {
-	_, err := q.db.ExecContext(ctx, deleteCommentWrite, id)
-	return err
-}
-
 const deleteCopiedBlocker = `-- name: DeleteCopiedBlocker :execrows
 DELETE FROM copied_blockers WHERE blocker_repository = ? AND number = ?
 `
@@ -1899,6 +1884,15 @@ DELETE FROM device_logins WHERE id = ?
 
 func (q *Queries) DeleteDeviceLogin(ctx context.Context, id int64) error {
 	_, err := q.db.ExecContext(ctx, deleteDeviceLogin, id)
+	return err
+}
+
+const deleteFinishedOutgoingChanges = `-- name: DeleteFinishedOutgoingChanges :exec
+DELETE FROM outgoing_changes WHERE status <> 'pending' AND julianday(created_at) < julianday(?)
+`
+
+func (q *Queries) DeleteFinishedOutgoingChanges(ctx context.Context, julianday interface{}) error {
+	_, err := q.db.ExecContext(ctx, deleteFinishedOutgoingChanges, julianday)
 	return err
 }
 
@@ -2698,7 +2692,9 @@ func (q *Queries) GetChatMessage(ctx context.Context, id int64) (ChatMessage, er
 }
 
 const getCopiedAutopilot = `-- name: GetCopiedAutopilot :one
-SELECT CAST(autopilot AS BOOLEAN) AS autopilot, CAST(auto_merge AS BOOLEAN) AS auto_merge FROM copied_workstreams WHERE repository = ? AND number = ?
+SELECT CAST(s.autopilot AS BOOLEAN) AS autopilot, CAST(s.auto_merge AS BOOLEAN) AS auto_merge FROM workstreams s
+JOIN copied_workstreams w ON w.repository = s.repository AND w.number = s.number
+WHERE s.repository = ? AND s.number = ?
 `
 
 type GetCopiedAutopilotParams struct {
@@ -2778,8 +2774,10 @@ func (q *Queries) GetCopiedIssueWorkstream(ctx context.Context, arg GetCopiedIss
 }
 
 const getCopiedWorkstream = `-- name: GetCopiedWorkstream :one
-SELECT title, body, CAST(evergreen AS BOOLEAN) AS evergreen, CAST(maintenance AS BOOLEAN) AS maintenance, CAST(skills AS BOOLEAN) AS skills, created_at
-FROM copied_workstreams WHERE repository = ? AND number = ?
+SELECT w.title, w.body, CAST(s.evergreen AS BOOLEAN) AS evergreen, CAST(s.maintenance AS BOOLEAN) AS maintenance, CAST(s.skills AS BOOLEAN) AS skills, w.created_at
+FROM copied_workstreams w
+JOIN workstreams s ON s.repository = w.repository AND s.number = w.number
+WHERE w.repository = ? AND w.number = ?
 `
 
 type GetCopiedWorkstreamParams struct {
@@ -3246,6 +3244,22 @@ func (q *Queries) GetLiveTaskByPullRequest(ctx context.Context, arg GetLiveTaskB
 	return i, err
 }
 
+const getMaintenanceWorkstream = `-- name: GetMaintenanceWorkstream :one
+SELECT w.number FROM copied_workstreams w
+JOIN workstreams s ON s.repository = w.repository AND s.number = w.number
+WHERE s.maintenance AND w.repository = ?
+ORDER BY w.number
+LIMIT 1
+`
+
+// The open Workstream with the label mobius:maintenance in a repository, with the lowest number.
+func (q *Queries) GetMaintenanceWorkstream(ctx context.Context, repository string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, getMaintenanceWorkstream, repository)
+	var number int64
+	err := row.Scan(&number)
+	return number, err
+}
+
 const getMcpServer = `-- name: GetMcpServer :one
 SELECT id, organization, name, kind, url, headers, command, args, env, updated_at FROM mcp_servers
 WHERE id = ? AND organization = ?
@@ -3507,6 +3521,64 @@ func (q *Queries) GetNewestStopText(ctx context.Context, arg GetNewestStopTextPa
 	return text, err
 }
 
+const getNewestTaskOfPullRequest = `-- name: GetNewestTaskOfPullRequest :one
+SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head, state_at, long_wait_at, check_errors, lead_findings, recoveries, break_wait_head, rerun_head, rerun_runs, workstream_repository, branch_checked, auto_merge, approved_head, report, approved_report, approved_again_head, approved_again_comment, approved_report_head, merge_queued_at, reviewed_head FROM tasks WHERE repository = ? AND pull_request = ? ORDER BY id DESC LIMIT 1
+`
+
+type GetNewestTaskOfPullRequestParams struct {
+	Repository  string
+	PullRequest sql.NullInt64
+}
+
+func (q *Queries) GetNewestTaskOfPullRequest(ctx context.Context, arg GetNewestTaskOfPullRequestParams) (Task, error) {
+	row := q.db.QueryRowContext(ctx, getNewestTaskOfPullRequest, arg.Repository, arg.PullRequest)
+	var i Task
+	err := row.Scan(
+		&i.ID,
+		&i.Repository,
+		&i.Issue,
+		&i.Workstream,
+		&i.State,
+		&i.DispatchedAt,
+		&i.Branch,
+		&i.QueuedAt,
+		&i.FixRounds,
+		&i.PullRequest,
+		&i.JudgedAt,
+		&i.WorkerRestarts,
+		&i.Worker,
+		&i.WorkerInput,
+		&i.ReviewRounds,
+		&i.ReviewComment,
+		&i.CheckHead,
+		&i.ApprovedReview,
+		&i.RefusedReview,
+		&i.NeedsHumanAt,
+		&i.ConflictHead,
+		&i.CiFailedHead,
+		&i.StateAt,
+		&i.LongWaitAt,
+		&i.CheckErrors,
+		&i.LeadFindings,
+		&i.Recoveries,
+		&i.BreakWaitHead,
+		&i.RerunHead,
+		&i.RerunRuns,
+		&i.WorkstreamRepository,
+		&i.BranchChecked,
+		&i.AutoMerge,
+		&i.ApprovedHead,
+		&i.Report,
+		&i.ApprovedReport,
+		&i.ApprovedAgainHead,
+		&i.ApprovedAgainComment,
+		&i.ApprovedReportHead,
+		&i.MergeQueuedAt,
+		&i.ReviewedHead,
+	)
+	return i, err
+}
+
 const getNewestTaskPullRequest = `-- name: GetNewestTaskPullRequest :one
 SELECT pull_request FROM tasks WHERE repository = ? AND issue = ? ORDER BY id DESC LIMIT 1
 `
@@ -3598,6 +3670,27 @@ func (q *Queries) GetOpenFailedItemOfMessage(ctx context.Context, chatMessage sq
 		&i.Questions,
 		&i.Answer,
 		&i.Withdrawn,
+	)
+	return i, err
+}
+
+const getOutgoingChange = `-- name: GetOutgoingChange :one
+SELECT id, integration, repository, number, reply_to, field, text, status, created_at FROM outgoing_changes WHERE id = ?
+`
+
+func (q *Queries) GetOutgoingChange(ctx context.Context, id int64) (OutgoingChange, error) {
+	row := q.db.QueryRowContext(ctx, getOutgoingChange, id)
+	var i OutgoingChange
+	err := row.Scan(
+		&i.ID,
+		&i.Integration,
+		&i.Repository,
+		&i.Number,
+		&i.ReplyTo,
+		&i.Field,
+		&i.Text,
+		&i.Status,
+		&i.CreatedAt,
 	)
 	return i, err
 }
@@ -3845,9 +3938,10 @@ func (q *Queries) GetSession(ctx context.Context, id int64) (Session, error) {
 }
 
 const getSkillsWorkstream = `-- name: GetSkillsWorkstream :one
-SELECT repository, number FROM copied_workstreams
-WHERE skills AND substr(repository, 1, length(?1) + 1) = ?1 || '/'
-ORDER BY number, repository
+SELECT w.repository, w.number FROM copied_workstreams w
+JOIN workstreams s ON s.repository = w.repository AND s.number = w.number
+WHERE s.skills AND substr(w.repository, 1, length(?1) + 1) = ?1 || '/'
+ORDER BY w.number, w.repository
 LIMIT 1
 `
 
@@ -4442,7 +4536,10 @@ func (q *Queries) ListAllRecurringTasks(ctx context.Context) ([]RecurringTask, e
 }
 
 const listAutopilotWorkstreams = `-- name: ListAutopilotWorkstreams :many
-SELECT number FROM copied_workstreams WHERE repository = ? AND autopilot ORDER BY number DESC
+SELECT w.number FROM copied_workstreams w
+JOIN workstreams s ON s.repository = w.repository AND s.number = w.number
+WHERE w.repository = ? AND s.autopilot
+ORDER BY w.number DESC
 `
 
 func (q *Queries) ListAutopilotWorkstreams(ctx context.Context, repository string) ([]int64, error) {
@@ -5109,40 +5206,6 @@ func (q *Queries) ListChatMessagesPage(ctx context.Context, arg ListChatMessages
 	return items, nil
 }
 
-const listCommentWrites = `-- name: ListCommentWrites :many
-SELECT id, repository, number, comment, body, reply_to FROM comment_writes WHERE repository = ? ORDER BY id
-`
-
-func (q *Queries) ListCommentWrites(ctx context.Context, repository string) ([]CommentWrite, error) {
-	rows, err := q.db.QueryContext(ctx, listCommentWrites, repository)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []CommentWrite
-	for rows.Next() {
-		var i CommentWrite
-		if err := rows.Scan(
-			&i.ID,
-			&i.Repository,
-			&i.Number,
-			&i.Comment,
-			&i.Body,
-			&i.ReplyTo,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listCopiedIssueLabels = `-- name: ListCopiedIssueLabels :many
 SELECT name FROM copied_issue_labels WHERE repository = ? AND workstream = ? AND position = ? ORDER BY name
 `
@@ -5528,9 +5591,9 @@ func (q *Queries) ListCopiedTreeLabels(ctx context.Context, arg ListCopiedTreeLa
 }
 
 const listCopiedWorkstreams = `-- name: ListCopiedWorkstreams :many
-SELECT w.repository, w.number, w.title, w.body, CAST(w.autopilot AS BOOLEAN) AS autopilot,
-       CAST(w.auto_merge AS BOOLEAN) AS auto_merge,
-       CAST(w.evergreen AS BOOLEAN) AS evergreen,
+SELECT w.repository, w.number, w.title, w.body, CAST(s.autopilot AS BOOLEAN) AS autopilot,
+       CAST(s.auto_merge AS BOOLEAN) AS auto_merge,
+       CAST(s.evergreen AS BOOLEAN) AS evergreen,
        CAST(EXISTS (SELECT 1 FROM copied_issues i
                WHERE i.repository = w.repository AND i.workstream = w.number AND i.parent = w.number AND i.parent_repository = w.repository)
        AND NOT EXISTS (SELECT 1 FROM copied_issues i
@@ -5539,6 +5602,7 @@ SELECT w.repository, w.number, w.title, w.body, CAST(w.autopilot AS BOOLEAN) AS 
        CAST(EXISTS (SELECT 1 FROM tasks t
                WHERE t.workstream_repository = w.repository AND t.workstream = w.number AND t.state = 'ready_for_review') AS BOOLEAN) AS ready_to_merge
 FROM copied_workstreams w
+JOIN workstreams s ON s.repository = w.repository AND s.number = w.number
 ORDER BY w.repository, w.number DESC
 `
 
@@ -7847,6 +7911,43 @@ func (q *Queries) ListOwnerMessagesSince(ctx context.Context, arg ListOwnerMessa
 	return items, nil
 }
 
+const listPendingOutgoingChanges = `-- name: ListPendingOutgoingChanges :many
+SELECT id, integration, repository, number, reply_to, field, text, status, created_at FROM outgoing_changes WHERE repository = ? AND status = 'pending' ORDER BY id
+`
+
+func (q *Queries) ListPendingOutgoingChanges(ctx context.Context, repository string) ([]OutgoingChange, error) {
+	rows, err := q.db.QueryContext(ctx, listPendingOutgoingChanges, repository)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []OutgoingChange
+	for rows.Next() {
+		var i OutgoingChange
+		if err := rows.Scan(
+			&i.ID,
+			&i.Integration,
+			&i.Repository,
+			&i.Number,
+			&i.ReplyTo,
+			&i.Field,
+			&i.Text,
+			&i.Status,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listQueuedTasks = `-- name: ListQueuedTasks :many
 SELECT id, queued_at, EXISTS (
   SELECT 1 FROM ci_breaks WHERE ci_breaks.repository = tasks.repository AND ci_breaks.issue = tasks.issue
@@ -9851,7 +9952,7 @@ func (q *Queries) SetCheckTimeoutIssue(ctx context.Context, arg SetCheckTimeoutI
 }
 
 const setCopiedAutopilot = `-- name: SetCopiedAutopilot :exec
-UPDATE copied_workstreams SET autopilot = CAST(?1 AS BOOLEAN), auto_merge = CAST(?2 AS BOOLEAN)
+UPDATE workstreams SET autopilot = CAST(?1 AS BOOLEAN), auto_merge = CAST(?2 AS BOOLEAN)
 WHERE repository = ?3 AND number = ?4
 `
 
@@ -9873,7 +9974,7 @@ func (q *Queries) SetCopiedAutopilot(ctx context.Context, arg SetCopiedAutopilot
 }
 
 const setCopiedEvergreen = `-- name: SetCopiedEvergreen :exec
-UPDATE copied_workstreams SET evergreen = CAST(?1 AS BOOLEAN)
+UPDATE workstreams SET evergreen = CAST(?1 AS BOOLEAN)
 WHERE repository = ?2 AND number = ?3
 `
 
@@ -10101,6 +10202,20 @@ func (q *Queries) SetLeadWriteItem(ctx context.Context, arg SetLeadWriteItemPara
 	return err
 }
 
+const setOutgoingChangeStatus = `-- name: SetOutgoingChangeStatus :exec
+UPDATE outgoing_changes SET status = ? WHERE id = ?
+`
+
+type SetOutgoingChangeStatusParams struct {
+	Status string
+	ID     int64
+}
+
+func (q *Queries) SetOutgoingChangeStatus(ctx context.Context, arg SetOutgoingChangeStatusParams) error {
+	_, err := q.db.ExecContext(ctx, setOutgoingChangeStatus, arg.Status, arg.ID)
+	return err
+}
+
 const setOwnerActionDone = `-- name: SetOwnerActionDone :exec
 UPDATE owner_actions SET done_at = ? WHERE id = ?
 `
@@ -10253,6 +10368,22 @@ type SetReviewCommentParams struct {
 
 func (q *Queries) SetReviewComment(ctx context.Context, arg SetReviewCommentParams) error {
 	_, err := q.db.ExecContext(ctx, setReviewComment, arg.ReviewComment, arg.ID)
+	return err
+}
+
+const setReviewCommentOfPullRequest = `-- name: SetReviewCommentOfPullRequest :exec
+UPDATE tasks SET review_comment = ?
+WHERE id = (SELECT t.id FROM tasks t WHERE t.repository = ? AND t.pull_request = ? ORDER BY t.id DESC LIMIT 1)
+`
+
+type SetReviewCommentOfPullRequestParams struct {
+	ReviewComment sql.NullInt64
+	Repository    string
+	PullRequest   sql.NullInt64
+}
+
+func (q *Queries) SetReviewCommentOfPullRequest(ctx context.Context, arg SetReviewCommentOfPullRequestParams) error {
+	_, err := q.db.ExecContext(ctx, setReviewCommentOfPullRequest, arg.ReviewComment, arg.Repository, arg.PullRequest)
 	return err
 }
 
@@ -11030,36 +11161,22 @@ func (q *Queries) UpdateCopiedIssue(ctx context.Context, arg UpdateCopiedIssuePa
 }
 
 const updateCopiedWorkstream = `-- name: UpdateCopiedWorkstream :execrows
-UPDATE copied_workstreams SET title = ?1, body = ?2, autopilot = CAST(?3 AS BOOLEAN),
-    auto_merge = CAST(?4 AS BOOLEAN), evergreen = CAST(?5 AS BOOLEAN), skills = CAST(?6 AS BOOLEAN),
-    maintenance = CAST(?7 AS BOOLEAN)
-WHERE repository = ?8 AND number = ?9
-  AND (title != ?1 OR body != ?2 OR autopilot != CAST(?3 AS BOOLEAN)
-       OR auto_merge != CAST(?4 AS BOOLEAN) OR evergreen != CAST(?5 AS BOOLEAN) OR skills != CAST(?6 AS BOOLEAN)
-       OR maintenance != CAST(?7 AS BOOLEAN))
+UPDATE copied_workstreams SET title = ?1, body = ?2
+WHERE repository = ?3 AND number = ?4
+  AND (title != ?1 OR body != ?2)
 `
 
 type UpdateCopiedWorkstreamParams struct {
-	Title       string
-	Body        string
-	Autopilot   bool
-	AutoMerge   bool
-	Evergreen   bool
-	Skills      bool
-	Maintenance bool
-	Repository  string
-	Number      int64
+	Title      string
+	Body       string
+	Repository string
+	Number     int64
 }
 
 func (q *Queries) UpdateCopiedWorkstream(ctx context.Context, arg UpdateCopiedWorkstreamParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, updateCopiedWorkstream,
 		arg.Title,
 		arg.Body,
-		arg.Autopilot,
-		arg.AutoMerge,
-		arg.Evergreen,
-		arg.Skills,
-		arg.Maintenance,
 		arg.Repository,
 		arg.Number,
 	)
@@ -11228,6 +11345,45 @@ type UpsertVoiceLanguageParams struct {
 func (q *Queries) UpsertVoiceLanguage(ctx context.Context, arg UpsertVoiceLanguageParams) error {
 	_, err := q.db.ExecContext(ctx, upsertVoiceLanguage, arg.Language, arg.UpdatedAt)
 	return err
+}
+
+const upsertWorkstream = `-- name: UpsertWorkstream :execrows
+INSERT INTO workstreams (repository, number, autopilot, auto_merge, evergreen, maintenance, skills)
+VALUES (?1, ?2, CAST(?3 AS BOOLEAN), CAST(?4 AS BOOLEAN),
+        CAST(?5 AS BOOLEAN), CAST(?6 AS BOOLEAN), CAST(?7 AS BOOLEAN))
+ON CONFLICT (repository, number) DO UPDATE SET
+    autopilot = excluded.autopilot, auto_merge = excluded.auto_merge, evergreen = excluded.evergreen,
+    maintenance = excluded.maintenance, skills = excluded.skills
+WHERE workstreams.autopilot != excluded.autopilot OR workstreams.auto_merge != excluded.auto_merge
+   OR workstreams.evergreen != excluded.evergreen OR workstreams.maintenance != excluded.maintenance
+   OR workstreams.skills != excluded.skills
+`
+
+type UpsertWorkstreamParams struct {
+	Repository  string
+	Number      int64
+	Autopilot   bool
+	AutoMerge   bool
+	Evergreen   bool
+	Maintenance bool
+	Skills      bool
+}
+
+// The row stays after the copy of its Workstream goes away. It gives true when it added or changed the row.
+func (q *Queries) UpsertWorkstream(ctx context.Context, arg UpsertWorkstreamParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, upsertWorkstream,
+		arg.Repository,
+		arg.Number,
+		arg.Autopilot,
+		arg.AutoMerge,
+		arg.Evergreen,
+		arg.Maintenance,
+		arg.Skills,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const withdrawPendingAction = `-- name: WithdrawPendingAction :one

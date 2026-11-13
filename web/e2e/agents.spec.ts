@@ -69,6 +69,41 @@ test("the Agents tab of a Workstream shows the state of each agent with a queue 
   }
 });
 
+// The engine clock of TestServer is 2026-09-28 09:30 UTC, so the engine closes the kept session of plants/garden#85 at
+// 10:30 UTC. The test closes it, so it runs one time for each server.
+test("the Agents tab of a Workstream shows a kept session with a countdown, and removes it at the close", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.clock.install({ time: new Date("2026-09-28T09:40:00Z") });
+  await page.goto("/api/github/user-callback?code=user-code");
+  await page.goto("/workstreams/plants/garden/11");
+  await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
+  const tree = page.getByRole("complementary");
+  const kept = tree.getByRole("button", { name: /closes in/ });
+  await expect(kept).toHaveCount(1);
+  await expect(kept).toContainText("closes in 50 min");
+  await expect(kept.getByText("kept", { exact: true })).toBeVisible();
+  await expect(kept.getByText("stopped")).toBeHidden();
+  await expect(kept.locator("span.rounded-full")).toHaveClass(/border-muted-foreground/);
+
+  await page.clock.fastForward(60_000);
+  await expect(kept).toContainText("closes in 49 min");
+
+  await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
+  const stopped = page.waitForResponse((response) => response.url().endsWith("/issues/85/stop"));
+  await page.getByRole("button", { name: "Stop #85" }).click();
+  expect((await stopped).ok()).toBe(true);
+  await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
+  await expect(kept).toHaveCount(0);
+  const implementer = tree.getByRole("button", { name: /^implementer devin/ });
+  await expect(implementer).toHaveCount(0);
+  await tree.getByRole("switch", { name: "Show stopped agents" }).click();
+  await expect(implementer).toHaveCount(1);
+  await expect(implementer.getByText("stopped", { exact: true })).toBeVisible();
+  await expect(implementer).not.toContainText("closes in");
+});
+
 // Changes the live Implementer session of #41, and sets the old reason again at the end.
 async function withQueueReason(page: Page, reason: string, run: () => Promise<void>) {
   const put = (value: string) =>

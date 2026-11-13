@@ -316,6 +316,7 @@ func (g *FakeGitHub) submitReview(w http.ResponseWriter, r *http.Request) {
 	state := "COMMENTED"
 	if review.Event == "APPROVE" {
 		state = "APPROVED"
+		g.recordEvent("approve", key)
 	}
 	found.reviews = append(found.reviews, reviewJSON{ID: g.lastReviewID, User: loginJSON{caller.login}, CommitID: review.CommitID, Body: review.Body, State: state, SubmittedAt: timestamp(g.tick())})
 	for _, comment := range review.Comments {
