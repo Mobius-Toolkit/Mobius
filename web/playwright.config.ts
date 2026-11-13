@@ -43,7 +43,9 @@ const serverCommand = {
 } as const;
 
 // The test creates the Apps in the UI, and it changes data that the other groups must not see.
-const projectsScreenshots = [{ name: "screenshots", testMatch: "screenshots.spec.ts" }];
+const projectsScreenshots: PlaywrightTestProject[] = [
+  { name: "screenshots", testMatch: "screenshots.spec.ts" },
+];
 
 const projectsA = [
   groupA({ name: "pending", testMatch: "pending.spec.ts" }),
