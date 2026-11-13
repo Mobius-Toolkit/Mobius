@@ -159,6 +159,9 @@ func (e *Engine) pollRepository(ctx context.Context, repository github.Repositor
 	if err := e.changedIssues(ctx, repository); err != nil {
 		return err
 	}
+	if err := e.applyIncomingChanges(ctx, repository); err != nil {
+		return err
+	}
 	e.checkCopiedTrees(ctx, repository)
 	e.fillBuckets(ctx, repository)
 	if err := e.startHeldTriagers(ctx, repository); err != nil {
@@ -221,7 +224,8 @@ func (e *Engine) pollRepository(ctx context.Context, repository github.Repositor
 // changedIssues reads the issues and pull requests that changed at or after the `since` cursor, reads the new comments
 // of the repository with two calls, and reads the reviews and the review threads of the open pull requests with one
 // call. Then it starts the Triager of an issue, acts on the comments, stops a Triager, updates the copy, acts on the new events of the Workstreams, and
-// moves the cursors to the last change. The first poll of a repository has no issues row in the cursors, so it reads
+// moves the cursors to the last change. It adds the incoming changes of the new setting label events in the transaction
+// of the issue cursor. The first poll of a repository has no issues row in the cursors, so it reads
 // all issues, and it cannot see which event is new. It reads no comment: the next poll starts each comment list at the
 // issue cursor. A repository with no issue has a row with no time, so its next poll is not a first poll.
 func (e *Engine) changedIssues(ctx context.Context, repository github.Repository) error {
@@ -284,6 +288,7 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 		return err
 	}
 	listChanged := false
+	var settingEvents []settingEvent
 	for _, issue := range page.Issues {
 		number := int64(issue.GetNumber())
 		triaged, err := e.startTriage(ctx, repository, issue, conversation[number], since, firstPoll)
@@ -324,11 +329,18 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 			listChanged = listChanged || copyChanged
 		}
 		for _, event := range events {
-			if event.Actor == nil || !event.GetCreatedAt().After(since) {
+			if event.Actor == nil || event.GetCreatedAt().Before(since) {
 				continue
 			}
-			if err := e.workstreamEvent(ctx, repository, issue, event, firstPoll); err != nil {
-				return err
+			if event.GetCreatedAt().After(since) {
+				if err := e.workstreamEvent(ctx, repository, issue, event, firstPoll); err != nil {
+					return err
+				}
+			}
+			// The cursor has a precision of one second, so a setting label event in the second of the cursor can be new.
+			// An incoming change keeps the id of each event that the poll read, so a second read does nothing.
+			if labeled && !firstPoll {
+				settingEvents = append(settingEvents, settingEvent{number, event})
 			}
 		}
 	}
@@ -351,12 +363,17 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 			since = issue.GetUpdatedAt().Time
 		}
 	}
-	return e.queries.SetSyncCursor(ctx, store.SetSyncCursorParams{
-		Repository: repository.FullName,
-		Endpoint:   issuesEndpoint,
-		// The rows of the Rust version have the same format.
-		Since: sql.NullString{String: since.UTC().Format(time.RFC3339), Valid: !since.IsZero()},
-		Etag:  sql.NullString{String: page.ETag, Valid: page.ETag != ""},
+	return e.inTx(ctx, func(q *store.Queries) error {
+		if err := addSettingChanges(ctx, q, repository, settingEvents); err != nil {
+			return err
+		}
+		return q.SetSyncCursor(ctx, store.SetSyncCursorParams{
+			Repository: repository.FullName,
+			Endpoint:   issuesEndpoint,
+			// The rows of the Rust version have the same format.
+			Since: sql.NullString{String: since.UTC().Format(time.RFC3339), Valid: !since.IsZero()},
+			Etag:  sql.NullString{String: page.ETag, Valid: page.ETag != ""},
+		})
 	})
 }
 

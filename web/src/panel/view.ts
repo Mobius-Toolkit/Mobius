@@ -93,7 +93,24 @@ function renderContent(h: H, model: Model): Html {
   }
 }
 
-export function view(model: Model, h: H): Html {
+export function briefView(model: Model, h: H): Html {
+  beginMarkdownRender();
+  return h.div(
+    [h.Class("flex min-h-0 grow flex-col")],
+    [
+      h.div(
+        [
+          h.Class("min-h-0 grow overflow-y-auto p-2 text-sm"),
+          h.OnMount(Mount.mapMessage(Watch({ owner: "brief" }), toGotSelectionMessage)),
+        ],
+        [renderMarkdown(h, model.brief)],
+      ),
+      renderSelectionPopover(h, model.selection, toGotSelectionMessage),
+    ],
+  );
+}
+
+function renderPanel(h: H, model: Model, shownTabs: typeof tabs): Html {
   beginMarkdownRender();
   return h.div(
     [
@@ -111,7 +128,7 @@ export function view(model: Model, h: H): Html {
           h.DataAttribute("orientation", "horizontal"),
           h.Class(listClass),
         ],
-        tabs.map((entry) => renderTab(h, model, entry)),
+        shownTabs.map((entry) => renderTab(h, model, entry)),
       ),
       h.keyed("div")(
         model.tab,
@@ -134,3 +151,13 @@ export function view(model: Model, h: H): Html {
     ],
   );
 }
+
+export const view = (model: Model, h: H): Html => renderPanel(h, model, tabs);
+
+// The Brief of a phone has its own sheet.
+export const sheetView = (model: Model, h: H): Html =>
+  renderPanel(
+    h,
+    model,
+    tabs.filter(({ tab }) => tab !== "brief"),
+  );

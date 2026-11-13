@@ -491,23 +491,24 @@ func (e *Engine) SetAutopilot(ctx context.Context, repositoryName string, number
 	if err := e.changeLevel(ctx, repository, number, copied.Title, level, "the Owner"); err != nil {
 		return err
 	}
+	if err := e.applyLevel(ctx, repository.FullName, number, level); err != nil {
+		return err
+	}
 	e.addRecord(ctx, leadChat(repository.FullName, number), fmt.Sprintf("You set the Autopilot level to %s.", levelNames[level]))
 	return nil
 }
 
 // changeLevel is the handler of a change of the Autopilot level of the Workstream number of repository to level. It
 // sets the level, makes the next poll read the ready list in full, because a mobius:ready of the Mobius App can dispatch
-// with Autopilot, and acts on the live tasks (applyLevel). A level that differs from the old level also adds an event
-// for the Lead. title is the title of the Workstream. actor names who changed the level.
+// with Autopilot, and publishes the change. A level that differs from the old level also adds an event for the Lead.
+// title is the title of the Workstream. actor names who changed the level. The caller acts on the live tasks
+// (applyLevel).
 func (e *Engine) changeLevel(ctx context.Context, repository github.Repository, number int64, title, level, actor string) error {
 	changed, err := e.setLevel(ctx, repository, number, level)
 	if err != nil {
 		return err
 	}
 	if err := e.queries.SetSyncCursor(ctx, store.SetSyncCursorParams{Repository: repository.FullName, Endpoint: readyEndpoint}); err != nil {
-		return err
-	}
-	if err := e.applyLevel(ctx, repository.FullName, number, level); err != nil {
 		return err
 	}
 	e.publish(Change{Workstreams: true})
@@ -596,6 +597,61 @@ func (e *Engine) setEvergreen(ctx context.Context, repository github.Repository,
 		}
 		var err error
 		id, err = addSettingChange(ctx, q, repository.FullName, number, evergreenField)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	return e.sendNow(ctx, repository, id)
+}
+
+// setMaintenance is the handler of a change of the maintenance setting of the Workstream number of repository. It sets
+// the value in workstreams, adds the outgoing change that writes mobius:maintenance in the same transaction, and sends
+// it. A Maintenance Workstream is evergreen, so a value on with evergreen off also sets evergreen on and adds its
+// outgoing change.
+func (e *Engine) setMaintenance(ctx context.Context, repository github.Repository, number int64, on bool) error {
+	var ids []int64
+	err := e.inTx(ctx, func(q *store.Queries) error {
+		if err := q.SetCopiedMaintenance(ctx, store.SetCopiedMaintenanceParams{Maintenance: on, Repository: repository.FullName, Number: number}); err != nil {
+			return err
+		}
+		id, err := addSettingChange(ctx, q, repository.FullName, number, maintenanceField)
+		if err != nil {
+			return err
+		}
+		ids = append(ids, id)
+		settings, err := q.GetWorkstreamSettings(ctx, store.GetWorkstreamSettingsParams{Repository: repository.FullName, Number: number})
+		if err != nil || !on || settings.Evergreen {
+			return err
+		}
+		if err := q.SetCopiedEvergreen(ctx, store.SetCopiedEvergreenParams{Evergreen: true, Repository: repository.FullName, Number: number}); err != nil {
+			return err
+		}
+		id, err = addSettingChange(ctx, q, repository.FullName, number, evergreenField)
+		ids = append(ids, id)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if err := e.sendNow(ctx, repository, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// setSkills is the handler of a change of the skills setting of the Workstream number of repository. It sets the value
+// in workstreams, adds the outgoing change that writes mobius:skills in the same transaction, and sends it.
+func (e *Engine) setSkills(ctx context.Context, repository github.Repository, number int64, on bool) error {
+	var id int64
+	err := e.inTx(ctx, func(q *store.Queries) error {
+		if err := q.SetCopiedSkills(ctx, store.SetCopiedSkillsParams{Skills: on, Repository: repository.FullName, Number: number}); err != nil {
+			return err
+		}
+		var err error
+		id, err = addSettingChange(ctx, q, repository.FullName, number, skillsField)
 		return err
 	})
 	if err != nil {

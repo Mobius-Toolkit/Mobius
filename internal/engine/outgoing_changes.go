@@ -457,16 +457,36 @@ func (e *Engine) sendSetting(ctx context.Context, repository github.Repository, 
 	}[change.Field]
 	label := settingLabels[change.Field]
 	if hasLabel(issue, label) != on {
+		kind := unlabeledChange
+		if on {
+			kind = labeledChange
+		}
+		ownWrite, err := addOwnWrite(ctx, e.queries, change, label, kind)
+		if err != nil {
+			return false, err
+		}
 		if on {
 			err = repository.AddLabel(ctx, change.Number, label)
 		} else {
 			err = repository.RemoveLabel(ctx, change.Number, label)
 		}
 		if err != nil {
+			if err := e.queries.DeleteOwnWrite(ctx, ownWrite); err != nil {
+				return false, err
+			}
 			return e.failed(ctx, repository, change, err)
 		}
 	}
 	return false, e.queries.SetOutgoingChangeStatus(ctx, store.SetOutgoingChangeStatusParams{Status: "sent", ID: change.ID})
+}
+
+// deleteOldIncomingChanges deletes each done incoming change and each own write that is older than finishedChangeLife.
+func (e *Engine) deleteOldIncomingChanges(ctx context.Context) error {
+	before := time.Now().Add(-finishedChangeLife).UTC().Format(time.RFC3339Nano)
+	if err := e.queries.DeleteDoneIncomingChanges(ctx, before); err != nil {
+		return err
+	}
+	return e.queries.DeleteOldOwnWrites(ctx, before)
 }
 
 // deleteFinishedOutgoingChanges deletes each sent or refused outgoing change that is older than finishedChangeLife.

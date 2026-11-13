@@ -148,6 +148,7 @@ export const Message = defineMessageUnion({
   CloseWorkstreamSucceeded: { repository: Schema.String, number: Schema.Number },
   CloseWorkstreamFailed: { repository: Schema.String, number: Schema.Number, error: Schema.String },
   SetMobileTasksOpen: { open: Schema.Boolean },
+  SetMobileBriefOpen: { open: Schema.Boolean },
 
   // Forwarded live events to active screens
   ForwardWorkstreamsEvent: {},
