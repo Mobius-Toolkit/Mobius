@@ -16,6 +16,7 @@ import {
 } from "@/api/api.gen";
 import {
   addDraftInboxItem,
+  addDraftSelection,
   answerDraftKey,
   chatDraftKey,
   type Draft as StoredDraft,
@@ -27,11 +28,11 @@ import { StoreFailed, request, store } from "@/lib/effects";
 import { restoreInboxItem, hideInboxItem } from "@/lib/inbox";
 import { pushUrl } from "@/lib/navigation";
 import { issueRef, showNotice } from "@/lib/notice";
-import { listQueued, postQueued, removeQueued } from "@/lib/outbox";
+import { listQueued, newMessageId, postQueued, removeQueued } from "@/lib/outbox";
 import { resend, stopVoice, toggleVoice } from "@/lib/voice";
 import { Message } from "./message";
 import { draftInboxItem } from "./model";
-import { InboxItem, PendingAction, Queued, StoredQueued } from "./schemas";
+import { ChatSelection, InboxItem, PendingAction, Queued, StoredQueued } from "./schemas";
 
 type Outcome = { message: Message; status?: number | undefined };
 
@@ -51,7 +52,14 @@ function withLogin<A extends Outcome>(
 
 const clearDraft = (key: string) =>
   store(() =>
-    updateDraft(key, (draft) => ({ ...draft, text: "", images: [], inboxItems: [], voice: null })),
+    updateDraft(key, (draft) => ({
+      ...draft,
+      text: "",
+      images: [],
+      inboxItems: [],
+      selections: [],
+      voice: null,
+    })),
   ).pipe(Effect.ignore);
 
 const readyVoice: DraftVoice = { state: "ready", audio: null, conversion: "", error: "" };
@@ -68,6 +76,7 @@ const restoreDraft = (
 ) =>
   store(() =>
     updateDraft(key, (draft) => ({
+      ...draft,
       text:
         draft.text === sent.text ? sent.text : [sent.text, draft.text].filter(Boolean).join(" "),
       images: sent.images,
@@ -187,6 +196,7 @@ export const ListQueued = Command.define("ListQueued", {
             .map((record) => ({
               ...record,
               inboxItems: record.inboxItems ?? [],
+              selections: record.selections ?? [],
               voice: record.voice ?? false,
             }))
             .toSorted((a, b) => a.time.localeCompare(b.time)),
@@ -318,6 +328,17 @@ export const Navigate = Command.define("Navigate", {
   },
   messages: [Message.CompletedNavigate],
   execute: ({ path }) => pushUrl(path).pipe(Effect.as(Message.CompletedNavigate())),
+});
+
+export const AddSelection = Command.define("AddSelection", {
+  args: { key: Schema.String, selection: ChatSelection },
+  messages: [Message.CompletedAddSelection],
+  execute: ({ key, selection }) =>
+    // A draft that the store refused leaves the draft as it was.
+    store(() => addDraftSelection(key, { ...selection, id: newMessageId() })).pipe(
+      Effect.ignore,
+      Effect.as(Message.CompletedAddSelection()),
+    ),
 });
 
 // The Chat button of an Inbox row puts the item in the draft of the chat of its Workstream, or of the Coordinator chat of

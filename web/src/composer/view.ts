@@ -3,13 +3,14 @@ import type { Attribute, Html, HtmlBuilder } from "foldkit/html";
 import { Mount } from "foldkit";
 import { defineView } from "foldkit/submodel";
 import { cn } from "cn";
-import type { DraftInboxItem, DraftVoice } from "@/lib/draft";
+import type { DraftInboxItem, DraftSelection, DraftVoice } from "@/lib/draft";
 import { voiceSupported } from "@/lib/voice";
 import { buttonClass } from "@/ui/button";
 import { arrowUpIcon, micIcon, paperclipIcon, spinnerIcon, squareIcon, xIcon } from "@/ui/icons";
+import { renderSelectionCard } from "@/ui/selection";
 import { textareaClass } from "@/ui/textarea";
 import { Message } from "./message";
-import { inputId, type Model, pickerId, voiceBusy } from "./model";
+import { inputId, isEmptyDraft, type Model, pickerId, voiceBusy } from "./model";
 
 // The Mount of an image reads its file only at insert, so each file of a list needs its own key.
 export function fileKey(files: File[], index: number) {
@@ -250,6 +251,7 @@ export type Box<Msg> = {
   autoFocus: boolean;
   images: File[] | null;
   inboxItems: DraftInboxItem[];
+  selections: DraftSelection[];
   actions: Html[];
   error: string;
   onAttachClick?: Msg;
@@ -258,6 +260,8 @@ export type Box<Msg> = {
   onVoiceRemoveClick: Msg;
   onImageRemoveClick?: (index: number) => Msg;
   onInboxItemRemoveClick?: (id: number | string) => Msg;
+  onSelectionRemoveClick?: (id: string) => Msg;
+  selectionTime?: (messageId: number) => string | undefined;
   onImagesChosen?: (files: File[]) => Msg;
 };
 
@@ -477,6 +481,7 @@ export function composerBox<Msg>(
         [
           images.length > 0 ||
           box.inboxItems.length > 0 ||
+          box.selections.length > 0 ||
           box.voiceCard ||
           (voiceState.recording && voiceState.key === box.key)
             ? h.div(
@@ -485,6 +490,13 @@ export function composerBox<Msg>(
                   voiceCard(h, voiceState, now, box, toParent),
                   ...box.inboxItems.map((item) =>
                     attachedInboxItem(h, item, box.onInboxItemRemoveClick),
+                  ),
+                  ...box.selections.map((selection) =>
+                    renderSelectionCard(h, selection, {
+                      key: `selection-${selection.id}`,
+                      time: box.selectionTime?.(selection.messageId),
+                      onRemove: box.onSelectionRemoveClick?.(selection.id),
+                    }),
                   ),
                   ...images.map((_, index) =>
                     thumbnail(h, images, index, toParent, box.onImageRemoveClick),
@@ -549,13 +561,14 @@ export type ViewInputs = {
   stoppable: boolean;
   stopping: boolean;
   stopReady: boolean;
+  selectionTime: (messageId: number) => string | undefined;
 };
 
 export const view = defineView<Model, Message, ViewInputs>(
-  (model, { stoppable, stopping, stopReady }, h) => {
+  (model, { stoppable, stopping, stopReady, selectionTime }, h) => {
     const images = model.draftImages;
     const inboxItems = model.draftInboxItems;
-    const empty = !model.draftText.trim() && images.length === 0 && inboxItems.length === 0;
+    const empty = isEmptyDraft(model);
     const showStop = empty && stoppable;
     const buttonPending = showStop && stopping;
     const cannotSend = empty || voiceBusy(model.draftVoice);
@@ -581,6 +594,8 @@ export const view = defineView<Model, Message, ViewInputs>(
         autoFocus: true,
         images,
         inboxItems,
+        selections: model.draftSelections,
+        selectionTime,
         error: model.sendError,
         onAttachClick: Message.AttachClicked(),
         onVoiceButtonClick: Message.VoiceButtonClicked(),
@@ -588,6 +603,7 @@ export const view = defineView<Model, Message, ViewInputs>(
         onVoiceRemoveClick: Message.VoiceRemoveClicked(),
         onImageRemoveClick: (position) => Message.DraftImageRemoved({ position }),
         onInboxItemRemoveClick: (id) => Message.DraftInboxItemRemoved({ id }),
+        onSelectionRemoveClick: (id) => Message.DraftSelectionRemoved({ id }),
         onImagesChosen: (files) => Message.ImagesChosen({ files }),
         actions: [
           h.button(

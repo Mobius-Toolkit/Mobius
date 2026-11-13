@@ -30,7 +30,8 @@ import { beginMarkdownRender, renderMarkdown, shieldEquals } from "@/ui/markdown
 import * as Composer from "@/composer";
 import { fromComposerMount, renderPanelComposer } from "./composer";
 import { ChatList } from "./scroll";
-import { Message, toGotComposerMessage } from "./message";
+import { renderSelectionCard, renderSelectionPopover, Watch } from "@/ui/selection";
+import { Message, toGotComposerMessage, toGotSelectionMessage } from "./message";
 import {
   countsAsUnread,
   draftInboxItem,
@@ -380,7 +381,15 @@ function renderVoiceCard(h: H): Html {
   );
 }
 
-function renderMessage(h: H, message: ChatMessage, open: boolean, rows: InboxItem[]): Html {
+type TimeOfMessage = (id: number) => string | undefined;
+
+function renderMessage(
+  h: H,
+  message: ChatMessage,
+  open: boolean,
+  rows: InboxItem[],
+  timeOf: TimeOfMessage,
+): Html {
   if (message.question) {
     return renderQuestionCard(
       h,
@@ -436,10 +445,21 @@ function renderMessage(h: H, message: ChatMessage, open: boolean, rows: InboxIte
         ],
       ),
       ...(message.inboxItems || []).map((item) => renderInboxItemCard(h, item)),
+      ...message.selections.map((selection) =>
+        renderSelectionCard(h, selection, { time: timeOf(selection.messageId) }),
+      ),
       isEvent && body
         ? renderEventBody(h, message.id, summary, body, open)
         : message.text
-          ? renderMarkdown(h, message.text)
+          ? h.div(
+              [
+                h.Key(`text-${message.id}`),
+                h.OnMount(
+                  Mount.mapMessage(Watch({ owner: String(message.id) }), toGotSelectionMessage),
+                ),
+              ],
+              [renderMarkdown(h, message.text)],
+            )
           : h.empty,
       message.voice || message.images > 0
         ? h.div(
@@ -465,6 +485,7 @@ function renderQueuedMessage(
   item: Waiting,
   failure: Failure | null,
   deletable: boolean,
+  timeOf: TimeOfMessage,
 ): Html {
   return h.div(
     [
@@ -497,6 +518,9 @@ function renderQueuedMessage(
         ],
       ),
       ...(item.inboxItems || []).map((inboxItem) => renderInboxItemCard(h, inboxItem)),
+      ...item.selections.map((selection) =>
+        renderSelectionCard(h, selection, { time: timeOf(selection.messageId) }),
+      ),
       item.text ? renderMarkdown(h, item.text) : h.empty,
       item.voice || item.images.length > 0
         ? h.div(
@@ -1345,6 +1369,7 @@ export function renderAnswerDialog(h: H, model: Model): Html {
 export function view(model: Model, h: H): Html {
   beginMarkdownRender();
   const messages = model.messages;
+  const timeOf: TimeOfMessage = (id) => messages.find((message) => message.id === id)?.time;
   const queue = model.queue;
   const storedIds = new Set(messages.map((m) => m.browserId));
   const pending = queue.filter((item) => !storedIds.has(item.id));
@@ -1407,7 +1432,7 @@ export function view(model: Model, h: H): Html {
             if (idx === 0 || label !== prevLabel) {
               items.push(renderDaySeparator(h, `day-${msg.id}`, label));
             }
-            items.push(renderMessage(h, msg, model.openEvents.includes(msg.id), rows));
+            items.push(renderMessage(h, msg, model.openEvents.includes(msg.id), rows, timeOf));
             return items;
           }),
           ...pending.flatMap((queued, idx) => {
@@ -1424,6 +1449,7 @@ export function view(model: Model, h: H): Html {
                 queued,
                 model.attempt?.id === queued.id ? model.attempt : null,
                 !queued.sent && (queued !== next || model.attempt?.id === queued.id),
+                timeOf,
               ),
             );
             return items;
@@ -1469,10 +1495,12 @@ export function view(model: Model, h: H): Html {
           stoppable: model.stoppable,
           stopping: model.stopping,
           stopReady: model.stopReady,
+          selectionTime: timeOf,
         },
         toParentMessage: toGotComposerMessage,
       }),
       renderAnswerDialog(h, model),
+      renderSelectionPopover(h, model.selection, toGotSelectionMessage),
     ],
   );
 }

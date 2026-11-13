@@ -64,6 +64,7 @@ export function renderPanelComposer(h: H, model: Model, item: InboxItem): Html {
       autoFocus: false,
       images: null,
       inboxItems: [],
+      selections: [],
       onVoiceButtonClick: Message.VoiceButtonClicked(),
       onVoiceResendClick: Message.VoiceResendClicked(),
       onVoiceRemoveClick: Message.VoiceRemoveClicked(),

@@ -3,6 +3,7 @@ import * as Command from "foldkit/command";
 import {
   type Draft as StoredDraft,
   type DraftInboxItem,
+  type DraftSelection,
   type DraftVoice,
   updateDraft,
 } from "@/lib/draft";
@@ -11,11 +12,18 @@ import { fitImage, tooManyImages } from "@/lib/images";
 import { addQueued, newMessageId } from "@/lib/outbox";
 import { resend, stopVoice, toggleVoice } from "@/lib/voice";
 import { Message } from "./message";
-import { DraftInboxItems, Images, Queued } from "@/chat/schemas";
+import { DraftInboxItems, DraftSelections, Images, Queued } from "@/chat/schemas";
 
 const clearDraft = (key: string) =>
   store(() =>
-    updateDraft(key, (draft) => ({ ...draft, text: "", images: [], inboxItems: [], voice: null })),
+    updateDraft(key, (draft) => ({
+      ...draft,
+      text: "",
+      images: [],
+      inboxItems: [],
+      selections: [],
+      voice: null,
+    })),
   ).pipe(Effect.ignore);
 
 const readyVoice: DraftVoice = { state: "ready", audio: null, conversion: "", error: "" };
@@ -26,6 +34,7 @@ const restoreDraft = (
     text: string;
     images: File[];
     inboxItems: DraftInboxItem[];
+    selections: DraftSelection[];
     voice: boolean;
   },
 ) =>
@@ -37,6 +46,12 @@ const restoreDraft = (
       inboxItems: [
         ...sent.inboxItems,
         ...draft.inboxItems.filter((item) => !sent.inboxItems.some(({ id }) => id === item.id)),
+      ],
+      selections: [
+        ...sent.selections,
+        ...draft.selections.filter(
+          (selection) => !sent.selections.some(({ id }) => id === selection.id),
+        ),
       ],
       voice: draft.voice ?? (sent.voice ? readyVoice : null),
     })),
@@ -64,6 +79,12 @@ export const SaveDraftInboxItems = Command.define("SaveDraftInboxItems", {
   args: { key: Schema.String, inboxItems: DraftInboxItems },
   messages: [Message.CompletedSaveDraft],
   execute: ({ key, inboxItems }) => savedDraft(key, (draft) => ({ ...draft, inboxItems })),
+});
+
+export const SaveDraftSelections = Command.define("SaveDraftSelections", {
+  args: { key: Schema.String, selections: DraftSelections },
+  messages: [Message.CompletedSaveDraft],
+  execute: ({ key, selections }) => savedDraft(key, (draft) => ({ ...draft, selections })),
 });
 
 export const FitImages = Command.define("FitImages", {
@@ -148,10 +169,21 @@ export const EnqueueMessage = Command.define("EnqueueMessage", {
     text: Schema.String,
     images: Images,
     inboxItems: DraftInboxItems,
+    selections: DraftSelections,
     voice: Schema.Boolean,
   },
   messages: [Message.MessageQueued, Message.MessageRefused],
-  execute: ({ organization, repository, workstream, key, text, images, inboxItems, voice }) =>
+  execute: ({
+    organization,
+    repository,
+    workstream,
+    key,
+    text,
+    images,
+    inboxItems,
+    selections,
+    voice,
+  }) =>
     Effect.gen(function* () {
       const item: Queued = {
         id: newMessageId(),
@@ -166,6 +198,16 @@ export const EnqueueMessage = Command.define("EnqueueMessage", {
           reason,
           link,
         })),
+        selections: selections.map((selection) => ({
+          source: selection.source,
+          text: selection.text,
+          context: selection.context,
+          reference: selection.reference,
+          link: selection.link,
+          part: selection.part,
+          messageId: selection.messageId,
+          messageAuthor: selection.messageAuthor,
+        })),
         voice,
         time: new Date().toISOString(),
       };
@@ -174,7 +216,7 @@ export const EnqueueMessage = Command.define("EnqueueMessage", {
       return Message.MessageQueued({ item });
     }).pipe(
       Effect.catchTag("StoreFailed", (error) =>
-        restoreDraft(key, { text, images, inboxItems, voice }).pipe(
+        restoreDraft(key, { text, images, inboxItems, selections, voice }).pipe(
           Effect.as(Message.MessageRefused({ error: error.message })),
         ),
       ),

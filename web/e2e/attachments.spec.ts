@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { png } from "./images.js";
+import { selectionBottom, selectionIsEmpty, selectText } from "./selection.js";
 import { stoppedItems } from "./stops.js";
 
 const link = "https://github.com/owner/shop";
@@ -233,3 +234,209 @@ test("the bubble of a sent message shows the card of the Inbox item with its lin
   await expect(card).toHaveAttribute("target", "_blank");
   await expect(main.locator("form").getByRole("button", { name: /^Remove #/ })).toHaveCount(0);
 });
+
+const phone = { width: 390, height: 844 };
+const desktop = { width: 1280, height: 800 };
+
+const leadText =
+  "The plan has two steps.\n\nFirst, cut the red roses in the morning.\n\n- Wash the buckets\n- Sort the white roses";
+
+const chatMessage = (
+  id: number,
+  author: string,
+  text: string,
+  place: object,
+  extra: object = {},
+) => ({
+  id,
+  action: null,
+  author,
+  browserId: "",
+  cancelledAt: null,
+  deliveredAt: null,
+  failedAt: null,
+  images: 0,
+  inboxItems: [],
+  selections: [],
+  question: null,
+  stoppedAt: null,
+  voice: false,
+  text,
+  time: "2026-10-15T12:00:00Z",
+  ...place,
+  ...extra,
+});
+
+const shopPlace = { organization: "owner", repository: "owner/shop", workstream: 12 };
+const coordinatorPlace = { organization: "owner", repository: "", workstream: 0 };
+
+// Adds the messages to each page of the chat that the server gives.
+const addMessages = (page: Page, messages: () => object[]) =>
+  page.route("**/api/chat?*", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as { data: { messages: object[] } };
+    body.data.messages.push(...messages());
+    await route.fulfill({ response, json: body });
+  });
+
+type Posted = {
+  source: string;
+  text: string;
+  context: string;
+  messageId: number;
+  messageAuthor: string;
+}[];
+
+const postedSelections = (body: string): Posted =>
+  [...body.matchAll(/name="selections"\r\n\r\n(.*?)\r\n--/g)].map(
+    (part) => JSON.parse(part[1]) as Posted[number],
+  );
+
+for (const [device, viewport] of [
+  ["desktop", desktop],
+  ["phone", phone],
+] as const) {
+  test.describe(`a selection in a chat message on a ${device}`, () => {
+    test.use({ viewport });
+
+    test("shows the popover below the selection, and Add to chat puts a card in the composer", async ({
+      page,
+    }) => {
+      const main = page.getByRole("main");
+      const composer = main.locator("form");
+      const popover = page.getByRole("button", { name: "Add to chat" });
+      await addMessages(page, () => [chatMessage(1_000_001, "Lead", leadText, shopPlace)]);
+
+      await page.goto(shop);
+      const bubble = main.locator("[data-message='1000001']");
+      await expect(bubble).toBeVisible();
+      await expect(page.getByLabel("Message to the Lead")).toBeEditable();
+      await expect(popover).toHaveCount(0);
+
+      await selectText(bubble, "in the morning");
+      await expect(popover).toBeVisible();
+      await expect(popover).toHaveAttribute("title", "Add to chat");
+      const bottom = await selectionBottom(page);
+      const box = await popover.boundingBox();
+      expect(box?.y).toBeGreaterThanOrEqual(bottom);
+      expect(box?.x).toBeGreaterThanOrEqual(0);
+      expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(viewport.width);
+
+      await popover.click();
+      const card = composer.locator("[data-selection-card]");
+      await expect(card).toHaveCount(1);
+      await expect(card).toContainText("Lead message · 12:00 PM");
+      await expect(card).toContainText("in the morning");
+      await expect(popover).toHaveCount(0);
+      expect(await selectionIsEmpty(page)).toBe(true);
+
+      await page.reload();
+      await expect(composer.locator("[data-selection-card]")).toHaveCount(1);
+      await composer.getByRole("button", { name: "Remove the selection" }).click();
+      await expect(composer.locator("[data-selection-card]")).toHaveCount(0);
+      await expect.poll(() => page.evaluate(storedDrafts)).toBe(0);
+    });
+
+    test("sends two selections with the message, and the sent message shows both cards", async ({
+      page,
+    }) => {
+      const main = page.getByRole("main");
+      const composer = main.locator("form");
+      const popover = page.getByRole("button", { name: "Add to chat" });
+      let posted: Posted | undefined;
+      await addMessages(page, () => [
+        chatMessage(1_000_001, "Lead", leadText, shopPlace),
+        ...(posted
+          ? [
+              chatMessage(1_000_002, "Owner", "Why in the morning?", shopPlace, {
+                selections: posted.map((selection) => ({
+                  ...selection,
+                  reference: "",
+                  link: "",
+                  part: "",
+                })),
+              }),
+            ]
+          : []),
+      ]);
+      await page.route("**/api/chat/messages", (route) => {
+        posted = postedSelections(route.request().postData() ?? "");
+        return route.fulfill({ status: 204 });
+      });
+
+      await page.goto(shop);
+      const bubble = main.locator("[data-message='1000001']");
+      await expect(bubble).toBeVisible();
+      await expect(page.getByLabel("Message to the Lead")).toBeEditable();
+      await selectText(bubble, "in the morning");
+      await popover.click();
+      await expect(composer.locator("[data-selection-card]")).toHaveCount(1);
+      await selectText(bubble, "Sort the white roses");
+      await popover.click();
+      await expect(composer.locator("[data-selection-card]")).toHaveCount(2);
+
+      await page.getByLabel("Message to the Lead").fill("Why in the morning?");
+      await main.getByRole("button", { name: "Send", exact: true }).click();
+
+      await expect
+        .poll(() => posted)
+        .toEqual([
+          {
+            source: "message",
+            text: "in the morning",
+            context: "First, cut the red roses in the morning.",
+            reference: "",
+            link: "",
+            part: "",
+            messageId: 1_000_001,
+            messageAuthor: "Lead",
+          },
+          {
+            source: "message",
+            text: "Sort the white roses",
+            context: "Sort the white roses",
+            reference: "",
+            link: "",
+            part: "",
+            messageId: 1_000_001,
+            messageAuthor: "Lead",
+          },
+        ]);
+      const sent = main.locator("[data-message='1000002']");
+      await expect(sent.locator("[data-selection-card]")).toHaveCount(2);
+      await expect(sent.locator("[data-selection-card]").first()).toContainText(
+        "Lead message · 12:00 PM",
+      );
+      await expect(sent.locator("[data-selection-card]").last()).toContainText(
+        "Sort the white roses",
+      );
+      await expect(sent.getByRole("button", { name: "Remove the selection" })).toHaveCount(0);
+      await expect(composer.locator("[data-selection-card]")).toHaveCount(0);
+    });
+
+    test("adds a selection of a Coordinator message to the draft of the Coordinator chat", async ({
+      page,
+    }) => {
+      const main = page.getByRole("main");
+      const composer = main.locator("form");
+      await addMessages(page, () => [
+        chatMessage(1_000_003, "Coordinator", "Plan the roses first.", coordinatorPlace),
+      ]);
+
+      await page.goto("/chat");
+      const bubble = main.locator("[data-message='1000003']");
+      await expect(bubble).toBeVisible();
+      await expect(page.getByLabel("Message to the Coordinator")).toBeEditable();
+      await selectText(bubble, "the roses");
+      await page.getByRole("button", { name: "Add to chat" }).click();
+
+      await expect(composer.locator("[data-selection-card]")).toContainText(
+        "Coordinator message · 12:00 PM",
+      );
+      await expect(composer.locator("[data-selection-card]")).toContainText("the roses");
+      await page.goto(shop);
+      await expect(page.getByLabel("Message to the Lead")).toBeEditable();
+      await expect(main.locator("form").locator("[data-selection-card]")).toHaveCount(0);
+    });
+  });
+}
