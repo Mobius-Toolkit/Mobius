@@ -337,11 +337,12 @@ func (e *Engine) answerQuestions(ctx context.Context, repository string, number 
 const chatAnswerPrefix = "The Owner answered in the Lead chat:"
 
 // answerReplies returns the comments of a trusted user after the last question comment of the Mobius App, the
-// comments that dispatchAnswer puts in the dispatch event. It also returns the time of that question comment.
+// comments that dispatchAnswer puts in the dispatch event. It also returns the time of that question comment. A
+// comment that an outgoing change sent is no question: its send can come after the comment of a person.
 func (e *Engine) answerReplies(ctx context.Context, repository github.Repository, comments []*gh.IssueComment) ([]*gh.IssueComment, time.Time, error) {
 	var askedAt time.Time
 	for _, comment := range comments {
-		if strings.EqualFold(comment.GetUser().GetLogin(), appLogin(repository.AppSlug)) && !strings.HasPrefix(comment.GetBody(), chatAnswerPrefix) && comment.GetCreatedAt().After(askedAt) {
+		if strings.EqualFold(comment.GetUser().GetLogin(), appLogin(repository.AppSlug)) && !strings.HasPrefix(comment.GetBody(), chatAnswerPrefix) && !isWriteComment(comment.GetBody()) && comment.GetCreatedAt().After(askedAt) {
 			byLead, err := e.leadCommented(ctx, repository, comment)
 			if err != nil {
 				return nil, time.Time{}, err
@@ -643,13 +644,14 @@ func (e *Engine) trustedUser(login string) bool {
 }
 
 // replies gives the comments that are events, and true when the newest of them is newer than the last
-// question of the Mobius App. A stop comment is no question, and a comment of the Lead is no question.
+// question of the Mobius App. A stop comment is no question, a comment of the Lead is no question, and a comment that
+// an outgoing change sent is no question. The send of such a comment can come after the comment of a person.
 func (e *Engine) replies(ctx context.Context, repository github.Repository, comments []*gh.IssueComment) ([]*gh.IssueComment, bool, error) {
 	var askedAt, repliedAt time.Time
 	var replies []*gh.IssueComment
 	for _, comment := range comments {
 		createdAt := comment.GetCreatedAt().Time
-		if strings.EqualFold(comment.GetUser().GetLogin(), appLogin(repository.AppSlug)) && !isStopComment(comment.GetBody()) && createdAt.After(askedAt) {
+		if strings.EqualFold(comment.GetUser().GetLogin(), appLogin(repository.AppSlug)) && !isStopComment(comment.GetBody()) && !isWriteComment(comment.GetBody()) && createdAt.After(askedAt) {
 			byLead, err := e.leadCommented(ctx, repository, comment)
 			if err != nil {
 				return nil, false, err

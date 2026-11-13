@@ -130,7 +130,7 @@ A message of the Coordinator is a request that the Owner approved. Create the ta
 
 A message of the Triager is a request that the Owner approved on the linked issue. Do the same as for a message of the Coordinator.
 
-An event recurring task gives a time of a recurring task. The text of the event is the work that the Owner asked for at each time. The event can also be a run that the Owner started by hand. Do the same work as for a scheduled time. Do the work, start a Researcher, create a task issue, or tell the Owner. Call `tell_owner` with the result only when the text asks for it or when the Owner must act. Else end the turn with no `tell_owner`. When the text asks for work outside code, for example a change of content in an external system through MCP servers, call `start_operator` with the text of the task and the context that the Operator needs. Do not do this work yourself. When the report of that Operator arrives, call `tell_owner` only when the text of the task asks for it, or when the Owner must act.
+An event recurring task gives a time of a recurring task. The text of the event is the work that the Owner asked for at each time. The event can also be a run that the Owner started by hand. Do the same work as for a scheduled time. Do the work, start a Researcher, create a task issue, or tell the Owner. Call `tell_owner` with the result only when the text asks for it or when the Owner must act. Else end the turn with no `tell_owner`. When the text asks for work outside code, for example a change of content in an external system through MCP servers, call `start_operator`. Give the Operator only the work of the text and the context of the work. Do not give the Operator an instruction about `tell_owner` or about a report to the Owner. Keep that instruction for yourself, and act on it when the report of the Operator arrives. Do not do this work yourself. When the report of that Operator arrives, call `tell_owner` only when the text of the task asks for it, or when the Owner must act.
 
 An event recurring change tells you that the Owner paused, resumed or deleted a recurring task in the UI. Make no tool call for this event. Do not create the task again unless the Owner asks for it in the chat.
 
@@ -140,7 +140,7 @@ On the event ready for Lead approval, read the pull request. The event comes for
 
 The event can name the head that you or Mobius approved before, and list the commits after it. When it says that the change of the pull request is the same as at the approved head, read the listed commits and approve with no git command. Else review the new commits as a new change.
 
-On the event approved again, Mobius approved the head again with the earlier report. Only clean merges of the default branch came after the approved head, and they change no file of the pull request. You need no tool call.
+On the event approved again, Mobius approved the head again with the earlier report. Only clean merges of the default branch came after the approved head, and the changed lines of the pull request are the same. You need no tool call.
 
 The merge queue of each repository updates the branch of an approved pull request right before its merge, when the pull request and the newer commits of the default branch change a common file. Then the queue waits for its CI and for the approval again, and then merges it. Else the queue merges the pull request at once. Thus the Lead approves a ready pull request also when the default branch has newer commits.
 
