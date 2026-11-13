@@ -1,99 +1,22 @@
-import { Effect, Queue, Schema, Stream } from "effect";
+import { Effect, Option, Queue, Schema, Stream } from "effect";
 import * as Subscription from "foldkit/subscription";
 import {
-  answerDraftKey,
-  chatDraftKey,
-  currentDraft,
-  type Draft as StoredDraft,
-  loadDraft,
-  subscribeDrafts,
-  updateDraft,
-} from "@/lib/draft";
-import { store } from "@/lib/effects";
+  draftValues,
+  subscriptions as composerSubscriptions,
+  voiceClock,
+  voiceInput,
+} from "@/composer/subscriptions";
+import { answerDraftKey } from "@/lib/draft";
+import { currentOutboxVersion, subscribeOutbox } from "@/lib/outbox";
 import { currentUnread, subscribeUnread, unreadCount } from "@/lib/unread";
-import { insertVoiceText, registerVoiceInput, subscribeVoice, voiceSnapshot } from "@/lib/voice";
+import { subscribeVoice, voiceSnapshot } from "@/lib/voice";
 import { currentWorkstreams, subscribeWorkstreams } from "@/lib/workstreams";
 import { storeValues } from "@/live/stores";
-import { answerInputId, inputId } from "./composer";
-import { Message } from "./message";
+import { answerInputId } from "./composer";
+import { Message, toGotComposerMessage } from "./message";
 import type { Model } from "./model";
-import type { Draft } from "./schemas";
 
 const stopDelay = 500;
-
-// Gives the draft of the key to the program: first the draft that the browser store holds, then each change.
-export function draftValues(key: string, toMessage: (draft: Draft) => Message) {
-  return Stream.callback<Message>((queue) =>
-    Effect.gen(function* () {
-      let last: StoredDraft | undefined;
-      const emit = () => {
-        const draft = currentDraft(key);
-        if (draft !== undefined && draft !== last) {
-          last = draft;
-          Queue.offerUnsafe(queue, toMessage(draft));
-        }
-      };
-      const unsubscribe = subscribeDrafts(emit);
-      yield* Effect.addFinalizer(() =>
-        Effect.sync(() => {
-          unsubscribe();
-        }),
-      );
-      yield* store(() => loadDraft(key)).pipe(Effect.ignore);
-      emit();
-    }),
-  );
-}
-
-// The text of a conversion goes to the cursor of the field. The height of the text up to the end of the voice text
-// gives the scroll position, because setSelectionRange does not scroll a field without the focus and WebKit on iOS does
-// not scroll it reliably.
-function insertAtCursor(key: string, fieldId: string) {
-  return (voiceText: string) => {
-    const field = document.getElementById(fieldId);
-    if (!(field instanceof HTMLTextAreaElement)) {
-      return;
-    }
-    const focused = document.activeElement === field;
-    const start = focused ? field.selectionStart : field.value.length;
-    const end = focused ? field.selectionEnd : field.value.length;
-    const { text, cursor } = insertVoiceText(field.value, voiceText, start, end);
-    void updateDraft(key, (draft) => ({ ...draft, text }));
-    field.value = text.slice(0, cursor);
-    const top = field.scrollHeight - field.clientHeight;
-    field.value = text;
-    field.setSelectionRange(cursor, cursor);
-    field.scrollTop = top;
-  };
-}
-
-// The recording stops when no mounted input has its draft key, so each field has its own Subscription: a change of the
-// answer panel must not unmount the input of the chat.
-export function voiceInput(key: string, fieldId: string) {
-  return Stream.callback<Message>(() =>
-    Effect.gen(function* () {
-      const unregister = registerVoiceInput(key, insertAtCursor(key, fieldId));
-      yield* Effect.addFinalizer(() =>
-        Effect.sync(() => {
-          unregister();
-        }),
-      );
-    }),
-  );
-}
-
-export const voiceClock = Stream.callback<Message>((queue) => {
-  const tick = () => Queue.offerUnsafe(queue, Message.VoiceTicked({ now: Date.now() }));
-  return Effect.gen(function* () {
-    tick();
-    const timer = setInterval(tick, 1000);
-    yield* Effect.addFinalizer(() =>
-      Effect.sync(() => {
-        clearInterval(timer);
-      }),
-    );
-  });
-});
 
 function createEscapeKeyStream() {
   return Stream.callback<Message>((queue) => {
@@ -156,7 +79,8 @@ export const itemSubscriptions = Subscription.make<Model, Message>()((entry) => 
     { recording: Schema.Boolean },
     {
       modelToDependencies: (model) => ({ recording: model.voice.recording }),
-      dependenciesToStream: ({ recording }) => (recording ? voiceClock : Stream.empty),
+      dependenciesToStream: ({ recording }) =>
+        recording ? voiceClock((now) => Message.VoiceTicked({ now })) : Stream.empty,
     },
   ),
   chatItemAnswerVoiceInput: entry(
@@ -214,7 +138,8 @@ export const inboxItemSubscriptions = Subscription.make<Model, Message>()((entry
     { recording: Schema.Boolean },
     {
       modelToDependencies: (model) => ({ recording: model.voice.recording }),
-      dependenciesToStream: ({ recording }) => (recording ? voiceClock : Stream.empty),
+      dependenciesToStream: ({ recording }) =>
+        recording ? voiceClock((now) => Message.VoiceTicked({ now })) : Stream.empty,
     },
   ),
   inboxItemAnswerVoiceInput: entry(
@@ -249,34 +174,24 @@ const chatSubscriptions = Subscription.make<Model, Message>()((entry) => ({
         Message.ReceivedUnread({ unread: list === undefined ? null : unreadCount(list, chat) }),
       ),
   }),
-  chatDraft: entry(
-    { key: Schema.String },
-    {
-      modelToDependencies: ({ organization, repository, workstream }) => ({
-        key: chatDraftKey(organization, repository, workstream),
-      }),
-      dependenciesToStream: ({ key }) =>
-        draftValues(key, (draft) => Message.ReceivedDraft({ draft })),
-    },
-  ),
-  chatVoiceInput: entry(
-    { key: Schema.String },
-    {
-      modelToDependencies: ({ organization, repository, workstream }) => ({
-        key: chatDraftKey(organization, repository, workstream),
-      }),
-      dependenciesToStream: ({ key }) => voiceInput(key, inputId),
-    },
-  ),
+  chatOutbox: entry(chatDependencies, {
+    modelToDependencies: ({ organization, repository, workstream }) => ({
+      organization,
+      repository,
+      workstream,
+    }),
+    dependenciesToStream: () =>
+      storeValues(subscribeOutbox, currentOutboxVersion, () => Message.OutboxChanged()),
+  }),
   chatStopReady: entry(
     { showStop: Schema.Boolean },
     {
       modelToDependencies: (model) => ({
         showStop:
           model.stoppable &&
-          !model.draftText.trim() &&
-          model.draftImages.length === 0 &&
-          model.draftInboxItems.length === 0,
+          !model.composer.draftText.trim() &&
+          model.composer.draftImages.length === 0 &&
+          model.composer.draftInboxItems.length === 0,
       }),
       // A tap on Send can land on the Stop button that replaces it. Thus Stop takes no tap in its first moments.
       dependenciesToStream: ({ showStop }) =>
@@ -292,4 +207,13 @@ const chatSubscriptions = Subscription.make<Model, Message>()((entry) => ({
   ),
 }));
 
-export const subscriptions = Subscription.aggregate(itemSubscriptions, chatSubscriptions);
+const liftedComposer = Subscription.lift(composerSubscriptions)<Model, Message>({
+  read: (model) => Option.some(model.composer),
+  toParentMessage: toGotComposerMessage,
+});
+
+export const subscriptions = Subscription.aggregate(
+  itemSubscriptions,
+  chatSubscriptions,
+  liftedComposer,
+);

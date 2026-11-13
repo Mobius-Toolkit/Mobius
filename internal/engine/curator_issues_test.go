@@ -2,12 +2,14 @@ package engine_test
 
 import (
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
+	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
 
 // addMaintenanceWorkstream adds the open Workstream number with mobius:maintenance.
@@ -17,11 +19,24 @@ func addMaintenanceWorkstream(fake *testkit.FakeGitHub, number int64) {
 	fake.AddLabel(shop, number, "mobius:maintenance", "owner")
 }
 
+// waitForMaintenanceCopy waits until the copy has the maintenance setting of each Workstream in numbers, because the
+// Curator reads the maintenance Workstream from the copy.
+func waitForMaintenanceCopy(t *testing.T, server *testserver.Server, numbers ...int64) {
+	t.Helper()
+	testkit.WaitFor(t, func() bool {
+		return !slices.ContainsFunc(numbers, func(number int64) bool {
+			rows := settingsOf(t, server, number)
+			return len(rows) != 1 || !rows[0].Maintenance
+		})
+	})
+}
+
 func TestTheCuratorCreatesATaskIssueWithTriageBelowTheMaintenanceWorkstream(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, call("create_issue", `{ title = "Fix the flaky test", body = "The test fails in CI.", blocked_by = [40] }`))
 	addMaintenanceWorkstream(fake, 20)
+	waitForMaintenanceCopy(t, server, 20)
 	fake.AddIssue(shop, 40, "Plan table")
 
 	session := run(t, server, roleSpec(t, engine.CuratorRole), "Create the issue")
@@ -47,12 +62,13 @@ func TestTheCuratorCreatesTheIssueInTheOpenMaintenanceWorkstreamWithTheLowestNum
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, call("create_issue", `{ title = "Fix the flaky test", body = "", blocked_by = [] }`))
-	addMaintenanceWorkstream(fake, 30)
-	addMaintenanceWorkstream(fake, 20)
 	addMaintenanceWorkstream(fake, 10)
 	fake.CloseIssue(shop, 10)
+	addMaintenanceWorkstream(fake, 30)
+	addMaintenanceWorkstream(fake, 20)
 	fake.AddIssue(shop, 5, "Not a Workstream")
 	fake.AddLabel(shop, 5, "mobius:maintenance", "owner")
+	waitForMaintenanceCopy(t, server, 20, 30)
 
 	run(t, server, roleSpec(t, engine.CuratorRole), "Create the issue")
 
@@ -77,6 +93,7 @@ func TestTheCuratorHasToolsToSearchAndCreateIssuesOnlyWithAMaintenanceWorkstream
 
 	without := run(t, server, roleSpec(t, engine.CuratorRole), "List the tools")
 	addMaintenanceWorkstream(fake, 20)
+	waitForMaintenanceCopy(t, server, 20)
 	with := run(t, server, roleSpec(t, engine.CuratorRole), "List the tools")
 
 	if got := toolNames(t, reply(t, server, without)); !reflect.DeepEqual(got, []string{"background_state", "edit_memory", "propose_skill", "report_gap"}) {
@@ -95,6 +112,7 @@ func TestMobiusRefusesTheFourthIssueOfACuratorSession(t *testing.T) {
 	}
 	server, _ := connect(t, fake, create("A problem")+create("B problem")+create("C problem")+create("D problem"))
 	addMaintenanceWorkstream(fake, 20)
+	waitForMaintenanceCopy(t, server, 20)
 
 	session := run(t, server, roleSpec(t, engine.CuratorRole), "1. ", "2. ", "3. ", "4. ")
 
@@ -113,6 +131,7 @@ func TestMobiusRefusesAnIssueWithTheTitleOfAnIssueOfTheSameCuratorSession(t *tes
 	create := call("create_issue", `{ title = "A problem", body = "", blocked_by = [] }`)
 	server, _ := connect(t, fake, create+create)
 	addMaintenanceWorkstream(fake, 20)
+	waitForMaintenanceCopy(t, server, 20)
 
 	session := run(t, server, roleSpec(t, engine.CuratorRole), "1. ", "2. ")
 
@@ -130,6 +149,7 @@ func TestThePromptOfTheCuratorHasTheDuplicateRulesAndTheMaintenanceWorkstream(t 
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, curatorScript)
 	addMaintenanceWorkstream(fake, 20)
+	waitForMaintenanceCopy(t, server, 20)
 
 	endLeads(t, server, 10)
 
@@ -173,6 +193,7 @@ func TestSearchIssuesGivesOpenAndClosedIssuesWithTheCloseReasonAndTheLastThreeCo
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, call("search_issues", `{ query = "flaky" }`)+call("search_issues", `{ query = "nothing" }`)+call("search_issues", `{ query = " " }`))
 	addMaintenanceWorkstream(fake, 20)
+	waitForMaintenanceCopy(t, server, 20)
 	fake.AddIssue(shop, 40, "Flaky CI test")
 	fake.SetBody(shop, 40, "The test fails.")
 	// Close the issue before the comments, so the poll cannot decline the comments as comments in no Workstream.
