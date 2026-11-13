@@ -108,7 +108,7 @@ func TestTheTriagerOfAnIssueRefusesTheToolsWhenTheOrganizationHasNoIssueReposito
 		t.Errorf("prompts = %q", prompts)
 	}
 	calls := mcpCalls(t, server, session.ID)
-	if len(calls) != 1 || calls[0]["error"] != "Mobius needs the issue repository of owner. Set organizations.owner.issue_repository in config.toml." {
+	if len(calls) != 1 || calls[0]["error"] != refusedIssueRepository {
 		t.Errorf("calls = %v", calls)
 	}
 	if got := actionRows(t, server); len(got) != 0 {
