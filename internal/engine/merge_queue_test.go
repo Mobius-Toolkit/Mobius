@@ -126,11 +126,12 @@ func queueTasksWith(t *testing.T, fake *testkit.FakeGitHub, lead, level string, 
 
 // TestMergeQueueOrderAndOneAtATime verifies that three approved tasks with auto_merge of one repository are behind the
 // default branch with a common file. They queue in the order of their approval, and only the first task gets a branch
-// update. No task merges while the first task waits for its update and for its approval again.
+// update. No task merges while the first task waits for its update. After the update, the tasks get the approval of the
+// Lead again, and merge one at a time in the queue order, each after its own update.
 func TestMergeQueueOrderAndOneAtATime(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := queueTasks(t, fake, "merge", []int{41, 43, 45})
+	server, _ := queueTasksWith(t, fake, approveAgain([]int{41, 43, 45}, 41, 43, 45)+queueLead, "merge", []int{41, 43, 45})
 	head41 := head(t, fake, "mobius/41")
 	head43 := head(t, fake, "mobius/43")
 	head45 := head(t, fake, "mobius/45")
@@ -164,15 +165,17 @@ func TestMergeQueueOrderAndOneAtATime(t *testing.T) {
 
 	fake.ReleaseBranchUpdates()
 
-	// The held update was for the first task. It is in checks and has no approval again, so no task merges.
-	testkit.WaitFor(t, func() bool { return head(t, fake, "mobius/41") != head41 })
-	if calls, updates := fake.MergeCalls(), fake.UpdateBranchCalls(); calls != 0 || updates != 1 {
-		t.Errorf("merge calls = %d, update calls = %d after the update, want 0 and 1", calls, updates)
+	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, 41) == "" })
+	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, 43) == "" })
+	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, 45) == "" })
+	if calls, updates := fake.MergeCalls(), fake.UpdateBranchCalls(); calls != 3 || updates != 3 {
+		t.Errorf("merge calls = %d, update calls = %d, want 3 and 3", calls, updates)
 	}
-	for ref, want := range map[string]string{"mobius/43": head43, "mobius/45": head45} {
-		if got := head(t, fake, ref); got != want {
-			t.Errorf("head of %s = %s, want %s", ref, got, want)
-		}
+	titles := []string{"Task 45", "Task 43", "Add plan model"}
+	log := strings.Split(testkit.Git(t, fake.Remote(shop), "log", "--format=%s", "main"), "\n")
+	merged := slices.DeleteFunc(log, func(subject string) bool { return !slices.Contains(titles, subject) })
+	if !slices.Equal(merged, titles) {
+		t.Errorf("merge order, newest first = %v, want %v", merged, titles)
 	}
 }
 
@@ -202,6 +205,65 @@ func TestMergeQueueUpdateAndMerge(t *testing.T) {
 	}
 	if count := approvals(fake); count != 2 {
 		t.Errorf("approvals = %d, want 2", count)
+	}
+}
+
+// TestMergeQueueHeadKeepsItsPlaceWhileTheCommentOfItsApprovalAgainRuns verifies that the head of the queue stays the head
+// while the approval of its updated head runs. The fake GitHub holds the comment of that approval, and the polls of the
+// hold see the task in ready_for_review. The task does not leave the queue, the next task does not get an update, and
+// after the release the head merges first.
+func TestMergeQueueHeadKeepsItsPlaceWhileTheCommentOfItsApprovalAgainRuns(t *testing.T) {
+	t.Parallel()
+	headKeepsItsPlaceWhileApprovalRuns(t, (*testkit.FakeGitHub).HoldComment)
+}
+
+// TestMergeQueueHeadKeepsItsPlaceWhileTheReviewOfItsApprovalAgainRuns is the same test with a hold of the approval of the
+// Owner (the review that autoApprove writes), which is the last write of the approval.
+func TestMergeQueueHeadKeepsItsPlaceWhileTheReviewOfItsApprovalAgainRuns(t *testing.T) {
+	t.Parallel()
+	headKeepsItsPlaceWhileApprovalRuns(t, (*testkit.FakeGitHub).HoldReview)
+}
+
+// headKeepsItsPlaceWhileApprovalRuns runs the test of the two functions above. hold holds the next write of its kind on the
+// pull request of task 41.
+func headKeepsItsPlaceWhileApprovalRuns(t *testing.T, hold func(*testkit.FakeGitHub, string, int64) (<-chan struct{}, func())) {
+	t.Helper()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := queueTasksWith(t, fake, approveAgain([]int{41, 43}, 41, 43)+queueLead, "merge", []int{41, 43})
+	head43 := head(t, fake, "mobius/43")
+	pr41 := liveTask(t, server, 41).PullRequest.Int64
+
+	commitQueueFiles(fake, 41, 43)
+
+	sendChat(t, server, leadChat, "Approve #41")
+	testkit.WaitFor(t, func() bool { return liveTask(t, server, 41).MergeQueuedAt.Valid })
+	// The next write on the pull request is the one of the approval again, after the update of the branch.
+	reached, release := hold(fake, shop, pr41)
+	sendChat(t, server, leadChat, "Approve #43")
+	testkit.WaitFor(t, func() bool { return liveTask(t, server, 43).MergeQueuedAt.Valid })
+	<-reached
+	queuedAt := liveTask(t, server, 41).MergeQueuedAt
+	waitForPolls(t, fake)
+
+	if task := liveTask(t, server, 41); task.State != "ready_for_review" || task.MergeQueuedAt != queuedAt {
+		t.Errorf("task 41 state = %s, merge_queued_at = %v, want ready_for_review and %v", task.State, task.MergeQueuedAt, queuedAt)
+	}
+	if calls, updates := fake.MergeCalls(), fake.UpdateBranchCalls(); calls != 0 || updates != 1 {
+		t.Errorf("merge calls = %d, update calls = %d, want 0 and 1", calls, updates)
+	}
+	if got := head(t, fake, "mobius/43"); got != head43 {
+		t.Errorf("head of mobius/43 = %s, want %s", got, head43)
+	}
+
+	release()
+
+	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, 41) == "" })
+	if state := liveTaskState(t, server, 43); state == "" {
+		t.Error("task 43 merged before task 41")
+	}
+	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, 43) == "" })
+	if calls := fake.MergeCalls(); calls != 2 {
+		t.Errorf("merge calls = %d, want 2", calls)
 	}
 }
 
@@ -897,8 +959,14 @@ func TestMergeQueuePlacesOnBoardTasksAndInboxItems(t *testing.T) {
 
 	fake.ReleaseBranchUpdates()
 
-	// The Lead approves the new head of task 41 again, and task 41 leaves the queue.
-	testkit.WaitFor(t, func() bool { return !liveTask(t, server, 41).MergeQueuedAt.Valid })
+	// The Lead approves the new head of task 41 again, and task 41 leaves the queue. It can merge and end in the same poll.
+	testkit.WaitFor(t, func() bool {
+		var queued int
+		if err := server.DB.QueryRow("SELECT count(*) FROM tasks WHERE repository = ? AND issue = 41 AND state <> 'ended' AND merge_queued_at IS NOT NULL", shop).Scan(&queued); err != nil {
+			t.Fatal(err)
+		}
+		return queued == 0
+	})
 
 	<-reached43
 

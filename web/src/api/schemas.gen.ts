@@ -116,6 +116,7 @@ export const ListActiveAgentsResponse = S.Struct({
   "harness": S.String.annotate({ description: 'Harness is the Harness of the session, for example claude-code' }),
   "id": S.Number.annotate({ description: 'ID is the id of the session' }),
   "issue": S.NullOr(S.Number).annotate({ description: 'Issue is the one issue that the session works on, or null' }),
+  "issueTitle": S.NullOr(S.String).annotate({ description: 'IssueTitle is the title of the issue of the session, or null when the session has no issue or the store has no copy of the issue' }),
   "keptUntil": S.NullOr(S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/))).annotate({ description: 'KeptUntil is the time when Mobius closes the kept Harness process of this ended session, or null when Mobius keeps no process of this session' }),
   "model": S.String.annotate({ description: 'Model is the model of the session' }),
   "name": S.String.annotate({ description: 'Name is the name of the Role, for example Lead' }),
@@ -1275,6 +1276,14 @@ export const ListRolesResponse = S.Struct({
   "harness": S.String.annotate({ description: 'Harness is the agent program of the Role' }),
   "max": S.Number.annotate({ description: 'Max is the number of sessions of the Role that run at the same time' }),
   "model": S.String.annotate({ description: 'Model is the model of the Role' }),
+  "moreBindings": S.Array(S.Struct({
+  "context": S.Number.annotate({ description: 'Context is the largest context of a session in tokens, or 0 for no limit' }),
+  "effort": S.String.annotate({ description: 'Effort is the effort level of the binding, or empty for a Harness with no effort levels' }),
+  "harness": S.String.annotate({ description: 'Harness is the agent program of the binding' }),
+  "id": S.Number.annotate({ description: 'ID is the id of the binding' }),
+  "max": S.Number.annotate({ description: 'Max is the number of sessions of the binding that run at the same time' }),
+  "model": S.String.annotate({ description: 'Model is the model of the binding' })
+}).annotate({ description: 'MoreBinding is an Implementer binding after the first binding.' })).annotate({ description: 'MoreBindings are the Implementer bindings after the first binding, in the order of the list. It is empty for each other Role.' }),
   "role": S.String.annotate({ description: 'Role is the name of the Role' }),
   "ui": S.Struct({
   "context": S.Boolean.annotate({ description: 'Context is true when the UI gives the context limit' }),
@@ -1284,6 +1293,120 @@ export const ListRolesResponse = S.Struct({
   "model": S.Boolean.annotate({ description: 'Model is true when the UI gives the model' })
 }).annotate({ description: 'UI tells which values come from the UI' })
 }).annotate({ description: 'Role is the binding of a Role to a Harness, with the source of each value.' })).annotate({ description: 'Data is the payload of the response' })
+}).annotate({ description: 'Envelope is the body of each success response.' })
+
+
+/**
+ * AddImplementerBinding adds an Implementer binding at the end of the list. It returns 422 with the reason when the values fail a check.
+ */
+export const AddImplementerBindingBody = S.Struct({
+  "context": S.optional(S.Number).annotate({ description: 'Context is the largest context of a session in tokens, or 0 for no limit' }),
+  "effort": S.optional(S.String).annotate({ description: 'Effort is the effort level of the binding. It is empty for a Harness with no effort levels.' }),
+  "harness": S.optional(S.String).annotate({ description: 'Harness is the agent program of the binding' }),
+  "max": S.optional(S.Number).annotate({ description: 'Max is the number of sessions of the binding that run at the same time' }),
+  "model": S.optional(S.String).annotate({ description: 'Model is the model of the binding' })
+}).annotate({ description: 'BindingBody is the body of AddImplementerBinding and SetImplementerBinding.' })
+
+export const AddImplementerBindingResponse = S.Struct({
+  "data": S.Struct({
+  "context": S.Number.annotate({ description: 'Context is the largest context of a session in tokens, or 0 for no limit' }),
+  "effort": S.String.annotate({ description: 'Effort is the effort level of the Role, or empty for a Harness with no effort levels' }),
+  "harness": S.String.annotate({ description: 'Harness is the agent program of the Role' }),
+  "max": S.Number.annotate({ description: 'Max is the number of sessions of the Role that run at the same time' }),
+  "model": S.String.annotate({ description: 'Model is the model of the Role' }),
+  "moreBindings": S.Array(S.Struct({
+  "context": S.Number.annotate({ description: 'Context is the largest context of a session in tokens, or 0 for no limit' }),
+  "effort": S.String.annotate({ description: 'Effort is the effort level of the binding, or empty for a Harness with no effort levels' }),
+  "harness": S.String.annotate({ description: 'Harness is the agent program of the binding' }),
+  "id": S.Number.annotate({ description: 'ID is the id of the binding' }),
+  "max": S.Number.annotate({ description: 'Max is the number of sessions of the binding that run at the same time' }),
+  "model": S.String.annotate({ description: 'Model is the model of the binding' })
+}).annotate({ description: 'MoreBinding is an Implementer binding after the first binding.' })).annotate({ description: 'MoreBindings are the Implementer bindings after the first binding, in the order of the list. It is empty for each other Role.' }),
+  "role": S.String.annotate({ description: 'Role is the name of the Role' }),
+  "ui": S.Struct({
+  "context": S.Boolean.annotate({ description: 'Context is true when the UI gives the context limit' }),
+  "effort": S.Boolean.annotate({ description: 'Effort is true when the UI gives the effort level' }),
+  "harness": S.Boolean.annotate({ description: 'Harness is true when the UI gives the Harness' }),
+  "max": S.Boolean.annotate({ description: 'Max is true when the UI gives the session limit' }),
+  "model": S.Boolean.annotate({ description: 'Model is true when the UI gives the model' })
+}).annotate({ description: 'UI tells which values come from the UI' })
+}).annotate({ description: 'Data is the payload of the response' })
+}).annotate({ description: 'Envelope is the body of each success response.' })
+
+
+/**
+ * SetImplementerBinding changes an Implementer binding after the first binding. It returns 404 for an unknown id and 422 with the reason when the values fail a check.
+ */
+export const SetImplementerBindingParams = S.Struct({
+  "id": S.Number.annotate({ description: 'ID is the id of the binding' })
+})
+
+export const SetImplementerBindingBody = S.Struct({
+  "context": S.optional(S.Number).annotate({ description: 'Context is the largest context of a session in tokens, or 0 for no limit' }),
+  "effort": S.optional(S.String).annotate({ description: 'Effort is the effort level of the binding. It is empty for a Harness with no effort levels.' }),
+  "harness": S.optional(S.String).annotate({ description: 'Harness is the agent program of the binding' }),
+  "max": S.optional(S.Number).annotate({ description: 'Max is the number of sessions of the binding that run at the same time' }),
+  "model": S.optional(S.String).annotate({ description: 'Model is the model of the binding' })
+}).annotate({ description: 'BindingBody is the body of AddImplementerBinding and SetImplementerBinding.' })
+
+export const SetImplementerBindingResponse = S.Struct({
+  "data": S.Struct({
+  "context": S.Number.annotate({ description: 'Context is the largest context of a session in tokens, or 0 for no limit' }),
+  "effort": S.String.annotate({ description: 'Effort is the effort level of the Role, or empty for a Harness with no effort levels' }),
+  "harness": S.String.annotate({ description: 'Harness is the agent program of the Role' }),
+  "max": S.Number.annotate({ description: 'Max is the number of sessions of the Role that run at the same time' }),
+  "model": S.String.annotate({ description: 'Model is the model of the Role' }),
+  "moreBindings": S.Array(S.Struct({
+  "context": S.Number.annotate({ description: 'Context is the largest context of a session in tokens, or 0 for no limit' }),
+  "effort": S.String.annotate({ description: 'Effort is the effort level of the binding, or empty for a Harness with no effort levels' }),
+  "harness": S.String.annotate({ description: 'Harness is the agent program of the binding' }),
+  "id": S.Number.annotate({ description: 'ID is the id of the binding' }),
+  "max": S.Number.annotate({ description: 'Max is the number of sessions of the binding that run at the same time' }),
+  "model": S.String.annotate({ description: 'Model is the model of the binding' })
+}).annotate({ description: 'MoreBinding is an Implementer binding after the first binding.' })).annotate({ description: 'MoreBindings are the Implementer bindings after the first binding, in the order of the list. It is empty for each other Role.' }),
+  "role": S.String.annotate({ description: 'Role is the name of the Role' }),
+  "ui": S.Struct({
+  "context": S.Boolean.annotate({ description: 'Context is true when the UI gives the context limit' }),
+  "effort": S.Boolean.annotate({ description: 'Effort is true when the UI gives the effort level' }),
+  "harness": S.Boolean.annotate({ description: 'Harness is true when the UI gives the Harness' }),
+  "max": S.Boolean.annotate({ description: 'Max is true when the UI gives the session limit' }),
+  "model": S.Boolean.annotate({ description: 'Model is true when the UI gives the model' })
+}).annotate({ description: 'UI tells which values come from the UI' })
+}).annotate({ description: 'Data is the payload of the response' })
+}).annotate({ description: 'Envelope is the body of each success response.' })
+
+
+/**
+ * RemoveImplementerBinding removes an Implementer binding. The id 0 is the first binding, which the second binding replaces. It returns 404 for an unknown id and 422 with the reason when the removal fails a check.
+ */
+export const RemoveImplementerBindingParams = S.Struct({
+  "id": S.Number.annotate({ description: 'ID is the id of the binding, or 0 for the first binding' })
+})
+
+export const RemoveImplementerBindingResponse = S.Struct({
+  "data": S.Struct({
+  "context": S.Number.annotate({ description: 'Context is the largest context of a session in tokens, or 0 for no limit' }),
+  "effort": S.String.annotate({ description: 'Effort is the effort level of the Role, or empty for a Harness with no effort levels' }),
+  "harness": S.String.annotate({ description: 'Harness is the agent program of the Role' }),
+  "max": S.Number.annotate({ description: 'Max is the number of sessions of the Role that run at the same time' }),
+  "model": S.String.annotate({ description: 'Model is the model of the Role' }),
+  "moreBindings": S.Array(S.Struct({
+  "context": S.Number.annotate({ description: 'Context is the largest context of a session in tokens, or 0 for no limit' }),
+  "effort": S.String.annotate({ description: 'Effort is the effort level of the binding, or empty for a Harness with no effort levels' }),
+  "harness": S.String.annotate({ description: 'Harness is the agent program of the binding' }),
+  "id": S.Number.annotate({ description: 'ID is the id of the binding' }),
+  "max": S.Number.annotate({ description: 'Max is the number of sessions of the binding that run at the same time' }),
+  "model": S.String.annotate({ description: 'Model is the model of the binding' })
+}).annotate({ description: 'MoreBinding is an Implementer binding after the first binding.' })).annotate({ description: 'MoreBindings are the Implementer bindings after the first binding, in the order of the list. It is empty for each other Role.' }),
+  "role": S.String.annotate({ description: 'Role is the name of the Role' }),
+  "ui": S.Struct({
+  "context": S.Boolean.annotate({ description: 'Context is true when the UI gives the context limit' }),
+  "effort": S.Boolean.annotate({ description: 'Effort is true when the UI gives the effort level' }),
+  "harness": S.Boolean.annotate({ description: 'Harness is true when the UI gives the Harness' }),
+  "max": S.Boolean.annotate({ description: 'Max is true when the UI gives the session limit' }),
+  "model": S.Boolean.annotate({ description: 'Model is true when the UI gives the model' })
+}).annotate({ description: 'UI tells which values come from the UI' })
+}).annotate({ description: 'Data is the payload of the response' })
 }).annotate({ description: 'Envelope is the body of each success response.' })
 
 
@@ -1309,6 +1432,14 @@ export const SetRoleResponse = S.Struct({
   "harness": S.String.annotate({ description: 'Harness is the agent program of the Role' }),
   "max": S.Number.annotate({ description: 'Max is the number of sessions of the Role that run at the same time' }),
   "model": S.String.annotate({ description: 'Model is the model of the Role' }),
+  "moreBindings": S.Array(S.Struct({
+  "context": S.Number.annotate({ description: 'Context is the largest context of a session in tokens, or 0 for no limit' }),
+  "effort": S.String.annotate({ description: 'Effort is the effort level of the binding, or empty for a Harness with no effort levels' }),
+  "harness": S.String.annotate({ description: 'Harness is the agent program of the binding' }),
+  "id": S.Number.annotate({ description: 'ID is the id of the binding' }),
+  "max": S.Number.annotate({ description: 'Max is the number of sessions of the binding that run at the same time' }),
+  "model": S.String.annotate({ description: 'Model is the model of the binding' })
+}).annotate({ description: 'MoreBinding is an Implementer binding after the first binding.' })).annotate({ description: 'MoreBindings are the Implementer bindings after the first binding, in the order of the list. It is empty for each other Role.' }),
   "role": S.String.annotate({ description: 'Role is the name of the Role' }),
   "ui": S.Struct({
   "context": S.Boolean.annotate({ description: 'Context is true when the UI gives the context limit' }),
@@ -1335,6 +1466,14 @@ export const ResetRoleResponse = S.Struct({
   "harness": S.String.annotate({ description: 'Harness is the agent program of the Role' }),
   "max": S.Number.annotate({ description: 'Max is the number of sessions of the Role that run at the same time' }),
   "model": S.String.annotate({ description: 'Model is the model of the Role' }),
+  "moreBindings": S.Array(S.Struct({
+  "context": S.Number.annotate({ description: 'Context is the largest context of a session in tokens, or 0 for no limit' }),
+  "effort": S.String.annotate({ description: 'Effort is the effort level of the binding, or empty for a Harness with no effort levels' }),
+  "harness": S.String.annotate({ description: 'Harness is the agent program of the binding' }),
+  "id": S.Number.annotate({ description: 'ID is the id of the binding' }),
+  "max": S.Number.annotate({ description: 'Max is the number of sessions of the binding that run at the same time' }),
+  "model": S.String.annotate({ description: 'Model is the model of the binding' })
+}).annotate({ description: 'MoreBinding is an Implementer binding after the first binding.' })).annotate({ description: 'MoreBindings are the Implementer bindings after the first binding, in the order of the list. It is empty for each other Role.' }),
   "role": S.String.annotate({ description: 'Role is the name of the Role' }),
   "ui": S.Struct({
   "context": S.Boolean.annotate({ description: 'Context is true when the UI gives the context limit' }),
@@ -1851,6 +1990,7 @@ export const ListAgentsResponse = S.Struct({
   "harness": S.String.annotate({ description: 'Harness is the Harness of the session, for example claude-code' }),
   "id": S.Number.annotate({ description: 'ID is the id of the session' }),
   "issue": S.NullOr(S.Number).annotate({ description: 'Issue is the one issue that the session works on, or null' }),
+  "issueTitle": S.NullOr(S.String).annotate({ description: 'IssueTitle is the title of the issue of the session, or null when the session has no issue or the store has no copy of the issue' }),
   "keptUntil": S.NullOr(S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/))).annotate({ description: 'KeptUntil is the time when Mobius closes the kept Harness process of this ended session, or null when Mobius keeps no process of this session' }),
   "model": S.String.annotate({ description: 'Model is the model of the session' }),
   "name": S.String.annotate({ description: 'Name is the name of the Role, for example Lead' }),
