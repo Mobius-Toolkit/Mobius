@@ -10,6 +10,7 @@ export const Model = Schema.Struct({
   agents: Schema.Array(Agent),
   error: Schema.String,
   showStopped: Schema.Boolean,
+  now: Schema.Number,
   transcript: Schema.Option(Transcript.Model),
 });
 
@@ -26,9 +27,12 @@ export function initialModel(options: {
     agents: [],
     error: "",
     showStopped: false,
+    now: 0,
     transcript: Option.none(),
   };
 }
 
 export const shownAgents = (agents: readonly Agent[], showStopped: boolean) =>
-  agents.filter((agent) => showStopped || agent.endedAt === null).toSorted((a, b) => b.id - a.id);
+  agents
+    .filter((agent) => showStopped || agent.endedAt === null || agent.keptUntil !== null)
+    .toSorted((a, b) => b.id - a.id);

@@ -27,9 +27,10 @@ import {
 import { defineDialogMount, renderDialog } from "@/ui/dialog";
 import { defineRouterLink } from "@/ui/link";
 import { beginMarkdownRender, renderMarkdown, shieldEquals } from "@/ui/markdown";
-import { renderComposer, renderFileImage, renderPanelComposer } from "./composer";
+import * as Composer from "@/composer";
+import { fromComposerMount, renderPanelComposer } from "./composer";
 import { ChatList } from "./scroll";
-import { Message } from "./message";
+import { Message, toGotComposerMessage } from "./message";
 import {
   countsAsUnread,
   draftInboxItem,
@@ -503,10 +504,16 @@ function renderQueuedMessage(
             [
               ...(item.voice ? [renderVoiceCard(h)] : []),
               ...item.images.map((_, position) =>
-                renderFileImage(h, item.images, position, [
-                  h.Alt(`Picture ${position + 1} of an unsent message`),
-                  h.Class("max-h-48 max-w-full rounded-lg border object-contain"),
-                ]),
+                Composer.renderFileImage(
+                  h,
+                  item.images,
+                  position,
+                  [
+                    h.Alt(`Picture ${position + 1} of an unsent message`),
+                    h.Class("max-h-48 max-w-full rounded-lg border object-contain"),
+                  ],
+                  fromComposerMount,
+                ),
               ),
             ],
           )
@@ -1454,7 +1461,17 @@ export function view(model: Model, h: H): Html {
         ],
       ),
       renderActionTray(h, model),
-      renderComposer(h, model),
+      h.submodel({
+        slotId: "chat-composer",
+        model: model.composer,
+        view: Composer.view,
+        viewInputs: {
+          stoppable: model.stoppable,
+          stopping: model.stopping,
+          stopReady: model.stopReady,
+        },
+        toParentMessage: toGotComposerMessage,
+      }),
       renderAnswerDialog(h, model),
     ],
   );
