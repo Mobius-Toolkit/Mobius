@@ -1362,6 +1362,7 @@ test("screenshots", async ({ page }) => {
       ...(device === "desktop"
         ? [drain, page.getByLabel("Work in another organization")]
         : [page.getByLabel("Upgrade available")]),
+      main.getByText("No messages. Write to start a chat session."),
       page.getByText("Implementer #85 Water the new beds").filter({ visible: true }),
       page.getByText(/closes in 42 min/).filter({ visible: true }),
       page.getByText("kept", { exact: true }).filter({ visible: true }),
