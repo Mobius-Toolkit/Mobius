@@ -329,11 +329,15 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 			listChanged = listChanged || copyChanged
 		}
 		for _, event := range events {
-			if event.Actor == nil || !event.GetCreatedAt().After(since) {
+			if event.Actor == nil || event.GetCreatedAt().Before(since) {
 				continue
 			}
-			if err := e.workstreamEvent(ctx, repository, issue, event, firstPoll); err != nil {
-				return err
+			// The cursor has a precision of one second, so a setting label event in the second of the cursor can be new.
+			// The unique index of the incoming changes stops a second row for an event that the poll reads again.
+			if event.GetCreatedAt().After(since) {
+				if err := e.workstreamEvent(ctx, repository, issue, event, firstPoll); err != nil {
+					return err
+				}
 			}
 			if labeled && !firstPoll {
 				settingEvents = append(settingEvents, settingEvent{number, event})

@@ -224,3 +224,17 @@ func TestAFailedPullRequestReadAfterATrustedLevelChangeStillGivesTheLeadTheEvent
 		t.Errorf("pending incoming changes = %d", got)
 	}
 }
+
+func TestASettingLabelEventOfATrustedUserInTheSecondOfTheIssueCursorChangesTheWorkstream(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	server := startCopiedWithLead(t, fake)
+	fake.AddLabel(shop, 12, "bug", "owner")
+	waitForPoll(t, server, fake)
+
+	fake.AddLabelInLastSecond(shop, 12, "mobius:autopilot", "owner")
+
+	testkit.WaitFor(t, func() bool { return workstreams(t, server)[0].Autopilot == "start" })
+	testkit.WaitFor(t, func() bool { return incomingChanges(t, server, "done") == 1 })
+}
