@@ -1047,6 +1047,7 @@ func (e *Engine) implementer(ctx context.Context, j *job) error {
 		Issue:                sql.NullInt64{Int64: task.Issue, Valid: true},
 		Parent:               j.parent,
 		Task:                 task.ID,
+		Continues:            j.cont,
 		Dir:                  runner.TaskDir(e.config.DataDir, task.Repository, task.Issue),
 	}
 	if j.pullRequest != nil {
@@ -1196,7 +1197,7 @@ func (e *Engine) keepImplementer(ctx context.Context, a *Agent, task store.Task,
 		}
 		beforeKeep(task.ID, k.session)
 		e.rolesMu.RLock()
-		stale := k.level == LevelRole && k.binding != e.roles.Implementer
+		stale := k.level == LevelRole && !hasBinding(bindingList(e.roles.Implementer, e.moreBindings), k.binding)
 		if !stale {
 			e.keepSession(task.ID, k)
 		}

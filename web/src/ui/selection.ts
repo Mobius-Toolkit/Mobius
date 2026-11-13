@@ -46,6 +46,37 @@ export function selectionContext(root: Element, range: Range) {
     .join("\n\n");
 }
 
+// The text of a section heading: a heading element, or a paragraph that starts with a line of only bold text.
+function headingText(block: Element) {
+  if (/^H[1-6]$/.test(block.tagName)) {
+    return blockText(block);
+  }
+  const [bold, next] = block.childNodes;
+  const endsLine = !next || next.nodeName === "BR" || (next.textContent ?? "").startsWith("\n");
+  return block.tagName === "P" && bold instanceof Element && bold.tagName === "STRONG" && endsLine
+    ? blockText(bold)
+    : null;
+}
+
+// The text of the nearest section heading above the start of the selection, or an empty text above the first heading.
+export function selectionPart(root: Element, range: Range) {
+  let part = "";
+  for (const block of root.querySelectorAll("h1, h2, h3, h4, h5, h6, p")) {
+    const heading = headingText(block);
+    if (heading === null) {
+      continue;
+    }
+    const above =
+      block === range.startContainer ||
+      block.compareDocumentPosition(range.startContainer) & Node.DOCUMENT_POSITION_FOLLOWING;
+    if (!above) {
+      break;
+    }
+    part = heading;
+  }
+  return part;
+}
+
 const Rect = Schema.Struct({
   left: Schema.Number,
   right: Schema.Number,
@@ -58,6 +89,7 @@ export const Message = defineMessageUnion({
     owner: Schema.String,
     text: Schema.String,
     context: Schema.String,
+    part: Schema.String,
     rect: Rect,
   },
   Cleared: { owner: Schema.String },
@@ -68,7 +100,12 @@ export const Message = defineMessageUnion({
 export type Message = typeof Message.Type;
 
 export const OutMessage = defineMessageUnion({
-  AddRequested: { owner: Schema.String, text: Schema.String, context: Schema.String },
+  AddRequested: {
+    owner: Schema.String,
+    text: Schema.String,
+    context: Schema.String,
+    part: Schema.String,
+  },
 });
 
 export type OutMessage = typeof OutMessage.Type;
@@ -78,6 +115,7 @@ export const Model = Schema.NullOr(
     owner: Schema.String,
     text: Schema.String,
     context: Schema.String,
+    part: Schema.String,
     rect: Rect,
   }),
 );
@@ -96,7 +134,12 @@ function readSelection(element: Element) {
   }
   const lines = [...range.getClientRects()].filter((rect) => rect.width > 0);
   const { left, right, top, bottom } = lines.at(-1) ?? range.getBoundingClientRect();
-  return { text, context: selectionContext(element, range), rect: { left, right, top, bottom } };
+  return {
+    text,
+    context: selectionContext(element, range),
+    part: selectionPart(element, range),
+    rect: { left, right, top, bottom },
+  };
 }
 
 type WatchMessage = ReturnType<typeof Message.Selected> | ReturnType<typeof Message.Cleared>;
@@ -145,7 +188,9 @@ type UpdateReturn = Update.ReturnWithOutMessage<Model, Message, OutMessage>;
 
 export function update(model: Model, message: Message): UpdateReturn {
   return Message.match<UpdateReturn>(message, {
-    Selected: ({ owner, text, context, rect }) => ({ model: { owner, text, context, rect } }),
+    Selected: ({ owner, text, context, part, rect }) => ({
+      model: { owner, text, context, part, rect },
+    }),
     Cleared: ({ owner }) => ({ model: model?.owner === owner ? null : model }),
     AddClicked: () =>
       model
@@ -156,6 +201,7 @@ export function update(model: Model, message: Message): UpdateReturn {
               owner: model.owner,
               text: model.text,
               context: model.context,
+              part: model.part,
             }),
           }
         : { model },

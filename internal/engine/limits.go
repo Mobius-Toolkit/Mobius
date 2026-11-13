@@ -371,10 +371,12 @@ func (e *Engine) Pauses(ctx context.Context) ([]PauseState, error) {
 	}
 	roles := e.mergedRoles()
 	bindings := roles.Bindings()
+	more := e.implementerBindings()
 	states := make([]PauseState, 0, len(pauses))
 	for _, pause := range pauses {
 		inUse := slices.Contains(waiting, pause.Harness) ||
 			slices.ContainsFunc(bindings, func(b config.NamedBinding) bool { return string(b.Binding.Harness) == pause.Harness }) ||
+			slices.ContainsFunc(more, func(b ImplementerBinding) bool { return string(b.Binding.Harness) == pause.Harness }) ||
 			slices.ContainsFunc(settings, func(s store.IssueBinding) bool { return s.Harness == pause.Harness })
 		states = append(states, PauseState{HarnessPause: pause, InUse: inUse})
 	}
@@ -493,7 +495,7 @@ func (e *Engine) watchMove(a *Agent) (<-chan struct{}, func()) {
 	e.pauseWaiters[a] = moved
 	e.pauseWaitersMu.Unlock()
 	roles := e.mergedRoles()
-	e.moveWaiters(&roles)
+	e.moveWaiters(&roles, e.implementerList())
 	return moved, func() {
 		e.pauseWaitersMu.Lock()
 		delete(e.pauseWaiters, a)
@@ -502,15 +504,21 @@ func (e *Engine) watchMove(a *Agent) (<-chan struct{}, func()) {
 }
 
 // moveWaiters wakes each agent in pauseWaiters of a moving Role whose Harness is not the Harness of its Role in roles.
-// A session that got its binding from a setting of its task or Workstream never moves.
-func (e *Engine) moveWaiters(roles *config.Roles) {
+// For the Implementer, the Harness of each binding of implementers counts. A session that got its binding from a
+// setting of its task or Workstream never moves.
+func (e *Engine) moveWaiters(roles *config.Roles, implementers []ImplementerBinding) {
 	e.pauseWaitersMu.Lock()
 	defer e.pauseWaitersMu.Unlock()
 	for a, moved := range e.pauseWaiters {
 		if !movingRoles[a.spec.Role] || a.level != LevelRole {
 			continue
 		}
-		if binding, _ := roleBinding(roles, a.spec.Role); binding.Harness != a.binding.Harness {
+		binding, _ := roleBinding(roles, a.spec.Role)
+		follows := binding.Harness == a.binding.Harness
+		if a.spec.Role == ImplementerRole {
+			follows = slices.ContainsFunc(implementers, func(b ImplementerBinding) bool { return b.Binding.Harness == a.binding.Harness })
+		}
+		if !follows {
 			close(moved)
 			delete(e.pauseWaiters, a)
 		}
