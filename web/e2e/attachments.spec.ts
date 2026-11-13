@@ -7,6 +7,9 @@ const link = "https://github.com/owner/shop";
 const shop = "/workstreams/owner/shop/12";
 const [stopped] = stoppedItems;
 
+// The fake Lead of owner/shop#12 answers a message of the fixture with this text.
+const leadReply = "The Implementer works on #41. #42 and #45 wait for your decision.";
+
 // An Inbox item that no Workstream owns.
 const diskItem = {
   ...stopped,
@@ -345,7 +348,7 @@ for (const [device, viewport] of [
 
       await page.goto(shop);
       const lead = (await storedMessages(page)).find(
-        (stored) => stored.author === "Lead" && stored.text === "The plan prices are in cents now.",
+        (stored) => stored.author === "Lead" && stored.text === leadReply,
       );
       if (!lead) {
         throw new Error("The server has no Lead message to quote.");
@@ -354,11 +357,11 @@ for (const [device, viewport] of [
       await expect(bubble).toBeVisible();
       await expect(page.getByLabel("Message to the Lead")).toBeEditable();
       await bubble.scrollIntoViewIfNeeded();
-      await selectText(bubble, "plan prices");
+      await selectText(bubble, "works on");
       await popover.click();
       await expect(composer.locator("[data-selection-card]")).toHaveCount(1);
       await bubble.scrollIntoViewIfNeeded();
-      await selectText(bubble, "in cents now");
+      await selectText(bubble, "wait for your decision");
       await popover.click();
       await expect(composer.locator("[data-selection-card]")).toHaveCount(2);
 
@@ -384,14 +387,16 @@ for (const [device, viewport] of [
         .poll(async () => (await storedMessages(page)).find((other) => other.text === question))
         .toMatchObject({
           author: "Owner",
-          selections: [quoted("plan prices"), quoted("in cents now")],
+          selections: [quoted("works on"), quoted("wait for your decision")],
         });
       const sentId = (await storedMessages(page)).find((other) => other.text === question)?.id;
       const sent = main.locator(`[data-message='${sentId}']`);
       await expect(sent.locator("[data-selection-card]")).toHaveCount(2);
       await expect(sent.locator("[data-selection-card]").first()).toContainText("Lead message");
-      await expect(sent.locator("[data-selection-card]").first()).toContainText("plan prices");
-      await expect(sent.locator("[data-selection-card]").last()).toContainText("in cents now");
+      await expect(sent.locator("[data-selection-card]").first()).toContainText("works on");
+      await expect(sent.locator("[data-selection-card]").last()).toContainText(
+        "wait for your decision",
+      );
       await expect(sent.getByRole("button", { name: "Remove the selection" })).toHaveCount(0);
       await expect(composer.locator("[data-selection-card]")).toHaveCount(0);
     });
