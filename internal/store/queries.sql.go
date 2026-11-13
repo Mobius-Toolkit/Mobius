@@ -4002,6 +4002,31 @@ func (q *Queries) GetSession(ctx context.Context, id int64) (Session, error) {
 	return i, err
 }
 
+const getSessionIssueTitle = `-- name: GetSessionIssueTitle :one
+SELECT i.title FROM copied_issues i
+WHERE i.repository = ?1 AND i.workstream = ?2 AND i.number = ?3
+  AND substr(lower(i.repository_url), -(length(CAST(?4 AS TEXT)) + 7)) = '/repos/' || lower(CAST(?4 AS TEXT))
+`
+
+type GetSessionIssueTitleParams struct {
+	WorkstreamRepository string
+	Workstream           int64
+	Issue                int64
+	Repository           string
+}
+
+func (q *Queries) GetSessionIssueTitle(ctx context.Context, arg GetSessionIssueTitleParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, getSessionIssueTitle,
+		arg.WorkstreamRepository,
+		arg.Workstream,
+		arg.Issue,
+		arg.Repository,
+	)
+	var title string
+	err := row.Scan(&title)
+	return title, err
+}
+
 const getSkillsWorkstream = `-- name: GetSkillsWorkstream :one
 SELECT w.repository, w.number FROM copied_workstreams w
 JOIN workstreams s ON s.repository = w.repository AND s.number = w.number
