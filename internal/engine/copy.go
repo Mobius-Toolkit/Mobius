@@ -809,15 +809,29 @@ func addWorkstream(ctx context.Context, q *store.Queries, repository string, wor
 }
 
 // addWorkstreamSettings adds the settings row of the Workstream issue when it has none, with the Autopilot level Off and
-// the other settings from the labels. A row that exists stays as it is. It gives 1 when it added the row.
+// the other settings from the labels. A row that exists stays as it is. When it adds the row, it also adds an outgoing
+// change for each level label that the issue has, so the issue loses the label. It gives 1 when it added the row.
 func addWorkstreamSettings(ctx context.Context, q *store.Queries, repository string, issue *gh.Issue) (int64, error) {
-	return q.AddWorkstream(ctx, store.AddWorkstreamParams{
+	number := int64(issue.GetNumber())
+	added, err := q.AddWorkstream(ctx, store.AddWorkstreamParams{
 		Repository:  repository,
-		Number:      int64(issue.GetNumber()),
+		Number:      number,
 		Evergreen:   hasLabel(issue, evergreenLabel),
 		Maintenance: hasLabel(issue, maintenanceLabel),
 		Skills:      hasLabel(issue, skillsLabel),
 	})
+	if err != nil || added == 0 {
+		return added, err
+	}
+	for _, field := range []string{autopilotField, autoMergeField} {
+		if !hasLabel(issue, settingLabels[field]) {
+			continue
+		}
+		if _, err := addSettingChange(ctx, q, repository, number, field); err != nil {
+			return 0, err
+		}
+	}
+	return added, nil
 }
 
 func removeTree(ctx context.Context, q *store.Queries, repository string, workstream int64) error {

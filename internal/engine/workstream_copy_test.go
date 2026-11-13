@@ -267,6 +267,12 @@ func TestANewWorkstreamGetsTheLevelOffAndTheOtherSettingsFromItsLabels(t *testin
 	if got := workstreams(t, server)[1]; got.Number != 12 || got.Autopilot != "off" || !got.Evergreen {
 		t.Errorf("workstreams = %+v", workstreams(t, server))
 	}
+	testkit.WaitFor(t, func() bool {
+		return fake.LabelRemovedBy(shop, 12, "mobius:autopilot", appActor) && fake.LabelRemovedBy(shop, 12, "mobius:auto-merge", appActor)
+	})
+	if labels := fake.Labels(shop, 12); !slices.Contains(labels, "mobius:evergreen") || slices.Contains(labels, "mobius:autopilot") || slices.Contains(labels, "mobius:auto-merge") {
+		t.Errorf("labels of #12 = %v", labels)
+	}
 }
 
 func TestTheFullSyncCopiesTheNestedSubIssuesWithStateLabelsAndAuthor(t *testing.T) {
