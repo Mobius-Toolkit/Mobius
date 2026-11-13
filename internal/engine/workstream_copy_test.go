@@ -248,8 +248,8 @@ func TestANewWorkstreamGetsTheLevelOffAndTheOtherSettingsFromItsLabels(t *testin
 	fake.AddLabel(shop, 13, "mobius:workstream", "owner")
 	server := startCopied(t, fake)
 	fake.AddIssue(shop, 12, "Workstream")
-	fake.AddLabel(shop, 12, "mobius:autopilot", "owner")
-	fake.AddLabel(shop, 12, "mobius:auto-merge", "owner")
+	fake.AddLabel(shop, 12, "mobius:autopilot", "mallory")
+	fake.AddLabel(shop, 12, "mobius:auto-merge", "mallory")
 	fake.AddLabel(shop, 12, "mobius:evergreen", "owner")
 	fake.AddLabel(shop, 12, "mobius:skills", "owner")
 	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
@@ -271,6 +271,28 @@ func TestANewWorkstreamGetsTheLevelOffAndTheOtherSettingsFromItsLabels(t *testin
 		return fake.LabelRemovedBy(shop, 12, "mobius:autopilot", appActor) && fake.LabelRemovedBy(shop, 12, "mobius:auto-merge", appActor)
 	})
 	if labels := fake.Labels(shop, 12); !slices.Contains(labels, "mobius:evergreen") || slices.Contains(labels, "mobius:autopilot") || slices.Contains(labels, "mobius:auto-merge") {
+		t.Errorf("labels of #12 = %v", labels)
+	}
+}
+
+func TestANewWorkstreamGetsTheLevelOfTheLabelsOfATrustedUser(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddIssue(shop, 13, "Workstream")
+	fake.AddLabel(shop, 13, "mobius:workstream", "owner")
+	server := startCopied(t, fake)
+	fake.AddIssue(shop, 12, "Workstream")
+	fake.AddLabel(shop, 12, "mobius:autopilot", "owner")
+	fake.AddLabel(shop, 12, "mobius:auto-merge", "owner")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
+
+	testkit.WaitFor(t, func() bool {
+		list := workstreams(t, server)
+		return len(list) == 2 && list[1].Autopilot == "start_and_merge"
+	})
+	waitForPoll(t, server, fake)
+	waitForPolls(t, fake)
+	if labels := fake.Labels(shop, 12); !slices.Contains(labels, "mobius:autopilot") || !slices.Contains(labels, "mobius:auto-merge") {
 		t.Errorf("labels of #12 = %v", labels)
 	}
 }
@@ -542,22 +564,20 @@ func TestTheLevelStaysAfterTheLabelWritesOfTheAppAndTheNextPoll(t *testing.T) {
 	}
 }
 
-func TestALabelOfAPersonDoesNotChangeTheLevel(t *testing.T) {
+func TestALabelOfAPersonWhoIsNotATrustedUserDoesNotChangeTheLevel(t *testing.T) {
 	t.Parallel()
-	for _, actor := range []string{"owner", "mallory"} {
-		t.Run(actor, func(t *testing.T) {
-			t.Parallel()
-			fake := testkit.NewFakeGitHub(t)
-			server := startWithTasks(t, fake)
+	fake := testkit.NewFakeGitHub(t)
+	server := startWithTasks(t, fake)
 
-			fake.AddLabel(shop, 12, "mobius:autopilot", actor)
-			fake.AddLabel(shop, 12, "mobius:auto-merge", actor)
+	fake.AddLabel(shop, 12, "mobius:autopilot", "mallory")
+	fake.AddLabel(shop, 12, "mobius:auto-merge", "mallory")
 
-			waitForPoll(t, server, fake)
-			if got := workstreams(t, server)[0].Autopilot; got != "off" {
-				t.Errorf("level = %s", got)
-			}
-		})
+	testkit.WaitFor(t, func() bool {
+		return fake.LabelRemovedBy(shop, 12, "mobius:autopilot", appActor) && fake.LabelRemovedBy(shop, 12, "mobius:auto-merge", appActor)
+	})
+	waitForPoll(t, server, fake)
+	if got := workstreams(t, server)[0].Autopilot; got != "off" {
+		t.Errorf("level = %s", got)
 	}
 }
 
