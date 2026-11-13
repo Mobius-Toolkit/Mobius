@@ -255,14 +255,18 @@ func TestAUsageLimitPausesTheHarnessUntilResumeNowSendsThePromptAgain(t *testing
 	if started[0].Harness != "devin" || !started[0].PausedUntil.Equal(until) {
 		t.Errorf("pauses event = %+v, want devin until %v", started, until)
 	}
-	if got := apiPauses(t, server); !reflect.DeepEqual(got, started) {
-		t.Errorf("pauses = %+v, want %+v", got, started)
-	}
 	if got := inbox(t, server); len(got) != 0 {
 		t.Errorf("inbox = %+v", got)
 	}
 	reason := "paused until " + until.UTC().Format("2006-01-02 15:04 UTC")
 	testkit.WaitFor(t, func() bool { return session(t, server, agent.ID()).QueueReason.String == reason })
+	requireDevinUsers(t, server,
+		apiPauseUser{Kind: "role", Role: "implementer"},
+		apiPauseUser{
+			Kind: "session", Role: "implementer",
+			Repository: shop, Number: 41,
+			WorkstreamRepository: shop, Workstream: 12, WorkstreamTitle: "Integrate loyalty plans",
+		})
 	// The pause also holds a Worker of the paused Harness in the queue.
 	second := startLater(t.Context(), server, implementerSpec(t, server, fake, 43))
 	testkit.WaitFor(t, func() bool {
