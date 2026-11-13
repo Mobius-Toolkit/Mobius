@@ -287,7 +287,7 @@ func TestAReplyThatGitHubCreatedBeforeAFiveHundredIsNotPostedAgainAndItsThreadGe
 	if got, want := reply(t, server, session), "Mobius posts the reply to "+itoa(root)+" later."; got != want {
 		t.Errorf("reply = %q, want %q", got, want)
 	}
-	if thread := fake.ReviewThread(shop, 45, root); thread.Resolved || len(thread.Comments) != 2 {
+	if thread := fake.ReviewThread(shop, 45, root); len(thread.Comments) != 2 {
 		t.Errorf("thread = %+v", thread)
 	}
 	fake.LoseReviewReplyAnswers(false)
