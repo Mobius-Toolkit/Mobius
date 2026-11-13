@@ -2067,22 +2067,28 @@ test("the Autopilot sheet of the phone top bar sets the level", async ({ page })
   await expect(page.getByRole("button", { name: "Autopilot: Off" })).toBeVisible();
 });
 
-test("the Autopilot trigger of the phone top bar shows only the icon next to Tasks", async ({
+const gapBetween = async (left: Locator, right: Locator) => {
+  const leftBox = await left.boundingBox();
+  const rightBox = await right.boundingBox();
+  return (rightBox?.x ?? 0) - ((leftBox?.x ?? 0) + (leftBox?.width ?? 0));
+};
+
+test("the Autopilot trigger of the phone top bar shows only the icon, next to Brief and Tasks", async ({
   page,
 }) => {
   await page.setViewportSize(phone);
   await page.goto(shop);
 
   const trigger = page.getByRole("button", { name: "Autopilot: Off" });
+  const brief = page.getByRole("banner").getByRole("button", { name: "Brief", exact: true });
   const tasks = page.getByRole("button", { name: "Tasks", exact: true });
   await expect(trigger).toBeVisible();
   await expect(trigger).toHaveAttribute("title", "Autopilot: Off");
   await expect(trigger).not.toContainText("Off");
-  const triggerBox = await trigger.boundingBox();
-  const tasksBox = await tasks.boundingBox();
-  const gap = (tasksBox?.x ?? 0) - ((triggerBox?.x ?? 0) + (triggerBox?.width ?? 0));
-  expect(gap).toBeGreaterThanOrEqual(0);
-  expect(gap).toBeLessThan(16);
+  for (const gap of [await gapBetween(trigger, brief), await gapBetween(brief, tasks)]) {
+    expect(gap).toBeGreaterThanOrEqual(0);
+    expect(gap).toBeLessThan(16);
+  }
 });
 
 test("the Autopilot trigger of the desktop chat head sits on the right edge with the level name", async ({
