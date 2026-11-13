@@ -353,8 +353,12 @@ func (e *Engine) approvePullRequest(ctx context.Context, c caller, repository gi
 // approves the pull request with comment, adds a todo for each new deployment need, and with a merge level starts the
 // merge. comment is the text to post on the pull request. mark is the role mark of the Lead for the question text, or
 // "" when Mobius writes the comment. leadReport is stored as the report of the approval, or "" keeps the stored report.
-// again tells that Mobius approves the head again for the Lead. It gives the result text for the Lead.
+// again tells that Mobius approves the head again for the Lead. It gives the result text for the Lead. It holds approvalMu
+// from the state change to the end of the merge start, also on the path that sets the state back after an error of
+// approve. Thus a poll never reads the task between these steps.
 func (e *Engine) finishApproval(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue, pullRequest *gh.PullRequest, level string, checkRun int64, comment, mark, leadReport string, again bool) (string, error) {
+	e.approvalMu.Lock()
+	defer e.approvalMu.Unlock()
 	moved, err := e.setTaskState(ctx, store.SetTaskStateParams{State: "ready_for_review", ID: task.ID, FromState: "approval"})
 	if err != nil {
 		return "", err
