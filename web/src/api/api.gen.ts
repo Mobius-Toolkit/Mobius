@@ -69,6 +69,11 @@ export interface Agent {
      */
   issue: number | null;
   /**
+     * IssueTitle is the title of the issue of the session, or null when the session has no issue or the store has no copy of the issue
+     * @nullable
+     */
+  issueTitle: string | null;
+  /**
      * KeptUntil is the time when Mobius closes the kept Harness process of this ended session, or null when Mobius keeps no process of this session
      * @nullable
      */

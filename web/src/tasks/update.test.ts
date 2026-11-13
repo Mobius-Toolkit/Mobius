@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { Command as StoryCommand, given, message, model, story } from "foldkit/story";
 import { FetchBoard, Navigate, RequestLogin } from "./commands";
 import { Message } from "./message";
-import { columns, initialModel, type Model } from "./model";
+import { columns, initialModel, sortColumn, type Model } from "./model";
 import type { BoardTask } from "./schemas";
 import { update } from "./update";
 
@@ -149,5 +149,87 @@ describe("the columns", () => {
   it("puts the states that wait for GitHub in Waiting", () => {
     expect(columnOf(createTask(1, { state: "checks" }))).toEqual(["Waiting"]);
     expect(columnOf(createTask(2, { state: "approval" }))).toEqual(["Waiting"]);
+  });
+});
+
+const queued = (number: number, place: number, stateAt: string) =>
+  createTask(number, {
+    state: "ready_for_review",
+    stateAt,
+    mergeQueuePlace: place,
+    mergeQueueSize: 3,
+  });
+
+const plain = (number: number, stateAt: string) =>
+  createTask(number, { state: "ready_for_review", stateAt });
+
+const inRepository = (number: number, repository: string, place: number) =>
+  createTask(number, {
+    repository,
+    state: "ready_for_review",
+    mergeQueuePlace: place,
+    mergeQueueSize: 2,
+  });
+
+const withPlaces = (state: BoardTask["state"]) => [
+  createTask(1, { state, stateAt: "2026-10-15T09:00:00Z" }),
+  createTask(2, {
+    state,
+    stateAt: "2026-10-15T10:00:00Z",
+    mergeQueuePlace: 1,
+    mergeQueueSize: 2,
+  }),
+  createTask(3, {
+    state,
+    stateAt: "2026-10-15T08:00:00Z",
+    mergeQueuePlace: 2,
+    mergeQueueSize: 2,
+  }),
+];
+
+const numbersOf = (title: string, tasks: BoardTask[]) =>
+  sortColumn(title, tasks).map(({ number }) => number);
+
+describe("the order of the cards of a column", () => {
+  it("shows a queued task in Waiting before an older task with no place", () => {
+    const tasks = [
+      createTask(1, { state: "approval", stateAt: "2026-10-15T08:00:00Z" }),
+      createTask(2, {
+        state: "checks",
+        stateAt: "2026-10-15T10:00:00Z",
+        mergeQueuePlace: 1,
+        mergeQueueSize: 3,
+      }),
+    ];
+
+    expect(numbersOf("Waiting", tasks)).toEqual([2, 1]);
+  });
+
+  it("shows the places in order in Ready to merge, and then the tasks with no place, the oldest first", () => {
+    const tasks = [
+      plain(1, "2026-10-15T09:00:00Z"),
+      queued(2, 3, "2026-10-15T07:00:00Z"),
+      queued(3, 1, "2026-10-15T11:00:00Z"),
+      plain(4, "2026-10-15T08:00:00Z"),
+      queued(5, 2, "2026-10-15T10:00:00Z"),
+    ];
+
+    expect(numbersOf("Ready to merge", tasks)).toEqual([3, 5, 2, 4, 1]);
+  });
+
+  it("sorts two tasks at the same place by repository", () => {
+    const tasks = [
+      inRepository(1, "owner/shop", 2),
+      inRepository(2, "plants/garden", 1),
+      inRepository(3, "plants/garden", 2),
+      inRepository(4, "owner/shop", 1),
+    ];
+
+    expect(numbersOf("Ready to merge", tasks)).toEqual([4, 2, 1, 3]);
+  });
+
+  it("keeps the newest first in Done and the oldest first in Queued, also with a place", () => {
+    expect(numbersOf("Done", withPlaces("ended"))).toEqual([2, 1, 3]);
+    expect(numbersOf("Queued", withPlaces("queued"))).toEqual([3, 1, 2]);
   });
 });
