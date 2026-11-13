@@ -42,11 +42,18 @@ export const routeBrief = (page: Page, repository: string, number: number, brief
     await route.fulfill({ response, json: body });
   });
 
-// A phone opens the panel in the Tasks sheet. A desktop has the side panel.
+// A phone shows the Brief in its own sheet. A desktop shows it in the tab Brief of the side panel.
+export const briefOf = (page: Page) =>
+  page
+    .getByRole("tabpanel", { name: "Brief" })
+    .or(page.getByRole("dialog", { name: "Brief" }))
+    .filter({ visible: true });
+
 export async function openBriefTab(page: Page, device: string) {
   if (device === "phone") {
-    await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
+    await page.getByRole("banner").getByRole("button", { name: "Brief", exact: true }).click();
+  } else {
+    await page.getByRole("tab", { name: "Brief" }).click();
   }
-  await page.getByRole("tab", { name: "Brief" }).filter({ visible: true }).click();
-  return page.getByRole("tabpanel", { name: "Brief" }).filter({ visible: true });
+  return briefOf(page);
 }

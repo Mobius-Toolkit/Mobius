@@ -857,27 +857,29 @@ test("the Coordinator chat shows no Brief", async ({ page }) => {
   await expect(briefBubble(page)).toHaveCount(0);
 });
 
-test("the Tasks sheet shows the tabs Tasks, Agents, Details, Brief and Recurring", async ({
+test("the Tasks sheet shows the tabs Tasks, Agents, Details and Recurring, and the top bar opens the Brief", async ({
   page,
 }) => {
   await page.setViewportSize(phone);
   await page.goto("/workstreams/plants/garden/19");
-  await expect(page.getByRole("button", { name: "Brief" })).toHaveCount(0);
-  await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
+  const bar = page.getByRole("banner");
+  const brief = bar.getByRole("button", { name: "Brief", exact: true });
+  await expect(brief).toBeVisible();
+  await expect(brief).toHaveAttribute("title", "Brief");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+
+  await brief.click();
+  const briefSheet = page.getByRole("dialog", { name: "Brief" });
+  await expect(briefSheet.getByText("Put bark on the beds.")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+
+  await bar.getByRole("button", { name: "Tasks", exact: true }).click();
   const panel = page.getByRole("dialog");
-  await expect(panel.getByRole("tab")).toHaveText([
-    "Tasks",
-    "Agents",
-    "Details",
-    "Brief",
-    "Recurring",
-  ]);
+  await expect(panel.getByRole("tab")).toHaveText(["Tasks", "Agents", "Details", "Recurring"]);
+  await expect(panel.getByRole("tab", { name: "Brief" })).toHaveCount(0);
   await expect(panel.getByRole("tab", { name: "Tasks" })).toHaveAttribute("aria-selected", "true");
   await expect(panel.getByRole("tabpanel", { name: "Tasks" })).toBeVisible();
-  await panel.getByRole("tab", { name: "Brief" }).click();
-  await expect(
-    panel.getByRole("tabpanel", { name: "Brief" }).getByText("Put bark on the beds."),
-  ).toBeVisible();
 });
 
 test("a Brief change from the workstreams event shows in the open Brief tab", async ({ page }) => {

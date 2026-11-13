@@ -12,6 +12,8 @@ import { FetchCheckup, FetchTools } from "@/checkup/commands";
 import { initialModel as initialCheckupModel } from "@/checkup/model";
 import { update as updateCheckup } from "@/checkup/update";
 import { initialModel as initialPanelModel } from "@/panel/model";
+import { Message as PanelMessage, toGotSelectionMessage } from "@/panel/message";
+import { Message as SelectionMessage } from "@/ui/selection";
 import { commandsFor as panelCommandsFor, update as updatePanel } from "@/panel/update";
 import { FetchDevices } from "@/settings/devices/commands";
 import { initialModel as initialDevicesModel } from "@/settings/devices/model";
@@ -253,13 +255,19 @@ const noScreens: Pick<
 
 const noWorkstreamChatState: Pick<
   Model,
-  "autopilotBusy" | "autopilotError" | "closeBusy" | "closeError" | "mobileTasksOpen"
+  | "autopilotBusy"
+  | "autopilotError"
+  | "closeBusy"
+  | "closeError"
+  | "mobileTasksOpen"
+  | "mobileBriefOpen"
 > = {
   autopilotBusy: false,
   autopilotError: "",
   closeBusy: false,
   closeError: "",
   mobileTasksOpen: false,
+  mobileBriefOpen: false,
 };
 
 function isOpenWorkstream(model: Model, repository: string, number: number): boolean {
@@ -1536,8 +1544,19 @@ export function update(model: Model, message: Message): UpdateReturn {
         commands: [],
       };
 
-    case "SetMobileTasksOpen":
-      return { model: { ...model, mobileTasksOpen: message.open }, commands: [] };
+    case "SetMobileTasksOpen": {
+      const opened = { ...model, mobileTasksOpen: message.open };
+      if (message.open && Option.exists(model.panel, (panel) => panel.tab === "brief")) {
+        return foldPanel(opened, PanelMessage.ReceivedTab({ tab: "tasks" }));
+      }
+      return { model: opened, commands: [] };
+    }
+
+    case "SetMobileBriefOpen":
+      return foldPanel(
+        { ...model, mobileBriefOpen: message.open },
+        toGotSelectionMessage(SelectionMessage.Cleared({ owner: "brief" })),
+      );
 
     case "ToggleMenu": {
       const isCurrentlyOpen = Option.isSome(model.openMenu) && model.openMenu.value === message.id;
@@ -1565,6 +1584,9 @@ export function update(model: Model, message: Message): UpdateReturn {
       }
       if (model.mobileTasksOpen) {
         return update(model, Message.SetMobileTasksOpen({ open: false }));
+      }
+      if (model.mobileBriefOpen) {
+        return update(model, Message.SetMobileBriefOpen({ open: false }));
       }
       return { model, commands: [] };
 
@@ -1660,7 +1682,10 @@ export function update(model: Model, message: Message): UpdateReturn {
         panelMessage._tag === "AddedSelection" ||
         (panelMessage._tag === "GotTasksMessage" && panelMessage.message._tag === "AttachedTask")
       ) {
-        return foldPanel({ ...model, mobileTasksOpen: false }, panelMessage);
+        return foldPanel(
+          { ...model, mobileTasksOpen: false, mobileBriefOpen: false },
+          panelMessage,
+        );
       }
       return foldPanel(model, panelMessage);
     }

@@ -21,6 +21,7 @@ import {
   arrowLeftIcon,
   arrowUpIcon,
   checkIcon,
+  fileTextIcon,
   inboxIcon,
   kanbanIcon,
   layersIcon,
@@ -177,6 +178,19 @@ function renderPhoneTopBar(
           level,
           !activeWorkstream || model.autopilotBusy,
           Option.isSome(model.openMenu) && model.openMenu.value === "autopilot-sheet",
+        ),
+      );
+      extra.push(
+        h.button(
+          [
+            h.Type("button"),
+            h.AriaLabel("Brief"),
+            h.Title("Brief"),
+            h.AriaExpanded(model.mobileBriefOpen),
+            h.Class(buttonClass({ variant: "outline", size: "icon-sm", className: "shrink-0" })),
+            h.OnClick(Message.SetMobileBriefOpen({ open: true })),
+          ],
+          [fileTextIcon(h, "size-3.5")],
         ),
       );
       extra.push(
