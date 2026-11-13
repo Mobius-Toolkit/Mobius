@@ -1992,9 +1992,13 @@ for (const [device, size] of [
     await page.setViewportSize(size);
     await page.goto(first);
     await expect(page.getByRole("button", { name: "Autopilot: Off" })).toBeEnabled();
+    const held: Route[] = [];
+    const release = async () => {
+      await Promise.all(held.splice(0).map((route) => route.continue()));
+      await page.unroute("**/api/workstreams");
+    };
     try {
       // The Workstream list gives the new level after the Owner has opened the second Workstream.
-      const held: Route[] = [];
       await page.route("**/api/workstreams", (route) => {
         held.push(route);
       });
@@ -2011,14 +2015,22 @@ for (const [device, size] of [
       }
       await page.locator(`a[href="${shop}"]`).filter({ visible: true }).click();
       await expect(page).toHaveURL(shop);
-      // The removal of the route sends each held request to the server.
-      await page.unroute("**/api/workstreams");
       await expect(page.getByRole("button", { name: "Autopilot: Off" })).toBeVisible();
+      const listed = page.waitForResponse((response) =>
+        response.url().endsWith("/api/workstreams"),
+      );
+      await release();
+      await listed;
+      if (device === "desktop") {
+        await expect(
+          page.locator(`a[href="${first}"]`).getByRole("img", { name: "Autopilot: Merge only" }),
+        ).toBeVisible();
+      }
       await page.getByRole("button", { name: "Autopilot: Off" }).click();
       await expect(item(/^Off/)).toBeChecked();
       await expect(item(/^Merge only/)).not.toBeChecked();
     } finally {
-      await page.unroute("**/api/workstreams");
+      await release();
       const status = await page.evaluate(async () => {
         const response = await fetch("/api/workstreams/owner/shop/47/autopilot", {
           method: "PUT",
