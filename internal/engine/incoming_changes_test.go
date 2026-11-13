@@ -22,11 +22,11 @@ func incomingChanges(t *testing.T, server *testserver.Server, status string) int
 	return countRows(t, server, "SELECT count(*) FROM incoming_changes WHERE status = ?", status)
 }
 
-// personChanges counts the incoming changes with the status of an actor that is not the Mobius App. A row of the App is
+// doneChangesOfPersons counts the done incoming changes of an actor that is not the Mobius App. A done row of the App is
 // the record of an own write.
-func personChanges(t *testing.T, server *testserver.Server, status string) int {
+func doneChangesOfPersons(t *testing.T, server *testserver.Server) int {
 	t.Helper()
-	return countRows(t, server, "SELECT count(*) FROM incoming_changes WHERE status = ? AND actor <> ?", status, testkit.AppSlug+"[bot]")
+	return countRows(t, server, "SELECT count(*) FROM incoming_changes WHERE status = 'done' AND actor <> ?", testkit.AppSlug+"[bot]")
 }
 
 func ownWrites(t *testing.T, server *testserver.Server) int {
@@ -44,7 +44,7 @@ func TestAChangeOfAutopilotByATrustedUserChangesTheWorkstreamAndAddsAnEventForTh
 
 	testkit.WaitFor(t, func() bool { return workstreams(t, server)[0].Autopilot == "start" })
 	testkit.WaitFor(t, func() bool { return len(autopilotEvents(t, server)) == 1 })
-	testkit.WaitFor(t, func() bool { return personChanges(t, server, "done") == 1 })
+	testkit.WaitFor(t, func() bool { return doneChangesOfPersons(t, server) == 1 })
 	waitForPolls(t, fake)
 	got := autopilotEvents(t, server)
 	if len(got) != 1 || !strings.HasSuffix(got[0], ` Autopilot of Workstream #12 "Integrate loyalty plans" is "Start tasks", by @owner.`) {
@@ -64,7 +64,7 @@ func TestAChangeOfEvergreenByAPersonWhoIsNotATrustedUserIsWrittenBack(t *testing
 	fake.AddLabel(shop, 12, evergreenLabel, "mallory")
 
 	testkit.WaitFor(t, func() bool { return !slices.Contains(fake.Labels(shop, 12), evergreenLabel) })
-	testkit.WaitFor(t, func() bool { return personChanges(t, server, "done") == 1 })
+	testkit.WaitFor(t, func() bool { return doneChangesOfPersons(t, server) == 1 })
 	waitForPolls(t, fake)
 	if workstreams(t, server)[0].Evergreen {
 		t.Error("the Workstream is evergreen")
@@ -90,7 +90,7 @@ func TestTheLabelWritesOfAChangeOfTheOwnerAddNoIncomingChangeAndTheirOwnWritesGo
 	if got := incomingChanges(t, server, "pending"); got != 0 {
 		t.Errorf("pending incoming changes = %d", got)
 	}
-	if got := personChanges(t, server, "done"); got != 0 {
+	if got := doneChangesOfPersons(t, server); got != 0 {
 		t.Errorf("incoming changes of a person = %d", got)
 	}
 }
@@ -104,7 +104,7 @@ func TestAChangeOfMaintenanceByATrustedUserMakesTheWorkstreamEvergreenAndWritesT
 	fake.AddLabel(shop, 12, maintenanceLabel, "owner")
 
 	testkit.WaitFor(t, func() bool { return fake.LabelAddedBy(shop, 12, evergreenLabel, testkit.AppSlug+"[bot]") })
-	testkit.WaitFor(t, func() bool { return ownWrites(t, server) == 0 && personChanges(t, server, "done") == 1 })
+	testkit.WaitFor(t, func() bool { return ownWrites(t, server) == 0 && doneChangesOfPersons(t, server) == 1 })
 	waitForPolls(t, fake)
 	var maintenance, evergreen bool
 	if err := server.DB.QueryRow("SELECT maintenance, evergreen FROM workstreams WHERE repository = ? AND number = 12", shop).Scan(&maintenance, &evergreen); err != nil {
@@ -170,7 +170,7 @@ func TestAFailedLabelWriteLeavesNoOwnWrite(t *testing.T) {
 	if got := incomingChanges(t, server, "pending"); got != 0 {
 		t.Errorf("pending incoming changes = %d", got)
 	}
-	if got := personChanges(t, server, "done"); got != 0 {
+	if got := doneChangesOfPersons(t, server); got != 0 {
 		t.Errorf("incoming changes of a person = %d", got)
 	}
 }
@@ -192,7 +192,7 @@ func TestATrustedChangeWaitsForTheCopyOfTheRepositoryAndThenChangesTheNewWorkstr
 	}
 	fake.FailSubIssues(shop, 13, false)
 
-	testkit.WaitFor(t, func() bool { return personChanges(t, server, "done") == 1 })
+	testkit.WaitFor(t, func() bool { return doneChangesOfPersons(t, server) == 1 })
 	testkit.WaitFor(t, func() bool {
 		return slices.ContainsFunc(workstreams(t, server), func(w workstream) bool { return w.Number == 13 && w.Autopilot == "start" })
 	})
@@ -225,7 +225,7 @@ func TestAFailedPullRequestReadAfterATrustedLevelChangeStillGivesTheLeadTheEvent
 
 	fake.AddLabel(shop, 12, "mobius:auto-merge", "owner")
 
-	testkit.WaitFor(t, func() bool { return personChanges(t, server, "done") == 1 })
+	testkit.WaitFor(t, func() bool { return doneChangesOfPersons(t, server) == 1 })
 	testkit.WaitFor(t, func() bool { return len(autopilotEvents(t, server)) == 1 })
 	got := autopilotEvents(t, server)
 	if len(got) != 1 || !strings.HasSuffix(got[0], ` is "Merge only", by @owner.`) {
@@ -250,7 +250,7 @@ func TestASettingLabelEventOfATrustedUserInTheSecondOfTheIssueCursorChangesTheWo
 	fake.AddLabelInLastSecond(shop, 12, "mobius:autopilot", "owner")
 
 	testkit.WaitFor(t, func() bool { return workstreams(t, server)[0].Autopilot == "start" })
-	testkit.WaitFor(t, func() bool { return personChanges(t, server, "done") == 1 })
+	testkit.WaitFor(t, func() bool { return doneChangesOfPersons(t, server) == 1 })
 }
 
 func TestASettingLabelOfTheAppWithNoOwnWriteInTheSecondOfTheIssueCursorIsWrittenBack(t *testing.T) {
