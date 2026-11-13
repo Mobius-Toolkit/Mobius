@@ -296,9 +296,11 @@ ORDER BY tasks.id;
 
 -- name: ListQueuedTasks :many
 SELECT id, queued_at, EXISTS (
-  SELECT 1 FROM ci_breaks WHERE ci_breaks.repository = tasks.repository AND ci_breaks.issue = tasks.issue
-    AND ci_breaks.result = 'hard' AND ci_breaks.ended_at = ''
+  SELECT 1 FROM ci_fix_issues WHERE ci_fix_issues.repository = tasks.repository AND ci_fix_issues.issue = tasks.issue
 ) AS ci FROM tasks WHERE state = 'queued' ORDER BY queued_at, id;
+
+-- name: IsCIFixIssue :one
+SELECT EXISTS (SELECT 1 FROM ci_fix_issues WHERE repository = ? AND issue = ?);
 
 -- name: SetTaskState :execrows
 UPDATE tasks SET state = sqlc.arg(state), state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL
