@@ -16,6 +16,7 @@ import {
   LoadApp,
   LoadExternal,
   Navigate,
+  Reload,
   ReplaceUrl,
   SettleScroll,
   StartUpgrade,
@@ -108,6 +109,16 @@ describe("router update logic", () => {
     );
   });
 
+  it("reloads the page on ReloadRequested", () => {
+    story(
+      update,
+      given(createModel("/settings")),
+      message(Message.ReloadRequested()),
+      StoryCommand.expectExact(Reload()),
+      StoryCommand.resolve(Reload, Message.CompletedReload()),
+    );
+  });
+
   it("goes back to the page before, or to the parent page when there is none", () => {
     story(
       update,
@@ -197,6 +208,16 @@ describe("router update logic", () => {
         expect(m.loginError).toBe("Invalid password");
       }),
     );
+  });
+});
+
+describe("organization menu update logic", () => {
+  it.each(["other-org", "owner"])("closes the open menu when %s is selected", (organization) => {
+    const { model: next } = update(
+      createModel("/chat", { organization: "owner", openMenu: Option.some("organization-side") }),
+      Message.SelectOrganization({ organization }),
+    );
+    expect(next.openMenu).toEqual(Option.none());
   });
 });
 
