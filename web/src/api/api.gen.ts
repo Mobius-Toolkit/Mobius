@@ -1273,7 +1273,7 @@ export interface EnvelopeArrayUnread {
 }
 
 /**
- * Autopilot is the Autopilot level: a trusted user added mobius:autopilot last for the start part, and mobius:auto-merge last for the merge part
+ * Autopilot is the Autopilot level: mobius:autopilot is the start part, and mobius:auto-merge is the merge part
  */
 export type WorkstreamAutopilot = typeof WorkstreamAutopilot[keyof typeof WorkstreamAutopilot];
 
@@ -1291,11 +1291,11 @@ export const WorkstreamAutopilot = {
 export interface Workstream {
   /** AllTasksClosed is true when the Workstream issue has sub-issues and each one is closed */
   allTasksClosed: boolean;
-  /** Autopilot is the Autopilot level: a trusted user added mobius:autopilot last for the start part, and mobius:auto-merge last for the merge part */
+  /** Autopilot is the Autopilot level: mobius:autopilot is the start part, and mobius:auto-merge is the merge part */
   autopilot: WorkstreamAutopilot;
   /** Brief is the body of the Workstream issue: the goal, the scope and the limits of the Workstream */
   brief: string;
-  /** Evergreen is true when the Workstream issue has mobius:evergreen */
+  /** Evergreen is true when the Workstream is evergreen */
   evergreen: boolean;
   /** Number is the number of the Workstream issue */
   number: number;
@@ -2214,7 +2214,7 @@ export interface WorkstreamDetails {
   completedTasks: number;
   /** CreatedAt is the creation time of the Workstream issue */
   createdAt: string;
-  /** Evergreen is true when the Workstream issue has mobius:evergreen */
+  /** Evergreen is true when the Workstream is evergreen */
   evergreen: boolean;
   /** Implementer is the binding of the next Implementer session of a task with no setting of its own */
   implementer: NextSetting;
@@ -2473,7 +2473,7 @@ export interface SetAutopilotBody {
 }
 
 export interface SetEvergreenBody {
-  /** On adds mobius:evergreen when true, and removes it when false */
+  /** On makes the Workstream evergreen when true, and not evergreen when false */
   on?: boolean;
 }
 
@@ -8577,7 +8577,7 @@ export const getSetAutopilotUrl = (owner: string,
 }
 
 /**
- * SetAutopilot sets the Autopilot level of the Workstream. Mobius changes mobius:autopilot and mobius:auto-merge with the user token of the Owner, so the Owner must authorize the Mobius App first. It returns 409 with the steps when the Owner did not.
+ * SetAutopilot sets the Autopilot level of the Workstream. Mobius changes the level and acts at once, and writes mobius:autopilot and mobius:auto-merge to the issue with the App token. It returns 409 when the issue is not an open Workstream.
  */
 export const setAutopilot = async (owner: string,
     name: string,

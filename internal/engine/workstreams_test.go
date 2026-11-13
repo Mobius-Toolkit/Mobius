@@ -117,19 +117,28 @@ func TestAWorkstreamLabelShowsTheIssueInTheWorkstreamList(t *testing.T) {
 	}
 }
 
-func TestAMaintenanceWorkstreamGetsTheEvergreenLabel(t *testing.T) {
+func TestAMaintenanceWorkstreamGetsEvergreenAndTheEvergreenLabel(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 12, "Maintenance")
 	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
+	fake.AddLabel(shop, 12, "mobius:maintenance", "owner")
 	fake.AddIssue(shop, 13, "Integrate loyalty plans")
 	fake.AddLabel(shop, 13, "mobius:workstream", "owner")
-	startCopied(t, fake)
 
-	fake.AddLabel(shop, 12, "mobius:maintenance", "owner")
+	server := startCopied(t, fake)
 
 	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Labels(shop, 12), "mobius:evergreen") })
 	waitForPolls(t, fake)
+	if got := fake.LabelActor(shop, 12, "mobius:evergreen"); got != testkit.AppSlug+"[bot]" {
+		t.Errorf("actor = %s", got)
+	}
+	if got := settingsOf(t, server, 12); len(got) != 1 || !got[0].Evergreen || !got[0].Maintenance {
+		t.Errorf("settings of #12 = %+v", got)
+	}
+	if got := settingsOf(t, server, 13); len(got) != 1 || got[0].Evergreen {
+		t.Errorf("settings of #13 = %+v", got)
+	}
 	if got := fake.Labels(shop, 12); !slices.Equal(got, []string{"mobius:workstream", "mobius:maintenance", "mobius:evergreen"}) {
 		t.Errorf("labels of #12 = %v", got)
 	}

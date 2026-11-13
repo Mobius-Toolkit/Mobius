@@ -47,7 +47,7 @@ func TestAQuietEventStartsNoTurnAndComesBeforeTheNextEvent(t *testing.T) {
 	waitForLeadPrompts(t, server, 1)
 	session := chatSessions(t, server, leadChat, engine.LeadRole)[0]
 
-	fake.AddLabel(shop, 12, "mobius:autopilot", "owner")
+	setWorkstreamAutopilot(t, server, "start")
 	payloads := waitForAutopilotEvents(t, server, 1)
 	waitForPolls(t, fake)
 
@@ -78,9 +78,9 @@ func TestTwoQuietEventsComeInTheNextPromptInTheOrderOfTheEvents(t *testing.T) {
 	waitForLeadPrompts(t, server, 1)
 	session := chatSessions(t, server, leadChat, engine.LeadRole)[0]
 
-	fake.AddLabel(shop, 12, "mobius:autopilot", "owner")
+	setWorkstreamAutopilot(t, server, "start")
 	waitForAutopilotEvents(t, server, 1)
-	fake.RemoveLabel(shop, 12, "mobius:autopilot", "owner")
+	setWorkstreamAutopilot(t, server, "off")
 	payloads := waitForAutopilotEvents(t, server, 2)
 	waitForPolls(t, fake)
 
@@ -104,7 +104,7 @@ func TestAQuietEventWithNoLeadSessionWaitsForTheFirstPromptOfTheNextSession(t *t
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectWith(t, fake, "[[prompts]]\nreply = [\"Seen\"]\n", keepSessionOpen)
 
-	fake.AddLabel(shop, 12, "mobius:autopilot", "owner")
+	setWorkstreamAutopilot(t, server, "start")
 	payloads := waitForAutopilotEvents(t, server, 1)
 	waitForPolls(t, fake)
 
@@ -133,7 +133,7 @@ func TestTheSavePromptOfAnIdleCloseTakesNoQuietEvent(t *testing.T) {
 	sendChat(t, server, leadChat, "Plan the loyalty API")
 	waitForChat(t, server, leadChat, "Lead", "Seen")
 
-	fake.AddLabel(shop, 12, "mobius:autopilot", "owner")
+	setWorkstreamAutopilot(t, server, "start")
 	payloads := waitForAutopilotEvents(t, server, 1)
 	waitForPolls(t, fake)
 

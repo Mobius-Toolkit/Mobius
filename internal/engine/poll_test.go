@@ -3,6 +3,7 @@ package engine_test
 import (
 	"database/sql"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
@@ -44,12 +45,30 @@ func startServerOnAddedRepository(t *testing.T, fake *testkit.FakeGitHub, cfg *c
 			t.Fatal(err)
 		}
 	}
+	seedSettings(t, server, fake)
 	_, err := server.DB.Exec("INSERT INTO github_apps (app_id, slug, private_key, client_id, client_secret) VALUES (?, ?, ?, ?, ?)",
 		testkit.AppID, testkit.AppSlug, testkit.AppPrivateKey, testkit.AppClientID, testkit.AppClientSecret)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return server
+}
+
+// seedSettings gives each Workstream issue of owner/shop that has mobius:autopilot or mobius:auto-merge its row in
+// workstreams, as a database that Mobius kept from an earlier run. The poll gives a new Workstream the level Off, and
+// takes no level from a label.
+func seedSettings(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHub) {
+	t.Helper()
+	numbers := slices.Concat(fake.IssuesWithLabel(shop, "mobius:autopilot"), fake.IssuesWithLabel(shop, "mobius:auto-merge"))
+	for _, number := range slices.Compact(slices.Sorted(slices.Values(numbers))) {
+		labels := fake.Labels(shop, number)
+		_, err := server.DB.Exec("INSERT INTO workstreams (repository, number, autopilot, auto_merge, evergreen, maintenance, skills) VALUES (?, ?, ?, ?, ?, ?, ?)",
+			shop, number, slices.Contains(labels, "mobius:autopilot"), slices.Contains(labels, "mobius:auto-merge"),
+			slices.Contains(labels, "mobius:evergreen"), slices.Contains(labels, "mobius:maintenance"), slices.Contains(labels, "mobius:skills"))
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 func cursor(t *testing.T, server *testserver.Server) (since, etag sql.NullString) {

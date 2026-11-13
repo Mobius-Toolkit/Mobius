@@ -399,6 +399,10 @@ func TestServer(t *testing.T) {
 	cfg := testserver.Config(t, dataDir)
 	cfg.Organizations = map[string]config.Organization{"plants": {IssueRepository: "plants/garden"}}
 	server := testserver.StartWith(t, cfg, github.URL)
+	// The poll gives a new Workstream the level Off, and takes no level from a label.
+	if _, err := server.DB.Exec("INSERT INTO workstreams (repository, number, autopilot, auto_merge, evergreen, maintenance, skills) VALUES ('owner/shop', 14, 1, 0, 0, 1, 0)"); err != nil {
+		t.Fatal(err)
+	}
 	dist, err := fs.Sub(web.Dist, "dist")
 	if err != nil {
 		t.Fatal(err)

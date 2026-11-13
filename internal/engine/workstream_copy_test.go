@@ -2,6 +2,7 @@ package engine_test
 
 import (
 	"database/sql"
+	"net/http"
 	"reflect"
 	"slices"
 	"strings"
@@ -240,25 +241,31 @@ func TestTheFullSyncCopiesTheOpenWorkstreams(t *testing.T) {
 	}
 }
 
-func TestTheFullSyncCopiesAutopilotOnlyFromATrustedUser(t *testing.T) {
+func TestANewWorkstreamGetsTheLevelOffAndTheOtherSettingsFromItsLabels(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	for number, actor := range map[int64]string{12: "owner", 13: "mallory"} {
-		fake.AddIssue(shop, number, "Workstream")
-		fake.AddLabel(shop, number, "mobius:workstream", "owner")
-		fake.AddLabel(shop, number, "mobius:autopilot", actor)
-	}
-	fake.AddIssue(shop, 14, "Workstream")
-	fake.AddLabel(shop, 14, "mobius:workstream", "owner")
-
+	fake.AddIssue(shop, 13, "Workstream")
+	fake.AddLabel(shop, 13, "mobius:workstream", "owner")
 	server := startCopied(t, fake)
+	fake.AddIssue(shop, 12, "Workstream")
+	fake.AddLabel(shop, 12, "mobius:autopilot", "owner")
+	fake.AddLabel(shop, 12, "mobius:auto-merge", "owner")
+	fake.AddLabel(shop, 12, "mobius:evergreen", "owner")
+	fake.AddLabel(shop, 12, "mobius:skills", "owner")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
 
-	var autopilot []bool
-	for _, workstream := range copiedWorkstreams(t, server) {
-		autopilot = append(autopilot, workstream.Autopilot)
+	testkit.WaitFor(t, func() bool { return len(settingsOf(t, server, 12)) == 1 })
+
+	got := settingsOf(t, server, 12)
+	if got[0].Autopilot || got[0].AutoMerge || !got[0].Evergreen || got[0].Maintenance || !got[0].Skills {
+		t.Errorf("settings of #12 = %+v", got)
 	}
-	if !slices.Equal(autopilot, []bool{true, false, false}) {
-		t.Errorf("autopilot of #12, #13 and #14 = %v", autopilot)
+	testkit.WaitFor(t, func() bool { return len(workstreams(t, server)) == 2 })
+	if got := workstreams(t, server)[0]; got.Number != 13 || got.Autopilot != "off" {
+		t.Errorf("workstreams = %+v", workstreams(t, server))
+	}
+	if got := workstreams(t, server)[1]; got.Number != 12 || got.Autopilot != "off" || !got.Evergreen {
+		t.Errorf("workstreams = %+v", workstreams(t, server))
 	}
 }
 
@@ -512,59 +519,40 @@ func TestAWorkstreamThatLosesTheLabelIsRemovedWithItsTree(t *testing.T) {
 	}
 }
 
-func TestAutopilotIsOnAfterATrustedUserAddsTheLabelAndOffAfterTheRemoval(t *testing.T) {
-	t.Parallel()
-	fake := testkit.NewFakeGitHub(t)
-	server := startWithTasks(t, fake)
-	autopilot := func() bool { return copiedWorkstreams(t, server)[0].Autopilot }
-
-	fake.AddLabel(shop, 12, "mobius:autopilot", "owner")
-
-	testkit.WaitFor(t, autopilot)
-
-	fake.RemoveLabel(shop, 12, "mobius:autopilot", "owner")
-
-	testkit.WaitFor(t, func() bool { return !autopilot() })
-}
-
-func TestAutopilotStaysOffAfterAnUntrustedUserAddsTheLabel(t *testing.T) {
+func TestTheLevelStaysAfterTheLabelWritesOfTheAppAndTheNextPoll(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithTasks(t, fake)
 
-	fake.AddLabel(shop, 12, "mobius:autopilot", "mallory")
+	setWorkstreamAutopilot(t, server, "start_and_merge")
 
+	testkit.WaitFor(t, func() bool {
+		return fake.LabelAddedBy(shop, 12, "mobius:autopilot", testkit.AppSlug+"[bot]") && fake.LabelAddedBy(shop, 12, "mobius:auto-merge", testkit.AppSlug+"[bot]")
+	})
 	waitForPoll(t, server, fake)
-	if copiedWorkstreams(t, server)[0].Autopilot {
-		t.Error("autopilot is on")
+	waitForPolls(t, fake)
+	if got := workstreams(t, server)[0].Autopilot; got != "start_and_merge" {
+		t.Errorf("level = %s", got)
 	}
 }
 
-func TestAutoMergeCountsOnlyAfterATrustedUserAddsTheLabel(t *testing.T) {
+func TestALabelOfAPersonDoesNotChangeTheLevel(t *testing.T) {
 	t.Parallel()
-	fake := testkit.NewFakeGitHub(t)
-	server := startWithTasks(t, fake)
-	level := func() string { return workstreams(t, server)[0].Autopilot }
+	for _, actor := range []string{"owner", "mallory"} {
+		t.Run(actor, func(t *testing.T) {
+			t.Parallel()
+			fake := testkit.NewFakeGitHub(t)
+			server := startWithTasks(t, fake)
 
-	fake.AddLabel(shop, 12, "mobius:auto-merge", "mobius-test[bot]")
+			fake.AddLabel(shop, 12, "mobius:autopilot", actor)
+			fake.AddLabel(shop, 12, "mobius:auto-merge", actor)
 
-	waitForPoll(t, server, fake)
-	if got := level(); got != "off" {
-		t.Errorf("level after the label of the App = %s", got)
+			waitForPoll(t, server, fake)
+			if got := workstreams(t, server)[0].Autopilot; got != "off" {
+				t.Errorf("level = %s", got)
+			}
+		})
 	}
-
-	fake.RemoveLabel(shop, 12, "mobius:auto-merge", "mobius-test[bot]")
-	fake.AddLabel(shop, 12, "mobius:auto-merge", "mallory")
-
-	waitForPoll(t, server, fake)
-	if got := level(); got != "off" {
-		t.Errorf("level after the label of an untrusted user = %s", got)
-	}
-
-	fake.RemoveLabel(shop, 12, "mobius:auto-merge", "mallory")
-	fake.AddLabel(shop, 12, "mobius:auto-merge", "owner")
-
-	testkit.WaitFor(t, func() bool { return level() == "merge" })
 }
 
 func TestAChangeOfALocalIssueDoesNotChangeTheForeignRowWithTheSameNumber(t *testing.T) {
@@ -727,8 +715,10 @@ func TestAFullCopyAgainKeepsTheRowsOfWorkstreamsAndTheirSettings(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithTasks(t, fake)
-	fake.AddLabel(shop, 12, "mobius:autopilot", "owner")
-	fake.AddLabel(shop, 12, "mobius:evergreen", "owner")
+	setWorkstreamAutopilot(t, server, "start")
+	if status, body := send(t, server, http.MethodPut, "/api/workstreams/owner/shop/12/evergreen", `{"on":true}`); status != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", status, body)
+	}
 	testkit.WaitFor(t, func() bool {
 		rows := settingsOf(t, server, 12)
 		return len(rows) == 1 && rows[0].Autopilot && rows[0].Evergreen
@@ -754,7 +744,7 @@ func TestTheCloseOfAWorkstreamKeepsItsRowOfWorkstreamsAndLeavesTheAutopilotList(
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithTasks(t, fake)
-	fake.AddLabel(shop, 12, "mobius:autopilot", "owner")
+	setWorkstreamAutopilot(t, server, "start")
 	testkit.WaitFor(t, func() bool { return copiedWorkstreams(t, server)[0].Autopilot })
 	listed := func() []int64 {
 		numbers, err := store.New(server.DB).ListAutopilotWorkstreams(t.Context(), shop)

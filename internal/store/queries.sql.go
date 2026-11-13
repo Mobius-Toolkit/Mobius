@@ -1387,6 +1387,36 @@ func (q *Queries) AddWorkerRestart(ctx context.Context, arg AddWorkerRestartPara
 	return worker_restarts, err
 }
 
+const addWorkstream = `-- name: AddWorkstream :execrows
+INSERT INTO workstreams (repository, number, autopilot, auto_merge, evergreen, maintenance, skills)
+VALUES (?1, ?2, 0, 0, CAST(?3 AS BOOLEAN), CAST(?4 AS BOOLEAN),
+        CAST(?5 AS BOOLEAN))
+ON CONFLICT (repository, number) DO NOTHING
+`
+
+type AddWorkstreamParams struct {
+	Repository  string
+	Number      int64
+	Evergreen   bool
+	Maintenance bool
+	Skills      bool
+}
+
+// The row stays after the copy of its Workstream goes away. It gives 1 when it added the row.
+func (q *Queries) AddWorkstream(ctx context.Context, arg AddWorkstreamParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, addWorkstream,
+		arg.Repository,
+		arg.Number,
+		arg.Evergreen,
+		arg.Maintenance,
+		arg.Skills,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const addWorkstreamBucket = `-- name: AddWorkstreamBucket :exec
 INSERT INTO workstream_buckets (repository, workstream, issue, closed) VALUES (?, ?, ?, CAST(?4 AS BOOLEAN))
 `
@@ -4130,6 +4160,38 @@ func (q *Queries) GetVoiceLanguage(ctx context.Context) (VoiceLanguage, error) {
 	row := q.db.QueryRowContext(ctx, getVoiceLanguage)
 	var i VoiceLanguage
 	err := row.Scan(&i.ID, &i.Language, &i.UpdatedAt)
+	return i, err
+}
+
+const getWorkstreamSettings = `-- name: GetWorkstreamSettings :one
+SELECT CAST(autopilot AS BOOLEAN) AS autopilot, CAST(auto_merge AS BOOLEAN) AS auto_merge, CAST(evergreen AS BOOLEAN) AS evergreen,
+       CAST(maintenance AS BOOLEAN) AS maintenance, CAST(skills AS BOOLEAN) AS skills
+FROM workstreams WHERE repository = ? AND number = ?
+`
+
+type GetWorkstreamSettingsParams struct {
+	Repository string
+	Number     int64
+}
+
+type GetWorkstreamSettingsRow struct {
+	Autopilot   bool
+	AutoMerge   bool
+	Evergreen   bool
+	Maintenance bool
+	Skills      bool
+}
+
+func (q *Queries) GetWorkstreamSettings(ctx context.Context, arg GetWorkstreamSettingsParams) (GetWorkstreamSettingsRow, error) {
+	row := q.db.QueryRowContext(ctx, getWorkstreamSettings, arg.Repository, arg.Number)
+	var i GetWorkstreamSettingsRow
+	err := row.Scan(
+		&i.Autopilot,
+		&i.AutoMerge,
+		&i.Evergreen,
+		&i.Maintenance,
+		&i.Skills,
+	)
 	return i, err
 }
 
@@ -11425,45 +11487,6 @@ type UpsertVoiceLanguageParams struct {
 func (q *Queries) UpsertVoiceLanguage(ctx context.Context, arg UpsertVoiceLanguageParams) error {
 	_, err := q.db.ExecContext(ctx, upsertVoiceLanguage, arg.Language, arg.UpdatedAt)
 	return err
-}
-
-const upsertWorkstream = `-- name: UpsertWorkstream :execrows
-INSERT INTO workstreams (repository, number, autopilot, auto_merge, evergreen, maintenance, skills)
-VALUES (?1, ?2, CAST(?3 AS BOOLEAN), CAST(?4 AS BOOLEAN),
-        CAST(?5 AS BOOLEAN), CAST(?6 AS BOOLEAN), CAST(?7 AS BOOLEAN))
-ON CONFLICT (repository, number) DO UPDATE SET
-    autopilot = excluded.autopilot, auto_merge = excluded.auto_merge, evergreen = excluded.evergreen,
-    maintenance = excluded.maintenance, skills = excluded.skills
-WHERE workstreams.autopilot != excluded.autopilot OR workstreams.auto_merge != excluded.auto_merge
-   OR workstreams.evergreen != excluded.evergreen OR workstreams.maintenance != excluded.maintenance
-   OR workstreams.skills != excluded.skills
-`
-
-type UpsertWorkstreamParams struct {
-	Repository  string
-	Number      int64
-	Autopilot   bool
-	AutoMerge   bool
-	Evergreen   bool
-	Maintenance bool
-	Skills      bool
-}
-
-// The row stays after the copy of its Workstream goes away. It gives true when it added or changed the row.
-func (q *Queries) UpsertWorkstream(ctx context.Context, arg UpsertWorkstreamParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, upsertWorkstream,
-		arg.Repository,
-		arg.Number,
-		arg.Autopilot,
-		arg.AutoMerge,
-		arg.Evergreen,
-		arg.Maintenance,
-		arg.Skills,
-	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
 }
 
 const withdrawPendingAction = `-- name: WithdrawPendingAction :one

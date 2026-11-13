@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 	"time"
 
 	gh "github.com/google/go-github/v92/github"
@@ -45,7 +44,7 @@ func (e *Engine) CompleteWorkstream(ctx context.Context, repositoryName string, 
 	if err != nil {
 		return err
 	}
-	if _, err := e.updateCopy(ctx, repository, closed, nil, false, e.labelChangeCount(repository.FullName)); err != nil {
+	if _, err := e.updateCopy(ctx, repository, closed, false, e.labelChangeCount(repository.FullName)); err != nil {
 		return err
 	}
 	e.publish(Change{Workstreams: true})
@@ -272,7 +271,7 @@ func (e *Engine) CloseWorkstreamWontDo(ctx context.Context, repositoryName strin
 		}
 	}
 	// The Workstream issue is the last item.
-	if _, err := e.updateCopy(ctx, repository, closed, nil, false, e.labelChangeCount(repository.FullName)); err != nil {
+	if _, err := e.updateCopy(ctx, repository, closed, false, e.labelChangeCount(repository.FullName)); err != nil {
 		return err
 	}
 	e.publish(Change{Workstreams: true})
@@ -370,7 +369,7 @@ func closureItem(repository string, issue *gh.Issue, pullRequest bool) ClosureIt
 	return ClosureItem{PullRequest: pullRequest, Repository: repository, Number: int64(issue.GetNumber()), Title: issue.GetTitle(), URL: issue.GetHTMLURL()}
 }
 
-// closeWorkstream ends the work of the Workstream, removes mobius:autopilot, mobius:auto-merge and mobius:question,
+// closeWorkstream ends the work of the Workstream, sets its Autopilot level to Off, removes mobius:question,
 // dismisses the Inbox items of its issues, closes the open pull requests of its
 // tasks, and closes the issues below it as not planned. A nested Workstream and the issues below it stay open.
 func (e *Engine) closeWorkstream(ctx context.Context, repository github.Repository, workstream int64) error {
@@ -380,11 +379,8 @@ func (e *Engine) closeWorkstream(ctx context.Context, repository github.Reposito
 	if err := e.stopWorkstream(ctx, repository, workstream); err != nil {
 		return err
 	}
-	// A later reopen needs a new mobius:autopilot and mobius:auto-merge from a trusted user.
-	if err := repository.RemoveLabel(ctx, workstream, autopilotLabel); err != nil {
-		return err
-	}
-	if err := repository.RemoveLabel(ctx, workstream, autoMergeLabel); err != nil {
+	// The row of workstreams stays after the close, so a reopened Workstream starts with the level Off.
+	if _, err := e.setLevel(ctx, repository, workstream, levelOff); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
 	if err := repository.RemoveLabel(ctx, workstream, questionLabel); err != nil {
@@ -478,44 +474,87 @@ func (e *Engine) hasWork(ctx context.Context, repository string, workstream int6
 	return len(tasks) > 0, err
 }
 
-// SetAutopilot sets the Autopilot level of the Workstream number of repository. The label changes use the user
-// token of the Owner, because a label counts only when a trusted user added it last.
+// SetAutopilot sets the Autopilot level of the open Workstream number of repository. It changes workstreams and acts
+// at once. The send of the outgoing changes writes the labels.
 func (e *Engine) SetAutopilot(ctx context.Context, repositoryName string, number int64, level string) error {
 	repository, err := e.repository(repositoryName)
 	if err != nil {
 		return err
 	}
-	asOwner, err := e.github.AsOwner(ctx, repository)
-	if err != nil {
-		// The text tells the Owner how to authorize the Mobius App.
-		return refusal(err.Error())
+	copied, err := e.queries.GetCopiedWorkstream(ctx, store.GetCopiedWorkstreamParams{Repository: repository.FullName, Number: number})
+	if errors.Is(err, sql.ErrNoRows) {
+		return refuse("The issue is not an open Workstream.")
 	}
-	autopilot, autoMerge := startsTasks(level), mergesPullRequests(level)
-	// GitHub records no labeled event for a label that the issue has, so a last labeled event of an untrusted actor
-	// would stay. Remove before the add.
-	for _, part := range []struct {
-		label string
-		on    bool
-	}{{autopilotLabel, autopilot}, {autoMergeLabel, autoMerge}} {
-		if err := asOwner.RemoveLabel(ctx, number, part.label); err != nil {
-			return err
-		}
-		if part.on {
-			if err := asOwner.AddLabel(ctx, number, part.label); err != nil {
-				return err
-			}
-		}
-	}
-	err = e.queries.SetCopiedAutopilot(ctx, store.SetCopiedAutopilotParams{Autopilot: autopilot, AutoMerge: autoMerge, Repository: repositoryName, Number: number})
 	if err != nil {
 		return err
 	}
-	e.publish(Change{Workstreams: true})
+	if err := e.changeLevel(ctx, repository, number, copied.Title, level, "the Owner"); err != nil {
+		return err
+	}
 	e.addRecord(ctx, leadChat(repository.FullName, number), fmt.Sprintf("You set the Autopilot level to %s.", levelNames[level]))
 	return nil
 }
 
-// SetEvergreen adds or removes mobius:evergreen on the open Workstream number of repository. It refuses the Maintenance
+// changeLevel is the handler of a change of the Autopilot level of the Workstream number of repository to level. It
+// sets the level, makes the next poll read the ready list in full, because a mobius:ready of the Mobius App can dispatch
+// with Autopilot, and acts on the live tasks (applyLevel). A level that differs from the old level also adds an event
+// for the Lead. title is the title of the Workstream. actor names who changed the level.
+func (e *Engine) changeLevel(ctx context.Context, repository github.Repository, number int64, title, level, actor string) error {
+	changed, err := e.setLevel(ctx, repository, number, level)
+	if err != nil {
+		return err
+	}
+	if err := e.queries.SetSyncCursor(ctx, store.SetSyncCursorParams{Repository: repository.FullName, Endpoint: readyEndpoint}); err != nil {
+		return err
+	}
+	if err := e.applyLevel(ctx, repository.FullName, number, level); err != nil {
+		return err
+	}
+	e.publish(Change{Workstreams: true})
+	if !changed {
+		return nil
+	}
+	text := fmt.Sprintf("%s Autopilot of Workstream #%d \"%s\" is \"%s\", by %s.", time.Now().UTC().Format(timeFormat), number, title, levelNames[level], actor)
+	return e.addLeadEvent(ctx, repository.FullName, number, "", sql.NullInt64{}, "autopilot", text)
+}
+
+// setLevel sets the Autopilot level of the Workstream number of repository in workstreams, adds the outgoing changes
+// that write mobius:autopilot and mobius:auto-merge in the same transaction, and sends them. It tells if the level
+// differs from the old level. A Workstream with no row gives sql.ErrNoRows.
+func (e *Engine) setLevel(ctx context.Context, repository github.Repository, number int64, level string) (bool, error) {
+	var ids []int64
+	changed := false
+	err := e.inTx(ctx, func(q *store.Queries) error {
+		before, err := q.GetWorkstreamSettings(ctx, store.GetWorkstreamSettingsParams{Repository: repository.FullName, Number: number})
+		if err != nil {
+			return err
+		}
+		changed = AutopilotLevel(before.Autopilot, before.AutoMerge) != level
+		err = q.SetCopiedAutopilot(ctx, store.SetCopiedAutopilotParams{Autopilot: startsTasks(level), AutoMerge: mergesPullRequests(level), Repository: repository.FullName, Number: number})
+		if err != nil {
+			return err
+		}
+		for _, field := range []string{autopilotField, autoMergeField} {
+			id, err := addSettingChange(ctx, q, repository.FullName, number, field)
+			if err != nil {
+				return err
+			}
+			ids = append(ids, id)
+		}
+		return nil
+	})
+	if err != nil {
+		return false, err
+	}
+	for _, id := range ids {
+		if err := e.sendNow(ctx, repository, id); err != nil {
+			return false, err
+		}
+	}
+	return changed, nil
+}
+
+// SetEvergreen makes the open Workstream number of repository evergreen or not evergreen. It refuses the Maintenance
 // Workstream and the Skills Workstream, because Mobius manages them.
 func (e *Engine) SetEvergreen(ctx context.Context, repositoryName string, number int64, on bool) error {
 	repository, err := e.repository(repositoryName)
@@ -535,16 +574,7 @@ func (e *Engine) SetEvergreen(ctx context.Context, repositoryName string, number
 	if copied.Skills {
 		return refuse("#%d is the Skills Workstream. Mobius manages it, so its evergreen value cannot change.", number)
 	}
-	if on {
-		err = repository.AddLabel(ctx, number, evergreenLabel)
-	} else {
-		err = repository.RemoveLabel(ctx, number, evergreenLabel)
-	}
-	if err != nil {
-		return err
-	}
-	err = e.queries.SetCopiedEvergreen(ctx, store.SetCopiedEvergreenParams{Evergreen: on, Repository: repository.FullName, Number: number})
-	if err != nil {
+	if err := e.setEvergreen(ctx, repository, number, on); err != nil {
 		return err
 	}
 	e.publish(Change{Workstreams: true})
@@ -554,6 +584,40 @@ func (e *Engine) SetEvergreen(ctx context.Context, repositoryName string, number
 	}
 	e.addRecord(ctx, leadChat(repository.FullName, number), fmt.Sprintf("You turned Evergreen %s.", state))
 	return nil
+}
+
+// setEvergreen is the handler of a change of the evergreen setting of the Workstream number of repository. It sets the
+// value in workstreams, adds the outgoing change that writes mobius:evergreen in the same transaction, and sends it.
+func (e *Engine) setEvergreen(ctx context.Context, repository github.Repository, number int64, on bool) error {
+	var id int64
+	err := e.inTx(ctx, func(q *store.Queries) error {
+		if err := q.SetCopiedEvergreen(ctx, store.SetCopiedEvergreenParams{Evergreen: on, Repository: repository.FullName, Number: number}); err != nil {
+			return err
+		}
+		var err error
+		id, err = addSettingChange(ctx, q, repository.FullName, number, evergreenField)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	return e.sendNow(ctx, repository, id)
+}
+
+// turnEvergreenOn turns Evergreen on for the open Workstream number of repository when it is a maintenance Workstream,
+// because Mobius manages it. It tells if it changed the setting.
+func (e *Engine) turnEvergreenOn(ctx context.Context, repository github.Repository, number int64) (bool, error) {
+	settings, err := e.queries.GetWorkstreamSettings(ctx, store.GetWorkstreamSettingsParams{Repository: repository.FullName, Number: number})
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if !settings.Maintenance || settings.Evergreen {
+		return false, nil
+	}
+	return true, e.setEvergreen(ctx, repository, number, true)
 }
 
 // The Autopilot levels. mobius:autopilot is the start part of a level, and mobius:auto-merge is the merge part.
@@ -599,36 +663,6 @@ func (e *Engine) workstreamLevel(ctx context.Context, repository string, number 
 		return levelOff, nil
 	}
 	return AutopilotLevel(row.Autopilot, row.AutoMerge), err
-}
-
-// issueLevelLabels tells which of mobius:autopilot and mobius:auto-merge a trusted user added to the Workstream issue.
-func (e *Engine) issueLevelLabels(ctx context.Context, repository github.Repository, issue *gh.Issue) (autopilot, autoMerge bool, err error) {
-	if !hasLabel(issue, autopilotLabel) && !hasLabel(issue, autoMergeLabel) {
-		return false, false, nil
-	}
-	events, err := e.issueEvents(ctx, repository, int64(issue.GetNumber()))
-	autopilot, autoMerge = e.levelLabels(issue, events)
-	return autopilot, autoMerge, err
-}
-
-// levelLabels tells which of mobius:autopilot and mobius:auto-merge the issue has, added last by a trusted user.
-func (e *Engine) levelLabels(issue *gh.Issue, events []*gh.IssueEvent) (autopilot, autoMerge bool) {
-	return hasLabel(issue, autopilotLabel) && e.addedByTrustedUser(events, autopilotLabel),
-		hasLabel(issue, autoMergeLabel) && e.addedByTrustedUser(events, autoMergeLabel)
-}
-
-// addedByTrustedUser tells if a trusted user added label in the last labeled event of that label in events.
-// Thus a trusted bot or the Mobius App cannot turn Autopilot on.
-func (e *Engine) addedByTrustedUser(events []*gh.IssueEvent, label string) bool {
-	for _, event := range slices.Backward(events) {
-		if event.GetEvent() != "labeled" || event.GetLabel().GetName() != label {
-			continue
-		}
-		return slices.ContainsFunc(e.config.TrustedUsers, func(user string) bool {
-			return strings.EqualFold(user, event.GetActor().GetLogin())
-		})
-	}
-	return false
 }
 
 // eventText gives the text of a Lead event about the issue with the reference ref, for example "creation of

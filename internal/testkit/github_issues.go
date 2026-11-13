@@ -651,6 +651,20 @@ func (g *FakeGitHub) RemoveLabel(repository string, number int64, label, actor s
 	}
 }
 
+// IssuesWithLabel gives the numbers of the issues of the repository that have label, in ascending order.
+func (g *FakeGitHub) IssuesWithLabel(repository, label string) []int64 {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	var numbers []int64
+	for key, issue := range g.issues {
+		if key.repository == repository && slices.Contains(issue.labels, label) {
+			numbers = append(numbers, key.number)
+		}
+	}
+	slices.Sort(numbers)
+	return numbers
+}
+
 // LabelActor gives the actor of the last labeled or unlabeled event of label, or "".
 func (g *FakeGitHub) LabelActor(repository string, number int64, label string) string {
 	g.mu.Lock()

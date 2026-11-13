@@ -1824,9 +1824,9 @@ export const TranscribeResponse = S.Struct({
 export const ListWorkstreamsResponse = S.Struct({
   "data": S.Array(S.Struct({
   "allTasksClosed": S.Boolean.annotate({ description: 'AllTasksClosed is true when the Workstream issue has sub-issues and each one is closed' }),
-  "autopilot": S.Literals(['off', 'start', 'merge', 'start_and_merge']).annotate({ description: 'Autopilot is the Autopilot level: a trusted user added mobius:autopilot last for the start part, and mobius:auto-merge last for the merge part' }),
+  "autopilot": S.Literals(['off', 'start', 'merge', 'start_and_merge']).annotate({ description: 'Autopilot is the Autopilot level: mobius:autopilot is the start part, and mobius:auto-merge is the merge part' }),
   "brief": S.String.annotate({ description: 'Brief is the body of the Workstream issue: the goal, the scope and the limits of the Workstream' }),
-  "evergreen": S.Boolean.annotate({ description: 'Evergreen is true when the Workstream issue has mobius:evergreen' }),
+  "evergreen": S.Boolean.annotate({ description: 'Evergreen is true when the Workstream is evergreen' }),
   "number": S.Number.annotate({ description: 'Number is the number of the Workstream issue' }),
   "readyToMerge": S.Boolean.annotate({ description: 'ReadyToMerge is true when the pull request of at least one task of the Workstream waits for the Owner to merge it' }),
   "repository": S.String.annotate({ description: 'Repository is the repository of the Workstream issue, as \"owner\/name\"' }),
@@ -1872,7 +1872,7 @@ export const ListAgentsResponse = S.Struct({
 
 
 /**
- * SetAutopilot sets the Autopilot level of the Workstream. Mobius changes mobius:autopilot and mobius:auto-merge with the user token of the Owner, so the Owner must authorize the Mobius App first. It returns 409 with the steps when the Owner did not.
+ * SetAutopilot sets the Autopilot level of the Workstream. Mobius changes the level and acts at once, and writes mobius:autopilot and mobius:auto-merge to the issue with the App token. It returns 409 when the issue is not an open Workstream.
  */
 export const SetAutopilotParams = S.Struct({
   "owner": S.String.annotate({ description: 'Owner is the owner of the repository' }),
@@ -1938,7 +1938,7 @@ export const GetWorkstreamDetailsResponse = S.Struct({
   "data": S.Struct({
   "completedTasks": S.Number.annotate({ description: 'CompletedTasks is the number of closed tasks, with each close reason' }),
   "createdAt": S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/)).annotate({ description: 'CreatedAt is the creation time of the Workstream issue' }),
-  "evergreen": S.Boolean.annotate({ description: 'Evergreen is true when the Workstream issue has mobius:evergreen' }),
+  "evergreen": S.Boolean.annotate({ description: 'Evergreen is true when the Workstream is evergreen' }),
   "implementer": S.Struct({
   "effort": S.String.annotate({ description: 'Effort is the effort level, or empty for a Harness with no effort levels' }),
   "harness": S.String.annotate({ description: 'Harness is the agent program' }),
@@ -1975,7 +1975,7 @@ export const SetEvergreenParams = S.Struct({
 })
 
 export const SetEvergreenBody = S.Struct({
-  "on": S.optional(S.Boolean).annotate({ description: 'On adds mobius:evergreen when true, and removes it when false' })
+  "on": S.optional(S.Boolean).annotate({ description: 'On makes the Workstream evergreen when true, and not evergreen when false' })
 })
 
 
