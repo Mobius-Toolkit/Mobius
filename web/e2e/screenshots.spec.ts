@@ -34,7 +34,9 @@ import { countSamples, fakeMicrophone } from "./microphone.js";
 import { lines, turnAllOn, turnOff } from "./switches.js";
 import {
   boardTasks,
+  mergeQueueHeadTask,
   mergeQueueTask,
+  mergeQueueThirdTask,
   mergingTask,
   ownerActionTask,
   refusedTask,
@@ -416,7 +418,24 @@ test("screenshots", async ({ page }) => {
     },
   );
   await page.unroute(tasksRoute);
-  await routeTasks(page, [...boardTasks, mergeQueueTask]);
+  await routeTasks(page, [...boardTasks, mergeQueueHeadTask]);
+  await screenshot(
+    page,
+    "tasks-merge-queue-waiting",
+    "/tasks",
+    (device) => [
+      chatCount,
+      ...frame(device, drain, { organizations: true }),
+      main.getByRole("region", { name: "Waiting" }).getByText("Merges next · 1 of 4"),
+    ],
+    async () => {
+      const waiting = main.getByRole("region", { name: "Waiting" });
+      await expect(waiting.getByText("Merges next · 1 of 4")).toBeAttached();
+      await waiting.evaluate((el) => el.scrollIntoView({ block: "nearest", inline: "start" }));
+    },
+  );
+  await page.unroute(tasksRoute);
+  await routeTasks(page, [...boardTasks, mergeQueueThirdTask, mergeQueueTask]);
   await screenshot(
     page,
     "tasks-merge-queue",

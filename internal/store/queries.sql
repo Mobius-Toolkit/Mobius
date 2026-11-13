@@ -759,6 +759,9 @@ SELECT * FROM outgoing_changes WHERE id = ?;
 -- name: ListPendingOutgoingChanges :many
 SELECT * FROM outgoing_changes WHERE repository = ? AND status = 'pending' ORDER BY id;
 
+-- name: GetNewestCommentChange :one
+SELECT * FROM outgoing_changes WHERE repository = ? AND number = ? AND field = 'comment' ORDER BY id DESC LIMIT 1;
+
 -- name: SetOutgoingChangeStatus :exec
 UPDATE outgoing_changes SET status = ? WHERE id = ?;
 

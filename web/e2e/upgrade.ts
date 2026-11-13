@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 
 export const upgradeRoute = "**/api/upgrade";
 
@@ -26,4 +26,13 @@ export async function routeUpgrade(page: Page, upgrade: typeof retryUpgrade | ty
     }
     await route.fulfill({ json: { data: current } });
   });
+}
+
+// The server starts with a drain. The poll starts no task while the drain is on. The request of the page carries the
+// device login, but the request context of Playwright does not.
+export async function cancelDrain(page: Page) {
+  const status = await page.evaluate(() =>
+    fetch("/api/drain", { method: "DELETE" }).then((response) => response.status),
+  );
+  expect(status).toBe(204);
 }
