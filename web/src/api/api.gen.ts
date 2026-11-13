@@ -652,6 +652,19 @@ export interface ChatState {
 }
 
 /**
+ * IssueRepositorySource tells where the issue repository comes from: config for organizations.<organization>.issue_repository of config.toml, choice for the choice of the Owner, default for the one repository of the organization that the App sees or that holds all its open Workstreams, and none when IssueRepositoryError is not empty
+ */
+export type CheckupIssueRepositorySource = typeof CheckupIssueRepositorySource[keyof typeof CheckupIssueRepositorySource];
+
+
+export const CheckupIssueRepositorySource = {
+  config: 'config',
+  choice: 'choice',
+  default: 'default',
+  none: 'none',
+} as const;
+
+/**
  * LabelFix is create when all Mobius labels are missing, fix when another label is missing or has a different color, and none when the fix has nothing to change
  */
 export type CheckupLabelFix = typeof CheckupLabelFix[keyof typeof CheckupLabelFix];
@@ -734,6 +747,8 @@ export interface Checkup {
   issueRepository: string;
   /** IssueRepositoryError tells why Mobius cannot find the issue repository, or is empty */
   issueRepositoryError: string;
+  /** IssueRepositorySource tells where the issue repository comes from: config for organizations.<organization>.issue_repository of config.toml, choice for the choice of the Owner, default for the one repository of the organization that the App sees or that holds all its open Workstreams, and none when IssueRepositoryError is not empty */
+  issueRepositorySource: CheckupIssueRepositorySource;
   /** LabelFix is create when all Mobius labels are missing, fix when another label is missing or has a different color, and none when the fix has nothing to change */
   labelFix: CheckupLabelFix;
   /** MaintenanceWorkstream is the number of the open Workstream with mobius:maintenance and the lowest number in the issue repository, or 0 when it has none or IssueRepositoryError is not empty */
@@ -1431,6 +1446,24 @@ export interface EnvelopeHealth {
 export interface EnvelopeInboxItem {
   /** Data is the payload of the response */
   data: InboxItem;
+}
+
+/**
+ * IssueRepositoryChoice is the choice of the issue repository of an organization.
+ */
+export interface IssueRepositoryChoice {
+  /** Organization is the owner of the repositories */
+  organization: string;
+  /** Repository is the issue repository as "owner/name" */
+  repository: string;
+}
+
+/**
+ * Envelope is the body of each success response.
+ */
+export interface EnvelopeIssueRepositoryChoice {
+  /** Data is the payload of the response */
+  data: IssueRepositoryChoice;
 }
 
 /**
@@ -2511,6 +2544,13 @@ export interface SetAutopilotBody {
 export interface SetEvergreenBody {
   /** On adds mobius:evergreen when true, and removes it when false */
   on?: boolean;
+}
+
+export interface SetIssueRepositoryBody {
+  /** Organization is the owner of the repositories */
+  organization: string;
+  /** Repository is the issue repository as "owner/name" */
+  repository: string;
 }
 
 export interface SetRecurringTaskPausedBody {
@@ -3748,6 +3788,76 @@ export const fixLabels = async (fixLabelsBody: FixLabelsBody, ): Promise<fixLabe
 
   const data: fixLabelsResponse['data'] = body ? JSON.parse(body) : undefined
   return { data, status: res.status, headers: res.headers } as fixLabelsResponse
+}
+
+
+
+export type setIssueRepositoryResponse200 = {
+  data: EnvelopeIssueRepositoryChoice
+  status: 200
+}
+
+export type setIssueRepositoryResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type setIssueRepositoryResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type setIssueRepositoryResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
+export type setIssueRepositoryResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type setIssueRepositoryResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type setIssueRepositoryResponseSuccess = (setIssueRepositoryResponse200) & {
+  headers: Headers;
+};
+export type setIssueRepositoryResponseError = (setIssueRepositoryResponse400 | setIssueRepositoryResponse401 | setIssueRepositoryResponse409 | setIssueRepositoryResponse422 | setIssueRepositoryResponse500) & {
+  headers: Headers;
+};
+
+export type setIssueRepositoryResponse = (setIssueRepositoryResponseSuccess | setIssueRepositoryResponseError)
+
+export const getSetIssueRepositoryUrl = () => {
+
+
+
+
+  return `/api/checkup/issue-repository`
+}
+
+/**
+ * SetIssueRepository stores the choice of the issue repository of the organization. A new choice replaces the earlier choice. It returns 409 when config.toml sets the issue repository of the organization, and 422 when the repository is not a repository of the organization that the App sees.
+ */
+export const setIssueRepository = async (setIssueRepositoryBody: SetIssueRepositoryBody, ): Promise<setIssueRepositoryResponse> => {
+
+  const res = await fetch(getSetIssueRepositoryUrl(),
+  {
+
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(setIssueRepositoryBody)
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: setIssueRepositoryResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as setIssueRepositoryResponse
 }
 
 

@@ -34,6 +34,7 @@ const tool = (overrides: Partial<ToolCheck> = {}): ToolCheck => ({
 const checkup = (overrides: Partial<Checkup> = {}): Checkup => ({
   issueRepository: "plants/garden",
   issueRepositoryError: "",
+  issueRepositorySource: "config",
   labelFix: "none",
   maintenanceWorkstream: 0,
   permissions: [],

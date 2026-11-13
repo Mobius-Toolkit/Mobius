@@ -38,6 +38,7 @@ const createDraft = (text = "", overrides: Partial<Draft> = {}): Draft => ({
   text,
   images: [],
   inboxItems: [],
+  selections: [],
   voice: null,
   ...overrides,
 });
@@ -64,6 +65,7 @@ function createQueuedItem(id: string, text: string): Queued {
     text,
     images: [],
     inboxItems: [],
+    selections: [],
     voice: false,
     time: "2026-11-04T08:00:00Z",
   };

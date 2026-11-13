@@ -20,6 +20,8 @@ type Checkup struct {
 	// IssueRepository is the repository of the Workstream issues, or "" when IssueRepositoryError is set.
 	IssueRepository      string
 	IssueRepositoryError string
+	// IssueRepositorySource is config, choice or default, or none when IssueRepositoryError is set.
+	IssueRepositorySource string
 	// MaintenanceWorkstream is the number of the maintenance Workstream of IssueRepository, or 0 when it has none.
 	MaintenanceWorkstream int64
 	// SkillRepository is the skill repository of the organization, or "" when it has none.
@@ -76,15 +78,18 @@ func (e *Engine) Checkup(ctx context.Context, organization string) (Checkup, err
 		}
 		checkup.Repositories = append(checkup.Repositories, RepositoryCheckup{Repository: repository.FullName, Labels: labels})
 	}
-	maintenance, err := e.organizationMaintenance(ctx, organization)
+	issueRepository, source, err := e.findIssueRepository(ctx, organization)
 	switch {
 	case Refused(err):
 		checkup.IssueRepositoryError = err.Error()
+		checkup.IssueRepositorySource = issueRepositoryNone
 	case err != nil:
 		return Checkup{}, err
 	default:
-		checkup.IssueRepository = maintenance.repository.FullName
-		checkup.MaintenanceWorkstream = maintenance.number
+		checkup.IssueRepository, checkup.IssueRepositorySource = issueRepository.FullName, source
+		if checkup.MaintenanceWorkstream, err = e.maintenanceWorkstream(ctx, issueRepository); err != nil {
+			return Checkup{}, err
+		}
 	}
 	if skills, ok := e.github.SkillRepository(organization); ok {
 		checkup.SkillRepository = skills.FullName

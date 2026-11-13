@@ -8,16 +8,21 @@ import { chevronRightIcon, spinnerIcon } from "@/ui/icons";
 import { inputClass } from "@/ui/input";
 import { renderErrorBadge, renderList, renderPageHeader, rowClass } from "@/ui/page";
 import { defineInPlaceMount, renderSheet } from "@/ui/sheet";
+import { renderTabs } from "@/ui/tabs";
 import { Message } from "./message";
 import {
+  bindingLabel,
   effortsOf,
   formatContext,
   hasContextLimit,
   harnessNames,
+  isImplementer,
   modelsOf,
   roleDescriptions,
   roleName,
   sheetChanged,
+  tabsOf,
+  type Binding,
   type Model,
   type Sheet,
 } from "./model";
@@ -29,14 +34,27 @@ const SheetOpened = defineInPlaceMount(Message.CompletedFocusSheet);
 
 const uiBadge = (h: H) => renderBadge(h, "secondary", "UI", "shrink-0");
 
-function renderRoleRow(h: H, role: Role): Html {
+const noUi = { context: false, effort: false, harness: false, max: false, model: false };
+
+function renderBindingLine(h: H, binding: Binding, ui: Role["ui"]): Html {
   const values = [
-    { text: role.harness, ui: role.ui.harness },
-    { text: role.model, ui: role.ui.model },
-    ...(role.effort ? [{ text: role.effort, ui: role.ui.effort }] : []),
-    ...(role.context > 0 ? [{ text: formatContext(role.context), ui: role.ui.context }] : []),
-    { text: `max ${role.max}`, ui: role.ui.max },
+    { text: binding.harness, ui: ui.harness },
+    { text: binding.model, ui: ui.model },
+    ...(binding.effort ? [{ text: binding.effort, ui: ui.effort }] : []),
+    ...(binding.context > 0 ? [{ text: formatContext(binding.context), ui: ui.context }] : []),
+    { text: `max ${binding.max}`, ui: ui.max },
   ];
+  return h.span(
+    [h.Class("flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm text-muted-foreground")],
+    values.flatMap((value, index) => [
+      ...(index > 0 ? [h.span([h.AriaHidden(true)], ["·"])] : []),
+      h.span([h.Class("break-all")], [value.text]),
+      ...(value.ui ? [uiBadge(h)] : []),
+    ]),
+  );
+}
+
+function renderRoleRow(h: H, role: Role): Html {
   return h.keyed("li")(
     role.role,
     [],
@@ -52,18 +70,8 @@ function renderRoleRow(h: H, role: Role): Html {
             [h.Class("grid min-w-0 grow gap-0.5")],
             [
               h.span([], [roleName(role)]),
-              h.span(
-                [
-                  h.Class(
-                    "flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm text-muted-foreground",
-                  ),
-                ],
-                values.flatMap((value, index) => [
-                  ...(index > 0 ? [h.span([h.AriaHidden(true)], ["·"])] : []),
-                  h.span([h.Class("break-all")], [value.text]),
-                  ...(value.ui ? [uiBadge(h)] : []),
-                ]),
-              ),
+              renderBindingLine(h, role, role.ui),
+              ...role.moreBindings.map((binding) => renderBindingLine(h, binding, noUi)),
             ],
           ),
           chevronRightIcon(h, "size-4 shrink-0"),
@@ -125,80 +133,77 @@ function renderSheetOf(h: H, model: Model, sheet: Sheet): Html {
     Option.getOrElse(model.harnesses, () => []).find((other) => other.harness === sheet.harness)
       ?.error ?? "";
   const role = sheet.role;
-  return renderSheet(h, {
-    mount: h.OnMount(SheetOpened()),
-    titleId: "role-title",
-    title: roleName(role),
-    description: { id: "role-description", text: roleDescriptions[role.role] ?? "" },
-    close: Message.ClosedSheet(),
-    className: "gap-3 p-4 pt-3 md:mx-auto md:max-w-md md:rounded-t-xl",
-    children: [
-      renderChoiceField(h, model, sheet, {
-        label: "Harness",
-        choice: "harness",
-        value: sheet.harness,
-        values: harnessNames(model),
-        ui: role.ui.harness,
-        pick: (value) => Message.PickedHarness({ value }),
-      }),
-      renderChoiceField(h, model, sheet, {
-        label: "Model",
-        choice: "model",
-        value: sheet.model,
-        values: modelsOf(model, sheet.harness).map((other) => other.model),
-        ui: role.ui.model,
-        pick: (value) => Message.PickedModel({ value }),
-      }),
-      efforts.length > 0
-        ? renderChoiceField(h, model, sheet, {
-            label: "Effort",
-            choice: "effort",
-            value: sheet.effort,
-            values: efforts,
-            ui: role.ui.effort,
-            pick: (value) => Message.PickedEffort({ value }),
-          })
-        : h.empty,
-      renderField(h, "Max", "role-max", [
-        h.input([
-          h.Id("role-max"),
-          h.Type("number"),
-          h.Min("1"),
-          h.Value(sheet.max),
-          h.OnInput((text) => Message.ChangedMax({ text })),
-          h.Class(inputClass()),
-        ]),
-        role.ui.max ? uiBadge(h) : h.empty,
+  const ui = sheet.tab === "0" ? role.ui : noUi;
+  const tabs = tabsOf(sheet);
+  const fields = [
+    renderChoiceField(h, model, sheet, {
+      label: "Harness",
+      choice: "harness",
+      value: sheet.harness,
+      values: harnessNames(model),
+      ui: ui.harness,
+      pick: (value) => Message.PickedHarness({ value }),
+    }),
+    renderChoiceField(h, model, sheet, {
+      label: "Model",
+      choice: "model",
+      value: sheet.model,
+      values: modelsOf(model, sheet.harness).map((other) => other.model),
+      ui: ui.model,
+      pick: (value) => Message.PickedModel({ value }),
+    }),
+    efforts.length > 0
+      ? renderChoiceField(h, model, sheet, {
+          label: "Effort",
+          choice: "effort",
+          value: sheet.effort,
+          values: efforts,
+          ui: ui.effort,
+          pick: (value) => Message.PickedEffort({ value }),
+        })
+      : h.empty,
+    renderField(h, "Max", "role-max", [
+      h.input([
+        h.Id("role-max"),
+        h.Type("number"),
+        h.Min("1"),
+        h.Value(sheet.max),
+        h.OnInput((text) => Message.ChangedMax({ text })),
+        h.Class(inputClass()),
       ]),
-      renderField(h, "Context", "role-context", [
-        h.input([
-          h.Id("role-context"),
-          h.Type("number"),
-          h.Min("100000"),
-          h.Max("1000000"),
-          h.Step("1000"),
-          h.Placeholder("No limit"),
-          h.Value(sheet.context),
-          h.Disabled(!supportsContext),
-          h.OnInput((text) => Message.ChangedContext({ text })),
-          h.Class(inputClass("min-w-0 grow")),
-        ]),
-        h.span([h.Class("shrink-0 text-sm text-muted-foreground")], ["tokens"]),
-        role.ui.context ? uiBadge(h) : h.empty,
+      ui.max ? uiBadge(h) : h.empty,
+    ]),
+    renderField(h, "Context", "role-context", [
+      h.input([
+        h.Id("role-context"),
+        h.Type("number"),
+        h.Min("100000"),
+        h.Max("1000000"),
+        h.Step("1000"),
+        h.Placeholder("No limit"),
+        h.Value(sheet.context),
+        h.Disabled(!supportsContext),
+        h.OnInput((text) => Message.ChangedContext({ text })),
+        h.Class(inputClass("min-w-0 grow")),
       ]),
-      supportsContext
-        ? h.empty
-        : h.p([h.Class("text-sm text-muted-foreground")], ["This Harness has no context limit."]),
-      choicesError
-        ? renderBadge(h, "destructive", choicesError, "h-auto whitespace-normal")
-        : h.empty,
-      sheet.error
-        ? renderBadge(h, "destructive", sheet.error, "h-auto whitespace-normal")
-        : h.empty,
+      h.span([h.Class("shrink-0 text-sm text-muted-foreground")], ["tokens"]),
+      ui.context ? uiBadge(h) : h.empty,
+    ]),
+    supportsContext
+      ? h.empty
+      : h.p([h.Class("text-sm text-muted-foreground")], ["This Harness has no context limit."]),
+    choicesError
+      ? renderBadge(h, "destructive", choicesError, "h-auto whitespace-normal")
+      : h.empty,
+    sheet.error ? renderBadge(h, "destructive", sheet.error, "h-auto whitespace-normal") : h.empty,
+  ];
+  const footer = h.div(
+    [h.Class("flex items-center justify-between gap-2")],
+    [
       h.div(
-        [h.Class("flex items-center justify-between gap-2")],
+        [h.Class("flex gap-2")],
         [
-          sheetChanged(sheet)
+          sheet.tab === "0" && sheetChanged(sheet)
             ? h.button(
                 [
                   h.Type("button"),
@@ -208,19 +213,62 @@ function renderSheetOf(h: H, model: Model, sheet: Sheet): Html {
                 ],
                 ["Reset"],
               )
-            : h.span([]),
-          h.button(
-            [
-              h.Type("button"),
-              h.Disabled(Option.isNone(model.harnesses) || sheet.saving),
-              h.Class(buttonClass({})),
-              h.OnClick(Message.ClickedSave()),
-            ],
-            [sheet.saving ? spinnerIcon(h) : h.empty, "Save"],
-          ),
+            : h.empty,
+          isImplementer(role) && tabs.length >= 2
+            ? h.button(
+                [
+                  h.Type("button"),
+                  h.Disabled(sheet.saving),
+                  h.Class(buttonClass({ variant: "outline" })),
+                  h.OnClick(Message.ClickedRemove()),
+                ],
+                ["Remove"],
+              )
+            : h.empty,
         ],
       ),
+      h.button(
+        [
+          h.Type("button"),
+          h.Disabled(Option.isNone(model.harnesses) || sheet.saving),
+          h.Class(buttonClass({})),
+          h.OnClick(Message.ClickedSave()),
+        ],
+        [sheet.saving ? spinnerIcon(h) : h.empty, "Save"],
+      ),
     ],
+  );
+  return renderSheet(h, {
+    mount: h.OnMount(SheetOpened()),
+    titleId: "role-title",
+    title: roleName(role),
+    description: { id: "role-description", text: roleDescriptions[role.role] ?? "" },
+    close: Message.ClosedSheet(),
+    className: "gap-3 p-4 pt-3 md:mx-auto md:max-w-md md:rounded-t-xl",
+    children: isImplementer(role)
+      ? [
+          renderTabs(h, {
+            id: "role-bindings",
+            listClassName: "max-w-full overflow-x-auto",
+            tabs: [
+              ...tabs.map((tab) => ({
+                key: tab.key,
+                title: bindingLabel(tab.binding),
+                select: Message.SelectedTab({ key: tab.key }),
+              })),
+              {
+                key: "add",
+                title: "+",
+                label: "Add binding",
+                select: Message.ClickedAddBinding(),
+              },
+            ],
+            selected: sheet.tab,
+            panel: [h.div([h.Class("grid gap-3")], fields)],
+          }),
+          footer,
+        ]
+      : [...fields, footer],
   });
 }
 

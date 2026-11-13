@@ -186,3 +186,160 @@ test("a Save with no model list keeps the effort of the role", async ({ page }) 
   expect(response.request().postDataJSON()).toMatchObject({ effort: "high" });
   expect(response.ok()).toBe(true);
 });
+
+const bindingsUrl = /\/api\/roles\/implementer\/bindings(\/\d+)?$/;
+
+const widths = (locator: Locator) =>
+  locator.evaluate((element) => ({ scroll: element.scrollWidth, client: element.clientWidth }));
+
+const bindingWritten = (page: Page, method: "POST" | "PUT" | "DELETE") =>
+  page.waitForResponse((res) => bindingsUrl.test(res.url()) && res.request().method() === method);
+
+// Returns the id of the new binding, which is the last of moreBindings.
+const addBindingByApi = async (page: Page, model: string, max: number) => {
+  const { status, id } = await page.evaluate(
+    async (binding) => {
+      const response = await fetch("/api/roles/implementer/bindings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(binding),
+      });
+      const json = await response.json();
+      return { status: response.status, id: json.data.moreBindings.at(-1).id as number };
+    },
+    { harness: "claude-code", model, effort: "low", context: 0, max },
+  );
+  expect(status).toBe(200);
+  return id;
+};
+
+const removeBindingByApi = async (page: Page, id: number) => {
+  const status = await page.evaluate(
+    (path) => fetch(path, { method: "DELETE" }).then((response) => response.status),
+    `/api/roles/implementer/bindings/${id}`,
+  );
+  expect(status).toBe(200);
+};
+
+test("the Owner adds a binding with the plus tab, saves it, changes its max and removes it", async ({
+  page,
+}) => {
+  const sheet = await openRole(page, "Implementer");
+  const tabs = sheet.getByRole("tab");
+  await expect(tabs).toHaveCount(2);
+  await expect(sheet.getByRole("button", { name: "Remove" })).toBeHidden();
+  const firstLabel = (await tabs.first().textContent()) ?? "";
+  await expect(tabs.first()).toHaveAttribute("aria-selected", "true");
+
+  await sheet.getByRole("tab", { name: "Add binding" }).click();
+  await expect(tabs).toHaveCount(3);
+  await expect(tabs.nth(1)).toHaveText(firstLabel);
+  await expect(tabs.nth(1)).toHaveAttribute("aria-selected", "true");
+  await sheet.getByRole("tab", { name: "Add binding" }).click();
+  await expect(tabs).toHaveCount(3);
+
+  await pick(page, sheet, "Harness", "claude-code");
+  await pick(page, sheet, "Model", "haiku");
+  await expect(tabs.nth(1)).toHaveText("claude-code · haiku");
+  const added = bindingWritten(page, "POST");
+  await sheet.getByRole("button", { name: "Save" }).click();
+  expect((await added).ok()).toBe(true);
+  await expect(tabs).toHaveCount(3);
+  await expect(tabs.nth(1)).toHaveText("claude-code · haiku");
+  await expect(tabs.nth(1)).toHaveAttribute("aria-selected", "true");
+  const row = roleRow(page, "Implementer");
+  await expect(row).toContainText("claude-code");
+  await expect(row.getByText("haiku")).toBeVisible();
+
+  await sheet.getByLabel("Max", { exact: true }).fill("3");
+  const changed = bindingWritten(page, "PUT");
+  await sheet.getByRole("button", { name: "Save" }).click();
+  expect((await changed).ok()).toBe(true);
+  await expect(row).toContainText("max 3");
+  await expect(sheet.getByLabel("Max", { exact: true })).toHaveValue("3");
+  await expect(sheet.getByRole("button", { name: "Reset" })).toBeHidden();
+
+  const removed = bindingWritten(page, "DELETE");
+  await sheet.getByRole("button", { name: "Remove" }).click();
+  expect((await removed).ok()).toBe(true);
+  await expect(tabs).toHaveCount(2);
+  await expect(tabs.first()).toHaveAttribute("aria-selected", "true");
+  await expect(row).not.toContainText("max 3");
+  await expect(sheet.getByRole("button", { name: "Remove" })).toBeHidden();
+});
+
+test("a close of the sheet drops the new tab, and a Remove of the new tab sends no request", async ({
+  page,
+}) => {
+  const sheet = await openRole(page, "Implementer");
+  const requests: string[] = [];
+  page.on("request", (request) => {
+    if (bindingsUrl.test(request.url())) {
+      requests.push(request.method());
+    }
+  });
+  await sheet.getByRole("tab", { name: "Add binding" }).click();
+  await expect(sheet.getByRole("tab")).toHaveCount(3);
+  await sheet.getByRole("button", { name: "Remove" }).click();
+  await expect(sheet.getByRole("tab")).toHaveCount(2);
+  await expect(sheet.getByRole("tab").first()).toHaveAttribute("aria-selected", "true");
+
+  await sheet.getByRole("tab", { name: "Add binding" }).click();
+  await expect(sheet.getByRole("tab")).toHaveCount(3);
+  await sheet.getByRole("button", { name: "Close" }).click();
+  await expect(sheet).toBeHidden();
+  await roleRow(page, "Implementer").click();
+  await expect(sheet.getByRole("tab")).toHaveCount(2);
+  expect(requests).toEqual([]);
+});
+
+test("a Remove of the first tab of two moves the second binding to the first tab, and Reset sets the data back", async ({
+  page,
+}) => {
+  await page.goto("/settings/roles");
+  await expect(roleRow(page, "Lead")).toContainText("opus");
+  await addBindingByApi(page, "opus", 4);
+  await page.reload();
+  const sheet = await openRole(page, "Implementer");
+  const tabs = sheet.getByRole("tab");
+  await expect(tabs).toHaveCount(3);
+  await expect(tabs.nth(1)).toHaveText("claude-code · opus");
+  await expect(sheet.getByRole("button", { name: "Reset" })).toBeHidden();
+
+  const removed = bindingWritten(page, "DELETE");
+  await sheet.getByRole("button", { name: "Remove" }).click();
+  const response = await removed;
+  expect(response.ok()).toBe(true);
+  expect(response.url()).toMatch(/\/bindings\/0$/);
+  await expect(tabs).toHaveCount(2);
+  await expect(tabs.first()).toHaveText("claude-code · opus");
+  await expect(sheet.getByLabel("Max", { exact: true })).toHaveValue("4");
+  await expect(sheet.getByRole("button", { name: "Remove" })).toBeHidden();
+
+  const reset = written(page, "implementer", "DELETE");
+  await sheet.getByRole("button", { name: "Reset" }).click();
+  expect((await reset).ok()).toBe(true);
+  await expect(sheet).toBeHidden();
+  await expect(roleRow(page, "Implementer")).not.toContainText("claude-code");
+});
+
+test("on a phone the tab strip scrolls sideways and the sheet does not", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/settings/roles");
+  await expect(roleRow(page, "Lead")).toContainText("opus");
+  const ids = [await addBindingByApi(page, "sonnet", 1), await addBindingByApi(page, "haiku", 1)];
+  try {
+    await page.reload();
+    const sheet = await openRole(page, "Implementer");
+    await expect(sheet.getByRole("tab")).toHaveCount(4);
+    const tabList = sheet.getByRole("tablist");
+    const list = await widths(tabList);
+    expect(list.scroll).toBeGreaterThan(list.client);
+    const whole = await widths(sheet);
+    expect(whole.scroll).toBeLessThanOrEqual(whole.client);
+  } finally {
+    for (const id of ids) {
+      await removeBindingByApi(page, id);
+    }
+  }
+});
