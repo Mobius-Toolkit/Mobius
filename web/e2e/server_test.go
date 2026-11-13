@@ -636,9 +636,11 @@ func TestServer(t *testing.T) {
 		}
 		return rows == 1
 	})
-	if err := server.Engine.SetAutopilot(ctx, "owner/shop", 14, "start"); err != nil {
+	// The screenshots of #14 show an empty chat, so its level has no Lead event and no chat record.
+	if _, err := server.DB.Exec("UPDATE workstreams SET autopilot = 1 WHERE repository = 'owner/shop' AND number = 14"); err != nil {
 		t.Fatal(err)
 	}
+	github.AddLabel("owner/shop", 14, "mobius:autopilot", "owner")
 
 	shop := engine.ChatKey{Organization: "owner", Repository: "owner/shop", Workstream: 12}
 	github.AddLabel("owner/shop", 45, "mobius:ready", "owner")
