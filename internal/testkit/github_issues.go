@@ -642,6 +642,17 @@ func (g *FakeGitHub) AddLabel(repository string, number int64, label, actor stri
 	g.label(issueKey{repository, number}, label, actor)
 }
 
+// AddLabelInLastSecond adds label to the issue as actor with an event at the update time of the issue, and keeps the
+// update time. The cursor of a poll that read the issue is this time, so the event is in the second of the cursor. The
+// issue must not have the label.
+func (g *FakeGitHub) AddLabelInLastSecond(repository string, number int64, label, actor string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	found := g.issues[issueKey{repository, number}]
+	found.labels = append(found.labels, label)
+	found.events = append(found.events, eventJSON{ID: g.newEventID(), Event: "labeled", Actor: loginJSON{actor}, Label: nameJSON{label}, CreatedAt: timestamp(found.updatedAt)})
+}
+
 // RemoveLabel removes label from the issue as actor. The issue must have the label.
 func (g *FakeGitHub) RemoveLabel(repository string, number int64, label, actor string) {
 	g.mu.Lock()

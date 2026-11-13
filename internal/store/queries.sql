@@ -790,6 +790,43 @@ UPDATE outgoing_changes SET status = ? WHERE id = ?;
 -- name: DeleteFinishedOutgoingChanges :exec
 DELETE FROM outgoing_changes WHERE status <> 'pending' AND julianday(created_at) < julianday(?);
 
+-- name: AddIncomingChange :exec
+INSERT INTO incoming_changes (integration, external_id, repository, number, field, change, actor, metadata, status, created_at)
+VALUES ('github', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (integration, external_id) DO NOTHING;
+
+-- name: HasIncomingChange :one
+SELECT EXISTS (SELECT 1 FROM incoming_changes WHERE integration = 'github' AND external_id = ?);
+
+-- name: ListPendingIncomingChanges :many
+SELECT * FROM incoming_changes WHERE repository = ? AND status = 'pending' ORDER BY id;
+
+-- name: SetIncomingChangeDone :exec
+UPDATE incoming_changes SET status = 'done' WHERE id = ?;
+
+-- name: DeleteDoneIncomingChanges :exec
+DELETE FROM incoming_changes WHERE status = 'done' AND julianday(created_at) < julianday(?);
+
+-- name: AddOwnWrite :one
+INSERT INTO own_writes (integration, repository, number, field, metadata, created_at) VALUES ('github', ?, ?, ?, ?, ?)
+RETURNING id;
+
+-- name: DeleteOwnWrite :exec
+DELETE FROM own_writes WHERE id = ?;
+
+-- name: DeleteOldestOwnWrite :execrows
+DELETE FROM own_writes
+WHERE id = (
+    SELECT o.id FROM own_writes o
+    WHERE o.repository = sqlc.arg(repository) AND o.number = sqlc.arg(number)
+      AND json_extract(o.metadata, '$.label') = CAST(sqlc.arg(label) AS TEXT)
+      AND json_extract(o.metadata, '$.change') = CAST(sqlc.arg(change) AS TEXT)
+    ORDER BY o.id LIMIT 1
+);
+
+-- name: DeleteOldOwnWrites :exec
+DELETE FROM own_writes WHERE julianday(created_at) < julianday(?);
+
 -- name: GetNewestTaskOfPullRequest :one
 SELECT * FROM tasks WHERE repository = ? AND pull_request = ? ORDER BY id DESC LIMIT 1;
 
@@ -949,6 +986,14 @@ WHERE w.repository = ? AND w.number = ?;
 
 -- name: SetCopiedEvergreen :exec
 UPDATE workstreams SET evergreen = CAST(sqlc.arg(evergreen) AS BOOLEAN)
+WHERE repository = sqlc.arg(repository) AND number = sqlc.arg(number);
+
+-- name: SetCopiedMaintenance :exec
+UPDATE workstreams SET maintenance = CAST(sqlc.arg(maintenance) AS BOOLEAN)
+WHERE repository = sqlc.arg(repository) AND number = sqlc.arg(number);
+
+-- name: SetCopiedSkills :exec
+UPDATE workstreams SET skills = CAST(sqlc.arg(skills) AS BOOLEAN)
 WHERE repository = sqlc.arg(repository) AND number = sqlc.arg(number);
 
 -- name: UpdateCopiedBlockerTitles :execrows
