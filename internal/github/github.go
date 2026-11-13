@@ -244,17 +244,65 @@ func (g *GitHub) LatestRelease(ctx context.Context) (*gh.RepositoryRelease, erro
 }
 
 // CommitMessages gives the message of each commit of Mobius after the commit base up to the commit head, the oldest
-// first. GitHub gives at most 250 commits. The call uses publicClient.
+// first. It reads each page of the comparison. The call uses publicClient.
 func (g *GitHub) CommitMessages(ctx context.Context, base, head string) ([]string, error) {
-	comparison, _, err := g.publicClient().Repositories.CompareCommits(ctx, "Mobius-Toolkit", "Mobius", base, head, nil)
+	client := g.publicClient()
+	messages := []string{}
+	options := &gh.ListOptions{PerPage: 100}
+	for {
+		comparison, response, err := client.Repositories.CompareCommits(ctx, "Mobius-Toolkit", "Mobius", base, head, options)
+		if err != nil {
+			return nil, err
+		}
+		for _, commit := range comparison.Commits {
+			messages = append(messages, commit.GetCommit().GetMessage())
+		}
+		if response.NextPage == 0 {
+			return messages, nil
+		}
+		options.Page = response.NextPage
+	}
+}
+
+// ClosingIssues gives the numbers of the issues that each pull request of Mobius in numbers closes, with one GraphQL
+// call. A number that is not a pull request has no closed issue. The call uses publicClient.
+func (g *GitHub) ClosingIssues(ctx context.Context, numbers []int) (map[int][]int, error) {
+	var query strings.Builder
+	query.WriteString(`query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) {`)
+	for _, number := range numbers {
+		fmt.Fprintf(&query, ` pr%[1]d: pullRequest(number: %[1]d) { closingIssuesReferences(first: 100) { nodes { number } } }`, number)
+	}
+	query.WriteString(` } }`)
+	var data struct {
+		Repository map[string]*struct {
+			ClosingIssuesReferences struct {
+				Nodes []struct {
+					Number int `json:"number"`
+				} `json:"nodes"`
+			} `json:"closingIssuesReferences"`
+		} `json:"repository"`
+	}
+	client := Repository{Client: g.publicClient()}
+	errs, err := client.graphqlErrors(ctx, query.String(), map[string]any{"owner": "Mobius-Toolkit", "name": "Mobius"}, &data)
 	if err != nil {
 		return nil, err
 	}
-	messages := make([]string, 0, len(comparison.Commits))
-	for _, commit := range comparison.Commits {
-		messages = append(messages, commit.GetCommit().GetMessage())
+	for _, failure := range errs {
+		if failure.Type != "NOT_FOUND" {
+			return nil, errors.New(failure.Message)
+		}
 	}
-	return messages, nil
+	closing := map[int][]int{}
+	for _, number := range numbers {
+		node := data.Repository[fmt.Sprintf("pr%d", number)]
+		if node == nil {
+			continue
+		}
+		for _, issue := range node.ClosingIssuesReferences.Nodes {
+			closing[number] = append(closing[number], issue.Number)
+		}
+	}
+	return closing, nil
 }
 
 // DownloadStallLimit is the longest time that DownloadReleaseAsset waits for a byte.
