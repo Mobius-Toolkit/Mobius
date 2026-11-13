@@ -38,6 +38,8 @@ type keptSession struct {
 	dshRecords int
 	// antigravityIdx is the highest gen_metadata idx of the Antigravity session that the earlier rows counted.
 	antigravityIdx int64
+	// copiedSkills are the names of the skills that Mobius copied into the Harness process.
+	copiedSkills []string
 	// brief, issue, comments and report are the texts that the session got, so a later short prompt sends only a change.
 	brief    string
 	issue    string
