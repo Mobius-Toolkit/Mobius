@@ -88,6 +88,9 @@ func (e *Engine) poll(ctx context.Context) {
 			}
 		}
 	}
+	if err := e.syncMissingWorkstreams(ctx, true); err != nil {
+		log.Printf("check the missing Workstreams: %v", err)
+	}
 	e.reviewSkills(ctx, repositories)
 	e.reportBlockerCycles(ctx)
 	e.ReplaceWork(work)

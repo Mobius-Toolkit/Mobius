@@ -263,6 +263,11 @@ type McpServerOauth struct {
 	UpdatedAt     string
 }
 
+type MissingWorkstreamDismissal struct {
+	Organization string
+	Kind         string
+}
+
 type OldSkillUse struct {
 	ID           int64
 	Session      int64
