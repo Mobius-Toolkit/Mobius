@@ -12,14 +12,14 @@ import (
 )
 
 // firstSlots gives the first binding of the Implementer max slots.
-func firstSlots(max int) func(*config.Config) {
-	return func(cfg *config.Config) { cfg.Roles.Implementer.Max = max }
+func firstSlots(slots int) func(*config.Config) {
+	return func(cfg *config.Config) { cfg.Roles.Implementer.Max = slots }
 }
 
 // addBinding adds a binding of the Implementer and gives its id.
-func addBinding(t *testing.T, server *testserver.Server, harness config.Harness, model, effort string, max int) int64 {
+func addBinding(t *testing.T, server *testserver.Server, harness config.Harness, model, effort string, slots int) int64 {
 	t.Helper()
-	id, err := server.Engine.AddImplementerBinding(t.Context(), config.RoleBinding{Harness: harness, Model: model, Effort: effort, Max: max})
+	id, err := server.Engine.AddImplementerBinding(t.Context(), config.RoleBinding{Harness: harness, Model: model, Effort: effort, Max: slots})
 	if err != nil {
 		t.Fatal(err)
 	}
