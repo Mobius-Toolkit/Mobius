@@ -102,6 +102,7 @@ func TestAnOperatorRunsInItsFolderWithTheBriefTheMemoryAndTheTextAndItsReportGoe
 	}
 	for _, part := range []string{
 		"You are an Operator",
+		"Your report goes only to the Lead that started you.",
 		"# Brief\n\nShip loyalty plans to all shops.\n",
 		"# MEMORY.md\n\nThe directory has 40 listings.\n",
 		"# Text\n\nUpdate the listings.",
