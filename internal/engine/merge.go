@@ -98,6 +98,11 @@ func (e *Engine) mergeApprovedAfterApproval(ctx context.Context, repository gith
 // auto_merge also needs a Workstream with a merge level, else its automatic merge ends (endAutoMerge), and the Merge
 // switch on, else its automatic merge pauses (pauseAutoMerge).
 //
+// The queue order is: first the task that started its first branch update or its merge as the head (markMergeHead),
+// then a CI fix task (the issue is in the view ci_fix_issues), then the other tasks, and in each group the time in the
+// queue. Thus a CI fix task that enters the queue becomes the head before each task that did not start, and a head that
+// started keeps the head until it leaves the queue. A task that leaves the queue loses this start.
+//
 // Only the head of the merge queue updates its branch and merges: when its head does not contain the default branch and
 // the pull request and the new commits of the default branch change a common file, it updates the branch
 // (updateForMerge). A head that is behind with no common file merges with its approval. A head with no Mobius check
@@ -213,7 +218,7 @@ func (e *Engine) mergeApproved(ctx context.Context, repository github.Repository
 		}
 		return false, nil
 	}
-	if waits, err := e.updateForMerge(ctx, repository, pullRequest); err != nil || waits {
+	if waits, err := e.updateForMerge(ctx, repository, task, pullRequest); err != nil || waits {
 		return false, err
 	}
 	if err := e.readPullRequests(ctx, repository, []int64{number}); err != nil {
@@ -237,6 +242,9 @@ func (e *Engine) mergeApproved(ctx context.Context, repository github.Repository
 				return false, errors.Join(err, clearErr)
 			}
 		}
+		return false, err
+	}
+	if err := e.markMergeHead(ctx, task); err != nil {
 		return false, err
 	}
 	merged, reason, err := repository.MergePullRequest(ctx, number, head)
@@ -279,6 +287,15 @@ func (e *Engine) mergeApproved(ctx context.Context, repository github.Repository
 	text := fmt.Sprintf("%s merge refused for %s \"%s\": GitHub refused to merge pull request %s. A trusted user approved the pull request. GitHub gave this reason: \"%s\". Mobius does not try again until a trusted user approves the pull request again.",
 		time.Now().UTC().Format(timeFormat), taskEventRef(task, task.Issue), issue.GetTitle(), taskEventRef(task, number), reason)
 	return false, e.addLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, task.Repository, sql.NullInt64{Int64: task.Issue, Valid: true}, "merge_refused", text)
+}
+
+// markMergeHead stores the time at which the head of the merge queue starts its first branch update or its merge, when
+// the task has no such time. The merge queue keeps a task with this time as its head.
+func (e *Engine) markMergeHead(ctx context.Context, task store.Task) error {
+	return e.queries.SetTaskMergeHeadAt(ctx, store.SetTaskMergeHeadAtParams{
+		MergeHeadAt: sql.NullString{String: e.timeNow().UTC().Format(time.RFC3339Nano), Valid: true},
+		ID:          task.ID,
+	})
 }
 
 // removeHeldHead removes the head of the merge queue from the queue when it stayed in its state for more than

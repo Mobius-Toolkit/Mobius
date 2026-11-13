@@ -255,7 +255,7 @@ const comparisonFileLimit = 300
 // A head that is behind the default branch with no common file does not wait and keeps its approval, because GitHub
 // merges it with no text conflict. A comparison of comparisonFileLimit files or more can be incomplete, so it counts as
 // a common file.
-func (e *Engine) updateForMerge(ctx context.Context, repository github.Repository, pullRequest *gh.PullRequest) (bool, error) {
+func (e *Engine) updateForMerge(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) (bool, error) {
 	number := int64(pullRequest.GetNumber())
 	head := pullRequest.GetHead().GetSHA()
 	state := e.pull(repository, number)
@@ -268,6 +268,9 @@ func (e *Engine) updateForMerge(ctx context.Context, repository github.Repositor
 		return false, err
 	}
 	if overlaps, err := e.overlapsDefaultBranch(ctx, repository, number, head); err != nil || !overlaps {
+		return false, err
+	}
+	if err := e.markMergeHead(ctx, task); err != nil {
 		return false, err
 	}
 	err = repository.UpdatePullRequestBranch(ctx, number, head)
