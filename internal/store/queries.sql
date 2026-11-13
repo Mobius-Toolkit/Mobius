@@ -273,6 +273,11 @@ LEFT JOIN copied_issues i
   AND substr(lower(i.repository_url), -(length(sessions.repository) + 7)) = '/repos/' || lower(sessions.repository)
 WHERE sessions.ended_at IS NULL ORDER BY sessions.id;
 
+-- name: GetSessionIssueTitle :one
+SELECT i.title FROM copied_issues i
+WHERE i.repository = sqlc.arg(workstream_repository) AND i.workstream = sqlc.arg(workstream) AND i.number = sqlc.arg(issue)
+  AND substr(lower(i.repository_url), -(length(CAST(sqlc.arg(repository) AS TEXT)) + 7)) = '/repos/' || lower(CAST(sqlc.arg(repository) AS TEXT));
+
 -- name: ListBoardTasks :many
 SELECT tasks.id, tasks.repository, tasks.issue, tasks.workstream_repository, tasks.workstream, tasks.state, tasks.state_at,
        tasks.pull_request, tasks.fix_rounds, tasks.review_rounds, tasks.merge_queued_at,
@@ -758,6 +763,9 @@ SELECT * FROM outgoing_changes WHERE id = ?;
 
 -- name: ListPendingOutgoingChanges :many
 SELECT * FROM outgoing_changes WHERE repository = ? AND status = 'pending' ORDER BY id;
+
+-- name: GetNewestCommentChange :one
+SELECT * FROM outgoing_changes WHERE repository = ? AND number = ? AND field = 'comment' ORDER BY id DESC LIMIT 1;
 
 -- name: SetOutgoingChangeStatus :exec
 UPDATE outgoing_changes SET status = ? WHERE id = ?;

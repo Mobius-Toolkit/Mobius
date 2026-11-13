@@ -3470,6 +3470,32 @@ func (q *Queries) GetMergeQueueHead(ctx context.Context, repository string) (Tas
 	return i, err
 }
 
+const getNewestCommentChange = `-- name: GetNewestCommentChange :one
+SELECT id, integration, repository, number, reply_to, field, text, status, created_at FROM outgoing_changes WHERE repository = ? AND number = ? AND field = 'comment' ORDER BY id DESC LIMIT 1
+`
+
+type GetNewestCommentChangeParams struct {
+	Repository string
+	Number     int64
+}
+
+func (q *Queries) GetNewestCommentChange(ctx context.Context, arg GetNewestCommentChangeParams) (OutgoingChange, error) {
+	row := q.db.QueryRowContext(ctx, getNewestCommentChange, arg.Repository, arg.Number)
+	var i OutgoingChange
+	err := row.Scan(
+		&i.ID,
+		&i.Integration,
+		&i.Repository,
+		&i.Number,
+		&i.ReplyTo,
+		&i.Field,
+		&i.Text,
+		&i.Status,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getNewestInboxItem = `-- name: GetNewestInboxItem :one
 SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal, workstream_repository, questions, answer, withdrawn FROM inbox_items WHERE repository = ? AND issue = ? AND kind = ? ORDER BY id DESC LIMIT 1
 `
@@ -3985,6 +4011,31 @@ func (q *Queries) GetSession(ctx context.Context, id int64) (Session, error) {
 		&i.ContextSize,
 	)
 	return i, err
+}
+
+const getSessionIssueTitle = `-- name: GetSessionIssueTitle :one
+SELECT i.title FROM copied_issues i
+WHERE i.repository = ?1 AND i.workstream = ?2 AND i.number = ?3
+  AND substr(lower(i.repository_url), -(length(CAST(?4 AS TEXT)) + 7)) = '/repos/' || lower(CAST(?4 AS TEXT))
+`
+
+type GetSessionIssueTitleParams struct {
+	WorkstreamRepository string
+	Workstream           int64
+	Issue                int64
+	Repository           string
+}
+
+func (q *Queries) GetSessionIssueTitle(ctx context.Context, arg GetSessionIssueTitleParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, getSessionIssueTitle,
+		arg.WorkstreamRepository,
+		arg.Workstream,
+		arg.Issue,
+		arg.Repository,
+	)
+	var title string
+	err := row.Scan(&title)
+	return title, err
 }
 
 const getSkillsWorkstream = `-- name: GetSkillsWorkstream :one
