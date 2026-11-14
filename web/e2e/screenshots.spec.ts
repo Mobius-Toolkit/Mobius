@@ -68,9 +68,7 @@ const viewports = {
 // A step that waits for a state that no locator shows.
 type Wait = (page: Page) => Promise<void>;
 
-// The tray of the real Inbox item shows after the first scroll of the list, and it makes the list shorter. Thus a step
-// waits for the tray before chatEnd. chatEnd scrolls to the end after the list is ready, and it reads the gap after
-// the layout of two frames.
+// The tray of the real Inbox item can show after the first scroll of the list, and it makes the list shorter.
 const chatTray: Wait = (page) =>
   expect(
     page.locator("button[aria-expanded]", { hasText: /Waits for you \(\d+\)/ }).first(),
