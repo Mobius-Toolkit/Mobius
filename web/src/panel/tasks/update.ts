@@ -7,7 +7,9 @@ import { OutMessage as SettingOutMessage } from "@/setting/message";
 import type { Target } from "@/setting/schemas";
 import { init as initSetting, update as updateSetting } from "@/setting/update";
 import { chatDraftKey } from "@/lib/draft";
+import * as Selection from "@/ui/selection";
 import {
+  AddSelection,
   AttachTask,
   ChangeIssue,
   FetchFallback,
@@ -16,7 +18,13 @@ import {
   OpenTask,
   RestoreScroll,
 } from "./commands";
-import { Message, OutMessage, toGotComposerMessage, toGotSettingMessage } from "./message";
+import {
+  Message,
+  OutMessage,
+  toGotComposerMessage,
+  toGotSelectionMessage,
+  toGotSettingMessage,
+} from "./message";
 import {
   openedLine,
   reference,
@@ -56,6 +64,7 @@ const leave = (model: Model): UpdateReturn => ({
     detail: Option.none(),
     detailLoading: false,
     detailError: "",
+    selection: null,
   },
   commands: [RestoreScroll({ instance: model.instance, scroll: model.scroll })],
 });
@@ -105,6 +114,41 @@ const foldAddInboxItem = Update.foldChild({
   read: (model: Model) => Option.some(model.composer),
   write: (model, composer) => ({ ...model, composer }),
   toParentMessage: toGotComposerMessage,
+});
+
+const foldSelection = Update.foldChild({
+  update: Selection.update,
+  read: (model: Model) => Option.some(model.selection),
+  write: (model, selection) => ({ ...model, selection }),
+  toParentMessage: toGotSelectionMessage,
+  foldOutMessage: (outMessage) =>
+    Selection.OutMessage.match<Update.Step<Model, Message>>(outMessage, {
+      AddRequested:
+        ({ text, context }) =>
+        (model) => {
+          const line = openedLine(model);
+          return Option.isNone(line)
+            ? { model }
+            : {
+                model,
+                commands: [
+                  AddSelection({
+                    key: model.composer.draftKey,
+                    selection: {
+                      source: "task",
+                      text,
+                      context,
+                      reference: reference(line.value),
+                      link: line.value.url,
+                      part: "issue body",
+                      messageId: 0,
+                      messageAuthor: "",
+                    },
+                  }),
+                ],
+              };
+        },
+    }),
 });
 
 const draftChanges: readonly string[] = ["DraftTextChanged", "ImagesFitted", "VoiceButtonClicked"];
@@ -166,6 +210,7 @@ export function update(model: Model, message: Message): UpdateReturn {
         detailLoading: true,
         detailError: "",
         taskAttached: false,
+        selection: null,
       },
       commands: [
         RestoreScroll({ instance: model.instance, scroll: 0 }),
@@ -184,6 +229,8 @@ export function update(model: Model, message: Message): UpdateReturn {
         ...(draftChanges.includes(child._tag) ? [attachOpenedTask] : []),
         foldComposer(child),
       ]),
+    GotSelectionMessage: ({ message: child }) => foldSelection(model, child),
+    AddedSelection: () => ({ model }),
     CompletedRestoreScroll: () => ({ model }),
     TaskDetailLoaded: ({ repository, number, detail }) => {
       if (!isOpened(model, repository, number)) {
