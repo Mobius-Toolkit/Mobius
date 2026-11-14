@@ -169,6 +169,9 @@ func (e *Engine) checkIssueBinding(ctx context.Context, spec Spec, harness confi
 	if err := e.checkRoles(&roles, role); err != nil {
 		return refuse("%s", err)
 	}
+	if err := e.checkEffort(role, next); err != nil {
+		return refuse("%s", err)
+	}
 	return e.checkChange(ctx, current, next)
 }
 
