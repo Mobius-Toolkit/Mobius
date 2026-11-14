@@ -1913,6 +1913,8 @@ test("screenshots", async ({ page }) => {
       }
       await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
       await page
+        .getByRole("tabpanel", { name: "Tasks" })
+        .filter({ visible: true })
         .getByRole("button", { name: /#71 Spread the bark/ })
         .filter({ visible: true })
         .click();
@@ -1942,6 +1944,8 @@ test("screenshots", async ({ page }) => {
       }
       await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
       await page
+        .getByRole("tabpanel", { name: "Tasks" })
+        .filter({ visible: true })
         .getByRole("button", { name: /#71 Spread the bark/ })
         .filter({ visible: true })
         .click();
@@ -1954,6 +1958,65 @@ test("screenshots", async ({ page }) => {
       await expect.poll(() => page.evaluate(storedDrafts)).toBe(0);
     },
   );
+  await page.route("**/api/chat?*", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as { data: { messages: Record<string, unknown>[] } };
+    if (!new URL(route.request().url()).searchParams.has("before")) {
+      body.data.messages.push({
+        id: 1_000_000,
+        action: null,
+        author: "Owner",
+        browserId: "",
+        cancelledAt: null,
+        deliveredAt: "2026-10-15T12:00:00Z",
+        failedAt: null,
+        images: 0,
+        inboxItems: [
+          {
+            reference: "#71",
+            title: "Spread the bark",
+            reason: "open",
+            link: "https://github.com/plants/garden/issues/71",
+          },
+        ],
+        selections: [],
+        organization: "plants",
+        question: null,
+        repository: "plants/garden",
+        stoppedAt: null,
+        voice: false,
+        text: "Is this task ready?",
+        time: "2026-10-15T12:00:00Z",
+        workstream: 19,
+      });
+    }
+    await route.fulfill({ response, json: body });
+  });
+  const taskCard = main
+    .locator("[data-message]", { hasText: "Is this task ready?" })
+    .getByRole("button", { name: /Spread the bark/ });
+  await screenshot(
+    page,
+    "chat-task-card-detail",
+    "/workstreams/plants/garden/19",
+    (device) => [
+      ...(device === "desktop"
+        ? [
+            drain,
+            page.getByLabel("Work in another organization"),
+            page.locator('nav a[href="/workstreams/plants/garden/19"]'),
+          ]
+        : [page.getByLabel("Upgrade available")]),
+      page.getByRole("button", { name: "Back to the tasks" }).filter({ visible: true }),
+      page.getByRole("heading", { name: "#71 Spread the bark" }).filter({ visible: true }),
+      page.getByText("Wear protective gloves.").filter({ visible: true }),
+      ...(device === "desktop" ? [taskCard] : []),
+    ],
+    async () => {
+      await taskCard.click();
+    },
+  );
+  await page.unroute("**/api/chat?*");
   await page.unroute(taskDetailRoute);
   const recurringFrame = (device: string, number: number) =>
     device === "desktop"

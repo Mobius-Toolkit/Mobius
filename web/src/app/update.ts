@@ -6,6 +6,7 @@ import { toString as urlToString, type Url } from "foldkit/url";
 import { FetchAgents } from "@/agents/commands";
 import { update as updateAgents } from "@/agents/update";
 import { FetchPage, ListQueued } from "@/chat/commands";
+import { OutMessage as ChatOutMessage } from "@/chat/message";
 import { initialModel as initialChatModel } from "@/chat/model";
 import { update as updateChat } from "@/chat/update";
 import { FetchCheckup, FetchTools } from "@/checkup/commands";
@@ -105,6 +106,16 @@ const foldChat = Update.foldChild({
   read: (model: Model) => model.chat,
   write: (model, chat) => ({ ...model, chat: Option.some(chat) }),
   toParentMessage: (message) => Message.GotChatMessage({ message }),
+  foldOutMessage: (outMessage) =>
+    ChatOutMessage.match<Update.Step<Model, Message>>(outMessage, {
+      TaskOpened:
+        ({ repository, number }) =>
+        (model) =>
+          foldPanel(
+            model.wide ? model : { ...model, mobileTasksOpen: true, mobileBriefOpen: false },
+            PanelMessage.RequestedTask({ repository, number }),
+          ),
+    }),
 });
 
 const foldPanel = Update.foldChild({
@@ -119,6 +130,10 @@ const foldInbox = Update.foldChild({
   read: (model: Model) => model.inboxProgram,
   write: (model, inboxProgram) => ({ ...model, inboxProgram: Option.some(inboxProgram) }),
   toParentMessage: (message) => Message.GotInboxMessage({ message }),
+  foldOutMessage: (outMessage) =>
+    ChatOutMessage.match<Update.Step<Model, Message>>(outMessage, {
+      TaskOpened: () => (model) => ({ model }),
+    }),
 });
 
 const foldWorkstreams = Update.foldChild({

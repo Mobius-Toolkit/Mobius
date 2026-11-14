@@ -18,7 +18,13 @@ import { initialModel, type Model } from "./model";
 import { FetchTasks as FetchRecurring } from "./recurring/commands";
 import * as RecurringFixture from "./recurring/fixtures";
 import type { Tab } from "./schemas";
-import { FetchFallback, FetchTasks } from "./tasks/commands";
+import {
+  FetchFallback,
+  FetchTaskDetail,
+  FetchTasks,
+  OpenTask,
+  RestoreScroll,
+} from "./tasks/commands";
 import type { TaskLine } from "./tasks/model";
 import * as TasksFixture from "./tasks/fixtures";
 import { update } from "./update";
@@ -189,6 +195,95 @@ describe("the tabs of the panel", () => {
       message(Message.ReceivedBrief({ brief: "Build the shop." })),
       model((m) => {
         expect(m.brief).toBe("Build the shop.");
+      }),
+    );
+  });
+});
+
+describe("the task that the host asks for", () => {
+  const task = taskLine(71);
+  const request = Message.RequestedTask({ repository: "owner/shop", number: 71 });
+  const resolveOpened = [
+    StoryCommand.resolve(OpenTask, TasksFixture.opened(task)),
+    StoryCommand.resolve(RestoreScroll, TasksFixture.scrollRestored),
+    StoryCommand.resolve(FetchTaskDetail, TasksFixture.detailFailed(task)),
+  ] as const;
+  const resolveReport = StoryCommand.resolve(ReportTab, Message.CompletedReportTab());
+
+  it("selects the Tasks tab, and opens the view of the task after the list loads", () => {
+    story(
+      update,
+      given(createModel("agents")),
+      message(request),
+      model((m) => {
+        expect(m.tab).toBe("tasks");
+        expect(Option.isSome(m.tasks.pendingOpen)).toBe(true);
+      }),
+      StoryCommand.expectHas(FetchTasks),
+      StoryCommand.expectHas(ReportTab),
+      StoryCommand.resolve(FetchTasks, TasksFixture.linesLoaded([task])),
+      StoryCommand.resolve(FetchFallback, TasksFixture.failed),
+      resolveReport,
+      StoryCommand.expectHas(OpenTask),
+      ...resolveOpened,
+      model((m) => {
+        expect(m.tasks.opened).toEqual(Option.some({ repository: "owner/shop", number: 71 }));
+        expect(Option.isNone(m.tasks.pendingOpen)).toBe(true);
+      }),
+    );
+  });
+
+  it("opens the view of the task at once when the Tasks tab has the list", () => {
+    const base = createModel("tasks");
+    story(
+      update,
+      given({ ...base, tasks: { ...base.tasks, lines: Option.some([task]) } }),
+      message(request),
+      StoryCommand.expectHas(OpenTask),
+      resolveReport,
+      ...resolveOpened,
+      model((m) => {
+        expect(m.tasks.opened).toEqual(Option.some({ repository: "owner/shop", number: 71 }));
+      }),
+    );
+  });
+
+  it("opens the view again when the task is open", () => {
+    const base = createModel("tasks");
+    story(
+      update,
+      given({
+        ...base,
+        tasks: {
+          ...base.tasks,
+          lines: Option.some([task]),
+          opened: Option.some({ repository: "owner/shop", number: 71 }),
+        },
+      }),
+      message(request),
+      StoryCommand.expectHas(OpenTask),
+      resolveReport,
+      ...resolveOpened,
+    );
+  });
+
+  it("shows the list when the loaded list has no such task", () => {
+    const base = createModel("tasks");
+    story(
+      update,
+      given({
+        ...base,
+        tasks: {
+          ...base.tasks,
+          lines: Option.some([taskLine(72)]),
+          opened: Option.some({ repository: "owner/shop", number: 72 }),
+        },
+      }),
+      message(request),
+      resolveReport,
+      StoryCommand.resolve(RestoreScroll, TasksFixture.scrollRestored),
+      model((m) => {
+        expect(Option.isNone(m.tasks.opened)).toBe(true);
       }),
     );
   });

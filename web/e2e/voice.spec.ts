@@ -1445,7 +1445,10 @@ test("the text of a conversion goes into the Lead chat field when the panel show
   await answer(page, "red roses");
   await page.goto("/workstreams/plants/garden/19");
   await page.getByRole("tab", { name: "Tasks" }).click();
-  await page.getByRole("button", { name: /#71 Spread the bark/ }).click();
+  await page
+    .getByRole("tabpanel", { name: "Tasks" })
+    .getByRole("button", { name: /#71 Spread the bark/ })
+    .click();
   const view = page.locator("#side-task-input");
   await expect(view).toBeEditable();
   const panel = page.getByRole("tabpanel", { name: "Tasks" });

@@ -112,6 +112,7 @@ export const Message = defineMessageUnion({
   BlockingTodoClicked: { id: Schema.Number },
   CompletedShowBlockingTodo: {},
 
+  ClickedTaskCard: { repository: Schema.String, number: Schema.Number },
   ChatWithItemClicked: { item: InboxItem },
   CompletedOpenChat: {},
 
@@ -122,6 +123,12 @@ export const Message = defineMessageUnion({
 });
 
 export type Message = typeof Message.Type;
+
+export const OutMessage = defineMessageUnion({
+  TaskOpened: { repository: Schema.String, number: Schema.Number },
+});
+
+export type OutMessage = typeof OutMessage.Type;
 
 export const toGotComposerMessage = (message: Composer.Message): Message =>
   Message.GotComposerMessage({ message });
