@@ -2,6 +2,7 @@ import { cn } from "cn";
 import { Option } from "effect";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import { defineView } from "foldkit/submodel";
+import * as Composer from "@/composer";
 import { bindingText } from "@/lib/harness";
 import * as Setting from "@/setting/view";
 import { renderBadge } from "@/ui/badge";
@@ -17,8 +18,9 @@ import {
 import { renderMarkdown } from "@/ui/markdown";
 import { linkClass } from "@/ui/page";
 import { renderSwitch } from "@/ui/switch";
-import { Message } from "./message";
+import { Message, toGotComposerMessage } from "./message";
 import {
+  openedLine,
   reference,
   resumes,
   rowKey,
@@ -147,8 +149,8 @@ function renderEntry(h: H, model: Model, line: TaskLine): Html {
 function renderDetail(h: H, model: Model, line: TaskLine): Html {
   const key = rowKey(line);
   const row = rowOf(model, key);
-  return h.div(
-    [h.Class("grid gap-3")],
+  const body = h.div(
+    [h.Class("grid grow content-start gap-3")],
     [
       h.div(
         [h.Class("flex items-center gap-2")],
@@ -256,19 +258,35 @@ function renderDetail(h: H, model: Model, line: TaskLine): Html {
       }),
     ],
   );
+  return h.div(
+    [h.Class("flex min-h-full flex-col")],
+    [
+      body,
+      h.div(
+        [h.Class("sticky bottom-0 -mx-2 -mb-2 bg-background pt-2")],
+        [
+          h.submodel({
+            slotId: "task-composer",
+            model: model.composer,
+            view: Composer.view,
+            viewInputs: {
+              stoppable: false,
+              stopping: false,
+              stopReady: false,
+              selectionTime: () => undefined,
+            },
+            toParentMessage: toGotComposerMessage,
+          }),
+        ],
+      ),
+    ],
+  );
 }
 
 export const view = defineView<Model, Message>((model, h) => {
-  if (Option.isSome(model.opened)) {
-    const opened = model.opened.value;
-    const openedTask = Option.flatMap(model.lines, (lines) =>
-      Option.fromNullishOr(
-        lines.find((l) => l.repository === opened.repository && l.number === opened.number),
-      ),
-    );
-    if (Option.isSome(openedTask)) {
-      return renderDetail(h, model, openedTask.value);
-    }
+  const openedTask = openedLine(model);
+  if (Option.isSome(openedTask)) {
+    return renderDetail(h, model, openedTask.value);
   }
 
   const shown = Option.map(model.lines, (lines) =>

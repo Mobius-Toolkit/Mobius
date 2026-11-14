@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 import { defineMessageUnion } from "foldkit/message";
+import * as Composer from "@/composer";
 import * as Setting from "@/setting/message";
 import { NextSetting } from "@/setting/schemas";
 import { TaskDetail, TaskLine } from "./model";
@@ -22,6 +23,7 @@ export const Message = defineMessageUnion({
   ClickedTask: { line: TaskLine },
   OpenedTask: { line: TaskLine, scroll: Schema.Number },
   ClickedBack: {},
+  GotComposerMessage: { message: Composer.Message },
   CompletedRestoreScroll: {},
   TaskDetailLoaded: {
     repository: Schema.String,
@@ -46,3 +48,6 @@ export type OutMessage = typeof OutMessage.Type;
 
 export const toGotSettingMessage = (message: Setting.Message) =>
   Message.GotSettingMessage({ message });
+
+export const toGotComposerMessage = (message: Composer.Message) =>
+  Message.GotComposerMessage({ message });

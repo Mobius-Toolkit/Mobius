@@ -10,6 +10,10 @@ import {
   model,
   story,
 } from "foldkit/story";
+import { EnqueueMessage, SaveDraftInboxItems, SaveDraftText } from "@/composer/commands";
+import * as ComposerFixture from "@/composer/fixtures";
+import type { Message as ComposerMessage } from "@/composer/message";
+import { ComposerBehavior } from "@/composer/view";
 import { FetchHarnesses } from "@/setting/commands";
 import * as SettingFixture from "@/setting/fixtures";
 import {
@@ -22,7 +26,15 @@ import {
   RestoreScroll,
 } from "./commands";
 import { Message, OutMessage } from "./message";
-import { initialModel, rowKey, rowOf, withoutClosed, type Model, type TaskLine } from "./model";
+import {
+  initialModel,
+  rowKey,
+  rowOf,
+  taskItem,
+  withoutClosed,
+  type Model,
+  type TaskLine,
+} from "./model";
 import { update } from "./update";
 import { view } from "./view";
 
@@ -49,6 +61,8 @@ const createModel = (overrides: Partial<Model> = {}): Model => ({
   ...initialModel({ ...workstream, instance: "side" }),
   ...overrides,
 });
+
+const composerMessage = (child: ComposerMessage) => Message.GotComposerMessage({ message: child });
 
 describe("the Tasks tab", () => {
   it("reads the tasks and the default setting of the Workstream, and shows the tasks", () => {
@@ -623,12 +637,128 @@ describe("the detail view of a task", () => {
           opened: Option.some({ repository: "owner/shop", number: 41 }),
         }),
       ),
+      Scene.Mount.resolve(ComposerBehavior, ComposerFixture.sendSubmitted),
       Scene.click(Scene.role("button", { name: "Chat" })),
       Scene.Command.resolve(
         AttachTask,
         Message.AttachFailed({ key: rowKey(task), error: "storage is full" }),
       ),
       Scene.expect(Scene.text("storage is full")).toExist(),
+    );
+  });
+});
+
+describe("the composer of the detail view", () => {
+  const task = line(41);
+  const item = taskItem(task);
+  const openedModel = (overrides: Partial<Model> = {}) =>
+    createModel({
+      lines: Option.some([task]),
+      opened: Option.some({ repository: "owner/shop", number: 41 }),
+      ...overrides,
+    });
+  const key = createModel().composer.draftKey;
+
+  it("adds the task to the draft on the first change of the draft, and does not close the sheet", () => {
+    story(
+      update,
+      given(openedModel()),
+      message(composerMessage(ComposerFixture.draftTextChanged("H"))),
+      model((m) => {
+        expect(m.composer.draftText).toBe("H");
+        expect(m.composer.draftInboxItems).toEqual([item]);
+        expect(m.taskAttached).toBe(true);
+      }),
+      StoryCommand.expectExact(
+        SaveDraftInboxItems({ key, inboxItems: [item] }),
+        SaveDraftText({ key, text: "H" }),
+      ),
+      StoryCommand.resolveAll(
+        [SaveDraftInboxItems, ComposerFixture.saved],
+        [SaveDraftText, ComposerFixture.saved],
+      ),
+      expectNoOutMessage(),
+    );
+  });
+
+  it("adds no second item when the draft has the task", () => {
+    const { composer } = openedModel();
+    story(
+      update,
+      given(openedModel({ composer: { ...composer, draftInboxItems: [item] } })),
+      message(composerMessage(ComposerFixture.draftTextChanged("H"))),
+      model((m) => {
+        expect(m.composer.draftInboxItems).toEqual([item]);
+        expect(m.taskAttached).toBe(true);
+      }),
+      StoryCommand.expectExact(SaveDraftText({ key, text: "H" })),
+      StoryCommand.resolve(SaveDraftText, ComposerFixture.saved),
+    );
+  });
+
+  it("adds the task again only after the view opens again", () => {
+    story(
+      update,
+      given(openedModel()),
+      message(composerMessage(ComposerFixture.draftTextChanged("H"))),
+      StoryCommand.resolveAll(
+        [SaveDraftInboxItems, ComposerFixture.saved],
+        [SaveDraftText, ComposerFixture.saved],
+      ),
+      message(composerMessage(ComposerFixture.inboxItemRemoved(item.id))),
+      StoryCommand.resolve(SaveDraftInboxItems, ComposerFixture.saved),
+      message(composerMessage(ComposerFixture.draftTextChanged("Hi"))),
+      model((m) => {
+        expect(m.composer.draftInboxItems).toEqual([]);
+      }),
+      StoryCommand.expectExact(SaveDraftText({ key, text: "Hi" })),
+      StoryCommand.resolve(SaveDraftText, ComposerFixture.saved),
+      message(Message.OpenedTask({ line: task, scroll: 0 })),
+      StoryCommand.resolveAll(
+        [RestoreScroll, Message.CompletedRestoreScroll()],
+        [
+          FetchTaskDetail,
+          Message.TaskDetailFailed({ repository: "owner/shop", number: 41, error: "x" }),
+        ],
+      ),
+      message(composerMessage(ComposerFixture.draftTextChanged("Hii"))),
+      model((m) => {
+        expect(m.composer.draftInboxItems).toEqual([item]);
+      }),
+      StoryCommand.resolveAll(
+        [SaveDraftInboxItems, ComposerFixture.saved],
+        [SaveDraftText, ComposerFixture.saved],
+      ),
+    );
+  });
+
+  it("queues a sent message for the chat and keeps the view open", () => {
+    const { composer } = openedModel();
+    const queued = {
+      id: "queued-1",
+      organization: "owner",
+      repository: "owner/shop",
+      workstream: 12,
+      text: "Hello",
+      images: [],
+      inboxItems: [],
+      selections: [],
+      voice: false,
+      time: "2026-11-14T08:00:00.000Z",
+    };
+    story(
+      update,
+      given(openedModel({ composer: { ...composer, draftText: "Hello", draftLoaded: true } })),
+      message(composerMessage(ComposerFixture.sendSubmitted)),
+      model((m) => {
+        expect(m.composer.draftText).toBe("");
+        expect(Option.isSome(m.opened)).toBe(true);
+      }),
+      StoryCommand.resolve(EnqueueMessage, ComposerFixture.queued(queued)),
+      model((m) => {
+        expect(Option.isSome(m.opened)).toBe(true);
+      }),
+      expectNoOutMessage(),
     );
   });
 });

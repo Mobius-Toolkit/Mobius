@@ -3506,6 +3506,48 @@ test.describe("the Chat button of a task row", () => {
   });
 });
 
+const openTaskDetail = async (page: Page, device: "desktop" | "phone") => {
+  await page.route("**/api/workstreams/plants/garden/19/tasks/plants/garden/71", (route) =>
+    route.fulfill({
+      json: {
+        data: {
+          body: "### Instructions\n- Wear protective gloves.",
+          pullRequest: null,
+          pullRequestUrl: null,
+        },
+      },
+    }),
+  );
+  if (device === "phone") {
+    await page.setViewportSize(phone);
+  }
+  await page.goto("/workstreams/plants/garden/19");
+  if (device === "phone") {
+    await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
+  }
+  await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
+  await page
+    .getByRole("button", { name: /#71 Spread the bark/ })
+    .filter({ visible: true })
+    .click();
+  await expect(page.locator("#side-task-input")).toBeEditable();
+};
+
+const waitForMessageSent = (page: Page) =>
+  page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" && response.url().endsWith("/api/chat/messages"),
+  );
+
+// The server keeps the message of the Owner, so the text of each test is unique.
+const storedItems = async (page: Page, text: string) =>
+  (
+    await get<{ messages: { text: string; inboxItems: unknown[] }[] }>(
+      page,
+      "/api/chat?organization=plants&repository=plants/garden&workstream=19",
+    )
+  ).messages.find((message) => message.text === text)?.inboxItems;
+
 test.describe("the detail view of a task", () => {
   test.afterEach(async ({ page }) => {
     await page.evaluate(clearDrafts);
@@ -3558,7 +3600,7 @@ test.describe("the detail view of a task", () => {
     const chatBtn = panel.getByRole("button", { name: "Chat", exact: true });
     await expect(chatBtn).toBeVisible();
     await chatBtn.click();
-    const composer = page.getByRole("main").locator("form");
+    const composer = page.locator("form:has(#chat-input)");
     await expect(composer.getByRole("button", { name: "Remove #71" })).toBeVisible();
     await expect(composer.getByText("Spread the bark")).toBeVisible();
 
@@ -3641,5 +3683,138 @@ test.describe("the detail view of a task", () => {
 
     // Check scrollTop of the list
     await expect.poll(() => panel.evaluate((el) => el.scrollTop)).toBe(200);
+  });
+
+  test.describe("the composer of the view", () => {
+    const issue = "https://github.com/plants/garden/issues/71";
+
+    test.afterEach(async ({ page }) => {
+      await page.evaluate(clearDrafts);
+      await expect.poll(() => page.evaluate(storedDrafts)).toBe(0);
+    });
+
+    test("shows the draft of the Lead chat, and the Lead chat shows the draft of the view", async ({
+      page,
+    }) => {
+      await openTaskDetail(page, "desktop");
+      const view = page.locator("#side-task-input");
+      const chat = page.locator("#chat-input");
+      await expect(chat).toBeEditable();
+      await view.fill("From the view");
+      await expect(chat).toHaveValue("From the view");
+      await chat.fill("From the chat");
+      await expect(view).toHaveValue("From the chat");
+    });
+
+    test("adds the task card on the first letter, and a send from the view reaches the Lead chat", async ({
+      page,
+    }) => {
+      const text = `A question about the bark ${Date.now()}.`;
+      await openTaskDetail(page, "desktop");
+      const view = page.locator("#side-task-input");
+      const viewForm = page.locator("form:has(#side-task-input)");
+      await expect(viewForm.getByRole("button", { name: "Remove #71" })).toHaveCount(0);
+      await view.fill("A");
+      await expect(viewForm.getByRole("button", { name: "Remove #71" })).toHaveCount(1);
+      await expect(
+        page.locator("form:has(#chat-input)").getByRole("button", { name: "Remove #71" }),
+      ).toHaveCount(1);
+      await view.fill(text);
+      const messageSent = waitForMessageSent(page);
+      await viewForm.getByRole("button", { name: "Send", exact: true }).click();
+      expect((await messageSent).ok()).toBe(true);
+
+      await expect
+        .poll(() => storedItems(page, text))
+        .toEqual([
+          { reference: "#71", title: "Spread the bark", reason: expect.any(String), link: issue },
+        ]);
+      const bubble = page.getByRole("main").locator("[data-message]", { hasText: text });
+      await expect(bubble).toHaveCount(1);
+      await expect(bubble.getByRole("link", { name: /Spread the bark/ })).toHaveAttribute(
+        "href",
+        issue,
+      );
+      await expect(view).toHaveValue("");
+      await expect(page.getByRole("button", { name: "Back to the tasks" })).toBeVisible();
+    });
+
+    test("adds the task card again only after the view opens again", async ({ page }) => {
+      await openTaskDetail(page, "desktop");
+      const view = page.locator("#side-task-input");
+      const chat = page.locator("#chat-input");
+      const viewForm = page.locator("form:has(#side-task-input)");
+      const remove = viewForm.getByRole("button", { name: "Remove #71" });
+      await view.fill("A");
+      await expect(remove).toHaveCount(1);
+      await remove.click();
+      await expect(remove).toHaveCount(0);
+      await view.fill("AB");
+      await expect(chat).toHaveValue("AB");
+      await expect(remove).toHaveCount(0);
+
+      await page.getByRole("button", { name: "Back to the tasks" }).click();
+      await page
+        .getByRole("button", { name: /#71 Spread the bark/ })
+        .filter({ visible: true })
+        .click();
+      await expect(view).toBeEditable();
+      await view.fill("ABC");
+      await expect(remove).toHaveCount(1);
+    });
+
+    test("keeps the composer at the bottom while a long body scrolls", async ({ page }) => {
+      await page.route("**/api/workstreams/plants/garden/19/tasks/plants/garden/71", (route) =>
+        route.fulfill({
+          json: {
+            data: {
+              body: Array.from({ length: 60 }, (_, i) => `Step ${i + 1} of the long plan.`).join(
+                "\n\n",
+              ),
+              pullRequest: null,
+              pullRequestUrl: null,
+            },
+          },
+        }),
+      );
+      await page.goto("/workstreams/plants/garden/19");
+      await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
+      await page
+        .getByRole("button", { name: /#71 Spread the bark/ })
+        .filter({ visible: true })
+        .click();
+      const view = page.locator("#side-task-input");
+      await expect(page.getByText("Step 60 of the long plan.")).toBeAttached();
+      await expect(view).toBeInViewport();
+      await page.getByRole("tabpanel", { name: "Tasks" }).evaluate((el) => {
+        el.scrollTop = el.scrollHeight;
+      });
+      await expect(page.getByText("Step 60 of the long plan.")).toBeInViewport();
+      await expect(view).toBeInViewport();
+    });
+
+    test("keeps the Tasks sheet of a phone open when the Owner types or sends", async ({
+      page,
+    }) => {
+      const text = `A phone question ${Date.now()}.`;
+      await openTaskDetail(page, "phone");
+      const sheet = page.getByRole("dialog", { name: "Tasks" });
+      const view = sheet.locator("#side-task-input");
+      await view.fill("A");
+      await expect(sheet.getByRole("button", { name: "Remove #71" })).toHaveCount(1);
+      await expect(sheet.getByRole("heading", { name: "#71 Spread the bark" })).toBeVisible();
+      await view.fill(text);
+      const messageSent = waitForMessageSent(page);
+      await sheet.getByRole("button", { name: "Send", exact: true }).click();
+      expect((await messageSent).ok()).toBe(true);
+      await expect
+        .poll(() => storedItems(page, text))
+        .toEqual([
+          { reference: "#71", title: "Spread the bark", reason: expect.any(String), link: issue },
+        ]);
+      await expect(view).toHaveValue("");
+      await expect(sheet.getByRole("heading", { name: "#71 Spread the bark" })).toBeVisible();
+      await expect(sheet.getByRole("button", { name: "Back to the tasks" })).toBeVisible();
+    });
   });
 });
