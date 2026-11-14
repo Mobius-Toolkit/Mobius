@@ -170,8 +170,6 @@ func TestTheTaskImplementerEndpointRefusesAnInvalidSettingWith422AndStoresNoRow(
 	for _, body := range []string{
 		`{"harness":"gemini","model":"swe-1.5","effort":"high"}`,
 		`{"harness":"devin","model":"","effort":"high"}`,
-		`{"harness":"devin","model":"swe-1.5","effort":""}`,
-		`{"harness":"antigravity","model":"gemini-3-pro","effort":"high"}`,
 	} {
 		var refusal errorBody
 		reply := call(t, server.Client, http.MethodPut, url, body, &refusal)

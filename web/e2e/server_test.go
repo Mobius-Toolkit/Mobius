@@ -52,6 +52,7 @@ sonnet = ["low", "medium", "high"]
 opus = ["low", "medium", "high"]
 haiku = ["low"]
 "swe-1.5" = ["high"]
+"gemini-3-pro" = ["low", "medium", "high"]
 
 `
 

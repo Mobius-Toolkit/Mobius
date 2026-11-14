@@ -32,12 +32,6 @@ const (
 // Harnesses are all Harnesses, in the order that mobius init offers them.
 var Harnesses = []Harness{ClaudeCode, Antigravity, Devin, DSH}
 
-// HasEffortLevels tells if the Harness has the thought_level option. A Role
-// on such a Harness must have an effort, and a Role on another Harness must not.
-func (h Harness) HasEffortLevels() bool {
-	return h == ClaudeCode || h == Devin || h == DSH
-}
-
 // HasContextLimit tells if the Harness can keep its context below a limit.
 func (h Harness) HasContextLimit() bool {
 	return h == ClaudeCode
@@ -102,7 +96,7 @@ type Roles struct {
 type RoleBinding struct {
 	Harness Harness `toml:"harness"`
 	Model   string  `toml:"model"`
-	// Effort is empty for a Harness with no effort levels.
+	// An empty Effort sets no effort, so the Harness uses its own default.
 	Effort string `toml:"effort"`
 	// Context is the largest context of a session in tokens. 0 means no limit.
 	Context int `toml:"context"`
@@ -279,10 +273,6 @@ func CheckRoles(roles *Roles) error {
 			return fmt.Errorf("%s.harness: must be claude-code, antigravity, devin or dsh", key)
 		case b.Binding.Model == "":
 			return fmt.Errorf("%s.model: must not be empty", key)
-		case harness.HasEffortLevels() && b.Binding.Effort == "":
-			return fmt.Errorf("%s.effort: is required for %s", key, harness)
-		case !harness.HasEffortLevels() && b.Binding.Effort != "":
-			return fmt.Errorf("%s.effort: is not allowed for %s", key, harness)
 		case b.Binding.Context != 0 && !harness.HasContextLimit():
 			return fmt.Errorf("%s: harness %s has no context limit", key, harness)
 		case b.Binding.Context != 0 && (b.Binding.Context < minContext || b.Binding.Context > maxContext):

@@ -43,12 +43,17 @@ skip_tools_list = 1000
 // holdChoicesScript makes each read wait at session/new until the test writes the file session_new_release.
 const holdChoicesScript = "session_new_hold = true\n" + choicesScript
 
+// noThoughtLevelScript has models and no thought_level option, so no model has efforts.
+const noThoughtLevelScript = `
+skip_tools_list = 1000
+
+[options]
+model = ["sonnet", "opus"]
+`
+
 // choicesModels gives the models of choicesScript for harness. The fake agent applies the efforts table to the plain
 // model value, and dsh sends the model as a JSON pair, so dsh keeps the full thought_level list.
 func choicesModels(harness config.Harness) []runner.ModelChoice {
-	if harness == config.Antigravity {
-		return []runner.ModelChoice{{Model: "sonnet"}, {Model: "opus"}}
-	}
 	if harness == config.DSH {
 		return []runner.ModelChoice{
 			{Model: "sonnet", Efforts: []string{"low", "medium", "high"}},
@@ -202,6 +207,40 @@ func TestARequestWhileTheStartReadRunsWaitsAndStartsNoSecondRead(t *testing.T) {
 	}
 }
 
+func TestAHarnessWithNoThoughtLevelGivesNoEffortsForEachModel(t *testing.T) {
+	t.Parallel()
+	server, _ := choicesServer(t, noThoughtLevelScript)
+
+	choices := server.Engine.HarnessChoices(t.Context())
+
+	if len(choices) != harnessCount {
+		t.Fatalf("choices = %+v", choices)
+	}
+	want := []runner.ModelChoice{{Model: "sonnet"}, {Model: "opus"}}
+	for _, choice := range choices {
+		if choice.Error != "" || !reflect.DeepEqual(choice.Models, want) {
+			t.Errorf("%s = %+v, want the models %+v", choice.Harness, choice, want)
+		}
+	}
+}
+
+func TestAnAntigravityThatGivesThoughtLevelGivesItsEffortsForEachModel(t *testing.T) {
+	t.Parallel()
+	server, _ := choicesServer(t, choicesScript)
+
+	var antigravity engine.HarnessChoice
+	for _, choice := range server.Engine.HarnessChoices(t.Context()) {
+		if choice.Harness == config.Antigravity {
+			antigravity = choice
+		}
+	}
+
+	want := []runner.ModelChoice{{Model: "sonnet", Efforts: []string{"low", "medium"}}, {Model: "opus", Efforts: []string{"low", "high", "max"}}}
+	if antigravity.Error != "" || !reflect.DeepEqual(antigravity.Models, want) {
+		t.Errorf("antigravity = %+v, want the models %+v", antigravity, want)
+	}
+}
+
 func TestAFailedHarnessReadGivesTheErrorTextAndTheNextCallReadsAgain(t *testing.T) {
 	t.Parallel()
 	server, dataDir := choicesServer(t, noModelScript)
@@ -278,7 +317,7 @@ func TestTheAPIGivesTheModelsAndTheEffortsOfEachHarness(t *testing.T) {
 		claude.Models[1].Model != "opus" || !reflect.DeepEqual(claude.Models[1].Efforts, []string{"low", "high", "max"}) {
 		t.Errorf("claude-code = %+v", claude)
 	}
-	if antigravity.Harness != "antigravity" || len(antigravity.Models) != 2 || len(antigravity.Models[0].Efforts) != 0 {
+	if antigravity.Harness != "antigravity" || len(antigravity.Models) != 2 || !reflect.DeepEqual(antigravity.Models[0].Efforts, []string{"low", "medium"}) {
 		t.Errorf("antigravity = %+v", antigravity)
 	}
 }
