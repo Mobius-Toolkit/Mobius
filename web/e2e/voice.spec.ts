@@ -1432,3 +1432,37 @@ test("the text of a conversion goes into the Lead chat field when the Tasks shee
     };
   })`);
 });
+
+test("the text of a conversion goes into the Lead chat field when the panel shows another tab during the conversion", async ({
+  page,
+}) => {
+  await page.route("**/api/workstreams/plants/garden/19/tasks/plants/garden/71", (route) =>
+    route.fulfill({
+      json: { data: { body: "Spread the bark.", pullRequest: null, pullRequestUrl: null } },
+    }),
+  );
+  const release = await holdConversions(page);
+  await answer(page, "red roses");
+  await page.goto("/workstreams/plants/garden/19");
+  await page.getByRole("tab", { name: "Tasks" }).click();
+  await page.getByRole("button", { name: /#71 Spread the bark/ }).click();
+  const view = page.locator("#side-task-input");
+  await expect(view).toBeEditable();
+  const panel = page.getByRole("tabpanel", { name: "Tasks" });
+  await panel.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await expect.poll(() => page.evaluate("samples")).toBeGreaterThan(0);
+  await panel.getByRole("button", { name: "Stop voice input", exact: true }).click();
+  await expect(panel.getByText("Converting", { exact: true })).toBeVisible();
+  await page.getByRole("tab", { name: "Agents" }).click();
+  await expect(view).toHaveCount(0);
+  release();
+  await expect(page.locator("#chat-input")).toHaveValue("red roses");
+  await page.evaluate(`new Promise((resolve) => {
+    const open = indexedDB.open("mobius");
+    open.onsuccess = () => {
+      const transaction = open.result.transaction("drafts", "readwrite");
+      transaction.objectStore("drafts").clear();
+      transaction.oncomplete = () => resolve(undefined);
+    };
+  })`);
+});
