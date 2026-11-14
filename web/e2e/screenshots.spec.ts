@@ -4293,6 +4293,7 @@ test("screenshots", async ({ page }) => {
       for (let position = 0; position < 3; position++) {
         await expect(pictures.nth(position)).toHaveJSProperty("naturalWidth", 200);
       }
+      await pictures.last().scrollIntoViewIfNeeded();
       await expect(pictures.last()).toBeInViewport();
     },
   );
