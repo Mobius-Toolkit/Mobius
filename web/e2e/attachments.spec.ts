@@ -565,11 +565,8 @@ async function openTaskView(page: Page, device: string) {
     await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
   }
   await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
-  await page
-    .getByRole("button", { name: /#71 Spread the bark/ })
-    .filter({ visible: true })
-    .click();
   const view = page.getByRole("tabpanel", { name: "Tasks" }).filter({ visible: true });
+  await view.getByRole("button", { name: /#71 Spread the bark/ }).click();
   await expect(view.getByText("Wear protective gloves.")).toBeVisible();
   await expect(page.locator("#side-task-input")).toBeEditable();
   return view;

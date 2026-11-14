@@ -3927,9 +3927,7 @@ test.describe("a task card of the Lead chat", () => {
     ).toBeVisible();
   });
 
-  test("keeps a pull request, an issue that is not a task, and a Coordinator card as links", async ({
-    page,
-  }) => {
+  test("keeps a pull request and an issue that is not a task as links", async ({ page }) => {
     await routeTaskCards(page);
     await page.goto("/workstreams/plants/garden/19");
     await expect(cardsBubble(page).getByRole("button", { name: /Spread the bark/ })).toBeVisible();
@@ -3938,7 +3936,10 @@ test.describe("a task card of the Lead chat", () => {
     await expect(pullRequest).toHaveAttribute("target", "_blank");
     const other = cardsBubble(page).getByRole("link", { name: /Water the roses/ });
     await expect(other).toHaveAttribute("href", "https://github.com/plants/garden/issues/999");
+  });
 
+  test("keeps a card of the Coordinator chat as a link", async ({ page }) => {
+    await routeTaskCards(page);
     await page.goto("/chat");
     const coordinator = cardsBubble(page).getByRole("link", { name: /Spread the bark/ });
     await expect(coordinator).toHaveAttribute("href", "https://github.com/plants/garden/issues/71");
