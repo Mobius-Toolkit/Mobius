@@ -3533,39 +3533,20 @@ const openTaskDetail = async (page: Page, device: "desktop" | "phone") => {
   await expect(page.locator("#side-task-input")).toBeEditable();
 };
 
-// The chat list shows the message that the Owner sends from the view, as the server would list it.
-const routeSentMessage = async (page: Page, posted: () => unknown, text: string) => {
-  await page.route("**/api/chat?*", async (route) => {
-    const response = await route.fetch();
-    const body = (await response.json()) as {
-      data: { messages: { id: number; time: string }[] };
-    };
-    const inboxItems = posted();
-    if (inboxItems) {
-      body.data.messages.push({
-        id: 1_000_000,
-        action: null,
-        author: "Owner",
-        browserId: "",
-        cancelledAt: null,
-        deliveredAt: null,
-        failedAt: null,
-        images: 0,
-        inboxItems,
-        selections: [],
-        organization: "plants",
-        question: null,
-        repository: "plants/garden",
-        stoppedAt: null,
-        voice: false,
-        text,
-        time: "2026-10-15T12:00:00Z",
-        workstream: 19,
-      } as (typeof body.data.messages)[number]);
-    }
-    await route.fulfill({ response, json: body });
-  });
-};
+const waitForMessageSent = (page: Page) =>
+  page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" && response.url().endsWith("/api/chat/messages"),
+  );
+
+// The server keeps the message of the Owner, so the text of each test is unique.
+const storedItems = async (page: Page, text: string) =>
+  (
+    await get<{ messages: { text: string; inboxItems: unknown[] }[] }>(
+      page,
+      "/api/chat?organization=plants&repository=plants/garden&workstream=19",
+    )
+  ).messages.find((message) => message.text === text)?.inboxItems;
 
 test.describe("the detail view of a task", () => {
   test.afterEach(async ({ page }) => {
@@ -3728,17 +3709,7 @@ test.describe("the detail view of a task", () => {
     test("adds the task card on the first letter, and a send from the view reaches the Lead chat", async ({
       page,
     }) => {
-      const text = "A question about the bark.";
-      let posted: unknown;
-      await routeSentMessage(page, () => posted, text);
-      await page.route("**/api/chat/messages", (route) => {
-        const parts = route.request().postData() ?? "";
-        posted = [...parts.matchAll(/name="inboxItems"\r\n\r\n(.*?)\r\n--/g)].map(
-          (part) => JSON.parse(part[1]) as unknown,
-        );
-        return route.fulfill({ status: 204 });
-      });
-
+      const text = `A question about the bark ${Date.now()}.`;
       await openTaskDetail(page, "desktop");
       const view = page.locator("#side-task-input");
       const viewForm = page.locator("form:has(#side-task-input)");
@@ -3749,10 +3720,12 @@ test.describe("the detail view of a task", () => {
         page.locator("form:has(#chat-input)").getByRole("button", { name: "Remove #71" }),
       ).toHaveCount(1);
       await view.fill(text);
+      const messageSent = waitForMessageSent(page);
       await viewForm.getByRole("button", { name: "Send", exact: true }).click();
+      expect((await messageSent).ok()).toBe(true);
 
       await expect
-        .poll(() => posted)
+        .poll(() => storedItems(page, text))
         .toEqual([
           { reference: "#71", title: "Spread the bark", reason: expect.any(String), link: issue },
         ]);
@@ -3823,14 +3796,7 @@ test.describe("the detail view of a task", () => {
     test("keeps the Tasks sheet of a phone open when the Owner types or sends", async ({
       page,
     }) => {
-      const text = "A phone question.";
-      let posted: unknown;
-      await routeSentMessage(page, () => posted, text);
-      await page.route("**/api/chat/messages", (route) => {
-        posted = [];
-        return route.fulfill({ status: 204 });
-      });
-
+      const text = `A phone question ${Date.now()}.`;
       await openTaskDetail(page, "phone");
       const sheet = page.getByRole("dialog", { name: "Tasks" });
       const view = sheet.locator("#side-task-input");
@@ -3838,9 +3804,14 @@ test.describe("the detail view of a task", () => {
       await expect(sheet.getByRole("button", { name: "Remove #71" })).toHaveCount(1);
       await expect(sheet.getByRole("heading", { name: "#71 Spread the bark" })).toBeVisible();
       await view.fill(text);
-      const messageSent = page.waitForResponse("**/api/chat/messages");
+      const messageSent = waitForMessageSent(page);
       await sheet.getByRole("button", { name: "Send", exact: true }).click();
-      expect((await messageSent).status()).toBe(204);
+      expect((await messageSent).ok()).toBe(true);
+      await expect
+        .poll(() => storedItems(page, text))
+        .toEqual([
+          { reference: "#71", title: "Spread the bark", reason: expect.any(String), link: issue },
+        ]);
       await expect(view).toHaveValue("");
       await expect(sheet.getByRole("heading", { name: "#71 Spread the bark" })).toBeVisible();
       await expect(sheet.getByRole("button", { name: "Back to the tasks" })).toBeVisible();
