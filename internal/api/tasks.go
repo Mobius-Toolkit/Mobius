@@ -90,6 +90,56 @@ func (h *handlers) ListTasks(ctx context.Context, req ListTasksRequest) (*ListTa
 	return &ListTasksResponse{Body: Envelope[[]TaskLine]{Data: tasks}}, nil
 }
 
+// TaskDetail is the detail of a task of a Workstream.
+type TaskDetail struct {
+	// Body is the issue body from the local copy
+	Body string `gork:"body"`
+	// PullRequest is the number of the pull request of the live task, or null
+	PullRequest *int64 `gork:"pullRequest"`
+	// PullRequestURL is the GitHub URL of that pull request, or null
+	PullRequestURL *string `gork:"pullRequestUrl"`
+}
+
+// GetTaskRequest is the request of GetTask.
+type GetTaskRequest struct {
+	Path struct {
+		// Owner is the owner of the Workstream repository
+		Owner string `gork:"owner"`
+		// Name is the name of the Workstream repository
+		Name string `gork:"name"`
+		// Number is the number of the Workstream issue
+		Number int64 `gork:"number"`
+		// TaskOwner is the owner of the repository of the task issue
+		TaskOwner string `gork:"taskOwner"`
+		// TaskName is the name of the repository of the task issue
+		TaskName string `gork:"taskName"`
+		// Issue is the number of the task issue
+		Issue int64 `gork:"issue"`
+	}
+}
+
+// GetTaskResponse is the response of GetTask.
+type GetTaskResponse struct {
+	Body Envelope[TaskDetail]
+}
+
+// GetTask returns the body and the pull request of one task of a Workstream, from the local copy of GitHub.
+func (h *handlers) GetTask(ctx context.Context, req GetTaskRequest) (*GetTaskResponse, error) {
+	detail, err := h.engine.Task(ctx, req.Path.Owner+"/"+req.Path.Name, req.Path.Number, req.Path.TaskOwner+"/"+req.Path.TaskName, req.Path.Issue)
+	if engine.Refused(err) {
+		return nil, api.NewHTTPError(http.StatusNotFound, err.Error())
+	}
+	if err != nil {
+		return nil, err
+	}
+	task := TaskDetail{Body: detail.Body}
+	if detail.PullRequest != 0 {
+		task.PullRequest = &detail.PullRequest
+		task.PullRequestURL = &detail.PullRequestURL
+	}
+	return &GetTaskResponse{Body: Envelope[TaskDetail]{Data: task}}, nil
+}
+
 // NeedsHuman is an open task issue with mobius:needs-human or mobius:question.
 type NeedsHuman struct {
 	// Repository is the repository as "owner/name"

@@ -1,11 +1,77 @@
 import { Effect, Schema } from "effect";
 import { Command } from "foldkit";
-import { getWorkstreamDetails, listTasks, resumeIssue, startIssue, stopIssue } from "@/api/api.gen";
+import {
+  getTask,
+  getWorkstreamDetails,
+  listTasks,
+  resumeIssue,
+  startIssue,
+  stopIssue,
+} from "@/api/api.gen";
 import { DraftInboxItem } from "@/chat/schemas";
 import { addDraftInboxItem } from "@/lib/draft";
 import { answer, request, store } from "@/lib/effects";
 import { showNotice } from "@/lib/notice";
 import { Message } from "./message";
+import { TaskLine } from "./model";
+
+const panelOf = (instance: string) => document.getElementById(`${instance}-panel-tasks`);
+
+export const OpenTask = Command.define("OpenTask", {
+  args: { instance: Schema.String, line: TaskLine },
+  messages: [Message.OpenedTask],
+  execute: ({ instance, line }) =>
+    Effect.sync(() => Message.OpenedTask({ line, scroll: panelOf(instance)?.scrollTop ?? 0 })),
+});
+
+// The view changes in the next animation frame, and the frame after it has the new height.
+export const RestoreScroll = Command.define("RestoreScroll", {
+  args: { instance: Schema.String, scroll: Schema.Number },
+  messages: [Message.CompletedRestoreScroll],
+  execute: ({ instance, scroll }) =>
+    Effect.promise(
+      () =>
+        new Promise<void>((resolve) => {
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() => {
+              const panel = panelOf(instance);
+              if (panel) {
+                panel.scrollTop = scroll;
+              }
+              resolve();
+            }),
+          );
+        }),
+    ).pipe(Effect.as(Message.CompletedRestoreScroll())),
+});
+
+export const FetchTaskDetail = Command.define("FetchTaskDetail", {
+  args: {
+    owner: Schema.String,
+    name: Schema.String,
+    workstream: Schema.Number,
+    repository: Schema.String,
+    number: Schema.Number,
+  },
+  messages: [Message.TaskDetailLoaded, Message.LoginRequired, Message.TaskDetailFailed],
+  execute: ({ owner, name, workstream, repository, number }) => {
+    const [taskOwner, taskName] = repository.split("/");
+    return request(() => getTask(owner, name, workstream, taskOwner, taskName, number)).pipe(
+      Effect.map((res) => {
+        if (res.status === 401) {
+          return Message.LoginRequired();
+        }
+        if (res.status !== 200) {
+          return Message.TaskDetailFailed({ repository, number, error: res.data.error });
+        }
+        return Message.TaskDetailLoaded({ repository, number, detail: res.data.data });
+      }),
+      Effect.catchTag("RequestFailed", (error) =>
+        Effect.succeed(Message.TaskDetailFailed({ repository, number, error: error.message })),
+      ),
+    );
+  },
+});
 
 export const FetchTasks = Command.define("FetchTasks", {
   args: { owner: Schema.String, name: Schema.String, number: Schema.Number },

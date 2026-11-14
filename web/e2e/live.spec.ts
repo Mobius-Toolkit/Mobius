@@ -173,7 +173,7 @@ test("the chat screen receives a live message after the live connection closes",
   await other.goto("/workstreams/plants/garden/12");
   const send = async (text: string) => {
     await other.getByLabel("Message to the Lead").fill(text);
-    await other.getByRole("button", { name: "Send" }).click();
+    await other.getByRole("button", { name: "Send", exact: true }).click();
     await expect(other.getByText(text)).toBeVisible();
   };
   await send("Water the roses in spring.");
