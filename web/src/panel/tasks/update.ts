@@ -189,7 +189,7 @@ export function update(model: Model, message: Message): UpdateReturn {
       model: {
         ...model,
         opened: Option.some({ repository: line.repository, number: line.number }),
-        scroll,
+        scroll: Option.isSome(model.opened) ? model.scroll : scroll,
         detail: Option.none(),
         detailLoading: true,
         detailError: "",

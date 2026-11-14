@@ -608,6 +608,36 @@ describe("the detail view of a task", () => {
     );
   });
 
+  it("keeps the scroll of the list when a task opens while the detail view is open", () => {
+    const other = line(42);
+    story(
+      update,
+      given(
+        createModel({
+          lines: Option.some([task, other]),
+          opened: Option.some({ repository: "owner/shop", number: 41 }),
+          scroll: 150,
+          detail: Option.some(detail),
+        }),
+      ),
+      message(Message.OpenedTask({ line: other, scroll: 40 })),
+      model((m) => {
+        expect(m.opened).toEqual(Option.some({ repository: "owner/shop", number: 42 }));
+        expect(m.scroll).toBe(150);
+      }),
+      StoryCommand.resolveAll(
+        [RestoreScroll, Message.CompletedRestoreScroll()],
+        [
+          FetchTaskDetail,
+          Message.TaskDetailFailed({ repository: "owner/shop", number: 42, error: "x" }),
+        ],
+      ),
+      message(Message.ClickedBack()),
+      StoryCommand.expectExact(RestoreScroll({ instance: "side", scroll: 150 })),
+      StoryCommand.resolve(RestoreScroll, Message.CompletedRestoreScroll()),
+    );
+  });
+
   it("returns to the list when the opened task is no longer in the list", () => {
     const otherTask = line(42);
     story(
