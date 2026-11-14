@@ -160,9 +160,7 @@ func TestAFailedLabelWriteLeavesNoOwnWrite(t *testing.T) {
 	setEvergreenOf(t, server, true)
 
 	waitForPolls(t, fake)
-	if got := ownWrites(t, server); got != 0 {
-		t.Errorf("own writes = %d", got)
-	}
+	testkit.WaitFor(t, func() bool { return ownWrites(t, server) == 0 })
 	fake.FailAddLabels(shop, 12, false)
 	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Labels(shop, 12), evergreenLabel) })
 	testkit.WaitFor(t, func() bool { return ownWrites(t, server) == 0 })

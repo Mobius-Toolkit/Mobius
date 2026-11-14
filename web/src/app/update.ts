@@ -16,6 +16,7 @@ import { initialModel as initialPanelModel } from "@/panel/model";
 import { Message as PanelMessage, toGotSelectionMessage } from "@/panel/message";
 import { Message as SelectionMessage } from "@/ui/selection";
 import { commandsFor as panelCommandsFor, update as updatePanel } from "@/panel/update";
+import { parseTargetTask } from "@/panel/tasks/model";
 import { FetchDevices } from "@/settings/devices/commands";
 import { initialModel as initialDevicesModel } from "@/settings/devices/model";
 import { update as updateDevices } from "@/settings/devices/update";
@@ -80,7 +81,7 @@ import {
   type UpgradeState,
 } from "./model";
 import { coordinatorTrayItems, workstreamTrayItems } from "./tray";
-import { parentPath, parseRoute, type AppRoute } from "./route";
+import { parentPath, parseRoute, type AppRoute, type WorkstreamSearch } from "./route";
 
 type UpdateReturn = Update.Return<Model, Message>;
 
@@ -280,11 +281,28 @@ function isOpenWorkstream(model: Model, repository: string, number: number): boo
   );
 }
 
+// The tab of the panel and the setting sheet that the search of the route asks for. A setting opens only on the tab that
+// shows it: a task on the Tasks tab, and a Workstream on the Details tab.
+function panelStart(search: WorkstreamSearch) {
+  const tab = search.tab ?? "tasks";
+  const task = Option.flatMap(Option.fromNullishOr(search.task), parseTargetTask);
+  const opening = Option.filter(
+    Option.map(Option.fromNullishOr(search.setting), (setting) => ({ setting, task })),
+    (request) => tab === (Option.isSome(request.task) ? "tasks" : "details"),
+  );
+  return { tab, opening };
+}
+
 function initScreenForRoute(
   initialScreenModel: Model,
   route: AppRoute,
 ): { model: Model; commands: Cmd<Message>[] } {
-  let model: Model = { ...initialScreenModel, ...noScreens, ...noWorkstreamChatState };
+  let model: Model = {
+    ...initialScreenModel,
+    ...noScreens,
+    ...noWorkstreamChatState,
+    pausesExpanded: [],
+  };
   const commands: Cmd<Message>[] = [];
 
   switch (route._tag) {
@@ -322,7 +340,7 @@ function initScreenForRoute(
     }
 
     case "WorkstreamChat": {
-      const { owner, name, number } = route;
+      const { owner, name, number, search } = route;
       const repository = `${owner}/${name}`;
       const chatModel = initialChatModel({
         organization: owner,
@@ -330,13 +348,16 @@ function initScreenForRoute(
         workstream: number,
         agent: "Lead",
       });
+      const { tab, opening } = panelStart(search);
       const panelModel = initialPanelModel({
         owner,
         name,
         number,
         instance: "side",
-        tab: "tasks",
+        tab,
+        opening,
       });
+      const opensPanel = !model.wide && (search.tab !== undefined || search.setting !== undefined);
       const inWorkstream = workstreamTrayItems(model.inbox, repository, number);
       const workstream = model.workstreams.find(
         (other) => other.repository === repository && other.number === number,
@@ -350,6 +371,8 @@ function initScreenForRoute(
           trayItems: inWorkstream,
         }),
         panel: Option.some(panelModel),
+        mobileTasksOpen: opensPanel && tab !== "brief",
+        mobileBriefOpen: opensPanel && tab === "brief",
       };
       commands.push(
         Command.mapMessage(
@@ -1213,6 +1236,12 @@ export function update(model: Model, message: Message): UpdateReturn {
       }
       return { model: currentModel, commands: [] };
     }
+
+    case "ExpandedPauseUsers":
+      return {
+        model: { ...model, pausesExpanded: [...model.pausesExpanded, message.harness] },
+        commands: [],
+      };
 
     case "ResumePauseRequested":
       return {

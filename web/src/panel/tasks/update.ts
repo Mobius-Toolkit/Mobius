@@ -47,6 +47,11 @@ export const refresh = (model: Model): Update.Return<Model, Message> => ({
   commands: reload(model),
 });
 
+export function openSetting(model: Model, line: TaskLine): Update.Return<Model, Message> {
+  const { model: next, commands } = openSheet(model, line);
+  return { model: next, commands };
+}
+
 const isOpened = (model: Model, repository: string, number: number) =>
   Option.isSome(model.opened) &&
   model.opened.value.repository === repository &&

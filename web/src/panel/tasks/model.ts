@@ -19,6 +19,12 @@ export const TargetTask = Schema.Struct({
 
 export type TargetTask = typeof TargetTask.Type;
 
+// Reads "<owner>/<name>/<number>".
+export function parseTargetTask(text: string): Option.Option<TargetTask> {
+  const match = /^(.+\/.+)\/(\d+)$/.exec(text);
+  return match ? Option.some({ repository: match[1], number: Number(match[2]) }) : Option.none();
+}
+
 // The state of the buttons of a task. The key of a task changes with its state, so the state of the buttons ends with
 // the state of the task.
 export const Row = Schema.Struct({

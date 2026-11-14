@@ -34,6 +34,11 @@ export const refresh = (model: Model): Update.Return<Model, Message> => ({
   commands: reload(model),
 });
 
+export function openSetting(model: Model, session: Session): Update.Return<Model, Message> {
+  const { model: next, commands } = openSheet(model, session);
+  return { model: next, commands };
+}
+
 const foldSetting = Update.foldChild({
   update: updateSetting,
   read: (model: Model) => Option.map(model.sheet, (sheet) => sheet.setting),
