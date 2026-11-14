@@ -68,13 +68,21 @@ const viewports = {
 // A step that waits for a state that no locator shows.
 type Wait = (page: Page) => Promise<void>;
 
-// The chat list scrolls to its end by itself.
+// The tray of the real Inbox item can show after the first scroll of the list, and it makes the list shorter.
+const chatTray: Wait = (page) =>
+  expect(
+    page.locator("button[aria-expanded]", { hasText: /Waits for you \(\d+\)/ }).first(),
+  ).toBeAttached();
+
 const chatEnd: Wait = (page) =>
   expect
     .poll(() =>
-      page.evaluate(`(() => {
+      page.evaluate(`(async () => {
         const list = document.querySelector('main [data-ready]')
-        return list ? list.scrollHeight - list.scrollTop - list.clientHeight : Infinity
+        if (!(list instanceof HTMLElement) || list.dataset.ready !== 'true') return Infinity
+        list.scrollTop = list.scrollHeight
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+        return list.scrollHeight - list.scrollTop - list.clientHeight
       })()`),
     )
     .toBeLessThanOrEqual(1);
@@ -1357,7 +1365,6 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...frame(device, drain),
-      chatEnd,
       page
         .getByText(/Sep \d+, \d\d:\d\d [AP]M · Mobius prepares an upgrade/)
         .filter({ visible: true }),
@@ -1367,6 +1374,8 @@ test("screenshots", async ({ page }) => {
         .getByText(/^devin · swe-1\.5 · high · Sep \d+, \d\d:\d\d [AP]M/)
         .filter({ visible: true })
         .first(),
+      chatTray,
+      chatEnd,
     ],
     async (device) => {
       if (device === "phone") {
@@ -1408,6 +1417,7 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...frame(device, drain),
+      chatTray,
       chatEnd,
       page.getByText("#45 Pick the plan limits", { exact: true }).filter({ visible: true }),
       page.getByText("waits for CI").filter({ visible: true }),
@@ -1427,6 +1437,7 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...frame(device, drain),
+      chatTray,
       chatEnd,
       page.getByText("#45 Pick the plan limits", { exact: true }).filter({ visible: true }),
       page.getByText("waits for CI").filter({ visible: true }),
@@ -1449,6 +1460,7 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...frame(device, drain),
+      chatTray,
       chatEnd,
       page.getByText(longTaskTitle, { exact: false }).filter({ visible: true }),
     ],
@@ -1479,6 +1491,7 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...frame(device, drain),
+      chatTray,
       chatEnd,
       created,
       page.getByText("Completed tasks").filter({ visible: true }),
@@ -1509,7 +1522,7 @@ test("screenshots", async ({ page }) => {
     page,
     "chat-details-evergreen",
     "/workstreams/owner/shop/12",
-    (device) => [...frame(device, drain), chatEnd, created, evergreenSwitch],
+    (device) => [...frame(device, drain), chatTray, chatEnd, created, evergreenSwitch],
     async (device) => {
       await openDetails(device);
       await evergreenSwitch.click();
@@ -1552,6 +1565,7 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...frame(device, drain),
+      chatTray,
       chatEnd,
       page.getByRole("dialog").getByText("#41 Add plan model"),
       page.getByRole("dialog").getByText("#12 Integrate loyalty plans"),
@@ -1588,6 +1602,7 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...frame(device, drain),
+      chatTray,
       chatEnd,
       planPrices.getByText("claude-code · sonnet · medium"),
       planReceipts.getByRole("button", { name: "Implementer of #39" }),
@@ -1604,6 +1619,7 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...frame(device, drain),
+      chatTray,
       chatEnd,
       taskSheet.getByText("Default: devin · swe-1.5 · high (role)"),
       taskSheet.getByRole("button", { name: "Use the default" }),
@@ -1622,6 +1638,7 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...frame(device, drain),
+      chatTray,
       chatEnd,
       detailsPanel.getByText("claude-code · opus · high"),
       detailsPanel.getByText("devin · swe-1.5 · high"),
@@ -1638,6 +1655,7 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...frame(device, drain),
+      chatTray,
       chatEnd,
       workstreamLeadSheet.getByText("Default: claude-code · opus · high (role)"),
       workstreamLeadSheet.getByRole("button", { name: "Save" }),
@@ -1656,6 +1674,7 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...frame(device, drain),
+      chatTray,
       chatEnd,
       workstreamOperatorSheet.getByText(/^Default: .* \(role\)$/),
       workstreamOperatorSheet.getByRole("button", { name: "Save" }),
@@ -1737,6 +1756,7 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...frame(device, drain),
+      chatTray,
       chatEnd,
       detailsPanel.getByText("claude-code · sonnet · low"),
       detailsPanel.getByText("Workstream", { exact: true }),
@@ -1751,6 +1771,7 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...frame(device, drain),
+      chatTray,
       chatEnd,
       receiptsSheet.getByText("Default: claude-code · sonnet · low (Workstream)"),
       receiptsSheet.getByRole("button", { name: "Save" }),
@@ -1772,6 +1793,7 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...frame(device, drain),
+      chatTray,
       chatEnd,
       receiptsSheet.getByLabel("Effort", { exact: true }),
       receiptsSheet.getByRole("button", { name: "Save" }),
@@ -2657,6 +2679,7 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...frame(device, drain),
+      chatTray,
       chatEnd,
       page.getByText("The plan prices are in cents now.").filter({ visible: true }),
     ],
@@ -2681,6 +2704,7 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...frame(device, drain),
+      chatTray,
       chatEnd,
       page.getByRole("button", { name: "Start the check now" }).filter({ visible: true }),
     ],
