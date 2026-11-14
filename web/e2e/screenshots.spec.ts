@@ -150,7 +150,8 @@ const skipNotice = async (page: Page, notice: Locator) => {
   await expect(notice).toBeHidden();
 };
 
-// The chat scrolls to its end by itself, and the end is the only stable scroll.
+// The chat scrolls to its end by itself, and the end is the only stable scroll. The first scroll of the list comes
+// when it is ready, and it can go to the first unread message, so the end comes after it.
 const showChatEnd = (page: Page) =>
   expect
     .poll(() =>
@@ -159,7 +160,7 @@ const showChatEnd = (page: Page) =>
         .last()
         .evaluate((el) => {
           const list = el.parentElement;
-          if (!list) {
+          if (!list || list.dataset.ready !== "true") {
             return false;
           }
           list.scrollTop = list.scrollHeight;
@@ -964,20 +965,31 @@ test("screenshots", async ({ page }) => {
     hasText: "Show the prices of the roses first.",
   });
   const limitEnd = main.getByText(/^claude-code reached a usage limit\./);
-  await screenshot(
-    page,
-    "chat-usage-limit",
-    "/workstreams/owner/shop/12",
-    (device) => [
-      ...chatReady(device),
-      ownerNote.getByRole("img", { name: "Stored, waits for the agent" }),
-      limitEnd,
-    ],
-    async () => {
-      await expect(limitEnd).toBeVisible();
-      await ownerNote.evaluate((el) => el.scrollIntoView({ block: "start" }));
-    },
-  );
+  // The pause banner and the tray change the height of the list, and the list stays at its end when it is at its end.
+  // Thus the scroll comes after the last locator of the layout. The end of the list is the position of the message
+  // when the list is too short to put the message at the top.
+  const ownerAtTop: Wait = () =>
+    expect
+      .poll(() =>
+        ownerNote.evaluate((el) => {
+          const list = el.parentElement;
+          if (!list || list.dataset.ready !== "true") {
+            return false;
+          }
+          el.scrollIntoView({ block: "start" });
+          return (
+            list.scrollHeight - list.scrollTop - list.clientHeight < 1 ||
+            Math.abs(el.getBoundingClientRect().top - list.getBoundingClientRect().top) < 1
+          );
+        }),
+      )
+      .toBe(true);
+  await screenshot(page, "chat-usage-limit", "/workstreams/owner/shop/12", (device) => [
+    ...chatReady(device),
+    ownerNote.getByRole("img", { name: "Stored, waits for the agent" }),
+    limitEnd,
+    ownerAtTop,
+  ]);
   await page.unroute("**/api/chat?*");
   const stoppedRow = main.getByRole("listitem").filter({ hasText: "Add plan model" });
   const composer = main.locator("form");
@@ -1862,6 +1874,51 @@ test("screenshots", async ({ page }) => {
     },
   );
   await page.unroute(blockedReadyRoute);
+  const taskDetailRoute = "**/api/workstreams/plants/garden/19/tasks/plants/garden/71";
+  await page.route(taskDetailRoute, (route) =>
+    route.fulfill({
+      json: {
+        data: {
+          body: "### Instructions\n- Wear protective gloves.\n- Spread 5 cm of bark evenly over each bed.\n- Keep bark away from rose stems.",
+          pullRequest: 85,
+          pullRequestUrl: "https://github.com/plants/garden/pull/85",
+        },
+      },
+    }),
+  );
+  await screenshot(
+    page,
+    "chat-task-detail",
+    "/workstreams/plants/garden/19",
+    (device) => [
+      ...(device === "desktop"
+        ? [
+            drain,
+            page.getByLabel("Work in another organization"),
+            page.locator('nav a[href="/workstreams/plants/garden/19"]'),
+          ]
+        : [page.getByLabel("Upgrade available")]),
+      page.getByRole("button", { name: "Back to the tasks" }).filter({ visible: true }),
+      page.getByRole("heading", { name: "#71 Spread the bark" }).filter({ visible: true }),
+      page.getByText("blocked by #70").filter({ visible: true }),
+      page.getByRole("link", { name: "PR #85" }).filter({ visible: true }),
+      page.getByRole("link", { name: "Open on GitHub" }).filter({ visible: true }),
+      page.getByRole("button", { name: "Chat", exact: true }).filter({ visible: true }),
+      page.getByRole("heading", { name: "Instructions" }).filter({ visible: true }),
+      page.getByText("Wear protective gloves.").filter({ visible: true }),
+    ],
+    async (device) => {
+      if (device === "phone") {
+        await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
+      }
+      await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
+      await page
+        .getByRole("button", { name: /#71 Spread the bark/ })
+        .filter({ visible: true })
+        .click();
+    },
+  );
+  await page.unroute(taskDetailRoute);
   const recurringFrame = (device: string, number: number) =>
     device === "desktop"
       ? [
@@ -4259,14 +4316,16 @@ test("screenshots", async ({ page }) => {
       await withCard.evaluate((el) => el.scrollIntoView({ block: "start" }));
     },
   );
-  const plantsFrame = (device: string, workstream: number) =>
-    device === "desktop"
+  const plantsFrame = (device: string, workstream: number) => [
+    ...(device === "desktop"
       ? [
           release,
           page.getByLabel("Work in another organization"),
           page.locator(`nav a[href="/workstreams/plants/garden/${workstream}"]`),
         ]
-      : [page.getByLabel("Upgrade available")];
+      : [page.getByLabel("Upgrade available")]),
+    page.getByText(/^antigravity paused until Sep 28, 12:00\sPM$/),
+  ];
   // The chat tests of the later projects need the first unread message of these chats.
   await page.route("/api/chat/seen", (route) => route.fulfill({ status: 204 }));
   await screenshot(
@@ -4290,6 +4349,7 @@ test("screenshots", async ({ page }) => {
       ...plantsFrame(device, 15),
       main.getByLabel("Cancelled, sent again below, at 09:30"),
       main.getByText("Plan the tiers for the shop.").first(),
+      chatEnd,
     ],
     async () => {
       await expect(main.getByText("Plan the tiers for the shop.")).toHaveCount(2);

@@ -2360,3 +2360,24 @@ export const ListTasksResponse = S.Struct({
   "url": S.String.annotate({ description: 'URL is the GitHub URL of the task issue' })
 }).annotate({ description: 'TaskLine is a task of a Workstream.' })).annotate({ description: 'Data is the payload of the response' })
 }).annotate({ description: 'Envelope is the body of each success response.' })
+
+
+/**
+ * GetTask returns the body and the pull request of one task of a Workstream, from the local copy of GitHub.
+ */
+export const GetTaskParams = S.Struct({
+  "owner": S.String.annotate({ description: 'Owner is the owner of the Workstream repository' }),
+  "name": S.String.annotate({ description: 'Name is the name of the Workstream repository' }),
+  "number": S.Number.annotate({ description: 'Number is the number of the Workstream issue' }),
+  "taskOwner": S.String.annotate({ description: 'TaskOwner is the owner of the repository of the task issue' }),
+  "taskName": S.String.annotate({ description: 'TaskName is the name of the repository of the task issue' }),
+  "issue": S.Number.annotate({ description: 'Issue is the number of the task issue' })
+})
+
+export const GetTaskResponse = S.Struct({
+  "data": S.Struct({
+  "body": S.String.annotate({ description: 'Body is the issue body from the local copy' }),
+  "pullRequest": S.NullOr(S.Number).annotate({ description: 'PullRequest is the number of the pull request of the live task, or null' }),
+  "pullRequestUrl": S.NullOr(S.String).annotate({ description: 'PullRequestURL is the GitHub URL of that pull request, or null' })
+}).annotate({ description: 'Data is the payload of the response' })
+}).annotate({ description: 'Envelope is the body of each success response.' })

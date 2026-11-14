@@ -2956,6 +2956,23 @@ func (q *Queries) GetCopiedAutopilot(ctx context.Context, arg GetCopiedAutopilot
 	return i, err
 }
 
+const getCopiedIssueBody = `-- name: GetCopiedIssueBody :one
+SELECT body FROM copied_issues WHERE repository = ? AND workstream = ? AND position = ?
+`
+
+type GetCopiedIssueBodyParams struct {
+	Repository string
+	Workstream int64
+	Position   int64
+}
+
+func (q *Queries) GetCopiedIssueBody(ctx context.Context, arg GetCopiedIssueBodyParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, getCopiedIssueBody, arg.Repository, arg.Workstream, arg.Position)
+	var body string
+	err := row.Scan(&body)
+	return body, err
+}
+
 const getCopiedIssueState = `-- name: GetCopiedIssueState :one
 SELECT state FROM copied_issues WHERE number = ? AND repository_url = ? LIMIT 1
 `

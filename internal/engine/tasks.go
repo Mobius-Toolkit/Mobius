@@ -177,6 +177,76 @@ func (e *Engine) Tasks(ctx context.Context, repositoryName string, workstream in
 	return lines, nil
 }
 
+// Task is the detail of a task in the tree of a Workstream.
+type Task struct {
+	Body           string
+	PullRequest    int64
+	PullRequestURL string
+}
+
+// Task gives the detail of one visible task in the tree of the Workstream number of repositoryName.
+func (e *Engine) Task(ctx context.Context, repositoryName string, workstream int64, taskRepositoryName string, issue int64) (*Task, error) {
+	repository, err := e.repository(repositoryName)
+	if err != nil {
+		return nil, err
+	}
+	var tree []store.ListCopiedTreeRow
+	var labelRows []store.ListCopiedTreeLabelsRow
+	params := store.ListCopiedTreeParams{Repository: repositoryName, Workstream: workstream}
+	err = e.readTx(ctx, func(q *store.Queries) error {
+		var err error
+		tree, err = q.ListCopiedTree(ctx, params)
+		if err != nil {
+			return err
+		}
+		labelRows, err = q.ListCopiedTreeLabels(ctx, store.ListCopiedTreeLabelsParams(params))
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	labels := map[int64][]string{}
+	for _, row := range labelRows {
+		labels[row.Position] = append(labels[row.Position], row.Name)
+	}
+	for _, row := range tree {
+		if slices.Contains(labels[row.Position], workstreamLabel) {
+			continue
+		}
+		issueRepositoryName := repositoryName
+		own := !otherRepository(row.RepositoryUrl, repositoryName)
+		if !own {
+			issueRepositoryName = repositoryOfURL(row.RepositoryUrl)
+		}
+		if issueRepositoryName != taskRepositoryName || row.Number != issue {
+			continue
+		}
+		visible := e.TrustedAuthor(repository.AppSlug, row.Author) && !slices.Contains(labels[row.Position], bucketLabel)
+		if !visible {
+			return nil, refuse("The task %s#%d is not visible in the tree of Workstream #%d.", taskRepositoryName, issue, workstream)
+		}
+		body, err := e.queries.GetCopiedIssueBody(ctx, store.GetCopiedIssueBodyParams{
+			Repository: repositoryName,
+			Workstream: workstream,
+			Position:   row.Position,
+		})
+		if err != nil {
+			return nil, err
+		}
+		detail := &Task{Body: body}
+		task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: issueRepositoryName, Issue: row.Number})
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return nil, err
+		}
+		if task.PullRequest.Valid {
+			detail.PullRequest = task.PullRequest.Int64
+			detail.PullRequestURL = strings.TrimSuffix(row.HtmlUrl, fmt.Sprintf("/issues/%d", row.Number)) + fmt.Sprintf("/pull/%d", task.PullRequest.Int64)
+		}
+		return detail, nil
+	}
+	return nil, refuse("The task %s#%d is not in the tree of Workstream #%d.", taskRepositoryName, issue, workstream)
+}
+
 // waitState gives the line state of a task that waits for a slot, for CI, for the Lead, for the Owner, for an action of the Owner or for start_implementer. Any other task keeps the Mobius label.
 func waitState(task, label string, heldEvent bool) string {
 	switch task {

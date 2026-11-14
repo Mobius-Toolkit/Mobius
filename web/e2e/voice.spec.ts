@@ -194,13 +194,17 @@ test("the converting card shows until the answer comes, and it blocks the voice 
   await expect(voiceCard(page).getByText("Converting", { exact: true })).toBeVisible();
   await input.fill("Plant");
   await expect(start(page)).toBeDisabled();
-  await expect(page.getByRole("main").getByRole("button", { name: "Send" })).toBeDisabled();
+  await expect(
+    page.getByRole("main").getByRole("button", { name: "Send", exact: true }),
+  ).toBeDisabled();
   await expect(input).toHaveValue("Plant");
   release();
   await expect(input).toHaveValue("Plant red roses");
   await expect(voiceCard(page).getByText("Converting")).toHaveCount(0);
   await expect(start(page)).toBeEnabled();
-  await expect(page.getByRole("main").getByRole("button", { name: "Send" })).toBeEnabled();
+  await expect(
+    page.getByRole("main").getByRole("button", { name: "Send", exact: true }),
+  ).toBeEnabled();
   expect(requests).toBe(1);
 });
 
@@ -1305,7 +1309,7 @@ test.describe("without a microphone API", () => {
     await page.addInitScript("navigator.mediaDevices.getUserMedia = undefined");
     await page.goto(shop);
     const main = page.getByRole("main");
-    await expect(main.getByRole("button", { name: "Send" })).toBeVisible();
+    await expect(main.getByRole("button", { name: "Send", exact: true })).toBeVisible();
     await expect(main.getByRole("button", { name: /voice input/ })).toHaveCount(0);
   });
 
@@ -1313,7 +1317,7 @@ test.describe("without a microphone API", () => {
     await page.addInitScript("delete window.AudioWorkletNode");
     await page.goto(shop);
     const main = page.getByRole("main");
-    await expect(main.getByRole("button", { name: "Send" })).toBeVisible();
+    await expect(main.getByRole("button", { name: "Send", exact: true })).toBeVisible();
     await expect(main.getByRole("button", { name: /voice input/ })).toHaveCount(0);
   });
 });

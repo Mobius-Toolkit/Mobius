@@ -1,10 +1,20 @@
 import { Option, Schema } from "effect";
-import { ListTasksResponse } from "@/api/schemas.gen";
+import { GetTaskResponse, ListTasksResponse } from "@/api/schemas.gen";
 import * as Setting from "@/setting/model";
 import { NextSetting } from "@/setting/schemas";
 
 export const TaskLine = ListTasksResponse.fields.data.value;
 export type TaskLine = typeof TaskLine.Type;
+
+export const TaskDetail = GetTaskResponse.fields.data;
+export type TaskDetail = typeof TaskDetail.Type;
+
+export const TargetTask = Schema.Struct({
+  repository: Schema.String,
+  number: Schema.Number,
+});
+
+export type TargetTask = typeof TargetTask.Type;
 
 // The state of the buttons of a task. The key of a task changes with its state, so the state of the buttons ends with
 // the state of the task.
@@ -28,6 +38,11 @@ export const Model = Schema.Struct({
   showClosed: Schema.Boolean,
   rows: Schema.Array(Row),
   sheet: Schema.Option(Setting.Model),
+  opened: Schema.Option(TargetTask),
+  scroll: Schema.Number,
+  detail: Schema.Option(TaskDetail),
+  detailLoading: Schema.Boolean,
+  detailError: Schema.String,
 });
 
 export type Model = Schema.Schema.Type<typeof Model>;
@@ -46,6 +61,11 @@ export function initialModel(options: {
     showClosed: false,
     rows: [],
     sheet: Option.none(),
+    opened: Option.none(),
+    scroll: 0,
+    detail: Option.none(),
+    detailLoading: false,
+    detailError: "",
   };
 }
 

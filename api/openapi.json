@@ -7354,6 +7354,117 @@
           "tasks"
         ]
       }
+    },
+    "/api/workstreams/{owner}/{name}/{number}/tasks/{taskOwner}/{taskName}/{issue}": {
+      "get": {
+        "description": "GetTask returns the body and the pull request of one task of a Workstream, from the local copy of GitHub.",
+        "operationId": "GetTask",
+        "parameters": [
+          {
+            "description": "Owner is the owner of the Workstream repository",
+            "in": "path",
+            "name": "owner",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Name is the name of the Workstream repository",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Number is the number of the Workstream issue",
+            "in": "path",
+            "name": "number",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "TaskOwner is the owner of the repository of the task issue",
+            "in": "path",
+            "name": "taskOwner",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "TaskName is the name of the repository of the task issue",
+            "in": "path",
+            "name": "taskName",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Issue is the number of the task issue",
+            "in": "path",
+            "name": "issue",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_TaskDetail"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "tasks"
+        ]
+      }
     }
   },
   "components": {
@@ -9178,6 +9289,20 @@
         "properties": {
           "data": {
             "$ref": "#/components/schemas/Switches",
+            "description": "Data is the payload of the response"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "description": "Envelope is the body of each success response."
+      },
+      "Envelope_TaskDetail": {
+        "type": "object",
+        "title": "Envelope_TaskDetail",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/TaskDetail",
             "description": "Data is the payload of the response"
           }
         },
@@ -11832,6 +11957,36 @@
           "held"
         ],
         "description": "Switches is the state of the global switches. true means on."
+      },
+      "TaskDetail": {
+        "type": "object",
+        "title": "TaskDetail",
+        "properties": {
+          "body": {
+            "type": "string",
+            "description": "Body is the issue body from the local copy"
+          },
+          "pullRequest": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "PullRequest is the number of the pull request of the live task, or null"
+          },
+          "pullRequestUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "PullRequestURL is the GitHub URL of that pull request, or null"
+          }
+        },
+        "required": [
+          "body",
+          "pullRequest",
+          "pullRequestUrl"
+        ],
+        "description": "TaskDetail is the detail of a task of a Workstream."
       },
       "TaskLine": {
         "type": "object",
