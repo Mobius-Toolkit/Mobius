@@ -90,3 +90,23 @@ test("a phone shows two users and Show 1 more, and a tap on a setting user opens
 
   await expect(page.getByRole("dialog", { name: "Implementer of #21" })).toBeVisible();
 });
+
+test("a move to another screen of a phone shows two users and Show 1 more again", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/tasks");
+  const more = banner(page, "antigravity").getByRole("button", { name: "Show 1 more" });
+  await expect(more).toBeVisible();
+
+  await more.click();
+
+  await expect(more).toBeHidden();
+  await expect(users(page, "antigravity").filter({ visible: true })).toHaveCount(3);
+
+  await page.locator('nav a[href="/inbox"]').filter({ visible: true }).click();
+
+  await expect(page).toHaveURL(/\/inbox$/);
+  await expect(more).toBeVisible();
+  await expect(users(page, "antigravity").filter({ visible: true })).toHaveCount(2);
+});

@@ -689,6 +689,28 @@ describe("the panel that the address of a Workstream asks for", () => {
   });
 });
 
+describe("the users of a pause banner on a phone", () => {
+  it("shows all users of a banner after Show N more", () => {
+    const { model: next } = update(
+      createModel("/tasks"),
+      Message.ExpandedPauseUsers({ harness: "antigravity" }),
+    );
+
+    expect(next.pausesExpanded).toEqual(["antigravity"]);
+  });
+
+  it("shows two users again on the next screen", () => {
+    const expanded = update(
+      createModel("/tasks"),
+      Message.ExpandedPauseUsers({ harness: "antigravity" }),
+    ).model;
+
+    const { model: next } = update(expanded, Message.UrlChanged({ url: urlOf("/settings/roles") }));
+
+    expect(next.pausesExpanded).toEqual([]);
+  });
+});
+
 const moveTo = (from: Model, number: number): Model =>
   update(from, Message.UrlChanged({ url: urlOf(`/workstreams/owner/repo/${number}`) })).model;
 

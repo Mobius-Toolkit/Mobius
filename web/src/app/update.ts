@@ -297,7 +297,12 @@ function initScreenForRoute(
   initialScreenModel: Model,
   route: AppRoute,
 ): { model: Model; commands: Cmd<Message>[] } {
-  let model: Model = { ...initialScreenModel, ...noScreens, ...noWorkstreamChatState };
+  let model: Model = {
+    ...initialScreenModel,
+    ...noScreens,
+    ...noWorkstreamChatState,
+    pausesExpanded: [],
+  };
   const commands: Cmd<Message>[] = [];
 
   switch (route._tag) {
