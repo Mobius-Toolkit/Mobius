@@ -6,7 +6,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/coder/acp-go-sdk"
@@ -31,6 +33,9 @@ func TestMain(m *testing.M) {
 type harnessScript struct {
 	// Options holds the values of each session option, by category. The first value is the current value.
 	Options map[string][]string
+	// Efforts holds the thought_level values after a set of each model, and an empty list removes the option.
+	// A model that is not here gets the values of Options.
+	Efforts map[string][]string
 	// With LoginRequired, session/new fails until an authenticate request logs in.
 	// Only with LoginWorks does the login succeed. The login writes a file in the working directory.
 	LoginRequired bool
@@ -255,6 +260,45 @@ func TestRunOffersDSHWithItsModelsAndEfforts(t *testing.T) {
 	}
 }
 
+func TestRunAsksTheEffortOnlyForAModelThatHasEffortLevels(t *testing.T) {
+	script := antigravity
+	script.LoginWorks = true
+	script.Options = map[string][]string{
+		"model":         {"gemini-3-pro", "gemini-flash"},
+		"thought_level": {"low", "medium", "high"},
+	}
+	script.Efforts = map[string][]string{"gemini-flash": {}}
+	path := installFakeHarnesses(t, map[config.Harness]harnessScript{config.Antigravity: script})
+	configPath := filepath.Join(t.TempDir(), "config.toml")
+	// The Lead takes gemini-3-pro with its second effort. The Coordinator takes gemini-flash, which has no effort question.
+	// The other Roles take the defaults.
+	answers := "correct horse\ncorrect horse\nowner\n" + "\n\n2\n" + "\n2\n" + strings.Repeat("\n\n\n", 7)
+
+	out, err := runInit(t, answers, configPath, path)
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+
+	text, err := os.ReadFile(filepath.Clean(configPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"lead = {harness = 'antigravity', model = 'gemini-3-pro', effort = 'medium'}\n",
+		"coordinator = {harness = 'antigravity', model = 'gemini-flash'}\n",
+	} {
+		if !strings.Contains(string(text), want) {
+			t.Errorf("config file has no %q:\n%s", want, text)
+		}
+	}
+	if got := strings.Count(out, "Effort ["); got != 8 {
+		t.Errorf("effort questions = %d, want 8:\n%s", got, out)
+	}
+	if _, err := config.Load(configPath); err != nil {
+		t.Error(err)
+	}
+}
+
 func TestRunSkipsAHarnessThatIsNotOnPath(t *testing.T) {
 	path := installFakeHarnesses(t, map[config.Harness]harnessScript{config.ClaudeCode: claude})
 	configPath := filepath.Join(t.TempDir(), "config.toml")
@@ -298,7 +342,9 @@ func TestRunRefusesAnInputThatEnds(t *testing.T) {
 
 // fakeHarness plays a Harness from the script of its program name.
 type fakeHarness struct {
-	script harnessScript
+	script  harnessScript
+	mu      sync.Mutex
+	options []acp.SessionConfigOption
 }
 
 // The fake Harness runs in the working directory that mobius init gives to each Harness.
@@ -324,30 +370,34 @@ func (h *fakeHarness) NewSession(context.Context, acp.NewSessionRequest) (acp.Ne
 	if _, err := os.Stat(loginFile); h.script.LoginRequired && err != nil {
 		return acp.NewSessionResponse{}, acp.NewAuthRequired(nil)
 	}
-	var options []acp.SessionConfigOption
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.options = nil
 	for _, category := range []acp.SessionConfigOptionCategory{
 		acp.SessionConfigOptionCategoryModel,
 		acp.SessionConfigOptionCategoryThoughtLevel,
 		acp.SessionConfigOptionCategoryMode,
 	} {
-		values := h.script.Options[string(category)]
-		if len(values) == 0 {
-			continue
+		if values := h.script.Options[string(category)]; len(values) > 0 {
+			h.options = append(h.options, selectOption(category, values, values[0]))
 		}
-		choices := make(acp.SessionConfigSelectOptionsUngrouped, 0, len(values))
-		for _, value := range values {
-			choices = append(choices, acp.SessionConfigSelectOption{Value: acp.SessionConfigValueId(value), Name: value})
-		}
-		options = append(options, acp.SessionConfigOption{Select: &acp.SessionConfigOptionSelect{
-			Type:         "select",
-			Id:           acp.SessionConfigId(category),
-			Name:         string(category),
-			Category:     &category,
-			CurrentValue: acp.SessionConfigValueId(values[0]),
-			Options:      acp.SessionConfigSelectOptions{Ungrouped: &choices},
-		}})
 	}
-	return acp.NewSessionResponse{SessionId: "session-1", ConfigOptions: options}, nil
+	return acp.NewSessionResponse{SessionId: "session-1", ConfigOptions: slices.Clone(h.options)}, nil
+}
+
+func selectOption(category acp.SessionConfigOptionCategory, values []string, current string) acp.SessionConfigOption {
+	choices := make(acp.SessionConfigSelectOptionsUngrouped, 0, len(values))
+	for _, value := range values {
+		choices = append(choices, acp.SessionConfigSelectOption{Value: acp.SessionConfigValueId(value), Name: value})
+	}
+	return acp.SessionConfigOption{Select: &acp.SessionConfigOptionSelect{
+		Type:         "select",
+		Id:           acp.SessionConfigId(category),
+		Name:         string(category),
+		Category:     &category,
+		CurrentValue: acp.SessionConfigValueId(current),
+		Options:      acp.SessionConfigSelectOptions{Ungrouped: &choices},
+	}}
 }
 
 func (h *fakeHarness) Authenticate(context.Context, acp.AuthenticateRequest) (acp.AuthenticateResponse, error) {
@@ -361,8 +411,30 @@ func (h *fakeHarness) Authenticate(context.Context, acp.AuthenticateRequest) (ac
 	return acp.AuthenticateResponse{}, os.WriteFile(loginFile, nil, 0o600)
 }
 
-func (h *fakeHarness) SetSessionConfigOption(context.Context, acp.SetSessionConfigOptionRequest) (acp.SetSessionConfigOptionResponse, error) {
-	return acp.SetSessionConfigOptionResponse{}, errFakeHarness
+func (h *fakeHarness) SetSessionConfigOption(_ context.Context, request acp.SetSessionConfigOptionRequest) (acp.SetSessionConfigOptionResponse, error) {
+	if request.ValueId == nil {
+		return acp.SetSessionConfigOptionResponse{}, errFakeHarness
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, option := range h.options {
+		if option.Select.Id == request.ValueId.ConfigId {
+			option.Select.CurrentValue = request.ValueId.Value
+		}
+	}
+	if request.ValueId.ConfigId == "model" {
+		h.options = slices.DeleteFunc(h.options, func(option acp.SessionConfigOption) bool {
+			return *option.Select.Category == acp.SessionConfigOptionCategoryThoughtLevel
+		})
+		efforts, ok := h.script.Efforts[string(request.ValueId.Value)]
+		if !ok {
+			efforts = h.script.Options["thought_level"]
+		}
+		if len(efforts) > 0 {
+			h.options = append(h.options, selectOption(acp.SessionConfigOptionCategoryThoughtLevel, efforts, efforts[0]))
+		}
+	}
+	return acp.SetSessionConfigOptionResponse{ConfigOptions: slices.Clone(h.options)}, nil
 }
 
 func (h *fakeHarness) Prompt(context.Context, acp.PromptRequest) (acp.PromptResponse, error) {

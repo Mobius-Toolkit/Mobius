@@ -435,8 +435,6 @@ func TestASettingThatTheRolesPageWouldRefuseIsRefusedAndStoresNoRow(t *testing.T
 	}{
 		{"an unknown Harness", "gemini", "swe-1.5", "high"},
 		{"an empty model", config.Devin, "", "high"},
-		{"no effort for a Harness with effort levels", config.Devin, "swe-1.5", ""},
-		{"an effort for a Harness with no effort levels", config.Antigravity, "gemini-3-pro", "high"},
 	}
 	for _, c := range cases {
 		err := server.Engine.SetIssueBinding(t.Context(), "implementer", shop, 41, c.harness, c.model, c.effort)

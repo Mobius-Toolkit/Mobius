@@ -220,10 +220,6 @@ func TestParseRefusesAWrongOperatorBinding(t *testing.T) {
 			"roles.operator.harness: must be claude-code, antigravity, devin or dsh"},
 		{`operator = { harness = "claude-code", effort = "medium" }`,
 			"roles.operator.model: must not be empty"},
-		{`operator = { harness = "claude-code", model = "opus" }`,
-			"roles.operator.effort: is required for claude-code"},
-		{`operator = { harness = "antigravity", model = "gemini-3-pro", effort = "low" }`,
-			"roles.operator.effort: is not allowed for antigravity"},
 	}
 	for _, c := range checks {
 		if got := parseError(t, valid+c.line+"\n"); got != c.want {
@@ -266,19 +262,25 @@ func TestParseRefusesAWrongRoleOrPassword(t *testing.T) {
 			"roles.implementer.harness: must be claude-code, antigravity, devin or dsh"},
 		{strings.Replace(valid, `model = "haiku",`, "", 1),
 			"roles.judge.model: must not be empty"},
-		{strings.Replace(valid, `,   effort = "low"`, "", 1),
-			"roles.judge.effort: is required for claude-code"},
-		{strings.Replace(valid, `"swe-1.5", effort = "high"`, `"swe-1.5"`, 1),
-			"roles.implementer.effort: is required for devin"},
-		{strings.Replace(valid, `"gemini-3-pro"`, `"gemini-3-pro", effort = "high"`, 1),
-			"roles.researcher.effort: is not allowed for antigravity"},
-		{strings.Replace(valid, `harness = "antigravity", model = "gemini-3-pro"`, `harness = "dsh", model = "deepseek-v4-pro"`, 1),
-			"roles.researcher.effort: is required for dsh"},
 	}
 	for _, c := range checks {
 		if got := parseError(t, c.text); got != c.want {
 			t.Errorf("error = %q, want %q", got, c.want)
 		}
+	}
+}
+
+func TestParseAcceptsAnEffortForAnyHarnessAndNoEffortForAnyHarness(t *testing.T) {
+	text := strings.Replace(valid, `"gemini-3-pro"`, `"gemini-3-pro", effort = "high"`, 1)
+	text = strings.Replace(text, `,   effort = "low"`, "", 1)
+
+	config := parse(t, text)
+
+	if got := config.Roles.Researcher; got.Harness != Antigravity || got.Effort != "high" {
+		t.Errorf("roles.researcher = %+v", got)
+	}
+	if got := config.Roles.Judge; got.Harness != ClaudeCode || got.Effort != "" {
+		t.Errorf("roles.judge = %+v", got)
 	}
 }
 

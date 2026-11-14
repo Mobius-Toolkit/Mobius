@@ -215,7 +215,7 @@ mobius init
 1. It asks for the access password two times. The password must have 8 characters or more.
 2. It asks for the GitHub logins of the trusted users.
 3. It starts each Harness on `PATH`, and reads its models and efforts. When Antigravity is not logged in, it starts the Antigravity login of step 3 first. It writes one line for each Harness that is not on `PATH` or that fails, and skips that Harness. All Harnesses together must give 1 model or more.
-4. For each Role, it asks for the Harness, the model, and the effort. Enter selects the value in brackets.
+4. For each Role, it asks for the Harness and the model. It asks for the effort only when the Harness gives effort levels for that model. Enter selects the value in brackets.
 5. It writes `~/.mobius/config.toml`. When you set `MOBIUS_CONFIG`, it writes to that path.
 
 Use an access password that you use nowhere else.
@@ -230,7 +230,7 @@ The config file is a TOML file. Mobius reads it one time when it starts, so you 
 
 - `access_password`: the password of the web UI.
 - `trusted_users`: the GitHub logins of the users that the agents act for.
-- `roles`: the `harness`, the `model` and the `effort` of each Role (`lead`, `coordinator`, `triager`, `implementer`, `researcher`, `reviewer`, `judge`, `curator` and `diagnoser`). A Devin, dsh or Claude Code Role must have an effort. An Antigravity Role must not have an effort. `mobius init` does not ask for the Role `operator`. See the key `roles.operator` below.
+- `roles`: the `harness`, the `model` and the `effort` of each Role (`lead`, `coordinator`, `triager`, `implementer`, `researcher`, `reviewer`, `judge`, `curator` and `diagnoser`). A Role with no `effort` uses the default effort of its Harness. `mobius init` does not ask for the Role `operator`. See the key `roles.operator` below.
 
 You can add these keys:
 
@@ -261,7 +261,7 @@ A duration is a text with a number and a unit for each part: `s`, `m` or `h`. Fo
 
 The Diagnoser reads the full log of each failed CI job of a pull request before the fix round. It gives the reason of the failure to the fix round. It has the same keys as each other Role.
 
-The Operator does work outside code for one Workstream, for example in an external system, when the Lead starts it. The key `roles.operator` is optional. With no `harness`, no `model` and no `effort`, the Operator uses `claude-code`, the model `opus` and the effort `medium`. When you give one of these keys, give the keys that its Harness needs, as for each other Role. An old `config.toml` with no `roles.operator` loads with no change.
+The Operator does work outside code for one Workstream, for example in an external system, when the Lead starts it. The key `roles.operator` is optional. With no `harness`, no `model` and no `effort`, the Operator uses `claude-code`, the model `opus` and the effort `medium`. When you give one of these keys, give the `harness` and the `model`, as for each other Role. An old `config.toml` with no `roles.operator` loads with no change.
 
 Each Role can also have these keys:
 

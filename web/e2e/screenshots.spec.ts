@@ -1750,6 +1750,30 @@ test("screenshots", async ({ page }) => {
     },
     () => page.keyboard.press("Escape"),
   );
+  const pickSetting = async (label: string, value: string) => {
+    await receiptsSheet.getByLabel(label, { exact: true }).click();
+    await page.getByRole("menuitemradio", { name: value, exact: true }).click();
+  };
+  await screenshot(
+    page,
+    "chat-tasks-setting-sheet-antigravity",
+    "/workstreams/owner/shop/12",
+    (device) => [
+      ...frame(device, drain),
+      chatEnd,
+      receiptsSheet.getByLabel("Effort", { exact: true }),
+      receiptsSheet.getByRole("button", { name: "Save" }),
+    ],
+    async (device) => {
+      await openTasks(device);
+      await planReceipts.getByRole("button", { name: "Implementer of #39" }).click();
+      await settingSheetReady(receiptsSheet);
+      await pickSetting("Harness", "antigravity");
+      await pickSetting("Model", "gemini-3-pro");
+      await expect(receiptsSheet.getByLabel("Effort", { exact: true })).toHaveText("low");
+    },
+    () => page.keyboard.press("Escape"),
+  );
   await clearWorkstreamImplementer();
   // The Inbox of the organization plants has no item, so the frame has no Inbox count.
   await screenshot(
@@ -2819,6 +2843,28 @@ test("screenshots", async ({ page }) => {
     async () => {
       await openReviewer();
       await roleSheet.getByLabel("Model", { exact: true }).click();
+    },
+  );
+  const researcherSheet = page.getByRole("dialog", { name: "Researcher" });
+  await screenshot(
+    page,
+    "roles-antigravity-effort-list",
+    "/settings/roles",
+    (device) => [
+      ...frame(device, release),
+      researcherSheet.getByLabel("Model", { exact: true }),
+      page.getByRole("menuitemradio", { name: "low", exact: true }),
+      page.getByRole("menuitemradio", { name: "high", exact: true }),
+    ],
+    async () => {
+      await roleRow("Researcher").click();
+      await expect(researcherSheet.getByLabel("Harness", { exact: true })).toHaveText(
+        "antigravity",
+      );
+      await expect(researcherSheet.getByLabel("Model", { exact: true })).toHaveText("gemini-3-pro");
+      await expect(researcherSheet.getByRole("button", { name: "Save" })).toBeEnabled();
+      await researcherSheet.getByLabel("Effort", { exact: true }).click();
+      await expect(page.getByRole("menuitemradio")).toHaveText(["low", "medium", "high"]);
     },
   );
   await screenshot(
