@@ -3838,7 +3838,9 @@ test.describe("the detail view of a task", () => {
       await expect(sheet.getByRole("button", { name: "Remove #71" })).toHaveCount(1);
       await expect(sheet.getByRole("heading", { name: "#71 Spread the bark" })).toBeVisible();
       await view.fill(text);
+      const messageSent = page.waitForResponse("**/api/chat/messages");
       await sheet.getByRole("button", { name: "Send", exact: true }).click();
+      expect((await messageSent).status()).toBe(204);
       await expect(view).toHaveValue("");
       await expect(sheet.getByRole("heading", { name: "#71 Spread the bark" })).toBeVisible();
       await expect(sheet.getByRole("button", { name: "Back to the tasks" })).toBeVisible();
