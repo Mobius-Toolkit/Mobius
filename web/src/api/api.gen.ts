@@ -50,7 +50,7 @@ export interface ActionSender {
  * Agent is the session of an agent.
  */
 export interface Agent {
-  /** Effort is the effort level of the session, or empty for a Harness with no effort levels */
+  /** Effort is the effort level of the session, or empty when the Harness uses its own default or the model has no effort levels */
   effort: string;
   /** EndReason tells why the session ended, for example done or failed. It is empty while the session is live */
   endReason: string;
@@ -181,7 +181,7 @@ export interface ApproveActionBody {
 export interface BindingBodyBody {
   /** Context is the largest context of a session in tokens, or 0 for no limit */
   context?: number;
-  /** Effort is the effort level of the binding. It is empty for a Harness with no effort levels. */
+  /** Effort is the effort level of the binding. It is empty when the Harness uses its own default or the model has no effort levels. */
   effort?: string;
   /** Harness is the agent program of the binding */
   harness?: string;
@@ -967,7 +967,7 @@ export interface EnvelopeArrayGitHubApp {
  * ModelChoice is a model of a Harness with its effort levels.
  */
 export interface ModelChoice {
-  /** Efforts are the effort levels of the model, or empty for a Harness with no effort levels */
+  /** Efforts are the effort levels of the model, or empty when the model has no effort levels */
   efforts: string[];
   /** Model is the name of the model */
   model: string;
@@ -1204,7 +1204,7 @@ export interface EnvelopeArrayPause {
 export interface MoreBinding {
   /** Context is the largest context of a session in tokens, or 0 for no limit */
   context: number;
-  /** Effort is the effort level of the binding, or empty for a Harness with no effort levels */
+  /** Effort is the effort level of the binding, or empty when the Harness uses its own default or the model has no effort levels */
   effort: string;
   /** Harness is the agent program of the binding */
   harness: string;
@@ -1238,7 +1238,7 @@ export interface RoleFields {
 export interface Role {
   /** Context is the largest context of a session in tokens, or 0 for no limit */
   context: number;
-  /** Effort is the effort level of the Role, or empty for a Harness with no effort levels */
+  /** Effort is the effort level of the Role, or empty when the Harness uses its own default or the model has no effort levels */
   effort: string;
   /** Harness is the agent program of the Role */
   harness: string;
@@ -1266,7 +1266,7 @@ export interface EnvelopeArrayRole {
  * IssueSetting is the Harness, the model and the effort that the Owner sets for the sessions of a Role in a task or a Workstream.
  */
 export interface IssueSetting {
-  /** Effort is the effort level. It is empty for a Harness with no effort levels. */
+  /** Effort is the effort level. It is empty when the Harness uses its own default or the model has no effort levels. */
   effort: string;
   /** Harness is the agent program */
   harness: string;
@@ -2330,7 +2330,7 @@ export interface EnvelopeVoiceLanguage {
  * NextSetting is the binding of the next session of a Role in a Workstream.
  */
 export interface NextSetting {
-  /** Effort is the effort level, or empty for a Harness with no effort levels */
+  /** Effort is the effort level, or empty when the Harness uses its own default or the model has no effort levels */
   effort: string;
   /** Harness is the agent program */
   harness: string;
@@ -2398,7 +2398,7 @@ export interface FixLabelsBody {
  * IssueSetting is the Harness, the model and the effort that the Owner sets for the sessions of a Role in a task or a Workstream.
  */
 export interface IssueSettingBody {
-  /** Effort is the effort level. It is empty for a Harness with no effort levels. */
+  /** Effort is the effort level. It is empty when the Harness uses its own default or the model has no effort levels. */
   effort?: string;
   /** Harness is the agent program */
   harness?: string;
@@ -2626,7 +2626,7 @@ export interface SetRecurringTaskPausedBody {
 export interface SetRoleBody {
   /** Context is the largest context of a session in tokens, or 0 for no limit */
   context?: number;
-  /** Effort is the effort level of the Role. It is empty for a Harness with no effort levels. */
+  /** Effort is the effort level of the Role. It is empty when the Harness uses its own default or the model has no effort levels. */
   effort?: string;
   /** Harness is the agent program of the Role */
   harness?: string;

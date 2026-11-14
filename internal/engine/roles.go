@@ -160,9 +160,10 @@ func (e *Engine) Roles(ctx context.Context) ([]RoleSetting, error) {
 }
 
 // SetRole sets the binding of the Role role in the UI. The next session of the Role uses it, and a session that runs
-// keeps its binding. It refuses a binding that config.toml would refuse, a max below 1, and a Harness whose program is
-// not on the PATH of the agents. When the Harness, the model or the effort changes, it also refuses a binding whose
-// access check fails. A field that is equal to the field of config.toml is not stored.
+// keeps its binding. It refuses a binding that config.toml would refuse, a max below 1, a Harness whose program is not
+// on the PATH of the agents, and an effort that the read of the Harness does not give for the model. When the Harness,
+// the model or the effort changes, it also refuses a binding whose access check fails. A field that is equal to the
+// field of config.toml is not stored.
 func (e *Engine) SetRole(ctx context.Context, role string, binding config.RoleBinding) error {
 	e.roleWriteMu.Lock()
 	defer e.roleWriteMu.Unlock()
@@ -177,6 +178,9 @@ func (e *Engine) SetRole(ctx context.Context, role string, binding config.RoleBi
 	current := *target
 	*target = binding
 	if err := e.checkRoles(&merged, role); err != nil {
+		return refuse("%s", err)
+	}
+	if err := e.checkEffort(role, binding); err != nil {
 		return refuse("%s", err)
 	}
 	if err := e.checkChange(ctx, current, binding); err != nil {
@@ -231,6 +235,9 @@ func (e *Engine) ResetRole(ctx context.Context, role string) error {
 	if err := e.checkRoles(&merged, role); err != nil {
 		return refuse("%s", err)
 	}
+	if err := e.checkEffort(role, *target); err != nil {
+		return refuse("%s", err)
+	}
 	if err := e.checkChange(ctx, current, *target); err != nil {
 		return err
 	}
@@ -258,12 +265,16 @@ func (e *Engine) applyRoles(merged config.Roles) {
 
 // checkImplementerChange gives the refusals of SetRole for binding as a binding of the Implementer that replaces
 // current: a max below 1, a binding that config.toml would refuse, a Harness whose program is not on the PATH of the
-// agents, and a failed access check when the Harness, the model or the effort changes.
+// agents, an effort that the Harness does not give, and a failed access check when the Harness, the model or the effort
+// changes.
 func (e *Engine) checkImplementerChange(ctx context.Context, current, binding config.RoleBinding) error {
 	if binding.Max < 1 {
 		return refuse("roles.implementer.max: must be 1 or more")
 	}
 	if err := e.checkImplementer(binding); err != nil {
+		return refuse("%s", err)
+	}
+	if err := e.checkEffort("implementer", binding); err != nil {
 		return refuse("%s", err)
 	}
 	return e.checkChange(ctx, current, binding)

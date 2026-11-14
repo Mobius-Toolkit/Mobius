@@ -24,7 +24,7 @@ type Agent struct {
 	Harness string `gork:"harness"`
 	// Model is the model of the session
 	Model string `gork:"model"`
-	// Effort is the effort level of the session, or empty for a Harness with no effort levels
+	// Effort is the effort level of the session, or empty when the Harness uses its own default or the model has no effort levels
 	Effort string `gork:"effort"`
 	// Organization is the owner of the repository
 	Organization string `gork:"organization"`

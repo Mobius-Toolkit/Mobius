@@ -7616,7 +7616,7 @@
         "properties": {
           "effort": {
             "type": "string",
-            "description": "Effort is the effort level of the session, or empty for a Harness with no effort levels"
+            "description": "Effort is the effort level of the session, or empty when the Harness uses its own default or the model has no effort levels"
           },
           "endReason": {
             "type": "string",
@@ -7823,7 +7823,7 @@
           },
           "effort": {
             "type": "string",
-            "description": "Effort is the effort level of the binding. It is empty for a Harness with no effort levels."
+            "description": "Effort is the effort level of the binding. It is empty when the Harness uses its own default or the model has no effort levels."
           },
           "harness": {
             "type": "string",
@@ -9781,7 +9781,7 @@
         "properties": {
           "effort": {
             "type": "string",
-            "description": "Effort is the effort level. It is empty for a Harness with no effort levels."
+            "description": "Effort is the effort level. It is empty when the Harness uses its own default or the model has no effort levels."
           },
           "harness": {
             "type": "string",
@@ -9805,7 +9805,7 @@
         "properties": {
           "effort": {
             "type": "string",
-            "description": "Effort is the effort level. It is empty for a Harness with no effort levels."
+            "description": "Effort is the effort level. It is empty when the Harness uses its own default or the model has no effort levels."
           },
           "harness": {
             "type": "string",
@@ -10644,7 +10644,7 @@
           "efforts": {
             "type": "array",
             "title": "[]string",
-            "description": "Efforts are the effort levels of the model, or empty for a Harness with no effort levels",
+            "description": "Efforts are the effort levels of the model, or empty when the model has no effort levels",
             "items": {
               "type": "string"
             }
@@ -10670,7 +10670,7 @@
           },
           "effort": {
             "type": "string",
-            "description": "Effort is the effort level of the binding, or empty for a Harness with no effort levels"
+            "description": "Effort is the effort level of the binding, or empty when the Harness uses its own default or the model has no effort levels"
           },
           "harness": {
             "type": "string",
@@ -10770,7 +10770,7 @@
         "properties": {
           "effort": {
             "type": "string",
-            "description": "Effort is the effort level, or empty for a Harness with no effort levels"
+            "description": "Effort is the effort level, or empty when the Harness uses its own default or the model has no effort levels"
           },
           "harness": {
             "type": "string",
@@ -11444,7 +11444,7 @@
           },
           "effort": {
             "type": "string",
-            "description": "Effort is the effort level of the Role, or empty for a Harness with no effort levels"
+            "description": "Effort is the effort level of the Role, or empty when the Harness uses its own default or the model has no effort levels"
           },
           "harness": {
             "type": "string",
@@ -11682,7 +11682,7 @@
           },
           "effort": {
             "type": "string",
-            "description": "Effort is the effort level of the Role. It is empty for a Harness with no effort levels."
+            "description": "Effort is the effort level of the Role. It is empty when the Harness uses its own default or the model has no effort levels."
           },
           "harness": {
             "type": "string",
