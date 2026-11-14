@@ -96,13 +96,15 @@ jobs:
           shopt -s nullglob
           set_section() {
             gh api "repos/$REPO/pulls/$PR" > pr.json
-            SECTION="$1" python3 -I - <<'PY' > payload.json
-          import json, os, sys
+            printf '%s' "$1" > section.txt
+            python3 -I - <<'PY' > payload.json
+          import json, sys
           start = '<!-- screenshots -->'
           end = '<!-- /screenshots -->'
           with open('pr.json') as f:
               body = json.load(f)['body'] or ''
-          section = start + '\n### UI screenshots\n\n' + os.environ['SECTION'] + '\n' + end
+          with open('section.txt') as f:
+              section = start + '\n### UI screenshots\n\n' + f.read() + '\n' + end
           j = body.find(end)
           i = body.rfind(start, 0, j) if j >= 0 else -1
           if i >= 0:
@@ -178,7 +180,10 @@ jobs:
               echo "none"
             fi
           }
+          # GitHub refuses a pull request body of more than 65,535 characters.
+          max_rows=60
           rows=
+          count=0
           names=$(for file in "$work/main"/*.png "$work/pr-$PR"/*.png; do echo "${file##*/}"; done | sort -u)
           for name in $names; do
             if [ ! -e "$work/main/$name" ]; then
@@ -190,14 +195,21 @@ jobs:
             else
               state=changed
             fi
-            rows+="| \`${name%.png}\` | $state | $(cell main "$name") | $(cell "pr-$PR" "$name") |"$'\n'
+            count=$((count + 1))
+            if [ "$count" -le "$max_rows" ]; then
+              rows+="| \`${name%.png}\` | $state | $(cell main "$name") | $(cell "pr-$PR" "$name") |"$'\n'
+            fi
           done
-          if [ -z "$rows" ]; then
+          if [ "$count" -eq 0 ]; then
             set_section "No screen changed."
             set_label off
             complete_check success "No screen changed."
           else
-            set_section $'| Screen | State | main | This pull request |\n|---|---|---|---|\n'"$rows"
+            section=$'| Screen | State | main | This pull request |\n|---|---|---|---|\n'"$rows"
+            if [ "$count" -gt "$max_rows" ]; then
+              section+=$'\n'"$((count - max_rows)) more screens changed. See the [run]($RUN_URL)."
+            fi
+            set_section "$section"
             set_label on
             complete_check neutral "Screens changed"
           fi
