@@ -31,21 +31,37 @@ jobs:
             -f "output[summary]=See [pull request #$PR](https://github.com/$REPO/pull/$PR)." --silent
           set_section() {
             gh api "repos/$REPO/pulls/$PR" > pr.json
-            SECTION="$1" python3 -I - <<'PY' > payload.json
+            printf '%s' "$1" > section.txt
+            python3 -I - <<'PY' > payload.json
           import json, os, sys
           start = '<!-- screenshots -->'
           end = '<!-- /screenshots -->'
+          limit = 65000
           with open('pr.json') as f:
-              body = json.load(f)['body'] or ''
-          section = start + '\n### UI screenshots\n\n' + os.environ['SECTION'] + '\n' + end
-          j = body.find(end)
-          i = body.rfind(start, 0, j) if j >= 0 else -1
-          if i >= 0:
-              body = body[:i] + section + body[j + len(end):]
-          elif body:
-              body += ('\n' if body.endswith('\n') else '\n\n') + section
-          else:
-              body = section
+              old = json.load(f)['body'] or ''
+          with open('section.txt') as f:
+              lines = f.read().rstrip('\n').split('\n')
+          table = lines[0].startswith('|')
+          head = lines[:2] if table else lines
+          rows = lines[2:] if table else []
+
+          def render(tail):
+              section = start + '\n### UI screenshots\n\n' + '\n'.join(head + rows + tail) + '\n' + end
+              j = old.find(end)
+              i = old.rfind(start, 0, j) if j >= 0 else -1
+              if i >= 0:
+                  return old[:i] + section + old[j + len(end):]
+              if old:
+                  return old + ('\n' if old.endswith('\n') else '\n\n') + section
+              return section
+
+          body = render([])
+          hidden = 0
+          while len(body) > limit and rows:
+              rows.pop()
+              hidden += 1
+              folder = 'https://github.com/' + os.environ['REPO'] + '/tree/screenshots/pr-' + os.environ['PR']
+              body = render(['', 'Screens that the table does not show: ' + str(hidden) + '. See the [folder](' + folder + ').'])
           json.dump({'body': body}, sys.stdout)
           PY
             gh api --method PATCH "repos/$REPO/pulls/$PR" --input payload.json --silent
@@ -96,21 +112,37 @@ jobs:
           shopt -s nullglob
           set_section() {
             gh api "repos/$REPO/pulls/$PR" > pr.json
-            SECTION="$1" python3 -I - <<'PY' > payload.json
+            printf '%s' "$1" > section.txt
+            python3 -I - <<'PY' > payload.json
           import json, os, sys
           start = '<!-- screenshots -->'
           end = '<!-- /screenshots -->'
+          limit = 65000
           with open('pr.json') as f:
-              body = json.load(f)['body'] or ''
-          section = start + '\n### UI screenshots\n\n' + os.environ['SECTION'] + '\n' + end
-          j = body.find(end)
-          i = body.rfind(start, 0, j) if j >= 0 else -1
-          if i >= 0:
-              body = body[:i] + section + body[j + len(end):]
-          elif body:
-              body += ('\n' if body.endswith('\n') else '\n\n') + section
-          else:
-              body = section
+              old = json.load(f)['body'] or ''
+          with open('section.txt') as f:
+              lines = f.read().rstrip('\n').split('\n')
+          table = lines[0].startswith('|')
+          head = lines[:2] if table else lines
+          rows = lines[2:] if table else []
+
+          def render(tail):
+              section = start + '\n### UI screenshots\n\n' + '\n'.join(head + rows + tail) + '\n' + end
+              j = old.find(end)
+              i = old.rfind(start, 0, j) if j >= 0 else -1
+              if i >= 0:
+                  return old[:i] + section + old[j + len(end):]
+              if old:
+                  return old + ('\n' if old.endswith('\n') else '\n\n') + section
+              return section
+
+          body = render([])
+          hidden = 0
+          while len(body) > limit and rows:
+              rows.pop()
+              hidden += 1
+              folder = 'https://github.com/' + os.environ['REPO'] + '/tree/screenshots/pr-' + os.environ['PR']
+              body = render(['', 'Screens that the table does not show: ' + str(hidden) + '. See the [folder](' + folder + ').'])
           json.dump({'body': body}, sys.stdout)
           PY
             gh api --method PATCH "repos/$REPO/pulls/$PR" --input payload.json --silent
