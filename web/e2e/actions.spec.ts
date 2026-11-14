@@ -391,7 +391,7 @@ test("a chat message goes out as a message while the tray has rows", async ({ pa
   await page.route("/api/chat/messages", (route) => route.fulfill({ status: 204 }));
 
   await page.getByRole("textbox", { name: "Message to the Coordinator" }).fill("Hello");
-  await page.getByRole("button", { name: "Send" }).click();
+  await page.getByRole("button", { name: "Send", exact: true }).click();
   await sent;
 
   await expect(waiting(page, 1)).toBeVisible(agentTimeout);
