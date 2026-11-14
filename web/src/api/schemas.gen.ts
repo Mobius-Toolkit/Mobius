@@ -110,7 +110,7 @@ export const ListActiveAgentsResponse = S.Struct({
   "groups": S.Array(S.Struct({
   "agents": S.Array(S.Struct({
   "agent": S.Struct({
-  "effort": S.String.annotate({ description: 'Effort is the effort level of the session, or empty for a Harness with no effort levels' }),
+  "effort": S.String.annotate({ description: 'Effort is the effort level of the session, or empty when the Harness uses its own default or the model has no effort levels' }),
   "endReason": S.String.annotate({ description: 'EndReason tells why the session ended, for example done or failed. It is empty while the session is live' }),
   "endedAt": S.NullOr(S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/))).annotate({ description: 'EndedAt is the end of the session, or null while the session is live' }),
   "harness": S.String.annotate({ description: 'Harness is the Harness of the session, for example claude-code' }),
@@ -629,7 +629,7 @@ export const ListHarnessesResponse = S.Struct({
   "error": S.String.annotate({ description: 'Error is the reason of a failed read, or empty' }),
   "harness": S.String.annotate({ description: 'Harness is the agent program' }),
   "models": S.Array(S.Struct({
-  "efforts": S.Array(S.String).annotate({ description: 'Efforts are the effort levels of the model, or empty for a Harness with no effort levels' }),
+  "efforts": S.Array(S.String).annotate({ description: 'Efforts are the effort levels of the model, or empty when the model has no effort levels' }),
   "model": S.String.annotate({ description: 'Model is the name of the model' })
 }).annotate({ description: 'ModelChoice is a model of a Harness with its effort levels.' })).annotate({ description: 'Models are the models of the Harness. They are empty when the read failed.' })
 }).annotate({ description: 'HarnessChoices is a Harness with the models that it gives.' })).annotate({ description: 'Data is the payload of the response' })
@@ -1175,7 +1175,7 @@ export const SetTaskImplementerParams = S.Struct({
 })
 
 export const SetTaskImplementerBody = S.Struct({
-  "effort": S.optional(S.String).annotate({ description: 'Effort is the effort level. It is empty for a Harness with no effort levels.' }),
+  "effort": S.optional(S.String).annotate({ description: 'Effort is the effort level. It is empty when the Harness uses its own default or the model has no effort levels.' }),
   "harness": S.optional(S.String).annotate({ description: 'Harness is the agent program' }),
   "model": S.optional(S.String).annotate({ description: 'Model is the model' })
 }).annotate({ description: 'IssueSetting is the Harness, the model and the effort that the Owner sets for the sessions of a Role in a task or a Workstream.' })
@@ -1299,13 +1299,13 @@ export const RevertMemoryParams = S.Struct({
 export const ListRolesResponse = S.Struct({
   "data": S.Array(S.Struct({
   "context": S.Number.annotate({ description: 'Context is the largest context of a session in tokens, or 0 for no limit' }),
-  "effort": S.String.annotate({ description: 'Effort is the effort level of the Role, or empty for a Harness with no effort levels' }),
+  "effort": S.String.annotate({ description: 'Effort is the effort level of the Role, or empty when the Harness uses its own default or the model has no effort levels' }),
   "harness": S.String.annotate({ description: 'Harness is the agent program of the Role' }),
   "max": S.Number.annotate({ description: 'Max is the number of sessions of the Role that run at the same time' }),
   "model": S.String.annotate({ description: 'Model is the model of the Role' }),
   "moreBindings": S.Array(S.Struct({
   "context": S.Number.annotate({ description: 'Context is the largest context of a session in tokens, or 0 for no limit' }),
-  "effort": S.String.annotate({ description: 'Effort is the effort level of the binding, or empty for a Harness with no effort levels' }),
+  "effort": S.String.annotate({ description: 'Effort is the effort level of the binding, or empty when the Harness uses its own default or the model has no effort levels' }),
   "harness": S.String.annotate({ description: 'Harness is the agent program of the binding' }),
   "id": S.Number.annotate({ description: 'ID is the id of the binding' }),
   "max": S.Number.annotate({ description: 'Max is the number of sessions of the binding that run at the same time' }),
@@ -1328,7 +1328,7 @@ export const ListRolesResponse = S.Struct({
  */
 export const AddImplementerBindingBody = S.Struct({
   "context": S.optional(S.Number).annotate({ description: 'Context is the largest context of a session in tokens, or 0 for no limit' }),
-  "effort": S.optional(S.String).annotate({ description: 'Effort is the effort level of the binding. It is empty for a Harness with no effort levels.' }),
+  "effort": S.optional(S.String).annotate({ description: 'Effort is the effort level of the binding. It is empty when the Harness uses its own default or the model has no effort levels.' }),
   "harness": S.optional(S.String).annotate({ description: 'Harness is the agent program of the binding' }),
   "max": S.optional(S.Number).annotate({ description: 'Max is the number of sessions of the binding that run at the same time' }),
   "model": S.optional(S.String).annotate({ description: 'Model is the model of the binding' })
@@ -1337,13 +1337,13 @@ export const AddImplementerBindingBody = S.Struct({
 export const AddImplementerBindingResponse = S.Struct({
   "data": S.Struct({
   "context": S.Number.annotate({ description: 'Context is the largest context of a session in tokens, or 0 for no limit' }),
-  "effort": S.String.annotate({ description: 'Effort is the effort level of the Role, or empty for a Harness with no effort levels' }),
+  "effort": S.String.annotate({ description: 'Effort is the effort level of the Role, or empty when the Harness uses its own default or the model has no effort levels' }),
   "harness": S.String.annotate({ description: 'Harness is the agent program of the Role' }),
   "max": S.Number.annotate({ description: 'Max is the number of sessions of the Role that run at the same time' }),
   "model": S.String.annotate({ description: 'Model is the model of the Role' }),
   "moreBindings": S.Array(S.Struct({
   "context": S.Number.annotate({ description: 'Context is the largest context of a session in tokens, or 0 for no limit' }),
-  "effort": S.String.annotate({ description: 'Effort is the effort level of the binding, or empty for a Harness with no effort levels' }),
+  "effort": S.String.annotate({ description: 'Effort is the effort level of the binding, or empty when the Harness uses its own default or the model has no effort levels' }),
   "harness": S.String.annotate({ description: 'Harness is the agent program of the binding' }),
   "id": S.Number.annotate({ description: 'ID is the id of the binding' }),
   "max": S.Number.annotate({ description: 'Max is the number of sessions of the binding that run at the same time' }),
@@ -1370,7 +1370,7 @@ export const SetImplementerBindingParams = S.Struct({
 
 export const SetImplementerBindingBody = S.Struct({
   "context": S.optional(S.Number).annotate({ description: 'Context is the largest context of a session in tokens, or 0 for no limit' }),
-  "effort": S.optional(S.String).annotate({ description: 'Effort is the effort level of the binding. It is empty for a Harness with no effort levels.' }),
+  "effort": S.optional(S.String).annotate({ description: 'Effort is the effort level of the binding. It is empty when the Harness uses its own default or the model has no effort levels.' }),
   "harness": S.optional(S.String).annotate({ description: 'Harness is the agent program of the binding' }),
   "max": S.optional(S.Number).annotate({ description: 'Max is the number of sessions of the binding that run at the same time' }),
   "model": S.optional(S.String).annotate({ description: 'Model is the model of the binding' })
@@ -1379,13 +1379,13 @@ export const SetImplementerBindingBody = S.Struct({
 export const SetImplementerBindingResponse = S.Struct({
   "data": S.Struct({
   "context": S.Number.annotate({ description: 'Context is the largest context of a session in tokens, or 0 for no limit' }),
-  "effort": S.String.annotate({ description: 'Effort is the effort level of the Role, or empty for a Harness with no effort levels' }),
+  "effort": S.String.annotate({ description: 'Effort is the effort level of the Role, or empty when the Harness uses its own default or the model has no effort levels' }),
   "harness": S.String.annotate({ description: 'Harness is the agent program of the Role' }),
   "max": S.Number.annotate({ description: 'Max is the number of sessions of the Role that run at the same time' }),
   "model": S.String.annotate({ description: 'Model is the model of the Role' }),
   "moreBindings": S.Array(S.Struct({
   "context": S.Number.annotate({ description: 'Context is the largest context of a session in tokens, or 0 for no limit' }),
-  "effort": S.String.annotate({ description: 'Effort is the effort level of the binding, or empty for a Harness with no effort levels' }),
+  "effort": S.String.annotate({ description: 'Effort is the effort level of the binding, or empty when the Harness uses its own default or the model has no effort levels' }),
   "harness": S.String.annotate({ description: 'Harness is the agent program of the binding' }),
   "id": S.Number.annotate({ description: 'ID is the id of the binding' }),
   "max": S.Number.annotate({ description: 'Max is the number of sessions of the binding that run at the same time' }),
@@ -1413,13 +1413,13 @@ export const RemoveImplementerBindingParams = S.Struct({
 export const RemoveImplementerBindingResponse = S.Struct({
   "data": S.Struct({
   "context": S.Number.annotate({ description: 'Context is the largest context of a session in tokens, or 0 for no limit' }),
-  "effort": S.String.annotate({ description: 'Effort is the effort level of the Role, or empty for a Harness with no effort levels' }),
+  "effort": S.String.annotate({ description: 'Effort is the effort level of the Role, or empty when the Harness uses its own default or the model has no effort levels' }),
   "harness": S.String.annotate({ description: 'Harness is the agent program of the Role' }),
   "max": S.Number.annotate({ description: 'Max is the number of sessions of the Role that run at the same time' }),
   "model": S.String.annotate({ description: 'Model is the model of the Role' }),
   "moreBindings": S.Array(S.Struct({
   "context": S.Number.annotate({ description: 'Context is the largest context of a session in tokens, or 0 for no limit' }),
-  "effort": S.String.annotate({ description: 'Effort is the effort level of the binding, or empty for a Harness with no effort levels' }),
+  "effort": S.String.annotate({ description: 'Effort is the effort level of the binding, or empty when the Harness uses its own default or the model has no effort levels' }),
   "harness": S.String.annotate({ description: 'Harness is the agent program of the binding' }),
   "id": S.Number.annotate({ description: 'ID is the id of the binding' }),
   "max": S.Number.annotate({ description: 'Max is the number of sessions of the binding that run at the same time' }),
@@ -1446,7 +1446,7 @@ export const SetRoleParams = S.Struct({
 
 export const SetRoleBody = S.Struct({
   "context": S.optional(S.Number).annotate({ description: 'Context is the largest context of a session in tokens, or 0 for no limit' }),
-  "effort": S.optional(S.String).annotate({ description: 'Effort is the effort level of the Role. It is empty for a Harness with no effort levels.' }),
+  "effort": S.optional(S.String).annotate({ description: 'Effort is the effort level of the Role. It is empty when the Harness uses its own default or the model has no effort levels.' }),
   "harness": S.optional(S.String).annotate({ description: 'Harness is the agent program of the Role' }),
   "max": S.optional(S.Number).annotate({ description: 'Max is the number of sessions of the Role that run at the same time' }),
   "model": S.optional(S.String).annotate({ description: 'Model is the model of the Role' })
@@ -1455,13 +1455,13 @@ export const SetRoleBody = S.Struct({
 export const SetRoleResponse = S.Struct({
   "data": S.Struct({
   "context": S.Number.annotate({ description: 'Context is the largest context of a session in tokens, or 0 for no limit' }),
-  "effort": S.String.annotate({ description: 'Effort is the effort level of the Role, or empty for a Harness with no effort levels' }),
+  "effort": S.String.annotate({ description: 'Effort is the effort level of the Role, or empty when the Harness uses its own default or the model has no effort levels' }),
   "harness": S.String.annotate({ description: 'Harness is the agent program of the Role' }),
   "max": S.Number.annotate({ description: 'Max is the number of sessions of the Role that run at the same time' }),
   "model": S.String.annotate({ description: 'Model is the model of the Role' }),
   "moreBindings": S.Array(S.Struct({
   "context": S.Number.annotate({ description: 'Context is the largest context of a session in tokens, or 0 for no limit' }),
-  "effort": S.String.annotate({ description: 'Effort is the effort level of the binding, or empty for a Harness with no effort levels' }),
+  "effort": S.String.annotate({ description: 'Effort is the effort level of the binding, or empty when the Harness uses its own default or the model has no effort levels' }),
   "harness": S.String.annotate({ description: 'Harness is the agent program of the binding' }),
   "id": S.Number.annotate({ description: 'ID is the id of the binding' }),
   "max": S.Number.annotate({ description: 'Max is the number of sessions of the binding that run at the same time' }),
@@ -1489,13 +1489,13 @@ export const ResetRoleParams = S.Struct({
 export const ResetRoleResponse = S.Struct({
   "data": S.Struct({
   "context": S.Number.annotate({ description: 'Context is the largest context of a session in tokens, or 0 for no limit' }),
-  "effort": S.String.annotate({ description: 'Effort is the effort level of the Role, or empty for a Harness with no effort levels' }),
+  "effort": S.String.annotate({ description: 'Effort is the effort level of the Role, or empty when the Harness uses its own default or the model has no effort levels' }),
   "harness": S.String.annotate({ description: 'Harness is the agent program of the Role' }),
   "max": S.Number.annotate({ description: 'Max is the number of sessions of the Role that run at the same time' }),
   "model": S.String.annotate({ description: 'Model is the model of the Role' }),
   "moreBindings": S.Array(S.Struct({
   "context": S.Number.annotate({ description: 'Context is the largest context of a session in tokens, or 0 for no limit' }),
-  "effort": S.String.annotate({ description: 'Effort is the effort level of the binding, or empty for a Harness with no effort levels' }),
+  "effort": S.String.annotate({ description: 'Effort is the effort level of the binding, or empty when the Harness uses its own default or the model has no effort levels' }),
   "harness": S.String.annotate({ description: 'Harness is the agent program of the binding' }),
   "id": S.Number.annotate({ description: 'ID is the id of the binding' }),
   "max": S.Number.annotate({ description: 'Max is the number of sessions of the binding that run at the same time' }),
@@ -2011,7 +2011,7 @@ export const ListAgentsParams = S.Struct({
 
 export const ListAgentsResponse = S.Struct({
   "data": S.Array(S.Struct({
-  "effort": S.String.annotate({ description: 'Effort is the effort level of the session, or empty for a Harness with no effort levels' }),
+  "effort": S.String.annotate({ description: 'Effort is the effort level of the session, or empty when the Harness uses its own default or the model has no effort levels' }),
   "endReason": S.String.annotate({ description: 'EndReason tells why the session ended, for example done or failed. It is empty while the session is live' }),
   "endedAt": S.NullOr(S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/))).annotate({ description: 'EndedAt is the end of the session, or null while the session is live' }),
   "harness": S.String.annotate({ description: 'Harness is the Harness of the session, for example claude-code' }),
@@ -2105,13 +2105,13 @@ export const GetWorkstreamDetailsResponse = S.Struct({
   "createdAt": S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/)).annotate({ description: 'CreatedAt is the creation time of the Workstream issue' }),
   "evergreen": S.Boolean.annotate({ description: 'Evergreen is true when the Workstream is evergreen' }),
   "implementer": S.Struct({
-  "effort": S.String.annotate({ description: 'Effort is the effort level, or empty for a Harness with no effort levels' }),
+  "effort": S.String.annotate({ description: 'Effort is the effort level, or empty when the Harness uses its own default or the model has no effort levels' }),
   "harness": S.String.annotate({ description: 'Harness is the agent program' }),
   "model": S.String.annotate({ description: 'Model is the model' }),
   "own": S.Boolean.annotate({ description: 'Own is true when the Workstream has its own setting, and false when the binding comes from the Role' })
 }).annotate({ description: 'Implementer is the binding of the next Implementer session of a task with no setting of its own' }),
   "lead": S.Struct({
-  "effort": S.String.annotate({ description: 'Effort is the effort level, or empty for a Harness with no effort levels' }),
+  "effort": S.String.annotate({ description: 'Effort is the effort level, or empty when the Harness uses its own default or the model has no effort levels' }),
   "harness": S.String.annotate({ description: 'Harness is the agent program' }),
   "model": S.String.annotate({ description: 'Model is the model' }),
   "own": S.Boolean.annotate({ description: 'Own is true when the Workstream has its own setting, and false when the binding comes from the Role' })
@@ -2120,7 +2120,7 @@ export const GetWorkstreamDetailsResponse = S.Struct({
   "mcpServers": S.Array(S.Number).annotate({ description: 'McpServers are the ids of the MCP servers that the Owner selected for the Workstream, in name order of the servers' }),
   "openTasks": S.Number.annotate({ description: 'OpenTasks is the number of open tasks' }),
   "operator": S.Struct({
-  "effort": S.String.annotate({ description: 'Effort is the effort level, or empty for a Harness with no effort levels' }),
+  "effort": S.String.annotate({ description: 'Effort is the effort level, or empty when the Harness uses its own default or the model has no effort levels' }),
   "harness": S.String.annotate({ description: 'Harness is the agent program' }),
   "model": S.String.annotate({ description: 'Model is the model' }),
   "own": S.Boolean.annotate({ description: 'Own is true when the Workstream has its own setting, and false when the binding comes from the Role' })
@@ -2154,7 +2154,7 @@ export const SetWorkstreamImplementerParams = S.Struct({
 })
 
 export const SetWorkstreamImplementerBody = S.Struct({
-  "effort": S.optional(S.String).annotate({ description: 'Effort is the effort level. It is empty for a Harness with no effort levels.' }),
+  "effort": S.optional(S.String).annotate({ description: 'Effort is the effort level. It is empty when the Harness uses its own default or the model has no effort levels.' }),
   "harness": S.optional(S.String).annotate({ description: 'Harness is the agent program' }),
   "model": S.optional(S.String).annotate({ description: 'Model is the model' })
 }).annotate({ description: 'IssueSetting is the Harness, the model and the effort that the Owner sets for the sessions of a Role in a task or a Workstream.' })
@@ -2180,7 +2180,7 @@ export const SetWorkstreamLeadParams = S.Struct({
 })
 
 export const SetWorkstreamLeadBody = S.Struct({
-  "effort": S.optional(S.String).annotate({ description: 'Effort is the effort level. It is empty for a Harness with no effort levels.' }),
+  "effort": S.optional(S.String).annotate({ description: 'Effort is the effort level. It is empty when the Harness uses its own default or the model has no effort levels.' }),
   "harness": S.optional(S.String).annotate({ description: 'Harness is the agent program' }),
   "model": S.optional(S.String).annotate({ description: 'Model is the model' })
 }).annotate({ description: 'IssueSetting is the Harness, the model and the effort that the Owner sets for the sessions of a Role in a task or a Workstream.' })
@@ -2220,7 +2220,7 @@ export const SetWorkstreamOperatorParams = S.Struct({
 })
 
 export const SetWorkstreamOperatorBody = S.Struct({
-  "effort": S.optional(S.String).annotate({ description: 'Effort is the effort level. It is empty for a Harness with no effort levels.' }),
+  "effort": S.optional(S.String).annotate({ description: 'Effort is the effort level. It is empty when the Harness uses its own default or the model has no effort levels.' }),
   "harness": S.optional(S.String).annotate({ description: 'Harness is the agent program' }),
   "model": S.optional(S.String).annotate({ description: 'Model is the model' })
 }).annotate({ description: 'IssueSetting is the Harness, the model and the effort that the Owner sets for the sessions of a Role in a task or a Workstream.' })
@@ -2348,7 +2348,7 @@ export const ListTasksResponse = S.Struct({
 }).annotate({ description: 'Blocker is an open blocker of a task.' })).annotate({ description: 'BlockedBy are the open blockers of the task' }),
   "depth": S.Number.annotate({ description: 'Depth is 0 for a sub-issue of the Workstream issue, and one more for each level below' }),
   "implementer": S.Union([S.Struct({
-  "effort": S.String.annotate({ description: 'Effort is the effort level. It is empty for a Harness with no effort levels.' }),
+  "effort": S.String.annotate({ description: 'Effort is the effort level. It is empty when the Harness uses its own default or the model has no effort levels.' }),
   "harness": S.String.annotate({ description: 'Harness is the agent program' }),
   "model": S.String.annotate({ description: 'Model is the model' })
 }).annotate({ description: 'IssueSetting is the Harness, the model and the effort that the Owner sets for the sessions of a Role in a task or a Workstream.' }), S.Null]).annotate({ description: 'Implementer is the own Implementer setting of the task, or null when the task has none' }),

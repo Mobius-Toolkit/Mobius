@@ -6,7 +6,7 @@ import "context"
 type ModelChoice struct {
 	// Model is the name of the model
 	Model string `gork:"model"`
-	// Efforts are the effort levels of the model, or empty for a Harness with no effort levels
+	// Efforts are the effort levels of the model, or empty when the model has no effort levels
 	Efforts []string `gork:"efforts"`
 }
 
