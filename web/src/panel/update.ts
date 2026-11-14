@@ -40,6 +40,7 @@ import type { Tab } from "./schemas";
 import { OutMessage as TasksOutMessage } from "./tasks/message";
 import * as TasksModel from "./tasks/model";
 import {
+  open as openTask,
   openSetting as openTaskSetting,
   refresh as refreshTasks,
   reload as reloadTasks,
@@ -93,6 +94,13 @@ const foldTasks = Update.foldChild({
       LoginRequired: () => requestLogin,
       TaskAttached: () => (model) => ({ model }),
     }),
+});
+
+const foldOpenTask = Update.foldChild({
+  update: openTask,
+  read: (model: Model) => Option.some(model.tasks),
+  write: (model, tasks) => ({ ...model, tasks }),
+  toParentMessage: toGotTasksMessage,
 });
 
 const foldAgents = Update.foldChild({
@@ -198,6 +206,11 @@ function enter(model: Model, tab: Tab): UpdateReturn {
   return { model: next, commands: commandsFor(next) };
 }
 
+function select(model: Model, tab: Tab): UpdateReturn {
+  const entered = enter(model, tab);
+  return { ...entered, commands: [...(entered.commands ?? []), ReportTab({ tab })] };
+}
+
 // A change of the Workstreams or of the agents reads the tabs that show them again.
 function reloadTab(model: Model, only: readonly Tab[]): UpdateReturn {
   if (!only.includes(model.tab)) {
@@ -282,11 +295,13 @@ function handle(model: Model, message: Message): UpdateReturn {
     ReceivedBrief: ({ brief }) => ({ model: { ...model, brief } }),
     GotSelectionMessage: ({ message: child }) => foldSelection(model, child),
     AddedSelection: () => ({ model }),
-    SelectedTab: ({ tab }) => {
-      const entered = enter(model, tab);
-      return { ...entered, commands: [...(entered.commands ?? []), ReportTab({ tab })] };
-    },
+    SelectedTab: ({ tab }) => select(model, tab),
     ReceivedTab: ({ tab }) => enter(model, tab),
+    RequestedTask: ({ repository, number }) =>
+      Update.combine(model, [
+        (current) => select(current, "tasks"),
+        foldOpenTask({ repository, number }),
+      ]),
     GotTasksMessage: ({ message: child }) => foldTasks(model, child),
     GotAgentsMessage: ({ message: child }) => foldAgents(model, child),
     GotDetailsMessage: ({ message: child }) => foldDetails(model, child),

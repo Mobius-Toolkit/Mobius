@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import { Command as StoryCommand, given, message, model, story } from "foldkit/story";
+import {
+  Command as StoryCommand,
+  expectOutMessage,
+  given,
+  message,
+  model,
+  story,
+} from "foldkit/story";
 import {
   AnswerInboxItem,
   ApproveAction,
@@ -20,7 +27,7 @@ import {
   ToggleVoice,
   WaitToRetry,
 } from "./commands";
-import { Message } from "./message";
+import { Message, OutMessage } from "./message";
 import { initialModel, retryDelays, type Model, type Waiting } from "./model";
 import type { ChatMessage, Draft, InboxItem, PendingAction, Queued } from "./schemas";
 import { enqueue, stopChat, update } from "./update";
@@ -1664,6 +1671,17 @@ describe("chat update story tests", () => {
     it("scrolls to the first blocking todo of a pull request", () => {
       const result = update(createTestModel(), Message.BlockingTodoClicked({ id: 12 }));
       expect(described(result.commands)).toEqual(described([ShowBlockingTodo({ id: 12 })]));
+    });
+  });
+
+  describe("a task card", () => {
+    it("gives the repository and the number of the task to the parent", () => {
+      story(
+        update,
+        given(createTestModel()),
+        message(Message.ClickedTaskCard({ repository: "owner/shop", number: 71 })),
+        expectOutMessage(OutMessage.TaskOpened({ repository: "owner/shop", number: 71 })),
+      );
     });
   });
 });

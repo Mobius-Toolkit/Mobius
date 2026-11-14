@@ -38,6 +38,8 @@ import {
   type Failure,
   itemReference,
   type Model,
+  taskOfLink,
+  type TaskRef,
   type Waiting,
 } from "./model";
 import type { ChatMessage, InboxItem, PendingAction } from "./schemas";
@@ -103,6 +105,7 @@ function renderDaySeparator(h: H, key: string, label: string): Html {
 function renderInboxItemCard(
   h: H,
   item: { reference?: string; title: string; reason?: string; link?: string },
+  tasks: readonly TaskRef[],
 ): Html {
   const lines = [
     item.reference
@@ -114,6 +117,17 @@ function renderInboxItemCard(
   const cardClass = "grid min-w-0 gap-0.5 rounded-lg border bg-card px-2 py-1.5 text-sm";
   if (!item.link) {
     return h.div([h.Class(cardClass)], lines);
+  }
+  const task = taskOfLink(item.link, tasks);
+  if (task) {
+    return h.button(
+      [
+        h.Type("button"),
+        h.Class(`${cardClass} text-left hover:bg-accent`),
+        h.OnClick(Message.ClickedTaskCard({ repository: task.repository, number: task.number })),
+      ],
+      lines,
+    );
   }
   return h.a(
     [
@@ -390,6 +404,7 @@ function renderMessage(
   open: boolean,
   rows: InboxItem[],
   timeOf: TimeOfMessage,
+  tasks: readonly TaskRef[],
 ): Html {
   if (message.question) {
     return renderQuestionCard(
@@ -445,7 +460,7 @@ function renderMessage(
           isOwner ? renderOwnerStatus(h, message) : h.empty,
         ],
       ),
-      ...(message.inboxItems || []).map((item) => renderInboxItemCard(h, item)),
+      ...(message.inboxItems || []).map((item) => renderInboxItemCard(h, item, tasks)),
       ...message.selections.map((selection) =>
         renderSelectionCard(h, selection, { time: timeOf(selection.messageId) }),
       ),
@@ -487,6 +502,7 @@ function renderQueuedMessage(
   failure: Failure | null,
   deletable: boolean,
   timeOf: TimeOfMessage,
+  tasks: readonly TaskRef[],
 ): Html {
   return h.div(
     [
@@ -518,7 +534,7 @@ function renderQueuedMessage(
               ),
         ],
       ),
-      ...(item.inboxItems || []).map((inboxItem) => renderInboxItemCard(h, inboxItem)),
+      ...(item.inboxItems || []).map((inboxItem) => renderInboxItemCard(h, inboxItem, tasks)),
       ...item.selections.map((selection) =>
         renderSelectionCard(h, selection, { time: timeOf(selection.messageId) }),
       ),
@@ -1367,7 +1383,7 @@ export function renderAnswerDialog(h: H, model: Model): Html {
   });
 }
 
-export function view(model: Model, h: H): Html {
+export function view(model: Model, h: H, tasks: readonly TaskRef[]): Html {
   beginMarkdownRender();
   const messages = model.messages;
   const timeOf: TimeOfMessage = (id) => messages.find((message) => message.id === id)?.time;
@@ -1433,7 +1449,9 @@ export function view(model: Model, h: H): Html {
             if (idx === 0 || label !== prevLabel) {
               items.push(renderDaySeparator(h, `day-${msg.id}`, label));
             }
-            items.push(renderMessage(h, msg, model.openEvents.includes(msg.id), rows, timeOf));
+            items.push(
+              renderMessage(h, msg, model.openEvents.includes(msg.id), rows, timeOf, tasks),
+            );
             return items;
           }),
           ...pending.flatMap((queued, idx) => {
@@ -1451,6 +1469,7 @@ export function view(model: Model, h: H): Html {
                 model.attempt?.id === queued.id ? model.attempt : null,
                 !queued.sent && (queued !== next || model.attempt?.id === queued.id),
                 timeOf,
+                tasks,
               ),
             );
             return items;

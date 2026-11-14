@@ -19,6 +19,18 @@ import {
   Workstream,
 } from "./schemas";
 
+export type TaskRef = { readonly repository: string; readonly number: number };
+
+const issueLink = /^https:\/\/github\.com\/([^/]+\/[^/]+)\/issues\/(\d+)$/;
+
+// The open task that the issue link of an attached card names.
+export function taskOfLink(link: string | undefined, tasks: readonly TaskRef[]) {
+  const match = link === undefined ? null : issueLink.exec(link);
+  return match
+    ? tasks.find((task) => task.repository === match[1] && task.number === Number(match[2]))
+    : undefined;
+}
+
 export const retryDelays = [2000, 5000, 10_000, 30_000];
 
 // A pull request, a todo and an owner action with a pull request show the pull request. Each other item shows its

@@ -3487,10 +3487,9 @@ test.describe("the Chat button of a task row", () => {
     const bubble = main.locator("[data-message]", { hasText: text });
     await expect(bubble).toHaveCount(1);
     await expect(main.locator("[data-queued]")).toHaveCount(0);
-    const link = bubble.getByRole("link", { name: /Order the bark/ });
-    await expect(link).toHaveAttribute("href", issue);
-    await expect(link).toContainText("#70");
-    await expect(link).toContainText(state);
+    const taskCard = bubble.getByRole("button", { name: /Order the bark/ });
+    await expect(taskCard).toContainText("#70");
+    await expect(taskCard).toContainText(state);
   });
 
   test("closes the Tasks sheet of a phone and shows the card in the composer", async ({ page }) => {
@@ -3527,6 +3526,8 @@ const openTaskDetail = async (page: Page, device: "desktop" | "phone") => {
   }
   await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
   await page
+    .getByRole("tabpanel", { name: "Tasks" })
+    .filter({ visible: true })
     .getByRole("button", { name: /#71 Spread the bark/ })
     .filter({ visible: true })
     .click();
@@ -3731,10 +3732,7 @@ test.describe("the detail view of a task", () => {
         ]);
       const bubble = page.getByRole("main").locator("[data-message]", { hasText: text });
       await expect(bubble).toHaveCount(1);
-      await expect(bubble.getByRole("link", { name: /Spread the bark/ })).toHaveAttribute(
-        "href",
-        issue,
-      );
+      await expect(bubble.getByRole("button", { name: /Spread the bark/ })).toBeVisible();
       await expect(view).toHaveValue("");
       await expect(page.getByRole("button", { name: "Back to the tasks" })).toBeVisible();
     });
@@ -3755,6 +3753,8 @@ test.describe("the detail view of a task", () => {
 
       await page.getByRole("button", { name: "Back to the tasks" }).click();
       await page
+        .getByRole("tabpanel", { name: "Tasks" })
+        .filter({ visible: true })
         .getByRole("button", { name: /#71 Spread the bark/ })
         .filter({ visible: true })
         .click();
@@ -3780,6 +3780,8 @@ test.describe("the detail view of a task", () => {
       await page.goto("/workstreams/plants/garden/19");
       await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
       await page
+        .getByRole("tabpanel", { name: "Tasks" })
+        .filter({ visible: true })
         .getByRole("button", { name: /#71 Spread the bark/ })
         .filter({ visible: true })
         .click();
@@ -3816,5 +3818,149 @@ test.describe("the detail view of a task", () => {
       await expect(sheet.getByRole("heading", { name: "#71 Spread the bark" })).toBeVisible();
       await expect(sheet.getByRole("button", { name: "Back to the tasks" })).toBeVisible();
     });
+  });
+});
+
+const cardsText = "About these cards.";
+
+// The Lead chat of plants/garden#19 and the Coordinator chat get a sent message with a task, a pull request and an
+// issue that is not a task.
+async function routeTaskCards(page: Page) {
+  await page.route("**/api/chat?*", async (route) => {
+    const response = await route.fetch();
+    const url = new URL(route.request().url());
+    const body = (await response.json()) as { data: { messages: Record<string, unknown>[] } };
+    if (!url.searchParams.has("before")) {
+      body.data.messages.push({
+        id: 1_000_000,
+        action: null,
+        author: "Owner",
+        browserId: "",
+        cancelledAt: null,
+        deliveredAt: "2026-10-15T12:00:00Z",
+        failedAt: null,
+        images: 0,
+        inboxItems: [
+          {
+            reference: "#71",
+            title: "Spread the bark",
+            reason: "open",
+            link: "https://github.com/plants/garden/issues/71",
+          },
+          {
+            reference: "PR #85",
+            title: "Bark on the beds",
+            reason: "open",
+            link: "https://github.com/plants/garden/pull/85",
+          },
+          {
+            reference: "#999",
+            title: "Water the roses",
+            reason: "open",
+            link: "https://github.com/plants/garden/issues/999",
+          },
+        ],
+        selections: [],
+        organization: url.searchParams.get("organization") ?? "",
+        question: null,
+        repository: url.searchParams.get("repository") ?? "",
+        stoppedAt: null,
+        voice: false,
+        text: cardsText,
+        time: "2026-10-15T12:00:00Z",
+        workstream: Number(url.searchParams.get("workstream") ?? 0),
+      });
+    }
+    await route.fulfill({ response, json: body });
+  });
+  await page.route("**/api/workstreams/plants/garden/19/tasks/plants/garden/71", (route) =>
+    route.fulfill({
+      json: {
+        data: {
+          body: "### Instructions\n- Wear protective gloves.",
+          pullRequest: null,
+          pullRequestUrl: null,
+        },
+      },
+    }),
+  );
+}
+
+const cardsBubble = (page: Page) =>
+  page.getByRole("main").locator("[data-message]", { hasText: cardsText });
+
+test.describe("a task card of the Lead chat", () => {
+  test("opens the detail view of the task in the side panel, and the back button shows the list", async ({
+    page,
+  }) => {
+    await routeTaskCards(page);
+    await page.goto("/workstreams/plants/garden/19");
+    const panel = page.getByRole("tabpanel", { name: "Tasks" }).filter({ visible: true });
+    const card = cardsBubble(page).getByRole("button", { name: /Spread the bark/ });
+    await card.click();
+    await expect(panel.getByRole("heading", { name: "#71 Spread the bark" })).toBeVisible();
+    await expect(panel.getByText("Wear protective gloves.")).toBeVisible();
+
+    await panel.getByRole("button", { name: "Back to the tasks" }).click();
+    await expect(panel.getByRole("button", { name: /#71 Spread the bark/ })).toBeVisible();
+    await expect(panel.getByRole("heading", { name: "#71 Spread the bark" })).toHaveCount(0);
+
+    await card.click();
+    await expect(panel.getByRole("heading", { name: "#71 Spread the bark" })).toBeVisible();
+  });
+
+  test("selects the Tasks tab when the Agents tab is open", async ({ page }) => {
+    await routeTaskCards(page);
+    await page.goto("/workstreams/plants/garden/19");
+    const card = cardsBubble(page).getByRole("button", { name: /Spread the bark/ });
+    await expect(card).toBeVisible();
+    await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
+    await expect(
+      page.getByRole("tab", { name: "Agents" }).filter({ visible: true }),
+    ).toHaveAttribute("aria-selected", "true");
+    await card.click();
+    await expect(
+      page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }),
+    ).toHaveAttribute("aria-selected", "true");
+    await expect(
+      page.getByRole("heading", { name: "#71 Spread the bark" }).filter({ visible: true }),
+    ).toBeVisible();
+  });
+
+  test("keeps a pull request and an issue that is not a task as links", async ({ page }) => {
+    await routeTaskCards(page);
+    await page.goto("/workstreams/plants/garden/19");
+    await expect(cardsBubble(page).getByRole("button", { name: /Spread the bark/ })).toBeVisible();
+    const pullRequest = cardsBubble(page).getByRole("link", { name: /Bark on the beds/ });
+    await expect(pullRequest).toHaveAttribute("href", "https://github.com/plants/garden/pull/85");
+    await expect(pullRequest).toHaveAttribute("target", "_blank");
+    const other = cardsBubble(page).getByRole("link", { name: /Water the roses/ });
+    await expect(other).toHaveAttribute("href", "https://github.com/plants/garden/issues/999");
+  });
+
+  test("keeps a card of the Coordinator chat as a link", async ({ page }) => {
+    await routeTaskCards(page);
+    await page.goto("/chat");
+    const coordinator = cardsBubble(page).getByRole("link", { name: /Spread the bark/ });
+    await expect(coordinator).toHaveAttribute("href", "https://github.com/plants/garden/issues/71");
+    await expect(coordinator).toHaveAttribute("target", "_blank");
+    await expect(cardsBubble(page).getByRole("button")).toHaveCount(0);
+  });
+
+  test("opens the Tasks sheet of a phone on the detail view, and the back button shows the list", async ({
+    page,
+  }) => {
+    await routeTaskCards(page);
+    await page.setViewportSize(phone);
+    await page.goto("/workstreams/plants/garden/19");
+    await cardsBubble(page)
+      .getByRole("button", { name: /Spread the bark/ })
+      .click();
+    const sheet = page.getByRole("dialog", { name: "Tasks" });
+    await expect(sheet.getByRole("heading", { name: "#71 Spread the bark" })).toBeVisible();
+    await expect(sheet.getByText("Wear protective gloves.")).toBeVisible();
+
+    await sheet.getByRole("button", { name: "Back to the tasks" }).click();
+    await expect(sheet.getByRole("button", { name: /#71 Spread the bark/ })).toBeVisible();
   });
 });

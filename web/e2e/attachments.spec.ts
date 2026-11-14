@@ -170,7 +170,7 @@ test("the draft keeps its text and image after a reload, and Chat adds the item 
     .toEqual([["This is the new plan page.", 1, 1]]);
 });
 
-test("the bubble of a sent message shows the card of the Inbox item with its link", async ({
+test("the bubble of a sent message shows the card of the Inbox item, a button for a task of the Workstream", async ({
   page,
 }) => {
   const main = page.getByRole("main");
@@ -236,11 +236,9 @@ test("the bubble of a sent message shows the card of the Inbox item with its lin
   const bubble = main.locator("[data-message]", { hasText: text });
   await expect(bubble).toHaveCount(1);
   await expect(main.locator("[data-queued]")).toHaveCount(0);
-  const card = bubble.getByRole("link", { name: /Add plan model/ });
-  await expect(card).toHaveAttribute("href", `${link}/issues/41`);
+  const card = bubble.getByRole("button", { name: /Add plan model/ });
   await expect(card).toContainText("#41");
   await expect(card).toContainText(stopped.reason);
-  await expect(card).toHaveAttribute("target", "_blank");
   await expect(main.locator("form").getByRole("button", { name: /^Remove #/ })).toHaveCount(0);
 });
 
@@ -567,11 +565,8 @@ async function openTaskView(page: Page, device: string) {
     await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
   }
   await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
-  await page
-    .getByRole("button", { name: /#71 Spread the bark/ })
-    .filter({ visible: true })
-    .click();
   const view = page.getByRole("tabpanel", { name: "Tasks" }).filter({ visible: true });
+  await view.getByRole("button", { name: /#71 Spread the bark/ }).click();
   await expect(view.getByText("Wear protective gloves.")).toBeVisible();
   await expect(page.locator("#side-task-input")).toBeEditable();
   return view;
