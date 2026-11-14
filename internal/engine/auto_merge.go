@@ -255,7 +255,7 @@ const comparisonFileLimit = 300
 // A head that is behind the default branch with no common file does not wait and keeps its approval, because GitHub
 // merges it with no text conflict. A comparison of comparisonFileLimit files or more can be incomplete, so it counts as
 // a common file.
-func (e *Engine) updateForMerge(ctx context.Context, repository github.Repository, pullRequest *gh.PullRequest) (bool, error) {
+func (e *Engine) updateForMerge(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) (bool, error) {
 	number := int64(pullRequest.GetNumber())
 	head := pullRequest.GetHead().GetSHA()
 	state := e.pull(repository, number)
@@ -268,6 +268,9 @@ func (e *Engine) updateForMerge(ctx context.Context, repository github.Repositor
 		return false, err
 	}
 	if overlaps, err := e.overlapsDefaultBranch(ctx, repository, number, head); err != nil || !overlaps {
+		return false, err
+	}
+	if err := e.markMergeHead(ctx, task); err != nil {
 		return false, err
 	}
 	err = repository.UpdatePullRequestBranch(ctx, number, head)
@@ -302,10 +305,10 @@ func (e *Engine) overlapsDefaultBranch(ctx context.Context, repository github.Re
 }
 
 // returnForApproval sends the task in ready_for_review back to checks, because its head has no Mobius check run, so the
-// Lead did not approve it. This is the case after the update of the branch in the merge queue. For a task with
-// auto_merge, the old approval ends. A task with no auto_merge keeps the review of the Owner, so Mobius merges it after
-// the new approval of the Lead with no new "Merge" tap. The head goes through the CI and the approval of the Lead
-// again, and keeps its place in the queue.
+// Lead did not approve it. This is the case after the update of the branch, in the merge queue or outside it. For a
+// task with auto_merge, the old approval ends. A task with no auto_merge keeps the review of the Owner, so Mobius
+// merges it after the new approval of the Lead with no new "Merge" tap. The head goes through the CI and the approval
+// of the Lead again. A task in the queue keeps its place. A task outside the queue enters the queue after the approval.
 func (e *Engine) returnForApproval(ctx context.Context, task store.Task) error {
 	if task.AutoMerge == 1 {
 		if err := e.queries.SetTaskRefusedReview(ctx, store.SetTaskRefusedReviewParams{RefusedReview: task.ApprovedReview, ID: task.ID}); err != nil {

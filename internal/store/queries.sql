@@ -296,16 +296,18 @@ ORDER BY tasks.id;
 
 -- name: ListQueuedTasks :many
 SELECT id, queued_at, EXISTS (
-  SELECT 1 FROM ci_breaks WHERE ci_breaks.repository = tasks.repository AND ci_breaks.issue = tasks.issue
-    AND ci_breaks.result = 'hard' AND ci_breaks.ended_at = ''
+  SELECT 1 FROM ci_fix_issues WHERE ci_fix_issues.repository = tasks.repository AND ci_fix_issues.issue = tasks.issue
 ) AS ci FROM tasks WHERE state = 'queued' ORDER BY queued_at, id;
+
+-- name: IsCIFixIssue :one
+SELECT EXISTS (SELECT 1 FROM ci_fix_issues WHERE repository = ? AND issue = ?);
 
 -- name: SetTaskState :execrows
 UPDATE tasks SET state = sqlc.arg(state), state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL
 WHERE id = sqlc.arg(id) AND state = sqlc.arg(from_state);
 
 -- name: HandTaskToHuman :execrows
-UPDATE tasks SET state = 'needs_human', merge_queued_at = NULL, needs_human_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL
+UPDATE tasks SET state = 'needs_human', merge_queued_at = NULL, merge_head_at = NULL, needs_human_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL
 WHERE id = sqlc.arg(id) AND state = sqlc.arg(from_state);
 
 -- name: AddWorkerRestart :one
@@ -322,9 +324,16 @@ SELECT * FROM harness_pauses ORDER BY harness;
 INSERT INTO harness_pauses (harness, paused_until) VALUES (?, ?)
 ON CONFLICT (harness) DO UPDATE SET paused_until = excluded.paused_until;
 
--- name: ListWaitingHarnesses :many
-SELECT DISTINCT harness FROM sessions WHERE ended_at IS NULL AND queue_reason LIKE CAST(sqlc.arg(prefix) AS TEXT) || '%'
-ORDER BY harness;
+-- name: ListWaitingSessions :many
+SELECT s.harness, s.role, s.repository, s.issue, s.workstream_repository, s.workstream,
+       w.title AS workstream_title, i.title AS issue_title
+FROM sessions s
+LEFT JOIN copied_workstreams w ON w.repository = s.workstream_repository AND w.number = s.workstream
+LEFT JOIN copied_issues i
+  ON i.repository = s.workstream_repository AND i.workstream = s.workstream AND i.number = s.issue
+  AND substr(lower(i.repository_url), -(length(s.repository) + 7)) = '/repos/' || lower(s.repository)
+WHERE s.ended_at IS NULL AND s.queue_reason LIKE CAST(sqlc.arg(prefix) AS TEXT) || '%'
+ORDER BY s.id;
 
 -- name: DeleteHarnessPause :exec
 DELETE FROM harness_pauses WHERE harness = ?;
@@ -349,6 +358,10 @@ SELECT * FROM chat_messages WHERE id = ?;
 
 -- name: DismissInboxItem :one
 UPDATE inbox_items SET dismissed_at = ? WHERE id = ?
+RETURNING *;
+
+-- name: SetInboxItemReportLink :one
+UPDATE inbox_items SET report_link = ? WHERE id = ?
 RETURNING *;
 
 -- name: SetInboxItemAnswer :exec
@@ -660,7 +673,7 @@ SELECT count(*) FROM tasks WHERE state IN ('dispatched', 'queued', 'working');
 UPDATE tasks SET fix_rounds = 0, review_rounds = 0, worker_restarts = 0, check_head = NULL WHERE id = ?;
 
 -- name: EndTask :exec
-UPDATE tasks SET state = 'ended', lead_findings = '', merge_queued_at = NULL, state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL WHERE id = ?;
+UPDATE tasks SET state = 'ended', lead_findings = '', merge_queued_at = NULL, merge_head_at = NULL, state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL WHERE id = ?;
 
 -- name: GetEndedTaskWithPullRequest :one
 SELECT * FROM tasks
@@ -699,7 +712,7 @@ UPDATE tasks SET state = 'queued', state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'no
 UPDATE tasks SET worker = ?, worker_input = ? WHERE id = ?;
 
 -- name: StartTaskWorker :execrows
-UPDATE tasks SET state = 'working', merge_queued_at = NULL, worker = sqlc.arg(worker), worker_input = sqlc.arg(worker_input), state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL
+UPDATE tasks SET state = 'working', merge_queued_at = NULL, merge_head_at = NULL, worker = sqlc.arg(worker), worker_input = sqlc.arg(worker_input), state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL
 WHERE id = sqlc.arg(id) AND state = sqlc.arg(from_state);
 
 -- name: SetTaskBranch :exec
@@ -736,8 +749,14 @@ UPDATE tasks SET approved_head = ? WHERE id = ?;
 -- name: SetTaskApprovedReport :exec
 UPDATE tasks SET approved_report = ?, approved_report_head = ? WHERE id = ?;
 
+-- name: SetTaskApprovalChange :exec
+UPDATE tasks SET approved_again_change = ?, approved_again_comment = NULL WHERE id = ?;
+
+-- name: SetTaskApprovedAgainHead :exec
+UPDATE tasks SET approved_again_head = ? WHERE id = ?;
+
 -- name: SetTaskApprovedAgainComment :exec
-UPDATE tasks SET approved_again_head = ?, approved_again_comment = ? WHERE id = ?;
+UPDATE tasks SET approved_again_comment = ? WHERE id = ?;
 
 -- name: SetTaskConflictHead :exec
 UPDATE tasks SET conflict_head = ? WHERE id = ?;
@@ -773,6 +792,43 @@ UPDATE outgoing_changes SET status = ? WHERE id = ?;
 -- name: DeleteFinishedOutgoingChanges :exec
 DELETE FROM outgoing_changes WHERE status <> 'pending' AND julianday(created_at) < julianday(?);
 
+-- name: AddIncomingChange :exec
+INSERT INTO incoming_changes (integration, external_id, repository, number, field, change, actor, metadata, status, created_at)
+VALUES ('github', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (integration, external_id) DO NOTHING;
+
+-- name: HasIncomingChange :one
+SELECT EXISTS (SELECT 1 FROM incoming_changes WHERE integration = 'github' AND external_id = ?);
+
+-- name: ListPendingIncomingChanges :many
+SELECT * FROM incoming_changes WHERE repository = ? AND status = 'pending' ORDER BY id;
+
+-- name: SetIncomingChangeDone :exec
+UPDATE incoming_changes SET status = 'done' WHERE id = ?;
+
+-- name: DeleteDoneIncomingChanges :exec
+DELETE FROM incoming_changes WHERE status = 'done' AND julianday(created_at) < julianday(?);
+
+-- name: AddOwnWrite :one
+INSERT INTO own_writes (integration, repository, number, field, metadata, created_at) VALUES ('github', ?, ?, ?, ?, ?)
+RETURNING id;
+
+-- name: DeleteOwnWrite :exec
+DELETE FROM own_writes WHERE id = ?;
+
+-- name: DeleteOldestOwnWrite :execrows
+DELETE FROM own_writes
+WHERE id = (
+    SELECT o.id FROM own_writes o
+    WHERE o.repository = sqlc.arg(repository) AND o.number = sqlc.arg(number)
+      AND json_extract(o.metadata, '$.label') = CAST(sqlc.arg(label) AS TEXT)
+      AND json_extract(o.metadata, '$.change') = CAST(sqlc.arg(change) AS TEXT)
+    ORDER BY o.id LIMIT 1
+);
+
+-- name: DeleteOldOwnWrites :exec
+DELETE FROM own_writes WHERE julianday(created_at) < julianday(?);
+
 -- name: GetNewestTaskOfPullRequest :one
 SELECT * FROM tasks WHERE repository = ? AND pull_request = ? ORDER BY id DESC LIMIT 1;
 
@@ -800,7 +856,7 @@ WHERE repository = sqlc.arg(workstream_repository) AND issue_repository = sqlc.a
 UPDATE tasks SET judged_at = ? WHERE id = ?;
 
 -- name: StopTask :execrows
-UPDATE tasks SET state = 'stopped', merge_queued_at = NULL, state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL WHERE id = ? AND state NOT IN ('stopped', 'ended');
+UPDATE tasks SET state = 'stopped', merge_queued_at = NULL, merge_head_at = NULL, state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL WHERE id = ? AND state NOT IN ('stopped', 'ended');
 
 -- name: ListLiveTaskRepositories :many
 SELECT DISTINCT repository FROM tasks WHERE state <> 'ended' ORDER BY repository;
@@ -845,17 +901,17 @@ INSERT INTO copied_workstreams (repository, number, title, body, created_at)
 VALUES (?, ?, ?, ?, ?)
 ON CONFLICT (repository, number) DO NOTHING;
 
--- The row stays after the copy of its Workstream goes away. It gives true when it added or changed the row.
--- name: UpsertWorkstream :execrows
+-- The row stays after the copy of its Workstream goes away. It gives 1 when it added the row.
+-- name: AddWorkstream :execrows
 INSERT INTO workstreams (repository, number, autopilot, auto_merge, evergreen, maintenance, skills)
-VALUES (sqlc.arg(repository), sqlc.arg(number), CAST(sqlc.arg(autopilot) AS BOOLEAN), CAST(sqlc.arg(auto_merge) AS BOOLEAN),
-        CAST(sqlc.arg(evergreen) AS BOOLEAN), CAST(sqlc.arg(maintenance) AS BOOLEAN), CAST(sqlc.arg(skills) AS BOOLEAN))
-ON CONFLICT (repository, number) DO UPDATE SET
-    autopilot = excluded.autopilot, auto_merge = excluded.auto_merge, evergreen = excluded.evergreen,
-    maintenance = excluded.maintenance, skills = excluded.skills
-WHERE workstreams.autopilot != excluded.autopilot OR workstreams.auto_merge != excluded.auto_merge
-   OR workstreams.evergreen != excluded.evergreen OR workstreams.maintenance != excluded.maintenance
-   OR workstreams.skills != excluded.skills;
+VALUES (sqlc.arg(repository), sqlc.arg(number), 0, 0, CAST(sqlc.arg(evergreen) AS BOOLEAN), CAST(sqlc.arg(maintenance) AS BOOLEAN),
+        CAST(sqlc.arg(skills) AS BOOLEAN))
+ON CONFLICT (repository, number) DO NOTHING;
+
+-- name: GetWorkstreamSettings :one
+SELECT CAST(autopilot AS BOOLEAN) AS autopilot, CAST(auto_merge AS BOOLEAN) AS auto_merge, CAST(evergreen AS BOOLEAN) AS evergreen,
+       CAST(maintenance AS BOOLEAN) AS maintenance, CAST(skills AS BOOLEAN) AS skills
+FROM workstreams WHERE repository = ? AND number = ?;
 
 -- name: AddCopiedIssue :exec
 INSERT INTO copied_issues (repository, workstream, position, number, parent, parent_repository, title, body, state, author, html_url, repository_url)
@@ -932,6 +988,14 @@ WHERE w.repository = ? AND w.number = ?;
 
 -- name: SetCopiedEvergreen :exec
 UPDATE workstreams SET evergreen = CAST(sqlc.arg(evergreen) AS BOOLEAN)
+WHERE repository = sqlc.arg(repository) AND number = sqlc.arg(number);
+
+-- name: SetCopiedMaintenance :exec
+UPDATE workstreams SET maintenance = CAST(sqlc.arg(maintenance) AS BOOLEAN)
+WHERE repository = sqlc.arg(repository) AND number = sqlc.arg(number);
+
+-- name: SetCopiedSkills :exec
+UPDATE workstreams SET skills = CAST(sqlc.arg(skills) AS BOOLEAN)
 WHERE repository = sqlc.arg(repository) AND number = sqlc.arg(number);
 
 -- name: UpdateCopiedBlockerTitles :execrows
@@ -1456,23 +1520,32 @@ DELETE FROM deployment_needs WHERE task = ?;
 UPDATE tasks SET merge_queued_at = ? WHERE id = ?;
 
 -- name: ClearTaskMergeQueuedAt :execrows
-UPDATE tasks SET merge_queued_at = NULL WHERE id = ? AND merge_queued_at IS NOT NULL;
+UPDATE tasks SET merge_queued_at = NULL, merge_head_at = NULL WHERE id = ? AND merge_queued_at IS NOT NULL;
+
+-- name: SetTaskMergeHeadAt :exec
+UPDATE tasks SET merge_head_at = ? WHERE id = ? AND merge_head_at IS NULL;
 
 -- name: GetMergeQueueHead :one
 SELECT * FROM tasks
 WHERE repository = ? AND state <> 'ended' AND merge_queued_at IS NOT NULL
-ORDER BY julianday(merge_queued_at), id
+ORDER BY merge_head_at IS NULL, NOT EXISTS (
+  SELECT 1 FROM ci_fix_issues WHERE ci_fix_issues.repository = tasks.repository AND ci_fix_issues.issue = tasks.issue
+), julianday(merge_queued_at), id
 LIMIT 1;
 
 -- name: ListMergeQueueTasks :many
 SELECT * FROM tasks
 WHERE repository = ? AND state <> 'ended' AND merge_queued_at IS NOT NULL
-ORDER BY julianday(merge_queued_at), id;
+ORDER BY merge_head_at IS NULL, NOT EXISTS (
+  SELECT 1 FROM ci_fix_issues WHERE ci_fix_issues.repository = tasks.repository AND ci_fix_issues.issue = tasks.issue
+), julianday(merge_queued_at), id;
 
 -- name: ListAllMergeQueueTasks :many
 SELECT id, repository FROM tasks
 WHERE state <> 'ended' AND merge_queued_at IS NOT NULL
-ORDER BY julianday(merge_queued_at), id;
+ORDER BY merge_head_at IS NULL, NOT EXISTS (
+  SELECT 1 FROM ci_fix_issues WHERE ci_fix_issues.repository = tasks.repository AND ci_fix_issues.issue = tasks.issue
+), julianday(merge_queued_at), id;
 
 -- name: GetTask :one
 SELECT * FROM tasks WHERE id = ?;
@@ -1592,6 +1665,22 @@ WHERE EXISTS (SELECT 1 FROM copied_workstreams w WHERE b.repository = w.reposito
    OR EXISTS (SELECT 1 FROM copied_issues i WHERE i.number = b.issue AND i.state = 'open'
               AND substr(lower(i.repository_url), -(length(b.repository) + 7)) = '/repos/' || lower(b.repository))
 ORDER BY b.repository, b.issue, b.role;
+
+-- name: ListWorkstreamSettingUsers :many
+SELECT b.harness, b.role, w.repository, w.number, w.title
+FROM issue_bindings b
+JOIN copied_workstreams w ON b.repository = w.repository AND b.issue = w.number
+ORDER BY w.repository, w.number, b.role;
+
+-- The task can be in the trees of many Workstreams, so it can have many rows.
+-- name: ListTaskSettingUsers :many
+SELECT b.harness, b.role, b.repository, i.number, i.title,
+       i.repository AS workstream_repository, i.workstream, w.title AS workstream_title
+FROM issue_bindings b
+JOIN copied_issues i ON i.number = b.issue AND i.state = 'open'
+  AND substr(lower(i.repository_url), -(length(b.repository) + 7)) = '/repos/' || lower(b.repository)
+JOIN copied_workstreams w ON w.repository = i.repository AND w.number = i.workstream
+ORDER BY b.repository, b.issue, b.role, i.repository, i.workstream;
 
 -- name: UpsertIssueBinding :exec
 INSERT INTO issue_bindings (repository, issue, role, harness, model, effort, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -1848,3 +1937,16 @@ UPDATE implementer_bindings SET harness = ?, model = ?, effort = ?, context = ?,
 
 -- name: DeleteImplementerBinding :exec
 DELETE FROM implementer_bindings WHERE id = ?;
+
+-- name: ListOpenWorkstreamsOfOrganization :many
+SELECT w.repository, w.number, CAST(s.maintenance AS BOOLEAN) AS maintenance, CAST(s.skills AS BOOLEAN) AS skills
+FROM copied_workstreams w
+JOIN workstreams s ON s.repository = w.repository AND s.number = w.number
+WHERE substr(w.repository, 1, length(sqlc.arg(organization)) + 1) = sqlc.arg(organization) || '/'
+ORDER BY w.repository, w.number;
+
+-- name: ListMissingWorkstreamDismissals :many
+SELECT organization, kind FROM missing_workstream_dismissals;
+
+-- name: AddMissingWorkstreamDismissal :exec
+INSERT OR IGNORE INTO missing_workstream_dismissals (organization, kind) VALUES (?, ?);

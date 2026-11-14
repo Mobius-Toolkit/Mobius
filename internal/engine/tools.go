@@ -744,7 +744,14 @@ func (e *Engine) SetIssueRepository(ctx context.Context, organization, repositor
 	if err != nil {
 		return "", err
 	}
-	return found.FullName, e.queries.SetIssueRepositoryChoice(ctx, store.SetIssueRepositoryChoiceParams{Organization: organization, Repository: found.FullName})
+	err = e.queries.SetIssueRepositoryChoice(ctx, store.SetIssueRepositoryChoiceParams{Organization: organization, Repository: found.FullName})
+	if err != nil {
+		return "", err
+	}
+	if err := e.syncMissingWorkstreams(ctx, false); err != nil {
+		log.Printf("check the missing Workstreams: %v", err)
+	}
+	return found.FullName, nil
 }
 
 type noInput struct{}
@@ -1703,12 +1710,12 @@ func (e *Engine) replyThread(ctx context.Context, c caller, repository github.Re
 		if task.WorkstreamRepository != c.repository || task.Workstream != c.workstream || !task.PullRequest.Valid {
 			continue
 		}
-		replied, err := reply(ctx, repository, task.PullRequest.Int64, input.Thread, text)
+		change, replied, err := e.reply(ctx, repository, task.PullRequest.Int64, input.Thread, text)
 		if err != nil {
 			return "", err
 		}
 		if replied {
-			return fmt.Sprintf("Replied to %d.", input.Thread), nil
+			return e.sentOrLater(ctx, change, fmt.Sprintf("Replied to %d.", input.Thread), fmt.Sprintf("Mobius posts the reply to %d later.", input.Thread))
 		}
 	}
 	return "", refuse("%d is not a review thread or a comment of a pull request of a live task in this Workstream.", input.Thread)
@@ -1735,10 +1742,14 @@ func (e *Engine) commentPullRequest(ctx context.Context, c caller, repository gi
 	if err != nil {
 		return "", err
 	}
-	if _, _, err := repository.Client.Issues.CreateComment(ctx, repository.Owner(), repository.Name(), int(input.N), gh.IssueCommentRequest{Body: text}); err != nil {
+	id, err := e.addOutgoingChange(ctx, e.queries, repository.FullName, input.N, 0, commentField, text)
+	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("Commented on #%d.", input.N), nil
+	if err := e.sendNow(ctx, repository, id); err != nil {
+		return "", err
+	}
+	return e.sentOrLater(ctx, id, fmt.Sprintf("Commented on #%d.", input.N), fmt.Sprintf("Mobius posts the comment on #%d later.", input.N))
 }
 
 func checkWorkstream(c caller, input workstreamInput) error {
@@ -1793,7 +1804,7 @@ func (e *Engine) createWorkstream(ctx context.Context, c caller, repository gith
 	if issue.Labels, _, err = repository.Client.Issues.AddLabelsToIssue(ctx, owner, name, issue.GetNumber(), append([]string{workstreamLabel}, input.Labels...)); err != nil {
 		return "", fmt.Errorf("GitHub created #%d, but the add of the Workstream labels failed. Do not create the Workstream again: %w", issue.GetNumber(), err)
 	}
-	if _, err := e.updateCopy(ctx, repository, issue, nil, false, e.labelChangeCount(repository.FullName)); err != nil {
+	if _, err := e.updateCopy(ctx, repository, issue, false, e.labelChangeCount(repository.FullName)); err != nil {
 		log.Printf("copy the new Workstream %s#%d: %v", repository.FullName, issue.GetNumber(), err)
 	}
 	e.publish(Change{Workstreams: true})
@@ -1994,11 +2005,7 @@ func (e *Engine) editBrief(ctx context.Context, c caller, repository github.Repo
 	if err != nil {
 		return "", err
 	}
-	events, err := e.issueEvents(ctx, repository, c.workstream)
-	if err == nil {
-		_, err = e.updateCopy(ctx, repository, issue, events, false, e.labelChangeCount(repository.FullName))
-	}
-	if err != nil {
+	if _, err := e.updateCopy(ctx, repository, issue, false, e.labelChangeCount(repository.FullName)); err != nil {
 		log.Printf("copy the new Brief of %s#%d: %v", repository.FullName, c.workstream, err)
 	}
 	e.publish(Change{Workstreams: true})

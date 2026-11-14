@@ -28,7 +28,7 @@ import {
 import { waitForEvergreen } from "./evergreen.js";
 import { addMcpServer, deleteMcpServers, selectMcpServers } from "./mcp-servers.js";
 import { png } from "./images.js";
-import { selectText } from "./selection.js";
+import { briefOf, openBriefTab, routeBrief, selectText } from "./selection.js";
 import { retryFailure, retryUpgrade, routeUpgrade, upgradeRoute } from "./upgrade.js";
 import { longTaskTitle, routeLongTask, tasksUrl } from "./long-task.js";
 import { countSamples, fakeMicrophone } from "./microphone.js";
@@ -117,6 +117,15 @@ const trayToggle = (page: Page, count: number, expanded: boolean) =>
 // The desktop image and the phone image share the browser storage, so each step sets the choice before it opens the page.
 const setTray = (page: Page, choice: "collapsed" | "expanded") =>
   page.evaluate((value) => localStorage.setItem("tray", value), choice);
+
+const checkupOf = (overrides: Record<string, unknown>) => async (route: Route) => {
+  const response = await route.fetch();
+  const body = (await response.json()) as { data: Record<string, unknown> };
+  await route.fulfill({ response, json: { data: { ...body.data, ...overrides } } });
+};
+
+const isCheckup = (url: URL) =>
+  url.pathname === "/api/checkup" && url.searchParams.get("organization") === "plants";
 
 const fixedTime = new Date("2026-10-15T12:00:00Z");
 
@@ -618,21 +627,35 @@ test("screenshots", async ({ page }) => {
   );
   await screenshot(
     page,
-    "chat-brief-tab",
+    "chat-brief-sheet",
     "/workstreams/plants/garden/19",
     (device) => [
       ...briefFrame(device, 19),
-      page.getByRole("tab", { name: "Brief" }).filter({ visible: true }),
-      page
-        .getByRole("tabpanel", { name: "Brief" })
-        .filter({ visible: true })
-        .getByText("Put bark on the beds."),
+      ...(device === "desktop" ? [page.getByRole("tab", { name: "Brief" })] : []),
+      briefOf(page).getByText("Put bark on the beds."),
+    ],
+    (device) => openBriefTab(page, device).then(() => undefined),
+  );
+  await screenshot(page, "chat-phone-top-bar", "/workstreams/plants/garden/18", (device) => [
+    ...briefFrame(device, 18),
+    page.getByRole("button", { name: "Brief" }).filter({ visible: true }),
+    ...(device === "phone" ? [page.getByRole("button", { name: "Tasks", exact: true })] : []),
+  ]);
+  // The Brief of a phone has its own sheet, so the panel sheet has no tab Brief.
+  await screenshot(
+    page,
+    "chat-panel-sheet",
+    "/workstreams/plants/garden/19",
+    (device) => [
+      ...briefFrame(device, 19),
+      page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }),
+      page.getByRole("tab", { name: "Recurring" }).filter({ visible: true }),
     ],
     async (device) => {
       if (device === "phone") {
         await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
+        await expect(page.getByRole("tab", { name: "Brief" })).toHaveCount(0);
       }
-      await page.getByRole("tab", { name: "Brief" }).filter({ visible: true }).click();
     },
   );
   // The nav shows the Workstream rows before it reads the "needs you" list and the unread counts, the organization dot
@@ -1126,6 +1149,45 @@ test("screenshots", async ({ page }) => {
     },
     clearComposer,
   );
+  const briefText =
+    "Reward repeat customers.\n\n**Scope**\n- Points on every order\n- One **free** plan for staff";
+  await routeBrief(page, "owner/shop", 12, briefText);
+  const briefReady = (device: string) => [
+    ...frame(device, drain, {}, "3"),
+    main.getByText("#42 and #45 wait for your decision."),
+    quotePopover,
+  ];
+  await screenshot(
+    page,
+    "chat-brief-selection-popover",
+    "/workstreams/owner/shop/12",
+    (device) => [...briefReady(device), briefOf(page).getByText("Points on every order")],
+    async (device) => {
+      await expect(main.getByLabel("Message to the Lead")).toBeEditable();
+      const tab = await openBriefTab(page, device);
+      await selectText(tab, "Points on every order");
+    },
+    () => page.evaluate("getSelection().removeAllRanges()"),
+  );
+  await screenshot(
+    page,
+    "chat-brief-selection-composer",
+    "/workstreams/owner/shop/12",
+    (device) => [
+      ...frame(device, drain, {}, "3"),
+      main.getByText("#42 and #45 wait for your decision."),
+      composer.locator("[data-selection-card]"),
+    ],
+    async (device) => {
+      await expect(main.getByLabel("Message to the Lead")).toBeEditable();
+      const tab = await openBriefTab(page, device);
+      await selectText(tab, "Points on every order");
+      await quotePopover.click();
+      await expect(composer.locator("[data-selection-card]")).toHaveCount(1);
+    },
+    clearComposer,
+  );
+  await page.unroute("**/api/workstreams");
   quoteSent = true;
   await screenshot(
     page,
@@ -1311,6 +1373,7 @@ test("screenshots", async ({ page }) => {
       ...(device === "desktop"
         ? [drain, page.getByLabel("Work in another organization")]
         : [page.getByLabel("Upgrade available")]),
+      main.getByText("No messages. Write to start a chat session."),
       page.getByText("Implementer #85 Water the new beds").filter({ visible: true }),
       page.getByText(/closes in 42 min/).filter({ visible: true }),
       page.getByText("kept", { exact: true }).filter({ visible: true }),
@@ -3254,11 +3317,71 @@ test("screenshots", async ({ page }) => {
     "/settings/checkup/plants/workstreams",
     (device) => [
       ...frame(device, release),
-      main.getByRole("heading", { name: "plants/garden", exact: true }),
+      main.getByRole("heading", { name: "plants", exact: true }),
+      main.getByText("Issue repository", { exact: true }),
+      main.getByText("plants/garden", { exact: true }),
       main.getByText("Maintenance Workstream", { exact: true }),
       main.getByText("Skills Workstream", { exact: true }),
     ],
   );
+  const noIssueRepository = {
+    issueRepository: "",
+    issueRepositoryError:
+      'Mobius needs the issue repository of plants. Select it on the Checkup page "Workstreams", or set organizations.plants.issue_repository in config.toml.',
+    issueRepositorySource: "none",
+    maintenanceWorkstream: 0,
+    skillsWorkstream: 0,
+    skillsWorkstreamRepository: "",
+  };
+  await page.route(isCheckup, checkupOf(noIssueRepository));
+  await screenshot(
+    page,
+    "checkup-workstreams-none",
+    "/settings/checkup/plants/workstreams",
+    (device) => [
+      ...frame(device, release),
+      main.getByText("Mobius needs the issue repository of plants.", { exact: false }),
+      main.getByRole("button", { name: "Issue repository None", exact: true }),
+    ],
+  );
+  await screenshot(
+    page,
+    "checkup-workstreams-picker",
+    "/settings/checkup/plants/workstreams",
+    (device) => [
+      ...frame(device, release),
+      page.getByRole("dialog").getByRole("radio", { name: "plants/garden" }),
+      page.getByRole("dialog").getByRole("radio", { name: "plants/mobius-skills" }),
+      page.getByRole("dialog").getByRole("button", { name: "Save" }),
+    ],
+    async () => {
+      await main.getByRole("button", { name: "Issue repository None", exact: true }).click();
+      await page.getByRole("dialog").getByRole("radio", { name: "plants/garden" }).click();
+      await page.mouse.move(0, 0);
+    },
+  );
+  await page.unroute(isCheckup);
+  await page.route(
+    isCheckup,
+    checkupOf({
+      issueRepositorySource: "choice",
+      maintenanceWorkstream: 0,
+      skillRepository: "",
+      skillsWorkstream: 0,
+      skillsWorkstreamRepository: "",
+    }),
+  );
+  await screenshot(
+    page,
+    "checkup-workstreams-no-skill-repository",
+    "/settings/checkup/plants/workstreams",
+    (device) => [
+      ...frame(device, release),
+      main.getByText("Create plants/mobius-skills and give the Mobius App access to it."),
+      main.getByRole("link", { name: "Open GitHub" }),
+    ],
+  );
+  await page.unroute(isCheckup);
   await screenshot(page, "memory-repositories", "/settings/memory", (device) => [
     ...frame(device, release),
     main.getByRole("link", { name: "owner/shop" }),

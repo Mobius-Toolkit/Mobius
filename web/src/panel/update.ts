@@ -2,6 +2,8 @@ import { Option } from "effect";
 import { Command } from "foldkit";
 import type { Command as Cmd } from "foldkit/command";
 import * as Update from "foldkit/update";
+import { chatDraftKey } from "@/lib/draft";
+import * as Selection from "@/ui/selection";
 import { OutMessage as AgentsOutMessage } from "./agents/message";
 import * as AgentsModel from "./agents/model";
 import {
@@ -9,7 +11,7 @@ import {
   reload as reloadAgents,
   update as updateAgents,
 } from "./agents/update";
-import { Navigate, RequestLogin, ReportTab } from "./commands";
+import { AddSelection, Navigate, RequestLogin, ReportTab } from "./commands";
 import { OutMessage as DetailsOutMessage } from "./details/message";
 import * as DetailsModel from "./details/model";
 import {
@@ -22,6 +24,7 @@ import {
   toGotAgentsMessage,
   toGotDetailsMessage,
   toGotRecurringMessage,
+  toGotSelectionMessage,
   toGotTasksMessage,
 } from "./message";
 import type { Model } from "./model";
@@ -46,6 +49,36 @@ type UpdateReturn = Update.Return<Model, Message>;
 const requestLogin: Update.Step<Model, Message> = (model) => ({
   model,
   commands: [RequestLogin()],
+});
+
+const foldSelection = Update.foldChild({
+  update: Selection.update,
+  read: (model: Model) => Option.some(model.selection),
+  write: (model, selection) => ({ ...model, selection }),
+  toParentMessage: toGotSelectionMessage,
+  foldOutMessage: (outMessage) =>
+    Selection.OutMessage.match<Update.Step<Model, Message>>(outMessage, {
+      AddRequested:
+        ({ text, context, part }) =>
+        (model) => ({
+          model,
+          commands: [
+            AddSelection({
+              key: chatDraftKey(model.owner, `${model.owner}/${model.name}`, model.number),
+              selection: {
+                source: "brief",
+                text,
+                context,
+                reference: `#${model.number}`,
+                link: `https://github.com/${model.owner}/${model.name}/issues/${model.number}`,
+                part,
+                messageId: 0,
+                messageAuthor: "",
+              },
+            }),
+          ],
+        }),
+    }),
 });
 
 const foldTasks = Update.foldChild({
@@ -153,6 +186,7 @@ function enter(model: Model, tab: Tab): UpdateReturn {
   const next: Model = {
     ...model,
     tab,
+    selection: null,
     tasks: tab === "tasks" ? TasksModel.initialModel(workstream) : model.tasks,
     agents: tab === "agents" ? AgentsModel.initialModel(workstream) : model.agents,
     details: tab === "details" ? DetailsModel.initialModel(workstream) : model.details,
@@ -195,6 +229,8 @@ export function update(model: Model, message: Message): UpdateReturn {
         ? reloadTab(model, ["recurring"])
         : { model },
     ReceivedBrief: ({ brief }) => ({ model: { ...model, brief } }),
+    GotSelectionMessage: ({ message: child }) => foldSelection(model, child),
+    AddedSelection: () => ({ model }),
     SelectedTab: ({ tab }) => {
       const entered = enter(model, tab);
       return { ...entered, commands: [...(entered.commands ?? []), ReportTab({ tab })] };

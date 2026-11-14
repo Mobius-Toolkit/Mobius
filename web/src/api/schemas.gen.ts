@@ -266,7 +266,7 @@ export const GetChatResponse = S.Struct({
   "dismissedAt": S.NullOr(S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/))).annotate({ description: 'DismissedAt is the time when the Owner dismissed the item, or null' }),
   "id": S.Number.annotate({ description: 'ID increases with each new item' }),
   "issue": S.Number.annotate({ description: 'Issue is the number of the issue of the item' }),
-  "kind": S.Literals(['question', 'Lead failed', 'ready for review', 'stopped', 'lost', 'full disk', 'approval', 'todo', 'access check', 'tool upgrade', 'owner action']).annotate({ description: 'Kind tells what the item is about: question for a question of the Lead on an issue, Lead failed for a message that the Lead did not take, ready for review for a pull request of a task, stopped for a task that a person must continue (a stale pull request or a session that Mobius stopped after its hangs), lost for a task that Mobius lost, and full disk for a local check that waits for free disk space, and approval for a tool call of an agent that waits for the approval of the Owner, and todo for a deployment need of a pull request, and access check for a Harness that has no access to the model of a Role, and tool upgrade for an automatic upgrade of an npm package of a Harness that failed' }),
+  "kind": S.Literals(['question', 'Lead failed', 'ready for review', 'stopped', 'lost', 'full disk', 'approval', 'todo', 'access check', 'tool upgrade', 'owner action', 'missing maintenance', 'missing skills']).annotate({ description: 'Kind tells what the item is about: question for a question of the Lead on an issue, Lead failed for a message that the Lead did not take, ready for review for a pull request of a task, stopped for a task that a person must continue (a stale pull request or a session that Mobius stopped after its hangs), lost for a task that Mobius lost, and full disk for a local check that waits for free disk space, and approval for a tool call of an agent that waits for the approval of the Owner, and todo for a deployment need of a pull request, and access check for a Harness that has no access to the model of a Role, and tool upgrade for an automatic upgrade of an npm package of a Harness that failed, and missing maintenance for an organization with no Maintenance Workstream, and missing skills for an organization with no Skills Workstream' }),
   "link": S.String.annotate({ description: 'Link is the GitHub URL of the issue, or empty' }),
   "mergeQueuePlace": S.NullOr(S.Number).annotate({ description: 'MergeQueuePlace is the place of the task in the merge queue of its repository, from 1, or null when the task is not in the queue. It is null for each kind other than ready for review' }),
   "mergeQueueSize": S.Number.annotate({ description: 'MergeQueueSize is the number of tasks in the merge queue of that repository, or 0 when mergeQueuePlace is null' }),
@@ -682,7 +682,7 @@ export const ListInboxResponse = S.Struct({
   "dismissedAt": S.NullOr(S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/))).annotate({ description: 'DismissedAt is the time when the Owner dismissed the item, or null' }),
   "id": S.Number.annotate({ description: 'ID increases with each new item' }),
   "issue": S.Number.annotate({ description: 'Issue is the number of the issue of the item' }),
-  "kind": S.Literals(['question', 'Lead failed', 'ready for review', 'stopped', 'lost', 'full disk', 'approval', 'todo', 'access check', 'tool upgrade', 'owner action']).annotate({ description: 'Kind tells what the item is about: question for a question of the Lead on an issue, Lead failed for a message that the Lead did not take, ready for review for a pull request of a task, stopped for a task that a person must continue (a stale pull request or a session that Mobius stopped after its hangs), lost for a task that Mobius lost, and full disk for a local check that waits for free disk space, and approval for a tool call of an agent that waits for the approval of the Owner, and todo for a deployment need of a pull request, and access check for a Harness that has no access to the model of a Role, and tool upgrade for an automatic upgrade of an npm package of a Harness that failed' }),
+  "kind": S.Literals(['question', 'Lead failed', 'ready for review', 'stopped', 'lost', 'full disk', 'approval', 'todo', 'access check', 'tool upgrade', 'owner action', 'missing maintenance', 'missing skills']).annotate({ description: 'Kind tells what the item is about: question for a question of the Lead on an issue, Lead failed for a message that the Lead did not take, ready for review for a pull request of a task, stopped for a task that a person must continue (a stale pull request or a session that Mobius stopped after its hangs), lost for a task that Mobius lost, and full disk for a local check that waits for free disk space, and approval for a tool call of an agent that waits for the approval of the Owner, and todo for a deployment need of a pull request, and access check for a Harness that has no access to the model of a Role, and tool upgrade for an automatic upgrade of an npm package of a Harness that failed, and missing maintenance for an organization with no Maintenance Workstream, and missing skills for an organization with no Skills Workstream' }),
   "link": S.String.annotate({ description: 'Link is the GitHub URL of the issue, or empty' }),
   "mergeQueuePlace": S.NullOr(S.Number).annotate({ description: 'MergeQueuePlace is the place of the task in the merge queue of its repository, from 1, or null when the task is not in the queue. It is null for each kind other than ready for review' }),
   "mergeQueueSize": S.Number.annotate({ description: 'MergeQueueSize is the number of tasks in the merge queue of that repository, or 0 when mergeQueuePlace is null' }),
@@ -792,7 +792,7 @@ export const DoneInboxItemResponse = S.Struct({
   "dismissedAt": S.NullOr(S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/))).annotate({ description: 'DismissedAt is the time when the Owner dismissed the item, or null' }),
   "id": S.Number.annotate({ description: 'ID increases with each new item' }),
   "issue": S.Number.annotate({ description: 'Issue is the number of the issue of the item' }),
-  "kind": S.Literals(['question', 'Lead failed', 'ready for review', 'stopped', 'lost', 'full disk', 'approval', 'todo', 'access check', 'tool upgrade', 'owner action']).annotate({ description: 'Kind tells what the item is about: question for a question of the Lead on an issue, Lead failed for a message that the Lead did not take, ready for review for a pull request of a task, stopped for a task that a person must continue (a stale pull request or a session that Mobius stopped after its hangs), lost for a task that Mobius lost, and full disk for a local check that waits for free disk space, and approval for a tool call of an agent that waits for the approval of the Owner, and todo for a deployment need of a pull request, and access check for a Harness that has no access to the model of a Role, and tool upgrade for an automatic upgrade of an npm package of a Harness that failed' }),
+  "kind": S.Literals(['question', 'Lead failed', 'ready for review', 'stopped', 'lost', 'full disk', 'approval', 'todo', 'access check', 'tool upgrade', 'owner action', 'missing maintenance', 'missing skills']).annotate({ description: 'Kind tells what the item is about: question for a question of the Lead on an issue, Lead failed for a message that the Lead did not take, ready for review for a pull request of a task, stopped for a task that a person must continue (a stale pull request or a session that Mobius stopped after its hangs), lost for a task that Mobius lost, and full disk for a local check that waits for free disk space, and approval for a tool call of an agent that waits for the approval of the Owner, and todo for a deployment need of a pull request, and access check for a Harness that has no access to the model of a Role, and tool upgrade for an automatic upgrade of an npm package of a Harness that failed, and missing maintenance for an organization with no Maintenance Workstream, and missing skills for an organization with no Skills Workstream' }),
   "link": S.String.annotate({ description: 'Link is the GitHub URL of the issue, or empty' }),
   "mergeQueuePlace": S.NullOr(S.Number).annotate({ description: 'MergeQueuePlace is the place of the task in the merge queue of its repository, from 1, or null when the task is not in the queue. It is null for each kind other than ready for review' }),
   "mergeQueueSize": S.Number.annotate({ description: 'MergeQueueSize is the number of tasks in the merge queue of that repository, or 0 when mergeQueuePlace is null' }),
@@ -872,7 +872,7 @@ export const MergeInboxItemResponse = S.Struct({
   "dismissedAt": S.NullOr(S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/))).annotate({ description: 'DismissedAt is the time when the Owner dismissed the item, or null' }),
   "id": S.Number.annotate({ description: 'ID increases with each new item' }),
   "issue": S.Number.annotate({ description: 'Issue is the number of the issue of the item' }),
-  "kind": S.Literals(['question', 'Lead failed', 'ready for review', 'stopped', 'lost', 'full disk', 'approval', 'todo', 'access check', 'tool upgrade', 'owner action']).annotate({ description: 'Kind tells what the item is about: question for a question of the Lead on an issue, Lead failed for a message that the Lead did not take, ready for review for a pull request of a task, stopped for a task that a person must continue (a stale pull request or a session that Mobius stopped after its hangs), lost for a task that Mobius lost, and full disk for a local check that waits for free disk space, and approval for a tool call of an agent that waits for the approval of the Owner, and todo for a deployment need of a pull request, and access check for a Harness that has no access to the model of a Role, and tool upgrade for an automatic upgrade of an npm package of a Harness that failed' }),
+  "kind": S.Literals(['question', 'Lead failed', 'ready for review', 'stopped', 'lost', 'full disk', 'approval', 'todo', 'access check', 'tool upgrade', 'owner action', 'missing maintenance', 'missing skills']).annotate({ description: 'Kind tells what the item is about: question for a question of the Lead on an issue, Lead failed for a message that the Lead did not take, ready for review for a pull request of a task, stopped for a task that a person must continue (a stale pull request or a session that Mobius stopped after its hangs), lost for a task that Mobius lost, and full disk for a local check that waits for free disk space, and approval for a tool call of an agent that waits for the approval of the Owner, and todo for a deployment need of a pull request, and access check for a Harness that has no access to the model of a Role, and tool upgrade for an automatic upgrade of an npm package of a Harness that failed, and missing maintenance for an organization with no Maintenance Workstream, and missing skills for an organization with no Skills Workstream' }),
   "link": S.String.annotate({ description: 'Link is the GitHub URL of the issue, or empty' }),
   "mergeQueuePlace": S.NullOr(S.Number).annotate({ description: 'MergeQueuePlace is the place of the task in the merge queue of its repository, from 1, or null when the task is not in the queue. It is null for each kind other than ready for review' }),
   "mergeQueueSize": S.Number.annotate({ description: 'MergeQueueSize is the number of tasks in the merge queue of that repository, or 0 when mergeQueuePlace is null' }),
@@ -1123,8 +1123,18 @@ export const DisconnectMcpOAuthParams = S.Struct({
 export const ListPausesResponse = S.Struct({
   "data": S.Array(S.Struct({
   "harness": S.String.annotate({ description: 'Harness is the name of the paused Harness' }),
-  "inUse": S.Boolean.annotate({ description: 'InUse tells that a Role uses the Harness, or that an open session waits for the pause' }),
-  "pausedUntil": S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/)).annotate({ description: 'PausedUntil is the end of the pause' })
+  "pausedUntil": S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/)).annotate({ description: 'PausedUntil is the end of the pause' }),
+  "users": S.Array(S.Struct({
+  "binding": S.String.annotate({ description: 'Binding names the binding as \"<harness> · <model>\" for a Role with more than one binding, and is empty for the other users' }),
+  "kind": S.Literals(['role', 'workstream', 'task', 'session']).annotate({ description: 'Kind is role for a Role binding, workstream for a setting of a Workstream, task for a setting of a task, and session for an open session that waits for the pause' }),
+  "number": S.Number.annotate({ description: 'Number is the number of the issue of the user. It is 0 for a Role binding and for a session with no Workstream' }),
+  "repository": S.String.annotate({ description: 'Repository is the repository of the issue of the user: the Workstream or the task, or the Workstream of a session with no task. It is empty for a Role binding and for a session with no Workstream' }),
+  "role": S.String.annotate({ description: 'Role is the name of the Role, for example implementer' }),
+  "title": S.String.annotate({ description: 'Title is the title of the issue of the user' }),
+  "workstream": S.Number.annotate({ description: 'Workstream is the number of the Workstream issue of the user. It is 0 for a Role binding and for a session with no Workstream' }),
+  "workstreamRepository": S.String.annotate({ description: 'WorkstreamRepository is the repository of the Workstream of the user' }),
+  "workstreamTitle": S.String.annotate({ description: 'WorkstreamTitle is the title of the Workstream of the user' })
+}).annotate({ description: 'PauseUser is a user of a paused Harness.' })).annotate({ description: 'Users are the Role bindings, the settings and the open sessions that use the Harness. The list is empty when nothing uses the Harness' })
 }).annotate({ description: 'Pause is the usage-limit pause of a Harness.' })).annotate({ description: 'Data is the payload of the response' })
 }).annotate({ description: 'Envelope is the body of each success response.' })
 
@@ -1979,9 +1989,9 @@ export const TranscribeResponse = S.Struct({
 export const ListWorkstreamsResponse = S.Struct({
   "data": S.Array(S.Struct({
   "allTasksClosed": S.Boolean.annotate({ description: 'AllTasksClosed is true when the Workstream issue has sub-issues and each one is closed' }),
-  "autopilot": S.Literals(['off', 'start', 'merge', 'start_and_merge']).annotate({ description: 'Autopilot is the Autopilot level: a trusted user added mobius:autopilot last for the start part, and mobius:auto-merge last for the merge part' }),
+  "autopilot": S.Literals(['off', 'start', 'merge', 'start_and_merge']).annotate({ description: 'Autopilot is the Autopilot level: mobius:autopilot is the start part, and mobius:auto-merge is the merge part' }),
   "brief": S.String.annotate({ description: 'Brief is the body of the Workstream issue: the goal, the scope and the limits of the Workstream' }),
-  "evergreen": S.Boolean.annotate({ description: 'Evergreen is true when the Workstream issue has mobius:evergreen' }),
+  "evergreen": S.Boolean.annotate({ description: 'Evergreen is true when the Workstream is evergreen' }),
   "number": S.Number.annotate({ description: 'Number is the number of the Workstream issue' }),
   "readyToMerge": S.Boolean.annotate({ description: 'ReadyToMerge is true when the pull request of at least one task of the Workstream waits for the Owner to merge it' }),
   "repository": S.String.annotate({ description: 'Repository is the repository of the Workstream issue, as \"owner\/name\"' }),
@@ -2027,7 +2037,7 @@ export const ListAgentsResponse = S.Struct({
 
 
 /**
- * SetAutopilot sets the Autopilot level of the Workstream. Mobius changes mobius:autopilot and mobius:auto-merge with the user token of the Owner, so the Owner must authorize the Mobius App first. It returns 409 with the steps when the Owner did not.
+ * SetAutopilot sets the Autopilot level of the Workstream. Mobius changes the level and acts at once, and writes mobius:autopilot and mobius:auto-merge to the issue with the App token. It returns 409 when the issue is not an open Workstream.
  */
 export const SetAutopilotParams = S.Struct({
   "owner": S.String.annotate({ description: 'Owner is the owner of the repository' }),
@@ -2093,7 +2103,7 @@ export const GetWorkstreamDetailsResponse = S.Struct({
   "data": S.Struct({
   "completedTasks": S.Number.annotate({ description: 'CompletedTasks is the number of closed tasks, with each close reason' }),
   "createdAt": S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/)).annotate({ description: 'CreatedAt is the creation time of the Workstream issue' }),
-  "evergreen": S.Boolean.annotate({ description: 'Evergreen is true when the Workstream issue has mobius:evergreen' }),
+  "evergreen": S.Boolean.annotate({ description: 'Evergreen is true when the Workstream is evergreen' }),
   "implementer": S.Struct({
   "effort": S.String.annotate({ description: 'Effort is the effort level, or empty for a Harness with no effort levels' }),
   "harness": S.String.annotate({ description: 'Harness is the agent program' }),
@@ -2130,7 +2140,7 @@ export const SetEvergreenParams = S.Struct({
 })
 
 export const SetEvergreenBody = S.Struct({
-  "on": S.optional(S.Boolean).annotate({ description: 'On adds mobius:evergreen when true, and removes it when false' })
+  "on": S.optional(S.Boolean).annotate({ description: 'On makes the Workstream evergreen when true, and not evergreen when false' })
 })
 
 

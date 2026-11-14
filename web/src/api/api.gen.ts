@@ -390,7 +390,7 @@ export interface ChatInboxItem {
 }
 
 /**
- * Kind tells what the item is about: question for a question of the Lead on an issue, Lead failed for a message that the Lead did not take, ready for review for a pull request of a task, stopped for a task that a person must continue (a stale pull request or a session that Mobius stopped after its hangs), lost for a task that Mobius lost, and full disk for a local check that waits for free disk space, and approval for a tool call of an agent that waits for the approval of the Owner, and todo for a deployment need of a pull request, and access check for a Harness that has no access to the model of a Role, and tool upgrade for an automatic upgrade of an npm package of a Harness that failed
+ * Kind tells what the item is about: question for a question of the Lead on an issue, Lead failed for a message that the Lead did not take, ready for review for a pull request of a task, stopped for a task that a person must continue (a stale pull request or a session that Mobius stopped after its hangs), lost for a task that Mobius lost, and full disk for a local check that waits for free disk space, and approval for a tool call of an agent that waits for the approval of the Owner, and todo for a deployment need of a pull request, and access check for a Harness that has no access to the model of a Role, and tool upgrade for an automatic upgrade of an npm package of a Harness that failed, and missing maintenance for an organization with no Maintenance Workstream, and missing skills for an organization with no Skills Workstream
  */
 export type InboxItemKind = typeof InboxItemKind[keyof typeof InboxItemKind];
 
@@ -407,6 +407,8 @@ export const InboxItemKind = {
   access_check: 'access check',
   tool_upgrade: 'tool upgrade',
   owner_action: 'owner action',
+  missing_maintenance: 'missing maintenance',
+  missing_skills: 'missing skills',
 } as const;
 
 /**
@@ -474,7 +476,7 @@ export interface InboxItem {
   id: number;
   /** Issue is the number of the issue of the item */
   issue: number;
-  /** Kind tells what the item is about: question for a question of the Lead on an issue, Lead failed for a message that the Lead did not take, ready for review for a pull request of a task, stopped for a task that a person must continue (a stale pull request or a session that Mobius stopped after its hangs), lost for a task that Mobius lost, and full disk for a local check that waits for free disk space, and approval for a tool call of an agent that waits for the approval of the Owner, and todo for a deployment need of a pull request, and access check for a Harness that has no access to the model of a Role, and tool upgrade for an automatic upgrade of an npm package of a Harness that failed */
+  /** Kind tells what the item is about: question for a question of the Lead on an issue, Lead failed for a message that the Lead did not take, ready for review for a pull request of a task, stopped for a task that a person must continue (a stale pull request or a session that Mobius stopped after its hangs), lost for a task that Mobius lost, and full disk for a local check that waits for free disk space, and approval for a tool call of an agent that waits for the approval of the Owner, and todo for a deployment need of a pull request, and access check for a Harness that has no access to the model of a Role, and tool upgrade for an automatic upgrade of an npm package of a Harness that failed, and missing maintenance for an organization with no Maintenance Workstream, and missing skills for an organization with no Skills Workstream */
   kind: InboxItemKind;
   /** Link is the GitHub URL of the issue, or empty */
   link: string;
@@ -1140,15 +1142,52 @@ export interface EnvelopeArrayNeedsHuman {
 }
 
 /**
+ * Kind is role for a Role binding, workstream for a setting of a Workstream, task for a setting of a task, and session for an open session that waits for the pause
+ */
+export type PauseUserKind = typeof PauseUserKind[keyof typeof PauseUserKind];
+
+
+export const PauseUserKind = {
+  role: 'role',
+  workstream: 'workstream',
+  task: 'task',
+  session: 'session',
+} as const;
+
+/**
+ * PauseUser is a user of a paused Harness.
+ */
+export interface PauseUser {
+  /** Binding names the binding as "<harness> · <model>" for a Role with more than one binding, and is empty for the other users */
+  binding: string;
+  /** Kind is role for a Role binding, workstream for a setting of a Workstream, task for a setting of a task, and session for an open session that waits for the pause */
+  kind: PauseUserKind;
+  /** Number is the number of the issue of the user. It is 0 for a Role binding and for a session with no Workstream */
+  number: number;
+  /** Repository is the repository of the issue of the user: the Workstream or the task, or the Workstream of a session with no task. It is empty for a Role binding and for a session with no Workstream */
+  repository: string;
+  /** Role is the name of the Role, for example implementer */
+  role: string;
+  /** Title is the title of the issue of the user */
+  title: string;
+  /** Workstream is the number of the Workstream issue of the user. It is 0 for a Role binding and for a session with no Workstream */
+  workstream: number;
+  /** WorkstreamRepository is the repository of the Workstream of the user */
+  workstreamRepository: string;
+  /** WorkstreamTitle is the title of the Workstream of the user */
+  workstreamTitle: string;
+}
+
+/**
  * Pause is the usage-limit pause of a Harness.
  */
 export interface Pause {
   /** Harness is the name of the paused Harness */
   harness: string;
-  /** InUse tells that a Role uses the Harness, or that an open session waits for the pause */
-  inUse: boolean;
   /** PausedUntil is the end of the pause */
   pausedUntil: string;
+  /** Users are the Role bindings, the settings and the open sessions that use the Harness. The list is empty when nothing uses the Harness */
+  users: PauseUser[];
 }
 
 /**
@@ -1324,7 +1363,7 @@ export interface EnvelopeArrayUnread {
 }
 
 /**
- * Autopilot is the Autopilot level: a trusted user added mobius:autopilot last for the start part, and mobius:auto-merge last for the merge part
+ * Autopilot is the Autopilot level: mobius:autopilot is the start part, and mobius:auto-merge is the merge part
  */
 export type WorkstreamAutopilot = typeof WorkstreamAutopilot[keyof typeof WorkstreamAutopilot];
 
@@ -1342,11 +1381,11 @@ export const WorkstreamAutopilot = {
 export interface Workstream {
   /** AllTasksClosed is true when the Workstream issue has sub-issues and each one is closed */
   allTasksClosed: boolean;
-  /** Autopilot is the Autopilot level: a trusted user added mobius:autopilot last for the start part, and mobius:auto-merge last for the merge part */
+  /** Autopilot is the Autopilot level: mobius:autopilot is the start part, and mobius:auto-merge is the merge part */
   autopilot: WorkstreamAutopilot;
   /** Brief is the body of the Workstream issue: the goal, the scope and the limits of the Workstream */
   brief: string;
-  /** Evergreen is true when the Workstream issue has mobius:evergreen */
+  /** Evergreen is true when the Workstream is evergreen */
   evergreen: boolean;
   /** Number is the number of the Workstream issue */
   number: number;
@@ -2309,7 +2348,7 @@ export interface WorkstreamDetails {
   completedTasks: number;
   /** CreatedAt is the creation time of the Workstream issue */
   createdAt: string;
-  /** Evergreen is true when the Workstream issue has mobius:evergreen */
+  /** Evergreen is true when the Workstream is evergreen */
   evergreen: boolean;
   /** Implementer is the binding of the next Implementer session of a task with no setting of its own */
   implementer: NextSetting;
@@ -2568,7 +2607,7 @@ export interface SetAutopilotBody {
 }
 
 export interface SetEvergreenBody {
-  /** On adds mobius:evergreen when true, and removes it when false */
+  /** On makes the Workstream evergreen when true, and not evergreen when false */
   on?: boolean;
 }
 
@@ -8955,7 +8994,7 @@ export const getSetAutopilotUrl = (owner: string,
 }
 
 /**
- * SetAutopilot sets the Autopilot level of the Workstream. Mobius changes mobius:autopilot and mobius:auto-merge with the user token of the Owner, so the Owner must authorize the Mobius App first. It returns 409 with the steps when the Owner did not.
+ * SetAutopilot sets the Autopilot level of the Workstream. Mobius changes the level and acts at once, and writes mobius:autopilot and mobius:auto-merge to the issue with the App token. It returns 409 when the issue is not an open Workstream.
  */
 export const setAutopilot = async (owner: string,
     name: string,

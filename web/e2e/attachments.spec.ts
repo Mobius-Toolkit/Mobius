@@ -1,6 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
 import { png } from "./images.js";
-import { selectionBottom, selectionIsEmpty, selectText } from "./selection.js";
+import {
+  openBriefTab,
+  routeBrief,
+  selectionBottom,
+  selectionIsEmpty,
+  selectText,
+} from "./selection.js";
 import { stoppedItems } from "./stops.js";
 
 const link = "https://github.com/owner/shop";
@@ -450,6 +456,94 @@ for (const [device, viewport] of [
       await page.goto(shop);
       await expect(page.getByLabel("Message to the Lead")).toBeEditable();
       await expect(main.locator("form").locator("[data-selection-card]")).toHaveCount(0);
+    });
+  });
+
+  test.describe(`a selection in the Brief tab on a ${device}`, () => {
+    test.use({ viewport });
+
+    const brief =
+      "Reward repeat customers.\n\n**Scope**\n- Points on every order\n- One **free** plan for staff\n\n**Limits**\nDo not change the price of a plan.";
+
+    test("shows the popover below the selection, and Add to chat puts a card in the composer", async ({
+      page,
+    }) => {
+      const main = page.getByRole("main");
+      const composer = main.locator("form");
+      const popover = page.getByRole("button", { name: "Add to chat" });
+      await routeBrief(page, "owner/shop", 12, brief);
+
+      await page.goto(shop);
+      await expect(page.getByLabel("Message to the Lead")).toBeEditable();
+      const tab = await openBriefTab(page, device);
+      await expect(tab.getByText("Points on every order")).toBeVisible();
+      await expect(popover).toHaveCount(0);
+
+      await selectText(tab, "Points on every order");
+      await expect(popover).toBeVisible();
+      const bottom = await selectionBottom(page);
+      const box = await popover.boundingBox();
+      expect(box?.y).toBeGreaterThanOrEqual(bottom);
+      expect(box?.x).toBeGreaterThanOrEqual(0);
+      expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(viewport.width);
+
+      await popover.click();
+      const card = composer.locator("[data-selection-card]");
+      await expect(card).toHaveCount(1);
+      await expect(card).toContainText("Brief of #12 · Scope");
+      await expect(card).toContainText("Points on every order");
+      await expect(popover).toHaveCount(0);
+      if (device === "phone") {
+        await expect(page.getByRole("dialog", { name: "Brief" })).toHaveCount(0);
+      }
+      expect(await selectionIsEmpty(page)).toBe(true);
+    });
+
+    test("sends the selection with the message, and the sent message shows its card", async ({
+      page,
+    }) => {
+      const main = page.getByRole("main");
+      const composer = main.locator("form");
+      const question = `Why this reward? (${device})`;
+      await routeBrief(page, "owner/shop", 12, brief);
+
+      await page.goto(shop);
+      await expect(page.getByLabel("Message to the Lead")).toBeEditable();
+      const tab = await openBriefTab(page, device);
+      await selectText(tab, "price of a plan");
+      await page.getByRole("button", { name: "Add to chat" }).click();
+      await expect(composer.locator("[data-selection-card]")).toHaveCount(1);
+
+      await page.getByLabel("Message to the Lead").fill(question);
+      const stored = page.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" && response.url().endsWith("/api/chat/messages"),
+      );
+      await main.getByRole("button", { name: "Send", exact: true }).click();
+      expect((await stored).status()).toBe(204);
+
+      await expect
+        .poll(async () => (await storedMessages(page)).find((other) => other.text === question))
+        .toMatchObject({
+          author: "Owner",
+          selections: [
+            {
+              source: "brief",
+              text: "price of a plan",
+              context: expect.stringContaining("Do not change the price of a plan."),
+              reference: "#12",
+              link: "https://github.com/owner/shop/issues/12",
+              part: "Limits",
+              messageId: 0,
+              messageAuthor: "",
+            },
+          ],
+        });
+      const sentId = (await storedMessages(page)).find((other) => other.text === question)?.id;
+      const sent = main.locator(`[data-message='${sentId}']`);
+      await expect(sent.locator("[data-selection-card]")).toHaveCount(1);
+      await expect(sent.locator("[data-selection-card]")).toContainText("Brief of #12 · Limits");
+      await expect(composer.locator("[data-selection-card]")).toHaveCount(0);
     });
   });
 }

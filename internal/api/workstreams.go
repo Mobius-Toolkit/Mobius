@@ -23,10 +23,9 @@ type Workstream struct {
 	Title string `gork:"title"`
 	// Brief is the body of the Workstream issue: the goal, the scope and the limits of the Workstream
 	Brief string `gork:"brief"`
-	// Autopilot is the Autopilot level: a trusted user added mobius:autopilot last for the start part, and
-	// mobius:auto-merge last for the merge part
+	// Autopilot is the Autopilot level: mobius:autopilot is the start part, and mobius:auto-merge is the merge part
 	Autopilot string `gork:"autopilot" validate:"oneof=off start merge start_and_merge"`
-	// Evergreen is true when the Workstream issue has mobius:evergreen
+	// Evergreen is true when the Workstream is evergreen
 	Evergreen bool `gork:"evergreen"`
 	// AllTasksClosed is true when the Workstream issue has sub-issues and each one is closed
 	AllTasksClosed bool `gork:"allTasksClosed"`
@@ -81,9 +80,9 @@ type SetAutopilotRequest struct {
 	}
 }
 
-// SetAutopilot sets the Autopilot level of the Workstream. Mobius changes mobius:autopilot and mobius:auto-merge with
-// the user token of the Owner, so the Owner must authorize the Mobius App first. It returns 409 with the steps when
-// the Owner did not.
+// SetAutopilot sets the Autopilot level of the Workstream. Mobius changes the level and acts at once, and writes
+// mobius:autopilot and mobius:auto-merge to the issue with the App token. It returns 409 when the issue is not an open
+// Workstream.
 func (h *handlers) SetAutopilot(ctx context.Context, req SetAutopilotRequest) error {
 	err := h.engine.SetAutopilot(ctx, req.Path.Owner+"/"+req.Path.Name, req.Path.Number, req.Body.Level)
 	if engine.Refused(err) {
@@ -103,7 +102,7 @@ type SetEvergreenRequest struct {
 		Number int64 `gork:"number"`
 	}
 	Body struct {
-		// On adds mobius:evergreen when true, and removes it when false
+		// On makes the Workstream evergreen when true, and not evergreen when false
 		On bool `gork:"on"`
 	}
 }
@@ -237,7 +236,7 @@ type WorkstreamDetails struct {
 	CompletedTasks int64 `gork:"completedTasks"`
 	// OpenTasks is the number of open tasks
 	OpenTasks int64 `gork:"openTasks"`
-	// Evergreen is true when the Workstream issue has mobius:evergreen
+	// Evergreen is true when the Workstream is evergreen
 	Evergreen bool `gork:"evergreen"`
 	// Maintenance is true when the Workstream issue has mobius:maintenance
 	Maintenance bool `gork:"maintenance"`

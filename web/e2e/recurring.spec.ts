@@ -270,19 +270,13 @@ test("Delete asks first, and the confirmation removes the task", async ({ page }
   ).toBeVisible();
 });
 
-test("the five tab buttons fit the width of the sheet on the phone", async ({ page }) => {
+test("the four tab buttons fit the width of the sheet on the phone", async ({ page }) => {
   await page.setViewportSize(phone);
   await page.goto("/workstreams/plants/garden/50");
   await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
   const sheet = page.getByRole("dialog");
   const tabs = sheet.getByRole("tablist");
-  await expect(tabs.getByRole("tab")).toHaveText([
-    "Tasks",
-    "Agents",
-    "Details",
-    "Brief",
-    "Recurring",
-  ]);
+  await expect(tabs.getByRole("tab")).toHaveText(["Tasks", "Agents", "Details", "Recurring"]);
   await expect
     .poll(async () => {
       const [list, outer] = await Promise.all([tabs.boundingBox(), sheet.boundingBox()]);

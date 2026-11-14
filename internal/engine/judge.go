@@ -505,7 +505,7 @@ func (e *Engine) route(ctx context.Context, j judgeJob, verdicts []itemVerdicts)
 		if err != nil {
 			return err
 		}
-		if _, err := reply(ctx, repository, number, reject.item, text); err != nil {
+		if _, _, err := e.reply(ctx, repository, number, reject.item, text); err != nil {
 			return err
 		}
 	}

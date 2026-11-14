@@ -3,6 +3,7 @@ import * as Agents from "./agents/model";
 import type { Flags } from "./flags";
 import * as Details from "./details/model";
 import * as Recurring from "./recurring/model";
+import { Model as TextSelection } from "@/ui/selection";
 import { Tab } from "./schemas";
 import * as Tasks from "./tasks/model";
 
@@ -13,6 +14,7 @@ export const Model = Schema.Struct({
   instance: Schema.String,
   tab: Tab,
   brief: Schema.String,
+  selection: TextSelection,
   tasks: Tasks.Model,
   agents: Agents.Model,
   details: Details.Model,
@@ -32,6 +34,7 @@ export function initialModel(flags: Flags): Model {
     ...workstream,
     tab: flags.tab,
     brief: "",
+    selection: null,
     tasks: Tasks.initialModel(workstream),
     agents: Agents.initialModel(workstream),
     details: Details.initialModel(workstream),

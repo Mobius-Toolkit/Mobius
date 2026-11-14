@@ -156,6 +156,55 @@ type ChatView struct {
 type item struct {
 	message *store.ChatMessage
 	event   *store.LeadEvent
+	// ci tells that event is the event of a CI fix issue (the view ci_fix_issues).
+	ci bool
+}
+
+// eventItems makes the items of events, the events of CI fix issues first. Each group keeps the order of events.
+func (e *Engine) eventItems(ctx context.Context, events []store.LeadEvent) ([]item, error) {
+	var fixes, others []item
+	for _, event := range events {
+		ci := false
+		if event.Issue.Valid {
+			var err error
+			ci, err = e.queries.IsCIFixIssue(ctx, store.IsCIFixIssueParams{Repository: event.IssueRepository, Issue: event.Issue.Int64})
+			if err != nil {
+				return nil, err
+			}
+		}
+		if ci {
+			fixes = append(fixes, item{event: &event, ci: true})
+		} else {
+			others = append(others, item{event: &event})
+		}
+	}
+	return append(fixes, others...), nil
+}
+
+// ciFix tells if the next turn of the chat is for a CI fix event: its first item, or else the first event of its queue.
+// The caller holds e.chatsMu.
+func (c *chat) ciFix() bool {
+	if c.first.ci {
+		return true
+	}
+	for _, queued := range c.queue {
+		if queued.event != nil {
+			return queued.ci
+		}
+	}
+	return false
+}
+
+// leadCIFix tells if the Lead chat of the Lead session with spec has a next turn for a CI fix event. It gives false
+// for a session with no chat.
+func (e *Engine) leadCIFix(spec Spec) (ci, ok bool) {
+	e.chatsMu.Lock()
+	defer e.chatsMu.Unlock()
+	c, ok := e.chats[leadChat(spec.Repository, spec.Workstream)]
+	if !ok {
+		return false, false
+	}
+	return c.ciFix(), true
 }
 
 // chat is a running Lead chat or Coordinator chat. One goroutine runs its sessions, one after the other.
@@ -372,8 +421,19 @@ func afterOwnerMessages(queue []item) int {
 	return 0
 }
 
+// afterCIEvents returns the index after the last message of the Owner or CI fix event in queue.
+func afterCIEvents(queue []item) int {
+	for index := len(queue); index > 0; index-- {
+		if isOwnerMessage(queue[index-1]) || queue[index-1].ci {
+			return index
+		}
+	}
+	return 0
+}
+
 // give gives the items to the chat of key, and starts the chat when none runs. A new chat gets the messages of the
-// chat that wait after a failure first. tracked tells that the drain counts the first session of a new chat from a
+// chat that wait after a failure first. A running chat puts a message of the Owner after its earlier messages of the
+// Owner, and a CI fix event after the messages of the Owner and the earlier CI fix events. tracked tells that the drain counts the first session of a new chat from a
 // tryTrack of the caller. The caller holds e.chatOrder.
 func (e *Engine) give(key ChatKey, tracked bool, items ...item) {
 	e.chatsMu.Lock()
@@ -391,9 +451,12 @@ func (e *Engine) give(key ChatKey, tracked bool, items ...item) {
 	var agent *Agent
 	if ok {
 		for _, queued := range items {
-			if isOwnerMessage(queued) {
+			switch {
+			case isOwnerMessage(queued):
 				c.queue = slices.Insert(c.queue, afterOwnerMessages(c.queue), queued)
-			} else {
+			case queued.ci:
+				c.queue = slices.Insert(c.queue, afterCIEvents(c.queue), queued)
+			default:
 				c.queue = append(c.queue, queued)
 			}
 		}
@@ -412,6 +475,9 @@ func (e *Engine) give(key ChatKey, tracked bool, items ...item) {
 	}
 	state := c.state()
 	e.chatsMu.Unlock()
+	if slices.ContainsFunc(items, func(queued item) bool { return queued.ci }) {
+		e.workers.changed.notify()
+	}
 	e.publish(Change{Chat: &state})
 	e.publishSession(agent)
 }
@@ -554,15 +620,9 @@ func (e *Engine) sendEvents(ctx context.Context, repository string, workstream i
 	if err != nil || len(events) == 0 {
 		return err
 	}
-	items := make([]item, 0, len(events))
-	for _, event := range events {
-		if isQuietEvent(event) {
-			continue
-		}
-		items = append(items, item{event: &event})
-	}
-	if len(items) == 0 {
-		return nil
+	items, err := e.eventItems(ctx, slices.DeleteFunc(events, isQuietEvent))
+	if err != nil || len(items) == 0 {
+		return err
 	}
 	key := leadChat(repository, workstream)
 	e.chatsMu.Lock()
@@ -653,6 +713,7 @@ func (e *Engine) forgetChatMessage(key ChatKey, id int64) {
 	if c.stopWait != nil && c.first.message != nil && c.first.message.ID == id {
 		if len(c.queue) > 0 {
 			c.first, c.queue = c.queue[0], c.queue[1:]
+			e.workers.changed.notify()
 		} else {
 			delete(e.chats, key)
 			c.stopWait()
@@ -911,6 +972,7 @@ func (e *Engine) runChat(c *chat) {
 	for {
 		e.chatsMu.Lock()
 		wait := c.wait
+		spec.CIFix = c.first.ci
 		e.chatsMu.Unlock()
 		a, err := e.Start(wait, spec)
 		spec.Tracked = false
@@ -1572,7 +1634,7 @@ func (e *Engine) tellHold(ctx context.Context, key ChatKey, event store.LeadEven
 }
 
 // freeEvents frees each held event of the Workstream. It returns the freed events and the ready events of their task
-// issues, in id order.
+// issues, the events of CI fix issues first and each group in id order.
 func (e *Engine) freeEvents(ctx context.Context, repository string, workstream int64) ([]item, error) {
 	freed, err := e.queries.FreeLeadEvents(ctx, store.FreeLeadEventsParams{Repository: repository, Workstream: workstream})
 	if err != nil || len(freed) == 0 {
@@ -1582,24 +1644,30 @@ func (e *Engine) freeEvents(ctx context.Context, repository string, workstream i
 	if err != nil {
 		return nil, err
 	}
-	var affected []item
-	for _, event := range ready {
-		if slices.ContainsFunc(freed, func(other store.LeadEvent) bool {
+	return e.eventItems(ctx, slices.DeleteFunc(ready, func(event store.LeadEvent) bool {
+		return !slices.ContainsFunc(freed, func(other store.LeadEvent) bool {
 			return other.ID == event.ID || other.Issue.Valid && other.Issue == event.Issue
-		}) {
-			affected = append(affected, item{event: &event})
-		}
-	}
-	return affected, nil
+		})
+	}))
 }
 
-// queueEvents puts the events after the queued messages of the Owner and removes their queued copies. Each other
-// queued item keeps its place. The caller holds e.chatsMu.
+// queueEvents removes the queued copies of the events. It puts the CI fix events after the queued messages of the
+// Owner and the queued CI fix events, and then the other events after them. Each other queued item keeps its place.
+// The caller holds e.chatsMu.
 func (c *chat) queueEvents(events []item) {
 	c.queue = slices.DeleteFunc(c.queue, func(queued item) bool {
 		return queued.event != nil && slices.ContainsFunc(events, func(other item) bool { return other.event.ID == queued.event.ID })
 	})
-	c.queue = slices.Insert(c.queue, afterOwnerMessages(c.queue), events...)
+	var fixes, others []item
+	for _, event := range events {
+		if event.ci {
+			fixes = append(fixes, event)
+		} else {
+			others = append(others, event)
+		}
+	}
+	c.queue = slices.Insert(c.queue, afterCIEvents(c.queue), fixes...)
+	c.queue = slices.Insert(c.queue, afterCIEvents(c.queue), others...)
 }
 
 // releaseEvents frees the held events of the Workstream after the Owner answered a question on GitHub. A running Lead
@@ -1847,6 +1915,9 @@ func (e *Engine) freeAndSend(ctx context.Context, repository string, workstream 
 	state := c.state()
 	agent := c.agent
 	e.chatsMu.Unlock()
+	if slices.ContainsFunc(affected, func(queued item) bool { return queued.ci }) {
+		e.workers.changed.notify()
+	}
 	e.publish(Change{Chat: &state})
 	e.publishSession(agent)
 	return nil

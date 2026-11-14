@@ -319,7 +319,6 @@ func TestServer(t *testing.T) {
 		github.AddIssue(workstream.repository, workstream.number, workstream.title)
 		github.AddLabel(workstream.repository, workstream.number, "mobius:workstream", "owner")
 	}
-	github.AddLabel("owner/shop", 14, "mobius:autopilot", "owner")
 	github.AddLabel("owner/shop", 14, "mobius:maintenance", "owner")
 	github.SetBody("owner/shop", 14, "**Goal**\nLet customers renew a plan one month early.\n\n**Scope**\n- Add a button to the renewal page.\n- Send a mail after the renewal.\n\n**Limits**\n- Do not change the price of a plan.")
 	github.AddSubIssueOf("owner/shop", 12, 41, "Add plan model")
@@ -399,6 +398,11 @@ func TestServer(t *testing.T) {
 	cfg := testserver.Config(t, dataDir)
 	cfg.Organizations = map[string]config.Organization{"plants": {IssueRepository: "plants/garden"}}
 	server := testserver.StartWith(t, cfg, github.URL)
+	// The Owner dismissed the items of the missing Workstreams, so the Inbox shows only the fixture items.
+	if _, err := server.DB.Exec(`INSERT INTO missing_workstream_dismissals (organization, kind)
+		VALUES ('plants', 'missing maintenance'), ('plants', 'missing skills')`); err != nil {
+		t.Fatal(err)
+	}
 	dist, err := fs.Sub(web.Dist, "dist")
 	if err != nil {
 		t.Fatal(err)
@@ -630,6 +634,18 @@ func TestServer(t *testing.T) {
 	github.DeleteRepositoryLabel("owner/shop", "mobius:no-workstream")
 	github.AddRepositoryLabel("owner/shop", "mobius:working", "ededed", "A Mobius agent works on this task")
 	server.WaitForFirstPoll(t, "plants/garden")
+	testkit.WaitFor(t, func() bool {
+		var rows int
+		if err := server.DB.QueryRow("SELECT COUNT(*) FROM workstreams WHERE repository = 'owner/shop' AND number = 14").Scan(&rows); err != nil {
+			t.Fatal(err)
+		}
+		return rows == 1
+	})
+	// The screenshots of #14 show an empty chat, so its level has no Lead event and no chat record.
+	if _, err := server.DB.Exec("UPDATE workstreams SET autopilot = 1 WHERE repository = 'owner/shop' AND number = 14"); err != nil {
+		t.Fatal(err)
+	}
+	github.AddLabel("owner/shop", 14, "mobius:autopilot", "owner")
 
 	shop := engine.ChatKey{Organization: "owner", Repository: "owner/shop", Workstream: 12}
 	github.AddLabel("owner/shop", 45, "mobius:ready", "owner")
@@ -1498,7 +1514,7 @@ func fixTimes(t *testing.T, server *testserver.Server, github *testkit.FakeGitHu
 }
 
 // keepImplementer starts the task of the issue with mobius:ready, and waits until the Implementer round of the task
-// ends, the engine keeps its Harness session, and the task waits for the Lead. StartCheckNow ends the wait of its check for a low load. The engine
+// ends, the engine keeps its Harness session, the task waits for the Lead, and the event ready_for_approval exists. StartCheckNow ends the wait of its check for a low load. The engine
 // clock fixes the time of the close of the kept session. The events of the dispatch leave the chat of the Workstream,
 // so the chat shows no message. The programs of the agents find the fake git first, so the script of the fake
 // Implementer runs /usr/bin/git.
@@ -1529,6 +1545,13 @@ func keepImplementer(t *testing.T, server *testserver.Server, github *testkit.Fa
 			t.Fatal(err)
 		}
 		return state == "approval"
+	})
+	testkit.WaitFor(t, func() bool {
+		var events int
+		if err := server.DB.QueryRow("SELECT COUNT(*) FROM lead_events WHERE repository = ? AND issue = ? AND kind = 'ready_for_approval'", repository, issue).Scan(&events); err != nil {
+			t.Fatal(err)
+		}
+		return events > 0
 	})
 	for _, query := range []string{
 		"DELETE FROM chat_messages WHERE id IN (SELECT chat_message FROM lead_events WHERE repository = ?1 AND issue = ?2)",

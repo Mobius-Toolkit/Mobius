@@ -86,12 +86,18 @@ type Engine struct {
 	// ownerAnswerMu makes AnswerInboxItem, which posts a comment and then stores its id, and the poll read of the new
 	// comments take turns. Else the poll can read the comment before its id is stored and ignore it.
 	ownerAnswerMu sync.Mutex
+	// missingWorkstreamsMu makes syncMissingWorkstreams and the dismissal of a missing Workstream item by the Owner take
+	// turns, so a check cannot add an item after the Owner dismissed it. It also guards checkedWorkstreams, which holds
+	// the open Workstreams of each organization at its last check.
+	missingWorkstreamsMu sync.Mutex
+	checkedWorkstreams   map[string]string
 	// questionMu makes the store of a new question item with the add of mobius:question in ask, and closeInboxItems, take
 	// turns. Else closeInboxItems can dismiss the new item, because its issue has no mobius:question yet.
 	questionMu sync.Mutex
-	// outgoingMu makes each send of an outgoing change take turns, so a send of the poll and an immediate send cannot
-	// both post the same comment.
-	outgoingMu sync.Mutex
+	// outgoingItems holds one mutex for each item with outgoing changes, by "repository#number". It makes the sends of the
+	// item take turns, so a send of the poll and an immediate send cannot both post the same comment. The poll skips an
+	// item that another send holds, so one slow send does not stop the poll of the other items.
+	outgoingItems sync.Map
 	// quiet holds the newest item of the Judge of each task in its quiet period, by the id of the task. Only the poll
 	// uses it.
 	quiet map[int64]quietItem
@@ -179,9 +185,9 @@ type Engine struct {
 	checkStart time.Time
 	// loadWaitsMu guards loadWaits.
 	loadWaitsMu sync.Mutex
-	// loadWaits holds a channel for each session whose check waits for a low load, by the id of the session.
-	// StartCheckNow sends to the channel.
-	loadWaits map[int64]chan struct{}
+	// loadWaits holds each check that waits for a low load, by the id of its session. StartCheckNow sends to the
+	// channel of the wait.
+	loadWaits map[int64]loadWait
 	// diskFreed wakes the checks that wait for free disk space.
 	diskFreed signal
 
@@ -259,48 +265,49 @@ func (e *Engine) SetClock(clock func() time.Time) {
 // New gives the Engine of the database db and of the GitHub Apps of gh with the settings of cfg.
 func New(db *sql.DB, gh *github.GitHub, cfg *config.Config, agents Agents) *Engine {
 	return &Engine{
-		db:              db,
-		upgradeState:    UpgradeState{Step: UpgradeIdle},
-		queries:         store.New(db),
-		github:          gh,
-		config:          cfg,
-		roles:           cfg.Roles,
-		agents:          agents,
-		labelsFixed:     map[string]bool{},
-		recovered:       map[string]bool{},
-		handedChats:     map[ChatKey]bool{},
-		sealedApprovals: map[ChatKey][]item{},
-		copied:          map[string]bool{},
-		labelChanges:    map[string]int{},
-		labelChangedAt:  map[issueRef]int{},
-		quiet:           map[int64]quietItem{},
-		pulls:           map[pullKey]*pullState{},
-		pushed:          map[pullKey]bool{},
-		pollWake:        make(chan struct{}, 1),
-		closing:         map[pullKey]bool{},
-		ciWait:          map[int64]ciWait{},
-		refusedRuns:     map[int64]refusedRun{},
-		newest:          map[string]newestVersion{},
-		upgrades:        map[string]bool{},
-		harnessReads:    map[config.Harness]*harnessRead{},
-		access:          map[accessKey]accessState{},
-		workers:         newWorkers(),
-		chats:           map[ChatKey]*chat{},
-		pauseWaiters:    map[*Agent]chan struct{}{},
-		triages:         map[triageKey]triage{},
-		triagerStarts:   map[triageKey]*sync.Mutex{},
-		checks:          make(chan struct{}, cfg.MaxChecks),
-		stops:           map[any]stopper{},
-		live:            map[any]int{},
-		implementers:    map[int64]*Agent{},
-		kept:            map[int64]*keptSession{},
-		loadWaits:       map[int64]chan struct{}{},
-		researchers:     map[int64]*Agent{},
-		operators:       map[int64]*Agent{},
-		curators:        map[string]bool{},
-		mcpRefreshes:    map[int64]*mcpRefresh{},
-		diagnosers:      map[string]bool{},
-		listeners:       map[chan Change]bool{},
+		db:                 db,
+		upgradeState:       UpgradeState{Step: UpgradeIdle},
+		queries:            store.New(db),
+		github:             gh,
+		config:             cfg,
+		roles:              cfg.Roles,
+		agents:             agents,
+		labelsFixed:        map[string]bool{},
+		recovered:          map[string]bool{},
+		handedChats:        map[ChatKey]bool{},
+		sealedApprovals:    map[ChatKey][]item{},
+		copied:             map[string]bool{},
+		checkedWorkstreams: map[string]string{},
+		labelChanges:       map[string]int{},
+		labelChangedAt:     map[issueRef]int{},
+		quiet:              map[int64]quietItem{},
+		pulls:              map[pullKey]*pullState{},
+		pushed:             map[pullKey]bool{},
+		pollWake:           make(chan struct{}, 1),
+		closing:            map[pullKey]bool{},
+		ciWait:             map[int64]ciWait{},
+		refusedRuns:        map[int64]refusedRun{},
+		newest:             map[string]newestVersion{},
+		upgrades:           map[string]bool{},
+		harnessReads:       map[config.Harness]*harnessRead{},
+		access:             map[accessKey]accessState{},
+		workers:            newWorkers(),
+		chats:              map[ChatKey]*chat{},
+		pauseWaiters:       map[*Agent]chan struct{}{},
+		triages:            map[triageKey]triage{},
+		triagerStarts:      map[triageKey]*sync.Mutex{},
+		checks:             make(chan struct{}, cfg.MaxChecks),
+		stops:              map[any]stopper{},
+		live:               map[any]int{},
+		implementers:       map[int64]*Agent{},
+		kept:               map[int64]*keptSession{},
+		loadWaits:          map[int64]loadWait{},
+		researchers:        map[int64]*Agent{},
+		operators:          map[int64]*Agent{},
+		curators:           map[string]bool{},
+		mcpRefreshes:       map[int64]*mcpRefresh{},
+		diagnosers:         map[string]bool{},
+		listeners:          map[chan Change]bool{},
 	}
 }
 

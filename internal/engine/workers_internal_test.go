@@ -138,7 +138,7 @@ func TestACITaskComesBeforeATaskWithWork(t *testing.T) {
 	if taskRank(tasksWithWork, 2, at(900), true).compare(taskRank(nil, 3, at(10), false)) >= 0 {
 		t.Error("the CI task comes after the older task with no work")
 	}
-	if taskRank(tasksWithWork, 2, at(900), true).compare(waiterRank(waiter{at(5), 9})) >= 0 {
+	if taskRank(tasksWithWork, 2, at(900), true).compare(waiterRank(waiter{since: at(5), session: 9})) >= 0 {
 		t.Error("the CI task comes after the session")
 	}
 }
@@ -146,12 +146,38 @@ func TestACITaskComesBeforeATaskWithWork(t *testing.T) {
 func TestAWaitingSessionWithNoTaskComesAfterEachTaskWithWork(t *testing.T) {
 	t.Parallel()
 	tasksWithWork := map[int64]Work{2: work(7, 500)}
-	session := waiterRank(waiter{at(5), 9})
+	session := waiterRank(waiter{since: at(5), session: 9})
 
 	if taskRank(tasksWithWork, 2, at(20), false).compare(session) >= 0 {
 		t.Error("the task with work comes after the session")
 	}
 	if taskRank(tasksWithWork, 1, at(10), false).compare(session) <= 0 {
 		t.Error("the task with no work comes before the older session")
+	}
+}
+
+func TestALaterSessionTakesNoSlotOfAFreeingBindingBeforeAnEarlierSessionThatFollowsTheRoleAndWaitsForItWhileTheFirstBindingIsPaused(t *testing.T) {
+	t.Parallel()
+	e := &Engine{workers: newWorkers()}
+	slots := &implementerSlots{choices: []slotChoice{
+		{ImplementerBinding{0, config.RoleBinding{Harness: config.Devin, Max: 1}}, "paused until 2100-01-01 00:00 UTC"},
+		{ImplementerBinding{1, config.RoleBinding{Harness: config.ClaudeCode, Max: 1}}, ""},
+	}}
+	full := 1
+	e.workers.bindings[1] = &full
+	earlier, later := waiter{since: time.Unix(1, 0), session: 1}, waiter{since: time.Unix(2, 0), session: 2}
+	e.workers.waiting[earlier] = slotWait{role: ImplementerRole}
+	e.workers.waiting[later] = slotWait{role: ImplementerRole}
+	first := &Agent{spec: Spec{Role: ImplementerRole}, level: LevelRole}
+	second := &Agent{spec: Spec{Role: ImplementerRole}, level: LevelRole}
+	if reason, _ := e.slotReason(first, earlier, nil, true, "", false, "", slots); reason == "" {
+		t.Fatal("the earlier session took the full binding")
+	}
+	full = 0
+
+	reason, ok := e.slotReason(second, later, nil, true, "", false, "", slots)
+
+	if !ok || reason == "" {
+		t.Errorf("reason = %q, %v, want the later session to wait for the earlier session", reason, ok)
 	}
 }

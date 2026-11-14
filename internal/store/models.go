@@ -180,6 +180,20 @@ type InboxItem struct {
 	Withdrawn            int64
 }
 
+type IncomingChange struct {
+	ID          int64
+	Integration string
+	ExternalID  string
+	Repository  string
+	Number      int64
+	Field       string
+	Change      string
+	Actor       string
+	Metadata    string
+	Status      string
+	CreatedAt   string
+}
+
 type InitFailure struct {
 	ID         int64
 	Repository string
@@ -261,6 +275,11 @@ type McpServerOauth struct {
 	ExpiresAt     sql.NullString
 	Failure       string
 	UpdatedAt     string
+}
+
+type MissingWorkstreamDismissal struct {
+	Organization string
+	Kind         string
 }
 
 type OldSkillUse struct {
@@ -470,6 +489,8 @@ type Task struct {
 	ApprovedReportHead   sql.NullString
 	MergeQueuedAt        sql.NullString
 	ReviewedHead         sql.NullString
+	ApprovedAgainChange  sql.NullInt64
+	MergeHeadAt          sql.NullString
 }
 
 type TaskState struct {

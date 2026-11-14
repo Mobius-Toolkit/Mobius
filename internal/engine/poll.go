@@ -88,6 +88,9 @@ func (e *Engine) poll(ctx context.Context) {
 			}
 		}
 	}
+	if err := e.syncMissingWorkstreams(ctx, true); err != nil {
+		log.Printf("check the missing Workstreams: %v", err)
+	}
 	e.reviewSkills(ctx, repositories)
 	e.reportBlockerCycles(ctx)
 	e.ReplaceWork(work)
@@ -156,6 +159,9 @@ func (e *Engine) pollRepository(ctx context.Context, repository github.Repositor
 	if err := e.changedIssues(ctx, repository); err != nil {
 		return err
 	}
+	if err := e.applyIncomingChanges(ctx, repository); err != nil {
+		return err
+	}
 	e.checkCopiedTrees(ctx, repository)
 	e.fillBuckets(ctx, repository)
 	if err := e.startHeldTriagers(ctx, repository); err != nil {
@@ -218,7 +224,8 @@ func (e *Engine) pollRepository(ctx context.Context, repository github.Repositor
 // changedIssues reads the issues and pull requests that changed at or after the `since` cursor, reads the new comments
 // of the repository with two calls, and reads the reviews and the review threads of the open pull requests with one
 // call. Then it starts the Triager of an issue, acts on the comments, stops a Triager, updates the copy, acts on the new events of the Workstreams, and
-// moves the cursors to the last change. The first poll of a repository has no issues row in the cursors, so it reads
+// moves the cursors to the last change. It adds the incoming changes of the new setting label events in the transaction
+// of the issue cursor. The first poll of a repository has no issues row in the cursors, so it reads
 // all issues, and it cannot see which event is new. It reads no comment: the next poll starts each comment list at the
 // issue cursor. A repository with no issue has a row with no time, so its next poll is not a first poll.
 func (e *Engine) changedIssues(ctx context.Context, repository github.Repository) error {
@@ -281,6 +288,7 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 		return err
 	}
 	listChanged := false
+	var settingEvents []settingEvent
 	for _, issue := range page.Issues {
 		number := int64(issue.GetNumber())
 		triaged, err := e.startTriage(ctx, repository, issue, conversation[number], since, firstPoll)
@@ -301,11 +309,6 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 			}
 		}
 		labeled := hasLabel(issue, workstreamLabel)
-		if labeled && issue.GetState() == "open" && hasLabel(issue, maintenanceLabel) && !hasLabel(issue, evergreenLabel) {
-			if err := repository.AddLabel(ctx, int64(issue.GetNumber()), evergreenLabel); err != nil {
-				return err
-			}
-		}
 		work, err := e.hasWork(ctx, repository.FullName, int64(issue.GetNumber()))
 		if err != nil {
 			return err
@@ -318,7 +321,7 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 		}
 		// After a failed update, the next poll copies the repository again.
 		if e.copied[repository.FullName] {
-			copyChanged, err := e.updateCopy(ctx, repository, issue, events, !firstPoll, labelChanges)
+			copyChanged, err := e.updateCopy(ctx, repository, issue, !firstPoll, labelChanges)
 			if err != nil {
 				log.Printf("update the copy of %s: %v", repository.FullName, err)
 				delete(e.copied, repository.FullName)
@@ -326,11 +329,18 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 			listChanged = listChanged || copyChanged
 		}
 		for _, event := range events {
-			if event.Actor == nil || !event.GetCreatedAt().After(since) {
+			if event.Actor == nil || event.GetCreatedAt().Before(since) {
 				continue
 			}
-			if err := e.workstreamEvent(ctx, repository, issue, events, event, firstPoll); err != nil {
-				return err
+			if event.GetCreatedAt().After(since) {
+				if err := e.workstreamEvent(ctx, repository, issue, event, firstPoll); err != nil {
+					return err
+				}
+			}
+			// The cursor has a precision of one second, so a setting label event in the second of the cursor can be new.
+			// An incoming change keeps the id of each event that the poll read, so a second read does nothing.
+			if labeled && !firstPoll {
+				settingEvents = append(settingEvents, settingEvent{number, event})
 			}
 		}
 	}
@@ -353,12 +363,17 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 			since = issue.GetUpdatedAt().Time
 		}
 	}
-	return e.queries.SetSyncCursor(ctx, store.SetSyncCursorParams{
-		Repository: repository.FullName,
-		Endpoint:   issuesEndpoint,
-		// The rows of the Rust version have the same format.
-		Since: sql.NullString{String: since.UTC().Format(time.RFC3339), Valid: !since.IsZero()},
-		Etag:  sql.NullString{String: page.ETag, Valid: page.ETag != ""},
+	return e.inTx(ctx, func(q *store.Queries) error {
+		if err := addSettingChanges(ctx, q, repository, settingEvents); err != nil {
+			return err
+		}
+		return q.SetSyncCursor(ctx, store.SetSyncCursorParams{
+			Repository: repository.FullName,
+			Endpoint:   issuesEndpoint,
+			// The rows of the Rust version have the same format.
+			Since: sql.NullString{String: since.UTC().Format(time.RFC3339), Valid: !since.IsZero()},
+			Etag:  sql.NullString{String: page.ETag, Valid: page.ETag != ""},
+		})
 	})
 }
 
@@ -370,25 +385,16 @@ func (e *Engine) routeComments(ctx context.Context, repository github.Repository
 	return e.commentEvents(ctx, repository, issue, conversation)
 }
 
-// workstreamEvent acts on a new event of the issue. events are all the events of the issue. A change of
-// mobius:autopilot or mobius:auto-merge makes the next poll read the ready list in full, because a mobius:ready of
-// the Mobius App can dispatch with Autopilot. After the first poll, the newest change of one of them by a person also
-// adds an event for the Lead. A Workstream label of a trusted
+// workstreamEvent acts on a new event of the issue. A Workstream label of a trusted
 // actor adds, after the first poll, a creation event for the Lead. After the first poll, a
 // removal of the Workstream label stops the work, and a close or a reopen of a trusted actor closes or reopens the
 // Workstream.
-func (e *Engine) workstreamEvent(ctx context.Context, repository github.Repository, issue *gh.Issue, events []*gh.IssueEvent, event *gh.IssueEvent, firstPoll bool) error {
+func (e *Engine) workstreamEvent(ctx context.Context, repository github.Repository, issue *gh.Issue, event *gh.IssueEvent, firstPoll bool) error {
 	number := int64(issue.GetNumber())
 	actor := event.GetActor().GetLogin()
 	trusted := e.TrustedAuthor(repository.AppSlug, actor)
 	workstreamChange := event.GetLabel().GetName() == workstreamLabel
 	switch {
-	case event.GetLabel().GetName() == autopilotLabel || event.GetLabel().GetName() == autoMergeLabel:
-		err := e.queries.SetSyncCursor(ctx, store.SetSyncCursorParams{Repository: repository.FullName, Endpoint: readyEndpoint})
-		if err != nil || firstPoll {
-			return err
-		}
-		return e.autopilotEvent(ctx, repository, issue, events, event)
 	case event.GetEvent() == "labeled" && workstreamChange && trusted:
 		if firstPoll {
 			return nil
@@ -412,27 +418,4 @@ func (e *Engine) workstreamEvent(ctx context.Context, repository github.Reposito
 		return e.addLeadEvent(ctx, repository.FullName, number, "", sql.NullInt64{}, "reopen", eventText(time.Now(), "reopen of Workstream", fmt.Sprintf("#%d", number), issue, actor, issue.GetBody()))
 	}
 	return nil
-}
-
-// autopilotEvent adds an event for the Lead when event is the newest change of mobius:autopilot or mobius:auto-merge by
-// a person. Thus the removals and the adds of one switch give one event. The same change acts on the live tasks of the
-// Workstream (applyLevel).
-func (e *Engine) autopilotEvent(ctx context.Context, repository github.Repository, issue *gh.Issue, events []*gh.IssueEvent, event *gh.IssueEvent) error {
-	bot := appLogin(repository.AppSlug)
-	newest := slices.IndexFunc(events, func(other *gh.IssueEvent) bool { return other == event })
-	for _, later := range events[newest+1:] {
-		if (later.GetLabel().GetName() == autopilotLabel || later.GetLabel().GetName() == autoMergeLabel) && !strings.EqualFold(later.GetActor().GetLogin(), bot) {
-			return nil
-		}
-	}
-	if strings.EqualFold(event.GetActor().GetLogin(), bot) {
-		return nil
-	}
-	autopilot, autoMerge := e.levelLabels(issue, events)
-	level := AutopilotLevel(autopilot, autoMerge)
-	if err := e.applyLevel(ctx, repository.FullName, int64(issue.GetNumber()), level); err != nil {
-		return err
-	}
-	text := fmt.Sprintf("%s Autopilot of Workstream #%d \"%s\" is \"%s\", by @%s.", time.Now().UTC().Format(timeFormat), issue.GetNumber(), issue.GetTitle(), levelNames[level], event.GetActor().GetLogin())
-	return e.addLeadEvent(ctx, repository.FullName, int64(issue.GetNumber()), "", sql.NullInt64{}, "autopilot", text)
 }

@@ -1,8 +1,8 @@
 import { Option } from "effect";
 import { describe, expect, it } from "vitest";
 import { Command as StoryCommand, given, message, model, story } from "foldkit/story";
+import { Message as WorkstreamSetupMessage } from "@/workstreamSetup/message";
 import {
-  CreateWorkstream,
   FetchCheckup,
   FixLabels,
   Navigate,
@@ -13,7 +13,6 @@ import {
 } from "./commands";
 import { Message } from "./message";
 import { fixButtonOf, initialModel, type Model } from "./model";
-import { maintenanceWorkstreamRequest, skillsWorkstreamRequest } from "./requests";
 import type { Checkup, ToolCheck } from "./schemas";
 import { update } from "./update";
 
@@ -110,7 +109,25 @@ describe("the tools", () => {
       message(Message.ToolsLoaded({ tools: [tool()] })),
       message(
         Message.ReceivedPauses({
-          pauses: [{ harness: "dsh", inUse: true, pausedUntil: "2026-09-29T08:30:00Z" }],
+          pauses: [
+            {
+              harness: "dsh",
+              users: [
+                {
+                  kind: "role",
+                  role: "implementer",
+                  binding: "",
+                  repository: "",
+                  number: 0,
+                  title: "",
+                  workstreamRepository: "",
+                  workstream: 0,
+                  workstreamTitle: "",
+                },
+              ],
+              pausedUntil: "2026-09-29T08:30:00Z",
+            },
+          ],
         }),
       ),
       model((m) => {
@@ -370,75 +387,19 @@ describe("the labels", () => {
   });
 });
 
-const loaded = (overrides: Partial<Checkup> = {}) =>
-  createModel({
-    page: "workstreams",
-    checkups: { plants: checkup(overrides) },
-  });
-
-describe("the Workstreams", () => {
-  it("sends the request of the maintenance Workstream, and opens the chat", () => {
-    story(
-      update,
-      given(loaded()),
-      message(Message.ClickedCreate({ kind: "maintenance" })),
-      model((m) => {
-        expect(m.creating).toEqual(Option.some("maintenance"));
-      }),
-      StoryCommand.expectExact(
-        CreateWorkstream({
-          organization: "plants",
-          request: maintenanceWorkstreamRequest("plants/garden"),
-        }),
-      ),
-      StoryCommand.resolve(
-        CreateWorkstream,
-        Message.WorkstreamRequested({ organization: "plants" }),
-      ),
-      StoryCommand.expectNone(),
-      model((m) => {
-        expect(m.creating).toEqual(Option.some("maintenance"));
-      }),
-    );
-  });
-
-  it("sends the request of the Skills Workstream", () => {
-    story(
-      update,
-      given(loaded({ maintenanceWorkstream: 9 })),
-      message(Message.ClickedCreate({ kind: "skills" })),
-      StoryCommand.expectExact(
-        CreateWorkstream({
-          organization: "plants",
-          request: skillsWorkstreamRequest("plants/garden", "plants/mobius-skills"),
-        }),
-      ),
-      StoryCommand.resolve(
-        CreateWorkstream,
-        Message.WorkstreamRequested({ organization: "plants" }),
-      ),
-    );
-  });
-
-  it("shows the error of a message that the device cannot store, and stops the pending state", () => {
-    story(
-      update,
-      given(loaded()),
-      message(Message.ClickedCreate({ kind: "skills" })),
-      StoryCommand.resolve(CreateWorkstream, Message.CreateFailed({ error: "QuotaExceededError" })),
-      model((m) => {
-        expect(m.createError).toBe("QuotaExceededError");
-        expect(Option.isNone(m.creating)).toBe(true);
-      }),
-    );
-  });
-
-  it("sends nothing before the checkup is loaded", () => {
+describe("the Workstreams page", () => {
+  it("reads the checkup of its organization when it opens", () => {
     story(
       update,
       given(createModel({ page: "workstreams" })),
-      message(Message.ClickedCreate({ kind: "maintenance" })),
-      StoryCommand.expectNone(),
+      message(
+        Message.GotWorkstreamSetupMessage({
+          message: WorkstreamSetupMessage.CheckupLoaded({ checkup: checkup() }),
+        }),
+      ),
+      model((m) => {
+        expect(m.workstreamSetup.checkup).toEqual(Option.some(checkup()));
+      }),
     );
   });
 });

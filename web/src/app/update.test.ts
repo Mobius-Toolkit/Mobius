@@ -7,6 +7,7 @@ import { Message as AgentsMessage } from "@/agents/message";
 import { Message as SwitchesMessage } from "@/settings/switches/message";
 import { Message as PanelMessage } from "@/panel/message";
 import { Message as TasksMessage } from "@/panel/tasks/message";
+import { Message as SelectionMessage } from "@/ui/selection";
 import {
   CheckUpgrade,
   FetchCIStops,
@@ -306,6 +307,95 @@ describe("organization switch update logic", () => {
         expect(m.mobileTasksOpen).toBe(false);
       }),
     );
+  });
+
+  it("closes the Tasks sheet after a selection of the Brief reaches the draft", () => {
+    story(
+      update,
+      given(createModel("/workstreams/owner/repo/1", { mobileTasksOpen: true })),
+      message(Message.GotPanelMessage({ message: PanelMessage.AddedSelection() })),
+      model((m) => {
+        expect(m.mobileTasksOpen).toBe(false);
+      }),
+    );
+  });
+
+  it("closes the Brief sheet after a selection of the Brief reaches the draft", () => {
+    story(
+      update,
+      given(createModel("/workstreams/owner/repo/1", { mobileBriefOpen: true })),
+      message(Message.GotPanelMessage({ message: PanelMessage.AddedSelection() })),
+      model((m) => {
+        expect(m.mobileBriefOpen).toBe(false);
+      }),
+    );
+  });
+
+  it("closes the Brief sheet on Escape", () => {
+    story(
+      update,
+      given(createModel("/workstreams/owner/repo/1", { mobileBriefOpen: true })),
+      message(Message.PressedEscape()),
+      model((m) => {
+        expect(m.mobileBriefOpen).toBe(false);
+      }),
+    );
+  });
+
+  it("closes the Brief sheet with its close button", () => {
+    story(
+      update,
+      given(createModel("/workstreams/owner/repo/1", { mobileBriefOpen: true })),
+      message(Message.SetMobileBriefOpen({ open: false })),
+      model((m) => {
+        expect(m.mobileBriefOpen).toBe(false);
+      }),
+    );
+  });
+
+  it("opens the Brief sheet with no selection", () => {
+    const selected = moveTo(open(1, [workstream(1, "off")]), 1);
+    const withSelection = update(
+      selected,
+      Message.GotPanelMessage({
+        message: PanelMessage.GotSelectionMessage({
+          message: SelectionMessage.Selected({
+            owner: "brief",
+            text: "a",
+            context: "a",
+            part: "",
+            rect: { left: 0, right: 1, top: 0, bottom: 1 },
+          }),
+        }),
+      }),
+    ).model;
+    expect(Option.exists(withSelection.panel, (panel) => panel.selection !== null)).toBe(true);
+
+    const opened = update(withSelection, Message.SetMobileBriefOpen({ open: true })).model;
+    expect(opened.mobileBriefOpen).toBe(true);
+    expect(Option.exists(opened.panel, (panel) => panel.selection === null)).toBe(true);
+  });
+
+  it("shows the tab Tasks when the Tasks sheet opens while the panel tab is Brief", () => {
+    const briefTab = update(
+      moveTo(open(1, [workstream(1, "off")]), 1),
+      Message.GotPanelMessage({ message: PanelMessage.SelectedTab({ tab: "brief" }) }),
+    ).model;
+    expect(Option.exists(briefTab.panel, (panel) => panel.tab === "brief")).toBe(true);
+
+    const opened = update(briefTab, Message.SetMobileTasksOpen({ open: true })).model;
+    expect(opened.mobileTasksOpen).toBe(true);
+    expect(Option.exists(opened.panel, (panel) => panel.tab === "tasks")).toBe(true);
+  });
+
+  it("closes the Brief sheet of a phone on a move to another Workstream", () => {
+    const opened = update(
+      open(1, [workstream(1, "off"), workstream(2, "off")]),
+      Message.SetMobileBriefOpen({ open: true }),
+    ).model;
+    expect(opened.mobileBriefOpen).toBe(true);
+
+    expect(moveTo(opened, 2).mobileBriefOpen).toBe(false);
   });
 
   it("gives the switch errors to the Settings overview", () => {

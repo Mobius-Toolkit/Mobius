@@ -348,11 +348,34 @@ func (e *Engine) Resume(ctx context.Context, harness string) error {
 	return e.endPause(ctx, *pause)
 }
 
-// PauseState is the pause of a Harness. InUse tells that a Role uses the Harness, or that an open session waits for
-// the pause.
+// The kinds of a PauseUser.
+const (
+	pauseUserRole       = "role"
+	pauseUserWorkstream = "workstream"
+	pauseUserTask       = "task"
+	pauseUserSession    = "session"
+)
+
+// PauseUser is a user of a paused Harness: a Role binding, a setting of a Workstream or of a task, or an open session
+// that waits for the pause. Binding is set only for a Role binding of a Role with more than one binding. Repository,
+// Number and Title name the issue of the user, and WorkstreamRepository, Workstream and WorkstreamTitle name its
+// Workstream. A Role binding has no issue and no Workstream.
+type PauseUser struct {
+	Kind                 string
+	Role                 string
+	Binding              string
+	Repository           string
+	Number               int64
+	Title                string
+	WorkstreamRepository string
+	Workstream           int64
+	WorkstreamTitle      string
+}
+
+// PauseState is the pause of a Harness with its users. Users is empty when nothing uses the Harness.
 type PauseState struct {
 	store.HarnessPause
-	InUse bool
+	Users []PauseUser
 }
 
 // Pauses gives the pause of each Harness that has one.
@@ -361,22 +384,74 @@ func (e *Engine) Pauses(ctx context.Context) ([]PauseState, error) {
 	if err != nil {
 		return nil, err
 	}
-	waiting, err := e.queries.ListWaitingHarnesses(ctx, pausedPrefix)
+	workstreams, err := e.queries.ListWorkstreamSettingUsers(ctx)
 	if err != nil {
 		return nil, err
 	}
-	settings, err := e.queries.ListLiveIssueBindings(ctx)
+	tasks, err := e.queries.ListTaskSettingUsers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	waiting, err := e.queries.ListWaitingSessions(ctx, pausedPrefix)
 	if err != nil {
 		return nil, err
 	}
 	roles := e.mergedRoles()
-	bindings := roles.Bindings()
+	implementer := bindingList(roles.Implementer, e.implementerBindings())
 	states := make([]PauseState, 0, len(pauses))
 	for _, pause := range pauses {
-		inUse := slices.Contains(waiting, pause.Harness) ||
-			slices.ContainsFunc(bindings, func(b config.NamedBinding) bool { return string(b.Binding.Harness) == pause.Harness }) ||
-			slices.ContainsFunc(settings, func(s store.IssueBinding) bool { return s.Harness == pause.Harness })
-		states = append(states, PauseState{HarnessPause: pause, InUse: inUse})
+		users := []PauseUser{}
+		for _, named := range roles.Bindings() {
+			if named.Role == ImplementerRole {
+				for _, b := range implementer {
+					if string(b.Binding.Harness) != pause.Harness {
+						continue
+					}
+					user := PauseUser{Kind: pauseUserRole, Role: named.Role}
+					if len(implementer) > 1 {
+						user.Binding = string(b.Binding.Harness) + " · " + b.Binding.Model
+					}
+					users = append(users, user)
+				}
+			} else if string(named.Binding.Harness) == pause.Harness {
+				users = append(users, PauseUser{Kind: pauseUserRole, Role: named.Role})
+			}
+		}
+		for _, row := range workstreams {
+			if row.Harness == pause.Harness {
+				users = append(users, PauseUser{
+					Kind: pauseUserWorkstream, Role: row.Role,
+					Repository: row.Repository, Number: row.Number, Title: row.Title,
+					WorkstreamRepository: row.Repository, Workstream: row.Number, WorkstreamTitle: row.Title,
+				})
+			}
+		}
+		for _, row := range tasks {
+			if row.Harness == pause.Harness {
+				users = append(users, PauseUser{
+					Kind: pauseUserTask, Role: row.Role,
+					Repository: row.Repository, Number: row.Number, Title: row.Title,
+					WorkstreamRepository: row.WorkstreamRepository, Workstream: row.Workstream, WorkstreamTitle: row.WorkstreamTitle,
+				})
+			}
+		}
+		for _, row := range waiting {
+			if row.Harness != pause.Harness {
+				continue
+			}
+			user := PauseUser{Kind: pauseUserSession, Role: row.Role}
+			if row.Workstream != 0 {
+				user.Repository, user.Number, user.Title = row.WorkstreamRepository, row.Workstream, row.WorkstreamTitle.String
+				user.WorkstreamRepository, user.Workstream, user.WorkstreamTitle = row.WorkstreamRepository, row.Workstream, row.WorkstreamTitle.String
+				if row.Issue.Valid {
+					user.Repository, user.Number, user.Title = row.Repository, row.Issue.Int64, row.IssueTitle.String
+				}
+			}
+			if !slices.Contains(users, user) {
+				users = append(users, user)
+			}
+		}
+		states = append(states, PauseState{HarnessPause: pause, Users: users})
 	}
 	return states, nil
 }
@@ -493,7 +568,7 @@ func (e *Engine) watchMove(a *Agent) (<-chan struct{}, func()) {
 	e.pauseWaiters[a] = moved
 	e.pauseWaitersMu.Unlock()
 	roles := e.mergedRoles()
-	e.moveWaiters(&roles)
+	e.moveWaiters(&roles, e.implementerList())
 	return moved, func() {
 		e.pauseWaitersMu.Lock()
 		delete(e.pauseWaiters, a)
@@ -502,15 +577,21 @@ func (e *Engine) watchMove(a *Agent) (<-chan struct{}, func()) {
 }
 
 // moveWaiters wakes each agent in pauseWaiters of a moving Role whose Harness is not the Harness of its Role in roles.
-// A session that got its binding from a setting of its task or Workstream never moves.
-func (e *Engine) moveWaiters(roles *config.Roles) {
+// For the Implementer, the Harness of each binding of implementers counts. A session that got its binding from a
+// setting of its task or Workstream never moves.
+func (e *Engine) moveWaiters(roles *config.Roles, implementers []ImplementerBinding) {
 	e.pauseWaitersMu.Lock()
 	defer e.pauseWaitersMu.Unlock()
 	for a, moved := range e.pauseWaiters {
 		if !movingRoles[a.spec.Role] || a.level != LevelRole {
 			continue
 		}
-		if binding, _ := roleBinding(roles, a.spec.Role); binding.Harness != a.binding.Harness {
+		binding, _ := roleBinding(roles, a.spec.Role)
+		follows := binding.Harness == a.binding.Harness
+		if a.spec.Role == ImplementerRole {
+			follows = slices.ContainsFunc(implementers, func(b ImplementerBinding) bool { return b.Binding.Harness == a.binding.Harness })
+		}
+		if !follows {
 			close(moved)
 			delete(e.pauseWaiters, a)
 		}

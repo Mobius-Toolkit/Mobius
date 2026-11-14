@@ -9,9 +9,12 @@ import { FetchPage, ListQueued } from "@/chat/commands";
 import { initialModel as initialChatModel } from "@/chat/model";
 import { update as updateChat } from "@/chat/update";
 import { FetchCheckup, FetchTools } from "@/checkup/commands";
+import { Message as CheckupMessage } from "@/checkup/message";
 import { initialModel as initialCheckupModel } from "@/checkup/model";
 import { update as updateCheckup } from "@/checkup/update";
 import { initialModel as initialPanelModel } from "@/panel/model";
+import { Message as PanelMessage, toGotSelectionMessage } from "@/panel/message";
+import { Message as SelectionMessage } from "@/ui/selection";
 import { commandsFor as panelCommandsFor, update as updatePanel } from "@/panel/update";
 import { FetchDevices } from "@/settings/devices/commands";
 import { initialModel as initialDevicesModel } from "@/settings/devices/model";
@@ -41,6 +44,7 @@ import { initialModel as initialUsageModel } from "@/usage/model";
 import { load as usageLoad, update as updateUsage } from "@/usage/update";
 import { initialModel as initialWorkstreamsModel } from "@/workstreams/model";
 import { update as updateWorkstreams } from "@/workstreams/update";
+import { init as initWorkstreamSetup } from "@/workstreamSetup/update";
 import { filterNeedsHuman } from "@/lib/inbox";
 import { sameChat } from "@/lib/unread";
 import {
@@ -253,13 +257,19 @@ const noScreens: Pick<
 
 const noWorkstreamChatState: Pick<
   Model,
-  "autopilotBusy" | "autopilotError" | "closeBusy" | "closeError" | "mobileTasksOpen"
+  | "autopilotBusy"
+  | "autopilotError"
+  | "closeBusy"
+  | "closeError"
+  | "mobileTasksOpen"
+  | "mobileBriefOpen"
 > = {
   autopilotBusy: false,
   autopilotError: "",
   closeBusy: false,
   closeError: "",
   mobileTasksOpen: false,
+  mobileBriefOpen: false,
 };
 
 function isOpenWorkstream(model: Model, repository: string, number: number): boolean {
@@ -509,15 +519,36 @@ function initScreenForRoute(
       break;
     }
 
-    case "CheckupPermissions":
-    case "CheckupLabels":
     case "CheckupWorkstreams": {
+      const checkupModel = initialCheckupModel({
+        page: "workstreams",
+        organization: route.organization,
+      });
+      const { model: workstreamSetup, commands: setupCommands } = initWorkstreamSetup(
+        route.organization,
+      );
+      model = {
+        ...model,
+        checkupProgram: Option.some({
+          ...checkupModel,
+          pauses: model.pauses,
+          workstreamSetup,
+        }),
+      };
+      commands.push(
+        ...Command.mapMessages(setupCommands ?? [], (message) =>
+          Message.GotCheckupMessage({
+            message: CheckupMessage.GotWorkstreamSetupMessage({ message }),
+          }),
+        ),
+      );
+      break;
+    }
+
+    case "CheckupPermissions":
+    case "CheckupLabels": {
       const page =
-        route._tag === "CheckupPermissions"
-          ? ("permissions" as const)
-          : route._tag === "CheckupLabels"
-            ? ("labels" as const)
-            : ("workstreams" as const);
+        route._tag === "CheckupPermissions" ? ("permissions" as const) : ("labels" as const);
       const checkupModel = initialCheckupModel({ page, organization: route.organization });
       model = {
         ...model,
@@ -1536,8 +1567,19 @@ export function update(model: Model, message: Message): UpdateReturn {
         commands: [],
       };
 
-    case "SetMobileTasksOpen":
-      return { model: { ...model, mobileTasksOpen: message.open }, commands: [] };
+    case "SetMobileTasksOpen": {
+      const opened = { ...model, mobileTasksOpen: message.open };
+      if (message.open && Option.exists(model.panel, (panel) => panel.tab === "brief")) {
+        return foldPanel(opened, PanelMessage.ReceivedTab({ tab: "tasks" }));
+      }
+      return { model: opened, commands: [] };
+    }
+
+    case "SetMobileBriefOpen":
+      return foldPanel(
+        { ...model, mobileBriefOpen: message.open },
+        toGotSelectionMessage(SelectionMessage.Cleared({ owner: "brief" })),
+      );
 
     case "ToggleMenu": {
       const isCurrentlyOpen = Option.isSome(model.openMenu) && model.openMenu.value === message.id;
@@ -1565,6 +1607,9 @@ export function update(model: Model, message: Message): UpdateReturn {
       }
       if (model.mobileTasksOpen) {
         return update(model, Message.SetMobileTasksOpen({ open: false }));
+      }
+      if (model.mobileBriefOpen) {
+        return update(model, Message.SetMobileBriefOpen({ open: false }));
       }
       return { model, commands: [] };
 
@@ -1656,8 +1701,14 @@ export function update(model: Model, message: Message): UpdateReturn {
 
     case "GotPanelMessage": {
       const panelMessage = message.message;
-      if (panelMessage._tag === "GotTasksMessage" && panelMessage.message._tag === "AttachedTask") {
-        return foldPanel({ ...model, mobileTasksOpen: false }, panelMessage);
+      if (
+        panelMessage._tag === "AddedSelection" ||
+        (panelMessage._tag === "GotTasksMessage" && panelMessage.message._tag === "AttachedTask")
+      ) {
+        return foldPanel(
+          { ...model, mobileTasksOpen: false, mobileBriefOpen: false },
+          panelMessage,
+        );
       }
       return foldPanel(model, panelMessage);
     }
@@ -1675,8 +1726,11 @@ export function update(model: Model, message: Message): UpdateReturn {
       return foldAgents(model, message.message);
 
     case "GotCheckupMessage": {
-      if (message.message._tag === "WorkstreamRequested") {
-        const org = message.message.organization;
+      if (
+        message.message._tag === "GotWorkstreamSetupMessage" &&
+        message.message.message._tag === "WorkstreamRequested"
+      ) {
+        const org = message.message.message.organization;
         const { model: m1, commands: c1 } = foldCheckup(model, message.message);
         const { model: m2, commands: c2 } = update(
           m1,

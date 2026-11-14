@@ -8,9 +8,8 @@ import {
   setToolAutoUpgrade,
   upgradeCheckupTool,
 } from "@/api/api.gen";
-import { answer, request, store } from "@/lib/effects";
+import { answer, request } from "@/lib/effects";
 import { showNotice } from "@/lib/notice";
-import { addCoordinatorMessage } from "@/lib/outbox";
 import { Message } from "./message";
 import { FixButton, ToolCheck } from "./schemas";
 
@@ -103,18 +102,6 @@ export const FixLabels = Command.define("FixLabels", {
       login: Message.FixLoginRequired,
       failed: (error) => Message.LabelFixFailed({ error }),
     }),
-});
-
-export const CreateWorkstream = Command.define("CreateWorkstream", {
-  args: { organization: Schema.String, request: Schema.String },
-  messages: [Message.WorkstreamRequested, Message.CreateFailed],
-  execute: ({ organization, request: text }) =>
-    store(() => addCoordinatorMessage(organization, text)).pipe(
-      Effect.as(Message.WorkstreamRequested({ organization })),
-      Effect.catchTag("StoreFailed", (error) =>
-        Effect.succeed(Message.CreateFailed({ error: error.message })),
-      ),
-    ),
 });
 
 export const Navigate = Command.define("Navigate", {
