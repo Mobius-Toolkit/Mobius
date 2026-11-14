@@ -260,7 +260,7 @@ func TestRunOffersDSHWithItsModelsAndEfforts(t *testing.T) {
 	}
 }
 
-func TestRunAsksTheEffortOnlyForAModelThatHasEffortLevels(t *testing.T) {
+func TestRunAsksTheEffortOnlyForAModelWithEffortLevels(t *testing.T) {
 	script := antigravity
 	script.LoginWorks = true
 	script.Options = map[string][]string{
