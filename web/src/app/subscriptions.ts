@@ -293,10 +293,19 @@ const liftedInbox = Subscription.lift(inboxItemSubscriptions)<Model, Message>({
   when: (model) => model.route._tag === "Inbox",
 });
 
+// The panel is in the page on a wide screen, and on a phone while its sheet is open. A voice input that has no field
+// in the page takes the text of a conversion, so the composer of the Tasks tab runs only while the panel is in the page.
+const panelInPage = (model: Model) => model.wide || model.mobileTasksOpen;
+
 const liftedPanel = Subscription.lift(panelSubscriptions)<Model, Message>({
-  read: (model) => model.panel,
+  read: (model) => (model.route._tag === "WorkstreamChat" ? model.panel : Option.none()),
   toParentMessage: (message) => Message.GotPanelMessage({ message }),
-  when: (model) => model.route._tag === "WorkstreamChat",
+  when: {
+    taskDraft: panelInPage,
+    taskVoice: panelInPage,
+    taskVoiceClock: panelInPage,
+    taskVoiceInput: panelInPage,
+  },
 });
 
 const liftedTasks = Subscription.lift(tasksSubscriptions)<Model, Message>({

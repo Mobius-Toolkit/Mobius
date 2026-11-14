@@ -1918,6 +1918,42 @@ test("screenshots", async ({ page }) => {
         .click();
     },
   );
+  const taskComposer = page.locator("form:has(#side-task-input)").filter({ visible: true });
+  await screenshot(
+    page,
+    "chat-task-detail-composer",
+    "/workstreams/plants/garden/19",
+    (device) => [
+      ...(device === "desktop"
+        ? [
+            drain,
+            page.getByLabel("Work in another organization"),
+            page.locator('nav a[href="/workstreams/plants/garden/19"]'),
+          ]
+        : [page.getByLabel("Upgrade available")]),
+      page.getByRole("heading", { name: "#71 Spread the bark" }).filter({ visible: true }),
+      taskComposer.getByRole("button", { name: "Remove #71" }),
+      taskComposer.getByText("Spread the bark"),
+      () => expect(taskComposer.getByLabel("Message to the Lead")).toHaveValue("Is 5 cm enough?"),
+    ],
+    async (device) => {
+      if (device === "phone") {
+        await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
+      }
+      await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
+      await page
+        .getByRole("button", { name: /#71 Spread the bark/ })
+        .filter({ visible: true })
+        .click();
+      const field = taskComposer.getByLabel("Message to the Lead");
+      await expect(field).toBeEditable();
+      await field.fill("Is 5 cm enough?");
+    },
+    async () => {
+      await page.evaluate(clearDrafts);
+      await expect.poll(() => page.evaluate(storedDrafts)).toBe(0);
+    },
+  );
   await page.unroute(taskDetailRoute);
   const recurringFrame = (device: string, number: number) =>
     device === "desktop"
