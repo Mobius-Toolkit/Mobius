@@ -1,5 +1,6 @@
 import { cn } from "cn";
 import { Option } from "effect";
+import { Mount } from "foldkit";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import { defineView } from "foldkit/submodel";
 import * as Composer from "@/composer";
@@ -17,8 +18,9 @@ import {
 } from "@/ui/icons";
 import { renderMarkdown } from "@/ui/markdown";
 import { linkClass } from "@/ui/page";
+import { renderSelectionPopover, Watch } from "@/ui/selection";
 import { renderSwitch } from "@/ui/switch";
-import { Message, toGotComposerMessage } from "./message";
+import { Message, toGotComposerMessage, toGotSelectionMessage } from "./message";
 import {
   openedLine,
   reference,
@@ -244,7 +246,14 @@ function renderDetail(h: H, model: Model, line: TaskLine): Html {
         : h.empty,
       Option.match(model.detail, {
         onNone: () => h.empty,
-        onSome: (detail) => h.div([h.Class("border-t pt-3")], [renderMarkdown(h, detail.body)]),
+        onSome: (detail) =>
+          h.div(
+            [
+              h.Class("border-t pt-3"),
+              h.OnMount(Mount.mapMessage(Watch({ owner: "task" }), toGotSelectionMessage)),
+            ],
+            [renderMarkdown(h, detail.body)],
+          ),
       }),
       Option.match(model.sheet, {
         onNone: () => h.empty,
@@ -262,6 +271,7 @@ function renderDetail(h: H, model: Model, line: TaskLine): Html {
     [h.Class("flex min-h-full flex-col")],
     [
       body,
+      renderSelectionPopover(h, model.selection, toGotSelectionMessage),
       h.div(
         [h.Class("sticky bottom-0 -mx-2 -mb-2 bg-background pt-2")],
         [

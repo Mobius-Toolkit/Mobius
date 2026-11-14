@@ -286,11 +286,14 @@ const addMessages = (page: Page, messages: () => object[]) =>
     await route.fulfill({ response, json: body });
   });
 
-// The messages that the server stores in the Lead chat of owner/shop#12. The session cookie is Secure, so the request
+// The messages that the server stores in a Lead chat, by default the chat of owner/shop#12. The session cookie is Secure, so the request
 // of Playwright has no login, and the page makes the request.
-async function storedMessages(page: Page) {
+async function storedMessages(
+  page: Page,
+  place = "organization=owner&repository=owner/shop&workstream=12",
+) {
   const body = (await page.evaluate(
-    `fetch("/api/chat?organization=owner&repository=owner/shop&workstream=12").then((response) => response.json())`,
+    `fetch("/api/chat?${place}").then((response) => response.json())`,
   )) as {
     data: { messages: { id: number; author: string; text: string; selections: object[] }[] };
   };
@@ -541,6 +544,119 @@ for (const [device, viewport] of [
       const sent = main.locator(`[data-message='${sentId}']`);
       await expect(sent.locator("[data-selection-card]")).toHaveCount(1);
       await expect(sent.locator("[data-selection-card]")).toContainText("Brief of #12 · Limits");
+      await expect(composer.locator("[data-selection-card]")).toHaveCount(0);
+    });
+  });
+}
+
+const gardenPlace = "organization=plants&repository=plants/garden&workstream=19";
+
+const taskBody =
+  "### Instructions\n- Wear protective gloves.\n- Spread 5 cm of bark evenly over each bed.";
+
+async function openTaskView(page: Page, device: string) {
+  await page.route("**/api/workstreams/plants/garden/19/tasks/plants/garden/71", (route) =>
+    route.fulfill({
+      json: { data: { body: taskBody, pullRequest: null, pullRequestUrl: null } },
+    }),
+  );
+  await page.goto("/workstreams/plants/garden/19");
+  if (device === "phone") {
+    await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
+  }
+  await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
+  await page
+    .getByRole("button", { name: /#71 Spread the bark/ })
+    .filter({ visible: true })
+    .click();
+  const view = page.getByRole("tabpanel", { name: "Tasks" }).filter({ visible: true });
+  await expect(view.getByText("Wear protective gloves.")).toBeVisible();
+  await expect(page.locator("#side-task-input")).toBeEditable();
+  return view;
+}
+
+for (const [device, viewport] of [
+  ["desktop", desktop],
+  ["phone", phone],
+] as const) {
+  test.describe(`a selection in the issue body of the task view on a ${device}`, () => {
+    test.use({ viewport });
+
+    test("shows the popover below the selection, and Add to chat puts a card in the composer of the view", async ({
+      page,
+    }) => {
+      const popover = page.getByRole("button", { name: "Add to chat" });
+      const view = await openTaskView(page, device);
+      const composer = page.locator("form:has(#side-task-input)");
+      await expect(popover).toHaveCount(0);
+
+      await selectText(view.getByRole("heading", { name: "#71 Spread the bark" }), "Spread");
+      await expect(popover).toHaveCount(0);
+
+      await selectText(view, "Spread 5 cm of bark");
+      await expect(popover).toBeVisible();
+      const bottom = await selectionBottom(page);
+      const box = await popover.boundingBox();
+      expect(box?.y).toBeGreaterThanOrEqual(bottom);
+      expect(box?.x).toBeGreaterThanOrEqual(0);
+      expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(viewport.width);
+
+      await popover.click();
+      const card = composer.locator("[data-selection-card]");
+      await expect(card).toHaveCount(1);
+      await expect(card).toContainText("#71 · issue body");
+      await expect(card).toContainText("Spread 5 cm of bark");
+      await expect(popover).toHaveCount(0);
+      expect(await selectionIsEmpty(page)).toBe(true);
+    });
+
+    test("sends the selection from the composer of the view, and the sent message shows its card", async ({
+      page,
+    }) => {
+      const question = `Is this bark enough? (${device}, selection)`;
+      const view = await openTaskView(page, device);
+      const composer = page.locator("form:has(#side-task-input)");
+
+      await selectText(view, "Spread 5 cm of bark evenly over each bed.");
+      await page.getByRole("button", { name: "Add to chat" }).click();
+      await expect(composer.locator("[data-selection-card]")).toHaveCount(1);
+      await expect(
+        page.getByRole("main").locator("form:has(#chat-input) [data-selection-card]"),
+      ).toHaveCount(1);
+
+      await page.locator("#side-task-input").fill(question);
+      const stored = page.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" && response.url().endsWith("/api/chat/messages"),
+      );
+      await composer.getByRole("button", { name: "Send", exact: true }).click();
+      expect((await stored).status()).toBe(204);
+
+      await expect
+        .poll(async () =>
+          (await storedMessages(page, gardenPlace)).find((other) => other.text === question),
+        )
+        .toMatchObject({
+          author: "Owner",
+          selections: [
+            {
+              source: "task",
+              text: "Spread 5 cm of bark evenly over each bed.",
+              context: expect.stringContaining("Spread 5 cm of bark evenly over each bed."),
+              reference: "#71",
+              link: "https://github.com/plants/garden/issues/71",
+              part: "issue body",
+              messageId: 0,
+              messageAuthor: "",
+            },
+          ],
+        });
+      const sentId = (await storedMessages(page, gardenPlace)).find(
+        (other) => other.text === question,
+      )?.id;
+      const sent = page.getByRole("main").locator(`[data-message='${sentId}']`);
+      await expect(sent.locator("[data-selection-card]")).toHaveCount(1);
+      await expect(sent.locator("[data-selection-card]")).toContainText("#71 · issue body");
       await expect(composer.locator("[data-selection-card]")).toHaveCount(0);
     });
   });

@@ -4,6 +4,7 @@ import * as Composer from "@/composer";
 import { chatDraftKey } from "@/lib/draft";
 import * as Setting from "@/setting/model";
 import { NextSetting } from "@/setting/schemas";
+import { Model as TextSelection } from "@/ui/selection";
 
 export const TaskLine = ListTasksResponse.fields.data.value;
 export type TaskLine = typeof TaskLine.Type;
@@ -54,6 +55,7 @@ export const Model = Schema.Struct({
   detailError: Schema.String,
   composer: Composer.Model,
   taskAttached: Schema.Boolean,
+  selection: TextSelection,
 });
 
 export type Model = Schema.Schema.Type<typeof Model>;
@@ -88,6 +90,7 @@ export function initialModel(options: {
       workstream: options.number,
     }),
     taskAttached: false,
+    selection: null,
   };
 }
 

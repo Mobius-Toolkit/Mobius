@@ -3,6 +3,7 @@ import { defineMessageUnion } from "foldkit/message";
 import * as Composer from "@/composer";
 import * as Setting from "@/setting/message";
 import { NextSetting } from "@/setting/schemas";
+import * as Selection from "@/ui/selection";
 import { TaskDetail, TaskLine } from "./model";
 
 export const Message = defineMessageUnion({
@@ -24,6 +25,8 @@ export const Message = defineMessageUnion({
   OpenedTask: { line: TaskLine, scroll: Schema.Number },
   ClickedBack: {},
   GotComposerMessage: { message: Composer.Message },
+  GotSelectionMessage: { message: Selection.Message },
+  AddedSelection: {},
   CompletedRestoreScroll: {},
   TaskDetailLoaded: {
     repository: Schema.String,
@@ -51,3 +54,6 @@ export const toGotSettingMessage = (message: Setting.Message) =>
 
 export const toGotComposerMessage = (message: Composer.Message) =>
   Message.GotComposerMessage({ message });
+
+export const toGotSelectionMessage = (message: Selection.Message) =>
+  Message.GotSelectionMessage({ message });
