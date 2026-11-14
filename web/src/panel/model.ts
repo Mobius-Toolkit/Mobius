@@ -4,7 +4,7 @@ import type { Flags } from "./flags";
 import * as Details from "./details/model";
 import * as Recurring from "./recurring/model";
 import { Model as TextSelection } from "@/ui/selection";
-import { Tab } from "./schemas";
+import { Opening, Tab } from "./schemas";
 import * as Tasks from "./tasks/model";
 
 export const Model = Schema.Struct({
@@ -13,6 +13,7 @@ export const Model = Schema.Struct({
   number: Schema.Number,
   instance: Schema.String,
   tab: Tab,
+  opening: Schema.Option(Opening),
   brief: Schema.String,
   selection: TextSelection,
   tasks: Tasks.Model,
@@ -33,6 +34,7 @@ export function initialModel(flags: Flags): Model {
   return {
     ...workstream,
     tab: flags.tab,
+    opening: flags.opening,
     brief: "",
     selection: null,
     tasks: Tasks.initialModel(workstream),

@@ -98,6 +98,7 @@ export const Message = defineMessageUnion({
   // Alerts
   CIStopsChanged: { stops: Schema.Array(CIStop) },
   PausesChanged: { pauses: Schema.Array(Pause) },
+  ExpandedPauseUsers: { harness: Schema.String },
   ResumePauseRequested: { harness: Schema.String },
   ResumePauseSucceeded: { harness: Schema.String },
   ResumePauseFailed: { harness: Schema.String, error: Schema.String },

@@ -15,6 +15,7 @@ import { AddSelection, Navigate, RequestLogin, ReportTab } from "./commands";
 import { OutMessage as DetailsOutMessage } from "./details/message";
 import * as DetailsModel from "./details/model";
 import {
+  openSetting as openDetailsSetting,
   refresh as refreshDetails,
   reload as reloadDetails,
   update as updateDetails,
@@ -39,6 +40,7 @@ import type { Tab } from "./schemas";
 import { OutMessage as TasksOutMessage } from "./tasks/message";
 import * as TasksModel from "./tasks/model";
 import {
+  openSetting as openTaskSetting,
   refresh as refreshTasks,
   reload as reloadTasks,
   update as updateTasks,
@@ -186,6 +188,7 @@ function enter(model: Model, tab: Tab): UpdateReturn {
   const next: Model = {
     ...model,
     tab,
+    opening: Option.none(),
     selection: null,
     tasks: tab === "tasks" ? TasksModel.initialModel(workstream) : model.tasks,
     agents: tab === "agents" ? AgentsModel.initialModel(workstream) : model.agents,
@@ -214,7 +217,55 @@ function reloadTab(model: Model, only: readonly Tab[]): UpdateReturn {
   }
 }
 
+// Opens the requested setting sheet once its data is there. A task that is not in the list drops the request.
+function openRequested(result: UpdateReturn): UpdateReturn {
+  const { model } = result;
+  if (Option.isNone(model.opening)) {
+    return result;
+  }
+  const { setting, task } = model.opening.value;
+  const cleared = { ...model, opening: Option.none() };
+  const opened = Option.match(task, {
+    onNone: () =>
+      Option.isSome(model.details.details) && Option.isSome(model.details.roles)
+        ? Update.foldChildStep({
+            update: (details: DetailsModel.Model) => openDetailsSetting(details, setting),
+            read: (parent: Model) => Option.some(parent.details),
+            write: (parent, details) => ({ ...parent, details }),
+            toParentMessage: toGotDetailsMessage,
+          })(cleared)
+        : undefined,
+    onSome: (target) => {
+      if (Option.isNone(model.tasks.lines) || Option.isNone(model.tasks.fallback)) {
+        return undefined;
+      }
+      const line = model.tasks.lines.value.find(
+        (other) => other.repository === target.repository && other.number === target.number,
+      );
+      return line
+        ? Update.foldChildStep({
+            update: (tasks: TasksModel.Model) => openTaskSetting(tasks, line),
+            read: (parent: Model) => Option.some(parent.tasks),
+            write: (parent, tasks) => ({ ...parent, tasks }),
+            toParentMessage: toGotTasksMessage,
+          })(cleared)
+        : { model: cleared };
+    },
+  });
+  if (opened === undefined) {
+    return result;
+  }
+  return {
+    model: opened.model,
+    commands: [...(result.commands ?? []), ...(opened.commands ?? [])],
+  };
+}
+
 export function update(model: Model, message: Message): UpdateReturn {
+  return openRequested(handle(model, message));
+}
+
+function handle(model: Model, message: Message): UpdateReturn {
   return Message.match<UpdateReturn>(message, {
     ConnectionOpened: () => reloadTab(model, ["tasks", "agents", "details", "recurring"]),
     LoginRequired: () => requestLogin(model),

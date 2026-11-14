@@ -2,7 +2,10 @@ import { Option, Schema } from "effect";
 import { defineRouteUnion } from "foldkit/route";
 import type { Url } from "foldkit/url";
 import { validateMcpServersSearch } from "@/lib/mcpServers";
+import { lenient } from "@/lib/search";
 import { validateUsageSearch } from "@/lib/usage";
+import { Session } from "@/panel/details/model";
+import { Tab } from "@/panel/schemas";
 import { Search as UsageSearch } from "@/usage/model";
 
 export const McpSearch = Schema.Struct({
@@ -13,6 +16,17 @@ export const McpSearch = Schema.Struct({
 
 export type McpSearch = typeof McpSearch.Type;
 
+// task is "<owner>/<name>/<number>" of the task whose setting opens.
+export const WorkstreamSearch = Schema.Struct({
+  tab: lenient(Tab),
+  setting: lenient(Session),
+  task: lenient(Schema.String),
+});
+
+export type WorkstreamSearch = typeof WorkstreamSearch.Type;
+
+const decodeWorkstreamSearch = Schema.decodeUnknownSync(WorkstreamSearch);
+
 export const AppRoute = defineRouteUnion({
   NotFound: {},
   CoordinatorChat: {},
@@ -22,6 +36,7 @@ export const AppRoute = defineRouteUnion({
     owner: Schema.String,
     name: Schema.String,
     number: Schema.Number,
+    search: WorkstreamSearch,
   },
   Inbox: {},
   Agents: {},
@@ -100,6 +115,10 @@ export function mcpSearchToQuery(search: McpSearch): string {
   return searchQuery(search);
 }
 
+export function workstreamSearchToQuery(search: WorkstreamSearch): string {
+  return searchQuery(search);
+}
+
 export function parseRoute(url: Url): AppRoute {
   const segments = url.pathname.split("/").filter(Boolean);
   if (segments.length === 0) {
@@ -121,6 +140,7 @@ export function parseRoute(url: Url): AppRoute {
           owner: second,
           name: third,
           number: Number(fourth),
+          search: decodeWorkstreamSearch(searchToRecord(url.search)),
         });
       }
       return AppRoute.NotFound();
@@ -221,7 +241,8 @@ export function routeToPath(route: AppRoute): string {
     CoordinatorChat: () => "/chat",
     Workstreams: () => "/workstreams",
     Tasks: () => "/tasks",
-    WorkstreamChat: ({ owner, name, number }) => `/workstreams/${owner}/${name}/${number}`,
+    WorkstreamChat: ({ owner, name, number, search }) =>
+      `/workstreams/${owner}/${name}/${number}${workstreamSearchToQuery(search)}`,
     Inbox: () => "/inbox",
     Agents: () => "/agents",
     Usage: ({ search }) => `/usage${usageSearchToQuery(search)}`,

@@ -1,5 +1,9 @@
+import { Option } from "effect";
 import { describe, expect, it } from "vitest";
 import { Command as StoryCommand, given, message, model, story } from "foldkit/story";
+import { FetchHarnesses } from "@/setting/commands";
+import * as SettingFixture from "@/setting/fixtures";
+import type { Role } from "@/setting/schemas";
 import type { Agent } from "@/transcript/schemas";
 import * as Selection from "@/ui/selection";
 import * as SelectionFixture from "@/ui/selection-fixtures";
@@ -7,6 +11,7 @@ import * as AgentsFixture from "./agents/fixtures";
 import { FetchAgents } from "./agents/commands";
 import { AddSelection, RequestLogin, ReportTab } from "./commands";
 import { FetchDetails, FetchMcpServers, FetchRoles } from "./details/commands";
+import type { WorkstreamDetails } from "./details/model";
 import * as DetailsFixture from "./details/fixtures";
 import { Message } from "./message";
 import { initialModel, type Model } from "./model";
@@ -14,13 +19,14 @@ import { FetchTasks as FetchRecurring } from "./recurring/commands";
 import * as RecurringFixture from "./recurring/fixtures";
 import type { Tab } from "./schemas";
 import { FetchFallback, FetchTasks } from "./tasks/commands";
+import type { TaskLine } from "./tasks/model";
 import * as TasksFixture from "./tasks/fixtures";
 import { update } from "./update";
 
 const workstream = { owner: "owner", name: "shop", number: 12 };
 
 const createModel = (tab: Tab, overrides: Partial<Model> = {}): Model => ({
-  ...initialModel({ ...workstream, instance: "side", tab }),
+  ...initialModel({ ...workstream, instance: "side", tab, opening: Option.none() }),
   ...overrides,
 });
 
@@ -369,6 +375,120 @@ describe("the login", () => {
       message(Message.GotRecurringMessage({ message: RecurringFixture.loginRequired })),
       StoryCommand.expectExact(RequestLogin()),
       StoryCommand.resolve(RequestLogin, Message.CompletedRequestLogin()),
+    );
+  });
+});
+
+const resolveHarnesses = StoryCommand.resolve(FetchHarnesses, SettingFixture.harnessesLoaded);
+
+const loadedDetails: WorkstreamDetails = {
+  completedTasks: 0,
+  createdAt: "2026-05-01T10:00:00Z",
+  evergreen: false,
+  implementer: { harness: "devin", model: "swe-1.5", effort: "high", own: false },
+  lead: { harness: "claude-code", model: "opus", effort: "medium", own: false },
+  maintenance: false,
+  mcpServers: [],
+  openTasks: 1,
+  operator: { harness: "claude-code", model: "opus", effort: "medium", own: false },
+  skills: false,
+};
+
+const implementerRole: Role = {
+  context: 0,
+  effort: "low",
+  harness: "devin",
+  max: 1,
+  model: "swe-1.5",
+  moreBindings: [],
+  role: "implementer",
+  ui: { context: false, effort: true, harness: true, max: false, model: true },
+};
+
+const taskLine = (number: number): TaskLine => ({
+  blockedBy: [],
+  depth: 0,
+  implementer: null,
+  number,
+  otherRepository: false,
+  repository: "owner/shop",
+  state: "open",
+  title: `Task ${number}`,
+  url: `https://github.com/owner/shop/issues/${number}`,
+});
+
+const defaultSetting = { harness: "devin", model: "swe-1.5", effort: "high", own: false };
+
+const asking = (tab: Tab, task: Option.Option<{ repository: string; number: number }>) =>
+  createModel(tab, { opening: Option.some({ setting: "implementer", task }) });
+
+describe("the setting sheet that the address asks for", () => {
+  it("opens the setting sheet of the Workstream when the details and the Roles are there", () => {
+    story(
+      update,
+      given(asking("details", Option.none())),
+      message(Message.GotDetailsMessage({ message: DetailsFixture.detailsLoaded(loadedDetails) })),
+      model((m) => {
+        expect(Option.isNone(m.details.sheet)).toBe(true);
+        expect(Option.isSome(m.opening)).toBe(true);
+      }),
+      message(Message.GotDetailsMessage({ message: DetailsFixture.rolesGiven([implementerRole]) })),
+      model((m) => {
+        const sheet = Option.getOrThrow(m.details.sheet);
+        expect(sheet.session).toBe("implementer");
+        expect(sheet.setting.target).toEqual({ _tag: "WorkstreamImplementer", ...workstream });
+        expect(Option.isNone(m.opening)).toBe(true);
+      }),
+      StoryCommand.expectHas(FetchHarnesses),
+      resolveHarnesses,
+    );
+  });
+
+  it("opens the setting sheet of the task when the tasks and the default setting are there", () => {
+    story(
+      update,
+      given(asking("tasks", Option.some({ repository: "owner/shop", number: 39 }))),
+      message(Message.GotTasksMessage({ message: TasksFixture.linesLoaded([taskLine(39)]) })),
+      model((m) => {
+        expect(Option.isNone(m.tasks.sheet)).toBe(true);
+      }),
+      message(Message.GotTasksMessage({ message: TasksFixture.fallbackLoaded(defaultSetting) })),
+      model((m) => {
+        const sheet = Option.getOrThrow(m.tasks.sheet);
+        expect(sheet.target).toEqual({ _tag: "Task", owner: "owner", name: "shop", number: 39 });
+        expect(Option.isNone(m.opening)).toBe(true);
+      }),
+      StoryCommand.expectHas(FetchHarnesses),
+      resolveHarnesses,
+    );
+  });
+
+  it("opens no sheet for a task that is not in the list", () => {
+    story(
+      update,
+      given(asking("tasks", Option.some({ repository: "owner/shop", number: 39 }))),
+      message(Message.GotTasksMessage({ message: TasksFixture.linesLoaded([taskLine(40)]) })),
+      message(Message.GotTasksMessage({ message: TasksFixture.fallbackLoaded(defaultSetting) })),
+      model((m) => {
+        expect(Option.isNone(m.tasks.sheet)).toBe(true);
+        expect(Option.isNone(m.opening)).toBe(true);
+      }),
+      StoryCommand.expectNone(),
+    );
+  });
+
+  it("drops the request when the Owner opens another tab", () => {
+    story(
+      update,
+      given(asking("details", Option.none())),
+      message(Message.SelectedTab({ tab: "agents" })),
+      model((m) => {
+        expect(Option.isNone(m.opening)).toBe(true);
+      }),
+      StoryCommand.expectHas(FetchAgents),
+      StoryCommand.expectHas(ReportTab),
+      resolveAgents,
+      StoryCommand.resolve(ReportTab, Message.CompletedReportTab()),
     );
   });
 });

@@ -99,6 +99,7 @@ const projectsC = [
   // servers to the organization owner, and the selection tests use the organization plants.
   groupC({ name: "mcp-selection", testMatch: "mcp-selection.spec.ts" }),
   groupC({ name: "mcp-servers", testMatch: "mcp-servers.spec.ts" }),
+  groupC({ name: "pauses", testMatch: "pauses.spec.ts" }),
 ];
 
 const screenshotsServer = {

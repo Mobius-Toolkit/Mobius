@@ -26,6 +26,36 @@ describe("the search of a route", () => {
     expect(routeToPath(route)).toBe("/usage?tab=tokens&group=%5B%22model%22%2C%22effort%22%5D");
   });
 
+  it("reads the tab, the setting and the task of a Workstream", () => {
+    expect(
+      parsed("/workstreams/owner/shop/12?tab=tasks&setting=implementer&task=owner%2Fshop%2F39"),
+    ).toEqual(
+      AppRoute.WorkstreamChat({
+        owner: "owner",
+        name: "shop",
+        number: 12,
+        search: { tab: "tasks", setting: "implementer", task: "owner/shop/39" },
+      }),
+    );
+    expect(parsed("/workstreams/owner/shop/12?tab=details&setting=lead")).toEqual(
+      AppRoute.WorkstreamChat({
+        owner: "owner",
+        name: "shop",
+        number: 12,
+        search: { tab: "details", setting: "lead" },
+      }),
+    );
+  });
+
+  it("reads a Workstream with no search as before, and drops a value that is not valid", () => {
+    expect(parsed("/workstreams/owner/shop/12")).toEqual(
+      AppRoute.WorkstreamChat({ owner: "owner", name: "shop", number: 12, search: {} }),
+    );
+    expect(parsed("/workstreams/owner/shop/12?tab=money&setting=judge")).toEqual(
+      AppRoute.WorkstreamChat({ owner: "owner", name: "shop", number: 12, search: {} }),
+    );
+  });
+
   it("reads the number of the MCP servers search", () => {
     const route = parsed("/settings/mcp-servers?server=3&oauth=connected");
     expect(route).toEqual(

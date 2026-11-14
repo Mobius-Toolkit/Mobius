@@ -650,7 +650,7 @@ test("the Tools page turns the Auto-upgrade of a package on and off and shows th
   expect(sent).toEqual([true, false]);
 });
 
-test("the Tools page shows the usage limit badge on the row of the paused Harness only", async ({
+test("the Tools page shows the usage limit badge on the rows of the paused Harnesses only", async ({
   page,
 }) => {
   const main = page.getByRole("main");
@@ -659,8 +659,10 @@ test("the Tools page shows the usage limit badge on the row of the paused Harnes
   const antigravity = main.getByRole("listitem").filter({ hasText: "agy_acp_server" });
   await expect(antigravity).toBeVisible();
   await expect(antigravity.getByText(/^usage limit until Sep 28, 12:00\sPM$/)).toBeVisible();
+  const dsh = main.getByRole("listitem").filter({ hasText: "dsh" });
+  await expect(dsh.getByText(/^usage limit until Sep 29, 08:30\sAM$/)).toBeVisible();
   await expect(main.getByRole("listitem").filter({ hasText: "git" })).toBeVisible();
-  await expect(main.getByText(/usage limit until/)).toHaveCount(1);
+  await expect(main.getByText(/usage limit until/)).toHaveCount(2);
 });
 
 test("the Tools page shows the usage limit badge for a Harness that no role uses, with no needs you", async ({
