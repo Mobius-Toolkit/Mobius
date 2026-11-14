@@ -16,7 +16,10 @@ import type { Message as ComposerMessage } from "@/composer/message";
 import { ComposerBehavior } from "@/composer/view";
 import { FetchHarnesses } from "@/setting/commands";
 import * as SettingFixture from "@/setting/fixtures";
+import * as Selection from "@/ui/selection";
+import * as SelectionFixture from "@/ui/selection-fixtures";
 import {
+  AddSelection,
   AttachTask,
   ChangeIssue,
   FetchFallback,
@@ -644,6 +647,117 @@ describe("the detail view of a task", () => {
         Message.AttachFailed({ key: rowKey(task), error: "storage is full" }),
       ),
       Scene.expect(Scene.text("storage is full")).toExist(),
+    );
+  });
+});
+
+describe("the selection in the issue body of the detail view", () => {
+  const task = line(41);
+  const openedModel = (overrides: Partial<Model> = {}) =>
+    createModel({
+      lines: Option.some([task]),
+      opened: Option.some({ repository: "owner/shop", number: 41 }),
+      ...overrides,
+    });
+  const selected = Message.GotSelectionMessage({ message: SelectionFixture.selectedInTask });
+
+  it("puts a selection of the issue body in the draft of the Lead chat", () => {
+    story(
+      update,
+      given(openedModel()),
+      message(selected),
+      message(Message.GotSelectionMessage({ message: SelectionFixture.addClicked })),
+      model((m) => {
+        expect(m.selection).toBeNull();
+      }),
+      StoryCommand.expectExact(
+        AddSelection({
+          key: "chatDraft:owner/owner/shop/12",
+          selection: {
+            source: "task",
+            text: "free plan",
+            context: "One free plan for staff",
+            reference: "#41",
+            link: "https://github.com/owner/shop/issues/41",
+            part: "issue body",
+            messageId: 0,
+            messageAuthor: "",
+          },
+        }),
+        Selection.ClearSelection(),
+      ),
+      StoryCommand.resolve(Selection.ClearSelection, SelectionFixture.clearedSelection),
+      StoryCommand.resolve(AddSelection, Message.AddedSelection()),
+    );
+  });
+
+  it("names the repository in the reference of a task of another repository", () => {
+    const other = line(7, {
+      repository: "owner/api",
+      otherRepository: true,
+      url: "https://github.com/owner/api/issues/7",
+    });
+    story(
+      update,
+      given(
+        openedModel({
+          lines: Option.some([other]),
+          opened: Option.some({ repository: "owner/api", number: 7 }),
+        }),
+      ),
+      message(selected),
+      message(Message.GotSelectionMessage({ message: SelectionFixture.addClicked })),
+      StoryCommand.expectExact(
+        AddSelection({
+          key: "chatDraft:owner/owner/shop/12",
+          selection: {
+            source: "task",
+            text: "free plan",
+            context: "One free plan for staff",
+            reference: "owner/api#7",
+            link: "https://github.com/owner/api/issues/7",
+            part: "issue body",
+            messageId: 0,
+            messageAuthor: "",
+          },
+        }),
+        Selection.ClearSelection(),
+      ),
+      StoryCommand.resolve(Selection.ClearSelection, SelectionFixture.clearedSelection),
+      StoryCommand.resolve(AddSelection, Message.AddedSelection()),
+    );
+  });
+
+  it("drops the selection when the view closes or another task opens", () => {
+    story(
+      update,
+      given(openedModel()),
+      message(selected),
+      message(Message.ClickedBack()),
+      model((m) => {
+        expect(m.selection).toBeNull();
+      }),
+      StoryCommand.resolve(RestoreScroll, Message.CompletedRestoreScroll()),
+      message(Message.OpenedTask({ line: task, scroll: 0 })),
+      StoryCommand.resolveAll(
+        [RestoreScroll, Message.CompletedRestoreScroll()],
+        [
+          FetchTaskDetail,
+          Message.TaskDetailFailed({ repository: "owner/shop", number: 41, error: "x" }),
+        ],
+      ),
+      message(selected),
+      message(Message.OpenedTask({ line: task, scroll: 0 })),
+      model((m) => {
+        expect(m.selection).toBeNull();
+      }),
+      StoryCommand.resolveAll(
+        [RestoreScroll, Message.CompletedRestoreScroll()],
+        [
+          FetchTaskDetail,
+          Message.TaskDetailFailed({ repository: "owner/shop", number: 41, error: "x" }),
+        ],
+      ),
     );
   });
 });

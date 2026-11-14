@@ -8,10 +8,11 @@ import {
   startIssue,
   stopIssue,
 } from "@/api/api.gen";
-import { DraftInboxItem } from "@/chat/schemas";
-import { addDraftInboxItem } from "@/lib/draft";
+import { ChatSelection, DraftInboxItem } from "@/chat/schemas";
+import { addDraftInboxItem, addDraftSelection } from "@/lib/draft";
 import { answer, request, store } from "@/lib/effects";
 import { showNotice } from "@/lib/notice";
+import { newMessageId } from "@/lib/outbox";
 import { Message } from "./message";
 import { TaskLine } from "./model";
 
@@ -159,5 +160,16 @@ export const AttachTask = Command.define("AttachTask", {
       Effect.catchTag("StoreFailed", (error) =>
         Effect.succeed(Message.AttachFailed({ key, error: error.message })),
       ),
+    ),
+});
+
+export const AddSelection = Command.define("AddSelection", {
+  args: { key: Schema.String, selection: ChatSelection },
+  messages: [Message.AddedSelection],
+  execute: ({ key, selection }) =>
+    // A draft that the store refused leaves the draft as it was.
+    store(() => addDraftSelection(key, { ...selection, id: newMessageId() })).pipe(
+      Effect.ignore,
+      Effect.as(Message.AddedSelection()),
     ),
 });

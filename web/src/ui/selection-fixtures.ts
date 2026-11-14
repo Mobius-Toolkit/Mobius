@@ -17,3 +17,12 @@ export const selected = decode({
 export const addClicked = decode({ _tag: "AddClicked" });
 
 export const clearedSelection = decode({ _tag: "CompletedClearSelection" });
+
+export const selectedInTask = decode({
+  _tag: "Selected",
+  owner: "task",
+  text: "free plan",
+  context: "One free plan for staff",
+  part: "Scope",
+  rect,
+});

@@ -1954,6 +1954,57 @@ test("screenshots", async ({ page }) => {
       await expect.poll(() => page.evaluate(storedDrafts)).toBe(0);
     },
   );
+  const openTaskView = async (device: string) => {
+    if (device === "phone") {
+      await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
+    }
+    await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
+    await page
+      .getByRole("button", { name: /#71 Spread the bark/ })
+      .filter({ visible: true })
+      .click();
+    await expect(taskComposer.getByLabel("Message to the Lead")).toBeEditable();
+    const view = page.getByRole("tabpanel", { name: "Tasks" }).filter({ visible: true });
+    await expect(view.getByText("Spread 5 cm of bark")).toBeVisible();
+    await selectText(view, "Spread 5 cm of bark");
+  };
+  const taskFrame = (device: string) => [
+    ...(device === "desktop"
+      ? [
+          drain,
+          page.getByLabel("Work in another organization"),
+          page.locator('nav a[href="/workstreams/plants/garden/19"]'),
+        ]
+      : [page.getByLabel("Upgrade available")]),
+    page.getByRole("heading", { name: "#71 Spread the bark" }).filter({ visible: true }),
+  ];
+  await screenshot(
+    page,
+    "chat-task-selection-popover",
+    "/workstreams/plants/garden/19",
+    (device) => [
+      ...taskFrame(device),
+      page.getByRole("button", { name: "Add to chat" }),
+      page.getByText("Spread 5 cm of bark").filter({ visible: true }),
+    ],
+    openTaskView,
+    () => page.evaluate("getSelection().removeAllRanges()"),
+  );
+  await screenshot(
+    page,
+    "chat-task-selection-composer",
+    "/workstreams/plants/garden/19",
+    (device) => [...taskFrame(device), taskComposer.locator("[data-selection-card]")],
+    async (device) => {
+      await openTaskView(device);
+      await page.getByRole("button", { name: "Add to chat" }).click();
+      await expect(taskComposer.locator("[data-selection-card]")).toHaveCount(1);
+    },
+    async () => {
+      await page.evaluate(clearDrafts);
+      await expect.poll(() => page.evaluate(storedDrafts)).toBe(0);
+    },
+  );
   await page.unroute(taskDetailRoute);
   const recurringFrame = (device: string, number: number) =>
     device === "desktop"
