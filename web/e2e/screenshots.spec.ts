@@ -150,7 +150,8 @@ const skipNotice = async (page: Page, notice: Locator) => {
   await expect(notice).toBeHidden();
 };
 
-// The chat scrolls to its end by itself, and the end is the only stable scroll.
+// The chat scrolls to its end by itself, and the end is the only stable scroll. The first scroll of the list comes
+// when it is ready, and it can go to the first unread message, so the end comes after it.
 const showChatEnd = (page: Page) =>
   expect
     .poll(() =>
@@ -159,7 +160,7 @@ const showChatEnd = (page: Page) =>
         .last()
         .evaluate((el) => {
           const list = el.parentElement;
-          if (!list) {
+          if (!list || list.dataset.ready !== "true") {
             return false;
           }
           list.scrollTop = list.scrollHeight;
@@ -964,20 +965,31 @@ test("screenshots", async ({ page }) => {
     hasText: "Show the prices of the roses first.",
   });
   const limitEnd = main.getByText(/^claude-code reached a usage limit\./);
-  await screenshot(
-    page,
-    "chat-usage-limit",
-    "/workstreams/owner/shop/12",
-    (device) => [
-      ...chatReady(device),
-      ownerNote.getByRole("img", { name: "Stored, waits for the agent" }),
-      limitEnd,
-    ],
-    async () => {
-      await expect(limitEnd).toBeVisible();
-      await ownerNote.evaluate((el) => el.scrollIntoView({ block: "start" }));
-    },
-  );
+  // The pause banner and the tray change the height of the list, and the list stays at its end when it is at its end.
+  // Thus the scroll comes after the last locator of the layout. The end of the list is the position of the message
+  // when the list is too short to put the message at the top.
+  const ownerAtTop: Wait = () =>
+    expect
+      .poll(() =>
+        ownerNote.evaluate((el) => {
+          const list = el.parentElement;
+          if (!list || list.dataset.ready !== "true") {
+            return false;
+          }
+          el.scrollIntoView({ block: "start" });
+          return (
+            list.scrollHeight - list.scrollTop - list.clientHeight < 1 ||
+            Math.abs(el.getBoundingClientRect().top - list.getBoundingClientRect().top) < 1
+          );
+        }),
+      )
+      .toBe(true);
+  await screenshot(page, "chat-usage-limit", "/workstreams/owner/shop/12", (device) => [
+    ...chatReady(device),
+    ownerNote.getByRole("img", { name: "Stored, waits for the agent" }),
+    limitEnd,
+    ownerAtTop,
+  ]);
   await page.unroute("**/api/chat?*");
   const stoppedRow = main.getByRole("listitem").filter({ hasText: "Add plan model" });
   const composer = main.locator("form");
@@ -1747,6 +1759,30 @@ test("screenshots", async ({ page }) => {
       await openTasks(device);
       await planReceipts.getByRole("button", { name: "Implementer of #39" }).click();
       await settingSheetReady(receiptsSheet);
+    },
+    () => page.keyboard.press("Escape"),
+  );
+  const pickSetting = async (label: string, value: string) => {
+    await receiptsSheet.getByLabel(label, { exact: true }).click();
+    await page.getByRole("menuitemradio", { name: value, exact: true }).click();
+  };
+  await screenshot(
+    page,
+    "chat-tasks-setting-sheet-antigravity",
+    "/workstreams/owner/shop/12",
+    (device) => [
+      ...frame(device, drain),
+      chatEnd,
+      receiptsSheet.getByLabel("Effort", { exact: true }),
+      receiptsSheet.getByRole("button", { name: "Save" }),
+    ],
+    async (device) => {
+      await openTasks(device);
+      await planReceipts.getByRole("button", { name: "Implementer of #39" }).click();
+      await settingSheetReady(receiptsSheet);
+      await pickSetting("Harness", "antigravity");
+      await pickSetting("Model", "gemini-3-pro");
+      await expect(receiptsSheet.getByLabel("Effort", { exact: true })).toHaveText("low");
     },
     () => page.keyboard.press("Escape"),
   );
@@ -2900,6 +2936,28 @@ test("screenshots", async ({ page }) => {
     async () => {
       await openReviewer();
       await roleSheet.getByLabel("Model", { exact: true }).click();
+    },
+  );
+  const researcherSheet = page.getByRole("dialog", { name: "Researcher" });
+  await screenshot(
+    page,
+    "roles-antigravity-effort-list",
+    "/settings/roles",
+    (device) => [
+      ...frame(device, release),
+      researcherSheet.getByLabel("Model", { exact: true }),
+      page.getByRole("menuitemradio", { name: "low", exact: true }),
+      page.getByRole("menuitemradio", { name: "high", exact: true }),
+    ],
+    async () => {
+      await roleRow("Researcher").click();
+      await expect(researcherSheet.getByLabel("Harness", { exact: true })).toHaveText(
+        "antigravity",
+      );
+      await expect(researcherSheet.getByLabel("Model", { exact: true })).toHaveText("gemini-3-pro");
+      await expect(researcherSheet.getByRole("button", { name: "Save" })).toBeEnabled();
+      await researcherSheet.getByLabel("Effort", { exact: true }).click();
+      await expect(page.getByRole("menuitemradio")).toHaveText(["low", "medium", "high"]);
     },
   );
   await screenshot(
@@ -4294,14 +4352,16 @@ test("screenshots", async ({ page }) => {
       await withCard.evaluate((el) => el.scrollIntoView({ block: "start" }));
     },
   );
-  const plantsFrame = (device: string, workstream: number) =>
-    device === "desktop"
+  const plantsFrame = (device: string, workstream: number) => [
+    ...(device === "desktop"
       ? [
           release,
           page.getByLabel("Work in another organization"),
           page.locator(`nav a[href="/workstreams/plants/garden/${workstream}"]`),
         ]
-      : [page.getByLabel("Upgrade available")];
+      : [page.getByLabel("Upgrade available")]),
+    page.getByText(/^antigravity paused until Sep 28, 12:00\sPM$/),
+  ];
   // The chat tests of the later projects need the first unread message of these chats.
   await page.route("/api/chat/seen", (route) => route.fulfill({ status: 204 }));
   await screenshot(
@@ -4325,6 +4385,7 @@ test("screenshots", async ({ page }) => {
       ...plantsFrame(device, 15),
       main.getByLabel("Cancelled, sent again below, at 09:30"),
       main.getByText("Plan the tiers for the shop.").first(),
+      chatEnd,
     ],
     async () => {
       await expect(main.getByText("Plan the tiers for the shop.")).toHaveCount(2);

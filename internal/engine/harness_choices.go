@@ -2,7 +2,9 @@ package engine
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"slices"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/runner"
@@ -104,4 +106,32 @@ func (e *Engine) readHarness(ctx context.Context, harness config.Harness, path s
 	}
 	choice.Models = models
 	return choice
+}
+
+// checkEffort refuses the effort of binding for the Role role when the read of the Harness of binding ended with
+// success, has the model of binding, and does not give the effort for it. It starts no read and waits for none.
+func (e *Engine) checkEffort(role string, binding config.RoleBinding) error {
+	if binding.Effort == "" {
+		return nil
+	}
+	e.harnessReadsMu.Lock()
+	read := e.harnessReads[binding.Harness]
+	e.harnessReadsMu.Unlock()
+	if read == nil {
+		return nil
+	}
+	select {
+	case <-read.done:
+	default:
+		return nil
+	}
+	if read.choice.Error != "" {
+		return nil
+	}
+	for _, model := range read.choice.Models {
+		if model.Model == binding.Model && !slices.Contains(model.Efforts, binding.Effort) {
+			return fmt.Errorf("roles.%s.effort: %s gives no effort %s for the model %s", role, binding.Harness, binding.Effort, binding.Model)
+		}
+	}
+	return nil
 }

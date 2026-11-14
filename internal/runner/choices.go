@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 
-	"github.com/coder/acp-go-sdk"
-
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
 )
 
@@ -16,9 +14,9 @@ type ModelChoice struct {
 	Efforts []string
 }
 
-// ReadChoices starts the Harness in dir with no MCP server, and reads each model with its effort levels. A Harness that
-// has no effort levels gives no efforts. The effort list follows the model, so ReadChoices sets each model and reads the
-// list that the Harness gives after the set.
+// ReadChoices starts the Harness in dir with no MCP server, and reads each model with its effort levels. A model with
+// no thought_level values gets no efforts. The effort list follows the model, so ReadChoices sets each model and reads
+// the list that the Harness gives after the set.
 func ReadChoices(ctx context.Context, harness config.Harness, dir, dataDir, path string) ([]ModelChoice, error) {
 	session, err := Start(ctx, harness, 0, false, false, dir, dataDir, path, "", nil, "", "", "", func(json.RawMessage, bool) {})
 	if err != nil {
@@ -31,17 +29,10 @@ func ReadChoices(ctx context.Context, harness config.Harness, dir, dataDir, path
 	}
 	choices := make([]ModelChoice, 0, len(models))
 	for _, model := range models {
-		choice := ModelChoice{Model: model}
-		if harness.HasEffortLevels() {
-			err := session.limited(ctx, func(ctx context.Context) error {
-				return session.set(ctx, acp.SessionConfigOptionCategoryModel, "model", model)
-			})
-			if err != nil {
-				return nil, err
-			}
-			choice.Efforts = session.Efforts().Values
+		if err := session.SetModel(ctx, model); err != nil {
+			return nil, err
 		}
-		choices = append(choices, choice)
+		choices = append(choices, ModelChoice{Model: model, Efforts: session.Efforts().Values})
 	}
 	return choices, nil
 }

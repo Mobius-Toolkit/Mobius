@@ -116,7 +116,7 @@ test("a pick of a Harness selects its first model, and the efforts follow the mo
 
   await pick(page, sheet, "Harness", "antigravity");
   await expect(sheet.getByLabel("Model", { exact: true })).toHaveText("sonnet");
-  await expect(sheet.getByLabel("Effort", { exact: true })).toBeHidden();
+  await expect(sheet.getByLabel("Effort", { exact: true })).toBeVisible();
 
   await pick(page, sheet, "Harness", "claude-code");
   await pick(page, sheet, "Model", "haiku");

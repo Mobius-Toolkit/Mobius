@@ -33,7 +33,7 @@ type MoreBinding struct {
 	Harness string `gork:"harness"`
 	// Model is the model of the binding
 	Model string `gork:"model"`
-	// Effort is the effort level of the binding, or empty for a Harness with no effort levels
+	// Effort is the effort level of the binding, or empty when the Harness uses its own default or the model has no effort levels
 	Effort string `gork:"effort"`
 	// Context is the largest context of a session in tokens, or 0 for no limit
 	Context int `gork:"context"`
@@ -49,7 +49,7 @@ type Role struct {
 	Harness string `gork:"harness"`
 	// Model is the model of the Role
 	Model string `gork:"model"`
-	// Effort is the effort level of the Role, or empty for a Harness with no effort levels
+	// Effort is the effort level of the Role, or empty when the Harness uses its own default or the model has no effort levels
 	Effort string `gork:"effort"`
 	// Context is the largest context of a session in tokens, or 0 for no limit
 	Context int `gork:"context"`
@@ -106,7 +106,7 @@ type SetRoleRequest struct {
 		Harness string `gork:"harness"`
 		// Model is the model of the Role
 		Model string `gork:"model"`
-		// Effort is the effort level of the Role. It is empty for a Harness with no effort levels.
+		// Effort is the effort level of the Role. It is empty when the Harness uses its own default or the model has no effort levels.
 		Effort string `gork:"effort"`
 		// Context is the largest context of a session in tokens, or 0 for no limit
 		Context int `gork:"context"`
@@ -153,7 +153,7 @@ type BindingBody struct {
 	Harness string `gork:"harness"`
 	// Model is the model of the binding
 	Model string `gork:"model"`
-	// Effort is the effort level of the binding. It is empty for a Harness with no effort levels.
+	// Effort is the effort level of the binding. It is empty when the Harness uses its own default or the model has no effort levels.
 	Effort string `gork:"effort"`
 	// Context is the largest context of a session in tokens, or 0 for no limit
 	Context int `gork:"context"`

@@ -17,7 +17,7 @@ type IssueSetting struct {
 	Harness string `gork:"harness"`
 	// Model is the model
 	Model string `gork:"model"`
-	// Effort is the effort level. It is empty for a Harness with no effort levels.
+	// Effort is the effort level. It is empty when the Harness uses its own default or the model has no effort levels.
 	Effort string `gork:"effort"`
 }
 
@@ -27,7 +27,7 @@ type NextSetting struct {
 	Harness string `gork:"harness"`
 	// Model is the model
 	Model string `gork:"model"`
-	// Effort is the effort level, or empty for a Harness with no effort levels
+	// Effort is the effort level, or empty when the Harness uses its own default or the model has no effort levels
 	Effort string `gork:"effort"`
 	// Own is true when the Workstream has its own setting, and false when the binding comes from the Role
 	Own bool `gork:"own"`

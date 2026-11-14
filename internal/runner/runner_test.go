@@ -283,7 +283,7 @@ func TestPermissionWithNoAllowOptionIsCancelled(t *testing.T) {
 	}
 }
 
-// fakeAgentDir gives a directory with the fake agent as the program of Claude Code.
+// fakeAgentDir gives a directory with the fake agent as the program of Claude Code and of Antigravity.
 func fakeAgentDir(t *testing.T) string {
 	t.Setenv("MOBIUS_FAKE_AGENT", "1")
 	dir := t.TempDir()
@@ -291,8 +291,10 @@ func fakeAgentDir(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(exe, filepath.Join(dir, Program(config.ClaudeCode))); err != nil {
-		t.Fatal(err)
+	for _, harness := range []config.Harness{config.ClaudeCode, config.Antigravity} {
+		if err := os.Symlink(exe, filepath.Join(dir, Program(harness))); err != nil {
+			t.Fatal(err)
+		}
 	}
 	return dir
 }
@@ -570,7 +572,7 @@ const fakeOptions = `[
 	{"type": "select", "id": "effort", "name": "Effort", "category": "thought_level", "currentValue": "high",
 		"options": [{"group": "all", "name": "All", "options": [{"value": "low", "name": "Low"}, {"value": "high", "name": "High"}]}]},
 	{"type": "select", "id": "mode", "name": "Mode", "category": "mode", "currentValue": "default",
-		"options": [{"value": "default", "name": "Default"}, {"value": "bypassPermissions", "name": "Bypass"}]}
+		"options": [{"value": "default", "name": "Default"}, {"value": "bypassPermissions", "name": "Bypass"}, {"value": "yolo", "name": "Yolo"}]}
 ]`
 
 // dshOptions are the options of dsh: the ids differ from the categories.

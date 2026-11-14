@@ -841,7 +841,7 @@ type leadIssueInput struct {
 var implementerSettingProperties = map[string]any{
 	"harness": map[string]any{"type": "string", "description": "The Harness."},
 	"model":   map[string]any{"type": "string", "description": "The model of the Harness."},
-	"effort":  map[string]any{"type": "string", "description": "The effort. Empty for a Harness with no effort levels."},
+	"effort":  map[string]any{"type": "string", "description": "The effort. Empty means that the Harness uses its own default."},
 }
 
 type implementerSettingInput struct {

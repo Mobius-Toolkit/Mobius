@@ -82,6 +82,30 @@ func TestCheckAccessSendsOnePromptWithNoMCPServerAfterItSetsTheModelAndTheEffort
 	}
 }
 
+func TestAnAntigravitySessionSetsThoughtLevelToTheEffortOfItsBinding(t *testing.T) {
+	dir := fakeAgentDir(t)
+
+	if err := CheckAccess(t.Context(), config.Antigravity, "sonnet", "low", dir, dir, dir); err != nil {
+		t.Fatal(err)
+	}
+
+	if sets := readFile(t, dir, "sets.json"); sets != `["model=sonnet","effort=low","mode=yolo"]` {
+		t.Errorf("sets = %s", sets)
+	}
+}
+
+func TestASessionOfABindingWithNoEffortSetsNoThoughtLevel(t *testing.T) {
+	dir := fakeAgentDir(t)
+
+	if err := CheckAccess(t.Context(), config.Antigravity, "sonnet", "", dir, dir, dir); err != nil {
+		t.Fatal(err)
+	}
+
+	if sets := readFile(t, dir, "sets.json"); sets != `["model=sonnet","mode=yolo"]` {
+		t.Errorf("sets = %s", sets)
+	}
+}
+
 func TestCheckAccessGivesTheErrorTextOfAHarnessThatFailsThePrompt(t *testing.T) {
 	dir := t.TempDir()
 	script := `
