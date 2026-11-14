@@ -1,5 +1,7 @@
 import { Option, Schema } from "effect";
 import { GetTaskResponse, ListTasksResponse } from "@/api/schemas.gen";
+import * as Composer from "@/composer";
+import { chatDraftKey } from "@/lib/draft";
 import * as Setting from "@/setting/model";
 import { NextSetting } from "@/setting/schemas";
 
@@ -43,6 +45,8 @@ export const Model = Schema.Struct({
   detail: Schema.Option(TaskDetail),
   detailLoading: Schema.Boolean,
   detailError: Schema.String,
+  composer: Composer.Model,
+  taskAttached: Schema.Boolean,
 });
 
 export type Model = Schema.Schema.Type<typeof Model>;
@@ -66,6 +70,16 @@ export function initialModel(options: {
     detail: Option.none(),
     detailLoading: false,
     detailError: "",
+    composer: Composer.initialModel({
+      draftKey: chatDraftKey(options.owner, `${options.owner}/${options.name}`, options.number),
+      instance: `${options.instance}-task`,
+      label: "Message to the Lead",
+      placeholder: "Write to the Lead",
+      organization: options.owner,
+      repository: `${options.owner}/${options.name}`,
+      workstream: options.number,
+    }),
+    taskAttached: false,
   };
 }
 
@@ -92,6 +106,25 @@ export const stops = (line: TaskLine) =>
 
 export const reference = (line: TaskLine) =>
   `${line.otherRepository ? line.repository : ""}#${line.number}`;
+
+export const taskItem = (line: TaskLine) => ({
+  id: line.url,
+  reference: reference(line),
+  title: line.title,
+  reason: line.state,
+  link: line.url,
+});
+
+export const openedLine = (model: Model): Option.Option<TaskLine> =>
+  Option.flatMap(model.opened, (target) =>
+    Option.flatMap(model.lines, (lines) =>
+      Option.fromNullishOr(
+        lines.find(
+          (line) => line.repository === target.repository && line.number === target.number,
+        ),
+      ),
+    ),
+  );
 
 // Removes the closed tasks. A sub-issue of a removed task moves up one level for each removed ancestor.
 export function withoutClosed(lines: readonly TaskLine[]): TaskLine[] {

@@ -1,6 +1,8 @@
 import { Option } from "effect";
 import { Command } from "foldkit";
 import * as Update from "foldkit/update";
+import * as Composer from "@/composer";
+import { OutMessage as ComposerOutMessage } from "@/composer/message";
 import { OutMessage as SettingOutMessage } from "@/setting/message";
 import type { Target } from "@/setting/schemas";
 import { init as initSetting, update as updateSetting } from "@/setting/update";
@@ -14,8 +16,16 @@ import {
   OpenTask,
   RestoreScroll,
 } from "./commands";
-import { Message, OutMessage, toGotSettingMessage } from "./message";
-import { reference, resumes, withRow, type Model, type TaskLine } from "./model";
+import { Message, OutMessage, toGotComposerMessage, toGotSettingMessage } from "./message";
+import {
+  openedLine,
+  reference,
+  resumes,
+  taskItem,
+  withRow,
+  type Model,
+  type TaskLine,
+} from "./model";
 
 type UpdateReturn = Update.ReturnWithOutMessage<Model, Message, OutMessage>;
 
@@ -72,6 +82,42 @@ const foldSetting = Update.foldChild({
     }),
 });
 
+// The send is on the Lead chat: the message goes to the outbox, and the chat sends it.
+const foldComposer = Update.foldChild({
+  update: Composer.update,
+  read: (model: Model) => Option.some(model.composer),
+  write: (model, composer) => ({ ...model, composer }),
+  toParentMessage: toGotComposerMessage,
+  foldOutMessage: (outMessage) =>
+    ComposerOutMessage.match<Update.Step<Model, Message>>(outMessage, {
+      StopClicked: () => (model) => ({ model }),
+      MessageEnqueued: () => (model) => ({ model }),
+    }),
+});
+
+const foldAddInboxItem = Update.foldChild({
+  update: Composer.addDraftInboxItem,
+  read: (model: Model) => Option.some(model.composer),
+  write: (model, composer) => ({ ...model, composer }),
+  toParentMessage: toGotComposerMessage,
+});
+
+const draftChanges: readonly string[] = ["DraftTextChanged", "ImagesFitted", "VoiceButtonClicked"];
+
+// The first change of the draft from the view attaches the opened task, once for each opening of the view.
+const attachOpenedTask: Update.Step<Model, Message> = (model) => {
+  const next = { ...model, taskAttached: true };
+  const line = openedLine(model);
+  if (
+    model.taskAttached ||
+    Option.isNone(line) ||
+    model.composer.draftInboxItems.some((item) => item.link === line.value.url)
+  ) {
+    return { model: next };
+  }
+  return foldAddInboxItem(next, taskItem(line.value));
+};
+
 export function update(model: Model, message: Message): UpdateReturn {
   return Message.match<UpdateReturn>(message, {
     TasksLoaded: ({ lines }) => {
@@ -114,6 +160,7 @@ export function update(model: Model, message: Message): UpdateReturn {
         detail: Option.none(),
         detailLoading: true,
         detailError: "",
+        taskAttached: false,
       },
       commands: [
         RestoreScroll({ instance: model.instance, scroll: 0 }),
@@ -127,6 +174,11 @@ export function update(model: Model, message: Message): UpdateReturn {
       ],
     }),
     ClickedBack: () => leave(model),
+    GotComposerMessage: ({ message: child }) =>
+      Update.combine(model, [
+        ...(draftChanges.includes(child._tag) ? [attachOpenedTask] : []),
+        foldComposer(child),
+      ]),
     CompletedRestoreScroll: () => ({ model }),
     TaskDetailLoaded: ({ repository, number, detail }) => {
       if (!isOpened(model, repository, number)) {
@@ -184,16 +236,9 @@ function change(
 
 function attach(model: Model, key: string, line: TaskLine): UpdateReturn {
   const draftKey = chatDraftKey(model.owner, `${model.owner}/${model.name}`, model.number);
-  const item = {
-    id: line.url,
-    reference: reference(line),
-    title: line.title,
-    reason: line.state,
-    link: line.url,
-  };
   return {
     model: withRow(model, key, { error: "" }),
-    commands: [AttachTask({ key, draftKey, item })],
+    commands: [AttachTask({ key, draftKey, item: taskItem(line) })],
   };
 }
 

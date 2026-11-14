@@ -3506,6 +3506,67 @@ test.describe("the Chat button of a task row", () => {
   });
 });
 
+const openTaskDetail = async (page: Page, device: "desktop" | "phone") => {
+  await page.route("**/api/workstreams/plants/garden/19/tasks/plants/garden/71", (route) =>
+    route.fulfill({
+      json: {
+        data: {
+          body: "### Instructions\n- Wear protective gloves.",
+          pullRequest: null,
+          pullRequestUrl: null,
+        },
+      },
+    }),
+  );
+  if (device === "phone") {
+    await page.setViewportSize(phone);
+  }
+  await page.goto("/workstreams/plants/garden/19");
+  if (device === "phone") {
+    await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
+  }
+  await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
+  await page
+    .getByRole("button", { name: /#71 Spread the bark/ })
+    .filter({ visible: true })
+    .click();
+  await expect(page.locator("#side-task-input")).toBeEditable();
+};
+
+// The chat list shows the message that the Owner sends from the view, as the server would list it.
+const routeSentMessage = async (page: Page, posted: () => unknown, text: string) => {
+  await page.route("**/api/chat?*", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as {
+      data: { messages: { id: number; time: string }[] };
+    };
+    const inboxItems = posted();
+    if (inboxItems) {
+      body.data.messages.push({
+        id: 1_000_000,
+        action: null,
+        author: "Owner",
+        browserId: "",
+        cancelledAt: null,
+        deliveredAt: null,
+        failedAt: null,
+        images: 0,
+        inboxItems,
+        selections: [],
+        organization: "plants",
+        question: null,
+        repository: "plants/garden",
+        stoppedAt: null,
+        voice: false,
+        text,
+        time: "2026-10-15T12:00:00Z",
+        workstream: 19,
+      } as (typeof body.data.messages)[number]);
+    }
+    await route.fulfill({ response, json: body });
+  });
+};
+
 test.describe("the detail view of a task", () => {
   test.afterEach(async ({ page }) => {
     await page.evaluate(clearDrafts);
@@ -3558,7 +3619,7 @@ test.describe("the detail view of a task", () => {
     const chatBtn = panel.getByRole("button", { name: "Chat", exact: true });
     await expect(chatBtn).toBeVisible();
     await chatBtn.click();
-    const composer = page.getByRole("main").locator("form");
+    const composer = page.locator("form:has(#chat-input)");
     await expect(composer.getByRole("button", { name: "Remove #71" })).toBeVisible();
     await expect(composer.getByText("Spread the bark")).toBeVisible();
 
@@ -3641,5 +3702,146 @@ test.describe("the detail view of a task", () => {
 
     // Check scrollTop of the list
     await expect.poll(() => panel.evaluate((el) => el.scrollTop)).toBe(200);
+  });
+
+  test.describe("the composer of the view", () => {
+    const issue = "https://github.com/plants/garden/issues/71";
+
+    test.afterEach(async ({ page }) => {
+      await page.evaluate(clearDrafts);
+      await expect.poll(() => page.evaluate(storedDrafts)).toBe(0);
+    });
+
+    test("shows the draft of the Lead chat, and the Lead chat shows the draft of the view", async ({
+      page,
+    }) => {
+      await openTaskDetail(page, "desktop");
+      const view = page.locator("#side-task-input");
+      const chat = page.locator("#chat-input");
+      await expect(chat).toBeEditable();
+      await view.fill("From the view");
+      await expect(chat).toHaveValue("From the view");
+      await chat.fill("From the chat");
+      await expect(view).toHaveValue("From the chat");
+    });
+
+    test("adds the task card on the first letter, and a send from the view reaches the Lead chat", async ({
+      page,
+    }) => {
+      const text = "A question about the bark.";
+      let posted: unknown;
+      await routeSentMessage(page, () => posted, text);
+      await page.route("**/api/chat/messages", (route) => {
+        const parts = route.request().postData() ?? "";
+        posted = [...parts.matchAll(/name="inboxItems"\r\n\r\n(.*?)\r\n--/g)].map(
+          (part) => JSON.parse(part[1]) as unknown,
+        );
+        return route.fulfill({ status: 204 });
+      });
+
+      await openTaskDetail(page, "desktop");
+      const view = page.locator("#side-task-input");
+      const viewForm = page.locator("form:has(#side-task-input)");
+      await expect(viewForm.getByRole("button", { name: "Remove #71" })).toHaveCount(0);
+      await view.fill("A");
+      await expect(viewForm.getByRole("button", { name: "Remove #71" })).toHaveCount(1);
+      await expect(
+        page.locator("form:has(#chat-input)").getByRole("button", { name: "Remove #71" }),
+      ).toHaveCount(1);
+      await view.fill(text);
+      await viewForm.getByRole("button", { name: "Send", exact: true }).click();
+
+      await expect
+        .poll(() => posted)
+        .toEqual([
+          { reference: "#71", title: "Spread the bark", reason: expect.any(String), link: issue },
+        ]);
+      const bubble = page.getByRole("main").locator("[data-message]", { hasText: text });
+      await expect(bubble).toHaveCount(1);
+      await expect(bubble.getByRole("link", { name: /Spread the bark/ })).toHaveAttribute(
+        "href",
+        issue,
+      );
+      await expect(view).toHaveValue("");
+      await expect(page.getByRole("button", { name: "Back to the tasks" })).toBeVisible();
+    });
+
+    test("adds the task card again only after the view opens again", async ({ page }) => {
+      await openTaskDetail(page, "desktop");
+      const view = page.locator("#side-task-input");
+      const chat = page.locator("#chat-input");
+      const viewForm = page.locator("form:has(#side-task-input)");
+      const remove = viewForm.getByRole("button", { name: "Remove #71" });
+      await view.fill("A");
+      await expect(remove).toHaveCount(1);
+      await remove.click();
+      await expect(remove).toHaveCount(0);
+      await view.fill("AB");
+      await expect(chat).toHaveValue("AB");
+      await expect(remove).toHaveCount(0);
+
+      await page.getByRole("button", { name: "Back to the tasks" }).click();
+      await page
+        .getByRole("button", { name: /#71 Spread the bark/ })
+        .filter({ visible: true })
+        .click();
+      await expect(view).toBeEditable();
+      await view.fill("ABC");
+      await expect(remove).toHaveCount(1);
+    });
+
+    test("keeps the composer at the bottom while a long body scrolls", async ({ page }) => {
+      await page.route("**/api/workstreams/plants/garden/19/tasks/plants/garden/71", (route) =>
+        route.fulfill({
+          json: {
+            data: {
+              body: Array.from({ length: 60 }, (_, i) => `Step ${i + 1} of the long plan.`).join(
+                "\n\n",
+              ),
+              pullRequest: null,
+              pullRequestUrl: null,
+            },
+          },
+        }),
+      );
+      await page.goto("/workstreams/plants/garden/19");
+      await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
+      await page
+        .getByRole("button", { name: /#71 Spread the bark/ })
+        .filter({ visible: true })
+        .click();
+      const view = page.locator("#side-task-input");
+      await expect(page.getByText("Step 60 of the long plan.")).toBeAttached();
+      await expect(view).toBeInViewport();
+      await page.getByRole("tabpanel", { name: "Tasks" }).evaluate((el) => {
+        el.scrollTop = el.scrollHeight;
+      });
+      await expect(page.getByText("Step 60 of the long plan.")).toBeInViewport();
+      await expect(view).toBeInViewport();
+    });
+
+    test("keeps the Tasks sheet of a phone open when the Owner types or sends", async ({
+      page,
+    }) => {
+      const text = "A phone question.";
+      let posted: unknown;
+      await routeSentMessage(page, () => posted, text);
+      await page.route("**/api/chat/messages", (route) => {
+        posted = [];
+        return route.fulfill({ status: 204 });
+      });
+
+      await openTaskDetail(page, "phone");
+      const sheet = page.getByRole("dialog", { name: "Tasks" });
+      const view = sheet.locator("#side-task-input");
+      await view.fill("A");
+      await expect(sheet.getByRole("button", { name: "Remove #71" })).toHaveCount(1);
+      await expect(sheet.getByRole("heading", { name: "#71 Spread the bark" })).toBeVisible();
+      await view.fill(text);
+      await sheet.getByRole("button", { name: "Send", exact: true }).click();
+      await expect(view).toHaveValue("");
+      await expect(sheet.getByRole("heading", { name: "#71 Spread the bark" })).toBeVisible();
+      await expect(sheet.getByRole("button", { name: "Back to the tasks" })).toBeVisible();
+    });
   });
 });
