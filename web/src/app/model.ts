@@ -143,6 +143,8 @@ export const Model = Schema.Struct({
   pauses: Schema.Array(Pause),
   pauseBusy: Schema.Option(Schema.String),
   pauseError: Schema.Option(Schema.String),
+  // The Harnesses whose banner shows all users on a phone.
+  pausesExpanded: Schema.Array(Schema.String),
 
   switches: Schema.Option(Switches),
   switchErrors: Schema.Record(Schema.String, Schema.String),
@@ -248,6 +250,7 @@ export const initialModel = (route: AppRoute): Model => {
     pauses: [],
     pauseBusy: Option.none(),
     pauseError: Option.none(),
+    pausesExpanded: [],
     switches: Option.none(),
     switchErrors: {},
     switchFailures: {},

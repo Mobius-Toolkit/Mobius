@@ -236,7 +236,7 @@ describe("organization switch update logic", () => {
   });
 
   it("navigates to /workstreams when switching org away from current workstream", () => {
-    const route = AppRoute.WorkstreamChat({ owner: "owner", name: "repo", number: 1 });
+    const route = AppRoute.WorkstreamChat({ owner: "owner", name: "repo", number: 1, search: {} });
     story(
       update,
       given(createModel("/workstreams/owner/repo/1", { route, organization: "owner" })),
@@ -558,7 +558,7 @@ describe("organization switch update logic", () => {
   });
 
   it("does not navigate away when staying in same org workstream", () => {
-    const route = AppRoute.WorkstreamChat({ owner: "owner", name: "repo", number: 1 });
+    const route = AppRoute.WorkstreamChat({ owner: "owner", name: "repo", number: 1, search: {} });
     story(
       update,
       given(createModel("/workstreams/owner/repo/1", { route, organization: "owner" })),
@@ -588,7 +588,7 @@ const succeeded = (number: number, from: Workstream["autopilot"], to: Workstream
   Message.SelectAutopilotSucceeded({ repository: "owner/repo", number, from, to });
 
 const open = (number: number, workstreams: Workstream[]): Model => {
-  const route = AppRoute.WorkstreamChat({ owner: "owner", name: "repo", number });
+  const route = AppRoute.WorkstreamChat({ owner: "owner", name: "repo", number, search: {} });
   return createModel(`/workstreams/owner/repo/${number}`, { route, workstreams });
 };
 
@@ -623,6 +623,69 @@ describe("autopilot level update logic", () => {
 
     expect(Option.isNone(next.chosenAutopilot)).toBe(true);
     expect(shownAutopilot(next, "owner/repo", 1)).toBe("off");
+  });
+});
+
+const settingOfTask =
+  "/workstreams/owner/repo/7?tab=tasks&setting=implementer&task=owner%2Frepo%2F9";
+
+const enter = (path: string, wide: boolean) =>
+  update({ ...createModel("/chat"), wide }, Message.UrlChanged({ url: urlOf(path) })).model;
+
+describe("the panel that the address of a Workstream asks for", () => {
+  it("opens the tab and asks for the setting sheet of the task", () => {
+    const next = enter(settingOfTask, true);
+
+    expect(Option.map(next.panel, (panel) => panel.tab)).toEqual(Option.some("tasks"));
+    expect(Option.map(next.panel, (panel) => panel.opening)).toEqual(
+      Option.some(
+        Option.some({
+          setting: "implementer",
+          task: Option.some({ repository: "owner/repo", number: 9 }),
+        }),
+      ),
+    );
+  });
+
+  it("opens the Details tab and asks for the setting sheet of the Workstream", () => {
+    const next = enter("/workstreams/owner/repo/7?tab=details&setting=lead", true);
+
+    expect(Option.map(next.panel, (panel) => panel.tab)).toEqual(Option.some("details"));
+    expect(Option.map(next.panel, (panel) => panel.opening)).toEqual(
+      Option.some(Option.some({ setting: "lead", task: Option.none() })),
+    );
+  });
+
+  it("asks for no sheet when the setting does not fit the tab", () => {
+    const next = enter("/workstreams/owner/repo/7?tab=agents&setting=lead", true);
+
+    expect(Option.map(next.panel, (panel) => panel.tab)).toEqual(Option.some("agents"));
+    expect(Option.map(next.panel, (panel) => Option.isNone(panel.opening))).toEqual(
+      Option.some(true),
+    );
+  });
+
+  it("opens the panel sheet on a phone, and not on a desktop", () => {
+    expect(enter(settingOfTask, false).mobileTasksOpen).toBe(true);
+    expect(enter(settingOfTask, true).mobileTasksOpen).toBe(false);
+  });
+
+  it("opens the Brief sheet on a phone for the Brief tab", () => {
+    const next = enter("/workstreams/owner/repo/7?tab=brief", false);
+
+    expect(next.mobileBriefOpen).toBe(true);
+    expect(next.mobileTasksOpen).toBe(false);
+  });
+
+  it("acts as before for an address with no search", () => {
+    const next = enter("/workstreams/owner/repo/7", false);
+
+    expect(Option.map(next.panel, (panel) => panel.tab)).toEqual(Option.some("tasks"));
+    expect(Option.map(next.panel, (panel) => Option.isNone(panel.opening))).toEqual(
+      Option.some(true),
+    );
+    expect(next.mobileTasksOpen).toBe(false);
+    expect(next.mobileBriefOpen).toBe(false);
   });
 });
 

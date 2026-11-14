@@ -253,6 +253,9 @@ const question = "What is the state of the plans? The full report is at " +
 // of the Checkup page have fixed paths and versions, and tar gives no
 // version.
 //
+// The table of the pauses also has a row of dsh. Only the Implementer settings of the Workstream plants/garden#20 and
+// of its tasks #21 and #22 use dsh.
+//
 // The Workstream owner/shop#14 has Autopilot on and one task in ready_for_review.
 //
 // The chat tests use the issues owner/shop#7 and #8 with no Workstream, the Workstreams plants/garden#14 to #17 with
@@ -968,6 +971,7 @@ func TestServer(t *testing.T) {
 	if err := server.Engine.SetIssueBinding(ctx, "implementer", "owner/shop", 38, config.ClaudeCode, "sonnet", "medium"); err != nil {
 		t.Fatal(err)
 	}
+	pauseDSHForSettings(ctx, t, server)
 	fixTimes(t, server, github)
 	addTurnUsage(t, server)
 	addSkillUses(t, server)
@@ -1001,6 +1005,29 @@ func TestServer(t *testing.T) {
 	ready.Store(true)
 	<-ctx.Done()
 	_ = srv.Close()
+}
+
+// pauseDSHForSettings pauses dsh. No Role uses dsh. Only the Implementer settings of plants/garden#20 and of its
+// tasks #21 and #22 use it, so its banner shows only in the Workstream plants/garden#20.
+func pauseDSHForSettings(ctx context.Context, t *testing.T, server *testserver.Server) {
+	t.Helper()
+	testkit.WaitFor(t, func() bool {
+		for _, task := range []int64{21, 22} {
+			if _, _, err := server.Engine.NextBinding(ctx, "implementer", "plants/garden", task); err != nil {
+				return false
+			}
+		}
+		return true
+	})
+	if err := store.New(server.DB).SetHarnessPause(ctx, store.SetHarnessPauseParams{Harness: "dsh", PausedUntil: "2026-09-29T08:30:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, issue := range []int64{20, 21, 22} {
+		if _, err := server.DB.Exec(`INSERT INTO issue_bindings (repository, issue, role, harness, model, effort, updated_at)
+			VALUES ('plants/garden', ?, 'implementer', 'dsh', 'dsh-model', '', '2026-09-28T09:30:00Z')`, issue); err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 // addRecurringTasks gives plants/garden#50 an active and a paused recurring task with fixed times. It runs after

@@ -1397,7 +1397,7 @@ test("screenshots", async ({ page }) => {
     (device) => [
       ...frame(device, drain),
       chatEnd,
-      page.getByText("#45 Pick the plan limits").filter({ visible: true }),
+      page.getByText("#45 Pick the plan limits", { exact: true }).filter({ visible: true }),
       page.getByText("waits for CI").filter({ visible: true }),
       page.getByText("waits for Lead").filter({ visible: true }),
       page.getByRole("button", { name: "Chat about #45" }).filter({ visible: true }),
@@ -1416,7 +1416,7 @@ test("screenshots", async ({ page }) => {
     (device) => [
       ...frame(device, drain),
       chatEnd,
-      page.getByText("#45 Pick the plan limits").filter({ visible: true }),
+      page.getByText("#45 Pick the plan limits", { exact: true }).filter({ visible: true }),
       page.getByText("waits for CI").filter({ visible: true }),
       page.getByText("waits for Lead").filter({ visible: true }),
       page.getByText("#36 Rename the plan table").filter({ visible: true }),
@@ -4332,4 +4332,41 @@ test("screenshots", async ({ page }) => {
   );
   await page.unroute("**/api/chat?*");
   await page.unroute("/api/chat/seen");
+
+  // antigravity has Role users, so each screen shows its banner. Only settings of plants/garden#20 use dsh, so only
+  // that Workstream shows its banner. A phone shows two users of a banner, and Show 1 more shows the third.
+  const pause = (harness: string) => page.locator(`[data-pause="${harness}"]`);
+  const pauseUsers = (harness: string) => pause(harness).getByRole("listitem");
+  const roleUsers = [
+    pause("antigravity").getByText("Researcher role"),
+    pause("antigravity").getByText("Curator role"),
+  ];
+  const noDSH: Wait = () => expect(page.getByText(/dsh paused until/)).toHaveCount(0);
+  await screenshot(page, "pause-users-global", "/workstreams", () => roleUsers);
+  await screenshot(page, "pause-users-global-roles", "/settings/roles", () => [
+    ...roleUsers,
+    noDSH,
+  ]);
+  await screenshot(page, "pause-users-workstream", "/workstreams/plants/garden/20", (device) => [
+    pause("dsh").getByText("dsh paused until Sep 29, 08:30 AM"),
+    pauseUsers("dsh").first(),
+    ...roleUsers,
+    device === "desktop"
+      ? pause("dsh").getByText("Implementer setting of plants/garden#22 Buy tulip bulbs")
+      : pause("dsh").getByRole("button", { name: "Show 1 more" }),
+  ]);
+  await screenshot(
+    page,
+    "pause-users-show-more",
+    "/workstreams/plants/garden/20",
+    () => [
+      pause("dsh").getByText("Implementer setting of plants/garden#22 Buy tulip bulbs"),
+      () => expect(pause("dsh").getByRole("button", { name: "Show 1 more" })).toBeHidden(),
+    ],
+    async (device) => {
+      if (device === "phone") {
+        await pause("dsh").getByRole("button", { name: "Show 1 more" }).click();
+      }
+    },
+  );
 });

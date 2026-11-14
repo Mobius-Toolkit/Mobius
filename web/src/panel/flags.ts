@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { Tab } from "./schemas";
+import { Opening, Tab } from "./schemas";
 
 // instance names the place of the panel, because the page can hold two panels, and their ids must differ.
 export const Flags = Schema.Struct({
@@ -8,6 +8,7 @@ export const Flags = Schema.Struct({
   number: Schema.Number,
   instance: Schema.String,
   tab: Tab,
+  opening: Schema.Option(Opening),
 });
 
 export type Flags = Schema.Schema.Type<typeof Flags>;
