@@ -35,9 +35,28 @@ func TestReadChoicesGivesEachModelTheEffortsThatTheHarnessGivesForIt(t *testing.
 	}
 }
 
-func TestReadChoicesGivesNoEffortsForAHarnessWithNoEffortLevels(t *testing.T) {
+func TestReadChoicesGivesAntigravityTheEffortsThatItGives(t *testing.T) {
 	dir := t.TempDir()
 	testkit.InstallFakeHarness(t, dir, Program(config.Antigravity), choicesScript)
+
+	got, err := ReadChoices(t.Context(), config.Antigravity, dir, dir, filepath.Join(dir, "harnesses"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []ModelChoice{{Model: "sonnet", Efforts: []string{"low", "medium"}}, {Model: "opus", Efforts: []string{"low", "high", "max"}}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("choices = %+v, want %+v", got, want)
+	}
+}
+
+func TestReadChoicesGivesNoEffortsForAHarnessWithNoThoughtLevel(t *testing.T) {
+	dir := t.TempDir()
+	script := `
+[options]
+model = ["sonnet", "opus"]
+`
+	testkit.InstallFakeHarness(t, dir, Program(config.Antigravity), script)
 
 	got, err := ReadChoices(t.Context(), config.Antigravity, dir, dir, filepath.Join(dir, "harnesses"))
 	if err != nil {

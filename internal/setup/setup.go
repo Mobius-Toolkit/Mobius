@@ -31,7 +31,8 @@ const (
 type offer struct {
 	harness config.Harness
 	models  runner.Choices
-	efforts runner.Choices
+	// efforts holds the effort choices that the Harness gives for each model.
+	efforts map[string]runner.Choices
 }
 
 type binding struct {
@@ -201,14 +202,21 @@ func offers(ctx context.Context, t terminal, path string) ([]offer, error) {
 			t.say("%s: %v\n", title, err)
 			continue
 		}
-		o := offer{harness: harness, models: session.Models(), efforts: session.Efforts()}
-		session.Close()
+		o := offer{harness: harness, models: session.Models(), efforts: map[string]runner.Choices{}}
 		if len(o.models.Values) == 0 {
+			session.Close()
 			t.say("%s: the Harness gave no model option\n", title)
 			continue
 		}
-		if harness.HasEffortLevels() && len(o.efforts.Values) == 0 {
-			t.say("%s: the Harness gave no thought_level option\n", title)
+		for _, model := range o.models.Values {
+			if err = session.SetModel(ctx, model); err != nil {
+				break
+			}
+			o.efforts[model] = session.Efforts()
+		}
+		session.Close()
+		if err != nil {
+			t.say("%s: %v\n", title, err)
 			continue
 		}
 		offers = append(offers, o)
@@ -232,8 +240,8 @@ func (t terminal) choose(offers []offer, role string) (binding, error) {
 		return binding{}, err
 	}
 	b := binding{Harness: o.harness, Model: model}
-	if o.harness.HasEffortLevels() {
-		if b.Effort, err = t.pickCurrent("Effort", o.efforts); err != nil {
+	if efforts := o.efforts[model]; len(efforts.Values) > 0 {
+		if b.Effort, err = t.pickCurrent("Effort", efforts); err != nil {
 			return binding{}, err
 		}
 	}

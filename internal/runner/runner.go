@@ -519,6 +519,13 @@ func dshValue(routeModel string) string {
 	return string(text)
 }
 
+// SetModel sets the model. The effort choices follow the model.
+func (s *Session) SetModel(ctx context.Context, model string) error {
+	return s.limited(ctx, func(ctx context.Context) error {
+		return s.set(ctx, acp.SessionConfigOptionCategoryModel, "model", model)
+	})
+}
+
 // Configure sets the model, the effort when it is not empty, and the full auto mode.
 func (s *Session) Configure(ctx context.Context, model, effort string) error {
 	return s.limited(ctx, func(ctx context.Context) error { return s.configure(ctx, model, effort) })
