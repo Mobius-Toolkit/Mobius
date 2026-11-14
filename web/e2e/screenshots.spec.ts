@@ -68,13 +68,17 @@ const viewports = {
 // A step that waits for a state that no locator shows.
 type Wait = (page: Page) => Promise<void>;
 
-// The chat list scrolls to its end by itself.
+// The pause banner and the tray can show after the first scroll of the list, and they make the list shorter. Thus the
+// step scrolls to the end after the list is ready, and it reads the gap after the layout of two frames.
 const chatEnd: Wait = (page) =>
   expect
     .poll(() =>
-      page.evaluate(`(() => {
+      page.evaluate(`(async () => {
         const list = document.querySelector('main [data-ready]')
-        return list ? list.scrollHeight - list.scrollTop - list.clientHeight : Infinity
+        if (!(list instanceof HTMLElement) || list.dataset.ready !== 'true') return Infinity
+        list.scrollTop = list.scrollHeight
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+        return list.scrollHeight - list.scrollTop - list.clientHeight
       })()`),
     )
     .toBeLessThanOrEqual(1);
@@ -1357,7 +1361,6 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...frame(device, drain),
-      chatEnd,
       page
         .getByText(/Sep \d+, \d\d:\d\d [AP]M · Mobius prepares an upgrade/)
         .filter({ visible: true }),
@@ -1367,6 +1370,7 @@ test("screenshots", async ({ page }) => {
         .getByText(/^devin · swe-1\.5 · high · Sep \d+, \d\d:\d\d [AP]M/)
         .filter({ visible: true })
         .first(),
+      chatEnd,
     ],
     async (device) => {
       if (device === "phone") {
