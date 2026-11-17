@@ -201,6 +201,9 @@ describe("the Create buttons", () => {
         CreateWorkstream,
         Message.WorkstreamRequested({ organization: "plants" }),
       ),
+      model((m) => {
+        expect(m.creating).toEqual(Option.none());
+      }),
       StoryCommand.expectNone(),
     );
   });

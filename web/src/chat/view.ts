@@ -31,11 +31,18 @@ import * as Composer from "@/composer";
 import { fromComposerMount, renderPanelComposer } from "./composer";
 import { ChatList } from "./scroll";
 import { renderSelectionCard, renderSelectionPopover, Watch } from "@/ui/selection";
-import { Message, toGotComposerMessage, toGotSelectionMessage } from "./message";
+import {
+  Message,
+  toGotComposerMessage,
+  toGotSelectionMessage,
+  toGotWorkstreamSetupMessage,
+} from "./message";
+import * as WorkstreamSetup from "@/workstreamSetup/view";
 import {
   countsAsUnread,
   draftInboxItem,
   type Failure,
+  isMissingWorkstream,
   itemReference,
   type Model,
   taskOfLink,
@@ -936,9 +943,55 @@ function renderTodoLines(h: H, row: InboxRow, model: Model): Html {
   );
 }
 
+// The setup rows share one picker, so only the first row of a missing Workstream renders its dialog.
+function renderMissingWorkstreamRow(h: H, item: InboxItem, model: Model): Html {
+  const running = model.trayRunning[item.id];
+  const first = trayRows(model).find((row) => isMissingWorkstream(row.item));
+  return h.li(
+    [
+      h.DataAttribute("inbox-item", String(item.id)),
+      h.Class("grid min-w-0 gap-2 px-4 py-2 md:px-2"),
+    ],
+    [
+      h.div(
+        [h.Class("flex min-h-8 items-center gap-4")],
+        [
+          h.span([h.Class("min-w-0 grow wrap-anywhere")], [item.title]),
+          trayButton(h, {
+            label: "Dismiss",
+            variant: "outline",
+            disabled: running !== undefined,
+            pending: running === "dismiss",
+            message: Message.TrayActionClicked({ item, kind: "dismiss" }),
+          }),
+        ],
+      ),
+      h.p([h.Class("text-sm wrap-anywhere text-muted-foreground")], [item.text]),
+      h.div(
+        [h.Class("-mx-4 md:mx-0")],
+        [
+          h.submodel({
+            slotId: `workstream-setup-${item.id}`,
+            model: model.workstreamSetup,
+            view: WorkstreamSetup.view,
+            viewInputs: {
+              part: item.kind === InboxItemKind.missing_maintenance ? "maintenance" : "skills",
+              picker: first?.item.id === item.id,
+            },
+            toParentMessage: toGotWorkstreamSetupMessage,
+          }),
+        ],
+      ),
+    ],
+  );
+}
+
 // chat is the Message of the Chat button.
 export function renderItemRow(h: H, row: InboxRow, model: Model, chat: Message): Html {
   const { item } = row;
+  if (isMissingWorkstream(item)) {
+    return renderMissingWorkstreamRow(h, item, model);
+  }
   const { reference, link: referenceLink } = itemReference(item);
   const refNode = reference
     ? referenceLink

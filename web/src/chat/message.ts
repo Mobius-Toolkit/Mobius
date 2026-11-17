@@ -2,6 +2,7 @@ import { Schema } from "effect";
 import { defineMessageUnion } from "foldkit/message";
 import * as Composer from "@/composer";
 import * as Selection from "@/ui/selection";
+import * as WorkstreamSetup from "@/workstreamSetup/message";
 import {
   ChatMessage,
   ChatPage,
@@ -54,6 +55,8 @@ export const Message = defineMessageUnion({
 
   GotSelectionMessage: { message: Selection.Message },
   CompletedAddSelection: {},
+
+  GotWorkstreamSetupMessage: { message: WorkstreamSetup.Message },
 
   BriefToggled: {},
   EventToggled: { id: Schema.Number },
@@ -134,3 +137,6 @@ export const toGotComposerMessage = (message: Composer.Message): Message =>
 
 export const toGotSelectionMessage = (message: Selection.Message): Message =>
   Message.GotSelectionMessage({ message });
+
+export const toGotWorkstreamSetupMessage = (message: WorkstreamSetup.Message): Message =>
+  Message.GotWorkstreamSetupMessage({ message });

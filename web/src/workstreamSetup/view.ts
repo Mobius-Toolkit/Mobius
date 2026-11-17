@@ -201,25 +201,29 @@ function renderPicker(h: H, model: Model, checkup: Checkup, picker: Picker): Htm
 }
 
 // part is the rows to show. With no issue repository, each part also shows the row of the issue repository and no
-// Create button.
-export const view = defineView<Model, Message, { part: Part }>((model, { part }, h) => {
-  const checkup = Option.getOrUndefined(model.checkup);
-  const error = model.checkupError !== "" ? model.checkupError : model.createError;
-  const rows = checkup === undefined ? [] : renderRows(h, model, checkup, part);
-  return h.div(
-    [h.Class("grid gap-6")],
-    [
-      error ? renderErrorBadge(h, error) : h.empty,
-      checkup?.issueRepositoryError ? renderErrorBadge(h, checkup.issueRepositoryError) : h.empty,
-      checkup === undefined
-        ? h.empty
-        : part === "all"
-          ? renderSection(h, model.organization, [renderList(h, rows)])
-          : renderList(h, rows),
-      Option.match(Option.all({ checkup: model.checkup, picker: model.picker }), {
-        onNone: () => h.empty,
-        onSome: (open) => renderPicker(h, model, open.checkup, open.picker),
-      }),
-    ],
-  );
-});
+// Create button. picker tells if the view renders the dialog of the picker.
+export const view = defineView<Model, Message, { part: Part; picker: boolean }>(
+  (model, { part, picker: showsPicker }, h) => {
+    const checkup = Option.getOrUndefined(model.checkup);
+    const error = model.checkupError !== "" ? model.checkupError : model.createError;
+    const rows = checkup === undefined ? [] : renderRows(h, model, checkup, part);
+    return h.div(
+      [h.Class("grid gap-6")],
+      [
+        error ? renderErrorBadge(h, error) : h.empty,
+        checkup?.issueRepositoryError ? renderErrorBadge(h, checkup.issueRepositoryError) : h.empty,
+        checkup === undefined
+          ? h.empty
+          : part === "all"
+            ? renderSection(h, model.organization, [renderList(h, rows)])
+            : renderList(h, rows),
+        showsPicker
+          ? Option.match(Option.all({ checkup: model.checkup, picker: model.picker }), {
+              onNone: () => h.empty,
+              onSome: (open) => renderPicker(h, model, open.checkup, open.picker),
+            })
+          : h.empty,
+      ],
+    );
+  },
+);

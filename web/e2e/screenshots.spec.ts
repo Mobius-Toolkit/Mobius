@@ -26,6 +26,14 @@ import {
   withdrawDraft,
 } from "./actions.js";
 import { waitForEvergreen } from "./evergreen.js";
+import {
+  checkupRoute,
+  missingMaintenanceItem,
+  missingSkillsItem,
+  noIssueRepositoryCheckup,
+  noSkillRepositoryCheckup,
+  setupCheckup,
+} from "./missing-workstreams.js";
 import { addMcpServer, deleteMcpServers, selectMcpServers } from "./mcp-servers.js";
 import { png } from "./images.js";
 import { briefOf, openBriefTab, routeBrief, selectText } from "./selection.js";
@@ -1334,6 +1342,51 @@ test("screenshots", async ({ page }) => {
       await expect(trayToggle(page, 1, true)).toBeVisible();
       await showChatEnd(page);
     },
+  );
+  await page.unroute(inboxRoute);
+  const showTray = async () => {
+    await page.getByRole("list", { name: "Pending actions" }).scrollIntoViewIfNeeded();
+    await showChatEnd(page);
+  };
+  const missingTray = async (
+    name: string,
+    item: object,
+    checkup: object,
+    ready: () => Locator[],
+  ) => {
+    await page.route(inboxRoute, (route) => route.fulfill({ json: { data: [item] } }));
+    await page.route(checkupRoute, (route) => route.fulfill({ json: { data: checkup } }));
+    await screenshot(page, name, "/chat", () => [trayToggle(page, 1, true), ...ready()], showTray);
+    await page.unroute(checkupRoute);
+    await page.unroute(inboxRoute);
+  };
+  await missingTray(
+    "chat-coordinator-missing-maintenance",
+    missingMaintenanceItem,
+    setupCheckup,
+    () => [
+      main.getByText(missingMaintenanceItem.title),
+      main.getByRole("button", { name: "Create" }),
+    ],
+  );
+  await missingTray("chat-coordinator-missing-skills", missingSkillsItem, setupCheckup, () => [
+    main.getByText(missingSkillsItem.title),
+    main.getByRole("button", { name: "Create" }),
+  ]);
+  await missingTray(
+    "chat-coordinator-missing-skill-repository",
+    missingSkillsItem,
+    noSkillRepositoryCheckup,
+    () => [
+      main.getByRole("link", { name: "Open GitHub" }),
+      main.getByText("Create owner/mobius-skills and give the Mobius App access to it."),
+    ],
+  );
+  await missingTray(
+    "chat-coordinator-missing-issue-repository",
+    missingMaintenanceItem,
+    noIssueRepositoryCheckup,
+    () => [main.getByRole("button", { name: "Issue repository None", exact: true })],
   );
   await setTray(page, "expanded");
   await page.unroute(inboxRoute);

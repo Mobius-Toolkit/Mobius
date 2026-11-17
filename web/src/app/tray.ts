@@ -1,4 +1,5 @@
 import { InboxItemKind } from "@/api/api.gen";
+import { isMissingWorkstream } from "@/chat/model";
 import type { InboxItem } from "./model";
 
 export const coordinatorTrayItems = (items: readonly InboxItem[], organization: string) =>
@@ -8,7 +9,8 @@ export const coordinatorTrayItems = (items: readonly InboxItem[], organization: 
       (item.action
         ? item.action.role === "coordinator"
         : (item.kind === InboxItemKind.question && !item.repository && !item.issue) ||
-          (item.kind === InboxItemKind.Lead_failed && item.workstream === 0 && !item.repository)),
+          (item.kind === InboxItemKind.Lead_failed && item.workstream === 0 && !item.repository) ||
+          isMissingWorkstream(item)),
   );
 
 export const workstreamTrayItems = (

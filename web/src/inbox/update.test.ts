@@ -1,3 +1,4 @@
+import { Option } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import { Command as StoryCommand, given, message, model, story } from "foldkit/story";
 import {
@@ -7,10 +8,14 @@ import {
   RunTrayAction,
   SaveDraftText,
 } from "@/chat/commands";
-import { Message } from "@/chat/message";
+import { Message, toGotWorkstreamSetupMessage } from "@/chat/message";
 import { initialModel, type Model } from "@/chat/model";
 import type { InboxItem } from "@/chat/schemas";
 import { update } from "@/chat/update";
+import { CreateWorkstream, FetchCheckup, SaveIssueRepository } from "@/workstreamSetup/commands";
+import { Message as SetupMessage } from "@/workstreamSetup/message";
+import { skillsWorkstreamRequest } from "@/workstreamSetup/requests";
+import type { Checkup } from "@/workstreamSetup/schemas";
 
 // The voice library reads the document of the browser when it loads.
 vi.mock("@/lib/voice", () => ({ resend: vi.fn(), stopVoice: vi.fn(), toggleVoice: vi.fn() }));
@@ -256,5 +261,115 @@ describe("inbox update story tests", () => {
         StoryCommand.expectNone(),
       );
     });
+  });
+});
+
+const checkup = (overrides: Partial<Checkup> = {}): Checkup => ({
+  issueRepository: "owner/shop",
+  issueRepositoryError: "",
+  issueRepositorySource: "choice",
+  labelFix: "none",
+  maintenanceWorkstream: 0,
+  permissions: [],
+  permissionsError: "",
+  repositories: [
+    { repository: "owner/shop", labels: [] },
+    { repository: "owner/shed", labels: [] },
+  ],
+  skillRepository: "owner/mobius-skills",
+  skillsWorkstream: 0,
+  skillsWorkstreamRepository: "",
+  ...overrides,
+});
+const noIssueRepository = () =>
+  checkup({ issueRepository: "", issueRepositorySource: "none", issueRepositoryError: "None." });
+const loaded = (found: Checkup): Model => {
+  const base = createModel();
+  return {
+    ...base,
+    workstreamSetup: { ...base.workstreamSetup, checkup: Option.some(found) },
+  };
+};
+
+describe("the Workstream setup in the row of a missing Workstream", () => {
+  const got = toGotWorkstreamSetupMessage;
+
+  it("keeps the checkup that the Submodel reads", () => {
+    story(
+      update,
+      given(createModel()),
+      message(got(SetupMessage.CheckupLoaded({ checkup: checkup() }))),
+      model((m) => {
+        expect(m.workstreamSetup.checkup).toEqual(Option.some(checkup()));
+      }),
+    );
+  });
+
+  it("opens the picker, saves the choice and reads the checkup again", () => {
+    story(
+      update,
+      given(loaded(noIssueRepository())),
+      message(got(SetupMessage.OpenedPicker())),
+      model((m) => {
+        expect(m.workstreamSetup.picker).toEqual(
+          Option.some({ selected: "", error: "", saving: false }),
+        );
+      }),
+      message(got(SetupMessage.SelectedRepository({ repository: "owner/shed" }))),
+      message(got(SetupMessage.ClickedSave())),
+      model((m) => {
+        expect(m.workstreamSetup.picker).toEqual(
+          Option.some({ selected: "owner/shed", error: "", saving: true }),
+        );
+      }),
+      StoryCommand.expectExact(
+        SaveIssueRepository({ organization: "owner", repository: "owner/shed" }),
+      ),
+      StoryCommand.resolve(SaveIssueRepository, SetupMessage.Saved()),
+      model((m) => {
+        expect(Option.isNone(m.workstreamSetup.picker)).toBe(true);
+      }),
+      StoryCommand.expectExact(FetchCheckup({ organization: "owner" })),
+      StoryCommand.resolve(
+        FetchCheckup,
+        SetupMessage.CheckupLoaded({ checkup: checkup({ issueRepository: "owner/shed" }) }),
+      ),
+      model((m) => {
+        expect(Option.map(m.workstreamSetup.checkup, (found) => found.issueRepository)).toEqual(
+          Option.some("owner/shed"),
+        );
+      }),
+    );
+  });
+
+  it("sends the request of the Skills Workstream with the Create button", () => {
+    story(
+      update,
+      given(loaded(checkup())),
+      message(got(SetupMessage.ClickedCreate({ kind: "skills" }))),
+      model((m) => {
+        expect(m.workstreamSetup.creating).toEqual(Option.some("skills"));
+      }),
+      StoryCommand.expectExact(
+        CreateWorkstream({
+          organization: "owner",
+          request: skillsWorkstreamRequest("owner/shop", "owner/mobius-skills"),
+        }),
+      ),
+      StoryCommand.resolve(
+        CreateWorkstream,
+        SetupMessage.WorkstreamRequested({ organization: "owner" }),
+      ),
+      StoryCommand.expectNone(),
+    );
+  });
+
+  it("sends no request while the organization has no issue repository", () => {
+    story(
+      update,
+      given(loaded(noIssueRepository())),
+      message(got(SetupMessage.ClickedCreate({ kind: "maintenance" }))),
+      StoryCommand.expectNone(),
+    );
   });
 });

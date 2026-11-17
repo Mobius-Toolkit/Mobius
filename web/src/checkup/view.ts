@@ -332,7 +332,7 @@ function renderWorkstreams(h: H, model: Model): Html {
       slotId: "workstream-setup",
       model: model.workstreamSetup,
       view: WorkstreamSetup.view,
-      viewInputs: { part: "all" },
+      viewInputs: { part: "all", picker: true },
       toParentMessage: (message) => Message.GotWorkstreamSetupMessage({ message }),
     }),
   ]);
