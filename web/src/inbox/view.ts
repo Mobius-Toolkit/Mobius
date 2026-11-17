@@ -31,7 +31,9 @@ export function view(model: Model, h: H): Html {
         : h.empty,
       h.ul(
         [h.Class("divide-y md:-mx-2")],
-        rows.map((item) => renderItemRow(h, item, model, Message.ChatWithItemClicked({ item }))),
+        rows.map((row) =>
+          renderItemRow(h, row, model, Message.ChatWithItemClicked({ item: row.item })),
+        ),
       ),
       renderAnswerDialog(h, model),
     ],

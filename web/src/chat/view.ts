@@ -42,6 +42,7 @@ import {
   type TaskRef,
   type Waiting,
 } from "./model";
+import { type InboxRow, inboxRows } from "@/lib/inboxRows";
 import type { ChatMessage, InboxItem, PendingAction } from "./schemas";
 
 type ActionArgument = PendingAction["arguments"][number];
@@ -749,7 +750,7 @@ function renderTrayButtons(h: H, item: InboxItem, model: Model, chat: Message): 
   const isPullRequest = item.kind === InboxItemKind.ready_for_review;
   const isTodo = item.kind === InboxItemKind.todo;
   const isOwnerAction = item.kind === InboxItemKind.owner_action;
-  if (isTodo || isOwnerAction) {
+  if (isOwnerAction) {
     buttons.push(
       h.button(
         [
@@ -757,23 +758,11 @@ function renderTrayButtons(h: H, item: InboxItem, model: Model, chat: Message): 
           h.Class(buttonClass({ size: "sm" })),
           h.OnClick(Message.OpenAnswerPanel({ item })),
         ],
-        [isTodo ? "Complete" : "Done"],
+        ["Done"],
       ),
     );
   }
-  if (isPullRequest && item.blockingTodos.length > 0) {
-    const count = item.blockingTodos.length;
-    buttons.push(
-      h.button(
-        [
-          h.Type("button"),
-          h.Class(buttonClass({ size: "sm" })),
-          h.OnClick(Message.BlockingTodoClicked({ id: item.blockingTodos[0] })),
-        ],
-        [`${count} open todo${count === 1 ? "" : "s"}`],
-      ),
-    );
-  } else if (isPullRequest) {
+  if (isPullRequest && item.blockingTodos.length === 0) {
     const merges = running === "merge" || merging;
     buttons.push(
       trayButton(h, {
@@ -817,7 +806,12 @@ function renderTrayButtons(h: H, item: InboxItem, model: Model, chat: Message): 
 function renderTraySideButtons(h: H, item: InboxItem, model: Model): Html[] {
   const running = model.trayRunning[item.id];
   const buttons: Html[] = [];
-  if (item.kind !== InboxItemKind.question && item.kind !== InboxItemKind.stopped && !item.action) {
+  if (
+    item.kind !== InboxItemKind.question &&
+    item.kind !== InboxItemKind.stopped &&
+    item.kind !== InboxItemKind.todo &&
+    !item.action
+  ) {
     buttons.push(
       h.button(
         [
@@ -829,11 +823,7 @@ function renderTraySideButtons(h: H, item: InboxItem, model: Model): Html[] {
       ),
     );
   }
-  if (
-    item.kind === InboxItemKind.Lead_failed ||
-    item.kind === InboxItemKind.tool_upgrade ||
-    item.todo?.dismissable
-  ) {
+  if (item.kind === InboxItemKind.Lead_failed || item.kind === InboxItemKind.tool_upgrade) {
     buttons.push(
       trayButton(h, {
         label: "Dismiss",
@@ -855,13 +845,100 @@ function refusalText(model: Model, item: InboxItem) {
 }
 
 export function trayRows(model: Model) {
-  return model.trayItems
-    .filter((item) => !item.action || item.action.state === "pending")
-    .toSorted((a, b) => a.id - b.id);
+  return inboxRows(
+    model.trayItems.filter((item) => !item.action || item.action.state === "pending"),
+  );
+}
+
+const shownTodos = 3;
+
+function renderTodoLine(h: H, todoItem: InboxItem, model: Model): Html {
+  const { todo } = todoItem;
+  if (!todo) return h.empty;
+  const running = model.trayRunning[todoItem.id];
+  const refusal = refusalText(model, todoItem);
+  return h.div(
+    [
+      h.DataAttribute("todo-item", String(todoItem.id)),
+      h.Class("grid min-w-0 grid-cols-1 gap-1 py-1"),
+    ],
+    [
+      h.div(
+        [h.Class("flex items-center gap-2")],
+        [
+          h.span([h.Class("min-w-0 grow truncate")], [todo.name]),
+          todo.mandatory ? h.empty : renderBadge(h, "outline", "optional"),
+          todo.afterMerge ? renderBadge(h, "outline", "after merge") : h.empty,
+          h.div(
+            [h.Class("flex shrink-0 items-center gap-2")],
+            [
+              h.button(
+                [
+                  h.Type("button"),
+                  h.AriaLabel(`Complete ${todo.name}`),
+                  h.Class(buttonClass({ size: "sm" })),
+                  h.OnClick(Message.OpenAnswerPanel({ item: todoItem })),
+                ],
+                ["Complete"],
+              ),
+              todo.dismissable
+                ? h.button(
+                    [
+                      h.Type("button"),
+                      h.AriaLabel(`Dismiss ${todo.name}`),
+                      h.Disabled(running !== undefined),
+                      h.Class(buttonClass({ variant: "outline", size: "sm" })),
+                      h.OnClick(Message.TrayActionClicked({ item: todoItem, kind: "dismiss" })),
+                    ],
+                    [...(running === "dismiss" ? [spinnerIcon(h)] : []), "Dismiss"],
+                  )
+                : h.empty,
+            ],
+          ),
+        ],
+      ),
+      todo.reason
+        ? h.span([h.Class("text-sm text-muted-foreground wrap-anywhere")], [todo.reason])
+        : h.empty,
+      refusal
+        ? h.p([h.Role("alert"), h.Class("text-sm text-destructive wrap-anywhere")], [refusal])
+        : h.empty,
+    ],
+  );
+}
+
+function renderTodoLines(h: H, row: InboxRow, model: Model): Html {
+  if (row.todos.length === 0) return h.empty;
+  const expanded = model.expandedTodoRows.includes(row.item.id);
+  const hidden = row.todos.length - shownTodos;
+  const shown = expanded ? row.todos : row.todos.slice(0, shownTodos);
+  return h.div(
+    [h.Class("grid min-w-0 basis-full grid-cols-1 gap-1 border-t pt-2")],
+    [
+      h.div(
+        [h.Role("group"), h.AriaLabel("Todos"), h.Class("grid min-w-0 grid-cols-1 gap-1")],
+        shown.map((todoItem) => renderTodoLine(h, todoItem, model)),
+      ),
+      hidden > 0
+        ? h.button(
+            [
+              h.Type("button"),
+              h.AriaExpanded(expanded),
+              h.Class(
+                buttonClass({ variant: "ghost", size: "sm", className: "justify-self-start" }),
+              ),
+              h.OnClick(Message.TodoRowToggled({ id: row.item.id })),
+            ],
+            [expanded ? "Show less" : `Show ${hidden} more`],
+          )
+        : h.empty,
+    ],
+  );
 }
 
 // chat is the Message of the Chat button.
-export function renderItemRow(h: H, item: InboxItem, model: Model, chat: Message): Html {
+export function renderItemRow(h: H, row: InboxRow, model: Model, chat: Message): Html {
+  const { item } = row;
   const { reference, link: referenceLink } = itemReference(item);
   const refNode = reference
     ? referenceLink
@@ -876,19 +953,6 @@ export function renderItemRow(h: H, item: InboxItem, model: Model, chat: Message
         )
       : h.span([h.Class("shrink-0")], [reference])
     : h.empty;
-  const todoBadge = item.todo
-    ? h.span(
-        [
-          h.DataAttribute("slot", "badge"),
-          h.Class(badgeClass(item.todo.mandatory ? "default" : "outline")),
-        ],
-        [
-          "Todo · ",
-          item.todo.mandatory ? "mandatory" : "optional",
-          item.todo.afterMerge ? " · after merge" : "",
-        ],
-      )
-    : h.empty;
   const ownerActionBadge =
     item.kind === InboxItemKind.owner_action
       ? h.span([h.DataAttribute("slot", "badge"), h.Class(badgeClass("outline"))], ["Owner action"])
@@ -900,9 +964,7 @@ export function renderItemRow(h: H, item: InboxItem, model: Model, chat: Message
   return h.li(
     [
       h.DataAttribute("inbox-item", String(item.id)),
-      h.Class(
-        "flex min-h-11 items-center gap-4 px-4 py-2 md:px-2 flex-wrap gap-y-2 py-2 data-marked:bg-muted data-marked:ring-2 data-marked:ring-primary data-marked:ring-inset motion-safe:transition-shadow",
-      ),
+      h.Class("flex min-h-11 items-center gap-4 px-4 py-2 md:px-2 flex-wrap gap-y-2 py-2"),
     ],
     [
       h.div(
@@ -919,7 +981,6 @@ export function renderItemRow(h: H, item: InboxItem, model: Model, chat: Message
               ),
             ],
             [
-              todoBadge,
               ownerActionBadge,
               refNode,
               mergeQueueBadge,
@@ -935,9 +996,9 @@ export function renderItemRow(h: H, item: InboxItem, model: Model, chat: Message
                         ),
                       ),
                     ],
-                    [item.title],
+                    [item.kind === InboxItemKind.todo ? "Deployment todos" : item.title],
                   ),
-                  item.reason
+                  item.reason && item.kind !== InboxItemKind.todo
                     ? h.span(
                         [
                           h.Class(
@@ -969,6 +1030,7 @@ export function renderItemRow(h: H, item: InboxItem, model: Model, chat: Message
           ),
         ],
       ),
+      renderTodoLines(h, row, model),
       refusalText(model, item)
         ? h.p(
             [h.Role("alert"), h.Class("basis-full text-sm text-destructive wrap-anywhere")],
@@ -1038,12 +1100,12 @@ function renderActionTray(h: H, model: Model): Html {
               h.AriaLabel("Pending actions"),
               h.Class("max-h-[35svh] divide-y overflow-y-auto md:-mx-2"),
             ],
-            rows.map((item) =>
+            rows.map((row) =>
               renderItemRow(
                 h,
-                item,
+                row,
                 model,
-                Message.DraftInboxItemAdded({ item: draftInboxItem(item) }),
+                Message.DraftInboxItemAdded({ item: draftInboxItem(row.item) }),
               ),
             ),
           ),
@@ -1450,7 +1512,14 @@ export function view(model: Model, h: H, tasks: readonly TaskRef[]): Html {
               items.push(renderDaySeparator(h, `day-${msg.id}`, label));
             }
             items.push(
-              renderMessage(h, msg, model.openEvents.includes(msg.id), rows, timeOf, tasks),
+              renderMessage(
+                h,
+                msg,
+                model.openEvents.includes(msg.id),
+                rows.map((row) => row.item),
+                timeOf,
+                tasks,
+              ),
             );
             return items;
           }),

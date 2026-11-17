@@ -21,7 +21,6 @@ import {
   ResendVoice,
   RunTrayAction,
   SaveTrayState,
-  ShowBlockingTodo,
   StopChat,
   StopVoice,
   ToggleVoice,
@@ -1668,9 +1667,15 @@ describe("chat update story tests", () => {
       expect(result.model.answerLoaded).toBe(true);
     });
 
-    it("scrolls to the first blocking todo of a pull request", () => {
-      const result = update(createTestModel(), Message.BlockingTodoClicked({ id: 12 }));
-      expect(described(result.commands)).toEqual(described([ShowBlockingTodo({ id: 12 })]));
+    it("shows all todos of a row and then shows less", () => {
+      const expanded = update(createTestModel(), Message.TodoRowToggled({ id: 12 }));
+      expect(expanded.model.expandedTodoRows).toEqual([12]);
+
+      const other = update(expanded.model, Message.TodoRowToggled({ id: 15 }));
+      expect(other.model.expandedTodoRows).toEqual([12, 15]);
+
+      const collapsed = update(other.model, Message.TodoRowToggled({ id: 12 }));
+      expect(collapsed.model.expandedTodoRows).toEqual([15]);
     });
   });
 

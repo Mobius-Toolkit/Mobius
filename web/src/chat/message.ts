@@ -109,8 +109,7 @@ export const Message = defineMessageUnion({
   CompletedScrollLive: {},
   StopReadyChanged: { ready: Schema.Boolean },
 
-  BlockingTodoClicked: { id: Schema.Number },
-  CompletedShowBlockingTodo: {},
+  TodoRowToggled: { id: Schema.Number },
 
   ClickedTaskCard: { repository: Schema.String, number: Schema.Number },
   ChatWithItemClicked: { item: InboxItem },

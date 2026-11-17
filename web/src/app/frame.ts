@@ -3,6 +3,7 @@ import { Option } from "effect";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import type { Workstream } from "@/api/api.gen";
 import { filterNeedsHuman } from "@/lib/inbox";
+import { inboxRows } from "@/lib/inboxRows";
 import { settingsPages } from "@/lib/settings";
 import { unreadCount } from "@/lib/unread";
 import { Message as AgentsMessage } from "@/agents/message";
@@ -280,7 +281,9 @@ export function renderFrame(h: HtmlBuilder<Message>, model: Model, content: Html
   });
 
   // Unread & inbox counts for current org
-  const inboxCount = model.inbox.filter((item) => item.organization === currentOrg).length;
+  const inboxCount = inboxRows(
+    model.inbox.filter((item) => item.organization === currentOrg),
+  ).length;
   const chatCount = unreadCount(model.unread, {
     organization: currentOrg,
     repository: "",

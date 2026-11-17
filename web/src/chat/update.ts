@@ -26,7 +26,6 @@ import {
   SaveDraftText,
   SaveTrayState,
   SeeChat,
-  ShowBlockingTodo,
   StopChat,
   StopVoice,
   ToggleVoice,
@@ -1116,7 +1115,14 @@ function step(model: Model, message: Message): StepReturn {
 
     VoiceTicked: ({ now }) => ({ model: { ...model, now } }),
 
-    BlockingTodoClicked: ({ id }) => ({ model, commands: [ShowBlockingTodo({ id })] }),
+    TodoRowToggled: ({ id }) => ({
+      model: {
+        ...model,
+        expandedTodoRows: model.expandedTodoRows.includes(id)
+          ? model.expandedTodoRows.filter((other) => other !== id)
+          : [...model.expandedTodoRows, id],
+      },
+    }),
 
     ChatWithItemClicked: ({ item }) => ({
       model,
@@ -1135,7 +1141,6 @@ function step(model: Model, message: Message): StepReturn {
     CompletedResendVoice: () => ({ model }),
     CompletedRemoveVoice: () => ({ model }),
     CompletedScrollLive: () => ({ model }),
-    CompletedShowBlockingTodo: () => ({ model }),
     CompletedOpenChat: () => ({ model }),
     ClickedTaskCard: ({ repository, number }) => ({
       model,

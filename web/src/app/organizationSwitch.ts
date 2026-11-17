@@ -1,5 +1,6 @@
 import { Option } from "effect";
 import type { Html, HtmlBuilder } from "foldkit/html";
+import { inboxRows } from "@/lib/inboxRows";
 import { renderBadge } from "@/ui/badge";
 import { buttonClass } from "@/ui/button";
 import { checkIcon, chevronDownIcon } from "@/ui/icons";
@@ -17,7 +18,7 @@ export function renderOrganizationSwitch(h: HtmlBuilder<Message>, model: Model, 
 
   // Calculate counts for each org
   const counts = new Map<string, number>();
-  for (const item of model.inbox) {
+  for (const { item } of inboxRows(model.inbox)) {
     counts.set(item.organization, (counts.get(item.organization) ?? 0) + 1);
   }
   for (const chat of model.unread) {

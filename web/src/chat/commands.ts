@@ -717,26 +717,3 @@ export const RemoveVoice = Command.define("RemoveVoice", {
       Effect.as(Message.CompletedRemoveVoice()),
     ),
 });
-
-const markDuration = 2000;
-const markTimers = new WeakMap<Element, ReturnType<typeof setTimeout>>();
-
-// Scrolls to the row of a blocking todo and marks it for a short time.
-export const ShowBlockingTodo = Command.define("ShowBlockingTodo", {
-  args: { id: Schema.Number },
-  messages: [Message.CompletedShowBlockingTodo],
-  execute: ({ id }) =>
-    Effect.sync(() => {
-      const row = document.querySelector(`[data-inbox-item="${id}"]`);
-      if (row) {
-        row.scrollIntoView({ block: "center" });
-        row.setAttribute("data-marked", "");
-        clearTimeout(markTimers.get(row));
-        markTimers.set(
-          row,
-          setTimeout(() => row.removeAttribute("data-marked"), markDuration),
-        );
-      }
-      return Message.CompletedShowBlockingTodo();
-    }),
-});
