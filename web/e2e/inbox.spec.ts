@@ -1,4 +1,4 @@
-import { expect, test, type BrowserContext, type Page } from "@playwright/test";
+import { expect, test, type BrowserContext, type Locator, type Page } from "@playwright/test";
 import { buttonNames } from "./buttons.js";
 
 test.beforeEach(async ({ page }) => {
@@ -682,8 +682,8 @@ const todo = {
   reason: "mandatory · Deployment needs",
   text: "env_var: MOBIUS_SMTP_HOST",
   link: `${link}/issues/40`,
-  pullRequest: 1110,
-  pullRequestUrl: `${link}/pull/1110`,
+  pullRequest: 44,
+  pullRequestUrl: `${link}/pull/44`,
   todo: {
     kind: "env_var",
     name: "MOBIUS_SMTP_HOST",
@@ -697,181 +697,116 @@ const todo = {
   },
 };
 
+const optionalTodo = {
+  ...todo,
+  id: 8,
+  title: "MOBIUS_SMTP_TIMEOUT",
+  reason: "optional · Deployment needs",
+  todo: {
+    ...todo.todo,
+    name: "MOBIUS_SMTP_TIMEOUT",
+    mandatory: false,
+    dismissable: true,
+    reason: "The server waits 10 seconds when the variable is not set.",
+  },
+};
+
+const afterMergeTodo = {
+  ...todo,
+  id: 9,
+  title: "roles.lead.context",
+  todo: {
+    ...todo.todo,
+    kind: "config",
+    name: "roles.lead.context",
+    reason: "An older release refuses the key.",
+    afterMerge: true,
+  },
+};
+
+const blockedReadyItem = {
+  ...readyItem,
+  blockingTodos: [7, 8],
+  mergeRefusal: "Mobius merges after you close the open todos.",
+};
+
+const todoLine = (row: Locator, name: string) =>
+  row.locator("[data-todo-item]").filter({ hasText: name });
+
 async function openTodo(page: Page) {
-  await routeInbox(page, [todo]);
+  await routeInbox(page, [blockedReadyItem, todo]);
   await page.goto("/inbox");
   const row = page.getByRole("main").getByRole("listitem");
-  await expect.poll(() => buttonNames(row)).toEqual(["Complete", "Chat about PR #1110", "Details"]);
-  await expect(row.getByRole("link", { name: "Open PR" })).toHaveAttribute(
-    "href",
-    `${link}/pull/1110`,
-  );
-  await row.getByRole("button", { name: "Complete" }).click();
+  await row.getByRole("button", { name: "Complete MOBIUS_SMTP_HOST" }).click();
   return { row, panel: page.getByRole("dialog") };
 }
 
-test("a todo row shows a badge that tells if the todo is mandatory or optional", async ({
-  page,
-}) => {
-  const optional = {
-    ...todo,
-    id: 8,
-    title: "MOBIUS_SMTP_TIMEOUT",
-    reason: "optional · Deployment needs",
-    todo: { ...todo.todo, mandatory: false, dismissable: true },
-  };
-  await routeInbox(page, [todo, optional]);
+test("a pull request shows its todos as lines inside one row", async ({ page }) => {
+  await routeInbox(page, [afterMergeTodo, blockedReadyItem, optionalTodo, todo]);
   await page.goto("/inbox");
-  const rows = page.getByRole("main").getByRole("listitem");
+  const main = page.getByRole("main");
+  const row = main.getByRole("listitem");
+  const badge = page.getByRole("link", { name: "Inbox" }).filter({ visible: true });
 
-  await expect(
-    rows.filter({ hasText: "MOBIUS_SMTP_HOST" }).locator("[data-slot=badge]"),
-  ).toHaveText("Todo · mandatory");
-  await expect(
-    rows.filter({ hasText: "MOBIUS_SMTP_TIMEOUT" }).locator("[data-slot=badge]"),
-  ).toHaveText("Todo · optional");
+  await expect(row).toHaveCount(1);
+  await expect(row).toContainText("PR #44Name the plan tiers");
+  await expect(main.locator("[data-todo-item]")).toHaveCount(3);
   await expect
-    .poll(() => buttonNames(rows.filter({ hasText: "MOBIUS_SMTP_TIMEOUT" })))
-    .toEqual(["Complete", "Chat about PR #1110", "Details", "Dismiss"]);
-});
-
-test("an optional todo shows Dismiss, and the item leaves the Inbox after a tap", async ({
-  page,
-  context,
-}) => {
-  const optional = {
-    ...todo,
-    id: 8,
-    title: "MOBIUS_SMTP_TIMEOUT",
-    reason: "optional · Deployment needs",
-    todo: { ...todo.todo, mandatory: false, dismissable: true },
-  };
-  let current = [optional];
-  await page.route("**/api/inbox", (route) => route.fulfill({ json: { data: current } }));
-  await page.route("**/api/inbox/8/dismiss", (route) => {
-    current = [];
-    return route.fulfill({ status: 204 });
-  });
-  await page.goto("/inbox");
-  const row = page.getByRole("main").getByRole("listitem");
-
-  const dismissed = page.waitForResponse("**/api/inbox/8/dismiss");
-  await row.getByRole("button", { name: "Dismiss" }).click();
-  await dismissed;
-
-  await expect(page.getByText("Dismissed: MOBIUS_SMTP_TIMEOUT")).toBeVisible();
-  await reconnect(page, context);
-  await expect(row).toHaveCount(0);
-});
-
-test("an optional todo panel says that it blocks the merge until it is completed or dismissed", async ({
-  page,
-}) => {
-  const optional = {
-    ...todo,
-    title: "MOBIUS_SMTP_TIMEOUT",
-    reason: "optional · Deployment needs",
-    todo: { ...todo.todo, mandatory: false, dismissable: true },
-  };
-  await routeInbox(page, [optional]);
-  await page.goto("/inbox");
-
-  await page.getByRole("main").getByRole("button", { name: "Details" }).click();
-  await expect(
-    page
-      .getByRole("dialog")
-      .getByText("This todo blocks the merge until you complete or dismiss it."),
-  ).toBeVisible();
-});
-
-test("a mandatory todo shows no Dismiss", async ({ page }) => {
-  await routeInbox(page, [todo]);
-  await page.goto("/inbox");
-  const row = page.getByRole("main").getByRole("listitem");
-
-  await expect(row.getByRole("button", { name: "Complete" })).toBeVisible();
-  await expect(row.getByRole("button", { name: "Dismiss" })).toHaveCount(0);
-});
-
-test("an after-merge todo shows its badge and says that it does not block the merge", async ({
-  page,
-}) => {
-  const mandatory = { ...todo, todo: { ...todo.todo, afterMerge: true } };
-  const optional = {
-    ...todo,
-    id: 8,
-    title: "MOBIUS_SMTP_TIMEOUT",
-    reason: "optional · Deployment needs",
-    todo: { ...todo.todo, mandatory: false, dismissable: true, afterMerge: true },
-  };
-  await routeInbox(page, [mandatory, optional]);
-  await page.goto("/inbox");
-  const rows = page.getByRole("main").getByRole("listitem");
-
-  await expect(
-    rows.filter({ hasText: "MOBIUS_SMTP_HOST" }).locator("[data-slot=badge]"),
-  ).toHaveText("Todo · mandatory · after merge");
-  await expect(
-    rows.filter({ hasText: "MOBIUS_SMTP_TIMEOUT" }).locator("[data-slot=badge]"),
-  ).toHaveText("Todo · optional · after merge");
+    .poll(() =>
+      main
+        .locator("[data-todo-item]")
+        .evaluateAll((lines) => lines.map((line) => line.getAttribute("data-todo-item"))),
+    )
+    .toEqual(["7", "8", "9"]);
   await expect
-    .poll(() => buttonNames(rows.filter({ hasText: "MOBIUS_SMTP_HOST" })))
-    .toEqual(["Complete", "Chat about PR #1110", "Details"]);
-
-  await rows
-    .filter({ hasText: "MOBIUS_SMTP_HOST" })
-    .getByRole("button", { name: "Complete" })
-    .click();
-  const panel = page.getByRole("dialog");
-
+    .poll(() => buttonNames(row))
+    .toEqual([
+      "Chat about PR #44",
+      "Details",
+      "Complete MOBIUS_SMTP_HOST",
+      "Complete MOBIUS_SMTP_TIMEOUT",
+      "Dismiss MOBIUS_SMTP_TIMEOUT",
+      "Complete roles.lead.context",
+    ]);
+  await expect(row.getByRole("button", { name: "Merge" })).toHaveCount(0);
+  await expect(row.getByText("Mobius merges after you close the open todos.")).toBeVisible();
   await expect(
-    panel.getByText("Do this step after the merge. This todo does not block the merge."),
+    todoLine(row, "MOBIUS_SMTP_HOST").getByText(
+      "The server reads it at the start and has no default.",
+    ),
   ).toBeVisible();
-  await expect(panel.getByText("This todo blocks the merge until you complete it.")).toHaveCount(0);
-});
-
-test("the row shows the refusal of Dismiss", async ({ page }) => {
-  const optional = {
-    ...todo,
-    todo: { ...todo.todo, mandatory: false, dismissable: true },
-  };
-  await routeInbox(page, [optional]);
-  await page.route("**/api/inbox/7/dismiss", (route) =>
-    route.fulfill({
-      status: 409,
-      json: { error: "A mandatory todo cannot be dismissed. Mark it as done." },
-    }),
+  await expect(todoLine(row, "MOBIUS_SMTP_HOST").locator("[data-slot=badge]")).toHaveCount(0);
+  await expect(todoLine(row, "MOBIUS_SMTP_TIMEOUT").locator("[data-slot=badge]")).toHaveText(
+    "optional",
   );
-  await page.goto("/inbox");
-  const row = page.getByRole("main").getByRole("listitem");
-
-  await row.getByRole("button", { name: "Dismiss" }).click();
-
-  await expect(
-    page.getByText("A mandatory todo cannot be dismissed. Mark it as done."),
-  ).toBeVisible();
-  await expect(row.getByRole("button", { name: "Dismiss" })).toBeEnabled();
+  await expect(todoLine(row, "roles.lead.context").locator("[data-slot=badge]")).toHaveText(
+    "after merge",
+  );
+  await expect(badge).toHaveText(/^Inbox\s*1$/);
 });
 
-test("Done opens a panel with the details of the need, and the note marks the todo as done", async ({
-  page,
-}) => {
+test("Complete on a line opens the panel, and the note removes the line", async ({ page }) => {
   const bodies: unknown[] = [];
   await page.route("**/api/inbox/7/done", (route) => {
     bodies.push(route.request().postDataJSON());
     return route.fulfill({ json: { data: { ...todo, dismissedAt: "2026-09-28T09:40:00Z" } } });
   });
-  const { row, panel } = await openTodo(page);
+  await routeInbox(page, [blockedReadyItem, todo, optionalTodo]);
+  await page.goto("/inbox");
+  const row = page.getByRole("main").getByRole("listitem");
+  const panel = page.getByRole("dialog");
+  const badge = page.getByRole("link", { name: "Inbox" }).filter({ visible: true });
 
+  await row.getByRole("button", { name: "Complete MOBIUS_SMTP_HOST" }).click();
   await expect(panel.getByRole("heading", { name: "MOBIUS_SMTP_HOST" })).toBeVisible();
   await expect(panel.getByText("Mandatory env var")).toBeVisible();
   await expect(
     panel.getByText("Reason: The server reads it at the start and has no default."),
   ).toBeVisible();
   await expect(panel.getByText("File: internal/config/config.go:42")).toBeVisible();
-  await expect(panel.getByRole("link", { name: "PR #1110 ↗" })).toHaveAttribute(
+  await expect(panel.getByRole("link", { name: "PR #44 ↗" })).toHaveAttribute(
     "href",
-    `${link}/pull/1110`,
+    `${link}/pull/44`,
   );
   await expect(panel.getByText("This todo blocks the merge until you complete it.")).toBeVisible();
   await panel.getByRole("textbox", { name: "Note" }).fill("Set in prod.");
@@ -881,7 +816,81 @@ test("Done opens a panel with the details of the need, and the note marks the to
 
   expect(bodies).toEqual([{ note: "Set in prod." }]);
   await expect(panel).toHaveCount(0);
-  await expect(row).toHaveCount(0);
+  await expect(todoLine(row, "MOBIUS_SMTP_HOST")).toHaveCount(0);
+  await expect(todoLine(row, "MOBIUS_SMTP_TIMEOUT")).toHaveCount(1);
+  await expect(badge).toHaveText(/^Inbox\s*1$/);
+});
+
+test("Dismiss on an optional line removes the line", async ({ page, context }) => {
+  let current = [blockedReadyItem, todo, optionalTodo];
+  await page.route("**/api/inbox", (route) => route.fulfill({ json: { data: current } }));
+  await page.route("**/api/inbox/8/dismiss", (route) => {
+    current = [blockedReadyItem, todo];
+    return route.fulfill({ status: 204 });
+  });
+  await page.goto("/inbox");
+  const row = page.getByRole("main").getByRole("listitem");
+  const badge = page.getByRole("link", { name: "Inbox" }).filter({ visible: true });
+
+  await expect(row.getByRole("button", { name: "Dismiss MOBIUS_SMTP_HOST" })).toHaveCount(0);
+  const dismissed = page.waitForResponse("**/api/inbox/8/dismiss");
+  await row.getByRole("button", { name: "Dismiss MOBIUS_SMTP_TIMEOUT" }).click();
+  await dismissed;
+
+  await expect(page.getByText("Dismissed: MOBIUS_SMTP_TIMEOUT")).toBeVisible();
+  await reconnect(page, context);
+  await expect(todoLine(row, "MOBIUS_SMTP_TIMEOUT")).toHaveCount(0);
+  await expect(todoLine(row, "MOBIUS_SMTP_HOST")).toHaveCount(1);
+  await expect(badge).toHaveText(/^Inbox\s*1$/);
+});
+
+test("the refusal of Dismiss shows, and the line keeps Dismiss", async ({ page }) => {
+  await routeInbox(page, [blockedReadyItem, todo, optionalTodo]);
+  await page.route("**/api/inbox/8/dismiss", (route) =>
+    route.fulfill({
+      status: 409,
+      json: { error: "A mandatory todo cannot be dismissed. Mark it as done." },
+    }),
+  );
+  await page.goto("/inbox");
+  const row = page.getByRole("main").getByRole("listitem");
+
+  await row.getByRole("button", { name: "Dismiss MOBIUS_SMTP_TIMEOUT" }).click();
+
+  await expect(
+    page.getByText("A mandatory todo cannot be dismissed. Mark it as done."),
+  ).toBeVisible();
+  await expect(row.getByRole("button", { name: "Dismiss MOBIUS_SMTP_TIMEOUT" })).toBeEnabled();
+});
+
+test("the panel of an optional todo says that it blocks the merge until it is completed or dismissed", async ({
+  page,
+}) => {
+  await routeInbox(page, [blockedReadyItem, optionalTodo]);
+  await page.goto("/inbox");
+
+  await page
+    .getByRole("main")
+    .getByRole("button", { name: "Complete MOBIUS_SMTP_TIMEOUT" })
+    .click();
+  await expect(
+    page
+      .getByRole("dialog")
+      .getByText("This todo blocks the merge until you complete or dismiss it."),
+  ).toBeVisible();
+});
+
+test("the panel of an after-merge todo says that it does not block the merge", async ({ page }) => {
+  await routeInbox(page, [blockedReadyItem, afterMergeTodo]);
+  await page.goto("/inbox");
+
+  await page.getByRole("main").getByRole("button", { name: "Complete roles.lead.context" }).click();
+  const panel = page.getByRole("dialog");
+
+  await expect(
+    panel.getByText("Do this step after the merge. This todo does not block the merge."),
+  ).toBeVisible();
+  await expect(panel.getByText("This todo blocks the merge until you complete it.")).toHaveCount(0);
 });
 
 test("a todo with an empty note is marked as done", async ({ page }) => {
@@ -902,7 +911,7 @@ test("a todo with an empty note is marked as done", async ({ page }) => {
 
   expect(bodies).toEqual([{ note: "" }]);
   await expect(panel).toHaveCount(0);
-  await expect(row).toHaveCount(0);
+  await expect(todoLine(row, "MOBIUS_SMTP_HOST")).toHaveCount(0);
 });
 
 test("a failed done keeps the panel and shows the error", async ({ page }) => {
@@ -918,130 +927,102 @@ test("a failed done keeps the panel and shows the error", async ({ page }) => {
   await expect(panel.getByRole("textbox", { name: "Note" })).toHaveValue("Set in prod.");
 });
 
-test("Details of a todo opens the same panel with no note field", async ({ page }) => {
-  await routeInbox(page, [todo]);
+test("an after-merge todo with no row ready for review shows the row Deployment todos", async ({
+  page,
+}) => {
+  await page.route("**/api/inbox/9/done", (route) =>
+    route.fulfill({ json: { data: { ...afterMergeTodo, dismissedAt: "2026-09-28T09:40:00Z" } } }),
+  );
+  await routeInbox(page, [afterMergeTodo]);
   await page.goto("/inbox");
-  const panel = page.getByRole("dialog");
+  const main = page.getByRole("main");
+  const row = main.getByRole("listitem");
 
-  await page.getByRole("main").getByRole("button", { name: "Details" }).click();
-  await expect(panel.getByText("File: internal/config/config.go:42")).toBeVisible();
-  await expect(panel.getByText("This todo blocks the merge until you complete it.")).toBeVisible();
-  await expect(panel.getByRole("textbox")).toHaveCount(0);
+  await expect(row).toHaveCount(1);
+  await expect(row.getByText("Deployment todos")).toBeVisible();
+  await expect(row.getByRole("link", { name: "PR #44" })).toHaveAttribute(
+    "href",
+    `${link}/pull/44`,
+  );
+  await expect(row.getByRole("link", { name: "Open PR" })).toHaveAttribute(
+    "href",
+    `${link}/pull/44`,
+  );
+  await expect(todoLine(row, "roles.lead.context")).toHaveCount(1);
+  await expect(todoLine(row, "roles.lead.context").locator("[data-slot=badge]")).toHaveText(
+    "after merge",
+  );
+  await expect
+    .poll(() => buttonNames(row))
+    .toEqual(["Chat about PR #44", "Complete roles.lead.context"]);
+
+  await row.getByRole("button", { name: "Complete roles.lead.context" }).click();
+  const response = page.waitForResponse("**/api/inbox/9/done");
+  await page.getByRole("dialog").getByRole("button", { name: "Send" }).click();
+  await response;
+
+  await expect(row).toHaveCount(0);
 });
 
-const optionalTodo = {
-  ...todo,
-  id: 101,
-  title: "MOBIUS_SMTP_TIMEOUT",
-  reason: "optional · Deployment needs",
-  todo: { ...todo.todo, mandatory: false, dismissable: true },
-};
+test("a row with four todos shows three lines and Show 1 more", async ({ page }) => {
+  const port = {
+    ...todo,
+    id: 10,
+    title: "MOBIUS_SMTP_PORT",
+    todo: { ...todo.todo, name: "MOBIUS_SMTP_PORT" },
+  };
+  await routeInbox(page, [
+    { ...blockedReadyItem, blockingTodos: [7, 8, 10] },
+    todo,
+    optionalTodo,
+    afterMergeTodo,
+    port,
+  ]);
+  await page.goto("/inbox");
+  const row = page.getByRole("main").getByRole("listitem");
 
-const fillers = Array.from({ length: 20 }, (_, n) => ({
-  ...base,
-  id: 10 + n,
-  issue: 50 + n,
-  kind: "lost",
-  title: `Add plan model ${n}`,
-  reason: "Mobius lost the task",
-  text: "Mobius lost the task.",
-  link: `${link}/issues/${50 + n}`,
-}));
+  await expect(row.locator("[data-todo-item]")).toHaveCount(3);
+  await expect(todoLine(row, "MOBIUS_SMTP_PORT")).toHaveCount(0);
 
-// The ready row comes first, and the two todo rows come after the fillers, below the fold.
-const blockedList = (blockingTodos: number[], todos: object[]) => [
-  { ...readyItem, blockingTodos },
-  ...fillers,
-  ...todos,
-];
+  await row.getByRole("button", { name: "Show 1 more" }).click();
 
-const blockingTodoRows = [
-  { ...todo, id: 100 },
-  { ...optionalTodo, pullRequest: 44, pullRequestUrl: `${link}/pull/44` },
-];
+  await expect(row.locator("[data-todo-item]")).toHaveCount(4);
+  await expect(todoLine(row, "MOBIUS_SMTP_PORT")).toHaveCount(1);
+  await expect(row.getByRole("button", { name: "Show 1 more" })).toHaveCount(0);
 
-test("a blocked ready for review row shows the count in place of Merge, and a tap marks the first blocking todo row", async ({
+  await row.getByRole("button", { name: "Show less" }).click();
+
+  await expect(row.locator("[data-todo-item]")).toHaveCount(3);
+  await expect(row.getByRole("button", { name: "Show 1 more" })).toBeVisible();
+});
+
+test("the ready row shows Merge again after its last blocking todo closes", async ({
   page,
   context,
 }) => {
-  let current = blockedList([100, 101], blockingTodoRows);
+  let current = [blockedReadyItem, todo, optionalTodo];
   await page.route("**/api/inbox", (route) => route.fulfill({ json: { data: current } }));
-  await page.clock.install();
   await page.goto("/inbox");
-  const main = page.getByRole("main");
-  const ready = main.getByRole("listitem").filter({ hasText: "Name the plan tiers" });
-  const first = main.getByRole("listitem").filter({ hasText: "MOBIUS_SMTP_HOST" });
+  const row = page.getByRole("main").getByRole("listitem");
 
-  await expect
-    .poll(() => buttonNames(ready))
-    .toEqual(["2 open todos", "Chat about PR #44", "Details"]);
-  await expect(ready.getByRole("button", { name: "Merge" })).toHaveCount(0);
-  await expect(first).not.toBeInViewport();
+  await expect(row.getByRole("button", { name: "Merge" })).toHaveCount(0);
+  await expect(row.getByRole("button", { name: /open todo/ })).toHaveCount(0);
 
-  await ready.getByRole("button", { name: "2 open todos" }).click();
-
-  await expect(first).toBeInViewport();
-  await expect(first).toHaveAttribute("data-marked", "");
-  await page.clock.fastForward(2000);
-  await expect(first).not.toHaveAttribute("data-marked");
-
-  current = blockedList([101], [blockingTodoRows[1]]);
+  current = [{ ...readyItem, mergeRefusal: "" }];
   await reconnect(page, context);
-  await expect(ready.getByRole("button", { name: "1 open todo", exact: true })).toBeVisible();
 
-  current = blockedList([], []);
-  await reconnect(page, context);
-  await expect(ready.getByRole("button", { name: "Merge" })).toBeVisible();
-  await expect(ready.getByRole("button", { name: /open todo/ })).toHaveCount(0);
+  await expect(row.getByRole("button", { name: "Merge" })).toBeVisible();
+  await expect(row.locator("[data-todo-item]")).toHaveCount(0);
 });
 
-test("a second tap marks the row for 2 seconds after the second tap", async ({ page }) => {
-  await routeInbox(page, blockedList([100, 101], blockingTodoRows));
-  await page.clock.install();
-  await page.goto("/inbox");
-  const main = page.getByRole("main");
-  const ready = main.getByRole("listitem").filter({ hasText: "Name the plan tiers" });
-  const first = main.getByRole("listitem").filter({ hasText: "MOBIUS_SMTP_HOST" });
-
-  await ready.getByRole("button", { name: "2 open todos" }).click();
-  await expect(first).toHaveAttribute("data-marked", "");
-  await page.clock.fastForward(1500);
-  await ready.getByRole("button", { name: "2 open todos" }).click();
-  await page.clock.fastForward(1000);
-
-  await expect(first).toHaveAttribute("data-marked", "");
-  await page.clock.fastForward(1000);
-  await expect(first).not.toHaveAttribute("data-marked");
-});
-
-test("a tap on the count does nothing when the list has no row of the first blocking todo", async ({
-  page,
-}) => {
-  await routeInbox(page, blockedList([100, 101], []));
-  await page.goto("/inbox");
-  const ready = page
-    .getByRole("main")
-    .getByRole("listitem")
-    .filter({ hasText: "Name the plan tiers" });
-
-  await ready.getByRole("button", { name: "2 open todos" }).click();
-
-  await expect(ready.getByRole("button", { name: "2 open todos" })).toBeVisible();
-  await expect(page.locator("[data-marked]")).toHaveCount(0);
-});
-
-test("the same tap works in the chat tray of a Workstream", async ({ page }) => {
-  await routeInbox(page, blockedList([100, 101], blockingTodoRows));
+test("the tray of a Workstream shows the todos of a pull request in one row", async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 800 });
+  await routeInbox(page, [blockedReadyItem, todo, optionalTodo]);
   await page.goto("/workstreams/owner/shop/12");
   const list = page.getByRole("main").getByRole("list", { name: "Pending actions" });
-  const ready = list.getByRole("listitem").filter({ hasText: "Name the plan tiers" });
-  const first = list.getByRole("listitem").filter({ hasText: "MOBIUS_SMTP_HOST" });
 
-  await expect(ready.getByRole("button", { name: "2 open todos" })).toBeVisible();
-  await expect(first).not.toBeInViewport();
-
-  await ready.getByRole("button", { name: "2 open todos" }).click();
-
-  await expect(first).toBeInViewport();
-  await expect(first).toHaveAttribute("data-marked", "");
+  await expect(page.getByRole("button", { name: "Waits for you (1)" })).toBeVisible();
+  await expect(list.getByRole("listitem")).toHaveCount(1);
+  await expect(list.locator("[data-todo-item]")).toHaveCount(2);
+  expect(await list.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
 });

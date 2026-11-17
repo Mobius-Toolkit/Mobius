@@ -1343,16 +1343,16 @@ test("screenshots", async ({ page }) => {
     "chat-waits-todo",
     "/workstreams/owner/shop/12",
     (device) => [
-      ...frame(device, drain, {}, "2"),
-      trayToggle(page, 2, true),
-      main.getByText("Todo · mandatory"),
-      main.getByText("Todo · optional"),
-      main.getByRole("button", { name: "Dismiss" }),
+      ...frame(device, drain),
+      trayToggle(page, 1, true),
+      main.getByText("Deployment todos"),
+      main.getByText("MOBIUS_SMTP_HOST"),
+      main.getByRole("button", { name: "Dismiss MOBIUS_SMTP_TIMEOUT" }),
     ],
     async () => {
-      await expect(trayToggle(page, 2, true)).toBeVisible();
-      await expect(main.getByText("Todo · mandatory")).toBeVisible();
-      await expect(main.getByText("Todo · optional")).toBeVisible();
+      await expect(trayToggle(page, 1, true)).toBeVisible();
+      await expect(main.getByText("Deployment todos")).toBeVisible();
+      await expect(main.getByText("MOBIUS_SMTP_TIMEOUT")).toBeVisible();
       await showChatEnd(page);
     },
   );
@@ -2308,7 +2308,8 @@ test("screenshots", async ({ page }) => {
     mergeQueueSize: number;
   } = { merging: false, mergeRefusal: "", mergeQueuePlace: null, mergeQueueSize: 0 };
   // While the todos block, they belong to the pull request of the ready for review item.
-  let blocked = false;
+  let blocked = true;
+  let moreTodos = false;
   const todoPullRequest = () => {
     const number = blocked ? 44 : 1110;
     return {
@@ -2381,7 +2382,8 @@ test("screenshots", async ({ page }) => {
             pullRequestUrl: `${link}/pull/44`,
             reportUrl: `${link}/pull/44#issuecomment-1`,
             ...mergeState,
-            blockingTodos: blocked ? [100, 105] : [],
+            ...(blocked ? { mergeRefusal: "Mobius merges after you close the open todos." } : {}),
+            blockingTodos: blocked ? [100, 105, ...(moreTodos ? [107] : [])] : [],
           },
           {
             ...item,
@@ -2427,6 +2429,54 @@ test("screenshots", async ({ page }) => {
               afterMerge: false,
             },
           },
+          ...(moreTodos
+            ? [
+                {
+                  ...item,
+                  id: 106,
+                  issue: 44,
+                  kind: "todo",
+                  title: "roles.lead.context",
+                  reason: "mandatory · Deployment needs",
+                  text: "config: roles.lead.context",
+                  link: `${link}/issues/44`,
+                  ...todoPullRequest(),
+                  todo: {
+                    kind: "config",
+                    name: "roles.lead.context",
+                    path: "internal/config/config.go",
+                    line: 88,
+                    mandatory: true,
+                    reason: "An older release refuses the key. Add it after the upgrade.",
+                    note: "",
+                    dismissable: false,
+                    afterMerge: true,
+                  },
+                },
+                {
+                  ...item,
+                  id: 107,
+                  issue: 45,
+                  kind: "todo",
+                  title: "MOBIUS_SMTP_PORT",
+                  reason: "mandatory · Deployment needs",
+                  text: "env_var: MOBIUS_SMTP_PORT",
+                  link: `${link}/issues/45`,
+                  ...todoPullRequest(),
+                  todo: {
+                    kind: "env_var",
+                    name: "MOBIUS_SMTP_PORT",
+                    path: "internal/config/config.go",
+                    line: 61,
+                    mandatory: true,
+                    reason: "The mail sender has no default port.",
+                    note: "",
+                    dismissable: false,
+                    afterMerge: false,
+                  },
+                },
+              ]
+            : []),
           {
             ...item,
             id: 104,
@@ -2442,7 +2492,7 @@ test("screenshots", async ({ page }) => {
   });
   const inboxReady = (device: string) => [
     chatCount,
-    ...frame(device, drain, { organizations: true }, "7"),
+    ...frame(device, drain, { organizations: true }, blocked ? "5" : "6"),
     main.getByText("Integrate loyalty plans", { exact: true }),
     main.getByText("Let customers change plans"),
     main.getByText(
@@ -2451,30 +2501,44 @@ test("screenshots", async ({ page }) => {
     main.getByText("The Lead did not get your message"),
     main.getByText("MOBIUS_SMTP_HOST"),
     main.getByText("Run the plan import"),
-    main.getByText("Todo · mandatory"),
-    main.getByText("Todo · optional"),
+    main.getByRole("button", { name: "Complete MOBIUS_SMTP_HOST" }),
   ];
   await screenshot(page, "inbox", "/inbox", inboxReady);
-  const todoRow = main.getByRole("listitem").filter({ hasText: "MOBIUS_SMTP_HOST" });
-  await screenshot(page, "inbox-todo", "/inbox", (device) => [
-    ...inboxReady(device),
-    todoRow.getByRole("button", { name: "Complete" }),
-    todoRow.getByRole("link", { name: "Open PR" }),
-  ]);
-  const optionalTodoRow = main.getByRole("listitem").filter({ hasText: "Run the plan import" });
+  const todoRow = main.getByRole("listitem").filter({ hasText: "Name the plan tiers" });
+  await screenshot(
+    page,
+    "inbox-todo",
+    "/inbox",
+    (device) => [
+      ...inboxReady(device),
+      todoRow.getByRole("button", { name: "Complete MOBIUS_SMTP_HOST" }),
+      todoRow.getByRole("link", { name: "Open PR" }),
+      todoRow.getByText("Mobius merges after you close the open todos."),
+    ],
+    async () => {
+      await expect(
+        todoRow.getByRole("button", { name: "Complete MOBIUS_SMTP_HOST" }),
+      ).toBeVisible();
+      await todoRow.evaluate((el) => el.scrollIntoView({ block: "center" }));
+    },
+  );
   await screenshot(
     page,
     "inbox-todo-optional",
     "/inbox",
     (device) => [
       ...inboxReady(device),
-      optionalTodoRow.getByRole("button", { name: "Complete" }),
-      optionalTodoRow.getByRole("button", { name: "Dismiss" }),
+      todoRow.getByRole("button", { name: "Complete Run the plan import" }),
+      todoRow.getByRole("button", { name: "Dismiss Run the plan import" }),
     ],
     async () => {
-      await optionalTodoRow.scrollIntoViewIfNeeded();
+      await expect(
+        todoRow.getByRole("button", { name: "Dismiss Run the plan import" }),
+      ).toBeVisible();
+      await todoRow.evaluate((el) => el.scrollIntoView({ block: "end" }));
     },
   );
+  blocked = false;
   const [mandatoryTodo] = todoItems;
   const afterMergeTodo = {
     ...mandatoryTodo,
@@ -2495,8 +2559,9 @@ test("screenshots", async ({ page }) => {
   const afterMergeRow = main.getByRole("listitem").filter({ hasText: "roles.lead.context" });
   await screenshot(page, "inbox-todo-after-merge", "/inbox", (device) => [
     ...frame(device, drain, { organizations: true }),
-    afterMergeRow.getByText("Todo · mandatory · after merge"),
-    afterMergeRow.getByRole("button", { name: "Complete" }),
+    afterMergeRow.getByText("Deployment todos"),
+    afterMergeRow.getByText("after merge", { exact: true }),
+    afterMergeRow.getByRole("button", { name: "Complete roles.lead.context" }),
   ]);
   await screenshot(
     page,
@@ -2559,7 +2624,7 @@ test("screenshots", async ({ page }) => {
       page.getByRole("dialog").getByText("is ready for review."),
       page.getByRole("dialog").getByRole("link", { name: "Approval report" }),
     ],
-    openPanel("Details", 2),
+    openPanel("Details", 1),
   );
   await screenshot(
     page,
@@ -2659,33 +2724,20 @@ test("screenshots", async ({ page }) => {
   );
   mergeState = { merging: false, mergeRefusal: "", mergeQueuePlace: null, mergeQueueSize: 0 };
   blocked = true;
-  const blockedCount = readyRow.getByRole("button", { name: "2 open todos" });
+  moreTodos = true;
   await screenshot(
     page,
-    "inbox-blocked",
+    "inbox-todo-more",
     "/inbox",
-    (device) => [...inboxReady(device), blockedCount],
+    (device) => [...inboxReady(device), readyRow.getByRole("button", { name: "Show 1 more" })],
     async () => {
-      await expect(blockedCount).toBeVisible();
+      await expect(readyRow.getByRole("button", { name: "Show 1 more" })).toBeVisible();
       await expect(readyRow.getByRole("button", { name: "Merge" })).toHaveCount(0);
+      await readyRow.evaluate((el) => el.scrollIntoView({ block: "center" }));
     },
-  );
-  const firstBlockingRow = main.getByRole("listitem").filter({ hasText: "MOBIUS_SMTP_HOST" });
-  await screenshot(
-    page,
-    "inbox-blocked-todo",
-    "/inbox",
-    (device) => [...inboxReady(device), firstBlockingRow.getByRole("button", { name: "Complete" })],
-    async () => {
-      await expect(blockedCount).toBeVisible();
-      await page.clock.pauseAt(new Date(fixedTime.getTime() + 500));
-      await blockedCount.click();
-      await expect(firstBlockingRow).toHaveAttribute("data-marked", "");
-      await expect(firstBlockingRow).toBeInViewport();
-    },
-    () => releaseNotice(page),
   );
   blocked = false;
+  moreTodos = false;
   await page.unroute("/api/inbox");
   await page.route("**/api/ci-stops", (route) =>
     route.fulfill({
