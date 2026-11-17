@@ -102,9 +102,29 @@ func (a *Agent) writeContext(ctx context.Context) error {
 // readResult adds the result of session/prompt to the usage data of the turn. Each Harness records the input,
 // output, cache read and cache write tokens, the cost and the reported model of each turn when the Harness gives them.
 func readResult(usage *turnUsage, harness config.Harness, result runner.PromptResult) {
-	if harness == config.ClaudeCode {
+	switch harness {
+	case config.ClaudeCode:
 		claudeResult(usage, result)
+	case config.Codex:
+		claudeResult(usage, result)
+		codexModel(usage, result)
 	}
+}
+
+// codexModel reads the model of the turn from the first entry of _meta.quota.model_usage of the result of
+// session/prompt. This key is an extension of codex-acp.
+func codexModel(usage *turnUsage, result runner.PromptResult) {
+	var meta struct {
+		Quota struct {
+			ModelUsage []struct {
+				Model string `json:"model"`
+			} `json:"model_usage"`
+		} `json:"quota"`
+	}
+	if json.Unmarshal(result.Meta, &meta) != nil || len(meta.Quota.ModelUsage) == 0 || meta.Quota.ModelUsage[0].Model == "" {
+		return
+	}
+	usage.model = sql.NullString{String: meta.Quota.ModelUsage[0].Model, Valid: true}
 }
 
 // claudeUpdate reads the model that _meta._claude/model of a usage_update gives. This key is an extension of the

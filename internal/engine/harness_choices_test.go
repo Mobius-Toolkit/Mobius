@@ -21,7 +21,7 @@ import (
 )
 
 // harnessCount is the number of Harnesses of config.Harnesses, so the number of session/new requests of one read of all of them.
-const harnessCount = 4
+const harnessCount = 5
 
 const choicesScript = `
 skip_tools_list = 1000

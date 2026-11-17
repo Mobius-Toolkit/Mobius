@@ -222,6 +222,44 @@ func TestRunLogsInToAntigravityAndOffersIt(t *testing.T) {
 	}
 }
 
+func TestRunOffersCodexWithItsModelsAndEfforts(t *testing.T) {
+	path := installFakeHarnesses(t, map[config.Harness]harnessScript{
+		config.ClaudeCode: claude,
+		config.Codex: {Options: map[string][]string{
+			"model":         {"gpt-5.6-terra", "gpt-6-luna"},
+			"thought_level": {"high", "xhigh"},
+		}},
+	})
+	configPath := filepath.Join(t.TempDir(), "config.toml")
+	// The Researcher uses Codex, with its first model and its second effort. The other Roles take the defaults.
+	answers := "correct horse\ncorrect horse\nowner\n" + strings.Repeat("\n\n\n", 4) + "2\n\n2\n" + "\n2\n\n" + strings.Repeat("\n", 12)
+
+	out, err := runInit(t, answers, configPath, path)
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+
+	for _, want := range []string{
+		"  1) claude-code\n  2) codex\nHarness [1]: ",
+		"  2) gpt-6-luna\n",
+		"  2) xhigh\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output has no %q:\n%s", want, out)
+		}
+	}
+	text, err := os.ReadFile(filepath.Clean(configPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `researcher = {harness = 'codex', model = 'gpt-5.6-terra', effort = 'xhigh'}` + "\n"; !strings.Contains(string(text), want) {
+		t.Errorf("config file has no %q:\n%s", want, text)
+	}
+	if _, err := config.Load(configPath); err != nil {
+		t.Error(err)
+	}
+}
+
 func TestRunOffersDSHWithItsModelsAndEfforts(t *testing.T) {
 	path := installFakeHarnesses(t, map[config.Harness]harnessScript{
 		config.ClaudeCode: claude,

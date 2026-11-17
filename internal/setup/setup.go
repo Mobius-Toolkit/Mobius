@@ -62,6 +62,7 @@ var titles = map[config.Harness]string{
 	config.Antigravity: "Antigravity",
 	config.Devin:       "Devin",
 	config.DSH:         "DeepSeek Harness",
+	config.Codex:       "Codex",
 }
 
 type terminal struct {

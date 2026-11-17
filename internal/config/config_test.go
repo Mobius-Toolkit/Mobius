@@ -183,9 +183,9 @@ func TestParseReadsTheDiagnoserRole(t *testing.T) {
 func TestParseRefusesAConfigWithoutAFullDiagnoser(t *testing.T) {
 	checks := []struct{ text, want string }{
 		{strings.Replace(valid, "diagnoser ", "#diagnoser ", 1),
-			"roles.diagnoser.harness: must be claude-code, antigravity, devin or dsh"},
+			"roles.diagnoser.harness: must be claude-code, antigravity, devin, dsh or codex"},
 		{strings.Replace(valid, `harness = "claude-code", model = "sonnet",  effort = "low"`, `model = "sonnet", effort = "low"`, 1),
-			"roles.diagnoser.harness: must be claude-code, antigravity, devin or dsh"},
+			"roles.diagnoser.harness: must be claude-code, antigravity, devin, dsh or codex"},
 		{strings.Replace(valid, `model = "sonnet",  effort = "low"`, `effort = "low"`, 1),
 			"roles.diagnoser.model: must not be empty"},
 	}
@@ -217,7 +217,7 @@ func TestParseReadsTheOperatorRole(t *testing.T) {
 func TestParseRefusesAWrongOperatorBinding(t *testing.T) {
 	checks := []struct{ line, want string }{
 		{`operator = { model = "opus", effort = "medium" }`,
-			"roles.operator.harness: must be claude-code, antigravity, devin or dsh"},
+			"roles.operator.harness: must be claude-code, antigravity, devin, dsh or codex"},
 		{`operator = { harness = "claude-code", effort = "medium" }`,
 			"roles.operator.model: must not be empty"},
 	}
@@ -255,11 +255,11 @@ func TestParseRefusesAWrongRoleOrPassword(t *testing.T) {
 		{strings.Replace(valid, `["owner"]`, "[]", 1),
 			"trusted_users: must not be empty"},
 		{strings.Replace(valid, "judge ", "#judge ", 1),
-			"roles.judge.harness: must be claude-code, antigravity, devin or dsh"},
+			"roles.judge.harness: must be claude-code, antigravity, devin, dsh or codex"},
 		{strings.Replace(valid, "curator ", "#curator ", 1),
-			"roles.curator.harness: must be claude-code, antigravity, devin or dsh"},
-		{strings.Replace(valid, `"devin"`, `"codex"`, 1),
-			"roles.implementer.harness: must be claude-code, antigravity, devin or dsh"},
+			"roles.curator.harness: must be claude-code, antigravity, devin, dsh or codex"},
+		{strings.Replace(valid, `"devin"`, `"gpt"`, 1),
+			"roles.implementer.harness: must be claude-code, antigravity, devin, dsh or codex"},
 		{strings.Replace(valid, `model = "haiku",`, "", 1),
 			"roles.judge.model: must not be empty"},
 	}
@@ -291,6 +291,17 @@ func TestParseAcceptsADSHRole(t *testing.T) {
 
 	researcher := config.Roles.Researcher
 	if researcher.Harness != DSH || researcher.Model != "deepseek-account/deepseek-v4-pro" || researcher.Effort != "high" {
+		t.Errorf("researcher = %+v", researcher)
+	}
+}
+
+func TestParseAcceptsACodexRole(t *testing.T) {
+	config := parse(t, strings.Replace(valid,
+		`harness = "antigravity", model = "gemini-3-pro"`,
+		`harness = "codex", model = "gpt-5.6-terra", effort = "high"`, 1))
+
+	researcher := config.Roles.Researcher
+	if researcher.Harness != Codex || researcher.Model != "gpt-5.6-terra" || researcher.Effort != "high" {
 		t.Errorf("researcher = %+v", researcher)
 	}
 }

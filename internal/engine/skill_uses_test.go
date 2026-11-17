@@ -415,6 +415,60 @@ func TestADSHReadOfARelativeSkillFileAddsOneRowWithTheSourceOfTheSkill(t *testin
 	}
 }
 
+func codexLead(cfg *config.Config) {
+	keepSessionOpen(cfg)
+	cfg.Roles.Lead = config.RoleBinding{Harness: config.Codex, Model: "gpt-5.6-terra", Effort: "low", Max: 8}
+}
+
+// codexOptions are the options of the fake codex-acp. Mobius sets the mode agent-full-access in each session.
+const codexOptions = "[options]\nmodel = ['gpt-5.6-terra']\nthought_level = ['low']\nmode = ['agent', 'agent-full-access']\n"
+
+func codexScript(updates string) string {
+	return codexOptions + `
+[[prompts]]
+updates = [
+` + updates + `]
+reply = ["done"]
+`
+}
+
+func TestACodexReadOfASkillFileAddsOneRowWithTheSourceOfTheSkill(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddRepository(skills)
+	fake.CommitFile(skills, "mobius-local-state/SKILL.md", "Read the state.", "Add mobius-local-state")
+	server, _ := connectScript(t, fake, codexScript(`  '{"sessionUpdate":"tool_call","toolCallId":"exec-1","name":"exec_command","kind":"read","title":"Read file .agents/skills/mobius-local-state/SKILL.md","status":"in_progress","locations":[{"path":".agents/skills/mobius-local-state/SKILL.md"}]}',
+  '{"sessionUpdate":"tool_call_update","toolCallId":"exec-1","status":"completed","rawOutput":{"exit_code":0}}',
+  '{"sessionUpdate":"tool_call","toolCallId":"exec-2","name":"exec_command","kind":"read","title":"Read file internal/engine/x.go","status":"in_progress","locations":[{"path":"internal/engine/x.go"}]}',
+  '{"sessionUpdate":"tool_call","toolCallId":"exec-3","name":"exec_command","kind":"read","title":"List files","status":"in_progress"}',
+`), codexLead)
+
+	session, _ := leadReply(t, server)
+
+	want := []skillUse{{session, "owner", shop, "lead_chat", "codex", "mobius-local-state", "mobius"}}
+	if got := skillUses(t, server, session); !slices.Equal(got, want) {
+		t.Errorf("skill uses = %+v, want %+v", got, want)
+	}
+}
+
+func TestACodexShellCommandWithASkillFileAddsOneRowWithTheSourceOfTheSkill(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddRepository(skills)
+	fake.CommitFile(skills, "mobius-local-state/SKILL.md", "Read the state.", "Add mobius-local-state")
+	server, _ := connectScript(t, fake, codexScript(`  '{"sessionUpdate":"tool_call","toolCallId":"exec-1","kind":"execute","title":"cat .agents/skills/mobius-local-state/SKILL.md | head -n 1","status":"in_progress","rawInput":{"command":"/bin/zsh -lc \"cat .agents/skills/mobius-local-state/SKILL.md | head -n 1\"","cwd":"/work"}}',
+  '{"sessionUpdate":"tool_call","toolCallId":"exec-2","kind":"execute","title":"mcp.mobius.ping_tool","status":"in_progress","rawInput":{"server":"mobius","tool":"ping_tool","arguments":{}},"_meta":{"is_mcp_tool_call":true}}',
+  '{"sessionUpdate":"tool_call","toolCallId":"exec-3","kind":"execute","title":"git status","status":"in_progress","rawInput":{"command":"git status","cwd":"/work"}}',
+`), codexLead)
+
+	session, _ := leadReply(t, server)
+
+	want := []skillUse{{session, "owner", shop, "lead_chat", "codex", "mobius-local-state", "mobius"}}
+	if got := skillUses(t, server, session); !slices.Equal(got, want) {
+		t.Errorf("skill uses = %+v, want %+v", got, want)
+	}
+}
+
 func TestADSHBashCommandWithASkillFileAddsOneRowWithTheSourceOfTheSkill(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

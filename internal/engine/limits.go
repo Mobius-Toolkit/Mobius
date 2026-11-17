@@ -45,6 +45,7 @@ var dshLimit = regexp.MustCompile(`(?i)\binsufficient[\s_-]+(quota|balance|credi
 type limitData struct {
 	ErrorKind         string `json:"errorKind"`
 	RetryAfterSeconds *int64 `json:"retryAfterSeconds"`
+	CodexErrorInfo    string `json:"codexErrorInfo"`
 }
 
 // detect gives the end of the pause when err of a prompt of harness is a usage limit. hint is the last reset time
@@ -90,6 +91,11 @@ func detect(harness config.Harness, err *acp.RequestError, hint, now time.Time) 
 		// providerError of @deepseek-ai/dsh-llm-deepseek (both 0.2.1-rc.5).
 		failure, ok := strings.CutPrefix(err.Message, dshTurnFailed)
 		if err.Code != -32603 || !ok || !dshLimit.MatchString(failure) {
+			return time.Time{}, false
+		}
+	case config.Codex:
+		// The message names the reset time only in the local time of the machine, so the pause has no reset time.
+		if err.Code != -32603 || data.CodexErrorInfo != "usageLimitExceeded" {
 			return time.Time{}, false
 		}
 	}

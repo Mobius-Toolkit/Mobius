@@ -38,6 +38,7 @@ const (
 	adapterPackage = "@agentclientprotocol/claude-agent-acp"
 	cliPackage     = "@anthropic-ai/claude-code"
 	dshPackage     = "@deepseek-ai/dsh"
+	codexPackage   = "@agentclientprotocol/codex-acp"
 )
 
 // NPMRegistry is the npm registry that gives the newest version of a package.
@@ -127,6 +128,11 @@ func (e *Engine) Tools(ctx context.Context) []ToolCheck {
 		if harness == config.DSH {
 			e.compareNewest(ctx, &check, dshPackage)
 			check.Package = npmPackageOf(check.Path, dshPackage)
+			check.AutoUpgrade = auto[check.Package]
+		}
+		if harness == config.Codex {
+			e.compareNewest(ctx, &check, codexPackage)
+			check.Package = npmPackageOf(check.Path, codexPackage)
 			check.AutoUpgrade = auto[check.Package]
 		}
 		checks = append(checks, check)

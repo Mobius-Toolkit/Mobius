@@ -101,6 +101,7 @@ func TestEachProgramOfAHarnessNamesItsHarness(t *testing.T) {
 		"agy_acp_server":   "antigravity",
 		"devin":            "devin",
 		"dsh":              "dsh",
+		"codex-acp":        "codex",
 		"git":              "",
 	}
 	if !maps.Equal(harnesses, want) {
@@ -123,7 +124,7 @@ func TestTheToolsHaveEachHarnessAndGit(t *testing.T) {
 	for _, check := range checks {
 		names = append(names, check.Name)
 	}
-	if want := []string{"claude-agent-acp", "Claude Code CLI", "agy_acp_server", "devin", "dsh", "git"}; !slices.Equal(names, want) {
+	if want := []string{"claude-agent-acp", "Claude Code CLI", "agy_acp_server", "devin", "dsh", "codex-acp", "git"}; !slices.Equal(names, want) {
 		t.Errorf("names = %v, want %v", names, want)
 	}
 	required := map[string]bool{}
@@ -136,6 +137,7 @@ func TestTheToolsHaveEachHarnessAndGit(t *testing.T) {
 		"agy_acp_server":   false,
 		"devin":            false,
 		"dsh":              false,
+		"codex-acp":        false,
 		"git":              true,
 	}
 	for name, value := range want {
@@ -383,6 +385,22 @@ func TestTheDSHRowReadsTheNewestVersionOfItsPackage(t *testing.T) {
 
 	if got.Newest != "0.2.1-rc.5" || !got.Outdated {
 		t.Errorf("dsh = %+v", got)
+	}
+}
+
+func TestTheCodexRowReadsTheNewestVersionOfItsPackage(t *testing.T) {
+	bin := t.TempDir()
+	testkit.InstallFakeProgram(t, bin, "codex-acp", "2.5.0\n")
+	registry := fakeRegistry(t)
+	t.Setenv(claudeCodeEnv, "")
+	cfg := limits(t)
+	cfg.DataDir = t.TempDir()
+	registry.SetVersion("@agentclientprotocol/codex-acp", "2.6.0")
+
+	got := find(New(nil, nil, cfg, Agents{Path: bin}).Tools(context.Background()), "codex-acp")
+
+	if got.Version != "2.5.0" || got.Newest != "2.6.0" || !got.Outdated || got.Harness != "codex" {
+		t.Errorf("codex-acp = %+v", got)
 	}
 }
 

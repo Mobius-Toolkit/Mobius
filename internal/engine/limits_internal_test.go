@@ -120,6 +120,29 @@ func TestDSHHasNoLimitOnAnotherErrorOrAnotherCode(t *testing.T) {
 	}
 }
 
+func TestCodexWaits30MinutesOnTheUsageLimitExceededErrorAndTakesNoTimeFromTheMessage(t *testing.T) {
+	t.Parallel()
+	limit := &acp.RequestError{Code: -32603, Message: "You've hit your usage limit. Try again at 3:45 PM.", Data: map[string]any{"codexErrorInfo": "usageLimitExceeded"}}
+
+	if until, ok := detect(config.Codex, limit, limitNow.Add(time.Hour), limitNow); !ok || !until.Equal(limitNow.Add(noTimeWait)) {
+		t.Errorf("until = %v, %v", until, ok)
+	}
+}
+
+func TestCodexHasNoLimitOnAnotherErrorInfoAnotherCodeOrNoData(t *testing.T) {
+	t.Parallel()
+	for _, limit := range []*acp.RequestError{
+		{Code: -32603, Message: "Usage limit", Data: map[string]any{"codexErrorInfo": "serverOverloaded"}},
+		{Code: -32603, Message: "Usage limit exceeded"},
+		{Code: -32011, Message: "Usage limit", Data: map[string]any{"codexErrorInfo": "usageLimitExceeded"}},
+		{Code: -32603, Message: "Usage limit", Data: map[string]any{"errorKind": "rate_limit"}},
+	} {
+		if until, ok := detect(config.Codex, limit, time.Time{}, limitNow); ok {
+			t.Errorf("%+v: until = %v", limit, until)
+		}
+	}
+}
+
 func TestAResetTimeThatJustPassedGivesTheWaitWithNoTimeAndALaterOneMovesToTheNextDay(t *testing.T) {
 	t.Parallel()
 	limit := &acp.RequestError{Code: -32603, Message: "Your limit resets 10am", Data: map[string]any{"errorKind": "rate_limit"}}

@@ -141,7 +141,7 @@ func (a *Agent) addSessionSkills(ctx context.Context, names []string) {
 }
 
 // recordedSkillHarnesses are the Harnesses for which recordSkillUse adds a skill_uses row.
-var recordedSkillHarnesses = []config.Harness{config.ClaudeCode, config.Devin, config.DSH, config.Antigravity}
+var recordedSkillHarnesses = []config.Harness{config.ClaudeCode, config.Devin, config.DSH, config.Antigravity, config.Codex}
 
 // recordSkillUse adds a skill_uses row for the first update of a tool call that uses a skill: the skill tool, a read of
 // a SKILL.md in the skill folder of the session, or a shell command that names such a file. The caller holds a.mu.
@@ -187,6 +187,22 @@ func (a *Agent) recordSkillUse(ctx context.Context, notification map[string]any,
 		case "read":
 			skill = a.readSkill(stringField(update, "rawInput", "file_path"))
 		case "bash":
+			skill = a.commandSkill(stringField(update, "rawInput", "command"))
+		default:
+			return
+		}
+	case config.Codex:
+		if kind != "tool_call" {
+			return
+		}
+		// codex-acp reports a command that only reads one file as kind "read" with the file in locations, and gives the
+		// command of any other shell call in rawInput.
+		switch stringField(update, "kind") {
+		case "read":
+			if locations, _ := field(update, "locations").([]any); len(locations) == 1 {
+				skill = a.readSkill(stringField(locations[0], "path"))
+			}
+		case "execute":
 			skill = a.commandSkill(stringField(update, "rawInput", "command"))
 		default:
 			return
