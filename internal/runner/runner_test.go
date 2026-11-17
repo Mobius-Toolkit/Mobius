@@ -448,6 +448,57 @@ func TestConfigureRefusesADSHModelWithNoRouteAndListsRouteAndModel(t *testing.T)
 	}
 }
 
+func TestCodexGetsNoBrowserSignInAndTheModelTheEffortAndTheFullAccessModeByTheirCategories(t *testing.T) {
+	t.Setenv("MOBIUS_FAKE_AGENT", "1")
+	t.Setenv("MOBIUS_FAKE_CODEX", "1")
+	t.Setenv("NO_BROWSER", "0")
+	dir := t.TempDir()
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(exe, filepath.Join(dir, "codex-acp")); err != nil {
+		t.Fatal(err)
+	}
+	var message strings.Builder
+	session, err := Start(context.Background(), config.Codex, 0, false, false, dir, dir, dir, "http://127.0.0.1:1/mcp/key", nil, "", "", "", func(params json.RawMessage, _ bool) {
+		var notification struct {
+			Update struct {
+				Content struct {
+					Text string `json:"text"`
+				} `json:"content"`
+			} `json:"update"`
+		}
+		if err := json.Unmarshal(params, &notification); err != nil {
+			t.Error(err)
+		}
+		message.WriteString(notification.Update.Content.Text)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(session.Close)
+	ctx := context.Background()
+
+	if want := []string{"gpt-6-luna", "gpt-5.6-terra"}; !slices.Equal(session.Models().Values, want) {
+		t.Errorf("models = %v, want %v", session.Models().Values, want)
+	}
+	if want := []string{"low", "medium", "high", "xhigh"}; !slices.Equal(session.Efforts().Values, want) {
+		t.Errorf("efforts = %v, want %v", session.Efforts().Values, want)
+	}
+	if err := session.Configure(ctx, "gpt-5.6-terra", "high"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := session.Prompt(ctx, "Say the options.", nil); err != nil {
+		t.Fatal(err)
+	}
+
+	want := `mcp [{"headers":[],"name":"mobius","type":"http","url":"http://127.0.0.1:1/mcp/key"}]; set model=gpt-5.6-terra reasoning_effort=high mode=agent-full-access; permission always; NO_BROWSER=1`
+	if message.String() != want {
+		t.Errorf("message = %s", message.String())
+	}
+}
+
 func TestModelsOfAnotherHarnessStayAsTheAgentGivesThem(t *testing.T) {
 	session := startFakeAgent(t, func(json.RawMessage, bool) {})
 
@@ -585,9 +636,23 @@ const dshOptions = `[
 		"options": [{"value": "off", "name": "Off"}, {"value": "low", "name": "Low"}, {"value": "high", "name": "High"}, {"value": "max", "name": "Max"}]}
 ]`
 
+// codexOptions are the options of codex-acp: the ids differ from the categories.
+const codexOptions = `[
+	{"type": "select", "id": "mode", "name": "Mode", "category": "mode", "currentValue": "agent",
+		"options": [{"value": "read-only", "name": "Read-only"}, {"value": "workspace-write", "name": "Workspace access"},
+			{"value": "agent", "name": "Auto review"}, {"value": "agent-full-access", "name": "Full access"}]},
+	{"type": "select", "id": "model", "name": "Model", "category": "model", "currentValue": "gpt-6-luna",
+		"options": [{"value": "gpt-6-luna", "name": "6 Luna"}, {"value": "gpt-5.6-terra", "name": "5.6 Terra"}]},
+	{"type": "select", "id": "reasoning_effort", "name": "Reasoning effort", "category": "thought_level", "currentValue": "medium",
+		"options": [{"value": "low", "name": "Low"}, {"value": "medium", "name": "Medium"}, {"value": "high", "name": "High"}, {"value": "xhigh", "name": "Extra high"}]}
+]`
+
 func fakeOptionsText() string {
 	if os.Getenv("MOBIUS_FAKE_DSH") == "1" {
 		return dshOptions
+	}
+	if os.Getenv("MOBIUS_FAKE_CODEX") == "1" {
+		return codexOptions
 	}
 	return fakeOptions
 }
@@ -681,6 +746,9 @@ func (a *fakeAgent) Prompt(ctx context.Context, request acp.PromptRequest) (acp.
 	text := fmt.Sprintf("mcp %s; set %s; permission %s", servers, strings.Join(a.sets, " "), permission.Outcome.Selected.OptionId)
 	if os.Getenv("MOBIUS_FAKE_DSH") == "1" {
 		text += "; args " + strings.Join(os.Args[1:], " ")
+	}
+	if os.Getenv("MOBIUS_FAKE_CODEX") == "1" {
+		text += "; NO_BROWSER=" + os.Getenv("NO_BROWSER")
 	}
 	prompt, err := json.Marshal(request.Prompt)
 	if err != nil {

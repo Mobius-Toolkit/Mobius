@@ -423,6 +423,77 @@ func TestAPromptOfDSHThatFailsWithAnotherErrorDoesNotPauseDSH(t *testing.T) {
 	}
 }
 
+// The first prompt of codex fails with the usage limit of Codex, and the same prompt again does the work.
+const codexUsageLimit = `
+[[prompts]]
+error = { code = -32603, message = "You've hit your usage limit.", data = { codexErrorInfo = "usageLimitExceeded" } }
+
+[[prompts]]
+reply = ["Done."]
+`
+
+// The first prompt of codex fails with an error of Codex that is no usage limit.
+const codexOtherError = `
+[[prompts]]
+error = { code = -32603, message = "Server overloaded.", data = { codexErrorInfo = "serverOverloaded" } }
+`
+
+func codexImplementer(cfg *config.Config) {
+	cfg.Roles.Implementer = config.RoleBinding{Harness: config.Codex, Model: "gpt-5.6-terra", Effort: "low", Max: 2}
+}
+
+func codexPause(t *testing.T, server *testserver.Server) (until string, found bool) {
+	t.Helper()
+	err := server.DB.QueryRow("SELECT paused_until FROM harness_pauses WHERE harness = 'codex'").Scan(&until)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		t.Fatal(err)
+	}
+	return until, err == nil
+}
+
+func TestAPromptOfCodexThatFailsWithTheUsageLimitExceededErrorPausesCodexForThe30MinuteWait(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectScript(t, fake, codexOptions+codexUsageLimit, codexImplementer)
+	agent := start(t, server, implementerSpec(t, server, fake, 41))
+	defer end(t, agent, "done")
+	prompted := make(chan error, 1)
+	go func() { prompted <- agent.Prompt(t.Context(), "Store plans in cents.", nil) }()
+
+	testkit.WaitFor(t, func() bool { _, found := codexPause(t, server); return found })
+
+	until, _ := codexPause(t, server)
+	if left := time.Until(parseTime(t, until)); left < 29*time.Minute || left > 30*time.Minute {
+		t.Errorf("the pause ends in %v, want about 30 minutes", left)
+	}
+	if status, text := send(t, server, http.MethodPost, "/api/pauses/codex/resume", ""); status != http.StatusNoContent {
+		t.Fatalf("resume: status %d: %s", status, text)
+	}
+	if err := <-prompted; err != nil {
+		t.Fatal(err)
+	}
+	if text := reply(t, server, agent.ID()); text != "Done." {
+		t.Errorf("reply = %q", text)
+	}
+}
+
+func TestAPromptOfCodexThatFailsWithAnotherErrorInfoDoesNotPauseCodex(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectScript(t, fake, codexOptions+codexOtherError, codexImplementer)
+	agent := start(t, server, implementerSpec(t, server, fake, 41))
+	defer end(t, agent, "done")
+
+	err := agent.Prompt(t.Context(), "Store plans in cents.", nil)
+
+	if err == nil || !strings.Contains(err.Error(), "Server overloaded") {
+		t.Errorf("err = %v", err)
+	}
+	if _, found := codexPause(t, server); found {
+		t.Error("codex has a pause")
+	}
+}
+
 func count(t *testing.T, server *testserver.Server, query string) int {
 	t.Helper()
 	var n int

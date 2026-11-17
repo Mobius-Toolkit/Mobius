@@ -21,7 +21,7 @@ import (
 )
 
 // harnessCount is the number of Harnesses of config.Harnesses, so the number of session/new requests of one read of all of them.
-const harnessCount = 4
+const harnessCount = 5
 
 const choicesScript = `
 skip_tools_list = 1000
@@ -277,7 +277,7 @@ func TestAHarnessWhoseProgramIsNotOnThePathHasNoChoice(t *testing.T) {
 		harnesses = append(harnesses, choice.Harness)
 	}
 
-	if want := []config.Harness{config.ClaudeCode, config.Devin, config.DSH}; !reflect.DeepEqual(harnesses, want) {
+	if want := []config.Harness{config.ClaudeCode, config.Devin, config.DSH, config.Codex}; !reflect.DeepEqual(harnesses, want) {
 		t.Errorf("harnesses = %v, want %v", harnesses, want)
 	}
 }

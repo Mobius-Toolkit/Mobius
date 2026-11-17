@@ -462,7 +462,7 @@ func TestTheToolsCheckGivesEachProgramWithItsStatus(t *testing.T) {
 	for _, tool := range body.Data {
 		names = append(names, tool.Name)
 	}
-	if want := []string{"claude-agent-acp", "Claude Code CLI", "agy_acp_server", "devin", "dsh", "git"}; !slices.Equal(names, want) {
+	if want := []string{"claude-agent-acp", "Claude Code CLI", "agy_acp_server", "devin", "dsh", "codex-acp", "git"}; !slices.Equal(names, want) {
 		t.Fatalf("names = %v, want %v", names, want)
 	}
 	// The test PATH has no Harness command.

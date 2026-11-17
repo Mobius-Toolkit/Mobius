@@ -345,6 +345,38 @@ updates = ['{"sessionUpdate": "usage_update", "used": 1, "size": 2}']
 	}
 }
 
+func TestACodexTurnAddsTheTokensAndTheModelOfThePromptResultAndANullCost(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	script := codexOptions + `
+[[prompts]]
+reply = ["ok"]
+usage = '{"totalTokens": 52282, "inputTokens": 18745, "cachedReadTokens": 33280, "cachedWriteTokens": 0, "outputTokens": 257, "thoughtTokens": 34}'
+meta = '{"quota": {"model_usage": [{"model": "gpt-5.6-luna", "token_count": {"inputTokens": 18745}}, {"model": "other"}]}}'
+`
+	server, _ := connectScript(t, fake, script, func(cfg *config.Config) {
+		cfg.Roles.Researcher = config.RoleBinding{Harness: config.Codex, Model: "gpt-5.6-terra", Effort: "low", Max: 2}
+	})
+	spec := leadSpec(t)
+	spec.Role = engine.ResearcherRole
+
+	session := run(t, server, spec, "One")
+
+	rows := usageRows(t, server, session)
+	if len(rows) != 1 {
+		t.Fatalf("rows = %+v", rows)
+	}
+	row := rows[0]
+	if row.Harness != "codex" || row.Model != "gpt-5.6-terra" || row.Effort.String != "low" ||
+		row.Input != nullInt(18745) || row.Output != nullInt(257) || row.CacheRead != nullInt(33280) || row.CacheWrite != nullInt(0) ||
+		row.ReportedModel.String != "gpt-5.6-luna" || !row.ReportedModel.Valid {
+		t.Errorf("row = %+v", row)
+	}
+	if row.Cost.Valid {
+		t.Errorf("cost = %+v", row.Cost)
+	}
+}
+
 func TestASessionHasTheEffortOfItsRoleBinding(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

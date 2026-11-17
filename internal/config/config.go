@@ -27,10 +27,11 @@ const (
 	Antigravity Harness = "antigravity"
 	Devin       Harness = "devin"
 	DSH         Harness = "dsh"
+	Codex       Harness = "codex"
 )
 
 // Harnesses are all Harnesses, in the order that mobius init offers them.
-var Harnesses = []Harness{ClaudeCode, Antigravity, Devin, DSH}
+var Harnesses = []Harness{ClaudeCode, Antigravity, Devin, DSH, Codex}
 
 // HasContextLimit tells if the Harness can keep its context below a limit.
 func (h Harness) HasContextLimit() bool {
@@ -270,7 +271,7 @@ func CheckRoles(roles *Roles) error {
 		harness := b.Binding.Harness
 		switch {
 		case !slices.Contains(Harnesses, harness):
-			return fmt.Errorf("%s.harness: must be claude-code, antigravity, devin or dsh", key)
+			return fmt.Errorf("%s.harness: must be claude-code, antigravity, devin, dsh or codex", key)
 		case b.Binding.Model == "":
 			return fmt.Errorf("%s.model: must not be empty", key)
 		case b.Binding.Context != 0 && !harness.HasContextLimit():

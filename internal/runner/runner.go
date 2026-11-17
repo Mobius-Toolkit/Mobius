@@ -33,6 +33,8 @@ func Program(harness config.Harness) string {
 		return "devin"
 	case config.DSH:
 		return "dsh"
+	case config.Codex:
+		return "codex-acp"
 	}
 	return "claude-agent-acp"
 }
@@ -41,6 +43,7 @@ func Program(harness config.Harness) string {
 var fullAutoModes = map[config.Harness]string{
 	config.ClaudeCode:  "bypassPermissions",
 	config.Antigravity: "yolo",
+	config.Codex:       "agent-full-access",
 }
 
 // The ACP error code of session/new when the agent needs a login.
@@ -212,6 +215,8 @@ func harnessCommand(ctx context.Context, harness config.Harness, contextLimit in
 		cmd.Args = append(cmd.Args, "--profile", "acp")
 		// Mobius cannot know the folders that a session must write, so the shell of dsh has no sandbox.
 		cmd.Env = append(cmd.Env, "DSH_PERMISSION_MODE=danger-full-access")
+	case config.Codex:
+		cmd.Env = append(cmd.Env, "NO_BROWSER=1")
 	}
 	if harness.HasContextLimit() && contextLimit > 0 {
 		cmd.Env = append(cmd.Env, contextWindowEnv+"="+strconv.Itoa(contextLimit))

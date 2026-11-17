@@ -168,7 +168,7 @@ func TestABindingThatFailsACheckGives422AndStoresNoRow(t *testing.T) {
 	for _, c := range []struct{ name, body, want string }{
 		{"max 0", `{"harness": "claude-code", "model": "sonnet", "effort": "high", "max": 0}`, "roles.implementer.max: must be 1 or more"},
 		{"Harness not on the PATH", geminiPro, "roles.implementer.harness: agy_acp_server is not on the PATH of the agents"},
-		{"unknown Harness", `{"harness": "gpt", "model": "sonnet", "effort": "high", "max": 1}`, "roles.implementer.harness: must be claude-code, antigravity, devin or dsh"},
+		{"unknown Harness", `{"harness": "gpt", "model": "sonnet", "effort": "high", "max": 1}`, "roles.implementer.harness: must be claude-code, antigravity, devin, dsh or codex"},
 	} {
 		for _, request := range []struct{ method, path string }{{http.MethodPost, ""}, {http.MethodPut, "/" + strconv.FormatInt(stored.ID, 10)}} {
 			status, text := sendBinding(t, server, request.method, request.path, c.body)

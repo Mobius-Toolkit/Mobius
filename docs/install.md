@@ -144,6 +144,35 @@ A model of a route with no access passes the start of the session, and it fails 
 
 dsh sends no tokens and no cost through ACP. Mobius reads the tokens of each dsh turn from the dsh session log. The log is in `<DSH_HOME>/sessions`, with the default home `~/.dsh`. Mobius records no cost for dsh. The reader counts only the log of the ACP session itself. A log that Mobius cannot read, or a turn with no new model call, gives a usage row with no tokens.
 
+### Codex
+
+Mobius starts Codex through the ACP adapter `codex-acp` of the npm package `@agentclientprotocol/codex-acp`. The adapter brings its own Codex. The tested versions are 2.6.0 of the adapter and 0.166.0 of Codex.
+
+Mobius starts each Codex session in the mode `agent-full-access`. Thus a Codex session has no sandbox, and it has the same file access as a Claude Code session. Git writes in the folders of the bare clone, and `go test` writes in the Go build cache, outside the worktree. A sandboxed Codex session cannot write there.
+
+1. Install the adapter:
+
+   ```sh
+   npm install -g @agentclientprotocol/codex-acp@2.6.0
+   ```
+
+2. Give Codex access. Do one of these steps:
+
+   - Use a ChatGPT sign-in. Run `npx @openai/codex login`. Codex prints a URL and opens it in the browser. On a headless server, run `npx @openai/codex login --device-auth`. Codex prints a URL and a code. Open the URL on another device, and enter the code.
+   - Use an API key. Run `printenv OPENAI_API_KEY | npx @openai/codex login --with-api-key`.
+
+   Codex keeps the sign-in and the key in `~/.codex`. Mobius gives Codex no key. Mobius starts the adapter with `NO_BROWSER=1`, so a session with no access fails and does not open a browser.
+
+3. Bind a Role to Codex:
+
+   ```toml
+   researcher = { harness = "codex", model = "gpt-5.6-terra", effort = "high" }
+   ```
+
+   `mobius init` offers the models and the effort levels that Codex gives.
+
+Mobius records the input, output, cache read and cache write tokens and the reported model of each Codex turn. Codex gives no cost, so Mobius records no cost for Codex.
+
 ### Antigravity
 
 1. Download the `agy_acp_server` zip for your host from the [`antigravity-acp` entry of the ACP registry](https://github.com/agentclientprotocol/registry/tree/main/registry/antigravity-acp).
@@ -186,6 +215,7 @@ Each agent loads your own skills from the user skill directory of its Harness:
 | Antigravity | `~/.gemini/config/skills/` |
 | Devin | `~/.agents/skills/` or `~/.config/devin/skills/` |
 | dsh | `~/.agents/skills/` or `~/.dsh/skills/` |
+| Codex | `~/.agents/skills/` |
 
 Mobius also gives each agent the skills of your organization. Put them in the repository `<organization>/mobius-skills`. The name is fixed. Install the Mobius App on this repository. Mobius treats it as each other repository, so a change of a skill uses a task issue, a pull request and your approval.
 
@@ -197,6 +227,7 @@ A skill is a top-level folder of the default branch with a `SKILL.md` file and o
 | Antigravity | `.agents/skills/` |
 | Devin | `.agents/skills/` |
 | dsh | `.agents/skills/` |
+| Codex | `.agents/skills/` |
 
 A change of a skill reaches the agents only after it merges into the default branch. A skill on another branch never reaches a session. Mobius does not change your own skill directories.
 
