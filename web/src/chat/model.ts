@@ -4,6 +4,7 @@ import * as Composer from "@/composer";
 import { Model as TextSelection } from "@/ui/selection";
 import { chatDraftKey } from "@/lib/draft";
 import { StoreFailed } from "@/lib/effects";
+import * as WorkstreamSetup from "@/workstreamSetup/model";
 import type { Flags } from "./flags";
 import {
   ChatMessage,
@@ -45,6 +46,9 @@ export function itemReference(item: InboxItem) {
     link: ofPullRequest ? item.pullRequestUrl : item.link,
   };
 }
+
+export const isMissingWorkstream = (item: InboxItem) =>
+  item.kind === InboxItemKind.missing_maintenance || item.kind === InboxItemKind.missing_skills;
 
 // The panel of these items has an optional note, and the Send button needs no text.
 export const hasNote = (item: InboxItem) =>
@@ -123,6 +127,7 @@ const ChatModelSchema = Schema.Struct({
   trayRefusals: Schema.Record(Schema.Number, Schema.String),
   composer: Composer.Model,
   selection: TextSelection,
+  workstreamSetup: WorkstreamSetup.Model,
   voice: VoiceState,
   now: Schema.Number,
   stopReady: Schema.Boolean,
@@ -196,6 +201,7 @@ export function initialModel(flags: Flags): Model {
       workstream: flags.workstream,
     }),
     selection: null,
+    workstreamSetup: WorkstreamSetup.initialModel(flags.organization),
     voice: { recording: false, key: "", startedAt: 0, live: "", notice: { key: "", text: "" } },
     now: 0,
     stopReady: false,

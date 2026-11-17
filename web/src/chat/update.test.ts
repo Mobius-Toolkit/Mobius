@@ -1690,3 +1690,62 @@ describe("chat update story tests", () => {
     });
   });
 });
+
+describe("the rows of a missing Workstream", () => {
+  const missingSkills = createInboxItem({
+    id: 21,
+    kind: "missing skills",
+    repository: "",
+    workstreamRepository: "",
+    workstream: 0,
+    title: "Skills Workstream is missing",
+  });
+  const missingMaintenance = createInboxItem({
+    ...missingSkills,
+    id: 22,
+    kind: "missing maintenance",
+    title: "Maintenance Workstream is missing",
+  });
+
+  it("dismisses the item with the pending state until the server sends the new list", () => {
+    story(
+      update,
+      given(createTestModel({ trayItems: [missingSkills] })),
+      message(Message.TrayActionClicked({ item: missingSkills, kind: "dismiss" })),
+      model((m) => {
+        expect(m.trayRunning).toEqual({ 21: "dismiss" });
+      }),
+      StoryCommand.expectExact(RunTrayAction({ item: missingSkills, kind: "dismiss" })),
+      StoryCommand.resolve(
+        RunTrayAction,
+        Message.TrayActionDone({ id: 21, kind: "dismiss", error: "", merging: false }),
+      ),
+      model((m) => {
+        expect(m.trayRunning).toEqual({ 21: "dismiss" });
+      }),
+      message(Message.ReceivedTrayItems({ items: [] })),
+      model((m) => {
+        expect(m.trayItems).toEqual([]);
+      }),
+    );
+  });
+
+  it("reads the checkup when the first missing Workstream item comes", () => {
+    const first = update(createTestModel(), Message.ReceivedTrayItems({ items: [missingSkills] }));
+    expect(described(first.commands)).toEqual([
+      { name: "FetchCheckup", args: { organization: "test-org" } },
+    ]);
+
+    const second = update(
+      first.model,
+      Message.ReceivedTrayItems({ items: [missingSkills, missingMaintenance] }),
+    );
+    expect(described(second.commands)).toEqual([]);
+
+    const other = update(
+      createTestModel(),
+      Message.ReceivedTrayItems({ items: [createInboxItem({ id: 5 })] }),
+    );
+    expect(described(other.commands)).toEqual([]);
+  });
+});

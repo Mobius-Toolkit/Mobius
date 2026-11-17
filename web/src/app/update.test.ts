@@ -7,6 +7,7 @@ import { Message as AgentsMessage } from "@/agents/message";
 import { Message as SwitchesMessage } from "@/settings/switches/message";
 import { Message as ChatMessage } from "@/chat/message";
 import { Message as PanelMessage } from "@/panel/message";
+import { Message as WorkstreamSetupMessage } from "@/workstreamSetup/message";
 import { Message as TasksMessage } from "@/panel/tasks/message";
 import { Message as SelectionMessage } from "@/ui/selection";
 import {
@@ -491,6 +492,117 @@ describe("organization switch update logic", () => {
     expect(Option.map(answered.workstreamsProgram, (list) => list.needsHuman)).toEqual(
       Option.some([]),
     );
+  });
+
+  describe("the rows of a missing Workstream", () => {
+    const missing = {
+      id: 31,
+      kind: "missing skills",
+      action: null,
+      answer: "",
+      blockingTodos: [],
+      dismissedAt: null,
+      issue: 0,
+      link: "",
+      mergeRefusal: "",
+      merging: false,
+      organization: "owner",
+      pullRequest: 0,
+      pullRequestUrl: "",
+      questions: [],
+      reason: "",
+      reportUrl: "",
+      repository: "",
+      text: "The organization has no Skills Workstream.",
+      time: "2026-11-17T08:00:00Z",
+      title: "Skills Workstream is missing",
+      todo: null,
+      withdrawn: false,
+      workstream: 0,
+      workstreamRepository: "",
+      mergeQueuePlace: null,
+      mergeQueueSize: 0,
+    } as const;
+    const other = { ...missing, id: 32, organization: "other-org" };
+
+    it("reads the checkup when the Coordinator chat opens with a missing Workstream item", () => {
+      const opened = update(
+        createModel("/workstreams", { inbox: [missing, other] }),
+        Message.UrlChanged({ url: urlOf("/chat") }),
+      );
+      expect(opened.model.chat.pipe(Option.map((chat) => chat.trayItems))).toEqual(
+        Option.some([missing]),
+      );
+      expect(
+        (opened.commands ?? [])
+          .filter(({ name }) => name === "FetchCheckup")
+          .map(({ args }) => args),
+      ).toEqual([{ organization: "owner" }]);
+
+      const without = update(
+        createModel("/workstreams", { inbox: [other] }),
+        Message.UrlChanged({ url: urlOf("/chat") }),
+      );
+      expect((without.commands ?? []).some(({ name }) => name === "FetchCheckup")).toBe(false);
+    });
+
+    it("reads the checkup when the Inbox opens with a missing Workstream item", () => {
+      const opened = update(
+        createModel("/workstreams", { inbox: [missing] }),
+        Message.UrlChanged({ url: urlOf("/inbox") }),
+      );
+      expect(
+        (opened.commands ?? [])
+          .filter(({ name }) => name === "FetchCheckup")
+          .map(({ args }) => args),
+      ).toEqual([{ organization: "owner" }]);
+    });
+
+    it("gives the setup of the open Inbox the organization that the page loads after it starts", () => {
+      const opened = update(
+        createModel("/inbox", {
+          organization: "",
+          organizations: [],
+          apps: Option.none(),
+          inbox: [missing],
+        }),
+        Message.UrlChanged({ url: urlOf("/inbox") }),
+      ).model;
+      expect(
+        Option.map(opened.inboxProgram, (inbox) => inbox.workstreamSetup.organization),
+      ).toEqual(Option.some(""));
+
+      const loaded = update(
+        opened,
+        Message.AppsAndOrganizationsLoaded({ apps: [], organizations: ["owner"] }),
+      );
+      expect(
+        Option.map(loaded.model.inboxProgram, (inbox) => inbox.workstreamSetup.organization),
+      ).toEqual(Option.some("owner"));
+      expect(
+        (loaded.commands ?? [])
+          .filter(({ name }) => name === "FetchCheckup")
+          .map(({ args }) => args),
+      ).toEqual([{ organization: "owner" }]);
+    });
+
+    it("opens the Coordinator chat when the Owner clicks Create in the Inbox", () => {
+      const inbox = update(
+        createModel("/workstreams", { inbox: [missing] }),
+        Message.UrlChanged({ url: urlOf("/inbox") }),
+      ).model;
+      const requested = update(
+        inbox,
+        Message.GotInboxMessage({
+          message: ChatMessage.GotWorkstreamSetupMessage({
+            message: WorkstreamSetupMessage.WorkstreamRequested({ organization: "owner" }),
+          }),
+        }),
+      );
+      expect((requested.commands ?? []).map(({ name, args }) => ({ name, args }))).toEqual([
+        { name: "Navigate", args: { path: "/chat" } },
+      ]);
+    });
   });
 
   it("drops the Submodel of a screen that the Owner leaves", () => {

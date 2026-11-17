@@ -6,8 +6,8 @@ import { toString as urlToString, type Url } from "foldkit/url";
 import { FetchAgents } from "@/agents/commands";
 import { update as updateAgents } from "@/agents/update";
 import { FetchPage, ListQueued } from "@/chat/commands";
-import { OutMessage as ChatOutMessage } from "@/chat/message";
-import { initialModel as initialChatModel } from "@/chat/model";
+import { OutMessage as ChatOutMessage, toGotWorkstreamSetupMessage } from "@/chat/message";
+import { initialModel as initialChatModel, isMissingWorkstream } from "@/chat/model";
 import { update as updateChat } from "@/chat/update";
 import { FetchCheckup, FetchTools } from "@/checkup/commands";
 import { Message as CheckupMessage } from "@/checkup/message";
@@ -46,6 +46,8 @@ import { initialModel as initialUsageModel } from "@/usage/model";
 import { load as usageLoad, update as updateUsage } from "@/usage/update";
 import { initialModel as initialWorkstreamsModel } from "@/workstreams/model";
 import { update as updateWorkstreams } from "@/workstreams/update";
+import { FetchCheckup as FetchSetupCheckup } from "@/workstreamSetup/commands";
+import { initialModel as initialWorkstreamSetupModel } from "@/workstreamSetup/model";
 import { init as initWorkstreamSetup } from "@/workstreamSetup/update";
 import { filterNeedsHuman } from "@/lib/inbox";
 import { sameChat } from "@/lib/unread";
@@ -350,6 +352,13 @@ function initScreenForRoute(
         Command.mapMessage(ListQueued({ organization, repository: "", workstream: 0 }), (message) =>
           Message.GotChatMessage({ message }),
         ),
+        ...(trayItems.some(isMissingWorkstream)
+          ? [
+              Command.mapMessage(FetchSetupCheckup({ organization }), (message) =>
+                Message.GotChatMessage({ message: toGotWorkstreamSetupMessage(message) }),
+              ),
+            ]
+          : []),
       );
       break;
     }
@@ -424,6 +433,13 @@ function initScreenForRoute(
         ...model,
         inboxProgram: Option.some({ ...inboxModel, trayItems }),
       };
+      if (trayItems.some(isMissingWorkstream)) {
+        commands.push(
+          Command.mapMessage(FetchSetupCheckup({ organization: model.organization }), (message) =>
+            Message.GotInboxMessage({ message: toGotWorkstreamSetupMessage(message) }),
+          ),
+        );
+      }
       break;
     }
 
@@ -802,16 +818,24 @@ function enterOrganization(
     return initScreenForRoute(next, route);
   }
   if (Option.isSome(model.inboxProgram) && model.inboxProgram.value.organization !== organization) {
+    const trayItems = model.inbox.filter((item) => item.organization === organization);
     return {
       model: {
         ...next,
         inboxProgram: Option.some({
           ...model.inboxProgram.value,
           organization,
-          trayItems: model.inbox.filter((item) => item.organization === organization),
+          trayItems,
+          workstreamSetup: initialWorkstreamSetupModel(organization),
         }),
       },
-      commands: [],
+      commands: trayItems.some(isMissingWorkstream)
+        ? [
+            Command.mapMessage(FetchSetupCheckup({ organization }), (message) =>
+              Message.GotInboxMessage({ message: toGotWorkstreamSetupMessage(message) }),
+            ),
+          ]
+        : [],
     };
   }
   return { model: next, commands: [] };
@@ -1757,8 +1781,16 @@ export function update(model: Model, message: Message): UpdateReturn {
       return foldPanel(model, panelMessage);
     }
 
-    case "GotInboxMessage":
-      return foldInbox(model, message.message);
+    case "GotInboxMessage": {
+      const result = foldInbox(model, message.message);
+      if (
+        message.message._tag === "GotWorkstreamSetupMessage" &&
+        message.message.message._tag === "WorkstreamRequested"
+      ) {
+        return { ...result, commands: [...(result.commands ?? []), Navigate({ path: "/chat" })] };
+      }
+      return result;
+    }
 
     case "GotWorkstreamsMessage":
       return foldWorkstreams(model, message.message);

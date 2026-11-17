@@ -1,4 +1,5 @@
 import { Option, Schema } from "effect";
+import { Command } from "foldkit";
 import * as Update from "foldkit/update";
 import type { Return as UpdateReturn } from "foldkit/update";
 import * as Composer from "@/composer";
@@ -36,9 +37,25 @@ import { answerDraftKey } from "@/lib/draft";
 import { issueRef } from "@/lib/notice";
 import { answerInputId } from "./composer";
 import * as Selection from "@/ui/selection";
-import { Message, OutMessage, toGotComposerMessage, toGotSelectionMessage } from "./message";
+import { FetchCheckup } from "@/workstreamSetup/commands";
+import { update as updateWorkstreamSetup } from "@/workstreamSetup/update";
+import {
+  Message,
+  OutMessage,
+  toGotComposerMessage,
+  toGotSelectionMessage,
+  toGotWorkstreamSetupMessage,
+} from "./message";
 type Running = "action" | "dismiss" | "merge";
-import { countsAsUnread, hasNote, retryDelays, upsert, type Model, type Waiting } from "./model";
+import {
+  countsAsUnread,
+  hasNote,
+  isMissingWorkstream,
+  retryDelays,
+  upsert,
+  type Model,
+  type Waiting,
+} from "./model";
 import { InboxItem, type Queued } from "./schemas";
 
 export function enqueue(model: Model, item: Queued): UpdateReturn<Model, Message> {
@@ -124,6 +141,17 @@ const foldSelection = Update.foldChild({
           addSelection(model, owner, text, context),
     }),
 });
+
+const foldWorkstreamSetup = Update.foldChild({
+  update: updateWorkstreamSetup,
+  read: (model: Model) => Option.some(model.workstreamSetup),
+  write: (model, workstreamSetup) => ({ ...model, workstreamSetup }),
+  toParentMessage: toGotWorkstreamSetupMessage,
+});
+
+// A row of a missing Workstream needs the checkup of its organization.
+const fetchesCheckup = (before: readonly InboxItem[], items: readonly InboxItem[]) =>
+  !before.some(isMissingWorkstream) && items.some(isMissingWorkstream);
 
 const foldSendError = Update.foldChild({
   update: (composer: Composer.Model, error: string) => Composer.setSendError(composer, error),
@@ -411,6 +439,14 @@ function step(model: Model, message: Message): StepReturn {
           activePanel: gone ? null : model.activePanel,
           closedPanel: gone ? panel : model.closedPanel,
         },
+        commands: fetchesCheckup(before, items)
+          ? [
+              Command.mapMessage(
+                FetchCheckup({ organization: model.organization }),
+                toGotWorkstreamSetupMessage,
+              ),
+            ]
+          : [],
       };
     },
 
@@ -760,6 +796,8 @@ function step(model: Model, message: Message): StepReturn {
     CompletedSaveDraft: () => ({ model }),
 
     GotSelectionMessage: ({ message: selectionMsg }) => foldSelection(model, selectionMsg),
+
+    GotWorkstreamSetupMessage: ({ message: setupMsg }) => foldWorkstreamSetup(model, setupMsg),
 
     CompletedAddSelection: () => ({ model }),
 

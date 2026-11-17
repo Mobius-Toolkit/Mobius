@@ -85,7 +85,7 @@ export function update(model: Model, message: Message): UpdateReturn<Model, Mess
         commands: [CreateWorkstream({ organization: model.organization, request })],
       };
     },
-    WorkstreamRequested: () => ({ model }),
+    WorkstreamRequested: () => ({ model: { ...model, creating: Option.none() } }),
     CreateFailed: ({ error }) => ({
       model: { ...model, createError: error, creating: Option.none() },
     }),
