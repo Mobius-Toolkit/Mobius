@@ -277,7 +277,7 @@ func TestAHarnessWhoseProgramIsNotOnThePathHasNoChoice(t *testing.T) {
 		harnesses = append(harnesses, choice.Harness)
 	}
 
-	if want := []config.Harness{config.ClaudeCode, config.Devin, config.DSH}; !reflect.DeepEqual(harnesses, want) {
+	if want := []config.Harness{config.ClaudeCode, config.Devin, config.DSH, config.Codex}; !reflect.DeepEqual(harnesses, want) {
 		t.Errorf("harnesses = %v, want %v", harnesses, want)
 	}
 }
