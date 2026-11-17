@@ -7,7 +7,7 @@ import type { Model as AgentsModel } from "@/agents/model";
 import { view as chatView } from "@/chat/view";
 import { view as inboxView } from "@/inbox/view";
 import { Message as ChatMessage } from "@/chat/message";
-import type { Model as ChatModel } from "@/chat/model";
+import type { Model as ChatModel, TaskRef } from "@/chat/model";
 import { briefView, sheetView as panelSheetView, view as panelView } from "@/panel/view";
 import { Message as PanelMessage } from "@/panel/message";
 import type { Model as PanelModel } from "@/panel/model";
@@ -59,11 +59,23 @@ import { Message } from "./message";
 import type { Model } from "./model";
 import { AppRoute } from "./route";
 
+const openTasks = (panel: Option.Option<PanelModel>): TaskRef[] =>
+  Option.match(
+    Option.flatMap(panel, (value) => value.tasks.lines),
+    {
+      onNone: () => [],
+      onSome: (lines) =>
+        lines
+          .filter((line) => line.state !== "closed")
+          .map(({ repository, number }) => ({ repository, number })),
+    },
+  );
+
 const inPlaceMount = defineInPlaceMount(Message.CompletedFocusSheet);
 
 // Branded submodel views
-const chatSubmodelView = defineView<ChatModel, ChatMessage>(
-  (m: ChatModel, h: HtmlBuilder<ChatMessage>) => chatView(m, h),
+const chatSubmodelView = defineView<ChatModel, ChatMessage, { tasks: readonly TaskRef[] }>(
+  (m: ChatModel, { tasks }, h: HtmlBuilder<ChatMessage>) => chatView(m, h, tasks),
 );
 const panelSubmodelView = defineView<PanelModel, PanelMessage>(
   (m: PanelModel, h: HtmlBuilder<PanelMessage>) => panelView(m, h),
@@ -158,6 +170,7 @@ function renderPage(h: HtmlBuilder<Message>, model: Model): Html {
               slotId: `chat-${currentOrg}`,
               model: model.chat.value,
               view: chatSubmodelView,
+              viewInputs: { tasks: [] },
               toParentMessage: (m) => Message.GotChatMessage({ message: m }),
             }),
           ],
@@ -277,6 +290,7 @@ function renderPage(h: HtmlBuilder<Message>, model: Model): Html {
                     slotId: `chat-${wsRoute.owner}-${wsRoute.name}-${wsRoute.number}`,
                     model: model.chat.value,
                     view: chatSubmodelView,
+                    viewInputs: { tasks: openTasks(model.panel) },
                     toParentMessage: (m) => Message.GotChatMessage({ message: m }),
                   }),
                 ],

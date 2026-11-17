@@ -8,3 +8,11 @@ export const fallbackLoaded = (fallback: NextSetting) => Message.FallbackLoaded(
 export const failed = Message.LoadFailed({ error: "no fallback" });
 export const attached = Message.AttachedTask();
 export const loginRequired = Message.LoginRequired();
+export const opened = (line: TaskLine) => Message.OpenedTask({ line, scroll: 0 });
+export const scrollRestored = Message.CompletedRestoreScroll();
+export const detailFailed = (line: TaskLine) =>
+  Message.TaskDetailFailed({
+    repository: line.repository,
+    number: line.number,
+    error: "no detail",
+  });

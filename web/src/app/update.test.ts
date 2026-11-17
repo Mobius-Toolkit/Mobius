@@ -5,6 +5,7 @@ import { fromString } from "foldkit/url";
 import { FetchAgents } from "@/agents/commands";
 import { Message as AgentsMessage } from "@/agents/message";
 import { Message as SwitchesMessage } from "@/settings/switches/message";
+import { Message as ChatMessage } from "@/chat/message";
 import { Message as PanelMessage } from "@/panel/message";
 import { Message as TasksMessage } from "@/panel/tasks/message";
 import { Message as SelectionMessage } from "@/ui/selection";
@@ -631,6 +632,34 @@ const settingOfTask =
 
 const enter = (path: string, wide: boolean) =>
   update({ ...createModel("/chat"), wide }, Message.UrlChanged({ url: urlOf(path) })).model;
+
+describe("a task card of the Lead chat", () => {
+  const tapTask = Message.GotChatMessage({
+    message: ChatMessage.ClickedTaskCard({ repository: "owner/repo", number: 9 }),
+  });
+  const path = "/workstreams/owner/repo/7?tab=agents";
+
+  it("opens the Tasks sheet of a phone, closes the Brief sheet, and gives the task to the panel", () => {
+    const next = update({ ...enter(path, false), mobileBriefOpen: true }, tapTask).model;
+
+    expect(next.mobileTasksOpen).toBe(true);
+    expect(next.mobileBriefOpen).toBe(false);
+    expect(Option.map(next.panel, (panel) => panel.tab)).toEqual(Option.some("tasks"));
+    expect(Option.map(next.panel, (panel) => panel.tasks.pendingOpen)).toEqual(
+      Option.some(Option.some({ repository: "owner/repo", number: 9 })),
+    );
+  });
+
+  it("does not open the Tasks sheet on a desktop, and gives the task to the panel", () => {
+    const next = update(enter(path, true), tapTask).model;
+
+    expect(next.mobileTasksOpen).toBe(false);
+    expect(Option.map(next.panel, (panel) => panel.tab)).toEqual(Option.some("tasks"));
+    expect(Option.map(next.panel, (panel) => panel.tasks.pendingOpen)).toEqual(
+      Option.some(Option.some({ repository: "owner/repo", number: 9 })),
+    );
+  });
+});
 
 describe("the panel that the address of a Workstream asks for", () => {
   it("opens the tab and asks for the setting sheet of the task", () => {

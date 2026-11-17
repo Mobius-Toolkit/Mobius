@@ -32,6 +32,7 @@ import {
   taskItem,
   withRow,
   type Model,
+  type TargetTask,
   type TaskLine,
 } from "./model";
 
@@ -52,6 +53,15 @@ export function openSetting(model: Model, line: TaskLine): Update.Return<Model, 
   return { model: next, commands };
 }
 
+// The view opens as soon as the list loads.
+export function open(model: Model, target: TargetTask): Update.Return<Model, Message> {
+  if (Option.isNone(model.lines)) {
+    return { model: { ...model, pendingOpen: Option.some(target) } };
+  }
+  const { model: next, commands } = openTarget(model, target);
+  return { model: next, commands };
+}
+
 const isOpened = (model: Model, repository: string, number: number) =>
   Option.isSome(model.opened) &&
   model.opened.value.repository === repository &&
@@ -68,6 +78,21 @@ const leave = (model: Model): UpdateReturn => ({
   },
   commands: [RestoreScroll({ instance: model.instance, scroll: model.scroll })],
 });
+
+// A task that the list does not have shows the list.
+function openTarget(model: Model, target: TargetTask): UpdateReturn {
+  const line = Option.flatMap(model.lines, (lines) =>
+    Option.fromNullishOr(
+      lines.find(
+        (other) => other.repository === target.repository && other.number === target.number,
+      ),
+    ),
+  );
+  if (Option.isSome(line)) {
+    return { model, commands: [OpenTask({ instance: model.instance, line: line.value })] };
+  }
+  return Option.isSome(model.opened) ? leave(model) : { model };
+}
 
 const foldSetting = Update.foldChild({
   update: updateSetting,
@@ -171,6 +196,9 @@ export function update(model: Model, message: Message): UpdateReturn {
   return Message.match<UpdateReturn>(message, {
     TasksLoaded: ({ lines }) => {
       const loaded = { ...model, lines: Option.some(lines) };
+      if (Option.isSome(model.pendingOpen)) {
+        return openTarget({ ...loaded, pendingOpen: Option.none() }, model.pendingOpen.value);
+      }
       const stillInList = Option.match(model.opened, {
         onNone: () => true,
         onSome: (target) =>
@@ -181,7 +209,7 @@ export function update(model: Model, message: Message): UpdateReturn {
       return stillInList ? { model: loaded } : leave(loaded);
     },
     FallbackLoaded: ({ fallback }) => ({ model: { ...model, fallback: Option.some(fallback) } }),
-    LoadFailed: ({ error }) => ({ model: { ...model, error } }),
+    LoadFailed: ({ error }) => ({ model: { ...model, error, pendingOpen: Option.none() } }),
     LoginRequired: () => ({ model, outMessage: OutMessage.LoginRequired() }),
     ToggledClosed: () => ({ model: { ...model, showClosed: !model.showClosed } }),
     ClickedStart: ({ key, line }) => change(model, key, line, startAction(line)),
@@ -205,7 +233,7 @@ export function update(model: Model, message: Message): UpdateReturn {
       model: {
         ...model,
         opened: Option.some({ repository: line.repository, number: line.number }),
-        scroll,
+        scroll: Option.isSome(model.opened) ? model.scroll : scroll,
         detail: Option.none(),
         detailLoading: true,
         detailError: "",

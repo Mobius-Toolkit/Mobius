@@ -37,7 +37,7 @@ import { answerDraftKey } from "@/lib/draft";
 import { issueRef } from "@/lib/notice";
 import { answerInputId } from "./composer";
 import * as Selection from "@/ui/selection";
-import { Message, toGotComposerMessage, toGotSelectionMessage } from "./message";
+import { Message, OutMessage, toGotComposerMessage, toGotSelectionMessage } from "./message";
 type Running = "action" | "dismiss" | "merge";
 import { countsAsUnread, hasNote, retryDelays, upsert, type Model, type Waiting } from "./model";
 import { InboxItem, type Queued } from "./schemas";
@@ -309,7 +309,9 @@ function seesChat(model: Model) {
   );
 }
 
-export function update(model: Model, message: Message): UpdateReturn<Model, Message> {
+type StepReturn = Update.ReturnWithOutMessage<Model, Message, OutMessage>;
+
+export function update(model: Model, message: Message): StepReturn {
   const result = step(model, message);
   const next = result.model;
   const seen = lastAgentMessage(next);
@@ -317,6 +319,7 @@ export function update(model: Model, message: Message): UpdateReturn<Model, Mess
     return result;
   }
   return {
+    ...result,
     model: { ...next, seenMessage: seen },
     commands: [
       ...(result.commands ?? []),
@@ -330,8 +333,8 @@ export function update(model: Model, message: Message): UpdateReturn<Model, Mess
   };
 }
 
-function step(model: Model, message: Message): UpdateReturn<Model, Message> {
-  return Message.match<UpdateReturn<Model, Message>>(message, {
+function step(model: Model, message: Message): StepReturn {
+  return Message.match<StepReturn>(message, {
     ReceivedUnread: ({ unread }) => {
       const nextOpen = model.openUnread === null ? unread : model.openUnread;
       const messages = model.messages;
@@ -1134,6 +1137,10 @@ function step(model: Model, message: Message): UpdateReturn<Model, Message> {
     CompletedScrollLive: () => ({ model }),
     CompletedShowBlockingTodo: () => ({ model }),
     CompletedOpenChat: () => ({ model }),
+    ClickedTaskCard: ({ repository, number }) => ({
+      model,
+      outMessage: OutMessage.TaskOpened({ repository, number }),
+    }),
     CompletedSeeChat: () => ({ model }),
     CompletedRequestLogin: () => ({ model }),
   });
