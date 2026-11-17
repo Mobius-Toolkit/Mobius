@@ -390,7 +390,7 @@ func TestTheDSHRowReadsTheNewestVersionOfItsPackage(t *testing.T) {
 
 func TestTheCodexRowReadsTheNewestVersionOfItsPackage(t *testing.T) {
 	bin := t.TempDir()
-	testkit.InstallFakeProgram(t, bin, "codex-acp", "2.5.0\n")
+	testkit.InstallFakeProgram(t, bin, "codex-acp", "@agentclientprotocol/codex-acp 2.5.0\n")
 	registry := fakeRegistry(t)
 	t.Setenv(claudeCodeEnv, "")
 	cfg := limits(t)
@@ -399,7 +399,7 @@ func TestTheCodexRowReadsTheNewestVersionOfItsPackage(t *testing.T) {
 
 	got := find(New(nil, nil, cfg, Agents{Path: bin}).Tools(context.Background()), "codex-acp")
 
-	if got.Version != "2.5.0" || got.Newest != "2.6.0" || !got.Outdated || got.Harness != "codex" {
+	if got.Version != "@agentclientprotocol/codex-acp 2.5.0" || got.Newest != "2.6.0" || !got.Outdated || got.Harness != "codex" {
 		t.Errorf("codex-acp = %+v", got)
 	}
 }
