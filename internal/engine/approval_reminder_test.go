@@ -9,6 +9,8 @@ import (
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
 
+const leadAnswers = "[[prompts]]\nwhen = \"Any news?\"\nreply = [\"No news.\"]\n\n"
+
 const approvalReminderText = " #41 \"Add plan model\" waits for Lead approval for "
 
 // approvalReminders gives the approval reminder events of #41. A reminder starts no Lead turn, so the test reads the
@@ -24,10 +26,10 @@ func approvalReminders(t *testing.T, server *testserver.Server) []leadEvent {
 	return events
 }
 
-func TestATaskThatWaitsInApprovalForMoreThanTwoHoursGivesTheLeadOneReminderAndThenOneForEachTwoHours(t *testing.T) {
+func TestATaskThatWaitsInApprovalForMoreThanTwoHoursGivesTheLeadOneReminderUntilTheLeadTakesIt(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectTask(t, fake, leadStarts, commits, noChange)
+	server, _ := connectTask(t, fake, leadAnswers+leadStarts, commits, noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 	waitForReadyEvents(t, fake, server, 1)
 	start := time.Now()
@@ -62,16 +64,23 @@ func TestATaskThatWaitsInApprovalForMoreThanTwoHoursGivesTheLeadOneReminderAndTh
 		t.Errorf("state = %s", state)
 	}
 
-	server.Engine.SetClock(func() time.Time { return start.Add(4 * time.Hour) })
+	server.Engine.SetClock(func() time.Time { return start.Add(7 * time.Hour) })
 	waitForPolls(t, fake)
 
 	if reminders := approvalReminders(t, server); len(reminders) != 1 {
 		t.Errorf("reminders = %+v", reminders)
 	}
 
-	server.Engine.SetClock(func() time.Time { return start.Add(4*time.Hour + 2*time.Minute) })
+	sendChat(t, server, leadChat, "Any news?")
+	waitForChat(t, server, leadChat, "Lead", "No news.")
 
-	testkit.WaitFor(t, func() bool { return len(approvalReminders(t, server)) == 2 })
+	reminders = testkit.WaitForValue(t, func() ([]leadEvent, bool) {
+		reminders := approvalReminders(t, server)
+		return reminders, len(reminders) == 2
+	})
+	if !reminders[0].Delivered {
+		t.Errorf("reminders = %+v", reminders)
+	}
 }
 
 func TestATaskThatLeavesApprovalGetsNoReminder(t *testing.T) {
