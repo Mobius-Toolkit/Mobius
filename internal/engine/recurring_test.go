@@ -337,7 +337,7 @@ func TestARecurringTaskOfAWorkstreamThatLeftTheLocalCopyGivesNoEvent(t *testing.
 	addRecurringTask(t, server, hourly, planCheck)
 	copied := func() int {
 		var count int
-		if err := server.DB.QueryRow("SELECT count(*) FROM copied_workstreams WHERE repository = ?", shop).Scan(&count); err != nil {
+		if err := server.DB.QueryRow("SELECT count(*) FROM workstreams WHERE repository = ? AND state = 'open'", shop).Scan(&count); err != nil {
 			t.Fatal(err)
 		}
 		return count
@@ -371,7 +371,7 @@ func TestAddRecurringTaskRefusesAnEmptyTextAndAWorkstreamThatIsNotOpen(t *testin
 	}
 	copied := func() int {
 		var count int
-		if err := server.DB.QueryRow("SELECT count(*) FROM copied_workstreams WHERE repository = ? AND number = 12", shop).Scan(&count); err != nil {
+		if err := server.DB.QueryRow("SELECT count(*) FROM workstreams WHERE repository = ? AND number = 12 AND state = 'open'", shop).Scan(&count); err != nil {
 			t.Fatal(err)
 		}
 		return count

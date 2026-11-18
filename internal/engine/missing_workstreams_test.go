@@ -25,7 +25,7 @@ func waitForOpenWorkstreams(t *testing.T, server *testserver.Server, count int) 
 	t.Helper()
 	testkit.WaitFor(t, func() bool {
 		var found int
-		if err := server.DB.QueryRow("SELECT count(*) FROM copied_workstreams").Scan(&found); err != nil {
+		if err := server.DB.QueryRow("SELECT count(*) FROM workstreams WHERE state = 'open'").Scan(&found); err != nil {
 			t.Fatal(err)
 		}
 		return found == count

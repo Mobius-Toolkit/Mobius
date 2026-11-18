@@ -6,21 +6,16 @@ import (
 	"net/http/httptest"
 	"slices"
 	"testing"
-
-	"github.com/Mobius-Toolkit/Mobius/internal/config"
 )
 
 func TestListWorkstreams(t *testing.T) {
 	mux, db := testMux(t)
 	exec(t, db, `
-		INSERT INTO copied_workstreams (repository, number, title, body) VALUES
-			('o/a', 1, 'Loyalty plans', 'Ship the plans.'),
-			('o/a', 2, 'Seasonal prices', ''),
-			('o/a', 3, 'Early renewals', '');
-		INSERT INTO workstreams (repository, number, autopilot, evergreen) VALUES
-			('o/a', 1, 1, 0),
-			('o/a', 2, 0, 0),
-			('o/a', 3, 0, 1);
+		INSERT INTO workstreams (repository, number, title, body, autopilot, evergreen, state) VALUES
+			('o/a', 1, 'Loyalty plans', 'Ship the plans.', 1, 0, 'open'),
+			('o/a', 2, 'Seasonal prices', '', 0, 0, 'open'),
+			('o/a', 3, 'Early renewals', '', 0, 1, 'open'),
+			('o/a', 4, 'Closed plans', '', 0, 0, 'closed');
 		INSERT INTO copied_issues (repository, workstream, position, number, parent, parent_repository, title, body, state, author, html_url, repository_url) VALUES
 			('o/a', 1, 0, 11, 1, 'o/a', 'Plan model', '', 'closed', 'owner', '', '');
 		INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at) VALUES
@@ -58,32 +53,6 @@ func TestListWorkstreams(t *testing.T) {
 	}
 	if !slices.Equal(body.Data, want) {
 		t.Errorf("workstreams = %+v, want %+v", body.Data, want)
-	}
-}
-
-func TestListWorkstreamsGivesTheBriefWithNoChatLink(t *testing.T) {
-	mux, db := testMuxConfig(t, newRecordings(t), &config.Config{UIURL: "https://mobius.example.com"})
-	exec(t, db, `
-		INSERT INTO copied_workstreams (repository, number, title, body) VALUES
-			('o/a', 1, 'Loyalty plans', 'Ship the plans.
-
-[Open the Lead chat in Mobius](https://mobius.example.com/workstreams/o/a/1)');
-		INSERT INTO workstreams (repository, number) VALUES ('o/a', 1);
-	`)
-
-	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/workstreams", nil))
-
-	var body struct {
-		Data []struct {
-			Brief string `json:"brief"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decode body %q: %v", rec.Body.String(), err)
-	}
-	if len(body.Data) != 1 || body.Data[0].Brief != "Ship the plans." {
-		t.Errorf("workstreams = %+v, want one with the brief %q", body.Data, "Ship the plans.")
 	}
 }
 

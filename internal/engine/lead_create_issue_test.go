@@ -36,7 +36,7 @@ func TestCreateIssueGivesTheNumberWhileTheCopyOfTheTreeIsHeld(t *testing.T) {
 	}
 	testkit.WaitFor(t, func() bool {
 		var count int
-		_ = server.DB.QueryRow("SELECT count(*) FROM copied_workstreams WHERE repository = ? AND number = 12", shop).Scan(&count)
+		_ = server.DB.QueryRow("SELECT count(*) FROM workstreams WHERE repository = ? AND number = 12 AND state = 'open'", shop).Scan(&count)
 		return count == 1
 	})
 	hold := make(chan struct{})

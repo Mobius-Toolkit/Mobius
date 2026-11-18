@@ -65,7 +65,7 @@ func TestTheCopyOfARepositoryComesBackWhenItsAccessComesBack(t *testing.T) {
 	server, _ := seedWaiting(t, fake, "checks")
 	copiedWorkstreams := func() int {
 		var count int
-		if err := server.DB.QueryRow("SELECT COUNT(*) FROM copied_workstreams WHERE repository = ?", shop).Scan(&count); err != nil {
+		if err := server.DB.QueryRow("SELECT COUNT(*) FROM workstreams WHERE repository = ?", shop).Scan(&count); err != nil {
 			t.Fatal(err)
 		}
 		return count

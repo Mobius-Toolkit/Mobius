@@ -51,6 +51,28 @@ func (e *Engine) syncCopy(ctx context.Context, repository github.Repository) err
 	if err != nil {
 		return err
 	}
+	stored, err := e.queries.ListOpenWorkstreamNumbers(ctx, repository.FullName)
+	if err != nil {
+		return err
+	}
+	var closed, removed []int64
+	for _, number := range stored {
+		if slices.ContainsFunc(issues, func(issue *gh.Issue) bool { return int64(issue.GetNumber()) == number }) {
+			continue
+		}
+		issue, err := repository.Issue(ctx, number)
+		if err != nil {
+			return err
+		}
+		switch {
+		case issue == nil || !hasLabel(issue, workstreamLabel):
+			removed = append(removed, number)
+		case issue.GetState() != "open":
+			closed = append(closed, number)
+		default:
+			issues = append(issues, issue)
+		}
+	}
 	var workstreams []copiedWorkstream
 	for _, issue := range issues {
 		workstream, err := e.copyWorkstream(ctx, repository, issue)
@@ -64,7 +86,7 @@ func (e *Engine) syncCopy(ctx context.Context, repository github.Repository) err
 		trees = append(trees, workstream.tree)
 	}
 	err = e.writeRead(ctx, repository.FullName, before, trees, func(q *store.Queries) error {
-		return replaceCopy(ctx, q, repository.FullName, workstreams)
+		return e.replaceCopy(ctx, q, repository.FullName, workstreams, closed, removed)
 	})
 	if err != nil {
 		return err
@@ -83,7 +105,12 @@ func (e *Engine) forgetCopies(ctx context.Context, repositories []github.Reposit
 		if slices.ContainsFunc(repositories, func(repository github.Repository) bool { return repository.FullName == name }) {
 			continue
 		}
-		err := e.inTx(ctx, func(q *store.Queries) error { return replaceCopy(ctx, q, name, nil) })
+		err := e.inTx(ctx, func(q *store.Queries) error {
+			if err := q.DeleteCopiedWorkstreamsOf(ctx, name); err != nil {
+				return err
+			}
+			return removeCopiedTrees(ctx, q, name)
+		})
 		if err != nil {
 			return err
 		}
@@ -93,16 +120,33 @@ func (e *Engine) forgetCopies(ctx context.Context, repositories []github.Reposit
 	return nil
 }
 
-func replaceCopy(ctx context.Context, q *store.Queries, repository string, workstreams []copiedWorkstream) error {
-	for _, remove := range []func(context.Context, string) error{
-		q.DeleteCopiedWorkstreamsOf, q.DeleteCopiedIssuesOf, q.DeleteCopiedIssueLabelsOf, q.DeleteCopiedBlockersOf,
-	} {
-		if err := remove(ctx, repository); err != nil {
+// replaceCopy writes workstreams and their trees. It closes the rows of the Workstreams in closed and deletes the rows of
+// the Workstreams in removed, because the list of GitHub no longer has them.
+func (e *Engine) replaceCopy(ctx context.Context, q *store.Queries, repository string, workstreams []copiedWorkstream, closed, removed []int64) error {
+	if err := removeCopiedTrees(ctx, q, repository); err != nil {
+		return err
+	}
+	for _, number := range closed {
+		if err := q.CloseWorkstream(ctx, store.CloseWorkstreamParams{Repository: repository, Number: number}); err != nil {
+			return err
+		}
+	}
+	for _, number := range removed {
+		if err := q.DeleteCopiedWorkstream(ctx, store.DeleteCopiedWorkstreamParams{Repository: repository, Number: number}); err != nil {
 			return err
 		}
 	}
 	for _, workstream := range workstreams {
-		if err := addWorkstream(ctx, q, repository, workstream); err != nil {
+		if err := e.addWorkstream(ctx, q, repository, workstream); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func removeCopiedTrees(ctx context.Context, q *store.Queries, repository string) error {
+	for _, remove := range []func(context.Context, string) error{q.DeleteCopiedIssuesOf, q.DeleteCopiedIssueLabelsOf, q.DeleteCopiedBlockersOf} {
+		if err := remove(ctx, repository); err != nil {
 			return err
 		}
 	}
@@ -153,7 +197,7 @@ func (e *Engine) updateCopy(ctx context.Context, repository github.Repository, i
 	switch {
 	case stored && !wanted:
 		changed = true
-		err = e.removeCopiedWorkstream(ctx, name, number)
+		err = e.removeCopiedWorkstream(ctx, name, number, hasLabel(issue, workstreamLabel))
 	case stored:
 		changed, err = e.updateCopiedWorkstream(ctx, name, issue)
 	case wanted:
@@ -162,7 +206,7 @@ func (e *Engine) updateCopy(ctx context.Context, repository github.Repository, i
 		workstream, err = e.copyWorkstream(ctx, repository, issue)
 		if err == nil {
 			changed, added = true, workstream.tree
-			err = e.writeRead(ctx, name, before, [][]copiedIssue{workstream.tree}, func(q *store.Queries) error { return addWorkstream(ctx, q, name, workstream) })
+			err = e.writeRead(ctx, name, before, [][]copiedIssue{workstream.tree}, func(q *store.Queries) error { return e.addWorkstream(ctx, q, name, workstream) })
 		}
 	}
 	if err != nil {
@@ -467,9 +511,17 @@ func (e *Engine) copiedWorkstreamsHolding(ctx context.Context, number int64, rep
 	return found, nil
 }
 
-func (e *Engine) removeCopiedWorkstream(ctx context.Context, repository string, number int64) error {
+// removeCopiedWorkstream closes the row of the Workstream when its issue is closed, and deletes the row when the issue
+// lost the Workstream label. It also deletes the other data that the Workstream owns.
+func (e *Engine) removeCopiedWorkstream(ctx context.Context, repository string, number int64, labeled bool) error {
 	return e.inTx(ctx, func(q *store.Queries) error {
-		if err := q.DeleteCopiedWorkstream(ctx, store.DeleteCopiedWorkstreamParams{Repository: repository, Number: number}); err != nil {
+		var err error
+		if labeled {
+			err = q.CloseWorkstream(ctx, store.CloseWorkstreamParams{Repository: repository, Number: number})
+		} else {
+			err = q.DeleteCopiedWorkstream(ctx, store.DeleteCopiedWorkstreamParams{Repository: repository, Number: number})
+		}
+		if err != nil {
 			return err
 		}
 		if err := deleteWorkstreamRecurringTasks(ctx, q, repository, number); err != nil {
@@ -487,20 +539,10 @@ func (e *Engine) removeCopiedWorkstream(ctx context.Context, repository string, 
 func (e *Engine) updateCopiedWorkstream(ctx context.Context, repository string, issue *gh.Issue) (bool, error) {
 	changed := false
 	return changed, e.inTx(ctx, func(q *store.Queries) error {
-		updated, err := q.UpdateCopiedWorkstream(ctx, store.UpdateCopiedWorkstreamParams{
-			Title:      issue.GetTitle(),
-			Body:       issue.GetBody(),
-			Repository: repository,
-			Number:     int64(issue.GetNumber()),
-		})
+		updated, err := e.writeWorkstream(ctx, q, repository, issue)
 		if err != nil {
 			return err
 		}
-		settingsUpdated, err := addWorkstreamSettings(ctx, q, repository, issue)
-		if err != nil {
-			return err
-		}
-		updated += settingsUpdated
 		titled, err := q.UpdateCopiedBlockerTitles(ctx, store.UpdateCopiedBlockerTitlesParams{
 			Title:      sql.NullString{String: issue.GetTitle(), Valid: true},
 			Repository: repository,
@@ -944,22 +986,28 @@ func labelNames(issue *gh.Issue) []string {
 	return names
 }
 
-func addWorkstream(ctx context.Context, q *store.Queries, repository string, workstream copiedWorkstream) error {
-	issue := workstream.issue
-	err := q.AddCopiedWorkstream(ctx, store.AddCopiedWorkstreamParams{
+func (e *Engine) addWorkstream(ctx context.Context, q *store.Queries, repository string, workstream copiedWorkstream) error {
+	if _, err := e.writeWorkstream(ctx, q, repository, workstream.issue); err != nil {
+		return err
+	}
+	return addTree(ctx, q, repository, int64(workstream.issue.GetNumber()), workstream.tree)
+}
+
+// writeWorkstream adds the row of the Workstream issue when it has none, and writes the open state, the title, the Brief
+// with no link line of the Lead chat and the creation time of the issue into the row. It gives the number of rows that changed.
+func (e *Engine) writeWorkstream(ctx context.Context, q *store.Queries, repository string, issue *gh.Issue) (int64, error) {
+	added, err := addWorkstreamSettings(ctx, q, repository, issue)
+	if err != nil {
+		return 0, err
+	}
+	updated, err := q.UpdateCopiedWorkstream(ctx, store.UpdateCopiedWorkstreamParams{
+		Title:      issue.GetTitle(),
+		Body:       e.WithoutChatLink(repository, int64(issue.GetNumber()), issue.GetBody()),
+		CreatedAt:  issue.GetCreatedAt().UTC().Format(time.RFC3339Nano),
 		Repository: repository,
 		Number:     int64(issue.GetNumber()),
-		Title:      issue.GetTitle(),
-		Body:       issue.GetBody(),
-		CreatedAt:  issue.GetCreatedAt().UTC().Format(time.RFC3339Nano),
 	})
-	if err != nil {
-		return err
-	}
-	if _, err := addWorkstreamSettings(ctx, q, repository, issue); err != nil {
-		return err
-	}
-	return addTree(ctx, q, repository, int64(issue.GetNumber()), workstream.tree)
+	return added + updated, err
 }
 
 // addWorkstreamSettings adds the settings row of the Workstream issue when it has none, with the Autopilot level Off and
