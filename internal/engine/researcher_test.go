@@ -165,6 +165,8 @@ func TestTheReportOfAResearcherIsInTheChatBeforeItsWorktreeRemovalEnds(t *testin
 			if c.name == "hung" {
 				shortHang(t)
 			}
+			fake := testkit.NewFakeGitHub(t)
+			server, dataDir := connectResearcher(t, fake, researchLead, c.researcher)
 			hold := make(chan struct{})
 			entered := make(chan struct{})
 			enter := sync.OnceFunc(func() { close(entered) })
@@ -177,9 +179,6 @@ func TestTheReportOfAResearcherIsInTheChatBeforeItsWorktreeRemovalEnds(t *testin
 				release()
 				*engine.BeforeRemoveResearchCopy = nil
 			})
-
-			fake := testkit.NewFakeGitHub(t)
-			server, dataDir := connectResearcher(t, fake, researchLead, c.researcher)
 			sendChat(t, server, leadChat, "Plan the price model.")
 
 			testkit.WaitFor(t, func() bool {
