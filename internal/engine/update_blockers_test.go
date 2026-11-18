@@ -205,9 +205,10 @@ func TestUpdateBlockersAddsABlockerWhoseBlockersDoNotLeadBack(t *testing.T) {
 }
 
 // Serial: the test sets the hook beforeRecopyTrees.
-func TestUpdateBlockersGivesTheResultWhileTheCopyOfTheTreeIsHeld(t *testing.T) {
+func TestUpdateBlockersGivesTheResultAndListTasksShowsTheBlockerWhileTheCopyOfTheTreeIsHeld(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, call("update_blockers", `{ repository = "owner/shop", n = 41, blocked_by = ["owner/shop#40"] }`))
+	server, _ := connect(t, fake, call("update_blockers", `{ repository = "owner/shop", n = 41, blocked_by = ["owner/shop#40"] }`)+
+		"[[prompts]]\ncall = { tool = \"list_tasks\" }\n")
 	fake.AddIssue(shop, 40, "Add plan model")
 	fake.AddIssue(shop, 41, "Plan API")
 	fake.AddSubIssue(shop, 12, 41)
@@ -252,9 +253,17 @@ func TestUpdateBlockersGivesTheResultWhileTheCopyOfTheTreeIsHeld(t *testing.T) {
 			return false
 		}
 	})
-	release()
 	if err := <-prompted; err != nil {
 		t.Fatal(err)
 	}
+	if err := agent.Prompt(t.Context(), "List the tasks.", nil); err != nil {
+		t.Fatal(err)
+	}
+	want := "Added owner/shop#40 as blockers of owner/shop#41." +
+		"owner/shop#41 Plan API: open, blocked by owner/shop#40\n"
+	if got := reply(t, server, agent.ID()); got != want {
+		t.Errorf("reply = %q", got)
+	}
+	release()
 	testkit.WaitFor(t, func() bool { return copiedBlocker(41, 40) })
 }
