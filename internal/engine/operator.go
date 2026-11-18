@@ -122,7 +122,7 @@ func (e *Engine) operateTurn(ctx context.Context, repository github.Repository, 
 	if err := os.MkdirAll(a.spec.Dir, 0o750); err != nil {
 		return "", err
 	}
-	brief, err := brief(ctx, repository, a.spec.Workstream)
+	row, err := e.brief(ctx, repository.FullName, a.spec.Workstream)
 	if err != nil {
 		return "", err
 	}
@@ -137,7 +137,7 @@ func (e *Engine) operateTurn(ctx context.Context, repository github.Repository, 
 	if memory = strings.TrimSpace(memory); memory != "" {
 		memorySection = "# MEMORY.md\n\n" + memory + "\n\n"
 	}
-	prompt := fmt.Sprintf("%s\n# Brief\n\n%s\n\n%s# Text\n\n%s", operatorPrompt, brief, memorySection, text)
+	prompt := fmt.Sprintf("%s\n# Brief\n\n%s\n\n%s# Text\n\n%s", operatorPrompt, row.Body, memorySection, text)
 	err = a.Prompt(ctx, prompt, nil)
 	if err == nil {
 		err = a.waitBackground(ctx, backgroundPrompt)

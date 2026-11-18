@@ -246,15 +246,11 @@ func (e *Engine) researchTurn(ctx context.Context, a *Agent, id int64, question 
 	}
 	briefSection := ""
 	if a.spec.Workstream != 0 {
-		workstream, err := e.repository(a.spec.WorkstreamRepository)
+		row, err := e.brief(ctx, a.spec.WorkstreamRepository, a.spec.Workstream)
 		if err != nil {
 			return "", err
 		}
-		brief, err := brief(ctx, workstream, a.spec.Workstream)
-		if err != nil {
-			return "", err
-		}
-		briefSection = "# Brief\n\n" + brief + "\n\n"
+		briefSection = "# Brief\n\n" + row.Body + "\n\n"
 	}
 	sections, _, err := e.repositorySections(ctx, repository, ResearcherRole)
 	if err != nil {
