@@ -583,7 +583,9 @@ func (a *Agent) ID() int64 {
 
 // Prompt adds text to the Transcript, sends it with images, and holds until the turn ends. The Transcript row has
 // only the type and the size of each image. When the agent cannot read images, Prompt sends a note in place of them.
-// After a usage limit, Prompt waits for the end of the pause of the Harness and sends text again.
+// While the Harness has a pause, Prompt waits for its end before it sends text, and a stop ends the wait. After a usage
+// limit, Prompt sends text again after the end of the pause. The save prompt of a closing chat waits for no pause: it is
+// not sent during a pause, and a usage limit of it ends Prompt with no second send.
 func (a *Agent) Prompt(ctx context.Context, text string, images []Image) error {
 	if len(images) > 0 && !a.session.ImagesSupported() {
 		text += imagesNote(text, len(images))
