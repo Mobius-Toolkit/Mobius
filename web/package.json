@@ -30,7 +30,7 @@
   "devDependencies": {
     "@foldkit/oxlint-plugin": "0.15.4",
     "@foldkit/vite-plugin": "0.29.0",
-    "@playwright/test": "^1.63.0",
+    "@playwright/test": "^1.65.1",
     "@types/node": "^24.13.3",
     "happy-dom": "^21.0.4",
     "orval": "8.47.0",
