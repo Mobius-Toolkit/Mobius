@@ -126,7 +126,7 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 				},
 				e.updateBranchTool),
 			taskTool(e, c, "rerun_failed_jobs",
-				"Run the failed CI jobs of the newest failed workflow runs of the head of the pull request of a task again. It works for each attempt of a run. The result names each run that started again, and each run that GitHub refused, with the reason of GitHub. It refuses a task with no open pull request.",
+				"Run the failed CI jobs of the newest failed workflow runs of the head of the pull request of a task again. It works for each attempt of a run. When GitHub refuses the re-run of the failed jobs and the attempt has no failed job, for example when GitHub never created a job, the tool runs the full workflow run again. The result names each run that started again, and each run that GitHub refused, with the reason of GitHub. It refuses a task with no open pull request.",
 				map[string]any{
 					"repository": repositoryProperty,
 					"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
@@ -183,7 +183,7 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 				},
 				e.ask),
 			taskTool(e, c, "close_question",
-				"Close your question on a task issue or on the Workstream issue when the Owner answers it in the chat. Mobius posts the answer as a comment on the issue, removes mobius:question, and dismisses the question Inbox item. On a task that waits for the answer, the task continues, and you get a dispatch event with \"answer of\".",
+				"Close your question on a task issue or on the Workstream issue when the Owner answers it in the chat. An answer of the Owner on GitHub closes the question, so call no close_question then. Mobius posts the answer as a comment on the issue, removes mobius:question, and dismisses the question Inbox item. On a task that waits for the answer, the task continues, and you get a dispatch event with \"answer of\".",
 				map[string]any{
 					"repository": repositoryProperty,
 					"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue, or of the Workstream issue."},
@@ -1637,21 +1637,40 @@ func (e *Engine) rerunFailedJobsTool(ctx context.Context, c caller, repository g
 			continue
 		}
 		var refused *gh.ErrorResponse
+		started := "started again"
 		err = repository.RerunFailedJobs(ctx, run.GetID())
 		if errors.As(err, &refused) && refused.Response.StatusCode >= 400 && refused.Response.StatusCode < 500 {
-			lines = append(lines, fmt.Sprintf("%s (run %d, attempt %d): GitHub refused: %s", run.GetName(), run.GetID(), attempt, refused.Message))
-			continue
-		} else if err != nil {
+			if slices.ContainsFunc(jobs, failedJob) {
+				lines = append(lines, fmt.Sprintf("%s (run %d, attempt %d): GitHub refused: %s", run.GetName(), run.GetID(), attempt, refused.Message))
+				continue
+			}
+			failedJobsMessage := refused.Message
+			err = repository.RerunWorkflowRun(ctx, run.GetID())
+			if errors.As(err, &refused) && refused.Response.StatusCode >= 400 && refused.Response.StatusCode < 500 {
+				lines = append(lines, fmt.Sprintf("%s (run %d, attempt %d): GitHub refused the re-run of the failed jobs: %s. GitHub refused the full re-run: %s", run.GetName(), run.GetID(), attempt, failedJobsMessage, refused.Message))
+				continue
+			}
+			started = "started again (full run)"
+		}
+		if err != nil {
 			return "", storeRerun(err)
 		}
 		startedIDs = append(startedIDs, strconv.FormatInt(run.GetID(), 10))
 		startedNames = append(startedNames, run.GetName())
-		lines = append(lines, fmt.Sprintf("%s (run %d, attempt %d): started again", run.GetName(), run.GetID(), attempt))
+		lines = append(lines, fmt.Sprintf("%s (run %d, attempt %d): %s", run.GetName(), run.GetID(), attempt, started))
 	}
 	if err := storeRerun(nil); err != nil {
 		return "", err
 	}
 	return strings.Join(lines, "\n"), nil
+}
+
+func failedJob(job *gh.WorkflowJob) bool {
+	switch job.GetConclusion() {
+	case "failure", "cancelled", "timed_out":
+		return true
+	}
+	return false
 }
 
 func (e *Engine) markReady(ctx context.Context, c caller, repository github.Repository, input taskInput) (string, error) {
