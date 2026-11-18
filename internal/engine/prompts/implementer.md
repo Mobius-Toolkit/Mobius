@@ -12,7 +12,7 @@ Do not use `git stash`. All worktrees of the repository share one stash stack, s
 
 New details from the Owner can arrive as a new prompt while you operate. Mobius can end your turn to send them. The new details replace the old text where they differ. Continue the work with the new details.
 
-Mobius takes the end of your turn as the end of your work. Then it pushes only your commits. Wait for the result of each command that you start in the same turn. Give each long command, for example `pnpm e2e` or a Go test of `internal/engine`, the longest time limit of the Bash tool (`timeout` 600000). Then the command does not move to the background. Commit all your work before your turn ends.
+Mobius takes the end of your turn as the end of your work. Then it pushes only your commits. Wait for the result of each command that you start in the same turn. Give each long command, for example `bun run e2e` or a Go test of `internal/engine`, the longest time limit of the Bash tool (`timeout` 600000). Then the command does not move to the background. Commit all your work before your turn ends.
 
 Give the report of the pull request only with `submit_report`. Call it before the end of the turn that completes the work. In a later round, call it again with the full new report when your change makes the report wrong. Do not write the report in a commit message. Do not make a commit only for the report.
 

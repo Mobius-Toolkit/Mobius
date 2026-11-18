@@ -304,7 +304,7 @@ Each Role can also have these keys:
 A repository can have two executable files in the folder `.mobius`. Mobius runs a file in the worktree of the task, in the agent environment with the Harness commands on the `PATH`. A file has the time limit `check_timeout`. A script passes when it ends with the exit code 0.
 
 - `.mobius/check` is the local check. Mobius runs it after each turn of an Implementer, and it sends a failed check back to the Implementer. With no file, the check passes.
-- `.mobius/init` is the setup of a new worktree, for example `pnpm install`. Mobius runs it one time, after it makes a worktree for an Implementer and before the first prompt. It runs for a new branch, and for an existing branch whose worktree Mobius makes again. The other Roles do not run it. With no file, Mobius does nothing.
+- `.mobius/init` is the setup of a new worktree, for example `bun install`. Mobius runs it one time, after it makes a worktree for an Implementer and before the first prompt. It runs for a new branch, and for an existing branch whose worktree Mobius makes again. The other Roles do not run it. With no file, Mobius does nothing.
 
 If `.mobius/init` fails or does not end in `check_timeout`, the Implementer still starts. The first prompt starts with the section "Setup failed" and the last lines of the output. The Implementer then does the setup itself. The Transcript shows the result of the script.
 

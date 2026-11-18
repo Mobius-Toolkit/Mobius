@@ -11,9 +11,9 @@
 - Write only the code that the task needs (YAGNI). Keep the code flat and simple (KISS).
 - Do not write a comment that tells what the code does. Write a comment only for a durable fact that the code cannot show: an invariant, an external contract, a unit or a hazard.
 - Do not suppress a linter. Do not use `//nolint`, `oxlint-disable`, `eslint-disable`, `@ts-ignore` or `@ts-expect-error`. Fix the finding.
-- Use pnpm for the frontend. Do not use npm or yarn.
-- Use Oxlint to lint the frontend (`pnpm lint`). Do not add ESLint.
-- Use oxfmt to format the frontend (`pnpm format`). Do not add Prettier or Biome.
+- Use Bun for the frontend. Do not use npm, yarn, pnpm or Node.
+- Use Oxlint to lint the frontend (`bun run lint`). Do not add ESLint.
+- Use oxfmt to format the frontend (`bun run format`). Do not add Prettier or Biome.
 - Run `make fmt` before each commit. CI only checks the format. It never writes it.
 - Put the body of each success response in `Envelope[T]` (`{"data": …}`). Error responses keep the Gork format. Server-sent events have no envelope.
 - A new Harness records the tokens, the cost and the reported model of each turn when the Harness gives them, in `internal/engine/usage.go`, with a Go test of the read.
@@ -75,7 +75,7 @@ The web client is one Foldkit application (`Runtime.makeApplication` in `web/src
   | An MCP tool of a role | Run the tool list tests. The command is below the table. |
   | `internal/store/migrations/`, `internal/store/queries.sql` | `make generate`, then `go test ./internal/store`. Search the store tests for a fixed migration version. |
   | `internal/api/` | `make generate`. Commit `api/openapi.json`, `web/src/api/api.gen.ts` and `web/src/api/schemas.gen.ts`. |
-  | `web/src/` | In `web`, `pnpm e2e e2e/<changed>.spec.ts e2e/screenshots.spec.ts`. Then read the `-desktop` and `-phone` image of each changed screen in `web/screenshots`. |
+  | `web/src/` | In `web`, `bun run e2e e2e/<changed>.spec.ts e2e/screenshots.spec.ts`. Then read the `-desktop` and `-phone` image of each changed screen in `web/screenshots`. |
   | A new test | It must fail on the base commit and pass on the commit of the change. |
   | Each change | `make fmt` before each commit. Mobius runs `.mobius/check` after each turn. |
 
@@ -100,14 +100,14 @@ The web client is one Foldkit application (`Runtime.makeApplication` in `web/src
 - Wait for a condition with `testkit.WaitFor`. Do not sleep for a fixed time. Before a test changes an issue, wait for the first poll of its repository (`WaitForFirstPoll`).
 - A test server runs only fake agents: it takes no directory with a Harness command from the PATH of the test. To check that something does not happen, wait for more polls (`waitForPolls` in `internal/engine`).
 - Reach the start state and each change that the Done list names through the engine and the fake GitHub. Do not set them with SQL, because a test that sets the result with SQL passes also when the engine path is wrong. When a test must insert a row with SQL, give the row each field and each fake GitHub item of the cause of its state, and give a `lead_events` row the kind and the payload that the engine writes. For a held Lead event, let the fake agent call `hold_event` (the script entry `holdEvent` in `internal/engine/lead_chat_test.go`).
-- The Playwright tests in `web/e2e` test the UI. The command `pnpm e2e` builds the UI, and Playwright starts `TestServer` of `web/e2e` with a fake GitHub, on a free port or on the port in `MOBIUS_E2E_PORT`. CI sets port 6464. The tests write a desktop and a phone screenshot of each screen to `web/screenshots`.
-- With no `MOBIUS_E2E_GROUP`, `pnpm e2e` starts four servers. With `MOBIUS_E2E_GROUP` set to `screenshots`, `a`, `b` or `c`, it runs only the projects of that group and starts only the server of that group. The project `screenshots` uses the server that has no GitHub Apps, because that test creates the Apps in the UI. Each group `a`, `b` and `c` has its own server. It runs with `MOBIUS_E2E_APPS=1`, so it has both Apps from its start, on a free port or on the port in `MOBIUS_E2E_PORT_A`, `MOBIUS_E2E_PORT_B` or `MOBIUS_E2E_PORT_C`. Playwright waits for `GET /e2e/ready` of each of these servers, which answers 200 only after the full fixture exists. Two groups do not share a server, because a spec changes the global state of its server (the Start switch, the role limits, the Lead sessions that wait).
-- The projects form four groups, in `web/playwright.config.ts`: `screenshots`; `a` (pending, recurring, chat, navigation); `b` (installations, memory, agents, checkup, inbox, actions, live, issue-settings, attachments); `c` (voice, voice-language, usage, settings, roles, switches, notice, tasks, answered, mcp-selection, mcp-servers, pauses, missing-workstreams). Each group runs alone: `MOBIUS_E2E_GROUP=<group> pnpm e2e`. A link between two groups is not allowed, and the group of a spec gives its server.
+- The Playwright tests in `web/e2e` test the UI. The command `bun run e2e` builds the UI, and Playwright starts `TestServer` of `web/e2e` with a fake GitHub, on a free port or on the port in `MOBIUS_E2E_PORT`. CI sets port 6464. The tests write a desktop and a phone screenshot of each screen to `web/screenshots`.
+- With no `MOBIUS_E2E_GROUP`, `bun run e2e` starts four servers. With `MOBIUS_E2E_GROUP` set to `screenshots`, `a`, `b` or `c`, it runs only the projects of that group and starts only the server of that group. The project `screenshots` uses the server that has no GitHub Apps, because that test creates the Apps in the UI. Each group `a`, `b` and `c` has its own server. It runs with `MOBIUS_E2E_APPS=1`, so it has both Apps from its start, on a free port or on the port in `MOBIUS_E2E_PORT_A`, `MOBIUS_E2E_PORT_B` or `MOBIUS_E2E_PORT_C`. Playwright waits for `GET /e2e/ready` of each of these servers, which answers 200 only after the full fixture exists. Two groups do not share a server, because a spec changes the global state of its server (the Start switch, the role limits, the Lead sessions that wait).
+- The projects form four groups, in `web/playwright.config.ts`: `screenshots`; `a` (pending, recurring, chat, navigation); `b` (installations, memory, agents, checkup, inbox, actions, live, issue-settings, attachments); `c` (voice, voice-language, usage, settings, roles, switches, notice, tasks, answered, mcp-selection, mcp-servers, pauses, missing-workstreams). Each group runs alone: `MOBIUS_E2E_GROUP=<group> bun run e2e`. A link between two groups is not allowed, and the group of a spec gives its server.
 - Put a new spec in one group. It must not need data that another group or the test `screenshots` changes. A link (`dependencies`) between two projects of one group has a comment with its data order.
 - Each server of a group starts with a drain, as the server of `screenshots` does, so the poll starts no task and the Leads do not run. A spec that needs a running task or Lead calls `cancelDrain` of `web/e2e/upgrade.ts` after its login.
-- Before the first run of the Playwright tests, install the browser: `pnpm exec playwright install chromium`.
+- Before the first run of the Playwright tests, install the browser: `bunx --bun playwright install chromium`.
 - `web/screenshots` is not in the repository (`.gitignore`). The job `e2e (screenshots)` of `ci.yml` uploads it as the artifact `screenshots`. The other e2e jobs upload no screenshots. The workflow `screenshots` puts the files on the branch `screenshots` and shows them in a section of the pull request description, with the image of `main` next to the new image. No workflow pushes to the branch of a pull request.
-- When a job `e2e (<group>)` fails, CI uploads `web/test-results` as the artifact `test-results-<group>`. It has a `trace.zip` file for each failed test. To open the file, run `pnpm exec playwright show-trace <file>`.
+- When a job `e2e (<group>)` fails, CI uploads `web/test-results` as the artifact `test-results-<group>`. It has a `trace.zip` file for each failed test. To open the file, run `bunx --bun playwright show-trace <file>`.
 - Each run must give the same screenshots, so a pull request with no UI change shows no changed screen. `TestServer` gives a fixed time to each time that the UI shows (`fixTimes`). Before each screenshot, `web/e2e/screenshots.spec.ts` waits for the data that the page loads (`frame` and `ready`). When the UI shows a new time or new data, add it there.
 - `TestServer` of `web/e2e` has fixtures with fixed past dates, so a new step that compares a stored time with `e.timeNow()` also acts on them. Fix the time with `SetClock`, as `web/e2e/server_test.go` does.
 - A fake program of a test (for example the `gh` of the agent environment) is a shell script that runs the system program by its full path, as `stubGH` in `internal/engine/lead_writes_test.go` does. Do not make it a link to the system program. The coreutils of the CI runner are multi-call binaries that refuse to run under another name. To change a fake program, write a new file and move it with `mv`, because a write in place can fail with `ETXTBSY`.
@@ -125,7 +125,7 @@ curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(go env GOPATH)/b
 - Mobius takes the end of a turn as the end of the work. Before the local check, Mobius waits for the background tasks of the session. Then it pushes only the commits.
 - Commit all work before the turn ends. Wait for the result of each test run in the same turn.
 - Mobius runs `.mobius/init` one time in a new worktree of an Implementer, before the first prompt. It runs the file in the same way as `.mobius/check`, with the time limit `check_timeout`. The other roles do not run it. When it fails, the first prompt starts with the section "Setup failed". Then do the setup yourself before you run tests or lint.
-- Give each long command (`pnpm e2e`, a Go test of `internal/engine`) the Bash `timeout` 600000. With the default limit, the Bash tool moves the command to the background.
+- Give each long command (`bun run e2e`, a Go test of `internal/engine`) the Bash `timeout` 600000. With the default limit, the Bash tool moves the command to the background.
 - Mobius runs git with `core.hooksPath=/dev/null` (`internal/runner/git.go`), so a git hook never runs for agent work. Do not put a check or a format step in a git hook.
 
 Only CI runs all Go tests. `.mobius/check` runs no Go test.
@@ -186,8 +186,8 @@ docs/install.md        the install guide
 - `MOBIUS_CONFIG` gives the path of the config file (default `~/.mobius/config.toml`). `IP` (`127.0.0.1` or `0.0.0.0`) and `PORT` (default `6363`) give the address. The server uses `mobius.db` in the `data_dir` of the config (default `~/.mobius`).
 - `make dev-api` starts the Go server. Caution: with no `MOBIUS_CONFIG`, the server uses `~/.mobius`. For development, set `MOBIUS_CONFIG` to a config file with another `data_dir`.
 - `make dev-web` starts the Vite dev server. Vite sends `/api` to the Go server.
-- `pnpm format` in `web` formats the frontend files with oxfmt. `pnpm format:check` fails on an unformatted file.
-- `pnpm test` in `web` runs the Vitest tests of the Foldkit code: the Story tests of each `update` and the tests of the Markdown view.
+- `bun run format` in `web` formats the frontend files with oxfmt. `bun run format:check` fails on an unformatted file.
+- `bun run test` in `web` runs the Vitest tests of the Foldkit code: the Story tests of each `update` and the tests of the Markdown view.
 - `make generate` writes the sqlc code, the spec and the TypeScript client.
 - `make fmt` formats the Go code with golangci-lint and the frontend files with oxfmt.
 - `make build` builds the UI and then `bin/mobius`.

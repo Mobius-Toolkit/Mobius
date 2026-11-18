@@ -22,15 +22,15 @@ jobs:
             go.mod
             go.sum
 
-      - uses: pnpm/action-setup@v6
+      - uses: oven-sh/setup-bun@v2
         with:
-          package_json_file: web/package.json
+          bun-version: 1.4.4
 
-      - uses: actions/setup-node@v7
+      - uses: actions/cache@v6
         with:
-          node-version: 24
-          cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('web/bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
 
       - uses: golangci/golangci-lint-action@v9
         with:
@@ -129,20 +129,20 @@ jobs:
             go.sum
             web/embed.go
 
-      - uses: pnpm/action-setup@v6
+      - uses: oven-sh/setup-bun@v2
         with:
-          package_json_file: web/package.json
+          bun-version: 1.4.4
 
-      - uses: actions/setup-node@v7
+      - uses: actions/cache@v6
         with:
-          node-version: 24
-          cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('web/bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
 
-      - run: pnpm install --frozen-lockfile
+      - run: bun install --frozen-lockfile
 
       - id: playwright
-        run: echo "key=playwright-$RUNNER_OS-$ImageOS-$ImageVersion-$(pnpm exec playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+        run: echo "key=playwright-$RUNNER_OS-$ImageOS-$ImageVersion-$(bunx --bun playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
 
       - id: playwright-cache
         uses: actions/cache/restore@v6
@@ -161,7 +161,7 @@ jobs:
           printf 'Dir::Cache::Archives "%s/.cache/playwright-debs";\nAPT::Keep-Downloaded-Packages "true";\n' "$HOME" | sudo tee /etc/apt/apt.conf.d/99playwright-debs
 
       - if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: pnpm exec playwright install --with-deps chromium
+        run: bunx --bun playwright install --with-deps chromium
         timeout-minutes: 12
 
       # apt creates the lock file in the archive directory with no read access for other users.
@@ -176,7 +176,7 @@ jobs:
             ~/.cache/ms-playwright
             ~/.cache/playwright-debs
 
-      - run: pnpm e2e
+      - run: bun run e2e
         env:
           MOBIUS_E2E_GROUP: ${{ matrix.group }}
           MOBIUS_E2E_PORT: 6464

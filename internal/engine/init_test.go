@@ -119,7 +119,7 @@ func TestAFailedInitScriptGivesTheEndOfItsOutputToTheFirstPromptAndTheAgentStill
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, commits, noChange)
-	fake.SetInit(shop, "echo 'pnpm install failed'\nexit 1")
+	fake.SetInit(shop, "echo 'bun install failed'\nexit 1")
 
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 
@@ -140,7 +140,7 @@ func TestAFailedInitScriptGivesTheEndOfItsOutputToTheFirstPromptAndTheAgentStill
 	}
 	inOrder(t, prompts[0],
 		"# Setup failed\n\nThe setup script `.mobius/init` of the new worktree failed.",
-		"The output ends with these lines:\n\n```\npnpm install failed\n\n```\n\n",
+		"The output ends with these lines:\n\n```\nbun install failed\n\n```\n\n",
 		"You are the Implementer of one task.")
 	if !strings.HasPrefix(prompts[0], "# Setup failed") {
 		t.Errorf("prompt = %s", prompts[0])
@@ -151,7 +151,7 @@ func TestAnInitScriptThatDoesNotEndInTheTimeLimitGivesTheSectionToTheFirstPrompt
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, commits, func(cfg *config.Config) { cfg.CheckTimeout = 300 * time.Millisecond })
-	fake.SetInit(shop, "echo 'pnpm install is slow'\nsleep 10")
+	fake.SetInit(shop, "echo 'bun install is slow'\nsleep 10")
 
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 
@@ -172,7 +172,7 @@ func TestAnInitScriptThatDoesNotEndInTheTimeLimitGivesTheSectionToTheFirstPrompt
 	}
 	inOrder(t, prompts[0],
 		"# Setup failed\n\nThe setup script `.mobius/init` of the new worktree did not end in 300ms.",
-		"pnpm install is slow\n",
+		"bun install is slow\n",
 		"You are the Implementer of one task.")
 }
 

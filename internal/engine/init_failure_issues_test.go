@@ -16,7 +16,7 @@ import (
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
 
-const failingInit = "echo 'pnpm install failed'\nexit 1"
+const failingInit = "echo 'bun install failed'\nexit 1"
 
 func openInitFailures(t *testing.T, server *testserver.Server) int {
 	t.Helper()
@@ -82,7 +82,7 @@ func TestAFailedInitScriptGivesOneIssueBelowTheMaintenanceWorkstreamWithTheField
 		"Task issue: https://github.com/owner/shop/issues/41",
 		fmt.Sprintf("Session: %d", session.ID),
 		"Commit: " + commit,
-		"pnpm install failed",
+		"bun install failed",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("body does not have %q:\n%s", want, body)
@@ -102,12 +102,12 @@ func TestAnInitScriptThatDoesNotEndInTheTimeLimitGivesAnIssueWithTheTimeLimit(t 
 	fake := testkit.NewFakeGitHub(t)
 	addMaintenanceWorkstream(fake, maintenance)
 	server, _ := connectTask(t, fake, leadStarts, commits, func(cfg *config.Config) { cfg.CheckTimeout = 300 * time.Millisecond })
-	fake.SetInit(shop, "echo 'pnpm install is slow'\nsleep 10")
+	fake.SetInit(shop, "echo 'bun install is slow'\nsleep 10")
 
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 
 	_, body := checkTimeoutIssue(t, fake)
-	for _, want := range []string{"The setup script `.mobius/init` did not end in the time limit.", "Time limit: 300ms", "pnpm install is slow"} {
+	for _, want := range []string{"The setup script `.mobius/init` did not end in the time limit.", "Time limit: 300ms", "bun install is slow"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("body does not have %q:\n%s", want, body)
 		}
