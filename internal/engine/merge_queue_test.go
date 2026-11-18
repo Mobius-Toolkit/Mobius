@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
+	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
@@ -859,6 +860,24 @@ func TestMergeQueueMergeSwitchOffWhileUpdatedHeadWaitsForApprovalAgainLeavesQueu
 	}
 }
 
+// logLeadStateOnFailure writes the tasks, the Lead events, the Lead sessions and the Transcript lines of each Lead
+// session to the test log when the test fails, so that the log tells which turn of the Lead did not end.
+func logLeadStateOnFailure(t *testing.T, server *testserver.Server) {
+	t.Cleanup(func() {
+		if !t.Failed() {
+			return
+		}
+		logRows(t, server, "task", "SELECT issue, state, state_at, merge_queued_at, pull_request FROM tasks WHERE repository = ? ORDER BY issue", shop)
+		logRows(t, server, "lead event", "SELECT kind, issue, delivered_at, held, time FROM lead_events WHERE repository = ? AND workstream = 12 ORDER BY id", shop)
+		logRows(t, server, "session", "SELECT id, role, started_at, ended_at, end_reason FROM sessions WHERE workstream_repository = ? AND workstream = 12 ORDER BY id", shop)
+		for _, session := range chatSessions(t, server, leadChat, engine.LeadRole) {
+			for _, line := range transcript(t, server, session.ID) {
+				t.Logf("session %d line %d: %s %.200q", session.ID, line.ID, line.Kind, line.Raw)
+			}
+		}
+	})
+}
+
 // TestMergeQueuePlacesOnBoardTasksAndInboxItems verifies that three tasks in the merge queue have places 1, 2, 3
 // of 3 on board tasks and ready_for_review Inbox items, an unqueued task has null and 0, and after the first
 // task leaves the queue the remaining tasks have places 1 and 2 of 2.
@@ -866,6 +885,7 @@ func TestMergeQueuePlacesOnBoardTasksAndInboxItems(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := queueTasksWith(t, fake, approveAgain([]int{41, 43, 45, 47}, 41)+queueLead, "off", []int{41, 43, 45, 47})
+	logLeadStateOnFailure(t, server)
 
 	pr43 := liveTask(t, server, 43).PullRequest.Int64
 
