@@ -1372,11 +1372,15 @@ func (e *Engine) updateBlockers(ctx context.Context, c caller, repository github
 	added, removed, err := writeBlockers(ctx, repository, input.N, add, remove)
 	if len(added)+len(removed) > 0 {
 		workstream, recopyErr := e.repository(c.repository)
-		if recopyErr == nil {
-			recopyErr = e.recopyTrees(ctx, workstream, c.workstream)
-		}
 		if recopyErr != nil {
 			log.Printf("copy the tree of %s#%d: %v", c.repository, c.workstream, recopyErr)
+		} else if e.tryTrack() {
+			go func() {
+				defer e.untrack()
+				if copyErr := e.recopyTrees(context.WithoutCancel(ctx), workstream, c.workstream); copyErr != nil {
+					log.Printf("copy the tree of %s#%d: %v", workstream.FullName, c.workstream, copyErr)
+				}
+			}()
 		}
 	}
 	change := blockerChange(added, removed)
