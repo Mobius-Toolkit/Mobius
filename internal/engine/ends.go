@@ -373,9 +373,11 @@ func judgesHuman(task store.Task) bool {
 // (mobius:working, mobius:review and mobius:needs-human) from it. The pull request has mobius:needs-human only in
 // needs_human. It writes only a label that is wrong, and it writes nothing for a Judge that runs from needs_human. It
 // does not change mobius:question. It reads the task again, because a hand over can change the task and write its
-// labels while checkTask reads GitHub.
-func (e *Engine) setStateLabels(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue, pullRequest *gh.PullRequest) error {
-	task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: task.Repository, Issue: task.Issue})
+// labels while checkTask reads GitHub. It writes nothing when the task now needs another label than the task of the
+// caller: the issue of the caller is older than that change, and a person can have removed the new label since. The
+// next poll checks the removal with the new task.
+func (e *Engine) setStateLabels(ctx context.Context, repository github.Repository, polled store.Task, issue *gh.Issue, pullRequest *gh.PullRequest) error {
+	task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: polled.Repository, Issue: polled.Issue})
 	if errors.Is(err, sql.ErrNoRows) || judgesHuman(task) {
 		return nil
 	}
@@ -383,6 +385,9 @@ func (e *Engine) setStateLabels(ctx context.Context, repository github.Repositor
 		return err
 	}
 	needed := neededLabel(task)
+	if needed != neededLabel(polled) {
+		return nil
+	}
 	stateLabels := []string{workingLabel, reviewLabel, needsHumanLabel}
 	for _, label := range stateLabels {
 		if label != needed && hasLabel(issue, label) {

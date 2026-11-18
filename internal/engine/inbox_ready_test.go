@@ -177,6 +177,7 @@ func TestARemovalOfTheReviewLabelDismissesTheItemAfterAJudgeFromApprovalFoundNoW
     { item = 2, actions = [{ verdict = "reject", text = "The API needs this name." }] },
 ] } }
 `, "", noChange)
+	logReviewLabelOnFailure(t, fake, server)
 	if thread := fake.AddReviewComment(shop, 42, 0, bot, "Rename plan to tier."); thread != 2 {
 		t.Fatalf("thread = %d", thread)
 	}
