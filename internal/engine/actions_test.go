@@ -765,7 +765,7 @@ func waitForBilling(t *testing.T, server *testserver.Server) {
 	t.Helper()
 	testkit.WaitFor(t, func() bool {
 		var count int
-		if err := server.DB.QueryRow("SELECT count(*) FROM copied_workstreams WHERE repository = ? AND number = 20", shop).Scan(&count); err != nil {
+		if err := server.DB.QueryRow("SELECT count(*) FROM workstreams WHERE repository = ? AND number = 20 AND state = 'open'", shop).Scan(&count); err != nil {
 			t.Fatal(err)
 		}
 		return count == 1

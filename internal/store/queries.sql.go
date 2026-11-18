@@ -346,32 +346,6 @@ func (q *Queries) AddCopiedIssueLabelIfMissing(ctx context.Context, arg AddCopie
 	return err
 }
 
-const addCopiedWorkstream = `-- name: AddCopiedWorkstream :exec
-INSERT INTO copied_workstreams (repository, number, title, body, created_at)
-VALUES (?, ?, ?, ?, ?)
-ON CONFLICT (repository, number) DO NOTHING
-`
-
-type AddCopiedWorkstreamParams struct {
-	Repository string
-	Number     int64
-	Title      string
-	Body       string
-	CreatedAt  string
-}
-
-// The Lead tool create_workstream and the poll can both add a new Workstream.
-func (q *Queries) AddCopiedWorkstream(ctx context.Context, arg AddCopiedWorkstreamParams) error {
-	_, err := q.db.ExecContext(ctx, addCopiedWorkstream,
-		arg.Repository,
-		arg.Number,
-		arg.Title,
-		arg.Body,
-		arg.CreatedAt,
-	)
-	return err
-}
-
 const addCuratorRequest = `-- name: AddCuratorRequest :one
 INSERT INTO curator_requests (repository, text) VALUES (?, ?) RETURNING id
 `
@@ -1519,7 +1493,7 @@ type AddWorkstreamParams struct {
 	Skills      bool
 }
 
-// The row stays after the copy of its Workstream goes away. It gives 1 when it added the row.
+// The row stays after its Workstream closes. It gives 1 when it added the row.
 func (q *Queries) AddWorkstream(ctx context.Context, arg AddWorkstreamParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, addWorkstream,
 		arg.Repository,
@@ -1758,6 +1732,20 @@ func (q *Queries) ClearTaskMergeQueuedAt(ctx context.Context, id int64) (int64, 
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const closeWorkstream = `-- name: CloseWorkstream :exec
+UPDATE workstreams SET state = 'closed' WHERE repository = ? AND number = ?
+`
+
+type CloseWorkstreamParams struct {
+	Repository string
+	Number     int64
+}
+
+func (q *Queries) CloseWorkstream(ctx context.Context, arg CloseWorkstreamParams) error {
+	_, err := q.db.ExecContext(ctx, closeWorkstream, arg.Repository, arg.Number)
+	return err
 }
 
 const continueEndedTask = `-- name: ContinueEndedTask :execrows
@@ -2000,7 +1988,7 @@ func (q *Queries) DeleteCopiedIssuesOf(ctx context.Context, repository string) e
 }
 
 const deleteCopiedWorkstream = `-- name: DeleteCopiedWorkstream :exec
-DELETE FROM copied_workstreams WHERE repository = ? AND number = ?
+DELETE FROM workstreams WHERE repository = ? AND number = ?
 `
 
 type DeleteCopiedWorkstreamParams struct {
@@ -2014,7 +2002,7 @@ func (q *Queries) DeleteCopiedWorkstream(ctx context.Context, arg DeleteCopiedWo
 }
 
 const deleteCopiedWorkstreamsOf = `-- name: DeleteCopiedWorkstreamsOf :exec
-DELETE FROM copied_workstreams WHERE repository = ?
+DELETE FROM workstreams WHERE repository = ?
 `
 
 func (q *Queries) DeleteCopiedWorkstreamsOf(ctx context.Context, repository string) error {
@@ -2949,9 +2937,8 @@ func (q *Queries) GetChatMessage(ctx context.Context, id int64) (ChatMessage, er
 }
 
 const getCopiedAutopilot = `-- name: GetCopiedAutopilot :one
-SELECT CAST(s.autopilot AS BOOLEAN) AS autopilot, CAST(s.auto_merge AS BOOLEAN) AS auto_merge FROM workstreams s
-JOIN copied_workstreams w ON w.repository = s.repository AND w.number = s.number
-WHERE s.repository = ? AND s.number = ?
+SELECT CAST(autopilot AS BOOLEAN) AS autopilot, CAST(auto_merge AS BOOLEAN) AS auto_merge FROM workstreams
+WHERE repository = ? AND number = ? AND state = 'open'
 `
 
 type GetCopiedAutopilotParams struct {
@@ -3048,10 +3035,9 @@ func (q *Queries) GetCopiedIssueWorkstream(ctx context.Context, arg GetCopiedIss
 }
 
 const getCopiedWorkstream = `-- name: GetCopiedWorkstream :one
-SELECT w.title, w.body, CAST(s.evergreen AS BOOLEAN) AS evergreen, CAST(s.maintenance AS BOOLEAN) AS maintenance, CAST(s.skills AS BOOLEAN) AS skills, w.created_at
-FROM copied_workstreams w
-JOIN workstreams s ON s.repository = w.repository AND s.number = w.number
-WHERE w.repository = ? AND w.number = ?
+SELECT title, body, CAST(evergreen AS BOOLEAN) AS evergreen, CAST(maintenance AS BOOLEAN) AS maintenance, CAST(skills AS BOOLEAN) AS skills, created_at
+FROM workstreams
+WHERE repository = ? AND number = ? AND state = 'open'
 `
 
 type GetCopiedWorkstreamParams struct {
@@ -3536,9 +3522,8 @@ func (q *Queries) GetLiveTaskByPullRequest(ctx context.Context, arg GetLiveTaskB
 }
 
 const getMaintenanceWorkstream = `-- name: GetMaintenanceWorkstream :one
-SELECT w.number FROM copied_workstreams w
-JOIN workstreams s ON s.repository = w.repository AND s.number = w.number
-WHERE s.maintenance AND w.repository = ?
+SELECT w.number FROM workstreams w
+WHERE w.state = 'open' AND w.maintenance AND w.repository = ?
 ORDER BY w.number
 LIMIT 1
 `
@@ -4308,9 +4293,8 @@ func (q *Queries) GetSessionIssueTitle(ctx context.Context, arg GetSessionIssueT
 }
 
 const getSkillsWorkstream = `-- name: GetSkillsWorkstream :one
-SELECT w.repository, w.number FROM copied_workstreams w
-JOIN workstreams s ON s.repository = w.repository AND s.number = w.number
-WHERE s.skills AND substr(w.repository, 1, length(?1) + 1) = ?1 || '/'
+SELECT w.repository, w.number FROM workstreams w
+WHERE w.state = 'open' AND w.skills AND substr(w.repository, 1, length(?1) + 1) = ?1 || '/'
 ORDER BY w.number, w.repository
 LIMIT 1
 `
@@ -4466,7 +4450,7 @@ func (q *Queries) HandTaskToHuman(ctx context.Context, arg HandTaskToHumanParams
 }
 
 const hasCopiedWorkstream = `-- name: HasCopiedWorkstream :one
-SELECT EXISTS (SELECT 1 FROM copied_workstreams WHERE repository = ? AND number = ?)
+SELECT EXISTS (SELECT 1 FROM workstreams WHERE repository = ? AND number = ? AND state = 'open')
 `
 
 type HasCopiedWorkstreamParams struct {
@@ -4482,7 +4466,7 @@ func (q *Queries) HasCopiedWorkstream(ctx context.Context, arg HasCopiedWorkstre
 }
 
 const hasCopiedWorkstreamAnyCase = `-- name: HasCopiedWorkstreamAnyCase :one
-SELECT EXISTS (SELECT 1 FROM copied_workstreams WHERE repository = ? COLLATE NOCASE AND number = ?)
+SELECT EXISTS (SELECT 1 FROM workstreams WHERE repository = ? COLLATE NOCASE AND number = ? AND state = 'open')
 `
 
 type HasCopiedWorkstreamAnyCaseParams struct {
@@ -4933,7 +4917,7 @@ func (q *Queries) ListAllOpenHardCIBreaks(ctx context.Context) ([]CiBreak, error
 
 const listAllRecurringTasks = `-- name: ListAllRecurringTasks :many
 SELECT t.id, t.repository, t.workstream, t.cron, t.text, t.paused, t.checked_at, t.event FROM recurring_tasks t
-JOIN copied_workstreams w ON w.repository = t.repository AND w.number = t.workstream
+JOIN workstreams w ON w.repository = t.repository AND w.number = t.workstream AND w.state = 'open'
 WHERE t.paused = 0
 ORDER BY t.id
 `
@@ -4971,10 +4955,9 @@ func (q *Queries) ListAllRecurringTasks(ctx context.Context) ([]RecurringTask, e
 }
 
 const listAutopilotWorkstreams = `-- name: ListAutopilotWorkstreams :many
-SELECT w.number FROM copied_workstreams w
-JOIN workstreams s ON s.repository = w.repository AND s.number = w.number
-WHERE w.repository = ? AND s.autopilot
-ORDER BY w.number DESC
+SELECT number FROM workstreams
+WHERE repository = ? AND state = 'open' AND autopilot
+ORDER BY number DESC
 `
 
 func (q *Queries) ListAutopilotWorkstreams(ctx context.Context, repository string) ([]int64, error) {
@@ -5082,7 +5065,7 @@ LEFT JOIN inbox_items m ON m.id = (
   SELECT max(id) FROM inbox_items
   WHERE kind = 'ready for review' AND repository = tasks.repository AND issue = tasks.issue AND pull_request = tasks.pull_request
 )
-JOIN copied_workstreams w ON w.repository = tasks.workstream_repository AND w.number = tasks.workstream
+JOIN workstreams w ON w.repository = tasks.workstream_repository AND w.number = tasks.workstream AND w.state = 'open'
 JOIN copied_issues i
   ON i.repository = tasks.workstream_repository AND i.workstream = tasks.workstream AND i.number = tasks.issue
   AND substr(lower(i.repository_url), -(length(tasks.repository) + 7)) = '/repos/' || lower(tasks.repository)
@@ -5862,7 +5845,7 @@ func (q *Queries) ListCopiedIssuesWithLabels(ctx context.Context, arg ListCopied
 }
 
 const listCopiedRepositories = `-- name: ListCopiedRepositories :many
-SELECT DISTINCT repository FROM copied_workstreams
+SELECT DISTINCT repository FROM workstreams
 `
 
 func (q *Queries) ListCopiedRepositories(ctx context.Context) ([]string, error) {
@@ -6028,9 +6011,9 @@ func (q *Queries) ListCopiedTreeLabels(ctx context.Context, arg ListCopiedTreeLa
 }
 
 const listCopiedWorkstreams = `-- name: ListCopiedWorkstreams :many
-SELECT w.repository, w.number, w.title, w.body, CAST(s.autopilot AS BOOLEAN) AS autopilot,
-       CAST(s.auto_merge AS BOOLEAN) AS auto_merge,
-       CAST(s.evergreen AS BOOLEAN) AS evergreen,
+SELECT w.repository, w.number, w.title, w.body, CAST(w.autopilot AS BOOLEAN) AS autopilot,
+       CAST(w.auto_merge AS BOOLEAN) AS auto_merge,
+       CAST(w.evergreen AS BOOLEAN) AS evergreen,
        CAST(EXISTS (SELECT 1 FROM copied_issues i
                WHERE i.repository = w.repository AND i.workstream = w.number AND i.parent = w.number AND i.parent_repository = w.repository)
        AND NOT EXISTS (SELECT 1 FROM copied_issues i
@@ -6038,8 +6021,8 @@ SELECT w.repository, w.number, w.title, w.body, CAST(s.autopilot AS BOOLEAN) AS 
                          AND i.state != 'closed') AS BOOLEAN) AS all_tasks_closed,
        CAST(EXISTS (SELECT 1 FROM tasks t
                WHERE t.workstream_repository = w.repository AND t.workstream = w.number AND t.state = 'ready_for_review') AS BOOLEAN) AS ready_to_merge
-FROM copied_workstreams w
-JOIN workstreams s ON s.repository = w.repository AND s.number = w.number
+FROM workstreams w
+WHERE w.state = 'open'
 ORDER BY w.repository, w.number DESC
 `
 
@@ -7068,7 +7051,7 @@ FROM held_work h
 JOIN global_pauses p ON p.kind = h.kind
 JOIN copied_issues i ON i.number = h.issue AND i.state = 'open'
   AND lower(substr(i.repository_url, instr(i.repository_url, '/repos/') + 7)) = lower(h.repository)
-JOIN copied_workstreams w ON w.repository = i.repository AND w.number = i.workstream
+JOIN workstreams w ON w.repository = i.repository AND w.number = i.workstream AND w.state = 'open'
 ORDER BY julianday(h.held_at), h.kind, h.repository, h.issue, i.repository, i.workstream
 `
 
@@ -7332,7 +7315,7 @@ func (q *Queries) ListLeadWrites(ctx context.Context, arg ListLeadWritesParams) 
 
 const listLiveIssueBindings = `-- name: ListLiveIssueBindings :many
 SELECT b.repository, b.issue, b.role, b.harness, b.model, b.effort, b.updated_at FROM issue_bindings b
-WHERE EXISTS (SELECT 1 FROM copied_workstreams w WHERE b.repository = w.repository AND w.number = b.issue)
+WHERE EXISTS (SELECT 1 FROM workstreams w WHERE b.repository = w.repository AND w.number = b.issue AND w.state = 'open')
    OR EXISTS (SELECT 1 FROM copied_issues i WHERE i.number = b.issue AND i.state = 'open'
               AND substr(lower(i.repository_url), -(length(b.repository) + 7)) = '/repos/' || lower(b.repository))
 ORDER BY b.repository, b.issue, b.role
@@ -8258,7 +8241,7 @@ SELECT sessions.id, sessions.role, sessions.harness, sessions.model, sessions.re
         WHERE t.repository = sessions.repository AND t.issue = sessions.issue
         ORDER BY t.id DESC LIMIT 1) AS pull_request
 FROM sessions
-LEFT JOIN copied_workstreams w ON w.repository = sessions.workstream_repository AND w.number = sessions.workstream
+LEFT JOIN workstreams w ON w.repository = sessions.workstream_repository AND w.number = sessions.workstream AND w.state = 'open'
 LEFT JOIN copied_issues i
   ON i.repository = sessions.workstream_repository AND i.workstream = sessions.workstream AND i.number = sessions.issue
   AND substr(lower(i.repository_url), -(length(sessions.repository) + 7)) = '/repos/' || lower(sessions.repository)
@@ -8318,11 +8301,37 @@ func (q *Queries) ListOpenSessions(ctx context.Context) ([]ListOpenSessionsRow, 
 	return items, nil
 }
 
+const listOpenWorkstreamNumbers = `-- name: ListOpenWorkstreamNumbers :many
+SELECT number FROM workstreams WHERE repository = ? AND state = 'open' ORDER BY number
+`
+
+func (q *Queries) ListOpenWorkstreamNumbers(ctx context.Context, repository string) ([]int64, error) {
+	rows, err := q.db.QueryContext(ctx, listOpenWorkstreamNumbers, repository)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var number int64
+		if err := rows.Scan(&number); err != nil {
+			return nil, err
+		}
+		items = append(items, number)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOpenWorkstreamsOfOrganization = `-- name: ListOpenWorkstreamsOfOrganization :many
-SELECT w.repository, w.number, CAST(s.maintenance AS BOOLEAN) AS maintenance, CAST(s.skills AS BOOLEAN) AS skills
-FROM copied_workstreams w
-JOIN workstreams s ON s.repository = w.repository AND s.number = w.number
-WHERE substr(w.repository, 1, length(?1) + 1) = ?1 || '/'
+SELECT w.repository, w.number, CAST(w.maintenance AS BOOLEAN) AS maintenance, CAST(w.skills AS BOOLEAN) AS skills
+FROM workstreams w
+WHERE w.state = 'open' AND substr(w.repository, 1, length(?1) + 1) = ?1 || '/'
 ORDER BY w.repository, w.number
 `
 
@@ -9356,7 +9365,7 @@ SELECT b.harness, b.role, b.repository, i.number, i.title,
 FROM issue_bindings b
 JOIN copied_issues i ON i.number = b.issue AND i.state = 'open'
   AND substr(lower(i.repository_url), -(length(b.repository) + 7)) = '/repos/' || lower(b.repository)
-JOIN copied_workstreams w ON w.repository = i.repository AND w.number = i.workstream
+JOIN workstreams w ON w.repository = i.repository AND w.number = i.workstream AND w.state = 'open'
 ORDER BY b.repository, b.issue, b.role, i.repository, i.workstream
 `
 
@@ -9885,7 +9894,7 @@ const listWaitingSessions = `-- name: ListWaitingSessions :many
 SELECT s.harness, s.role, s.repository, s.issue, s.workstream_repository, s.workstream,
        w.title AS workstream_title, i.title AS issue_title
 FROM sessions s
-LEFT JOIN copied_workstreams w ON w.repository = s.workstream_repository AND w.number = s.workstream
+LEFT JOIN workstreams w ON w.repository = s.workstream_repository AND w.number = s.workstream AND w.state = 'open'
 LEFT JOIN copied_issues i
   ON i.repository = s.workstream_repository AND i.workstream = s.workstream AND i.number = s.issue
   AND substr(lower(i.repository_url), -(length(s.repository) + 7)) = '/repos/' || lower(s.repository)
@@ -9938,7 +9947,7 @@ func (q *Queries) ListWaitingSessions(ctx context.Context, prefix string) ([]Lis
 
 const listWorkstreamBuckets = `-- name: ListWorkstreamBuckets :many
 SELECT b.workstream, b.issue, CAST(b.closed AS BOOLEAN) AS closed FROM workstream_buckets b
-JOIN copied_workstreams w ON w.repository = b.repository AND w.number = b.workstream
+JOIN workstreams w ON w.repository = b.repository AND w.number = b.workstream AND w.state = 'open'
 WHERE b.repository = ?
 ORDER BY b.issue
 `
@@ -10097,7 +10106,7 @@ func (q *Queries) ListWorkstreamMcpServers(ctx context.Context, arg ListWorkstre
 const listWorkstreamSettingUsers = `-- name: ListWorkstreamSettingUsers :many
 SELECT b.harness, b.role, w.repository, w.number, w.title
 FROM issue_bindings b
-JOIN copied_workstreams w ON b.repository = w.repository AND b.issue = w.number
+JOIN workstreams w ON b.repository = w.repository AND b.issue = w.number AND w.state = 'open'
 ORDER BY w.repository, w.number, b.role
 `
 
@@ -10139,8 +10148,8 @@ func (q *Queries) ListWorkstreamSettingUsers(ctx context.Context) ([]ListWorkstr
 }
 
 const listWorkstreamsNeedingBuckets = `-- name: ListWorkstreamsNeedingBuckets :many
-SELECT w.number FROM copied_workstreams w
-WHERE w.repository = ?1
+SELECT w.number FROM workstreams w
+WHERE w.repository = ?1 AND w.state = 'open'
   AND ((SELECT COUNT(*) FROM copied_issues c
         WHERE c.repository = w.repository AND c.workstream = w.number AND c.parent = w.number AND c.parent_repository = w.repository) > CAST(?2 AS INTEGER)
        OR EXISTS (
@@ -12025,14 +12034,15 @@ func (q *Queries) UpdateCopiedIssue(ctx context.Context, arg UpdateCopiedIssuePa
 }
 
 const updateCopiedWorkstream = `-- name: UpdateCopiedWorkstream :execrows
-UPDATE copied_workstreams SET title = ?1, body = ?2
-WHERE repository = ?3 AND number = ?4
-  AND (title != ?1 OR body != ?2)
+UPDATE workstreams SET title = ?1, body = ?2, state = 'open', created_at = ?3
+WHERE repository = ?4 AND number = ?5
+  AND (title != ?1 OR body != ?2 OR state != 'open' OR created_at != ?3)
 `
 
 type UpdateCopiedWorkstreamParams struct {
 	Title      string
 	Body       string
+	CreatedAt  string
 	Repository string
 	Number     int64
 }
@@ -12041,6 +12051,7 @@ func (q *Queries) UpdateCopiedWorkstream(ctx context.Context, arg UpdateCopiedWo
 	result, err := q.db.ExecContext(ctx, updateCopiedWorkstream,
 		arg.Title,
 		arg.Body,
+		arg.CreatedAt,
 		arg.Repository,
 		arg.Number,
 	)

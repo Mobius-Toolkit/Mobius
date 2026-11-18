@@ -64,9 +64,8 @@ func copiedWorkstreams(t *testing.T, server *testserver.Server) []copiedWorkstre
 	t.Helper()
 	return query(t, server, func(rows *sql.Rows, w *copiedWorkstream) error {
 		return rows.Scan(&w.Number, &w.Title, &w.Body, &w.Autopilot)
-	}, `SELECT c.number, c.title, c.body, s.autopilot FROM copied_workstreams c
-		JOIN workstreams s ON s.repository = c.repository AND s.number = c.number
-		WHERE c.repository = ? ORDER BY c.number`, shop)
+	}, `SELECT number, title, body, autopilot FROM workstreams
+		WHERE repository = ? AND state = 'open' ORDER BY number`, shop)
 }
 
 func workstreamNumbers(t *testing.T, server *testserver.Server) []int64 {
@@ -414,11 +413,11 @@ func TestTheFullSyncForgetsTheRowsOfARepositoryThatIsNotPolled(t *testing.T) {
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
 
-	server := startServer(t, fake, t.TempDir(), `INSERT INTO copied_workstreams (repository, number, title, body) VALUES ('owner/gone', 5, 'An old Workstream', '')`)
+	server := startServer(t, fake, t.TempDir(), `INSERT INTO workstreams (repository, number, title) VALUES ('owner/gone', 5, 'An old Workstream')`)
 	server.WaitForFirstPoll(t, shop)
 
 	var stale int
-	if err := server.DB.QueryRow("SELECT count(*) FROM copied_workstreams WHERE repository = 'owner/gone'").Scan(&stale); err != nil {
+	if err := server.DB.QueryRow("SELECT count(*) FROM workstreams WHERE repository = 'owner/gone'").Scan(&stale); err != nil {
 		t.Fatal(err)
 	}
 	if stale != 0 {
@@ -513,6 +512,106 @@ func TestANewWorkstreamIsCopiedWithItsTree(t *testing.T) {
 	}
 }
 
+func TestTheBriefInTheTableHasNoLinkLineOfTheLeadChat(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
+	link := "[Open the Lead chat in Mobius](https://mobius.example.com/workstreams/owner/shop/12)"
+	fake.SetBody(shop, 12, "Brief of the plans\n\n"+link)
+	cfg := testserver.Config(t, t.TempDir())
+	withUIURL(cfg)
+	server := startServerWith(t, fake, cfg, "")
+	server.WaitForFirstPoll(t, shop)
+	if got := copiedWorkstreams(t, server); !reflect.DeepEqual(got, []copiedWorkstream{{12, "Integrate loyalty plans", "Brief of the plans", false}}) {
+		t.Fatalf("workstreams after the full copy = %+v", got)
+	}
+
+	fake.SetBody(shop, 12, "Brief of the tiers\n\n"+link)
+
+	testkit.WaitFor(t, func() bool {
+		return reflect.DeepEqual(copiedWorkstreams(t, server), []copiedWorkstream{{12, "Integrate loyalty plans", "Brief of the tiers", false}})
+	})
+}
+
+func TestAClosedWorkstreamGetsTheStateClosedAndKeepsItsSettingsAndItsTreeGoes(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := startWithTasks(t, fake)
+	if status, body := send(t, server, http.MethodPut, "/api/workstreams/owner/shop/12/evergreen", `{"on":true}`); status != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+	testkit.WaitFor(t, func() bool {
+		rows := settingsOf(t, server, 12)
+		return len(rows) == 1 && rows[0].Evergreen
+	})
+	want := settingsOf(t, server, 12)
+	listed := func() []int64 {
+		rows, err := store.New(server.DB).ListCopiedWorkstreams(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		numbers := []int64{}
+		for _, row := range rows {
+			numbers = append(numbers, row.Number)
+		}
+		return numbers
+	}
+	if got := listed(); !slices.Equal(got, []int64{12}) {
+		t.Fatalf("Workstream list = %v", got)
+	}
+
+	fake.CloseIssue(shop, 12)
+
+	testkit.WaitFor(t, func() bool { return len(listed()) == 0 })
+	var state string
+	if err := server.DB.QueryRow("SELECT state FROM workstreams WHERE repository = ? AND number = 12", shop).Scan(&state); err != nil || state != "closed" {
+		t.Errorf("state = %q, %v", state, err)
+	}
+	if got := settingsOf(t, server, 12); !slices.Equal(got, want) {
+		t.Errorf("settings of #12 = %+v, want %+v", got, want)
+	}
+	if got := issueNumbers(t, server); len(got) != 0 {
+		t.Errorf("issues = %v", got)
+	}
+}
+
+// While the full copy fails, the poll applies no change of an issue to the copy.
+func TestAFullCopyAgainClosesTheRowOfAWorkstreamThatGitHubClosedAndDeletesTheRowOfOneWithNoLabel(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := startWithTasks(t, fake)
+	for _, number := range []int64{13, 14} {
+		fake.AddIssue(shop, number, "Billing")
+		fake.AddLabel(shop, number, "mobius:workstream", "owner")
+	}
+	testkit.WaitFor(t, func() bool { return slices.Equal(workstreamNumbers(t, server), []int64{12, 13, 14}) })
+	fake.FailSubIssues(shop, 12, true)
+	fake.AddSubIssueOf(shop, 12, 42, "Let customers change plans")
+	waitForPoll(t, server, fake)
+	fake.CloseIssue(shop, 13)
+	fake.RemoveLabel(shop, 14, "mobius:workstream", "owner")
+	waitForPoll(t, server, fake)
+	if got := workstreamNumbers(t, server); !slices.Equal(got, []int64{12, 13, 14}) {
+		t.Fatalf("open Workstreams while the full copy fails = %v", got)
+	}
+	changes := listen(t, server)
+
+	fake.FailSubIssues(shop, 12, false)
+
+	waitForWorkstreams(t, changes)
+	if got := workstreamNumbers(t, server); !slices.Equal(got, []int64{12}) {
+		t.Errorf("open Workstreams = %v", got)
+	}
+	var state string
+	if err := server.DB.QueryRow("SELECT state FROM workstreams WHERE repository = ? AND number = 13", shop).Scan(&state); err != nil || state != "closed" {
+		t.Errorf("state of #13 = %q, %v", state, err)
+	}
+	if got := settingsOf(t, server, 14); len(got) != 0 {
+		t.Errorf("rows of workstreams for #14 = %+v", got)
+	}
+}
+
 func TestAClosedWorkstreamIsRemovedWithItsTree(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
@@ -539,6 +638,9 @@ func TestAWorkstreamThatLosesTheLabelIsRemovedWithItsTree(t *testing.T) {
 	fake.RemoveLabel(shop, 12, "mobius:workstream", "owner")
 
 	testkit.WaitFor(t, func() bool { return len(workstreamNumbers(t, server)) == 0 })
+	if got := settingsOf(t, server, 12); len(got) != 0 {
+		t.Errorf("rows of workstreams for #12 = %+v", got)
+	}
 	if got := issueNumbers(t, server); len(got) != 0 {
 		t.Errorf("issues = %v", got)
 	}
@@ -749,7 +851,11 @@ func TestAFullCopyAgainKeepsTheRowsOfWorkstreamsAndTheirSettings(t *testing.T) {
 		rows := settingsOf(t, server, 12)
 		return len(rows) == 1 && rows[0].Autopilot && rows[0].Evergreen
 	})
-	want := settingsOf(t, server, 12)
+	fake.AddIssue(shop, 13, "Billing")
+	fake.AddLabel(shop, 13, "mobius:workstream", "owner")
+	fake.AddLabel(shop, 13, "mobius:maintenance", "owner")
+	testkit.WaitFor(t, func() bool { return slices.Equal(workstreamNumbers(t, server), []int64{12, 13}) })
+	want := [][]workstreamSettings{settingsOf(t, server, 12), settingsOf(t, server, 13)}
 	fake.FailSubIssues(shop, 12, true)
 	fake.AddSubIssueOf(shop, 12, 42, "Let customers change plans")
 	waitForPoll(t, server, fake)
@@ -761,8 +867,10 @@ func TestAFullCopyAgainKeepsTheRowsOfWorkstreamsAndTheirSettings(t *testing.T) {
 	if got := issueNumbers(t, server); !slices.Equal(got, []int64{41, 50, 42}) {
 		t.Fatalf("issues = %v", got)
 	}
-	if got := settingsOf(t, server, 12); !slices.Equal(got, want) {
-		t.Errorf("settings of #12 = %+v, want %+v", got, want)
+	for i, number := range []int64{12, 13} {
+		if got := settingsOf(t, server, number); !slices.Equal(got, want[i]) {
+			t.Errorf("settings of #%d = %+v, want %+v", number, got, want[i])
+		}
 	}
 }
 

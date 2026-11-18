@@ -125,7 +125,7 @@ func waitForCopiedWorkstream(t *testing.T, server *testserver.Server, repository
 	t.Helper()
 	testkit.WaitFor(t, func() bool {
 		var count int
-		if err := server.DB.QueryRow("SELECT count(*) FROM copied_workstreams WHERE repository = ? AND number = ?", repository, openWorkstream).Scan(&count); err != nil {
+		if err := server.DB.QueryRow("SELECT count(*) FROM workstreams WHERE repository = ? AND number = ? AND state = 'open'", repository, openWorkstream).Scan(&count); err != nil {
 			t.Fatal(err)
 		}
 		return count == 1

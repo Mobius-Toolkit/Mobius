@@ -243,18 +243,13 @@ func TestListCopiedWorkstreams(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 	_, err = db.Exec(`
-		INSERT INTO copied_workstreams (repository, number, title, body) VALUES
-			('o/a', 1, 'No task', ''),
-			('o/a', 2, 'Open task', 'Brief'),
-			('o/a', 3, 'Closed tasks', ''),
-			('o/a', 4, 'Task of the same number in another repository', ''),
-			('o/b', 1, 'Other repository', '');
-		INSERT INTO workstreams (repository, number, autopilot) VALUES
-			('o/a', 1, 0),
-			('o/a', 2, 1),
-			('o/a', 3, 0),
-			('o/a', 4, 0),
-			('o/b', 1, 0);
+		INSERT INTO workstreams (repository, number, title, body, autopilot, state) VALUES
+			('o/a', 1, 'No task', '', 0, 'open'),
+			('o/a', 2, 'Open task', 'Brief', 1, 'open'),
+			('o/a', 3, 'Closed tasks', '', 0, 'open'),
+			('o/a', 4, 'Task of the same number in another repository', '', 0, 'open'),
+			('o/a', 5, 'Closed Workstream', '', 0, 'closed'),
+			('o/b', 1, 'Other repository', '', 0, 'open');
 		INSERT INTO copied_issues (repository, workstream, position, number, parent, parent_repository, title, body, state, author, html_url, repository_url) VALUES
 			('o/a', 2, 0, 20, 2, 'o/a', 'Task', '', 'closed', 'owner', '', ''),
 			('o/a', 2, 1, 21, 2, 'o/a', 'Task', '', 'open', 'owner', '', ''),
@@ -722,7 +717,7 @@ func TestTheOperatorBindingMigrationKeepsTheIssueBindingsAndAcceptsTheOperator(t
 	}
 }
 
-func TestTheWorkstreamsMigrationCopiesTheSettingsAndDropsTheColumns(t *testing.T) {
+func TestTheWorkstreamsMigrationCopiesTheSettings(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "mobius.db")
 	db := openBefore(t, path, 20270318000000)
 	if _, err := db.Exec(`INSERT INTO copied_workstreams (repository, number, title, body, autopilot, auto_merge, evergreen, maintenance, skills, created_at) VALUES
@@ -770,17 +765,82 @@ func TestTheWorkstreamsMigrationCopiesTheSettingsAndDropsTheColumns(t *testing.T
 	if !slices.Equal(got, want) {
 		t.Errorf("workstreams = %+v, want %+v", got, want)
 	}
-	var columns int
-	err = db.QueryRow(`SELECT count(*) FROM pragma_table_info('copied_workstreams')
-		WHERE name IN ('autopilot', 'auto_merge', 'evergreen', 'maintenance', 'skills')`).Scan(&columns)
+	if _, err := db.Exec("INSERT INTO workstreams (repository, number) VALUES ('o/a', 1)"); err == nil {
+		t.Error("the table accepts a second row for the same Workstream")
+	}
+}
+
+func TestTheWorkstreamTextsMigrationCopiesTheTextsWithNoChatLinkAndClosesTheRowsWithNoCopy(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mobius.db")
+	db := openBefore(t, path, 20270330000000)
+	if _, err := db.Exec(`INSERT INTO copied_workstreams (repository, number, title, body, created_at) VALUES
+		('o/a', 1, 'Plans', 'Brief.
+
+Second line.
+
+[Open the Lead chat in Mobius](https://mobius.example.com/workstreams/o/a/1)', '2027-03-01T10:00:00Z'),
+		('o/a', 2, 'No link', 'Brief.  ', '2027-03-02T10:00:00Z'),
+		('o/a', 3, 'Only the link', '[Open the Lead chat in Mobius](https://mobius.example.com/workstreams/o/a/3)
+', '2027-03-03T10:00:00Z'),
+		('o/a', 4, 'Link in the middle', '[Open the Lead chat in Mobius](https://mobius.example.com/workstreams/o/a/4)
+
+Brief.', '2027-03-04T10:00:00Z'),
+		('o/b', 1, 'No settings', '', '2027-03-05T10:00:00Z');
+		INSERT INTO workstreams (repository, number, autopilot) VALUES ('o/a', 1, 1), ('o/a', 2, 0), ('o/a', 3, 0), ('o/a', 4, 0), ('o/a', 5, 1)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := Open(t.Context(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if columns != 0 {
-		t.Errorf("setting columns of copied_workstreams = %d", columns)
+	defer func() { _ = db.Close() }()
+
+	rows, err := db.Query("SELECT repository, number, title, body, state, created_at, autopilot FROM workstreams ORDER BY repository, number")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := db.Exec("INSERT INTO workstreams (repository, number) VALUES ('o/a', 1)"); err == nil {
-		t.Error("the table accepts a second row for the same Workstream")
+	defer func() { _ = rows.Close() }()
+	type row struct {
+		Repository string
+		Number     int64
+		Title      string
+		Body       string
+		State      string
+		CreatedAt  string
+		Autopilot  bool
+	}
+	var got []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.Repository, &r.Number, &r.Title, &r.Body, &r.State, &r.CreatedAt, &r.Autopilot); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, r)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	want := []row{
+		{"o/a", 1, "Plans", "Brief.\n\nSecond line.", "open", "2027-03-01T10:00:00Z", true},
+		{"o/a", 2, "No link", "Brief.", "open", "2027-03-02T10:00:00Z", false},
+		{"o/a", 3, "Only the link", "", "open", "2027-03-03T10:00:00Z", false},
+		{"o/a", 4, "Link in the middle", "[Open the Lead chat in Mobius](https://mobius.example.com/workstreams/o/a/4)\n\nBrief.", "open", "2027-03-04T10:00:00Z", false},
+		{"o/a", 5, "", "", "closed", "", true},
+		{"o/b", 1, "No settings", "", "open", "2027-03-05T10:00:00Z", false},
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("workstreams = %+v, want %+v", got, want)
+	}
+	var tables int
+	if err := db.QueryRow("SELECT count(*) FROM sqlite_master WHERE name = 'copied_workstreams'").Scan(&tables); err != nil {
+		t.Fatal(err)
+	}
+	if tables != 0 {
+		t.Error("the table copied_workstreams exists")
 	}
 }
 
