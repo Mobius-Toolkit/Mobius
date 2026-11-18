@@ -429,6 +429,9 @@ describe("the tabs of the Implementer", () => {
         }),
       ),
       StoryCommand.resolve(SetBinding, Message.SaveFailed({ error: "nope" })),
+      model((m) => {
+        expect(sheet(m)).toMatchObject({ tab: "3", saving: false, error: "nope" });
+      }),
       message(Message.ClickedAddBinding()),
       message(Message.ClickedSave()),
       StoryCommand.expectExact(
@@ -447,7 +450,7 @@ describe("the tabs of the Implementer", () => {
     );
   });
 
-  it("replaces the role with the response of an add, and selects the added tab", () => {
+  it("closes the sheet after the save of a new binding, and replaces the role", () => {
     const added = { ...second, id: 4, max: 1 };
     story(
       update,
@@ -456,26 +459,18 @@ describe("the tabs of the Implementer", () => {
       message(Message.ClickedSave()),
       StoryCommand.resolve(
         AddBinding,
-        Message.BindingsChanged({
+        Message.RoleChanged({
           role: implementer({ moreBindings: [second, added] }),
-          tab: "4",
         }),
       ),
       model((m) => {
-        expect(sheet(m)).toMatchObject({
-          tab: "4",
-          hasNew: false,
-          saving: false,
-          harness: "antigravity",
-          max: "1",
-        });
+        expect(Option.isNone(m.sheet)).toBe(true);
         expect(Option.getOrThrow(m.roles)[0].moreBindings).toHaveLength(2);
-        expect(sheet(m).role.moreBindings).toHaveLength(2);
       }),
     );
   });
 
-  it("replaces the role with the response of a change, and keeps the tab and the new tab", () => {
+  it("closes the sheet after the save of an extra binding, and replaces the role", () => {
     story(
       update,
       given(openImplementer()),
@@ -485,13 +480,12 @@ describe("the tabs of the Implementer", () => {
       message(Message.ClickedSave()),
       StoryCommand.resolve(
         SetBinding,
-        Message.BindingsChanged({
+        Message.RoleChanged({
           role: implementer({ moreBindings: [{ ...second, max: 6 }] }),
-          tab: "3",
         }),
       ),
       model((m) => {
-        expect(sheet(m)).toMatchObject({ tab: "3", hasNew: true, saving: false, max: "6" });
+        expect(Option.isNone(m.sheet)).toBe(true);
         expect(Option.getOrThrow(m.roles)[0].moreBindings[0].max).toBe(6);
       }),
     );

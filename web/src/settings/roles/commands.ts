@@ -112,7 +112,7 @@ const bindingArgs = {
 
 export const AddBinding = Command.define("AddBinding", {
   args: bindingArgs,
-  messages: [Message.BindingsChanged, Message.SaveLoginRequired, Message.SaveFailed],
+  messages: [Message.RoleChanged, Message.SaveLoginRequired, Message.SaveFailed],
   execute: (body) =>
     request(() => addImplementerBinding(body)).pipe(
       Effect.map((res) => {
@@ -122,11 +122,7 @@ export const AddBinding = Command.define("AddBinding", {
         if (res.status !== 200) {
           return Message.SaveFailed({ error: res.data.error });
         }
-        const added = res.data.data.moreBindings.at(-1);
-        return Message.BindingsChanged({
-          role: { ...res.data.data, role: "implementer" },
-          tab: added === undefined ? "0" : String(added.id),
-        });
+        return Message.RoleChanged({ role: { ...res.data.data, role: "implementer" } });
       }),
       Effect.catchTag("RequestFailed", (error) =>
         Effect.succeed(Message.SaveFailed({ error: error.message })),
@@ -136,7 +132,7 @@ export const AddBinding = Command.define("AddBinding", {
 
 export const SetBinding = Command.define("SetBinding", {
   args: { id: Schema.Number, ...bindingArgs },
-  messages: [Message.BindingsChanged, Message.SaveLoginRequired, Message.SaveFailed],
+  messages: [Message.RoleChanged, Message.SaveLoginRequired, Message.SaveFailed],
   execute: ({ id, ...body }) =>
     request(() => setImplementerBinding(id, body)).pipe(
       Effect.map((res) => {
@@ -146,10 +142,7 @@ export const SetBinding = Command.define("SetBinding", {
         if (res.status !== 200) {
           return Message.SaveFailed({ error: res.data.error });
         }
-        return Message.BindingsChanged({
-          role: { ...res.data.data, role: "implementer" },
-          tab: String(id),
-        });
+        return Message.RoleChanged({ role: { ...res.data.data, role: "implementer" } });
       }),
       Effect.catchTag("RequestFailed", (error) =>
         Effect.succeed(Message.SaveFailed({ error: error.message })),

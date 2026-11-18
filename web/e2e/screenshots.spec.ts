@@ -3367,6 +3367,49 @@ test("screenshots", async ({ page }) => {
     roleRow("Implementer").getByText("claude-code", { exact: true }),
     roleRow("Implementer").getByText("sonnet", { exact: true }),
   ]);
+  await screenshot(
+    page,
+    "roles-binding-saved",
+    "/settings/roles",
+    (device) => [
+      ...frame(device, release),
+      roleRow("Implementer").getByText("claude-code", { exact: true }),
+      roleRow("Implementer").getByText("sonnet", { exact: true }),
+      roleRow("Implementer").getByText("max 3", { exact: true }),
+      () => expect(implementerSheet).toBeHidden(),
+    ],
+    async () => {
+      await roleRow("Implementer").click();
+      await implementerSheet.getByRole("tab", { name: "claude-code · sonnet" }).click();
+      await implementerSheet.getByLabel("Max", { exact: true }).fill("3");
+      const saved = page.waitForResponse(
+        (res) =>
+          res.url().endsWith(`/api/roles/implementer/bindings/${secondBinding.id}`) &&
+          res.request().method() === "PUT",
+      );
+      await implementerSheet.getByRole("button", { name: "Save" }).click();
+      expect((await saved).ok()).toBe(true);
+      await expect(implementerSheet).toBeHidden();
+    },
+    async () => {
+      const restored = await page.evaluate(
+        (id) =>
+          fetch(`/api/roles/implementer/bindings/${id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              harness: "claude-code",
+              model: "sonnet",
+              effort: "high",
+              context: 0,
+              max: 2,
+            }),
+          }).then((response) => response.status),
+        secondBinding.id,
+      );
+      expect(restored).toBe(200);
+    },
+  );
   const secondBindingRemoved = await page.evaluate(
     (id) =>
       fetch(`/api/roles/implementer/bindings/${id}`, { method: "DELETE" }).then(
