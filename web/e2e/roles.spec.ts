@@ -244,18 +244,26 @@ test("the Owner adds a binding with the plus tab, saves it, changes its max and 
   const added = bindingWritten(page, "POST");
   await sheet.getByRole("button", { name: "Save" }).click();
   expect((await added).ok()).toBe(true);
-  await expect(tabs).toHaveCount(3);
-  await expect(tabs.nth(1)).toHaveText("claude-code · haiku");
-  await expect(tabs.nth(1)).toHaveAttribute("aria-selected", "true");
+  await expect(sheet).toBeHidden();
   const row = roleRow(page, "Implementer");
   await expect(row).toContainText("claude-code");
   await expect(row.getByText("haiku")).toBeVisible();
+
+  await row.click();
+  await expect(tabs).toHaveCount(3);
+  await tabs.nth(1).click();
+  await expect(tabs.nth(1)).toHaveText("claude-code · haiku");
+  await expect(tabs.nth(1)).toHaveAttribute("aria-selected", "true");
 
   await sheet.getByLabel("Max", { exact: true }).fill("3");
   const changed = bindingWritten(page, "PUT");
   await sheet.getByRole("button", { name: "Save" }).click();
   expect((await changed).ok()).toBe(true);
+  await expect(sheet).toBeHidden();
   await expect(row).toContainText("max 3");
+
+  await row.click();
+  await tabs.nth(1).click();
   await expect(sheet.getByLabel("Max", { exact: true })).toHaveValue("3");
   await expect(sheet.getByRole("button", { name: "Reset" })).toBeHidden();
 
