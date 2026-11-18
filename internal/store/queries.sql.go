@@ -4399,6 +4399,36 @@ func (q *Queries) GetVoiceLanguage(ctx context.Context) (VoiceLanguage, error) {
 	return i, err
 }
 
+const getWorkstreamBrief = `-- name: GetWorkstreamBrief :one
+SELECT body, CAST(evergreen AS BOOLEAN) AS evergreen, CAST(maintenance AS BOOLEAN) AS maintenance, CAST(skills AS BOOLEAN) AS skills
+FROM workstreams
+WHERE repository = ? AND number = ?
+`
+
+type GetWorkstreamBriefParams struct {
+	Repository string
+	Number     int64
+}
+
+type GetWorkstreamBriefRow struct {
+	Body        string
+	Evergreen   bool
+	Maintenance bool
+	Skills      bool
+}
+
+func (q *Queries) GetWorkstreamBrief(ctx context.Context, arg GetWorkstreamBriefParams) (GetWorkstreamBriefRow, error) {
+	row := q.db.QueryRowContext(ctx, getWorkstreamBrief, arg.Repository, arg.Number)
+	var i GetWorkstreamBriefRow
+	err := row.Scan(
+		&i.Body,
+		&i.Evergreen,
+		&i.Maintenance,
+		&i.Skills,
+	)
+	return i, err
+}
+
 const getWorkstreamSettings = `-- name: GetWorkstreamSettings :one
 SELECT CAST(autopilot AS BOOLEAN) AS autopilot, CAST(auto_merge AS BOOLEAN) AS auto_merge, CAST(evergreen AS BOOLEAN) AS evergreen,
        CAST(maintenance AS BOOLEAN) AS maintenance, CAST(skills AS BOOLEAN) AS skills

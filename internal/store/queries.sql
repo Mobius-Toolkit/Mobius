@@ -986,6 +986,11 @@ SELECT title, body, CAST(evergreen AS BOOLEAN) AS evergreen, CAST(maintenance AS
 FROM workstreams
 WHERE repository = ? AND number = ? AND state = 'open';
 
+-- name: GetWorkstreamBrief :one
+SELECT body, CAST(evergreen AS BOOLEAN) AS evergreen, CAST(maintenance AS BOOLEAN) AS maintenance, CAST(skills AS BOOLEAN) AS skills
+FROM workstreams
+WHERE repository = ? AND number = ?;
+
 -- name: SetCopiedEvergreen :exec
 UPDATE workstreams SET evergreen = CAST(sqlc.arg(evergreen) AS BOOLEAN)
 WHERE repository = sqlc.arg(repository) AND number = sqlc.arg(number);
