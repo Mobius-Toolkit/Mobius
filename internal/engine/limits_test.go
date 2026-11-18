@@ -1404,12 +1404,12 @@ call = { tool = "background_state", arguments = { state = "done" } }
 	if err := os.WriteFile(release, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	session := waitForLeadPause(t, server)
+	waitForLeadPause(t, server)
 
 	sendChat(t, server, leadChat, "A second question")
 
 	testkit.WaitFor(t, func() bool { return server.Engine.ChatQueued(leadChat) == 0 })
-	session = waitForLeadPause(t, server)
+	session := waitForLeadPause(t, server)
 	if got := promptTexts(t, server, session.ID); len(got) != 1 {
 		t.Errorf("prompts during the pause = %q", got)
 	}
