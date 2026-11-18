@@ -220,6 +220,34 @@ func TestANewWorkstreamAddsACreationEventForTheLead(t *testing.T) {
 	}
 }
 
+func TestAReaddedWorkstreamLabelAddsASecondCreationEventForTheLead(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddIssue(shop, 13, "Plan prices")
+	server := startCopied(t, fake)
+
+	fake.AddLabel(shop, 13, "mobius:workstream", "owner")
+	testkit.WaitFor(t, func() bool {
+		events := leadEvents(t, server)
+		return len(events) == 1 && events[0].Workstream == 13 && events[0].Kind == "creation"
+	})
+
+	fake.RemoveLabel(shop, 13, "mobius:workstream", "owner")
+	testkit.WaitFor(t, func() bool { return len(workstreams(t, server)) == 0 })
+
+	fake.AddLabel(shop, 13, "mobius:workstream", "owner")
+	testkit.WaitFor(t, func() bool { return len(workstreams(t, server)) == 1 })
+	events := testkit.WaitForValue(t, func() ([]leadEvent, bool) {
+		events := leadEvents(t, server)
+		return events, len(events) == 2
+	})
+	for i, event := range events {
+		if event.Workstream != 13 || event.Kind != "creation" {
+			t.Errorf("event[%d] = %+v", i, event)
+		}
+	}
+}
+
 // startEmpty starts the server on a repository with no issue and waits for the poll that writes its issues cursor.
 func startEmpty(t *testing.T, fake *testkit.FakeGitHub, dataDir string) *testserver.Server {
 	t.Helper()

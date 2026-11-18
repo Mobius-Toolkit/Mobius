@@ -390,18 +390,46 @@ func TestATrustedCloseClosesTheWorkstreamOnceAcrossPolls(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	addWorkstream(fake)
-	server := startCopied(t, fake)
+	server, _ := connect(t, fake, curatorScript)
 
 	fake.CloseIssue(shop, 12)
 
 	testkit.WaitFor(t, func() bool {
 		state, reason := fake.State(shop, 41)
-		return state == "closed" && reason == "not_planned"
+		if state != "closed" || reason != "not_planned" {
+			return false
+		}
+		sessions := curatorSessions(t, server)
+		return len(sessions) == 1 && sessions[0].EndedAt.Valid
+	})
+	testkit.WaitFor(t, func() bool {
+		var status string
+		err := server.DB.QueryRow("SELECT status FROM outgoing_changes WHERE repository = ? AND number = 12 AND field = 'state'", shop).Scan(&status)
+		return err == nil && status == "sent"
 	})
 	waitForPolls(t, fake)
+
+	// Move the issues cursor back so the next poll reads #12 and its closed event a second time.
+	const earlier = "2020-01-01T00:00:00Z"
+	if _, err := server.DB.Exec("UPDATE sync_cursors SET since = ?, etag = NULL WHERE repository = ? AND endpoint = 'issues'", earlier, shop); err != nil {
+		t.Fatal(err)
+	}
+	testkit.WaitFor(t, func() bool {
+		var since string
+		err := server.DB.QueryRow("SELECT since FROM sync_cursors WHERE repository = ? AND endpoint = 'issues'", shop).Scan(&since)
+		return err == nil && since != earlier
+	})
 	waitForPolls(t, fake)
+
 	if comments := fake.Comments(shop, 41); len(comments) != 1 {
 		t.Errorf("comments of #41 = %+v", comments)
+	}
+	if sessions := curatorSessions(t, server); len(sessions) != 1 {
+		t.Errorf("curator sessions = %+v", sessions)
+	}
+	var stateChanges int
+	if err := server.DB.QueryRow("SELECT count(*) FROM outgoing_changes WHERE repository = ? AND number = 12 AND field = 'state'", shop).Scan(&stateChanges); err != nil || stateChanges != 1 {
+		t.Errorf("state outgoing changes = %d, %v", stateChanges, err)
 	}
 	var state string
 	if err := server.DB.QueryRow("SELECT state FROM workstreams WHERE repository = ? AND number = 12", shop).Scan(&state); err != nil || state != "closed" {

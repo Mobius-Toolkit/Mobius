@@ -368,6 +368,9 @@ func (e *Engine) treeDiffers(ctx context.Context, repository github.Repository, 
 	var differs func(from github.Repository, parent int64) (bool, error)
 	differs = func(from github.Repository, parent int64) (bool, error) {
 		issues, err := from.SubIssues(ctx, parent)
+		if github.NotFound(err) {
+			return len(children[lowerRef(from.FullName, parent)]) > 0, nil
+		}
 		if err != nil {
 			return false, err
 		}
@@ -816,7 +819,7 @@ func (e *Engine) copyWorkstream(ctx context.Context, repository github.Repositor
 
 // readTree gives the issues below the Workstream, depth first, with the rules of list_tasks, but with each issue.
 // A sub-issue of another repository has its blockers and sub-issues. A nested Workstream and an issue of a repository
-// that the App cannot read are leaves.
+// that the App cannot read are leaves. When GitHub answers 404 or 410 for an issue, it skips that subtree.
 func (e *Engine) readTree(ctx context.Context, repository github.Repository, workstream int64) ([]copiedIssue, error) {
 	var tree []copiedIssue
 	return tree, e.addSubtree(ctx, repository, repository, workstream, &tree)
@@ -825,6 +828,9 @@ func (e *Engine) readTree(ctx context.Context, repository github.Repository, wor
 // addSubtree adds the sub-issues of the issue parent of repository. home is the repository of the Workstream.
 func (e *Engine) addSubtree(ctx context.Context, home, repository github.Repository, parent int64, tree *[]copiedIssue) error {
 	issues, err := repository.SubIssues(ctx, parent)
+	if github.NotFound(err) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
@@ -851,6 +857,9 @@ func (e *Engine) addSubtree(ctx context.Context, home, repository github.Reposit
 // openBlockers gives the open blockers of the issue number, also in other repositories.
 func openBlockers(ctx context.Context, repository github.Repository, number int64) ([]*gh.Issue, error) {
 	issues, err := repository.BlockedBy(ctx, number)
+	if github.NotFound(err) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}

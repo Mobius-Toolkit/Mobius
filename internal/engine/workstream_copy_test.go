@@ -878,6 +878,27 @@ func TestAFullCopyAgainKeepsTheRowsOfWorkstreamsAndTheirSettings(t *testing.T) {
 	}
 }
 
+func TestAFullCopySkipsAnOpenRowWhoseIssueDoesNotExistOnGitHub(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
+	fake.AddIssue(shop, 41, "Add plan model")
+	fake.AddSubIssue(shop, 12, 41)
+	server := startServer(t, fake, t.TempDir(), `
+		INSERT INTO sync_cursors (repository, endpoint, since, etag) VALUES ('owner/shop', 'issues', '2999-01-01T00:00:00Z', '"old"');
+		INSERT INTO workstreams (repository, number, title, body, state, created_at) VALUES
+			('owner/shop', 10, 'Gone Workstream', '', 'open', '2026-01-01T00:00:00Z'),
+			('owner/shop', 12, 'Integrate loyalty plans', '', 'open', '2026-01-01T00:00:00Z');
+	`)
+	server.WaitForFirstPoll(t, shop)
+
+	testkit.WaitFor(t, func() bool { return slices.Equal(issueNumbers(t, server), []int64{41}) })
+
+	fake.AddSubIssueOf(shop, 12, 42, "Let customers change plans")
+	testkit.WaitFor(t, func() bool { return slices.Equal(issueNumbers(t, server), []int64{41, 42}) })
+}
+
 func TestTheCloseOfAWorkstreamKeepsItsRowOfWorkstreamsAndLeavesTheAutopilotList(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
