@@ -113,7 +113,9 @@ func TestAStoredMessageGoesToTheAgentBeforeAMessageOfThisRunThatArrivesBeforeThe
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	dataDir := t.TempDir()
-	seed(t, dataDir, seedMessage(1, shop, 12, "Owner", "Earlier message.", "a1", "", ""))
+	seed(t, dataDir,
+		`INSERT INTO workstreams (repository, number, title, body, created_at) VALUES ('owner/shop', 12, 'Integrate loyalty plans', 'Ship loyalty plans to all shops.', '2026-10-04T09:00:00Z')`,
+		seedMessage(1, shop, 12, "Owner", "Earlier message.", "a1", "", ""))
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
 	testkit.InstallFakeAgent(t, dataDir, options+"[[prompts]]\nwhen = \"Running message.\"\nhang = true\n[[prompts]]\nreply = [\"Seen\"]\n")
