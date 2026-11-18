@@ -1850,25 +1850,10 @@ func (e *Engine) postReplies(ctx context.Context, a *Agent, repository github.Re
 	return nil
 }
 
-// brief gives the Brief of the Workstream: the body of its issue.
-func brief(ctx context.Context, repository github.Repository, workstream int64) (string, error) {
-	issue, err := repository.Issue(ctx, workstream)
-	if err != nil {
-		return "", err
-	}
-	if issue == nil {
-		return "", errors.New("the Workstream issue does not exist")
-	}
-	return issue.GetBody(), nil
-}
-
 // workstreamBrief gives the Brief of the Workstream of the task, which can be in another repository than the task.
 func (e *Engine) workstreamBrief(ctx context.Context, task store.Task) (string, error) {
-	source, err := e.repository(task.WorkstreamRepository)
-	if err != nil {
-		return "", err
-	}
-	return brief(ctx, source, task.Workstream)
+	row, err := e.brief(ctx, task.WorkstreamRepository, task.Workstream)
+	return row.Body, err
 }
 
 // existingIssue gives the issue number, or a refusal when it does not exist.

@@ -2074,7 +2074,7 @@ func (e *Engine) fetchLeadTurn(ctx context.Context, key ChatKey, it item) string
 // leadContext gives the Brief, the memory and the task list of the Workstream, and tells if the Workstream is a
 // maintenance Workstream and if it is a skills Workstream.
 func (e *Engine) leadContext(ctx context.Context, repository github.Repository, workstream int64) (string, bool, bool, error) {
-	brief, evergreen, maintenance, skills, err := e.brief(ctx, repository, workstream)
+	row, err := e.brief(ctx, repository.FullName, workstream)
 	if err != nil {
 		return "", false, false, err
 	}
@@ -2091,7 +2091,7 @@ func (e *Engine) leadContext(ctx context.Context, repository github.Repository, 
 		return "", false, false, err
 	}
 	evergreenText := ""
-	if evergreen {
+	if row.Evergreen {
 		evergreenText = "This Workstream is evergreen: it has no end.\n\n"
 	}
 	level, err := e.workstreamLevel(ctx, repository.FullName, workstream)
@@ -2108,7 +2108,7 @@ func (e *Engine) leadContext(ctx context.Context, repository github.Repository, 
 			autopilotText += switchContexts[kind] + "\n\n"
 		}
 	}
-	return fmt.Sprintf("# Brief\n\n%s\n\n%s%s# MEMORY.md\n\n%s\n\n# Repositories\n\n%s\n\n# Task list\n\n%s\n\n# Recurring tasks\n\n%s\n\n", brief, evergreenText, autopilotText, memory, e.repositoriesText(ctx, repository.Owner()), taskText(repository.FullName, lines), recurringText(recurring)), maintenance, skills, nil
+	return fmt.Sprintf("# Brief\n\n%s\n\n%s%s# MEMORY.md\n\n%s\n\n# Repositories\n\n%s\n\n# Task list\n\n%s\n\n# Recurring tasks\n\n%s\n\n", row.Body, evergreenText, autopilotText, memory, e.repositoriesText(ctx, repository.Owner()), taskText(repository.FullName, lines), recurringText(recurring)), row.Maintenance, row.Skills, nil
 }
 
 func recurringText(tasks []RecurringTask) string {
@@ -2164,24 +2164,14 @@ func (e *Engine) repositoriesText(ctx context.Context, organization string) stri
 	return text
 }
 
-// brief gives the Brief of the Workstream and tells if the Workstream is evergreen, if it is a maintenance
-// Workstream and if it is a skills Workstream. It reads the local copy, and reads GitHub for a Workstream that the copy does not have.
-func (e *Engine) brief(ctx context.Context, repository github.Repository, workstream int64) (string, bool, bool, bool, error) {
-	copied, err := e.queries.GetCopiedWorkstream(ctx, store.GetCopiedWorkstreamParams{Repository: repository.FullName, Number: workstream})
-	if err == nil {
-		return copied.Body, copied.Evergreen, copied.Maintenance, copied.Skills, nil
+// brief gives the Brief of the Workstream and its evergreen, maintenance and skills settings from the table
+// workstreams. It reads a closed Workstream too.
+func (e *Engine) brief(ctx context.Context, repository string, workstream int64) (store.GetWorkstreamBriefRow, error) {
+	row, err := e.queries.GetWorkstreamBrief(ctx, store.GetWorkstreamBriefParams{Repository: repository, Number: workstream})
+	if errors.Is(err, sql.ErrNoRows) {
+		return row, errors.New("the Workstream does not exist")
 	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return "", false, false, false, err
-	}
-	issue, err := repository.Issue(ctx, workstream)
-	if err != nil {
-		return "", false, false, false, err
-	}
-	if issue == nil {
-		return "", false, false, false, errors.New("the Workstream issue does not exist")
-	}
-	return issue.GetBody(), hasLabel(issue, evergreenLabel), hasLabel(issue, maintenanceLabel), hasLabel(issue, skillsLabel), nil
+	return row, err
 }
 
 // readMemory gives MEMORY.md of the Lead directory dir, or "" when the file does not exist. A longer file than
