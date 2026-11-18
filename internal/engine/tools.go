@@ -1043,10 +1043,14 @@ func (e *Engine) createIssue(ctx context.Context, c caller, repository github.Re
 	if issue.number != 0 {
 		return fmt.Sprintf("Created %s#%d.", repository.FullName, issue.number), nil
 	}
-	number, err := e.addIssueAt(ctx, repository, issueAt{workstream, c.workstream}, newIssue{title: input.Title, body: input.Body, mark: mark, parent: parent, blockers: blockers}, nil)
+	created, err := e.postIssue(ctx, repository, issueAt{workstream, c.workstream}, newIssue{title: input.Title, body: input.Body, mark: mark, parent: parent, blockers: blockers}, nil)
+	number := created.GetNumber()
 	c.agent.finishLeadIssue(key, issue, number)
 	if err != nil {
 		return "", err
+	}
+	if err := e.addIssueToCopy(ctx, issueRef{workstream.FullName, c.workstream}, created, parent, blockers); err != nil {
+		log.Printf("add %s#%d to the copy of %s#%d: %v", repository.FullName, number, workstream.FullName, c.workstream, err)
 	}
 	text := fmt.Sprintf("Created %s#%d.", repository.FullName, number)
 	if setting != nil {
@@ -1258,13 +1262,19 @@ func checkIssue(input issueInput) error {
 	return nil
 }
 
-// addIssueAt creates the issue input in repository with labels and the link to the Lead chat of the Workstream, adds it
-// below input.parent, and adds the blockers. It gives the number of the issue. When GitHub created the issue but a later
-// call failed, it gives the number with the error.
+// addIssueAt is postIssue, but it gives only the number of the issue.
 func (e *Engine) addIssueAt(ctx context.Context, repository github.Repository, workstream issueAt, input newIssue, labels []string) (int, error) {
+	issue, err := e.postIssue(ctx, repository, workstream, input, labels)
+	return issue.GetNumber(), err
+}
+
+// postIssue creates the issue input in repository with labels and the link to the Lead chat of the Workstream, adds it
+// below input.parent, and adds the blockers. It gives the issue. When GitHub created the issue but a later call failed,
+// it gives the issue with the error.
+func (e *Engine) postIssue(ctx context.Context, repository github.Repository, workstream issueAt, input newIssue, labels []string) (*gh.Issue, error) {
 	blockerIDs, err := blockerIDsOf(ctx, input.blockers)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	body := e.withChatLink(workstream.repository, workstream.number, input.body)
 	if input.mark != "" {
@@ -1272,18 +1282,18 @@ func (e *Engine) addIssueAt(ctx context.Context, repository github.Repository, w
 	}
 	issue, _, err := repository.Client.Issues.Create(ctx, repository.Owner(), repository.Name(), gh.CreateIssueRequest{Title: input.title, Body: &body, Labels: labels})
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	parent := input.parent
 	if _, _, err := parent.repository.Client.SubIssue.Add(ctx, parent.repository.Owner(), parent.repository.Name(), parent.number, gh.SubIssueRequest{SubIssueID: issue.GetID(), ReplaceParent: new(true)}); err != nil {
-		return issue.GetNumber(), fmt.Errorf("GitHub created %s#%d, but the add of %s#%d below %s#%d failed. Do not create the issue again: %w", repository.FullName, issue.GetNumber(), repository.FullName, issue.GetNumber(), parent.repository.FullName, parent.number, err)
+		return issue, fmt.Errorf("GitHub created %s#%d, but the add of %s#%d below %s#%d failed. Do not create the issue again: %w", repository.FullName, issue.GetNumber(), repository.FullName, issue.GetNumber(), parent.repository.FullName, parent.number, err)
 	}
 	for i, id := range blockerIDs {
 		if _, _, err := repository.Client.Issues.AddBlockedBy(ctx, repository.Owner(), repository.Name(), int64(issue.GetNumber()), gh.IssueDependencyRequest{IssueID: id}); err != nil {
-			return issue.GetNumber(), fmt.Errorf("GitHub created %s#%d, but the add of the blocker %s#%d failed. Do not create the issue again: %w", repository.FullName, issue.GetNumber(), input.blockers[i].repository.FullName, input.blockers[i].number, err)
+			return issue, fmt.Errorf("GitHub created %s#%d, but the add of the blocker %s#%d failed. Do not create the issue again: %w", repository.FullName, issue.GetNumber(), input.blockers[i].repository.FullName, input.blockers[i].number, err)
 		}
 	}
-	return issue.GetNumber(), nil
+	return issue, nil
 }
 
 // blockerIDsOf gives the ids of the issues blockers. It refuses a missing issue, a pull request and an issue that is two

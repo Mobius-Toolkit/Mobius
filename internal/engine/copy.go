@@ -639,7 +639,8 @@ func (e *Engine) labelChangesNow() map[issueRef]int {
 func (e *Engine) writeRead(ctx context.Context, repository string, before map[issueRef]int, trees [][]copiedIssue, write func(*store.Queries) error) error {
 	e.labelChangeMu.Lock()
 	defer e.labelChangeMu.Unlock()
-	return e.inTx(ctx, func(q *store.Queries) error {
+	var pending []addedCopy
+	err := e.inTx(ctx, func(q *store.Queries) error {
 		for _, tree := range trees {
 			for _, copied := range tree {
 				issue := copied.issue
@@ -674,8 +675,125 @@ func (e *Engine) writeRead(ctx context.Context, repository string, before map[is
 				}
 			}
 		}
-		return write(q)
+		if err := write(q); err != nil {
+			return err
+		}
+		pending = e.pendingCopies(trees)
+		for _, added := range pending {
+			if err := putAddedIssue(ctx, q, added); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
+	if err == nil {
+		e.addedCopies = pending
+	}
+	return err
+}
+
+// addedCopyLifetime is the time that writeRead puts an added issue back into the tree. A list of GitHub can lack a new
+// issue for some time, and an issue that GitHub never lists must not stay in the copy.
+const addedCopyLifetime = 10 * time.Minute
+
+// addedCopy is an issue that addIssueToCopy added to the copied tree of workstream. The copy keeps it until a tree of
+// GitHub has it, or until the time until.
+type addedCopy struct {
+	workstream issueRef
+	issue      copiedIssue
+	until      time.Time
+}
+
+// pendingCopies gives the added issues that none of trees has, and that have not expired. The caller holds labelChangeMu.
+func (e *Engine) pendingCopies(trees [][]copiedIssue) []addedCopy {
+	now := e.timeNow()
+	var pending []addedCopy
+	for _, added := range e.addedCopies {
+		listed := slices.ContainsFunc(trees, func(tree []copiedIssue) bool {
+			return slices.ContainsFunc(tree, func(copied copiedIssue) bool { return sameIssue(copied.issue, added.issue.issue) })
+		})
+		if !listed && now.Before(added.until) {
+			pending = append(pending, added)
+		}
+	}
+	return pending
+}
+
+func sameIssue(a, b *gh.Issue) bool {
+	return a.GetNumber() == b.GetNumber() && strings.EqualFold(a.GetRepositoryURL(), b.GetRepositoryURL())
+}
+
+// addIssueToCopy adds the issue, which createIssue created below parent with blockers, to the copied tree of the
+// Workstream workstream. It reads no issue from GitHub. Each write of a tree of GitHub that lacks the issue puts it
+// back (writeRead).
+func (e *Engine) addIssueToCopy(ctx context.Context, workstream issueRef, issue *gh.Issue, parent issueAt, blockers []issueAt) error {
+	copied := copiedIssue{issue: issue, parent: parent.number, parentRepository: parent.repository.FullName}
+	for _, blocker := range blockers {
+		found, err := e.copiedBlockerOf(ctx, workstream.repository, blocker)
+		if err != nil {
+			return err
+		}
+		copied.blockers = append(copied.blockers, found)
+	}
+	e.copyWrite.Lock()
+	defer e.copyWrite.Unlock()
+	e.labelChangeMu.Lock()
+	defer e.labelChangeMu.Unlock()
+	added := addedCopy{workstream: workstream, issue: copied, until: e.timeNow().Add(addedCopyLifetime)}
+	if err := e.inTx(ctx, func(q *store.Queries) error { return putAddedIssue(ctx, q, added) }); err != nil {
+		return err
+	}
+	e.addedCopies = append(e.addedCopies, added)
+	e.publish(Change{Workstreams: true})
+	return nil
+}
+
+// copiedBlockerOf gives the blocker as copyBlockers does, but it reads the Workstream of the blocker from the copy.
+func (e *Engine) copiedBlockerOf(ctx context.Context, home string, blocker issueAt) (copiedBlocker, error) {
+	found := copiedBlocker{repository: blocker.repository.FullName, number: blocker.number}
+	if !strings.EqualFold(blocker.repository.FullName, home) {
+		return found, nil
+	}
+	tree, err := e.queries.GetCopiedIssueTree(ctx, store.GetCopiedIssueTreeParams{Number: blocker.number, Repository: home})
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && tree.Repository != home) {
+		return found, nil
+	}
+	if err != nil {
+		return found, err
+	}
+	workstream, err := e.queries.GetCopiedWorkstream(ctx, store.GetCopiedWorkstreamParams{Repository: tree.Repository, Number: tree.Workstream})
+	if err != nil {
+		return found, err
+	}
+	found.workstream = sql.NullInt64{Int64: tree.Workstream, Valid: true}
+	found.workstreamTitle = sql.NullString{String: workstream.Title, Valid: true}
+	return found, nil
+}
+
+// putAddedIssue adds the issue to the end of the copied tree of its Workstream, with the labels and blockers. It adds
+// nothing when the copy has no such Workstream or the tree has the issue. The next copy of the tree puts the issue in
+// its depth-first place.
+func putAddedIssue(ctx context.Context, q *store.Queries, added addedCopy) error {
+	workstream := added.workstream
+	stored, err := q.HasCopiedWorkstream(ctx, store.HasCopiedWorkstreamParams{Repository: workstream.repository, Number: workstream.number})
+	if err != nil || !stored {
+		return err
+	}
+	rows, err := q.ListCopiedTree(ctx, store.ListCopiedTreeParams{Repository: workstream.repository, Workstream: workstream.number})
+	if err != nil {
+		return err
+	}
+	number, url := int64(added.issue.issue.GetNumber()), added.issue.issue.GetRepositoryURL()
+	if slices.ContainsFunc(rows, func(row store.ListCopiedTreeRow) bool {
+		return row.Number == number && strings.EqualFold(row.RepositoryUrl, url)
+	}) {
+		return nil
+	}
+	position := int64(0)
+	if len(rows) > 0 {
+		position = rows[len(rows)-1].Position + 1
+	}
+	return addCopiedIssue(ctx, q, workstream.repository, workstream.number, position, added.issue)
 }
 
 // copyTree replaces the copied tree of the Workstream with the tree on GitHub.
@@ -856,41 +974,47 @@ func removeTree(ctx context.Context, q *store.Queries, repository string, workst
 
 func addTree(ctx context.Context, q *store.Queries, repository string, workstream int64, tree []copiedIssue) error {
 	for i, copied := range tree {
-		position := int64(i)
-		issue := copied.issue
-		err := q.AddCopiedIssue(ctx, store.AddCopiedIssueParams{
-			Repository:       repository,
-			Workstream:       workstream,
-			Position:         position,
-			Number:           int64(issue.GetNumber()),
-			Parent:           copied.parent,
-			ParentRepository: copied.parentRepository,
-			Title:            issue.GetTitle(),
-			Body:             issue.GetBody(),
-			State:            issue.GetState(),
-			Author:           issue.GetUser().GetLogin(),
-			HtmlUrl:          issue.GetHTMLURL(),
-			RepositoryUrl:    issue.GetRepositoryURL(),
+		if err := addCopiedIssue(ctx, q, repository, workstream, int64(i), copied); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func addCopiedIssue(ctx context.Context, q *store.Queries, repository string, workstream, position int64, copied copiedIssue) error {
+	issue := copied.issue
+	err := q.AddCopiedIssue(ctx, store.AddCopiedIssueParams{
+		Repository:       repository,
+		Workstream:       workstream,
+		Position:         position,
+		Number:           int64(issue.GetNumber()),
+		Parent:           copied.parent,
+		ParentRepository: copied.parentRepository,
+		Title:            issue.GetTitle(),
+		Body:             issue.GetBody(),
+		State:            issue.GetState(),
+		Author:           issue.GetUser().GetLogin(),
+		HtmlUrl:          issue.GetHTMLURL(),
+		RepositoryUrl:    issue.GetRepositoryURL(),
+	})
+	if err != nil {
+		return err
+	}
+	if err := addLabels(ctx, q, repository, workstream, position, labelNames(issue)); err != nil {
+		return err
+	}
+	for _, blocker := range copied.blockers {
+		err := q.AddCopiedBlocker(ctx, store.AddCopiedBlockerParams{
+			Repository:             repository,
+			Workstream:             workstream,
+			Position:               position,
+			BlockerRepository:      blocker.repository,
+			Number:                 blocker.number,
+			BlockerWorkstream:      blocker.workstream,
+			BlockerWorkstreamTitle: blocker.workstreamTitle,
 		})
 		if err != nil {
 			return err
-		}
-		if err := addLabels(ctx, q, repository, workstream, position, labelNames(issue)); err != nil {
-			return err
-		}
-		for _, blocker := range copied.blockers {
-			err := q.AddCopiedBlocker(ctx, store.AddCopiedBlockerParams{
-				Repository:             repository,
-				Workstream:             workstream,
-				Position:               position,
-				BlockerRepository:      blocker.repository,
-				Number:                 blocker.number,
-				BlockerWorkstream:      blocker.workstream,
-				BlockerWorkstreamTitle: blocker.workstreamTitle,
-			})
-			if err != nil {
-				return err
-			}
 		}
 	}
 	return nil

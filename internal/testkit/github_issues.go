@@ -362,6 +362,14 @@ func (g *FakeGitHub) HideFromIssueList(repository string, number int64) {
 	}
 }
 
+// HideFromSubIssues leaves the issue number of repository out of each read of sub-issues, or shows it again when hide is
+// false. The issue need not exist yet. The read gives the old list of a GitHub that lists a new sub-issue late.
+func (g *FakeGitHub) HideFromSubIssues(repository string, number int64, hide bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.hiddenFromSubIssues[issueKey{repository, number}] = hide
+}
+
 // FailSubIssues makes each read of the sub-issues of the issue fail, or work again when fail is false.
 func (g *FakeGitHub) FailSubIssues(repository string, number int64, fail bool) {
 	g.mu.Lock()
@@ -1093,7 +1101,9 @@ func (g *FakeGitHub) subIssues(w http.ResponseWriter, r *http.Request) {
 	}
 	children := []issueJSON{}
 	for _, child := range g.issues[key].subIssues {
-		children = append(children, g.issueJSON(child))
+		if !g.hiddenFromSubIssues[child] {
+			children = append(children, g.issueJSON(child))
+		}
 	}
 	writeJSON(w, http.StatusOK, page(w, r, children))
 }
