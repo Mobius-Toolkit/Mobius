@@ -178,10 +178,10 @@ var issueTriagers = engine.ChatKey{Organization: "owner", Repository: shop}
 // connectTriager starts a server with the Workstream #12 and its Brief, and the Triager of triager.
 func connectTriager(t *testing.T, fake *testkit.FakeGitHub) (*testserver.Server, string) {
 	t.Helper()
-	server, dataDir := connect(t, fake, triager)
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
 	fake.SetBody(shop, 12, "Ship loyalty plans to all shops.")
-	waitForPoll(t, server, fake)
-	return server, dataDir
+	return connect(t, fake, triager)
 }
 
 func TestANewCoordinatorChatSessionStartsWhileGitHubRefusesEachRequest(t *testing.T) {
@@ -931,9 +931,10 @@ func TestAnApprovedMessageOfTheTriagerThatFailsAtTheCloseOfTheIssueSendsTheLeadO
 func TestAPollThatReadsTheHeldTurnWhileAnApprovalRestartsTheTriagerStartsNoSecondRun(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	lingers := "[[prompts]]\nwhen = \"Send it to the Lead.\"\ncall = { tool = \"message_lead\", arguments = { workstream = 12, text = \"Add refunds to the loyalty plans.\" } }\nlinger = \"1m\"\n\n"
-	server, _ := connect(t, fake, lingers+triager)
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
 	fake.SetBody(shop, 12, "Ship loyalty plans to all shops.")
-	waitForPoll(t, server, fake)
+	server, _ := connect(t, fake, lingers+triager)
 	fake.CreateIssue(shop, 72, "Add refunds", "Refund each order.", "owner")
 	proposal := triagerComment(72, "Proposal: a message to the Lead of #12.")
 	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 72), proposal) })
@@ -1009,9 +1010,10 @@ func TestATriagerThatStartsAResearcherAgainAfterTheWaitPromptStartsOneResearcher
 		"[[prompts]]\nwhen = \"# Issue\"\nupdates = ['" + asyncAgentStart + "']\n" + start + "\n\n" +
 		"[[prompts]]\n" + start + "\n\n" +
 		"[[prompts]]\ncall = { tool = \"background_state\", arguments = { state = \"done\" } }\n\n"
-	server, _ := connect(t, fake, script)
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
 	fake.SetBody(shop, 12, "Ship loyalty plans to all shops.")
-	waitForPoll(t, server, fake)
+	server, _ := connect(t, fake, script)
 
 	fake.CreateIssue(shop, 73, "Add refunds", "Refund each order.", "owner")
 
@@ -1097,9 +1099,10 @@ func TestTheReportOfAResearcherArrivesBeforeTheNextTurnWhenTheFirstCommentFails(
 func TestTheReportOfAResearcherThatIsTooLongForACommentArrivesCutAndStartsTheNextTurn(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, strings.Replace(triager, "LONG_REPORT", "first"+strings.Repeat("a", 70_000)+"last", 1))
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
 	fake.SetBody(shop, 12, "Ship loyalty plans to all shops.")
-	waitForPoll(t, server, fake)
+	server, _ := connect(t, fake, strings.Replace(triager, "LONG_REPORT", "first"+strings.Repeat("a", 70_000)+"last", 1))
 
 	fake.CreateIssue(shop, 70, "Add refunds", "Refund each order.", "owner")
 
@@ -1128,9 +1131,14 @@ func TestTheReportOfAResearcherThatIsTooLongForACommentArrivesCutAndStartsTheNex
 func TestTheCoordinatorChatCreatesAWorkstreamAfterTheApproval(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, approvalSeen+triager)
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
 	fake.SetBody(shop, 12, "Ship loyalty plans to all shops.")
-	waitForPoll(t, server, fake)
+	dataDir := t.TempDir()
+	testkit.InstallFakeAgent(t, dataDir, options+approvalSeen+triager)
+	server := startServerWith(t, fake, testserver.Config(t, dataDir), "")
+	server.WaitForFirstPoll(t, shop)
+	testkit.WaitFor(t, server.Engine.AccessChecked)
 	changes := listen(t, server)
 
 	sendChat(t, server, coordinatorChat, "Start a Workstream for loyalty points.")

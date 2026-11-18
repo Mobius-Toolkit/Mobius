@@ -710,8 +710,10 @@ func TestMessageLeadSendsTheMessageOfTheLeadWhileGitHubRefusesEachRequest(t *tes
 func TestAMessageToALeadWithNoSessionStartsTheSessionWhileGitHubRefusesEachRequest(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, approvalSeen+callMessageLead("Send the message.", 12, "Create the task issues.")+seenScript)
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
 	fake.SetBody(shop, 12, "Ship loyalty plans to all shops.")
+	server, _ := connect(t, fake, approvalSeen+callMessageLead("Send the message.", 12, "Create the task issues.")+seenScript)
 	fake.AddIssue(shop, 41, "Add plan model")
 	fake.AddSubIssue(shop, 12, 41)
 	waitForPoll(t, server, fake)

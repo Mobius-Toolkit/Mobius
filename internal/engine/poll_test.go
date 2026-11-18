@@ -73,9 +73,11 @@ func seedSettings(t *testing.T, server *testserver.Server, fake *testkit.FakeGit
 	t.Helper()
 	numbers := slices.Concat(fake.IssuesWithLabel(shop, "mobius:autopilot"), fake.IssuesWithLabel(shop, "mobius:auto-merge"))
 	for _, number := range slices.Compact(slices.Sorted(slices.Values(numbers))) {
+		title, body := fake.Issue(shop, number)
 		labels := fake.Labels(shop, number)
-		_, err := server.DB.Exec("INSERT INTO workstreams (repository, number, autopilot, auto_merge, evergreen, maintenance, skills) VALUES (?, ?, ?, ?, ?, ?, ?)",
-			shop, number, slices.Contains(labels, "mobius:autopilot"), slices.Contains(labels, "mobius:auto-merge"),
+		_, err := server.DB.Exec("INSERT INTO workstreams (repository, number, title, body, state, created_at, autopilot, auto_merge, evergreen, maintenance, skills) VALUES (?, ?, ?, ?, 'open', '2026-10-04T10:00:00Z', ?, ?, ?, ?, ?)",
+			shop, number, title, server.Engine.WithoutChatLink(shop, number, body),
+			slices.Contains(labels, "mobius:autopilot"), slices.Contains(labels, "mobius:auto-merge"),
 			slices.Contains(labels, "mobius:evergreen"), slices.Contains(labels, "mobius:maintenance"), slices.Contains(labels, "mobius:skills"))
 		if err != nil {
 			t.Fatal(err)

@@ -482,7 +482,7 @@ func TestAClosedIssueHasTheStateClosedInTheCopy(t *testing.T) {
 	testkit.WaitFor(t, func() bool { return slices.Equal(issueStates(t, server), []string{"closed", "open"}) })
 }
 
-func TestANewTitleAndANewBodyChangeTheCopiedIssueAndTheCopiedWorkstream(t *testing.T) {
+func TestANewTitleChangesTheCopiedIssueAndGitHubEditsDoNotOverwriteWorkstreams(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithTasks(t, fake)
@@ -492,9 +492,10 @@ func TestANewTitleAndANewBodyChangeTheCopiedIssueAndTheCopiedWorkstream(t *testi
 	fake.SetBody(shop, 12, "Brief of the tiers")
 
 	testkit.WaitFor(t, func() bool { return copiedTitle(t, server, 41) == "Add the plan table" })
-	testkit.WaitFor(t, func() bool {
-		return reflect.DeepEqual(copiedWorkstreams(t, server), []copiedWorkstream{{12, "Integrate loyalty tiers", "Brief of the tiers", false}})
-	})
+	waitForPoll(t, server, fake)
+	if got := copiedWorkstreams(t, server); !reflect.DeepEqual(got, []copiedWorkstream{{12, "Integrate loyalty plans", "", false}}) {
+		t.Errorf("workstreams = %+v", got)
+	}
 }
 
 func TestANewWorkstreamIsCopiedWithItsTree(t *testing.T) {
@@ -519,19 +520,25 @@ func TestTheBriefInTheTableHasNoLinkLineOfTheLeadChat(t *testing.T) {
 	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
 	link := "[Open the Lead chat in Mobius](https://mobius.example.com/workstreams/owner/shop/12)"
 	fake.SetBody(shop, 12, "Brief of the plans\n\n"+link)
-	cfg := testserver.Config(t, t.TempDir())
+	dataDir := t.TempDir()
+	testkit.InstallFakeAgent(t, dataDir, options+approvalSeen+callEditBrief("Change it.", "Brief of the tiers\n\n"+link, "Tiers replaced plans.")+seenScript)
+	cfg := testserver.Config(t, dataDir)
 	withUIURL(cfg)
 	server := startServerWith(t, fake, cfg, "")
 	server.WaitForFirstPoll(t, shop)
 	if got := copiedWorkstreams(t, server); !reflect.DeepEqual(got, []copiedWorkstream{{12, "Integrate loyalty plans", "Brief of the plans", false}}) {
-		t.Fatalf("workstreams after the full copy = %+v", got)
+		t.Fatalf("workstreams after the first poll = %+v", got)
 	}
 
-	fake.SetBody(shop, 12, "Brief of the tiers\n\n"+link)
+	run(t, server, leadSpec(t), "Change it.")
+	approveNext(t, server, 1)
 
-	testkit.WaitFor(t, func() bool {
-		return reflect.DeepEqual(copiedWorkstreams(t, server), []copiedWorkstream{{12, "Integrate loyalty plans", "Brief of the tiers", false}})
-	})
+	if got := copiedWorkstreams(t, server); !reflect.DeepEqual(got, []copiedWorkstream{{12, "Integrate loyalty plans", "Brief of the tiers", false}}) {
+		t.Errorf("workstreams after edit_brief = %+v", got)
+	}
+	if _, body := fake.Issue(shop, 12); body != "Brief of the tiers\n\n"+link {
+		t.Errorf("body on GitHub = %q", body)
+	}
 }
 
 func TestAClosedWorkstreamGetsTheStateClosedAndKeepsItsSettingsAndItsTreeGoes(t *testing.T) {
@@ -576,8 +583,8 @@ func TestAClosedWorkstreamGetsTheStateClosedAndKeepsItsSettingsAndItsTreeGoes(t 
 	}
 }
 
-// While the full copy fails, the poll applies no change of an issue to the copy.
-func TestAFullCopyAgainClosesTheRowOfAWorkstreamThatGitHubClosedAndDeletesTheRowOfOneWithNoLabel(t *testing.T) {
+// Even when a tree copy fails, events close or delete the Workstream row at once, and a later full copy fixes the failed tree.
+func TestEventsCloseAndDeleteWhileATreeCopyFailsAndTheFullCopyRecoversTheTree(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithTasks(t, fake)
@@ -591,18 +598,8 @@ func TestAFullCopyAgainClosesTheRowOfAWorkstreamThatGitHubClosedAndDeletesTheRow
 	waitForPoll(t, server, fake)
 	fake.CloseIssue(shop, 13)
 	fake.RemoveLabel(shop, 14, "mobius:workstream", "owner")
-	waitForPoll(t, server, fake)
-	if got := workstreamNumbers(t, server); !slices.Equal(got, []int64{12, 13, 14}) {
-		t.Fatalf("open Workstreams while the full copy fails = %v", got)
-	}
-	changes := listen(t, server)
 
-	fake.FailSubIssues(shop, 12, false)
-
-	waitForWorkstreams(t, changes)
-	if got := workstreamNumbers(t, server); !slices.Equal(got, []int64{12}) {
-		t.Errorf("open Workstreams = %v", got)
-	}
+	testkit.WaitFor(t, func() bool { return slices.Equal(workstreamNumbers(t, server), []int64{12}) })
 	var state string
 	if err := server.DB.QueryRow("SELECT state FROM workstreams WHERE repository = ? AND number = 13", shop).Scan(&state); err != nil || state != "closed" {
 		t.Errorf("state of #13 = %q, %v", state, err)
@@ -610,6 +607,13 @@ func TestAFullCopyAgainClosesTheRowOfAWorkstreamThatGitHubClosedAndDeletesTheRow
 	if got := settingsOf(t, server, 14); len(got) != 0 {
 		t.Errorf("rows of workstreams for #14 = %+v", got)
 	}
+	if got := issueNumbers(t, server); !slices.Equal(got, []int64{41, 50}) {
+		t.Fatalf("copied issues before recovery = %v", got)
+	}
+
+	fake.FailSubIssues(shop, 12, false)
+
+	testkit.WaitFor(t, func() bool { return slices.Equal(issueNumbers(t, server), []int64{41, 50, 42}) })
 }
 
 func TestAClosedWorkstreamIsRemovedWithItsTree(t *testing.T) {

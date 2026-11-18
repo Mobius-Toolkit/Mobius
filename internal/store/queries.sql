@@ -50,6 +50,9 @@ SELECT since, etag FROM sync_cursors WHERE repository = ? AND endpoint = ?;
 INSERT INTO sync_cursors (repository, endpoint, since, etag) VALUES (?, ?, ?, ?)
 ON CONFLICT (repository, endpoint) DO UPDATE SET since = excluded.since, etag = excluded.etag;
 
+-- name: DeleteSyncCursor :exec
+DELETE FROM sync_cursors WHERE repository = ? AND endpoint = ?;
+
 -- name: AddSession :one
 INSERT INTO sessions (role, harness, model, effort, organization, repository, workstream_repository, workstream, issue, parent, started_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -880,8 +883,8 @@ DELETE FROM workstreams WHERE repository = ?;
 -- name: ListOpenWorkstreamNumbers :many
 SELECT number FROM workstreams WHERE repository = ? AND state = 'open' ORDER BY number;
 
--- name: CloseWorkstream :exec
-UPDATE workstreams SET state = 'closed' WHERE repository = ? AND number = ?;
+-- name: CloseWorkstream :execrows
+UPDATE workstreams SET state = 'closed' WHERE repository = ? AND number = ? AND state != 'closed';
 
 -- name: DeleteCopiedIssuesOf :exec
 DELETE FROM copied_issues WHERE repository = ?;
@@ -892,7 +895,7 @@ DELETE FROM copied_issue_labels WHERE repository = ?;
 -- name: DeleteCopiedBlockersOf :exec
 DELETE FROM copied_blockers WHERE repository = ?;
 
--- name: DeleteCopiedWorkstream :exec
+-- name: DeleteCopiedWorkstream :execrows
 DELETE FROM workstreams WHERE repository = ? AND number = ?;
 
 -- name: DeleteCopiedIssues :exec
@@ -906,10 +909,29 @@ DELETE FROM copied_blockers WHERE repository = ? AND workstream = ?;
 
 -- The row stays after its Workstream closes. It gives 1 when it added the row.
 -- name: AddWorkstream :execrows
-INSERT INTO workstreams (repository, number, autopilot, auto_merge, evergreen, maintenance, skills)
-VALUES (sqlc.arg(repository), sqlc.arg(number), 0, 0, CAST(sqlc.arg(evergreen) AS BOOLEAN), CAST(sqlc.arg(maintenance) AS BOOLEAN),
-        CAST(sqlc.arg(skills) AS BOOLEAN))
+INSERT INTO workstreams (repository, number, title, body, state, created_at, autopilot, auto_merge, evergreen, maintenance, skills)
+VALUES (sqlc.arg(repository), sqlc.arg(number), sqlc.arg(title), sqlc.arg(body), sqlc.arg(state), sqlc.arg(created_at), 0, 0,
+        CAST(sqlc.arg(evergreen) AS BOOLEAN), CAST(sqlc.arg(maintenance) AS BOOLEAN), CAST(sqlc.arg(skills) AS BOOLEAN))
 ON CONFLICT (repository, number) DO NOTHING;
+
+-- name: GetWorkstream :one
+SELECT title, body, state, created_at FROM workstreams WHERE repository = ? AND number = ?;
+
+-- name: HasWorkstream :one
+SELECT EXISTS (SELECT 1 FROM workstreams WHERE repository = ? AND number = ?);
+
+-- name: SetWorkstreamBody :execrows
+UPDATE workstreams SET body = ? WHERE repository = ? AND number = ? AND state = 'open';
+
+-- name: ReopenWorkstream :execrows
+UPDATE workstreams SET state = 'open' WHERE repository = ? AND number = ? AND state = 'closed';
+
+-- name: FillAndReopenWorkstream :execrows
+UPDATE workstreams SET title = ?, body = ?, created_at = ?, state = 'open'
+WHERE repository = ? AND number = ? AND state = 'closed';
+
+-- name: HasLeadEventKind :one
+SELECT EXISTS (SELECT 1 FROM lead_events WHERE repository = ? AND workstream = ? AND kind = ?);
 
 -- name: GetWorkstreamSettings :one
 SELECT CAST(autopilot AS BOOLEAN) AS autopilot, CAST(auto_merge AS BOOLEAN) AS auto_merge, CAST(evergreen AS BOOLEAN) AS evergreen,
@@ -975,11 +997,6 @@ SELECT DISTINCT repository, workstream FROM copied_issues WHERE number = ? AND r
 
 -- name: ListCopiedWorkstreamsWithBlocker :many
 SELECT DISTINCT workstream FROM copied_blockers WHERE repository = ? AND blocker_repository = ? AND number = ?;
-
--- name: UpdateCopiedWorkstream :execrows
-UPDATE workstreams SET title = sqlc.arg(title), body = sqlc.arg(body), state = 'open', created_at = sqlc.arg(created_at)
-WHERE repository = sqlc.arg(repository) AND number = sqlc.arg(number)
-  AND (title != sqlc.arg(title) OR body != sqlc.arg(body) OR state != 'open' OR created_at != sqlc.arg(created_at));
 
 -- name: GetCopiedWorkstream :one
 SELECT title, body, CAST(evergreen AS BOOLEAN) AS evergreen, CAST(maintenance AS BOOLEAN) AS maintenance, CAST(skills AS BOOLEAN) AS skills, created_at

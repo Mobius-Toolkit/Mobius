@@ -1853,8 +1853,11 @@ func (e *Engine) createWorkstream(ctx context.Context, c caller, repository gith
 	if issue.Labels, _, err = repository.Client.Issues.AddLabelsToIssue(ctx, owner, name, issue.GetNumber(), append([]string{workstreamLabel}, input.Labels...)); err != nil {
 		return "", fmt.Errorf("GitHub created #%d, but the add of the Workstream labels failed. Do not create the Workstream again: %w", issue.GetNumber(), err)
 	}
-	if _, err := e.updateCopy(ctx, repository, issue, false, e.labelChangeCount(repository.FullName)); err != nil {
-		log.Printf("copy the new Workstream %s#%d: %v", repository.FullName, issue.GetNumber(), err)
+	if err := e.inTx(ctx, func(q *store.Queries) error {
+		_, err := e.addWorkstreamRow(ctx, q, repository.FullName, issue)
+		return err
+	}); err != nil {
+		log.Printf("add the new Workstream %s#%d: %v", repository.FullName, issue.GetNumber(), err)
 	}
 	e.publish(Change{Workstreams: true})
 	if c.role == CoordinatorRole {
@@ -2049,16 +2052,14 @@ func (e *Engine) editBrief(ctx context.Context, c caller, repository github.Repo
 			return "", err
 		}
 	}
-	body := e.withChatLink(repository, c.workstream, input.Brief)
-	issue, _, err := repository.Client.Issues.Update(ctx, repository.Owner(), repository.Name(), int(c.workstream), gh.UpdateIssueRequest{Body: &body})
+	id, err := e.setBrief(ctx, repository, c.workstream, input.Brief)
 	if err != nil {
 		return "", err
 	}
-	if _, err := e.updateCopy(ctx, repository, issue, false, e.labelChangeCount(repository.FullName)); err != nil {
-		log.Printf("copy the new Brief of %s#%d: %v", repository.FullName, c.workstream, err)
+	if id == 0 {
+		return "", refuse("The issue is not an open Workstream.")
 	}
-	e.publish(Change{Workstreams: true})
-	return fmt.Sprintf("Changed the Brief of %s.", name), nil
+	return e.sentOrLater(ctx, id, fmt.Sprintf("Changed the Brief of %s.", name), fmt.Sprintf("Changed the Brief of %s. Mobius writes it to GitHub later.", name))
 }
 
 // recurringTimes gives the next 3 times of the cron expression in the local time zone, with the zone name. It refuses
@@ -2234,14 +2235,14 @@ func (e *Engine) withMark(ctx context.Context, c caller, repository, body string
 	return runner.WithMark(body, mark), nil
 }
 
-// currentBrief reads the body of the Workstream issue from GitHub, with no Lead chat link line.
+// currentBrief reads the Brief of the Workstream from workstreams.
 func (e *Engine) currentBrief(ctx context.Context, repository github.Repository, workstream int64) (string, error) {
-	issue, err := repository.Issue(ctx, workstream)
+	row, err := e.queries.GetWorkstream(ctx, store.GetWorkstreamParams{Repository: repository.FullName, Number: workstream})
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", refuse("The Workstream issue does not exist.")
+	}
 	if err != nil {
 		return "", err
 	}
-	if issue == nil {
-		return "", refuse("The Workstream issue does not exist.")
-	}
-	return e.WithoutChatLink(repository.FullName, workstream, issue.GetBody()), nil
+	return row.Body, nil
 }

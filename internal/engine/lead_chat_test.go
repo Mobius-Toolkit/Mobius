@@ -472,8 +472,10 @@ func TestOnlyTheLeadOfASkillsWorkstreamGetsTheSkillProposalRules(t *testing.T) {
 func TestTheFirstPromptHasTheContextPartsInOrder(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, dataDir := connect(t, fake, "")
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
 	fake.SetBody(shop, 12, "Ship loyalty plans to all shops.")
+	server, dataDir := connect(t, fake, "")
 	fake.AddIssue(shop, 41, "Add plan model")
 	fake.AddLabel(shop, 41, "mobius:ready", "mallory")
 	fake.AddIssue(shop, 42, "Old spike")

@@ -254,13 +254,10 @@ func TestACompletionStopsTheLead(t *testing.T) {
 	stoppedLead(t, server)
 }
 
-func TestAFailedCompletionKeepsTheLeadRunning(t *testing.T) {
+func TestARefusedCompletionKeepsTheLeadRunning(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := startWithLead(t, fake)
-	fake.CloseIssue(shop, 41)
-	testkit.WaitFor(t, func() bool { return workstreams(t, server)[0].AllTasksClosed })
-	fake.FailClose(shop, 12)
 
 	if status, body := complete(t, server, 12); status == http.StatusNoContent {
 		t.Fatalf("status = %d: %s", status, body)
@@ -271,6 +268,29 @@ func TestAFailedCompletionKeepsTheLeadRunning(t *testing.T) {
 			t.Errorf("session = %+v", session)
 		}
 	}
+}
+
+func TestACompletionWithAFailedGitHubCloseStopsTheLeadAndClosesOnRetry(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := startWithLead(t, fake)
+	fake.CloseIssue(shop, 41)
+	testkit.WaitFor(t, func() bool { return workstreams(t, server)[0].AllTasksClosed })
+	fake.FailClose(shop, 12)
+
+	if status, body := complete(t, server, 12); status != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+	stoppedLead(t, server)
+	if state, _ := fake.State(shop, 12); state != "open" {
+		t.Fatalf("state on GitHub while failing = %s", state)
+	}
+
+	fake.AllowClose(shop, 12)
+	testkit.WaitFor(t, func() bool {
+		state, reason := fake.State(shop, 12)
+		return state == "closed" && reason == "completed"
+	})
 }
 
 func TestAReopenStartsALeadWithTheEvent(t *testing.T) {
@@ -364,4 +384,67 @@ func TestACompletionStopsTheRunningReviewer(t *testing.T) {
 		reviewers := roleSessions(t, server, engine.ReviewerRole)
 		return reviewers[0].EndReason.String == "stopped"
 	})
+}
+
+func TestATrustedCloseClosesTheWorkstreamOnceAcrossPolls(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	server := startCopied(t, fake)
+
+	fake.CloseIssue(shop, 12)
+
+	testkit.WaitFor(t, func() bool {
+		state, reason := fake.State(shop, 41)
+		return state == "closed" && reason == "not_planned"
+	})
+	waitForPolls(t, fake)
+	waitForPolls(t, fake)
+	if comments := fake.Comments(shop, 41); len(comments) != 1 {
+		t.Errorf("comments of #41 = %+v", comments)
+	}
+	var state string
+	if err := server.DB.QueryRow("SELECT state FROM workstreams WHERE repository = ? AND number = 12", shop).Scan(&state); err != nil || state != "closed" {
+		t.Errorf("state = %q, %v", state, err)
+	}
+}
+
+func TestATrustedReopenOfAPreMigrationClosedRowFillsTitleAndBodyWithoutChangingGitHub(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+	link := "[Open the Lead chat in Mobius](https://mobius.example.com/workstreams/owner/shop/12)"
+	fake.SetBody(shop, 12, "Ship loyalty plans.\n\n"+link)
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
+	fake.CloseIssue(shop, 12)
+	cfg := testserver.Config(t, t.TempDir())
+	withUIURL(cfg)
+	server := startServerWith(t, fake, cfg, `INSERT INTO workstreams (repository, number, title, body, state, created_at) VALUES ('owner/shop', 12, '', '', 'closed', '')`)
+	server.WaitForFirstPoll(t, shop)
+	writesBefore := fake.BodyWrites(shop, 12)
+	_, bodyBefore := fake.Issue(shop, 12)
+
+	fake.ReopenIssue(shop, 12)
+
+	list := testkit.WaitForValue(t, func() ([]workstream, bool) {
+		list := workstreams(t, server)
+		return list, len(list) == 1
+	})
+	if list[0].Title != "Integrate loyalty plans" || list[0].Brief != "Ship loyalty plans." {
+		t.Errorf("workstream = %+v", list[0])
+	}
+	var title, body, state, createdAt string
+	if err := server.DB.QueryRow("SELECT title, body, state, created_at FROM workstreams WHERE repository = ? AND number = 12", shop).Scan(&title, &body, &state, &createdAt); err != nil {
+		t.Fatal(err)
+	}
+	if title != "Integrate loyalty plans" || body != "Ship loyalty plans." || state != "open" || createdAt == "" {
+		t.Errorf("row = (%q, %q, %q, %q)", title, body, state, createdAt)
+	}
+	waitForPolls(t, fake)
+	if _, bodyAfter := fake.Issue(shop, 12); bodyAfter != bodyBefore {
+		t.Errorf("body on GitHub changed: %q, want %q", bodyAfter, bodyBefore)
+	}
+	if fake.BodyWrites(shop, 12) != writesBefore {
+		t.Errorf("body writes = %d, want %d", fake.BodyWrites(shop, 12), writesBefore)
+	}
 }

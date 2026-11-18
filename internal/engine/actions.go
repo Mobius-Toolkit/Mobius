@@ -565,7 +565,7 @@ func (e *Engine) ApproveAction(ctx context.Context, id int64, message string) (s
 	return action, errors.Join(e.dismissAction(ctx, action), e.postResult(ctx, action, withMessage(text, message)))
 }
 
-// ActionBrief gives the current Brief of the Workstream of the edit_brief action id, read from GitHub. It returns
+// ActionBrief gives the current Brief of the Workstream of the edit_brief action id, read from workstreams. It returns
 // ErrNoAction for an action that does not exist, and a refusal for an action of another tool.
 func (e *Engine) ActionBrief(ctx context.Context, id int64) (string, error) {
 	action, err := e.queries.GetPendingAction(ctx, id)

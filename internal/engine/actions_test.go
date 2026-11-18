@@ -643,18 +643,28 @@ func TestTheLeadCallsEditBriefAndTheBriefChangesOnlyAfterTheOwnerApproves(t *tes
 	}
 }
 
-func TestTheBriefOfAnEditBriefActionIsTheBriefOnGitHubNowAndTheDoneActionKeepsTheBriefItOverwrote(t *testing.T) {
+func TestTheBriefOfAnEditBriefActionIsTheBriefInWorkstreamsNowAndTheDoneActionKeepsTheBriefItOverwrote(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectWith(t, fake, approvalSeen+callEditBrief("Update the Brief.", "Ship loyalty plans and gift cards.", "Customers asked for gift cards.")+seenScript, withUIURL)
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
 	fake.SetBody(shop, 12, "Ship loyalty plans.\n\n"+chatLink+"\n")
+	dataDir := t.TempDir()
+	testkit.InstallFakeAgent(t, dataDir, options+approvalSeen+callEditBrief("Update the Brief.", "Ship loyalty plans and gift cards.", "Customers asked for gift cards.")+seenScript)
+	cfg := testserver.Config(t, dataDir)
+	withUIURL(cfg)
+	server := startServerWith(t, fake, cfg, "")
+	server.WaitForFirstPoll(t, shop)
+	testkit.WaitFor(t, server.Engine.AccessChecked)
 	run(t, server, leadSpec(t), "Update the Brief.")
 	action := waitForActions(t, server, 1)[0]
 	if got, err := server.Engine.ActionBrief(t.Context(), action.ID); err != nil || got != "Ship loyalty plans." {
 		t.Errorf("brief = %q, %v", got, err)
 	}
 
-	fake.SetBody(shop, 12, "Ship loyalty plans and coupons.\n\n"+chatLink+"\n")
+	if _, err := server.DB.Exec("UPDATE workstreams SET body = 'Ship loyalty plans and coupons.' WHERE repository = ? AND number = 12", shop); err != nil {
+		t.Fatal(err)
+	}
 	if got, err := server.Engine.ActionBrief(t.Context(), action.ID); err != nil || got != "Ship loyalty plans and coupons." {
 		t.Errorf("changed brief = %q, %v", got, err)
 	}

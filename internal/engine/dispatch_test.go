@@ -99,8 +99,10 @@ func TestAReadyLabelOfATrustedUserDispatchesTheIssueToTheLead(t *testing.T) {
 func TestTheFirstPromptHasTheContextAndEachLaterTurnHasOneEvent(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, dataDir := connectWith(t, fake, seen, func(cfg *config.Config) { cfg.LeadIdleTimeout = 5 * time.Second })
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
 	fake.SetBody(shop, 12, "Ship loyalty plans to all shops.")
+	server, dataDir := connectWith(t, fake, seen, func(cfg *config.Config) { cfg.LeadIdleTimeout = 5 * time.Second })
 	fake.AddIssue(shop, 41, "Add plan model")
 	fake.AddSubIssue(shop, 12, 41)
 	fake.SetBody(shop, 41, "Store plans in cents.")

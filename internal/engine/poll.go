@@ -234,6 +234,9 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 	if err != nil && !firstPoll {
 		return err
 	}
+	if firstPoll && !e.copied[repository.FullName] {
+		return nil
+	}
 	var since time.Time
 	if cursor.Since.Valid {
 		if since, err = time.Parse(time.RFC3339, cursor.Since.String); err != nil {
@@ -309,24 +312,19 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 			}
 		}
 		labeled := hasLabel(issue, workstreamLabel)
-		work, err := e.hasWork(ctx, repository.FullName, int64(issue.GetNumber()))
+		work, err := e.hasWork(ctx, repository.FullName, number)
+		if err != nil {
+			return err
+		}
+		stored, err := e.queries.HasWorkstream(ctx, store.HasWorkstreamParams{Repository: repository.FullName, Number: number})
 		if err != nil {
 			return err
 		}
 		var events []*gh.IssueEvent
-		if labeled || work {
-			if events, err = e.issueEvents(ctx, repository, int64(issue.GetNumber())); err != nil {
+		if labeled || work || stored {
+			if events, err = e.issueEvents(ctx, repository, number); err != nil {
 				return err
 			}
-		}
-		// After a failed update, the next poll copies the repository again.
-		if e.copied[repository.FullName] {
-			copyChanged, err := e.updateCopy(ctx, repository, issue, !firstPoll, labelChanges)
-			if err != nil {
-				log.Printf("update the copy of %s: %v", repository.FullName, err)
-				delete(e.copied, repository.FullName)
-			}
-			listChanged = listChanged || copyChanged
 		}
 		for _, event := range events {
 			if event.Actor == nil || event.GetCreatedAt().Before(since) {
@@ -342,6 +340,15 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 			if labeled && !firstPoll {
 				settingEvents = append(settingEvents, settingEvent{number, event})
 			}
+		}
+		// After a failed update, the next poll copies the repository again.
+		if e.copied[repository.FullName] {
+			copyChanged, err := e.updateCopy(ctx, repository, issue, !firstPoll, labelChanges)
+			if err != nil {
+				log.Printf("update the copy of %s: %v", repository.FullName, err)
+				delete(e.copied, repository.FullName)
+			}
+			listChanged = listChanged || copyChanged
 		}
 	}
 	for _, issue := range outside {
@@ -385,37 +392,36 @@ func (e *Engine) routeComments(ctx context.Context, repository github.Repository
 	return e.commentEvents(ctx, repository, issue, conversation)
 }
 
-// workstreamEvent acts on a new event of the issue. A Workstream label of a trusted
-// actor adds, after the first poll, a creation event for the Lead. After the first poll, a
-// removal of the Workstream label stops the work, and a close or a reopen of a trusted actor closes or reopens the
-// Workstream.
+// workstreamEvent acts on a new event of the issue. A Workstream label of a trusted actor adds, after the first poll,
+// the Workstream and a creation event for the Lead. After the first poll, a removal of the Workstream label deletes the
+// Workstream and stops its work, and a close or a reopen of a trusted actor closes or reopens the Workstream.
 func (e *Engine) workstreamEvent(ctx context.Context, repository github.Repository, issue *gh.Issue, event *gh.IssueEvent, firstPoll bool) error {
+	if firstPoll {
+		return nil
+	}
 	number := int64(issue.GetNumber())
 	actor := event.GetActor().GetLogin()
 	trusted := e.TrustedAuthor(repository.AppSlug, actor)
 	workstreamChange := event.GetLabel().GetName() == workstreamLabel
 	switch {
 	case event.GetEvent() == "labeled" && workstreamChange && trusted:
-		if firstPoll {
-			return nil
+		copyFailed, err := e.addWorkstreamFromEvent(ctx, repository, issue, actor, e.copied[repository.FullName])
+		if copyFailed {
+			delete(e.copied, repository.FullName)
 		}
-		return e.addLeadEvent(ctx, repository.FullName, number, "", sql.NullInt64{}, "creation", eventText(time.Now(), "creation of Workstream", fmt.Sprintf("#%d", number), issue, actor, issue.GetBody()))
-	case firstPoll:
-		return nil
+		return err
 	// A removal from any actor counts, because it only stops work.
 	case event.GetEvent() == "unlabeled" && workstreamChange:
-		return e.stopWorkstream(ctx, repository, number)
+		return e.removeWorkstream(ctx, repository, number)
 	// The label can go away before the poll sees the close.
 	case event.GetEvent() == "closed" && trusted:
-		if err := e.closeWorkstream(ctx, repository, number); err != nil {
-			return err
-		}
-		if err := e.startCurator(ctx, repository.FullName); err != nil {
-			log.Printf("start a Curator of %s: %v", repository.FullName, err)
-		}
-		return nil
+		return e.handleWorkstreamClose(ctx, repository, number)
 	case event.GetEvent() == "reopened" && trusted && hasLabel(issue, workstreamLabel):
-		return e.addLeadEvent(ctx, repository.FullName, number, "", sql.NullInt64{}, "reopen", eventText(time.Now(), "reopen of Workstream", fmt.Sprintf("#%d", number), issue, actor, issue.GetBody()))
+		copyFailed, err := e.reopenWorkstream(ctx, repository, issue, actor, e.copied[repository.FullName])
+		if copyFailed {
+			delete(e.copied, repository.FullName)
+		}
+		return err
 	}
 	return nil
 }

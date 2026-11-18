@@ -5,7 +5,7 @@ import "testing"
 func TestHeldWorkIsSortedByTheTimeAndNotByTheText(t *testing.T) {
 	_, queries := openQueries(t)
 	ctx := t.Context()
-	if _, err := queries.AddWorkstream(ctx, AddWorkstreamParams{Repository: "owner/shop", Number: 1}); err != nil {
+	if _, err := queries.AddWorkstream(ctx, AddWorkstreamParams{Repository: "owner/shop", Number: 1, State: "open"}); err != nil {
 		t.Fatal(err)
 	}
 	for _, issue := range []int64{2, 3} {
