@@ -476,3 +476,54 @@ func TestATrustedReopenOfAPreMigrationClosedRowFillsTitleAndBodyWithoutChangingG
 		t.Errorf("body writes = %d, want %d", fake.BodyWrites(shop, 12), writesBefore)
 	}
 }
+
+func TestAFailedCloseRetriesAndFinishesAfterRestart(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	fake.AddIssue(shop, 43, "Add plan view")
+	fake.AddSubIssue(shop, 12, 43)
+	first, dataDir := connect(t, fake, curatorScript)
+
+	fake.FailClose(shop, 41)
+	fake.CloseIssue(shop, 12)
+
+	testkit.WaitFor(t, func() bool {
+		return slices.ContainsFunc(fake.Requests(), func(r testkit.Request) bool {
+			return r.Method == http.MethodPatch && r.Path == "/repos/owner/shop/issues/41" && r.Status == http.StatusInternalServerError
+		})
+	})
+	var state string
+	var closePending int
+	if err := first.DB.QueryRow("SELECT state, close_pending FROM workstreams WHERE repository = ? AND number = 12", shop).Scan(&state, &closePending); err != nil {
+		t.Fatal(err)
+	}
+	if state != "closed" || closePending != 1 {
+		t.Fatalf("row before restart = (%q, %d), want (\"closed\", 1)", state, closePending)
+	}
+	if s, _ := fake.State(shop, 43); s != "open" {
+		t.Fatalf("state of #43 before restart = %q", s)
+	}
+
+	first.Stop()
+	fake.AllowClose(shop, 41)
+	restarted := testserver.Start(t, dataDir, fake.URL)
+
+	testkit.WaitFor(t, func() bool {
+		for _, number := range []int64{41, 43} {
+			s, reason := fake.State(shop, number)
+			if s != "closed" || reason != "not_planned" {
+				return false
+			}
+		}
+		sessions := curatorSessions(t, restarted)
+		return len(sessions) == 1 && sessions[0].EndedAt.Valid
+	})
+	if err := restarted.DB.QueryRow("SELECT close_pending FROM workstreams WHERE repository = ? AND number = 12", shop).Scan(&closePending); err != nil || closePending != 0 {
+		t.Errorf("close_pending after retry = %d, %v", closePending, err)
+	}
+	var stateChanges int
+	if err := restarted.DB.QueryRow("SELECT count(*) FROM outgoing_changes WHERE repository = ? AND number = 12 AND field = 'state'", shop).Scan(&stateChanges); err != nil || stateChanges != 1 {
+		t.Errorf("state outgoing changes = %d, %v", stateChanges, err)
+	}
+}

@@ -922,6 +922,14 @@ func TestTheWorkstreamFieldsMigrationKeepsTheOutgoingChangesAndAcceptsBodyAndSta
 		VALUES ('github', 'o/a', 3, 'unknown', 'pending', '2027-03-01T10:00:03Z')`); err == nil {
 		t.Error("the table accepts an unknown field")
 	}
+	if _, err := db.Exec(`INSERT INTO workstreams (repository, number, title, body, state, created_at)
+		VALUES ('o/a', 12, 'Work', 'Body', 'open', '2027-03-01T10:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
+	var closePending int
+	if err := db.QueryRow("SELECT close_pending FROM workstreams WHERE repository = 'o/a' AND number = 12").Scan(&closePending); err != nil || closePending != 0 {
+		t.Errorf("close_pending = %d, %v", closePending, err)
+	}
 }
 
 func TestTheCoordinatorMigrationMovesTheChatSessionsAndTheChatMessages(t *testing.T) {

@@ -297,3 +297,36 @@ func TestACloseAsWontDoEndsWhenTheRequestIsCanceled(t *testing.T) {
 		return state == "closed"
 	})
 }
+
+func TestAFailedCloseWorkstreamAfterWontDoRetriesOnTheNextPoll(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	server, _ := connect(t, fake, curatorScript)
+	fake.AddLabel(shop, 12, "mobius:question", "owner")
+	fake.FailRemoveLabels(shop, 12, true)
+
+	if status, _ := closeWontDo(t, server, 12); status != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", status)
+	}
+	var state string
+	var closePending int
+	if err := server.DB.QueryRow("SELECT state, close_pending FROM workstreams WHERE repository = ? AND number = 12", shop).Scan(&state, &closePending); err != nil {
+		t.Fatal(err)
+	}
+	if state != "closed" || closePending != 1 {
+		t.Fatalf("row after failed won't-do close = (%q, %d), want (\"closed\", 1)", state, closePending)
+	}
+
+	fake.FailRemoveLabels(shop, 12, false)
+	testkit.WaitFor(t, func() bool {
+		if slices.Contains(fake.Labels(shop, 12), "mobius:question") {
+			return false
+		}
+		sessions := curatorSessions(t, server)
+		return len(sessions) == 1 && sessions[0].EndedAt.Valid
+	})
+	if err := server.DB.QueryRow("SELECT close_pending FROM workstreams WHERE repository = ? AND number = 12", shop).Scan(&closePending); err != nil || closePending != 0 {
+		t.Errorf("close_pending after retry = %d, %v", closePending, err)
+	}
+}

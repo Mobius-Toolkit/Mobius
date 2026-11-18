@@ -413,7 +413,6 @@ func (e *Engine) workstreamEvent(ctx context.Context, repository github.Reposito
 	// A removal from any actor counts, because it only stops work.
 	case event.GetEvent() == "unlabeled" && workstreamChange:
 		return e.removeWorkstream(ctx, repository, number)
-	// The label can go away before the poll sees the close.
 	case event.GetEvent() == "closed" && trusted:
 		return e.handleWorkstreamClose(ctx, repository, number)
 	case event.GetEvent() == "reopened" && trusted && hasLabel(issue, workstreamLabel):

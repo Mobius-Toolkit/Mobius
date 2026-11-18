@@ -1742,8 +1742,22 @@ func (q *Queries) ClearTaskMergeQueuedAt(ctx context.Context, id int64) (int64, 
 	return result.RowsAffected()
 }
 
+const clearWorkstreamClosePending = `-- name: ClearWorkstreamClosePending :exec
+UPDATE workstreams SET close_pending = 0 WHERE repository = ? AND number = ?
+`
+
+type ClearWorkstreamClosePendingParams struct {
+	Repository string
+	Number     int64
+}
+
+func (q *Queries) ClearWorkstreamClosePending(ctx context.Context, arg ClearWorkstreamClosePendingParams) error {
+	_, err := q.db.ExecContext(ctx, clearWorkstreamClosePending, arg.Repository, arg.Number)
+	return err
+}
+
 const closeWorkstream = `-- name: CloseWorkstream :execrows
-UPDATE workstreams SET state = 'closed' WHERE repository = ? AND number = ? AND state != 'closed'
+UPDATE workstreams SET state = 'closed', close_pending = 1 WHERE repository = ? AND number = ? AND state != 'closed'
 `
 
 type CloseWorkstreamParams struct {
@@ -2748,7 +2762,7 @@ func (q *Queries) FailRunningPendingActions(ctx context.Context, error string) e
 }
 
 const fillAndReopenWorkstream = `-- name: FillAndReopenWorkstream :execrows
-UPDATE workstreams SET title = ?, body = ?, created_at = ?, state = 'open'
+UPDATE workstreams SET title = ?, body = ?, created_at = ?, state = 'open', close_pending = 0
 WHERE repository = ? AND number = ? AND state = 'closed'
 `
 
@@ -4893,6 +4907,22 @@ type IsRepairIssueParams struct {
 
 func (q *Queries) IsRepairIssue(ctx context.Context, arg IsRepairIssueParams) (bool, error) {
 	row := q.db.QueryRowContext(ctx, isRepairIssue, arg.Repository, arg.Issue)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const isWorkstreamClosePending = `-- name: IsWorkstreamClosePending :one
+SELECT EXISTS (SELECT 1 FROM workstreams WHERE repository = ? AND number = ? AND close_pending != 0)
+`
+
+type IsWorkstreamClosePendingParams struct {
+	Repository string
+	Number     int64
+}
+
+func (q *Queries) IsWorkstreamClosePending(ctx context.Context, arg IsWorkstreamClosePendingParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, isWorkstreamClosePending, arg.Repository, arg.Number)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
@@ -10582,7 +10612,7 @@ func (q *Queries) ReopenInboxItem(ctx context.Context, id int64) (InboxItem, err
 }
 
 const reopenWorkstream = `-- name: ReopenWorkstream :execrows
-UPDATE workstreams SET state = 'open' WHERE repository = ? AND number = ? AND state = 'closed'
+UPDATE workstreams SET state = 'open', close_pending = 0 WHERE repository = ? AND number = ? AND state = 'closed'
 `
 
 type ReopenWorkstreamParams struct {

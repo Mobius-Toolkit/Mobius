@@ -108,11 +108,12 @@ func (e *Engine) handleWorkstreamClose(ctx context.Context, repository github.Re
 	if err != nil {
 		return err
 	}
-	if !closed && !e.isClosePending(repository.FullName, number) {
-		return nil
-	}
-	if closed {
-		e.setClosePending(repository.FullName, number, true)
+	if !closed {
+		pending, err := e.queries.IsWorkstreamClosePending(ctx, store.IsWorkstreamClosePendingParams{Repository: repository.FullName, Number: number})
+		if err != nil || !pending {
+			return err
+		}
+	} else {
 		e.publish(Change{Workstreams: true})
 		if err := e.recopyWorkstreamsWithBlockerIn(ctx, repository, number); err != nil {
 			log.Printf("copy the blocked Workstreams of %s#%d: %v", repository.FullName, number, err)
@@ -124,7 +125,9 @@ func (e *Engine) handleWorkstreamClose(ctx context.Context, repository github.Re
 	if err := e.closeWorkstream(ctx, repository, number); err != nil {
 		return err
 	}
-	e.setClosePending(repository.FullName, number, false)
+	if err := e.queries.ClearWorkstreamClosePending(ctx, store.ClearWorkstreamClosePendingParams{Repository: repository.FullName, Number: number}); err != nil {
+		return err
+	}
 	if err := e.startCurator(ctx, repository.FullName); err != nil {
 		log.Printf("start a Curator of %s: %v", repository.FullName, err)
 	}
@@ -211,7 +214,6 @@ func (e *Engine) reopenWorkstream(ctx context.Context, repository github.Reposit
 			copyFailed = true
 		}
 	}
-	e.setClosePending(repository.FullName, number, false)
 	e.publish(Change{Workstreams: true})
 	if err := e.sendNow(ctx, repository, changeID); err != nil {
 		return copyFailed, err
@@ -314,7 +316,6 @@ func (e *Engine) removeWorkstream(ctx context.Context, repository github.Reposit
 		return err
 	}
 	if deleted {
-		e.setClosePending(repository.FullName, number, false)
 		e.publish(Change{Workstreams: true})
 		if err := e.recopyWorkstreamsWithBlockerIn(ctx, repository, number); err != nil {
 			log.Printf("copy the blocked Workstreams of %s#%d: %v", repository.FullName, number, err)
@@ -542,6 +543,9 @@ func (e *Engine) CloseWorkstreamWontDo(ctx context.Context, repositoryName strin
 	if err := e.closeWorkstream(ctx, repository, number); err != nil {
 		return err
 	}
+	if err := e.queries.ClearWorkstreamClosePending(ctx, store.ClearWorkstreamClosePendingParams{Repository: repository.FullName, Number: number}); err != nil {
+		return err
+	}
 	if err := e.startCurator(ctx, repository.FullName); err != nil {
 		log.Printf("start a Curator of %s: %v", repository.FullName, err)
 	}
@@ -572,23 +576,6 @@ func (e *Engine) IsClosing(repository string, number int64) bool {
 	e.closingMu.Lock()
 	defer e.closingMu.Unlock()
 	return e.closing[pullKey{repository, number}]
-}
-
-func (e *Engine) setClosePending(repository string, number int64, pending bool) {
-	key := pullKey{repository, number}
-	e.closingMu.Lock()
-	if pending {
-		e.closePending[key] = true
-	} else {
-		delete(e.closePending, key)
-	}
-	e.closingMu.Unlock()
-}
-
-func (e *Engine) isClosePending(repository string, number int64) bool {
-	e.closingMu.Lock()
-	defer e.closingMu.Unlock()
-	return e.closePending[pullKey{repository, number}]
 }
 
 func (e *Engine) openWorkstream(ctx context.Context, repository github.Repository, number int64) (*gh.Issue, error) {

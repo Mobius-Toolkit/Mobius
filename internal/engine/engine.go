@@ -123,12 +123,10 @@ type Engine struct {
 	stopMu sync.Mutex
 	// pollWake makes the poll start before the end of poll_interval. It holds at most one value.
 	pollWake chan struct{}
-	// closingMu guards closing and closePending.
+	// closingMu guards closing.
 	closingMu sync.Mutex
 	// closing holds the Workstreams whose close runs now. The Workstream list leaves them out.
 	closing map[pullKey]bool
-	// closePending holds the Workstreams whose row in workstreams closed while closeWorkstream has not yet succeeded.
-	closePending map[pullKey]bool
 	// ciWait holds the head of each task in checks that has no CI, with the time of its first poll, by the id of the task.
 	// Only the poll uses it.
 	ciWait map[int64]ciWait
@@ -290,7 +288,6 @@ func New(db *sql.DB, gh *github.GitHub, cfg *config.Config, agents Agents) *Engi
 		pushed:             map[pullKey]bool{},
 		pollWake:           make(chan struct{}, 1),
 		closing:            map[pullKey]bool{},
-		closePending:       map[pullKey]bool{},
 		ciWait:             map[int64]ciWait{},
 		refusedRuns:        map[int64]refusedRun{},
 		newest:             map[string]newestVersion{},

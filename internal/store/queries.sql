@@ -884,7 +884,13 @@ DELETE FROM workstreams WHERE repository = ?;
 SELECT number FROM workstreams WHERE repository = ? AND state = 'open' ORDER BY number;
 
 -- name: CloseWorkstream :execrows
-UPDATE workstreams SET state = 'closed' WHERE repository = ? AND number = ? AND state != 'closed';
+UPDATE workstreams SET state = 'closed', close_pending = 1 WHERE repository = ? AND number = ? AND state != 'closed';
+
+-- name: ClearWorkstreamClosePending :exec
+UPDATE workstreams SET close_pending = 0 WHERE repository = ? AND number = ?;
+
+-- name: IsWorkstreamClosePending :one
+SELECT EXISTS (SELECT 1 FROM workstreams WHERE repository = ? AND number = ? AND close_pending != 0);
 
 -- name: DeleteCopiedIssuesOf :exec
 DELETE FROM copied_issues WHERE repository = ?;
@@ -924,10 +930,10 @@ SELECT EXISTS (SELECT 1 FROM workstreams WHERE repository = ? AND number = ?);
 UPDATE workstreams SET body = ? WHERE repository = ? AND number = ? AND state = 'open';
 
 -- name: ReopenWorkstream :execrows
-UPDATE workstreams SET state = 'open' WHERE repository = ? AND number = ? AND state = 'closed';
+UPDATE workstreams SET state = 'open', close_pending = 0 WHERE repository = ? AND number = ? AND state = 'closed';
 
 -- name: FillAndReopenWorkstream :execrows
-UPDATE workstreams SET title = ?, body = ?, created_at = ?, state = 'open'
+UPDATE workstreams SET title = ?, body = ?, created_at = ?, state = 'open', close_pending = 0
 WHERE repository = ? AND number = ? AND state = 'closed';
 
 -- name: HasLeadEventKind :one
