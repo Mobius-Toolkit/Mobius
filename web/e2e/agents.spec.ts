@@ -306,6 +306,10 @@ async function openLog(
   await open(page);
   await expect(page.getByText("Entry 29 ")).toBeVisible();
   expect(await page.evaluate(scrolls)).toBe(true);
+  if (!secondRead) {
+    // The stream opens after the first read and starts the second read. Its lines pin the log to the end again.
+    await expect.poll(() => page.evaluate(`${log}.dataset.version`)).toBe("2");
+  }
   await expect.poll(() => page.evaluate(gap)).toBeLessThan(5);
   return send;
 }
