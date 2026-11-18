@@ -144,11 +144,45 @@ reply = ["Seen"]
 
 	testkit.WaitFor(t, func() bool {
 		calls := leadCalls(t, server)
-		return len(calls) == 1 && calls[0]["error"] == "#41 has no open question."
+		return len(calls) == 1 && calls[0]["error"] == "#41 has no open question. An answer of the Owner on GitHub closes the question, so the Lead calls no close_question for it."
 	})
 	if got := fake.Comments(shop, 41); len(got) != 0 {
 		t.Errorf("comments = %v", got)
 	}
+}
+
+func TestCloseQuestionRefusesAQuestionThatTheOwnerAnsweredOnGitHub(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, `
+[[prompts]]
+when = "answer of #41"
+reply = ["Seen"]
+
+[[prompts]]
+when = "Dollars were chosen"
+call = { tool = "close_question", arguments = { repository = "owner/shop", n = 41, answer = "Dollars." } }
+
+[[prompts]]
+when = "dispatch of #41"
+call = { tool = "ask", arguments = { repository = "owner/shop", n = 41, text = "Cents or dollars?" } }
+
+[[prompts]]
+reply = ["Seen"]
+`)
+	dispatchTask(fake, 41, "Add plan model")
+	testkit.WaitFor(t, func() bool {
+		return slices.ContainsFunc(apiData[[]needsHuman](t, server, "/api/needs-human"), func(row needsHuman) bool { return row.Number == 41 && row.Question })
+	})
+	fake.AddComment(shop, 41, "owner", "Cents.")
+	testkit.WaitFor(t, func() bool { return !slices.Contains(fake.Labels(shop, 41), "mobius:question") })
+
+	sendChat(t, server, leadChat, "Dollars were chosen")
+
+	testkit.WaitFor(t, func() bool {
+		calls := leadCalls(t, server)
+		return len(calls) == 2 && calls[1]["error"] == "#41 has no open question. An answer of the Owner on GitHub closes the question, so the Lead calls no close_question for it."
+	})
 }
 
 func TestApprovePullRequestClosesTheOpenQuestionOfTheTask(t *testing.T) {
