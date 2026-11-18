@@ -82,7 +82,7 @@ func TestARemovalOfTheReviewLabelStopsATaskWhoseApprovalCameAfterTheStartOfThePo
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadApproves+leadStarts, commits, noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
-	waitForReadyEvents(t, fake, server, 1)
+	waitForLeadIdle(t, server)
 	reached, hold := fake.HoldIssue(shop, 41)
 	release := sync.OnceFunc(hold)
 	t.Cleanup(release)
