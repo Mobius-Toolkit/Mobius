@@ -403,11 +403,18 @@ func (g *FakeGitHub) SetWorkflowRunNotFound(id int64) {
 	g.workflowRuns[id-1].notFound = true
 }
 
-// RefuseRerun makes the re-run of the failed jobs of a workflow run give the status.
+// RefuseRerun makes the re-run of the failed jobs of a workflow run and the full re-run give the status.
 func (g *FakeGitHub) RefuseRerun(status int) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.rerunRefusal = status
+}
+
+// RefuseRerunFailedJobs makes only the re-run of the failed jobs of a workflow run give the status.
+func (g *FakeGitHub) RefuseRerunFailedJobs(status int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.rerunFailedJobsRefusal = status
 }
 
 // RefuseRerunOnce makes the next re-run of a workflow run give the status. Later re-runs work.
@@ -1139,6 +1146,10 @@ func (g *FakeGitHub) rerunFailedJobs(w http.ResponseWriter, r *http.Request) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.rerunRequests++
+	if g.rerunFailedJobsRefusal != 0 {
+		message(w, g.rerunFailedJobsRefusal, "Cannot retry: the attempt has no failed job")
+		return
+	}
 	if g.rerunRefusal != 0 {
 		message(w, g.rerunRefusal, "Resource not accessible by integration")
 		return

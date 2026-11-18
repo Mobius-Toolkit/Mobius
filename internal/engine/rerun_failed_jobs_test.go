@@ -87,6 +87,7 @@ func TestRerunFailedJobsReportsARefusalOfGitHub(t *testing.T) {
 	server, _ := connectTask(t, fake, leadReruns+leadStarts, commits, noChange)
 	sha := checksHead(t, server, fake)
 	run := fake.AddWorkflowRun(shop, testkit.WorkflowRun{Name: "ci", HeadSHA: sha, WorkflowID: 5, Status: "completed", Conclusion: "failure"})
+	fake.AddWorkflowJob(shop, run, 1, testkit.WorkflowJob{ID: 700, Name: "e2e", Status: "completed", Conclusion: "failure"})
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" })
 
 	fake.RefuseRerun(http.StatusForbidden)
@@ -94,6 +95,51 @@ func TestRerunFailedJobsReportsARefusalOfGitHub(t *testing.T) {
 	sendChat(t, server, leadChat, "Rerun #41")
 
 	want := fmt.Sprintf("ci (run %d, attempt 1): GitHub refused: Resource not accessible by integration", run)
+	waitForChat(t, server, leadChat, "Lead", want)
+
+	if rerunHead(t, server) != "" {
+		t.Errorf("rerun_head = %q, want empty", rerunHead(t, server))
+	}
+}
+
+func TestRerunFailedJobsStartsTheFullRunWhenTheAttemptHasNoFailedJob(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadReruns+leadStarts, commits, noChange)
+	sha := checksHead(t, server, fake)
+	run := fake.AddWorkflowRun(shop, testkit.WorkflowRun{Name: "ci", HeadSHA: sha, WorkflowID: 5, Status: "completed", Conclusion: "failure"})
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" })
+
+	fake.RefuseRerunFailedJobs(http.StatusUnprocessableEntity)
+
+	sendChat(t, server, leadChat, "Rerun #41")
+
+	want := fmt.Sprintf("ci (run %d, attempt 1): started again (full run)", run)
+	waitForChat(t, server, leadChat, "Lead", want)
+
+	testkit.WaitFor(t, func() bool { return rerunHead(t, server) == sha })
+	if got := liveTask(t, server, 41).RerunRuns.String; got != fmt.Sprint(run) {
+		t.Errorf("rerun_runs = %q, want %q", got, fmt.Sprint(run))
+	}
+	if attempt := fake.WorkflowRunAttempt(run); attempt != 2 {
+		t.Errorf("attempt = %d, want 2", attempt)
+	}
+}
+
+func TestRerunFailedJobsReportsBothRefusalsOfGitHub(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadReruns+leadStarts, commits, noChange)
+	sha := checksHead(t, server, fake)
+	run := fake.AddWorkflowRun(shop, testkit.WorkflowRun{Name: "ci", HeadSHA: sha, WorkflowID: 5, Status: "completed", Conclusion: "failure"})
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" })
+
+	fake.RefuseRerunFailedJobs(http.StatusUnprocessableEntity)
+	fake.RefuseRerun(http.StatusForbidden)
+
+	sendChat(t, server, leadChat, "Rerun #41")
+
+	want := fmt.Sprintf("ci (run %d, attempt 1): GitHub refused the re-run of the failed jobs: Cannot retry: the attempt has no failed job. GitHub refused the full re-run: Resource not accessible by integration", run)
 	waitForChat(t, server, leadChat, "Lead", want)
 
 	if rerunHead(t, server) != "" {
