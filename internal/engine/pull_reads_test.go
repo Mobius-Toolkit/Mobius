@@ -7,6 +7,13 @@ import (
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
 
+// replyToApproval is a Lead script that replies to the approval event. The prompt of the session of that event holds the
+// text "dispatch of #41" of the earlier event, so a script with that rule after it calls start_implementer, which reads
+// the pull request at a time that no poll sets.
+const replyToApproval = "[[prompts]]\nwhen = \"ready for Lead approval of #41\"\nreply = [\"Noted.\"]\n\n"
+
+const leadRepliesOnApproval = replyToApproval + leadStarts
+
 // approvalAfterSettling moves the task of #41 to approval and waits until the polls have no change.
 func approvalAfterSettling(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHub) {
 	t.Helper()
@@ -31,7 +38,7 @@ func pullReads(fake *testkit.FakeGitHub, from int) int {
 func TestAPollWithNoChangeDoesNotReadThePullRequestOfATask(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectTask(t, fake, leadStarts, commits, longGrace)
+	server, _ := connectTask(t, fake, leadRepliesOnApproval, commits, longGrace)
 	approvalAfterSettling(t, server, fake)
 	from := len(fake.Requests())
 
@@ -45,7 +52,7 @@ func TestAPollWithNoChangeDoesNotReadThePullRequestOfATask(t *testing.T) {
 func TestAPollReadsThePullRequestOfATaskAfterAPushToItsBranch(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectTask(t, fake, leadStarts, commits, longGrace)
+	server, _ := connectTask(t, fake, leadRepliesOnApproval, commits, longGrace)
 	approvalAfterSettling(t, server, fake)
 	from := len(fake.Requests())
 
@@ -60,7 +67,7 @@ func TestAPollReadsThePullRequestOfATaskAfterAPushToItsBranch(t *testing.T) {
 func TestAPollReadsThePullRequestOfATaskAfterAPushToTheDefaultBranch(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectTask(t, fake, leadStarts, commits, longGrace)
+	server, _ := connectTask(t, fake, leadRepliesOnApproval, commits, longGrace)
 	approvalAfterSettling(t, server, fake)
 	from := len(fake.Requests())
 
@@ -72,7 +79,7 @@ func TestAPollReadsThePullRequestOfATaskAfterAPushToTheDefaultBranch(t *testing.
 func TestAPollReadsAKeptPullRequestWithAnUnknownMergeabilityAgain(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectTask(t, fake, leadStarts, commits, longGrace)
+	server, _ := connectTask(t, fake, leadRepliesOnApproval, commits, longGrace)
 	approvalAfterSettling(t, server, fake)
 	fake.SetMergeableUnknown(shop, 42, true)
 	waitForPolls(t, fake)

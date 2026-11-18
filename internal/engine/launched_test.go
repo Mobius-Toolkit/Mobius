@@ -73,11 +73,14 @@ func TestACommentOnATaskIssueOrItsPullRequestGetsARocketWhenTheLeadTurnOfItsEven
 	server, release := connectGatedLead(t, fake)
 	addStoppedTask(t, fake, server)
 
+	// A poll reads the conversation comments and the review comments with two calls, and gives the Lead the events in
+	// the order of its issue list. Thus a review comment can come before the comment of the task issue, with the
+	// conversation comment in the next poll. The later comments wait behind the gated turn only after it starts.
 	first := fake.AddComment(shop, 41, "owner", "First comment.")
+	waitForReactions(t, fake, first, reactions("rocket"))
 	conversation := fake.AddComment(shop, 42, "owner", "Second comment.")
 	review := fake.AddReviewComment(shop, 42, 0, "owner", "Third comment.")
 
-	waitForReactions(t, fake, first, reactions("rocket"))
 	waitForReactions(t, fake, conversation, reactions("eyes"))
 	waitForReactions(t, fake, review, reactions("eyes"))
 	waitForPolls(t, fake)

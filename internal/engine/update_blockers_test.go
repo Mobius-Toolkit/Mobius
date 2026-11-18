@@ -4,10 +4,12 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
+	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 )
 
@@ -200,4 +202,59 @@ func TestUpdateBlockersAddsABlockerWhoseBlockersDoNotLeadBack(t *testing.T) {
 	if got := fake.BlockerNumbers(shop, 42); !slices.Equal(got, []int64{40}) {
 		t.Errorf("blockers = %v", got)
 	}
+}
+
+// Serial: the test sets the hook beforeRecopyTrees.
+func TestUpdateBlockersGivesTheResultWhileTheCopyOfTheTreeIsHeld(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, call("update_blockers", `{ repository = "owner/shop", n = 41, blocked_by = ["owner/shop#40"] }`))
+	fake.AddIssue(shop, 40, "Add plan model")
+	fake.AddIssue(shop, 41, "Plan API")
+	fake.AddSubIssue(shop, 12, 41)
+	copiedBlocker := func(issue, blocker int64) bool {
+		var count int
+		_ = server.DB.QueryRow(
+			"SELECT count(*) FROM copied_blockers b JOIN copied_issues i ON i.repository = b.repository AND i.workstream = b.workstream AND i.position = b.position WHERE b.repository = ? AND b.workstream = 12 AND i.number = ? AND b.blocker_repository = ? AND b.number = ?",
+			shop, issue, shop, blocker,
+		).Scan(&count)
+		return count == 1
+	}
+	testkit.WaitFor(t, func() bool {
+		var count int
+		_ = server.DB.QueryRow("SELECT count(*) FROM copied_issues WHERE repository = ? AND workstream = 12 AND number = 41", shop).Scan(&count)
+		return count == 1
+	})
+	hold := make(chan struct{})
+	entered := make(chan struct{})
+	enter := sync.OnceFunc(func() { close(entered) })
+	release := sync.OnceFunc(func() { close(hold) })
+	*engine.BeforeRecopyTrees = func() {
+		enter()
+		<-hold
+	}
+	t.Cleanup(func() {
+		release()
+		*engine.BeforeRecopyTrees = nil
+	})
+
+	agent := start(t, server, leadSpec(t))
+	prompted := make(chan error, 1)
+	go func() { prompted <- agent.Prompt(t.Context(), "Update the blockers.", nil) }()
+
+	testkit.WaitFor(t, func() bool {
+		return reply(t, server, agent.ID()) == "Added owner/shop#40 as blockers of owner/shop#41."
+	})
+	testkit.WaitFor(t, func() bool {
+		select {
+		case <-entered:
+			return true
+		default:
+			return false
+		}
+	})
+	release()
+	if err := <-prompted; err != nil {
+		t.Fatal(err)
+	}
+	testkit.WaitFor(t, func() bool { return copiedBlocker(41, 40) })
 }
