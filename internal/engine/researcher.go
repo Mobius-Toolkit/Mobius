@@ -148,6 +148,9 @@ func (e *Engine) stopResearchers(repository string, workstream int64) {
 	}
 }
 
+// beforeRemoveResearchCopy is a hook of the tests. research calls it before removeCopy.
+var beforeRemoveResearchCopy func()
+
 // research runs the session a of the Researcher id on the question in a worktree that is detached at the default
 // branch. A failed Researcher reports its error. The report goes to the chat before the session ends, because the end
 // frees the drain count, and the chat refuses a message after the seal of an upgrade. When the Harness of the Role
@@ -175,19 +178,25 @@ func (e *Engine) research(ctx context.Context, c caller, repository github.Repos
 		return e.research(ctx, c, repository, next, id, question)
 	}
 	stopped := e.leave(ctx, id)
-	err = errors.Join(err, e.removeCopy(ended, repository.FullName, a.spec.Dir))
-	switch {
-	case stopped:
-		return a.End(ended, "stopped")
-	case errors.Is(err, errHung):
-		delivery := e.deliverReport(ended, c, repository, id, question, "The Researcher failed: "+err.Error())
-		return errors.Join(delivery, a.endHung(ended))
-	case err != nil:
-		delivery := e.deliverReport(ended, c, repository, id, question, "The Researcher failed: "+err.Error())
-		return errors.Join(delivery, a.Fail(ended, err))
+	if stopped {
+		return errors.Join(e.removeCopy(ended, repository.FullName, a.spec.Dir), a.End(ended, "stopped"))
 	}
-	delivery := e.deliverReport(ended, c, repository, id, question, report)
-	return errors.Join(delivery, a.End(ended, "done"))
+	text := report
+	if err != nil {
+		text = "The Researcher failed: " + err.Error()
+	}
+	delivery := e.deliverReport(ended, c, repository, id, question, text)
+	if beforeRemoveResearchCopy != nil {
+		beforeRemoveResearchCopy()
+	}
+	remove := e.removeCopy(ended, repository.FullName, a.spec.Dir)
+	switch {
+	case errors.Is(err, errHung):
+		return errors.Join(delivery, remove, a.endHung(ended))
+	case err != nil:
+		return errors.Join(delivery, remove, a.Fail(ended, err))
+	}
+	return errors.Join(delivery, remove, a.End(ended, "done"))
 }
 
 // moveResearcher adds a new session for the Researcher id after the session old ended with the reason "moved". The new
