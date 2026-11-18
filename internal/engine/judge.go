@@ -469,7 +469,7 @@ func (e *Engine) judgeTurn(ctx context.Context, a *Agent, j judgeJob) error {
 		items.WriteString(item.text)
 	}
 	prompt := fmt.Sprintf("%s\n%s# Brief\n\n%s\n\n# Issue\n\n#%d %s\n\n%s\n\n# Items\n%s", judgePrompt, sections, brief, j.task.Issue, j.title, j.body, items.String())
-	if err := a.waitForPause(ctx); err != nil {
+	if err := a.waitForPause(ctx, nil); err != nil {
 		return err
 	}
 	if err := a.open(ctx); err != nil {

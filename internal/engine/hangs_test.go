@@ -271,3 +271,49 @@ func TestACuratorThatHangsAfterTheThirdRetryEndsAsHungAndAddsNoInboxItem(t *test
 	waitForHungSession(t, server, "curator")
 	noStoppedItem(t, server)
 }
+
+// Serial: the test changes the hang time.
+func TestAStopEndsTheWaitForAPauseThatFollowsAHang(t *testing.T) {
+	before := *engine.HangTimeout
+	*engine.HangTimeout = time.Second
+	t.Cleanup(func() { *engine.HangTimeout = before })
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, hang+"[[prompts]]\nreply = [\"Done.\"]\n")
+	agent := start(t, server, implementerSpec(t, server, fake, 41))
+	defer end(t, agent, "done")
+	prompted := make(chan error, 1)
+	go func() { prompted <- agent.Prompt(t.Context(), "Store plans in cents.", nil) }()
+	testkit.WaitFor(t, func() bool { return len(promptTexts(t, server, agent.ID())) == 1 })
+	if _, err := server.DB.Exec(`INSERT INTO harness_pauses (harness, paused_until) VALUES ('devin', '2099-01-01T00:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
+	testkit.WaitFor(t, func() bool {
+		return strings.HasPrefix(session(t, server, agent.ID()).QueueReason.String, "paused until 2099-01-01")
+	})
+
+	if err := agent.Stop(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	var err error
+	testkit.WaitFor(t, func() bool {
+		select {
+		case err = <-prompted:
+			return true
+		default:
+			return false
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := promptTexts(t, server, agent.ID()); len(got) != 1 {
+		t.Errorf("prompts = %q", got)
+	}
+	if got := session(t, server, agent.ID()); got.QueueReason.Valid {
+		t.Errorf("session = %+v", got)
+	}
+	if _, paused := devinPause(t, server); !paused {
+		t.Error("the pause ended")
+	}
+}

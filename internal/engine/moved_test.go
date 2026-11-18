@@ -187,8 +187,9 @@ func TestAResetOfTheLeadThatChangesItsHarnessMovesTheWaitingLead(t *testing.T) {
 func TestEachMoveOfAChatAddsNothingToItsCrashCount(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, dataDir := connectWith(t, fake, claudeCodeLimit, keepSessionOpen)
+	server, dataDir := connectWith(t, fake, "[[prompts]]\nreply = [\"Noted.\"]\n", keepSessionOpen)
 	installDevin(t, dataDir, usageLimit)
+	pauseClaudeCode(t, server)
 	sendChat(t, server, leadChat, "Plan the API")
 	waitForPausedSession(t, server, leadChat, engine.LeadRole, 1)
 
@@ -211,37 +212,6 @@ func TestEachMoveOfAChatAddsNothingToItsCrashCount(t *testing.T) {
 		if session.EndReason.String != "moved" {
 			t.Errorf("session = %+v", session)
 		}
-	}
-}
-
-func TestAMoveOfTheSaveTurnLosesTheSaveAndClosesTheChat(t *testing.T) {
-	t.Parallel()
-	fake := testkit.NewFakeGitHub(t)
-	script := `
-[[prompts]]
-when = "Save in the Workstream memory"
-error = { code = -32603, message = "Rate limited", data = { errorKind = "rate_limit" } }
-
-[[prompts]]
-reply = ["Noted."]
-`
-	server, dataDir := connectWith(t, fake, script, func(*config.Config) {})
-	installDevin(t, dataDir, movedReply)
-	sendChat(t, server, leadChat, "Plan the API")
-	waitForPausedSession(t, server, leadChat, engine.LeadRole, 1)
-
-	setHarness(t, server, "lead", config.Devin, "swe-1.5")
-
-	sessions := testkit.WaitForValue(t, func() ([]store.Session, bool) {
-		sessions := chatSessions(t, server, leadChat, engine.LeadRole)
-		return sessions, len(sessions) == 1 && sessions[0].EndedAt.Valid
-	})
-	if sessions[0].EndReason.String != "moved" {
-		t.Errorf("session = %+v", sessions[0])
-	}
-	waitForPolls(t, fake)
-	if sessions := chatSessions(t, server, leadChat, engine.LeadRole); len(sessions) != 1 {
-		t.Errorf("sessions = %+v", sessions)
 	}
 }
 

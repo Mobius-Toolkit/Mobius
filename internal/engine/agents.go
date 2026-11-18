@@ -134,6 +134,13 @@ type Agent struct {
 	ended chan struct{}
 	// stopRequested tells that a stop came while no turn ran. Prompt takes it before it sends its text.
 	stopRequested bool
+	// stopped gets a value at each stop that comes while no turn runs, so a wait for a pause ends.
+	stopped chan struct{}
+	// pauseWaiting tells that Prompt waits for the end of a pause and sends nothing. A stop then ends the wait, also
+	// while turn is true for a retry.
+	pauseWaiting bool
+	// saving tells that the prompt is the save prompt of a chat that closes. Such a prompt waits for no pause.
+	saving bool
 	// retries is the number of retry prompts that Prompt sent since the last normal end of a turn.
 	retries int
 	// details are the new details from the Owner that the next prompt of the Implementer or the Researcher carries.
@@ -361,7 +368,7 @@ func (e *Engine) newAgent(ctx context.Context, spec Spec) (*Agent, error) {
 		return nil, err
 	}
 	e.publish(Change{Node: new(e.node(session))})
-	return &Agent{engine: e, id: session.ID, spec: spec, binding: binding, level: level, tracked: !worker, queuedAt: session.StartedAt, wake: make(chan struct{}, 1), ended: make(chan struct{}, 1), antigravityIdx: -1}, nil
+	return &Agent{engine: e, id: session.ID, spec: spec, binding: binding, level: level, tracked: !worker, queuedAt: session.StartedAt, wake: make(chan struct{}, 1), stopped: make(chan struct{}, 1), ended: make(chan struct{}, 1), antigravityIdx: -1}, nil
 }
 
 // waitForSlot waits for a slot of the Role of a, and starts the session. A failed wait ends the session, like Start.
@@ -579,7 +586,9 @@ func (a *Agent) ID() int64 {
 
 // Prompt adds text to the Transcript, sends it with images, and holds until the turn ends. The Transcript row has
 // only the type and the size of each image. When the agent cannot read images, Prompt sends a note in place of them.
-// After a usage limit, Prompt waits for the end of the pause of the Harness and sends text again.
+// While the Harness has a pause, Prompt waits for its end before it sends text, and a stop ends the wait. After a usage
+// limit, Prompt sends text again after the end of the pause. The save prompt of a closing chat waits for no pause: it is
+// not sent during a pause, and a usage limit of it ends Prompt with no second send.
 func (a *Agent) Prompt(ctx context.Context, text string, images []Image) error {
 	if len(images) > 0 && !a.session.ImagesSupported() {
 		text += imagesNote(text, len(images))
@@ -614,6 +623,23 @@ func (a *Agent) Prompt(ctx context.Context, text string, images []Image) error {
 		paused, err := a.engine.harnessPause(ctx, a.binding.Harness)
 		if err != nil {
 			return err
+		}
+		if paused != nil {
+			if a.isSaving() {
+				a.clearTurn()
+				return nil
+			}
+			a.setPauseWaiting(true)
+			err := a.waitForPause(ctx, a.stopped)
+			a.setPauseWaiting(false)
+			if errors.Is(err, errStopped) {
+				a.clearTurn()
+				a.takeStop()
+				return nil
+			}
+			if err != nil {
+				return err
+			}
 		}
 		a.mu.Lock()
 		if a.stopRequested {
@@ -671,12 +697,15 @@ func (a *Agent) Prompt(ctx context.Context, text string, images []Image) error {
 		a.mu.Unlock()
 		if err == nil {
 			if wasLimited {
-				if err := a.waitOutReplyLimit(ctx, limitText); err != nil {
+				if err := a.pauseForReplyLimit(ctx, limitText); err != nil {
 					return err
+				}
+				if a.isSaving() {
+					return nil
 				}
 				continue
 			}
-			return a.engine.endPauseSince(ctx, paused)
+			return nil
 		}
 		if errors.Is(err, errHung) {
 			if text, err = a.retryHang(ctx); err != nil {
@@ -697,23 +726,30 @@ func (a *Agent) Prompt(ctx context.Context, text string, images []Image) error {
 			lead = fmt.Sprintf(incompletePrompt, incomplete.reason) + "\n\n"
 			continue
 		}
-		limited, waitErr := a.waitOutLimit(ctx, err)
-		if waitErr != nil {
-			return errors.Join(err, waitErr)
+		limited, limitErr := a.pauseForLimit(ctx, err)
+		if limitErr != nil {
+			return errors.Join(err, limitErr)
 		}
 		if !limited {
 			return err
 		}
+		if a.isSaving() {
+			return nil
+		}
 	}
 }
 
-// stop asks the agent to end the turn that runs. While no turn runs, stop only sets stopRequested, so Prompt sends
-// no prompt and no cancel reaches an autonomous turn.
+// stop asks the agent to end the turn that runs. While no turn runs, or while Prompt waits for a pause, stop only sets
+// stopRequested, so Prompt sends no prompt and no cancel reaches an autonomous turn.
 func (a *Agent) stop(ctx context.Context) error {
 	a.mu.Lock()
-	if !a.turn {
+	if !a.turn || a.pauseWaiting {
 		a.stopRequested = true
 		a.mu.Unlock()
+		select {
+		case a.stopped <- struct{}{}:
+		default:
+		}
 		return nil
 	}
 	a.mu.Unlock()
@@ -744,6 +780,34 @@ func (a *Agent) deliverLocked(ctx context.Context) error {
 	}
 	a.delivery = 0
 	return nil
+}
+
+func (a *Agent) setPauseWaiting(waiting bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.pauseWaiting = waiting
+}
+
+// clearTurn ends the turn that a retry kept open, when Prompt gives up the retry with no send.
+func (a *Agent) clearTurn() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.turn = false
+	a.limited = false
+	a.limitText = ""
+}
+
+// setSaving tells that the next prompts are the save prompt of a chat that closes, or that they are not.
+func (a *Agent) setSaving(saving bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.saving = saving
+}
+
+func (a *Agent) isSaving() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.saving
 }
 
 // takeStop clears stopRequested.
