@@ -183,7 +183,7 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 				},
 				e.ask),
 			taskTool(e, c, "close_question",
-				"Close your question on a task issue or on the Workstream issue when the Owner answers it in the chat. Mobius posts the answer as a comment on the issue, removes mobius:question, and dismisses the question Inbox item. On a task that waits for the answer, the task continues, and you get a dispatch event with \"answer of\".",
+				"Close your question on a task issue or on the Workstream issue when the Owner answers it in the chat. An answer of the Owner on GitHub closes the question, so call no close_question then. Mobius posts the answer as a comment on the issue, removes mobius:question, and dismisses the question Inbox item. On a task that waits for the answer, the task continues, and you get a dispatch event with \"answer of\".",
 				map[string]any{
 					"repository": repositoryProperty,
 					"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue, or of the Workstream issue."},
