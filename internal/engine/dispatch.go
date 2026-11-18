@@ -972,7 +972,7 @@ func (e *Engine) closeQuestionTool(ctx context.Context, c caller, repository git
 		return "", err
 	}
 	if !hasLabel(issue, questionLabel) {
-		return "", refuse("#%d has no open question.", input.N)
+		return "", refuse("%s has no open question. An answer of the Owner on GitHub closes the question, so the Lead calls no close_question for it.", eventRef(c.repository, repository.FullName, input.N))
 	}
 	text, err := e.withMark(ctx, c, repository.FullName, chatAnswerPrefix+"\n\n"+quote(input.Answer))
 	if err != nil {
