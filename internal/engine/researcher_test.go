@@ -2,9 +2,11 @@ package engine_test
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -145,6 +147,104 @@ func TestTheReportOfAResearcherIsInTheChatBeforeItsSessionEnds(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Serial: the test sets the hook beforeRemoveResearchCopy and hangTimeout.
+func TestTheReportOfAResearcherIsInTheChatBeforeItsWorktreeRemovalEnds(t *testing.T) {
+	for _, c := range []struct {
+		name       string
+		researcher string
+		wantReport string
+		wantReason string
+	}{
+		{"done", quickResearcher, "Plans store the price in cents.", "done"},
+		{"failed", "\n[[prompts]]\nwhen = \"You are a Researcher\"\nerror = { code = -32000, message = \"The model is down.\" }\n", "The Researcher failed:", "failed"},
+		{"hung", strings.Repeat(hang, 4), "The Researcher failed:", "hung"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if c.name == "hung" {
+				shortHang(t)
+			}
+			hold := make(chan struct{})
+			entered := make(chan struct{})
+			enter := sync.OnceFunc(func() { close(entered) })
+			release := sync.OnceFunc(func() { close(hold) })
+			*engine.BeforeRemoveResearchCopy = func() {
+				enter()
+				<-hold
+			}
+			t.Cleanup(func() {
+				release()
+				*engine.BeforeRemoveResearchCopy = nil
+			})
+
+			fake := testkit.NewFakeGitHub(t)
+			server, dataDir := connectResearcher(t, fake, researchLead, c.researcher)
+			sendChat(t, server, leadChat, "Plan the price model.")
+
+			testkit.WaitFor(t, func() bool {
+				select {
+				case <-entered:
+					return true
+				default:
+					return false
+				}
+			})
+
+			sessions := roleSessions(t, server, engine.ResearcherRole)
+			if len(sessions) != 1 || sessions[0].EndedAt.Valid {
+				t.Fatalf("sessions = %+v", sessions)
+			}
+			dir := fmt.Sprintf("/worktrees/owner/shop/research-%d", sessions[0].ID)
+			if !exists(t, filepath.Join(dataDir, dir)) {
+				t.Errorf("%s already removed", dir)
+			}
+			var report string
+			if err := server.DB.QueryRow("SELECT text FROM chat_messages WHERE author = 'Researcher'").Scan(&report); err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(report, c.wantReport) {
+				t.Errorf("report = %q", report)
+			}
+			waitForChat(t, server, leadChat, "Lead", "I have the report.")
+
+			release()
+
+			ended := waitForChatSession(t, server, leadChat, engine.ResearcherRole, func(session store.Session) bool { return session.EndedAt.Valid })
+			if ended.EndReason.String != c.wantReason {
+				t.Errorf("end reason = %s, want %s", ended.EndReason.String, c.wantReason)
+			}
+			if exists(t, filepath.Join(dataDir, dir)) {
+				t.Errorf("%s stays", dir)
+			}
+		})
+	}
+}
+
+// Serial: the test sets the hook beforeRemoveResearchCopy.
+func TestAFailedWorktreeRemovalKeepsTheReportAndDoneReasonOfAResearcher(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, dataDir := connectResearcher(t, fake, researchLead, quickResearcher)
+	*engine.BeforeRemoveResearchCopy = func() {
+		*engine.BeforeRemoveResearchCopy = nil
+		_ = os.Remove(filepath.Join(dataDir, "repos", "owner", "shop.git", "HEAD"))
+	}
+	t.Cleanup(func() { *engine.BeforeRemoveResearchCopy = nil })
+
+	sendChat(t, server, leadChat, "Plan the price model.")
+
+	ended := waitForChatSession(t, server, leadChat, engine.ResearcherRole, func(session store.Session) bool { return session.EndedAt.Valid })
+	if ended.EndReason.String != "done" {
+		t.Errorf("end reason = %s, want done", ended.EndReason.String)
+	}
+	var report string
+	if err := server.DB.QueryRow("SELECT text FROM chat_messages WHERE author = 'Researcher'").Scan(&report); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(report, "Plans store the price in cents.") || strings.Contains(report, "The Researcher failed:") {
+		t.Errorf("report = %q", report)
+	}
+	waitForChat(t, server, leadChat, "Lead", "I have the report.")
 }
 
 func TestTheDrainRefusesANewResearcher(t *testing.T) {
