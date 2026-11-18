@@ -8868,6 +8868,33 @@ func (q *Queries) ListReportedModelsBetween(ctx context.Context, arg ListReporte
 	return items, nil
 }
 
+const listRepositoriesWithOpenWorkstreams = `-- name: ListRepositoriesWithOpenWorkstreams :many
+SELECT DISTINCT repository FROM workstreams WHERE state = 'open'
+`
+
+func (q *Queries) ListRepositoriesWithOpenWorkstreams(ctx context.Context) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listRepositoriesWithOpenWorkstreams)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var repository string
+		if err := rows.Scan(&repository); err != nil {
+			return nil, err
+		}
+		items = append(items, repository)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRetryPromptsSince = `-- name: ListRetryPromptsSince :many
 SELECT s.role, s.issue, t.time, CAST(json_extract(t.json, '$.text') AS TEXT) AS text FROM transcript t
 JOIN sessions s ON s.id = t.session

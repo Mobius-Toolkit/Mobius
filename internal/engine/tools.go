@@ -696,7 +696,7 @@ func (e *Engine) findIssueRepository(ctx context.Context, organization string) (
 	if len(found) == 1 {
 		return found[0], issueRepositoryDefault, nil
 	}
-	copied, err := e.queries.ListCopiedRepositories(ctx)
+	copied, err := e.queries.ListRepositoriesWithOpenWorkstreams(ctx)
 	if err != nil {
 		return github.Repository{}, "", err
 	}

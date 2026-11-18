@@ -170,6 +170,7 @@ func TestTheIssueRepositoryOfAnOrganizationFollowsTheOrderOfTheSources(t *testin
 		name         string
 		repositories []string
 		workstreams  []string
+		closed       []string
 		before       func(t *testing.T, server *testserver.Server)
 		config       func(*config.Config)
 		repository   string
@@ -229,6 +230,13 @@ func TestTheIssueRepositoryOfAnOrganizationFollowsTheOrderOfTheSources(t *testin
 			source:      "default",
 		},
 		{
+			name:        "an open Workstream in one repository and a closed Workstream in another",
+			workstreams: []string{shop, garden},
+			closed:      []string{garden},
+			repository:  shop,
+			source:      "default",
+		},
+		{
 			name:        "open Workstreams in two repositories",
 			workstreams: []string{shop, garden},
 			refusal:     refusedIssueRepository,
@@ -246,6 +254,16 @@ func TestTheIssueRepositoryOfAnOrganizationFollowsTheOrderOfTheSources(t *testin
 				adjust = func(*config.Config) {}
 			}
 			server := startOrganization(t, fake, adjust, test.repositories, test.workstreams...)
+			for _, repository := range test.closed {
+				fake.CloseIssue(repository, openWorkstream)
+				testkit.WaitFor(t, func() bool {
+					var count int
+					if err := server.DB.QueryRow("SELECT count(*) FROM workstreams WHERE repository = ? AND number = ? AND state = 'closed'", repository, openWorkstream).Scan(&count); err != nil {
+						t.Fatal(err)
+					}
+					return count == 1
+				})
+			}
 			if test.before != nil {
 				test.before(t, server)
 			}

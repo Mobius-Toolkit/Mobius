@@ -871,6 +871,9 @@ SELECT * FROM tasks WHERE workstream_repository = ? AND workstream = ? AND state
 -- name: ListCopiedRepositories :many
 SELECT DISTINCT repository FROM workstreams;
 
+-- name: ListRepositoriesWithOpenWorkstreams :many
+SELECT DISTINCT repository FROM workstreams WHERE state = 'open';
+
 -- name: DeleteCopiedWorkstreamsOf :exec
 DELETE FROM workstreams WHERE repository = ?;
 
