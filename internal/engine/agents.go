@@ -136,6 +136,9 @@ type Agent struct {
 	stopRequested bool
 	// stopped gets a value at each stop that comes while no turn runs, so a wait for a pause ends.
 	stopped chan struct{}
+	// pauseWaiting tells that Prompt waits for the end of a pause and sends nothing. A stop then ends the wait, also
+	// while turn is true for a retry.
+	pauseWaiting bool
 	// saving tells that the prompt is the save prompt of a chat that closes. Such a prompt waits for no pause.
 	saving bool
 	// retries is the number of retry prompts that Prompt sent since the last normal end of a turn.
@@ -623,10 +626,14 @@ func (a *Agent) Prompt(ctx context.Context, text string, images []Image) error {
 		}
 		if paused != nil {
 			if a.isSaving() {
+				a.clearTurn()
 				return nil
 			}
+			a.setPauseWaiting(true)
 			err := a.waitForPause(ctx, a.stopped)
+			a.setPauseWaiting(false)
 			if errors.Is(err, errStopped) {
+				a.clearTurn()
 				a.takeStop()
 				return nil
 			}
@@ -732,11 +739,11 @@ func (a *Agent) Prompt(ctx context.Context, text string, images []Image) error {
 	}
 }
 
-// stop asks the agent to end the turn that runs. While no turn runs, stop only sets stopRequested, so Prompt sends
-// no prompt and no cancel reaches an autonomous turn.
+// stop asks the agent to end the turn that runs. While no turn runs, or while Prompt waits for a pause, stop only sets
+// stopRequested, so Prompt sends no prompt and no cancel reaches an autonomous turn.
 func (a *Agent) stop(ctx context.Context) error {
 	a.mu.Lock()
-	if !a.turn {
+	if !a.turn || a.pauseWaiting {
 		a.stopRequested = true
 		a.mu.Unlock()
 		select {
@@ -773,6 +780,21 @@ func (a *Agent) deliverLocked(ctx context.Context) error {
 	}
 	a.delivery = 0
 	return nil
+}
+
+func (a *Agent) setPauseWaiting(waiting bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.pauseWaiting = waiting
+}
+
+// clearTurn ends the turn that a retry kept open, when Prompt gives up the retry with no send.
+func (a *Agent) clearTurn() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.turn = false
+	a.limited = false
+	a.limitText = ""
 }
 
 // setSaving tells that the next prompts are the save prompt of a chat that closes, or that they are not.

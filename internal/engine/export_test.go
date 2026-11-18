@@ -151,6 +151,11 @@ func (a *Agent) WaitBackground(ctx context.Context, prompt string) error {
 	return a.waitBackground(ctx, prompt)
 }
 
+// Stop asks the agent to end its turn, or its wait for a pause.
+func (a *Agent) Stop(ctx context.Context) error {
+	return a.stop(ctx)
+}
+
 // Update gives params to the agent as a session/update of its Harness.
 func (a *Agent) Update(params json.RawMessage) {
 	a.update(params, false)
