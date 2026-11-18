@@ -2,6 +2,7 @@ package engine_test
 
 import (
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -64,6 +65,12 @@ func askedServer(t *testing.T, fake *testkit.FakeGitHub) *testserver.Server {
 	server, _ := connect(t, fake, leadAsks)
 	dispatchTask(fake, 41, "Add plan model")
 	waitForItem(t, server, "question")
+	testkit.WaitFor(t, func() bool {
+		return slices.Contains(fake.Labels(shop, 41), "mobius:question") &&
+			slices.ContainsFunc(fake.Comments(shop, 41), func(comment testkit.Comment) bool {
+				return strings.Contains(comment.Body, "Cents or dollars?")
+			})
+	})
 	return server
 }
 
