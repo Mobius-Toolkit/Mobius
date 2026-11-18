@@ -366,7 +366,7 @@ test("a memory text with a heading and a list shows as Markdown, and a hunk of a
                 revert_problem: "",
                 revertible: true,
                 time: "2026-09-28T09:00:00Z",
-                text: text("## Rules", "", "- Run make fmt.", "- Use pnpm."),
+                text: text("## Rules", "", "- Run make fmt.", "- Use Bun."),
                 before: text("## Rules", "", "- Run make fmt."),
               },
             ],
@@ -378,10 +378,10 @@ test("a memory text with a heading and a list shows as Markdown, and a hunk of a
 
   const current = main.locator("section").first().locator("div.rounded-lg");
   await expect(current.getByRole("heading", { level: 2, name: "Rules" })).toBeVisible();
-  await expect(current.getByRole("listitem")).toHaveText(["Run make fmt.", "Use pnpm."]);
+  await expect(current.getByRole("listitem")).toHaveText(["Run make fmt.", "Use Bun."]);
 
-  const added = versionsOf(main).first().locator("li", { hasText: "Use pnpm." });
-  await expect(added.locator("ins")).toHaveText(["Use pnpm."]);
+  const added = versionsOf(main).first().locator("li", { hasText: "Use Bun." });
+  await expect(added.locator("ins")).toHaveText(["Use Bun."]);
   await expect(versionsOf(main).first().locator("ins")).toHaveCount(1);
 });
 
@@ -559,7 +559,7 @@ test("a tap on a role file opens its page", async ({ page }) => {
 
   await expect(page).toHaveURL("/settings/memory/owner/shop/implementer");
   await expect(page.getByText("Implementer · owner/shop").filter({ visible: true })).toBeVisible();
-  await expect(main.getByText("Use pnpm for the frontend.").first()).toBeVisible();
+  await expect(main.getByText("Use Bun for the frontend.").first()).toBeVisible();
   await expect(main.getByRole("heading", { name: "History" })).toBeVisible();
 });
 

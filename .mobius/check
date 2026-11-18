@@ -8,11 +8,11 @@ go tool lintgork ./...
 
 (
   cd web
-  pnpm install --frozen-lockfile
-  pnpm lint
-  pnpm format:check
-  pnpm test
-  pnpm build
+  bun install --frozen-lockfile
+  bun run lint
+  bun run format:check
+  bun run test
+  bun run build
 )
 
 make generate

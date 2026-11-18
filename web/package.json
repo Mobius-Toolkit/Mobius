@@ -12,7 +12,7 @@
     "typecheck": "tsc -b",
     "test": "vitest run",
     "gen:api": "orval",
-    "e2e": "RELEASE=v0.1.3 pnpm build && playwright test"
+    "e2e": "RELEASE=v0.1.3 bun run build && bunx --bun playwright test"
   },
   "dependencies": {
     "@effect/platform-browser": "4.1.2",
@@ -31,7 +31,7 @@
     "@foldkit/oxlint-plugin": "0.15.4",
     "@foldkit/vite-plugin": "0.29.0",
     "@playwright/test": "^1.65.1",
-    "@types/node": "^24.13.3",
+    "@types/bun": "^1.4.4",
     "happy-dom": "^21.0.4",
     "orval": "8.47.0",
     "oxfmt": "^0.71.0",
@@ -39,6 +39,5 @@
     "typescript": "~6.0.2",
     "vite": "^8.3.0",
     "vitest": "^5.1.0"
-  },
-  "packageManager": "pnpm@12.0.0"
+  }
 }
