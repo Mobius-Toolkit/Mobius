@@ -209,7 +209,7 @@ func TestATaskInChecksReadsThePullRequestAgainAtEachPollWhileItsScreenshotsCheck
 func TestATaskInApprovalReadsThePullRequestOneTimeAndLaterPollsReadNoNewCopy(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := queueTasks(t, fake, "off", []int{41})
+	server, _ := queueTasksWith(t, fake, replyToApproval+queueLead, "off", []int{41})
 	pull := liveTask(t, server, 41).PullRequest.Int64
 	waitForPolls(t, fake)
 	waitForPolls(t, fake)

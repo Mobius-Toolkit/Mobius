@@ -83,6 +83,9 @@ type Engine struct {
 	labelChangeMu  sync.Mutex
 	labelChanges   map[string]int
 	labelChangedAt map[issueRef]int
+	// addedCopies holds the issues that addIssueToCopy added and that no tree of GitHub has listed yet. writeRead puts
+	// them back into each tree that it writes. labelChangeMu guards it.
+	addedCopies []addedCopy
 	// ownerAnswerMu makes AnswerInboxItem, which posts a comment and then stores its id, and the poll read of the new
 	// comments take turns. Else the poll can read the comment before its id is stored and ignore it.
 	ownerAnswerMu sync.Mutex

@@ -126,7 +126,7 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 				},
 				e.updateBranchTool),
 			taskTool(e, c, "rerun_failed_jobs",
-				"Run the failed CI jobs of the newest failed workflow runs of the head of the pull request of a task again. It works for each attempt of a run. The result names each run that started again, and each run that GitHub refused, with the reason of GitHub. It refuses a task with no open pull request.",
+				"Run the failed CI jobs of the newest failed workflow runs of the head of the pull request of a task again. It works for each attempt of a run. When GitHub refuses the re-run of the failed jobs and the attempt has no failed job, for example when GitHub never created a job, the tool runs the full workflow run again. The result names each run that started again, and each run that GitHub refused, with the reason of GitHub. It refuses a task with no open pull request.",
 				map[string]any{
 					"repository": repositoryProperty,
 					"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
@@ -183,7 +183,7 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 				},
 				e.ask),
 			taskTool(e, c, "close_question",
-				"Close your question on a task issue or on the Workstream issue when the Owner answers it in the chat. Mobius posts the answer as a comment on the issue, removes mobius:question, and dismisses the question Inbox item. On a task that waits for the answer, the task continues, and you get a dispatch event with \"answer of\".",
+				"Close your question on a task issue or on the Workstream issue when the Owner answers it in the chat. An answer of the Owner on GitHub closes the question, so call no close_question then. Mobius posts the answer as a comment on the issue, removes mobius:question, and dismisses the question Inbox item. On a task that waits for the answer, the task continues, and you get a dispatch event with \"answer of\".",
 				map[string]any{
 					"repository": repositoryProperty,
 					"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue, or of the Workstream issue."},
@@ -1043,10 +1043,14 @@ func (e *Engine) createIssue(ctx context.Context, c caller, repository github.Re
 	if issue.number != 0 {
 		return fmt.Sprintf("Created %s#%d.", repository.FullName, issue.number), nil
 	}
-	number, err := e.addIssueAt(ctx, repository, issueAt{workstream, c.workstream}, newIssue{title: input.Title, body: input.Body, mark: mark, parent: parent, blockers: blockers}, nil)
+	created, err := e.postIssue(ctx, repository, issueAt{workstream, c.workstream}, newIssue{title: input.Title, body: input.Body, mark: mark, parent: parent, blockers: blockers}, nil)
+	number := created.GetNumber()
 	c.agent.finishLeadIssue(key, issue, number)
 	if err != nil {
 		return "", err
+	}
+	if err := e.addIssueToCopy(ctx, issueRef{workstream.FullName, c.workstream}, created, parent, blockers); err != nil {
+		log.Printf("add %s#%d to the copy of %s#%d: %v", repository.FullName, number, workstream.FullName, c.workstream, err)
 	}
 	text := fmt.Sprintf("Created %s#%d.", repository.FullName, number)
 	if setting != nil {
@@ -1258,13 +1262,19 @@ func checkIssue(input issueInput) error {
 	return nil
 }
 
-// addIssueAt creates the issue input in repository with labels and the link to the Lead chat of the Workstream, adds it
-// below input.parent, and adds the blockers. It gives the number of the issue. When GitHub created the issue but a later
-// call failed, it gives the number with the error.
+// addIssueAt is postIssue, but it gives only the number of the issue.
 func (e *Engine) addIssueAt(ctx context.Context, repository github.Repository, workstream issueAt, input newIssue, labels []string) (int, error) {
+	issue, err := e.postIssue(ctx, repository, workstream, input, labels)
+	return issue.GetNumber(), err
+}
+
+// postIssue creates the issue input in repository with labels and the link to the Lead chat of the Workstream, adds it
+// below input.parent, and adds the blockers. It gives the issue. When GitHub created the issue but a later call failed,
+// it gives the issue with the error.
+func (e *Engine) postIssue(ctx context.Context, repository github.Repository, workstream issueAt, input newIssue, labels []string) (*gh.Issue, error) {
 	blockerIDs, err := blockerIDsOf(ctx, input.blockers)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	body := e.withChatLink(workstream.repository, workstream.number, input.body)
 	if input.mark != "" {
@@ -1272,18 +1282,18 @@ func (e *Engine) addIssueAt(ctx context.Context, repository github.Repository, w
 	}
 	issue, _, err := repository.Client.Issues.Create(ctx, repository.Owner(), repository.Name(), gh.CreateIssueRequest{Title: input.title, Body: &body, Labels: labels})
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	parent := input.parent
 	if _, _, err := parent.repository.Client.SubIssue.Add(ctx, parent.repository.Owner(), parent.repository.Name(), parent.number, gh.SubIssueRequest{SubIssueID: issue.GetID(), ReplaceParent: new(true)}); err != nil {
-		return issue.GetNumber(), fmt.Errorf("GitHub created %s#%d, but the add of %s#%d below %s#%d failed. Do not create the issue again: %w", repository.FullName, issue.GetNumber(), repository.FullName, issue.GetNumber(), parent.repository.FullName, parent.number, err)
+		return issue, fmt.Errorf("GitHub created %s#%d, but the add of %s#%d below %s#%d failed. Do not create the issue again: %w", repository.FullName, issue.GetNumber(), repository.FullName, issue.GetNumber(), parent.repository.FullName, parent.number, err)
 	}
 	for i, id := range blockerIDs {
 		if _, _, err := repository.Client.Issues.AddBlockedBy(ctx, repository.Owner(), repository.Name(), int64(issue.GetNumber()), gh.IssueDependencyRequest{IssueID: id}); err != nil {
-			return issue.GetNumber(), fmt.Errorf("GitHub created %s#%d, but the add of the blocker %s#%d failed. Do not create the issue again: %w", repository.FullName, issue.GetNumber(), input.blockers[i].repository.FullName, input.blockers[i].number, err)
+			return issue, fmt.Errorf("GitHub created %s#%d, but the add of the blocker %s#%d failed. Do not create the issue again: %w", repository.FullName, issue.GetNumber(), input.blockers[i].repository.FullName, input.blockers[i].number, err)
 		}
 	}
-	return issue.GetNumber(), nil
+	return issue, nil
 }
 
 // blockerIDsOf gives the ids of the issues blockers. It refuses a missing issue, a pull request and an issue that is two
@@ -1372,11 +1382,15 @@ func (e *Engine) updateBlockers(ctx context.Context, c caller, repository github
 	added, removed, err := writeBlockers(ctx, repository, input.N, add, remove)
 	if len(added)+len(removed) > 0 {
 		workstream, recopyErr := e.repository(c.repository)
-		if recopyErr == nil {
-			recopyErr = e.recopyTrees(ctx, workstream, c.workstream)
-		}
 		if recopyErr != nil {
 			log.Printf("copy the tree of %s#%d: %v", c.repository, c.workstream, recopyErr)
+		} else if e.tryTrack() {
+			go func() {
+				defer e.untrack()
+				if copyErr := e.recopyTrees(context.WithoutCancel(ctx), workstream, c.workstream); copyErr != nil {
+					log.Printf("copy the tree of %s#%d: %v", workstream.FullName, c.workstream, copyErr)
+				}
+			}()
 		}
 	}
 	change := blockerChange(added, removed)
@@ -1637,21 +1651,40 @@ func (e *Engine) rerunFailedJobsTool(ctx context.Context, c caller, repository g
 			continue
 		}
 		var refused *gh.ErrorResponse
+		started := "started again"
 		err = repository.RerunFailedJobs(ctx, run.GetID())
 		if errors.As(err, &refused) && refused.Response.StatusCode >= 400 && refused.Response.StatusCode < 500 {
-			lines = append(lines, fmt.Sprintf("%s (run %d, attempt %d): GitHub refused: %s", run.GetName(), run.GetID(), attempt, refused.Message))
-			continue
-		} else if err != nil {
+			if slices.ContainsFunc(jobs, failedJob) {
+				lines = append(lines, fmt.Sprintf("%s (run %d, attempt %d): GitHub refused: %s", run.GetName(), run.GetID(), attempt, refused.Message))
+				continue
+			}
+			failedJobsMessage := refused.Message
+			err = repository.RerunWorkflowRun(ctx, run.GetID())
+			if errors.As(err, &refused) && refused.Response.StatusCode >= 400 && refused.Response.StatusCode < 500 {
+				lines = append(lines, fmt.Sprintf("%s (run %d, attempt %d): GitHub refused the re-run of the failed jobs: %s. GitHub refused the full re-run: %s", run.GetName(), run.GetID(), attempt, failedJobsMessage, refused.Message))
+				continue
+			}
+			started = "started again (full run)"
+		}
+		if err != nil {
 			return "", storeRerun(err)
 		}
 		startedIDs = append(startedIDs, strconv.FormatInt(run.GetID(), 10))
 		startedNames = append(startedNames, run.GetName())
-		lines = append(lines, fmt.Sprintf("%s (run %d, attempt %d): started again", run.GetName(), run.GetID(), attempt))
+		lines = append(lines, fmt.Sprintf("%s (run %d, attempt %d): %s", run.GetName(), run.GetID(), attempt, started))
 	}
 	if err := storeRerun(nil); err != nil {
 		return "", err
 	}
 	return strings.Join(lines, "\n"), nil
+}
+
+func failedJob(job *gh.WorkflowJob) bool {
+	switch job.GetConclusion() {
+	case "failure", "cancelled", "timed_out":
+		return true
+	}
+	return false
 }
 
 func (e *Engine) markReady(ctx context.Context, c caller, repository github.Repository, input taskInput) (string, error) {

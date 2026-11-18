@@ -120,7 +120,7 @@ func (e *Engine) saveMemory(ctx context.Context, repository, file, author, reaso
 	}
 	limit := maxMemoryBytes(file)
 	if len(text) > limit && (len(current) <= limit || len(text) >= len(current)) {
-		return fmt.Errorf("%w: the memory file %s has %d bytes and the limit is %d. Remove or shorten a lesson. Do not make a line longer", ErrMemoryTooLong, file, len(text), limit)
+		return fmt.Errorf("%w: the memory file %s would have %d bytes, and the limit is %d. Remove at least %d bytes. Remove or shorten a lesson. Do not make a line longer", ErrMemoryTooLong, file, len(text), limit, len(text)-limit)
 	}
 	return e.inTx(ctx, func(queries *store.Queries) error {
 		err := queries.AddMemoryVersion(ctx, store.AddMemoryVersionParams{Repository: repository, File: file, Time: now(), Author: author, Reason: reason, Text: text})

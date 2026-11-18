@@ -22,26 +22,27 @@ func UseProgram(t *testing.T, path string) {
 
 // The tests make these waits short.
 var (
-	ToolsTimeout            = &toolsTimeout
-	RestartDelays           = &restartDelays
-	RateLimitGrace          = &rateLimitGrace
-	HangTimeout             = &hangTimeout
-	AfterHangRead           = &afterHangRead
-	AfterDownload           = &afterDownload
-	AfterTriagerStop        = &afterTriagerStop
-	AfterCopiedTasksTree    = &afterCopiedTasksTree
-	BeforeRecopyTrees       = &beforeRecopyTrees
-	BeforeLeadIssueWait     = &beforeLeadIssueWait
-	ErrHung                 = errHung
-	AbsorbTimeout           = &absorbTimeout
-	BackgroundTimeout       = &backgroundTimeout
-	BackgroundCheckInterval = &backgroundCheckInterval
-	LoadAverage             = &loadAverage
-	CheckGap                = &checkGap
-	LoadPoll                = &loadPoll
-	LoadWaitEvent           = &loadWaitEvent
-	Cores                   = cores
-	FailedRetry             = failedRetry
+	ToolsTimeout             = &toolsTimeout
+	RestartDelays            = &restartDelays
+	RateLimitGrace           = &rateLimitGrace
+	HangTimeout              = &hangTimeout
+	AfterHangRead            = &afterHangRead
+	AfterDownload            = &afterDownload
+	AfterTriagerStop         = &afterTriagerStop
+	AfterCopiedTasksTree     = &afterCopiedTasksTree
+	BeforeRecopyTrees        = &beforeRecopyTrees
+	BeforeLeadIssueWait      = &beforeLeadIssueWait
+	BeforeRemoveResearchCopy = &beforeRemoveResearchCopy
+	ErrHung                  = errHung
+	AbsorbTimeout            = &absorbTimeout
+	BackgroundTimeout        = &backgroundTimeout
+	BackgroundCheckInterval  = &backgroundCheckInterval
+	LoadAverage              = &loadAverage
+	CheckGap                 = &checkGap
+	LoadPoll                 = &loadPoll
+	LoadWaitEvent            = &loadWaitEvent
+	Cores                    = cores
+	FailedRetry              = failedRetry
 )
 
 // ClosedIssueReply is the reply of the engine to a comment on a closed issue, for the tests.

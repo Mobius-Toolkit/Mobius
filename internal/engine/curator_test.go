@@ -246,7 +246,7 @@ func TestAnEditMemoryCallAddsAVersionOfTheCuratorAndTheNextAgentGetsTheText(t *t
 	if got := memoryReasons(t, server); len(got) != 1 || got[0] != "Add: Workstream 12 repeats the format failure." {
 		t.Errorf("reasons = %q", got)
 	}
-	if calls := mcpCalls(t, server, session); len(calls) != 1 || calls[0]["result"] != "Saved the memory file shared. It has 1 of 200 lines and 33 of 16384 bytes." {
+	if calls := mcpCalls(t, server, session); len(calls) != 1 || calls[0]["result"] != "Saved the memory file shared. It has 1 of 200 lines and 33 of 16384 bytes, and 16351 bytes are free." {
 		t.Errorf("calls = %v", calls)
 	}
 	sendChat(t, server, leadChat, "Plan the loyalty API")
@@ -320,8 +320,8 @@ func TestAnEditMemoryCallChangesOnlyTheSelectedFile(t *testing.T) {
 		t.Errorf("files = %q", got)
 	}
 	for session, want := range map[int64]string{
-		sharedSession: "Saved the memory file shared. It has 1 of 200 lines and 15 of 16384 bytes.",
-		roleSession:   "Saved the memory file implementer. It has 1 of 200 lines and 20 of 4096 bytes.",
+		sharedSession: "Saved the memory file shared. It has 1 of 200 lines and 15 of 16384 bytes, and 16369 bytes are free.",
+		roleSession:   "Saved the memory file implementer. It has 1 of 200 lines and 20 of 4096 bytes, and 4076 bytes are free.",
 	} {
 		if calls := mcpCalls(t, server, session); len(calls) != 1 || calls[0]["result"] != want {
 			t.Errorf("calls = %v", calls)
@@ -365,11 +365,11 @@ call = { tool = "edit_memory", arguments = { file = "implementer", old = "", new
 	if len(calls) != 2 {
 		t.Fatalf("calls = %v", calls)
 	}
-	wantShared := "the memory file is too long: the memory file shared has 16385 bytes and the limit is 16384. Remove or shorten a lesson. Do not make a line longer"
+	wantShared := "the memory file is too long: the memory file shared would have 16385 bytes, and the limit is 16384. Remove at least 1 bytes. Remove or shorten a lesson. Do not make a line longer"
 	if calls[0]["error"] != wantShared {
 		t.Errorf("shared error = %v, want %s", calls[0]["error"], wantShared)
 	}
-	wantRole := "the memory file is too long: the memory file implementer has 4097 bytes and the limit is 4096. Remove or shorten a lesson. Do not make a line longer"
+	wantRole := "the memory file is too long: the memory file implementer would have 4097 bytes, and the limit is 4096. Remove at least 1 bytes. Remove or shorten a lesson. Do not make a line longer"
 	if calls[1]["error"] != wantRole {
 		t.Errorf("role error = %v, want %s", calls[1]["error"], wantRole)
 	}
@@ -412,11 +412,11 @@ call = { tool = "edit_memory", arguments = { file = "shared", old = "", new = "A
 	if len(calls) != 2 {
 		t.Fatalf("calls = %v", calls)
 	}
-	wantSaved := fmt.Sprintf("Saved the memory file shared. It has 1 of 200 lines and %d of 16384 bytes.", 20000-len(marker))
+	wantSaved := fmt.Sprintf("Saved the memory file shared. It has 1 of 200 lines and %d of 16384 bytes, and the file is %d bytes above the limit.", 20000-len(marker), 20000-len(marker)-16384)
 	if calls[0]["result"] != wantSaved {
 		t.Errorf("shorter result = %v, want %s", calls[0]["result"], wantSaved)
 	}
-	wantRefused := "the memory file is too long: the memory file shared has 20003 bytes and the limit is 16384. Remove or shorten a lesson. Do not make a line longer"
+	wantRefused := "the memory file is too long: the memory file shared would have 20003 bytes, and the limit is 16384. Remove at least 3619 bytes. Remove or shorten a lesson. Do not make a line longer"
 	if calls[1]["error"] != wantRefused {
 		t.Errorf("longer error = %v, want %s", calls[1]["error"], wantRefused)
 	}
@@ -766,7 +766,7 @@ func TestATellCuratorCallStartsACuratorWithTheRequestAndTheResultGoesToTheCoordi
 		"- Add the lesson: run make fmt before each commit.\n\n"+
 		"The Curator changed the memory files. The reasons of the changes:\n\n"+
 		"- shared: Add: request 1 of the Owner.\n\n"+
-		"Reply of the Curator:\n\nAdded the lesson.Saved the memory file shared. It has 1 of 200 lines and 33 of 16384 bytes.", curator.ID)
+		"Reply of the Curator:\n\nAdded the lesson.Saved the memory file shared. It has 1 of 200 lines and 33 of 16384 bytes, and 16351 bytes are free.", curator.ID)
 	testkit.WaitFor(t, func() bool {
 		for _, session := range chatSessions(t, server, coordinatorChat, engine.CoordinatorRole) {
 			if slices.ContainsFunc(promptTexts(t, server, session.ID), func(prompt string) bool { return strings.HasSuffix(prompt, result) }) {
@@ -1188,4 +1188,38 @@ call = { tool = "report_gap", arguments = { text = %q } }
 	if len(messages) != 1 || messages[0] != want {
 		t.Errorf("messages = %v, want [%q]", messages, want)
 	}
+}
+
+func TestThePromptOfTheCuratorGivesTheSizesOfEachMemoryFile(t *testing.T) {
+	t.Parallel()
+	server, dataDir := connect(t, testkit.NewFakeGitHub(t), curatorScript)
+	sharedPath := filepath.Join(dataDir, "memory", shop+".md")
+	if err := os.MkdirAll(filepath.Dir(sharedPath), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sharedPath, []byte(strings.Repeat("A", 17000)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := server.Engine.SaveMemory(t.Context(), shop, engine.ImplementerRole, "owner", "", strings.Repeat("B", 100)); err != nil {
+		t.Fatal(err)
+	}
+	if err := server.Engine.SaveMemory(t.Context(), shop, engine.ReviewerRole, "owner", "", strings.Repeat("C", 4096)); err != nil {
+		t.Fatal(err)
+	}
+
+	prompt := nextCuratorPrompt(t, server, 1)
+
+	inOrder(t, prompt,
+		"# Memory\n\n",
+		"# Memory of the roles\n\n",
+		"# Memory file sizes\n\n"+
+			"- shared: 17000 of 16384 bytes, and the file is 616 bytes above the limit.\n"+
+			"- lead: 0 of 4096 bytes, and 4096 bytes are free.\n"+
+			"- implementer: 100 of 4096 bytes, and 3996 bytes are free.\n"+
+			"- reviewer: 4096 of 4096 bytes, and 0 bytes are free.\n"+
+			"- judge: 0 of 4096 bytes, and 4096 bytes are free.\n"+
+			"- researcher: 0 of 4096 bytes, and 4096 bytes are free.\n"+
+			"- diagnoser: 0 of 4096 bytes, and 4096 bytes are free.\n"+
+			"- curator: 0 of 4096 bytes, and 4096 bytes are free.\n\n",
+	)
 }

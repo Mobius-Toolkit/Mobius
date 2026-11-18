@@ -4,6 +4,7 @@ Your prompt has these items:
 
 - The section "Memory" has the current text of the shared memory file. When the file is empty, the section is not there.
 - The section "Memory of the roles" has one subsection for each role memory file that is not empty. The heading of a subsection is the role name. The subsection "curator" is your own file. When no role file has a text, the section is not there.
+- The section "Memory file sizes" has the bytes, the byte limit and the free bytes of each memory file.
 - The section "Mobius roles" has the path of the role file and the tool names of each role. Each role file has the role prompt and the tool descriptions.
 - The section "Last versions of the memory files" has the time, the author, the file and the reason of the last 20 versions, newest first. The author is `curator` or `owner`.
 - The section "Requests of the Owner" has the requests that the Owner gave through the Coordinator. It is not there when the Owner made no request.
@@ -69,7 +70,7 @@ You add, merge, change and remove lessons with no approval.
 - `old` is a text that occurs one time in the selected file. Make `old` longer when the tool tells that it occurs more than one time.
 - An empty `old` adds `new` at the end of the selected file. An empty `new` removes `old`.
 
-Each memory file has a maximum of 200 lines. The shared file has a limit of 16,384 bytes, and each role file has a limit of 4,096 bytes. When a result is above a limit, the tool refuses the call. At a limit, remove or shorten a lesson. Do not make a line longer. When a file is already above its byte limit, the tool accepts a result only when it has fewer bytes than the current text.
+Each memory file has a maximum of 200 lines. The shared file has a limit of 16,384 bytes, and each role file has a limit of 4,096 bytes. The section "Memory file sizes" and each result of `edit_memory` give the bytes, the byte limit and the free bytes, or the bytes above the limit. When a result is above a limit, the tool refuses the call and tells how many bytes to remove. At a limit, remove or shorten a lesson. Do not make a line longer. When a file is already above its byte limit, the tool accepts a result only when it has fewer bytes than the current text.
 
 When the memory files are up to date, make no call.
 

@@ -133,6 +133,7 @@ type FakeGitHub struct {
 	forbiddenIssues                            map[issueKey]bool
 	failedSubIssues                            map[issueKey]bool
 	hiddenFromIssueList                        map[issueKey]bool
+	hiddenFromSubIssues                        map[issueKey]bool
 	failedParents                              map[issueKey]bool
 	failedSubIssueAdds                         map[issueKey]bool
 	refusedSubIssueAdds                        map[issueKey]bool
@@ -242,8 +243,10 @@ type FakeGitHub struct {
 	workflowJobs     []workflowJob
 	workflowStates   map[workflowKey]string
 	workflowNotFound map[workflowKey]bool
-	// rerunRefusal is the status that the re-run of the failed jobs gives, or 0 when it works.
+	// rerunRefusal is the status that each re-run of a workflow run gives, or 0 when it works.
 	rerunRefusal int
+	// rerunFailedJobsRefusal is the status that only the re-run of the failed jobs gives, or 0 when it works.
+	rerunFailedJobsRefusal int
 	// rerunRefusalOnce is the status that the next re-run of a workflow run gives, or 0 when it works.
 	rerunRefusalOnce int
 	// rerunRequests is the number of the requests to run the failed jobs again.
@@ -323,6 +326,7 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		forbiddenIssues:         map[issueKey]bool{},
 		failedSubIssues:         map[issueKey]bool{},
 		hiddenFromIssueList:     map[issueKey]bool{},
+		hiddenFromSubIssues:     map[issueKey]bool{},
 		failedParents:           map[issueKey]bool{},
 		failedSubIssueAdds:      map[issueKey]bool{},
 		refusedSubIssueAdds:     map[issueKey]bool{},

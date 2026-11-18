@@ -10,6 +10,7 @@ import (
 
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
+	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
 
 func countCreates(requests []testkit.Request) int {
@@ -69,6 +70,104 @@ func TestCreateIssueGivesTheNumberWhileTheCopyOfTheTreeIsHeld(t *testing.T) {
 		t.Fatal(err)
 	}
 	testkit.WaitFor(t, func() bool { return copied(13) })
+}
+
+func copiedRows(t *testing.T, server *testserver.Server, number int64) int {
+	t.Helper()
+	var count int
+	if err := server.DB.QueryRow("SELECT count(*) FROM copied_issues WHERE repository = ? AND workstream = 12 AND number = ?", shop, number).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	return count
+}
+
+// Serial: the test sets the hook beforeRecopyTrees.
+func TestListTasksShowsTheNewIssueOfCreateIssueWithItsBlockersWhileTheCopyOfTheTreeIsHeld(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	create := `{ repository = "owner/shop", title = "Add plan model", body = "", parent = "owner/shop#12", blocked_by = ["owner/shop#88"] }`
+	server, _ := connect(t, fake, call("create_issue", create)+"[[prompts]]\ncall = { tool = \"list_tasks\" }\n")
+	fake.AddIssue(shop, 20, "Billing")
+	fake.AddLabel(shop, 20, "mobius:workstream", "owner")
+	fake.AddIssue(shop, 88, "Invoice totals")
+	fake.AddSubIssue(shop, 20, 88)
+	testkit.WaitFor(t, func() bool {
+		var count int
+		_ = server.DB.QueryRow("SELECT count(*) FROM copied_issues WHERE repository = ? AND workstream = 20 AND number = 88", shop).Scan(&count)
+		return count == 1
+	})
+	hold := make(chan struct{})
+	entered := make(chan struct{})
+	enter := sync.OnceFunc(func() { close(entered) })
+	release := sync.OnceFunc(func() { close(hold) })
+	*engine.BeforeRecopyTrees = func() {
+		enter()
+		<-hold
+	}
+	t.Cleanup(func() {
+		release()
+		*engine.BeforeRecopyTrees = nil
+	})
+
+	agent := start(t, server, leadSpec(t))
+	if err := agent.Prompt(t.Context(), "Plan the work. ", nil); err != nil {
+		t.Fatal(err)
+	}
+	testkit.WaitFor(t, func() bool {
+		select {
+		case <-entered:
+			return true
+		default:
+			return false
+		}
+	})
+	if err := agent.Prompt(t.Context(), "List the tasks. ", nil); err != nil {
+		t.Fatal(err)
+	}
+	release()
+	if err := agent.End(t.Context(), "done"); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := reply(t, server, agent.ID()); got != "Created owner/shop#89.owner/shop#89 Add plan model: open, blocked by owner/shop#88 (Workstream \"Billing\")\n" {
+		t.Errorf("reply = %q", got)
+	}
+	waitForPolls(t, fake)
+	if got := copiedRows(t, server, 89); got != 1 {
+		t.Errorf("rows of owner/shop#89 = %d", got)
+	}
+}
+
+func TestAPollThatReadsTheTreeBeforeGitHubListsTheNewIssueDoesNotRemoveItsCopy(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, call("create_issue", createPlanModel))
+	fake.HideFromSubIssues(shop, 13, true)
+	subIssueReads := func() int {
+		count := 0
+		for _, request := range fake.Requests() {
+			if request.Method == http.MethodGet && request.Path == "/repos/owner/shop/issues/12/sub_issues" {
+				count++
+			}
+		}
+		return count
+	}
+	reads := subIssueReads()
+
+	agent := start(t, server, leadSpec(t))
+	if err := agent.Prompt(t.Context(), "Plan the work. ", nil); err != nil {
+		t.Fatal(err)
+	}
+	testkit.WaitFor(t, func() bool { return subIssueReads() >= reads+6 })
+
+	if got := copiedRows(t, server, 13); got != 1 {
+		t.Errorf("rows of owner/shop#13 while GitHub hides it = %d", got)
+	}
+	fake.HideFromSubIssues(shop, 13, false)
+	reads = subIssueReads()
+	testkit.WaitFor(t, func() bool { return subIssueReads() >= reads+6 })
+	if got := copiedRows(t, server, 13); got != 1 {
+		t.Errorf("rows of owner/shop#13 after GitHub lists it = %d", got)
+	}
 }
 
 func TestTwoCreateIssueCallsOfOneSessionWithTheSameParentAndTitleCreateOneIssue(t *testing.T) {
