@@ -1310,6 +1310,9 @@ reply = ["Noted."]
 	if !claudeCodePaused(t, server) {
 		t.Error("the save prompt did not set the pause")
 	}
+	if got := chatTexts(t, server, "Mobius"); len(got) != 0 {
+		t.Errorf("chat = %q", got)
+	}
 }
 
 func TestAMessageToAnOpenLeadOfAPausedHarnessWaitsForTheEndOfThePause(t *testing.T) {

@@ -199,7 +199,7 @@ func (a *Agent) pauseForReplyLimit(ctx context.Context, text string) error {
 		until = now.Add(noTimeWait)
 	}
 	log.Printf("usage limit of %s in reply text: pause until %s", a.binding.Harness, until.UTC().Format(timeFormat))
-	return a.engine.pause(ctx, a, until)
+	return a.pauseForSession(ctx, until)
 }
 
 // pauseForLimit gives true when err of a prompt is a usage limit of the Harness of a. Then it pauses the Harness.
@@ -228,10 +228,20 @@ func (a *Agent) pauseForLimit(ctx context.Context, err error) (bool, error) {
 		hintState = "used"
 	}
 	log.Printf("usage limit of %s: reset time of the usage update %s (%s), pause until %s", a.binding.Harness, reported, hintState, until.UTC().Format(timeFormat))
-	if err := a.engine.pause(ctx, a, until); err != nil {
+	if err := a.pauseForSession(ctx, until); err != nil {
 		return false, err
 	}
 	return true, nil
+}
+
+// pauseForSession pauses the Harness of a until until. The save prompt of a closing chat sends no prompt again, so its
+// pause adds no chat message that promises it.
+func (a *Agent) pauseForSession(ctx context.Context, until time.Time) error {
+	if a.isSaving() {
+		_, err := a.engine.pauseQuiet(ctx, a.binding.Harness, until)
+		return err
+	}
+	return a.engine.pause(ctx, a, until)
 }
 
 // limitText is the Mobius message of a usage limit of harness with the end of the pause until. It has the same form
