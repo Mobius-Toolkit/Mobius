@@ -1310,8 +1310,11 @@ func (e *Engine) chat(c *chat, a *Agent, first item) error {
 		e.chatsMu.Unlock()
 		if c.key.Workstream != 0 {
 			a.setAuthor("")
-			if err := e.turn(c, a, savePrompt, nil, false); err != nil {
-				return err
+			a.setSaving(true)
+			saveErr := e.turn(c, a, savePrompt, nil, false)
+			a.setSaving(false)
+			if saveErr != nil {
+				return saveErr
 			}
 		}
 		e.chatsMu.Lock()

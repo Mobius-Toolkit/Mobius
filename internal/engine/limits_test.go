@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -742,26 +743,34 @@ func TestAUsageLimitOfTheImplementerHoldsThePullRequestUntilResume(t *testing.T)
 	}
 }
 
-func TestASuccessfulPromptEndsThePauseOfItsHarness(t *testing.T) {
+func TestAPromptToAnOpenSessionOfAPausedHarnessWaitsForTheEndOfThePause(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"Done.\"]\n")
 	agent := start(t, server, implementerSpec(t, server, fake, 41))
 	defer end(t, agent, "done")
-	for _, statement := range []string{
-		`INSERT INTO harness_pauses (harness, paused_until) VALUES ('devin', '2099-01-01T00:00:00Z')`,
-	} {
-		if _, err := server.DB.Exec(statement); err != nil {
-			t.Fatal(err)
-		}
+	if _, err := server.DB.Exec(`INSERT INTO harness_pauses (harness, paused_until) VALUES ('devin', '2099-01-01T00:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
+	prompted := make(chan error, 1)
+	go func() { prompted <- agent.Prompt(t.Context(), "Store plans in cents.", nil) }()
+
+	testkit.WaitFor(t, func() bool {
+		return strings.HasPrefix(session(t, server, agent.ID()).QueueReason.String, "paused until 2099-01-01")
+	})
+	if got := promptTexts(t, server, agent.ID()); len(got) != 0 {
+		t.Errorf("prompts during the pause = %q", got)
 	}
 
-	if err := agent.Prompt(t.Context(), "Store plans in cents.", nil); err != nil {
+	if err := server.Engine.Resume(t.Context(), "devin"); err != nil {
 		t.Fatal(err)
 	}
 
-	if _, paused := devinPause(t, server); paused {
-		t.Error("the pause did not end")
+	if err := <-prompted; err != nil {
+		t.Fatal(err)
+	}
+	if got := promptTexts(t, server, agent.ID()); !reflect.DeepEqual(got, []string{"Store plans in cents."}) {
+		t.Errorf("prompts after the pause = %q", got)
 	}
 }
 
@@ -893,24 +902,20 @@ func TestTheChatOfALeadThatWaitsForAPauseGivesTheEndOfThePauseUntilThePauseEnds(
 	}
 }
 
-func TestALeadThatHitsAPauseOfAnotherSessionGetsTheMobiusMessageInItsChat(t *testing.T) {
+func TestALeadThatStartsDuringThePauseOfAnotherSessionWaitsAndSendsNoPrompt(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectWith(t, fake, claudeCodeLimitWithRawText, keepSessionOpen)
-	for _, statement := range []string{
-		`INSERT INTO harness_pauses (harness, paused_until) VALUES ('claude-code', '2099-01-01T00:00:00Z')`,
-	} {
-		if _, err := server.DB.Exec(statement); err != nil {
-			t.Fatal(err)
-		}
-	}
+	pauseClaudeCode(t, server)
 
 	sendChat(t, server, leadChat, "Plan the API")
 
-	want := []string{"claude-code reached a usage limit. Mobius sends the prompt again at 2099-01-01 00:00 UTC."}
-	testkit.WaitFor(t, func() bool { return len(chatTexts(t, server, "Mobius")) == 1 })
-	if got := chatTexts(t, server, "Mobius"); !reflect.DeepEqual(got, want) {
-		t.Errorf("chat = %q, want %q", got, want)
+	session := waitForLeadPause(t, server)
+	if got := promptTexts(t, server, session.ID); len(got) != 0 {
+		t.Errorf("prompts = %q", got)
+	}
+	if got := chatTexts(t, server, "Mobius"); len(got) != 0 {
+		t.Errorf("chat = %q", got)
 	}
 	if got := chatTexts(t, server, "Lead"); len(got) != 0 {
 		t.Errorf("Lead chat messages = %q", got)
@@ -935,36 +940,6 @@ func TestALeadThatHitsTheUsageLimitAgainAfterThePauseGetsTheMobiusMessageAgain(t
 	testkit.WaitFor(t, func() bool { return len(chatTexts(t, server, "Mobius")) == 2 })
 	if got := inbox(t, server); len(got) != 0 {
 		t.Errorf("inbox = %+v", got)
-	}
-}
-
-func TestALeadThatHitsAPauseWithItsMessageAlreadyInTheChatGetsNoSecondMessage(t *testing.T) {
-	t.Parallel()
-	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectWith(t, fake, claudeCodeLimitWithRawText, keepSessionOpen)
-	for _, statement := range []string{
-		`INSERT INTO harness_pauses (harness, paused_until) VALUES ('claude-code', '2099-01-01T00:00:00Z')`,
-		`INSERT INTO chat_messages (organization, repository, workstream, author, time, text)
-		 VALUES ('owner', 'owner/shop', 12, 'Mobius', '2026-10-04T10:00:00Z', 'claude-code reached a usage limit. Mobius sends the prompt again at 2099-01-01 00:00 UTC.')`,
-	} {
-		if _, err := server.DB.Exec(statement); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	sendChat(t, server, leadChat, "Plan the API")
-
-	testkit.WaitFor(t, func() bool { return len(chatSessions(t, server, leadChat, engine.LeadRole)) == 1 })
-	lead := chatSessions(t, server, leadChat, engine.LeadRole)[0].ID
-	testkit.WaitFor(t, func() bool {
-		var reason sql.NullString
-		if err := server.DB.QueryRow("SELECT queue_reason FROM sessions WHERE id = ?", lead).Scan(&reason); err != nil {
-			t.Fatal(err)
-		}
-		return strings.HasPrefix(reason.String, "paused until ")
-	})
-	if got := chatTexts(t, server, "Mobius"); len(got) != 1 {
-		t.Errorf("chat = %q", got)
 	}
 }
 
@@ -1259,5 +1234,192 @@ func TestAnAntigravityReplyWithUsageLimitAfterOtherTextGivesNoPause(t *testing.T
 	want := "Here is the answer:\nUsage Limit Reached\nEverything is fine."
 	if got := agent.ReplyText(); got != want {
 		t.Errorf("reply = %q, want %q", got, want)
+	}
+}
+
+// pauseClaudeCode pauses Claude Code with no end that a test reaches.
+func pauseClaudeCode(t *testing.T, server *testserver.Server) {
+	t.Helper()
+	if _, err := server.DB.Exec(`INSERT INTO harness_pauses (harness, paused_until) VALUES ('claude-code', '2099-01-01T00:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// waitForLeadPause waits until the only Lead session of the chat waits for the pause of Claude Code.
+func waitForLeadPause(t *testing.T, server *testserver.Server) store.Session {
+	t.Helper()
+	return testkit.WaitForValue(t, func() (store.Session, bool) {
+		sessions := chatSessions(t, server, leadChat, engine.LeadRole)
+		if len(sessions) == 0 {
+			return store.Session{}, false
+		}
+		return sessions[0], strings.HasPrefix(sessions[0].QueueReason.String, "paused until 2099-01-01")
+	})
+}
+
+func TestAnIdleLeadOfAPausedHarnessClosesWithNoSavePrompt(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	dir := t.TempDir()
+	started, release := filepath.Join(dir, "started"), filepath.Join(dir, "release")
+	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"Planned.\"]\nshell = \"touch "+started+"; until [ -f "+release+" ]; do sleep 0.05; done\"\n")
+	sendChat(t, server, leadChat, "Plan the API")
+	testkit.WaitFor(t, func() bool { _, err := os.Stat(started); return err == nil })
+	pauseClaudeCode(t, server)
+
+	if err := os.WriteFile(release, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	session := endedChatSession(t, server, 0)
+	if session.EndReason.String != "idle" {
+		t.Errorf("end reason = %q", session.EndReason.String)
+	}
+	if got := promptTexts(t, server, session.ID); len(got) != 1 || !strings.Contains(got[0], "Plan the API") {
+		t.Errorf("prompts = %q", got)
+	}
+	if !claudeCodePaused(t, server) {
+		t.Error("the pause ended")
+	}
+}
+
+func TestASaveTurnThatHitsTheUsageLimitSetsThePauseAndClosesTheSessionWithOneSavePrompt(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, `
+[[prompts]]
+when = "Save in the Workstream memory"
+error = { code = -32603, message = "Rate limited", data = { errorKind = "rate_limit" } }
+
+[[prompts]]
+reply = ["Planned."]
+
+[[prompts]]
+reply = ["Noted."]
+`)
+
+	sendChat(t, server, leadChat, "Plan the API")
+
+	session := endedChatSession(t, server, 0)
+	if session.EndReason.String != "idle" {
+		t.Errorf("end reason = %q", session.EndReason.String)
+	}
+	if got := promptTexts(t, server, session.ID); len(got) != 2 || !strings.Contains(got[0], "Plan the API") || got[1] != savePrompt {
+		t.Errorf("prompts = %q", got)
+	}
+	if !claudeCodePaused(t, server) {
+		t.Error("the save prompt did not set the pause")
+	}
+}
+
+func TestAMessageToAnOpenLeadOfAPausedHarnessWaitsForTheEndOfThePause(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, `
+[[prompts]]
+when = "A second question"
+reply = ["Second answer."]
+
+[[prompts]]
+reply = ["First answer."]
+`, keepSessionOpen)
+	sendChat(t, server, leadChat, "A first question")
+	testkit.WaitFor(t, func() bool { return slices.Equal(leadMessages(t, server), []string{"First answer."}) })
+	pauseClaudeCode(t, server)
+
+	sendChat(t, server, leadChat, "A second question")
+
+	session := waitForLeadPause(t, server)
+	if got := promptTexts(t, server, session.ID); len(got) != 1 {
+		t.Errorf("prompts during the pause = %q", got)
+	}
+
+	if err := server.Engine.Resume(t.Context(), "claude-code"); err != nil {
+		t.Fatal(err)
+	}
+
+	testkit.WaitFor(t, func() bool { return slices.Equal(leadMessages(t, server), []string{"First answer.", "Second answer."}) })
+	if got := promptTexts(t, server, session.ID); len(got) != 2 || !strings.HasSuffix(got[1], "A second question") {
+		t.Errorf("prompts after the pause = %q", got)
+	}
+	if got := chatSessions(t, server, leadChat, engine.LeadRole); len(got) != 1 || got[0].QueueReason.Valid {
+		t.Errorf("sessions = %+v", got)
+	}
+}
+
+func TestAnEventForAnOpenLeadOfAPausedHarnessWaitsForTheEndOfThePause(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, `
+[[prompts]]
+when = "dispatch of #41"
+reply = ["Seen one."]
+
+[[prompts]]
+reply = ["First answer."]
+`, keepSessionOpen)
+	sendChat(t, server, leadChat, "A first question")
+	testkit.WaitFor(t, func() bool { return slices.Equal(leadMessages(t, server), []string{"First answer."}) })
+	pauseClaudeCode(t, server)
+
+	dispatchTask(fake, 41, "Add plan model")
+
+	session := waitForLeadPause(t, server)
+	if got := promptTexts(t, server, session.ID); len(got) != 1 {
+		t.Errorf("prompts during the pause = %q", got)
+	}
+
+	if err := server.Engine.Resume(t.Context(), "claude-code"); err != nil {
+		t.Fatal(err)
+	}
+
+	testkit.WaitFor(t, func() bool { return eventDelivered(t, server) })
+	if got := promptTexts(t, server, session.ID); len(got) != 2 || !strings.Contains(got[1], " dispatch of #41 ") {
+		t.Errorf("prompts after the pause = %q", got)
+	}
+}
+
+func TestTheWaitTurnOfAnIdleLeadWaitsForTheEndOfThePauseAndAQueuedMessageCancelsIt(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	dir := t.TempDir()
+	started, release := filepath.Join(dir, "started"), filepath.Join(dir, "release")
+	server, _ := connect(t, fake, `
+[[prompts]]
+when = "A second question"
+reply = ["Second answer."]
+
+[[prompts]]
+updates = ['`+asyncAgentStart+`']
+reply = ["A helper starts."]
+shell = "touch `+started+`; until [ -f `+release+` ]; do sleep 0.05; done"
+
+[[prompts]]
+reply = ["The helper result."]
+call = { tool = "background_state", arguments = { state = "done" } }
+`)
+	sendChat(t, server, leadChat, "Start a helper")
+	testkit.WaitFor(t, func() bool { _, err := os.Stat(started); return err == nil })
+	pauseClaudeCode(t, server)
+	if err := os.WriteFile(release, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	session := waitForLeadPause(t, server)
+
+	sendChat(t, server, leadChat, "A second question")
+
+	testkit.WaitFor(t, func() bool { return server.Engine.ChatQueued(leadChat) == 0 })
+	session = waitForLeadPause(t, server)
+	if got := promptTexts(t, server, session.ID); len(got) != 1 {
+		t.Errorf("prompts during the pause = %q", got)
+	}
+
+	if err := server.Engine.Resume(t.Context(), "claude-code"); err != nil {
+		t.Fatal(err)
+	}
+
+	testkit.WaitFor(t, func() bool { return len(promptTexts(t, server, session.ID)) >= 2 })
+	if got := promptTexts(t, server, session.ID); got[1] != "A second question" {
+		t.Errorf("prompts after the pause = %q", got)
 	}
 }

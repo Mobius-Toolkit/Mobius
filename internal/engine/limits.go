@@ -191,24 +191,19 @@ func resetIn(text string, now time.Time) time.Time {
 	return now.Add(wait)
 }
 
-// waitOutReplyLimit pauses the Harness of a until the reset time in text, or noTimeWait when text has no reset
-// time, and holds until the pause ends.
-func (a *Agent) waitOutReplyLimit(ctx context.Context, text string) error {
+// pauseForReplyLimit pauses the Harness of a until the reset time in text, or noTimeWait when text has no reset time.
+func (a *Agent) pauseForReplyLimit(ctx context.Context, text string) error {
 	now := time.Now().UTC()
 	until := resetIn(text, now)
 	if until.IsZero() {
 		until = now.Add(noTimeWait)
 	}
 	log.Printf("usage limit of %s in reply text: pause until %s", a.binding.Harness, until.UTC().Format(timeFormat))
-	if err := a.engine.pause(ctx, a, until); err != nil {
-		return err
-	}
-	return a.waitForPause(ctx)
+	return a.engine.pause(ctx, a, until)
 }
 
-// waitOutLimit gives true when err of a prompt is a usage limit of the Harness of a. Then it pauses the Harness,
-// and holds until the pause ends, so the caller sends the same prompt again.
-func (a *Agent) waitOutLimit(ctx context.Context, err error) (bool, error) {
+// pauseForLimit gives true when err of a prompt is a usage limit of the Harness of a. Then it pauses the Harness.
+func (a *Agent) pauseForLimit(ctx context.Context, err error) (bool, error) {
 	var requestErr *acp.RequestError
 	if !errors.As(err, &requestErr) {
 		return false, nil
@@ -236,7 +231,7 @@ func (a *Agent) waitOutLimit(ctx context.Context, err error) (bool, error) {
 	if err := a.engine.pause(ctx, a, until); err != nil {
 		return false, err
 	}
-	return true, a.waitForPause(ctx)
+	return true, nil
 }
 
 // limitText is the Mobius message of a usage limit of harness with the end of the pause until. It has the same form
@@ -607,8 +602,9 @@ func (e *Engine) moveWaiters(roles *config.Roles, implementers []ImplementerBind
 // waitForPause holds until the Harness of a has no pause. The session shows the pause in its queue reason while it
 // waits. While the drain is on, the drain does not count the session. After the end of the pause, the session counts
 // again before it goes on. After seal, it does not go on: it waits until abortDrain or the restart ends it. A session of
-// a moving Role gives errMoved when the Harness of its Role changes.
-func (a *Agent) waitForPause(ctx context.Context) error {
+// a moving Role gives errMoved when the Harness of its Role changes. A value on stop gives errStopped when a stop is
+// pending. A nil stop never ends the wait.
+func (a *Agent) waitForPause(ctx context.Context, stop <-chan struct{}) error {
 	e := a.engine
 	moved, forget := e.watchMove(a)
 	defer forget()
@@ -628,14 +624,7 @@ func (a *Agent) waitForPause(ctx context.Context) error {
 			if !shown {
 				return nil
 			}
-			cleared, err := e.queries.ClearQueueReason(ctx, a.id)
-			if err != nil {
-				return err
-			}
-			e.publish(Change{Node: new(e.node(cleared))})
-			e.publish(Change{Pauses: true})
-			e.publishChat(a)
-			return nil
+			return a.clearPauseReason(ctx)
 		}
 		if err != nil {
 			return err
@@ -660,7 +649,33 @@ func (a *Agent) waitForPause(ctx context.Context) error {
 			return ctx.Err()
 		case <-moved:
 			return errMoved
+		case <-stop:
+			a.mu.Lock()
+			pending := a.stopRequested
+			a.mu.Unlock()
+			if pending {
+				a.setUncounted(false)
+				if shown {
+					if err := a.clearPauseReason(ctx); err != nil {
+						return err
+					}
+				}
+				return errStopped
+			}
 		case <-changed:
 		}
 	}
+}
+
+// clearPauseReason removes the queue reason of a wait for a pause from the session of a.
+func (a *Agent) clearPauseReason(ctx context.Context) error {
+	e := a.engine
+	cleared, err := e.queries.ClearQueueReason(ctx, a.id)
+	if err != nil {
+		return err
+	}
+	e.publish(Change{Node: new(e.node(cleared))})
+	e.publish(Change{Pauses: true})
+	e.publishChat(a)
+	return nil
 }
