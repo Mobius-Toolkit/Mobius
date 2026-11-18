@@ -1893,6 +1893,21 @@ func (q *Queries) DeleteCopiedBlockers(ctx context.Context, arg DeleteCopiedBloc
 	return err
 }
 
+const deleteCopiedBlockersAt = `-- name: DeleteCopiedBlockersAt :exec
+DELETE FROM copied_blockers WHERE repository = ? AND workstream = ? AND position = ?
+`
+
+type DeleteCopiedBlockersAtParams struct {
+	Repository string
+	Workstream int64
+	Position   int64
+}
+
+func (q *Queries) DeleteCopiedBlockersAt(ctx context.Context, arg DeleteCopiedBlockersAtParams) error {
+	_, err := q.db.ExecContext(ctx, deleteCopiedBlockersAt, arg.Repository, arg.Workstream, arg.Position)
+	return err
+}
+
 const deleteCopiedBlockersOf = `-- name: DeleteCopiedBlockersOf :exec
 DELETE FROM copied_blockers WHERE repository = ?
 `

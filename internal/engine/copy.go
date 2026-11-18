@@ -729,7 +729,7 @@ func sameIssue(a, b *gh.Issue) bool {
 func (e *Engine) addIssueToCopy(ctx context.Context, workstream issueRef, issue *gh.Issue, parent issueAt, blockers []issueAt) error {
 	copied := copiedIssue{issue: issue, parent: parent.number, parentRepository: parent.repository.FullName}
 	for _, blocker := range blockers {
-		found, err := e.copiedBlockerOf(ctx, workstream.repository, blocker)
+		found, err := e.copiedBlockerOf(ctx, workstream.repository, blockerKey{blocker.repository.FullName, blocker.number})
 		if err != nil {
 			return err
 		}
@@ -748,10 +748,46 @@ func (e *Engine) addIssueToCopy(ctx context.Context, workstream issueRef, issue 
 	return nil
 }
 
+// setCopiedBlockers replaces the blockers of each copied row of the issue number of the repository URL with blockers,
+// and publishes the change. It reads no issue from GitHub. home is the repository of the Workstream.
+func (e *Engine) setCopiedBlockers(ctx context.Context, home, repositoryURL string, number int64, blockers []blockerKey) error {
+	found := make([]copiedBlocker, len(blockers))
+	for i, blocker := range blockers {
+		var err error
+		if found[i], err = e.copiedBlockerOf(ctx, home, blocker); err != nil {
+			return err
+		}
+	}
+	e.copyWrite.Lock()
+	defer e.copyWrite.Unlock()
+	e.labelChangeMu.Lock()
+	defer e.labelChangeMu.Unlock()
+	err := e.inTx(ctx, func(q *store.Queries) error {
+		rows, err := q.ListCopiedIssueRows(ctx, store.ListCopiedIssueRowsParams{Number: number, RepositoryUrl: repositoryURL})
+		if err != nil {
+			return err
+		}
+		for _, row := range rows {
+			if err := q.DeleteCopiedBlockersAt(ctx, store.DeleteCopiedBlockersAtParams(row)); err != nil {
+				return err
+			}
+			if err := addBlockers(ctx, q, row.Repository, row.Workstream, row.Position, found); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	e.publish(Change{Workstreams: true})
+	return nil
+}
+
 // copiedBlockerOf gives the blocker as copyBlockers does, but it reads the Workstream of the blocker from the copy.
-func (e *Engine) copiedBlockerOf(ctx context.Context, home string, blocker issueAt) (copiedBlocker, error) {
-	found := copiedBlocker{repository: blocker.repository.FullName, number: blocker.number}
-	if !strings.EqualFold(blocker.repository.FullName, home) {
+func (e *Engine) copiedBlockerOf(ctx context.Context, home string, blocker blockerKey) (copiedBlocker, error) {
+	found := copiedBlocker{repository: blocker.repository, number: blocker.number}
+	if !strings.EqualFold(blocker.repository, home) {
 		return found, nil
 	}
 	tree, err := e.queries.GetCopiedIssueTree(ctx, store.GetCopiedIssueTreeParams{Number: blocker.number, Repository: home})
@@ -1003,7 +1039,11 @@ func addCopiedIssue(ctx context.Context, q *store.Queries, repository string, wo
 	if err := addLabels(ctx, q, repository, workstream, position, labelNames(issue)); err != nil {
 		return err
 	}
-	for _, blocker := range copied.blockers {
+	return addBlockers(ctx, q, repository, workstream, position, copied.blockers)
+}
+
+func addBlockers(ctx context.Context, q *store.Queries, repository string, workstream, position int64, blockers []copiedBlocker) error {
+	for _, blocker := range blockers {
 		err := q.AddCopiedBlocker(ctx, store.AddCopiedBlockerParams{
 			Repository:             repository,
 			Workstream:             workstream,

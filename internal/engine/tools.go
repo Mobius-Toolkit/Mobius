@@ -1381,6 +1381,22 @@ func (e *Engine) updateBlockers(ctx context.Context, c caller, repository github
 	}
 	added, removed, err := writeBlockers(ctx, repository, input.N, add, remove)
 	if len(added)+len(removed) > 0 {
+		var open []blockerKey
+		for _, found := range current {
+			key := blockerKey{blockerRepository(found, repository.FullName), int64(found.GetNumber())}
+			if found.GetState() == "open" && !slices.Contains(removed, fmt.Sprintf("%s#%d", key.repository, key.number)) {
+				open = append(open, key)
+			}
+		}
+		for _, blocker := range blockers {
+			key := blockerKey{blocker.repository.FullName, blocker.number}
+			if slices.Contains(added, fmt.Sprintf("%s#%d", key.repository, key.number)) && !slices.Contains(open, key) {
+				open = append(open, key)
+			}
+		}
+		if setErr := e.setCopiedBlockers(ctx, c.repository, issue.GetRepositoryURL(), input.N, open); setErr != nil {
+			log.Printf("set the copied blockers of %s#%d: %v", repository.FullName, input.N, setErr)
+		}
 		workstream, recopyErr := e.repository(c.repository)
 		if recopyErr != nil {
 			log.Printf("copy the tree of %s#%d: %v", c.repository, c.workstream, recopyErr)

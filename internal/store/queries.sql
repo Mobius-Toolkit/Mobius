@@ -1051,6 +1051,9 @@ SELECT name FROM copied_issue_labels WHERE repository = ? AND workstream = ? AND
 -- name: DeleteCopiedIssueLabelsAt :exec
 DELETE FROM copied_issue_labels WHERE repository = ? AND workstream = ? AND position = ?;
 
+-- name: DeleteCopiedBlockersAt :exec
+DELETE FROM copied_blockers WHERE repository = ? AND workstream = ? AND position = ?;
+
 -- name: ListCopiedTree :many
 SELECT position, number, parent, parent_repository, title, state, author, html_url, repository_url FROM copied_issues
 WHERE repository = ? AND workstream = ? ORDER BY position;
