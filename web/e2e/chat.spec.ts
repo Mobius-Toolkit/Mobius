@@ -1723,7 +1723,7 @@ test("the note closes the Workstream when all tasks are closed", async ({ page }
   const main = page.getByRole("main");
   const note = main.getByText("All tasks are closed.");
   const close = main.getByRole("button", { name: "Close Workstream" });
-  for (const [size, workstream, task, closes] of [
+  for (const [size, workstream, task, showsList] of [
     [undefined, 50, 52, true],
     [phone, 55, 57, false],
   ] as const) {
@@ -1768,28 +1768,22 @@ test("the note closes the Workstream when all tasks are closed", async ({ page }
     ).toBe(true);
 
     await close.click();
-    if (closes) {
-      await expect(page).toHaveURL("/workstreams");
-      await expect(link).not.toBeAttached();
+    await expect(page).toHaveURL("/workstreams");
+    await expect(link).not.toBeAttached();
+    if (showsList) {
       await expect(main.getByText("Water the roses")).toBeVisible();
       await expect(main.getByText("Plant daisies")).not.toBeAttached();
       await expect(note).not.toBeAttached();
-      // The close stops each agent session of the Workstream.
-      await expect
-        .poll(async () =>
-          (await agents()).every(
-            (agent) =>
-              agent.endedAt !== null &&
-              (agent.role !== "lead_chat" || agent.endReason === "stopped"),
-          ),
-        )
-        .toBe(true);
-    } else {
-      await expect(note.locator("..").locator(".text-destructive")).toBeVisible();
-      await expect(page).toHaveURL(`/workstreams/plants/garden/${workstream}`);
-      await expect(link).toBeAttached();
-      await expect(note).toBeVisible();
     }
+    // The close stops each agent session of the Workstream, also when GitHub refuses the close.
+    await expect
+      .poll(async () =>
+        (await agents()).every(
+          (agent) =>
+            agent.endedAt !== null && (agent.role !== "lead_chat" || agent.endReason === "stopped"),
+        ),
+      )
+      .toBe(true);
   }
 });
 
