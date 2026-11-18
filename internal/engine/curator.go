@@ -283,6 +283,10 @@ func (e *Engine) curateTurn(ctx context.Context, a *Agent, requests []store.List
 	if err != nil {
 		return err
 	}
+	sizes, err := e.memorySizesSection(repository.FullName)
+	if err != nil {
+		return err
+	}
 	since, err := e.lastDoneCuratorStart(ctx, repository.FullName)
 	if err != nil {
 		return err
@@ -314,7 +318,7 @@ func (e *Engine) curateTurn(ctx context.Context, a *Agent, requests []store.List
 	if err := a.open(ctx); err != nil {
 		return err
 	}
-	if err := a.Prompt(ctx, curatorPrompt+"\n"+maintenanceSection(a.spec.Repository, a.maintenance)+requestsSection(requests)+roles+skills+rejections+sections+versions+problems+leads, nil); err != nil {
+	if err := a.Prompt(ctx, curatorPrompt+"\n"+maintenanceSection(a.spec.Repository, a.maintenance)+requestsSection(requests)+roles+skills+rejections+sections+sizes+versions+problems+leads, nil); err != nil {
 		return err
 	}
 	return a.waitBackground(ctx, backgroundPrompt)
@@ -447,6 +451,32 @@ func readNotes(dir string, since time.Time) (string, bool, error) {
 	return sections.String(), changed, nil
 }
 
+// memoryByteStatus gives the byte count, the byte limit and the non-negative free bytes or bytes above the limit.
+func memoryByteStatus(size, limit int) string {
+	if size > limit {
+		return fmt.Sprintf("%d of %d bytes, and the file is %d bytes above the limit", size, limit, size-limit)
+	}
+	return fmt.Sprintf("%d of %d bytes, and %d bytes are free", size, limit, limit-size)
+}
+
+// memorySizesSection gives the bytes, the byte limit and the free bytes of each memory file of repository as a prompt
+// section.
+func (e *Engine) memorySizesSection(repository string) (string, error) {
+	e.memoryMu.Lock()
+	defer e.memoryMu.Unlock()
+	var section strings.Builder
+	section.WriteString("# Memory file sizes\n\n")
+	for _, file := range memoryFileNames {
+		text, err := e.readMemory(repository, file)
+		if err != nil {
+			return "", err
+		}
+		fmt.Fprintf(&section, "- %s: %s.\n", file, memoryByteStatus(len(text), maxMemoryBytes(file)))
+	}
+	section.WriteString("\n")
+	return section.String(), nil
+}
+
 // editMemory replaces the one occurrence of input.Old in input.File of the repository of c with input.New. An empty
 // input.Old adds input.New at the end of the file. It saves input.Reason in the version.
 func (e *Engine) editMemory(ctx context.Context, c caller, _ github.Repository, input editMemoryInput) (string, error) {
@@ -484,7 +514,7 @@ func (e *Engine) editMemory(ctx context.Context, c caller, _ github.Repository, 
 		return "", err
 	}
 	c.agent.memoryEdits = append(c.agent.memoryEdits, input)
-	return fmt.Sprintf("Saved the memory file %s. It has %d of %d lines and %d of %d bytes.", input.File, countLines(text), maxMemoryLines, len(text), maxMemoryBytes(input.File)), nil
+	return fmt.Sprintf("Saved the memory file %s. It has %d of %d lines and %s.", input.File, countLines(text), maxMemoryLines, memoryByteStatus(len(text), maxMemoryBytes(input.File))), nil
 }
 
 // curatorRolesSection writes the role files for each role of memoryRoleFiles to a directory below scratch/
