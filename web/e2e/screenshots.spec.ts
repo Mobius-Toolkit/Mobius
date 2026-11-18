@@ -517,12 +517,15 @@ test("screenshots", async ({ page }) => {
     .getByRole("listitem")
     .filter({ hasText: "Add plan model" })
     .filter({ hasText: "The agent asked a question" });
+  const autopilotOff = page
+    .getByRole("button", { name: "Autopilot: Off" })
+    .filter({ visible: true });
   const chatReady = (device: string) => [
     ...frame(device, drain, {}, "3"),
     main.getByText("#42 and #45 wait for your decision."),
     trayRow,
     main.getByRole("button", { name: "Answer" }).first(),
-    page.getByRole("button", { name: "Autopilot: Off" }).filter({ visible: true }),
+    autopilotOff,
     ...(device === "desktop"
       ? [page.getByRole("complementary").getByText("#45 Pick the plan limits")]
       : []),
@@ -530,7 +533,10 @@ test("screenshots", async ({ page }) => {
   // A phone hides the tray while the message field has the focus.
   const typingReady = (device: string) =>
     chatReady(device).filter((locator) => device === "desktop" || locator !== trayRow);
-  await screenshot(page, "chat", "/workstreams/owner/shop/12", chatReady);
+  await screenshot(page, "chat", "/workstreams/owner/shop/12", (device) => [
+    ...chatReady(device),
+    chatEnd,
+  ]);
   await page.route("**/api/inbox/201/answer", (route) =>
     route.fulfill({
       json: { data: { url: "https://github.com/owner/shop/issues/41#issuecomment-1" } },
@@ -551,6 +557,7 @@ test("screenshots", async ({ page }) => {
       for (const locator of chatReady(device)) {
         await expect(locator).toBeVisible();
       }
+      await chatEnd(page);
       await trayRow.getByRole("button", { name: "Resume", exact: true }).click();
       await page
         .getByRole("dialog")
@@ -719,6 +726,7 @@ test("screenshots", async ({ page }) => {
       for (const locator of chatReady(device)) {
         await expect(locator).toBeVisible();
       }
+      await chatEnd(page);
       await page.getByRole("button", { name: "Autopilot: Off" }).filter({ visible: true }).click();
     },
     () => page.keyboard.press("Escape"),
@@ -737,9 +745,11 @@ test("screenshots", async ({ page }) => {
     }
     await route.fulfill({ response, json: body });
   });
-  await screenshot(page, "autopilot-trigger", "/workstreams/owner/shop/12", () =>
+  await screenshot(page, "autopilot-trigger", "/workstreams/owner/shop/12", (device) => [
+    ...chatReady(device).filter((locator) => locator !== autopilotOff),
     page.getByRole("button", { name: "Autopilot: Start and merge" }).filter({ visible: true }),
-  );
+    chatEnd,
+  ]);
   await page.unroute(triggerRoute);
   await screenshot(
     page,
@@ -773,6 +783,7 @@ test("screenshots", async ({ page }) => {
       ...chatReady(device),
       main.getByRole("button", { name: "Stop voice input" }),
       voiceCard.getByText("Show the prices of the roses first. Then the tulips", { exact: true }),
+      chatEnd,
     ],
     () => main.getByRole("button", { name: "Start voice input" }).click(),
     async () => {
@@ -786,7 +797,7 @@ test("screenshots", async ({ page }) => {
     page,
     "chat-voice-ready",
     "/workstreams/owner/shop/12",
-    (device) => [...chatReady(device), main.getByRole("button", { name: "Remove voice" })],
+    (device) => [...chatReady(device), main.getByRole("button", { name: "Remove voice" }), chatEnd],
     async () => {
       await main.getByRole("button", { name: "Start voice input" }).click();
       await expect.poll(() => page.evaluate("samples")).toBeGreaterThan(0);
@@ -811,7 +822,7 @@ test("screenshots", async ({ page }) => {
     page,
     "chat-converting",
     "/workstreams/owner/shop/12",
-    (device) => [...chatReady(device), voiceCard.getByText("Converting", { exact: true })],
+    (device) => [...chatReady(device), voiceCard.getByText("Converting", { exact: true }), chatEnd],
     async () => {
       await main.getByRole("button", { name: "Start voice input" }).click();
       await expect.poll(() => page.evaluate("samples")).toBeGreaterThan(0);
@@ -847,6 +858,7 @@ test("screenshots", async ({ page }) => {
       main.getByText("The speech model is still starting"),
       main.getByRole("button", { name: "Send again" }),
       main.getByRole("button", { name: "Discard" }),
+      chatEnd,
     ],
     async () => {
       await main.getByRole("button", { name: "Start voice input" }).click();
@@ -865,7 +877,11 @@ test("screenshots", async ({ page }) => {
     page,
     "chat-typing",
     "/workstreams/owner/shop/12",
-    (device) => [...typingReady(device), main.getByRole("button", { name: "Send", exact: true })],
+    (device) => [
+      ...typingReady(device),
+      main.getByRole("button", { name: "Send", exact: true }),
+      chatEnd,
+    ],
     () => main.getByLabel("Message to the Lead").fill("Show the prices of the roses first."),
   );
   await main.getByLabel("Message to the Lead").fill("");
@@ -883,7 +899,11 @@ test("screenshots", async ({ page }) => {
     page,
     "chat-writing",
     "/workstreams/owner/shop/12",
-    (device) => [...chatReady(device), main.getByRole("button", { name: "Stop the reply" })],
+    (device) => [
+      ...chatReady(device),
+      main.getByRole("button", { name: "Stop the reply" }),
+      chatEnd,
+    ],
     stopEnabled,
   );
   await page.unroute("**/api/chat?*");
@@ -932,6 +952,7 @@ test("screenshots", async ({ page }) => {
   await screenshot(page, "chat-paused", "/workstreams/owner/shop/12", (device) => [
     ...chatReady(device),
     main.getByText(/waits for the usage limit until/),
+    chatEnd,
   ]);
   await page.unroute("**/api/chat?*");
   const limitNotice =
@@ -1023,12 +1044,13 @@ test("screenshots", async ({ page }) => {
   await screenshot(page, "chat-stop-reason", "/workstreams/owner/shop/12", (device) => [
     ...chatReady(device),
     stoppedRow.getByRole("button", { name: "Resume", exact: true }),
+    chatEnd,
   ]);
   await screenshot(
     page,
     "chat-stop-details",
     "/workstreams/owner/shop/12",
-    () => page.getByRole("dialog", { name: "Add plan model" }),
+    () => [page.getByRole("dialog", { name: "Add plan model" }), chatEnd],
     () => stoppedRow.getByRole("button", { name: "Resume", exact: true }).click(),
     () => page.keyboard.press("Escape"),
   );
@@ -1044,6 +1066,7 @@ test("screenshots", async ({ page }) => {
       ...typingReady(device),
       main.getByRole("img", { name: "Image 1" }),
       main.getByRole("img", { name: "Image 2" }),
+      chatEnd,
     ],
     async () => {
       await main.getByLabel("Message to the Lead").fill("This is the new plan page.");
@@ -1064,6 +1087,7 @@ test("screenshots", async ({ page }) => {
       composer.getByText("The agent asked a question"),
       composer.getByRole("button", { name: "Remove #41" }),
       composer.getByRole("img", { name: "Image 1" }),
+      chatEnd,
     ],
     async () => {
       await stoppedRow
@@ -1184,6 +1208,7 @@ test("screenshots", async ({ page }) => {
     ...frame(device, drain, {}, "3"),
     main.getByText("#42 and #45 wait for your decision."),
     quotePopover,
+    chatEnd,
   ];
   await screenshot(
     page,
@@ -1205,6 +1230,7 @@ test("screenshots", async ({ page }) => {
       ...frame(device, drain, {}, "3"),
       main.getByText("#42 and #45 wait for your decision."),
       composer.locator("[data-selection-card]"),
+      chatEnd,
     ],
     async (device) => {
       await expect(main.getByLabel("Message to the Lead")).toBeEditable();
@@ -1235,6 +1261,7 @@ test("screenshots", async ({ page }) => {
     ...frame(device, drain, {}, "2"),
     main.getByText(longTitle),
     main.getByRole("link", { name: "#409" }),
+    chatEnd,
   ]);
   await page.unroute(inboxRoute);
   await page.route(inboxRoute, (route) =>
@@ -2352,6 +2379,7 @@ test("screenshots", async ({ page }) => {
     chatCount,
     ...frame(device, drain),
     main.getByText("Sell gift cards in the shop."),
+    chatEnd,
   ]);
   // The Inbox of the server has one item. The route adds one item of each other kind.
   let mergeState: {
@@ -4296,6 +4324,7 @@ test("screenshots", async ({ page }) => {
       group(storeQuestion).getByRole("button", { name: "SQLite", pressed: true }),
       group(checksQuestion).getByRole("button", { name: "Tests", pressed: true }),
       option(checksQuestion, "Types"),
+      chatEnd,
     ],
     async () => {
       await row(storeQuestion).getByRole("button", { name: "Answer" }).click();
@@ -4417,6 +4446,8 @@ test("screenshots", async ({ page }) => {
       option("Which store?", "Postgres"),
     ],
     async () => {
+      await expect(row(longWordTitle)).toBeVisible();
+      await chatEnd(page);
       await row(longWordTitle).getByRole("button", { name: "Answer" }).click();
       await expect(panel).toBeVisible();
     },
