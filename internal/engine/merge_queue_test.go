@@ -110,6 +110,7 @@ func queueTasksWith(t *testing.T, fake *testkit.FakeGitHub, lead, level string, 
 		cfg.Roles.Implementer.Max = 4
 		cfg.ReviewQuietPeriod = 50 * time.Millisecond
 	})
+	logLeadStateOnFailure(t, server)
 	authorize(t, server)
 	if level != "off" {
 		setWorkstreamAutopilot(t, server, level)
@@ -885,7 +886,6 @@ func TestMergeQueuePlacesOnBoardTasksAndInboxItems(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := queueTasksWith(t, fake, approveAgain([]int{41, 43, 45, 47}, 41)+queueLead, "off", []int{41, 43, 45, 47})
-	logLeadStateOnFailure(t, server)
 
 	pr43 := liveTask(t, server, 43).PullRequest.Int64
 
