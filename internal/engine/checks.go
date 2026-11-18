@@ -375,8 +375,13 @@ func (e *Engine) onLongCIWait(ctx context.Context, repository github.Repository,
 }
 
 // remindApproval gives the Lead the event approval_reminder when approvalReminder passed since the task entered
-// approval, or since the last event of this kind. It does not change the task.
+// approval, or since the last event of this kind. It gives no event while an earlier Lead event of the issue is not
+// delivered. It does not change the task.
 func (e *Engine) remindApproval(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) error {
+	waiting, err := e.queries.HasUndeliveredLeadEventOfIssue(ctx, store.HasUndeliveredLeadEventOfIssueParams{WorkstreamRepository: task.WorkstreamRepository, Repository: task.Repository, Issue: sql.NullInt64{Int64: task.Issue, Valid: true}})
+	if err != nil || waiting {
+		return err
+	}
 	return e.remindLead(ctx, task, approvalReminder, "approval_reminder", func(now time.Time, waited time.Duration) (string, error) {
 		issue, err := existingIssue(ctx, repository, task.Issue)
 		if err != nil {
