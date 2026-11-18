@@ -60,10 +60,22 @@ func TestATaskInReadyForReviewWithNoWorkingLabelStaysInReadyForReview(t *testing
 	}
 }
 
+// logReviewLabelOnFailure logs who changed mobius:review of #41 last, and the state of its task, when the test fails.
+func logReviewLabelOnFailure(t *testing.T, fake *testkit.FakeGitHub, server *testserver.Server) {
+	t.Helper()
+	t.Cleanup(func() {
+		if t.Failed() {
+			t.Logf("labels = %q, last actor of mobius:review = %q, added by the App = %v, removed by mallory = %v, task state = %q",
+				fake.Labels(shop, 41), fake.LabelActor(shop, 41, "mobius:review"), fake.LabelAddedBy(shop, 41, "mobius:review", testkit.AppSlug+"[bot]"), fake.LabelRemovedBy(shop, 41, "mobius:review", "mallory"), taskState(t, server))
+		}
+	})
+}
+
 func TestARemovalOfTheReviewLabelStopsATaskInReadyForReview(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := approved(t, fake, "", "", noChange)
+	logReviewLabelOnFailure(t, fake, server)
 
 	fake.RemoveLabel(shop, 41, "mobius:review", "mallory")
 
@@ -81,6 +93,7 @@ func TestARemovalOfTheReviewLabelStopsATaskWhoseApprovalCameAfterTheStartOfThePo
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadApproves+leadStarts, commits, noChange)
+	logReviewLabelOnFailure(t, fake, server)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 	waitForLeadIdle(t, server)
 	reached, hold := fake.HoldIssue(shop, 41)
