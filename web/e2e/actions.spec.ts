@@ -680,7 +680,7 @@ test("the panel of an edit_brief action shows no removed fenced code as Markdown
       json: {
         data: {
           brief:
-            "**Goal**\nLet customers renew a plan two months early.\n\n```sh\n# install deps\nbun install *.tgz\n```\n\n**Scope**\n- Add a button to the renewal page.\n\n**Limits**\n- Do not change the price of a plan.",
+            "**Goal**\nLet customers renew a plan two months early.\n\n```sh\n# install deps\npnpm install *.tgz\n```\n\n**Scope**\n- Add a button to the renewal page.\n\n**Limits**\n- Do not change the price of a plan.",
         },
       },
     }),
@@ -694,7 +694,7 @@ test("the panel of an edit_brief action shows no removed fenced code as Markdown
   await expect(addedText(dialog)).toHaveText(["Do not remove the old renewal page."]);
   await expect(dialog.locator("h1")).toHaveCount(0);
   await expect(dialog).not.toContainText("install deps");
-  await expect(dialog).not.toContainText("bun install");
+  await expect(dialog).not.toContainText("pnpm install");
 });
 
 test("the panel of an edit_brief action keeps the cells of a table row with the marks", async ({

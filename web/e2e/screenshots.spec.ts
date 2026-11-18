@@ -3814,7 +3814,7 @@ test("screenshots", async ({ page }) => {
   await screenshot(page, "memory-role", "/settings/memory/owner/shop/implementer", (device) => [
     ...frame(device, release),
     page.getByText("Implementer · owner/shop").filter({ visible: true }),
-    main.getByText("Use Bun for the frontend.").first(),
+    main.getByText("Use pnpm for the frontend.").first(),
     main.getByRole("heading", { name: "History" }),
   ]);
   const changedVersion = main
