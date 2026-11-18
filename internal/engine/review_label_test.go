@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -73,6 +74,26 @@ func TestARemovalOfTheReviewLabelStopsATaskInReadyForReview(t *testing.T) {
 	if state := taskState(t, server); state != "stopped" {
 		t.Errorf("state = %s", state)
 	}
+	noTaskLabels(t, fake)
+}
+
+func TestARemovalOfTheReviewLabelStopsATaskWhoseApprovalCameAfterTheStartOfThePollStep(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadApproves+leadStarts, commits, noChange)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	waitForReadyEvents(t, fake, server, 1)
+	reached, hold := fake.HoldIssue(shop, 41)
+	release := sync.OnceFunc(hold)
+	t.Cleanup(release)
+	waitForHeld(t, reached)
+	sendChat(t, server, leadChat, "Approve #41")
+	waitForChat(t, server, leadChat, "Lead", "Approved pull request #42 of #41. The Owner got it for review.")
+	fake.RemoveLabel(shop, 41, "mobius:review", "mallory")
+
+	release()
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "stopped" })
 	noTaskLabels(t, fake)
 }
 
