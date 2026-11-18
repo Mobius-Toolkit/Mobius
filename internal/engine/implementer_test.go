@@ -51,9 +51,11 @@ func connectTask(t *testing.T, fake *testkit.FakeGitHub, lead, implementer strin
 // connectTaskIn is connectTask with the data directory dataDir.
 func connectTaskIn(t *testing.T, fake *testkit.FakeGitHub, dataDir, lead, implementer string, adjust func(*config.Config)) (*testserver.Server, string) {
 	t.Helper()
-	fake.AddIssue(shop, 12, "Integrate loyalty plans")
-	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
-	fake.SetBody(shop, 12, "Ship loyalty plans to all shops.")
+	if !fake.HasIssue(shop, 12) {
+		fake.AddIssue(shop, 12, "Integrate loyalty plans")
+		fake.AddLabel(shop, 12, "mobius:workstream", "owner")
+		fake.SetBody(shop, 12, "Ship loyalty plans to all shops.")
+	}
 	fake.AddIssue(shop, 41, "Add plan model")
 	fake.AddSubIssue(shop, 12, 41)
 	fake.SetBody(shop, 41, "Plans have a price.")

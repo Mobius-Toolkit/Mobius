@@ -12,9 +12,10 @@ const briefOnGitHub = "Ship loyalty plans to all shops.\n\n" + chatLink
 func TestTheImplementerReadsTheBriefFromTheDatabaseWithNoLinkToTheLeadChat(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectTask(t, fake, leadStarts, commits, withUIURL)
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
 	fake.SetBody(shop, 12, briefOnGitHub)
-	waitForPoll(t, server, fake)
+	server, _ := connectTask(t, fake, leadStarts, commits, withUIURL)
 
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 
@@ -32,9 +33,10 @@ func TestTheImplementerReadsTheBriefFromTheDatabaseWithNoLinkToTheLeadChat(t *te
 func TestTheLeadReadsTheBriefFromTheDatabaseWithNoLinkToTheLeadChat(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectWith(t, fake, "", withUIURL)
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
 	fake.SetBody(shop, 12, briefOnGitHub)
-	waitForPoll(t, server, fake)
+	server, _ := connectWith(t, fake, "", withUIURL)
 
 	sendChat(t, server, leadChat, "Plan the next step")
 
