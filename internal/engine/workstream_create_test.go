@@ -359,3 +359,42 @@ func TestTheListOfWorkstreamsHasNoRowWithNoNumber(t *testing.T) {
 		t.Errorf("workstreams = %+v", found)
 	}
 }
+
+func TestTheEngineGivesAWorkstreamsChangeWhenItAddsARowWithNoNumberAndWhenTheSendWritesTheNumber(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, action := startCreate(t, fake)
+	changes, stop := server.Engine.Listen()
+	defer stop()
+	fake.FailIssueCreates(1000)
+
+	decided(t, server, action, "approve", "")
+
+	waitForChange(t, changes, func(change engine.Change) bool {
+		return change.Workstreams && upkeepRows(t, server, "number IS NULL AND state = 'open'") == 1
+	})
+	fake.FailIssueCreates(0)
+	waitForChange(t, changes, func(change engine.Change) bool {
+		return change.Workstreams && upkeepRows(t, server, "number = 13") == 1
+	})
+}
+
+func TestTheEngineGivesAWorkstreamsChangeWhenARefusedCreateDeletesTheRowWithNoNumber(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, action := startCreate(t, fake)
+	changes, stop := server.Engine.Listen()
+	defer stop()
+	fake.FailIssueCreates(1000)
+	decided(t, server, action, "approve", "")
+	waitForChange(t, changes, func(change engine.Change) bool {
+		return change.Workstreams && upkeepRows(t, server, "number IS NULL") == 1
+	})
+
+	fake.FailIssueCreates(0)
+	fake.RefuseIssueCreates(http.StatusUnprocessableEntity)
+
+	waitForChange(t, changes, func(change engine.Change) bool {
+		return change.Workstreams && upkeepRows(t, server, "1 = 1") == 0
+	})
+}

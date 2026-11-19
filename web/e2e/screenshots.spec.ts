@@ -369,6 +369,7 @@ test("screenshots", async ({ page }) => {
     ...frame(device, drain, { organizations: true }),
     main.getByRole("heading", { name: "Evergreen" }),
     main.getByText("Seasonal prices"),
+    main.getByText("Waits for GitHub", { exact: true }),
     main.getByRole("img", { name: "Autopilot: Start tasks" }),
     main.getByRole("img", { name: "Agent running" }),
     main.getByRole("img", { name: "Ready to merge" }),

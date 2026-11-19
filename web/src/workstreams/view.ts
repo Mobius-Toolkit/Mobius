@@ -8,7 +8,7 @@ import { defineRouterLink } from "@/ui/link";
 import { inset, renderErrorBadge, renderPageHeader } from "@/ui/page";
 import { Message } from "./message";
 import type { Model } from "./model";
-import type { Workstream } from "./schemas";
+import type { WaitingWorkstream, Workstream } from "./schemas";
 
 type H = HtmlBuilder<Message>;
 
@@ -94,10 +94,34 @@ function renderRow(h: H, model: Model, workstream: Workstream): Html {
   );
 }
 
-function renderList(h: H, model: Model, workstreams: readonly Workstream[]): Html {
+function renderWaitingRow(h: H, waiting: WaitingWorkstream): Html {
+  return h.keyed("li")(
+    `waiting#${waiting.id}`,
+    [],
+    [
+      h.div(
+        [h.Class("flex min-h-11 items-center gap-4 px-4 py-2 md:px-2")],
+        [
+          h.span([h.Class("min-w-0 grow break-words")], [waiting.title]),
+          renderBadge(h, "secondary", "Waits for GitHub"),
+        ],
+      ),
+    ],
+  );
+}
+
+function renderList(
+  h: H,
+  model: Model,
+  waiting: readonly WaitingWorkstream[],
+  workstreams: readonly Workstream[],
+): Html {
   return h.ul(
     [h.Class("divide-y md:-mx-2")],
-    workstreams.map((workstream) => renderRow(h, model, workstream)),
+    [
+      ...waiting.map((row) => renderWaitingRow(h, row)),
+      ...workstreams.map((workstream) => renderRow(h, model, workstream)),
+    ],
   );
 }
 
@@ -105,20 +129,25 @@ export function view(model: Model, h: H): Html {
   const shown = Option.map(model.workstreams, (list) =>
     list.filter((workstream) => workstream.repository.startsWith(`${model.organization}/`)),
   );
+  const waiting = model.waiting.filter((row) =>
+    row.repository.startsWith(`${model.organization}/`),
+  );
   const evergreen = Option.getOrElse(shown, () => []).filter((workstream) => workstream.evergreen);
   const others = Option.getOrElse(shown, () => []).filter((workstream) => !workstream.evergreen);
+  const waitingEvergreen = waiting.filter((row) => row.evergreen);
+  const waitingOthers = waiting.filter((row) => !row.evergreen);
   return h.div(
     [h.Class("grid gap-6")],
     [
       renderPageHeader(h, "Workstreams"),
       model.error ? renderErrorBadge(h, model.error) : h.empty,
-      Option.exists(shown, (list) => list.length === 0)
+      Option.exists(shown, (list) => list.length === 0) && waiting.length === 0
         ? h.p(
             [h.Class(`text-muted-foreground ${inset}`)],
             ["This organization has no open Workstream."],
           )
         : h.empty,
-      evergreen.length > 0
+      evergreen.length + waitingEvergreen.length > 0
         ? h.section(
             [h.Class("grid gap-1")],
             [
@@ -130,11 +159,13 @@ export function view(model: Model, h: H): Html {
                 ],
                 ["Evergreen"],
               ),
-              renderList(h, model, evergreen),
+              renderList(h, model, waitingEvergreen, evergreen),
             ],
           )
         : h.empty,
-      others.length > 0 ? renderList(h, model, others) : h.empty,
+      others.length + waitingOthers.length > 0
+        ? renderList(h, model, waitingOthers, others)
+        : h.empty,
     ],
   );
 }

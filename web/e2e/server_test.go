@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -166,6 +167,7 @@ hang = true
 var ownerCalls = []struct{ message, tool, arguments string }{
 	{"Draft the Workstream for gift cards.", "create_workstream", `{ title = "Gift cards", labels = ["mobius:maintenance", "mobius:evergreen"], brief = "## Goal\n\nLet customers buy a gift card in the shop and pay with it at the checkout. A gift card has a code, a balance and an end date.\n\n## Today\n\n- The shop has only the payment by card.\n- The checkout has no field for a code.\n- The balance of a customer is not stored.\n\n## Scope\n\n- Add the table gift_cards with the code, the balance in cents and the end date.\n- Add the page where a customer buys a gift card and gets the code by e-mail.\n- Add the field for a code at the checkout. The balance pays the order before the card does.\n\n## Limits\n\n- Do not change the payment by card.\n- Do not add a refund of a gift card.\n- Follow AGENTS.md: write the migration as a new file.\n\n## Done\n\n- A Go test: a customer buys a gift card and the table has the balance.\n- A Go test: an order that is larger than the balance charges the card for the rest.\n- A Playwright test buys a gift card and pays an order with its code." }`},
 	{"Draft the Workstream for tea.", "create_workstream", `{ title = "Tea", labels = [], brief = "Sell tea in the shop." }`},
+	{"Draft the Workstream for the hourly backup.", "create_workstream", `{ title = "` + waitingTitle + `", labels = [], brief = "Back up the Mobius database each hour." }`},
 	{"Tell the Lead of #14 to keep the prices in cents.", "message_lead", `{ workstream = 14, text = "The Owner decided that the prices stay in cents.\n\nChange the price column of the plan table to an integer. Write the migration as a new file, and keep the old column until the next release.\n\nTell the Owner when the pull request is ready." }`},
 	{"Tell the Lead of #14 to drop the old price column.", "message_lead", `{ workstream = 14, text = "Drop the old price column of the plan table after the migration of #12.\n\nWait until that migration is in the main branch." }`},
 	{"Tell the Lead of #14 to add a price history.", "message_lead", `{ workstream = 14, text = "Add a history of the plan prices." }`},
@@ -225,6 +227,9 @@ func ownerCallRules(heading string) string {
 
 var script = scriptOptions + briefCallRules("# Owner message\n\n") + scriptHead + ownerAnswerRules("# Owner message\n\n") + ownerCallRules("# Owner message\n\n") + withdrawRules("# Owner message\n\n") + scriptBody +
 	ownerCallRules("") + withdrawRules("") + ownerAnswerRules("") + briefCallRules("") + scriptTail
+
+// waitingTitle is the title of the Workstream of owner/shop that has no number. The fake GitHub refuses each create of its issue.
+const waitingTitle = "Hourly backup of the Mobius database"
 
 // question is the first Owner message of the Lead chat of owner/shop#12. The wide code block and the wide table
 // scroll inside the message.
@@ -294,6 +299,7 @@ func TestServer(t *testing.T) {
 	ctx, stop := signal.NotifyContext(t.Context(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	github := testkit.NewFakeGitHub(t)
+	github.FailIssueCreatesOf(waitingTitle)
 	github.AddAccount("owner", "User")
 	github.AddAccount("plants", "Organization")
 	github.InstallSecondApp("plants")
@@ -665,6 +671,7 @@ func TestServer(t *testing.T) {
 	chat(ctx, t, server, engine.ChatKey{Organization: "plants", Repository: "plants/garden", Workstream: 12}, "Which roses sell best?", "Lead")
 	coordinator := engine.ChatKey{Organization: "owner"}
 	chat(ctx, t, server, coordinator, "Start a Workstream for gift cards.", "Coordinator")
+	addWaitingWorkstream(ctx, t, server, coordinator)
 	// The Lead chat and the Coordinator chat of plants keep their unread replies for the organization switch and for the
 	// unread count of the Chat tab.
 	chat(ctx, t, server, engine.ChatKey{Organization: "plants"}, "Start a Workstream for gift cards.", "Coordinator")
@@ -1067,6 +1074,39 @@ func chat(ctx context.Context, t *testing.T, server *testserver.Server, key engi
 		t.Fatal(err)
 	}
 	waitForChat(t, server, key, author)
+}
+
+// addWaitingWorkstream makes the Coordinator of owner create the Workstream waitingTitle, and approves the action. The
+// send of the create gets a 5xx from the fake GitHub on each poll, so the row keeps no number. The chat of the
+// Coordinator keeps none of the messages of this step.
+func addWaitingWorkstream(ctx context.Context, t *testing.T, server *testserver.Server, coordinator engine.ChatKey) {
+	t.Helper()
+	var lastMessage int64
+	if err := server.DB.QueryRow("SELECT COALESCE(MAX(id), 0) FROM chat_messages").Scan(&lastMessage); err != nil {
+		t.Fatal(err)
+	}
+	if err := server.Engine.SendChat(ctx, coordinator, "", "Draft the Workstream for the hourly backup.", nil, nil, nil, false); err != nil {
+		t.Fatal(err)
+	}
+	var action int64
+	testkit.WaitFor(t, func() bool {
+		err := server.DB.QueryRow("SELECT id FROM pending_actions WHERE tool = 'create_workstream' AND state = 'pending'").Scan(&action)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			t.Fatal(err)
+		}
+		return err == nil
+	})
+	if _, err := server.Engine.ApproveAction(ctx, action, ""); err != nil {
+		t.Fatal(err)
+	}
+	waitForChat(t, server, coordinator, "Approval")
+	var rows int
+	if err := server.DB.QueryRow("SELECT COUNT(*) FROM workstreams WHERE repository = 'owner/shop' AND number IS NULL AND title = ?", waitingTitle).Scan(&rows); err != nil || rows != 1 {
+		t.Fatalf("rows with no number = %d, error = %v", rows, err)
+	}
+	if _, err := server.DB.Exec("DELETE FROM chat_messages WHERE id > ?", lastMessage); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // waitForChat waits for a message of author in the chat of key, and then for the end of each session.

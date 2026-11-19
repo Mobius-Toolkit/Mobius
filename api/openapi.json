@@ -5762,6 +5762,51 @@
         ]
       }
     },
+    "/api/workstreams/waiting": {
+      "get": {
+        "description": "ListWaitingWorkstreams returns the open Workstreams that wait for the send of their create to GitHub, the newest first. Such a Workstream has no number until the send writes it.",
+        "operationId": "ListWaitingWorkstreams",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_Array_WaitingWorkstream"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "workstreams"
+        ]
+      }
+    },
     "/api/workstreams/{owner}/{name}/{number}/agents": {
       "get": {
         "description": "ListAgents returns the sessions of a Workstream, the oldest first. Each session has the session that started it as its parent.",
@@ -8931,6 +8976,24 @@
             "description": "Data is the payload of the response",
             "items": {
               "$ref": "#/components/schemas/Unread"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "description": "Envelope is the body of each success response."
+      },
+      "Envelope_Array_WaitingWorkstream": {
+        "type": "object",
+        "title": "Envelope_Array_WaitingWorkstream",
+        "properties": {
+          "data": {
+            "type": "array",
+            "title": "[]WaitingWorkstream",
+            "description": "Data is the payload of the response",
+            "items": {
+              "$ref": "#/components/schemas/WaitingWorkstream"
             }
           }
         },
@@ -12863,6 +12926,35 @@
           "name"
         ],
         "description": "VoiceLanguageItem is a language that the voice conversion accepts."
+      },
+      "WaitingWorkstream": {
+        "type": "object",
+        "title": "WaitingWorkstream",
+        "properties": {
+          "evergreen": {
+            "type": "boolean",
+            "description": "Evergreen is true when the Workstream is evergreen"
+          },
+          "id": {
+            "type": "integer",
+            "description": "ID is the key of the row in Mobius. A client uses it only as the key of a list row."
+          },
+          "repository": {
+            "type": "string",
+            "description": "Repository is the repository where Mobius creates the Workstream issue, as \"owner/name\""
+          },
+          "title": {
+            "type": "string",
+            "description": "Title is the title of the new Workstream issue"
+          }
+        },
+        "required": [
+          "id",
+          "repository",
+          "title",
+          "evergreen"
+        ],
+        "description": "WaitingWorkstream is an open Workstream that has no GitHub issue yet."
       },
       "Workstream": {
         "type": "object",

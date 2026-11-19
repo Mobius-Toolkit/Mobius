@@ -142,6 +142,7 @@ type FakeGitHub struct {
 	lostCommentAnswers                         map[issueKey]bool
 	refusedIssueCreates                        int
 	failedIssueCreates                         int
+	failedIssueCreateTitles                    []string
 	lostIssueCreateAnswers                     int
 	refusedNextComments                        map[issueKey]int
 	refusedNextCommentLists                    map[issueKey]int

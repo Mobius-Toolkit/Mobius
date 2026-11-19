@@ -69,3 +69,40 @@ func TestListWorkstreamsEmpty(t *testing.T) {
 		t.Errorf("body = %s, want %s", got, want)
 	}
 }
+
+func TestListWaitingWorkstreams(t *testing.T) {
+	mux, db := testMux(t)
+	exec(t, db, `
+		INSERT INTO workstreams (id, repository, number, title, body, autopilot, evergreen, state) VALUES
+			(1, 'o/a', NULL, 'Hourly backup', '', 0, 0, 'open'),
+			(2, 'o/a', 7, 'Loyalty plans', '', 0, 0, 'open'),
+			(3, 'o/b', NULL, 'Upkeep', '', 0, 1, 'open'),
+			(4, 'o/a', NULL, 'Dropped plans', '', 0, 0, 'closed');
+	`)
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/workstreams/waiting", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", rec.Code, http.StatusOK, rec.Body)
+	}
+	type waiting struct {
+		ID         int64  `json:"id"`
+		Repository string `json:"repository"`
+		Title      string `json:"title"`
+		Evergreen  bool   `json:"evergreen"`
+	}
+	var body struct {
+		Data []waiting `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode body %q: %v", rec.Body.String(), err)
+	}
+	want := []waiting{
+		{ID: 3, Repository: "o/b", Title: "Upkeep", Evergreen: true},
+		{ID: 1, Repository: "o/a", Title: "Hourly backup"},
+	}
+	if !slices.Equal(body.Data, want) {
+		t.Errorf("waiting = %+v, want %+v", body.Data, want)
+	}
+}

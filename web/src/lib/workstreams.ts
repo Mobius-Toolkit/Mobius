@@ -2,8 +2,10 @@ import { Effect, Schema } from "effect";
 import {
   listActiveAgents,
   listNeedsHuman,
+  listWaitingWorkstreams,
   listWorkstreams,
   type NeedsHuman,
+  type WaitingWorkstream,
   type Workstream,
 } from "@/api/api.gen";
 import { Agent } from "@/transcript/schemas";
@@ -16,6 +18,7 @@ const WorkstreamRef = Schema.Struct({ repository: Schema.String, number: Schema.
 
 export type WorkstreamState = {
   list?: readonly Workstream[];
+  waiting?: readonly WaitingWorkstream[];
   needsHuman: readonly NeedsHuman[];
   working: Set<string>;
   error?: string;
@@ -88,6 +91,13 @@ const loadList = request(() => listWorkstreams()).pipe(
   ),
 );
 
+const loadWaiting = Effect.fnUntraced(function* () {
+  const res = yield* request(() => listWaitingWorkstreams());
+  if (res.status === 200) {
+    setState({ waiting: res.data.data });
+  }
+}, Effect.ignore);
+
 const loadNeedsHuman = Effect.fnUntraced(function* () {
   const res = yield* request(() => listNeedsHuman());
   if (res.status === 200) {
@@ -97,9 +107,9 @@ const loadNeedsHuman = Effect.fnUntraced(function* () {
 }, Effect.ignore);
 
 export const loadWorkstreams = () =>
-  Effect.all([loadList, loadNeedsHuman(), loadWorking()], { concurrency: "unbounded" }).pipe(
-    Effect.asVoid,
-  );
+  Effect.all([loadList, loadWaiting(), loadNeedsHuman(), loadWorking()], {
+    concurrency: "unbounded",
+  }).pipe(Effect.asVoid);
 
 const reloadWorkstreams = () => {
   Effect.runFork(loadWorkstreams());

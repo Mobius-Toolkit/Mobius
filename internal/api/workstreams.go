@@ -67,6 +67,40 @@ func (h *handlers) ListWorkstreams(ctx context.Context, _ ListWorkstreamsRequest
 	return &ListWorkstreamsResponse{Body: Envelope[[]Workstream]{Data: workstreams}}, nil
 }
 
+// ListWaitingWorkstreamsRequest is the request of ListWaitingWorkstreams.
+type ListWaitingWorkstreamsRequest struct{}
+
+// WaitingWorkstream is an open Workstream that has no GitHub issue yet.
+type WaitingWorkstream struct {
+	// ID is the key of the row in Mobius. A client uses it only as the key of a list row.
+	ID int64 `gork:"id"`
+	// Repository is the repository where Mobius creates the Workstream issue, as "owner/name"
+	Repository string `gork:"repository"`
+	// Title is the title of the new Workstream issue
+	Title string `gork:"title"`
+	// Evergreen is true when the Workstream is evergreen
+	Evergreen bool `gork:"evergreen"`
+}
+
+// ListWaitingWorkstreamsResponse is the response of ListWaitingWorkstreams.
+type ListWaitingWorkstreamsResponse struct {
+	Body Envelope[[]WaitingWorkstream]
+}
+
+// ListWaitingWorkstreams returns the open Workstreams that wait for the send of their create to GitHub, the newest
+// first. Such a Workstream has no number until the send writes it.
+func (h *handlers) ListWaitingWorkstreams(ctx context.Context, _ ListWaitingWorkstreamsRequest) (*ListWaitingWorkstreamsResponse, error) {
+	rows, err := h.queries.ListWaitingWorkstreams(ctx)
+	if err != nil {
+		return nil, err
+	}
+	waiting := make([]WaitingWorkstream, 0, len(rows))
+	for _, row := range rows {
+		waiting = append(waiting, WaitingWorkstream{ID: row.ID, Repository: row.Repository, Title: row.Title, Evergreen: row.Evergreen})
+	}
+	return &ListWaitingWorkstreamsResponse{Body: Envelope[[]WaitingWorkstream]{Data: waiting}}, nil
+}
+
 // SetAutopilotRequest is the request of SetAutopilot.
 type SetAutopilotRequest struct {
 	Path struct {

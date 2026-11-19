@@ -55,6 +55,9 @@ func (e *Engine) addWorkstreamToCreate(ctx context.Context, repository github.Re
 		}
 		return q.SetPendingActionCreatedWorkstream(ctx, store.SetPendingActionCreatedWorkstreamParams{CreatedWorkstream: sql.NullInt64{Int64: workstream, Valid: true}, ID: action})
 	})
+	if err == nil {
+		e.publish(Change{Workstreams: true})
+	}
 	return workstream, change, err
 }
 
@@ -110,7 +113,7 @@ func (e *Engine) dropCreate(ctx context.Context, change store.OutgoingChange) er
 	if err := e.endRefusedCreate(ctx, change.Workstream.Int64); err != nil {
 		return err
 	}
-	return e.inTx(ctx, func(q *store.Queries) error {
+	err := e.inTx(ctx, func(q *store.Queries) error {
 		if err := q.SetOutgoingChangeStatus(ctx, store.SetOutgoingChangeStatusParams{Status: "refused", ID: change.ID}); err != nil {
 			return err
 		}
@@ -119,6 +122,10 @@ func (e *Engine) dropCreate(ctx context.Context, change store.OutgoingChange) er
 		}
 		return q.ClearPendingActionCreatedWorkstream(ctx, change.Workstream)
 	})
+	if err == nil {
+		e.publish(Change{Workstreams: true})
+	}
+	return err
 }
 
 // endRefusedCreate gives the caller of the action that created the Workstream row the refusal of GitHub, when the

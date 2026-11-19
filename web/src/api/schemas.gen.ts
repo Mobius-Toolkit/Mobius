@@ -2002,6 +2002,19 @@ export const ListWorkstreamsResponse = S.Struct({
 
 
 /**
+ * ListWaitingWorkstreams returns the open Workstreams that wait for the send of their create to GitHub, the newest first. Such a Workstream has no number until the send writes it.
+ */
+export const ListWaitingWorkstreamsResponse = S.Struct({
+  "data": S.Array(S.Struct({
+  "evergreen": S.Boolean.annotate({ description: 'Evergreen is true when the Workstream is evergreen' }),
+  "id": S.Number.annotate({ description: 'ID is the key of the row in Mobius. A client uses it only as the key of a list row.' }),
+  "repository": S.String.annotate({ description: 'Repository is the repository where Mobius creates the Workstream issue, as \"owner\/name\"' }),
+  "title": S.String.annotate({ description: 'Title is the title of the new Workstream issue' })
+}).annotate({ description: 'WaitingWorkstream is an open Workstream that has no GitHub issue yet.' })).annotate({ description: 'Data is the payload of the response' })
+}).annotate({ description: 'Envelope is the body of each success response.' })
+
+
+/**
  * ListAgents returns the sessions of a Workstream, the oldest first. Each session has the session that started it as its parent.
  */
 export const ListAgentsParams = S.Struct({

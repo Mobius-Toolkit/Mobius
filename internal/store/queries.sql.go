@@ -10424,6 +10424,47 @@ func (q *Queries) ListWaitingSessions(ctx context.Context, prefix string) ([]Lis
 	return items, nil
 }
 
+const listWaitingWorkstreams = `-- name: ListWaitingWorkstreams :many
+SELECT id, repository, title, CAST(evergreen AS BOOLEAN) AS evergreen
+FROM workstreams WHERE state = 'open' AND number IS NULL
+ORDER BY id DESC
+`
+
+type ListWaitingWorkstreamsRow struct {
+	ID         int64
+	Repository string
+	Title      string
+	Evergreen  bool
+}
+
+func (q *Queries) ListWaitingWorkstreams(ctx context.Context) ([]ListWaitingWorkstreamsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listWaitingWorkstreams)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListWaitingWorkstreamsRow
+	for rows.Next() {
+		var i ListWaitingWorkstreamsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Repository,
+			&i.Title,
+			&i.Evergreen,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listWorkstreamBuckets = `-- name: ListWorkstreamBuckets :many
 SELECT b.workstream, b.issue, CAST(b.closed AS BOOLEAN) AS closed FROM workstream_buckets b
 JOIN workstreams w ON w.repository = b.repository AND w.number = b.workstream AND w.state = 'open'
