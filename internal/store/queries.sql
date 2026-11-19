@@ -1451,7 +1451,15 @@ RETURNING *;
 UPDATE pending_actions SET created_workstream = ? WHERE id = ?;
 
 -- name: ClearPendingActionCreatedWorkstream :exec
-UPDATE pending_actions SET created_workstream = NULL WHERE created_workstream = ?;
+UPDATE pending_actions SET created_workstream = NULL, awaits_number = 0 WHERE created_workstream = ?;
+
+-- The result of the action told that the number comes later. It gives 0 when the row already has its number.
+-- name: SetPendingActionAwaitsNumber :execrows
+UPDATE pending_actions SET awaits_number = 1
+WHERE pending_actions.id = ? AND EXISTS (SELECT 1 FROM workstreams WHERE workstreams.id = pending_actions.created_workstream AND workstreams.number IS NULL);
+
+-- name: ClearPendingActionAwaitsNumber :exec
+UPDATE pending_actions SET awaits_number = 0 WHERE id = ?;
 
 -- name: SetPendingActionOldBrief :exec
 UPDATE pending_actions SET old_brief = ? WHERE id = ?;

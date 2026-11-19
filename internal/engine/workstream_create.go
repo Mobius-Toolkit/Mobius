@@ -173,8 +173,10 @@ func (e *Engine) sendNewWorkstream(ctx context.Context, repository github.Reposi
 	return nil
 }
 
-// endCreate does the steps of the caller of the approved action that created the Workstream row: it publishes the
-// creation for the Coordinator, and ends the triage for the Triager.
+// endCreate does the steps of the caller of the approved action that created the Workstream row. When the result of the
+// action told that the number comes later, the caller gets a second Approval message with the number one time
+// (awaits_number is the record). Then it publishes the creation for the Coordinator, and ends the triage for the
+// Triager. The Triager gets no message.
 func (e *Engine) endCreate(ctx context.Context, repository github.Repository, workstream, number int64) error {
 	action, err := e.queries.GetPendingActionByCreatedWorkstream(ctx, sql.NullInt64{Int64: workstream, Valid: true})
 	if errors.Is(err, sql.ErrNoRows) {
@@ -182,6 +184,21 @@ func (e *Engine) endCreate(ctx context.Context, repository github.Repository, wo
 	}
 	if err != nil {
 		return err
+	}
+	if action.AwaitsNumber != 0 {
+		if action.State != "done" {
+			return errors.New("the action that created the Workstream is not done")
+		}
+		name, err := e.actionName(ctx, action)
+		if err != nil {
+			return err
+		}
+		if err := e.postResult(ctx, action, fmt.Sprintf("The Owner approved %s. The result: Created the Workstream #%d.", name, number)); err != nil {
+			return err
+		}
+		if err := e.queries.ClearPendingActionAwaitsNumber(ctx, action.ID); err != nil {
+			return err
+		}
 	}
 	switch c := actionCaller(action); c.role {
 	case CoordinatorRole:

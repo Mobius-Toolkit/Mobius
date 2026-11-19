@@ -1829,6 +1829,13 @@ func (e *Engine) createWorkstream(ctx context.Context, c caller, repository gith
 		return "", err
 	}
 	row, err := e.queries.GetWorkstreamToCreate(ctx, workstream)
+	if err == nil && !row.Number.Valid && approved {
+		// The send that fills the number later posts the second Approval message. When it filled the number in the meantime, no message is due.
+		var waits int64
+		if waits, err = e.queries.SetPendingActionAwaitsNumber(ctx, action); err == nil && waits == 0 {
+			row, err = e.queries.GetWorkstreamToCreate(ctx, workstream)
+		}
+	}
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", refuse("GitHub refused the write.")
 	}

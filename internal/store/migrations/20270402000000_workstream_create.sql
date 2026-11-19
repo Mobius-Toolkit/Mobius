@@ -51,4 +51,5 @@ ALTER TABLE outgoing_changes_new RENAME TO outgoing_changes;
 CREATE INDEX outgoing_changes_pending ON outgoing_changes (repository) WHERE status = 'pending';
 
 ALTER TABLE pending_actions ADD COLUMN created_workstream INTEGER;
+ALTER TABLE pending_actions ADD COLUMN awaits_number INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE pending_actions DROP COLUMN created_issue;

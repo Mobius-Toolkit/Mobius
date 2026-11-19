@@ -98,6 +98,45 @@ func TestAFailedFirstCreateGivesTheResultThatMobiusCreatesTheWorkstreamLaterAndA
 	}
 }
 
+func approvalMessages(t *testing.T, server *testserver.Server, text string) int {
+	t.Helper()
+	return countRows(t, server, "SELECT count(*) FROM chat_messages WHERE author = 'Approval' AND instr(text, ?) > 0", text)
+}
+
+func TestTheChatOfTheCoordinatorGetsTheApprovalMessageWithTheNumberOneTimeAfterALaterPollFillsIt(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, action := startCreate(t, fake)
+	fake.FailIssueCreates(1)
+
+	decided(t, server, action, "approve", "")
+
+	testkit.WaitFor(t, func() bool { return approvalMessages(t, server, "The result: Created the Workstream #13.") == 1 })
+	waitForPolls(t, fake)
+	waitForPolls(t, fake)
+	if got := approvalMessages(t, server, "The result: Created the Workstream #13."); got != 1 {
+		t.Errorf("messages with the number = %d", got)
+	}
+	if got := approvalMessages(t, server, "The result: "+createLater); got != 1 {
+		t.Errorf("messages that the number comes later = %d", got)
+	}
+}
+
+func TestACreateThatTheFirstSendFillsGivesNoSecondApprovalMessage(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, action := startCreate(t, fake)
+
+	decided(t, server, action, "approve", "")
+
+	testkit.WaitFor(t, func() bool { return approvalMessages(t, server, "The result: Created the Workstream #13.") == 1 })
+	waitForPolls(t, fake)
+	waitForPolls(t, fake)
+	if got := approvalMessages(t, server, "Created the Workstream #13."); got != 1 {
+		t.Errorf("messages with the number = %d", got)
+	}
+}
+
 func TestACreateThatGitHubMadeButAnsweredWith500IsFoundByItsMarkerAndGitHubHasOneIssue(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
