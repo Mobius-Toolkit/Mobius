@@ -67,13 +67,27 @@ type renameJSON struct {
 	To   string `json:"to"`
 }
 
+type eventRepoJSON struct {
+	FullName string `json:"full_name"`
+}
+
+type eventIssueJSON struct {
+	ID            int64         `json:"id"`
+	Number        int64         `json:"number"`
+	Repository    eventRepoJSON `json:"repository"`
+	RepositoryURL string        `json:"repository_url"`
+}
+
 type eventJSON struct {
-	ID        int64       `json:"id"`
-	Event     string      `json:"event"`
-	Actor     loginJSON   `json:"actor"`
-	Label     nameJSON    `json:"label"`
-	Rename    *renameJSON `json:"rename,omitempty"`
-	CreatedAt string      `json:"created_at"`
+	ID          int64           `json:"id"`
+	Event       string          `json:"event"`
+	Actor       loginJSON       `json:"actor"`
+	Label       nameJSON        `json:"label"`
+	Rename      *renameJSON     `json:"rename,omitempty"`
+	ParentIssue *eventIssueJSON `json:"parent_issue,omitempty"`
+	SubIssue    *eventIssueJSON `json:"sub_issue,omitempty"`
+	BlockedBy   *eventIssueJSON `json:"blocked_by,omitempty"`
+	CreatedAt   string          `json:"created_at"`
 }
 
 type commentJSON struct {
@@ -177,64 +191,166 @@ func (g *FakeGitHub) AddPullRequest(repository string, number int64, title strin
 	g.issues[key].pullRequest = true
 }
 
-// AddSubIssue makes child a sub-issue of parent. Both issues are in repository. The change of the link
+func (g *FakeGitHub) eventIssue(key issueKey) *eventIssueJSON {
+	var id int64
+	if found, ok := g.issues[key]; ok {
+		id = found.id
+	}
+	return &eventIssueJSON{
+		ID:            id,
+		Number:        key.number,
+		Repository:    eventRepoJSON{FullName: key.repository},
+		RepositoryURL: "https://api.github.com/repos/" + key.repository,
+	}
+}
+
+func (g *FakeGitHub) linkSubIssue(parent, child issueKey, actor string) {
+	at := timestamp(g.clock)
+	for other, found := range g.issues {
+		if other == parent || !slices.Contains(found.subIssues, child) {
+			continue
+		}
+		found.subIssues = slices.DeleteFunc(found.subIssues, func(sub issueKey) bool { return sub == child })
+		found.events = append(found.events, eventJSON{ID: g.newEventID(), Event: "sub_issue_removed", Actor: loginJSON{actor}, SubIssue: g.eventIssue(child), CreatedAt: at})
+		if childIssue, ok := g.issues[child]; ok {
+			childIssue.events = append(childIssue.events, eventJSON{ID: g.newEventID(), Event: "parent_issue_removed", Actor: loginJSON{actor}, ParentIssue: g.eventIssue(other), CreatedAt: at})
+		}
+	}
+	parentIssue := g.issues[parent]
+	if !slices.Contains(parentIssue.subIssues, child) {
+		parentIssue.subIssues = append(parentIssue.subIssues, child)
+	}
+	parentIssue.events = append(parentIssue.events, eventJSON{ID: g.newEventID(), Event: "sub_issue_added", Actor: loginJSON{actor}, SubIssue: g.eventIssue(child), CreatedAt: at})
+	if childIssue, ok := g.issues[child]; ok {
+		childIssue.events = append(childIssue.events, eventJSON{ID: g.newEventID(), Event: "parent_issue_added", Actor: loginJSON{actor}, ParentIssue: g.eventIssue(parent), CreatedAt: at})
+	}
+}
+
+func (g *FakeGitHub) unlinkSubIssue(parent, child issueKey, actor string) {
+	at := timestamp(g.clock)
+	found := g.issues[parent]
+	if !slices.Contains(found.subIssues, child) {
+		return
+	}
+	found.subIssues = slices.DeleteFunc(found.subIssues, func(sub issueKey) bool { return sub == child })
+	found.events = append(found.events, eventJSON{ID: g.newEventID(), Event: "sub_issue_removed", Actor: loginJSON{actor}, SubIssue: g.eventIssue(child), CreatedAt: at})
+	if childIssue, ok := g.issues[child]; ok {
+		childIssue.events = append(childIssue.events, eventJSON{ID: g.newEventID(), Event: "parent_issue_removed", Actor: loginJSON{actor}, ParentIssue: g.eventIssue(parent), CreatedAt: at})
+	}
+}
+
+// AddSubIssue makes child a sub-issue of parent as the owner. Both issues are in repository. The change of the link
 // changes the update time of no issue.
 func (g *FakeGitHub) AddSubIssue(repository string, parent, child int64) {
-	g.AddForeignSubIssue(repository, parent, repository, child)
+	g.AddForeignSubIssueBy(repository, parent, repository, child, "owner")
 }
 
-// AddForeignSubIssue makes the issue child of childRepository a sub-issue of parent in repository.
+// AddSubIssueBy makes child a sub-issue of parent as actor.
+func (g *FakeGitHub) AddSubIssueBy(repository string, parent, child int64, actor string) {
+	g.AddForeignSubIssueBy(repository, parent, repository, child, actor)
+}
+
+// AddForeignSubIssue makes the issue child of childRepository a sub-issue of parent in repository as the owner.
 func (g *FakeGitHub) AddForeignSubIssue(repository string, parent int64, childRepository string, child int64) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	found := g.issues[issueKey{repository, parent}]
-	found.subIssues = append(found.subIssues, issueKey{childRepository, child})
+	g.AddForeignSubIssueBy(repository, parent, childRepository, child, "owner")
 }
 
-// RemoveSubIssue removes child from the sub-issues of parent. Both issues are in repository. The change of the link
-// changes the update time of no issue.
+// AddForeignSubIssueBy makes the issue child of childRepository a sub-issue of parent in repository as actor.
+func (g *FakeGitHub) AddForeignSubIssueBy(repository string, parent int64, childRepository string, child int64, actor string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.linkSubIssue(issueKey{repository, parent}, issueKey{childRepository, child}, actor)
+}
+
+// RemoveSubIssue removes child from the sub-issues of parent as the owner. Both issues are in repository. The change of
+// the link changes the update time of no issue.
 func (g *FakeGitHub) RemoveSubIssue(repository string, parent, child int64) {
-	g.RemoveForeignSubIssue(repository, parent, repository, child)
+	g.RemoveForeignSubIssueBy(repository, parent, repository, child, "owner")
 }
 
-// RemoveForeignSubIssue removes the issue child of childRepository from the sub-issues of parent in repository.
+// RemoveSubIssueBy removes child from the sub-issues of parent as actor.
+func (g *FakeGitHub) RemoveSubIssueBy(repository string, parent, child int64, actor string) {
+	g.RemoveForeignSubIssueBy(repository, parent, repository, child, actor)
+}
+
+// RemoveForeignSubIssue removes the issue child of childRepository from the sub-issues of parent in repository as the owner.
 func (g *FakeGitHub) RemoveForeignSubIssue(repository string, parent int64, childRepository string, child int64) {
+	g.RemoveForeignSubIssueBy(repository, parent, childRepository, child, "owner")
+}
+
+// RemoveForeignSubIssueBy removes the issue child of childRepository from the sub-issues of parent in repository as actor.
+func (g *FakeGitHub) RemoveForeignSubIssueBy(repository string, parent int64, childRepository string, child int64, actor string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	found := g.issues[issueKey{repository, parent}]
-	found.subIssues = slices.DeleteFunc(found.subIssues, func(sub issueKey) bool { return sub == issueKey{childRepository, child} })
+	g.unlinkSubIssue(issueKey{repository, parent}, issueKey{childRepository, child}, actor)
 }
 
 // AddSubIssueOf adds the open issue number with title below parent in one step, so a poll sees both.
 func (g *FakeGitHub) AddSubIssueOf(repository string, parent, number int64, title string) {
+	g.AddSubIssueOfBy(repository, parent, number, title, "owner")
+}
+
+// AddSubIssueOfBy adds the open issue number with title below parent in one step as actor.
+func (g *FakeGitHub) AddSubIssueOfBy(repository string, parent, number int64, title, actor string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	key := issueKey{repository, number}
 	g.insertOldIssue(key, title)
-	found := g.issues[issueKey{repository, parent}]
-	found.subIssues = append(found.subIssues, key)
+	g.linkSubIssue(issueKey{repository, parent}, key, actor)
 }
 
-// AddBlockedBy makes blocker a blocker of the issue number. Both issues are in repository. The change of the
-// blockers changes the update time of no issue.
+// AddBlockedBy makes blocker a blocker of the issue number as the owner. Both issues are in repository. The change of
+// the blockers changes the update time of no issue.
 func (g *FakeGitHub) AddBlockedBy(repository string, number, blocker int64) {
-	g.AddForeignBlockedBy(repository, number, repository, blocker)
+	g.AddForeignBlockedByBy(repository, number, repository, blocker, "owner")
 }
 
-// AddForeignBlockedBy makes the issue blocker of blockerRepository a blocker of the issue number in repository.
+// AddBlockedByBy makes blocker a blocker of the issue number as actor.
+func (g *FakeGitHub) AddBlockedByBy(repository string, number, blocker int64, actor string) {
+	g.AddForeignBlockedByBy(repository, number, repository, blocker, actor)
+}
+
+// AddForeignBlockedBy makes the issue blocker of blockerRepository a blocker of the issue number in repository as the owner.
 func (g *FakeGitHub) AddForeignBlockedBy(repository string, number int64, blockerRepository string, blocker int64) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	found := g.issues[issueKey{repository, number}]
-	found.blockedBy = append(found.blockedBy, issueKey{blockerRepository, blocker})
+	g.AddForeignBlockedByBy(repository, number, blockerRepository, blocker, "owner")
 }
 
-// RemoveBlockedBy removes blocker from the blockers of the issue number. The change of the blockers changes the update time of no issue.
-func (g *FakeGitHub) RemoveBlockedBy(repository string, number, blocker int64) {
+// AddForeignBlockedByBy makes the issue blocker of blockerRepository a blocker of the issue number in repository as actor.
+func (g *FakeGitHub) AddForeignBlockedByBy(repository string, number int64, blockerRepository string, blocker int64, actor string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	found := g.issues[issueKey{repository, number}]
-	found.blockedBy = slices.DeleteFunc(found.blockedBy, func(other issueKey) bool { return other == issueKey{repository, blocker} })
+	key := issueKey{repository, number}
+	blockerKey := issueKey{blockerRepository, blocker}
+	found := g.issues[key]
+	if !slices.Contains(found.blockedBy, blockerKey) {
+		found.blockedBy = append(found.blockedBy, blockerKey)
+	}
+	found.events = append(found.events, eventJSON{ID: g.newEventID(), Event: "blocked_by_added", Actor: loginJSON{actor}, BlockedBy: g.eventIssue(blockerKey), CreatedAt: timestamp(g.clock)})
+}
+
+// RemoveBlockedBy removes blocker from the blockers of the issue number as the owner. The change of the blockers
+// changes the update time of no issue.
+func (g *FakeGitHub) RemoveBlockedBy(repository string, number, blocker int64) {
+	g.RemoveForeignBlockedByBy(repository, number, repository, blocker, "owner")
+}
+
+// RemoveBlockedByBy removes blocker from the blockers of the issue number as actor.
+func (g *FakeGitHub) RemoveBlockedByBy(repository string, number, blocker int64, actor string) {
+	g.RemoveForeignBlockedByBy(repository, number, repository, blocker, actor)
+}
+
+// RemoveForeignBlockedByBy removes blocker of blockerRepository from the blockers of the issue number in repository as actor.
+func (g *FakeGitHub) RemoveForeignBlockedByBy(repository string, number int64, blockerRepository string, blocker int64, actor string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	key := issueKey{repository, number}
+	blockerKey := issueKey{blockerRepository, blocker}
+	found := g.issues[key]
+	if !slices.Contains(found.blockedBy, blockerKey) {
+		return
+	}
+	found.blockedBy = slices.DeleteFunc(found.blockedBy, func(other issueKey) bool { return other == blockerKey })
+	found.events = append(found.events, eventJSON{ID: g.newEventID(), Event: "blocked_by_removed", Actor: loginJSON{actor}, BlockedBy: g.eventIssue(blockerKey), CreatedAt: timestamp(g.clock)})
 }
 
 // SetAuthor sets the author of the issue.
@@ -1230,6 +1346,7 @@ func (g *FakeGitHub) addSubIssue(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &request) {
 		return
 	}
+	caller, _ := g.validToken(r)
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	key, ok := g.issue(w, r)
@@ -1264,10 +1381,34 @@ func (g *FakeGitHub) addSubIssue(w http.ResponseWriter, r *http.Request) {
 			message(w, http.StatusUnprocessableEntity, "The issue already has a parent.")
 			return
 		}
-		found.subIssues = slices.DeleteFunc(found.subIssues, func(sub issueKey) bool { return sub == child })
 	}
-	g.issues[key].subIssues = append(g.issues[key].subIssues, child)
+	g.linkSubIssue(key, child, caller.login)
 	writeJSON(w, http.StatusCreated, g.issueJSON(key))
+}
+
+// removeSubIssue removes the issue with the id sub_issue_id from the sub-issues of the issue of the path. It answers
+// 404 when that issue is not a sub-issue.
+func (g *FakeGitHub) removeSubIssue(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		SubIssueID int64 `json:"sub_issue_id"`
+	}
+	if !decode(w, r, &request) {
+		return
+	}
+	caller, _ := g.validToken(r)
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	key, ok := g.issue(w, r)
+	if !ok {
+		return
+	}
+	child, ok := g.issueKeyOf(w, key, request.SubIssueID)
+	if !ok || !slices.Contains(g.issues[key].subIssues, child) {
+		notFound(w)
+		return
+	}
+	g.unlinkSubIssue(key, child, caller.login)
+	writeJSON(w, http.StatusOK, g.issueJSON(key))
 }
 
 // issueKeyOf gives the key of the issue with the id. It answers 404 for an unknown id and 422 for an issue of
@@ -1316,6 +1457,7 @@ func (g *FakeGitHub) addBlockedBy(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &request) {
 		return
 	}
+	caller, _ := g.validToken(r)
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.failBlockerWrites {
@@ -1331,7 +1473,10 @@ func (g *FakeGitHub) addBlockedBy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	found := g.issues[key]
-	found.blockedBy = append(found.blockedBy, blocker)
+	if !slices.Contains(found.blockedBy, blocker) {
+		found.blockedBy = append(found.blockedBy, blocker)
+	}
+	found.events = append(found.events, eventJSON{ID: g.newEventID(), Event: "blocked_by_added", Actor: loginJSON{caller.login}, BlockedBy: g.eventIssue(blocker), CreatedAt: timestamp(g.clock)})
 	writeJSON(w, http.StatusCreated, g.issueJSON(blocker))
 }
 
@@ -1343,6 +1488,7 @@ func (g *FakeGitHub) removeBlockedBy(w http.ResponseWriter, r *http.Request) {
 		notFound(w)
 		return
 	}
+	caller, _ := g.validToken(r)
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.failBlockerWrites {
@@ -1360,6 +1506,7 @@ func (g *FakeGitHub) removeBlockedBy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	found.blockedBy = slices.DeleteFunc(found.blockedBy, func(other issueKey) bool { return other == blocker })
+	found.events = append(found.events, eventJSON{ID: g.newEventID(), Event: "blocked_by_removed", Actor: loginJSON{caller.login}, BlockedBy: g.eventIssue(blocker), CreatedAt: timestamp(g.clock)})
 	writeJSON(w, http.StatusOK, g.issueJSON(key))
 }
 

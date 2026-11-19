@@ -3,6 +3,7 @@ package github
 import (
 	"context"
 	"errors"
+	"fmt"
 	"iter"
 	"net/http"
 	"slices"
@@ -259,6 +260,65 @@ func (r Repository) SearchIssues(ctx context.Context, query string) ([]*gh.Issue
 // IssueEvents gives the events of the issue number, the oldest first.
 func (r Repository) IssueEvents(ctx context.Context, number int64) ([]*gh.IssueEvent, error) {
 	return all(r.Client.Issues.ListIssueEventsIter(ctx, r.Owner(), r.Name(), int(number), &gh.ListOptions{PerPage: 100}))
+}
+
+// TreeEventIssue is the other issue named by a sub-issue or blocker event of an issue.
+type TreeEventIssue struct {
+	ID            int64  `json:"id"`
+	Number        int64  `json:"number"`
+	RepositoryURL string `json:"repository_url"`
+	Repository    struct {
+		FullName string `json:"full_name"`
+	} `json:"repository"`
+}
+
+// RepositoryName gives the full name of the repository of the event issue, or fallback when GitHub gave none.
+func (i TreeEventIssue) RepositoryName(fallback string) string {
+	if i.Repository.FullName != "" {
+		return i.Repository.FullName
+	}
+	if _, name, ok := strings.Cut(i.RepositoryURL, "/repos/"); ok && name != "" {
+		return name
+	}
+	return fallback
+}
+
+// TreeEvent is an issue event that records a change of a parent, a sub-issue or a blocker.
+type TreeEvent struct {
+	ID    int64  `json:"id"`
+	Event string `json:"event"`
+	Actor struct {
+		Login string `json:"login"`
+	} `json:"actor"`
+	CreatedAt   time.Time       `json:"created_at"`
+	ParentIssue *TreeEventIssue `json:"parent_issue"`
+	SubIssue    *TreeEventIssue `json:"sub_issue"`
+	BlockedBy   *TreeEventIssue `json:"blocked_by"`
+}
+
+// TreeEvents gives the events of the issue number with the sub-issue and blocker issue objects. When GitHub answers
+// 404 Not Found or 410 Gone, it gives none.
+func (r Repository) TreeEvents(ctx context.Context, number int64) ([]TreeEvent, error) {
+	var all []TreeEvent
+	for page := 1; ; page++ {
+		path := fmt.Sprintf("repos/%s/issues/%d/events?per_page=100&page=%d", r.FullName, number, page)
+		request, err := r.Client.NewRequest(ctx, http.MethodGet, path, nil)
+		if err != nil {
+			return nil, err
+		}
+		var events []TreeEvent
+		response, err := r.Client.Do(request, &events)
+		if err != nil {
+			if NotFound(err) {
+				return nil, nil
+			}
+			return nil, err
+		}
+		all = append(all, events...)
+		if response.NextPage == 0 {
+			return all, nil
+		}
+	}
 }
 
 // AddComment adds a comment with body to the issue or the pull request number, and gives the comment.

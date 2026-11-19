@@ -398,6 +398,7 @@ func (g *FakeGitHub) routes() *http.ServeMux {
 	mux.HandleFunc("PATCH /repos/{owner}/{repo}/issues/{number}", g.withToken(g.closeIssue))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/issues/{number}/sub_issues", g.withToken(g.subIssues))
 	mux.HandleFunc("POST /repos/{owner}/{repo}/issues/{number}/sub_issues", g.withToken(g.addSubIssue))
+	mux.HandleFunc("DELETE /repos/{owner}/{repo}/issues/{number}/sub_issue", g.withToken(g.removeSubIssue))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/issues/{number}/parent", g.withToken(g.parent))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/issues/{number}/dependencies/blocked_by", g.withToken(g.blockedBy))
 	mux.HandleFunc("POST /repos/{owner}/{repo}/issues/{number}/dependencies/blocked_by", g.withToken(g.addBlockedBy))

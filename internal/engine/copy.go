@@ -9,6 +9,7 @@ import (
 	"log"
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -104,6 +105,7 @@ func issueKind(labels []string) string {
 
 // syncCopy copies the trees of the open Workstreams of repository. On the first poll of repository, when
 // sync_cursors has no issues row, it also adds a row in workstreams for each open Workstream issue on GitHub.
+// When the database already holds tree issues for repository, it keeps them instead of overwriting local structure.
 func (e *Engine) syncCopy(ctx context.Context, repository github.Repository) error {
 	e.copyWrite.Lock()
 	defer e.copyWrite.Unlock()
@@ -111,6 +113,15 @@ func (e *Engine) syncCopy(ctx context.Context, repository github.Repository) err
 	firstPoll := errors.Is(err, sql.ErrNoRows)
 	if err != nil && !firstPoll {
 		return err
+	}
+	if !firstPoll {
+		hasTree, err := e.queries.HasRepositoryTreeIssues(ctx, repository.FullName)
+		if err != nil {
+			return err
+		}
+		if hasTree {
+			return nil
+		}
 	}
 	before := e.labelChangesNow()
 	if firstPoll {
@@ -233,68 +244,10 @@ func detachAllTrees(ctx context.Context, q *store.Queries, repository string) er
 	return q.DetachCopiedTrees(ctx, repository)
 }
 
-// updateCopy applies the change of one issue of repository to the copied trees, and tells if the copy changed. With
-// findParent, updateCopy reads the parent of an issue that no copy has, because its new link to a Workstream or a task
-// changes the walk order of that Workstream. changes is the labelChangeCount of repository from before the read of
-// issue. It changes no row of workstreams.
-func (e *Engine) updateCopy(ctx context.Context, repository github.Repository, issue *gh.Issue, findParent bool, changes copyCounts) (bool, error) {
-	name := repository.FullName
-	number := int64(issue.GetNumber())
-	holding, err := e.copiedWorkstreamsHolding(ctx, name, number)
-	if err != nil {
-		return false, err
-	}
-	labelChanged, err := e.queries.ListCopiedWorkstreamsWithLabelChange(ctx, store.ListCopiedWorkstreamsWithLabelChangeParams{
-		Repository: name,
-		Number:     number,
-		Name:       workstreamLabel,
-		Present:    hasLabel(issue, workstreamLabel),
-	})
-	if err != nil {
-		return false, err
-	}
-	changed, err := e.updateCopiedIssue(ctx, issue, name, changes)
-	if err != nil {
-		return false, err
-	}
-	var rebuilt []issueRef
-	for _, row := range labelChanged {
-		rebuilt = appendNew(rebuilt, issueRef{row.Repository, row.Workstream})
-	}
-	for _, workstream := range rebuilt {
-		if err := e.copyTreeOf(ctx, workstream); err != nil {
-			return false, err
-		}
-		changed = true
-	}
-	if len(holding) > 0 || !findParent {
-		return changed, nil
-	}
-	parent, err := repository.Parent(ctx, number)
-	if err != nil || parent == nil {
-		return changed, err
-	}
-	workstreams, err := e.copiedWorkstreamsHolding(ctx, blockerRepository(parent, name), int64(parent.GetNumber()))
-	if err != nil {
-		return changed, err
-	}
-	for _, workstream := range workstreams {
-		if err := e.copyTreeOf(ctx, workstream); err != nil {
-			return changed, err
-		}
-		changed = true
-	}
-	return changed, nil
-}
-
-// appendNew appends each value that refs does not have.
-func appendNew(refs []issueRef, values ...issueRef) []issueRef {
-	for _, value := range values {
-		if !slices.Contains(refs, value) {
-			refs = append(refs, value)
-		}
-	}
-	return refs
+// updateCopy applies the change of the title, body, state, author or labels of one issue of repository to its row in
+// issues, and tells if the copy changed.
+func (e *Engine) updateCopy(ctx context.Context, repository github.Repository, issue *gh.Issue, changes copyCounts) (bool, error) {
+	return e.updateCopiedIssue(ctx, issue, repository.FullName, changes)
 }
 
 // copyTreeOf copies again the tree of the Workstream of the copy of another repository.
@@ -331,50 +284,64 @@ func (e *Engine) recopyTrees(ctx context.Context, repository github.Repository, 
 }
 
 // checkCopiedTrees reads the sub-issues and the blockers of the open nodes of each copied Workstream of repository,
-// and copies again each tree that differs from GitHub. GitHub does not change `updated_at` of an issue when a
-// sub-issue or a blocker changes, so the issue list does not show these changes. A failed read ends the check, and the
-// next poll checks again.
-func (e *Engine) checkCopiedTrees(ctx context.Context, repository github.Repository) {
+// records incoming changes for any tree or blocker differences from GitHub, syncs bucket and nested Workstream
+// metadata, and consumes matching tree own_writes. It gives the repositories of any added incoming changes.
+func (e *Engine) checkCopiedTrees(ctx context.Context, repository github.Repository, forceWalk map[issueRef]bool) []string {
 	if !e.copied[repository.FullName] {
-		return
+		return nil
 	}
 	workstreams, err := e.queries.ListCopiedWorkstreams(ctx)
 	if err != nil {
 		log.Printf("check the trees of %s: %v", repository.FullName, err)
-		return
+		return nil
 	}
-	var differing []int64
+	eventsCache := map[issueRef][]github.TreeEvent{}
+	eventsOf := func(repo github.Repository, number int64) ([]github.TreeEvent, error) {
+		key := lowerRef(repo.FullName, number)
+		if cached, ok := eventsCache[key]; ok {
+			return cached, nil
+		}
+		events, err := repo.TreeEvents(ctx, number)
+		if err != nil {
+			return nil, err
+		}
+		eventsCache[key] = events
+		return events, nil
+	}
+	touched := map[string]bool{}
+	var touchedRepos []string
+	markTouched := func(repo string) {
+		if !touched[repo] {
+			touched[repo] = true
+			touchedRepos = append(touchedRepos, repo)
+		}
+	}
 	for _, workstream := range workstreams {
 		if workstream.Repository != repository.FullName {
 			continue
 		}
-		differs, err := e.treeDiffers(ctx, repository, workstream.Number)
-		if err != nil {
+		if err := e.checkWorkstreamTree(ctx, repository, workstream.Number, forceWalk, eventsOf, markTouched); err != nil {
 			log.Printf("check the trees of %s: %v", repository.FullName, err)
-			return
-		}
-		if differs {
-			differing = append(differing, workstream.Number)
+			return touchedRepos
 		}
 	}
-	if len(differing) == 0 {
-		return
+	if err := e.consumeTreeOwnWrites(ctx, repository, eventsOf); err != nil {
+		log.Printf("consume the own writes of %s: %v", repository.FullName, err)
 	}
-	if err := e.recopyTrees(ctx, repository, differing...); err != nil {
-		log.Printf("copy the trees of %s again: %v", repository.FullName, err)
-	}
+	return touchedRepos
 }
 
-// subIssueAt is a sub-issue with the repository of the list that gave it.
+// subIssueAt is a sub-issue with the repository of the list that gave it and its GitHub bucket, or 0.
 type subIssueAt struct {
-	issue *gh.Issue
-	from  github.Repository
+	issue  *gh.Issue
+	from   github.Repository
+	bucket int64
 }
 
 // flatSubIssues gives the sub-issues of the issue parent of from, with the sub-issues of each bucket in place of the
 // bucket. A nested Workstream is no sub-issue. It adds each bucket that it finds to leaves.buckets, and each nested
 // Workstream to leaves.nested when direct is true.
-func (e *Engine) flatSubIssues(ctx context.Context, from github.Repository, parent int64, direct bool, leaves *copiedTree) ([]subIssueAt, error) {
+func (e *Engine) flatSubIssues(ctx context.Context, from github.Repository, parent, bucket int64, direct bool, leaves *copiedTree) ([]subIssueAt, error) {
 	issues, err := from.SubIssues(ctx, parent)
 	if github.NotFound(err) {
 		return nil, nil
@@ -392,11 +359,12 @@ func (e *Engine) flatSubIssues(ctx context.Context, from github.Repository, pare
 		}
 		issueRepository, readable := e.issueRepository(issue, from)
 		if !readable || !hasLabel(issue, bucketLabel) {
-			found = append(found, subIssueAt{issue, from})
+			found = append(found, subIssueAt{issue, from, bucket})
 			continue
 		}
+		bucketNum := int64(issue.GetNumber())
 		leaves.buckets = append(leaves.buckets, bucketOf(issue))
-		inside, err := e.flatSubIssues(ctx, issueRepository, int64(issue.GetNumber()), false, leaves)
+		inside, err := e.flatSubIssues(ctx, issueRepository, bucketNum, bucketNum, false, leaves)
 		if err != nil {
 			return nil, err
 		}
@@ -413,21 +381,35 @@ func bucketOf(issue *gh.Issue) copiedBucket {
 	return copiedBucket{Number: int64(issue.GetNumber()), State: issue.GetState(), Title: issue.GetTitle()}
 }
 
-// treeDiffers tells if the sub-issues, the open blockers or the buckets of the Workstream on GitHub differ from its
-// copied tree. It reads only the open nodes. A nested Workstream and an issue of a repository that the App cannot read
-// are leaves, as in readTree.
-func (e *Engine) treeDiffers(ctx context.Context, repository github.Repository, workstream int64) (bool, error) {
+type eventFetcher func(repo github.Repository, number int64) ([]github.TreeEvent, error)
+
+type dbBlockerInfo struct {
+	repo            string
+	number          int64
+	title           string
+	state           string
+	author          string
+	workstreamValid bool
+}
+
+func (e *Engine) checkWorkstreamTree(ctx context.Context, repository github.Repository, workstream int64, forceWalk map[issueRef]bool, eventsOf eventFetcher, markTouched func(string)) error {
 	var rows []store.ListCopiedTreeRow
-	var blockerRows []store.ListCopiedTreeBlockersRow
-	var pendingBlockerIDs, pendingParentIDs []int64
+	var blockerRows []store.ListCopiedTreeAllBlockersRow
+	var pendingBlockerIDs []int64
+	var pendingParentRefs []store.ListPendingParentRefsRow
 	var storedBuckets, storedNested string
+	var workstreamID int64
 	err := e.readTx(ctx, func(q *store.Queries) error {
 		var err error
+		workstreamID, err = q.GetWorkstreamID(ctx, store.GetWorkstreamIDParams{Repository: repository.FullName, Number: workstream})
+		if err != nil {
+			return err
+		}
 		rows, err = q.ListCopiedTree(ctx, store.ListCopiedTreeParams{Repository: repository.FullName, Number: workstream})
 		if err != nil {
 			return err
 		}
-		blockerRows, err = q.ListCopiedTreeBlockers(ctx, store.ListCopiedTreeBlockersParams{Repository: repository.FullName, Number: workstream})
+		blockerRows, err = q.ListCopiedTreeAllBlockers(ctx, store.ListCopiedTreeAllBlockersParams{Repository: repository.FullName, Number: workstream})
 		if err != nil {
 			return err
 		}
@@ -435,7 +417,7 @@ func (e *Engine) treeDiffers(ctx context.Context, repository github.Repository, 
 		if err != nil {
 			return err
 		}
-		pendingParentIDs, err = q.ListPendingParentIssues(ctx)
+		pendingParentRefs, err = q.ListPendingParentRefs(ctx)
 		if err != nil {
 			return err
 		}
@@ -447,31 +429,37 @@ func (e *Engine) treeDiffers(ctx context.Context, repository github.Repository, 
 		return err
 	})
 	if err != nil {
-		return false, err
+		return err
 	}
 	pendingBlockers := map[int64]bool{}
 	for _, id := range pendingBlockerIDs {
 		pendingBlockers[id] = true
 	}
-	pendingParents := map[int64]bool{}
-	for _, id := range pendingParentIDs {
-		pendingParents[id] = true
+	pendingParents := map[issueRef]bool{}
+	for _, item := range pendingParentRefs {
+		pendingParents[lowerRef(item.Repository, item.Number)] = true
 	}
 	root := lowerRef(repository.FullName, workstream)
 	refs := map[int64]issueRef{}
 	idByRef := map[issueRef]int64{}
+	repoByRef := map[issueRef]string{}
+	bucketByRef := map[issueRef]int64{}
 	for _, row := range rows {
-		if row.Number == 0 || pendingParents[row.ID] {
+		if row.Number == 0 {
 			continue
 		}
 		ref := lowerRef(row.IssueRepository, row.Number)
 		refs[row.ID] = ref
 		idByRef[ref] = row.ID
+		repoByRef[ref] = row.IssueRepository
+		if meta, err := parseMetadata(row.Metadata); err == nil {
+			bucketByRef[ref] = meta.Bucket
+		}
 	}
 	children := map[issueRef][]issueRef{}
 	for _, row := range rows {
 		ref, ok := refs[row.ID]
-		if !ok {
+		if !ok || pendingParents[ref] {
 			continue
 		}
 		parent := root
@@ -484,72 +472,177 @@ func (e *Engine) treeDiffers(ctx context.Context, repository github.Repository, 
 		}
 		children[parent] = append(children[parent], ref)
 	}
-	blockers := map[issueRef][]blockerKey{}
+	dbBlockers := map[issueRef]map[issueRef]dbBlockerInfo{}
 	for _, row := range blockerRows {
-		node := refs[row.Issue]
-		blockers[node] = append(blockers[node], blockerKey{row.BlockerRepository, row.Number})
+		node, ok := refs[row.Issue]
+		if !ok {
+			continue
+		}
+		if dbBlockers[node] == nil {
+			dbBlockers[node] = map[issueRef]dbBlockerInfo{}
+		}
+		dbBlockers[node][lowerRef(row.BlockerRepository, row.Number)] = dbBlockerInfo{
+			repo:            row.BlockerRepository,
+			number:          row.Number,
+			title:           row.Title,
+			state:           row.State,
+			author:          row.Author,
+			workstreamValid: row.Workstream.Valid,
+		}
 	}
+	app := appLogin(repository.AppSlug)
 	var leaves copiedTree
-	var differs func(from github.Repository, parent int64, key issueRef) (bool, error)
-	differs = func(from github.Repository, parent int64, key issueRef) (bool, error) {
-		issues, err := e.flatSubIssues(ctx, from, parent, key == root, &leaves)
+	syncChanged := false
+	visited := map[issueRef]bool{}
+	var walk func(from github.Repository, parent int64, parentExact string, key issueRef) error
+	walk = func(from github.Repository, parent int64, parentExact string, key issueRef) error {
+		visited[key] = true
+		issues, err := e.flatSubIssues(ctx, from, parent, 0, key == root, &leaves)
 		if err != nil {
-			return false, err
+			return err
 		}
-		found := make([]issueRef, 0, len(issues))
-		for _, sub := range issues {
-			found = append(found, lowerRef(blockerRepository(sub.issue, sub.from.FullName), int64(sub.issue.GetNumber())))
+		bucketRefs := map[issueRef]bool{}
+		if key == root {
+			for _, b := range leaves.buckets {
+				bucketRefs[lowerRef(repository.FullName, b.Number)] = true
+			}
 		}
-		want := slices.Clone(children[key])
-		compareRefs := func(a, b issueRef) int {
-			return cmp.Or(cmp.Compare(a.number, b.number), strings.Compare(a.repository, b.repository))
+		wantSet := map[issueRef]bool{}
+		for _, w := range children[key] {
+			wantSet[w] = true
 		}
-		slices.SortFunc(found, compareRefs)
-		slices.SortFunc(want, compareRefs)
-		if !slices.Equal(found, want) {
-			return true, nil
-		}
+		foundSet := map[issueRef]bool{}
 		for _, sub := range issues {
 			issue := sub.issue
-			issueRepository, readable := e.issueRepository(issue, sub.from)
-			if issue.GetState() != "open" || !readable {
+			subRepoName := blockerRepository(issue, sub.from.FullName)
+			subNum := int64(issue.GetNumber())
+			ref := lowerRef(subRepoName, subNum)
+			foundSet[ref] = true
+			if pendingParents[ref] {
 				continue
 			}
-			number := int64(issue.GetNumber())
-			itemKey := lowerRef(issueRepository.FullName, number)
-			if !pendingBlockers[idByRef[itemKey]] {
-				var open []blockerKey
-				if issue.GetIssueDependenciesSummary().GetTotalBlockedBy() > 0 {
-					blocking, err := openBlockers(ctx, issueRepository, number)
-					if err != nil {
-						return false, err
-					}
-					for _, blocker := range blocking {
-						open = append(open, blockerKey{blockerRepository(blocker, issueRepository.FullName), int64(blocker.GetNumber())})
-					}
-					slices.SortFunc(open, func(a, b blockerKey) int {
-						return cmp.Or(strings.Compare(strings.ToLower(a.repository), strings.ToLower(b.repository)), cmp.Compare(a.number, b.number))
-					})
+			childRepo, readable := e.issueRepository(issue, sub.from)
+			if !wantSet[ref] {
+				ev, pRepo, pNum, ok, err := findAddedParentEvent(from, parent, parentExact, key, sub, subRepoName, subNum, childRepo, readable, bucketRefs, repository, workstream, eventsOf)
+				if err != nil {
+					return err
 				}
-				if !slices.Equal(open, blockers[itemKey]) {
-					return true, nil
+				if ok {
+					if err := recordTreeIncomingChange(ctx, e.queries, app, subRepoName, subNum, parentField, addedChange, ev, parentMetadata{pRepo, pNum}); err != nil {
+						return err
+					}
+					markTouched(subRepoName)
+				}
+				continue
+			}
+			if sub.bucket != bucketByRef[ref] {
+				if err := e.queries.SetIssueBucket(ctx, store.SetIssueBucketParams{Bucket: sub.bucket, ID: idByRef[ref]}); err != nil {
+					return err
+				}
+				bucketByRef[ref] = sub.bucket
+			}
+			if (issue.GetState() != "open" && !forceWalk[ref]) || !readable {
+				continue
+			}
+			if issue.GetState() == "open" && !pendingBlockers[idByRef[ref]] {
+				var ghBlockers []*gh.Issue
+				if issue.GetIssueDependenciesSummary().GetTotalBlockedBy() > 0 {
+					ghBlockers, err = allBlockers(ctx, childRepo, subNum)
+					if err != nil {
+						return err
+					}
+				}
+				ghMap := map[issueRef]*gh.Issue{}
+				for _, b := range ghBlockers {
+					bRepo := blockerRepository(b, childRepo.FullName)
+					ghMap[lowerRef(bRepo, int64(b.GetNumber()))] = b
+				}
+				dbMap := dbBlockers[ref]
+				for bRef, info := range dbMap {
+					if ghIssue, ok := ghMap[bRef]; ok {
+						if !info.workstreamValid && (info.state != ghIssue.GetState() || info.title != ghIssue.GetTitle() || info.author != ghIssue.GetUser().GetLogin()) {
+							metadata, err := githubMetadata(ghIssue, 0)
+							if err != nil {
+								return err
+							}
+							if _, err := e.queries.AddCopiedBlockerIssue(ctx, store.AddCopiedBlockerIssueParams{
+								Repository: info.repo,
+								Number:     info.number,
+								Title:      ghIssue.GetTitle(),
+								Body:       ghIssue.GetBody(),
+								State:      ghIssue.GetState(),
+								Author:     ghIssue.GetUser().GetLogin(),
+								Kind:       issueKind(labelNames(ghIssue)),
+								Github:     metadata,
+							}); err != nil {
+								return err
+							}
+							syncChanged = true
+						}
+						continue
+					}
+					events, err := eventsOf(childRepo, subNum)
+					if err != nil {
+						return err
+					}
+					if ev, ok := newestBlockerEvent(events, "blocked_by_removed", childRepo.FullName, bRef); ok {
+						if err := recordTreeIncomingChange(ctx, e.queries, app, childRepo.FullName, subNum, blockersField, removedChange, ev, blockerMetadata{info.repo, info.number}); err != nil {
+							return err
+						}
+						markTouched(childRepo.FullName)
+					}
+				}
+				for bRef, ghIssue := range ghMap {
+					if _, ok := dbMap[bRef]; ok {
+						continue
+					}
+					events, err := eventsOf(childRepo, subNum)
+					if err != nil {
+						return err
+					}
+					if ev, ok := newestBlockerEvent(events, "blocked_by_added", childRepo.FullName, bRef); ok {
+						bRepo := blockerRepository(ghIssue, childRepo.FullName)
+						if err := recordTreeIncomingChange(ctx, e.queries, app, childRepo.FullName, subNum, blockersField, addedChange, ev, blockerMetadata{bRepo, int64(ghIssue.GetNumber())}); err != nil {
+							return err
+						}
+						markTouched(childRepo.FullName)
+					}
 				}
 			}
-			if changed, err := differs(issueRepository, number, itemKey); err != nil || changed {
-				return changed, err
+			if !visited[ref] {
+				if err := walk(childRepo, subNum, childRepo.FullName, ref); err != nil {
+					return err
+				}
 			}
 		}
-		return false, nil
+		for _, want := range children[key] {
+			if foundSet[want] || pendingParents[want] {
+				continue
+			}
+			childRepoName := repoByRef[want]
+			childRepo, readable := e.namedRepository(childRepoName, repository)
+			ev, changeKind, pRepo, pNum, ok, err := e.findMissingChildEvent(ctx, from, parent, parentExact, key, want, childRepoName, childRepo, readable, bucketRefs, leaves.buckets, repository, workstream, eventsOf)
+			if err != nil {
+				return err
+			}
+			if ok {
+				if err := recordTreeIncomingChange(ctx, e.queries, app, childRepoName, want.number, parentField, changeKind, ev, parentMetadata{pRepo, pNum}); err != nil {
+					return err
+				}
+				markTouched(childRepoName)
+			}
+		}
+		return nil
 	}
-	if changed, err := differs(repository, workstream, root); err != nil || changed {
-		return changed, err
+	if err := walk(repository, workstream, repository.FullName, root); err != nil {
+		return err
 	}
 	var stored copiedTree
 	if err := json.Unmarshal([]byte(storedBuckets), &stored.buckets); err != nil {
-		return false, err
+		return err
 	}
 	if err := json.Unmarshal([]byte(storedNested), &stored.nested); err != nil {
-		return false, err
+		return err
 	}
 	compareBuckets := func(a, b copiedBucket) int { return cmp.Compare(a.Number, b.Number) }
 	slices.SortFunc(leaves.buckets, compareBuckets)
@@ -557,13 +650,297 @@ func (e *Engine) treeDiffers(ctx context.Context, repository github.Repository, 
 	compareNested := func(a, b copiedNested) int { return cmp.Compare(a.Number, b.Number) }
 	slices.SortFunc(leaves.nested, compareNested)
 	slices.SortFunc(stored.nested, compareNested)
-	return !slices.EqualFunc(leaves.buckets, stored.buckets, func(a, b copiedBucket) bool { return a.Number == b.Number && a.State == b.State }) ||
-		!slices.Equal(leaves.nested, stored.nested), nil
+	if !slices.EqualFunc(leaves.buckets, stored.buckets, func(a, b copiedBucket) bool { return a.Number == b.Number && a.State == b.State }) ||
+		!slices.Equal(leaves.nested, stored.nested) {
+		buckets, err := json.Marshal(append([]copiedBucket{}, leaves.buckets...))
+		if err != nil {
+			return err
+		}
+		nested, err := json.Marshal(append([]copiedNested{}, leaves.nested...))
+		if err != nil {
+			return err
+		}
+		if err := e.queries.SetCopiedTreeData(ctx, store.SetCopiedTreeDataParams{Buckets: string(buckets), Nested: string(nested), ID: workstreamID}); err != nil {
+			return err
+		}
+		syncChanged = true
+	}
+	if syncChanged {
+		e.publish(Change{Workstreams: true})
+	}
+	return nil
 }
 
-type blockerKey struct {
-	repository string
-	number     int64
+func findAddedParentEvent(from github.Repository, parent int64, parentExact string, key issueRef, sub subIssueAt, subRepoName string, subNum int64, childRepo github.Repository, readable bool, bucketRefs map[issueRef]bool, workstreamRepo github.Repository, workstream int64, eventsOf eventFetcher) (github.TreeEvent, string, int64, bool, error) {
+	if readable {
+		events, err := eventsOf(childRepo, subNum)
+		if err != nil {
+			return github.TreeEvent{}, "", 0, false, err
+		}
+		for i := len(events) - 1; i >= 0; i-- {
+			ev := events[i]
+			if ev.Event != "parent_issue_added" || ev.ParentIssue == nil {
+				continue
+			}
+			pRepo := ev.ParentIssue.RepositoryName(childRepo.FullName)
+			pNum := ev.ParentIssue.Number
+			pRef := lowerRef(pRepo, pNum)
+			if pRef == key || bucketRefs[pRef] {
+				if bucketRefs[pRef] {
+					pRepo, pNum = workstreamRepo.FullName, workstream
+				} else {
+					pRepo = parentExact
+				}
+				return ev, pRepo, pNum, true, nil
+			}
+		}
+	}
+	listRepo, listParent := from, parent
+	if sub.bucket != 0 {
+		listParent = sub.bucket
+	}
+	events, err := eventsOf(listRepo, listParent)
+	if err != nil {
+		return github.TreeEvent{}, "", 0, false, err
+	}
+	childRef := lowerRef(subRepoName, subNum)
+	for i := len(events) - 1; i >= 0; i-- {
+		ev := events[i]
+		if ev.Event == "sub_issue_added" && ev.SubIssue != nil && lowerRef(ev.SubIssue.RepositoryName(listRepo.FullName), ev.SubIssue.Number) == childRef {
+			if sub.bucket != 0 {
+				return ev, workstreamRepo.FullName, workstream, true, nil
+			}
+			return ev, parentExact, parent, true, nil
+		}
+	}
+	return github.TreeEvent{}, "", 0, false, nil
+}
+
+func (e *Engine) findMissingChildEvent(ctx context.Context, from github.Repository, parent int64, parentExact string, key, childRef issueRef, childRepoName string, childRepo github.Repository, readable bool, bucketRefs map[issueRef]bool, buckets []copiedBucket, workstreamRepo github.Repository, workstream int64, eventsOf eventFetcher) (github.TreeEvent, string, string, int64, bool, error) {
+	if readable {
+		events, err := eventsOf(childRepo, childRef.number)
+		if err != nil {
+			return github.TreeEvent{}, "", "", 0, false, err
+		}
+		for i := len(events) - 1; i >= 0; i-- {
+			ev := events[i]
+			switch ev.Event {
+			case "parent_issue_added":
+				if ev.ParentIssue == nil {
+					continue
+				}
+				pRepo := ev.ParentIssue.RepositoryName(childRepo.FullName)
+				pNum := ev.ParentIssue.Number
+				pRef := lowerRef(pRepo, pNum)
+				if pRef == key || bucketRefs[pRef] {
+					return github.TreeEvent{}, "", "", 0, false, nil
+				}
+				if bws, err := e.queries.FindBucketWorkstream(ctx, store.FindBucketWorkstreamParams{Repository: pRepo, Bucket: pNum}); err == nil {
+					pRepo, pNum = bws.Repository, bws.Number
+				} else if !errors.Is(err, sql.ErrNoRows) {
+					return github.TreeEvent{}, "", "", 0, false, err
+				}
+				return ev, addedChange, pRepo, pNum, true, nil
+			case "parent_issue_removed":
+				if ev.ParentIssue == nil {
+					continue
+				}
+				pRepo := ev.ParentIssue.RepositoryName(childRepo.FullName)
+				pNum := ev.ParentIssue.Number
+				pRef := lowerRef(pRepo, pNum)
+				if pRef == key || bucketRefs[pRef] {
+					if bucketRefs[pRef] {
+						pRepo, pNum = workstreamRepo.FullName, workstream
+					} else {
+						pRepo = parentExact
+					}
+					return ev, removedChange, pRepo, pNum, true, nil
+				}
+				return ev, removedChange, pRepo, pNum, true, nil
+			}
+		}
+		return github.TreeEvent{}, "", "", 0, false, nil
+	}
+	_ = childRepoName
+	parentEvents, err := eventsOf(from, parent)
+	if err != nil {
+		return github.TreeEvent{}, "", "", 0, false, err
+	}
+	for i := len(parentEvents) - 1; i >= 0; i-- {
+		ev := parentEvents[i]
+		if ev.Event == "sub_issue_removed" && ev.SubIssue != nil && lowerRef(ev.SubIssue.RepositoryName(from.FullName), ev.SubIssue.Number) == childRef {
+			return ev, removedChange, parentExact, parent, true, nil
+		}
+	}
+	for _, bucket := range buckets {
+		bucketEvents, err := eventsOf(workstreamRepo, bucket.Number)
+		if err != nil {
+			return github.TreeEvent{}, "", "", 0, false, err
+		}
+		for i := len(bucketEvents) - 1; i >= 0; i-- {
+			ev := bucketEvents[i]
+			if ev.Event == "sub_issue_removed" && ev.SubIssue != nil && lowerRef(ev.SubIssue.RepositoryName(workstreamRepo.FullName), ev.SubIssue.Number) == childRef {
+				return ev, removedChange, workstreamRepo.FullName, workstream, true, nil
+			}
+		}
+	}
+	return github.TreeEvent{}, "", "", 0, false, nil
+}
+
+func newestBlockerEvent(events []github.TreeEvent, kind, issueRepo string, blockerRef issueRef) (github.TreeEvent, bool) {
+	for i := len(events) - 1; i >= 0; i-- {
+		ev := events[i]
+		if ev.Event == kind && ev.BlockedBy != nil && lowerRef(ev.BlockedBy.RepositoryName(issueRepo), ev.BlockedBy.Number) == blockerRef {
+			return ev, true
+		}
+	}
+	return github.TreeEvent{}, false
+}
+
+func recordTreeIncomingChange(ctx context.Context, q *store.Queries, app, targetRepo string, number int64, field, change string, event github.TreeEvent, meta any) error {
+	externalID := strconv.FormatInt(event.ID, 10)
+	known, err := q.HasIncomingChange(ctx, externalID)
+	if err != nil || known {
+		return err
+	}
+	actor := event.Actor.Login
+	status := "pending"
+	if strings.EqualFold(actor, app) {
+		var otherRepo string
+		var otherNumber int64
+		switch m := meta.(type) {
+		case parentMetadata:
+			otherRepo, otherNumber = m.ParentRepository, m.Parent
+		case blockerMetadata:
+			otherRepo, otherNumber = m.BlockerRepository, m.Blocker
+		}
+		own, err := q.DeleteOldestTreeOwnWrite(ctx, store.DeleteOldestTreeOwnWriteParams{
+			Repository:      targetRepo,
+			Number:          number,
+			Field:           field,
+			Change:          change,
+			OtherRepository: otherRepo,
+			OtherNumber:     otherNumber,
+		})
+		if err != nil {
+			return err
+		}
+		if own > 0 {
+			status = "done"
+		}
+	}
+	encoded, err := json.Marshal(meta)
+	if err != nil {
+		return err
+	}
+	return q.AddIncomingChange(ctx, store.AddIncomingChangeParams{
+		ExternalID: externalID,
+		Repository: targetRepo,
+		Number:     number,
+		Field:      field,
+		Change:     change,
+		Actor:      actor,
+		Metadata:   string(encoded),
+		Status:     status,
+		CreatedAt:  now(),
+	})
+}
+
+func (e *Engine) consumeTreeOwnWrites(ctx context.Context, repository github.Repository, eventsOf eventFetcher) error {
+	rows, err := e.queries.ListTreeOwnWrites(ctx)
+	if err != nil {
+		return err
+	}
+	app := appLogin(repository.AppSlug)
+	for _, row := range rows {
+		if !strings.EqualFold(row.Repository, repository.FullName) {
+			continue
+		}
+		events, err := eventsOf(repository, row.Number)
+		if err != nil {
+			return err
+		}
+		for _, ev := range events {
+			if !strings.EqualFold(ev.Actor.Login, app) {
+				continue
+			}
+			externalID := strconv.FormatInt(ev.ID, 10)
+			known, err := e.queries.HasIncomingChange(ctx, externalID)
+			if err != nil {
+				return err
+			}
+			if known {
+				continue
+			}
+			var field, change, otherRepo string
+			var otherNum int64
+			var meta any
+			switch ev.Event {
+			case "parent_issue_added":
+				if ev.ParentIssue == nil {
+					continue
+				}
+				field, change = parentField, addedChange
+				otherRepo, otherNum = ev.ParentIssue.RepositoryName(repository.FullName), ev.ParentIssue.Number
+				meta = parentMetadata{otherRepo, otherNum}
+			case "parent_issue_removed":
+				if ev.ParentIssue == nil {
+					continue
+				}
+				field, change = parentField, removedChange
+				otherRepo, otherNum = ev.ParentIssue.RepositoryName(repository.FullName), ev.ParentIssue.Number
+				meta = parentMetadata{otherRepo, otherNum}
+			case "blocked_by_added":
+				if ev.BlockedBy == nil {
+					continue
+				}
+				field, change = blockersField, addedChange
+				otherRepo, otherNum = ev.BlockedBy.RepositoryName(repository.FullName), ev.BlockedBy.Number
+				meta = blockerMetadata{otherRepo, otherNum}
+			case "blocked_by_removed":
+				if ev.BlockedBy == nil {
+					continue
+				}
+				field, change = blockersField, removedChange
+				otherRepo, otherNum = ev.BlockedBy.RepositoryName(repository.FullName), ev.BlockedBy.Number
+				meta = blockerMetadata{otherRepo, otherNum}
+			default:
+				continue
+			}
+			own, err := e.queries.DeleteOldestTreeOwnWrite(ctx, store.DeleteOldestTreeOwnWriteParams{
+				Repository:      row.Repository,
+				Number:          row.Number,
+				Field:           field,
+				Change:          change,
+				OtherRepository: otherRepo,
+				OtherNumber:     otherNum,
+			})
+			if err != nil {
+				return err
+			}
+			if own == 0 {
+				continue
+			}
+			encoded, err := json.Marshal(meta)
+			if err != nil {
+				return err
+			}
+			if err := e.queries.AddIncomingChange(ctx, store.AddIncomingChangeParams{
+				ExternalID: externalID,
+				Repository: row.Repository,
+				Number:     row.Number,
+				Field:      field,
+				Change:     change,
+				Actor:      ev.Actor.Login,
+				Metadata:   string(encoded),
+				Status:     "done",
+				CreatedAt:  now(),
+			}); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // issueRepository gives the repository of the issue, which is a sub-issue or a blocker of an issue of from, and tells
@@ -611,27 +988,6 @@ func (e *Engine) copiedWorkstreamOf(ctx context.Context, repository string, numb
 		return 0, false, nil
 	}
 	return workstream, err == nil, err
-}
-
-// copiedWorkstreamsHolding gives the Workstream that has the issue number of repository in its tree, and the
-// Workstream that is this issue. The copy of another repository can hold the issue.
-func (e *Engine) copiedWorkstreamsHolding(ctx context.Context, repository string, number int64) ([]issueRef, error) {
-	rows, err := e.queries.ListCopiedWorkstreamsWithIssue(ctx, store.ListCopiedWorkstreamsWithIssueParams{Repository: repository, Number: number})
-	if err != nil {
-		return nil, err
-	}
-	var found []issueRef
-	for _, row := range rows {
-		found = append(found, issueRef{row.Repository, row.Workstream})
-	}
-	stored, err := e.queries.HasCopiedWorkstream(ctx, store.HasCopiedWorkstreamParams{Repository: repository, Number: number})
-	if err != nil {
-		return nil, err
-	}
-	if stored {
-		found = appendNew(found, issueRef{repository, number})
-	}
-	return found, nil
 }
 
 // updateCopiedIssue changes the copied row of the issue of repository. It gives false when the copy has the same values.
@@ -919,15 +1275,6 @@ func allBlockers(ctx context.Context, repository github.Repository, number int64
 		return nil, nil
 	}
 	return issues, err
-}
-
-// openBlockers gives the open blockers of the issue number, also in other repositories.
-func openBlockers(ctx context.Context, repository github.Repository, number int64) ([]*gh.Issue, error) {
-	issues, err := allBlockers(ctx, repository, number)
-	if err != nil {
-		return nil, err
-	}
-	return slices.DeleteFunc(issues, func(issue *gh.Issue) bool { return issue.GetState() != "open" }), nil
 }
 
 // blockerRepository gives the full name of the repository of the issue. It gives repository for an issue of repository.
