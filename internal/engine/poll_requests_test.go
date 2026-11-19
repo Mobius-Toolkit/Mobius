@@ -56,8 +56,8 @@ func TestAPollWithNoChangeSendsAtMostTenRequestsThatCountAgainstTheLimit(t *test
 			continue
 		}
 		path := fmt.Sprintf("/repos/%s/issues/%d/sub_issues", shop, number)
-		if !subIssueReads[path] {
-			t.Errorf("the measured poll has no GET %s", path)
+		if open := number <= workstreams; subIssueReads[path] != open {
+			t.Errorf("the measured poll reads %s = %t, want %t", path, subIssueReads[path], open)
 		}
 	}
 	var counted []string

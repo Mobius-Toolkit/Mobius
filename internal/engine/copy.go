@@ -92,9 +92,11 @@ func parseMetadata(metadata string) (issueGitHub, error) {
 	return parsed.GitHub, err
 }
 
+const projectKind = "project"
+
 func issueKind(labels []string) string {
 	if slices.Contains(labels, projectLabel) {
-		return "project"
+		return projectKind
 	}
 	return "task"
 }
@@ -1067,8 +1069,8 @@ func (e *Engine) addWorkstreamRow(ctx context.Context, q *store.Queries, reposit
 	return added, nil
 }
 
-// closeCopiedWorkstream closes the row of the Workstream number of repository, deletes its recurring tasks, MCP servers,
-// and copied tree, and publishes the Workstreams change.
+// closeCopiedWorkstream closes the row of the Workstream number of repository, deletes its recurring tasks and MCP
+// servers, and publishes the Workstreams change. The tree stays until removeClosedWorkstreamTree.
 func (e *Engine) closeCopiedWorkstream(ctx context.Context, repository github.Repository, number int64) error {
 	closed := false
 	err := e.inTx(ctx, func(q *store.Queries) error {
@@ -1080,12 +1082,22 @@ func (e *Engine) closeCopiedWorkstream(ctx context.Context, repository github.Re
 		if err := deleteWorkstreamRecurringTasks(ctx, q, repository.FullName, number); err != nil {
 			return err
 		}
-		if err := q.DeleteWorkstreamMcpServers(ctx, store.DeleteWorkstreamMcpServersParams{Repository: repository.FullName, Workstream: number}); err != nil {
-			return err
-		}
-		return removeClosedTree(ctx, q, repository.FullName, number)
+		return q.DeleteWorkstreamMcpServers(ctx, store.DeleteWorkstreamMcpServersParams{Repository: repository.FullName, Workstream: number})
 	})
 	if err != nil || !closed {
+		return err
+	}
+	e.publish(Change{Workstreams: true})
+	return nil
+}
+
+// removeClosedWorkstreamTree takes the tree of the closed Workstream number of repository out of issues. closeWorkstream
+// reads the tree, so it runs first, and a retry of a failed closeWorkstream still finds the tree.
+func (e *Engine) removeClosedWorkstreamTree(ctx context.Context, repository string, number int64) error {
+	err := e.inTx(ctx, func(q *store.Queries) error {
+		return removeClosedTree(ctx, q, repository, number)
+	})
+	if err != nil {
 		return err
 	}
 	e.publish(Change{Workstreams: true})

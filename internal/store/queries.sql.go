@@ -1934,10 +1934,11 @@ func (q *Queries) DeleteCopiedBlockersOfTree(ctx context.Context, workstream sql
 
 const deleteCopiedBlockersOfTrees = `-- name: DeleteCopiedBlockersOfTrees :exec
 DELETE FROM blockers WHERE issue IN (
-    SELECT i.id FROM issues i JOIN workstreams w ON w.id = i.workstream WHERE w.repository = ?
+    SELECT i.id FROM issues i JOIN workstreams w ON w.id = i.workstream WHERE w.repository = ? AND w.close_pending = 0
 )
 `
 
+// The tree of a Workstream with a pending close stays, because the close reads it.
 func (q *Queries) DeleteCopiedBlockersOfTrees(ctx context.Context, repository string) error {
 	_, err := q.db.ExecContext(ctx, deleteCopiedBlockersOfTrees, repository)
 	return err
@@ -2398,7 +2399,7 @@ func (q *Queries) DetachCopiedTree(ctx context.Context, workstream sql.NullInt64
 
 const detachCopiedTrees = `-- name: DetachCopiedTrees :exec
 UPDATE issues SET workstream = NULL, parent = NULL
-WHERE workstream IN (SELECT w.id FROM workstreams w WHERE w.repository = ?)
+WHERE workstream IN (SELECT w.id FROM workstreams w WHERE w.repository = ? AND w.close_pending = 0)
 `
 
 func (q *Queries) DetachCopiedTrees(ctx context.Context, repository string) error {
@@ -3230,6 +3231,31 @@ func (q *Queries) GetDeploymentTodoOfItem(ctx context.Context, inboxItem int64) 
 		&i.DismissedAt,
 		&i.AfterMerge,
 	)
+	return i, err
+}
+
+const getDispatchIssue = `-- name: GetDispatchIssue :one
+SELECT i.kind, i.metadata,
+    EXISTS (SELECT 1 FROM blockers b JOIN issues bi ON bi.id = b.blocker AND bi.state = 'open' WHERE b.issue = i.id) AS blocked
+FROM issues i
+WHERE i.repository = ? AND i.number = CAST(?2 AS INTEGER)
+`
+
+type GetDispatchIssueParams struct {
+	Repository string
+	Number     int64
+}
+
+type GetDispatchIssueRow struct {
+	Kind     string
+	Metadata string
+	Blocked  bool
+}
+
+func (q *Queries) GetDispatchIssue(ctx context.Context, arg GetDispatchIssueParams) (GetDispatchIssueRow, error) {
+	row := q.db.QueryRowContext(ctx, getDispatchIssue, arg.Repository, arg.Number)
+	var i GetDispatchIssueRow
+	err := row.Scan(&i.Kind, &i.Metadata, &i.Blocked)
 	return i, err
 }
 
@@ -6142,7 +6168,7 @@ func (q *Queries) ListCopiedRepositories(ctx context.Context) ([]string, error) 
 }
 
 const listCopiedTree = `-- name: ListCopiedTree :many
-SELECT i.id, i.parent, CAST(i.number AS INTEGER) AS number, i.repository AS issue_repository, i.title, i.state, i.author, i.metadata
+SELECT i.id, i.parent, CAST(coalesce(i.number, 0) AS INTEGER) AS number, i.repository AS issue_repository, i.title, i.state, i.author, i.kind, i.metadata
 FROM issues i
 JOIN workstreams w ON w.id = i.workstream
 WHERE w.repository = ? AND w.number = CAST(?2 AS INTEGER)
@@ -6162,6 +6188,7 @@ type ListCopiedTreeRow struct {
 	Title           string
 	State           string
 	Author          string
+	Kind            string
 	Metadata        string
 }
 
@@ -6182,6 +6209,7 @@ func (q *Queries) ListCopiedTree(ctx context.Context, arg ListCopiedTreeParams) 
 			&i.Title,
 			&i.State,
 			&i.Author,
+			&i.Kind,
 			&i.Metadata,
 		); err != nil {
 			return nil, err
@@ -7997,6 +8025,42 @@ func (q *Queries) ListOpenActionRequests(ctx context.Context, arg ListOpenAction
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOpenBlockedIssues = `-- name: ListOpenBlockedIssues :many
+SELECT DISTINCT b.issue FROM blockers b
+JOIN issues i ON i.id = b.issue
+JOIN workstreams w ON w.id = i.workstream
+JOIN issues bi ON bi.id = b.blocker AND bi.state = 'open'
+WHERE w.repository = ? AND w.number = CAST(?2 AS INTEGER)
+`
+
+type ListOpenBlockedIssuesParams struct {
+	Repository string
+	Number     int64
+}
+
+func (q *Queries) ListOpenBlockedIssues(ctx context.Context, arg ListOpenBlockedIssuesParams) ([]int64, error) {
+	rows, err := q.db.QueryContext(ctx, listOpenBlockedIssues, arg.Repository, arg.Number)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var issue int64
+		if err := rows.Scan(&issue); err != nil {
+			return nil, err
+		}
+		items = append(items, issue)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
