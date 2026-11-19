@@ -110,10 +110,12 @@ func TestTheChatOfTheCoordinatorGetsTheApprovalMessageWithTheNumberOneTimeAfterA
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, action := startCreate(t, fake)
-	fake.FailIssueCreates(1)
+	fake.FailIssueCreates(1000)
 
 	decided(t, server, action, "approve", "")
 
+	testkit.WaitFor(t, func() bool { return approvalMessages(t, server, "The result: "+createLater) == 1 })
+	fake.FailIssueCreates(0)
 	testkit.WaitFor(t, func() bool { return approvalMessages(t, server, "The result: Created the Workstream #13.") == 1 })
 	waitForPolls(t, fake)
 	waitForPolls(t, fake)
@@ -129,7 +131,7 @@ func TestTheChatOfTheCoordinatorGetsOneApprovalMessageWithTheRefusalWhenALaterPo
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, action := startCreate(t, fake)
-	fake.FailIssueCreates(1)
+	fake.FailIssueCreates(1000)
 	fake.RefuseIssueCreates(http.StatusUnprocessableEntity)
 
 	done := decided(t, server, action, "approve", "")
@@ -137,6 +139,7 @@ func TestTheChatOfTheCoordinatorGetsOneApprovalMessageWithTheRefusalWhenALaterPo
 	if done.State != "done" || done.Result != createLater {
 		t.Errorf("action = %+v", done)
 	}
+	fake.FailIssueCreates(0)
 	testkit.WaitFor(t, func() bool { return approvalMessages(t, server, "The result: GitHub refused the write.") == 1 })
 	waitForPolls(t, fake)
 	waitForPolls(t, fake)
@@ -155,9 +158,10 @@ func TestTheChatOfTheCoordinatorGetsOneApprovalMessageWithTheRefusalWhenALaterPo
 func TestARefusalOfTheCreateBeforeTheActionIsDoneComesAfterTheMessageThatTheNumberComesLater(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, action := startCreate(t, fake)
-	fake.FailIssueCreates(1)
+	fake.FailIssueCreates(1000)
 	*engine.AfterActionRun = func() {
 		fake.RefuseIssueCreates(http.StatusUnprocessableEntity)
+		fake.FailIssueCreates(0)
 		waitForPolls(t, fake)
 		waitForPolls(t, fake)
 	}
@@ -189,10 +193,11 @@ func TestTheTriagerGetsOneCommentWithTheRefusalWhenALaterPollGetsA4xxOfTheCreate
 	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 66), proposal) })
 	fake.AddComment(shop, 66, "owner", "Create it as proposed.")
 	action := waitForActions(t, server, 1)[0]
-	fake.FailIssueCreates(1)
+	fake.FailIssueCreates(1000)
 	fake.RefuseIssueCreates(http.StatusUnprocessableEntity)
 
 	decided(t, server, action.ID, "approve", "")
+	fake.FailIssueCreates(0)
 
 	refusals := func() int {
 		n := 0
@@ -339,7 +344,7 @@ func TestACreateOfTheTriagerClosesTheTriagedIssueWithTheLinkToTheNewWorkstreamAf
 	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 66), proposal) })
 	fake.AddComment(shop, 66, "owner", "Create it as proposed.")
 	action := waitForActions(t, server, 1)[0]
-	fake.FailIssueCreates(1)
+	fake.FailIssueCreates(1000)
 
 	done := decided(t, server, action.ID, "approve", "")
 
@@ -349,6 +354,7 @@ func TestACreateOfTheTriagerClosesTheTriagedIssueWithTheLinkToTheNewWorkstreamAf
 	if state, _ := fake.State(shop, 66); state != "open" {
 		t.Errorf("state before the send = %s", state)
 	}
+	fake.FailIssueCreates(0)
 	link := triagerComment(66, "The triage ends. The Workstream is https://github.com/owner/shop/issues/67")
 	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 66), link) })
 	testkit.WaitFor(t, func() bool { state, reason := fake.State(shop, 66); return state == "closed" && reason == "completed" })
