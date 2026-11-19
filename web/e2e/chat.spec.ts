@@ -3314,6 +3314,29 @@ test.describe("the records of the actions of the Owner", () => {
     ]);
   });
 
+  test("the Coordinator chat shows the tell_owner message of a changelog turn as a Coordinator message and no changelog", async ({
+    page,
+  }) => {
+    // The navigation tests count the unread reply of this chat, so the page must not mark it as seen.
+    await page.route("/api/chat/seen", (route) => route.fulfill({ status: 204 }));
+    await page.addInitScript("localStorage.setItem('organization', 'plants')");
+    expect((await page.request.post("/e2e/changelog-turn")).ok()).toBe(true);
+    try {
+      await page.goto("/chat");
+      const main = page.getByRole("main");
+      const message = main.locator("[data-message]", {
+        hasText: "Release v0.1.4 makes the usage flag of the tests unnecessary.",
+      });
+      await expect(message).toBeVisible();
+      await expect(message.getByText("Coordinator", { exact: true })).toBeVisible();
+      await expect(main.getByText("Start a Workstream for gift cards.")).toBeVisible();
+      await expect(main.getByText("Changelog")).toHaveCount(0);
+      await expect(main.getByText("Lead", { exact: true })).toHaveCount(0);
+    } finally {
+      expect((await page.request.delete("/e2e/changelog-turn")).ok()).toBe(true);
+    }
+  });
+
   test("a live Record message shows the line and is not an unread message", async ({ page }) => {
     await page.addInitScript(`
       window.appSources = [];

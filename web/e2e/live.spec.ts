@@ -1,4 +1,4 @@
-import { expect, test, type Route } from "@playwright/test";
+import { expect, test, type Request, type Route } from "@playwright/test";
 
 const viewports = {
   desktop: { width: 1280, height: 800 },
@@ -77,16 +77,40 @@ test("the page shows the UI again after the next load succeeds", async ({ page }
 test("the error of one request of a load stays when the other request succeeds", async ({
   page,
 }) => {
+  // The page of the login still sends requests. A route would count them as requests of the page under test.
+  await page.goto("about:blank");
   let failing = false;
+  let initialApps = 0;
+  let initialOrgs = 0;
+  const failedOrgs = new Set<Request>();
+  page.on("response", (res) => {
+    if (res.url().endsWith("/api/github/apps") && res.status() === 200) {
+      initialApps++;
+    }
+    if (res.url().endsWith("/api/organizations") && res.status() === 200) {
+      initialOrgs++;
+    }
+  });
   await page.route("/api/github/apps", (route) =>
     failing ? route.fulfill({ status: 500, json: { error: "apps failed" } }) : route.fallback(),
   );
+  await page.route("/api/organizations", (route) => {
+    if (failing) {
+      failedOrgs.add(route.request());
+    }
+    return route.fallback();
+  });
   await page.goto("/workstreams/owner/shop/12");
   await expect(page.getByLabel("Message to the Lead")).toBeEditable();
+  await expect.poll(() => initialApps >= 2 && initialOrgs >= 2).toBe(true);
 
   failing = true;
-  const organizations = page.waitForResponse("/api/organizations");
+  const apps = page.waitForResponse(
+    (res) => res.url().endsWith("/api/github/apps") && res.status() === 500,
+  );
+  const organizations = page.waitForResponse((res) => failedOrgs.has(res.request()));
   await page.evaluate("window.dispatchEvent(new Event('online'))");
+  await apps;
   expect((await organizations).status()).toBe(200);
 
   await expect(page.getByText("apps failed")).toBeVisible();

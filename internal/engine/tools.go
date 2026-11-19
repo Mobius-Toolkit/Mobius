@@ -484,6 +484,12 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 				},
 				e.startRepositoryResearcher),
 			e.tellCuratorTool(c),
+			toolOf(e, c, noRepository, "tell_owner",
+				"Tell the Owner an important fact of a changelog that needs no decision. Mobius adds the text to the Coordinator chat and adds no Inbox item. Call it only in a turn for a changelog. For a decision of the Owner, call ask.",
+				map[string]any{
+					"text": map[string]any{"type": "string", "minLength": 1, "description": "The text for the Owner."},
+				},
+				e.tellOwner),
 			toolOf(e, c, noRepository, "ask",
 				"Ask the Owner a question. Use it when you need a decision of the Owner. For a choice between alternatives, give the questions with their options in questions, and the context in text. Mobius adds an Inbox item for the Owner. The tool returns at once. The answer arrives later as a chat message of the Owner.",
 				map[string]any{
