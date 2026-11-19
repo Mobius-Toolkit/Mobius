@@ -264,6 +264,9 @@ const question = "What is the state of the plans? The full report is at " +
 //
 // The Workstream owner/shop#14 has Autopilot on and one task in ready_for_review.
 //
+// The Workstream "Hourly backup of the Mobius database" of owner/shop has no number, because the fake GitHub gives a 500 to
+// each create of its issue.
+//
 // The chat tests use the issues owner/shop#7 and #8 with no Workstream, the Workstreams plants/garden#14 to #17 with
 // unread Lead messages, the empty chats of plants/garden#18 and #19, the events in the chat of plants/garden#25, the
 // Workstreams plants/garden#20 and #30 with tasks that need a human, the user code "user-code" of the second App, the
@@ -1099,7 +1102,16 @@ func addWaitingWorkstream(ctx context.Context, t *testing.T, server *testserver.
 	if _, err := server.Engine.ApproveAction(ctx, action, ""); err != nil {
 		t.Fatal(err)
 	}
-	waitForChat(t, server, coordinator, "Approval")
+	testkit.WaitFor(t, func() bool {
+		var undelivered, open int
+		if err := server.DB.QueryRow("SELECT COUNT(*) FROM chat_messages WHERE id > ? AND author IN ('Owner', 'Approval') AND delivered_at IS NULL", lastMessage).Scan(&undelivered); err != nil {
+			t.Fatal(err)
+		}
+		if err := server.DB.QueryRow("SELECT COUNT(*) FROM sessions WHERE ended_at IS NULL").Scan(&open); err != nil {
+			t.Fatal(err)
+		}
+		return undelivered == 0 && open == 0
+	})
 	var rows int
 	if err := server.DB.QueryRow("SELECT COUNT(*) FROM workstreams WHERE repository = 'owner/shop' AND number IS NULL AND title = ?", waitingTitle).Scan(&rows); err != nil || rows != 1 {
 		t.Fatalf("rows with no number = %d, error = %v", rows, err)
