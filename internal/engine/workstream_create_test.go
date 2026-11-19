@@ -122,6 +122,66 @@ func TestTheChatOfTheCoordinatorGetsTheApprovalMessageWithTheNumberOneTimeAfterA
 	}
 }
 
+func TestTheChatOfTheCoordinatorGetsOneApprovalMessageWithTheRefusalWhenALaterPollGetsA4xxOfTheCreate(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, action := startCreate(t, fake)
+	fake.FailIssueCreates(1)
+	fake.RefuseIssueCreates(http.StatusUnprocessableEntity)
+
+	done := decided(t, server, action, "approve", "")
+
+	if done.State != "done" || done.Result != createLater {
+		t.Errorf("action = %+v", done)
+	}
+	testkit.WaitFor(t, func() bool { return approvalMessages(t, server, "The result: GitHub refused the write.") == 1 })
+	waitForPolls(t, fake)
+	waitForPolls(t, fake)
+	if got := approvalMessages(t, server, "The result: GitHub refused the write."); got != 1 {
+		t.Errorf("messages with the refusal = %d", got)
+	}
+	if got := approvalMessages(t, server, "Created the Workstream #"); got != 0 {
+		t.Errorf("messages with a number = %d", got)
+	}
+	if got := upkeepRows(t, server, "1 = 1"); got != 0 {
+		t.Errorf("rows = %d", got)
+	}
+}
+
+func TestTheTriagerGetsOneCommentWithTheRefusalWhenALaterPollGetsA4xxOfTheCreate(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTriager(t, fake)
+	fake.CreateIssue(shop, 66, "Add refunds", "Refund each order.", "owner")
+	proposal := triagerComment(66, "Proposal: the Workstream Refunds.")
+	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 66), proposal) })
+	fake.AddComment(shop, 66, "owner", "Create it as proposed.")
+	action := waitForActions(t, server, 1)[0]
+	fake.FailIssueCreates(1)
+	fake.RefuseIssueCreates(http.StatusUnprocessableEntity)
+
+	decided(t, server, action.ID, "approve", "")
+
+	refusals := func() int {
+		n := 0
+		for _, comment := range fake.Comments(shop, 66) {
+			if strings.Contains(comment.Body, "The result: GitHub refused the write.") {
+				n++
+			}
+		}
+		return n
+	}
+	testkit.WaitFor(t, func() bool { return refusals() == 1 })
+	waitForPolls(t, fake)
+	waitForPolls(t, fake)
+	if got := refusals(); got != 1 {
+		t.Errorf("comments with the refusal = %d", got)
+	}
+	if state, _ := fake.State(shop, 66); state != "open" {
+		t.Errorf("state = %s", state)
+	}
+}
+
 func TestACreateThatTheFirstSendFillsGivesNoSecondApprovalMessage(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

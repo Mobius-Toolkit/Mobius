@@ -1017,13 +1017,13 @@ func (g *FakeGitHub) createIssue(w http.ResponseWriter, r *http.Request) {
 	caller, _ := g.validToken(r)
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	if g.refusedIssueCreates != 0 {
-		message(w, g.refusedIssueCreates, "Resource not accessible by integration")
-		return
-	}
 	if g.failedIssueCreates > 0 {
 		g.failedIssueCreates--
 		message(w, http.StatusInternalServerError, "Server Error")
+		return
+	}
+	if g.refusedIssueCreates != 0 {
+		message(w, g.refusedIssueCreates, "Resource not accessible by integration")
 		return
 	}
 	key := issueKey{repository(r), 1}

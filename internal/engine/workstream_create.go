@@ -98,8 +98,12 @@ func (e *Engine) sendCreate(ctx context.Context, repository github.Repository, c
 }
 
 // dropCreate marks the refused create change refused, deletes the row of the Workstream that has no issue, and clears
-// created_workstream of the action, so that a new approval of the action adds a new row and a new change.
+// created_workstream of the action, so that a new approval of the action adds a new row and a new change. When the
+// result of the action told that the number comes later, the caller first gets the refusal one time.
 func (e *Engine) dropCreate(ctx context.Context, change store.OutgoingChange) error {
+	if err := e.endRefusedCreate(ctx, change.Workstream.Int64); err != nil {
+		return err
+	}
 	return e.inTx(ctx, func(q *store.Queries) error {
 		if err := q.SetOutgoingChangeStatus(ctx, store.SetOutgoingChangeStatusParams{Status: "refused", ID: change.ID}); err != nil {
 			return err
@@ -109,6 +113,33 @@ func (e *Engine) dropCreate(ctx context.Context, change store.OutgoingChange) er
 		}
 		return q.ClearPendingActionCreatedWorkstream(ctx, change.Workstream)
 	})
+}
+
+// endRefusedCreate gives the caller of the action that created the Workstream row the refusal of GitHub, when the
+// result of the action told that the number comes later. The Triager gets a comment, and a caller with a chat gets an
+// Approval message. dropCreate clears awaits_number, so a run again gives no second message.
+func (e *Engine) endRefusedCreate(ctx context.Context, workstream int64) error {
+	action, err := e.queries.GetPendingActionByCreatedWorkstream(ctx, sql.NullInt64{Int64: workstream, Valid: true})
+	if errors.Is(err, sql.ErrNoRows) || err == nil && action.AwaitsNumber == 0 {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	name, err := e.actionName(ctx, action)
+	if err != nil {
+		return err
+	}
+	text := fmt.Sprintf("The Owner approved %s. The result: GitHub refused the write.", name)
+	c := actionCaller(action)
+	if c.role != TriagerRole {
+		return e.postResult(ctx, action, text)
+	}
+	triaged, err := e.repository(c.repository)
+	if err != nil {
+		return err
+	}
+	return e.commentToTriager(ctx, triaged, c.issue, text)
 }
 
 // findOrCreateIssue gives the issue of the change: the issue of the App that has its marker, or a new issue.
