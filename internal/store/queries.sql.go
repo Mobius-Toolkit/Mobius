@@ -1757,7 +1757,7 @@ func (q *Queries) ClearWorkstreamClosePending(ctx context.Context, arg ClearWork
 }
 
 const closeWorkstream = `-- name: CloseWorkstream :execrows
-UPDATE workstreams SET state = 'closed', close_pending = 1 WHERE repository = ? AND number = ? AND state != 'closed'
+UPDATE workstreams SET state = 'closed', close_pending = 1, finished_at = NULL WHERE repository = ? AND number = ? AND state != 'closed'
 `
 
 type CloseWorkstreamParams struct {
@@ -2762,7 +2762,7 @@ func (q *Queries) FailRunningPendingActions(ctx context.Context, error string) e
 }
 
 const fillAndReopenWorkstream = `-- name: FillAndReopenWorkstream :execrows
-UPDATE workstreams SET title = ?, body = ?, created_at = ?, state = 'open', close_pending = 0
+UPDATE workstreams SET title = ?, body = ?, created_at = ?, state = 'open', close_pending = 0, finished_at = NULL
 WHERE repository = ? AND number = ? AND state = 'closed'
 `
 
@@ -4526,6 +4526,22 @@ func (q *Queries) GetWorkstreamBrief(ctx context.Context, arg GetWorkstreamBrief
 	return i, err
 }
 
+const getWorkstreamFinishedAt = `-- name: GetWorkstreamFinishedAt :one
+SELECT finished_at FROM workstreams WHERE repository = ? AND number = ? AND state = 'open'
+`
+
+type GetWorkstreamFinishedAtParams struct {
+	Repository string
+	Number     int64
+}
+
+func (q *Queries) GetWorkstreamFinishedAt(ctx context.Context, arg GetWorkstreamFinishedAtParams) (sql.NullString, error) {
+	row := q.db.QueryRowContext(ctx, getWorkstreamFinishedAt, arg.Repository, arg.Number)
+	var finished_at sql.NullString
+	err := row.Scan(&finished_at)
+	return finished_at, err
+}
+
 const getWorkstreamSettings = `-- name: GetWorkstreamSettings :one
 SELECT CAST(autopilot AS BOOLEAN) AS autopilot, CAST(auto_merge AS BOOLEAN) AS auto_merge, CAST(evergreen AS BOOLEAN) AS evergreen,
        CAST(maintenance AS BOOLEAN) AS maintenance, CAST(skills AS BOOLEAN) AS skills
@@ -6278,6 +6294,9 @@ SELECT w.repository, w.number, w.title, w.body, CAST(w.autopilot AS BOOLEAN) AS 
        AND NOT EXISTS (SELECT 1 FROM copied_issues i
                        WHERE i.repository = w.repository AND i.workstream = w.number AND i.parent = w.number AND i.parent_repository = w.repository
                          AND i.state != 'closed') AS BOOLEAN) AS all_tasks_closed,
+       CAST(w.finished_at IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM copied_issues i
+                       WHERE i.repository = w.repository AND i.workstream = w.number AND i.parent = w.number AND i.parent_repository = w.repository) AS BOOLEAN) AS reported_finished,
        CAST(EXISTS (SELECT 1 FROM tasks t
                WHERE t.workstream_repository = w.repository AND t.workstream = w.number AND t.state = 'ready_for_review') AS BOOLEAN) AS ready_to_merge
 FROM workstreams w
@@ -6286,15 +6305,16 @@ ORDER BY w.repository, w.number DESC
 `
 
 type ListCopiedWorkstreamsRow struct {
-	Repository     string
-	Number         int64
-	Title          string
-	Body           string
-	Autopilot      bool
-	AutoMerge      bool
-	Evergreen      bool
-	AllTasksClosed bool
-	ReadyToMerge   bool
+	Repository       string
+	Number           int64
+	Title            string
+	Body             string
+	Autopilot        bool
+	AutoMerge        bool
+	Evergreen        bool
+	AllTasksClosed   bool
+	ReportedFinished bool
+	ReadyToMerge     bool
 }
 
 func (q *Queries) ListCopiedWorkstreams(ctx context.Context) ([]ListCopiedWorkstreamsRow, error) {
@@ -6315,6 +6335,7 @@ func (q *Queries) ListCopiedWorkstreams(ctx context.Context) ([]ListCopiedWorkst
 			&i.AutoMerge,
 			&i.Evergreen,
 			&i.AllTasksClosed,
+			&i.ReportedFinished,
 			&i.ReadyToMerge,
 		); err != nil {
 			return nil, err
@@ -10725,7 +10746,7 @@ func (q *Queries) ReopenInboxItem(ctx context.Context, id int64) (InboxItem, err
 }
 
 const reopenWorkstream = `-- name: ReopenWorkstream :execrows
-UPDATE workstreams SET state = 'open', close_pending = 0 WHERE repository = ? AND number = ? AND state = 'closed'
+UPDATE workstreams SET state = 'open', close_pending = 0, finished_at = NULL WHERE repository = ? AND number = ? AND state = 'closed'
 `
 
 type ReopenWorkstreamParams struct {
@@ -12022,6 +12043,24 @@ type SetWorkstreamBodyParams struct {
 
 func (q *Queries) SetWorkstreamBody(ctx context.Context, arg SetWorkstreamBodyParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, setWorkstreamBody, arg.Body, arg.Repository, arg.Number)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const setWorkstreamFinishedAt = `-- name: SetWorkstreamFinishedAt :execrows
+UPDATE workstreams SET finished_at = ? WHERE repository = ? AND number = ? AND state = 'open'
+`
+
+type SetWorkstreamFinishedAtParams struct {
+	FinishedAt sql.NullString
+	Repository string
+	Number     int64
+}
+
+func (q *Queries) SetWorkstreamFinishedAt(ctx context.Context, arg SetWorkstreamFinishedAtParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setWorkstreamFinishedAt, arg.FinishedAt, arg.Repository, arg.Number)
 	if err != nil {
 		return 0, err
 	}

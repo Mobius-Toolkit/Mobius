@@ -6086,7 +6086,7 @@
     },
     "/api/workstreams/{owner}/{name}/{number}/complete": {
       "post": {
-        "description": "CompleteWorkstream closes the Workstream issue as completed. Then Mobius ends the work of the Workstream, closes the open pull requests of its tasks, and closes the open issues below it. It returns 409 when the issue is not an open Workstream, or when the Workstream has no task or an open task.",
+        "description": "CompleteWorkstream closes the Workstream issue as completed. Then Mobius ends the work of the Workstream, closes the open pull requests of its tasks, and closes the open issues below it. It returns 409 when the issue is not an open Workstream, when the Workstream has an open task, or when it has no task and its Lead did not report it as finished.",
         "operationId": "CompleteWorkstream",
         "parameters": [
           {
@@ -12898,6 +12898,10 @@
             "type": "boolean",
             "description": "ReadyToMerge is true when the pull request of at least one task of the Workstream waits for the Owner to merge it"
           },
+          "reportedFinished": {
+            "type": "boolean",
+            "description": "ReportedFinished is true when the Workstream issue has no sub-issue and its Lead reported it as finished"
+          },
           "repository": {
             "type": "string",
             "description": "Repository is the repository of the Workstream issue, as \"owner/name\""
@@ -12915,6 +12919,7 @@
           "autopilot",
           "evergreen",
           "allTasksClosed",
+          "reportedFinished",
           "readyToMerge"
         ],
         "description": "Workstream is an open Workstream of a managed repository."

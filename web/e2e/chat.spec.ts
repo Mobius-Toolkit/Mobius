@@ -2170,6 +2170,68 @@ test("an evergreen Workstream with all tasks closed shows no done badge and no C
   await expect(main.getByRole("button", { name: "Close Workstream" })).toBeVisible();
 });
 
+test("a reportedFinished Workstream shows the done badge and the Close Workstream bar, and an unreported or evergreen one does not", async ({
+  page,
+}) => {
+  const main = page.getByRole("main");
+  let reported = false;
+  await page.route("**/api/workstreams", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as {
+      data: {
+        repository: string;
+        number: number;
+        allTasksClosed: boolean;
+        reportedFinished: boolean;
+        evergreen: boolean;
+      }[];
+    };
+    for (const workstream of body.data) {
+      if (workstream.repository === "owner/shop" && workstream.number === 12) {
+        workstream.allTasksClosed = false;
+        workstream.reportedFinished = reported;
+      }
+      if (workstream.repository === "owner/shop" && workstream.number === 13) {
+        workstream.allTasksClosed = false;
+        workstream.reportedFinished = false;
+      }
+      if (workstream.repository === "owner/shop" && workstream.number === 14) {
+        workstream.allTasksClosed = false;
+        workstream.reportedFinished = reported;
+        workstream.evergreen = true;
+      }
+    }
+    await route.fulfill({ response, json: body });
+  });
+
+  await page.goto("/workstreams");
+  await expect(main.getByText("Integrate loyalty plans")).toBeVisible();
+  await expect(main.getByText("done")).toHaveCount(0);
+
+  await page.goto(shop);
+  await expect(main.getByLabel("Message to the Lead")).toBeVisible();
+  await expect(main.getByText("The Lead reported the Workstream as finished.")).toHaveCount(0);
+  await expect(main.getByRole("button", { name: "Close Workstream" })).toHaveCount(0);
+
+  reported = true;
+  await page.goto("/workstreams");
+  await expect(main.getByText("done")).toHaveCount(1);
+  await expect(
+    main.getByRole("link").filter({ hasText: "Integrate loyalty plans" }).getByText("done"),
+  ).toBeVisible();
+
+  await page.goto("/workstreams/owner/shop/14");
+  await expect(main.getByLabel("Message to the Lead")).toBeVisible();
+  await expect(main.getByText("The Lead reported the Workstream as finished.")).toHaveCount(0);
+  await expect(main.getByRole("button", { name: "Close Workstream" })).toHaveCount(0);
+
+  await page.goto(shop);
+  await expect(main.getByText("The Lead reported the Workstream as finished.")).toBeVisible();
+  await expect(main.getByText("All tasks are closed.")).toHaveCount(0);
+  await expect(main.getByRole("button", { name: "Close Workstream" })).toBeVisible();
+  await expect(page.locator(`nav a[href="${shop}"]`).getByText("done")).toBeVisible();
+});
+
 test("the close of a Workstream does not leave the page that the user opened", async ({ page }) => {
   const second = "/workstreams/owner/shop/14";
   await page.route("**/api/workstreams", async (route) => {

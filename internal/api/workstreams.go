@@ -29,6 +29,8 @@ type Workstream struct {
 	Evergreen bool `gork:"evergreen"`
 	// AllTasksClosed is true when the Workstream issue has sub-issues and each one is closed
 	AllTasksClosed bool `gork:"allTasksClosed"`
+	// ReportedFinished is true when the Workstream issue has no sub-issue and its Lead reported it as finished
+	ReportedFinished bool `gork:"reportedFinished"`
 	// ReadyToMerge is true when the pull request of at least one task of the Workstream waits for the Owner to merge it
 	ReadyToMerge bool `gork:"readyToMerge"`
 }
@@ -51,14 +53,15 @@ func (h *handlers) ListWorkstreams(ctx context.Context, _ ListWorkstreamsRequest
 			continue
 		}
 		workstreams = append(workstreams, Workstream{
-			Repository:     row.Repository,
-			Number:         row.Number,
-			Title:          row.Title,
-			Brief:          row.Body,
-			Autopilot:      engine.AutopilotLevel(row.Autopilot, row.AutoMerge),
-			Evergreen:      row.Evergreen,
-			AllTasksClosed: row.AllTasksClosed,
-			ReadyToMerge:   row.ReadyToMerge,
+			Repository:       row.Repository,
+			Number:           row.Number,
+			Title:            row.Title,
+			Brief:            row.Body,
+			Autopilot:        engine.AutopilotLevel(row.Autopilot, row.AutoMerge),
+			Evergreen:        row.Evergreen,
+			AllTasksClosed:   row.AllTasksClosed,
+			ReportedFinished: row.ReportedFinished,
+			ReadyToMerge:     row.ReadyToMerge,
 		})
 	}
 	return &ListWorkstreamsResponse{Body: Envelope[[]Workstream]{Data: workstreams}}, nil
@@ -131,7 +134,7 @@ type CompleteWorkstreamRequest struct {
 
 // CompleteWorkstream closes the Workstream issue as completed. Then Mobius ends the work of the Workstream, closes the
 // open pull requests of its tasks, and closes the open issues below it. It returns 409 when the issue is not an open
-// Workstream, or when the Workstream has no task or an open task.
+// Workstream, when the Workstream has an open task, or when it has no task and its Lead did not report it as finished.
 func (h *handlers) CompleteWorkstream(ctx context.Context, req CompleteWorkstreamRequest) error {
 	err := h.engine.CompleteWorkstream(ctx, req.Path.Owner+"/"+req.Path.Name, req.Path.Number)
 	if engine.Refused(err) {

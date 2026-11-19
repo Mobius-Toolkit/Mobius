@@ -402,6 +402,7 @@ test.describe("the list of a phone after a back navigation", () => {
       allTasksClosed: false,
       evergreen: false,
       readyToMerge: false,
+      reportedFinished: false,
     }));
     await page.route("**/api/workstreams", (route) =>
       route.fulfill({ json: { data: workstreams } }),

@@ -265,11 +265,20 @@ function renderPage(h: HtmlBuilder<Message>, model: Model): Html {
                     [model.autopilotError],
                   )
                 : h.empty,
-              activeWorkstream?.allTasksClosed && !activeWorkstream.evergreen
+              activeWorkstream &&
+              !activeWorkstream.evergreen &&
+              (activeWorkstream.allTasksClosed || activeWorkstream.reportedFinished)
                 ? h.div(
                     [h.Class("flex flex-wrap items-center gap-3 border-b px-4 py-2")],
                     [
-                      h.span([], ["All tasks are closed."]),
+                      h.span(
+                        [],
+                        [
+                          activeWorkstream.reportedFinished
+                            ? "The Lead reported the Workstream as finished."
+                            : "All tasks are closed.",
+                        ],
+                      ),
                       renderButton(h, {
                         label: "Close Workstream",
                         size: "sm",
