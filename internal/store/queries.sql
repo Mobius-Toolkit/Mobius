@@ -1537,10 +1537,15 @@ UPDATE ci_breaks SET result = ?, ended_run_id = ?, ended_at = ? WHERE id = ?;
 -- name: NewestCIBreakRun :one
 SELECT CAST(COALESCE(MAX(run_id), 0) AS INTEGER) FROM ci_breaks WHERE repository = ? AND workflow_id = ?;
 
+-- A break waits while a failure with a place of it has a pending create, so the break can take the issue of the failure.
 -- name: ListCIBreaksWithoutIssue :many
 SELECT * FROM ci_breaks
 WHERE ci_breaks.repository = ? AND issue = 0 AND issue_row IS NULL AND (result = 'flaky' OR result = 'hard' AND ended_at = '')
   AND NOT EXISTS (SELECT 1 FROM ci_diagnoses WHERE ci_diagnoses.ci_break = ci_breaks.id AND ci_diagnoses.ended_at = '')
+  AND NOT EXISTS (
+    SELECT 1 FROM ci_failures JOIN ci_failure_places ON ci_failure_places.failure = ci_failures.id
+    WHERE ci_failure_places.ci_break = ci_breaks.id AND ci_failures.issue = 0 AND ci_failures.issue_row IS NOT NULL AND ci_failures.ended_at = ''
+  )
 ORDER BY id;
 
 -- name: ListCIBreaksToDiagnose :many

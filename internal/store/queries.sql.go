@@ -6060,9 +6060,14 @@ const listCIBreaksWithoutIssue = `-- name: ListCIBreaksWithoutIssue :many
 SELECT id, repository, workflow_id, workflow_name, run_id, run_url, run_attempt, rerun_at, result, ended_run_id, ended_at, issue, started_at, run_event, issue_row FROM ci_breaks
 WHERE ci_breaks.repository = ? AND issue = 0 AND issue_row IS NULL AND (result = 'flaky' OR result = 'hard' AND ended_at = '')
   AND NOT EXISTS (SELECT 1 FROM ci_diagnoses WHERE ci_diagnoses.ci_break = ci_breaks.id AND ci_diagnoses.ended_at = '')
+  AND NOT EXISTS (
+    SELECT 1 FROM ci_failures JOIN ci_failure_places ON ci_failure_places.failure = ci_failures.id
+    WHERE ci_failure_places.ci_break = ci_breaks.id AND ci_failures.issue = 0 AND ci_failures.issue_row IS NOT NULL AND ci_failures.ended_at = ''
+  )
 ORDER BY id
 `
 
+// A break waits while a failure with a place of it has a pending create, so the break can take the issue of the failure.
 func (q *Queries) ListCIBreaksWithoutIssue(ctx context.Context, repository string) ([]CiBreak, error) {
 	rows, err := q.db.QueryContext(ctx, listCIBreaksWithoutIssue, repository)
 	if err != nil {
