@@ -8,6 +8,7 @@ import {
   RequestLogin,
   ResetRole,
   SaveRole,
+  ScrollTabIntoView,
   SetBinding,
 } from "./commands";
 import { Message } from "./message";
@@ -53,6 +54,8 @@ const open = (name: Role["role"], overrides: Partial<Model> = {}) =>
   update(loaded(overrides), Message.OpenedRole({ role: name })).model;
 
 const sheet = (m: Model): Sheet => Option.getOrThrow(m.sheet);
+
+const scrolled = StoryCommand.resolve(ScrollTabIntoView, Message.CompletedScrollTab());
 
 describe("the sheet of a role", () => {
   it("starts with the values of the role, and has no context text for a role with no limit", () => {
@@ -344,7 +347,9 @@ describe("the tabs of the Implementer", () => {
       update,
       given(openImplementer()),
       message(Message.SelectedTab({ key: "3" })),
+      scrolled,
       message(Message.ClickedAddBinding()),
+      scrolled,
       model((m) => {
         expect(sheet(m)).toMatchObject({
           tab: "new",
@@ -357,7 +362,9 @@ describe("the tabs of the Implementer", () => {
       }),
       message(Message.PickedModel({ value: "opus" })),
       message(Message.SelectedTab({ key: "3" })),
+      scrolled,
       message(Message.ClickedAddBinding()),
+      scrolled,
       model((m) => {
         expect(sheet(m)).toMatchObject({ tab: "new", hasNew: true, model: "haiku" });
       }),
@@ -369,8 +376,11 @@ describe("the tabs of the Implementer", () => {
       update,
       given(openImplementer()),
       message(Message.ClickedAddBinding()),
+      scrolled,
       message(Message.ClosedSheet()),
       message(Message.OpenedRole({ role: "implementer" })),
+      StoryCommand.expectExact(ScrollTabIntoView({ tab: "0" })),
+      scrolled,
       model((m) => {
         expect(sheet(m)).toMatchObject({ tab: "0", hasNew: false });
       }),
@@ -383,6 +393,7 @@ describe("the tabs of the Implementer", () => {
       given(openImplementer()),
       message(Message.ChangedMax({ text: "9" })),
       message(Message.SelectedTab({ key: "3" })),
+      scrolled,
       model((m) => {
         expect(sheet(m)).toMatchObject({
           tab: "3",
@@ -393,6 +404,7 @@ describe("the tabs of the Implementer", () => {
         });
       }),
       message(Message.SelectedTab({ key: "0" })),
+      scrolled,
       model((m) => {
         expect(sheet(m)).toMatchObject({ tab: "0", harness: "claude-code", max: "2" });
       }),
@@ -416,6 +428,7 @@ describe("the tabs of the Implementer", () => {
       ),
       StoryCommand.resolve(SaveRole, Message.SaveFailed({ error: "nope" })),
       message(Message.SelectedTab({ key: "3" })),
+      scrolled,
       message(Message.ChangedMax({ text: "6" })),
       message(Message.ClickedSave()),
       StoryCommand.expectExact(
@@ -433,6 +446,7 @@ describe("the tabs of the Implementer", () => {
         expect(sheet(m)).toMatchObject({ tab: "3", saving: false, error: "nope" });
       }),
       message(Message.ClickedAddBinding()),
+      scrolled,
       message(Message.ClickedSave()),
       StoryCommand.expectExact(
         AddBinding({
@@ -456,6 +470,7 @@ describe("the tabs of the Implementer", () => {
       update,
       given(openImplementer()),
       message(Message.ClickedAddBinding()),
+      scrolled,
       message(Message.ClickedSave()),
       StoryCommand.resolve(
         AddBinding,
@@ -475,7 +490,9 @@ describe("the tabs of the Implementer", () => {
       update,
       given(openImplementer()),
       message(Message.ClickedAddBinding()),
+      scrolled,
       message(Message.SelectedTab({ key: "3" })),
+      scrolled,
       message(Message.ChangedMax({ text: "6" })),
       message(Message.ClickedSave()),
       StoryCommand.resolve(
@@ -496,6 +513,7 @@ describe("the tabs of the Implementer", () => {
       update,
       given(openImplementer()),
       message(Message.SelectedTab({ key: "3" })),
+      scrolled,
       message(Message.ClickedRemove()),
       model((m) => {
         expect(sheet(m).saving).toBe(true);
@@ -509,6 +527,8 @@ describe("the tabs of the Implementer", () => {
         expect(sheet(m)).toMatchObject({ tab: "0", saving: false, harness: "claude-code" });
         expect(sheet(m).role.moreBindings).toHaveLength(0);
       }),
+      StoryCommand.expectExact(ScrollTabIntoView({ tab: "0" })),
+      scrolled,
     );
     story(
       update,
@@ -526,6 +546,8 @@ describe("the tabs of the Implementer", () => {
         expect(sheet(m)).toMatchObject({ tab: "0", harness: "antigravity", max: "5" });
         expect(Option.getOrThrow(m.roles)[0]).toMatchObject({ harness: "antigravity" });
       }),
+      StoryCommand.expectExact(ScrollTabIntoView({ tab: "0" })),
+      scrolled,
     );
   });
 
@@ -534,11 +556,13 @@ describe("the tabs of the Implementer", () => {
       update,
       given(openImplementer()),
       message(Message.ClickedAddBinding()),
+      scrolled,
       message(Message.ClickedRemove()),
       model((m) => {
         expect(sheet(m)).toMatchObject({ tab: "0", hasNew: false, saving: false });
       }),
-      StoryCommand.expectNone(),
+      StoryCommand.expectExact(ScrollTabIntoView({ tab: "0" })),
+      scrolled,
     );
   });
 

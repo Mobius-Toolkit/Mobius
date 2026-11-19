@@ -7,6 +7,7 @@ import {
   RequestLogin,
   ResetRole,
   SaveRole,
+  ScrollTabIntoView,
   SetBinding,
 } from "./commands";
 import { Message } from "./message";
@@ -15,6 +16,7 @@ import {
   effortsOf,
   formOf,
   hasContextLimit,
+  isImplementer,
   modelsOf,
   type Model,
   type Sheet,
@@ -85,6 +87,7 @@ export function update(model: Model, message: Message): UpdateReturn<Model, Mess
             saving: false,
           }),
         },
+        commands: isImplementer(role) ? [ScrollTabIntoView({ tab: "0" })] : [],
       };
     },
     ClosedSheet: () => ({ model: { ...model, sheet: Option.none() } }),
@@ -143,14 +146,20 @@ export function update(model: Model, message: Message): UpdateReturn<Model, Mess
           commands: [ResetRole({ role: sheet.role.role })],
         }),
       }),
-    SelectedTab: ({ key }) => ({
-      model: withSheet(model, (sheet) => (sheet.saving ? sheet : tabSelected(sheet, key))),
-    }),
-    ClickedAddBinding: () => ({
-      model: withSheet(model, (sheet) =>
-        sheet.saving ? sheet : tabSelected({ ...sheet, hasNew: true }, "new"),
-      ),
-    }),
+    SelectedTab: ({ key }) =>
+      Option.exists(model.sheet, (sheet) => sheet.saving)
+        ? { model }
+        : {
+            model: withSheet(model, (sheet) => tabSelected(sheet, key)),
+            commands: [ScrollTabIntoView({ tab: key })],
+          },
+    ClickedAddBinding: () =>
+      Option.exists(model.sheet, (sheet) => sheet.saving)
+        ? { model }
+        : {
+            model: withSheet(model, (sheet) => tabSelected({ ...sheet, hasNew: true }, "new")),
+            commands: [ScrollTabIntoView({ tab: "new" })],
+          },
     ClickedRemove: () =>
       Option.match(model.sheet, {
         onNone: () => ({ model }),
@@ -160,6 +169,7 @@ export function update(model: Model, message: Message): UpdateReturn<Model, Mess
                 model: withSheet(model, (current) =>
                   tabSelected({ ...current, hasNew: false }, "0"),
                 ),
+                commands: [ScrollTabIntoView({ tab: "0" })],
               }
             : {
                 model: withSheet(model, (current) => ({ ...current, saving: true, error: "" })),
@@ -186,6 +196,7 @@ export function update(model: Model, message: Message): UpdateReturn<Model, Mess
           saving: false,
         })),
       },
+      commands: [ScrollTabIntoView({ tab })],
     }),
     SaveFailed: ({ error }) => ({
       model: withSheet(model, (sheet) => ({ ...sheet, saving: false, error })),
@@ -197,5 +208,6 @@ export function update(model: Model, message: Message): UpdateReturn<Model, Mess
     ClickedBack: () => ({ model }),
     CompletedRequestLogin: () => ({ model }),
     CompletedFocusSheet: () => ({ model }),
+    CompletedScrollTab: () => ({ model }),
   });
 }

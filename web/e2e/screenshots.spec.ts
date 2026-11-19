@@ -3395,12 +3395,12 @@ test("screenshots", async ({ page }) => {
     "/settings/roles",
     (device) => [
       ...frame(device, release),
-      implementerSheet.getByRole("tab", { name: "Add binding" }),
+      implementerSheet.getByRole("button", { name: "Add binding" }),
       implementerSheet.getByRole("button", { name: "Save" }),
     ],
     async () => {
       await roleRow("Implementer").click();
-      await expect(implementerSheet.getByRole("tab")).toHaveCount(2);
+      await expect(implementerSheet.getByRole("tab")).toHaveCount(1);
     },
   );
   const secondBinding = await page.evaluate(async () => {
@@ -3435,6 +3435,68 @@ test("screenshots", async ({ page }) => {
       await expect(implementerSheet.getByLabel("Max", { exact: true })).toHaveValue("2");
     },
   );
+  await screenshot(
+    page,
+    "roles-implementer-new",
+    "/settings/roles",
+    (device) => [
+      ...frame(device, release),
+      implementerSheet.getByRole("tab", { selected: true }),
+      implementerSheet.getByRole("button", { name: "Remove" }),
+      implementerSheet.getByRole("button", { name: "Save" }),
+      () => expect(implementerSheet.getByRole("tab")).toHaveCount(3),
+    ],
+    async () => {
+      await roleRow("Implementer").click();
+      await implementerSheet.getByRole("button", { name: "Add binding" }).click();
+      await expect(implementerSheet.getByRole("tab").last()).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+    },
+  );
+  const thirdBinding = await page.evaluate(async () => {
+    const response = await fetch("/api/roles/implementer/bindings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        harness: "claude-code",
+        model: "haiku",
+        effort: "low",
+        context: 0,
+        max: 2,
+      }),
+    });
+    const body = await response.json();
+    return { status: response.status, id: body.data.moreBindings.at(-1).id as number };
+  });
+  expect(thirdBinding.status).toBe(200);
+  await screenshot(
+    page,
+    "roles-implementer-three",
+    "/settings/roles",
+    (device) => [
+      ...frame(device, release),
+      implementerSheet.getByRole("tab", { name: "claude-code · haiku", selected: true }),
+      implementerSheet.getByRole("button", { name: "Add binding" }),
+      implementerSheet.getByRole("button", { name: "Remove" }),
+      implementerSheet.getByRole("button", { name: "Save" }),
+      () => expect(implementerSheet.getByRole("tab")).toHaveCount(3),
+    ],
+    async () => {
+      await roleRow("Implementer").click();
+      await implementerSheet.getByRole("tab", { name: "claude-code · haiku" }).click();
+      await expect(implementerSheet.getByLabel("Max", { exact: true })).toHaveValue("2");
+    },
+  );
+  const thirdBindingRemoved = await page.evaluate(
+    (id) =>
+      fetch(`/api/roles/implementer/bindings/${id}`, { method: "DELETE" }).then(
+        (response) => response.status,
+      ),
+    thirdBinding.id,
+  );
+  expect(thirdBindingRemoved).toBe(200);
   await screenshot(page, "roles-two-bindings", "/settings/roles", (device) => [
     ...frame(device, release),
     roleRow("Implementer").getByText("claude-code", { exact: true }),

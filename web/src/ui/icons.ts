@@ -112,6 +112,11 @@ const x: readonly Shape[] = [
   ["path", { d: "m6 6 12 12" }],
 ];
 
+const plus: readonly Shape[] = [
+  ["path", { d: "M5 12h14" }],
+  ["path", { d: "M12 5v14" }],
+];
+
 const arrowUp: readonly Shape[] = [
   ["path", { d: "m5 12 7-7 7 7" }],
   ["path", { d: "M12 19V5" }],
@@ -205,6 +210,10 @@ export function trash2Icon<M>(h: HtmlBuilder<M>, className = "size-4"): Html {
 
 export function xIcon<M>(h: HtmlBuilder<M>, className = "size-4"): Html {
   return icon(h, x, className);
+}
+
+export function plusIcon<M>(h: HtmlBuilder<M>, className = "size-4"): Html {
+  return icon(h, plus, className);
 }
 
 export function arrowUpIcon<M>(h: HtmlBuilder<M>, className = "size-4"): Html {

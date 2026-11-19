@@ -2,9 +2,9 @@ import { cn } from "cn";
 import { Option } from "effect";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import { renderBadge } from "@/ui/badge";
-import { buttonClass } from "@/ui/button";
+import { buttonClass, renderIconButton } from "@/ui/button";
 import { renderChoice as renderChoiceMenu, renderField } from "@/ui/choice";
-import { chevronRightIcon, spinnerIcon } from "@/ui/icons";
+import { chevronRightIcon, plusIcon, spinnerIcon } from "@/ui/icons";
 import { inputClass } from "@/ui/input";
 import { renderErrorBadge, renderList, renderPageHeader, rowClass } from "@/ui/page";
 import { defineInPlaceMount, renderSheet } from "@/ui/sheet";
@@ -249,20 +249,20 @@ function renderSheetOf(h: H, model: Model, sheet: Sheet): Html {
       ? [
           renderTabs(h, {
             id: "role-bindings",
-            listClassName: "max-w-full overflow-x-auto",
-            tabs: [
-              ...tabs.map((tab) => ({
-                key: tab.key,
-                title: bindingLabel(tab.binding),
-                select: Message.SelectedTab({ key: tab.key }),
-              })),
-              {
-                key: "add",
-                title: "+",
-                label: "Add binding",
-                select: Message.ClickedAddBinding(),
-              },
-            ],
+            variant: "line",
+            tabs: tabs.map((tab) => ({
+              key: tab.key,
+              title: bindingLabel(tab.binding),
+              label: bindingLabel(tab.binding),
+              select: Message.SelectedTab({ key: tab.key }),
+            })),
+            end: renderIconButton(h, {
+              label: "Add binding",
+              disabled: sheet.saving,
+              busy: false,
+              icon: plusIcon(h),
+              click: Message.ClickedAddBinding(),
+            }),
             selected: sheet.tab,
             panel: [h.div([h.Class("grid gap-3")], fields)],
           }),
