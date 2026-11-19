@@ -981,6 +981,12 @@ WHERE number = sqlc.arg(number)
 ORDER BY repository, workstream
 LIMIT 1;
 
+-- name: ListCopiedTreesWithIssue :many
+SELECT DISTINCT repository, workstream FROM copied_issues
+WHERE number = sqlc.arg(number)
+  AND substr(lower(repository_url), -(length(CAST(sqlc.arg(repository) AS TEXT)) + 7)) = '/repos/' || lower(CAST(sqlc.arg(repository) AS TEXT))
+ORDER BY repository, workstream;
+
 -- The issue can be in the trees of the copies of many repositories.
 -- name: ListCopiedWorkstreamsWithLabelChange :many
 SELECT i.repository, i.workstream FROM copied_issues i

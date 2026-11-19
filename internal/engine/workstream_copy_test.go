@@ -1095,6 +1095,41 @@ func TestATaskThatLosesTheWorkstreamLabelChangesTheWorkstreamOfABlockerInAnother
 	})
 }
 
+// The poll copies the tree of #20 when it reads the label of #41, and it adds the Workstream #41 later. A removal between
+// the two steps gives a label event with no Workstream to add, and then an event of the removal with no row.
+func TestARemovalBeforeTheAddOfTheWorkstreamChangesTheWorkstreamOfABlockerInAnotherTree(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := startWithBlockerBelowATask(t, fake)
+	titleReads := func() int {
+		count := 0
+		for _, request := range fake.Requests() {
+			if request.Method == http.MethodGet && request.Path == "/repos/"+shop+"/issues/41" {
+				count++
+			}
+		}
+		return count
+	}
+	before := titleReads()
+	// The tree copy of #20 holds at the read of the title of the Workstream #41, after it read the label of #41.
+	release := fake.HoldNextOf("GET /repos/{owner}/{repo}/issues/{number}", "/repos/"+shop+"/issues/41")
+	fake.AddLabel(shop, 41, "mobius:workstream", "owner")
+	testkit.WaitFor(t, func() bool { return titleReads() > before })
+
+	fake.RemoveLabel(shop, 41, "mobius:workstream", "owner")
+	release()
+
+	// The blocker has the Workstream #12 before the label, so the wait for the end of the add comes first.
+	testkit.WaitFor(t, func() bool { return incomingChanges(t, server, "done") == 1 })
+	waitForPolls(t, fake)
+	testkit.WaitFor(t, func() bool {
+		return reflect.DeepEqual(copiedBlockers(t, server), []copiedBlocker{blocker(60, 50, 12, "Integrate loyalty plans")})
+	})
+	if slices.Contains(workstreamNumbers(t, server), 41) {
+		t.Errorf("workstreams = %v", workstreamNumbers(t, server))
+	}
+}
+
 func TestANewWorkstreamChangesTheWorkstreamOfABlockerInAnotherTree(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

@@ -1015,6 +1015,26 @@ func (e *Engine) recopyWorkstreamsWithBlockerIn(ctx context.Context, repository 
 	return nil
 }
 
+// recopyAfterRemoval copies again the trees of the other Workstreams that hold the issue number of repository, because
+// the issue is no Workstream, and then copies again the Workstreams with a blocker in those trees. A blocker has the
+// Workstream of its issue, so that Workstream must have its tree before the blocked Workstream is copied.
+func (e *Engine) recopyAfterRemoval(ctx context.Context, repository github.Repository, number int64) error {
+	trees, err := e.queries.ListCopiedTreesWithIssue(ctx, store.ListCopiedTreesWithIssueParams{Number: number, Repository: repository.FullName})
+	if err != nil {
+		return err
+	}
+	for _, tree := range trees {
+		if tree.Repository == repository.FullName && tree.Workstream == number {
+			continue
+		}
+		if err := e.copyTreeOf(ctx, issueRef{tree.Repository, tree.Workstream}); err != nil {
+			return err
+		}
+	}
+	e.publish(Change{Workstreams: true})
+	return e.recopyWorkstreamsWithBlockerIn(ctx, repository, number)
+}
+
 func removeTree(ctx context.Context, q *store.Queries, repository string, workstream int64) error {
 	if err := q.DeleteCopiedIssues(ctx, store.DeleteCopiedIssuesParams{Repository: repository, Workstream: workstream}); err != nil {
 		return err

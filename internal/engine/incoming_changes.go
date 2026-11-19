@@ -214,11 +214,15 @@ func (e *Engine) applyWorkstreamChange(ctx context.Context, repository github.Re
 }
 
 // addWorkstreamFromChange reads the issue of the incoming change and calls the Add handler for it. An issue that
-// is gone has no Workstream to add.
+// is gone, or that lost the label, has no Workstream to add. The poll copied the trees with the label of the issue, so
+// the trees are copied again, and no later event of the removal can do that for an issue with no row.
 func (e *Engine) addWorkstreamFromChange(ctx context.Context, repository github.Repository, change store.IncomingChange) error {
 	issue, err := repository.Issue(ctx, change.Number)
-	if err != nil || issue == nil {
+	if err != nil {
 		return err
+	}
+	if issue == nil || !hasLabel(issue, workstreamLabel) {
+		return e.recopyAfterRemoval(ctx, repository, change.Number)
 	}
 	copyFailed, err := e.addWorkstreamFromEvent(ctx, repository, issue, change.Actor, e.copied[repository.FullName])
 	if copyFailed {

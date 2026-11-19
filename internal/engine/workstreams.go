@@ -378,8 +378,8 @@ func (e *Engine) removeWorkstream(ctx context.Context, repository github.Reposit
 	}
 	if deleted {
 		e.publish(Change{Workstreams: true})
-		if err := e.recopyWorkstreamsWithBlockerIn(ctx, repository, number); err != nil {
-			log.Printf("copy the blocked Workstreams of %s#%d: %v", repository.FullName, number, err)
+		if err := e.recopyAfterRemoval(ctx, repository, number); err != nil {
+			log.Printf("copy the trees after the removal of the Workstream %s#%d: %v", repository.FullName, number, err)
 		}
 	}
 	return e.stopWorkstream(ctx, repository, number)

@@ -6229,6 +6229,46 @@ func (q *Queries) ListCopiedTreeLabels(ctx context.Context, arg ListCopiedTreeLa
 	return items, nil
 }
 
+const listCopiedTreesWithIssue = `-- name: ListCopiedTreesWithIssue :many
+SELECT DISTINCT repository, workstream FROM copied_issues
+WHERE number = ?1
+  AND substr(lower(repository_url), -(length(CAST(?2 AS TEXT)) + 7)) = '/repos/' || lower(CAST(?2 AS TEXT))
+ORDER BY repository, workstream
+`
+
+type ListCopiedTreesWithIssueParams struct {
+	Number     int64
+	Repository string
+}
+
+type ListCopiedTreesWithIssueRow struct {
+	Repository string
+	Workstream int64
+}
+
+func (q *Queries) ListCopiedTreesWithIssue(ctx context.Context, arg ListCopiedTreesWithIssueParams) ([]ListCopiedTreesWithIssueRow, error) {
+	rows, err := q.db.QueryContext(ctx, listCopiedTreesWithIssue, arg.Number, arg.Repository)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCopiedTreesWithIssueRow
+	for rows.Next() {
+		var i ListCopiedTreesWithIssueRow
+		if err := rows.Scan(&i.Repository, &i.Workstream); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listCopiedWorkstreams = `-- name: ListCopiedWorkstreams :many
 SELECT w.repository, w.number, w.title, w.body, CAST(w.autopilot AS BOOLEAN) AS autopilot,
        CAST(w.auto_merge AS BOOLEAN) AS auto_merge,
