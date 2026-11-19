@@ -106,7 +106,7 @@ func (e *Engine) diagnosisWithIssues(ctx context.Context, repository github.Repo
 			failed = err
 			return ""
 		}
-		return fmt.Sprintf(openIssueSentence, max(record.Issue, -record.Issue))
+		return fmt.Sprintf(openIssueSentence, record.Issue)
 	})
 	if failed != nil {
 		return "", failed
