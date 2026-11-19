@@ -503,3 +503,42 @@ func TestAClosedBucketThatGitHubDoesNotLinkAtFirstStaysPendingAndTheNextPollLink
 		t.Errorf("sub-issues of #151 = %v, #153 = %t", got, fake.HasIssue(shop, 153))
 	}
 }
+
+func TestAMoveOfASubIssueFromAnotherRepositoryMarksThatIssueAndNotTheIssueWithTheSameNumberInTheWorkstreamRepository(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addBucketWorkstream(fake)
+	fake.AddRepository(garden)
+	fake.AddIssue(garden, 7, "Water the plants")
+	fake.AddForeignSubIssue(shop, 12, garden, 7)
+	fake.AddIssue(shop, 13, "Billing")
+	fake.AddLabel(shop, 13, "mobius:workstream", "owner")
+	fake.AddIssue(shop, 7, "Add invoices")
+	fake.AddSubIssue(shop, 13, 7)
+	addSubIssues(fake, 12, 100, 150, 100)
+
+	server := startCopied(t, fake)
+
+	waitForThirtyDirectSubIssues(t, fake)
+	bucketOf := func(repository string) int64 {
+		var bucket int64
+		err := server.DB.QueryRow(`SELECT coalesce(json_extract(metadata, '$.github.bucket'), 0) FROM issues WHERE repository = ? AND number = 7`, repository).Scan(&bucket)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return bucket
+	}
+	testkit.WaitFor(t, func() bool { return bucketOf(garden) != 0 })
+	if got := bucketOf(shop); got != 0 {
+		t.Errorf("bucket of owner/shop#7 = %d", got)
+	}
+	var own int
+	err := server.DB.QueryRow(`SELECT count(*) FROM own_writes WHERE field = 'bucket' AND number = 7 AND repository = ?`, garden).Scan(&own)
+	if err != nil || own != 1 {
+		t.Errorf("own writes of owner/garden#7 = %d, %v", own, err)
+	}
+	err = server.DB.QueryRow(`SELECT count(*) FROM own_writes WHERE field = 'bucket' AND number = 7 AND repository = ?`, shop).Scan(&own)
+	if err != nil || own != 0 {
+		t.Errorf("own writes of owner/shop#7 = %d, %v", own, err)
+	}
+}

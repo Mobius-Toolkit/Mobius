@@ -269,7 +269,7 @@ func (f *bucketFill) makeIssue(ctx context.Context, marker, title string) (*gh.I
 		return nil, err
 	}
 	f.changed = true
-	if _, err := f.own(ctx, int64(issue.GetNumber()), labeledChange); err != nil {
+	if _, err := f.own(ctx, f.repository.FullName, int64(issue.GetNumber()), labeledChange); err != nil {
 		return nil, err
 	}
 	err = f.engine.queries.SetBucketNumber(ctx, store.SetBucketNumberParams{Marker: marker, Number: int64(issue.GetNumber()), Repository: f.repository.FullName, Workstream: f.workstream})
@@ -324,7 +324,7 @@ func (f *bucketFill) complete(ctx context.Context, issue *gh.Issue, closed bool)
 
 // closeBucket closes the bucket issue number and stores the state in its entry.
 func (f *bucketFill) closeBucket(ctx context.Context, number int64) error {
-	own, err := f.own(ctx, number, closedChange)
+	own, err := f.own(ctx, f.repository.FullName, number, closedChange)
 	if err != nil {
 		return err
 	}
@@ -390,19 +390,20 @@ func (f *bucketFill) add(ctx context.Context, parent int64, issue *gh.Issue) err
 	if err != nil {
 		return err
 	}
-	_, err = f.own(ctx, int64(issue.GetNumber()), addedChange)
+	_, err = f.own(ctx, blockerRepository(issue, f.repository.FullName), int64(issue.GetNumber()), addedChange)
 	return err
 }
 
-// own stores that the call of the bucket machinery makes the change kind on the issue number, so the poll makes no
-// incoming change for the event of the call.
-func (f *bucketFill) own(ctx context.Context, number int64, kind string) (int64, error) {
-	return addOwnWrite(ctx, f.engine.queries, f.repository.FullName, number, bucketField, "", kind)
+// own stores that the call of the bucket machinery makes the change kind on the issue number of repository, so the poll
+// makes no incoming change for the event of the call.
+func (f *bucketFill) own(ctx context.Context, repository string, number int64, kind string) (int64, error) {
+	return addOwnWrite(ctx, f.engine.queries, repository, number, bucketField, "", kind)
 }
 
-// storeBucketOf stores in the row of issue that it is below the bucket. An issue with no row has nothing to store.
+// storeBucketOf stores in the row of issue that it is below the bucket. The issue can be in another repository than the
+// Workstream. An issue with no row has nothing to store.
 func (f *bucketFill) storeBucketOf(ctx context.Context, issue *gh.Issue, bucket int64) error {
-	node, err := f.engine.queries.GetIssueTreeNode(ctx, store.GetIssueTreeNodeParams{Repository: f.repository.FullName, Number: int64(issue.GetNumber())})
+	node, err := f.engine.queries.GetIssueTreeNode(ctx, store.GetIssueTreeNodeParams{Repository: blockerRepository(issue, f.repository.FullName), Number: int64(issue.GetNumber())})
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
