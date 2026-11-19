@@ -17,10 +17,10 @@ import (
 
 const ciIssue = 30
 
-// hardBreakSQL is a hard break of the workflow 7 in the run 1 whose task issue is the number issue.
-func hardBreakSQL(issue int64) string {
+// hardBreakSQL is a hard break of the workflow 7 in the run 1 whose task issue is ciIssue.
+func hardBreakSQL() string {
 	return fmt.Sprintf(`INSERT INTO ci_breaks (repository, workflow_id, workflow_name, run_id, run_url, run_attempt, run_event, rerun_at, result, issue, started_at)
-		VALUES ('owner/shop', 7, 'ci', 1, '', 1, 'push', '2026-10-04T10:00:00Z', 'hard', %d, '2026-10-04T10:00:00Z')`, issue)
+		VALUES ('owner/shop', 7, 'ci', 1, '', 1, 'push', '2026-10-04T10:00:00Z', 'hard', %d, '2026-10-04T10:00:00Z')`, ciIssue)
 }
 
 // prepareCIIssue adds the maintenance Workstream #20 with autopilot or not, and the open issue #30 below it.
@@ -73,7 +73,7 @@ func TestAHardBreakStartsItsTaskInTheMaintenanceWorkstreamWithAutopilotOff(t *te
 	prepareAutopilot(fake, false)
 	prepareCIIssue(fake, false)
 
-	server := startWithStatements(t, fake, hardBreakSQL(ciIssue))
+	server := startWithStatements(t, fake, hardBreakSQL())
 
 	if task := liveTaskOf(t, server, ciIssue); task.Workstream != maintenance {
 		t.Errorf("task = %+v", task)
@@ -85,7 +85,7 @@ func TestWithAutopilotOnInTheMaintenanceWorkstreamTheIssueOfAHardBreakGetsOneTas
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	prepareCIIssue(fake, true)
-	server := startWithStatements(t, fake, hardBreakSQL(ciIssue))
+	server := startWithStatements(t, fake, hardBreakSQL())
 	liveTaskOf(t, server, ciIssue)
 
 	waitForPolls(t, fake)
@@ -99,7 +99,7 @@ func TestAHardBreakStartsNoNewTaskForAnIssueThatHadATask(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	prepareCIIssue(fake, false)
-	server := startWithStatements(t, fake, hardBreakSQL(ciIssue),
+	server := startWithStatements(t, fake, hardBreakSQL(),
 		`INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at, state_at)
 		 VALUES ('owner/shop', 'owner/shop', 30, 20, 'ended', '2026-10-04T10:00:00Z', '2026-10-04T10:00:00Z')`)
 	server.WaitForFirstPoll(t, shop)
@@ -158,7 +158,7 @@ func TestAHardBreakWithoutAMaintenanceWorkstreamStopsTheDispatchAndStartsNoTaskU
 	prepareAutopilot(fake, false)
 	dispatchTask(fake, 41, "Add plan model")
 	fake.AddIssue(shop, ciIssue, "Fix the failed workflow")
-	server := startWithStatements(t, fake, hardBreakSQL(ciIssue))
+	server := startWithStatements(t, fake, hardBreakSQL())
 	server.WaitForFirstPoll(t, shop)
 
 	waitForPolls(t, fake)
@@ -187,7 +187,7 @@ func TestDuringTheStopReadyAndAutopilotStartNoOtherTaskUntilAPassedRunEndsIt(t *
 	dispatchTask(fake, 43, "Add plan price")
 	prepareCIIssue(fake, false)
 	fake.AddWorkflowRun(shop, failedMainRun(7))
-	server := startWithStatements(t, fake, hardBreakSQL(ciIssue))
+	server := startWithStatements(t, fake, hardBreakSQL())
 	liveTaskOf(t, server, ciIssue)
 
 	waitForPolls(t, fake)
@@ -217,7 +217,7 @@ func TestAClosedCIIssueEndsTheBreakAndTheStopAndStartsNoNewBreak(t *testing.T) {
 	dispatchTask(fake, 43, "Add plan price")
 	prepareCIIssue(fake, false)
 	fake.AddWorkflowRun(shop, failedMainRun(7))
-	server := startWithStatements(t, fake, hardBreakSQL(ciIssue))
+	server := startWithStatements(t, fake, hardBreakSQL())
 	liveTaskOf(t, server, ciIssue)
 	waitForPolls(t, fake)
 	if hasLiveTask(t, server, 43) {
@@ -248,7 +248,7 @@ func TestAnAnsweredTaskWaitsInAnsweredDuringTheStopAndDispatchesAfterIt(t *testi
 	addTaskIssue(fake, 41, "Add plan model")
 	prepareCIIssue(fake, false)
 	fake.AddWorkflowRun(shop, failedMainRun(7))
-	server := startWithStatements(t, fake, hardBreakSQL(ciIssue),
+	server := startWithStatements(t, fake, hardBreakSQL(),
 		`INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at, state_at)
 		 VALUES ('owner/shop', 'owner/shop', 41, 12, 'asked', '2026-10-04T10:00:00Z', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`)
 	server.WaitForFirstPoll(t, shop)
@@ -275,7 +275,7 @@ func TestARefusedReadOfTheCITaskIssueDoesNotStopThePoll(t *testing.T) {
 	addTaskIssue(fake, 41, "Add plan model")
 	prepareCIIssue(fake, false)
 	fake.ForbidIssue(shop, ciIssue)
-	server := startWithStatements(t, fake, hardBreakSQL(ciIssue),
+	server := startWithStatements(t, fake, hardBreakSQL(),
 		`INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at, state_at)
 		 VALUES ('owner/shop', 'owner/shop', 41, 12, 'ended', '2026-10-04T10:00:00Z', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`)
 	server.WaitForFirstPoll(t, shop)
@@ -297,7 +297,7 @@ func TestDuringTheStopStartImplementerRefusesWithTheLinkToTheCITaskIssue(t *test
 	if _, err := server.DB.Exec(`UPDATE tasks SET state = 'dispatched'`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := server.DB.Exec(hardBreakSQL(ciIssue)); err != nil {
+	if _, err := server.DB.Exec(hardBreakSQL()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -323,7 +323,7 @@ func TestDuringTheStopARunningImplementerTheLeadAndTheTriagerContinue(t *testing
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 	waitForState(t, server, 41, "working")
 	fake.AddIssue(shop, ciIssue, "Fix the failed workflow")
-	if _, err := server.DB.Exec(hardBreakSQL(ciIssue)); err != nil {
+	if _, err := server.DB.Exec(hardBreakSQL()); err != nil {
 		t.Fatal(err)
 	}
 

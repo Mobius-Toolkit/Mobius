@@ -222,7 +222,7 @@ func TestStartOffGivesAHardBreakOfTheCINoTaskAndStartOnGivesItsTask(t *testing.T
 	server.WaitForFirstPoll(t, shop)
 	turnStartOff(t, server)
 
-	if _, err := server.DB.Exec(hardBreakSQL(ciIssue)); err != nil {
+	if _, err := server.DB.Exec(hardBreakSQL()); err != nil {
 		t.Fatal(err)
 	}
 
