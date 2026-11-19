@@ -291,6 +291,9 @@ func (e *Engine) reopenWorkstream(ctx context.Context, repository github.Reposit
 			return err
 		}
 		reopened = true
+		if err := detachIssueNode(ctx, q, repository.FullName, number, false); err != nil {
+			return err
+		}
 		changeID, err = addFieldChange(ctx, q, repository.FullName, number, stateField)
 		return err
 	}
@@ -308,10 +311,20 @@ func (e *Engine) reopenWorkstream(ctx context.Context, repository github.Reposit
 		} else {
 			log.Printf("copy the Workstream %s#%d: %v", repository.FullName, number, treeErr)
 			copyFailed = true
-			err = e.inTx(ctx, reopenTx)
+			err = e.inTx(ctx, func(q *store.Queries) error {
+				if err := reopenTx(q); err != nil {
+					return err
+				}
+				return deleteUnusedIssues(ctx, q)
+			})
 		}
 	} else {
-		err = e.inTx(ctx, reopenTx)
+		err = e.inTx(ctx, func(q *store.Queries) error {
+			if err := reopenTx(q); err != nil {
+				return err
+			}
+			return deleteUnusedIssues(ctx, q)
+		})
 	}
 	if err != nil || !reopened {
 		return copyFailed, err
@@ -321,6 +334,23 @@ func (e *Engine) reopenWorkstream(ctx context.Context, repository github.Reposit
 		return copyFailed, err
 	}
 	return copyFailed, e.addLeadEvent(ctx, repository.FullName, number, "", sql.NullInt64{}, "reopen", eventText(time.Now(), "reopen of Workstream", fmt.Sprintf("#%d", number), issue, actor, issue.GetBody()))
+}
+
+func detachIssueNode(ctx context.Context, q *store.Queries, repository string, number int64, cleanup bool) error {
+	node, err := q.GetIssueTreeNode(ctx, store.GetIssueTreeNodeParams{Repository: repository, Number: number})
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if err := detachIssueSubtreeTx(ctx, q, node.ID); err != nil {
+		return err
+	}
+	if cleanup {
+		return deleteUnusedIssues(ctx, q)
+	}
+	return nil
 }
 
 // addWorkstreamFromEvent adds the row of the open Workstream issue if missing, copies its tree when copyTree is true,
@@ -343,6 +373,9 @@ func (e *Engine) addWorkstreamFromEvent(ctx context.Context, repository github.R
 				if err != nil {
 					return err
 				}
+				if err := detachIssueNode(ctx, q, repository.FullName, number, false); err != nil {
+					return err
+				}
 				return replaceTree(ctx, q, repository.FullName, number, tree)
 			})
 			if err == nil {
@@ -353,7 +386,10 @@ func (e *Engine) addWorkstreamFromEvent(ctx context.Context, repository github.R
 			copyFailed = true
 			err = e.inTx(ctx, func(q *store.Queries) error {
 				added, err = e.addWorkstreamRow(ctx, q, repository.FullName, issue)
-				return err
+				if err != nil {
+					return err
+				}
+				return detachIssueNode(ctx, q, repository.FullName, number, true)
 			})
 			if err == nil && added > 0 {
 				e.publish(Change{Workstreams: true})
@@ -362,7 +398,10 @@ func (e *Engine) addWorkstreamFromEvent(ctx context.Context, repository github.R
 	} else {
 		err = e.inTx(ctx, func(q *store.Queries) error {
 			added, err = e.addWorkstreamRow(ctx, q, repository.FullName, issue)
-			return err
+			if err != nil {
+				return err
+			}
+			return detachIssueNode(ctx, q, repository.FullName, number, true)
 		})
 		if err == nil && added > 0 {
 			e.publish(Change{Workstreams: true})

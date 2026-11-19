@@ -2132,11 +2132,18 @@ func (e *Engine) moveTask(ctx context.Context, c caller, workstream github.Repos
 	if err != nil {
 		return "", err
 	}
-	if _, _, err := workstream.Client.SubIssue.Add(ctx, workstream.Owner(), workstream.Name(), input.Workstream, gh.SubIssueRequest{SubIssueID: issue.GetID(), ReplaceParent: new(true)}); err != nil {
+	ownWrite, err := addParentOwnWrite(ctx, e.queries, repository.FullName, input.N, workstream.FullName, input.Workstream, addedChange)
+	if err != nil {
 		return "", err
 	}
-	if err := e.recopyTrees(ctx, workstream, c.workstream, input.Workstream); err != nil {
-		log.Printf("copy the trees of %s#%d and #%d: %v", workstream.FullName, c.workstream, input.Workstream, err)
+	if _, _, err := workstream.Client.SubIssue.Add(ctx, workstream.Owner(), workstream.Name(), input.Workstream, gh.SubIssueRequest{SubIssueID: issue.GetID(), ReplaceParent: new(true)}); err != nil {
+		if delErr := e.queries.DeleteOwnWrite(ctx, ownWrite); delErr != nil {
+			return "", delErr
+		}
+		return "", err
+	}
+	if err := e.moveTreeNodeToWorkstream(ctx, repository.FullName, input.N, workstream.FullName, input.Workstream, issue); err != nil {
+		return "", err
 	}
 	return fmt.Sprintf("Moved %s#%d to the Workstream %s.", repository.FullName, input.N, name), nil
 }
@@ -2167,11 +2174,19 @@ func (e *Engine) moveIssue(ctx context.Context, c caller, workstreams github.Rep
 	if err != nil {
 		return "", err
 	}
-	if _, _, err := workstreams.Client.SubIssue.Add(ctx, workstreams.Owner(), workstreams.Name(), input.Workstream, gh.SubIssueRequest{SubIssueID: issue.GetID(), ReplaceParent: new(true)}); err != nil {
+	ownWrite, err := addParentOwnWrite(ctx, e.queries, repository.FullName, input.N, workstreams.FullName, input.Workstream, addedChange)
+	if err != nil {
 		return "", err
 	}
-	owner, name := repository.Owner(), repository.Name()
-	if hasLabel(issue, noWorkstreamLabel) {
+	if _, _, err := workstreams.Client.SubIssue.Add(ctx, workstreams.Owner(), workstreams.Name(), input.Workstream, gh.SubIssueRequest{SubIssueID: issue.GetID(), ReplaceParent: new(true)}); err != nil {
+		if delErr := e.queries.DeleteOwnWrite(ctx, ownWrite); delErr != nil {
+			return "", delErr
+		}
+		return "", err
+	}
+	swapped := hasLabel(issue, noWorkstreamLabel)
+	if swapped {
+		owner, name := repository.Owner(), repository.Name()
 		if _, err := repository.Client.Issues.RemoveLabelForIssue(ctx, owner, name, int(input.N), noWorkstreamLabel); err != nil {
 			return "", err
 		}
@@ -2179,10 +2194,76 @@ func (e *Engine) moveIssue(ctx context.Context, c caller, workstreams github.Rep
 			return "", err
 		}
 	}
-	if err := e.recopyTrees(ctx, workstreams, input.Workstream); err != nil {
-		log.Printf("copy the tree of %s#%d: %v", workstreams.FullName, input.Workstream, err)
+	if err := e.moveTreeNodeToWorkstream(ctx, repository.FullName, input.N, workstreams.FullName, input.Workstream, issue); err != nil {
+		return "", err
+	}
+	if swapped {
+		if err := e.changeCopiedLabels(ctx, repository.FullName, input.N, []string{readyLabel}, []string{noWorkstreamLabel}); err != nil {
+			return "", err
+		}
 	}
 	return fmt.Sprintf("Moved #%d to the Workstream %s.", input.N, target), nil
+}
+
+func (e *Engine) moveTreeNodeToWorkstream(ctx context.Context, issueRepo string, issueNum int64, wsRepo string, wsNum int64, issue *gh.Issue) error {
+	e.copyWrite.Lock()
+	err := e.inTx(ctx, func(q *store.Queries) error {
+		ws, err := q.GetOpenWorkstreamByNumber(ctx, store.GetOpenWorkstreamByNumberParams{Repository: wsRepo, Number: wsNum})
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		node, err := q.GetIssueTreeNode(ctx, store.GetIssueTreeNodeParams{Repository: issueRepo, Number: issueNum})
+		if errors.Is(err, sql.ErrNoRows) {
+			metadata, err := githubMetadata(issue, 0)
+			if err != nil {
+				return err
+			}
+			_, err = q.AddCopiedIssue(ctx, store.AddCopiedIssueParams{
+				Repository: issueRepo,
+				Number:     issueNum,
+				Title:      issue.GetTitle(),
+				Body:       e.WithoutChatLink(ws.Repository, ws.Number, withoutWriteMarker(issue.GetBody())),
+				State:      issue.GetState(),
+				Author:     issue.GetUser().GetLogin(),
+				Workstream: sql.NullInt64{Int64: ws.ID, Valid: true},
+				Parent:     sql.NullInt64{},
+				Kind:       issueKind(labelNames(issue)),
+				Github:     metadata,
+			})
+			return err
+		}
+		if err != nil {
+			return err
+		}
+		subtree, err := subtreeIDs(ctx, q, node.ID)
+		if err != nil {
+			return err
+		}
+		wsNull := sql.NullInt64{Int64: ws.ID, Valid: true}
+		if err := q.SetIssueParentAndWorkstream(ctx, store.SetIssueParentAndWorkstreamParams{Workstream: wsNull, Parent: sql.NullInt64{}, ID: node.ID}); err != nil {
+			return err
+		}
+		if err := q.SetIssueBucket(ctx, store.SetIssueBucketParams{Bucket: 0, ID: node.ID}); err != nil {
+			return err
+		}
+		for _, id := range subtree {
+			if id == node.ID {
+				continue
+			}
+			if err := q.SetIssueWorkstream(ctx, store.SetIssueWorkstreamParams{Workstream: wsNull, ID: id}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	e.copyWrite.Unlock()
+	if err == nil {
+		e.publish(Change{Workstreams: true})
+	}
+	return err
 }
 
 func checkEditBrief(_ caller, input editBriefInput) error {

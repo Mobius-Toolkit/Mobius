@@ -346,3 +346,12 @@ func (e *Engine) RunStaleRecurringTasks(ctx context.Context, change func()) erro
 
 // RunRecurringTasks runs the step of the recurring tasks one time and waits for its end.
 func (e *Engine) RunRecurringTasks(ctx context.Context) { e.runRecurringTasks(ctx) }
+
+// RecopyTrees runs recopyTrees for the repository and Workstreams, for the tests.
+func (e *Engine) RecopyTrees(ctx context.Context, repositoryName string, workstreams ...int64) error {
+	repository, err := e.repository(repositoryName)
+	if err != nil {
+		return err
+	}
+	return e.recopyTrees(ctx, repository, workstreams...)
+}

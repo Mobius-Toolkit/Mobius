@@ -796,6 +796,16 @@ SELECT DISTINCT CAST(issue AS INTEGER) AS issue FROM outgoing_changes WHERE fiel
 -- name: ListPendingParentIssues :many
 SELECT DISTINCT CAST(issue AS INTEGER) AS issue FROM outgoing_changes WHERE field = 'parent' AND status = 'pending' AND issue IS NOT NULL;
 
+-- name: ListPendingParentRefs :many
+SELECT DISTINCT i.repository, CAST(i.number AS INTEGER) AS number
+FROM outgoing_changes c
+JOIN issues i ON i.id = c.issue
+WHERE c.field IN ('create', 'parent') AND c.status = 'pending' AND i.number IS NOT NULL
+UNION
+SELECT DISTINCT repository, CAST(number AS INTEGER) AS number
+FROM outgoing_changes
+WHERE field = 'parent' AND status = 'pending' AND issue IS NULL AND number IS NOT NULL;
+
 -- name: GetCreateChange :one
 SELECT id FROM outgoing_changes WHERE field = 'create' AND workstream = ?;
 
@@ -842,6 +852,11 @@ RETURNING id;
 -- name: HasOwnWrite :one
 SELECT EXISTS (SELECT 1 FROM own_writes WHERE repository = ? AND number = ?);
 
+-- name: ListTreeOwnWrites :many
+SELECT DISTINCT repository, number FROM own_writes
+WHERE field IN ('parent', 'blockers')
+ORDER BY repository, number;
+
 -- name: DeleteOwnWrite :exec
 DELETE FROM own_writes WHERE id = ?;
 
@@ -852,6 +867,24 @@ WHERE id = (
     WHERE o.repository = sqlc.arg(repository) AND o.number = sqlc.arg(number)
       AND json_extract(o.metadata, '$.label') = CAST(sqlc.arg(label) AS TEXT)
       AND json_extract(o.metadata, '$.change') = CAST(sqlc.arg(change) AS TEXT)
+    ORDER BY o.id LIMIT 1
+);
+
+-- name: DeleteOldestTreeOwnWrite :execrows
+DELETE FROM own_writes
+WHERE id = (
+    SELECT o.id FROM own_writes o
+    WHERE o.repository = sqlc.arg(repository) AND o.number = sqlc.arg(number)
+      AND o.field = sqlc.arg(field)
+      AND json_extract(o.metadata, '$.change') = CAST(sqlc.arg(change) AS TEXT)
+      AND (
+          (o.field = 'parent'
+           AND lower(json_extract(o.metadata, '$.parent_repository')) = lower(CAST(sqlc.arg(other_repository) AS TEXT))
+           AND json_extract(o.metadata, '$.parent') = CAST(sqlc.arg(other_number) AS INTEGER))
+          OR (o.field = 'blockers'
+              AND lower(json_extract(o.metadata, '$.blocker_repository')) = lower(CAST(sqlc.arg(other_repository) AS TEXT))
+              AND json_extract(o.metadata, '$.blocker') = CAST(sqlc.arg(other_number) AS INTEGER))
+      )
     ORDER BY o.id LIMIT 1
 );
 
@@ -1239,6 +1272,21 @@ WHERE issues.repository = sqlc.arg(repository) AND issues.number = CAST(sqlc.arg
       OR issues.author != sqlc.arg(author)
   );
 
+-- name: RefreshCopiedTreeIssue :exec
+UPDATE issues
+SET title = sqlc.arg(title),
+    body = CASE
+        WHEN EXISTS (SELECT 1 FROM outgoing_changes c WHERE c.issue = issues.id AND c.field = 'body' AND c.status = 'pending')
+        THEN issues.body
+        ELSE sqlc.arg(body)
+    END,
+    state = sqlc.arg(state),
+    author = sqlc.arg(author),
+    kind = sqlc.arg(kind),
+    metadata = json_set(issues.metadata, '$.github', json(json_set(coalesce(json_extract(issues.metadata, '$.github'), json_object()),
+        '$.id', CAST(sqlc.arg(github_id) AS INTEGER), '$.labels', json(CAST(sqlc.arg(labels) AS TEXT)))))
+WHERE issues.repository = sqlc.arg(repository) AND issues.number = CAST(sqlc.arg(number) AS INTEGER);
+
 -- name: GetCopiedIssue :one
 SELECT id, state, body, metadata FROM issues WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER);
 
@@ -1339,6 +1387,13 @@ SELECT title, body, state FROM issues WHERE repository = ? AND number = CAST(sql
 -- name: GetCopiedIssueBody :one
 SELECT body FROM issues WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER);
 
+-- name: HasRepositoryTreeIssues :one
+SELECT EXISTS (
+    SELECT 1 FROM issues i
+    JOIN workstreams w ON w.id = i.workstream
+    WHERE w.repository = ? AND w.state = 'open'
+);
+
 -- name: ListCopiedTreeBlockers :many
 SELECT b.issue, bi.repository AS blocker_repository, CAST(bi.number AS INTEGER) AS number,
        bw.number AS blocker_workstream, bw.title AS blocker_workstream_title
@@ -1350,6 +1405,64 @@ LEFT JOIN workstreams bw ON bw.id = coalesce(bi.workstream, json_extract(bi.meta
   AND bw.repository = w.repository AND bi.repository = w.repository
 WHERE w.repository = ? AND w.number = CAST(sqlc.arg(number) AS INTEGER)
 ORDER BY b.issue, bi.repository, bi.number;
+
+-- name: ListCopiedTreeAllBlockers :many
+SELECT b.issue, bi.repository AS blocker_repository, CAST(bi.number AS INTEGER) AS number,
+       bi.title, bi.state, bi.author, bi.workstream
+FROM blockers b
+JOIN issues i ON i.id = b.issue
+JOIN workstreams w ON w.id = i.workstream
+JOIN issues bi ON bi.id = b.blocker AND bi.number IS NOT NULL
+WHERE w.repository = ? AND w.number = CAST(sqlc.arg(number) AS INTEGER)
+ORDER BY b.issue, bi.repository, bi.number;
+
+-- name: GetIssueTreeNode :one
+SELECT i.id, i.repository, i.number, i.workstream, i.parent, i.metadata,
+       w.repository AS workstream_repository, w.number AS workstream_number, w.state AS workstream_state
+FROM issues i
+LEFT JOIN workstreams w ON w.id = i.workstream
+WHERE i.repository = ? AND i.number = CAST(sqlc.arg(number) AS INTEGER);
+
+-- name: GetOpenWorkstreamByNumber :one
+SELECT id, repository, CAST(number AS INTEGER) AS number
+FROM workstreams
+WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER) AND state = 'open';
+
+-- name: FindBucketWorkstream :one
+SELECT w.id, w.repository, CAST(w.number AS INTEGER) AS number
+FROM workstreams w
+WHERE w.repository = sqlc.arg(repository) AND w.state = 'open' AND w.number IS NOT NULL
+  AND EXISTS (
+      SELECT 1 FROM json_each(coalesce(json_extract(w.metadata, '$.github.buckets'), '[]')) b
+      WHERE json_extract(b.value, '$.number') = CAST(sqlc.arg(bucket) AS INTEGER)
+  );
+
+-- name: SetIssueParentAndWorkstream :exec
+UPDATE issues SET workstream = ?, parent = ? WHERE id = ?;
+
+-- name: ListChildIssueIDs :many
+SELECT id FROM issues WHERE parent = ?;
+
+-- name: SetIssueWorkstream :exec
+UPDATE issues SET workstream = ? WHERE id = ?;
+
+-- name: DetachIssue :exec
+UPDATE issues
+SET workstream = NULL,
+    parent = NULL,
+    metadata = json_remove(metadata, '$.github.bucket')
+WHERE id = ?;
+
+-- name: SetIssueBucket :exec
+UPDATE issues
+SET metadata = CASE
+    WHEN CAST(sqlc.arg(bucket) AS INTEGER) = 0 THEN json_remove(metadata, '$.github.bucket')
+    ELSE json_set(metadata, '$.github.bucket', CAST(sqlc.arg(bucket) AS INTEGER))
+END
+WHERE id = sqlc.arg(id);
+
+-- name: DeleteBlocker :exec
+DELETE FROM blockers WHERE issue = ? AND blocker = ?;
 
 -- A blocker that stays after the close of its Workstream keeps the id of that Workstream in its metadata, so a task
 -- still shows the title of the Workstream of the blocker.

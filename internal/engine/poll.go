@@ -166,7 +166,27 @@ func (e *Engine) pollRepository(ctx context.Context, repository github.Repositor
 	if err := e.retryWorkstreamCloses(ctx, repository); err != nil {
 		return err
 	}
-	e.checkCopiedTrees(ctx, repository)
+	forceWalk := map[issueRef]bool{}
+	for range 10 {
+		touched := e.checkCopiedTrees(ctx, repository, forceWalk)
+		if len(touched) == 0 {
+			break
+		}
+		anyEntered := false
+		for _, name := range touched {
+			entered, err := e.applyIncomingChangesOf(ctx, name, e.changeRepository(name, repository))
+			if err != nil {
+				return err
+			}
+			for _, ref := range entered {
+				forceWalk[ref] = true
+				anyEntered = true
+			}
+		}
+		if !anyEntered {
+			break
+		}
+	}
 	e.fillBuckets(ctx, repository)
 	if err := e.startHeldTriagers(ctx, repository); err != nil {
 		return err
@@ -359,7 +379,7 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 		}
 		// After a failed update, the next poll copies the repository again.
 		if e.copied[repository.FullName] {
-			copyChanged, err := e.updateCopy(ctx, repository, issue, !firstPoll, labelChanges)
+			copyChanged, err := e.updateCopy(ctx, repository, issue, labelChanges)
 			if err != nil {
 				log.Printf("update the copy of %s: %v", repository.FullName, err)
 				delete(e.copied, repository.FullName)

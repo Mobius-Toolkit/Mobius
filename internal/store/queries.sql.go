@@ -1982,6 +1982,20 @@ func (q *Queries) CountUnread(ctx context.Context, arg CountUnreadParams) (int64
 	return count, err
 }
 
+const deleteBlocker = `-- name: DeleteBlocker :exec
+DELETE FROM blockers WHERE issue = ? AND blocker = ?
+`
+
+type DeleteBlockerParams struct {
+	Issue   int64
+	Blocker int64
+}
+
+func (q *Queries) DeleteBlocker(ctx context.Context, arg DeleteBlockerParams) error {
+	_, err := q.db.ExecContext(ctx, deleteBlocker, arg.Issue, arg.Blocker)
+	return err
+}
+
 const deleteBlockerCycle = `-- name: DeleteBlockerCycle :exec
 DELETE FROM blocker_cycles WHERE cycle = ?
 `
@@ -2326,6 +2340,49 @@ func (q *Queries) DeleteOldestOwnWrite(ctx context.Context, arg DeleteOldestOwnW
 	return result.RowsAffected()
 }
 
+const deleteOldestTreeOwnWrite = `-- name: DeleteOldestTreeOwnWrite :execrows
+DELETE FROM own_writes
+WHERE id = (
+    SELECT o.id FROM own_writes o
+    WHERE o.repository = ?1 AND o.number = ?2
+      AND o.field = ?3
+      AND json_extract(o.metadata, '$.change') = CAST(?4 AS TEXT)
+      AND (
+          (o.field = 'parent'
+           AND lower(json_extract(o.metadata, '$.parent_repository')) = lower(CAST(?5 AS TEXT))
+           AND json_extract(o.metadata, '$.parent') = CAST(?6 AS INTEGER))
+          OR (o.field = 'blockers'
+              AND lower(json_extract(o.metadata, '$.blocker_repository')) = lower(CAST(?5 AS TEXT))
+              AND json_extract(o.metadata, '$.blocker') = CAST(?6 AS INTEGER))
+      )
+    ORDER BY o.id LIMIT 1
+)
+`
+
+type DeleteOldestTreeOwnWriteParams struct {
+	Repository      string
+	Number          int64
+	Field           string
+	Change          string
+	OtherRepository string
+	OtherNumber     int64
+}
+
+func (q *Queries) DeleteOldestTreeOwnWrite(ctx context.Context, arg DeleteOldestTreeOwnWriteParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteOldestTreeOwnWrite,
+		arg.Repository,
+		arg.Number,
+		arg.Field,
+		arg.Change,
+		arg.OtherRepository,
+		arg.OtherNumber,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const deleteOtherPasswordLogins = `-- name: DeleteOtherPasswordLogins :exec
 DELETE FROM device_logins WHERE password_fingerprint != ?
 `
@@ -2610,6 +2667,19 @@ WHERE workstream IN (SELECT w.id FROM workstreams w WHERE w.repository = ?)
 
 func (q *Queries) DetachCopiedTrees(ctx context.Context, repository string) error {
 	_, err := q.db.ExecContext(ctx, detachCopiedTrees, repository)
+	return err
+}
+
+const detachIssue = `-- name: DetachIssue :exec
+UPDATE issues
+SET workstream = NULL,
+    parent = NULL,
+    metadata = json_remove(metadata, '$.github.bucket')
+WHERE id = ?
+`
+
+func (q *Queries) DetachIssue(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, detachIssue, id)
 	return err
 }
 
@@ -2972,6 +3042,34 @@ func (q *Queries) FillAndReopenWorkstream(ctx context.Context, arg FillAndReopen
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const findBucketWorkstream = `-- name: FindBucketWorkstream :one
+SELECT w.id, w.repository, CAST(w.number AS INTEGER) AS number
+FROM workstreams w
+WHERE w.repository = ?1 AND w.state = 'open' AND w.number IS NOT NULL
+  AND EXISTS (
+      SELECT 1 FROM json_each(coalesce(json_extract(w.metadata, '$.github.buckets'), '[]')) b
+      WHERE json_extract(b.value, '$.number') = CAST(?2 AS INTEGER)
+  )
+`
+
+type FindBucketWorkstreamParams struct {
+	Repository string
+	Bucket     int64
+}
+
+type FindBucketWorkstreamRow struct {
+	ID         int64
+	Repository string
+	Number     int64
+}
+
+func (q *Queries) FindBucketWorkstream(ctx context.Context, arg FindBucketWorkstreamParams) (FindBucketWorkstreamRow, error) {
+	row := q.db.QueryRowContext(ctx, findBucketWorkstream, arg.Repository, arg.Bucket)
+	var i FindBucketWorkstreamRow
+	err := row.Scan(&i.ID, &i.Repository, &i.Number)
+	return i, err
 }
 
 const findDeviceLogin = `-- name: FindDeviceLogin :one
@@ -3717,6 +3815,48 @@ func (q *Queries) GetIssueText(ctx context.Context, arg GetIssueTextParams) (Get
 	row := q.db.QueryRowContext(ctx, getIssueText, arg.Repository, arg.Number)
 	var i GetIssueTextRow
 	err := row.Scan(&i.Title, &i.Body, &i.State)
+	return i, err
+}
+
+const getIssueTreeNode = `-- name: GetIssueTreeNode :one
+SELECT i.id, i.repository, i.number, i.workstream, i.parent, i.metadata,
+       w.repository AS workstream_repository, w.number AS workstream_number, w.state AS workstream_state
+FROM issues i
+LEFT JOIN workstreams w ON w.id = i.workstream
+WHERE i.repository = ? AND i.number = CAST(?2 AS INTEGER)
+`
+
+type GetIssueTreeNodeParams struct {
+	Repository string
+	Number     int64
+}
+
+type GetIssueTreeNodeRow struct {
+	ID                   int64
+	Repository           string
+	Number               sql.NullInt64
+	Workstream           sql.NullInt64
+	Parent               sql.NullInt64
+	Metadata             string
+	WorkstreamRepository sql.NullString
+	WorkstreamNumber     sql.NullInt64
+	WorkstreamState      sql.NullString
+}
+
+func (q *Queries) GetIssueTreeNode(ctx context.Context, arg GetIssueTreeNodeParams) (GetIssueTreeNodeRow, error) {
+	row := q.db.QueryRowContext(ctx, getIssueTreeNode, arg.Repository, arg.Number)
+	var i GetIssueTreeNodeRow
+	err := row.Scan(
+		&i.ID,
+		&i.Repository,
+		&i.Number,
+		&i.Workstream,
+		&i.Parent,
+		&i.Metadata,
+		&i.WorkstreamRepository,
+		&i.WorkstreamNumber,
+		&i.WorkstreamState,
+	)
 	return i, err
 }
 
@@ -4473,6 +4613,30 @@ func (q *Queries) GetOpenInitFailure(ctx context.Context, repository string) (In
 		&i.EndedAt,
 		&i.IssueRow,
 	)
+	return i, err
+}
+
+const getOpenWorkstreamByNumber = `-- name: GetOpenWorkstreamByNumber :one
+SELECT id, repository, CAST(number AS INTEGER) AS number
+FROM workstreams
+WHERE repository = ? AND number = CAST(?2 AS INTEGER) AND state = 'open'
+`
+
+type GetOpenWorkstreamByNumberParams struct {
+	Repository string
+	Number     int64
+}
+
+type GetOpenWorkstreamByNumberRow struct {
+	ID         int64
+	Repository string
+	Number     int64
+}
+
+func (q *Queries) GetOpenWorkstreamByNumber(ctx context.Context, arg GetOpenWorkstreamByNumberParams) (GetOpenWorkstreamByNumberRow, error) {
+	row := q.db.QueryRowContext(ctx, getOpenWorkstreamByNumber, arg.Repository, arg.Number)
+	var i GetOpenWorkstreamByNumberRow
+	err := row.Scan(&i.ID, &i.Repository, &i.Number)
 	return i, err
 }
 
@@ -5387,6 +5551,21 @@ type HasPendingIssueParentParams struct {
 
 func (q *Queries) HasPendingIssueParent(ctx context.Context, arg HasPendingIssueParentParams) (bool, error) {
 	row := q.db.QueryRowContext(ctx, hasPendingIssueParent, arg.Repository, arg.Number)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const hasRepositoryTreeIssues = `-- name: HasRepositoryTreeIssues :one
+SELECT EXISTS (
+    SELECT 1 FROM issues i
+    JOIN workstreams w ON w.id = i.workstream
+    WHERE w.repository = ? AND w.state = 'open'
+)
+`
+
+func (q *Queries) HasRepositoryTreeIssues(ctx context.Context, repository string) (bool, error) {
+	row := q.db.QueryRowContext(ctx, hasRepositoryTreeIssues, repository)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
@@ -6412,6 +6591,33 @@ func (q *Queries) ListChatMessagesPage(ctx context.Context, arg ListChatMessages
 	return items, nil
 }
 
+const listChildIssueIDs = `-- name: ListChildIssueIDs :many
+SELECT id FROM issues WHERE parent = ?
+`
+
+func (q *Queries) ListChildIssueIDs(ctx context.Context, parent sql.NullInt64) ([]int64, error) {
+	rows, err := q.db.QueryContext(ctx, listChildIssueIDs, parent)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listClosePendingWorkstreams = `-- name: ListClosePendingWorkstreams :many
 SELECT CAST(number AS INTEGER) AS number FROM workstreams WHERE repository = ? AND close_pending != 0 AND number IS NOT NULL ORDER BY number
 `
@@ -6571,6 +6777,63 @@ func (q *Queries) ListCopiedTree(ctx context.Context, arg ListCopiedTreeParams) 
 			&i.Author,
 			&i.Kind,
 			&i.Metadata,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCopiedTreeAllBlockers = `-- name: ListCopiedTreeAllBlockers :many
+SELECT b.issue, bi.repository AS blocker_repository, CAST(bi.number AS INTEGER) AS number,
+       bi.title, bi.state, bi.author, bi.workstream
+FROM blockers b
+JOIN issues i ON i.id = b.issue
+JOIN workstreams w ON w.id = i.workstream
+JOIN issues bi ON bi.id = b.blocker AND bi.number IS NOT NULL
+WHERE w.repository = ? AND w.number = CAST(?2 AS INTEGER)
+ORDER BY b.issue, bi.repository, bi.number
+`
+
+type ListCopiedTreeAllBlockersParams struct {
+	Repository string
+	Number     int64
+}
+
+type ListCopiedTreeAllBlockersRow struct {
+	Issue             int64
+	BlockerRepository string
+	Number            int64
+	Title             string
+	State             string
+	Author            string
+	Workstream        sql.NullInt64
+}
+
+func (q *Queries) ListCopiedTreeAllBlockers(ctx context.Context, arg ListCopiedTreeAllBlockersParams) ([]ListCopiedTreeAllBlockersRow, error) {
+	rows, err := q.db.QueryContext(ctx, listCopiedTreeAllBlockers, arg.Repository, arg.Number)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCopiedTreeAllBlockersRow
+	for rows.Next() {
+		var i ListCopiedTreeAllBlockersRow
+		if err := rows.Scan(
+			&i.Issue,
+			&i.BlockerRepository,
+			&i.Number,
+			&i.Title,
+			&i.State,
+			&i.Author,
+			&i.Workstream,
 		); err != nil {
 			return nil, err
 		}
@@ -9235,6 +9498,45 @@ func (q *Queries) ListPendingParentIssues(ctx context.Context) ([]int64, error) 
 	return items, nil
 }
 
+const listPendingParentRefs = `-- name: ListPendingParentRefs :many
+SELECT DISTINCT i.repository, CAST(i.number AS INTEGER) AS number
+FROM outgoing_changes c
+JOIN issues i ON i.id = c.issue
+WHERE c.field IN ('create', 'parent') AND c.status = 'pending' AND i.number IS NOT NULL
+UNION
+SELECT DISTINCT repository, CAST(number AS INTEGER) AS number
+FROM outgoing_changes
+WHERE field = 'parent' AND status = 'pending' AND issue IS NULL AND number IS NOT NULL
+`
+
+type ListPendingParentRefsRow struct {
+	Repository string
+	Number     int64
+}
+
+func (q *Queries) ListPendingParentRefs(ctx context.Context) ([]ListPendingParentRefsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listPendingParentRefs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPendingParentRefsRow
+	for rows.Next() {
+		var i ListPendingParentRefsRow
+		if err := rows.Scan(&i.Repository, &i.Number); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listQueuedTasks = `-- name: ListQueuedTasks :many
 SELECT id, queued_at, EXISTS (
   SELECT 1 FROM ci_fix_issues WHERE ci_fix_issues.repository = tasks.repository AND ci_fix_issues.issue = tasks.issue
@@ -10322,6 +10624,40 @@ func (q *Queries) ListTranscriptPage(ctx context.Context, arg ListTranscriptPage
 	return items, nil
 }
 
+const listTreeOwnWrites = `-- name: ListTreeOwnWrites :many
+SELECT DISTINCT repository, number FROM own_writes
+WHERE field IN ('parent', 'blockers')
+ORDER BY repository, number
+`
+
+type ListTreeOwnWritesRow struct {
+	Repository string
+	Number     int64
+}
+
+func (q *Queries) ListTreeOwnWrites(ctx context.Context) ([]ListTreeOwnWritesRow, error) {
+	rows, err := q.db.QueryContext(ctx, listTreeOwnWrites)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListTreeOwnWritesRow
+	for rows.Next() {
+		var i ListTreeOwnWritesRow
+		if err := rows.Scan(&i.Repository, &i.Number); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTriagerTurns = `-- name: ListTriagerTurns :many
 SELECT issue FROM triager_turns WHERE repository = ? ORDER BY issue
 `
@@ -11087,6 +11423,49 @@ func (q *Queries) RecoverTask(ctx context.Context, arg RecoverTaskParams) (int64
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const refreshCopiedTreeIssue = `-- name: RefreshCopiedTreeIssue :exec
+UPDATE issues
+SET title = ?1,
+    body = CASE
+        WHEN EXISTS (SELECT 1 FROM outgoing_changes c WHERE c.issue = issues.id AND c.field = 'body' AND c.status = 'pending')
+        THEN issues.body
+        ELSE ?2
+    END,
+    state = ?3,
+    author = ?4,
+    kind = ?5,
+    metadata = json_set(issues.metadata, '$.github', json(json_set(coalesce(json_extract(issues.metadata, '$.github'), json_object()),
+        '$.id', CAST(?6 AS INTEGER), '$.labels', json(CAST(?7 AS TEXT)))))
+WHERE issues.repository = ?8 AND issues.number = CAST(?9 AS INTEGER)
+`
+
+type RefreshCopiedTreeIssueParams struct {
+	Title      string
+	Body       string
+	State      string
+	Author     string
+	Kind       string
+	GithubID   int64
+	Labels     string
+	Repository string
+	Number     int64
+}
+
+func (q *Queries) RefreshCopiedTreeIssue(ctx context.Context, arg RefreshCopiedTreeIssueParams) error {
+	_, err := q.db.ExecContext(ctx, refreshCopiedTreeIssue,
+		arg.Title,
+		arg.Body,
+		arg.State,
+		arg.Author,
+		arg.Kind,
+		arg.GithubID,
+		arg.Labels,
+		arg.Repository,
+		arg.Number,
+	)
+	return err
 }
 
 const refuseDetachedIssueChanges = `-- name: RefuseDetachedIssueChanges :exec
@@ -11937,6 +12316,25 @@ func (q *Queries) SetIssueBody(ctx context.Context, arg SetIssueBodyParams) (int
 	return result.RowsAffected()
 }
 
+const setIssueBucket = `-- name: SetIssueBucket :exec
+UPDATE issues
+SET metadata = CASE
+    WHEN CAST(?1 AS INTEGER) = 0 THEN json_remove(metadata, '$.github.bucket')
+    ELSE json_set(metadata, '$.github.bucket', CAST(?1 AS INTEGER))
+END
+WHERE id = ?2
+`
+
+type SetIssueBucketParams struct {
+	Bucket int64
+	ID     int64
+}
+
+func (q *Queries) SetIssueBucket(ctx context.Context, arg SetIssueBucketParams) error {
+	_, err := q.db.ExecContext(ctx, setIssueBucket, arg.Bucket, arg.ID)
+	return err
+}
+
 const setIssueNumber = `-- name: SetIssueNumber :execrows
 UPDATE issues
 SET number = ?1,
@@ -11958,6 +12356,21 @@ func (q *Queries) SetIssueNumber(ctx context.Context, arg SetIssueNumberParams) 
 	return result.RowsAffected()
 }
 
+const setIssueParentAndWorkstream = `-- name: SetIssueParentAndWorkstream :exec
+UPDATE issues SET workstream = ?, parent = ? WHERE id = ?
+`
+
+type SetIssueParentAndWorkstreamParams struct {
+	Workstream sql.NullInt64
+	Parent     sql.NullInt64
+	ID         int64
+}
+
+func (q *Queries) SetIssueParentAndWorkstream(ctx context.Context, arg SetIssueParentAndWorkstreamParams) error {
+	_, err := q.db.ExecContext(ctx, setIssueParentAndWorkstream, arg.Workstream, arg.Parent, arg.ID)
+	return err
+}
+
 const setIssueRepositoryChoice = `-- name: SetIssueRepositoryChoice :exec
 INSERT OR REPLACE INTO issue_repositories (organization, repository) VALUES (?, ?)
 `
@@ -11969,6 +12382,20 @@ type SetIssueRepositoryChoiceParams struct {
 
 func (q *Queries) SetIssueRepositoryChoice(ctx context.Context, arg SetIssueRepositoryChoiceParams) error {
 	_, err := q.db.ExecContext(ctx, setIssueRepositoryChoice, arg.Organization, arg.Repository)
+	return err
+}
+
+const setIssueWorkstream = `-- name: SetIssueWorkstream :exec
+UPDATE issues SET workstream = ? WHERE id = ?
+`
+
+type SetIssueWorkstreamParams struct {
+	Workstream sql.NullInt64
+	ID         int64
+}
+
+func (q *Queries) SetIssueWorkstream(ctx context.Context, arg SetIssueWorkstreamParams) error {
+	_, err := q.db.ExecContext(ctx, setIssueWorkstream, arg.Workstream, arg.ID)
 	return err
 }
 

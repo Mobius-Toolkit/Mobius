@@ -26,7 +26,19 @@ const (
 	reopenedChange  = "reopened"
 	renamedChange   = "renamed"
 	editedChange    = "edited"
+	addedChange     = "added"
+	removedChange   = "removed"
 )
+
+type parentMetadata struct {
+	ParentRepository string `json:"parent_repository"`
+	Parent           int64  `json:"parent"`
+}
+
+type blockerMetadata struct {
+	BlockerRepository string `json:"blocker_repository"`
+	Blocker           int64  `json:"blocker"`
+}
 
 // changeEvent is an event of the Workstream issue number.
 type changeEvent struct {
@@ -75,6 +87,42 @@ func addOwnWrite(ctx context.Context, q *store.Queries, repository string, numbe
 		Repository: repository,
 		Number:     number,
 		Field:      field,
+		Metadata:   string(metadata),
+		CreatedAt:  now(),
+	})
+}
+
+func addParentOwnWrite(ctx context.Context, q *store.Queries, repository string, number int64, parentRepository string, parent int64, kind string) (int64, error) {
+	metadata, err := json.Marshal(struct {
+		ParentRepository string `json:"parent_repository"`
+		Parent           int64  `json:"parent"`
+		Change           string `json:"change"`
+	}{parentRepository, parent, kind})
+	if err != nil {
+		return 0, err
+	}
+	return q.AddOwnWrite(ctx, store.AddOwnWriteParams{
+		Repository: repository,
+		Number:     number,
+		Field:      parentField,
+		Metadata:   string(metadata),
+		CreatedAt:  now(),
+	})
+}
+
+func addBlockerOwnWrite(ctx context.Context, q *store.Queries, repository string, number int64, blockerRepository string, blocker int64, kind string) (int64, error) {
+	metadata, err := json.Marshal(struct {
+		BlockerRepository string `json:"blocker_repository"`
+		Blocker           int64  `json:"blocker"`
+		Change            string `json:"change"`
+	}{blockerRepository, blocker, kind})
+	if err != nil {
+		return 0, err
+	}
+	return q.AddOwnWrite(ctx, store.AddOwnWriteParams{
+		Repository: repository,
+		Number:     number,
+		Field:      blockersField,
 		Metadata:   string(metadata),
 		CreatedAt:  now(),
 	})
@@ -145,27 +193,43 @@ func addEventChanges(ctx context.Context, q *store.Queries, repository github.Re
 // applyIncomingChanges applies each pending incoming change of the repository in the order of the rows, and marks it
 // done. A change that fails stays pending, and holds the later changes until the next poll.
 func (e *Engine) applyIncomingChanges(ctx context.Context, repository github.Repository) error {
-	changes, err := e.queries.ListPendingIncomingChanges(ctx, repository.FullName)
+	_, err := e.applyIncomingChangesOf(ctx, repository.FullName, repository)
+	return err
+}
+
+func (e *Engine) applyIncomingChangesOf(ctx context.Context, target string, repository github.Repository) ([]issueRef, error) {
+	changes, err := e.queries.ListPendingIncomingChanges(ctx, target)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	var entered []issueRef
 	for _, change := range changes {
-		if err := e.applyIncomingChange(ctx, repository, change); err != nil {
-			return err
+		added, err := e.applyIncomingChange(ctx, repository, change)
+		if err != nil {
+			return nil, err
+		}
+		if added {
+			entered = append(entered, lowerRef(change.Repository, change.Number))
 		}
 		if err := e.queries.SetIncomingChangeDone(ctx, change.ID); err != nil {
-			return err
+			return nil, err
 		}
 	}
-	return nil
+	return entered, nil
 }
 
 // applyIncomingChange calls the handler of the field of the incoming change.
-func (e *Engine) applyIncomingChange(ctx context.Context, repository github.Repository, change store.IncomingChange) error {
-	if _, setting := settingLabels[change.Field]; setting {
-		return e.applySettingChange(ctx, repository, change)
+func (e *Engine) applyIncomingChange(ctx context.Context, repository github.Repository, change store.IncomingChange) (bool, error) {
+	if change.Field == parentField {
+		return e.applyParentChange(ctx, repository, change)
 	}
-	return e.applyWorkstreamChange(ctx, repository, change)
+	if change.Field == blockersField {
+		return false, e.applyBlockersChange(ctx, repository, change)
+	}
+	if _, setting := settingLabels[change.Field]; setting {
+		return false, e.applySettingChange(ctx, repository, change)
+	}
+	return false, e.applyWorkstreamChange(ctx, repository, change)
 }
 
 // applyWorkstreamChange calls the handler of the field of the incoming change, when its actor is a trusted user. For
@@ -311,4 +375,353 @@ func (e *Engine) writeBack(ctx context.Context, repository github.Repository, ch
 		return err
 	}
 	return e.sendNow(ctx, repository, id)
+}
+
+func (e *Engine) writeBackTreeIssue(ctx context.Context, repository github.Repository, issueID int64, targetRepo string, number int64, field string) error {
+	id, err := addIssueChange(ctx, e.queries, targetRepo, number, issueID, field)
+	if err != nil {
+		return err
+	}
+	return e.sendNow(ctx, e.changeRepository(targetRepo, repository), id)
+}
+
+func (e *Engine) writeBackDetachedParent(ctx context.Context, repository github.Repository, change store.IncomingChange) error {
+	id, err := e.addOutgoingChange(ctx, e.queries, change.Repository, change.Number, 0, parentField, change.Metadata)
+	if err != nil {
+		return err
+	}
+	return e.sendNow(ctx, e.changeRepository(change.Repository, repository), id)
+}
+
+func (e *Engine) changeRepository(name string, fallback github.Repository) github.Repository {
+	if repo, ok := e.namedRepository(name, fallback); ok {
+		return repo
+	}
+	return fallback
+}
+
+func (e *Engine) applyParentChange(ctx context.Context, repository github.Repository, change store.IncomingChange) (bool, error) {
+	node, err := e.queries.GetIssueTreeNode(ctx, store.GetIssueTreeNodeParams{Repository: change.Repository, Number: change.Number})
+	stored := err == nil
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return false, err
+	}
+	inTree := stored && node.Workstream.Valid
+	var meta parentMetadata
+	if err := json.Unmarshal([]byte(change.Metadata), &meta); err != nil {
+		return false, err
+	}
+	if e.isTreeAppActor(repository, change.Actor, change.Repository, meta) {
+		if inTree || change.Change != addedChange {
+			return false, nil
+		}
+	} else if !e.trustedUser(change.Actor) {
+		if inTree {
+			return false, e.writeBackTreeIssue(ctx, repository, node.ID, change.Repository, change.Number, parentField)
+		}
+		if change.Change == addedChange {
+			return false, e.writeBackDetachedParent(ctx, repository, change)
+		}
+		return false, nil
+	}
+	if change.Change == removedChange {
+		if !inTree {
+			return false, nil
+		}
+		return false, e.detachIssueSubtree(ctx, node.ID)
+	}
+	parentRepoName := meta.ParentRepository
+	if repo, ok := e.namedRepository(meta.ParentRepository, repository); ok {
+		parentRepoName = repo.FullName
+	}
+	wsID, wsRepo, wsNum, parentID, ok, err := e.resolveParentTarget(ctx, e.queries, parentRepoName, meta.Parent)
+	if err != nil {
+		return false, err
+	}
+	if !ok {
+		if inTree {
+			return false, e.detachIssueSubtree(ctx, node.ID)
+		}
+		return false, nil
+	}
+	if !stored {
+		found, err := e.readChildIssue(ctx, repository, change.Repository, change.Number, parentRepoName, meta.Parent)
+		if err != nil || found == nil || hasLabel(found, workstreamLabel) {
+			return false, err
+		}
+		metadata, err := githubMetadata(found, 0)
+		if err != nil {
+			return false, err
+		}
+		body := e.WithoutChatLink(wsRepo, wsNum, withoutWriteMarker(found.GetBody()))
+		e.copyWrite.Lock()
+		err = e.inTx(ctx, func(q *store.Queries) error {
+			wsID, wsRepo, wsNum, parentID, ok, err = e.resolveParentTarget(ctx, q, parentRepoName, meta.Parent)
+			if err != nil || !ok {
+				return err
+			}
+			_, err = q.AddCopiedIssue(ctx, store.AddCopiedIssueParams{
+				Repository: change.Repository,
+				Number:     change.Number,
+				Title:      found.GetTitle(),
+				Body:       body,
+				State:      found.GetState(),
+				Author:     found.GetUser().GetLogin(),
+				Workstream: sql.NullInt64{Int64: wsID, Valid: true},
+				Parent:     parentID,
+				Kind:       issueKind(labelNames(found)),
+				Github:     metadata,
+			})
+			return err
+		})
+		e.copyWrite.Unlock()
+		if err == nil && ok {
+			e.publish(Change{Workstreams: true})
+			return true, nil
+		}
+		return false, err
+	}
+	e.copyWrite.Lock()
+	err = e.inTx(ctx, func(q *store.Queries) error {
+		subtree, err := subtreeIDs(ctx, q, node.ID)
+		if err != nil {
+			return err
+		}
+		if parentID.Valid && slices.Contains(subtree, parentID.Int64) {
+			return nil
+		}
+		ws := sql.NullInt64{Int64: wsID, Valid: true}
+		if err := q.SetIssueParentAndWorkstream(ctx, store.SetIssueParentAndWorkstreamParams{Workstream: ws, Parent: parentID, ID: node.ID}); err != nil {
+			return err
+		}
+		if parentID.Valid || !node.Workstream.Valid || node.Workstream.Int64 != wsID {
+			if err := q.SetIssueBucket(ctx, store.SetIssueBucketParams{Bucket: 0, ID: node.ID}); err != nil {
+				return err
+			}
+		}
+		if !node.Workstream.Valid || node.Workstream.Int64 != wsID {
+			for _, id := range subtree {
+				if id == node.ID {
+					continue
+				}
+				if err := q.SetIssueWorkstream(ctx, store.SetIssueWorkstreamParams{Workstream: ws, ID: id}); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
+	e.copyWrite.Unlock()
+	if err == nil {
+		e.publish(Change{Workstreams: true})
+		return !inTree, nil
+	}
+	return false, err
+}
+
+func (e *Engine) resolveParentTarget(ctx context.Context, q *store.Queries, repository string, number int64) (wsID int64, wsRepo string, wsNumber int64, parent sql.NullInt64, ok bool, err error) {
+	ws, err := q.GetOpenWorkstreamByNumber(ctx, store.GetOpenWorkstreamByNumberParams{Repository: repository, Number: number})
+	if err == nil {
+		return ws.ID, ws.Repository, ws.Number, sql.NullInt64{}, true, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return 0, "", 0, sql.NullInt64{}, false, err
+	}
+	bucketWS, err := q.FindBucketWorkstream(ctx, store.FindBucketWorkstreamParams{Repository: repository, Bucket: number})
+	if err == nil {
+		return bucketWS.ID, bucketWS.Repository, bucketWS.Number, sql.NullInt64{}, true, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return 0, "", 0, sql.NullInt64{}, false, err
+	}
+	parentNode, err := q.GetIssueTreeNode(ctx, store.GetIssueTreeNodeParams{Repository: repository, Number: number})
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, "", 0, sql.NullInt64{}, false, nil
+	}
+	if err != nil {
+		return 0, "", 0, sql.NullInt64{}, false, err
+	}
+	if !parentNode.Workstream.Valid || parentNode.WorkstreamState.String != "open" {
+		return 0, "", 0, sql.NullInt64{}, false, nil
+	}
+	return parentNode.Workstream.Int64, parentNode.WorkstreamRepository.String, parentNode.WorkstreamNumber.Int64, sql.NullInt64{Int64: parentNode.ID, Valid: true}, true, nil
+}
+
+func (e *Engine) readChildIssue(ctx context.Context, repository github.Repository, childRepoName string, childNumber int64, parentRepoName string, parentNumber int64) (*gh.Issue, error) {
+	if childRepo, readable := e.namedRepository(childRepoName, repository); readable {
+		return childRepo.Issue(ctx, childNumber)
+	}
+	parentRepo, ok := e.namedRepository(parentRepoName, repository)
+	if !ok {
+		return nil, nil
+	}
+	children, err := parentRepo.SubIssues(ctx, parentNumber)
+	if github.NotFound(err) || err != nil {
+		return nil, err
+	}
+	for _, child := range children {
+		if strings.EqualFold(blockerRepository(child, parentRepo.FullName), childRepoName) && int64(child.GetNumber()) == childNumber {
+			return child, nil
+		}
+	}
+	return nil, nil
+}
+
+func (e *Engine) applyBlockersChange(ctx context.Context, repository github.Repository, change store.IncomingChange) error {
+	node, err := e.queries.GetIssueTreeNode(ctx, store.GetIssueTreeNodeParams{Repository: change.Repository, Number: change.Number})
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && !node.Workstream.Valid) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !e.trustedUser(change.Actor) {
+		return e.writeBackTreeIssue(ctx, repository, node.ID, change.Repository, change.Number, blockersField)
+	}
+	var meta blockerMetadata
+	if err := json.Unmarshal([]byte(change.Metadata), &meta); err != nil {
+		return err
+	}
+	blockerRepoName := meta.BlockerRepository
+	if repo, ok := e.namedRepository(meta.BlockerRepository, repository); ok {
+		blockerRepoName = repo.FullName
+	}
+	if change.Change == removedChange {
+		e.copyWrite.Lock()
+		err := e.inTx(ctx, func(q *store.Queries) error {
+			blockerRow, err := q.GetTreeIssue(ctx, store.GetTreeIssueParams{Repository: blockerRepoName, Number: meta.Blocker})
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			if err := q.DeleteBlocker(ctx, store.DeleteBlockerParams{Issue: node.ID, Blocker: blockerRow.ID}); err != nil {
+				return err
+			}
+			return deleteUnusedIssues(ctx, q)
+		})
+		e.copyWrite.Unlock()
+		if err == nil {
+			e.publish(Change{Workstreams: true})
+		}
+		return err
+	}
+	var found *gh.Issue
+	_, err = e.queries.GetTreeIssue(ctx, store.GetTreeIssueParams{Repository: blockerRepoName, Number: meta.Blocker})
+	if errors.Is(err, sql.ErrNoRows) {
+		found, blockerRepoName, err = e.readBlockerIssue(ctx, repository, blockerRepoName, meta.Blocker, change.Repository, change.Number)
+		if err != nil || found == nil {
+			return err
+		}
+	} else if err != nil {
+		return err
+	}
+	e.copyWrite.Lock()
+	err = e.inTx(ctx, func(q *store.Queries) error {
+		blockerRow, err := q.GetTreeIssue(ctx, store.GetTreeIssueParams{Repository: blockerRepoName, Number: meta.Blocker})
+		var blockerID int64
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			if found == nil {
+				return nil
+			}
+			metadata, err := githubMetadata(found, 0)
+			if err != nil {
+				return err
+			}
+			blockerID, err = q.AddCopiedBlockerIssue(ctx, store.AddCopiedBlockerIssueParams{
+				Repository: blockerRepoName,
+				Number:     int64(found.GetNumber()),
+				Title:      found.GetTitle(),
+				Body:       found.GetBody(),
+				State:      found.GetState(),
+				Author:     found.GetUser().GetLogin(),
+				Kind:       issueKind(labelNames(found)),
+				Github:     metadata,
+			})
+			if err != nil {
+				return err
+			}
+		case err != nil:
+			return err
+		default:
+			blockerID = blockerRow.ID
+		}
+		return q.AddCopiedBlocker(ctx, store.AddCopiedBlockerParams{Issue: node.ID, Blocker: blockerID})
+	})
+	e.copyWrite.Unlock()
+	if err == nil {
+		e.publish(Change{Workstreams: true})
+	}
+	return err
+}
+
+func (e *Engine) readBlockerIssue(ctx context.Context, repository github.Repository, blockerRepoName string, blockerNumber int64, issueRepoName string, issueNumber int64) (*gh.Issue, string, error) {
+	if blockerRepo, readable := e.namedRepository(blockerRepoName, repository); readable {
+		found, err := blockerRepo.Issue(ctx, blockerNumber)
+		return found, blockerRepo.FullName, err
+	}
+	issueRepo, ok := e.namedRepository(issueRepoName, repository)
+	if !ok {
+		return nil, blockerRepoName, nil
+	}
+	blockers, err := allBlockers(ctx, issueRepo, issueNumber)
+	if err != nil {
+		return nil, blockerRepoName, err
+	}
+	for _, blocker := range blockers {
+		name := blockerRepository(blocker, issueRepo.FullName)
+		if strings.EqualFold(name, blockerRepoName) && int64(blocker.GetNumber()) == blockerNumber {
+			return blocker, name, nil
+		}
+	}
+	return nil, blockerRepoName, nil
+}
+
+func (e *Engine) detachIssueSubtree(ctx context.Context, rootID int64) error {
+	e.copyWrite.Lock()
+	err := e.inTx(ctx, func(q *store.Queries) error {
+		if err := detachIssueSubtreeTx(ctx, q, rootID); err != nil {
+			return err
+		}
+		return deleteUnusedIssues(ctx, q)
+	})
+	e.copyWrite.Unlock()
+	if err == nil {
+		e.publish(Change{Workstreams: true})
+	}
+	return err
+}
+
+func detachIssueSubtreeTx(ctx context.Context, q *store.Queries, rootID int64) error {
+	ids, err := subtreeIDs(ctx, q, rootID)
+	if err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if err := q.DetachIssue(ctx, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func subtreeIDs(ctx context.Context, q *store.Queries, rootID int64) ([]int64, error) {
+	seen := map[int64]bool{rootID: true}
+	order := []int64{rootID}
+	for i := 0; i < len(order); i++ {
+		children, err := q.ListChildIssueIDs(ctx, sql.NullInt64{Int64: order[i], Valid: true})
+		if err != nil {
+			return nil, err
+		}
+		for _, child := range children {
+			if seen[child] {
+				continue
+			}
+			seen[child] = true
+			order = append(order, child)
+		}
+	}
+	return order, nil
 }
