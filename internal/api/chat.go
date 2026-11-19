@@ -29,7 +29,7 @@ type ChatMessage struct {
 	Repository string `gork:"repository"`
 	// Workstream is the number of the Workstream issue. It is 0 for the Coordinator chat
 	Workstream int64 `gork:"workstream"`
-	// Author is Owner, Lead, Coordinator, tell_owner for a message of the Lead to the Owner, Mobius for a message of
+	// Author is Owner, Lead, Coordinator, tell_owner for a message of the Lead or of the Coordinator to the Owner, Mobius for a message of
 	// Mobius, Event for a Lead event, which the chat shows as a muted entry, Action for the card of a pending action, or
 	// Record for the line about an action of the Owner, or Question for the card of a question
 	Author string `gork:"author" validate:"oneof=Owner Lead tell_owner Coordinator Mobius Event Action Record Question"`

@@ -280,6 +280,8 @@ const question = "What is the state of the plans? The full report is at " +
 // bar lists it last, below the first screen of each screenshot. Only the kept-session tests open it.
 // The Workstream plants/garden#60 has a Lead chat of 50 messages, and the Owner saw the first 15. POST
 // /e2e/seed-notes/{count} adds count Lead messages to that chat, with no event.
+// POST /e2e/changelog-turn adds a Changelog message and a tell_owner message to the Coordinator chat of plants, and DELETE
+// /e2e/changelog-turn removes them.
 // POST /e2e/approvals/times/fix gives the fixed time to each chat message, Inbox item and action that has a real time.
 // PUT /e2e/actions/{id}/state sets the state and the message of a pending action from the queries state and message.
 // POST /e2e/inbox-items adds an Inbox item for owner/shop#40 and gives its id. With the query kind, repository,
@@ -815,6 +817,7 @@ func TestServer(t *testing.T) {
 	if err := server.Engine.SeeChat(ctx, seeds, seen); err != nil {
 		t.Fatal(err)
 	}
+	handleChangelogTurn(t, server)
 	server.Mux.HandleFunc("POST /e2e/seed-notes/{count}", func(w http.ResponseWriter, r *http.Request) {
 		count, err := strconv.Atoi(r.PathValue("count"))
 		if err != nil {
@@ -1077,6 +1080,44 @@ func chat(ctx context.Context, t *testing.T, server *testserver.Server, key engi
 		t.Fatal(err)
 	}
 	waitForChat(t, server, key, author)
+}
+
+// handleChangelogTurn serves POST and DELETE /e2e/changelog-turn. POST adds the messages that a changelog turn leaves in
+// the Coordinator chat of plants: the Changelog message and the tell_owner message. The reply text of that turn is in no
+// chat. DELETE removes the two messages. The chat of plants shows them only between the two calls.
+func handleChangelogTurn(t *testing.T, server *testserver.Server) {
+	t.Helper()
+	queries := store.New(server.DB)
+	var ids []int64
+	server.Mux.HandleFunc("POST /e2e/changelog-turn", func(w http.ResponseWriter, r *http.Request) {
+		for _, message := range []struct{ author, text string }{
+			{"Changelog", "Changelog from v0.1.3 to v0.1.4\n\n1 pull requests.\n\n- #2000 Show the usage\n"},
+			{"tell_owner", "Release v0.1.4 makes the usage flag of the tests unnecessary."},
+		} {
+			added, err := queries.AddChatMessage(r.Context(), store.AddChatMessageParams{
+				Organization: "plants",
+				Author:       message.author,
+				InboxItems:   "[]",
+				Selections:   "[]",
+				Time:         time.Now().UTC().Format(time.RFC3339Nano),
+				Text:         message.text,
+			})
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			ids = append(ids, added.ID)
+		}
+	})
+	server.Mux.HandleFunc("DELETE /e2e/changelog-turn", func(w http.ResponseWriter, r *http.Request) {
+		for _, id := range ids {
+			if err := queries.DeleteChatMessage(r.Context(), id); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+		ids = nil
+	})
 }
 
 // addWaitingWorkstream makes the Coordinator of owner create the Workstream waitingTitle, and approves the action. The
