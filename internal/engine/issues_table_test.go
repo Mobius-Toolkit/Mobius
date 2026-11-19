@@ -328,3 +328,24 @@ func TestTheTitleOfTheWorkstreamOfABlockerStaysAfterTheCloseOfThatWorkstream(t *
 		t.Errorf("tasks = %+v", got)
 	}
 }
+
+func TestTwoBlockersInRepositoriesThatSortDifferentlyWithAndWithoutCaseCauseNoCopyAgain(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	fake.AddRepository("owner/Zeta")
+	fake.AddRepository("owner/alpha")
+	fake.AddIssue("owner/Zeta", 5, "Zeta task")
+	fake.AddIssue("owner/alpha", 7, "Alpha task")
+	fake.AddForeignBlockedBy(shop, 41, "owner/Zeta", 5)
+	fake.AddForeignBlockedBy(shop, 41, "owner/alpha", 7)
+	startCopied(t, fake)
+
+	waitForPolls(t, fake)
+	waitForPolls(t, fake)
+	waitForPolls(t, fake)
+
+	if reads := subIssueReadsOfEachPoll(fake, 12); len(reads) < 3 || slices.Max(reads) > 1 {
+		t.Errorf("reads of the sub-issues of #12 in each poll = %v", reads)
+	}
+}

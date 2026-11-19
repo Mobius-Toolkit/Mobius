@@ -478,7 +478,7 @@ func (e *Engine) treeDiffers(ctx context.Context, repository github.Repository, 
 					open = append(open, blockerKey{blockerRepository(blocker, issueRepository.FullName), int64(blocker.GetNumber())})
 				}
 				slices.SortFunc(open, func(a, b blockerKey) int {
-					return cmp.Or(strings.Compare(a.repository, b.repository), cmp.Compare(a.number, b.number))
+					return cmp.Or(strings.Compare(strings.ToLower(a.repository), strings.ToLower(b.repository)), cmp.Compare(a.number, b.number))
 				})
 			}
 			itemKey := lowerRef(issueRepository.FullName, number)
