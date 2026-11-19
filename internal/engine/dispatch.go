@@ -51,7 +51,7 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 	}
 	held := false
 	for _, issue := range page.Issues {
-		if issue.IsPullRequest() || hasLabel(issue, bucketLabel) {
+		if issue.IsPullRequest() || hasLabel(issue, bucketLabel) || hasLabel(issue, workstreamLabel) {
 			continue
 		}
 		number := int64(issue.GetNumber())
@@ -91,7 +91,24 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 		if workstream == 0 {
 			continue
 		}
-		if issue.GetIssueDependenciesSummary().GetBlockedBy() > 0 || hasLabel(issue, triageLabel) {
+		row, err := e.queries.GetDispatchIssue(ctx, store.GetDispatchIssueParams{Repository: repository.FullName, Number: number})
+		if errors.Is(err, sql.ErrNoRows) {
+			// The copy of the tree of an open Workstream can come after the label. A closed Workstream has no tree.
+			open, err := e.queries.HasCopiedWorkstreamAnyCase(ctx, store.HasCopiedWorkstreamAnyCaseParams{Repository: workstreamRepository, Number: workstream})
+			if err != nil {
+				return err
+			}
+			held = held || open
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		stored, err := parseMetadata(row.Metadata)
+		if err != nil {
+			return err
+		}
+		if row.Blocked || row.Kind == projectKind || slices.Contains(stored.Labels, triageLabel) {
 			continue
 		}
 		if !live {
@@ -997,7 +1014,7 @@ func (e *Engine) workstreamTask(ctx context.Context, repository github.Repositor
 	return task, err
 }
 
-// startAutopilot dispatches the tasks of each open Workstream with Autopilot, in the order of the sub-issues, while
+// startAutopilot dispatches the tasks of each open Workstream with Autopilot, in the order of the tree in issues, while
 // fewer tasks are active than roles.implementer.max. An issue that had a task, also an ended one, gets no new task: only a
 // trusted user starts it again. A task in answered in a Workstream with Autopilot off dispatches again at once. The
 // drain holds each new dispatch. During the stop of a hard break of the CI, Autopilot starts only the issues in stop.
@@ -1074,9 +1091,9 @@ func (e *Engine) dispatchAnsweredWithoutAutopilot(ctx context.Context, repositor
 // gives true when as many tasks are active as roles.implementer.max. When stop has some issues of repository, it
 // starts only these. A task issue of another repository follows the stop of its own repository.
 func (e *Engine) autopilotTree(ctx context.Context, repository github.Repository, workstream int64, stop map[int64]bool) (bool, error) {
-	return e.walkTasks(ctx, repository, workstream, func(source github.Repository, issue *gh.Issue) (bool, error) {
-		number := int64(issue.GetNumber())
-		if issue.GetState() != "open" || issue.GetIssueDependenciesSummary().GetBlockedBy() > 0 || hasLabel(issue, triageLabel) || hasLabel(issue, bucketLabel) {
+	return e.walkTasks(ctx, repository, workstream, func(source github.Repository, issue treeIssue) (bool, error) {
+		number := issue.number
+		if issue.state != "open" || issue.blocked || issue.kind == projectKind || slices.Contains(issue.labels, triageLabel) {
 			return false, nil
 		}
 		task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: source.FullName, Issue: number})
@@ -1085,7 +1102,7 @@ func (e *Engine) autopilotTree(ctx context.Context, repository github.Repository
 		}
 		answered := err == nil && task.State == "answered"
 		start := answered
-		if errors.Is(err, sql.ErrNoRows) && e.TrustedAuthor(source.AppSlug, issue.GetUser().GetLogin()) {
+		if errors.Is(err, sql.ErrNoRows) && e.TrustedAuthor(source.AppSlug, issue.author) {
 			had, err := e.queries.HasTask(ctx, store.HasTaskParams{Repository: source.FullName, Issue: number})
 			if err != nil {
 				return false, err
@@ -1117,10 +1134,14 @@ func (e *Engine) autopilotTree(ctx context.Context, repository github.Repository
 		if active >= int64(e.implementerMax()) {
 			return true, nil
 		}
+		current, err := source.Issue(ctx, number)
+		if err != nil || current == nil {
+			return false, err
+		}
 		if answered {
-			err = e.dispatchAnswer(ctx, source, issue, task)
+			err = e.dispatchAnswer(ctx, source, current, task)
 		} else {
-			err = e.dispatch(ctx, source, issue, repository.FullName, workstream, appLogin(source.AppSlug))
+			err = e.dispatch(ctx, source, current, repository.FullName, workstream, appLogin(source.AppSlug))
 		}
 		return false, err
 	})

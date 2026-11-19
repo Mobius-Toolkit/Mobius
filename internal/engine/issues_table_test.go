@@ -317,6 +317,8 @@ func TestTheTitleOfTheWorkstreamOfABlockerStaysAfterTheCloseOfThatWorkstream(t *
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithBlocker(t, fake)
+	// The close of a Workstream closes its tasks, and a task list shows only open blockers.
+	fake.FailClose(shop, 60)
 
 	fake.CloseIssue(shop, 13)
 
@@ -324,9 +326,7 @@ func TestTheTitleOfTheWorkstreamOfABlockerStaysAfterTheCloseOfThatWorkstream(t *
 	billing := "Billing"
 	want := []taskLine{line(42, "Let customers change plans", "open", 0)}
 	want[0].BlockedBy = []taskBlocker{{Number: 60, WorkstreamTitle: &billing}}
-	if got := apiData[[]taskLine](t, server, "/api/workstreams/owner/shop/12/tasks"); !reflect.DeepEqual(got, want) {
-		t.Errorf("tasks = %+v", got)
-	}
+	waitForTasks(t, server, want)
 }
 
 func TestTwoBlockersInRepositoriesThatSortDifferentlyWithAndWithoutCaseCauseNoCopyAgain(t *testing.T) {

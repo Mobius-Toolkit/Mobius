@@ -144,9 +144,6 @@ func (e *Engine) handleWorkstreamClose(ctx context.Context, repository github.Re
 		if err := q.DeleteWorkstreamMcpServers(ctx, store.DeleteWorkstreamMcpServersParams{Repository: repository.FullName, Workstream: number}); err != nil {
 			return err
 		}
-		if err := removeClosedTree(ctx, q, repository.FullName, number); err != nil {
-			return err
-		}
 		changeID, err = addFieldChange(ctx, q, repository.FullName, number, stateField)
 		return err
 	})
@@ -165,6 +162,9 @@ func (e *Engine) handleWorkstreamClose(ctx context.Context, repository github.Re
 		}
 	}
 	if err := e.closeWorkstream(ctx, repository, number); err != nil {
+		return err
+	}
+	if err := e.removeClosedWorkstreamTree(ctx, repository.FullName, number); err != nil {
 		return err
 	}
 	if err := e.queries.ClearWorkstreamClosePending(ctx, store.ClearWorkstreamClosePendingParams{Repository: repository.FullName, Number: number}); err != nil {
@@ -383,26 +383,61 @@ type WorkstreamDetails struct {
 	McpServers []int64
 }
 
-// walkTasks calls visit for each task below the issue parent of repository, depth first in the order of the sub-issues,
-// with the repository of the task. A nested Workstream, the issues below it, and an issue in a repository that the App
-// cannot read are no tasks. When visit gives true, the walk ends and walkTasks gives true.
-func (e *Engine) walkTasks(ctx context.Context, repository github.Repository, parent int64, visit func(github.Repository, *gh.Issue) (bool, error)) (bool, error) {
-	issues, err := repository.SubIssues(ctx, parent)
+// treeIssue is an issue of the tree of a Workstream, with the values of its row in issues.
+type treeIssue struct {
+	number int64
+	title  string
+	state  string
+	author string
+	kind   string
+	labels []string
+	// blocked is true when the issue has an open blocker.
+	blocked bool
+}
+
+// walkTasks calls visit for each issue of the tree of the Workstream number of repository, depth first in the order of
+// the tree, with the repository of the issue. The tree is the rows of issues, so a nested Workstream and the issues
+// below it are no part of it. An issue in a repository that the App cannot read, the issues below it, and an issue with
+// no number are no tasks. When visit gives true, the walk ends and walkTasks gives true.
+func (e *Engine) walkTasks(ctx context.Context, repository github.Repository, number int64, visit func(github.Repository, treeIssue) (bool, error)) (bool, error) {
+	var rows []store.ListCopiedTreeRow
+	var blockedIDs []int64
+	err := e.readTx(ctx, func(q *store.Queries) error {
+		var err error
+		rows, err = q.ListCopiedTree(ctx, store.ListCopiedTreeParams{Repository: repository.FullName, Number: number})
+		if err != nil {
+			return err
+		}
+		blockedIDs, err = q.ListOpenBlockedIssues(ctx, store.ListOpenBlockedIssuesParams{Repository: repository.FullName, Number: number})
+		return err
+	})
 	if err != nil {
 		return false, err
 	}
-	for _, issue := range issues {
-		if hasLabel(issue, workstreamLabel) {
+	tree, err := orderTree(rows)
+	if err != nil {
+		return false, err
+	}
+	skipped := map[int64]bool{}
+	for _, row := range tree {
+		source, ok := e.namedRepository(row.IssueRepository, repository)
+		if !ok || row.Parent.Valid && skipped[row.Parent.Int64] {
+			skipped[row.ID] = true
 			continue
 		}
-		source, ok := e.issueRepository(issue, repository)
-		if !ok {
+		if row.Number == 0 {
 			continue
+		}
+		issue := treeIssue{
+			number:  row.Number,
+			title:   row.Title,
+			state:   row.State,
+			author:  row.Author,
+			kind:    row.Kind,
+			labels:  row.labels,
+			blocked: slices.Contains(blockedIDs, row.ID),
 		}
 		if done, err := visit(source, issue); err != nil || done {
-			return done, err
-		}
-		if done, err := e.walkTasks(ctx, source, int64(issue.GetNumber()), visit); err != nil || done {
 			return done, err
 		}
 	}
@@ -587,6 +622,9 @@ func (e *Engine) CloseWorkstreamWontDo(ctx context.Context, repositoryName strin
 	if err := e.closeWorkstream(ctx, repository, number); err != nil {
 		return err
 	}
+	if err := e.removeClosedWorkstreamTree(ctx, repository.FullName, number); err != nil {
+		return err
+	}
 	if err := e.queries.ClearWorkstreamClosePending(ctx, store.ClearWorkstreamClosePendingParams{Repository: repository.FullName, Number: number}); err != nil {
 		return err
 	}
@@ -727,26 +765,30 @@ func (e *Engine) closeWorkstream(ctx context.Context, repository github.Reposito
 			return err
 		}
 	}
-	_, err = e.walkTasks(ctx, repository, workstream, func(source github.Repository, issue *gh.Issue) (bool, error) {
-		number := int64(issue.GetNumber())
-		if err := e.dismissIssueItems(ctx, source.FullName, number, inboxKinds...); err != nil {
+	_, err = e.walkTasks(ctx, repository, workstream, func(source github.Repository, issue treeIssue) (bool, error) {
+		if err := e.dismissIssueItems(ctx, source.FullName, issue.number, inboxKinds...); err != nil {
 			return false, err
 		}
 		for _, label := range []string{readyLabel, workingLabel, needsHumanLabel, questionLabel, reviewLabel} {
-			if !hasLabel(issue, label) {
+			if !slices.Contains(issue.labels, label) {
 				continue
 			}
-			if err := source.RemoveLabel(ctx, number, label); err != nil {
+			if err := source.RemoveLabel(ctx, issue.number, label); err != nil {
 				return false, err
 			}
 		}
-		if issue.GetState() != "open" {
+		if issue.state != "open" {
 			return false, nil
 		}
-		if err := e.postCommentOnce(ctx, source, number, closedText); err != nil {
+		// The row of issues shows a close of Mobius only after the next poll.
+		current, err := source.Issue(ctx, issue.number)
+		if err != nil || current == nil || current.GetState() != "open" {
 			return false, err
 		}
-		_, err := source.CloseIssue(ctx, number, "not_planned")
+		if err := e.postCommentOnce(ctx, source, issue.number, closedText); err != nil {
+			return false, err
+		}
+		_, err = source.CloseIssue(ctx, issue.number, "not_planned")
 		return false, err
 	})
 	return err
