@@ -795,6 +795,12 @@ SELECT id FROM outgoing_changes WHERE field = 'create' AND workstream = ?;
 -- name: GetNewestCommentChange :one
 SELECT * FROM outgoing_changes WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER) AND field = 'comment' ORDER BY id DESC LIMIT 1;
 
+-- name: HasCommentChangeWithText :one
+SELECT EXISTS (
+    SELECT 1 FROM outgoing_changes
+    WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER) AND field = 'comment' AND status <> 'refused' AND instr(text, sqlc.arg(part)) > 0
+);
+
 -- name: SetOutgoingChangeStatus :exec
 UPDATE outgoing_changes SET status = ? WHERE id = ?;
 

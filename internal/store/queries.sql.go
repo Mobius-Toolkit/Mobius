@@ -4734,6 +4734,26 @@ func (q *Queries) HandTaskToHuman(ctx context.Context, arg HandTaskToHumanParams
 	return result.RowsAffected()
 }
 
+const hasCommentChangeWithText = `-- name: HasCommentChangeWithText :one
+SELECT EXISTS (
+    SELECT 1 FROM outgoing_changes
+    WHERE repository = ? AND number = CAST(?2 AS INTEGER) AND field = 'comment' AND status <> 'refused' AND instr(text, ?3) > 0
+)
+`
+
+type HasCommentChangeWithTextParams struct {
+	Repository string
+	Number     int64
+	Part       string
+}
+
+func (q *Queries) HasCommentChangeWithText(ctx context.Context, arg HasCommentChangeWithTextParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, hasCommentChangeWithText, arg.Repository, arg.Number, arg.Part)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const hasCopiedWorkstream = `-- name: HasCopiedWorkstream :one
 SELECT EXISTS (SELECT 1 FROM workstreams WHERE repository = ? AND number = CAST(?2 AS INTEGER) AND state = 'open')
 `

@@ -1856,18 +1856,26 @@ func (e *Engine) createWorkstream(ctx context.Context, c caller, repository gith
 const triageEndText = "The triage ends."
 
 // endTriage comments on the issue of the Triager c with the link to the Workstream in workstreamRepository and closes
-// the issue as completed.
+// the issue as completed. A comment change with the same link line stays the only one, because a Triager reply can
+// come between two runs of the step.
 func (e *Engine) endTriage(ctx context.Context, c caller, workstreamRepository github.Repository, workstream int64) error {
 	repository, err := e.repository(c.repository)
 	if err != nil {
 		return err
 	}
-	text, err := e.withMark(ctx, c, repository.FullName, fmt.Sprintf("%s The Workstream is %s", triageEndText, issueLink(workstreamRepository.FullName, workstream)))
+	line := fmt.Sprintf("%s The Workstream is %s", triageEndText, issueLink(workstreamRepository.FullName, workstream))
+	posted, err := e.queries.HasCommentChangeWithText(ctx, store.HasCommentChangeWithTextParams{Repository: repository.FullName, Number: c.issue, Part: line + "\n"})
 	if err != nil {
 		return err
 	}
-	if err := e.postCommentOnce(ctx, repository, c.issue, text); err != nil {
-		return err
+	if !posted {
+		text, err := e.withMark(ctx, c, repository.FullName, line)
+		if err != nil {
+			return err
+		}
+		if err := e.postComment(ctx, repository, c.issue, text); err != nil {
+			return err
+		}
 	}
 	_, err = repository.CloseIssue(ctx, c.issue, "completed")
 	return err
