@@ -1307,3 +1307,56 @@ func TestTheMcpServerOAuthMigrationAddsTheTableAndADeleteOfAServerDeletesItsRow(
 		t.Errorf("servers with OAuth = %v, want %v", servers, want)
 	}
 }
+
+func TestTheWorkstreamCreateMigrationKeepsTheRowsAndAcceptsARowWithNoNumber(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mobius.db")
+	db := openBefore(t, path, 20270402000000)
+	for _, statement := range []string{
+		`INSERT INTO workstreams (id, repository, number, title, body, state, created_at, evergreen, close_pending)
+			VALUES (5, 'o/a', 12, 'Work', 'Body', 'closed', '2027-03-01T10:00:00Z', 1, 1)`,
+		`INSERT INTO outgoing_changes (integration, repository, number, field, text, status, created_at)
+			VALUES ('github', 'o/a', 12, 'body', NULL, 'pending', '2027-03-01T10:00:00Z')`,
+		`INSERT INTO pending_actions (organization, repository, workstream, issue, role, tool, arguments, state, time)
+			VALUES ('o', 'o/a', 0, 0, 'coordinator', 'create_workstream', '{}', 'pending', '2027-03-01T10:00:00Z')`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := Open(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	var kept int
+	err = db.QueryRow(`SELECT (SELECT count(*) FROM workstreams WHERE id = 5 AND number = 12 AND title = 'Work' AND body = 'Body' AND state = 'closed' AND evergreen = 1 AND close_pending = 1)
+		+ (SELECT count(*) FROM outgoing_changes WHERE id = 1 AND number = 12 AND workstream IS NULL AND field = 'body' AND status = 'pending')
+		+ (SELECT count(*) FROM pending_actions WHERE id = 1 AND created_workstream IS NULL)`).Scan(&kept)
+	if err != nil || kept != 3 {
+		t.Errorf("kept rows = %d, %v", kept, err)
+	}
+	var workstream, change int64
+	err = db.QueryRow(`INSERT INTO workstreams (repository, title, body, created_at) VALUES ('o/a', 'New', 'Brief', '2027-03-01T10:00:01Z') RETURNING id`).Scan(&workstream)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = db.QueryRow(`INSERT INTO outgoing_changes (integration, repository, workstream, field, status, created_at)
+		VALUES ('github', 'o/a', ?, 'create', 'pending', '2027-03-01T10:00:01Z') RETURNING id`, workstream).Scan(&change)
+	if err != nil || change != 2 {
+		t.Errorf("outgoing id = %d, error = %v", change, err)
+	}
+	if _, err := db.Exec(`INSERT INTO workstreams (repository, title, body, created_at) VALUES ('o/a', 'Other', 'Brief', '2027-03-01T10:00:02Z')`); err != nil {
+		t.Errorf("a second row with no number: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO workstreams (repository, number, title, body, created_at) VALUES ('o/a', 12, 'Copy', 'Brief', '2027-03-01T10:00:03Z')`); err == nil {
+		t.Error("the unique index accepts a second row with the number 12")
+	}
+	if _, err := db.Exec(`UPDATE pending_actions SET created_workstream = ? WHERE id = 1`, workstream); err != nil {
+		t.Errorf("created_workstream: %v", err)
+	}
+}

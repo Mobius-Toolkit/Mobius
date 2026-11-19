@@ -1820,68 +1820,22 @@ func (e *Engine) createWorkstream(ctx context.Context, c caller, repository gith
 	if err := checkWorkstream(c, input); err != nil {
 		return "", err
 	}
-	e.copyWrite.Lock()
-	defer e.copyWrite.Unlock()
-	owner, name := repository.Owner(), repository.Name()
 	action, approved := ctx.Value(approvedRun{}).(int64)
-	var issue *gh.Issue
-	if approved {
-		var err error
-		if issue, err = e.createdIssue(ctx, repository, action); err != nil {
-			return "", err
-		}
+	workstream, change, err := e.addWorkstreamToCreate(ctx, repository, input, action, approved)
+	if err != nil {
+		return "", err
 	}
-	if issue == nil {
-		var err error
-		if issue, _, err = repository.Client.Issues.Create(ctx, owner, name, gh.CreateIssueRequest{Title: input.Title, Body: &input.Brief}); err != nil {
-			return "", err
-		}
-		if approved {
-			if err := e.queries.SetPendingActionCreatedIssue(ctx, store.SetPendingActionCreatedIssueParams{CreatedIssue: sql.NullInt64{Int64: int64(issue.GetNumber()), Valid: true}, ID: action}); err != nil {
-				return "", fmt.Errorf("GitHub created #%d, but Mobius could not save its number. Check the issues before you approve again: %w", issue.GetNumber(), err)
-			}
-		}
+	if err := e.sendNow(ctx, repository, change); err != nil {
+		return "", err
 	}
-	var err error
-	if body := e.withChatLink(repository, int64(issue.GetNumber()), input.Brief); body != issue.GetBody() {
-		updated, _, err := repository.Client.Issues.Update(ctx, owner, name, issue.GetNumber(), gh.UpdateIssueRequest{Body: &body})
-		if err != nil {
-			return "", fmt.Errorf("GitHub created #%d, but the update of its body failed. Approve the action again: %w", issue.GetNumber(), err)
-		}
-		issue = updated
+	row, err := e.queries.GetWorkstreamToCreate(ctx, workstream)
+	if err != nil {
+		return "", err
 	}
-	// The label can be on GitHub after a failed call, so the own write stays.
-	if _, err := addOwnWrite(ctx, e.queries, repository.FullName, int64(issue.GetNumber()), workstreamField, workstreamLabel, labeledChange); err != nil {
-		return "", fmt.Errorf("GitHub created #%d, but Mobius could not save the own write of the Workstream label. Approve the action again: %w", issue.GetNumber(), err)
+	if !row.Number.Valid {
+		return e.sentOrLater(ctx, change, "", "Mobius creates the Workstream on GitHub later. The number comes after the send.")
 	}
-	if issue.Labels, _, err = repository.Client.Issues.AddLabelsToIssue(ctx, owner, name, issue.GetNumber(), append([]string{workstreamLabel}, input.Labels...)); err != nil {
-		return "", fmt.Errorf("GitHub created #%d, but the add of the Workstream labels failed. Do not create the Workstream again: %w", issue.GetNumber(), err)
-	}
-	if _, err := e.addWorkstreamFromEvent(ctx, repository, issue, appLogin(repository.AppSlug), false); err != nil {
-		return "", fmt.Errorf("GitHub created #%d, but the add of the Workstream failed. Approve the action again: %w", issue.GetNumber(), err)
-	}
-	if c.role == CoordinatorRole {
-		e.publish(Change{Created: &Created{repository.FullName, int64(issue.GetNumber())}})
-	}
-	if c.role == TriagerRole {
-		if err := e.endTriage(ctx, c, repository, int64(issue.GetNumber())); err != nil {
-			return "", fmt.Errorf("GitHub created #%d, but the end of the triage failed. Do not create the Workstream again: %w", issue.GetNumber(), err)
-		}
-	}
-	return fmt.Sprintf("Created the Workstream #%d.", issue.GetNumber()), nil
-}
-
-// createdIssue gives the issue that an earlier run of the action created, or nil when the action created none.
-func (e *Engine) createdIssue(ctx context.Context, repository github.Repository, action int64) (*gh.Issue, error) {
-	row, err := e.queries.GetPendingAction(ctx, action)
-	if err != nil || !row.CreatedIssue.Valid {
-		return nil, err
-	}
-	issue, err := repository.Issue(ctx, row.CreatedIssue.Int64)
-	if err == nil && issue == nil {
-		return nil, fmt.Errorf("GitHub has no issue #%d, which this action created", row.CreatedIssue.Int64)
-	}
-	return issue, err
+	return fmt.Sprintf("Created the Workstream #%d.", row.Number.Int64), nil
 }
 
 // triageEndText starts the comment of the Mobius App that ends the triage of an issue.
@@ -1898,7 +1852,7 @@ func (e *Engine) endTriage(ctx context.Context, c caller, workstreamRepository g
 	if err != nil {
 		return err
 	}
-	if err := e.postComment(ctx, repository, c.issue, text); err != nil {
+	if err := e.postCommentOnce(ctx, repository, c.issue, text); err != nil {
 		return err
 	}
 	_, err = repository.CloseIssue(ctx, c.issue, "completed")

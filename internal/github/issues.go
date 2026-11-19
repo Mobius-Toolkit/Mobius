@@ -240,6 +240,12 @@ func (r Repository) OpenIssuesWithLabel(ctx context.Context, label string) ([]*g
 	return slices.DeleteFunc(issues, (*gh.Issue).IsPullRequest), err
 }
 
+// NewestIssues gives the first page of the issues of the repository, the newest first. It gives no pull request.
+func (r Repository) NewestIssues(ctx context.Context) ([]*gh.Issue, error) {
+	issues, _, err := r.Client.Issues.ListByRepo(ctx, r.Owner(), r.Name(), &gh.IssueListByRepoOptions{State: "all", Sort: "created", Direction: "desc", ListOptions: gh.ListOptions{PerPage: 100}})
+	return slices.DeleteFunc(issues, (*gh.Issue).IsPullRequest), err
+}
+
 // SearchIssues gives the first 20 issues that match query, in the order of GitHub. The search is for the issues of the
 // repository, but a "repo:" term in query can add other repositories, so the caller checks each repository URL.
 func (r Repository) SearchIssues(ctx context.Context, query string) ([]*gh.Issue, error) {

@@ -565,20 +565,6 @@ func TestCreateWorkstreamCreatesTheIssueWithTheWorkstreamLabel(t *testing.T) {
 	}
 }
 
-func TestCreateWorkstreamGivesTheNumberOfTheIssueWhenTheLabelAddFails(t *testing.T) {
-	t.Parallel()
-	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, approvalSeen+call("create_workstream", `{ title = "Billing", brief = "Bill the plans." }`))
-	fake.FailAddLabels(shop, 13, true)
-
-	run(t, server, leadSpec(t), "Create it.")
-	action := approveNext(t, server, 1)
-
-	if !strings.HasPrefix(action.Error, "GitHub created #13, but the add of the Workstream labels failed. Do not create the Workstream again: ") {
-		t.Errorf("error = %q", action.Error)
-	}
-}
-
 func TestCreateWorkstreamAddsTheLabelsOfTheCoordinatorChat(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

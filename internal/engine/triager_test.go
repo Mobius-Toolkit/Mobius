@@ -687,7 +687,7 @@ func TestTheTriagerCreatesAWorkstreamOnlyAfterTheOwnerApprovesInTheInbox(t *test
 	}
 }
 
-func TestAnApprovalThatFailsAtTheCloseOfTheIssueCommentsAndRunsAgainWithoutANewWorkstream(t *testing.T) {
+func TestAFailedCloseOfTheIssueAfterTheCreateOfTheWorkstreamIsDoneAgainByALaterPollWithOneCommentAndOneWorkstream(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTriager(t, fake)
@@ -698,36 +698,25 @@ func TestAnApprovalThatFailsAtTheCloseOfTheIssueCommentsAndRunsAgainWithoutANewW
 	action := waitForActions(t, server, 1)[0]
 	fake.FailClose(shop, 66)
 
-	failed := decided(t, server, action.ID, "approve", "")
-
-	if failed.State != "pending" || !strings.Contains(failed.Error, "GitHub created #67") {
-		t.Errorf("action = %+v", failed)
-	}
-	failure := testkit.WaitForValue(t, func() (testkit.Comment, bool) {
-		for _, comment := range fake.Comments(shop, 66) {
-			if strings.HasPrefix(comment.Body, "The Owner approved `create_workstream` ") && strings.Contains(comment.Body, ", and it failed") {
-				return comment, true
-			}
-		}
-		return testkit.Comment{}, false
-	})
-	if failure.Author != testkit.AppSlug+"[bot]" {
-		t.Errorf("comment = %v", failure)
-	}
-	testkit.WaitFor(t, func() bool {
-		sessions := chatSessions(t, server, issueTriagers, engine.TriagerRole)
-		return len(sessions) == 3 && sessions[2].EndedAt.Valid
-	})
-	fake.AllowClose(shop, 66)
-
 	done := decided(t, server, action.ID, "approve", "")
 
-	if done.State != "done" {
+	if done.State != "done" || done.Result != "Created the Workstream #67." {
 		t.Errorf("action = %+v", done)
 	}
+	link := triagerComment(66, "The triage ends. The Workstream is https://github.com/owner/shop/issues/67")
+	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 66), link) })
+	waitForPolls(t, fake)
+	if state, _ := fake.State(shop, 66); state != "open" {
+		t.Errorf("state = %s", state)
+	}
+	fake.AllowClose(shop, 66)
+
 	testkit.WaitFor(t, func() bool { state, _ := fake.State(shop, 66); return state == "closed" })
 	if fake.HasIssue(shop, 68) {
 		t.Error("a second Workstream exists")
+	}
+	if got := slices.DeleteFunc(fake.Comments(shop, 66), func(comment testkit.Comment) bool { return comment.Body != link.Body }); len(got) != 1 {
+		t.Errorf("comments with the link = %v", got)
 	}
 }
 

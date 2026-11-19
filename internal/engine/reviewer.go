@@ -231,7 +231,7 @@ func (e *Engine) reviewRound(ctx context.Context, a *Agent, j *reviewJob, task s
 			return err
 		}
 		if !slices.ContainsFunc(pending, func(change store.OutgoingChange) bool {
-			return change.Number == number && change.Field == reviewCommentEditField
+			return change.Number.Int64 == number && change.Field == reviewCommentEditField
 		}) {
 			if err := q.SetReviewComment(ctx, store.SetReviewCommentParams{ID: task.ID}); err != nil {
 				return err

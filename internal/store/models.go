@@ -297,7 +297,8 @@ type OutgoingChange struct {
 	ID          int64
 	Integration string
 	Repository  string
-	Number      int64
+	Number      sql.NullInt64
+	Workstream  sql.NullInt64
 	ReplyTo     sql.NullInt64
 	Field       string
 	Text        sql.NullString
@@ -317,25 +318,25 @@ type OwnerAction struct {
 }
 
 type PendingAction struct {
-	ID           int64
-	Organization string
-	Repository   string
-	Workstream   int64
-	Issue        int64
-	Role         string
-	Tool         string
-	Arguments    string
-	State        string
-	Running      int64
-	Error        string
-	Result       string
-	Message      string
-	Time         string
-	DecidedAt    sql.NullString
-	ChatMessage  sql.NullInt64
-	InboxItem    sql.NullInt64
-	CreatedIssue sql.NullInt64
-	OldBrief     string
+	ID                int64
+	Organization      string
+	Repository        string
+	Workstream        int64
+	Issue             int64
+	Role              string
+	Tool              string
+	Arguments         string
+	State             string
+	Running           int64
+	Error             string
+	Result            string
+	Message           string
+	Time              string
+	DecidedAt         sql.NullString
+	ChatMessage       sql.NullInt64
+	InboxItem         sql.NullInt64
+	OldBrief          string
+	CreatedWorkstream sql.NullInt64
 }
 
 type RecurringTask struct {

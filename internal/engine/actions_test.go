@@ -471,15 +471,6 @@ func callCreateWorkstream(when, title, brief string, labels ...string) string {
 	return fmt.Sprintf("[[prompts]]\nwhen = %q\ncall = { tool = \"create_workstream\", arguments = { title = %q, brief = %q, labels = %q } }\n\n", when, title, brief, labels)
 }
 
-func createdIssue(t *testing.T, server *testserver.Server, id int64) sql.NullInt64 {
-	t.Helper()
-	var issue sql.NullInt64
-	if err := server.DB.QueryRow("SELECT created_issue FROM pending_actions WHERE id = ?", id).Scan(&issue); err != nil {
-		t.Fatal(err)
-	}
-	return issue
-}
-
 // The poll adds mobius:evergreen to a maintenance Workstream at a time that a test does not control.
 func workstreamLabels(fake *testkit.FakeGitHub, number int64) []string {
 	return slices.DeleteFunc(fake.Labels(shop, number), func(label string) bool { return label == "mobius:evergreen" })
@@ -519,41 +510,6 @@ func TestTheCoordinatorCallsCreateWorkstreamAndGitHubGetsTheIssueOnlyAfterTheOwn
 	if fake.HasIssue(shop, 14) {
 		t.Error("the Workstream exists two times")
 	}
-}
-
-func TestAFailedAddOfTheLabelsLeavesTheActionPendingAndASecondApprovalCreatesNoSecondIssue(t *testing.T) {
-	t.Parallel()
-	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, approvalSeen+callCreateWorkstream("Create.", "Upkeep", "Keep the code healthy.", "mobius:maintenance")+seenScript)
-	fake.FailAddLabels(shop, 13, true)
-	run(t, server, coordinatorSpec(t), "Create.")
-	action := waitForActions(t, server, 1)[0]
-
-	failed := decided(t, server, action.ID, "approve", "")
-
-	if failed.State != "pending" || !strings.HasPrefix(failed.Error, "GitHub created #13, but the add of the Workstream labels failed.") {
-		t.Errorf("action = %+v", failed)
-	}
-	if issue := createdIssue(t, server, action.ID); issue != (sql.NullInt64{Int64: 13, Valid: true}) {
-		t.Errorf("created issue = %+v", issue)
-	}
-	if items := itemsOf(t, server, "approval"); len(items) != 1 {
-		t.Errorf("items = %+v", items)
-	}
-
-	fake.FailAddLabels(shop, 13, false)
-	done := decided(t, server, action.ID, "approve", "")
-
-	if done.State != "done" || done.Error != "" || done.Result != "Created the Workstream #13." {
-		t.Errorf("action = %+v", done)
-	}
-	if labels := workstreamLabels(fake, 13); !slices.Equal(labels, []string{"mobius:workstream", "mobius:maintenance"}) {
-		t.Errorf("labels of #13 = %v", labels)
-	}
-	if fake.HasIssue(shop, 14) {
-		t.Error("the Workstream exists two times")
-	}
-	waitForNoItem(t, server, "approval")
 }
 
 func TestTheCoordinatorCallsTellCuratorAndTheCuratorGetsTheRequestOnlyAfterTheOwnerApproves(t *testing.T) {

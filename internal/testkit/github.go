@@ -140,6 +140,8 @@ type FakeGitHub struct {
 	refuseOpenBucketAdds                       bool
 	failedComments                             map[issueKey]bool
 	lostCommentAnswers                         map[issueKey]bool
+	failedIssueCreates                         int
+	lostIssueCreateAnswers                     int
 	refusedNextComments                        map[issueKey]int
 	refusedNextCommentLists                    map[issueKey]int
 	refusedComments                            map[issueKey]int

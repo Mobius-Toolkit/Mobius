@@ -72,9 +72,8 @@ type Engine struct {
 	sealedApprovals map[ChatKey][]item
 	// copied holds the full names of the repositories whose copy is complete. Only the poll uses it.
 	copied map[string]bool
-	// copyWrite makes syncCopy, which reads all Workstreams and then replaces the copy, and createWorkstream, which
-	// creates a Workstream and adds it to the copy, take turns. Else syncCopy can replace the copy with a list that
-	// does not have the new Workstream.
+	// copyWrite makes syncCopy, which reads all Workstreams and then replaces the copy, and the writes of single issues
+	// of the copy take turns.
 	copyWrite sync.Mutex
 	// labelChanges counts the local label changes of each repository (changeCopiedLabels). labelChangedAt holds, for
 	// each changed issue, the count of its repository after its newest change. labelChangeMu makes a label change with

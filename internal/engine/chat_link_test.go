@@ -2,7 +2,6 @@ package engine_test
 
 import (
 	"reflect"
-	"slices"
 	"strings"
 	"testing"
 
@@ -74,37 +73,6 @@ func TestAnApprovedCreateWorkstreamWritesTheBriefWithTheLinkToItsOwnLeadChat(t *
 	}
 	if _, body := fake.Issue(shop, 13); body != "Sell gift cards.\n\n"+strings.Replace(chatLink, "/12)", "/13)", 1) {
 		t.Errorf("body = %q", body)
-	}
-}
-
-func TestASecondApprovalOfCreateWorkstreamAfterAFailedAddOfTheLabelsKeepsOneLinkAndOneIssue(t *testing.T) {
-	t.Parallel()
-	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectWith(t, fake, approvalSeen+callCreateWorkstream("Create the Workstream.", "Gift cards", "Sell gift cards.", "mobius:maintenance")+seenScript, withUIURL)
-	fake.FailAddLabels(shop, 13, true)
-	run(t, server, coordinatorSpec(t), "Create the Workstream.")
-	action := waitForActions(t, server, 1)[0]
-
-	failed := decided(t, server, action.ID, "approve", "")
-
-	if failed.State != "pending" || !strings.HasPrefix(failed.Error, "GitHub created #13, but the add of the Workstream labels failed.") {
-		t.Errorf("action = %+v", failed)
-	}
-	fake.FailAddLabels(shop, 13, false)
-	done := decided(t, server, action.ID, "approve", "")
-
-	if done.State != "done" || done.Error != "" {
-		t.Errorf("action = %+v", done)
-	}
-	want := "Sell gift cards.\n\n" + strings.Replace(chatLink, "/12)", "/13)", 1)
-	if _, body := fake.Issue(shop, 13); body != want {
-		t.Errorf("body = %q, want %q", body, want)
-	}
-	if labels := workstreamLabels(fake, 13); !slices.Equal(labels, []string{"mobius:workstream", "mobius:maintenance"}) {
-		t.Errorf("labels of #13 = %v", labels)
-	}
-	if fake.HasIssue(shop, 14) {
-		t.Error("the Workstream exists two times")
 	}
 }
 
