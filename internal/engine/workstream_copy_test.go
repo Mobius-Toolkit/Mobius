@@ -798,15 +798,12 @@ func TestAFailedUpdateOfTheCopyDoesNotRepeatTheEventsOfThePoll(t *testing.T) {
 	fake.AddLabel(shop, 13, "mobius:workstream", "owner")
 	fake.AddSubIssueOf(shop, 12, 42, "Let customers change plans")
 
+	creations := func() int { return len(eventsOfKind(t, server, "creation", 13)) }
+	testkit.WaitFor(t, func() bool { return creations() > 0 })
 	waitForPoll(t, server, fake)
-	count := 0
-	for _, event := range leadEvents(t, server) {
-		if event.Kind == "creation" && event.Workstream == 13 {
-			count++
-		}
-	}
-	if count != 1 {
-		t.Errorf("creation events of the new Workstream = %d", count)
+	waitForPolls(t, fake)
+	if got := creations(); got != 1 {
+		t.Errorf("creation events of the new Workstream = %d", got)
 	}
 }
 
