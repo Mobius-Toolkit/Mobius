@@ -32,6 +32,7 @@ func TestUpdateBlockersAddsABlockerInTheRepositoryAndABlockerInAnotherRepository
 	fake.AddIssue(shop, 40, "Add plan model")
 	fake.AddIssue(shop, 41, "Plan API")
 	fake.AddSubIssue(shop, 12, 41)
+	waitForTasks(t, server, []taskLine{line(41, "Plan API", "open", 0)})
 
 	session := run(t, server, leadSpec(t), "1. ", "2. ")
 
