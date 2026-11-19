@@ -452,3 +452,51 @@ func TestRecopyTreesKeepsParentAndBlockersOfExistingRowsAndIgnoresUserIssues(t *
 		t.Errorf("blockers after polls = %+v", got)
 	}
 }
+
+func TestAnOldPollIssueReadAfterLocalBodyEditDoesNotOverwriteIssuesBody(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake,
+		editBodyCall("Edit #41.", `{ repository = "owner/shop", n = 41, body = "Updated goal." }`)+seen,
+		withUIURL)
+	fake.AddIssue(shop, 41, "Plan API")
+	fake.SetBody(shop, 41, "Old body")
+	fake.AddSubIssue(shop, 12, 41)
+	waitForTasks(t, server, []taskLine{line(41, "Plan API", "open", 0)})
+	waitForPolls(t, fake)
+
+	releasePatch := fake.HoldNextOf("PATCH /repos/{owner}/{repo}/issues/{number}", "/repos/"+shop+"/issues/41")
+	done := make(chan string, 1)
+	go func() {
+		session := run(t, server, leadSpec(t), "Edit #41.")
+		done <- reply(t, server, session)
+	}()
+
+	testkit.WaitFor(t, func() bool {
+		return countRows(t, server, "SELECT count(*) FROM outgoing_changes WHERE field = 'body' AND status = 'pending'") == 1
+	})
+	reached, releaseEvents := fake.HoldIssueEvents(shop, 12)
+	fake.SetTitle(shop, 12, "Plan the shop")
+	fake.SetTitle(shop, 41, "Plan API updated")
+	<-reached
+
+	releasePatch()
+	if got := <-done; got != "Changed the body of owner/shop#41." {
+		releaseEvents()
+		t.Fatalf("reply = %q", got)
+	}
+	releaseEvents()
+
+	testkit.WaitFor(t, func() bool { return copiedTitle(t, server, 41) == "Plan API updated" })
+	var dbBody string
+	if err := server.DB.QueryRow("SELECT body FROM issues WHERE repository = ? AND number = 41", shop).Scan(&dbBody); err != nil {
+		t.Fatal(err)
+	}
+	if dbBody != "Updated goal." {
+		t.Errorf("issues.body = %q, want %q", dbBody, "Updated goal.")
+	}
+	wantGH := "Updated goal.\n\n[Open the Lead chat in Mobius](https://mobius.example.com/workstreams/owner/shop/12)"
+	if _, gotGH := fake.Issue(shop, 41); gotGH != wantGH {
+		t.Errorf("github body = %q, want %q", gotGH, wantGH)
+	}
+}

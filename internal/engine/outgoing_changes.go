@@ -679,7 +679,13 @@ func (e *Engine) sendIssue(ctx context.Context, repository github.Repository, ch
 				return e.failed(ctx, repository, change, err)
 			}
 		}
-		return false, e.markSent(ctx, change)
+		e.labelChangeMu.Lock()
+		repo := strings.ToLower(row.Repository)
+		e.bodyChanges[repo]++
+		e.bodyChangedAt[lowerRef(row.Repository, number)] = e.bodyChanges[repo]
+		err = e.markSent(ctx, change)
+		e.labelChangeMu.Unlock()
+		return false, err
 	case blockersField:
 		return e.sendIssueBlockers(ctx, repository, change, row)
 	}
