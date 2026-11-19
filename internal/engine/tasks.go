@@ -470,7 +470,7 @@ func (e *Engine) StopIssue(ctx context.Context, repositoryName string, number in
 		// The text tells the Owner how to authorize the Mobius App.
 		return refusal(err.Error())
 	}
-	issue, err := existingIssue(ctx, repository, number)
+	issue, err := e.existingIssue(ctx, repository, number)
 	if err != nil {
 		return err
 	}

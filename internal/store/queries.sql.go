@@ -3531,6 +3531,28 @@ func (q *Queries) GetIssueRepositoryChoice(ctx context.Context, organization str
 	return repository, err
 }
 
+const getIssueText = `-- name: GetIssueText :one
+SELECT title, body, state FROM issues WHERE repository = ? AND number = CAST(?2 AS INTEGER)
+`
+
+type GetIssueTextParams struct {
+	Repository string
+	Number     int64
+}
+
+type GetIssueTextRow struct {
+	Title string
+	Body  string
+	State string
+}
+
+func (q *Queries) GetIssueText(ctx context.Context, arg GetIssueTextParams) (GetIssueTextRow, error) {
+	row := q.db.QueryRowContext(ctx, getIssueText, arg.Repository, arg.Number)
+	var i GetIssueTextRow
+	err := row.Scan(&i.Title, &i.Body, &i.State)
+	return i, err
+}
+
 const getLastChatMessageOf = `-- name: GetLastChatMessageOf :one
 SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections FROM chat_messages
 WHERE organization = ? AND repository = ? AND workstream = ? AND author = ?

@@ -1681,7 +1681,7 @@ func (e *Engine) stopTaskTool(ctx context.Context, c caller, repository github.R
 	if task.State != "queued" && task.State != "working" {
 		return "", refuse("The task of #%d is %s, so it has no work to stop.", input.N, task.State)
 	}
-	issue, err := existingIssue(ctx, repository, input.N)
+	issue, err := e.existingIssue(ctx, repository, input.N)
 	if err != nil {
 		return "", err
 	}

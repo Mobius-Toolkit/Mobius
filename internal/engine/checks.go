@@ -134,7 +134,7 @@ func (e *Engine) onFailure(ctx context.Context, repository github.Repository, ta
 		return false, nil
 	}
 	items += diagnosis
-	issue, err := existingIssue(ctx, repository, task.Issue)
+	issue, err := e.existingIssue(ctx, repository, task.Issue)
 	if err != nil {
 		return false, err
 	}
@@ -207,7 +207,7 @@ func (e *Engine) onChecks(ctx context.Context, repository github.Repository, tas
 	case state.absent && !e.quietPeriodEnded(task.ID, head):
 		return nil
 	}
-	issue, err := existingIssue(ctx, repository, task.Issue)
+	issue, err := e.existingIssue(ctx, repository, task.Issue)
 	if err != nil {
 		return err
 	}
@@ -366,7 +366,7 @@ func (e *Engine) approveReviewed(ctx context.Context, repository github.Reposito
 // last event of this kind. It does not change the task.
 func (e *Engine) onLongCIWait(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest, incomplete []string) error {
 	return e.remindLead(ctx, task, longCIWait, "long_ci_wait", func(now time.Time, _ time.Duration) (string, error) {
-		issue, err := existingIssue(ctx, repository, task.Issue)
+		issue, err := e.existingIssue(ctx, repository, task.Issue)
 		if err != nil {
 			return "", err
 		}
@@ -383,7 +383,7 @@ func (e *Engine) remindApproval(ctx context.Context, repository github.Repositor
 		return err
 	}
 	return e.remindLead(ctx, task, approvalReminder, "approval_reminder", func(now time.Time, waited time.Duration) (string, error) {
-		issue, err := existingIssue(ctx, repository, task.Issue)
+		issue, err := e.existingIssue(ctx, repository, task.Issue)
 		if err != nil {
 			return "", err
 		}
@@ -666,7 +666,7 @@ func (e *Engine) ciFailed(ctx context.Context, repository github.Repository, tas
 	if err != nil {
 		return err
 	}
-	issue, err := existingIssue(ctx, repository, task.Issue)
+	issue, err := e.existingIssue(ctx, repository, task.Issue)
 	if err != nil {
 		return err
 	}
