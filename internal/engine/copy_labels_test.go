@@ -164,18 +164,15 @@ reply = ["Seen"]
 		return reads
 	}
 
-	// The check of the tree reads the sub-issues of #12 and holds. Then the tree copy reads them and holds, and then it
-	// reads the sub-issues of #41 and holds. The labels of #41 are from the read of the sub-issues of #12.
+	// The check of the tree reads the sub-issues of #12 and holds, and then reads the sub-issues of #41 and holds.
+	// The labels of #41 are from the issue read of the poll.
 	// A poll that runs already can read the sub-issues of #41 and #50 now, so the first hold matches only #12.
 	before := subIssueReads("12")
-	releaseCheck := fake.HoldNextOf("GET /repos/{owner}/{repo}/issues/{number}/sub_issues", "/repos/"+shop+"/issues/12/sub_issues")
+	releaseRoot := fake.HoldNextOf("GET /repos/{owner}/{repo}/issues/{number}/sub_issues", "/repos/"+shop+"/issues/12/sub_issues")
 	testkit.WaitFor(t, func() bool { return subIssueReads("12") > before })
-	releaseRoot := fake.HoldNext("GET /repos/{owner}/{repo}/issues/{number}/sub_issues")
-	fake.AddSubIssueOf(shop, 12, 60, "Plan the tiers")
-	releaseCheck()
-	testkit.WaitFor(t, func() bool { return subIssueReads("12") > before+1 })
 	before41 := subIssueReads("41")
-	releaseTask := fake.HoldNext("GET /repos/{owner}/{repo}/issues/{number}/sub_issues")
+	releaseTask := fake.HoldNextOf("GET /repos/{owner}/{repo}/issues/{number}/sub_issues", "/repos/"+shop+"/issues/41/sub_issues")
+	fake.AddSubIssueOf(shop, 12, 60, "Plan the tiers")
 	releaseRoot()
 	testkit.WaitFor(t, func() bool { return subIssueReads("41") > before41 })
 

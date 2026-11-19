@@ -389,7 +389,14 @@ func (e *Engine) sendIssueParent(ctx context.Context, repository github.Reposito
 		}
 		meta.GitHub.ID = found.GetID()
 	}
+	ownWrite, err := addParentOwnWrite(ctx, e.queries, change.Repository, row.Number.Int64, parentRepo.FullName, parentNumber, addedChange)
+	if err != nil {
+		return false, err
+	}
 	if _, _, err := parentRepo.Client.SubIssue.Add(ctx, parentRepo.Owner(), parentRepo.Name(), parentNumber, gh.SubIssueRequest{SubIssueID: meta.GitHub.ID, ReplaceParent: new(true)}); err != nil {
+		if delErr := e.queries.DeleteOwnWrite(ctx, ownWrite); delErr != nil {
+			return false, delErr
+		}
 		return e.failed(ctx, repository, change, err)
 	}
 	return false, e.markSent(ctx, change)

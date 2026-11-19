@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -174,14 +175,14 @@ func (e *Engine) sendNow(ctx context.Context, repository github.Repository, id i
 		return err
 	}
 	item := itemOf(change)
-	mu := e.outgoingItem(repository.FullName, item)
+	mu := e.outgoingItem(change.Repository, item)
 	mu.Lock()
 	defer mu.Unlock()
 	change, err = e.queries.GetOutgoingChange(ctx, id)
 	if err != nil || change.Status != "pending" {
 		return err
 	}
-	pending, err := e.pendingItemChanges(ctx, repository.FullName, item)
+	pending, err := e.pendingItemChanges(ctx, change.Repository, item)
 	if err != nil {
 		return err
 	}
@@ -287,6 +288,9 @@ func (e *Engine) sendLocked(ctx context.Context, repository github.Repository, c
 func (e *Engine) send(ctx context.Context, repository github.Repository, change store.OutgoingChange, read bool) (bool, error) {
 	if change.Issue.Valid {
 		return e.sendIssue(ctx, repository, change)
+	}
+	if !change.Issue.Valid && change.Field == parentField {
+		return e.sendParentRemoval(ctx, repository, change)
 	}
 	if change.Field == createField {
 		return e.sendCreate(ctx, repository, change)
@@ -675,12 +679,79 @@ func (e *Engine) sendIssue(ctx context.Context, repository github.Repository, ch
 				return e.failed(ctx, repository, change, err)
 			}
 		}
-		return false, e.markSent(ctx, change)
+		e.labelChangeMu.Lock()
+		repo := strings.ToLower(row.Repository)
+		e.bodyChanges[repo]++
+		e.bodyChangedAt[lowerRef(row.Repository, number)] = e.bodyChanges[repo]
+		err = e.markSent(ctx, change)
+		e.labelChangeMu.Unlock()
+		return false, err
 	case blockersField:
 		return e.sendIssueBlockers(ctx, repository, change, row)
 	}
 	log.Printf("write the %s of %s#%d: unknown issue field", change.Field, change.Repository, number)
 	return false, e.refuse(ctx, change)
+}
+
+// sendParentRemoval removes a sub-issue link on GitHub when an untrusted user added an issue with no tree row below
+// a parent. change.Text holds parentMetadata.
+func (e *Engine) sendParentRemoval(ctx context.Context, repository github.Repository, change store.OutgoingChange) (bool, error) {
+	var meta parentMetadata
+	if err := json.Unmarshal([]byte(change.Text.String), &meta); err != nil {
+		return false, err
+	}
+	parentRepo, ok := e.namedRepository(meta.ParentRepository, repository)
+	if !ok {
+		return false, e.refuse(ctx, change)
+	}
+	var childID int64
+	if childRepo, readable := e.namedRepository(change.Repository, repository); readable {
+		child, err := childRepo.Issue(ctx, change.Number.Int64)
+		if err != nil {
+			return e.failed(ctx, repository, change, err)
+		}
+		if child == nil {
+			return false, e.markSent(ctx, change)
+		}
+		childID = child.GetID()
+	} else {
+		children, err := parentRepo.SubIssues(ctx, meta.Parent)
+		if github.NotFound(err) {
+			return false, e.markSent(ctx, change)
+		}
+		if err != nil {
+			return e.failed(ctx, repository, change, err)
+		}
+		for _, child := range children {
+			if strings.EqualFold(blockerRepository(child, parentRepo.FullName), change.Repository) && int64(child.GetNumber()) == change.Number.Int64 {
+				childID = child.GetID()
+				break
+			}
+		}
+		if childID == 0 {
+			return false, e.markSent(ctx, change)
+		}
+	}
+	ownWrite, err := addParentOwnWrite(ctx, e.queries, change.Repository, change.Number.Int64, parentRepo.FullName, meta.Parent, removedChange)
+	if err != nil {
+		return false, err
+	}
+	if _, _, err := parentRepo.Client.SubIssue.Remove(ctx, parentRepo.Owner(), parentRepo.Name(), meta.Parent, gh.SubIssueRequest{SubIssueID: childID}); err != nil {
+		if delErr := e.queries.DeleteOwnWrite(ctx, ownWrite); delErr != nil {
+			return false, delErr
+		}
+		if github.NotFound(err) {
+			return false, e.markSent(ctx, change)
+		}
+		return e.failed(ctx, repository, change, err)
+	}
+	return false, e.markSent(ctx, change)
+}
+
+type wantedBlocker struct {
+	id         int64
+	repository string
+	number     int64
 }
 
 // sendIssueBlockers writes the blockers of row to GitHub: it adds each blocker of row that GitHub lacks, and removes
@@ -692,7 +763,7 @@ func (e *Engine) sendIssueBlockers(ctx context.Context, repository github.Reposi
 		return false, err
 	}
 	wantedIDs := map[int64]bool{}
-	ids := make([]int64, 0, len(wanted))
+	items := make([]wantedBlocker, 0, len(wanted))
 	for _, blocker := range wanted {
 		if !blocker.Number.Valid {
 			return true, nil
@@ -716,7 +787,7 @@ func (e *Engine) sendIssueBlockers(ctx context.Context, repository github.Reposi
 			meta.ID = found.GetID()
 		}
 		wantedIDs[meta.ID] = true
-		ids = append(ids, meta.ID)
+		items = append(items, wantedBlocker{id: meta.ID, repository: blocker.Repository, number: blocker.Number.Int64})
 	}
 	current, err := repository.BlockedBy(ctx, number)
 	if err != nil {
@@ -726,11 +797,18 @@ func (e *Engine) sendIssueBlockers(ctx context.Context, repository github.Reposi
 	for _, found := range current {
 		currentIDs[found.GetID()] = true
 	}
-	for _, id := range ids {
-		if currentIDs[id] {
+	for _, item := range items {
+		if currentIDs[item.id] {
 			continue
 		}
-		if _, _, err := repository.Client.Issues.AddBlockedBy(ctx, repository.Owner(), repository.Name(), number, gh.IssueDependencyRequest{IssueID: id}); err != nil {
+		ownWrite, err := addBlockerOwnWrite(ctx, e.queries, change.Repository, number, item.repository, item.number, addedChange)
+		if err != nil {
+			return false, err
+		}
+		if _, _, err := repository.Client.Issues.AddBlockedBy(ctx, repository.Owner(), repository.Name(), number, gh.IssueDependencyRequest{IssueID: item.id}); err != nil {
+			if delErr := e.queries.DeleteOwnWrite(ctx, ownWrite); delErr != nil {
+				return false, delErr
+			}
 			return e.failed(ctx, repository, change, err)
 		}
 	}
@@ -738,7 +816,15 @@ func (e *Engine) sendIssueBlockers(ctx context.Context, repository github.Reposi
 		if found.GetState() != "open" || wantedIDs[found.GetID()] {
 			continue
 		}
+		blockerRepo := blockerRepository(found, repository.FullName)
+		ownWrite, err := addBlockerOwnWrite(ctx, e.queries, change.Repository, number, blockerRepo, int64(found.GetNumber()), removedChange)
+		if err != nil {
+			return false, err
+		}
 		if _, _, err := repository.Client.Issues.RemoveBlockedBy(ctx, repository.Owner(), repository.Name(), number, found.GetID()); err != nil {
+			if delErr := e.queries.DeleteOwnWrite(ctx, ownWrite); delErr != nil {
+				return false, delErr
+			}
 			return e.failed(ctx, repository, change, err)
 		}
 	}

@@ -1454,6 +1454,58 @@ func TestTheIssueCreateMigrationKeepsTheRowsAndAcceptsParent(t *testing.T) {
 	}
 }
 
+func TestTheTreeChangesMigrationKeepsTheRowsAndAcceptsParentAndBlockers(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mobius.db")
+	db := openBefore(t, path, 20270416000000)
+	for _, statement := range []string{
+		`INSERT INTO incoming_changes (id, integration, external_id, repository, number, field, change, actor, metadata, status, created_at)
+			VALUES (7, 'github', '70', 'o/a', 1, 'autopilot', 'labeled', 'owner', '{"label":"mobius:autopilot"}', 'pending', '2027-03-01T10:00:00Z')`,
+		`INSERT INTO own_writes (id, integration, repository, number, field, metadata, created_at)
+			VALUES (8, 'github', 'o/a', 1, 'skills', '{"label":"mobius:skills","change":"labeled"}', '2027-03-01T10:00:00Z')`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec(`INSERT INTO incoming_changes (integration, external_id, repository, number, field, change, actor, status, created_at)
+		VALUES ('github', 'old-parent', 'o/a', 41, 'parent', 'added', 'owner', 'pending', '2027-03-01T10:00:00Z')`); err == nil {
+		t.Fatal("the old incoming_changes accepts parent")
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := Open(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	var kept int
+	err = db.QueryRow(`SELECT (SELECT count(*) FROM incoming_changes WHERE id = 7 AND external_id = '70' AND status = 'pending')
+		+ (SELECT count(*) FROM own_writes WHERE id = 8 AND field = 'skills')`).Scan(&kept)
+	if err != nil || kept != 2 {
+		t.Errorf("kept rows = %d, %v", kept, err)
+	}
+	for _, field := range []string{"parent", "blockers"} {
+		for _, change := range []string{"added", "removed"} {
+			if _, err := db.Exec(`INSERT INTO incoming_changes (integration, external_id, repository, number, field, change, actor, metadata, status, created_at)
+				VALUES ('github', ?, 'o/a', 41, ?, ?, 'owner', '{}', 'pending', '2027-03-01T10:00:01Z')`, field+"-"+change, field, change); err != nil {
+				t.Errorf("incoming %s %s: %v", field, change, err)
+			}
+		}
+		if _, err := db.Exec(`INSERT INTO own_writes (integration, repository, number, field, metadata, created_at)
+			VALUES ('github', 'o/a', 41, ?, '{}', '2027-03-01T10:00:01Z')`, field); err != nil {
+			t.Errorf("own write %s: %v", field, err)
+		}
+	}
+	var indexes int
+	err = db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name IN ('incoming_changes_external', 'incoming_changes_pending', 'own_writes_item')`).Scan(&indexes)
+	if err != nil || indexes != 3 {
+		t.Errorf("indexes = %d, %v", indexes, err)
+	}
+}
+
 func TestABreakWaitsWhileAFailureWithAPlaceOfItHasAPendingCreate(t *testing.T) {
 	db, err := Open(t.Context(), filepath.Join(t.TempDir(), "mobius.db"))
 	if err != nil {
