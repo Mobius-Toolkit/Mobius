@@ -187,7 +187,6 @@ func (e *Engine) pollRepository(ctx context.Context, repository github.Repositor
 			break
 		}
 	}
-	e.fillBuckets(ctx, repository)
 	if err := e.startHeldTriagers(ctx, repository); err != nil {
 		return err
 	}

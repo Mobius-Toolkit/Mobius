@@ -173,6 +173,18 @@ func addEventChanges(ctx context.Context, q *store.Queries, repository github.Re
 			if err != nil {
 				return err
 			}
+			if own == 0 {
+				own, err = q.DeleteOldestOwnWrite(ctx, store.DeleteOldestOwnWriteParams{
+					Repository: repository.FullName,
+					Number:     item.number,
+					Field:      bucketField,
+					Label:      "",
+					Change:     change,
+				})
+				if err != nil {
+					return err
+				}
+			}
 			if own > 0 {
 				status = "done"
 			}

@@ -212,7 +212,7 @@ func (e *Engine) sendIssueCreate(ctx context.Context, repository github.Reposito
 		if len(meta.GitHub.Labels) > 0 {
 			labels = meta.GitHub.Labels
 		}
-		issue, err := e.findOrCreateIssue(ctx, repository, change, row.Title, body, labels)
+		issue, err := e.findOrCreateIssue(ctx, repository, writeMarker(change.ID), row.Title, body, labels)
 		if permanentRefusal(err) {
 			log.Printf("create the issue %d of %s: %v", row.ID, change.Repository, err)
 			return false, e.dropIssueCreate(ctx, repository, change, row, meta, err)
@@ -397,7 +397,50 @@ func (e *Engine) sendIssueParent(ctx context.Context, repository github.Reposito
 		if delErr := e.queries.DeleteOwnWrite(ctx, ownWrite); delErr != nil {
 			return false, delErr
 		}
+		if !row.Parent.Valid && refusedByGitHub(err) {
+			return e.sendIssueToBucket(ctx, repository, change, row, parentRepo, parentNumber, meta.GitHub.ID, err)
+		}
 		return e.failed(ctx, repository, change, err)
 	}
 	return false, e.markSent(ctx, change)
+}
+
+// sendIssueToBucket links row as a sub-issue of an open bucket of the Workstream, after GitHub refused the link to the
+// Workstream issue, and stores the bucket in the row. The row keeps the Workstream as its parent. When no open bucket
+// takes the issue and the Workstream issue is full, the change waits for the buckets that fillBuckets makes. Else the
+// refusal of GitHub is the result.
+func (e *Engine) sendIssueToBucket(ctx context.Context, repository github.Repository, change store.OutgoingChange, row store.GetIssueByIDRow, workstream github.Repository, number, githubID int64, refusal error) (bool, error) {
+	buckets, err := e.queries.ListOpenBuckets(ctx, store.ListOpenBucketsParams{Repository: workstream.FullName, Workstream: number})
+	if err != nil {
+		return false, err
+	}
+	for _, bucket := range buckets {
+		own, err := addOwnWrite(ctx, e.queries, change.Repository, row.Number.Int64, bucketField, "", addedChange)
+		if err != nil {
+			return false, err
+		}
+		_, _, err = workstream.Client.SubIssue.Add(ctx, workstream.Owner(), workstream.Name(), bucket, gh.SubIssueRequest{SubIssueID: githubID, ReplaceParent: new(true)})
+		if err != nil {
+			if delErr := e.queries.DeleteOwnWrite(ctx, own); delErr != nil {
+				return false, delErr
+			}
+			if !refusedByGitHub(err) {
+				return e.failed(ctx, repository, change, err)
+			}
+			log.Printf("write the parent of %s#%d below %s#%d: %v", change.Repository, row.Number.Int64, workstream.FullName, bucket, err)
+			continue
+		}
+		if err := e.queries.SetIssueBucket(ctx, store.SetIssueBucketParams{Bucket: bucket, ID: row.ID}); err != nil {
+			return false, err
+		}
+		return false, e.markSent(ctx, change)
+	}
+	direct, err := workstream.SubIssues(ctx, number)
+	if err != nil {
+		return e.failed(ctx, repository, change, err)
+	}
+	if len(direct) >= bucketCapacity {
+		return true, nil
+	}
+	return e.failed(ctx, repository, change, refusal)
 }
