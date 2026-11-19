@@ -79,7 +79,10 @@ func TestAJudgeThatRunsFromReadyForReviewAndStartsNoRoundKeepsTheItem(t *testing
 `, "", noChange)
 	sendChat(t, server, leadChat, "Approve #41")
 	item := waitForItem(t, server, "ready for review")
-	testkit.WaitFor(t, func() bool { return taskState(t, server) == "ready_for_review" })
+	testkit.WaitFor(t, func() bool {
+		items := itemsOf(t, server, "ready for review")
+		return taskState(t, server) == "ready_for_review" && len(items) == 1 && items[0].ReportURL != ""
+	})
 
 	thread := fake.AddReviewComment(shop, 42, 0, bot, "Rename plan to tier.")
 	if thread != 3 {
@@ -134,7 +137,10 @@ func TestAJudgeThatRunsFromReadyForReviewAndStartsAFixRoundDismissesTheItem(t *t
 `, fixesEach, noChange)
 	sendChat(t, server, leadChat, "Approve #41")
 	item := waitForItem(t, server, "ready for review")
-	testkit.WaitFor(t, func() bool { return taskState(t, server) == "ready_for_review" })
+	testkit.WaitFor(t, func() bool {
+		items := itemsOf(t, server, "ready for review")
+		return taskState(t, server) == "ready_for_review" && len(items) == 1 && items[0].ReportURL != ""
+	})
 
 	fake.AddReviewComment(shop, 42, 0, bot, "Rename plan to tier.")
 
