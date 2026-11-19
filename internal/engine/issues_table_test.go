@@ -236,6 +236,17 @@ func TestAnIssueWithTheLabelProjectHasTheKindProject(t *testing.T) {
 	testkit.WaitFor(t, func() bool { return issueRowOf(t, server, shop, 41).Kind == "task" })
 }
 
+func workstreamOf(t *testing.T, server *testserver.Server, number int64) workstream {
+	t.Helper()
+	for _, w := range workstreams(t, server) {
+		if w.Number == number {
+			return w
+		}
+	}
+	t.Fatalf("no Workstream #%d in the list", number)
+	return workstream{}
+}
+
 func TestANestedWorkstreamCountsAsADirectSubIssueOfTheAllTasksClosedFlag(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
@@ -246,13 +257,13 @@ func TestANestedWorkstreamCountsAsADirectSubIssueOfTheAllTasksClosedFlag(t *test
 	fake.AddSubIssue(shop, 12, 20)
 	server := startCopied(t, fake)
 
-	if workstreams(t, server)[0].AllTasksClosed {
+	if workstreamOf(t, server, 12).AllTasksClosed {
 		t.Fatal("all tasks closed with an open nested Workstream")
 	}
 
 	fake.CloseIssue(shop, 20)
 
-	testkit.WaitFor(t, func() bool { return workstreams(t, server)[0].AllTasksClosed })
+	testkit.WaitFor(t, func() bool { return workstreamOf(t, server, 12).AllTasksClosed })
 }
 
 func TestAWorkstreamWithOnlyANestedWorkstreamIsNotReportedAsFinished(t *testing.T) {
@@ -269,10 +280,8 @@ func TestAWorkstreamWithOnlyANestedWorkstreamIsNotReportedAsFinished(t *testing.
 		t.Fatal(err)
 	}
 
-	for _, w := range workstreams(t, server) {
-		if w.Number == 12 && w.ReportedFinished {
-			t.Error("the Workstream #12 is reported as finished")
-		}
+	if workstreamOf(t, server, 12).ReportedFinished {
+		t.Error("the Workstream #12 is reported as finished")
 	}
 }
 
