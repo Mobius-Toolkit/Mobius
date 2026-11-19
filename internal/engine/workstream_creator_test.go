@@ -186,6 +186,7 @@ func TestAReopenAndASecondCloseGiveASecondEventAndARetryOfTheCloseGivesNoSecondE
 
 	fake.ReopenIssue(shop, 13)
 	testkit.WaitFor(t, func() bool { state, _, _ := workstreamRow(t, server, 13); return state == "open" })
+	testkit.WaitFor(t, func() bool { return len(eventsOfKind(t, server, "reopen", 13)) == 1 })
 	fake.CloseIssueAs(shop, 13, "not_planned")
 
 	events := testkit.WaitForValue(t, func() ([]leadEvent, bool) {

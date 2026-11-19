@@ -139,6 +139,8 @@ func (e *Engine) dropCreate(ctx context.Context, change store.OutgoingChange) er
 // errActionNotDone while approve has not yet posted the result that the number comes later, so the change stays
 // pending and the refusal comes after that result.
 func (e *Engine) endRefusedCreate(ctx context.Context, workstream int64) error {
+	e.approvedResultMu.Lock()
+	defer e.approvedResultMu.Unlock()
 	action, err := e.queries.GetPendingActionByCreatedWorkstream(ctx, sql.NullInt64{Int64: workstream, Valid: true})
 	if errors.Is(err, sql.ErrNoRows) || err == nil && action.AwaitsNumber == 0 {
 		return nil
@@ -232,6 +234,8 @@ func (e *Engine) sendNewWorkstream(ctx context.Context, repository github.Reposi
 // (awaits_number is the record). Then it publishes the creation for the Coordinator, and ends the triage for the
 // Triager. The Triager gets no message.
 func (e *Engine) endCreate(ctx context.Context, repository github.Repository, workstream, number int64) error {
+	e.approvedResultMu.Lock()
+	defer e.approvedResultMu.Unlock()
 	action, err := e.queries.GetPendingActionByCreatedWorkstream(ctx, sql.NullInt64{Int64: workstream, Valid: true})
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
