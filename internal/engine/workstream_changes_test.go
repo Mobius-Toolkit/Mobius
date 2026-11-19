@@ -242,6 +242,24 @@ func TestABodyEditByAPersonWhoIsNotTrustedIsWrittenBack(t *testing.T) {
 	}
 }
 
+func TestABodyEditByTheMobiusAppAddsNoIncomingChange(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	fake.SetBody(shop, 12, "Ship loyalty plans.\n\n"+chatLink)
+	server := startWithChatLink(t, fake)
+
+	fake.SetBodyBy(shop, 12, "Ship loyalty plans and gift cards.\n\n"+chatLink, testkit.AppSlug+"[bot]")
+
+	waitForPolls(t, fake)
+	if got := countRows(t, server, "SELECT count(*) FROM incoming_changes WHERE field = 'body'"); got != 0 {
+		t.Errorf("incoming body changes = %d", got)
+	}
+	if got := countRows(t, server, "SELECT count(*) FROM outgoing_changes WHERE field = 'body'"); got != 0 {
+		t.Errorf("outgoing body changes = %d", got)
+	}
+}
+
 func TestTheSendOfTheUICloseAddsNoIncomingChange(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
