@@ -299,6 +299,7 @@ type OutgoingChange struct {
 	Repository  string
 	Number      sql.NullInt64
 	Workstream  sql.NullInt64
+	Issue       sql.NullInt64
 	ReplyTo     sql.NullInt64
 	Field       string
 	Text        sql.NullString

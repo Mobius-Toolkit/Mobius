@@ -237,6 +237,14 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 					"effort":     implementerSettingProperties["effort"],
 				},
 				e.setImplementerBinding),
+			taskTool(e, c, "edit_issue_body",
+				"Set the body of a task issue of the Workstream. Mobius stores the body in the database and writes it to GitHub with the link line of the Lead chat.",
+				map[string]any{
+					"repository": repositoryProperty,
+					"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
+					"body":       map[string]any{"type": "string", "description": "The full new body of the task issue, with no link line of the Lead chat."},
+				},
+				e.editIssueBody),
 			taskTool(e, c, "update_blockers",
 				"Set the open blockers of an existing issue of the Workstream. Mobius adds each issue of blocked_by that is not a blocker yet, and removes each open blocker that is not in blocked_by. It refuses a blocker that closes a cycle of blockers. Read the current blockers with list_tasks first. An empty blocked_by removes each open blocker. A second call with the same list changes nothing.",
 				map[string]any{
@@ -866,6 +874,12 @@ type blockersInput struct {
 	BlockedBy []string `json:"blocked_by"`
 }
 
+type editIssueBodyInput struct {
+	repositoryInput
+	N    int64  `json:"n"`
+	Body string `json:"body"`
+}
+
 type workstreamInput struct {
 	Title  string   `json:"title"`
 	Brief  string   `json:"brief"`
@@ -1320,9 +1334,109 @@ func blockerIDsOf(ctx context.Context, blockers []issueAt) ([]int64, error) {
 	return ids, nil
 }
 
+type resolvedBlocker struct {
+	at        issueAt
+	reference string
+	id        int64
+	issue     *gh.Issue
+}
+
+// editIssueBody sets the body of the task issue input.N in repository in the database and sends the body with the link
+// line of the Lead chat to GitHub.
+func (e *Engine) editIssueBody(ctx context.Context, c caller, repository github.Repository, input editIssueBodyInput) (string, error) {
+	if input.N < 1 {
+		return "", refuse("n must be 1 or more.")
+	}
+	workstreamIssue, err := e.queries.HasWorkstream(ctx, store.HasWorkstreamParams{Repository: repository.FullName, Number: input.N})
+	if err != nil {
+		return "", err
+	}
+	if workstreamIssue {
+		return "", refuse("%s#%d is a Workstream issue.", repository.FullName, input.N)
+	}
+	row, err := e.queries.GetTreeIssue(ctx, store.GetTreeIssueParams{Repository: repository.FullName, Number: input.N})
+	if errors.Is(err, sql.ErrNoRows) {
+		issue, err := repository.Issue(ctx, input.N)
+		if err != nil {
+			return "", err
+		}
+		if issue == nil || issue.IsPullRequest() {
+			return "", refuse("%s#%d is not an issue.", repository.FullName, input.N)
+		}
+		if hasLabel(issue, workstreamLabel) {
+			return "", refuse("%s#%d is a Workstream issue.", repository.FullName, input.N)
+		}
+		return "", refuse("%s#%d is not in this Workstream.", repository.FullName, input.N)
+	}
+	if err != nil {
+		return "", err
+	}
+	if !row.Number.Valid {
+		return "", refuse("%s#%d has no number.", repository.FullName, input.N)
+	}
+	if !row.Workstream.Valid || !strings.EqualFold(row.WorkstreamRepository.String, c.repository) || row.WorkstreamNumber.Int64 != c.workstream {
+		return "", refuse("%s#%d is not in this Workstream.", repository.FullName, input.N)
+	}
+	id, err := e.setIssueBody(ctx, repository, row.ID, input.Body)
+	if err != nil {
+		return "", err
+	}
+	return e.sentOrLater(ctx, id,
+		fmt.Sprintf("Changed the body of %s#%d.", repository.FullName, input.N),
+		fmt.Sprintf("Mobius sends the body of %s#%d to GitHub later.", repository.FullName, input.N),
+	)
+}
+
+// setIssueBody stores body on the issue row id and adds an outgoing body change, then sends it at once.
+func (e *Engine) setIssueBody(ctx context.Context, repository github.Repository, id int64, body string) (int64, error) {
+	e.copyWrite.Lock()
+	e.labelChangeMu.Lock()
+	var changeID int64
+	var issueRepo string
+	var issueNumber int64
+	err := e.inTx(ctx, func(q *store.Queries) error {
+		row, err := q.GetIssueByID(ctx, id)
+		if errors.Is(err, sql.ErrNoRows) {
+			return refuse("The issue is not in this Workstream.")
+		}
+		if err != nil {
+			return err
+		}
+		if !row.Number.Valid {
+			return refuse("The issue has no number.")
+		}
+		if !row.WorkstreamRepository.Valid || !row.WorkstreamNumber.Valid {
+			return refuse("%s#%d is not in this Workstream.", row.Repository, row.Number.Int64)
+		}
+		issueRepo = row.Repository
+		issueNumber = row.Number.Int64
+		clean := e.WithoutChatLink(row.WorkstreamRepository.String, row.WorkstreamNumber.Int64, body)
+		if _, err := q.SetIssueBody(ctx, store.SetIssueBodyParams{Body: clean, ID: id}); err != nil {
+			return err
+		}
+		changeID, err = addIssueChange(ctx, q, repository.FullName, row.Number.Int64, id, bodyField)
+		return err
+	})
+	if err == nil {
+		repo := strings.ToLower(issueRepo)
+		e.bodyChanges[repo]++
+		e.bodyChangedAt[lowerRef(issueRepo, issueNumber)] = e.bodyChanges[repo]
+	}
+	e.labelChangeMu.Unlock()
+	e.copyWrite.Unlock()
+	if err != nil {
+		return 0, err
+	}
+	e.publish(Change{Workstreams: true})
+	if err := e.sendNow(ctx, repository, changeID); err != nil {
+		return 0, err
+	}
+	return changeID, nil
+}
+
 // updateBlockers makes input.BlockedBy the open blockers of the issue input.N, which is an issue of the Workstream of c.
-// It adds the issues that are not blockers yet, and removes the open blockers that are not in the list. A closed blocker
-// stays.
+// It replaces the open blockers in blockers and adds an outgoing blockers change, then sends it at once. A closed
+// blocker stays.
 func (e *Engine) updateBlockers(ctx context.Context, c caller, repository github.Repository, input blockersInput) (string, error) {
 	if input.N < 1 {
 		return "", refuse("n must be 1 or more.")
@@ -1337,99 +1451,163 @@ func (e *Engine) updateBlockers(ctx context.Context, c caller, repository github
 			return "", refuse("%s#%d cannot block itself.", repository.FullName, input.N)
 		}
 	}
-	issue, err := repository.Issue(ctx, input.N)
-	if err != nil {
-		return "", err
-	}
-	if issue == nil || issue.IsPullRequest() {
-		return "", refuse("%s#%d is not an issue.", repository.FullName, input.N)
-	}
-	in, err := e.inWorkstream(ctx, c.repository, c.workstream, repository, input.N)
-	if err != nil {
-		return "", err
-	}
-	if !in {
-		return "", refuse("%s#%d is not in this Workstream.", repository.FullName, input.N)
-	}
-	wanted, err := blockerIDsOf(ctx, blockers)
-	if err != nil {
-		return "", err
-	}
-	current, err := repository.BlockedBy(ctx, input.N)
-	if err != nil {
-		return "", err
-	}
-	var add, remove []blockerWrite
-	for i, id := range wanted {
-		if slices.ContainsFunc(current, func(found *gh.Issue) bool { return found.GetID() == id }) {
-			continue
-		}
-		through, closes, err := e.blockerPath(ctx, blockers[i], issueAt{repository, input.N})
+	row, err := e.queries.GetTreeIssue(ctx, store.GetTreeIssueParams{Repository: repository.FullName, Number: input.N})
+	if errors.Is(err, sql.ErrNoRows) {
+		issue, err := repository.Issue(ctx, input.N)
 		if err != nil {
 			return "", err
 		}
-		reference := fmt.Sprintf("%s#%d", blockers[i].repository.FullName, blockers[i].number)
-		if closes {
-			text := fmt.Sprintf("%s cannot block %s#%d: %s is already blocked by %s#%d", reference, repository.FullName, input.N, reference, repository.FullName, input.N)
-			if len(through) > 0 {
-				text += " through " + strings.Join(through, " and ")
-			}
-			return "", refuse("%s.", text)
+		if issue == nil || issue.IsPullRequest() {
+			return "", refuse("%s#%d is not an issue.", repository.FullName, input.N)
 		}
-		add = append(add, blockerWrite{reference, id})
+		return "", refuse("%s#%d is not in this Workstream.", repository.FullName, input.N)
 	}
-	for _, found := range current {
-		if found.GetState() == "open" && !slices.Contains(wanted, found.GetID()) {
-			remove = append(remove, blockerWrite{fmt.Sprintf("%s#%d", blockerRepository(found, repository.FullName), found.GetNumber()), found.GetID()})
-		}
-	}
-	added, removed, err := writeBlockers(ctx, repository, input.N, add, remove)
-	if len(added)+len(removed) > 0 {
-		var open []blockerKey
-		for _, found := range current {
-			key := blockerKey{blockerRepository(found, repository.FullName), int64(found.GetNumber())}
-			if found.GetState() == "open" && !slices.Contains(removed, fmt.Sprintf("%s#%d", key.repository, key.number)) {
-				open = append(open, key)
-			}
-		}
-		for _, blocker := range blockers {
-			key := blockerKey{blocker.repository.FullName, blocker.number}
-			if slices.Contains(added, fmt.Sprintf("%s#%d", key.repository, key.number)) && !slices.Contains(open, key) {
-				open = append(open, key)
-			}
-		}
-		if setErr := e.setCopiedBlockers(ctx, issue.GetRepositoryURL(), input.N, open); setErr != nil {
-			log.Printf("set the copied blockers of %s#%d: %v", repository.FullName, input.N, setErr)
-		}
-		workstream, recopyErr := e.repository(c.repository)
-		if recopyErr != nil {
-			log.Printf("copy the tree of %s#%d: %v", c.repository, c.workstream, recopyErr)
-		} else if e.tryTrack() {
-			go func() {
-				defer e.untrack()
-				if copyErr := e.recopyTrees(context.WithoutCancel(ctx), workstream, c.workstream); copyErr != nil {
-					log.Printf("copy the tree of %s#%d: %v", workstream.FullName, c.workstream, copyErr)
-				}
-			}()
-		}
-	}
-	change := blockerChange(added, removed)
 	if err != nil {
-		if change == "" {
+		return "", err
+	}
+	if !row.Number.Valid || !row.Workstream.Valid || !strings.EqualFold(row.WorkstreamRepository.String, c.repository) || row.WorkstreamNumber.Int64 != c.workstream {
+		return "", refuse("%s#%d is not in this Workstream.", repository.FullName, input.N)
+	}
+	seen := map[issueRef]bool{}
+	resolved := make([]resolvedBlocker, len(blockers))
+	for i, blocker := range blockers {
+		ref := lowerRef(blocker.repository.FullName, blocker.number)
+		reference := fmt.Sprintf("%s#%d", blocker.repository.FullName, blocker.number)
+		found, err := e.queries.GetTreeIssue(ctx, store.GetTreeIssueParams{Repository: blocker.repository.FullName, Number: blocker.number})
+		if errors.Is(err, sql.ErrNoRows) {
+			ghIssue, err := blocker.repository.Issue(ctx, blocker.number)
+			if err != nil {
+				return "", err
+			}
+			if ghIssue == nil || ghIssue.IsPullRequest() {
+				return "", refuse("%s is not an issue.", reference)
+			}
+			if seen[ref] {
+				return "", refuse("%s is two times in blocked_by.", reference)
+			}
+			seen[ref] = true
+			resolved[i] = resolvedBlocker{at: blocker, reference: reference, issue: ghIssue}
+			continue
+		}
+		if err != nil {
 			return "", err
 		}
-		return "", fmt.Errorf("%s as blockers of %s#%d, then %w", change, repository.FullName, input.N, err)
+		if seen[ref] {
+			return "", refuse("%s is two times in blocked_by.", reference)
+		}
+		seen[ref] = true
+		resolved[i] = resolvedBlocker{at: blocker, reference: reference, id: found.ID}
 	}
-	if change == "" {
-		return fmt.Sprintf("The blockers of %s#%d already match.", repository.FullName, input.N), nil
+	changeID, text, err := e.setIssueBlockers(ctx, repository, row.ID, input.N, resolved)
+	if err != nil {
+		return "", err
 	}
-	return fmt.Sprintf("%s as blockers of %s#%d.", change, repository.FullName, input.N), nil
+	if changeID == 0 {
+		return text, nil
+	}
+	return e.sentOrLater(ctx, changeID, text, text)
 }
 
-// blockerPath walks the open blockers of from, and the open blockers of those, until it reaches to. It tells if it
-// reached to, and gives the references of the issues between from and to in path order. It does not walk past a blocker
-// in a repository that the App cannot read.
-func (e *Engine) blockerPath(ctx context.Context, from, to issueAt) (through []string, reached bool, err error) {
+// setIssueBlockers replaces the open blockers of issueID in blockers with resolved, adds an outgoing blockers change,
+// and sends it at once.
+func (e *Engine) setIssueBlockers(ctx context.Context, repository github.Repository, issueID, number int64, blockers []resolvedBlocker) (int64, string, error) {
+	e.copyWrite.Lock()
+	e.labelChangeMu.Lock()
+	var changeID int64
+	var added, removed []string
+	err := e.inTx(ctx, func(q *store.Queries) error {
+		current, err := q.ListBlockersOfIssue(ctx, issueID)
+		if err != nil {
+			return err
+		}
+		currentIDs := map[int64]bool{}
+		for _, found := range current {
+			currentIDs[found.ID] = true
+		}
+		wantedIDs := map[int64]bool{}
+		for i, blocker := range blockers {
+			if blocker.id == 0 {
+				metadata, err := githubMetadata(blocker.issue, 0)
+				if err != nil {
+					return err
+				}
+				id, err := q.AddCopiedBlockerIssue(ctx, store.AddCopiedBlockerIssueParams{
+					Repository: blocker.at.repository.FullName,
+					Number:     blocker.at.number,
+					Title:      blocker.issue.GetTitle(),
+					Body:       blocker.issue.GetBody(),
+					State:      blocker.issue.GetState(),
+					Author:     blocker.issue.GetUser().GetLogin(),
+					Kind:       issueKind(labelNames(blocker.issue)),
+					Github:     metadata,
+				})
+				if err != nil {
+					return err
+				}
+				blocker.id = id
+				blockers[i].id = id
+			}
+			wantedIDs[blocker.id] = true
+			if currentIDs[blocker.id] {
+				continue
+			}
+			through, closes, err := e.blockerPath(ctx, q, blocker.at, issueAt{repository, number})
+			if err != nil {
+				return err
+			}
+			if closes {
+				text := fmt.Sprintf("%s cannot block %s#%d: %s is already blocked by %s#%d", blocker.reference, repository.FullName, number, blocker.reference, repository.FullName, number)
+				if len(through) > 0 {
+					text += " through " + strings.Join(through, " and ")
+				}
+				return refuse("%s.", text)
+			}
+			added = append(added, blocker.reference)
+		}
+		for _, found := range current {
+			if found.State == "open" && !wantedIDs[found.ID] {
+				removed = append(removed, fmt.Sprintf("%s#%d", found.Repository, found.Number.Int64))
+			}
+		}
+		if len(added) == 0 && len(removed) == 0 {
+			return nil
+		}
+		if err := q.DeleteCopiedOpenBlockersOfIssue(ctx, issueID); err != nil {
+			return err
+		}
+		for _, blocker := range blockers {
+			if err := q.AddCopiedBlocker(ctx, store.AddCopiedBlockerParams{Issue: issueID, Blocker: blocker.id}); err != nil {
+				return err
+			}
+		}
+		changeID, err = addIssueChange(ctx, q, repository.FullName, number, issueID, blockersField)
+		return err
+	})
+	if err == nil && changeID != 0 {
+		repo := strings.ToLower(repository.FullName)
+		e.blockerChanges[repo]++
+		e.blockerChangedAt[lowerRef(repository.FullName, number)] = e.blockerChanges[repo]
+	}
+	e.labelChangeMu.Unlock()
+	e.copyWrite.Unlock()
+	if err != nil {
+		return 0, "", err
+	}
+	change := blockerChange(added, removed)
+	if changeID == 0 {
+		return 0, fmt.Sprintf("The blockers of %s#%d already match.", repository.FullName, number), nil
+	}
+	e.publish(Change{Workstreams: true})
+	if err := e.sendNow(ctx, repository, changeID); err != nil {
+		return 0, "", err
+	}
+	return changeID, fmt.Sprintf("%s as blockers of %s#%d.", change, repository.FullName, number), nil
+}
+
+// blockerPath walks the open blockers of from in blockers, and the open blockers of those, until it reaches to. It tells
+// if it reached to, and gives the references of the issues between from and to in path order. It does not walk past a
+// blocker in a repository that the App cannot read.
+func (e *Engine) blockerPath(ctx context.Context, q *store.Queries, from, to issueAt) (through []string, reached bool, err error) {
 	keyOf := func(issue issueAt) issueRef { return lowerRef(issue.repository.FullName, issue.number) }
 	parents := map[issueRef]issueAt{}
 	visited := map[issueRef]bool{keyOf(from): true}
@@ -1437,16 +1615,19 @@ func (e *Engine) blockerPath(ctx context.Context, from, to issueAt) (through []s
 	for len(queue) > 0 {
 		node := queue[0]
 		queue = queue[1:]
-		found, err := openBlockers(ctx, node.repository, node.number)
+		found, err := q.ListOpenBlockersOfIssue(ctx, store.ListOpenBlockersOfIssueParams{
+			Repository: node.repository.FullName,
+			Number:     node.number,
+		})
 		if err != nil {
 			return nil, false, err
 		}
 		for _, blocker := range found {
-			repository, readable := e.issueRepository(blocker, node.repository)
+			repository, readable := e.namedRepository(blocker.Repository, node.repository)
 			if !readable {
 				continue
 			}
-			next := issueAt{repository, int64(blocker.GetNumber())}
+			next := issueAt{repository, blocker.Number}
 			if keyOf(next) == keyOf(to) {
 				for ; keyOf(node) != keyOf(from); node = parents[keyOf(node)] {
 					through = append([]string{fmt.Sprintf("%s#%d", node.repository.FullName, node.number)}, through...)
@@ -1464,31 +1645,7 @@ func (e *Engine) blockerPath(ctx context.Context, from, to issueAt) (through []s
 	return nil, false, nil
 }
 
-// blockerWrite is an issue with its reference (owner/name#N) and its numeric id.
-type blockerWrite struct {
-	reference string
-	id        int64
-}
-
-// writeBlockers adds the issues add and then removes the issues remove as blockers of the issue number. It gives the
-// references of the writes that succeeded, also when a later write fails.
-func writeBlockers(ctx context.Context, repository github.Repository, number int64, add, remove []blockerWrite) (added, removed []string, err error) {
-	for _, b := range add {
-		if _, _, err := repository.Client.Issues.AddBlockedBy(ctx, repository.Owner(), repository.Name(), number, gh.IssueDependencyRequest{IssueID: b.id}); err != nil {
-			return added, removed, fmt.Errorf("the add of the blocker %s failed: %w", b.reference, err)
-		}
-		added = append(added, b.reference)
-	}
-	for _, b := range remove {
-		if _, _, err := repository.Client.Issues.RemoveBlockedBy(ctx, repository.Owner(), repository.Name(), number, b.id); err != nil {
-			return added, removed, fmt.Errorf("the removal of the blocker %s failed: %w", b.reference, err)
-		}
-		removed = append(removed, b.reference)
-	}
-	return added, removed, nil
-}
-
-// blockerChange tells the writes of writeBlockers, for example "Added a#1 and removed b#2". It gives "" for no write.
+// blockerChange tells the changes of setIssueBlockers, for example "Added a#1 and removed b#2". It gives "" for no change.
 func blockerChange(added, removed []string) string {
 	var parts []string
 	if len(added) > 0 {

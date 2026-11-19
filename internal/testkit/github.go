@@ -161,11 +161,12 @@ type FakeGitHub struct {
 	resolvedThreads map[int64]bool
 	failResolves    bool
 	// limitedResolves is true when a resolve of a review thread gives the GraphQL error RATE_LIMITED.
-	limitedResolves  bool
-	failPullReads    bool
-	failMarkReady    bool
-	failCheckUpdates bool
-	failBodyWrites   bool
+	limitedResolves   bool
+	failPullReads     bool
+	failMarkReady     bool
+	failCheckUpdates  bool
+	failBodyWrites    bool
+	failBlockerWrites bool
 	// bodyWrites counts the body writes through the API, for each issue and pull request.
 	bodyWrites map[issueKey]int
 	// failedCheckUpdates counts the updates of a check run that failCheckUpdates made fail.

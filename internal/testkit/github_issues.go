@@ -1299,6 +1299,14 @@ func (g *FakeGitHub) blockedBy(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, page(w, r, blockers))
 }
 
+// FailBlockerWrites makes each add or remove of a blocker through the API fail with status 500, or work again when
+// fail is false.
+func (g *FakeGitHub) FailBlockerWrites(fail bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.failBlockerWrites = fail
+}
+
 // addBlockedBy makes the issue with the id issue_id a blocker of the issue of the path. The blocker can be in another
 // repository of the same owner.
 func (g *FakeGitHub) addBlockedBy(w http.ResponseWriter, r *http.Request) {
@@ -1310,6 +1318,10 @@ func (g *FakeGitHub) addBlockedBy(w http.ResponseWriter, r *http.Request) {
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if g.failBlockerWrites {
+		message(w, http.StatusInternalServerError, "Server Error")
+		return
+	}
 	key, ok := g.issue(w, r)
 	if !ok {
 		return
@@ -1333,6 +1345,10 @@ func (g *FakeGitHub) removeBlockedBy(w http.ResponseWriter, r *http.Request) {
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if g.failBlockerWrites {
+		message(w, http.StatusInternalServerError, "Server Error")
+		return
+	}
 	key, ok := g.issue(w, r)
 	if !ok {
 		return

@@ -293,7 +293,13 @@ INSERT INTO issues (repository, number, title, body, state, author, workstream, 
 VALUES (?1, CAST(?2 AS INTEGER), ?3, ?4, ?5, ?6,
         ?7, ?8, ?9, json_object('github', json(CAST(?10 AS TEXT))))
 ON CONFLICT (repository, number) DO UPDATE SET
-    title = excluded.title, body = excluded.body, state = excluded.state, author = excluded.author,
+    title = excluded.title,
+    body = CASE
+        WHEN EXISTS (SELECT 1 FROM outgoing_changes c WHERE c.issue = issues.id AND c.field = 'body' AND c.status = 'pending')
+        THEN issues.body
+        ELSE excluded.body
+    END,
+    state = excluded.state, author = excluded.author,
     workstream = excluded.workstream, parent = excluded.parent, kind = excluded.kind,
     metadata = json_set(issues.metadata, '$.github', json(json_extract(excluded.metadata, '$.github')))
 RETURNING id
@@ -823,7 +829,7 @@ func (q *Queries) AddMissingWorkstreamDismissal(ctx context.Context, arg AddMiss
 }
 
 const addOutgoingChange = `-- name: AddOutgoingChange :one
-INSERT INTO outgoing_changes (integration, repository, number, workstream, reply_to, field, text, status, created_at) VALUES ('github', ?, ?, ?, ?, ?, ?, 'pending', ?)
+INSERT INTO outgoing_changes (integration, repository, number, workstream, issue, reply_to, field, text, status, created_at) VALUES ('github', ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
 RETURNING id
 `
 
@@ -831,6 +837,7 @@ type AddOutgoingChangeParams struct {
 	Repository string
 	Number     sql.NullInt64
 	Workstream sql.NullInt64
+	Issue      sql.NullInt64
 	ReplyTo    sql.NullInt64
 	Field      string
 	Text       sql.NullString
@@ -842,6 +849,7 @@ func (q *Queries) AddOutgoingChange(ctx context.Context, arg AddOutgoingChangePa
 		arg.Repository,
 		arg.Number,
 		arg.Workstream,
+		arg.Issue,
 		arg.ReplyTo,
 		arg.Field,
 		arg.Text,
@@ -1924,7 +1932,10 @@ func (q *Queries) DeleteCopiedBlockersOfIssue(ctx context.Context, issue int64) 
 }
 
 const deleteCopiedBlockersOfTree = `-- name: DeleteCopiedBlockersOfTree :exec
-DELETE FROM blockers WHERE issue IN (SELECT id FROM issues WHERE workstream = ?)
+DELETE FROM blockers WHERE issue IN (SELECT i.id FROM issues i WHERE i.workstream = ?)
+  AND NOT EXISTS (
+    SELECT 1 FROM outgoing_changes c WHERE c.issue = blockers.issue AND c.field = 'blockers' AND c.status = 'pending'
+)
 `
 
 func (q *Queries) DeleteCopiedBlockersOfTree(ctx context.Context, workstream sql.NullInt64) error {
@@ -1935,6 +1946,8 @@ func (q *Queries) DeleteCopiedBlockersOfTree(ctx context.Context, workstream sql
 const deleteCopiedBlockersOfTrees = `-- name: DeleteCopiedBlockersOfTrees :exec
 DELETE FROM blockers WHERE issue IN (
     SELECT i.id FROM issues i JOIN workstreams w ON w.id = i.workstream WHERE w.repository = ?
+) AND NOT EXISTS (
+    SELECT 1 FROM outgoing_changes c WHERE c.issue = blockers.issue AND c.field = 'blockers' AND c.status = 'pending'
 )
 `
 
@@ -3025,7 +3038,7 @@ func (q *Queries) GetCopiedBuckets(ctx context.Context, arg GetCopiedBucketsPara
 }
 
 const getCopiedIssue = `-- name: GetCopiedIssue :one
-SELECT id, state, metadata FROM issues WHERE repository = ? AND number = CAST(?2 AS INTEGER)
+SELECT id, state, body, metadata FROM issues WHERE repository = ? AND number = CAST(?2 AS INTEGER)
 `
 
 type GetCopiedIssueParams struct {
@@ -3036,13 +3049,19 @@ type GetCopiedIssueParams struct {
 type GetCopiedIssueRow struct {
 	ID       int64
 	State    string
+	Body     string
 	Metadata string
 }
 
 func (q *Queries) GetCopiedIssue(ctx context.Context, arg GetCopiedIssueParams) (GetCopiedIssueRow, error) {
 	row := q.db.QueryRowContext(ctx, getCopiedIssue, arg.Repository, arg.Number)
 	var i GetCopiedIssueRow
-	err := row.Scan(&i.ID, &i.State, &i.Metadata)
+	err := row.Scan(
+		&i.ID,
+		&i.State,
+		&i.Body,
+		&i.Metadata,
+	)
 	return i, err
 }
 
@@ -3402,6 +3421,43 @@ func (q *Queries) GetIssueBinding(ctx context.Context, arg GetIssueBindingParams
 		&i.Model,
 		&i.Effort,
 		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getIssueByID = `-- name: GetIssueByID :one
+SELECT i.id, i.repository, i.number, i.body, i.state, i.workstream, i.metadata,
+       w.repository AS workstream_repository, w.number AS workstream_number
+FROM issues i
+LEFT JOIN workstreams w ON w.id = i.workstream
+WHERE i.id = ?
+`
+
+type GetIssueByIDRow struct {
+	ID                   int64
+	Repository           string
+	Number               sql.NullInt64
+	Body                 string
+	State                string
+	Workstream           sql.NullInt64
+	Metadata             string
+	WorkstreamRepository sql.NullString
+	WorkstreamNumber     sql.NullInt64
+}
+
+func (q *Queries) GetIssueByID(ctx context.Context, id int64) (GetIssueByIDRow, error) {
+	row := q.db.QueryRowContext(ctx, getIssueByID, id)
+	var i GetIssueByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.Repository,
+		&i.Number,
+		&i.Body,
+		&i.State,
+		&i.Workstream,
+		&i.Metadata,
+		&i.WorkstreamRepository,
+		&i.WorkstreamNumber,
 	)
 	return i, err
 }
@@ -3863,7 +3919,7 @@ func (q *Queries) GetMergeQueueHead(ctx context.Context, repository string) (Tas
 }
 
 const getNewestCommentChange = `-- name: GetNewestCommentChange :one
-SELECT id, integration, repository, number, workstream, reply_to, field, text, status, created_at FROM outgoing_changes WHERE repository = ? AND number = CAST(?2 AS INTEGER) AND field = 'comment' ORDER BY id DESC LIMIT 1
+SELECT id, integration, repository, number, workstream, issue, reply_to, field, text, status, created_at FROM outgoing_changes WHERE repository = ? AND number = CAST(?2 AS INTEGER) AND field = 'comment' ORDER BY id DESC LIMIT 1
 `
 
 type GetNewestCommentChangeParams struct {
@@ -3880,6 +3936,7 @@ func (q *Queries) GetNewestCommentChange(ctx context.Context, arg GetNewestComme
 		&i.Repository,
 		&i.Number,
 		&i.Workstream,
+		&i.Issue,
 		&i.ReplyTo,
 		&i.Field,
 		&i.Text,
@@ -4146,7 +4203,7 @@ func (q *Queries) GetOpenInitFailure(ctx context.Context, repository string) (In
 }
 
 const getOutgoingChange = `-- name: GetOutgoingChange :one
-SELECT id, integration, repository, number, workstream, reply_to, field, text, status, created_at FROM outgoing_changes WHERE id = ?
+SELECT id, integration, repository, number, workstream, issue, reply_to, field, text, status, created_at FROM outgoing_changes WHERE id = ?
 `
 
 func (q *Queries) GetOutgoingChange(ctx context.Context, id int64) (OutgoingChange, error) {
@@ -4158,6 +4215,7 @@ func (q *Queries) GetOutgoingChange(ctx context.Context, id int64) (OutgoingChan
 		&i.Repository,
 		&i.Number,
 		&i.Workstream,
+		&i.Issue,
 		&i.ReplyTo,
 		&i.Field,
 		&i.Text,
@@ -4562,6 +4620,48 @@ func (q *Queries) GetTask(ctx context.Context, id int64) (Task, error) {
 		&i.ReviewedHead,
 		&i.ApprovedAgainChange,
 		&i.MergeHeadAt,
+	)
+	return i, err
+}
+
+const getTreeIssue = `-- name: GetTreeIssue :one
+SELECT i.id, i.repository, i.number, i.body, i.state, i.workstream, i.metadata,
+       w.repository AS workstream_repository, w.number AS workstream_number
+FROM issues i
+LEFT JOIN workstreams w ON w.id = i.workstream
+WHERE i.repository = ? AND i.number = CAST(?2 AS INTEGER)
+`
+
+type GetTreeIssueParams struct {
+	Repository string
+	Number     int64
+}
+
+type GetTreeIssueRow struct {
+	ID                   int64
+	Repository           string
+	Number               sql.NullInt64
+	Body                 string
+	State                string
+	Workstream           sql.NullInt64
+	Metadata             string
+	WorkstreamRepository sql.NullString
+	WorkstreamNumber     sql.NullInt64
+}
+
+func (q *Queries) GetTreeIssue(ctx context.Context, arg GetTreeIssueParams) (GetTreeIssueRow, error) {
+	row := q.db.QueryRowContext(ctx, getTreeIssue, arg.Repository, arg.Number)
+	var i GetTreeIssueRow
+	err := row.Scan(
+		&i.ID,
+		&i.Repository,
+		&i.Number,
+		&i.Body,
+		&i.State,
+		&i.Workstream,
+		&i.Metadata,
+		&i.WorkstreamRepository,
+		&i.WorkstreamNumber,
 	)
 	return i, err
 }
@@ -4978,6 +5078,22 @@ type HasOwnWriteParams struct {
 
 func (q *Queries) HasOwnWrite(ctx context.Context, arg HasOwnWriteParams) (bool, error) {
 	row := q.db.QueryRowContext(ctx, hasOwnWrite, arg.Repository, arg.Number)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const hasPendingIssueChange = `-- name: HasPendingIssueChange :one
+SELECT EXISTS (SELECT 1 FROM outgoing_changes WHERE issue = ? AND field = ? AND status = 'pending')
+`
+
+type HasPendingIssueChangeParams struct {
+	Issue sql.NullInt64
+	Field string
+}
+
+func (q *Queries) HasPendingIssueChange(ctx context.Context, arg HasPendingIssueChangeParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, hasPendingIssueChange, arg.Issue, arg.Field)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
@@ -5445,6 +5561,51 @@ func (q *Queries) ListBlockerEdges(ctx context.Context) ([]ListBlockerEdgesRow, 
 			&i.Number,
 			&i.BlockerRepository,
 			&i.BlockerNumber,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listBlockersOfIssue = `-- name: ListBlockersOfIssue :many
+SELECT bi.id, bi.repository, bi.number, bi.state, bi.metadata
+FROM blockers b
+JOIN issues bi ON bi.id = b.blocker
+WHERE b.issue = ?
+ORDER BY bi.repository, bi.number, bi.id
+`
+
+type ListBlockersOfIssueRow struct {
+	ID         int64
+	Repository string
+	Number     sql.NullInt64
+	State      string
+	Metadata   string
+}
+
+func (q *Queries) ListBlockersOfIssue(ctx context.Context, issue int64) ([]ListBlockersOfIssueRow, error) {
+	rows, err := q.db.QueryContext(ctx, listBlockersOfIssue, issue)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListBlockersOfIssueRow
+	for rows.Next() {
+		var i ListBlockersOfIssueRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Repository,
+			&i.Number,
+			&i.State,
+			&i.Metadata,
 		); err != nil {
 			return nil, err
 		}
@@ -8007,6 +8168,48 @@ func (q *Queries) ListOpenActionRequests(ctx context.Context, arg ListOpenAction
 	return items, nil
 }
 
+const listOpenBlockersOfIssue = `-- name: ListOpenBlockersOfIssue :many
+SELECT bi.repository, CAST(bi.number AS INTEGER) AS number
+FROM blockers b
+JOIN issues i ON i.id = b.issue
+JOIN issues bi ON bi.id = b.blocker
+WHERE i.repository = ? AND i.number = CAST(?2 AS INTEGER) AND bi.state = 'open' AND bi.number IS NOT NULL
+ORDER BY bi.repository, bi.number
+`
+
+type ListOpenBlockersOfIssueParams struct {
+	Repository string
+	Number     int64
+}
+
+type ListOpenBlockersOfIssueRow struct {
+	Repository string
+	Number     int64
+}
+
+func (q *Queries) ListOpenBlockersOfIssue(ctx context.Context, arg ListOpenBlockersOfIssueParams) ([]ListOpenBlockersOfIssueRow, error) {
+	rows, err := q.db.QueryContext(ctx, listOpenBlockersOfIssue, arg.Repository, arg.Number)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListOpenBlockersOfIssueRow
+	for rows.Next() {
+		var i ListOpenBlockersOfIssueRow
+		if err := rows.Scan(&i.Repository, &i.Number); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOpenCIBreaks = `-- name: ListOpenCIBreaks :many
 SELECT id, repository, workflow_id, workflow_name, run_id, run_url, run_attempt, rerun_at, result, ended_run_id, ended_at, issue, started_at, run_event FROM ci_breaks WHERE repository = ? AND ended_at = '' ORDER BY id
 `
@@ -8635,6 +8838,33 @@ func (q *Queries) ListOwnerMessagesSince(ctx context.Context, arg ListOwnerMessa
 	return items, nil
 }
 
+const listPendingBlockerIssues = `-- name: ListPendingBlockerIssues :many
+SELECT DISTINCT CAST(issue AS INTEGER) AS issue FROM outgoing_changes WHERE field = 'blockers' AND status = 'pending' AND issue IS NOT NULL
+`
+
+func (q *Queries) ListPendingBlockerIssues(ctx context.Context) ([]int64, error) {
+	rows, err := q.db.QueryContext(ctx, listPendingBlockerIssues)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var issue int64
+		if err := rows.Scan(&issue); err != nil {
+			return nil, err
+		}
+		items = append(items, issue)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPendingIncomingChanges = `-- name: ListPendingIncomingChanges :many
 SELECT id, integration, external_id, repository, number, field, change, actor, metadata, status, created_at FROM incoming_changes WHERE repository = ? AND status = 'pending' ORDER BY id
 `
@@ -8675,7 +8905,7 @@ func (q *Queries) ListPendingIncomingChanges(ctx context.Context, repository str
 }
 
 const listPendingOutgoingChanges = `-- name: ListPendingOutgoingChanges :many
-SELECT id, integration, repository, number, workstream, reply_to, field, text, status, created_at FROM outgoing_changes WHERE repository = ? AND status = 'pending' ORDER BY id
+SELECT id, integration, repository, number, workstream, issue, reply_to, field, text, status, created_at FROM outgoing_changes WHERE repository = ? AND status = 'pending' ORDER BY id
 `
 
 func (q *Queries) ListPendingOutgoingChanges(ctx context.Context, repository string) ([]OutgoingChange, error) {
@@ -8693,6 +8923,7 @@ func (q *Queries) ListPendingOutgoingChanges(ctx context.Context, repository str
 			&i.Repository,
 			&i.Number,
 			&i.Workstream,
+			&i.Issue,
 			&i.ReplyTo,
 			&i.Field,
 			&i.Text,
@@ -11274,6 +11505,23 @@ func (q *Queries) SetInitFailureIssue(ctx context.Context, arg SetInitFailureIss
 	return err
 }
 
+const setIssueBody = `-- name: SetIssueBody :execrows
+UPDATE issues SET body = ? WHERE id = ?
+`
+
+type SetIssueBodyParams struct {
+	Body string
+	ID   int64
+}
+
+func (q *Queries) SetIssueBody(ctx context.Context, arg SetIssueBodyParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setIssueBody, arg.Body, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const setIssueRepositoryChoice = `-- name: SetIssueRepositoryChoice :exec
 INSERT OR REPLACE INTO issue_repositories (organization, repository) VALUES (?, ?)
 `
@@ -12357,13 +12605,28 @@ func (q *Queries) UndoCancelChatMessage(ctx context.Context, id int64) (ChatMess
 }
 
 const updateCopiedIssue = `-- name: UpdateCopiedIssue :execrows
-UPDATE issues SET title = ?1, body = ?2, state = ?3, author = ?4
-WHERE repository = ?5 AND number = CAST(?6 AS INTEGER)
-  AND (title != ?1 OR body != ?2 OR state != ?3 OR author != ?4)
+UPDATE issues
+SET title = ?1,
+    body = CASE
+        WHEN CAST(?2 AS BOOLEAN)
+          OR EXISTS (SELECT 1 FROM outgoing_changes c WHERE c.issue = issues.id AND c.field = 'body' AND c.status = 'pending')
+        THEN issues.body
+        ELSE ?3
+    END,
+    state = ?4,
+    author = ?5
+WHERE issues.repository = ?6 AND issues.number = CAST(?7 AS INTEGER)
+  AND (
+      issues.title != ?1
+      OR (NOT CAST(?2 AS BOOLEAN) AND issues.body != ?3 AND NOT EXISTS (SELECT 1 FROM outgoing_changes c WHERE c.issue = issues.id AND c.field = 'body' AND c.status = 'pending'))
+      OR issues.state != ?4
+      OR issues.author != ?5
+  )
 `
 
 type UpdateCopiedIssueParams struct {
 	Title      string
+	KeepBody   bool
 	Body       string
 	State      string
 	Author     string
@@ -12376,6 +12639,7 @@ type UpdateCopiedIssueParams struct {
 func (q *Queries) UpdateCopiedIssue(ctx context.Context, arg UpdateCopiedIssueParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, updateCopiedIssue,
 		arg.Title,
+		arg.KeepBody,
 		arg.Body,
 		arg.State,
 		arg.Author,
