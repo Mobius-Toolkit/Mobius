@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"net/http"
 	"slices"
 	"testing"
 
@@ -242,5 +243,83 @@ func TestARemovedEditedAndReattachedSubIssueGetsItsNewValuesFromGitHub(t *testin
 	}
 	if row.Kind != "project" {
 		t.Errorf("row kind = %q, want project", row.Kind)
+	}
+}
+
+func TestAPollBetweenClosingATreeIssueAndRemovingTheClosedWorkstreamTreeMakesNoWriteBack(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	fake.AddIssue(shop, 43, "Add plan view")
+	fake.AddSubIssue(shop, 12, 43)
+	server := startCopied(t, fake)
+
+	fake.FailClose(shop, 43)
+	fake.CloseIssue(shop, 12)
+
+	testkit.WaitFor(t, func() bool {
+		state, _ := fake.State(shop, 41)
+		return state == "closed" && slices.ContainsFunc(fake.Requests(), func(r testkit.Request) bool {
+			return r.Method == http.MethodPatch && r.Path == "/repos/owner/shop/issues/43" && r.Status == http.StatusInternalServerError
+		})
+	})
+	waitForPolls(t, fake)
+	if state, _ := fake.State(shop, 41); state != "closed" {
+		t.Errorf("github state of #41 = %q, want closed", state)
+	}
+	if row := issueRowOf(t, server, shop, 41); row.State != "closed" {
+		t.Errorf("row state of #41 = %q, want closed", row.State)
+	}
+	if got := countRows(t, server, "SELECT count(*) FROM incoming_changes WHERE number = 41 AND field = 'state' AND actor = ? AND status = 'done'", appActor); got != 1 {
+		t.Errorf("app state incoming changes = %d, want 1", got)
+	}
+	if got := countRows(t, server, "SELECT count(*) FROM outgoing_changes WHERE repository = ? AND number = 41 AND field = 'state'", shop); got != 0 {
+		t.Errorf("state outgoing changes = %d, want 0", got)
+	}
+
+	fake.AllowClose(shop, 43)
+	testkit.WaitFor(t, func() bool {
+		s43, _ := fake.State(shop, 43)
+		return s43 == "closed" && ownWrites(t, server) == 0 && len(workstreams(t, server)) == 0
+	})
+}
+
+func TestAPollDuringCloseWorkstreamWontDoMakesNoWriteBackForClosedTreeIssues(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	fake.AddIssue(shop, 43, "Add plan view")
+	fake.AddSubIssue(shop, 12, 43)
+	server := startCopied(t, fake)
+
+	release := fake.HoldNextOf(closeIssuePattern, "/repos/"+shop+"/issues/43")
+	statuses := startClose(t, server)
+
+	testkit.WaitFor(t, func() bool {
+		state, _ := fake.State(shop, 41)
+		return state == "closed"
+	})
+	waitForPolls(t, fake)
+	if state, _ := fake.State(shop, 41); state != "closed" {
+		t.Errorf("github state of #41 = %q, want closed", state)
+	}
+	if row := issueRowOf(t, server, shop, 41); row.State != "closed" {
+		t.Errorf("row state of #41 = %q, want closed", row.State)
+	}
+	if got := countRows(t, server, "SELECT count(*) FROM outgoing_changes WHERE repository = ? AND number = 41 AND field = 'state'", shop); got != 0 {
+		t.Errorf("state outgoing changes = %d, want 0", got)
+	}
+
+	release()
+	if status := <-statuses; status != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", status, http.StatusNoContent)
+	}
+	testkit.WaitFor(t, func() bool { return ownWrites(t, server) == 0 })
+	waitForPolls(t, fake)
+	if s41, _ := fake.State(shop, 41); s41 != "closed" {
+		t.Errorf("final state of #41 = %q, want closed", s41)
+	}
+	if s43, _ := fake.State(shop, 43); s43 != "closed" {
+		t.Errorf("final state of #43 = %q, want closed", s43)
 	}
 }
