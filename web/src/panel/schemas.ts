@@ -2,7 +2,7 @@ import { Schema } from "effect";
 import { Session } from "./details/model";
 import { TargetTask } from "./tasks/model";
 
-export const Tab = Schema.Literals(["tasks", "agents", "details", "brief", "recurring"]);
+export const Tab = Schema.Literals(["tasks", "agents", "details", "recurring"]);
 
 export type Tab = typeof Tab.Type;
 

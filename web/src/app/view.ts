@@ -8,7 +8,7 @@ import { view as chatView } from "@/chat/view";
 import { view as inboxView } from "@/inbox/view";
 import { Message as ChatMessage } from "@/chat/message";
 import type { Model as ChatModel, TaskRef } from "@/chat/model";
-import { briefView, sheetView as panelSheetView, view as panelView } from "@/panel/view";
+import { briefView, view as panelView } from "@/panel/view";
 import { Message as PanelMessage } from "@/panel/message";
 import type { Model as PanelModel } from "@/panel/model";
 import { view as checkupView } from "@/checkup/view";
@@ -49,6 +49,7 @@ import { Message as WorkstreamsMessage } from "@/workstreams/message";
 import type { Model as WorkstreamsModel } from "@/workstreams/model";
 import { renderBadge } from "@/ui/badge";
 import { renderButton } from "@/ui/button";
+import { defineDialogMount, renderDialog } from "@/ui/dialog";
 import { fileTextIcon } from "@/ui/icons";
 import { renderPageHeader } from "@/ui/page";
 import { defineInPlaceMount, renderSheet } from "@/ui/sheet";
@@ -72,6 +73,7 @@ const openTasks = (panel: Option.Option<PanelModel>): TaskRef[] =>
   );
 
 const inPlaceMount = defineInPlaceMount(Message.CompletedFocusSheet);
+const dialogMount = defineDialogMount(Message.CompletedFocusSheet);
 
 // Branded submodel views
 const chatSubmodelView = defineView<ChatModel, ChatMessage, { tasks: readonly TaskRef[] }>(
@@ -79,9 +81,6 @@ const chatSubmodelView = defineView<ChatModel, ChatMessage, { tasks: readonly Ta
 );
 const panelSubmodelView = defineView<PanelModel, PanelMessage>(
   (m: PanelModel, h: HtmlBuilder<PanelMessage>) => panelView(m, h),
-);
-const panelSheetSubmodelView = defineView<PanelModel, PanelMessage>(
-  (m: PanelModel, h: HtmlBuilder<PanelMessage>) => panelSheetView(m, h),
 );
 const briefSubmodelView = defineView<PanelModel, PanelMessage>(
   (m: PanelModel, h: HtmlBuilder<PanelMessage>) => briefView(m, h),
@@ -238,11 +237,8 @@ function renderPage(h: HtmlBuilder<Message>, model: Model): Html {
                           h.Class(
                             "group/button inline-flex h-7 shrink-0 items-center justify-center gap-1 rounded-[min(var(--radius-md),12px)] border border-border bg-background px-2.5 text-[0.8rem] font-medium whitespace-nowrap transition-all outline-none select-none hover:bg-muted hover:text-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:translate-y-px [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
                           ),
-                          h.OnClick(
-                            Message.GotPanelMessage({
-                              message: PanelMessage.SelectedTab({ tab: "brief" }),
-                            }),
-                          ),
+                          h.AriaExpanded(model.briefOpen),
+                          h.OnClick(Message.SetBriefOpen({ open: true })),
                         ],
                         [
                           fileTextIcon(h, "size-3.5"),
@@ -331,19 +327,19 @@ function renderPage(h: HtmlBuilder<Message>, model: Model): Html {
                   h.submodel({
                     slotId: `panel-sheet-${wsRoute.owner}-${wsRoute.name}-${wsRoute.number}`,
                     model: model.panel.value,
-                    view: panelSheetSubmodelView,
+                    view: panelSubmodelView,
                     toParentMessage: (m) => Message.GotPanelMessage({ message: m }),
                   }),
                 ],
               })
             : h.empty,
-          !model.wide && model.mobileBriefOpen
+          !model.wide && model.briefOpen
             ? renderSheet(h, {
                 mount: h.OnMount(inPlaceMount()),
                 titleId: "brief-sheet-title",
                 title: "Brief",
                 hideTitle: true,
-                close: Message.SetMobileBriefOpen({ open: false }),
+                close: Message.SetBriefOpen({ open: false }),
                 className: "pt-2 data-[side=bottom]:h-[80svh]",
                 children: [
                   h.submodel({
@@ -353,6 +349,28 @@ function renderPage(h: HtmlBuilder<Message>, model: Model): Html {
                     toParentMessage: (m) => Message.GotPanelMessage({ message: m }),
                   }),
                 ],
+              })
+            : h.empty,
+          model.wide && model.briefOpen
+            ? renderDialog(h, {
+                mount: h.OnMount(dialogMount()),
+                titleId: "brief-dialog-title",
+                title: "Brief",
+                description: "",
+                close: Message.SetBriefOpen({ open: false }),
+                body: h.div(
+                  [h.Class("flex min-h-0 flex-col")],
+                  [
+                    h.submodel({
+                      slotId: `brief-dialog-${wsRoute.owner}-${wsRoute.name}-${wsRoute.number}`,
+                      model: model.panel.value,
+                      view: briefSubmodelView,
+                      toParentMessage: (m) => Message.GotPanelMessage({ message: m }),
+                    }),
+                  ],
+                ),
+                footer: h.empty,
+                className: "inset-0 m-auto h-fit translate-none sm:max-w-2xl",
               })
             : h.empty,
         ],

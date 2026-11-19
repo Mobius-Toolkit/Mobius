@@ -15,6 +15,7 @@ import {
   routeInboxItems,
   stoppedItems,
 } from "./stops.js";
+import { showBrief } from "./selection.js";
 import { cancelDrain } from "./upgrade.js";
 
 const phone = { width: 390, height: 844 };
@@ -882,7 +883,9 @@ test("the Tasks sheet shows the tabs Tasks, Agents, Details and Recurring, and t
   await expect(panel.getByRole("tabpanel", { name: "Tasks" })).toBeVisible();
 });
 
-test("a Brief change from the workstreams event shows in the open Brief tab", async ({ page }) => {
+test("a Brief change from the workstreams event shows in the open Brief dialog", async ({
+  page,
+}) => {
   await page.addInitScript(`
     window.appSources = [];
     const add = EventSource.prototype.addEventListener;
@@ -894,9 +897,7 @@ test("a Brief change from the workstreams event shows in the open Brief tab", as
     };
   `);
   await page.goto("/workstreams/plants/garden/18");
-  const panel = page.getByRole("complementary");
-  await panel.getByRole("tab", { name: "Brief" }).click();
-  const tab = panel.getByRole("tabpanel", { name: "Brief" });
+  const tab = await showBrief(page);
   await expect(tab.getByText("Cut the old canes in March.")).toBeVisible();
   await page.route("**/api/workstreams", async (route) => {
     const response = await route.fetch();
@@ -3089,37 +3090,47 @@ test.describe("on a desktop", () => {
     await expect(input).toBeFocused();
   });
 
-  test("the side panel shows the tabs Tasks, Agents, Details, Brief and Recurring, and opens Tasks", async ({
+  test("the side panel shows the tabs Tasks, Agents, Details and Recurring, and opens Tasks", async ({
     page,
   }) => {
     await page.goto(shop);
     const panel = page.getByRole("complementary");
-    await expect(panel.getByRole("tab")).toHaveText([
-      "Tasks",
-      "Agents",
-      "Details",
-      "Brief",
-      "Recurring",
-    ]);
+    await expect(panel.getByRole("tab")).toHaveText(["Tasks", "Agents", "Details", "Recurring"]);
     const tasks = panel.getByRole("tab", { name: "Tasks" });
     await expect(tasks).toHaveAttribute("aria-selected", "true");
     await expect(panel.getByRole("tabpanel", { name: "Tasks" })).toBeVisible();
   });
 
-  test("the Brief button of the chat head selects the Brief tab", async ({ page }) => {
+  test("the Brief button of the chat head opens the Brief in a dialog that Escape, the overlay and the close button close", async ({
+    page,
+  }) => {
     await page.goto(shop);
     const panel = page.getByRole("complementary");
     const button = page.getByRole("button", { name: "Brief" });
+    const dialog = page.getByRole("dialog", { name: "Brief" });
     await expect(button).toBeVisible();
     await expect(button).toHaveText("Brief");
+    await expect(dialog).toHaveCount(0);
+
     await button.click();
-    await expect(panel.getByRole("tab", { name: "Brief" })).toHaveAttribute(
+    await expect(dialog.getByText("Reward repeat customers.")).toBeVisible();
+    await expect(panel.getByRole("tab", { name: "Brief" })).toHaveCount(0);
+    await expect(panel.getByRole("tab", { name: "Tasks" })).toHaveAttribute(
       "aria-selected",
       "true",
     );
-    await expect(
-      panel.getByRole("tabpanel", { name: "Brief" }).getByText("Reward repeat customers."),
-    ).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+
+    await button.click();
+    await expect(dialog).toBeVisible();
+    await page.mouse.click(5, 5);
+    await expect(dialog).toHaveCount(0);
+
+    await button.click();
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "Close" }).click();
+    await expect(dialog).toHaveCount(0);
   });
 
   test("a narrow chat head shows only the Brief icon, with the name Brief", async ({ page }) => {

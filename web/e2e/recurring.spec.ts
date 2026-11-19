@@ -45,7 +45,7 @@ test("the Recurring tab lists the tasks with icon controls, and pauses and resum
   const paused = rows.filter({ hasText: "Weekly cost report" });
 
   const tabs = page.getByRole("complementary").getByRole("tablist");
-  await expect(tabs.getByRole("tab")).toHaveCount(5);
+  await expect(tabs.getByRole("tab")).toHaveCount(4);
   expect(await tabs.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
   const [list, side] = await Promise.all([
     tabs.boundingBox(),

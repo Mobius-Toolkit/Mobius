@@ -114,7 +114,7 @@ const foldChat = Update.foldChild({
         ({ repository, number }) =>
         (model) =>
           foldPanel(
-            model.wide ? model : { ...model, mobileTasksOpen: true, mobileBriefOpen: false },
+            model.wide ? model : { ...model, mobileTasksOpen: true, briefOpen: false },
             PanelMessage.RequestedTask({ repository, number }),
           ),
     }),
@@ -275,19 +275,14 @@ const noScreens: Pick<
 
 const noWorkstreamChatState: Pick<
   Model,
-  | "autopilotBusy"
-  | "autopilotError"
-  | "closeBusy"
-  | "closeError"
-  | "mobileTasksOpen"
-  | "mobileBriefOpen"
+  "autopilotBusy" | "autopilotError" | "closeBusy" | "closeError" | "mobileTasksOpen" | "briefOpen"
 > = {
   autopilotBusy: false,
   autopilotError: "",
   closeBusy: false,
   closeError: "",
   mobileTasksOpen: false,
-  mobileBriefOpen: false,
+  briefOpen: false,
 };
 
 function isOpenWorkstream(model: Model, repository: string, number: number): boolean {
@@ -301,7 +296,7 @@ function isOpenWorkstream(model: Model, repository: string, number: number): boo
 // The tab of the panel and the setting sheet that the search of the route asks for. A setting opens only on the tab that
 // shows it: a task on the Tasks tab, and a Workstream on the Details tab.
 function panelStart(search: WorkstreamSearch) {
-  const tab = search.tab ?? "tasks";
+  const tab = search.tab === undefined || search.tab === "brief" ? "tasks" : search.tab;
   const task = Option.flatMap(Option.fromNullishOr(search.task), parseTargetTask);
   const opening = Option.filter(
     Option.map(Option.fromNullishOr(search.setting), (setting) => ({ setting, task })),
@@ -395,8 +390,8 @@ function initScreenForRoute(
           trayItems: inWorkstream,
         }),
         panel: Option.some(panelModel),
-        mobileTasksOpen: opensPanel && tab !== "brief",
-        mobileBriefOpen: opensPanel && tab === "brief",
+        mobileTasksOpen: opensPanel && search.tab !== "brief",
+        briefOpen: search.tab === "brief",
       };
       commands.push(
         Command.mapMessage(
@@ -1635,17 +1630,12 @@ export function update(model: Model, message: Message): UpdateReturn {
         commands: [],
       };
 
-    case "SetMobileTasksOpen": {
-      const opened = { ...model, mobileTasksOpen: message.open };
-      if (message.open && Option.exists(model.panel, (panel) => panel.tab === "brief")) {
-        return foldPanel(opened, PanelMessage.ReceivedTab({ tab: "tasks" }));
-      }
-      return { model: opened, commands: [] };
-    }
+    case "SetMobileTasksOpen":
+      return { model: { ...model, mobileTasksOpen: message.open }, commands: [] };
 
-    case "SetMobileBriefOpen":
+    case "SetBriefOpen":
       return foldPanel(
-        { ...model, mobileBriefOpen: message.open },
+        { ...model, briefOpen: message.open },
         toGotSelectionMessage(SelectionMessage.Cleared({ owner: "brief" })),
       );
 
@@ -1676,8 +1666,8 @@ export function update(model: Model, message: Message): UpdateReturn {
       if (model.mobileTasksOpen) {
         return update(model, Message.SetMobileTasksOpen({ open: false }));
       }
-      if (model.mobileBriefOpen) {
-        return update(model, Message.SetMobileBriefOpen({ open: false }));
+      if (model.briefOpen) {
+        return update(model, Message.SetBriefOpen({ open: false }));
       }
       return { model, commands: [] };
 
@@ -1773,10 +1763,7 @@ export function update(model: Model, message: Message): UpdateReturn {
         panelMessage._tag === "AddedSelection" ||
         (panelMessage._tag === "GotTasksMessage" && panelMessage.message._tag === "AttachedTask")
       ) {
-        return foldPanel(
-          { ...model, mobileTasksOpen: false, mobileBriefOpen: false },
-          panelMessage,
-        );
+        return foldPanel({ ...model, mobileTasksOpen: false, briefOpen: false }, panelMessage);
       }
       return foldPanel(model, panelMessage);
     }

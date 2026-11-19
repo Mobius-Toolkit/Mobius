@@ -17,7 +17,6 @@ const tabs: readonly { tab: Tab; title: string }[] = [
   { tab: "tasks", title: "Tasks" },
   { tab: "agents", title: "Agents" },
   { tab: "details", title: "Details" },
-  { tab: "brief", title: "Brief" },
   { tab: "recurring", title: "Recurring" },
 ];
 
@@ -31,7 +30,6 @@ const contentClass: Record<Tab, string> = {
   tasks: "overflow-y-auto p-2",
   agents: "flex flex-col overflow-y-auto p-2",
   details: "overflow-y-auto p-2",
-  brief: "overflow-y-auto p-2",
   recurring: "overflow-y-auto p-2",
 };
 
@@ -88,8 +86,6 @@ function renderContent(h: H, model: Model): Html {
         view: Recurring.view,
         toParentMessage: (message) => Message.GotRecurringMessage({ message }),
       });
-    case "brief":
-      return renderMarkdown(h, model.brief);
   }
 }
 
@@ -110,7 +106,7 @@ export function briefView(model: Model, h: H): Html {
   );
 }
 
-function renderPanel(h: H, model: Model, shownTabs: typeof tabs): Html {
+export function view(model: Model, h: H): Html {
   beginMarkdownRender();
   return h.div(
     [
@@ -128,7 +124,7 @@ function renderPanel(h: H, model: Model, shownTabs: typeof tabs): Html {
           h.DataAttribute("orientation", "horizontal"),
           h.Class(listClass),
         ],
-        shownTabs.map((entry) => renderTab(h, model, entry)),
+        tabs.map((entry) => renderTab(h, model, entry)),
       ),
       h.keyed("div")(
         model.tab,
@@ -141,23 +137,9 @@ function renderPanel(h: H, model: Model, shownTabs: typeof tabs): Html {
           h.DataAttribute("state", "active"),
           h.DataAttribute("orientation", "horizontal"),
           h.Class(cn("flex-1 text-sm outline-none", contentClass[model.tab])),
-          ...(model.tab === "brief"
-            ? [h.OnMount(Mount.mapMessage(Watch({ owner: "brief" }), toGotSelectionMessage))]
-            : []),
         ],
         [renderContent(h, model)],
       ),
-      renderSelectionPopover(h, model.selection, toGotSelectionMessage),
     ],
   );
 }
-
-export const view = (model: Model, h: H): Html => renderPanel(h, model, tabs);
-
-// The Brief of a phone has its own sheet.
-export const sheetView = (model: Model, h: H): Html =>
-  renderPanel(
-    h,
-    model,
-    tabs.filter(({ tab }) => tab !== "brief"),
-  );
