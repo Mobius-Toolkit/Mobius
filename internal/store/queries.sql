@@ -2073,6 +2073,14 @@ WHERE repository = sqlc.arg(repository) AND number = CAST(sqlc.arg(workstream) A
 
 -- name: SetBucketState :exec
 UPDATE workstreams
+SET metadata = json_set(metadata, '$.github.buckets[' || (
+    SELECT b.key FROM json_each(workstreams.metadata, '$.github.buckets') b
+    WHERE json_extract(b.value, '$.number') = CAST(sqlc.arg(number) AS INTEGER)) || '].state', CAST(sqlc.arg(state) AS TEXT))
+WHERE repository = sqlc.arg(repository) AND number = CAST(sqlc.arg(workstream) AS INTEGER)
+  AND EXISTS (SELECT 1 FROM json_each(workstreams.metadata, '$.github.buckets') b WHERE json_extract(b.value, '$.number') = CAST(sqlc.arg(number) AS INTEGER));
+
+-- name: CompleteBucket :exec
+UPDATE workstreams
 SET metadata = json_set(json_remove(metadata, '$.github.buckets[' || (
     SELECT b.key FROM json_each(workstreams.metadata, '$.github.buckets') b
     WHERE json_extract(b.value, '$.number') = CAST(sqlc.arg(number) AS INTEGER)) || '].pending'),

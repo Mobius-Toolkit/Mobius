@@ -475,3 +475,27 @@ func TestTheSendOfCreateIssueGivesTheIssueOfAFullWorkstreamToTheOpenBucket(t *te
 		t.Errorf("pending incoming changes = %d, %v", pending, err)
 	}
 }
+
+func TestAClosedBucketThatGitHubDoesNotLinkAtFirstStaysPendingAndTheNextPollLinksItAndMakesNoSecondClosedBucket(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addBucketWorkstream(fake)
+	addSubIssues(fake, 12, 100, 150, 101)
+	fake.FailAddSubIssue(shop, 12, true)
+	server := startCopied(t, fake)
+
+	waitForPolls(t, fake)
+	if state, _ := fake.State(shop, 151); state != "closed" || fake.HasIssue(shop, 152) {
+		t.Fatalf("state of #151 = %q, #152 = %t", state, fake.HasIssue(shop, 152))
+	}
+	if got, want := bucketEntries(t, server), "151:closed:1"; got != want {
+		t.Errorf("buckets = %q, want %q", got, want)
+	}
+
+	fake.FailAddSubIssue(shop, 12, false)
+
+	waitForThirtyDirectSubIssues(t, fake)
+	if got := fake.SubIssueNumbers(shop, 151); !slices.Equal(got, []int64{100}) || fake.HasIssue(shop, 153) {
+		t.Errorf("sub-issues of #151 = %v, #153 = %t", got, fake.HasIssue(shop, 153))
+	}
+}

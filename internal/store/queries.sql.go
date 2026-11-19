@@ -1893,6 +1893,35 @@ func (q *Queries) CloseWorkstream(ctx context.Context, arg CloseWorkstreamParams
 	return result.RowsAffected()
 }
 
+const completeBucket = `-- name: CompleteBucket :exec
+UPDATE workstreams
+SET metadata = json_set(json_remove(metadata, '$.github.buckets[' || (
+    SELECT b.key FROM json_each(workstreams.metadata, '$.github.buckets') b
+    WHERE json_extract(b.value, '$.number') = CAST(?1 AS INTEGER)) || '].pending'),
+    '$.github.buckets[' || (
+    SELECT b.key FROM json_each(workstreams.metadata, '$.github.buckets') b
+    WHERE json_extract(b.value, '$.number') = CAST(?1 AS INTEGER)) || '].state', CAST(?2 AS TEXT))
+WHERE repository = ?3 AND number = CAST(?4 AS INTEGER)
+  AND EXISTS (SELECT 1 FROM json_each(workstreams.metadata, '$.github.buckets') b WHERE json_extract(b.value, '$.number') = CAST(?1 AS INTEGER))
+`
+
+type CompleteBucketParams struct {
+	Number     int64
+	State      string
+	Repository string
+	Workstream int64
+}
+
+func (q *Queries) CompleteBucket(ctx context.Context, arg CompleteBucketParams) error {
+	_, err := q.db.ExecContext(ctx, completeBucket,
+		arg.Number,
+		arg.State,
+		arg.Repository,
+		arg.Workstream,
+	)
+	return err
+}
+
 const continueEndedTask = `-- name: ContinueEndedTask :execrows
 UPDATE tasks SET state = 'stopped', state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), recoveries = 0
 WHERE id = ? AND state = 'ended'
@@ -11788,10 +11817,7 @@ func (q *Queries) SetBucketNumber(ctx context.Context, arg SetBucketNumberParams
 
 const setBucketState = `-- name: SetBucketState :exec
 UPDATE workstreams
-SET metadata = json_set(json_remove(metadata, '$.github.buckets[' || (
-    SELECT b.key FROM json_each(workstreams.metadata, '$.github.buckets') b
-    WHERE json_extract(b.value, '$.number') = CAST(?1 AS INTEGER)) || '].pending'),
-    '$.github.buckets[' || (
+SET metadata = json_set(metadata, '$.github.buckets[' || (
     SELECT b.key FROM json_each(workstreams.metadata, '$.github.buckets') b
     WHERE json_extract(b.value, '$.number') = CAST(?1 AS INTEGER)) || '].state', CAST(?2 AS TEXT))
 WHERE repository = ?3 AND number = CAST(?4 AS INTEGER)

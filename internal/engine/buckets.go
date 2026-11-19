@@ -319,7 +319,7 @@ func (f *bucketFill) complete(ctx context.Context, issue *gh.Issue, closed bool)
 		}
 		f.changed = true
 	}
-	return f.engine.queries.SetBucketState(ctx, store.SetBucketStateParams{Number: number, State: state, Repository: f.repository.FullName, Workstream: f.workstream})
+	return f.engine.queries.CompleteBucket(ctx, store.CompleteBucketParams{Number: number, State: state, Repository: f.repository.FullName, Workstream: f.workstream})
 }
 
 // closeBucket closes the bucket issue number and stores the state in its entry.
