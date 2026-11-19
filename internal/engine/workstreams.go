@@ -177,8 +177,8 @@ func (e *Engine) handleWorkstreamClose(ctx context.Context, repository github.Re
 }
 
 // retryWorkstreamCloses runs again the close of each Workstream of repository whose earlier closeWorkstream failed. The
-// close event of a send or of the close as "won't do" is no incoming change that runs it again. A Workstream whose close
-// runs now waits for the next poll.
+// close event of a send or of the close as "won't do" is an own write, so it is no incoming change that runs it again.
+// A Workstream whose close runs now waits for the next poll.
 func (e *Engine) retryWorkstreamCloses(ctx context.Context, repository github.Repository) error {
 	numbers, err := e.queries.ListClosePendingWorkstreams(ctx, repository.FullName)
 	if err != nil {
@@ -592,6 +592,12 @@ func (e *Engine) CloseWorkstreamWontDo(ctx context.Context, repositoryName strin
 		if item.PullRequest {
 			err = source.ClosePullRequest(ctx, item.Number)
 		} else {
+			// The issue can be closed on GitHub after a failed call, so the own write stays.
+			if item.Repository == repository.FullName && item.Number == number {
+				if _, err := addOwnWrite(ctx, e.queries, repository.FullName, number, stateField, "", closedChange); err != nil {
+					return err
+				}
+			}
 			_, err = source.CloseIssue(ctx, item.Number, "not_planned")
 		}
 		if err != nil {

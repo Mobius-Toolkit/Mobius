@@ -229,6 +229,29 @@ func waitForNoWorkstream(t *testing.T, server *testserver.Server) {
 	testkit.WaitFor(t, func() bool { return len(workstreams(t, server)) == 0 })
 }
 
+func TestTheCloseOfTheWorkstreamIssueByAWontDoCloseAddsNoWriteBack(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	server := startCopied(t, fake)
+
+	if status, body := closeWontDo(t, server, 12); status != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+
+	testkit.WaitFor(t, func() bool { return ownWrites(t, server) == 0 })
+	waitForPolls(t, fake)
+	if got := countRows(t, server, "SELECT count(*) FROM outgoing_changes WHERE number = 12 AND field = 'state'"); got != 0 {
+		t.Errorf("state outgoing changes = %d", got)
+	}
+	if got := incomingChanges(t, server, "pending"); got != 0 {
+		t.Errorf("pending incoming changes = %d", got)
+	}
+	if state, _ := fake.State(shop, 12); state != "closed" {
+		t.Errorf("state = %s", state)
+	}
+}
+
 func TestACloseAsWontDoHidesTheWorkstreamWhileTheCloseRuns(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
