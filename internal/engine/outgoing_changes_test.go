@@ -105,11 +105,10 @@ func TestAnOutgoingChangeWhoseCommentsGitHubRefusesToReadGetsRefusedAndTheNextCh
 	testkit.WaitFor(t, func() bool { return commentWrites(t, server) == 2 })
 
 	fake.RefuseNextCommentList(shop, 60, http.StatusNotFound)
+	testkit.WaitFor(t, func() bool { return outgoingChanges(t, server, "refused") == 1 })
 	fake.FailAddComment(shop, 60, false)
 
-	testkit.WaitFor(t, func() bool {
-		return outgoingChanges(t, server, "refused") == 1 && outgoingChanges(t, server, "sent") == 1
-	})
+	testkit.WaitFor(t, func() bool { return outgoingChanges(t, server, "sent") == 1 })
 	if got := appComments(fake, 60); len(got) != 1 || !strings.HasSuffix(got[0], "\n\n<!-- mobius:write 2 -->") {
 		t.Errorf("comments = %q", got)
 	}
