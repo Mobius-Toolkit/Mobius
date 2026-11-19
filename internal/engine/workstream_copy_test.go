@@ -1147,6 +1147,21 @@ func TestARemovalBeforeTheAddOfTheWorkstreamChangesTheWorkstreamOfABlockerInAnot
 	}
 }
 
+func TestAnAddOfTheLabelByAPersonWhoIsNotTrustedKeepsTheWorkstreamOfABlockerInAnotherTree(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := startWithBlockerBelowATask(t, fake)
+
+	fake.AddLabel(shop, 41, "mobius:workstream", "mallory")
+
+	testkit.WaitFor(t, func() bool { return fake.LabelRemovedBy(shop, 41, "mobius:workstream", testkit.AppSlug+"[bot]") })
+	testkit.WaitFor(t, func() bool { return doneChangesOfPersons(t, server) == 1 && ownWrites(t, server) == 0 })
+	waitForPolls(t, fake)
+	testkit.WaitFor(t, func() bool {
+		return reflect.DeepEqual(copiedBlockers(t, server), []copiedBlocker{blocker(60, 50, 12, "Integrate loyalty plans")})
+	})
+}
+
 func TestANewWorkstreamChangesTheWorkstreamOfABlockerInAnotherTree(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

@@ -511,6 +511,7 @@ func (e *Engine) markSent(ctx context.Context, change store.OutgoingChange) erro
 
 // sendWorkstream writes the field of the Workstream from workstreams to the issue on GitHub when GitHub differs: the
 // label mobius:workstream, the state, the title or the body. The label is on the issue only when the issue has a row.
+// The removal of the label of an issue with no row copies the trees again, because the poll copied them with the label.
 // The other fields are refused for an issue with no row. A Workstream with no issue is refused.
 func (e *Engine) sendWorkstream(ctx context.Context, repository github.Repository, change store.OutgoingChange) (bool, error) {
 	row, err := e.queries.GetWorkstream(ctx, store.GetWorkstreamParams{Repository: change.Repository, Number: change.Number})
@@ -535,7 +536,14 @@ func (e *Engine) sendWorkstream(ctx context.Context, repository github.Repositor
 	}
 	switch change.Field {
 	case workstreamField:
-		return e.sendLabel(ctx, repository, change, issue, workstreamLabel, stored)
+		pending, err := e.sendLabel(ctx, repository, change, issue, workstreamLabel, stored)
+		if pending || err != nil || stored {
+			return pending, err
+		}
+		if err := e.recopyAfterRemoval(ctx, repository, change.Number); err != nil {
+			log.Printf("copy the trees after the removal of the label of %s#%d: %v", change.Repository, change.Number, err)
+		}
+		return false, nil
 	case bodyField:
 		body := e.withChatLink(repository, change.Number, row.Body)
 		if issue.GetBody() != body {
