@@ -172,6 +172,16 @@ func (g *FakeGitHub) RefuseMerge(repository string, number int64, reason string)
 	g.mergeRefusals[issueKey{repository, number}] = reason
 }
 
+// AutoCloseOnMerge makes a merge of pull close issue with the actor of the merge call, as GitHub does for Closes #N.
+func (g *FakeGitHub) AutoCloseOnMerge(repository string, pull, issue int64) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.autoCloseIssues == nil {
+		g.autoCloseIssues = map[issueKey]int64{}
+	}
+	g.autoCloseIssues[issueKey{repository, pull}] = issue
+}
+
 // HoldMerge makes the next request to merge the pull request wait. A second call makes the request after it wait too.
 // The channel closes when the request arrives, and the function lets the request go on.
 func (g *FakeGitHub) HoldMerge(repository string, number int64) (<-chan struct{}, func()) {
@@ -670,6 +680,7 @@ func (g *FakeGitHub) mergePullRequest(w http.ResponseWriter, r *http.Request) {
 		close(h.reached)
 		<-h.release
 	}
+	caller, _ := g.validToken(r)
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.mergeCalls++
@@ -707,6 +718,9 @@ func (g *FakeGitHub) mergePullRequest(w http.ResponseWriter, r *http.Request) {
 	found.state = "closed"
 	found.merged = true
 	found.updatedAt = g.tick()
+	if target := g.autoCloseIssues[key]; target != 0 {
+		g.setState(issueKey{key.repository, target}, "closed", "completed", caller.login)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"sha": sha, "merged": true, "message": "Pull Request successfully merged"})
 }
 

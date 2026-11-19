@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	gh "github.com/google/go-github/v92/github"
@@ -256,29 +257,64 @@ func (e *Engine) mergeApproved(ctx context.Context, repository github.Repository
 	if err := e.markMergeHead(ctx, task); err != nil {
 		return false, err
 	}
-	merged, reason, err := repository.MergePullRequest(ctx, number, head)
+	ownWrite, err := addOwnWrite(ctx, e.queries, task.Repository, task.Issue, stateField, "", closedChange)
 	if err != nil {
 		return false, err
 	}
+	merged, reason, err := repository.MergePullRequest(ctx, number, head)
+	if err != nil {
+		if delErr := e.queries.DeleteOwnWrite(ctx, ownWrite); delErr != nil {
+			return false, errors.Join(err, delErr)
+		}
+		return false, err
+	}
 	if merged {
+		if _, err := e.queries.SetIssueStateByRepoNumber(ctx, store.SetIssueStateByRepoNumberParams{
+			State:      "closed",
+			Repository: task.Repository,
+			Number:     task.Issue,
+		}); err != nil {
+			return false, err
+		}
 		if err := e.clearMergeQueue(ctx, &task); err != nil {
 			return false, err
 		}
 		return true, e.dismissIssueItems(ctx, task.Repository, task.Issue, readyForReviewKind)
 	}
 	if reason == "" {
+		if delErr := e.queries.DeleteOwnWrite(ctx, ownWrite); delErr != nil {
+			return false, delErr
+		}
 		return false, nil
 	}
 	current, err := repository.PullRequest(ctx, number)
 	if err != nil {
+		if delErr := e.queries.DeleteOwnWrite(ctx, ownWrite); delErr != nil {
+			return false, errors.Join(err, delErr)
+		}
 		return false, err
 	}
 	if current.GetMerged() {
+		if mergedBy := current.GetMergedBy().GetLogin(); mergedBy != "" && !strings.EqualFold(mergedBy, appLogin(repository.AppSlug)) {
+			if delErr := e.queries.DeleteOwnWrite(ctx, ownWrite); delErr != nil {
+				return false, delErr
+			}
+		}
+		if _, err := e.queries.SetIssueStateByRepoNumber(ctx, store.SetIssueStateByRepoNumberParams{
+			State:      "closed",
+			Repository: task.Repository,
+			Number:     task.Issue,
+		}); err != nil {
+			return false, err
+		}
 		if err := e.clearMergeQueue(ctx, &task); err != nil {
 			return false, err
 		}
 		e.pull(repository, number).changed = true
 		return false, nil
+	}
+	if delErr := e.queries.DeleteOwnWrite(ctx, ownWrite); delErr != nil {
+		return false, delErr
 	}
 	if err := e.refuseMergeItem(ctx, task, reason); err != nil {
 		return false, err

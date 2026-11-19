@@ -535,16 +535,35 @@ func afterReview(state string) bool {
 // endPullRequest ends the task of the closed pull request, closes the open issue of a merged pull request as completed,
 // and gives the Lead an end event.
 func (e *Engine) endPullRequest(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue, pullRequest *gh.PullRequest) error {
-	if pullRequest.GetMerged() && issue.GetState() == "open" {
-		ownWrite, err := addOwnWrite(ctx, e.queries, task.Repository, task.Issue, stateField, "", closedChange)
-		if err != nil {
-			return err
-		}
-		if _, err := repository.CloseIssue(ctx, task.Issue, "completed"); err != nil {
-			if delErr := e.queries.DeleteOwnWrite(ctx, ownWrite); delErr != nil {
-				return errors.Join(err, delErr)
+	return e.endPullRequestWith(ctx, repository, task, issue, pullRequest, false)
+}
+
+func (e *Engine) endPullRequestWith(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue, pullRequest *gh.PullRequest, ownCloseAdded bool) error {
+	if pullRequest.GetMerged() {
+		if issue.GetState() == "open" {
+			var ownWrite int64
+			addedOwn := false
+			if !ownCloseAdded {
+				hasOwn, err := e.queries.HasClosedOwnWrite(ctx, store.HasClosedOwnWriteParams{Repository: task.Repository, Number: task.Issue})
+				if err != nil {
+					return err
+				}
+				if !hasOwn {
+					ownWrite, err = addOwnWrite(ctx, e.queries, task.Repository, task.Issue, stateField, "", closedChange)
+					if err != nil {
+						return err
+					}
+					addedOwn = true
+				}
 			}
-			return err
+			if _, err := repository.CloseIssue(ctx, task.Issue, "completed"); err != nil {
+				if addedOwn {
+					if delErr := e.queries.DeleteOwnWrite(ctx, ownWrite); delErr != nil {
+						return errors.Join(err, delErr)
+					}
+				}
+				return err
+			}
 		}
 		if _, err := e.queries.SetIssueStateByRepoNumber(ctx, store.SetIssueStateByRepoNumberParams{
 			State:      "closed",
@@ -565,14 +584,21 @@ func (e *Engine) endPullRequest(ctx context.Context, repository github.Repositor
 	return e.endTask(ctx, repository, task)
 }
 
-// endMergedTask ends the task of the pull request that mergeApproved merged, from a new read of the pull request. When
-// that read does not show the merge yet, the task stays, and the next poll ends it.
+// endMergedTask ends the task of the pull request that mergeApproved merged, from a new read of the pull request and of
+// the issue. When the pull request read does not show the merge yet, the task stays, and the next poll ends it.
 func (e *Engine) endMergedTask(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue) error {
 	pullRequest, err := repository.PullRequest(ctx, task.PullRequest.Int64)
 	if err != nil || pullRequest.GetState() != "closed" {
 		return err
 	}
-	return e.endPullRequest(ctx, repository, task, issue, pullRequest)
+	currentIssue, err := repository.Issue(ctx, task.Issue)
+	if err != nil {
+		return err
+	}
+	if currentIssue != nil {
+		issue = currentIssue
+	}
+	return e.endPullRequestWith(ctx, repository, task, issue, pullRequest, true)
 }
 
 // labelRemoved stops the task when a person removed label from its issue, and tells if it did. The pull request and

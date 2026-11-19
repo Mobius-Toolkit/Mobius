@@ -1259,11 +1259,11 @@ func (e *Engine) appAddedIssues(ctx context.Context, repository github.Repositor
 	}
 	for _, copied := range tree.issues {
 		num := int64(copied.issue.GetNumber())
-		_, err := e.queries.GetIssueTreeNode(ctx, store.GetIssueTreeNodeParams{Repository: copied.repository, Number: num})
-		if err == nil {
+		existing, err := e.queries.GetIssueTreeNode(ctx, store.GetIssueTreeNodeParams{Repository: copied.repository, Number: num})
+		if err == nil && existing.Workstream.Valid {
 			continue
 		}
-		if !errors.Is(err, sql.ErrNoRows) {
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return nil, err
 		}
 		author := copied.issue.GetUser().GetLogin()
@@ -1346,8 +1346,8 @@ func addCreatedTreeIssues(ctx context.Context, q *store.Queries, repository stri
 		num := int64(copied.issue.GetNumber())
 		ref := lowerRef(copied.repository, num)
 		existing, err := q.GetIssueTreeNode(ctx, store.GetIssueTreeNodeParams{Repository: copied.repository, Number: num})
-		if err == nil {
-			if existing.Workstream.Valid && existing.Workstream.Int64 == wsID {
+		if err == nil && existing.Workstream.Valid {
+			if existing.Workstream.Int64 == wsID {
 				ids[ref] = existing.ID
 				if !existing.Parent.Valid {
 					if meta, err := parseMetadata(existing.Metadata); err == nil && meta.Bucket != copied.bucket {
@@ -1359,7 +1359,7 @@ func addCreatedTreeIssues(ctx context.Context, q *store.Queries, repository stri
 			}
 			continue
 		}
-		if !errors.Is(err, sql.ErrNoRows) {
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
 		if !appAdded[ref] {

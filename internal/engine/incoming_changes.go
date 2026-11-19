@@ -522,11 +522,10 @@ func (e *Engine) changeRepository(name string, fallback github.Repository) githu
 
 func (e *Engine) applyParentChange(ctx context.Context, repository github.Repository, change store.IncomingChange) (bool, error) {
 	node, err := e.queries.GetIssueTreeNode(ctx, store.GetIssueTreeNodeParams{Repository: change.Repository, Number: change.Number})
-	stored := err == nil
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return false, err
 	}
-	inTree := stored && node.Workstream.Valid
+	inTree := err == nil && node.Workstream.Valid
 	var meta parentMetadata
 	if err := json.Unmarshal([]byte(change.Metadata), &meta); err != nil {
 		return false, err
@@ -564,7 +563,7 @@ func (e *Engine) applyParentChange(ctx context.Context, repository github.Reposi
 		}
 		return false, nil
 	}
-	if !stored {
+	if !inTree {
 		found, err := e.readChildIssue(ctx, repository, change.Repository, change.Number, parentRepoName, meta.Parent)
 		if err != nil || found == nil || hasLabel(found, workstreamLabel) {
 			return false, err

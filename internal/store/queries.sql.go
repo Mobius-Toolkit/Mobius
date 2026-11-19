@@ -293,6 +293,10 @@ INSERT INTO issues (repository, number, title, body, state, author, workstream, 
 VALUES (?1, CAST(?2 AS INTEGER), ?3, ?4, ?5, ?6,
         ?7, ?8, ?9, json_object('github', json(CAST(?10 AS TEXT))))
 ON CONFLICT (repository, number) DO UPDATE SET
+    title = CASE WHEN issues.workstream IS NULL THEN excluded.title ELSE issues.title END,
+    body = CASE WHEN issues.workstream IS NULL THEN excluded.body ELSE issues.body END,
+    state = CASE WHEN issues.workstream IS NULL THEN excluded.state ELSE issues.state END,
+    kind = CASE WHEN issues.workstream IS NULL THEN excluded.kind ELSE issues.kind END,
     author = excluded.author,
     workstream = excluded.workstream,
     parent = CASE
@@ -5279,6 +5283,25 @@ func (q *Queries) HandTaskToHuman(ctx context.Context, arg HandTaskToHumanParams
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const hasClosedOwnWrite = `-- name: HasClosedOwnWrite :one
+SELECT EXISTS (
+    SELECT 1 FROM own_writes
+    WHERE repository = ? AND number = ? AND field = 'state' AND json_extract(metadata, '$.change') = 'closed'
+)
+`
+
+type HasClosedOwnWriteParams struct {
+	Repository string
+	Number     int64
+}
+
+func (q *Queries) HasClosedOwnWrite(ctx context.Context, arg HasClosedOwnWriteParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, hasClosedOwnWrite, arg.Repository, arg.Number)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }
 
 const hasCommentChangeWithText = `-- name: HasCommentChangeWithText :one

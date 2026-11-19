@@ -855,6 +855,12 @@ SELECT EXISTS (SELECT 1 FROM own_writes WHERE repository = ? AND number = ?);
 -- name: HasFieldOwnWrite :one
 SELECT EXISTS (SELECT 1 FROM own_writes WHERE repository = ? AND number = ? AND field = ?);
 
+-- name: HasClosedOwnWrite :one
+SELECT EXISTS (
+    SELECT 1 FROM own_writes
+    WHERE repository = ? AND number = ? AND field = 'state' AND json_extract(metadata, '$.change') = 'closed'
+);
+
 -- name: ListTreeOwnWrites :many
 SELECT DISTINCT repository, number FROM own_writes
 WHERE field IN ('parent', 'blockers')
@@ -1123,6 +1129,10 @@ INSERT INTO issues (repository, number, title, body, state, author, workstream, 
 VALUES (sqlc.arg(repository), CAST(sqlc.arg(number) AS INTEGER), sqlc.arg(title), sqlc.arg(body), sqlc.arg(state), sqlc.arg(author),
         sqlc.arg(workstream), sqlc.arg(parent), sqlc.arg(kind), json_object('github', json(CAST(sqlc.arg(github) AS TEXT))))
 ON CONFLICT (repository, number) DO UPDATE SET
+    title = CASE WHEN issues.workstream IS NULL THEN excluded.title ELSE issues.title END,
+    body = CASE WHEN issues.workstream IS NULL THEN excluded.body ELSE issues.body END,
+    state = CASE WHEN issues.workstream IS NULL THEN excluded.state ELSE issues.state END,
+    kind = CASE WHEN issues.workstream IS NULL THEN excluded.kind ELSE issues.kind END,
     author = excluded.author,
     workstream = excluded.workstream,
     parent = CASE

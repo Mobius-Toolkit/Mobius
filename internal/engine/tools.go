@@ -2205,7 +2205,7 @@ func (e *Engine) moveTreeNodeToWorkstream(ctx context.Context, issueRepo string,
 			return err
 		}
 		node, err := q.GetIssueTreeNode(ctx, store.GetIssueTreeNodeParams{Repository: issueRepo, Number: issueNum})
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, sql.ErrNoRows) || (err == nil && !node.Workstream.Valid) {
 			metadata, err := githubMetadata(issue, 0)
 			if err != nil {
 				return err

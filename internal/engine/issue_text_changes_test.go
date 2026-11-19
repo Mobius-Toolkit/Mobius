@@ -175,3 +175,72 @@ call = { tool = "close_task", arguments = { repository = "owner/shop", n = 41, r
 		t.Errorf("row state = %q, want closed", got)
 	}
 }
+
+func TestAnAppMergeThatAutoClosesTheTaskIssueSetsStateClosedWithNoWriteBack(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := approvable(t, fake, "merge", true)
+	fake.AutoCloseOnMerge(shop, 42, 41)
+
+	sendChat(t, server, leadChat, "Approve #41")
+
+	waitForChat(t, server, leadChat, "Lead", "Approved pull request #42 of #41. Mobius merges it after its checks pass.")
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "" })
+	testkit.WaitFor(t, func() bool { return ownWrites(t, server) == 0 })
+	waitForPolls(t, fake)
+	if state, _ := fake.State(shop, 41); state != "closed" {
+		t.Errorf("github state = %q, want closed", state)
+	}
+	if row := issueRowOf(t, server, shop, 41); row.State != "closed" {
+		t.Errorf("row state = %q, want closed", row.State)
+	}
+	if got := incomingChanges(t, server, "pending"); got != 0 {
+		t.Errorf("pending incoming changes = %d", got)
+	}
+	if got := countRows(t, server, "SELECT count(*) FROM incoming_changes WHERE number = 41 AND field = 'state' AND actor = ? AND status = 'done'", appActor); got != 1 {
+		t.Errorf("app state incoming changes = %d, want 1", got)
+	}
+	if got := countRows(t, server, "SELECT count(*) FROM outgoing_changes WHERE repository = ? AND number = 41 AND field = 'state'", shop); got != 0 {
+		t.Errorf("state outgoing changes = %d, want 0", got)
+	}
+}
+
+func TestARemovedEditedAndReattachedSubIssueGetsItsNewValuesFromGitHub(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	fake.SetBody(shop, 41, "Plans have a price.\n\n"+chatLink)
+	fake.AddIssue(shop, 42, "Show plans")
+	fake.AddSubIssue(shop, 12, 42)
+	fake.AddBlockedBy(shop, 42, 41)
+	server := startWithChatLink(t, fake)
+
+	fake.RemoveSubIssue(shop, 12, 41)
+	testkit.WaitFor(t, func() bool {
+		return countRows(t, server, "SELECT count(*) FROM issues WHERE repository = ? AND number = 41 AND workstream IS NULL", shop) == 1
+	})
+
+	fake.SetTitle(shop, 41, "Add billing model")
+	fake.SetBodyBy(shop, 41, "Billing uses cents.\n\n"+chatLink, "owner")
+	fake.CloseIssue(shop, 41)
+	fake.AddLabel(shop, 41, "mobius:project", "owner")
+	waitForPolls(t, fake)
+
+	fake.AddSubIssue(shop, 12, 41)
+	testkit.WaitFor(t, func() bool {
+		return countRows(t, server, "SELECT count(*) FROM issues WHERE repository = ? AND number = 41 AND workstream IS NOT NULL", shop) == 1
+	})
+	row := issueRowOf(t, server, shop, 41)
+	if row.Title != "Add billing model" {
+		t.Errorf("row title = %q, want %q", row.Title, "Add billing model")
+	}
+	if row.Body != "Billing uses cents." {
+		t.Errorf("row body = %q, want %q", row.Body, "Billing uses cents.")
+	}
+	if row.State != "closed" {
+		t.Errorf("row state = %q, want closed", row.State)
+	}
+	if row.Kind != "project" {
+		t.Errorf("row kind = %q, want project", row.Kind)
+	}
+}
