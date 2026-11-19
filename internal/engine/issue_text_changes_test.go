@@ -168,6 +168,9 @@ call = { tool = "close_task", arguments = { repository = "owner/shop", n = 41, r
 	if got := doneChangesOfPersons(t, server); got != 0 {
 		t.Errorf("person incoming changes = %d", got)
 	}
+	if got := countRows(t, server, "SELECT count(*) FROM incoming_changes WHERE field = 'state' AND actor = ? AND status = 'done'", appActor); got != 1 {
+		t.Errorf("app state incoming changes = %d, want 1", got)
+	}
 	if got := issueRowOf(t, server, shop, 41).State; got != "closed" {
 		t.Errorf("row state = %q, want closed", got)
 	}
