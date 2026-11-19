@@ -172,6 +172,10 @@ func issueLink(repository string, number int64) string {
 	return fmt.Sprintf("https://github.com/%s/issues/%d", repository, number)
 }
 
+func pullRequestLink(repository string, number int64) string {
+	return fmt.Sprintf("https://github.com/%s/pull/%d", repository, number)
+}
+
 // readyActor gives the actor of the last mobius:ready of events. After a move_issue of the Triager, the Mobius App
 // removes mobius:no-workstream and adds mobius:ready again. Only this sequence, after a triage of the Mobius App with
 // no other mobius:ready between, counts with the actor of the mobius:ready before the triage.

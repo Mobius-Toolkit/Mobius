@@ -375,7 +375,9 @@ func TestCreateIssueCreatesASubIssueWithABlockerInAnotherWorkstream(t *testing.T
 	}
 	testkit.WaitFor(t, func() bool {
 		var count int
-		_ = server.DB.QueryRow("SELECT count(*) FROM copied_blockers WHERE repository = ? AND workstream = 12 AND number = 88 AND blocker_workstream_title = 'Billing'", shop).Scan(&count)
+		_ = server.DB.QueryRow(`SELECT count(*) FROM blockers b JOIN issues i ON i.id = b.issue JOIN workstreams w ON w.id = i.workstream
+			JOIN issues bi ON bi.id = b.blocker JOIN workstreams bw ON bw.id = bi.workstream
+			WHERE w.repository = ? AND w.number = 12 AND bi.number = 88 AND bw.title = 'Billing'`, shop).Scan(&count)
 		return count == 1
 	})
 	if err := agent.Prompt(t.Context(), "List the tasks. ", nil); err != nil {

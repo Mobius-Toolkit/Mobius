@@ -31,7 +31,7 @@ func TestCreateIssueGivesTheNumberWhileTheCopyOfTheTreeIsHeld(t *testing.T) {
 	server, _ := connect(t, fake, call("create_issue", createPlanModel))
 	copied := func(number int64) bool {
 		var count int
-		_ = server.DB.QueryRow("SELECT count(*) FROM copied_issues WHERE repository = ? AND workstream = 12 AND number = ?", shop, number).Scan(&count)
+		_ = server.DB.QueryRow("SELECT count(*) FROM issues i JOIN workstreams w ON w.id = i.workstream WHERE w.repository = ? AND w.number = 12 AND i.number = ?", shop, number).Scan(&count)
 		return count == 1
 	}
 	testkit.WaitFor(t, func() bool {
@@ -75,7 +75,7 @@ func TestCreateIssueGivesTheNumberWhileTheCopyOfTheTreeIsHeld(t *testing.T) {
 func copiedRows(t *testing.T, server *testserver.Server, number int64) int {
 	t.Helper()
 	var count int
-	if err := server.DB.QueryRow("SELECT count(*) FROM copied_issues WHERE repository = ? AND workstream = 12 AND number = ?", shop, number).Scan(&count); err != nil {
+	if err := server.DB.QueryRow("SELECT count(*) FROM issues i JOIN workstreams w ON w.id = i.workstream WHERE w.repository = ? AND w.number = 12 AND i.number = ?", shop, number).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	return count
@@ -92,7 +92,7 @@ func TestListTasksShowsTheNewIssueOfCreateIssueWithItsBlockersWhileTheCopyOfTheT
 	fake.AddSubIssue(shop, 20, 88)
 	testkit.WaitFor(t, func() bool {
 		var count int
-		_ = server.DB.QueryRow("SELECT count(*) FROM copied_issues WHERE repository = ? AND workstream = 20 AND number = 88", shop).Scan(&count)
+		_ = server.DB.QueryRow("SELECT count(*) FROM issues i JOIN workstreams w ON w.id = i.workstream WHERE w.repository = ? AND w.number = 20 AND i.number = 88", shop).Scan(&count)
 		return count == 1
 	})
 	hold := make(chan struct{})

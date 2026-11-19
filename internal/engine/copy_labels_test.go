@@ -27,19 +27,26 @@ reply = ["Seen"]
 	testkit.WaitFor(t, func() bool { return slices.Contains(copiedLabels(t, server, 41), "mobius:question") })
 	fake.AddIssue(shop, 50, "Plan the tiers")
 	waitForPolls(t, fake)
-	parentReads := func() int {
+	blockerReads := func() int {
 		reads := 0
 		for _, request := range fake.Requests() {
-			if strings.HasSuffix(request.Path, "/issues/50/parent") {
+			if strings.HasSuffix(request.Path, "/issues/41/dependencies/blocked_by") {
 				reads++
 			}
 		}
 		return reads
 	}
-	before := parentReads()
-	release := fake.HoldNext("GET /repos/{owner}/{repo}/issues/{number}/parent")
+
+	// The check of the tree reads the blockers of #41 and holds. Then the tree copy reads them and holds.
+	// The labels of #41 are from the read of the sub-issues of #12.
+	before := blockerReads()
+	blockersRoute := "GET /repos/{owner}/{repo}/issues/{number}/dependencies/blocked_by"
+	releaseCheck := fake.HoldNextOf(blockersRoute, "/repos/"+shop+"/issues/41/dependencies/blocked_by")
 	fake.AddBlockedBy(shop, 41, 50)
-	testkit.WaitFor(t, func() bool { return parentReads() > before })
+	testkit.WaitFor(t, func() bool { return blockerReads() > before })
+	release := fake.HoldNextOf(blockersRoute, "/repos/"+shop+"/issues/41/dependencies/blocked_by")
+	releaseCheck()
+	testkit.WaitFor(t, func() bool { return blockerReads() > before+1 })
 
 	sendChat(t, server, leadChat, "Dollars were chosen")
 	testkit.WaitFor(t, func() bool {

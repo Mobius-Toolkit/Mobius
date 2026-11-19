@@ -142,12 +142,12 @@ func TestListTasksWritesTheRepositoryOfEachTaskAndEachBlocker(t *testing.T) {
 	fake.AddForeignBlockedBy(shop, 41, garden, 7)
 	testkit.WaitFor(t, func() bool {
 		lines, err := server.Engine.Tasks(t.Context(), shop, 12)
-		return err == nil && len(lines) == 2 && len(lines[0].BlockedBy) == 1
+		return err == nil && len(lines) == 2 && len(lines[1].BlockedBy) == 1
 	})
 
 	_, text := leadReply(t, server)
 
-	want := "owner/shop#41 Add plan model: open, blocked by owner/garden#7\nowner/garden#7 Water the plants: open\n"
+	want := "owner/garden#7 Water the plants: open\nowner/shop#41 Add plan model: open, blocked by owner/garden#7\n"
 	if text != want {
 		t.Errorf("reply = %q", text)
 	}

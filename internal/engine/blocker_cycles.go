@@ -49,7 +49,7 @@ func (e *Engine) sendBlockerCycles(ctx context.Context) error {
 	edges := map[blockerIssue][]blockerIssue{}
 	workstreams := map[blockerIssue][]blockerWorkstream{}
 	for _, row := range rows {
-		blocked := blockerIssue{repositoryOfURL(row.RepositoryUrl), row.Number}
+		blocked := blockerIssue{row.IssueRepository, row.Number}
 		blocker := blockerIssue{row.BlockerRepository, row.BlockerNumber}
 		if !slices.Contains(edges[blocked], blocker) {
 			edges[blocked] = append(edges[blocked], blocker)

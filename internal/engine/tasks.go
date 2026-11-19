@@ -86,29 +86,23 @@ func (e *Engine) Tasks(ctx context.Context, repositoryName string, workstream in
 	if err != nil {
 		return nil, err
 	}
-	var tree []store.ListCopiedTreeRow
-	var labelRows []store.ListCopiedTreeLabelsRow
+	var treeRows []store.ListCopiedTreeRow
 	var blockerRows []store.ListCopiedTreeBlockersRow
-	params := store.ListCopiedTreeParams{Repository: repositoryName, Workstream: workstream}
 	err = e.readTx(ctx, func(q *store.Queries) error {
 		var err error
-		tree, err = q.ListCopiedTree(ctx, params)
+		treeRows, err = q.ListCopiedTree(ctx, store.ListCopiedTreeParams{Repository: repositoryName, Number: workstream})
 		if err != nil {
 			return err
 		}
-		labelRows, err = q.ListCopiedTreeLabels(ctx, store.ListCopiedTreeLabelsParams(params))
-		if err != nil {
-			return err
-		}
-		blockerRows, err = q.ListCopiedTreeBlockers(ctx, store.ListCopiedTreeBlockersParams(params))
+		blockerRows, err = q.ListCopiedTreeBlockers(ctx, store.ListCopiedTreeBlockersParams{Repository: repositoryName, Number: workstream})
 		return err
 	})
 	if err != nil {
 		return nil, err
 	}
-	labels := map[int64][]string{}
-	for _, row := range labelRows {
-		labels[row.Position] = append(labels[row.Position], row.Name)
+	tree, err := orderTree(treeRows)
+	if err != nil {
+		return nil, err
 	}
 	blockers := map[int64][]Blocker{}
 	for _, row := range blockerRows {
@@ -119,28 +113,25 @@ func (e *Engine) Tasks(ctx context.Context, repositoryName string, workstream in
 		if row.BlockerWorkstream.Valid && row.BlockerWorkstream.Int64 != workstream {
 			blocker.WorkstreamTitle = row.BlockerWorkstreamTitle.String
 		}
-		blockers[row.Position] = append(blockers[row.Position], blocker)
+		blockers[row.Issue] = append(blockers[row.Issue], blocker)
 	}
 	lines := []TaskLine{}
-	// depths holds the depth of the sub-issues of each issue.
-	depths := map[issueRef]int64{lowerRef(repositoryName, workstream): 0}
+	// depths holds the depth of the sub-issues of each issue by its id. The id 0 is the Workstream issue.
+	depths := map[int64]int64{}
 	for _, row := range tree {
-		if slices.Contains(labels[row.Position], workstreamLabel) {
-			continue
-		}
 		issueRepositoryName := repositoryName
-		own := !otherRepository(row.RepositoryUrl, repositoryName)
+		own := strings.EqualFold(row.IssueRepository, repositoryName)
 		if !own {
-			issueRepositoryName = repositoryOfURL(row.RepositoryUrl)
+			issueRepositoryName = row.IssueRepository
 		}
-		depth := depths[lowerRef(row.ParentRepository, row.Parent)]
-		visible := e.TrustedAuthor(repository.AppSlug, row.Author) && !slices.Contains(labels[row.Position], bucketLabel)
+		depth := depths[row.Parent.Int64]
+		visible := e.TrustedAuthor(repository.AppSlug, row.Author)
 		if visible {
-			line := TaskLine{Number: row.Number, Title: row.Title, State: labelState(labels[row.Position]), URL: row.HtmlUrl, Repository: issueRepositoryName, Depth: depth, OtherRepository: !own, BlockedBy: []Blocker{}}
+			line := TaskLine{Number: row.Number, Title: row.Title, State: labelState(row.labels), URL: issueLink(issueRepositoryName, row.Number), Repository: issueRepositoryName, Depth: depth, OtherRepository: !own, BlockedBy: []Blocker{}}
 			if row.State != "open" {
 				line.State = "closed"
 			} else {
-				line.BlockedBy = append(line.BlockedBy, blockers[row.Position]...)
+				line.BlockedBy = append(line.BlockedBy, blockers[row.ID]...)
 				setting, found, err := e.IssueBinding(ctx, "implementer", issueRepositoryName, row.Number)
 				if err != nil {
 					return nil, err
@@ -169,9 +160,9 @@ func (e *Engine) Tasks(ctx context.Context, repositoryName string, workstream in
 			}
 			lines = append(lines, line)
 		}
-		depths[lowerRef(issueRepositoryName, row.Number)] = depth
+		depths[row.ID] = depth
 		if visible {
-			depths[lowerRef(issueRepositoryName, row.Number)]++
+			depths[row.ID]++
 		}
 	}
 	return lines, nil
@@ -190,46 +181,22 @@ func (e *Engine) Task(ctx context.Context, repositoryName string, workstream int
 	if err != nil {
 		return nil, err
 	}
-	var tree []store.ListCopiedTreeRow
-	var labelRows []store.ListCopiedTreeLabelsRow
-	params := store.ListCopiedTreeParams{Repository: repositoryName, Workstream: workstream}
-	err = e.readTx(ctx, func(q *store.Queries) error {
-		var err error
-		tree, err = q.ListCopiedTree(ctx, params)
-		if err != nil {
-			return err
-		}
-		labelRows, err = q.ListCopiedTreeLabels(ctx, store.ListCopiedTreeLabelsParams(params))
-		return err
-	})
+	tree, err := e.queries.ListCopiedTree(ctx, store.ListCopiedTreeParams{Repository: repositoryName, Number: workstream})
 	if err != nil {
 		return nil, err
 	}
-	labels := map[int64][]string{}
-	for _, row := range labelRows {
-		labels[row.Position] = append(labels[row.Position], row.Name)
-	}
 	for _, row := range tree {
-		if slices.Contains(labels[row.Position], workstreamLabel) {
-			continue
-		}
 		issueRepositoryName := repositoryName
-		own := !otherRepository(row.RepositoryUrl, repositoryName)
-		if !own {
-			issueRepositoryName = repositoryOfURL(row.RepositoryUrl)
+		if !strings.EqualFold(row.IssueRepository, repositoryName) {
+			issueRepositoryName = row.IssueRepository
 		}
 		if issueRepositoryName != taskRepositoryName || row.Number != issue {
 			continue
 		}
-		visible := e.TrustedAuthor(repository.AppSlug, row.Author) && !slices.Contains(labels[row.Position], bucketLabel)
-		if !visible {
+		if !e.TrustedAuthor(repository.AppSlug, row.Author) {
 			return nil, refuse("The task %s#%d is not visible in the tree of Workstream #%d.", taskRepositoryName, issue, workstream)
 		}
-		body, err := e.queries.GetCopiedIssueBody(ctx, store.GetCopiedIssueBodyParams{
-			Repository: repositoryName,
-			Workstream: workstream,
-			Position:   row.Position,
-		})
+		body, err := e.queries.GetCopiedIssueBody(ctx, store.GetCopiedIssueBodyParams{Repository: row.IssueRepository, Number: row.Number})
 		if err != nil {
 			return nil, err
 		}
@@ -240,7 +207,7 @@ func (e *Engine) Task(ctx context.Context, repositoryName string, workstream int
 		}
 		if task.PullRequest.Valid {
 			detail.PullRequest = task.PullRequest.Int64
-			detail.PullRequestURL = strings.TrimSuffix(row.HtmlUrl, fmt.Sprintf("/issues/%d", row.Number)) + fmt.Sprintf("/pull/%d", task.PullRequest.Int64)
+			detail.PullRequestURL = pullRequestLink(issueRepositoryName, task.PullRequest.Int64)
 		}
 		return detail, nil
 	}
@@ -308,19 +275,18 @@ func (e *Engine) NeedsHuman(ctx context.Context) ([]NeedsHuman, error) {
 		if !ok {
 			continue
 		}
-		repository, ok := e.urlRepository(row.RepositoryUrl, home)
+		repository, ok := e.namedRepository(row.IssueRepository, home)
 		if !ok || row.State != "open" || !e.TrustedAuthor(repository.AppSlug, row.Author) {
 			continue
 		}
-		issue := NeedsHuman{Repository: row.Repository, Workstream: row.Workstream, Number: row.Number, Title: row.Title, URL: row.HtmlUrl, Stopped: row.HasNeedsHuman, Question: row.HasQuestion}
+		issue := NeedsHuman{Repository: row.Repository, Workstream: row.Workstream, Number: row.Number, Title: row.Title, URL: issueLink(repository.FullName, row.Number), Stopped: row.HasNeedsHuman, Question: row.HasQuestion}
 		task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: repository.FullName, Issue: row.Number})
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return nil, err
 		}
 		if task.PullRequest.Valid {
 			issue.PullRequest = task.PullRequest.Int64
-			// The web URL of a pull request differs from the web URL of its issue only in the path.
-			issue.PullRequestURL = strings.TrimSuffix(row.HtmlUrl, fmt.Sprintf("/issues/%d", row.Number)) + fmt.Sprintf("/pull/%d", task.PullRequest.Int64)
+			issue.PullRequestURL = pullRequestLink(repository.FullName, task.PullRequest.Int64)
 		}
 		if issue.Stopped {
 			reason, err := e.queries.GetNewestStopText(ctx, store.GetNewestStopTextParams{WorkstreamRepository: row.Repository, Repository: repository.FullName, Issue: sql.NullInt64{Int64: row.Number, Valid: true}})
@@ -385,7 +351,7 @@ func (e *Engine) BoardTasks(ctx context.Context) ([]BoardTask, error) {
 		if row.State == "ended" && stateAt.Before(since) {
 			continue
 		}
-		task := BoardTask{Repository: row.Repository, Number: row.Issue, Title: row.IssueTitle, URL: row.IssueUrl, WorkstreamRepository: row.WorkstreamRepository, Workstream: row.Workstream, WorkstreamTitle: row.WorkstreamTitle, State: row.State, StateAt: stateAt, FixRounds: row.FixRounds, ReviewRounds: row.ReviewRounds}
+		task := BoardTask{Repository: row.Repository, Number: row.Issue, Title: row.IssueTitle, URL: issueLink(row.Repository, row.Issue), WorkstreamRepository: row.WorkstreamRepository, Workstream: row.Workstream, WorkstreamTitle: row.WorkstreamTitle, State: row.State, StateAt: stateAt, FixRounds: row.FixRounds, ReviewRounds: row.ReviewRounds}
 		if row.MergeQueuedAt.Valid {
 			queue := repoQueue[row.Repository]
 			idx := slices.Index(queue, row.ID)
@@ -403,7 +369,7 @@ func (e *Engine) BoardTasks(ctx context.Context) ([]BoardTask, error) {
 		}
 		if row.PullRequest.Valid {
 			task.PullRequest = row.PullRequest.Int64
-			task.PullRequestURL = strings.TrimSuffix(row.IssueUrl, fmt.Sprintf("/issues/%d", row.Issue)) + fmt.Sprintf("/pull/%d", row.PullRequest.Int64)
+			task.PullRequestURL = pullRequestLink(row.Repository, row.PullRequest.Int64)
 		}
 		tasks = append(tasks, task)
 	}

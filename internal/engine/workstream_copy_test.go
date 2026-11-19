@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"reflect"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 
@@ -77,12 +76,23 @@ func workstreamNumbers(t *testing.T, server *testserver.Server) []int64 {
 	return numbers
 }
 
+// walkedIssues starts a statement with the issues of the trees in depth-first order, with the siblings in the order of number.
+const walkedIssues = `WITH RECURSIVE walk(id, path) AS (
+	SELECT id, printf('%010d', number) FROM issues WHERE parent IS NULL AND workstream IS NOT NULL
+	UNION ALL
+	SELECT i.id, walk.path || '/' || printf('%010d', i.number) FROM issues i JOIN walk ON i.parent = walk.id
+) `
+
 // copiedIssues gives the copied issues of owner/shop in the walk order of each Workstream.
 func copiedIssues(t *testing.T, server *testserver.Server) []copiedIssue {
 	t.Helper()
 	return query(t, server, func(rows *sql.Rows, i *copiedIssue) error {
 		return rows.Scan(&i.Workstream, &i.Number, &i.Parent, &i.State, &i.Author)
-	}, "SELECT workstream, number, parent, state, author FROM copied_issues WHERE repository = ? ORDER BY workstream, position", shop)
+	}, walkedIssues+`SELECT w.number, i.number, coalesce(p.number, w.number), i.state, i.author FROM walk
+		JOIN issues i ON i.id = walk.id
+		JOIN workstreams w ON w.id = i.workstream
+		LEFT JOIN issues p ON p.id = i.parent
+		WHERE w.repository = ? ORDER BY w.number, walk.path`, shop)
 }
 
 func issueNumbers(t *testing.T, server *testserver.Server) []int64 {
@@ -105,24 +115,27 @@ func issueStates(t *testing.T, server *testserver.Server) []string {
 
 func copiedLabels(t *testing.T, server *testserver.Server, number int64) []string {
 	t.Helper()
-	return query(t, server, func(rows *sql.Rows, name *string) error { return rows.Scan(name) }, `SELECT l.name FROM copied_issue_labels l
-		JOIN copied_issues i USING (repository, workstream, position)
-		WHERE i.repository = ? AND i.number = ? ORDER BY l.name`, shop, number)
+	return query(t, server, func(rows *sql.Rows, name *string) error { return rows.Scan(name) }, `SELECT l.value FROM issues i
+		JOIN workstreams w ON w.id = i.workstream, json_each(i.metadata, '$.github.labels') l
+		WHERE w.repository = ? AND i.number = ? ORDER BY l.value`, shop, number)
 }
 
 func copiedBlockers(t *testing.T, server *testserver.Server) []copiedBlocker {
 	t.Helper()
 	return query(t, server, func(rows *sql.Rows, b *copiedBlocker) error {
 		return rows.Scan(&b.Issue, &b.Repository, &b.Number, &b.Workstream, &b.Title)
-	}, `SELECT i.number, b.blocker_repository, b.number, b.blocker_workstream, b.blocker_workstream_title FROM copied_blockers b
-		JOIN copied_issues i USING (repository, workstream, position)
-		WHERE b.repository = ? ORDER BY i.number, b.blocker_repository, b.number`, shop)
+	}, `SELECT i.number, bi.repository, bi.number, bw.number, bw.title FROM blockers b
+		JOIN issues i ON i.id = b.issue
+		JOIN workstreams w ON w.id = i.workstream
+		JOIN issues bi ON bi.id = b.blocker AND bi.state = 'open'
+		LEFT JOIN workstreams bw ON bw.id = bi.workstream AND bw.repository = w.repository AND bi.repository = w.repository
+		WHERE w.repository = ? ORDER BY i.number, bi.repository, bi.number`, shop)
 }
 
 func copiedTitle(t *testing.T, server *testserver.Server, number int64) string {
 	t.Helper()
 	var title string
-	if err := server.DB.QueryRow("SELECT title FROM copied_issues WHERE repository = ? AND number = ?", shop, number).Scan(&title); err != nil {
+	if err := server.DB.QueryRow("SELECT i.title FROM issues i JOIN workstreams w ON w.id = i.workstream WHERE w.repository = ? AND i.number = ?", shop, number).Scan(&title); err != nil {
 		t.Fatal(err)
 	}
 	return title
@@ -395,12 +408,12 @@ func TestTheFullSyncCopiesASubIssueOfAnotherRepositoryAsALeaf(t *testing.T) {
 	if got := copiedIssues(t, server); !reflect.DeepEqual(got, []copiedIssue{{12, 77, 12, "open", "owner"}}) {
 		t.Errorf("issues = %+v", got)
 	}
-	var url string
-	if err := server.DB.QueryRow("SELECT repository_url FROM copied_issues WHERE repository = ? AND number = 77", shop).Scan(&url); err != nil {
+	var repository string
+	if err := server.DB.QueryRow("SELECT repository FROM issues WHERE workstream IS NOT NULL AND number = 77").Scan(&repository); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasSuffix(url, "/repos/other/repo") {
-		t.Errorf("repository URL = %s", url)
+	if repository != "other/repo" {
+		t.Errorf("repository = %s", repository)
 	}
 	if got := copiedBlockers(t, server); len(got) != 0 {
 		t.Errorf("blockers = %+v", got)
@@ -714,8 +727,8 @@ func TestATaskThatGetsTheWorkstreamLabelBecomesALeafOfItsWorkstream(t *testing.T
 	fake.AddLabel(shop, 41, "mobius:workstream", "owner")
 
 	testkit.WaitFor(t, func() bool { return slices.Equal(workstreamNumbers(t, server), []int64{12, 41}) })
-	testkit.WaitFor(t, func() bool { return slices.Equal(issueNumbers(t, server), []int64{41, 50}) })
-	if got := copiedIssues(t, server); got[0].Workstream != 12 || got[1].Workstream != 41 {
+	testkit.WaitFor(t, func() bool { return slices.Equal(issueNumbers(t, server), []int64{50}) })
+	if got := copiedIssues(t, server); got[0].Workstream != 41 {
 		t.Errorf("issues = %+v", got)
 	}
 }
@@ -1254,7 +1267,11 @@ func copiedChildren(t *testing.T, server *testserver.Server) []copiedChild {
 	t.Helper()
 	return query(t, server, func(rows *sql.Rows, c *copiedChild) error {
 		return rows.Scan(&c.Number, &c.Parent, &c.ParentRepository, &c.Repository)
-	}, "SELECT number, parent, parent_repository, substr(repository_url, instr(repository_url, '/repos/') + 7) FROM copied_issues WHERE repository = ? AND workstream = 12 ORDER BY position", shop)
+	}, walkedIssues+`SELECT i.number, coalesce(p.number, w.number), coalesce(p.repository, w.repository), i.repository FROM walk
+		JOIN issues i ON i.id = walk.id
+		JOIN workstreams w ON w.id = i.workstream
+		LEFT JOIN issues p ON p.id = i.parent
+		WHERE w.repository = ? AND w.number = 12 ORDER BY walk.path`, shop)
 }
 
 // startWithTaskInAnotherRepository starts a server where the Workstream #12 has the task #77 of other/repo. The task has

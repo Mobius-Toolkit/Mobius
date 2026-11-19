@@ -10,8 +10,9 @@ import (
 func TestTheAPISendsTheIssueTitleOfAnAgentOnlyWhenTheStoreHasACopyOfTheIssue(t *testing.T) {
 	mux, db := testMux(t)
 	exec(t, db, `
-		INSERT INTO copied_issues (repository, workstream, position, number, parent, title, body, state, author, html_url, repository_url) VALUES
-		('owner/shop', 12, 0, 41, 12, 'Add plan model', '', 'open', 'owner', 'https://github.com/owner/shop/issues/41', 'https://api.github.com/repos/owner/shop');
+		INSERT INTO workstreams (id, repository, number, title, body, state) VALUES (1, 'owner/shop', 12, 'Plans', '', 'open');
+		INSERT INTO issues (repository, number, title, body, state, author, workstream) VALUES
+		('owner/shop', 41, 'Add plan model', '', 'open', 'owner', 1);
 		INSERT INTO sessions (id, role, harness, model, organization, repository, workstream_repository, workstream, issue, started_at) VALUES
 		(1, 'implementer', 'claude-code', 'sonnet', 'owner', 'owner/shop', 'owner/shop', 12, 41, '2026-10-04T10:00:00Z'),
 		(2, 'reviewer', 'claude-code', 'sonnet', 'owner', 'owner/shop', 'owner/shop', 12, 99, '2026-10-04T10:00:00Z'),
