@@ -690,6 +690,7 @@ const workstream = (number: number, autopilot: Workstream["autopilot"]): Workstr
   evergreen: false,
   number,
   readyToMerge: false,
+  reportedFinished: false,
   repository: "owner/repo",
   title: `Workstream ${number}`,
 });

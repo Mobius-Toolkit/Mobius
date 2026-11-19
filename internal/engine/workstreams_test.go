@@ -2,6 +2,7 @@ package engine_test
 
 import (
 	"bufio"
+	"database/sql"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -16,14 +17,15 @@ import (
 )
 
 type workstream struct {
-	Repository     string `json:"repository"`
-	Number         int64  `json:"number"`
-	Title          string `json:"title"`
-	Brief          string `json:"brief"`
-	Autopilot      string `json:"autopilot"`
-	Evergreen      bool   `json:"evergreen"`
-	AllTasksClosed bool   `json:"allTasksClosed"`
-	ReadyToMerge   bool   `json:"readyToMerge"`
+	Repository       string `json:"repository"`
+	Number           int64  `json:"number"`
+	Title            string `json:"title"`
+	Brief            string `json:"brief"`
+	Autopilot        string `json:"autopilot"`
+	Evergreen        bool   `json:"evergreen"`
+	AllTasksClosed   bool   `json:"allTasksClosed"`
+	ReportedFinished bool   `json:"reportedFinished"`
+	ReadyToMerge     bool   `json:"readyToMerge"`
 }
 
 // send sends a request with the JSON body to the API path, and gives the status and the body of the response.
@@ -509,7 +511,7 @@ func TestACompletionWithAnOpenSubIssueClosesNothing(t *testing.T) {
 
 	status, body := complete(t, server, 12)
 
-	if status != http.StatusConflict || !strings.Contains(body, "The Workstream has no task, or a task is open.") {
+	if status != http.StatusConflict || !strings.Contains(body, "A task of the Workstream is open.") {
 		t.Errorf("status = %d: %s", status, body)
 	}
 	for _, number := range []int64{12, 41} {
@@ -734,4 +736,133 @@ func TestAFirstPollAddsRowsWithLevelOffAndStripsLevelLabels(t *testing.T) {
 	testkit.WaitFor(t, func() bool {
 		return slices.Equal(fake.Labels(shop, 12), []string{"mobius:workstream"})
 	})
+}
+
+func finishedAtOf(t *testing.T, server *testserver.Server) sql.NullString {
+	t.Helper()
+	var finishedAt sql.NullString
+	if err := server.DB.QueryRow("SELECT finished_at FROM workstreams WHERE repository = ? AND number = 12", shop).Scan(&finishedAt); err != nil {
+		t.Fatal(err)
+	}
+	return finishedAt
+}
+
+const reportFinishedPrompts = "[[prompts]]\nwhen = \"Report finished.\"\ncall = { tool = \"report_finished\" }\n\n[[prompts]]\nwhen = \"Second report.\"\ncall = { tool = \"report_finished\" }\n\n"
+
+func TestACompletionWithoutSubIssuesClosesAfterReportFinished(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, reportFinishedPrompts)
+
+	if got := workstreams(t, server); len(got) != 1 || got[0].ReportedFinished || got[0].AllTasksClosed {
+		t.Fatalf("workstreams before report = %+v", got)
+	}
+	status, body := complete(t, server, 12)
+	if status != http.StatusConflict || !strings.Contains(body, "The Workstream has no task, and its Lead did not report it as finished.") {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+	if state, _ := fake.State(shop, 12); state != "open" {
+		t.Fatalf("state before report = %s", state)
+	}
+
+	changes := listen(t, server)
+	session := run(t, server, leadSpec(t), "Report finished.")
+	if got := reply(t, server, session); got != "Reported the Workstream as finished." {
+		t.Fatalf("reply = %q", got)
+	}
+	waitForWorkstreams(t, changes)
+
+	first := finishedAtOf(t, server)
+	if !first.Valid {
+		t.Fatal("finished_at is NULL after report_finished")
+	}
+	firstTime, err := time.Parse(time.RFC3339Nano, first.String)
+	if err != nil {
+		t.Fatalf("parse finished_at %q: %v", first.String, err)
+	}
+	if got := workstreams(t, server); len(got) != 1 || !got[0].ReportedFinished || got[0].AllTasksClosed {
+		t.Fatalf("workstreams after report = %+v", got)
+	}
+
+	session2 := run(t, server, leadSpec(t), "Second report.")
+	if got := reply(t, server, session2); got != "Reported the Workstream as finished." {
+		t.Fatalf("second reply = %q", got)
+	}
+	second := finishedAtOf(t, server)
+	if !second.Valid || second.String == first.String {
+		t.Fatalf("finished_at after second report = %+v, first = %+v", second, first)
+	}
+	secondTime, err := time.Parse(time.RFC3339Nano, second.String)
+	if err != nil || secondTime.Before(firstTime) {
+		t.Fatalf("second finished_at = %q (%v), first = %q", second.String, err, first.String)
+	}
+
+	status, body = complete(t, server, 12)
+	if status != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+	if state, reason := fake.State(shop, 12); state != "closed" || reason != "completed" {
+		t.Errorf("state = %s, reason = %s", state, reason)
+	}
+	if got := finishedAtOf(t, server); got.Valid {
+		t.Errorf("finished_at after complete = %+v, want NULL", got)
+	}
+}
+
+func TestReportFinishedRefusesAnEvergreenWorkstream(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddIssue(shop, 12, "Maintenance")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
+	fake.AddLabel(shop, 12, "mobius:evergreen", "owner")
+	server, _ := connect(t, fake, reportFinishedPrompts)
+
+	session := run(t, server, leadSpec(t), "Report finished.")
+
+	if got := reply(t, server, session); got != "error: An evergreen Workstream has no end." {
+		t.Errorf("reply = %q", got)
+	}
+	if got := finishedAtOf(t, server); got.Valid {
+		t.Errorf("finished_at = %+v, want NULL", got)
+	}
+	if got := workstreams(t, server); len(got) != 1 || got[0].ReportedFinished {
+		t.Errorf("workstreams = %+v", got)
+	}
+}
+
+func TestCloseClearsFinishedAtAndReopenNeedsANewReport(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, reportFinishedPrompts)
+
+	run(t, server, leadSpec(t), "Report finished.")
+	if got := finishedAtOf(t, server); !got.Valid {
+		t.Fatal("finished_at is NULL after report_finished")
+	}
+
+	if status, body := closeWontDo(t, server, 12); status != http.StatusNoContent {
+		t.Fatalf("close status = %d: %s", status, body)
+	}
+	if got := finishedAtOf(t, server); got.Valid {
+		t.Errorf("finished_at after close won't do = %+v, want NULL", got)
+	}
+
+	fake.ReopenIssue(shop, 12)
+	testkit.WaitFor(t, func() bool { return len(workstreams(t, server)) == 1 })
+	if got := workstreams(t, server); got[0].ReportedFinished {
+		t.Errorf("workstreams after reopen = %+v", got)
+	}
+	if status, body := complete(t, server, 12); status != http.StatusConflict || !strings.Contains(body, "The Workstream has no task, and its Lead did not report it as finished.") {
+		t.Fatalf("complete after reopen status = %d: %s", status, body)
+	}
+
+	run(t, server, leadSpec(t), "Second report.")
+	if got := finishedAtOf(t, server); !got.Valid {
+		t.Fatal("finished_at is NULL after second report")
+	}
+	fake.CloseIssueBy(shop, 12, "owner")
+	testkit.WaitFor(t, func() bool { return len(workstreams(t, server)) == 0 })
+	if got := finishedAtOf(t, server); got.Valid {
+		t.Errorf("finished_at after GitHub close = %+v, want NULL", got)
+	}
 }

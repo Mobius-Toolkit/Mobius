@@ -11,11 +11,12 @@ import (
 func TestListWorkstreams(t *testing.T) {
 	mux, db := testMux(t)
 	exec(t, db, `
-		INSERT INTO workstreams (repository, number, title, body, autopilot, evergreen, state) VALUES
-			('o/a', 1, 'Loyalty plans', 'Ship the plans.', 1, 0, 'open'),
-			('o/a', 2, 'Seasonal prices', '', 0, 0, 'open'),
-			('o/a', 3, 'Early renewals', '', 0, 1, 'open'),
-			('o/a', 4, 'Closed plans', '', 0, 0, 'closed');
+		INSERT INTO workstreams (repository, number, title, body, autopilot, evergreen, state, finished_at) VALUES
+			('o/a', 1, 'Loyalty plans', 'Ship the plans.', 1, 0, 'open', '2026-10-04T11:00:00Z'),
+			('o/a', 2, 'Seasonal prices', '', 0, 0, 'open', NULL),
+			('o/a', 3, 'Early renewals', '', 0, 1, 'open', NULL),
+			('o/a', 4, 'Closed plans', '', 0, 0, 'closed', NULL),
+			('o/a', 5, 'Reported design', 'Finish the design.', 0, 0, 'open', '2026-10-04T12:00:00Z');
 		INSERT INTO copied_issues (repository, workstream, position, number, parent, parent_repository, title, body, state, author, html_url, repository_url) VALUES
 			('o/a', 1, 0, 11, 1, 'o/a', 'Plan model', '', 'closed', 'owner', '', '');
 		INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at) VALUES
@@ -31,14 +32,15 @@ func TestListWorkstreams(t *testing.T) {
 		t.Fatalf("status = %d, want %d: %s", rec.Code, http.StatusOK, rec.Body)
 	}
 	type workstream struct {
-		Repository     string `json:"repository"`
-		Number         int64  `json:"number"`
-		Title          string `json:"title"`
-		Brief          string `json:"brief"`
-		Autopilot      string `json:"autopilot"`
-		Evergreen      bool   `json:"evergreen"`
-		AllTasksClosed bool   `json:"allTasksClosed"`
-		ReadyToMerge   bool   `json:"readyToMerge"`
+		Repository       string `json:"repository"`
+		Number           int64  `json:"number"`
+		Title            string `json:"title"`
+		Brief            string `json:"brief"`
+		Autopilot        string `json:"autopilot"`
+		Evergreen        bool   `json:"evergreen"`
+		AllTasksClosed   bool   `json:"allTasksClosed"`
+		ReportedFinished bool   `json:"reportedFinished"`
+		ReadyToMerge     bool   `json:"readyToMerge"`
 	}
 	var body struct {
 		Data []workstream `json:"data"`
@@ -47,6 +49,7 @@ func TestListWorkstreams(t *testing.T) {
 		t.Fatalf("decode body %q: %v", rec.Body.String(), err)
 	}
 	want := []workstream{
+		{Repository: "o/a", Number: 5, Title: "Reported design", Brief: "Finish the design.", Autopilot: "off", ReportedFinished: true},
 		{Repository: "o/a", Number: 3, Title: "Early renewals", Autopilot: "off", Evergreen: true},
 		{Repository: "o/a", Number: 2, Title: "Seasonal prices", Autopilot: "off", ReadyToMerge: true},
 		{Repository: "o/a", Number: 1, Title: "Loyalty plans", Brief: "Ship the plans.", Autopilot: "start", AllTasksClosed: true},
