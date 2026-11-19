@@ -18,11 +18,12 @@ const portalSelector = '[data-slot="dialog-portal"]';
 // dialog up, and the focus goes back to the opener when the dialog closes. The focus starts in the element with
 // data-autofocus, or in the dialog. A dialog on top of another dialog takes the Tab key while the focus is in it. The
 // page overflow comes back when the last dialog closes, in any order of the closes.
-export function defineDialogMount<Done extends Schema.Top & (() => Schema.Schema.Type<Done>)>(
-  done: Done,
-) {
-  return Mount.define("DialogOpened", {
-    messages: [done],
+export function defineDialogMount<
+  const Messages extends readonly [Schema.Top & (() => Schema.Schema.Type<Messages[0]>)],
+>(...messages: Mount.ResultMessageSchemas<Messages>) {
+  const [done] = messages;
+  return Mount.define<"DialogOpened", Messages>("DialogOpened", {
+    messages,
     execute: ({ element }) =>
       Effect.gen(function* () {
         const dialog = element.querySelector<HTMLElement>('[role="dialog"]');
