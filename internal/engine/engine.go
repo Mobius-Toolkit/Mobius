@@ -89,6 +89,10 @@ type Engine struct {
 	// ownerAnswerMu makes AnswerInboxItem, which posts a comment and then stores its id, and the poll read of the new
 	// comments take turns. Else the poll can read the comment before its id is stored and ignore it.
 	ownerAnswerMu sync.Mutex
+	// approvedResultMu makes ApproveAction, which marks an action done and then posts its result, and endCreate and
+	// endRefusedCreate take turns. Else a poll can post the second Approval message of a created Workstream before the
+	// result that the number comes later.
+	approvedResultMu sync.Mutex
 	// missingWorkstreamsMu makes syncMissingWorkstreams and the dismissal of a missing Workstream item by the Owner take
 	// turns, so a check cannot add an item after the Owner dismissed it. It also guards checkedWorkstreams, which holds
 	// the open Workstreams of each organization at its last check.

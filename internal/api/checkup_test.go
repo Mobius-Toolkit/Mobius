@@ -93,6 +93,20 @@ func startWithSkillRepository(t *testing.T, github *testkit.FakeGitHub) *testser
 	return server
 }
 
+// waitForFirstPollOfEmptyRepository waits for the end of the first poll of repository that has no issue. The first
+// poll stores the issues cursor with no time then, so WaitForFirstPoll does not end. A test that changes an issue
+// before this end races with the first poll, which can read the issue before the change and miss the event.
+func waitForFirstPollOfEmptyRepository(t *testing.T, server *testserver.Server, repository string) {
+	t.Helper()
+	testkit.WaitFor(t, func() bool {
+		var rows int
+		if err := server.DB.QueryRow("SELECT count(*) FROM sync_cursors WHERE repository = ? AND endpoint = 'issues'", repository).Scan(&rows); err != nil {
+			t.Fatal(err)
+		}
+		return rows == 1
+	})
+}
+
 func status(found checkup, name string) labelCheck {
 	i := slices.IndexFunc(found.Repositories[0].Labels, func(label labelCheck) bool { return label.Name == name })
 	return found.Repositories[0].Labels[i]
@@ -194,6 +208,7 @@ func TestTheCheckupShowsTheOpenMaintenanceWorkstreamWithTheLowestNumber(t *testi
 	if got := getCheckup(t, server, "owner").MaintenanceWorkstream; got != 0 {
 		t.Errorf("maintenance Workstream = %d, want 0", got)
 	}
+	waitForFirstPollOfEmptyRepository(t, server, shop)
 
 	for _, number := range []int64{30, 20, 10} {
 		github.AddIssue(shop, number, "Maintenance")
@@ -208,6 +223,8 @@ func TestTheCheckupShowsTheOpenMaintenanceWorkstreamWithTheLowestNumber(t *testi
 func TestTheCheckupShowsTheIssueRepositoryAndNoMaintenanceWorkstreamOfAnotherRepository(t *testing.T) {
 	github := testkit.NewFakeGitHub(t)
 	server := startWithSkillRepository(t, github)
+	waitForFirstPollOfEmptyRepository(t, server, shop)
+	waitForFirstPollOfEmptyRepository(t, server, skills)
 	github.AddIssue(skills, 5, "Maintenance")
 	github.AddLabel(skills, 5, "mobius:workstream", "owner")
 	github.AddLabel(skills, 5, "mobius:maintenance", "owner")
@@ -320,6 +337,7 @@ func TestTheCheckupShowsTheSkillRepositoryAndItsSkillsWorkstream(t *testing.T) {
 	if found.SkillRepository != skills || found.SkillsWorkstreamRepository != "" || found.SkillsWorkstream != 0 {
 		t.Errorf("skill repository = %q, Skills Workstream = %q#%d", found.SkillRepository, found.SkillsWorkstreamRepository, found.SkillsWorkstream)
 	}
+	waitForFirstPollOfEmptyRepository(t, server, shop)
 
 	github.AddIssue(shop, 5, "Skills")
 	github.AddLabel(shop, 5, "mobius:workstream", "owner")
