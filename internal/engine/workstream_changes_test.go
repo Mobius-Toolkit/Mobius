@@ -68,6 +68,24 @@ func TestACloseOfAWorkstreamIssueByATrustedUserClosesTheRowAndRunsTheClose(t *te
 	}
 }
 
+func TestACloseAndThenARemovalOfTheWorkstreamLabelByATrustedUserInOnePollStillCloseTheTasks(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	server := startCopied(t, fake)
+	// The next poll reads both events together.
+	fake.AfterNextIssueListRead(shop, func() {
+		fake.CloseIssueBy(shop, 12, "owner")
+		fake.RemoveLabel(shop, 12, workstreamLabelName, "owner")
+	})
+
+	testkit.WaitFor(t, func() bool {
+		state, reason := fake.State(shop, 41)
+		return state == "closed" && reason == "not_planned"
+	})
+	testkit.WaitFor(t, func() bool { return !hasWorkstreamRow(t, server, 12) })
+}
+
 func TestACloseOfAWorkstreamIssueByAPersonWhoIsNotTrustedIsWrittenBack(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

@@ -83,15 +83,16 @@ func addOwnWrite(ctx context.Context, q *store.Queries, repository string, numbe
 // addEventChanges adds an incoming change for each event of a field of a Workstream that the poll did not read before.
 // The row keeps the id of the event, so a second read of the event does nothing. An event of the Mobius App that
 // matches an own write deletes the oldest matching own write, and its row is done, so no handler applies it. The
-// changes of the label mobius:workstream come first, because a person can add a setting label before it, and the
-// handler of the setting needs the row that the add of the Workstream makes.
+// changes of the setting labels come after the other changes, because a person can add a setting label before the
+// label mobius:workstream, and the handler of the setting needs the row that the add of the Workstream makes. The
+// other changes keep their order.
 func addEventChanges(ctx context.Context, q *store.Queries, repository github.Repository, events []changeEvent) error {
 	app := appLogin(repository.AppSlug)
 	rank := func(item changeEvent) int {
-		if item.event.GetLabel().GetName() == workstreamLabel {
-			return 0
+		if _, setting := settingField(item.event.GetLabel().GetName()); setting {
+			return 1
 		}
-		return 1
+		return 0
 	}
 	slices.SortStableFunc(events, func(a, b changeEvent) int { return cmp.Compare(rank(a), rank(b)) })
 	for _, item := range events {
