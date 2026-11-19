@@ -166,6 +166,9 @@ func TestAReopenAndASecondCloseGiveASecondEventAndARetryOfTheCloseGivesNoSecondE
 	fake.AddIssue(shop, 51, "Add billing view")
 	fake.AddSubIssue(shop, 13, 51)
 	fake.FailClose(shop, 51)
+	testkit.WaitFor(t, func() bool {
+		return countRows(t, server, "SELECT count(*) FROM issues WHERE repository = ? AND number = 51", shop) == 1
+	})
 
 	fake.CloseIssueAs(shop, 13, "completed")
 
