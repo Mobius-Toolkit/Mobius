@@ -85,6 +85,13 @@ export function upsert(list: readonly ChatMessage[], message: ChatMessage): read
   );
 }
 
+export const authorLabel = (message: ChatMessage) =>
+  message.author !== "tell_owner"
+    ? message.author
+    : message.workstream === 0
+      ? "Coordinator"
+      : "Lead";
+
 export const countsAsUnread = (message: ChatMessage) =>
   message.author !== "Owner" && message.author !== "Event" && message.author !== "Record";
 

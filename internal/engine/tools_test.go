@@ -118,7 +118,7 @@ func TestEachRoleGetsOnlyItsOwnTools(t *testing.T) {
 		spec engine.Spec
 		want []string
 	}{
-		{coordinator, []string{"ask", "background_state", "create_workstream", "message_lead", "move_issue", "propose_skill", "start_researcher", "tell_curator", "withdraw"}},
+		{coordinator, []string{"ask", "background_state", "create_workstream", "message_lead", "move_issue", "propose_skill", "start_researcher", "tell_curator", "tell_owner", "withdraw"}},
 		{triager, []string{"background_state", "create_workstream", "message_lead", "propose_skill", "start_researcher"}},
 		{reviewer, []string{"background_state", "propose_skill", "report_deployment_needs", "report_owner_action", "submit_review"}},
 		{implementer, []string{"background_state", "cannot_do", "propose_skill", "reply_thread", "submit_report"}},
@@ -935,5 +935,33 @@ func TestSendDetailsTellsTheLeadToStartAnImplementerForADispatchedTask(t *testin
 	want := "error: No Implementer of #41 runs. The issue body has the new details. Call `start_implementer` to continue the task."
 	if got := reply(t, server, session); got != want {
 		t.Errorf("reply = %q", got)
+	}
+}
+
+func TestTellOwnerOfTheCoordinatorInATurnForAMessageOfTheOwnerIsRefused(t *testing.T) {
+	t.Parallel()
+	server, _ := connect(t, testkit.NewFakeGitHub(t), `
+[[prompts]]
+when = "Tell me something"
+call = { tool = "tell_owner", arguments = { text = "Something." } }
+
+[[prompts]]
+reply = ["Seen"]
+`)
+
+	sendChat(t, server, coordinatorChat, "Tell me something")
+
+	session := waitForChatSession(t, server, coordinatorChat, engine.CoordinatorRole, func(session store.Session) bool {
+		return len(mcpCalls(t, server, session.ID)) == 1
+	})
+	calls := mcpCalls(t, server, session.ID)
+	if calls[0]["error"] != "tell_owner works only in a turn for a changelog." {
+		t.Errorf("calls = %v", calls)
+	}
+	waitForChatEnd(t, server, coordinatorChat)
+	for _, line := range chatLines(t, server, coordinatorChat) {
+		if line.Author == "tell_owner" {
+			t.Errorf("chat = %+v", chatLines(t, server, coordinatorChat))
+		}
 	}
 }

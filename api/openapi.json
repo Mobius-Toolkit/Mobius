@@ -8166,7 +8166,7 @@
           },
           "author": {
             "type": "string",
-            "description": "Author is Owner, Lead, Coordinator, tell_owner for a message of the Lead to the Owner, Mobius for a message of Mobius, Event for a Lead event, which the chat shows as a muted entry, Action for the card of a pending action, or Record for the line about an action of the Owner, or Question for the card of a question",
+            "description": "Author is Owner, Lead, Coordinator, tell_owner for a message of the Lead or of the Coordinator to the Owner, Mobius for a message of Mobius, Event for a Lead event, which the chat shows as a muted entry, Action for the card of a pending action, or Record for the line about an action of the Owner, or Question for the card of a question",
             "enum": [
               "Owner",
               "Lead",

@@ -48,6 +48,7 @@ import {
 } from "./message";
 type Running = "action" | "dismiss" | "merge";
 import {
+  authorLabel,
   countsAsUnread,
   hasNote,
   isMissingWorkstream,
@@ -121,7 +122,7 @@ function addSelection(model: Model, owner: string, text: string, context: string
           link: "",
           part: "",
           messageId: message.id,
-          messageAuthor: message.author === "tell_owner" ? "Lead" : message.author,
+          messageAuthor: authorLabel(message),
         },
       }),
     ],

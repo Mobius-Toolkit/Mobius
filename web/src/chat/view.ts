@@ -39,6 +39,7 @@ import {
 } from "./message";
 import * as WorkstreamSetup from "@/workstreamSetup/view";
 import {
+  authorLabel,
   countsAsUnread,
   draftInboxItem,
   type Failure,
@@ -463,7 +464,7 @@ function renderMessage(
       h.div(
         [h.Class("flex items-center gap-2 text-xs text-muted-foreground")],
         [
-          h.span([], [message.author === "tell_owner" ? "Lead" : message.author]),
+          h.span([], [authorLabel(message)]),
           h.span([], [clock(message.time)]),
           isOwner ? renderOwnerStatus(h, message) : h.empty,
         ],
