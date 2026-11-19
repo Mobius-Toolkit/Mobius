@@ -1856,15 +1856,16 @@ func (e *Engine) createWorkstream(ctx context.Context, c caller, repository gith
 const triageEndText = "The triage ends."
 
 // endTriage comments on the issue of the Triager c with the link to the Workstream in workstreamRepository and closes
-// the issue as completed. A comment change with the same link line stays the only one, because a Triager reply can
-// come between two runs of the step.
-func (e *Engine) endTriage(ctx context.Context, c caller, workstreamRepository github.Repository, workstream int64) error {
+// the issue as completed. since is the time of the approved action. A comment change with the same link line from
+// since on stays the only one, because a Triager reply can come between two runs of the step. An earlier comment with
+// the same link line belongs to an earlier triage of the issue.
+func (e *Engine) endTriage(ctx context.Context, c caller, workstreamRepository github.Repository, workstream int64, since string) error {
 	repository, err := e.repository(c.repository)
 	if err != nil {
 		return err
 	}
 	line := fmt.Sprintf("%s The Workstream is %s", triageEndText, issueLink(workstreamRepository.FullName, workstream))
-	posted, err := e.queries.HasCommentChangeWithText(ctx, store.HasCommentChangeWithTextParams{Repository: repository.FullName, Number: c.issue, Part: line + "\n"})
+	posted, err := e.queries.HasCommentChangeWithText(ctx, store.HasCommentChangeWithTextParams{Repository: repository.FullName, Number: c.issue, Part: line + "\n", Since: since})
 	if err != nil {
 		return err
 	}
@@ -2145,7 +2146,12 @@ func (e *Engine) messageLead(ctx context.Context, c caller, repository github.Re
 		}
 	}
 	if c.role == TriagerRole {
-		if err := e.endTriage(ctx, c, repository, input.Workstream); err != nil {
+		id, _ := ctx.Value(approvedRun{}).(int64)
+		action, err := e.queries.GetPendingAction(ctx, id)
+		if err != nil {
+			return "", err
+		}
+		if err := e.endTriage(ctx, c, repository, input.Workstream, action.Time); err != nil {
 			return "", fmt.Errorf("the Lead of #%d got the message, but the end of the triage failed. Do not send the message again: %w", input.Workstream, err)
 		}
 	}

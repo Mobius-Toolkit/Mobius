@@ -799,6 +799,7 @@ SELECT * FROM outgoing_changes WHERE repository = ? AND number = CAST(sqlc.arg(n
 SELECT EXISTS (
     SELECT 1 FROM outgoing_changes
     WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER) AND field = 'comment' AND status <> 'refused' AND instr(text, sqlc.arg(part)) > 0
+        AND julianday(created_at) >= julianday(sqlc.arg(since))
 );
 
 -- name: SetOutgoingChangeStatus :exec

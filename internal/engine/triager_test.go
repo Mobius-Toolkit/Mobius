@@ -874,6 +874,41 @@ func TestTheOwnerApprovesAMessageOfTheTriagerAfterItsSessionEndedAndTheLeadGetsT
 	}
 }
 
+func TestASecondTriageOfAReopenedIssueToTheSameWorkstreamPostsASecondEndComment(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTriager(t, fake)
+	fake.CreateIssue(shop, 62, "Add refunds", "Refund each order.", "owner")
+	proposal := triagerComment(62, "Proposal: a message to the Lead of #12.")
+	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 62), proposal) })
+	fake.AddComment(shop, 62, "owner", "Send it to the Lead.")
+	decided(t, server, waitForActions(t, server, 1)[0].ID, "approve", "")
+	link := triagerComment(62, "The triage ends. The Workstream is https://github.com/owner/shop/issues/12")
+	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 62), link) })
+	testkit.WaitFor(t, func() bool { state, _ := fake.State(shop, 62); return state == "closed" })
+	testkit.WaitFor(t, func() bool {
+		sessions := chatSessions(t, server, issueTriagers, engine.TriagerRole)
+		return len(sessions) == 2 && sessions[1].EndedAt.Valid
+	})
+	fake.ReopenIssue(shop, 62)
+	fake.AddComment(shop, 62, "owner", "Send it to the Lead.")
+	second := testkit.WaitForValue(t, func() (actionRow, bool) {
+		for _, action := range actionRows(t, server) {
+			if action.State == "pending" {
+				return action, true
+			}
+		}
+		return actionRow{}, false
+	})
+
+	decided(t, server, second.ID, "approve", "")
+
+	testkit.WaitFor(t, func() bool {
+		return len(slices.DeleteFunc(fake.Comments(shop, 62), func(comment testkit.Comment) bool { return comment.Body != link.Body })) == 2
+	})
+	testkit.WaitFor(t, func() bool { state, _ := fake.State(shop, 62); return state == "closed" })
+}
+
 func TestAnApprovedMessageOfTheTriagerThatFailsAtTheCloseOfTheIssueSendsTheLeadOneEventWhenItRunsAgain(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

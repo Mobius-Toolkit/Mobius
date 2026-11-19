@@ -4738,6 +4738,7 @@ const hasCommentChangeWithText = `-- name: HasCommentChangeWithText :one
 SELECT EXISTS (
     SELECT 1 FROM outgoing_changes
     WHERE repository = ? AND number = CAST(?2 AS INTEGER) AND field = 'comment' AND status <> 'refused' AND instr(text, ?3) > 0
+        AND julianday(created_at) >= julianday(?4)
 )
 `
 
@@ -4745,10 +4746,16 @@ type HasCommentChangeWithTextParams struct {
 	Repository string
 	Number     int64
 	Part       string
+	Since      interface{}
 }
 
 func (q *Queries) HasCommentChangeWithText(ctx context.Context, arg HasCommentChangeWithTextParams) (bool, error) {
-	row := q.db.QueryRowContext(ctx, hasCommentChangeWithText, arg.Repository, arg.Number, arg.Part)
+	row := q.db.QueryRowContext(ctx, hasCommentChangeWithText,
+		arg.Repository,
+		arg.Number,
+		arg.Part,
+		arg.Since,
+	)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err

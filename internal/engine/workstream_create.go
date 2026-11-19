@@ -246,7 +246,7 @@ func (e *Engine) endCreate(ctx context.Context, repository github.Repository, wo
 	case CoordinatorRole:
 		e.publish(Change{Created: &Created{repository.FullName, number}})
 	case TriagerRole:
-		return e.endTriage(ctx, c, repository, number)
+		return e.endTriage(ctx, c, repository, number, action.Time)
 	}
 	return nil
 }
