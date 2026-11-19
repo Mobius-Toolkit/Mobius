@@ -2,12 +2,10 @@ package engine
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log"
-	"slices"
 	"strings"
-
-	gh "github.com/google/go-github/v92/github"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
@@ -25,16 +23,11 @@ const (
 // createCIFailureIssues creates the task issue of each open failure record of repository that has two or more places and
 // no issue. The issue stays in repository, goes below the maintenance Workstream of the organization and has
 // mobius:ready. An organization with no open maintenance Workstream, or with no issue repository that Mobius can find,
-// gets no issue, and the next poll tries again. The number of an issue that GitHub created but did not add
-// below the Workstream is stored as a negative number, and the next poll adds the issue below the Workstream. A 4xx
-// answer of GitHub is no error.
+// gets no issue, and the next poll tries again. The issue is a row of issues, and its create goes to GitHub as an
+// outgoing change: the record keeps the id of the row until the send stores the number.
 func (e *Engine) createCIFailureIssues(ctx context.Context, repository github.Repository) error {
 	failures, err := e.queries.ListCIFailuresWithoutIssue(ctx, repository.FullName)
-	if err != nil {
-		return err
-	}
-	pending, err := e.queries.ListCIFailuresNotBelowWorkstream(ctx, repository.FullName)
-	if err != nil || len(failures)+len(pending) == 0 {
+	if err != nil || len(failures) == 0 {
 		return err
 	}
 	workstream, err := e.organizationMaintenance(ctx, repository.Owner())
@@ -45,136 +38,23 @@ func (e *Engine) createCIFailureIssues(ctx context.Context, repository github.Re
 	if err != nil || workstream.number == 0 {
 		return err
 	}
-	changed := false
-	for _, failure := range pending {
-		added, err := e.addCIFailureIssueBelow(ctx, repository, workstream, failure)
-		changed = changed || added
-		if err != nil {
-			return err
-		}
-	}
 	for _, failure := range failures {
-		number, err := e.createCIFailureIssue(ctx, repository, workstream, failure)
-		changed = changed || number != 0
-		if err != nil {
+		if err := e.createCIFailureIssue(ctx, repository, workstream, failure); err != nil {
 			return err
-		}
-	}
-	if changed {
-		if err := e.recopyTrees(ctx, workstream.repository, workstream.number); err != nil {
-			log.Printf("copy the tree of %s#%d: %v", workstream.repository.FullName, workstream.number, err)
 		}
 	}
 	return nil
 }
 
-// createCIFailureIssue creates the issue of failure and stores its number. It gives the number, or 0 when GitHub created
-// no issue. When GitHub creates the issue but does not add it below the Workstream, the stored number is negative.
-func (e *Engine) createCIFailureIssue(ctx context.Context, repository github.Repository, workstream issueAt, failure store.CiFailure) (int, error) {
+func (e *Engine) createCIFailureIssue(ctx context.Context, repository github.Repository, workstream issueAt, failure store.CiFailure) error {
 	places, err := e.queries.ListCIFailurePlaces(ctx, failure.ID)
 	if err != nil {
-		return 0, err
-	}
-	title := "Fix the CI failure of " + cutChars(ciFailureName(failure), failureNameChars)
-	number, err := e.addIssueAt(ctx, repository, workstream, newIssue{title: title, body: ciFailureBody(repository, failure, places), parent: workstream}, []string{readyLabel})
-	if number != 0 {
-		stored := int64(number)
-		if err != nil {
-			stored = -stored
-		}
-		if storeErr := e.queries.SetCIFailureIssue(ctx, store.SetCIFailureIssueParams{Issue: stored, ID: failure.ID}); storeErr != nil {
-			return number, storeErr
-		}
-	}
-	if refusedByGitHub(err) {
-		log.Printf("create the issue of the CI failure %d of %s: %v", failure.ID, repository.FullName, err)
-		return number, nil
-	}
-	return number, err
-}
-
-// addCIFailureIssueBelow adds the issue of failure below the Workstream, and stores its number as a positive number. It
-// writes no label when the issue has a task, because dispatch removed the label when the task started. It tells whether
-// the issue is below the Workstream. A 4xx answer of GitHub is no error, and the next poll tries again.
-func (e *Engine) addCIFailureIssueBelow(ctx context.Context, repository github.Repository, workstream issueAt, failure store.CiFailure) (bool, error) {
-	number := -failure.Issue
-	issue, err := repository.Issue(ctx, number)
-	if err == nil && issue != nil {
-		_, _, err = workstream.repository.Client.SubIssue.Add(ctx, workstream.repository.Owner(), workstream.repository.Name(), workstream.number, gh.SubIssueRequest{SubIssueID: issue.GetID(), ReplaceParent: new(true)})
-	}
-	if refusedByGitHub(err) {
-		log.Printf("add the issue #%d of %s below %s#%d: %v", number, repository.FullName, workstream.repository.FullName, workstream.number, err)
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	if issue != nil {
-		// The add below the Workstream does not change the list of the issues with mobius:ready, and dispatchReady can
-		// have stored its ETag before the issue was below the Workstream. The new label event makes dispatchReady read
-		// the list again. An issue that already has a task needs no label: dispatch removed it when the task started,
-		// and the label would restart a stopped task. When the issue has no mobius:ready, the label comes back only
-		// after a remove of the App, so a label that a person removed stays removed.
-		hadTask, err := e.queries.HasTask(ctx, store.HasTaskParams{Repository: repository.FullName, Issue: number})
-		if err != nil {
-			return issue != nil, err
-		}
-		addLabel := false
-		if !hadTask {
-			addLabel = hasLabel(issue, readyLabel)
-			if addLabel {
-				if err := repository.RemoveLabel(ctx, number, readyLabel); err != nil {
-					return issue != nil, labelWriteError(repository, number, "remove", err)
-				}
-			} else {
-				removed, err := e.readyRemovedByApp(ctx, repository, number)
-				if refusedByGitHub(err) {
-					log.Printf("read the events of #%d of %s: %v", number, repository.FullName, err)
-					return issue != nil, nil
-				}
-				if err != nil {
-					return issue != nil, err
-				}
-				addLabel = removed
-			}
-		}
-		if addLabel {
-			if err := repository.AddLabel(ctx, number, readyLabel); err != nil {
-				return issue != nil, labelWriteError(repository, number, "add", err)
-			}
-		}
-	}
-	if err := e.queries.SetCIFailureIssue(ctx, store.SetCIFailureIssueParams{Issue: number, ID: failure.ID}); err != nil {
-		return issue != nil, err
-	}
-	return issue != nil, nil
-}
-
-// readyRemovedByApp tells whether the Mobius App removed mobius:ready from the issue, and no later event of the label
-// followed. A label that a person removed gives false.
-func (e *Engine) readyRemovedByApp(ctx context.Context, repository github.Repository, number int64) (bool, error) {
-	events, err := e.issueEvents(ctx, repository, number)
-	if err != nil {
-		return false, err
-	}
-	app := appLogin(repository.AppSlug)
-	for _, event := range slices.Backward(events) {
-		if event.GetLabel().GetName() != readyLabel || event.GetEvent() != "labeled" && event.GetEvent() != "unlabeled" {
-			continue
-		}
-		return event.GetEvent() == "unlabeled" && strings.EqualFold(event.GetActor().GetLogin(), app), nil
-	}
-	return false, nil
-}
-
-// labelWriteError gives nil for a 4xx answer of GitHub, so the poll does not stop and the negative number of the issue
-// stays for the next poll. It gives each other error.
-func labelWriteError(repository github.Repository, number int64, action string, err error) error {
-	if !refusedByGitHub(err) {
 		return err
 	}
-	log.Printf("%s the label %s of #%d of %s: %v", action, readyLabel, number, repository.FullName, err)
-	return nil
+	title := "Fix the CI failure of " + cutChars(ciFailureName(failure), failureNameChars)
+	return e.createRecordIssue(ctx, repository, workstream, title, ciFailureBody(repository, failure, places), []string{readyLabel}, func(q *store.Queries, row int64) error {
+		return q.SetCIFailureIssueRow(ctx, store.SetCIFailureIssueRowParams{IssueRow: sql.NullInt64{Int64: row, Valid: true}, ID: failure.ID})
+	})
 }
 
 // ciFailureName gives the test of failure, else its location, else the start of its reason.

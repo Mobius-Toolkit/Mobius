@@ -538,13 +538,6 @@ func (g *FakeGitHub) RefuseAddLabels(repository string, number int64, status int
 	g.refusedLabels[issueKey{repository, number}] = status
 }
 
-// RefuseAddLabelOnce makes the next add of a label to the issue give the status. Later adds work.
-func (g *FakeGitHub) RefuseAddLabelOnce(repository string, number int64, status int) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.refusedLabelOnce[issueKey{repository, number}] = status
-}
-
 // KeepLabelFromBot makes each removal of label from the issue by a bot fail, so only a user can remove it. An empty
 // label makes the removal work again.
 func (g *FakeGitHub) KeepLabelFromBot(repository string, number int64, label string) {
@@ -1608,11 +1601,6 @@ func (g *FakeGitHub) addLabels(w http.ResponseWriter, r *http.Request) {
 	}
 	g.labelWrites[key]++
 	if status := g.refusedLabels[key]; status != 0 {
-		message(w, status, "Resource not accessible by integration")
-		return
-	}
-	if status := g.refusedLabelOnce[key]; status != 0 {
-		delete(g.refusedLabelOnce, key)
 		message(w, status, "Resource not accessible by integration")
 		return
 	}

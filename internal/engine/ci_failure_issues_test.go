@@ -2,7 +2,6 @@ package engine_test
 
 import (
 	"fmt"
-	"net/http"
 	"slices"
 	"strings"
 	"testing"
@@ -65,15 +64,17 @@ func TestTheSameTestInTwoPullRequestsGivesOneIssueBelowTheMaintenanceWorkstream(
 	})
 }
 
-// createdCIFailureIssue gives the number of the issue of the record that GitHub created but did not add below the
-// Workstream.
+// createdCIFailureIssue waits for the number of the issue of the record and gives it. The test refuses the link below
+// the Workstream, so GitHub has the issue but the Workstream has no sub-issue.
 func createdCIFailureIssue(t *testing.T, server *testserver.Server) int64 {
 	t.Helper()
-	var issue int64
-	if err := server.DB.QueryRow("SELECT issue FROM ci_failures WHERE issue < 0").Scan(&issue); err != nil {
-		t.Fatal(err)
-	}
-	return -issue
+	return testkit.WaitForValue(t, func() (int64, bool) {
+		var issue int64
+		if err := server.DB.QueryRow("SELECT COALESCE(MAX(issue), 0) FROM ci_failures").Scan(&issue); err != nil {
+			t.Fatal(err)
+		}
+		return issue, issue != 0
+	})
 }
 
 // twoPlacesOfTheSameFailure stops the tasks of #41 and #43 by the same CI failure, so that the two places give one record.
@@ -129,18 +130,15 @@ func TestRepairsOffHoldsTheReadyIssueOfACIFailureAndRepairsOnStartsItsTask(t *te
 	}
 }
 
-func TestACIFailureIssueThatGitHubDidNotAddBelowTheWorkstreamGetsReadyAgainAndItsTaskStarts(t *testing.T) {
+func TestACIFailureIssueThatGitHubDidNotLinkBelowTheWorkstreamGetsItsTaskAfterTheLink(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := connectDiagnoser(t, fake, leadStartsTwo, reportsPlan)
 	addMaintenanceWorkstream(fake, maintenance)
-	fake.RefuseAddSubIssues(shop, maintenance, true)
+	fake.FailAddSubIssue(shop, maintenance, true)
 
 	twoPlacesOfTheSameFailure(t, fake, server)
 
-	testkit.WaitFor(t, func() bool {
-		return rowCount(t, server, "SELECT count(*) FROM ci_failures WHERE issue < 0") == 1
-	})
 	number := createdCIFailureIssue(t, server)
 	waitForPolls(t, fake)
 	if numbers := fake.SubIssueNumbers(shop, maintenance); len(numbers) != 0 {
@@ -150,16 +148,13 @@ func TestACIFailureIssueThatGitHubDidNotAddBelowTheWorkstreamGetsReadyAgainAndIt
 		t.Errorf("the issue has a task")
 	}
 
-	fake.RefuseAddSubIssues(shop, maintenance, false)
+	fake.FailAddSubIssue(shop, maintenance, false)
 
-	testkit.WaitFor(t, func() bool {
-		return rowCount(t, server, fmt.Sprintf("SELECT count(*) FROM ci_failures WHERE issue = %d", number)) == 1
-	})
-	if numbers := fake.SubIssueNumbers(shop, maintenance); !slices.Equal(numbers, []int64{number}) {
+	if numbers := testkit.WaitForValue(t, func() ([]int64, bool) {
+		numbers := fake.SubIssueNumbers(shop, maintenance)
+		return numbers, len(numbers) == 1
+	}); !slices.Equal(numbers, []int64{number}) {
 		t.Errorf("sub-issues = %v", numbers)
-	}
-	if !fake.LabelAddedBy(shop, number, "mobius:ready", testkit.AppSlug+"[bot]") {
-		t.Errorf("the App did not add mobius:ready to the issue")
 	}
 	if task := liveTaskOf(t, server, number); task.Workstream != maintenance {
 		t.Errorf("task = %+v", task)
@@ -171,23 +166,20 @@ func TestAPendingCIFailureIssueWithNoReadyGetsBelowTheWorkstreamWithNoLabelAndNo
 	fake := testkit.NewFakeGitHub(t)
 	server := connectDiagnoser(t, fake, leadStartsTwo, reportsPlan)
 	addMaintenanceWorkstream(fake, maintenance)
-	fake.RefuseAddSubIssues(shop, maintenance, true)
+	fake.FailAddSubIssue(shop, maintenance, true)
 
 	twoPlacesOfTheSameFailure(t, fake, server)
 
-	testkit.WaitFor(t, func() bool {
-		return rowCount(t, server, "SELECT count(*) FROM ci_failures WHERE issue < 0") == 1
-	})
 	number := createdCIFailureIssue(t, server)
 	fake.RemoveLabel(shop, number, "mobius:ready", "owner")
 	waitForPolls(t, fake)
 
-	fake.RefuseAddSubIssues(shop, maintenance, false)
+	fake.FailAddSubIssue(shop, maintenance, false)
 
-	testkit.WaitFor(t, func() bool {
-		return rowCount(t, server, fmt.Sprintf("SELECT count(*) FROM ci_failures WHERE issue = %d", number)) == 1
-	})
-	if numbers := fake.SubIssueNumbers(shop, maintenance); !slices.Equal(numbers, []int64{number}) {
+	if numbers := testkit.WaitForValue(t, func() ([]int64, bool) {
+		numbers := fake.SubIssueNumbers(shop, maintenance)
+		return numbers, len(numbers) == 1
+	}); !slices.Equal(numbers, []int64{number}) {
 		t.Errorf("sub-issues = %v", numbers)
 	}
 	if labels := fake.Labels(shop, number); slices.Contains(labels, "mobius:ready") {
@@ -199,18 +191,15 @@ func TestAPendingCIFailureIssueWithNoReadyGetsBelowTheWorkstreamWithNoLabelAndNo
 	}
 }
 
-func TestAPendingCIFailureIssueWithATaskGetsBelowTheWorkstreamWithNoLabelAgain(t *testing.T) {
+func TestAPendingCIFailureIssueWithATaskGetsBelowTheWorkstreamWithNoLabelWrite(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := connectDiagnoser(t, fake, leadStartsTwo, reportsPlan)
 	addMaintenanceWorkstream(fake, maintenance)
-	fake.RefuseAddSubIssues(shop, maintenance, true)
+	fake.FailAddSubIssue(shop, maintenance, true)
 
 	twoPlacesOfTheSameFailure(t, fake, server)
 
-	testkit.WaitFor(t, func() bool {
-		return rowCount(t, server, "SELECT count(*) FROM ci_failures WHERE issue < 0") == 1
-	})
 	number := createdCIFailureIssue(t, server)
 	fake.RemoveLabel(shop, number, "mobius:ready", "owner")
 	fake.AddSubIssue(shop, maintenance, number)
@@ -221,10 +210,10 @@ func TestAPendingCIFailureIssueWithATaskGetsBelowTheWorkstreamWithNoLabelAgain(t
 	waitForPolls(t, fake)
 	writes := fake.LabelWrites(shop, number)
 
-	fake.RefuseAddSubIssues(shop, maintenance, false)
+	fake.FailAddSubIssue(shop, maintenance, false)
 
 	testkit.WaitFor(t, func() bool {
-		return rowCount(t, server, fmt.Sprintf("SELECT count(*) FROM ci_failures WHERE issue = %d", number)) == 1
+		return rowCount(t, server, "SELECT count(*) FROM outgoing_changes WHERE field = 'parent' AND status = 'pending'") == 0
 	})
 	waitForPolls(t, fake)
 	if labels := fake.Labels(shop, number); slices.Contains(labels, "mobius:ready") {
@@ -232,76 +221,6 @@ func TestAPendingCIFailureIssueWithATaskGetsBelowTheWorkstreamWithNoLabelAgain(t
 	}
 	if got := fake.LabelWrites(shop, number); got != writes {
 		t.Errorf("label writes = %d, want %d", got, writes)
-	}
-}
-
-func TestARefusedLabelWriteOfACIFailureIssueDoesNotStopThePoll(t *testing.T) {
-	t.Parallel()
-	fake := testkit.NewFakeGitHub(t)
-	server := connectDiagnoser(t, fake, leadStartsTwo, reportsPlan)
-	addMaintenanceWorkstream(fake, maintenance)
-	fake.AddSubIssueOf(shop, maintenance, 45, "Add plan model")
-	fake.RefuseAddSubIssues(shop, maintenance, true)
-
-	twoPlacesOfTheSameFailure(t, fake, server)
-
-	testkit.WaitFor(t, func() bool {
-		return rowCount(t, server, "SELECT count(*) FROM ci_failures WHERE issue < 0") == 1
-	})
-	number := createdCIFailureIssue(t, server)
-	fake.KeepLabelFromBot(shop, number, "mobius:ready")
-	fake.RefuseAddSubIssues(shop, maintenance, false)
-	testkit.WaitFor(t, func() bool {
-		return slices.Contains(fake.SubIssueNumbers(shop, maintenance), number) &&
-			rowCount(t, server, fmt.Sprintf("SELECT count(*) FROM ci_failures WHERE issue = %d", -number)) == 1
-	})
-
-	fake.AddLabel(shop, 45, "mobius:ready", "owner")
-	fake.SetBody(shop, number, "The same CI failure occurs in 2 places.")
-
-	if task := liveTaskOf(t, server, 45); task.Workstream != maintenance {
-		t.Errorf("task = %+v", task)
-	}
-
-	fake.KeepLabelFromBot(shop, number, "")
-	testkit.WaitFor(t, func() bool {
-		return rowCount(t, server, fmt.Sprintf("SELECT count(*) FROM ci_failures WHERE issue = %d", number)) == 1
-	})
-	if task := liveTaskOf(t, server, number); task.Workstream != maintenance {
-		t.Errorf("task = %+v", task)
-	}
-}
-
-func TestARefusedAddOfTheReadyLabelOfACIFailureIssueWritesItAgainAndStartsTheTask(t *testing.T) {
-	t.Parallel()
-	fake := testkit.NewFakeGitHub(t)
-	server := connectDiagnoser(t, fake, leadStartsTwo, reportsPlan)
-	addMaintenanceWorkstream(fake, maintenance)
-	fake.RefuseAddSubIssues(shop, maintenance, true)
-
-	twoPlacesOfTheSameFailure(t, fake, server)
-
-	testkit.WaitFor(t, func() bool {
-		return rowCount(t, server, "SELECT count(*) FROM ci_failures WHERE issue < 0") == 1
-	})
-	number := createdCIFailureIssue(t, server)
-	fake.RefuseAddLabelOnce(shop, number, http.StatusForbidden)
-	fake.RefuseAddSubIssues(shop, maintenance, false)
-
-	testkit.WaitFor(t, func() bool {
-		return rowCount(t, server, fmt.Sprintf("SELECT count(*) FROM ci_failures WHERE issue = %d", number)) == 1
-	})
-	if numbers := fake.SubIssueNumbers(shop, maintenance); !slices.Equal(numbers, []int64{number}) {
-		t.Errorf("sub-issues = %v", numbers)
-	}
-	if !fake.LabelAddedBy(shop, number, "mobius:ready", testkit.AppSlug+"[bot]") {
-		t.Errorf("the App did not add mobius:ready to the issue")
-	}
-	if writes := fake.LabelWrites(shop, number); writes < 3 {
-		t.Errorf("label writes = %d", writes)
-	}
-	if task := liveTaskOf(t, server, number); task.Workstream != maintenance {
-		t.Errorf("task = %+v", task)
 	}
 }
 

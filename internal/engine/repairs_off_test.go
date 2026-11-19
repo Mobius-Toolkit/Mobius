@@ -209,7 +209,7 @@ func TestStartOffAndRepairsOffHoldARepairIssueOnlyForStartAndStartOnHoldsItForRe
 	turnStartOff(t, server)
 	turnRepairsOff(t, server)
 
-	if _, err := server.DB.Exec(hardBreakSQL(ciIssue)); err != nil {
+	if _, err := server.DB.Exec(hardBreakSQL()); err != nil {
 		t.Fatal(err)
 	}
 
