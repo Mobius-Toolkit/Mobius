@@ -129,7 +129,7 @@ func TestRepairsOffHoldsACIFailureIssueOfAnAutopilotMaintenanceWorkstreamAndRepa
 	fake := testkit.NewFakeGitHub(t)
 	server := connectDiagnoser(t, fake, leadStartsTwo, reportsPlan)
 	addMaintenanceWorkstream(fake, maintenance)
-	waitForPoll(t, server, fake)
+	waitForMaintenanceCopy(t, server, maintenance)
 	setLevelOf(t, server, maintenance, "start")
 	fake.AddSubIssueOf(shop, 12, 43, "Task 43")
 	first := approvalHeadOf(t, server, fake, 41)

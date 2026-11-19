@@ -416,7 +416,7 @@ func TestOnlyTheLeadOfAMaintenanceWorkstreamGetsTheCITaskRules(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "")
 	addMaintenanceWorkstream(fake, 20)
-	waitForPoll(t, server, fake)
+	waitForMaintenanceCopy(t, server, 20)
 	maintenanceChat := engine.ChatKey{Organization: "owner", Repository: shop, Workstream: 20}
 
 	sendChat(t, server, leadChat, "Plan the next step")

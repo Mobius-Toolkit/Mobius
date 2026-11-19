@@ -36,6 +36,7 @@ const (
 	workstreamField        = "workstream"
 	titleField             = "title"
 	approvalCommentField   = "approval_comment"
+	createField            = "create"
 )
 
 // settingLabels gives the label of each field of an outgoing change that writes a setting of a Workstream.
@@ -90,7 +91,7 @@ func permanentRefusal(err error) bool {
 func (e *Engine) addOutgoingChange(ctx context.Context, q *store.Queries, repository string, number, replyTo int64, field, text string) (int64, error) {
 	return q.AddOutgoingChange(ctx, store.AddOutgoingChangeParams{
 		Repository: repository,
-		Number:     number,
+		Number:     sql.NullInt64{Int64: number, Valid: true},
 		ReplyTo:    sql.NullInt64{Int64: replyTo, Valid: replyTo != 0},
 		Field:      field,
 		Text:       sql.NullString{String: text, Valid: true},
@@ -105,7 +106,12 @@ func isSettingLabel(name string) bool {
 // addFieldChange adds a pending outgoing change with no text that writes field of the Workstream number from the row of
 // workstreams.
 func addFieldChange(ctx context.Context, q *store.Queries, repository string, number int64, field string) (int64, error) {
-	return q.AddOutgoingChange(ctx, store.AddOutgoingChangeParams{Repository: repository, Number: number, Field: field, CreatedAt: now()})
+	return q.AddOutgoingChange(ctx, store.AddOutgoingChangeParams{Repository: repository, Number: sql.NullInt64{Int64: number, Valid: true}, Field: field, CreatedAt: now()})
+}
+
+// addCreateChange adds a pending outgoing change that creates the issue of the row workstream of workstreams.
+func addCreateChange(ctx context.Context, q *store.Queries, repository string, workstream int64) (int64, error) {
+	return q.AddOutgoingChange(ctx, store.AddOutgoingChangeParams{Repository: repository, Workstream: sql.NullInt64{Int64: workstream, Valid: true}, Field: createField, CreatedAt: now()})
 }
 
 // addSettingChange adds a pending outgoing change that writes the label of the setting field of the Workstream number.
@@ -143,14 +149,14 @@ func (e *Engine) sendNow(ctx context.Context, repository github.Repository, id i
 	if err != nil || change.Status != "pending" {
 		return err
 	}
-	mu := e.outgoingItem(repository.FullName, change.Number)
+	mu := e.outgoingItem(repository.FullName, itemOf(change))
 	mu.Lock()
 	defer mu.Unlock()
 	change, err = e.queries.GetOutgoingChange(ctx, id)
 	if err != nil || change.Status != "pending" {
 		return err
 	}
-	pending, err := e.pendingChanges(ctx, repository.FullName, change.Number)
+	pending, err := e.pendingChanges(ctx, repository.FullName, itemOf(change))
 	if err != nil {
 		return err
 	}
@@ -177,15 +183,24 @@ func (e *Engine) sentOrLater(ctx context.Context, id int64, sent, later string) 
 	return "", refuse("GitHub refused the write.")
 }
 
-// pendingChanges gives the pending outgoing changes of the issue or the pull request number, in the order of the send.
-func (e *Engine) pendingChanges(ctx context.Context, repository string, number int64) ([]store.OutgoingChange, error) {
-	changes, err := e.queries.ListPendingOutgoingChanges(ctx, repository)
-	return slices.DeleteFunc(changes, func(change store.OutgoingChange) bool { return change.Number != number }), err
+// itemOf gives the item of the change: the number of its issue or pull request. A create has no number, so its item is
+// the negative id of its row of workstreams.
+func itemOf(change store.OutgoingChange) int64 {
+	if change.Number.Valid {
+		return change.Number.Int64
+	}
+	return -change.Workstream.Int64
 }
 
-// outgoingItem gives the mutex of the item number of the repository.
-func (e *Engine) outgoingItem(repository string, number int64) *sync.Mutex {
-	mu, _ := e.outgoingItems.LoadOrStore(fmt.Sprintf("%s#%d", repository, number), &sync.Mutex{})
+// pendingChanges gives the pending outgoing changes of the item, in the order of the send.
+func (e *Engine) pendingChanges(ctx context.Context, repository string, item int64) ([]store.OutgoingChange, error) {
+	changes, err := e.queries.ListPendingOutgoingChanges(ctx, repository)
+	return slices.DeleteFunc(changes, func(change store.OutgoingChange) bool { return itemOf(change) != item }), err
+}
+
+// outgoingItem gives the mutex of the item of the repository.
+func (e *Engine) outgoingItem(repository string, item int64) *sync.Mutex {
+	mu, _ := e.outgoingItems.LoadOrStore(fmt.Sprintf("%s#%d", repository, item), &sync.Mutex{})
 	return mu.(*sync.Mutex)
 }
 
@@ -200,10 +215,10 @@ func (e *Engine) sendOutgoingChanges(ctx context.Context, repository github.Repo
 	}
 	waiting := map[int64]bool{}
 	for _, change := range changes {
-		if waiting[change.Number] {
+		if waiting[itemOf(change)] {
 			continue
 		}
-		if waiting[change.Number], err = e.sendLocked(ctx, repository, change); err != nil {
+		if waiting[itemOf(change)], err = e.sendLocked(ctx, repository, change); err != nil {
 			return err
 		}
 	}
@@ -212,7 +227,7 @@ func (e *Engine) sendOutgoingChanges(ctx context.Context, repository github.Repo
 
 // sendLocked is send for the poll. It tells that the change stays pending when another send holds the item.
 func (e *Engine) sendLocked(ctx context.Context, repository github.Repository, change store.OutgoingChange) (bool, error) {
-	mu := e.outgoingItem(repository.FullName, change.Number)
+	mu := e.outgoingItem(repository.FullName, itemOf(change))
 	if !mu.TryLock() {
 		return true, nil
 	}
@@ -227,6 +242,9 @@ func (e *Engine) sendLocked(ctx context.Context, repository github.Repository, c
 // send sends the pending outgoing change, and marks it sent or refused. It tells if the change stays pending. Only a
 // failed read or write of the database is an error. The caller holds the mutex of the item.
 func (e *Engine) send(ctx context.Context, repository github.Repository, change store.OutgoingChange, read bool) (bool, error) {
+	if change.Field == createField {
+		return e.sendCreate(ctx, repository, change)
+	}
 	if change.Field == reviewCommentEditField {
 		return e.sendEdit(ctx, repository, change)
 	}
@@ -252,10 +270,10 @@ func (e *Engine) send(ctx context.Context, repository github.Repository, change 
 	var url string
 	var err error
 	if isReply(change) {
-		err = repository.ReplyToReviewComment(ctx, change.Number, change.ReplyTo.Int64, body)
+		err = repository.ReplyToReviewComment(ctx, change.Number.Int64, change.ReplyTo.Int64, body)
 	} else {
 		var created *gh.IssueComment
-		created, err = repository.AddComment(ctx, change.Number, body)
+		created, err = repository.AddComment(ctx, change.Number.Int64, body)
 		comment, url = created.GetID(), created.GetHTMLURL()
 	}
 	if err != nil {
@@ -273,11 +291,11 @@ func isReply(change store.OutgoingChange) bool {
 // does not hold the later changes of the item. It tells if the change stays pending.
 func (e *Engine) complete(ctx context.Context, repository github.Repository, change store.OutgoingChange, comment int64, url string) (bool, error) {
 	if change.Field == replyResolveField {
-		if err := resolveThread(ctx, repository, change.Number, change.ReplyTo.Int64); err != nil {
+		if err := resolveThread(ctx, repository, change.Number.Int64, change.ReplyTo.Int64); err != nil {
 			if !permanentRefusal(err) {
 				return e.failed(ctx, repository, change, err)
 			}
-			log.Printf("the resolve of the thread of %s#%d failed: %v", repository.FullName, change.Number, err)
+			log.Printf("the resolve of the thread of %s#%d failed: %v", repository.FullName, change.Number.Int64, err)
 		}
 	}
 	return false, e.finish(ctx, change, comment, url)
@@ -307,7 +325,7 @@ func findWrittenComment(ctx context.Context, repository github.Repository, chang
 		return strings.EqualFold(login, app) && strings.Contains(body, marker)
 	}
 	if isReply(change) {
-		comments, err := repository.ReviewComments(ctx, change.Number)
+		comments, err := repository.ReviewComments(ctx, change.Number.Int64)
 		for _, comment := range comments {
 			if written(comment.GetUser().GetLogin(), comment.GetBody()) {
 				return comment.GetID(), comment.GetHTMLURL(), nil
@@ -315,7 +333,7 @@ func findWrittenComment(ctx context.Context, repository github.Repository, chang
 		}
 		return 0, "", err
 	}
-	comments, err := repository.Comments(ctx, change.Number)
+	comments, err := repository.Comments(ctx, change.Number.Int64)
 	for _, comment := range comments {
 		if written(comment.GetUser().GetLogin(), comment.GetBody()) {
 			return comment.GetID(), comment.GetHTMLURL(), nil
@@ -334,7 +352,7 @@ func (e *Engine) finish(ctx context.Context, change store.OutgoingChange, commen
 			err := q.SetReviewCommentOfPullRequest(ctx, store.SetReviewCommentOfPullRequestParams{
 				ReviewComment: sql.NullInt64{Int64: comment, Valid: true},
 				Repository:    change.Repository,
-				PullRequest:   sql.NullInt64{Int64: change.Number, Valid: true},
+				PullRequest:   change.Number,
 			})
 			if err != nil {
 				return err
@@ -357,7 +375,7 @@ func (e *Engine) finish(ctx context.Context, change store.OutgoingChange, commen
 // link of the ready_for_review Inbox item that approve added after it added the change. It gives the changed item, or
 // nil when the change is not the newest approval comment of the task, or when the item is gone.
 func linkApproval(ctx context.Context, q *store.Queries, change store.OutgoingChange, url string) (*store.InboxItem, error) {
-	task, err := q.GetNewestTaskOfPullRequest(ctx, store.GetNewestTaskOfPullRequestParams{Repository: change.Repository, PullRequest: sql.NullInt64{Int64: change.Number, Valid: true}})
+	task, err := q.GetNewestTaskOfPullRequest(ctx, store.GetNewestTaskOfPullRequestParams{Repository: change.Repository, PullRequest: change.Number})
 	if errors.Is(err, sql.ErrNoRows) || err == nil && task.ApprovedAgainChange.Int64 != change.ID {
 		return nil, nil
 	}
@@ -399,7 +417,7 @@ func linkReport(ctx context.Context, q *store.Queries, task store.Task, url stri
 // failed handles the error err of the read or the send of the change. A permanent refusal marks the change refused.
 // Any other error leaves it pending for the next poll.
 func (e *Engine) failed(ctx context.Context, repository github.Repository, change store.OutgoingChange, err error) (bool, error) {
-	log.Printf("the %s of %s#%d failed: %v", change.Field, repository.FullName, change.Number, err)
+	log.Printf("the %s of %s#%d failed: %v", change.Field, repository.FullName, change.Number.Int64, err)
 	if !permanentRefusal(err) {
 		return true, nil
 	}
@@ -414,7 +432,7 @@ func (e *Engine) refuse(ctx context.Context, change store.OutgoingChange) error 
 // review_comment change of the pull request is pending, because that change stores the comment. A task with no comment
 // has none to edit, so the change is refused. The edit ends the round, so it clears the comment of the task.
 func (e *Engine) sendEdit(ctx context.Context, repository github.Repository, change store.OutgoingChange) (bool, error) {
-	pending, err := e.pendingChanges(ctx, repository.FullName, change.Number)
+	pending, err := e.pendingChanges(ctx, repository.FullName, itemOf(change))
 	if err != nil {
 		return false, err
 	}
@@ -423,12 +441,12 @@ func (e *Engine) sendEdit(ctx context.Context, repository github.Repository, cha
 	}) {
 		return true, nil
 	}
-	task, err := e.queries.GetNewestTaskOfPullRequest(ctx, store.GetNewestTaskOfPullRequestParams{Repository: change.Repository, PullRequest: sql.NullInt64{Int64: change.Number, Valid: true}})
+	task, err := e.queries.GetNewestTaskOfPullRequest(ctx, store.GetNewestTaskOfPullRequestParams{Repository: change.Repository, PullRequest: change.Number})
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return false, err
 	}
 	if !task.ReviewComment.Valid {
-		log.Printf("edit the review comment of %s#%d: the task has no review comment", repository.FullName, change.Number)
+		log.Printf("edit the review comment of %s#%d: the task has no review comment", repository.FullName, change.Number.Int64)
 		return false, e.refuse(ctx, change)
 	}
 	if err := repository.UpdateComment(ctx, task.ReviewComment.Int64, change.Text.String); err != nil {
@@ -446,15 +464,15 @@ func (e *Engine) sendEdit(ctx context.Context, repository github.Repository, cha
 // workstreams. GitHub records no event for a label that the issue already has, so the send reads the issue first. A
 // Workstream with no row or no issue has no setting to write, so the change is refused.
 func (e *Engine) sendSetting(ctx context.Context, repository github.Repository, change store.OutgoingChange) (bool, error) {
-	settings, err := e.queries.GetWorkstreamSettings(ctx, store.GetWorkstreamSettingsParams{Repository: change.Repository, Number: change.Number})
+	settings, err := e.queries.GetWorkstreamSettings(ctx, store.GetWorkstreamSettingsParams{Repository: change.Repository, Number: change.Number.Int64})
 	if errors.Is(err, sql.ErrNoRows) {
-		log.Printf("write the %s of %s#%d: the Workstream has no settings", change.Field, change.Repository, change.Number)
+		log.Printf("write the %s of %s#%d: the Workstream has no settings", change.Field, change.Repository, change.Number.Int64)
 		return false, e.refuse(ctx, change)
 	}
 	if err != nil {
 		return false, err
 	}
-	issue, err := repository.Issue(ctx, change.Number)
+	issue, err := repository.Issue(ctx, change.Number.Int64)
 	if err != nil {
 		return e.failed(ctx, repository, change, err)
 	}
@@ -483,16 +501,16 @@ func (e *Engine) sendLabel(ctx context.Context, repository github.Repository, ch
 	}
 	return e.sendWrite(ctx, repository, change, label, kind, func() error {
 		if on {
-			return repository.AddLabel(ctx, change.Number, label)
+			return repository.AddLabel(ctx, change.Number.Int64, label)
 		}
-		return repository.RemoveLabel(ctx, change.Number, label)
+		return repository.RemoveLabel(ctx, change.Number.Int64, label)
 	})
 }
 
 // sendWrite adds the own write of the change for the event of kind that write makes, calls write, and marks the change
 // sent. A failed write deletes the own write, because GitHub made no event.
 func (e *Engine) sendWrite(ctx context.Context, repository github.Repository, change store.OutgoingChange, label, kind string, write func() error) (bool, error) {
-	ownWrite, err := addOwnWrite(ctx, e.queries, change.Repository, change.Number, change.Field, label, kind)
+	ownWrite, err := addOwnWrite(ctx, e.queries, change.Repository, change.Number.Int64, change.Field, label, kind)
 	if err != nil {
 		return false, err
 	}
@@ -514,16 +532,17 @@ func (e *Engine) markSent(ctx context.Context, change store.OutgoingChange) erro
 // The removal of the label of an issue with no row copies the trees again, because the poll copied them with the label.
 // The other fields are refused for an issue with no row. A Workstream with no issue is refused.
 func (e *Engine) sendWorkstream(ctx context.Context, repository github.Repository, change store.OutgoingChange) (bool, error) {
-	row, err := e.queries.GetWorkstream(ctx, store.GetWorkstreamParams{Repository: change.Repository, Number: change.Number})
+	number := change.Number.Int64
+	row, err := e.queries.GetWorkstream(ctx, store.GetWorkstreamParams{Repository: change.Repository, Number: number})
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return false, err
 	}
 	stored := err == nil
 	if !stored && change.Field != workstreamField {
-		log.Printf("write the %s of %s#%d: the Workstream has no row", change.Field, change.Repository, change.Number)
+		log.Printf("write the %s of %s#%d: the Workstream has no row", change.Field, change.Repository, number)
 		return false, e.refuse(ctx, change)
 	}
-	issue, err := repository.Issue(ctx, change.Number)
+	issue, err := repository.Issue(ctx, number)
 	if err != nil {
 		return e.failed(ctx, repository, change, err)
 	}
@@ -531,7 +550,7 @@ func (e *Engine) sendWorkstream(ctx context.Context, repository github.Repositor
 		return false, e.refuse(ctx, change)
 	}
 	update := func(request gh.UpdateIssueRequest) error {
-		_, _, err := repository.Client.Issues.Update(ctx, repository.Owner(), repository.Name(), int(change.Number), request)
+		_, _, err := repository.Client.Issues.Update(ctx, repository.Owner(), repository.Name(), int(number), request)
 		return err
 	}
 	switch change.Field {
@@ -540,12 +559,12 @@ func (e *Engine) sendWorkstream(ctx context.Context, repository github.Repositor
 		if pending || err != nil || stored {
 			return pending, err
 		}
-		if err := e.recopyAfterRemoval(ctx, repository, change.Number); err != nil {
-			log.Printf("copy the trees after the removal of the label of %s#%d: %v", change.Repository, change.Number, err)
+		if err := e.recopyAfterRemoval(ctx, repository, number); err != nil {
+			log.Printf("copy the trees after the removal of the label of %s#%d: %v", change.Repository, number, err)
 		}
 		return false, nil
 	case bodyField:
-		body := e.withChatLink(repository, change.Number, row.Body)
+		body := e.withChatLink(repository, number, row.Body)
 		if issue.GetBody() != body {
 			if err := update(gh.UpdateIssueRequest{Body: &body}); err != nil {
 				return e.failed(ctx, repository, change, err)
@@ -560,7 +579,7 @@ func (e *Engine) sendWorkstream(ctx context.Context, repository github.Repositor
 		case issue.GetState() == row.State:
 		case row.State == "closed":
 			return e.sendWrite(ctx, repository, change, "", closedChange, func() error {
-				_, err := repository.CloseIssue(ctx, change.Number, "completed")
+				_, err := repository.CloseIssue(ctx, number, "completed")
 				return err
 			})
 		default:

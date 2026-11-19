@@ -451,6 +451,27 @@ func (g *FakeGitHub) LoseCommentAnswers(repository string, number int64, lose bo
 	g.lostCommentAnswers[issueKey{repository, number}] = lose
 }
 
+// FailIssueCreates makes the next times creates of an issue fail with the status 500 and make no issue.
+func (g *FakeGitHub) FailIssueCreates(times int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.failedIssueCreates = times
+}
+
+// RefuseIssueCreates makes each create of an issue give the status and make no issue. The status 0 makes the create work.
+func (g *FakeGitHub) RefuseIssueCreates(status int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.refusedIssueCreates = status
+}
+
+// LoseIssueCreateAnswers makes the next times creates of an issue make the issue, but give the status 500.
+func (g *FakeGitHub) LoseIssueCreateAnswers(times int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.lostIssueCreateAnswers = times
+}
+
 // RefuseNextComment makes the next new comment that Mobius writes on the issue give the status. The later comments
 // work.
 func (g *FakeGitHub) RefuseNextComment(repository string, number int64, status int) {
@@ -905,6 +926,11 @@ func (g *FakeGitHub) listIssues(w http.ResponseWriter, r *http.Request) {
 	slices.SortFunc(keys, func(a, b issueKey) int {
 		return cmp.Or(cmp.Compare(g.issues[a].updatedAt, g.issues[b].updatedAt), cmp.Compare(a.number, b.number))
 	})
+	if query.Get("sort") == "created" && query.Get("direction") == "desc" {
+		slices.SortFunc(keys, func(a, b issueKey) int {
+			return cmp.Or(cmp.Compare(g.createdAt[b], g.createdAt[a]), cmp.Compare(b.number, a.number))
+		})
+	}
 	issues := []issueJSON{}
 	for _, key := range keys {
 		issues = append(issues, g.issueJSON(key))
@@ -991,6 +1017,15 @@ func (g *FakeGitHub) createIssue(w http.ResponseWriter, r *http.Request) {
 	caller, _ := g.validToken(r)
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if g.failedIssueCreates > 0 {
+		g.failedIssueCreates--
+		message(w, http.StatusInternalServerError, "Server Error")
+		return
+	}
+	if g.refusedIssueCreates != 0 {
+		message(w, g.refusedIssueCreates, "Resource not accessible by integration")
+		return
+	}
 	key := issueKey{repository(r), 1}
 	for other := range g.issues {
 		if other.repository == key.repository {
@@ -1000,6 +1035,11 @@ func (g *FakeGitHub) createIssue(w http.ResponseWriter, r *http.Request) {
 	g.insertIssue(key, request.Title, request.Body, caller.login)
 	for _, label := range request.Labels {
 		g.label(key, label, caller.login)
+	}
+	if g.lostIssueCreateAnswers > 0 {
+		g.lostIssueCreateAnswers--
+		message(w, http.StatusInternalServerError, "Server Error")
+		return
 	}
 	writeJSON(w, http.StatusCreated, g.issueJSON(key))
 }

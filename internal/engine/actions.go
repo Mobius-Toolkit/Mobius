@@ -541,6 +541,9 @@ func (e *Engine) ApproveAction(ctx context.Context, id int64, message string) (s
 	}
 	ctx = context.WithoutCancel(ctx)
 	result, err := e.runAction(ctx, action)
+	if afterActionRun != nil {
+		afterActionRun()
+	}
 	if err != nil {
 		action, failErr := e.queries.FailPendingAction(ctx, store.FailPendingActionParams{Error: err.Error(), ID: id})
 		if failErr != nil {
@@ -618,6 +621,9 @@ func (e *Engine) RejectAction(ctx context.Context, id int64, message string) (st
 	text := fmt.Sprintf("The Owner rejected %s.", name)
 	return action, errors.Join(e.dismissAction(ctx, action), e.postResult(ctx, action, withMessage(text, message)))
 }
+
+// afterActionRun is a hook of the tests. approve calls it after the tool of the action ran, before it stores the result.
+var afterActionRun func()
 
 // postResult gives the text of the decision on action to its agent. The Triager has no chat: a failed action or a
 // rejection is a comment on its issue that starts a Triager turn, and a done action has ended the triage.

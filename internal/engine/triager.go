@@ -211,7 +211,7 @@ func (e *Engine) startHeldTriagers(ctx context.Context, repository github.Reposi
 		return err
 	}
 	for _, number := range numbers {
-		if slices.ContainsFunc(changes, func(change store.OutgoingChange) bool { return change.Number == number }) {
+		if slices.ContainsFunc(changes, func(change store.OutgoingChange) bool { return change.Number.Int64 == number }) {
 			continue
 		}
 		issue, err := repository.Issue(ctx, number)

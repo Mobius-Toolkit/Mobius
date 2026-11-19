@@ -1,5 +1,5 @@
 -- name: ListCopiedWorkstreams :many
-SELECT w.repository, w.number, w.title, w.body, CAST(w.autopilot AS BOOLEAN) AS autopilot,
+SELECT w.repository, CAST(w.number AS INTEGER) AS number, w.title, w.body, CAST(w.autopilot AS BOOLEAN) AS autopilot,
        CAST(w.auto_merge AS BOOLEAN) AS auto_merge,
        CAST(w.evergreen AS BOOLEAN) AS evergreen,
        CAST(EXISTS (SELECT 1 FROM copied_issues i
@@ -13,7 +13,7 @@ SELECT w.repository, w.number, w.title, w.body, CAST(w.autopilot AS BOOLEAN) AS 
        CAST(EXISTS (SELECT 1 FROM tasks t
                WHERE t.workstream_repository = w.repository AND t.workstream = w.number AND t.state = 'ready_for_review') AS BOOLEAN) AS ready_to_merge
 FROM workstreams w
-WHERE w.state = 'open'
+WHERE w.state = 'open' AND w.number IS NOT NULL
 ORDER BY w.repository, w.number DESC;
 
 -- name: AddDeviceLogin :exec
@@ -780,7 +780,7 @@ SELECT review_comment FROM tasks WHERE id = ?;
 UPDATE tasks SET review_comment = ? WHERE id = ?;
 
 -- name: AddOutgoingChange :one
-INSERT INTO outgoing_changes (integration, repository, number, reply_to, field, text, status, created_at) VALUES ('github', ?, ?, ?, ?, ?, 'pending', ?)
+INSERT INTO outgoing_changes (integration, repository, number, workstream, reply_to, field, text, status, created_at) VALUES ('github', ?, ?, ?, ?, ?, ?, 'pending', ?)
 RETURNING id;
 
 -- name: GetOutgoingChange :one
@@ -789,8 +789,18 @@ SELECT * FROM outgoing_changes WHERE id = ?;
 -- name: ListPendingOutgoingChanges :many
 SELECT * FROM outgoing_changes WHERE repository = ? AND status = 'pending' ORDER BY id;
 
+-- name: GetCreateChange :one
+SELECT id FROM outgoing_changes WHERE field = 'create' AND workstream = ?;
+
 -- name: GetNewestCommentChange :one
-SELECT * FROM outgoing_changes WHERE repository = ? AND number = ? AND field = 'comment' ORDER BY id DESC LIMIT 1;
+SELECT * FROM outgoing_changes WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER) AND field = 'comment' ORDER BY id DESC LIMIT 1;
+
+-- name: HasCommentChangeWithText :one
+SELECT EXISTS (
+    SELECT 1 FROM outgoing_changes
+    WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER) AND field = 'comment' AND status <> 'refused' AND instr(text, sqlc.arg(part)) > 0
+        AND julianday(created_at) >= julianday(sqlc.arg(since))
+);
 
 -- name: SetOutgoingChangeStatus :exec
 UPDATE outgoing_changes SET status = ? WHERE id = ?;
@@ -887,19 +897,19 @@ SELECT DISTINCT repository FROM workstreams WHERE state = 'open';
 DELETE FROM workstreams WHERE repository = ?;
 
 -- name: ListOpenWorkstreamNumbers :many
-SELECT number FROM workstreams WHERE repository = ? AND state = 'open' ORDER BY number;
+SELECT CAST(number AS INTEGER) AS number FROM workstreams WHERE repository = ? AND state = 'open' AND number IS NOT NULL ORDER BY number;
 
 -- name: CloseWorkstream :execrows
-UPDATE workstreams SET state = 'closed', close_pending = 1, finished_at = NULL WHERE repository = ? AND number = ? AND state != 'closed';
+UPDATE workstreams SET state = 'closed', close_pending = 1, finished_at = NULL WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER) AND state != 'closed';
 
 -- name: ClearWorkstreamClosePending :exec
-UPDATE workstreams SET close_pending = 0 WHERE repository = ? AND number = ?;
+UPDATE workstreams SET close_pending = 0 WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER);
 
 -- name: ListClosePendingWorkstreams :many
-SELECT number FROM workstreams WHERE repository = ? AND close_pending != 0 ORDER BY number;
+SELECT CAST(number AS INTEGER) AS number FROM workstreams WHERE repository = ? AND close_pending != 0 AND number IS NOT NULL ORDER BY number;
 
 -- name: IsWorkstreamClosePending :one
-SELECT EXISTS (SELECT 1 FROM workstreams WHERE repository = ? AND number = ? AND close_pending != 0);
+SELECT EXISTS (SELECT 1 FROM workstreams WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER) AND close_pending != 0);
 
 -- name: DeleteCopiedIssuesOf :exec
 DELETE FROM copied_issues WHERE repository = ?;
@@ -911,7 +921,7 @@ DELETE FROM copied_issue_labels WHERE repository = ?;
 DELETE FROM copied_blockers WHERE repository = ?;
 
 -- name: DeleteCopiedWorkstream :execrows
-DELETE FROM workstreams WHERE repository = ? AND number = ?;
+DELETE FROM workstreams WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER);
 
 -- name: DeleteCopiedIssues :exec
 DELETE FROM copied_issues WHERE repository = ? AND workstream = ?;
@@ -925,34 +935,51 @@ DELETE FROM copied_blockers WHERE repository = ? AND workstream = ?;
 -- The row stays after its Workstream closes. It gives 1 when it added the row.
 -- name: AddWorkstream :execrows
 INSERT INTO workstreams (repository, number, title, body, state, created_at, autopilot, auto_merge, evergreen, maintenance, skills)
-VALUES (sqlc.arg(repository), sqlc.arg(number), sqlc.arg(title), sqlc.arg(body), sqlc.arg(state), sqlc.arg(created_at), 0, 0,
+VALUES (sqlc.arg(repository), CAST(sqlc.arg(number) AS INTEGER), sqlc.arg(title), sqlc.arg(body), sqlc.arg(state), sqlc.arg(created_at), 0, 0,
         CAST(sqlc.arg(evergreen) AS BOOLEAN), CAST(sqlc.arg(maintenance) AS BOOLEAN), CAST(sqlc.arg(skills) AS BOOLEAN))
 ON CONFLICT (repository, number) DO NOTHING;
 
+-- The row has no number until the send of its create writes it.
+-- name: AddWorkstreamToCreate :one
+INSERT INTO workstreams (repository, title, body, state, created_at, autopilot, auto_merge, evergreen, maintenance, skills)
+VALUES (sqlc.arg(repository), sqlc.arg(title), sqlc.arg(body), 'open', sqlc.arg(created_at), 0, 0,
+        CAST(sqlc.arg(evergreen) AS BOOLEAN), CAST(sqlc.arg(maintenance) AS BOOLEAN), CAST(sqlc.arg(skills) AS BOOLEAN))
+RETURNING id;
+
+-- name: GetWorkstreamToCreate :one
+SELECT number, title, body, CAST(evergreen AS BOOLEAN) AS evergreen, CAST(maintenance AS BOOLEAN) AS maintenance, CAST(skills AS BOOLEAN) AS skills
+FROM workstreams WHERE id = ?;
+
+-- name: DeleteWorkstreamToCreate :exec
+DELETE FROM workstreams WHERE id = ? AND number IS NULL;
+
+-- name: SetWorkstreamNumber :exec
+UPDATE workstreams SET number = ? WHERE id = ? AND number IS NULL;
+
 -- name: GetWorkstream :one
-SELECT title, body, state, created_at FROM workstreams WHERE repository = ? AND number = ?;
+SELECT title, body, state, created_at FROM workstreams WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER);
 
 -- name: HasWorkstream :one
-SELECT EXISTS (SELECT 1 FROM workstreams WHERE repository = ? AND number = ?);
+SELECT EXISTS (SELECT 1 FROM workstreams WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER));
 
 -- name: SetWorkstreamBody :execrows
-UPDATE workstreams SET body = ? WHERE repository = ? AND number = ? AND state = 'open';
+UPDATE workstreams SET body = ? WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER) AND state = 'open';
 
 -- name: SetWorkstreamTitle :execrows
-UPDATE workstreams SET title = ? WHERE repository = ? AND number = ?;
+UPDATE workstreams SET title = ? WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER);
 
 -- name: SetWorkstreamFinishedAt :execrows
-UPDATE workstreams SET finished_at = ? WHERE repository = ? AND number = ? AND state = 'open';
+UPDATE workstreams SET finished_at = ? WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER) AND state = 'open';
 
 -- name: GetWorkstreamFinishedAt :one
-SELECT finished_at FROM workstreams WHERE repository = ? AND number = ? AND state = 'open';
+SELECT finished_at FROM workstreams WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER) AND state = 'open';
 
 -- name: ReopenWorkstream :execrows
-UPDATE workstreams SET state = 'open', close_pending = 0, finished_at = NULL WHERE repository = ? AND number = ? AND state = 'closed';
+UPDATE workstreams SET state = 'open', close_pending = 0, finished_at = NULL WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER) AND state = 'closed';
 
 -- name: FillAndReopenWorkstream :execrows
 UPDATE workstreams SET title = ?, body = ?, created_at = ?, state = 'open', close_pending = 0, finished_at = NULL
-WHERE repository = ? AND number = ? AND state = 'closed';
+WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER) AND state = 'closed';
 
 -- name: HasLeadEventKind :one
 SELECT EXISTS (SELECT 1 FROM lead_events WHERE repository = ? AND workstream = ? AND kind = ?);
@@ -960,7 +987,7 @@ SELECT EXISTS (SELECT 1 FROM lead_events WHERE repository = ? AND workstream = ?
 -- name: GetWorkstreamSettings :one
 SELECT CAST(autopilot AS BOOLEAN) AS autopilot, CAST(auto_merge AS BOOLEAN) AS auto_merge, CAST(evergreen AS BOOLEAN) AS evergreen,
        CAST(maintenance AS BOOLEAN) AS maintenance, CAST(skills AS BOOLEAN) AS skills
-FROM workstreams WHERE repository = ? AND number = ?;
+FROM workstreams WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER);
 
 -- name: AddCopiedIssue :exec
 INSERT INTO copied_issues (repository, workstream, position, number, parent, parent_repository, title, body, state, author, html_url, repository_url)
@@ -974,14 +1001,14 @@ INSERT INTO copied_blockers (repository, workstream, position, blocker_repositor
 VALUES (?, ?, ?, ?, ?, ?, ?);
 
 -- name: HasCopiedWorkstream :one
-SELECT EXISTS (SELECT 1 FROM workstreams WHERE repository = ? AND number = ? AND state = 'open');
+SELECT EXISTS (SELECT 1 FROM workstreams WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER) AND state = 'open');
 
 -- A row of another repository can have the number of an issue of this repository, so the repository URL must match.
 -- name: GetCopiedIssueWorkstream :one
 SELECT workstream FROM copied_issues WHERE repository = ? AND number = ? AND repository_url = ? LIMIT 1;
 
 -- name: HasCopiedWorkstreamAnyCase :one
-SELECT EXISTS (SELECT 1 FROM workstreams WHERE repository = ? COLLATE NOCASE AND number = ? AND state = 'open');
+SELECT EXISTS (SELECT 1 FROM workstreams WHERE repository = ? COLLATE NOCASE AND number = CAST(sqlc.arg(number) AS INTEGER) AND state = 'open');
 
 -- name: GetCopiedIssueTree :one
 SELECT repository, workstream FROM copied_issues
@@ -1007,15 +1034,15 @@ WHERE i.number = sqlc.arg(number) AND i.repository_url = sqlc.arg(repository_url
 
 -- The Workstream with the label mobius:skills in a repository of the organization, with the lowest number.
 -- name: GetSkillsWorkstream :one
-SELECT w.repository, w.number FROM workstreams w
-WHERE w.state = 'open' AND w.skills AND substr(w.repository, 1, length(sqlc.arg(organization)) + 1) = sqlc.arg(organization) || '/'
+SELECT w.repository, CAST(w.number AS INTEGER) AS number FROM workstreams w
+WHERE w.state = 'open' AND w.number IS NOT NULL AND w.skills AND substr(w.repository, 1, length(sqlc.arg(organization)) + 1) = sqlc.arg(organization) || '/'
 ORDER BY w.number, w.repository
 LIMIT 1;
 
 -- The open Workstream with the label mobius:maintenance in a repository, with the lowest number.
 -- name: GetMaintenanceWorkstream :one
-SELECT w.number FROM workstreams w
-WHERE w.state = 'open' AND w.maintenance AND w.repository = ?
+SELECT CAST(w.number AS INTEGER) AS number FROM workstreams w
+WHERE w.state = 'open' AND w.number IS NOT NULL AND w.maintenance AND w.repository = ?
 ORDER BY w.number
 LIMIT 1;
 
@@ -1031,24 +1058,24 @@ SELECT DISTINCT workstream FROM copied_blockers WHERE repository = ? AND blocker
 -- name: GetCopiedWorkstream :one
 SELECT title, body, CAST(evergreen AS BOOLEAN) AS evergreen, CAST(maintenance AS BOOLEAN) AS maintenance, CAST(skills AS BOOLEAN) AS skills, created_at
 FROM workstreams
-WHERE repository = ? AND number = ? AND state = 'open';
+WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER) AND state = 'open';
 
 -- name: GetWorkstreamBrief :one
 SELECT body, CAST(evergreen AS BOOLEAN) AS evergreen, CAST(maintenance AS BOOLEAN) AS maintenance, CAST(skills AS BOOLEAN) AS skills
 FROM workstreams
-WHERE repository = ? AND number = ?;
+WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER);
 
 -- name: SetCopiedEvergreen :exec
 UPDATE workstreams SET evergreen = CAST(sqlc.arg(evergreen) AS BOOLEAN)
-WHERE repository = sqlc.arg(repository) AND number = sqlc.arg(number);
+WHERE repository = sqlc.arg(repository) AND number = CAST(sqlc.arg(number) AS INTEGER);
 
 -- name: SetCopiedMaintenance :exec
 UPDATE workstreams SET maintenance = CAST(sqlc.arg(maintenance) AS BOOLEAN)
-WHERE repository = sqlc.arg(repository) AND number = sqlc.arg(number);
+WHERE repository = sqlc.arg(repository) AND number = CAST(sqlc.arg(number) AS INTEGER);
 
 -- name: SetCopiedSkills :exec
 UPDATE workstreams SET skills = CAST(sqlc.arg(skills) AS BOOLEAN)
-WHERE repository = sqlc.arg(repository) AND number = sqlc.arg(number);
+WHERE repository = sqlc.arg(repository) AND number = CAST(sqlc.arg(number) AS INTEGER);
 
 -- name: UpdateCopiedBlockerTitles :execrows
 UPDATE copied_blockers SET blocker_workstream_title = sqlc.arg(title)
@@ -1056,17 +1083,17 @@ WHERE repository = sqlc.arg(repository) AND blocker_workstream = sqlc.arg(workst
   AND blocker_workstream_title IS NOT sqlc.arg(title);
 
 -- name: ListAutopilotWorkstreams :many
-SELECT number FROM workstreams
-WHERE repository = ? AND state = 'open' AND autopilot
+SELECT CAST(number AS INTEGER) AS number FROM workstreams
+WHERE repository = ? AND state = 'open' AND number IS NOT NULL AND autopilot
 ORDER BY number DESC;
 
 -- name: GetCopiedAutopilot :one
 SELECT CAST(autopilot AS BOOLEAN) AS autopilot, CAST(auto_merge AS BOOLEAN) AS auto_merge FROM workstreams
-WHERE repository = ? AND number = ? AND state = 'open';
+WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER) AND state = 'open';
 
 -- name: SetCopiedAutopilot :exec
 UPDATE workstreams SET autopilot = CAST(sqlc.arg(autopilot) AS BOOLEAN), auto_merge = CAST(sqlc.arg(auto_merge) AS BOOLEAN)
-WHERE repository = sqlc.arg(repository) AND number = sqlc.arg(number);
+WHERE repository = sqlc.arg(repository) AND number = CAST(sqlc.arg(number) AS INTEGER);
 
 -- A tree can hold the blocker of an issue of another repository, so the delete goes to the rows of all repositories.
 -- name: DeleteCopiedBlocker :execrows
@@ -1392,6 +1419,9 @@ SELECT * FROM pending_actions WHERE id = ?;
 -- name: GetPendingActionByChatMessage :one
 SELECT * FROM pending_actions WHERE chat_message = ?;
 
+-- name: GetPendingActionByCreatedWorkstream :one
+SELECT * FROM pending_actions WHERE created_workstream = ?;
+
 -- name: GetPendingActionByInboxItem :one
 SELECT * FROM pending_actions WHERE inbox_item = ?;
 
@@ -1433,8 +1463,19 @@ UPDATE pending_actions SET state = 'rejected', message = ?, decided_at = ?
 WHERE id = ? AND state = 'pending' AND running = 0
 RETURNING *;
 
--- name: SetPendingActionCreatedIssue :exec
-UPDATE pending_actions SET created_issue = ? WHERE id = ?;
+-- name: SetPendingActionCreatedWorkstream :exec
+UPDATE pending_actions SET created_workstream = ? WHERE id = ?;
+
+-- name: ClearPendingActionCreatedWorkstream :exec
+UPDATE pending_actions SET created_workstream = NULL, awaits_number = 0 WHERE created_workstream = ?;
+
+-- The result of the action told that the number comes later. It gives 0 when the row already has its number.
+-- name: SetPendingActionAwaitsNumber :execrows
+UPDATE pending_actions SET awaits_number = 1
+WHERE pending_actions.id = ? AND EXISTS (SELECT 1 FROM workstreams WHERE workstreams.id = pending_actions.created_workstream AND workstreams.number IS NULL);
+
+-- name: ClearPendingActionAwaitsNumber :exec
+UPDATE pending_actions SET awaits_number = 0 WHERE id = ?;
 
 -- name: SetPendingActionOldBrief :exec
 UPDATE pending_actions SET old_brief = ? WHERE id = ?;
@@ -1637,8 +1678,8 @@ RETURNING *;
 -- A Workstream needs buckets when it has more than the maximum of direct sub-issues, or when an open bucket has no
 -- sub-issues or holds a closed issue.
 -- name: ListWorkstreamsNeedingBuckets :many
-SELECT w.number FROM workstreams w
-WHERE w.repository = sqlc.arg(repository) AND w.state = 'open'
+SELECT CAST(w.number AS INTEGER) AS number FROM workstreams w
+WHERE w.repository = sqlc.arg(repository) AND w.state = 'open' AND w.number IS NOT NULL
   AND ((SELECT COUNT(*) FROM copied_issues c
         WHERE c.repository = w.repository AND c.workstream = w.number AND c.parent = w.number AND c.parent_repository = w.repository) > CAST(sqlc.arg(maximum) AS INTEGER)
        OR EXISTS (
@@ -1720,10 +1761,10 @@ WHERE EXISTS (SELECT 1 FROM workstreams w WHERE b.repository = w.repository AND 
 ORDER BY b.repository, b.issue, b.role;
 
 -- name: ListWorkstreamSettingUsers :many
-SELECT b.harness, b.role, w.repository, w.number, w.title
+SELECT b.harness, b.role, w.repository, b.issue AS number, w.title
 FROM issue_bindings b
 JOIN workstreams w ON b.repository = w.repository AND b.issue = w.number AND w.state = 'open'
-ORDER BY w.repository, w.number, b.role;
+ORDER BY w.repository, b.issue, b.role;
 
 -- The task can be in the trees of many Workstreams, so it can have many rows.
 -- name: ListTaskSettingUsers :many
@@ -1992,9 +2033,9 @@ UPDATE implementer_bindings SET harness = ?, model = ?, effort = ?, context = ?,
 DELETE FROM implementer_bindings WHERE id = ?;
 
 -- name: ListOpenWorkstreamsOfOrganization :many
-SELECT w.repository, w.number, CAST(w.maintenance AS BOOLEAN) AS maintenance, CAST(w.skills AS BOOLEAN) AS skills
+SELECT w.repository, CAST(w.number AS INTEGER) AS number, CAST(w.maintenance AS BOOLEAN) AS maintenance, CAST(w.skills AS BOOLEAN) AS skills
 FROM workstreams w
-WHERE w.state = 'open' AND substr(w.repository, 1, length(sqlc.arg(organization)) + 1) = sqlc.arg(organization) || '/'
+WHERE w.state = 'open' AND w.number IS NOT NULL AND substr(w.repository, 1, length(sqlc.arg(organization)) + 1) = sqlc.arg(organization) || '/'
 ORDER BY w.repository, w.number;
 
 -- name: ListMissingWorkstreamDismissals :many
