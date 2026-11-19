@@ -58,8 +58,10 @@ func connectWith(t *testing.T, fake *testkit.FakeGitHub, prompts string, adjust 
 // connectScript is connectWith with the whole script of the fake Harness.
 func connectScript(t *testing.T, fake *testkit.FakeGitHub, script string, adjust func(*config.Config)) (*testserver.Server, string) {
 	t.Helper()
-	fake.AddIssue(shop, 12, "Integrate loyalty plans")
-	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
+	if !fake.HasIssue(shop, 12) {
+		fake.AddIssue(shop, 12, "Integrate loyalty plans")
+		fake.AddLabel(shop, 12, "mobius:workstream", "owner")
+	}
 	dataDir := t.TempDir()
 	testkit.InstallFakeAgent(t, dataDir, script)
 	cfg := testserver.Config(t, dataDir)

@@ -147,21 +147,23 @@ func TestAMaintenanceWorkstreamGetsEvergreenAndTheEvergreenLabel(t *testing.T) {
 	}
 }
 
-func TestTheFullSyncOfAMaintenanceWorkstreamThatIsNoChangedIssueGetsEvergreenAndTheEvergreenLabel(t *testing.T) {
+func TestARestartWithAnIssuesCursorAddsNoRowForAnOpenWorkstreamWithoutARow(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 12, "Maintenance")
 	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
 	fake.AddLabel(shop, 12, "mobius:maintenance", "owner")
 	server := startServer(t, fake, t.TempDir(), `INSERT INTO sync_cursors (repository, endpoint, since, etag) VALUES ('owner/shop', 'issues', '2999-01-01T00:00:00Z', '"old"')`)
+	waitForPolls(t, fake)
 
-	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Labels(shop, 12), "mobius:evergreen") })
-
-	if got := settingsOf(t, server, 12); len(got) != 1 || !got[0].Evergreen || !got[0].Maintenance {
+	if got := settingsOf(t, server, 12); len(got) != 0 {
 		t.Errorf("settings of #12 = %+v", got)
 	}
-	if got := fake.LabelActor(shop, 12, "mobius:evergreen"); got != testkit.AppSlug+"[bot]" {
-		t.Errorf("actor = %s", got)
+	if list := workstreams(t, server); len(list) != 0 {
+		t.Errorf("workstreams = %+v", list)
+	}
+	if slices.Contains(fake.Labels(shop, 12), "mobius:evergreen") {
+		t.Errorf("labels = %v", fake.Labels(shop, 12))
 	}
 }
 
@@ -218,6 +220,34 @@ func TestANewWorkstreamAddsACreationEventForTheLead(t *testing.T) {
 	}
 }
 
+func TestAReaddedWorkstreamLabelAddsASecondCreationEventForTheLead(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddIssue(shop, 13, "Plan prices")
+	server := startCopied(t, fake)
+
+	fake.AddLabel(shop, 13, "mobius:workstream", "owner")
+	testkit.WaitFor(t, func() bool {
+		events := leadEvents(t, server)
+		return len(events) == 1 && events[0].Workstream == 13 && events[0].Kind == "creation"
+	})
+
+	fake.RemoveLabel(shop, 13, "mobius:workstream", "owner")
+	testkit.WaitFor(t, func() bool { return len(workstreams(t, server)) == 0 })
+
+	fake.AddLabel(shop, 13, "mobius:workstream", "owner")
+	testkit.WaitFor(t, func() bool { return len(workstreams(t, server)) == 1 })
+	events := testkit.WaitForValue(t, func() ([]leadEvent, bool) {
+		events := leadEvents(t, server)
+		return events, len(events) == 2
+	})
+	for i, event := range events {
+		if event.Workstream != 13 || event.Kind != "creation" {
+			t.Errorf("event[%d] = %+v", i, event)
+		}
+	}
+}
+
 // startEmpty starts the server on a repository with no issue and waits for the poll that writes its issues cursor.
 func startEmpty(t *testing.T, fake *testkit.FakeGitHub, dataDir string) *testserver.Server {
 	t.Helper()
@@ -253,16 +283,21 @@ func TestTheFirstWorkstreamOfARepositoryWithNoIssueAddsACreationEventForTheLead(
 func TestABodyEditSendsAWorkstreamsChangeAndTheListHasTheNewBrief(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	fake.AddIssue(shop, 12, "Integrate loyalty plans")
-	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
-	server := startCopied(t, fake)
+	server, _ := connectWith(t, fake, approvalSeen+callEditBrief("Change it.", "Ship loyalty plans to all shops.", "Ships everywhere.")+seenScript, withUIURL)
 	changes := listen(t, server)
 
-	fake.SetBody(shop, 12, "Ship loyalty plans to all shops.")
+	run(t, server, leadSpec(t), "Change it.")
+	done := approveNext(t, server, 1)
 
+	if done.State != "done" || done.Result != "Changed the Brief of #12 Integrate loyalty plans." {
+		t.Fatalf("action = %+v", done)
+	}
 	waitForWorkstreams(t, changes)
 	if got := workstreams(t, server)[0].Brief; got != "Ship loyalty plans to all shops." {
 		t.Errorf("Brief = %q", got)
+	}
+	if _, body := fake.Issue(shop, 12); body != "Ship loyalty plans to all shops.\n\n[Open the Lead chat in Mobius](https://mobius.example.com/workstreams/owner/shop/12)" {
+		t.Errorf("body on GitHub = %q", body)
 	}
 }
 
@@ -274,7 +309,7 @@ func TestTheLiveEventsGiveAWorkstreamsEventForAChangeOfTheList(t *testing.T) {
 	server := startCopied(t, fake)
 	events := liveEvents(t, server, "workstreams")
 
-	fake.SetTitle(shop, 12, "Integrate loyalty tiers")
+	fake.CreateLabeledIssue(shop, 13, "Integrate loyalty tiers", "", "owner", "mobius:workstream")
 
 	select {
 	case data := <-events:
@@ -434,7 +469,7 @@ func TestACompletionDismissesTheQuestionItemsAndRemovesTheQuestionLabelAtOnce(t 
 	}
 }
 
-func TestAFailedCompletionGivesTheErrorAndKeepsTheWorkstreamOpen(t *testing.T) {
+func TestAFailedCompletionClosesWorkstreamsAndClosesOnGitHubAfterRetry(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	addWorkstream(fake)
@@ -444,15 +479,26 @@ func TestAFailedCompletionGivesTheErrorAndKeepsTheWorkstreamOpen(t *testing.T) {
 
 	status, body := complete(t, server, 12)
 
-	if status != http.StatusInternalServerError {
-		t.Errorf("status = %d: %s", status, body)
+	if status != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", status, body)
 	}
-	if state, reason := fake.State(shop, 12); state != "open" || reason != "" {
-		t.Errorf("state = %s, %s", state, reason)
-	}
-	if list := workstreams(t, server); len(list) != 1 {
+	if list := workstreams(t, server); len(list) != 0 {
 		t.Errorf("workstreams = %+v", list)
 	}
+	var dbState string
+	if err := server.DB.QueryRow("SELECT state FROM workstreams WHERE repository = ? AND number = 12", shop).Scan(&dbState); err != nil || dbState != "closed" {
+		t.Errorf("db state = %q, %v", dbState, err)
+	}
+	if state, _ := fake.State(shop, 12); state != "open" {
+		t.Errorf("GitHub state while failing = %s", state)
+	}
+
+	fake.AllowClose(shop, 12)
+
+	testkit.WaitFor(t, func() bool {
+		state, reason := fake.State(shop, 12)
+		return state == "closed" && reason == "completed"
+	})
 }
 
 func TestACompletionWithAnOpenSubIssueClosesNothing(t *testing.T) {
@@ -628,4 +674,64 @@ func TestTheDetailsRefuseAnIssueThatIsNotAWorkstream(t *testing.T) {
 	if status, _ := details(t, server, 41); status != http.StatusConflict {
 		t.Errorf("status = %d, want %d", status, http.StatusConflict)
 	}
+}
+
+func TestAFailedBodyWriteUpdatesWorkstreamsNowAndWritesToGitHubLater(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, approvalSeen+callEditBrief("Change it.", "Ship loyalty plans to all shops.", "Ships everywhere.")+seenScript, withUIURL)
+	fake.FailBodyWrites(true)
+
+	run(t, server, leadSpec(t), "Change it.")
+	done := approveNext(t, server, 1)
+
+	if want := "Changed the Brief of #12 Integrate loyalty plans. Mobius writes it to GitHub later."; done.State != "done" || done.Result != want {
+		t.Fatalf("action = %+v, want %q", done, want)
+	}
+	if got := workstreams(t, server)[0].Brief; got != "Ship loyalty plans to all shops." {
+		t.Errorf("Brief = %q", got)
+	}
+	if _, body := fake.Issue(shop, 12); body != "" {
+		t.Errorf("body on GitHub while failing = %q", body)
+	}
+
+	waitForPoll(t, server, fake)
+	if got := workstreams(t, server)[0].Brief; got != "Ship loyalty plans to all shops." {
+		t.Errorf("Brief after poll = %q", got)
+	}
+
+	fake.FailBodyWrites(false)
+	wantBody := "Ship loyalty plans to all shops.\n\n[Open the Lead chat in Mobius](https://mobius.example.com/workstreams/owner/shop/12)"
+	testkit.WaitFor(t, func() bool {
+		_, body := fake.Issue(shop, 12)
+		return body == wantBody
+	})
+}
+
+func TestAFirstPollAddsRowsWithLevelOffAndStripsLevelLabels(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddRepository(shop)
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+	fake.SetBody(shop, 12, "Ship loyalty plans.")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
+	fake.AddLabel(shop, 12, "mobius:autopilot", "owner")
+	fake.AddLabel(shop, 12, "mobius:auto-merge", "owner")
+	server := testserver.StartWith(t, testserver.Config(t, t.TempDir()), fake.URL)
+	if _, err := server.DB.Exec("INSERT INTO github_apps (app_id, slug, private_key, client_id, client_secret) VALUES (?, ?, ?, ?, ?)",
+		testkit.AppID, testkit.AppSlug, testkit.AppPrivateKey, testkit.AppClientID, testkit.AppClientSecret); err != nil {
+		t.Fatal(err)
+	}
+	server.WaitForFirstPoll(t, shop)
+
+	want := []workstream{{Repository: shop, Number: 12, Title: "Integrate loyalty plans", Brief: "Ship loyalty plans.", Autopilot: "off"}}
+	if list := workstreams(t, server); !reflect.DeepEqual(list, want) {
+		t.Errorf("workstreams = %+v, want %+v", list, want)
+	}
+	if got := settingsOf(t, server, 12); len(got) != 1 || got[0].Autopilot || got[0].AutoMerge {
+		t.Errorf("settings = %+v", got)
+	}
+	testkit.WaitFor(t, func() bool {
+		return slices.Equal(fake.Labels(shop, 12), []string{"mobius:workstream"})
+	})
 }

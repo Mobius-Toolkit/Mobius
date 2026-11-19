@@ -31,6 +31,8 @@ const (
 	evergreenField         = "evergreen"
 	maintenanceField       = "maintenance"
 	skillsField            = "skills"
+	bodyField              = "body"
+	stateField             = "state"
 	approvalCommentField   = "approval_comment"
 )
 
@@ -98,9 +100,15 @@ func isSettingLabel(name string) bool {
 	return slices.Contains(slices.Collect(maps.Values(settingLabels)), name)
 }
 
+// addFieldChange adds a pending outgoing change with no text that writes field of the Workstream number from the row of
+// workstreams.
+func addFieldChange(ctx context.Context, q *store.Queries, repository string, number int64, field string) (int64, error) {
+	return q.AddOutgoingChange(ctx, store.AddOutgoingChangeParams{Repository: repository, Number: number, Field: field, CreatedAt: now()})
+}
+
 // addSettingChange adds a pending outgoing change that writes the label of the setting field of the Workstream number.
 func addSettingChange(ctx context.Context, q *store.Queries, repository string, number int64, field string) (int64, error) {
-	return q.AddOutgoingChange(ctx, store.AddOutgoingChangeParams{Repository: repository, Number: number, Field: field, CreatedAt: now()})
+	return addFieldChange(ctx, q, repository, number, field)
 }
 
 // postComment adds a comment on the issue or the pull request number as an outgoing change, and sends it at once.
@@ -222,6 +230,9 @@ func (e *Engine) send(ctx context.Context, repository github.Repository, change 
 	}
 	if _, setting := settingLabels[change.Field]; setting {
 		return e.sendSetting(ctx, repository, change)
+	}
+	if change.Field == bodyField || change.Field == stateField {
+		return e.sendWorkstream(ctx, repository, change)
 	}
 	if read {
 		comment, url, err := findWrittenComment(ctx, repository, change)
@@ -475,6 +486,48 @@ func (e *Engine) sendSetting(ctx context.Context, repository github.Repository, 
 				return false, err
 			}
 			return e.failed(ctx, repository, change, err)
+		}
+	}
+	return false, e.queries.SetOutgoingChangeStatus(ctx, store.SetOutgoingChangeStatusParams{Status: "sent", ID: change.ID})
+}
+
+// sendWorkstream writes the body or state of the Workstream from workstreams to the issue on GitHub when GitHub
+// differs. A Workstream with no row or no issue is refused.
+func (e *Engine) sendWorkstream(ctx context.Context, repository github.Repository, change store.OutgoingChange) (bool, error) {
+	row, err := e.queries.GetWorkstream(ctx, store.GetWorkstreamParams{Repository: change.Repository, Number: change.Number})
+	if errors.Is(err, sql.ErrNoRows) {
+		log.Printf("write the %s of %s#%d: the Workstream has no row", change.Field, change.Repository, change.Number)
+		return false, e.refuse(ctx, change)
+	}
+	if err != nil {
+		return false, err
+	}
+	issue, err := repository.Issue(ctx, change.Number)
+	if err != nil {
+		return e.failed(ctx, repository, change, err)
+	}
+	if issue == nil {
+		return false, e.refuse(ctx, change)
+	}
+	switch change.Field {
+	case bodyField:
+		body := e.withChatLink(repository, change.Number, row.Body)
+		if issue.GetBody() != body {
+			if _, _, err := repository.Client.Issues.Update(ctx, repository.Owner(), repository.Name(), int(change.Number), gh.UpdateIssueRequest{Body: &body}); err != nil {
+				return e.failed(ctx, repository, change, err)
+			}
+		}
+	case stateField:
+		if issue.GetState() != row.State {
+			var err error
+			if row.State == "closed" {
+				_, err = repository.CloseIssue(ctx, change.Number, "completed")
+			} else {
+				_, _, err = repository.Client.Issues.Update(ctx, repository.Owner(), repository.Name(), int(change.Number), gh.UpdateIssueRequest{State: new("open")})
+			}
+			if err != nil {
+				return e.failed(ctx, repository, change, err)
+			}
 		}
 	}
 	return false, e.queries.SetOutgoingChangeStatus(ctx, store.SetOutgoingChangeStatusParams{Status: "sent", ID: change.ID})

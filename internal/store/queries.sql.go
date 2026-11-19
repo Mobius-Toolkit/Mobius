@@ -1479,15 +1479,19 @@ func (q *Queries) AddWorkerRestart(ctx context.Context, arg AddWorkerRestartPara
 }
 
 const addWorkstream = `-- name: AddWorkstream :execrows
-INSERT INTO workstreams (repository, number, autopilot, auto_merge, evergreen, maintenance, skills)
-VALUES (?1, ?2, 0, 0, CAST(?3 AS BOOLEAN), CAST(?4 AS BOOLEAN),
-        CAST(?5 AS BOOLEAN))
+INSERT INTO workstreams (repository, number, title, body, state, created_at, autopilot, auto_merge, evergreen, maintenance, skills)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, 0,
+        CAST(?7 AS BOOLEAN), CAST(?8 AS BOOLEAN), CAST(?9 AS BOOLEAN))
 ON CONFLICT (repository, number) DO NOTHING
 `
 
 type AddWorkstreamParams struct {
 	Repository  string
 	Number      int64
+	Title       string
+	Body        string
+	State       string
+	CreatedAt   string
 	Evergreen   bool
 	Maintenance bool
 	Skills      bool
@@ -1498,6 +1502,10 @@ func (q *Queries) AddWorkstream(ctx context.Context, arg AddWorkstreamParams) (i
 	result, err := q.db.ExecContext(ctx, addWorkstream,
 		arg.Repository,
 		arg.Number,
+		arg.Title,
+		arg.Body,
+		arg.State,
+		arg.CreatedAt,
 		arg.Evergreen,
 		arg.Maintenance,
 		arg.Skills,
@@ -1734,8 +1742,22 @@ func (q *Queries) ClearTaskMergeQueuedAt(ctx context.Context, id int64) (int64, 
 	return result.RowsAffected()
 }
 
-const closeWorkstream = `-- name: CloseWorkstream :exec
-UPDATE workstreams SET state = 'closed' WHERE repository = ? AND number = ?
+const clearWorkstreamClosePending = `-- name: ClearWorkstreamClosePending :exec
+UPDATE workstreams SET close_pending = 0 WHERE repository = ? AND number = ?
+`
+
+type ClearWorkstreamClosePendingParams struct {
+	Repository string
+	Number     int64
+}
+
+func (q *Queries) ClearWorkstreamClosePending(ctx context.Context, arg ClearWorkstreamClosePendingParams) error {
+	_, err := q.db.ExecContext(ctx, clearWorkstreamClosePending, arg.Repository, arg.Number)
+	return err
+}
+
+const closeWorkstream = `-- name: CloseWorkstream :execrows
+UPDATE workstreams SET state = 'closed', close_pending = 1 WHERE repository = ? AND number = ? AND state != 'closed'
 `
 
 type CloseWorkstreamParams struct {
@@ -1743,9 +1765,12 @@ type CloseWorkstreamParams struct {
 	Number     int64
 }
 
-func (q *Queries) CloseWorkstream(ctx context.Context, arg CloseWorkstreamParams) error {
-	_, err := q.db.ExecContext(ctx, closeWorkstream, arg.Repository, arg.Number)
-	return err
+func (q *Queries) CloseWorkstream(ctx context.Context, arg CloseWorkstreamParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, closeWorkstream, arg.Repository, arg.Number)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const continueEndedTask = `-- name: ContinueEndedTask :execrows
@@ -1987,7 +2012,7 @@ func (q *Queries) DeleteCopiedIssuesOf(ctx context.Context, repository string) e
 	return err
 }
 
-const deleteCopiedWorkstream = `-- name: DeleteCopiedWorkstream :exec
+const deleteCopiedWorkstream = `-- name: DeleteCopiedWorkstream :execrows
 DELETE FROM workstreams WHERE repository = ? AND number = ?
 `
 
@@ -1996,9 +2021,12 @@ type DeleteCopiedWorkstreamParams struct {
 	Number     int64
 }
 
-func (q *Queries) DeleteCopiedWorkstream(ctx context.Context, arg DeleteCopiedWorkstreamParams) error {
-	_, err := q.db.ExecContext(ctx, deleteCopiedWorkstream, arg.Repository, arg.Number)
-	return err
+func (q *Queries) DeleteCopiedWorkstream(ctx context.Context, arg DeleteCopiedWorkstreamParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteCopiedWorkstream, arg.Repository, arg.Number)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const deleteCopiedWorkstreamsOf = `-- name: DeleteCopiedWorkstreamsOf :exec
@@ -2255,6 +2283,20 @@ DELETE FROM stop_notices WHERE id = ?
 
 func (q *Queries) DeleteStopNotice(ctx context.Context, id int64) error {
 	_, err := q.db.ExecContext(ctx, deleteStopNotice, id)
+	return err
+}
+
+const deleteSyncCursor = `-- name: DeleteSyncCursor :exec
+DELETE FROM sync_cursors WHERE repository = ? AND endpoint = ?
+`
+
+type DeleteSyncCursorParams struct {
+	Repository string
+	Endpoint   string
+}
+
+func (q *Queries) DeleteSyncCursor(ctx context.Context, arg DeleteSyncCursorParams) error {
+	_, err := q.db.ExecContext(ctx, deleteSyncCursor, arg.Repository, arg.Endpoint)
 	return err
 }
 
@@ -2717,6 +2759,33 @@ UPDATE pending_actions SET running = 0, error = ? WHERE running = 1
 func (q *Queries) FailRunningPendingActions(ctx context.Context, error string) error {
 	_, err := q.db.ExecContext(ctx, failRunningPendingActions, error)
 	return err
+}
+
+const fillAndReopenWorkstream = `-- name: FillAndReopenWorkstream :execrows
+UPDATE workstreams SET title = ?, body = ?, created_at = ?, state = 'open', close_pending = 0
+WHERE repository = ? AND number = ? AND state = 'closed'
+`
+
+type FillAndReopenWorkstreamParams struct {
+	Title      string
+	Body       string
+	CreatedAt  string
+	Repository string
+	Number     int64
+}
+
+func (q *Queries) FillAndReopenWorkstream(ctx context.Context, arg FillAndReopenWorkstreamParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, fillAndReopenWorkstream,
+		arg.Title,
+		arg.Body,
+		arg.CreatedAt,
+		arg.Repository,
+		arg.Number,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const findDeviceLogin = `-- name: FindDeviceLogin :one
@@ -4399,6 +4468,34 @@ func (q *Queries) GetVoiceLanguage(ctx context.Context) (VoiceLanguage, error) {
 	return i, err
 }
 
+const getWorkstream = `-- name: GetWorkstream :one
+SELECT title, body, state, created_at FROM workstreams WHERE repository = ? AND number = ?
+`
+
+type GetWorkstreamParams struct {
+	Repository string
+	Number     int64
+}
+
+type GetWorkstreamRow struct {
+	Title     string
+	Body      string
+	State     string
+	CreatedAt string
+}
+
+func (q *Queries) GetWorkstream(ctx context.Context, arg GetWorkstreamParams) (GetWorkstreamRow, error) {
+	row := q.db.QueryRowContext(ctx, getWorkstream, arg.Repository, arg.Number)
+	var i GetWorkstreamRow
+	err := row.Scan(
+		&i.Title,
+		&i.Body,
+		&i.State,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getWorkstreamBrief = `-- name: GetWorkstreamBrief :one
 SELECT body, CAST(evergreen AS BOOLEAN) AS evergreen, CAST(maintenance AS BOOLEAN) AS maintenance, CAST(skills AS BOOLEAN) AS skills
 FROM workstreams
@@ -4638,6 +4735,23 @@ func (q *Queries) HasLeadEvent(ctx context.Context, arg HasLeadEventParams) (boo
 	return exists, err
 }
 
+const hasLeadEventKind = `-- name: HasLeadEventKind :one
+SELECT EXISTS (SELECT 1 FROM lead_events WHERE repository = ? AND workstream = ? AND kind = ?)
+`
+
+type HasLeadEventKindParams struct {
+	Repository string
+	Workstream int64
+	Kind       string
+}
+
+func (q *Queries) HasLeadEventKind(ctx context.Context, arg HasLeadEventKindParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, hasLeadEventKind, arg.Repository, arg.Workstream, arg.Kind)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const hasOpenPullRequestFailureWithIssue = `-- name: HasOpenPullRequestFailureWithIssue :one
 SELECT EXISTS (
   SELECT 1 FROM ci_failures JOIN ci_failure_places ON ci_failure_places.failure = ci_failures.id
@@ -4725,6 +4839,22 @@ func (q *Queries) HasUndeliveredLeadEventOfIssue(ctx context.Context, arg HasUnd
 	return exists, err
 }
 
+const hasWorkstream = `-- name: HasWorkstream :one
+SELECT EXISTS (SELECT 1 FROM workstreams WHERE repository = ? AND number = ?)
+`
+
+type HasWorkstreamParams struct {
+	Repository string
+	Number     int64
+}
+
+func (q *Queries) HasWorkstream(ctx context.Context, arg HasWorkstreamParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, hasWorkstream, arg.Repository, arg.Number)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const holdLeadEvent = `-- name: HoldLeadEvent :exec
 UPDATE lead_events SET held = 1, held_at = ? WHERE id = ?
 `
@@ -4807,6 +4937,22 @@ type IsRepairIssueParams struct {
 
 func (q *Queries) IsRepairIssue(ctx context.Context, arg IsRepairIssueParams) (bool, error) {
 	row := q.db.QueryRowContext(ctx, isRepairIssue, arg.Repository, arg.Issue)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const isWorkstreamClosePending = `-- name: IsWorkstreamClosePending :one
+SELECT EXISTS (SELECT 1 FROM workstreams WHERE repository = ? AND number = ? AND close_pending != 0)
+`
+
+type IsWorkstreamClosePendingParams struct {
+	Repository string
+	Number     int64
+}
+
+func (q *Queries) IsWorkstreamClosePending(ctx context.Context, arg IsWorkstreamClosePendingParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, isWorkstreamClosePending, arg.Repository, arg.Number)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
@@ -10495,6 +10641,23 @@ func (q *Queries) ReopenInboxItem(ctx context.Context, id int64) (InboxItem, err
 	return i, err
 }
 
+const reopenWorkstream = `-- name: ReopenWorkstream :execrows
+UPDATE workstreams SET state = 'open', close_pending = 0 WHERE repository = ? AND number = ? AND state = 'closed'
+`
+
+type ReopenWorkstreamParams struct {
+	Repository string
+	Number     int64
+}
+
+func (q *Queries) ReopenWorkstream(ctx context.Context, arg ReopenWorkstreamParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, reopenWorkstream, arg.Repository, arg.Number)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const replacePendingAction = `-- name: ReplacePendingAction :one
 UPDATE pending_actions SET state = 'replaced', decided_at = ?
 WHERE id = ? AND state = 'pending' AND running = 0
@@ -11764,6 +11927,24 @@ func (q *Queries) SetUserTokens(ctx context.Context, arg SetUserTokensParams) er
 	return err
 }
 
+const setWorkstreamBody = `-- name: SetWorkstreamBody :execrows
+UPDATE workstreams SET body = ? WHERE repository = ? AND number = ? AND state = 'open'
+`
+
+type SetWorkstreamBodyParams struct {
+	Body       string
+	Repository string
+	Number     int64
+}
+
+func (q *Queries) SetWorkstreamBody(ctx context.Context, arg SetWorkstreamBodyParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setWorkstreamBody, arg.Body, arg.Repository, arg.Number)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const startMcpServerOAuth = `-- name: StartMcpServerOAuth :exec
 INSERT INTO mcp_server_oauth (
     server, client_id, client_secret, issuer, token_endpoint, resource, scope, state, code_verifier, flow_started_at,
@@ -12083,34 +12264,6 @@ func (q *Queries) UpdateCopiedIssue(ctx context.Context, arg UpdateCopiedIssuePa
 		arg.Author,
 		arg.Number,
 		arg.RepositoryUrl,
-	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
-const updateCopiedWorkstream = `-- name: UpdateCopiedWorkstream :execrows
-UPDATE workstreams SET title = ?1, body = ?2, state = 'open', created_at = ?3
-WHERE repository = ?4 AND number = ?5
-  AND (title != ?1 OR body != ?2 OR state != 'open' OR created_at != ?3)
-`
-
-type UpdateCopiedWorkstreamParams struct {
-	Title      string
-	Body       string
-	CreatedAt  string
-	Repository string
-	Number     int64
-}
-
-func (q *Queries) UpdateCopiedWorkstream(ctx context.Context, arg UpdateCopiedWorkstreamParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, updateCopiedWorkstream,
-		arg.Title,
-		arg.Body,
-		arg.CreatedAt,
-		arg.Repository,
-		arg.Number,
 	)
 	if err != nil {
 		return 0, err

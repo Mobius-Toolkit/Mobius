@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"slices"
 	"time"
 
@@ -18,11 +19,18 @@ import (
 const closedText = "Workstream closed"
 
 // CompleteWorkstream closes the open Workstream number of repository as completed, when the Workstream issue has
-// sub-issues and each one is closed. Then it does the work of a close on GitHub.
+// sub-issues and each one is closed.
 func (e *Engine) CompleteWorkstream(ctx context.Context, repositoryName string, number int64) error {
 	repository, err := e.repository(repositoryName)
 	if err != nil {
 		return err
+	}
+	stored, err := e.queries.HasCopiedWorkstream(ctx, store.HasCopiedWorkstreamParams{Repository: repository.FullName, Number: number})
+	if err != nil {
+		return err
+	}
+	if !stored {
+		return refuse("The issue is not an open Workstream.")
 	}
 	issue, err := repository.Issue(ctx, number)
 	if err != nil {
@@ -40,20 +48,280 @@ func (e *Engine) CompleteWorkstream(ctx context.Context, repositoryName string, 
 	}
 	ctx = context.WithoutCancel(ctx)
 	defer e.beginClose(repository.FullName, number)()
-	closed, err := repository.CloseIssue(ctx, number, "completed")
-	if err != nil {
-		return err
-	}
-	if _, err := e.updateCopy(ctx, repository, closed, false, e.labelChangeCount(repository.FullName)); err != nil {
-		return err
-	}
-	e.publish(Change{Workstreams: true})
-	// The poll of the close event runs the close again, and the second run changes nothing.
-	if err := e.closeWorkstream(ctx, repository, number); err != nil {
+	if err := e.handleWorkstreamClose(ctx, repository, number); err != nil {
 		return err
 	}
 	e.addRecord(ctx, leadChat(repository.FullName, number), "You closed the Workstream.")
 	return nil
+}
+
+// setBrief writes brief with no Lead chat link line into the open Workstream row and adds an outgoing body change in
+// the same transaction, then sends it. It gives the id of the outgoing change, or 0 when the Workstream is not open.
+func (e *Engine) setBrief(ctx context.Context, repository github.Repository, number int64, brief string) (int64, error) {
+	var id int64
+	err := e.inTx(ctx, func(q *store.Queries) error {
+		updated, err := q.SetWorkstreamBody(ctx, store.SetWorkstreamBodyParams{
+			Body:       e.WithoutChatLink(repository.FullName, number, brief),
+			Repository: repository.FullName,
+			Number:     number,
+		})
+		if err != nil || updated == 0 {
+			return err
+		}
+		id, err = addFieldChange(ctx, q, repository.FullName, number, bodyField)
+		return err
+	})
+	if err != nil || id == 0 {
+		return 0, err
+	}
+	e.publish(Change{Workstreams: true})
+	if err := e.sendNow(ctx, repository, id); err != nil {
+		return 0, err
+	}
+	return id, nil
+}
+
+// handleWorkstreamClose closes the Workstream number of repository in workstreams, removes its tasks and copied tree,
+// writes its state to GitHub, stops its work, and starts a Curator. When the row is already closed and no earlier
+// closeWorkstream failed, it stops.
+func (e *Engine) handleWorkstreamClose(ctx context.Context, repository github.Repository, number int64) error {
+	var changeID int64
+	closed := false
+	err := e.inTx(ctx, func(q *store.Queries) error {
+		updated, err := q.CloseWorkstream(ctx, store.CloseWorkstreamParams{Repository: repository.FullName, Number: number})
+		if err != nil || updated == 0 {
+			return err
+		}
+		closed = true
+		if err := deleteWorkstreamRecurringTasks(ctx, q, repository.FullName, number); err != nil {
+			return err
+		}
+		if err := q.DeleteWorkstreamMcpServers(ctx, store.DeleteWorkstreamMcpServersParams{Repository: repository.FullName, Workstream: number}); err != nil {
+			return err
+		}
+		if err := removeTree(ctx, q, repository.FullName, number); err != nil {
+			return err
+		}
+		changeID, err = addFieldChange(ctx, q, repository.FullName, number, stateField)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	if !closed {
+		pending, err := e.queries.IsWorkstreamClosePending(ctx, store.IsWorkstreamClosePendingParams{Repository: repository.FullName, Number: number})
+		if err != nil || !pending {
+			return err
+		}
+	} else {
+		e.publish(Change{Workstreams: true})
+		if err := e.recopyWorkstreamsWithBlockerIn(ctx, repository, number); err != nil {
+			log.Printf("copy the blocked Workstreams of %s#%d: %v", repository.FullName, number, err)
+		}
+		if err := e.sendNow(ctx, repository, changeID); err != nil {
+			return err
+		}
+	}
+	if err := e.closeWorkstream(ctx, repository, number); err != nil {
+		return err
+	}
+	if err := e.queries.ClearWorkstreamClosePending(ctx, store.ClearWorkstreamClosePendingParams{Repository: repository.FullName, Number: number}); err != nil {
+		return err
+	}
+	if err := e.startCurator(ctx, repository.FullName); err != nil {
+		log.Printf("start a Curator of %s: %v", repository.FullName, err)
+	}
+	return nil
+}
+
+// reopenWorkstream reopens the Workstream of issue when its row is closed (filling title, body and created_at from the
+// issue when body is empty), adds an outgoing state change, copies its tree when copyTree is true, and adds a reopen
+// event for the Lead. It tells if the tree copy failed.
+func (e *Engine) reopenWorkstream(ctx context.Context, repository github.Repository, issue *gh.Issue, actor string, copyTree bool) (bool, error) {
+	number := int64(issue.GetNumber())
+	row, err := e.queries.GetWorkstream(ctx, store.GetWorkstreamParams{Repository: repository.FullName, Number: number})
+	if err == nil && row.State != "closed" {
+		return false, nil
+	}
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return false, err
+	}
+	var changeID int64
+	reopened := false
+	reopenTx := func(q *store.Queries) error {
+		row, err := q.GetWorkstream(ctx, store.GetWorkstreamParams{Repository: repository.FullName, Number: number})
+		if errors.Is(err, sql.ErrNoRows) {
+			added, err := e.addWorkstreamRow(ctx, q, repository.FullName, issue)
+			if err != nil || added == 0 {
+				return err
+			}
+			reopened = true
+			changeID, err = addFieldChange(ctx, q, repository.FullName, number, stateField)
+			return err
+		}
+		if err != nil || row.State != "closed" {
+			return err
+		}
+		var updated int64
+		if row.Body == "" {
+			updated, err = q.FillAndReopenWorkstream(ctx, store.FillAndReopenWorkstreamParams{
+				Title:      issue.GetTitle(),
+				Body:       e.WithoutChatLink(repository.FullName, number, issue.GetBody()),
+				CreatedAt:  issue.GetCreatedAt().UTC().Format(time.RFC3339Nano),
+				Repository: repository.FullName,
+				Number:     number,
+			})
+		} else {
+			updated, err = q.ReopenWorkstream(ctx, store.ReopenWorkstreamParams{Repository: repository.FullName, Number: number})
+		}
+		if err != nil || updated == 0 {
+			return err
+		}
+		reopened = true
+		changeID, err = addFieldChange(ctx, q, repository.FullName, number, stateField)
+		return err
+	}
+	copyFailed := false
+	var tree []copiedIssue
+	if copyTree {
+		before := e.labelChangesNow()
+		var treeErr error
+		tree, treeErr = e.readTree(ctx, repository, number)
+		if treeErr == nil {
+			err = e.writeRead(ctx, repository.FullName, before, [][]copiedIssue{tree}, func(q *store.Queries) error {
+				if err := reopenTx(q); err != nil || !reopened {
+					return err
+				}
+				if err := removeTree(ctx, q, repository.FullName, number); err != nil {
+					return err
+				}
+				return addTree(ctx, q, repository.FullName, number, tree)
+			})
+		} else {
+			log.Printf("copy the Workstream %s#%d: %v", repository.FullName, number, treeErr)
+			copyFailed = true
+			err = e.inTx(ctx, reopenTx)
+		}
+	} else {
+		err = e.inTx(ctx, reopenTx)
+	}
+	if err != nil || !reopened {
+		return copyFailed, err
+	}
+	if copyTree && !copyFailed {
+		if err := e.recopyBlockedByTree(ctx, repository, number, tree); err != nil {
+			log.Printf("copy the blocked Workstreams of %s#%d: %v", repository.FullName, number, err)
+			copyFailed = true
+		}
+	}
+	e.publish(Change{Workstreams: true})
+	if err := e.sendNow(ctx, repository, changeID); err != nil {
+		return copyFailed, err
+	}
+	return copyFailed, e.addLeadEvent(ctx, repository.FullName, number, "", sql.NullInt64{}, "reopen", eventText(time.Now(), "reopen of Workstream", fmt.Sprintf("#%d", number), issue, actor, issue.GetBody()))
+}
+
+// addWorkstreamFromEvent adds the row of the open Workstream issue if missing, copies its tree when copyTree is true,
+// and adds a creation event for the Lead when it added the row or when no creation event exists yet. It tells if the
+// tree copy failed.
+func (e *Engine) addWorkstreamFromEvent(ctx context.Context, repository github.Repository, issue *gh.Issue, actor string, copyTree bool) (bool, error) {
+	if issue.GetState() != "open" || !hasLabel(issue, workstreamLabel) {
+		return false, nil
+	}
+	number := int64(issue.GetNumber())
+	var added int64
+	copyFailed := false
+	var err error
+	var tree []copiedIssue
+	if copyTree {
+		before := e.labelChangesNow()
+		var treeErr error
+		tree, treeErr = e.readTree(ctx, repository, number)
+		if treeErr == nil {
+			err = e.writeRead(ctx, repository.FullName, before, [][]copiedIssue{tree}, func(q *store.Queries) error {
+				added, err = e.addWorkstreamRow(ctx, q, repository.FullName, issue)
+				if err != nil {
+					return err
+				}
+				if err := removeTree(ctx, q, repository.FullName, number); err != nil {
+					return err
+				}
+				return addTree(ctx, q, repository.FullName, number, tree)
+			})
+			if err == nil {
+				if recopyErr := e.recopyBlockedByTree(ctx, repository, number, tree); recopyErr != nil {
+					log.Printf("copy the blocked Workstreams of %s#%d: %v", repository.FullName, number, recopyErr)
+					copyFailed = true
+				}
+				e.publish(Change{Workstreams: true})
+			}
+		} else {
+			log.Printf("copy the Workstream %s#%d: %v", repository.FullName, number, treeErr)
+			copyFailed = true
+			err = e.inTx(ctx, func(q *store.Queries) error {
+				added, err = e.addWorkstreamRow(ctx, q, repository.FullName, issue)
+				return err
+			})
+			if err == nil && added > 0 {
+				e.publish(Change{Workstreams: true})
+			}
+		}
+	} else {
+		err = e.inTx(ctx, func(q *store.Queries) error {
+			added, err = e.addWorkstreamRow(ctx, q, repository.FullName, issue)
+			return err
+		})
+		if err == nil && added > 0 {
+			e.publish(Change{Workstreams: true})
+		}
+	}
+	if err != nil {
+		return copyFailed, err
+	}
+	addCreation := added > 0
+	if !addCreation {
+		hasCreation, err := e.queries.HasLeadEventKind(ctx, store.HasLeadEventKindParams{Repository: repository.FullName, Workstream: number, Kind: "creation"})
+		if err != nil {
+			return copyFailed, err
+		}
+		addCreation = !hasCreation
+	}
+	if addCreation {
+		if err := e.addLeadEvent(ctx, repository.FullName, number, "", sql.NullInt64{}, "creation", eventText(time.Now(), "creation of Workstream", fmt.Sprintf("#%d", number), issue, actor, issue.GetBody())); err != nil {
+			return copyFailed, err
+		}
+	}
+	return copyFailed, nil
+}
+
+// removeWorkstream deletes the row of the Workstream number of repository, removes its copied tree and owned data,
+// rebuilds blocked Workstreams, and stops its live work.
+func (e *Engine) removeWorkstream(ctx context.Context, repository github.Repository, number int64) error {
+	deleted := false
+	err := e.inTx(ctx, func(q *store.Queries) error {
+		n, err := q.DeleteCopiedWorkstream(ctx, store.DeleteCopiedWorkstreamParams{Repository: repository.FullName, Number: number})
+		if err != nil || n == 0 {
+			return err
+		}
+		deleted = true
+		if err := deleteWorkstreamRecurringTasks(ctx, q, repository.FullName, number); err != nil {
+			return err
+		}
+		if err := q.DeleteWorkstreamMcpServers(ctx, store.DeleteWorkstreamMcpServersParams{Repository: repository.FullName, Workstream: number}); err != nil {
+			return err
+		}
+		return removeTree(ctx, q, repository.FullName, number)
+	})
+	if err != nil {
+		return err
+	}
+	if deleted {
+		e.publish(Change{Workstreams: true})
+		if err := e.recopyWorkstreamsWithBlockerIn(ctx, repository, number); err != nil {
+			log.Printf("copy the blocked Workstreams of %s#%d: %v", repository.FullName, number, err)
+		}
+	}
+	return e.stopWorkstream(ctx, repository, number)
 }
 
 // WorkstreamDetails is what the local copy knows about an open Workstream.
@@ -245,7 +513,6 @@ func (e *Engine) CloseWorkstreamWontDo(ctx context.Context, repositoryName strin
 	if err != nil {
 		return err
 	}
-	var closed *gh.Issue
 	for _, item := range items {
 		source, err := e.repository(item.Repository)
 		if err != nil {
@@ -264,19 +531,23 @@ func (e *Engine) CloseWorkstreamWontDo(ctx context.Context, repositoryName strin
 		if item.PullRequest {
 			err = source.ClosePullRequest(ctx, item.Number)
 		} else {
-			closed, err = source.CloseIssue(ctx, item.Number, "not_planned")
+			_, err = source.CloseIssue(ctx, item.Number, "not_planned")
 		}
 		if err != nil {
 			return err
 		}
 	}
-	// The Workstream issue is the last item.
-	if _, err := e.updateCopy(ctx, repository, closed, false, e.labelChangeCount(repository.FullName)); err != nil {
+	if err := e.closeCopiedWorkstream(ctx, repository, number); err != nil {
 		return err
 	}
-	e.publish(Change{Workstreams: true})
 	if err := e.closeWorkstream(ctx, repository, number); err != nil {
 		return err
+	}
+	if err := e.queries.ClearWorkstreamClosePending(ctx, store.ClearWorkstreamClosePendingParams{Repository: repository.FullName, Number: number}); err != nil {
+		return err
+	}
+	if err := e.startCurator(ctx, repository.FullName); err != nil {
+		log.Printf("start a Curator of %s: %v", repository.FullName, err)
 	}
 	e.addRecord(ctx, leadChat(repository.FullName, number), "You closed the Workstream as won't do.")
 	return nil

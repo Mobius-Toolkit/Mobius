@@ -56,10 +56,11 @@ func leadWrites(t *testing.T, server *testserver.Server, n int) {
 // connectLeadWrites is connectTriager with the prompts of commands for the Lead.
 func connectLeadWrites(t *testing.T, fake *testkit.FakeGitHub, commands ...string) *testserver.Server {
 	t.Helper()
-	server, dataDir := connect(t, fake, triager+leadWriteScript(commands...))
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
 	fake.SetBody(shop, 12, "Ship loyalty plans to all shops.")
+	server, dataDir := connect(t, fake, triager+leadWriteScript(commands...))
 	stubGH(t, dataDir)
-	waitForPoll(t, server, fake)
 	return server
 }
 

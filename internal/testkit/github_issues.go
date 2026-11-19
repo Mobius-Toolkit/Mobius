@@ -1005,8 +1005,8 @@ func (g *FakeGitHub) closeIssue(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if request.State != "closed" {
-		message(w, http.StatusUnprocessableEntity, "The fake GitHub only closes and sets the body.")
+	if request.State != "closed" && request.State != "open" {
+		message(w, http.StatusUnprocessableEntity, "The fake GitHub only sets the state and the body.")
 		return
 	}
 	if g.closeRefusal != 0 {
@@ -1017,8 +1017,10 @@ func (g *FakeGitHub) closeIssue(w http.ResponseWriter, r *http.Request) {
 		message(w, http.StatusInternalServerError, "Server Error")
 		return
 	}
-	g.recordEvent("close", key)
-	g.setState(key, "closed", request.StateReason, caller.login)
+	if request.State == "closed" {
+		g.recordEvent("close", key)
+	}
+	g.setState(key, request.State, request.StateReason, caller.login)
 	writeJSON(w, http.StatusOK, g.issueJSON(key))
 }
 

@@ -375,7 +375,7 @@ func TestCreateIssueCreatesASubIssueWithABlockerInAnotherWorkstream(t *testing.T
 	}
 	testkit.WaitFor(t, func() bool {
 		var count int
-		_ = server.DB.QueryRow("SELECT count(*) FROM copied_issues WHERE repository = ? AND number = 89", shop).Scan(&count)
+		_ = server.DB.QueryRow("SELECT count(*) FROM copied_blockers WHERE repository = ? AND workstream = 12 AND number = 88 AND blocker_workstream_title = 'Billing'", shop).Scan(&count)
 		return count == 1
 	})
 	if err := agent.Prompt(t.Context(), "List the tasks. ", nil); err != nil {
@@ -710,8 +710,10 @@ func TestMessageLeadSendsTheMessageOfTheLeadWhileGitHubRefusesEachRequest(t *tes
 func TestAMessageToALeadWithNoSessionStartsTheSessionWhileGitHubRefusesEachRequest(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, approvalSeen+callMessageLead("Send the message.", 12, "Create the task issues.")+seenScript)
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
 	fake.SetBody(shop, 12, "Ship loyalty plans to all shops.")
+	server, _ := connect(t, fake, approvalSeen+callMessageLead("Send the message.", 12, "Create the task issues.")+seenScript)
 	fake.AddIssue(shop, 41, "Add plan model")
 	fake.AddSubIssue(shop, 12, 41)
 	waitForPoll(t, server, fake)

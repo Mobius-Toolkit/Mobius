@@ -254,13 +254,10 @@ func TestACompletionStopsTheLead(t *testing.T) {
 	stoppedLead(t, server)
 }
 
-func TestAFailedCompletionKeepsTheLeadRunning(t *testing.T) {
+func TestARefusedCompletionKeepsTheLeadRunning(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := startWithLead(t, fake)
-	fake.CloseIssue(shop, 41)
-	testkit.WaitFor(t, func() bool { return workstreams(t, server)[0].AllTasksClosed })
-	fake.FailClose(shop, 12)
 
 	if status, body := complete(t, server, 12); status == http.StatusNoContent {
 		t.Fatalf("status = %d: %s", status, body)
@@ -271,6 +268,29 @@ func TestAFailedCompletionKeepsTheLeadRunning(t *testing.T) {
 			t.Errorf("session = %+v", session)
 		}
 	}
+}
+
+func TestACompletionWithAFailedGitHubCloseStopsTheLeadAndClosesOnRetry(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := startWithLead(t, fake)
+	fake.CloseIssue(shop, 41)
+	testkit.WaitFor(t, func() bool { return workstreams(t, server)[0].AllTasksClosed })
+	fake.FailClose(shop, 12)
+
+	if status, body := complete(t, server, 12); status != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+	stoppedLead(t, server)
+	if state, _ := fake.State(shop, 12); state != "open" {
+		t.Fatalf("state on GitHub while failing = %s", state)
+	}
+
+	fake.AllowClose(shop, 12)
+	testkit.WaitFor(t, func() bool {
+		state, reason := fake.State(shop, 12)
+		return state == "closed" && reason == "completed"
+	})
 }
 
 func TestAReopenStartsALeadWithTheEvent(t *testing.T) {
@@ -364,4 +384,146 @@ func TestACompletionStopsTheRunningReviewer(t *testing.T) {
 		reviewers := roleSessions(t, server, engine.ReviewerRole)
 		return reviewers[0].EndReason.String == "stopped"
 	})
+}
+
+func TestATrustedCloseClosesTheWorkstreamOnceAcrossPolls(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	server, _ := connect(t, fake, curatorScript)
+
+	fake.CloseIssue(shop, 12)
+
+	testkit.WaitFor(t, func() bool {
+		state, reason := fake.State(shop, 41)
+		if state != "closed" || reason != "not_planned" {
+			return false
+		}
+		sessions := curatorSessions(t, server)
+		return len(sessions) == 1 && sessions[0].EndedAt.Valid
+	})
+	testkit.WaitFor(t, func() bool {
+		var status string
+		err := server.DB.QueryRow("SELECT status FROM outgoing_changes WHERE repository = ? AND number = 12 AND field = 'state'", shop).Scan(&status)
+		return err == nil && status == "sent"
+	})
+	waitForPolls(t, fake)
+
+	// Move the issues cursor back so the next poll reads #12 and its closed event a second time.
+	const earlier = "2020-01-01T00:00:00Z"
+	if _, err := server.DB.Exec("UPDATE sync_cursors SET since = ?, etag = NULL WHERE repository = ? AND endpoint = 'issues'", earlier, shop); err != nil {
+		t.Fatal(err)
+	}
+	testkit.WaitFor(t, func() bool {
+		var since string
+		err := server.DB.QueryRow("SELECT since FROM sync_cursors WHERE repository = ? AND endpoint = 'issues'", shop).Scan(&since)
+		return err == nil && since != earlier
+	})
+	waitForPolls(t, fake)
+
+	if comments := fake.Comments(shop, 41); len(comments) != 1 {
+		t.Errorf("comments of #41 = %+v", comments)
+	}
+	if sessions := curatorSessions(t, server); len(sessions) != 1 {
+		t.Errorf("curator sessions = %+v", sessions)
+	}
+	var stateChanges int
+	if err := server.DB.QueryRow("SELECT count(*) FROM outgoing_changes WHERE repository = ? AND number = 12 AND field = 'state'", shop).Scan(&stateChanges); err != nil || stateChanges != 1 {
+		t.Errorf("state outgoing changes = %d, %v", stateChanges, err)
+	}
+	var state string
+	if err := server.DB.QueryRow("SELECT state FROM workstreams WHERE repository = ? AND number = 12", shop).Scan(&state); err != nil || state != "closed" {
+		t.Errorf("state = %q, %v", state, err)
+	}
+}
+
+func TestATrustedReopenOfAPreMigrationClosedRowFillsTitleAndBodyWithoutChangingGitHub(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+	link := "[Open the Lead chat in Mobius](https://mobius.example.com/workstreams/owner/shop/12)"
+	fake.SetBody(shop, 12, "Ship loyalty plans.\n\n"+link)
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
+	fake.CloseIssue(shop, 12)
+	cfg := testserver.Config(t, t.TempDir())
+	withUIURL(cfg)
+	server := startServerWith(t, fake, cfg, `INSERT INTO workstreams (repository, number, title, body, state, created_at) VALUES ('owner/shop', 12, '', '', 'closed', '')`)
+	server.WaitForFirstPoll(t, shop)
+	writesBefore := fake.BodyWrites(shop, 12)
+	_, bodyBefore := fake.Issue(shop, 12)
+
+	fake.ReopenIssue(shop, 12)
+
+	list := testkit.WaitForValue(t, func() ([]workstream, bool) {
+		list := workstreams(t, server)
+		return list, len(list) == 1
+	})
+	if list[0].Title != "Integrate loyalty plans" || list[0].Brief != "Ship loyalty plans." {
+		t.Errorf("workstream = %+v", list[0])
+	}
+	var title, body, state, createdAt string
+	if err := server.DB.QueryRow("SELECT title, body, state, created_at FROM workstreams WHERE repository = ? AND number = 12", shop).Scan(&title, &body, &state, &createdAt); err != nil {
+		t.Fatal(err)
+	}
+	if title != "Integrate loyalty plans" || body != "Ship loyalty plans." || state != "open" || createdAt == "" {
+		t.Errorf("row = (%q, %q, %q, %q)", title, body, state, createdAt)
+	}
+	waitForPolls(t, fake)
+	if _, bodyAfter := fake.Issue(shop, 12); bodyAfter != bodyBefore {
+		t.Errorf("body on GitHub changed: %q, want %q", bodyAfter, bodyBefore)
+	}
+	if fake.BodyWrites(shop, 12) != writesBefore {
+		t.Errorf("body writes = %d, want %d", fake.BodyWrites(shop, 12), writesBefore)
+	}
+}
+
+func TestAFailedCloseRetriesAndFinishesAfterRestart(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	fake.AddIssue(shop, 43, "Add plan view")
+	fake.AddSubIssue(shop, 12, 43)
+	first, dataDir := connect(t, fake, curatorScript)
+
+	fake.FailClose(shop, 41)
+	fake.CloseIssue(shop, 12)
+
+	testkit.WaitFor(t, func() bool {
+		return slices.ContainsFunc(fake.Requests(), func(r testkit.Request) bool {
+			return r.Method == http.MethodPatch && r.Path == "/repos/owner/shop/issues/41" && r.Status == http.StatusInternalServerError
+		})
+	})
+	var state string
+	var closePending int
+	if err := first.DB.QueryRow("SELECT state, close_pending FROM workstreams WHERE repository = ? AND number = 12", shop).Scan(&state, &closePending); err != nil {
+		t.Fatal(err)
+	}
+	if state != "closed" || closePending != 1 {
+		t.Fatalf("row before restart = (%q, %d), want (\"closed\", 1)", state, closePending)
+	}
+	if s, _ := fake.State(shop, 43); s != "open" {
+		t.Fatalf("state of #43 before restart = %q", s)
+	}
+
+	first.Stop()
+	fake.AllowClose(shop, 41)
+	restarted := testserver.Start(t, dataDir, fake.URL)
+
+	testkit.WaitFor(t, func() bool {
+		for _, number := range []int64{41, 43} {
+			s, reason := fake.State(shop, number)
+			if s != "closed" || reason != "not_planned" {
+				return false
+			}
+		}
+		sessions := curatorSessions(t, restarted)
+		return len(sessions) == 1 && sessions[0].EndedAt.Valid
+	})
+	if err := restarted.DB.QueryRow("SELECT close_pending FROM workstreams WHERE repository = ? AND number = 12", shop).Scan(&closePending); err != nil || closePending != 0 {
+		t.Errorf("close_pending after retry = %d, %v", closePending, err)
+	}
+	var stateChanges int
+	if err := restarted.DB.QueryRow("SELECT count(*) FROM outgoing_changes WHERE repository = ? AND number = 12 AND field = 'state'", shop).Scan(&stateChanges); err != nil || stateChanges != 1 {
+		t.Errorf("state outgoing changes = %d, %v", stateChanges, err)
+	}
 }

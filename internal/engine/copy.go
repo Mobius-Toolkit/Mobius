@@ -42,51 +42,75 @@ type copiedBlocker struct {
 	workstreamTitle sql.NullString
 }
 
-// syncCopy replaces the copy of repository with the open Workstreams of GitHub.
+// syncCopy copies the trees of the open Workstreams of repository. On the first poll of repository, when
+// sync_cursors has no issues row, it also adds a row in workstreams for each open Workstream issue on GitHub.
 func (e *Engine) syncCopy(ctx context.Context, repository github.Repository) error {
 	e.copyWrite.Lock()
 	defer e.copyWrite.Unlock()
+	_, err := e.queries.GetSyncCursor(ctx, store.GetSyncCursorParams{Repository: repository.FullName, Endpoint: issuesEndpoint})
+	firstPoll := errors.Is(err, sql.ErrNoRows)
+	if err != nil && !firstPoll {
+		return err
+	}
 	before := e.labelChangesNow()
-	issues, err := repository.OpenIssuesWithLabel(ctx, workstreamLabel)
-	if err != nil {
-		return err
-	}
-	stored, err := e.queries.ListOpenWorkstreamNumbers(ctx, repository.FullName)
-	if err != nil {
-		return err
-	}
-	var closed, removed []int64
-	for _, number := range stored {
-		if slices.ContainsFunc(issues, func(issue *gh.Issue) bool { return int64(issue.GetNumber()) == number }) {
-			continue
-		}
-		issue, err := repository.Issue(ctx, number)
+	if firstPoll {
+		issues, err := repository.OpenIssuesWithLabel(ctx, workstreamLabel)
 		if err != nil {
 			return err
 		}
-		switch {
-		case issue == nil || !hasLabel(issue, workstreamLabel):
-			removed = append(removed, number)
-		case issue.GetState() != "open":
-			closed = append(closed, number)
-		default:
-			issues = append(issues, issue)
+		var workstreams []copiedWorkstream
+		for _, issue := range issues {
+			workstream, err := e.copyWorkstream(ctx, repository, issue)
+			if err != nil {
+				return err
+			}
+			workstreams = append(workstreams, workstream)
 		}
-	}
-	var workstreams []copiedWorkstream
-	for _, issue := range issues {
-		workstream, err := e.copyWorkstream(ctx, repository, issue)
+		trees := make([][]copiedIssue, len(workstreams))
+		for i, workstream := range workstreams {
+			trees[i] = workstream.tree
+		}
+		err = e.writeRead(ctx, repository.FullName, before, trees, func(q *store.Queries) error {
+			if err := removeCopiedTrees(ctx, q, repository.FullName); err != nil {
+				return err
+			}
+			for _, workstream := range workstreams {
+				if _, err := e.addWorkstreamRow(ctx, q, repository.FullName, workstream.issue); err != nil {
+					return err
+				}
+				if err := addTree(ctx, q, repository.FullName, int64(workstream.issue.GetNumber()), workstream.tree); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
 		if err != nil {
 			return err
 		}
-		workstreams = append(workstreams, workstream)
+		e.publish(Change{Workstreams: true})
+		return nil
 	}
-	var trees [][]copiedIssue
-	for _, workstream := range workstreams {
-		trees = append(trees, workstream.tree)
+	numbers, err := e.queries.ListOpenWorkstreamNumbers(ctx, repository.FullName)
+	if err != nil {
+		return err
+	}
+	trees := make([][]copiedIssue, len(numbers))
+	for i, number := range numbers {
+		trees[i], err = e.readTree(ctx, repository, number)
+		if err != nil {
+			return err
+		}
 	}
 	err = e.writeRead(ctx, repository.FullName, before, trees, func(q *store.Queries) error {
-		return e.replaceCopy(ctx, q, repository.FullName, workstreams, closed, removed)
+		if err := removeCopiedTrees(ctx, q, repository.FullName); err != nil {
+			return err
+		}
+		for i, number := range numbers {
+			if err := addTree(ctx, q, repository.FullName, number, trees[i]); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 	if err != nil {
 		return err
@@ -95,7 +119,7 @@ func (e *Engine) syncCopy(ctx context.Context, repository github.Repository) err
 	return nil
 }
 
-// forgetCopies removes the copy of each repository that is not in repositories.
+// forgetCopies removes the copy and the issues cursor of each repository that is not in repositories.
 func (e *Engine) forgetCopies(ctx context.Context, repositories []github.Repository) error {
 	stored, err := e.queries.ListCopiedRepositories(ctx)
 	if err != nil {
@@ -109,6 +133,9 @@ func (e *Engine) forgetCopies(ctx context.Context, repositories []github.Reposit
 			if err := q.DeleteCopiedWorkstreamsOf(ctx, name); err != nil {
 				return err
 			}
+			if err := q.DeleteSyncCursor(ctx, store.DeleteSyncCursorParams{Repository: name, Endpoint: issuesEndpoint}); err != nil {
+				return err
+			}
 			return removeCopiedTrees(ctx, q, name)
 		})
 		if err != nil {
@@ -116,30 +143,6 @@ func (e *Engine) forgetCopies(ctx context.Context, repositories []github.Reposit
 		}
 		delete(e.copied, name)
 		e.publish(Change{Workstreams: true})
-	}
-	return nil
-}
-
-// replaceCopy writes workstreams and their trees. It closes the rows of the Workstreams in closed and deletes the rows of
-// the Workstreams in removed, because the list of GitHub no longer has them.
-func (e *Engine) replaceCopy(ctx context.Context, q *store.Queries, repository string, workstreams []copiedWorkstream, closed, removed []int64) error {
-	if err := removeCopiedTrees(ctx, q, repository); err != nil {
-		return err
-	}
-	for _, number := range closed {
-		if err := q.CloseWorkstream(ctx, store.CloseWorkstreamParams{Repository: repository, Number: number}); err != nil {
-			return err
-		}
-	}
-	for _, number := range removed {
-		if err := q.DeleteCopiedWorkstream(ctx, store.DeleteCopiedWorkstreamParams{Repository: repository, Number: number}); err != nil {
-			return err
-		}
-	}
-	for _, workstream := range workstreams {
-		if err := e.addWorkstream(ctx, q, repository, workstream); err != nil {
-			return err
-		}
 	}
 	return nil
 }
@@ -153,13 +156,10 @@ func removeCopiedTrees(ctx context.Context, q *store.Queries, repository string)
 	return nil
 }
 
-// updateCopy applies the change of one issue of repository to the copy, and tells if the copy changed. With findParent, updateCopy reads the parent of an issue that no copy has,
-// because its new link to a Workstream or a task changes the walk order of that Workstream. changes is the
-// labelChangeCount of repository from before the read of issue.
-//
-// A task that gets or loses the Workstream label changes the walk order of its Workstream, and the Workstream of its
-// blockers in the other trees. A new Workstream changes the Workstream of the blockers in its tree, in the other trees.
-// The copy of another repository can hold the issue in its tree, so these changes go to the Workstreams of all copies.
+// updateCopy applies the change of one issue of repository to the copied trees, and tells if the copy changed. With
+// findParent, updateCopy reads the parent of an issue that no copy has, because its new link to a Workstream or a task
+// changes the walk order of that Workstream. changes is the labelChangeCount of repository from before the read of
+// issue. It changes no row of workstreams.
 func (e *Engine) updateCopy(ctx context.Context, repository github.Repository, issue *gh.Issue, findParent bool, changes int) (bool, error) {
 	name := repository.FullName
 	number := int64(issue.GetNumber())
@@ -176,41 +176,21 @@ func (e *Engine) updateCopy(ctx context.Context, repository github.Repository, i
 	if err != nil {
 		return false, err
 	}
+	changed := false
 	stored, err := e.queries.HasCopiedWorkstream(ctx, store.HasCopiedWorkstreamParams{Repository: name, Number: number})
 	if err != nil {
 		return false, err
 	}
-	wanted := hasLabel(issue, workstreamLabel) && issue.GetState() == "open"
-	if stored && !wanted {
-		// The poll can give an issue that GitHub read before Mobius added the Workstream label.
-		current, err := repository.Issue(ctx, number)
+	if stored {
+		titled, err := e.queries.UpdateCopiedBlockerTitles(ctx, store.UpdateCopiedBlockerTitlesParams{
+			Title:      sql.NullString{String: issue.GetTitle(), Valid: true},
+			Repository: name,
+			Workstream: sql.NullInt64{Int64: number, Valid: true},
+		})
 		if err != nil {
 			return false, err
 		}
-		if current != nil {
-			issue = current
-			wanted = hasLabel(issue, workstreamLabel) && issue.GetState() == "open"
-		}
-	}
-	changed := false
-	var added []copiedIssue
-	switch {
-	case stored && !wanted:
-		changed = true
-		err = e.removeCopiedWorkstream(ctx, name, number, hasLabel(issue, workstreamLabel))
-	case stored:
-		changed, err = e.updateCopiedWorkstream(ctx, name, issue)
-	case wanted:
-		var workstream copiedWorkstream
-		before := e.labelChangesNow()
-		workstream, err = e.copyWorkstream(ctx, repository, issue)
-		if err == nil {
-			changed, added = true, workstream.tree
-			err = e.writeRead(ctx, name, before, [][]copiedIssue{workstream.tree}, func(q *store.Queries) error { return e.addWorkstream(ctx, q, name, workstream) })
-		}
-	}
-	if err != nil {
-		return false, err
+		changed = titled > 0
 	}
 	issueChanged, err := e.updateCopiedIssue(ctx, issue, name, changes)
 	if err != nil {
@@ -224,36 +204,18 @@ func (e *Engine) updateCopy(ctx context.Context, repository github.Repository, i
 		}
 		changed = changed || removed > 0
 	}
-	var stale []int64
 	var rebuilt []issueRef
 	for _, row := range labelChanged {
 		rebuilt = appendNew(rebuilt, issueRef{row.Repository, row.Workstream})
 		if row.Repository == name {
-			stale = append(stale, row.Workstream)
-		}
-	}
-	if stored && !wanted {
-		stale = append(stale, number)
-	}
-	for _, workstream := range stale {
-		blocked, err := e.queries.ListCopiedWorkstreamsWithBlockerIn(ctx, store.ListCopiedWorkstreamsWithBlockerInParams{
-			Repository:        name,
-			BlockerWorkstream: sql.NullInt64{Int64: workstream, Valid: true},
-		})
-		if err != nil {
-			return false, err
-		}
-		for _, blockedWorkstream := range blocked {
-			rebuilt = appendNew(rebuilt, issueRef{name, blockedWorkstream})
-		}
-	}
-	for _, task := range added {
-		blocked, err := e.queries.ListCopiedWorkstreamsWithBlocker(ctx, store.ListCopiedWorkstreamsWithBlockerParams{Repository: name, BlockerRepository: blockerRepository(task.issue, name), Number: int64(task.issue.GetNumber())})
-		if err != nil {
-			return false, err
-		}
-		for _, blockedWorkstream := range blocked {
-			if blockedWorkstream != number {
+			blocked, err := e.queries.ListCopiedWorkstreamsWithBlockerIn(ctx, store.ListCopiedWorkstreamsWithBlockerInParams{
+				Repository:        name,
+				BlockerWorkstream: sql.NullInt64{Int64: row.Workstream, Valid: true},
+			})
+			if err != nil {
+				return false, err
+			}
+			for _, blockedWorkstream := range blocked {
 				rebuilt = appendNew(rebuilt, issueRef{name, blockedWorkstream})
 			}
 		}
@@ -406,6 +368,9 @@ func (e *Engine) treeDiffers(ctx context.Context, repository github.Repository, 
 	var differs func(from github.Repository, parent int64) (bool, error)
 	differs = func(from github.Repository, parent int64) (bool, error) {
 		issues, err := from.SubIssues(ctx, parent)
+		if github.NotFound(err) {
+			return len(children[lowerRef(from.FullName, parent)]) > 0, nil
+		}
 		if err != nil {
 			return false, err
 		}
@@ -509,48 +474,6 @@ func (e *Engine) copiedWorkstreamsHolding(ctx context.Context, number int64, rep
 		found = appendNew(found, issueRef{repository, number})
 	}
 	return found, nil
-}
-
-// removeCopiedWorkstream closes the row of the Workstream when its issue is closed, and deletes the row when the issue
-// lost the Workstream label. It also deletes the other data that the Workstream owns.
-func (e *Engine) removeCopiedWorkstream(ctx context.Context, repository string, number int64, labeled bool) error {
-	return e.inTx(ctx, func(q *store.Queries) error {
-		var err error
-		if labeled {
-			err = q.CloseWorkstream(ctx, store.CloseWorkstreamParams{Repository: repository, Number: number})
-		} else {
-			err = q.DeleteCopiedWorkstream(ctx, store.DeleteCopiedWorkstreamParams{Repository: repository, Number: number})
-		}
-		if err != nil {
-			return err
-		}
-		if err := deleteWorkstreamRecurringTasks(ctx, q, repository, number); err != nil {
-			return err
-		}
-		if err := q.DeleteWorkstreamMcpServers(ctx, store.DeleteWorkstreamMcpServersParams{Repository: repository, Workstream: number}); err != nil {
-			return err
-		}
-		return removeTree(ctx, q, repository, number)
-	})
-}
-
-// updateCopiedWorkstream changes the copied Workstream of the issue, and the title of each blocker in that Workstream.
-// It gives false when the copy has the same values.
-func (e *Engine) updateCopiedWorkstream(ctx context.Context, repository string, issue *gh.Issue) (bool, error) {
-	changed := false
-	return changed, e.inTx(ctx, func(q *store.Queries) error {
-		updated, err := e.writeWorkstream(ctx, q, repository, issue)
-		if err != nil {
-			return err
-		}
-		titled, err := q.UpdateCopiedBlockerTitles(ctx, store.UpdateCopiedBlockerTitlesParams{
-			Title:      sql.NullString{String: issue.GetTitle(), Valid: true},
-			Repository: repository,
-			Workstream: sql.NullInt64{Int64: int64(issue.GetNumber()), Valid: true},
-		})
-		changed = updated > 0 || titled > 0
-		return err
-	})
 }
 
 // updateCopiedIssue changes each copied row of the issue in all repositories. It gives false when the copy has the same values.
@@ -896,7 +819,7 @@ func (e *Engine) copyWorkstream(ctx context.Context, repository github.Repositor
 
 // readTree gives the issues below the Workstream, depth first, with the rules of list_tasks, but with each issue.
 // A sub-issue of another repository has its blockers and sub-issues. A nested Workstream and an issue of a repository
-// that the App cannot read are leaves.
+// that the App cannot read are leaves. When GitHub answers 404 or 410 for an issue, it skips that subtree.
 func (e *Engine) readTree(ctx context.Context, repository github.Repository, workstream int64) ([]copiedIssue, error) {
 	var tree []copiedIssue
 	return tree, e.addSubtree(ctx, repository, repository, workstream, &tree)
@@ -905,6 +828,9 @@ func (e *Engine) readTree(ctx context.Context, repository github.Repository, wor
 // addSubtree adds the sub-issues of the issue parent of repository. home is the repository of the Workstream.
 func (e *Engine) addSubtree(ctx context.Context, home, repository github.Repository, parent int64, tree *[]copiedIssue) error {
 	issues, err := repository.SubIssues(ctx, parent)
+	if github.NotFound(err) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
@@ -931,6 +857,9 @@ func (e *Engine) addSubtree(ctx context.Context, home, repository github.Reposit
 // openBlockers gives the open blockers of the issue number, also in other repositories.
 func openBlockers(ctx context.Context, repository github.Repository, number int64) ([]*gh.Issue, error) {
 	issues, err := repository.BlockedBy(ctx, number)
+	if github.NotFound(err) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -986,41 +915,21 @@ func labelNames(issue *gh.Issue) []string {
 	return names
 }
 
-func (e *Engine) addWorkstream(ctx context.Context, q *store.Queries, repository string, workstream copiedWorkstream) error {
-	if _, err := e.writeWorkstream(ctx, q, repository, workstream.issue); err != nil {
-		return err
-	}
-	return addTree(ctx, q, repository, int64(workstream.issue.GetNumber()), workstream.tree)
-}
-
-// writeWorkstream adds the row of the Workstream issue when it has none, and writes the open state, the title, the Brief
-// with no link line of the Lead chat and the creation time of the issue into the row. It gives the number of rows that changed.
-func (e *Engine) writeWorkstream(ctx context.Context, q *store.Queries, repository string, issue *gh.Issue) (int64, error) {
-	added, err := addWorkstreamSettings(ctx, q, repository, issue)
-	if err != nil {
-		return 0, err
-	}
-	updated, err := q.UpdateCopiedWorkstream(ctx, store.UpdateCopiedWorkstreamParams{
-		Title:      issue.GetTitle(),
-		Body:       e.WithoutChatLink(repository, int64(issue.GetNumber()), issue.GetBody()),
-		CreatedAt:  issue.GetCreatedAt().UTC().Format(time.RFC3339Nano),
-		Repository: repository,
-		Number:     int64(issue.GetNumber()),
-	})
-	return added + updated, err
-}
-
-// addWorkstreamSettings adds the settings row of the Workstream issue when it has none, with the Autopilot level Off and
-// the other settings from the labels. A maintenance Workstream is evergreen, because Mobius manages it. A row that
-// exists stays as it is. When it adds the row, it also adds an outgoing change for each level label that the issue has,
-// so the issue loses the label, and for the evergreen label that a maintenance Workstream lacks. It gives 1 when it
-// added the row.
-func addWorkstreamSettings(ctx context.Context, q *store.Queries, repository string, issue *gh.Issue) (int64, error) {
+// addWorkstreamRow inserts the row of the Workstream issue when it has none, with the title, the Brief with no link
+// line of the Lead chat, the open state, the creation time of the issue, the Autopilot level Off, and the other
+// settings from the labels. A maintenance Workstream is evergreen, because Mobius manages it. A row that exists stays
+// as it is. When it adds the row, it also adds an outgoing change for each level label that the issue has, so the issue
+// loses the label, and for the evergreen label that a maintenance Workstream lacks. It gives 1 when it added the row.
+func (e *Engine) addWorkstreamRow(ctx context.Context, q *store.Queries, repository string, issue *gh.Issue) (int64, error) {
 	number := int64(issue.GetNumber())
 	maintenance := hasLabel(issue, maintenanceLabel)
 	added, err := q.AddWorkstream(ctx, store.AddWorkstreamParams{
 		Repository:  repository,
 		Number:      number,
+		Title:       issue.GetTitle(),
+		Body:        e.WithoutChatLink(repository, number, issue.GetBody()),
+		State:       "open",
+		CreatedAt:   issue.GetCreatedAt().UTC().Format(time.RFC3339Nano),
 		Evergreen:   hasLabel(issue, evergreenLabel) || maintenance,
 		Maintenance: maintenance,
 		Skills:      hasLabel(issue, skillsLabel),
@@ -1044,6 +953,83 @@ func addWorkstreamSettings(ctx context.Context, q *store.Queries, repository str
 		}
 	}
 	return added, nil
+}
+
+// recopyBlockedByTree rebuilds the copied trees of open Workstreams that are blocked by an issue in tree.
+func (e *Engine) recopyBlockedByTree(ctx context.Context, repository github.Repository, number int64, tree []copiedIssue) error {
+	for _, task := range tree {
+		blocked, err := e.queries.ListCopiedWorkstreamsWithBlocker(ctx, store.ListCopiedWorkstreamsWithBlockerParams{
+			Repository:        repository.FullName,
+			BlockerRepository: blockerRepository(task.issue, repository.FullName),
+			Number:            int64(task.issue.GetNumber()),
+		})
+		if err != nil {
+			return err
+		}
+		for _, blockedWorkstream := range blocked {
+			if blockedWorkstream == number {
+				continue
+			}
+			if err := e.copyTree(ctx, repository, blockedWorkstream); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// closeCopiedWorkstream closes the row of the Workstream number of repository, deletes its recurring tasks, MCP servers,
+// and copied tree, publishes the Workstreams change, and rebuilds blocked Workstreams.
+func (e *Engine) closeCopiedWorkstream(ctx context.Context, repository github.Repository, number int64) error {
+	closed := false
+	err := e.inTx(ctx, func(q *store.Queries) error {
+		updated, err := q.CloseWorkstream(ctx, store.CloseWorkstreamParams{Repository: repository.FullName, Number: number})
+		if err != nil || updated == 0 {
+			return err
+		}
+		closed = true
+		if err := deleteWorkstreamRecurringTasks(ctx, q, repository.FullName, number); err != nil {
+			return err
+		}
+		if err := q.DeleteWorkstreamMcpServers(ctx, store.DeleteWorkstreamMcpServersParams{Repository: repository.FullName, Workstream: number}); err != nil {
+			return err
+		}
+		return removeTree(ctx, q, repository.FullName, number)
+	})
+	if err != nil || !closed {
+		return err
+	}
+	e.publish(Change{Workstreams: true})
+	if err := e.recopyWorkstreamsWithBlockerIn(ctx, repository, number); err != nil {
+		log.Printf("copy the blocked Workstreams of %s#%d: %v", repository.FullName, number, err)
+	}
+	return nil
+}
+
+// recopyWorkstreamsWithBlockerIn rebuilds the copied trees of open Workstreams that are blocked by an issue in
+// workstream.
+func (e *Engine) recopyWorkstreamsWithBlockerIn(ctx context.Context, repository github.Repository, workstream int64) error {
+	blocked, err := e.queries.ListCopiedWorkstreamsWithBlockerIn(ctx, store.ListCopiedWorkstreamsWithBlockerInParams{
+		Repository:        repository.FullName,
+		BlockerWorkstream: sql.NullInt64{Int64: workstream, Valid: true},
+	})
+	if err != nil {
+		return err
+	}
+	changed := false
+	for _, blockedWorkstream := range blocked {
+		if blockedWorkstream == workstream {
+			continue
+		}
+		if err := e.copyTree(ctx, repository, blockedWorkstream); err != nil {
+			return err
+		}
+		changed = true
+	}
+	if changed {
+		e.publish(Change{Workstreams: true})
+	}
+	return nil
 }
 
 func removeTree(ctx context.Context, q *store.Queries, repository string, workstream int64) error {
