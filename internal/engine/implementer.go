@@ -1870,8 +1870,12 @@ func (e *Engine) existingIssue(ctx context.Context, repository github.Repository
 }
 
 // withRowText gives a copy of the issue with the title and the body of its row in issues. It gives the issue itself
-// when the issue has no row.
+// when the issue has no row, or when GitHub moved the issue to another repository, because the row of that number in
+// repository is another issue.
 func (e *Engine) withRowText(ctx context.Context, repository string, issue *gh.Issue) (*gh.Issue, error) {
+	if inOtherRepository(issue, repository) {
+		return issue, nil
+	}
 	row, err := e.queries.GetIssueText(ctx, store.GetIssueTextParams{Repository: repository, Number: int64(issue.GetNumber())})
 	if errors.Is(err, sql.ErrNoRows) {
 		return issue, nil
