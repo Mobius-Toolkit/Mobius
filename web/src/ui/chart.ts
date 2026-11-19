@@ -20,16 +20,17 @@ const topLabelShift = 4;
 // The Mount of the box of a chart. resized gives the size of the box, hovered gives the position of the pointer in the
 // box, and left gives no value when a mouse leaves the box. A touch keeps its last position.
 export function defineChartMount<
-  Resized extends Schema.Top & ((size: ChartSize) => Schema.Schema.Type<Resized>),
-  Hovered extends Schema.Top & ((point: ChartPoint) => Schema.Schema.Type<Hovered>),
-  Left extends Schema.Top & (() => Schema.Schema.Type<Left>),
->(resized: Resized, hovered: Hovered, left: Left) {
-  return Mount.defineStream("ChartBox", {
-    messages: [resized, hovered, left],
+  const Messages extends readonly [
+    Schema.Top & ((size: ChartSize) => Schema.Schema.Type<Messages[0]>),
+    Schema.Top & ((point: ChartPoint) => Schema.Schema.Type<Messages[1]>),
+    Schema.Top & (() => Schema.Schema.Type<Messages[2]>),
+  ],
+>(...messages: Mount.ResultMessageSchemas<Messages>) {
+  const [resized, hovered, left] = messages;
+  return Mount.defineStream<"ChartBox", Messages>("ChartBox", {
+    messages,
     execute: ({ element }) =>
-      Stream.callback<
-        Schema.Schema.Type<Resized> | Schema.Schema.Type<Hovered> | Schema.Schema.Type<Left>
-      >((queue) => {
+      Stream.callback<Schema.Schema.Type<Messages[number]>>((queue) => {
         const observer = new ResizeObserver(() =>
           Queue.offerUnsafe(
             queue,

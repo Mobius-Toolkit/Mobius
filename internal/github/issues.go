@@ -134,7 +134,8 @@ func (r Repository) IssueBodyEdits(ctx context.Context, number int64) ([]BodyEdi
 	}
 }
 
-// NewestBodyEdit is the newest edit of the body of an issue. Editor is empty when GitHub has no user for the edit.
+// NewestBodyEdit is the newest edit of the body of an issue. Editor is the REST login of the editor, or empty when GitHub
+// has no user for the edit.
 type NewestBodyEdit struct {
 	ID       string
 	EditedAt time.Time

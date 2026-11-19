@@ -179,3 +179,23 @@ export const RequestLogin = Command.define("RequestLogin", {
     window.dispatchEvent(new CustomEvent("mobius:login"));
   }).pipe(Effect.as(Message.CompletedRequestLogin())),
 });
+
+// The view changes in the next animation frame, and the frame after it has the new tab.
+export const ScrollTabIntoView = Command.define("ScrollTabIntoView", {
+  args: { tab: Schema.String },
+  messages: [Message.CompletedScrollTab],
+  execute: ({ tab }) =>
+    Effect.promise(
+      () =>
+        new Promise<void>((resolve) => {
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() => {
+              document
+                .getElementById(`role-bindings-tab-${tab}`)
+                ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+              resolve();
+            }),
+          );
+        }),
+    ).pipe(Effect.as(Message.CompletedScrollTab())),
+});

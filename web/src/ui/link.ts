@@ -4,13 +4,16 @@ import { Mount } from "foldkit";
 // The Mount of a link to a page of the host router. navigateTo is the Message that the Mount gives. A plain click goes
 // to the host router. A click with a modifier key keeps the default of the browser.
 export function defineRouterLink<
-  NavigateTo extends Schema.Top & ((args: { path: string }) => Schema.Schema.Type<NavigateTo>),
->(navigateTo: NavigateTo) {
-  return Mount.defineStream("RouterLink", {
+  const Messages extends readonly [
+    Schema.Top & ((args: { path: string }) => Schema.Schema.Type<Messages[0]>),
+  ],
+>(...messages: Mount.ResultMessageSchemas<Messages>) {
+  const [navigateTo] = messages;
+  return Mount.defineStream<"RouterLink", { path: typeof Schema.String }, Messages>("RouterLink", {
     args: { path: Schema.String },
-    messages: [navigateTo],
+    messages,
     execute: ({ element, path }) =>
-      Stream.callback<Schema.Schema.Type<NavigateTo>>((queue) => {
+      Stream.callback<Schema.Schema.Type<Messages[0]>>((queue) => {
         const click = (mouse: Event) => {
           if (
             !(mouse instanceof MouseEvent) ||

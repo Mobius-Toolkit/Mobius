@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"database/sql"
 	"fmt"
 	"net/http"
 	"slices"
@@ -71,7 +72,7 @@ func TestAFailedFirstCreateGivesTheResultThatMobiusCreatesTheWorkstreamLaterAndA
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, action := startCreate(t, fake)
-	fake.FailIssueCreates(1)
+	fake.FailIssueCreates(1000)
 
 	done := decided(t, server, action, "approve", "")
 
@@ -87,6 +88,7 @@ func TestAFailedFirstCreateGivesTheResultThatMobiusCreatesTheWorkstreamLaterAndA
 	if got := creationEvents(t, server); got != 0 {
 		t.Errorf("creation events before the send = %d", got)
 	}
+	fake.FailIssueCreates(0)
 
 	testkit.WaitFor(t, func() bool { return upkeepRows(t, server, "number = 13") == 1 })
 	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Labels(shop, 13), "mobius:workstream") })
@@ -284,6 +286,17 @@ func TestARefusedCreateDeletesTheRowAndASecondApprovalAddsANewRowAndCreatesTheIs
 	}
 }
 
+func logChangesOfTheCreate(t *testing.T, server *testserver.Server) {
+	t.Helper()
+	scan := func(rows *sql.Rows, line *string) error { return rows.Scan(line) }
+	for _, line := range query(t, server, scan, "SELECT field || ' ' || change || ' by ' || actor || ' ' || status || ' ' || metadata FROM incoming_changes WHERE number = 13 ORDER BY id") {
+		t.Logf("incoming change of #13: %s", line)
+	}
+	for _, line := range query(t, server, scan, "SELECT field || ' ' || status FROM outgoing_changes WHERE number = 13 ORDER BY id") {
+		t.Logf("outgoing change of #13: %s", line)
+	}
+}
+
 func TestTheLabelWritesOfTheCreateAddNoIncomingChange(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
@@ -302,6 +315,7 @@ func TestTheLabelWritesOfTheCreateAddNoIncomingChange(t *testing.T) {
 	}
 	if got := countRows(t, server, "SELECT count(*) FROM incoming_changes WHERE number = 13 AND actor <> ?", testkit.AppSlug+"[bot]"); got != 0 {
 		t.Errorf("incoming changes of a person for #13 = %d", got)
+		logChangesOfTheCreate(t, server)
 	}
 	if got := upkeepRows(t, server, "number = 13 AND state = 'open'"); got != 1 {
 		t.Errorf("rows = %d", got)
@@ -312,6 +326,7 @@ func TestTheLabelWritesOfTheCreateAddNoIncomingChange(t *testing.T) {
 	})
 	if got := countRows(t, server, "SELECT count(*) FROM outgoing_changes WHERE number = 13"); got != 4 {
 		t.Errorf("changes of #13 = %d", got)
+		logChangesOfTheCreate(t, server)
 	}
 }
 
